@@ -591,6 +591,31 @@ describe("Decide: la proposta di una riunione per chi non ha l'email", () => {
     expect(pathname(router)).toBe("/home");
   });
 
+  // Lotto 4, §3: nel pannello per nota la lista non sa il progetto
+  // (`projectCode={null}`); il link di una richiesta nata viene dalla riga.
+  it("una richiesta nata dalla riunione: nel pannello per nota ha il link alla sua pagina", async () => {
+    setSessionPersonId("p-giulia");
+    const out = await api.mail.confirmMailProposal(MEETING_PROPOSAL, { actionIndexes: [0] });
+    if (out.status !== "confirmed") throw new Error("not confirmed");
+    const p = state.mailProposals.find((x) => x.id === MEETING_PROPOSAL)!;
+    const request = state.requests.find((r) => r.projectId === p.projectId && r.status !== "converted")!;
+    p.resultCodes = [...(p.resultCodes ?? []), request.code];
+    lauraWithoutEmail();
+    const e = state.calendarEvents.find((x) => x.id === EV_AUD_REVIEW_YESTERDAY)!;
+    const shift = 90 * 86_400_000;
+    e.startsAt = new Date(Date.parse(e.startsAt) - shift).toISOString();
+    e.endsAt = new Date(Date.parse(e.endsAt) - shift).toISOString();
+    state.mailProposals.push({ ...p, id: "mp-aud-weekly-review-3", status: "open" });
+    renderRoute("/home", "p-laura");
+    const item = await mailItem("mp-aud-weekly-review-3");
+    await userEvent.click(within(item).getByRole("button", { name: "Open the meeting" }));
+    const subject = state.mailMessages.find((x) => x.id === MAIL_CASES.transcript)!.subject;
+    const panel = await screen.findByRole("dialog", { name: subject });
+    const link = await within(panel).findByRole("link", { name: new RegExp(request.code) });
+    expect(link.getAttribute("href")).toContain(`/requests`);
+    expect(link.getAttribute("href")).toContain(request.id);
+  });
+
   it("aprire una task nata dal pannello chiude il pannello prima di andare alla task (review F5a, 10)", async () => {
     setSessionPersonId("p-giulia");
     const out = await api.mail.confirmMailProposal(MEETING_PROPOSAL, { actionIndexes: [0] });

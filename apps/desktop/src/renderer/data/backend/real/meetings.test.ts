@@ -122,8 +122,31 @@ describe("F5: «Task da questa riunione»", () => {
         inProgress: false,
         dueDate: "2026-11-10",
         departmentId: null,
+        // Un server di prima non manda il progetto: null, il link lo dà la lista.
+        projectCode: null,
       },
     ]);
+  });
+
+  // Lotto 4, §3 (72, 5a308bc30): le richieste nate dalla riunione, col
+  // codice del progetto (il pannello per nota non ce l'ha), e quelle ancora
+  // nell'intake (`pending`: l'id del job, senza codice né link).
+  it("le richieste: il codice del progetto dal server, e quelle ancora in intake", async () => {
+    installFakeServer({
+      [`GET /api/me/calendar/events/${EV}/tasks`]: {
+        body: {
+          tasks: [
+            { kind: "request", id: T1, code: "AUD-R4", title: "Export", status: "open", inProgress: false, dueDate: null, departmentId: null, projectCode: "AUD", pending: false },
+            { kind: "request", id: "99999999-9999-4999-8999-999999999999", code: null, title: "Nuova", status: "open", inProgress: false, dueDate: null, departmentId: null, projectCode: "AUD", pending: true },
+          ],
+          proposedTasks: 0,
+        },
+      },
+    });
+    const tasks = (await m.tasksBornFrom!(EV))!;
+    expect(tasks[0]).toMatchObject({ kind: "request", code: "AUD-R4", projectCode: "AUD" });
+    expect(tasks[0]!.pending).toBeUndefined();
+    expect(tasks[1]).toMatchObject({ kind: "request", code: "", projectCode: "AUD", pending: true });
   });
 
   it("a chi non è membro (null dal server) o senza la rotta: nessuna sezione", async () => {
@@ -276,7 +299,7 @@ describe("F5a: la riunione per nota", () => {
     installFakeServer({
       [`GET /api/me/meetings/${NOTE}/tasks`]: { body: { tasks: [task], proposedTasks: 1 } },
     });
-    expect(await m.tasksOfNote!(NOTE)).toEqual([task]);
+    expect(await m.tasksOfNote!(NOTE)).toEqual([{ ...task, projectCode: null }]);
     installFakeServer({ [`GET /api/me/meetings/${NOTE}/tasks`]: { body: null } });
     expect(await m.tasksOfNote!(NOTE)).toBeNull();
   });

@@ -187,12 +187,13 @@ function MeetingTaskRow({
         >
           {name}
         </button>
-      ) : projectCode === null ? (
+      ) : task.pending || (task.projectCode ?? projectCode) === null ? (
+        // Lotto 4, §3: una richiesta ancora nell'intake non ha una pagina da aprire.
         <span className="flex min-w-0 flex-1 items-baseline gap-2">{name}</span>
       ) : (
         <Link
           to="/p/$code/$section"
-          params={{ code: projectCode, section: "requests" }}
+          params={{ code: (task.projectCode ?? projectCode)!, section: "requests" }}
           search={{ request: task.id } as never}
           onClick={() => onOpen?.()}
           className={open}

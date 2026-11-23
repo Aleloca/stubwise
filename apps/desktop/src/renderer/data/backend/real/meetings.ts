@@ -87,6 +87,9 @@ function tasksView(out: ServerTasks | null): { tasks: MeetingTask[]; proposedTas
       inProgress: t.inProgress === true,
       dueDate: t.dueDate ?? null,
       departmentId: t.departmentId ?? null,
+      // Lotto 4, §3 (72, 5a308bc30): il progetto della riga, e una richiesta ancora in intake.
+      projectCode: t.projectCode ?? null,
+      ...(t.pending === true ? { pending: true } : {}),
     })),
     proposedTasks: out.proposedTasks ?? 0,
   };

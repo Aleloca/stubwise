@@ -87,6 +87,8 @@ function requestItem(r: ProjectRequest): MeetingTask {
     inProgress: false,
     dueDate: null,
     departmentId: null,
+    // Lotto 4, §3: il link della richiesta anche dove la lista non sa il progetto.
+    projectCode: state.projectsById.get(r.projectId)?.code ?? null,
   };
 }
 

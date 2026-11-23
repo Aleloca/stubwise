@@ -885,6 +885,14 @@ export interface MeetingTask {
   inProgress: boolean;
   dueDate: string | null;
   departmentId: string | null;
+  /**
+   * Lotto 4, §3: il codice del progetto della riga, per il link di una
+   * richiesta anche dove la lista non lo sa (il pannello per nota). `null`
+   * (o assente) da un server di prima: vale quello della lista.
+   */
+  projectCode?: string | null;
+  /** Lotto 4, §3: una richiesta ancora nell'intake (id del job, senza codice né link). */
+  pending?: boolean;
 }
 
 /**
