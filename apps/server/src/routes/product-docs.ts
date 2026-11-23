@@ -1,4 +1,4 @@
-import { hiddenFor, maskPeople, personIdsIn } from "../services/people-known.js";
+import { registerPersonMask } from "../services/people-known.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -63,7 +63,7 @@ import {
 } from "../services/product-docs-ops.js";
 import { searchProductPages } from "../services/product-search.js";
 import { ProductLiveError } from "../services/product-live.js";
-import { PRODUCT_TOP_SECTION } from "@stubwise/shared";
+import { PRODUCT_TOP_SECTION, personRefSchema } from "@stubwise/shared";
 
 /** Review di F4 (M9): oltre questo, un client che non legge si chiude (riapre e riceve `state`). */
 const PRODUCT_LIVE_MAX_BUFFER = 1_000_000;
@@ -93,7 +93,7 @@ const MARK_EDIT: RouteAccess = { kind: "project", permission: "docs.edit", proje
 const REVISION_EDIT: RouteAccess = { kind: "project", permission: "docs.edit", project: fromProductRevision("id") };
 
 /** F5: un «Undo» spento (409 col motivo e chi), o una sezione presa (come le ops). */
-const undoConflictSchema = z.object({ code: z.string(), message: z.string(), byId: z.uuid().nullable().optional(), byName: z.string().nullable().optional(), sectionId: z.string().optional(), by: z.object({ id: z.uuid(), name: z.string().nullable() }).optional() });
+const undoConflictSchema = z.object({ code: z.string(), message: z.string(), byId: personRefSchema.nullable().optional(), byName: z.string().nullable().optional(), sectionId: z.string().optional(), by: z.object({ id: personRefSchema, name: z.string().nullable() }).optional() });
 
 async function handleUndo<T>(reply: FastifyReply, fn: () => Promise<T>): Promise<T | FastifyReply> {
   try {
@@ -135,14 +135,7 @@ export const PRODUCT_PERSON_KEYS: ReadonlySet<string> = new Set([
 
 export async function productDocsRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
-  app.addHook("preSerialization", async (request, _reply, payload) => {
-    if (!request.user || payload === null || typeof payload !== "object") return payload;
-    // Senza persone diverse da chi guarda nella risposta, nessuna query.
-    const ids = personIdsIn(payload, PRODUCT_PERSON_KEYS);
-    ids.delete(request.user.id);
-    if (ids.size === 0) return payload;
-    return maskPeople(payload, await hiddenFor(app.db, request.user), PRODUCT_PERSON_KEYS);
-  });
+  registerPersonMask(app, PRODUCT_PERSON_KEYS, new Set(["by"]));
 
   app.get(
     "/projects/:projectId/product",
@@ -240,7 +233,7 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
           revisions: z.array(productRevisionViewSchema).optional(),
           // F4: `section_busy` dice la sezione e chi la tiene (`productSectionBusySchema`).
           sectionId: z.string().optional(),
-          by: z.object({ id: z.uuid(), name: z.string().nullable() }).optional(),
+          by: z.object({ id: personRefSchema, name: z.string().nullable() }).optional(),
         }), 422: errorSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
@@ -565,7 +558,7 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
       }),
   );
 
-  const firstVersionConflict = z.object({ code: z.string(), message: z.string(), byId: z.uuid().nullable().optional(), byName: z.string().nullable().optional(), pageId: z.uuid().nullable().optional(), pageTitle: z.string().nullable().optional(), touch: z.string().nullable().optional() });
+  const firstVersionConflict = z.object({ code: z.string(), message: z.string(), byId: personRefSchema.nullable().optional(), byName: z.string().nullable().optional(), pageId: z.uuid().nullable().optional(), pageTitle: z.string().nullable().optional(), touch: z.string().nullable().optional() });
   app.post(
     "/projects/:projectId/product/first-version/undo",
     { config: { access: SPACE_EDIT }, schema: { params: projectParams, response: { 204: z.null(), 404: errorSchema, 409: firstVersionConflict, ...authErrorResponses } } },

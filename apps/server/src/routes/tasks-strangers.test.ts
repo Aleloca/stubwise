@@ -40,6 +40,22 @@ describe("le task senza gli sconosciuti", () => {
     expect(res.body).not.toContain(stranger!.id);
   });
 
+  it("revisione del lotto 2, C1: una task ferma a mano da uno sconosciuto — GET /api/tasks risponde 200 (il serializer accetta il segnaposto) e `manualStall.byId` è `hidden-<n>`", async () => {
+    const { projectId, ticketId } = await seedTicket(t.db);
+    const reader = await createUserWithSession(app, `reader-ms-${randomUUID().slice(0, 6)}@example.com`);
+    await addMember(app, projectId, reader.id, "developer");
+    const [stranger] = await t.db.insert(users).values({ email: `stranger-ms-${randomUUID().slice(0, 6)}@x.it`, passwordHash: "x", role: "member" }).returning({ id: users.id });
+    await t.db
+      .update(tickets)
+      .set({ manualStallReason: "waiting_client", manualStallNote: "", manualStallSince: new Date(), manualStallByUserId: stranger!.id } as never)
+      .where(eq(tickets.id, ticketId));
+    const res = await app.inject({ method: "GET", url: `/api/tasks?projectId=${projectId}`, headers: { cookie: reader.headers.cookie } });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.body).not.toContain(stranger!.id);
+    const items = (res.json() as { items: { id: string; manualStall: { byId: string | null } | null }[] }).items;
+    expect(items.find((i) => i.manualStall)?.manualStall?.byId).toBe("hidden-1");
+  });
+
   it("una richiesta di uno sconosciuto: `requesterIds` porta `hidden-<n>`, il suo id non esce", async () => {
     const { projectId, itemId } = await seedBacklogItem(t.db);
     const reader = await createUserWithSession(app, `reader-rq-${randomUUID().slice(0, 6)}@example.com`);

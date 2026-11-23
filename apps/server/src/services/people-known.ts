@@ -155,11 +155,16 @@ export function maskPeople<T>(payload: T, hidden: HiddenIds, keys: ReadonlySet<s
     if (Array.isArray(v)) return v.map(walk);
     if (v === null || typeof v !== "object") return v;
     const out: Record<string, unknown> = {};
+    const nameless: string[] = [];
     for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
-      if (keys.has(k) && typeof x === "string" && UUID.test(x)) out[k] = hidden.person(x);
-      else if (keys.has(k) && Array.isArray(x)) out[k] = x.map((e) => (typeof e === "string" && UUID.test(e) ? hidden.person(e) : walk(e)));
+      if (keys.has(k) && typeof x === "string" && UUID.test(x)) {
+        out[k] = hidden.person(x);
+        if (out[k] !== x && k.endsWith("Id")) nameless.push(`${k.slice(0, -2)}Name`);
+      } else if (keys.has(k) && Array.isArray(x)) out[k] = x.map((e) => (typeof e === "string" && UUID.test(e) ? hidden.person(e) : walk(e)));
       else out[k] = walk(x);
     }
+    // Il nome accanto a un id mascherato (`byId` → `byName`) non esce nemmeno lui.
+    for (const k of nameless) if (k in out) out[k] = null;
     return out;
   };
   return walk(payload) as T;
@@ -171,11 +176,37 @@ export function maskPeople<T>(payload: T, hidden: HiddenIds, keys: ReadonlySet<s
  * `objectKeys` un oggetto persona `{ id, name }` (l'id diventa il segnaposto e
  * il nome null). Senza persone diverse da chi guarda, nessuna query.
  */
+/** Una rotta che passa dalla maschera, con le sue chiavi: la legge il test degli schemi (`people-mask-schemas.test.ts`). */
+export interface PersonMaskedRoute {
+  method: string;
+  url: string;
+  keys: ReadonlySet<string>;
+  objectKeys: ReadonlySet<string>;
+  response: Record<string, unknown>;
+}
+const maskedRoutes = new Map<string, PersonMaskedRoute>();
+export function personMaskedRoutes(): PersonMaskedRoute[] {
+  return [...maskedRoutes.values()];
+}
+
+type RouteSeen = { method: string | string[]; url: string; schema?: { response?: Record<string, unknown> } };
+
 export function registerPersonMask(
-  instance: { addHook: (name: "preSerialization", fn: (request: { user?: SessionUser | null }, reply: unknown, payload: unknown) => Promise<unknown>) => unknown; db: Db },
+  instance: {
+    addHook(name: "preSerialization", fn: (request: { user?: SessionUser | null }, reply: unknown, payload: unknown) => Promise<unknown>): unknown;
+    addHook(name: "onRoute", fn: (route: RouteSeen) => void): unknown;
+    db: Db;
+  },
   keys: ReadonlySet<string>,
   objectKeys: ReadonlySet<string> = new Set(),
 ): void {
+  // Le rotte di questo plugin (registrate DOPO): un segnaposto in un campo
+  // rimasto `uuid` fa lanciare il serializer (500 sull'intera risposta).
+  instance.addHook("onRoute", (route) => {
+    for (const method of [route.method].flat()) {
+      maskedRoutes.set(`${method} ${route.url}`, { method, url: route.url, keys, objectKeys, response: route.schema?.response ?? {} });
+    }
+  });
   instance.addHook("preSerialization", async (request, _reply, payload) => {
     const user = request.user;
     if (!user || payload === null || typeof payload !== "object") return payload;
