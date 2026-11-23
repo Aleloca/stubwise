@@ -777,7 +777,8 @@
       "resize": "Ridimensiona il pannello"
     },
     "selected": "Selezionata",
-    "deactivatedName": "{{name}} (disattivato)"
+    "deactivatedName": "{{name}} (disattivato)",
+    "someone": "Qualcuno"
   },
   "filter": {
     "notFound": "Filtro non trovato",

@@ -5,7 +5,8 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createProject, failNext, resetApi, setLatency } from "../../data/api";
 import { setSessionPersonId } from "../../data/session";
-import { state } from "../../data/store";
+import { state, visibleProjectIds } from "../../data/store";
+import { strangersTo } from "../../test/strangers";
 import { ViewerProvider } from "../../data/viewer";
 import { createAppRouter } from "../../router";
 import { ThemeProvider } from "../../theme/ThemeProvider";
@@ -141,6 +142,29 @@ describe("TasksPage", () => {
     expect(headings.some((h) => /^MKX · /.test(h ?? ""))).toBe(true);
     // Le linee dei traguardi di tutti i progetti si accavallerebbero: niente traguardi.
     expect(screen.queryAllByLabelText(/^Milestone /)).toHaveLength(0);
+  });
+
+  // R.1414, scelta A di 46: il filtro di un altro sulle task di uno sconosciuto
+  // a chi guarda si esegue con gli id veri; il chip dice «Someone».
+  it("un filtro pubblico su chi non si conosce: trova le sue task, il chip dice «Someone»", async () => {
+    const [who] = strangersTo("p-laura");
+    const task = state.tasks.find((t) => visibleProjectIds("p-laura").has(t.projectId))!;
+    task.assigneeId = who!;
+    state.filters.push({
+      id: "flt-known-ui",
+      name: "Their tasks",
+      ownerId: "p-giulia",
+      visibility: "public",
+      criteria: { assigneeIds: [who!] },
+      view: "list",
+      groupBy: "none",
+    });
+    renderAt("/filters/flt-known-ui", "p-laura");
+    expect(await screen.findByText(task.title)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Assignee: Someone/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: `Assignee of ${task.code}: Someone. Change` }),
+    ).toBeInTheDocument();
   });
 
   it("dentro un progetto «Project» non è fra i raggruppamenti", async () => {

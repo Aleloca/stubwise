@@ -1,4 +1,5 @@
 import { featureIntegrated } from "../data/integration";
+import { isHiddenId } from "../data/access/hidden";
 import { isAssignableIn } from "../data/assignable";
 import { useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -19,15 +20,7 @@ import type {
 } from "../data/types";
 import { useViewer } from "../data/viewing";
 import { canUseStatusIds } from "../domain/filters";
-import {
-  CheckItem,
-  Chevron,
-  Menu,
-  MenuGroup,
-  MenuNote,
-  RadioItem,
-  itemClass,
-} from "./Menu";
+import { CheckItem, Chevron, Menu, MenuGroup, MenuNote, RadioItem, itemClass } from "./Menu";
 import { Avatar } from "./PersonChip";
 import { PRIORITIES, PriorityValue, TASK_TYPES } from "./PriorityMark";
 import { FamilySign } from "./StatusLabel";
@@ -221,7 +214,11 @@ interface CriterionProps {
 }
 
 /** Gli stati precisi del progetto unico: montato solo quando servono, per non leggerli invano. */
-function ExactStatuses({ value, update, singleProjectId }: CriterionProps & { singleProjectId: string }) {
+function ExactStatuses({
+  value,
+  update,
+  singleProjectId,
+}: CriterionProps & { singleProjectId: string }) {
   const { t } = useTranslation();
   const statuses = useProjectStatuses(singleProjectId).data;
   const code = useProjects().data?.find((p) => p.id === singleProjectId)?.code ?? "";
@@ -247,7 +244,14 @@ function ExactStatuses({ value, update, singleProjectId }: CriterionProps & { si
 
 function ExactStatusNames({ ids, projectId }: { ids: string[]; projectId: string }) {
   const statuses = useProjectStatuses(projectId).data;
-  return <>{ids.map((id) => statuses?.find((s) => s.id === id)?.name).filter(Boolean).join(", ")}</>;
+  return (
+    <>
+      {ids
+        .map((id) => statuses?.find((s) => s.id === id)?.name)
+        .filter(Boolean)
+        .join(", ")}
+    </>
+  );
 }
 
 /**
@@ -420,15 +424,18 @@ export function FilterBar({
   }
 
   const available = ALL.filter((c) => !(c === "project" && lockedProjectId));
-  const shown = available.filter(
-    (c) => ALWAYS.includes(c) || isSet(c, value) || added.includes(c),
-  );
+  const shown = available.filter((c) => ALWAYS.includes(c) || isSet(c, value) || added.includes(c));
   const hidden = available.filter((c) => !shown.includes(c));
   const anySet = available.some((c) => isSet(c, value)) || !!value.text;
 
   const name = (c: Criterion) => t(`taskUi.filters.criteria.${c}`);
   const personName = (id: string) =>
-    id === "none" ? t("taskUi.unassigned") : allPeople?.find((p) => p.id === id)?.name;
+    id === "none"
+      ? t("taskUi.unassigned")
+      : // R.1414 (scelta A di 46): il segnaposto di un filtro salvato è «Someone».
+        isHiddenId(id)
+        ? t("taskUi.someone")
+        : allPeople?.find((p) => p.id === id)?.name;
 
   const periodSummary = (): string | null => {
     const p = value.period;
@@ -605,7 +612,9 @@ export function FilterBar({
       return (
         <>
           <MenuGroup label={t("taskUi.filters.periodField")}>
-            {PERIOD_FIELDS.filter((f) => f !== "plannedWeek" || featureIntegrated("planning-week")).map((f) => (
+            {PERIOD_FIELDS.filter(
+              (f) => f !== "plannedWeek" || featureIntegrated("planning-week"),
+            ).map((f) => (
               <RadioItem
                 key={f}
                 checked={field === f}

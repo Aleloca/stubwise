@@ -814,6 +814,12 @@ export interface FilterCriteria {
   projectIds?: string[];
   departmentIds?: string[];
   assigneeIds?: (string | "none")[];
+  /**
+   * Il filtro salvato da cui vengono i criteri (r.1414, scelta A di 46): con
+   * questo, i segnaposto `hidden-*` di `assigneeIds` si eseguono con gli id
+   * veri del filtro. Non è un criterio: non filtra niente da solo.
+   */
+  savedFilterId?: string;
   families?: StatusFamily[];
   statusIds?: string[];
   sizes?: (TaskSize | "none")[];

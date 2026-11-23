@@ -8,6 +8,7 @@ import { resetViewerGrants, revokeProjectPermission } from "../../data/viewer";
 import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
 import { setMatchMedia } from "../../test/setup";
 import { renderRoute } from "../../test/renderRoute";
+import { strangersTo } from "../../test/strangers";
 import { readDraft } from "../chat/drafts";
 import { forgetAllBlobs } from "./blobs";
 import { closePreview } from "./FilePreview";
@@ -19,8 +20,7 @@ const search = (router: ReturnType<typeof renderRoute>) =>
 const opensOf = (fileId: string, personId?: string) =>
   state.driveOpens.filter((o) => o.fileId === fileId && (!personId || o.personId === personId))
     .length;
-const row = (code: string) =>
-  document.querySelector<HTMLElement>(`[data-drive-row="${code}"]`);
+const row = (code: string) => document.querySelector<HTMLElement>(`[data-drive-row="${code}"]`);
 
 async function switchPersona(name: RegExp) {
   const user = userEvent.setup();
@@ -139,7 +139,10 @@ describe("Drive del progetto — elenco", () => {
     await userEvent.click(screen.getByRole("button", { name: /Sort:/ }));
     await userEvent.click(screen.getByRole("menuitemradio", { name: "Name" }));
     await waitFor(() => expect(search(router).sort).toBe("name"));
-    expect(screen.getByRole("columnheader", { name: /Name/ })).toHaveAttribute("aria-sort", "ascending");
+    expect(screen.getByRole("columnheader", { name: /Name/ })).toHaveAttribute(
+      "aria-sort",
+      "ascending",
+    );
     await userEvent.click(screen.getByRole("button", { name: "Clear filters" }));
     await waitFor(() => expect(search(router).type).toBeUndefined());
     expect(search(router).sort).toBe("name");
@@ -189,11 +192,13 @@ describe("Drive — dettaglio e aperture", () => {
     const before = opensOf("drv-aud-2", "p-laura");
     await userEvent.click(within(row("AUD-F2")!).getByText(/Specifiche funzionali dialer v3/));
     await waitFor(() => expect(search(router).file).toBe("AUD-F2"));
-    const panel = await screen.findByRole("region", { name: "File AUD-F2" }).catch(() =>
-      screen.findByLabelText("File AUD-F2"),
-    );
+    const panel = await screen
+      .findByRole("region", { name: "File AUD-F2" })
+      .catch(() => screen.findByLabelText("File AUD-F2"));
     expect(await within(panel).findByText(/Written by Claude/)).toBeInTheDocument();
-    expect(within(panel).getByText("Preview not available in this prototype session")).toBeInTheDocument();
+    expect(
+      within(panel).getByText("Preview not available in this prototype session"),
+    ).toBeInTheDocument();
     expect(opensOf("drv-aud-2", "p-laura")).toBe(before);
 
     await userEvent.click(within(panel).getAllByRole("button", { name: "Open" })[0]!);
@@ -222,22 +227,38 @@ describe("Drive — dettaglio e aperture", () => {
     await openDrive("/p/AUD/drive?file=AUD-F7");
     const panel = await screen.findByLabelText("File AUD-F7");
     const before = opensOf("drv-aud-7", "p-laura");
-    await userEvent.click(await within(panel).findByRole("button", { name: /Open in Google Drive/ }));
+    await userEvent.click(
+      await within(panel).findByRole("button", { name: /Open in Google Drive/ }),
+    );
     expect(await screen.findByText(/Opened in Google Drive/)).toBeInTheDocument();
     await waitFor(() => expect(opensOf("drv-aud-7", "p-laura")).toBe(before + 1));
   });
 
   it("l'OCR fermo alle prime 30 pagine lo dice la nota (build app, decisione dell'orchestratrice)", async () => {
     const f = state.driveFiles.find((x) => x.id === "drv-aud-7")!;
-    Object.assign(f, { source: "upload", content: "ready", summary: "Penali del contratto.", ocr: true, ocrPartial: true });
+    Object.assign(f, {
+      source: "upload",
+      content: "ready",
+      summary: "Penali del contratto.",
+      ocr: true,
+      ocrPartial: true,
+    });
     await openDrive("/p/AUD/drive?file=AUD-F7");
     const panel = await screen.findByLabelText("File AUD-F7");
-    expect(await within(panel).findByText("Text read from a scan, first 30 pages only")).toBeInTheDocument();
+    expect(
+      await within(panel).findByText("Text read from a scan, first 30 pages only"),
+    ).toBeInTheDocument();
   });
 
   it("un OCR su tutto il documento: la nota del prototipo, senza «prime 30 pagine»", async () => {
     const f = state.driveFiles.find((x) => x.id === "drv-aud-7")!;
-    Object.assign(f, { source: "upload", content: "ready", summary: "Penali del contratto.", ocr: true, ocrPartial: false });
+    Object.assign(f, {
+      source: "upload",
+      content: "ready",
+      summary: "Penali del contratto.",
+      ocr: true,
+      ocrPartial: false,
+    });
     await openDrive("/p/AUD/drive?file=AUD-F7");
     const panel = await screen.findByLabelText("File AUD-F7");
     expect(await within(panel).findByText("Text read from a scan")).toBeInTheDocument();
@@ -245,7 +266,11 @@ describe("Drive — dettaglio e aperture", () => {
   });
 
   it("«Retry» fallito lo dice l'avviso delle altre azioni; in volo non si ripete", async () => {
-    Object.assign(state.driveFiles.find((x) => x.id === "drv-aud-1")!, { content: "error", text: "", summary: null });
+    Object.assign(state.driveFiles.find((x) => x.id === "drv-aud-1")!, {
+      content: "error",
+      text: "",
+      summary: null,
+    });
     await openDrive("/p/AUD/drive?file=AUD-F1");
     const panel = await screen.findByLabelText("File AUD-F1");
     const retry = await within(panel).findByRole("button", { name: "Retry" });
@@ -261,7 +286,9 @@ describe("Drive — dettaglio e aperture", () => {
   it("aperture: il numero per tutti, lo storico solo con drive.history", async () => {
     await openDrive("/p/AUD/drive?file=AUD-F7");
     const panel = await screen.findByLabelText("File AUD-F7");
-    expect(await within(panel).findByText(/23 in the last 90 days · 29 in total/)).toBeInTheDocument();
+    expect(
+      await within(panel).findByText(/23 in the last 90 days · 29 in total/),
+    ).toBeInTheDocument();
     expect(within(panel).getByRole("heading", { name: "Who opened it" })).toBeInTheDocument();
     expect(within(panel).getByRole("button", { name: "Show all 29" })).toBeInTheDocument();
   });
@@ -297,7 +324,9 @@ describe("Drive — dettaglio e aperture", () => {
   it("un codice che chi guarda non vede risponde come uno inesistente (R-G5)", async () => {
     await openDrive("/p/AUD/drive?file=AUD-F8", "p-marco");
     const panel = await screen.findByLabelText("File AUD-F8");
-    expect(await within(panel).findByText("This file doesn't exist or you can't see it")).toBeInTheDocument();
+    expect(
+      await within(panel).findByText("This file doesn't exist or you can't see it"),
+    ).toBeInTheDocument();
   });
 });
 
@@ -305,7 +334,9 @@ describe("Drive — Review Focus 3: cambio di persona col dettaglio e l'anteprim
   it("si chiudono, e dello storico di prima non resta nulla", async () => {
     const router = await openDrive("/p/AUD/drive?file=AUD-F2");
     const panel = await screen.findByLabelText("File AUD-F2");
-    expect(await within(panel).findByRole("heading", { name: "Who opened it" })).toBeInTheDocument();
+    expect(
+      await within(panel).findByRole("heading", { name: "Who opened it" }),
+    ).toBeInTheDocument();
     await userEvent.click(within(panel).getAllByRole("button", { name: "Open" })[0]!);
     await screen.findByRole("dialog", { name: "Preview of AUD-F2" });
 
@@ -326,7 +357,9 @@ describe("Drive — Review Focus 3: cambio di persona col dettaglio e l'anteprim
 
 describe("Drive — Review Focus 5: volumi e casi limite", () => {
   it("500 file, un nome di 255 caratteri, un riassunto mancante: righe intere, niente che trabocca", async () => {
-    const long = `${"Verbale assemblea straordinaria dei soci con allegati ".repeat(5)}`.slice(0, 251) + ".pdf";
+    const long =
+      `${"Verbale assemblea straordinaria dei soci con allegati ".repeat(5)}`.slice(0, 251) +
+      ".pdf";
     expect(long).toHaveLength(255);
     state.driveFiles.push(
       ...Array.from({ length: 498 }, (_, i) => fake(i + 1)),
@@ -362,9 +395,13 @@ describe("Drive — Review Focus 5: volumi e casi limite", () => {
     expect(uploading).toHaveTextContent("Too large: 101 MB, the limit is 100 MB");
     // L'avviso e l'annuncio `polite` per i lettori di schermo.
     expect(
-      await screen.findAllByText("Kept both: the new one is “Specifiche funzionali dialer v3 (2).pdf”"),
+      await screen.findAllByText(
+        "Kept both: the new one is “Specifiche funzionali dialer v3 (2).pdf”",
+      ),
     ).toHaveLength(2);
-    const added = state.driveFiles.find((f) => f.name === "Specifiche funzionali dialer v3 (2).pdf")!;
+    const added = state.driveFiles.find(
+      (f) => f.name === "Specifiche funzionali dialer v3 (2).pdf",
+    )!;
     expect(added.addedById).toBe("p-laura");
     expect(state.driveFiles.some((f) => f.name === "Video demo.mp4")).toBe(false);
     await waitFor(() => expect(row(added.code)).not.toBeNull());
@@ -438,9 +475,7 @@ describe("Drive — fix round 1", () => {
     expect(within(dialog).getAllByRole("radio").length).toBeGreaterThan(1);
     const channelId = (general as HTMLInputElement).value;
     await userEvent.click(within(dialog).getByRole("button", { name: "Open in channel" }));
-    await waitFor(() =>
-      expect(router.state.location.pathname).toBe(`/p/AUD/chat/${channelId}`),
-    );
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/p/AUD/chat/${channelId}`));
     expect(readDraft("p-laura", channelId)).toContain("AUD-F7");
     // Come una scelta dal menu «#»: il messaggio registra la citazione del
     // file col suo codice (R-H5), non solo il testo.
@@ -449,8 +484,9 @@ describe("Drive — fix round 1", () => {
     box.focus();
     await userEvent.keyboard("{Enter}");
     await waitFor(() =>
-      expect(state.chatMessages.find((m) => m.channelId === channelId && m.text === "AUD-F7"))
-        .toBeTruthy(),
+      expect(
+        state.chatMessages.find((m) => m.channelId === channelId && m.text === "AUD-F7"),
+      ).toBeTruthy(),
     );
     const sent = state.chatMessages.find((m) => m.channelId === channelId && m.text === "AUD-F7")!;
     expect(sent.citations).toEqual([{ kind: "drive", id: "drv-aud-7", code: "AUD-F7" }]);
@@ -557,6 +593,20 @@ describe("Drive — fix round 1", () => {
     const toolbar = screen.getByRole("toolbar", { name: "File commands" });
     expect(toolbar).not.toHaveTextContent("p-nessuno");
     expect(toolbar).toHaveTextContent("someone");
+  });
+
+  // R.1414, scelta A di 46: chi ha aggiunto un file e chi guarda non conosce
+  // arriva come segnaposto, e un segnaposto non è una scelta del filtro.
+  it("«Added by» non offre chi chi guarda non conosce", async () => {
+    const [who] = strangersTo("p-laura");
+    const file = state.driveFiles.find((f) => f.projectId === "prj-aud" && !f.hidden)!;
+    file.addedById = who!;
+    await openDrive("/p/AUD/drive");
+    await screen.findByRole("grid");
+    await userEvent.click(screen.getByRole("button", { name: /^Added by/ }));
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getAllByRole("menuitemradio").length).toBeGreaterThan(0);
+    expect(within(menu).queryByText(/someone/i)).toBeNull();
   });
 
   it("Space su un file Google non disponibile dice perché", async () => {

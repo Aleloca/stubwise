@@ -1287,6 +1287,8 @@ export function saveFilterAs(
   input: Pick<SavedFilter, "name" | "visibility" | "criteria" | "view" | "groupBy">,
 ): SavedFilter {
   if (!input.name.trim()) throw invalid("name");
+  // R.1414 (scelta A di 46): un segnaposto non si salva.
+  if (input.criteria.assigneeIds?.some(isHiddenId)) throw invalid("criteria");
   const filter: SavedFilter = {
     ...copy(input),
     name: input.name.trim(),
@@ -1311,6 +1313,8 @@ export async function updateFilter(
   const me = await gate("updateFilter");
   const filter = ownedFilter(me, id);
   if (patch.name !== undefined && !patch.name.trim()) throw invalid("name");
+  // R.1414 (scelta A di 46): un segnaposto non si salva; senza `criteria` restano quelli veri.
+  if (patch.criteria?.assigneeIds?.some(isHiddenId)) throw invalid("criteria");
   Object.assign(filter, copy(patch));
   if (patch.name !== undefined) filter.name = patch.name.trim();
   noteWrite("filter", id, me, currentVia()?.actionId);

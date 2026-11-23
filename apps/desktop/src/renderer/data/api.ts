@@ -2,7 +2,8 @@ import { matches } from "../domain/filters";
 import { DEFAULT_CORRECTION_CAP } from "../domain/releases/prState";
 import type { Stall } from "../domain/stalled";
 import { accessState } from "./access/index";
-import { personMasker } from "./access/hidden";
+import { isHiddenId, personMasker } from "./access/hidden";
+import { invalid } from "./writer";
 import { knownPeopleFor, visiblePeopleFor } from "./access/whoCan";
 import { pluginSkillCommand, STUBWISE_COMMANDS } from "./seed/commands";
 import { skillsForRun } from "./projectSettings/plugins";
@@ -338,7 +339,8 @@ export async function listTasks(criteria?: FilterCriteria): Promise<Task[]> {
   const mask = personMasker(me);
   if (!criteria) return tasks.map((t) => taskView(t, mask));
   const ctx = filterContext(me);
-  return tasks.filter((t) => matches(t, criteria, ctx)).map((t) => taskView(t, mask));
+  const real = realCriteria(me, criteria);
+  return tasks.filter((t) => matches(t, real, ctx)).map((t) => taskView(t, mask));
 }
 
 /**
@@ -544,14 +546,42 @@ export async function listSavedFilters(): Promise<SavedFilter[]> {
   const me = await gate("listSavedFilters");
   // R.1414 (lotto 3): il titolare di un filtro pubblico che chi guarda non conosce, segnaposto.
   const mask = personMasker(me);
-  return state.filters.filter((f) => canSeeFilter(f, me)).map((f) => ({ ...copy(f), ownerId: mask(f.ownerId) }));
+  return state.filters.filter((f) => canSeeFilter(f, me)).map((f) => filterView(f, mask));
 }
 
 /** Un filtro privato di un altro risponde come uno che non esiste: `null`. */
 export async function getSavedFilter(id: string): Promise<SavedFilter | null> {
   const me = await gate("getSavedFilter");
   const filter = state.filters.find((f) => f.id === id);
-  return filter && canSeeFilter(filter, me) ? { ...copy(filter), ownerId: personMasker(me)(filter.ownerId) } : null;
+  return filter && canSeeFilter(filter, me) ? filterView(filter, personMasker(me)) : null;
+}
+
+/**
+ * Un filtro come lo legge chi guarda (r.1414): il titolare e, scelta A di 46,
+ * le persone dei criteri che non conosce sono il segnaposto della risposta.
+ * Si esegue con `savedFilterId` (`listTasks`), che rimette gli id veri.
+ */
+function filterView(f: SavedFilter, mask: ReturnType<typeof personMasker>): SavedFilter {
+  const out = { ...copy(f), ownerId: mask(f.ownerId) };
+  if (f.criteria.assigneeIds)
+    out.criteria = { ...out.criteria, assigneeIds: f.criteria.assigneeIds.map((id) => (id === "none" ? id : mask(id))) };
+  return out;
+}
+
+/**
+ * I criteri con gli id veri (r.1414, scelta A di 46): i segnaposto di
+ * `assigneeIds` vengono da un filtro salvato, e con `savedFilterId` diventano
+ * le persone di quel filtro che chi guarda non conosce (i chip «Someone» non
+ * si toccano: sono tutte). Senza un filtro che chi guarda vede, `invalid`.
+ */
+function realCriteria(me: string, criteria: FilterCriteria): FilterCriteria {
+  const ids = criteria.assigneeIds;
+  if (!ids?.some(isHiddenId)) return criteria;
+  const saved = state.filters.find((f) => f.id === criteria.savedFilterId);
+  if (!saved || !canSeeFilter(saved, me)) throw invalid("criteria");
+  const mask = personMasker(me);
+  const hidden = (saved.criteria.assigneeIds ?? []).filter((id) => id !== "none" && mask(id) !== id);
+  return { ...criteria, assigneeIds: [...ids.filter((id) => !isHiddenId(id)), ...hidden] };
 }
 
 /** I filtri che chi guarda ha fissato (solo quelli che può ancora vedere), nell'ordine in cui li ha fissati. */

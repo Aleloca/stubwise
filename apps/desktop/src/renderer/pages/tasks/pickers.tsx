@@ -120,7 +120,9 @@ export function WeekOptions({
         <RadioItem key={w} checked={w === current} onSelect={() => onPick(w)}>
           <span className="num w-9 shrink-0 font-semibold">{shortWeek(w)}</span>
           <span className="num text-ink-muted">
-            {w === now ? t("tasks.bulk.thisWeek", { week: weekLabel(w, i18n.language) }) : weekLabel(w, i18n.language)}
+            {w === now
+              ? t("tasks.bulk.thisWeek", { week: weekLabel(w, i18n.language) })
+              : weekLabel(w, i18n.language)}
           </span>
         </RadioItem>
       ))}
@@ -272,7 +274,12 @@ export function InlineAssignee({ task }: { task: Task }) {
   const change = useInlineUpdate();
   if (!members) return <PersonChip personId={task.assigneeId} />;
   const assignee = people?.find((p) => p.id === task.assigneeId);
-  const name = assignee ? personName(t, assignee) : t("taskUi.unassigned");
+  // R.1414: un assegnatario che l'elenco non ha è chi guarda non conosce: «Someone».
+  const name = assignee
+    ? personName(t, assignee)
+    : task.assigneeId
+      ? t("taskUi.someone")
+      : t("taskUi.unassigned");
   return (
     <MenuButton
       menuLabel={t("tasks.list.assigneeMenu", { code: task.code })}

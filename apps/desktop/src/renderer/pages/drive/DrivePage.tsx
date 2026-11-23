@@ -1,4 +1,5 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
+import { isHiddenId } from "../../data/access/hidden";
 import { isAppBuild } from "../../data/build";
 import { openOnGoogle } from "../mail/mailFeatures";
 import {
@@ -54,11 +55,7 @@ import {
 import { AddFromGoogleDialog } from "./AddFromGoogleDialog";
 import { ExpiredLinkBanners } from "./DriveBanners";
 import { DriveList, DriveSkeleton } from "./DriveList";
-import {
-  DriveSearchField,
-  DriveSearchResults,
-  type SearchActions,
-} from "./DriveSearch";
+import { DriveSearchField, DriveSearchResults, type SearchActions } from "./DriveSearch";
 import type { RowActions } from "./DriveRow";
 import {
   DRIVE_SORTS,
@@ -80,13 +77,7 @@ import {
   openLinkFolder,
   useLinkFolderFor,
 } from "./LinkFolderDialog";
-import {
-  DropZone,
-  UploadAnnouncer,
-  UploadingGroup,
-  useFilePicker,
-  useUploads,
-} from "./UploadZone";
+import { DropZone, UploadAnnouncer, UploadingGroup, useFilePicker, useUploads } from "./UploadZone";
 
 /** Una cartella su Google Drive, con l'id codificato (review F5b, 8). */
 const folderUrl = (googleFolderId: string) =>
@@ -154,7 +145,9 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
   const searching = query.length >= MIN_QUERY;
   if (!canManage || searching) delete filters.hidden;
   const hiddenView = filters.hidden === true;
-  const base: DriveFilters = project ? { projectId: project.id, sort: filters.sort } : { sort: filters.sort };
+  const base: DriveFilters = project
+    ? { projectId: project.id, sort: filters.sort }
+    : { sort: filters.sort };
   const enabled = global ? !!projects : !!project;
   // Si rilegge l'elenco che si guarda, non le query di contorno; col dettaglio aperto si rilegge il dettaglio.
   const folders = useFolderLinks(project?.id ?? "").data ?? [];
@@ -163,7 +156,10 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
   const allQuery = useDriveFiles(base, { enabled });
   // Google (area 6, F5b): cartelle, riferimenti, nascosti.
   const google = featureIntegrated("google");
-  const hiddenQuery = useDriveFiles({ ...base, hidden: true }, { enabled: enabled && canManage && google });
+  const hiddenQuery = useDriveFiles(
+    { ...base, hidden: true },
+    { enabled: enabled && canManage && google },
+  );
   const rows = enabled ? filesQuery.data : undefined;
   const { projectId: fProject, type: fType, source: fSource, addedById: fAdded } = filters;
   const scope = useMemo<DriveSearchScope>(
@@ -198,7 +194,9 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
   const uploadTargets = useMemo(() => {
     const list = (projects ?? []).filter((p) => can(viewer, "drive.upload", p.id));
     const first = global ? search.prj : undefined;
-    return first ? [...list.filter((p) => p.code === first), ...list.filter((p) => p.code !== first)] : list;
+    return first
+      ? [...list.filter((p) => p.code === first), ...list.filter((p) => p.code !== first)]
+      : list;
   }, [projects, viewer, global, search.prj]);
   const canUpload = project ? can(viewer, "drive.upload", project.id) : uploadTargets.length > 0;
   // Area 9b: con l'archiviazione che non accetta file «Upload» è spento con la
@@ -355,9 +353,7 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
                 }),
               )}
             {item(t("drive.google.copyFolderLink"), () => {
-              void navigator.clipboard
-                ?.writeText(folderUrl(link.googleFolderId))
-                .catch(() => {});
+              void navigator.clipboard?.writeText(folderUrl(link.googleFolderId)).catch(() => {});
               toast.show(t("drive.google.folderLinkCopied"));
             })}
             {manage && item(t("drive.google.unlink"), () => setUnlinking(link))}
@@ -381,7 +377,10 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
           return;
         }
         if (previewKind(row)) {
-          openers.preview(row, (view ?? [row]).filter((r) => previewKind(r)));
+          openers.preview(
+            row,
+            (view ?? [row]).filter((r) => previewKind(r)),
+          );
           return;
         }
         // Senza anteprima: il dettaglio, dove l'azione primaria è «Download».
@@ -533,7 +532,11 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
                 </button>
               )}
               {canManage && google && (
-                <button type="button" className={quietButton} onClick={() => project && openLinkFolder(project.code)}>
+                <button
+                  type="button"
+                  className={quietButton}
+                  onClick={() => project && openLinkFolder(project.code)}
+                >
                   {t("drive.google.linkFolder")}
                 </button>
               )}
@@ -577,38 +580,38 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
       label={project ? t("drive.uploads.drop", { code: project.code }) : t("drive.uploads.dropAny")}
       onFiles={onDropped}
     >
-    <section className="flex h-full min-h-0 flex-col" data-drive-page={project?.code ?? "all"}>
-      <header className="page-header flex shrink-0 flex-col gap-3 pb-3 pl-8 [--page-header-pr:32px] [--page-header-pt:32px]">
-        <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-2">
-          <h1 className="text-2xl font-semibold text-ink">{title}</h1>
-          {total !== undefined && (
-            <span className="num text-lg text-ink-faint">
-              <span aria-hidden="true">{total}</span>
-              <span className="sr-only">{t("drive.count", { count: total })}</span>
-            </span>
-          )}
-          <div className="ml-auto flex items-center gap-2 self-center">
-            {canAddGoogle && (
-              <button type="button" className={secondaryButton} onClick={() => setAdding(true)}>
-                <GoogleDriveGlyph />
-                {t("drive.google.addFrom")}
-              </button>
+      <section className="flex h-full min-h-0 flex-col" data-drive-page={project?.code ?? "all"}>
+        <header className="page-header flex shrink-0 flex-col gap-3 pb-3 pl-8 [--page-header-pr:32px] [--page-header-pt:32px]">
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-2">
+            <h1 className="text-2xl font-semibold text-ink">{title}</h1>
+            {total !== undefined && (
+              <span className="num text-lg text-ink-faint">
+                <span aria-hidden="true">{total}</span>
+                <span className="sr-only">{t("drive.count", { count: total })}</span>
+              </span>
             )}
-            {canUpload && (project || !uploadsAllowed) && (
-              <button
-                type="button"
-                className={`${primaryButton} disabled:cursor-not-allowed disabled:opacity-40`}
-                disabled={!uploadsAllowed}
-                onClick={upload}
-                aria-keyshortcuts="Meta+Shift+U"
-              >
-                <UploadGlyph />
-                {t("drive.upload")}
-              </button>
-            )}
-            {canUpload && !project && uploadsAllowed && (
-              <span ref={uploadButton} className="inline-flex">
-                <MenuButton
+            <div className="ml-auto flex items-center gap-2 self-center">
+              {canAddGoogle && (
+                <button type="button" className={secondaryButton} onClick={() => setAdding(true)}>
+                  <GoogleDriveGlyph />
+                  {t("drive.google.addFrom")}
+                </button>
+              )}
+              {canUpload && (project || !uploadsAllowed) && (
+                <button
+                  type="button"
+                  className={`${primaryButton} disabled:cursor-not-allowed disabled:opacity-40`}
+                  disabled={!uploadsAllowed}
+                  onClick={upload}
+                  aria-keyshortcuts="Meta+Shift+U"
+                >
+                  <UploadGlyph />
+                  {t("drive.upload")}
+                </button>
+              )}
+              {canUpload && !project && uploadsAllowed && (
+                <span ref={uploadButton} className="inline-flex">
+                  <MenuButton
                     menuLabel={t("drive.uploadWhere")}
                     align="right"
                     className={primaryButton}
@@ -642,144 +645,154 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
                       </MenuGroup>
                     )}
                   </MenuButton>
-              </span>
-            )}
-            {project && canManage && google && (
-              <MenuButton
-                menuLabel={t("drive.google.more")}
-                ariaLabel={t("drive.google.more")}
-                title={t("drive.google.more")}
-                align="right"
-                className={`${ghostButton} h-8 w-8 justify-center px-0`}
-                label={<MoreIcon />}
-              >
-                {(close) => (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    tabIndex={-1}
-                    className={itemClass}
-                    onClick={() => {
-                      close();
-                      openLinkFolder(project.code);
-                    }}
-                  >
-                    {t("drive.google.linkFolder")}
-                  </button>
-                )}
-              </MenuButton>
-            )}
+                </span>
+              )}
+              {project && canManage && google && (
+                <MenuButton
+                  menuLabel={t("drive.google.more")}
+                  ariaLabel={t("drive.google.more")}
+                  title={t("drive.google.more")}
+                  align="right"
+                  className={`${ghostButton} h-8 w-8 justify-center px-0`}
+                  label={<MoreIcon />}
+                >
+                  {(close) => (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      tabIndex={-1}
+                      className={itemClass}
+                      onClick={() => {
+                        close();
+                        openLinkFolder(project.code);
+                      }}
+                    >
+                      {t("drive.google.linkFolder")}
+                    </button>
+                  )}
+                </MenuButton>
+              )}
+            </div>
           </div>
+          {project && <ExpiredLinkBanners project={project} folders={folders} />}
+          {/* Sopra la barra, la frase dei caricamenti spenti (shape instance-effects §3). */}
+          {uploadsOff && <UploadsOffLine />}
+          <DriveToolbar
+            search={search}
+            sort={filters.sort}
+            setSearch={setSearch}
+            clearFilters={clearFilters}
+            global={global}
+            allRows={allQuery.data}
+            peopleNames={peopleNames}
+            projects={projects}
+            me={viewer.personId}
+            hiddenCount={canManage ? hiddenQuery.data?.length : undefined}
+            searching={searching}
+            searchField={
+              <DriveSearchField
+                query={ownQ ?? ""}
+                onQuery={setQuery}
+                inputRef={searchInput}
+                onEnterResults={() =>
+                  // I risultati arrivano dopo l'attesa: il primo appena c'è.
+                  window.requestAnimationFrame(() =>
+                    resultsRef.current?.querySelector<HTMLElement>("[data-drive-result]")?.focus(),
+                  )
+                }
+              />
+            }
+          />
+        </header>
+        <div
+          ref={bodyRef}
+          data-drive-body
+          className="min-h-0 flex-1 overflow-auto border-t border-rule"
+        >
+          {body}
         </div>
-        {project && <ExpiredLinkBanners project={project} folders={folders} />}
-        {/* Sopra la barra, la frase dei caricamenti spenti (shape instance-effects §3). */}
-        {uploadsOff && <UploadsOffLine />}
-        <DriveToolbar
-          search={search}
-          sort={filters.sort}
-          setSearch={setSearch}
-          clearFilters={clearFilters}
-          global={global}
-          allRows={allQuery.data}
-          peopleNames={peopleNames}
-          projects={projects}
-          me={viewer.personId}
-          hiddenCount={canManage ? hiddenQuery.data?.length : undefined}
-          searching={searching}
-          searchField={
-            <DriveSearchField
-              query={ownQ ?? ""}
-              onQuery={setQuery}
-              inputRef={searchInput}
-              onEnterResults={() =>
-                // I risultati arrivano dopo l'attesa: il primo appena c'è.
-                window.requestAnimationFrame(() =>
-                  resultsRef.current?.querySelector<HTMLElement>("[data-drive-result]")?.focus(),
-                )
-              }
-            />
-          }
-        />
-      </header>
-      <div ref={bodyRef} data-drive-body className="min-h-0 flex-1 overflow-auto border-t border-rule">
-        {body}
-      </div>
-      {picker.element}
-      <UploadAnnouncer uploads={uploads} />
-      {project && canManage && linkingFor === project.code && (
-        <LinkFolderDialog project={project} onClose={closeLinkFolder} />
-      )}
-      {project && adding && (
-        <AddFromGoogleDialog project={project} onClose={() => setAdding(false)} />
-      )}
-      {project && unlinking && (
-        <Dialog
-          title={t("drive.unlink.title", { folder: unlinking.name, code: project.code })}
-          description={t("drive.unlink.body", { count: unlinking.fileCount, code: project.code })}
-          onClose={() => setUnlinking(null)}
-          width={480}
-          footer={
-            <>
-              <button type="button" className={secondaryButton} onClick={() => setUnlinking(null)}>
-                {t("drive.unlink.cancel")}
-              </button>
-              <button
-                type="button"
-                data-autofocus
-                className={dangerSolidButton}
-                disabled={unlinkFolder.isPending}
-                onClick={() => {
-                  const link = unlinking;
-                  unlinkFolder.mutate(link.id, {
-                    onSuccess: () => {
-                      setUnlinking(null);
-                      toast.show(t("drive.unlink.done", { name: link.name, code: project.code }));
-                    },
-                    onError: () => toast.error(t("drive.google.failed")),
-                  });
-                }}
-              >
-                {t("drive.unlink.confirm")}
-              </button>
-            </>
-          }
-        >
-          {null}
-        </Dialog>
-      )}
-      {choosing && (
-        <Dialog
-          title={t("drive.uploads.chooseTitle")}
-          description={t("drive.uploads.chooseBody", { count: choosing.length })}
-          onClose={() => setChoosing(null)}
-          width={440}
-          footer={
-            <button type="button" className={secondaryButton} onClick={() => setChoosing(null)}>
-              {t("drive.uploads.cancelChoice")}
-            </button>
-          }
-        >
-          <ul className="flex max-h-80 flex-col gap-px overflow-y-auto">
-            {uploadTargets.map((p) => (
-              <li key={p.id}>
+        {picker.element}
+        <UploadAnnouncer uploads={uploads} />
+        {project && canManage && linkingFor === project.code && (
+          <LinkFolderDialog project={project} onClose={closeLinkFolder} />
+        )}
+        {project && adding && (
+          <AddFromGoogleDialog project={project} onClose={() => setAdding(false)} />
+        )}
+        {project && unlinking && (
+          <Dialog
+            title={t("drive.unlink.title", { folder: unlinking.name, code: project.code })}
+            description={t("drive.unlink.body", { count: unlinking.fileCount, code: project.code })}
+            onClose={() => setUnlinking(null)}
+            width={480}
+            footer={
+              <>
                 <button
                   type="button"
-                  className={itemClass}
+                  className={secondaryButton}
+                  onClick={() => setUnlinking(null)}
+                >
+                  {t("drive.unlink.cancel")}
+                </button>
+                <button
+                  type="button"
+                  data-autofocus
+                  className={dangerSolidButton}
+                  disabled={unlinkFolder.isPending}
                   onClick={() => {
-                    const files = choosing;
-                    setChoosing(null);
-                    uploads.start(files, p.id);
+                    const link = unlinking;
+                    unlinkFolder.mutate(link.id, {
+                      onSuccess: () => {
+                        setUnlinking(null);
+                        toast.show(t("drive.unlink.done", { name: link.name, code: project.code }));
+                      },
+                      onError: () => toast.error(t("drive.google.failed")),
+                    });
                   }}
                 >
-                  <span className="num w-10 shrink-0 text-xs font-semibold tracking-[0.02em]">{p.code}</span>
-                  <span className="min-w-0 truncate text-ink-muted">{p.name}</span>
+                  {t("drive.unlink.confirm")}
                 </button>
-              </li>
-            ))}
-          </ul>
-        </Dialog>
-      )}
-    </section>
+              </>
+            }
+          >
+            {null}
+          </Dialog>
+        )}
+        {choosing && (
+          <Dialog
+            title={t("drive.uploads.chooseTitle")}
+            description={t("drive.uploads.chooseBody", { count: choosing.length })}
+            onClose={() => setChoosing(null)}
+            width={440}
+            footer={
+              <button type="button" className={secondaryButton} onClick={() => setChoosing(null)}>
+                {t("drive.uploads.cancelChoice")}
+              </button>
+            }
+          >
+            <ul className="flex max-h-80 flex-col gap-px overflow-y-auto">
+              {uploadTargets.map((p) => (
+                <li key={p.id}>
+                  <button
+                    type="button"
+                    className={itemClass}
+                    onClick={() => {
+                      const files = choosing;
+                      setChoosing(null);
+                      uploads.start(files, p.id);
+                    }}
+                  >
+                    <span className="num w-10 shrink-0 text-xs font-semibold tracking-[0.02em]">
+                      {p.code}
+                    </span>
+                    <span className="min-w-0 truncate text-ink-muted">{p.name}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </Dialog>
+        )}
+      </section>
     </DropZone>
   );
 }
@@ -827,7 +840,10 @@ function DriveToolbar({
   };
   // Chi ha aggiunto file, e i progetti che ne hanno: le scelte vengono dall'elenco intero.
   const adders = useMemo(() => {
-    const ids = [...new Set((allRows ?? []).map((r) => r.addedById))];
+    // R.1414 (scelta A di 46): un segnaposto non è una scelta, il filtro vuole l'id vero.
+    const ids = [...new Set((allRows ?? []).map((r) => r.addedById))].filter(
+      (id) => !isHiddenId(id),
+    );
     return ids
       .map((id) => ({ id, name: peopleNames.get(id) ?? t("drive.row.someone") }))
       .sort((a, b) => (a.id === me ? -1 : b.id === me ? 1 : a.name.localeCompare(b.name)));
@@ -864,12 +880,14 @@ function DriveToolbar({
     </Chip>
   );
 
-  const typeSummary = search.type && (DRIVE_TYPES as readonly string[]).includes(search.type)
-    ? t(`drive.types.${search.type}`)
-    : null;
-  const sourceSummary = search.source && (DRIVE_SOURCES as readonly string[]).includes(search.source)
-    ? t(`drive.sources.${search.source}`)
-    : null;
+  const typeSummary =
+    search.type && (DRIVE_TYPES as readonly string[]).includes(search.type)
+      ? t(`drive.types.${search.type}`)
+      : null;
+  const sourceSummary =
+    search.source && (DRIVE_SOURCES as readonly string[]).includes(search.source)
+      ? t(`drive.sources.${search.source}`)
+      : null;
   // Mai un id grezzo: una persona che non conosco è «someone».
   const adderSummary = search.addedBy
     ? (peopleNames.get(search.addedBy) ?? t("drive.row.someone"))
@@ -884,34 +902,34 @@ function DriveToolbar({
         <div className="flex min-w-0 items-center gap-2">
           {searchField}
           {!searching && (
-          <MenuButton
-            menuLabel={t("drive.sort.label")}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink aria-expanded:bg-ink/8"
-            label={
-              <>
-                <span>{t("drive.sort.label")}:</span>
-                <span className="font-medium text-ink">{t(`drive.sort.${sort}`)}</span>
-                <Chevron />
-              </>
-            }
-          >
-            {(close) => (
-              <MenuGroup>
-                {DRIVE_SORTS.map((s) => (
-                  <RadioItem
-                    key={s}
-                    checked={s === sort}
-                    onSelect={() => {
-                      close();
-                      setSearch({ sort: s === "most_used" ? undefined : s }, true);
-                    }}
-                  >
-                    {t(`drive.sort.${s}`)}
-                  </RadioItem>
-                ))}
-              </MenuGroup>
-            )}
-          </MenuButton>
+            <MenuButton
+              menuLabel={t("drive.sort.label")}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink aria-expanded:bg-ink/8"
+              label={
+                <>
+                  <span>{t("drive.sort.label")}:</span>
+                  <span className="font-medium text-ink">{t(`drive.sort.${sort}`)}</span>
+                  <Chevron />
+                </>
+              }
+            >
+              {(close) => (
+                <MenuGroup>
+                  {DRIVE_SORTS.map((s) => (
+                    <RadioItem
+                      key={s}
+                      checked={s === sort}
+                      onSelect={() => {
+                        close();
+                        setSearch({ sort: s === "most_used" ? undefined : s }, true);
+                      }}
+                    >
+                      {t(`drive.sort.${s}`)}
+                    </RadioItem>
+                  ))}
+                </MenuGroup>
+              )}
+            </MenuButton>
           )}
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -969,7 +987,9 @@ function DriveToolbar({
               <span className="num text-ink-faint">{hiddenCount}</span>
             </button>
           )}
-          {hasDriveFilter(hiddenCount === undefined ? { ...search, hidden: undefined } : search) && (
+          {hasDriveFilter(
+            hiddenCount === undefined ? { ...search, hidden: undefined } : search,
+          ) && (
             <button type="button" className={quietButton} onClick={clearFilters}>
               {t("drive.filters.clear")}
             </button>

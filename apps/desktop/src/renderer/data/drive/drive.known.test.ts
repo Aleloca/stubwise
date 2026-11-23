@@ -5,9 +5,9 @@ import { setSessionPersonId } from "../session";
 import { state, visibleProjectIds } from "../store";
 
 // Registro, A11 r.1414, lotto 3 (Drive), nel prototipo: chi ha nascosto un
-// file, se chi guarda non lo conosce, è `hidden-<n>`. (Chi l'ha aggiunto è
-// a parte: la pagina ne fa un filtro che la lettura esegue, scelta chiesta
-// a 46 insieme ai filtri salvati.)
+// file, se chi guarda non lo conosce, è `hidden-<n>`. Chi l'ha aggiunto
+// anche (scelta A di 46): il filtro «aggiunto da» si fa con un id vero, e un
+// segnaposto nel filtro è `invalid`.
 
 const LAURA = "p-laura";
 
@@ -35,5 +35,29 @@ describe("il Drive senza id di chi non si conosce (r.1414)", () => {
     expect(row).toBeDefined();
     expect(row.hiddenBy!.personId).toBe("hidden-1");
     expect(JSON.stringify(rows)).not.toContain(who!);
+  });
+
+  it("chi ha aggiunto un file: segnaposto; il filtro con un segnaposto è invalid, con l'id vero no", async () => {
+    const visible = visibleProjectIds(LAURA);
+    const file = state.driveFiles.find((f) => visible.has(f.projectId) && !f.hidden)!;
+    const [who] = strangersTo(LAURA);
+    file.addedById = who!;
+    setSessionPersonId(LAURA);
+    const rows = await drive.listDriveFiles({ projectId: file.projectId, sort: "name" } as never);
+    expect(rows.find((r) => r.id === file.id)!.addedById).toBe("hidden-1");
+    expect(JSON.stringify(rows)).not.toContain(who!);
+    const err = await drive
+      .listDriveFiles({ projectId: file.projectId, sort: "name", addedById: "hidden-1" } as never)
+      .then(
+        () => null,
+        (e: Error) => e.message,
+      );
+    expect(err).toBe("invalid: addedById");
+    const mine = await drive.listDriveFiles({
+      projectId: file.projectId,
+      sort: "name",
+      addedById: LAURA,
+    } as never);
+    expect(mine.every((r) => r.addedById === LAURA)).toBe(true);
   });
 });

@@ -777,7 +777,8 @@
       "resize": "Resize panel"
     },
     "selected": "Selected",
-    "deactivatedName": "{{name}} (deactivated)"
+    "deactivatedName": "{{name}} (deactivated)",
+    "someone": "Someone"
   },
   "filter": {
     "notFound": "Filter not found",

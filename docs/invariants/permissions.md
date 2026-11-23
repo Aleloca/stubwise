@@ -448,6 +448,16 @@ punti lato server sta nell'inventario consegnato a 72 (sotto).
   (la regola del server, `adminVisiblePersonIds`, area 9). Gli id dentro i
   `params` il server li toglie e il prototipo li maschera: vanno bene tutte
   e due.
+- **I filtri per persona** (scelta A di 46, lotto 3): un filtro salvato si
+  esegue nel livello dati con i criteri veri. Nella vista, un criterio su
+  una persona che chi guarda non conosce è il segnaposto (il chip dice
+  «Someone», non cliccabile), e un salvataggio con un `hidden-*` è
+  `invalid`. Si esegue con `savedFilterId` (`GET /api/tasks`): il livello
+  dati rimette al posto dei segnaposto gli id del filtro che chi guarda non
+  conosce; senza un filtro che vede, un segnaposto nei criteri è `invalid`.
+  Il filtro «aggiunto da» del Drive si fa con un id vero: chi ha aggiunto un
+  file e chi guarda non conosce arriva come segnaposto e non è fra le
+  scelte; un segnaposto nel filtro è `invalid`.
 - **Il segnaposto**: al posto dell'id di una persona che chi guarda non
   conosce, `hidden-<n>`, dove `<n>` è un intero da 1 assegnato nell'ordine
   in cui le persone nascoste compaiono nella RISPOSTA. Stabile dentro la

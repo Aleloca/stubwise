@@ -1,5 +1,6 @@
 import { fold, highlightParts, MIN_QUERY, searchWords } from "../../pages/chat/search";
-import { personMasker } from "../access/hidden";
+import { isHiddenId, personMasker } from "../access/hidden";
+import { invalid } from "../writer";
 import { PEOPLE } from "../seed/people";
 import { copy, gate, now, state } from "../store";
 import type {
@@ -72,6 +73,8 @@ export function driveRow(
     lastOpenedAt: opens.reduce<string | null>((m, o) => (m === null || o.at > m ? o.at : m), null),
     summaryLine: summaryLineOf(file.summary),
     folder: link ? { id: link.id, name: link.name, status: link.status } : null,
+    // R.1414 (scelta A di 46): chi l'ha aggiunto, segnaposto se chi guarda non lo conosce.
+    addedById: mask(file.addedById),
     hiddenBy: hidden ? { ...hidden, personId: mask(hidden.personId) } : null,
     permissions: drivePermissions(me, file),
   };
@@ -100,6 +103,8 @@ export async function listDriveFiles(filters: DriveFilters): Promise<DriveFileRo
   const me = await gate("drive.listDriveFiles");
   startSeedWork();
   const hidden = filters.hidden === true;
+  // R.1414 (scelta A di 46): il filtro «aggiunto da» si fa con un id vero.
+  if (isHiddenId(filters.addedById)) throw invalid("addedById");
   const mask = personMasker(me);
   return state.driveFiles
     .filter(
@@ -244,7 +249,10 @@ const PASSAGE = 180;
  */
 export function drivePassage(text: string, words: readonly string[]): string | null {
   let best: { line: string; hits: number; at: number } | null = null;
-  for (const line of text.split(/\n+/).map((l) => l.trim()).filter(Boolean)) {
+  for (const line of text
+    .split(/\n+/)
+    .map((l) => l.trim())
+    .filter(Boolean)) {
     const folded = fold(line);
     const hits = words.filter((w) => folded.includes(w)).length;
     if (hits === 0 || (best && hits <= best.hits)) continue;

@@ -118,19 +118,26 @@ export function TasksPage({
         ? DEFAULT_GROUP[view]
         : rawGroup;
   // La pagina del progetto aggiunge il progetto ai criteri, senza scriverlo nell'indirizzo.
-  const effective = useMemo(
-    () => (projectId ? { ...criteria, projectIds: [projectId] } : criteria),
-    [criteria, projectId],
-  );
+  // R.1414 (scelta A di 46): i criteri di un filtro salvato si eseguono col
+  // suo id, che rimette gli id veri al posto dei segnaposto «Someone».
+  const effective = useMemo(() => {
+    const own = savedFilter ? { ...criteria, savedFilterId: savedFilter.id } : criteria;
+    return projectId ? { ...own, projectIds: [projectId] } : own;
+  }, [criteria, projectId, savedFilter]);
   const enabled = !projectCode || !!projectId;
   const changed =
     search.view !== undefined || search.group !== undefined || search.filters !== undefined;
 
   const tasksQuery = useTasks(effective, { enabled });
   // Quante ce ne sono senza filtri: dice se il vuoto è «ancora nessuna» o «nessuna corrisponde».
-  const allQuery = useTasks(projectId ? { projectIds: [projectId] } : savedFilter?.criteria, {
-    enabled,
-  });
+  const allQuery = useTasks(
+    projectId
+      ? { projectIds: [projectId] }
+      : savedFilter && { ...savedFilter.criteria, savedFilterId: savedFilter.id },
+    {
+      enabled,
+    },
+  );
   const tasks = enabled ? tasksQuery.data : undefined;
   const context = useGroupContextState(tasks, projectId);
   const ctx = context.ctx;
@@ -208,23 +215,23 @@ export function TasksPage({
       <PageEmpty
         title={t("tasks.states.emptyTitle")}
         body={
-          canCreate
-            ? t("tasks.states.emptyBody", { project: project?.name })
-            : (
+          canCreate ? (
+            t("tasks.states.emptyBody", { project: project?.name })
+          ) : (
+            <>
+              {t("tasks.states.emptyWho", { project: project?.name ?? title })}
+              {project && (
                 <>
-                  {t("tasks.states.emptyWho", { project: project?.name ?? title })}
-                  {project && (
-                    <>
-                      {" "}
-                      <WhoCanLink
-                        action="createTasks"
-                        projectId={project.id}
-                        projectCode={project.code}
-                      />
-                    </>
-                  )}
+                  {" "}
+                  <WhoCanLink
+                    action="createTasks"
+                    projectId={project.id}
+                    projectCode={project.code}
+                  />
                 </>
-              )
+              )}
+            </>
+          )
         }
         action={
           canCreate ? (
