@@ -22,6 +22,7 @@ import {
   type Db,
 } from "@stubwise/db";
 import { latestVersion } from "../automations/model.js";
+import { membersLock } from "../services/roles.js";
 import { automationStamp } from "./catalog-automations.js";
 import type { ClaudeActionFn } from "@stubwise/shared";
 import { and, asc, desc, eq, gt, inArray, isNull, notInArray, or, sql, type SQL } from "drizzle-orm";
@@ -189,9 +190,12 @@ async function laterChangeOf(
 async function lockLoggedSubjects(tx: Db, objects: readonly ActionObject[]): Promise<void> {
   const lock = (table: PgTable, where: SQL | undefined) => tx.execute(sql`select 1 from ${table} where ${where ?? sql`true`} for update`);
   for (const o of objects) {
-    if (o.kind === "project") await lock(projects, eq(projects.id, o.id));
+    // NO KEY UPDATE, come `patchProject`: mette in fila i salvataggi senza fermare chi inserisce righe che referenziano il progetto (un membro).
+    if (o.kind === "project") await tx.execute(sql`select 1 from ${projects} where ${eq(projects.id, o.id)} for no key update`);
     else if (o.kind === "member" && o.projectId) {
-      await lock(projects, eq(projects.id, o.projectId));
+      // Revisione del lotto 1: PRIMA l'advisory dei membri del progetto, come le scritture a mano
+      // (`setMemberRole`, `removeMember`…), poi la riga; al contrario le due si aspettano a vicenda (40P01).
+      await tx.execute(membersLock(o.projectId));
       await lock(projectMembers, and(eq(projectMembers.projectId, o.projectId), eq(projectMembers.userId, o.id)));
     } else if (o.kind === "setting") {
       await lock(instanceSettings, eq(instanceSettings.id, 1));

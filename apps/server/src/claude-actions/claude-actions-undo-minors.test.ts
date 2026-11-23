@@ -1,11 +1,13 @@
 import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
-import { changeLog, issueChatToolToken, projects, type Db } from "@stubwise/db";
+import { changeLog, issueChatToolToken, projectMembers, projects, roles, users, type Db } from "@stubwise/db";
+import { PROJECT_PERMISSIONS } from "@stubwise/shared";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { createSession, findSessionUser } from "../auth/session.js";
 import { patchProject } from "../services/project-patch.js";
+import { membersLock, putProjectMember } from "../services/roles.js";
 import { undoGroup } from "./undo.js";
 import { addMember, seedUsers } from "../test/fixtures.js";
 
@@ -96,6 +98,41 @@ describe("«Annulla» di Claude: i Minor della review di F7", () => {
     await manual.done;
     expect(await undoing).toEqual({ ok: false, error: "changed_after" });
     expect(await nameOf(projectId)).toBe("A mano");
+  });
+
+  it("revisione del lotto 1: «Annulla» di un membro e un setMemberRole a mano non vanno in stallo (prima l'advisory dei membri, poi la riga)", async () => {
+    const projectId = await project();
+    const [u] = await t.db.insert(users).values({ email: `m-${++n}@example.com`, passwordHash: "x", role: "member" }).returning({ id: users.id });
+    await addMember(app, projectId, u!.id, "developer");
+    // Un altro gestore dei membri (i full admin non contano): togliere il ruolo a `u` non lascia il progetto senza.
+    const [keeper] = await t.db.insert(users).values({ email: `k-${++n}@example.com`, passwordHash: "x", role: "member" }).returning({ id: users.id });
+    await addMember(app, projectId, keeper!.id, "project_lead");
+    const roleOf = async (key: string) => (await t.db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, key)))[0]!.id;
+    const viewerRole = await roleOf("viewer");
+    const leadRole = await roleOf("project_lead");
+    const groupId = await run([{ fn: "setMemberRole", args: { projectId, userId: u!.id, roleId: leadRole } }]);
+    const session = await createSession(t.db, adminId, { stage: "full", secondFactorAt: new Date() });
+    const user = (await findSessionUser(t.db, session.id))!;
+    // A mano: prende l'advisory dei membri (come `putProjectMember`) e, dopo, cambia il ruolo.
+    let locked!: () => void;
+    const holding = new Promise<void>((r) => (locked = r));
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const manual = t.db.transaction(async (txRaw) => {
+      const tx = txRaw as unknown as Db;
+      await tx.execute(membersLock(projectId));
+      locked();
+      await gate;
+      await putProjectMember(tx, user, new Set(PROJECT_PERMISSIONS), projectId, u!.id, viewerRole);
+    });
+    await holding;
+    const undoing = undoGroup(t.db, user, groupId, { confirmed: true });
+    await untilSomeoneWaits();
+    release();
+    await manual;
+    expect(await undoing).toEqual({ ok: false, error: "changed_after" });
+    const [row] = await t.db.select({ roleId: projectMembers.roleId }).from(projectMembers).where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, u!.id)));
+    expect(row!.roleId).toBe(viewerRole);
   });
 
   it("lo `stamp` a fine scrittura: un salvataggio a mano iniziato PRIMA di Claude ma arrivato dopo blocca «Annulla»", async () => {
