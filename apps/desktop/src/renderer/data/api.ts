@@ -2,7 +2,7 @@ import { matches } from "../domain/filters";
 import { DEFAULT_CORRECTION_CAP } from "../domain/releases/prState";
 import type { Stall } from "../domain/stalled";
 import { accessState } from "./access/index";
-import { visiblePeopleFor } from "./access/whoCan";
+import { knownPeopleFor, visiblePeopleFor } from "./access/whoCan";
 import { pluginSkillCommand, STUBWISE_COMMANDS } from "./seed/commands";
 import { skillsForRun } from "./projectSettings/plugins";
 import { COMMITS } from "./seed/commits";
@@ -16,7 +16,7 @@ import {
 import { driveRow } from "./drive/reads";
 import { canSeeDriveFile } from "./drive/visibility";
 import { daysFromToday, TODAY } from "./seed/dates";
-import { PEOPLE } from "./seed/people";
+import { CLAUDE_ID, PEOPLE } from "./seed/people";
 import { projectOfRepo, REPO_FILES } from "./seed/repoFiles";
 import { NO_SESSION_PERSON_ID } from "./session";
 import { can, viewerFor } from "./viewer";
@@ -220,10 +220,17 @@ export async function listDepartments(): Promise<Department[]> {
 }
 
 export async function listPeople(): Promise<Person[]> {
-  await gate("listPeople");
+  const me = await gate("listPeople");
   // `deactivated` è calcolato dallo stato degli accessi (area 9a): la persona
   // resta nell'elenco (le sue task la nominano) ma non si assegna.
-  return PEOPLE.map((p) => ({ ...copy(p), deactivated: assigneeStatusOf(p.id) === "deactivated" }));
+  // Registro, A11 r.1414: solo chi guarda CONOSCE (`knownPeopleFor`: anche
+  // disattivati ed ex membri dei progetti visibili), come l'elenco del
+  // server. Claude resta: non è una persona da nascondere.
+  const known = knownPeopleFor(me);
+  return PEOPLE.filter((p) => p.id === CLAUDE_ID || known.has(p.id)).map((p) => ({
+    ...copy(p),
+    deactivated: assigneeStatusOf(p.id) === "deactivated",
+  }));
 }
 
 export async function listProjects(): Promise<Project[]> {
