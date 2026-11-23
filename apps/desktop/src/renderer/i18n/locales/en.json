@@ -12744,7 +12744,8 @@
       "filter": "Made with Claude",
       "undid": "Undid: {{sentence}}",
       "filtersCleared": "Filters cleared to show the change.",
-      "undoneGone": "That change isn't in the log anymore."
+      "undoneGone": "That change isn't in the log anymore.",
+      "undoneFailed": "Older changes couldn't be loaded. Try again later."
     }
   },
   "usage": {
