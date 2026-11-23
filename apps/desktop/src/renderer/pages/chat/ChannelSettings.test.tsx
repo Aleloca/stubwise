@@ -295,3 +295,86 @@ describe("nuovo messaggio diretto", () => {
     expect(page!.messages.map((m) => m.text)).toEqual(["Hello both"]);
   });
 });
+
+// Revisione del lotto 2 (I4, r.1414): chi gestisce un privato senza leggerlo
+// può vederne un membro che non conosce, come segnaposto. Quella riga dice
+// «Someone» e non si toglie: il segnaposto non torna mai al server, e il
+// livello dati lo rifiuta comunque.
+describe("ChannelSettings: un membro che chi gestisce non conosce (r.1414)", () => {
+  async function setup() {
+    const { strangersTo } = await import("../../test/strangers");
+    const { isFullAdmin } = await import("../../data/access/index");
+    const { visibleProjectIds } = await import("../../data/store");
+    const { PEOPLE } = await import("../../data/seed/people");
+    const ch = state.channels.find((c) => c.id === "ch-aud-pricing")!;
+    const viewer = PEOPLE.find(
+      (p) =>
+        !isFullAdmin(p.id) &&
+        !ch.memberIds.includes(p.id) &&
+        visibleProjectIds(p.id).has("prj-aud") &&
+        (() => {
+          try {
+            return strangersTo(p.id).length === 1;
+          } catch {
+            return false;
+          }
+        })(),
+    )!;
+    expect(viewer).toBeDefined();
+    api.resetApi();
+    const live = state.channels.find((c) => c.id === "ch-aud-pricing")!;
+    const [who] = strangersTo(viewer.id);
+    // Chi gestisce i canali di AUD vede il privato senza leggerlo.
+    const { grantProjectPermission } = await import("../../data/viewer");
+    grantProjectPermission(viewer.id, "prj-aud", "chat.channels.manage");
+    live.memberIds = [...live.memberIds, who!];
+    return { viewer: viewer.id, who: who! };
+  }
+
+  it("il livello dati: il membro è un segnaposto, e togliere un segnaposto è rifiutato", async () => {
+    const { viewer, who } = await setup();
+    setSessionPersonId(viewer);
+    const members = (await api.chat.listChannelMembers("ch-aud-pricing"))!;
+    expect(members.map((m) => m.personId)).toContain("hidden-1");
+    expect(JSON.stringify(members)).not.toContain(who);
+    await expect(api.chat.removeMember("ch-aud-pricing", "hidden-1")).rejects.toThrow("invalid: member");
+    expect(state.channels.find((c) => c.id === "ch-aud-pricing")!.memberIds).toContain(who);
+  });
+
+  it("la riga dice «Someone» e non ha «Remove»", async () => {
+    const { viewer } = await setup();
+    renderRoute("/chat/ch-aud-pricing?settings=1", viewer);
+    const region = await settings();
+    const row = await waitFor(() => {
+      const el = region.querySelector('[data-member="hidden-1"]');
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    expect(within(row).getByText("Someone")).toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: /Remove/ })).toBeNull();
+  });
+});
+
+// Revisione del lotto 2, I7: `listChannels` è UNA risposta, quindi la stessa
+// persona nascosta ha lo stesso segnaposto in tutte le righe.
+describe("listChannels: un segnaposto per persona in tutte le righe (r.1414)", () => {
+  it("due canali con gli stessi due sconosciuti, in ordine diverso: gli stessi segnaposti", async () => {
+    const { strangersTo, viewerWithStrangers } = await import("../../test/strangers");
+    const { visibleProjectIds } = await import("../../data/store");
+    const { grantProjectPermission } = await import("../../data/viewer");
+    const base = state.channels.find((c) => c.id === "ch-aud-pricing")!;
+    const viewer = viewerWithStrangers(2);
+    if (!visibleProjectIds(viewer).has("prj-aud")) return expect.fail(`${viewer} non vede AUD`);
+    const [a, b] = strangersTo(viewer, 2);
+    grantProjectPermission(viewer, "prj-aud", "chat.channels.manage");
+    base.memberIds = [...base.memberIds.filter((id) => id !== viewer), a!, b!];
+    state.channels.push({ ...structuredClone(base), id: "ch-aud-pricing-2", name: "pricing-2", memberIds: [b!, a!] });
+    setSessionPersonId(viewer);
+    const rows = await api.chat.listChannels();
+    const one = rows.find((r) => r.id === "ch-aud-pricing")!;
+    const two = rows.find((r) => r.id === "ch-aud-pricing-2")!;
+    const hiddenOf = (ids: string[]) => ids.filter((id) => id.startsWith("hidden-"));
+    expect(hiddenOf(one.memberIds)).toEqual(["hidden-1", "hidden-2"]);
+    expect(hiddenOf(two.memberIds)).toEqual(["hidden-2", "hidden-1"]);
+  });
+});

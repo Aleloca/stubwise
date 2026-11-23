@@ -1,4 +1,5 @@
 import { customerStatus, type CustomerStatus } from "../../domain/releases/customerStatus";
+import { personMasker } from "../access/hidden";
 import type { ReleaseStatusKind } from "../../domain/releases/releaseStatus";
 import { supportState, type SupportState } from "../../domain/support/state";
 import { publishAlert } from "../alerts/publish";
@@ -140,7 +141,12 @@ export interface SupportConversationView extends SupportConversation {
   canMarkNotConcluded: boolean;
 }
 
-export function conversationView(me: string, c: SupportConversation): SupportConversationView {
+export function conversationView(
+  me: string,
+  c: SupportConversation,
+  // R.1414 (lotto 3): il masker della risposta (un elenco ne ha uno solo).
+  mask: ReturnType<typeof personMasker> = personMasker(me),
+): SupportConversationView {
   const manage = holds(me, "support.manage", c.projectId);
   const codeOf = (id: string | undefined) => {
     const other = id ? state.supportConversations.find((x) => x.id === id) : undefined;
@@ -149,6 +155,8 @@ export function conversationView(me: string, c: SupportConversation): SupportCon
   const st = supportState(c);
   const req = requestOf(c);
   const rest = structuredClone(c);
+  rest.messages = rest.messages.map((m) => ({ ...m, authorId: m.authorId === null ? null : mask(m.authorId) }));
+  if (rest.triage) rest.triage = { ...rest.triage, byUserId: rest.triage.byUserId === null ? null : mask(rest.triage.byUserId) };
   return {
     ...rest,
     projectCode: projectCodeOf(c.projectId),

@@ -1,3 +1,4 @@
+import { isHiddenId } from "../../data/access/hidden";
 import {
   DndContext,
   DragOverlay,
@@ -262,7 +263,11 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
   }, []);
 
   const personName = useCallback(
-    (id: string | null) => people.data?.find((p) => p.id === id)?.name ?? t("taskUi.unassigned"),
+    (id: string | null) =>
+      // R.1414: un segnaposto è una persona che chi guarda non conosce.
+      isHiddenId(id)
+        ? t("planning.someone")
+        : (people.data?.find((p) => p.id === id)?.name ?? t("taskUi.unassigned")),
     [people.data, t],
   );
 
@@ -278,7 +283,9 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
         : t("planning.moved", { code: task.code, person: personName(assigneeId), week: shortWeek(week) });
     setAnnouncement(moved);
     planTask.mutate(
-      { id: task.id, assigneeId, week },
+      // R.1414 (scelta A di 46): un segnaposto non si scrive mai; omesso,
+      // l'assegnatario resta quello che è.
+      { id: task.id, ...(isHiddenId(assigneeId) ? {} : { assigneeId }), week },
       {
         onSuccess: (updated) => {
           // Assegnata a Claude ma il lavoro non è partito: la frase del codice.
@@ -289,12 +296,15 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
             week === null
               ? t("planning.toastToPool", { code: task.code })
               : t("planning.toastPlanned", { code: task.code, person: personName(assigneeId), week: shortWeek(week) }),
-            {
-              action: {
-                label: t("planning.undo"),
-                run: () => plan({ ...task, assigneeId, plannedWeek: week }, previous.assigneeId, previous.week, { undo: true }),
-              },
-            },
+            // Nessun «Undo» verso un assegnatario che chi guarda non conosce.
+            isHiddenId(previous.assigneeId) && previous.assigneeId !== assigneeId
+              ? {}
+              : {
+                  action: {
+                    label: t("planning.undo"),
+                    run: () => plan({ ...task, assigneeId, plannedWeek: week }, previous.assigneeId, previous.week, { undo: true }),
+                  },
+                },
           );
         },
         onError: (error) => {

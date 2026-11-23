@@ -1,4 +1,5 @@
 import { fold, highlightParts, MIN_QUERY, searchWords } from "../../pages/chat/search";
+import { personMasker } from "../access/hidden";
 import { PEOPLE } from "../seed/people";
 import { copy, gate, now, state } from "../store";
 import type {
@@ -52,7 +53,12 @@ export function drivePermissions(me: string, file: DriveFile): DriveFilePermissi
 
 const opensOfFile = (fileId: string) => state.driveOpens.filter((o) => o.fileId === fileId);
 
-export function driveRow(me: string, file: DriveFile): DriveFileRow {
+export function driveRow(
+  me: string,
+  file: DriveFile,
+  // R.1414 (lotto 3): il masker della risposta (un elenco ne ha uno solo).
+  mask: ReturnType<typeof personMasker> = personMasker(me),
+): DriveFileRow {
   // La riga non porta il testo estratto: lo leggono solo ricerca e Claude.
   const rest: Omit<DriveFile, "text"> & { text?: string } = copy(file);
   delete rest.text;
@@ -66,7 +72,7 @@ export function driveRow(me: string, file: DriveFile): DriveFileRow {
     lastOpenedAt: opens.reduce<string | null>((m, o) => (m === null || o.at > m ? o.at : m), null),
     summaryLine: summaryLineOf(file.summary),
     folder: link ? { id: link.id, name: link.name, status: link.status } : null,
-    hiddenBy: hidden ? { ...hidden } : null,
+    hiddenBy: hidden ? { ...hidden, personId: mask(hidden.personId) } : null,
     permissions: drivePermissions(me, file),
   };
 }
@@ -94,6 +100,7 @@ export async function listDriveFiles(filters: DriveFilters): Promise<DriveFileRo
   const me = await gate("drive.listDriveFiles");
   startSeedWork();
   const hidden = filters.hidden === true;
+  const mask = personMasker(me);
   return state.driveFiles
     .filter(
       (f) =>
@@ -104,7 +111,7 @@ export async function listDriveFiles(filters: DriveFilters): Promise<DriveFileRo
         (filters.source === undefined || f.source === filters.source) &&
         (filters.addedById === undefined || f.addedById === filters.addedById),
     )
-    .map((f) => driveRow(me, f))
+    .map((f) => driveRow(me, f, mask))
     .sort(SORTS[filters.sort]);
 }
 

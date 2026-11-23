@@ -104,6 +104,16 @@ describe("le scritture della pianificazione", () => {
     expect(task).toMatchObject({ assigneeId: OTHER, plannedWeek: WEEK });
   });
 
+  // Registro, A11 r.1414 (scelta A di 46): senza `assigneeId` il corpo non lo
+  // porta (né un segnaposto né un null): per il server è «invariato».
+  it("planTask senza assigneeId manda solo la settimana", async () => {
+    const { seen } = server({
+      [`POST /api/tasks/${TICKET_ID}/plan`]: { body: serverTask({ assigneeId: OTHER, plannedWeek: null }) },
+    });
+    await planTask(TICKET_ID, { week: null });
+    expect(seen.at(-1)!.body).toEqual({ week: null });
+  });
+
   it("la settimana entra in updateTask e in createTask", async () => {
     const { seen } = server({
       [`PATCH /api/tasks/${TICKET_ID}`]: { body: serverTask({ plannedWeek: WEEK }) },

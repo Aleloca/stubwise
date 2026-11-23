@@ -3,7 +3,7 @@ import { changelog, failNext, resetApi, setLatency } from "../api";
 import "../admin/changeTypes";
 import { accessState, isFullAdmin, roleIdOf, writeAccess } from "../access/index";
 import { visiblePeopleFor } from "../access/whoCan";
-import { strangersTo } from "../../test/strangers";
+import { strangersTo, withoutChannels } from "../../test/strangers";
 import { setSessionPersonId } from "../session";
 import { seedChangelog } from "../seed/changelog";
 import { PEOPLE } from "../seed/people";
@@ -357,7 +357,52 @@ describe("il nome dell'autore della voce (r.1414)", () => {
     expect(JSON.stringify(entry)).not.toContain(who.id);
   });
 
+  // Revisione del lotto 2 (Critical 1): gli id dentro `params` (le liste
+  // `added`/`removed` dei reparti) passano dal masker come gli altri campi.
+  it("i `params` coi id delle persone: segnaposti, né id né nome di chi non si conosce", async () => {
+    const who = outsider();
+    grantInstancePermission("p-laura", "departments.manage");
+    recordChange({
+      kind: "department.members_changed",
+      actorId: "p-laura",
+      projectId: null,
+      object: { type: "department", id: "dep-x", label: "Design" },
+      before: null,
+      after: null,
+      params: { added: `p-marco,${who.id}`, removed: who.id },
+    });
+    as("p-laura");
+    const entry = (await changelog.listChanges()).find((e) => e.kind === "department.members_changed")!;
+    expect(entry.params.added).toBe("p-marco,hidden-1");
+    expect(entry.params.removed).toBe("hidden-1");
+    expect(JSON.stringify(entry)).not.toContain(who.id);
+    expect(JSON.stringify(entry)).not.toContain(who.name);
+  });
+
+  // Revisione del lotto 2 (minor): una voce su una persona nascosta non dice
+  // nel diff i valori che la identificano (lo username git, quello Bitbucket).
+  it("il diff di una persona nascosta: nessun valore che la identifica", async () => {
+    const who = outsider();
+    grantInstancePermission("p-laura", "users.manage");
+    for (const kind of ["person.git_identity_linked", "person.bitbucket_username_set"]) {
+      recordChange({
+        kind,
+        actorId: "p-laura",
+        projectId: null,
+        object: { type: "person", id: who.id, label: who.name },
+        before: null,
+        after: "kevin.secret",
+      });
+    }
+    as("p-laura");
+    const entries = (await changelog.listChanges()).filter((e) => e.kind.startsWith("person."));
+    expect(entries.length).toBeGreaterThanOrEqual(2);
+    expect(JSON.stringify(entries)).not.toContain("kevin.secret");
+  });
+
   it("un ex membro del progetto resta col suo nome", async () => {
+    // Revisione del lotto 2 (I3): fuori dai canali leggibili, lo fa conoscere solo il progetto.
+    withoutChannels("p-laura", ["p-marco"]);
     const marco = PEOPLE.find((p) => p.id === "p-marco")!;
     expect(accessState().memberships.some((m) => m.personId === marco.id && m.projectId === ACQ)).toBe(true);
     projectEntry(ACQ, marco.id);
@@ -372,6 +417,8 @@ describe("il nome dell'autore della voce (r.1414)", () => {
   });
 
   it("un membro disattivato resta col suo nome", async () => {
+    // Revisione del lotto 2 (I3): fuori dai canali leggibili, lo fa conoscere solo il progetto.
+    withoutChannels("p-laura", ["p-marco"]);
     const marco = PEOPLE.find((p) => p.id === "p-marco")!;
     projectEntry(ACQ, marco.id);
     writeAccess((s) => {
@@ -487,17 +534,13 @@ describe("una voce non si tocca", () => {
 });
 
 const nameOf = (id: string) => PEOPLE.find((p) => p.id === id)!.name;
-const isActiveId = (id: string) =>
-  accessState().people.some((p) => p.personId === id && p.status === "active");
 
 describe("R-G5 nelle persone di una voce", () => {
   it("nel prima/dopo chi non si vede non c'è: né il nome né un conteggio", async () => {
-    // Un lettore che non è full admin, e una persona attiva che non vede.
-    const humans = PEOPLE.filter((p) => !p.isClaude).map((p) => p.id);
-    const unseenBy = (id: string) =>
-      humans.filter((x) => isActiveId(x) && !visiblePeopleFor(id).has(x));
-    const viewer = humans.find((id) => isActiveId(id) && !isFullAdmin(id) && unseenBy(id).length)!;
-    const hidden = unseenBy(viewer)[0]!;
+    // Un lettore che non è full admin e una persona che non conosce (r.1414:
+    // si costruisce, nel seme quasi tutti si conoscono), e una che conosce.
+    const viewer = "p-laura";
+    const hidden = strangersTo(viewer)[0]!;
     const seen = [...visiblePeopleFor(viewer)].find((x) => x !== viewer)!;
     grantInstancePermission(viewer, "changelog.view");
     recordChange({

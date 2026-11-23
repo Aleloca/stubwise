@@ -1853,6 +1853,7 @@
     "short": "S{{n}}"
   },
   "planning": {
+    "someone": "Qualcuno",
     "title": "Pianificazione",
     "loadTruncated": "Alcune task mancano dal carico.",
     "poolTruncated": "Alcune task mancano da «Da pianificare».",
@@ -12743,7 +12744,8 @@
       "filter": "Fatte con Claude",
       "undid": "Ha annullato: {{sentence}}",
       "filtersCleared": "Filtri tolti per mostrare la modifica.",
-      "undoneGone": "Quella modifica non è più nel registro."
+      "undoneGone": "Quella modifica non è più nel registro.",
+      "undoneFailed": "Non è stato possibile leggere le modifiche più vecchie. Riprova più tardi."
     }
   },
   "usage": {

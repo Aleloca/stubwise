@@ -285,12 +285,19 @@ export async function getPerson(personId: string): Promise<PersonDetail> {
         projectId: t.projectId,
         // Mai Claude (decisione del maintainer, area 9): assegnargli una task
         // avvia il lavoro, e la disattivazione non lo fa.
-        reassignTo: (state.projectsById.get(t.projectId)?.memberIds ?? []).filter(
-          (id) => id !== personId && id !== CLAUDE_ID && isActive(id),
+        reassignTo: reassignableFor(t.projectId, personId),
+        reassignNames: Object.fromEntries(
+          reassignableFor(t.projectId, personId).map((id) => [id, PEOPLE.find((p) => p.id === id)?.name ?? id]),
         ),
       })),
   };
 }
+
+/** Chi può prendere le task di `personId` in un progetto: i membri attivi, mai Claude. */
+const reassignableFor = (projectId: string, personId: string): string[] =>
+  (state.projectsById.get(projectId)?.memberIds ?? []).filter(
+    (id) => id !== personId && id !== CLAUDE_ID && isActive(id),
+  );
 
 /** Il registro della sicurezza di una persona (`users.manage`), più recenti prima. */
 export async function listSecurityEvents(

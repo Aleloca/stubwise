@@ -52,7 +52,8 @@ export function PrRow({
     reason ? null : checksWord(pr, t),
     onStaging ? t("releases.prLine.onStaging") : null,
   ].filter((x): x is string => !!x);
-  const authorName = author?.name ?? pr.authorName;
+  // R.1414: un autore segnaposto non ha nome (nemmeno quello git): «Someone».
+  const authorName = author?.name ?? (pr.authorName || t("chat.message.someone"));
   const label = [
     prCode(pr),
     pr.title,

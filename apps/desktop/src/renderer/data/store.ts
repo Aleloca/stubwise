@@ -2169,9 +2169,44 @@ export function activityOf(c: Conversation): ConversationActivity {
  * ridotti a quelli che vede (un progetto invisibile non si nomina, come un
  * oggetto che non esiste).
  */
-export function conversationRow(personId: string, c: Conversation): ConversationRow {
+/**
+ * Il segnaposto dei progetti per UNA risposta (registro, A11 r.1414): un
+ * progetto che `personId` non vede (né legge da archiviato) diventa
+ * `hidden-project-<n>`, numerato nell'ordine in cui compare, lo stesso per
+ * tutta la risposta; gli altri restano com'erano.
+ */
+export function projectMasker(personId: string): (id: string) => string {
+  const readable = new Set([...visibleProjectIds(personId), ...archivedProjectIdsFor(personId)]);
+  const hidden = new Map<string, string>();
+  return (id) => {
+    if (readable.has(id)) return id;
+    let placeholder = hidden.get(id);
+    if (!placeholder) {
+      placeholder = `hidden-project-${hidden.size + 1}`;
+      hidden.set(id, placeholder);
+    }
+    return placeholder;
+  };
+}
+
+export function conversationRow(
+  personId: string,
+  c: Conversation,
+  // R.1414 (lotto 3): il masker delle persone della risposta (lo passa `api.ts`:
+  // qui non si importa, `access/hidden` importa questo modulo).
+  maskPerson: (id: string) => string = (id) => id,
+  maskProject: (id: string) => string = projectMasker(personId),
+): ConversationRow {
   const visible = visibleProjectIds(personId);
   const row = copy(c);
+  row.ownerId = maskPerson(c.ownerId);
+  if (row.publishedById) row.publishedById = maskPerson(row.publishedById);
+  // R.1414: un progetto che chi guarda non vede (un'analisi di server letta
+  // con `monitor.manage`) non dice il suo id, né quello della sua task.
+  if (row.projectId !== null && maskProject(row.projectId) !== row.projectId) {
+    row.projectId = maskProject(row.projectId);
+    row.taskId = null;
+  }
   const privateTail = hasPrivateTail(personId, c);
   if (c.ownerId !== personId) {
     // Chi non è l'autore di una pubblica vede solo i progetti confermati

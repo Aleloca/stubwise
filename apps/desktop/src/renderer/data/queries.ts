@@ -10,6 +10,7 @@ import {
 } from "@tanstack/react-query";
 import { placeEvent, settleSaved } from "./calendarCache";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { subscribeAccess } from "./access/state";
 import * as api from "@backend/api";
 import { isAppBuild } from "./build";
 import { automationAvailability, featureIntegrated } from "./integration";
@@ -373,6 +374,14 @@ export function useDepartments() {
 
 export function usePeople() {
   const me = useSessionPersonId();
+  const client = useQueryClient();
+  // Revisione del lotto 2 (minor, r.1414): l'elenco è di chi guarda conosce,
+  // e una scrittura degli accessi (un membro entrato, un reparto) lo cambia:
+  // allora si rilegge, anche fuori da Amministrazione.
+  useEffect(
+    () => subscribeAccess(() => void client.invalidateQueries({ queryKey: queryKeys.people(me) })),
+    [client, me],
+  );
   return useQuery({ queryKey: queryKeys.people(me), queryFn: api.listPeople });
 }
 
@@ -1252,11 +1261,19 @@ export function useBulkUpdateTasks() {
 
 export function usePlanTask() {
   return useOptimistic(
-    ({ id, ...plan }: { id: string; assigneeId: string | null; week: string | null }) =>
+    // R.1414: `assigneeId` omesso = l'assegnatario resta (la pagina lo omette col segnaposto).
+    ({ id, ...plan }: { id: string; assigneeId?: string | null; week: string | null }) =>
       api.planTask(id, plan),
     ["tasks", "task"],
     (vars, area, old) =>
-      patchTasks([vars.id], { assigneeId: vars.assigneeId, plannedWeek: vars.week }, area, old),
+      patchTasks(
+        [vars.id],
+        vars.assigneeId === undefined
+          ? { plannedWeek: vars.week }
+          : { assigneeId: vars.assigneeId, plannedWeek: vars.week },
+        area,
+        old,
+      ),
     TASK_AREAS,
   );
 }

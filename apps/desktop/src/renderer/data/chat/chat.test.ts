@@ -15,6 +15,7 @@ import {
   whenIdle,
 } from "../api";
 import { queryKeys } from "../queries";
+import { resolveCitations } from "../api";
 import { strangersTo, viewerWithStrangers } from "../../test/strangers";
 import { PEOPLE } from "../seed/people";
 import { setSessionPersonId } from "../session";
@@ -1088,6 +1089,21 @@ describe("chat: revisione finale dell'area", () => {
       expect(JSON.stringify(page)).not.toContain(stranger!);
     });
 
+    // Revisione del lotto 2, I5: le citazioni di tipo persona passano dal
+    // masker della risposta, e `resolveCitations` segue «chi si conosce».
+    it("una citazione di una persona che non si conosce: segnaposto, e la scheda è nascosta", async () => {
+      as("p-laura");
+      const sent = await chat.sendMessage("ch-announcements", { text: "Ask her" });
+      const [who] = strangersTo("p-laura");
+      state.chatMessages.find((m) => m.id === sent.id)!.citations = [{ kind: "person", id: who! }];
+      const page = (await chat.listMessages("ch-announcements"))!;
+      const mine = page.messages.find((m) => m.id === sent.id)!;
+      expect(mine.citations).toEqual([{ kind: "person", id: "hidden-1" }]);
+      expect(JSON.stringify(page)).not.toContain(who!);
+      const [view] = await resolveCitations([{ kind: "person", id: who! }]);
+      expect(view).toMatchObject({ visible: false, name: null, personId: null });
+    });
+
     it("un segnaposto per persona, lo stesso in tutta la risposta (pagina e thread)", async () => {
       const viewer = viewerWithStrangers(2);
       as(viewer);
@@ -1169,6 +1185,20 @@ describe("chat: revisione finale dell'area", () => {
       as("p-giulia");
       expect(await cards(group.id)).toEqual([]);
       expect(await cards(direct.id)).toHaveLength(1);
+    });
+
+    // Revisione del lotto 2 (minor): una modifica che toglie @channel non fa
+    // dire alla card «mentioned you»: resta il gruppo che c'era alla
+    // creazione, salvato nella card (vero solo in quel momento).
+    it("una modifica che toglie @channel: la card dice ancora il gruppo", async () => {
+      as("p-giulia");
+      await chat.setNotifyLevel("ch-mkx-grafica", "all");
+      as("p-chiara");
+      const sent = await chat.sendMessage("ch-mkx-grafica", { text: "@channel new palette" });
+      await chat.editMessage(sent.id, "new palette");
+      as("p-giulia");
+      const [card] = await cards(sent.id);
+      expect(card!.title).toMatch(/ mentioned @channel in /);
     });
 
     it("nominata a nome E col gruppo: una card sola, quella a nome", async () => {

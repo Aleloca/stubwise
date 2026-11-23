@@ -403,7 +403,9 @@ punti lato server sta nell'inventario consegnato a 72 (sotto).
 
 - **Chi si conosce** — un predicato SOLO, più largo di chi si vede per
   scegliere o per «Who can?»: le persone che sono o sono state membri di un
-  progetto che chi guarda vede (le attive, le DISATTIVATE e gli EX membri:
+  progetto che chi guarda vede — compreso un progetto ARCHIVIATO che chi
+  guarda può leggere (decisione di 46, revisione del lotto 2) — (le attive,
+  le DISATTIVATE e gli EX membri:
   restano «Nome (deactivated)»), più i full admin, più sé stesso; e (seconda
   decisione del maintainer, 23 nov 2026: «chi scrive in un canale che vedo è
   conosciuto») i MEMBRI e gli AUTORI dei canali della Chat che chi guarda
@@ -422,6 +424,13 @@ punti lato server sta nell'inventario consegnato a 72 (sotto).
   can?»): sono due domande diverse.
 - **Fuori dalla regola**: la directory di Amministrazione → People (chi ha
   il permesso vede tutti, per costruzione).
+- **Eccezione dichiarata: gli avvisi di sicurezza** (`security.*`, solo
+  all'interessato; decisione di 46, revisione del lotto 2). Il nome di chi ha
+  agito sul TUO account (un reset, un cambio d'email, un secondo fattore
+  azzerato) resta anche se non lo conosci: è trasparenza sul proprio
+  account. Per ogni altra card il nome di chi ha agito non si scrive nel
+  testo salvato, o non esce a chi non lo conosce: il testo si compone a
+  lettura da `actorName` / `memberName` («Someone»).
 - **Il segnaposto**: al posto dell'id di una persona che chi guarda non
   conosce, `hidden-<n>`, dove `<n>` è un intero da 1 assegnato nell'ordine
   in cui le persone nascoste compaiono nella RISPOSTA. Stabile dentro la
@@ -435,9 +444,12 @@ punti lato server sta nell'inventario consegnato a 72 (sotto).
 - **Come si mostra**: un segnaposto non si risolve con l'elenco delle
   persone; il nome è `null` e la pagina scrive «Someone» / «Qualcuno»
   (avatar senza iniziali, «?»). Un segnaposto non è mai cliccabile.
-- **Un client non manda mai un segnaposto al server.** Una scrittura che
-  riceve un `hidden-…` dove si aspetta un id risponde 400 come per un id
-  non valido; il client non costruisce scritture da quei campi.
+- **Un client non manda mai un segnaposto al server.** NESSUNA scrittura
+  accetta un `hidden-…`: risponde 400 come per un id non valido. E un campo
+  persona OMESSO in una scrittura parziale resta INVARIATO (scelta A di 46,
+  23 nov 2026): chi ha solo il segnaposto dell'assegnatario sposta una task
+  di settimana senza mandarlo (`POST /api/tasks/:id/plan` con la sola
+  `week`), e non si offre un «Undo» verso un assegnatario segnaposto.
 - **Chi guarda resta sé stesso**: il proprio id non diventa mai un
   segnaposto (servono i confronti «è mio»).
 - **Lato server** l'inventario dei punti (la colonna R/server: l'adattatore

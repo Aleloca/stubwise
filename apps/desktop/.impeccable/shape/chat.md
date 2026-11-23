@@ -269,4 +269,8 @@ Decisione del maintainer: `@channel` e `@reparto` AVVISANO. Supera la R-G6
 - **Thread**: chi è avvisato dal gruppo NON comincia a seguire il thread
   (lo segue solo chi è nominato a nome).
 - **Modifica di un messaggio**: come le menzioni a nome, avvisa solo alla
-  creazione (il limite accettato del registro vale anche qui).
+  creazione (il limite accettato del registro vale anche qui). Una modifica
+  che TOGLIE il gruppo non fa dire alla card «mentioned you»: la card
+  ricorda il gruppo della creazione (`chatGroup`, vero solo in quel
+  momento) e la lettura lo usa quando il messaggio di adesso non nomina più
+  chi legge (revisione del lotto 2; scelta di 94, da allineare sul server).

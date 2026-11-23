@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { strangersTo } from "../test/strangers";
+import { strangersTo, withoutChannels } from "../test/strangers";
 import { writeAccess } from "./access/index";
 import { listNotifications, resetApi, setLatency } from "./api";
 import { PEOPLE } from "./seed/people";
@@ -46,6 +46,8 @@ describe("l'inbox senza id di chi non si conosce (r.1414)", () => {
   });
 
   it("chi ha agito, disattivato in un progetto visibile: resta col suo nome", async () => {
+    // Revisione del lotto 2 (I3): fuori dai canali leggibili, lo fa conoscere solo il progetto.
+    withoutChannels(LAURA, ["p-marco"]);
     const { raw } = await lauraCard();
     raw.actorId = "p-marco";
     writeAccess((s) => {
@@ -56,5 +58,78 @@ describe("l'inbox senza id di chi non si conosce (r.1414)", () => {
     setSessionPersonId(LAURA);
     const out = (await listNotifications()).find((n) => n.id === raw.id)!;
     expect(out.actorName).toBe(nameOf("p-marco"));
+  });
+});
+
+// Revisione del lotto 2, I6: il nome di chi ha agito stava già nel testo
+// salvato (`member.added`: «<Nome> added you…»). Chi non lo conosce non lo
+// riceve: la pagina compone il testo da `actorName` («Someone»). Gli avvisi
+// di sicurezza (`security.*`, solo all'interessato) sono l'eccezione: il nome
+// di chi ha agito sul tuo account resta (decisione di 46).
+describe("il testo salvato col nome di chi ha agito (I6)", () => {
+  it("member.added da uno sconosciuto: né il nome nel testo né l'id", async () => {
+    const [who] = strangersTo(LAURA);
+    state.notifications.push({
+      id: "n-member-added-x",
+      kind: "member.added",
+      projectId: "prj-acq",
+      objectCode: "ACQ",
+      departmentId: null,
+      recipientIds: [LAURA],
+      title: "You've been added to ACQ as Developer",
+      body: `${nameOf(who!)} added you to ACQ as Developer.`,
+      createdAt: "2026-11-22T10:00:00Z",
+      read: false,
+      archived: false,
+      snoozedUntil: null,
+      link: "#/p/ACQ/overview",
+      actorId: who!,
+    } as (typeof state.notifications)[number]);
+    setSessionPersonId(LAURA);
+    const out = (await listNotifications()).find((n) => n.id === "n-member-added-x")!;
+    expect(out).toBeDefined();
+    expect(out.actorName).toBeNull();
+    expect(JSON.stringify(out)).not.toContain(nameOf(who!));
+    expect(JSON.stringify(out)).not.toContain(who!);
+  });
+
+  it("un avviso di sicurezza tiene il nome di chi ha agito sul tuo account", async () => {
+    const { publishSecurityAlert } = await import("./me/securityLog");
+    const [who] = strangersTo(LAURA);
+    publishSecurityAlert(
+      LAURA,
+      "Sign-in email changed",
+      `${nameOf(who!)} changed your sign-in email.`,
+    );
+    setSessionPersonId(LAURA);
+    const out = (await listNotifications()).find((n) => n.title === "Sign-in email changed")!;
+    expect(out).toBeDefined();
+    expect(out.body).toContain(nameOf(who!));
+  });
+});
+
+// Revisione del lotto 2 (minor): nella stessa card non due predicati. La card
+// di Claude sulla doc dice per chi ha agito con «chi si conosce»: un membro
+// disattivato di ACQ ha il suo nome (col predicato stretto era null).
+describe("la card di Claude sulla doc: per conto di un disattivato (r.1414)", () => {
+  it("«per conto di» Marco disattivato: il nome resta", async () => {
+    setSessionPersonId(LAURA);
+    const card = (await listNotifications()).find(
+      (n) => n.kind === "product_doc.updated" && n.productCard,
+    )!;
+    expect(card).toBeDefined();
+    const raw = state.notifications.find((n) => n.id === card.id)!;
+    for (const id of raw.productUpdate!.revisionIds) {
+      const r = state.productRevisions.find((x) => x.id === id);
+      if (r) r.actorId = "p-marco";
+    }
+    raw.productUpdate!.sources = raw.productUpdate!.sources.slice(0, 1);
+    writeAccess((s) => {
+      const row = s.people.find((p) => p.personId === "p-marco")!;
+      row.status = "deactivated";
+      row.deactivatedAt = "2026-11-20T10:00:00Z";
+    });
+    const out = (await listNotifications()).find((n) => n.id === card.id)!;
+    expect(out.productCard!.onBehalfOfName).toBe(nameOf("p-marco"));
   });
 });

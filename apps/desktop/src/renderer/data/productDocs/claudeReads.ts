@@ -1,4 +1,4 @@
-import { visiblePeopleFor } from "../access/whoCan";
+import { knownPeopleFor } from "../access/whoCan";
 import { docsAccess } from "../docs/reads";
 import { heldJobs } from "../instance/queue";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
@@ -109,7 +109,7 @@ export function presentProductUpdate(me: string, out: AppNotification): void {
   out.link = updateLink(page, ref.revisionIds);
   out.productPageTitle = page.title;
   const revisions = ref.revisionIds.flatMap((id) => state.productRevisions.filter((r) => r.id === id));
-  const people = visiblePeopleFor(me);
+  const people = knownPeopleFor(me);
   const persons = [...new Set(revisions.map((r) => r.actorId))].filter((id) => id !== CLAUDE_ID);
   const onBehalf = ref.sources.length === 1 && persons.length === 1 ? persons[0]! : null;
   out.undoneByName = undoneByOf(revisions, people);
@@ -152,7 +152,7 @@ export function presentProductQuestion(me: string, out: AppNotification): void {
   out.objectCode = page.code;
   out.link = threadLink(page, comment.id);
   out.productPageTitle = page.title;
-  const people = visiblePeopleFor(me);
+  const people = knownPeopleFor(me);
   const seen = (id: string | null | undefined) => (id && people.has(id) ? nameOf(id) : null);
   out.productCard = {
     sources: [sourceViewOf(me, q.sourceRef, page.projectId)],

@@ -1,5 +1,5 @@
 import { anchorIdsOf, isTextBlock } from "../../domain/productDocs/blocks";
-import { visiblePeopleFor } from "../access/whoCan";
+import { knownPeopleFor } from "../access/whoCan";
 import { docsAccess } from "../docs/reads";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { gate, nextSeq, now, state } from "../store";
@@ -75,7 +75,7 @@ const canEdit = (me: string, projectId: string): boolean =>
 
 /** Una persona come la nomina `me`: Claude sempre, le altre se le vede. */
 const seenBy = (me: string) => {
-  const people = visiblePeopleFor(me);
+  const people = knownPeopleFor(me);
   return (id: string | null | undefined): string | null =>
     id && (id === CLAUDE_ID || people.has(id)) ? id : null;
 };

@@ -694,3 +694,34 @@ describe("ChannelView: chi scrive (r.1414)", () => {
     expect(within(item).getByText("Someone")).toBeInTheDocument();
   });
 });
+
+// Revisione del lotto 2 (minor, r.1414): «Someone» dove la Chat nomina una
+// persona (reazioni, chi deve rispondere), e un segnaposto non si fonde mai col
+// messaggio prima (masker diversi fra pagine: due `hidden-1` possono essere
+// due persone diverse).
+describe("ChannelView: i segnaposti oltre l'autore (r.1414)", () => {
+  it("due messaggi di fila di `hidden-1`: ognuno col suo «Someone»; reazione e domanda dicono «Someone»", async () => {
+    const a = put({ id: "m-h1", channelId: "ch-announcements", createdAt: "2026-11-21T09:00:00Z", authorId: "hidden-1", text: "First" });
+    const b = put({
+      id: "m-h2",
+      channelId: "ch-announcements",
+      createdAt: "2026-11-21T09:01:00Z",
+      authorId: "hidden-1",
+      text: "Second?",
+      reactions: [{ emoji: "👍", personIds: ["hidden-2"] }],
+      asksReplyOf: ["hidden-2"],
+    });
+    renderWithData(<Harness id="ch-announcements" />, { personId: "p-laura" });
+    const itemOf = (id: string) =>
+      waitFor(() => {
+        const el = flow().querySelector(`[data-message="${id}"]`);
+        expect(el).not.toBeNull();
+        return el as HTMLElement;
+      });
+    expect(within(await itemOf(a.id)).getByText("Someone")).toBeInTheDocument();
+    const second = await itemOf(b.id);
+    expect(within(second).getAllByText("Someone").length).toBeGreaterThan(0);
+    expect(second.textContent).toContain("Asks Someone for a reply");
+    expect(second.innerHTML).toContain("Someone reacted with 👍");
+  });
+});

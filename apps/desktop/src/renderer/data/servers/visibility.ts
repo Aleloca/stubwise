@@ -1,4 +1,5 @@
 import { serverHealth, serverWork, type ServerWork } from "../../domain/servers/health";
+import { personMasker } from "../access/hidden";
 import { downsample } from "../../domain/servers/metrics";
 import { fixStartBlock, type FixStartBlock } from "../../domain/servers/fixGate";
 import { alertProjectsOf, serverInProject } from "../../domain/servers/projects";
@@ -391,15 +392,21 @@ function analysisSessionOf(me: string, a: ServerAnalysis): string | null {
     : null;
 }
 
-export function analysisView(me: string, a: ServerAnalysis): ServerAnalysisView {
+export function analysisView(
+  me: string,
+  a: ServerAnalysis,
+  mask: ReturnType<typeof personMasker> = personMasker(me),
+): ServerAnalysisView {
   const at = a.attribution;
   const who = a.startedBy ? PEOPLE.find((p) => p.id === a.startedBy) : undefined;
+  // R.1414 (lotto 3): chi l'ha avviata, se chi guarda non lo conosce: segnaposto, senza nome.
+  const hiddenWho = who && mask(who.id) !== who.id ? mask(who.id) : null;
   return {
     id: a.id,
     serverCode: a.serverCode,
     episodeId: a.episodeId,
     outcome: a.outcome,
-    startedBy: who ? { id: who.id, name: who.name } : null,
+    startedBy: hiddenWho ? { id: hiddenWho, name: "" } : who ? { id: who.id, name: who.name } : null,
     startedAt: a.startedAt,
     endedAt: a.endedAt,
     canViewDiagnosis: canViewDiagnosisOf(me, a),

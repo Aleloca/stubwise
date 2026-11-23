@@ -143,7 +143,7 @@ export async function listProductRevisions(
   if (access === "forbidden") throw new Error("forbidden");
   if (access === "none") return [];
   const known = knownPeopleFor(me);
-  const mask = personMasker(me);
+  const mask = personMasker(me, known);
   return state.productRevisions
     .filter((r) => r.pageId === pageId && (before === undefined || r.lastSeq < before))
     .sort((a, b) => b.lastSeq - a.lastSeq)

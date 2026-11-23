@@ -1,4 +1,5 @@
 import { featureIntegrated } from "../../data/integration";
+import { nameOrSomeone } from "./someone";
 import { Link, useNavigate, useRouter, useRouterState, useSearch } from "@tanstack/react-router";
 import {
   Fragment,
@@ -1022,8 +1023,8 @@ function CitationToken({ refItem }: { refItem: CitationRef }) {
   );
 }
 
-function authorName(m: ChatMessageView, people: Person[] | undefined, system: string): string {
-  return m.authorId ? (people?.find((p) => p.id === m.authorId)?.name ?? "") : system;
+function authorName(m: ChatMessageView, people: Person[] | undefined, system: string, someone: string): string {
+  return m.authorId ? nameOrSomeone(people, m.authorId, someone) : system;
 }
 
 function Result({
@@ -1047,7 +1048,7 @@ function Result({
   const m = hit.message;
   const system = t("chat.views.system");
   const author = people?.find((p) => p.id === m.authorId);
-  const name = authorName(m, people, system);
+  const name = authorName(m, people, system, t("chat.message.someone"));
   const text = plainText(m.text);
   const when = formatDateTime(m.createdAt, i18n.language);
   const context = hit.context;
@@ -1084,7 +1085,7 @@ function Result({
           data-result-context
         >
           <span className="sr-only">{t("chat.search.before")} </span>
-          {authorName(context, people, system)}: {plainText(context.text)}
+          {authorName(context, people, system, t("chat.message.someone"))}: {plainText(context.text)}
         </span>
       )}
       <span className="flex min-w-0 gap-3">

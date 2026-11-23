@@ -435,13 +435,17 @@ function view(
     // R.1414: chi non si conosce, segnaposto (uno per la risposta).
     actorId: mask(entry.actorId),
     projectId: entry.projectId,
-    before: entry.before,
-    after: entry.after,
+    // Revisione del lotto 2 (minor): di una persona nascosta nessun valore
+    // che la identifica (lo username git o Bitbucket, il ruolo di prima e dopo).
+    before: hiddenPerson ? null : entry.before,
+    after: hiddenPerson ? null : entry.after,
     ...(entry.via ? { via: entry.via } : {}),
     undoOf,
     ...(undone ? { undoneEntry: view(me, undone, people, visible, known, mask, true) } : {}),
     object: hiddenPerson ? { ...entry.object, id: mask(entry.object.id), label: "" } : { ...entry.object },
-    params: { ...entry.params },
+    // Revisione del lotto 2 (Critical 1): gli id di persona dentro `params`
+    // (le liste `added`/`removed` dei reparti) passano dal masker.
+    params: maskedParams(entry.params, mask),
     templateKey: type.templateKey,
     scope: type.scope,
     group: type.group,
@@ -455,8 +459,28 @@ function view(
       : entry.kind === "model.changed"
         ? `usage.operations.${entry.object.id}`
         : labelKey,
-    diff: diffOf(entry, people),
+    diff: hiddenPerson ? null : diffOf(entry, known),
   };
+}
+
+const PERSON_IDS = new Set(PEOPLE.map((p) => p.id));
+
+/**
+ * I `params` di una voce come li legge chi guarda (r.1414): un valore che è
+ * l'id di una persona, o una lista di id separati da virgole, passa dal
+ * masker della risposta; gli altri restano com'erano.
+ */
+function maskedParams(
+  params: Record<string, string> | undefined,
+  mask: ReturnType<typeof personMasker>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(params ?? {})) {
+    const parts = value.split(",");
+    out[key] =
+      value !== "" && parts.every((id) => PERSON_IDS.has(id)) ? parts.map(mask).join(",") : value;
+  }
+  return out;
 }
 
 /** Le voci, più recenti prima (a parità d'ora, l'ultima scritta prima). */
@@ -472,7 +496,7 @@ function changesReadableBy(me: string, filter: ChangeFilter = {}): ChangeEntryVi
   const visible = readableProjectIds(me);
   const people = me === CLAUDE_ID ? new Set<string>() : visiblePeopleFor(me);
   const known = me === CLAUDE_ID ? new Set<string>() : knownPeopleFor(me);
-  const mask = personMasker(me);
+  const mask = personMasker(me, known);
   return newestFirst(
     state.changelog.filter((e) => readable(me, e, visible) && matchesFilter(e, filter)),
   ).map((e) => view(me, e, people, visible, known, mask));

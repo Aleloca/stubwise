@@ -467,7 +467,7 @@ export function ChangeJournal({
   state: "loading" | "error" | "ready";
   entries: ChangeEntryView[];
   /** «Load more» (decisione del maintainer): c'è finché il server ha altre voci. */
-  more?: { onMore: () => void; loading: boolean } | null;
+  more?: { onMore: () => void; loading: boolean; failed?: boolean } | null;
   onRetry: () => void;
   filtered: boolean;
   onClear: () => void;
@@ -504,11 +504,19 @@ export function ChangeJournal({
   // Dopo aver tolto i filtri si aspetta l'elenco nuovo (`staleEntries`).
   const staleEntries = useRef<ChangeEntryView[] | null>(null);
   const moreLoading = more?.loading ?? false;
+  const moreFailed = more?.failed ?? false;
   const hasMore = more !== null && more !== undefined;
   useEffect(() => {
     if (pending === null || state !== "ready" || present) return;
     if (staleEntries.current === entries) return;
     staleEntries.current = null;
+    if (hasMore && moreFailed) {
+      // Revisione del lotto 2 (minor): la pagina dopo non si legge; ci si
+      // ferma e lo si dice, invece di rilanciare all'infinito.
+      setPending(null);
+      toast.error(t("changelog.via.undoneFailed"));
+      return;
+    }
     if (hasMore) {
       if (!moreLoading) more!.onMore();
       return;
@@ -516,7 +524,7 @@ export function ChangeJournal({
     setPending(null);
     toast.show(t("changelog.via.undoneGone"));
     // `more` cambia identità a ogni render: contano se c'è e se carica.
-  }, [pending, present, state, entries, hasMore, moreLoading]);
+  }, [pending, present, state, entries, hasMore, moreLoading, moreFailed]);
   const reveal = (id: string) => {
     if (!entries.some((e) => e.id === id) && filtered) {
       staleEntries.current = entries;
@@ -588,12 +596,17 @@ export function journalPages(changes: {
   data?: { pages: { entries: ChangeEntryView[] }[] };
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
+  isFetchNextPageError?: boolean;
   fetchNextPage: () => unknown;
 }) {
   return {
     entries: changes.data?.pages.flatMap((p) => p.entries) ?? [],
     more: changes.hasNextPage
-      ? { onMore: () => void changes.fetchNextPage(), loading: changes.isFetchingNextPage }
+      ? {
+          onMore: () => void changes.fetchNextPage(),
+          loading: changes.isFetchingNextPage,
+          failed: changes.isFetchNextPageError ?? false,
+        }
       : null,
   };
 }

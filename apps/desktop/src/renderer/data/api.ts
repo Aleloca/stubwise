@@ -43,6 +43,7 @@ import {
   chatKey,
   conversationPermissions,
   conversationRow,
+  projectMasker,
   copy,
   eventsOf,
   filterContext,
@@ -316,13 +317,28 @@ export function tasksTruncated(criteria?: FilterCriteria): boolean {
   return false;
 }
 
+/**
+ * Una task come la legge chi guarda (registro, A11 r.1414): gli id delle
+ * persone che non conosce (assegnatario, chi l'ha creata, chi la segue, chi
+ * l'ha fermata a mano) sono segnaposti del `mask` della risposta.
+ */
+function taskView(t: Task, mask: ReturnType<typeof personMasker>): Task {
+  const out = copy(t);
+  out.assigneeId = mask(t.assigneeId);
+  out.createdById = mask(t.createdById);
+  out.followerIds = t.followerIds.map(mask);
+  if (out.manualStall) out.manualStall = { ...out.manualStall, byId: mask(out.manualStall.byId) };
+  return out;
+}
+
 /** Le task visibili, filtrate con i criteri (la visibilità viene prima di tutto). */
 export async function listTasks(criteria?: FilterCriteria): Promise<Task[]> {
   const me = await gate("listTasks");
   const tasks = visibleTasks(me);
-  if (!criteria) return tasks.map(copy);
+  const mask = personMasker(me);
+  if (!criteria) return tasks.map((t) => taskView(t, mask));
   const ctx = filterContext(me);
-  return tasks.filter((t) => matches(t, criteria, ctx)).map(copy);
+  return tasks.filter((t) => matches(t, criteria, ctx)).map((t) => taskView(t, mask));
 }
 
 /**
@@ -341,7 +357,7 @@ export async function getTaskByCode(code: string): Promise<Task | null> {
   // Aperta dal widget (area 8, F3, S-9): la conversazione da cui è nata, derivata a lettura.
   const conversation = state.supportConversations.find((c) => c.taskId === task.id);
   return {
-    ...copy(task),
+    ...taskView(task, personMasker(me)),
     assigneeStatus: assigneeStatusOf(task.assigneeId),
     supportConversationCode: conversation?.code ?? null,
   };
@@ -351,7 +367,16 @@ export async function listActivity(taskId: string): Promise<ActivityEntry[]> {
   const me = await gate("listActivity");
   const task = state.tasksById.get(taskId);
   if (!task || !visibleProjectIds(me).has(task.projectId)) return [];
-  return state.activity.filter((a) => a.taskId === taskId).map(copy);
+  // R.1414: chi ha scritto o eliminato, se chi guarda non lo conosce, segnaposto.
+  const mask = personMasker(me);
+  return state.activity
+    .filter((a) => a.taskId === taskId)
+    .map((a) => {
+      const out = copy(a);
+      out.authorId = mask(a.authorId);
+      if (out.deletedById !== undefined) out.deletedById = mask(out.deletedById);
+      return out;
+    });
 }
 
 /**
@@ -365,6 +390,8 @@ export async function listActivity(taskId: string): Promise<ActivityEntry[]> {
  */
 export async function listClaudeDecisions(): Promise<ClaudeDecision[]> {
   const me = await gate("listClaudeDecisions");
+  // R.1414 (lotto 3): il titolare che chi guarda non conosce, segnaposto.
+  const mask = personMasker(me);
   const fromConversations = waitingClaudeEvents(me).map(
     ({ conversation: c, event }): ClaudeDecision => {
       const base = {
@@ -372,7 +399,7 @@ export async function listClaudeDecisions(): Promise<ClaudeDecision[]> {
         conversationId: c.id,
         conversationKind: c.kind,
         title: c.title,
-        ownerId: c.ownerId,
+        ownerId: mask(c.ownerId),
         projectId: c.projectId,
         taskId: c.taskId,
         requestId: c.requestId,
@@ -410,6 +437,7 @@ export async function listDecisionRequests(filter: {
 }): Promise<DecisionRequest[]> {
   const me = await gate("listDecisionRequests");
   const visible = visibleProjectIds(me);
+  const mask = personMasker(me);
   return state.decisions
     .filter((d) => {
       if (!visible.has(state.tasksById.get(d.taskId)!.projectId)) return false;
@@ -421,13 +449,21 @@ export async function listDecisionRequests(filter: {
       }
       return true;
     })
-    .map(copy);
+    .map((d) => {
+      // R.1414 (lotto 3): chi ha chiesto, a chi, chi ha risposto.
+      const out = copy(d);
+      out.askedById = mask(d.askedById);
+      out.askedOfId = mask(d.askedOfId);
+      if (out.answer) out.answer = { ...out.answer, byId: mask(out.answer.byId) };
+      return out;
+    });
 }
 
 export async function listRequests(projectId: string): Promise<ProjectRequest[]> {
   const me = await gate("listRequests");
   if (!visibleProjectIds(me).has(projectId)) return [];
-  return state.requests.filter((r) => r.projectId === projectId).map((r) => requestView(me, r));
+  const mask = personMasker(me);
+  return state.requests.filter((r) => r.projectId === projectId).map((r) => requestView(me, r, mask));
 }
 
 /**
@@ -435,8 +471,14 @@ export async function listRequests(projectId: string): Promise<ProjectRequest[]>
  * eliminate (area 10a), derivati da `state.deletedTasks` e mai salvati.
  * Senza task eliminate il campo non c'è.
  */
-function requestView(me: string, request: ProjectRequest): ProjectRequest {
+function requestView(
+  me: string,
+  request: ProjectRequest,
+  // R.1414 (lotto 3): il masker della risposta (un elenco ne ha uno solo).
+  mask: ReturnType<typeof personMasker> = personMasker(me),
+): ProjectRequest {
   const out = copy(request);
+  out.requesterIds = request.requesterIds.map(mask);
   // 11b (P38): «Dalla doc: <pagina>», solo se chi guarda legge la pagina;
   // altrimenti nemmeno l'origine grezza (l'id della pagina dice di cosa parla, R-G5).
   const origin = productOriginOf(me, request);
@@ -457,6 +499,7 @@ function requestView(me: string, request: ProjectRequest): ProjectRequest {
 export async function listRequestsToConvert(): Promise<ProjectRequest[]> {
   const me = await gate("listRequestsToConvert");
   const viewer = viewerFor(me);
+  const mask = personMasker(me);
   const visible = visibleProjectIds(me);
   return state.requests
     .filter(
@@ -467,7 +510,7 @@ export async function listRequestsToConvert(): Promise<ProjectRequest[]> {
         can(viewer, "tickets.create", r.projectId),
     )
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .map((r) => requestView(me, r));
+    .map((r) => requestView(me, r, mask));
 }
 
 export async function getRequest(id: string): Promise<ProjectRequest | null> {
@@ -499,14 +542,16 @@ const canSeeFilter = (f: SavedFilter, me: string) => f.visibility === "public" |
 /** I miei filtri e i pubblici. */
 export async function listSavedFilters(): Promise<SavedFilter[]> {
   const me = await gate("listSavedFilters");
-  return state.filters.filter((f) => canSeeFilter(f, me)).map(copy);
+  // R.1414 (lotto 3): il titolare di un filtro pubblico che chi guarda non conosce, segnaposto.
+  const mask = personMasker(me);
+  return state.filters.filter((f) => canSeeFilter(f, me)).map((f) => ({ ...copy(f), ownerId: mask(f.ownerId) }));
 }
 
 /** Un filtro privato di un altro risponde come uno che non esiste: `null`. */
 export async function getSavedFilter(id: string): Promise<SavedFilter | null> {
   const me = await gate("getSavedFilter");
   const filter = state.filters.find((f) => f.id === id);
-  return filter && canSeeFilter(filter, me) ? copy(filter) : null;
+  return filter && canSeeFilter(filter, me) ? { ...copy(filter), ownerId: personMasker(me)(filter.ownerId) } : null;
 }
 
 /** I filtri che chi guarda ha fissato (solo quelli che può ancora vedere), nell'ordine in cui li ha fissati. */
@@ -739,7 +784,7 @@ export async function listNotifications(): Promise<AppNotification[]> {
   // Registro, A11 r.1414: i nomi seguono «chi si conosce», gli id di chi non
   // si conosce diventano segnaposti, uno per la risposta intera.
   const known = knownPeopleFor(me);
-  const mask = personMasker(me);
+  const mask = personMasker(me, known);
   const nameIfKnown = (id: string) => (known.has(id) ? (PEOPLE.find((p) => p.id === id)?.name ?? null) : null);
   return state.notifications.flatMap((n) => {
     const delivered = deliveredTo(me, n);
@@ -757,6 +802,11 @@ export async function listNotifications(): Promise<AppNotification[]> {
       if (n.actorId !== undefined) {
         out.actorName = nameIfKnown(n.actorId);
         delete out.actorId;
+        // Revisione del lotto 2, I6: il testo salvato porta il nome di chi ha
+        // agito; a chi non lo conosce non esce (la pagina lo compone da
+        // `actorName`, «Someone»). Gli avvisi `security.*` non hanno
+        // `actorId`: il loro testo resta, per scelta (permissions.md).
+        if (out.actorName === null) out.body = "";
       }
       // Area 10a: per chi l'ha fatta partire Claude, e chi l'ha annullata;
       // i nomi solo se chi guarda vede quelle persone (R-G5).
@@ -829,6 +879,8 @@ const FINISHED_WINDOW_DAYS = 14;
  */
 export async function listConversations(filter: ConversationFilter): Promise<ConversationRow[]> {
   const me = await gate("listConversations");
+  const mask = personMasker(me);
+  const maskProject = projectMasker(me);
   const since = daysFromToday(-FINISHED_WINDOW_DAYS);
   // Il filtro per progetto vale solo per un progetto che chi guarda vede: uno
   // invisibile non trova nulla, come uno che non esiste — altrimenti direbbe
@@ -867,7 +919,7 @@ export async function listConversations(filter: ConversationFilter): Promise<Con
         if (filter.requestId && c.requestId !== filter.requestId) return false;
         return true;
       })
-      .map((c) => withVisibleContext(me, conversationRow(me, c)))
+      .map((c) => withVisibleContext(me, conversationRow(me, c, mask, maskProject)))
       // Sulla data della riga come la vede chi guarda: il seguito privato di
       // una pubblica non la fa salire per gli altri.
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))
@@ -882,9 +934,11 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
   const me = await gate("getConversation");
   const c = state.conversations.find((x) => x.id === id);
   if (!c || !canSeeConversation(me, c)) return null;
-  const events = readableEvents(me, c);
+  // R.1414 (lotto 3): un masker per la riga e il flusso.
+  const mask = personMasker(me);
+  const events = readableEvents(me, c).map((e) => (e.type === "user" ? { ...e, authorId: mask(e.authorId) } : e));
   return {
-    ...withVisibleContext(me, conversationRow(me, c)),
+    ...withVisibleContext(me, conversationRow(me, c, mask)),
     ...conversationPermissions(me, c),
     events,
     planPreApproved: state.preApprovedPlans.has(id),
@@ -1506,6 +1560,10 @@ export async function resolveCitations(refs: CitationRef[]): Promise<CitationVie
   const me = await gate("resolveCitations");
   const visible = visibleProjectIds(me);
   const viewer = viewerFor(me);
+  // Revisione del lotto 2, I5 (r.1414): una persona che non si conosce è
+  // nascosta; l'assegnatario di una task citata passa dal masker.
+  const known = knownPeopleFor(me);
+  const mask = personMasker(me, known);
   const hidden = (ref: CitationRef): CitationView => ({
     kind: ref.kind,
     id: ref.id,
@@ -1532,7 +1590,7 @@ export async function resolveCitations(refs: CitationRef[]): Promise<CitationVie
           name: t.title,
           projectCode: project,
           status: state.statusById.get(t.statusId)?.name ?? null,
-          personId: t.assigneeId,
+          personId: mask(t.assigneeId),
           route: `#/p/${project}/tasks?task=${t.code}`,
         };
       }
@@ -1636,7 +1694,7 @@ export async function resolveCitations(refs: CitationRef[]): Promise<CitationVie
       }
       case "person": {
         const p = PEOPLE.find((x) => x.id === ref.id);
-        if (!p) return hidden(ref);
+        if (!p || (p.id !== me && p.id !== CLAUDE_ID && !known.has(p.id))) return hidden(ref);
         return { ...hidden(ref), visible: true, name: p.name, personId: p.id };
       }
       // Le schede degli eventi della Chat (area 4): visibili a chi vede il progetto.
