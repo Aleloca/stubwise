@@ -441,7 +441,9 @@ function view(
     undoOf,
     ...(undone ? { undoneEntry: view(me, undone, people, visible, known, mask, true) } : {}),
     object: hiddenPerson ? { ...entry.object, id: mask(entry.object.id), label: "" } : { ...entry.object },
-    params: { ...entry.params },
+    // Revisione del lotto 2 (Critical 1): gli id di persona dentro `params`
+    // (le liste `added`/`removed` dei reparti) passano dal masker.
+    params: maskedParams(entry.params, mask),
     templateKey: type.templateKey,
     scope: type.scope,
     group: type.group,
@@ -457,6 +459,26 @@ function view(
         : labelKey,
     diff: diffOf(entry, people),
   };
+}
+
+const PERSON_IDS = new Set(PEOPLE.map((p) => p.id));
+
+/**
+ * I `params` di una voce come li legge chi guarda (r.1414): un valore che è
+ * l'id di una persona, o una lista di id separati da virgole, passa dal
+ * masker della risposta; gli altri restano com'erano.
+ */
+function maskedParams(
+  params: Record<string, string> | undefined,
+  mask: ReturnType<typeof personMasker>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(params ?? {})) {
+    const parts = value.split(",");
+    out[key] =
+      value !== "" && parts.every((id) => PERSON_IDS.has(id)) ? parts.map(mask).join(",") : value;
+  }
+  return out;
 }
 
 /** Le voci, più recenti prima (a parità d'ora, l'ultima scritta prima). */

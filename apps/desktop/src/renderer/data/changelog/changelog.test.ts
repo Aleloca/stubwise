@@ -357,6 +357,28 @@ describe("il nome dell'autore della voce (r.1414)", () => {
     expect(JSON.stringify(entry)).not.toContain(who.id);
   });
 
+  // Revisione del lotto 2 (Critical 1): gli id dentro `params` (le liste
+  // `added`/`removed` dei reparti) passano dal masker come gli altri campi.
+  it("i `params` coi id delle persone: segnaposti, né id né nome di chi non si conosce", async () => {
+    const who = outsider();
+    grantInstancePermission("p-laura", "departments.manage");
+    recordChange({
+      kind: "department.members_changed",
+      actorId: "p-laura",
+      projectId: null,
+      object: { type: "department", id: "dep-x", label: "Design" },
+      before: null,
+      after: null,
+      params: { added: `p-marco,${who.id}`, removed: who.id },
+    });
+    as("p-laura");
+    const entry = (await changelog.listChanges()).find((e) => e.kind === "department.members_changed")!;
+    expect(entry.params.added).toBe("p-marco,hidden-1");
+    expect(entry.params.removed).toBe("hidden-1");
+    expect(JSON.stringify(entry)).not.toContain(who.id);
+    expect(JSON.stringify(entry)).not.toContain(who.name);
+  });
+
   it("un ex membro del progetto resta col suo nome", async () => {
     const marco = PEOPLE.find((p) => p.id === "p-marco")!;
     expect(accessState().memberships.some((m) => m.personId === marco.id && m.projectId === ACQ)).toBe(true);
