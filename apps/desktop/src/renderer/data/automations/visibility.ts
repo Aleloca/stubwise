@@ -3,6 +3,8 @@ export { approvalProjectOf };
 import type { ApprovalWho } from "@stubwise/shared";
 import { stepAt, visitSteps } from "@stubwise/shared";
 import { PEOPLE } from "../seed/people";
+import { isHiddenId, personMasker } from "../access/hidden";
+import { invalid } from "../writer";
 import { copy, state, visibleProjectIds } from "../store";
 import type { Automation, AutomationFlow, AutomationRun, ProjectTarget, Step } from "../types";
 import { can, projectRoleOf, viewerFor } from "../viewer";
@@ -112,7 +114,6 @@ export function pendingProjectOf(run: AutomationRun, a: Automation): string | nu
   return approvalProjectOf(run.pending?.preview ?? {}, a);
 }
 
-
 /**
  * Chi decide adesso su un'esecuzione ferma: per un'approvazione chi può
  * approvare il passo (risolto ora, non quando si è fermata: un proprietario
@@ -193,8 +194,19 @@ const seesAutomation = (me: string, id: string) => {
  * avvia, se non la vede (R-G5). Un passo mai scelto (`""` senza segno)
  * resta com'è.
  */
-export function flowFor(me: string, flow: AutomationFlow): AutomationFlow {
+export function flowFor(
+  me: string,
+  flow: AutomationFlow,
+  // R.1414 (revisione del lotto 2-3): il masker della risposta.
+  mask: ReturnType<typeof personMasker> = personMasker(me),
+): AutomationFlow {
   const out = copy(flow);
+  // Le persone dei passi (incaricato, chi avvisare, chi approva): segnaposti
+  // per chi chi guarda non conosce.
+  visitSteps(out.steps, (s) => {
+    for (const slot of Object.values(personSlots(s)))
+      if (typeof slot?.personId === "string") slot.personId = mask(slot.personId);
+  });
   const visible = visibleProjectIds(me);
   for (const s of fixedSteps(out)) {
     if (visible.has(s.project.projectId)) continue;
@@ -211,6 +223,45 @@ export function flowFor(me: string, flow: AutomationFlow): AutomationFlow {
  * e che torna senza id, lo riprende dalla versione di prima (per id del
  * passo).
  */
+type Slot = Record<string, unknown> | undefined;
+
+/** I posti di un passo che possono nominare una persona: incaricato, chi avvisare, chi approva. */
+function personSlots(step: Step): Record<"assignee" | "who" | "approver", Slot> {
+  const s = step as {
+    assignee?: unknown;
+    who?: unknown;
+    approval?: { mode: string; who?: unknown };
+  };
+  const obj = (v: unknown): Slot =>
+    v && typeof v === "object" ? (v as Record<string, unknown>) : undefined;
+  return {
+    assignee: obj(s.assignee),
+    who: obj(s.who),
+    approver: s.approval?.mode === "ask" ? obj(s.approval.who) : undefined,
+  };
+}
+
+/**
+ * Il rovescio di `flowFor` per le persone (r.1414, revisione del lotto 2-3):
+ * un segnaposto non si salva (`invalid: flow`); un posto che torna vuoto (la
+ * persona omessa, `{}`) riprende quella della versione di prima, per id del
+ * passo. Lo stesso contratto del server (72).
+ */
+export function keepHiddenPeople(prev: AutomationFlow, next: AutomationFlow): void {
+  const before = new Map<string, ReturnType<typeof personSlots>>();
+  visitSteps(prev.steps, (s) => before.set(s.id, personSlots(s)));
+  visitSteps(next.steps, (s) => {
+    const slots = personSlots(s);
+    for (const [name, slot] of Object.entries(slots) as [keyof typeof slots, Slot][]) {
+      if (!slot) continue;
+      if (isHiddenId(slot.personId as string | undefined)) throw invalid("flow");
+      const old = before.get(s.id)?.[name];
+      if (Object.keys(slot).length === 0 && old && typeof old.personId === "string")
+        slot.personId = old.personId;
+    }
+  });
+}
+
 export function keepHiddenProjects(me: string, prev: AutomationFlow, next: AutomationFlow): void {
   const visible = visibleProjectIds(me);
   const before = new Map(fixedSteps(prev).map((s) => [s.id, s.project.projectId]));

@@ -84,3 +84,21 @@ describe("motivazioni (B1)", () => {
     );
   });
 });
+
+// R.1414 (revisione del lotto 2-3): il livello dati lascia vuoto il nome di
+// chi chi guarda non conosce; la frase dice «Someone», mai «the owner ()».
+describe("una persona che chi guarda non conosce, nei motivi", () => {
+  it("il proprietario vuoto è «Someone»", () => {
+    const text = reasonWords({ code: "cantManage", params: { owner: "", name: "Weekly" } }, i18n.t);
+    expect(text).toBe("Permission lost: the owner (Someone) can't manage “Weekly”.");
+  });
+
+  it("un incaricato disattivato vuoto è «Someone»; il nome di un'automazione no", () => {
+    expect(reasonWords({ code: "assigneeDeactivated", params: { name: "" } }, i18n.t)).toContain(
+      "Someone",
+    );
+    expect(
+      reasonWords({ code: "cantManage", params: { owner: "Ada", name: "" } }, i18n.t),
+    ).not.toContain("Someone");
+  });
+});

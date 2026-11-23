@@ -485,6 +485,12 @@ export function createdSummary(log: RunLogEntry[], t: TFunction): string {
  * prova, al condizionale («the email wouldn't be sent»), dove la frase lo
  * chiede. Un ruolo si dice con la sua parola.
  */
+/** I parametri che sono il nome di una persona (`owner` in ogni motivo che lo ha). */
+const PERSON_PARAMS: Record<string, string[]> = {
+  assigneeDeactivated: ["owner", "name"],
+  recipientCantSee: ["owner", "name"],
+};
+
 export function reasonWords(
   why: ReasonCode | null | undefined,
   t: TFunction,
@@ -492,6 +498,10 @@ export function reasonWords(
 ): string | null {
   if (!why) return null;
   const params: Record<string, unknown> = { ...why.params };
+  // R.1414 (revisione del lotto 2-3): il nome di chi chi guarda non conosce
+  // arriva vuoto; la frase dice «Someone».
+  for (const key of PERSON_PARAMS[why.code] ?? ["owner"])
+    if (params[key] === "") params[key] = t("automations.someone");
   if (typeof params.role === "string")
     params.role = t(`automations.roles.${params.role}`, { defaultValue: params.role });
   // Il codice del mittente della Posta (`emailFailed`, F2) si dice in parole.

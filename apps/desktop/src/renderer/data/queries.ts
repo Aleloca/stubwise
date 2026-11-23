@@ -1,4 +1,5 @@
 import { revealAddress } from "./revealedAddress";
+import { withoutPlaceholders } from "../domain/automations/placeholders";
 import {
   keepPreviousData,
   QueryClient,
@@ -4138,7 +4139,7 @@ export function saveAutomationDraftNow(
   flow: AutomationFlow,
   expected: number | null,
 ): Promise<unknown> {
-  return api.automations.saveDraft(id, flow, {}, { expected });
+  return api.automations.saveDraft(id, withoutPlaceholders(flow), {}, { expected });
 }
 
 export { askPersonaChange, guardPersonaChange, onBeforePersonaChange } from "./session";
@@ -4187,7 +4188,8 @@ export function useSaveAutomationDraft() {
       meta?: AutomationMeta;
       /** Il `rev` della bozza letta (shape builder [A 12]); assente = nessun controllo. */
       expected?: number | null;
-    }) => api.automations.saveDraft(id, flow, meta, { expected }),
+      // R.1414: un segnaposto non torna al server; la persona di prima resta.
+    }) => api.automations.saveDraft(id, withoutPlaceholders(flow), meta, { expected }),
     onSettled: (_data, _error, vars) =>
       client.invalidateQueries({ queryKey: queryKeys.automation(me, vars.id) }),
   });
@@ -4205,7 +4207,7 @@ export function useAutomationDraftIssues(id: string | null, current: AutomationF
   return useQuery({
     queryKey: ["as", me, "automations", "draftIssues", id ?? "", flow] as const,
     // Col flusso a cui si riferiscono: i percorsi degli errori valgono per quello.
-    queryFn: async () => ({ flow: flow!, issues: await api.automations.checkDraft(id!, flow!) }),
+    queryFn: async () => ({ flow: flow!, issues: await api.automations.checkDraft(id!, withoutPlaceholders(flow!)) }),
     enabled: id !== null && flow !== null,
     placeholderData: keepPreviousData,
   });

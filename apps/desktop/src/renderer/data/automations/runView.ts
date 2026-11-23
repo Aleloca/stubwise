@@ -1,5 +1,7 @@
 import { hideProject } from "../../domain/automations/runRules";
 export { hideProject };
+import { knownPeopleFor } from "../access/whoCan";
+import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { hideReplies } from "@stubwise/shared";
 import { visitSteps } from "@stubwise/shared";
 import { personMasker } from "../access/hidden";
@@ -54,7 +56,6 @@ function hiddenTarget(me: string, run: AutomationRun, e: RunLogEntry): string | 
   const target = id ? automationById(id) : undefined;
   return id && (!target || !canSeeAutomation(me, target)) ? id : undefined;
 }
-
 
 /** Una task creata da un passo e poi eliminata (area 10a): il suo progetto. */
 const deletedTaskProject = (code: string): string | null =>
@@ -150,6 +151,19 @@ export function viewRun(
       !visible.has(project)
     );
   });
+  // R.1414 (revisione del lotto 2-3): un motivo che nomina chi chi guarda non
+  // conosce (il proprietario che ha perso il permesso, chi ha annullato) non
+  // ne dice il nome: il parametro resta vuoto, il testo pronto non esce.
+  const known = knownPeopleFor(me);
+  const unknownNames = PEOPLE.filter(
+    (p) => p.id !== me && p.id !== CLAUDE_ID && !known.has(p.id),
+  ).map((p) => p.name);
+  for (const e of v.log) {
+    if (e.why?.params)
+      for (const [k, val] of Object.entries(e.why.params))
+        if (typeof val === "string" && unknownNames.includes(val)) e.why.params[k] = "";
+    if (e.reason && unknownNames.some((n) => e.reason!.includes(n))) e.reason = null;
+  }
   for (const e of v.log) {
     scrub(e.input);
     scrub(e.output);
@@ -217,4 +231,3 @@ export function viewRun(
   v.log = v.log.map((e) => (e.byId ? { ...e, byId: mask(e.byId) } : e));
   return v;
 }
-
