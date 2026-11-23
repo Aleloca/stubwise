@@ -6149,3 +6149,16 @@ deploy o di un rollback che la tocca.
   da qui scrive in `storage_orphans` mandando una bozza). **Rollback**:
   sicuro, nell'ordine inverso; un worker di prima torna a lasciare gli
   oggetti orfani, e le righe già in coda le toglie comunque il server.
+- **«Rimandi, lotto 4: la correzione scartata»** *(23 nov 2026)*: branch
+  `feat/rimandi-server` (A8, F1 S8). Migrazione **0220**
+  (`pr_corrections.outcome`, text nullable con CHECK `pushed | discarded |
+  stopped`, più un backfill: le correzioni chiuse per «push rifiutato:» di
+  prima diventano `discarded`). Il worker scrive l'esito nello stesso update
+  che chiude la correzione; `/pulls` mostra `discarded` (senza motivo) e una
+  scartata **non conta più nel tetto dei giri automatici**
+  (`autoRoundsInCurrentSeries`, decisione di 46: cambia il comportamento del
+  ciclo, una PR può avere un giro automatico in più dopo uno scarto). Nessuna
+  env. Ordine: **server** (healthy, 0220 applicata), poi **worker** (scrive la
+  colonna). **Rollback**: sicuro nell'ordine inverso; un server e un worker
+  di prima ignorano la colonna (le scartate tornano a leggersi `stopped` e a
+  contare nel tetto), che resta.

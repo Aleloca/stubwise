@@ -768,9 +768,18 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     dice già giusto.~~ *Chiusa il 23 nov 2026 (72)*: `derivePrCycle` passa
     da `colleagueCorrectionPermitted` col trigger `stubwise`, lo stesso
     cancello di `enqueueCorrection`.
-  - (b) Lo stato «scartata» di una correzione (push rifiutato perché l'autore
+  - ~~(b) Lo stato «scartata» di una correzione (push rifiutato perché l'autore
     ha spinto in parallelo) non si deriva: in `/pulls` compare come «fermata»
-    (`prStateOf` lo leggerebbe, manca un esito distinto del job).
+    (`prStateOf` lo leggerebbe, manca un esito distinto del job).~~ *Chiusa il
+    23 nov 2026 (72, lotto 4, §1 dei contratti di 94)*: `pr_corrections.outcome`
+    (0220, con backfill), scritto dal worker insieme alla chiusura; `/pulls`
+    la mostra `discarded` senza motivo, e (D-1.2, 46) non conta nel tetto dei
+    giri automatici.
+  - Rimasti fuori dal §1 *(O, 94, lotto 4)*: una scartata manda ancora
+    `job.failed` (il prototipo non avvisa nessuno: è una scelta di notifiche,
+    D-1.3); una correzione `stopped` conta nel tetto vero mentre il
+    prototipo dice «doesn't count» (la stessa divergenza della scartata, non
+    toccata).
 
 - F1, S10, ruling di 72 approvato con una precisazione *(O, 46, 13 nov
   2026)*: con la review automatica dell'istanza SPENTA una PR senza analisi

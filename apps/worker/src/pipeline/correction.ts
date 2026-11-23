@@ -18,6 +18,7 @@ import { t } from "@stubwise/i18n";
 import {
   cancelPendingCorrection,
   completeCorrection,
+  type PrCorrectionOutcome,
   decryptGitCredentials,
   prHasOpenCorrection,
   promotePendingForTicket,
@@ -602,7 +603,10 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
   let correctionDone = false;
   type Closure = "closed" | "cancelled" | "lost";
   const closeJobAndCorrection = async (
-    close: { kind: "complete"; input: CompleteJobInput; keepIfCancelled?: boolean } | { kind: "fail"; input: FailJobInput },
+    close: ({ kind: "complete"; input: CompleteJobInput; keepIfCancelled?: boolean } | { kind: "fail"; input: FailJobInput }) & {
+      /** Lotto 4: l'esito scritto sulla correzione; senza, `pushed` per un job `pr_opened`, `stopped` per ogni altra chiusura. */
+      outcome?: PrCorrectionOutcome;
+    },
   ): Promise<Closure> => {
     const closure = await db.transaction(async (tx): Promise<Closure> => {
       const [current] = await tx
@@ -627,7 +631,8 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
       if (!ok) return "lost";
       // Sotto il FOR UPDATE la riga è ancora `queued`: `false` qui sarebbe
       // un'anomalia, e la si tratta come un annullamento (niente seguito).
-      return (await completeCorrection(tx, correction.id)) ? "closed" : "cancelled";
+      const outcome = close.outcome ?? (close.kind === "complete" && close.input.status === "pr_opened" ? "pushed" : "stopped");
+      return (await completeCorrection(tx, correction.id, outcome)) ? "closed" : "cancelled";
     });
     correctionDone = closure === "closed";
     if (closure === "lost") {
@@ -1329,9 +1334,9 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     const fail = async (
       log: string,
       error: string,
-      opts: { promote?: boolean; reviewHead?: boolean; afterClose?: () => Promise<void> } = {},
+      opts: { promote?: boolean; reviewHead?: boolean; afterClose?: () => Promise<void>; outcome?: PrCorrectionOutcome } = {},
     ): Promise<CorrectionOutcome> => {
-      const closure = await closeJobAndCorrection({ kind: "fail", input: { log, error } });
+      const closure = await closeJobAndCorrection({ kind: "fail", input: { log, error }, ...(opts.outcome ? { outcome: opts.outcome } : {}) });
       if (closure === "lost") return "lost";
       if (closure === "cancelled") return "skipped";
       await restoreStatus();
@@ -1470,6 +1475,8 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
       return fail(
         `[correction] ${err.message}\n[correction] mai --force: la prossima richiesta ripartirà dal branch aggiornato`,
         `push rifiutato: qualcuno ha pushato sul branch ${branch} durante la correzione`,
+        // Lotto 4: una correzione SCARTATA (qualcuno ha pushato prima), non fermata.
+        { outcome: "discarded" },
       );
     }
     if (err instanceof BranchNotFoundError) {

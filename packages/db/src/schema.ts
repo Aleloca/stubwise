@@ -2564,6 +2564,14 @@ export const prCorrections = pgTable(
     providerFeedback: jsonb("provider_feedback").$type<PrComment[]>(),
     /** Emendamento E1: true solo se `providerFeedback` è stata letta davvero dal provider. */
     feedbackComplete: boolean("feedback_complete").notNull().default(false),
+    /**
+     * Lotto 4 dei rimandi (0220): COME si è chiusa una correzione `done`.
+     * `pushed` (il push c'è), `discarded` (il push è stato rifiutato: qualcuno
+     * ha pushato sul branch nel frattempo; non conta nel tetto), `stopped`
+     * (fermata prima del push). Null per le `cancelled` e per le righe di
+     * prima della 0220 (la lettura ricade sulla derivazione dal job).
+     */
+    outcome: text("outcome").$type<"pushed" | "discarded" | "stopped">(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
@@ -2584,6 +2592,7 @@ export const prCorrections = pgTable(
       .where(sql`status = 'queued'`),
     check("pr_corrections_trigger_chk", sql`"trigger" in ('review', 'stubwise', 'provider')`),
     check("pr_corrections_status_chk", sql`status in ('pending', 'queued', 'done', 'cancelled')`),
+    check("pr_corrections_outcome_chk", sql`outcome is null or outcome in ('pushed', 'discarded', 'stopped')`),
   ],
 );
 

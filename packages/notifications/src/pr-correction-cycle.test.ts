@@ -290,6 +290,16 @@ describe("autoRoundsInCurrentSeries", () => {
     expect(await autoRoundsInCurrentSeries(db, pr)).toBe(3);
   });
 
+  it("lotto 4, D-1.2: una SCARTATA (qualcuno ha pushato prima) non conta nel tetto; una fermata sì", async () => {
+    const pr = await seedPr();
+    const discarded = await seedCorrection(pr, { trigger: "review", createdAt: at(1) });
+    await db.update(prCorrections).set({ outcome: "discarded" }).where(eq(prCorrections.id, discarded));
+    const stopped = await seedCorrection(pr, { trigger: "review", createdAt: at(2) });
+    await db.update(prCorrections).set({ outcome: "stopped" }).where(eq(prCorrections.id, stopped));
+    await seedCorrection(pr, { trigger: "review", createdAt: at(3) });
+    expect(await autoRoundsInCurrentSeries(db, pr)).toBe(2);
+  });
+
   it("l'umana annullata non azzera", async () => {
     const pr = await seedPr();
     await seedCorrection(pr, { trigger: "review", createdAt: at(1) });

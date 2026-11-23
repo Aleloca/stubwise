@@ -392,6 +392,7 @@ describe("runCorrection", () => {
     const [jobAfter] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
     expect(jobAfter).toMatchObject({ status: "pr_opened", prUrl: PR_URL });
     const [corrAfter] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, correctionId));
+    expect(corrAfter!.outcome).toBe("pushed");
     expect(corrAfter!.status).toBe("done");
     const ticketComments = await testDb.db.select().from(comments).where(eq(comments.ticketId, f.ticket.id));
     expect(ticketComments.map((c) => c.body).join("\n")).toContain(`Corrections pushed to the pull request: ${PR_URL}`);
@@ -550,6 +551,7 @@ describe("runCorrection", () => {
     expect(jobAfter!.status).toBe("failed");
     // Conta come giro: done, non cancelled.
     const [corrAfter] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, correctionId));
+    expect(corrAfter!.outcome).toBe("stopped");
     expect(corrAfter!.status).toBe("done");
     const failed = dispatched.find((e) => e.kind === "job.failed");
     expect(failed).toBeDefined();
@@ -701,6 +703,8 @@ describe("runCorrection", () => {
     expect(jobAfter!.log).toMatch(/mai --force/);
     const [corrAfter] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, correctionId));
     expect(corrAfter!.status).toBe("done");
+    // Lotto 4 (A8): una correzione SCARTATA, non fermata.
+    expect(corrAfter!.outcome).toBe("discarded");
     // Il push del collega non l'avrebbe rivisto nessuno (il webhook salta
     // l'accodamento con una correzione aperta): la review parte sulla SUA head.
     const reviews = await testDb.db.select().from(prReviewJobs);
