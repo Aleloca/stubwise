@@ -67,6 +67,10 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "integration",
     "plugins",
     "archive",
+    // Registro, area 9 r.1121: gli interruttori del progetto (Docs notturni,
+    // report, discovery, pulse coi giorni, brief) e il tetto delle correzioni,
+    // sulla lettura e la PATCH del progetto.
+    "automations",
   ]),
   // Area 9, F1, R9: «Who can?» sulle rotte del server.
   // Area 9, F1, R7: People e Roles sulle letture calcolate del server.
@@ -95,6 +99,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
   ]),
   taskView: new Set(["list", "board", "timeline"]),
   feature: new Set([
+    // Registro, area 9 r.1121: le frasi «spento» di brief, Docs notturni,
+    // pulse e report (panoramica, Docs, Activity), dagli interruttori veri.
+    "project-switches",
     // Area 9, F6: archiviare, riaprire ed eliminare un progetto (la scheda
     // Archived di All projects, la pagina dell'archiviato, Delete).
     "archive",

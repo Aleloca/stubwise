@@ -75,6 +75,7 @@ const ALL: IntegrationTarget[] = [
       "mail-contributors",
       "mail-claude-draft",
       "automations",
+      "project-switches",
       "automations-f2",
       "automations-f3",
       "automations-f4",
@@ -129,6 +130,7 @@ describe("isIntegrated", () => {
         "destination:automations",
         "projectSection:automations",
         "feature:automations",
+        "feature:project-switches",
         // Area 7, fetta 2: email e attese.
         "feature:automations-f2",
         // Area 7, fetta 3: i passi di Claude.
@@ -186,6 +188,8 @@ describe("isIntegrated", () => {
         "projectSettings:plugins",
         // Area 9, F6: Archive, con Amministrazione → Repositories.
         "projectSettings:archive",
+        // Registro, area 9 r.1121: Automations, con le frasi «spento» (`project-switches`).
+        "projectSettings:automations",
         "admin:departments",
         // Area 9, F1, R9: «Chi può farlo?».
         "admin:who-can",
@@ -317,7 +321,10 @@ describe("isIntegrated", () => {
   });
 
   it("/home?view=week è La mia settimana, /home la Home", () => {
-    expect(integrationTargetOf("/home", { view: "week" })?.target).toEqual({ kind: "feature", name: "my-week" });
+    expect(integrationTargetOf("/home", { view: "week" })?.target).toEqual({
+      kind: "feature",
+      name: "my-week",
+    });
     expect(integrationTargetOf("/home")?.target).toEqual({ kind: "destination", name: "home" });
   });
 
@@ -342,4 +349,3 @@ describe("isIntegrated", () => {
     expect(generalsAvailable()).toBe(true);
   });
 });
-

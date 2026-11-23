@@ -26,6 +26,7 @@ import { liveProductClaude } from "./productClaude";
 import { liveProductPresence } from "./productLive";
 import { liveIntegration } from "./projectIntegration";
 import { liveProjectArchive } from "./projectArchive";
+import { liveProjectAutomations } from "./projectAutomations";
 import { liveProjectPlugins } from "./projectPlugins";
 import { chatFunctions } from "./chat";
 import { channelStream, onChatChange, subscribeChat, threadStream } from "./chatStream";
@@ -61,7 +62,13 @@ export const access: typeof Fake.access = partialNamespace<typeof Fake.access>("
 // Archived, la pagina dell'archiviato e Delete, dal server.
 export const projectSettings: typeof Fake.projectSettings = partialNamespace<
   typeof Fake.projectSettings
->("projectSettings", { ...liveIntegration, ...liveProjectPlugins, ...liveProjectArchive });
+>("projectSettings", {
+  ...liveIntegration,
+  ...liveProjectPlugins,
+  ...liveProjectArchive,
+  // Registro, area 9 r.1121: Settings → Automations e gli interruttori.
+  ...liveProjectAutomations,
+});
 
 // Area 9, F2: il registro delle modifiche sulla lettura del server.
 export const changelog: typeof Fake.changelog = partialNamespace<typeof Fake.changelog>(
