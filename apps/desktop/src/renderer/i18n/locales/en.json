@@ -276,6 +276,11 @@
       "someoneTitle": "Someone",
       "someoneBody": "someone"
     },
+    "proposalHanded": {
+      "title": "A mail proposal handed to {{code}}",
+      "body": "{{name}} handed it to the project. Decide it in Home.",
+      "decided": "Already decided: nothing left to do."
+    },
     "productDocMention": {
       "title": "{{name}} mentioned you in {{code}} · {{title}}",
       "source": "Product",

@@ -276,6 +276,11 @@
       "someoneTitle": "Qualcuno",
       "someoneBody": "qualcuno"
     },
+    "proposalHanded": {
+      "title": "Una proposta della posta passata a {{code}}",
+      "body": "{{name}} l'ha passata al progetto. Decidila in Home.",
+      "decided": "Già decisa: non resta niente da fare."
+    },
     "productDocMention": {
       "title": "{{name}} ti ha menzionato in {{code}} · {{title}}",
       "source": "Prodotto",
