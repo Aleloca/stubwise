@@ -68,7 +68,7 @@ export class TrackingAgentRunner implements AgentRunner {
         providerId: opts.provider?.id ?? null,
       });
     }
-    return { ...result, runId };
+    return { ...result, runId, ...(model !== undefined ? { model } : {}) };
   }
 }
 

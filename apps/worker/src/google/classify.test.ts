@@ -270,6 +270,23 @@ function modelOutput(input: {
 // ---------------------------------------------------------------------------
 
 describe("buildEmailSignalsPrompt", () => {
+  it("rimandi, lotto 4: senza contesto della risposta (`reply` assente) l'OUTPUT non chiede il campo `reply`; con il contesto sì", () => {
+    const base = {
+      fromAddress: "cliente@cliente.com",
+      fromName: null,
+      subject: "Preventivo",
+      text: "Mi mandate il preventivo?",
+      projects: [{ id: "11111111-1111-4111-8111-111111111111", name: "Portale", description: null, backlogTitles: [], openTickets: [] }],
+      citedTicketNumbers: [],
+      truncated: false,
+    };
+    const without = buildEmailSignalsPrompt("it", base);
+    expect(without).not.toContain('"reply"');
+    expect(without).toContain('"recommendedIndex":0}');
+    const withReply = buildEmailSignalsPrompt("it", { ...base, reply: { mailbox: "marco@acme.com", colleagues: [] } });
+    expect(withReply).toContain('"recommendedIndex":0,"reply":{"needsMyReply"');
+  });
+
   it("racchiude il contenuto non fidato fra delimitatori e lo dichiara DATI", () => {
     const prompt = buildEmailSignalsPrompt("it", {
       fromAddress: "cliente@cliente.com",
