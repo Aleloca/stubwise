@@ -1,5 +1,6 @@
 // Le scritture usano `createTaskAs`/`createRequestAs` solo dentro le
 // funzioni: l'import circolare con `api-mutations` è innocuo.
+import { isHiddenId } from "../access/hidden";
 import { createRequestAs, createTaskAs, type NewRequestInput } from "../api-mutations";
 import { findCodes } from "../../domain/claude/parse";
 import { canReadDocPage, docPageById } from "../docs/reads";
@@ -706,6 +707,7 @@ export async function deleteChannel(channelId: string): Promise<void> {
  */
 export async function inviteMembers(channelId: string, personIds: string[]): Promise<ChannelView> {
   const me = await gate("chat.inviteMembers");
+  if (personIds.some(isHiddenId)) throw invalid("members");
   const ch = seen(me, channelId);
   if (!channelPermissions(me, ch).canInvite) throw forbidden();
   const fresh = [...new Set(personIds)].filter((id) => !ch.memberIds.includes(id));
@@ -730,6 +732,8 @@ export async function inviteMembers(channelId: string, personIds: string[]): Pro
  */
 export async function removeMember(channelId: string, personId: string): Promise<ChannelView | null> {
   const me = await gate("chat.removeMember");
+  // R.1414: un segnaposto non si scrive mai (revisione del lotto 2, I4).
+  if (isHiddenId(personId)) throw invalid("member");
   const ch = seen(me, channelId);
   if (!channelPermissions(me, ch).canRemove) throw forbidden();
   if (!ch.memberIds.includes(personId)) throw notFound();
@@ -747,6 +751,7 @@ export async function removeMember(channelId: string, personId: string): Promise
  */
 export async function openDm(personIds: string[]): Promise<ChannelView> {
   const me = await gate("chat.openDm");
+  if (personIds.some(isHiddenId)) throw invalid("members");
   const others = [...new Set(personIds)].filter((id) => id !== me);
   if (others.length === 0 || others.length > DM_MAX_PEOPLE - 1) throw invalid("members");
   if (others.some((id) => !isHuman(id))) throw invalid("members");
