@@ -216,6 +216,13 @@ export interface AppNotification {
    */
   memberId?: string;
   /**
+   * Solo `google.proposal_handed` (lotto 4, D-2.0): la proposta della posta
+   * passata al progetto, come valore stabile. A lettura dà `proposalDecided`.
+   */
+  proposalId?: string;
+  /** Solo a lettura: la proposta passata è già stata decisa (da chi la riceve o da un altro). */
+  proposalDecided?: boolean;
+  /**
    * Solo a lettura, per chi non è la persona entrata: il suo nome se chi
    * guarda la vede, `null` se no (R-G5). Assente per chi è entrato.
    */

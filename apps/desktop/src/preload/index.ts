@@ -134,4 +134,18 @@ contextBridge.exposeInMainWorld("stubwise", {
       ipcRenderer.invoke("session:status"),
   },
   openWeb: (path: string): Promise<{ ok: boolean }> => ipcRenderer.invoke("open:web", path),
+  google: {
+    /** Lotto 4, §6: lo state del ritorno dal consenso di Google (`stubwise://google`). */
+    prepareConnect: (): Promise<{ ok: true; state: string } | { ok: false }> =>
+      ipcRenderer.invoke("google:prepare-connect"),
+    cancelConnect: (): Promise<{ ok: boolean }> => ipcRenderer.invoke("google:cancel-connect"),
+    /** Il ritorno: lo state e l'esito, mai altro. Restituisce la funzione per disiscriversi. */
+    onReturned: (cb: (ret: { state: string; outcome: string }) => void): (() => void) => {
+      const handler = (_event: unknown, ret: { state: string; outcome: string }) => cb(ret);
+      ipcRenderer.on("google:returned", handler);
+      return () => {
+        ipcRenderer.removeListener("google:returned", handler);
+      };
+    },
+  },
 });

@@ -384,6 +384,18 @@ function composedOf(
       : t(`${words}.claude`, { count });
     return { title, body: `${lead}${source}` };
   }
+  // Lotto 4, D-2.0: una proposta della posta passata al progetto, a chi può
+  // confermarla; decisa da un altro, lo dice. Il nome di chi l'ha passata
+  // solo se chi legge lo conosce (R-G5).
+  if (n.kind === "google.proposal_handed") {
+    const words = "notifications.proposalHanded";
+    return {
+      title: t(`${words}.title`, { code: n.objectCode }),
+      body: n.proposalDecided
+        ? t(`${words}.decided`)
+        : t(`${words}.body`, { name: n.actorName ?? t("notifications.direct.someone") }),
+    };
+  }
   if (n.kind === "product_doc.mention") {
     if (n.objectGone)
       return {

@@ -276,6 +276,11 @@
       "someoneTitle": "Qualcuno",
       "someoneBody": "qualcuno"
     },
+    "proposalHanded": {
+      "title": "Una proposta della posta passata a {{code}}",
+      "body": "{{name}} l'ha passata al progetto. Decidila in Home.",
+      "decided": "Già decisa: non resta niente da fare."
+    },
     "productDocMention": {
       "title": "{{name}} ti ha menzionato in {{code}} · {{title}}",
       "source": "Prodotto",
@@ -10500,6 +10505,16 @@
         "expired": "Quell'accesso è durato troppo, o ne è partito uno più recente. Ricomincia da qui.",
         "sessionEnded": "La sessione è finita. Accedi di nuovo.",
         "generic": "Non è stato possibile accedere. Riprova."
+      }
+    },
+    "desktopGoogle": {
+      "connected": "Casella collegata",
+      "notConnected": "La casella non è stata collegata",
+      "back": "Torna a Stubwise: l'app si sta aprendo.",
+      "open": "Apri Stubwise",
+      "invalid": {
+        "title": "Questo link non è valido",
+        "lead": "Ricomincia a collegare la casella dall'app Stubwise."
       }
     },
     "desktopLogin": {

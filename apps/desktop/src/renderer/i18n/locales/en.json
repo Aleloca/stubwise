@@ -276,6 +276,11 @@
       "someoneTitle": "Someone",
       "someoneBody": "someone"
     },
+    "proposalHanded": {
+      "title": "A mail proposal handed to {{code}}",
+      "body": "{{name}} handed it to the project. Decide it in Home.",
+      "decided": "Already decided: nothing left to do."
+    },
     "productDocMention": {
       "title": "{{name}} mentioned you in {{code}} · {{title}}",
       "source": "Product",
@@ -10500,6 +10505,16 @@
         "expired": "That sign-in took too long or was replaced by a newer one. Start again from here.",
         "sessionEnded": "Your session ended. Sign in again.",
         "generic": "Couldn't sign in. Try again."
+      }
+    },
+    "desktopGoogle": {
+      "connected": "Mailbox connected",
+      "notConnected": "The mailbox wasn't connected",
+      "back": "Go back to Stubwise: the app is opening.",
+      "open": "Open Stubwise",
+      "invalid": {
+        "title": "This link isn't valid",
+        "lead": "Start connecting the mailbox again from the Stubwise app."
       }
     },
     "desktopLogin": {

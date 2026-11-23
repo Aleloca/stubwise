@@ -873,6 +873,12 @@ export async function listNotifications(): Promise<AppNotification[]> {
         delete out.memberId;
       }
       if (n.projectId && !visibleProjectIds(me).has(n.projectId)) out.notOpenable = true;
+      // Lotto 4, D-2.0: una proposta passata già decisa (da chi legge o da un altro).
+      if (n.proposalId !== undefined) {
+        const decided = state.mailProposals.find((p) => p.id === n.proposalId)?.status !== "handed";
+        if (decided) out.proposalDecided = true;
+        delete out.proposalId;
+      }
       // Area 11a (Q1, P19): una menzione in un commento di prodotto, letta
       // dalla pagina e dal filo di adesso (`objectGone` se non ci sono più).
       presentProductMention(me, out);

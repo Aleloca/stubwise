@@ -350,14 +350,14 @@ const ROWS: Row[] = [
 /**
  * Kind che CHIEDONO una decisione o una risposta: nel pannello notifiche
  * (solo informazioni) non compaiono mai. Le decisioni vivono in Home, le
- * proposte della posta in Mail.
+ * proposte della posta in Mail. `google.proposal_handed` no (lotto 4,
+ * D-2.0): a chi riceve una proposta passata dice che c'è, e apre la Home.
  */
 export const DECISION_NOTIFICATION_KINDS = [
   "job.plan_review",
   "job.awaiting_input",
   "project.pulse",
   "google.proposal",
-  "google.proposal_handed",
 ] as const;
 
 function projectlessLink(kind: string): string {

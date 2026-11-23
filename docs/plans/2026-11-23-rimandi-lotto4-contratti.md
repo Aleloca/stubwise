@@ -34,6 +34,23 @@ Regole comuni a tutte le sezioni:
 
 Ogni sezione li argomenta; qui c'è solo la raccomandazione di 94.
 
+**Decisi il 23 nov 2026** (46; D-2.0 e D-7.1 dal maintainer):
+- **D-2.0 = sì**, ma diverso dalla raccomandazione: una NOTIFICA (push
+  compresa) a chi riceve una proposta passata, che compare anche nel pannello
+  del desktop e apre la Home; in «Da decidere» la proposta resta. Fatta prima
+  nel prototipo (d3e1fe9fb); il §2 è aggiornato.
+- **D-7.1 = (b)**: a budget mensile finito si ferma anche l'avvio a mano (la
+  regola del prototipo); il server si allinea (`blocked.monthly_budget` in
+  `/work` e il rifiuto dell'avvio). Nel prototipo vale già in ogni punto di
+  avvio a mano: le sessioni delle task (`aiStartBlock`, sei chiamanti, e
+  `servers/fix.ts`), «Chiedi a Claude» (`api-mutations.ts:2333`), «Chiedi
+  modifiche» su una PR (`releases/writes.ts:362`), l'analisi a mano di un
+  server (`servers/analysis.ts:416`), la prima versione e le bozze di
+  schermata della doc (`productDocs/firstVersion.ts:354`,
+  `wireframes.ts:195`), «aggiorna da questa fonte» (`catalogProduct.ts:135`).
+  Le automazioni, che non sono avvii a mano, restano in attesa.
+- **D-5.0, D-1.2** e tutti gli altri: la raccomandazione di 94.
+
 | Id | Voce | Domanda | Consiglio |
 |---|---|---|---|
 | D-1.1 | §1 | Il nome in «{{name}} pushed first»: il server non conosce l'autore | (a) testi senza nome nella build app |
@@ -171,14 +188,29 @@ Quasi nulla: l'adattatore passa già `state` e `prState`. Restano tre cose:
 
 Registro: `docs/plans/integrazione-registro-rimandi.md:450-453` («Passa al progetto» non crea una card nuova… rimandato: una card per loro).
 
-> ⚠️ **Prima domanda (da decidere, D-2.0).** Il prototipo, che è la
-> specifica, **non crea nessuna card** per chi riceve una proposta passata: la
-> trova in Home, «Da decidere». Il registro la dà come rimandata. (a) Si fa la
-> card come qui sotto: serve a push, mobile e web vecchio, mentre nel pannello
-> del desktop resta fuori, come il prototipo vuole per le decisioni;
-> (b) non si fa: la voce si chiude «come il prototipo», e chi riceve la
-> passata la vede solo in Home. **Consiglio (a)**: senza la card nessuno è
-> avvisato e la passata resta ferma. Il contratto qui sotto vale con (a).
+> ✅ **Deciso (D-2.0, maintainer, 23 nov 2026)**: sì, una notifica a chi
+> riceve una proposta passata, push compresa, che **compare nel pannello del
+> desktop** e apre la Home (in «Da decidere» la proposta resta). Il prototipo
+> ora la ha (d3e1fe9fb), ed è la specifica:
+> - `handMailProposal` pubblica `google.proposal_handed` coi destinatari
+>   fissi calcolati al passaggio: i membri del progetto che possono
+>   confermarla adesso (`canDoActions` su ogni azione), tranne chi l'ha
+>   passata e chi ne è già destinatario; nessuno da avvisare, nessuna
+>   notifica (`data/mail/proposals.ts`, `publishHandedNotice`);
+> - il kind non è più fra `DECISION_NOTIFICATION_KINDS`
+>   (`data/seed/notifications.ts`);
+> - la card: «A mail proposal handed to {{code}}» / «{{name}} handed it to
+>   the project. Decide it in Home.», col nome solo se chi legge lo conosce;
+>   decisa da un altro, «Already decided: nothing left to do.»
+>   (`proposalDecided`, derivato a lettura; `NotificationItem.tsx`,
+>   `notifications.proposalHanded.*`); link `#/home`.
+>
+> Per il server valgono quindi i punti del contratto qui sotto, con queste
+> precisazioni: «Da decidere» (B) è chiuso a favore della card nel pannello
+> che apre la Home; il renderer dell'app la presenta come il prototipo (titolo
+> e corpo composti, `proposalDecided` da `status = handled` della card o della
+> proposta), e non più con «Open in web». Il testo dell'evento resta un
+> template i18n senza mittente, oggetto né nome.
 
 ### Cosa fa il prototipo
 
@@ -940,6 +972,7 @@ mascherato diventa `null`.
   usa `/api/tickets/:id/usage`.
 
 **Da decidere**
+- ✅ **Deciso (D-7.1, maintainer): (b)**, la regola del prototipo. Il testo sotto resta per la storia.
 - `monthly_budget` in `blocked`: (a) il server non lo manda finché un avvio a mano scavalca il
   budget (la riga e il bottone spento direbbero una cosa falsa); (b) il server lo manda E `startRun`
   rifiuta con 409 `budget_exhausted` come il prototipo (e come dice

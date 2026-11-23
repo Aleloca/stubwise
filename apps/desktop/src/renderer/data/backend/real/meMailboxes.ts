@@ -41,6 +41,16 @@ const mine = async (id: string) => (await myAccounts()).find((a) => a.id === id)
 
 /** Un «Collega» che non va (consenso non arrivato in tempo, Workspace non più utilizzabile): un rifiuto in parole. */
 const failed = { ok: false as const, error: "invalid" as const, reason: "failed" };
+
+/**
+ * Lotto 4, §6: i motivi che il dialogo dice (`prefs.google.dialog.errors.*`),
+ * dal ritorno del consenso sul desktop; il resto è `failed`.
+ */
+const SAID = new Set(["wrong_domain", "scopes_missing", "owned_by_other"]);
+function refusalOf(error: unknown) {
+  const reason = error instanceof Error ? /^invalid: (.+)$/.exec(error.message)?.[1] : undefined;
+  return reason && SAID.has(reason) ? { ok: false as const, error: "invalid" as const, reason } : failed;
+}
 const notFound = { ok: false as const, error: "not_found" as const };
 
 const listMyMailboxes: Me["listMyMailboxes"] = async () => {
@@ -54,8 +64,8 @@ const connectMailbox: Me["connectMailbox"] = async (workspaceId) => {
     const account = (await myAccounts()).find((a) => a.email === connected.email);
     if (!account) return failed;
     return { ok: true, mailbox: mailboxOf(account) };
-  } catch {
-    return failed;
+  } catch (error) {
+    return refusalOf(error);
   }
 };
 
@@ -65,8 +75,8 @@ const reconnectMailbox: Me["reconnectMailbox"] = async (id) => {
   try {
     await connectGoogle({ workspaceId: account.workspaceId });
     return { ok: true };
-  } catch {
-    return failed;
+  } catch (error) {
+    return refusalOf(error);
   }
 };
 

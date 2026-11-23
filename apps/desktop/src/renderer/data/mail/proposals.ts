@@ -3,7 +3,7 @@ import { applyActions } from "../api-mutations";
 import { noteMailSource } from "../productDocs/sourceEvents";
 import { PEOPLE } from "../seed/people";
 import { isHiddenId, personMasker } from "../access/hidden";
-import { copy, gate, now, state } from "../store";
+import { copy, gate, newId, now, state } from "../store";
 import { forbidden, invalid, notFound, writer } from "../writer";
 import { canReadEvent } from "../calendar/visibility";
 import type {
@@ -505,6 +505,44 @@ export async function handMailProposal(id: string): Promise<void> {
   decide(p, me, "handed");
   p.handedAt = p.decidedAt;
   p.handedById = me;
+  publishHandedNotice(me, p);
+}
+
+/**
+ * Lotto 4, D-2.0 (decisione del maintainer, 23 nov 2026): chi riceve una
+ * proposta passata lo sa da una notifica, che apre la Home (in «Da decidere»
+ * la proposta resta). Destinatari fissi, calcolati adesso: i membri del
+ * progetto che possono confermarla, tranne chi l'ha passata e chi ne è già
+ * destinatario (la vede già). Nessuno da avvisare, nessuna notifica.
+ */
+function publishHandedNotice(me: string, p: MailProposal): void {
+  const recipientIds = PEOPLE.filter(
+    (person) =>
+      !person.isClaude &&
+      person.id !== me &&
+      isProjectMember(person.id, p.projectId) &&
+      canDo(person.id, p, p.actions) &&
+      !isProposalRecipient(person.id, p),
+  ).map((person) => person.id);
+  if (recipientIds.length === 0) return;
+  state.notifications.push({
+    id: newId("n-handed"),
+    kind: "google.proposal_handed",
+    projectId: p.projectId,
+    objectCode: state.projectsById.get(p.projectId)?.code ?? "",
+    departmentId: null,
+    recipientIds,
+    // Il testo lo compone la card nella lingua di chi legge (`actorName`).
+    title: "",
+    body: "",
+    createdAt: now(),
+    read: false,
+    archived: false,
+    snoozedUntil: null,
+    link: "#/home",
+    actorId: me,
+    proposalId: p.id,
+  });
 }
 
 /** Una proposta per email e progetto: un'altra sullo stesso progetto non nasce. */
