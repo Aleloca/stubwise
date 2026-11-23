@@ -173,8 +173,12 @@ function toPublicRepository(
   gitAccountName: string,
   review: ReviewResolution | undefined,
   withConfig = true,
+  // `repos.manage` di chi chiede nel progetto (rimandi, lotto 4): le rotte di
+  // scrittura lo chiedono già per entrare, quindi lì è sempre vero.
+  canManage = true,
 ): z.infer<typeof repositorySchema> {
   const base = {
+    canManage,
     id: row.id,
     projectId: row.projectId,
     name: row.name,
@@ -460,6 +464,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         projectIdsWithPermission(app.db, request.user!, "repos.view"),
         projectIdsWithPermission(app.db, request.user!, "docs.view"),
       ]);
+      const withManage = await projectIdsWithPermission(app.db, request.user!, "repos.manage");
       const readable: ProjectScope = isAllProjects(withRepos)
         ? withRepos
         : isAllProjects(withDocs)
@@ -488,7 +493,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         rows.map((r) => r.repository.id),
       );
       return rows.map(({ repository, gitAccountName, projectId: repoProjectId }) =>
-        toPublicRepository({ ...repository, projectId: repoProjectId }, gitAccountName, reviews.get(repository.id), configFor(repoProjectId)),
+        toPublicRepository({ ...repository, projectId: repoProjectId }, gitAccountName, reviews.get(repository.id), configFor(repoProjectId), scopeIncludes(withManage, repoProjectId)),
       );
     },
   );
@@ -518,7 +523,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         return apiError(reply, 403, "forbidden", "Missing permission");
       }
       const review = await resolveReviewAccounts(app.db, [row.repository.id]);
-      return toPublicRepository(row.repository, row.gitAccountName, review.get(row.repository.id), withConfig);
+      return toPublicRepository(row.repository, row.gitAccountName, review.get(row.repository.id), withConfig, permissions.has("repos.manage"));
     },
   );
 

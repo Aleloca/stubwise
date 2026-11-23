@@ -161,6 +161,17 @@ const wrongScope = () =>
   new RoleRuleError(422, "wrong_scope", "An instance permission takes no project, a project permission needs one");
 const notFound = (what: string) => new RoleRuleError(404, "not_found", `${what} not found`);
 
+/** Le righe per persona, in una passata (prima un `filter` per ogni persona). */
+function groupByUser<T extends { userId: string }>(rows: readonly T[]): Map<string, T[]> {
+  const out = new Map<string, T[]>();
+  for (const r of rows) {
+    const list = out.get(r.userId);
+    if (list) list.push(r);
+    else out.set(r.userId, [r]);
+  }
+  return out;
+}
+
 export async function whoCan(db: Db, viewer: Viewer, permission: AnyPermission, projectId: string | null): Promise<WhoCanResponse> {
   const instance = isInstancePermission(permission);
   if (instance === (projectId !== null)) throw wrongScope();
@@ -182,10 +193,12 @@ export async function whoCan(db: Db, viewer: Viewer, permission: AnyPermission, 
     }
   } else {
     const byUser = new Map((await memberships(db, [projectId!])).map((m) => [m.userId, m]));
-    const grants = await grantsOf(db, [projectId!]);
-    const fromDepartments = await departmentGrantsOf(db, people.map((p) => p.id));
+    const grants = groupByUser(await grantsOf(db, [projectId!]));
+    // I reparti dei soli MEMBRI (rimandi, lotto 4): «via <reparto>» vale solo
+    // per chi è membro (`projectWithReasons`), quindi gli altri non servono.
+    const fromDepartments = groupByUser(await departmentGrantsOf(db, people.filter((p) => byUser.has(p.id)).map((p) => p.id)));
     for (const person of people) {
-      const entry = projectWithReasons(person, byUser.get(person.id), grants.filter((g) => g.userId === person.id), fromDepartments.filter((g) => g.userId === person.id))?.find(
+      const entry = projectWithReasons(person, byUser.get(person.id), grants.get(person.id) ?? [], fromDepartments.get(person.id) ?? [])?.find(
         (p) => p.permission === permission,
       );
       if (entry) rows.push({ userId: person.id, email: person.email, displayName: person.displayName, reasons: entry.reasons });

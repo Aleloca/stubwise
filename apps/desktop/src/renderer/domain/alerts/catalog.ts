@@ -19,11 +19,12 @@ import type { Permission } from "../../data/viewing";
 
 export { ALERT_GROUPS, type AlertGroup } from "@stubwise/shared";
 
-// Il catalogo condiviso nomina i permessi come stringhe: ci sono quelli del
-// registro (di progetto, e `monitor.manage` d'istanza) e quelli che per ora
-// vivono solo nel prototipo (`support.manage`, `servers.operate`). Qui si
-// restringono a `Permission` in UN posto; un test verifica che ogni permesso
-// del catalogo sia uno che il prototipo conosce.
+// Il catalogo condiviso è tipato sui permessi del registro (`AlertPermission`,
+// rimandi lotto 4: `servers.operate` è nel registro dalla F4b). Qui le righe
+// possono nominare anche i permessi che vivono solo nel prototipo
+// (`registerAlertTypes`, le righe di prova), quindi il tipo resta il più largo
+// `Permission`; un test verifica che ogni permesso del catalogo sia uno che il
+// prototipo conosce.
 export type DefaultRule = "off" | "members" | { perm: Permission };
 
 export interface AlertType extends Omit<
@@ -39,7 +40,7 @@ export interface AlertType extends Omit<
 
 /** Se il default di partenza vale per chi ha questi permessi nel progetto. */
 export const ruleApplies = (rule: DefaultRule, perms: (p: Permission) => boolean): boolean =>
-  sharedDefaultApplies(rule, (p) => perms(p as Permission));
+  rule === "off" || rule === "members" ? sharedDefaultApplies(rule, () => false) : perms(rule.perm);
 
 /** I tipi del catalogo, nell'ordine in cui si mostrano dentro la famiglia. */
 export const ALERT_TYPES: AlertType[] = [...(SHARED_ALERT_TYPES as readonly AlertType[])];

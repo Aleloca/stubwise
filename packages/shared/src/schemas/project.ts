@@ -148,6 +148,13 @@ export const repositorySchema = z.object({
    * `.default(true)`: un server più vecchio la mandava sempre.
    */
   config: z.boolean().default(true),
+  /**
+   * Rimandi, lotto 4: chi chiede ha `repos.manage` nel progetto (le
+   * impostazioni del repository si possono cambiare). Lo calcola il server, il
+   * client lo legge. `.default(false)`: un server più vecchio non lo manda, e
+   * il pulsante resta spento invece di promettere un salvataggio rifiutato.
+   */
+  canManage: z.boolean().default(false),
 });
 export type Repository = z.infer<typeof repositorySchema>;
 

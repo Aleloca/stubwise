@@ -139,6 +139,7 @@ describe("POST /api/projects", () => {
       createdAt: expect.any(String),
       // L'admin ha `repos.view`: la configurazione c'è.
       config: true,
+      canManage: true,
       // L'identità del principale non si legge (il doppio di default rigetta):
       // avviso non bloccante, il repository è creato comunque.
       warnings: ["main_account_identity_unresolved"],
@@ -315,6 +316,15 @@ describe("GET /api/projects/:slug", () => {
     expect(body.gitAccountName).toBe("Account GitHub");
     expect(res.body).not.toContain(PLAINTEXT_TOKEN);
     expect(res.body).not.toContain("webhookSecret");
+  });
+
+  it("rimandi, lotto 4: `canManage` dice `repos.manage` di chi chiede, nel dettaglio e nell'elenco (Legacy Member no, full admin sì)", async () => {
+    const get = async (url: string, cookie: string) => (await app.inject({ method: "GET", url, headers: { cookie } })).json() as unknown;
+    expect(((await get("/api/repositories/sito-vetrina", memberCookie)) as { canManage: boolean }).canManage).toBe(false);
+    expect(((await get("/api/repositories/sito-vetrina", adminCookie)) as { canManage: boolean }).canManage).toBe(true);
+    const row = async (cookie: string) => ((await get("/api/repositories", cookie)) as { slug: string; canManage: boolean }[]).find((r) => r.slug === "sito-vetrina")!.canManage;
+    expect(await row(memberCookie)).toBe(false);
+    expect(await row(adminCookie)).toBe(true);
   });
 
   it("slug inesistente: 404", async () => {

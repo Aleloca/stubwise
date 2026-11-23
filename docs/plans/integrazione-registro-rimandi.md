@@ -784,10 +784,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - dalla review del renderer (46, 14 nov 2026): la bozza delle note della
     PR per il riquadro di Claude (`releaseNotesDraftFromServer`, dalla GET
     `…/release-notes`) è pronta ma non collegata al riquadro: entra con le
-    bozze di Claude nella build app; `canManage` delle impostazioni del
+    bozze di Claude nella build app; ~~`canManage` delle impostazioni del
     repository viene dai permessi di `/api/auth/me` (calcolati dal server):
     più pulito un `canManage` nella risposta del repository, cambio server
-    per dopo; la ricerca dei rilasci nella palette (`releases-search`)
+    per dopo;~~ *parte server chiusa il 23 nov 2026 (72, lotto 4)*: la
+    risposta del repository (elenco e dettaglio) porta `canManage`
+    (`repos.manage` di chi chiede, `.default(false)`); il renderer può
+    leggerlo al posto di `/api/auth/me`; la ricerca dei rilasci nella palette (`releases-search`)
     resta spenta finché il server non ha una ricerca dei rilasci;
   - fatti che il server non legge nella F1 e la pagina non inventa:
     `mergeable` (mai «conflitti» se non letto), il rischio di una PR esterna,
@@ -868,11 +871,16 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     apre nell'app solo rilasci, pannello della PR e Docs;~~ chiusa da
     85e84fb97 (area 8, F4a, S12: `MONITOR_KINDS` e `server.diagnosis_ready`
     aprono la pagina del server nell'app; 23 nov 2026, verificata nel codice);
-  - **i permessi del catalogo condiviso** sono stringhe perché
+  - ~~**i permessi del catalogo condiviso** sono stringhe perché
     `servers.operate` vive ancora solo nel prototipo (`support.reply` è nel
     registro dalla F3): quando entra nel registro di `@stubwise/shared`, il
     catalogo si può tipare sui permessi veri e il restringimento del
-    prototipo (`domain/alerts/catalog.ts`) sparisce;
+    prototipo (`domain/alerts/catalog.ts`) sparisce;~~ *Chiusa il 23 nov 2026
+    (72, lotto 4)*: `servers.operate` era già nel registro (F4b); il catalogo
+    condiviso è tipato su `AlertPermission` (progetto + istanza). Nel
+    prototipo il cast sparisce: `ruleApplies` legge il permesso della riga,
+    che lì resta del tipo più largo `Permission` perché `registerAlertTypes`
+    accetta anche righe coi permessi locali;
   - **«Annulla» contro un server senza `saved`** (un rollback, un'istanza
     non aggiornata): il campo manca, vale `false`, e l'«Annulla» chiede il
     ritorno al default (`DELETE`), che quel server non ha (404, «Undo» non
@@ -1446,14 +1454,23 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
       servita, la transazione si annulla, risponde `requireReauth` (la stessa
       regola) e, se la riconferma c'è, si riscrive. Test della corsa in
       `department-reauth-race.test.ts`;
-    - il 403 `escalation` di chi entra in un progetto porta solo
-      `permission`, non `missing` (il `PATCH` del reparto sì);
+    - ~~il 403 `escalation` di chi entra in un progetto porta solo
+      `permission`, non `missing` (il `PATCH` del reparto sì);~~ *Chiusa il
+      23 nov 2026 (72, lotto 4)*: `assertNoEscalation` porta sempre anche
+      `missing` (tutto ciò che manca), su ogni rotta che la usa;
     - il costo sul ripiego (tutti): togliere un suo permesso blocca e conta i
-      gestori di quasi ogni progetto. `judgeDepartmentDraft` filtra le
+      gestori di quasi ogni progetto. ~~`judgeDepartmentDraft` filtra le
       appartenenze per ogni utente (serve una `Map`). `whoCan` legge i
-      reparti di tutte le persone visibili, non dei soli membri;
-    - all'invito (`assertInviteGrants`, alla creazione) nessuno dice che il
-      ripiego porterà i suoi permessi: lo scarto avviene all'accettazione;
+      reparti di tutte le persone visibili, non dei soli membri;~~ *le due
+      letture chiuse il 23 nov 2026 (72, lotto 4)*: una `Map` per persona in
+      `judgeDepartmentDraft`; `whoCan` legge i reparti dei soli membri e
+      raggruppa per persona. Resta il blocco dei gestori sul ripiego;
+    - ~~all'invito (`assertInviteGrants`, alla creazione) nessuno dice che il
+      ripiego porterà i suoi permessi: lo scarto avviene all'accettazione;~~
+      *Chiusa il 23 nov 2026 (72, lotto 4)*: la creazione dell'invito risponde
+      `warnings` (`department_permissions_dropped`, coi `missing` per
+      progetto), con la regola dell'accettazione sui permessi di adesso. Non è
+      un rifiuto: il ripiego può cambiare prima dell'accettazione;
   - Azioni di Claude (review di F7): **`saveStorage`** non ha una voce.
     Endpoint e bucket decidono DOVE vanno e da dove si servono gli allegati,
     col secret salvato che resta in uso: è la ragione per cui l'url di un

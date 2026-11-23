@@ -1,3 +1,5 @@
+import type { InstancePermission, ProjectPermission } from "../permissions.js";
+
 // Il catalogo dei tipi di avviso (area 8, F2, R-5 = a): UN posto per il
 // prototipo, il server e il worker. Era `domain/alerts/catalog.ts` del
 // prototipo (area 8a, spec «Notifiche: iscrizioni per progetto») più le righe
@@ -44,7 +46,15 @@ export type MandatoryReason =
  * permessi di ADESSO: spento, acceso per ogni membro, o per chi ha un
  * permesso nel progetto. Un dato, non una funzione, perché lo legga il server.
  */
-export type DefaultRule = "off" | "members" | { perm: string };
+export type DefaultRule = "off" | "members" | { perm: AlertPermission };
+
+/**
+ * Un permesso del registro (di progetto, o `monitor.manage` d'istanza):
+ * rimandi, lotto 4 — prima erano stringhe perché `servers.operate` viveva
+ * solo nel prototipo; ora è nel registro (area 8, F4b), e un permesso
+ * scritto male nel catalogo è un errore di compilazione.
+ */
+export type AlertPermission = ProjectPermission | InstancePermission;
 
 export interface AlertType {
   /** Il `kind` della notifica, e il `type` delle iscrizioni. */
@@ -52,7 +62,7 @@ export interface AlertType {
   group: AlertGroup;
   labelKey: string;
   /** Chi può iscriversi: un permesso nel progetto, o l'esserne membro. */
-  subscribe: { perm: string | "member" };
+  subscribe: { perm: AlertPermission | "member" };
   /** Il valore di partenza (App), nel prototipo e nella build app salvo `appDefaultOn`. */
   defaultOn: DefaultRule;
   /**
@@ -81,7 +91,7 @@ export interface AlertType {
    * Vale per TUTTI, anche per gli obbligatori: la visibilità viene prima di
    * tutto (una menzione a chi non legge più i Docs del progetto non arriva).
    */
-  seePerm?: string;
+  seePerm?: AlertPermission;
 }
 
 const label = (type: string) => `alerts.types.${type.replace(/\./g, "_")}`;
@@ -89,7 +99,7 @@ const label = (type: string) => `alerts.types.${type.replace(/\./g, "_")}`;
 function row(
   type: string,
   group: AlertGroup,
-  perm: string | "member",
+  perm: AlertPermission | "member",
   defaultOn: DefaultRule,
   defaultPhone: boolean,
   mandatory: MandatoryReason[] = [],
@@ -230,7 +240,7 @@ export function liveRowTypes(): string[] {
 }
 
 /** Se il default di partenza vale per chi ha questi permessi nel progetto. */
-export function defaultApplies(rule: DefaultRule, holds: (perm: string) => boolean): boolean {
+export function defaultApplies(rule: DefaultRule, holds: (perm: AlertPermission) => boolean): boolean {
   if (rule === "off") return false;
   if (rule === "members") return true;
   return holds(rule.perm);

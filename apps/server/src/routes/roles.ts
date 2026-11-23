@@ -30,6 +30,8 @@ import { apiError } from "../errors.js";
 export const roleRuleErrorSchema = errorSchema.extend({
   count: z.number().int().optional(),
   permission: z.string().optional(),
+  /** `escalation`: tutto ciò che a chi agisce manca (rimandi, lotto 4). */
+  missing: z.array(z.string()).optional(),
 });
 
 /** Traduce un {@link RoleRuleError} in risposta; rilancia il resto. */
