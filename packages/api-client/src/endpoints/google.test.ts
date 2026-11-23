@@ -41,8 +41,11 @@ describe("endpoints google", () => {
     await w.c.google.workspaces();
     expect(last(w.fetchImpl)).toMatchObject({ url: "/api/me/google/workspaces", method: "GET" });
     const k = client({ authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?x" });
-    expect(await k.c.google.connect(WS)).toEqual({ authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?x" });
+    // Un server di prima non manda `returnTo`: vale `web`.
+    expect(await k.c.google.connect(WS)).toEqual({ authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?x", returnTo: "web" });
     expect(last(k.fetchImpl)).toEqual({ url: "/api/me/google/connect", method: "POST", body: { workspaceId: WS } });
+    await k.c.google.connect(WS, { client: "desktop", returnState: "s".repeat(22) });
+    expect(last(k.fetchImpl)).toEqual({ url: "/api/me/google/connect", method: "POST", body: { workspaceId: WS, client: "desktop", returnState: "s".repeat(22) } });
     const p = client({ ...account, proposalsEnabled: false });
     await p.c.google.setProposals(ACCOUNT, false);
     expect(last(p.fetchImpl)).toEqual({ url: `/api/me/google/accounts/${ACCOUNT}`, method: "PATCH", body: { proposalsEnabled: false } });

@@ -6176,3 +6176,13 @@ deploy o di un rollback che la tocca.
   (`sourceOptionIndices` vuoto apposta, coperto da un test): restano
   decidibili dalla Posta. Le card aperte di questo tipo prima della discesa:
   `select count(*) from notifications n join email_proposals p on p.id::text = n.event->>'proposalId' where n.kind = 'google.proposal_handed' and n.status = 'open' and p.audience in ('mail_recipients','meeting_invitees');`
+- **«Rimandi, lotto 4: il ritorno OAuth della casella all'app»** *(23 nov
+  2026)*: branch `feat/rimandi-server` (A6, §6). Migrazione **0221**
+  (`oauth_states.client` e `return_state`, text nullable, CHECK sul client):
+  un collegamento avviato dall'app desktop (`client: "desktop"`) torna a
+  `/app/#/desktop-google` (la pagina del renderer, che apre
+  `stubwise://google`) invece della pagina Account del web. Nessuna env.
+  Ordine: **server** (healthy, 0221 applicata), poi **caddy** (la pagina
+  `desktop-google` del renderer). **Rollback**: sicuro; un server di prima
+  scarta `client`/`returnState` e risponde senza `returnTo` (l'app ripiega
+  sulla rilettura delle caselle), le colonne restano.
