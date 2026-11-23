@@ -58,17 +58,39 @@ describe("i filtri salvati senza gli sconosciuti", () => {
     expect(list.body).not.toContain(s.stranger);
   });
 
-  it("salvataggio: un segnaposto nei criteri è 400 `invalid`, in POST e in PATCH; una PATCH senza criteri li lascia veri", async () => {
+  it("salvataggio: un segnaposto nei criteri senza il filtro d'origine è 400 `invalid`; una PATCH senza criteri li lascia veri", async () => {
     const s = await scene();
     const bad = { name: "X", visibility: "private", criteria: { assigneeIds: ["hidden-1"] }, view: "list", groupBy: "none" };
     const post = await send(s.reader, "POST", "/api/filters", bad);
     expect([post.statusCode, (post.json() as { code: string }).code]).toEqual([400, "invalid"]);
-    const patch = await send(s.reader, "PATCH", `/api/filters/${s.filterId}`, { criteria: { assigneeIds: ["hidden-1", s.reader.id] } });
-    expect([patch.statusCode, (patch.json() as { code: string }).code]).toEqual([400, "invalid"]);
     const renamed = await send(s.reader, "PATCH", `/api/filters/${s.filterId}`, { name: "Rinominato" });
     expect(renamed.statusCode, renamed.body).toBe(200);
     const [row] = await t.db.select().from(taskFilters).where(eq(taskFilters.id, s.filterId));
     expect(row!.criteria).toEqual({ assigneeIds: [s.stranger, "none", s.reader.id] });
+  });
+
+  it("revisione 3bbe2ddc6..444b8b773, I-6: una PATCH coi criteri cambiati rimette al posto del segnaposto gli id del filtro stesso", async () => {
+    const s = await scene();
+    const res = await send(s.reader, "PATCH", `/api/filters/${s.filterId}`, { criteria: { assigneeIds: ["hidden-1", "none"], stalled: true } });
+    expect(res.statusCode, res.body).toBe(200);
+    expect((res.json() as { criteria: { assigneeIds: string[] } }).criteria.assigneeIds).toEqual(["hidden-1", "none"]);
+    const [row] = await t.db.select().from(taskFilters).where(eq(taskFilters.id, s.filterId));
+    expect(row!.criteria).toEqual({ assigneeIds: [s.stranger, "none"], stalled: true });
+  });
+
+  it("revisione 3bbe2ddc6..444b8b773, I-6: un POST col `savedFilterId` d'origine («salva come») rimette gli id veri; senza, o con un filtro che non vede, 400", async () => {
+    const s = await scene();
+    const body = { name: "Copia", visibility: "private", criteria: { assigneeIds: ["hidden-1"] }, view: "list", groupBy: "none" };
+    const ok = await send(s.reader, "POST", "/api/filters", { ...body, savedFilterId: s.filterId });
+    expect(ok.statusCode, ok.body).toBe(201);
+    const [copy] = await t.db.select().from(taskFilters).where(eq(taskFilters.id, (ok.json() as { id: string }).id));
+    expect(copy!.criteria).toEqual({ assigneeIds: [s.stranger] });
+    expect(ok.body).not.toContain(s.stranger);
+    expect((await send(s.colleague, "POST", "/api/filters", { ...body, savedFilterId: s.filterId })).statusCode).toBe(400);
+    // Un filtro d'origine che non nomina sconosciuti: il segnaposto non si risolve.
+    await t.db.update(taskFilters).set({ criteria: { assigneeIds: [s.reader.id] } } as never).where(eq(taskFilters.id, s.filterId));
+    expect((await send(s.reader, "POST", "/api/filters", { ...body, savedFilterId: s.filterId })).statusCode).toBe(400);
+    expect((await send(s.reader, "PATCH", `/api/filters/${s.filterId}`, { criteria: { assigneeIds: ["hidden-1"] } })).statusCode).toBe(400);
   });
 
   it("esecuzione: con `savedFilterId` il segnaposto diventa gli id veri del filtro; gli id veri del client restano; l'assegnatario resta mascherato", async () => {

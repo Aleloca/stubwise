@@ -37,3 +37,23 @@ export async function purgeStorageOrphans(db: Db, storage: ObjectStorage | null,
   if (done.length > 0) await db.delete(storageOrphans).where(inArray(storageOrphans.storageKey, done));
   return done.length;
 }
+
+/**
+ * Prova SUBITO le chiavi appena messe in coda (`queueDraftAttachmentObjects`),
+ * senza aspettare il giro orario; quelle che lo storage rifiuta restano in
+ * `storage_orphans` e le ritenta `purgeStorageOrphans`. Mai lancia: un guasto
+ * dello storage o del DB non fa fallire chi ha cancellato.
+ */
+export async function purgeQueuedOrphans(db: Db, storage: ObjectStorage | null, keys: readonly string[]): Promise<void> {
+  if (!storage || keys.length === 0) return;
+  const done: string[] = [];
+  for (const key of keys) {
+    try {
+      await storage.deleteObject(key);
+      done.push(key);
+    } catch {
+      // Resta in coda: il giro orario la ritenta.
+    }
+  }
+  if (done.length > 0) await db.delete(storageOrphans).where(inArray(storageOrphans.storageKey, done)).catch(() => undefined);
+}

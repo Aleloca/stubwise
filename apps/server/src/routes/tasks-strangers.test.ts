@@ -24,6 +24,32 @@ afterAll(async () => {
   await t.stop();
 });
 
+describe("il controllo del flusso coi posti nascosti (revisione 3bbe2ddc6..444b8b773, I-5)", () => {
+  it("un passo su un progetto che chi controlla non vede, con chi approva che non conosce: rimandati vuoti (come li manda il desktop), il controllo dà gli stessi problemi del flusso salvato", async () => {
+    const { projectId } = await seedTicket(t.db);
+    const { projectId: hiddenProject } = await seedTicket(t.db);
+    const reader = await createUserWithSession(app, `reader-cf-${randomUUID().slice(0, 6)}@example.com`);
+    await addMember(app, projectId, reader.id, "project_lead");
+    const [owner] = await t.db.insert(users).values({ email: `owner-cf-${randomUUID().slice(0, 6)}@x.it`, passwordHash: "x", role: "member" }).returning({ id: users.id });
+    const [approver] = await t.db.insert(users).values({ email: `appr-cf-${randomUUID().slice(0, 6)}@x.it`, passwordHash: "x", role: "member" }).returning({ id: users.id });
+    await addMember(app, projectId, owner!.id, "project_lead");
+    await addMember(app, hiddenProject, owner!.id, "project_lead");
+    await addMember(app, hiddenProject, approver!.id, "project_lead");
+    const code = `Q${randomUUID().slice(0, 5).toUpperCase()}-A1`;
+    const [a] = await t.db.insert(automations).values({ code, seq: 1, name: "Altrove", projectId, ownerId: owner!.id } as never).returning({ id: automations.id });
+    const step = { id: "s1", kind: "createTask", title: "x", description: "", assignee: {}, dueInDays: null, project: { mode: "fixed", projectId: hiddenProject }, milestoneRef: null, approval: { mode: "ask", who: { personId: approver!.id } } };
+    const flow = { trigger: { kind: "manual" }, steps: [step], titleTemplate: "t" };
+    await t.db.insert(automationVersions).values({ automationId: a!.id, n: 1, flow } as never);
+    const check = async (body: object) => {
+      const res = await app.inject({ method: "POST", url: `/api/automations/${code}/check`, headers: { cookie: reader.headers.cookie }, payload: { flow: body } });
+      expect(res.statusCode, res.body).toBe(200);
+      return (res.json() as { issues: unknown[] }).issues;
+    };
+    const asTheDesktopSends = { ...flow, steps: [{ ...step, project: { mode: "fixed", projectId: "", unavailable: true }, approval: { mode: "ask", who: {} } }] };
+    expect(await check(asTheDesktopSends)).toEqual(await check(flow));
+  });
+});
+
 describe("le task senza gli sconosciuti", () => {
   it("un assegnatario che chi legge non conosce: `assigneeId` è `hidden-<n>`, e il suo id non esce; il proprio id resta vero", async () => {
     const { projectId, ticketId } = await seedTicket(t.db);
@@ -142,6 +168,10 @@ describe("le task senza gli sconosciuti", () => {
       app.inject({ method: "PUT", url: `/api/automations/${code}/draft`, headers: { cookie: reader.headers.cookie }, payload: { flow: withAssignee(assignee), expectedRev: 1 } });
     expect((await put({ personId: "hidden-2" })).statusCode).toBe(400);
     expect((await app.inject({ method: "POST", url: `/api/automations/${code}/check`, headers: { cookie: reader.headers.cookie }, payload: { flow: withAssignee({ personId: "hidden-2" }) } })).statusCode).toBe(400);
+    // Revisione 3bbe2ddc6..444b8b773, I-5: anche il controllo riprende la persona di prima
+    // da un posto vuoto (il desktop manda `{}`): gli stessi problemi del flusso salvato.
+    const check = async (body: object) => ((await app.inject({ method: "POST", url: `/api/automations/${code}/check`, headers: { cookie: reader.headers.cookie }, payload: { flow: body } })).json() as { issues: unknown[] }).issues;
+    expect(await check(withAssignee({}))).toEqual(await check(flow));
     // Il posto rimandato VUOTO riprende la persona di prima (che chi salva non conosce).
     const saved = await put({});
     expect(saved.statusCode, saved.body).toBe(200);

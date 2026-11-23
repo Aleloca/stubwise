@@ -94,7 +94,7 @@ export async function meMailDraftsRoutes(instance: FastifyInstance, opts: { clie
     "/:id",
     { config: { access: { kind: "user" } }, schema: { params: z.object({ id: z.uuid() }), response: { 204: z.null(), ...errors } } },
     async (request, reply) => {
-      const out = await discardDraft(app.db, app.encryptionKey, client, request.user!.id, request.params.id);
+      const out = await discardDraft(app.db, app.encryptionKey, client, request.user!.id, request.params.id, await app.storage());
       if ("error" in out) return sendError(reply, out);
       return reply.code(204).send(null);
     },

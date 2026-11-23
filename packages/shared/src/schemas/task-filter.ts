@@ -125,6 +125,20 @@ export const newFilterBodySchema = z.object({
 });
 export type NewFilterBody = z.infer<typeof newFilterBodySchema>;
 
-/** Corpo di `PATCH /api/filters/:id`: gli assenti restano invariati. */
+/**
+ * Corpo di `POST /api/filters` (revisione 3bbe2ddc6..444b8b773, I-6): in più il
+ * filtro d'origine di un «salva come». Un segnaposto `hidden-<n>` nei criteri
+ * diventa gli assegnatari di quel filtro che chi salva non conosce, se chi
+ * salva lo vede; altrimenti 400 `invalid`. Facoltativo: un client di prima
+ * non lo manda.
+ */
+export const newFilterRequestSchema = newFilterBodySchema.extend({ savedFilterId: z.uuid().optional() });
+export type NewFilterRequest = z.infer<typeof newFilterRequestSchema>;
+
+/**
+ * Corpo di `PATCH /api/filters/:id`: gli assenti restano invariati. Un
+ * segnaposto nei criteri diventa gli assegnatari del filtro stesso che chi
+ * salva non conosce (I-6); se non ce ne sono, 400 `invalid`.
+ */
 export const filterPatchBodySchema = newFilterBodySchema.partial();
 export type FilterPatchBody = z.infer<typeof filterPatchBodySchema>;

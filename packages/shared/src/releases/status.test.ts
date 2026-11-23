@@ -80,8 +80,15 @@ describe("releaseStatusOf — run rilanciate (registro, A8 r.744)", () => {
     expect(releaseStatusOf(input({ runs: [failedA, okB], now: later(15) })).kind).toBe("failed");
     const rerunA = run({ name: "test", group: "github:suite:1", startedAt: later(10), endedAt: later(14) });
     expect(releaseStatusOf(input({ runs: [failedA, rerunA], now: later(15) }))).toEqual({ kind: "succeeded", since: later(14) });
-    // Una run con il gruppo e una senza (salvata prima che si leggesse) non sono la stessa.
-    expect(releaseStatusOf(input({ runs: [failedA, run({ name: "test", startedAt: later(10), endedAt: later(14) })], now: later(15) })).kind).toBe("failed");
+  });
+
+  it("revisione 3bbe2ddc6..444b8b773, I-1 e I-2: un gruppo assente fa da jolly — una run salvata prima (null) la sostituisce un rilancio col gruppo; su Bitbucket (null) due key diverse col nome uguale: la più nuova sostituisce", () => {
+    const legacyFailed = run({ name: "test", group: null, status: "failed", startedAt: later(1), endedAt: later(3) });
+    const grouped = run({ name: "test", group: "github:suite:1", startedAt: later(10), endedAt: later(14) });
+    expect(releaseStatusOf(input({ runs: [legacyFailed, grouped], now: later(15) })).kind).toBe("succeeded");
+    const bbFailed = run({ name: "Pipeline", status: "failed", startedAt: later(1), endedAt: later(3) });
+    const bbRerun = run({ name: "Pipeline", startedAt: later(10), endedAt: later(14) });
+    expect(releaseStatusOf(input({ runs: [bbFailed, bbRerun], now: later(15) })).kind).toBe("succeeded");
   });
 
   it("revisione del lotto 2, I6: `countedReleaseRuns` dà le run che contano, quelle da cui si legge la run fallita", () => {

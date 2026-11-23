@@ -57,6 +57,7 @@ export { DriveFolderLinkGone, insertDriveReference, reattachDriveReferences, tom
 // esattamente lo stesso digest per lo stesso testo.
 export { planDigest } from "./plan-digest.js";
 export { CANCEL_REQUEST_CLEARED } from "./ai-job-cancel.js";
+export { queueDraftAttachmentObjects } from "./storage-orphans.js";
 export { createTicket, ProjectNotFoundError, type CreateTicketInput, type Ticket } from "./ticket-create.js";
 export {
   createMilestone,

@@ -1,7 +1,8 @@
-import { driveFiles, emailMessages, googleAccounts, mailDraftAttachments, mailDrafts, type Db } from "@stubwise/db";
+import { driveFiles, emailMessages, googleAccounts, mailDraftAttachments, mailDrafts, queueDraftAttachmentObjects, type Db } from "@stubwise/db";
 import { randomUUID } from "node:crypto";
 import { driveFileUnreadableSql } from "../drive/service.js";
 import type { ObjectStorage } from "../storage/index.js";
+import { purgeQueuedOrphans } from "../storage/orphans.js";
 import {
   buildMimeMessage,
   createDraft,
@@ -475,7 +476,7 @@ export async function syncMergedDraft(
 }
 
 /** Elimina la bozza, su Gmail e qui. Una bozza già sparita da Gmail si toglie e basta. */
-export async function discardDraft(db: Db, encryptionKey: Buffer, client: MailComposeClient, userId: string, id: string): Promise<{ ok: true } | DraftError> {
+export async function discardDraft(db: Db, encryptionKey: Buffer, client: MailComposeClient, userId: string, id: string, storage: ObjectStorage | null = null): Promise<{ ok: true } | DraftError> {
   const [row] = await db.select().from(mailDrafts).where(and(eq(mailDrafts.id, id), eq(mailDrafts.userId, userId), eq(mailDrafts.state, "active")));
   if (!row) return { error: "not_found" };
   try {
@@ -489,7 +490,13 @@ export async function discardDraft(db: Db, encryptionKey: Buffer, client: MailCo
   } catch (err) {
     return googleError(err);
   }
-  await db.delete(mailDrafts).where(eq(mailDrafts.id, row.id));
+  // I suoi allegati se ne vanno in cascata: gli oggetti nello storage in coda, poi subito o al giro orario.
+  const keys = await db.transaction(async (tx) => {
+    const queued = await queueDraftAttachmentObjects(tx, row.id, "mail_draft_discarded");
+    await tx.delete(mailDrafts).where(eq(mailDrafts.id, row.id));
+    return queued;
+  });
+  await purgeQueuedOrphans(db, storage, keys);
   return { ok: true };
 }
 

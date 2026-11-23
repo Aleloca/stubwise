@@ -109,8 +109,8 @@ describe("Bitbucket: il merge e le run di un commit", () => {
     expect(out).toEqual({
       status: "ok",
       runs: [
-        { id: "pipe-1", name: "Pipeline #12", status: "failed", url: "u1", failedStep: "step test", startedAt: "c1", endedAt: "u1t", group: "bitbucket:key:pipe-1" },
-        { id: "pipe-2", name: "Deploy check", status: "running", url: "u2", failedStep: null, startedAt: "c2", endedAt: null, group: "bitbucket:key:pipe-2" },
+        { id: "pipe-1", name: "Pipeline #12", status: "failed", url: "u1", failedStep: "step test", startedAt: "c1", endedAt: "u1t", group: null },
+        { id: "pipe-2", name: "Deploy check", status: "running", url: "u2", failedStep: null, startedAt: "c2", endedAt: null, group: null },
       ],
     });
     expect(await new BitbucketProvider({ fetchImpl: vi.fn().mockResolvedValueOnce(json({}, 401)) }).getCommitRuns(bb, "a")).toEqual({ status: "unknown" });

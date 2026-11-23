@@ -39,8 +39,8 @@ export interface ReleaseRunLike {
   /**
    * Revisione del lotto 2, I6: CHI ha prodotto la run, per sapere se una più
    * nuova col nome uguale ne è il rilancio. GitHub: la check suite (un
-   * workflow su quel commit; i rilanci restano nella stessa); Bitbucket: la
-   * `key` dello status. Assente (`null`) per le run salvate prima.
+   * workflow su quel commit; i rilanci restano nella stessa). Assente (`null`)
+   * su Bitbucket e per le run salvate prima della 0219: fa da jolly.
    */
   group?: string | null;
 }
@@ -101,10 +101,12 @@ export function countedReleaseRuns<R extends ReleaseRunLike>(runs: readonly R[],
   // Registro, A8 r.744: una run con lo STESSO nome partita DOPO prende il posto
   // di quella di prima (una run rilanciata), o il rilascio resterebbe «fallito»
   // per sempre. Revisione del lotto 2, I6: solo se è dello stesso produttore
-  // (`group`: la check suite di GitHub, la key di Bitbucket): due job col
-  // nome uguale di due workflow diversi sono due run, e contano entrambe. A
-  // pari orario contano tutte.
-  const sameProducer = (a: R, b: R) => (a.group ?? null) === (b.group ?? null);
+  // (`group`: la check suite di GitHub): due job col nome uguale di due
+  // workflow diversi sono due run, e contano entrambe. Un gruppo assente fa da
+  // JOLLY (revisione 3bbe2ddc6..444b8b773, I-1 e I-2): Bitbucket non ne ha uno
+  // condiviso dai rilanci, e le run salvate prima della 0219 non ce l'hanno;
+  // in entrambi i casi vale la regola del solo nome. A pari orario contano tutte.
+  const sameProducer = (a: R, b: R) => a.group == null || b.group == null || a.group === b.group;
   const current = runs.filter((r) => !runs.some((o) => o.name === r.name && sameProducer(o, r) && Date.parse(o.startedAt) > Date.parse(r.startedAt)));
   if (pipeline?.mode !== "named") return current;
   const names = new Set(pipeline.names);

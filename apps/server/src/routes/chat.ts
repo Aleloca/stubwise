@@ -452,6 +452,13 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
    * modificati, eliminati, reazioni, e le radici che hanno avuto risposte) e
    * la vista del canale. Chi guarda e la visibilità si RILEGGONO a ogni giro:
    * se il canale non è più visibile, lo stream si chiude.
+   *
+   * Registro, A11 r.1414 (revisione del lotto 2, M3): le persone che chi guarda
+   * non conosce sono `hidden-<n>` anche qui (le maschera il servizio, non il
+   * `preSerialization`: la risposta è presa a mano). La numerazione vale per UN
+   * frame: lo stesso sconosciuto può essere `hidden-1` in un frame e `hidden-2`
+   * nel successivo. Un client non confronta mai segnaposto di frame diversi e
+   * non ci lega niente (né una persona, né un colore).
    */
   app.get(
     "/channels/:id/stream",

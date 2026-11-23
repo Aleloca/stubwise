@@ -1,5 +1,5 @@
 import { savedFilterViewSchema } from "@stubwise/shared";
-import type { FilterPatchBody, NewFilterBody, Reader, SavedFilterView } from "@stubwise/shared";
+import type { FilterPatchBody, NewFilterRequest, Reader, SavedFilterView } from "@stubwise/shared";
 import { z } from "zod";
 import type { ApiRequest } from "../client.js";
 
@@ -21,7 +21,8 @@ export function createFiltersEndpoints(request: ApiRequest) {
       return request("GET", `/api/filters/${enc(id)}`, undefined, savedFilterViewSchema);
     },
 
-    create(body: NewFilterBody): Promise<Reader<SavedFilterView>> {
+    /** `savedFilterId`: il filtro d'origine di un «salva come», che risolve i segnaposto dei criteri. */
+    create(body: NewFilterRequest): Promise<Reader<SavedFilterView>> {
       return request("POST", "/api/filters", body, savedFilterViewSchema);
     },
 
