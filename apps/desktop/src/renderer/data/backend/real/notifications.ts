@@ -328,6 +328,31 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
       ...viaClaudeOf(item, ctx),
     };
   }
+  // Lotto 4, D-2.0 (decisione del maintainer): la card di una proposta
+  // CONDIVISA passata al progetto (`google.sourceProposalId`, derivato a
+  // lettura) si mostra come nel prototipo: apre la Home, dove la proposta è
+  // in «Da decidere», e una card chiusa (o con una decisione) lo dice. Il
+  // testo lo compone la card; l'evento non porta chi l'ha passata. Una card
+  // di PRIMA (una passata della casella) resta «Open in web».
+  const handed = item.kind === "google.proposal_handed" ? (item as Partial<InboxItem>).google : undefined;
+  if (handed?.sourceProposalId && isIntegrated({ kind: "destination", name: "mail" })) {
+    return {
+      id: item.id,
+      kind: item.kind,
+      projectId: item.projectId,
+      objectCode: projectCode ?? "",
+      departmentId: null,
+      recipientIds: [],
+      title: "",
+      body: "",
+      createdAt: item.createdAt,
+      read: item.readAt !== null,
+      archived: item.status === "handled",
+      snoozedUntil: item.status === "snoozed" ? item.snoozedUntil : null,
+      link: "#/home",
+      ...(item.status === "handled" || handed.decision ? { proposalDecided: true } : {}),
+    };
+  }
   // Area 7, F1: una card di un'automazione apre l'esecuzione (o l'automazione),
   // dai campi derivati a lettura (`item.automation`); solo a destinazione
   // accesa, o porterebbe a «in arrivo». Gli indirizzi sono quelli di `routes.ts`.
