@@ -1,3 +1,4 @@
+import { personRefSchema } from "./person-ref.js";
 import { z } from "zod";
 import { agentQuestionAnswerSchema, agentQuestionOptionSchema } from "./notification.js";
 
@@ -271,6 +272,12 @@ export const agentSessionSummarySchema = z.object({
    * Calcolato dal server, mai dedotto dal client. Additivo.
    */
   waitsOnViewer: z.boolean().default(false),
+  /**
+   * Rimandi, lotto 4 (§7.1): chi ha avviato la sessione (il richiedente del
+   * job, chi ha avviato il refinement); null per le automatiche. Una persona
+   * che chi guarda non conosce arriva `hidden-<n>`. Additivo.
+   */
+  startedById: personRefSchema.nullable().default(null),
 });
 export type AgentSessionSummary = z.infer<typeof agentSessionSummarySchema>;
 
@@ -358,6 +365,9 @@ export const agentSessionQuestionSchema = z.object({
    * risposta. Additivo: un server più vecchio non lo manda.
    */
   cancelled: z.boolean().default(false),
+  /** Rimandi, lotto 4 (§7.1): chi ha risposto (`hidden-<n>` se sconosciuto) e quando; null su un'aperta o annullata. Additivi. */
+  answeredById: personRefSchema.nullable().default(null),
+  answeredAt: z.iso.datetime().nullable().default(null),
 });
 export type AgentSessionQuestion = z.infer<typeof agentSessionQuestionSchema>;
 

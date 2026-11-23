@@ -35,8 +35,13 @@ Legenda: *(M)* decisione del maintainer, *(O)* scelta dell'orchestratrice,
 - Abbinare un commit per **username** del provider *(S)*: nessuna tabella lega
   un utente al suo login GitHub, quindi lo username (letto dalle noreply) si
   mostra ma non abbina; si abbina per email (account o `git_identities`).
-- Chi ha avviato una sessione e chi ha risposto a una domanda (e quando) *(S)*:
-  oggi non arrivano.
+- ~~Chi ha avviato una sessione e chi ha risposto a una domanda (e quando) *(S)*:
+  oggi non arrivano.~~ *Chiusa il 23 nov 2026 (72, lotto 4, §7.1)*:
+  `startedById` sulla sessione (richiedente del job, chi ha avviato il
+  refinement; null per le automatiche) e `answeredById`/`answeredAt` sulle
+  domande, mascherati per chi non conosce la persona (anche nel messaggio
+  `session` dello stream). Rimasto fuori *(O, 94)*: `inputs[].authorName`
+  (chi scrive in una sessione) è l'email e non passa dalla maschera.
 - Consumi per task (`usage`) e blocco d'istanza (`blocked`) in `/work` *(S)*.
 - Allegati nei messaggi a una sessione *(S)*: il server non li accetta.
 - ~~`generatedAt` dei report giornalieri *(S)*.~~ *Chiusa il 23 nov 2026 (72, lotto 4, §7.4)*: in `GET /api/activity`, `finished_at` di un report `done`, altrimenti null.

@@ -1060,3 +1060,31 @@ describe("refinement senza repos.view: lo legge chi ci può scrivere (backlog.ed
     expect(idsOf(list.json())).not.toContain(refineSession);
   });
 });
+
+describe("rimandi, lotto 4, §7.1: chi ha avviato e chi ha risposto", () => {
+  it("nel dettaglio e nell'elenco: `startedById` (il richiedente del job) e la risposta con `answeredById`/`answeredAt`; per chi non li conosce, segnaposti", async () => {
+    const seeded = await seedTicket(t.db);
+    await addMember(app, seeded.projectId, u.memberId, "viewer");
+    const [requester] = await t.db.insert(users).values({ email: `req-${randomUUID().slice(0, 6)}@x.it`, passwordHash: "x", role: "member" }).returning();
+    const [answerer] = await t.db.insert(users).values({ email: `ans-${randomUUID().slice(0, 6)}@x.it`, passwordHash: "x", role: "member" }).returning();
+    const [job] = await t.db.insert(aiJobs).values({ ticketId: seeded.ticketId, status: "fixing", requestedByUserId: requester!.id }).returning();
+    const answeredAt = new Date("2026-11-23T10:42:00.000Z");
+    await t.db.insert(agentQuestions).values({ jobId: job!.id, ticketId: seeded.ticketId, round: 1, question: "?", options: [{ label: "A" }, { label: "B" }] as never, recommendedIndex: 0, allowFreeText: false, answer: { optionIndex: 0 }, answeredAt, answeredByUserId: answerer!.id });
+    const [s] = await t.db.insert(agentSessions).values({ ownerKey: `ai_job:${job!.id}`, kind: "ai_job", title: "#7", projectId: seeded.projectId, ticketId: seeded.ticketId, aiJobId: job!.id }).returning();
+    // Il full admin li conosce tutti.
+    const admin = (await get(`/api/agent-sessions/${s!.id}`, u.adminCookie)).json();
+    expect(admin).toMatchObject({ startedById: requester!.id });
+    expect(admin.questions[0]).toMatchObject({ answeredById: answerer!.id, answeredAt: answeredAt.toISOString() });
+    // Il member non li conosce (nessun progetto in comune): segnaposti, e l'id non esce.
+    const res = await get(`/api/agent-sessions/${s!.id}`, u.memberCookie);
+    expect(res.statusCode, res.body).toBe(200);
+    const member = res.json();
+    expect(member.startedById).toMatch(/^hidden-\d+$/);
+    expect(member.questions[0].answeredById).toMatch(/^hidden-\d+$/);
+    expect(member.questions[0].answeredById).not.toBe(member.startedById);
+    for (const leak of [requester!.id, answerer!.id]) expect(res.body).not.toContain(leak);
+    // Una sessione automatica (nessun richiedente): null.
+    await t.db.update(aiJobs).set({ requestedByUserId: null }).where(eq(aiJobs.id, job!.id));
+    expect((await get(`/api/agent-sessions/${s!.id}`, u.adminCookie)).json().startedById).toBeNull();
+  });
+});
