@@ -257,7 +257,9 @@ export async function checkDraft(id: string, flow: AutomationFlow): Promise<Flow
   const next = copy(flow);
   keepHiddenProjects(me, latest(a).flow, next);
   keepHiddenPeople(me, latest(a).flow, next);
-  return configErrorsOf(a, next, a.ownerId ?? me);
+  // Il proprietario che avrebbe: chi prova, perché pubblicando lo diventa
+  // (la regola del server, review F1 I3; decisione di 46), non `a.ownerId`.
+  return configErrorsOf(a, next, me);
 }
 
 /**

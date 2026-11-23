@@ -3,7 +3,9 @@ import { visitSteps } from "@stubwise/shared";
 import { automations, resetApi, setLatency } from "../api";
 import { AUTOMATION_CASES } from "../seed/automations";
 import { setSessionPersonId } from "../session";
+import { PEOPLE } from "../seed/people";
 import { state } from "../store";
+import { canManageAutomation, canSeeAutomation } from "./visibility";
 import type { Step } from "../types";
 import { resetViewerGrants } from "../viewer";
 
@@ -117,6 +119,45 @@ describe("checkDraft", () => {
     expect(issues.some((i) => i.code === "unknown_ref" && i.path.startsWith("1/"))).toBe(true);
     // Non scrive niente.
     expect(auto(A.newContract).versions.at(-1)!.flow).toEqual(live);
+  });
+
+  // Revisione di 3bbe2ddc6..444b8b773 (decisione di 46, la regola del server,
+  // review F1 I3): la prova di un flusso non ancora pubblicato si fa col
+  // proprietario che avrebbe, cioè CHI PROVA, non `a.ownerId`.
+  it("il proprietario della prova è chi prova: un avvio che lui non gestisce è un problema", async () => {
+    // Un'automazione, chi la gestisce senza esserne il titolare, e un'altra che solo il titolare gestisce.
+    const people = PEOPLE.map((p) => p.id);
+    const pick = state.automations.flatMap((a) =>
+      a.ownerId
+        ? people
+            .filter((c) => c !== a.ownerId && canManageAutomation(c, a))
+            .flatMap((checker) =>
+              state.automations
+                .filter(
+                  (t) =>
+                    t.id !== a.id &&
+                    canSeeAutomation(a.ownerId!, t) &&
+                    canManageAutomation(a.ownerId!, t) &&
+                    !canManageAutomation(checker, t),
+                )
+                .map((target) => ({ a, checker, target })),
+            )
+        : [],
+    )[0];
+    expect(pick).toBeDefined();
+    const { a, checker, target } = pick!;
+    as(checker);
+    const flow = structuredClone(a.versions.at(-1)!.flow);
+    flow.steps.push({
+      id: "s-start-owner",
+      kind: "startAutomation",
+      automationId: target.id,
+      approval: { mode: "auto" },
+    } as Step);
+    const issues = await automations.checkDraft(a.id, flow);
+    expect(
+      issues.some((i) => i.code === "unknown_ref" && i.path === String(flow.steps.length - 1)),
+    ).toBe(true);
   });
 
   it("chi non vede l'automazione: not_found", async () => {
