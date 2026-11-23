@@ -16,6 +16,7 @@ import { normalizeInstanceUrl, readInstanceUrl, writeInstanceUrl } from "./insta
 import { buildMenuTemplate } from "./menu";
 import { hostname as osHostname } from "node:os";
 import { authUrlFromArgv, createBrowserLogin, type SessionChange } from "./browserLogin";
+import { createGoogleReturn } from "./googleReturn";
 import { clearToken, logout, readToken, replaceToken } from "./session";
 import {
   isExternalOpenAllowed,
@@ -149,14 +150,27 @@ const browserLogin = createBrowserLogin({
   notify: notifySession,
 });
 
-/** Un `stubwise://` arrivato all'app: solo `handleAuthUrl` lo legge, e la finestra torna davanti. */
+// Lotto 4, §6: il ritorno dal consenso di Google (`stubwise://google`). Al
+// renderer va solo `{ state, outcome }`, che conferma `ok` rileggendo le caselle.
+const googleReturn = createGoogleReturn({
+  notify: (ret) => {
+    for (const win of BrowserWindow.getAllWindows()) win.webContents.send("google:returned", ret);
+  },
+});
+
+/**
+ * Un `stubwise://` arrivato all'app, e la finestra torna davanti:
+ * `stubwise://auth` lo legge `handleAuthUrl`, `stubwise://google`
+ * `handleGoogleUrl`. Il resto si ignora.
+ */
 function receiveAuthUrl(url: string): void {
   const win = BrowserWindow.getAllWindows()[0];
   if (win) {
     if (win.isMinimized()) win.restore();
     win.focus();
   }
-  void browserLogin.handleAuthUrl(url);
+  if (url.startsWith("stubwise://google")) googleReturn.handleGoogleUrl(url);
+  else void browserLogin.handleAuthUrl(url);
 }
 
 /** Un 401 di sessione: si chiude, ma una richiesta partita col token di prima non chiude la sessione nuova. */
@@ -359,6 +373,19 @@ ipcMain.handle("session:start-browser-login", async (event) => {
 ipcMain.handle("session:cancel-browser-login", (event) => {
   if (!fromApp(event)) return { ok: false };
   browserLogin.cancel();
+  return { ok: true };
+});
+
+// Lotto 4, §6: il `returnState` del collegamento di una casella Google, che
+// il renderer manda al server; il ritorno arriva su `google:returned`.
+ipcMain.handle("google:prepare-connect", (event) => {
+  if (!fromApp(event)) return { ok: false };
+  return { ok: true, ...googleReturn.prepare() };
+});
+
+ipcMain.handle("google:cancel-connect", (event) => {
+  if (!fromApp(event)) return { ok: false };
+  googleReturn.cancel();
   return { ok: true };
 });
 

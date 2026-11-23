@@ -87,19 +87,47 @@ const CONNECT_TIMEOUT_MS = 10 * 60_000;
 
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Il ponte del preload per il ritorno dal consenso (lotto 4, §6); assente sul web. */
+interface DesktopGoogle {
+  prepareConnect: () => Promise<{ ok: true; state: string } | { ok: false }>;
+  cancelConnect: () => Promise<{ ok: boolean }>;
+  onReturned: (cb: (ret: { state: string; outcome: string }) => void) => () => void;
+}
+const desktopGoogle = (): DesktopGoogle | null =>
+  (globalThis as { stubwise?: { google?: DesktopGoogle } }).stubwise?.google ?? null;
+
+/**
+ * Gli esiti del callback del server (`googleCallbackOutcomes`) nelle parole
+ * del prototipo (`GoogleConnectOutcome`): `invalid: <motivo>` per i tre che
+ * il dialogo dice; gli altri, e un esito ignoto, `failed`.
+ */
+const OUTCOME_ERRORS: Readonly<Record<string, string>> = {
+  domain_mismatch: "invalid: wrong_domain",
+  insufficient_scope: "invalid: scopes_missing",
+  mailbox_owned_by_other: "invalid: owned_by_other",
+};
+
 /**
  * «Collega» (o «Ricollega»): l'URL di consenso di Google si apre FUORI
- * dall'app (sul desktop i link http(s) vanno al browser di sistema), il
- * callback resta quello del web, che dice l'esito; qui si rileggono le
- * caselle ogni 3 s finché non c'è quella nuova o ricollegata (decisione
- * dell'orchestratrice: nessun deep link). Con più Workspace utilizzabili
- * serve la scelta (`invalid: workspace`); con nessuno, `invalid:
- * google_not_configured`. Dopo 10 minuti senza esito, `failed`.
+ * dall'app (sul desktop i link http(s) vanno al browser di sistema), e qui si
+ * rileggono le caselle ogni 3 s finché non c'è quella nuova o ricollegata.
+ * Con più Workspace utilizzabili serve la scelta (`invalid: workspace`); con
+ * nessuno, `invalid: google_not_configured`. Dopo 10 minuti senza esito,
+ * `failed`.
+ *
+ * Lotto 4, §6: sul desktop il ritorno si lega all'app (`client: "desktop"`
+ * e il `returnState` del main). Se il server lo conferma (`returnTo:
+ * "desktop"`), l'esito di `stubwise://google` chiude l'attesa: uno negativo
+ * col suo motivo, `ok` con una rilettura delle caselle (l'esito non è
+ * un'autorità). Un server di prima e il web: solo il polling.
  */
 const connectGoogle: Drive["connectGoogle"] = async (options = {}) => {
   const { tab } = options;
+  const bridge = desktopGoogle();
   let before: Map<string, ServerGoogleAccount>;
   let authorizeUrl: string;
+  let returnState: string | null = null;
+  let desktop = false;
   try {
     const usable = await listGoogleWorkspaces();
     if (usable.length === 0) throw new Error("invalid: google_not_configured");
@@ -107,7 +135,15 @@ const connectGoogle: Drive["connectGoogle"] = async (options = {}) => {
     if (!workspaceId || !usable.some((w) => w.id === workspaceId))
       throw new Error("invalid: workspace");
     before = new Map((await myAccounts()).map((a) => [a.id, a]));
-    ({ authorizeUrl } = await appClient().google.connect(workspaceId));
+    const prepared = bridge ? await bridge.prepareConnect() : null;
+    returnState = prepared?.ok ? prepared.state : null;
+    const res = await appClient().request<{ authorizeUrl: string; returnTo?: string }>(
+      "POST",
+      "/api/me/google/connect",
+      returnState ? { workspaceId, client: "desktop", returnState } : { workspaceId },
+    );
+    authorizeUrl = res.authorizeUrl;
+    desktop = returnState !== null && res.returnTo === "desktop";
   } catch (error) {
     // La scheda aperta nel clic resterebbe vuota.
     tab?.close();
@@ -122,18 +158,37 @@ const connectGoogle: Drive["connectGoogle"] = async (options = {}) => {
     // dà sempre null: non dice se s'è aperta.
     window.open(authorizeUrl, "_blank", "noopener");
   }
-  const deadline = Date.now() + CONNECT_TIMEOUT_MS;
-  for (;;) {
-    await pause(CONNECT_POLL_MS);
-    const accounts = await myAccounts();
-    // Collegata: una casella sana che prima non c'era, o era da ricollegare, o è stata ricollegata adesso.
-    const done = accounts.find((a) => {
-      if (needsReconnect(a)) return false;
-      const was = before.get(a.id);
-      return !was || needsReconnect(was) || was.connectedAt !== a.connectedAt;
-    });
-    if (done) return accountOf(done);
-    if (Date.now() >= deadline) throw new Error("failed");
+  // Il ritorno dal browser: sveglia l'attesa, solo col proprio state.
+  let back: string | null = null;
+  let wake: (() => void) | null = null;
+  const stop =
+    desktop && bridge
+      ? bridge.onReturned((ret) => {
+          if (ret.state !== returnState) return;
+          back = ret.outcome;
+          wake?.();
+        })
+      : () => {};
+  const nap = () =>
+    Promise.race([pause(CONNECT_POLL_MS), new Promise<void>((resolve) => (wake = resolve))]);
+  try {
+    const deadline = Date.now() + CONNECT_TIMEOUT_MS;
+    for (;;) {
+      await nap();
+      const outcome: string | null = back;
+      if (outcome !== null && outcome !== "ok") throw new Error(OUTCOME_ERRORS[outcome] ?? "failed");
+      const accounts = await myAccounts();
+      // Collegata: una casella sana che prima non c'era, o era da ricollegare, o è stata ricollegata adesso.
+      const done = accounts.find((a) => {
+        if (needsReconnect(a)) return false;
+        const was = before.get(a.id);
+        return !was || needsReconnect(was) || was.connectedAt !== a.connectedAt;
+      });
+      if (done) return accountOf(done);
+      if (Date.now() >= deadline) throw new Error("failed");
+    }
+  } finally {
+    stop();
   }
 };
 

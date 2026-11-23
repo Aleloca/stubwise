@@ -10507,6 +10507,16 @@
         "generic": "Couldn't sign in. Try again."
       }
     },
+    "desktopGoogle": {
+      "connected": "Mailbox connected",
+      "notConnected": "The mailbox wasn't connected",
+      "back": "Go back to Stubwise: the app is opening.",
+      "open": "Open Stubwise",
+      "invalid": {
+        "title": "This link isn't valid",
+        "lead": "Start connecting the mailbox again from the Stubwise app."
+      }
+    },
     "desktopLogin": {
       "signInFirst": "Sign in to let Stubwise on “{{device}}” use your account.",
       "consent": {

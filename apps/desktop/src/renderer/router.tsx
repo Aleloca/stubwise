@@ -18,6 +18,7 @@ import { ProjectNotFound } from "./pages/ProjectNotFound";
 import { useTranslation } from "react-i18next";
 import { useChatChannels, useEntryGate, useProject } from "./data/queries";
 import { DesktopLoginPage, type DesktopLoginParams } from "./pages/entry/DesktopLoginPage";
+import { DesktopGooglePage, type DesktopGoogleParams } from "./pages/entry/DesktopGooglePage";
 import { LoginPage } from "./pages/entry/LoginPage";
 import { RegisterPage } from "./pages/entry/RegisterPage";
 import { ResetPasswordPage } from "./pages/entry/ResetPasswordPage";
@@ -384,7 +385,7 @@ const ASK_MAX = 2000;
 
 /** Le rotte d'ingresso: fuori dall'intelaiatura (niente binario né colonna). */
 const ENTRY_PATH =
-  /^\/(login|setup|desktop-login|register\/[^/]+|reset-password\/[^/]+|email-change\/[^/]+)\/?$/;
+  /^\/(login|setup|desktop-login|desktop-google|register\/[^/]+|reset-password\/[^/]+|email-change\/[^/]+)\/?$/;
 
 /**
  * Il cancello dell'ingresso (area 9a, shape `entry.md`). Con l'istanza vuota
@@ -435,6 +436,26 @@ const desktopLoginRoute = createRoute({
   path: "/desktop-login",
   validateSearch: validateDesktopLoginSearch,
   component: DesktopLoginRoutePage,
+});
+
+function DesktopGoogleRoutePage() {
+  const params = desktopGoogleRoute.useSearch();
+  return <DesktopGooglePage {...params} />;
+}
+
+/**
+ * `/desktop-google` (lotto 4, §6): nel browser, il ritorno dal consenso di
+ * Google per una casella collegata dal desktop. Una pagina dell'ingresso,
+ * fuori dall'intelaiatura e senza sessione.
+ */
+const desktopGoogleRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/desktop-google",
+  validateSearch: (search: Record<string, unknown>): DesktopGoogleParams => ({
+    outcome: typeof search.outcome === "string" ? search.outcome : undefined,
+    state: typeof search.state === "string" ? search.state : undefined,
+  }),
+  component: DesktopGoogleRoutePage,
 });
 
 function RegisterRoutePage() {
@@ -1413,6 +1434,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
   desktopLoginRoute,
+  desktopGoogleRoute,
   registerRoute,
   resetPasswordRoute,
   emailChangeRoute,

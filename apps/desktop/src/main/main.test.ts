@@ -136,6 +136,9 @@ describe("canali IPC", () => {
     "files:cancel",
     "files:progress",
     "files:register",
+    "google:cancel-connect",
+    "google:prepare-connect",
+    "google:returned",
     "instance:get",
     "instance:set",
     "menu:ask-claude",
@@ -241,6 +244,8 @@ describe("canali IPC", () => {
       "file:save",
       "files:cancel",
       "files:register",
+      "google:cancel-connect",
+      "google:prepare-connect",
       "instance:get",
       "instance:set",
       "open:web",
@@ -270,6 +275,7 @@ describe("canali IPC", () => {
       "instance",
       "session",
       "openWeb",
+      "google",
     ]);
     // Mai il token né `ipcRenderer` verso il renderer.
     expect(exposed).not.toMatch(/\btoken\s*[:(]/i);
