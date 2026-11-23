@@ -1,4 +1,5 @@
 import { addDays, startOfLocalDay } from "@stubwise/shared";
+import { knownPeopleFor } from "../access/whoCan";
 import { isProjectMember } from "../mail/visibility";
 import { copy, gate, now, state, visibleProjectIds } from "../store";
 import type {
@@ -184,9 +185,16 @@ function freeBusyOf(personId: string, from: number, to: number): FreeBusy {
  * finestra letta.
  */
 export async function freeBusy(personIds: string[], from: string, to: string): Promise<FreeBusy[]> {
-  await gate("calendar.freeBusy");
+  const me = await gate("calendar.freeBusy");
   const range = rangeOf(from, to);
-  return personIds.map((id) => freeBusyOf(id, range.from, range.to));
+  // R.1414 (lotto 3): una persona che chi guarda non conosce risponde come una
+  // che non esiste, altrimenti la risposta direbbe chi c'è (un «oracolo»).
+  const known = knownPeopleFor(me);
+  return personIds.map((id) =>
+    id === me || known.has(id)
+      ? freeBusyOf(id, range.from, range.to)
+      : { personId: id, availability: "not_connected" as const, busy: [] },
+  );
 }
 
 /**
@@ -200,14 +208,16 @@ export async function findFirstFreeSlot(
   durationMin: number,
   from: string,
 ): Promise<{ startsAt: string; endsAt: string } | null> {
-  await gate("calendar.findFirstFreeSlot");
+  const me = await gate("calendar.findFirstFreeSlot");
+  // R.1414: chi non si conosce non conta (non c'è il suo calendario, come per `freeBusy`).
+  const known = knownPeopleFor(me);
   if (!Number.isInteger(durationMin) || durationMin <= 0) throw invalid("duration");
   const start = new Date(from);
   if (Number.isNaN(start.getTime())) throw invalid("range");
   const dayStart = startOfLocalDay(start);
-  const busy = personIds.flatMap(
-    (id) => freeBusyOf(id, dayStart.getTime(), addDays(dayStart, 1).getTime()).busy,
-  );
+  const busy = personIds
+    .filter((id) => id === me || known.has(id))
+    .flatMap((id) => freeBusyOf(id, dayStart.getTime(), addDays(dayStart, 1).getTime()).busy);
   return firstFreeSlot(busy, durationMin, start);
 }
 
