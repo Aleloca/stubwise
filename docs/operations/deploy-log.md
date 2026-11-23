@@ -6204,3 +6204,15 @@ deploy o di un rollback che la tocca.
   non fa niente e la card resta aperta; l'assegnazione a Claude riesce sempre,
   senza errori, il lavoro non parte (`claudeRun: "refused:budget_exhausted"`)
   e la task mostra il blocco in `/work.blocked`.
+- **«Rimandi, lotto 4: lo stato della PR di setup del grafo»** *(24 nov
+  2026)*: branch `feat/rimandi-server`. **Migrazione 0222**
+  (`repo_graphs.setup_pr_state`, nullable, con CHECK). Il worker la scrive
+  `open` quando apre la PR di setup; il webhook la porta a `merged`,
+  `closed_unmerged` o di nuovo `open` se riaperta. `GET
+  /api/repositories/:id/graph` la espone come `setupPrState`
+  (`.default(null)`). Le PR aperte prima restano `null` («non si sa») finché
+  non arriva un loro evento. Ordine: **server** prima (healthy e migrazione
+  applicata: il worker nomina la colonna), poi **worker** e **caddy**.
+  **Rollback**: sicuro scendere d'immagine (la colonna in più è ignorata);
+  per togliere la colonna, prima server e worker vecchi, poi `ALTER TABLE
+  repo_graphs DROP COLUMN setup_pr_state`.

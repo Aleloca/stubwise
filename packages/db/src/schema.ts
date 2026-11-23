@@ -4368,6 +4368,10 @@ export const repoGraphs = pgTable("repo_graphs", {
   labeled: boolean("labeled").notNull().default(false),
   // PR di setup aperta sul repository (config graphify); null se mai aperta.
   setupPrUrl: text("setup_pr_url"),
+  // Stato della PR di setup (0222, rimandi lotto 4): `open` quando il worker
+  // la apre, poi dal webhook (merged/closed_unmerged, di nuovo open se
+  // riaperta). null = non si sa (aperta prima della colonna, o nessuna PR).
+  setupPrState: text("setup_pr_state", { enum: ["open", "merged", "closed_unmerged"] }),
   // Errore dell'ultima build fallita, mostrato in UI. Null quando status != failed.
   error: text("error"),
   generatedAt: timestamp("generated_at", { withTimezone: true }),

@@ -241,9 +241,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   integrate)~~ (chiusa il 23 nov 2026, rimandi, lotto 1: «Genera» su un grafo
   spento lo accende con PATCH `graphEnabled` e poi genera, `real/docs.ts`).
   Elenco completo in `apps/desktop/docs/integration-area5-f1.md`.
-- Stato della PR di setup del grafo *(S, fetta 1, review del renderer)*: il
+- ~~Stato della PR di setup del grafo *(S, fetta 1, review del renderer)*: il
   server dà l'indirizzo della PR (`setupPrUrl`), non se è aperta, mergiata o
-  chiusa; il desktop la mostra sempre aperta.
+  chiusa; il desktop la mostra sempre aperta.~~ *Parte server chiusa il 24
+  nov 2026 (72, lotto 4)*: `setupPrState` (`open`/`merged`/`closed_unmerged`,
+  null = non si sa), migrazione 0222, scritto dal worker all'apertura e dal
+  webhook alla chiusura o riapertura. Resta al renderer leggerlo invece di
+  mostrarla sempre aperta.
 - Chat dei Docs senza streaming *(S, fetta 1)*: se `CHAT_MAX_TOKENS` sale molto
   o arriva un modello lento, il primo a scattare è il timeout di 300 s del main
   (undici); la strada è lo streaming, non un timeout più alto.

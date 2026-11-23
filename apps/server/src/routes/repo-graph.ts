@@ -202,6 +202,7 @@ export async function repoGraphRoutes(
       const common = {
         enabled: repository.graphEnabled,
         setupPrUrl: graph?.setupPrUrl ?? null,
+        setupPrState: graph?.setupPrUrl ? (graph.setupPrState ?? null) : null,
         jobPending: activeKinds.has("build"),
         setupPrJobPending: activeKinds.has("setup_pr"),
         setupPrError: lastSetupPr?.status === "failed" ? (lastSetupPr.error ?? null) : null,
