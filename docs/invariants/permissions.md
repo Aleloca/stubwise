@@ -431,6 +431,23 @@ punti lato server sta nell'inventario consegnato a 72 (sotto).
   account. Per ogni altra card il nome di chi ha agito non si scrive nel
   testo salvato, o non esce a chi non lo conosce: il testo si compone a
   lettura da `actorName` / `memberName` («Someone»).
+- **Eccezione dichiarata: chi compare nell'email o nell'evento** (scelta A
+  di 46, lotto 3, 23 nov 2026). Chi sta nelle intestazioni di un'email che
+  chi guarda ha ricevuto (mittente, `to`, `cc`; mai i ccn) e chi è invitato
+  a un evento del suo calendario è conosciuto PER QUELLA proposta o QUEL
+  evento: resta col suo id e il suo nome (`sharedWith`, gli invitati). Anche
+  `outsiders` e gli incaricati negli argomenti delle azioni restano veri:
+  servono al gesto «Aggiungere come Contributor?» e all'editor dell'evento,
+  che rimandano quegli id. Chi ha deciso, passato o scelto il progetto della
+  proposta (`decidedBy`, `handedBy`, il `byId` di `already_handled`) segue
+  invece la regola: se non è fra quelle persone e chi guarda non lo conosce,
+  è il segnaposto, col nome vuoto («Someone»).
+- **Il registro e le persone che non si vedono** (scelta di 46, lotto 3):
+  una voce d'istanza `person.*` su una persona che chi guarda non vede non
+  esiste per lui; chi gestisce le persone (`users.manage`) le legge tutte
+  (la regola del server, `adminVisiblePersonIds`, area 9). Gli id dentro i
+  `params` il server li toglie e il prototipo li maschera: vanno bene tutte
+  e due.
 - **Il segnaposto**: al posto dell'id di una persona che chi guarda non
   conosce, `hidden-<n>`, dove `<n>` è un intero da 1 assegnato nell'ordine
   in cui le persone nascoste compaiono nella RISPOSTA. Stabile dentro la

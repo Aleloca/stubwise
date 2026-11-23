@@ -9,6 +9,8 @@ import { resetViewerGrants, revokeProjectPermission } from "../../data/viewer";
 import { writeAccess } from "../../data/access/index";
 import { markReauthenticated } from "../../data/auth/reauth";
 import { setMatchMedia } from "../../test/setup";
+import { strangersTo } from "../../test/strangers";
+import { PEOPLE } from "../../data/seed/people";
 import { renderRoute } from "../../test/renderRoute";
 import { closeGoogleAccount } from "../drive/GoogleAccountCard";
 import { MAIL_TWO_UP_QUERY } from "./MailPage";
@@ -80,7 +82,9 @@ describe("Posta — elenco e filtri nell'indirizzo", () => {
     await user.click(await screen.findByRole("menuitemradio", { name: "High" }));
     await waitFor(() => expect(search(router).importance).toBe("high"));
     await waitFor(() =>
-      expect(within(screen.getByRole("listbox")).queryByRole("option", { name: /Smashing/ })).toBeNull(),
+      expect(
+        within(screen.getByRole("listbox")).queryByRole("option", { name: /Smashing/ }),
+      ).toBeNull(),
     );
     expect(within(screen.getByRole("listbox")).getAllByRole("option").length).toBeGreaterThan(0);
     for (const o of within(screen.getByRole("listbox")).getAllByRole("option")) {
@@ -96,7 +100,10 @@ describe("Posta — elenco e filtri nell'indirizzo", () => {
     expect(within(box).getByRole("option", { name: /Cena domenica/ })).toBeInTheDocument();
     expect(within(box).queryByRole("option", { name: /Billing export/ })).toBeNull();
     const nav = screen.getByRole("navigation", { name: "Mail views" });
-    expect(within(nav).getByRole("link", { name: "No project" })).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getByRole("link", { name: "No project" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 
   it("la ricerca sta nell'indirizzo e un filtro senza risultati lo dice, con «Clear filters»", async () => {
@@ -133,7 +140,9 @@ describe("Posta — contenuti estremi (Review Focus 5)", () => {
     const row = within(await list()).getByRole("option", { name: /Billing export and the VAT/ });
     const line = within(row).getByTitle(long);
     expect(line).toHaveClass("truncate");
-    const heading = within(await pane(threadOf(MAIL_CASES.shared))).getByRole("heading", { level: 2 });
+    const heading = within(await pane(threadOf(MAIL_CASES.shared))).getByRole("heading", {
+      level: 2,
+    });
     expect(heading).toHaveTextContent(long);
     expect(heading).not.toHaveClass("truncate");
   });
@@ -178,7 +187,9 @@ describe("Posta — contenuti estremi (Review Focus 5)", () => {
     expect(doc()).not.toMatch(/<img[^>]*\ssrc="https:/i);
     expect(doc()).toContain('data-src="https://tracker.example/pixel.gif?u=giulia"');
     expect(doc()).toMatch(/img-src data:;/);
-    expect(within(p).getByText("Remote images are blocked to protect your privacy.")).toBeInTheDocument();
+    expect(
+      within(p).getByText("Remote images are blocked to protect your privacy."),
+    ).toBeInTheDocument();
     await userEvent.click(within(p).getByRole("button", { name: "Show images" }));
     expect(doc()).toContain('src="https://cdn.fieradigitale.example/banner.jpg"');
     expect(doc()).not.toMatch(/<script/i);
@@ -194,11 +205,19 @@ describe("Posta — contenuti estremi (Review Focus 5)", () => {
     const p = await pane(thread);
     await userEvent.click(within(p).getAllByRole("button", { name: "Show original" })[0]!);
     await userEvent.click(within(p).getByRole("button", { name: "Show images" }));
-    expect(within(p).getByTitle(/Original message/).getAttribute("srcdoc")).toMatch(/\ssrc="https:\/\/cdn\./);
+    expect(
+      within(p)
+        .getByTitle(/Original message/)
+        .getAttribute("srcdoc"),
+    ).toMatch(/\ssrc="https:\/\/cdn\./);
     await userEvent.click(within(p).getAllByRole("button", { name: "Show text" })[0]!);
     await userEvent.click(within(p).getAllByRole("button", { name: "Show original" })[0]!);
     expect(within(p).getByRole("button", { name: "Show images" })).toBeInTheDocument();
-    expect(within(p).getByTitle(/Original message/).getAttribute("srcdoc")).not.toMatch(/\ssrc="https:\/\/cdn\./);
+    expect(
+      within(p)
+        .getByTitle(/Original message/)
+        .getAttribute("srcdoc"),
+    ).not.toMatch(/\ssrc="https:\/\/cdn\./);
   });
 
   it("neutralize: niente target nei link, niente base/meta; contano anche src senza virgolette, srcset e url() dei CSS", () => {
@@ -210,7 +229,9 @@ describe("Posta — contenuti estremi (Review Focus 5)", () => {
     );
     expect(html).not.toMatch(/target=|<base|<meta/i);
     expect(html).toContain('data-src="https://a.example/u.gif"');
-    expect(html).toContain('data-srcset="https://a.example/1x.png 1x, https://a.example/2x.png 2x"');
+    expect(html).toContain(
+      'data-srcset="https://a.example/1x.png 1x, https://a.example/2x.png 2x"',
+    );
     expect(html).not.toMatch(/\ssrcset=|\ssrc=https/);
     expect(blockedImages).toBe(3);
     const shown = revealImages(html);
@@ -244,19 +265,25 @@ describe("Posta — contenuti estremi (Review Focus 5)", () => {
     );
     expect(kept.html).toContain('src="data:image/png;base64,AA"');
     expect(kept.html).not.toMatch(/<iframe|<object/i);
-    expect(neutralize('<style>body{background:url("https://a.example/bg.png")}</style>').blockedImages).toBe(1);
+    expect(
+      neutralize('<style>body{background:url("https://a.example/bg.png")}</style>').blockedImages,
+    ).toBe(1);
   });
 
   it("neutralize: gli <style> della head restano (in cima al corpo) e i loro url() si contano", () => {
     const head = neutralize(
-      '<html><head><title>x</title><style>body{background:url(https://a.example/h.png)}</style></head><body><p>x</p></body></html>',
+      "<html><head><title>x</title><style>body{background:url(https://a.example/h.png)}</style></head><body><p>x</p></body></html>",
     );
     // Il caso discrimina: il parser mette lo stile nella head, non nel corpo.
     expect(
-      new DOMParser().parseFromString('<html><head><style>p{}</style></head><body></body></html>', "text/html").body
-        .innerHTML,
+      new DOMParser().parseFromString(
+        "<html><head><style>p{}</style></head><body></body></html>",
+        "text/html",
+      ).body.innerHTML,
     ).not.toContain("<style>");
-    expect(head.html).toMatch(/^<style>body\{background:url\(https:\/\/a\.example\/h\.png\)\}<\/style>/);
+    expect(head.html).toMatch(
+      /^<style>body\{background:url\(https:\/\/a\.example\/h\.png\)\}<\/style>/,
+    );
     expect(head.blockedImages).toBe(1);
     const leading = neutralize('<style>@import "https://a.example/s.css";</style><p>y</p>');
     expect(leading.html).toContain('<style>@import "https://a.example/s.css";</style>');
@@ -270,15 +297,19 @@ describe("Posta — contenuti estremi (Review Focus 5)", () => {
     expect(blockedImages).toBe(1);
     const doc = new DOMParser().parseFromString(html, "text/html");
     expect(doc.querySelector("table")!.getAttribute("background")).toBeNull();
-    expect(doc.querySelector("table")!.getAttribute("data-background")).toBe("https://a.example/t.png");
+    expect(doc.querySelector("table")!.getAttribute("data-background")).toBe(
+      "https://a.example/t.png",
+    );
     const shown = new DOMParser().parseFromString(revealImages(html), "text/html");
-    expect(shown.querySelector("table")!.getAttribute("background")).toBe("https://a.example/t.png");
+    expect(shown.querySelector("table")!.getAttribute("background")).toBe(
+      "https://a.example/t.png",
+    );
   });
 
   it("neutralize: le immagini di image-set() si contano, anche fra url() e stringhe", () => {
     expect(
       neutralize(
-        '<p style="background-image: image-set(\'https://a.example/1.png\' 1x, \'https://a.example/2.png\' 2x)">x</p>',
+        "<p style=\"background-image: image-set('https://a.example/1.png' 1x, 'https://a.example/2.png' 2x)\">x</p>",
       ).blockedImages,
     ).toBe(2);
     expect(
@@ -288,7 +319,7 @@ describe("Posta — contenuti estremi (Review Focus 5)", () => {
     ).toBe(2);
     // Un'immagine locale (data:) non si conta.
     expect(
-      neutralize('<p style="background-image: image-set(\'data:image/png;base64,AA\' 1x)">x</p>')
+      neutralize("<p style=\"background-image: image-set('data:image/png;base64,AA' 1x)\">x</p>")
         .blockedImages,
     ).toBe(0);
   });
@@ -301,7 +332,8 @@ describe("Posta — contenuti estremi (Review Focus 5)", () => {
     const SVG = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(SVG, "svg");
     const style = document.createElementNS(SVG, "style");
-    style.textContent = 'rect{fill:url(https://a.example/f.svg#g)} @import "https://a.example/s.css";';
+    style.textContent =
+      'rect{fill:url(https://a.example/f.svg#g)} @import "https://a.example/s.css";';
     const image = document.createElementNS(SVG, "image");
     image.setAttribute("href", "https://a.example/i.png");
     const old = document.createElementNS(SVG, "image");
@@ -333,9 +365,13 @@ describe("Posta — proposte condivise (Review Focus 2)", () => {
     const thread = threadOf(MAIL_CASES.stwHigh);
     await openMail(`/mail/${thread}`);
     const p = await pane(thread);
-    expect(await within(p).findByText(/we freeze the copy of the desktop preview/)).toBeInTheDocument();
+    expect(
+      await within(p).findByText(/we freeze the copy of the desktop preview/),
+    ).toBeInTheDocument();
     // Chiuso resta solo il messaggio di contesto, già letto.
-    expect(p.querySelector(`article[data-message="${MAIL_CASES.stwHigh}"][data-collapsed]`)).toBeNull();
+    expect(
+      p.querySelector(`article[data-message="${MAIL_CASES.stwHigh}"][data-collapsed]`),
+    ).toBeNull();
     expect(p.querySelectorAll("article[data-collapsed]")).toHaveLength(1);
   });
 
@@ -348,7 +384,9 @@ describe("Posta — proposte condivise (Review Focus 2)", () => {
     const today = p.querySelector<HTMLElement>(`article[data-message="${MAIL_CASES.stwHigh}"]`)!;
     expect(within(today).queryByText(/Draft schedule for the preview build attached/)).toBeNull();
     await user.click(within(today).getByRole("button", { name: "Show quoted text" }));
-    expect(within(today).getByText(/Draft schedule for the preview build attached/)).toBeInTheDocument();
+    expect(
+      within(today).getByText(/Draft schedule for the preview build attached/),
+    ).toBeInTheDocument();
     await user.click(within(today).getByRole("button", { name: "Hide quoted text" }));
     expect(within(today).queryByText(/Draft schedule for the preview build attached/)).toBeNull();
     expect(today).not.toHaveTextContent("Earlier in the conversation");
@@ -382,7 +420,13 @@ describe("Posta — proposte condivise (Review Focus 2)", () => {
       text: "Thanks Sofia, we're on it.",
       attachments: [],
       readByPersonIds: ["p-giulia"],
-      classification: { state: "done", projectIds: [], importance: "normal", dueDate: null, uncertainProjectIds: [] },
+      classification: {
+        state: "done",
+        projectIds: [],
+        importance: "normal",
+        dueDate: null,
+        uncertainProjectIds: [],
+      },
     });
     await openMail(`/mail/${source.threadId}`);
     const c = await card("mp-aud-billing-vat");
@@ -391,7 +435,6 @@ describe("Posta — proposte condivise (Review Focus 2)", () => {
     expect(article).toHaveAttribute("data-message", MAIL_CASES.shared);
     expect(article).not.toHaveAttribute("data-collapsed");
   });
-
 
   it("esito altrui: chi ha deciso, quando, e il codice nato apribile", async () => {
     const thread = threadOf(MAIL_CASES.confirmed);
@@ -443,6 +486,24 @@ describe("Posta — proposte condivise (Review Focus 2)", () => {
       ),
     );
     expect(state.changelog.at(-1)).toMatchObject({ kind: "member.added", projectId: "prj-aud" });
+  });
+
+  // R.1414, scelta di 46: chi sta nell'email è conosciuto per la proposta,
+  // anche se l'elenco delle persone di chi guarda (solo chi conosce) non lo
+  // ha: la scheda ne dice il nome, mai l'id.
+  it("l'incaricato fuori dal progetto che chi guarda conosce solo dall'email: il nome, non l'id", async () => {
+    const [who] = strangersTo("p-matteo");
+    const person = PEOPLE.find((x) => x.id === who)!;
+    const p = state.mailProposals.find((x) => x.id === "mp-aud-weekly-review")!;
+    const last = p.actions.at(-1)!;
+    last.args = { ...last.args, assigneeId: who };
+    for (const m of state.mailMessages.filter((x) => x.messageId === p.sourceId))
+      m.cc = [...(m.cc ?? []), { personId: who!, name: person.name, email: "x@example.com" }];
+    const thread = threadOf(MAIL_CASES.transcript);
+    await openMail(`/mail/${thread}`, "p-matteo");
+    const c = await card("mp-aud-weekly-review");
+    await waitFor(() => expect(c).toHaveTextContent(person.name));
+    expect(c).not.toHaveTextContent(who!);
   });
 
   it("chi entrerebbe con permessi che chi conferma non ha: il motivo in parole, niente confermato", async () => {
@@ -504,7 +565,9 @@ describe("Posta — proposte condivise (Review Focus 2)", () => {
     for (const box of within(c).getAllByRole("checkbox").slice(0, 3)) await userEvent.click(box);
     await userEvent.click(within(c).getByRole("button", { name: "Confirm 1 of 4" }));
     await within(c).findByRole("alert");
-    await userEvent.click(within(c).getByRole("button", { name: /Leave unassigned|Confirm unassigned/ }));
+    await userEvent.click(
+      within(c).getByRole("button", { name: /Leave unassigned|Confirm unassigned/ }),
+    );
     const done = await card("mp-aud-weekly-review");
     await waitFor(() => expect(done).toHaveTextContent(/Confirmed by you/));
     expect(done).toHaveTextContent("1 of 4 done");
@@ -561,10 +624,15 @@ describe("Posta — allineamento, analisi, stati", () => {
     expect(status).toHaveTextContent("Updated 12 min ago — may be behind Gmail");
     setLatency(20);
     await userEvent.click(within(status).getByRole("button", { name: "Refresh now" }));
-    await waitFor(() => expect(document.querySelector("[data-sync]")).toHaveTextContent("Updating…"));
-    await waitFor(() => expect(document.querySelector("[data-sync]")).toHaveAttribute("data-sync", "ok"), {
-      timeout: 3000,
-    });
+    await waitFor(() =>
+      expect(document.querySelector("[data-sync]")).toHaveTextContent("Updating…"),
+    );
+    await waitFor(
+      () => expect(document.querySelector("[data-sync]")).toHaveAttribute("data-sync", "ok"),
+      {
+        timeout: 3000,
+      },
+    );
   });
 
   it("casella aggiornata da 2 minuti: «Updated 2 min ago · Refresh»", async () => {
@@ -619,7 +687,9 @@ describe("Posta — allineamento, analisi, stati", () => {
 
   it("senza account Google: «Connect your Google account», che apre la scheda dell'account", async () => {
     await openMail("/mail", "p-marco");
-    expect(await screen.findByText(/Connect your Google account to read your mail here/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Connect your Google account to read your mail here/),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("listbox")).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Connect Google account" }));
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
@@ -654,7 +724,11 @@ describe("Posta — allineamento, analisi, stati", () => {
       try {
         const block = await meetingBlock();
         await userEvent.click(within(block).getByRole("button", { name: "Open the transcript" }));
-        expect(open).toHaveBeenCalledWith("https://docs.google.com/document/d/abc", "_blank", "noopener");
+        expect(open).toHaveBeenCalledWith(
+          "https://docs.google.com/document/d/abc",
+          "_blank",
+          "noopener",
+        );
       } finally {
         open.mockRestore();
       }
@@ -672,20 +746,28 @@ describe("Posta — allineamento, analisi, stati", () => {
     it("il Doc non verificato come quello della riunione (not_verified, review F5a): lo dice", async () => {
       Object.assign(transcript(), { doc: "unreachable", docReason: "not_verified" });
       const block = await meetingBlock();
-      expect(block).toHaveTextContent("Stubwise couldn't verify this is the document of this meeting, so it didn't read it.");
+      expect(block).toHaveTextContent(
+        "Stubwise couldn't verify this is the document of this meeting, so it didn't read it.",
+      );
       expect(block).not.toHaveTextContent(/may have been moved/);
     });
 
     it("il Doc eliminato: lo dice", async () => {
       Object.assign(transcript(), { doc: "unreachable", docReason: "deleted" });
-      expect(await meetingBlock()).toHaveTextContent("The transcript was deleted from Google Drive.");
+      expect(await meetingBlock()).toHaveTextContent(
+        "The transcript was deleted from Google Drive.",
+      );
     });
 
     it("troppo lungo: il riassunto c'è, e dice che copre solo la prima parte", async () => {
       Object.assign(transcript(), { doc: "ready", docReason: "too_long" });
       const block = await meetingBlock();
-      expect(within(block).getByText("Generated by Stubwise from the transcript")).toBeInTheDocument();
-      expect(block).toHaveTextContent("The transcript is long: the summary covers only its first part.");
+      expect(
+        within(block).getByText("Generated by Stubwise from the transcript"),
+      ).toBeInTheDocument();
+      expect(block).toHaveTextContent(
+        "The transcript is long: the summary covers only its first part.",
+      );
     });
   });
 
@@ -709,7 +791,9 @@ describe("Posta — allineamento, analisi, stati", () => {
 
   it("conversazione che non vedo: la stessa frase di una che non esiste", async () => {
     await openMail(`/mail/${threadOf(MAIL_CASES.lauraOff)}`);
-    expect(await screen.findByText("This conversation doesn't exist or you can't see it")).toBeInTheDocument();
+    expect(
+      await screen.findByText("This conversation doesn't exist or you can't see it"),
+    ).toBeInTheDocument();
     await act(() => Promise.resolve());
   });
 

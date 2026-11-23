@@ -12,7 +12,7 @@ import {
   useSessionPersonId,
   useTasks,
 } from "../../data/queries";
-import type { MailProposalView, Project, ProposedAction } from "../../data/types";
+import type { MailProposalView, Person, Project, ProposedAction } from "../../data/types";
 import { can, useViewer } from "../../data/viewing";
 import { useReauth } from "../../layout/useReauth";
 import { hasModKey } from "../../platform/platform";
@@ -110,7 +110,15 @@ export function MailProposalCard({
 
   const project = projects?.find((x) => x.id === p.projectId);
   const code = project?.code ?? "";
-  const people = useMemo(() => new Map((peopleList ?? []).map((x) => [x.id, x])), [peopleList]);
+  // R.1414, scelta di 46: chi sta nell'email è conosciuto per questa proposta
+  // anche se l'elenco delle persone (solo chi si conosce) non lo ha; i nomi li
+  // porta la proposta (`outsiders`, `sharedWith`).
+  const people = useMemo(() => {
+    const map = new Map((peopleList ?? []).map((x) => [x.id, x]));
+    for (const o of [...view.outsiders, ...view.sharedWith])
+      if (o.name && !map.has(o.personId)) map.set(o.personId, { id: o.personId, name: o.name } as Person);
+    return map;
+  }, [peopleList, view.outsiders, view.sharedWith]);
   const tasks = useMemo(() => new Map((taskList ?? []).map((x) => [x.id, x])), [taskList]);
   const ctx: Ctx = { t, language: i18n.language, code, people, tasks };
 
@@ -190,7 +198,7 @@ export function MailProposalCard({
       const who = assigneeOf(a.fn, effectiveArgs(a, edits[i]));
       if (typeof who === "string" && isOutside(i, who)) ids.add(who);
     }
-    return [...ids].map((personId) => ({ personId, name: people.get(personId)?.name ?? personId }));
+    return [...ids].map((personId) => ({ personId, name: people.get(personId)?.name ?? t("mail.someone") }));
   };
 
   const editsFor = (extra: Edits = {}) => {
@@ -220,7 +228,7 @@ export function MailProposalCard({
       onDecide("confirm", () => decideNow.confirm(p.id, input));
       return;
     }
-    const names = adding.map((id) => people.get(id)?.name ?? id);
+    const names = adding.map((id) => people.get(id)?.name ?? t("mail.someone"));
     void reauth(() => confirm.mutateAsync({ id: p.id, ...input }), {
       action: t("mail.outsider.reauthAction", { names: listWords(names), code }),
     }).then((outcome) => {
@@ -336,7 +344,8 @@ export function MailProposalCard({
         {raced && (
           <p className="text-sm text-ink">
             {t(`mail.outcome.raced_${status === "ignored" ? "ignored" : status === "handed" ? "handed" : "confirmed"}`, {
-              name: view.decidedBy?.name ?? "",
+              // R.1414: chi guarda non lo conosce (nome vuoto) → «Someone».
+              name: view.decidedBy?.name || t("mail.someone"),
             })}
             {raced.hadEdits && <span className="text-ink-muted"> {t("mail.outcome.editsDropped")}</span>}
           </p>
@@ -362,7 +371,7 @@ export function MailProposalCard({
           {waitsOnMe && <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-ink" />}
           <h3 id={headingId} className="min-w-0 flex-1 text-sm font-semibold text-ink">
             {handedHeader && fromEmailTo
-              ? t("mail.proposal.handedHeader", { code, name: people.get(p.handedById!)?.name ?? "" })
+              ? t("mail.proposal.handedHeader", { code, name: people.get(p.handedById!)?.name ?? t("mail.someone") })
               : choosing
                 ? t("mail.proposal.choose")
                 : t("mail.proposal.proposes", { count: p.actions.length })}
@@ -436,7 +445,7 @@ export function MailProposalCard({
         )}
         {handedHeader && !fromEmailTo && (
           <p className="text-xs text-ink-muted">
-            {t("mail.outcome.handedBy", { name: people.get(p.handedById!)?.name ?? "" })}
+            {t("mail.outcome.handedBy", { name: people.get(p.handedById!)?.name ?? t("mail.someone") })}
           </p>
         )}
         {view.sharedWith.length > 0 && (
@@ -640,7 +649,7 @@ function Phrase({
           {" · "}
           {who ? (
             <>
-              {ctx.people.get(who)?.name ?? who}
+              {ctx.people.get(who)?.name ?? t("mail.someone")}
               {isOutside(who) && (
                 <span className="ml-1.5 inline-flex items-center gap-1 align-baseline text-xs text-ink-muted">
                   <PersonPlusGlyph />

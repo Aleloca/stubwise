@@ -2,6 +2,7 @@ import i18n from "../../i18n";
 import { applyActions } from "../api-mutations";
 import { noteMailSource } from "../productDocs/sourceEvents";
 import { PEOPLE } from "../seed/people";
+import { isHiddenId, personMasker } from "../access/hidden";
 import { copy, gate, now, state } from "../store";
 import { forbidden, invalid, notFound, writer } from "../writer";
 import { canReadEvent } from "../calendar/visibility";
@@ -46,8 +47,20 @@ import {
 
 const invalidAction = () => new Error("invalid_action");
 
-function alreadyHandled(p: MailProposal): Error {
-  return Object.assign(new Error("already_handled"), { byId: p.decidedById });
+/**
+ * Una persona di una proposta come la legge chi guarda (r.1414): vera se la
+ * conosce o se sta nelle intestazioni dell'email o fra gli invitati
+ * dell'evento (scelta di 46), altrimenti il segnaposto di `mask`.
+ */
+function personOfProposal(me: string, p: MailProposal, mask = personMasker(me)) {
+  const headers = new Set(sharersOf(p));
+  return <T extends string | null | undefined>(id: T): T =>
+    typeof id === "string" && headers.has(id) ? id : mask(id);
+}
+
+/** Già decisa: `byId` è chi l'ha decisa, col segnaposto se chi guarda non lo conosce. */
+function alreadyHandled(me: string, p: MailProposal, byId = p.decidedById): Error {
+  return Object.assign(new Error("already_handled"), { byId: personOfProposal(me, p)(byId) });
 }
 
 /** Le funzioni che una proposta della posta può eseguire. */
@@ -130,8 +143,24 @@ function canConfirmNow(me: string, p: MailProposal): boolean {
  * La proposta come la vede chi guarda. Di una `chooseProject` restano solo
  * i progetti di cui è membro (e le loro azioni): gli altri non li nomina.
  */
-function viewOf(me: string, p: MailProposal): MailProposalView {
+function viewOf(
+  me: string,
+  p: MailProposal,
+  mask: ReturnType<typeof personMasker> = personMasker(me),
+): MailProposalView {
   const proposal = copy(p);
+  // R.1414, scelta di 46 (lotto 3): chi sta nelle intestazioni dell'email (o
+  // fra gli invitati dell'evento) è conosciuto per QUESTA proposta; chi l'ha
+  // decisa, passata o ha scelto il progetto, se chi guarda non lo conosce, è
+  // il segnaposto della risposta, senza nome. Gli incaricati delle azioni e
+  // `outsiders` restano veri, come sul server (72): li chiede il gesto
+  // «Aggiungere come Contributor?», e vengono dall'email.
+  const hide = personOfProposal(me, p, mask);
+  const nameFor = (id: string) => (isHiddenId(hide(id)) ? "" : personName(id));
+  proposal.decidedById = hide(proposal.decidedById);
+  proposal.handedById = hide(proposal.handedById);
+  if (proposal.projectChosenById !== undefined)
+    proposal.projectChosenById = hide(proposal.projectChosenById);
   for (const a of proposal.actions) {
     if (a.fn !== "chooseProject") continue;
     const ids = ((a.args.projectIds as string[] | undefined) ?? []).filter((id) =>
@@ -167,7 +196,7 @@ function viewOf(me: string, p: MailProposal): MailProposalView {
       personId,
       name: personName(personId),
     })),
-    decidedBy: p.decidedById ? { personId: p.decidedById, name: personName(p.decidedById) } : null,
+    decidedBy: p.decidedById ? { personId: hide(p.decidedById), name: nameFor(p.decidedById) } : null,
     sharedWith: shared
       .filter((id) => id !== me && canSeeMailProposal(id, p))
       .map((personId) => ({ personId, name: personName(personId) })),
@@ -210,6 +239,7 @@ export async function listMailProposals(
   filters: MailProposalFilters = {},
 ): Promise<MailProposalView[]> {
   const me = await gate("mail.listMailProposals");
+  const mask = personMasker(me);
   // Una conversazione: i Message-ID dei suoi messaggi.
   const inThread =
     filters.threadId === undefined
@@ -224,7 +254,7 @@ export async function listMailProposals(
         canSeeMailProposal(me, p),
     )
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .map((p) => viewOf(me, p));
+    .map((p) => viewOf(me, p, mask));
 }
 
 /** Una proposta. Invisibile o inesistente → `not_found`. */
@@ -239,6 +269,7 @@ export async function getMailProposal(id: string): Promise<MailProposalView> {
  */
 export async function listMailDecisions(): Promise<MailProposalView[]> {
   const me = await gate("mail.listMailDecisions");
+  const mask = personMasker(me);
   return state.mailProposals
     .filter(
       (p) =>
@@ -246,7 +277,7 @@ export async function listMailDecisions(): Promise<MailProposalView[]> {
         (p.status === "open" || (p.status === "handed" && canConfirmNow(me, p))),
     )
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-    .map((p) => ({ ...viewOf(me, p), origin: originFor(me, p) }));
+    .map((p) => ({ ...viewOf(me, p, mask), origin: originFor(me, p) }));
 }
 
 /**
@@ -412,7 +443,7 @@ export async function confirmMailProposal(
 ): Promise<MailProposalOutcome> {
   const me = await writer("mail.confirmProposal");
   const p = proposalFor(me, id);
-  if (!isPending(p)) throw alreadyHandled(p);
+  if (!isPending(p)) throw alreadyHandled(me, p);
   if (p.actions.some((a) => !MAIL_FNS.has(a.fn))) throw invalidAction();
   const { actions, indexes } = chosenActions(p, input);
   if (!canDo(me, p, actions)) throw forbidden();
@@ -455,7 +486,7 @@ export async function confirmMailProposal(
 export async function ignoreMailProposal(id: string): Promise<void> {
   const me = await writer("mail.ignoreProposal");
   const p = proposalFor(me, id);
-  if (!isPending(p)) throw alreadyHandled(p);
+  if (!isPending(p)) throw alreadyHandled(me, p);
   if (p.status === "handed" && !canConfirmNow(me, p)) throw forbidden();
   decide(p, me, "ignored");
 }
@@ -469,7 +500,7 @@ export async function handMailProposal(id: string): Promise<void> {
   const me = await writer("mail.handProposal");
   const p = proposalFor(me, id);
   if (p.source === "calendar" || isChoosing(p)) throw invalidAction();
-  if (p.status !== "open") throw alreadyHandled(p);
+  if (p.status !== "open") throw alreadyHandled(me, p);
   if (canConfirmNow(me, p)) throw invalidAction();
   decide(p, me, "handed");
   p.handedAt = p.decidedAt;
@@ -512,10 +543,10 @@ function labelMessage(p: MailProposal, projectId: string, drop: string | null): 
 export async function chooseProjectFor(id: string, projectId: string): Promise<void> {
   const me = await writer("mail.chooseProject");
   const p = proposalFor(me, id);
-  if (p.status !== "open") throw alreadyHandled(p);
+  if (p.status !== "open") throw alreadyHandled(me, p);
   const choose = p.actions.find((a) => a.fn === "chooseProject");
   if (!choose) {
-    throw Object.assign(new Error("already_handled"), { byId: p.projectChosenById ?? null });
+    throw alreadyHandled(me, p, p.projectChosenById ?? null);
   }
   if (!isProjectMember(me, projectId)) throw notFound();
   const candidates = (choose.args.projectIds as string[] | undefined) ?? [];
@@ -540,7 +571,7 @@ export async function reassignMailProposal(id: string, projectId: string): Promi
   const me = await writer("mail.reassignProposal");
   const p = proposalFor(me, id);
   if (p.source === "calendar" || isChoosing(p)) throw invalidAction();
-  if (p.status !== "open") throw alreadyHandled(p);
+  if (p.status !== "open") throw alreadyHandled(me, p);
   if (!isProposalRecipient(me, p)) throw forbidden();
   if (!isProjectMember(me, projectId)) throw notFound();
   if (projectId === p.projectId) throw invalid("project");

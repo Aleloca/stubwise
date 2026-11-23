@@ -50,7 +50,8 @@ export function MailDecisionItem({ view }: { view: MailProposalView }) {
   const raced = async (byId: string | null | undefined) => {
     const fresh = await decideNow.read(view.proposal.id).catch(() => null);
     const p = fresh?.proposal;
-    const who = fresh?.decidedBy?.name ?? name(byId);
+    // R.1414: un nome vuoto è di chi guarda non conosce → «Someone».
+    const who = fresh?.decidedBy?.name || name(byId);
     const status = p?.status;
     const text =
       status === "confirmed" || status === "ignored" || status === "handed"
