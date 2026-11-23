@@ -52,6 +52,27 @@ async function projectOf(projectId: string): Promise<ServerProject | null> {
 const inRange = (n: number, min: number, max: number): boolean =>
   Number.isInteger(n) && n >= min && n <= max;
 
+/** I valori salvabili della sezione, come li ha letti chi guarda. */
+interface AutomationsBase {
+  switches: Record<ProjectSwitch, boolean>;
+  pulseEveryDays: number;
+  correctionCap: number;
+}
+
+/**
+ * Revisione I-4: la lettura da cui è partita la schermata, per progetto e per
+ * client (una sessione nuova ha un client nuovo). Il salvataggio manda solo
+ * ciò che chi guarda ha cambiato rispetto a QUESTA: una rilettura al
+ * salvataggio sovrascriverebbe il cambio di un altro fatto nel frattempo.
+ */
+const bases = new WeakMap<object, Map<string, AutomationsBase>>();
+function basesOf(): Map<string, AutomationsBase> {
+  const client = appClient();
+  let map = bases.get(client);
+  if (!map) bases.set(client, (map = new Map()));
+  return map;
+}
+
 export const liveProjectAutomations = {
   /**
    * Le impostazioni come le legge la pagina. Nella build app servono le sole
@@ -62,6 +83,9 @@ export const liveProjectAutomations = {
     const [p, viewer] = await Promise.all([projectOf(projectId), getViewer()]);
     if (!p) return null;
     const switches = switchesOf(p);
+    const pulseEveryDays = typeof p.pulseEveryDays === "number" ? p.pulseEveryDays : 7;
+    const correctionCap = typeof p.prCorrectionMaxRounds === "number" ? p.prCorrectionMaxRounds : 3;
+    basesOf().set(projectId, { switches, pulseEveryDays, correctionCap });
     return {
       projectId,
       code: String(p.code ?? ""),
@@ -76,8 +100,8 @@ export const liveProjectAutomations = {
         automaticChain: [],
       },
       switches,
-      pulseEveryDays: typeof p.pulseEveryDays === "number" ? p.pulseEveryDays : 7,
-      correctionCap: typeof p.prCorrectionMaxRounds === "number" ? p.prCorrectionMaxRounds : 3,
+      pulseEveryDays,
+      correctionCap,
       pulseNeedsBacklog: pulseNeedsBacklogFor(switches),
       // I permessi li calcola il server (`/api/auth/me`): il client li legge.
       access: projectSettingsAccess(viewer, projectId),
@@ -115,18 +139,31 @@ export const liveProjectAutomations = {
       return { ok: false, error: "invalid", reason: "correction_cap" };
     if (input.switches.pulse && pulseNeedsBacklogFor(input.switches))
       return { ok: false, error: "invalid", reason: "pulse_needs_backlog" };
-    const p = await projectOf(projectId);
-    if (!p) return { ok: false, error: "not_found" };
-    const now = switchesOf(p);
+    // Il confronto è con la lettura di partenza; senza (nessuna lettura in questa sessione), con una rilettura.
+    let base = basesOf().get(projectId);
+    if (!base) {
+      const p = await projectOf(projectId);
+      if (!p) return { ok: false, error: "not_found" };
+      base = {
+        switches: switchesOf(p),
+        pulseEveryDays: Number(p.pulseEveryDays),
+        correctionCap: Number(p.prCorrectionMaxRounds),
+      };
+    }
     const body: Record<string, unknown> = {};
     for (const k of PROJECT_SWITCHES)
-      if (now[k] !== input.switches[k]) body[FIELD[k]] = input.switches[k];
-    if (p.pulseEveryDays !== input.pulseEveryDays) body.pulseEveryDays = input.pulseEveryDays;
-    if (p.prCorrectionMaxRounds !== input.correctionCap)
-      body.prCorrectionMaxRounds = input.correctionCap;
+      if (base.switches[k] !== input.switches[k]) body[FIELD[k]] = input.switches[k];
+    if (base.pulseEveryDays !== input.pulseEveryDays) body.pulseEveryDays = input.pulseEveryDays;
+    if (base.correctionCap !== input.correctionCap) body.prCorrectionMaxRounds = input.correctionCap;
     if (Object.keys(body).length === 0) return { ok: true };
     try {
       await appClient().projects.patch(projectId, body as UpdateProjectInput);
+      // Il salvato è la nuova partenza: un secondo salvataggio manda solo il resto.
+      basesOf().set(projectId, {
+        switches: { ...input.switches },
+        pulseEveryDays: input.pulseEveryDays,
+        correctionCap: input.correctionCap,
+      });
       return { ok: true };
     } catch (error) {
       if (error instanceof ApiError && error.status === 404)

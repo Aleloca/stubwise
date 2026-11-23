@@ -51,6 +51,52 @@ afterEach(() => {
   setAppClientForTests(null);
 });
 
+// Revisione di 3bbe2ddc6..444b8b773, I-4: il diff si fa contro i valori da
+// cui è partita la schermata (l'ultima `getProjectSettings`), non contro una
+// rilettura al salvataggio, che sovrascriverebbe il cambio di un altro.
+describe("due persone sugli stessi interruttori", () => {
+  /** Un server col progetto che cambia: le PATCH lo aggiornano, come il vero. */
+  function liveServer() {
+    let project = detail({ pulseEnabled: false });
+    const { seen } = installFakeServer({
+      [`GET /api/projects/${PROJECT_ID}`]: () => ({ body: project }),
+      [`PATCH /api/projects/${PROJECT_ID}`]: ({ body }) => {
+        project = { ...project, ...(body as object) };
+        return { body: project };
+      },
+      "GET /api/auth/me": { body: meWith(["project.settings.manage"]) },
+    });
+    return { seen, change: (over: Record<string, unknown>) => (project = { ...project, ...over }) };
+  }
+
+  it("Marco accende il pulse mentre Laura ha la schermata aperta: il salvataggio di Laura non lo rispegne", async () => {
+    const { seen, change } = liveServer();
+    const laura = (await liveProjectAutomations.getProjectSettings(PROJECT_ID))!;
+    expect(laura.switches.pulse).toBe(false);
+    change({ pulseEnabled: true });
+    expect(
+      await liveProjectAutomations.saveProjectAutomations(PROJECT_ID, {
+        switches: laura.switches,
+        pulseEveryDays: laura.pulseEveryDays,
+        correctionCap: 5,
+      }),
+    ).toEqual({ ok: true });
+    expect(seen.filter((r) => r.method === "PATCH").map((r) => r.body)).toEqual([{ prCorrectionMaxRounds: 5 }]);
+  });
+
+  it("un cambio di Laura stessa parte, anche se il server è cambiato nel frattempo", async () => {
+    const { seen, change } = liveServer();
+    const laura = (await liveProjectAutomations.getProjectSettings(PROJECT_ID))!;
+    change({ prCorrectionMaxRounds: 4 });
+    await liveProjectAutomations.saveProjectAutomations(PROJECT_ID, {
+      switches: { ...laura.switches, dailyReport: true },
+      pulseEveryDays: laura.pulseEveryDays,
+      correctionCap: laura.correctionCap,
+    });
+    expect(seen.filter((r) => r.method === "PATCH").map((r) => r.body)).toEqual([{ dailyReportEnabled: true }]);
+  });
+});
+
 describe("gli interruttori del progetto dal server (r.1121)", () => {
   it("la lettura: interruttori, giorni del pulse, tetto delle correzioni e chi può cambiarli", async () => {
     server();
