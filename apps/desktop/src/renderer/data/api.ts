@@ -389,6 +389,8 @@ export async function listActivity(taskId: string): Promise<ActivityEntry[]> {
  */
 export async function listClaudeDecisions(): Promise<ClaudeDecision[]> {
   const me = await gate("listClaudeDecisions");
+  // R.1414 (lotto 3): il titolare che chi guarda non conosce, segnaposto.
+  const mask = personMasker(me);
   const fromConversations = waitingClaudeEvents(me).map(
     ({ conversation: c, event }): ClaudeDecision => {
       const base = {
@@ -396,7 +398,7 @@ export async function listClaudeDecisions(): Promise<ClaudeDecision[]> {
         conversationId: c.id,
         conversationKind: c.kind,
         title: c.title,
-        ownerId: c.ownerId,
+        ownerId: mask(c.ownerId),
         projectId: c.projectId,
         taskId: c.taskId,
         requestId: c.requestId,
@@ -434,6 +436,7 @@ export async function listDecisionRequests(filter: {
 }): Promise<DecisionRequest[]> {
   const me = await gate("listDecisionRequests");
   const visible = visibleProjectIds(me);
+  const mask = personMasker(me);
   return state.decisions
     .filter((d) => {
       if (!visible.has(state.tasksById.get(d.taskId)!.projectId)) return false;
@@ -445,7 +448,14 @@ export async function listDecisionRequests(filter: {
       }
       return true;
     })
-    .map(copy);
+    .map((d) => {
+      // R.1414 (lotto 3): chi ha chiesto, a chi, chi ha risposto.
+      const out = copy(d);
+      out.askedById = mask(d.askedById);
+      out.askedOfId = mask(d.askedOfId);
+      if (out.answer) out.answer = { ...out.answer, byId: mask(out.answer.byId) };
+      return out;
+    });
 }
 
 export async function listRequests(projectId: string): Promise<ProjectRequest[]> {
