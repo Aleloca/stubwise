@@ -23,7 +23,7 @@ import { startRun } from "../services/jobs.js";
 import { createMilestone, deleteMilestone } from "../services/milestones.js";
 import { archiveRequest, reopenRequest } from "../services/project-request-writes.js";
 import { deleteTask } from "../services/task-delete.js";
-import { createTaskFilter, deleteTaskFilter } from "../services/task-filters.js";
+import { createTaskFilter, criteriaCarryPlaceholder, deleteTaskFilter } from "../services/task-filters.js";
 import { deleteStoredObjects, saveMailBody } from "./effects.js";
 import { mailBodyTarget } from "../services/mail-body-target.js";
 import {
@@ -453,6 +453,8 @@ const ENTRIES: CatalogEntry[] = [
     request: (args) => ({ body: args }),
     async run(tx, user, args) {
       // Solo PERSONALE: un filtro di Claude non diventa mai pubblico (lo vedrebbero altri).
+      // Registro, A11 r.1414: un segnaposto `hidden-<n>` non si salva nei criteri.
+      if (criteriaCarryPlaceholder((args as unknown as NewFilterBody).criteria)) return refused("invalid", "criteria: a placeholder is not a person id");
       const row = await createTaskFilter(tx, user, { ...(args as unknown as NewFilterBody), visibility: "private" });
       if (!row) return refused("invalid", "too_many_filters");
       const stamp = await stampOf(tx, "filter", row.id);

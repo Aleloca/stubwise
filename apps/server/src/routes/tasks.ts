@@ -29,6 +29,7 @@ import { z } from "zod";
 import { routePermissions, type RouteAccess } from "../auth/access.js";
 import { fromBody, fromTicket, ticketVisible } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
+import { resolveSavedFilterPlaceholders } from "../services/task-filters.js";
 import {
   claudeStateOf,
   loadTaskViews,
@@ -104,6 +105,9 @@ const bulkForbiddenSchema = z.object({ code: z.string(), message: z.string(), co
 /** Registro, A11 r.1414: le chiavi delle risposte delle task che portano una persona. */
 export const TASK_PERSON_KEYS: ReadonlySet<string> = new Set(["assigneeId", "createdById", "followerIds", "askedById", "askedOfId", "authorId", "ownerId", "byId", "decidedById", "deletedById", "viaClaudeRequesterId", "personId"]);
 
+/** Un segnaposto nei criteri senza il filtro salvato che lo risolve (scelta A di 46 sui filtri salvati). */
+const PLACEHOLDER_QUERY = "assigneeIds: a placeholder needs the savedFilterId it comes from";
+
 export async function taskRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
   // Registro, A11 r.1414: chi guarda non riceve l'id di chi non conosce.
@@ -116,16 +120,18 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
       config: { access: { kind: "user" } },
       schema: {
         querystring: taskListQuerySchema,
-        response: { 200: taskListResponseSchema, ...authErrorResponses },
+        response: { 200: taskListResponseSchema, 400: errorSchema, ...authErrorResponses },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const today = serverToday();
-      const loaded = await loadTaskViews(app.db, request.user!, taskFilterConditions(request.query, today, request.user!.id));
+      const query = await resolveSavedFilterPlaceholders(app.db, request.user!, request.query);
+      if (query === "invalid") return apiError(reply, 400, "invalid", PLACEHOLDER_QUERY);
+      const loaded = await loadTaskViews(app.db, request.user!, taskFilterConditions(query, today, request.user!.id));
       let kept = loaded;
-      if (request.query.stalled !== undefined) {
+      if (query.stalled !== undefined) {
         const stalls = await stallsOf(app.db, request.user!, loaded, today);
-        kept = loaded.filter((t) => stalls.has(t.view.id) === request.query.stalled);
+        kept = loaded.filter((t) => stalls.has(t.view.id) === query.stalled);
       }
       // Il tetto vale per ciò che si è LETTO: col filtro `stalled` quello che
       // resta può essere poco anche quando la lettura è stata tagliata.
@@ -142,12 +148,14 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
       config: { access: { kind: "user" } },
       schema: {
         querystring: taskListQuerySchema,
-        response: { 200: z.array(stalledTaskViewSchema), ...authErrorResponses },
+        response: { 200: z.array(stalledTaskViewSchema), 400: errorSchema, ...authErrorResponses },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const today = serverToday();
-      const loaded = await loadTaskViews(app.db, request.user!, taskFilterConditions(request.query, today, request.user!.id));
+      const query = await resolveSavedFilterPlaceholders(app.db, request.user!, request.query);
+      if (query === "invalid") return apiError(reply, 400, "invalid", PLACEHOLDER_QUERY);
+      const loaded = await loadTaskViews(app.db, request.user!, taskFilterConditions(query, today, request.user!.id));
       const stalls = await stallsOf(app.db, request.user!, loaded, today);
       return loaded
         .flatMap((t) => {

@@ -11,6 +11,7 @@ import {
   driveCode,
   driveContentKindOf,
   driveFileTypeOf,
+  isPersonPlaceholder,
   type DriveCodeResolution,
   type DriveFileContent,
   type DriveFileDetail,
@@ -226,6 +227,8 @@ export async function listDriveFiles(
   scope: { projectId?: string },
   opts: { embeddings?: EmbeddingClient | null; log?: (msg: string) => void } = {},
 ): Promise<DriveFileRow[]> {
+  // Registro, A11 r.1414 (scelta A di 46): chi ha aggiunto si filtra con l'id vero; uno sconosciuto non si sceglie.
+  if (query.addedById && isPersonPlaceholder(query.addedById)) throw new DriveError(400, "invalid", "addedById: a placeholder is not a person id");
   const projectId = scope.projectId ?? query.projectId;
   if (scope.projectId) {
     const [project] = await db.select({ id: projects.id }).from(projects).where(eq(projects.id, scope.projectId));

@@ -420,6 +420,17 @@ describe("le altre voci del catalogo", () => {
   });
 });
 
+describe("saveFilter coi segnaposto (registro, A11 r.1414)", () => {
+  it("un segnaposto `hidden-<n>` nei criteri non si salva: rifiutato, nessun filtro", async () => {
+    const sid = await conversation();
+    const tok = await token(sid);
+    const name = `Coi segnaposto ${++n}`;
+    const res = await propose(sid, tok, [{ fn: "saveFilter", args: { name, visibility: "private", criteria: { assigneeIds: ["hidden-1"] }, view: "list", groupBy: "none" } }]);
+    expect(res.json()).not.toMatchObject({ status: "executed" });
+    expect(await t.db.select().from(taskFilters).where(and(eq(taskFilters.ownerId, author.id), eq(taskFilters.name, name)))).toEqual([]);
+  });
+});
+
 describe("il catalogo del server (registro)", () => {
   it("ogni voce ha lo STESSO accesso della sua rotta (tipo, permesso, guardia della risorsa)", async () => {
     const routes = new Map<string, RouteOptions>();
