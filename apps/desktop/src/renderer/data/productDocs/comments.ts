@@ -1,7 +1,8 @@
 import { cleanQuote } from "@stubwise/shared";
 import { anchorIdsOf, anchorText } from "../../domain/productDocs/blocks";
 import "./alertTypes";
-import { visiblePeopleFor } from "../access/whoCan";
+import { personMasker } from "../access/hidden";
+import { knownPeopleFor, visiblePeopleFor } from "../access/whoCan";
 import { directMentionIds } from "../chat/mentions";
 import { docsAccess } from "../docs/reads";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
@@ -66,20 +67,33 @@ onAnchorsMerged((pageId, from, to) => {
 
 /** Un commento come lo legge `me`: una domanda di Claude nella sua vista, mai la fonte grezza (11b). */
 /**
- * Il nome di una persona per chi guarda (R-G5): `null` se non la vede, come
- * il server (area 11, F2). Chi guarda e Claude si vedono sempre.
+ * Il nome di una persona per chi guarda (R-G5): `null` se non la conosce
+ * (registro, A11 r.1414: anche disattivati ed ex membri dei progetti visibili
+ * si conoscono). Chi guarda e Claude si vedono sempre.
  */
 const visibleNameOf = (me: string, personId: string): string | null =>
-  personId === me || personId === CLAUDE_ID || visiblePeopleFor(me).has(personId) ? nameOf(personId) : null;
+  personId === me || personId === CLAUDE_ID || knownPeopleFor(me).has(personId) ? nameOf(personId) : null;
 
-/** Il commento come lo legge chi guarda, nella forma del server (F2): senza `seq`, coi nomi che vede. */
-export function viewOf(me: string, page: ProductPage, c: ProductComment): ProductCommentView {
+/**
+ * Il commento come lo legge chi guarda, nella forma del server (F2): senza
+ * `seq`, coi nomi che vede, e gli id di chi non conosce come segnaposti
+ * (`mask`: quello della risposta intera, r.1414).
+ */
+export function viewOf(
+  me: string,
+  page: ProductPage,
+  c: ProductComment,
+  mask: ReturnType<typeof personMasker> = personMasker(me),
+): ProductCommentView {
   // La domanda grezza (fonte, fatto) non esce mai: la sua vista la sostituisce.
   const { question: _question, seq: _seq, ...rest } = copy(c);
   void [_question, _seq];
   return {
     ...rest,
-    resolved: c.resolved ? { ...c.resolved, byName: visibleNameOf(me, c.resolved.byId) } : null,
+    authorId: mask(c.authorId),
+    resolved: c.resolved
+      ? { ...c.resolved, byId: mask(c.resolved.byId), byName: visibleNameOf(me, c.resolved.byId) }
+      : null,
     authorName: visibleNameOf(me, c.authorId),
     // Le menzionate che chi guarda vede, come il server (review di R11-2, 4).
     mentionIds: c.mentionIds.filter((id) => visibleNameOf(me, id) !== null),
@@ -107,15 +121,16 @@ export async function listProductComments(
   const position = new Map(page.blocks.flatMap(anchorIdsOf).map((id, i) => [id, i]));
   const mine = state.productComments.filter((c) => c.pageId === pageId);
   const seqOf = new Map(mine.map((c) => [c.id, c.seq]));
+  const mask = personMasker(me);
   const threads = mine
     .filter((c) => c.replyToId === null)
     .map(
       (root): ProductCommentThread => ({
-        root: viewOf(me, page, root),
+        root: viewOf(me, page, root, mask),
         replies: mine
           .filter((c) => c.replyToId === root.id)
           .sort((a, b) => a.seq - b.seq)
-          .map((c) => viewOf(me, page, c)),
+          .map((c) => viewOf(me, page, c, mask)),
         anchorGone: !position.has(root.anchorId),
       }),
     )
@@ -363,7 +378,8 @@ export function presentProductMention(me: string, out: AppNotification): void {
   out.objectCode = page.code;
   out.link = threadLink(page, root.id);
   out.productPageTitle = page.title;
-  const seen = visiblePeopleFor(me);
+  // R.1414: i nomi menzionati di chi guarda conosce.
+  const seen = knownPeopleFor(me);
   out.mentionNames = directMentionIds(out.body)
     .filter((id) => seen.has(id))
     .map(nameOf);

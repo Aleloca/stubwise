@@ -4527,7 +4527,8 @@ export interface ProductPageView extends ProductPage {
 }
 
 export interface ProductRevisionView extends ProductRevision {
-  actorName: string;
+  /** `null` a chi non conosce la persona (registro, A11 r.1414). */
+  actorName: string | null;
   /**
    * 11b (Task 3), tutti facoltativi. `source` e `via` ci sono già (dalla
    * revisione): la fonte vista da chi guarda è `sourceView` (P2).

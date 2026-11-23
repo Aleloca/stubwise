@@ -499,8 +499,27 @@ export function ChangeJournal({
     timer.current = window.setTimeout(() => setHighlight(null), 1500);
   }, [highlight]);
   useEffect(() => () => window.clearTimeout(timer.current), []);
+  // Registro, A9 r.1250: la voce annullata può stare in una pagina non ancora
+  // letta. Finché non c'è, si legge la pagina dopo; lette tutte, lo si dice.
+  // Dopo aver tolto i filtri si aspetta l'elenco nuovo (`staleEntries`).
+  const staleEntries = useRef<ChangeEntryView[] | null>(null);
+  const moreLoading = more?.loading ?? false;
+  const hasMore = more !== null && more !== undefined;
+  useEffect(() => {
+    if (pending === null || state !== "ready" || present) return;
+    if (staleEntries.current === entries) return;
+    staleEntries.current = null;
+    if (hasMore) {
+      if (!moreLoading) more!.onMore();
+      return;
+    }
+    setPending(null);
+    toast.show(t("changelog.via.undoneGone"));
+    // `more` cambia identità a ogni render: contano se c'è e se carica.
+  }, [pending, present, state, entries, hasMore, moreLoading]);
   const reveal = (id: string) => {
-    if (!entries.some((e) => e.id === id)) {
+    if (!entries.some((e) => e.id === id) && filtered) {
+      staleEntries.current = entries;
       onClear();
       toast.show(t("changelog.via.filtersCleared"));
     }

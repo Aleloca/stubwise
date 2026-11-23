@@ -5076,6 +5076,7 @@
       "arrived_other": "{{count}} new messages"
     },
     "message": {
+      "someone": "Someone",
       "edited": "(edited)",
       "editedAt": "Edited at {{time}}",
       "deleted": "Message deleted",
@@ -12347,6 +12348,7 @@
     }
   },
   "changelog": {
+    "someone": "Someone",
     "kinds": {
       "person": {
         "instance_role_changed": "<actor>{{actor}}</actor> changed <object>{{object}}</object>'s instance role.",
@@ -12740,7 +12742,8 @@
       "mark": "Made with Claude",
       "filter": "Made with Claude",
       "undid": "Undid: {{sentence}}",
-      "filtersCleared": "Filters cleared to show the change."
+      "filtersCleared": "Filters cleared to show the change.",
+      "undoneGone": "That change isn't in the log anymore."
     }
   },
   "usage": {

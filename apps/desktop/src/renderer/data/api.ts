@@ -2,7 +2,8 @@ import { matches } from "../domain/filters";
 import { DEFAULT_CORRECTION_CAP } from "../domain/releases/prState";
 import type { Stall } from "../domain/stalled";
 import { accessState } from "./access/index";
-import { visiblePeopleFor } from "./access/whoCan";
+import { personMasker } from "./access/hidden";
+import { knownPeopleFor, visiblePeopleFor } from "./access/whoCan";
 import { pluginSkillCommand, STUBWISE_COMMANDS } from "./seed/commands";
 import { skillsForRun } from "./projectSettings/plugins";
 import { COMMITS } from "./seed/commits";
@@ -16,7 +17,7 @@ import {
 import { driveRow } from "./drive/reads";
 import { canSeeDriveFile } from "./drive/visibility";
 import { daysFromToday, TODAY } from "./seed/dates";
-import { PEOPLE } from "./seed/people";
+import { CLAUDE_ID, PEOPLE } from "./seed/people";
 import { projectOfRepo, REPO_FILES } from "./seed/repoFiles";
 import { NO_SESSION_PERSON_ID } from "./session";
 import { can, viewerFor } from "./viewer";
@@ -220,10 +221,17 @@ export async function listDepartments(): Promise<Department[]> {
 }
 
 export async function listPeople(): Promise<Person[]> {
-  await gate("listPeople");
+  const me = await gate("listPeople");
   // `deactivated` è calcolato dallo stato degli accessi (area 9a): la persona
   // resta nell'elenco (le sue task la nominano) ma non si assegna.
-  return PEOPLE.map((p) => ({ ...copy(p), deactivated: assigneeStatusOf(p.id) === "deactivated" }));
+  // Registro, A11 r.1414: solo chi guarda CONOSCE (`knownPeopleFor`: anche
+  // disattivati ed ex membri dei progetti visibili), come l'elenco del
+  // server. Claude resta: non è una persona da nascondere.
+  const known = knownPeopleFor(me);
+  return PEOPLE.filter((p) => p.id === CLAUDE_ID || known.has(p.id)).map((p) => ({
+    ...copy(p),
+    deactivated: assigneeStatusOf(p.id) === "deactivated",
+  }));
 }
 
 export async function listProjects(): Promise<Project[]> {
@@ -728,6 +736,11 @@ export async function getLatestBrief(projectId: string): Promise<WeeklyBrief | n
  */
 export async function listNotifications(): Promise<AppNotification[]> {
   const me = await gate("listNotifications");
+  // Registro, A11 r.1414: i nomi seguono «chi si conosce», gli id di chi non
+  // si conosce diventano segnaposti, uno per la risposta intera.
+  const known = knownPeopleFor(me);
+  const mask = personMasker(me);
+  const nameIfKnown = (id: string) => (known.has(id) ? (PEOPLE.find((p) => p.id === id)?.name ?? null) : null);
   return state.notifications.flatMap((n) => {
     const delivered = deliveredTo(me, n);
     if (!delivered) return [];
@@ -742,19 +755,15 @@ export async function listNotifications(): Promise<AppNotification[]> {
       // Area 10a (I2): chi ha scritto, come nome per chi guarda (R-G5);
       // l'id resta nel livello dati.
       if (n.actorId !== undefined) {
-        out.actorName = visiblePeopleFor(me).has(n.actorId)
-          ? (PEOPLE.find((p) => p.id === n.actorId)?.name ?? null)
-          : null;
+        out.actorName = nameIfKnown(n.actorId);
         delete out.actorId;
       }
       // Area 10a: per chi l'ha fatta partire Claude, e chi l'ha annullata;
       // i nomi solo se chi guarda vede quelle persone (R-G5).
       if (n.viaClaude) {
-        const people = visiblePeopleFor(me);
-        out.viaClaudeName = people.has(n.viaClaude.personId)
-          ? (PEOPLE.find((p) => p.id === n.viaClaude!.personId)?.name ?? null)
-          : null;
-        out.undoneByName = undoneByNameOf(n.viaClaude.actionId, people);
+        out.viaClaudeName = nameIfKnown(n.viaClaude.personId);
+        out.undoneByName = undoneByNameOf(n.viaClaude.actionId, known);
+        out.viaClaude = { ...out.viaClaude!, personId: mask(n.viaClaude.personId) };
       }
       // Area 10b (D4): il nome di adesso del ruolo dato ([SC 15]: eliminato,
       // `null`), e il progetto che chi la riceve non vede più non si apre
@@ -764,10 +773,7 @@ export async function listNotifications(): Promise<AppNotification[]> {
       // `member.added` a chi gestisce i membri (19 nov 2026): chi è entrato,
       // per nome se chi guarda lo vede (R-G5); a chi è entrato niente.
       if (n.memberId !== undefined) {
-        if (n.memberId !== me)
-          out.memberName = visiblePeopleFor(me).has(n.memberId)
-            ? (PEOPLE.find((p) => p.id === n.memberId)?.name ?? null)
-            : null;
+        if (n.memberId !== me) out.memberName = nameIfKnown(n.memberId);
         delete out.memberId;
       }
       if (n.projectId && !visibleProjectIds(me).has(n.projectId)) out.notOpenable = true;
@@ -777,10 +783,11 @@ export async function listNotifications(): Promise<AppNotification[]> {
       // Area 11b: le card di Claude sulla doc di prodotto, lette per chi riceve.
       presentProductUpdate(me, out);
       presentProductQuestion(me, out);
+      out.recipientIds = out.recipientIds.map(mask);
       return [out];
     }
     const shown = presentChatNotification(me, delivered);
-    return shown ? [shown] : [];
+    return shown ? [{ ...shown, recipientIds: shown.recipientIds.map(mask) }] : [];
   });
 }
 

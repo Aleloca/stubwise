@@ -5076,6 +5076,7 @@
       "arrived_other": "{{count}} messaggi nuovi"
     },
     "message": {
+      "someone": "Qualcuno",
       "edited": "(modificato)",
       "editedAt": "Modificato alle {{time}}",
       "deleted": "Messaggio eliminato",
@@ -12347,6 +12348,7 @@
     }
   },
   "changelog": {
+    "someone": "Qualcuno",
     "kinds": {
       "person": {
         "instance_role_changed": "<actor>{{actor}}</actor> ha cambiato il ruolo d'istanza di <object>{{object}}</object>.",
@@ -12740,7 +12742,8 @@
       "mark": "Fatta con Claude",
       "filter": "Fatte con Claude",
       "undid": "Ha annullato: {{sentence}}",
-      "filtersCleared": "Filtri tolti per mostrare la modifica."
+      "filtersCleared": "Filtri tolti per mostrare la modifica.",
+      "undoneGone": "Quella modifica non è più nel registro."
     }
   },
   "usage": {

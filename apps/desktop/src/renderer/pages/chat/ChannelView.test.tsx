@@ -666,3 +666,31 @@ describe("ChannelView: Review Focus 5 — contenuti estremi", () => {
     expect(el.querySelector('[data-message="x-299"]')).not.toBeNull();
   });
 });
+
+// Registro, A11 r.1414: «chi scrive in un canale che vedo è conosciuto»
+// (decisione del maintainer, 23 nov 2026), anche senza progetti in comune; un
+// autore che arriva come segnaposto (`hidden-<n>`) si legge «Someone».
+describe("ChannelView: chi scrive (r.1414)", () => {
+  it("un canale di tutta l'azienda: l'autore senza progetti in comune ha il suo nome", async () => {
+    setSessionPersonId("p-enrico");
+    const sent = await api.chat.sendMessage("ch-announcements", { text: "Hello from far away" });
+    renderWithData(<Harness id="ch-announcements" />, { personId: "p-laura" });
+    const item = await waitFor(() => {
+      const el = flow().querySelector(`[data-message="${sent.id}"]`);
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    expect(item.textContent).toContain(PEOPLE.find((p) => p.id === "p-enrico")!.name);
+  });
+
+  it("un autore come segnaposto: «Someone», senza nome", async () => {
+    const m = put({ id: "m-hidden", channelId: "ch-announcements", createdAt: "2026-11-21T09:00:00Z", authorId: "hidden-1", text: "From nowhere" });
+    renderWithData(<Harness id="ch-announcements" />, { personId: "p-laura" });
+    const item = await waitFor(() => {
+      const el = flow().querySelector(`[data-message="${m.id}"]`);
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    expect(within(item).getByText("Someone")).toBeInTheDocument();
+  });
+});

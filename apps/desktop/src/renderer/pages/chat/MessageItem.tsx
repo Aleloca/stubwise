@@ -276,7 +276,10 @@ export function MessageItem(props: MessageItemProps) {
         )}
         {head && !deleted && (
           <p className="flex min-w-0 items-baseline gap-1.5 text-sm">
-            <span className="truncate font-semibold text-ink">{author?.name ?? ""}</span>
+            {/* R.1414: un autore che chi guarda non conosce arriva come segnaposto. */}
+            <span className="truncate font-semibold text-ink">
+              {author?.name ?? (m.authorId ? t("chat.message.someone") : "")}
+            </span>
             <span aria-hidden="true" className="text-ink-faint">
               ·
             </span>

@@ -1,7 +1,8 @@
 import { actionById, groupPermissions } from "../../domain/access/actions";
-import { orderHolders, peopleVisibleTo } from "../../domain/access/whoCan";
+import { orderHolders, peopleKnownTo, peopleVisibleTo } from "../../domain/access/whoCan";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
-import { archivedProjectIdsFor, visibleProjectIds } from "../store";
+import { canReadChannel, membersOf } from "../chat/visibility";
+import { archivedProjectIdsFor, state, visibleProjectIds } from "../store";
 import { can, viewerFor, type Permission } from "../viewer";
 import { ALL_PROJECT_PERMISSIONS } from "./seed";
 import { effectivePermissions, type PermissionSource } from "./effective";
@@ -38,6 +39,43 @@ export type WhatCanResult =
 
 const nameOf = (personId: string): string =>
   PEOPLE.find((p) => p.id === personId)?.name ?? personId;
+
+/**
+ * Le persone che chi guarda conosce (registro, A11 r.1414): la regola dei nomi
+ * e degli id nelle viste, compresi disattivati ed ex membri dei progetti
+ * visibili. Claude non c'è (non è una persona da nascondere).
+ */
+export function knownPeopleFor(viewerId: string): Set<string> {
+  const known = peopleKnownTo({
+    state: accessState(),
+    viewerId,
+    visibleProjectIds: visibleProjectIds(viewerId),
+  });
+  // Decisione del maintainer (23 nov 2026): «chi scrive in un canale che vedo
+  // è conosciuto». Membri e autori dei canali che chi guarda può leggere,
+  // anche senza un progetto in comune (i canali di tutta l'azienda).
+  const readable = new Set<string>();
+  for (const ch of state.channels) {
+    if (!canReadChannel(viewerId, ch)) continue;
+    readable.add(ch.id);
+    for (const id of membersOf(ch)) known.add(id);
+  }
+  for (const m of state.chatMessages) {
+    if (m.authorId !== null && readable.has(m.channelId)) known.add(m.authorId);
+  }
+  return known;
+}
+
+/**
+ * Il nome di una persona per chi guarda: `null` se è una persona che non
+ * conosce; Claude, o un attore che non è una persona, col suo nome di sempre.
+ */
+export function knownNameOf(viewerId: string, personId: string, known?: Set<string>): string | null {
+  const person = PEOPLE.find((p) => p.id === personId);
+  if (!person) return personId;
+  if (personId === CLAUDE_ID) return person.name;
+  return (known ?? knownPeopleFor(viewerId)).has(personId) ? person.name : null;
+}
 
 /** Le persone che chi guarda vede (R-G5), Claude escluso. */
 export function visiblePeopleFor(viewerId: string): Set<string> {

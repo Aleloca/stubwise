@@ -90,8 +90,10 @@ describe("chat: il punto del binario", () => {
   });
 });
 
-describe("chat: R-G6 — solo le menzioni dirette avvisano", () => {
-  it("@channel e @reparto non creano notifiche nemmeno con «tutti i messaggi», ma contano nel canale", async () => {
+// R-G6 superata dal registro, A4 r.169 (decisione del maintainer, 23 nov
+// 2026): @channel e @reparto avvisano chi ha il canale su «all».
+describe("chat: @channel e @reparto avvisano chi ha il canale su «all» (r.169)", () => {
+  it("@channel e @reparto creano una notifica con «tutti i messaggi», e contano nel canale", async () => {
     readEverything("p-giulia");
     as("p-giulia");
     const start = (await chat.listChannels()).find((r) => r.id === "ch-mkx-grafica")!;
@@ -102,10 +104,8 @@ describe("chat: R-G6 — solo le menzioni dirette avvisano", () => {
     const dept = await chat.sendMessage("ch-mkx-grafica", { text: "@Marketing please look" });
     as("p-giulia");
     const notes = (await listNotifications()).filter((n) => n.chatMessageId);
-    expect(notes.length).toBe(notesBefore);
-    expect(notes.some((n) => n.chatMessageId === all.id || n.chatMessageId === dept.id)).toBe(
-      false,
-    );
+    expect(notes.length).toBe(notesBefore + 2);
+    expect(notes.filter((n) => n.chatMessageId === all.id || n.chatMessageId === dept.id)).toHaveLength(2);
     const row = (await chat.listChannels()).find((r) => r.id === "ch-mkx-grafica")!;
     expect(row.mentions).toBe(2);
     // …e non accendono il punto del binario.

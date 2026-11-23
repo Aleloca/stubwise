@@ -4,7 +4,8 @@ import { plain } from "../../domain/productDocs/richText";
 import { listNotifications, productDocs, resetApi, setLatency } from "../api";
 import { docsAccess } from "../docs/reads";
 import type { ProductBlock, ProductPage } from "../model";
-import { visiblePeopleFor } from "../access/whoCan";
+import { writeAccess } from "../access/index";
+import { strangersTo } from "../../test/strangers";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { setSessionPersonId } from "../session";
 import { state } from "../store";
@@ -588,7 +589,9 @@ describe("la vista del commento come la dà il server (area 11, F2)", () => {
     const signIn = page("Sign-in");
     // Una persona che Marco non vede (nessun progetto in comune), autrice e
     // risolutrice di un filo: il commento resta, il nome no.
-    const hidden = PEOPLE.find((p) => p.id !== CLAUDE_ID && p.id !== MARCO && !visiblePeopleFor(MARCO).has(p.id))!;
+    // R.1414 (23 nov 2026): né il nome né l'id, che diventa un segnaposto,
+    // lo stesso per autore e risolutore (la stessa persona, la stessa risposta).
+    const hidden = PEOPLE.find((p) => p.id === strangersTo(MARCO)[0])!;
     const seed = state.productComments.find((c) => c.pageId === signIn.id && c.replyToId === null)!;
     state.productComments.push({
       ...structuredClone(seed),
@@ -598,16 +601,33 @@ describe("la vista del commento come la dà il server (area 11, F2)", () => {
       resolved: { byId: hidden.id, at: seed.createdAt },
     });
     as(MARCO);
-    const [thread] = (await productDocs.listProductComments(signIn.id)).resolved.filter(
-      (t) => t.root.id === "pc-hidden-author",
-    );
+    const listed = await productDocs.listProductComments(signIn.id);
+    const [thread] = listed.resolved.filter((t) => t.root.id === "pc-hidden-author");
     expect(thread!.root.authorName).toBeNull();
-    expect(thread!.root.resolved).toMatchObject({ byId: hidden.id, byName: null });
+    expect(thread!.root.authorId).toMatch(/^hidden-\d+$/);
+    expect(thread!.root.resolved).toMatchObject({ byId: thread!.root.authorId, byName: null });
+    expect(JSON.stringify(listed)).not.toContain(hidden.id);
+  });
+
+  it("un membro disattivato di ACQ resta col suo nome e il suo id (r.1414)", async () => {
+    const signIn = page("Sign-in");
+    const seed = state.productComments.find((c) => c.pageId === signIn.id && c.replyToId === null)!;
+    state.productComments.push({ ...structuredClone(seed), id: "pc-deactivated", authorId: LAURA, mentionIds: [] });
+    writeAccess((s) => {
+      const row = s.people.find((p) => p.personId === LAURA)!;
+      row.status = "deactivated";
+      row.deactivatedAt = "2026-11-20T10:00:00Z";
+    });
+    as(MARCO);
+    const all = await productDocs.listProductComments(signIn.id);
+    const root = [...all.open, ...all.resolved].find((t) => t.root.id === "pc-deactivated")!.root;
+    expect(root.authorId).toBe(LAURA);
+    expect(root.authorName).toBe("Laura Costa");
   });
 
   it("le menzionate che chi guarda non vede non sono nella vista (come il server; review di R11-2, 4)", async () => {
     const signIn = page("Sign-in");
-    const hidden = PEOPLE.find((p) => p.id !== CLAUDE_ID && p.id !== MARCO && !visiblePeopleFor(MARCO).has(p.id))!;
+    const hidden = PEOPLE.find((p) => p.id === strangersTo(MARCO)[0])!;
     const seed = state.productComments.find((c) => c.pageId === signIn.id && c.replyToId === null)!;
     state.productComments.push({ ...structuredClone(seed), id: "pc-hidden-mention", mentionIds: [LAURA, hidden.id] });
     as(MARCO);

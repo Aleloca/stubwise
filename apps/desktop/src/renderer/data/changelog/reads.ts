@@ -3,7 +3,8 @@ import { canSeeAdminSection, projectSettingsAccess } from "../adminSections";
 // Area 9c: solo i tipi di voce, mai `projectSettings/index.ts` (P6).
 import { SECTION_OF_KIND } from "../projectSettings/changeTypes";
 import type { AdminSection } from "../routes";
-import { visiblePeopleFor } from "../access/whoCan";
+import { personMasker } from "../access/hidden";
+import { knownNameOf, knownPeopleFor, visiblePeopleFor } from "../access/whoCan";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import {
   archivedProjectIdsFor,
@@ -412,10 +413,15 @@ function view(
   stored: ChangeEntry,
   people: Set<string>,
   visible: Set<string>,
+  known: Set<string>,
+  mask: ReturnType<typeof personMasker>,
   nested = false,
 ): ChangeEntryView {
   const { entry, labelKey } = resolveDeleted(me, stored);
   const type = changeTypeOf(entry.kind)!;
+  // R.1414: una voce su una persona che chi guarda non conosce non ne dice né
+  // l'id né il nome (la frase scrive «Someone»).
+  const hiddenPerson = entry.object.type === "person" && mask(entry.object.id) !== entry.object.id;
   // I campi della voce uno per uno, mai con uno spread: `claudeActionId`
   // resta nel livello dati e `undoOf` si calcola per chi guarda (ruling del
   // controller (pre-flight), P16).
@@ -426,24 +432,29 @@ function view(
     id: entry.id,
     kind: entry.kind,
     at: entry.at,
-    actorId: entry.actorId,
+    // R.1414: chi non si conosce, segnaposto (uno per la risposta).
+    actorId: mask(entry.actorId),
     projectId: entry.projectId,
     before: entry.before,
     after: entry.after,
     ...(entry.via ? { via: entry.via } : {}),
     undoOf,
-    ...(undone ? { undoneEntry: view(me, undone, people, visible, true) } : {}),
-    object: { ...entry.object },
+    ...(undone ? { undoneEntry: view(me, undone, people, visible, known, mask, true) } : {}),
+    object: hiddenPerson ? { ...entry.object, id: mask(entry.object.id), label: "" } : { ...entry.object },
     params: { ...entry.params },
     templateKey: type.templateKey,
     scope: type.scope,
     group: type.group,
-    actorName: nameOf(entry.actorId),
+    // R.1414: il nome solo a chi conosce la persona.
+    actorName: knownNameOf(me, entry.actorId, known),
     projectCode: entry.projectId ? (state.projectsById.get(entry.projectId)?.code ?? null) : null,
     objectDeleted: objectDeletedOf(entry),
     objectLink: objectLinkOf(me, entry, people),
-    objectLabelKey:
-      entry.kind === "model.changed" ? `usage.operations.${entry.object.id}` : labelKey,
+    objectLabelKey: hiddenPerson
+      ? "changelog.someone"
+      : entry.kind === "model.changed"
+        ? `usage.operations.${entry.object.id}`
+        : labelKey,
     diff: diffOf(entry, people),
   };
 }
@@ -460,9 +471,11 @@ function newestFirst(entries: ChangeEntry[]): ChangeEntry[] {
 function changesReadableBy(me: string, filter: ChangeFilter = {}): ChangeEntryView[] {
   const visible = readableProjectIds(me);
   const people = me === CLAUDE_ID ? new Set<string>() : visiblePeopleFor(me);
+  const known = me === CLAUDE_ID ? new Set<string>() : knownPeopleFor(me);
+  const mask = personMasker(me);
   return newestFirst(
     state.changelog.filter((e) => readable(me, e, visible) && matchesFilter(e, filter)),
-  ).map((e) => view(me, e, people, visible));
+  ).map((e) => view(me, e, people, visible, known, mask));
 }
 
 /** Il registro in Amministrazione: le voci leggibili da chi guarda, più recenti prima. */

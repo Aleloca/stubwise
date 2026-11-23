@@ -400,10 +400,11 @@ function useSentenceValues() {
     // calcolate, che vincono sempre.
     return {
       ...entry.params,
+      // R.1414: chi non conosce la persona legge «Someone».
       actor:
         entry.via === "claude"
-          ? t("changelog.via.actor", { name: entry.actorName })
-          : entry.actorName,
+          ? t("changelog.via.actor", { name: entry.actorName ?? t("changelog.someone") })
+          : (entry.actorName ?? t("changelog.someone")),
       // Il nome di un oggetto che è una parola di Stubwise (l'operazione di
       // `model.changed`) si traduce; un nome dato da una persona resta com'è.
       object: entry.objectLabelKey ? t(entry.objectLabelKey) : entry.object.label,

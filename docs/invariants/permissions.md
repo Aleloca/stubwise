@@ -391,3 +391,57 @@ non è dato a nessun ruolo esistente salvo che la sua migrazione lo dica.
   costruisce dal preset di adesso (`PRESET_ROLES`), non da un elenco scritto
   a mano.
 
+
+## PROPOSTA (23 nov 2026, 94, da portare sul server con 72): chi non vede una persona o un progetto non ne riceve nemmeno l'id
+
+Decisione del maintainer del 23 nov 2026 (registro, A11 r.1414). Oggi R-G5
+nasconde il NOME di una persona che chi guarda non vede, ma il suo id esce
+(`actorId`, `authorId`, `byId`, `memberIds`, …): da qui in avanti NO. Lo
+stesso per l'id di un progetto invisibile. Lo stato: il prototipo è fatto a
+lotti (`apps/desktop/src/renderer/data/`), il server no — la lista dei
+punti lato server sta nell'inventario consegnato a 72 (sotto).
+
+- **Chi si conosce** — un predicato SOLO, più largo di chi si vede per
+  scegliere o per «Who can?»: le persone che sono o sono state membri di un
+  progetto che chi guarda vede (le attive, le DISATTIVATE e gli EX membri:
+  restano «Nome (deactivated)»), più i full admin, più sé stesso; e (seconda
+  decisione del maintainer, 23 nov 2026: «chi scrive in un canale che vedo è
+  conosciuto») i MEMBRI e gli AUTORI dei canali della Chat che chi guarda
+  può leggere, anche senza un progetto in comune — i canali di tutta
+  l'azienda. In un canale leggibile autori e membri hanno quindi nome e
+  avatar; il segnaposto resta per chi non condivide né un progetto visibile
+  né un canale leggibile (per esempio la reazione di chi poi è uscito dal
+  canale senza averci scritto). Un full admin conosce tutti. Nel prototipo: `peopleKnownTo`
+  (`domain/access/whoCan.ts`), con gli ex membri ricordati in
+  `formerMemberships` dello stato degli accessi, scritto in UN posto a ogni
+  uscita (`writeAccess`); i canali li aggiunge `knownPeopleFor`
+  (`data/access/whoCan.ts`), lo stesso predicato che usano l'elenco delle
+  persone e il segnaposto. Lato server serve la stessa traccia delle uscite
+  (o la si deriva dal registro delle modifiche, `project.member_removed`).
+  `peopleVisibleTo` resta com'è per chi si sceglie (assegnabili, «Who
+  can?»): sono due domande diverse.
+- **Fuori dalla regola**: la directory di Amministrazione → People (chi ha
+  il permesso vede tutti, per costruzione).
+- **Il segnaposto**: al posto dell'id di una persona che chi guarda non
+  conosce, `hidden-<n>`, dove `<n>` è un intero da 1 assegnato nell'ordine
+  in cui le persone nascoste compaiono nella RISPOSTA. Stabile dentro la
+  stessa risposta (la stessa persona nascosta è lo stesso `hidden-2` in
+  tutti i campi e in tutte le righe di quella risposta, così raggruppare i
+  messaggi per autore, le key di React e «è sempre la stessa persona»
+  continuano a funzionare), MAI fra due risposte (non è un id: non si salva,
+  non si manda indietro, non si confronta fra due letture). Per un progetto
+  invisibile vale lo stesso con `hidden-project-<n>`, dove la vista non può
+  semplicemente toglierlo.
+- **Come si mostra**: un segnaposto non si risolve con l'elenco delle
+  persone; il nome è `null` e la pagina scrive «Someone» / «Qualcuno»
+  (avatar senza iniziali, «?»). Un segnaposto non è mai cliccabile.
+- **Un client non manda mai un segnaposto al server.** Una scrittura che
+  riceve un `hidden-…` dove si aspetta un id risponde 400 come per un id
+  non valido; il client non costruisce scritture da quei campi.
+- **Chi guarda resta sé stesso**: il proprio id non diventa mai un
+  segnaposto (servono i confronti «è mio»).
+- **Lato server** l'inventario dei punti (la colonna R/server: l'adattatore
+  del desktop copia il campo così com'è) è nel messaggio di 94 a 72 del 23
+  nov 2026; per ognuno il campo va sostituito nella VISTA, a lettura, come
+  ogni campo che dipende da chi guarda (vedi «Le card d'inbox derivano a
+  lettura…» sopra).
