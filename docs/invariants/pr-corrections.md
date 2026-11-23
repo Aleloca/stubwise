@@ -219,6 +219,28 @@
   prima di scrivere (`needs_maintainer`). Test a due utenti sugli stessi dati
   in `pr-correction-cycle.test.ts` (e `correctionManualTrigger: vero SOLO con
   plans.approve`), come per `canMerge`.
+- **A budget MENSILE finito, chi non lo scavalca è rifiutato SUBITO (rimandi,
+  lotto 4, D-7.1 del maintainer, 23 nov 2026).** La regola qui sopra resta:
+  chi ha `plans.approve` nel progetto scavalca il budget mensile. Chi non ce
+  l'ha non riceve più una richiesta accettata e poi fermata `held` dal
+  worker: l'avvio a mano risponde 409 `budget_exhausted` e non scrive niente.
+  Vale per gli avvii a mano legati a un progetto:
+  - `startRun` (Start della task e tutto ciò che ci passa: le azioni di
+    Claude, l'inbox, il pulse, il rilascio fallito, lo Stato dell'istanza);
+  - «Chiedi modifiche» (`requestCorrection`);
+  - la richiesta di un piano per la correzione di un server
+    (`POST /api/tasks/:id/server-fix`).
+  `/work` dice `blocked: { reason: "monthly_budget" }` solo a chi non lo
+  scavalca: il server lo calcola, il client lo legge.
+  Dove l'avvio NON ha un progetto, il budget finito ferma TUTTI, perché non c'è
+  un `plans.approve` da leggere (precisazione di 46): la conversazione libera
+  con Claude (già così) e l'analisi a mano di un server
+  (`POST /api/servers/:id/analyses`).
+  Restano come prima, e sono già fermi per tutti a budget finito: la prima
+  versione della doc di prodotto, le bozze di schermata, «aggiorna da fonte».
+  Le automazioni non sono avvii a mano: restano in attesa (`held`).
+  Test: `apps/server/src/routes/budget-manual-starts.test.ts`, a due ruoli
+  sugli stessi dati.
 - **Job e correzione si chiudono INSIEME.** `completeJob`/`failJob` e
   `completeCorrection` stanno in UNA transazione (`closeJobAndCorrection`,
   `pipeline/correction.ts`), e la correzione passa a `done` solo se il job era

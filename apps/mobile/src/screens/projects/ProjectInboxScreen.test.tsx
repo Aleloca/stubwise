@@ -123,6 +123,8 @@ describe("ProjectInboxScreen", () => {
             blockedIndices: [],
             handed: false,
             decision: null,
+            handedByUser: null,
+            proposalDecided: false,
           },
         }),
       ],

@@ -46,7 +46,12 @@ Legenda: *(M)* decisione del maintainer, *(O)* scelta dell'orchestratrice,
   domande, mascherati per chi non conosce la persona (anche nel messaggio
   `session` dello stream). Rimasto fuori *(O, 94)*: `inputs[].authorName`
   (chi scrive in una sessione) è l'email e non passa dalla maschera.
-- Consumi per task (`usage`) e blocco d'istanza (`blocked`) in `/work` *(S)*.
+- ~~Consumi per task (`usage`) e blocco d'istanza (`blocked`) in `/work` *(S)*.~~
+  *Chiusa il 23 nov 2026 (72, lotto 4, §7.3 e D-7.1)*: `usage` (lo stesso conto
+  di `/usage`, dal costo più alto), `blocked` = il blocco degli avvii NUOVI
+  del progetto (`monthly_budget` a chi non ha `plans.approve`, `queue_paused`),
+  e l'attesa di un run su `runs[].waiting`. A budget finito un avvio a mano di
+  chi non lo scavalca è rifiutato subito (invariante in pr-corrections.md).
 - Allegati nei messaggi a una sessione *(S)*: il server non li accetta.
 - ~~`generatedAt` dei report giornalieri *(S)*.~~ *Chiusa il 23 nov 2026 (72, lotto 4, §7.4)*: in `GET /api/activity`, `finished_at` di un report `done`, altrimenti null.
 - Report giornaliero per progetto (oggi si rigenerano tutti i progetti del

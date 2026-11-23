@@ -6186,3 +6186,20 @@ deploy o di un rollback che la tocca.
   `desktop-google` del renderer). **Rollback**: sicuro; un server di prima
   scarta `client`/`returnState` e risponde senza `returnTo` (l'app ripiega
   sulla rilettura delle caselle), le colonne restano.
+- **«Rimandi, lotto 4: il budget mensile finito ferma gli avvii a mano»** *(23
+  nov 2026)*: branch `feat/rimandi-server` (D-7.1 del maintainer). **Cambio di
+  comportamento in produzione**: a budget AI del mese finito, chi non ha
+  `plans.approve` nel progetto riceve SUBITO 409 `budget_exhausted` su Start
+  della task (e le azioni di Claude, l'inbox, il pulse, i rilasci, lo Stato
+  dell'istanza che passano da `startRun`), su «Chiedi modifiche» e sulla
+  richiesta di un piano per la correzione di un server; prima la richiesta
+  passava e il worker la fermava `held`. Chi ha `plans.approve` scavalca come
+  prima. L'analisi a mano di un server (senza progetto) a budget finito si
+  ferma per TUTTI. `/work` dice `monthly_budget` solo a chi non lo scavalca.
+  Nessuna migrazione, nessuna env. Ordine: **server**, poi **caddy** (il
+  renderer che legge `blocked`). **Rollback**: sicuro; un server di prima torna
+  ad accettare le richieste e a lasciare il fermo al worker.
+  ⚠️ Due avvii che, rifiutati, lasciano qualcosa a metà (voluto, ma da
+  sapere): il «Procedi» di una proposta del pulse crea la task e poi non parte
+  (la card dice «solo la task»); l'assegnazione a Claude assegna e poi non
+  parte (il lavoro si avvia a mano quando il budget torna).

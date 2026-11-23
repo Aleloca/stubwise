@@ -423,6 +423,7 @@ export const en: Catalog = {
   // corsa persa.
   "notify.inbox.errAlreadyAnswered": "Already answered by {actor}.",
   "notify.inbox.errAlreadyAnsweredUnknown": "Already answered by someone else.",
+  "notify.inbox.errBudgetExhausted": "The monthly AI budget is used up: new work waits until someone raises it.",
   "notify.inbox.errJobInFlight": "A job for this ticket is already running ({status}).",
   "notify.inbox.errPlanNotPending": "No plan is awaiting approval.",
   "notify.inbox.errInvalidAnswer": "That answer is not valid for this question.",
@@ -1125,6 +1126,7 @@ export const it: Catalog = {
   "notify.inbox.errAlreadyHandledUnknown": "Questa notifica è già stata gestita.",
   "notify.inbox.errAlreadyAnswered": "Ha già risposto {actor}.",
   "notify.inbox.errAlreadyAnsweredUnknown": "Ha già risposto qualcun altro.",
+  "notify.inbox.errBudgetExhausted": "Il budget AI del mese è finito: il lavoro nuovo aspetta che qualcuno lo alzi.",
   "notify.inbox.errJobInFlight": "C'è già un job in corso per questo ticket ({status}).",
   "notify.inbox.errPlanNotPending": "Nessun piano in attesa di approvazione.",
   "notify.inbox.errInvalidAnswer": "Questa risposta non è valida per questa domanda.",

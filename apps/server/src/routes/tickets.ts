@@ -1658,6 +1658,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
             "A review ticket does not run a fix: corrections go on its pull request",
           );
         }
+        if (result.error === "budget_exhausted") return apiError(reply, 409, "budget_exhausted", "The monthly AI budget is used up");
         return apiError(
           reply,
           409,

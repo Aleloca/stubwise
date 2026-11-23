@@ -100,7 +100,7 @@ export interface CatalogRunResult {
 const startedWork = (task: { claudeRun?: string | null }) => task.claudeRun === "started";
 
 export type CatalogRefusal = {
-  code: "forbidden" | "not_found" | "invalid" | "conflict" | "busy";
+  code: "forbidden" | "not_found" | "invalid" | "conflict" | "busy" | "budget_exhausted";
   message: string;
 };
 
@@ -410,7 +410,13 @@ const ENTRIES: CatalogEntry[] = [
       });
       if (!result.ok) {
         return refused(
-          result.error === "ticket_not_found" ? "not_found" : result.error === "forbidden" || result.error === "needs_maintainer" ? "forbidden" : "busy",
+          result.error === "ticket_not_found"
+            ? "not_found"
+            : result.error === "forbidden" || result.error === "needs_maintainer"
+              ? "forbidden"
+              : result.error === "budget_exhausted"
+                ? "budget_exhausted"
+                : "busy",
           result.error,
         );
       }

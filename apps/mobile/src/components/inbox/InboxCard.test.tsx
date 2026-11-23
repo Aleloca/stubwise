@@ -878,6 +878,8 @@ describe("InboxCard — proposta Google (fase 6)", () => {
       blockedIndices: [],
       handed: false,
       decision: null,
+      handedByUser: null,
+      proposalDecided: false,
       from: "laura@cliente.test",
       subject: "Rinviamo il rilascio?",
       signal: "decision",

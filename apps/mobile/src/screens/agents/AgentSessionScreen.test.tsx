@@ -67,6 +67,7 @@ function detail(overrides: Partial<AgentSessionDetail> = {}): AgentSessionDetail
     paused: false,
     questions: [],
     inputs: [],
+    startedById: null,
     ...overrides,
   };
 }

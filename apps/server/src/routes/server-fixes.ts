@@ -141,6 +141,8 @@ export async function serverFixRoutes(instance: FastifyInstance): Promise<void> 
     const [server] = await app.db.select({ caps: servers.agentCapabilities }).from(servers).where(eq(servers.id, fix.serverId));
     if (server?.caps.operations !== true) return apiError(reply, 409, "operations_off", "The agent on this server has operations turned off");
     if (fix.status === "awaiting_approval") return apiError(reply, 409, "plan_awaiting", "A plan is waiting for approval: reject it first");
+    // Rimandi, lotto 4 (D-7.1): a budget mensile finito chi non ha `plans.approve` è rifiutato subito.
+    if (!perms.has("plans.approve") && (await aiBudgetState(app.db)).exhausted) return apiError(reply, 409, "budget_exhausted", "The monthly AI budget is used up");
     const updated = await app.db
       .update(serverFixes)
       .set({ status: "proposing", sessionId: null, steps: [], planError: null, approvalId: null, currentStep: null, stepCommands: {}, requestedByUserId: request.user!.id, rejectedAt: null, rejectedByUserId: null, rejectionNote: null, updatedAt: new Date(), finishedAt: null })
@@ -242,7 +244,7 @@ export async function serverFixRoutes(instance: FastifyInstance): Promise<void> 
                   ? "busy"
                 : ticket?.status === "done" || ticket?.status === "closed"
                   ? "closed"
-                  : (await aiBudgetState(app.db)).exhausted
+                  : !perms.has("plans.approve") && (await aiBudgetState(app.db)).exhausted
                     ? "monthly_budget"
                     : null;
       // La diagnosi della task: chi vede la task la legge già nel testo (ruling F4b-6); qui con la regola dell'analisi.

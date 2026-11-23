@@ -1,3 +1,4 @@
+import { aiBudgetState } from "@stubwise/notifications";
 import { registerPersonMask } from "../services/people-known.js";
 import { environmentServers, projectEnvironments, projects, serverAnalyses, serverCommands, serverFixes, serverOperationApprovals, servers, tickets, users } from "@stubwise/db";
 import { serverAnalysisViewSchema, serverCommandViewSchema, type ServerAnalysisView, type ServerCommandView } from "@stubwise/shared";
@@ -15,8 +16,9 @@ import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js"
  * L'analisi A MANO di un server (area 8, F4b, S5;
  * docs/invariants/server-operations.md). La chiede chi ha `servers.operate`
  * in un progetto il cui ambiente usa il server (nessun preset lo concede; un
- * full admin lo ha ovunque). Qui si mette in coda e basta: il run, i tetti e
- * il budget li controlla il worker. Una per server alla volta (indice unico).
+ * full admin lo ha ovunque). Qui si mette in coda e basta: il run e i tetti
+ * li controlla il worker; a budget mensile finito la richiesta è rifiutata
+ * per tutti (D-7.1, nessun progetto). Una per server alla volta (indice unico).
  */
 
 const idParamsSchema = z.object({ id: z.uuid() });
@@ -79,6 +81,10 @@ export async function serverAnalysisRoutes(instance: FastifyInstance): Promise<v
       const access = await operatorAccess(app, user, serverId);
       if (access.visibleInAProject === false || access.visible === false) return apiError(reply, 404, "not_found", "Server not found");
       if (!access.operate) return apiError(reply, 403, "forbidden", "Starting an analysis needs servers.operate in a project of this server");
+      // Rimandi, lotto 4 (D-7.1, precisazione di 46): un avvio a mano SENZA un
+      // progetto (il server non è di un progetto solo) a budget mensile finito
+      // lo rifiuta per TUTTI: non c'è un `plans.approve` da leggere.
+      if ((await aiBudgetState(app.db)).exhausted) return apiError(reply, 409, "budget_exhausted", "The monthly AI budget is used up");
       let row: typeof serverAnalyses.$inferSelect;
       try {
         [row] = (await app.db.insert(serverAnalyses).values({ serverId, startedByUserId: user.id }).returning()) as [typeof serverAnalyses.$inferSelect];

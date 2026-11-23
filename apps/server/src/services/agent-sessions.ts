@@ -1,6 +1,6 @@
 import { and, desc, eq, gt, inArray, isNull, lt, not, or, sql, type SQL } from "drizzle-orm";
 import { canReadPublic, holdForOwnerMessage, readerCut } from "./claude-public.js";
-import { jobPlanView } from "./task-work.js";
+import { jobPlanView } from "./plan-view.js";
 import { enrichAsides } from "./claude-asides.js";
 import { alias } from "drizzle-orm/pg-core";
 import {

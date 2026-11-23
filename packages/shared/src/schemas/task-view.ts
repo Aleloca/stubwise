@@ -289,6 +289,14 @@ export type TaskActivityEntryView = z.infer<typeof taskActivityEntryViewSchema>;
 /** `allowed` | `forbidden` (lo stato lo consente, chi guarda no) | `unavailable` (lo stato non lo consente). */
 export const actionAvailabilitySchema = z.enum(["allowed", "forbidden", "unavailable"]);
 
+/** Un blocco del lavoro AI (budget del mese, coda del progetto in pausa), come lo mostra `/work`. */
+const aiBlockViewSchema = z.object({
+  reason: z.enum(["monthly_budget", "queue_paused"]),
+  byId: personRefSchema.optional(),
+  byName: z.string().nullable().optional(),
+  since: z.string().optional(),
+});
+
 /**
  * Una sessione di lavoro della task (un job AI), come la legge la sezione
  * Claude (integrazione area 3, fetta 3a). Gli eventi NON sono qui: si leggono
@@ -319,6 +327,11 @@ export const taskWorkRunSchema = z.object({
    * lo sta chiudendo. Additivo.
    */
   cancelRequested: z.boolean().default(false),
+  /**
+   * Rimandi, lotto 4 (§7.3): il run è in coda su una coda in pausa (prima stava
+   * in `blocked` della vista). Additivo.
+   */
+  waiting: aiBlockViewSchema.nullable().default(null),
   /** Il piano del job (il prototipo lo mette fra gli eventi: lo fa l'app). */
   plan: z
     .object({
@@ -441,14 +454,24 @@ export const taskWorkViewSchema = z.object({
     .array(z.object({ repo: z.string(), number: z.number().int(), availability: actionAvailabilitySchema }))
     .default([]),
   /**
-   * Perché un lavoro nuovo non partirebbe adesso. Sul server vero un avvio a
-   * mano scavalca il budget (`manualTrigger`), quindi oggi è sempre `null`:
-   * il campo c'è perché la forma è quella del prototipo.
+   * Rimandi, lotto 4 (§7.3): perché un lavoro NUOVO non partirebbe adesso sul
+   * progetto della task, indipendente dallo stato del lavoro (il prototipo,
+   * `aiBlockFor`): `monthly_budget` col budget del mese finito, SOLO a chi
+   * non ha `plans.approve` (D-7.1: chi ce l'ha lo scavalca; Start spento);
+   * `queue_paused` con la coda del progetto in pausa (Start resta acceso: il
+   * lavoro aspetta la ripresa). L'attesa di UN run è `runs[].waiting`. Lo
+   * legge solo il desktop.
    */
-  blocked: z
-    .object({ reason: z.enum(["monthly_budget", "queue_paused"]), byId: z.string().optional(), byName: z.string().nullable().optional(), since: z.string().optional() })
-    .nullable()
-    .default(null),
+  blocked: aiBlockViewSchema.nullable().default(null),
+  /**
+   * Rimandi, lotto 4 (§7.3): i consumi AI della task, per modello, su tutta la
+   * sua vita (lo stesso conto di `/api/tickets/:id/usage`), dal costo più alto;
+   * `costUsd` null = un run senza costo (un CLI vecchio). Lo vede chi vede la
+   * task, anche senza vederne i run. Additivo.
+   */
+  usage: z
+    .array(z.object({ model: z.string(), inputTokens: z.number().int(), outputTokens: z.number().int(), cacheReadTokens: z.number().int(), costUsd: z.number().nullable() }))
+    .default([]),
 });
 export type TaskWorkView = z.infer<typeof taskWorkViewSchema>;
 

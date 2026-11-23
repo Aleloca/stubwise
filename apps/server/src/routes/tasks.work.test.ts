@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { agentSessions, aiJobs, planDigest, prCorrections, prReviews, projectDecisions, projects, ticketRepositories, tickets } from "@stubwise/db";
+import { agentRuns, agentSessions, aiJobs, planDigest, prCorrections, prReviews, projectDecisions, projects, ticketRepositories, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, seedRepositoryInProject, startTestDb } from "@stubwise/db/testing";
 import { taskWorkViewSchema, type TaskWorkView } from "@stubwise/shared";
@@ -297,26 +297,55 @@ describe("actions: le calcola il server coi permessi di chi guarda", () => {
     expect((await work(t, developer)).waitsOnViewer).toBe(false);
   });
 
-  it("blocked: un avvio a mano scavalca il budget sul server, quindi null", async () => {
+  it("blocked: senza budget finito né coda in pausa, null", async () => {
     const t = await task();
     expect((await work(t, developer)).blocked).toBeNull();
   });
 
-  it("area 9, F4 (J-6): il job della task in coda su una coda in pausa → blocked queue_paused con chi e da quando; ripresa → null; un job in corso non è bloccato", async () => {
+  it("rimandi, lotto 4, §7.3: con la coda del progetto in pausa `blocked` è `queue_paused` (chi e da quando) PER GLI AVVII NUOVI, qualunque sia lo stato del lavoro; l'attesa del run in coda è su `runs[].waiting`", async () => {
     const t = await task();
     const [j] = await testDb.db.insert(aiJobs).values({ ticketId: t, status: "queued" }).returning();
     const since = new Date("2026-11-18T10:00:00.000Z");
     await testDb.db.update(projects).set({ queuePausedAt: since, queuePausedByUserId: users.adminId }).where(eq(projects.id, projectId));
     try {
-      expect((await work(t, developer)).blocked).toMatchObject({ reason: "queue_paused", byId: users.adminId, since: since.toISOString() });
-      expect(((await work(t, developer)).blocked as { byName?: string }).byName).toBeTruthy();
+      const paused = await work(t, developer);
+      expect(paused.blocked).toMatchObject({ reason: "queue_paused", byId: users.adminId, since: since.toISOString() });
+      expect((paused.blocked as { byName?: string }).byName).toBeTruthy();
+      expect(paused.runs.find((r) => r.id === j!.id)!.waiting).toMatchObject({ reason: "queue_paused", byId: users.adminId });
+      // Un job in corso non aspetta; gli avvii nuovi restano bloccati dalla pausa.
       await testDb.db.update(aiJobs).set({ status: "fixing" }).where(eq(aiJobs.id, j!.id));
-      expect((await work(t, developer)).blocked).toBeNull();
-      await testDb.db.update(aiJobs).set({ status: "queued" }).where(eq(aiJobs.id, j!.id));
+      const running = await work(t, developer);
+      expect(running.runs.find((r) => r.id === j!.id)!.waiting).toBeNull();
+      expect(running.blocked).toMatchObject({ reason: "queue_paused" });
+      // Senza nessun lavoro, lo stesso.
+      expect((await work(await task(), developer)).blocked).toMatchObject({ reason: "queue_paused" });
     } finally {
       await testDb.db.update(projects).set({ queuePausedAt: null, queuePausedByUserId: null }).where(eq(projects.id, projectId));
     }
     expect((await work(t, developer)).blocked).toBeNull();
+  });
+
+  it("rimandi, lotto 4, §7.3: `usage` della task per modello, dal costo più alto e i senza costo in fondo; anche a chi non vede i run", async () => {
+    // Chiesta dal Contributor: la vede (è sua), ma senza `repos.view` non ne vede i run.
+    const t = await task(contributor.id);
+    const [a] = await testDb.db.insert(aiJobs).values({ ticketId: t, status: "failed" }).returning();
+    const [b] = await testDb.db.insert(aiJobs).values({ ticketId: t, status: "pr_opened" }).returning();
+    await testDb.db.insert(agentRuns).values([
+      { jobId: a!.id, phase: "triage", operation: "triage", model: "haiku", inputTokens: 10, outputTokens: 5, cacheReadTokens: 1, costUsd: "0.01" },
+      { jobId: b!.id, phase: "fix", operation: "fix_execute", model: "opus", inputTokens: 100, outputTokens: 50, cacheReadTokens: 10, costUsd: "2.5" },
+      { jobId: b!.id, phase: "fix", operation: "fix_execute", model: "opus", inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, costUsd: "0.5" },
+      { jobId: b!.id, phase: "review", operation: "pr_review", model: "vecchio-cli", inputTokens: 3, outputTokens: 3, cacheReadTokens: 0, costUsd: null },
+    ] as never);
+    const expected = [
+      { model: "opus", inputTokens: 101, outputTokens: 51, cacheReadTokens: 10, costUsd: 3 },
+      { model: "haiku", inputTokens: 10, outputTokens: 5, cacheReadTokens: 1, costUsd: 0.01 },
+      { model: "vecchio-cli", inputTokens: 3, outputTokens: 3, cacheReadTokens: 0, costUsd: null },
+    ];
+    expect((await work(t, developer)).usage).toEqual(expected);
+    // Il Contributor non vede i run (senza `repos.view`), i consumi sì.
+    const forContributor = await work(t, contributor);
+    expect(forContributor.runs).toEqual([]);
+    expect(forContributor.usage).toEqual(expected);
   });
 
   it("area 9, F4: la vista del progetto dice la pausa (queuePause), nell'elenco e nel dettaglio; senza pausa null", async () => {
