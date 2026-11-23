@@ -249,6 +249,19 @@ export async function projectHasModule(db: Pick<Db, "select">, projectId: string
   return row?.on === true;
 }
 
+/**
+ * Chi ha questi permessi LEGGE i Docs del progetto: `docs.view` E il modulo
+ * `docs` acceso. LA regola per chi decide fuori da `config.access` (Slack, le
+ * card dell'inbox, il dal vivo, gli elenchi derivati): revisione del lotto 1.
+ */
+export async function readsDocs(
+  db: Pick<Db, "select">,
+  projectId: string,
+  permissions: ReadonlySet<ProjectPermission> | null | undefined,
+): Promise<boolean> {
+  return (permissions?.has("docs.view") ?? false) && (await projectHasModule(db, projectId, "docs"));
+}
+
 async function allOpenProjects(db: Pick<Db, "select">): Promise<AllOpenProjects> {
   const rows = await db.select({ id: projects.id }).from(projects).where(isNotNull(projects.archivedAt));
   return { all: true, archived: rows.map((r) => r.id) };
