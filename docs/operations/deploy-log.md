@@ -6162,3 +6162,17 @@ deploy o di un rollback che la tocca.
   colonna). **Rollback**: sicuro nell'ordine inverso; un server e un worker
   di prima ignorano la colonna (le scartate tornano a leggersi `stopped` e a
   contare nel tetto), che resta.
+- **«Rimandi, lotto 4: la card di chi decide una proposta passata»** *(23 nov
+  2026)*: branch `feat/rimandi-server` (A6, §2, D-2.0 del maintainer).
+  Nessuna migrazione, nessuna env, **nessun `notification_kind` nuovo**: al
+  «Passa al progetto» di una proposta CONDIVISA il server pubblica
+  `google.proposal_handed` (kind di prima) ai decisori, nella stessa
+  transazione. Il kind entra in `MANDATORY_KINDS`: push e Slack ignorano le
+  preferenze, anche per le passate di prima. Ordine: **server**, poi
+  **worker** (la mappa azione → opzione si sposta in `@stubwise/notifications`,
+  stesso risultato). **Rollback**: sicuro. Le card esistono già come kind;
+  un server di prima le instrada sull'esecutore delle passate di prima, che
+  su queste risponde `proposal_stale` senza eseguire niente
+  (`sourceOptionIndices` vuoto apposta, coperto da un test): restano
+  decidibili dalla Posta. Le card aperte di questo tipo prima della discesa:
+  `select count(*) from notifications n join email_proposals p on p.id::text = n.event->>'proposalId' where n.kind = 'google.proposal_handed' and n.status = 'open' and p.audience in ('mail_recipients','meeting_invitees');`

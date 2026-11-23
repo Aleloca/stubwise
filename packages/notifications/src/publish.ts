@@ -57,6 +57,14 @@ export interface PublishOpts {
   mandatoryOnly?: boolean;
   /** Area 10, F5: chi non riceve MAI questo avviso del catalogo (chi ha agito). */
   exclude?: string[];
+  /**
+   * Rimandi, lotto 4 (§2): RESTRINGE i destinatari dell'audience a questi
+   * (mai li allarga: chi non è già fra i destinatari resta fuori). Per una
+   * regola di consegna che il produttore conosce meglio dell'audience, come i
+   * decisori di una proposta condivisa passata (il permesso di OGNI azione,
+   * non di almeno una).
+   */
+  onlyUserIds?: readonly string[];
   /** Progetto dell'evento: instrada verso chi lo segue. */
   projectId?: string;
   /**
@@ -104,11 +112,15 @@ export interface PublishOpts {
  * I kind OBBLIGATORI: le loro consegne push e DM Slack ignorano le preferenze
  * dell'utente (`notifyPush`, `notifySlackDm`). Restano necessari i requisiti
  * del canale — un'identità Slack, un device attivo — perché senza quelli non
- * c'è dove consegnare. Oggi il solo avviso di sicurezza: chi ha spento tutto
- * deve comunque sapere che qualcuno ha azzerato il suo secondo fattore.
+ * c'è dove consegnare. L'avviso di sicurezza (chi ha spento tutto deve
+ * comunque sapere che qualcuno ha azzerato il suo secondo fattore) e la
+ * proposta passata al progetto.
  */
 export const MANDATORY_KINDS: ReadonlySet<NotificationEvent["kind"]> = new Set<NotificationEvent["kind"]>([
   "security.alert",
+  // Rimandi, lotto 4 (§2, D-2.0 del maintainer, come il prototipo): una
+  // proposta passata va decisa da chi la riceve, che altrimenti non lo sa.
+  "google.proposal_handed",
 ]);
 
 /**
@@ -183,8 +195,9 @@ export async function publishNotification(
       // `monitor.*` senza progetto) resta sul routing di oggi (S-4).
       const alertType = projectId !== null && isLiveAlertType(event.kind) ? alertTypeOf(event.kind) : undefined;
       const catalog = alertType && projectId !== null ? await resolveCatalogRecipients(inner, alertType, projectId, opts) : null;
+      const only = opts.onlyUserIds ? new Set(opts.onlyUserIds) : null;
       const recipients = (catalog ? catalog.app : recipientsFor(event, await resolveRoutingContext(inner, event, opts, projectId))).filter(
-        (id) => !agentIds.has(id),
+        (id) => !agentIds.has(id) && (only === null || only.has(id)),
       );
 
       // Area 9, F3 (D-10 = b, E-2 = a): una consegna PER WEBHOOK acceso che ha

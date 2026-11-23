@@ -327,6 +327,13 @@
   risposta è sempre e comunque "mai". Chi tocca `shouldSendWebhook` o
   `publishNotification` non reintroduca un ramo che, per una audience
   `mailbox_owner`, arrivi a scrivere una riga `channel: "webhook"`.
+  **Non è un'eccezione** la card dei decisori di una proposta condivisa
+  PASSATA (rimandi, lotto 4, §2, 23 nov 2026): `google.proposal_handed` va
+  anche ai full admin (membri impliciti del progetto) col permesso di ogni
+  azione, perché la proposta passata è del PROGETTO, non della casella. Non
+  usa `mailbox_owner` (audience `project_deciders`, ristretta da
+  `onlyUserIds`) e non porta niente della casella: né mittente, né oggetto,
+  né chi l'ha passata nel jsonb (`shared: true`).
 - **Confermare una proposta chiede il permesso nel progetto; chi non ce l'ha
   la PASSA, e la card passata è una card NUOVA (fase permessi, 22 ott
   2026).** La classificazione considera tutti i progetti, quindi il

@@ -2158,6 +2158,9 @@ describe("google.proposal — contorno della proposta dalla posta", () => {
       // la proposta non è stata passata.
       blockedIndices: [],
       handed: false,
+      // Lotto 4 (§2): solo sulla card di chi decide una condivisa passata.
+      handedByUser: null,
+      proposalDecided: false,
     });
     // Del payload delle azioni esce SOLO il tipo: progetto e titolo restano
     // dentro, dove il server li rilegge quando l'utente conferma.

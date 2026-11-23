@@ -860,3 +860,82 @@ describe("la posta senza gli sconosciuti: chi compare nella proposta", () => {
     expect(view.decidedBy).toEqual({ userId: outsider.id, name: "Dario" });
   });
 });
+
+describe("rimandi, lotto 4, §2: la card di chi decide una proposta condivisa passata", () => {
+  const post = (headers: { cookie: string }, url: string, payload: unknown = {}) => app.inject({ method: "POST", url, headers, payload: payload as never });
+  const handedCards = async (userId: string) =>
+    (await db.select().from(notifications).where((await import("drizzle-orm")).eq(notifications.userId, userId))).filter((n) => n.kind === "google.proposal_handed");
+
+  it("al passaggio: una card a chi può confermarla (membro, non destinatario), né a chi passa né ai destinatari né a chi non ha i permessi; senza origine né nome", async () => {
+    const { ada, bruno, carla, proposal } = await seed();
+    const gino = await person("viewer", "Gino");
+    expect((await post(bruno.headers, `/api/me/mail/proposals/${proposal.id}/hand`)).json()).toMatchObject({ status: "handed" });
+    const [card] = await handedCards(carla.id);
+    expect(card).toMatchObject({ status: "open", projectId });
+    expect(card!.event).toMatchObject({ kind: "google.proposal_handed", proposalId: proposal.id, shared: true, from: "", subject: "", handedBy: "" });
+    expect((card!.event as { actions: { type: string }[] }).actions.map((a) => a.type)).toEqual(["create_task", "comment_ticket", "ignore"]);
+    for (const who of [ada.id, bruno.id, gino.id]) expect(await handedCards(who)).toEqual([]);
+    // L'inbox di Carla: la card porta la sua proposta, e il testo non nomina mittente, oggetto né chi l'ha passata.
+    const inbox = (await get(carla.headers, "/api/inbox")).json() as { items: { id: string; text: string; google?: { sourceProposalId: string | null } }[] };
+    const item = inbox.items.find((i) => i.id === card!.id)!;
+    expect(item.google?.sourceProposalId).toBe(proposal.id);
+    for (const leak of ["Cliente", "cliente@x.it", "Bruno"]) expect(item.text).not.toContain(leak);
+    // Chi l'ha passata e se è già decisa: a lettura (Bruno lo conosce, è nel progetto).
+    expect(item.google).toMatchObject({ handedByUser: { id: bruno.id, name: "Bruno" }, proposalDecided: false });
+  });
+
+  it("chi ha il permesso di ALCUNE azioni ma non di tutte non riceve la card (la regola è «ogni azione», non «almeno una»)", async () => {
+    const { bruno, carla, proposal, ticket } = await seed();
+    const { eq } = await import("drizzle-orm");
+    const classification = proposal.classification as { actions: unknown[] };
+    await db
+      .update(emailProposals)
+      .set({ classification: { ...classification, actions: [...classification.actions, { type: "update_ticket", args: { ticketId: ticket.id, patch: { priority: "high" } } }] } as never })
+      .where(eq(emailProposals.id, proposal.id));
+    const ugo = await person("contributor", "Ugo"); // tickets.create e tickets.comment, non tickets.edit
+    expect((await post(bruno.headers, `/api/me/mail/proposals/${proposal.id}/hand`)).json()).toMatchObject({ status: "handed" });
+    expect(await handedCards(ugo.id)).toEqual([]);
+    expect(await handedCards(carla.id)).toHaveLength(1);
+  });
+
+  it("chi l'ha passata, se chi decide non lo conosce più, è un segnaposto; una proposta decisa da un altro dice `proposalDecided`", async () => {
+    const { bruno, carla, proposal } = await seed();
+    await post(bruno.headers, `/api/me/mail/proposals/${proposal.id}/hand`);
+    const { and, eq } = await import("drizzle-orm");
+    // Bruno esce dal progetto senza traccia nel registro: per Carla è uno sconosciuto.
+    const { projectMembers } = await import("@stubwise/db");
+    await db.delete(projectMembers).where(and(eq(projectMembers.userId, bruno.id), eq(projectMembers.projectId, projectId)));
+    const read = async () => ((await get(carla.headers, "/api/inbox")).json() as { items: { kind: string; google?: { handedByUser: unknown; proposalDecided: boolean } }[] }).items.find((i) => i.kind === "google.proposal_handed")!;
+    expect((await read()).google).toMatchObject({ handedByUser: { id: "hidden-1", name: null }, proposalDecided: false });
+    await db.update(emailProposals).set({ status: "actioned" }).where(eq(emailProposals.id, proposal.id));
+    expect((await read()).google?.proposalDecided).toBe(true);
+  });
+
+  it("dalla card si decide (conferma con gli indici delle azioni), e la decisione chiude le card di tutti: dei destinatari e dei decisori", async () => {
+    const { ada, bruno, carla, proposal } = await seed();
+    await post(bruno.headers, `/api/me/mail/proposals/${proposal.id}/hand`);
+    const [card] = await handedCards(carla.id);
+    const res = await app.inject({ method: "POST", url: `/api/inbox/${card!.id}/actions/answer`, headers: carla.headers, payload: { optionIndices: [1] } });
+    expect(res.statusCode, res.body).toBe(200);
+    const { eq } = await import("drizzle-orm");
+    const [after] = await db.select().from(emailProposals).where(eq(emailProposals.id, proposal.id));
+    expect(after!.status).toBe("actioned");
+    const open = (await db.select().from(notifications).where(eq(notifications.projectId, projectId))).filter((n) => n.status === "open" && (n.event as { proposalId?: string }).proposalId === proposal.id);
+    expect(open).toEqual([]);
+    // Una seconda decisione da un'altra card è `already_handled`.
+    const adaCard = (await db.select().from(notifications).where(eq(notifications.userId, ada.id))).find((n) => n.kind === "google.proposal")!;
+    expect((await app.inject({ method: "POST", url: `/api/inbox/${adaCard.id}/actions/answer`, headers: ada.headers, payload: { optionIndices: [0] } })).json()).toMatchObject({ code: "already_handled" });
+  });
+
+  it("rollback: l'esecutore di PRIMA (`answerGoogleProposal`, quello di un server vecchio) su questa card risponde un errore e non esegue niente", async () => {
+    const { bruno, carla, proposal } = await seed();
+    await post(bruno.headers, `/api/me/mail/proposals/${proposal.id}/hand`);
+    const [card] = await handedCards(carla.id);
+    const { answerGoogleProposal } = await import("../services/google-proposal.js");
+    const out = await answerGoogleProposal(db, { notificationId: card!.id, actor: { id: carla.id } as never, optionIndex: 1 });
+    expect(out.ok).toBe(false);
+    const { eq } = await import("drizzle-orm");
+    const [after] = await db.select().from(emailProposals).where(eq(emailProposals.id, proposal.id));
+    expect(after!.status).toBe("proposed");
+  });
+});

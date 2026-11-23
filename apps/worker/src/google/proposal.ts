@@ -7,7 +7,7 @@ import {
   type EmailProposalRow,
 } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
-import { publishNotification, type GoogleProposalAction, type GoogleProposalEvent } from "@stubwise/notifications";
+import { publishNotification, sharedProposalOptions, type GoogleProposalAction, type GoogleProposalEvent } from "@stubwise/notifications";
 import { ticketPrioritySchema, ticketStatusSchema } from "@stubwise/shared";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -432,7 +432,6 @@ export function buildSharedProposalEvent(args: {
   const { lang } = args;
   const projectName = args.projectNames.get(args.projectId);
   if (!projectName) return null;
-  const str = (value: unknown) => (typeof value === "string" && value.trim() !== "" ? value : undefined);
   const options: OptionWithAction[] = [];
   if (args.choose) {
     for (const id of args.choose) {
@@ -440,44 +439,8 @@ export function buildSharedProposalEvent(args: {
       if (name) options.push({ label: name, action: { type: "choose_project", projectId: id } });
     }
   } else {
-    for (const raw of args.actions) {
-      const a = raw.args;
-      const label = t(lang, `mailProposal.action.${raw.type}`, { title: String(a.title ?? ""), name: String(a.name ?? ""), ticket: "" });
-      let action: GoogleProposalAction | null = null;
-      if (raw.type === "create_task" && str(a.title)) {
-        action = {
-          type: "create_task",
-          projectId: args.projectId,
-          title: String(a.title),
-          ...(str(a.description) ? { body: String(a.description) } : {}),
-          ...(str(a.assigneeId) ? { assigneeId: String(a.assigneeId) } : {}),
-          ...(str(a.dueDate) ? { dueDate: String(a.dueDate) } : {}),
-        };
-      } else if (raw.type === "create_backlog_item" && str(a.title)) {
-        action = { type: "create_backlog_item", projectId: args.projectId, title: String(a.title), ...(str(a.description) ? { body: String(a.description) } : {}) };
-      } else if (raw.type === "create_milestone" && str(a.name)) {
-        action = { type: "create_milestone", projectId: args.projectId, name: String(a.name), ...(str(a.dueDate) ? { dueDate: String(a.dueDate) } : {}) };
-      } else if (raw.type === "comment_ticket" && str(a.ticketId) && str(a.body)) {
-        action = { type: "comment_ticket", ticketId: String(a.ticketId), body: String(a.body) };
-      } else if (raw.type === "update_ticket" && str(a.ticketId)) {
-        const patch = (a.patch ?? {}) as Record<string, unknown>;
-        action = {
-          type: "update_ticket",
-          ticketId: String(a.ticketId),
-          ...(str(patch.status) ? { status: patch.status as "open" } : {}),
-          ...(str(patch.priority) ? { priority: patch.priority as "low" } : {}),
-        };
-      } else if (raw.type === "record_decision" && str(a.title) && str(a.decision)) {
-        action = {
-          type: "record_decision",
-          projectId: args.projectId,
-          title: String(a.title),
-          decision: String(a.decision),
-          ...(str(a.ticketId) ? { ticketId: String(a.ticketId) } : {}),
-        };
-      }
-      if (action) options.push({ label, action });
-    }
+    // La mappa azione → opzione, la stessa della card di chi decide una passata (lotto 4, §2).
+    options.push(...sharedProposalOptions(lang, args.projectId, args.actions));
   }
   if (options.length === 0) return null;
   const from = args.message.fromName ? `${args.message.fromName} <${args.message.fromAddress}>` : args.message.fromAddress;
