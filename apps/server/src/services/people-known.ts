@@ -1,7 +1,6 @@
 import { changeLog, chatChannelMembers, chatChannels, chatMessages, projectMembers, type Db } from "@stubwise/db";
 import { userIdsWithPermission } from "@stubwise/notifications";
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
-import { isAllProjects, visibleProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { channelReadableSql } from "../chat/access.js";
 
@@ -13,8 +12,9 @@ import { channelReadableSql } from "../chat/access.js";
  *
  * - un full admin conosce tutti;
  * - sé stesso, i full admin;
- * - chi è, o è STATO, membro di un progetto che chi guarda vede (le attive e
- *   le disattivate; gli ex membri dal registro, `member.removed`);
+ * - chi è, o è STATO, membro di un progetto che chi guarda vede, archiviati
+ *   compresi (le attive e le disattivate; gli ex membri dal registro,
+ *   `member.removed`);
  * - i MEMBRI e gli AUTORI dei canali della Chat che chi guarda legge, anche
  *   senza un progetto in comune (decisione del maintainer del 23 nov 2026:
  *   «chi scrive in un canale che vedo è conosciuto»).
@@ -25,8 +25,9 @@ import { channelReadableSql } from "../chat/access.js";
  */
 export async function peopleKnownTo(db: Db, viewer: Pick<SessionUser, "id" | "instancePermissions">): Promise<"all" | ReadonlySet<string>> {
   if (viewer.instancePermissions.has("instance.full_admin")) return "all";
-  const visible = await visibleProjectIds(db, viewer);
-  if (isAllProjects(visible)) return "all";
+  // I progetti che chi guarda legge, ARCHIVIATI compresi (decisione di 46, 23
+  // nov 2026: un archiviato si legge ancora, e chi c'era resta conosciuto).
+  const visible = (await db.select({ id: projectMembers.projectId }).from(projectMembers).where(eq(projectMembers.userId, viewer.id))).map((r) => r.id);
   const known = new Set<string>([viewer.id, ...(await userIdsWithPermission(db, null, null))]);
   if (visible.length > 0) {
     for (const r of await db.selectDistinct({ id: projectMembers.userId }).from(projectMembers).where(inArray(projectMembers.projectId, visible))) known.add(r.id);

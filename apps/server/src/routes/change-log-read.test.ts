@@ -226,4 +226,17 @@ describe("registro, A11 r.1414: chi non si conosce non ha né id né nome", () =
     expect(byLabel("Da ex membro").actor.id).toBe(former.id);
     expect(byLabel("Da chi scrive").actor.id).toBe(writer.id);
   });
+
+  it("un progetto ARCHIVIATO di chi guarda conta come visibile: chi ne è membro resta conosciuto", async () => {
+    const { projectId: archivedP } = await seedRepository(db);
+    const reader = await person("reader3", ["changelog.view"]);
+    await addMember(app, archivedP, reader.id, "viewer");
+    const mate = await person("mate", ["roles.manage"]);
+    await addMember(app, archivedP, mate.id, "developer");
+    const { projects } = await import("@stubwise/db");
+    await db.update(projects).set({ archivedAt: new Date() }).where(eq(projects.id, archivedP));
+    await db.transaction((tx) => recordChange(tx, { type: "role.created", actor: mate, projectId: null, data: { object: { type: "role", id: randomUUID(), label: "Da compagno di un archiviato" } } }));
+    const entries = (await read(reader.cookie, "?type=role.created")).entries;
+    expect(entries.find((e) => JSON.stringify(e.data).includes("Da compagno di un archiviato"))!.actor.id).toBe(mate.id);
+  });
 });
