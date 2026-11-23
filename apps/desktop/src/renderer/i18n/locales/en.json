@@ -9056,6 +9056,8 @@
       "corrected": "Claude pushed {{sha}} · analysing again",
       "correctedNoSha": "Claude pushed a fix · analysing again",
       "discarded": "{{name}} pushed new commits first · analysing the new head",
+      "discardedAuthor": "The author pushed new commits first · analysing the new head",
+      "discardedBranch": "Someone pushed to the branch first · analysing the new head",
       "capped": "Claude stopped after {{cap}} corrections",
       "notAnalyzed": "Not analyzed: automatic review is off",
       "analysisOff": "Analysis is off for {{repo}}",
@@ -9295,6 +9297,8 @@
         "running": "in progress",
         "pushed": "pushed",
         "discarded": "discarded: {{name}} pushed first · doesn't count",
+        "discardedAuthor": "discarded: the author pushed first · doesn't count",
+        "discardedBranch": "discarded: someone pushed to the branch first · doesn't count",
         "stopped": "stopped before pushing · doesn't count"
       },
       "automatic": "automatic",

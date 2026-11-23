@@ -126,6 +126,37 @@ describe("le PR aperte della build app (area 8, F1)", () => {
     });
   });
 
+  // Lotto 4, §1 (72, fcd725098): una correzione finita per push rifiutato
+  // arriva `discarded` con `why` null e senza commit, ed entra in `prState`.
+  it("una correzione scartata: lo stato, nessun motivo, e lo stato della PR dal server", async () => {
+    const { api } = fakeApi({
+      pulls: async () => ({
+        items: [
+          pull({
+            origin: "external",
+            prState: { state: "discarded", autoRound: 0, canAutoCorrect: true },
+            correctionHistory: [
+              {
+                id: "c1",
+                trigger: "auto",
+                byId: null,
+                state: "discarded",
+                commitSha: null,
+                why: null,
+                at: "2026-11-13T09:10:00.000Z",
+              },
+            ],
+          }),
+        ],
+      }),
+    });
+    const [pr] = await createRealPrs(api, codeOf, release).listOpenPrs("p1");
+    expect(pr!.corrections).toEqual([
+      expect.objectContaining({ id: "c1", state: "discarded", why: "", commitSha: null }),
+    ]);
+    expect(pr!.prState).toMatchObject({ state: "discarded" });
+  });
+
   it("la storia delle correzioni dal server (dalla più vecchia), «on staging» e owner/repo", async () => {
     const { api } = fakeApi({
       pulls: async () => ({

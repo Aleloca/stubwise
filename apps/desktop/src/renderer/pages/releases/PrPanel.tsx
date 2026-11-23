@@ -11,6 +11,7 @@ import { CloseIcon, Section, ghostButton } from "../task/parts";
 import {
   ago,
   clock,
+  discardedCorrectionText,
   githubLink,
   platformOf,
   prProse,
@@ -154,7 +155,9 @@ function Corrections({ pr }: { pr: OpenPrView }) {
                         sha: shortSha(c.commitSha),
                         time: clock(c.at, i18n.language),
                       })
-                    : t(`releases.panel.correction.${c.state}`, { name: pr.authorName })}
+                    : c.state === "discarded"
+                      ? discardedCorrectionText(pr, t)
+                      : t(`releases.panel.correction.${c.state}`, { name: pr.authorName })}
                   {" · "}
                   {how}
                 </p>

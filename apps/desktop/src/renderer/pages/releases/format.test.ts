@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import i18n from "../../i18n";
 import type { OpenPrView, ReleaseView } from "../../data/releases";
 import {
+  discardedCorrectionText,
   githubLink,
   notReadyReason,
   nowSentence,
@@ -93,6 +94,44 @@ describe("i link della PR dalla piattaforma vera (review F1, I1)", () => {
     expect(githubLink(gh, "commit", "")).toBeNull();
     expect(githubLink({ repo: "audin/app", number: 7 }, "blob", "abc1234", "src/a.ts")).toBe(
       "https://github.com/audin/app/blob/abc1234/src/a.ts",
+    );
+  });
+});
+
+// Lotto 4, §1 (D-1.1 = a): la correzione «scartata» (l'autore ha spinto nel
+// frattempo) nella build app, dove il server non sa il nome dell'autore:
+// `authorName` è "" sulle PR dei colleghi e "Claude" su quelle di Stubwise.
+// La frase non inventa un nome e non dice «Claude pushed first».
+describe("la correzione scartata senza il nome dell'autore", () => {
+  const t = i18n.getFixedT("en");
+  const pr = (over: Record<string, unknown>) =>
+    ({
+      origin: "colleague",
+      authorName: "Ivo Rossi",
+      prState: { state: "discarded", autoRound: 1, cap: 3 },
+      corrections: [{ id: "c1", state: "discarded", why: "", commitSha: null }],
+      ...over,
+    }) as unknown as OpenPrView;
+
+  it("col nome (il prototipo): la frase con il nome", () => {
+    expect(prProse(pr({}), t)).toBe("Ivo Rossi pushed new commits first · analysing the new head");
+    expect(discardedCorrectionText(pr({}), t)).toBe("discarded: Ivo Rossi pushed first · doesn't count");
+  });
+
+  it("senza nome su una PR di un collega: «The author»", () => {
+    expect(prProse(pr({ authorName: "" }), t)).toBe(
+      "The author pushed new commits first · analysing the new head",
+    );
+    expect(discardedCorrectionText(pr({ authorName: "" }), t)).toBe(
+      "discarded: the author pushed first · doesn't count",
+    );
+  });
+
+  it("su una PR di Stubwise: «Someone pushed to the branch», mai «Claude»", () => {
+    const own = pr({ origin: "stubwise", authorName: "Claude" });
+    expect(prProse(own, t)).toBe("Someone pushed to the branch first · analysing the new head");
+    expect(discardedCorrectionText(own, t)).toBe(
+      "discarded: someone pushed to the branch first · doesn't count",
     );
   });
 });

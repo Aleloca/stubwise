@@ -91,6 +91,23 @@ export function duration(run: RunView, t: TFunction): string {
     : t("releases.run.durationSeconds", { s });
 }
 
+/**
+ * Lotto 4, §1 (D-1.1 = a): chi ha spinto prima di una correzione scartata.
+ * Nella build app il server non sa il nome dell'autore (`authorName` "" sui
+ * colleghi, "Claude" sulle PR di Stubwise): la frase non inventa un nome e non
+ * dice «Claude pushed first». Nel prototipo il nome c'è.
+ */
+function discardedText(pr: Pick<OpenPrView, "origin" | "authorName">, t: TFunction, key: string): string {
+  if (pr.origin === "stubwise") return t(`${key}Branch`);
+  if (!pr.authorName) return t(`${key}Author`);
+  return t(key, { name: pr.authorName });
+}
+
+/** La riga «discarded» di una correzione nel pannello della PR. */
+export function discardedCorrectionText(pr: Pick<OpenPrView, "origin" | "authorName">, t: TFunction): string {
+  return discardedText(pr, t, "releases.panel.correction.discarded");
+}
+
 /** La parola di stato di una PR, in elenco e nei nomi accessibili. */
 export function prStateWord(pr: OpenPrView, t: TFunction): string {
   const kind = pr.prState.state;
@@ -143,7 +160,7 @@ export function prProse(pr: OpenPrView, t: TFunction): string | null {
         : t("releases.prLine.correctedNoSha");
     }
     case "discarded":
-      return t("releases.prLine.discarded", { name: pr.authorName });
+      return discardedText(pr, t, "releases.prLine.discarded");
     case "capped":
       return t("releases.prLine.capped", { cap });
     case "analysis_only":
