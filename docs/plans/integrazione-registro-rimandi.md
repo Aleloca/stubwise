@@ -1076,7 +1076,7 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   rimandati. Branch `feat/area8-site-api`; l'Important (la catena delle
   conversazioni senza token) e quattro minori sono corretti nel giro della
   review.
-  - **Costo dell'elenco**: `listSiteRequests`
+  - ~~**Costo dell'elenco**: `listSiteRequests`
     (`apps/server/src/services/site-requests.ts`) legge TUTTE le conversazioni
     verificate del `sub` e per ognuna calcola l'esito (fusioni, task,
     rilasci); il tetto di 50 viene dopo. Un cliente col token può aprire
@@ -1088,7 +1088,14 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     verifica). Header inventati aprono bucket nuovi, e ognuno costa una
     decifratura e un HMAC prima del 401. Lo stesso vale già oggi per
     `X-Stubwise-Key` inventate sul limitatore per chiave. La correzione vera è
-    un limitatore DOPO `identify`, per `sub` verificato.
+    un limitatore DOPO `identify`, per `sub` verificato.~~ *Chiuse il 23 nov
+    2026 (72)*, in `routes/widget.ts`: al più
+    `WIDGET_VERIFIED_CONVERSATIONS_PER_DAY` (50) conversazioni verificate per
+    `sub` in 24 ore (429 `too_many_conversations`); le letture del cliente
+    hanno un limitatore per `sub` verificato in preHandler, dopo `identify`
+    (`createRateLimit`: il plugin ne fa girare uno per richiesta), e il bucket
+    per chiave della rotta (onRequest, dieci volte quello di un cliente) conta
+    gli header inventati prima della decifratura.
 - «Clienti in attesa» *(O, 72, review finale, 15 nov 2026)*, i minori
   rimandati. Branch `feat/area8-waiting`; gli Important sono corretti in
   8c51606b8.

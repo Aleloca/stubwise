@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import fastifyCors from "@fastify/cors";
 import {
   normalizeWidgetOrigin,
@@ -32,6 +31,9 @@ import { apiError } from "../errors.js";
 import { retrieveChunksForProject } from "./docs-retrieval.js";
 import { buildCitations, CHAT_RETRIEVAL_K } from "./docs-rag.js";
 import { buildWidgetSystemPrompt, streamWidgetChatResponse } from "./widget-chat.js";
+
+/** Registro, r.1061: le conversazioni verificate che un cliente (`sub`) apre in 24 ore. */
+export const WIDGET_VERIFIED_CONVERSATIONS_PER_DAY = 50;
 
 export interface WidgetRoutesOptions {
   /** Limite di richieste per chiave del progetto (default 300/min). */
@@ -239,13 +241,34 @@ export async function widgetRoutes(
       (request.headers["x-stubwise-key"] as string | undefined) ?? request.ip,
   };
 
-  // Area 8, «L'API per i siti»: le letture del cliente hanno anche un bucket
-  // per chiave E token (cioè per cliente), così un cliente insistente non
-  // consuma il budget del widget intero.
-  const rateLimitPerCustomer = {
-    ...opts.rateLimit,
-    keyGenerator: (request: FastifyRequest) =>
-      `${(request.headers["x-stubwise-key"] as string | undefined) ?? request.ip}:${createHash("sha256").update(String(request.headers.authorization ?? "")).digest("hex").slice(0, 32)}`,
+  // Area 8, «L'API per i siti» (registro, r.1061): le letture del cliente hanno
+  // un limitatore per `sub` VERIFICATO, DOPO `identify` (preHandler): prima il
+  // bucket era la chiave più l'hash dell'header grezzo, e ogni header inventato
+  // apriva un bucket nuovo. Un header inventato lo conta il bucket per chiave
+  // della rotta (`config.rateLimit`, onRequest, uno store per rotta: non tocca
+  // il budget del widget), prima della decifratura. Montato a mano: lo store è
+  // in memoria e ogni `instance.rateLimit()` ha la sua LRU; con uno store Redis
+  // il prefisso di chiave dei limiter a mano sarebbe lo stesso per tutti (vedi
+  // `credentialsRateLimit` in auth.ts), per questo la chiave porta il suo.
+  // Il bucket per chiave delle letture del cliente: lo condividono TUTTI i
+  // clienti di un sito, quindi dieci volte quello di uno solo.
+  const siteReadsByKey = {
+    ...rateLimit,
+    max: opts.rateLimit.max * 10,
+  };
+  // `createRateLimit` e non `rateLimit()`: il plugin fa girare UN limitatore per
+  // richiesta (`rateLimitRan`), e quello della rotta, in onRequest, è già passato.
+  const perCustomerCheck = instance.createRateLimit({
+    max: opts.rateLimit.max,
+    timeWindow: opts.rateLimit.timeWindow,
+    keyGenerator: (request: FastifyRequest) => `widget-customer:${request.widget!.id}:${request.widgetIdentity!.sub}`,
+  });
+  const perCustomerLimit = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    const verdict = await perCustomerCheck(request);
+    if (!verdict.isAllowed && verdict.isExceeded) {
+      reply.header("retry-after", String(verdict.ttlInSeconds));
+      await apiError(reply, 429, "too_many_requests", "Too many requests for this customer");
+    }
   };
 
   const configResponseSchema = z.union([
@@ -336,6 +359,7 @@ export async function widgetRoutes(
           401: errorSchema,
           403: errorSchema,
           404: errorSchema,
+          429: errorSchema,
         },
       },
     },
@@ -348,6 +372,25 @@ export async function widgetRoutes(
       const customer = customerOf(request, user.id);
       if (customer === null) return apiError(reply, 401, "identity_mismatch", "The declared customer is not the signed one");
       const identity = request.widgetIdentity;
+      // Registro, r.1061: un tetto alle conversazioni VERIFICATE aperte da un
+      // `sub` in 24 ore. Le legge l'API per i siti (`listSiteRequests`, una per
+      // una): senza tetto un cliente col token renderebbe ogni lettura cara.
+      if (identity) {
+        const [opened] = await app.db
+          .select({ n: count() })
+          .from(widgetConversations)
+          .where(
+            and(
+              eq(widgetConversations.widgetId, widget.id),
+              eq(widgetConversations.externalUserId, customer),
+              eq(widgetConversations.identityVerified, true),
+              gte(widgetConversations.createdAt, new Date(Date.now() - 24 * 60 * 60 * 1000)),
+            ),
+          );
+        if ((opened?.n ?? 0) >= WIDGET_VERIFIED_CONVERSATIONS_PER_DAY) {
+          return apiError(reply, 429, "too_many_conversations", "Too many conversations today");
+        }
+      }
       const [conversation] = await app.db
         .insert(widgetConversations)
         .values({
@@ -662,8 +705,9 @@ export async function widgetRoutes(
   app.get(
     "/:slug/me/requests",
     {
-      config: { rateLimit: rateLimitPerCustomer, access: { kind: "public" } },
+      config: { rateLimit: siteReadsByKey, access: { kind: "public" } },
       preValidation: [authenticateWidget, identify, requireIdentity],
+      preHandler: perCustomerLimit,
       schema: {
         params: z.object({ slug: z.string().min(1) }),
         response: { 200: siteRequestListSchema, 401: errorSchema, 403: errorSchema, 404: errorSchema },
@@ -685,8 +729,9 @@ export async function widgetRoutes(
   app.get(
     "/:slug/me/requests/:code",
     {
-      config: { rateLimit: rateLimitPerCustomer, access: { kind: "public" } },
+      config: { rateLimit: siteReadsByKey, access: { kind: "public" } },
       preValidation: [authenticateWidget, identify, requireIdentity],
+      preHandler: perCustomerLimit,
       schema: {
         params: z.object({ slug: z.string().min(1), code: z.string().min(1).max(40) }),
         response: { 200: siteRequestDetailSchema, 401: errorSchema, 403: errorSchema, 404: errorSchema },

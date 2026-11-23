@@ -1,5 +1,5 @@
 import { createHmac, randomUUID } from "node:crypto";
-import { backlogItems, comments, encrypt, projects, tickets, widgetConversations, widgetMessages, widgets, type Db } from "@stubwise/db";
+import { backlogItems, comments, decrypt, encrypt, projects, tickets, widgetConversations, widgetMessages, widgets, type Db } from "@stubwise/db";
 import { seedBacklogItem, seedRepository, seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { siteRequestDetailSchema, siteRequestListSchema } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
@@ -221,3 +221,72 @@ async function firstUserId(): Promise<string | undefined> {
   const [u] = await db.insert(users).values({ email: `t-${randomUUID()}@acme.com`, passwordHash: "x", role: "member" }).returning({ id: users.id });
   return u?.id;
 }
+
+async function widgetSecret(widgetId: string): Promise<string> {
+  const [w] = await db.select({ secret: widgets.identitySecretEncrypted }).from(widgets).where(eq(widgets.id, widgetId));
+  return decrypt(w!.secret!, KEY);
+}
+
+describe("registro, r.1061: i tetti per cliente verificato", () => {
+  let limited: FastifyInstance;
+  beforeAll(async () => {
+    limited = buildApp({ db, sessionSecret: "segreto-di-test-lungo-almeno-32-caratteri!!", encryptionKey: KEY.toString("base64"), ingestRateLimit: { max: 3, timeWindow: "1 minute" } });
+    await limited.ready();
+  });
+  afterAll(async () => {
+    await limited.close();
+  });
+
+  async function limitedSite() {
+    const { projectId } = await seedRepository(db);
+    const [p] = await db.select({ slug: projects.slug }).from(projects).where(eq(projects.id, projectId));
+    const secret = generateWidgetIdentitySecret();
+    const [w] = await db.insert(widgets).values({ projectId, name: "Sito", key: `k-${randomUUID()}`, enabled: true, identitySecretEncrypted: encrypt(secret, KEY) }).returning();
+    const now = Math.floor(Date.now() / 1000);
+    const token = (sub: string) => sign(secret, { sub, aud: w!.id, iat: now - 5, exp: now + 600 });
+    const read = (auth: string) => limited.inject({ method: "GET", url: `/widget/${p!.slug}/me/requests`, headers: { "x-stubwise-key": w!.key, authorization: auth } });
+    return { widget: w!, slug: p!.slug, token, read };
+  }
+
+  it("il limitatore delle letture è per `sub` verificato, dopo identify: anna oltre il tetto 429, bea sullo stesso sito no", async () => {
+    const s = await limitedSite();
+    for (let i = 0; i < 3; i++) expect((await s.read(`Bearer ${s.token("anna")}`)).statusCode).toBe(200);
+    expect((await s.read(`Bearer ${s.token("anna")}`)).statusCode).toBe(429);
+    // Un token nuovo di anna (un header diverso) non apre un bucket nuovo.
+    expect((await s.read(`Bearer ${s.token("anna")}x`)).statusCode).toBe(401);
+    const fresh = sign("altro", { sub: "anna" });
+    expect((await s.read(`Bearer ${fresh}`)).statusCode).toBe(401);
+    expect((await s.read(`Bearer ${s.token("bea")}`)).statusCode).toBe(200);
+  });
+
+  it("gli header inventati li conta il bucket per chiave della rotta (dieci volte quello di un cliente), prima della decifratura", async () => {
+    const s = await limitedSite();
+    for (let i = 0; i < 30; i++) expect((await s.read(`Bearer inventato-${i}`)).statusCode).toBe(401);
+    expect((await s.read(`Bearer inventato-31`)).statusCode).toBe(429);
+  });
+
+  it("al più WIDGET_VERIFIED_CONVERSATIONS_PER_DAY conversazioni verificate al giorno per `sub`; senza token il tetto non c'entra", async () => {
+    const s = await site();
+    const { WIDGET_VERIFIED_CONVERSATIONS_PER_DAY } = await import("./widget.js");
+    await db.insert(widgetConversations).values(
+      Array.from({ length: WIDGET_VERIFIED_CONVERSATIONS_PER_DAY }, () => ({ projectId: s.projectId, widgetId: s.widget.id, externalUserId: "anna", identityVerified: true })),
+    );
+    const [{ slug }] = (await db.select({ slug: projects.slug }).from(projects).where(eq(projects.id, s.projectId))) as [{ slug: string }];
+    const secret = await widgetSecret(s.widget.id);
+    const now = Math.floor(Date.now() / 1000);
+    const open = (sub: string, signed: boolean) =>
+      app.inject({
+        method: "POST",
+        url: `/widget/${slug}/conversations`,
+        headers: { "x-stubwise-key": s.widget.key, ...(signed ? { authorization: `Bearer ${sign(secret, { sub, aud: s.widget.id, iat: now - 5, exp: now + 600 })}` } : {}) },
+        payload: { user: { id: sub } },
+      });
+    const over = await open("anna", true);
+    expect([over.statusCode, (over.json() as { code: string }).code]).toEqual([429, "too_many_conversations"]);
+    expect((await open("bea", true)).statusCode).toBe(200);
+    expect((await open("anna", false)).statusCode).toBe(200);
+    // Le vecchie di ieri non contano.
+    await db.update(widgetConversations).set({ createdAt: new Date(Date.now() - 25 * 60 * 60 * 1000) }).where(eq(widgetConversations.widgetId, s.widget.id));
+    expect((await open("anna", true)).statusCode).toBe(200);
+  });
+});
