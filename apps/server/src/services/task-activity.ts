@@ -72,8 +72,9 @@ export async function taskActivity(
     const raw = payload[side];
     if (kind === "status_changed") return statusName(payload[side === "from" ? "fromStatusId" : "toStatusId"], raw);
     if (kind === "department_changed") return typeof raw === "string" ? (departmentName.get(raw) ?? raw) : null;
-    // Registro, A11 r.1414: un assegnatario che chi guarda non conosce non esce, né per nome né per id.
-    if (kind === "assignee_changed") return typeof raw === "string" && (!hidden || hidden.knows(raw)) ? (userName.get(raw) ?? raw) : null;
+    // Registro, A11 r.1414: un assegnatario che chi guarda non conosce (o eliminato) è il
+    // suo segnaposto, lo stesso della risposta (`hiddenFor`); null resta «senza assegnatario».
+    if (kind === "assignee_changed") return typeof raw === "string" ? (hidden && !hidden.knows(raw) ? hidden.person(raw) : (userName.get(raw) ?? raw)) : null;
     if (kind === "milestone_changed") return typeof raw === "string" ? (milestoneName.get(raw) ?? raw) : null;
     if (kind === "effort_changed") return typeof raw === "number" ? sizeFromEffort(raw) : null;
     return eventValue(raw);
@@ -117,7 +118,7 @@ export async function taskActivity(
       : [],
   ]);
   const userName = new Map(userRows.map((u) => [u.id, personName(u)]));
-  const hidden = viewer && assigneeIds.some((id) => id !== viewer.id) ? await hiddenFor(db, viewer) : null;
+  const hidden = viewer && assigneeIds.some((id) => id !== viewer.id) ? await hiddenFor(db, viewer, assigneeIds) : null;
   // «via Claude» (chat, fetta 3): derivato dalle colonne, UNA query per registro.
   const via = await loadViaClaude(db, [
     ...commentRows.map((c) => c.viaClaudeActionId),

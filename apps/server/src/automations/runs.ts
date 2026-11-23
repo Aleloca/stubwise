@@ -1,3 +1,4 @@
+import { hiddenFor } from "../services/people-known.js";
 import { queuePauseOf } from "../services/instance-status.js";
 import { automationRunInputs, automationRunLog, automationRuns, automations, automationVersions, googleAccounts, projects, type Db } from "@stubwise/db";
 import { approversFor, loadPlanWorld } from "@stubwise/notifications";
@@ -248,6 +249,16 @@ export async function runRowOf(db: Db, viewer: Viewer, r: RunRecord, a: Automati
       }
     }
     if (run.pending && opts.decider !== true) run.pending.preview = {};
+  }
+  // Registro, A11 r.1414 (revisione del lotto 2, I3): il nome del proprietario
+  // nei motivi («Permesso perso: il proprietario (Ada) …») non esce a chi non lo conosce.
+  const named = run.log.filter((e) => e.why?.params && "owner" in e.why.params);
+  if (named.length > 0 && a.ownerId && a.ownerId !== viewer.id && !(await hiddenFor(db, viewer, [a.ownerId])).knows(a.ownerId)) {
+    for (const e of named) {
+      const { owner, ...params } = e.why!.params!;
+      e.why = { ...e.why!, params };
+      if (e.reason) e.reason = e.reason.replace(` (${owner})`, "");
+    }
   }
   return { ...run, code: runCode(a, r.n), automationCode: a.code, automationName: a.name, automationProjectId: a.projectId, round: pending?.round ?? 0 };
 }

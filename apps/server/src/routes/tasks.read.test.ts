@@ -446,7 +446,7 @@ describe("GET /api/tasks/:ticketId/activity", () => {
     ]);
   });
 
-  it("una persona eliminata non esce (registro, A11 r.1414: chi guarda non la conosce, quindi né nome né id); un traguardo eliminato dà il ripiego, l'id così com'è", async () => {
+  it("una persona eliminata è un segnaposto (registro, A11 r.1414: chi guarda non la conosce, quindi né nome né id); un traguardo eliminato dà il ripiego, l'id così com'è", async () => {
     const t = await insertTask();
     const gone = "00000000-0000-4000-8000-0000000000aa";
     const goneMilestone = "00000000-0000-4000-8000-0000000000bb";
@@ -468,7 +468,7 @@ describe("GET /api/tasks/:ticketId/activity", () => {
     ]);
     const entries = taskActivityEntryViewSchema.array().parse((await get(`/api/tasks/${t.id}/activity`)).json());
     expect(entries.map((e) => [e.from, e.to])).toEqual([
-      [null, "member"],
+      ["hidden-1", "member"],
       [goneMilestone, null],
     ]);
   });
