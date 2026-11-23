@@ -13,7 +13,7 @@ import {
 } from "../../data/api";
 import { setSessionPersonId } from "../../data/session";
 import { state } from "../../data/store";
-import { grantProjectRole } from "../../data/viewer";
+import { grantProjectRole, revokeProjectPermission } from "../../data/viewer";
 import { renderRoute } from "../../test/renderRoute";
 
 // La sezione «Claude» del dettaglio task: stato, scheda aperta (la stessa
@@ -553,6 +553,8 @@ describe("sezione Claude: le impostazioni d'istanza (area 9b, shape instance-eff
   it("budget raggiunto: «Start» spento con la frase e «Who?»; alzato il budget torna acceso", async () => {
     const t = readyTask("prj-acq");
     state.instance.simulate.budgetReached = true;
+    // D-7.1: il budget ferma chi non ha `plans.approve` nel progetto.
+    revokeProjectPermission("p-laura", "prj-acq", "plans.approve");
     const section = await claudeSection(t.id, "p-laura");
     const start = within(section).getByRole("button", { name: "Start" });
     expect(start).toBeDisabled();

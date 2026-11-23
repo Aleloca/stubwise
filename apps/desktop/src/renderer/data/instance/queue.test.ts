@@ -548,10 +548,16 @@ describe("lo Stato dell'istanza per la pagina (Task 13)", () => {
     });
   });
 
-  it("final I1: col budget raggiunto Retry è spento e la vista dice il blocco; il rifiuto dice monthly_budget", async () => {
+  it("final I1: col budget raggiunto Retry è spento e la vista dice il blocco a chi non ha plans.approve; il rifiuto dice monthly_budget", async () => {
     const acq3 = async () => (await status()).jobs.find((j) => j.id === "cv-run-acq-3")!;
     expect(await acq3()).toMatchObject({ retry: "allowed", retryBlock: null });
     await instance.simulateBudgetReached(true);
+    // D-7.1: Roberta (full admin) scavalca il budget, e la vista non lo dice.
+    expect(await acq3()).toMatchObject({ retry: "allowed", retryBlock: null });
+    // Laura senza `plans.approve` in ACQ: può rilanciare, ma il budget la ferma.
+    revokeProjectPermission(LAURA, ACQ, "plans.approve");
+    give(LAURA, "instance.status.view");
+    as(LAURA);
     expect(await acq3()).toMatchObject({
       retry: "forbidden",
       retryNeeds: null,

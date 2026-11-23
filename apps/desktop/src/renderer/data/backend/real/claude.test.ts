@@ -267,6 +267,36 @@ describe("il lavoro di una task dal server", () => {
     ...over,
   });
 
+  // D-7.1 (maintainer, corretta): il server manda `blocked.monthly_budget`
+  // SOLO a chi non può scavalcare il budget (`plans.approve` nel progetto); a
+  // chi può, la pausa della coda se c'è. Il client lo legge, non lo deduce.
+  it("`blocked` dal server: il budget così com'è, la pausa con chi l'ha messa (mascherato: senza nome)", async () => {
+    const base = {
+      claude: "done",
+      webHref: "/tickets/x",
+      runs: [],
+      prEvents: [],
+      prFacts: [],
+      planDecisions: [],
+      software: true,
+      openPr: false,
+      waitsOnViewer: false,
+      actions: { start: "allowed", relaunch: "unavailable", resume: "unavailable", requestChanges: "unavailable" },
+      correctionCap: 2,
+    };
+    for (const [blocked, expected] of [
+      [{ reason: "monthly_budget" }, { reason: "monthly_budget" }],
+      [
+        { reason: "queue_paused", byId: "hidden-1", byName: null, since: "2026-11-23T08:00:00.000Z" },
+        { reason: "queue_paused", byId: "hidden-1", byName: "", since: "2026-11-23T08:00:00.000Z" },
+      ],
+      [null, null],
+    ] as const) {
+      installFakeServer({ [`GET /api/tasks/${TICKET_ID}/work`]: { body: { ...base, blocked } } });
+      expect((await getTaskWork(TICKET_ID))!.blocked).toEqual(expected);
+    }
+  });
+
   it("sessioni con i loro eventi (dalla sessione, non da /work), PR, decisioni e azioni del server", async () => {
     installFakeServer({
       [`GET /api/tasks/${TICKET_ID}/work`]: {

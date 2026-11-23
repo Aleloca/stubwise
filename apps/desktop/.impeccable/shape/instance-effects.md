@@ -63,7 +63,15 @@ numerato», modalità **Operate**.
   - **sulla coda in pausa «Avvia» non è rifiutato**: entra in attesa e parte
     una volta sola; un secondo «Avvia» non c'è (la sessione è viva);
   - **col budget raggiunto «Avvia» è rifiutato**, prima (bottone spento) e
-    dopo (risposta `monthly_budget`);
+    dopo (risposta `monthly_budget`), **a chi non ha `plans.approve` nel
+    progetto**; chi ce l'ha lo scavalca, come sul server, e per lui il budget
+    non si dice (la pausa della coda invece vale ancora: fa aspettare). Vale
+    in ogni avvio a mano con un progetto: le sessioni delle task (Avvia,
+    Rilancia, Riprendi la correzione, Chiedi modifiche, la correzione di un
+    server), «Request changes» dai Rilasci, la prima versione e le bozze di
+    schermata della doc, «aggiorna da questa fonte». Senza un progetto
+    («Chiedi a Claude», l'analisi a mano di un server) il budget ferma tutti
+    (D-7.1, decisione del maintainer del 23 nov 2026, corretta; (a) di 46);
   - **i passi d'automazione col budget esaurito aspettano**, e ripartono da
     soli solo quando il budget torna disponibile;
   - **«Chiedi a Claude» non è nella coda di un progetto**;

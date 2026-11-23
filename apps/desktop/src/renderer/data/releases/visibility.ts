@@ -378,7 +378,11 @@ export function releaseView(
 /** Se Claude parte con la task di riparazione, e se no per il budget (la stessa regola di `fixRelease`). */
 function startFixOf(me: string, projectId: string): Pick<ReleaseView, "canStartFix" | "fixBlock"> {
   const starts = holds(me, "runs.start", projectId);
-  const fixBlock = starts && budgetReached() ? { reason: "monthly_budget" as const } : null;
+  // D-7.1: il budget lo scavalca chi ha `plans.approve` nel progetto.
+  const fixBlock =
+    starts && budgetReached() && !holds(me, "plans.approve", projectId)
+      ? { reason: "monthly_budget" as const }
+      : null;
   return { canStartFix: starts && fixBlock === null, fixBlock };
 }
 

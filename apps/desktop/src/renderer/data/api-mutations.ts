@@ -63,7 +63,7 @@ import type { TaskBusyReason } from "./taskDelete";
 // I blocchi d'istanza (area 9b): la foglia dei blocchi, la fila dei lavori
 // fermi e i modelli. Usati solo dentro le funzioni.
 import type { AiOperation } from "@stubwise/shared";
-import { aiBlockFor, pickProvider, requiredProviderOf } from "./instance/blocks";
+import { aiBlockFor, manualStartBlockFor, pickProvider, requiredProviderOf } from "./instance/blocks";
 import { modelIdFor } from "./instance/models";
 import { recordChatTurnUsage } from "./instance/usage";
 import { contextIdFor, contextOf } from "./claude/context";
@@ -3896,11 +3896,12 @@ function prepareRun(me: string, task: Task, pending: Task[] = []): void {
 /**
  * Il blocco d'istanza di un avvio di Claude nel progetto: col budget del
  * mese esaurito l'avvio è rifiutato (`monthly_budget`), prima di ogni
- * scrittura; con la coda in pausa la sessione nasce in attesa
- * (`startOrHold`). `null`: parte subito.
+ * scrittura, a chi non ha `plans.approve` nel progetto (D-7.1, chi ce l'ha
+ * lo scavalca: `manualStartBlockFor`); con la coda in pausa la sessione nasce
+ * in attesa (`startOrHold`). `null`: parte subito.
  */
-export function aiStartBlock(projectId: string): AiBlock | null {
-  const block = aiBlockFor(projectId);
+export function aiStartBlock(me: string, projectId: string): AiBlock | null {
+  const block = manualStartBlockFor(me, projectId);
   if (block?.reason === "monthly_budget") throw invalid("monthly_budget");
   return block;
 }
@@ -4037,7 +4038,7 @@ export async function startRunAs(me: string, task: Task, gen: number): Promise<C
  */
 export function openRunAs(me: string, task: Task): Conversation {
   prepareRun(me, task);
-  aiStartBlock(task.projectId);
+  aiStartBlock(me, task.projectId);
   return openRun(me, task);
 }
 
@@ -4048,7 +4049,8 @@ export function openRunAs(me: string, task: Task): Conversation {
  */
 export async function launchRun(me: string, c: Conversation, gen: number): Promise<void> {
   const task = state.tasksById.get(c.taskId!)!;
-  const block = aiBlockFor(task.projectId);
+  // D-7.1: lo stesso blocco dell'avvio (chi ha `plans.approve` scavalca il budget).
+  const block = manualStartBlockFor(me, task.projectId);
   await startOrHold(me, c, "task_run", block, gen, () => playRun(me, c, task, gen));
 }
 
@@ -4071,7 +4073,7 @@ export async function relaunchWithInstructions(
   if (previous && previous.state !== "finished" && previous.state !== "paused") throw conflict();
   // La PR è già mergiata: il lavoro è chiuso, non si rilancia (`runPreconditions`).
   if (!runPreconditions(task).relaunch) throw invalid("status");
-  aiStartBlock(task.projectId);
+  aiStartBlock(me, task.projectId);
   if (previous?.state === "paused") {
     // Una correzione ripresa che aspettava la coda non riparte più (area 9b).
     if (previous.waiting) {
@@ -4087,7 +4089,7 @@ export async function relaunchWithInstructions(
     if (live && live.state !== "finished") throw conflict();
   }
   // Riletto dopo l'attesa: il budget può essere finito nel frattempo.
-  const block = aiStartBlock(task.projectId);
+  const block = aiStartBlock(me, task.projectId);
   const c = openRun(me, task);
   await startOrHold(me, c, "task_run", block, gen, () =>
     playRun(me, c, task, gen, instructions.trim()),
@@ -4137,7 +4139,7 @@ export async function resumeCorrection(taskId: string): Promise<Conversation> {
   // Già ripresa, in attesa della coda (area 9b): riparte una volta sola.
   if (run.waiting) throw conflict();
   // Ruling 13: col budget esaurito è rifiutata, con la coda in pausa aspetta.
-  const block = aiStartBlock(task.projectId);
+  const block = aiStartBlock(me, task.projectId);
   // La correzione ripresa è la stessa: stessa PR.
   const pr =
     eventsOf(run.id)
@@ -4209,7 +4211,7 @@ export async function requestChangesAs(
   pr: PrRef | undefined,
 ): Promise<Conversation> {
   // Area 9b: col budget esaurito è rifiutata, con la coda in pausa aspetta.
-  const block = aiStartBlock(task.projectId);
+  const block = aiStartBlock(me, task.projectId);
   // Una correzione parte già in esecuzione: il suo modello è quello di `fix_execute`.
   const c = openRun(me, task, "fix_execute");
   // La correzione è di una PR: quella scelta dal chiamante (da «Chiedi

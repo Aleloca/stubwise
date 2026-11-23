@@ -72,9 +72,10 @@ const fixCommands = () =>
 const srv1 = () => state.servers.find((s) => s.code === "SRV-1")!;
 
 describe("sezione Server: il budget del mese (area 9b, shape instance-effects)", () => {
-  it("«Start fix on the server» spento con la frase del budget e «Who?»", async () => {
+  it("«Start fix on the server» spento con la frase del budget e «Who?» (a chi non ha plans.approve)", async () => {
     state.instance.simulate.budgetReached = true;
-    const section = await openTask("p-roberta");
+    // D-7.1: Roberta (full admin) scavalcherebbe il budget; Marco (Developer in ACQ) no.
+    const section = await openTask("p-marco");
     const start = section.querySelector<HTMLButtonElement>("[data-start-fix]")!;
     await waitFor(() => expect(start).toBeDisabled());
     expect(section.querySelector('[data-ai-block="monthly_budget"]')).toHaveTextContent(
@@ -597,7 +598,8 @@ describe("l'avviso di un server senza accesso", () => {
     const { user, panel: notifications } = await openPanel("p-roberta");
     const item = (await within(notifications).findAllByText("SRV-2"))
       .map((el) => el.closest("[data-notification]")!)
-      .find((li) => li.textContent!.includes("no SSH access"))!;
+      // Il testo del seme dal 9e910dd3a (A2 di 46): l'analisi parte senza le letture SSH.
+      .find((li) => li.textContent!.includes("without SSH reads"))!;
     const link = within(item as HTMLElement).getByRole("button", { name: "Link SSH access" });
     await user.click(link);
     await screen.findByRole("region", { name: "SSH access" });

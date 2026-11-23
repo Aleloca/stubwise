@@ -66,6 +66,8 @@ async function budgetUsedUp() {
   } finally {
     setSessionPersonId(before);
   }
+  // D-7.1: il budget ferma chi non ha `plans.approve` nel progetto (Laura, Project Lead in ACQ, no).
+  revokeProjectPermission("p-laura", "prj-acq", "plans.approve");
 }
 
 /** Una bozza disegnata da Claude per Laura dopo il primo blocco di Bills. */
@@ -791,6 +793,8 @@ describe("F6: in disegno e non riuscita", () => {
 
   it("budget finito mentre disegnava: la frase del budget col «Who?», una volta sola; Redraw spento", async () => {
     const id = drawnOnBills();
+    // D-7.1: il budget ferma chi non ha `plans.approve` nel progetto (Laura, che l'ha chiesto, qui no).
+    revokeProjectPermission(LAURA, "prj-acq", "plans.approve");
     await budgetUsedUp();
     await whenSketchesIdle();
     await open(BILLS);

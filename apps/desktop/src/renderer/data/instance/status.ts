@@ -378,8 +378,10 @@ export async function getInstanceStatus(): Promise<InstanceStatusView> {
   const jobs: InstanceJob[] = shown.map((raw) => {
     const j = readsPage(raw) ? raw : { ...raw, title: "", code: null, href: null };
     const permitted = permittedOf(j);
+    // D-7.1: il budget lo scavalca chi ha `plans.approve` nel progetto del lavoro.
+    const overrides = j.projectId !== null && canI(me, "plans.approve", j.projectId);
     const retryBlock =
-      permitted === "allowed" && budget ? { reason: "monthly_budget" as const } : null;
+      permitted === "allowed" && budget && !overrides ? { reason: "monthly_budget" as const } : null;
     const retry = retryBlock ? "forbidden" : permitted;
     return {
       ...j,

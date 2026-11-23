@@ -1,5 +1,5 @@
 import { anchorText, plainTextOf } from "../../domain/productDocs/blocks";
-import { aiBlockFor } from "../instance/blocks";
+import { manualStartBlockFor } from "../instance/blocks";
 import { FALLBACK_WIREFRAME, PRODUCT_WIREFRAMES } from "../seed/productDocs/wireframes";
 
 export { wireframeKey, wireframeSvg, wireframesOf } from "../seed/productDocs/wireframes";
@@ -125,7 +125,9 @@ async function finishSketch(entry: ProductSketch, failure: ProductWireframeFailR
     clearSketch(entry);
     return;
   }
-  const reason = failure ?? (aiBlockFor(page.projectId)?.reason === "monthly_budget" ? "budget" : null);
+  // D-7.1: il budget si legge per chi ha chiesto il disegno (chi ha `plans.approve` lo scavalca).
+  const reason =
+    failure ?? (manualStartBlockFor(entry.byId, page.projectId)?.reason === "monthly_budget" ? "budget" : null);
   if (reason) {
     entry.state = { status: "failed", reason, drawn: entry.kind === "redraw" };
     emitProductPage(page.id, "blocks");
@@ -192,7 +194,7 @@ export function pickWireframe(blocks: readonly ProductBlock[], nearId: string | 
 /** I gesti di Claude: chi scrive i Docs, e il budget del mese (P48). */
 function claudeGesturePage(me: string, pageId: string): ProductPage {
   const page = editablePage(me, pageId);
-  if (aiBlockFor(page.projectId)?.reason === "monthly_budget") throw new Error("ai_blocked");
+  if (manualStartBlockFor(me, page.projectId)?.reason === "monthly_budget") throw new Error("ai_blocked");
   return page;
 }
 

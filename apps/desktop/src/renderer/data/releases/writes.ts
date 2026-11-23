@@ -15,7 +15,7 @@ import { changedFields } from "../changelog/settingValues";
 // Per effetto: registra i tipi di voce di progetto (`recordChange` lancia su uno ignoto).
 import "../projectSettings/changeTypes";
 import { publishAlert } from "../alerts/publish";
-import { aiBlockFor } from "../instance/blocks";
+import { manualStartBlockFor } from "../instance/blocks";
 import { noteProductSource } from "../productDocs/sourceEvents";
 import { PEOPLE } from "../seed/people";
 import { copy, latestRunOf, newId, now, state, storeGeneration } from "../store";
@@ -359,7 +359,7 @@ export async function requestPrCorrection(
   if (!text.trim()) throw invalid("text");
   if (pr.state !== "open") return { ok: false, error: "already_closed" };
   // Area 9b: col budget del mese esaurito Claude non parte, su nessuna PR.
-  if (aiBlockFor(pr.projectId)?.reason === "monthly_budget")
+  if (manualStartBlockFor(me, pr.projectId)?.reason === "monthly_budget")
     return { ok: false, error: "monthly_budget" };
   const st = stateOfPr(pr);
   if (pr.origin === "stubwise") {
@@ -461,7 +461,7 @@ export async function fixRelease(code: string, note?: string): Promise<FixResult
   r.fixTaskId = task.id;
   // Col budget del mese esaurito (area 9b) la task nasce ma non parte: aspetta chi la avvii.
   const start =
-    holds(me, "runs.start", r.projectId) && aiBlockFor(r.projectId)?.reason !== "monthly_budget";
+    holds(me, "runs.start", r.projectId) && manualStartBlockFor(me, r.projectId)?.reason !== "monthly_budget";
   if (start) await startRunAs(me, task, gen);
   return { ...copy(task), existing: false, noteAdded: false, started: start };
 }

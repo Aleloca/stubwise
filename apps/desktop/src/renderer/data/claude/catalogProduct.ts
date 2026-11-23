@@ -1,4 +1,4 @@
-import { aiBlockFor } from "../instance/blocks";
+import { manualStartBlockFor } from "../instance/blocks";
 import { applyProductSource } from "../productDocs/claude";
 import { startFirstVersionAs, undoFirstVersionAs } from "../productDocs/firstVersion";
 import { undoProductChangeAs } from "../productDocs/markGestures";
@@ -132,7 +132,7 @@ export const PRODUCT_ENTRIES: Record<ProductCatalogFn, Omit<CatalogEntry, "fn">>
       if (view.gone || view.link === null) throw notFound();
       // Solo il budget del mese, come la prima versione e la bozza (P41, P48):
       // un gesto del riquadro non passa dalla coda, quindi la pausa non lo ferma.
-      if (aiBlockFor(page.projectId)?.reason === "monthly_budget") throw invalid("monthly_budget");
+      if (manualStartBlockFor(me, page.projectId)?.reason === "monthly_budget") throw invalid("monthly_budget");
       const facts = productFactsOf(ref).filter((f) => f.pageId === page.id);
       if (facts.length === 0) throw invalid("source");
       const out = applyProductSource(ref, page.projectId, facts, { manual: { requesterId: me } });

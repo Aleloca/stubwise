@@ -4,6 +4,7 @@ import type { ProductBlock, RichText } from "../model";
 import { PRODUCT_WIREFRAMES } from "../seed/productDocs/wireframes";
 import { setSessionPersonId } from "../session";
 import { setStreamLatency, state } from "../store";
+import { revokeProjectPermission } from "../viewer";
 import { undoProductChangeAs } from "./markGestures";
 import { listProductMarksAs } from "./marks";
 import { subscribeProductPage } from "./events";
@@ -127,8 +128,16 @@ describe("disegnare", () => {
     const before = JSON.stringify(page(BILLS).blocks);
     expect(() => drawWireframeAs(SARA, BILLS, { afterId: null })).toThrow("forbidden");
     state.instance.simulate.budgetReached = true;
+    // D-7.1: senza `plans.approve` nel progetto il budget ferma; con, il disegno parte.
+    revokeProjectPermission(LAURA, "prj-acq", "plans.approve");
     expect(() => drawWireframeAs(LAURA, BILLS, { afterId: null })).toThrow("ai_blocked");
     expect(JSON.stringify(page(BILLS).blocks)).toBe(before);
+  });
+
+  it("col budget del mese finito, chi ha `plans.approve` (D-7.1) disegna lo stesso", () => {
+    state.instance.simulate.budgetReached = true;
+    const { blockId } = drawWireframeAs(LAURA, BILLS, { afterId: null });
+    expect(sketch(BILLS, blockId).type).toBe("wireframe");
   });
 
   it("dal cancello: `productDocs.drawWireframe` come chi è in sessione", async () => {
@@ -462,11 +471,19 @@ describe("il disegno asincrono (F6)", () => {
     expect(read.wireframes).toEqual({});
   });
 
-  it("il budget del mese finito mentre disegna: `failed` con `budget`", async () => {
+  it("il budget del mese finito mentre disegna: `failed` con `budget` per chi non ha `plans.approve`", async () => {
     const id = drawn();
+    revokeProjectPermission(LAURA, "prj-acq", "plans.approve");
     state.instance.simulate.budgetReached = true;
     await whenSketchesIdle();
     expect((await view()).wireframeStates).toEqual({ [id]: { status: "failed", reason: "budget", drawn: false } });
+  });
+
+  it("il budget del mese finito mentre disegna: chi l'ha chiesto ha `plans.approve` (D-7.1), il disegno finisce", async () => {
+    const id = drawn();
+    state.instance.simulate.budgetReached = true;
+    await whenSketchesIdle();
+    expect((await view()).wireframeStates?.[id]).toBeUndefined();
   });
 
   it("sostituita con un'immagine o annullata mentre disegna: il disegno in arrivo non scrive nulla", async () => {
