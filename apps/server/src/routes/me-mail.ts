@@ -2,7 +2,6 @@ import {
   calendarEvents,
   emailBodies,
   emailMessages,
-  emailProposalRecipients,
   emailProposals,
   emailRejections,
   googleAccounts,
@@ -57,6 +56,7 @@ import {
   type MeetingNote,
 } from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
+import { openSharedProposalsByThread } from "../services/mail-proposals.js";
 import { meetingNoteView } from "../services/meetings.js";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -1366,24 +1366,10 @@ export async function meMailRoutes(
           }
         }
         for (const row of classified) for (const id of row.scope.filter(sees)) addProject(row.threadId, id, names.get(id) ?? null);
-        const shared = await app.db
-          .select({ threadId: emailMessages.threadId, status: emailProposals.status, handedAt: emailProposals.handedAt })
-          .from(emailMessages)
-          .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
-          .innerJoin(
-            emailProposals,
-            sql`${emailProposals.rfcMessageId} = coalesce(${emailMessages.rfcMessageId}, 'gmail:' || ${emailMessages.accountId} || ':' || ${emailMessages.gmailMessageId})
-              and ${emailProposals.audience} = 'mail_recipients'`,
-          )
-          .innerJoin(
-            emailProposalRecipients,
-            and(eq(emailProposalRecipients.proposalId, emailProposals.id), eq(emailProposalRecipients.userId, request.user!.id)),
-          )
-          .where(and(eq(googleAccounts.userId, request.user!.id), inArray(emailMessages.threadId, threadIds)));
-        for (const row of shared) {
-          if ((row.status === "classified" || row.status === "proposed") && !row.handedAt) {
-            openByThread.set(row.threadId, (openByThread.get(row.threadId) ?? 0) + 1);
-          }
+        // Rimandi, lotto 4 (§4): le condivise, comprese le riunioni, con la
+        // regola della conversazione aperta (`openSharedProposalsByThread`).
+        for (const [threadId, n] of await openSharedProposalsByThread(app.db, request.user!.id, threadIds)) {
+          openByThread.set(threadId, (openByThread.get(threadId) ?? 0) + n);
         }
 
         const proposalRows = await app.db

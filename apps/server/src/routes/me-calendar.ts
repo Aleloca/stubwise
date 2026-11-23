@@ -241,7 +241,7 @@ export async function meCalendarRoutes(instance: FastifyInstance, opts: { client
     "/events/:id/tasks",
     { config: { access: { kind: "user" } }, schema: { params: z.object({ id: z.uuid() }), response: { 200: meetingTasksSchema, 404: errorSchema, ...authErrorResponses } } },
     async (request, reply) => {
-      const out = await meetingTasksFor(app.db, request.user!.id, request.params.id, new Date().toISOString().slice(0, 10));
+      const out = await meetingTasksFor(app.db, request.user!, request.params.id, new Date().toISOString().slice(0, 10));
       return out === undefined ? apiError(reply, 404, "not_found", "Calendar event not found") : out;
     },
   );

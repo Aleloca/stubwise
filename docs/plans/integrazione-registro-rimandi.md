@@ -527,18 +527,30 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   dell'evento). Un Doc creato da un partecipante nelle stesse ore e linkato
   nel titolo passerebbe: il rischio residuo è un Doc che quel partecipante
   poteva già condividere.
-- F5a, «Task da questa riunione» senza le RICHIESTE *(S)*: una proposta
+- ~~F5a, «Task da questa riunione» senza le RICHIESTE *(S)*: una proposta
   confermata come richiesta lascia un job dell'intake (`results.kind =
   request`, id del job), non la voce di backlog; risolverla (e mostrare le
   task di una richiesta convertita) vuole il legame job → voce. Oggi escono
-  solo le task.
+  solo le task.~~ *Chiusa il 23 nov 2026 (72, lotto 4, §3)*: `tasksOf` risolve
+  la richiesta a lettura da `backlog_jobs.result_item_id` (la voce; le task
+  di una convertita al suo posto; la sorgente «done» di una fusa a mano; in
+  intake `pending` senza codice), con `requestVisibility` e
+  `visibleTasksCondition` nella WHERE; ogni riga porta `projectCode`.
+  Rimasto fuori *(O, 94, D-3.4)*: il cancello di `tasksOf`
+  (`projectPermissionsOfUser`) lascia passare un full admin non membro, che
+  il prototipo esclude (R-I21).
 - F5a, le email di Gemini di PRIMA del deploy *(S)*: il riconoscimento è
   all'ingestione, quindi non diventano riunioni; un recupero vorrebbe
   rileggere le intestazioni da Gmail.
-- F5a, il badge delle proposte nell'ELENCO delle conversazioni *(S)*:
+- ~~F5a, il badge delle proposte nell'ELENCO delle conversazioni *(S)*:
   `me-mail.ts` conta le condivise `mail_recipients` per thread; quelle di una
   riunione compaiono aprendo la conversazione (filtro per messaggio e
-  thread) e in «Da decidere», non nel conteggio della riga.
+  thread) e in «Da decidere», non nel conteggio della riga.~~ *Chiusa il 23
+  nov 2026 (72, lotto 4, §4)*: `openSharedProposalsByThread` conta con la
+  regola della conversazione aperta (riunioni comprese, destinatario
+  derivato, progetto visibile ADESSO anche per `mail_recipients`). Rimasto
+  fuori *(O, 94)*: `/summary` (il badge di nav) conta le card
+  `google.proposal` aperte, non verificato per le riunioni.
 - F5a, con la classificazione di PRIMA *(S)*: il riconoscimento c'è anche
   senza `MAIL_CLASSIFY_V2`, ma dopo l'ammissione (un'email di Gemini
   respinta non entra), e la fase delle riunioni gira solo con la
@@ -612,11 +624,12 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     Drive e del cassetto (provato con una mutazione);
   - rimandi *(S)*: ~~il riassunto nel dettaglio dell'evento non dice
     `too_long`~~ (chiuso il 13 nov 2026: `docReason` su `MeetingSummary`,
-    review F5a); nel pannello per nota le richieste nate non hanno il link
+    review F5a); ~~nel pannello per nota le richieste nate non hanno il link
     al progetto (`projectCode: null`: l'origine non porta il codice); le
     task di tipo `request` non escono ancora dal server (le richieste nate
     da una riunione sono job d'intake, risolverle nella voce di backlog è un
-    rimando di 72).
+    rimando di 72)~~ (chiusi il 23 nov 2026, lotto 4, §3: il server manda le
+    richieste e `projectCode` su ogni riga).
 
 ## Area 7 — Automazioni
 

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { calendarEvents, emailMessages, emailProposalRecipients, emailProposals, googleAccounts, googleWorkspaces, meetingNotes, comments, projectDecisions, projects, tickets, type Db } from "@stubwise/db";
+import { backlogItemRequesters, backlogItems, backlogItemTickets, backlogJobs, calendarEvents, emailMessages, emailProposalRecipients, emailProposals, googleAccounts, googleWorkspaces, meetingNotes, comments, projectDecisions, projects, tickets, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
@@ -179,7 +179,7 @@ describe("«Task da questa riunione» e la scheda di preparazione", () => {
     const [ticket] = await db.insert(tickets).values({ projectId: s.projectId, number: 7, title: "Export", type: "feature", priority: "medium", source: "manual", dueDate: "2020-01-01" } as typeof tickets.$inferInsert).returning();
     await db.update(emailProposals).set({ status: "actioned", decidedAt: new Date(), results: [{ kind: "task", id: ticket!.id, code: `${s.code}-7` }] }).where(eq(emailProposals.id, s.proposal.id));
     const res = await get(s.ada.headers, `/api/me/calendar/events/${s.adaRow.id}/tasks`);
-    expect(res.json()).toEqual({ tasks: [{ kind: "task", id: ticket!.id, code: `${s.code}-7`, title: "Export", status: "late", inProgress: false, dueDate: "2020-01-01", departmentId: ticket!.departmentId }], proposedTasks: 0 });
+    expect(res.json()).toEqual({ tasks: [{ kind: "task", id: ticket!.id, code: `${s.code}-7`, title: "Export", status: "late", inProgress: false, dueDate: "2020-01-01", departmentId: ticket!.departmentId, projectCode: s.code, pending: false }], proposedTasks: 0 });
     // L'invitato SENZA l'evento: le stesse task per id della riunione; chi non c'era 404.
     expect((await get(s.bruno.headers, `/api/me/meetings/${s.note.id}/tasks`)).json()).toEqual(res.json());
     for (const outsider of [s.dario.headers, { cookie: adminCookie }]) expect((await get(outsider, `/api/me/meetings/${s.note.id}/tasks`)).statusCode).toBe(404);
@@ -198,5 +198,125 @@ describe("«Task da questa riunione» e la scheda di preparazione", () => {
     const items = (await get(s.ada.headers, `/api/me/calendar/range?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)).json().items as { title: string; hasPrep: boolean }[];
     expect(items.find((i) => i.title === "Prossima")!.hasPrep).toBe(true);
     expect(items.find((i) => i.title === "Revisione")!.hasPrep).toBe(false);
+  });
+});
+
+describe("rimandi, lotto 4, §3: le richieste nate da una riunione", () => {
+  /** Una richiesta nata dalla conferma: il job d'intake, e (se il worker ha finito) la voce. */
+  async function request(projectId: string, opts: { status?: "queued" | "running" | "done" | "failed"; item?: { title: string; status?: "new" | "converted" | "archived"; mergedIntoId?: string } ; title?: string; requestedBy?: string } = {}) {
+    const [item] = opts.item ? await db.insert(backlogItems).values({ projectId, title: opts.item.title, source: "manual", status: opts.item.status ?? "new", ...(opts.item.mergedIntoId ? { mergedIntoId: opts.item.mergedIntoId } : {}) } as never).returning() : [];
+    const [job] = await db
+      .insert(backlogJobs)
+      .values({ projectId, kind: "intake", status: opts.status ?? "done", resultItemId: item?.id ?? null, payload: { title: opts.title ?? "In arrivo", body: "x", ...(opts.requestedBy ? { requestedByUserId: opts.requestedBy } : {}) } } as never)
+      .returning();
+    return { jobId: job!.id, item: item ?? null };
+  }
+  const tasksOfNote = async (headers: { cookie: string }, noteId: string) => (await get(headers, `/api/me/meetings/${noteId}/tasks`)).json() as { tasks: Record<string, unknown>[] } | null;
+
+  it("task e richieste in una lista sola, nell'ordine: la richiesta aperta, al posto di una convertita le sue task, una in intake `pending` senza codice; una fallita no", async () => {
+    const s = await scenario();
+    const [direct] = await db.insert(tickets).values({ projectId: s.projectId, number: 21, title: "Diretta", type: "task", priority: "medium", source: "manual" } as typeof tickets.$inferInsert).returning();
+    const open = await request(s.projectId, { item: { title: "Export CSV" } });
+    const converted = await request(s.projectId, { item: { title: "Da convertire", status: "converted" } });
+    const [fromConversion] = await db.insert(tickets).values({ projectId: s.projectId, number: 22, title: "Nata dalla richiesta", type: "task", priority: "medium", source: "manual" } as typeof tickets.$inferInsert).returning();
+    await db.insert(backlogItemTickets).values({ itemId: converted.item!.id, ticketId: fromConversion!.id, role: "converted_to" } as never);
+    const pending = await request(s.projectId, { status: "queued", title: "Ancora in intake" });
+    const failed = await request(s.projectId, { status: "failed" });
+    await db
+      .update(emailProposals)
+      .set({
+        status: "actioned",
+        decidedAt: new Date(),
+        results: [
+          { kind: "task", id: direct!.id, code: null },
+          { kind: "request", id: open.jobId, code: null },
+          { kind: "request", id: converted.jobId, code: null },
+          { kind: "request", id: pending.jobId, code: null },
+          { kind: "request", id: failed.jobId, code: null },
+        ] as never,
+      })
+      .where(eq(emailProposals.id, s.proposal.id));
+    const [openRow] = await db.select({ number: backlogItems.number }).from(backlogItems).where(eq(backlogItems.id, open.item!.id));
+    const out = await tasksOfNote(s.ada.headers, s.note.id);
+    expect(out!.tasks.map((t) => [t.kind, t.id])).toEqual([
+      ["task", direct!.id],
+      ["request", open.item!.id],
+      ["task", fromConversion!.id],
+      ["request", pending.jobId],
+    ]);
+    expect(out!.tasks[1]).toEqual({ kind: "request", id: open.item!.id, code: `${s.code}-R${openRow!.number}`, title: "Export CSV", status: "open", inProgress: false, dueDate: null, departmentId: null, projectCode: s.code, pending: false });
+    expect(out!.tasks[3]).toMatchObject({ kind: "request", code: null, title: "Ancora in intake", status: "open", pending: true, projectCode: s.code });
+  });
+
+  it("una fusa a mano resta la sorgente, «done»; due richieste confluite nella stessa voce danno una riga sola", async () => {
+    const s = await scenario();
+    const target = await request(s.projectId, { item: { title: "Destinazione" } });
+    const merged = await request(s.projectId, { item: { title: "Sorgente", status: "archived", mergedIntoId: target.item!.id } });
+    const twin = await db.insert(backlogJobs).values({ projectId: s.projectId, kind: "intake", status: "done", resultItemId: target.item!.id, payload: { title: "x", body: "x" } } as never).returning();
+    await db
+      .update(emailProposals)
+      .set({ status: "actioned", decidedAt: new Date(), results: [{ kind: "request", id: merged.jobId, code: null }, { kind: "request", id: target.jobId, code: null }, { kind: "request", id: twin[0]!.id, code: null }] as never })
+      .where(eq(emailProposals.id, s.proposal.id));
+    const out = await tasksOfNote(s.ada.headers, s.note.id);
+    expect(out!.tasks.map((t) => [t.id, t.status])).toEqual([
+      [merged.item!.id, "done"],
+      [target.item!.id, "open"],
+    ]);
+  });
+
+  it("visibilità nella WHERE: senza `backlog.view_all` (né richiedente) una richiesta non esce, e una task senza `tickets.view_all` (né chiesta da sé) nemmeno; lo stesso per una in intake", async () => {
+    const s = await scenario();
+    const eve = await person();
+    await addMember(app, s.projectId, eve.id, "contributor");
+    await db.insert(emailProposalRecipients).values({ proposalId: s.proposal.id, userId: eve.id });
+    const [task] = await db.insert(tickets).values({ projectId: s.projectId, number: 31, title: "Di altri", type: "task", priority: "medium", source: "manual" } as typeof tickets.$inferInsert).returning();
+    const hidden = await request(s.projectId, { item: { title: "Non mia" } });
+    const mine = await request(s.projectId, { item: { title: "Mia" } });
+    await db.insert(backlogItemRequesters).values({ itemId: mine.item!.id, userId: eve.id } as never);
+    const pendingOther = await request(s.projectId, { status: "running", title: "D'altri" });
+    const pendingMine = await request(s.projectId, { status: "running", title: "Mia in intake", requestedBy: eve.id });
+    await db
+      .update(emailProposals)
+      .set({
+        status: "actioned",
+        decidedAt: new Date(),
+        results: [task, hidden, mine, pendingOther, pendingMine].map((r) => ("jobId" in (r as object) ? { kind: "request", id: (r as { jobId: string }).jobId, code: null } : { kind: "task", id: (r as { id: string }).id, code: null })) as never,
+      })
+      .where(eq(emailProposals.id, s.proposal.id));
+    // Eve vede la riunione: è fra gli invitati dell'evento.
+    await db.update(calendarEvents).set({ attendees: [{ email: s.bruno.email, responseStatus: "declined" }, { email: eve.email, responseStatus: "accepted" }] }).where(eq(calendarEvents.id, s.adaRow.id));
+    // Ada (membro col ruolo di default) le vede tutte.
+    expect((await tasksOfNote(s.ada.headers, s.note.id))!.tasks.map((t) => t.id)).toEqual([task!.id, hidden.item!.id, mine.item!.id, pendingOther.jobId, pendingMine.jobId]);
+    // Eve, Contributor senza `view_all`: la sua richiesta e la sua in intake, nient'altro.
+    const res = await get(eve.headers, `/api/me/meetings/${s.note.id}/tasks`);
+    expect(res.statusCode, res.body).toBe(200);
+    expect((res.json() as { tasks: { id: string }[] }).tasks.map((t) => t.id)).toEqual([mine.item!.id, pendingMine.jobId]);
+  });
+});
+
+describe("rimandi, lotto 4, §4: il numero di proposte nella riga della conversazione", () => {
+  const rowOf = async (headers: { cookie: string }, threadId: string) => {
+    const res = await get(headers, "/api/me/mail/threads?limit=100");
+    expect(res.statusCode, res.body).toBe(200);
+    return (res.json() as { items: { threadId: string; openProposals: number }[] }).items.find((r) => r.threadId === threadId);
+  };
+  const openInThread = async (headers: { cookie: string }, threadId: string, accountId: string) =>
+    ((await get(headers, `/api/me/mail/proposals?thread=${threadId}&account=${accountId}&status=open`)).json() as { items: unknown[] }).items.length;
+
+  it("una proposta di riunione conta per chi vede la riunione (come aprendo la conversazione); passata o su un progetto non più visibile no", async () => {
+    const s = await scenario();
+    // Ada è invitata (organizzatrice): conta, ed è lo stesso numero della conversazione aperta.
+    expect((await rowOf(s.ada.headers, s.adaCopy.threadId))!.openProposals).toBe(1);
+    expect(await openInThread(s.ada.headers, s.adaCopy.threadId, s.ada.accountId)).toBe(1);
+    // Carla ha l'email ma non è invitata: la riunione non la vede, non conta.
+    expect((await rowOf(s.carla.headers, s.carlaCopy.threadId))!.openProposals).toBe(0);
+    expect(await openInThread(s.carla.headers, s.carlaCopy.threadId, s.carla.accountId)).toBe(0);
+    // Passata: non conta.
+    await db.update(emailProposals).set({ handedAt: new Date() }).where(eq(emailProposals.id, s.proposal.id));
+    expect((await rowOf(s.ada.headers, s.adaCopy.threadId))!.openProposals).toBe(0);
+    // Progetto non più visibile: non conta.
+    await db.update(emailProposals).set({ handedAt: null }).where(eq(emailProposals.id, s.proposal.id));
+    await db.update(projects).set({ archivedAt: new Date() } as never).where(eq(projects.id, s.projectId));
+    expect((await rowOf(s.ada.headers, s.adaCopy.threadId))!.openProposals).toBe(0);
   });
 });

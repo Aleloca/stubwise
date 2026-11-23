@@ -793,6 +793,18 @@ export const meetingTaskSchema = z.object({
   inProgress: z.boolean().default(false),
   dueDate: z.string().nullable().default(null),
   departmentId: z.uuid().nullable().default(null),
+  /**
+   * Rimandi, lotto 4 (§3): il codice del progetto della riunione, su ogni riga
+   * (il link di una richiesta è `/p/<codice>/requests?request=<id>`); null se
+   * il progetto non ha codice. Additivo.
+   */
+  projectCode: z.string().nullable().default(null),
+  /**
+   * Rimandi, lotto 4 (§3, D-3.1 = b): una richiesta ancora in intake (il
+   * worker non ha ancora creato la voce): `id` è quello del job, `code` null,
+   * nessun link. Additivo, `.default(false)`.
+   */
+  pending: z.boolean().default(false),
 });
 export type MeetingTask = z.infer<typeof meetingTaskSchema>;
 export const meetingTasksSchema = z.object({ tasks: z.array(meetingTaskSchema).default([]), proposedTasks: z.number().int().default(0) }).nullable();

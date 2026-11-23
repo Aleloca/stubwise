@@ -397,3 +397,43 @@ export async function maskMailDeciders<T>(db: Db, viewer: Pick<SessionUser, "id"
   if (opts && out && typeof out === "object") masked_.add(out);
   return out;
 }
+
+/**
+ * Rimandi, lotto 4 (§4): quante proposte CONDIVISE aperte ha ogni conversazione
+ * di una pagina, con la regola di `listMailProposals({ thread })` (una regola,
+ * due letture: il badge della riga è il numero che si trova aprendola). Una
+ * proposta conta se la sua chiave è un messaggio del thread nella casella di
+ * chi guarda, OPPURE (riunione) la sua nota è di quei messaggi; aperta e non
+ * passata; col progetto visibile ADESSO; e chi guarda ne è destinatario (per
+ * una riunione: chi la vede ora, `canSeeMeeting`). Una volta per thread.
+ * Le proposte di prima (`mailbox_owner`) le conta il chiamante.
+ */
+export async function openSharedProposalsByThread(db: Db, viewerId: string, threadIds: readonly string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (threadIds.length === 0) return out;
+  const rows = await db
+    .selectDistinct({ threadId: emailMessages.threadId, proposal: emailProposals, recipient: emailProposalRecipients.userId })
+    .from(emailMessages)
+    .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
+    .innerJoin(
+      emailProposals,
+      sql`(${emailProposals.rfcMessageId} = coalesce(${emailMessages.rfcMessageId}, 'gmail:' || ${emailMessages.accountId} || ':' || ${emailMessages.gmailMessageId})
+        or ${emailProposals.meetingNoteId} in (select n.id from meeting_notes n where n.rfc_message_id = ${emailMessages.rfcMessageId}))
+        and ${emailProposals.audience} in ('mail_recipients', 'meeting_invitees')
+        and ${emailProposals.status} in ('classified', 'proposed') and ${emailProposals.handedAt} is null`,
+    )
+    .leftJoin(emailProposalRecipients, and(eq(emailProposalRecipients.proposalId, emailProposals.id), eq(emailProposalRecipients.userId, viewerId)))
+    .where(and(eq(googleAccounts.userId, viewerId), inArray(emailMessages.threadId, [...threadIds])));
+  const counted = new Set<string>();
+  for (const { threadId, proposal, recipient } of rows) {
+    const key = `${threadId}:${proposal.id}`;
+    if (counted.has(key)) continue;
+    if (!(await proposalPermissionsOf(db, viewerId, proposal))) continue;
+    const isRecipient =
+      proposal.audience === "meeting_invitees" ? Boolean(proposal.meetingNoteId && (await canSeeMeeting(db, proposal.meetingNoteId, viewerId))) : recipient !== null;
+    if (!isRecipient) continue;
+    counted.add(key);
+    out.set(threadId, (out.get(threadId) ?? 0) + 1);
+  }
+  return out;
+}
