@@ -403,7 +403,9 @@ punti lato server sta nell'inventario consegnato a 72 (sotto).
 
 - **Chi si conosce** — un predicato SOLO, più largo di chi si vede per
   scegliere o per «Who can?»: le persone che sono o sono state membri di un
-  progetto che chi guarda vede (le attive, le DISATTIVATE e gli EX membri:
+  progetto che chi guarda vede — compreso un progetto ARCHIVIATO che chi
+  guarda può leggere (decisione di 46, revisione del lotto 2) — (le attive,
+  le DISATTIVATE e gli EX membri:
   restano «Nome (deactivated)»), più i full admin, più sé stesso; e (seconda
   decisione del maintainer, 23 nov 2026: «chi scrive in un canale che vedo è
   conosciuto») i MEMBRI e gli AUTORI dei canali della Chat che chi guarda

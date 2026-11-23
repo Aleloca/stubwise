@@ -3,7 +3,7 @@ import { plain, toggleMark } from "../../domain/productDocs/richText";
 import { productDocs, resetApi, setLatency } from "../api";
 import type { ProductBlock, ProductPage } from "../model";
 import { isFullAdmin, writeAccess } from "../access/index";
-import { strangersTo } from "../../test/strangers";
+import { strangersTo, withoutChannels } from "../../test/strangers";
 import { PEOPLE } from "../seed/people";
 import { setSessionPersonId } from "../session";
 import { state } from "../store";
@@ -270,6 +270,8 @@ describe("il nome di chi ha scritto (r.1414)", () => {
   });
 
   it("un ex membro di ACQ: il nome resta", async () => {
+    // Revisione del lotto 2 (I3): fuori dai canali leggibili, lo fa conoscere solo il progetto.
+    withoutChannels(LAURA, [MARCO]);
     const { page: p } = await page();
     // Fuori da OGNI progetto: resta solo l'ex membro di ACQ.
     writeAccess((s) => {

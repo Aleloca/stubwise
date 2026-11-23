@@ -30,20 +30,29 @@ export function viewerWithStrangers(count: number): string {
   return viewer.id;
 }
 
-/** `count` persone che `viewerId` non conosce (costruite dal seme), o lancia. */
-export function strangersTo(viewerId: string, count = 1): string[] {
-  const chosen = candidatesFor(viewerId).slice(0, count);
-  if (chosen.length < count) throw new Error(`strangersTo: only ${chosen.length} candidates`);
+/**
+ * Toglie `ids` dai canali che `viewerId` legge, coi loro messaggi lì: così
+ * li conosce SOLO per i progetti (per provare disattivati ed ex membri senza
+ * che un canale di tutta l'azienda li faccia conoscere comunque).
+ */
+export function withoutChannels(viewerId: string, ids: readonly string[]): void {
   for (const ch of state.channels) {
     if (!canReadChannel(viewerId, ch)) continue;
-    ch.memberIds = ch.memberIds.filter((id) => !chosen.includes(id));
+    ch.memberIds = ch.memberIds.filter((id) => !ids.includes(id));
   }
   const readable = new Set(
     state.channels.filter((ch) => canReadChannel(viewerId, ch)).map((c) => c.id),
   );
   state.chatMessages = state.chatMessages.filter(
-    (m) => !(readable.has(m.channelId) && m.authorId !== null && chosen.includes(m.authorId)),
+    (m) => !(readable.has(m.channelId) && m.authorId !== null && ids.includes(m.authorId)),
   );
+}
+
+/** `count` persone che `viewerId` non conosce (costruite dal seme), o lancia. */
+export function strangersTo(viewerId: string, count = 1): string[] {
+  const chosen = candidatesFor(viewerId).slice(0, count);
+  if (chosen.length < count) throw new Error(`strangersTo: only ${chosen.length} candidates`);
+  withoutChannels(viewerId, chosen);
   const known = knownPeopleFor(viewerId);
   for (const id of chosen) if (known.has(id)) throw new Error(`strangersTo: ${id} is still known`);
   return chosen;

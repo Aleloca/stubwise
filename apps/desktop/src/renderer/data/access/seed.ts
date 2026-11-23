@@ -258,7 +258,9 @@ export function seedAccessState(): AccessState {
     departments: seedDepartments(),
     people: seedPeople(),
     revocations: [],
-    formerMemberships: [],
+    // Gli ex membri del seme, allineati al registro (`member.removed` di
+    // Federico da AUD, data/seed/changelog.ts): revisione del lotto 2, I3.
+    formerMemberships: [{ projectId: "prj-aud", personId: "p-federico" }],
   };
 }
 

@@ -5,7 +5,7 @@ import { listNotifications, productDocs, resetApi, setLatency } from "../api";
 import { docsAccess } from "../docs/reads";
 import type { ProductBlock, ProductPage } from "../model";
 import { writeAccess } from "../access/index";
-import { strangersTo } from "../../test/strangers";
+import { strangersTo, withoutChannels } from "../../test/strangers";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { setSessionPersonId } from "../session";
 import { state } from "../store";
@@ -610,6 +610,8 @@ describe("la vista del commento come la dà il server (area 11, F2)", () => {
   });
 
   it("un membro disattivato di ACQ resta col suo nome e il suo id (r.1414)", async () => {
+    // Revisione del lotto 2 (I3): fuori dai canali leggibili, lo fa conoscere solo il progetto.
+    withoutChannels(MARCO, [LAURA]);
     const signIn = page("Sign-in");
     const seed = state.productComments.find((c) => c.pageId === signIn.id && c.replyToId === null)!;
     state.productComments.push({ ...structuredClone(seed), id: "pc-deactivated", authorId: LAURA, mentionIds: [] });

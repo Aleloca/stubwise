@@ -3,7 +3,7 @@ import { changelog, failNext, resetApi, setLatency } from "../api";
 import "../admin/changeTypes";
 import { accessState, isFullAdmin, roleIdOf, writeAccess } from "../access/index";
 import { visiblePeopleFor } from "../access/whoCan";
-import { strangersTo } from "../../test/strangers";
+import { strangersTo, withoutChannels } from "../../test/strangers";
 import { setSessionPersonId } from "../session";
 import { seedChangelog } from "../seed/changelog";
 import { PEOPLE } from "../seed/people";
@@ -380,6 +380,8 @@ describe("il nome dell'autore della voce (r.1414)", () => {
   });
 
   it("un ex membro del progetto resta col suo nome", async () => {
+    // Revisione del lotto 2 (I3): fuori dai canali leggibili, lo fa conoscere solo il progetto.
+    withoutChannels("p-laura", ["p-marco"]);
     const marco = PEOPLE.find((p) => p.id === "p-marco")!;
     expect(accessState().memberships.some((m) => m.personId === marco.id && m.projectId === ACQ)).toBe(true);
     projectEntry(ACQ, marco.id);
@@ -394,6 +396,8 @@ describe("il nome dell'autore della voce (r.1414)", () => {
   });
 
   it("un membro disattivato resta col suo nome", async () => {
+    // Revisione del lotto 2 (I3): fuori dai canali leggibili, lo fa conoscere solo il progetto.
+    withoutChannels("p-laura", ["p-marco"]);
     const marco = PEOPLE.find((p) => p.id === "p-marco")!;
     projectEntry(ACQ, marco.id);
     writeAccess((s) => {

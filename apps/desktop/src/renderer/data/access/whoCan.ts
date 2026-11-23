@@ -46,10 +46,12 @@ const nameOf = (personId: string): string =>
  * visibili. Claude non c'è (non è una persona da nascondere).
  */
 export function knownPeopleFor(viewerId: string): Set<string> {
+  // Revisione del lotto 2 (I2, decisione di 46): un archiviato che chi guarda
+  // può leggere conta come visibile.
   const known = peopleKnownTo({
     state: accessState(),
     viewerId,
-    visibleProjectIds: visibleProjectIds(viewerId),
+    visibleProjectIds: new Set([...visibleProjectIds(viewerId), ...archivedProjectIdsFor(viewerId)]),
   });
   // Decisione del maintainer (23 nov 2026): «chi scrive in un canale che vedo
   // è conosciuto». Membri e autori dei canali che chi guarda può leggere,

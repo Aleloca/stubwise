@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { strangersTo } from "../test/strangers";
+import { strangersTo, withoutChannels } from "../test/strangers";
 import { writeAccess } from "./access/index";
 import { listNotifications, resetApi, setLatency } from "./api";
 import { PEOPLE } from "./seed/people";
@@ -46,6 +46,8 @@ describe("l'inbox senza id di chi non si conosce (r.1414)", () => {
   });
 
   it("chi ha agito, disattivato in un progetto visibile: resta col suo nome", async () => {
+    // Revisione del lotto 2 (I3): fuori dai canali leggibili, lo fa conoscere solo il progetto.
+    withoutChannels(LAURA, ["p-marco"]);
     const { raw } = await lauraCard();
     raw.actorId = "p-marco";
     writeAccess((s) => {
