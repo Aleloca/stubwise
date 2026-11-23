@@ -1,3 +1,4 @@
+import { personRefSchema } from "./person-ref.js";
 import { z } from "zod";
 import { serverAnalysisLimitsSchema } from "../servers/operations.js";
 
@@ -9,7 +10,8 @@ import { serverAnalysisLimitsSchema } from "../servers/operations.js";
  * NON fidato: si mostra come testo, mai come markup né come comando.
  */
 
-const userRefSchema = z.object({ id: z.uuid(), name: z.string() });
+/** Chi ha agito: l'id, o `hidden-<n>` col nome null per chi chi guarda non conosce (registro, A11 r.1414). */
+const userRefSchema = z.object({ id: personRefSchema, name: z.string().nullable() });
 
 /** Un comando (o una lettura) nel registro (S8). */
 export const serverCommandViewSchema = z.object({

@@ -1,3 +1,4 @@
+import { registerPersonMask } from "../services/people-known.js";
 import { automationRuns, type Db } from "@stubwise/db";
 import type { AutomationDetail, AutomationFlow } from "@stubwise/shared";
 import { desc, eq, sql } from "drizzle-orm";
@@ -88,8 +89,13 @@ async function getAutomation(db: Db, viewer: Viewer, code: string): Promise<Auto
   };
 }
 
+/** Registro, A11 r.1414: le chiavi delle risposte che portano una persona. */
+const AUTOMATION_PERSON_KEYS: ReadonlySet<string> = new Set(["ownerId", "createdById", "pausedById", "byId", "approverIds", "deciders"]);
+
 export async function automationRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+  // Registro, A11 r.1414: chi guarda non riceve l'id di chi non conosce.
+  registerPersonMask(app, AUTOMATION_PERSON_KEYS);
   const me = (request: { user?: Viewer | null }) => request.user!;
 
   // --- le automazioni -------------------------------------------------------------

@@ -1,3 +1,4 @@
+import { registerPersonMask } from "../services/people-known.js";
 import { projects, serverAnalyses, serverCommands, serverEpisodes, serverFixes, serverOperationApprovals, servers, tickets, users, type Db } from "@stubwise/db";
 import { aiBudgetState, attributionContext, cancelServerCommands } from "@stubwise/notifications";
 import { serverCommandViewSchema, serverFixViewSchema, serverTaskViewSchema, validateServerPlan, type ServerFixView, type ServerTaskView } from "@stubwise/shared";
@@ -115,8 +116,13 @@ async function viewOf(db: Db, user: SessionUser, perms: ReadonlySet<string>, fix
   };
 }
 
+/** Registro, A11 r.1414: le chiavi delle risposte che portano una persona. */
+const SERVER_PERSON_KEYS: ReadonlySet<string> = new Set([]);
+
 export async function serverFixRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+  // Registro, A11 r.1414: chi guarda non riceve l'id di chi non conosce.
+  registerPersonMask(app, SERVER_PERSON_KEYS, new Set(["startedBy", "requestedBy", "by"]));
   const fixOf = async (ticketId: string) => (await app.db.select().from(serverFixes).where(eq(serverFixes.taskId, ticketId)))[0];
   const response = { 200: serverFixViewSchema, 404: errorSchema, 409: errorSchema, ...authErrorResponses };
 

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { backlogItemRequesters, projects, tickets, users } from "@stubwise/db";
+import { automations, backlogItemRequesters, projects, tickets, users } from "@stubwise/db";
 import { seedBacklogItem, seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
@@ -49,6 +49,19 @@ describe("le task senza gli sconosciuti", () => {
     const res = await app.inject({ method: "GET", url: `/api/requests/${itemId}`, headers: { cookie: reader.headers.cookie } });
     expect(res.statusCode, res.body).toBe(200);
     expect((res.json() as { requesterIds: string[] }).requesterIds).toContain("hidden-1");
+    expect(res.body).not.toContain(stranger!.id);
+  });
+
+  it("un'automazione di uno sconosciuto: `ownerId` è `hidden-<n>`, il suo id non esce", async () => {
+    const { projectId } = await seedTicket(t.db);
+    const reader = await createUserWithSession(app, `reader-au-${randomUUID().slice(0, 6)}@example.com`);
+    await addMember(app, projectId, reader.id, "project_lead");
+    const [stranger] = await t.db.insert(users).values({ email: `stranger-au-${randomUUID().slice(0, 6)}@x.it`, passwordHash: "x", role: "member" }).returning({ id: users.id });
+    const code = `Q${randomUUID().slice(0, 5).toUpperCase()}-A1`;
+    await t.db.insert(automations).values({ code, seq: 1, name: "Di un altro", projectId, ownerId: stranger!.id } as never);
+    const res = await app.inject({ method: "GET", url: `/api/automations/${code}`, headers: { cookie: reader.headers.cookie } });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.body).toContain("hidden-1");
     expect(res.body).not.toContain(stranger!.id);
   });
 });

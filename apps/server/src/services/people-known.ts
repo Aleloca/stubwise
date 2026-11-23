@@ -204,7 +204,7 @@ function personObjectIdsIn(payload: unknown, keys: ReadonlySet<string>): Set<str
   return out;
 }
 
-function maskPersonObjects<T>(payload: T, hidden: HiddenIds, keys: ReadonlySet<string>): T {
+export function maskPersonObjects<T>(payload: T, hidden: HiddenIds, keys: ReadonlySet<string>): T {
   if (keys.size === 0) return payload;
   const walk = (v: unknown): unknown => {
     if (Array.isArray(v)) return v.map(walk);

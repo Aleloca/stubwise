@@ -170,7 +170,8 @@ export function analysisOf(v: Reader<ServerAnalysisWire>, serverCode: string): S
     // `done` al tetto dei minuti (`endedBy: "time"`) è la diagnosi parziale del prototipo.
     outcome:
       v.status === "done" && v.endedBy === "time" ? "timed_out" : (OUTCOME[v.status] ?? "stopped"),
-    startedBy: v.startedBy ? { id: v.startedBy.id, name: v.startedBy.name } : null,
+    // Registro, A11 r.1414: chi non si conosce arriva col nome null (e un id `hidden-…`).
+    startedBy: v.startedBy ? { id: v.startedBy.id, name: v.startedBy.name ?? "" } : null,
     startedAt: v.startedAt,
     endedAt: v.finishedAt,
     canViewDiagnosis: v.canViewDiagnosis,
