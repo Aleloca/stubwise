@@ -34,7 +34,7 @@ import type { ChatAvailability, ChatLlm, ChatLlmInput } from "../routes/chat-llm
 import { createTicket } from "../db/tickets.js";
 import { addMember, createFakeGraphMcpClient, createUserWithPat, seedUsers, type SeededUsers, withOfflinePlatformIdentity } from "../test/fixtures.js";
 import type { SlackClient } from "./api.js";
-import type { SlackClientFactory } from "./routes.js";
+import { settleSlackBackground, type SlackClientFactory } from "./routes.js";
 import {
   ACTION_IDS,
   BLOCK_IDS,
@@ -396,6 +396,8 @@ afterAll(async () => {
 });
 
 afterEach(async () => {
+  // Il lavoro dopo l'ack di questo caso finisce QUI, non nelle spie del prossimo.
+  await settleSlackBackground();
   openView.mockClear();
   getUserEmail.mockClear();
   getUserProfile.mockClear();
@@ -1594,9 +1596,9 @@ describe("POST /api/slack/interactions — block_actions dell'inbox", () => {
     );
     expect(res.statusCode).toBe(200);
 
-    await vi.waitFor(async () => {
-      expect((await readNotification(notificationId))?.status).toBe("handled");
-    });
+    // L'azione intera (non solo la card `handled`): i lavori nascono dopo.
+    await settleSlackBackground();
+    expect((await readNotification(notificationId))?.status).toBe("handled");
     const jobs = await testDb.db.select().from(backlogJobs).where(eq(backlogJobs.projectId, ticketProjectId));
     expect(jobs).toHaveLength(2);
     const [child] = await testDb.db.select().from(emailProposals).where(eq(emailProposals.id, childId));
