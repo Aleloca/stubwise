@@ -13,7 +13,7 @@ import { and, eq, ne, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { projectIdsWithPermission, routePermissions, isAllProjects, scopeIncludes, type ProjectScope, inProjectsStrict } from "../auth/access.js";
+import { projectIdsWithPermission, readsDocs, routePermissions, isAllProjects, scopeIncludes, type ProjectScope, inProjectsStrict } from "../auth/access.js";
 import { fromBody, repositoryAccess } from "../auth/project-resolvers.js";
 import { GitProviderError } from "@stubwise/git";
 import { decrypt, gitAccounts, isAttachedRepository, projects, repositories } from "@stubwise/db";
@@ -513,7 +513,8 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
       if (!row || !isAttachedRepository(row.repository)) return apiError(reply, 404, "repository_not_found", "Repository not found");
       const permissions = routePermissions(request);
       const withConfig = permissions.has("repos.view");
-      if (!withConfig && !permissions.has("docs.view")) {
+      // `docs.view` vale col modulo Docs acceso, come nell'elenco (revisione del lotto 1).
+      if (!withConfig && !(await readsDocs(app.db, row.repository.projectId!, permissions))) {
         return apiError(reply, 403, "forbidden", "Missing permission");
       }
       const review = await resolveReviewAccounts(app.db, [row.repository.id]);
