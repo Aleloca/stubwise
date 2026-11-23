@@ -1,5 +1,5 @@
-import { randomBytes } from "node:crypto";
-import { milestones, projectBriefs, projectDecisions, projects, tickets } from "@stubwise/db";
+import { randomBytes, randomUUID } from "node:crypto";
+import { deletedTickets, milestones, projectBriefs, projectDecisions, projects, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { chronologyPageSchema, weeklyBriefViewSchema } from "@stubwise/shared";
@@ -147,6 +147,38 @@ describe("GET /api/projects/:projectId/chronology", () => {
     expect(res.events.some((e) => e.taskId === theirs)).toBe(false);
     expect(JSON.stringify(res)).not.toContain(`-${n - 1}"`);
     expect(res.events.find((e) => e.taskId === mine)?.taskCode).toMatch(/-\d+$/);
+  });
+
+  it("rimandi, lotto 4: le task ELIMINATE (`task_deleted`, codice e titolo di allora, chi l'ha eliminata); senza `tickets.view_all` solo le proprie; chi ha eliminato si maschera a chi non lo conosce", async () => {
+    const { projectId: pid } = await seedRepository(testDb.db);
+    const [{ code }] = (await testDb.db.select({ code: projects.code }).from(projects).where(eq(projects.id, pid))) as [{ code: string }];
+    const reader = await createUserWithSession(app, `lettore-del-${randomUUID().slice(0, 6)}@example.com`);
+    const dev = await createUserWithSession(app, `dev-del-${randomUUID().slice(0, 6)}@example.com`);
+    const stranger = await createUserWithSession(app, `estraneo-${randomUUID().slice(0, 6)}@example.com`);
+    await addMember(app, pid, reader.id, "contributor");
+    await addMember(app, pid, dev.id, "developer");
+    const at = (days: number) => new Date(Date.now() - days * DAY);
+    const byStranger = randomUUID();
+    const byReader = randomUUID();
+    await testDb.db.insert(deletedTickets).values([
+      { id: byStranger, projectId: pid, number: 901, title: "Vecchia richiesta", deletedBy: stranger.id, deletedAt: at(2) },
+      { id: byReader, projectId: pid, number: 902, title: "La mia bozza", deletedBy: reader.id, deletedAt: at(1) },
+    ]);
+    const deletedIn = async (cookie: string) => (await page(`/api/projects/${pid}/chronology`, cookie)).events.filter((e) => e.kind === "task_deleted");
+    const forAdmin = await deletedIn(users.adminCookie);
+    expect(forAdmin.map((e) => e.taskId)).toEqual([byReader, byStranger]);
+    expect(forAdmin[1]).toMatchObject({ kind: "task_deleted", taskCode: `${code}-901`, title: "Vecchia richiesta", byId: stranger.id });
+    expect(forAdmin[1]!.byName).toBeTruthy();
+    // Il Developer (tickets.view_all) le vede tutte, ma l'estraneo non lo conosce: segnaposto e nome null.
+    const forDev = await deletedIn(dev.headers.cookie);
+    expect(forDev.map((e) => e.taskId)).toEqual([byReader, byStranger]);
+    expect(forDev[1]!.byId).toMatch(/^hidden-/);
+    expect(forDev[1]!.byName).toBeNull();
+    // Il Contributor (senza tickets.view_all): solo quella che ha eliminato lui.
+    expect((await deletedIn(reader.headers.cookie)).map((e) => e.taskId)).toEqual([byReader]);
+    // E nell'attività del portafoglio, lo stesso evento.
+    const portfolio = await page("/api/activity/portfolio", reader.headers.cookie);
+    expect(portfolio.events.filter((e) => e.kind === "task_deleted").map((e) => e.taskId)).toEqual([byReader]);
   });
 
   it("un progetto invisibile → 404", async () => {

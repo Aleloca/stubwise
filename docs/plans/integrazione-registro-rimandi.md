@@ -1525,9 +1525,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   con `repos.view`, senza destinazione) (area 5, D6 = a): arrivano con un tool
   di Claude che legge il codice; oggi niente le produce.
 
-- Le task eliminate nella cronologia del progetto *(S)*: il server non ha una
+- ~~Le task eliminate nella cronologia del progetto *(S)*: il server non ha una
   cronologia di progetto che le nomini (la storia della task se ne va con
-  lei); lo standup e la richiesta d'origine sì. (Elimina task: chiusa, sotto.)
+  lei); lo standup e la richiesta d'origine sì. (Elimina task: chiusa, sotto.)~~
+  *Parte server chiusa il 24 nov 2026 (72, lotto 4)*: la cronologia e
+  l'attività del portafoglio portano `task_deleted` da `deleted_tickets`
+  (codice e titolo di allora, `byId`/`byName`, `viaClaude`). Con
+  `tickets.view_all` tutte, senza solo quelle eliminate da chi guarda; chi ha
+  eliminato è mascherato a chi non lo conosce (r.1414). Resta al renderer la
+  mappa nell'adattatore (`backend/real/overview.ts`, oggi le scarta).
 
 - **Chiuse con F2 (19 nov 2026)**: Claude fa domande a scelta anche nella
   conversazione libera (`ask_question`, una per risposta,
