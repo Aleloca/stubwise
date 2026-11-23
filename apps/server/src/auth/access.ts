@@ -257,9 +257,23 @@ export async function projectHasModule(db: Pick<Db, "select">, projectId: string
 export async function readsDocs(
   db: Pick<Db, "select">,
   projectId: string,
-  permissions: ReadonlySet<ProjectPermission> | null | undefined,
+  permissions: ReadonlySet<string> | readonly string[] | null | undefined,
+  /** I progetti col modulo acceso, già letti per un lotto ({@link docsModuleOn}). */
+  docsOn?: ReadonlySet<string>,
 ): Promise<boolean> {
-  return (permissions?.has("docs.view") ?? false) && (await projectHasModule(db, projectId, "docs"));
+  const has = Array.isArray(permissions) ? permissions.includes("docs.view") : ((permissions as ReadonlySet<string> | null | undefined)?.has("docs.view") ?? false);
+  if (!has) return false;
+  return docsOn ? docsOn.has(projectId) : projectHasModule(db, projectId, "docs");
+}
+
+/** Di `projectIds`, quelli col modulo Docs acceso: UNA query per un lotto di {@link readsDocs}. */
+export async function docsModuleOn(db: Pick<Db, "select">, projectIds: readonly string[]): Promise<ReadonlySet<string>> {
+  if (projectIds.length === 0) return new Set();
+  const rows = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(and(inArray(projects.id, [...new Set(projectIds)]), sql`'docs' = any(${projects.modules})`));
+  return new Set(rows.map((r) => r.id));
 }
 
 async function allOpenProjects(db: Pick<Db, "select">): Promise<AllOpenProjects> {

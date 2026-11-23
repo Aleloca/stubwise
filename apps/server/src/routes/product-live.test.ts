@@ -315,6 +315,22 @@ describe("il canale dal vivo", () => {
     expect(held.map((h) => [h.sectionId, h.userId])).toEqual([["top", editor.id]]);
   });
 
+  it("revisione del lotto 1: il modulo Docs spento a stream aperto: `gone` e lo stream si chiude", async () => {
+    const p = await page();
+    const m = await createUserWithSession(app, `mod-live-${randomUUID().slice(0, 6)}@example.com`);
+    await addMember(app, projectId, m.id, "viewer");
+    const s = await stream(m, p.id);
+    await s.wait((f) => f.type === "state");
+    await t.db.update(projects).set({ modules: ["releases"] }).where(eq(projects.id, projectId));
+    try {
+      expect(await s.wait((f) => f.type === "gone", 3000)).toBeDefined();
+      await s.done;
+      expect(s.isEnded()).toBe(true);
+    } finally {
+      await t.db.update(projects).set({ modules: ["docs", "releases", "support", "servers"] }).where(eq(projects.id, projectId));
+    }
+  });
+
   it("review di F4 (M5): chi perde `docs.view` esce dalla presenza al giro, senza aspettare la scadenza", async () => {
     const p = await page();
     const d = await createUserWithSession(app, `d-live-${randomUUID().slice(0, 6)}@example.com`);

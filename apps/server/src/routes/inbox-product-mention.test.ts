@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
-import { notifications, productComments, projectMembers, roles } from "@stubwise/db";
+import { notifications, productComments, projectMembers, projects, roles } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { InboxItem, ProductCommentView, ProductPageView } from "@stubwise/shared";
 import { buildApp } from "../app.js";
@@ -109,6 +109,20 @@ describe("la menzione nella doc di prodotto", () => {
     expect(card!.url).toBeUndefined();
     expect(card!.text).not.toContain(page.code);
     expect(card!.text).not.toContain("editor-m");
+  });
+
+  it("revisione del lotto 1: col modulo Docs spento la card è `objectGone` con la frase neutra, senza titolo né codice", async () => {
+    const { page, comment } = await mention("@reader-m guarda qui");
+    const [before] = await cardsOf(reader, comment.id);
+    expect(before).toMatchObject({ objectGone: false });
+    await t.db.update(projects).set({ modules: ["releases"] }).where(eq(projects.id, projectId));
+    try {
+      const [card] = await cardsOf(reader, comment.id);
+      expect(card).toMatchObject({ objectGone: true, productDoc: null, text: "A product page you can no longer see" });
+      expect(card!.text).not.toContain(page.code);
+    } finally {
+      await t.db.update(projects).set({ modules: ["docs", "releases", "support", "servers"] }).where(eq(projects.id, projectId));
+    }
   });
 
   it("chi non legge più i Docs del progetto: la card resta, ma `objectGone` e senza nulla della pagina (R-G5)", async () => {

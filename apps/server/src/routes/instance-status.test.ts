@@ -184,6 +184,12 @@ describe("lo Stato dell'istanza", () => {
       const blindRows = (await status(blind.cookie)).body.jobs;
       expect(blindRows.find((j) => j.id === upd!.id)).toMatchObject({ title: "", code: null });
       expect(JSON.stringify(blindRows)).not.toContain("Pagamenti");
+      // Revisione del lotto 1: col modulo Docs spento nemmeno chi ha `docs.view` vede la pagina.
+      await db.update(projects).set({ modules: ["releases"] }).where(eq(projects.id, s.projectId));
+      const offRows = (await status(reader.cookie)).body.jobs;
+      expect(offRows.find((j) => j.id === upd!.id)).toMatchObject({ title: "", code: null });
+      expect(JSON.stringify(offRows)).not.toContain("Pagamenti");
+      await db.update(projects).set({ modules: ["docs", "releases", "support", "servers"] }).where(eq(projects.id, s.projectId));
     } finally {
       await db.delete(productDocJobs);
     }

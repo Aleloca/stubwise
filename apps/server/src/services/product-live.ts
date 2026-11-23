@@ -2,6 +2,7 @@ import { liveSectionHolds, productPages, productSectionHolds, releaseSections, t
 import { instancePermissionsOfUser, projectPermissionsByProject } from "@stubwise/notifications";
 import type { ProductCursor, ProductPresence, ProductSectionHold } from "@stubwise/shared";
 import { and, eq, inArray, ne } from "drizzle-orm";
+import { readsDocs } from "../auth/access.js";
 import { personName } from "./people.js";
 import { visiblePersonIds } from "./people-visibility.js";
 import { PRODUCT_HOLD_TTL_MS } from "./product-live-notify.js";
@@ -135,7 +136,8 @@ export class ProductLiveHub {
     const [page] = await this.db.select({ id: productPages.id }).from(productPages).where(eq(productPages.id, sub.pageId));
     if (!page) return false;
     const perms = await projectPermissionsByProject(this.db, sub.userId, [sub.projectId]);
-    if (perms.get(sub.projectId)?.has("docs.view") !== true) return false;
+    // Anche il modulo Docs (revisione del lotto 1): spento a pagina aperta, lo stream si chiude al prossimo controllo.
+    if (!(await readsDocs(this.db, sub.projectId, perms.get(sub.projectId)))) return false;
     const people = await visiblePersonIds(this.db, { id: sub.userId, instancePermissions: await instancePermissionsOfUser(this.db, sub.userId) });
     sub.people = people === "all" ? "all" : new Set(people);
     sub.checkedAt = this.now();
@@ -431,7 +433,7 @@ export class ProductLiveHub {
             if (p.expiresAt <= now) continue;
             if (!checked.has(p.userId)) {
               const perms = row ? await projectPermissionsByProject(this.db, p.userId, [row.projectId]) : new Map();
-              checked.set(p.userId, row !== undefined && perms.get(row.projectId)?.has("docs.view") === true);
+              checked.set(p.userId, row !== undefined && (await readsDocs(this.db, row.projectId, perms.get(row.projectId))));
             }
             if (!checked.get(p.userId)) lost.push([k, p]);
           }

@@ -154,6 +154,11 @@ describe("«From the doc» e «From this page»", () => {
     expect(theirs.statusCode, theirs.body).toBe(200);
     expect((theirs.json() as { productOrigin: unknown }).productOrigin).toBeNull();
 
+    // Revisione del lotto 1: col modulo Docs spento la provenienza non si mostra.
+    await t.db.update(projects).set({ modules: ["releases"] }).where(eq(projects.id, projectId));
+    expect(((await inject(ada, "GET", `/api/requests/${itemId}`)).json() as ProjectRequestView).productOrigin).toBeNull();
+    await t.db.update(projects).set({ modules: ["docs", "releases", "support", "servers"] }).where(eq(projects.id, projectId));
+
     // «From this page»: la richiesta con la sua task.
     const linked = (await inject(ada, "GET", `/api/product-pages/${p.id}/requests`)).json() as ProductLinkedRequest[];
     expect(linked).toEqual([{ id: itemId, code: view.code, title: "Fault reports", status: view.status, taskCodes: [taskCode] }]);

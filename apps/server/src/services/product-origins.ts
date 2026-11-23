@@ -1,7 +1,7 @@
 import { backlogItems, backlogJobs, docPageCodes, productPages, productRequestOrigins, projects, type Db } from "@stubwise/db";
 import { anchorIdsOf, productBlockSchema, type ProductBlock, type ProductDocOrigin, type ProductOrigin } from "@stubwise/shared";
 import { and, asc, eq, inArray, ne } from "drizzle-orm";
-import { projectPermissionsMap } from "../auth/access.js";
+import { docsModuleOn, projectPermissionsMap, readsDocs } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { ProductDocsError } from "./product-docs.js";
 
@@ -82,10 +82,11 @@ export async function productOriginsForItems(db: Db, viewer: Viewer, itemIds: re
     .orderBy(asc(productRequestOrigins.createdAt), asc(productRequestOrigins.id));
   if (rows.length === 0) return new Map();
   const perms = await projectPermissionsMap(db, viewer);
+  const docsOn = await docsModuleOn(db, rows.map((r) => r.projectId));
   const out = new Map<string, ProductOrigin>();
   for (const r of rows) {
     if (!r.itemId || out.has(r.itemId)) continue;
-    if (!(perms[r.projectId] ?? []).includes("docs.view")) continue;
+    if (!(await readsDocs(db, r.projectId, perms[r.projectId], docsOn))) continue;
     out.set(r.itemId, { pageId: r.pageId, code: pageCode(r.projectCode, r.number), title: r.title });
   }
   return out;
