@@ -1,3 +1,4 @@
+import { personRefSchema } from "./person-ref.js";
 import { z } from "zod";
 // Vive in `actor.ts` (per evitare un import circolare con `ticket.ts`, che ne
 // ha bisogno per `planApprovedBy` della fase 7); ri-esportato più sotto perché
@@ -751,7 +752,8 @@ export const inboxItemSchema = z.object({
    * cambi additivi).
    */
   reviewOutcome: inboxReviewOutcomeSchema.nullable().default(null),
-  projectId: z.uuid().nullable(),
+  /** L'id, o `hidden-project-<n>` per un progetto che chi legge non vede più (registro, A11 r.1414). */
+  projectId: z.string().min(1).nullable(),
   ticketId: z.uuid().nullable(),
   /**
    * Il codice della task della card (`<CODICE>-<number>`, integrazione area
@@ -788,7 +790,7 @@ export const inboxItemSchema = z.object({
    * mai dal jsonb: vale per le card vecchie e scavalca un jsonb che dicesse
    * altro. Una rimozione a mano NON è un annullamento. Additivo.
    */
-  undoneBy: z.object({ id: z.uuid(), name: z.string() }).nullable().default(null),
+  undoneBy: z.object({ id: personRefSchema, name: z.string() }).nullable().default(null),
   /**
    * Area 10, F5 (richiesta di 94): sulle card `member.added`, i pezzi delle due
    * frasi del prototipo, che il renderer compone nella lingua di chi guarda.
@@ -797,7 +799,7 @@ export const inboxItemSchema = z.object({
    * nome di ADESSO del ruolo, null se il ruolo non c'è più. Additivo.
    */
   memberAdded: z
-    .object({ addedUserId: z.uuid(), addedName: z.string().nullable(), roleName: z.string().nullable(), actorName: z.string().nullable() })
+    .object({ addedUserId: personRefSchema, addedName: z.string().nullable(), roleName: z.string().nullable(), actorName: z.string().nullable() })
     .nullable()
     .default(null),
   /**
