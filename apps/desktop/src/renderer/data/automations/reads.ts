@@ -24,6 +24,7 @@ import { pendingEffectOf } from "./pendingEffect";
 // Usata solo dentro le funzioni: l'import circolare con `writes.ts` è innocuo.
 import { checkNewAutomation } from "./writes";
 import { viewRun } from "./runView";
+import { personMasker } from "../access/hidden";
 import { isOpen, publishedVersion, sweepApprovals } from "./runner";
 import {
   approversFor,
@@ -161,7 +162,9 @@ const WAITING: ReadonlySet<RunStatus> = new Set([
   "waiting_project",
 ]);
 
-export function automationRow(me: string, a: Automation): AutomationRow {
+type PersonMask = ReturnType<typeof personMasker>;
+
+export function automationRow(me: string, a: Automation, mask: PersonMask = personMasker(me)): AutomationRow {
   const live = publishedVersion(a);
   const runs = state.automationRuns.filter((r) => r.automationId === a.id);
   const last = runs.reduce<string | null>(
@@ -170,6 +173,10 @@ export function automationRow(me: string, a: Automation): AutomationRow {
   );
   return {
     ...copy(a),
+    // R.1414 (lotto 3): chi non si conosce, segnaposto.
+    ownerId: a.ownerId === null ? null : mask(a.ownerId),
+    createdById: mask(a.createdById),
+    pausedById: a.pausedById === null ? null : mask(a.pausedById),
     // R-G5: un progetto fisso che non vedo non ha id nemmeno nel flusso.
     versions: a.versions.map((v) => ({ ...copy(v), flow: flowFor(me, v.flow) })),
     permissions: { manage: canManageAutomation(me, a) },
@@ -182,8 +189,8 @@ export function automationRow(me: string, a: Automation): AutomationRow {
   };
 }
 
-export function runRow(me: string, source: AutomationRun): AutomationRunRow {
-  const run = viewRun(me, source);
+export function runRow(me: string, source: AutomationRun, mask: PersonMask = personMasker(me)): AutomationRunRow {
+  const run = viewRun(me, source, mask);
   const a = automationById(run.automationId)!;
   return {
     ...run,
@@ -205,13 +212,14 @@ export async function listAutomations(
 ): Promise<AutomationRow[]> {
   const me = await gate("automations.listAutomations");
   sweepApprovals();
+  const mask = personMasker(me);
   return state.automations
     .filter((a) => canSeeAutomation(me, a))
     .filter((a) => filter.projectId === undefined || a.projectId === filter.projectId)
     .filter((a) => filter.status === undefined || a.status === filter.status)
     .filter((a) => filter.ownerId === undefined || a.ownerId === filter.ownerId)
     .sort((x, y) => x.name.localeCompare(y.name) || x.code.localeCompare(y.code))
-    .map((a) => automationRow(me, a));
+    .map((a) => automationRow(me, a, mask));
 }
 
 /** Un'automazione con versioni, errori di configurazione ed esecuzioni; `null` se non la vedo. */
@@ -222,15 +230,16 @@ export async function getAutomation(id: string): Promise<AutomationDetail | null
   if (!a || !canSeeAutomation(me, a)) return null;
   const owner = a.ownerId ?? me;
   const live = publishedVersion(a);
+  const mask = personMasker(me);
   return {
-    automation: automationRow(me, a),
+    automation: automationRow(me, a, mask),
     configErrors: configErrorsOf(a, latest(a).flow, owner),
     liveErrors: live ? configErrorsOf(a, live.flow, owner) : [],
     runs: state.automationRuns
       .filter((r) => r.automationId === a.id)
       .sort(byRecency)
       .slice(0, 20)
-      .map((r) => runRow(me, r)),
+      .map((r) => runRow(me, r, mask)),
   };
 }
 
@@ -377,13 +386,15 @@ export async function getRun(id: string): Promise<AutomationRunDetail | null> {
   const a = automationById(run.automationId)!;
   const deciders = decidersOf(run);
   const parent = run.parentRunId ? runById(run.parentRunId) : undefined;
-  const row = runRow(me, run);
+  // R.1414 (lotto 3): un masker per la riga, chi decide e il titolare.
+  const mask = personMasker(me);
+  const row = runRow(me, run, mask);
   return {
     ...row,
     pendingEffect: pendingEffectOf(me, run, row),
     flow: flowFor(me, a.versions.find((v) => v.n === run.version)!.flow),
-    deciders,
-    ownerId: a.ownerId,
+    deciders: deciders.map(mask),
+    ownerId: a.ownerId === null ? null : mask(a.ownerId),
     permissions: {
       manage: canManageRun(me, run),
       approve: run.status === "waiting_approval" && deciders.includes(me),

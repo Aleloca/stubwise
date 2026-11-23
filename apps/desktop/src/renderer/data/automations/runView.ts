@@ -2,6 +2,7 @@ import { hideProject } from "../../domain/automations/runRules";
 export { hideProject };
 import { hideReplies } from "@stubwise/shared";
 import { visitSteps } from "@stubwise/shared";
+import { personMasker } from "../access/hidden";
 import { copy, state, visibleProjectIds } from "../store";
 import type { AutomationRun, ReasonCode, RunLogEntry } from "../types";
 import { budgetReached } from "../instance/blocks";
@@ -107,7 +108,12 @@ function mailOrigin(run: AutomationRun): { ownerId: string | null } | null {
  * - R-G5 attraverso «Avvia un'altra automazione»: un'esecuzione figlia che
  *   non vede resta senza codice, e il bersaglio senza id né nome.
  */
-export function viewRun(me: string, run: AutomationRun): AutomationRun {
+export function viewRun(
+  me: string,
+  run: AutomationRun,
+  // R.1414 (lotto 3): il masker della risposta.
+  mask: ReturnType<typeof personMasker> = personMasker(me),
+): AutomationRun {
   const v = copy(run);
   const visible = visibleProjectIds(me);
   // Ferma per un blocco d'istanza (area 9b): il blocco di adesso, col codice
@@ -177,7 +183,7 @@ export function viewRun(me: string, run: AutomationRun): AutomationRun {
     )
       v.pending.preview.automazione = "";
     // Chi decide si legge adesso (come `decide`): il proprietario può essere cambiato.
-    v.pending.approverIds = decidersOf(run);
+    v.pending.approverIds = decidersOf(run).map(mask);
   }
   const a = automationById(run.automationId);
   if (a?.ownerId !== me) {
@@ -207,6 +213,8 @@ export function viewRun(me: string, run: AutomationRun): AutomationRun {
     }
     if (v.pending && !decidersOf(run).includes(me)) v.pending.preview = {};
   }
+  // R.1414 (lotto 3): chi ha agito nel registro, alla fine (le regole sopra leggono gli id veri).
+  v.log = v.log.map((e) => (e.byId ? { ...e, byId: mask(e.byId) } : e));
   return v;
 }
 
