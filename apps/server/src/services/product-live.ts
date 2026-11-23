@@ -3,8 +3,9 @@ import { instancePermissionsOfUser, projectPermissionsByProject } from "@stubwis
 import type { ProductCursor, ProductPresence, ProductSectionHold } from "@stubwise/shared";
 import { and, eq, inArray, ne } from "drizzle-orm";
 import { readsDocs } from "../auth/access.js";
+import type { SessionUser } from "../auth/session.js";
 import { personName } from "./people.js";
-import { visiblePersonIds } from "./people-visibility.js";
+import { HiddenIds, peopleKnownTo } from "./people-known.js";
 import { PRODUCT_HOLD_TTL_MS } from "./product-live-notify.js";
 import type { ProductRevisionEvent } from "./product-live-notify.js";
 
@@ -49,8 +50,15 @@ interface Subscriber {
   send: (frame: Frame) => void;
   close: () => void;
   checkedAt: number;
-  /** Le persone che vede (R-G5), riletto insieme ai permessi. */
-  people: "all" | ReadonlySet<string>;
+  /**
+   * Registro, A11 r.1414 (revisione del lotto 2, M4): chi conosce, verificato
+   * SOLO sulle persone che i frame nominano (`know`), e rifatto insieme ai
+   * permessi. Uno sconosciuto esce come `hidden-<n>`: la numerazione vale fino
+   * al controllo successivo, quindi un client non confronta segnaposto di
+   * frame diversi.
+   */
+  hidden: HiddenIds;
+  viewer: Pick<SessionUser, "id" | "instancePermissions">;
   /** Pronto: ha ricevuto `state` (prima no, gli eventi aspettano). */
   ready: boolean;
 }
@@ -138,8 +146,11 @@ export class ProductLiveHub {
     const perms = await projectPermissionsByProject(this.db, sub.userId, [sub.projectId]);
     // Anche il modulo Docs (revisione del lotto 1): spento a pagina aperta, lo stream si chiude al prossimo controllo.
     if (!(await readsDocs(this.db, sub.projectId, perms.get(sub.projectId)))) return false;
-    const people = await visiblePersonIds(this.db, { id: sub.userId, instancePermissions: await instancePermissionsOfUser(this.db, sub.userId) });
-    sub.people = people === "all" ? "all" : new Set(people);
+    // Revisione del lotto 2, M4 (e il costo di M12): niente più una scansione
+    // dell'istanza a ogni controllo; si verificano solo le persone nominate.
+    const instancePermissions = await instancePermissionsOfUser(this.db, sub.userId);
+    sub.viewer = { id: sub.userId, instancePermissions };
+    sub.hidden = new HiddenIds(instancePermissions.has("instance.full_admin") ? "all" : new Set(), sub.userId);
     sub.checkedAt = this.now();
     return true;
   }
@@ -191,7 +202,14 @@ export class ProductLiveHub {
   }
 
   private sees(sub: Subscriber, userId: string): boolean {
-    return sub.people === "all" || sub.people.has(userId);
+    return sub.hidden.knows(userId);
+  }
+
+  /** Verifica (una volta per controllo dei permessi) chi di `ids` lo stream conosce. */
+  private async know(sub: Subscriber, ids: Iterable<string>): Promise<void> {
+    const missing = sub.hidden.unchecked(ids);
+    if (missing.length === 0) return;
+    sub.hidden.learn(missing, await peopleKnownTo(this.db, sub.viewer, missing));
   }
 
   // --- la presenza ---------------------------------------------------------------
@@ -216,14 +234,18 @@ export class ProductLiveHub {
   }
 
   private async broadcastPresence(pageId: string): Promise<void> {
-    const names = await this.names(this.livePresence(pageId).map((p) => p.userId));
-    await this.broadcast(pageId, (sub) => ({ type: "presence", presence: this.presenceFor(sub, names) }));
+    const ids = this.livePresence(pageId).map((p) => p.userId);
+    const names = await this.names(ids);
+    await this.broadcast(pageId, async (sub) => {
+      await this.know(sub, ids);
+      return { type: "presence", presence: this.presenceFor(sub, names) };
+    });
   }
 
   // --- le prese ------------------------------------------------------------------
 
   private holdFor(sub: Subscriber, sectionId: string, h: { userId: string; expiresAt: Date }, names: Map<string, string>): ProductSectionHold {
-    return { sectionId, by: { id: h.userId, name: this.sees(sub, h.userId) ? (names.get(h.userId) ?? null) : null }, expiresAt: h.expiresAt.toISOString() };
+    return { sectionId, by: { id: sub.hidden.person(h.userId), name: this.sees(sub, h.userId) ? (names.get(h.userId) ?? null) : null }, expiresAt: h.expiresAt.toISOString() };
   }
 
   /**
@@ -241,7 +263,12 @@ export class ProductLiveHub {
     const released = [...before.keys()].filter((s) => !after.has(s));
     if (changed.length === 0 && released.length === 0) return;
     const names = await this.names(changed.map(([, h]) => h.userId));
-    for (const [sectionId, h] of changed) await this.broadcast(pageId, (sub) => ({ type: "hold", hold: this.holdFor(sub, sectionId, h, names) }));
+    for (const [sectionId, h] of changed) {
+      await this.broadcast(pageId, async (sub) => {
+        await this.know(sub, [h.userId]);
+        return { type: "hold", hold: this.holdFor(sub, sectionId, h, names) };
+      });
+    }
     for (const sectionId of released) await this.broadcast(pageId, () => ({ type: "release", sectionId }));
   }
 
@@ -261,7 +288,8 @@ export class ProductLiveHub {
     if (this.count(input.pageId) >= PRODUCT_LIVE_STREAMS_PER_PAGE) throw new ProductLiveError(429, "too_many_streams", `A page has at most ${PRODUCT_LIVE_STREAMS_PER_PAGE} live streams`);
     const mine = [...this.subs.values()].reduce((n, set) => n + [...set].filter((s) => s.userId === input.userId).length, 0);
     if (mine >= PRODUCT_LIVE_STREAMS_PER_PERSON) throw new ProductLiveError(429, "too_many_streams", `A person has at most ${PRODUCT_LIVE_STREAMS_PER_PERSON} live streams`);
-    const sub: Subscriber = { pageId: input.pageId, projectId: input.projectId, userId: input.userId, send: input.send, close: input.close, checkedAt: 0, people: new Set(), ready: false };
+    const viewer: Subscriber["viewer"] = { id: input.userId, instancePermissions: new Set() };
+    const sub: Subscriber = { pageId: input.pageId, projectId: input.projectId, userId: input.userId, send: input.send, close: input.close, checkedAt: 0, hidden: new HiddenIds(new Set(), input.userId), viewer, ready: false };
     const set = this.subs.get(input.pageId) ?? new Set<Subscriber>();
     set.add(sub);
     this.subs.set(input.pageId, set);
@@ -271,7 +299,9 @@ export class ProductLiveHub {
         if (!set.has(sub)) return;
         const live = await liveSectionHolds(this.db, input.pageId, new Date(this.now()));
         if (!this.lastHolds.has(input.pageId)) this.lastHolds.set(input.pageId, new Map(live.map((h) => [h.sectionId, { userId: h.userId, expiresAt: h.expiresAt }])));
-        const names = await this.names([...this.livePresence(input.pageId).map((p) => p.userId), ...live.map((h) => h.userId)]);
+        const ids = [...this.livePresence(input.pageId).map((p) => p.userId), ...live.map((h) => h.userId)];
+        const names = await this.names(ids);
+        await this.know(sub, ids);
         sub.send({
           type: "state",
           seq: Math.max(input.seq, this.lastSeq.get(input.pageId) ?? 0),
@@ -301,13 +331,17 @@ export class ProductLiveHub {
         }
         this.lastSeq.set(pageId, Math.max(seq, this.lastSeq.get(pageId) ?? 0));
         const live = await liveSectionHolds(this.db, pageId, new Date(this.now()));
-        const names = await this.names([...this.livePresence(pageId).map((p) => p.userId), ...live.map((h) => h.userId)]);
-        await this.broadcast(pageId, (sub) => ({
-          type: "state",
-          seq,
-          presence: this.presenceFor(sub, names),
-          holds: live.map((h) => this.holdFor(sub, h.sectionId, { userId: h.userId, expiresAt: h.expiresAt }, names)),
-        }));
+        const ids = [...this.livePresence(pageId).map((p) => p.userId), ...live.map((h) => h.userId)];
+        const names = await this.names(ids);
+        await this.broadcast(pageId, async (sub) => {
+          await this.know(sub, ids);
+          return {
+            type: "state",
+            seq,
+            presence: this.presenceFor(sub, names),
+            holds: live.map((h) => this.holdFor(sub, h.sectionId, { userId: h.userId, expiresAt: h.expiresAt }, names)),
+          };
+        });
       });
     }
   }
@@ -321,16 +355,20 @@ export class ProductLiveHub {
       if (!this.subs.has(event.pageId)) return;
       if (event.seq <= (this.lastSeq.get(event.pageId) ?? 0)) return;
       this.lastSeq.set(event.pageId, event.seq);
-      await this.broadcast(event.pageId, () => ({
-        type: "revision",
-        seq: event.seq,
-        kind: event.kind,
-        actorId: event.actorId,
-        sessionId: event.sessionId,
-        ops: event.ops ?? [],
-        title: event.title ?? null,
-        parentId: event.parentId ?? null,
-      }));
+      await this.broadcast(event.pageId, async (sub) => {
+        if (event.actorId) await this.know(sub, [event.actorId]);
+        return {
+          type: "revision",
+          seq: event.seq,
+          kind: event.kind,
+          // Revisione del lotto 2, M4: chi ha scritto, se chi guarda non lo conosce, è un segnaposto.
+          actorId: event.actorId ? sub.hidden.person(event.actorId) : event.actorId,
+          sessionId: event.sessionId,
+          ops: event.ops ?? [],
+          title: event.title ?? null,
+          parentId: event.parentId ?? null,
+        };
+      });
       await this.refreshHoldsNow(event.pageId);
     });
   }
@@ -407,7 +445,11 @@ export class ProductLiveHub {
       this.presence.set(input.pageId, page);
       if (!before || before.sectionId !== next.sectionId) await this.broadcastPresence(input.pageId);
       else if (JSON.stringify(before.cursor) !== JSON.stringify(next.cursor)) {
-        await this.broadcast(input.pageId, (sub) => (sub.userId !== input.userId && this.sees(sub, input.userId) ? { type: "cursor", userId: input.userId, cursor: next.cursor } : null));
+        await this.broadcast(input.pageId, async (sub) => {
+          if (sub.userId === input.userId) return null;
+          await this.know(sub, [input.userId]);
+          return this.sees(sub, input.userId) ? { type: "cursor", userId: input.userId, cursor: next.cursor } : null;
+        });
       }
       await this.refreshHoldsNow(input.pageId);
     }).then(() => result);

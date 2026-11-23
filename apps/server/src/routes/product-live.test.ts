@@ -199,6 +199,24 @@ describe("il canale dal vivo", () => {
     b.close();
   });
 
+  it("revisione del lotto 2, M4: nei frame chi scrive e chi tiene una sezione, se chi guarda non li conosce, sono `hidden-<n>` (né id né nome)", async () => {
+    const p = await page();
+    const [stranger] = await t.db.insert(users).values({ email: `stranger-live-${randomUUID().slice(0, 6)}@x.it`, passwordHash: "x", role: "member", displayName: "Zorro" }).returning({ id: users.id });
+    const b = await stream(reader, p.id);
+    await b.wait((f) => f.type === "state");
+    app.productLive.handleNotify(JSON.stringify({ type: "revision", pageId: p.id, seq: p.seq + 3, kind: "edit", actorId: stranger!.id, sessionId: null }));
+    const rev = await b.wait((f) => f.type === "revision");
+    expect(rev).toMatchObject({ actorId: expect.stringMatching(/^hidden-\d+$/) });
+    await t.db.insert(productSectionHolds).values({ pageId: p.id, sectionId: "top", userId: stranger!.id, expiresAt: new Date(Date.now() + 60_000) });
+    await app.productLive.refreshHolds(p.id);
+    const hold = await b.wait((f) => f.type === "hold");
+    expect(hold).toMatchObject({ hold: { sectionId: "top", by: { id: expect.stringMatching(/^hidden-\d+$/), name: null } } });
+    expect(JSON.stringify(b.frames)).not.toContain(stranger!.id);
+    expect(JSON.stringify(b.frames)).not.toContain("Zorro");
+    // Chi si conosce resta vero (il primo caso del file: `actorId: editor.id`).
+    b.close();
+  });
+
   it("chi non vede la pagina: 404 sullo stream e sul battito", async () => {
     const p = await page();
     const outsider = await createUserWithSession(app, `out-live-${randomUUID().slice(0, 6)}@example.com`);
@@ -221,18 +239,27 @@ describe("il canale dal vivo", () => {
   it("review di F4 (M12): il tetto per pagina, 50 stream; il cinquantunesimo 429", async () => {
     const p = await page();
     const ctrls: AbortController[] = [];
+    // Le risposte si TENGONO: una risposta abbandonata col corpo non letto può
+    // essere raccolta e chiusa da Node, e il suo posto si libererebbe.
+    const open: Response[] = [];
     for (let i = 0; i < 5; i++) {
       const who = await createUserWithSession(app, `cap-${i}-${randomUUID().slice(0, 6)}@example.com`);
       await addMember(app, projectId, who.id, "viewer");
       for (let k = 0; k < 10; k++) {
         const c = new AbortController();
         ctrls.push(c);
-        expect((await fetch(`${base}/api/product-pages/${p.id}/live`, { headers: { cookie: who.headers.cookie }, signal: c.signal })).status).toBe(200);
+        const res = await fetch(`${base}/api/product-pages/${p.id}/live`, { headers: { cookie: who.headers.cookie }, signal: c.signal });
+        open.push(res);
+        expect(res.status).toBe(200);
       }
     }
-    const last = await fetch(`${base}/api/product-pages/${p.id}/live`, { headers: { cookie: reader.headers.cookie } });
+    expect(app.productLive.count(p.id)).toBe(50);
+    const lastCtrl = new AbortController();
+    ctrls.push(lastCtrl);
+    const last = await fetch(`${base}/api/product-pages/${p.id}/live`, { headers: { cookie: reader.headers.cookie }, signal: lastCtrl.signal });
     expect(last.status).toBe(429);
     for (const c of ctrls) c.abort();
+    expect(open).toHaveLength(50);
   });
 
   it("review di F4 (I2): chi se ne va mentre lo stream si apre non resta nei tetti", async () => {
