@@ -128,6 +128,23 @@ describe("member.added nella build app", () => {
     expect(theirs.notOpenable).toBeUndefined();
   });
 
+  it("annullata da chi chi guarda non conosce (R-G5, `hidden-n` e nome vuoto): niente «Undone by», e resta chiusa per chi era entrato", () => {
+    const via = {
+      viaClaude: true,
+      viaClaudeActionId: "99999999-9999-4999-8999-999999999999",
+      viaClaudeRequesterId: "hidden-1",
+      undoneBy: { id: "hidden-1", name: "" },
+    };
+    // Come il prototipo (`undoneByNameOf`): chi annulla e chi guarda non vede, la riga non c'è.
+    const mine = presentInboxItem(item({ alertMandatory: "added", ...via }), ctx(LUCA));
+    expect(mine.undoneByName).toBeNull();
+    expect(mine).toMatchObject({ notOpenable: true, link: "" });
+    expect(cardText(mine, "p-luca")).not.toContain("Undone by");
+    const theirs = presentInboxItem(item(via), ctx(MATTEO));
+    expect(theirs.undoneByName).toBeNull();
+    expect(cardText(theirs, "p-matteo")).not.toContain("Undone by");
+  });
+
   it("una card di un server di prima, senza `memberAdded`: il testo del server com'è", () => {
     const n = presentInboxItem(item({ memberAdded: null }), ctx(MATTEO));
     expect(n.title).toBe("Luca Bianchi joined ACQ as Developer");

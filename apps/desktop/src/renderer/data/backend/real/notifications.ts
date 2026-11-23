@@ -188,7 +188,10 @@ function memberAddedOf(item: InboxItem, ctx: PresentContext, projectCode: string
     ...(notOpenable ? { notOpenable: true } : {}),
     ...mandatoryOf(item, ctx),
     ...viaClaudeOf(item, ctx),
-    ...(undoneBy ? { undoneByName: undoneBy.name } : {}),
+    // R-G5 (lotto 2, M2 di 72): chi annulla e chi guarda non conosce arriva
+    // `{ id: "hidden-n", name: "" }`; come `undoneByNameOf` del prototipo,
+    // la riga «Undone by» allora non c'è (null), ma la card resta annullata.
+    ...(undoneBy ? { undoneByName: undoneBy.name || null } : {}),
   };
 }
 
