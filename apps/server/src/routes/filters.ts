@@ -2,7 +2,7 @@ import { registerPersonMask } from "../services/people-known.js";
 import { pinnedTaskFilters, taskFilters } from "@stubwise/db";
 import {
   filterPatchBodySchema,
-  newFilterBodySchema,
+  newFilterRequestSchema,
   parseCriteria,
   savedFilterViewSchema,
   type SavedFilterView,
@@ -15,11 +15,11 @@ import type { SessionUser } from "../auth/session.js";
 import { apiError } from "../errors.js";
 import {
   createTaskFilter,
-  criteriaCarryPlaceholder,
   deleteTaskFilter,
   isFullAdmin,
   lockPerson,
   MAX_FILTERS_PER_PERSON,
+  resolveCriteriaPlaceholders,
   visibleFilter,
   visibleTo,
 } from "../services/task-filters.js";
@@ -66,6 +66,9 @@ export { MAX_FILTERS_PER_PERSON };
 // `assigneeIds` dei criteri (scelta A di 46): lo stesso masker di `ownerId`; `none` non è un id e resta.
 const FILTER_PERSON_KEYS: ReadonlySet<string> = new Set(["ownerId", "assigneeIds"]);
 
+/** Un segnaposto nei criteri che non si risolve col filtro d'origine (registro, A11 r.1414). */
+const PLACEHOLDER_CRITERIA = "criteria: a placeholder needs the saved filter it comes from";
+
 export async function filterRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
   // Registro, A11 r.1414: chi guarda non riceve l'id di chi non conosce.
@@ -105,12 +108,15 @@ export async function filterRoutes(fastify: FastifyInstance): Promise<void> {
     "/filters",
     {
       config: { access: { kind: "user" } },
-      schema: { body: newFilterBodySchema, response: { 201: savedFilterViewSchema, 400: errorSchema, ...authErrorResponses } },
+      schema: { body: newFilterRequestSchema, response: { 201: savedFilterViewSchema, 400: errorSchema, ...authErrorResponses } },
     },
     async (request, reply) => {
       const viewer = request.user!;
-      if (criteriaCarryPlaceholder(request.body.criteria)) return apiError(reply, 400, "invalid", "criteria: a placeholder is not a person id");
-      const row = await createTaskFilter(app.db, viewer, request.body);
+      const { savedFilterId, ...body } = request.body;
+      const source = savedFilterId ? await visibleFilter(app.db, viewer, savedFilterId) : null;
+      const criteria = await resolveCriteriaPlaceholders(app.db, viewer, body.criteria, source);
+      if (criteria === "invalid") return apiError(reply, 400, "invalid", PLACEHOLDER_CRITERIA);
+      const row = await createTaskFilter(app.db, viewer, { ...body, criteria });
       if (!row) return apiError(reply, 400, "too_many_filters", `At most ${MAX_FILTERS_PER_PERSON} filters per person`);
       return reply.code(201).send(viewOf(row, viewer));
     },
@@ -130,12 +136,14 @@ export async function filterRoutes(fastify: FastifyInstance): Promise<void> {
       const viewer = request.user!;
       const row = await visibleFilter(app.db, viewer, request.params.id);
       if (!row) return apiError(reply, 404, "not_found", "Filter not found");
-      // Una PATCH senza `criteria` li lascia invariati, con gli id veri.
-      if (criteriaCarryPlaceholder(request.body.criteria)) return apiError(reply, 400, "invalid", "criteria: a placeholder is not a person id");
       if (row.ownerId !== viewer.id && !isFullAdmin(viewer)) {
         return apiError(reply, 403, "forbidden", "Only the author or a full admin edits a filter");
       }
-      const patch = Object.fromEntries(Object.entries(request.body).filter(([, v]) => v !== undefined));
+      // Una PATCH senza `criteria` li lascia invariati, con gli id veri; con
+      // dei segnaposto, tornano gli id del filtro stesso (I-6).
+      const criteria = request.body.criteria === undefined ? undefined : await resolveCriteriaPlaceholders(app.db, viewer, request.body.criteria, row);
+      if (criteria === "invalid") return apiError(reply, 400, "invalid", PLACEHOLDER_CRITERIA);
+      const patch = Object.fromEntries(Object.entries({ ...request.body, criteria }).filter(([, v]) => v !== undefined));
       const [updated] = await app.db
         .update(taskFilters)
         .set({ ...patch, updatedAt: sql`now()` })

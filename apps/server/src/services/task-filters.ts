@@ -79,17 +79,54 @@ export function criteriaCarryPlaceholder(criteria: { assigneeIds?: readonly stri
  */
 const NOBODY = "00000000-0000-0000-0000-000000000000";
 
+/** Gli assegnatari di un filtro salvato che chi guarda non conosce (quelli che legge come segnaposto). */
+async function unknownAssigneesOf(db: Db, viewer: Viewer, filter: typeof taskFilters.$inferSelect): Promise<string[]> {
+  const saved = (parseCriteria(filter.criteria)?.assigneeIds ?? []).filter((id) => id !== "none" && id !== "me");
+  const known = await peopleKnownTo(db, viewer, saved);
+  return known === "all" ? [] : saved.filter((id) => !known.has(id));
+}
+
+/** Al posto dei segnaposto (dove sta il primo), gli id veri; quelli mandati dal client restano, nell'ordine. */
+function withReal(asked: readonly string[], unknown: readonly string[]): string[] {
+  const out: string[] = [];
+  let placed = false;
+  for (const id of asked) {
+    if (!isPersonPlaceholder(id)) out.push(id);
+    else if (!placed) {
+      out.push(...unknown);
+      placed = true;
+    }
+  }
+  return [...new Set(out)];
+}
+
 export async function resolveSavedFilterPlaceholders(db: Db, viewer: Viewer, query: TaskListQuery): Promise<TaskListQuery | "invalid"> {
   const asked = query.assigneeIds ?? [];
   if (!asked.some(isPersonPlaceholder)) return query;
   const filter = query.savedFilterId ? await visibleFilter(db, viewer, query.savedFilterId) : null;
   if (!filter) return "invalid";
-  const saved = (parseCriteria(filter.criteria)?.assigneeIds ?? []).filter((id) => id !== "none" && id !== "me");
-  const known = await peopleKnownTo(db, viewer, saved);
-  const unknown = known === "all" ? [] : saved.filter((id) => !known.has(id));
-  const kept = asked.filter((id) => !isPersonPlaceholder(id));
-  const resolved = [...new Set([...kept, ...unknown])];
+  const resolved = withReal(asked, await unknownAssigneesOf(db, viewer, filter));
   // Un elenco vuoto vorrebbe dire «nessun filtro» (tutte le task): qui vuol dire
   // «nessuno», quindi un id che non è di nessuno.
   return { ...query, assigneeIds: resolved.length > 0 ? resolved : [NOBODY] };
+}
+
+/**
+ * Revisione 3bbe2ddc6..444b8b773, I-6: i criteri di un salvataggio coi
+ * segnaposto. Diventano gli assegnatari del filtro d'origine (`source`: in
+ * PATCH il filtro stesso, in POST il `savedFilterId` del corpo, se chi salva lo
+ * vede) che chi salva non conosce. Senza origine, o se l'origine non ne ha,
+ * `invalid`: un segnaposto non si salva mai.
+ */
+export async function resolveCriteriaPlaceholders<C extends { assigneeIds?: string[] }>(
+  db: Db,
+  viewer: Viewer,
+  criteria: C,
+  source: typeof taskFilters.$inferSelect | null,
+): Promise<C | "invalid"> {
+  if (!criteriaCarryPlaceholder(criteria)) return criteria;
+  if (!source) return "invalid";
+  const unknown = await unknownAssigneesOf(db, viewer, source);
+  if (unknown.length === 0) return "invalid";
+  return { ...criteria, assigneeIds: withReal(criteria.assigneeIds ?? [], unknown) };
 }
