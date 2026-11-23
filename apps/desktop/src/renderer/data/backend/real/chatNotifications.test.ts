@@ -67,6 +67,26 @@ describe("le menzioni della Chat nell'inbox", () => {
     expect(n!.webHref).toBeUndefined();
   });
 
+  // Registro, A4 r.169 (72, d6a0a83d2): la card di un avviso di gruppo dice
+  // quale gruppo nel testo del server (`notify.chatMention.group`), derivato
+  // a lettura; il campo additivo `chat.group` non cambia il resto della card.
+  it("un avviso di gruppo («@channel»): il titolo è quello del server, il messaggio si apre come gli altri", async () => {
+    inbox([
+      card({
+        text: "Marta Rinaldi mentioned @channel in #design",
+        chat: { ...card().chat, excerpt: "@channel the release is out", group: "@channel" },
+      }),
+    ]);
+    const [n] = await listNotifications();
+    expect(n).toMatchObject({
+      kind: "chat.mention",
+      title: "Marta Rinaldi mentioned @channel in #design",
+      body: "@channel the release is out",
+      link: `#/chat/${CH}?message=${MSG}`,
+      chatMessageId: MSG,
+    });
+  });
+
   it("una risposta in un thread apre il thread", async () => {
     inbox([card({ chat: { ...card().chat, threadRootId: ROOT } })]);
     const [n] = await listNotifications();
