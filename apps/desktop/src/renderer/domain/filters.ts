@@ -60,3 +60,17 @@ export function canUseStatusIds(c: FilterCriteria): boolean {
 export function parseCriteria(raw: unknown): FilterCriteria | null {
   return sharedParseCriteria(raw) as FilterCriteria | null;
 }
+
+/**
+ * I criteri con cui si ESEGUE un filtro salvato (r.1414, scelta A di 46;
+ * revisione I-3): i suoi (o quelli della pagina che ne parte), col suo id.
+ * Nella vista una persona che chi guarda non conosce è il segnaposto
+ * `hidden-<n>`, e solo col `savedFilterId` il livello dati ci rimette gli id
+ * veri. Ogni consumatore che esegue un filtro passa da qui.
+ */
+export function runnableCriteria(
+  filter: { id: string; criteria: FilterCriteria },
+  criteria: FilterCriteria = filter.criteria,
+): FilterCriteria {
+  return { ...criteria, savedFilterId: filter.id };
+}

@@ -8,6 +8,7 @@ import {
   useTasks,
 } from "../../data/queries";
 import type { SavedFilter } from "../../data/types";
+import { runnableCriteria } from "../../domain/filters";
 import { useViewer } from "../../data/viewing";
 import { PageError } from "../../tasks-ui/PageStates";
 import { useToast } from "../../tasks-ui/Toast";
@@ -20,7 +21,7 @@ const COLS = "grid grid-cols-[minmax(0,1fr)_160px_88px_72px_40px] items-center g
 /** Quante task del filtro vede chi guarda: la sua lettura, non quella dell'autore. */
 function FilterCount({ filter }: { filter: SavedFilter }) {
   const { t } = useTranslation();
-  const { data, isError } = useTasks(filter.criteria);
+  const { data, isError } = useTasks(runnableCriteria(filter));
   if (isError) return <span className="text-sm text-ink-faint">—</span>;
   if (!data) return <span aria-hidden="true" className="ml-auto block h-2.5 w-6 rounded-sm bg-ink/8" />;
   return (

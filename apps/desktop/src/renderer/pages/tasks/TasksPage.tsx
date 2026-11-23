@@ -6,7 +6,7 @@ import { useMilestones, useProject, useTasks } from "../../data/queries";
 import { GROUP_BYS, TASK_VIEWS } from "../../data/routes";
 import type { FilterCriteria, GroupBy, SavedFilter, Task, TaskView } from "../../data/types";
 import { can, useViewer } from "../../data/viewing";
-import { parseCriteria } from "../../domain/filters";
+import { parseCriteria, runnableCriteria } from "../../domain/filters";
 import { DeptLegend } from "../../layout/DeptStrip";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
 import { FilterBar } from "../../tasks-ui/FilterBar";
@@ -121,7 +121,7 @@ export function TasksPage({
   // R.1414 (scelta A di 46): i criteri di un filtro salvato si eseguono col
   // suo id, che rimette gli id veri al posto dei segnaposto «Someone».
   const effective = useMemo(() => {
-    const own = savedFilter ? { ...criteria, savedFilterId: savedFilter.id } : criteria;
+    const own = savedFilter ? runnableCriteria(savedFilter, criteria) : criteria;
     return projectId ? { ...own, projectIds: [projectId] } : own;
   }, [criteria, projectId, savedFilter]);
   const enabled = !projectCode || !!projectId;
@@ -133,7 +133,7 @@ export function TasksPage({
   const allQuery = useTasks(
     projectId
       ? { projectIds: [projectId] }
-      : savedFilter && { ...savedFilter.criteria, savedFilterId: savedFilter.id },
+      : savedFilter && runnableCriteria(savedFilter),
     {
       enabled,
     },

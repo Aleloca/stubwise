@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { useHome, useSavedFilter, useSetPersonalHome, useTasks } from "../../../data/queries";
 import type { HomeBlockRef, SavedFilter } from "../../../data/types";
+import { runnableCriteria } from "../../../domain/filters";
 import { sameBlock } from "../../../domain/home";
 import { TaskRow } from "../../../tasks-ui/TaskRow";
 import { useToast } from "../../../tasks-ui/Toast";
@@ -34,7 +35,7 @@ export function FilterBlock({ block }: { block: HomeBlockRef }) {
 
 function FilterRows({ filter }: { filter: SavedFilter }) {
   const { t } = useTranslation();
-  const tasks = useTasks(filter.criteria);
+  const tasks = useTasks(runnableCriteria(filter));
   const stalls = useStallsByCode();
   const openTask = useOpenTask();
   const list = tasks.data ?? [];
