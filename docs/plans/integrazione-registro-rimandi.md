@@ -39,7 +39,7 @@ Legenda: *(M)* decisione del maintainer, *(O)* scelta dell'orchestratrice,
   oggi non arrivano.
 - Consumi per task (`usage`) e blocco d'istanza (`blocked`) in `/work` *(S)*.
 - Allegati nei messaggi a una sessione *(S)*: il server non li accetta.
-- `generatedAt` dei report giornalieri *(S)*.
+- ~~`generatedAt` dei report giornalieri *(S)*.~~ *Chiusa il 23 nov 2026 (72, lotto 4, §7.4)*: in `GET /api/activity`, `finished_at` di un report `done`, altrimenti null.
 - Report giornaliero per progetto (oggi si rigenerano tutti i progetti del
   giorno) *(O, differenza dal prototipo)*.
 

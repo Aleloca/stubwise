@@ -25,6 +25,12 @@ export const activityReportProjectSchema = z.object({
    * manda non rompe la risposta (regola dei campi nuovi verso l'app).
    */
   staleCommitCount: z.number().int().default(0),
+  /**
+   * Rimandi, lotto 4 (§7.4): quando è stato scritto il report (`finished_at`),
+   * SOLO per un report `done`; null altrimenti (in coda, in scrittura,
+   * fallito). Additivo.
+   */
+  generatedAt: z.iso.datetime().nullable().default(null),
 });
 export type ActivityReportProject = z.infer<typeof activityReportProjectSchema>;
 

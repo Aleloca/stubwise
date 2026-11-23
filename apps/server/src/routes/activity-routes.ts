@@ -85,6 +85,8 @@ const projectViewSchema = z.object({
   // dopo la generazione), dal campo `stale_commit_count` del report. > 0 → il
   // report è potenzialmente incompleto: la UI lo segnala e offre "rigenera".
   staleCommitCount: z.number(),
+  // Rimandi, lotto 4 (§7.4): `finished_at` di un report `done`, altrimenti null.
+  generatedAt: z.iso.datetime().nullable(),
   commits: z.array(projectCommitSchema),
 });
 
@@ -173,6 +175,7 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
           status: activityReports.status,
           summary: activityReports.summary,
           staleCommitCount: activityReports.staleCommitCount,
+          finishedAt: activityReports.finishedAt,
           projectId: projects.id,
           projectName: projects.name,
           projectSlug: projects.slug,
@@ -332,6 +335,7 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
           },
           summary: report.summary ?? null,
           staleCommitCount: report.staleCommitCount,
+          generatedAt: report.status === "done" && report.finishedAt ? report.finishedAt.toISOString() : null,
           commits: commits.map((c) => ({
             sha: c.sha,
             authorEmail: c.authorEmail,

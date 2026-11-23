@@ -233,6 +233,18 @@ describe("GET /api/activity", () => {
     expect(unresolved.aiDescription).toBeNull();
   });
 
+  it("rimandi, lotto 4, §7.4: `generatedAt` è `finished_at` di un report `done`, null per uno fallito o in coda", async () => {
+    await seedReport();
+    const at = new Date("2026-07-15T02:10:00.000Z");
+    await testDb.db.update(activityReports).set({ finishedAt: at }).where(eq(activityReports.projectId, projectId));
+    const read = async () => ((await app.inject({ method: "GET", url: `/api/activity?date=${DATE}`, headers: { cookie: memberCookie } })).json() as { projects: { generatedAt: string | null }[] }).projects[0]!.generatedAt;
+    expect(await read()).toBe(at.toISOString());
+    for (const status of ["failed", "queued"] as const) {
+      await testDb.db.update(activityReports).set({ status }).where(eq(activityReports.projectId, projectId));
+      expect(await read(), status).toBeNull();
+    }
+  });
+
   it("vista per-dev: membro risolto aggregato, sconosciuto come dev separato", async () => {
     await seedReport();
     const res = await app.inject({
