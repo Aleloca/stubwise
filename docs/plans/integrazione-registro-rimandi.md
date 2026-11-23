@@ -1143,10 +1143,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     al resync. È stantio il commento in `poller.ts` («il resync per query la
     esclude già con -from:me»). La correzione vera è leggere gli alias
     (`users.settings.sendAs`, uno scope in più).
-  - **Colleghi disattivati**: il CTE `instance` del taglio
+  - ~~**Colleghi disattivati**: il CTE `instance` del taglio
     (`packages/notifications/src/waiting-customers.ts`) prende anche le caselle
     disattivate, `replyContext` no. L'indirizzo di un collega con la casella
-    spenta è «non esterno» nel taglio, ma il prompt non lo nomina come collega.
+    spenta è «non esterno» nel taglio, ma il prompt non lo nomina come collega.~~
+    *Chiusa il 23 nov 2026 (72, lotto 4)*: `replyContext` nomina anche le
+    caselle disattivate, come il taglio (un collega resta un collega).
+    Test: `reply-judge.test.ts`, la casella disattivata nell'elenco del prompt.
   - **Campi della riga e visibilità**: oggetto, stato e importanza vengono
     dall'ultimo messaggio ammesso, anche se è di un progetto che chi guarda
     non vede; si filtra solo il progetto. È la casella di chi guarda, quindi
