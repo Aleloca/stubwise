@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { plain, toggleMark } from "../../domain/productDocs/richText";
 import { productDocs, resetApi, setLatency } from "../api";
 import type { ProductBlock, ProductPage } from "../model";
-import { accessState, isFullAdmin, writeAccess } from "../access/index";
-import { knownPeopleFor } from "../access/whoCan";
+import { isFullAdmin, writeAccess } from "../access/index";
+import { strangersTo } from "../../test/strangers";
 import { PEOPLE } from "../seed/people";
 import { setSessionPersonId } from "../session";
 import { state } from "../store";
@@ -239,14 +239,8 @@ describe("la cronologia a pagine (I2 della revisione, come il server)", () => {
 // (prima veniva dall'elenco intero delle persone). Ex membri e disattivati di
 // ACQ restano col loro nome.
 describe("il nome di chi ha scritto (r.1414)", () => {
-  const outsider = () =>
-    PEOPLE.find(
-      (p) =>
-        p.id !== "p-claude" &&
-        !isFullAdmin(p.id) &&
-        !accessState().memberships.some((m) => m.personId === p.id && m.projectId === ACQ) &&
-        !knownPeopleFor(LAURA).has(p.id),
-    )!;
+  /** Una persona che Laura non conosce (costruita dal seme). */
+  const outsider = () => PEOPLE.find((p) => p.id === strangersTo(LAURA)[0])!;
   const lastBy = async (pageId: string, actorId: string) => {
     const rev = editsOf(pageId).at(-1)!;
     rev.actorId = actorId;

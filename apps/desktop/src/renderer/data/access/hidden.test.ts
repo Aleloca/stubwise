@@ -1,9 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetApi } from "../api";
-import { PEOPLE } from "../seed/people";
-import { isFullAdmin } from "./index";
 import { personMasker } from "./hidden";
 import { knownPeopleFor } from "./whoCan";
+import { strangersTo, viewerWithStrangers } from "../../test/strangers";
 
 // Il segnaposto (registro, A11 r.1414; forma in docs/invariants/permissions.md):
 // l'id di una persona che chi guarda non conosce diventa `hidden-<n>`, stabile
@@ -14,14 +13,11 @@ const LAURA = "p-laura";
 beforeEach(() => resetApi());
 afterEach(() => resetApi());
 
-const strangersOf = (viewer: string) =>
-  PEOPLE.filter((p) => p.id !== "p-claude" && p.id !== viewer && !knownPeopleFor(viewer).has(p.id));
-/** Chi guarda e due persone che non conosce (dal seme, senza nomi scritti a mano). */
+/** Chi guarda e due persone che non conosce (costruite dal seme). */
 const viewerWithTwo = () => {
-  const viewer = PEOPLE.find((p) => !isFullAdmin(p.id) && strangersOf(p.id).length >= 2)!;
-  expect(viewer).toBeDefined();
-  const [a, b] = strangersOf(viewer.id);
-  return { viewer: viewer.id, a: a!, b: b! };
+  const viewer = viewerWithStrangers(2);
+  const [a, b] = strangersTo(viewer, 2);
+  return { viewer, a: { id: a! }, b: { id: b! } };
 };
 
 describe("personMasker", () => {

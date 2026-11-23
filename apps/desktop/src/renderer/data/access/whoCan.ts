@@ -1,7 +1,8 @@
 import { actionById, groupPermissions } from "../../domain/access/actions";
 import { orderHolders, peopleKnownTo, peopleVisibleTo } from "../../domain/access/whoCan";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
-import { archivedProjectIdsFor, visibleProjectIds } from "../store";
+import { canReadChannel, membersOf } from "../chat/visibility";
+import { archivedProjectIdsFor, state, visibleProjectIds } from "../store";
 import { can, viewerFor, type Permission } from "../viewer";
 import { ALL_PROJECT_PERMISSIONS } from "./seed";
 import { effectivePermissions, type PermissionSource } from "./effective";
@@ -45,11 +46,24 @@ const nameOf = (personId: string): string =>
  * visibili. Claude non c'è (non è una persona da nascondere).
  */
 export function knownPeopleFor(viewerId: string): Set<string> {
-  return peopleKnownTo({
+  const known = peopleKnownTo({
     state: accessState(),
     viewerId,
     visibleProjectIds: visibleProjectIds(viewerId),
   });
+  // Decisione del maintainer (23 nov 2026): «chi scrive in un canale che vedo
+  // è conosciuto». Membri e autori dei canali che chi guarda può leggere,
+  // anche senza un progetto in comune (i canali di tutta l'azienda).
+  const readable = new Set<string>();
+  for (const ch of state.channels) {
+    if (!canReadChannel(viewerId, ch)) continue;
+    readable.add(ch.id);
+    for (const id of membersOf(ch)) known.add(id);
+  }
+  for (const m of state.chatMessages) {
+    if (m.authorId !== null && readable.has(m.channelId)) known.add(m.authorId);
+  }
+  return known;
 }
 
 /**

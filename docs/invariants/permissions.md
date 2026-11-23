@@ -404,11 +404,19 @@ punti lato server sta nell'inventario consegnato a 72 (sotto).
 - **Chi si conosce** — un predicato SOLO, più largo di chi si vede per
   scegliere o per «Who can?»: le persone che sono o sono state membri di un
   progetto che chi guarda vede (le attive, le DISATTIVATE e gli EX membri:
-  restano «Nome (deactivated)»), più i full admin, più sé stesso. Un full
-  admin conosce tutti. Nel prototipo: `peopleKnownTo`
+  restano «Nome (deactivated)»), più i full admin, più sé stesso; e (seconda
+  decisione del maintainer, 23 nov 2026: «chi scrive in un canale che vedo è
+  conosciuto») i MEMBRI e gli AUTORI dei canali della Chat che chi guarda
+  può leggere, anche senza un progetto in comune — i canali di tutta
+  l'azienda. In un canale leggibile autori e membri hanno quindi nome e
+  avatar; il segnaposto resta per chi non condivide né un progetto visibile
+  né un canale leggibile (per esempio la reazione di chi poi è uscito dal
+  canale senza averci scritto). Un full admin conosce tutti. Nel prototipo: `peopleKnownTo`
   (`domain/access/whoCan.ts`), con gli ex membri ricordati in
   `formerMemberships` dello stato degli accessi, scritto in UN posto a ogni
-  uscita (`writeAccess`). Lato server serve la stessa traccia delle uscite
+  uscita (`writeAccess`); i canali li aggiunge `knownPeopleFor`
+  (`data/access/whoCan.ts`), lo stesso predicato che usano l'elenco delle
+  persone e il segnaposto. Lato server serve la stessa traccia delle uscite
   (o la si deriva dal registro delle modifiche, `project.member_removed`).
   `peopleVisibleTo` resta com'è per chi si sceglie (assegnabili, «Who
   can?»): sono due domande diverse.

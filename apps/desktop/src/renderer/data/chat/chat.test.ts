@@ -15,7 +15,7 @@ import {
   whenIdle,
 } from "../api";
 import { queryKeys } from "../queries";
-import { knownPeopleFor } from "../access/whoCan";
+import { strangersTo, viewerWithStrangers } from "../../test/strangers";
 import { PEOPLE } from "../seed/people";
 import { setSessionPersonId } from "../session";
 import { familyOf, state, visibleProjectIds } from "../store";
@@ -1051,71 +1051,58 @@ describe("chat: revisione finale dell'area", () => {
     );
   });
 
-  // Registro, A11 r.1414 (decisione del maintainer, 23 nov 2026): chi non
-  // conosce una persona non ne riceve l'id, nemmeno in un canale di tutti: al
-  // suo posto `hidden-<n>`, stabile nella stessa risposta.
+  // Registro, A11 r.1414 (decisioni del maintainer, 23 nov 2026): chi non
+  // conosce una persona non ne riceve l'id (al suo posto `hidden-<n>`, stabile
+  // nella stessa risposta); e «chi scrive in un canale che vedo è
+  // conosciuto», anche senza progetti in comune. In un canale leggibile
+  // autori e membri sono quindi conosciuti: resta nascosto chi c'è senza
+  // essere né membro né autore (una reazione di chi poi è uscito).
   describe("gli id di chi non si conosce (r.1414)", () => {
-    const STRANGER = "p-enrico";
+    /** La reazione 👍 di `who` sul messaggio, scritta nello stato (chi è uscito non può più reagire). */
+    const reactAs = (messageId: string, who: string) => {
+      const m = state.chatMessages.find((x) => x.id === messageId)!;
+      const r = m.reactions.find((x) => x.emoji === "👍");
+      if (r) r.personIds.push(who);
+      else m.reactions.push({ emoji: "👍", personIds: [who] });
+    };
 
-    it("i messaggi e il canale: hidden-<n> al posto dell'id, il proprio id resta", async () => {
-      as("p-laura");
-      expect(knownPeopleFor("p-laura").has(STRANGER)).toBe(false);
-      as(STRANGER);
+    it("un canale di tutta l'azienda: l'autore senza progetti in comune si vede col suo id", async () => {
+      const enrico = "p-enrico";
+      as(enrico);
       const sent = await chat.sendMessage("ch-announcements", { text: "Hello all" });
-      await chat.toggleReaction(sent.id, "👍");
       as("p-laura");
+      const page = (await chat.listMessages("ch-announcements"))!;
+      expect(page.messages.find((m) => m.id === sent.id)!.authorId).toBe(enrico);
+      expect((await chat.getChannel("ch-announcements"))!.memberIds).toContain(enrico);
+    });
+
+    it("chi c'è senza essere né membro né autore: hidden-<n>, e il proprio id resta", async () => {
+      as("p-laura");
+      const sent = await chat.sendMessage("ch-announcements", { text: "Lunch?" });
       await chat.toggleReaction(sent.id, "👍");
+      const [stranger] = strangersTo("p-laura");
+      reactAs(sent.id, stranger!);
       const page = (await chat.listMessages("ch-announcements"))!;
       const mine = page.messages.find((m) => m.id === sent.id)!;
-      expect(mine.authorId).toMatch(/^hidden-\d+$/);
-      expect(mine.reactions[0]!.personIds).toEqual([mine.authorId, "p-laura"]);
-      const channelOf = (await chat.getChannel("ch-announcements"))!;
-      expect(channelOf.memberIds).toContain("p-laura");
-      expect(channelOf.memberIds).not.toContain(STRANGER);
-      expect(JSON.stringify(page)).not.toContain(STRANGER);
-      expect(JSON.stringify(channelOf)).not.toContain(STRANGER);
+      expect(mine.reactions[0]!.personIds).toEqual(["p-laura", "hidden-1"]);
+      expect(JSON.stringify(page)).not.toContain(stranger!);
     });
 
-    it("le risposte di un thread: chi ha risposto per ultimo e i partecipanti", async () => {
-      as("p-laura");
-      const root = await chat.sendMessage("ch-announcements", { text: "Who's in?" });
-      as(STRANGER);
-      await chat.sendMessage("ch-announcements", { text: "Me", threadOf: root.id });
-      as("p-laura");
-      const page = (await chat.listMessages("ch-announcements"))!;
-      const thread = page.messages.find((m) => m.id === root.id)!.thread!;
-      expect(thread.lastReplyById).toMatch(/^hidden-\d+$/);
-      expect(thread.participantIds).toEqual([thread.lastReplyById]);
-    });
-
-    it("il thread aperto: un segnaposto per persona, lo stesso in tutta la risposta", async () => {
-      // Chi guarda e due persone che non conosce, tutti membri di ch-announcements.
-      const members = channel("ch-announcements").memberIds;
-      const strangersOf = (v: string) => members.filter((id) => id !== v && !knownPeopleFor(v).has(id));
-      const viewer = members.find((id) => strangersOf(id).length >= 2)!;
-      expect(viewer).toBeDefined();
-      const [a, b] = strangersOf(viewer);
+    it("un segnaposto per persona, lo stesso in tutta la risposta (pagina e thread)", async () => {
+      const viewer = viewerWithStrangers(2);
       as(viewer);
       const root = await chat.sendMessage("ch-announcements", { text: "Ideas?" });
-      for (const [who, text] of [[a!, "One"], [b!, "Two"], [a!, "Three"]] as const) {
-        as(who);
-        await chat.sendMessage("ch-announcements", { text, threadOf: root.id });
-      }
-      as(viewer);
+      const one = await chat.sendMessage("ch-announcements", { text: "One", threadOf: root.id });
+      const two = await chat.sendMessage("ch-announcements", { text: "Two", threadOf: root.id });
+      const [a, b] = strangersTo(viewer, 2);
+      reactAs(one.id, a!);
+      reactAs(one.id, b!);
+      reactAs(two.id, a!);
       const thread = (await chat.listThread(root.id))!;
-      const ids = thread.replies.map((r) => r.authorId);
-      expect(ids[0]).toMatch(/^hidden-\d+$/);
-      expect(ids[1]).toMatch(/^hidden-\d+$/);
-      expect(ids[1]).not.toBe(ids[0]);
-      expect(ids[2]).toBe(ids[0]);
+      const [r1, r2] = thread.replies.map((r) => r.reactions[0]!.personIds);
+      expect(r1).toEqual(["hidden-1", "hidden-2"]);
+      expect(r2).toEqual(["hidden-1"]);
       expect(JSON.stringify(thread)).not.toContain(a!);
-    });
-
-    it("i membri del canale: lo sconosciuto non c'è col suo id", async () => {
-      as("p-laura");
-      const members = (await chat.listChannelMembers("ch-announcements"))!;
-      expect(JSON.stringify(members)).not.toContain(STRANGER);
-      expect(members.some((m) => m.personId === "p-laura")).toBe(true);
     });
   });
 

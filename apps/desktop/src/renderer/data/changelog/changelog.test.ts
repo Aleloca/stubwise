@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { changelog, failNext, resetApi, setLatency } from "../api";
 import "../admin/changeTypes";
 import { accessState, isFullAdmin, roleIdOf, writeAccess } from "../access/index";
-import { knownPeopleFor, visiblePeopleFor } from "../access/whoCan";
+import { visiblePeopleFor } from "../access/whoCan";
+import { strangersTo } from "../../test/strangers";
 import { setSessionPersonId } from "../session";
 import { seedChangelog } from "../seed/changelog";
 import { PEOPLE } from "../seed/people";
@@ -323,15 +324,8 @@ describe("chi legge cosa", () => {
 // chi ha agito non esce a chi non lo vede. Restano visibili i disattivati e
 // gli ex membri di un progetto che chi guarda vede («Nome (deactivated)»).
 describe("il nome dell'autore della voce (r.1414)", () => {
-  /** Una persona che non è mai stata in ACQ e non è full admin. */
-  const outsider = () =>
-    PEOPLE.find(
-      (p) =>
-        p.id !== "p-claude" &&
-        !isFullAdmin(p.id) &&
-        !accessState().memberships.some((m) => m.personId === p.id && m.projectId === ACQ) &&
-        !knownPeopleFor("p-laura").has(p.id),
-    )!;
+  /** Una persona che Laura non conosce (costruita dal seme). */
+  const outsider = () => PEOPLE.find((p) => p.id === strangersTo("p-laura")[0])!;
 
   it("chi non vede l'autore legge la voce senza il suo nome", async () => {
     const who = outsider();
