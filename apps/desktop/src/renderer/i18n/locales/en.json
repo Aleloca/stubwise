@@ -5076,6 +5076,7 @@
       "arrived_other": "{{count}} new messages"
     },
     "message": {
+      "someone": "Someone",
       "edited": "(edited)",
       "editedAt": "Edited at {{time}}",
       "deleted": "Message deleted",

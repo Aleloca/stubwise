@@ -666,3 +666,20 @@ describe("ChannelView: Review Focus 5 — contenuti estremi", () => {
     expect(el.querySelector('[data-message="x-299"]')).not.toBeNull();
   });
 });
+
+// Registro, A11 r.1414: l'autore che chi guarda non conosce arriva come
+// segnaposto; il messaggio lo dice «Someone», senza nome né iniziali.
+describe("ChannelView: un autore che non si conosce (r.1414)", () => {
+  it("«Someone» al posto del nome", async () => {
+    setSessionPersonId("p-enrico");
+    const sent = await api.chat.sendMessage("ch-announcements", { text: "Hello from far away" });
+    renderWithData(<Harness id="ch-announcements" />, { personId: "p-laura" });
+    const item = await waitFor(() => {
+      const el = flow().querySelector(`[data-message="${sent.id}"]`);
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    expect(within(item).getByText("Someone")).toBeInTheDocument();
+    expect(item.textContent).not.toContain("Enrico");
+  });
+});

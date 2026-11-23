@@ -15,6 +15,7 @@ import {
   whenIdle,
 } from "../api";
 import { queryKeys } from "../queries";
+import { knownPeopleFor } from "../access/whoCan";
 import { PEOPLE } from "../seed/people";
 import { setSessionPersonId } from "../session";
 import { familyOf, state, visibleProjectIds } from "../store";
@@ -1048,6 +1049,74 @@ describe("chat: revisione finale dell'area", () => {
     expect((await chat.getChannel("ch-aud-pricing"))?.topic).toBe(
       "Resellers keep 15% until March",
     );
+  });
+
+  // Registro, A11 r.1414 (decisione del maintainer, 23 nov 2026): chi non
+  // conosce una persona non ne riceve l'id, nemmeno in un canale di tutti: al
+  // suo posto `hidden-<n>`, stabile nella stessa risposta.
+  describe("gli id di chi non si conosce (r.1414)", () => {
+    const STRANGER = "p-enrico";
+
+    it("i messaggi e il canale: hidden-<n> al posto dell'id, il proprio id resta", async () => {
+      as("p-laura");
+      expect(knownPeopleFor("p-laura").has(STRANGER)).toBe(false);
+      as(STRANGER);
+      const sent = await chat.sendMessage("ch-announcements", { text: "Hello all" });
+      await chat.toggleReaction(sent.id, "👍");
+      as("p-laura");
+      await chat.toggleReaction(sent.id, "👍");
+      const page = (await chat.listMessages("ch-announcements"))!;
+      const mine = page.messages.find((m) => m.id === sent.id)!;
+      expect(mine.authorId).toMatch(/^hidden-\d+$/);
+      expect(mine.reactions[0]!.personIds).toEqual([mine.authorId, "p-laura"]);
+      const channelOf = (await chat.getChannel("ch-announcements"))!;
+      expect(channelOf.memberIds).toContain("p-laura");
+      expect(channelOf.memberIds).not.toContain(STRANGER);
+      expect(JSON.stringify(page)).not.toContain(STRANGER);
+      expect(JSON.stringify(channelOf)).not.toContain(STRANGER);
+    });
+
+    it("le risposte di un thread: chi ha risposto per ultimo e i partecipanti", async () => {
+      as("p-laura");
+      const root = await chat.sendMessage("ch-announcements", { text: "Who's in?" });
+      as(STRANGER);
+      await chat.sendMessage("ch-announcements", { text: "Me", threadOf: root.id });
+      as("p-laura");
+      const page = (await chat.listMessages("ch-announcements"))!;
+      const thread = page.messages.find((m) => m.id === root.id)!.thread!;
+      expect(thread.lastReplyById).toMatch(/^hidden-\d+$/);
+      expect(thread.participantIds).toEqual([thread.lastReplyById]);
+    });
+
+    it("il thread aperto: un segnaposto per persona, lo stesso in tutta la risposta", async () => {
+      // Chi guarda e due persone che non conosce, tutti membri di ch-announcements.
+      const members = channel("ch-announcements").memberIds;
+      const strangersOf = (v: string) => members.filter((id) => id !== v && !knownPeopleFor(v).has(id));
+      const viewer = members.find((id) => strangersOf(id).length >= 2)!;
+      expect(viewer).toBeDefined();
+      const [a, b] = strangersOf(viewer);
+      as(viewer);
+      const root = await chat.sendMessage("ch-announcements", { text: "Ideas?" });
+      for (const [who, text] of [[a!, "One"], [b!, "Two"], [a!, "Three"]] as const) {
+        as(who);
+        await chat.sendMessage("ch-announcements", { text, threadOf: root.id });
+      }
+      as(viewer);
+      const thread = (await chat.listThread(root.id))!;
+      const ids = thread.replies.map((r) => r.authorId);
+      expect(ids[0]).toMatch(/^hidden-\d+$/);
+      expect(ids[1]).toMatch(/^hidden-\d+$/);
+      expect(ids[1]).not.toBe(ids[0]);
+      expect(ids[2]).toBe(ids[0]);
+      expect(JSON.stringify(thread)).not.toContain(a!);
+    });
+
+    it("i membri del canale: lo sconosciuto non c'è col suo id", async () => {
+      as("p-laura");
+      const members = (await chat.listChannelMembers("ch-announcements"))!;
+      expect(JSON.stringify(members)).not.toContain(STRANGER);
+      expect(members.some((m) => m.personId === "p-laura")).toBe(true);
+    });
   });
 
   // Registro, A4 r.169 (decisione del maintainer, 23 nov 2026): @channel e
