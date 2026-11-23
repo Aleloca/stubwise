@@ -198,7 +198,9 @@ function PrBody({
   const { t, i18n } = useTranslation();
   const people = usePeople().data;
   const flow = useMergeFlow(pr, projectCode);
-  const author = people?.find((p) => p.id === pr.authorId)?.name ?? pr.authorName;
+  // R.1414: un autore segnaposto non ha nome (nemmeno quello git): «Someone».
+  const author =
+    people?.find((p) => p.id === pr.authorId)?.name ?? (pr.authorName || t("chat.message.someone"));
   const prose = prProse(pr, t);
   return (
     <div className="flex flex-col">
