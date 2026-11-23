@@ -60,3 +60,50 @@ describe("l'inbox senza id di chi non si conosce (r.1414)", () => {
     expect(out.actorName).toBe(nameOf("p-marco"));
   });
 });
+
+// Revisione del lotto 2, I6: il nome di chi ha agito stava già nel testo
+// salvato (`member.added`: «<Nome> added you…»). Chi non lo conosce non lo
+// riceve: la pagina compone il testo da `actorName` («Someone»). Gli avvisi
+// di sicurezza (`security.*`, solo all'interessato) sono l'eccezione: il nome
+// di chi ha agito sul tuo account resta (decisione di 46).
+describe("il testo salvato col nome di chi ha agito (I6)", () => {
+  it("member.added da uno sconosciuto: né il nome nel testo né l'id", async () => {
+    const [who] = strangersTo(LAURA);
+    state.notifications.push({
+      id: "n-member-added-x",
+      kind: "member.added",
+      projectId: "prj-acq",
+      objectCode: "ACQ",
+      departmentId: null,
+      recipientIds: [LAURA],
+      title: "You've been added to ACQ as Developer",
+      body: `${nameOf(who!)} added you to ACQ as Developer.`,
+      createdAt: "2026-11-22T10:00:00Z",
+      read: false,
+      archived: false,
+      snoozedUntil: null,
+      link: "#/p/ACQ/overview",
+      actorId: who!,
+    } as (typeof state.notifications)[number]);
+    setSessionPersonId(LAURA);
+    const out = (await listNotifications()).find((n) => n.id === "n-member-added-x")!;
+    expect(out).toBeDefined();
+    expect(out.actorName).toBeNull();
+    expect(JSON.stringify(out)).not.toContain(nameOf(who!));
+    expect(JSON.stringify(out)).not.toContain(who!);
+  });
+
+  it("un avviso di sicurezza tiene il nome di chi ha agito sul tuo account", async () => {
+    const { publishSecurityAlert } = await import("./me/securityLog");
+    const [who] = strangersTo(LAURA);
+    publishSecurityAlert(
+      LAURA,
+      "Sign-in email changed",
+      `${nameOf(who!)} changed your sign-in email.`,
+    );
+    setSessionPersonId(LAURA);
+    const out = (await listNotifications()).find((n) => n.title === "Sign-in email changed")!;
+    expect(out).toBeDefined();
+    expect(out.body).toContain(nameOf(who!));
+  });
+});

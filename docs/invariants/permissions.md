@@ -424,6 +424,13 @@ punti lato server sta nell'inventario consegnato a 72 (sotto).
   can?»): sono due domande diverse.
 - **Fuori dalla regola**: la directory di Amministrazione → People (chi ha
   il permesso vede tutti, per costruzione).
+- **Eccezione dichiarata: gli avvisi di sicurezza** (`security.*`, solo
+  all'interessato; decisione di 46, revisione del lotto 2). Il nome di chi ha
+  agito sul TUO account (un reset, un cambio d'email, un secondo fattore
+  azzerato) resta anche se non lo conosci: è trasparenza sul proprio
+  account. Per ogni altra card il nome di chi ha agito non si scrive nel
+  testo salvato, o non esce a chi non lo conosce: il testo si compone a
+  lettura da `actorName` / `memberName` («Someone»).
 - **Il segnaposto**: al posto dell'id di una persona che chi guarda non
   conosce, `hidden-<n>`, dove `<n>` è un intero da 1 assegnato nell'ordine
   in cui le persone nascoste compaiono nella RISPOSTA. Stabile dentro la

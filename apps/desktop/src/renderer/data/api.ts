@@ -781,6 +781,11 @@ export async function listNotifications(): Promise<AppNotification[]> {
       if (n.actorId !== undefined) {
         out.actorName = nameIfKnown(n.actorId);
         delete out.actorId;
+        // Revisione del lotto 2, I6: il testo salvato porta il nome di chi ha
+        // agito; a chi non lo conosce non esce (la pagina lo compone da
+        // `actorName`, «Someone»). Gli avvisi `security.*` non hanno
+        // `actorId`: il loro testo resta, per scelta (permissions.md).
+        if (out.actorName === null) out.body = "";
       }
       // Area 10a: per chi l'ha fatta partire Claude, e chi l'ha annullata;
       // i nomi solo se chi guarda vede quelle persone (R-G5).
