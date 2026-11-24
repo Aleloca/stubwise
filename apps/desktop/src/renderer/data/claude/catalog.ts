@@ -766,9 +766,16 @@ const ENTRIES: Record<Exclude<ClaudeActionFn, MoreCatalogFn>, Declaration> = {
     apiFn: "instance.saveStorage",
     baseClass: "B",
     undoable: true,
-    // La rotta chiede il codice solo con una chiave nuova, che da qui non entra
-    // mai (`run` la rifiuta come `invalid`, review F7, M2): la voce è sempre B.
-    reauthIf: () => false,
+    // Lotto 10 (72, 555e3ad15): la riconferma SOLO se cambiano l'endpoint o il
+    // bucket rispetto a quelli salvati ADESSO (vale anche per «Undo», che
+    // riporta quelli di prima). La chiave da qui non entra mai (`run` la
+    // rifiuta come `invalid`, review F7, M2).
+    reauthIf: (args) => {
+      const s = state.instance.storage;
+      const differs = (value: unknown, now: string) =>
+        typeof value === "string" && value.trim() !== now;
+      return differs(args.endpoint, s.endpoint) || differs(args.bucket, s.bucket);
+    },
     whoAction: "manageSettings",
     run(me, args) {
       // Nessun segreto entra da qui: la chiave si scrive solo nel dialogo vero.
@@ -780,12 +787,17 @@ const ENTRIES: Record<Exclude<ClaudeActionFn, MoreCatalogFn>, Declaration> = {
         bucket: s.bucket,
         accessKeyId: s.accessKeyId,
       };
+      // Una PATCH (come sul server): un campo assente resta com'è, almeno uno.
+      const fields = ["endpoint", "region", "bucket", "accessKeyId"] as const;
+      if (!fields.some((k) => typeof args[k] === "string")) throw invalid("storage");
+      const field = (k: (typeof fields)[number]) =>
+        typeof args[k] === "string" ? (args[k] as string) : was[k];
       done(
         saveStorageAs(me, {
-          endpoint: args.endpoint as string,
-          region: args.region as string,
-          bucket: args.bucket as string,
-          accessKeyId: args.accessKeyId as string,
+          endpoint: field("endpoint"),
+          region: field("region"),
+          bucket: field("bucket"),
+          accessKeyId: field("accessKeyId"),
         }),
       );
       return onSetting("storage", { fn: "saveStorage", args: was });

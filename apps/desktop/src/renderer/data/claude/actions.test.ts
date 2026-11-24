@@ -297,25 +297,25 @@ describe("classi B e C: la scheda", () => {
     expect(state.instance.webhooks[0]!.enabled).toBe(!w.enabled);
   });
 
-  it("la classe segue la rotta: saveStorage senza chiave non chiede il codice (decisione del maintainer, F7)", async () => {
+  // Lotto 10 (72, 555e3ad15): la riconferma la chiede SOLO un endpoint o un
+  // bucket diversi da quelli salvati; la regione o l'id della chiave no.
+  it("saveStorage: un bucket nuovo chiede il codice; una regione nuova no (lotto 10)", async () => {
     as(ROBERTA);
     const cid = (await createConversation()).id;
     const s = state.instance.storage;
     const before = structuredClone(s);
     await propose(cid, ROBERTA, [
-      {
-        fn: "saveStorage",
-        args: {
-          endpoint: s.endpoint,
-          region: s.region,
-          bucket: "stubwise-files-2",
-          accessKeyId: s.accessKeyId,
-        },
-        summary: "Change the bucket",
-      },
+      { fn: "saveStorage", args: { bucket: "stubwise-files-2" }, summary: "Change the bucket" },
     ]);
-    expect(await confirmProposal(cid, "prop-test")).not.toMatchObject({ error: "reauth_required" });
-    expect(state.instance.storage.bucket).toBe("stubwise-files-2");
+    expect(await confirmProposal(cid, "prop-test")).toMatchObject({ error: "reauth_required" });
+    expect(state.instance.storage.bucket).toBe(before.bucket);
+
+    const other = (await createConversation()).id;
+    await propose(other, ROBERTA, [
+      { fn: "saveStorage", args: { region: "eu-south-1" }, summary: "Change the region" },
+    ]);
+    expect(await confirmProposal(other, "prop-test")).not.toMatchObject({ error: "reauth_required" });
+    expect(state.instance.storage).toMatchObject({ region: "eu-south-1", bucket: before.bucket });
     expect(state.instance.storage.secretId).toBe(before.secretId);
   });
 
