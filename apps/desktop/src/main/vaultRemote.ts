@@ -1,3 +1,4 @@
+import { vaultDevicePairingResponseSchema, vaultDeviceSealMineSchema } from "@stubwise/shared";
 import type { SealResponse } from "./vaultLock";
 
 // Le rotte del sigillo del dispositivo che chiama il main col PAT desktop
@@ -54,16 +55,23 @@ export function createVaultRemote(deps: VaultRemoteDeps): VaultRemote {
     return res;
   }
 
+  /** Il corpo validato con lo schema di `@stubwise/shared` (72): fuori forma è un errore. */
+  async function parsed<T>(res: Response, schema: { safeParse: (v: unknown) => { success: true; data: T } | { success: false } }): Promise<T> {
+    const out = schema.safeParse(await res.json().catch(() => null));
+    if (!out.success) throw new Error("invalid_response");
+    return out.data;
+  }
+
   return {
     async pair(devicePublicKey, deviceName) {
       const res = await call("POST", "/api/vault/device-pairings", { devicePublicKey, deviceName });
-      const p = (await res.json()) as Pairing;
+      const p = await parsed(res, vaultDevicePairingResponseSchema);
       return { state: p.state, deviceId: p.deviceId, expiresAt: p.expiresAt };
     },
     async fetchSeal() {
       try {
         const res = await call("GET", "/api/vault/device-seals/mine");
-        const s = (await res.json()) as Extract<SealResponse, { seal: string }>;
+        const s = await parsed(res, vaultDeviceSealMineSchema);
         return {
           id: s.id,
           deviceName: s.deviceName,
