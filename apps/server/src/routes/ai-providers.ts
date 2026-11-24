@@ -1,4 +1,4 @@
-import { aiProviderViewSchema, createAiProviderSchema, updateAiProviderSchema } from "@stubwise/shared";
+import { aiProviderViewSchema, createAiProviderSchema, credentialTestFailureOf, updateAiProviderSchema } from "@stubwise/shared";
 import { recordChange } from "../services/change-log.js";
 import { aiProviders, aiUsageSnapshots, encrypt, projects, type Db } from "@stubwise/db";
 import { asc, count, desc, eq, or, sql } from "drizzle-orm";
@@ -109,6 +109,7 @@ function toPublicProvider(row: AiProviderRow, ctx: ProviderViewContext): z.infer
     testRequestedAt: row.testRequestedAt?.toISOString() ?? null,
     testCheckedAt: row.testCheckedAt?.toISOString() ?? null,
     testError: row.testError,
+    testFailure: row.testStatus === "failed" ? credentialTestFailureOf(row.testError) : null,
   };
 }
 

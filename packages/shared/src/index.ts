@@ -94,6 +94,7 @@ export * from "./schemas/access-query.js";
 export * from "./change-log.js";
 export * from "./outgoing-webhooks.js";
 export * from "./instance-admin.js";
+export * from "./credential-test-failure.js";
 export * from "./instance-status.js";
 export * from "./schemas/storage-uploads.js";
 export * from "./usage-summary.js";

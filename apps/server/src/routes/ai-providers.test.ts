@@ -65,6 +65,7 @@ describe("POST /api/ai-providers", () => {
       testRequestedAt: null,
       testCheckedAt: null,
       testError: null,
+      testFailure: null,
       lastEnabled: expect.any(Boolean),
       last4: PLAINTEXT_SECRET.slice(-4),
       limitedUntil: null,
@@ -355,6 +356,16 @@ describe("POST /api/ai-providers/:id/test", () => {
     expect(found!.testError).toBe("Invalid API key");
     expect(found!.testCheckedAt).toEqual(expect.any(String));
     expect(list.body).not.toContain("secretEncrypted");
+    // Rimandi, lotto 5: la colpa del fallimento, derivata dal testo (la credenziale qui).
+    expect((found as unknown as { testFailure: string }).testFailure).toBe("invalid_credentials");
+    // La rete: lo stesso campo dice `unreachable`.
+    await testDb.db.update(aiProviders).set({ testError: "getaddrinfo ENOTFOUND api.anthropic.com" }).where(eq(aiProviders.id, id));
+    const again = ((await app.inject({ method: "GET", url: "/api/ai-providers", headers: { cookie: adminCookie } })).json() as { id: string; testFailure: string | null }[]).find((p) => p.id === id);
+    expect(again!.testFailure).toBe("unreachable");
+    // Un test non fallito non ha colpa.
+    await testDb.db.update(aiProviders).set({ testStatus: "passed", testError: null }).where(eq(aiProviders.id, id));
+    const passed = ((await app.inject({ method: "GET", url: "/api/ai-providers", headers: { cookie: adminCookie } })).json() as { id: string; testFailure: string | null }[]).find((p) => p.id === id);
+    expect(passed!.testFailure).toBeNull();
   });
 });
 

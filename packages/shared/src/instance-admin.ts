@@ -31,6 +31,12 @@ export const aiProviderViewSchema = z.object({
   testRequestedAt: z.string().nullable().default(null),
   testCheckedAt: z.string().nullable().default(null),
   testError: z.string().nullable().default(null),
+  /**
+   * Rimandi, lotto 5: di un test `failed`, la colpa — `unreachable` (la rete)
+   * o `invalid_credentials` (la credenziale) —, derivata a lettura dal testo
+   * dell'errore (`credentialTestFailureOf`). null se il test non è fallito.
+   */
+  testFailure: z.enum(["invalid_credentials", "unreachable"]).nullable().default(null),
   // Area 9, F3, Task 8c (tutti additivi):
   /** È l'unico account acceso: non si spegne né si elimina (409 `last_enabled_provider`). Lo calcola il server. */
   lastEnabled: z.boolean().default(false),

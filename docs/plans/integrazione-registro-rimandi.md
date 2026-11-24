@@ -1427,9 +1427,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     (`ok`/`invalid_credentials`/`unreachable`); cambiare URL o formato la
     toglie;
   - AI → Providers: la prova la fa il worker (si rilegge finché non è più
-    `pending`, al più ~60 s, poi «prova ancora in corso»); `failed` non
+    `pending`, al più ~60 s, poi «prova ancora in corso»); ~~`failed` non
     distingue la credenziale sbagliata dalla rete e si dice «credenziale
-    non valida»; le credenziali salvate prima della 0190 non hanno le
+    non valida»;~~ *parte server chiusa il 24 nov 2026 (72, lotto 5)*: la
+    vista porta `testFailure` (`unreachable`/`invalid_credentials`, null se
+    non è fallito), derivato a lettura dal testo dell'errore
+    (`credentialTestFailureOf` di `@stubwise/shared`; un testo senza segni
+    resta «credenziale»); le credenziali salvate prima della 0190 non hanno le
     ultime 4 («••••»); la riga della quota la vede solo chi ha
     `usage.view` *(dichiarato; S per distinguere l'errore di rete)*;
   - ~~AI → Usage resta «Coming soon»: il server ha `/api/usage-costs` (del
