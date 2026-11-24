@@ -690,20 +690,26 @@ export async function listProjectPulses(): Promise<ProjectPulse[]> {
 export async function listTimeline(projectId: string): Promise<TimelineEvent[]> {
   const me = await gate("listTimeline");
   if (!visibleProjectIds(me).has(projectId)) return [];
-  return withNames(me, timelineOf(projectId));
+  return withNames(me, timelineOf(projectId), projectId);
 }
 
-/** Chi ha eliminato una task, per nome, solo se chi guarda lo vede (R-G5). */
-function withNames<T extends TimelineEvent>(me: string, events: T[]): T[] {
+/**
+ * Chi ha eliminato una task, per nome, solo se chi guarda lo vede (R-G5). E
+ * (lotto 4, regola di 46 del 24 nov 2026) codice e titolo solo a chi ha
+ * `tickets.view_all` nel progetto o l'ha eliminata: agli altri l'evento c'è,
+ * senza dire quale task.
+ */
+function withNames<T extends TimelineEvent>(me: string, events: T[], projectId: string): T[] {
   const people = visiblePeopleFor(me);
-  return events.map((e) =>
-    e.kind === "task_deleted"
-      ? {
-          ...e,
-          byName: people.has(e.byId) ? (PEOPLE.find((p) => p.id === e.byId)?.name ?? null) : null,
-        }
-      : e,
-  );
+  const viewsAll = can(viewerFor(me), "tickets.view_all", projectId);
+  return events.map((e) => {
+    if (e.kind !== "task_deleted") return e;
+    const named = {
+      ...e,
+      byName: people.has(e.byId) ? (PEOPLE.find((p) => p.id === e.byId)?.name ?? null) : null,
+    };
+    return viewsAll || e.byId === me ? named : { ...named, code: "", title: "", concealed: true as const };
+  });
 }
 
 /**
@@ -717,7 +723,7 @@ export async function listPortfolioActivity(): Promise<PortfolioEvent[]> {
   const visible = visibleProjectIds(me);
   return state.projects
     .filter((p) => visible.has(p.id))
-    .flatMap((p) => withNames(me, timelineOf(p.id)).map((e) => ({ ...e, projectId: p.id })))
+    .flatMap((p) => withNames(me, timelineOf(p.id), p.id).map((e) => ({ ...e, projectId: p.id })))
     .filter((e) => e.at.slice(0, 10) <= TODAY)
     .sort((a, b) => b.at.localeCompare(a.at));
 }

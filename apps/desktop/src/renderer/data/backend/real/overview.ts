@@ -116,6 +116,24 @@ function toEvent(e: ChronologyEvent): TimelineEvent | null {
         : null;
     case "daily_report":
       return e.reportId ? { kind: "daily_report", at, reportId: e.reportId, summary: e.summary ?? null } : null;
+    // Lotto 4, pulizia 4 (72, 27c0ad517; regola di 46): una task eliminata, col
+    // codice e il titolo di allora. Senza (chi guarda non ha `tickets.view_all`
+    // e non l'ha eliminata): l'evento c'è, nascosto, «A task was deleted».
+    case "task_deleted": {
+      if (!e.taskId || !e.byId) return null;
+      const shown = e.taskCode !== undefined && e.title !== undefined;
+      return {
+        kind: "task_deleted",
+        at,
+        taskId: e.taskId,
+        code: shown ? e.taskCode! : "",
+        title: shown ? e.title! : "",
+        byId: e.byId,
+        byName: e.byName ?? null,
+        ...(e.viaClaude ? { viaClaude: true } : {}),
+        ...(shown ? {} : { concealed: true as const }),
+      };
+    }
     case "pr_opened":
     case "pr_merged":
     case "pr_closed":

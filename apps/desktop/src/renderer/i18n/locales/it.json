@@ -12952,7 +12952,8 @@
   "activity": {
     "viaClaude": "con Claude",
     "onBehalf": "Claude per conto di {{name}}",
-    "deletedTask": "{{name}} ha eliminato <code>{{code}}</code> «{{title}}»"
+    "deletedTask": "{{name}} ha eliminato <code>{{code}}</code> «{{title}}»",
+    "deletedTaskConcealed": "Una task è stata eliminata"
   },
   "productDocs": {
     "source": {

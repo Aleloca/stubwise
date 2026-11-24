@@ -135,6 +135,12 @@ export type TimelineEvent =
       byName?: string | null;
       /** Eliminata da Claude per `byId` (assente se a mano). */
       viaClaude?: boolean;
+      /**
+       * Lotto 4 (46, 24 nov 2026), a lettura: chi guarda non ha
+       * `tickets.view_all` nel progetto e non l'ha eliminata. Codice e
+       * titolo vuoti; la riga dice «A task was deleted».
+       */
+      concealed?: true;
     };
 
 export type TimelineKind = TimelineEvent["kind"];

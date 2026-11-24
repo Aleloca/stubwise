@@ -221,6 +221,29 @@ describe("brief e cronologia dal server", () => {
     });
   });
 
+  // Lotto 4, pulizia 4 (72, 27c0ad517; regola di 46): le task eliminate; chi
+  // non vede quale task fosse (nessun codice né titolo dal server) legge
+  // «A task was deleted».
+  it("le task eliminate: codice e titolo di allora, chi; senza codice né titolo, nascosta", async () => {
+    const T = "44444444-4444-4444-8444-444444444444";
+    installFakeServer({
+      [`GET /api/projects/${PROJECT_ID}/chronology`]: {
+        body: {
+          events: [
+            { kind: "task_deleted", at: AT, taskId: T, taskCode: "AUD-12", title: "Export", byId: "hidden-1", byName: null, viaClaude: true },
+            { kind: "task_deleted", at: AT, taskId: T, byId: "hidden-1", byName: null },
+          ],
+          nextBefore: null,
+        },
+      },
+    });
+    const page = await listTimelinePage(PROJECT_ID, "2026-11-01T00:00:00.000Z");
+    expect(page.events).toEqual([
+      { kind: "task_deleted", at: AT, taskId: T, code: "AUD-12", title: "Export", byId: "hidden-1", byName: null, viaClaude: true },
+      { kind: "task_deleted", at: AT, taskId: T, code: "", title: "", byId: "hidden-1", byName: null, concealed: true },
+    ]);
+  });
+
   it("l'attività del portafoglio porta il progetto; senza progetto si scarta", async () => {
     installFakeServer({
       "GET /api/activity/portfolio": {

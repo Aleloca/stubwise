@@ -12952,7 +12952,8 @@
   "activity": {
     "viaClaude": "with Claude",
     "onBehalf": "Claude on behalf of {{name}}",
-    "deletedTask": "{{name}} deleted <code>{{code}}</code> “{{title}}”"
+    "deletedTask": "{{name}} deleted <code>{{code}}</code> “{{title}}”",
+    "deletedTaskConcealed": "A task was deleted"
   },
   "productDocs": {
     "source": {
