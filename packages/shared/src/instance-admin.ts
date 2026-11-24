@@ -31,6 +31,12 @@ export const aiProviderViewSchema = z.object({
   testRequestedAt: z.string().nullable().default(null),
   testCheckedAt: z.string().nullable().default(null),
   testError: z.string().nullable().default(null),
+  /**
+   * Rimandi, lotto 5: di un test `failed`, la colpa — `unreachable` (la rete)
+   * o `invalid_credentials` (la credenziale) —, derivata a lettura dal testo
+   * dell'errore (`credentialTestFailureOf`). null se il test non è fallito.
+   */
+  testFailure: z.enum(["invalid_credentials", "unreachable"]).nullable().default(null),
   // Area 9, F3, Task 8c (tutti additivi):
   /** È l'unico account acceso: non si spegne né si elimina (409 `last_enabled_provider`). Lo calcola il server. */
   lastEnabled: z.boolean().default(false),
@@ -125,6 +131,8 @@ export const instanceSettingsViewSchema = z.object({
   s3Bucket: z.string().nullable().default(null),
   s3AccessKey: z.string().nullable().default(null),
   s3SecretKeySet: z.boolean().default(false),
+  /** Rimandi, lotto 5: le ultime 4 della chiave («•••• 9e2b»); null senza chiave o per una salvata prima della 0225. */
+  s3SecretKeyLast4: z.string().nullable().default(null),
   attachmentsEnabled: z.boolean().default(false),
   // Slack: solo i flag (il web vecchio; fuori dall'app nuova).
   slackSigningSecretSet: z.boolean().default(false),
@@ -220,3 +228,10 @@ export const aiUsageSnapshotSchema = z.object({
 });
 export type AiUsageSnapshot = z.infer<typeof aiUsageSnapshotSchema>;
 export const aiUsageSnapshotsSchema = z.array(aiUsageSnapshotSchema);
+
+/**
+ * Le ultime 4 cifre di un segreto da mostrare («•••• 9e2b»), o null se è
+ * troppo corto per non rivelarne una parte grossa (sotto gli 8 caratteri). La
+ * stessa regola delle credenziali dei provider AI (0190).
+ */
+export const secretLast4 = (secret: string): string | null => (secret.length >= 8 ? secret.slice(-4) : null);

@@ -1,3 +1,4 @@
+import { personRefSchema } from "./person-ref.js";
 import { z } from "zod";
 
 /**
@@ -195,6 +196,16 @@ export const pluginSchema = z.object({
    * `status` e che, finendo, riaccoda lui stesso lo smoke.
    */
   pendingJobKind: pluginJobKindSchema.nullable(),
+  /**
+   * Rimandi, lotto 5: chi l'ha registrato e chi ne ha cambiato il ref per
+   * ultimo («updated … by» del prototipo), col nome. Un segnaposto e il nome
+   * null per chi non conosce quella persona (r.1414); null per i plugin di
+   * prima della 0226 o una persona eliminata.
+   */
+  registeredById: personRefSchema.nullable().default(null),
+  registeredByName: z.string().nullable().default(null),
+  updatedById: personRefSchema.nullable().default(null),
+  updatedByName: z.string().nullable().default(null),
   materializedAt: z.iso.datetime().nullable(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),

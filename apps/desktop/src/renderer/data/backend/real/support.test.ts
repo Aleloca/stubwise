@@ -89,6 +89,10 @@ function fakeApi(over: Partial<SupportApi> = {}) {
         { from: "customer", body: "Where is my invoice?", at: "2026-11-14T10:00:00.000Z" },
       ],
     }),
+    search: async (q) => {
+      calls.push(`search ${q}`);
+      return [];
+    },
     ...over,
   };
   return { api, calls };
@@ -320,5 +324,41 @@ describe("le scritture di Support sul server (area 8, F3)", () => {
         s.markNotConcluded("ACQ-S1"),
       ),
     ).toBe("invalid: state");
+  });
+});
+
+// ⌘K (rimandi, lotto 5, voce 1; 72, d74cf6285): il server dà `projectCode`,
+// il link della conversazione lo fa il client.
+describe("la ricerca ⌘K di Support", () => {
+  it("i risultati del server col link della conversazione", async () => {
+    const { api, calls } = fakeApi({
+      search: async (q) => {
+        calls.push(`search ${q}`);
+        return [
+          {
+            kind: "support",
+            id: "c2",
+            code: "ACQ-S2",
+            label: "Lucia",
+            projectId: PRJ,
+            projectCode: "ACQ",
+            state: "request_open",
+          },
+        ];
+      },
+    });
+    const support = createRealSupport(api);
+    expect(await support.searchSupport(" lucia ")).toEqual([
+      {
+        kind: "support",
+        id: "c2",
+        code: "ACQ-S2",
+        label: "Lucia",
+        route: "#/p/ACQ/support/ACQ-S2",
+        state: "request_open",
+      },
+    ]);
+    expect(await support.searchSupport("  ")).toEqual([]);
+    expect(calls).toEqual(["search lucia"]);
   });
 });

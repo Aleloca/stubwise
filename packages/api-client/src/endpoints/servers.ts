@@ -2,6 +2,7 @@ import {
   serverCheckViewSchema,
   serverDetailSchema,
   serverMetricsResponseSchema,
+  serverSearchResultSchema,
   serverViewSchema,
   serverWithKeySchema,
 } from "@stubwise/shared";
@@ -13,6 +14,7 @@ import type {
   ServerCheckView,
   ServerDetail,
   ServerMetricsResponse,
+  ServerSearchResult,
   ServerView,
   ServerWithKey,
   UpdateCheckInput,
@@ -23,6 +25,7 @@ import { seg, toQuery } from "../query.js";
 
 const serverListSchema = z.array(serverViewSchema);
 const checkListSchema = z.array(serverCheckViewSchema);
+const searchListSchema = z.object({ items: z.array(serverSearchResultSchema) });
 
 /**
  * I server di monitoraggio.
@@ -42,6 +45,14 @@ export function createServersEndpoints(request: ApiRequest) {
   const base = (serverId: string) => `/api/servers/${seg(serverId)}`;
   return {
     /** I server, facoltativamente solo quelli degli ambienti di un progetto. */
+    /**
+     * ⌘K (rimandi, lotto 5): i server per codice, nome o hostname fra quelli
+     * visibili, per nome, al massimo 20; meno di 2 caratteri: nessuno.
+     */
+    async search(q: string): Promise<Reader<ServerSearchResult>[]> {
+      return (await request("GET", `/api/servers/search${toQuery({ q })}`, undefined, searchListSchema)).items;
+    },
+
     list(projectId?: string): Promise<Reader<ServerView>[]> {
       return request("GET", `/api/servers${toQuery({ projectId })}`, undefined, serverListSchema);
     },

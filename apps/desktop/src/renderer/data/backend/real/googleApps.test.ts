@@ -42,6 +42,15 @@ function fakeApi(over: Partial<GoogleAppsApi> = {}) {
 }
 
 describe("le app Google dal server (area 9, F3)", () => {
+  // Rimandi, lotto 5, voce 6 (72, d68892e5d): le ultime 4 dal server; null
+  // (segreto di prima, o sotto gli 8 caratteri) resta «••••» senza cifre.
+  it("le ultime 4 del client secret, quando il server le sa", async () => {
+    const [a] = await createRealGoogleApps(
+      fakeApi({ list: async () => [ws({ clientSecretLast4: "k3Yz" })] }).api,
+    ).listGoogleApps();
+    expect(a!.last4).toBe("k3Yz");
+  });
+
   it("l'elenco: le caselle collegate contate (i nomi il server non li dà), senza ultime 4", async () => {
     const [a] = await createRealGoogleApps(fakeApi().api).listGoogleApps();
     expect(a).toMatchObject({

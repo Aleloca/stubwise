@@ -83,6 +83,23 @@ describe("Preferenze → Account dal server (area 9, R4a)", () => {
     });
   });
 
+  // Rimandi, lotto 5, voce 5 (72, c703b66eb): i reparti di chi è dentro, nel
+  // suo ordine; il primo colora le iniziali. Un server di prima: il neutro.
+  it("il reparto del profilo è il primo dei reparti di /api/auth/me", async () => {
+    const base = fakeApi().api;
+    const withDepts = fakeApi({
+      me: async () => ({
+        ...(await base.me()),
+        departments: [
+          { id: "d-design", name: "Design", colorToken: "--dept-design" },
+          { id: "d-eng", name: "Engineering", colorToken: "--dept-eng" },
+        ],
+      }),
+    }).api;
+    expect((await createRealMeAccount(withDepts).getMyProfile()).departmentId).toBe("d-design");
+    expect((await createRealMeAccount(base).getMyProfile()).departmentId).toBeNull();
+  });
+
   it("nome e foto: PATCH del nome, la foto come byte grezzi, null la toglie; 415 e 413 nelle parole del prototipo", async () => {
     const { api, calls } = fakeApi();
     const account = createRealMeAccount(api);

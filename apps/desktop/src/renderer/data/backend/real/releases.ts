@@ -1,6 +1,12 @@
-import type { ReleaseDetail, ReleaseRow, ReleaseStatus } from "@stubwise/shared";
+import type {
+  ReleaseDetail,
+  ReleaseRow,
+  ReleaseSearchResult as ServerReleaseSearchResult,
+  ReleaseStatus,
+} from "@stubwise/shared";
 import type { Conversation } from "../../model";
-import type { FixResult, ReleaseView } from "../../releases";
+import { releaseHref } from "../../releases/visibility";
+import type { FixResult, ReleaseSearchResult, ReleaseView } from "../../releases";
 import { inPrototypeWords, orNull } from "./automationRefs";
 
 // I rilasci della build app (area 8, F1) sopra le rotte vere, con le firme
@@ -38,6 +44,8 @@ export interface ReleasesApi {
     noteAdded?: boolean;
     started?: boolean;
   }>;
+  /** ⌘K (rimandi, lotto 5): `GET /api/releases/search?q=`. */
+  search(q: string): Promise<ServerReleaseSearchResult[]>;
 }
 
 function viewOf(
@@ -137,6 +145,20 @@ export function createRealReleases(
         noteAdded: res.noteAdded ?? false,
         started: res.started ?? false,
       } as FixResult;
+    },
+
+    /** ⌘K: i rilasci trovati dal server; il link del dettaglio lo fa il client (`projectCode`). */
+    async searchReleases(q: string): Promise<ReleaseSearchResult[]> {
+      const needle = q.trim();
+      if (!needle) return [];
+      return (await api.search(needle)).map((r) => ({
+        kind: "release" as const,
+        id: r.id,
+        code: r.code,
+        label: r.label,
+        route: releaseHref(r.projectCode, r.code),
+        status: r.status,
+      }));
     },
   };
 }

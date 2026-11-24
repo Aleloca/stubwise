@@ -32,7 +32,8 @@ type EmailChangeStatus = {
 
 /** Le rotte (sul client vero: `client.auth`, `client.me`). */
 export interface MeAccountApi {
-  me(): Promise<{ user: SessionUserLike }>;
+  /** `departments`: rimandi, lotto 5 (72), assenti da un server di prima. */
+  me(): Promise<{ user: SessionUserLike; departments?: { id: string }[] }>;
   setDisplayName(name: string): Promise<void>;
   putAvatar(bytes: Uint8Array): Promise<void>;
   deleteAvatar(): Promise<void>;
@@ -92,15 +93,16 @@ export function createRealMeAccount(api: MeAccountApi) {
 
   return {
     async getMyProfile(): Promise<MyProfile> {
-      const [{ user }, change] = await Promise.all([api.me(), api.emailChange()]);
+      const [{ user, departments }, change] = await Promise.all([api.me(), api.emailChange()]);
       const name = user.displayName?.trim() || user.email.split("@")[0]!;
       return {
         name,
         initials: initialsOf(name),
         email: user.email,
         photo: await photoOf(user.avatarUrl),
-        // Il colore delle iniziali viene dal reparto: qui il neutro.
-        departmentId: null,
+        // Rimandi, lotto 5, voce 5 (72, c703b66eb): il primo reparto della
+        // persona colora le iniziali; nessuno (o un server di prima), il neutro.
+        departmentId: departments?.[0]?.id ?? null,
         pendingEmail: pendingOf(change),
         emailChangeAvailable: change.available,
       };

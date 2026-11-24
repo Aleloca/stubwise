@@ -83,6 +83,7 @@ const ALL: IntegrationTarget[] = [
       "releases",
       "releases-repo-settings",
       "releases-explain",
+      "releases-search",
       "support",
       "support-widgets",
       "support-search",
@@ -144,11 +145,13 @@ describe("isIntegrated", () => {
         "feature:releases",
         "feature:releases-repo-settings",
         "feature:releases-explain",
+        "feature:releases-search",
         // Area 8, fetta 3: Support (letture e scritture) e i widget; bozza e
         // ricerca senza rotta, «Clienti in attesa» spento (fonte da definire).
         "projectSection:support",
         "feature:support",
         "feature:support-widgets",
+        "feature:support-search",
         // API per i siti (S6): l'identità dei clienti del widget.
         "feature:support-identity",
         // Area 9, F1, R4a: Preferenze → Account.
@@ -167,6 +170,7 @@ describe("isIntegrated", () => {
         "projectSection:servers",
         "admin:servers",
         "feature:servers-monitor",
+        "feature:servers-search",
         "feature:servers-write",
         "feature:servers-create-in-env",
         "feature:environments",

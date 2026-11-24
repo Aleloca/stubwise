@@ -191,8 +191,8 @@ describe("Support nella build app (area 8, F3)", () => {
   });
 });
 
-describe("la ricerca ⌘K di Support non è nella F3 (support-search)", () => {
-  it("con `support` accesa la ricerca non chiama il server", async () => {
+describe("la ricerca ⌘K di Support segue `support-search`", () => {
+  it("con `support` accesa ma `support-search` spenta la ricerca non chiama il server", async () => {
     install();
     const search = vi.fn(async () => []);
     (support as unknown as Record<string, unknown>).searchSupport = search;

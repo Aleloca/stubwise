@@ -22,6 +22,7 @@ const releases = createRealReleases(
     list: (projectId) => appClient().releases.list(projectId),
     get: (code) => appClient().releases.get(code),
     fix: (code, body) => appClient().releases.fix(code, body),
+    search: (q) => appClient().releases.search(q),
   },
   codeOf,
 );
@@ -94,6 +95,8 @@ export const liveReleases: Partial<typeof Fake.releases> = {
   listReleases: releases.listReleases,
   getRelease: releases.getRelease,
   fixRelease: releases.fixRelease,
+  // `releases-search` (rimandi, lotto 5): la ricerca ⌘K.
+  searchReleases: releases.searchReleases,
   // `releases-explain`.
   explainRelease: explain.explainRelease,
   listMyReleases: prs.listMyReleases,

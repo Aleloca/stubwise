@@ -29,7 +29,11 @@ export function conversationFor(me: string, code: string): SupportConversation {
 
 /** L'indirizzo di una conversazione (avvisi, ⌘K, Home). */
 export const supportHref = (projectId: string, code: string): string =>
-  `#/p/${projectCodeOf(projectId)}/support/${code}`;
+  supportHrefIn(projectCodeOf(projectId), code);
+
+/** Lo stesso indirizzo dal codice del progetto (il server lo dà già, ⌘K). */
+export const supportHrefIn = (projectCode: string, code: string): string =>
+  `#/p/${projectCode}/support/${code}`;
 
 /** L'indirizzo di una richiesta nel pannello delle richieste. */
 export const requestHref = (req: ProjectRequest): string =>

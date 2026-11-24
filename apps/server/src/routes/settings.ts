@@ -166,6 +166,7 @@ async function loadInstanceSettings(
     s3AccessKey: row?.s3AccessKey ?? null,
     // Mai la secret: solo se c'è un blob cifrato salvato.
     s3SecretKeySet: row?.s3SecretKeyEncrypted != null,
+    s3SecretKeyLast4: row?.s3SecretKeyEncrypted != null ? (row.s3SecretKeyLast4 ?? null) : null,
     attachmentsEnabled,
     // Mai i segreti Slack: solo se c'è un blob cifrato salvato. slackEnabled =
     // entrambi presenti (integrazione completa).

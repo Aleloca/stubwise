@@ -643,6 +643,8 @@ export const gitAccounts = pgTable("git_accounts", {
   // JSON { username?, email?, token } cifrato AES-256-GCM (vedi secrets.ts).
   // Non esce MAI dall'API: si legge solo per validare/decifrare lato server.
   encryptedCredentials: text("encrypted_credentials").notNull(),
+  /** Le ultime 4 del token (0225); null per le righe di prima o un token corto. */
+  tokenLast4: text("token_last4"),
   // Slug del workspace Bitbucket. Obbligatorio per usare le feature repo di un
   // account Bitbucket con API token: Bitbucket Cloud (CHANGE-2770) ha dismesso
   // gli endpoint account/globali (410 Gone), quindi i repo si elencano solo
@@ -1993,6 +1995,9 @@ export const outgoingWebhooks = pgTable("outgoing_webhooks", {
   events: text("events").array().notNull().default(sql`'{}'::text[]`),
   secretEncrypted: text("secret_encrypted"),
   secretRotatedAt: timestamp("secret_rotated_at", { withTimezone: true }),
+  /** L'ultima prova (0224, rimandi lotto 5): quando e com'è andata; null = mai provato (o URL/formato cambiati). */
+  lastTestAt: timestamp("last_test_at", { withTimezone: true }),
+  lastTestOutcome: text("last_test_outcome", { enum: ["ok", "invalid_credentials", "unreachable"] }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
 });
@@ -2085,6 +2090,8 @@ export const instanceSettings = pgTable("instance_settings", {
   s3Bucket: text("s3_bucket"),
   s3AccessKey: text("s3_access_key"),
   s3SecretKeyEncrypted: text("s3_secret_key_encrypted"),
+  /** Le ultime 4 della chiave S3 (0225); null senza chiave, o per le righe di prima. */
+  s3SecretKeyLast4: text("s3_secret_key_last4"),
   // Credenziali Slack per l'ingestion (slash command / interazioni) e per la
   // verifica delle richieste in arrivo. Entrambe nullable: l'integrazione Slack
   // è opzionale; con queste colonne a null la feature è disattivata. Cifrate a
@@ -4934,6 +4941,9 @@ export const plugins = pgTable("plugins", {
     .notNull()
     .default("idle"),
   smokeError: text("smoke_error"),
+  /** Chi l'ha registrato e chi ne ha cambiato il ref per ultimo (0226, rimandi lotto 5). */
+  registeredByUserId: uuid("registered_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  updatedByUserId: uuid("updated_by_user_id").references(() => users.id, { onDelete: "set null" }),
   materializedAt: timestamp("materialized_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -5170,6 +5180,8 @@ export const googleWorkspaces = pgTable("google_workspaces", {
   domains: text("domains").array().notNull(),
   clientId: text("client_id").notNull(),
   clientSecretEncrypted: text("client_secret_encrypted").notNull(),
+  /** Le ultime 4 del client secret (0225); null senza segreto, o per le righe di prima. */
+  clientSecretLast4: text("client_secret_last4"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

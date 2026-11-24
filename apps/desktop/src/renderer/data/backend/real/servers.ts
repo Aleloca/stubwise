@@ -23,7 +23,12 @@ import type {
   ServerThresholds,
 } from "../../model";
 import type { CheckInput, CreateServerInput, UpdateServerInput } from "../../servers/monitor";
-import type { InstanceServerRow, MetricRange, ServerMetrics } from "../../servers/reads";
+import type {
+  InstanceServerRow,
+  MetricRange,
+  ServerMetrics,
+  ServerSearchResult,
+} from "../../servers/reads";
 import type {
   ServerAnalysisView,
   ServerAttributionView,
@@ -44,6 +49,8 @@ import { instanceOrigin } from "./supportWidgets";
 
 /** Le rotte (sul client vero: `client.servers`). */
 export interface ServersApi {
+  /** ⌘K (rimandi, lotto 5): `GET /api/servers/search?q=`. */
+  search(q: string): Promise<ServerSearchResult[]>;
   list(projectId?: string): Promise<Reader<ServerView>[]>;
   byCode(code: string): Promise<Reader<ServerDetailShape>>;
   metrics(
@@ -680,11 +687,23 @@ export function createRealServers(
           : null,
       };
     },
+
+    /** ⌘K: i server trovati dal server, col progetto da cui aprirli (lo calcola lui). */
+    async searchServers(q: string): Promise<ServerSearchResult[]> {
+      const needle = q.trim();
+      if (!needle) return [];
+      return (await api.search(needle)).map((s) => ({
+        code: s.code,
+        name: s.name,
+        projectCode: s.projectCode,
+      }));
+    },
   };
 }
 
 /** Sul client vero (il client si legge a ogni chiamata). */
 export const liveServers = createRealServers({
+  search: (q) => appClient().servers.search(q),
   list: (projectId) => appClient().servers.list(projectId),
   byCode: (code) => appClient().servers.byCode(code),
   metrics: (id, range) => appClient().servers.metrics(id, range),

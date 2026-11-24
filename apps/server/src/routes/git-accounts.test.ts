@@ -63,6 +63,8 @@ describe("POST /api/git-accounts", () => {
       // Nessun account nasce revisore predefinito: lo si marca con la sua rotta.
       isDefaultReviewer: false,
       createdAt: expect.any(String),
+      // Rimandi, lotto 5: le ultime 4 del token («•••• …»), mai il token.
+      tokenLast4: PLAINTEXT_TOKEN.slice(-4),
     });
     expect(res.body).not.toContain("credentials");
     expect(res.body).not.toContain(PLAINTEXT_TOKEN);
@@ -191,6 +193,8 @@ describe("PATCH /api/git-accounts/:id", () => {
     expect(res.statusCode).toBe(200);
     expect((res.json() as { name: string }).name).toBe("Modificato");
     expect(res.body).not.toContain("nuovo-token-ruotato");
+    // Rimandi, lotto 5: le ultime 4 seguono il token nuovo.
+    expect((res.json() as { tokenLast4: string | null }).tokenLast4).toBe("tato");
 
     const [after] = await testDb.db.select().from(gitAccounts).where(eq(gitAccounts.id, id));
     expect(after!.encryptedCredentials).not.toBe(before!.encryptedCredentials);

@@ -220,6 +220,9 @@ export async function createPlugin(db: Db, input: CreatePluginInput, actor?: Cha
           sourceUrl: input.sourceUrl,
           ref: input.ref,
           sourceSubdir: input.sourceSubdir ?? null,
+          // Rimandi, lotto 5: chi registra è anche l'ultimo ad averlo aggiornato (come il prototipo).
+          registeredByUserId: actor?.id ?? null,
+          updatedByUserId: actor?.id ?? null,
         })
         .returning();
       if (!created) throw new Error("insert del plugin non ha restituito la riga");
@@ -261,7 +264,7 @@ export async function requestUpdate(db: Db, id: string, ref: string, actor?: Cha
       // con `repo_graphs`), quindi ogni scrittura se lo porta dietro.
       const [updated] = await tx
         .update(plugins)
-        .set({ ref, updatedAt: new Date() })
+        .set({ ref, updatedAt: new Date(), ...(actor ? { updatedByUserId: actor.id } : {}) })
         .where(eq(plugins.id, id))
         .returning({ id: plugins.id, name: plugins.name });
       // Nessuna riga toccata: niente da annullare, si esce prima dell'insert.

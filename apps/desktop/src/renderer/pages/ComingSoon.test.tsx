@@ -653,6 +653,8 @@ const INTEGRATED_CALLS = new Set([
   "releases.setRepoPrMode",
   // Area 8, F3: Support (letture e scritture sulle rotte di 72).
   "support.listSupportConversations",
+  // La ricerca ⌘K di Support (rimandi, lotto 5).
+  "support.searchSupport",
   "support.getSupportConversation",
   "support.customerPreview",
   "support.replyToCollaborator",
@@ -667,6 +669,8 @@ const INTEGRATED_CALLS = new Set([
   "support.regenerateIdentitySecret",
   // Area 8, F4a: i Server in sola lettura.
   "servers.listProjectServers",
+  // La ricerca ⌘K dei server (rimandi, lotto 5).
+  "servers.searchServers",
   "servers.listAllServers",
   "servers.getServer",
   "servers.getServerMetrics",
@@ -713,6 +717,8 @@ const INTEGRATED_CALLS = new Set([
   "releases.setReleasePipeline",
   // Area 8, F1 (`releases-explain`): «Spiega» apre una conversazione col contesto del rilascio.
   "releases.explainRelease",
+  // La ricerca ⌘K dei rilasci (rimandi, lotto 5).
+  "releases.searchReleases",
   // Area 7, F4 (accesa): sorgenti webhook, tabella cliente → progetto, tetto del
   // webhook (`data/backend/real/automationSources.ts`, `automations.ts`).
   "automations.listSources",
@@ -948,7 +954,7 @@ describe("aree non integrate nella build app", () => {
   });
 
   // Review area 8 F1, m5: le ricerche della palette delle aree non integrate non partono.
-  it("cercare nella palette legge solo chiamate integrate (rilasci, Support, Servers spenti)", async () => {
+  it("cercare nella palette legge solo chiamate integrate (rilasci, Support e Servers accese)", async () => {
     const user = userEvent.setup();
     renderRoute("/home");
     await screen.findByRole("region", { name: /^My tasks/ });
@@ -957,9 +963,10 @@ describe("aree non integrate nella build app", () => {
     await user.type(within(dialog).getByRole("combobox"), "AUD");
     await new Promise((r) => setTimeout(r, 400));
     await settle();
-    expect(calls).not.toContain("releases.searchReleases");
-    expect(calls).not.toContain("support.searchSupport");
-    expect(calls).not.toContain("servers.searchServers");
+    // La ricerca dei rilasci (rimandi, lotto 5) parte, ed è integrata.
+    expect(calls).toContain("releases.searchReleases");
+    expect(calls).toContain("support.searchSupport");
+    expect(calls).toContain("servers.searchServers");
     // La doc di prodotto (area 11, F3) parte, ed è integrata.
     expect(calls).toContain("productDocs.searchProductPages");
     expect(outside()).toEqual([]);

@@ -137,6 +137,8 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "releases-repo-settings",
     // «Spiega» un rilascio: Claude lo legge col tool `read_release` (verde col golden di 72).
     "releases-explain",
+    // La ricerca ⌘K dei rilasci (rimandi, lotto 5; 72, 6ea466fa2).
+    "releases-search",
     // Area 8, fetta 2 (R6): Preferenze → Notifiche sulle iscrizioni vere
     // (righe e stati dal server), la campanella del progetto e il menu
     // degli avvisi nel pannello. «Don't alert me» dalla card è `alerts-mute`.
@@ -144,11 +146,12 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // Area 8, fetta 3: Support — elenco, dettaglio, anteprima, risposta,
     // «Apri la richiesta», «Not concluded» e i widget (`support-widgets`, sulle
     // rotte di oggi). Email, «Segui» e la bozza di Claude non ci sono più
-    // (decisione del maintainer: il team non scrive al cliente). Resta spenta
-    // la ricerca ⌘K (`support-search`, fuori F3). «Clienti in attesa» della
-    // Home è uscito da Support: viene dalla posta (`mail-waiting`).
+    // (decisione del maintainer: il team non scrive al cliente). «Clienti in
+    // attesa» della Home è uscito da Support: viene dalla posta (`mail-waiting`).
     "support",
     "support-widgets",
+    // La ricerca ⌘K di Support (rimandi, lotto 5; 72, d74cf6285).
+    "support-search",
     // API per i siti (S6): il segreto d'identità dei clienti e «Solo clienti
     // verificati» nei widget, «verificato» / «dichiarato» nel dettaglio.
     "support-identity",
@@ -179,8 +182,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // Area 9, F1, R10: «Restore» e «Move to New» dell'Inbox.
     "notification-restore",
     // Area 8, F4a: i Server (letture e scritture, la chiave una volta).
-    // Resta spenta la ricerca ⌘K (`servers-search`).
     "servers-monitor",
+    // La ricerca ⌘K dei server (rimandi, lotto 5; 72, a7557fe21).
+    "servers-search",
     "servers-write",
     // «New server» dalla sezione di un progetto: dentro un ambiente, per tutto
     // il progetto (decisione c di 46: l'ambiente senza repository).

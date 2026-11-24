@@ -61,6 +61,35 @@ function fakeApi(over: Partial<PluginsApi> = {}) {
 }
 
 describe("i plugin dal server (area 9, F3)", () => {
+  // Rimandi, lotto 5, voce 6 (72, 74ab8cf1c): chi l'ha registrato e chi
+  // l'ha aggiornato, già mascherati dal server (segnaposto e nome null a chi
+  // non conosce la persona); un server di prima non li manda.
+  it("chi ha registrato e aggiornato il plugin, dal server", async () => {
+    const named = createRealPlugins(
+      fakeApi({
+        get: async () =>
+          plugin({
+            registeredById: "u-roberta",
+            registeredByName: "Roberta Fontana",
+            updatedById: "hidden-1",
+            updatedByName: null,
+          }),
+      }).api,
+    );
+    expect(await named.getPlugin(P)).toMatchObject({
+      registeredById: "u-roberta",
+      registeredByName: "Roberta Fontana",
+      updatedById: "hidden-1",
+      updatedByName: null,
+    });
+    expect(await createRealPlugins(fakeApi().api).getPlugin(P)).toMatchObject({
+      registeredById: "",
+      registeredByName: null,
+      updatedById: "",
+      updatedByName: null,
+    });
+  });
+
   it("la forma del prototipo: stato, smoke, sha, inventario; busy dal job in coda", async () => {
     const p = createRealPlugins(fakeApi().api);
     const [a] = await p.listPlugins();

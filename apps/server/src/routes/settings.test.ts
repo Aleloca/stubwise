@@ -946,6 +946,7 @@ describe("PUT /api/settings/instance", () => {
       s3Bucket: null,
       s3AccessKey: null,
       s3SecretKeySet: false,
+      s3SecretKeyLast4: null,
       attachmentsEnabled: false,
       slackSigningSecretSet: false,
       slackBotTokenSet: false,
@@ -1042,6 +1043,7 @@ describe("GET /api/settings/instance — storage S3", () => {
     expect(body.s3Bucket).toBeNull();
     expect(body.s3AccessKey).toBeNull();
     expect(body.s3SecretKeySet).toBe(false);
+    expect((body as unknown as { s3SecretKeyLast4: string | null }).s3SecretKeyLast4).toBeNull();
     expect(body.attachmentsEnabled).toBe(false);
   });
 });
@@ -1061,6 +1063,8 @@ describe("PUT /api/settings/instance — storage S3", () => {
     expect(body.s3Bucket).toBe("my-bucket");
     expect(body.s3AccessKey).toBe("AKIA");
     expect(body.s3SecretKeySet).toBe(true);
+    // Rimandi, lotto 5: le ultime 4 della chiave, mai la chiave.
+    expect((body as unknown as { s3SecretKeyLast4: string | null }).s3SecretKeyLast4).toBe("cret");
     expect(body.attachmentsEnabled).toBe(true);
     // La secret non deve MAI comparire in nessuna forma nel JSON.
     expect(JSON.stringify(body)).not.toContain("super-secret");

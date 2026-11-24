@@ -54,6 +54,7 @@ function fakeApi(over: Partial<ReleasesApi> = {}) {
       calls.push(`POST releases/${code}/fix ${JSON.stringify(body)}`),
       { taskId: "t9", taskCode: "AUD-77", existing: false, noteAdded: false }
     ),
+    search: async () => [],
     ...over,
   };
   return { api, calls };
@@ -174,5 +175,43 @@ describe("«Spiega» un rilascio (area 8, F1, releases-explain)", () => {
     expect(created).toEqual([{ kind: "release", id: "AUD-V3" }]);
     expect(await explain.explainRelease("AUD-V2")).toMatchObject({ id: "c-old", reused: true });
     expect(created).toHaveLength(1);
+  });
+});
+
+// ⌘K (rimandi, lotto 5, voce 1; 72, 6ea466fa2): il server dà `projectCode`,
+// il link del prototipo lo fa il client.
+describe("la ricerca dei rilasci", () => {
+  it("i risultati del server col link del dettaglio", async () => {
+    const seen: string[] = [];
+    const { api } = fakeApi({
+      search: async (q) => (
+        seen.push(q),
+        [
+          {
+            kind: "release",
+            id: "r7",
+            code: "AUD-V7",
+            label: "Checkout",
+            projectId: "p1",
+            projectCode: "AUD",
+            status: "in_production",
+          },
+        ]
+      ),
+    });
+    const r = createRealReleases(api, async () => "AUD");
+    expect(await r.searchReleases("  v7 ")).toEqual([
+      {
+        kind: "release",
+        id: "r7",
+        code: "AUD-V7",
+        label: "Checkout",
+        route: "#/p/AUD/releases/AUD-V7",
+        status: "in_production",
+      },
+    ]);
+    expect(seen).toEqual(["v7"]);
+    expect(await r.searchReleases(" ")).toEqual([]);
+    expect(seen).toEqual(["v7"]);
   });
 });

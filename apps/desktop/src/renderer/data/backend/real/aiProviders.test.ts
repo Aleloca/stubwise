@@ -166,6 +166,20 @@ describe("i provider AI dal server (area 9, F3)", () => {
       fakeApi({ list: async () => [view(A, { testStatus: "failed", testError: "401" })] }).api,
     );
     expect(await failing.testProvider(A)).toEqual({ ok: true, outcome: "invalid_credentials" });
+    // Rimandi, lotto 5, voce 6 (72, 8e1c90426): la rete si distingue dalla credenziale.
+    const offline = createRealProviders(
+      fakeApi({
+        list: async () => [view(A, {
+            testStatus: "failed",
+            testFailure: "unreachable",
+            testCheckedAt: "2026-11-24T09:00:00.000Z",
+          }),],
+      }).api,
+    );
+    expect(await offline.testProvider(A)).toEqual({ ok: true, outcome: "unreachable" });
+    expect((await offline.listProviders()).find((p) => p.id === A)?.lastTest?.outcome).toBe(
+      "unreachable",
+    );
     const stuck = createRealProviders(
       fakeApi({ list: async () => [view(A, { testStatus: "pending" })] }).api,
     );

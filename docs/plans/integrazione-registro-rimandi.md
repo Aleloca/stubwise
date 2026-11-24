@@ -1419,13 +1419,21 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     arrivate con le loro fette.
 
 - **F3 renderer, i webhook in uscita nell'app** *(94, 18 nov 2026)*:
-  - il server non ricorda l'ultima prova di un webhook (`POST …/test` dice
+  - ~~il server non ricorda l'ultima prova di un webhook (`POST …/test` dice
     solo com'è andata): l'app la tiene per la sessione, e ricaricando torna
-    «not tested yet» *(S, serve `lastTest` nella vista del server)*;
+    «not tested yet» *(S, serve `lastTest` nella vista del server)*;~~
+    *parte server chiusa il 24 nov 2026 (72, lotto 5)*: la vista porta
+    `lastTest: { at, outcome } | null` (0224), nelle parole del prototipo
+    (`ok`/`invalid_credentials`/`unreachable`); cambiare URL o formato la
+    toglie;
   - AI → Providers: la prova la fa il worker (si rilegge finché non è più
-    `pending`, al più ~60 s, poi «prova ancora in corso»); `failed` non
+    `pending`, al più ~60 s, poi «prova ancora in corso»); ~~`failed` non
     distingue la credenziale sbagliata dalla rete e si dice «credenziale
-    non valida»; le credenziali salvate prima della 0190 non hanno le
+    non valida»;~~ *parte server chiusa il 24 nov 2026 (72, lotto 5)*: la
+    vista porta `testFailure` (`unreachable`/`invalid_credentials`, null se
+    non è fallito), derivato a lettura dal testo dell'errore
+    (`credentialTestFailureOf` di `@stubwise/shared`; un testo senza segni
+    resta «credenziale»); le credenziali salvate prima della 0190 non hanno le
     ultime 4 («••••»); la riga della quota la vede solo chi ha
     `usage.view` *(dichiarato; S per distinguere l'errore di rete)*;
   - ~~AI → Usage resta «Coming soon»: il server ha `/api/usage-costs` (del
@@ -1434,16 +1442,23 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     da 701afd81a (area 9, F4: `ai-usage` acceso; 23 nov 2026, verificata nel codice);
   - Storage: il server non ha la prova dell'archiviazione né l'interruttore
     degli allegati (li deriva dalla configurazione), quindi nell'app quei due
-    comandi non ci sono; niente ultime 4 della chiave («••••») *(S)*;
-  - Plugins: il server non dice chi ha registrato o aggiornato un plugin
-    («updated … by» senza nome) *(S)*;
-  - Git accounts: niente ultime 4 del token («••••»); la validazione non
+    comandi non ci sono; ~~niente ultime 4 della chiave («••••») *(S)*;~~
+    *le ultime 4, parte server, chiuse il 24 nov 2026 (72, lotto 5)*:
+    `s3SecretKeyLast4` (0225);
+  - ~~Plugins: il server non dice chi ha registrato o aggiornato un plugin
+    («updated … by» senza nome) *(S)*;~~ *parte server chiusa il 24 nov
+    2026 (72, lotto 5)*: `registeredById`/`registeredByName` e
+    `updatedById`/`updatedByName` (0226; mascherati per chi non conosce la
+    persona);
+  - Git accounts: ~~niente ultime 4 del token («••••»);~~ *(parte server
+    chiusa il 24 nov 2026, 72, lotto 5: `tokenLast4`, 0225)* la validazione non
     resta sul server (la ricorda la sessione); i repository che usano un
     account non arrivano, né nella riga né nel rifiuto `in_use`; chi
     verrebbe sostituito come revisore predefinito si sa solo dopo, dalla
     risposta *(S per ciascuno)*;
-  - Google Workspace: il server non tiene le ultime 4 del client secret
-    («••••»), e delle caselle collegate dà solo il numero: il dialogo di
+  - Google Workspace: ~~il server non tiene le ultime 4 del client secret
+    («••••»)~~ *(parte server chiusa il 24 nov 2026, 72, lotto 5:
+    `clientSecretLast4`, 0225)*, e delle caselle collegate dà solo il numero: il dialogo di
     un'app in uso le dice contate, senza i nomi *(S)*;
   - AI → Automation: le regole di `feedback` e `review` non si modificano
     nell'app (la pagina ha le tre righe delle task) e si rimandano com'erano
