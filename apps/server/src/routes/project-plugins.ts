@@ -60,7 +60,7 @@ export async function projectPluginRoutes(instance: FastifyInstance): Promise<vo
       const plugins = await getProjectPlugins(app.db, projectId);
       const canEdit = request.access!.permissions.has("project.settings.manage");
       // Area 9, F5: anche il registro, per chi non ha `plugins.manage` d'istanza.
-      const registry = await projectPluginRegistry(app.db);
+      const registry = await projectPluginRegistry(app.db, { withHookCommands: canEdit });
       return {
         plugins,
         version: projectPluginsVersion(plugins),
@@ -104,7 +104,7 @@ export async function projectPluginRoutes(instance: FastifyInstance): Promise<vo
               : `Unknown hook in the plugin inventory (${result.detail})`;
         return apiError(reply, 400, result.error, message);
       }
-      return { plugins: result.plugins, version: projectPluginsVersion(result.plugins), registry: await projectPluginRegistry(app.db), canEdit: true };
+      return { plugins: result.plugins, version: projectPluginsVersion(result.plugins), registry: await projectPluginRegistry(app.db, { withHookCommands: true }), canEdit: true };
     },
   );
 }

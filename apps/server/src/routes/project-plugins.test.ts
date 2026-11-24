@@ -35,7 +35,7 @@ async function seedPlugin(slug: string): Promise<string> {
       inventory: {
         name: slug,
         skills: [
-          { name: "writing-plans", bytes: 100 },
+          { name: "writing-plans", description: "Scrive un piano prima del codice", bytes: 100 },
           { name: "using-git-worktrees", bytes: 200 },
         ],
         commands: [],
@@ -361,16 +361,33 @@ describe("area 9, F5: la versione, ifMatch e la voce", () => {
 });
 
 describe("area 9, F5: il registro per chi gestisce il progetto", () => {
-  it("ogni plugin del registro con stato, skill, gruppi di hook e il preset consigliato (ristretto alle skill che ci sono); niente URL né comandi", async () => {
+  it("ogni plugin del registro con stato, skill (e descrizioni), gruppi di hook e il preset consigliato; i comandi degli hook solo a chi può salvare; mai l'URL", async () => {
     const id = await seedPlugin("superpowers");
     await testDb.db.insert(plugins).values({ slug: "rotto", name: "rotto", sourceUrl: "https://github.com/acme/rotto", ref: "v1", status: "failed" });
     const body = (await get()).json() as { registry: Record<string, unknown>[] };
     expect(body.registry).toEqual([
-      { pluginId: expect.any(String), slug: "rotto", name: "rotto", status: "failed", skills: [], hookGroups: [], recommendedDisabledSkills: [] },
-      { pluginId: id, slug: "superpowers", name: "superpowers", status: "ready", skills: ["writing-plans", "using-git-worktrees"], hookGroups: ["SessionStart#0"], recommendedDisabledSkills: ["using-git-worktrees"] },
+      { pluginId: expect.any(String), slug: "rotto", name: "rotto", status: "failed", skills: [], hookGroups: [], skillDescriptions: {}, hookCommands: {}, recommendedDisabledSkills: [] },
+      {
+        pluginId: id,
+        slug: "superpowers",
+        name: "superpowers",
+        status: "ready",
+        skills: ["writing-plans", "using-git-worktrees"],
+        hookGroups: ["SessionStart#0"],
+        // Rimandi, lotto 5: la descrizione (solo le skill che ne hanno una) e, a chi può salvare, il comando.
+        skillDescriptions: { "writing-plans": "Scrive un piano prima del codice" },
+        hookCommands: { "SessionStart#0": ["echo ciao"] },
+        recommendedDisabledSkills: ["using-git-worktrees"],
+      },
     ]);
-    expect(JSON.stringify(body.registry)).not.toContain("echo ciao");
     expect(JSON.stringify(body.registry)).not.toContain("github.com");
+    // Chi legge soltanto (decisione di 46): le descrizioni sì, i comandi no.
+    const forReader = (await get(memberCookie)).json() as { canEdit: boolean; registry: { slug: string; hookCommands: unknown; skillDescriptions: unknown }[] };
+    expect(forReader.canEdit).toBe(false);
+    const row = forReader.registry.find((r) => r.slug === "superpowers")!;
+    expect(row.hookCommands).toEqual({});
+    expect(row.skillDescriptions).toEqual({ "writing-plans": "Scrive un piano prima del codice" });
+    expect(JSON.stringify(forReader)).not.toContain("echo ciao");
   });
 });
 
@@ -386,7 +403,7 @@ describe("dalla review di F5: la vista in sola lettura per chi vede il progetto"
     expect(body.canEdit).toBe(false);
     expect(body.plugins).toEqual([{ pluginId: id, enabled: true, disabledSkills: ["writing-plans"], disabledHooks: [] }]);
     expect(body.registry).toEqual([
-      { pluginId: id, slug: "superpowers", name: "superpowers", status: "ready", skills: ["writing-plans", "using-git-worktrees"], hookGroups: ["SessionStart#0"], recommendedDisabledSkills: [] },
+      { pluginId: id, slug: "superpowers", name: "superpowers", status: "ready", skills: ["writing-plans", "using-git-worktrees"], hookGroups: ["SessionStart#0"], skillDescriptions: { "writing-plans": "Scrive un piano prima del codice" }, hookCommands: {}, recommendedDisabledSkills: [] },
     ]);
     const putRes = await app.inject({ method: "PUT", url: `/api/projects/${projectId}/plugins`, headers: dev.headers, payload: { plugins: [] } });
     expect(putRes.statusCode).toBe(403);

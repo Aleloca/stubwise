@@ -398,18 +398,29 @@ function pluginEntryFields(list: (ProjectPlugin & { slug: string })[]) {
 /** La riga senza lo slug (che serve solo alla voce). */
 const plain = (p: ProjectPlugin & { slug: string }): ProjectPlugin => ({ pluginId: p.pluginId, enabled: p.enabled, disabledSkills: p.disabledSkills, disabledHooks: p.disabledHooks });
 
+/** I comandi di ogni gruppo di hook (`<Evento>#<indice>`), nell'ordine dell'inventario. */
+function groupCommands(hooks: readonly { key: string; command: string }[]): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const h of hooks) (out[h.key] ??= []).push(h.command);
+  return out;
+}
+
 /**
  * Area 9, F5: il registro per chi gestisce il progetto (vedi
  * `projectPluginRegistryRowSchema`): skill e gruppi di hook dall'inventario
  * (letto in modo difensivo), il preset consigliato per nome del manifest.
  */
-export async function projectPluginRegistry(db: Db): Promise<ProjectPluginRegistryRow[]> {
+export async function projectPluginRegistry(db: Db, opts: { withHookCommands?: boolean } = {}): Promise<ProjectPluginRegistryRow[]> {
   const rows = await db.select().from(plugins).orderBy(asc(plugins.slug));
   return rows.map((row) => {
     const parsed = pluginInventorySchema.safeParse(row.inventory);
     const skills = parsed.success ? parsed.data.skills.map((s) => s.name) : [];
     const hookGroups = parsed.success ? [...new Set(parsed.data.hooks.map((h) => h.key))] : [];
     const recommended = parsed.success ? (RECOMMENDED_DISABLED_SKILLS[parsed.data.name] ?? []) : [];
+    // Rimandi, lotto 5: la descrizione di ogni skill (il testo che il CLI mostra), se c'è.
+    const skillDescriptions = parsed.success
+      ? Object.fromEntries(parsed.data.skills.filter((sk) => sk.description).map((sk) => [sk.name, sk.description!]))
+      : {};
     return {
       pluginId: row.id,
       slug: row.slug,
@@ -417,6 +428,9 @@ export async function projectPluginRegistry(db: Db): Promise<ProjectPluginRegist
       status: row.status,
       skills,
       hookGroups,
+      skillDescriptions,
+      // Solo a chi può salvare (46, lotto 5): vedi `projectPluginRegistryRowSchema.hookCommands`.
+      hookCommands: opts.withHookCommands && parsed.success ? groupCommands(parsed.data.hooks) : {},
       recommendedDisabledSkills: recommended.filter((s) => skills.includes(s)),
     };
   });
