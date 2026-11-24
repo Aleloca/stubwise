@@ -3696,8 +3696,14 @@ const PAGE_EVENT_MOVES: Record<
 export async function settlePageEvent(
   conversationId: string,
   eventId: string,
-  status: PageEventStatus,
+  /**
+   * `not_run` (lotto 7, §1, decisione 1.b): un'azione che non è partita
+   * (vecchia, o letta dalla storia nella build app). Qui è `failed` come
+   * sempre; la build app la tiene solo in locale e non la dice al server.
+   */
+  settled: PageEventStatus | "not_run",
 ): Promise<void> {
+  const status: PageEventStatus = settled === "not_run" ? "failed" : settled;
   const gen = storeGeneration();
   const me = await afterGate("settlePageEvent", gen);
   const c = conversationFor(me, conversationId);

@@ -91,6 +91,8 @@ const groupA = (over: Record<string, unknown> = {}) => ({
 });
 
 const ALLOWED = [
+  // Lotto 7, §1: l'esito di un'azione della pagina, salvato sul server.
+  /^POST \/api\/claude\/proposals\/[^/]+\/actions\/\d+\/outcome$/,
   // Lotto 4, §5: «Retry» di un fillMailBody non salvato.
   /^POST \/api\/claude\/groups\/[^/]+\/actions\/\d+\/retry$/,
   // Registro: i blocchi dell'istanza accesi, il composer chiede se si può caricare.
@@ -176,6 +178,10 @@ function install(over: { proposals?: unknown[]; groups?: unknown[]; routes?: Rec
       proposals = [cardB({ status: "cancelled", canConfirm: false, canCancel: false })];
       return { body: proposals[0] };
     },
+    // Lotto 7, §1: l'esito di un'azione della pagina si salva sul server.
+    [`POST /api/claude/proposals/${PROPOSAL}/actions/0/outcome`]: (req: SeenRequest) => ({
+      body: { index: 0, status: (req.body as { status: string }).status, at: "2026-11-24T10:00:00.000Z" },
+    }),
     ...over.routes,
   } as Parameters<typeof installFakeServer>[0]).seen;
 }
@@ -524,7 +530,10 @@ describe("le azioni di Claude nella pagina della conversazione", () => {
     await ue.click(screen.getByRole("button", { name: "Apply" }));
     expect(await screen.findByRole("button", { name: /^Undo/ })).toBeInTheDocument();
     expect(document.documentElement.dataset.theme).toBe("dark");
-    expect(seen.filter((r) => r.method === "POST")).toEqual([]);
+    // Lotto 7, §1: «non applicata» resta qui (1.b); l'applicata si salva sul server.
+    expect(seen.filter((r) => r.method === "POST").map((r) => [r.path, r.body])).toEqual([
+      [`/api/claude/proposals/${PROPOSAL}/actions/0/outcome`, { status: "done" }],
+    ]);
     expect(outside()).toEqual([]);
   });
 
@@ -562,7 +571,12 @@ describe("le azioni di Claude nella pagina della conversazione", () => {
     // La riga arriva con la rilettura del dettaglio dopo lo stream.
     expect(await screen.findByRole("button", { name: /^Undo/ }, { timeout: 4000 })).toBeInTheDocument();
     expect(screen.queryByText(/Not applied in this window/)).toBeNull();
-    expect(seen.filter((r) => r.method === "POST")).toEqual([]);
+    // Lotto 7, §1: l'esito si salva sul server, una volta.
+    await waitFor(() =>
+      expect(seen.filter((r) => r.method === "POST").map((r) => [r.path, r.body])).toEqual([
+        [`/api/claude/proposals/${PROPOSAL}/actions/0/outcome`, { status: "done" }],
+      ]),
+    );
   });
 
   it("«Cancel» annulla la scheda sul server; niente si esegue", async () => {

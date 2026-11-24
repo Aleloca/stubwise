@@ -3,12 +3,15 @@ import {
   endsSession,
   isAllowedAgentStreamPath,
   isAllowedChatStreamPath,
+  isAllowedDocsChatStreamPath,
   isAllowedProductLiveStreamPath,
+  parseDocsChatFrame,
   parseAgentStreamFrame,
   parseChatStreamFrame,
   splitSseFrames,
   type AgentStreamMessage,
   type ChatStreamFrameMessage,
+  type DocsChatStreamEvent,
 } from "@stubwise/shared";
 
 // Lo stream dal vivo delle sessioni dell'agente nell'app desktop (integrazione
@@ -58,6 +61,8 @@ export type StreamPortMessage =
   | { type: "productFrameDropped" }
   /** Area 6, F3: un pezzo della bozza di Claude per la Posta (`parseMailDraftFrame`). */
   | { type: "mailDraft"; event: MailDraftStreamEvent }
+  /** Lotto 7, §2: i frame della chat dei Docs (`parseDocsChatFrame` di shared). */
+  | { type: "docsChat"; events: DocsChatStreamEvent[] }
   | { type: "end"; reason: StreamEndReason; fatal: boolean; status?: number; code?: string };
 
 /** Il minimo di `MessagePortMain` che serve (finto nei test). */
@@ -80,8 +85,9 @@ const FATAL_STATUSES = new Set([401, 403, 404]);
 
 // --- La bozza di Claude per la Posta (area 6, F3) --------------------------------
 //
-// L'unico stream in POST: il percorso esatto, e il corpo ricostruito qui dai
-// soli campi previsti (il renderer non sceglie né il metodo né altro).
+// Uno dei due stream in POST (l'altro è la chat dei Docs): il percorso esatto,
+// e il corpo ricostruito qui dai soli campi previsti (il renderer non sceglie
+// né il metodo né altro).
 
 const MAIL_DRAFT_PATH = "/api/me/mail/drafts/claude";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -101,6 +107,24 @@ export function mailDraftBody(raw: unknown): string | null {
   const projectId = b.projectId ?? null;
   if (projectId !== null && (typeof projectId !== "string" || !UUID.test(projectId))) return null;
   return JSON.stringify({ accountId: b.accountId, threadId: b.threadId, mode: b.mode, hint, projectId });
+}
+
+// --- La chat dei Docs (lotto 7, §2) ------------------------------------------------
+//
+// La seconda POST: i due percorsi di `isAllowedDocsChatStreamPath` (shared),
+// col corpo ricostruito qui dai soli campi previsti, coi tetti del server.
+
+/** Il tetto della domanda: quello del server (`routes/docs-chat.ts`). */
+const DOCS_CHAT_MESSAGE_MAX = 8000;
+
+/** Il corpo della chat dei Docs, coi soli campi previsti; `null` se non va. */
+export function docsChatBody(raw: unknown): string | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const b = raw as Record<string, unknown>;
+  if (typeof b.message !== "string" || b.message.length < 1 || b.message.length > DOCS_CHAT_MESSAGE_MAX)
+    return null;
+  if (b.sessionId !== undefined && (typeof b.sessionId !== "string" || !UUID.test(b.sessionId))) return null;
+  return JSON.stringify({ message: b.message, ...(b.sessionId ? { sessionId: b.sessionId } : {}) });
 }
 
 export type MailDraftStreamEvent =
@@ -165,17 +189,24 @@ export function createStreamRegistry(deps: StreamDeps) {
       }
       port.close();
     };
-    // Quattro allowlist strette: le sessioni dell'agente, dall'area 4 i canali
+    // Cinque allowlist strette: le sessioni dell'agente, dall'area 4 i canali
     // della Chat, dall'area 6 la bozza di Claude per la Posta (un POST, col suo
-    // corpo), dall'area 11 lo stream dal vivo di una pagina di prodotto.
+    // corpo), dall'area 11 lo stream dal vivo di una pagina di prodotto, dal
+    // lotto 7 la chat dei Docs (un POST, col suo corpo).
     const chat = typeof path === "string" && isAllowedChatStreamPath(path);
     const productLive = typeof path === "string" && isAllowedProductLiveStreamPath(path);
     const mailDraft = path === MAIL_DRAFT_PATH;
-    const draftBody = mailDraft ? mailDraftBody(options.body) : null;
+    const docsChat = typeof path === "string" && isAllowedDocsChatStreamPath(path);
+    const postBody = mailDraft
+      ? mailDraftBody(options.body)
+      : docsChat
+        ? docsChatBody(options.body)
+        : null;
+    const post = mailDraft || docsChat;
     if (
       typeof path !== "string" ||
-      (!chat && !mailDraft && !productLive && !isAllowedAgentStreamPath(path)) ||
-      (mailDraft && draftBody === null)
+      (!chat && !post && !productLive && !isAllowedAgentStreamPath(path)) ||
+      (post && postBody === null)
     ) {
       end({ type: "end", reason: "rejected", fatal: true });
       return;
@@ -230,13 +261,13 @@ export function createStreamRegistry(deps: StreamDeps) {
       let response: Response;
       try {
         response = await (deps.fetch ?? fetch)(`${base}${path}`, {
-          method: mailDraft ? "POST" : "GET",
+          method: post ? "POST" : "GET",
           headers: {
             accept: "text/event-stream",
             authorization: `Bearer ${token}`,
-            ...(mailDraft ? { "content-type": "application/json" } : {}),
+            ...(post ? { "content-type": "application/json" } : {}),
           },
-          ...(mailDraft ? { body: draftBody! } : {}),
+          ...(post ? { body: postBody! } : {}),
           redirect: "manual",
           signal: abort.signal,
         });
@@ -289,6 +320,12 @@ export function createStreamRegistry(deps: StreamDeps) {
         const { frames, rest } = splitSseFrames(buffer);
         buffer = rest;
         for (const raw of frames) {
+          if (docsChat) {
+            // I frame letti con il modulo di shared; i ping e i malformati non danno niente.
+            const events = parseDocsChatFrame(raw);
+            if (events.length > 0) port.postMessage({ type: "docsChat", events } satisfies StreamPortMessage);
+            continue;
+          }
           if (mailDraft) {
             const event = parseMailDraftFrame(raw);
             if (event) port.postMessage({ type: "mailDraft", event } satisfies StreamPortMessage);

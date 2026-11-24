@@ -146,14 +146,23 @@ describe("i Docs nella build app", () => {
     await waitFor(() => expect(seen.some((r) => r.method === "POST" && r.path.endsWith("/docs/pages/dialer/view"))).toBe(true));
   });
 
-  it("la chat del progetto: la domanda va al server senza streaming, la risposta cita la pagina", async () => {
+  // Lotto 7, §2 (decisione del maintainer): la risposta cresce mentre arriva,
+  // dallo stream SSE del server (senza `?stream=false`), poi le fonti.
+  it("la chat del progetto: la risposta dallo stream del server, poi la pagina citata", async () => {
+    const frames = [
+      { type: "delta", text: "It calls " },
+      { type: "delta", text: "leads in order." },
+      {
+        type: "done",
+        sessionId: "7f1c2a1e-0000-4000-8000-0000000000e9",
+        citations: [{ slug: "dialer", title: "Dialer", kind: "functional", repositoryId: REPO, repositorySlug: "audin-app", repositoryName: "audin-app", code: "AUD-D2" }],
+        productSources: [],
+      },
+    ];
     install({
       [`POST /api/projects/${PROJECT_ID}/docs/chat`]: {
-        body: {
-          answer: "It calls leads in order.",
-          sessionId: "7f1c2a1e-0000-4000-8000-0000000000e9",
-          sources: [{ slug: "dialer", title: "Dialer", kind: "functional", repositoryId: REPO, repositorySlug: "audin-app", repositoryName: "audin-app", code: "AUD-D2" }],
-        },
+        contentType: "text/event-stream",
+        body: frames.map((f) => `data: ${JSON.stringify(f)}\n\n`).join(""),
       },
     });
     const ue = userEvent.setup();
@@ -161,8 +170,9 @@ describe("i Docs nella build app", () => {
     const field = await screen.findByRole("textbox", { name: "Ask the docs" }, { timeout: 3000 });
     await ue.type(field, "How does the dialer work?{Enter}");
     expect(await screen.findByText("It calls leads in order.", {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(await screen.findByText("Used:", {}, { timeout: 3000 })).toBeInTheDocument();
     expect(seen.find((r) => r.method === "POST" && r.path.includes("/docs/chat"))).toMatchObject({
-      path: `/api/projects/${PROJECT_ID}/docs/chat?stream=false`,
+      path: `/api/projects/${PROJECT_ID}/docs/chat`,
       body: { message: "How does the dialer work?" },
     });
   });

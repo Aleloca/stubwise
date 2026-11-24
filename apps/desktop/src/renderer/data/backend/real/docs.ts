@@ -1,4 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
+import { parseDocsChatFrame, splitSseFrames, type DocsChatStreamEvent } from "@stubwise/shared";
 import type {
   DocBriefResponse,
   DocPage as ServerPage,
@@ -717,47 +718,134 @@ const generationHistory: Docs["generationHistory"] = () => [];
 /** Nel prototipo aspetta le generazioni finte; qui non c'è niente da aspettare. */
 const whenDocsIdle: Docs["whenDocsIdle"] = async () => undefined;
 
-// --- la chat dei Docs (passo 2c) ----------------------------------------------------
+// --- la chat dei Docs (passo 2c; lotto 7, §2) ----------------------------------------
+
+type DocsChatDone = Extract<DocsChatStreamEvent, { type: "done" }>;
+
+/** I rifiuti prima dello stream, nelle parole del prototipo. */
+function chatRefusal(status: number | undefined, code: string | undefined): Error {
+  if (status === 503 || code === "chat_unavailable") return new Error("chat_unavailable");
+  if (status === 404) return new Error("not_found");
+  if (status === 403) return new Error("forbidden");
+  return new Error("failed");
+}
+
+/** Il web: POST col cookie, poi lo stream SSE letto con `parseDocsChatFrame`. */
+function openDocsChatFromBrowser(
+  path: string,
+  body: unknown,
+  onEvent: (e: DocsChatStreamEvent) => void,
+  onEnd: (error?: Error) => void,
+): () => void {
+  const abort = new AbortController();
+  void (async () => {
+    let res: Response;
+    try {
+      res = await fetch(path, {
+        method: "POST",
+        credentials: "include",
+        headers: { accept: "text/event-stream", "content-type": "application/json" },
+        body: JSON.stringify(body),
+        signal: abort.signal,
+      });
+    } catch {
+      return onEnd(new Error("failed"));
+    }
+    if (!res.ok || !res.body) {
+      const code = await res
+        .json()
+        .then((b: { code?: unknown }) => (typeof b?.code === "string" ? b.code : undefined))
+        .catch(() => undefined);
+      return onEnd(chatRefusal(res.status, code));
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      let chunk: ReadableStreamReadResult<Uint8Array>;
+      try {
+        chunk = await reader.read();
+      } catch {
+        break;
+      }
+      if (chunk.done) break;
+      const { frames, rest } = splitSseFrames(buffer + decoder.decode(chunk.value, { stream: true }));
+      buffer = rest;
+      for (const raw of frames) for (const e of parseDocsChatFrame(raw)) onEvent(e);
+    }
+    const tail = splitSseFrames(`${buffer}\n\n`).frames;
+    for (const raw of tail) for (const e of parseDocsChatFrame(raw)) onEvent(e);
+    onEnd();
+  })();
+  return () => abort.abort();
+}
 
 /**
- * Una domanda alla chat dei Docs, del progetto o di un repository. Come il
- * prototipo: la risposta intera (`stream=false`), e ogni domanda a sé (nessuna
- * sessione che continua). Le pagine citate diventano citazioni `doc` col
- * codice e il link; 503 `chat_unavailable` se l'istanza non ha un provider.
+ * Una domanda alla chat dei Docs, del progetto o di un repository. Lotto 7,
+ * §2 (decisione del maintainer): la risposta CRESCE mentre arriva — lo stream
+ * SSE del server (`delta`, poi `done` con le fonti, o `error`), letto con
+ * `parseDocsChatFrame` di shared; sul desktop dal main (`openStream`, il token
+ * non lascia il main), sul web col fetch e il cookie. Ogni domanda a sé
+ * (nessuna sessione che continua), come il prototipo. Uno stream che finisce
+ * senza `done` è una risposta interrotta: errore, «Try again». Le pagine
+ * citate diventano citazioni `doc` col codice e il link; 503
+ * `chat_unavailable` se l'istanza non ha un provider.
  */
-const askDocs: Docs["askDocs"] = async ({ projectId, repositoryId, question }) => {
-  let out;
-  try {
-    out = repositoryId
-      ? await appClient().docs.chat(repositoryId, { message: question })
-      : await appClient().docs.projectChat(projectId, { message: question });
-  } catch (error) {
-    if (error instanceof ApiError) {
-      if (error.status === 503 || error.code === "chat_unavailable") throw new Error("chat_unavailable");
-      if (error.status === 404) throw new Error("not_found");
-      if (error.status === 403) throw new Error("forbidden");
-    }
-    throw error;
-  }
-  const refs = out.sources.map((s) => {
+const askDocs: Docs["askDocs"] = async ({ projectId, repositoryId, question }, onText) => {
+  const path = repositoryId
+    ? `/api/repositories/${encodeURIComponent(repositoryId)}/docs/chat`
+    : `/api/projects/${encodeURIComponent(projectId)}/docs/chat`;
+  const body = { message: question };
+  let text = "";
+  const done = await new Promise<DocsChatDone>((resolve, reject) => {
+    let settled = false;
+    let close: () => void = () => undefined;
+    const finish = (out: DocsChatDone | Error) => {
+      if (settled) return;
+      settled = true;
+      close();
+      if (out instanceof Error) reject(out);
+      else resolve(out);
+    };
+    const onEvent = (e: DocsChatStreamEvent) => {
+      if (settled) return;
+      if (e.type === "delta") {
+        text += e.text;
+        onText?.(text);
+      } else if (e.type === "done") finish(e);
+      else finish(new Error("failed"));
+    };
+    const bridge = window.stubwise?.openStream;
+    close = bridge
+      ? bridge(
+          path,
+          (m) => {
+            if (m.type === "docsChat") for (const e of m.events) onEvent(e);
+            else if (m.type === "end") finish(m.status ? chatRefusal(m.status, m.code) : new Error("failed"));
+          },
+          { body },
+        )
+      : openDocsChatFromBrowser(path, body, onEvent, (error) => finish(error ?? new Error("failed")));
+  });
+  const refs = done.sources.map((s) => {
     const id = s.code ?? `${s.repositoryId}/${s.slug}`;
     rememberDocCitation({ id, label: s.title, projectId, code: s.code, doc: { repositorySlug: s.repositorySlug, slug: s.slug } });
     return { kind: "doc" as const, id };
   });
   // Area 11, F3: le pagine di prodotto citate (`productSources`), una
   // citazione `doc` col codice -D che apre la pagina nello spazio Product.
-  const productRefs = (out.productSources ?? []).map((p) => {
+  const productRefs = done.productSources.map((p) => {
     rememberDocCitation({ id: p.code, label: p.title, projectId, code: p.code, doc: null, product: { pageId: p.pageId } });
     return { kind: "doc" as const, id: p.code };
   });
   return {
     answeredAt: new Date().toISOString(),
-    text: out.answer,
+    text,
     // Prima le pagine di prodotto, poi quelle dei repository, come il prototipo (`data/docs/chat.ts`).
     refs: [...productRefs, ...refs],
     sources: [
       ...productRefs.map((r) => ({ pageId: r.id, repositoryName: "", space: "product" as const })),
-      ...out.sources.map((s, i) => ({ pageId: refs[i]!.id, repositoryName: s.repositoryName })),
+      ...done.sources.map((s, i) => ({ pageId: refs[i]!.id, repositoryName: s.repositoryName })),
     ],
   };
 };

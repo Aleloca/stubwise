@@ -333,22 +333,36 @@ describe("le pagine manuali e la generazione", () => {
   });
 });
 
-describe("la chat dei Docs (senza streaming, come il prototipo)", () => {
-  const answer = {
-    answer: "The dialer calls leads in order (AUD-D2).",
-    sessionId: "7f1c2a1e-0000-4000-8000-0000000000e9",
-    sources: [{ slug: "dialer", title: "Dialer", kind: "functional", repositoryId: REPO, repositorySlug: "audin-app", repositoryName: "audin-app", code: "AUD-D2" }],
-  };
+// Lotto 7, §2 (decisione del maintainer, 24 nov 2026): la risposta cresce
+// mentre arriva. Lo stream SSE del server (`delta`, poi `done` con le fonti, o
+// `error`), letto con `parseDocsChatFrame` di shared; sul desktop dal main.
+describe("la chat dei Docs in streaming", () => {
+  const SESSION = "7f1c2a1e-0000-4000-8000-0000000000e9";
+  const source = { slug: "dialer", title: "Dialer", kind: "functional", repositoryId: REPO, repositorySlug: "audin-app", repositoryName: "audin-app", code: "AUD-D2" };
+  const sse = (...events: unknown[]) => ({
+    contentType: "text/event-stream",
+    body: events.map((e) => (typeof e === "string" ? e : `data: ${JSON.stringify(e)}\n\n`)).join(""),
+  });
+  const deltas = [
+    { type: "delta", text: "The dialer " },
+    ": ping\n\n",
+    { type: "delta", text: "calls leads in order (AUD-D2)." },
+  ];
 
-  it("la domanda del progetto: la risposta, le pagine citate col codice e il link, da quale repository", async () => {
-    const { seen } = install({ [`POST /api/projects/${PROJECT_ID}/docs/chat`]: { body: answer } });
+  it("la domanda del progetto: il testo che cresce, poi le pagine citate col codice e il link", async () => {
+    const { seen } = install({
+      [`POST /api/projects/${PROJECT_ID}/docs/chat`]: sse(...deltas, { type: "done", sessionId: SESSION, citations: [source], productSources: [] }),
+    });
     await getSessionPerson();
-    const out = await docs.askDocs({ projectId: PROJECT_ID, question: "How does the dialer work?" });
+    const texts: string[] = [];
+    const out = await docs.askDocs({ projectId: PROJECT_ID, question: "How does the dialer work?" }, (t) => texts.push(t));
+    // Lo streaming è il default del server: niente `?stream=false`.
     expect(seen.find((r) => r.method === "POST")).toMatchObject({
-      path: `/api/projects/${PROJECT_ID}/docs/chat?stream=false`,
+      path: `/api/projects/${PROJECT_ID}/docs/chat`,
       body: { message: "How does the dialer work?" },
     });
-    expect(out.text).toBe(answer.answer);
+    expect(texts).toEqual(["The dialer ", "The dialer calls leads in order (AUD-D2)."]);
+    expect(out.text).toBe("The dialer calls leads in order (AUD-D2).");
     expect(out.sources).toEqual([{ pageId: out.refs[0]!.id, repositoryName: "audin-app" }]);
     expect(await resolveCitations(out.refs)).toMatchObject([
       { kind: "doc", visible: true, code: "AUD-D2", name: "Dialer", route: "#/p/AUD/docs/audin-app/dialer" },
@@ -358,9 +372,12 @@ describe("la chat dei Docs (senza streaming, come il prototipo)", () => {
   it("le pagine di prodotto citate (`productSources`, F3): una citazione `doc` col codice -D che apre la pagina di prodotto", async () => {
     const PAGE = "aaaaaaaa-0000-4000-8000-000000000001";
     install({
-      [`POST /api/projects/${PROJECT_ID}/docs/chat`]: {
-        body: { ...answer, productSources: [{ pageId: PAGE, code: "AUD-D5", title: "Sign-in" }] },
-      },
+      [`POST /api/projects/${PROJECT_ID}/docs/chat`]: sse(...deltas, {
+        type: "done",
+        sessionId: SESSION,
+        citations: [source],
+        productSources: [{ pageId: PAGE, code: "AUD-D5", title: "Sign-in" }],
+      }),
     });
     await getSessionPerson();
     const out = await docs.askDocs({ projectId: PROJECT_ID, question: "How do customers sign in?" });
@@ -379,7 +396,44 @@ describe("la chat dei Docs (senza streaming, come il prototipo)", () => {
     });
     await getSessionPerson();
     await expect(docs.askDocs({ projectId: PROJECT_ID, repositoryId: REPO, question: "Hi" })).rejects.toThrow("chat_unavailable");
-    expect(seen.some((r) => r.path === `/api/repositories/${REPO}/docs/chat?stream=false`)).toBe(true);
+    expect(seen.some((r) => r.path === `/api/repositories/${REPO}/docs/chat`)).toBe(true);
+  });
+
+  it("un errore a metà, o uno stream che finisce senza `done`: la risposta non c'è", async () => {
+    install({ [`POST /api/projects/${PROJECT_ID}/docs/chat`]: sse(deltas[0], { type: "error", message: "x" }) });
+    await getSessionPerson();
+    await expect(docs.askDocs({ projectId: PROJECT_ID, question: "Hi" })).rejects.toThrow("failed");
+    install({ [`POST /api/projects/${PROJECT_ID}/docs/chat`]: sse(deltas[0]) });
+    await getSessionPerson();
+    await expect(docs.askDocs({ projectId: PROJECT_ID, question: "Hi" })).rejects.toThrow("failed");
+  });
+
+  it("sul desktop passa dal main (`openStream`), col corpo e i frame `docsChat`", async () => {
+    install({});
+    await getSessionPerson();
+    const opened: { path: string; body: unknown }[] = [];
+    vi.stubGlobal("stubwise", {
+      openStream: (path: string, onMessage: (m: unknown) => void, options?: { body?: unknown }) => {
+        opened.push({ path, body: options?.body });
+        queueMicrotask(() => {
+          onMessage({ type: "open" });
+          onMessage({ type: "docsChat", events: [{ type: "delta", text: "Ciao " }] });
+          onMessage({ type: "docsChat", events: [{ type: "delta", text: "Bob" }] });
+          onMessage({ type: "docsChat", events: [{ type: "done", sessionId: SESSION, sources: [], productSources: [] }] });
+          onMessage({ type: "end", reason: "closed", fatal: false });
+        });
+        return () => undefined;
+      },
+    });
+    try {
+      const texts: string[] = [];
+      const out = await docs.askDocs({ projectId: PROJECT_ID, question: "Hi" }, (t) => texts.push(t));
+      expect(opened).toEqual([{ path: `/api/projects/${PROJECT_ID}/docs/chat`, body: { message: "Hi" } }]);
+      expect(texts).toEqual(["Ciao ", "Ciao Bob"]);
+      expect(out.text).toBe("Ciao Bob");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

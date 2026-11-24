@@ -259,12 +259,13 @@ export function usePageEventRunner(
           void run(event);
         });
         changed();
-        // Chiusa «non partita» solo in questa finestra (l'esito non è sul server).
-        void settle({ id: conversationId, eventId: event.id, status: "failed" }).catch(() => {});
+        // Chiusa «non partita» solo in questa finestra: `not_run` non va al server (lotto 7, 1.b).
+        void settle({ id: conversationId, eventId: event.id, status: "not_run" }).catch(() => {});
         return;
       }
       if (isStale(detail.events, index)) {
-        void settle({ id: conversationId, eventId: event.id, status: "failed" }).catch(() => {});
+        // Vecchia: non è partita, e non è un fallimento da dire al server (1.b).
+        void settle({ id: conversationId, eventId: event.id, status: "not_run" }).catch(() => {});
       } else void run(event);
     });
 
