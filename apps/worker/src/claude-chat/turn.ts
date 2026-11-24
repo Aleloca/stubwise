@@ -212,8 +212,13 @@ export async function runChatTurn(
     };
     // Lotto 8, voce 3: il gruppo dei contesti, con la visibilità dell'AUTORE:
     // uno il cui progetto non vede più non entra nel prompt.
+    // Revisione 8–9 (M-3): i contesti del MESSAGGIO (`agent_session_inputs.contexts`,
+    // il gruppo com'era all'invio, quello che l'evento `input` mostra), non il
+    // gruppo di adesso. Sugli archiviati la visibilità era già quella del
+    // server: `projectPermissionsOfUser` dà null a un progetto archiviato.
     const authorContexts = async (): Promise<ClaudeConversationContext[]> => {
-      const group = conv.conversation.contextRefs.length > 0 ? conv.conversation.contextRefs : conv.conversation.contextRef ? [conv.conversation.contextRef] : [];
+      const fallback = conv.conversation.contextRefs.length > 0 ? conv.conversation.contextRefs : conv.conversation.contextRef ? [conv.conversation.contextRef] : [];
+      const group = opening.contexts ?? fallback;
       return visibleContexts(db, group, async (projectId) => (await projectPermissionsOfUser(db, ownerId, projectId)) !== null, { isAuthor: true });
     };
     const priming = async () =>
@@ -415,3 +420,4 @@ export async function runChatTurn(
     }
   }
 }
+

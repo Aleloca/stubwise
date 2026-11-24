@@ -142,7 +142,7 @@ describe("eventInviteeIds (audience `event_invitees`)", () => {
 
   it("chi ha rifiutato è fuori", async () => {
     const s = await scenario();
-    const attendees = s.attendees.map((a) => (a.email === s.addr("giulia") ? { ...a, responseStatus: "declined" } : a));
+    const attendees = s.attendees.map((a) => (a.email === s.addr("giulia") ? { ...a, responseStatus: "declined" as const } : a));
     expect(await eventInviteeIds(db, { attendees, mailboxOwnerUserId: s.matteo, projectId: s.project.id })).toEqual([s.matteo]);
   });
 
@@ -150,7 +150,7 @@ describe("eventInviteeIds (audience `event_invitees`)", () => {
     const s = await scenario();
     await db.delete(projectMembers).where(and(eq(projectMembers.projectId, s.project.id), eq(projectMembers.userId, s.matteo)));
     expect(await eventInviteeIds(db, { attendees: s.attendees, mailboxOwnerUserId: s.matteo, projectId: s.project.id })).toEqual([s.matteo, s.giulia].sort());
-    const declined = s.attendees.map((a) => (a.email === s.addr("matteo-box") ? { ...a, responseStatus: "declined" } : a));
+    const declined = s.attendees.map((a) => (a.email === s.addr("matteo-box") ? { ...a, responseStatus: "declined" as const } : a));
     expect(await eventInviteeIds(db, { attendees: declined, mailboxOwnerUserId: s.matteo, projectId: s.project.id })).toEqual([s.giulia]);
   });
 
@@ -236,7 +236,7 @@ describe("publishSharedCalendarProposals", () => {
   it("il titolare che ha RIFIUTATO non la riceve, nemmeno come titolare", async () => {
     const s = await scenario();
     await db.delete(projectMembers).where(eq(projectMembers.projectId, s.project.id));
-    const attendees = s.attendees.map((a) => (a.email === s.matteoBox.email ? { ...a, responseStatus: "declined" } : a));
+    const attendees = s.attendees.map((a) => (a.email === s.matteoBox.email ? { ...a, responseStatus: "declined" as const } : a));
     await copyOf(s.matteoBox.id, { uid: s.uid, projectId: s.project.id, attendees });
     await publishSharedCalendarProposals({ db, lang: "it" }, { id: s.matteoBox.id, userId: s.matteo, email: s.matteoBox.email });
     expect(await notified()).toEqual([]);
@@ -282,7 +282,7 @@ describe("il rifiuto SOPRAVVENUTO", () => {
     const a = await copyOf(s.matteoBox.id, { uid: s.uid, projectId: s.project.id, attendees: s.attendees });
     await publishSharedCalendarProposals({ db, lang: "it" }, { id: s.matteoBox.id, userId: s.matteo, email: s.matteoBox.email });
     // Giulia rifiuta: il giro dopo rilegge gli invitati dalla copia di Matteo.
-    const declined = s.attendees.map((x) => (x.email === s.addr("giulia") ? { ...x, responseStatus: "declined" } : x));
+    const declined = s.attendees.map((x) => (x.email === s.addr("giulia") ? { ...x, responseStatus: "declined" as const } : x));
     await db.update(calendarEvents).set({ attendees: declined as never }).where(eq(calendarEvents.id, a.id));
 
     expect(await closeDeclinedCalendarRecipients({ db }, s.matteoBox.id)).toBe(1);

@@ -353,3 +353,30 @@ describe("le voci d'istanza nel prompt della MENZIONE (area 9, F7)", () => {
     expect(o.prompt).toMatch(/^- addMember\(/m);
   });
 });
+
+describe("revisione 8–9, M-3: il prompt porta i contesti del MESSAGGIO, con la visibilità del server", () => {
+  it("i contesti con cui è partito il messaggio, non il gruppo di adesso; un progetto archiviato non entra", async () => {
+    const { projectMembers, projects, roles } = await import("@stubwise/db");
+    const { seedRepository } = await import("@stubwise/db/testing");
+    const [role] = await t.db.select({ id: roles.id }).from(roles).where(eq(roles.scope, "project")).limit(1);
+    const live = (await seedRepository(t.db)).projectId;
+    const archived = (await seedRepository(t.db)).projectId;
+    const now = (await seedRepository(t.db)).projectId;
+    for (const projectId of [live, archived, now]) await t.db.insert(projectMembers).values({ projectId, userId: ownerId, roleId: role!.id });
+    await t.db.update(projects).set({ archivedAt: new Date() }).where(eq(projects.id, archived));
+    const s = await seeded();
+    // Il gruppo di ADESSO è un altro: il messaggio era partito con `live` e `archived`.
+    await t.db.update(claudeConversations).set({ contextRefs: [{ kind: "project", id: now }], contextRef: { kind: "project", id: now } }).where(eq(claudeConversations.sessionId, s.sessionId));
+    await t.db.update(agentSessionInputs).set({ contexts: [{ kind: "project", id: live }, { kind: "project", id: archived }] }).where(eq(agentSessionInputs.id, s.inputId));
+    const { runner, calls } = fakeRunner([
+      async (o) => {
+        await echo(o);
+        return OK;
+      },
+    ]);
+    expect(await runChatTurn(deps(runner), { ...s, signal: new AbortController().signal })).toBe("completed");
+    expect(calls[0]!.prompt).toContain(`project: ${live}`);
+    expect(calls[0]!.prompt).not.toContain(archived);
+    expect(calls[0]!.prompt).not.toContain(now);
+  });
+});
