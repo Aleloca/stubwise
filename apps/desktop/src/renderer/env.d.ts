@@ -69,6 +69,8 @@ type StubwiseStreamMessage =
         | { type: "done"; text: string; projectId: string | null; used: unknown[] }
         | { type: "error"; code: string };
     }
+  /** Lotto 7, §2: i frame della chat dei Docs (`parseDocsChatFrame`, letti nel main). */
+  | { type: "docsChat"; events: import("@stubwise/shared").DocsChatStreamEvent[] }
   | {
       type: "end";
       reason: "closed" | "network" | "timeout" | "rotate" | "http" | "redirect" | "unauthorized" | "rejected" | "limit";
@@ -110,7 +112,7 @@ interface Window {
     openStream?: (
       path: string,
       onMessage: (message: StubwiseStreamMessage) => void,
-      /** Area 6, F3: il corpo del POST della bozza di Claude (lo valida il main). */
+      /** Il corpo di un POST (la bozza di Claude, la chat dei Docs): lo valida il main. */
       options?: { body?: unknown },
     ) => () => void;
     /** L'indirizzo dell'istanza scelto al primo avvio. */

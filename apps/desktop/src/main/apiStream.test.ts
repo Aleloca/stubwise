@@ -303,6 +303,64 @@ describe("lo stream dal vivo di una pagina di prodotto via IPC (main, area 11 F4
   });
 });
 
+// Lotto 7, §2 (decisione del maintainer): la chat dei Docs in streaming, la
+// seconda POST dell'allowlist (`isAllowedDocsChatStreamPath` di shared, 72),
+// col corpo ricostruito nel main; i frame letti con `parseDocsChatFrame`.
+describe("la chat dei Docs via IPC (main, lotto 7)", () => {
+  const REPO = "/api/repositories/aaaaaaaa-1111-4111-8111-111111111111/docs/chat";
+  const PROJECT = "/api/projects/22222222-2222-4222-8222-222222222222/docs/chat";
+  const SESSION = "33333333-3333-4333-8333-333333333333";
+
+  it("è un POST col Bearer e il corpo validato; i frame arrivano come docsChat", async () => {
+    const sse = sseBody();
+    const d = deps({ fetch: vi.fn(async () => new Response(sse.stream, { status: 200, headers: { "content-type": "text/event-stream" } })) });
+    const port = fakePort();
+    createStreamRegistry(d).open(1, REPO, port, { body: { message: "Come funziona?", extra: "via" } });
+    await flush();
+    const [url, init] = d.fetch.mock.calls[0]! as [string, RequestInit];
+    expect(url).toBe(`https://example.com${REPO}`);
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>)["content-type"]).toBe("application/json");
+    expect(JSON.parse(init.body as string)).toEqual({ message: "Come funziona?" });
+    sse.push(frame({ type: "delta", text: "Le " }));
+    sse.push(": ping\n\n");
+    sse.push(frame({ type: "done", sessionId: SESSION, citations: [], productSources: [] }));
+    sse.end();
+    await flush();
+    await flush();
+    expect(port.sent.filter((m) => m.type === "docsChat")).toEqual([
+      { type: "docsChat", events: [{ type: "delta", text: "Le " }] },
+      { type: "docsChat", events: [{ type: "done", sessionId: SESSION, sources: [], productSources: [] }] },
+    ]);
+  });
+
+  it("solo i due percorsi esatti, solo con un corpo valido: il resto è rifiutato senza chiamare", async () => {
+    const d = deps();
+    const registry = createStreamRegistry(d);
+    const cases: [string, unknown][] = [
+      [PROJECT, undefined],
+      [PROJECT, { message: "" }],
+      [PROJECT, { message: "x".repeat(8001) }],
+      [PROJECT, { message: "ok", sessionId: "non-uuid" }],
+      [`${PROJECT}?stream=false`, { message: "ok" }],
+      ["/api/projects/non-uuid/docs/chat", { message: "ok" }],
+      [`${REPO}/x`, { message: "ok" }],
+    ];
+    for (const [path, b] of cases) {
+      const port = fakePort();
+      registry.open(1, path, port, { body: b });
+      expect(port.sent.at(-1), `${path} ${JSON.stringify(b)}`).toMatchObject({ type: "end", reason: "rejected", fatal: true });
+    }
+    expect(d.fetch).not.toHaveBeenCalled();
+    // Con la sessione: passa così com'è.
+    const ok = deps({ fetch: vi.fn(async () => new Response("", { status: 200 })) });
+    createStreamRegistry(ok).open(1, PROJECT, fakePort(), { body: { message: "ok", sessionId: SESSION } });
+    await flush();
+    await flush();
+    expect(JSON.parse((ok.fetch.mock.calls[0]![1] as RequestInit).body as string)).toEqual({ message: "ok", sessionId: SESSION });
+  });
+});
+
 describe("la bozza di Claude per la Posta via IPC (main, area 6 F3)", () => {
   const MAIL = "/api/me/mail/drafts/claude";
   const ACC = "aaaaaaaa-1111-4111-8111-111111111111";
