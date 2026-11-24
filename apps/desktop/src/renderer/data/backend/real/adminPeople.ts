@@ -240,11 +240,16 @@ export function createRealAdminPeople(api: AdminPeopleApi) {
     },
 
     async listObservedAuthors(): Promise<ObservedAuthor[]> {
-      // Il server dice email, nome visto e ultima volta: i conteggi per
-      // progetto del prototipo non ci sono (restano vuoti).
+      // Rimandi, lotto 5, voce 5 (72, ee6dd086b): commit e progetti li conta
+      // il server, nei progetti che chi guarda vede (un server di prima: 0 e []).
       return (await api.observedAuthors())
         .filter((a) => a.linkedUserId === null)
-        .map((a) => ({ name: a.email, commits: 0, projectCodes: [], lastAt: a.lastSeenAt }));
+        .map((a) => ({
+          name: a.email,
+          commits: typeof a.commits === "number" ? a.commits : 0,
+          projectCodes: Array.isArray(a.projectCodes) ? [...a.projectCodes] : [],
+          lastAt: a.lastSeenAt,
+        }));
     },
 
     setInstanceRole: (personId: string, roleId: string) =>

@@ -128,6 +128,8 @@ function fakeApi(over: Partial<AdminPeopleApi> = {}) {
         authorName: "Kevin",
         lastSeenAt: "2026-11-15T09:00:00.000Z",
         linkedUserId: null,
+        commits: 12,
+        projectCodes: ["ACQ", "AUD"],
       },
       {
         email: "marco@example.com",
@@ -382,7 +384,15 @@ describe("People, inviti e Roles dal server (area 9, R7)", () => {
 
   it("autori osservati: solo quelli non collegati; registro di sicurezza coi tipi del prototipo", async () => {
     const people = createRealAdminPeople(fakeApi().api);
-    expect((await people.listObservedAuthors()).map((a) => a.name)).toEqual(["kevin@example.com"]);
+    // Rimandi, lotto 5, voce 5 (72, ee6dd086b): commit e progetti dal server.
+    expect(await people.listObservedAuthors()).toEqual([
+      {
+        name: "kevin@example.com",
+        commits: 12,
+        projectCodes: ["ACQ", "AUD"],
+        lastAt: "2026-11-15T09:00:00.000Z",
+      },
+    ]);
     expect((await people.listSecurityEvents(MARCO))[0]).toMatchObject({
       kind: "signed_in",
       personId: MARCO,
