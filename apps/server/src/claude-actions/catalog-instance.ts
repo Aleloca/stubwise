@@ -93,6 +93,39 @@ export const INSTANCE_ENTRIES: CatalogEntry[] = [
     },
   },
   {
+    // Lotto 10, voce 1 (decisione del maintainer): l'archiviazione dalla chat,
+    // come il prototipo, senza la chiave segreta (lo schema la rifiuta). La
+    // riconferma la chiede `reauthOf` (catalog.ts) SOLO se cambiano endpoint o
+    // bucket; prefisso, regione e chiave d'accesso hanno la conferma normale.
+    fn: "saveStorage",
+    route: "PUT /api/settings/instance",
+    access: { kind: "instance", permission: "settings.manage" },
+    request: () => ({}),
+    async run(tx, user, args) {
+      // Una PATCH: solo i campi presenti; l'inverso rimette quelli, coi valori di prima.
+      const { endpoint, region, bucket, accessKeyId } = args as { endpoint?: string; region?: string; bucket?: string; accessKeyId?: string };
+      const was = await instanceRow(tx);
+      await putInstanceSettings(tx, null, user, {
+        ...(endpoint !== undefined ? { s3Endpoint: endpoint } : {}),
+        ...(region !== undefined ? { s3Region: region } : {}),
+        ...(bucket !== undefined ? { s3Bucket: bucket } : {}),
+        ...(accessKeyId !== undefined ? { s3AccessKey: accessKeyId } : {}),
+      });
+      return done(
+        {
+          fn: "saveStorage",
+          args: {
+            ...(endpoint !== undefined && was?.s3Endpoint ? { endpoint: was.s3Endpoint } : {}),
+            ...(region !== undefined ? { region: was?.s3Region ?? "" } : {}),
+            ...(bucket !== undefined && was?.s3Bucket ? { bucket: was.s3Bucket } : {}),
+            ...(accessKeyId !== undefined && was?.s3AccessKey ? { accessKeyId: was.s3AccessKey } : {}),
+          },
+        },
+        [await setting(tx, "storage", "storage", ["storage.changed"])],
+      );
+    },
+  },
+  {
     fn: "saveAutomation",
     route: "PUT /api/settings/automation",
     access: { kind: "instance", permission: "settings.manage" },
