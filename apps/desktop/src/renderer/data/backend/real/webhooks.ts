@@ -15,9 +15,9 @@ import { appClient } from "./client";
 // elimina), il limite (20) e il catalogo degli eventi. Il segreto esce solo
 // da `create` e `rotateSecret`, una volta: qui passa al risultato e basta.
 //
-// Differenza dichiarata: il server non ricorda l'ultima prova (`test` dice
-// solo com'è andata). L'esito resta in memoria per la sessione, per la riga
-// «Sent · delivered · data»; ricaricando l'app torna «not tested yet».
+// L'ultima prova la ricorda il server (rimandi, lotto 5, voce 6: `lastTest`,
+// tolta quando cambiano URL o formato): la riga «Sent · delivered · data» la
+// legge da lì, e sopravvive a un riavvio dell'app.
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- forme del server lette dai Reader */
 type Any = any;
@@ -60,10 +60,15 @@ function refusalOf(error: unknown): Extract<InstanceResult, { ok: false }> {
 const outcomeOf = (r: { ok: boolean; status: number | null }): TestOutcome =>
   r.ok ? "ok" : r.status !== null ? "invalid_credentials" : "unreachable";
 
-export function createRealWebhooks(api: WebhooksApi) {
-  /** L'ultima prova di ogni webhook in questa sessione (il server non la tiene). */
-  const lastTests = new Map<string, { at: string; outcome: TestOutcome }>();
+const OUTCOMES: ReadonlySet<string> = new Set(["ok", "invalid_credentials", "unreachable"]);
 
+/** L'ultima prova del server; un esito che il client non conosce: «non ancora provata». */
+const lastTestOf = (t: Any): { at: string; outcome: TestOutcome } | null =>
+  t && typeof t.at === "string" && OUTCOMES.has(t.outcome)
+    ? { at: t.at, outcome: t.outcome as TestOutcome }
+    : null;
+
+export function createRealWebhooks(api: WebhooksApi) {
   const viewOf = (w: Any): WebhookView => ({
     id: w.id,
     name: w.name,
@@ -77,7 +82,7 @@ export function createRealWebhooks(api: WebhooksApi) {
     secretSet: !!w.secretSet,
     secretRotatedAt: w.secretRotatedAt ?? null,
     createdAt: w.createdAt,
-    lastTest: lastTests.get(w.id) ?? null,
+    lastTest: lastTestOf(w.lastTest),
   });
 
   async function attempt<T extends object>(call: () => Promise<T>): Promise<InstanceResult<T>> {
@@ -111,15 +116,12 @@ export function createRealWebhooks(api: WebhooksApi) {
         return { webhook: viewOf(r), secret: r.secret as string };
       }),
 
-    async updateWebhook(id: string, patch: Partial<WebhookInput>): Promise<InstanceResult> {
-      const r = await attempt(async () => {
+    // Cambiare indirizzo o formato toglie l'ultima prova: lo fa il server.
+    updateWebhook: (id: string, patch: Partial<WebhookInput>): Promise<InstanceResult> =>
+      attempt(async () => {
         await api.update(id, patch);
         return {};
-      });
-      // Cambiare indirizzo o formato rimette la prova a «non ancora provata».
-      if (r.ok && (patch.url !== undefined || patch.format !== undefined)) lastTests.delete(id);
-      return r;
-    },
+      }),
 
     regenerateWebhookSecret: (id: string) =>
       attempt(async () => {
@@ -127,20 +129,16 @@ export function createRealWebhooks(api: WebhooksApi) {
         return { secret: r.secret as string, secretRotatedAt: r.secretRotatedAt as string };
       }),
 
-    async deleteWebhook(id: string): Promise<InstanceResult> {
-      const r = await attempt(async () => {
+    deleteWebhook: (id: string): Promise<InstanceResult> =>
+      attempt(async () => {
         await api.remove(id);
         return {};
-      });
-      if (r.ok) lastTests.delete(id);
-      return r;
-    },
+      }),
 
     testWebhook: (id: string) =>
       attempt(async () => {
-        const outcome = outcomeOf(await api.test(id));
-        lastTests.set(id, { at: new Date().toISOString(), outcome });
-        return { outcome };
+        // L'esito di adesso; quello che resta lo scrive il server (`lastTest`).
+        return { outcome: outcomeOf(await api.test(id)) };
       }),
 
     /** Il corpo che arriverebbe: Slack e Discord come testo, il JSON indentato. */

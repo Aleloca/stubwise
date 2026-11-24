@@ -64,13 +64,34 @@ function fakeApi(over: Partial<WebhooksApi> = {}) {
 }
 
 describe("i webhook in uscita dal server (area 9, F3)", () => {
-  it("l'elenco e la pagina di uno; la prova di prima la ricorda la sessione (il server no)", async () => {
+  // Rimandi, lotto 5, voce 6 (72, 5323ab351): l'ultima prova la ricorda il
+  // server (`lastTest`, tolta a un cambio di URL o formato); la vista la legge.
+  it("l'elenco e la pagina di uno; l'ultima prova è quella del server", async () => {
     const w = createRealWebhooks(fakeApi().api);
     const [one] = await w.listWebhooks();
     expect(one).toMatchObject({ id: W, name: "Webhook", secretSet: true, lastTest: null });
     expect(JSON.stringify(one)).not.toContain('secret":"');
+    // La prova dice il suo esito, ma la vista non se lo inventa: lo rilegge.
     expect(await w.testWebhook(W)).toEqual({ ok: true, outcome: "ok" });
-    expect((await w.getWebhook(W)).lastTest?.outcome).toBe("ok");
+    expect((await w.getWebhook(W)).lastTest).toBeNull();
+    const tested = createRealWebhooks(
+      fakeApi({
+        list: async () => [
+          view({ lastTest: { at: "2026-11-24T09:00:00.000Z", outcome: "unreachable" } }),
+        ],
+      }).api,
+    );
+    expect((await tested.getWebhook(W)).lastTest).toEqual({
+      at: "2026-11-24T09:00:00.000Z",
+      outcome: "unreachable",
+    });
+    // Un esito che il client non conosce (server più nuovo): «non ancora provata».
+    const unknown = createRealWebhooks(
+      fakeApi({
+        list: async () => [view({ lastTest: { at: "2026-11-24T09:00:00.000Z", outcome: "__unknown__" } })],
+      }).api,
+    );
+    expect((await unknown.getWebhook(W)).lastTest).toBeNull();
     await expect(w.getWebhook("nope")).rejects.toThrow("not_found");
   });
 
