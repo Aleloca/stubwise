@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { tickets } from "@stubwise/db";
+import { automationEvents, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
@@ -336,6 +336,22 @@ describe("GET /api/milestones/:id", () => {
 });
 
 describe("PATCH /api/milestones/:id", () => {
+  it("lotto 7, A7: chiudere un traguardo DALLA ROTTA dà il segnale `milestone_reached` alle automazioni, una volta per chiusura", async () => {
+    const ms = (await createMilestone({ projectId, name: "segnale-ms" })).json() as MilestoneBody;
+    const signals = async () =>
+      (await testDb.db.select({ kind: automationEvents.kind }).from(automationEvents).where(eq(automationEvents.objectId, ms.id))).map((r) => r.kind);
+    expect(await signals()).toEqual([]);
+    expect((await patchMilestone(ms.id, { status: "closed" })).statusCode).toBe(200);
+    expect(await signals()).toEqual(["milestone_reached"]);
+    // Già chiuso: rinominarlo non è un'altra chiusura.
+    expect((await patchMilestone(ms.id, { name: "segnale-ms-2", status: "closed" })).statusCode).toBe(200);
+    expect(await signals()).toEqual(["milestone_reached"]);
+    // Riaperto e richiuso: un segnale nuovo.
+    expect((await patchMilestone(ms.id, { status: "open" })).statusCode).toBe(200);
+    expect((await patchMilestone(ms.id, { status: "closed" })).statusCode).toBe(200);
+    expect(await signals()).toEqual(["milestone_reached", "milestone_reached"]);
+  });
+
   it("aggiorna name, dueDate e status", async () => {
     const ms = (await createMilestone({ projectId, name: "patch-ms" })).json() as MilestoneBody;
     const res = await patchMilestone(ms.id, {

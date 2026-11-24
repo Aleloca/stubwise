@@ -249,9 +249,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   null = non si sa), migrazione 0222, scritto dal worker all'apertura e dal
   webhook alla chiusura o riapertura. Resta al renderer leggerlo invece di
   mostrarla sempre aperta.
-- Chat dei Docs senza streaming *(S, fetta 1)*: se `CHAT_MAX_TOKENS` sale molto
+- ~~Chat dei Docs senza streaming *(S, fetta 1)*: se `CHAT_MAX_TOKENS` sale molto
   o arriva un modello lento, il primo a scattare è il timeout di 300 s del main
-  (undici); la strada è lo streaming, non un timeout più alto.
+  (undici); la strada è lo streaming, non un timeout più alto.~~ *Parte server
+  chiusa il 24 nov 2026 (72, lotto 7, voce 2)*: il server già rispondeva SSE;
+  ora manda `: ping` ogni 25 s mentre il modello tace (`DOCS_CHAT_PING_MS`),
+  e `@stubwise/shared` ha `parseDocsChatFrame` (`delta`, `done` con le fonti
+  validate una per una, `error`) e `isAllowedDocsChatStreamPath` (le due
+  POST). Il maintainer ha deciso che il testo CRESCE mentre arriva, anche nel
+  prototipo: main (`apiStream.ts`) e renderer sono di 94.
 - Differenze dichiarate del renderer (fetta 2, *S*): l'anteprima sul desktop è
   un salvataggio e sul web la rotta `preview` in una scheda nuova (niente
   Quick Look né miniatura nella build app); `counted` di un'apertura non si
@@ -667,10 +673,16 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   `GET /api/me/automation-runs`); il test sull'adattatore è 96b22b5f5.
 - ~~Effetti che il prototipo ha e la build app spegne: segnali alle automazioni
   alla chiusura di un traguardo e alla conversione di una richiesta.~~
-  *Chiusa il 24 nov 2026 (94, lotto 7)*: li manda il database dalla 0169
-  (`milestones_automation_reached`, `backlog_item_tickets_automation_converted`
-  sul `converted_to` che scrive la conversione); la voce era di prima. Vedi
-  `docs/plans/2026-11-24-rimandi-lotto7-contratti.md` §3.
+  *Chiusa il 24 nov 2026 (lotto 7, voce 3)*: c'era già, nel DB —
+  `milestones_automation_reached` (0169, al passaggio a `closed` da un altro
+  stato) e `backlog_item_tickets_automation_converted` (0169, al legame
+  `converted_to` di `convertBacklogItem`), più il messaggio di Chat
+  `milestones_chat_reached` (0141); la voce era di prima (94). La prova DALLE
+  ROTTE l'ha aggiunta 72: `milestones.test.ts` (una chiusura = un segnale,
+  rinominare un chiuso no, riaprire e richiudere sì) e `backlog.test.ts` (la
+  conversione dà UN `request_converted` con la task nata); mutazioni sui due
+  trigger prese. La build app non deve emettere niente: il segnale lo dà il
+  server. Vedi `docs/plans/2026-11-24-rimandi-lotto7-contratti.md` §3.
 - Azioni di Claude: crea automazione in bozza, salva/elimina bozza, prova.
 - F4, `automations.manage` d'ISTANZA *(S, verifica di Q7, 13 nov 2026)*:
   serve solo alle automazioni generali. Come il prototipo
