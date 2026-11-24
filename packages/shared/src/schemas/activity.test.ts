@@ -35,6 +35,8 @@ describe("activityForDateSchema", () => {
           summary: "Sistemato il checkout, 3 commit.",
           // Dalla fetta 3d dell'integrazione area 3: i commit arrivati dopo il report.
           staleCommitCount: 0,
+          // Rimandi, lotto 4 (§7.4): assente nella risposta, vale null.
+          generatedAt: null,
         },
       ],
     });
@@ -46,6 +48,11 @@ describe("activityForDateSchema", () => {
       projects: [{ project: { id: PROJECT_ID, name: "X", slug: "x" }, status: "queued", summary: null }],
     });
     expect(parsed.projects[0]!.summary).toBeNull();
+  });
+
+  it("rimandi, lotto 4 (§7.4): `generatedAt` valorizzato passa com'è", () => {
+    const project = { project: { id: PROJECT_ID, name: "X", slug: "x" }, status: "done", summary: "x", generatedAt: "2026-09-02T02:10:00.000Z" };
+    expect(activityForDateSchema.parse({ date: "2026-09-01", projects: [project] }).projects[0]!.generatedAt).toBe("2026-09-02T02:10:00.000Z");
   });
 
   it("un giorno senza report ha una lista progetti vuota", () => {
