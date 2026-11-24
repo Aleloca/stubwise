@@ -702,10 +702,15 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
           key: `server-${s.code}`,
           code: s.code,
           label: s.name,
-          detail: s.projectCode,
+          detail: s.projectCode ?? undefined,
           fromSearch: true,
           select: () => {
-            router.history.push(`/p/${s.projectCode}/servers/${s.code}`);
+            // Senza ambiente visibile (revisione del lotto 5, M-7): la pagina d'istanza.
+            router.history.push(
+              s.projectCode
+                ? `/p/${s.projectCode}/servers/${s.code}`
+                : `/admin/servers/${s.code}`,
+            );
             onClose();
           },
         }),

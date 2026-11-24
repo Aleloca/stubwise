@@ -114,11 +114,54 @@ describe("gli account git dal server (area 9, F3)", () => {
     ]);
   });
 
-  it("in uso (senza l'elenco dei repository, il server non lo dà) e la riconferma", async () => {
+  // Rimandi, lotto 5, voce 6 (72, ef1136f2e): i repository dell'account (i
+  // nomi solo nei progetti visibili, gli altri contati) e, nel rifiuto
+  // `in_use`, chi lo usa; un server di prima: nessuno.
+  it("i repository dell'account dal server; un server di prima non ne ha", async () => {
+    const [a] = await createRealGitAccounts(
+      fakeApi({
+        list: async () => [
+          acc({
+            repositories: [
+              { name: "acquisti-app", projectCode: "ACQ" },
+              { name: "staccato", projectCode: null },
+            ],
+            hiddenRepositories: 2,
+          }),
+        ],
+      }).api,
+    ).listGitAccounts();
+    expect(a).toMatchObject({
+      repositories: [
+        { name: "acquisti-app", projectCode: "ACQ" },
+        { name: "staccato", projectCode: null },
+      ],
+      hiddenRepositories: 2,
+    });
+  });
+
+  it("in uso, con chi lo usa dal server, e la riconferma", async () => {
     const inUse = createRealGitAccounts(
-      fakeApi({ remove: refusing(409, "git_account_in_use") }).api,
+      fakeApi({
+        remove: async () => {
+          throw new ApiError(409, "in use", "git_account_in_use", {
+            details: {
+              code: "git_account_in_use",
+              usedBy: [{ label: "acquisti-app", projectCode: "ACQ" }],
+              hiddenCount: 3,
+            },
+          });
+        },
+      }).api,
     );
     expect(await inUse.deleteGitAccount(A)).toEqual({
+      ok: false,
+      error: "in_use",
+      usedBy: [{ label: "acquisti-app", projectCode: "ACQ" }],
+      hiddenCount: 3,
+    });
+    const old = createRealGitAccounts(fakeApi({ remove: refusing(409, "git_account_in_use") }).api);
+    expect(await old.deleteGitAccount(A)).toEqual({
       ok: false,
       error: "in_use",
       usedBy: [],

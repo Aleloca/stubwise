@@ -173,6 +173,20 @@ describe("il ritorno dal consenso di Google sul desktop", () => {
     }
   });
 
+  // Revisione del lotto 5, Minor 10: `connect` rifiutato DOPO `prepareConnect`:
+  // lo state del main si dimentica anche lì, non solo a fine attesa.
+  it("`connect` rifiutato dopo aver preparato lo state: il main lo dimentica", async () => {
+    const bridge = desktopBridge();
+    installFakeServer({
+      "GET /api/me/google/workspaces": { body: [workspace] },
+      "GET /api/me/google/accounts": { body: [] },
+      "POST /api/me/google/connect": { status: 409, body: { code: "conflict", message: "x" } },
+    });
+    await expect(drive.connectGoogle()).rejects.toThrow();
+    expect(bridge.google.prepareConnect).toHaveBeenCalledTimes(1);
+    expect(bridge.google.cancelConnect).toHaveBeenCalledTimes(1);
+  });
+
   it("un server di prima (senza `returnTo`): il polling di oggi, e il ritorno non conta", async () => {
     const bridge = desktopBridge();
     let accounts: unknown[] = [];

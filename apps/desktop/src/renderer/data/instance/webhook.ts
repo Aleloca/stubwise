@@ -4,7 +4,7 @@ import { changedFields } from "../changelog/settingValues";
 import { gate, now, state } from "../store";
 import { forbidden, notFound, writer } from "../writer";
 import { canI, reauthRefusal, refuse } from "./common";
-import type { OutgoingWebhook, TestOutcome } from "./state";
+import type { OutgoingWebhook, WebhookTestOutcome } from "./state";
 import type { InstanceResult } from "./types";
 import { WEBHOOK_EVENTS, WEBHOOK_LIMIT } from "./constants";
 
@@ -54,7 +54,7 @@ export interface WebhookView {
   secretSet: boolean;
   secretRotatedAt: string | null;
   createdAt: string;
-  lastTest: { at: string; outcome: TestOutcome } | null;
+  lastTest: { at: string; outcome: WebhookTestOutcome; status: number | null } | null;
   /**
    * Nella build app (review F3, I2): il server ha un formato o eventi che il
    * client non conosce. La pagina non lo modifica (o non ne cambia gli eventi)
@@ -264,15 +264,25 @@ export async function deleteWebhook(id: string): Promise<InstanceResult> {
  * «Prototype only» (`simulateNextTest("webhook", …)`, vale una volta),
  * altrimenti `ok`. Non si contatta niente di vero; nessuna voce.
  */
-export async function testWebhook(id: string): Promise<InstanceResult<{ outcome: TestOutcome }>> {
+/** Il codice di risposta che il prototipo finge per ogni esito. */
+const FAKE_STATUS: Record<WebhookTestOutcome, number | null> = {
+  ok: 200,
+  invalid_credentials: 401,
+  destination_error: 500,
+  unreachable: null,
+};
+
+export async function testWebhook(
+  id: string,
+): Promise<InstanceResult<{ outcome: WebhookTestOutcome }>> {
   const me = await writer("instance.testWebhook");
   if (!canI(me, MANAGE)) return refuse.forbidden();
   const w = state.instance.webhooks.find((x) => x.id === id);
   if (!w) return refuse.notFound();
-  const next = state.instance.simulate.nextTest;
-  const outcome = next.webhook ?? "ok";
-  delete next.webhook;
-  w.lastTest = { at: now(), outcome };
+  const simulate = state.instance.simulate;
+  const outcome: WebhookTestOutcome = simulate.nextWebhookTest ?? "ok";
+  delete simulate.nextWebhookTest;
+  w.lastTest = { at: now(), outcome, status: FAKE_STATUS[outcome] };
   return { ok: true, outcome };
 }
 

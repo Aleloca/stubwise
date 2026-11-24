@@ -712,11 +712,14 @@ describe("Task 7: ciò che la UI legge senza dedurlo", () => {
     expect((await servers.getServer("SRV-1")).sshReachable).toBe(false);
   });
 
-  it("⌘K trova un server orfano per chi ha monitor.manage, nel suo primo progetto", async () => {
+  // Revisione del lotto 5, M-7 (72, a9999a437): senza un ambiente visibile
+  // nessun progetto (prima «il primo progetto visibile»): si apre dalla pagina
+  // d'istanza del server.
+  it("⌘K trova un server orfano per chi ha monitor.manage, senza progetto", async () => {
     as("p-roberta");
     await releases.deleteEnvironment("env-acq-prod");
     expect(await servers.searchServers("SRV-1")).toEqual([
-      { code: "SRV-1", name: "acq-prod-01", projectCode: "ACQ" },
+      { code: "SRV-1", name: "acq-prod-01", projectCode: null },
     ]);
     as("p-marco");
     expect(await servers.searchServers("SRV-1")).toEqual([]);

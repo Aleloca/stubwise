@@ -77,14 +77,52 @@ describe("i webhook in uscita dal server (area 9, F3)", () => {
     const tested = createRealWebhooks(
       fakeApi({
         list: async () => [
-          view({ lastTest: { at: "2026-11-24T09:00:00.000Z", outcome: "unreachable" } }),
+          view({ lastTest: { at: "2026-11-24T09:00:00.000Z", outcome: "unreachable", status: null } }),
         ],
       }).api,
     );
     expect((await tested.getWebhook(W)).lastTest).toEqual({
       at: "2026-11-24T09:00:00.000Z",
       outcome: "unreachable",
+      status: null,
     });
+    // Revisione del lotto 5, M-5 (72, ee472a680): l'errore della destinazione
+    // col codice; una riga di prima, senza `status`, lo ha null.
+    const failed = createRealWebhooks(
+      fakeApi({
+        list: async () => [
+          view({
+            lastTest: { at: "2026-11-24T09:00:00.000Z", outcome: "destination_error", status: 502 },
+          }),
+        ],
+      }).api,
+    );
+    expect((await failed.getWebhook(W)).lastTest).toEqual({
+      at: "2026-11-24T09:00:00.000Z",
+      outcome: "destination_error",
+      status: 502,
+    });
+    const before = createRealWebhooks(
+      fakeApi({
+        list: async () => [
+          view({ lastTest: { at: "2026-11-24T09:00:00.000Z", outcome: "invalid_credentials" } }),
+        ],
+      }).api,
+    );
+    expect((await before.getWebhook(W)).lastTest?.status).toBeNull();
+    // L'esito subito dopo la prova: 401/403 credenziali, un altro codice
+    // errore della destinazione, nessuna risposta irraggiungibile.
+    for (const [status, outcome] of [
+      [401, "invalid_credentials"],
+      [403, "invalid_credentials"],
+      [500, "destination_error"],
+      [null, "unreachable"],
+    ] as const) {
+      const w2 = createRealWebhooks(
+        fakeApi({ test: async () => ({ ok: false, status, error: "x" }) }).api,
+      );
+      expect(await w2.testWebhook(W)).toEqual({ ok: true, outcome });
+    }
     // Un esito che il client non conosce (server più nuovo): «non ancora provata».
     const unknown = createRealWebhooks(
       fakeApi({

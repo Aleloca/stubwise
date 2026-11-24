@@ -71,6 +71,11 @@ export function createRealProjectPlugins(api: ProjectPluginsApi) {
           const offSkills = c?.disabledSkills ?? [];
           const offHooks = c?.disabledHooks ?? [];
           const status = statusOf(r.status);
+          // Rimandi, lotto 5, voce 6 (72, 2fb6472c6): le descrizioni a tutti;
+          // i comandi solo a chi può salvare (lo decide il server: a chi
+          // legge arriva `{}`). Un server di prima non li manda.
+          const descriptions: Record<string, string> = r.skillDescriptions ?? {};
+          const commands: Record<string, string[]> = r.hookCommands ?? {};
           return {
             name: r.name,
             slug: r.slug,
@@ -81,7 +86,7 @@ export function createRealProjectPlugins(api: ProjectPluginsApi) {
             skills: [
               ...r.skills.map((name: string) => ({
                 name,
-                description: "",
+                description: descriptions[name] ?? "",
                 enabled: !offSkills.includes(name),
               })),
               ...offSkills
@@ -92,7 +97,7 @@ export function createRealProjectPlugins(api: ProjectPluginsApi) {
               ...r.hookGroups.map((key: string) => ({
                 key,
                 event: key.split("#")[0]!,
-                command: "",
+                command: (commands[key] ?? []).join("\n"),
                 enabled: !offHooks.includes(key),
               })),
               ...offHooks

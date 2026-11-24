@@ -993,6 +993,27 @@ describe("webhook in uscita", () => {
     expect(await instance.testWebhook(SEED_WEBHOOK)).toEqual({ ok: true, outcome: "unreachable" });
     expect((await instance.getWebhook(SEED_WEBHOOK)).lastTest?.outcome).toBe("unreachable");
     expect(await instance.testWebhook(SEED_WEBHOOK)).toEqual({ ok: true, outcome: "ok" });
+    // Revisione del lotto 5, M-5: credenziali rifiutate (401/403) e un errore
+    // della destinazione sono due esiti, col codice della risposta.
+    await instance.simulateNextTest("webhook", "destination_error");
+    expect(await instance.testWebhook(SEED_WEBHOOK)).toEqual({
+      ok: true,
+      outcome: "destination_error",
+    });
+    expect((await instance.getWebhook(SEED_WEBHOOK)).lastTest).toMatchObject({
+      outcome: "destination_error",
+      status: 500,
+    });
+    await instance.simulateNextTest("webhook", "invalid_credentials");
+    await instance.testWebhook(SEED_WEBHOOK);
+    expect((await instance.getWebhook(SEED_WEBHOOK)).lastTest).toMatchObject({
+      outcome: "invalid_credentials",
+      status: 401,
+    });
+    // Un errore della destinazione è solo dei webhook.
+    await refused(() => instance.simulateNextTest("storage", "destination_error"), {
+      error: "invalid",
+    });
     await refused(() => instance.testWebhook("wh-nope"), { error: "not_found" });
   });
 

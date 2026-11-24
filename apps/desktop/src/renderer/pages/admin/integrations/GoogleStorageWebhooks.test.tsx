@@ -479,9 +479,14 @@ describe("Outgoing webhooks", () => {
     await user.click(within(box).getByRole("radio", { name: "Unreachable" }));
     await user.click(screen.getByRole("button", { name: "Send a test" }));
     expect(await screen.findByText("Couldn't reach the address")).toBeVisible();
+    // Revisione del lotto 5, M-5: l'errore della destinazione col suo codice,
+    // e le credenziali rifiutate (401/403) a parte.
     await user.click(within(box).getByRole("radio", { name: "Error from the address" }));
     await user.click(screen.getByRole("button", { name: "Send a test" }));
-    expect(await screen.findByText("The address answered with an error")).toBeVisible();
+    expect(await screen.findByText("The address answered with an error (500)")).toBeVisible();
+    await user.click(within(box).getByRole("radio", { name: "Credentials refused" }));
+    await user.click(screen.getByRole("button", { name: "Send a test" }));
+    expect(await screen.findByText("The address refused the credentials (401)")).toBeVisible();
     await user.click(within(box).getByRole("radio", { name: "Delivered" }));
     await user.click(screen.getByRole("button", { name: "Send a test" }));
     expect(await screen.findByText("Sent · delivered")).toBeVisible();

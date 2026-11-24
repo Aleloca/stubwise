@@ -563,9 +563,14 @@ describe("fix round 1: il riconoscimento non ruba le richieste degli altri inten
   });
 });
 
+// D-7.1 (lotto 4): a budget finito si ferma chi NON ha `plans.approve` nel
+// progetto; chi ce l'ha lo scavalca. Laura ha `plans.approve` in VRD e ACQ:
+// per lo stop glielo si toglie, e il caso di chi scavalca resta a parte.
 describe("col budget del mese finito nessuna azione della doc parte", () => {
-  it("prima versione, aggiornamento e bozza: il gruppo fallisce e non scrive niente", async () => {
+  it("prima versione, aggiornamento e bozza, senza plans.approve: il gruppo fallisce e non scrive niente", async () => {
     withoutSeed11b();
+    revokeProjectPermission(LAURA, VRD, "plans.approve");
+    revokeProjectPermission(LAURA, ACQ, "plans.approve");
     setSessionPersonId(ROBERTA);
     await api.instance.simulateBudgetReached(true);
     const before = JSON.stringify({
@@ -589,6 +594,26 @@ describe("col budget del mese finito nessuna azione della doc parte", () => {
         versions: state.productFirstVersions,
       }),
     ).toBe(before);
+  });
+
+  it("con plans.approve la prima versione scavalca il budget finito (D-7.1)", async () => {
+    withoutSeed11b();
+    setSessionPersonId(ROBERTA);
+    await api.instance.simulateBudgetReached(true);
+    const done = executeGroup(
+      LAURA,
+      "cv-11b-panel",
+      [
+        {
+          fn: "writeFirstVersion",
+          args: { projectId: VRD, sources: [{ kind: "email", id: "mm-vrd-booking-rules" }] },
+          summary: "",
+        } as ProposedAction,
+      ],
+      "B",
+    );
+    expect(done).toMatchObject({ ok: true });
+    await whenFirstVersionIdle();
   });
 });
 

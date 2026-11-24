@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { failNext, resetApi, servers, setLatency } from "../../data/api";
+import { failNext, releases, resetApi, servers, setLatency } from "../../data/api";
 import { setSessionPersonId } from "../../data/session";
 import { state } from "../../data/store";
 import { resetViewerGrants } from "../../data/viewer";
@@ -293,6 +293,22 @@ describe("La colonna e ⌘K", () => {
     expect(option).toHaveTextContent("ACQ");
     await user.click(option);
     await waitFor(() => expect(router.state.location.pathname).toBe("/p/ACQ/servers/SRV-1"));
+  });
+
+  // Revisione del lotto 5, M-7: un server senza ambiente visibile si apre
+  // dalla pagina d'istanza, non da un progetto.
+  it("⌘K: un server senza ambiente visibile apre la pagina d'istanza", async () => {
+    setSessionPersonId("p-roberta");
+    await releases.deleteEnvironment("env-acq-prod");
+    const user = userEvent.setup();
+    const router = renderRoute("/home", "p-roberta");
+    await screen.findByRole("heading", { name: "Home", level: 1 });
+    await user.keyboard("{Control>}k{/Control}");
+    const dialog = await screen.findByRole("dialog", { name: "Search and commands" });
+    await user.type(within(dialog).getByRole("combobox"), "SRV-1");
+    const group = await within(dialog).findByRole("group", { name: "Servers" });
+    await user.click(within(group).getByRole("option", { name: /SRV-1/ }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/admin/servers/SRV-1"));
   });
 
   it("⌘K: chi non vede il server non lo trova (R-G5)", async () => {

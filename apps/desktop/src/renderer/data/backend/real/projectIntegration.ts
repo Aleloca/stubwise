@@ -12,7 +12,8 @@ import { webhookSecretOutcome, webhookSecretRefusal } from "./webhookSecret";
 // DSN, snippet e guida li compone il client con la chiave mascherata
 // (`integrationText.ts`, gli stessi del prototipo); la chiave intera esce
 // solo dalla rigenerazione, una volta. Il segreto del webhook si rigenera
-// per slug, preso dalla lettura.
+// per id del repository (rimandi, lotto 5, voce 6: la rotta accetta anche
+// l'id), senza dover ricordare lo slug della lettura.
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- forme del server lette dai Reader */
 type Any = any;
@@ -22,8 +23,9 @@ export interface IntegrationApi {
   integration(projectId: string): Promise<Any>;
   project(projectId: string): Promise<{ name: string; code?: string | null }>;
   regenerateIngestionKey(projectId: string): Promise<{ ingestionKey: string }>;
+  /** `POST /api/repositories/:slugOrId/webhook-secret`: qui sempre con l'id. */
   regenerateWebhookSecret(
-    slug: string,
+    repositoryId: string,
   ): Promise<{ mode: string; webhookSecret?: string; platformRestored?: boolean }>;
 }
 
@@ -39,13 +41,6 @@ function keyRefusal(error: unknown): ProjectRefusal {
 }
 
 export function createRealIntegration(api: IntegrationApi) {
-  /**
-   * Lo slug di ogni repository letto: il server rigenera per slug, e la
-   * pagina offre la rigenerazione solo dopo la lettura (il client non lo
-   * deduce dal nome).
-   */
-  const slugs = new Map<string, string>();
-
   /** La lettura del server, `null` su un progetto che non si vede. */
   async function read(projectId: string): Promise<Any | null> {
     try {
@@ -60,7 +55,6 @@ export function createRealIntegration(api: IntegrationApi) {
     async getIntegration(projectId: string): Promise<IntegrationView | null> {
       const v = await read(projectId);
       if (!v) return null;
-      for (const w of v.gitWebhooks ?? []) slugs.set(w.repositoryId, w.slug);
       const project = await api.project(projectId);
       const masked = maskKey(v.ingestion.last4);
       const maskedDsn = dsnWithKey(v.ingestion.dsnBase, masked);
@@ -79,9 +73,10 @@ export function createRealIntegration(api: IntegrationApi) {
           url: w.url,
           secretLast4: w.secretLast4 ?? null,
           canRegenerate: !!v.canRegenerateWebhookSecret,
-          // Il server dice solo se è configurato; la piattaforma non la manda.
           state: w.configured ? "configured" : "not_configured",
-          provider: null,
+          // Rimandi, lotto 5, voce 6 (72): la piattaforma, per nominarla nel
+          // dialogo; una che il client non conosce (o un server di prima): nessuna.
+          provider: w.provider === "github" || w.provider === "bitbucket" ? w.provider : null,
         })),
         canRegenerateKey: !!v.canRegenerateKey,
         guide: guideText({ name: project.name, code: project.code ?? "" }, maskedDsn, masked),
@@ -107,10 +102,8 @@ export function createRealIntegration(api: IntegrationApi) {
     async regenerateWebhookSecret(
       repositoryId: string,
     ): Promise<ProjectResult<{ secret: string; mode: "manual" | "platform" }>> {
-      const slug = slugs.get(repositoryId);
-      if (!slug) return { ok: false, error: "not_found" };
       try {
-        return webhookSecretOutcome(await api.regenerateWebhookSecret(slug));
+        return webhookSecretOutcome(await api.regenerateWebhookSecret(repositoryId));
       } catch (error) {
         return webhookSecretRefusal(error);
       }
@@ -123,7 +116,8 @@ const liveApi: IntegrationApi = {
   integration: (projectId) => appClient().projects.integration(projectId),
   project: (projectId) => appClient().projects.get(projectId) as Promise<Any>,
   regenerateIngestionKey: (projectId) => appClient().projects.regenerateIngestionKey(projectId),
-  regenerateWebhookSecret: (slug) => appClient().repositories.regenerateWebhookSecret(slug),
+  regenerateWebhookSecret: (repositoryId) =>
+    appClient().repositories.regenerateWebhookSecret(repositoryId),
 };
 
 /** SOLO TEST: le rotte vere. */

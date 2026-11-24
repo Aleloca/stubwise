@@ -222,7 +222,7 @@ export function seedInstanceState(): InstanceState {
         secretId: "sec-seed-webhook",
         secretRotatedAt: at(-10, "09:00"),
         createdAt: at(-30, "09:00"),
-        lastTest: { at: at(-4, "17:45"), outcome: "ok" },
+        lastTest: { at: at(-4, "17:45"), outcome: "ok", status: 200 },
       },
     ],
     // La coda di STW in pausa da Roberta, ieri alle 18:00.

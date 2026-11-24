@@ -66,7 +66,16 @@ describe("la lettura dei plugin del progetto", () => {
 
   it("Sara legge senza poter modificare; un progetto invisibile o archiviato è null", async () => {
     as(SARA);
-    expect((await projectSettings.getProjectPlugins(ACQ))!.canEdit).toBe(false);
+    const view = (await projectSettings.getProjectPlugins(ACQ))!;
+    expect(view.canEdit).toBe(false);
+    // Decisione di 46 con 72 (24 nov 2026): i comandi degli hook solo a chi
+    // può salvare; chi legge vede il gruppo, non il comando. Le descrizioni
+    // delle skill restano a tutti.
+    const superpowers = view.plugins.find((p) => p.name === "superpowers")!;
+    expect(superpowers.hooks).toEqual([
+      { key: "SessionStart#0", event: "SessionStart", command: "", enabled: true },
+    ]);
+    expect(superpowers.skills.some((s) => s.description !== "")).toBe(true);
     expect(await projectSettings.getProjectPlugins(AUD)).toBeNull();
     as(ROBERTA);
     expect(await projectSettings.getProjectPlugins(RNC)).toBeNull();
