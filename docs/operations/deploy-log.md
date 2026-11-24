@@ -6250,3 +6250,12 @@ deploy o di un rollback che la tocca.
   `clientSecretLast4` (`.default(null)`). Solo **server** (poi **caddy**).
   **Rollback**: sicuro; per togliere le colonne, prima il server vecchio, poi
   i tre `DROP COLUMN`.
+- **«Rimandi, lotto 5: chi ha registrato e aggiornato un plugin»** *(24 nov
+  2026)*: branch `feat/rimandi-server`. **Migrazione 0226**
+  (`plugins.registered_by_user_id`, `updated_by_user_id`, FK su `users` con
+  `ON DELETE SET NULL`). Le scrive il server (registrare scrive entrambe,
+  cambiare il ref la seconda); il worker non le nomina. Vista:
+  `registeredById`/`registeredByName`, `updatedById`/`updatedByName`
+  (`.default(null)`, mascherati per chi non conosce la persona). Solo
+  **server** (poi **caddy**). **Rollback**: sicuro; per togliere le colonne,
+  prima il server vecchio, poi i due `DROP COLUMN`.

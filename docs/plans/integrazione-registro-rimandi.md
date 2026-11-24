@@ -1445,8 +1445,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     comandi non ci sono; ~~niente ultime 4 della chiave («••••») *(S)*;~~
     *le ultime 4, parte server, chiuse il 24 nov 2026 (72, lotto 5)*:
     `s3SecretKeyLast4` (0225);
-  - Plugins: il server non dice chi ha registrato o aggiornato un plugin
-    («updated … by» senza nome) *(S)*;
+  - ~~Plugins: il server non dice chi ha registrato o aggiornato un plugin
+    («updated … by» senza nome) *(S)*;~~ *parte server chiusa il 24 nov
+    2026 (72, lotto 5)*: `registeredById`/`registeredByName` e
+    `updatedById`/`updatedByName` (0226; mascherati per chi non conosce la
+    persona);
   - Git accounts: ~~niente ultime 4 del token («••••»);~~ *(parte server
     chiusa il 24 nov 2026, 72, lotto 5: `tokenLast4`, 0225)* la validazione non
     resta sul server (la ricorda la sessione); i repository che usano un

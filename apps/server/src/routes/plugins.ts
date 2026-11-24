@@ -21,6 +21,9 @@ import {
   type PluginWithPendingJob,
 } from "../services/plugins.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
+import { users, type Db } from "@stubwise/db";
+import { inArray } from "drizzle-orm";
+import { registerPersonMask } from "../services/people-known.js";
 
 const idParamsSchema = z.object({ id: z.uuid() });
 
@@ -35,7 +38,15 @@ const idParamsSchema = z.object({ id: z.uuid() });
  * un inventario illeggibile deve degradare a `null` — non far fallire in
  * serializzazione l'INTERA lista del registro.
  */
-function toPublicPlugin(row: PluginWithPendingJob): Plugin {
+/** I nomi di chi ha registrato e aggiornato i plugin dati, in una query (rimandi, lotto 5). */
+async function peopleNames(db: Db, rows: readonly PluginWithPendingJob[]): Promise<Map<string, string>> {
+  const ids = [...new Set(rows.flatMap((r) => [r.registeredByUserId, r.updatedByUserId]).filter((x): x is string => x !== null))];
+  if (ids.length === 0) return new Map();
+  const people = await db.select({ id: users.id, displayName: users.displayName, email: users.email }).from(users).where(inArray(users.id, ids));
+  return new Map(people.map((p) => [p.id, p.displayName?.trim() || p.email.split("@")[0]!]));
+}
+
+function toPublicPlugin(row: PluginWithPendingJob, names: ReadonlyMap<string, string> = new Map()): Plugin {
   const inventory = pluginInventorySchema.safeParse(row.inventory);
   return {
     id: row.id,
@@ -51,6 +62,10 @@ function toPublicPlugin(row: PluginWithPendingJob): Plugin {
     smokeStatus: row.smokeStatus,
     smokeError: row.smokeError,
     pendingJobKind: row.pendingJobKind,
+    registeredById: row.registeredByUserId,
+    registeredByName: row.registeredByUserId ? (names.get(row.registeredByUserId) ?? null) : null,
+    updatedById: row.updatedByUserId,
+    updatedByName: row.updatedByUserId ? (names.get(row.updatedByUserId) ?? null) : null,
     materializedAt: row.materializedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -80,6 +95,8 @@ function trustRequired(reply: FastifyReply) {
  */
 export async function pluginRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+  // Chi ha registrato o aggiornato (rimandi, lotto 5): un segnaposto, e il nome null, a chi non lo conosce (r.1414).
+  registerPersonMask(app, new Set(["registeredById", "updatedById"]));
 
   app.get(
     "/",
@@ -87,10 +104,11 @@ export async function pluginRoutes(instance: FastifyInstance): Promise<void> {
       config: { access: { kind: "instance", permission: "plugins.manage" } },
       schema: { response: { 200: pluginRegistrySchema, ...authErrorResponses } },
     },
-    async () => ({
-      plugins: (await listPlugins(app.db)).map(toPublicPlugin),
-      recommendations: RECOMMENDED_DISABLED_SKILLS,
-    }),
+    async () => {
+      const rows = await listPlugins(app.db);
+      const names = await peopleNames(app.db, rows);
+      return { plugins: rows.map((r) => toPublicPlugin(r, names)), recommendations: RECOMMENDED_DISABLED_SKILLS };
+    },
   );
 
   app.post(
@@ -131,7 +149,7 @@ export async function pluginRoutes(instance: FastifyInstance): Promise<void> {
           `A plugin with slug "${result.slug}" is already registered`,
         );
       }
-      return reply.code(201).send(toPublicPlugin(result.plugin));
+      return reply.code(201).send(toPublicPlugin(result.plugin, await peopleNames(app.db, [result.plugin])));
     },
   );
 
@@ -147,7 +165,7 @@ export async function pluginRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const row = await getPlugin(app.db, request.params.id);
       if (!row) return apiError(reply, 404, "plugin_not_found", "Plugin not found");
-      return toPublicPlugin(row);
+      return toPublicPlugin(row, await peopleNames(app.db, [row]));
     },
   );
 

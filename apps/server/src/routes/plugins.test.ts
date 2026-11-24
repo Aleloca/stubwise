@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
-import { pluginJobs, plugins, projectPlugins, type Db } from "@stubwise/db";
+import { pluginJobs, plugins, projectPlugins, roles, users, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { deleteAllProjects, seedRepository, startTestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
@@ -8,7 +8,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { requestSmoke } from "../services/plugins.js";
-import { seedUsers } from "../test/fixtures.js";
+import { fullSessionCookie, seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -17,6 +17,7 @@ let testDb: TestDb;
 let app: FastifyInstance;
 let adminCookie: string;
 let memberCookie: string;
+let adminId: string;
 
 /** Registra un plugin via API e restituisce la risposta grezza. */
 async function post(payload: Record<string, unknown>) {
@@ -69,7 +70,7 @@ beforeAll(async () => {
     publicUrl: "https://stubwise.example.com",
     embeddingClient: createFakeEmbeddingClient(),
   });
-  ({ adminCookie, memberCookie } = await seedUsers(app));
+  ({ adminCookie, memberCookie, adminId } = await seedUsers(app));
 }, 120_000);
 
 afterAll(async () => {
@@ -393,6 +394,24 @@ describe("pendingJobKind", () => {
     const body = res.json() as { status: string; pendingJobKind: string | null };
     expect(body.status).toBe("ready");
     expect(body.pendingJobKind).toBe("materialize");
+  });
+});
+
+describe("rimandi, lotto 5: chi ha registrato e chi ha aggiornato un plugin", () => {
+  it("registrare scrive entrambi; cambiare il ref cambia solo «aggiornato da»; la lista dice id e nome", async () => {
+    const id = await createPlugin({ sourceUrl: "https://github.com/acme/chi-plugin", ref: "v1" });
+    await markReady(id);
+    const view = async () =>
+      ((await app.inject({ method: "GET", url: "/api/plugins", headers: { cookie: adminCookie } })).json() as {
+        plugins: { id: string; registeredById: string | null; registeredByName: string | null; updatedById: string | null; updatedByName: string | null }[];
+      }).plugins.find((p) => p.id === id)!;
+    expect(await view()).toMatchObject({ registeredById: adminId, updatedById: adminId, registeredByName: expect.any(String) });
+    // Un altro full admin cambia il ref.
+    const [adminRole] = await testDb.db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "admin"));
+    const [other] = await testDb.db.insert(users).values({ email: `admin2-${Date.now()}@example.com`, passwordHash: "x", role: "admin", instanceRoleId: adminRole!.id, displayName: "Seconda Admin" }).returning({ id: users.id });
+    const res = await app.inject({ method: "POST", url: `/api/plugins/${id}/update`, headers: { cookie: await fullSessionCookie(app, other!.id) }, payload: { ref: "v2", trust: true } });
+    expect(res.statusCode, res.body).toBe(202);
+    expect(await view()).toMatchObject({ registeredById: adminId, updatedById: other!.id, updatedByName: "Seconda Admin" });
   });
 });
 

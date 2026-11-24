@@ -4941,6 +4941,9 @@ export const plugins = pgTable("plugins", {
     .notNull()
     .default("idle"),
   smokeError: text("smoke_error"),
+  /** Chi l'ha registrato e chi ne ha cambiato il ref per ultimo (0226, rimandi lotto 5). */
+  registeredByUserId: uuid("registered_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  updatedByUserId: uuid("updated_by_user_id").references(() => users.id, { onDelete: "set null" }),
   materializedAt: timestamp("materialized_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
