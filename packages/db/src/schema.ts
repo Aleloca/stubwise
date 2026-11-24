@@ -4153,6 +4153,12 @@ export const claudeConversations = pgTable(
     title: text("title").notNull().default(""),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     contextRef: jsonb("context_ref").$type<{ kind: string; id: string }>(),
+    /**
+     * Lotto 8, voce 3 (0232): i contesti ACCUMULATI della conversazione, dal più
+     * vecchio al più nuovo (al più 5); l'ultimo è il primario. `context_ref`
+     * resta scritto, uguale all'ultimo, per un server di prima (rollback).
+     */
+    contextRefs: jsonb("context_refs").$type<{ kind: string; id: string }[]>().notNull().default([]),
     cliSessionId: text("cli_session_id"),
     /** Quando è nata la sessione del CLI: oltre la potatura (14 giorni) si scarta con le sue trascrizioni. */
     cliSessionStartedAt: timestamp("cli_session_started_at", { withTimezone: true }),
@@ -6214,6 +6220,12 @@ export const agentSessionInputs = pgTable(
     authorUserId: uuid("author_user_id").references(() => users.id, { onDelete: "set null" }),
     text: text("text").notNull(),
     interrupt: boolean("interrupt").notNull().default(false),
+    /**
+     * Lotto 8, voce 3 (0232): i contesti della conversazione com'erano quando il
+     * messaggio è partito (null fuori dalle conversazioni con Claude, o prima).
+     * Li scrive il server all'invio; l'evento `input` li riceve a lettura.
+     */
+    contexts: jsonb("contexts").$type<{ kind: string; id: string }[]>(),
     status: text("status").$type<AgentInputStatus>().notNull().default("pending"),
     reason: text("reason").$type<AgentInputReason>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

@@ -2,6 +2,7 @@ import { and, desc, eq, gt, inArray, isNull, lt, not, or, sql, type SQL } from "
 import { canReadPublic, holdForOwnerMessage, readerCut } from "./claude-public.js";
 import { jobPlanView } from "./plan-view.js";
 import { enrichAsides } from "./claude-asides.js";
+import { inputContextsForViewer } from "./claude-contexts-view.js";
 import { alias } from "drizzle-orm/pg-core";
 import {
   agentQuestions,
@@ -1081,6 +1082,17 @@ export async function listAgentSessionEvents(
         : [],
     ),
   );
+  // Lotto 8, voce 3: i contesti con cui è partito ogni messaggio, DERIVATI
+  // dall'input e filtrati per chi guarda (una pubblica non fa uscire i codici
+  // dei progetti che il lettore non vede).
+  const inputContexts = conversation
+    ? await inputContextsForViewer(
+        db,
+        viewer,
+        ordered.flatMap((e) => (e.type === "input" && typeof e.data["inputId"] === "string" ? [e.data["inputId"]] : [])),
+        !withheld,
+      )
+    : new Map<string, { kind: string; id: string }[]>();
   const events = ordered.map((e) => ({
     id: e.id.toString(),
     type: e.type,
@@ -1094,6 +1106,8 @@ export async function listAgentSessionEvents(
               typeof e.data["authorUserId"] === "string"
                 ? (authors.get(e.data["authorUserId"]) ?? null)
                 : null,
+            // Sovrascrive quello che il jsonb dicesse: la fonte è l'input, filtrata.
+            ...(conversation ? { contexts: (typeof e.data["inputId"] === "string" ? inputContexts.get(e.data["inputId"]) : undefined) ?? [] } : {}),
           }
         : withheld && (e.type === "tool_use" || e.type === "tool_result")
           ? toolEventForReader(e.type, e.data)
@@ -1241,6 +1255,12 @@ async function insertInput(
   tx: Tx,
   input: { sessionId: string; actor: SessionViewer; text: string; interrupt: boolean },
 ): Promise<{ ok: true; inputId: string }> {
+  // Lotto 8, voce 3: in una conversazione con Claude, il messaggio parte coi
+  // contesti del gruppo di ADESSO (gli eventi `input` li ricevono a lettura).
+  const [conv] = await tx
+    .select({ refs: claudeConversations.contextRefs, ref: claudeConversations.contextRef })
+    .from(claudeConversations)
+    .where(eq(claudeConversations.sessionId, input.sessionId));
   const [row] = await tx
     .insert(agentSessionInputs)
     .values({
@@ -1248,6 +1268,7 @@ async function insertInput(
       authorUserId: input.actor.id,
       text: input.text,
       interrupt: input.interrupt,
+      ...(conv ? { contexts: conv.refs.length > 0 ? conv.refs : conv.ref ? [conv.ref] : [] } : {}),
     })
     .returning({ id: agentSessionInputs.id });
   // Dentro la transazione: la NOTIFY parte al commit, quindi il relay del

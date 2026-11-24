@@ -400,3 +400,59 @@ describe("review della fetta 5", () => {
     expect((await eventsOf(reader, sid)).map((e) => e.type)).toEqual(["input", "assistant_text"]);
   });
 });
+
+describe("lotto 8, voce 3: i contesti accumulati e chi li legge", () => {
+  it("NEGATIVO: in una pubblica il lettore non riceve i contesti di un progetto che non vede, né nel gruppo né sotto il messaggio", async () => {
+    const sid = await conversation();
+    const contexts = [
+      { kind: "project", id: p2.id },
+      { kind: "task", id: `${p2.code}-1` },
+      // Senza progetto: la posta dell'autore resta a lui solo.
+      { kind: "mail", id: "casella-ada/thread-segreto" },
+      { kind: "project", id: p1.id },
+    ];
+    const patched = await app.inject({ method: "PATCH", url: `/api/claude/conversations/${sid}`, headers: { cookie: author.headers.cookie }, payload: { contexts } });
+    expect(patched.statusCode, patched.body).toBe(200);
+    expect((patched.json() as { contexts: unknown[]; context: unknown }).contexts).toEqual(contexts);
+    const sent = await as(author, "POST", `/api/agent-sessions/${sid}/messages`, { text: "guarda queste" });
+    const { inputId } = sent.json() as { inputId: string };
+    await t.db.update(agentSessionInputs).set({ status: "delivered", deliveredAt: new Date() }).where(eq(agentSessionInputs.sessionId, sid));
+    await event(sid, "input", { text: "guarda queste", inputId, authorUserId: author.id });
+    await event(sid, "assistant_text", { text: "Fatto." });
+    await event(sid, "turn_end", {});
+    await publish(sid);
+
+    // L'autore: tutti e tre, nel gruppo e sotto il messaggio.
+    const mine = (await as(author, "GET", `/api/agent-sessions/${sid}/events?limit=200`)).json() as { events: { type: string; data: { contexts?: unknown[] } }[] };
+    expect(mine.events.find((e) => e.type === "input")!.data.contexts).toEqual(contexts);
+    // Il lettore (vede p1, non p2): solo p1, in entrambi i posti; il resto non esce da nessuna parte.
+    const view = await as(reader, "GET", `/api/claude/conversations/${sid}`);
+    expect(view.statusCode, view.body).toBe(200);
+    expect((view.json() as { contexts: unknown[]; context: unknown })).toMatchObject({ contexts: [{ kind: "project", id: p1.id }], context: { kind: "project", id: p1.id } });
+    const events = await as(reader, "GET", `/api/agent-sessions/${sid}/events?limit=200`);
+    expect((events.json() as { events: { type: string; data: { contexts?: unknown[] } }[] }).events.find((e) => e.type === "input")!.data.contexts).toEqual([{ kind: "project", id: p1.id }]);
+    for (const body of [view.body, events.body]) {
+      expect(body).not.toContain(p2.id);
+      expect(body).not.toContain(`${p2.code}-1`);
+      expect(body).not.toContain("thread-segreto");
+    }
+  });
+
+  it("il gruppo: `contexts` sostituisce (senza doppioni, oltre 5 è 422), il vecchio `context` aggiunge in fondo e toglie il più vecchio", async () => {
+    const sid = await conversation();
+    const patch = (payload: Record<string, unknown>) => app.inject({ method: "PATCH", url: `/api/claude/conversations/${sid}`, headers: { cookie: author.headers.cookie }, payload });
+    const six = Array.from({ length: 6 }, (_, i) => ({ kind: "task", id: `${p1.code}-${i + 1}` }));
+    const tooMany = await patch({ contexts: six });
+    expect(tooMany.statusCode).toBe(422);
+    expect(tooMany.json()).toMatchObject({ code: "too_many_contexts" });
+    const deduped = await patch({ contexts: [six[0], six[1], six[0]] });
+    expect((deduped.json() as { contexts: unknown[] }).contexts).toEqual([six[1], six[0]]);
+    // Il client di prima: aggiunge, fino a 5, poi esce il più vecchio.
+    let last: { contexts: unknown[]; context: unknown } | null = null;
+    for (const c of six.slice(2)) last = (await patch({ context: c })).json() as { contexts: unknown[]; context: unknown };
+    expect(last!.contexts).toEqual([six[0], six[2], six[3], six[4], six[5]]);
+    expect(last!.context).toEqual(six[5]);
+    // `context: null` non cambia niente.
+    expect(((await patch({ context: null })).json() as { contexts: unknown[] }).contexts).toHaveLength(5);
+  });
+});

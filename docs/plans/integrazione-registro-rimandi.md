@@ -154,10 +154,19 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   - Le citazioni registrate su un messaggio non esistono sul server: Claude
     cita col codice nel testo, che la pagina risolve (`resolveCodes`, task e
     richieste).
-  - Il contesto è UNO per conversazione: un messaggio col chip di una pagina
+  - ~~Il contesto è UNO per conversazione: un messaggio col chip di una pagina
     lo sostituisce (l'ultimo vince) e il turno lo ripete al modello; il
     contesto di progetto scelto all'inizio si perde dopo un messaggio con un
-    chip di task.
+    chip di task.~~ *Parte server chiusa il 24 nov 2026 (72, lotto 8, voce 3;
+    decisione del maintainer «tutti quelli aperti», contratto di 94 §1)*: il
+    gruppo (al più 5, l'ultimo primario) sta in `context_refs` (0232) e
+    `context_ref` resta l'ultimo; `PATCH { contexts }` sostituisce (422
+    `too_many_contexts`), il vecchio `{ context }` aggiunge in fondo; ogni
+    messaggio ricorda i suoi (`agent_session_inputs.contexts`, sull'evento
+    `input` a lettura). Visibilità: un contesto il cui progetto chi guarda
+    non vede si toglie dal gruppo e dai messaggi (la fuga trovata da 94 nel
+    prototipo); uno senza progetto (posta, PR) resta solo all'autore. Il
+    prompt li porta tutti, col primario segnato, filtrati per l'autore.
   - Riquadro: il chip c'è per task, richieste, pagine e impostazioni di
     progetto e, dall'area 10 F1, per automazioni (`automation: AUD-A3`),
     conversazioni di supporto (`support: AUD-S4`) e la propria posta
