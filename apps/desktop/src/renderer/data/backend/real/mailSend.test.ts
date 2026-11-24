@@ -110,6 +110,8 @@ describe("Invia", () => {
       // Le credenziali della casella non si usano più: si ricollega, come una disattivata.
       [409, { code: "account_unavailable" }, "google_not_connected"],
       [409, { code: "google_scope_missing", missing: ["https://www.googleapis.com/auth/gmail.modify"] }, "google_scope_missing"],
+      // Lotto 8, §2: un alias tolto su Gmail nel frattempo (la bozza resta).
+      [422, { code: "invalid_from" }, "invalid: from"],
     ];
     for (const [status, body, error] of cases) {
       installFakeServer({ ...base, [`POST /api/me/mail/drafts/${D1}/send`]: { status, body: { message: "x", ...body } } });

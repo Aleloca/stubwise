@@ -148,3 +148,81 @@ evento, variabili, passo, attesa ed errore si svuotano;
 questa esecuzione non ci sono più: si tengono 90 giorni.». I link
 (registro, card, origine di una task) aprono la pagina come prima; un
 `entry` null nell'origine non punta a una riga.
+
+## 4. A6 — Le proposte del calendario condivise fra gli invitati (r.362 d)
+
+Decisione del maintainer (24 nov 2026, via 46): una proposta del calendario
+è condivisa fra gli invitati della stessa riunione, come una proposta da
+email fra i destinatari.
+
+### Cosa fa il prototipo (già così)
+
+- UNA proposta per appuntamento: l'id dipende solo dall'evento
+  (`mp-cal-<eventId>`, `mp-ser-<eventId>` per una serie,
+  `data/calendar/proposals.ts:46-49`); il secondo invitato che sincronizza
+  non ne crea un'altra (`data/calendar/propose.ts:44`).
+- La vede chi è membro del progetto ED è fra i PARTECIPANTI: gli invitati di
+  Stubwise che non hanno rifiutato (`eventParticipants`,
+  `data/calendar/visibility.ts:79-82`; `canSeeMailProposal`,
+  `data/mail/visibility.ts:170-172`). Il calendario collegato non serve:
+  basta essere invitati. Un evento senza invitati è di chi lo ha nel
+  calendario.
+- La decide il primo; per gli altri sparisce da «Da decidere», e chi decide
+  dopo riceve `already_handled` con chi l'ha decisa
+  (`data/mail/proposals.ts:37-40, 62-64`).
+- `sharedWith` = gli altri partecipanti che la vedono, coi nomi
+  (`proposals.ts:187, 200-212`); l'estratto («titolo · data») a tutti;
+  l'origine (l'evento) solo a chi legge l'evento (`proposals.ts:288-292`).
+- Restano spenti per il calendario: «Passa al progetto» (`invalid_action`) e
+  «Sposta su un altro progetto». Una serie «agisce da sola» si conferma a
+  nome di chi la configura, come oggi.
+- Seme: `ev-mkx-visuals-deadline` (MKX), invitati Matteo e Giulia, membri
+  entrambi.
+
+### Cosa c'è oggi sul server
+
+Una proposta PER CASELLA: `calendar_events.proposal_notification_id`/`outcome`
+su una riga per `account_id`; il poller pubblica un `google.proposal` per
+casella (`apps/worker/src/google/poller.ts`, `buildCalendarProposalEvent`),
+audience `mailbox_owner`; la lettura
+(`apps/server/src/services/mail-proposals-calendar.ts`) filtra per la casella
+di chi guarda, con `sharedWith: []`. Due invitati coi calendari collegati
+ricevono due card, e decidere una non chiude l'altra.
+
+### Contratto (proposta di 94; la forma la decide 72)
+
+**Il modello è quello delle email condivise** (`email_proposals` +
+`email_proposal_recipients`, `publish-shared.ts`, `mail-proposals-decide.ts`):
+- una proposta per (evento, progetto): l'evento si riconosce fra le caselle
+  con `ical_uid` (le copie dello stesso appuntamento sono un evento solo);
+  un'audience nuova, `event_invitees`, accanto a `meeting_invitees`;
+- i destinatari: gli invitati di Stubwise che non hanno rifiutato E vedono il
+  progetto, ognuno con la sua riga in `email_proposal_recipients` e la sua
+  card `google.proposal` (pubblicata `mailbox_owner` con il suo
+  `mailboxOwnerUserId`, come le condivise). Il calendario collegato non è
+  richiesto: un invitato senza casella la riceve lo stesso, come un
+  destinatario membro di un'email (F2, A = a);
+- la decide il primo (lock della riga): `closeCards` chiude le card di tutti;
+  chi decide dopo: `already_handled` con chi l'ha decisa (mascherato);
+- la vista (`GET /api/me/mail/proposals`, `kind: "calendar"`): `sharedWith` =
+  gli altri destinatari che la vedono (mascherati come oggi), l'estratto
+  «titolo · data» a tutti i destinatari, l'origine (l'evento) solo a chi
+  legge l'evento; `canHand: false` e niente «Sposta», come oggi;
+- un invitato che rifiuta DOPO la pubblicazione: la sua card resta, ma la
+  decisione la può prendere solo un partecipante (il prototipo lo toglie dai
+  partecipanti alla lettura). Se è più semplice chiudergli la card, va bene
+  lo stesso: dillo;
+- la serie che «agisce da sola»: invariata (si conferma a nome di chi la
+  configura, una volta per evento).
+- **Compatibilità**: le proposte del calendario già pubblicate per casella
+  restano com'erano finché non si decidono (nessuna migrazione dei dati
+  vivi); le nuove nascono condivise.
+
+### Cosa farà il renderer
+
+- L'adattatore legge `sharedWith` anche per `kind: "calendar"` (oggi
+  sempre vuoto) e `already_handled` col chi; la card dice «Also for …» come
+  per le email (`pages/mail/MailProposalCard.tsx`).
+- Test: due destinatari sulla stessa proposta; decisa da uno, l'altro la
+  vede chiusa; una vista SENZA `sharedWith` (server di prima): nessun «Also
+  for».
