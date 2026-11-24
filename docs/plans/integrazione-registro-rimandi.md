@@ -1398,11 +1398,16 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     `/api/auth/me` porta `departments: [{ id, name, colorToken }]`
     nell'ordine della persona (`position`, come `/api/people`), `.default([])`;
   - `department` fra le fonti dei permessi dei membri arriva con F8.
-  - Roles, «you'd lose»: cosa perde chi guarda salvando un ruolo lo compone
+  - ~~Roles, «you'd lose»: cosa perde chi guarda salvando un ruolo lo compone
     ancora il CLIENT dai motivi di `access.whatCan` (i permessi che gli
     vengono solo da quel ruolo). Il server ha i motivi, non la risposta:
     serve una lettura calcolata (come l'anteprima dei membri) che dica cosa
-    perde chi guarda con la bozza del ruolo *(S, review F1, M1 di 46)*.
+    perde chi guarda con la bozza del ruolo *(S, review F1, M1 di 46)*.~~
+    *Parte server chiusa il 24 nov 2026 (72, lotto 5)*:
+    `POST /api/roles/:id/viewer-loses` (`{ permissions }` → `{ lost }`,
+    `roles.manage`): la regola del prototipo, i permessi effettivi prima e
+    dopo all'istanza e in ogni progetto di chi guarda (ruolo, concessioni,
+    reparti, full admin); ciò che resta da un'altra fonte non è perso.
 
 - **F2 renderer, il registro delle modifiche nell'app** *(94, 18 nov 2026)*:
   - una voce d'invito non ha link: il server cancella gli inviti usati e
