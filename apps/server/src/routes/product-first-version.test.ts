@@ -80,7 +80,7 @@ describe("le fonti", () => {
 });
 
 describe("l'avvio", () => {
-  it("rifiuti: l'email di un altro (422 invalid_source), nessuna fonte (422), chi legge soltanto (403), il budget finito (409 ai_blocked)", async () => {
+  it("rifiuti: l'email di un altro (422 invalid_source), nessuna fonte (422), chi legge soltanto (403), il budget finito (409 budget_exhausted per chi non ha plans.approve; il Project Lead lo scavalca)", async () => {
     const s = await space();
     expect((await start(ada, s, [{ kind: "email", id: s.beaMail.messageId }])).json()).toMatchObject({ code: "invalid_source" });
     expect((await start(ada, s, [{ kind: "drive", fileId: s.hidden.id }])).json()).toMatchObject({ code: "invalid_source" });
@@ -88,11 +88,18 @@ describe("l'avvio", () => {
     expect((await start(vic, s, [{ kind: "text", text: "note" }])).statusCode).toBe(403);
     await t.db.insert(instanceSettings).values({ id: 1, monthlyBudgetUsd: "0" }).onConflictDoUpdate({ target: instanceSettings.id, set: { monthlyBudgetUsd: "0" } });
     try {
-      expect((await start(ada, s, [{ kind: "text", text: "note" }])).json()).toMatchObject({ code: "ai_blocked" });
+      // D-7.1 (review del lotto 4, I-1): il Developer no, e nulla nasce.
+      expect((await start(ada, s, [{ kind: "text", text: "note" }])).json()).toMatchObject({ code: "budget_exhausted" });
+      expect(await t.db.select().from(productFirstVersions).where(eq(productFirstVersions.projectId, s.projectId))).toEqual([]);
+      // Il Project Lead lo scavalca: parte, e il lavoro porta lo scavalco al worker.
+      const lead = await createUserWithSession(app, `lead-fv-${randomUUID().slice(0, 6)}@example.com`);
+      await addMember(app, s.projectId, lead.id, "project_lead");
+      expect((await start(lead, s, [{ kind: "text", text: "note" }])).statusCode).toBe(202);
+      const [job] = await t.db.select().from(productDocJobs).where(eq(productDocJobs.projectId, s.projectId));
+      expect(job).toMatchObject({ sourceKind: "first_version", budgetBypass: true });
     } finally {
       await t.db.delete(instanceSettings);
     }
-    expect(await t.db.select().from(productFirstVersions).where(eq(productFirstVersions.projectId, s.projectId))).toEqual([]);
   });
 
   it("parte: la riga e il lavoro della coda; il testo incollato c'è solo per il lavoro; uno spazio non vuoto è 409", async () => {

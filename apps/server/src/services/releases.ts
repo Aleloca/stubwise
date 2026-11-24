@@ -219,10 +219,15 @@ async function statusOf(db: Db, release: ReleaseRecord, repo: { ciProvider: stri
 /** I fatti di chi guarda in un progetto, letti una volta: permessi e budget. */
 interface ViewerScope {
   perms: ReadonlySet<string> | null;
+  /**
+   * Il budget del mese finito FERMA chi guarda: solo senza `plans.approve` nel
+   * progetto (D-7.1; review del lotto 4, I-1). Chi lo scavalca avvia lo stesso.
+   */
   budgetExhausted: boolean;
 }
 async function scopeOf(db: Db, viewer: Viewer, projectId: string): Promise<ViewerScope> {
-  return { perms: await projectPermissionsFor(db, viewer, projectId), budgetExhausted: (await aiBudgetState(db)).exhausted };
+  const perms = await projectPermissionsFor(db, viewer, projectId);
+  return { perms, budgetExhausted: !(perms?.has("plans.approve") ?? false) && (await aiBudgetState(db)).exhausted };
 }
 
 /** `owner/repo` da un indirizzo https del provider. */

@@ -15,6 +15,7 @@ import {
 import { seedEmailMessage, seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { ProductPageView } from "@stubwise/shared";
 import { buildApp } from "../app.js";
+import { requestProductPageUpdate } from "../services/product-claude-actions.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
 
 /**
@@ -181,6 +182,23 @@ describe("updateProductPage", () => {
     expect(u).toMatchObject({ sourceKind: "email", sourceId: s.adaMail.messageId, requestedBy: ada.id, finishedAt: null });
     expect(await t.db.select().from(productDocJobs).where(eq(productDocJobs.sourceId, u!.id))).toEqual([expect.objectContaining({ sourceKind: "page_update", status: "queued" })]);
     expect((await propose(ada, [{ fn: "updateProductPage", args }])).body).toMatchObject({ status: "refused", reason: expect.stringContaining("already_updating") });
+  });
+
+  it("D-7.1 (review del lotto 4, I-1): col budget finito il Developer riceve `budget_exhausted` e nulla nasce; il Project Lead lo scavalca e il lavoro lo porta", async () => {
+    const s = await space();
+    const p = await page(s);
+    const source = { kind: "email" as const, id: s.adaMail.messageId };
+    const asAda = { id: ada.id, instancePermissions: new Set<string>() } as never;
+    await t.db.insert(instanceSettings).values({ id: 1, monthlyBudgetUsd: "0" }).onConflictDoUpdate({ target: instanceSettings.id, set: { monthlyBudgetUsd: "0" } });
+    try {
+      await expect(requestProductPageUpdate(t.db, asAda, p.id, source)).rejects.toMatchObject({ code: "budget_exhausted" });
+      expect(await t.db.select().from(productPageUpdates).where(eq(productPageUpdates.pageId, p.id))).toEqual([]);
+      await addMember(app, s.projectId, ada.id, "project_lead");
+      const { updateId } = await requestProductPageUpdate(t.db, asAda, p.id, source);
+      expect(await t.db.select().from(productDocJobs).where(eq(productDocJobs.sourceId, updateId))).toEqual([expect.objectContaining({ sourceKind: "page_update", budgetBypass: true })]);
+    } finally {
+      await t.db.delete(instanceSettings);
+    }
   });
 
   it("la fonte deve essere di chi chiede da aprire (l'email di Bea per Ada è come se non ci fosse) e del progetto; senza `docs.edit` niente", async () => {

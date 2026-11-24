@@ -97,10 +97,10 @@ async function withTaskCodes(db: Db, events: ChronologyEvent[]): Promise<Chronol
 /**
  * Le task ELIMINATE nella finestra (rimandi, lotto 4; area 10a del
  * prototipo): da `deleted_tickets`, perché la storia della task se ne va con
- * lei. Codice e titolo di allora. La regola dei ticket della timeline, sulla
- * sola cosa che di una task eliminata resta: con `tickets.view_all` tutte,
- * senza solo quelle che chi guarda ha eliminato (chi l'aveva chiesta non si
- * sa più). Chi l'ha eliminata lo maschera la rotta (r.1414).
+ * lei. L'evento a chiunque veda il progetto (46, come il prototipo); codice
+ * e titolo di allora solo a chi ha `tickets.view_all` o l'ha eliminata (chi
+ * l'aveva chiesta non si sa più), null agli altri. Chi l'ha eliminata lo
+ * maschera la rotta (r.1414).
  */
 async function deletedEvents(db: Db, projectId: string, viewer: TimelineViewer, from: Date, before: Date): Promise<ChronologyEvent[]> {
   const rows = await db
@@ -123,18 +123,23 @@ async function deletedEvents(db: Db, projectId: string, viewer: TimelineViewer, 
         eq(deletedTickets.projectId, projectId),
         gte(deletedTickets.deletedAt, from),
         lt(deletedTickets.deletedAt, before),
-        viewer.permissions.has("tickets.view_all") ? undefined : eq(deletedTickets.deletedBy, viewer.userId),
       ),
     );
-  return rows.map((r) => ({
+  const allTasks = viewer.permissions.has("tickets.view_all");
+  return rows.map((r) => {
+    // 46 (24 nov 2026): l'evento a chiunque veda il progetto, come il
+    // prototipo; titolo e codice solo a chi vede tutte le task o l'ha eliminata.
+    const named = allTasks || r.deletedBy === viewer.userId;
+    return {
     kind: "task_deleted" as const,
     at: r.deletedAt.toISOString(),
     taskId: r.id,
-    taskCode: `${r.code}-${r.number}`,
-    title: r.title,
+    taskCode: named ? `${r.code}-${r.number}` : null,
+    title: named ? r.title : null,
     ...(r.deletedBy ? { byId: r.deletedBy, byName: r.byDisplayName?.trim() || r.byEmail?.split("@")[0] || null } : {}),
     ...(r.viaClaude ? { viaClaude: true } : {}),
-  }));
+    };
+  });
 }
 
 async function pageEvents(

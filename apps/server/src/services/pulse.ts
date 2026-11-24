@@ -235,6 +235,9 @@ export async function proceedWithProposal(
 
   // D-7.1 (il maintainer, sul prototipo): il «Procedi» di chi non scavalca il
   // budget finito non fa niente — niente task a metà senza il suo run.
+  // Limite accettato (review del lotto 4, I-2): fuori dalla transazione della
+  // conversione; se il budget finisce fra qui e `startRun`, l'esito è il
+  // `ticket_only` di sempre (pr-corrections.md, la regola D-7.1).
   if (!(permissions?.has("plans.approve") ?? false) && (await aiBudgetState(db)).exhausted) {
     return { ok: false, error: "budget_exhausted" };
   }

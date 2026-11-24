@@ -12,7 +12,8 @@ type ProductDocs = typeof Fake.productDocs;
 
 function mapWireframeError(error: unknown): never {
   if (error instanceof ApiError) {
-    if (error.code === "ai_blocked") throw new Error("ai_blocked");
+    // `budget_exhausted` dal server di oggi (D-7.1), `ai_blocked` da uno più vecchio.
+    if (error.code === "budget_exhausted" || error.code === "ai_blocked") throw new Error("ai_blocked");
     if (error.status === 422 && error.code?.startsWith("invalid_"))
       throw new Error(`invalid: ${error.code.slice("invalid_".length)}`);
     if (error.status === 403) throw new Error("forbidden");

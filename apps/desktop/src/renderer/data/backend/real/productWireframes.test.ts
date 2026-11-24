@@ -41,6 +41,14 @@ describe("le bozze di schermata nella build app", () => {
       },
     });
     await expect(wf.drawWireframe!(PAGE, { afterId: null })).rejects.toThrow("ai_blocked");
+    // Il server di oggi dice `budget_exhausted` (D-7.1): per il prototipo resta `ai_blocked`.
+    installFakeServer({
+      [`POST /api/product-pages/${PAGE}/wireframes`]: {
+        status: 409,
+        body: { code: "budget_exhausted", message: "x" },
+      },
+    });
+    await expect(wf.drawWireframe!(PAGE, { afterId: null })).rejects.toThrow("ai_blocked");
     installFakeServer({
       [`POST /api/product-pages/${PAGE}/wireframes`]: {
         status: 422,

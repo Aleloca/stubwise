@@ -6216,3 +6216,20 @@ deploy o di un rollback che la tocca.
   **Rollback**: sicuro scendere d'immagine (la colonna in più è ignorata);
   per togliere la colonna, prima server e worker vecchi, poi `ALTER TABLE
   repo_graphs DROP COLUMN setup_pr_state`.
+- **«Rimandi, lotto 4, review: il budget finito scavalcato davvero»** *(24
+  nov 2026)*: branch `feat/rimandi-server` (review del lotto 4, I-1).
+  **Migrazione 0223** (`product_doc_jobs.budget_bypass`, boolean default
+  false). Chi ha `plans.approve` nel progetto ora scavalca il budget finito
+  anche su:
+  - il «Riprova» dello Stato dell'istanza;
+  - la task di riparazione di un rilascio;
+  - la prima versione della doc, le bozze di schermata e «aggiorna da fonte».
+  Per questi ultimi tre il lavoro porta lo scavalco: col budget finito il
+  worker prende e fa girare SOLO quelli con `budget_bypass`. Per chi non lo
+  scavalca il codice è ovunque 409 `budget_exhausted` (prima `monthly_budget`
+  422 sul «Riprova» e `ai_blocked` 409 sulla doc di prodotto: il renderer
+  accetta entrambi). Ordine: **server** prima (healthy e migrazione: il
+  worker nomina la colonna), poi **worker**, poi **caddy**. **Rollback**:
+  sicuro scendere d'immagine (la colonna in più è ignorata, e un server
+  vecchio torna a fermare tutti); per togliere la colonna, prima server e
+  worker vecchi, poi `ALTER TABLE product_doc_jobs DROP COLUMN budget_bypass`.

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { aiJobs, comments, projects, releaseCiRuns, releases, repositories, tickets, type Db } from "@stubwise/db";
+import { aiJobs, comments, instanceSettings, projects, releaseCiRuns, releases, repositories, tickets, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
@@ -127,6 +127,28 @@ describe("i rilasci", () => {
     expect(await db.select().from(aiJobs).where(eq(aiJobs.ticketId, out.taskId))).toHaveLength(1);
     const [after] = ((await call(s.lead.headers, "GET", `/projects/${s.projectId}/releases`)).json() as { items: { waitsOnViewer: boolean }[] }).items;
     expect(after!.waitsOnViewer).toBe(false);
+  });
+
+  it("D-7.1 (review del lotto 4, I-1): a budget zero il Project Lead (plans.approve) avvia la riparazione; il Developer no (startFix false, fixBlock, la task nasce ma non parte)", async () => {
+    await db.insert(instanceSettings).values({ id: 1, monthlyBudgetUsd: "0" }).onConflictDoUpdate({ target: instanceSettings.id, set: { monthlyBudgetUsd: "0" } });
+    try {
+      const a = await setup("failed");
+      const lead = (await call(a.lead.headers, "GET", `/releases/${a.release.code}`)).json() as { permissions: { startFix: boolean }; fixBlock: unknown };
+      expect(lead).toMatchObject({ permissions: { startFix: true }, fixBlock: null });
+      const led = (await call(a.lead.headers, "POST", `/releases/${a.release.code}/fix`, { start: true })).json() as { taskId: string; started: boolean };
+      expect(led.started).toBe(true);
+      expect(await db.select().from(aiJobs).where(eq(aiJobs.ticketId, led.taskId))).toHaveLength(1);
+      const b = await setup("failed");
+      const dev = await person();
+      await addMember(app, b.projectId, dev.id, "developer");
+      const forDev = (await call(dev.headers, "GET", `/releases/${b.release.code}`)).json() as { permissions: { startFix: boolean }; fixBlock: unknown };
+      expect(forDev).toMatchObject({ permissions: { startFix: false }, fixBlock: { reason: "monthly_budget" } });
+      const devOut = (await call(dev.headers, "POST", `/releases/${b.release.code}/fix`, { start: true })).json() as { taskId: string; started: boolean };
+      expect(devOut.started).toBe(false);
+      expect(await db.select().from(aiJobs).where(eq(aiJobs.ticketId, devOut.taskId))).toEqual([]);
+    } finally {
+      await db.update(instanceSettings).set({ monthlyBudgetUsd: null }).where(eq(instanceSettings.id, 1));
+    }
   });
 
   it("un rilascio non fallito non si fa sistemare (409); senza tickets.create 403 e nessuna task", async () => {

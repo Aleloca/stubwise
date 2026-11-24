@@ -149,7 +149,7 @@ describe("GET /api/projects/:projectId/chronology", () => {
     expect(res.events.find((e) => e.taskId === mine)?.taskCode).toMatch(/-\d+$/);
   });
 
-  it("rimandi, lotto 4: le task ELIMINATE (`task_deleted`, codice e titolo di allora, chi l'ha eliminata); senza `tickets.view_all` solo le proprie; chi ha eliminato si maschera a chi non lo conosce", async () => {
+  it("rimandi, lotto 4: le task ELIMINATE (`task_deleted`, codice e titolo di allora, chi l'ha eliminata); senza `tickets.view_all` l'evento sì ma codice e titolo solo delle proprie; chi ha eliminato si maschera a chi non lo conosce", async () => {
     const { projectId: pid } = await seedRepository(testDb.db);
     const [{ code }] = (await testDb.db.select({ code: projects.code }).from(projects).where(eq(projects.id, pid))) as [{ code: string }];
     const reader = await createUserWithSession(app, `lettore-del-${randomUUID().slice(0, 6)}@example.com`);
@@ -174,11 +174,19 @@ describe("GET /api/projects/:projectId/chronology", () => {
     expect(forDev.map((e) => e.taskId)).toEqual([byReader, byStranger]);
     expect(forDev[1]!.byId).toMatch(/^hidden-/);
     expect(forDev[1]!.byName).toBeNull();
-    // Il Contributor (senza tickets.view_all): solo quella che ha eliminato lui.
-    expect((await deletedIn(reader.headers.cookie)).map((e) => e.taskId)).toEqual([byReader]);
-    // E nell'attività del portafoglio, lo stesso evento.
-    const portfolio = await page("/api/activity/portfolio", reader.headers.cookie);
-    expect(portfolio.events.filter((e) => e.kind === "task_deleted").map((e) => e.taskId)).toEqual([byReader]);
+    // Il Contributor (senza tickets.view_all) vede ENTRAMBI gli eventi (46): la
+    // sua con codice e titolo, l'altra senza.
+    const forReader = await deletedIn(reader.headers.cookie);
+    expect(forReader.map((e) => e.taskId)).toEqual([byReader, byStranger]);
+    expect(forReader[0]).toMatchObject({ taskCode: `${code}-902`, title: "La mia bozza" });
+    expect(forReader[1]).toMatchObject({ taskCode: null, title: null });
+    expect(JSON.stringify(forReader)).not.toContain("Vecchia richiesta");
+    // E nell'attività del portafoglio, la stessa regola.
+    const portfolio = (await page("/api/activity/portfolio", reader.headers.cookie)).events.filter((e) => e.kind === "task_deleted");
+    expect(portfolio.map((e) => [e.taskId, e.title])).toEqual([
+      [byReader, "La mia bozza"],
+      [byStranger, null],
+    ]);
   });
 
   it("un progetto invisibile → 404", async () => {

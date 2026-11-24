@@ -25,7 +25,8 @@ import { notifyProductRevision, notifyProductWireframe } from "./product-live-no
  *   solo «/…» del menu): il blocco `wireframe` nasce SUBITO (`drawing`, con
  *   una revisione di chi chiede `via: "claude"`), il disegno lo fa il worker
  *   (un lavoro della coda della doc). Chiede `docs.edit`; col budget del mese
- *   finito non parte (409 `ai_blocked`), la pausa della coda non lo ferma;
+ *   finito non parte per chi non ha `plans.approve` (409 `budget_exhausted`,
+ *   D-7.1; chi ce l'ha lo scavalca), la pausa della coda non lo ferma;
  * - «Redraw»: una variante nuova, che il worker aggiunge e mette nel blocco
  *   (l'etichetta «Claude's sketch» torna); `fromVariant` = quella che si
  *   vedeva, così il doppio clic non ne chiede due; mentre disegna, niente;
@@ -93,24 +94,31 @@ async function writeOps(tx: Db, viewer: Viewer, pageId: string, build: (blocks: 
 const replaceable = (block: ProductBlock | undefined): boolean => block?.type === "paragraph" && (block.content.text.trim() === "" || block.content.text.startsWith("/"));
 
 /** Accoda il disegno (o una variante nuova) della bozza: un lavoro della coda della doc. */
-async function enqueueDrawing(tx: Db, projectId: string, wireframeId: string): Promise<void> {
+async function enqueueDrawing(tx: Db, projectId: string, wireframeId: string, budgetBypass: boolean): Promise<void> {
   await tx
     .insert(productDocJobs)
-    .values({ projectId, sourceKind: "wireframe", sourceId: wireframeId })
+    .values({ projectId, sourceKind: "wireframe", sourceId: wireframeId, budgetBypass })
     .onConflictDoUpdate({
       target: [productDocJobs.projectId, productDocJobs.sourceKind, productDocJobs.sourceId],
-      set: { status: "queued", heldReason: null, lastHeldReason: null, attempts: 0, error: null, facts: null, pagesDone: sql`'{}'::uuid[]`, notBefore: null, finishedAt: null },
+      set: { status: "queued", budgetBypass, heldReason: null, lastHeldReason: null, attempts: 0, error: null, facts: null, pagesDone: sql`'{}'::uuid[]`, notBefore: null, finishedAt: null },
     });
 }
 
-const budgetGuard = async (db: Db, costFn?: (db: Db) => Promise<number>) => {
-  if ((await aiBudgetState(db, costFn)).exhausted) throw new ProductDocsError(409, "ai_blocked", "The monthly AI budget is used up");
+/**
+ * Il budget del mese (D-7.1; review del lotto 4, I-1): chi ha `plans.approve`
+ * nel progetto lo scavalca, e il lavoro lo porta (`budget_bypass`); gli altri
+ * ricevono 409 `budget_exhausted`, lo stesso codice di ogni avvio a mano.
+ */
+const budgetGuard = async (db: Db, viewer: Viewer, projectId: string, costFn?: (db: Db) => Promise<number>): Promise<boolean> => {
+  const bypass = (await projectPermissionsFor(db, viewer, projectId))?.has("plans.approve") ?? false;
+  if (!bypass && (await aiBudgetState(db, costFn)).exhausted) throw new ProductDocsError(409, "budget_exhausted", "The monthly AI budget is used up");
+  return bypass;
 };
 
 /** «Draw this screen»: il blocco nasce subito (`drawing`), il disegno arriva dal worker. */
 export async function drawWireframe(db: Db, viewer: Viewer, pageId: string, at: DrawWireframeInput, budget: { monthlyCostUsdFn?: (db: Db) => Promise<number> } = {}): Promise<{ blockId: string; wireframeId: string }> {
   const projectId = await editable(db, viewer, pageId);
-  await budgetGuard(db, budget.monthlyCostUsdFn);
+  const bypass = await budgetGuard(db, viewer, projectId, budget.monthlyCostUsdFn);
   return db.transaction(async (txRaw) => {
     const tx = txRaw as unknown as Db;
     const wireframeId = randomUUID();
@@ -134,7 +142,7 @@ export async function drawWireframe(db: Db, viewer: Viewer, pageId: string, at: 
       { via: "claude" },
     );
     await tx.insert(productWireframes).values({ id: wireframeId, pageId, projectId, blockId, requestedBy: viewer.id });
-    await enqueueDrawing(tx, projectId, wireframeId);
+    await enqueueDrawing(tx, projectId, wireframeId, bypass);
     await notifyProductWireframe(tx, { pageId, wireframeId, status: "drawing" });
     return { blockId, wireframeId };
   });
@@ -154,14 +162,14 @@ async function sketchOf(tx: Db, pageId: string, blockId: string) {
 /** «Redraw»: una variante nuova (la mette nel blocco il worker, quando l'ha disegnata). */
 export async function redrawWireframe(db: Db, viewer: Viewer, pageId: string, blockId: string, fromVariant: number | undefined, budget: { monthlyCostUsdFn?: (db: Db) => Promise<number> } = {}): Promise<{ blockId: string }> {
   const projectId = await editable(db, viewer, pageId);
-  await budgetGuard(db, budget.monthlyCostUsdFn);
+  const bypass = await budgetGuard(db, viewer, projectId, budget.monthlyCostUsdFn);
   return db.transaction(async (txRaw) => {
     const tx = txRaw as unknown as Db;
     const { block, row } = await sketchOf(tx, pageId, blockId);
     // Il doppio clic (la variante che si vedeva è già cambiata), o un disegno già in corso: niente.
     if ((fromVariant !== undefined && block.variant !== fromVariant) || row.status === "drawing") return { blockId };
     await tx.update(productWireframes).set({ status: "drawing", error: null, requestedBy: viewer.id, updatedAt: new Date() }).where(eq(productWireframes.id, row.id));
-    await enqueueDrawing(tx, projectId, row.id);
+    await enqueueDrawing(tx, projectId, row.id, bypass);
     await notifyProductWireframe(tx, { pageId, wireframeId: row.id, status: "drawing" });
     return { blockId };
   });

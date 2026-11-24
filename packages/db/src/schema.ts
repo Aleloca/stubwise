@@ -2856,6 +2856,11 @@ export const productDocJobs = pgTable(
       .references(() => projects.id, { onDelete: "cascade" }),
     /** F6 (0214): anche `first_version`, la prima versione di uno spazio (`source_id` = la sua riga). */
     sourceKind: text("source_kind").$type<"email" | "meeting" | "decision" | "task" | "release" | "first_version" | "wireframe" | "page_update">().notNull(),
+    /**
+     * Chiesto a mano da chi ha `plans.approve` (0223, D-7.1): scavalca il
+     * budget del mese finito, come `ai_jobs.manual_trigger`.
+     */
+    budgetBypass: boolean("budget_bypass").notNull().default(false),
     sourceId: uuid("source_id").notNull(),
     status: text("status").$type<"queued" | "running" | "held" | "done" | "failed">().notNull().default("queued"),
     heldReason: text("held_reason").$type<"limit" | "budget" | "section_busy" | "paused">(),

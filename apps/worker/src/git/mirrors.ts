@@ -284,6 +284,11 @@ export class PushRejectedError extends GitCommandError {
  * `LC_ALL=C` perché il testo resti in inglese. "Updates were rejected" resta
  * nell'alternanza solo come rete, se gli hint tornassero.
  */
+// ⚠️ Lo legge anche il TETTO delle correzioni (rimandi, lotto 4): un rifiuto
+// riconosciuto qui diventa `PushRejectedError`, cioè una correzione SCARTATA
+// (`outcome: "discarded"`, correction.ts) che non consuma un giro del tetto.
+// Un rifiuto che questa regex non riconosce cade fra gli errori generici e
+// CONTA come un giro fallito.
 const PUSH_REJECTED_RE = /\[rejected\]|non-fast-forward|fetch first|Updates were rejected/i;
 
 /**

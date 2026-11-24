@@ -45,12 +45,17 @@ export const chronologyEventSchema = z.object({
    * Il codice della task (`<PROGETTO>-<n>`) degli eventi `task_*` e `pr_*`,
    * così l'app lo mostra anche per una task che non ha in memoria. Solo per
    * le task che chi guarda vede: gli eventi stessi passano da quella regola.
+   * `task_deleted` (46, 24 nov 2026): null a chi non ha `tickets.view_all` e
+   * non l'ha eliminata lui — l'evento lo vede, il codice no.
    */
-  taskCode: z.string().optional(),
+  taskCode: z.string().nullable().optional(),
   milestoneId: z.uuid().optional(),
   decisionId: z.uuid().optional(),
-  /** Il titolo della decisione. */
-  title: z.string().optional(),
+  /**
+   * Il titolo della decisione; per `task_deleted` quello della task di allora,
+   * null con la stessa regola di `taskCode` («A task was deleted»).
+   */
+  title: z.string().nullable().optional(),
   briefId: z.uuid().optional(),
   /** La prima riga del brief. */
   headline: z.string().optional(),
@@ -63,7 +68,8 @@ export const chronologyEventSchema = z.object({
   /**
    * `task_deleted`: chi l'ha eliminata (un segnaposto `hidden-<n>` per chi non
    * lo conosce, r.1414) e il suo nome (null se mascherato o sparito). Il
-   * titolo di allora sta in `title`, il codice in `taskCode`.
+   * titolo di allora sta in `title`, il codice in `taskCode` (null a chi non
+   * ha `tickets.view_all` e non l'ha eliminata lui).
    */
   byId: personRefSchema.optional(),
   byName: z.string().nullable().optional(),

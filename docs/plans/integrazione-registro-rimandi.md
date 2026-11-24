@@ -1534,8 +1534,10 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   lei); lo standup e la richiesta d'origine sì. (Elimina task: chiusa, sotto.)~~
   *Parte server chiusa il 24 nov 2026 (72, lotto 4)*: la cronologia e
   l'attività del portafoglio portano `task_deleted` da `deleted_tickets`
-  (codice e titolo di allora, `byId`/`byName`, `viaClaude`). Con
-  `tickets.view_all` tutte, senza solo quelle eliminate da chi guarda; chi ha
+  (codice e titolo di allora, `byId`/`byName`, `viaClaude`). L'evento a
+  chiunque veda il progetto (46, 24 nov 2026, come il prototipo); codice e
+  titolo solo con `tickets.view_all` o a chi l'ha eliminata, null agli altri
+  («A task was deleted»); chi ha
   eliminato è mascherato a chi non lo conosce (r.1414). Resta al renderer la
   mappa nell'adattatore (`backend/real/overview.ts`, oggi le scarta).
 

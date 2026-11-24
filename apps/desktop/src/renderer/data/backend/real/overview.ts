@@ -107,7 +107,7 @@ function toEvent(e: ChronologyEvent): TimelineEvent | null {
     case "milestone":
       return e.milestoneId ? { kind: "milestone", at, milestoneId: e.milestoneId } : null;
     case "decision":
-      return e.decisionId && e.title !== undefined
+      return e.decisionId && typeof e.title === "string"
         ? { kind: "decision", at, decisionId: e.decisionId, title: e.title }
         : null;
     case "brief":
