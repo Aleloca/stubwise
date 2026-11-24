@@ -98,6 +98,9 @@ describe("get_by_code", () => {
   it("un codice malformato non chiama il server; un 404 diventa un errore leggibile", async () => {
     const client = makeClient();
     expect((await tool("get_by_code").handler({ code: "12-ACQ" }, ctxOf(client))).isError).toBe(true);
+    // Il prefisso va da 2 a 6 caratteri, come sul server.
+    expect((await tool("get_by_code").handler({ code: "A-12" }, ctxOf(client))).isError).toBe(true);
+    expect((await tool("get_by_code").handler({ code: "ACQUIST-12" }, ctxOf(client))).isError).toBe(true);
     expect(client.getTaskByCode).not.toHaveBeenCalled();
     client.getTaskByCode.mockRejectedValue(new StubwiseApiError("Task not found", 404, "not_found"));
     expect((await tool("get_by_code").handler({ code: "ACQ-99" }, ctxOf(client))).isError).toBe(true);

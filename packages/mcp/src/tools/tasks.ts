@@ -118,7 +118,8 @@ const listTasks: ToolDef = {
 
 // --- get_by_code ------------------------------------------------------------------
 
-const CODE_RE = /^[A-Za-z][A-Za-z0-9]{0,15}-(R?)(\d{1,9})$/;
+/** Il prefisso del progetto da 2 a 6 caratteri, come il server (`automationOrigin`, i codici dei progetti). */
+const CODE_RE = /^[A-Za-z][A-Za-z0-9]{1,5}-(R?)(\d{1,9})$/;
 
 const getByCode: ToolDef = {
   name: "get_by_code",
