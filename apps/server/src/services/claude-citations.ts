@@ -2,7 +2,7 @@ import { agentSessionEvents, claudeConversations, claudeTurnCitations, docPageCo
 import { and, asc, desc, eq, gt, lte, sql } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { ChatViewer } from "../chat/access.js";
-import { citeablesFor, citeablesFromCodes } from "../chat/citations.js";
+import { citeablesByCode, citeablesFor, codesIn } from "../chat/citations.js";
 
 /**
  * Lotto 9, voce 1: le CITAZIONI dei messaggi di Claude (Chat r.64, A10
@@ -112,6 +112,14 @@ export async function turnCitationsFor(db: Db, viewer: ChatViewer, sessionId: st
       .where(and(eq(agentSessionEvents.sessionId, sessionId), eq(agentSessionEvents.type, "assistant_text"), gt(agentSessionEvents.id, minFrom), lte(agentSessionEvents.id, maxId))),
   ]);
   const visible = await citeablesFor(db, viewer, reads.map((r) => ({ kind: r.kind, id: r.refId })));
+  // Revisione 8–9 (I-3): la prosa di TUTTI i turni della pagina si risolve con
+  // UNA chiamata; ogni turno prende i suoi codici da lì.
+  const proseOf = (from: bigint, end: bigint) =>
+    texts
+      .filter((e) => e.id > from && e.id < end)
+      .map((e) => (typeof e.data["text"] === "string" ? e.data["text"] : ""))
+      .join("\n");
+  const byCode = await citeablesByCode(db, viewer, [...bounds].map(([end, from]) => proseOf(from, end)).join("\n"));
   for (const [end, from] of bounds) {
     const refs: TurnCitationRef[] = [];
     const has = (kind: string, id: string) => refs.some((r) => r.kind === kind && r.id === id);
@@ -121,14 +129,9 @@ export async function turnCitationsFor(db: Db, viewer: ChatViewer, sessionId: st
       if (seen) refs.push({ kind: seen.kind as CitationKind, id: seen.id });
       else if (isAuthor && r.kind === "drive" && r.code) refs.push({ kind: "drive", id: r.refId, code: r.code });
     }
-    const prose = texts
-      .filter((e) => e.id > from && e.id < end)
-      .map((e) => (typeof e.data["text"] === "string" ? e.data["text"] : ""))
-      .join("\n");
-    if (prose.length > 0) {
-      for (const c of await citeablesFromCodes(db, viewer, prose)) {
-        if (c.kind !== "person" && !has(c.kind, c.id)) refs.push({ kind: c.kind as CitationKind, id: c.id });
-      }
+    for (const { code } of codesIn(proseOf(from, end))) {
+      const c = byCode.get(code);
+      if (c && c.kind !== "person" && !has(c.kind, c.id)) refs.push({ kind: c.kind as CitationKind, id: c.id });
     }
     out.set(end, refs);
   }

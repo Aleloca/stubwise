@@ -504,6 +504,17 @@ describe("lotto 9, voce 1: le citazioni dei messaggi di Claude", () => {
     expect((resolved.json() as { items: { id: string; label: string }[] }).items.map((i) => i.id)).toEqual([a.id]);
   });
 
+  it("revisione 8–9, I-3: i codici della prosa di più turni, risolti insieme, vanno ognuno al SUO turno", async () => {
+    const sid = await conversation();
+    const ts = [await task(p1.id, p1.code), await task(p1.id, p1.code), await task(p1.id, p1.code)];
+    for (const tk of ts) {
+      await event(sid, "input", { text: "e questa?" });
+      await event(sid, "assistant_text", { text: `Parlo di ${tk.code}.` });
+      await event(sid, "turn_end", {});
+    }
+    expect(turnEnd((await as(author, "GET", `/api/agent-sessions/${sid}/events?limit=200`)).json().events)).toEqual(ts.map((tk) => [{ kind: "task", id: tk.id }]));
+  });
+
   it("FAIL-OPEN: se la registrazione non riesce, la lettura risponde lo stesso", async () => {
     const sid = await conversation();
     const a = await task(p1.id, p1.code);
