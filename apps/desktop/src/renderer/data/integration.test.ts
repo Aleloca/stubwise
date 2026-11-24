@@ -170,6 +170,7 @@ describe("isIntegrated", () => {
         "projectSection:servers",
         "admin:servers",
         "feature:servers-monitor",
+        "feature:servers-search",
         "feature:servers-write",
         "feature:servers-create-in-env",
         "feature:environments",

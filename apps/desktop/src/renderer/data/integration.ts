@@ -182,8 +182,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // Area 9, F1, R10: «Restore» e «Move to New» dell'Inbox.
     "notification-restore",
     // Area 8, F4a: i Server (letture e scritture, la chiave una volta).
-    // Resta spenta la ricerca ⌘K (`servers-search`).
     "servers-monitor",
+    // La ricerca ⌘K dei server (rimandi, lotto 5; 72, a7557fe21).
+    "servers-search",
     "servers-write",
     // «New server» dalla sezione di un progetto: dentro un ambiente, per tutto
     // il progetto (decisione c di 46: l'ambiente senza repository).

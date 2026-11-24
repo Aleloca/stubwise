@@ -210,6 +210,7 @@ function fakeApi(over: Partial<ServersApi> = {}): ServersApi {
       ssh({ status: "revoked", revokedAt: NOW, removeCommand: "sudo userdel --remove stubwise-read" }),
     ),
     startAnalysis: log("startAnalysis", analysis({ startedBy: { id: USER, name: "Marco" } })),
+    search: log("search", [{ code: "SRV-2", name: "prod-web-1", projectCode: "AUD" }]),
     ...over,
   };
 }
@@ -709,5 +710,18 @@ describe("i Server dal server (area 8, F4a)", () => {
     const r = createRealServers(fakeApi(), () => NOW);
     expect(await r.getCommandKey()).toEqual({ publicKey: "ssh-ed25519 AAAAREAL stubwise-commands" });
     expect(calls).toContainEqual(["commandKey"]);
+  });
+});
+
+// ⌘K (rimandi, lotto 5, voce 1; 72, a7557fe21): la forma del prototipo,
+// col progetto da cui aprirlo calcolato dal server.
+describe("la ricerca ⌘K dei server", () => {
+  it("i server trovati dal server, la domanda senza spazi; vuota, niente chiamata", async () => {
+    const servers = createRealServers(fakeApi(), () => NOW);
+    expect(await servers.searchServers("  web ")).toEqual([
+      { code: "SRV-2", name: "prod-web-1", projectCode: "AUD" },
+    ]);
+    expect(await servers.searchServers("  ")).toEqual([]);
+    expect(calls).toEqual([["search", "web"]]);
   });
 });

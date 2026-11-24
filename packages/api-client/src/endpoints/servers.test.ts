@@ -52,6 +52,14 @@ describe("endpoints servers", () => {
     expect(fetchImpl.mock.calls.at(-1)![1]?.method).toBe("GET");
   });
 
+  // ⌘K (rimandi, lotto 5, voce 1; 72, a7557fe21): la ricerca, con `q` in query.
+  it("search: `q` in query, gli elementi letti dallo schema", async () => {
+    const item = { code: "SRV-2", name: "prod-web-1", projectCode: "AUD" };
+    const { client, fetchImpl } = clientReturning({ items: [item] });
+    expect(await client.servers.search("web 1")).toEqual([item]);
+    expect(String(fetchImpl.mock.calls.at(-1)![0])).toBe("/api/servers/search?q=web+1");
+  });
+
   it("list: il progetto viaggia in query", async () => {
     const { client, fetchImpl } = clientReturning([VIEW]);
     await client.servers.list(PROJECT_ID);

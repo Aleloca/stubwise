@@ -669,6 +669,8 @@ const INTEGRATED_CALLS = new Set([
   "support.regenerateIdentitySecret",
   // Area 8, F4a: i Server in sola lettura.
   "servers.listProjectServers",
+  // La ricerca ⌘K dei server (rimandi, lotto 5).
+  "servers.searchServers",
   "servers.listAllServers",
   "servers.getServer",
   "servers.getServerMetrics",
@@ -952,7 +954,7 @@ describe("aree non integrate nella build app", () => {
   });
 
   // Review area 8 F1, m5: le ricerche della palette delle aree non integrate non partono.
-  it("cercare nella palette legge solo chiamate integrate (Servers spenta)", async () => {
+  it("cercare nella palette legge solo chiamate integrate (rilasci, Support e Servers accese)", async () => {
     const user = userEvent.setup();
     renderRoute("/home");
     await screen.findByRole("region", { name: /^My tasks/ });
@@ -964,7 +966,7 @@ describe("aree non integrate nella build app", () => {
     // La ricerca dei rilasci (rimandi, lotto 5) parte, ed è integrata.
     expect(calls).toContain("releases.searchReleases");
     expect(calls).toContain("support.searchSupport");
-    expect(calls).not.toContain("servers.searchServers");
+    expect(calls).toContain("servers.searchServers");
     // La doc di prodotto (area 11, F3) parte, ed è integrata.
     expect(calls).toContain("productDocs.searchProductPages");
     expect(outside()).toEqual([]);
