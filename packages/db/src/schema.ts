@@ -5818,6 +5818,14 @@ export const calendarEvents = pgTable(
      * fra la sua email e la riunione. Testo NON fidato.
      */
     attachments: jsonb("attachments").$type<{ fileId: string | null; title: string | null; mimeType: string | null; fileUrl: string | null }[]>().notNull().default([]),
+    /**
+     * Lotto 9, voce 2 (d), 0234: la proposta CONDIVISA fra gli invitati a cui
+     * questa copia dell'evento è stata legata ({@link calendarProposals}). È
+     * il marcatore del percorso condiviso: una riga legata non passa più dal
+     * percorso per casella. `null` per le occorrenze delle serie (sempre per
+     * casella) e per le righe di prima.
+     */
+    calendarProposalId: uuid("calendar_proposal_id").references((): AnyPgColumn => calendarProposals.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
@@ -5826,6 +5834,7 @@ export const calendarEvents = pgTable(
   },
   (table) => [
     uniqueIndex("calendar_events_account_event_unique").on(table.accountId, table.googleEventId),
+    index("calendar_events_calendar_proposal_id_idx").on(table.calendarProposalId),
     // "Questo appuntamento l'abbiamo già trattato?": la lettura per fingerprint
     // dentro la casella, fatta per ogni evento di ogni ciclo.
     index("calendar_events_account_fingerprint_idx").on(table.accountId, table.fingerprint),
@@ -6115,6 +6124,81 @@ export const emailProposalRecipients = pgTable(
     primaryKey({ name: "email_proposal_recipients_pk", columns: [table.proposalId, table.userId] }),
     index("email_proposal_recipients_user_id_idx").on(table.userId),
     index("email_proposal_recipients_notification_id_idx").on(table.notificationId),
+  ],
+);
+
+/**
+ * LE PROPOSTE DEL CALENDARIO CONDIVISE fra gli invitati (lotto 9, voce 2 (d),
+ * 0234). Una per appuntamento e progetto: `ical_uid` riconosce lo stesso
+ * evento fra le caselle (le copie sono un evento solo), l'unique
+ * `(ical_uid, project_id)` è l'idempotenza di chi la crea — la prima casella
+ * che la trova la crea, le altre ci si legano. Audience `event_invitees`: gli
+ * invitati di Stubwise che non hanno rifiutato e sono membri ESPLICITI del
+ * progetto, scritti in {@link calendarProposalRecipients}. Solo gli eventi
+ * SINGOLI: le occorrenze delle serie restano per casella
+ * (`calendar_events.proposal_notification_id`).
+ *
+ * `title`/`starts_at`/`all_day` sono una copia dell'evento al momento della
+ * proposta: l'estratto «titolo · data» lo vede ogni destinatario, anche chi
+ * non ha l'evento nel suo calendario. Lo stato e l'esito sono qui, mai sulle
+ * righe `calendar_events`.
+ */
+export const calendarProposals = pgTable(
+  "calendar_proposals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    icalUid: text("ical_uid").notNull(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    audience: text("audience").$type<"event_invitees">().notNull().default("event_invitees"),
+    /** La copia dell'evento da cui è nata (la casella che l'ha trovata per prima). */
+    calendarEventId: uuid("calendar_event_id").references((): AnyPgColumn => calendarEvents.id, { onDelete: "set null" }),
+    googleEventId: text("google_event_id").notNull(),
+    title: text("title"),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    allDay: boolean("all_day").notNull().default(false),
+    status: text("status").$type<"proposed" | "actioned" | "ignored" | "failed">().notNull().default("proposed"),
+    outcome: jsonb("outcome").$type<Record<string, unknown>>(),
+    error: text("error"),
+    decidedByUserId: uuid("decided_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("calendar_proposals_ical_uid_project_id_unique").on(table.icalUid, table.projectId),
+    check("calendar_proposals_status_chk", sql`status in ('proposed', 'actioned', 'ignored', 'failed')`),
+    check("calendar_proposals_audience_chk", sql`audience in ('event_invitees')`),
+  ],
+);
+
+/**
+ * I destinatari di una proposta del calendario condivisa (0234): uno per
+ * persona, con la card della sua inbox. `declined_at`: ha rifiutato l'invito
+ * DOPO la pubblicazione — la sua card è chiusa, e la proposta per lui non
+ * c'è più. Una persona che non è qui non la vede.
+ */
+export const calendarProposalRecipients = pgTable(
+  "calendar_proposal_recipients",
+  {
+    proposalId: uuid("proposal_id")
+      .notNull()
+      .references(() => calendarProposals.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    notificationId: uuid("notification_id").references(() => notifications.id, { onDelete: "set null" }),
+    declinedAt: timestamp("declined_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "calendar_proposal_recipients_pk", columns: [table.proposalId, table.userId] }),
+    index("calendar_proposal_recipients_user_id_idx").on(table.userId),
+    index("calendar_proposal_recipients_notification_id_idx").on(table.notificationId),
   ],
 );
 

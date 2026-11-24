@@ -3025,6 +3025,24 @@ async function calendarRows(): Promise<(typeof calendarEvents.$inferSelect)[]> {
   return db.select().from(calendarEvents).orderBy(calendarEvents.googleEventId);
 }
 
+/**
+ * Lotto 9, voce 2 (d): un evento SINGOLO è una proposta condivisa fra gli
+ * invitati MEMBRI ESPLICITI del progetto, il proprietario della casella
+ * compreso: senza appartenenza nessuno riceve la card.
+ */
+async function ownerMemberOf(account: typeof googleAccounts.$inferSelect, projectId: string): Promise<void> {
+  const { projectMembers, roles } = await import("@stubwise/db");
+  const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.scope, "project")).limit(1);
+  await db.insert(projectMembers).values({ projectId, userId: account.userId, roleId: role!.id });
+}
+
+/** La card del proprietario su una proposta condivisa del calendario (la sua riga fra i destinatari). */
+async function sharedCardOf(userId: string): Promise<string | null> {
+  const { calendarProposalRecipients } = await import("@stubwise/db");
+  const [row] = await db.select().from(calendarProposalRecipients).where(eq(calendarProposalRecipients.userId, userId));
+  return row?.notificationId ?? null;
+}
+
 describe("il resync del calendario dopo un 410 vede anche le cancellazioni", () => {
   it("un evento proposto, cancellato prima del prossimo sync, poi un 410: la riga risulta cancelled", async () => {
     const projectId = await seedProject("Acme");
@@ -3032,6 +3050,7 @@ describe("il resync del calendario dopo un 410 vede anche le cancellazioni", () 
       .insert(projectEmailRoutes)
       .values({ projectId, kind: "sender_domain", value: "cliente.com" });
     const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await ownerMemberOf(account, projectId);
 
     // Primo giro: nessun `calendarSyncToken` → resync per finestra (primo
     // giro), crea la riga e la fase 4 (accesa di default in questo file) la
@@ -3046,7 +3065,10 @@ describe("il resync del calendario dopo un 410 vede anche le cancellazioni", () 
 
     const proposed = (await calendarRows())[0]!;
     expect(proposed.status).toBe("confirmed");
-    expect(proposed.proposalNotificationId).not.toBeNull();
+    // Lotto 9, voce 2 (d): un evento singolo è una proposta CONDIVISA.
+    expect(proposed.calendarProposalId).not.toBeNull();
+    const card = await sharedCardOf(account.userId);
+    expect(card).not.toBeNull();
 
     // Secondo giro: il token "tok-1" è scaduto (410). Il resync che segue —
     // SUBITO, nello stesso tick — deve vedere l'evento con `showDeleted: true`
@@ -3084,8 +3106,11 @@ describe("il resync del calendario dopo un 410 vede anche le cancellazioni", () 
     const [row] = await calendarRows();
     expect(row!.status).toBe("cancelled");
     expect(row!.outcome).toEqual({ type: "cancelled" });
-    // Non è più candidata a una proposta: il proprietario non la rivedrà.
-    expect(row!.proposalNotificationId).not.toBeNull();
+    // Non è più candidata a una proposta: il proprietario non la rivedrà. E la
+    // proposta condivisa, senza più copie vive, si chiude con la sua card.
+    expect(row!.calendarProposalId).not.toBeNull();
+    const [closed] = await db.select().from(notifications).where(eq(notifications.id, card!));
+    expect(closed!.status).toBe("handled");
     expect((await reload(account.id)).calendarSyncToken).toBe("tok-2");
   });
 });
@@ -4241,13 +4266,15 @@ describe("F3b: il calendario con TUTTI gli eventi", () => {
     const projectId = await seedProject("Acme");
     await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });
     const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await ownerMemberOf(account, projectId);
     await tick(account, mixed());
 
     const rows = await calendarRows();
     expect(rows.map((r) => r.googleEventId)).toEqual(["ferie", "lavoro", "lavoro-senza-titolo", "personale"]);
-    // Prima entrava SOLO «lavoro»: è l'unico candidato, e l'unico proposto.
+    // Prima entrava SOLO «lavoro»: è l'unico candidato, e l'unico proposto
+    // (lotto 9, voce 2 (d): come proposta condivisa, legata alla riga).
     expect(rows.filter((r) => r.proposalCandidate).map((r) => r.googleEventId)).toEqual(["lavoro"]);
-    expect(rows.filter((r) => r.proposalNotificationId !== null).map((r) => r.googleEventId)).toEqual(["lavoro"]);
+    expect(rows.filter((r) => r.calendarProposalId !== null).map((r) => r.googleEventId)).toEqual(["lavoro"]);
     expect(rows.find((r) => r.googleEventId === "lavoro")).toMatchObject({ projectId, projectBy: "rules" });
     expect(rows.find((r) => r.googleEventId === "personale")).toMatchObject({ projectId: null, projectBy: null, outcome: null });
     expect(rows.find((r) => r.googleEventId === "ferie")).toMatchObject({ eventType: "outOfOffice", transparency: "transparent" });
@@ -4280,7 +4307,7 @@ describe("F3b: il calendario con TUTTI gli eventi", () => {
     expect(after!.calendarBaselineAt).toBeInstanceOf(Date);
     // Un appuntamento NUOVO dopo la linea di base propone come sempre.
     await tick(after!, [calendarEvent({ id: "nuovo", title: "Revisione contratto" })]);
-    expect((await calendarRows()).find((r) => r.googleEventId === "nuovo")!.proposalNotificationId).not.toBeNull();
+    expect((await calendarRows()).find((r) => r.googleEventId === "nuovo")!.calendarProposalId).not.toBeNull();
   });
 
   it("un'occorrenza PERSONALE di una serie accesa con un progetto non diventa una proposta (solo i candidati, anche per le serie)", async () => {
@@ -4396,7 +4423,9 @@ describe("F3b, task 7: la dottrina nuova sul calendario (flag acceso)", () => {
     expect(after!.calendarV2BaselineAt).toBeInstanceOf(Date);
     await tickV2(after!, [calendarEvent({ id: "nuovo", title: "Kickoff", attendees: [att(MAILBOX), att(mate.email)] })]);
     rows = await calendarRows();
-    expect(rows.find((r) => r.googleEventId === "nuovo")!.proposalNotificationId).not.toBeNull();
+    // Lotto 9, voce 2 (d): una proposta condivisa, a Marta (invitata e membro) e al proprietario.
+    expect(rows.find((r) => r.googleEventId === "nuovo")!.calendarProposalId).not.toBeNull();
+    expect((await db.select().from(notifications)).map((n) => n.userId).sort()).toEqual([account.userId, mate.id].sort());
   });
 
   it("un evento visto col flag SPENTO che diventa candidato al primo giro col flag acceso: chiuso dalla linea di base, nessuna proposta", async () => {
@@ -4516,13 +4545,15 @@ describe("review F3b, punto 2: un evento cancellato chiude la sua card, e la pot
     const projectId = await seedProject("Acme");
     await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });
     const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await ownerMemberOf(account, projectId);
     await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { calendar: fakeCalendarSequence([{ events: [calendarEvent({ id: "e1" })], nextSyncToken: "t1" }]) }));
-    const [row] = await calendarRows();
-    expect(row!.proposalNotificationId).not.toBeNull();
+    // Lotto 9, voce 2 (d): la card è quella del destinatario della proposta condivisa.
+    const cardId = await sharedCardOf(account.userId);
+    expect(cardId).not.toBeNull();
     await db.update(googleAccounts).set({ nextSyncAt: new Date(Date.now() - 60_000) }).where(eq(googleAccounts.id, account.id));
     const [fresh] = await db.select().from(googleAccounts).where(eq(googleAccounts.id, account.id));
     await pollGoogleOnce(deps(fresh!, fakeGmail({ listed: [] }), { calendar: fakeCalendarSequence([{ events: [calendarEvent({ id: "e1", status: "cancelled", title: "", attendees: [] })], nextSyncToken: "t2" }]) }));
-    const [card] = await db.select().from(notifications).where(eq(notifications.id, row!.proposalNotificationId!));
+    const [card] = await db.select().from(notifications).where(eq(notifications.id, cardId!));
     expect(card!.status).toBe("handled");
   });
 

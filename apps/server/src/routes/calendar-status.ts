@@ -48,8 +48,20 @@ import { sql } from "drizzle-orm";
  * punti della stessa query.
  */
 export function calendarStatusCaseSql() {
+  // Lotto 9, voce 2 (d): una copia legata a una proposta CONDIVISA fra gli
+  // invitati prende lo stato della proposta — ma solo se chi ha la casella ne
+  // è destinatario (e non l'ha rifiutata): per chi non la riceve la riga
+  // resta `new`, senza dire che una proposta che non vede esiste.
   return sql<string>`case
     when ${calendarEvents.status} = 'cancelled' then 'cancelled'
+    when ${calendarEvents.calendarProposalId} is not null and ${calendarEvents.outcome} is null then coalesce((
+      select case cp.status when 'proposed' then 'proposed' when 'failed' then 'failed' when 'ignored' then 'ignored' else 'actioned' end
+      from calendar_proposals cp
+      join calendar_proposal_recipients r on r.proposal_id = cp.id and r.declined_at is null
+      join google_accounts ga on ga.user_id = r.user_id
+      where cp.id = ${calendarEvents.calendarProposalId} and ga.id = ${calendarEvents.accountId}
+      limit 1
+    ), 'new')
     when ${calendarEvents.outcome} is null and ${calendarEvents.proposalNotificationId} is null then 'new'
     when ${calendarEvents.outcome} is null then 'proposed'
     when ${calendarEvents.outcome}->>'type' = 'failed' then 'failed'

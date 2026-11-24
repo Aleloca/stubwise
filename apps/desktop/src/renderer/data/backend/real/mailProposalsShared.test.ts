@@ -142,6 +142,63 @@ describe("F3b: le proposte del calendario nella stessa lista (dal server, task 7
   });
 });
 
+// Lotto 9, voce 2 (d) (72, b0ddfadae): una proposta del calendario è UNA per
+// appuntamento e progetto, condivisa fra gli invitati membri; la decide il
+// primo. `calendarOrigin` lo ha solo chi ha l'evento nel suo calendario.
+describe("lotto 9: le proposte del calendario condivise fra gli invitati", () => {
+  const EVENT = "eeeeeeee-2222-4222-8222-222222222222";
+  const calendar = (over: Record<string, unknown> = {}) =>
+    proposal({
+      id: P2,
+      kind: "calendar",
+      messageId: null,
+      origin: null,
+      canHand: false,
+      canReassign: false,
+      excerpt: "Board · 20 nov",
+      calendarOrigin: { eventId: EVENT, title: "Board", startsAt: "2026-11-20T09:00:00.000Z", allDay: false },
+      actions: [{ type: "acknowledge_reminder", args: {}, label: "Visto" }],
+      ...over,
+    });
+  const serve = (item: unknown) =>
+    installFakeServer({
+      "GET /api/me/mail/proposals": (req) => (query(req.path).get("status") === "open" ? list([item]) : list([])),
+    });
+
+  it("gli altri invitati in `sharedWith`, come per la posta («Also for …»)", async () => {
+    serve(calendar({ sharedWith: [{ userId: CARLA, name: "Carla" }] }));
+    const [cal] = await mail.listMailDecisions();
+    expect(cal!.sharedWith).toEqual([{ personId: CARLA, name: "Carla" }]);
+    expect(cal!.origin).toMatchObject({ kind: "calendar", eventId: EVENT });
+  });
+
+  it("un invitato senza l'evento nel suo calendario: nessuna origine, ma la proposta c'è, con l'estratto", async () => {
+    serve(calendar({ calendarOrigin: null, sharedWith: [{ userId: CARLA, name: "Carla" }] }));
+    const [cal] = await mail.listMailDecisions();
+    expect(cal!.origin).toBeNull();
+    expect(cal!.proposal).toMatchObject({ source: "calendar", excerpt: "Board · 20 nov" });
+    expect(cal!.sharedWith.map((p) => p.personId)).toEqual([CARLA]);
+  });
+
+  it("decisa da un altro invitato: `already_handled` con chi", async () => {
+    installFakeServer({
+      [`POST /api/me/mail/proposals/${P2}/confirm`]: {
+        status: 409,
+        body: { code: "already_handled", message: "x", decidedBy: { userId: CARLA, name: "Carla" } },
+      },
+    });
+    await expect(mail.confirmMailProposal(P2, {})).rejects.toMatchObject({ message: "already_handled", byId: CARLA });
+  });
+
+  it("un server di prima (per casella): niente `sharedWith`, nessun «Also for»", async () => {
+    const old = calendar() as Record<string, unknown>;
+    delete old.sharedWith;
+    serve(old);
+    const [cal] = await mail.listMailDecisions();
+    expect(cal!.sharedWith).toEqual([]);
+  });
+});
+
 describe("le proposte condivise: confermare e ignorare", () => {
   const confirm = (body: unknown = { status: "confirmed", results: [{ kind: "task", id: "x", code: "AUD-12" }] }) => ({
     [`POST /api/me/mail/proposals/${P1}/confirm`]: { body },

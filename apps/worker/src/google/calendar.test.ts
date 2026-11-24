@@ -1,12 +1,16 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   calendarEvents,
+  calendarProposalRecipients,
+  calendarProposals,
   calendarSeriesRecurrence,
   googleAccounts,
   googleWorkspaces,
   notifications,
   projectEmailRoutes,
+  projectMembers,
   projects,
+  roles,
   users,
   type Db,
 } from "@stubwise/db";
@@ -343,6 +347,16 @@ async function rows(): Promise<(typeof calendarEvents.$inferSelect)[]> {
  * della casella no — viene dall'account, e il cancello del rifiuto (15 set
  * 2026, §1) li vuole entrambi.
  */
+/**
+ * Lotto 9, voce 2 (d): un evento SINGOLO è una proposta condivisa fra gli
+ * invitati MEMBRI ESPLICITI del progetto — il proprietario della casella
+ * compreso. Senza appartenenza nessuno la riceve.
+ */
+async function memberOf(account: typeof googleAccounts.$inferSelect, projectId: string): Promise<void> {
+  const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.scope, "project")).limit(1);
+  await db.insert(projectMembers).values({ projectId, userId: account.userId, roleId: role!.id });
+}
+
 function readyForProposal(
   row: typeof calendarEvents.$inferSelect,
   context?: CalendarSeriesProposalContext,
@@ -1279,6 +1293,7 @@ describe("dalla riga candidata alla proposta in inbox", () => {
       .insert(projectEmailRoutes)
       .values({ projectId, kind: "sender_domain", value: "cliente.com" });
     const account = await seedAccount();
+    await memberOf(account, projectId);
     const calendar = fakeCalendar([{ events: [event({ id: "e1" })], nextSyncToken: "tok-1" }]);
 
     const stats = await pollGoogleOnce(deps(account, calendar, { proposeMaxPerTick: 20 }));
@@ -1293,7 +1308,13 @@ describe("dalla riga candidata alla proposta in inbox", () => {
     expect(cards[0]?.kind).toBe("google.proposal");
     // ⚠️ Audience `mailbox_owner`: la vede solo chi ha collegato la casella.
     expect(cards[0]?.userId).toBe(account.userId);
-    expect(row!.proposalNotificationId).toBe(cards[0]?.id);
+    // Lotto 9, voce 2 (d): un evento singolo è una proposta CONDIVISA; la
+    // card del proprietario sta fra i suoi destinatari, non sulla riga.
+    expect(row!.proposalNotificationId).toBeNull();
+    const [proposal] = await db.select().from(calendarProposals);
+    expect(row!.calendarProposalId).toBe(proposal!.id);
+    const [recipient] = await db.select().from(calendarProposalRecipients);
+    expect(recipient).toMatchObject({ userId: account.userId, notificationId: cards[0]?.id });
   });
 
   it("un appuntamento RIFIUTATO non diventa mai una proposta, e non è contato pronto (15 set 2026, §1)", async () => {
@@ -1352,6 +1373,7 @@ describe("dalla riga candidata alla proposta in inbox", () => {
         nextSyncToken: "tok-1",
       },
     ]);
+    await memberOf(account, projectId);
 
     const stats = await pollGoogleOnce(
       deps(account, calendar, { now: () => now, proposeMaxPerTick: 10 }),
@@ -1372,6 +1394,7 @@ describe("dalla riga candidata alla proposta in inbox", () => {
       .insert(projectEmailRoutes)
       .values({ projectId, kind: "sender_domain", value: "cliente.com" });
     const account = await seedAccount();
+    await memberOf(account, projectId);
 
     // Primo giro: l'appuntamento è normale, la proposta esce.
     const first = fakeCalendar([{ events: [event({ id: "e1" })], nextSyncToken: "tok-1" }]);
@@ -1397,9 +1420,13 @@ describe("dalla riga candidata alla proposta in inbox", () => {
     ]);
     await pollGoogleOnce(deps(await reload(account.id), second, { proposeMaxPerTick: 20 }));
 
-    // (a) L'esito dice DA COSA è stata chiusa — non un `ignored` qualunque.
+    // (a) Lotto 9, voce 2 (d): un evento singolo è una proposta CONDIVISA. Il
+    // rifiuto chiude la card di chi ha rifiutato e lo toglie dai destinatari
+    // (`declined_at`); la riga non porta l'esito, che è della proposta.
     const [row] = await rows();
-    expect(row!.outcome).toEqual({ type: "declined" });
+    expect(row!.outcome).toBeNull();
+    const [recipient] = await db.select().from(calendarProposalRecipients);
+    expect(recipient!.declinedAt).not.toBeNull();
     // (b) La card è chiusa, non sparita: resta leggibile fra le gestite.
     const [closed] = await db.select().from(notifications);
     expect(closed!.id).toBe(card!.id);

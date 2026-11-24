@@ -226,8 +226,10 @@ export function clientContextOf(c: ClaudeConversationContext): ContextRef | null
 
 /** Impara gli id dei codici dei contesti (una lettura per codice non ancora visto). */
 export async function warmContextCodes(contexts: readonly ClaudeConversationContext[]): Promise<void> {
+  // Un codice ripetuto nei messaggi si legge una volta sola (revisione 8–9, M-2).
+  const unique = [...new Map(contexts.map((c) => [contextKey(c), c] as const)).values()];
   await Promise.all(
-    contexts.map(async (c) => {
+    unique.map(async (c) => {
       if (rememberedRefs().has(contextKey(c)) || idOfCode(c.id)) return;
       if (c.kind === "task" || c.kind === "automation" || c.kind === "support" || c.kind === "release")
         await contextIdOf(c.kind, c.id).catch(() => null);
