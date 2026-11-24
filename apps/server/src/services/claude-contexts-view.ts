@@ -1,7 +1,7 @@
 import { agentSessionInputs, type claudeConversations, type Db } from "@stubwise/db";
 import { CLAUDE_CONTEXTS_MAX, visibleContexts, type ClaudeContextRef } from "@stubwise/notifications";
 import { inArray } from "drizzle-orm";
-import { scopeIncludes, visibleProjectIds } from "../auth/access.js";
+import { scopeIncludes, visibleProjectIds, type ProjectScope } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { citeablesFromCodes } from "../chat/citations.js";
 import { getSupportConversation } from "./support.js";
@@ -20,9 +20,11 @@ export async function contextsForViewer(
   lists: readonly (readonly ClaudeContextRef[])[],
   /** Chi guarda è l'autore della conversazione: i contesti senza progetto (posta, PR) restano a lui solo. */
   isAuthor: boolean,
+  /** M-1: la visibilità già calcolata per un elenco (altrimenti si calcola qui). */
+  precomputed?: ProjectScope,
 ): Promise<ClaudeContextRef[][]> {
   if (lists.every((l) => l.length === 0)) return lists.map(() => []);
-  const scope = await visibleProjectIds(db, viewer);
+  const scope = precomputed ?? (await visibleProjectIds(db, viewer));
   const byProject = await Promise.all(lists.map((l) => visibleContexts(db, l, (projectId) => scopeIncludes(scope, projectId), { isAuthor })));
   // Revisione 8–9 (I-2): il progetto non basta. Una task, una richiesta o una
   // conversazione di supporto si vedono con la loro visibilità VERA (un

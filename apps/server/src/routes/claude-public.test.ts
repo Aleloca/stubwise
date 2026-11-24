@@ -595,3 +595,16 @@ describe("revisione 8–9, I-2: i contesti si filtrano con la visibilità VERA d
     expect(((await as(author, "GET", `/api/claude/conversations/${sid}`)).json() as { contexts: unknown[] }).contexts).toEqual(contexts);
   });
 });
+
+describe("revisione 8–9, M-1: l'elenco calcola la visibilità una volta, sempre quella di chi guarda", () => {
+  it("nell'elenco delle pubbliche il lettore riceve solo i contesti che vede; l'autore nel suo elenco tutti", async () => {
+    const sid = await conversation();
+    const contexts = [{ kind: "project", id: p2.id }, { kind: "project", id: p1.id }];
+    expect((await app.inject({ method: "PATCH", url: `/api/claude/conversations/${sid}`, headers: { cookie: author.headers.cookie }, payload: { contexts } })).statusCode).toBe(200);
+    await publish(sid);
+    const listed = (await as(reader, "GET", "/api/claude/conversations?scope=public")).json() as { items: { id: string; contexts: unknown[] }[] };
+    expect(listed.items.find((i) => i.id === sid)!.contexts).toEqual([{ kind: "project", id: p1.id }]);
+    const own = (await as(author, "GET", "/api/claude/conversations")).json() as { items: { id: string; contexts: unknown[] }[] };
+    expect(own.items.find((i) => i.id === sid)!.contexts).toEqual(contexts);
+  });
+});

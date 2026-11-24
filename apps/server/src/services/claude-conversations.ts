@@ -33,6 +33,7 @@ import {
   touchedProjectIds,
 } from "./claude-public.js";
 import { personName } from "./people.js";
+import { visibleProjectIds, type ProjectScope } from "../auth/access.js";
 import { contextsForViewer, conversationContextGroup } from "./claude-contexts-view.js";
 import { appendContext, CLAUDE_CONTEXTS_MAX, dedupeContexts, type ClaudeContextRef } from "@stubwise/notifications";
 import { freeSessionStates, loadAgentSession, monthlyBudgetExhausted, type SessionViewer } from "./agent-sessions.js";
@@ -64,14 +65,14 @@ const groupOf = (row: ConversationRow): ClaudeContextRef[] => conversationContex
  * lettore di una pubblica non ha il seguito privato, i progetti che non vede
  * né il contesto di un progetto che non vede, e nessun comando dell'autore.
  */
-async function toView(db: Db, viewer: SessionViewer, row: ConversationRow, session: SessionView): Promise<ClaudeConversation> {
+async function toView(db: Db, viewer: SessionViewer, row: ConversationRow, session: SessionView, scope?: ProjectScope): Promise<ClaudeConversation> {
   const isOwner = row.ownerId === viewer.id;
   const archived = row.archivedAt !== null;
   const names = await namesOf(db, [row.ownerId, row.publishedBy]);
   const hold = await holdOf(db, row);
   // Lotto 8, voce 3: il gruppo dei contesti come lo vede chi guarda (anche
   // l'autore: uno che non vede più esce alla lettura); il primario è l'ultimo.
-  const [contexts] = await contextsForViewer(db, viewer, [groupOf(row)], isOwner);
+  const [contexts] = await contextsForViewer(db, viewer, [groupOf(row)], isOwner, scope);
   const context = contexts!.at(-1) ?? null;
   // Un lettore: il titolo e l'ultima attività come li vede lui (fetta 5, review).
   const snapshot = isOwner ? null : await readerSnapshot(db, row);
@@ -194,10 +195,12 @@ export async function listClaudeConversations(
     .limit(limit + 1);
   const page = rows.slice(0, limit);
   const states = await freeSessionStates(db, viewer, page.map((r) => r.sessionId));
+  // Revisione 8–9 (M-1): la visibilità di chi guarda UNA volta per l'elenco, non per riga.
+  const scope = await visibleProjectIds(db, viewer);
   const items: ClaudeConversation[] = [];
   for (const row of page) {
     const session = states.get(row.sessionId);
-    if (session) items.push(await toView(db, viewer, row, session));
+    if (session) items.push(await toView(db, viewer, row, session, scope));
   }
   const last = page.at(-1);
   return {
@@ -243,10 +246,11 @@ async function listPublic(
     : keyed;
   const page = after.slice(0, limit);
   const states = await freeSessionStates(db, viewer, page.map((k) => k.row.sessionId));
+  const scope = await visibleProjectIds(db, viewer);
   const items: ClaudeConversation[] = [];
   for (const { row } of page) {
     const session = states.get(row.sessionId);
-    if (session) items.push(await toView(db, viewer, row, session));
+    if (session) items.push(await toView(db, viewer, row, session, scope));
   }
   const last = page.at(-1);
   return {
