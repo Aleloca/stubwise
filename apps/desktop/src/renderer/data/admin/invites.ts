@@ -101,6 +101,23 @@ export async function getInviteChoices(): Promise<InviteChoices> {
   };
 }
 
+/**
+ * Un progetto dell'invito dove i permessi del reparto di ripiego non varranno
+ * per chi accetta (rimandi, lotto 4): chi invita lì non li ha.
+ */
+export interface InviteWarning {
+  projectId: string;
+  missing: string[];
+}
+
+/** L'invito creato: il link (una volta) e gli avvisi per progetto. */
+export interface CreatedInvite {
+  inviteId: string;
+  link: string;
+  expiresAt: string;
+  warnings: InviteWarning[];
+}
+
 export interface CreateInviteInput {
   email: string;
   instanceRoleId: string;
@@ -114,7 +131,7 @@ export interface CreateInviteInput {
  */
 export async function createInvite(
   input: CreateInviteInput,
-): Promise<AdminResult<{ inviteId: string; link: string; expiresAt: string }>> {
+): Promise<AdminResult<CreatedInvite>> {
   const me = await writer("admin.createInvite");
   if (!canI(me, USERS_INVITE)) return refuse.forbidden();
   const visible = visibleProjectIds(me);
@@ -173,7 +190,10 @@ export async function createInvite(
     after: instanceRole.name,
     params: { projects: String(input.projects.length) },
   });
-  return { ok: true, inviteId: id, link: value, expiresAt };
+  // Nessun avviso: il prototipo non ha il reparto di ripiego in cui entra chi
+  // accetta (il server sì, `departments.isDefault`): divergenza nel registro
+  // dei rimandi. La riga la provano gli avvisi del server.
+  return { ok: true, inviteId: id, link: value, expiresAt, warnings: [] };
 }
 
 /** Revoca un invito (`users.invite`): il link smette di valere. */

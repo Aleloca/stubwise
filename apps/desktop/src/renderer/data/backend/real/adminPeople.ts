@@ -1,5 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
-import type { CreateInviteInput } from "../../admin/invites";
+import type { CreateInviteInput, CreatedInvite } from "../../admin/invites";
 import type {
   AdminResult,
   ExtraPermission,
@@ -39,7 +39,13 @@ export interface AdminPeopleApi {
     email: string;
     instanceRoleId: string;
     projects: { projectId: string; roleId: string }[];
-  }): Promise<{ id: string; token: string; expiresAt: string }>;
+  }): Promise<{
+    id: string;
+    token: string;
+    expiresAt: string;
+    /** Rimandi, lotto 4: assente da un server di prima. */
+    warnings?: { projectId: string; code: string; missing: string[] }[];
+  }>;
   setInstanceRole(userId: string, roleId: string): Promise<void>;
   passwordReset(userId: string): Promise<{ token: string; expiresAt: string }>;
   resetSecondFactor(userId: string): Promise<void>;
@@ -306,7 +312,7 @@ export function createRealAdminPeople(api: AdminPeopleApi) {
 
     async createInvite(
       input: CreateInviteInput,
-    ): Promise<AdminResult<{ inviteId: string; link: string; expiresAt: string }>> {
+    ): Promise<AdminResult<CreatedInvite>> {
       return attempt(async () => {
         const r = await api.createInvite({
           email: input.email.trim(),
@@ -318,6 +324,10 @@ export function createRealAdminPeople(api: AdminPeopleApi) {
           inviteId: r.id,
           link: `${await api.origin()}/app/#/register/${r.token}`,
           expiresAt: r.expiresAt,
+          // Rimandi, lotto 4 (72): dove il reparto di ripiego non varrà; un server di prima non li manda.
+          warnings: (r.warnings ?? [])
+            .filter((w) => w.code === "department_permissions_dropped")
+            .map((w) => ({ projectId: w.projectId, missing: w.missing })),
         };
       });
     },

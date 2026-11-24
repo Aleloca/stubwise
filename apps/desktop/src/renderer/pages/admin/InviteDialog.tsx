@@ -7,6 +7,7 @@ import {
   type InviteChoices,
   type RoleChoice,
 } from "../../data/queries";
+import type { InviteWarning } from "../../data/admin";
 import { useReauth } from "../../layout/useReauth";
 import { Dialog, DialogField, inputClass, selectButtonClass } from "../../tasks-ui/Dialog";
 import { MenuGroup, MenuNote, RadioDot, itemClass } from "../../tasks-ui/Menu";
@@ -48,9 +49,7 @@ export function InviteDialog({
 }) {
   const { t } = useTranslation();
   const choices = useInviteChoices();
-  const [secret, setSecret] = useState<{ email: string; link: string; expiresAt: string } | null>(
-    null,
-  );
+  const [secret, setSecret] = useState<Created | null>(null);
   const date = useShortDate();
   // Il modulo ha il suo piede (Cancel · Create invite); il link e gli stati no.
   if (choices.isSuccess && !secret)
@@ -72,6 +71,7 @@ export function InviteDialog({
         >
           <p className="text-ink">{t("admin.invite.sendYourself")}</p>
           <p>{t("admin.invite.expiresIn", { date: date(secret.expiresAt) })}</p>
+          <InviteWarnings warnings={secret.warnings} projects={choices.data?.projects ?? []} />
         </SecretOnce>
       ) : choices.isError ? (
         <ErrorLine>{t("admin.invite.loadError")}</ErrorLine>
@@ -84,6 +84,37 @@ export function InviteDialog({
   );
 }
 
+type Created = { email: string; link: string; expiresAt: string; warnings: InviteWarning[] };
+
+/**
+ * Rimandi, lotto 4 (46, scelta (a)): accanto al link, una riga per progetto
+ * dove i permessi del reparto di ripiego non varranno per chi accetta. Gli
+ * avvisi li calcola il server; qui si leggono.
+ */
+export function InviteWarnings({
+  warnings,
+  projects,
+}: {
+  warnings: readonly InviteWarning[];
+  projects: readonly { projectId: string; code: string }[];
+}) {
+  const { t } = useTranslation();
+  const missingWords = useMissingWords();
+  if (warnings.length === 0) return null;
+  return (
+    <>
+      {warnings.map((w) => (
+        <p key={w.projectId} className="text-ink">
+          {t("admin.invite.departmentDropped", {
+            code: projects.find((p) => p.projectId === w.projectId)?.code ?? "",
+            missing: missingWords(w.missing),
+          })}
+        </p>
+      ))}
+    </>
+  );
+}
+
 function InviteForm({
   choices,
   preset,
@@ -93,7 +124,7 @@ function InviteForm({
   choices: InviteChoices;
   preset: InvitePreset | null;
   onClose: () => void;
-  onCreated: (s: { email: string; link: string; expiresAt: string }) => void;
+  onCreated: (s: Created) => void;
 }) {
   const { t } = useTranslation();
   const create = useCreateInvite();
@@ -121,8 +152,13 @@ function InviteForm({
     if (result === null) return setError(t("admin.refusal.failed"));
     const refusal = refusalOf(result) as UiRefusal | null;
     if (!refusal) {
-      const ok = result as { link: string; expiresAt: string };
-      return onCreated({ email: email.trim().toLowerCase(), link: ok.link, expiresAt: ok.expiresAt });
+      const ok = result as { link: string; expiresAt: string; warnings?: InviteWarning[] };
+      return onCreated({
+        email: email.trim().toLowerCase(),
+        link: ok.link,
+        expiresAt: ok.expiresAt,
+        warnings: ok.warnings ?? [],
+      });
     }
     if (
       refusal.error === "invalid" &&
