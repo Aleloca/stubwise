@@ -87,10 +87,17 @@ describe("⌘K (rimandi, lotto 5): la ricerca dei server", () => {
     expect((await search(member.headers, `db-${tag}`)).map((r) => r.name)).toEqual([`cerca-${tag}-visto`]);
     expect((await search(member.headers, `srv-${number}`)).map((r) => r.code)).toContain(`SRV-${number}`);
     expect(await search(member.headers, "c")).toEqual([]);
-    // Chi vede tutti (il full admin): anche il server senza ambienti, aperto dal primo progetto visibile.
+    // Chi vede tutti (il full admin): anche il server senza ambienti, con `projectCode` null (M-7: la pagina d'istanza).
     const forAdmin = await search({ cookie: adminCookie }, `cerca-${tag}`);
     expect(forAdmin.map((r) => r.name).sort()).toEqual([`cerca-${tag}-nascosto`, `cerca-${tag}-visto`]);
     expect(forAdmin.find((r) => r.name.endsWith("visto"))!.projectCode).toBe(code);
+    expect(forAdmin.find((r) => r.name.endsWith("nascosto"))!.projectCode).toBeNull();
+    // Chi vede tutti i server (monitor.view) senza essere in nessun progetto: li riceve, senza progetto.
+    const [watcherRole] = await testDb.db.insert(roles).values({ name: `Monitor ${tag}`, scope: "instance", permissions: ["monitor.view"] }).returning({ id: roles.id });
+    const watcher = await createUserWithPat(app, `monitor-${tag}@acme.com`);
+    await testDb.db.update(users).set({ instanceRoleId: watcherRole!.id }).where(eq(users.id, watcher.id));
+    const forWatcher = await search(watcher.headers, `cerca-${tag}`);
+    expect(forWatcher.map((r) => [r.name, r.projectCode]).sort()).toEqual([[`cerca-${tag}-nascosto`, null], [`cerca-${tag}-visto`, null]]);
     void hidden;
   });
 });
