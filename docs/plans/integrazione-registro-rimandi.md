@@ -558,6 +558,8 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   finché non cambia di nuovo su Gmail; le righe di prima della 0149 sono
   `unread = null`, lette come «letto». Un recupero (rileggere le etichette
   dei thread recenti al resync) costa una chiamata per messaggio: non ora.
+  *Decisa NO dal maintainer il 24 nov 2026 (lotto 9): il costo di una
+  chiamata per messaggio non vale; resta un limite accettato.*
 - F4, «tutta la serie» e l'etag *(S, review F4 punto 11)*: l'`If-Match` è
   l'etag del padre appena riletto; l'etag del client protegge solo la data
   trascinata.
@@ -604,7 +606,9 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   il prototipo esclude (R-I21).
 - F5a, le email di Gemini di PRIMA del deploy *(S)*: il riconoscimento è
   all'ingestione, quindi non diventano riunioni; un recupero vorrebbe
-  rileggere le intestazioni da Gmail.
+  rileggere le intestazioni da Gmail. *Decisa NO dal maintainer il 24 nov
+  2026 (lotto 9): niente recupero, per lo stesso costo per messaggio; resta un
+  limite accettato.*
 - ~~F5a, il badge delle proposte nell'ELENCO delle conversazioni *(S)*:
   `me-mail.ts` conta le condivise `mail_recipients` per thread; quelle di una
   riunione compaiono aprendo la conversazione (filtro per messaggio e
@@ -623,6 +627,8 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   lo mette Google dal suo elenco, se c'è).
 - F4, il libero/occupato legge solo il calendario `primary` *(S)*: come il
   poller; un evento su un calendario secondario del collega non occupa.
+  *Decisa NO dal maintainer il 24 nov 2026 (lotto 9, r.362 c): i calendari
+  secondari restano fuori, dal poller e dal libero/occupato.*
 - F4, le righe di prima della 0164 senza `etag` *(S)*: finché il worker non
   le ripassa, una modifica parte senza `If-Match` (il primo giro dopo il
   deploy; vedi la voce del deploy-log).
@@ -1524,7 +1530,8 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     un'app in uso le dice contate, senza i nomi *(S)*;
   - AI → Automation: le regole di `feedback` e `review` non si modificano
     nell'app (la pagina ha le tre righe delle task) e si rimandano com'erano
-    *(S, se servono due righe in più)*;
+    *(S, se servono due righe in più)*. *Decisa NO dal maintainer il 24 nov
+    2026 (lotto 9): restano non modificabili nell'app.*;
   - ~~«Load more» del registro e «Undid…» (area 10a, F7): la data della riga
     porta alla voce annullata solo se è fra le pagine già lette *(S, da
     rivedere con F7)*.~~ Chiusa il 23 nov 2026 (rimandi, lotto 2): la data
