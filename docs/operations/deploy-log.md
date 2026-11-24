@@ -6313,3 +6313,17 @@ deploy o di un rollback che la tocca.
   non torna, se non dal backup); un server vecchio ignora la colonna e
   mostra le compattate come esecuzioni senza registro. Per togliere la
   colonna: worker e server vecchi, poi `DROP COLUMN details_pruned_at`.
+- **«Lotto 8: rispondere da un alias di Gmail»** *(24 nov 2026)*: branch
+  `feat/rimandi-server`. **Nessun cambio di scope**: `sendAs.list` e l'invio
+  da un alias verificato bastano con `gmail.modify`; le caselle senza (in
+  sola lettura) dicono `sendAsStatus: scope_missing` e si ricollegano col
+  flusso di sempre, nessun riconsenso per le altre. **Migrazione 0231**
+  (`google_accounts.send_as` jsonb default `[]`, `send_as_fetched_at`;
+  `mail_drafts.from_address`). Ordine: **server** (migrazione), poi
+  **worker** (rilegge gli alias al più una volta al giorno a ogni casella, e
+  riverifica il «Da» all'invio), poi **caddy** quando il renderer lo usa.
+  Finché la copia è `[]` (prima rilettura) ogni casella manda solo dal suo
+  indirizzo, come prima. **Rollback**: sicuro; un server vecchio ignora
+  `from_address` e una bozza con un alias torna a partire dalla casella (la
+  bozza su Gmail ha già il From dell'alias finché non si risalva). Per
+  togliere le colonne: server e worker vecchi, poi i tre `DROP COLUMN`.

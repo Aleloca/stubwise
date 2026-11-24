@@ -11,6 +11,7 @@ import {
   getDraft,
   getSendAsSignature,
   GMAIL_MODIFY_SCOPE,
+  listSendAs,
   GoogleApiError,
   missingGoogleScopes,
   refreshAccessToken,
@@ -19,6 +20,7 @@ import {
 import { loadGoogleAccountCredentials } from "@stubwise/google/credentials";
 import { normalizeAddress, projectPermissionsOfUser } from "@stubwise/notifications";
 import { googleOpenUrl, type MailComposeAddress, type MailComposeMode, type MailDraft } from "@stubwise/shared";
+import { aliasAddressedIn, refreshSendAs, resolveFrom, sendAsStale } from "./mail-send-as.js";
 import { and, desc, eq, isNull, lte, sql } from "drizzle-orm";
 
 /**
@@ -46,9 +48,11 @@ export interface MailComposeClient {
   getDraft: typeof getDraft;
   deleteDraft: typeof deleteDraft;
   getSendAsSignature: typeof getSendAsSignature;
+  /** Lotto 8, voce 2: gli alias. Opzionale: senza, la casella manda solo dal suo indirizzo (come prima). */
+  listSendAs?: typeof listSendAs;
 }
 
-export const realMailComposeClient: MailComposeClient = { refreshAccessToken, createDraft, updateDraft, getDraft, deleteDraft, getSendAsSignature };
+export const realMailComposeClient: MailComposeClient = { refreshAccessToken, createDraft, updateDraft, getDraft, deleteDraft, getSendAsSignature, listSendAs };
 
 /** Quanto vale la copia della firma per il compositore, prima di rileggerla. */
 export const SIGNATURE_MAX_AGE_MS = 24 * 3600_000;
@@ -57,13 +61,21 @@ export const SIGNATURE_MAX_CHARS = 2000;
 
 type SignatureView = Pick<MailDraft, "signature" | "signatureStatus">;
 
-/** La firma dalla copia della casella (nessuna chiamata a Google). */
-async function signatureOf(db: Db, accountId: string): Promise<SignatureView> {
+/**
+ * La firma dalla copia della casella (nessuna chiamata a Google). Lotto 8,
+ * voce 2: quella dell'indirizzo da cui si manda — un alias ha la sua (dalla
+ * copia degli alias), la casella la sua di sempre.
+ */
+async function signatureOf(db: Db, accountId: string, from: string | null = null): Promise<SignatureView> {
   const [row] = await db
-    .select({ scopes: googleAccounts.scopes, text: googleAccounts.signatureText })
+    .select({ email: googleAccounts.email, scopes: googleAccounts.scopes, text: googleAccounts.signatureText, sendAs: googleAccounts.sendAs })
     .from(googleAccounts)
     .where(eq(googleAccounts.id, accountId));
   if (!row || !row.scopes.includes(GMAIL_MODIFY_SCOPE)) return { signature: null, signatureStatus: "scope_missing" };
+  const sender = resolveFrom(row, from);
+  if (sender && !sender.isPrimary && normalizeAddress(sender.email) !== normalizeAddress(row.email)) {
+    return sender.signature ? { signature: sender.signature, signatureStatus: "present" } : { signature: null, signatureStatus: "none" };
+  }
   return row.text ? { signature: row.text, signatureStatus: "present" } : { signature: null, signatureStatus: "none" };
 }
 
@@ -94,7 +106,9 @@ export type DraftError =
   | { error: "attachment_unavailable" }
   | { error: "storage_not_configured" }
   | { error: "too_many_attachments" }
-  | { error: "too_large" };
+  | { error: "too_large" }
+  /** Lotto 8, voce 2: `from` non è fra gli indirizzi verificati della casella. */
+  | { error: "invalid_from" };
 
 /** I limiti di Gmail sugli allegati (gli stessi controlli di Invia). */
 export const DRAFT_MAX_ATTACHMENTS = 10;
@@ -148,7 +162,8 @@ async function toView(db: Db, row: DraftRow): Promise<MailDraft> {
     attachments: attachments.map((a) => ({ id: a.id, name: a.name, sizeBytes: a.sizeBytes, driveFileId: a.driveFileId, as: a.as })),
     quote: row.quote,
     updatedAt: row.updatedAt.toISOString(),
-    ...(await signatureOf(db, row.accountId)),
+    ...(await signatureOf(db, row.accountId, row.fromAddress)),
+    from: row.fromAddress,
   };
 }
 
@@ -202,16 +217,27 @@ export async function draftFor(
   google?: { encryptionKey: Buffer; client: MailComposeClient },
 ): Promise<MailDraft | { error: "not_found" }> {
   const [account] = await db
-    .select({ id: googleAccounts.id, email: googleAccounts.email, scopes: googleAccounts.scopes, fetchedAt: googleAccounts.signatureFetchedAt, disabledAt: googleAccounts.disabledAt })
+    .select({
+      id: googleAccounts.id,
+      email: googleAccounts.email,
+      scopes: googleAccounts.scopes,
+      fetchedAt: googleAccounts.signatureFetchedAt,
+      disabledAt: googleAccounts.disabledAt,
+      sendAs: googleAccounts.sendAs,
+      sendAsFetchedAt: googleAccounts.sendAsFetchedAt,
+    })
     .from(googleAccounts)
     .where(and(eq(googleAccounts.id, input.accountId), eq(googleAccounts.userId, userId)));
   if (!account) return { error: "not_found" };
   // La firma nel compositore: dalla copia; una LETTURA da Google solo se manca o ha più di un giorno.
   const stale = !account.fetchedAt || Date.now() - account.fetchedAt.getTime() > SIGNATURE_MAX_AGE_MS;
-  if (google && stale && !account.disabledAt && account.scopes.includes(GMAIL_MODIFY_SCOPE)) {
+  const aliasesStale = sendAsStale(account.sendAsFetchedAt) && google?.client.listSendAs !== undefined;
+  if (google && (stale || aliasesStale) && !account.disabledAt && account.scopes.includes(GMAIL_MODIFY_SCOPE)) {
     try {
       const accessToken = await accessTokenFor(db, google.encryptionKey, google.client, account.id);
-      if (accessToken) await refreshSignature(db, google.client, accessToken, account);
+      if (accessToken && stale) await refreshSignature(db, google.client, accessToken, account);
+      // Lotto 8, voce 2: anche gli alias, con la stessa regola della firma.
+      if (accessToken && aliasesStale) account.sendAs = (await refreshSendAs(db, google.client.listSendAs, accessToken, account.id)) ?? account.sendAs;
     } catch {
       // Fail-open: il compositore si apre con la copia che c'è.
     }
@@ -244,12 +270,16 @@ export async function draftFor(
     quote: input.mode !== "new",
     updatedAt: null,
     ...(await signatureOf(db, input.accountId)),
+    from: null,
   };
   if (input.mode === "new" || !input.threadId) return { ...blank, mode: input.threadId ? input.mode : "new" };
   const ref = await referenceMessage(db, userId, input.accountId, input.threadId, input.replyToMessageId);
   if (!ref) return { error: "not_found" };
+  // Le MIE caselle e i loro alias (lotto 8, voce 2): rispondendo a tutti non mi scrivo.
   const mine = new Set(
-    (await db.select({ email: googleAccounts.email }).from(googleAccounts).where(eq(googleAccounts.userId, userId))).map((a) => normalizeAddress(a.email)),
+    (await db.select({ email: googleAccounts.email, sendAs: googleAccounts.sendAs }).from(googleAccounts).where(eq(googleAccounts.userId, userId))).flatMap((a) =>
+      [a.email, ...a.sendAs.map((x) => x.email)].map(normalizeAddress),
+    ),
   );
   const sender: MailComposeAddress = { email: ref.fromAddress, name: ref.fromName };
   const dedupe = (list: MailComposeAddress[]) => {
@@ -266,7 +296,9 @@ export async function draftFor(
   }
   const to = input.mode === "replyAll" ? dedupe([sender, ...ref.toAddresses.map((email) => ({ email, name: null }))]) : dedupe([sender]);
   const cc = input.mode === "replyAll" ? dedupe((ref.ccAddresses ?? []).map((email) => ({ email, name: null }))).filter((a) => !to.some((t) => t.email === a.email)) : [];
-  return { ...blank, replyToMessageId: ref.id, to, cc, subject: withPrefix("Re:", ref.subject) };
+  // Lotto 8, voce 2: si risponde dall'alias a cui era indirizzato il messaggio, come Gmail.
+  const from = aliasAddressedIn(account, ref);
+  return { ...blank, ...(await signatureOf(db, input.accountId, from)), from, replyToMessageId: ref.id, to, cc, subject: withPrefix("Re:", ref.subject) };
 }
 
 /**
@@ -333,6 +365,8 @@ export async function saveDraft(
     overwrite?: boolean;
     /** La versione letta dal client: una bozza cambiata da allora è `draft_changed` (review F3, punto 11). */
     baseUpdatedAt?: string | null;
+    /** Lotto 8, voce 2: l'indirizzo da cui parte; null = il predefinito; assente = resta quello che c'era. */
+    from?: string | null;
   },
 ): Promise<MailDraft | DraftError> {
   const writable = await writableAccount(db, userId, input.accountId);
@@ -376,9 +410,27 @@ export async function saveDraft(
   const files = parts.files;
   // La copia vale un giorno anche qui (review F3, punto 9): ogni salvataggio
   // (anche l'autosalvataggio) non rilegge Google.
-  const [cached] = await db.select({ at: googleAccounts.signatureFetchedAt }).from(googleAccounts).where(eq(googleAccounts.id, input.accountId));
+  const [cached] = await db
+    .select({ at: googleAccounts.signatureFetchedAt, email: googleAccounts.email, sendAs: googleAccounts.sendAs, sendAsAt: googleAccounts.sendAsFetchedAt })
+    .from(googleAccounts)
+    .where(eq(googleAccounts.id, input.accountId));
   if (!cached?.at || Date.now() - cached.at.getTime() > SIGNATURE_MAX_AGE_MS) await refreshSignature(db, client, accessToken, writable.account);
-  const { signature } = await signatureOf(db, input.accountId);
+  // Lotto 8, voce 2: da quale indirizzo. Assente = quello salvato, o (prima di
+  // un salvataggio) l'alias a cui era indirizzato il messaggio; poi si
+  // verifica contro gli alias verificati (la copia, riletta se vecchia).
+  let aliases = cached ? { email: cached.email, sendAs: cached.sendAs } : { email: writable.account.email, sendAs: [] };
+  if (cached && sendAsStale(cached.sendAsAt)) aliases = { email: cached.email, sendAs: (await refreshSendAs(db, client.listSendAs, accessToken, input.accountId)) ?? cached.sendAs };
+  let wanted: string | null;
+  if (input.from !== undefined) wanted = input.from;
+  else if (existing) wanted = existing.fromAddress;
+  else if (input.replyToMessageId && input.mode !== "forward") {
+    const [ref] = await db.select({ toAddresses: emailMessages.toAddresses, ccAddresses: emailMessages.ccAddresses }).from(emailMessages).where(eq(emailMessages.id, input.replyToMessageId));
+    wanted = ref ? aliasAddressedIn(aliases, ref) : null;
+  } else wanted = null;
+  const sender = resolveFrom(aliases, wanted);
+  if (!sender) return { error: "invalid_from" };
+  const fromAddress = wanted === null ? null : sender.email;
+  const { signature } = await signatureOf(db, input.accountId, fromAddress);
   const { text, inReplyTo } = await composedBody(db, input.body, input.quote, input.replyToMessageId, signature);
   // Il Message-ID è NOSTRO e stabile per la bozza (review F3, punto 6): il
   // poller riconosce così l'email mandata da Stubwise. Il dominio è quello
@@ -386,7 +438,7 @@ export async function saveDraft(
   const rfcMessageId = existing?.rfcMessageId ?? `<stubwise.${randomUUID()}@${writable.account.email.split("@")[1] ?? "stubwise.invalid"}>`;
   const raw = encodeRaw(
     buildMimeMessage({
-      from: { email: writable.account.email },
+      from: { email: sender.email, ...(sender.displayName ? { name: sender.displayName } : {}) },
       to: input.to,
       cc: input.cc,
       subject: input.subject,
@@ -425,6 +477,7 @@ export async function saveDraft(
       body: input.body,
       quote: input.quote,
       rfcMessageId,
+      fromAddress,
     };
     const [row] = existing
       ? await db.update(mailDrafts).set(values).where(eq(mailDrafts.id, existing.id)).returning()

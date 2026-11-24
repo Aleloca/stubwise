@@ -1,3 +1,4 @@
+import { resolveFrom } from "./mail-send-as.js";
 import { driveFiles, googleAccounts, mailDraftAttachments, mailDrafts, mailOutgoing, queueDraftAttachmentObjects, type Db } from "@stubwise/db";
 import { GMAIL_MODIFY_SCOPE, missingGoogleScopes } from "@stubwise/google";
 import { MAIL_OUTGOING_CHANNEL, type MailDraft, type MailOutgoing } from "@stubwise/shared";
@@ -43,7 +44,9 @@ export type SendError =
   | { error: "too_large" }
   | { error: "attachment_unavailable" }
   | { error: "account_disabled" }
-  | { error: "google_scope_missing"; missing: string[] };
+  | { error: "google_scope_missing"; missing: string[] }
+  /** Lotto 8, voce 2: il «Da» della bozza non è più fra gli alias verificati della casella. */
+  | { error: "invalid_from" };
 
 /** I limiti di Gmail sugli allegati: al più 10 file, 25 MB in tutto. */
 export const MAIL_MAX_ATTACHMENTS = 10;
@@ -53,9 +56,15 @@ const ADDRESS = /^[^\s@<>",;]+@[^\s@<>",;]+\.[^\s@<>",;]+$/;
 
 /** I controlli prima di accodare un invio; `null` = si può mandare. */
 async function preflight(tx: Parameters<Parameters<Db["transaction"]>[0]>[0], draft: typeof mailDrafts.$inferSelect): Promise<SendError | null> {
-  const [account] = await tx.select({ scopes: googleAccounts.scopes, disabledAt: googleAccounts.disabledAt }).from(googleAccounts).where(eq(googleAccounts.id, draft.accountId));
+  const [account] = await tx
+    .select({ email: googleAccounts.email, scopes: googleAccounts.scopes, disabledAt: googleAccounts.disabledAt, sendAs: googleAccounts.sendAs })
+    .from(googleAccounts)
+    .where(eq(googleAccounts.id, draft.accountId));
   if (!account || account.disabledAt) return { error: "account_disabled" };
   if (!account.scopes.includes(GMAIL_MODIFY_SCOPE)) return { error: "google_scope_missing", missing: missingGoogleScopes(account.scopes) };
+  // Lotto 8, voce 2: il «Da» contro la copia degli alias (il worker lo riverifica
+  // con Gmail al momento dell'invio vero, dopo i 10 s).
+  if (draft.fromAddress !== null && !resolveFrom(account, draft.fromAddress)) return { error: "invalid_from" };
   const recipients = [...draft.toAddresses, ...draft.ccAddresses];
   if (recipients.length === 0) return { error: "invalid_recipients" };
   const bad = recipients.find((a) => !ADDRESS.test(a.email.trim()));

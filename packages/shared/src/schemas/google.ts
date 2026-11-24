@@ -160,6 +160,15 @@ export type GoogleWorkspacePatch = z.input<typeof googleWorkspacePatchSchema>;
  * ma un motivo aggiunto domani non deve far fallire il parse di un client
  * vecchio — stesso spirito di `readerSchema`.
  */
+/** Lotto 8, voce 2: un indirizzo da cui mandare (senza la firma, che resta sul server). */
+export const mailSendAsSchema = z.object({
+  email: z.string(),
+  displayName: z.string().nullable().default(null),
+  isPrimary: z.boolean().default(false),
+  isDefault: z.boolean().default(false),
+});
+export type MailSendAs = z.infer<typeof mailSendAsSchema>;
+
 export const googleAccountSchema = z.object({
   id: z.uuid(),
   email: z.string(),
@@ -184,6 +193,14 @@ export const googleAccountSchema = z.object({
    * fallito se no. Un server di prima non lo manda.
    */
   syncRequestedAt: z.string().nullable().default(null),
+  /**
+   * Lotto 8, voce 2: gli indirizzi da cui la casella può mandare (l'indirizzo
+   * della casella e gli alias VERIFICATI di Gmail). `[]` da un server di prima
+   * o finché non sono stati letti.
+   */
+  sendAs: z.array(mailSendAsSchema).default([]),
+  /** `scope_missing` = la casella non ha `gmail.modify`: per gli alias va ricollegata. */
+  sendAsStatus: z.enum(["present", "scope_missing"]).default("present"),
 });
 export type GoogleAccount = z.infer<typeof googleAccountSchema>;
 

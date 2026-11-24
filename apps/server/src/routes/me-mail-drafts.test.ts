@@ -911,3 +911,91 @@ describe("review F3, punti 6, 7 e 10: Message-ID nostro, catena dei References, 
   });
 });
 
+
+describe("lotto 8, voce 2: rispondere da un alias (send-as), nessuno scope nuovo", () => {
+  const ALIAS = "supporto@acme.com";
+  async function withAliases(opts: { addressedToAlias?: boolean } = {}) {
+    const s = await scenario();
+    await db
+      .update(googleAccounts)
+      .set({
+        sendAs: [
+          { email: s.box.email, displayName: "Ada", isPrimary: true, isDefault: false, signature: "Ada (alias primario)" },
+          { email: ALIAS, displayName: "Supporto Acme", isPrimary: false, isDefault: true, signature: "Il supporto" },
+        ],
+        sendAsFetchedAt: new Date(),
+      })
+      .where(eq(googleAccounts.id, s.box.id));
+    if (opts.addressedToAlias) {
+      await db.update(emailMessages).set({ toAddresses: [ALIAS, "collega@acme.com"], ccAddresses: ["capo@acme.com"] }).where(eq(emailMessages.id, s.message.id));
+    }
+    return s;
+  }
+  type View = { from: string | null; signature: string | null; to: { email: string }[]; cc: { email: string }[]; id: string | null };
+
+  it("rispondendo parte dall'alias a cui era indirizzato il messaggio, con la SUA firma; rispondendo a tutti non mi scrivo all'alias", async () => {
+    const { me, box } = await withAliases({ addressedToAlias: true });
+    const reply = (await compose(me.headers, `account=${box.id}&thread=t1&mode=reply`)).json() as View;
+    expect(reply).toMatchObject({ from: ALIAS, signature: "Il supporto" });
+    const all = (await compose(me.headers, `account=${box.id}&thread=t1&mode=replyAll`)).json() as View;
+    expect([...all.to, ...all.cc].map((a) => a.email)).not.toContain(ALIAS);
+    // Indirizzato alla casella (e il predefinito è l'alias): parte dalla casella, come Gmail.
+    const { me: me2, box: box2, message: m2 } = await withAliases();
+    expect(((await compose(me2.headers, `account=${box2.id}&thread=t1&mode=reply`)).json() as View).from).toBe(box2.email);
+    // A nessuno dei miei indirizzi (una copia nascosta): il predefinito (null).
+    await db.update(emailMessages).set({ toAddresses: ["collega@acme.com"], ccAddresses: [] }).where(eq(emailMessages.id, m2.id));
+    expect(((await compose(me2.headers, `account=${box2.id}&thread=t1&mode=reply`)).json() as View).from).toBeNull();
+  });
+
+  it("salvare: il MIME parte dall'alias col suo nome; un «Da» fuori elenco è 422 `invalid_from`; un client che non manda `from` non lo azzera", async () => {
+    const { me, box, message } = await withAliases({ addressedToAlias: true });
+    const body = { accountId: box.id, threadId: "t1", mode: "reply", replyToMessageId: message.id, to: [{ email: "cliente@x.it", name: null }], subject: "Re: Export", body: "Fatto.", quote: false };
+    // Senza `from` (un client di prima), alla prima volta: l'alias della risposta.
+    const first = await save(me.headers, body);
+    expect(first.statusCode, first.body).toBe(200);
+    expect((first.json() as View).from).toBe(ALIAS);
+    const mime = Buffer.from(String(calls.find((c) => c.fn === "create")!.input.raw), "base64url").toString("utf8");
+    expect(mime).toMatch(/From: "Supporto Acme" <supporto@acme\.com>/);
+    // Di nuovo senza `from`: resta l'alias.
+    expect(((await save(me.headers, body)).json() as View).from).toBe(ALIAS);
+    // Esplicito al predefinito, poi uno fuori elenco.
+    expect(((await save(me.headers, { ...body, from: null })).json() as View).from).toBeNull();
+    const bad = await save(me.headers, { ...body, from: "intruso@acme.com" });
+    expect(bad.statusCode).toBe(422);
+    expect(bad.json()).toMatchObject({ code: "invalid_from" });
+  });
+
+  it("inviare: un alias tolto nel frattempo è 422 `invalid_from` e la bozza resta", async () => {
+    const { me, box, message } = await withAliases({ addressedToAlias: true });
+    const saved = (await save(me.headers, { accountId: box.id, threadId: "t1", mode: "reply", replyToMessageId: message.id, to: [{ email: "cliente@x.it", name: null }], subject: "Re: Export", body: "Fatto.", quote: false })).json() as View;
+    await db.update(googleAccounts).set({ sendAs: [{ email: box.email, displayName: null, isPrimary: true, isDefault: true, signature: null }] }).where(eq(googleAccounts.id, box.id));
+    const res = await app.inject({ method: "POST", url: `/api/me/mail/drafts/${saved.id}/send`, headers: me.headers, payload: {} });
+    expect(res.statusCode, res.body).toBe(422);
+    expect(res.json()).toMatchObject({ code: "invalid_from" });
+    expect((await db.select({ state: mailDrafts.state }).from(mailDrafts).where(eq(mailDrafts.id, saved.id!)))[0]!.state).toBe("active");
+  });
+
+  it("la casella dice i suoi alias (senza firma); senza gmail.modify `scope_missing`", async () => {
+    const { me } = await withAliases();
+    const list = (await app.inject({ method: "GET", url: "/api/me/google/accounts", headers: me.headers })).json() as { sendAs: Record<string, unknown>[]; sendAsStatus: string }[];
+    expect(list[0]!.sendAsStatus).toBe("present");
+    expect(list[0]!.sendAs.map((a) => a.email)).toContain(ALIAS);
+    expect(JSON.stringify(list[0]!.sendAs)).not.toContain("Il supporto");
+    const ro = await scenario(["openid", "email", "https://www.googleapis.com/auth/gmail.readonly"]);
+    const roList = (await app.inject({ method: "GET", url: "/api/me/google/accounts", headers: ro.me.headers })).json() as { sendAs: unknown[]; sendAsStatus: string }[];
+    expect(roList[0]).toMatchObject({ sendAs: [], sendAsStatus: "scope_missing" });
+  });
+
+  it("una copia vecchia si rilegge da Gmail aprendo il compositore (solo gli alias verificati li dà `listSendAs`)", async () => {
+    const { me, box } = await scenario();
+    fake.listSendAs = async () => [{ email: ALIAS, displayName: "Supporto", isPrimary: false, isDefault: false, signature: null }];
+    try {
+      await compose(me.headers, `account=${box.id}&thread=t1&mode=reply`);
+      const [row] = await db.select({ sendAs: googleAccounts.sendAs, at: googleAccounts.sendAsFetchedAt }).from(googleAccounts).where(eq(googleAccounts.id, box.id));
+      expect(row!.sendAs.map((a) => a.email)).toEqual([ALIAS]);
+      expect(row!.at).not.toBeNull();
+    } finally {
+      delete fake.listSendAs;
+    }
+  });
+});

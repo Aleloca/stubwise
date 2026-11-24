@@ -5306,6 +5306,18 @@ export const googleAccounts = pgTable(
      */
     signatureText: text("signature_text"),
     signatureFetchedAt: timestamp("signature_fetched_at", { withTimezone: true }),
+    /**
+     * Lotto 8, voce 2 (0231): gli indirizzi da cui la casella può mandare
+     * (`users.settings.sendAs`, solo i VERIFICATI), con la firma di ciascuno.
+     * Una COPIA come la firma: si rilegge da Google se manca o ha più di un
+     * giorno (`send_as_fetched_at`). `[]` = mai letti (o casella senza
+     * `gmail.modify`): vale solo l'indirizzo della casella.
+     */
+    sendAs: jsonb("send_as")
+      .$type<{ email: string; displayName: string | null; isPrimary: boolean; isDefault: boolean; signature: string | null }[]>()
+      .notNull()
+      .default([]),
+    sendAsFetchedAt: timestamp("send_as_fetched_at", { withTimezone: true }),
   },
   (table) => [
     uniqueIndex("google_accounts_email_unique").on(table.email),
@@ -7275,6 +7287,8 @@ export const mailDrafts = pgTable(
     mode: text("mode").$type<"new" | "reply" | "replyAll" | "forward">().notNull(),
     replyToMessageId: uuid("reply_to_message_id").references(() => emailMessages.id, { onDelete: "set null" }),
     quote: boolean("quote").notNull().default(true),
+    /** Lotto 8, voce 2 (0231): l'indirizzo da cui parte (uno degli alias verificati); null = l'indirizzo predefinito. */
+    fromAddress: text("from_address"),
     /**
      * La COPIA dell'ultimo salvataggio (destinatari, oggetto, testo): la fonte
      * resta la bozza di Gmail, ma leggerla da lì costerebbe una chiamata per

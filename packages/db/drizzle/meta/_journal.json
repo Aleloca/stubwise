@@ -1604,6 +1604,13 @@
       "when": 1804291200000,
       "tag": "0230_automation_runs_details_pruned",
       "breakpoints": true
+    },
+    {
+      "idx": 231,
+      "version": "7",
+      "when": 1804377600000,
+      "tag": "0231_gmail_send_as",
+      "breakpoints": true
     }
   ]
 }

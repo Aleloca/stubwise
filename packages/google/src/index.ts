@@ -102,6 +102,8 @@ export {
   encodeRaw,
   getDraft,
   getSendAsSignature,
+  listSendAs,
+  type SendAsAddress,
   sendDraft,
   sendMessage,
   updateDraft,

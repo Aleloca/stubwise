@@ -107,6 +107,21 @@ describe("sendDueMail", () => {
   });
 
 
+  it("lotto 8, voce 2: il «Da» di un alias si riverifica con Gmail all'invio — tolto nel frattempo è `invalid_from`, ancora lì parte", async () => {
+    const { row, draft } = await queued(-1000);
+    await db.update(mailDrafts).set({ fromAddress: "supporto@acme.com" }).where(eq(mailDrafts.id, draft.id));
+    const { c, sent } = client();
+    c.listSendAs = async () => [];
+    expect(await sendDueMail(deps(c))).toEqual({ sent: 0, failed: 1 });
+    expect(sent).toEqual([]);
+    expect(await reload(row.id)).toMatchObject({ state: "failed", error: "invalid_from" });
+    // Ancora fra gli alias: parte.
+    const again = await queued(-1000);
+    await db.update(mailDrafts).set({ fromAddress: "supporto@acme.com" }).where(eq(mailDrafts.id, again.draft.id));
+    c.listSendAs = async () => [{ email: "Supporto@acme.com", displayName: null, isPrimary: false, isDefault: false, signature: null }];
+    expect(await sendDueMail(deps(c))).toEqual({ sent: 1, failed: 0 });
+  });
+
   it("manda le righe DOVUTE: la bozza di Gmail parte, la riga è sent, la bozza se ne va", async () => {
     const { row, draft } = await queued(-1000);
     const { c, sent } = client();

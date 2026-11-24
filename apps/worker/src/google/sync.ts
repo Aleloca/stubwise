@@ -207,9 +207,13 @@ export function displayNameOf(raw: string | undefined | null): string | null {
  * e una regola `sender_domain` sul proprio dominio la porterebbe dentro,
  * trasformando ogni risposta dell'operatore in una proposta per sé stesso.
  */
-export function isFromMailbox(message: GmailMessage, mailboxEmail: string): boolean {
+export function isFromMailbox(message: GmailMessage, mailboxEmail: string, aliases: readonly string[] = []): boolean {
   const from = normalizeAddress(message.headers["from"]);
-  return from !== "" && from === normalizeAddress(mailboxEmail);
+  if (from === "") return false;
+  // Lotto 8, voce 2 (W1 del registro): anche un alias verificato della casella è
+  // «io» — `from:me` del resync porta la posta mandata da un alias, e senza
+  // questo passava come ricevuta (e nel taglio sembrava il cliente in attesa).
+  return from === normalizeAddress(mailboxEmail) || aliases.some((a) => normalizeAddress(a) === from);
 }
 
 /**
