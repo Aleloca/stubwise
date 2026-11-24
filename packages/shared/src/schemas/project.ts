@@ -29,6 +29,14 @@ export const gitAccountSchema = z.object({
   createdAt: z.iso.datetime(),
   /** Rimandi, lotto 5: le ultime 4 del token («•••• 9e2b»); null per un account salvato prima della 0225. */
   tokenLast4: z.string().nullable().default(null),
+  /**
+   * Rimandi, lotto 5 (il prototipo, R-G5): i repository che usano l'account,
+   * per nome solo quelli dei progetti che chi guarda vede (e quelli staccati
+   * da un progetto, `projectCode: null`); gli altri contati in
+   * `hiddenRepositories`, senza nome.
+   */
+  repositories: z.array(z.object({ name: z.string(), projectCode: z.string().nullable() })).default([]),
+  hiddenRepositories: z.number().int().default(0),
 });
 export type GitAccount = z.infer<typeof gitAccountSchema>;
 

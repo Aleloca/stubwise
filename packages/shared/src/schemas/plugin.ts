@@ -330,8 +330,9 @@ export type PutProjectPluginsInput = z.infer<typeof putProjectPluginsSchema>;
 /**
  * Area 9, F5: una riga del registro vista da chi gestisce il PROGETTO (che
  * non ha `plugins.manage` d'istanza): quanto serve a scegliere, niente di
- * più (nessun URL, sha né comando di hook). Tutti gli stati: un plugin non
- * `ready` non entra nei run, e la pagina lo dice.
+ * più (nessun URL né sha; i comandi degli hook solo a chi può salvare, vedi
+ * `hookCommands`). Tutti gli stati: un plugin non `ready` non entra nei run,
+ * e la pagina lo dice.
  */
 export const projectPluginRegistryRowSchema = z.object({
   pluginId: z.uuid(),
@@ -340,6 +341,20 @@ export const projectPluginRegistryRowSchema = z.object({
   status: pluginStatusSchema,
   skills: z.array(z.string()).default([]),
   hookGroups: z.array(z.string()).default([]),
+  /**
+   * Rimandi, lotto 5: nome della skill → descrizione (dal frontmatter, il
+   * testo che il CLI mostra); una skill senza descrizione non c'è.
+   */
+  skillDescriptions: z.record(z.string(), z.string()).default({}),
+  /**
+   * Rimandi, lotto 5 (decisione di 46, 24 nov 2026): gruppo di hook → i suoi
+   * comandi, SOLO a chi può salvare le abilitazioni (`canEdit`,
+   * `project.settings.manage`); a chi legge soltanto arriva vuoto. Perché: la
+   * vista la legge chiunque veda il progetto (review di F5), e il comando è il
+   * codice che l'hook ESEGUE nei run — serve a chi decide se tenerlo acceso,
+   * non a ogni membro. I nomi dei gruppi (`hookGroups`) restano a tutti.
+   */
+  hookCommands: z.record(z.string(), z.array(z.string())).default({}),
   /** Il preset consigliato (`RECOMMENDED_DISABLED_SKILLS`, per nome del manifest), ristretto alle skill che ci sono. */
   recommendedDisabledSkills: z.array(z.string()).default([]),
 });

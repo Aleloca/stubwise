@@ -4,11 +4,11 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
 import { BitbucketProvider } from "@stubwise/git";
-import { changeLog, decrypt, gitAccounts, projects, repositories } from "@stubwise/db";
+import { changeLog, decrypt, gitAccounts, projectMembers, projects, repositories, roles, users } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { resolveProviderUserId, type FetchPlatformIdentity } from "@stubwise/notifications";
-import { seedUsers } from "../test/fixtures.js";
+import { fullSessionCookie, seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -65,6 +65,8 @@ describe("POST /api/git-accounts", () => {
       createdAt: expect.any(String),
       // Rimandi, lotto 5: le ultime 4 del token («•••• …»), mai il token.
       tokenLast4: PLAINTEXT_TOKEN.slice(-4),
+      repositories: [],
+      hiddenRepositories: 0,
     });
     expect(res.body).not.toContain("credentials");
     expect(res.body).not.toContain(PLAINTEXT_TOKEN);
@@ -354,6 +356,41 @@ describe("DELETE /api/git-accounts/:id", () => {
     });
     expect(res.statusCode).toBe(409);
     expect((res.json() as { message: string }).message).toMatch(/in use/i);
+  });
+
+  it("rimandi, lotto 5: chi usa l'account, nella riga e nel rifiuto `in_use` — per nome solo i progetti che chi guarda vede (e gli staccati), gli altri contati", async () => {
+    const created = await createAccount({ ...basePayload, name: "Usato da tre" });
+    const id = (created.json() as { id: string }).id;
+    const project = async (code: string) =>
+      (await testDb.db.insert(projects).values({ name: `P ${code}`, code, slug: `g-${randomBytes(4).toString("hex")}`, ingestionKey: randomBytes(16).toString("hex") }).returning({ id: projects.id }))[0]!.id;
+    const tag = randomBytes(2).toString("hex").toUpperCase();
+    const seen = await project(`V${tag}`);
+    const unseen = await project(`N${tag}`);
+    const repo = (projectId: string | null, name: string) =>
+      testDb.db.insert(repositories).values({ projectId, name, slug: `r-${randomBytes(4).toString("hex")}`, provider: "github", gitAccountId: id, repoUrl: `https://github.com/acme/${name}`, defaultBranch: "main", webhookSecret: randomBytes(16).toString("hex") });
+    await repo(seen, "visibile");
+    await repo(unseen, "nascosto");
+    await repo(null, "staccato");
+    // Chi legge e gestisce gli account, membro del solo progetto visibile.
+    const [inst] = await testDb.db.insert(roles).values({ name: `Git ${tag}`, scope: "instance", permissions: ["git_accounts.view", "git_accounts.manage"] }).returning({ id: roles.id });
+    const [dev] = await testDb.db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "developer"));
+    const [u] = await testDb.db.insert(users).values({ email: `git-${tag}@acme.com`, passwordHash: "x", role: "member", instanceRoleId: inst!.id }).returning({ id: users.id });
+    await testDb.db.insert(projectMembers).values({ projectId: seen, userId: u!.id, roleId: dev!.id });
+    const cookie = await fullSessionCookie(app, u!.id);
+    const row = ((await app.inject({ method: "GET", url: "/api/git-accounts", headers: { cookie } })).json() as { id: string; repositories: unknown; hiddenRepositories: number }[]).find((a) => a.id === id)!;
+    expect(row.repositories).toEqual([
+      { name: "staccato", projectCode: null },
+      { name: "visibile", projectCode: `V${tag}` },
+    ]);
+    expect(row.hiddenRepositories).toBe(1);
+    expect(JSON.stringify(row)).not.toContain("nascosto");
+    const refused = await app.inject({ method: "DELETE", url: `/api/git-accounts/${id}`, headers: { cookie } });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json()).toMatchObject({ code: "git_account_in_use", usedBy: [{ label: "staccato", projectCode: null }, { label: "visibile", projectCode: `V${tag}` }], hiddenCount: 1 });
+    // Il full admin vede tutti i progetti: niente di nascosto.
+    const forAdmin = ((await app.inject({ method: "GET", url: `/api/git-accounts/${id}`, headers: { cookie: adminCookie } })).json() as { repositories: { name: string }[]; hiddenRepositories: number });
+    expect(forAdmin.repositories.map((r) => r.name)).toEqual(["nascosto", "staccato", "visibile"]);
+    expect(forAdmin.hiddenRepositories).toBe(0);
   });
 
   it("un member non può eliminare: 403", async () => {

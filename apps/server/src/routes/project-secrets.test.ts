@@ -88,6 +88,14 @@ describe("il segreto del webhook git (K-5)", () => {
     expect(JSON.stringify(entry)).not.toContain(fresh);
   });
 
+  it("rimandi, lotto 5: si rigenera anche per ID del repository (l'app non ha lo slug), con le stesse regole", async () => {
+    const r = await repo(false);
+    const res = await post(`/api/repositories/${r.id}/webhook-secret`);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toMatchObject({ mode: "manual" });
+    expect(await secretOf(r.id)).toBe((res.json() as { webhookSecret: string }).webhookSecret);
+  });
+
   it("configurato, token senza lo scope: 422 webhook_scope_missing, niente cambia né qui né sulla piattaforma", async () => {
     const r = await repo(true);
     scopes(false);
@@ -216,6 +224,8 @@ describe("l'Integrazione in lettura (I2)", () => {
     await db.update(repositories).set({ webhookSecret: "b".repeat(28) + "wxyz" }).where(eq(repositories.id, repositoryId));
     const admin = (await read(projectId)).json() as { gitWebhooks: { repositoryId: string; secretLast4: string; url: string; configured: boolean }[] };
     expect(admin.gitWebhooks).toEqual([expect.objectContaining({ repositoryId, secretLast4: "wxyz", configured: false, url: expect.stringContaining("/webhooks/git/") })]);
+    // Rimandi, lotto 5: la piattaforma, per il dialogo del segreto.
+    expect((admin.gitWebhooks[0] as unknown as { provider: string }).provider).toMatch(/^(github|bitbucket)$/);
     expect(JSON.stringify(admin)).not.toContain("b".repeat(28));
     const contributor = await read(projectId, await member(projectId, "contributor"));
     expect(contributor.statusCode).toBe(200);

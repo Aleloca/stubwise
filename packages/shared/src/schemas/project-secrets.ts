@@ -44,6 +44,8 @@ export const projectIntegrationSchema = z.object({
         repositoryId: z.string(),
         slug: z.string(),
         name: z.string(),
+        /** Rimandi, lotto 5: la piattaforma del repository (`github`/`bitbucket`); assente da un server più vecchio. */
+        provider: z.string().optional(),
         url: z.string(),
         secretLast4: z.string().nullable(),
         configured: z.boolean(),

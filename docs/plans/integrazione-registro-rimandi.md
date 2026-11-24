@@ -137,8 +137,9 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
     d'azione (`/plan`, `/new-task`, `/new-request`, `/run`). ✅ *Area 10, F8:
     `/status` e `/today` (i tool `read_followed_projects` e `read_my_week`)
     e le skill dei plugin del progetto di contesto (`GET
-    /api/projects/:id/plugins`).* Resta diverso dal prototipo: le skill non
-    hanno la descrizione (il registro dà solo i nomi) e il plugin base non
+    /api/projects/:id/plugins`).* Resta diverso dal prototipo: ~~le skill non
+    hanno la descrizione (il registro dà solo i nomi)~~ *(dal 24 nov 2026 il
+    registro del progetto porta `skillDescriptions`, 72, lotto 5)* e il plugin base non
     c'è (sta fuori dal registro).
   - Le citazioni registrate su un messaggio non esistono sul server: Claude
     cita col codice nel testo, che la pagina risolve (`resolveCodes`, task e
@@ -1452,8 +1453,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     persona);
   - Git accounts: ~~niente ultime 4 del token («••••»);~~ *(parte server
     chiusa il 24 nov 2026, 72, lotto 5: `tokenLast4`, 0225)* la validazione non
-    resta sul server (la ricorda la sessione); i repository che usano un
-    account non arrivano, né nella riga né nel rifiuto `in_use`; chi
+    resta sul server (la ricorda la sessione); ~~i repository che usano un
+    account non arrivano, né nella riga né nel rifiuto `in_use`;~~ *(parte
+    server chiusa il 24 nov 2026, 72, lotto 5: `repositories` e
+    `hiddenRepositories` nella riga, `usedBy`/`hiddenCount` nel 409, con la
+    regola R-G5 del prototipo)* chi
     verrebbe sostituito come revisore predefinito si sa solo dopo, dalla
     risposta *(S per ciascuno)*;
   - Google Workspace: ~~il server non tiene le ultime 4 del client secret
@@ -1469,14 +1473,18 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     legge le pagine dopo finché trova la voce; lette tutte, dice «That change
     isn't in the log anymore.» (`JournalList` di `ChangeLogPage.tsx`, prototipo
     e app).
-  - Progetto → Settings → Integration (F5): il server non manda la
-    piattaforma dei webhook git (`gitWebhooks[].provider`), quindi nell'app
+  - Progetto → Settings → Integration (F5): ~~il server non manda la
+    piattaforma dei webhook git (`gitWebhooks[].provider`)~~ *(parte server
+    chiusa il 24 nov 2026, 72, lotto 5: `gitWebhooks[].provider`)*, quindi nell'app
     il dialogo del segreto dice «la piattaforma git» e non «GitHub» o
     «Bitbucket»; lo stato è solo configurato/non configurato (niente
     `failed`) *(S)*;
-  - Integration: il segreto del webhook si rigenera per slug, che
+  - ~~Integration: il segreto del webhook si rigenera per slug, che
     l'adattatore ricorda dall'ultima lettura della pagina (la rigenerazione
-    passa solo l'id del repository) *(S, se il server accetta l'id)*.
+    passa solo l'id del repository) *(S, se il server accetta l'id)*.~~
+    *Parte server chiusa il 24 nov 2026 (72, lotto 5)*:
+    `POST /api/repositories/:slug/webhook-secret` accetta anche l'id del
+    repository, con le stesse regole.
   - ~~Progetto → Settings → Plugins (F5): la semantica è da decidere.~~
     **Chiuso (19 nov 2026, decisione del maintainer): opt-in**, come il
     server. Prototipo e app hanno la casella «acceso per questo progetto»
@@ -1486,8 +1494,12 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     modifiche); il `name` del manifest resta per il preset e per il
     namespace di «/»;
   - Plugins: il plugin base non c'è (sta fuori dal registro del server, nel
-    prototipo viene dal seme); le skill non hanno descrizione e i gruppi di
-    hook non hanno comando (il registro del progetto non li manda) *(S)*;
+    prototipo viene dal seme); ~~le skill non hanno descrizione e i gruppi di
+    hook non hanno comando (il registro del progetto non li manda) *(S)*;~~
+    *parte server chiusa il 24 nov 2026 (72, lotto 5)*: `skillDescriptions`
+    a tutti, `hookCommands` SOLO a chi può salvare (`canEdit`, decisione di
+    46: il comando è il codice che l'hook esegue; chi legge vede i nomi dei
+    gruppi; il prototipo va allineato, oggi li mostra a chiunque legga);
   - ~~Plugins: la lettura è sotto `project.settings.manage`.~~ **Chiuso
     (review di F5)**: la GET risponde a chi vede il progetto, con `canEdit`
     del server (72, f480e527b); la pagina è in sola lettura per gli altri.
