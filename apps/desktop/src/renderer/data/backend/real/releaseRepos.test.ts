@@ -18,15 +18,18 @@ const repo = (over: Record<string, unknown> = {}) => ({
   releasePipeline: { mode: "named" },
   ciProvider: "github_actions",
   colleaguePrs: "analyze_only",
+  // Lotto 4, pulizia 2 (72, 6bd813428): `repos.manage` di chi guarda nel progetto, sulla riga.
+  canManage: true,
   ...over,
 });
 
 function fakeApi(over: Partial<RepoSettingsApi> = {}, manage = true) {
   const calls: string[] = [];
   const api: RepoSettingsApi = {
-    list: async (projectId) => (calls.push(`GET repositories?projectId=${projectId}`), [repo()]),
+    list: async (projectId) => (
+      calls.push(`GET repositories?projectId=${projectId}`), [repo({ canManage: manage })]
+    ),
     update: async (slug, patch) => (calls.push(`PATCH ${slug} ${JSON.stringify(patch)}`), repo()),
-    canManage: async () => manage,
     ...over,
   };
   return { api, calls };
@@ -51,9 +54,18 @@ describe("le impostazioni di rilascio dei repository (area 8, F1)", () => {
     });
   });
 
-  it("canManage è quello che il server dice per chi guarda (repos.manage)", async () => {
+  it("canManage è quello che il server dice per chi guarda (repos.manage), sulla riga", async () => {
     const s = await createRealRepoSettings(fakeApi({}, false).api).getRepositorySettings("p1");
     expect(s?.canManage).toBe(false);
+  });
+
+  it("un server di prima, senza `canManage` sulla riga, o nessun repository: niente da gestire", async () => {
+    const old = { ...repo() } as Record<string, unknown>;
+    delete old.canManage;
+    const noField = await createRealRepoSettings(fakeApi({ list: async () => [old as never] }).api).getRepositorySettings("p1");
+    expect(noField?.canManage).toBe(false);
+    const none = await createRealRepoSettings(fakeApi({ list: async () => [] }).api).getRepositorySettings("p1");
+    expect(none?.canManage).toBe(false);
   });
 
   it("le PR dei colleghi e la pipeline col ramo: la PATCH per slug", async () => {
