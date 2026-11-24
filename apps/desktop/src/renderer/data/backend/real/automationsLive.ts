@@ -113,7 +113,16 @@ async function claudeRoute<T>(automationId: string, call: () => Promise<T>): Pro
   }
 }
 
-const { reset: resetSimulations, forgetContext, ...simulationFunctions } = simulation;
+const {
+  reset: resetSimulations,
+  forgetContext,
+  writtenExamples,
+  ...simulationFunctions
+} = simulation;
+
+/** Lotto 6, voce 5: gli esempi scritti della bozza, dall'ultima lettura degli esempi (la prova di Claude). */
+export const trialWrittenExamples = (automationId: string) =>
+  writtenExamples(automationId, "draft");
 
 /**
  * ⌘K: il gruppo `automations` di `GET /api/search` (filtrato dal server). A

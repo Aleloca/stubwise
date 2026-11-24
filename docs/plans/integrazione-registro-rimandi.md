@@ -678,7 +678,9 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 ## Area 7 — Automazioni
 
-- Blocco della Home delle automazioni.
+- ~~Blocco della Home delle automazioni.~~ *Chiusa il 24 nov 2026 (94,
+  lotto 7)*: c'era già dalla fetta 1 (`AutomationsBlock` su `listMyRuns`,
+  `GET /api/me/automation-runs`); il test sull'adattatore è 96b22b5f5.
 - ~~Effetti che il prototipo ha e la build app spegne: segnali alle automazioni
   alla chiusura di un traguardo e alla conversione di una richiesta.~~
   *Parte server verificata il 24 nov 2026 (72, lotto 7, voce 3)*: c'era già,
@@ -689,8 +691,8 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   `milestones.test.ts` (una chiusura = un segnale, rinominare un chiuso no,
   riaprire e richiudere sì) e `backlog.test.ts` (la conversione dà UN
   `request_converted` con la task nata); mutazioni sui due trigger prese.
-  La build app non deve emettere niente: il segnale lo dà il server. Resta
-  a 94 il blocco della Home.
+  La build app non deve emettere niente: il segnale lo dà il server. Il blocco della Home
+  era già fatto (vedi sopra).
 - Azioni di Claude: crea automazione in bozza, salva/elimina bozza, prova.
 - F4, `automations.manage` d'ISTANZA *(S, verifica di Q7, 13 nov 2026)*:
   serve solo alle automazioni generali. Come il prototipo

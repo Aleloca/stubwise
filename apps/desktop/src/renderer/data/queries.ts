@@ -2805,7 +2805,11 @@ export function useRepoBrief(repositoryId: string) {
 
 /** Una domanda alla chat dei Docs: legge e basta, quindi non ricarica nulla. */
 export function useAskDocs() {
-  return useMutation({ mutationFn: (q: DocsQuestion) => api.docs.askDocs(q) });
+  // Lotto 7, §2: `onText` riceve il testo che cresce mentre arriva.
+  return useMutation({
+    mutationFn: ({ onText, ...q }: DocsQuestion & { onText?: (soFar: string) => void }) =>
+      api.docs.askDocs(q, onText),
+  });
 }
 
 /**
