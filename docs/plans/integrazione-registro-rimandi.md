@@ -1621,13 +1621,21 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   `GET/POST /api/claude/conversations/:id/questions…`); le bozze di
   automazione nel catalogo (`createAutomation`, `saveAutomationDraft`,
   `deleteAutomationDraft`), mai accese da Claude.
-- Gli esempi scritti da Claude nella prova di S1 (F2, decisione 2a di 46,
+- ~~Gli esempi scritti da Claude nella prova di S1 (F2, decisione 2a di 46,
   19 nov 2026): nel prototipo, se il progetto non ha un evento che passa (o
   che non passa) il filtro dell'inizio, Claude ne scrive uno («Example
   written by Claude», `pickTrialExamples`/`writtenEvent`). Nell'app la prova
   usa solo gli esempi veri del server (il più recente che passa e, con un
   filtro, il più recente che non passa); senza, la riga dice «Nothing to try
-  it on yet». Nel prototipo non manca niente: è l'app che resta indietro.
+  it on yet». Nel prototipo non manca niente: è l'app che resta indietro.~~
+  *Parte server chiusa il 24 nov 2026 (72, lotto 6)*: la regola è
+  `writtenTrialEvent` in `@stubwise/shared` (pura, DETERMINISTICA, mai un
+  modello: «written by Claude» è solo l'etichetta, e il docblock lo dice), e
+  `GET /api/automations/:code/examples` porta `written: { passes, fails }`
+  (opzionale; `passes` solo senza un esempio vero, `fails` solo con un
+  filtro, `null` dove la regola non sa scriverlo). Resta a 94 l'uso nella
+  prova dell'app (e, se vuole, il prototipo che importa la regola condivisa
+  al posto della sua copia).
 
 - **Chiuse con F3 (20 nov 2026)**: Claude legge il lavoro fermo (con le
   soglie dei progetti, la regola della lista delle task) e la spesa del mese

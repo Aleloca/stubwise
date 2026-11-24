@@ -571,6 +571,14 @@ export interface SimulationClientProject {
 export interface SimulationExamplesView {
   items: SimulationExample[];
   context: SimulationContext;
+  /**
+   * Lotto 6, voce 5: gli esempi «scritti da Claude» per la prova, dalla
+   * regola DETERMINISTICA `writtenTrialEvent` (nessun modello: vedi il suo
+   * docblock). `passes` solo se non c'è un esempio vero in `items`; `fails`
+   * con un filtro dell'inizio, da usare se non ce n'è uno vero che non passa.
+   * `null` dove la regola non sa scriverlo. Assente da un server più vecchio.
+   */
+  written?: { passes: Record<string, unknown> | null; fails: Record<string, unknown> | null };
 }
 
 /** `POST /api/automations/:code/test/estimate` (area 7, F3, C-F3-2): la stima gratuita della prova. */
