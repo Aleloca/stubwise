@@ -4454,7 +4454,10 @@ describe("F3b, task 7: la dottrina nuova sul calendario (flag acceso)", () => {
     expect((await calendarRows())[0]).toMatchObject({ proposalCandidate: true, projectId });
   });
 
-  it("invitati membri di DUE progetti: nessuna proposta (la «Quale progetto?» del calendario è rimandata), e il solo proprietario non conta", async () => {
+  // Lotto 9, voce 2 (a): con due progetti l'evento è CANDIDATO senza progetto
+  // (lo sceglie `calendar-guess.ts`, test in `calendar-guess.test.ts`); senza
+  // runner nessuna scelta e nessuna proposta.
+  it("invitati membri di DUE progetti: candidato SENZA progetto e nessuna proposta senza il modello, e il solo proprietario non conta", async () => {
     const a = await seedProject("A");
     const b = await seedProject("B");
     const ada = `ada-${crypto.randomUUID()}@acme.com`;
@@ -4473,7 +4476,7 @@ describe("F3b, task 7: la dottrina nuova sul calendario (flag acceso)", () => {
       calendarEvent({ id: "solo-io", title: "Promemoria mio", attendees: [att(MAILBOX)] }),
     ]);
     const rows = await calendarRows();
-    expect(rows.find((r) => r.googleEventId === "due")).toMatchObject({ proposalCandidate: false });
+    expect(rows.find((r) => r.googleEventId === "due")).toMatchObject({ proposalCandidate: true, projectId: null, projectGuess: null });
     expect(rows.find((r) => r.googleEventId === "solo-io")).toMatchObject({ proposalCandidate: false });
     expect(await db.select().from(notifications)).toEqual([]);
   });

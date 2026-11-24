@@ -438,7 +438,8 @@ export type MailRun =
  */
 export async function runMailAgent(
   deps: { db: Db; select: SelectDeps },
-  messageId: string,
+  /** Il messaggio (owner `email_message_id`); `null` solo per `calendar_classify`, che non ha un messaggio. */
+  messageId: string | null,
   projectId: string | null,
   run: (provider: ResolvedProvider | undefined, usage: UsageTag) => Promise<AgentRunResult>,
   /**
@@ -446,7 +447,7 @@ export async function runMailAgent(
    * SUA operazione (`meeting_summary`) e senza la phase `email_classify`, che
    * è ciò che conta il tetto giornaliero della classificazione.
    */
-  kind: "classify" | "meeting_summary" = "classify",
+  kind: "classify" | "meeting_summary" | "calendar_classify" = "classify",
 ): Promise<MailRun> {
   // Writer storico (design 2026-10-21-modelli-e-consumi): la riga la scrive
   // QUI, non il TrackingAgentRunner (`record: false`), perché l'owner
@@ -456,10 +457,19 @@ export async function runMailAgent(
   // `projectId`: quello già attribuito al messaggio (`email_messages.project_id`,
   // null se non risolto: può toccarne più d'uno, e l'attribuzione la decide
   // proprio questo run); quello scelto dalla persona per una riattribuzione.
+  //
+  // Lotto 9, voce 2 (a): il progetto di un appuntamento con più candidati
+  // (`calendar-guess.ts`) usa la STESSA operazione `mail_classify` (stesso
+  // modello, stessi consumi) ma la SUA phase, `calendar_classify`, e nessun
+  // owner: il tetto giornaliero della posta conta `email_classify` legata a un
+  // messaggio, e questo run non deve consumarlo.
+  const owner = messageId !== null ? { emailMessageId: messageId } : {};
   const usage: UsageTag =
     kind === "meeting_summary"
-      ? { operation: "meeting_summary", projectId, emailMessageId: messageId, record: false }
-      : { operation: "mail_classify", projectId, emailMessageId: messageId, phase: "email_classify", record: false };
+      ? { operation: "meeting_summary", projectId, ...owner, record: false }
+      : kind === "calendar_classify"
+        ? { operation: "mail_classify", projectId, phase: "calendar_classify", record: false }
+        : { operation: "mail_classify", projectId, ...owner, phase: "email_classify", record: false };
   const outcome = await runWithProviders(
     deps.select,
     { projectId: null, workClass: "interactive" },

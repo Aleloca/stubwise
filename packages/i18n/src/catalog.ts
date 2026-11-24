@@ -674,6 +674,10 @@ export const en: Catalog = {
     "{from} wrote about “{subject}”: it looks like work, but it is not clear which project. Which one does this belong to?",
   "email.proposal.calendarQuestion":
     "“{subject}” is on the calendar for {date}. Do we track it as a milestone?",
+  // Lotto 9, voce 2 (a): the shared «Which project?» of a meeting whose
+  // invitees point to more than one project. `{subject}` is NOT trusted.
+  "email.proposal.calendarChooseQuestion":
+    "“{subject}” is on the calendar for {date}, and the invitees work on more than one project. Which one is it about?",
   // Fase 7b: the question for a SERIES occurrence configured with
   // `auto: true` — the action already happened, so this is a statement, not
   // a question, matching the single option that follows (see calendar.ts).
@@ -1298,6 +1302,10 @@ export const it: Catalog = {
     "{from} scrive a proposito di «{subject}»: sembra lavoro, ma non è chiaro per quale progetto. A quale di questi appartiene?",
   "email.proposal.calendarQuestion":
     "«{subject}» è in calendario per il {date}. Lo seguiamo come milestone?",
+  // Lotto 9, voce 2 (a): la «Quale progetto?» condivisa di un appuntamento i
+  // cui invitati portano a più progetti. `{subject}` NON fidato.
+  "email.proposal.calendarChooseQuestion":
+    "«{subject}» è in calendario per il {date}, e gli invitati lavorano su più progetti. Di quale si tratta?",
   // Fase 7b: la domanda per un'occorrenza di SERIE configurata con
   // `auto: true` — l'azione è già avvenuta, quindi è un'affermazione, non
   // una domanda, coerente con l'unica opzione che segue (vedi calendar.ts).

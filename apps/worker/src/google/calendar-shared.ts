@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   calendarEvents as calendarEventsTable,
   calendarProposalRecipients,
@@ -10,11 +11,11 @@ import {
   type Db,
 } from "@stubwise/db";
 import type { Language } from "@stubwise/i18n";
-import { normalizeAddress, publishNotification } from "@stubwise/notifications";
+import { normalizeAddress, permissionForProposalAction, projectPermissionsOfUser, publishNotification } from "@stubwise/notifications";
 import { hasDeclinedInvitation } from "@stubwise/shared";
 import { and, asc, eq, inArray, isNotNull, isNull, sql, type SQL } from "drizzle-orm";
 import { getContentLanguage } from "../settings.js";
-import { buildCalendarProposalEvent, calendarDayUrl, googleProposalEventSchema } from "./proposal.js";
+import { buildCalendarChooseEvent, buildCalendarProposalEvent, calendarDayUrl, googleProposalEventSchema } from "./proposal.js";
 
 /**
  * LE PROPOSTE DEL CALENDARIO CONDIVISE FRA GLI INVITATI (lotto 9, voce 2 (d);
@@ -75,6 +76,18 @@ export async function eventInviteeIds(
   db: DbOrTx,
   input: { attendees: readonly Attendee[]; mailboxOwnerUserId: string | null; projectId: string },
 ): Promise<string[]> {
+  return inviteesOfAny(db, { attendees: input.attendees, mailboxOwnerUserId: input.mailboxOwnerUserId, projectIds: [input.projectId] });
+}
+
+/**
+ * Lotto 9, voce 2 (a): la stessa regola per la «Quale progetto?», dove il
+ * progetto non c'è ancora: gli altri invitati entrano se sono membri ESPLICITI
+ * di ALMENO UNO dei candidati. Il titolare della casella, come sopra.
+ */
+async function inviteesOfAny(
+  db: DbOrTx,
+  input: { attendees: readonly Attendee[]; mailboxOwnerUserId: string | null; projectIds: readonly string[] },
+): Promise<string[]> {
   const byAddress = await peopleByAddress(db, input.attendees.map((a) => a.email));
   const accepted = new Set<string>();
   const declined = new Set<string>();
@@ -97,7 +110,7 @@ export async function eventInviteeIds(
     .select({ userId: projectMembers.userId })
     .from(projectMembers)
     .innerJoin(users, eq(users.id, projectMembers.userId))
-    .where(and(eq(projectMembers.projectId, input.projectId), inArray(projectMembers.userId, candidates), eq(users.isAgent, false)));
+    .where(and(inArray(projectMembers.projectId, [...input.projectIds]), inArray(projectMembers.userId, candidates), eq(users.isAgent, false)));
   const memberIds = new Set(members.map((m) => m.userId));
   return [...candidates.filter((id) => memberIds.has(id)), ...(owner ? [owner] : [])].sort();
 }
@@ -431,4 +444,205 @@ export async function expireOldSharedCalendarProposals(db: Db, cutoff: Date): Pr
     }
     return expired.length;
   });
+}
+
+/**
+ * LA «QUALE PROGETTO?» CONDIVISA DEL CALENDARIO (lotto 9, voce 2 (a)).
+ *
+ * Un evento SINGOLO con più progetti candidati su cui il modello non è sicuro
+ * (o i cui tentativi sono finiti: `calendar-guess.ts`) diventa UNA proposta
+ * senza progetto (`calendar_proposals.project_id` nullo, i candidati in
+ * `candidate_project_ids`), una per appuntamento (indice unico parziale su
+ * `ical_uid`). Le copie delle altre caselle ci si legano come per le proposte
+ * di progetto, e i loro candidati si AGGIUNGONO a quelli della domanda finché
+ * è aperta.
+ *
+ * **Chi la riceve**: il TITOLARE della casella (se non ha rifiutato) e gli
+ * altri invitati di Stubwise che non hanno rifiutato e sono membri ESPLICITI
+ * di ALMENO UNO dei candidati — mai un admin in quanto tale. Ognuno ha la SUA
+ * card, con i soli candidati in cui può CONFERMARE la proposta che ne
+ * nascerebbe (il permesso della milestone, `permissionForProposalAction`):
+ * chi non ne ha nessuno non riceve una card con il solo «Non fare nulla».
+ *
+ * Decisa dal primo (il server, `chooseCalendarProposalProject`): le card di
+ * tutti si chiudono e l'evento torna al percorso di PROGETTO
+ * ({@link publishSharedCalendarProposals}), che fa nascere la proposta vera
+ * con i suoi destinatari.
+ */
+export async function publishCalendarChooseProposals(
+  deps: SharedCalendarDeps,
+  account: { id: string; userId: string; email: string },
+): Promise<number> {
+  const db = deps.db;
+  const now = deps.now ? deps.now() : new Date();
+  const rows = await db
+    .select({
+      id: calendarEventsTable.id,
+      googleEventId: calendarEventsTable.googleEventId,
+      icalUid: calendarEventsTable.icalUid,
+      title: calendarEventsTable.title,
+      startsAt: calendarEventsTable.startsAt,
+      allDay: calendarEventsTable.allDay,
+      organizer: calendarEventsTable.organizer,
+      status: calendarEventsTable.status,
+      projectId: calendarEventsTable.projectId,
+      proposalNotificationId: calendarEventsTable.proposalNotificationId,
+      outcome: calendarEventsTable.outcome,
+      recurringEventId: calendarEventsTable.recurringEventId,
+      attendees: calendarEventsTable.attendees,
+      projectGuess: calendarEventsTable.projectGuess,
+    })
+    .from(calendarEventsTable)
+    .where(
+      and(
+        eq(calendarEventsTable.accountId, account.id),
+        sql`exists (select 1 from ${googleAccounts} where ${googleAccounts.id} = ${calendarEventsTable.accountId} and ${googleAccounts.proposalsEnabled})`,
+        eq(calendarEventsTable.proposalCandidate, true),
+        sql`${calendarEventsTable.status} is distinct from 'cancelled'`,
+        isNull(calendarEventsTable.recurringEventId),
+        isNull(calendarEventsTable.calendarProposalId),
+        isNull(calendarEventsTable.proposalNotificationId),
+        isNull(calendarEventsTable.outcome),
+        isNull(calendarEventsTable.projectId),
+        // La scelta c'è ed è «non so» (o i tentativi sono finiti), con almeno due candidati.
+        isNotNull(calendarEventsTable.projectGuess),
+        sql`${calendarEventsTable.projectGuess} ->> 'projectId' is null`,
+        sql`jsonb_typeof(${calendarEventsTable.projectGuess} -> 'candidates') = 'array'`,
+        sql`jsonb_array_length(${calendarEventsTable.projectGuess} -> 'candidates') >= 2`,
+        sql`${calendarEventsTable.startsAt} >= ${now.toISOString()}::timestamptz`,
+      ),
+    )
+    .orderBy(asc(calendarEventsTable.startsAt), asc(calendarEventsTable.id))
+    .limit(deps.limit ?? 20);
+  if (rows.length === 0) return 0;
+
+  const lang = deps.lang ?? (await getContentLanguage(db));
+  const publish = deps.publish ?? publishNotification;
+  // La proposta che nascerebbe è la milestone dell'evento: il permesso per confermarla.
+  const needed = permissionForProposalAction("create_milestone");
+
+  let published = 0;
+  for (const row of rows) {
+    const candidates = [...new Set(row.projectGuess?.candidates ?? [])].sort();
+    if (candidates.length < 2) continue;
+    const names = new Map(
+      (await db.select({ id: projects.id, name: projects.name }).from(projects).where(inArray(projects.id, candidates))).map((r) => [r.id, r.name]),
+    );
+    // Il cancello vero, con la casella di chi l'ha trovata (come le proposte di progetto).
+    const probe = buildCalendarChooseEvent({ lang, event: row, mailboxEmail: account.email, projectNames: names, proposalId: randomUUID(), choose: candidates });
+    if (!probe) continue;
+    const key = calendarShareKey(row);
+
+    const cards = await db.transaction(async (tx) => {
+      const [created] = await tx
+        .insert(calendarProposals)
+        .values({
+          icalUid: key,
+          projectId: null,
+          candidateProjectIds: candidates,
+          calendarEventId: row.id,
+          googleEventId: row.googleEventId,
+          title: row.title,
+          startsAt: row.startsAt,
+          allDay: row.allDay,
+        })
+        .onConflictDoNothing({ target: calendarProposals.icalUid, where: sql`project_id is null` })
+        .returning({ id: calendarProposals.id, status: calendarProposals.status });
+      const proposal =
+        created ??
+        (
+          await tx
+            .select({ id: calendarProposals.id, status: calendarProposals.status })
+            .from(calendarProposals)
+            .where(and(eq(calendarProposals.icalUid, key), isNull(calendarProposals.projectId)))
+            .for("update")
+        )[0];
+      if (!proposal) return 0;
+      await tx
+        .update(calendarEventsTable)
+        .set({ calendarProposalId: proposal.id })
+        .where(and(eq(calendarEventsTable.id, row.id), isNull(calendarEventsTable.calendarProposalId)));
+      if (proposal.status !== "proposed") return 0;
+      // Un'altra casella può avere candidati diversi (il SUO titolare vede altri progetti): si sommano.
+      if (!created) {
+        await tx
+          .update(calendarProposals)
+          .set({ candidateProjectIds: sql`array(select distinct unnest(${calendarProposals.candidateProjectIds} || ${sql`array[${sql.join(candidates.map((c) => sql`${c}`), sql`, `)}]::uuid[]`}) order by 1)` })
+          .where(eq(calendarProposals.id, proposal.id));
+      }
+
+      const invitees = await inviteesOfAny(tx, { attendees: row.attendees, mailboxOwnerUserId: account.userId, projectIds: candidates });
+      // Per ognuno i candidati in cui può CONFERMARE: gli altri non gli si offrono.
+      const choosable = new Map<string, string[]>();
+      for (const userId of invitees) {
+        const mine: string[] = [];
+        for (const projectId of candidates) {
+          if (!names.has(projectId)) continue;
+          const permissions = await projectPermissionsOfUser(tx, userId, projectId);
+          if (permissions && (!needed || permissions.has(needed))) mine.push(projectId);
+        }
+        if (mine.length > 0) choosable.set(userId, mine);
+      }
+      if (choosable.size === 0) {
+        if (created) {
+          await tx
+            .update(calendarProposals)
+            .set({ status: "ignored", outcome: { type: "no_recipients" } })
+            .where(and(eq(calendarProposals.id, proposal.id), eq(calendarProposals.status, "proposed")));
+        }
+        return 0;
+      }
+      const recipients = [...choosable.keys()];
+      const own = await ownCopies(tx, key, recipients);
+      const emails = new Map(
+        (await tx.select({ id: users.id, email: users.email }).from(users).where(inArray(users.id, recipients))).map((u) => [u.id, u.email]),
+      );
+      let sent = 0;
+      for (const userId of recipients) {
+        const [inserted] = await tx
+          .insert(calendarProposalRecipients)
+          .values({ proposalId: proposal.id, userId })
+          .onConflictDoNothing()
+          .returning({ userId: calendarProposalRecipients.userId });
+        if (!inserted) continue;
+        const mine = own.get(userId);
+        const event = buildCalendarChooseEvent({
+          lang,
+          event: row,
+          mailboxEmail: account.email,
+          projectNames: names,
+          proposalId: proposal.id,
+          choose: choosable.get(userId)!,
+        });
+        if (!event || !googleProposalEventSchema.safeParse(event).success) continue;
+        event.messageUrl = calendarDayUrl(mine?.email ?? emails.get(userId) ?? account.email, row.startsAt);
+        if (mine) event.calendarEventId = mine.id;
+        else delete event.calendarEventId;
+        // Audience `mailbox_owner` con UN destinatario alla volta: «solo questa persona», mai gli admin.
+        const { notificationIds } = await publish(tx, event, { mailboxOwnerUserId: userId, projectId: choosable.get(userId)![0]! });
+        await tx
+          .update(calendarProposalRecipients)
+          .set({ notificationId: notificationIds[0] ?? null })
+          .where(and(eq(calendarProposalRecipients.proposalId, proposal.id), eq(calendarProposalRecipients.userId, userId)));
+        sent += 1;
+      }
+      return sent > 0 && created ? 1 : 0;
+    });
+    published += cards;
+  }
+  return published;
+}
+
+/** La copia dell'evento di ogni destinatario, se ce l'ha: la sua card porta alla SUA riga. */
+async function ownCopies(tx: DbOrTx, key: string, recipients: readonly string[]): Promise<Map<string, { id: string; email: string }>> {
+  const own = new Map<string, { id: string; email: string }>();
+  for (const copy of await tx
+    .select({ id: calendarEventsTable.id, email: googleAccounts.email, userId: googleAccounts.userId })
+    .from(calendarEventsTable)
+    .innerJoin(googleAccounts, eq(googleAccounts.id, calendarEventsTable.accountId))
+    .where(and(sql`${calendarShareKeySql()} = ${key}`, inArray(googleAccounts.userId, [...recipients])))
+    .orderBy(asc(calendarEventsTable.createdAt))) {
+    if (!own.has(copy.userId)) own.set(copy.userId, { id: copy.id, email: copy.email });
+  }
+  return own;
 }

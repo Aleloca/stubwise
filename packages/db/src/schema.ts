@@ -200,6 +200,9 @@ export const agentRunPhase = pgEnum("agent_run_phase", [
   "fix",
   "review",
   "email_classify",
+  // Lotto 9, voce 2 (a), 0235: il progetto di un appuntamento con più
+  // candidati (operazione `mail_classify`, fuori dal tetto della posta).
+  "calendar_classify",
 ]);
 
 // Motivo per cui un job è parcheggiato in "held": i valori derivano da
@@ -5708,6 +5711,25 @@ export const emailRejections = pgTable(
 );
 
 /**
+ * Lotto 9, voce 2 (a): la scelta del progetto di un evento singolo con più
+ * progetti candidati (`calendar_events.project_guess`). `projectId` è uno dei
+ * `candidates` o `null` (il modello non è sicuro, o i tentativi sono finiti:
+ * nasce la «Quale progetto?»). `reason` è il motivo breve del modello (testo
+ * GENERATO: non si mostra e non entra mai nel registro decisioni). `by`:
+ * `model` (il run), `reused` (copiato da un'altra copia dello stesso
+ * `ical_uid`), `exhausted` (tentativi finiti), `person` (scelto da una
+ * persona sulla «Quale progetto?»), `single` (gli invitati portano ormai a
+ * meno di due progetti: niente da scegliere, nessun run).
+ */
+export interface CalendarProjectGuess {
+  projectId: string | null;
+  reason: string;
+  at: string;
+  by: "model" | "reused" | "exhausted" | "person" | "single";
+  candidates: string[];
+}
+
+/**
  * EVENTO del calendario `primary` di una casella, in perimetro come la posta
  * (Fase 6).
  *
@@ -5719,6 +5741,8 @@ export const emailRejections = pgTable(
  *
  * Per il calendario NON c'è nessun run del modello: la proposta di milestone è
  * deterministica (titolo + data), quindi qui non esiste una `classification`.
+ * L'unica eccezione (lotto 9, voce 2 (a)) è la scelta del PROGETTO fra più
+ * candidati, in `project_guess` ({@link CalendarProjectGuess}).
  */
 export const calendarEvents = pgTable(
   "calendar_events",
@@ -5826,6 +5850,16 @@ export const calendarEvents = pgTable(
      * casella) e per le righe di prima.
      */
     calendarProposalId: uuid("calendar_proposal_id").references((): AnyPgColumn => calendarProposals.id, { onDelete: "set null" }),
+    /**
+     * Lotto 9, voce 2 (a), 0235: il progetto INDOVINATO per un evento singolo
+     * con più progetti candidati (dottrina nuova). `null` = da indovinare;
+     * `projectId: null` = il modello non è sicuro (o i tentativi sono finiti)
+     * e l'evento diventa una «Quale progetto?» condivisa fra i `candidates`.
+     * Le copie dello stesso `ical_uid` lo riusano (`calendar-guess.ts`).
+     */
+    projectGuess: jsonb("project_guess").$type<CalendarProjectGuess>(),
+    /** I tentativi FALLITI della scelta (errore del modello), con un tetto. */
+    projectGuessAttempts: smallint("project_guess_attempts").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
@@ -6148,9 +6182,15 @@ export const calendarProposals = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     icalUid: text("ical_uid").notNull(),
-    projectId: uuid("project_id")
-      .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+    /**
+     * Il progetto della proposta. `null` (lotto 9, voce 2 (a), 0235) = una
+     * «Quale progetto?»: la domanda fra `candidateProjectIds`, UNA per
+     * appuntamento (indice unico parziale); decisa, chi l'ha decisa sceglie il
+     * progetto e l'evento torna al percorso di progetto.
+     */
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    /** Solo per la «Quale progetto?» (`projectId` nullo): i progetti fra cui scegliere. */
+    candidateProjectIds: uuid("candidate_project_ids").array(),
     audience: text("audience").$type<"event_invitees">().notNull().default("event_invitees"),
     /** La copia dell'evento da cui è nata (la casella che l'ha trovata per prima). */
     calendarEventId: uuid("calendar_event_id").references((): AnyPgColumn => calendarEvents.id, { onDelete: "set null" }),
@@ -6171,6 +6211,8 @@ export const calendarProposals = pgTable(
   },
   (table) => [
     uniqueIndex("calendar_proposals_ical_uid_project_id_unique").on(table.icalUid, table.projectId),
+    uniqueIndex("calendar_proposals_ical_uid_choose_unique").on(table.icalUid).where(sql`project_id is null`),
+    check("calendar_proposals_choose_chk", sql`(project_id is null) = (candidate_project_ids is not null)`),
     check("calendar_proposals_status_chk", sql`status in ('proposed', 'actioned', 'ignored', 'failed')`),
     check("calendar_proposals_audience_chk", sql`audience in ('event_invitees')`),
   ],

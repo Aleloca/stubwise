@@ -1632,6 +1632,13 @@
       "when": 1804636800000,
       "tag": "0234_calendar_shared_proposals",
       "breakpoints": true
+    },
+    {
+      "idx": 235,
+      "version": "7",
+      "when": 1804723200000,
+      "tag": "0235_calendar_project_guess",
+      "breakpoints": true
     }
   ]
 }

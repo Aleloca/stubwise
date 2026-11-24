@@ -17,6 +17,7 @@ import {
 import type { RoleRuleError } from "../services/roles.js";
 import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
 import { alreadyMasked, listMailProposals, mailParticipantIds, maskMailDeciders } from "../services/mail-proposals.js";
+import { chooseCalendarProposalProject } from "../services/mail-proposals-calendar.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
@@ -178,8 +179,16 @@ export async function meMailProposalsRoutes(instance: FastifyInstance, opts: { m
       config: { access: { kind: "user" } },
       schema: { params: idParams, body: z.object({ projectId: z.uuid() }), response: decideResponses },
     },
-    async (request, reply) =>
-      send(request, reply, await chooseMailProposalProject(app.db, request.user!, request.params.id, request.body.projectId)),
+    async (request, reply) => {
+      const mail = await chooseMailProposalProject(app.db, request.user!, request.params.id, request.body.projectId);
+      // Lotto 9, voce 2 (a): un id che non è di una proposta della posta può
+      // essere la «Quale progetto?» condivisa del calendario (stesso 404 se non è nemmeno quella).
+      const result =
+        !mail.ok && mail.error === "not_found"
+          ? await chooseCalendarProposalProject(app.db, request.user!.id, request.params.id, request.body.projectId)
+          : mail;
+      return send(request, reply, result);
+    },
   );
 
   /**

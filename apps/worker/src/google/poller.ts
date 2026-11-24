@@ -12,9 +12,7 @@ import {
   instanceSettings,
   notifications,
   projectEmailRoutes,
-  projectMembers,
   projects,
-  users,
   type Db,
 } from "@stubwise/db";
 import { automationMailIn, isAutomatedMail } from "../automations/mail-in.js";
@@ -45,7 +43,6 @@ import {
   admit,
   matchRoutes,
   normalizeAddress,
-  projectPermissionsOfUser,
   type AdmissionConfig,
   type AdmissionResult,
   type EmailRoute,
@@ -95,8 +92,10 @@ import {
   closeCancelledSharedCalendarProposals,
   closeDeclinedCalendarRecipients,
   expireOldSharedCalendarProposals,
+  publishCalendarChooseProposals,
   publishSharedCalendarProposals,
 } from "./calendar-shared.js";
+import { attendeeProjects, guessCalendarProjects } from "./calendar-guess.js";
 import {
   classifyNewMessages,
   needsReclassification,
@@ -1523,10 +1522,19 @@ async function syncCalendar(
   // membro esplicito di UN progetto (escluso il proprietario), calcolato per
   // LOTTO; le regole non contano più. Col flag spento: le regole, come prima.
   const v2 = deps.classifyV2 === true;
-  const v2Projects = v2 ? await attendeeProjectsByEvent(deps.db, events, account) : null;
+  const v2Projects = v2 ? await attendeeProjects(deps.db, events, account.userId) : null;
   const live = new Map<
     string,
-    { event: GoogleCalendarEvent; startsAt: Date; fingerprint: string; candidate: boolean; projectId: string | null; projectBy: "rules" | "model" | null }
+    {
+      event: GoogleCalendarEvent;
+      startsAt: Date;
+      fingerprint: string;
+      candidate: boolean;
+      projectId: string | null;
+      projectBy: "rules" | "model" | null;
+      /** Lotto 9, voce 2 (a): candidato con più progetti, il progetto lo sceglie `calendar-guess.ts`. */
+      guessed: boolean;
+    }
   >();
   for (const event of events) {
     if (isCancelled(event)) continue;
@@ -1538,19 +1546,24 @@ async function syncCalendar(
     let candidate: boolean;
     let projectId: string | null;
     let projectBy: "rules" | "model" | null;
+    let guessed = false;
     if (v2Projects) {
       const projects = v2Projects.get(event.id) ?? [];
-      // Più progetti: la «Quale progetto?» del calendario è rimandata (registro): nessuna proposta.
-      candidate = titled && projects.length === 1;
-      projectId = candidate ? projects[0]! : null;
-      projectBy = candidate ? "model" : null;
+      // Lotto 9, voce 2 (a): un evento SINGOLO con PIÙ progetti è candidato
+      // senza progetto; lo sceglie il modello (`calendar-guess.ts`, una volta
+      // per evento) e sotto la soglia nasce la «Quale progetto?» condivisa.
+      // Le occorrenze delle serie con più progetti restano fuori, com'erano.
+      guessed = titled && projects.length > 1 && event.recurringEventId === null;
+      candidate = (titled && projects.length === 1) || guessed;
+      projectId = candidate && !guessed ? projects[0]! : null;
+      projectBy = projectId ? "model" : null;
     } else {
       const routed = routeEvent(event, ctx.routes);
       candidate = titled && routed.inScope;
       projectId = candidate ? routed.projectId : null;
       projectBy = candidate && routed.projectId ? "rules" : null;
     }
-    live.set(event.id, { event, startsAt, fingerprint: computeFingerprint(event.title, startsAt), candidate, projectId, projectBy });
+    live.set(event.id, { event, startsAt, fingerprint: computeFingerprint(event.title, startsAt), candidate, projectId, projectBy, guessed });
   }
   if (live.size === 0) return finish(false);
 
@@ -1613,7 +1626,7 @@ async function syncCalendar(
   const v2Baseline = v2 && account.calendarV2BaselineAt === null;
   const baseline = account.calendarBaselineAt === null || v2Baseline;
   let aborted = false;
-  for (const { event, startsAt, fingerprint, candidate, projectId: candidateProjectId, projectBy } of live.values()) {
+  for (const { event, startsAt, fingerprint, candidate, projectId: candidateProjectId, projectBy, guessed } of live.values()) {
     if (deps.signal?.aborted) {
       // Interrotto a metà: niente token (il giro dopo riparte da qui) e
       // nessuna linea di base chiusa (review F3b, punto 1).
@@ -1717,8 +1730,9 @@ async function syncCalendar(
             ? {
                 ...fresh,
                 proposalCandidate: true,
-                projectId: resolved.projectId,
-                projectBy,
+                // Lotto 9, voce 2 (a): con più progetti il progetto è della
+                // SCELTA (`project_guess`), non del sync: non si riscrive.
+                ...(guessed ? {} : { projectId: resolved.projectId, projectBy }),
                 // Una riga che DIVENTA candidata nella linea di base della dottrina
                 // nuova nasce chiusa, come una nuova: accendere il flag non propone.
                 ...(v2Baseline && !existing.proposalCandidate ? { outcome: CALENDAR_BASELINE_OUTCOME } : {}),
@@ -1810,45 +1824,6 @@ async function settleCalendarBaseline(db: Db, account: ClaimedAccount, v2 = fals
   if (v2 && account.calendarV2BaselineAt === null) {
     await db.update(googleAccounts).set({ calendarV2BaselineAt: new Date() }).where(and(eq(googleAccounts.id, account.id), isNull(googleAccounts.calendarV2BaselineAt)));
   }
-}
-
-/**
- * I progetti di ogni evento per la dottrina nuova (F3b, task 7): gli invitati
- * (e l'organizzatore) che sono persone di Stubwise, escluso il proprietario
- * della casella, e i progetti di cui sono membri ESPLICITI. Per LOTTO: una
- * lettura delle persone, una delle appartenenze, poi in memoria.
- */
-async function attendeeProjectsByEvent(db: Db, events: readonly GoogleCalendarEvent[], account: ClaimedAccount): Promise<Map<string, string[]>> {
-  const addressesOf = (e: GoogleCalendarEvent) => [...e.attendees.map((a) => a.email), ...(e.organizer ? [e.organizer] : [])].map((a) => normalizeAddress(a)).filter((a) => a.includes("@"));
-  const all = [...new Set(events.flatMap(addressesOf))];
-  const out = new Map<string, string[]>();
-  if (all.length === 0) return out;
-  const people = new Map<string, string>();
-  // `lower()`: un indirizzo salvato con le maiuscole è la stessa persona (review F3b).
-  const lowered = sql`array[${sql.join(all.map((a) => sql`${a}`), sql`, `)}]::text[]`;
-  for (const row of await db.select({ id: users.id, email: users.email }).from(users).where(and(eq(users.isAgent, false), sql`lower(${users.email}) = any(${lowered})`))) people.set(normalizeAddress(row.email), row.id);
-  for (const row of await db
-    .select({ id: googleAccounts.userId, email: googleAccounts.email })
-    .from(googleAccounts)
-    .innerJoin(users, eq(users.id, googleAccounts.userId))
-    .where(and(eq(users.isAgent, false), sql`lower(${googleAccounts.email}) = any(${lowered})`))) people.set(normalizeAddress(row.email), row.id);
-  const ids = [...new Set([...people.values()].filter((id) => id !== account.userId))];
-  const projectsOf = new Map<string, string[]>();
-  if (ids.length > 0) {
-    for (const row of await db.select({ userId: projectMembers.userId, projectId: projectMembers.projectId }).from(projectMembers).where(inArray(projectMembers.userId, ids))) {
-      projectsOf.set(row.userId, [...(projectsOf.get(row.userId) ?? []), row.projectId]);
-    }
-  }
-  // Solo i progetti che il PROPRIETARIO della casella vede (review F3b, punto
-  // 3): la card va a lui, e un progetto che per lui è 404 non ci finisce. Una
-  // verifica per progetto distinto del lotto, non per evento.
-  const ownerSees = new Map<string, boolean>();
-  for (const id of new Set([...projectsOf.values()].flat())) ownerSees.set(id, Boolean(await projectPermissionsOfUser(db, account.userId, id)));
-  for (const e of events) {
-    const userIds = new Set(addressesOf(e).flatMap((a) => (people.has(a) ? [people.get(a)!] : [])).filter((id) => id !== account.userId));
-    out.set(e.id, [...new Set([...userIds].flatMap((id) => projectsOf.get(id) ?? []))].filter((id) => ownerSees.get(id) === true));
-  }
-  return out;
 }
 
 /**
@@ -2682,6 +2657,30 @@ async function runAccountTick(
   // Lotto 9, voce 2 (d): gli eventi SINGOLI di questa casella, condivisi fra
   // gli invitati (una proposta per appuntamento e progetto). Le serie sono
   // passate da `runProposePhase`, per casella.
+  // Lotto 9, voce 2 (a): un evento singolo con PIÙ progetti candidati —
+  // il modello ne sceglie uno (una volta per evento, fuori dal tetto della
+  // posta); sotto la soglia nasce la «Quale progetto?» condivisa, subito dopo.
+  // Con la classificazione nuova e le proposte accese, come la posta.
+  // Fail-open: un guasto lascia le righe da indovinare al giro dopo.
+  if (account.proposalsEnabled && deps.classifyV2 && deps.runner) {
+    try {
+      await guessCalendarProjects(
+        {
+          db: deps.db,
+          runner: deps.runner,
+          select: deps.select,
+          maxPerTick: deps.classifyMaxPerTick ?? DEFAULT_CLASSIFY_MAX_PER_TICK,
+          ...(deps.gmailModel !== undefined ? { model: deps.gmailModel } : {}),
+          ...(deps.now ? { now: deps.now } : {}),
+          ...(deps.signal ? { signal: deps.signal } : {}),
+          ...(deps.logger ? { logger: deps.logger } : {}),
+        },
+        { id: account.id, userId: account.userId, email: account.email },
+      );
+    } catch (err) {
+      (deps.logger ?? defaultLogger).error(`google: progetto degli appuntamenti di ${account.email}: ${errText(err)}`);
+    }
+  }
   if (account.proposalsEnabled) {
     try {
       proposed += await publishSharedCalendarProposals(
@@ -2697,6 +2696,21 @@ async function runAccountTick(
       );
     } catch (err) {
       (deps.logger ?? defaultLogger).error(`google: proposte condivise del calendario di ${account.email}: ${errText(err)}`);
+    }
+    try {
+      proposed += await publishCalendarChooseProposals(
+        {
+          db: deps.db,
+          ...(deps.lang ? { lang: deps.lang } : {}),
+          ...(deps.publish ? { publish: deps.publish } : {}),
+          ...(deps.now ? { now: deps.now } : {}),
+          ...(deps.logger ? { logger: deps.logger } : {}),
+          limit: Math.max(0, Math.trunc(deps.proposeMaxPerTick ?? DEFAULT_PROPOSE_MAX_PER_TICK)),
+        },
+        { id: account.id, userId: account.userId, email: account.email },
+      );
+    } catch (err) {
+      (deps.logger ?? defaultLogger).error(`google: «Quale progetto?» del calendario di ${account.email}: ${errText(err)}`);
     }
   }
   // Area 6, F5a: le riunioni registrate di questa casella (il Doc di Gemini

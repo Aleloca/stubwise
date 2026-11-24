@@ -189,17 +189,45 @@ async function peopleByIds(db: Db, ids: readonly string[]): Promise<{ userId: st
  * progetto gli è visibile adesso. Sono conosciuti per questa proposta (sono
  * fra gli invitati): la regola dei nomi di `maskMailDeciders`.
  */
-export async function calendarSharedWith(db: Db, proposalId: string, projectId: string, viewerId: string | null): Promise<string[]> {
+export async function calendarSharedWith(db: Db, proposalId: string, projectId: string | readonly string[], viewerId: string | null): Promise<string[]> {
   const rows = await db
     .select({ userId: calendarProposalRecipients.userId })
     .from(calendarProposalRecipients)
     .where(and(eq(calendarProposalRecipients.proposalId, proposalId), isNull(calendarProposalRecipients.declinedAt)));
+  // Lotto 9, voce 2 (a): per una «Quale progetto?» basta vedere UNO dei candidati.
+  const projectIds = typeof projectId === "string" ? [projectId] : projectId;
   const out: string[] = [];
   for (const { userId } of rows) {
     if (userId === viewerId) continue;
-    if (await projectPermissionsOfUser(db, userId, projectId)) out.push(userId);
+    for (const id of projectIds) {
+      if (await projectPermissionsOfUser(db, userId, id)) {
+        out.push(userId);
+        break;
+      }
+    }
   }
   return out;
+}
+
+/**
+ * Lotto 9, voce 2 (a): la «Quale progetto?» condivisa del calendario
+ * (`calendar_proposals.project_id` nullo). Per chi guarda: i candidati che
+ * VEDE (`seen`, decide se la vede) e, fra questi, quelli in cui può
+ * CONFERMARE la proposta che ne nascerebbe (`choosable`, il permesso della
+ * milestone — lo stesso della conferma di una proposta del calendario): solo
+ * questi gli si offrono, e solo questi può scegliere.
+ */
+async function chooseScopeOf(db: Db, viewerId: string, candidates: readonly string[]): Promise<{ seen: string[]; choosable: string[] }> {
+  const needed = permissionForProposalAction("create_milestone");
+  const seen: string[] = [];
+  const choosable: string[] = [];
+  for (const id of candidates) {
+    const permissions = await projectPermissionsOfUser(db, viewerId, id);
+    if (!permissions) continue;
+    seen.push(id);
+    if (!needed || permissions.has(needed)) choosable.push(id);
+  }
+  return { seen, choosable };
 }
 
 /** L'estratto che vede ogni destinatario: «titolo · data» (la data dell'evento, come la milestone proposta). */
@@ -211,6 +239,7 @@ function sharedExcerpt(proposal: typeof calendarProposals.$inferSelect): string 
 
 async function sharedView(db: Db, viewerId: string, row: SharedRow): Promise<MailProposal | null> {
   const { proposal } = row;
+  if (proposal.projectId === null) return chooseView(db, viewerId, row);
   // Il progetto deve essere visibile ADESSO (la revoca vale a lettura).
   const permissions = await projectPermissionsOfUser(db, viewerId, proposal.projectId);
   if (!permissions) return null;
@@ -265,6 +294,179 @@ async function sharedView(db: Db, viewerId: string, row: SharedRow): Promise<Mai
   };
 }
 
+/** L'origine, l'evento: solo a chi lo ha nel SUO calendario (la sua copia). */
+async function ownOrigin(db: Db, viewerId: string, proposalId: string): Promise<MailProposal["calendarOrigin"]> {
+  const [own] = await db
+    .select({ id: calendarEvents.id, title: calendarEvents.title, startsAt: calendarEvents.startsAt, allDay: calendarEvents.allDay })
+    .from(calendarEvents)
+    .innerJoin(googleAccounts, eq(googleAccounts.id, calendarEvents.accountId))
+    .where(and(eq(googleAccounts.userId, viewerId), eq(calendarEvents.calendarProposalId, proposalId)))
+    .orderBy(asc(calendarEvents.createdAt))
+    .limit(1);
+  return own ? { eventId: own.id, title: own.title, startsAt: own.startsAt.toISOString(), allDay: own.allDay } : null;
+}
+
+/**
+ * La vista di una «Quale progetto?» del calendario (lotto 9, voce 2 (a)), con
+ * la forma di quella della posta (`buildView` in `mail-proposals.ts`): UN'azione
+ * `choose_project` con i soli progetti fra cui chi guarda può scegliere, e
+ * `projectId` = il primo che vede (la vista non porta mai l'id di un progetto
+ * che chi guarda non vede, e il campo resta obbligatorio per i client).
+ * Chi non vede nessun candidato non la vede affatto (404).
+ */
+async function chooseView(db: Db, viewerId: string, row: SharedRow): Promise<MailProposal | null> {
+  const { proposal } = row;
+  const { seen, choosable } = await chooseScopeOf(db, viewerId, proposal.candidateProjectIds ?? []);
+  if (seen.length === 0) return null;
+  const status = sharedStatus(proposal.status);
+  const sharedWith = await peopleByIds(db, await calendarSharedWith(db, proposal.id, proposal.candidateProjectIds ?? [], viewerId));
+  const [decidedBy] = proposal.decidedByUserId ? await peopleByIds(db, [proposal.decidedByUserId]) : [];
+  const chosen = (proposal.outcome as { projectId?: unknown } | null)?.projectId;
+  return {
+    id: proposal.id,
+    kind: "calendar",
+    messageId: null,
+    projectId: (typeof chosen === "string" && seen.includes(chosen) ? chosen : choosable[0]) ?? seen[0]!,
+    status,
+    createdAt: proposal.createdAt.toISOString(),
+    excerpt: sharedExcerpt(proposal),
+    actions: [{ type: "choose_project", args: { projectIds: choosable }, label: "" }],
+    canConfirm: false,
+    canHand: false,
+    canReassign: false,
+    editable: false,
+    blockedIndices: [],
+    outsiders: [],
+    decidedBy: decidedBy ?? null,
+    decidedAt: proposal.decidedAt?.toISOString() ?? null,
+    confirmedIndices: [],
+    results: [],
+    error: proposal.error,
+    handedAt: null,
+    handedBy: null,
+    sharedWith,
+    origin: null,
+    calendarOrigin: await ownOrigin(db, viewerId, proposal.id),
+    meetingOrigin: null,
+  };
+}
+
+/**
+ * Decidere la «Quale progetto?» del calendario: chi la riceve sceglie UNO dei
+ * candidati in cui può confermare. La domanda si chiude per tutti (riga
+ * bloccata `FOR UPDATE`, stato ricontrollato: la prima scelta vince, chi
+ * arriva dopo ha `already_handled` con chi l'ha decisa) e l'evento torna al
+ * percorso di PROGETTO: le copie legate prendono il progetto scelto e si
+ * slegano, e il giro dopo del worker fa nascere la proposta condivisa vera
+ * (`publishSharedCalendarProposals`), con i SUOI destinatari (il titolare di
+ * ogni casella e gli invitati membri espliciti del progetto). Una copia il cui
+ * titolare non vede il progetto scelto resta senza progetto: non gli nasce una
+ * card su un progetto che per lui non esiste.
+ *
+ * Stessa semantica della «Quale progetto?» della posta condivisa
+ * (`chooseMailProposalProject`: la domanda se ne va, la proposta vera la
+ * pubblica il worker), con un servizio suo: NON passa da `dispatchAction` di
+ * `google-proposal.ts`, che su una proposta del calendario rifiuta
+ * `choose_project` apposta (le due semantiche di là non si toccano). Il
+ * registro decisioni non si scrive: è una scelta di smistamento, come per la
+ * posta.
+ */
+export async function chooseCalendarProposalProject(db: Db, viewerId: string, id: string, projectId: string): Promise<DecideResult> {
+  const [row] = await sharedRows(db, viewerId, { id });
+  if (!row) return { ok: false, error: "not_found" };
+  if (row.proposal.projectId !== null) return { ok: false, error: "invalid_selection" };
+  const candidates = row.proposal.candidateProjectIds ?? [];
+  const { seen, choosable } = await chooseScopeOf(db, viewerId, candidates);
+  // Invisibile = inesistente: chi non vede nessun candidato ha il 404 di una che non c'è.
+  if (seen.length === 0) return { ok: false, error: "not_found" };
+  if (row.proposal.status !== "proposed") return { ok: false, error: "already_handled", decidedBy: await decidedByOf(db, row.proposal.decidedByUserId) };
+  // Un progetto fuori dai candidati, o che chi sceglie non vede: non c'è.
+  if (!seen.includes(projectId)) return { ok: false, error: "invalid_target" };
+  // Lo vede ma non può confermarvi la proposta: non è suo da scegliere.
+  if (!choosable.includes(projectId)) return { ok: false, error: "forbidden" };
+  const decided = await db.transaction(async (tx) => {
+    const [locked] = await tx.select({ status: calendarProposals.status }).from(calendarProposals).where(eq(calendarProposals.id, id)).for("update");
+    if (!locked || locked.status !== "proposed") return false;
+    await tx
+      .update(calendarProposals)
+      .set({ status: "actioned", outcome: { type: "project_chosen", projectId }, decidedByUserId: viewerId, decidedAt: new Date() })
+      .where(and(eq(calendarProposals.id, id), eq(calendarProposals.status, "proposed")));
+    await closeCalendarCards(tx, id);
+    // Le copie tornano al percorso di progetto: solo dove il titolare lo vede.
+    const copies = await tx
+      .select({ id: calendarEvents.id, ownerId: googleAccounts.userId })
+      .from(calendarEvents)
+      .innerJoin(googleAccounts, eq(googleAccounts.id, calendarEvents.accountId))
+      .where(and(eq(calendarEvents.calendarProposalId, id), isNull(calendarEvents.outcome)));
+    for (const copy of copies) {
+      const sees = Boolean(await projectPermissionsOfUser(tx, copy.ownerId, projectId));
+      await tx
+        .update(calendarEvents)
+        .set({
+          calendarProposalId: null,
+          projectGuess: sql`jsonb_set(jsonb_set(coalesce(${calendarEvents.projectGuess}, '{}'::jsonb), '{projectId}', to_jsonb(${projectId}::text)), '{by}', '"person"'::jsonb)`,
+          ...(sees ? { projectId, projectBy: "manual" as const } : {}),
+        })
+        .where(eq(calendarEvents.id, copy.id));
+    }
+    return true;
+  });
+  if (!decided) {
+    const [fresh] = await db.select({ decidedBy: calendarProposals.decidedByUserId }).from(calendarProposals).where(eq(calendarProposals.id, id));
+    return { ok: false, error: "already_handled", decidedBy: await decidedByOf(db, fresh?.decidedBy ?? null) };
+  }
+  return { ok: true, status: "moved", projectId };
+}
+
+/**
+ * «Non fare nulla» sulla «Quale progetto?» del calendario: la chiude per
+ * tutti (`ignored`), come la decide il primo. Basta vederla.
+ */
+export async function ignoreCalendarChoose(db: Db, viewerId: string, id: string): Promise<DecideResult> {
+  const [row] = await sharedRows(db, viewerId, { id });
+  if (!row) return { ok: false, error: "not_found" };
+  if (row.proposal.projectId !== null) return { ok: false, error: "invalid_selection" };
+  const { seen } = await chooseScopeOf(db, viewerId, row.proposal.candidateProjectIds ?? []);
+  if (seen.length === 0) return { ok: false, error: "not_found" };
+  const decided = await db.transaction(async (tx) => {
+    const [locked] = await tx.select({ status: calendarProposals.status }).from(calendarProposals).where(eq(calendarProposals.id, id)).for("update");
+    if (!locked || locked.status !== "proposed") return false;
+    await tx
+      .update(calendarProposals)
+      .set({ status: "ignored", outcome: { type: "ignored" }, decidedByUserId: viewerId, decidedAt: new Date() })
+      .where(and(eq(calendarProposals.id, id), eq(calendarProposals.status, "proposed")));
+    await closeCalendarCards(tx, id);
+    return true;
+  });
+  if (!decided) {
+    const [fresh] = await db.select({ decidedBy: calendarProposals.decidedByUserId }).from(calendarProposals).where(eq(calendarProposals.id, id));
+    return { ok: false, error: "already_handled", decidedBy: await decidedByOf(db, fresh?.decidedBy ?? null) };
+  }
+  return { ok: true, status: "ignored" };
+}
+
+/** Le card di TUTTI i destinatari, chiuse insieme (come `closeSharedCalendarProposal`). */
+async function closeCalendarCards(tx: Parameters<Parameters<Db["transaction"]>[0]>[0], proposalId: string): Promise<void> {
+  const cards = await tx.select({ id: calendarProposalRecipients.notificationId }).from(calendarProposalRecipients).where(eq(calendarProposalRecipients.proposalId, proposalId));
+  const ids = cards.flatMap((c) => (c.id ? [c.id] : []));
+  if (ids.length > 0) {
+    await tx
+      .update(notifications)
+      .set({ status: "handled", handledAt: new Date() })
+      .where(and(inArray(notifications.id, ids), eq(notifications.status, "open")));
+  }
+}
+
+/** La «Quale progetto?» del calendario di cui questa card è la copia di chi guarda, se lo è. */
+export async function calendarChooseOfNotification(db: Db, userId: string, notificationId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ proposalId: calendarProposals.id })
+    .from(calendarProposalRecipients)
+    .innerJoin(calendarProposals, eq(calendarProposals.id, calendarProposalRecipients.proposalId))
+    .where(and(eq(calendarProposalRecipients.notificationId, notificationId), eq(calendarProposalRecipients.userId, userId), isNull(calendarProposals.projectId)));
+  return row?.proposalId ?? null;
+}
+
 async function decidedByOf(db: Db, userId: string | null): Promise<{ userId: string; name: string } | null> {
   if (!userId) return null;
   const [person] = await peopleByIds(db, [userId]);
@@ -287,6 +489,14 @@ async function decideShared(
 ): Promise<DecideResult | null> {
   const [row] = await sharedRows(db, viewerId, { id });
   if (!row) return null;
+  // Lotto 9, voce 2 (a): la «Quale progetto?» si sceglie (`/choose-project`) o si ignora; non si conferma.
+  if (row.proposal.projectId === null) {
+    if (decision.kind === "ignore") return ignoreCalendarChoose(db, viewerId, id);
+    const { seen } = await chooseScopeOf(db, viewerId, row.proposal.candidateProjectIds ?? []);
+    if (seen.length === 0) return null;
+    if (row.proposal.status !== "proposed") return { ok: false, error: "already_handled", decidedBy: await decidedByOf(db, row.proposal.decidedByUserId) };
+    return { ok: false, error: "invalid_selection" };
+  }
   if (!(await projectPermissionsOfUser(db, viewerId, row.proposal.projectId))) return null;
   if (row.proposal.status !== "proposed" || !row.notificationId) {
     return { ok: false, error: "already_handled", decidedBy: await decidedByOf(db, row.proposal.decidedByUserId) };

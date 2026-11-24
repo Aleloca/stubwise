@@ -390,6 +390,13 @@ async function findSourceRow(db: DbOrTx, notificationId: string): Promise<Propos
     .innerJoin(calendarProposals, eq(calendarProposals.id, calendarProposalRecipients.proposalId))
     .where(eq(calendarProposalRecipients.notificationId, notificationId));
   if (sharedRow) {
+    // Lotto 9, voce 2 (a): la «Quale progetto?» del calendario (nessun
+    // progetto) non si esegue da qui — ha il suo servizio
+    // (`chooseCalendarProposalProject`, `mail-proposals-calendar.ts`). Senza
+    // riga d'origine il chiamante risponde `proposal_stale` PRIMA del claim:
+    // niente si chiude, e `dispatchAction` non vede mai un `choose_project`
+    // del calendario.
+    if (sharedRow.projectId === null) return null;
     return {
       source: "calendar",
       rowId: sharedRow.id,
