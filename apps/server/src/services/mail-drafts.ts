@@ -429,7 +429,10 @@ export async function saveDraft(
   } else wanted = null;
   const sender = resolveFrom(aliases, wanted);
   if (!sender) return { error: "invalid_from" };
-  const fromAddress = wanted === null ? null : sender.email;
+  // Revisione 8–9 (M-11): si salva l'indirizzo EFFETTIVO quando è un alias
+  // (anche il predefinito scelto da `from: null`), così l'Invia e il worker lo
+  // riverificano; null solo quando parte dall'indirizzo della casella.
+  const fromAddress = normalizeAddress(sender.email) === normalizeAddress(writable.account.email) ? null : sender.email;
   const { signature } = await signatureOf(db, input.accountId, fromAddress);
   const { text, inReplyTo } = await composedBody(db, input.body, input.quote, input.replyToMessageId, signature);
   // Il Message-ID è NOSTRO e stabile per la bozza (review F3, punto 6): il
