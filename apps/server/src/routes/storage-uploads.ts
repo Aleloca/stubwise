@@ -18,7 +18,8 @@ export async function storageUploadsRoutes(instance: FastifyInstance): Promise<v
     { config: { access: { kind: "user" } }, schema: { response: { 200: storageUploadsSchema, ...authErrorResponses } } },
     async () => {
       const [row] = await app.db.select().from(instanceSettings).limit(1);
-      return { allowed: storageConfigured(row, app.encryptionKey) };
+      // Lotto 6, voce 2: e l'interruttore degli allegati acceso.
+      return { allowed: (row?.attachmentsSwitch ?? true) && storageConfigured(row, app.encryptionKey) };
     },
   );
 }

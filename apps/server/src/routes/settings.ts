@@ -16,6 +16,8 @@ import type { Db } from "@stubwise/db";
 import { instanceSettings, monthlyCostUsd } from "@stubwise/db";
 import { aiBudgetState } from "@stubwise/notifications";
 import { s3ConfigFromSettings } from "../storage/index.js";
+import { setAttachments } from "../services/attachments-switch.js";
+import { apiError } from "../errors.js";
 import { requireReauth } from "../auth/access.js";
 import { loadAllRules, loadPrReviewSettings, putAutomationSettings, putInstanceSettings } from "../services/instance-settings-writes.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
@@ -154,8 +156,9 @@ async function loadInstanceSettings(
   encryptionKey: Buffer,
 ): Promise<z.infer<typeof instanceSettingsViewSchema>> {
   const [row] = await db.select().from(instanceSettings).limit(1);
-  // attachmentsEnabled = config S3 completa E valida (`storageConfigured`).
-  const attachmentsEnabled = storageConfigured(row, encryptionKey);
+  // attachmentsEnabled = config S3 completa E valida (`storageConfigured`) E interruttore acceso (lotto 6).
+  const attachmentsSwitch = row?.attachmentsSwitch ?? true;
+  const attachmentsEnabled = attachmentsSwitch && storageConfigured(row, encryptionKey);
   return {
     contentLanguage: row?.contentLanguage ?? "en",
     // numeric → stringa lato driver: converto a number, null resta null.
@@ -168,6 +171,7 @@ async function loadInstanceSettings(
     s3SecretKeySet: row?.s3SecretKeyEncrypted != null,
     s3SecretKeyLast4: row?.s3SecretKeyEncrypted != null ? (row.s3SecretKeyLast4 ?? null) : null,
     attachmentsEnabled,
+    attachmentsSwitch,
     // Mai i segreti Slack: solo se c'è un blob cifrato salvato. slackEnabled =
     // entrambi presenti (integrazione completa).
     slackSigningSecretSet: row?.slackSigningSecretEncrypted != null,
@@ -386,6 +390,20 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
       const { reachedBefore } = await putInstanceSettings(app.db, app.encryptionKey, request.user!, body);
       const view = await loadInstanceSettings(app.db, app.encryptionKey);
       return { ...view, budgetEffect: budgetEffectOf(reachedBefore, view.budgetReached) };
+    },
+  );
+
+  // Lotto 6, voce 2: l'interruttore degli allegati (`settings.manage`, senza riconferma, come il prototipo).
+  app.put(
+    "/instance/attachments",
+    {
+      config: { access: { kind: "instance", permission: "settings.manage" } },
+      schema: { body: z.object({ on: z.boolean() }), response: { 200: instanceSettingsViewSchema, 422: errorSchema, ...authErrorResponses } },
+    },
+    async (request, reply) => {
+      const out = await setAttachments(app.db, app.encryptionKey, request.user!, request.body.on);
+      if (!out.ok) return apiError(reply, 422, "not_set_up", "Set up the storage before turning attachments on");
+      return loadInstanceSettings(app.db, app.encryptionKey);
     },
   );
 

@@ -6270,3 +6270,14 @@ deploy o di un rollback che la tocca.
   `UPDATE outgoing_webhooks SET last_test_outcome = 'invalid_credentials'
   WHERE last_test_outcome = 'destination_error'`; poi, se serve,
   `DROP COLUMN last_test_status` e il CHECK di prima.
+- **«Lotto 6: l'interruttore degli allegati»** *(24 nov 2026)*: branch
+  `feat/rimandi-server`. **Migrazione 0228** (`instance_settings.attachments_switch`,
+  boolean NOT NULL **default true**: sulle istanze esistenti non cambia
+  niente). `PUT /api/settings/instance/attachments { on }`
+  (`settings.manage`, senza riconferma): accenderlo chiede l'archiviazione
+  configurata (422 `not_set_up`). Spento, le scritture dello storage rifiutano
+  (409 `attachments_off`) e la lettura resta; `attachmentsEnabled` e
+  `GET /api/storage/uploads` lo dicono. Solo **server** (poi **caddy**).
+  **Rollback**: sicuro; ⚠️ un server vecchio ignora l'interruttore, quindi
+  con la colonna a `false` gli allegati tornano accesi. Per togliere la
+  colonna: server vecchio, poi `DROP COLUMN attachments_switch`.

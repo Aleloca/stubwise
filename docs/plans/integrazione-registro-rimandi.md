@@ -1576,9 +1576,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     - `patchProvider` con `position` scrive `provider.reordered` (stessa
       forma di `reorderProviders`) se l'ordine cambia;
   - Azioni di Claude (F7, Task 4): **`setAttachments`** non ha una voce,
-    perché sul server gli allegati non hanno un interruttore: si accendono
+    perché sul server gli allegati non hanno un interruttore: ~~si accendono
     da soli con l'archiviazione configurata e valida (`attachmentsEnabled` è
-    derivato). Serve prima un interruttore d'istanza sul server *(S)*;
+    derivato). Serve prima un interruttore d'istanza sul server *(S)*;~~
+    *l'interruttore c'è dal 24 nov 2026 (72, lotto 6, 0228)*:
+    `PUT /api/settings/instance/attachments`, `attachmentsSwitch` nella
+    vista; spento, le scritture dello storage rifiutano (la voce del
+    catalogo nel commit dopo);
   - ~~Azioni di Claude (F7, Task 4): **`setDefaultReviewer`** non ha una voce:
     il `PUT /api/git-accounts/:id/default-reviewer` verifica il token
     chiamando il provider (account, scope, identità), e dentro il catalogo

@@ -133,7 +133,14 @@ export const instanceSettingsViewSchema = z.object({
   s3SecretKeySet: z.boolean().default(false),
   /** Rimandi, lotto 5: le ultime 4 della chiave («•••• 9e2b»); null senza chiave o per una salvata prima della 0225. */
   s3SecretKeyLast4: z.string().nullable().default(null),
+  /** Gli allegati vanno ADESSO: archiviazione configurata e valida E interruttore acceso. */
   attachmentsEnabled: z.boolean().default(false),
+  /**
+   * Lotto 6, voce 2: l'interruttore d'istanza (il prototipo, «Attachments»).
+   * Si accende solo con l'archiviazione configurata; spento, i caricamenti
+   * nuovi si fermano. `.default(true)`: un server più vecchio non ce l'ha.
+   */
+  attachmentsSwitch: z.boolean().default(true),
   // Slack: solo i flag (il web vecchio; fuori dall'app nuova).
   slackSigningSecretSet: z.boolean().default(false),
   slackBotTokenSet: z.boolean().default(false),
