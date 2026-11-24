@@ -55,9 +55,52 @@ let calendarItems: unknown[] = [];
 let importantThreads: unknown[] = [];
 /** Area 8: le righe di «Clienti in attesa». */
 let waitingItems: unknown[] = [];
+/** Lotto 7, A7: le automazioni viste e le esecuzioni che mi riguardano. */
+let automationRows: unknown[] = [];
+let myAutomationRuns: unknown[] = [];
+const AUTOMATION_ROWS: unknown[] = [
+  {
+    id: "77777777-7777-4777-8777-777777777771",
+    code: "AUD-A1",
+    name: "Avvio progetto",
+    description: "",
+    projectId: PROJECT_ID,
+    ownerId: ME_ID,
+    status: "active",
+    versions: [],
+    createdAt: "2026-11-01T09:00:00.000Z",
+    createdById: ME_ID,
+    permissions: { manage: true },
+    openRuns: 1,
+    waitingRuns: 1,
+    lastRunAt: "2026-11-20T09:00:00.000Z",
+    hasDraft: false,
+    configErrorCount: 0,
+    liveErrorCount: 0,
+  },
+];
+const MY_RUNS: unknown[] = [
+  {
+    id: "77777777-7777-4777-8777-777777777779",
+    automationId: "77777777-7777-4777-8777-777777777771",
+    n: 3,
+    code: "AUD-A1 #3",
+    title: "Kickoff for Acme",
+    status: "waiting",
+    startedAt: "2026-11-20T09:00:00.000Z",
+    endedAt: null,
+    automationCode: "AUD-A1",
+    automationName: "Avvio progetto",
+    automationProjectId: PROJECT_ID,
+    log: [],
+    concern: "waiting_me",
+  },
+];
 
 beforeEach(() => {
   hidden.area = null;
+  automationRows = [];
+  myAutomationRuns = [];
   waitingItems = [];
   googleAccounts = [];
   calendarItems = [];
@@ -92,6 +135,8 @@ beforeEach(() => {
   });
   seen = installFakeServer({
     "GET /api/me/claude-decisions": () => ({ body: claudeDecisions }),
+    "GET /api/automations": () => ({ body: { items: automationRows } }),
+    "GET /api/me/automation-runs": () => ({ body: { items: myAutomationRuns } }),
     // Area 6, fetta 1: «Prossimi appuntamenti» dal Calendario in lettura.
     "GET /api/me/google/accounts": () => ({ body: googleAccounts }),
     "GET /api/me/calendar/range": (req: SeenRequest) => calendarRangeRoute(calendarItems)(req),
@@ -334,6 +379,18 @@ describe("la Home nella build app", () => {
     expect(seen.find((r) => r.path === `/api/tickets/${TICKET_ID}/approve-plan`)?.body).toEqual({
       planDigest: "sha256:mostrato",
     });
+  });
+
+  // Lotto 7, A7 (registro: «Blocco della Home delle automazioni»): il blocco
+  // nella build app, sulle rotte dell'area 7 (`/api/me/automation-runs`).
+  it("«Automations»: le esecuzioni che mi riguardano, dal server", async () => {
+    personalBlocks = [{ kind: "automations" }];
+    automationRows = AUTOMATION_ROWS;
+    myAutomationRuns = MY_RUNS;
+    renderRoute("/home");
+    const block = await screen.findByRole("region", { name: /^Automations/ });
+    expect(await within(block).findByText(/AUD-A1 #3/)).toBeInTheDocument();
+    expect(seen.some((r) => r.path.startsWith("/api/me/automation-runs"))).toBe(true);
   });
 
   it("personalizzare dall'app non cancella un blocco di un'area spenta né un kind sconosciuto", async () => {
