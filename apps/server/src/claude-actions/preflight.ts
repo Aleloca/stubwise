@@ -53,7 +53,12 @@ const PREFLIGHTS: Partial<Record<ClaudeActionFn, Preflight>> = {
     if (!deps.encryptionKey) return refused("other", "preflight_unavailable");
     const [row] = await db.select().from(gitAccounts).where(eq(gitAccounts.id, args["id"] as string));
     if (!row) return refused("not_found", "git_account_not_found");
-    const check = await verifyDefaultReviewer(row, deps.encryptionKey, deps.signal ? { signal: deps.signal } : {});
+    const signal = deps.signal;
+    // Il `fetch` che si ferma col segnale del tempo massimo (M-1): si costruisce QUI, nell'uscita sanzionata.
+    const fetchImpl: typeof fetch | undefined = signal
+      ? (input, init) => fetch(input, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, signal]) : signal })
+      : undefined;
+    const check = await verifyDefaultReviewer(row, deps.encryptionKey, fetchImpl ? { fetchImpl } : {});
     if (!check.ok) return refused(check.status === 400 ? "invalid" : "conflict", check.code);
     return { ok: true, prepared: { row, providerUserId: check.providerUserId } satisfies DefaultReviewerPrepared };
   },
