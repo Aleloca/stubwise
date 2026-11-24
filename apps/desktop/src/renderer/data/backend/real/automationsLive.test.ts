@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { automations } from ".";
 import { setAppClientForTests } from "./client";
-import { forgetAutomationRefs } from "./automationsLive";
+import { claudeAnswerOf, forgetAutomationRefs } from "./automationsLive";
 import { installFakeServer, me, ME_ID, PROJECT_ID } from "./fakeServer";
 import { getSessionPerson } from "./session";
 
@@ -498,5 +498,20 @@ describe("gli agganci delle pagine", () => {
     await expect(automations.startSimulation(A_ID, "draft", {})).rejects.toBeInstanceOf(
       automations.SimulationConfigError,
     );
+  });
+});
+
+// Rimandi, lotto 5, voce 4 (72, 30281eff6): il costo del passo arriva
+// accanto alla risposta (200, e i `details` del 422 `claude_invalid`); non è
+// un campo della risposta, e il motore non lo riceve.
+describe("la risposta di Claude per il motore", () => {
+  it("senza `costUsd`, col resto intatto", () => {
+    expect(
+      claudeAnswerOf({ outcome: "si", reason: "Firmato", truncated: ["a"], costUsd: 0.004 }),
+    ).toEqual({ outcome: "si", reason: "Firmato", truncated: ["a"] });
+    expect(claudeAnswerOf({ reason: "", fields: { n: 1 }, costUsd: null })).toEqual({
+      reason: "",
+      fields: { n: 1 },
+    });
   });
 });
