@@ -147,6 +147,9 @@ const connectGoogle: Drive["connectGoogle"] = async (options = {}) => {
   } catch (error) {
     // La scheda aperta nel clic resterebbe vuota.
     tab?.close();
+    // Revisione del lotto 5, Minor 10: `connect` rifiutato dopo aver preparato
+    // lo state: il main lo dimentica anche qui, non solo a fine attesa.
+    if (returnState && bridge) void bridge.cancelConnect().catch(() => undefined);
     throw error;
   }
   if (tab && !tab.closed) {
