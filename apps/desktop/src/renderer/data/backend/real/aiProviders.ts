@@ -50,8 +50,19 @@ function refusalOf(error: unknown): Extract<InstanceResult, { ok: false }> {
   throw error;
 }
 
-const outcomeOf = (status: string): TestOutcome | null =>
-  status === "passed" ? "ok" : status === "failed" ? "invalid_credentials" : null;
+/**
+ * L'esito della prova. Rimandi, lotto 5, voce 6 (72, 8e1c90426): un fallimento
+ * dice se era la rete o la credenziale (`testFailure`, derivato dal server);
+ * un server di prima non lo dice, e resta «credenziale», come prima.
+ */
+const outcomeOf = (p: { testStatus: string; testFailure?: string | null }): TestOutcome | null =>
+  p.testStatus === "passed"
+    ? "ok"
+    : p.testStatus === "failed"
+      ? p.testFailure === "unreachable"
+        ? "unreachable"
+        : "invalid_credentials"
+      : null;
 
 export function createRealProviders(api: ProvidersApi) {
   async function attempt<T extends object>(call: () => Promise<T>): Promise<InstanceResult<T>> {
@@ -64,7 +75,7 @@ export function createRealProviders(api: ProvidersApi) {
 
   const viewOf = (p: Any, snapshot: Any | undefined): ProviderView => {
     const kind = kindOf(p.kind);
-    const outcome = outcomeOf(p.testStatus);
+    const outcome = outcomeOf(p);
     const band = p.quotaBand === "near" || p.quotaBand === "limited" ? p.quotaBand : "ok";
     const quota =
       kind === "subscription" && (snapshot || p.limitedUntil)
@@ -165,7 +176,7 @@ export function createRealProviders(api: ProvidersApi) {
         for (let i = 0; i < POLL_TIMES; i++) {
           const row = (await api.list()).find((p) => p.id === id);
           if (!row) return { ok: false, error: "not_found" };
-          const outcome = outcomeOf(row.testStatus);
+          const outcome = outcomeOf(row);
           if (outcome) return { ok: true, outcome };
           await api.wait(POLL_MS);
         }
