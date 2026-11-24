@@ -137,8 +137,9 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
     d'azione (`/plan`, `/new-task`, `/new-request`, `/run`). ✅ *Area 10, F8:
     `/status` e `/today` (i tool `read_followed_projects` e `read_my_week`)
     e le skill dei plugin del progetto di contesto (`GET
-    /api/projects/:id/plugins`).* Resta diverso dal prototipo: le skill non
-    hanno la descrizione (il registro dà solo i nomi) e il plugin base non
+    /api/projects/:id/plugins`).* Resta diverso dal prototipo: ~~le skill non
+    hanno la descrizione (il registro dà solo i nomi)~~ *(dal 24 nov 2026 il
+    registro del progetto porta `skillDescriptions`, 72, lotto 5)* e il plugin base non
     c'è (sta fuori dal registro).
   - Le citazioni registrate su un messaggio non esistono sul server: Claude
     cita col codice nel testo, che la pagina risolve (`resolveCodes`, task e
@@ -1493,8 +1494,12 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     modifiche); il `name` del manifest resta per il preset e per il
     namespace di «/»;
   - Plugins: il plugin base non c'è (sta fuori dal registro del server, nel
-    prototipo viene dal seme); le skill non hanno descrizione e i gruppi di
-    hook non hanno comando (il registro del progetto non li manda) *(S)*;
+    prototipo viene dal seme); ~~le skill non hanno descrizione e i gruppi di
+    hook non hanno comando (il registro del progetto non li manda) *(S)*;~~
+    *parte server chiusa il 24 nov 2026 (72, lotto 5)*: `skillDescriptions`
+    a tutti, `hookCommands` SOLO a chi può salvare (`canEdit`, decisione di
+    46: il comando è il codice che l'hook esegue; chi legge vede i nomi dei
+    gruppi; il prototipo va allineato, oggi li mostra a chiunque legga);
   - ~~Plugins: la lettura è sotto `project.settings.manage`.~~ **Chiuso
     (review di F5)**: la GET risponde a chi vede il progetto, con `canEdit`
     del server (72, f480e527b); la pagina è in sola lettura per gli altri.
