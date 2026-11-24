@@ -14,6 +14,7 @@ export {
 } from "./dispatch.js";
 
 export * from "./backlog-item-writes.js";
+export * from "./claude-contexts.js";
 // Il codice della reason di una pausa dei Docs (F2b): lo scrive e lo confronta
 // il worker, lo legge la resa di `docs.limit_paused` qui dentro.
 export * from "./docs-pause-reason.js";

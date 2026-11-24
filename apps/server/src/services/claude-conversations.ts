@@ -14,7 +14,6 @@ import {
   CLAUDE_CONVERSATION_CLOSED_CHANNEL,
   conversationTitleFrom,
   type ClaudeConversation,
-  type ClaudeConversationContext,
   type ClaudeConversationDetail,
   type ClaudeVisibilityConfirmation,
   type ContinueClaudeConversationInput,
@@ -22,10 +21,8 @@ import {
   type PatchClaudeConversationInput,
   type SetClaudeConversationVisibilityInput,
 } from "@stubwise/shared";
-import { visibleProjectIds, scopeIncludes } from "../auth/access.js";
 import {
   canReadPublic,
-  contextProjectId,
   hasToolReads,
   holdOf,
   nextEventId,
@@ -36,6 +33,8 @@ import {
   touchedProjectIds,
 } from "./claude-public.js";
 import { personName } from "./people.js";
+import { contextsForViewer } from "./claude-contexts-view.js";
+import { appendContext, CLAUDE_CONTEXTS_MAX, dedupeContexts, type ClaudeContextRef } from "@stubwise/notifications";
 import { freeSessionStates, loadAgentSession, monthlyBudgetExhausted, type SessionViewer } from "./agent-sessions.js";
 
 // La conversazione libera con Claude (chat, fetta 1): una sessione dell'agente
@@ -58,6 +57,12 @@ async function namesOf(db: Db, ids: (string | null)[]): Promise<Map<string, stri
   return new Map(rows.map((r) => [r.id, personName(r)]));
 }
 
+/** Il gruppo dei contesti di una riga: `context_refs`, o il solo `context_ref` di una riga di prima. */
+function groupOf(row: ConversationRow): ClaudeContextRef[] {
+  if (row.contextRefs.length > 0) return row.contextRefs;
+  return row.contextRef ? [row.contextRef] : [];
+}
+
 /**
  * La conversazione come la vede CHI GUARDA (fetta 5): l'autore ha tutto; un
  * lettore di una pubblica non ha il seguito privato, i progetti che non vede
@@ -68,12 +73,10 @@ async function toView(db: Db, viewer: SessionViewer, row: ConversationRow, sessi
   const archived = row.archivedAt !== null;
   const names = await namesOf(db, [row.ownerId, row.publishedBy]);
   const hold = await holdOf(db, row);
-  let context = (row.contextRef as ClaudeConversationContext | null) ?? null;
-  if (context && !isOwner) {
-    const projectId = await contextProjectId(db, row);
-    const visible = projectId ? await visibleProjectIds(db, viewer) : [];
-    if (!projectId || (!scopeIncludes(visible, projectId))) context = null;
-  }
+  // Lotto 8, voce 3: il gruppo dei contesti come lo vede chi guarda (anche
+  // l'autore: uno che non vede più esce alla lettura); il primario è l'ultimo.
+  const [contexts] = await contextsForViewer(db, viewer, [groupOf(row)], isOwner);
+  const context = contexts!.at(-1) ?? null;
   // Un lettore: il titolo e l'ultima attività come li vede lui (fetta 5, review).
   const snapshot = isOwner ? null : await readerSnapshot(db, row);
   const continuesFrom = row.continuesFromSessionId
@@ -84,6 +87,7 @@ async function toView(db: Db, viewer: SessionViewer, row: ConversationRow, sessi
     title: snapshot?.titleHidden ? "" : row.title,
     archived,
     context,
+    contexts: contexts!,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     state: snapshot ? (hold.held ? "idle" : session.state) : session.state,
@@ -274,7 +278,8 @@ export type CreateClaudeConversationResult =
 export async function createClaudeConversation(
   db: Db,
   viewer: SessionViewer,
-  input: CreateClaudeConversationInput,
+  /** `contexts` (lotto 8, voce 3): solo dall'interno (la continuazione), il gruppo già filtrato. */
+  input: CreateClaudeConversationInput & { contexts?: ClaudeContextRef[] },
   /** Solo la continuazione (F5.3): l'originale e la sua trascrizione leggibile. */
   continuation?: { fromSessionId: string; originTranscript: ClaudeOriginTranscript; untrustedReadAt: Date | null },
 ): Promise<CreateClaudeConversationResult> {
@@ -289,7 +294,8 @@ export async function createClaudeConversation(
       sessionId: session!.id,
       ownerId: viewer.id,
       title,
-      contextRef: input.context ?? null,
+      contextRef: input.contexts?.at(-1) ?? input.context ?? null,
+      contextRefs: input.contexts ?? (input.context ? [input.context] : []),
       ...(continuation
         ? {
             continuesFromSessionId: continuation.fromSessionId,
@@ -303,7 +309,14 @@ export async function createClaudeConversation(
     if (input.message) {
       await tx
         .insert(agentSessionInputs)
-        .values({ sessionId: session!.id, authorUserId: viewer.id, text: input.message, interrupt: false });
+        .values({
+          sessionId: session!.id,
+          authorUserId: viewer.id,
+          text: input.message,
+          interrupt: false,
+          // Lotto 8, voce 3: i contesti con cui è partito il messaggio.
+          contexts: input.contexts ?? (input.context ? [input.context] : []),
+        });
       // Al commit: lo scheduler del worker non cerca mai un input che non esiste ancora.
       await tx.execute(
         sql`select pg_notify(${AGENT_SESSION_INPUT_CHANNEL}, ${JSON.stringify({ sessionId: session!.id })})`,
@@ -321,16 +334,25 @@ export async function patchClaudeConversation(
   viewer: SessionViewer,
   id: string,
   patch: PatchClaudeConversationInput,
-): Promise<ClaudeConversation | null> {
+): Promise<ClaudeConversation | null | { error: "too_many_contexts" }> {
   const row = await ownRow(db, viewer, id);
   if (!row) return null;
+  // Lotto 8, voce 3: `contexts` SOSTITUISCE il gruppo (senza doppioni, al più
+  // 5); il vecchio `context` AGGIUNGE in fondo (null non cambia niente).
+  let group: ClaudeContextRef[] | null = null;
+  if (patch.contexts !== undefined) {
+    group = dedupeContexts(patch.contexts);
+    if (group.length > CLAUDE_CONTEXTS_MAX) return { error: "too_many_contexts" };
+  } else if (patch.context) {
+    group = appendContext(groupOf(row), patch.context);
+  }
   await db.transaction(async (tx) => {
     await tx
       .update(claudeConversations)
       .set({
         ...(patch.title !== undefined ? { title: patch.title } : {}),
         ...(patch.archived !== undefined ? { archivedAt: patch.archived ? (row.archivedAt ?? new Date()) : null } : {}),
-        ...(patch.context !== undefined ? { contextRef: patch.context } : {}),
+        ...(group !== null ? { contextRefs: group, contextRef: group.at(-1) ?? null } : {}),
         updatedAt: sql`now()`,
       })
       .where(eq(claudeConversations.sessionId, id));
@@ -550,17 +572,14 @@ export async function continueClaudeConversation(
   if (row.ownerId === viewer.id || row.visibility !== "public" || row.archivedAt !== null || !canReadPublic(viewer)) {
     return { ok: false, error: "not_public" };
   }
-  let context = (row.contextRef as ClaudeConversationContext | null) ?? null;
-  if (context) {
-    const projectId = await contextProjectId(db, row);
-    const visible = projectId ? await visibleProjectIds(db, viewer) : [];
-    if (!projectId || (!scopeIncludes(visible, projectId))) context = null;
-  }
+  // Chi continua eredita i contesti che VEDE (lotto 8, voce 3).
+  // Chi continua non è l'autore: i contesti senza progetto (la posta dell'altro) non passano.
+  const [contexts] = await contextsForViewer(db, viewer, [groupOf(row)], false);
   const hiddenTitle = (await readerSnapshot(db, row)).titleHidden;
   return createClaudeConversation(
     db,
     viewer,
-    { title: (hiddenTitle ? "" : row.title) || "Continuation", ...(input.message ? { message: input.message } : {}), context },
+    { title: (hiddenTitle ? "" : row.title) || "Continuation", ...(input.message ? { message: input.message } : {}), contexts: contexts! },
     { fromSessionId: row.sessionId, originTranscript: await readableTranscript(db, viewer, row), untrustedReadAt: row.untrustedReadAt ?? null },
   );
 }
