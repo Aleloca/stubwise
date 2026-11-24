@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { checkSamples, environmentServers, projectEnvironments, repositories, roles, serverEpisodes, serverMetrics, serverProjects, servers, serviceChecks, users } from "@stubwise/db";
+import { checkSamples, environmentServers, projectEnvironments, projects, repositories, roles, serverEpisodes, serverMetrics, serverProjects, servers, serviceChecks, users } from "@stubwise/db";
 import type { ServerDetail, ServerView } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import type { TestDb } from "@stubwise/db/testing";
@@ -63,6 +63,37 @@ async function createServerReturning(
   const body = res.json() as { id: string; key: string };
   return { id: body.id, key: body.key };
 }
+
+describe("⌘K (rimandi, lotto 5): la ricerca dei server", () => {
+  it("per codice, nome o hostname, fra i server che chi cerca vede, col progetto da cui aprirlo; sotto i 2 caratteri niente", async () => {
+    const tag = Math.random().toString(36).slice(2, 7);
+    const { projectId } = await seedRepository(testDb.db);
+    // Il progetto del server NON è il primo visibile (per codice): così «da dove si apre» si vede.
+    const code = `Z${tag.toUpperCase()}`;
+    await testDb.db.update(projects).set({ code }).where(eq(projects.id, projectId));
+    const { projectId: earlier } = await seedRepository(testDb.db);
+    await testDb.db.update(projects).set({ code: `A${tag.toUpperCase()}` }).where(eq(projects.id, earlier));
+    const seen = await createServerReturning(`cerca-${tag}-visto`);
+    const hidden = await createServerReturning(`cerca-${tag}-nascosto`);
+    await testDb.db.update(servers).set({ hostname: `db-${tag}.interno` }).where(eq(servers.id, seen.id));
+    await linkToProject(seen.id, projectId);
+    const member = await createUserWithPat(app, `cerca-${tag}@acme.com`);
+    await addMember(app, projectId, member.id, "developer");
+    await addMember(app, earlier, member.id, "developer");
+    const search = async (headers: Record<string, string>, q: string) =>
+      ((await app.inject({ method: "GET", url: `/api/servers/search?q=${encodeURIComponent(q)}`, headers })).json() as { items: { code: string; name: string; projectCode: string }[] }).items;
+    const [{ number }] = (await testDb.db.select({ number: servers.number }).from(servers).where(eq(servers.id, seen.id))) as [{ number: number }];
+    expect(await search(member.headers, `cerca-${tag}`)).toEqual([{ code: `SRV-${number}`, name: `cerca-${tag}-visto`, projectCode: code }]);
+    expect((await search(member.headers, `db-${tag}`)).map((r) => r.name)).toEqual([`cerca-${tag}-visto`]);
+    expect((await search(member.headers, `srv-${number}`)).map((r) => r.code)).toContain(`SRV-${number}`);
+    expect(await search(member.headers, "c")).toEqual([]);
+    // Chi vede tutti (il full admin): anche il server senza ambienti, aperto dal primo progetto visibile.
+    const forAdmin = await search({ cookie: adminCookie }, `cerca-${tag}`);
+    expect(forAdmin.map((r) => r.name).sort()).toEqual([`cerca-${tag}-nascosto`, `cerca-${tag}-visto`]);
+    expect(forAdmin.find((r) => r.name.endsWith("visto"))!.projectCode).toBe(code);
+    void hidden;
+  });
+});
 
 describe("POST /api/servers", () => {
   it("l'admin crea un server: 201 con la chiave in chiaro (sk_… + 48 hex) UNA volta", async () => {

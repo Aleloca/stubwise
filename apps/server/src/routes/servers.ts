@@ -6,6 +6,7 @@ import {
   serverWithKeySchema,
   type HealthEpisode,
   serverDetailSchema,
+  serverSearchResultSchema,
   serverViewSchema,
   updateServerSchema,
 } from "@stubwise/shared";
@@ -21,11 +22,12 @@ import {
   serverSshAccess,
   serviceChecks,
 } from "@stubwise/db";
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { legacyScope, projectPermissionsFor, visibleProjectIds } from "../auth/access.js";
+import { isAllProjects, legacyScope, projectPermissionsFor, visibleProjectIds } from "../auth/access.js";
+import { likeNeedle, SEARCH_LIMIT, SEARCH_MIN_CHARS } from "../services/releases.js";
 import { canViewServer, serverIdsOfProjects, visibleServerIds } from "../auth/monitor-access.js";
 import { toCheckView } from "./servers-checks.js";
 import { commandPublicKey } from "../services/server-signing.js";
@@ -425,6 +427,58 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
       schema: { response: { 200: z.object({ publicKey: z.string() }), ...authErrorResponses } },
     },
     async () => ({ publicKey: await commandPublicKey(app.db, app.encryptionKey) }),
+  );
+
+  // ⌘K (rimandi, lotto 5): per codice, nome o hostname, fra i server che
+  // chi cerca vede (`visibleServerIds`, nella WHERE). Letterale: PRIMA di `/:id`.
+  app.get(
+    "/search",
+    {
+      config: { access: { kind: "user" } },
+      schema: { querystring: z.object({ q: z.string().max(200).default("") }), response: { 200: z.object({ items: z.array(serverSearchResultSchema) }), ...authErrorResponses } },
+    },
+    async (request) => {
+      const q = request.query.q;
+      if (q.trim().length < SEARCH_MIN_CHARS) return { items: [] };
+      const user = request.user!;
+      const visible = await visibleServerIds(app.db, user);
+      if (visible !== "all" && visible.length === 0) return { items: [] };
+      const needle = likeNeedle(q);
+      const rows = await app.db
+        .select({ id: servers.id, number: servers.number, name: servers.name })
+        .from(servers)
+        .where(
+          and(
+            visible === "all" ? undefined : inArray(servers.id, visible),
+            or(sql`('SRV-' || ${servers.number}) ilike ${needle}`, ilike(servers.name, needle), ilike(servers.hostname, needle)),
+          ),
+        )
+        .orderBy(asc(servers.name))
+        .limit(SEARCH_LIMIT);
+      if (rows.length === 0) return { items: [] };
+      // Il progetto da cui aprirlo: il primo visibile (per codice) fra i suoi ambienti, o il primo visibile.
+      const scope = await visibleProjectIds(app.db, user);
+      const envs = await app.db
+        .selectDistinct({ serverId: environmentServers.serverId, code: projects.code })
+        .from(environmentServers)
+        .innerJoin(projectEnvironments, eq(projectEnvironments.id, environmentServers.environmentId))
+        .innerJoin(projects, and(eq(projects.id, projectEnvironments.projectId), isNull(projects.archivedAt)))
+        .where(and(inArray(environmentServers.serverId, rows.map((r) => r.id)), isAllProjects(scope) ? undefined : inArray(projects.id, scope.length ? [...scope] : ["00000000-0000-0000-0000-000000000000"])));
+      const home = new Map<string, string>();
+      for (const e of [...envs].sort((a, b) => a.code.localeCompare(b.code))) if (!home.has(e.serverId)) home.set(e.serverId, e.code);
+      const [first] = await app.db
+        .select({ code: projects.code })
+        .from(projects)
+        .where(and(isNull(projects.archivedAt), isAllProjects(scope) ? undefined : inArray(projects.id, scope.length ? [...scope] : ["00000000-0000-0000-0000-000000000000"])))
+        .orderBy(asc(projects.code))
+        .limit(1);
+      return {
+        items: rows.flatMap((r) => {
+          const projectCode = home.get(r.id) ?? first?.code;
+          return projectCode ? [{ code: `SRV-${r.number}`, name: r.name, projectCode }] : [];
+        }),
+      };
+    },
   );
 
   // Area 8, F4a: per codice (`SRV-<n>`). Letterale: PRIMA di `/:id`.

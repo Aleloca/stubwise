@@ -145,6 +145,17 @@ describe("createAnthropicChatLlm", () => {
     expect(Number(row!.costUsd)).toBeCloseTo((100 * 5 + 50 * 25 + 10 * 0.5 + 5 * 6.25) / 1_000_000, 5);
   });
 
+  it("rimandi, lotto 5: `onUsage` riceve a fine stream modello, token e costo STIMATO (lo stesso della riga)", async () => {
+    const { createClient } = fakeClient([MESSAGE_START, TEXT_DELTA, MESSAGE_DELTA]);
+    const llm = createAnthropicChatLlm({ db, encryptionKey, createClient });
+    const seen: unknown[] = [];
+    expect(await drain(llm.stream({ ...input(), onUsage: (u) => seen.push(u) }))).toBe("ciao");
+    expect(seen).toEqual([
+      { model: DEFAULT_CHAT_MODEL, inputTokens: 100, outputTokens: 50, cacheReadTokens: 10, cacheCreationTokens: 5, costUsd: expect.closeTo((100 * 5 + 50 * 25 + 10 * 0.5 + 5 * 6.25) / 1_000_000, 8) },
+    ]);
+    await waitForRuns(1);
+  });
+
   it("chi ha chiesto finisce sulla riga (il tetto giornaliero per persona lo legge)", async () => {
     const { createClient } = fakeClient([MESSAGE_START, MESSAGE_DELTA]);
     const llm = createAnthropicChatLlm({ db, encryptionKey, createClient });

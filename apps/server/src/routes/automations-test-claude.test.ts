@@ -35,6 +35,8 @@ beforeAll(async () => {
         calls.push(input);
         if (gate) await gate;
         yield answer;
+        // Come l'implementazione vera: i consumi a fine stream (rimandi, lotto 5).
+        input.onUsage?.({ model: "claude-haiku-5-5", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.0123 });
       },
     },
   });
@@ -76,6 +78,8 @@ describe("POST …/test/claude", () => {
     const res = await call(lead.headers, `/automations/${a.code}/test/claude`, { version: "draft", path: "0", vars: { avvio: { testo: "Il server è giù" } } });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ outcome: "urgente", reason: "È giù" });
+    // Rimandi, lotto 5: il costo del passo, dai consumi che il modello riporta a fine stream.
+    expect((res.json() as { costUsd: unknown }).costUsd).toBe(0.0123);
     expect(calls).toHaveLength(1);
     expect(calls[0]!.messages[0]!.content).toBe(buildClaudePrompt(claude as Extract<Step, { kind: "claude" }>, { "avvio.testo": "Il server è giù" }).prompt);
     expect(calls[0]!.usage).toMatchObject({ operation: "automation_step", projectId: p.id, automationId: a.id });

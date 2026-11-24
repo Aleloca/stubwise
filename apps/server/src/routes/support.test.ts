@@ -57,6 +57,32 @@ async function message(conversationId: string, role: "user" | "assistant" | "tea
   await t.db.update(widgetConversations).set({ lastMessageAt: at(min) }).where(eq(widgetConversations.id, conversationId));
 }
 
+describe("⌘K (rimandi, lotto 5): la ricerca delle conversazioni", () => {
+  it("per codice, nome o email del cliente, SOLO nei progetti che chi cerca vede, con lo stato derivato; sotto i 2 caratteri niente", async () => {
+    const { projectId: a } = await seedRepository(t.db);
+    const { projectId: b } = await seedRepository(t.db);
+    const mine = await conversation(a, { name: "Lucia Verdi", email: "lucia@verdi.it" });
+    await conversation(b, { name: "Lucia Neri", email: "lucia@neri.it" });
+    const member = await person("developer", a);
+    const search = async (headers: H, q: string) => ((await get(headers, `/api/support/search?q=${encodeURIComponent(q)}`)).json() as { items: { id: string; code: string; label: string; state: string; projectCode: string }[] }).items;
+    const found = await search(member.headers, "lucia");
+    expect(found.map((r) => r.id)).toEqual([mine.id]);
+    expect(found[0]).toMatchObject({ kind: "support", code: mine.code, label: "Lucia Verdi", projectId: a, projectCode: mine.code.split("-S")[0] });
+    expect(typeof found[0]!.state).toBe("string");
+    expect((await search(member.headers, mine.code.toLowerCase())).map((r) => r.id)).toEqual([mine.id]);
+    expect((await search(member.headers, "verdi.it")).map((r) => r.id)).toEqual([mine.id]);
+    expect(await search(member.headers, "neri")).toEqual([]);
+    expect(await search(member.headers, "L")).toEqual([]);
+    // Il filtro sta nella WHERE, prima del limite (permissions.md): 20 conversazioni
+    // più recenti del progetto invisibile non tolgono il posto a quella visibile.
+    for (let i = 0; i < 20; i++) {
+      const c = await conversation(b, { name: `Lucia ${i}` });
+      await t.db.update(widgetConversations).set({ lastMessageAt: new Date(Date.now() + 60_000 + i) }).where(eq(widgetConversations.id, c.id));
+    }
+    expect((await search(member.headers, "lucia")).map((r) => r.id)).toEqual([mine.id]);
+  });
+});
+
 describe("Support, le letture (area 8, F3, S2)", () => {
   it("gli stati si derivano: triage, answered, not_concluded, request_open (una con esito è chiusa); le non concluse in cima", async () => {
     const { projectId } = await seedRepository(t.db);
