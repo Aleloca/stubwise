@@ -169,6 +169,9 @@ export const securityEventKindSchema = z.enum([
   // ha `users.manage` (il proprio non lascia traccia).
   "slack_linked",
   "bitbucket_linked",
+  // Lotto 10: la cassaforte dal desktop (un Mac associato o tolto).
+  "vault_device_sealed",
+  "vault_device_seal_revoked",
 ]);
 export type SecurityEventKind = z.infer<typeof securityEventKindSchema>;
 

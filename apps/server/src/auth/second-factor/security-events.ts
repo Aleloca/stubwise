@@ -22,7 +22,7 @@ export async function recordSecurityEvent(
     kind: SecurityEventKind;
     user: { id: string; email: string };
     actor?: { id: string | null; email: string } | null;
-    /** Solo `reauth_desktop`: l'azione fatta con la finestra («POST /api/pats»). */
+    /** `reauth_desktop`: l'azione fatta con la finestra («POST /api/pats»); `vault_device_*`: il Mac (e il motivo della revoca). */
     detail?: string | null;
   },
 ): Promise<void> {

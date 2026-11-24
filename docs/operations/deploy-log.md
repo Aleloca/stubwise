@@ -6420,3 +6420,31 @@ deploy o di un rollback che la tocca.
   `ALTER TABLE calendar_events DROP COLUMN project_guess, DROP COLUMN project_guess_attempts`;
   il valore `calendar_classify` dell'enum non si toglie (Postgres non lo
   permette senza ricreare il tipo) ed è innocuo.
+- **«Lotto 10: la cassaforte dal desktop, il sigillo del Mac»** *(24 nov
+  2026, lotto 10, voce 2; design `docs/plans/2026-11-24-cassaforte-desktop-design.md`)*:
+  branch `feat/rimandi-server`. **Migrazione 0236** (tabelle
+  `vault_device_pairings` — l'associazione chiesta dal PAT desktop, solo
+  l'hash dello state, 10 minuti, uso singolo — e `vault_device_seals` — la
+  busta opaca, un vivo per PAT, `revoked_at` + `revoked_reason`;
+  `credential_access_log.via` text default `'browser'` NOT NULL con CHECK e
+  `device_seal_id` nullable; `vault_recovery_challenges.session_id` DROP NOT
+  NULL, `pat_id` nullable, CHECK `vault_recovery_challenges_holder_chk`).
+  Rotte nuove sotto `/api/vault` (`device-pairings`, `device-pairings/lookup`,
+  `device-seals`, `device-seals/mine`, `device-seals/:id`,
+  `users/:userId/device-seals[/:id]`), tipi del registro di sicurezza
+  `vault_device_sealed`/`vault_device_seal_revoked` e soggetti d'avviso
+  omonimi (nessun `notification_kind` nuovo: sono `security.alert`). Nessuna
+  env nuova. **Ordine**: **server** (migrazione applicata, healthy), poi
+  **caddy** (la pagina `vault-pair` e l'elenco dei Mac), poi l'app desktop
+  (`package:mac`). Il worker non c'entra (non nomina queste tabelle).
+  **Rollback del server: sicuro.** Un server vecchio non nomina le tabelle
+  nuove, scrive sempre `session_id` nelle sfide (il CHECK nuovo lo
+  accetta), e legge il registro degli accessi per colonne esplicite. Un Mac
+  associato smette di aprire la cassaforte (le rotte non ci sono più) finché
+  il server non risale: niente da ripulire. Il caddy scende insieme al
+  server. Per togliere lo schema (server vecchio): `ALTER TABLE
+  vault_recovery_challenges DROP CONSTRAINT vault_recovery_challenges_holder_chk, DROP COLUMN pat_id`,
+  poi `delete from vault_recovery_challenges where session_id is null;` e
+  `ALTER TABLE vault_recovery_challenges ALTER COLUMN session_id SET NOT NULL`;
+  `ALTER TABLE credential_access_log DROP CONSTRAINT credential_access_log_via_chk, DROP COLUMN device_seal_id, DROP COLUMN via`;
+  `DROP TABLE vault_device_seals`, `DROP TABLE vault_device_pairings`.

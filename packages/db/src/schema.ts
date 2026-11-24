@@ -6592,9 +6592,10 @@ export const vaultRecoveryChallenges = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    sessionId: text("session_id")
-      .notNull()
-      .references(() => sessions.id, { onDelete: "cascade" }),
+    // Della sessione del browser, o (0236, la cassaforte dal desktop) del PAT
+    // desktop col suo sigillo: una delle due, e il PAT solo per `actor`.
+    sessionId: text("session_id").references(() => sessions.id, { onDelete: "cascade" }),
+    patId: uuid("pat_id").references(() => personalAccessTokens.id, { onDelete: "cascade" }),
     secretHash: text("secret_hash").notNull(),
     kind: text("kind").$type<"recovery" | "actor">().notNull().default("recovery"),
     personKeyId: uuid("person_key_id").references(() => vaultPersonKeys.id, { onDelete: "cascade" }),
@@ -6605,9 +6606,80 @@ export const vaultRecoveryChallenges = pgTable(
   (table) => [
     index("vault_recovery_challenges_expires_at_idx").on(table.expiresAt),
     check(
+      "vault_recovery_challenges_holder_chk",
+      sql`(${table.sessionId} is null) <> (${table.patId} is null) and (${table.patId} is null or ${table.kind} = 'actor')`,
+    ),
+    check(
       "vault_recovery_challenges_kind_chk",
       sql`(${table.kind} = 'recovery' and ${table.personKeyId} is null) or (${table.kind} = 'actor' and ${table.personKeyId} is not null)`,
     ),
+  ],
+);
+
+/**
+ * L'associazione di un Mac alla cassaforte (0236,
+ * `docs/plans/2026-11-24-cassaforte-desktop-design.md` §6.2): la chiede il
+ * main col suo PAT desktop, la completa il browser con la passkey. Solo
+ * l'hash dello `state`; 10 minuti; `used_at` la consuma una volta. `id` è il
+ * `deviceId` dell'AAD del sigillo e diventa l'id del sigillo.
+ */
+export const vaultDevicePairings = pgTable(
+  "vault_device_pairings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    patId: uuid("pat_id")
+      .notNull()
+      .references(() => personalAccessTokens.id, { onDelete: "cascade" }),
+    stateHash: text("state_hash").notNull().unique(),
+    devicePublicKey: text("device_public_key").notNull(),
+    deviceName: text("device_name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+  },
+  (table) => [index("vault_device_pairings_pat_id_idx").on(table.patId)],
+);
+
+export type VaultDeviceSealRevokedReason = "forgotten" | "removed" | "admin_removed" | "replaced";
+
+/**
+ * Il sigillo del dispositivo (0236): la privata di persona avvolta per la
+ * pubblica di un Mac. Busta opaca: il server non la apre. Uno vivo per PAT
+ * desktop; la revoca è `revoked_at` e vale anche a LETTURA
+ * (`apps/server/src/vault/device-access.ts`).
+ */
+export const vaultDeviceSeals = pgTable(
+  "vault_device_seals",
+  {
+    id: uuid("id").primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    personKeyId: uuid("person_key_id")
+      .notNull()
+      .references(() => vaultPersonKeys.id, { onDelete: "cascade" }),
+    patId: uuid("pat_id")
+      .notNull()
+      .references(() => personalAccessTokens.id, { onDelete: "cascade" }),
+    devicePublicKey: text("device_public_key").notNull(),
+    seal: text("seal").notNull(),
+    deviceName: text("device_name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedReason: text("revoked_reason").$type<VaultDeviceSealRevokedReason>(),
+  },
+  (table) => [
+    check("vault_device_seals_revoked_chk", sql`(${table.revokedAt} is null) = (${table.revokedReason} is null)`),
+    check(
+      "vault_device_seals_reason_chk",
+      sql`${table.revokedReason} is null or ${table.revokedReason} in ('forgotten', 'removed', 'admin_removed', 'replaced')`,
+    ),
+    uniqueIndex("vault_device_seals_one_live_per_pat_idx").on(table.patId).where(sql`${table.revokedAt} is null`),
+    index("vault_device_seals_user_id_idx").on(table.userId),
   ],
 );
 
@@ -6705,10 +6777,14 @@ export const credentialAccessLog = pgTable(
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
     userEmail: text("user_email").notNull(),
     action: text("action").$type<"show" | "copy">().notNull(),
+    // 0236 (D-8): da dove si è letta, e da quale Mac.
+    via: text("via").$type<"browser" | "desktop">().notNull().default("browser"),
+    deviceSealId: uuid("device_seal_id").references(() => vaultDeviceSeals.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     check("credential_access_log_action_chk", sql`${table.action} in ('show', 'copy')`),
+    check("credential_access_log_via_chk", sql`${table.via} in ('browser', 'desktop')`),
     index("credential_access_log_project_id_created_at_idx").on(table.projectId, table.createdAt),
   ],
 );
