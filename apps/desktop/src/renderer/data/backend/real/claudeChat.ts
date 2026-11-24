@@ -3,6 +3,7 @@ import { claudeVisibilityConfirmationSchema, DOC_CODE_RE, docCodeResolutionSchem
 import type {
   ProjectRequestSummary,
   ClaudeConversation,
+  ChatCitationView,
   ClaudeConversationContext,
   ClaudeConversationDetail as ClaudeConversationDetailView,
   Reader,
@@ -24,7 +25,7 @@ import type {
 import i18n from "../../../i18n";
 import { appClient, session } from "./client";
 import { listPeople } from "./people";
-import { chatCitationView } from "./chat";
+import { chatCitationView, rememberChatCitation } from "./chat";
 import { listProjects } from "./projects";
 import { getRequest, getRequestByCode } from "./requests";
 import { getTaskByCode, listTasks } from "./tasks";
@@ -850,8 +851,25 @@ export const resolveCodes: typeof Fake.resolveCodes = async (codes) => {
  * che `resolveCodes` legge) si leggono come non visibili, senza nome — mai un
  * titolo che il server non ha confermato.
  */
+const RESOLVABLE = new Set(["task", "request", "project", "doc", "drive"]);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export const resolveCitations: typeof Fake.resolveCitations = async (refs) => {
   if (refs.length === 0) return [];
+  // Lotto 9, voce 1 (72, 2fe8b9989): le citazioni di un turno di Claude le
+  // conferma il server, per chi guarda; un'invisibile non torna (resta nascosta).
+  const asked = refs
+    // Solo quelle che non si conoscono già (la Chat le ha confermate col messaggio).
+    .filter((r) => RESOLVABLE.has(r.kind) && UUID_RE.test(r.id) && !chatCitationView(r, () => undefined))
+    .map((r) => ({ kind: r.kind, id: r.id }));
+  if (asked.length > 0) {
+    // Una lettura accessoria: se non riesce le citazioni restano nascoste
+    // (nascosto ≡ ignoto), non salta il messaggio.
+    const res = ((await appClient()
+      .request("POST", "/api/claude/citations/resolve", { refs: asked.slice(0, 100) })
+      .catch(() => null)) ?? {}) as { items?: Reader<ChatCitationView>[] };
+    for (const item of res.items ?? []) rememberChatCitation(item);
+  }
   const codes = new Map((await listProjects()).map((p) => [p.id, p.code] as const));
   return refs.map((ref) => chatCitationView(ref, (id) => codes.get(id)) ?? hidden(ref));
 };

@@ -22,6 +22,7 @@ import type {
   AiBlock,
   ConversationActivity,
   ConversationDetail,
+  CitationRef,
   ConversationEvent,
   ConversationKind,
   ConversationRow,
@@ -603,7 +604,7 @@ async function readConversation(
     );
     await warmContextCodes([...((conversation as { contexts?: ClaudeConversationContext[] }).contexts ?? []), ...inputContexts]);
     const flow = withMessageContexts(
-      withChatActionEvents(eventsOf(conversation.session, events, {}, null), extra),
+      withChatActionEvents(eventsOf(conversation.session, events, {}, null), [...extra, ...citationEventsOf(events)]),
       events,
     );
     return {
@@ -617,6 +618,27 @@ async function readConversation(
   const [events, plan, codes] = await Promise.all([readEvents(id), planOf(detail), projectCodes()]);
   return toDetail(detail, codes, eventsOf(detail, events, {}, plan));
 };
+
+/**
+ * Lotto 9, voce 1 (72, 2fe8b9989): le citazioni di un turno di Claude
+ * (`turn_end.data.citations`, già filtrate dal server per chi guarda)
+ * nell'evento `citation` del prototipo, all'istante della fine del turno:
+ * dopo l'ultimo testo di quel turno. Un file del Drive che l'autore non vede
+ * più porta il suo codice (R-H5).
+ */
+export function citationEventsOf(events: readonly Reader<AgentSessionEvent>[]): ConversationEvent[] {
+  return events.flatMap((e): ConversationEvent[] => {
+    if (e.type !== "turn_end") return [];
+    const cited = (e.data as { citations?: { kind: string; id: string; code?: string }[] }).citations ?? [];
+    const refs = cited.flatMap((c): CitationRef[] => {
+      if (!CITED_KINDS.has(c.kind)) return [];
+      const kind = c.kind as CitationRef["kind"];
+      return [kind === "drive" && c.code ? { kind, id: c.id, code: c.code } : { kind, id: c.id }];
+    });
+    return refs.length > 0 ? [{ id: `citation:${e.id}`, at: e.at, type: "citation", refs }] : [];
+  });
+}
+const CITED_KINDS = new Set(["task", "request", "project", "doc", "drive"]);
 
 /**
  * Lotto 8, §1 (72, a5fdd0c23): ogni messaggio porta il gruppo dei contesti
