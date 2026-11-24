@@ -10522,9 +10522,8 @@
       }
     },
     "desktopGoogle": {
-      "connected": "Casella collegata",
+      "backToApp": "Torna all'app per vedere l'esito",
       "notConnected": "La casella non è stata collegata",
-      "back": "Torna a Stubwise: l'app si sta aprendo.",
       "open": "Apri Stubwise",
       "invalid": {
         "title": "Questo link non è valido",
@@ -10769,6 +10768,7 @@
       "secretTitle": "Link d'invito per {{email}}",
       "sendYourself": "Mandalo tu: Stubwise non manda email.",
       "expiresIn": "Scade fra 7 giorni ({{date}}).",
+      "departmentDropped": "In {{code}} i permessi del reparto non varranno per questa persona: lì non puoi dare {{missing}}.",
       "cancel": "Annulla",
       "reauthAction": "invitare {{email}}",
       "errors": {

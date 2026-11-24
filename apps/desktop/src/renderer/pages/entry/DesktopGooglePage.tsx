@@ -61,11 +61,13 @@ export function DesktopGooglePage(params: DesktopGoogleParams) {
   const connected = params.outcome === "ok";
   return (
     <EntryColumn>
+      {/* Revisione del lotto 4, M-2: un `ok` si può forgiare; non si dice «collegata»,
+          lo conferma l'app rileggendo le caselle. */}
       <EntryHeading
-        title={t(connected ? "entry.desktopGoogle.connected" : "entry.desktopGoogle.notConnected")}
+        title={t(connected ? "entry.desktopGoogle.backToApp" : "entry.desktopGoogle.notConnected")}
         lead={
           connected
-            ? t("entry.desktopGoogle.back")
+            ? undefined
             : t(`prefs.google.dialog.errors.${ERROR_KEY[params.outcome] ?? "failed"}`)
         }
       />

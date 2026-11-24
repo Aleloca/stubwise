@@ -10522,9 +10522,8 @@
       }
     },
     "desktopGoogle": {
-      "connected": "Mailbox connected",
+      "backToApp": "Go back to the app to see the result",
       "notConnected": "The mailbox wasn't connected",
-      "back": "Go back to Stubwise: the app is opening.",
       "open": "Open Stubwise",
       "invalid": {
         "title": "This link isn't valid",
@@ -10769,6 +10768,7 @@
       "secretTitle": "Invite link for {{email}}",
       "sendYourself": "Send it yourself: Stubwise doesn't send emails.",
       "expiresIn": "Expires in 7 days ({{date}}).",
+      "departmentDropped": "In {{code}} the department's permissions won't apply to them: you can't grant {{missing}} there.",
       "cancel": "Cancel",
       "reauthAction": "invite {{email}}",
       "errors": {
