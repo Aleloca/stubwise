@@ -65,21 +65,27 @@ dal server, non li deduce.
 ### Contratto
 
 **Scrittura.** `POST /api/claude/proposals/:id/actions/:index/outcome`
-- corpo `{ status: "done" | "undone" | "changed_after" | "failed" }`;
+- corpo `{ status: "done" | "failed" | "placed" | "waiting" | "undone" | "changed_after" }`
+  (l'unione degli stati delle due fn; correzione con 72, 24 nov 2026);
 - `config.access`: chi ha chiesto la proposta (il proprietario della
   conversazione), come `confirm`/`cancel`;
 - l'azione `index` deve essere una `pageAction` o una `fillField` di una
   proposta `confirmed`, altrimenti 422 `not_a_page_action`;
-- mosse ammesse, dall'esito salvato (assente = `pending`):
-  `pending → done | failed`, `done → undone | changed_after`. Una mossa
-  fuori elenco è 409 `invalid_move` col `current`; la stessa mossa
+- mosse ammesse PER FN, dall'esito salvato (assente = `pending`), quelle di
+  `PAGE_EVENT_MOVES` del prototipo (`data/api-mutations.ts:3676`), che 72
+  porta in `@stubwise/shared` (il prototipo le importerà da lì):
+  - `pageAction`: `pending → done | failed`, `done → undone | changed_after`;
+  - `fillField`: `pending → placed | waiting`, `waiting → placed`,
+    `placed → undone | changed_after`.
+  Una mossa fuori elenco per la sua fn (un `placed` su una `pageAction`, un
+  `done` su una `fillField`) è 409 `invalid_move` col `current`; la stessa mossa
   ripetuta (`done` su `done`) è 200 e non cambia niente (idempotente: due
   schede che applicano insieme);
 - 404 se la proposta non si vede, 403 se non è di chi chiama;
 - risposta 200: `{ index, status, at }`.
 
 **Lettura.** La vista della proposta (`claudeProposalViewSchema`) porta
-`pageOutcomes: { index: number; status: "done" | "undone" | "changed_after" | "failed"; at: string }[]`,
+`pageOutcomes: { index: number; status: "done" | "failed" | "placed" | "waiting" | "undone" | "changed_after"; at: string }[]`,
 `.default([])`. Un indice assente è `pending`. Vale ovunque la vista esce
 (la conversazione, gli eventi del flusso dal vivo).
 
