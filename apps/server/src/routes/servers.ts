@@ -466,18 +466,11 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
         .where(and(inArray(environmentServers.serverId, rows.map((r) => r.id)), isAllProjects(scope) ? undefined : inArray(projects.id, scope.length ? [...scope] : ["00000000-0000-0000-0000-000000000000"])));
       const home = new Map<string, string>();
       for (const e of [...envs].sort((a, b) => a.code.localeCompare(b.code))) if (!home.has(e.serverId)) home.set(e.serverId, e.code);
-      const [first] = await app.db
-        .select({ code: projects.code })
-        .from(projects)
-        .where(and(isNull(projects.archivedAt), isAllProjects(scope) ? undefined : inArray(projects.id, scope.length ? [...scope] : ["00000000-0000-0000-0000-000000000000"])))
-        .orderBy(asc(projects.code))
-        .limit(1);
-      return {
-        items: rows.flatMap((r) => {
-          const projectCode = home.get(r.id) ?? first?.code;
-          return projectCode ? [{ code: `SRV-${r.number}`, name: r.name, projectCode }] : [];
-        }),
-      };
+      // Review del lotto 5 (M-7, 46): senza un ambiente visibile `projectCode`
+      // è null, e il client apre la pagina d'istanza del server — mai il
+      // «primo progetto visibile», che non c'entra (e per chi vede tutti i
+      // server senza progetti non c'è proprio).
+      return { items: rows.map((r) => ({ code: `SRV-${r.number}`, name: r.name, projectCode: home.get(r.id) ?? null })) };
     },
   );
 

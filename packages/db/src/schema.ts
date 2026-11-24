@@ -1997,7 +1997,9 @@ export const outgoingWebhooks = pgTable("outgoing_webhooks", {
   secretRotatedAt: timestamp("secret_rotated_at", { withTimezone: true }),
   /** L'ultima prova (0224, rimandi lotto 5): quando e com'è andata; null = mai provato (o URL/formato cambiati). */
   lastTestAt: timestamp("last_test_at", { withTimezone: true }),
-  lastTestOutcome: text("last_test_outcome", { enum: ["ok", "invalid_credentials", "unreachable"] }),
+  lastTestOutcome: text("last_test_outcome", { enum: ["ok", "invalid_credentials", "unreachable", "destination_error"] }),
+  /** Il codice con cui la destinazione ha risposto all'ultima prova (0227); null senza risposta. */
+  lastTestStatus: integer("last_test_status"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
 });
@@ -2092,6 +2094,8 @@ export const instanceSettings = pgTable("instance_settings", {
   s3SecretKeyEncrypted: text("s3_secret_key_encrypted"),
   /** Le ultime 4 della chiave S3 (0225); null senza chiave, o per le righe di prima. */
   s3SecretKeyLast4: text("s3_secret_key_last4"),
+  /** L'interruttore degli allegati (0228, lotto 6): spento, niente caricamenti nuovi; la lettura resta. */
+  attachmentsSwitch: boolean("attachments_switch").notNull().default(true),
   // Credenziali Slack per l'ingestion (slash command / interazioni) e per la
   // verifica delle richieste in arrivo. Entrambe nullable: l'integrazione Slack
   // è opzionale; con queste colonne a null la feature è disattivata. Cifrate a

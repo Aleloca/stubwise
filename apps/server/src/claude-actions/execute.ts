@@ -12,6 +12,7 @@ import { evaluateProjectAccess } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { declaredClassOf, parseArgs, SERVER_CATALOG, syntheticRequest, type ActionObject } from "./catalog.js";
 import { runActionContext, runFollowUps, type ActionEffects } from "./effects.js";
+import { hasPreflight, runPreflight } from "./preflight.js";
 
 /**
  * L'ESECUTORE delle azioni di Claude (chat, fetta 3). È l'unico posto in cui
@@ -105,8 +106,37 @@ export async function executeGroup(
 ): Promise<ExecuteResult> {
   // Il contesto della prova a secco: ogni seguito passa da `effects.ts`, che a
   // secco lo scarta e dal vero lo lancia DOPO il commit (qui sotto).
+  // Lotto 6 (la seconda uscita, `preflight.ts`): SOLO al run vero, prima della
+  // transazione, una volta per azione e solo con il permesso della voce;
+  // fail-closed. Nella prova a secco non gira mai.
+  const prepared = new Map<number, unknown>();
+  if (!input.dryRun) {
+    for (const [index, planned] of input.actions.entries()) {
+      if (!hasPreflight(planned.fn)) continue;
+      const entry = SERVER_CATALOG.get(planned.fn);
+      const args = entry ? parseArgs(planned.fn, planned.args) : null;
+      // Argomenti o permesso che non vanno: lo dice la transazione, col suo codice. Il preflight non parte.
+      if (!entry || !args || (entry.access.kind === "instance" && !user.instancePermissions.has(entry.access.permission))) continue;
+      const ran = await runPreflight(db, user, planned.fn, args, {
+        ...(input.effects?.encryptionKey ? { encryptionKey: input.effects.encryptionKey } : {}),
+        ...(input.effects?.preflightTimeoutMs !== undefined ? { timeoutMs: input.effects.preflightTimeoutMs } : {}),
+      });
+      if (!ran.ok) return failure(ran.refusal.code, index, { message: ran.refusal.message });
+      prepared.set(index, ran.prepared);
+    }
+  }
   const { value, followUps } = await runActionContext({ dryRun: input.dryRun === true }, () =>
-    runGroup(db, user, input, { ...(input.effects?.publicUrl !== undefined ? { publicUrl: input.effects.publicUrl } : {}) }),
+    runGroup(
+      db,
+      user,
+      input,
+      {
+        ...(input.effects?.publicUrl !== undefined ? { publicUrl: input.effects.publicUrl } : {}),
+        // Lotto 6: la chiave per le verifiche che decifrano (gli allegati: l'archiviazione valida); assente a secco.
+        ...(input.effects?.encryptionKey ? { encryptionKey: input.effects.encryptionKey } : {}),
+      },
+      prepared,
+    ),
   );
   if (value.ok && !input.dryRun) await runFollowUps(followUps, input.effects ?? {});
   return value;
@@ -125,7 +155,8 @@ async function runGroup(
     expectQuietUndo?: boolean;
     guard?: (tx: Db) => Promise<ClaudeActionFailure | null>;
   },
-  start: { publicUrl?: string },
+  start: { publicUrl?: string; encryptionKey?: Buffer },
+  prepared: ReadonlyMap<number, unknown> = new Map(),
 ): Promise<ExecuteResult> {
   try {
     return await db.transaction(async (tx) => {
@@ -181,7 +212,7 @@ async function runGroup(
         // Il segno di QUESTA azione: le righe scritte da qui in poi lo portano (DEFAULT delle colonne).
         await tx.execute(sql`select set_config(${VIA_CLAUDE_SETTING}, ${row!.id}, true)`);
         await tx.execute(sql`select set_config(${UNDO_OF_CLAUDE_SETTING}, ${planned.undoOfActionId ?? ""}, true)`);
-        const ran = await entry.run(tx as unknown as Db, user, args, access.permissions, start);
+        const ran = await entry.run(tx as unknown as Db, user, args, access.permissions, prepared.has(index) ? { ...start, prepared: prepared.get(index) } : start);
         await tx.execute(sql`select set_config(${VIA_CLAUDE_SETTING}, '', true)`);
         await tx.execute(sql`select set_config(${UNDO_OF_CLAUDE_SETTING}, '', true)`);
         if (!ran.ok) {

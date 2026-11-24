@@ -100,7 +100,31 @@ export async function requestProductPageUpdate(
       .values({ projectId: page.projectId, pageId, sourceKind: source.kind, sourceId: source.id, requestedBy: viewer.id })
       .onConflictDoNothing()
       .returning({ id: productPageUpdates.id });
-    if (!row) throw new ProductDocsError(409, "already_updating", "Claude is already updating this page from this source");
+    if (!row) {
+      // Review del lotto 5 (M-3, 46): chi scavalca il budget e trova la richiesta
+      // viva FERMA (in coda o in attesa, non mentre gira) la riprende: lo
+      // scavalco sul lavoro, di nuovo in coda, e la richiesta passa a lui
+      // (il worker rilegge permesso e fonte di chi l'ha chiesta, che qui sono
+      // già stati controllati). Per gli altri resta `already_updating`.
+      if (budgetBypass) {
+        const [live] = await tx
+          .select({ id: productPageUpdates.id })
+          .from(productPageUpdates)
+          .where(and(eq(productPageUpdates.pageId, pageId), eq(productPageUpdates.sourceKind, source.kind), eq(productPageUpdates.sourceId, source.id), isNull(productPageUpdates.finishedAt)));
+        const resumed = live
+          ? await tx
+              .update(productDocJobs)
+              .set({ budgetBypass: true, status: "queued", heldReason: null, notBefore: null })
+              .where(and(eq(productDocJobs.sourceKind, "page_update"), eq(productDocJobs.sourceId, live.id), inArray(productDocJobs.status, ["queued", "held"])))
+              .returning({ id: productDocJobs.id })
+          : [];
+        if (live && resumed.length > 0) {
+          await tx.update(productPageUpdates).set({ requestedBy: viewer.id }).where(eq(productPageUpdates.id, live.id));
+          return { updateId: live.id };
+        }
+      }
+      throw new ProductDocsError(409, "already_updating", "Claude is already updating this page from this source");
+    }
     await tx.insert(productDocJobs).values({ projectId: page.projectId, sourceKind: "page_update", sourceId: row.id, budgetBypass });
     return { updateId: row.id };
   });

@@ -65,7 +65,21 @@ export async function releaseRoutes(instance: FastifyInstance): Promise<void> {
   // ⌘K (rimandi, lotto 5): PRIMA di `/releases/:code`, o «search» sarebbe un codice.
   app.get(
     "/releases/search",
-    { config: { access: { kind: "user" } }, schema: { querystring: z.object({ q: z.string().max(200).default("") }) } },
+    {
+      config: { access: { kind: "user" } },
+      schema: {
+        querystring: z.object({ q: z.string().max(200).default("") }),
+        // Lo schema della risposta (review del lotto 5, M-9): la forma di `ReleaseSearchResult`.
+        response: {
+          200: z.object({
+            items: z.array(
+              z.object({ kind: z.literal("release"), id: z.uuid(), code: z.string(), label: z.string(), projectId: z.uuid(), projectCode: z.string(), status: z.string() }),
+            ),
+          }),
+          ...authErrorResponses,
+        },
+      },
+    },
     async (request) => ({ items: await searchReleases(app.db, request.user!, request.query.q) }),
   );
   app.get("/releases/:code", { config: { access: { kind: "user" } }, schema: { params: codeParams } }, async (request, reply) =>

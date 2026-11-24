@@ -1,4 +1,5 @@
 import fastifyCookie from "@fastify/cookie";
+import { uploadsOff } from "./services/storage-uploads-gate.js";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyRateLimit from "@fastify/rate-limit";
 import fastifySwagger from "@fastify/swagger";
@@ -15,6 +16,7 @@ import {
 } from "fastify-type-provider-zod";
 import { createRequire } from "node:module";
 import type { Db } from "@stubwise/db";
+import { instanceSettings } from "@stubwise/db";
 import { createEmbeddingClient, type EmbeddingClient } from "@stubwise/embeddings";
 import type { FetchImpl as GoogleFetchImpl } from "@stubwise/google";
 import { GOOGLE_OAUTH_CALLBACK_PATH } from "@stubwise/shared";
@@ -570,8 +572,13 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Storage attivo risolto a runtime. La factory (reale o fake nei test) riceve
   // db ed encryptionKey già risolti dai getter, così le route non li ripassano.
   const storageFactory = opts.storageFactory ?? getActiveStorage;
-  app.decorate("storage", function storage(this: FastifyInstance) {
-    return storageFactory(this.db, this.encryptionKey);
+  app.decorate("storage", async function storage(this: FastifyInstance) {
+    const active = await storageFactory(this.db, this.encryptionKey);
+    if (!active) return null;
+    // Lotto 6, voce 2: con l'interruttore degli allegati spento le scritture
+    // rifiutano (409 `attachments_off`); leggere ed eliminare restano.
+    const [row] = await this.db.select({ on: instanceSettings.attachmentsSwitch }).from(instanceSettings).limit(1);
+    return row && !row.on ? uploadsOff(active) : active;
   });
 
   // Client di embedding per la ricerca semantica / chat RAG sui Docs. Nei test

@@ -1,4 +1,5 @@
 import { mkdtemp, rm } from "node:fs/promises";
+import { budgetBypassHolds } from "./budget-bypass.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { driveFiles, emailBodies, emailMessages, emailProposals, googleAccounts, meetingNotes, productDocJobs, productFirstVersions, projects, users, type Db } from "@stubwise/db";
@@ -196,7 +197,7 @@ export async function runFirstVersionJob(deps: ProductDocJobDeps, job: typeof pr
   if (!fv.draft) {
     // Il budget del mese, solo qui: è l'unico punto che chiama il modello.
     // Chiesta da chi ha `plans.approve` (`budget_bypass`, D-7.1): lo scavalca.
-    if (!job.budgetBypass && (await aiBudgetState(db, deps.monthlyCostUsdFn)).exhausted) return holdOrStop("budget");
+    if (!(await budgetBypassHolds(db, job)) && (await aiBudgetState(db, deps.monthlyCostUsdFn)).exhausted) return holdOrStop("budget");
     const sources = await readFirstVersionSources(db, { projectId: fv.projectId, startedBy: fv.startedBy, sources: fv.sources as FirstVersionSourceRef[], pastedText: fv.pastedText });
     if (sources.length === 0) {
       await failFirstVersion(db, fv.id, "no_sources");

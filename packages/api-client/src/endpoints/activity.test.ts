@@ -42,7 +42,25 @@ describe("endpoint activity", () => {
         summary: "3 commit, un fix.",
         // Dalla fetta 3d (area 3): assente nella risposta, vale 0.
         staleCommitCount: 0,
+        // Rimandi, lotto 4 (§7.4): assente nella risposta, vale null.
+        generatedAt: null,
       },
     ]);
+  });
+
+  it("rimandi, lotto 4 (§7.4): `generatedAt` valorizzato arriva al client", async () => {
+    const { client } = clientReturning({
+      date: "2026-09-01",
+      projects: [
+        {
+          project: { id: "11111111-1111-4111-8111-111111111111", name: "Portale B2B", slug: "portale-b2b" },
+          status: "done",
+          summary: "3 commit, un fix.",
+          generatedAt: "2026-09-02T02:10:00.000Z",
+        },
+      ],
+    });
+    const result = await client.activity.forDate("2026-09-01");
+    expect(result.projects[0]!.generatedAt).toBe("2026-09-02T02:10:00.000Z");
   });
 });

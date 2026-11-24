@@ -948,6 +948,7 @@ describe("PUT /api/settings/instance", () => {
       s3SecretKeySet: false,
       s3SecretKeyLast4: null,
       attachmentsEnabled: false,
+      attachmentsSwitch: true,
       slackSigningSecretSet: false,
       slackBotTokenSet: false,
       slackEnabled: false,

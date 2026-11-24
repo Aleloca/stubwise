@@ -49,6 +49,15 @@ describe("POST /api/roles/:id/viewer-loses", () => {
     expect(await loses(v.cookie, v.projectRole, ["tickets.view_all", "tickets.edit", "docs.edit"])).toEqual({ status: 200, lost: [] });
   });
 
+  it("review del lotto 5 (M-11): senza roles.manage → 403, e nessuna lettura", async () => {
+    const v = await viewer();
+    const [inst] = await t.db.insert(roles).values({ name: `Senza ${randomUUID().slice(0, 6)}`, scope: "instance", permissions: ["users.invite"] }).returning({ id: roles.id });
+    const [u] = await t.db.insert(users).values({ email: `nr-${randomUUID().slice(0, 6)}@acme.com`, passwordHash: "x", role: "member", instanceRoleId: inst!.id }).returning({ id: users.id });
+    const res = await loses(await fullSessionCookie(app, u!.id), v.projectRole, []);
+    expect(res.status).toBe(403);
+    expect(res.lost).toBeUndefined();
+  });
+
   it("un ruolo che chi guarda non ha: non perde niente; un ruolo che non c'è: 404", async () => {
     const v = await viewer();
     const other = await viewer();

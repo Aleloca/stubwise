@@ -1,4 +1,5 @@
 import { mkdtemp, rm } from "node:fs/promises";
+import { budgetBypassHolds } from "./budget-bypass.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -295,7 +296,7 @@ export async function runProductDocJob(deps: ProductDocJobDeps, job: JobRow): Pr
       retryOrFail: (error) => retryOrFail(db, job, error),
     });
   }
-  if (!job.budgetBypass && (await aiBudgetState(db, deps.monthlyCostUsdFn)).exhausted) return hold(db, job.id, "budget").then(() => "held");
+  if (!(await budgetBypassHolds(db, job)) && (await aiBudgetState(db, deps.monthlyCostUsdFn)).exhausted) return hold(db, job.id, "budget").then(() => "held");
 
   // F6, Task 4: un aggiornamento chiesto a mano (`updateProductPage`) legge la
   // SUA fonte per UNA pagina, e chi l'ha chiesto non si aspetta da sé.

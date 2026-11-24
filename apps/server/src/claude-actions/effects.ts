@@ -36,6 +36,10 @@ export interface ActionEffects {
   /** Registra sull'azione che il suo seguito non è riuscito (la scheda lo mostra). */
   markEffectFailure?: (actionId: string, code: string) => Promise<void>;
   mailBody?: (userId: string, args: { accountId: string; threadId: string | null; mode: "new" | "reply" | "replyAll" | "forward"; text: string }) => Promise<void>;
+  /** Lotto 6: la chiave per decifrare le credenziali nel preflight (`preflight.ts`), solo al run vero. */
+  encryptionKey?: Buffer;
+  /** I test: il tempo massimo del preflight. */
+  preflightTimeoutMs?: number;
 }
 
 type FollowUp = (effects: ActionEffects) => Promise<void>;

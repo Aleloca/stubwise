@@ -1377,8 +1377,8 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   `CLAUDE_PROPOSABLE_FNS` c'è nel catalogo del prototipo (tranne
   `pageAction` e `fillMailBody`, che lì passano dalla pagina e dalla Posta),
   e il permesso d'istanza di una voce è `CLAUDE_INSTANCE_PERMISSION`.
-  Restano solo del prototipo `setAttachments`, `setDefaultReviewer` e
-  `saveStorage` (dalla review di F7: endpoint e bucket decidono dove vanno
+  Resta solo del prototipo
+  `saveStorage` (`setDefaultReviewer` e `setAttachments` ci sono dal lotto 6) (dalla review di F7: endpoint e bucket decidono dove vanno
   gli allegati), che il server non esegue (registro di 72).
 
 - **F1 renderer, ciò che resta** *(94, 16 nov 2026)*:
@@ -1576,16 +1576,27 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     - `patchProvider` con `position` scrive `provider.reordered` (stessa
       forma di `reorderProviders`) se l'ordine cambia;
   - Azioni di Claude (F7, Task 4): **`setAttachments`** non ha una voce,
-    perché sul server gli allegati non hanno un interruttore: si accendono
+    perché sul server gli allegati non hanno un interruttore: ~~si accendono
     da soli con l'archiviazione configurata e valida (`attachmentsEnabled` è
-    derivato). Serve prima un interruttore d'istanza sul server *(S)*;
-  - Azioni di Claude (F7, Task 4): **`setDefaultReviewer`** non ha una voce:
+    derivato). Serve prima un interruttore d'istanza sul server *(S)*;~~
+    *l'interruttore c'è dal 24 nov 2026 (72, lotto 6, 0228)*:
+    `PUT /api/settings/instance/attachments`, `attachmentsSwitch` nella
+    vista; spento, le scritture dello storage rifiutano; *la voce
+    `setAttachments({ on })` (B, l'inverso col valore di prima) c'è dal 24
+    nov 2026 (72, lotto 6)*;
+  - ~~Azioni di Claude (F7, Task 4): **`setDefaultReviewer`** non ha una voce:
     il `PUT /api/git-accounts/:id/default-reviewer` verifica il token
     chiamando il provider (account, scope, identità), e dentro il catalogo
     lo farebbe a ogni prova a secco di una proposta, nella transazione. Va
     separata la verifica (fuori dalla transazione, una volta, alla conferma)
     dalla scrittura *(M)*. Togliere il predefinito (`DELETE`) da solo
-    sarebbe facile, ma senza il suo inverso non si annulla;
+    sarebbe facile, ma senza il suo inverso non si annulla;~~ *Chiusa il 24
+    nov 2026 (72, lotto 6)*: verifica (`default-reviewer-verify.ts`, solo
+    letture) e scrittura (`default-reviewer-write.ts`, solo DB, con le
+    guardie) separate; la voce `setDefaultReviewer({ id, on })` (B,
+    l'inverso del prototipo) verifica nel preflight, la seconda uscita
+    sanzionata del catalogo (`preflight.ts`, invariante in
+    `docs/invariants/agent-sessions.md`);
 
 - **Divergenza prototipo/server sugli inviti** (24 nov 2026, 94 su
   richiesta di 46): il server mette chi accetta un invito nel **reparto di
@@ -1869,14 +1880,24 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   migrazione che toglie le colonne in un rilascio successivo, come per
   `users.role`.
 
-- **Gli `idx` del journal di drizzle sono sfasati da 0158 in poi** *(S,
+- ~~**Gli `idx` del journal di drizzle sono sfasati da 0158 in poi** *(S,
   72, 13 nov 2026)*: in `packages/db/drizzle/meta/_journal.json` manca la
   voce di indice 157 (la 0157 dell'area 6, F3b, rinumerata), quindi da
   `0158_mail_attachment_orphans` ogni voce ha `idx` = posizione + 1. Il
   migratore non ordina per `idx` (legge le voci nell'ordine e i `when`
   crescenti), quindi oggi non rompe niente; visto unendo l'area 6 nella F1
   dell'area 7. Da riallineare in un rilascio a sé, mai insieme a una
-  migrazione nuova, controllando che `drizzle-kit` non lo usi.
+  migrazione nuova, controllando che `drizzle-kit` non lo usi.~~ *Chiusa il
+  24 nov 2026 (72, lotto 6) SENZA riallineare*: il controllo su
+  `drizzle-kit` dice l'opposto. Il migratore di drizzle-orm non legge `idx`
+  (solo `tag`, `breakpoints`, `when`; le istanze già migrate confrontano
+  `when`), ma `drizzle-kit generate` numera la prossima `idx + 1`
+  dell'ultima voce e ne fa il prefisso del file: oggi `idx` = numero del tag
+  (anche 0171 manca), e la prossima generata sarebbe `0229_…`, giusta;
+  riallinearlo alla posizione la farebbe nascere `0227_…`, che esiste già.
+  La regola giusta è quindi `idx` = numero del tag, ed è ora fissata da un
+  test (`packages/db/src/migrations-journal.test.ts`: `idx` = tag, `when`
+  crescente, un file per voce e una voce per file).
 
 - **`apps/server/src/slack/routes.test.ts` da stabilizzare** *(O, 46, 13 nov
   2026)*: instabile già da prima della F5a. Tre test di `block_actions`

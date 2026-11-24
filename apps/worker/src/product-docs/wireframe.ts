@@ -1,4 +1,5 @@
 import { mkdtemp, rm } from "node:fs/promises";
+import { budgetBypassHolds } from "./budget-bypass.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { productDocJobs, productPageRevisions, productPages, productSectionHolds, productWireframes, type Db } from "@stubwise/db";
@@ -91,7 +92,7 @@ export async function runWireframeJob(
     });
   };
   const failNow = (error: WireframeFailure) => fail(error).then(() => helpers.finish("failed", error)).then(() => "failed" as const);
-  if (!job.budgetBypass && (await aiBudgetState(db, deps.monthlyCostUsdFn)).exhausted) return failNow("budget");
+  if (!(await budgetBypassHolds(db, job)) && (await aiBudgetState(db, deps.monthlyCostUsdFn)).exhausted) return failNow("budget");
   const [page] = await db.select({ title: productPages.title, blocks: productPages.blocks }).from(productPages).where(eq(productPages.id, row.pageId));
   if (!page) return helpers.finish("done", "page_gone").then(() => "done");
   const blocks = readBlocks(page.blocks);

@@ -171,6 +171,10 @@ describe("sul sorgente: nessun modulo raggiungibile dal catalogo esce da solo", 
       if (seen.has(file) || !existsSync(file)) continue;
       seen.add(file);
       const source = readFileSync(file, "utf8");
+      // Lotto 6 (46): la passeggiata NON scende in `preflight.ts`, la seconda
+      // uscita sanzionata (prima del commit, solo lettura): il suo perimetro lo
+      // vincola il test qui sotto, non questo.
+      if (file.endsWith("claude-actions/preflight.ts")) continue;
       for (const m of source.matchAll(/from "(\.{1,2}\/[^"]+)\.js"/g)) stack.push(normalize(join(dirname(file), `${m[1]}.ts`)));
     }
     return [...seen];
@@ -203,9 +207,28 @@ describe("sul sorgente: nessun modulo raggiungibile dal catalogo esce da solo", 
     expect(files.filter((f) => /chat\/service\.ts$|chat\/attachments\.ts$|\/storage\//.test(f))).toEqual([]);
   });
 
-  it("solo `effects.ts` può uscire (e lo fa solo dopo il commit, mai a secco)", () => {
+  it("lotto 6 (46): `preflight.ts` è raggiunto, e tutto ciò che raggiunge con un import di VALORE è solo lettura — niente insert/update/delete, niente `effects.ts`", () => {
+    expect(reachable().some((f) => f.endsWith("claude-actions/preflight.ts"))).toBe(true);
+    const seen = new Set<string>();
+    const stack = [join(here, "preflight.ts")];
+    while (stack.length > 0) {
+      const file = stack.pop()!;
+      if (seen.has(file) || !existsSync(file)) continue;
+      seen.add(file);
+      // Solo gli import di valore: un `import type` non porta codice.
+      for (const m of readFileSync(file, "utf8").matchAll(/^import (?!type\b)[^;]*?from "(\.{1,2}\/[^"]+)\.js"/gms)) stack.push(normalize(join(dirname(file), `${m[1]}.ts`)));
+    }
+    const files = [...seen];
+    expect(files.some((f) => f.endsWith("default-reviewer-verify.ts"))).toBe(true);
+    const WRITES = [/\.insert\(/, /\.update\(/, /\.delete\(/, /recordChange\(/, /publishNotification\(/];
+    const offenders = files.flatMap((f) => WRITES.filter((re) => re.test(code(readFileSync(f, "utf8")))).map((re) => `${f}: ${re}`));
+    expect(offenders).toEqual([]);
+    expect(files.filter((f) => f.endsWith("claude-actions/effects.ts") || f.endsWith("default-reviewer-write.ts"))).toEqual([]);
+  });
+
+  it("solo `effects.ts` (dopo il commit, mai a secco) e `preflight.ts` (prima, solo lettura, mai a secco) possono uscire", () => {
     const offenders = reachable()
-      .filter((f) => !f.endsWith("effects.ts"))
+      .filter((f) => !f.endsWith("effects.ts") && !f.endsWith("claude-actions/preflight.ts"))
       .flatMap((f) => ESCAPES.filter((re) => re.test(code(readFileSync(f, "utf8")))).map((re) => `${f}: ${re}`));
     expect(offenders).toEqual([]);
   });

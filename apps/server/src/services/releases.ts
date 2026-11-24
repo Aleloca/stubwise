@@ -12,7 +12,7 @@ import {
   type ReleaseSearchResult,
   type ReleaseStatus,
 } from "@stubwise/shared";
-import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { inProjectsStrict, isAllProjects, projectPermissionsFor, visibleProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { startRun } from "./jobs.js";
@@ -195,8 +195,16 @@ function countedRunRows(runs: readonly RunRow[], pipeline: unknown): RunRow[] {
 }
 
 /** Lo stato derivato di un rilascio, dalle righe e dalla produzione di adesso. */
-async function statusOf(db: Db, release: ReleaseRecord, repo: { ciProvider: string | null; releasePipeline: unknown }, runs: (typeof releaseCiRuns.$inferSelect)[], now: Date): Promise<ReleaseStatus> {
-  const production = await releaseProductionOf(db, release.projectId, release.repositoryId);
+async function statusOf(
+  db: Db,
+  release: ReleaseRecord,
+  repo: { ciProvider: string | null; releasePipeline: unknown },
+  runs: (typeof releaseCiRuns.$inferSelect)[],
+  now: Date,
+  /** Già letta (le letture in blocco, una per repository); assente = si legge qui. */
+  known?: Awaited<ReturnType<typeof releaseProductionOf>>,
+): Promise<ReleaseStatus> {
+  const production = known ?? (await releaseProductionOf(db, release.projectId, release.repositoryId));
   const seen = release.seenInProductionAt ?? (production.services.some((s) => sameCommit(s.commitSha, release.mergeSha)) ? now : null);
   return releaseStatusOf({
     // Una CI che il poller non è riuscito a leggere (e di cui non c'è nessuna
@@ -311,10 +319,37 @@ export async function searchReleases(db: Db, viewer: Viewer, q: string, now = ne
     .where(and(inProjectsStrict(releases.projectId, scope), or(ilike(releases.code, needle), ilike(releases.title, needle))))
     .orderBy(desc(releases.mergedAt))
     .limit(SEARCH_LIMIT);
-  const out: ReleaseSearchResult[] = [];
-  for (const { release, projectCode } of rows) {
-    const status = await releaseStatusById(db, release.id, now);
-    out.push({ kind: "release", id: release.id, code: release.code, label: release.title, projectId: release.projectId, projectCode, status: status?.kind ?? "unknown" });
+  // In blocco (review del lotto 5, M-9): repository e run in due query, la
+  // produzione una volta per repository; lo stato con la regola delle pagine.
+  const statuses = await releaseStatusesOf(db, rows.map((r) => r.release), now);
+  return rows.map(({ release, projectCode }) => ({
+    kind: "release" as const,
+    id: release.id,
+    code: release.code,
+    label: release.title,
+    projectId: release.projectId,
+    projectCode,
+    status: statuses.get(release.id)?.kind ?? "unknown",
+  }));
+}
+
+/** Lo stato derivato di più rilasci, letti in blocco: la stessa regola di {@link releaseStatusById}. */
+async function releaseStatusesOf(db: Db, list: readonly ReleaseRecord[], now: Date): Promise<Map<string, ReleaseStatus>> {
+  const out = new Map<string, ReleaseStatus>();
+  if (list.length === 0) return out;
+  const repoIds = [...new Set(list.map((r) => r.repositoryId))];
+  const repos = new Map(
+    (await db.select({ id: repositories.id, ciProvider: repositories.ciProvider, releasePipeline: repositories.releasePipeline }).from(repositories).where(inArray(repositories.id, repoIds))).map((r) => [r.id, r]),
+  );
+  const runsOf = new Map<string, (typeof releaseCiRuns.$inferSelect)[]>();
+  for (const run of await db.select().from(releaseCiRuns).where(inArray(releaseCiRuns.releaseId, list.map((r) => r.id)))) {
+    (runsOf.get(run.releaseId) ?? runsOf.set(run.releaseId, []).get(run.releaseId)!).push(run);
+  }
+  const productionOf = new Map<string, Awaited<ReturnType<typeof releaseProductionOf>>>();
+  for (const release of list) {
+    const key = `${release.projectId}:${release.repositoryId}`;
+    if (!productionOf.has(key)) productionOf.set(key, await releaseProductionOf(db, release.projectId, release.repositoryId));
+    out.set(release.id, await statusOf(db, release, repos.get(release.repositoryId) ?? { ciProvider: null, releasePipeline: null }, runsOf.get(release.id) ?? [], now, productionOf.get(key)));
   }
   return out;
 }
