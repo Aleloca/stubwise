@@ -26,6 +26,7 @@ import {
   getEvent,
   getMessageMetadata,
   getThreadFull,
+  listSendAs,
   GoogleApiError,
   listEvents,
   listHistory,
@@ -226,6 +227,8 @@ export interface GmailClient {
   getMessageFull: typeof getMessageFull;
   /** «La posta si legge per conversazione» §2: il thread di un messaggio ammesso, intero. */
   getThreadFull: typeof getThreadFull;
+  /** Lotto 8, voce 2: gli alias della casella. Opzionale: senza, conta solo l'indirizzo della casella. */
+  listSendAs?: typeof listSendAs;
 }
 
 const realGmailClient: GmailClient = {
@@ -235,6 +238,7 @@ const realGmailClient: GmailClient = {
   getMessageMetadata,
   getMessageFull,
   getThreadFull,
+  listSendAs,
 };
 
 /** La parte Calendar del client Google, iniettabile come {@link GmailClient}. */
@@ -341,6 +345,9 @@ export interface GooglePollerDeps {
 
 /** Riga di `google_accounts` come il claim la restituisce. */
 type ClaimedAccount = typeof googleAccounts.$inferSelect;
+
+/** Lotto 8, voce 2: quanto vale la copia degli alias (come `SEND_AS_MAX_AGE_MS` del server). */
+export const SEND_AS_MAX_AGE_MS = 24 * 3600_000;
 
 /** Cosa ha prodotto un tick: serve al log di riepilogo e ai test. */
 export interface GoogleTickStats {
@@ -1034,6 +1041,18 @@ async function syncGmail(
   const logger = deps.logger ?? defaultLogger;
   const now = deps.now ?? (() => new Date());
 
+  // Lotto 8, voce 2: gli alias della casella, riletti al più una volta al giorno
+  // (la stessa regola del server), FAIL-OPEN: senza, conta la copia che c'è.
+  if (gmail.listSendAs && (!account.sendAsFetchedAt || now().getTime() - account.sendAsFetchedAt.getTime() > SEND_AS_MAX_AGE_MS)) {
+    try {
+      const list = await gmail.listSendAs({ accessToken: ctx.accessToken });
+      await deps.db.update(googleAccounts).set({ sendAs: list, sendAsFetchedAt: now() }).where(eq(googleAccounts.id, account.id));
+      account.sendAs = list;
+    } catch (err) {
+      logger.warn(`[google] alias della casella ${account.id} non riletti: ${String(err)}`);
+    }
+  }
+
   const batch = await collectMessageIds(deps, ctx, account);
   // Prima dell'ingestione: un messaggio nuovo prende poi la sua etichetta di
   // adesso dal `full`, che è comunque lo stato più recente.
@@ -1073,7 +1092,7 @@ async function syncGmail(
     // l'unica difesa che vale per entrambi.
     seenHistoryId = maxHistoryId(seenHistoryId, metadata.historyId);
 
-    if (isFromMailbox(metadata, ctx.credentials.email)) {
+    if (isFromMailbox(metadata, ctx.credentials.email, account.sendAs.map((a) => a.email))) {
       // Area 6, F3 *(O)*: la posta MANDATA dalla casella entra nel thread che
       // Stubwise ha già (una risposta scritta da Stubwise o da Gmail), come
       // CONTESTO (`admitted = false`, mai classificata: non è una richiesta

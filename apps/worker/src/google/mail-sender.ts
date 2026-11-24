@@ -1,5 +1,6 @@
 import { googleAccounts, mailDrafts, mailOutgoing, queueDraftAttachmentObjects, type Db } from "@stubwise/db";
-import { buildMimeMessage, encodeRaw, GoogleApiError, refreshAccessToken, sendDraft, sendMessage } from "@stubwise/google";
+import { buildMimeMessage, encodeRaw, GoogleApiError, listSendAs, refreshAccessToken, sendDraft, sendMessage } from "@stubwise/google";
+import { normalizeAddress } from "@stubwise/notifications";
 import { loadGoogleAccountCredentials, type GoogleAccountCredentials } from "@stubwise/google/credentials";
 import { MAIL_OUTGOING_CHANNEL } from "@stubwise/shared";
 import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
@@ -29,6 +30,8 @@ export interface MailSenderClient {
   sendDraft: typeof sendDraft;
   /** Area 7, F2: l'email di un'esecuzione, senza bozza. */
   sendMessage: typeof sendMessage;
+  /** Lotto 8, voce 2: gli alias, per riverificare il «Da» all'invio. Opzionale: senza, non si riverifica. */
+  listSendAs?: typeof listSendAs;
 }
 
 export interface MailSenderDeps {
@@ -40,7 +43,7 @@ export interface MailSenderDeps {
   batch?: number;
 }
 
-const realClient: MailSenderClient = { refreshAccessToken, sendDraft, sendMessage };
+const realClient: MailSenderClient = { refreshAccessToken, sendDraft, sendMessage, listSendAs };
 
 /** Il codice d'errore che la persona può leggere (`delivery.error`). */
 export function sendErrorCode(err: unknown): string {
@@ -97,6 +100,22 @@ export async function sendDueMail(deps: MailSenderDeps): Promise<{ sent: number;
         clientSecret: credentials.clientSecret,
         refreshToken: credentials.refreshToken,
       });
+      // Lotto 8, voce 2: il «Da» di una bozza si riverifica con Gmail ADESSO (un
+      // alias tolto su Gmail nei 10 s): fuori elenco l'invio fallisce
+      // `invalid_from` e la bozza resta da riprovare. Se l'elenco non si legge,
+      // si manda (fail-open: Gmail stesso non manda da un alias non verificato).
+      if (row.draftId && client.listSendAs) {
+        const [draft] = await deps.db.select({ from: mailDrafts.fromAddress }).from(mailDrafts).where(eq(mailDrafts.id, row.draftId));
+        if (draft?.from && normalizeAddress(draft.from) !== normalizeAddress(account.email)) {
+          let aliases: string[] | null = null;
+          try {
+            aliases = (await client.listSendAs({ accessToken: tokens.accessToken })).map((a) => normalizeAddress(a.email));
+          } catch (err) {
+            logger.warn(`posta: alias di ${row.accountId} non riletti prima dell'invio ${row.id}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+          if (aliases && !aliases.includes(normalizeAddress(draft.from))) throw new SendRefused("invalid_from");
+        }
+      }
       const sent = row.gmailDraftId
         ? await client.sendDraft({ accessToken: tokens.accessToken, id: row.gmailDraftId })
         : await client.sendMessage({ accessToken: tokens.accessToken, raw: encodeRaw(await automationMime(deps.db, row, account.email)), threadId: row.gmailThreadId });

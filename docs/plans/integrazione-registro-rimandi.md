@@ -400,8 +400,17 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   `users.settings.sendAs` accetta gmail.modify, e gmail.settings.basic è
   restricted e serve solo a scrivere le impostazioni (pagine Google citate
   nel piano della F3). Nessun riconsenso in più. Rimandato: nessuna firma
-  HTML (mandiamo text/plain), nessuna firma per alias diversi
-  dall'indirizzo della casella.
+  HTML (mandiamo text/plain), ~~nessuna firma per alias diversi
+  dall'indirizzo della casella~~. *Alias chiusi il 24 nov 2026 (72, lotto 8,
+  voce 2, decisione del maintainer «sì, con riconsenso», scelte di 46)*:
+  nessuno scope nuovo; la casella porta `sendAs` (solo i verificati) e
+  `sendAsStatus` (`scope_missing` senza `gmail.modify`: si ricollega col
+  flusso di sempre); la bozza porta `from` (assente nel salvataggio = resta
+  quello che c'era), una risposta parte dall'alias a cui era indirizzato il
+  messaggio (come Gmail), con la firma di quell'alias; un `from` fuori
+  elenco è 422 `invalid_from` al salvataggio e all'Invia, e il worker lo
+  riverifica con Gmail all'invio vero. Rispondendo a tutti, gli alias non
+  sono destinatari. Contratto di 94 (`2026-11-24-rimandi-lotto8-contratti.md` §2).
 - F3, rimandati e limiti accettati *(O)* (12 nov 2026):
   (a) ~~«Riprova» per un `fillMailBody` non salvato su Gmail: oggi la scheda
   lo dice (`effectFailure`) e offre il testo da copiare; il riprova vuole
@@ -416,8 +425,8 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   dalla review della F3 (0158): ogni riga d'allegato che se ne va lascia il
   suo oggetto in `storage_orphans` nella stessa transazione, cascate
   comprese, e il purge orario lo toglie;
-  (d) la firma solo in testo e solo per l'indirizzo della casella (nessun
-  alias);
+  (d) la firma solo in testo ~~e solo per l'indirizzo della casella (nessun
+  alias)~~ (gli alias dal 24 nov 2026, lotto 8, voce 2: ognuno la sua);
   (e) un `fillMailBody` riuscito non si annulla (Gmail ha la bozza: si
   cambia dal compositore).
 - F3b, rimandati e limiti accettati *(O)* (12 nov 2026):
@@ -1253,7 +1262,7 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 - «Clienti in attesa» *(O, 72, review finale, 15 nov 2026)*, i minori
   rimandati. Branch `feat/area8-waiting`; gli Important sono corretti in
   8c51606b8.
-  - **Alias di invio** (`send-as`): `from:me` del resync (W1) porta anche la
+  - ~~**Alias di invio** (`send-as`): `from:me` del resync (W1) porta anche la
     posta mandata da un alias, ma `isFromMailbox` (`apps/worker/src/google/sync.ts`)
     confronta solo l'indirizzo primario. Quel messaggio passa come ricevuto
     (automazioni in arrivo, ammissione, classificazione), e nel taglio
@@ -1261,7 +1270,12 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     aspetta. Il percorso incrementale (History) lo faceva già: W1 lo allarga
     al resync. È stantio il commento in `poller.ts` («il resync per query la
     esclude già con -from:me»). La correzione vera è leggere gli alias
-    (`users.settings.sendAs`, uno scope in più).
+    (`users.settings.sendAs`, uno scope in più).~~ *Chiusa il 24 nov 2026
+    (72, lotto 8, voce 2)*: nessuno scope in più (`sendAs.list` accetta
+    `gmail.modify`, decisione di 46): il worker rilegge gli alias verificati
+    al più una volta al giorno (`google_accounts.send_as`, 0231) e
+    `isFromMailbox` conta anche loro. Insieme: rispondere da un alias (vedi
+    la voce della firma, qui sotto in area 6).
   - ~~**Colleghi disattivati**: il CTE `instance` del taglio
     (`packages/notifications/src/waiting-customers.ts`) prende anche le caselle
     disattivate, `replyContext` no. L'indirizzo di un collega con la casella

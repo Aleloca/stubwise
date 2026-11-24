@@ -289,3 +289,52 @@ export async function getSendAsSignature(
   const text = htmlToText(html).trim();
   return text === "" ? null : text;
 }
+
+/** Un indirizzo da cui la casella può mandare (`users.settings.sendAs`), solo i VERIFICATI. */
+export interface SendAsAddress {
+  email: string;
+  displayName: string | null;
+  isPrimary: boolean;
+  isDefault: boolean;
+  /** La firma di Gmail di QUESTO indirizzo, in testo; null se non ne ha. */
+  signature: string | null;
+}
+
+const sendAsListSchema = z.object({
+  sendAs: z
+    .array(
+      z.object({
+        sendAsEmail: z.string(),
+        displayName: z.string().optional().nullable(),
+        isPrimary: z.boolean().optional().nullable(),
+        isDefault: z.boolean().optional().nullable(),
+        verificationStatus: z.string().optional().nullable(),
+        signature: z.string().optional().nullable(),
+      }),
+    )
+    .optional(),
+});
+
+/**
+ * Lotto 8, voce 2: gli alias della casella (`users.settings.sendAs.list`). Basta
+ * `gmail.modify` (o `gmail.readonly`): nessuno scope in più. Solo i VERIFICATI:
+ * l'indirizzo principale (che non ha `verificationStatus`) e gli alias
+ * `accepted`; uno in attesa di verifica non si può usare come mittente.
+ */
+export async function listSendAs(input: { accessToken: string }, options: GoogleClientOptions = {}): Promise<SendAsAddress[]> {
+  const api = "gmail.settings.sendAs.list";
+  const payload = await requestGoogle({ api, url: `${GMAIL_API_BASE}/settings/sendAs`, accessToken: input.accessToken }, options);
+  const parsed = parseGoogleJson(api, sendAsListSchema, payload);
+  return (parsed.sendAs ?? [])
+    .filter((a) => a.isPrimary === true || a.verificationStatus === "accepted")
+    .map((a) => {
+      const text = htmlToText(a.signature ?? "").trim();
+      return {
+        email: a.sendAsEmail,
+        displayName: a.displayName?.trim() ? a.displayName.trim() : null,
+        isPrimary: a.isPrimary === true,
+        isDefault: a.isDefault === true,
+        signature: text === "" ? null : text,
+      };
+    });
+}

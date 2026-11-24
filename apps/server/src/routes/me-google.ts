@@ -1,5 +1,5 @@
 import { googleAccounts, googleWorkspaces } from "@stubwise/db";
-import { missingGoogleScopes, revokeToken, type FetchImpl } from "@stubwise/google";
+import { GMAIL_MODIFY_SCOPE, missingGoogleScopes, revokeToken, type FetchImpl } from "@stubwise/google";
 import { loadGoogleAccountCredentials } from "@stubwise/google/credentials";
 import {
   GOOGLE_ACCOUNT_SETTINGS_PATH,
@@ -20,6 +20,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { apiError } from "../errors.js";
 import { beginConnect, completeCallback, connectReturnOf, type GoogleOauthDeps } from "../services/google-oauth.js";
+import { sendAsAddressesOf } from "../services/mail-send-as.js";
 import { authErrorResponses, errorSchema, type RateLimitConfig } from "./shared.js";
 
 /**
@@ -81,6 +82,7 @@ const accountColumns = {
   disabledAt: googleAccounts.disabledAt,
   disabledReason: googleAccounts.disabledReason,
   syncRequestedAt: googleAccounts.syncRequestedAt,
+  sendAs: googleAccounts.sendAs,
 };
 
 /** La riga che la select qui sopra produce (nullability delle colonne inclusa). */
@@ -96,6 +98,7 @@ interface AccountRow {
   disabledAt: Date | null;
   disabledReason: string | null;
   syncRequestedAt: Date | null;
+  sendAs: { email: string; displayName: string | null; isPrimary: boolean; isDefault: boolean; signature: string | null }[];
 }
 
 /**
@@ -104,6 +107,12 @@ interface AccountRow {
  * spread farebbe uscire `refresh_token_encrypted` il giorno in cui qualcuno
  * cambiasse la select in un `select()` nudo.
  */
+/** Lotto 8, voce 2: gli indirizzi da cui mandare, come li legge il client (la firma resta qui). */
+function sendAsViewOf(row: Pick<AccountRow, "email" | "scopes" | "sendAs">) {
+  if (!row.scopes.includes(GMAIL_MODIFY_SCOPE)) return { sendAs: [], sendAsStatus: "scope_missing" as const };
+  return { sendAs: sendAsAddressesOf(row).map(({ email, displayName, isPrimary, isDefault }) => ({ email, displayName, isPrimary, isDefault })), sendAsStatus: "present" as const };
+}
+
 function toPublicAccount(row: AccountRow): z.infer<typeof googleAccountSchema> {
   return {
     id: row.id,
@@ -118,6 +127,8 @@ function toPublicAccount(row: AccountRow): z.infer<typeof googleAccountSchema> {
     disabledReason: row.disabledReason,
     missingScopes: missingGoogleScopes(row.scopes),
     syncRequestedAt: row.syncRequestedAt?.toISOString() ?? null,
+    // Lotto 8, voce 2: gli alias senza la firma; senza `gmail.modify` non si può mandare da nessuno.
+    ...sendAsViewOf(row),
   };
 }
 
