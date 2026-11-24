@@ -152,6 +152,27 @@ describe("il ritorno dal consenso di Google sul desktop", () => {
     await expect(pending).resolves.toMatchObject({ email: "ada@acme.test" });
   });
 
+  // Revisione del lotto 4, M-1: finita l'attesa (riuscita, rifiutata), lo state
+  // pendente del main si dimentica subito, invece di restare valido 10 minuti.
+  it("finita l'attesa, il main dimentica lo state (`cancelConnect`), riuscita o no", async () => {
+    for (const outcome of ["ok", "domain_mismatch"] as const) {
+      const bridge = desktopBridge();
+      let accounts: unknown[] = [];
+      server({ returnTo: "desktop", accounts: () => accounts });
+      vi.useFakeTimers({ toFake: ["setTimeout"] });
+      const pending = drive.connectGoogle().catch(() => undefined);
+      await vi.waitFor(() => expect(bridge.google.onReturned).toHaveBeenCalled());
+      expect(bridge.google.cancelConnect).not.toHaveBeenCalled();
+      if (outcome === "ok") accounts = [account()];
+      bridge.back(outcome);
+      await pending;
+      expect(bridge.google.cancelConnect).toHaveBeenCalledTimes(1);
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+      setAppClientForTests(null);
+    }
+  });
+
   it("un server di prima (senza `returnTo`): il polling di oggi, e il ritorno non conta", async () => {
     const bridge = desktopBridge();
     let accounts: unknown[] = [];

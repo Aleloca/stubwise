@@ -189,6 +189,8 @@ const connectGoogle: Drive["connectGoogle"] = async (options = {}) => {
     }
   } finally {
     stop();
+    // Revisione del lotto 4, M-1: lo state pendente del main non resta valido dopo l'attesa.
+    if (returnState && bridge) void bridge.cancelConnect().catch(() => undefined);
   }
 };
 
