@@ -3,12 +3,15 @@ import {
   supportConversationSchema,
   supportCustomerPreviewSchema,
   supportOpenRequestResultSchema,
+  supportSearchResultSchema,
   type Reader,
   type SupportConversation,
   type SupportCustomerPreview,
   type SupportOpenRequestBody,
   type SupportReplyBody,
+  type SupportSearchResult,
 } from "@stubwise/shared";
+import { z } from "zod";
 import type { ApiRequest } from "../client.js";
 import { seg, toQuery } from "../query.js";
 
@@ -19,11 +22,21 @@ import { seg, toQuery } from "../query.js";
  * widget (maintainer, 14 nov 2026): la risposta è solo per il collaboratore
  * del canale `mcp`.
  */
+const searchListSchema = z.object({ items: z.array(supportSearchResultSchema) });
+
 export function createSupportEndpoints(request: ApiRequest) {
   const byCode = (code: string) => `/api/support/conversations/by-code/${seg(code)}`;
   return {
     list(projectId: string, opts: { state?: string } = {}): Promise<Reader<{ items: SupportConversation[] }>> {
       return request("GET", `/api/projects/${seg(projectId)}/support/conversations${toQuery({ state: opts.state })}`, undefined, supportConversationListSchema);
+    },
+    /**
+     * ⌘K (rimandi, lotto 5): le conversazioni per codice o cliente nei
+     * progetti visibili, dalla più recente, al massimo 20; meno di 2
+     * caratteri: nessuna.
+     */
+    async search(q: string): Promise<Reader<SupportSearchResult>[]> {
+      return (await request("GET", `/api/support/search${toQuery({ q })}`, undefined, searchListSchema)).items;
     },
     get(code: string): Promise<Reader<SupportConversation>> {
       return request("GET", byCode(code), undefined, supportConversationSchema);

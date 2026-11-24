@@ -653,6 +653,8 @@ const INTEGRATED_CALLS = new Set([
   "releases.setRepoPrMode",
   // Area 8, F3: Support (letture e scritture sulle rotte di 72).
   "support.listSupportConversations",
+  // La ricerca ⌘K di Support (rimandi, lotto 5).
+  "support.searchSupport",
   "support.getSupportConversation",
   "support.customerPreview",
   "support.replyToCollaborator",
@@ -950,7 +952,7 @@ describe("aree non integrate nella build app", () => {
   });
 
   // Review area 8 F1, m5: le ricerche della palette delle aree non integrate non partono.
-  it("cercare nella palette legge solo chiamate integrate (Support e Servers spenti)", async () => {
+  it("cercare nella palette legge solo chiamate integrate (Servers spenta)", async () => {
     const user = userEvent.setup();
     renderRoute("/home");
     await screen.findByRole("region", { name: /^My tasks/ });
@@ -961,7 +963,7 @@ describe("aree non integrate nella build app", () => {
     await settle();
     // La ricerca dei rilasci (rimandi, lotto 5) parte, ed è integrata.
     expect(calls).toContain("releases.searchReleases");
-    expect(calls).not.toContain("support.searchSupport");
+    expect(calls).toContain("support.searchSupport");
     expect(calls).not.toContain("servers.searchServers");
     // La doc di prodotto (area 11, F3) parte, ed è integrata.
     expect(calls).toContain("productDocs.searchProductPages");

@@ -151,6 +151,7 @@ describe("isIntegrated", () => {
         "projectSection:support",
         "feature:support",
         "feature:support-widgets",
+        "feature:support-search",
         // API per i siti (S6): l'identità dei clienti del widget.
         "feature:support-identity",
         // Area 9, F1, R4a: Preferenze → Account.

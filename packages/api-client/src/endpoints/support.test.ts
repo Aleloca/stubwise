@@ -34,6 +34,14 @@ describe("client.support", () => {
     expect(out.items[0]).toMatchObject({ messages: [], canMarkNotConcluded: false, canReplyToCollaborator: false, continuedIn: null, triage: null, task: null });
   });
 
+  // ⌘K (rimandi, lotto 5, voce 1; 72, d74cf6285): la ricerca, con `q` in query.
+  it("la ricerca: `q` in query, gli elementi letti dallo schema", async () => {
+    const item = { kind: "support", id: view.id, code: "ACQ-S2", label: "Lucia", projectId: P, projectCode: "ACQ", state: "request_open" };
+    const { c, fetchImpl } = client({ items: [item] });
+    expect(await c.support.search("lucia b")).toEqual([item]);
+    expect(call(fetchImpl)).toMatchObject({ method: "GET", url: "https://x.test/api/support/search?q=lucia+b" });
+  });
+
   it("dettaglio e anteprima per codice", async () => {
     const { c, fetchImpl } = client({ ...view, status: "received", messages: [] });
     await c.support.get("ACQ-S2");

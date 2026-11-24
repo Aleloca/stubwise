@@ -5,9 +5,15 @@ import type {
   SupportCustomerPreview,
   SupportOpenRequestBody,
   SupportReplyBody,
+  SupportSearchResult as ServerSearchResult,
 } from "@stubwise/shared";
 import type * as Fake from "../../api";
-import type { CustomerPreview, SupportConversationView } from "../../support";
+import { supportHrefIn } from "../../support/visibility";
+import type {
+  CustomerPreview,
+  SupportConversationView,
+  SupportSearchResult,
+} from "../../support";
 import type { SupportMessage } from "../../model";
 import {
   CUSTOMER_STATUSES,
@@ -40,6 +46,8 @@ export interface SupportApi {
     body: SupportOpenRequestBody,
   ): Promise<Reader<{ conversation: ServerConversation; request: { id: string; code: string } }>>;
   markNotConcluded(code: string): Promise<Conversation>;
+  /** ⌘K (rimandi, lotto 5): `GET /api/support/search?q=`. */
+  search(q: string): Promise<Reader<ServerSearchResult>[]>;
 }
 
 /**
@@ -203,6 +211,30 @@ export function createRealSupport(api: SupportApi) {
     async markNotConcluded(code: string): Promise<SupportConversationView> {
       return writtenViewOf(await call(() => api.markNotConcluded(code)));
     },
+
+    /**
+     * ⌘K: le conversazioni trovate dal server; il link lo fa il client
+     * (`projectCode`). Uno stato che il client non conosce si salta, come
+     * nell'elenco.
+     */
+    async searchSupport(q: string): Promise<SupportSearchResult[]> {
+      const needle = q.trim();
+      if (!needle) return [];
+      return (await api.search(needle)).flatMap((r) =>
+        (SUPPORT_STATE_ORDER as readonly string[]).includes(r.state)
+          ? [
+              {
+                kind: "support" as const,
+                id: r.id,
+                code: r.code,
+                label: r.label,
+                route: supportHrefIn(r.projectCode, r.code),
+                state: r.state as SupportState,
+              },
+            ]
+          : [],
+      );
+    },
   } satisfies Partial<typeof Fake.support>;
 }
 
@@ -214,4 +246,5 @@ export const liveSupport: Partial<typeof Fake.support> = createRealSupport({
   replyToCollaborator: (code, body) => appClient().support.replyToCollaborator(code, body),
   openRequest: (code, body) => appClient().support.openRequest(code, body),
   markNotConcluded: (code) => appClient().support.markNotConcluded(code),
+  search: (q) => appClient().support.search(q),
 });
