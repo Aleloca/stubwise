@@ -22,6 +22,7 @@ import { CLAUDE_ID } from "./seed/people";
 import { setSessionPersonId } from "./session";
 import { copy, now, state } from "./store";
 import { canDeleteTask, deleteTask, deleteTaskAs, getTaskDeletion } from "./taskDelete";
+import { revokeProjectPermission } from "./viewer";
 
 // «Elimina task» (area 10a, Task 2), livello dati. Chi: l'autore con
 // `tickets.edit` o chi ha `tickets.moderate` (maintainer); Claude collega
@@ -344,6 +345,28 @@ describe("la traccia", () => {
     expect(await reads("p-sara")).toBe(false); // Contributor
     expect(await reads("p-giulia")).toBe(false); // non vede ACQ
     expect(await reads(CLAUDE_ID)).toBe(false);
+  });
+
+  // Lotto 4 (46, regola del 24 nov 2026): l'evento lo vede chi vede il
+  // progetto; codice e titolo solo chi ha `tickets.view_all` o chi l'ha
+  // eliminata. Agli altri «A task was deleted».
+  it("senza `tickets.view_all`, e non l'ha eliminata: l'evento c'è, senza codice né titolo", async () => {
+    const task = newTask("p-marco", "Segreta");
+    expect(deleteTaskAs("p-marco", task.id)).toEqual({ ok: true });
+    revokeProjectPermission("p-laura", ACQ, "tickets.view_all" as never);
+    as("p-laura");
+    const event = (await listTimeline(ACQ)).find((e) => e.kind === "task_deleted" && e.taskId === task.id);
+    expect(event).toMatchObject({ kind: "task_deleted", code: "", title: "", concealed: true });
+    expect(JSON.stringify(event)).not.toContain("Segreta");
+    expect(
+      (await listPortfolioActivity()).find((e) => e.kind === "task_deleted" && e.taskId === task.id),
+    ).toMatchObject({ code: "", title: "", concealed: true });
+    // Chi l'ha eliminata la vede per intero, anche senza il permesso.
+    revokeProjectPermission("p-marco", ACQ, "tickets.view_all" as never);
+    as("p-marco");
+    expect(
+      (await listTimeline(ACQ)).find((e) => e.kind === "task_deleted" && e.taskId === task.id),
+    ).toMatchObject({ code: task.code, title: "Segreta" });
   });
 
   it("storia del progetto e rassegna: task_deleted con codice e titolo; la persona conta l'eliminata", async () => {

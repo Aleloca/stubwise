@@ -1560,6 +1560,21 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     dalla scrittura *(M)*. Togliere il predefinito (`DELETE`) da solo
     sarebbe facile, ma senza il suo inverso non si annulla;
 
+- **Divergenza prototipo/server sugli inviti** (24 nov 2026, 94 su
+  richiesta di 46): il server mette chi accetta un invito nel **reparto di
+  ripiego** (`departments.isDefault`, trigger della 0109), e
+  l'accettazione scarta i progetti dove chi ha invitato non ha i permessi di
+  progetto di quel reparto (`applyInviteGrants`). Alla creazione lo dice
+  già con `warnings` (`department_permissions_dropped`, `missing` per
+  progetto, `inviteDepartmentWarnings`). Il prototipo invece **non ha il
+  reparto di ripiego**: chi si registra con un invito nasce con
+  `departmentIds: []` (`data/auth/register.ts`), quindi `createInvite`
+  risponde sempre `warnings: []`. La riga dell'avviso accanto al link
+  (`InviteWarnings` in `pages/admin/InviteDialog.tsx`) la mostrano le due
+  build, ma nel prototipo non compare mai. Chi rifà gli inviti (o
+  l'accettazione) nel prototipo porti lì il reparto di ripiego e la regola
+  dello scarto, poi tolga questa voce *(M)*.
+
 ## Area 10 — Integrazione di Claude
 
 - Le citazioni di file del repository (`kind file`, `<repo>:<path>`, visibili

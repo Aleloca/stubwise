@@ -5802,7 +5802,9 @@
       "setupPrOpened": "Setup PR opened",
       "actionFailed": "Couldn't start it. Try again.",
       "askBuild": "Ask a maintainer to build it.",
-      "setupPrIs": "Setup PR: {{url}}"
+      "setupPrIs": "Setup PR: {{url}}",
+      "setupPrIs_open": "Setup PR, open: {{url}}",
+      "setupPrIs_merged": "Setup PR, merged: {{url}}"
     },
     "chat": {
       "title": "Ask the docs",
@@ -10520,9 +10522,8 @@
       }
     },
     "desktopGoogle": {
-      "connected": "Mailbox connected",
+      "backToApp": "Go back to the app to see the result",
       "notConnected": "The mailbox wasn't connected",
-      "back": "Go back to Stubwise: the app is opening.",
       "open": "Open Stubwise",
       "invalid": {
         "title": "This link isn't valid",
@@ -10767,6 +10768,7 @@
       "secretTitle": "Invite link for {{email}}",
       "sendYourself": "Send it yourself: Stubwise doesn't send emails.",
       "expiresIn": "Expires in 7 days ({{date}}).",
+      "departmentDropped": "In {{code}} the department's permissions won't apply to them: you can't grant {{missing}} there.",
       "cancel": "Cancel",
       "reauthAction": "invite {{email}}",
       "errors": {
@@ -12952,7 +12954,8 @@
   "activity": {
     "viaClaude": "with Claude",
     "onBehalf": "Claude on behalf of {{name}}",
-    "deletedTask": "{{name}} deleted <code>{{code}}</code> “{{title}}”"
+    "deletedTask": "{{name}} deleted <code>{{code}}</code> “{{title}}”",
+    "deletedTaskConcealed": "A task was deleted"
   },
   "productDocs": {
     "source": {

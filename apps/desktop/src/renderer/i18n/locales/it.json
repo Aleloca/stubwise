@@ -5802,7 +5802,9 @@
       "setupPrOpened": "PR di setup aperta",
       "actionFailed": "Non è stato possibile avviarlo. Riprova.",
       "askBuild": "Chiedi a un maintainer di costruirlo.",
-      "setupPrIs": "PR di setup: {{url}}"
+      "setupPrIs": "PR di setup: {{url}}",
+      "setupPrIs_open": "PR di setup, aperta: {{url}}",
+      "setupPrIs_merged": "PR di setup, mergiata: {{url}}"
     },
     "chat": {
       "title": "Chiedi ai documenti",
@@ -10520,9 +10522,8 @@
       }
     },
     "desktopGoogle": {
-      "connected": "Casella collegata",
+      "backToApp": "Torna all'app per vedere l'esito",
       "notConnected": "La casella non è stata collegata",
-      "back": "Torna a Stubwise: l'app si sta aprendo.",
       "open": "Apri Stubwise",
       "invalid": {
         "title": "Questo link non è valido",
@@ -10767,6 +10768,7 @@
       "secretTitle": "Link d'invito per {{email}}",
       "sendYourself": "Mandalo tu: Stubwise non manda email.",
       "expiresIn": "Scade fra 7 giorni ({{date}}).",
+      "departmentDropped": "In {{code}} i permessi del reparto non varranno per questa persona: lì non puoi dare {{missing}}.",
       "cancel": "Annulla",
       "reauthAction": "invitare {{email}}",
       "errors": {
@@ -12952,7 +12954,8 @@
   "activity": {
     "viaClaude": "con Claude",
     "onBehalf": "Claude per conto di {{name}}",
-    "deletedTask": "{{name}} ha eliminato <code>{{code}}</code> «{{title}}»"
+    "deletedTask": "{{name}} ha eliminato <code>{{code}}</code> «{{title}}»",
+    "deletedTaskConcealed": "Una task è stata eliminata"
   },
   "productDocs": {
     "source": {

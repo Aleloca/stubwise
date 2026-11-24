@@ -30,9 +30,15 @@ describe("/desktop-google", () => {
     expect(assign).toHaveBeenCalledWith(`stubwise://google?outcome=domain_mismatch&state=${STATE}`);
   });
 
-  it("collegata: lo dice, e riapre l'app", async () => {
+  // Revisione del lotto 4, M-2: un link con `outcome=ok` lo può forgiare
+  // chiunque; la pagina non afferma «collegata», rimanda all'app, che lo
+  // conferma rileggendo le caselle.
+  it("`ok`: un testo neutro, non «collegata», e riapre l'app", async () => {
     renderRoute(`/desktop-google?outcome=ok&state=${STATE}`);
-    expect(await screen.findByRole("heading", { name: "Mailbox connected" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Go back to the app to see the result" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/connected/i)).toBeNull();
     expect(assign).toHaveBeenCalledWith(`stubwise://google?outcome=ok&state=${STATE}`);
   });
 

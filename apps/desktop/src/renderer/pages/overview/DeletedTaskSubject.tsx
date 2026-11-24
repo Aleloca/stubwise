@@ -14,6 +14,9 @@ export function DeletedTaskSubject({
   event: Extract<TimelineEvent, { kind: "task_deleted" }>;
 }) {
   const { t } = useTranslation();
+  // Lotto 4: chi non vede quale task fosse legge solo che una è stata eliminata.
+  if (event.concealed)
+    return <span className="min-w-0 truncate text-ink">{t("activity.deletedTaskConcealed")}</span>;
   const person = event.byName ?? t("taskUi.stall.someone");
   const name = event.viaClaude ? t("activity.onBehalf", { name: person }) : person;
   const text = `${name} ${event.code} ${event.title}`;

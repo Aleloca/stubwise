@@ -256,6 +256,22 @@ describe("passare, spostare, scegliere il progetto, aggiungere i Contributor", (
     expect(await mail.confirmMailProposal(P1, { addOutsiders: [OTHER] })).toEqual({ status: "refused", ok: false, error: "reauth_required" });
   });
 
+  // Lotto 4, pulizia 3 (72, a65a09c73): il 403 `escalation` porta sempre `missing`, tutto ciò che manca.
+  it("escalation con `missing`: tutti i permessi che mancano, come il prototipo", async () => {
+    installFakeServer({
+      [`POST /api/me/mail/proposals/${P1}/confirm-with-members`]: {
+        status: 403,
+        body: { code: "escalation", message: "x", permission: "tickets.edit", missing: ["tickets.edit", "release.merge"] },
+      },
+    });
+    expect(await mail.confirmMailProposal(P1, { addOutsiders: [OTHER] })).toEqual({
+      status: "refused",
+      ok: false,
+      error: "escalation",
+      missing: ["tickets.edit", "release.merge"],
+    });
+  });
+
   it("le regole di Membri (escalation, sopra di me): rifiutata, niente cambia", async () => {
     installFakeServer({
       [`POST /api/me/mail/proposals/${P1}/confirm-with-members`]: { status: 403, body: { code: "escalation", message: "x", permission: "project.members.manage" } },

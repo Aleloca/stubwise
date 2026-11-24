@@ -305,7 +305,7 @@ describe("generazione e grafo", () => {
     await docs.whenDocsIdle();
     expect((await docs.getDocSpace("repo-stw"))!.graph.status).toBe("ready");
     const pr = await docs.graphAction("repo-aud", "setup_pr");
-    expect(pr.setupPr?.open).toBe(true);
+    expect(pr.setupPr?.state).toBe("open");
     as("p-roberta");
     await rejects(docs.graphAction("repo-cbv", "regenerate"), "invalid");
   });

@@ -225,6 +225,28 @@ describe("People, inviti e Roles dal server (area 9, R7)", () => {
     expect(r.inviteId).toBe("i_0123456789abcdef0123456789abcdef");
   });
 
+  // Rimandi, lotto 4 (72): i progetti dove il reparto di ripiego non varrà; un server di prima: nessuno.
+  it("gli avvisi dell'invito dal server; un server di prima non ne ha", async () => {
+    const P = "bbbbbbbb-1111-4111-8111-111111111111";
+    const warned = createRealAdminPeople(
+      fakeApi({
+        createInvite: async () => ({
+          id: "i_0123456789abcdef0123456789abcdef",
+          token: "tok123",
+          expiresAt: "2026-11-23T09:00:00.000Z",
+          warnings: [{ projectId: P, code: "department_permissions_dropped", missing: ["release.merge"] }],
+        }),
+      }).api,
+    );
+    const input = { email: "nora@example.com", instanceRoleId: ROLE, projects: [] };
+    const r = await warned.createInvite(input);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.warnings).toEqual([{ projectId: P, missing: ["release.merge"] }]);
+    const old = await createRealAdminPeople(fakeApi().api).createInvite(input);
+    if (!old.ok) throw new Error(old.error);
+    expect(old.warnings).toEqual([]);
+  });
+
   it("una fonte di tipo sconosciuto si salta: non diventa «full admin» (review F1, I3)", async () => {
     const d = await createRealAdminPeople(
       fakeApi({

@@ -110,9 +110,15 @@ const confirmMailProposal: Mail["confirmMailProposal"] = async (id, input = {}) 
     if (error instanceof ApiError && adding.length > 0) {
       if (error.code === "reauth_required") return { status: "refused", ok: false, error: "reauth_required" };
       if (error.code === "escalation") {
-        // Le regole di Membri dicono la chiave che manca a chi agisce (`permission`, una).
-        const permission = (error.details as { permission?: unknown } | undefined)?.permission;
-        return { status: "refused", ok: false, error: "escalation", missing: typeof permission === "string" ? [permission] : [] };
+        // Lotto 4, pulizia 3 (72, a65a09c73): `missing` dice tutto ciò che manca,
+        // come il prototipo; un server di prima solo la chiave (`permission`, una).
+        const details = error.details as { permission?: unknown; missing?: unknown } | undefined;
+        const missing = Array.isArray(details?.missing)
+          ? details.missing.filter((m): m is string => typeof m === "string")
+          : typeof details?.permission === "string"
+            ? [details.permission]
+            : [];
+        return { status: "refused", ok: false, error: "escalation", missing };
       }
       if (error.code === "target_above") return { status: "refused", ok: false, error: "forbidden" };
     }

@@ -427,12 +427,25 @@ describe("il grafo del codice", () => {
       edges: 300,
       communities: 2,
       updatedAt: "2026-11-10T10:00:00.000Z",
-      setupPr: { url: "https://git.example/acme/app/pull/9", open: true },
+      // Lotto 4, pulizia 5 (72, a30daedc1): lo stato della PR lo dice il server; un server di prima: sconosciuto.
+      setupPr: { url: "https://git.example/acme/app/pull/9", state: null },
     });
     expect(view.graph.report?.map((c) => [c.name, c.size, c.nodes])).toEqual([
       ["api.ts", 30, ["request()", "ApiError"]],
       ["dialer.ts", 12, ["Dialer", "callNext()", "Lead"]],
     ]);
+  });
+
+  it("lo stato della PR di setup dal server: aperta, mergiata, chiusa senza merge, sconosciuta", async () => {
+    for (const state of ["open", "merged", "closed_unmerged", null] as const) {
+      install({
+        [`GET /api/repositories/${REPO}/graph`]: { body: graph({ setupPrState: state }) },
+        [`GET /api/repositories/${REPO}/graph/report`]: { body: report, contentType: "text/markdown; charset=utf-8" },
+      });
+      await getSessionPerson();
+      await docs.listDocSpaces(PROJECT_ID);
+      expect((await docs.getDocSpace(REPO))!.graph.setupPr).toEqual({ url: "https://git.example/acme/app/pull/9", state });
+    }
   });
 
   it("spento, mai fatto, in coda, fallito (troppo grande)", async () => {

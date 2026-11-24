@@ -30,6 +30,17 @@ const liveApi = new Proxy({} as AutomationsApi, {
 
 const refs = createAutomationRefs();
 
+/**
+ * Rimandi, lotto 5, voce 4 (72, 30281eff6): il server manda il costo del
+ * passo (`costUsd`) accanto alla risposta; non è un campo della risposta, e
+ * il motore non lo riceve.
+ */
+export function claudeAnswerOf(reply: object): ClaudeResult & { truncated?: string[] } {
+  const answer = { ...reply } as ClaudeResult & { truncated?: string[]; costUsd?: number | null };
+  delete answer.costUsd;
+  return answer;
+}
+
 const simulation = createRealSimulation({
   me: () => session.personId ?? "",
   now: () => now(),
@@ -62,14 +73,16 @@ const simulation = createRealSimulation({
       ),
     async run(automationId, body) {
       try {
-        return await appClient().automations.testClaude(refs.automation(automationId).code, body);
+        return claudeAnswerOf(
+          await appClient().automations.testClaude(refs.automation(automationId).code, body),
+        );
       } catch (error) {
         // Una risposta fuori forma: la si passa al motore, che fallisce il passo coi suoi
         // codici (come l'esecuzione vera); una non JSON è `claude_invalid`.
         if (error instanceof ApiError && error.status === 422 && error.code === "claude_invalid") {
           const result = (error.details as { result?: Record<string, unknown> } | undefined)?.result;
           if (result && !("raw" in result))
-            return { reason: "", ...result } as ClaudeResult & { truncated?: string[] };
+            return claudeAnswerOf({ reason: "", ...result });
           throw new ClaudeAnswerUnreadable();
         }
         return claudeRoute(automationId, () => Promise.reject(error));

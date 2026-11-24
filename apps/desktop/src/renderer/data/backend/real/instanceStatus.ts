@@ -34,6 +34,8 @@ function refusalOf(error: unknown): Extract<InstanceResult, { ok: false }> {
   if (code === "conflict") return { ok: false, error: "conflict" };
   if (error.status === 404) return { ok: false, error: "not_found" };
   if (error.status === 403) return { ok: false, error: "forbidden" };
+  // Lotto 4, review I-1 (72, 9389b5efc): il budget finito è `budget_exhausted`; la pagina dice `monthly_budget`.
+  if (code === "budget_exhausted") return { ok: false, error: "invalid", reason: "monthly_budget" };
   if (code) return { ok: false, error: "invalid", reason: code };
   throw error;
 }
