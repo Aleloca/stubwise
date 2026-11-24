@@ -402,12 +402,15 @@ describe("Calendario: proposte", () => {
     });
     expect(proposalOf(C.pastDeadline)).toBeUndefined();
     expect(proposalOf(C.declinedDeadline)).toBeUndefined();
-    // Una riunione normale non ne produce: solo la scadenza e le date in
-    // anticipo delle serie accese (la richiesta di MKX, il promemoria di AUD).
+    // Una riunione normale non ne produce: solo le scadenze e le date in
+    // anticipo delle serie accese (la richiesta di MKX, il promemoria di AUD);
+    // la scadenza senza progetto con più candidati è una «Quale progetto?»
+    // (lotto 9, voce 2 (a): `chooseProject.test.ts`).
     expect(calendarProposalIds()).toEqual([
       "mp-ser-ev-mkx-planning-2026-10-26",
       "mp-ser-ev-aud-review-2026-10-29",
       "mp-cal-ev-mkx-visuals-deadline",
+      "mp-cal-ev-joint-launch-deadline",
     ]);
   });
 
@@ -449,7 +452,8 @@ describe("Calendario: proposte", () => {
       stale: false,
     });
     expect(proposalOf(view.id)).toMatchObject({ projectId: AUD, status: "open" });
-    expect(calendarProposalIds()).toHaveLength(4);
+    // Le quattro del seme e quella nuova (la vecchia no).
+    expect(calendarProposalIds()).toHaveLength(5);
   });
 
   it("il collegamento scaduto non si allinea; il calendario vecchio si vede", async () => {
@@ -935,8 +939,12 @@ describe("Calendario: correzioni di revisione", () => {
     expect(proposalOf(C.deadline)).toBeUndefined();
     await calendar.deleteEvent("ev-mkx-planning-2026-10-26", "series");
     expect(proposalOf("ev-mkx-planning-2026-10-26")).toBeUndefined();
-    // Resta solo il promemoria di AUD: un'altra serie.
-    expect(calendarProposalIds()).toEqual(["mp-ser-ev-aud-review-2026-10-29"]);
+    // Restano il promemoria di AUD (un'altra serie) e la «Quale progetto?»
+    // della scadenza comune (un altro evento).
+    expect(calendarProposalIds()).toEqual([
+      "mp-ser-ev-aud-review-2026-10-29",
+      "mp-cal-ev-joint-launch-deadline",
+    ]);
   });
 
   it("un progetto che non vedo non lo tolgo né lo cambio", async () => {

@@ -103,6 +103,27 @@ export function proposalProjectIds(p: MailProposal): string[] {
 }
 
 /**
+ * I candidati di una «Quale progetto?» del calendario fra cui `me` sceglie:
+ * quelli di cui è membro e in cui può confermare le azioni già pronte (lotto
+ * 9, voce 2 (a), la regola del server).
+ */
+export function calendarChoices(me: string, p: MailProposal): string[] {
+  const choose = p.actions.find((a) => a.fn === "chooseProject");
+  if (!choose) return [];
+  const byProject = (choose.args.actionsByProject ?? {}) as Record<string, ProposedAction[]>;
+  const viewer = viewerFor(me);
+  return proposalProjectIds(p).filter(
+    (id) =>
+      isProjectMember(me, id) &&
+      (byProject[id] ?? []).every((a) => {
+        if (a.fn === "acknowledgeReminder") return true;
+        const perm = permissionForAction(a.fn);
+        return perm !== null && can(viewer, perm, id);
+      }),
+  );
+}
+
+/**
  * Chi agisce ha nel progetto della proposta il permesso di ognuna delle
  * azioni. Prendere atto di un promemoria non ne chiede nessuno.
  */
@@ -169,7 +190,11 @@ export function isProposalRecipient(me: string, p: MailProposal): boolean {
  */
 export function canSeeMailProposal(me: string, p: MailProposal): boolean {
   if (p.source === "calendar") {
-    return isProjectMember(me, p.projectId) && calendarParticipants.of(p.sourceId).includes(me);
+    if (!calendarParticipants.of(p.sourceId).includes(me)) return false;
+    // Lotto 9, voce 2 (a): la «Quale progetto?» la riceve chi può confermare
+    // in almeno un candidato (come il server: mai chi non può in nessuno).
+    if (p.actions.some((a) => a.fn === "chooseProject")) return calendarChoices(me, p).length > 0;
+    return isProjectMember(me, p.projectId);
   }
   if (proposalProjectIds(p).some((id) => isProjectMember(me, id)) && isProposalRecipient(me, p)) {
     return true;

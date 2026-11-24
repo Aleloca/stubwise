@@ -23,6 +23,7 @@ import {
   calendarParticipants,
   canDoActions,
   canSeeMessage,
+  calendarChoices,
   canSeeMailProposal,
   canSeeTranscript,
   isProjectMember,
@@ -163,9 +164,11 @@ function viewOf(
     proposal.projectChosenById = hide(proposal.projectChosenById);
   for (const a of proposal.actions) {
     if (a.fn !== "chooseProject") continue;
-    const ids = ((a.args.projectIds as string[] | undefined) ?? []).filter((id) =>
-      isProjectMember(me, id),
-    );
+    // Del calendario (lotto 9, voce 2 (a)): solo i candidati in cui chi guarda può confermare.
+    const ids =
+      p.source === "calendar"
+        ? calendarChoices(me, p)
+        : ((a.args.projectIds as string[] | undefined) ?? []).filter((id) => isProjectMember(me, id));
     const byProject = (a.args.actionsByProject ?? {}) as Record<string, ProposedAction[]>;
     a.args = {
       ...a.args,
@@ -589,6 +592,8 @@ export async function chooseProjectFor(id: string, projectId: string): Promise<v
   if (!isProjectMember(me, projectId)) throw notFound();
   const candidates = (choose.args.projectIds as string[] | undefined) ?? [];
   if (!candidates.includes(projectId)) throw invalid("project");
+  // Del calendario: serve il permesso di confermare lì (il server: `forbidden`).
+  if (p.source === "calendar" && !calendarChoices(me, p).includes(projectId)) throw forbidden();
   const byProject = (choose.args.actionsByProject ?? {}) as Record<string, ProposedAction[]>;
   const actions = byProject[projectId] ?? [];
   if (actions.length === 0) throw invalid("project");
@@ -596,6 +601,15 @@ export async function chooseProjectFor(id: string, projectId: string): Promise<v
   p.projectId = projectId;
   p.actions = copy(actions);
   p.projectChosenById = me;
+  if (p.source === "calendar") {
+    // L'appuntamento prende il progetto scelto, per tutti (come le copie sul server).
+    const e = state.calendarEvents.find((x) => x.id === p.sourceId);
+    if (e) {
+      e.projectId = projectId;
+      e.projectBy = "manual";
+    }
+    return;
+  }
   labelMessage(p, projectId, null);
 }
 

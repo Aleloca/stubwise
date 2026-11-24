@@ -2096,14 +2096,25 @@ describe("seed: Posta (area 6)", () => {
       expect(p.source, p.id).toBe("calendar");
       const e = events.get(p.sourceId);
       expect(e, p.id).toBeDefined();
-      const members = new Set(projectsById.get(p.projectId)!.memberIds);
+      // Lotto 9, voce 2 (a): una «Quale progetto?» (scadenza senza progetto)
+      // sceglie fra i candidati dell'evento, col traguardo pronto per ognuno.
+      const choose = p.actions.find((a) => a.fn === "chooseProject");
+      const projectIds = choose ? (choose.args.projectIds as string[]) : [p.projectId];
+      if (choose) {
+        expect(e!.projectId, p.id).toBeNull();
+        expect(projectIds, p.id).toEqual(e!.projectCandidateIds);
+      }
+      const members = new Set(projectIds.flatMap((id) => projectsById.get(id)!.memberIds));
       expect(
         e!.attendees.some(
           (a) => a.personId && a.response !== "declined" && members.has(a.personId),
         ),
         p.id,
       ).toBe(true);
-      for (const a of p.actions) {
+      const actions = choose
+        ? Object.values(choose.args.actionsByProject as Record<string, typeof p.actions>).flat()
+        : p.actions;
+      for (const a of actions) {
         expect(["createMilestone", "createRequest", "acknowledgeReminder"], p.id).toContain(a.fn);
         // Un promemoria non crea nulla: porta solo titolo e data.
         if (a.fn === "acknowledgeReminder")

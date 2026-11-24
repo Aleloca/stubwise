@@ -190,6 +190,32 @@ describe("lotto 9: le proposte del calendario condivise fra gli invitati", () =>
     await expect(mail.confirmMailProposal(P2, {})).rejects.toMatchObject({ message: "already_handled", byId: CARLA });
   });
 
+  it("la «Quale progetto?» condivisa (0b754a95c): in «Da decidere» coi candidati del server; la scelta va a `choose-project`, la seconda è `already_handled`", async () => {
+    serve(
+      calendar({
+        projectId: PROJECT_ID,
+        calendarOrigin: null,
+        sharedWith: [{ userId: CARLA, name: "Carla" }],
+        actions: [{ type: "choose_project", args: { projectIds: [PROJECT_ID, OTHER] }, label: "Which project?" }],
+      }),
+    );
+    const [cal] = await mail.listMailDecisions();
+    expect(cal!.proposal.source).toBe("calendar");
+    expect(cal!.proposal.actions[0]).toMatchObject({ fn: "chooseProject", args: { projectIds: [PROJECT_ID, OTHER] } });
+    const { seen } = installFakeServer({
+      [`POST /api/me/mail/proposals/${P2}/choose-project`]: { body: { status: "moved", projectId: OTHER } },
+    });
+    await mail.chooseProjectFor(P2, OTHER);
+    expect(seen.find((r) => r.method === "POST")!.body).toEqual({ projectId: OTHER });
+    installFakeServer({
+      [`POST /api/me/mail/proposals/${P2}/choose-project`]: {
+        status: 409,
+        body: { code: "already_handled", message: "x", decidedBy: { userId: CARLA, name: "Carla" } },
+      },
+    });
+    await expect(mail.chooseProjectFor(P2, PROJECT_ID)).rejects.toMatchObject({ message: "already_handled", byId: CARLA });
+  });
+
   it("un server di prima (per casella): niente `sharedWith`, nessun «Also for»", async () => {
     const old = calendar() as Record<string, unknown>;
     delete old.sharedWith;
