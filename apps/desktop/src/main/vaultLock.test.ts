@@ -1,0 +1,192 @@
+// @vitest-environment node
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createVaultLock, VAULT_IDLE_MS, type VaultLockDeps } from "./vaultLock";
+import type { DeviceIdentity, StoredDevice } from "./vaultDevice";
+
+// Lotto 10, design §3–§5 e §12 (decisioni del maintainer, 24 nov 2026):
+// - la privata di persona vive SOLO nella memoria del main, non estraibile;
+// - si riapre col Touch ID (D-1); senza tocco solo la prima apertura dopo
+//   l'associazione (D-1b); un Mac senza Touch ID si riapre dal browser (D-1a);
+// - si chiude dopo 15 minuti senza usarla, a schermo bloccato, in stop (D-2);
+// - un sigillo revocato lascia il login (D-5): lo stato è `revoked`.
+
+const ME: DeviceIdentity = { instanceUrl: "https://stubwise.example", patId: "pat-1" };
+const DEVICE: StoredDevice = {
+  v: 1,
+  ...ME,
+  deviceId: "d-1",
+  personKeyId: "pk-1",
+  publicKey: "pub",
+  privateKey: "priv",
+};
+const PERSON_KEY = { type: "private", extractable: false } as unknown as CryptoKey;
+
+function setup(over: Partial<VaultLockDeps> = {}) {
+  const calls: string[] = [];
+  let stored: StoredDevice | null = DEVICE;
+  const deps: VaultLockDeps = {
+    identity: () => ME,
+    store: {
+      read: () => stored,
+      forget: () => {
+        calls.push("forget-local");
+        stored = null;
+      },
+    },
+    devicePrivateKey: async () => ({}) as CryptoKey,
+    touchId: {
+      available: () => true,
+      prompt: async () => {
+        calls.push("touch");
+      },
+    },
+    fetchSeal: async () => ({
+      id: "d-1",
+      deviceName: "Mac",
+      seal: "sealed",
+      personKeyId: "pk-1",
+      personPublicKey: "ppub",
+    }),
+    openSeal: async () => PERSON_KEY,
+    forgetRemote: async () => {
+      calls.push("forget-remote");
+    },
+    fingerprint: async (pub) => `fp(${pub})`,
+    onChange: () => {},
+    ...over,
+  };
+  return {
+    lock: createVaultLock(deps),
+    calls,
+    setStored: (d: StoredDevice | null) => (stored = d),
+  };
+}
+
+beforeEach(() => vi.useFakeTimers());
+afterEach(() => vi.useRealTimers());
+
+describe("la cassaforte nel main", () => {
+  it("senza un dispositivo associato: `unpaired`, e non si apre", async () => {
+    const { lock, setStored } = setup();
+    setStored(null);
+    expect(await lock.status()).toEqual({ state: "unpaired", fingerprint: null });
+    expect(await lock.unlock()).toEqual({ ok: false, code: "unpaired" });
+  });
+
+  it("si apre col Touch ID; lo stato dice l'impronta del dispositivo, mai la chiave", async () => {
+    const { lock, calls } = setup();
+    expect(await lock.status()).toEqual({ state: "locked", fingerprint: "fp(pub)" });
+    expect(await lock.unlock()).toEqual({ ok: true });
+    expect(calls).toEqual(["touch"]);
+    const status = await lock.status();
+    expect(status).toEqual({ state: "open", fingerprint: "fp(pub)" });
+    expect(JSON.stringify(status)).not.toContain("priv");
+    // L'operazione riceve la chiave DENTRO il main.
+    expect(await lock.use(async (key) => key === PERSON_KEY)).toBe(true);
+  });
+
+  it("D-1b: dopo l'associazione la prima apertura è senza tocco, poi sempre col tocco", async () => {
+    const { lock, calls } = setup();
+    lock.markPaired();
+    expect(await lock.unlock()).toEqual({ ok: true });
+    expect(calls).toEqual([]);
+    lock.lock();
+    expect(await lock.unlock()).toEqual({ ok: true });
+    expect(calls).toEqual(["touch"]);
+  });
+
+  it("D-1a: un Mac senza Touch ID non si riapre da solo (dal browser), e il sigillo resta", async () => {
+    const { lock, calls } = setup({ touchId: { available: () => false, prompt: async () => {} } });
+    expect(await lock.unlock()).toEqual({ ok: false, code: "touch_id_unavailable" });
+    expect(calls).toEqual([]);
+    expect((await lock.status()).state).toBe("locked");
+  });
+
+  it("un tocco annullato non apre", async () => {
+    const { lock } = setup({
+      touchId: { available: () => true, prompt: async () => Promise.reject(new Error("cancel")) },
+    });
+    expect(await lock.unlock()).toEqual({ ok: false, code: "touch_id_cancelled" });
+    await expect(lock.use(async () => 1)).rejects.toThrow("vault_locked");
+  });
+
+  it("un sigillo che non si apre (un altro Mac, un'altra pubblica di persona: `openDeviceSeal` lancia) è `open_failed`, e non resta niente in memoria", async () => {
+    let seen: unknown = null;
+    const { lock } = setup({
+      openSeal: async (input) => {
+        seen = input;
+        throw new Error("open_failed");
+      },
+    });
+    expect(await lock.unlock()).toEqual({ ok: false, code: "open_failed" });
+    expect((await lock.status()).state).toBe("locked");
+    // L'apertura riceve gli id e la pubblica di persona che il server dice (la verifica è lì).
+    expect(seen).toMatchObject({
+      deviceSeal: "sealed",
+      deviceId: "d-1",
+      personKeyId: "pk-1",
+      personPublicKey: "ppub",
+    });
+  });
+
+  it("il server irraggiungibile: `unavailable`, niente cancellato", async () => {
+    const { lock, calls } = setup({ fetchSeal: async () => Promise.reject(new Error("offline")) });
+    expect(await lock.unlock()).toEqual({ ok: false, code: "unavailable" });
+    expect(calls).not.toContain("forget-local");
+    expect((await lock.status()).state).toBe("locked");
+  });
+
+  it("D-2: si chiude dopo 15 minuti senza usarla; usarla sposta la scadenza", async () => {
+    const { lock } = setup();
+    await lock.unlock();
+    vi.advanceTimersByTime(VAULT_IDLE_MS - 1000);
+    await lock.use(async () => null);
+    vi.advanceTimersByTime(VAULT_IDLE_MS - 1000);
+    expect((await lock.status()).state).toBe("open");
+    vi.advanceTimersByTime(2000);
+    expect((await lock.status()).state).toBe("locked");
+    await expect(lock.use(async () => 1)).rejects.toThrow("vault_locked");
+  });
+
+  it("schermo bloccato o stop: `lock()` dimentica la chiave, il dispositivo resta", async () => {
+    const { lock, calls } = setup();
+    await lock.unlock();
+    lock.lock();
+    expect((await lock.status()).state).toBe("locked");
+    expect(calls).not.toContain("forget-local");
+  });
+
+  it("D-5: un sigillo revocato dal server lascia il login; il file sparisce, lo stato è `revoked`", async () => {
+    const { lock, calls } = setup({ fetchSeal: async () => ({ revoked: true }) });
+    expect(await lock.unlock()).toEqual({ ok: false, code: "revoked" });
+    expect(calls).toContain("forget-local");
+    expect(await lock.status()).toEqual({ state: "revoked", fingerprint: null });
+  });
+
+  it("«Dimentica questo Mac»: il file, la chiave e il sigillo sul server; il server giù non ferma il locale", async () => {
+    const { lock, calls } = setup({
+      forgetRemote: async () => {
+        calls.push("forget-remote");
+        throw new Error("offline");
+      },
+    });
+    await lock.unlock();
+    expect(await lock.forget()).toEqual({ ok: true, remote: false });
+    expect(calls).toEqual(["touch", "forget-remote", "forget-local"]);
+    expect((await lock.status()).state).toBe("unpaired");
+  });
+
+  it("un cambio di sessione (login di un altro, logout) chiude e cancella il locale", async () => {
+    const { lock, calls } = setup();
+    await lock.unlock();
+    lock.sessionChanged();
+    expect(calls).toContain("forget-local");
+    expect((await lock.status()).state).toBe("unpaired");
+  });
+
+  it("senza sessione: niente stato da mostrare, niente apertura", async () => {
+    const { lock } = setup({ identity: () => null });
+    expect(await lock.status()).toEqual({ state: "unpaired", fingerprint: null });
+    expect(await lock.unlock()).toEqual({ ok: false, code: "no_session" });
+  });
+});

@@ -120,7 +120,8 @@ describe("menu dell'applicazione", () => {
 // 11a `file:save` (decisione 8 della spec) e, dall'integrazione area 2 (fetta
 // 1, Task 13), `api:request`, `instance:get|set`, `session:logout|status|start-browser-login|cancel-browser-login`
 // e `open:web`. Un canale in più (o scelto dal renderer) fa fallire questo
-// test. Dall'area 3 (fetta 3a) anche `api:stream-open` e `api:stream-port`. Il preload
+// test. Dall'area 3 (fetta 3a) anche `api:stream-open` e `api:stream-port`;
+// dal lotto 10 i `vault:*` della cassaforte (`vaultIpc.ts`). Il preload
 // espone solo `window.stubwise` con le sue nove voci.
 describe("canali IPC", () => {
   const read = (rel: string) => readFileSync(resolve(__dirname, rel), "utf8");
@@ -153,6 +154,14 @@ describe("canali IPC", () => {
     "session:start-browser-login",
     "session:status",
     "theme:changed",
+    "vault:changed",
+    "vault:forget",
+    "vault:lock",
+    "vault:pair-cancel",
+    "vault:pair-start",
+    "vault:paired",
+    "vault:status",
+    "vault:unlock",
   ];
 
   /** I nomi dei canali: ogni stringa `<parola>:<parola>` che non sia un import `node:`. */
@@ -168,6 +177,15 @@ describe("canali IPC", () => {
     expect([...all].sort()).toEqual(EXPECTED);
     expect(main).toMatch(/ipcMain\.handle\("file:save",/);
     expect(preload).toMatch(/ipcRenderer\.invoke\("file:save",/);
+  });
+
+  it("la cassaforte (lotto 10): i canali li registra `registerVaultIpc` col controllo del mittente; il main manda solo stato ed esiti", () => {
+    expect(main).toMatch(/registerVaultIpc\(ipcMain, \{ lock: vault, pairing: vaultPairing, fromApp \}\)/);
+    expect(main).toMatch(/broadcast\("vault:changed", status\)/);
+    expect(main).toMatch(/broadcast\("vault:paired", result\)/);
+    // Stop e schermo bloccato chiudono la cassaforte (D-2).
+    expect(main).toMatch(/powerMonitor\.on\("suspend", \(\) => vault\.lock\(\)\)/);
+    expect(main).toMatch(/powerMonitor\.on\("lock-screen", \(\) => vault\.lock\(\)\)/);
   });
 
   it("lo stream delle sessioni (area 3, fetta 3a): una porta di MessageChannelMain al preload, mai un MessagePort alla pagina", () => {
@@ -261,7 +279,7 @@ describe("canali IPC", () => {
     }
   });
 
-  it("il preload espone solo platform, setTheme, onMenu, saveFile, api, files, openStream, instance, session e openWeb", () => {
+  it("il preload espone solo platform, setTheme, onMenu, saveFile, api, files, openStream, instance, session, openWeb, vault e google", () => {
     const exposed = preload.match(/exposeInMainWorld\("stubwise", \{([\s\S]*)\}\);/)?.[1] ?? "";
     const keys = [...exposed.matchAll(/^ {2}([a-zA-Z]+):/gm)].map((m) => m[1]);
     expect(keys).toEqual([
@@ -275,6 +293,7 @@ describe("canali IPC", () => {
       "instance",
       "session",
       "openWeb",
+      "vault",
       "google",
     ]);
     // Mai il token né `ipcRenderer` verso il renderer.

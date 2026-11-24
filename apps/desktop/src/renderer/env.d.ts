@@ -37,6 +37,13 @@ type StubwiseDownloadResult =
 // `session:changed` (`src/main/browserLogin.ts`): l'esito del login dal browser
 // o la sessione scaduta, mai il token.
 type StubwiseSessionChange = { signedIn: true; user: unknown } | { signedIn: false; error?: string };
+// La cassaforte del main (`src/main/vaultLock.ts`, lotto 10): stato ed esiti,
+// mai la chiave.
+type StubwiseVaultStatus = {
+  state: "unpaired" | "locked" | "open" | "revoked";
+  fingerprint: string | null;
+};
+type StubwiseVaultUnlock = { ok: true } | { ok: false; code: string };
 // Lo stream dal vivo di una sessione (`api:stream-open`, `src/main/apiStream.ts`,
 // area 3 fetta 3a): `frame` è il risultato di `parseAgentStreamFrame` di
 // `@stubwise/shared` (solo i frame veri); `end` chiude, e `fatal` dice se
@@ -130,6 +137,16 @@ interface Window {
     };
     /** Apre una pagina del web vecchio dell'istanza nel browser di sistema. */
     openWeb?: (path: string) => Promise<{ ok: boolean }>;
+    vault?: {
+      status: () => Promise<StubwiseVaultStatus>;
+      unlock: () => Promise<StubwiseVaultUnlock>;
+      lock: () => Promise<{ ok: boolean }>;
+      forget: () => Promise<{ ok: true; remote: boolean } | { ok: false; code: string }>;
+      pairStart: () => Promise<{ ok: true; fingerprint: string } | { ok: false; code: string }>;
+      pairCancel: () => Promise<{ ok: boolean }>;
+      onChanged: (cb: (status: StubwiseVaultStatus) => void) => () => void;
+      onPaired: (cb: (result: StubwiseVaultUnlock) => void) => () => void;
+    };
   };
 }
 

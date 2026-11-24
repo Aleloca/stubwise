@@ -1,7 +1,20 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, nativeTheme, session, shell } from "electron";
+import { keyFingerprint, openDeviceSeal } from "@stubwise/vault-crypto";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  MessageChannelMain,
+  nativeTheme,
+  powerMonitor,
+  session,
+  shell,
+  systemPreferences,
+} from "electron";
 import {
   createPendingDownloads,
   downloadDecision,
@@ -15,9 +28,14 @@ import { createStreamRegistry } from "./apiStream";
 import { normalizeInstanceUrl, readInstanceUrl, writeInstanceUrl } from "./instance";
 import { buildMenuTemplate } from "./menu";
 import { hostname as osHostname } from "node:os";
-import { authUrlFromArgv, createBrowserLogin, type SessionChange } from "./browserLogin";
+import { authUrlFromArgv, createBrowserLogin, deviceNameFrom, type SessionChange } from "./browserLogin";
 import { createGoogleReturn } from "./googleReturn";
-import { clearToken, logout, readToken, replaceToken } from "./session";
+import { clearToken, logout, readPatId, readToken, replaceToken } from "./session";
+import { devicePrivateKey, forgetDevice, generateDeviceKey, readDevice, saveDevice } from "./vaultDevice";
+import { registerVaultIpc } from "./vaultIpc";
+import { createVaultLock } from "./vaultLock";
+import { createVaultPairing } from "./vaultPairing";
+import { createVaultRemote } from "./vaultRemote";
 import {
   isExternalOpenAllowed,
   isNavigationAllowed,
@@ -139,14 +157,79 @@ function notifySession(change: SessionChange): void {
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send("session:changed", change);
 }
 
+// --- la cassaforte (lotto 10, `docs/plans/2026-11-24-cassaforte-desktop-design.md`) ---
+//
+// La chiave del dispositivo in `safeStorage` (`vaultDevice`), la privata di
+// persona SOLO qui (`vaultLock`), le rotte del PAT desktop (`vaultRemote`),
+// l'associazione dal browser (`vaultPairing`, ritorno `stubwise://vault`).
+// Il renderer chiede per `vault:*` e riceve esiti, mai la chiave.
+
+/** La sessione desktop di adesso: istanza e PAT (un PAT è di una persona). */
+function vaultIdentity() {
+  const instanceUrl = readInstanceUrl();
+  const patId = readPatId();
+  return instanceUrl && patId && readToken() ? { instanceUrl, patId } : null;
+}
+
+function broadcast(channel: string, payload: unknown): void {
+  for (const win of BrowserWindow.getAllWindows()) win.webContents.send(channel, payload);
+}
+
+const openAllowed = async (url: string) => {
+  if (isExternalOpenAllowed(url)) await shell.openExternal(url);
+};
+
+const vaultRemote = createVaultRemote({ instanceUrl: readInstanceUrl, token: readToken });
+
+const vault = createVaultLock({
+  identity: vaultIdentity,
+  store: { read: readDevice, forget: forgetDevice },
+  devicePrivateKey,
+  // D-1, D-1a: il tocco dove c'è; senza, la cassaforte si apre dal browser.
+  touchId: {
+    available: () => process.platform === "darwin" && systemPreferences.canPromptTouchID(),
+    prompt: (reason) => systemPreferences.promptTouchID(reason),
+  },
+  touchReason: app.getLocale().toLowerCase().startsWith("it") ? "aprire la cassaforte" : "open the vault",
+  fetchSeal: () => vaultRemote.fetchSeal(),
+  openSeal: openDeviceSeal,
+  forgetRemote: () => vaultRemote.forgetRemote(),
+  fingerprint: keyFingerprint,
+  onChange: (status) => broadcast("vault:changed", status),
+});
+
+const vaultPairing = createVaultPairing({
+  identity: vaultIdentity,
+  deviceName: () => deviceNameFrom(osHostname()),
+  generate: generateDeviceKey,
+  devicePrivateKey,
+  pair: (pub, name) => vaultRemote.pair(pub, name),
+  openExternal: openAllowed,
+  fetchSeal: () => vaultRemote.fetchSeal(),
+  openSeal: openDeviceSeal,
+  save: saveDevice,
+  paired: () => vault.markPaired(),
+  fingerprint: keyFingerprint,
+});
+
+/** Il ritorno dall'associazione: si apre subito (D-1b, senza tocco) e il renderer lo sa. */
+async function receiveVaultUrl(url: string): Promise<void> {
+  const result = await vaultPairing.handleUrl(url);
+  if (result.ok) await vault.unlock();
+  broadcast("vault:paired", result);
+}
+
 const browserLogin = createBrowserLogin({
   instanceUrl: readInstanceUrl,
-  openExternal: async (url) => {
-    if (isExternalOpenAllowed(url)) await shell.openExternal(url);
-  },
+  openExternal: openAllowed,
   hostname: osHostname,
   // Il token di prima (un login già fatto) si revoca: un PAT per dispositivo.
-  saveToken: (token, patId) => void replaceToken(token, patId, { instanceUrl: readInstanceUrl() }),
+  // Il dispositivo della cassaforte era di quel login (§4): si cancella.
+  saveToken: (token, patId) => {
+    vault.sessionChanged();
+    vaultPairing.cancel();
+    void replaceToken(token, patId, { instanceUrl: readInstanceUrl() });
+  },
   notify: notifySession,
 });
 
@@ -170,6 +253,7 @@ function receiveAuthUrl(url: string): void {
     win.focus();
   }
   if (url.startsWith("stubwise://google")) googleReturn.handleGoogleUrl(url);
+  else if (url.startsWith("stubwise://vault")) void receiveVaultUrl(url);
   else void browserLogin.handleAuthUrl(url);
 }
 
@@ -177,6 +261,8 @@ function receiveAuthUrl(url: string): void {
 function onUnauthorized(used: string): void {
   if (readToken() !== used) return;
   clearToken();
+  vault.sessionChanged();
+  vaultPairing.cancel();
   notifySession({ signedIn: false, error: "unauthorized" });
 }
 
@@ -359,6 +445,8 @@ ipcMain.handle("instance:set", (event, raw: unknown) => {
   if (next !== readInstanceUrl()) {
     clearToken();
     browserLogin.cancel();
+    vault.sessionChanged();
+    vaultPairing.cancel();
   }
   return { ok: true, url: writeInstanceUrl(next) };
 });
@@ -391,6 +479,9 @@ ipcMain.handle("google:cancel-connect", (event) => {
 
 ipcMain.handle("session:logout", async (event) => {
   if (!fromApp(event)) return { ok: false };
+  // Prima il sigillo del Mac (col token ancora valido), poi il PAT (§4–§5).
+  if (vaultIdentity()) await vault.forget();
+  vaultPairing.cancel();
   await logout({ instanceUrl: readInstanceUrl() });
   return { ok: true };
 });
@@ -446,7 +537,12 @@ app.on("open-url", (event, url) => {
   void app.whenReady().then(() => receiveAuthUrl(url));
 });
 
+registerVaultIpc(ipcMain, { lock: vault, pairing: vaultPairing, fromApp });
+
 void app.whenReady().then(() => {
+  // D-2: in stop e a schermo bloccato la privata si dimentica (il dispositivo resta).
+  powerMonitor.on("suspend", () => vault.lock());
+  powerMonitor.on("lock-screen", () => vault.lock());
   installMenu();
   installDownloads();
   createWindow();
