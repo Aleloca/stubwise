@@ -137,6 +137,8 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "releases-repo-settings",
     // «Spiega» un rilascio: Claude lo legge col tool `read_release` (verde col golden di 72).
     "releases-explain",
+    // La ricerca ⌘K dei rilasci (rimandi, lotto 5; 72, 6ea466fa2).
+    "releases-search",
     // Area 8, fetta 2 (R6): Preferenze → Notifiche sulle iscrizioni vere
     // (righe e stati dal server), la campanella del progetto e il menu
     // degli avvisi nel pannello. «Don't alert me» dalla card è `alerts-mute`.

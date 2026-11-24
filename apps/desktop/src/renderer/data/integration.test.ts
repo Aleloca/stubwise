@@ -83,6 +83,7 @@ const ALL: IntegrationTarget[] = [
       "releases",
       "releases-repo-settings",
       "releases-explain",
+      "releases-search",
       "support",
       "support-widgets",
       "support-search",
@@ -144,6 +145,7 @@ describe("isIntegrated", () => {
         "feature:releases",
         "feature:releases-repo-settings",
         "feature:releases-explain",
+        "feature:releases-search",
         // Area 8, fetta 3: Support (letture e scritture) e i widget; bozza e
         // ricerca senza rotta, «Clienti in attesa» spento (fonte da definire).
         "projectSection:support",

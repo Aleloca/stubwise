@@ -12,10 +12,11 @@ import {
   type ReleaseFixResult,
   type ReleaseQueueItem,
   type ReleaseRow,
+  type ReleaseSearchResult,
 } from "@stubwise/shared";
 import { z } from "zod";
 import type { ApiRequest } from "../client.js";
-import { seg } from "../query.js";
+import { seg, toQuery } from "../query.js";
 
 /**
  * I rilasci e le PR aperte (area 8, F1). Le forme sono i tipi di
@@ -29,6 +30,13 @@ export function createReleaseEndpoints(request: ApiRequest) {
     /** I rilasci di un progetto, dal più recente. */
     list(projectId: string): Promise<{ items: ReleaseRow[] }> {
       return request("GET", `/api/projects/${seg(projectId)}/releases`);
+    },
+    /**
+     * ⌘K (rimandi, lotto 5): i rilasci per codice o titolo nei progetti
+     * visibili, dal più recente, al massimo 20; meno di 2 caratteri: nessuno.
+     */
+    async search(q: string): Promise<ReleaseSearchResult[]> {
+      return (await request<{ items: ReleaseSearchResult[] }>("GET", `/api/releases/search${toQuery({ q })}`)).items;
     },
     /** Un rilascio per codice (`AUD-V7`). */
     get(code: string): Promise<ReleaseDetail> {

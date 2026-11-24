@@ -713,6 +713,8 @@ const INTEGRATED_CALLS = new Set([
   "releases.setReleasePipeline",
   // Area 8, F1 (`releases-explain`): «Spiega» apre una conversazione col contesto del rilascio.
   "releases.explainRelease",
+  // La ricerca ⌘K dei rilasci (rimandi, lotto 5).
+  "releases.searchReleases",
   // Area 7, F4 (accesa): sorgenti webhook, tabella cliente → progetto, tetto del
   // webhook (`data/backend/real/automationSources.ts`, `automations.ts`).
   "automations.listSources",
@@ -948,7 +950,7 @@ describe("aree non integrate nella build app", () => {
   });
 
   // Review area 8 F1, m5: le ricerche della palette delle aree non integrate non partono.
-  it("cercare nella palette legge solo chiamate integrate (rilasci, Support, Servers spenti)", async () => {
+  it("cercare nella palette legge solo chiamate integrate (Support e Servers spenti)", async () => {
     const user = userEvent.setup();
     renderRoute("/home");
     await screen.findByRole("region", { name: /^My tasks/ });
@@ -957,7 +959,8 @@ describe("aree non integrate nella build app", () => {
     await user.type(within(dialog).getByRole("combobox"), "AUD");
     await new Promise((r) => setTimeout(r, 400));
     await settle();
-    expect(calls).not.toContain("releases.searchReleases");
+    // La ricerca dei rilasci (rimandi, lotto 5) parte, ed è integrata.
+    expect(calls).toContain("releases.searchReleases");
     expect(calls).not.toContain("support.searchSupport");
     expect(calls).not.toContain("servers.searchServers");
     // La doc di prodotto (area 11, F3) parte, ed è integrata.

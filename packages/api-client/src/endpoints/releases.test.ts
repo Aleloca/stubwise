@@ -34,6 +34,14 @@ describe("client.releases", () => {
     expect(call(fetchImpl, 2).body).toEqual({ note: "n", start: true });
   });
 
+  // ⌘K (rimandi, lotto 5, voce 1; 72, 6ea466fa2): la ricerca, con `q` in query.
+  it("la ricerca dei rilasci: `q` in query, gli elementi dalla risposta", async () => {
+    const item = { kind: "release", id: "r", code: "AUD-V7", label: "Fix", projectId: "p", projectCode: "AUD", status: "live" };
+    const { c, fetchImpl } = client({ items: [item] });
+    expect(await c.releases.search("v7 & co")).toEqual([item]);
+    expect(call(fetchImpl)).toMatchObject({ method: "GET", url: "https://x.test/api/releases/search?q=v7+%26+co" });
+  });
+
   it("le note di una PR e «Solo analisi»", async () => {
     const { c, fetchImpl } = client({});
     await c.releases.releaseNotes("r1", 42);
