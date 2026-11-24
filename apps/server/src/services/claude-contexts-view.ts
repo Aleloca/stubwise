@@ -3,6 +3,8 @@ import { CLAUDE_CONTEXTS_MAX, visibleContexts, type ClaudeContextRef } from "@st
 import { inArray } from "drizzle-orm";
 import { scopeIncludes, visibleProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
+import { citeablesFromCodes } from "../chat/citations.js";
+import { getSupportConversation } from "./support.js";
 
 /**
  * Lotto 8, voce 3: i contesti di una conversazione con Claude come li vede CHI
@@ -21,7 +23,45 @@ export async function contextsForViewer(
 ): Promise<ClaudeContextRef[][]> {
   if (lists.every((l) => l.length === 0)) return lists.map(() => []);
   const scope = await visibleProjectIds(db, viewer);
-  return Promise.all(lists.map((l) => visibleContexts(db, l, (projectId) => scopeIncludes(scope, projectId), { isAuthor })));
+  const byProject = await Promise.all(lists.map((l) => visibleContexts(db, l, (projectId) => scopeIncludes(scope, projectId), { isAuthor })));
+  // Revisione 8–9 (I-2): il progetto non basta. Una task, una richiesta o una
+  // conversazione di supporto si vedono con la loro visibilità VERA (un
+  // membro senza `tickets.view_all` non vede le task degli altri): le stesse
+  // regole della Chat (`citeablesFromCodes`) e della pagina del supporto. Un
+  // giudizio per codice, una volta sola anche se il codice è in più gruppi.
+  const seen = new Map<string, Promise<boolean>>();
+  const objectVisible = (c: ClaudeContextRef): Promise<boolean> => {
+    const key = `${c.kind}:${c.id}`;
+    let v = seen.get(key);
+    if (!v) {
+      v = objectSeenBy(db, viewer, c);
+      seen.set(key, v);
+    }
+    return v;
+  };
+  return Promise.all(
+    byProject.map(async (list) => {
+      const keep = await Promise.all(list.map((c) => objectVisible(c)));
+      return list.filter((_, i) => keep[i]);
+    }),
+  );
+}
+
+/** Un contesto che è un OGGETTO (task, richiesta, supporto) visto da chi guarda; gli altri passano (il loro progetto è già stato filtrato). */
+async function objectSeenBy(db: Db, viewer: Pick<SessionUser, "id" | "instancePermissions">, c: ClaudeContextRef): Promise<boolean> {
+  if (c.kind === "task" || c.kind === "request") {
+    const found = await citeablesFromCodes(db, viewer, c.id.toUpperCase());
+    return found.some((x) => x.kind === c.kind);
+  }
+  if (c.kind === "support") {
+    try {
+      await getSupportConversation(db, viewer as SessionUser, c.id);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return true;
 }
 
 /** I contesti dei messaggi (`agent_session_inputs.contexts`), per id dell'input, già filtrati per chi guarda. */
