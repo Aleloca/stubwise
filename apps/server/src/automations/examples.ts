@@ -2,6 +2,8 @@ import { automations, backlogItems, backlogItemTickets, clientProjectLinks, emai
 import { automationEventFields, automationMailboxOf, automationOwnerInScope, loadPlanWorld, projectPermissionsByProject, projectPermissionsOfUser, type AutomationEventRef } from "@stubwise/notifications";
 import {
   checkEventFields,
+  triggerFields,
+  writtenTrialEvent,
   clientKeyOf,
   evaluate,
   visitSteps,
@@ -257,7 +259,18 @@ export async function simulationExamples(db: Db, viewer: Viewer, code: string, v
   };
   // La posta solo del proprietario che avrebbe, e solo se è chi prova (R-J13).
   const exampleScope: ExampleScope = a.projectId ? { projectId: a.projectId } : { visible };
-  return { items: await examplesOf(db, exampleScope, flow, ownerId === viewer.id && box.ok ? box.accountId : null), context };
+  const items = await examplesOf(db, exampleScope, flow, ownerId === viewer.id && box.ok ? box.accountId : null);
+  // Lotto 6, voce 5: gli esempi scritti dalla regola deterministica (mai un
+  // modello), coi soli dati di chi prova: lui, il progetto dell'automazione, oggi.
+  const [project] = a.projectId ? await db.select({ code: projects.code }).from(projects).where(eq(projects.id, a.projectId)) : [];
+  const writtenCtx = { viewerId: viewer.id, projectCode: project?.code ?? null, today: new Date().toISOString().slice(0, 10) };
+  const fields = triggerFields(flow, []);
+  const hasFilter = flow.trigger.kind === "stubwise" && flow.trigger.filter !== undefined;
+  const written = {
+    passes: items.length === 0 ? writtenTrialEvent(flow, fields, writtenCtx, true) : null,
+    fails: hasFilter ? writtenTrialEvent(flow, fields, writtenCtx, false) : null,
+  };
+  return { items, context, written };
 }
 
 /**

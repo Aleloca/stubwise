@@ -77,7 +77,16 @@ export async function loadHistory(
     .map((r) => ({ role: r.role as "user" | "assistant", content: r.content }));
 }
 
+/**
+ * Lotto 7, voce 2: un commento SSE `: ping` mentre il modello tace, così né il
+ * client (il ping di 60 s del main del desktop) né undici chiudono uno stream
+ * lento. 25 s come gli altri stream del server (`agent-sessions`, `chat`).
+ */
+export const DOCS_CHAT_PING_MS = 25_000;
+
 interface StreamChatResponseArgs {
+  /** Solo per i test: l'intervallo del ping (default {@link DOCS_CHAT_PING_MS}). */
+  pingMs?: number;
   db: Db;
   chatLlm: ChatLlm;
   request: FastifyRequest;
@@ -232,6 +241,9 @@ async function respondSse(args: StreamChatResponseArgs): Promise<void> {
     clientGone = true;
     controller.abort();
   });
+  const ping = setInterval(() => {
+    if (!clientGone) reply.raw.write(": ping\n\n");
+  }, args.pingMs ?? DOCS_CHAT_PING_MS);
 
   // La persistenza è fallita: il `done` va soppresso (vedi sotto).
   let persistFailed = false;
@@ -298,6 +310,7 @@ async function respondSse(args: StreamChatResponseArgs): Promise<void> {
       request.log.error({ err: error, ...logContext, sessionId }, "chat persist error");
     }
   } finally {
+    clearInterval(ping);
     // Lo stream HTTP grezzo va SEMPRE chiuso, anche su throw inatteso dopo
     // hijack(): senza questo il socket resterebbe appeso. Su disconnessione del
     // client la connessione è già chiusa, quindi non scriviamo/chiudiamo.

@@ -6281,3 +6281,14 @@ deploy o di un rollback che la tocca.
   **Rollback**: sicuro; ⚠️ un server vecchio ignora l'interruttore, quindi
   con la colonna a `false` gli allegati tornano accesi. Per togliere la
   colonna: server vecchio, poi `DROP COLUMN attachments_switch`.
+- **«Lotto 7: l'esito delle azioni della pagina»** *(24 nov 2026)*: branch
+  `feat/rimandi-server`. **Migrazione 0229** (`claude_page_outcomes`, tabella
+  nuova: chiave `(proposal_id, action_index)`, `ON DELETE CASCADE` sulla
+  proposta; nessun dato esistente toccato). `POST
+  /api/claude/proposals/:id/actions/:index/outcome { status }` (solo chi ha
+  chiesto la proposta, mosse del prototipo per fn; 409 `invalid_move` col
+  `current`, 422 `not_a_page_action`); la vista della proposta porta
+  `pageOutcomes` (default `[]`). Solo **server** (poi **caddy** quando il
+  renderer lo legge). **Rollback**: sicuro; un server vecchio non legge la
+  tabella e le azioni tornano «non applicate» dalla storia. Per toglierla:
+  server vecchio, poi `DROP TABLE claude_page_outcomes`.

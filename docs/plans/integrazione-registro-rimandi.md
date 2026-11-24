@@ -115,12 +115,22 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   dagli schemi zod (`claudeActionSignatures`): `pageAction` di tipo
   `filter` vi compare, ma il modello non conosce le rotte del renderer: lo
   userà davvero solo dove la pagina gliele dà (F3.4).
-- **Esito delle azioni della pagina salvato dal server** *(S, F3.4, review)*:
+- ~~**Esito delle azioni della pagina salvato dal server** *(S, F3.4, review)*:
   oggi l'esito (D3) è del renderer, per persona e in memoria, e un'azione
   parte solo se arriva dal vivo in quella finestra; letta dalla storia (un
   ricaricamento, un riavvio, un'altra scheda del browser) resta «non
   applicata» col gesto «Apply». Salvato sul server, la riga direbbe l'esito
-  vero anche dopo.
+  vero anche dopo.~~ *Parte server chiusa il 24 nov 2026 (72, lotto 7, voce
+  1, contratto di 94 in `docs/plans/2026-11-24-rimandi-lotto7-contratti.md`
+  §1)*: per indice, in `claude_page_outcomes` (0229), con
+  `POST /api/claude/proposals/:id/actions/:index/outcome` e `pageOutcomes`
+  nella vista. Gli stati sono l'unione delle due famiglie del prototipo
+  (`pageAction`: `done`/`failed`, poi `undone`/`changed_after`; `fillField`:
+  `placed`/`waiting`, poi `undone`/`changed_after`), con le mosse in
+  `CLAUDE_PAGE_OUTCOME_MOVES` di `@stubwise/shared` (allineate con 94). Chi
+  non ha chiesto la proposta riceve 404, come per confermare e annullare
+  (il contratto diceva 403: non si dice che la proposta esiste). Resta a
+  94 la lettura nel renderer.
 - Il contesto della pagina arriva al modello come `tipo: id`, non come il suo
   contenuto: Claude lo legge con i tool se serve *(S)*.
 - Conservazione *(M, review delle fette 1–2)*: le conversazioni inattive da 14
@@ -249,9 +259,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   null = non si sa), migrazione 0222, scritto dal worker all'apertura e dal
   webhook alla chiusura o riapertura. Resta al renderer leggerlo invece di
   mostrarla sempre aperta.
-- Chat dei Docs senza streaming *(S, fetta 1)*: se `CHAT_MAX_TOKENS` sale molto
+- ~~Chat dei Docs senza streaming *(S, fetta 1)*: se `CHAT_MAX_TOKENS` sale molto
   o arriva un modello lento, il primo a scattare è il timeout di 300 s del main
-  (undici); la strada è lo streaming, non un timeout più alto.
+  (undici); la strada è lo streaming, non un timeout più alto.~~ *Parte server
+  chiusa il 24 nov 2026 (72, lotto 7, voce 2)*: il server già rispondeva SSE;
+  ora manda `: ping` ogni 25 s mentre il modello tace (`DOCS_CHAT_PING_MS`),
+  e `@stubwise/shared` ha `parseDocsChatFrame` (`delta`, `done` con le fonti
+  validate una per una, `error`) e `isAllowedDocsChatStreamPath` (le due
+  POST). Il maintainer ha deciso che il testo CRESCE mentre arriva, anche nel
+  prototipo: main (`apiStream.ts`) e renderer sono di 94.
 - Differenze dichiarate del renderer (fetta 2, *S*): l'anteprima sul desktop è
   un salvataggio e sul web la rotta `preview` in una scheda nuova (niente
   Quick Look né miniatura nella build app); `counted` di un'apertura non si
@@ -663,8 +679,18 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 ## Area 7 — Automazioni
 
 - Blocco della Home delle automazioni.
-- Effetti che il prototipo ha e la build app spegne: segnali alle automazioni
-  alla chiusura di un traguardo e alla conversione di una richiesta.
+- ~~Effetti che il prototipo ha e la build app spegne: segnali alle automazioni
+  alla chiusura di un traguardo e alla conversione di una richiesta.~~
+  *Parte server verificata il 24 nov 2026 (72, lotto 7, voce 3)*: c'era già,
+  nel DB — `milestones_automation_reached` (0169, al passaggio a `closed`
+  da un altro stato) e `backlog_item_tickets_automation_converted` (0169, al
+  legame `converted_to` di `convertBacklogItem`), più il messaggio di Chat
+  `milestones_chat_reached` (0141). Mancava la prova DALLE ROTTE: ora
+  `milestones.test.ts` (una chiusura = un segnale, rinominare un chiuso no,
+  riaprire e richiudere sì) e `backlog.test.ts` (la conversione dà UN
+  `request_converted` con la task nata); mutazioni sui due trigger prese.
+  La build app non deve emettere niente: il segnale lo dà il server. Resta
+  a 94 il blocco della Home.
 - Azioni di Claude: crea automazione in bozza, salva/elimina bozza, prova.
 - F4, `automations.manage` d'ISTANZA *(S, verifica di Q7, 13 nov 2026)*:
   serve solo alle automazioni generali. Come il prototipo
@@ -1636,13 +1662,21 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   `GET/POST /api/claude/conversations/:id/questions…`); le bozze di
   automazione nel catalogo (`createAutomation`, `saveAutomationDraft`,
   `deleteAutomationDraft`), mai accese da Claude.
-- Gli esempi scritti da Claude nella prova di S1 (F2, decisione 2a di 46,
+- ~~Gli esempi scritti da Claude nella prova di S1 (F2, decisione 2a di 46,
   19 nov 2026): nel prototipo, se il progetto non ha un evento che passa (o
   che non passa) il filtro dell'inizio, Claude ne scrive uno («Example
   written by Claude», `pickTrialExamples`/`writtenEvent`). Nell'app la prova
   usa solo gli esempi veri del server (il più recente che passa e, con un
   filtro, il più recente che non passa); senza, la riga dice «Nothing to try
-  it on yet». Nel prototipo non manca niente: è l'app che resta indietro.
+  it on yet». Nel prototipo non manca niente: è l'app che resta indietro.~~
+  *Parte server chiusa il 24 nov 2026 (72, lotto 6)*: la regola è
+  `writtenTrialEvent` in `@stubwise/shared` (pura, DETERMINISTICA, mai un
+  modello: «written by Claude» è solo l'etichetta, e il docblock lo dice), e
+  `GET /api/automations/:code/examples` porta `written: { passes, fails }`
+  (opzionale; `passes` solo senza un esempio vero, `fails` solo con un
+  filtro, `null` dove la regola non sa scriverlo). Resta a 94 l'uso nella
+  prova dell'app (e, se vuole, il prototipo che importa la regola condivisa
+  al posto della sua copia).
 
 - **Chiuse con F3 (20 nov 2026)**: Claude legge il lavoro fermo (con le
   soglie dei progetti, la regola della lista delle task) e la spesa del mese

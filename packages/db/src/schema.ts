@@ -4258,6 +4258,30 @@ export const claudeProposals = pgTable(
 );
 
 /**
+ * Lotto 7, voce 1: l'esito di un'azione del renderer (`pageAction`,
+ * `fillField`) di una proposta, per indice. Lo scrive solo chi ha chiesto la
+ * proposta (`POST /api/claude/proposals/:id/actions/:index/outcome`), con le
+ * mosse di `CLAUDE_PAGE_OUTCOME_MOVES`; nessuna riga = `pending`. Niente
+ * persona: l'esito è del proprietario, l'unico che lo scrive.
+ */
+export const claudePageOutcomes = pgTable(
+  "claude_page_outcomes",
+  {
+    proposalId: uuid("proposal_id")
+      .notNull()
+      .references((): AnyPgColumn => claudeProposals.id, { onDelete: "cascade" }),
+    actionIndex: integer("action_index").notNull(),
+    status: text("status").$type<"done" | "failed" | "placed" | "waiting" | "undone" | "changed_after">().notNull(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.proposalId, table.actionIndex] }),
+    check("claude_page_outcomes_status_chk", sql`status in ('done','failed','placed','waiting','undone','changed_after')`),
+    check("claude_page_outcomes_index_chk", sql`action_index >= 0`),
+  ],
+);
+
+/**
  * Un gruppo di azioni ESEGUITO dal server per una persona (subito per una A,
  * alla conferma per una B), tutto o niente. `session_id` SET NULL: le sessioni
  * si potano a 14 giorni, il segno «via Claude» sulle scritture no.

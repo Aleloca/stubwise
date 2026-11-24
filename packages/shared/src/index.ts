@@ -66,6 +66,7 @@ export * from "./ai-pricing.js";
 export * from "./tasks/index.js";
 export * from "./claude/index.js";
 export * from "./chat/sse.js";
+export * from "./chat/docsSse.js";
 export * from "./schemas/task-view.js";
 export * from "./schemas/task-delete.js";
 export * from "./schemas/claude-actions.js";

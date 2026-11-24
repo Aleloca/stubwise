@@ -6,6 +6,7 @@ import {
   claudeActionGroups,
   claudeActions,
   claudeConversations,
+  claudePageOutcomes,
   claudeProposals,
   tickets,
   type Db,
@@ -15,6 +16,9 @@ import {
   CLAUDE_PROPOSABLE_FNS,
   CLAUDE_PROPOSAL_EXPIRY,
   RENDERER_FNS,
+  claudePageOutcomeMoveAllowed,
+  type ClaudePageOutcome,
+  type ClaudePageOutcomeStatus,
   type ClaudeActionFailure,
   type ClaudeActionFn,
   type ClaudeActionGroupView,
@@ -394,7 +398,60 @@ export async function proposalView(db: Db, user: SessionUser, row: ProposalRow, 
     undoOfGroupId: row.undoOfGroupId,
     createdAt: row.createdAt.toISOString(),
     reauth: needsReauth,
+    pageOutcomes: actions.some((a) => RENDERER_FNS.has(a.fn)) ? await pageOutcomesOf(db, row.id) : [],
   };
+}
+
+/** Lotto 7, voce 1: gli esiti salvati delle azioni del renderer di una proposta, per indice. */
+async function pageOutcomesOf(db: Db, proposalId: string): Promise<ClaudePageOutcome[]> {
+  const rows = await db
+    .select()
+    .from(claudePageOutcomes)
+    .where(eq(claudePageOutcomes.proposalId, proposalId))
+    .orderBy(asc(claudePageOutcomes.actionIndex));
+  return rows.map((r) => ({ index: r.actionIndex, status: r.status, at: r.at.toISOString() }));
+}
+
+export type PageOutcomeResult =
+  | { ok: true; outcome: ClaudePageOutcome }
+  | { ok: false; error: "not_found" | "not_a_page_action" }
+  | { ok: false; error: "invalid_move"; current: ClaudePageOutcomeStatus | "pending" };
+
+/**
+ * Lotto 7, voce 1: il renderer fissa l'esito di un'azione della pagina o di una
+ * bozza (`fn` in `RENDERER_FNS`) di una proposta `confirmed`. Solo chi l'ha
+ * chiesta (`loadOwn`: le altre sono 404, come confermare e annullare). Le
+ * mosse sono quelle del prototipo per fn (`claudePageOutcomeMoveAllowed`); la
+ * stessa mossa ripetuta è idempotente (due schede che applicano insieme),
+ * una fuori elenco è `invalid_move` col `current`. La scrittura è guardata
+ * sullo stato di partenza: due mosse concorrenti diverse non passano entrambe.
+ * Nessuna esecuzione e nessun registro: l'azione l'ha già fatta il renderer.
+ */
+export async function settlePageOutcome(db: Db, user: SessionUser, proposalId: string, index: number, status: ClaudePageOutcomeStatus): Promise<PageOutcomeResult> {
+  const row = await loadOwn(db, user, proposalId);
+  if (!row) return { ok: false, error: "not_found" };
+  const action = (row.actions as PlannedAction[])[index];
+  if (row.status !== "confirmed" || !action || !RENDERER_FNS.has(action.fn)) return { ok: false, error: "not_a_page_action" };
+  const [saved] = await db
+    .select()
+    .from(claudePageOutcomes)
+    .where(and(eq(claudePageOutcomes.proposalId, row.id), eq(claudePageOutcomes.actionIndex, index)));
+  const current = saved?.status ?? null;
+  if (current === status) return { ok: true, outcome: { index, status, at: saved!.at.toISOString() } };
+  if (!claudePageOutcomeMoveAllowed(action.fn, current, status)) return { ok: false, error: "invalid_move", current: current ?? "pending" };
+  const written = current === null
+    ? await db.insert(claudePageOutcomes).values({ proposalId: row.id, actionIndex: index, status }).onConflictDoNothing().returning()
+    : await db
+        .update(claudePageOutcomes)
+        .set({ status, at: new Date() })
+        .where(and(eq(claudePageOutcomes.proposalId, row.id), eq(claudePageOutcomes.actionIndex, index), eq(claudePageOutcomes.status, current)))
+        .returning();
+  if (written.length === 0) {
+    // Un'altra scheda ha mosso nel frattempo: si rilegge e si risponde dallo stato vero.
+    return settlePageOutcome(db, user, proposalId, index, status);
+  }
+  await sessionEvent(db, row.sessionId, "proposal", { proposalId: row.id });
+  return { ok: true, outcome: { index, status, at: written[0]!.at.toISOString() } };
 }
 
 async function undoInversesOf(db: Db, user: SessionUser, groupId: string): Promise<PlannedAction[] | null> {

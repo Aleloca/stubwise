@@ -416,6 +416,38 @@ export const claudeActionFailureSchema = z.object({
 });
 export type ClaudeActionFailure = z.infer<typeof claudeActionFailureSchema>;
 
+/**
+ * Lotto 7, voce 1: l'esito di un'azione della pagina (`pageAction`) o di una
+ * bozza nel campo (`fillField`), che esegue il RENDERER, salvato dal server per
+ * indice (`claude_page_outcomes`). Assente = `pending`. Gli stati sono quelli
+ * del prototipo (`PageEventStatus`), l'unione delle due famiglie.
+ */
+export const claudePageOutcomeStatusSchema = z.enum(["done", "failed", "placed", "waiting", "undone", "changed_after"]);
+export type ClaudePageOutcomeStatus = z.infer<typeof claudePageOutcomeStatusSchema>;
+
+/**
+ * Le mosse ammesse, per fn, dall'esito salvato (`pending` = nessuno): quelle
+ * del prototipo (`PAGE_EVENT_MOVES`), qui UNA volta per server e renderer. Un
+ * evento chiuso non si riapre.
+ */
+export const CLAUDE_PAGE_OUTCOME_MOVES: Readonly<Record<"pageAction" | "fillField", Readonly<Record<string, readonly ClaudePageOutcomeStatus[]>>>> = {
+  pageAction: { pending: ["done", "failed"], done: ["undone", "changed_after"] },
+  fillField: { pending: ["placed", "waiting"], waiting: ["placed"], placed: ["undone", "changed_after"] },
+};
+
+/** La mossa `from → to` per l'azione `fn` è ammessa? (`from` null = `pending`.) */
+export function claudePageOutcomeMoveAllowed(fn: string, from: ClaudePageOutcomeStatus | null, to: ClaudePageOutcomeStatus): boolean {
+  const moves = fn === "pageAction" || fn === "fillField" ? CLAUDE_PAGE_OUTCOME_MOVES[fn] : undefined;
+  return moves?.[from ?? "pending"]?.includes(to) === true;
+}
+
+export const claudePageOutcomeSchema = z.object({
+  index: z.number().int().min(0),
+  status: claudePageOutcomeStatusSchema,
+  at: z.iso.datetime(),
+});
+export type ClaudePageOutcome = z.infer<typeof claudePageOutcomeSchema>;
+
 /** Una proposta letta da chi l'ha chiesta: classe e motivi CALCOLATI adesso; scadenza derivata. */
 export const claudeProposalViewSchema = z.object({
   id: z.uuid(),
@@ -448,6 +480,8 @@ export const claudeProposalViewSchema = z.object({
    * `readerSchema` non apre. False da un server che non lo manda.
    */
   reauth: z.boolean().default(false),
+  /** Lotto 7, voce 1: gli esiti salvati delle azioni del renderer, per indice; un indice assente è `pending`. [] da un server di prima. */
+  pageOutcomes: z.array(claudePageOutcomeSchema).default([]),
 });
 export type ClaudeProposalView = z.infer<typeof claudeProposalViewSchema>;
 

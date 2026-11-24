@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
 import {
   aiJobs,
+  automationEvents,
   backlogItemRequesters,
   backlogItems,
   backlogItemTickets,
@@ -878,6 +879,18 @@ describe("POST /api/backlog/:id/convert", () => {
       headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(404);
+  });
+
+  it("lotto 7, A7: convertire DALLA ROTTA dà il segnale `request_converted` alle automazioni, con la task nata", async () => {
+    const item = await insertItem({ title: "Da segnalare", status: "ready" });
+    const res = await app.inject({ method: "POST", url: `/api/backlog/${item.id}/convert`, headers: { cookie: adminCookie } });
+    expect(res.statusCode).toBe(200);
+    const { ticketId } = res.json() as { ticketId: string };
+    const rows = await testDb.db.select({ kind: automationEvents.kind, payload: automationEvents.payload }).from(automationEvents).where(eq(automationEvents.objectId, item.id));
+    // `request_created` lo dà l'inserimento della voce; la conversione ne aggiunge UNO.
+    const converted = rows.filter((r) => r.kind === "request_converted");
+    expect(converted).toHaveLength(1);
+    expect(converted[0]!.payload).toMatchObject({ ticketId, title: "Da segnalare" });
   });
 
   it("crea un task col numero sequenziale reale, link converted_to, voce→converted, nessun aiJob", async () => {
