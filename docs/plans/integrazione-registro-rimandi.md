@@ -1381,9 +1381,12 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   gli allegati), che il server non esegue (registro di 72).
 
 - **F1 renderer, ciò che resta** *(94, 16 nov 2026)*:
-  - gli autori git osservati arrivano dal server senza commit né progetti
+  - ~~gli autori git osservati arrivano dal server senza commit né progetti
     (`GET /api/git/observed-authors` dà email, nome visto e data): le righe
-    di «Link a git email» non dicono «N commit in ACQ» *(S)*;
+    di «Link a git email» non dicono «N commit in ACQ» *(S)*;~~ *parte
+    server chiusa il 24 nov 2026 (72, lotto 5)*: ogni autore porta `commits`
+    e `projectCodes` (da `activity_commits`, solo nei progetti che chi guarda
+    vede, l'email senza distinzione di maiuscole; `.default`);
   - ~~le caselle Google in Preferenze → Account restano spente nell'app
     (`prefs-mailboxes`): stanno nel cassetto Google~~ **Chiuso (23 nov
     2026, decisione del maintainer: «Anche in Preferenze»)**: `prefs-mailboxes`
