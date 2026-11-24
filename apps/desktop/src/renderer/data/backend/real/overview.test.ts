@@ -273,6 +273,52 @@ describe("brief e cronologia dal server", () => {
 });
 
 describe("il polso dal server", () => {
+  // Lotto 7, voce 4 (72, 05010a858): `GET /api/projects/pulses` lo calcola il
+  // server, in una lettura per tutti i progetti; numeri esatti fino a 10.000
+  // task aperte. Un server di prima (404) ripiega sulle letture di sempre.
+  it("dalla rotta aggregata: una lettura, il traguardo nella forma del prototipo, «+» solo oltre il tetto", async () => {
+    const pulse = (projectId: string, over: Record<string, unknown> = {}) => ({
+      projectId,
+      open: { todo: 3, active: 2 },
+      stalled: 1,
+      waitingOnMe: true,
+      claudeWorking: false,
+      nextMilestone: { ...serverMilestone(), automationCreated: false },
+      waiting: { decisionsForMe: 1, requestsToConvert: 0, claudeWaitingForMe: 0 },
+      truncated: false,
+      ...over,
+    });
+    const { seen } = installFakeServer({
+      "GET /api/auth/me": { body: me() },
+      "GET /api/projects": {
+        body: [serverProject({ memberIds: [ME_ID] }), serverProject({ id: OTHER_PROJECT, code: "BRN", memberIds: [ME_ID] })],
+      },
+      "GET /api/projects/pulses": () => ({
+        body: { items: [pulse(PROJECT_ID), pulse(OTHER_PROJECT, { nextMilestone: null, truncated: true })] },
+      }),
+    });
+    await getSessionPerson();
+    const pulses = await listProjectPulses();
+    expect(pulses).toEqual([
+      expect.objectContaining({
+        projectId: PROJECT_ID,
+        open: { todo: 3, active: 2 },
+        stalled: 1,
+        waitingOnMe: true,
+        claudeWorking: false,
+        nextMilestone: expect.objectContaining({ id: MILESTONE, dueDate: "2026-11-20" }),
+      }),
+      expect.objectContaining({ projectId: OTHER_PROJECT, nextMilestone: null, truncated: true }),
+    ]);
+    expect(pulses[0]).not.toHaveProperty("truncated");
+    // Una lettura sola, e niente più task, ferme, traguardi per progetto.
+    expect(seen.filter((r) => r.path.startsWith("/api/projects/pulses"))).toHaveLength(1);
+    expect(seen.some((r) => r.path.startsWith("/api/tasks") || r.path.startsWith("/api/milestones"))).toBe(false);
+    const one = await projectPulse(PROJECT_ID);
+    expect(one).toMatchObject({ projectId: PROJECT_ID });
+    expect(seen.find((r) => r.path.includes(`projectIds=${PROJECT_ID}`))).toBeTruthy();
+  });
+
   it("aperte per famiglia, ferme, «aspetta te», il prossimo traguardo: pulseOf sui dati letti", async () => {
     installFakeServer({
       "GET /api/auth/me": { body: me() },

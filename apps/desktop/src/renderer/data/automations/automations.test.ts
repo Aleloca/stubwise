@@ -109,6 +109,37 @@ afterEach(async () => {
   await idle();
 });
 
+// --- le esecuzioni vecchie, compattate (lotto 8, voce 3) ------------------------
+
+// Decisione del maintainer (24 nov 2026, via 46): un'esecuzione finita da più
+// di 90 giorni non si cancella, si COMPATTA: restano numero, stato, date e il
+// titolo (che diventa il nome dell'automazione); spariscono registro, effetti,
+// input ed evento. La vista lo dice (`detailsPruned: true`).
+describe("le esecuzioni finite da più di 90 giorni", () => {
+  it("si aprono ancora, compattate: numero, stato e date; il titolo è il nome dell'automazione", async () => {
+    as("p-roberta");
+    const old = run(R.done);
+    const days = (n: number) => new Date(Date.parse(now()) - n * 86_400_000).toISOString();
+    old.endedAt = days(91);
+    old.startedAt = days(92);
+    const view = (await automations.getRun(R.done))!;
+    expect(view).toMatchObject({
+      detailsPruned: true,
+      log: [],
+      event: {},
+      status: old.status,
+      n: old.n,
+      endedAt: old.endedAt,
+      title: view.automationName,
+    });
+    // Sotto i 90 giorni, intera.
+    old.endedAt = days(89);
+    const recent = (await automations.getRun(R.done))!;
+    expect(recent.detailsPruned).toBeUndefined();
+    expect(recent.log.length).toBeGreaterThan(0);
+  });
+});
+
 // --- visibilità, codici, R-G5 ----------------------------------------------------
 
 describe("Automations: chi vede e chi gestisce", () => {

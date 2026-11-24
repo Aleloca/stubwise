@@ -7665,6 +7665,7 @@
     },
     "run": {
       "started": "Partita il {{date}} alle {{time}}",
+      "detailsPruned": "I dettagli di questa esecuzione non ci sono più: si tengono {{days}} giorni.",
       "byRun": "da",
       "ownersAutomation": "automazione di {{owner}}",
       "startedRuns": "Ha avviato:",

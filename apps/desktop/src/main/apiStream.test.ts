@@ -334,6 +334,25 @@ describe("la chat dei Docs via IPC (main, lotto 7)", () => {
     ]);
   });
 
+  // Revisione dei lotti 6–7, M-3: una POST non si riprende, quindi la
+  // rotazione a 1 MB la troncherebbe. Per le due POST non si ruota.
+  it("oltre 1 MB la risposta continua fino al `done`: niente rotazione", async () => {
+    const sse = sseBody();
+    const d = deps({ fetch: vi.fn(async () => new Response(sse.stream, { status: 200 })) });
+    const port = fakePort();
+    createStreamRegistry(d).open(1, REPO, port, { body: { message: "lunga" } });
+    await flush();
+    const big = "x".repeat(600_000);
+    sse.push(frame({ type: "delta", text: big }));
+    sse.push(frame({ type: "delta", text: big }));
+    sse.push(frame({ type: "done", sessionId: SESSION, citations: [], productSources: [] }));
+    sse.end();
+    await flush();
+    await flush();
+    expect(port.sent.filter((m) => m.type === "docsChat")).toHaveLength(3);
+    expect(port.sent.find((m) => m.type === "end")).not.toMatchObject({ reason: "rotate" });
+  });
+
   it("solo i due percorsi esatti, solo con un corpo valido: il resto è rifiutato senza chiamare", async () => {
     const d = deps();
     const registry = createStreamRegistry(d);

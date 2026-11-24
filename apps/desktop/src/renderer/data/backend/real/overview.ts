@@ -1,4 +1,11 @@
-import { pulseOf, type ChronologyEvent, type ProjectDecision, type WeeklyBriefView } from "@stubwise/shared";
+import { ApiError } from "@stubwise/api-client";
+import {
+  pulseOf,
+  type ChronologyEvent,
+  type ProjectDecision,
+  type ProjectPulsesResponse,
+  type WeeklyBriefView,
+} from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type {
   DecisionLogEntry,
@@ -11,7 +18,7 @@ import type {
 import { appClient, session } from "./client";
 import { claudeWaitingCounts, claudeWorkingProjectIds } from "./claudePulse";
 import { listRequestsToConvert } from "./requests";
-import { listMilestonesOf, listProjectStatuses } from "./statuses";
+import { listMilestonesOf, listProjectStatuses, toMilestone } from "./statuses";
 import { listDecisionRequests } from "./taskDetail";
 import { listStalled, listTasks, tasksTruncated } from "./tasks";
 
@@ -218,10 +225,39 @@ async function pulsesOf(projectIds: string[]): Promise<ProjectPulse[]> {
   });
 }
 
+/**
+ * Lotto 7, voce 4 (72, 05010a858): il polso lo calcola il server, con la
+ * stessa formula (`pulseOf`) sugli stessi dati, in UNA lettura per tutti i
+ * progetti (`GET /api/projects/pulses`); i numeri sono esatti fino a 10.000
+ * task aperte (`truncated` solo oltre). Un progetto invisibile non compare.
+ * Un server di prima (404) ripiega sulle letture di sempre (`pulsesOf`).
+ */
+async function serverPulses(projectIds: string[] | null): Promise<ProjectPulse[] | null> {
+  const query = projectIds ? `?projectIds=${projectIds.map(encodeURIComponent).join(",")}` : "";
+  let res: ProjectPulsesResponse;
+  try {
+    res = await appClient().request<ProjectPulsesResponse>("GET", `/api/projects/pulses${query}`);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
+  return res.items.map((p) => ({
+    projectId: p.projectId,
+    open: { todo: p.open.todo, active: p.open.active },
+    stalled: p.stalled,
+    waitingOnMe: p.waitingOnMe,
+    claudeWorking: p.claudeWorking,
+    nextMilestone: p.nextMilestone ? toMilestone(p.nextMilestone) : null,
+    ...(p.truncated ? { truncated: true } : {}),
+  }));
+}
+
 export const projectPulse: typeof Fake.projectPulse = async (projectId) =>
-  (await pulsesOf([projectId]))[0] ?? null;
+  ((await serverPulses([projectId])) ?? (await pulsesOf([projectId])))[0] ?? null;
 
 export const listProjectPulses: typeof Fake.listProjectPulses = async () => {
+  const fromServer = await serverPulses(null);
+  if (fromServer) return fromServer;
   const projects = await appClient().projects.list();
   return pulsesOf(projects.map((p) => p.id));
 };

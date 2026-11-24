@@ -359,7 +359,10 @@ export function createStreamRegistry(deps: StreamDeps) {
             invalidSession: parsed.invalidSession,
           } satisfies StreamPortMessage);
         }
-        if (bytes >= AGENT_STREAM_MAX_BYTES) {
+        // Revisione dei lotti 6–7, M-3: una POST (la bozza della Posta, la chat
+        // dei Docs) non si riprende, quindi non si ruota: troncarla perderebbe la
+        // risposta. Si chiude da sola col suo `done`; il server ne limita la lunghezza.
+        if (!post && bytes >= AGENT_STREAM_MAX_BYTES) {
           finish({ type: "end", reason: "rotate", fatal: false });
           return;
         }

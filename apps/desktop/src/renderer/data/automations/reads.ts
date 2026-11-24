@@ -1,10 +1,10 @@
 import { automationAvailability } from "../integration";
-import { visitSteps } from "@stubwise/shared";
+import { AUTOMATION_RUN_DETAILS_DAYS, visitSteps } from "@stubwise/shared";
 import { projectOf } from "@stubwise/shared";
 import { validateFlow, type FlowIssue } from "@stubwise/shared";
 import { fold } from "../../domain/textSearch";
 import { automationHref, runHref } from "../routes";
-import { copy, gate, state, visibleProjectIds } from "../store";
+import { copy, gate, now, state, visibleProjectIds } from "../store";
 import { notFound } from "../writer";
 import type {
   Automation,
@@ -193,14 +193,27 @@ export function automationRow(me: string, a: Automation, mask: PersonMask = pers
 export function runRow(me: string, source: AutomationRun, mask: PersonMask = personMasker(me)): AutomationRunRow {
   const run = viewRun(me, source, mask);
   const a = automationById(run.automationId)!;
-  return {
+  const row = {
     ...run,
     code: runCode(run),
     automationCode: a.code,
     automationName: a.name,
     automationProjectId: a.projectId,
   };
+  return pruned(run) ? { ...row, ...pruning(), title: a.name, detailsPruned: true } : row;
 }
+
+/**
+ * Lotto 8, voce 3: un'esecuzione finita da più di
+ * {@link AUTOMATION_RUN_DETAILS_DAYS} giorni si legge compattata. Il server
+ * la compatta davvero; il prototipo applica la stessa regola alla lettura.
+ */
+const pruned = (run: AutomationRun) =>
+  run.endedAt !== null &&
+  Date.parse(now()) - Date.parse(run.endedAt) > AUTOMATION_RUN_DETAILS_DAYS * 86_400_000;
+
+/** Ciò che una compattata non ha più (come il server, 72, 0e0f96490): registro, evento, variabili, passo, attesa, errore. */
+const pruning = () => ({ log: [], event: {}, vars: {}, cursor: null, pending: null, error: null });
 
 /** In corso in alto (aperte), poi dalla più recente. */
 const byRecency = (x: AutomationRun, y: AutomationRun) =>
