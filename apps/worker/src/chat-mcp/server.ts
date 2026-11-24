@@ -98,6 +98,7 @@ export const PROPOSABLE_FNS = [
   "updateGitAccount",
   "setDefaultReviewer",
   "setAttachments",
+  "saveStorage",
   "updateGoogleApp",
   "rerunSmoke",
   "removePlugin",

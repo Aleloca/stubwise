@@ -81,6 +81,8 @@ export const CLAUDE_ACTION_FNS = [
   "setDefaultReviewer",
   // Lotto 6: l'interruttore degli allegati.
   "setAttachments",
+  // Lotto 10, voce 1 (decisione del maintainer): l'archiviazione, senza la chiave segreta.
+  "saveStorage",
   "updateGoogleApp",
   "rerunSmoke",
   "removePlugin",
@@ -164,6 +166,9 @@ export const CLAUDE_DECLARED_CLASS: Record<ClaudeActionFn, "A" | "B" | "C"> = {
   updateGitAccount: "B",
   setDefaultReviewer: "B",
   setAttachments: "B",
+  // B per prefisso, regione e chiave d'accesso; la riconferma (C) la chiede il
+  // SERVER per campo, solo se cambiano endpoint o bucket (`reauthOf`).
+  saveStorage: "B",
   updateGoogleApp: "B",
   rerunSmoke: "B",
   removePlugin: "B",
@@ -327,8 +332,22 @@ export const CLAUDE_ACTION_ARGS = {
   // nemmeno proporlo, e la riconferma parziale non scatta mai da qui.
   setModel: z.object({ operation: aiOperationSchema, model: aiModelChoiceSchema.nullable() }).strict(),
   saveBudget: z.object({ monthlyUsd: z.number().nonnegative().nullable(), contentLanguage: languageSchema }).strict(),
-  // (Niente `saveStorage`, review di F7: endpoint e bucket decidono DOVE vanno
-  // gli allegati, come l'url di un webhook. Resta un gesto della persona.)
+  // Lotto 10, voce 1 (decisione del maintainer, 24 nov 2026): l'archiviazione
+  // come il prototipo, senza la chiave SEGRETA (lo schema stretto la rifiuta:
+  // si scrive solo nel dialogo). Endpoint e bucket decidono DOVE vanno gli
+  // allegati: cambiarli chiede la riconferma, il resto no.
+  // Una PATCH (registro, review di F7): un campo assente resta com'è. La
+  // lettura di Claude non mostra la chiave d'accesso, e un campo obbligatorio
+  // l'avrebbe fatta riscrivere (o azzerare) a ogni proposta.
+  saveStorage: z
+    .object({
+      endpoint: z.string().trim().min(1).max(500).optional(),
+      region: z.string().trim().max(100).optional(),
+      bucket: z.string().trim().min(1).max(200).optional(),
+      accessKeyId: z.string().trim().min(1).max(200).optional(),
+    })
+    .strict()
+    .refine((a) => Object.values(a).some((v) => v !== undefined), "at least one field"),
   saveAutomation: updateAutomationSettingsSchema.strict(),
   setProviderEnabled: z.object({ id, enabled: z.boolean() }).strict(),
   moveProvider: z.object({ id, toIndex: z.number().int().min(0).max(100) }).strict(),
@@ -611,6 +630,7 @@ export const CLAUDE_INSTANCE_PERMISSION: Partial<Record<ClaudeActionFn, string>>
   updateGitAccount: "git_accounts.manage",
   setDefaultReviewer: "git_accounts.manage",
   setAttachments: "settings.manage",
+  saveStorage: "settings.manage",
   updateGoogleApp: "integrations.manage",
   updateWebhook: "integrations.manage",
 };

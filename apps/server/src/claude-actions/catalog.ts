@@ -1,4 +1,4 @@
-import { tickets, VIA_CLAUDE_SETTING, type Db } from "@stubwise/db";
+import { instanceSettings, tickets, VIA_CLAUDE_SETTING, type Db } from "@stubwise/db";
 import {
   CLAUDE_ACTION_ARGS,
   CLAUDE_DECLARED_CLASS,
@@ -571,6 +571,24 @@ export const SERVER_CATALOG: ReadonlyMap<ClaudeActionFn, CatalogEntry> = new Map
 
 export function declaredClassOf(fn: ClaudeActionFn): "A" | "B" | "C" {
   return CLAUDE_DECLARED_CLASS[fn];
+}
+
+/**
+ * Lotto 10, voce 1: la riconferma decisa PER CAMPO (come `reauthIf` del
+ * prototipo). Una voce dichiarata C la chiede sempre; `saveStorage` (B) la
+ * chiede solo se, con QUESTI argomenti, cambiano l'endpoint o il bucket
+ * rispetto a quelli salvati ADESSO (decisione del maintainer: decidono dove
+ * vanno gli allegati). Per prefisso, regione e chiave d'accesso basta la
+ * conferma normale. Lo stesso giudizio per la vista e per la conferma.
+ */
+export async function reauthOf(db: Pick<Db, "select">, fn: ClaudeActionFn, args: Record<string, unknown>): Promise<boolean> {
+  if (declaredClassOf(fn) === "C") return true;
+  if (fn !== "saveStorage") return false;
+  const [row] = await db.select({ endpoint: instanceSettings.s3Endpoint, bucket: instanceSettings.s3Bucket }).from(instanceSettings).limit(1);
+  const norm = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  // Una PATCH: un campo assente non cambia, quindi non conta.
+  const changes = (field: "endpoint" | "bucket") => args[field] !== undefined && norm(args[field]) !== norm(row?.[field]);
+  return changes("endpoint") || changes("bucket");
 }
 
 /** Gli argomenti validati con lo schema della rotta; `null` se non sono validi. */

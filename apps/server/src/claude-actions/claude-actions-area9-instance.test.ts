@@ -3,7 +3,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { GitHubProvider } from "@stubwise/git";
 import { runPreflight } from "./preflight.js";
 import { eq } from "drizzle-orm";
-import { aiModelSettings, aiProviders, changeLog, gitAccounts, googleWorkspaces, instanceSettings, issueChatToolToken, outgoingWebhooks } from "@stubwise/db";
+import { aiModelSettings, aiProviders, changeLog, claudeProposals, gitAccounts, googleWorkspaces, instanceSettings, issueChatToolToken, outgoingWebhooks } from "@stubwise/db";
+import { createSession, SESSION_COOKIE } from "../auth/session.js";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { seedUsers } from "../test/fixtures.js";
@@ -77,15 +78,10 @@ describe("area 9, F7: le B dell'istanza", () => {
     expect(Number((await instance()).monthlyBudgetUsd)).toBe(70);
   });
 
-  it("review di F7 (I1, I2): saveStorage NON è nel catalogo (endpoint e bucket decidono dove vanno i dati, come l'url di un webhook)", async () => {
-    for (const args of [
-      { endpoint: "https://s3.evil.example", region: "eu", bucket: "b", accessKeyId: "AK" },
-      { bucket: "altro" },
-    ]) {
-      // Non è una `fn` del catalogo: la richiesta stessa non passa (400), niente si propone.
-      const res = await propose([{ fn: "saveStorage", args }]);
-      expect(res.statusCode).toBe(400);
-    }
+  it("review di F7 (I1, I2), superata dal lotto 10: saveStorage è nel catalogo come PATCH; una vuota non passa, e il solo bucket nasce da confermare (C, vedi «lotto 10») senza scrivere niente", async () => {
+    expect(JSON.stringify((await propose([{ fn: "saveStorage", args: {} }])).json())).toMatch(/invalid/);
+    const res = await propose([{ fn: "saveStorage", args: { bucket: "altro" } }]);
+    expect(res.json()).toMatchObject({ status: "awaiting_confirmation" });
     expect(await instance()).toMatchObject({ s3Endpoint: null, s3Bucket: null });
   });
 
@@ -253,5 +249,68 @@ describe("lotto 6, voce 2: setAttachments", () => {
     expect((await entries("storage.changed")).length).toBeGreaterThan(0);
     expect((await undo(off.groupId!)).statusCode).toBe(200);
     expect((await instance()).attachmentsSwitch).toBe(true);
+  });
+});
+
+describe("lotto 10, voce 1: saveStorage, la riconferma solo se cambiano endpoint o bucket", () => {
+  const stale = async () => {
+    const old = await createSession(t.db, adminId, { stage: "full", secondFactorAt: new Date(Date.now() - 11 * 60_000) });
+    return `${SESSION_COOKIE}=${encodeURIComponent(app.signCookie(old.id))}`;
+  };
+  const confirm = (id: string, cookie: string) => app.inject({ method: "POST", url: `/api/claude/proposals/${id}/confirm`, headers: { cookie }, payload: {} });
+  const base = { endpoint: "https://s3.example.com", region: "eu", bucket: "b", accessKeyId: "AKIA" };
+  const seed = async () => {
+    await t.db.insert(instanceSettings).values({ id: 1 }).onConflictDoNothing();
+    const put = await call("PUT", "/api/settings/instance", { contentLanguage: "en", s3Endpoint: base.endpoint, s3Region: base.region, s3Bucket: base.bucket, s3AccessKey: base.accessKeyId, s3SecretKey: "segreto-lungo" });
+    expect(put.statusCode, put.body).toBe(200);
+  };
+  type View = { proposalId: string; status: string };
+  const viewOf = async (proposalId: string) => {
+    const [row] = await t.db.select({ sessionId: claudeProposals.sessionId }).from(claudeProposals).where(eq(claudeProposals.id, proposalId));
+    const list = (await app.inject({ method: "GET", url: `/api/claude/conversations/${row!.sessionId}/proposals`, headers: { cookie: adminCookie } })).json() as { id: string }[];
+    return list.find((p) => p.id === proposalId);
+  };
+
+  it("regione e chiave d'accesso: classe B, si conferma SENZA riconferma (anche da una sessione vecchia); «Annulla» rimette i valori", async () => {
+    await seed();
+    const res = await propose([{ fn: "saveStorage", args: { ...base, region: "us", accessKeyId: "AKIA2" } }]);
+    const { proposalId } = res.json() as View;
+    expect(await viewOf(proposalId)).toMatchObject({ cls: "B", reauth: false, actions: [{ reauth: false }] });
+    const ok = await confirm(proposalId, await stale());
+    expect(ok.statusCode, ok.body).toBe(200);
+    expect(await instance()).toMatchObject({ s3Region: "us", s3AccessKey: "AKIA2", s3Endpoint: base.endpoint, s3Bucket: base.bucket });
+    const groupId = (ok.json() as { groupId: string }).groupId;
+    expect((await undo(groupId)).statusCode).toBe(200);
+    expect(await instance()).toMatchObject({ s3Region: base.region, s3AccessKey: base.accessKeyId });
+  });
+
+  it("endpoint o bucket cambiati: classe C, 403 `reauth_required` da una sessione vecchia e niente scritto; con la riconferma si scrive", async () => {
+    for (const change of [{ endpoint: "https://altro.example.com" }, { bucket: "altro" }]) {
+      await seed();
+      const res = await propose([{ fn: "saveStorage", args: { ...base, ...change } }]);
+      const { proposalId } = res.json() as View;
+      expect(await viewOf(proposalId)).toMatchObject({ cls: "C", reauth: true, actions: [{ reauth: true }] });
+      const no = await confirm(proposalId, await stale());
+      expect([no.statusCode, (no.json() as { code: string }).code]).toEqual([403, "reauth_required"]);
+      expect(await instance()).toMatchObject({ s3Endpoint: base.endpoint, s3Bucket: base.bucket });
+      const ok = await confirm(proposalId, adminCookie);
+      expect(ok.statusCode, ok.body).toBe(200);
+      expect(await instance()).toMatchObject({ s3Endpoint: change.endpoint ?? base.endpoint, s3Bucket: change.bucket ?? base.bucket });
+    }
+  });
+
+  it("una PATCH: solo la regione cambia, la chiave d'accesso (che Claude non legge) resta, ed è B", async () => {
+    await seed();
+    const res = await propose([{ fn: "saveStorage", args: { region: "ap" } }]);
+    const { proposalId } = res.json() as View;
+    expect(await viewOf(proposalId)).toMatchObject({ cls: "B", reauth: false });
+    expect((await confirm(proposalId, await stale())).statusCode).toBe(200);
+    expect(await instance()).toMatchObject({ s3Region: "ap", s3AccessKey: base.accessKeyId, s3Endpoint: base.endpoint, s3Bucket: base.bucket });
+  });
+
+  it("la chiave SEGRETA non entra da qui: la proposta è rifiutata", async () => {
+    await seed();
+    const res = await propose([{ fn: "saveStorage", args: { ...base, secretAccessKey: "x" } }]);
+    expect(JSON.stringify(res.json())).toMatch(/invalid/);
   });
 });
