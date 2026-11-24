@@ -6,6 +6,7 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -16,6 +17,7 @@ import {
   useAiBlock,
   useContextIdOf,
   useConversation,
+  useSetConversationContexts,
   useCreateConversation,
   useDescribeContext,
   useOpenProductQuestions,
@@ -33,6 +35,7 @@ import { usePersonName } from "../../pages/claude/conversation/parts";
 import { shortcutLabel } from "../../platform/platform";
 import { useMediaQuery } from "../useMediaQuery";
 import { ContextChip, contextShort } from "./ContextChip";
+import { sameContext, withContext, withoutContext } from "../../domain/claude/contexts";
 import { usePageEventRunner, type TrialOpening } from "./pageActions";
 import { pageContextOf, pageObjectOf } from "./pageContext";
 import {
@@ -395,6 +398,19 @@ function PanelBody({
   const [announced, setAnnounced] = useState("");
   const contextRef = useRef(context);
   contextRef.current = context;
+  // Lotto 8, §1 (decisione del maintainer): in una libera i contesti si
+  // accumulano. Una pagina nuova entra in fondo (il primario), al più 5.
+  const grouped = featureIntegrated("claude-contexts") && !!conversationId && detail?.kind === "free";
+  const group = useMemo(() => (grouped ? (detail?.contexts ?? []) : []), [grouped, detail?.contexts]);
+  const { mutate: setGroup } = useSetConversationContexts();
+  const sentKey = context.sent ? JSON.stringify(context.sent) : null;
+  useEffect(() => {
+    if (!grouped || !conversationId || !context.sent || detail?.archived) return;
+    const last = group.at(-1);
+    if (last && sameContext(last, context.sent)) return;
+    setGroup({ id: conversationId, contexts: withContext(group, context.sent) });
+    // Solo quando cambiano la pagina o il gruppo letto.
+  }, [grouped, conversationId, sentKey, group]);
   const onTrial = useCallback(
     (opening: TrialOpening) => {
       const d = contextRef.current.description;
@@ -547,7 +563,19 @@ function PanelBody({
         </HeaderButton>
       </header>
       {back && <BackRow back={back} onBack={goBack} />}
-      <ContextRow context={context} />
+      {grouped ? (
+        <ContextGroupRow
+          group={group}
+          context={context}
+          onRemove={(ref) => {
+            setGroup({ id: conversationId!, contexts: withoutContext(group, ref) });
+            // La pagina di adesso, tolta, non torna finché non si cambia pagina.
+            if (context.sent && sameContext(ref, context.sent)) context.setRemoved(true);
+          }}
+        />
+      ) : (
+        <ContextRow context={context} />
+      )}
       {/* Le domande della doc di prodotto (area 11): nella build app con `product-docs` (F5). */}
       {featureIntegrated("product-docs") && <QuestionsToClose context={context} />}
       <p role="status" aria-live="polite" className="sr-only" data-panel-announce>
@@ -774,6 +802,52 @@ function QuestionsToClose({ context }: { context: PageContext }) {
       )}
     </div>
   );
+}
+
+/**
+ * Lotto 8, §1: i chip del gruppo dei contesti della conversazione, ognuno
+ * con la sua ×, l'ultimo (il primario) in fondo. La pagina di adesso, tolta,
+ * dice «Not using this page · Use it» come il chip singolo.
+ */
+function ContextGroupRow({
+  group,
+  context,
+  onRemove,
+}: {
+  group: readonly ContextRef[];
+  context: PageContext;
+  onRemove: (ref: ContextRef) => void;
+}) {
+  const { t } = useTranslation();
+  if (group.length === 0 && !(context.removed && context.description)) return null;
+  return (
+    <div className="event-enter flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-b border-rule px-4 py-1.5 text-sm">
+      {group.length > 0 && <span className="shrink-0 text-ink-muted">{t("claude.panel.lookingAt")}</span>}
+      {group.map((ref) => (
+        <GroupChip key={JSON.stringify(ref)} contextRef={ref} onRemove={() => onRemove(ref)} />
+      ))}
+      {context.removed && context.description && (
+        <p className="min-w-0 truncate text-ink-faint">
+          {t("claude.panel.notUsing")}
+          <span aria-hidden="true"> · </span>
+          <button
+            type="button"
+            onClick={() => context.setRemoved(false)}
+            className="font-medium text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
+          >
+            {t("claude.panel.useIt")}
+          </button>
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Un chip del gruppo, riletto con la visibilità di chi guarda: uno che non vede non c'è. */
+function GroupChip({ contextRef, onRemove }: { contextRef: ContextRef; onRemove: () => void }) {
+  const d = useDescribeContext(contextRef).data;
+  if (!d) return null;
+  return <ContextChip description={d} onRemove={onRemove} />;
 }
 
 /** «You're looking at: [ACQ-14 · task ×]», o «Not using this page · Use it». Niente per un oggetto che non si vede. */

@@ -1,4 +1,5 @@
 import { isHiddenId, personMasker } from "./access/hidden";
+import { MAX_CONVERSATION_CONTEXTS, sameContext, withContext } from "../domain/claude/contexts";
 import { wouldCycle } from "../domain/decisionLog";
 import { claudePageOutcomeMoveAllowed, planRecipientsOf as sharedPlanRecipientsOf } from "@stubwise/shared";
 import { findSimilarRequest } from "../domain/requests";
@@ -2578,6 +2579,10 @@ async function freeReply(
   // vede ADESSO — uno diventato invisibile risponde come un codice che non c'è.
   const seenContext = context ? contextOf(me, context) : null;
   const contextProjectId = seenContext?.projectId ?? c.contextProjectId;
+  // Lotto 8, §1: il contesto del messaggio entra nel gruppo (in fondo, il
+  // primario), e il messaggio porta il gruppo com'era quando è partito.
+  if (context) c.contexts = withContext(c.contexts ?? [], context);
+  const group = c.contexts ?? [];
   const user: ScriptStep = {
     step: "event",
     event: {
@@ -2587,6 +2592,7 @@ async function freeReply(
       attachments,
       delivery: "pending",
       ...(context ? { context } : {}),
+      ...(group.length > 0 ? { contexts: [...group] } : {}),
     },
   };
   const messageIndex = eventsOf(id).length;
@@ -3403,6 +3409,23 @@ export async function setConversationContext(id: string, projectId: string | nul
   if (c.archived) throw forbidden();
   if (projectId !== null) projectFor(me, projectId);
   c.contextProjectId = projectId;
+  c.updatedAt = now();
+  notifyConversationChange(id);
+}
+
+/**
+ * Lotto 8, §1: il gruppo dei contesti di una libera (l'autore), come il
+ * `PATCH { contexts }` del server: lo sostituisce, al più
+ * {@link MAX_CONVERSATION_CONTEXTS}, senza doppioni; l'ultimo è il primario.
+ * Così si toglie un chip.
+ */
+export async function setConversationContexts(id: string, contexts: ContextRef[]): Promise<void> {
+  const me = await gate("setConversationContexts");
+  const c = ownFreeConversation(me, id);
+  if (c.archived) throw forbidden();
+  const group = contexts.reduce<ContextRef[]>((acc, ref) => [...acc.filter((x) => !sameContext(x, ref)), ref], []);
+  if (group.length > MAX_CONVERSATION_CONTEXTS) throw invalid("too_many_contexts");
+  c.contexts = group;
   c.updatedAt = now();
   notifyConversationChange(id);
 }

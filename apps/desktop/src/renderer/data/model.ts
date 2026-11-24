@@ -1184,6 +1184,11 @@ export interface Conversation {
    */
   context?: ContextRef | null;
   /**
+   * Lotto 8, §1: solo libera, il gruppo dei contesti (dal più vecchio; l'ultimo
+   * è il primario). Si accumula a ogni messaggio, al più 5; la × lo toglie.
+   */
+  contexts?: ContextRef[];
+  /**
    * Solo `task_run`: la correzione di un server (area 8b), avviata da una
    * task con `serverRef`. Il suo piano va sempre approvato da una persona.
    */
@@ -1295,6 +1300,8 @@ export type ConversationEvent =
        * guarda (`describeContext`). Assente sui messaggi nati prima.
        */
       context?: ContextRef | null;
+      /** Lotto 8, §1: il gruppo dei contesti quando il messaggio è partito (i nomi brevi sotto). */
+      contexts?: ContextRef[];
     }
   /**
    * `text` cresce mentre arriva; `done` quando il messaggio è completo.

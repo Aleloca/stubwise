@@ -8,6 +8,7 @@ import {
   listConversations,
   resetApi,
   sendMessage,
+  setConversationContexts,
   setLatency,
   setStreamLatency,
   subscribe,
@@ -231,5 +232,50 @@ describe("il contesto del messaggio e i consumi del turno", () => {
     const before = state.instance.usage.length;
     await expect(sendMessage(c.id, { text: "Hello" })).rejects.toThrow("monthly_budget");
     expect(state.instance.usage).toHaveLength(before);
+  });
+});
+
+// Lotto 8, §1 (decisione del maintainer, «Tutti quelli aperti»; scelte di
+// 46): i contesti si ACCUMULANO nella conversazione — il gruppo lo ricorda la
+// conversazione, l'ultimo aggiunto è il primario, al più 5 (il più vecchio
+// esce), e ogni messaggio porta il gruppo com'era quando è partito.
+describe("i contesti si accumulano nella conversazione", () => {
+  const task = (code: string): ContextRef => ({ kind: "task", taskId: acqTask(code).id });
+  const page = (route: string): ContextRef => ({ kind: "page", route, projectId: "prj-acq" });
+
+  it("ogni messaggio aggiunge il suo in fondo; il messaggio porta il gruppo; uno già dentro diventa l'ultimo", async () => {
+    as("p-laura");
+    const c = await createConversation();
+    await sendMessage(c.id, { text: "Summarize ACQ-3" }, { context: task("ACQ-3") });
+    await whenIdle(c.id);
+    await sendMessage(c.id, { text: "And the board?" }, { context: page("tasks") });
+    await whenIdle(c.id);
+    let detail = (await getConversation(c.id))!;
+    expect(detail.contexts).toEqual([task("ACQ-3"), page("tasks")]);
+    const users = detail.events.filter((e) => e.type === "user");
+    expect(users.map((u) => (u as { contexts?: ContextRef[] }).contexts)).toEqual([
+      [task("ACQ-3")],
+      [task("ACQ-3"), page("tasks")],
+    ]);
+    // Di nuovo dalla task: non si duplica, torna l'ultima (il primario).
+    await sendMessage(c.id, { text: "Back to it" }, { context: task("ACQ-3") });
+    await whenIdle(c.id);
+    detail = (await getConversation(c.id))!;
+    expect(detail.contexts).toEqual([page("tasks"), task("ACQ-3")]);
+  });
+
+  it("al più 5: il sesto toglie il più vecchio; la × lo toglie dal gruppo", async () => {
+    as("p-laura");
+    const c = await createConversation();
+    const six = ["tasks", "planning", "requests", "docs", "drive", "chat"].map(page);
+    await setConversationContexts(c.id, six.slice(0, 5));
+    expect((await getConversation(c.id))!.contexts).toEqual(six.slice(0, 5));
+    await sendMessage(c.id, { text: "Hi" }, { context: six[5]! });
+    await whenIdle(c.id);
+    expect((await getConversation(c.id))!.contexts).toEqual(six.slice(1));
+    // La ×: il gruppo senza quello.
+    await setConversationContexts(c.id, six.slice(2));
+    expect((await getConversation(c.id))!.contexts).toEqual(six.slice(2));
+    await expect(setConversationContexts(c.id, six)).rejects.toThrow("too_many_contexts");
   });
 });

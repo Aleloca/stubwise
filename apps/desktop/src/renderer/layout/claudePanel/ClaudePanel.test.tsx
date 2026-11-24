@@ -272,6 +272,39 @@ describe("il contesto", () => {
   });
 });
 
+// Lotto 8, §1 (decisione del maintainer, «Tutti quelli aperti»; scelte di
+// 46): nella stessa conversazione i contesti si accumulano — una pagina nuova
+// entra in fondo (il primario), ogni chip ha la sua ×, e il messaggio dice
+// tutti i nomi brevi.
+describe("i contesti accumulati", () => {
+  const chips = () => [...panel().querySelectorAll("[data-context-chip]")].map((c) => c.textContent ?? "");
+
+  it("cambiando pagina col riquadro aperto il chip nuovo si aggiunge; la × toglie solo quello", async () => {
+    const user = userEvent.setup();
+    const { router } = await lauraOnAcq3(user);
+    await ctrlJ(user);
+    await waitFor(() => expect(chip()).not.toBeNull());
+    await user.type(box(), "Summarize it{Enter}");
+    await waitFor(() => expect(chips()).toHaveLength(1));
+    await act(() => router.navigate({ to: "/p/$code/planning", params: { code: "ACQ" } } as never));
+    await waitFor(() => expect(chips()).toHaveLength(2));
+    expect(chips()[0]).toContain("ACQ-3");
+    // Il messaggio dopo porta tutti e due i nomi (nella conversazione la casella è un combobox, per «/»).
+    const reply = await waitFor(() => panel().querySelector<HTMLTextAreaElement>("[data-claude-box]")!);
+    await user.type(reply, "And the plan?{Enter}");
+    await waitFor(() => {
+      const notes = [...panel().querySelectorAll("[data-user-message]")].at(-1)!.textContent ?? "";
+      expect(notes).toContain("ACQ-3");
+      expect(notes).toMatch(/Planning/);
+    });
+    // La × della task: resta la pagina di adesso.
+    const first = panel().querySelectorAll("[data-context-chip]")[0]!;
+    await user.click(within(first as HTMLElement).getByRole("button", { name: "Don't use this page" }));
+    await waitFor(() => expect(chips()).toHaveLength(1));
+    expect(chips()[0]).not.toContain("ACQ-3");
+  }, 40_000);
+});
+
 describe("stati", () => {
   const BUDGET_EN =
     "The monthly AI budget is used up: Claude can't answer until it's raised or the month ends.";

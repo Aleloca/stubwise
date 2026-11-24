@@ -4816,6 +4816,7 @@
       "chipTitle": "Claude legge {{label}} con i tuoi permessi quando invii.",
       "removeContext": "Non usare questa pagina",
       "on": "su {{label}}",
+      "onMany": "su",
       "archived": "La tua ultima conversazione è stata archiviata.",
       "nowShowing": "Ora vedi le conversazioni di {{name}}.",
       "chip": {

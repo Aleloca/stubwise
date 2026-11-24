@@ -356,6 +356,7 @@ export type ApiFnName =
   | "resolveCitations"
   | "searchMentions"
   | "setConversationContext"
+  | "setConversationContexts"
   | "completeEditedProposal"
   // Chat (area 4)
   | "chat.listChannels"

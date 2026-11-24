@@ -1846,6 +1846,14 @@ export function useCompleteEditedProposal() {
 }
 
 /** Il contesto di progetto di una conversazione libera (decide le skill di «/»). */
+/** Lotto 8, §1: il gruppo dei contesti di una libera (aggiungere e togliere un chip). */
+export function useSetConversationContexts() {
+  return useWrite(
+    ({ id, contexts }: { id: string; contexts: ContextRef[] }) => api.setConversationContexts(id, contexts),
+    CONVERSATION_AREAS,
+  );
+}
+
 export function useSetConversationContext() {
   return useWrite(
     ({ id, projectId }: { id: string; projectId: string | null }) =>

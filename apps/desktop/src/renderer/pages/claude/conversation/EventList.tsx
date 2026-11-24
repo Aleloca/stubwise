@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import type { Attachment, ContextRef, ConversationDetail } from "../../../data/types";
-import { ContextNote } from "../../../layout/claudePanel/ContextChip";
+import { ContextsNote } from "../../../layout/claudePanel/ContextChip";
 import { ActionRows } from "./ActionRows";
 import { CommandRows, isServerCommand } from "./CommandRows";
 import { AssistantMessage, CitationRow, ClaudeHeader } from "./AssistantMessage";
@@ -40,6 +40,7 @@ export function UserMessage({
   delivery,
   onResend,
   context,
+  contexts,
 }: {
   authorId: string;
   at: string | null;
@@ -49,6 +50,8 @@ export function UserMessage({
   onResend?: () => void;
   /** Area 10a: la pagina da cui è partito (il chip del riquadro), riletta per chi guarda. */
   context?: ContextRef | null | undefined;
+  /** Lotto 8, §1: il gruppo dei contesti quando è partito. */
+  contexts?: readonly ContextRef[] | undefined;
 }) {
   const { t, i18n } = useTranslation();
   const name = usePersonName(authorId);
@@ -64,7 +67,8 @@ export function UserMessage({
             </time>
           </>
         )}
-        {context && <ContextNote context={context} />}
+        {/* Lotto 8, §1: tutti i contesti partiti col messaggio; prima di loro, il solo. */}
+        <ContextsNote contexts={contexts && contexts.length > 0 ? contexts : context ? [context] : []} />
       </p>
       {text && (
         <p className="min-w-0 rounded-md bg-ink/5 px-3 py-2 text-md whitespace-pre-wrap text-ink [overflow-wrap:anywhere]">
@@ -160,6 +164,7 @@ export function EventList({
                     text={item.event.text}
                     attachments={item.event.attachments}
                     context={item.event.context}
+                    contexts={item.event.contexts}
                     delivery={item.event.authorId === viewerId ? deliveryOf(item.event) : null}
                     {...(detail.canWrite && item.event.authorId === viewerId
                       ? { onResend: () => onResend(item.event) }
