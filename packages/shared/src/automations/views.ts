@@ -39,7 +39,21 @@ export interface AutomationRow extends Automation {
 }
 
 /** Un'esecuzione con il suo codice («AUD-A1 #2») e la sua automazione. */
+/**
+ * Lotto 8, voce 1 (decisione del maintainer, 24 nov 2026): un'esecuzione
+ * FINITA da più di tanti giorni si compatta — restano numero, stato, date e il
+ * titolo (che diventa il nome dell'automazione); spariscono registro, effetti,
+ * input ed evento. Il prototipo lo applica alla lettura, il server lo scrive.
+ */
+export const AUTOMATION_RUN_DETAILS_DAYS = 90;
+
 export interface AutomationRunRow extends AutomationRun {
+  /**
+   * L'esecuzione è compattata ({@link AUTOMATION_RUN_DETAILS_DAYS}): `log`,
+   * `event` e `vars` sono vuoti, e la pagina lo dice al posto del registro.
+   * Assente = intera (anche da un server di prima).
+   */
+  detailsPruned?: boolean;
   code: string;
   automationCode: string;
   automationName: string;
