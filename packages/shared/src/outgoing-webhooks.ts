@@ -64,11 +64,21 @@ export const outgoingWebhookViewSchema = z.object({
   createdAt: z.iso.datetime(),
   /**
    * Rimandi, lotto 5: l'ultima prova (`POST …/test`), nelle parole del
-   * prototipo — `ok`, `invalid_credentials` (la destinazione ha risposto con
-   * un errore), `unreachable` (nessuna risposta). null = mai provato, o
+   * prototipo — `ok`, `invalid_credentials` (401/403), `destination_error`
+   * (un altro errore della destinazione, M-5), `unreachable` (nessuna risposta). null = mai provato, o
    * indirizzo/formato cambiati dopo. `.default(null)`.
    */
-  lastTest: z.object({ at: z.iso.datetime(), outcome: z.enum(["ok", "invalid_credentials", "unreachable"]) }).nullable().default(null),
+  lastTest: z
+    .object({
+      at: z.iso.datetime(),
+      // Review del lotto 5 (M-5): `invalid_credentials` solo per 401/403;
+      // `destination_error` per ogni altro errore con cui la destinazione ha risposto.
+      outcome: z.enum(["ok", "invalid_credentials", "unreachable", "destination_error"]),
+      /** Il codice della risposta; null se la destinazione non ha risposto. `.default(null)`. */
+      status: z.number().int().nullable().default(null),
+    })
+    .nullable()
+    .default(null),
 });
 export type OutgoingWebhookView = z.infer<typeof outgoingWebhookViewSchema>;
 

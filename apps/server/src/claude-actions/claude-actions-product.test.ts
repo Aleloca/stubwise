@@ -201,6 +201,27 @@ describe("updateProductPage", () => {
     }
   });
 
+  it("review del lotto 5 (M-3, 46): col budget finito, chi lo scavalca e trova la richiesta FERMA la riprende (scavalco sul lavoro, di nuovo in coda, la stessa richiesta)", async () => {
+    const s = await space();
+    const p = await page(s);
+    const source = { kind: "email" as const, id: s.adaMail.messageId };
+    const asAda = { id: ada.id, instancePermissions: new Set<string>() } as never;
+    // Chiesta prima che il budget finisse, poi fermata per il budget.
+    const { updateId } = await requestProductPageUpdate(t.db, asAda, p.id, source);
+    await t.db.update(productDocJobs).set({ status: "held", heldReason: "budget" }).where(eq(productDocJobs.sourceId, updateId));
+    await t.db.insert(instanceSettings).values({ id: 1, monthlyBudgetUsd: "0" }).onConflictDoUpdate({ target: instanceSettings.id, set: { monthlyBudgetUsd: "0" } });
+    try {
+      // Ada da Developer: il budget la ferma (non scavalca).
+      await expect(requestProductPageUpdate(t.db, asAda, p.id, source)).rejects.toMatchObject({ code: "budget_exhausted" });
+      // Ada diventa Project Lead: riprende la stessa richiesta.
+      await addMember(app, s.projectId, ada.id, "project_lead");
+      expect(await requestProductPageUpdate(t.db, asAda, p.id, source)).toEqual({ updateId });
+      expect(await t.db.select().from(productDocJobs).where(eq(productDocJobs.sourceId, updateId))).toEqual([expect.objectContaining({ status: "queued", heldReason: null, budgetBypass: true })]);
+    } finally {
+      await t.db.delete(instanceSettings);
+    }
+  });
+
   it("la fonte deve essere di chi chiede da aprire (l'email di Bea per Ada è come se non ci fosse) e del progetto; senza `docs.edit` niente", async () => {
     const s = await space();
     const p = await page(s);

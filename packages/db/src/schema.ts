@@ -1997,7 +1997,9 @@ export const outgoingWebhooks = pgTable("outgoing_webhooks", {
   secretRotatedAt: timestamp("secret_rotated_at", { withTimezone: true }),
   /** L'ultima prova (0224, rimandi lotto 5): quando e com'è andata; null = mai provato (o URL/formato cambiati). */
   lastTestAt: timestamp("last_test_at", { withTimezone: true }),
-  lastTestOutcome: text("last_test_outcome", { enum: ["ok", "invalid_credentials", "unreachable"] }),
+  lastTestOutcome: text("last_test_outcome", { enum: ["ok", "invalid_credentials", "unreachable", "destination_error"] }),
+  /** Il codice con cui la destinazione ha risposto all'ultima prova (0227); null senza risposta. */
+  lastTestStatus: integer("last_test_status"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
 });

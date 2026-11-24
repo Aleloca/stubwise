@@ -136,7 +136,11 @@ describe("i webhook in uscita", () => {
     expect(await lastTest()).toMatchObject({ outcome: "ok", at: expect.any(String) });
     vi.stubGlobal("fetch", async () => new Response(null, { status: 401 }));
     await call("POST", `/api/settings/webhooks/${w.id}/test`);
-    expect((await lastTest())!.outcome).toBe("invalid_credentials");
+    expect(await lastTest()).toMatchObject({ outcome: "invalid_credentials", status: 401 });
+    // Review del lotto 5 (M-5): un altro errore della destinazione non è la credenziale.
+    vi.stubGlobal("fetch", async () => new Response(null, { status: 500 }));
+    await call("POST", `/api/settings/webhooks/${w.id}/test`);
+    expect(await lastTest()).toMatchObject({ outcome: "destination_error", status: 500 });
     vi.stubGlobal("fetch", async () => {
       throw new TypeError("fetch failed");
     });
@@ -146,6 +150,13 @@ describe("i webhook in uscita", () => {
     await call("PATCH", `/api/settings/webhooks/${w.id}`, { name: "Rinominato" });
     expect((await lastTest())!.outcome).toBe("unreachable");
     await call("PATCH", `/api/settings/webhooks/${w.id}`, { url: "https://altro.example.com/in" });
+    expect(await lastTest()).toBeNull();
+    // La corsa (M-5): l'URL cambia MENTRE la prova è in volo; la prova vecchia non si scrive.
+    vi.stubGlobal("fetch", async () => {
+      await db.update(outgoingWebhooks).set({ url: "https://terzo.example.com/in" }).where(eq(outgoingWebhooks.id, w.id));
+      return new Response(null, { status: 200 });
+    });
+    await call("POST", `/api/settings/webhooks/${w.id}/test`);
     expect(await lastTest()).toBeNull();
     await db.delete(outgoingWebhooks);
   });
