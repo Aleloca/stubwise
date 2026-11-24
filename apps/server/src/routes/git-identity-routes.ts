@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { roleRuleErrorSchema } from "./roles.js";
-import { activityCommits, gitAuthorsSeen, gitIdentities, projects, repositories, users } from "@stubwise/db";
+import { activityCommits, activityReports, gitAuthorsSeen, gitIdentities, projects, users } from "@stubwise/db";
 import { inProjectsStrict, isAllProjects, visibleProjectIds } from "../auth/access.js";
 import { apiError } from "../errors.js";
 import { publishSecurityAlert } from "../auth/second-factor/alerts.js";
@@ -289,9 +289,11 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
           : await app.db
               .select({ email: sql<string>`lower(${activityCommits.authorEmail})`, code: projects.code, n: sql<number>`count(distinct ${activityCommits.sha})::int` })
               .from(activityCommits)
-              .innerJoin(repositories, eq(repositories.id, activityCommits.repoId))
-              .innerJoin(projects, eq(projects.id, repositories.projectId))
-              .where(and(inProjectsStrict(repositories.projectId, scope), inArray(sql`lower(${activityCommits.authorEmail})`, seen.map((s) => s.email.toLowerCase()))))
+              // Il progetto del REPORT (review del lotto 5, M-8): un repository
+              // spostato o staccato non porta i suoi commit vecchi altrove.
+              .innerJoin(activityReports, eq(activityReports.id, activityCommits.reportId))
+              .innerJoin(projects, eq(projects.id, activityReports.projectId))
+              .where(and(inProjectsStrict(activityReports.projectId, scope), inArray(sql`lower(${activityCommits.authorEmail})`, seen.map((s) => s.email.toLowerCase()))))
               .groupBy(sql`lower(${activityCommits.authorEmail})`, projects.code);
       const commitsOf = new Map<string, { commits: number; projectCodes: string[] }>();
       for (const c of [...counts].sort((a, b) => a.code.localeCompare(b.code))) {

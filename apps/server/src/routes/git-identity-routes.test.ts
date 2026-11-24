@@ -369,6 +369,11 @@ describe("GET /api/git/observed-authors", () => {
     const forA = await authors(await fullSessionCookie(app, u!.id));
     expect(forA.find((x) => x.email === "dev@x.it")).toMatchObject({ commits: 2, projectCodes: [codeA] });
     expect(JSON.stringify(forA)).not.toContain(codeB);
+    // Review del lotto 5 (M-8): conta il progetto del REPORT, non quello di oggi del repository.
+    // Un commit nel report di A di un repository che ora sta in B resta di A.
+    await commit(b.repositoryId, a.projectId, "moved1");
+    const after = await authors(await fullSessionCookie(app, u!.id));
+    expect(after.find((x) => x.email === "dev@x.it")).toMatchObject({ commits: 3, projectCodes: [codeA] });
   });
 
   it("member → 403", async () => {
