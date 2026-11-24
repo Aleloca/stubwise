@@ -302,6 +302,23 @@ describe("ruoli di reparto", () => {
   });
 });
 
+describe("rimandi, lotto 5: i reparti in /api/auth/me", () => {
+  it("nell'ordine della persona (il primo dà il colore delle iniziali), con nome e colore; senza reparti []", async () => {
+    const first = await department();
+    const second = await department();
+    await testDb.db.update(departments).set({ colorToken: "--dept-7" }).where(eq(departments.id, second));
+    const p = await personIn([second, first]);
+    const me = sessionResponseSchema.parse((await call("GET", "/api/auth/me", p.headers.cookie)).json());
+    expect(me.departments.map((d) => d.id)).toEqual([second, first]);
+    // L'ordine opposto su un'altra persona: l'ordine è della persona, non degli id.
+    const q = await personIn([first, second]);
+    expect(sessionResponseSchema.parse((await call("GET", "/api/auth/me", q.headers.cookie)).json()).departments.map((d) => d.id)).toEqual([first, second]);
+    expect(me.departments[0]).toMatchObject({ id: second, colorToken: "--dept-7", name: expect.stringContaining("Reparto") });
+    const none = await personIn([]);
+    expect(sessionResponseSchema.parse((await call("GET", "/api/auth/me", none.headers.cookie)).json()).departments).toEqual([]);
+  });
+});
+
 describe("ruoli di reparto solo ai membri (fix fetta 3)", () => {
   it("una persona che non è nel reparto → 400 invalid_person, e niente scritto", async () => {
     const d = await department();

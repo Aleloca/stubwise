@@ -1393,8 +1393,10 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     accesa sulle rotte del cassetto (`/api/me/google`, `real/meMailboxes.ts`);
     collegare e ricollegare passano dal consenso nel browser, e il dialogo
     non ha il riquadro «Prototype only»;
-  - il colore delle iniziali nel profilo è neutro: `/api/auth/me` non dice
-    il reparto *(S)*;
+  - ~~il colore delle iniziali nel profilo è neutro: `/api/auth/me` non dice
+    il reparto *(S)*;~~ *parte server chiusa il 24 nov 2026 (72, lotto 5)*:
+    `/api/auth/me` porta `departments: [{ id, name, colorToken }]`
+    nell'ordine della persona (`position`, come `/api/people`), `.default([])`;
   - `department` fra le fonti dei permessi dei membri arriva con F8.
   - Roles, «you'd lose»: cosa perde chi guarda salvando un ruolo lo compone
     ancora il CLIENT dai motivi di `access.whatCan` (i permessi che gli
