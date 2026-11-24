@@ -128,3 +128,28 @@ describe("area 10, F6: fillField", () => {
     expect(read).toEqual({ actions: [{ fn: UNKNOWN, args: { field: "task.description", taskId: T, text: "bozza" } }], summary: "La descrizione di AUD-12" });
   });
 });
+
+describe("pageOutcomes (revisione dei lotti 6–7, M-4)", () => {
+  const view = (status: string) => ({
+    id: "11111111-1111-4111-8111-111111111111",
+    sessionId: "11111111-1111-4111-8111-111111111111",
+    actions: [],
+    summary: "",
+    cls: "A",
+    status: "confirmed",
+    createdAt: "2026-11-24T00:00:00.000Z",
+    pageOutcomes: [{ index: 0, status, at: "2026-11-24T00:00:00.000Z" }],
+  });
+
+  it("un esito nuovo di un server più recente non costa la proposta a un client: `readerSchema` lo apre in `__unknown__`", () => {
+    const parsed = readerSchema(claudeProposalViewSchema).parse(view("rolled_back"));
+    expect(parsed.pageOutcomes).toEqual([{ index: 0, status: "__unknown__", at: "2026-11-24T00:00:00.000Z" }]);
+    expect(readerSchema(claudeProposalViewSchema).parse(view("done")).pageOutcomes[0]!.status).toBe("done");
+  });
+
+  it("senza `pageOutcomes` (un server di prima): []", () => {
+    const old: Record<string, unknown> = view("done");
+    delete old.pageOutcomes;
+    expect(readerSchema(claudeProposalViewSchema).parse(old).pageOutcomes).toEqual([]);
+  });
+});
