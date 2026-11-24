@@ -249,9 +249,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   null = non si sa), migrazione 0222, scritto dal worker all'apertura e dal
   webhook alla chiusura o riapertura. Resta al renderer leggerlo invece di
   mostrarla sempre aperta.
-- Chat dei Docs senza streaming *(S, fetta 1)*: se `CHAT_MAX_TOKENS` sale molto
+- ~~Chat dei Docs senza streaming *(S, fetta 1)*: se `CHAT_MAX_TOKENS` sale molto
   o arriva un modello lento, il primo a scattare è il timeout di 300 s del main
-  (undici); la strada è lo streaming, non un timeout più alto.
+  (undici); la strada è lo streaming, non un timeout più alto.~~ *Parte server
+  chiusa il 24 nov 2026 (72, lotto 7, voce 2)*: il server già rispondeva SSE;
+  ora manda `: ping` ogni 25 s mentre il modello tace (`DOCS_CHAT_PING_MS`),
+  e `@stubwise/shared` ha `parseDocsChatFrame` (`delta`, `done` con le fonti
+  validate una per una, `error`) e `isAllowedDocsChatStreamPath` (le due
+  POST). Il maintainer ha deciso che il testo CRESCE mentre arriva, anche nel
+  prototipo: main (`apiStream.ts`) e renderer sono di 94.
 - Differenze dichiarate del renderer (fetta 2, *S*): l'anteprima sul desktop è
   un salvataggio e sul web la rotta `preview` in una scheda nuova (niente
   Quick Look né miniatura nella build app); `counted` di un'apertura non si
