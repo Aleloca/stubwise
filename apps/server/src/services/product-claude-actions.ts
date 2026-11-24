@@ -72,7 +72,9 @@ export async function requestProductPageUpdate(
         ).length > 0
       : (await db.select({ id: meetingNotes.id }).from(meetingNotes).where(and(eq(meetingNotes.id, source.id), eq(meetingNotes.projectId, page.projectId), eq(meetingNotes.docStatus, "ready")))).length > 0;
   if (!ofProject) throw new ProductDocsError(422, "invalid_source", "The source is not part of this project");
-  if ((await aiBudgetState(db, budget.monthlyCostUsdFn)).exhausted) throw new ProductDocsError(409, "ai_blocked", "The monthly AI budget is used up");
+  // D-7.1 (review del lotto 4, I-1): chi ha `plans.approve` scavalca il budget, e il lavoro lo porta.
+  const budgetBypass = perms?.has("plans.approve") ?? false;
+  if (!budgetBypass && (await aiBudgetState(db, budget.monthlyCostUsdFn)).exhausted) throw new ProductDocsError(409, "budget_exhausted", "The monthly AI budget is used up");
   return db.transaction(async (txRaw) => {
     const tx = txRaw as unknown as Db;
     // Una richiesta il cui lavoro non è più vivo (finito con un errore inatteso) non tiene il posto.
@@ -99,7 +101,7 @@ export async function requestProductPageUpdate(
       .onConflictDoNothing()
       .returning({ id: productPageUpdates.id });
     if (!row) throw new ProductDocsError(409, "already_updating", "Claude is already updating this page from this source");
-    await tx.insert(productDocJobs).values({ projectId: page.projectId, sourceKind: "page_update", sourceId: row.id });
+    await tx.insert(productDocJobs).values({ projectId: page.projectId, sourceKind: "page_update", sourceId: row.id, budgetBypass });
     return { updateId: row.id };
   });
 }

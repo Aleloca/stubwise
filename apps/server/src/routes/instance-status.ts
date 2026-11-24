@@ -53,7 +53,8 @@ export async function instanceStatusRoutes(instance: FastifyInstance): Promise<v
       const check = retryCheck(facts, perms, (await aiBudgetState(app.db)).exhausted, new Date());
       if (check.reason === "conflict") return apiError(reply, 409, "conflict", "The task already has newer work running");
       if (check.reason === "not_retryable") return apiError(reply, 422, "not_retryable", "Only a failed run of a task, in the last 7 days, can be retried");
-      if (check.retryBlock) return apiError(reply, 422, "monthly_budget", "The monthly AI budget is used up");
+      // Lo stesso codice di ogni avvio a mano fermato dal budget (D-7.1, review del lotto 4).
+      if (check.retryBlock) return apiError(reply, 409, "budget_exhausted", "The monthly AI budget is used up");
       if (check.retry !== "allowed") return apiError(reply, 403, "forbidden", "Missing permission");
       // La voce `job.retried` nella transazione di `startRun` (change-log.md):
       // esiste esattamente quando il job riparte.
