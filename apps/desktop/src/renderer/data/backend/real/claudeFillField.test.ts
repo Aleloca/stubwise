@@ -125,6 +125,24 @@ describe("fillField nella build app (area 10, F6)", () => {
     expect(old).toMatchObject({ status: "pending" });
   });
 
+  // Revisione dei lotti 6–7, M-6: un locale che è solo il ripiego di
+  // `not_run` non copre il `done` salvato da un'altra finestra.
+  it("un `not_run` locale cede all'esito salvato da un'altra finestra", async () => {
+    (await import("./fakeServer")).installFakeServer({});
+    const page = { kind: "theme", to: "dark" };
+    const pageProposal = (over: Record<string, unknown> = {}) =>
+      proposal(page, { actions: [{ fn: "pageAction", args: page }], ...over });
+    await settlePageEvent(CONV, `page:${PROPOSAL}:0`, "not_run");
+    const [local] = chatActionEvents(raw, { proposals: [pageProposal()], groups: [], codes: new Map() });
+    expect(local).toMatchObject({ status: "failed" });
+    const [saved] = chatActionEvents(raw, {
+      proposals: [pageProposal({ pageOutcomes: [{ index: 0, status: "done", at: "2026-11-24T10:00:00.000Z" }] })],
+      groups: [],
+      codes: new Map(),
+    });
+    expect(saved).toMatchObject({ status: "done" });
+  });
+
   it("un'azione mai partita resta solo qui: niente al server", async () => {
     const { seen } = (await import("./fakeServer")).installFakeServer({});
     await settlePageEvent(CONV, `page:${PROPOSAL}:0`, "not_run");

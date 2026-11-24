@@ -486,6 +486,20 @@ const pageStatusByPerson = new Map<string, Map<string, PageEventStatus>>();
 
 type PageEventStatus = Exclude<Parameters<Fake["settlePageEvent"]>[2], "not_run">;
 
+/**
+ * Revisione dei lotti 6–7, M-6: gli esiti locali che sono solo il ripiego di
+ * `not_run` (un'azione mai partita in questa finestra): cedono a quello che il
+ * server ha salvato, magari da un'altra finestra.
+ */
+const notRunByPerson = new Map<string, Set<string>>();
+
+function notRunHere(): Set<string> {
+  const me = session.personId ?? "";
+  let set = notRunByPerson.get(me);
+  if (!set) notRunByPerson.set(me, (set = new Set()));
+  return set;
+}
+
 function pageStatuses(): Map<string, PageEventStatus> {
   const me = session.personId ?? "";
   let map = pageStatusByPerson.get(me);
@@ -509,6 +523,8 @@ export const settlePageEvent: Fake["settlePageEvent"] = async (conversationId, e
     });
   }
   pageStatuses().set(eventId, status);
+  if (settled === "not_run") notRunHere().add(eventId);
+  else notRunHere().delete(eventId);
   // Lo stream deriva le righe dalle sue viste: senza questo la riga dal vivo resterebbe `pending`.
   for (const fn of [...pageListeners]) fn(conversationId);
 };
@@ -525,6 +541,7 @@ export function onPageStatusChange(fn: (conversationId: string) => void): () => 
 /** Solo nei test: nessun esito ricordato. */
 export function forgetPageStatuses(): void {
   pageStatusByPerson.clear();
+  notRunByPerson.clear();
   owners.clear();
   taskCodesByPerson.clear();
 }
@@ -565,7 +582,9 @@ function pageEvents(p: ProposalView, at: string): ConversationEvent[] {
   const saved = new Map((p.pageOutcomes ?? []).map((o) => [o.index, o.status as PageEventStatus]));
   return p.actions.map((a, i) => {
     const id = `page:${p.id}:${i}`;
-    const status = pageStatuses().get(id) ?? saved.get(i);
+    // Il locale vince (è il più fresco), salvo quando è solo il ripiego di `not_run` (M-6).
+    const local = pageStatuses().get(id);
+    const status = notRunHere().has(id) ? (saved.get(i) ?? local) : (local ?? saved.get(i));
     if (a.fn === "fillField") {
       return {
         id,
