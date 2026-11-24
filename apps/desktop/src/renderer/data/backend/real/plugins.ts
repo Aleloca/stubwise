@@ -83,11 +83,13 @@ function viewOf(p: Any): PluginView {
           })),
         }
       : null,
-    registeredById: "",
-    updatedById: "",
+    // Rimandi, lotto 5, voce 6 (72, 74ab8cf1c): chi l'ha registrato e
+    // aggiornato, già passati dalla maschera delle persone; un server di prima: nessuno.
+    registeredById: p.registeredById ?? "",
+    updatedById: p.updatedById ?? "",
     updatedAt: p.updatedAt,
-    registeredByName: null,
-    updatedByName: null,
+    registeredByName: p.registeredByName ?? null,
+    updatedByName: p.updatedByName ?? null,
     busy: p.pendingJobKind !== null || status === "materializing" || smoke === "running",
   };
 }
