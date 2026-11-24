@@ -53,6 +53,7 @@ import {
   type ConfirmError,
   type VaultActor,
 } from "../vault/pending.js";
+import { requireVaultCaller } from "../vault/device-access.js";
 import { createPairing, createSeal, listSeals, lookupPairing, mineSeal, revokeSeal } from "../vault/device-seals.js";
 import { currentPersonKey } from "../vault/readers.js";
 import {
@@ -82,10 +83,13 @@ const LIVE = ["pending", "confirmed"] as const;
  * riceve solo chiavi pubbliche e buste cifrate: nessuna chiave privata né
  * password in chiaro passa di qui.
  *
- * Tutte le rotte sono SOLO da sessione: un PAT riceve 403
- * `session_required` — dal gate della riconferma per le scritture
- * (`config.reauth`), esplicitamente per le altre. Un token non scarica mai
- * la propria chiave sigillata né attiva o rigenera nulla.
+ * Le rotte sono da sessione: un PAT riceve 403 `session_required` — dal
+ * gate della riconferma per le scritture (`config.reauth`), esplicitamente
+ * per le altre. Un token non scarica mai la propria chiave sigillata né
+ * attiva o rigenera nulla. Eccezioni (lotto 10, D-7): le rotte che
+ * dichiarano `config.desktopVault` passano anche dal PAT desktop col suo
+ * sigillo vivo (`vault/device-access.ts`), e quelle del sigillo del Mac
+ * (`/device-pairings`, `/device-seals/mine`) sono SOLO del PAT desktop.
  *
  * Le azioni che passano o tolgono l'accesso (conferma, rifiuto, rotazione
  * del kit; condivisione e revoca in `credentials.ts`) vogliono in più la
@@ -94,11 +98,14 @@ const LIVE = ["pending", "confirmed"] as const;
  * basta (403 `vault_proof_invalid`, nulla cambia).
  */
 export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
-  // Tutta la cassaforte è solo-browser, anche per il PAT desktop riconfermato
-  // (10 nov 2026): dal desktop la chiave non si sblocca (passkey con PRF).
-  // Aperta al desktop per decisione del maintainer, bloccata tecnicamente:
-  // registro dei rimandi, area della cassaforte.
+  // La cassaforte è solo-browser anche per il PAT desktop riconfermato (10
+  // nov 2026): la riconferma non sblocca la chiave (passkey con PRF).
+  // Dal lotto 10 (24 nov 2026, D-7) le rotte che dichiarano
+  // `config.desktopVault` sono aperte anche al PAT desktop col suo sigillo
+  // vivo (`vault/device-access.ts`, elenco chiuso in `route-access.test.ts`);
+  // tutte le altre restano solo del browser.
   instance.addHook("onRoute", (route) => {
+    if (route.config?.desktopVault === true) return;
     route.config = { ...(route.config ?? {}), browserOnly: true };
   });
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -416,12 +423,12 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/actor-challenge",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, desktopVault: true },
       schema: { response: { 201: vaultActorChallengeResponseSchema, ...errorResponses } },
     },
     async (request, reply) => {
       const user = request.user!;
-      if (isPat(user)) return sessionRequired(reply);
+      if (!(await requireVaultCaller(app.db, request, reply))) return reply;
       const outcome = await createActorChallenge(app.db, user);
       if (outcome.ok) return reply.code(201).send(outcome.value);
       return outcome.error === "vault_not_active" ? vaultNotActive(reply) : keyNotConfirmed(reply);
@@ -578,12 +585,12 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/pending",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, desktopVault: true },
       schema: { response: { 200: vaultPendingResponseSchema, ...errorResponses } },
     },
     async (request, reply) => {
       const user = request.user!;
-      if (isPat(user)) return sessionRequired(reply);
+      if (!(await requireVaultCaller(app.db, request, reply))) return reply;
       return reply.code(200).send({ items: await listPending(app.db, user.id) });
     },
   );
@@ -597,7 +604,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/pending/:personKeyId/confirm",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, desktopVault: true },
       schema: {
         params: personKeyParams,
         body: vaultConfirmBodySchema,
@@ -606,7 +613,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const user = request.user!;
-      if (isPat(user)) return sessionRequired(reply);
+      if (!(await requireVaultCaller(app.db, request, reply))) return reply;
       if (!(await actorProofOk(reply, user, request.body.actorProof))) return reply;
       return confirm(reply, user, request.params.personKeyId, request.body.copies, false);
     },
@@ -616,12 +623,12 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/pending/:personKeyId/reject",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, desktopVault: true },
       schema: { params: personKeyParams, body: vaultRejectBodySchema, response: { 204: z.null(), ...errorResponses } },
     },
     async (request, reply) => {
       const user = request.user!;
-      if (isPat(user)) return sessionRequired(reply);
+      if (!(await requireVaultCaller(app.db, request, reply))) return reply;
       if (!(await actorProofOk(reply, user, request.body.actorProof))) return reply;
       const outcome = await rejectPersonKey(app.db, actorOf(user), request.params.personKeyId);
       if (outcome.ok) return reply.code(204).send(null);

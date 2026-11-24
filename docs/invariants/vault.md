@@ -27,9 +27,10 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
   mettono nulla dei corpi nei log e un errore di validazione non rimanda i
   valori ricevuti (test a runtime in `vault-isolation.test.ts`).
 - **La password cifrata esce da UNA rotta sola: `reveal`.** `POST
-  /api/credentials/:id/reveal` è la sola che porta `passwordCiphertext`, solo
-  da sessione, e scrive il registro (`credential_access_log`, «mostra» o
-  «copia») nella stessa transazione. L'anteprima di una condivisione e gli
+  /api/credentials/:id/reveal` è la sola che porta `passwordCiphertext`, da
+  sessione o dal PAT desktop col sigillo vivo, e scrive il registro
+  (`credential_access_log`, «mostra» o «copia», con `via` `browser` o
+  `desktop` e il sigillo del Mac, D-8) nella stessa transazione. L'anteprima di una condivisione e gli
   accessi in attesa restituiscono la copia della chiave DI CHI CHIEDE (avvolta
   per la sua chiave di persona), mai la password cifrata: chi condivide la
   ricifra per i nuovi lettori senza dover «mostrare» N volte, ma senza il
@@ -47,10 +48,23 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
   cassaforte compresa. Oggi però la regola qui sopra vale ANCHE per lui,
   perché il desktop non sa sbloccare la chiave: lo sblocco è una passkey con
   PRF (voce «Lo sblocco…» sotto), e dal desktop le passkey non ci sono.
-  `vaultRoutes` dichiara `config.browserOnly` su ogni rotta, e `credentials.ts`
-  tiene i suoi `session_required`. Quando il desktop avrà uno sblocco, questa
-  frase diventa «… salvo il PAT desktop riconfermato», e la prova di possesso
-  del kit, dove c'è, resta. Registro dei rimandi, area della cassaforte.
+  **Dal lotto 10 (24 nov 2026) la frase è «… salvo il PAT desktop CON UN
+  SIGILLO DEL MAC VIVO»** (voce «Il sigillo del dispositivo» sotto): sulle
+  SOLE rotte che dichiarano `config.desktopVault` — `reveal`, la sfida della
+  propria chiave, gli accessi in attesa (elenco, conferma, rifiuto) e i
+  lettori (elenco, anteprima, condivisione, revoca) — il PAT desktop passa se
+  ha un sigillo vivo legato a lui (D-7: tutto come il browser a cassaforte
+  aperta). L'elenco è chiuso in `route-access.test.ts` e nessuna di quelle
+  rotte chiede la riconferma; il controllo sta in UN posto,
+  `vault/device-access.ts` (`requireVaultCaller`). La riconferma del desktop
+  (`desktop-reauth`) NON apre la cassaforte: senza sigillo il desktop riceve
+  403 `device_seal_required`. Restano del browser, anche col sigillo:
+  attivare, il recupero col kit, rigenerare il kit, creare o ricreare una
+  chiave di persona e i suoi sigilli, associare un Mac (`vaultRoutes`
+  dichiara `config.browserOnly` su ogni altra rotta). La sfida della propria
+  chiave chiesta dal Mac è legata al SUO PAT (`pat_id`, non la sessione): non
+  vale dal browser né da un altro Mac, e viceversa. Gli altri PAT (`manual`,
+  `mobile`) restano come sono.
 - **Conferma umana obbligatoria, mai automatica.** Una persona entra su una
   credenziale solo se un'altra persona che la apre già (con `credentials.share`,
   o un full admin) conferma che la sua chiave è davvero la sua. Nessun
@@ -187,8 +201,11 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
   di password in corso (riga in esclusiva) finisce prima: password cifrata e
   copia restituite sono della STESSA chiave. La web non mostra né copia una
   password che arriva dopo che la cassaforte si è chiusa.
-- **Lo sblocco è la riautenticazione con passkey, con PRF.** Non esiste un
-  secondo meccanismo: lo sblocco usa `/api/me/security/reauth/passkey/*`
+- **Lo sblocco è la riautenticazione con passkey, con PRF.** Dal lotto 10
+  esiste UN secondo meccanismo, il sigillo del Mac, e nasce SOLO da uno
+  sblocco con passkey nel browser: non è un'altra porta, è una copia della
+  stessa chiave avvolta per un dispositivo che la persona ha scelto e
+  confrontato a vista (voce sotto). Per il resto: lo sblocco usa `/api/me/security/reauth/passkey/*`
   (`purpose: "vault"` aggiunge la valutazione PRF) e quindi rinnova anche
   `secondFactorAt`. `PRF_INPUT` vive in UN posto, `@stubwise/vault-crypto`; il
   server lo importa (passkey) e non ne ha una copia. Una passkey senza PRF non
