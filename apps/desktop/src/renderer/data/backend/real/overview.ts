@@ -121,7 +121,8 @@ function toEvent(e: ChronologyEvent): TimelineEvent | null {
     // e non l'ha eliminata): l'evento c'è, nascosto, «A task was deleted».
     case "task_deleted": {
       if (!e.taskId || !e.byId) return null;
-      const shown = e.taskCode !== undefined && e.title !== undefined;
+      // 72 (1ef4f49bb): null a chi non può vederli; un server di prima li ometteva.
+      const shown = typeof e.taskCode === "string" && typeof e.title === "string";
       return {
         kind: "task_deleted",
         at,

@@ -130,6 +130,13 @@ describe("lo Stato dell'istanza dal server (area 9, F4)", () => {
       error: "invalid",
       reason: "monthly_budget",
     });
+    // Lotto 4, review I-1 (72, 9389b5efc): un codice solo per il budget finito, 409 `budget_exhausted`.
+    const exhausted = createRealInstanceStatus(fake({ retryJob: refusing(409, "budget_exhausted") }));
+    expect(await exhausted.retryJob("j9")).toEqual({
+      ok: false,
+      error: "invalid",
+      reason: "monthly_budget",
+    });
     const no = createRealInstanceStatus(fake({ resumeQueue: refusing(403, "forbidden") }));
     expect(await no.resumeQueue("p1")).toEqual({ ok: false, error: "forbidden" });
   });
