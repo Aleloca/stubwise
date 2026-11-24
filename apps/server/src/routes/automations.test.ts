@@ -706,6 +706,29 @@ describe("la prova: gli esempi e il contesto", () => {
     expect((await call(lead.headers, "GET", `/automations/${manual.code}/examples?version=1`)).json()).toMatchObject({ items: [{ label: today, event: { avvio: { data: today } } }] });
   });
 
+  it("lotto 6, voce 5: senza un esempio vero, quello scritto dalla regola deterministica (chi prova, il progetto, il filtro); con uno vero, `passes` è null", async () => {
+    const { p, lead } = await setup();
+    const flow: AutomationFlow = {
+      trigger: { kind: "stubwise", event: "task_created", filter: { left: { ref: "task.titolo" }, op: "contains", right: { value: "Contratto" } } },
+      steps: [createTask()],
+      titleTemplate: "R",
+    };
+    const a = await created(lead, p.id, flow);
+    type W = { items: unknown[]; written: { passes: { task: Record<string, unknown> } | null; fails: { task: Record<string, unknown> } | null } };
+    const view = async () => (await call(lead.headers, "GET", `/automations/${a.code}/examples?version=draft`)).json() as W;
+    const empty = await view();
+    expect(empty.items).toEqual([]);
+    expect(empty.written.passes!.task).toMatchObject({ titolo: "Contratto", progetto: p.code });
+    expect(empty.written.fails!.task).toMatchObject({ titolo: "" });
+    await db.insert(tickets).values({ projectId: p.id, number: 7, title: "Contratto Rossi", type: "task", priority: "medium", source: "manual" });
+    const real = await view();
+    expect(real.items).toHaveLength(1);
+    expect(real.written.passes).toBeNull();
+    expect(real.written.fails).not.toBeNull();
+    const manual = await created(lead, p.id, flowOf([createTask()]));
+    expect(((await call(lead.headers, "GET", `/automations/${manual.code}/examples?version=1`)).json() as W).written).toEqual({ passes: null, fails: null });
+  });
+
   it("review F1, I3: per una versione non pubblicata il proprietario che avrebbe è chi prova (pubblicando lo diventa), e un progetto che non vede non dice niente del proprietario attuale", async () => {
     const { p, lead } = await setup();
     const other = await person();
