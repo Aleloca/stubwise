@@ -525,6 +525,28 @@ describe("F6, Task 4: l'aggiornamento chiesto a mano (`page_update`, la voce `up
     expect((await t.db.select().from(productPageUpdates).where(eq(productPageUpdates.id, update.id)))[0]!.finishedAt).not.toBeNull();
   });
 
+  it("D-7.1 (review del lotto 4): col budget finito una richiesta con `budget_bypass` chiama il modello; senza, aspetta col budget", async () => {
+    const pg = await page();
+    const m = await mail();
+    const { update, job } = await manual(pg.id, m.id, ownerId);
+    await t.db.insert(instanceSettings).values({ id: 1, monthlyBudgetUsd: "1" }).onConflictDoUpdate({ target: instanceSettings.id, set: { monthlyBudgetUsd: "1" } });
+    try {
+      // Senza lo scavalco: nessuna chiamata, il lavoro aspetta col budget.
+      const first = fakeRunner(() => facts(replaceP1(pg.id)));
+      expect(await runProductDocJob({ db: t.db, runner: first.runner, log, monthlyCostUsdFn: async () => 5 }, job)).toBe("held");
+      expect(first.calls).toEqual([]);
+      // Con lo scavalco (chi l'ha chiesta ha plans.approve): il modello lavora.
+      await t.db.update(productDocJobs).set({ budgetBypass: true }).where(eq(productDocJobs.id, job.id));
+      const bypassed = { ...job, budgetBypass: true };
+      const second = fakeRunner(() => facts(replaceP1(pg.id)));
+      expect(await runProductDocJob({ db: t.db, runner: second.runner, log, monthlyCostUsdFn: async () => 5 }, bypassed)).toBe("done");
+      expect(second.calls).toHaveLength(1);
+      expect((await t.db.select().from(productPageUpdates).where(eq(productPageUpdates.id, update.id)))[0]!.finishedAt).not.toBeNull();
+    } finally {
+      await t.db.delete(instanceSettings);
+    }
+  });
+
   it("la sezione presa da CHI HA CHIESTO non lo fa aspettare; presa da un altro sì, e la richiesta resta viva", async () => {
     const pg = await page();
     const m = await mail();

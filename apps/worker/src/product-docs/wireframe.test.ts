@@ -93,6 +93,21 @@ describe("il disegno di una bozza", () => {
     expect((await t.db.select().from(productDocJobs).where(eq(productDocJobs.id, job.id)))[0]).toMatchObject({ status: "failed", error: "budget" });
   });
 
+  it("D-7.1 (review del lotto 4): col budget finito una bozza chiesta da chi lo scavalca (`budget_bypass`) si disegna", async () => {
+    const { wireframeId } = await setup();
+    const job = (await claimProductDocJob(t.db))!;
+    await t.db.update(productDocJobs).set({ budgetBypass: true }).where(eq(productDocJobs.id, job.id));
+    await t.db.insert(instanceSettings).values({ id: 1, monthlyBudgetUsd: "1" }).onConflictDoUpdate({ target: instanceSettings.id, set: { monthlyBudgetUsd: "1" } });
+    try {
+      const { runner, calls } = fakeRunner(SVG);
+      expect(await runProductDocJob({ db: t.db, runner, log, monthlyCostUsdFn: async () => 5 }, { ...job, budgetBypass: true })).not.toBe("failed");
+      expect(calls.length).toBeGreaterThan(0);
+    } finally {
+      await t.db.delete(instanceSettings);
+    }
+    expect(await rowOf(wireframeId)).not.toMatchObject({ error: "budget" });
+  });
+
   it("con la quota degli account finita: la bozza è `failed` con `limit` e il lavoro finisce, non resta `drawing` in attesa", async () => {
     const { wireframeId } = await setup();
     const job = (await claimProductDocJob(t.db))!;
