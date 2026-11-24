@@ -113,6 +113,9 @@ beforeEach(() => {
       if (path === `/api/claude/conversations/${SESSION}/proposals`) return Response.json(chatProposals);
       if (path === `/api/claude/conversations/${SESSION}/groups`) return Response.json([]);
       if (/^\/api\/claude\/proposals\/[^/]+\/confirm$/.test(path)) return confirmAnswer();
+      // Lotto 7, §1: l'esito di un'azione della pagina si salva sul server.
+      if (/^\/api\/claude\/proposals\/[^/]+\/actions\/\d+\/outcome$/.test(path))
+        return Response.json({ index: 0, status: "done", at: "2026-11-24T10:00:00.000Z" });
       return new Response(JSON.stringify({ code: "not_found", message: path }), { status: 404 });
     }),
   );

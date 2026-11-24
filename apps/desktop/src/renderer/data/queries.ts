@@ -1860,7 +1860,7 @@ export function useSetConversationContext() {
  */
 export function useSettlePageEvent() {
   return useWrite(
-    ({ id, eventId, status }: { id: string; eventId: string; status: api.PageEventStatus }) =>
+    ({ id, eventId, status }: { id: string; eventId: string; status: api.PageEventStatus | "not_run" }) =>
       api.settlePageEvent(id, eventId, status),
     CONVERSATION_AREAS,
   );

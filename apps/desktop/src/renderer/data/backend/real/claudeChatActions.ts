@@ -484,7 +484,7 @@ type Fake = typeof import("../../api");
  */
 const pageStatusByPerson = new Map<string, Map<string, PageEventStatus>>();
 
-type PageEventStatus = Parameters<Fake["settlePageEvent"]>[2];
+type PageEventStatus = Exclude<Parameters<Fake["settlePageEvent"]>[2], "not_run">;
 
 function pageStatuses(): Map<string, PageEventStatus> {
   const me = session.personId ?? "";
@@ -493,8 +493,21 @@ function pageStatuses(): Map<string, PageEventStatus> {
   return map;
 }
 
-/** Il runner fissa l'esito di un'azione della pagina (eseguita, non partita, annullata). */
-export const settlePageEvent: Fake["settlePageEvent"] = async (conversationId, eventId, status) => {
+/**
+ * Il runner fissa l'esito di un'azione della pagina (eseguita, non partita,
+ * annullata). Lotto 7, §1 (72, ae0e9a35d): l'esito si salva sul server, per
+ * indice (`POST /api/claude/proposals/:id/actions/:index/outcome`), e la
+ * vista lo ridà (`pageOutcomes`). `not_run` (decisione 1.b) resta solo qui
+ * come `failed`: la riga offre «Apply», e il server non la dice fallita.
+ */
+export const settlePageEvent: Fake["settlePageEvent"] = async (conversationId, eventId, settled) => {
+  const status: PageEventStatus = settled === "not_run" ? "failed" : settled;
+  const at = /^page:([^:]+):(\d+)$/.exec(eventId);
+  if (settled !== "not_run" && at) {
+    await appClient().request("POST", `/api/claude/proposals/${encodeURIComponent(at[1]!)}/actions/${at[2]}/outcome`, {
+      status,
+    });
+  }
   pageStatuses().set(eventId, status);
   // Lo stream deriva le righe dalle sue viste: senza questo la riga dal vivo resterebbe `pending`.
   for (const fn of [...pageListeners]) fn(conversationId);
@@ -548,9 +561,11 @@ function fieldRefOf(args: Record<string, unknown>): FieldRef | null {
  * riquadro la mette nel campo solo a pagina aperta, e la salva la persona.
  */
 function pageEvents(p: ProposalView, at: string): ConversationEvent[] {
+  // Lotto 7, §1: l'esito salvato sul server; quello di questa finestra, se c'è, è più fresco.
+  const saved = new Map((p.pageOutcomes ?? []).map((o) => [o.index, o.status as PageEventStatus]));
   return p.actions.map((a, i) => {
     const id = `page:${p.id}:${i}`;
-    const status = pageStatuses().get(id);
+    const status = pageStatuses().get(id) ?? saved.get(i);
     if (a.fn === "fillField") {
       return {
         id,

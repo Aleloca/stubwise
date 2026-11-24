@@ -87,23 +87,54 @@ describe("fillField nella build app (area 10, F6)", () => {
     });
   });
 
-  it("l'esito del riquadro (nel campo, aspetta la pagina, annullata) lo dice la riga; niente sul server", async () => {
-    const { seen } = (await import("./fakeServer")).installFakeServer({});
+  // Lotto 7, §1 (72, ae0e9a35d): l'esito si salva sul server, per indice
+  // (`POST …/actions/:index/outcome`), e una rilettura lo ritrova
+  // (`pageOutcomes`). Un'azione mai partita (letta dalla storia) resta solo
+  // qui: la riga offre «Apply», e il server non la dice fallita (1.b).
+  it("l'esito del riquadro si salva sul server per indice, e la vista lo ritrova", async () => {
+    const outcome = `POST /api/claude/proposals/${PROPOSAL}/actions/0/outcome`;
+    const { seen } = (await import("./fakeServer")).installFakeServer({
+      [outcome]: (req: { body: unknown }) => ({
+        body: { index: 0, status: (req.body as { status: string }).status, at: "2026-11-24T10:00:00.000Z" },
+      }),
+    });
     await settlePageEvent(CONV, `page:${PROPOSAL}:0`, "placed");
+    expect(seen.map((r) => `${r.method} ${r.path} ${JSON.stringify(r.body)}`)).toEqual([
+      `${outcome} {"status":"placed"}`,
+    ]);
     const [placed] = chatActionEvents(raw, {
       proposals: [proposal(description)],
       groups: [],
       codes: new Map(),
     });
     expect(placed).toMatchObject({ status: "placed" });
-    await settlePageEvent(CONV, `page:${PROPOSAL}:0`, "changed_after");
-    const [after] = chatActionEvents(raw, {
-      proposals: [proposal(description)],
+    // Un'altra finestra (nessun esito locale): lo stato viene da `pageOutcomes`.
+    forgetPageStatuses();
+    const [reread] = chatActionEvents(raw, {
+      proposals: [
+        proposal(description, {
+          pageOutcomes: [{ index: 0, status: "changed_after", at: "2026-11-24T10:00:00.000Z" }],
+        }),
+      ],
       groups: [],
       codes: new Map(),
     });
-    expect(after).toMatchObject({ status: "changed_after" });
+    expect(reread).toMatchObject({ status: "changed_after" });
+    // Una vista di prima (senza `pageOutcomes`): `pending`.
+    const [old] = chatActionEvents(raw, { proposals: [proposal(description)], groups: [], codes: new Map() });
+    expect(old).toMatchObject({ status: "pending" });
+  });
+
+  it("un'azione mai partita resta solo qui: niente al server", async () => {
+    const { seen } = (await import("./fakeServer")).installFakeServer({});
+    await settlePageEvent(CONV, `page:${PROPOSAL}:0`, "not_run");
     expect(seen).toEqual([]);
+    const [event] = chatActionEvents(raw, {
+      proposals: [proposal({ kind: "theme", to: "dark" }, { actions: [{ fn: "pageAction", args: { kind: "theme", to: "dark" } }] })],
+      groups: [],
+      codes: new Map(),
+    });
+    expect(event).toMatchObject({ type: "pageAction", status: "failed" });
   });
 
   it("dopo un contenuto non fidato è una scheda B: la frase dice il campo, e nessuna bozza finché non si conferma", () => {
