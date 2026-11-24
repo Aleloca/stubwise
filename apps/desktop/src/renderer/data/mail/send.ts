@@ -5,6 +5,7 @@ import { PEOPLE } from "../seed/people";
 import { chatNow, copy, gate, newId, now, onStoreReset, state, storeGeneration } from "../store";
 import type {
   MailAddress,
+  Mailbox,
   MailDraft,
   MailDraftAttachment,
   MailDraftRestore,
@@ -142,7 +143,13 @@ const bytesOf = (list: MailDraftAttachment[]) =>
  * disponibile) ferma l'invio: `attachment_unavailable`.
  */
 function checkSendable(me: string, draft: MailDraft): void {
-  mailboxOf(me);
+  const box = mailboxOf(me);
+  // Lotto 8, §2: un alias tolto su Gmail nel frattempo non parte.
+  if (
+    draft.from &&
+    ![box.email, ...(box.sendAs ?? []).map((a) => a.email)].some((a) => lower(a) === lower(draft.from!))
+  )
+    throw invalid("from");
   if (state.googleAccounts.find((a) => a.personId === me)?.status !== "connected")
     throw new Error("google_not_connected");
   const recipients = [...draft.to, ...draft.cc];
@@ -303,6 +310,18 @@ export function checkSendNow(
   return { from: mailboxOf(me, opts.from).email, bounced: bounced?.email ?? null };
 }
 
+/** Il mittente: il «Da» scelto, o il predefinito di Gmail, o la casella (lotto 8, §2). */
+function senderOf(me: string, box: Mailbox, from: string | null): MailMessage["from"] {
+  const sendAs = box.sendAs ?? [];
+  const email = from ?? sendAs.find((a) => a.isDefault)?.email ?? box.email;
+  const alias = sendAs.find((a) => lower(a.email) === lower(email));
+  return {
+    name: alias?.displayName ?? PEOPLE.find((p) => p.id === me)?.name ?? email,
+    email,
+    personId: me,
+  };
+}
+
 /** Il messaggio che parte da una bozza: in fondo alla conversazione, `sending`. */
 function outgoing(me: string, draft: MailDraft, from?: string | null): MailMessage {
   const original =
@@ -316,11 +335,8 @@ function outgoing(me: string, draft: MailDraft, from?: string | null): MailMessa
     id: rowId,
     messageId: `<${rowId}@stubwise.example>`,
     threadId: draft.threadId ?? `th-${rowId}`,
-    from: {
-      name: PEOPLE.find((p) => p.id === me)?.name ?? box.email,
-      email: box.email,
-      personId: me,
-    },
+    // Lotto 8, §2: parte dal «Da» della bozza (un alias), o dal predefinito.
+    from: senderOf(me, box, draft.from ?? null),
     to: draft.to.map((a) => resolve(a, team)),
     cc: draft.cc.length > 0 ? draft.cc.map((a) => resolve(a, team)) : null,
     subject: draft.subject,

@@ -13,6 +13,11 @@ export const MAILBOXES: Mailbox[] = [
     proposalsEnabled: true,
     syncedAt: at(0, "11:58"),
     sync: "ok",
+    // Lotto 8, §2: un alias di Gmail verificato, da cui si può scrivere.
+    sendAs: [
+      { email: person("p-giulia").email, displayName: person("p-giulia").name, isPrimary: true, isDefault: true },
+      { email: "accounts@acquedotto.example", displayName: "Acquedotto accounts", isPrimary: false, isDefault: false },
+    ],
   },
   {
     personId: "p-matteo",
