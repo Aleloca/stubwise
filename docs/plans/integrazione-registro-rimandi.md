@@ -1266,9 +1266,14 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 - Adozione delle PR e rilascio (merge) — confine di prodotto invariato.
 - Azioni di Claude: bozze di risposta di supporto e delle note di rilascio
   della PR (le iscrizioni agli avvisi sono arrivate con la F2, S7).
-- L'evento `release_page` della Chat (area 4, fetta 4, [DECIDE] 1 = a): il
+- ~~L'evento `release_page` della Chat (area 4, fetta 4, [DECIDE] 1 = a): il
   «general» lo ha acceso (D8), ma non ha una fonte finché l'area 8 non
-  definisce la pagina di Release. Nasce qui, con la sua scheda.
+  definisce la pagina di Release. Nasce qui, con la sua scheda.~~ *Era già
+  chiusa dall'area 8, F1, S11; voce barrata il 24 nov 2026 (72, lotto 5)*:
+  la pubblica il trigger `releases_chat_release_page` (migrazione 0175) a
+  ogni rilascio nuovo, nei canali che l'hanno acceso; la scheda
+  (`chat/events.ts`) dà codice, titolo e stato derivato solo a chi vede il
+  progetto. Test in `chat-f4.test.ts` (verificato con una mutazione).
 
 ## Area 9 — Amministrazione, preferenze, accesso
 
