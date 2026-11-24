@@ -723,5 +723,13 @@ describe("la ricerca ⌘K dei server", () => {
     ]);
     expect(await servers.searchServers("  ")).toEqual([]);
     expect(calls).toEqual([["search", "web"]]);
+    // Revisione del lotto 5, M-7: senza ambiente visibile, nessun progetto.
+    const orphan = createRealServers(
+      fakeApi({ search: async () => [{ code: "SRV-9", name: "x", projectCode: null }] }),
+      () => NOW,
+    );
+    expect(await orphan.searchServers("srv")).toEqual([
+      { code: "SRV-9", name: "x", projectCode: null },
+    ]);
   });
 });

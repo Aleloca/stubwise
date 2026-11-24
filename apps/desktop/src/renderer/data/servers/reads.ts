@@ -213,8 +213,12 @@ export async function getServerMetrics(
 export interface ServerSearchResult {
   code: string;
   name: string;
-  /** Il progetto da cui si apre (`serverHref`): il principale, o il primo visibile. */
-  projectCode: string;
+  /**
+   * Il progetto da cui si apre (`serverHref`): il primo visibile fra i suoi
+   * ambienti; `null` se non ne ha uno visibile (revisione del lotto 5, M-7):
+   * allora si apre dalla pagina d'istanza (`#/admin/servers/SRV-n`).
+   */
+  projectCode: string | null;
 }
 
 /** La chiave pubblica d'istanza del prototipo: finta, stabile (il server la genera una volta). */
@@ -532,16 +536,8 @@ export async function searchServers(q: string): Promise<ServerSearchResult[]> {
   const needle = fold(q.trim());
   if (!needle) return [];
   const visible = serversVisibleTo(me);
-  const projects = visibleProjectIds(me);
-  const firstProject = state.projects
-    .filter((p) => projects.has(p.id))
-    .map((p) => p.code)
-    .sort()[0];
   return state.servers
     .filter((s) => visible.has(s.code))
     .filter((s) => [s.code, s.name, s.hostname ?? ""].some((x) => fold(x).includes(needle)))
-    .flatMap((s) => {
-      const projectCode = homeProjectCode(me, s) ?? firstProject;
-      return projectCode ? [{ code: s.code, name: s.name, projectCode }] : [];
-    });
+    .map((s) => ({ code: s.code, name: s.name, projectCode: homeProjectCode(me, s) }));
 }
