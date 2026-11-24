@@ -75,6 +75,8 @@ const baseRow = (): ProjectPluginsView["plugins"][number] => ({
 function registryRow(
   p: RegisteredPlugin,
   choices: ProjectPluginChoices,
+  /** Chi può salvare (`canEdit`): solo lui vede i comandi degli hook. */
+  canEdit: boolean,
 ): ProjectPluginsView["plugins"][number] {
   const off = disabledOf(choices, p.slug);
   const on = choices.enabled.includes(p.slug);
@@ -102,7 +104,9 @@ function registryRow(
       ...hooks.map((h) => ({
         key: h.key,
         event: h.event,
-        command: h.command,
+        // Decisione di 46 con 72 (24 nov 2026): il comando a chi può salvare;
+        // chi legge soltanto vede il gruppo (le descrizioni delle skill a tutti).
+        command: canEdit ? h.command : "",
         enabled: !off?.hookGroups.includes(h.key),
       })),
       ...(off?.hookGroups ?? [])
@@ -119,10 +123,11 @@ export async function getProjectPlugins(projectId: string): Promise<ProjectPlugi
   const project = openProject(me, projectId);
   if (!project) return null;
   const choices = settingsOf(project).plugins;
+  const canEdit = canI(me, MANAGE_SETTINGS, project.id);
   return {
     version: String(choices.version),
-    canEdit: canI(me, MANAGE_SETTINGS, project.id),
-    plugins: [baseRow(), ...state.instance.plugins.map((p) => registryRow(p, choices))],
+    canEdit,
+    plugins: [baseRow(), ...state.instance.plugins.map((p) => registryRow(p, choices, canEdit))],
   };
 }
 
