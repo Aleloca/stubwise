@@ -663,8 +663,18 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 ## Area 7 — Automazioni
 
 - Blocco della Home delle automazioni.
-- Effetti che il prototipo ha e la build app spegne: segnali alle automazioni
-  alla chiusura di un traguardo e alla conversione di una richiesta.
+- ~~Effetti che il prototipo ha e la build app spegne: segnali alle automazioni
+  alla chiusura di un traguardo e alla conversione di una richiesta.~~
+  *Parte server verificata il 24 nov 2026 (72, lotto 7, voce 3)*: c'era già,
+  nel DB — `milestones_automation_reached` (0169, al passaggio a `closed`
+  da un altro stato) e `backlog_item_tickets_automation_converted` (0169, al
+  legame `converted_to` di `convertBacklogItem`), più il messaggio di Chat
+  `milestones_chat_reached` (0141). Mancava la prova DALLE ROTTE: ora
+  `milestones.test.ts` (una chiusura = un segnale, rinominare un chiuso no,
+  riaprire e richiudere sì) e `backlog.test.ts` (la conversione dà UN
+  `request_converted` con la task nata); mutazioni sui due trigger prese.
+  La build app non deve emettere niente: il segnale lo dà il server. Resta
+  a 94 il blocco della Home.
 - Azioni di Claude: crea automazione in bozza, salva/elimina bozza, prova.
 - F4, `automations.manage` d'ISTANZA *(S, verifica di Q7, 13 nov 2026)*:
   serve solo alle automazioni generali. Come il prototipo
