@@ -131,20 +131,36 @@ describe("Integration dal server", () => {
     expect(await forbidden.regenerateIngestionKey("p1")).toEqual({ ok: false, error: "forbidden" });
   });
 
-  it("il segreto del webhook: per slug, dal repository della lettura", async () => {
+  // Rimandi, lotto 5, voce 6 (72, cb91b3186): la piattaforma del webhook, e
+  // la rigenerazione per id (senza aver letto prima lo slug).
+  it("la piattaforma del webhook dal server; una che il client non conosce: nessuna", async () => {
+    const withProvider = (provider: string) =>
+      fake({
+        integration: async () => ({
+          ...VIEW,
+          gitWebhooks: [{ ...VIEW.gitWebhooks[0]!, provider }],
+        }),
+      }).api;
+    const github = await createRealIntegration(withProvider("github")).getIntegration("p1");
+    expect(github!.gitWebhooks[0]!.provider).toBe("github");
+    const bitbucket = await createRealIntegration(withProvider("bitbucket")).getIntegration("p1");
+    expect(bitbucket!.gitWebhooks[0]!.provider).toBe("bitbucket");
+    const odd = await createRealIntegration(withProvider("__unknown__")).getIntegration("p1");
+    expect(odd!.gitWebhooks[0]!.provider).toBeNull();
+  });
+
+  it("il segreto del webhook: per id del repository, anche senza una lettura prima", async () => {
     const { api, calls } = fake();
     const integration = createRealIntegration(api);
-    await integration.getIntegration("p1");
     expect(await integration.regenerateWebhookSecret("r1")).toEqual({
       ok: true,
       secret: "whsec_new",
       mode: "manual",
     });
-    expect(calls).toEqual(["secret portale-utenti"]);
+    expect(calls).toEqual(["secret r1"]);
     const failed = createRealIntegration(
       fake({ regenerateWebhookSecret: refusing(422, "webhook_scope_missing") }).api,
     );
-    await failed.getIntegration("p1");
     expect(await failed.regenerateWebhookSecret("r1")).toEqual({
       ok: false,
       error: "invalid",
@@ -152,14 +168,13 @@ describe("Integration dal server", () => {
     });
   });
 
-  it("un repository che la lettura non dà: not_found, senza chiamate", async () => {
-    const { api, calls } = fake();
-    const integration = createRealIntegration(api);
-    await integration.getIntegration("p1");
+  it("un repository che il server non dà (404): not_found", async () => {
+    const integration = createRealIntegration(
+      fake({ regenerateWebhookSecret: refusing(404, "not_found") }).api,
+    );
     expect(await integration.regenerateWebhookSecret("rX")).toEqual({
       ok: false,
       error: "not_found",
     });
-    expect(calls).toEqual([]);
   });
 });
