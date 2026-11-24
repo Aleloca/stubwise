@@ -1452,8 +1452,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     persona);
   - Git accounts: ~~niente ultime 4 del token («••••»);~~ *(parte server
     chiusa il 24 nov 2026, 72, lotto 5: `tokenLast4`, 0225)* la validazione non
-    resta sul server (la ricorda la sessione); i repository che usano un
-    account non arrivano, né nella riga né nel rifiuto `in_use`; chi
+    resta sul server (la ricorda la sessione); ~~i repository che usano un
+    account non arrivano, né nella riga né nel rifiuto `in_use`;~~ *(parte
+    server chiusa il 24 nov 2026, 72, lotto 5: `repositories` e
+    `hiddenRepositories` nella riga, `usedBy`/`hiddenCount` nel 409, con la
+    regola R-G5 del prototipo)* chi
     verrebbe sostituito come revisore predefinito si sa solo dopo, dalla
     risposta *(S per ciascuno)*;
   - Google Workspace: ~~il server non tiene le ultime 4 del client secret
@@ -1469,14 +1472,18 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     legge le pagine dopo finché trova la voce; lette tutte, dice «That change
     isn't in the log anymore.» (`JournalList` di `ChangeLogPage.tsx`, prototipo
     e app).
-  - Progetto → Settings → Integration (F5): il server non manda la
-    piattaforma dei webhook git (`gitWebhooks[].provider`), quindi nell'app
+  - Progetto → Settings → Integration (F5): ~~il server non manda la
+    piattaforma dei webhook git (`gitWebhooks[].provider`)~~ *(parte server
+    chiusa il 24 nov 2026, 72, lotto 5: `gitWebhooks[].provider`)*, quindi nell'app
     il dialogo del segreto dice «la piattaforma git» e non «GitHub» o
     «Bitbucket»; lo stato è solo configurato/non configurato (niente
     `failed`) *(S)*;
-  - Integration: il segreto del webhook si rigenera per slug, che
+  - ~~Integration: il segreto del webhook si rigenera per slug, che
     l'adattatore ricorda dall'ultima lettura della pagina (la rigenerazione
-    passa solo l'id del repository) *(S, se il server accetta l'id)*.
+    passa solo l'id del repository) *(S, se il server accetta l'id)*.~~
+    *Parte server chiusa il 24 nov 2026 (72, lotto 5)*:
+    `POST /api/repositories/:slug/webhook-secret` accetta anche l'id del
+    repository, con le stesse regole.
   - ~~Progetto → Settings → Plugins (F5): la semantica è da decidere.~~
     **Chiuso (19 nov 2026, decisione del maintainer): opt-in**, come il
     server. Prototipo e app hanno la casella «acceso per questo progetto»

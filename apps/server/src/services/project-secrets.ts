@@ -17,6 +17,8 @@ import { RoleRuleError } from "./roles.js";
 type Actor = { id: string; email: string };
 
 /** La chiave d'ingestione: la vecchia smette subito (l'ingestion cerca il progetto per chiave). */
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export async function regenerateIngestionKey(db: Db, actor: Actor, projectId: string): Promise<{ ingestionKey: string }> {
   const ingestionKey = generateIngestionKey();
   await db.transaction(async (tx) => {
@@ -62,7 +64,8 @@ export async function regenerateWebhookSecret(
       .select({ repository: repositories, account: gitAccounts })
       .from(repositories)
       .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
-      .where(eq(repositories.slug, slug))
+      // Lo slug o l'id (rimandi, lotto 5: l'app passa l'id), come `fromRepository`.
+      .where(UUID_RE.test(slug) ? eq(repositories.id, slug) : eq(repositories.slug, slug))
       .for("update", { of: repositories });
     if (!row) throw new RoleRuleError(404, "repository_not_found", "Repository not found");
     const { repository, account } = row;
@@ -140,7 +143,7 @@ export async function projectIntegration(db: Db, projectId: string, permissions:
   const seesRepos = permissions.has("repos.view") || permissions.has("repos.manage");
   const repos = seesRepos
     ? await db
-        .select({ id: repositories.id, slug: repositories.slug, name: repositories.name, secret: repositories.webhookSecret, configuredAt: repositories.webhookConfiguredAt })
+        .select({ id: repositories.id, slug: repositories.slug, name: repositories.name, provider: repositories.provider, secret: repositories.webhookSecret, configuredAt: repositories.webhookConfiguredAt })
         .from(repositories)
         .where(eq(repositories.projectId, projectId))
         .orderBy(asc(repositories.name))
@@ -157,6 +160,8 @@ export async function projectIntegration(db: Db, projectId: string, permissions:
       repositoryId: r.id,
       slug: r.slug,
       name: r.name,
+      // Rimandi, lotto 5: la piattaforma, per dire «GitHub» o «Bitbucket» nel dialogo.
+      provider: r.provider,
       url: `${base.protocol}//${base.host}/webhooks/git/${r.slug}`,
       secretLast4: r.secret ? last4(r.secret) : null,
       configured: r.configuredAt !== null,
