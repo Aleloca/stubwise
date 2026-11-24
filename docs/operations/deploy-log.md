@@ -6259,3 +6259,14 @@ deploy o di un rollback che la tocca.
   (`.default(null)`, mascherati per chi non conosce la persona). Solo
   **server** (poi **caddy**). **Rollback**: sicuro; per togliere le colonne,
   prima il server vecchio, poi i due `DROP COLUMN`.
+- **«Rimandi, lotto 5, review: il codice dell'ultima prova dei webhook»**
+  *(24 nov 2026)*: branch `feat/rimandi-server` (review M-5). **Migrazione
+  0227** (`outgoing_webhooks.last_test_status`, integer nullable; il CHECK di
+  `last_test_outcome` accetta anche `destination_error`). `invalid_credentials`
+  solo per 401/403, `destination_error` per ogni altro errore della
+  destinazione; la prova si scrive solo se URL e formato sono ancora quelli
+  provati. Solo **server**. **Rollback**: un server vecchio con righe
+  `destination_error` le serializza fuori enum: prima di scendere,
+  `UPDATE outgoing_webhooks SET last_test_outcome = 'invalid_credentials'
+  WHERE last_test_outcome = 'destination_error'`; poi, se serve,
+  `DROP COLUMN last_test_status` e il CHECK di prima.

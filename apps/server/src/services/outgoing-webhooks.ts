@@ -9,7 +9,7 @@ import {
   type OutgoingWebhookWithSecret,
   type UpdateOutgoingWebhookInput,
 } from "@stubwise/shared";
-import { asc, count, eq, sql } from "drizzle-orm";
+import { and, asc, count, eq, sql } from "drizzle-orm";
 import { changedFields, recordChange } from "./change-log.js";
 import { RoleRuleError } from "./roles.js";
 
@@ -35,7 +35,7 @@ export function toWebhookView(row: Row): OutgoingWebhookView {
     secretSet: row.secretEncrypted !== null,
     secretRotatedAt: row.secretRotatedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
-    lastTest: row.lastTestAt && row.lastTestOutcome ? { at: row.lastTestAt.toISOString(), outcome: row.lastTestOutcome } : null,
+    lastTest: row.lastTestAt && row.lastTestOutcome ? { at: row.lastTestAt.toISOString(), outcome: row.lastTestOutcome, status: row.lastTestStatus } : null,
   };
 }
 
@@ -139,9 +139,21 @@ export async function testWebhook(db: Db, key: Buffer, id: string, publicUrl: st
     const status = /status (\d+)/.exec(String((error as Error).message))?.[1];
     result = { ok: false, status: status ? Number(status) : null, error: (error as Error).message };
   }
-  // Rimandi, lotto 5: la prova si ricorda (`lastTest`), nelle parole del prototipo.
-  const outcome = result.ok ? "ok" : result.status !== null ? "invalid_credentials" : "unreachable";
-  await db.update(outgoingWebhooks).set({ lastTestAt: new Date(), lastTestOutcome: outcome }).where(eq(outgoingWebhooks.id, id));
+  // Rimandi, lotto 5: la prova si ricorda (`lastTest`). Review M-5: la
+  // credenziale solo per 401/403; un altro errore è della destinazione.
+  const outcome = result.ok
+    ? "ok"
+    : result.status === 401 || result.status === 403
+      ? "invalid_credentials"
+      : result.status !== null
+        ? "destination_error"
+        : "unreachable";
+  // Solo se URL e formato sono ancora quelli provati: una modifica arrivata
+  // durante la prova l'ha già tolta, e la prova di prima non vale più.
+  await db
+    .update(outgoingWebhooks)
+    .set({ lastTestAt: new Date(), lastTestOutcome: outcome, lastTestStatus: result.status })
+    .where(and(eq(outgoingWebhooks.id, id), eq(outgoingWebhooks.url, webhook.url), eq(outgoingWebhooks.format, webhook.format)));
   return result;
 }
 
