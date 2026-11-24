@@ -259,22 +259,39 @@ export interface LoadedTask {
  * vista) e `loadStallTasks` (lotto 7, revisione I-1: solo ciò che serve a
  * `stallsOf`), così le espressioni non esistono in due copie.
  */
-async function loadTaskRows(db: Db, viewer: TaskViewer, where: SQL[], limit?: number) {
-  const visible = await visibleTasksCondition(db, viewer);
-  const lastActivity = sql<Date>`greatest(
+/**
+ * Le espressioni DERIVATE di una task che leggono sia la vista sia la regola
+ * delle ferme (revisione 8–9, M-12): in UN posto, così la lettura ridotta non
+ * ne ha una copia. Lo slittamento (fetta 2): la regola sta nel DB.
+ */
+function derivedTaskColumns() {
+  return {
+    lastActivityAt: sql<Date>`greatest(
     ${tickets.updatedAt},
     coalesce((select max(c.created_at) from ${comments} c where c.ticket_id = ${tickets.id}), ${tickets.updatedAt}),
     coalesce((select max(e.created_at) from ${ticketEvents} e where e.ticket_id = ${tickets.id}), ${tickets.updatedAt})
-  )`;
+  )`,
+    effectiveWeek: sql<string | null>`to_char(stubwise_effective_week(${tickets.plannedWeek}, ${tickets.closedAt}), 'YYYY-MM-DD')`,
+    slips: sql<number>`(${tickets.slipCount} + stubwise_slip_weeks(${tickets.plannedWeek}, ${tickets.closedAt}))::int`,
+  };
+}
+
+/** M-12: gli id a lotti, sotto il tetto dei parametri di Postgres (65.535 per query). */
+export const ID_BATCH = 5_000;
+export function batches<T>(items: readonly T[], size = ID_BATCH): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+async function loadTaskRows(db: Db, viewer: TaskViewer, where: SQL[], limit?: number) {
+  const visible = await visibleTasksCondition(db, viewer);
   const rows = await db
     .select({
       t: tickets,
       code: projects.code,
       family: projectStatuses.family,
-      lastActivityAt: lastActivity,
-      // Lo slittamento DERIVATO (fetta 2): la regola sta nel DB, in UN posto.
-      effectiveWeek: sql<string | null>`to_char(stubwise_effective_week(${tickets.plannedWeek}, ${tickets.closedAt}), 'YYYY-MM-DD')`,
-      slips: sql<number>`(${tickets.slipCount} + stubwise_slip_weeks(${tickets.plannedWeek}, ${tickets.closedAt}))::int`,
+      ...derivedTaskColumns(),
     })
     .from(tickets)
     .innerJoin(projects, eq(projects.id, tickets.projectId))
@@ -291,21 +308,28 @@ export interface StallTask {
   family: StatusFamily;
 }
 
-/** Il collegamento di una task verso una che chi guarda vede (l'id di un'invisibile non esce). */
+/** Il collegamento di una task verso una che chi guarda vede (l'id di un'invisibile non esce). A lotti (M-12). */
 async function visibleLinksOf(db: Db, ids: string[], visible: SQL | undefined) {
-  return db
-    .select({
-      sourceTicketId: ticketLinks.sourceTicketId,
-      targetTicketId: ticketLinks.targetTicketId,
-      kind: ticketLinks.kind,
-    })
-    .from(ticketLinks)
-    .innerJoin(tickets, eq(tickets.id, ticketLinks.targetTicketId))
-    .where(and(inArray(ticketLinks.sourceTicketId, ids), ...(visible ? [visible] : [])))
-    .orderBy(asc(ticketLinks.createdAt));
+  const out = [];
+  for (const chunk of batches(ids)) {
+    out.push(
+      ...(await db
+        .select({
+          sourceTicketId: ticketLinks.sourceTicketId,
+          targetTicketId: ticketLinks.targetTicketId,
+          kind: ticketLinks.kind,
+          createdAt: ticketLinks.createdAt,
+        })
+        .from(ticketLinks)
+        .innerJoin(tickets, eq(tickets.id, ticketLinks.targetTicketId))
+        .where(and(inArray(ticketLinks.sourceTicketId, chunk), ...(visible ? [visible] : [])))
+        .orderBy(asc(ticketLinks.createdAt))),
+    );
+  }
+  return out.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 }
 
-const manualStallOf = (t: typeof tickets.$inferSelect) =>
+const manualStallOf = (t: Pick<typeof tickets.$inferSelect, "manualStallReason" | "manualStallSince" | "manualStallNote" | "manualStallByUserId">) =>
   t.manualStallReason && t.manualStallSince
     ? { reason: t.manualStallReason, note: t.manualStallNote ?? "", since: t.manualStallSince.toISOString(), byId: t.manualStallByUserId }
     : null;
@@ -316,7 +340,26 @@ const manualStallOf = (t: typeof tickets.$inferSelect) =>
  * (follower, allegati, lavori, origini, permessi). Per contare le ferme.
  */
 export async function loadStallTasks(db: Db, viewer: TaskViewer, where: SQL[]): Promise<StallTask[]> {
-  const { rows, visible } = await loadTaskRows(db, viewer, where);
+  // M-12: solo le colonne della regola, non la riga intera (senza tetto: per contare).
+  const visible = await visibleTasksCondition(db, viewer);
+  const rows = (
+    await db
+      .select({
+        id: tickets.id,
+        projectId: tickets.projectId,
+        assigneeId: tickets.assigneeId,
+        manualStallReason: tickets.manualStallReason,
+        manualStallSince: tickets.manualStallSince,
+        manualStallNote: tickets.manualStallNote,
+        manualStallByUserId: tickets.manualStallByUserId,
+        family: projectStatuses.family,
+        ...derivedTaskColumns(),
+      })
+      .from(tickets)
+      .innerJoin(projects, eq(projects.id, tickets.projectId))
+      .innerJoin(projectStatuses, eq(projectStatuses.id, tickets.statusId))
+      .where(and(...(visible ? [visible] : []), ...where))
+  ).map(({ family, lastActivityAt, effectiveWeek, slips, ...t }) => ({ t, family, lastActivityAt, effectiveWeek, slips }));
   if (rows.length === 0) return [];
   const links = await visibleLinksOf(db, rows.map((r) => r.t.id), visible);
   const linksOf = new Map<string, typeof links>();
@@ -463,55 +506,62 @@ export async function stallsOf(
   const ids = open.map((t) => t.view.id);
   const visible = await visibleTasksCondition(db, viewer);
 
-  const [decisions, questions, blockers, thresholds] = await Promise.all([
-    db
-      .select({
-        ticketId: decisionRequests.ticketId,
-        askedOfId: decisionRequests.askedOfUserId,
-        createdAt: decisionRequests.createdAt,
-      })
-      .from(decisionRequests)
-      .where(
-        and(
-          inArray(decisionRequests.ticketId, ids),
-          isNull(decisionRequests.answeredAt),
-          isNull(decisionRequests.withdrawnAt),
-        ),
-      ),
-    // La domanda `ask_user` aperta di un job fermo ad aspettarla (la stessa
-    // sorgente di `GET /api/tickets/:id/questions`).
-    db
-      .select({ ticketId: agentQuestions.ticketId, since: sql<Date>`min(${agentQuestions.askedAt})` })
-      .from(agentQuestions)
-      .innerJoin(aiJobs, eq(aiJobs.id, agentQuestions.jobId))
-      .where(
-        and(
-          inArray(agentQuestions.ticketId, ids),
-          isNull(agentQuestions.answeredAt),
-          eq(aiJobs.status, "awaiting_input"),
-        ),
-      )
-      .groupBy(agentQuestions.ticketId),
-    db
-      .select({
-        targetId: ticketLinks.targetTicketId,
-        id: tickets.id,
-        family: projectStatuses.family,
-        since: tickets.updatedAt,
-      })
-      .from(ticketLinks)
-      .innerJoin(tickets, eq(tickets.id, ticketLinks.sourceTicketId))
-      .innerJoin(projectStatuses, eq(projectStatuses.id, tickets.statusId))
-      .where(and(inArray(ticketLinks.targetTicketId, ids), eq(ticketLinks.kind, "blocks"), ...(visible ? [visible] : [])))
-      .orderBy(asc(ticketLinks.createdAt)),
-    db
-      .select({ id: projects.id, activeDays: projects.stallActiveDays, todoDays: projects.stallTodoDays })
-      .from(projects)
-      .where(inArray(projects.id, [...new Set(open.map((t) => t.view.projectId))])),
-  ]);
+  // Revisione 8–9 (M-12): le tre letture a lotti (il tetto dei parametri) e
+  // raggruppate per task in una Map: niente `filter` per task (quadratico).
+  const decisions: { ticketId: string; askedOfId: string; createdAt: Date }[] = [];
+  const questions: { ticketId: string; since: Date }[] = [];
+  const blockers: { targetId: string; id: string; family: StatusFamily; since: Date }[] = [];
+  for (const chunk of batches(ids)) {
+    const [d, q, b] = await Promise.all([
+      db
+        .select({
+          ticketId: decisionRequests.ticketId,
+          askedOfId: decisionRequests.askedOfUserId,
+          createdAt: decisionRequests.createdAt,
+        })
+        .from(decisionRequests)
+        .where(and(inArray(decisionRequests.ticketId, chunk), isNull(decisionRequests.answeredAt), isNull(decisionRequests.withdrawnAt))),
+      // La domanda `ask_user` aperta di un job fermo ad aspettarla (la stessa
+      // sorgente di `GET /api/tickets/:id/questions`).
+      db
+        .select({ ticketId: agentQuestions.ticketId, since: sql<Date>`min(${agentQuestions.askedAt})` })
+        .from(agentQuestions)
+        .innerJoin(aiJobs, eq(aiJobs.id, agentQuestions.jobId))
+        .where(and(inArray(agentQuestions.ticketId, chunk), isNull(agentQuestions.answeredAt), eq(aiJobs.status, "awaiting_input")))
+        .groupBy(agentQuestions.ticketId),
+      db
+        .select({
+          targetId: ticketLinks.targetTicketId,
+          id: tickets.id,
+          family: projectStatuses.family,
+          since: tickets.updatedAt,
+        })
+        .from(ticketLinks)
+        .innerJoin(tickets, eq(tickets.id, ticketLinks.sourceTicketId))
+        .innerJoin(projectStatuses, eq(projectStatuses.id, tickets.statusId))
+        .where(and(inArray(ticketLinks.targetTicketId, chunk), eq(ticketLinks.kind, "blocks"), ...(visible ? [visible] : [])))
+        .orderBy(asc(ticketLinks.createdAt)),
+    ]);
+    decisions.push(...d);
+    questions.push(...(q as { ticketId: string; since: Date }[]));
+    blockers.push(...b);
+  }
+  const thresholds = await db
+    .select({ id: projects.id, activeDays: projects.stallActiveDays, todoDays: projects.stallTodoDays })
+    .from(projects)
+    .where(inArray(projects.id, [...new Set(open.map((t) => t.view.projectId))]));
   const thresholdsOf = new Map(thresholds.map((p) => [p.id, { activeDays: p.activeDays, todoDays: p.todoDays }]));
+  const group = <T,>(items: readonly T[], key: (x: T) => string) => {
+    const m = new Map<string, T[]>();
+    for (const x of items) m.set(key(x), [...(m.get(key(x)) ?? []), x]);
+    return m;
+  };
+  const decisionsOf = group(decisions, (d) => d.ticketId);
+  const questionOf = new Map(questions.map((q) => [q.ticketId, q.since] as const));
+  const blockersOf = group(blockers, (b) => b.targetId);
 
   for (const { view, family } of open) {
+    const since = questionOf.get(view.id);
     const stall = stallOf(
       {
         id: view.id,
@@ -524,16 +574,9 @@ export async function stallsOf(
       },
       {
         family,
-        openDecisions: decisions
-          .filter((d) => d.ticketId === view.id)
-          .map((d) => ({ askedOfId: d.askedOfId, createdAt: d.createdAt.toISOString() })),
-        claudeQuestionSince: (() => {
-          const q = questions.find((x) => x.ticketId === view.id);
-          return q ? new Date(q.since).toISOString() : null;
-        })(),
-        blockers: blockers
-          .filter((b) => b.targetId === view.id)
-          .map((b) => ({ id: b.id, family: b.family, since: b.since.toISOString() })),
+        openDecisions: (decisionsOf.get(view.id) ?? []).map((d) => ({ askedOfId: d.askedOfId, createdAt: d.createdAt.toISOString() })),
+        claudeQuestionSince: since ? new Date(since).toISOString() : null,
+        blockers: (blockersOf.get(view.id) ?? []).map((b) => ({ id: b.id, family: b.family, since: b.since.toISOString() })),
         thresholds: thresholdsOf.get(view.projectId) ?? { activeDays: 7, todoDays: 14 },
       },
       today,
