@@ -59,7 +59,8 @@ export function createRealGoogleApps(api: GoogleAppsApi) {
     name: w.name,
     domains: [...(w.domains ?? [])],
     clientId: w.clientId,
-    last4: "",
+    // Rimandi, lotto 5, voce 6 (72): un secret di prima ne è senza («••••»).
+    last4: w.clientSecretLast4 ?? "",
     createdAt: w.createdAt,
     mailboxCount: w.accountCount ?? 0,
     mailboxPeople: [],

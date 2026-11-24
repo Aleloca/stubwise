@@ -62,7 +62,8 @@ export function createRealGitAccounts(api: GitAccountsApi) {
     name: a.name,
     provider: a.provider,
     workspace: a.workspace ?? null,
-    last4: "",
+    // Rimandi, lotto 5, voce 6 (72): un token di prima ne è senza («••••»).
+    last4: a.tokenLast4 ?? "",
     defaultReviewer: !!a.isDefaultReviewer,
     lastValidation: validations.get(a.id) ?? null,
     createdAt: a.createdAt,

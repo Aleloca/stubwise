@@ -37,6 +37,19 @@ function fakeApi(over: Partial<StorageApi> = {}) {
 }
 
 describe("l'archiviazione dal server (area 9, F3)", () => {
+  // Rimandi, lotto 5, voce 6 (72, d68892e5d): le ultime 4 dal server; null
+  // (segreto di prima, o sotto gli 8 caratteri) resta «••••» senza cifre.
+  it("le ultime 4 della chiave segreta, quando il server le sa", async () => {
+    const s = await createRealStorage(
+      fakeApi({ get: async () => settings({ s3SecretKeyLast4: "9xQz" }) }).api,
+    ).getStorage();
+    expect(s.last4).toBe("9xQz");
+    const old = await createRealStorage(
+      fakeApi({ get: async () => settings({ s3SecretKeyLast4: null }) }).api,
+    ).getStorage();
+    expect(old.last4).toBe("");
+  });
+
   it("la vista: i campi in chiaro, il segreto solo come «c'è», lo stato dagli allegati del server", async () => {
     const s = await createRealStorage(fakeApi().api).getStorage();
     expect(s).toMatchObject({

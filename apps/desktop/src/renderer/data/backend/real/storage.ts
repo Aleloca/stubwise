@@ -52,8 +52,9 @@ export function createRealStorage(api: StorageApi) {
         region: s.s3Region ?? "",
         bucket: s.s3Bucket ?? "",
         accessKeyId: s.s3AccessKey ?? "",
-        // C'è una chiave (senza le ultime 4: «••••»), o non c'è.
-        last4: s.s3SecretKeySet ? "" : null,
+        // C'è una chiave, o non c'è. Le ultime 4 le dà il server (rimandi,
+        // lotto 5, voce 6); una chiave di prima ne è senza: «••••».
+        last4: s.s3SecretKeySet ? (s.s3SecretKeyLast4 ?? "") : null,
         attachmentsEnabled: !!s.attachmentsEnabled,
         lastTest: null,
         status: !configured ? "not_set_up" : s.attachmentsEnabled ? "on" : "attachments_off",

@@ -51,6 +51,15 @@ function fakeApi(over: Partial<GitAccountsApi> = {}) {
 }
 
 describe("gli account git dal server (area 9, F3)", () => {
+  // Rimandi, lotto 5, voce 6 (72, d68892e5d): le ultime 4 dal server; null
+  // (segreto di prima, o sotto gli 8 caratteri) resta «••••» senza cifre.
+  it("le ultime 4 del token, quando il server le sa", async () => {
+    const [a] = await createRealGitAccounts(
+      fakeApi({ list: async () => [acc({ tokenLast4: "Ab12" })] }).api,
+    ).listGitAccounts();
+    expect(a!.last4).toBe("Ab12");
+  });
+
   it("l'elenco nella forma del prototipo; la validazione la ricorda la sessione", async () => {
     const g = createRealGitAccounts(fakeApi().api);
     const [a] = await g.listGitAccounts();
