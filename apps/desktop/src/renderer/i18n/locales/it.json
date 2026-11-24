@@ -603,6 +603,8 @@
           "vault_activated": "Cassaforte attivata",
           "vault_seal_replaced": "Sigillo della cassaforte sostituito",
           "vault_recovery_key_rotated": "Chiave di recupero della cassaforte cambiata",
+          "vault_device_sealed": "Mac associato alla cassaforte",
+          "vault_device_seal_revoked": "Mac tolto dalla cassaforte",
           "reauth_desktop": "Identità confermata nell'app desktop",
           "other": "Altro evento di sicurezza"
         }

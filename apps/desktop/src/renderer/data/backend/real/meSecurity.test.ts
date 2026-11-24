@@ -132,6 +132,9 @@ describe("Preferenze → Security dal server (area 9, R4b)", () => {
     expect(eventKindOf("password_reset_link")).toBe("password_reset_link_created");
     expect(eventKindOf("email_changed")).toBe("email_changed");
     expect(eventKindOf("vault_activated")).toBe("vault_activated");
+    // Lotto 10 (72, 6a13ab3c1): il Mac associato alla cassaforte, e tolto.
+    expect(eventKindOf("vault_device_sealed")).toBe("vault_device_sealed");
+    expect(eventKindOf("vault_device_seal_revoked")).toBe("vault_device_seal_revoked");
     expect(eventKindOf("__unknown__")).toBe("other");
   });
 

@@ -603,6 +603,8 @@
           "vault_activated": "Vault activated",
           "vault_seal_replaced": "Vault seal replaced",
           "vault_recovery_key_rotated": "Vault recovery key changed",
+          "vault_device_sealed": "Mac paired with the vault",
+          "vault_device_seal_revoked": "Mac removed from the vault",
           "reauth_desktop": "Confirmed it's you in the desktop app",
           "other": "Other security event"
         }
