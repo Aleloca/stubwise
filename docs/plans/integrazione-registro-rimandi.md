@@ -455,9 +455,18 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   progetti incerti, una variante di card e la scelta);
   (b) una classificazione col MODELLO degli eventi (oggi la scelta è
   deterministica dagli invitati: tanti eventi e poco testo);
-  (c) i calendari diversi dal principale (il prototipo ne ha uno per account);
+  (c) i calendari diversi dal principale (il prototipo ne ha uno per account)
+  *(decisa NO dal maintainer il 24 nov 2026, lotto 9: restano fuori)*;
   (d) le proposte del calendario condivise fra gli invitati (oggi restano
-  della casella di chi le vede, `mailbox_owner`).
+  della casella di chi le vede, `mailbox_owner`). *Decisa sì dal maintainer
+  il 24 nov 2026 (lotto 9, voce 2), in corso (72).* **Scelta, con 46: solo
+  gli EVENTI SINGOLI diventano condivisi; le occorrenze delle SERIE restano
+  per casella**, perché la serie è configurata per casella
+  (`calendar_series` per account: accesa o no, anticipo, azione, «agisce da
+  sola» a nome di chi la configura) e renderla condivisa mescolerebbe le
+  impostazioni di persone diverse; coerente col contratto di 94 («la serie
+  che agisce da sola: invariata»). Riaprirla vuole una decisione a sé (di
+  chi è la serie condivisa).
   Dalla review della F3b, limiti accettati *(O)*:
   (e) la linea di base del deploy chiude anche un evento IN PERIMETRO nato
   fra l'ultimo giro prima del deploy e il resync (una finestra di minuti):

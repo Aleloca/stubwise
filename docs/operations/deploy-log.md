@@ -6346,3 +6346,29 @@ deploy o di un rollback che la tocca.
   portano solo i codici della prosa. **Rollback**: sicuro; un server vecchio
   non legge la tabella e i `turn_end` tornano senza `citations`. Per
   toglierla: server vecchio, poi `DROP TABLE claude_turn_citations`.
+- **«Lotto 9: le proposte del calendario condivise fra gli invitati»** *(24
+  nov 2026)*: branch `feat/rimandi-server`. **Migrazione 0234**
+  (`calendar_proposals`, unique `(ical_uid, project_id)`;
+  `calendar_proposal_recipients`; `calendar_events.calendar_proposal_id`,
+  nullable). Un appuntamento SINGOLO diventa UNA proposta per appuntamento e
+  progetto, con una card per invitato membro esplicito che non ha rifiutato
+  (audience `event_invitees`, `docs/invariants/mail-calendar.md`); le serie
+  restano per casella. Ordine: **server** (migrazione, healthy), poi
+  **worker** (la pubblicazione condivisa, i rifiuti, la potatura), poi
+  **caddy** quando il renderer legge `sharedWith` del calendario. Nessun
+  `notification_kind` né valore di enum nuovo: le card sono `google.proposal`
+  con `mailbox_owner`, `event_invitees` è un testo con CHECK sulla tabella
+  nuova. Le proposte pubblicate per casella prima del rilascio restano com'erano.
+  **Rollback del server**: sicuro, nessun 500 (stesso kind, stessa
+  audience); un server vecchio non vede le condivise in `/proposals` e una
+  card condivisa risponde `proposal_stale` (non si decide). Scende INSIEME al
+  worker. ⚠️ **Rollback del worker: NON pulito senza un passo prima.** Un
+  worker vecchio non conosce `calendar_proposal_id` e ripubblicherebbe PER
+  CASELLA ogni evento singolo già condiviso e ancora aperto (una seconda
+  card, a ogni proprietario). Prima di scendere, a worker fermo:
+  `update calendar_events set outcome = '{"type":"baseline"}'::jsonb where calendar_proposal_id is not null and outcome is null and proposal_notification_id is null;`
+  e, se le card condivise aperte non devono restare: chiudere le
+  `calendar_proposals` `proposed` e le loro card. Per togliere lo schema:
+  server e worker vecchi, poi `ALTER TABLE calendar_events DROP COLUMN
+  calendar_proposal_id`, `DROP TABLE calendar_proposal_recipients`, `DROP
+  TABLE calendar_proposals`.
