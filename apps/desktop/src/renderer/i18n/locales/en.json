@@ -5802,7 +5802,9 @@
       "setupPrOpened": "Setup PR opened",
       "actionFailed": "Couldn't start it. Try again.",
       "askBuild": "Ask a maintainer to build it.",
-      "setupPrIs": "Setup PR: {{url}}"
+      "setupPrIs": "Setup PR: {{url}}",
+      "setupPrIs_open": "Setup PR, open: {{url}}",
+      "setupPrIs_merged": "Setup PR, merged: {{url}}"
     },
     "chat": {
       "title": "Ask the docs",

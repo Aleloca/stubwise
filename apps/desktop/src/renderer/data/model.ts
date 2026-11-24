@@ -1841,7 +1841,12 @@ export type GraphState = {
   updatedAt?: string;
   /** Il resoconto delle comunità, dalla più grande: c'è quando il grafo è pronto. */
   report?: GraphCommunity[];
-  setupPr?: { url: string; open: boolean };
+  /**
+   * La PR di setup del grafo (lotto 4, pulizia 5): il suo stato, `null` se
+   * non si sa (una PR aperta prima che il server lo ricordasse, un webhook
+   * perso): allora non si dice aperta.
+   */
+  setupPr?: { url: string; state: "open" | "merged" | "closed_unmerged" | null };
 };
 
 /** Il brief del repository: le sezioni del web, più i fatti riservati e le pagine escluse. */

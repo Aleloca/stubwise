@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failNext, resetApi, setLatency } from "../../data/api";
@@ -220,6 +220,29 @@ describe("Docs — grafo", () => {
     } finally {
       URL.createObjectURL = created;
       URL.revokeObjectURL = revoked;
+    }
+  });
+
+  // Lotto 4, pulizia 5: la PR di setup dice il suo stato solo se si sa; una
+  // chiusa senza merge non c'è più, e se ne apre un'altra.
+  it("la PR di setup: aperta, mergiata, sconosciuta, chiusa senza merge", async () => {
+    const url = "https://github.com/stubwise-demo/stubwise/pull/1";
+    for (const [state_, menu, toastText] of [
+      ["open", "View the setup PR", `Setup PR, open: ${url}`],
+      ["merged", "View the setup PR", `Setup PR, merged: ${url}`],
+      [null, "View the setup PR", `Setup PR: ${url}`],
+      ["closed_unmerged", "Open setup PR", null],
+    ] as const) {
+      const space = spaceOf("repo-stw");
+      space.graph = { ...space.graph, setupPr: { url, state: state_ } };
+      renderRoute("/p/STW/docs/stubwise/graph", "p-laura");
+      await userEvent.click(await screen.findByRole("button", { name: "Graph actions" }));
+      const item = await screen.findByRole("menuitem", { name: menu });
+      if (toastText) {
+        await userEvent.click(item);
+        expect(await screen.findByText(toastText)).toBeInTheDocument();
+      }
+      cleanup();
     }
   });
 

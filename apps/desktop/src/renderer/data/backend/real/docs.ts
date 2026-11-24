@@ -248,6 +248,8 @@ const RELEASE_TEXTS = 30;
  * su un grafo già fatto (il prototipo passa di nuovo per «in coda»); un errore
  * che parla di dimensioni è «troppo grande», gli altri un errore di graphify.
  */
+type SetupPrState = "open" | "merged" | "closed_unmerged" | null;
+
 function graphOf(g: Reader<RepoGraphState> | null, report?: GraphCommunity[]): GraphState {
   if (!g || !g.enabled) return { status: "disabled" };
   const counts = {
@@ -255,8 +257,10 @@ function graphOf(g: Reader<RepoGraphState> | null, report?: GraphCommunity[]): G
     ...(g.edgeCount !== null ? { edges: g.edgeCount } : {}),
     ...(g.communityCount !== null ? { communities: g.communityCount } : {}),
     ...(g.generatedAt ? { updatedAt: g.generatedAt } : {}),
-    // Il server dà l'indirizzo della PR di setup, non se è ancora aperta.
-    ...(g.setupPrUrl ? { setupPr: { url: g.setupPrUrl, open: true } } : {}),
+    // Lotto 4, pulizia 5 (72, a30daedc1): lo stato della PR di setup; `null` (o un server di prima) = sconosciuto.
+    ...(g.setupPrUrl
+      ? { setupPr: { url: g.setupPrUrl, state: (g as { setupPrState?: SetupPrState }).setupPrState ?? null } }
+      : {}),
   };
   if (g.jobPending && g.status !== "running") return { status: "queued", ...counts };
   switch (g.status) {

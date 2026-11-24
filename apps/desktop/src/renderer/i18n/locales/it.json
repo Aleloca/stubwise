@@ -5802,7 +5802,9 @@
       "setupPrOpened": "PR di setup aperta",
       "actionFailed": "Non è stato possibile avviarlo. Riprova.",
       "askBuild": "Chiedi a un maintainer di costruirlo.",
-      "setupPrIs": "PR di setup: {{url}}"
+      "setupPrIs": "PR di setup: {{url}}",
+      "setupPrIs_open": "PR di setup, aperta: {{url}}",
+      "setupPrIs_merged": "PR di setup, mergiata: {{url}}"
     },
     "chat": {
       "title": "Chiedi ai documenti",
