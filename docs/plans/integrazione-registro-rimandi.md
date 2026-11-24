@@ -71,12 +71,23 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   CORSO (piano `docs/plans/2026-11-10-integrazione-claude-chat-f5-plan.md`,
   decisioni del maintainer del 10 nov 2026: gli eventi dei tool restano
   visibili ai lettori, D1) *(M)*.
-  - Renderer (F5.4) *(S)*: i codici nella prosa di Claude non si collegano
+  - ~~Renderer (F5.4) *(S)*: i codici nella prosa di Claude non si collegano
     nella build app (solo le citazioni registrate, che il server non
     registra): R-G5 regge per costruzione, ma neanche l'autrice apre un
-    codice citato dalla prosa.
-- Le citazioni registrate sui messaggi (oggi solo i codici nel testo)
-  *(O)*. ✅ *«Claude can help you…»: area 10, F7 (sotto).* Menzioni,
+    codice citato dalla prosa.~~ *Parte server chiusa il 24 nov 2026 (72,
+    lotto 9, voce 1)*: i codici della prosa di un turno entrano nelle sue
+    citazioni (`turn_end.citations`), risolti per chi guarda; il renderer
+    li collega da lì (94).
+- ~~Le citazioni registrate sui messaggi (oggi solo i codici nel testo)
+  *(O)*.~~ *Parte server chiusa il 24 nov 2026 (72, lotto 9, voce 1; forma e
+  scelta (a) di 46)*: si registra ciò che Claude ha LETTO col token del
+  turno (task, richieste, pagine Docs per codice, file del Drive, progetti;
+  `claude_turn_citations`, 0233, l'hook `onSend` della lettura, fail-open),
+  mai ciò che dice; i codici della prosa si leggono a lettura; il turno le
+  porta sul suo `turn_end` (`data.citations`), filtrate per chi guarda (un
+  riferimento che non vede si TOGLIE; R-H5 solo per l'autore, col codice del
+  file del Drive); `POST /api/claude/citations/resolve`. Fuori: le
+  citazioni di file del repository (nessun tool legge il codice). ✅ *«Claude can help you…»: area 10, F7 (sotto).* Menzioni,
   riquadro come chat e ⌘J/⌘K: chiuse (sotto).
 - Azioni delle altre aree: entrano **con la loro area** (sotto) *(O)*.
 - **Limiti della fetta 5 (server e worker)** *(S, stubwise-72, 10 nov 2026)*:
@@ -1742,9 +1753,9 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 - **Chiuse con F8 (20 nov 2026)**: «/status» (seguiti, polso senza il suo
   fermo, task ferme con le soglie dei progetti) e «/today» (le decisioni che
   aspettano chi scrive e le sue task aperte, `assigneeIds=me`). Restano
-  aperti, come dice il design: le citazioni registrate sui messaggi della
-  conversazione (anche quelle di file, area 5 D6, sopra) e gli allegati
-  (`claude-attachments`).
+  aperti, come dice il design: ~~le citazioni registrate sui messaggi della
+  conversazione~~ (chiuse il 24 nov 2026, lotto 9, voce 1; restano fuori
+  quelle di file, area 5 D6, sopra) e gli allegati (`claude-attachments`).
 
 ## Area 11 — Documentazione di prodotto
 

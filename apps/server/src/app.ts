@@ -31,6 +31,7 @@ import {
 } from "./routes/attachments.js";
 import { accessPreHandler, recordDesktopReauthUseOnResponse } from "./auth/access.js";
 import { recordChatToolPrivateRead, recordChatToolReadProjects, recordChatToolUntrustedRead } from "./services/claude-public.js";
+import { recordChatToolCitations } from "./services/claude-citations.js";
 import { authRoutes } from "./routes/auth.js";
 import { commentRoutes } from "./routes/comments.js";
 import { createAnthropicChatLlm, type ChatLlm } from "./routes/chat-llm.js";
@@ -491,6 +492,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     await recordDesktopReauthUseOnResponse(request, reply);
     // I progetti letti dal token del turno della chat (fetta 5, D2).
     await recordChatToolReadProjects(request, reply, payload);
+    // Lotto 9, voce 1: ciò che Claude ha letto, per le citazioni del turno. Fail-open.
+    await recordChatToolCitations(request, reply, payload);
     // Il contenuto NON fidato letto dal token del turno (area 5, fetta 3): fail-closed.
     await recordChatToolUntrustedRead(request, reply, payload);
     // Il contenuto PERSONALE (area 10, F1, review I2): da lì non si pubblica. Fail-closed.

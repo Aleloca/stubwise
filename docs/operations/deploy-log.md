@@ -6337,3 +6337,12 @@ deploy o di un rollback che la tocca.
   all'ultimo del gruppo, quindi un server vecchio legge il primario come
   prima e ignora il resto. Per togliere le colonne: server e worker
   vecchi, poi i due `DROP COLUMN`.
+- **«Lotto 9: le citazioni dei messaggi di Claude»** *(24 nov 2026)*: branch
+  `feat/rimandi-server`. **Migrazione 0233** (`claude_turn_citations`,
+  tabella nuova, cascata sulla sessione). Solo **server** (l'hook delle
+  letture del token del turno, gli eventi, `POST
+  /api/claude/citations/resolve`), poi **caddy** quando il renderer lo usa.
+  Le conversazioni di prima non hanno citazioni registrate: i loro turni
+  portano solo i codici della prosa. **Rollback**: sicuro; un server vecchio
+  non legge la tabella e i `turn_end` tornano senza `citations`. Per
+  toglierla: server vecchio, poi `DROP TABLE claude_turn_citations`.

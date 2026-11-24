@@ -4144,6 +4144,32 @@ export interface ClaudeOriginTranscript {
   messages: { role: "user" | "agent"; text: string }[];
 }
 
+/**
+ * Lotto 9, voce 1 (0233): gli oggetti che Claude ha LETTO col token del turno
+ * in una conversazione (task, richieste, pagine Docs, file del Drive,
+ * progetti). Un FATTO del server (l'hook `onSend` della lettura riuscita), mai
+ * scritto dal modello. `after_event_id` = l'ultimo evento della sessione al
+ * momento della lettura: a lettura la citazione va al primo `turn_end` dopo.
+ * `code` solo per un file del Drive (R-H5: l'autore ne ricorda il codice).
+ */
+export const claudeTurnCitations = pgTable(
+  "claude_turn_citations",
+  {
+    sessionId: uuid("session_id")
+      .notNull()
+      .references((): AnyPgColumn => agentSessions.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<"task" | "request" | "project" | "doc" | "drive">().notNull(),
+    refId: uuid("ref_id").notNull(),
+    afterEventId: bigint("after_event_id", { mode: "bigint" }).notNull(),
+    code: text("code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sessionId, table.afterEventId, table.kind, table.refId] }),
+    check("claude_turn_citations_kind_chk", sql`kind in ('task','request','project','doc','drive')`),
+  ],
+);
+
 export const claudeConversations = pgTable(
   "claude_conversations",
   {
