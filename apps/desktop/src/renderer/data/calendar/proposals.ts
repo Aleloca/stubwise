@@ -79,21 +79,42 @@ function proposal(
  * rifiutato.
  */
 export function deadlineProposal(e: CalendarEvent, now: string): MailProposal | null {
-  if (e.projectId === null || !DEADLINE.test(e.title)) return null;
+  if (!DEADLINE.test(e.title)) return null;
   if (!isUpcoming(e, now) || activeParticipants(e).length === 0) return null;
   const dueDate = dateOf(e);
   const name = milestoneName(e.title);
+  const milestone = (projectId: string): ProposedAction => ({
+    fn: "createMilestone",
+    args: { projectId, name, dueDate },
+    summary: `Milestone: ${name} · ${dueDate}`,
+  });
+  if (e.projectId === null) {
+    // Lotto 9, voce 2 (a): senza progetto e con più candidati, UNA «Quale
+    // progetto?» per l'appuntamento, con il traguardo già pronto per ognuno.
+    const candidates = e.projectCandidateIds ?? [];
+    if (candidates.length < 2) return null;
+    return proposal(
+      calendarProposalId(e.id),
+      e,
+      candidates[0]!,
+      [
+        {
+          fn: "chooseProject",
+          args: {
+            projectIds: [...candidates],
+            actionsByProject: Object.fromEntries(candidates.map((id) => [id, [milestone(id)]])),
+          },
+          summary: `Choose the project for “${name}”`,
+        },
+      ],
+      now,
+    );
+  }
   return proposal(
     calendarProposalId(e.id),
     e,
     e.projectId,
-    [
-      {
-        fn: "createMilestone",
-        args: { projectId: e.projectId, name, dueDate },
-        summary: `Milestone: ${name} · ${dueDate}`,
-      },
-    ],
+    [milestone(e.projectId)],
     now,
   );
 }

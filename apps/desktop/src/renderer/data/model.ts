@@ -3018,6 +3018,13 @@ export interface CalendarEvent {
   projectId: string | null;
   /** Chi ha deciso il progetto: il modello o una persona (la correzione vale per tutti). */
   projectBy: "model" | "manual" | null;
+  /**
+   * Lotto 9, voce 2 (a): senza progetto, i progetti a cui portano gli
+   * invitati (le loro appartenenze esplicite), come li salva il server
+   * (`candidate_project_ids`). Con almeno due, una scadenza diventa una
+   * «Quale progetto?» condivisa.
+   */
+  projectCandidateIds?: string[];
   /** Una scrittura verso Google: in corso, confermata, rifiutata. */
   save?: { state: "saving" | "saved" | "failed"; error?: string };
   /** Build app: il link all'evento su Google Calendar (o alla sua giornata); il prototipo non ne ha. */

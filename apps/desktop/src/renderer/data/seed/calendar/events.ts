@@ -22,6 +22,8 @@ export const CALENDAR_CASES = {
   saveFails: "ev-aud-dashboard-check",
   allHands: "ev-all-hands",
   deadline: "ev-mkx-visuals-deadline",
+  /** Lotto 9, voce 2 (a): una scadenza senza progetto con tre candidati. */
+  chooseDeadline: "ev-joint-launch-deadline",
   pastDeadline: "ev-stw-beta-feedback",
   declinedDeadline: "ev-aud-billing-delivery",
 } as const;
@@ -154,6 +156,19 @@ const LATER: CalendarEvent[] = [
     allDay: true,
     attendees: [organizer("p-matteo"), guest("p-giulia")],
     projectId: "prj-mkx",
+  }),
+  // Lotto 9, voce 2 (a): gli invitati portano a MKX, AUD e PSF e il progetto
+  // non si sa: UNA «Quale progetto?» condivisa. Matteo conferma in tutti e
+  // tre; Giulia (membro di MKX e AUD) solo in MKX.
+  event({
+    id: C.chooseDeadline,
+    calendarPersonIds: ["p-giulia", "p-matteo"],
+    title: "Deadline: Joint launch kit",
+    startsAt: day(16),
+    endsAt: day(17),
+    allDay: true,
+    attendees: [organizer("p-matteo"), guest("p-giulia")],
+    projectCandidateIds: ["prj-mkx", "prj-aud", "prj-psf"],
   }),
   event({
     id: C.pastDeadline,
