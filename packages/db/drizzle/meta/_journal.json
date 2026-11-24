@@ -1583,6 +1583,13 @@
       "when": 1804032000000,
       "tag": "0227_outgoing_webhook_test_status",
       "breakpoints": true
+    },
+    {
+      "idx": 228,
+      "version": "7",
+      "when": 1804118400000,
+      "tag": "0228_attachments_switch",
+      "breakpoints": true
     }
   ]
 }

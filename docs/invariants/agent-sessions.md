@@ -350,6 +350,25 @@
     secco: ogni seguito passa da `claude-actions/effects.ts` (scartato a
     secco, dopo il commit dal vero), e un test sul sorgente vincola i moduli
     raggiungibili dal catalogo.
+  - **Una sola uscita PRIMA del commit, e solo in lettura:
+    `claude-actions/preflight.ts`** (lotto 6, decisione di 46, 24 nov 2026).
+    Perché: certe voci devono VERIFICARE qualcosa fuori dal DB prima di
+    scrivere — il revisore predefinito (`setDefaultReviewer`) verifica il
+    token sul provider, come la sua rotta —, e farlo dentro il catalogo lo
+    farebbe a ogni prova a secco, dentro la transazione. Le regole:
+    1. gira SOLO al run vero, mai a secco, una volta per azione, prima della
+       transazione e solo se chi chiede ha il permesso della voce;
+    2. SOLO LETTURA: non scrive niente, né in DB né sul provider (un secondo
+       test sul sorgente vieta, in tutto ciò che raggiunge con un import di
+       valore, insert/update/delete, il registro, le notifiche, `effects.ts`
+       e il modulo di scrittura);
+    3. fail-closed col suo tempo massimo: un errore, un timeout o
+       un'eccezione sono un rifiuto con un codice chiaro per la scheda;
+    4. ciò che legge passa a `run` (`start.prepared`), che RIFÀ le guardie di
+       DB: se fra il preflight e la scrittura cambia qualcosa (l'account, il
+       suo ambito, le credenziali verificate), la scrittura rifiuta.
+    Una voce nuova in `preflight.ts` è un'eccezione a questa regola e va
+    scritta qui col suo perché.
   - **Si esegue coi servizi e l'accesso delle rotte** (lo STESSO
     `RouteAccess`, valutato su una richiesta sintetica), coi permessi della
     persona di adesso, tutto o niente. Una via parallela o un controllo più

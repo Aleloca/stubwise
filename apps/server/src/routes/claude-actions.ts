@@ -29,6 +29,8 @@ export function actionEffects(app: FastifyInstance, request: { log: FastifyBaseL
   const publicUrl = publicUrlOrUndefined(app);
   return {
     storage: () => app.storage(),
+    // Lotto 6: il preflight (solo lettura, solo al run vero) decifra le credenziali di un account git.
+    encryptionKey: app.encryptionKey,
     ...(publicUrl !== undefined ? { publicUrl } : {}),
     log: (message, error) => request.log.warn({ err: error }, message),
     markEffectFailure: async (actionId, code) => {
