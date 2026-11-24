@@ -662,9 +662,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 ## Area 7 — Automazioni
 
-- Blocco della Home delle automazioni.
-- Effetti che il prototipo ha e la build app spegne: segnali alle automazioni
-  alla chiusura di un traguardo e alla conversione di una richiesta.
+- ~~Blocco della Home delle automazioni.~~ *Chiusa il 24 nov 2026 (94,
+  lotto 7)*: c'era già dalla fetta 1 (`AutomationsBlock` su `listMyRuns`,
+  `GET /api/me/automation-runs`); il test sull'adattatore è 96b22b5f5.
+- ~~Effetti che il prototipo ha e la build app spegne: segnali alle automazioni
+  alla chiusura di un traguardo e alla conversione di una richiesta.~~
+  *Chiusa il 24 nov 2026 (94, lotto 7)*: li manda il database dalla 0169
+  (`milestones_automation_reached`, `backlog_item_tickets_automation_converted`
+  sul `converted_to` che scrive la conversione); la voce era di prima. Vedi
+  `docs/plans/2026-11-24-rimandi-lotto7-contratti.md` §3.
 - Azioni di Claude: crea automazione in bozza, salva/elimina bozza, prova.
 - F4, `automations.manage` d'ISTANZA *(S, verifica di Q7, 13 nov 2026)*:
   serve solo alle automazioni generali. Come il prototipo
