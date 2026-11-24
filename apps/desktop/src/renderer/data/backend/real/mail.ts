@@ -24,6 +24,15 @@ type Mail = typeof Fake.mail;
 /** Una casella non allineata da più di 5 minuti è «vecchia», come nel prototipo. */
 const MAIL_STALE_MS = 5 * 60_000;
 
+/** Gli alias della casella e il loro stato, solo quando dicono qualcosa. */
+function sendAsOf(a: { sendAs?: MailboxView["sendAs"]; sendAsStatus?: string }): Partial<MailboxView> {
+  const sendAs = a.sendAs ?? [];
+  return {
+    ...(sendAs.length > 0 ? { sendAs: sendAs.map((x) => ({ ...x })) } : {}),
+    ...(a.sendAsStatus === "scope_missing" ? { sendAsStatus: "scope_missing" as const } : {}),
+  };
+}
+
 /** Tutte le mie caselle, una per Workspace (la Posta le mostra tutte, decisione B(a)). */
 const listMailboxes: Mail["listMailboxes"] = async () => {
   const at = Date.now();
@@ -39,6 +48,9 @@ const listMailboxes: Mail["listMailboxes"] = async () => {
       // Scaduta è la casella disattivata (token revocato): una a cui mancano solo
       // gli scope nuovi legge ancora, e il cassetto chiede di ricollegarla.
       expired: a.disabledAt !== null,
+      // Lotto 8, §2 (72, a6231ff62): gli alias verificati, e se la casella li può
+      // usare. Vuoti (anche da un server di prima, col `.default`): nessun «Da».
+      ...sendAsOf(a as { sendAs?: MailboxView["sendAs"]; sendAsStatus?: string }),
     };
   });
 };

@@ -47,6 +47,8 @@ export function draftOf(d: ServerDraft, mine: ReadonlySet<string>): MailDraft {
     serverUpdatedAt: d.updatedAt ?? null,
     signature: d.signature,
     signatureStatus: d.signatureStatus === "present" || d.signatureStatus === "scope_missing" ? d.signatureStatus : "none",
+    // Lotto 8, §2: l'indirizzo da cui parte; un server di prima non lo manda (il predefinito).
+    from: (d as { from?: string | null }).from ?? null,
   };
 }
 
@@ -74,6 +76,8 @@ export function placeOf(threadId: string | null, firstConnected: string | null):
 function draftError(error: unknown): unknown {
   if (!(error instanceof ApiError)) return error;
   if (error.code === "draft_changed") return new Error("draft_changed");
+  // Lotto 8, §2: un «Da» che la casella non ha (più).
+  if (error.code === "invalid_from") return new Error("invalid: from");
   if (error.code === "google_scope_missing") return new Error("google_scope_missing");
   if (error.code === "account_disabled" || error.code === "token_expired" || error.code === "account_unavailable") {
     return new Error("google_not_connected");
@@ -252,6 +256,8 @@ async function saveWithAttachments(
       subject: input.subject,
       body: input.body,
       quote: input.quote !== false,
+      // Lotto 8, §2: assente = com'era (il server), quindi solo se c'è.
+      ...(input.from !== undefined ? { from: input.from } : {}),
       ...(input.overwrite ? { overwrite: true } : {}),
       ...(input.baseUpdatedAt ? { baseUpdatedAt: input.baseUpdatedAt } : {}),
     });

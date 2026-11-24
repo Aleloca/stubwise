@@ -124,6 +124,62 @@ describe("le bozze: leggere", () => {
   });
 });
 
+// Lotto 8, §2 (72, a6231ff62): gli alias. La casella porta `sendAs` e
+// `sendAsStatus`, la bozza `from`; un `from` fuori elenco è 422
+// `invalid_from`. Un server di prima non li manda: nessun «Da».
+describe("rispondere da un alias", () => {
+  const ALIAS = "billing@acme.test";
+  it("la casella coi suoi alias, la bozza col suo «Da», e il «Da» che si salva", async () => {
+    const withAliases = {
+      "GET /api/me/google/accounts": {
+        body: [
+          account({
+            sendAs: [
+              { email: "ada@acme.test", displayName: "Ada", isPrimary: true, isDefault: true },
+              { email: ALIAS, displayName: "Acme billing", isPrimary: false, isDefault: false },
+            ],
+            sendAsStatus: "present",
+          }),
+        ],
+      },
+    };
+    const { seen } = installFakeServer({
+      ...withAliases,
+      "GET /api/me/mail/drafts/compose": { body: draft({ id: null, from: ALIAS }) },
+      "PUT /api/me/mail/drafts": { body: draft({ from: ALIAS }) },
+    });
+    const [box] = await mail.listMailboxes();
+    expect(box).toMatchObject({
+      sendAs: [
+        { email: "ada@acme.test", displayName: "Ada", isPrimary: true, isDefault: true },
+        { email: ALIAS, displayName: "Acme billing", isPrimary: false, isDefault: false },
+      ],
+    });
+    // «present» non aggiunge niente: lo dice l'elenco; solo `scope_missing` si porta.
+    expect(box!.sendAsStatus).toBeUndefined();
+    const d = await mail.getDraft(`${ACC}_t-1`, "reply");
+    expect(d.from).toBe(ALIAS);
+    await mail.saveDraft({ ...d, from: ALIAS });
+    expect(seen.find((r) => r.method === "PUT")!.body).toMatchObject({ from: ALIAS });
+  });
+
+  it("un server di prima: niente alias né «Da»; un «Da» rifiutato nelle parole del prototipo", async () => {
+    installFakeServer({
+      ...accounts,
+      "GET /api/me/mail/drafts/compose": { body: draft({ id: null }) },
+      "PUT /api/me/mail/drafts": { status: 422, body: { code: "invalid_from", message: "x" } },
+    });
+    const [box] = await mail.listMailboxes();
+    expect(box!.sendAs).toBeUndefined();
+    const d = await mail.getDraft(`${ACC}_t-1`, "reply");
+    expect(d.from ?? null).toBeNull();
+    await expect(mail.saveDraft({ ...d, from: "x@y.test" })).rejects.toThrow("invalid: from");
+    // Senza `gmail.modify`: il «Da» dice di ricollegare la casella.
+    installFakeServer({ "GET /api/me/google/accounts": { body: [account({ sendAsStatus: "scope_missing" })] } });
+    expect((await mail.listMailboxes())[0]).toMatchObject({ sendAsStatus: "scope_missing" });
+  });
+});
+
 describe("le bozze: salvare ed eliminare", () => {
   it("salvare: la casella e il thread Gmail della conversazione, i destinatari come indirizzi", async () => {
     const { seen } = installFakeServer({ ...accounts, "PUT /api/me/mail/drafts": { body: draft() } });

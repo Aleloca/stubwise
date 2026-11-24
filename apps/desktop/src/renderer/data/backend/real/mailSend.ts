@@ -37,6 +37,8 @@ const BEFORE_SEND: Readonly<Record<string, string>> = {
   // Le credenziali della casella non si usano più: si ricollega.
   account_unavailable: "google_not_connected",
   google_scope_missing: "google_scope_missing",
+  // Lotto 8, §2: il «Da» non è (più) fra gli alias della casella.
+  invalid_from: "invalid: from",
 };
 
 function sendError(error: unknown): unknown {
