@@ -1456,31 +1456,38 @@ describe("runFix", () => {
       startedAt: new Date(Date.now() - 30 * 60_000),
       lastActivityAt: new Date(Date.now() - 30 * 60_000),
     });
-    // Runner lento: tiene il run aperto abbastanza da far scattare ≥1 battito
-    // dell'heartbeat (intervallo accelerato a 50ms via deps).
+    // Deterministico (lotto 6, voce 4): il run resta APERTO finché il test non
+    // lo libera (un cancello, non 250 ms veri), e il battito lo si ASPETTA
+    // (vi.waitFor) invece di dormire 120 ms — sotto carico il fix non arrivava
+    // al run in tempo e il controllo partiva prima di qualunque battito.
+    let release = (): void => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let started = false;
     const runner = new FakeAgentRunner({
       script: async () => {
-        await new Promise((resolve) => setTimeout(resolve, 250));
+        started = true;
+        await gate;
         return { output: "ho corretto il bug", exitCode: 0 };
       },
       fileChanges: fixChanges(fixture),
     });
     const provider = makeProvider();
 
-    // Mentre il fix gira, controlliamo che requeueStale (soglia 10') NON tocchi
-    // il job: l'heartbeat lo tiene vivo.
-    const fixPromise = runFix(
-      makeDeps(fixture, runner, provider, { heartbeatIntervalMs: 50 }),
-      job,
-    );
-    // Attendiamo che almeno un battito sia passato.
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    const requeuedDuringRun = await requeueStale(db, { olderThanMinutes: 10 });
-    expect(requeuedDuringRun).toBe(0);
-    const midRun = await getJob(db, job.id);
-    expect(midRun.status).toBe("fixing");
-    expect(midRun.lastActivityAt.getTime()).toBeGreaterThan(Date.now() - 60_000);
-
+    // Mentre il fix gira, requeueStale (soglia 10') NON deve toccare il job: l'heartbeat lo tiene vivo.
+    const fixPromise = runFix(makeDeps(fixture, runner, provider, { heartbeatIntervalMs: 50 }), job);
+    try {
+      await vi.waitFor(() => expect(started).toBe(true), { timeout: 60_000, interval: 20 });
+      // Il run è aperto e fermo al cancello: da qui in poi `lastActivityAt` lo
+      // muove SOLO l'heartbeat (prima lo toccano anche le scritture del log). Lo si
+      // riporta a 30' fa, e si aspetta che un battito lo rinfreschi.
+      await db.update(aiJobs).set({ lastActivityAt: new Date(Date.now() - 30 * 60_000) }).where(eq(aiJobs.id, job.id));
+      await vi.waitFor(async () => expect((await getJob(db, job.id)).lastActivityAt.getTime()).toBeGreaterThan(Date.now() - 60_000), { timeout: 20_000, interval: 20 });
+      const requeuedDuringRun = await requeueStale(db, { olderThanMinutes: 10 });
+      expect(requeuedDuringRun).toBe(0);
+      expect((await getJob(db, job.id)).status).toBe("fixing");
+    } finally {
+      release();
+    }
     const outcome = await fixPromise;
     expect(outcome).toBe("pr_opened");
   });

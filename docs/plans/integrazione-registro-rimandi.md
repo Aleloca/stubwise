@@ -1890,10 +1890,22 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   intermittenza: la spia di `postResponse` riceve la risposta asincrona
   («Notification not found.») di un test PRECEDENTE. Un giro rosso su quattro
   da solo, e nel giro completo del server il 13 nov 2026; poi verde.
-- Due test a tempo del worker sotto carico *(S, 13 nov 2026)*:
+- ~~Due test a tempo del worker sotto carico *(S, 13 nov 2026)*:
   `graph/poller.test.ts` («non sovrappone i tick») e `pipeline/fix.test.ts`
   (l'heartbeat durante un run lento) cadono nel giro completo con la macchina
-  carica, verdi da soli.
+  carica, verdi da soli.~~ *Chiusa il 24 nov 2026 (72, lotto 6)*, con un terzo
+  trovato da 46 nel giro completo (`google/poller.test.ts`, i due «riaccese»):
+  - i tick del poller li fa scattare il test (`setInterval` finto, DB vero), e
+    il primo claim si ASPETTA (`vi.waitFor`); l'unica attesa rimasta può solo
+    far vedere il difetto, mai far fallire un poller corretto;
+  - il run del fix resta aperto a un cancello; `lastActivityAt` si riporta
+    indietro una volta che il run è fermo (da lì lo muove solo l'heartbeat) e
+    il battito si aspetta — prima la mutazione «niente heartbeat» passava,
+    perché lo toccavano anche le scritture del log;
+  - i due «riaccese» prendevano il taglio dall'orologio del test e il
+    `created_at` dall'orologio del DB: col container indietro, la posta
+    «dopo» finiva «prima». Il taglio ora è `now()` del DB (con 5 s di scarto
+    simulato i due casi cadono, col DB no).
 - **Test lenti del desktop sotto carico — STABILIZZATI** *(O, 46, 13 nov
   2026, `fix/desktop-flaky`)*. Le cause, nessun timeout alzato e nessuna
   asserzione tolta:

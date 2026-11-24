@@ -342,7 +342,7 @@ describe("startGraphPoller", () => {
     const second = await seedRepository(db);
     await insertJob(db, { repositoryId: first.repositoryId });
     await settle(5);
-    await insertJob(db, { repositoryId: second.repositoryId });
+    const secondJob = await insertJob(db, { repositoryId: second.repositoryId });
 
     // Il primo job resta appeso al gate: se un secondo tick partisse,
     // reclamerebbe il secondo job e il runner risulterebbe chiamato due volte.
@@ -353,19 +353,30 @@ describe("startGraphPoller", () => {
       return true;
     });
 
+    // Deterministico (lotto 6, voce 4): i tick li fa scattare il test (setInterval
+    // finto), il DB resta vero. Prima: 200 ms veri, e sotto carico il primo tick
+    // non arrivava nemmeno a reclamare il job (rosso per lentezza, non per il difetto).
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     const controller = new AbortController();
-    const stop = startGraphPoller({
-      ...makeDeps(db, { runGraphBuildFn }),
-      // 20 ms: nella finestra sotto scattano molti tick.
-      intervalSeconds: 0.02,
-      signal: controller.signal,
-    });
-    await settle(200);
-    expect(runGraphBuildFn).toHaveBeenCalledTimes(1);
-
-    release();
-    stop();
-    controller.abort();
+    let stop = (): void => {};
+    try {
+      stop = startGraphPoller({ ...makeDeps(db, { runGraphBuildFn }), intervalSeconds: 0.02, signal: controller.signal });
+      vi.advanceTimersByTime(20);
+      // Il primo tick reclama il primo job e resta appeso al gate: lo si ASPETTA, senza un tempo fisso.
+      await vi.waitFor(() => expect(runGraphBuildFn).toHaveBeenCalledTimes(1), { timeout: 30_000, interval: 20 });
+      // Dieci tick mentre il primo gira: nessuno deve partire.
+      vi.advanceTimersByTime(200);
+      // Un tick sovrapposto (il difetto) reclamerebbe il secondo job: gli si dà il tempo di farlo.
+      // Questa attesa può solo far vedere il difetto, mai far fallire un poller corretto.
+      await settle(300);
+      expect(runGraphBuildFn).toHaveBeenCalledTimes(1);
+      expect((await getJob(db, secondJob)).status).toBe("queued");
+    } finally {
+      release();
+      stop();
+      controller.abort();
+      vi.useRealTimers();
+    }
   });
 
   it("si ferma sull'AbortSignal (nessun tick dopo l'abort)", async () => {
