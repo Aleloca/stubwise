@@ -73,7 +73,10 @@ async function toView(db: Db, viewer: SessionViewer, row: ConversationRow, sessi
   // Lotto 8, voce 3: il gruppo dei contesti come lo vede chi guarda (anche
   // l'autore: uno che non vede più esce alla lettura); il primario è l'ultimo.
   const [contexts] = await contextsForViewer(db, viewer, [groupOf(row)], isOwner, scope);
-  const context = contexts!.at(-1) ?? null;
+  // Revisione 8–9 (M-4): per l'AUTORE il primario resta il vero ultimo del
+  // gruppo (è il suo chip, anche se il filtro lo toglie dall'elenco); per un
+  // lettore, l'ultimo di ciò che vede.
+  const context = isOwner ? (groupOf(row).at(-1) ?? null) : (contexts!.at(-1) ?? null);
   // Un lettore: il titolo e l'ultima attività come li vede lui (fetta 5, review).
   const snapshot = isOwner ? null : await readerSnapshot(db, row);
   const continuesFrom = row.continuesFromSessionId

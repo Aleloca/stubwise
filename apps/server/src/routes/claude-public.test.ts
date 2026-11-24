@@ -608,3 +608,14 @@ describe("revisione 8–9, M-1: l'elenco calcola la visibilità una volta, sempr
     expect(own.items.find((i) => i.id === sid)!.contexts).toEqual(contexts);
   });
 });
+
+describe("revisione 8–9, M-4: per l'autore il primario è il vero ultimo, anche se il filtro lo toglie", () => {
+  it("l'ultimo contesto è una task che non esiste più: l'elenco la toglie, `context` resta lei per l'autore", async () => {
+    const sid = await conversation();
+    const gone = { kind: "task", id: `${p1.code}-99999` };
+    await t.db.update(claudeConversations).set({ contextRefs: [{ kind: "project", id: p1.id }, gone], contextRef: gone }).where(eq(claudeConversations.sessionId, sid));
+    const view = (await as(author, "GET", `/api/claude/conversations/${sid}`)).json() as { contexts: unknown[]; context: unknown };
+    expect(view.contexts).toEqual([{ kind: "project", id: p1.id }]);
+    expect(view.context).toEqual(gone);
+  });
+});
