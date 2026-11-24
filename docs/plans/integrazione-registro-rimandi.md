@@ -115,12 +115,22 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   dagli schemi zod (`claudeActionSignatures`): `pageAction` di tipo
   `filter` vi compare, ma il modello non conosce le rotte del renderer: lo
   userà davvero solo dove la pagina gliele dà (F3.4).
-- **Esito delle azioni della pagina salvato dal server** *(S, F3.4, review)*:
+- ~~**Esito delle azioni della pagina salvato dal server** *(S, F3.4, review)*:
   oggi l'esito (D3) è del renderer, per persona e in memoria, e un'azione
   parte solo se arriva dal vivo in quella finestra; letta dalla storia (un
   ricaricamento, un riavvio, un'altra scheda del browser) resta «non
   applicata» col gesto «Apply». Salvato sul server, la riga direbbe l'esito
-  vero anche dopo.
+  vero anche dopo.~~ *Parte server chiusa il 24 nov 2026 (72, lotto 7, voce
+  1, contratto di 94 in `docs/plans/2026-11-24-rimandi-lotto7-contratti.md`
+  §1)*: per indice, in `claude_page_outcomes` (0229), con
+  `POST /api/claude/proposals/:id/actions/:index/outcome` e `pageOutcomes`
+  nella vista. Gli stati sono l'unione delle due famiglie del prototipo
+  (`pageAction`: `done`/`failed`, poi `undone`/`changed_after`; `fillField`:
+  `placed`/`waiting`, poi `undone`/`changed_after`), con le mosse in
+  `CLAUDE_PAGE_OUTCOME_MOVES` di `@stubwise/shared` (allineate con 94). Chi
+  non ha chiesto la proposta riceve 404, come per confermare e annullare
+  (il contratto diceva 403: non si dice che la proposta esiste). Resta a
+  94 la lettura nel renderer.
 - Il contesto della pagina arriva al modello come `tipo: id`, non come il suo
   contenuto: Claude lo legge con i tool se serve *(S)*.
 - Conservazione *(M, review delle fette 1–2)*: le conversazioni inattive da 14
