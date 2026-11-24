@@ -267,14 +267,54 @@ export async function searchSupport(db: Db, viewer: Viewer, q: string): Promise<
     )
     .orderBy(desc(widgetConversations.lastMessageAt))
     .limit(SEARCH_LIMIT);
-  const perms = new Map<string, Awaited<ReturnType<typeof projectPermissionsFor>>>();
-  const out: SupportSearchResult[] = [];
-  for (const { c, projectCode } of rows) {
-    if (!perms.has(c.projectId)) perms.set(c.projectId, await projectPermissionsFor(db, viewer, c.projectId));
-    const permissions = perms.get(c.projectId);
-    if (!permissions) continue;
-    const view = await viewOf(db, c, { viewer, permissions, projectCode }, false);
-    out.push({ kind: "support", id: c.id, code: view.code, label: c.externalUserName ?? c.externalUserEmail ?? view.code, projectId: c.projectId, projectCode, state: view.state });
+  // In blocco (review del lotto 5, M-9): lo stato di tutte con un numero fisso di query.
+  const states = await supportStatesOf(db, rows.map((r) => r.c));
+  return rows.map(({ c, projectCode }) => {
+    const code = `${projectCode}-S${c.number}`;
+    return { kind: "support" as const, id: c.id, code, label: c.externalUserName ?? c.externalUserEmail ?? code, projectId: c.projectId, projectCode, state: states.get(c.id)! };
+  });
+}
+
+/**
+ * Lo stato derivato di più conversazioni, letto in blocco (review del lotto
+ * 5, M-9): la stessa regola di `viewOf` (`supportState` su messaggi, giudizio
+ * ed esito) — l'esito c'è se la conversazione ha una richiesta legata (o, per
+ * `mcp`, quella del suo job d'intake) o una task aperta da un suo messaggio
+ * che esiste ancora. Il test d'accordo con l'elenco sta in `support.test.ts`.
+ */
+async function supportStatesOf(db: Db, list: readonly ConversationRow[]): Promise<Map<string, SupportState>> {
+  const out = new Map<string, SupportState>();
+  if (list.length === 0) return out;
+  const ids = list.map((c) => c.id);
+  const messageRows = await db.select().from(widgetMessages).where(inArray(widgetMessages.conversationId, ids)).orderBy(asc(widgetMessages.createdAt), asc(widgetMessages.id));
+  const messagesOf = new Map<string, typeof messageRows>();
+  for (const m of messageRows) (messagesOf.get(m.conversationId) ?? messagesOf.set(m.conversationId, []).get(m.conversationId)!).push(m);
+  const linked = new Set(
+    (await db.select({ id: backlogItems.supportConversationId }).from(backlogItems).where(inArray(backlogItems.supportConversationId, ids))).map((r) => r.id),
+  );
+  const intakeIds = list.filter((c) => c.channel === "mcp" && c.intakeJobId).map((c) => c.intakeJobId!);
+  const intakeWithItem = new Set(
+    intakeIds.length === 0
+      ? []
+      : (
+          await db
+            .select({ id: backlogJobs.id })
+            .from(backlogJobs)
+            .innerJoin(backlogItems, eq(backlogItems.id, backlogJobs.resultItemId))
+            .where(inArray(backlogJobs.id, intakeIds))
+        ).map((r) => r.id),
+  );
+  const firstTicketOf = new Map<string, string>();
+  for (const m of messageRows) if (m.ticketId && !firstTicketOf.has(m.conversationId)) firstTicketOf.set(m.conversationId, m.ticketId);
+  const ticketIds = [...new Set(firstTicketOf.values())];
+  const liveTickets = new Set(
+    ticketIds.length === 0 ? [] : (await db.select({ id: tickets.id }).from(tickets).where(inArray(tickets.id, ticketIds))).map((r) => r.id),
+  );
+  for (const c of list) {
+    const ticketId = firstTicketOf.get(c.id);
+    const hasOutcome = linked.has(c.id) || (c.intakeJobId !== null && intakeWithItem.has(c.intakeJobId)) || (ticketId !== undefined && liveTickets.has(ticketId));
+    const messages = (messagesOf.get(c.id) ?? []).map((m) => messageOf(m, true));
+    out.set(c.id, supportState(stateInput(c, messages, hasOutcome)) as SupportState);
   }
   return out;
 }

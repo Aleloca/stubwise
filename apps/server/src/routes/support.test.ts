@@ -114,6 +114,10 @@ describe("Support, le letture (area 8, F3, S2)", () => {
     expect(stateOf(notConcluded.code)).toBe("not_concluded");
     expect(stateOf(withRequest.code)).toBe("request_open");
     expect(stateOf(withTicket.code)).toBe("request_open");
+    // Review del lotto 5 (M-9): la ricerca legge lo stato IN BLOCCO, con la stessa regola dell'elenco.
+    const prefix = triage.code.split("-S")[0]!;
+    const found = ((await get(dev.headers, `/api/support/search?q=${encodeURIComponent(`${prefix}-S`)}`)).json() as { items: { code: string; state: string }[] }).items;
+    expect(Object.fromEntries(found.map((f) => [f.code, f.state]))).toEqual(Object.fromEntries(items.map((i) => [i.code, i.state])));
     expect(items[0]!.code).toBe(notConcluded.code);
     expect(items.at(-1)!.code).toBe(answered.code);
     // Nell'elenco i messaggi sono vuoti, c'è l'ultimo.
