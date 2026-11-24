@@ -81,8 +81,9 @@ describe("la cassaforte nel main", () => {
     const status = await lock.status();
     expect(status).toEqual({ state: "open", fingerprint: "fp(pub)" });
     expect(JSON.stringify(status)).not.toContain("priv");
-    // L'operazione riceve la chiave DENTRO il main.
-    expect(await lock.use(async (key) => key === PERSON_KEY)).toBe(true);
+    // L'operazione riceve la chiave DENTRO il main, con l'id della chiave di
+    // persona del sigillo (serve alla prova della propria chiave).
+    expect(await lock.use(async (key, personKeyId) => key === PERSON_KEY && personKeyId === "pk-1")).toBe(true);
   });
 
   it("D-1b: dopo l'associazione la prima apertura è senza tocco, poi sempre col tocco", async () => {
@@ -188,5 +189,14 @@ describe("la cassaforte nel main", () => {
     const { lock } = setup({ identity: () => null });
     expect(await lock.status()).toEqual({ state: "unpaired", fingerprint: null });
     expect(await lock.unlock()).toEqual({ ok: false, code: "no_session" });
+  });
+
+  it("un 403 `device_seal_required` dal server (Mac tolto, chiave ricreata): `markRevoked` chiude e cancella il locale; il login resta", async () => {
+    const { lock, calls } = setup();
+    await lock.unlock();
+    lock.markRevoked();
+    expect(calls).toContain("forget-local");
+    expect(await lock.status()).toEqual({ state: "revoked", fingerprint: null });
+    await expect(lock.use(async () => 1)).rejects.toThrow("vault_locked");
   });
 });

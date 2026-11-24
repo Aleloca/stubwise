@@ -44,6 +44,18 @@ type StubwiseVaultStatus = {
   fingerprint: string | null;
 };
 type StubwiseVaultUnlock = { ok: true } | { ok: false; code: string };
+type StubwiseVaultFail = { ok: false; code: string };
+/** Una persona da confermare (`vault:pending`): mai le copie della chiave. */
+type StubwiseVaultPendingPerson = {
+  userId: string;
+  email: string;
+  personKeyId: string;
+  status: "pending" | "confirmed";
+  createdAt: string;
+  device: string | null;
+  fingerprint: string;
+  credentials: { id: string; service: string; label: string | null }[];
+};
 // Lo stream dal vivo di una sessione (`api:stream-open`, `src/main/apiStream.ts`,
 // area 3 fetta 3a): `frame` è il risultato di `parseAgentStreamFrame` di
 // `@stubwise/shared` (solo i frame veri); `end` chiude, e `fatal` dice se
@@ -146,6 +158,20 @@ interface Window {
       pairCancel: () => Promise<{ ok: boolean }>;
       onChanged: (cb: (status: StubwiseVaultStatus) => void) => () => void;
       onPaired: (cb: (result: StubwiseVaultUnlock) => void) => () => void;
+      show: (credentialId: string) => Promise<{ ok: true; password: string } | StubwiseVaultFail>;
+      copy: (credentialId: string) => Promise<{ ok: true } | StubwiseVaultFail>;
+      share: (
+        credentialId: string,
+        target: { userId: string } | { roleId: string },
+      ) => Promise<{ ok: true; waiting: string[] } | StubwiseVaultFail>;
+      removeReader: (credentialId: string, readerId: string) => Promise<{ ok: true } | StubwiseVaultFail>;
+      pending: () => Promise<{ ok: true; items: StubwiseVaultPendingPerson[] } | StubwiseVaultFail>;
+      confirm: (
+        personKeyId: string,
+      ) => Promise<
+        { ok: true; saved: number; keyChanged: number; notAllowed: number; unopenable: number } | StubwiseVaultFail
+      >;
+      reject: (personKeyId: string) => Promise<{ ok: true } | StubwiseVaultFail>;
     };
   };
 }

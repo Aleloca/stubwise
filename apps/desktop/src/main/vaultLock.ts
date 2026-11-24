@@ -85,18 +85,24 @@ export interface VaultLock {
   status: () => Promise<VaultStatus>;
   unlock: () => Promise<UnlockResult>;
   lock: () => void;
-  /** Un'operazione con la privata di persona, dentro il main; chiusa: `vault_locked`. */
-  use: <T>(run: (key: CryptoKey) => Promise<T>) => Promise<T>;
+  /**
+   * Un'operazione con la privata di persona, dentro il main, con l'id della
+   * chiave di persona del sigillo (per la prova); chiusa: `vault_locked`.
+   */
+  use: <T>(run: (key: CryptoKey, personKeyId: string) => Promise<T>) => Promise<T>;
   /** «Dimentica questo Mac»: il sigillo sul server (best-effort), il file e la chiave. */
   forget: () => Promise<{ ok: true; remote: boolean }>;
   /** Appena associato: la prossima apertura è senza tocco (D-1b). */
   markPaired: () => void;
   /** Login nuovo o logout: chiude e cancella il locale. */
   sessionChanged: () => void;
+  /** Il server dice `device_seal_required` (Mac tolto, chiave ricreata): D-5, il login resta. */
+  markRevoked: () => void;
 }
 
 export function createVaultLock(deps: VaultLockDeps): VaultLock {
   let key: CryptoKey | null = null;
+  let personKeyId: string | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let revoked = false;
   let freshlyPaired = false;
@@ -128,12 +134,14 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
   function lock(): void {
     const was = key !== null;
     key = null;
+    personKeyId = null;
     disarm();
     if (was) changed();
   }
 
   function dropLocal(): void {
     key = null;
+    personKeyId = null;
     disarm();
     freshlyPaired = false;
     deps.store.forget();
@@ -174,6 +182,7 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
         personKeyId: seal.personKeyId,
         deviceId: d.deviceId,
       });
+      personKeyId = seal.personKeyId;
     } catch {
       return { ok: false, code: "open_failed" };
     }
@@ -182,10 +191,10 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
     return { ok: true };
   }
 
-  async function use<T>(run: (k: CryptoKey) => Promise<T>): Promise<T> {
-    if (!key) throw new Error("vault_locked");
+  async function use<T>(run: (k: CryptoKey, id: string) => Promise<T>): Promise<T> {
+    if (!key || !personKeyId) throw new Error("vault_locked");
     arm();
-    return run(key);
+    return run(key, personKeyId);
   }
 
   async function forget(): Promise<{ ok: true; remote: boolean }> {
@@ -219,6 +228,11 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
     sessionChanged: () => {
       dropLocal();
       revoked = false;
+      changed();
+    },
+    markRevoked: () => {
+      dropLocal();
+      revoked = true;
       changed();
     },
   };

@@ -155,11 +155,18 @@ describe("canali IPC", () => {
     "session:status",
     "theme:changed",
     "vault:changed",
+    "vault:confirm",
+    "vault:copy",
     "vault:forget",
     "vault:lock",
     "vault:pair-cancel",
     "vault:pair-start",
     "vault:paired",
+    "vault:pending",
+    "vault:reject",
+    "vault:remove-reader",
+    "vault:share",
+    "vault:show",
     "vault:status",
     "vault:unlock",
   ];
@@ -180,7 +187,7 @@ describe("canali IPC", () => {
   });
 
   it("la cassaforte (lotto 10): i canali li registra `registerVaultIpc` col controllo del mittente; il main manda solo stato ed esiti", () => {
-    expect(main).toMatch(/registerVaultIpc\(ipcMain, \{ lock: vault, pairing: vaultPairing, fromApp \}\)/);
+    expect(main).toMatch(/registerVaultIpc\(ipcMain, \{ lock: vault, pairing: vaultPairing, ops: vaultOps, fromApp \}\)/);
     expect(main).toMatch(/broadcast\("vault:changed", status\)/);
     expect(main).toMatch(/broadcast\("vault:paired", result\)/);
     // Stop e schermo bloccato chiudono la cassaforte (D-2).

@@ -22,12 +22,20 @@ export interface VaultRemote {
   pair: (devicePublicKey: string, deviceName: string) => Promise<Pairing>;
   fetchSeal: () => Promise<SealResponse>;
   forgetRemote: () => Promise<void>;
+  /**
+   * Una rotta della cassaforte col PAT desktop (a912fbcb8): il corpo JSON
+   * della risposta (null per un 204), o `VaultHttpError` col codice e i
+   * dettagli (un 409 `recipients_changed` porta i destinatari attuali).
+   */
+  request: (method: string, path: string, body?: unknown) => Promise<unknown>;
 }
 
-class VaultHttpError extends Error {
+/** Un errore del server: lo stato, il codice (il messaggio) e i dettagli del corpo. */
+export class VaultHttpError extends Error {
   constructor(
     readonly status: number,
-    code: string,
+    readonly code: string,
+    readonly details?: unknown,
   ) {
     super(code);
   }
@@ -50,6 +58,7 @@ export function createVaultRemote(deps: VaultRemoteDeps): VaultRemote {
       throw new VaultHttpError(
         res.status,
         typeof data?.code === "string" ? data.code : `http_${res.status}`,
+        data,
       );
     }
     return res;
@@ -87,6 +96,11 @@ export function createVaultRemote(deps: VaultRemoteDeps): VaultRemote {
     },
     async forgetRemote() {
       await call("DELETE", "/api/vault/device-seals/mine");
+    },
+    async request(method, path, body) {
+      const res = await call(method, path, body);
+      if (res.status === 204) return null;
+      return res.json().catch(() => null);
     },
   };
 }
