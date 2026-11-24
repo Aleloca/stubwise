@@ -432,6 +432,9 @@ describe("il Drive nella build app: caricare", () => {
     expect(await drive.uploadFiles(PROJECT_ID, input)).toEqual([{ name: "Contratto.pdf", file: null, error: "too_large" }]);
     upload.mockResolvedValueOnce({ ok: false, reason: "invalid", status: 400, code: "storage_not_configured" });
     await expect(drive.uploadFiles(PROJECT_ID, input)).rejects.toThrow("invalid: storage_off");
+    // Lotto 6, voce 2: l'interruttore d'istanza spento.
+    upload.mockResolvedValueOnce({ ok: false, reason: "invalid", status: 409, code: "attachments_off" });
+    await expect(drive.uploadFiles(PROJECT_ID, input)).rejects.toThrow("invalid: storage_off");
     upload.mockResolvedValueOnce({ ok: false, reason: "canceled" });
     await expect(drive.uploadFiles(PROJECT_ID, input)).rejects.toThrow("canceled");
     upload.mockResolvedValueOnce({ ok: false, reason: "unsupported_type", status: 400 });

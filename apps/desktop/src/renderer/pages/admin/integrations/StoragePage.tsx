@@ -254,9 +254,8 @@ function StorageForm({ storage: s }: { storage: StorageView }) {
         </div>
       </div>
 
-      {/* Il server non ha la prova né l'interruttore degli allegati (li deriva
-          dalla configurazione, F3): nell'app il blocco non c'è. */}
-      {!isAppBuild() && (
+      {/* L'interruttore degli allegati c'è in tutte e due le build (lotto 6,
+          voce 2: il server ha la sua rotta); la prova no, il server non ce l'ha. */}
       <div className="mt-8 flex max-w-[560px] flex-col gap-5 border-t border-rule pt-5">
         <div className="flex flex-col gap-2">
           <div className="flex items-start gap-3">
@@ -288,24 +287,25 @@ function StorageForm({ storage: s }: { storage: StorageView }) {
           {errors.attachments && <ErrorLine>{errors.attachments}</ErrorLine>}
         </div>
 
-        <div className="flex flex-col gap-1.5">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <button
-              type="button"
-              disabled={checking}
-              onClick={() => void check()}
-              className={`${secondaryButton} disabled:opacity-40`}
-            >
-              {t("admin.storage.check")}
-            </button>
-            <span className="text-sm text-ink-muted">
-              <CheckWords checking={checking} last={s.lastTest} />
-            </span>
+        {!isAppBuild() && (
+          <div className="flex flex-col gap-1.5">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <button
+                type="button"
+                disabled={checking}
+                onClick={() => void check()}
+                className={`${secondaryButton} disabled:opacity-40`}
+              >
+                {t("admin.storage.check")}
+              </button>
+              <span className="text-sm text-ink-muted">
+                <CheckWords checking={checking} last={s.lastTest} />
+              </span>
+            </div>
+            {errors.check && <ErrorLine>{errors.check}</ErrorLine>}
           </div>
-          {errors.check && <ErrorLine>{errors.check}</ErrorLine>}
-        </div>
+        )}
       </div>
-      )}
 
       {!isAppBuild() && <NextCheckBox />}
     </>

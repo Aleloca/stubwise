@@ -339,6 +339,8 @@ describe("gli allegati di una bozza (salvati con lei)", () => {
       [400, "too_large", "invalid: too_large"],
       [400, "too_many_attachments", "invalid: attachments"],
       [400, "storage_not_configured", "invalid: storage_off"],
+      // Lotto 6, voce 2: l'interruttore d'istanza spento.
+      [409, "attachments_off", "invalid: storage_off"],
       [409, "attachment_unavailable", "attachment_unavailable"],
     ];
     for (const [status, code, error] of cases) {

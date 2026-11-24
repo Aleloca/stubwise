@@ -164,6 +164,8 @@ describe("gli allegati", () => {
       [400, "unsupported_type", "invalid: attachmentType"],
       [413, "file_too_large", "invalid: attachmentSize"],
       [400, "storage_not_configured", "invalid: attachmentsOff"],
+      // Lotto 6, voce 2: l'interruttore d'istanza spento.
+      [409, "attachments_off", "invalid: attachmentsOff"],
       // Review della fetta 4 (server): troppi file in sospeso, un nome troppo lungo, troppi caricamenti.
       [409, "pending_quota", "invalid: attachmentQuota"],
       [400, "invalid_filename", "invalid: attachmentName"],

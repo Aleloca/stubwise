@@ -21,6 +21,8 @@ type Any = any;
 export interface StorageApi {
   get(): Promise<Any>;
   save(input: Record<string, unknown>): Promise<Any>;
+  /** Lotto 6, voce 2: `PUT /api/settings/instance/attachments { on }` (422 `not_set_up`). */
+  setAttachments(on: boolean): Promise<void>;
 }
 
 function refusalOf(error: unknown): Extract<InstanceResult, { ok: false }> {
@@ -57,7 +59,14 @@ export function createRealStorage(api: StorageApi) {
         last4: s.s3SecretKeySet ? (s.s3SecretKeyLast4 ?? "") : null,
         attachmentsEnabled: !!s.attachmentsEnabled,
         lastTest: null,
-        status: !configured ? "not_set_up" : s.attachmentsEnabled ? "on" : "attachments_off",
+        // Lotto 6, voce 2 (72): spenti dall'interruttore d'istanza
+        // (`attachmentsSwitch`, true da un server di prima), o da
+        // un'archiviazione che il server non ritiene valida.
+        status: !configured
+          ? "not_set_up"
+          : s.attachmentsSwitch !== false && s.attachmentsEnabled
+            ? "on"
+            : "attachments_off",
       };
     },
 
@@ -83,6 +92,16 @@ export function createRealStorage(api: StorageApi) {
         return refusalOf(error);
       }
     },
+
+    /** Accende o spegne gli allegati (lotto 6, voce 2): subito, senza riconferma. */
+    async setAttachments(on: boolean): Promise<InstanceResult> {
+      try {
+        await api.setAttachments(on);
+        return { ok: true };
+      } catch (error) {
+        return refusalOf(error);
+      }
+    },
   };
 }
 
@@ -90,6 +109,9 @@ export function createRealStorage(api: StorageApi) {
 const liveApi: StorageApi = {
   get: () => appClient().instanceSettings.get(),
   save: (input) => appClient().instanceSettings.save(input as Any),
+  setAttachments: async (on) => {
+    await appClient().request("PUT", "/api/settings/instance/attachments", { on });
+  },
 };
 
 /** SOLO TEST: le rotte vere. */
