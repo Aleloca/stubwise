@@ -6336,7 +6336,11 @@ deploy o di un rollback che la tocca.
   **caddy**. **Rollback**: sicuro; il server tiene `context_ref` uguale
   all'ultimo del gruppo, quindi un server vecchio legge il primario come
   prima e ignora il resto. Per togliere le colonne: server e worker
-  vecchi, poi i due `DROP COLUMN`.
+  vecchi, poi i due `DROP COLUMN`. ⚠️ *Revisione 8–9, M-5*: un server
+  vecchio scrive solo `context_ref`; tornati al nuovo, se `context_ref` non
+  coincide con l'ultimo del gruppo, la lettura lo ACCODA come primario
+  (`conversationContextGroup`), quindi il chip scelto durante il rollback
+  non si perde.
 - **«Lotto 9: le citazioni dei messaggi di Claude»** *(24 nov 2026)*: branch
   `feat/rimandi-server`. **Migrazione 0233** (`claude_turn_citations`,
   tabella nuova, cascata sulla sessione). Solo **server** (l'hook delle

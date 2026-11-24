@@ -17,7 +17,7 @@ import {
 import { deleteAllProjects, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { GoogleCalendarEvent } from "@stubwise/google";
 import type { GoogleAccountCredentials } from "@stubwise/google/credentials";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { fakeSelect } from "../providers/select-fake.js";
 import { closeCancelledSharedCalendarProposals, closeDeclinedCalendarRecipients, eventInviteeIds, publishSharedCalendarProposals } from "./calendar-shared.js";
@@ -146,6 +146,14 @@ describe("eventInviteeIds (audience `event_invitees`)", () => {
     expect(await eventInviteeIds(db, { attendees, mailboxOwnerUserId: s.matteo, projectId: s.project.id })).toEqual([s.matteo]);
   });
 
+  it("correzione di 46: il titolare entra anche NON membro; se ha rifiutato no (direttamente sulla regola)", async () => {
+    const s = await scenario();
+    await db.delete(projectMembers).where(and(eq(projectMembers.projectId, s.project.id), eq(projectMembers.userId, s.matteo)));
+    expect(await eventInviteeIds(db, { attendees: s.attendees, mailboxOwnerUserId: s.matteo, projectId: s.project.id })).toEqual([s.matteo, s.giulia].sort());
+    const declined = s.attendees.map((a) => (a.email === s.addr("matteo-box") ? { ...a, responseStatus: "declined" } : a));
+    expect(await eventInviteeIds(db, { attendees: declined, mailboxOwnerUserId: s.matteo, projectId: s.project.id })).toEqual([s.giulia]);
+  });
+
   it("il proprietario della casella conta come un invitato che ha accettato, anche se non è fra gli invitati", async () => {
     const s = await scenario();
     const attendees = s.attendees.filter((a) => a.email !== s.addr("matteo-box"));
@@ -215,14 +223,23 @@ describe("publishSharedCalendarProposals", () => {
     expect((await db.select().from(calendarProposalRecipients)).map((r) => r.userId)).not.toContain(s.dario);
   });
 
-  it("nessun destinatario membro: la proposta si chiude `no_recipients`, nessuna card", async () => {
+  it("correzione di 46: il TITOLARE della casella NON membro riceve SEMPRE la sua card (mailbox_owner, com'era); gli altri invitati non membri no", async () => {
     const s = await scenario();
     await db.delete(projectMembers).where(eq(projectMembers.projectId, s.project.id));
     await copyOf(s.matteoBox.id, { uid: s.uid, projectId: s.project.id, attendees: s.attendees });
     await publishSharedCalendarProposals({ db, lang: "it" }, { id: s.matteoBox.id, userId: s.matteo, email: s.matteoBox.email });
-    expect(await notified()).toEqual([]);
+    expect(await notified()).toEqual([s.matteo]);
     const [row] = await db.select().from(calendarProposals);
-    expect(row).toMatchObject({ status: "ignored", outcome: { type: "no_recipients" } });
+    expect(row!.status).not.toBe("ignored");
+  });
+
+  it("il titolare che ha RIFIUTATO non la riceve, nemmeno come titolare", async () => {
+    const s = await scenario();
+    await db.delete(projectMembers).where(eq(projectMembers.projectId, s.project.id));
+    const attendees = s.attendees.map((a) => (a.email === s.matteoBox.email ? { ...a, responseStatus: "declined" } : a));
+    await copyOf(s.matteoBox.id, { uid: s.uid, projectId: s.project.id, attendees });
+    await publishSharedCalendarProposals({ db, lang: "it" }, { id: s.matteoBox.id, userId: s.matteo, email: s.matteoBox.email });
+    expect(await notified()).toEqual([]);
   });
 });
 

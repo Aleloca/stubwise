@@ -348,11 +348,16 @@
   dal percorso per casella) senza creare un'altra proposta né un'altra card
   per la stessa persona (`calendar_proposal_recipients`, chiave primaria
   proposta + persona). `apps/worker/src/google/calendar-shared.ts`.
-  - **Chi la riceve** (`eventInviteeIds`): gli invitati che sono persone di
-    Stubwise e **non hanno rifiutato** (`hasDeclinedInvitation`), E sono
-    **membri ESPLICITI** del progetto (una riga `project_members`), più il
-    proprietario della casella in cui l'evento è stato trovato, trattato
-    come un invitato che ha accettato. L'audience non include MAI gli admin in quanto tali:
+  - **Chi la riceve** (`eventInviteeIds`), con DUE regole diverse
+    (correzione di 46, 24 nov 2026, per non togliere niente a nessuno):
+    - il **TITOLARE della casella** in cui l'evento è arrivato segue
+      `mailbox_owner` com'era: riceve SEMPRE la sua card, anche se è solo
+      membro implicito o non è membro (se non può confermare nel progetto,
+      vale la regola di sempre); non la riceve solo se ha RIFIUTATO;
+    - gli **ALTRI invitati** seguono `event_invitees`: persone di Stubwise
+      che **non hanno rifiutato** (`hasDeclinedInvitation`) E sono **membri
+      ESPLICITI** del progetto (una riga `project_members`).
+    L'audience `event_invitees` non include MAI gli admin in quanto tali:
     l'appartenenza implicita di un full admin non conta (non si usa
     `projectViewerIds`), e non c'è un ramo `if (admin)`. Il calendario
     collegato non serve: basta essere invitati. Ognuno ha la SUA card

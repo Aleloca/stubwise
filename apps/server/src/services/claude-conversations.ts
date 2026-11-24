@@ -33,7 +33,7 @@ import {
   touchedProjectIds,
 } from "./claude-public.js";
 import { personName } from "./people.js";
-import { contextsForViewer } from "./claude-contexts-view.js";
+import { contextsForViewer, conversationContextGroup } from "./claude-contexts-view.js";
 import { appendContext, CLAUDE_CONTEXTS_MAX, dedupeContexts, type ClaudeContextRef } from "@stubwise/notifications";
 import { freeSessionStates, loadAgentSession, monthlyBudgetExhausted, type SessionViewer } from "./agent-sessions.js";
 
@@ -57,11 +57,7 @@ async function namesOf(db: Db, ids: (string | null)[]): Promise<Map<string, stri
   return new Map(rows.map((r) => [r.id, personName(r)]));
 }
 
-/** Il gruppo dei contesti di una riga: `context_refs`, o il solo `context_ref` di una riga di prima. */
-function groupOf(row: ConversationRow): ClaudeContextRef[] {
-  if (row.contextRefs.length > 0) return row.contextRefs;
-  return row.contextRef ? [row.contextRef] : [];
-}
+const groupOf = (row: ConversationRow): ClaudeContextRef[] => conversationContextGroup(row);
 
 /**
  * La conversazione come la vede CHI GUARDA (fetta 5): l'autore ha tutto; un

@@ -8,9 +8,7 @@ import {
   googleWorkspaces,
   notifications,
   projectEmailRoutes,
-  projectMembers,
   projects,
-  roles,
   users,
   type Db,
 } from "@stubwise/db";
@@ -347,16 +345,6 @@ async function rows(): Promise<(typeof calendarEvents.$inferSelect)[]> {
  * della casella no — viene dall'account, e il cancello del rifiuto (15 set
  * 2026, §1) li vuole entrambi.
  */
-/**
- * Lotto 9, voce 2 (d): un evento SINGOLO è una proposta condivisa fra gli
- * invitati MEMBRI ESPLICITI del progetto — il proprietario della casella
- * compreso. Senza appartenenza nessuno la riceve.
- */
-async function memberOf(account: typeof googleAccounts.$inferSelect, projectId: string): Promise<void> {
-  const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.scope, "project")).limit(1);
-  await db.insert(projectMembers).values({ projectId, userId: account.userId, roleId: role!.id });
-}
-
 function readyForProposal(
   row: typeof calendarEvents.$inferSelect,
   context?: CalendarSeriesProposalContext,
@@ -1293,7 +1281,6 @@ describe("dalla riga candidata alla proposta in inbox", () => {
       .insert(projectEmailRoutes)
       .values({ projectId, kind: "sender_domain", value: "cliente.com" });
     const account = await seedAccount();
-    await memberOf(account, projectId);
     const calendar = fakeCalendar([{ events: [event({ id: "e1" })], nextSyncToken: "tok-1" }]);
 
     const stats = await pollGoogleOnce(deps(account, calendar, { proposeMaxPerTick: 20 }));
@@ -1373,7 +1360,6 @@ describe("dalla riga candidata alla proposta in inbox", () => {
         nextSyncToken: "tok-1",
       },
     ]);
-    await memberOf(account, projectId);
 
     const stats = await pollGoogleOnce(
       deps(account, calendar, { now: () => now, proposeMaxPerTick: 10 }),
@@ -1394,7 +1380,6 @@ describe("dalla riga candidata alla proposta in inbox", () => {
       .insert(projectEmailRoutes)
       .values({ projectId, kind: "sender_domain", value: "cliente.com" });
     const account = await seedAccount();
-    await memberOf(account, projectId);
 
     // Primo giro: l'appuntamento è normale, la proposta esce.
     const first = fakeCalendar([{ events: [event({ id: "e1" })], nextSyncToken: "tok-1" }]);

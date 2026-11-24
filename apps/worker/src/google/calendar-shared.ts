@@ -85,9 +85,13 @@ export async function eventInviteeIds(
     if (hasDeclinedInvitation([attendee], attendee.email)) declined.add(userId);
     else accepted.add(userId);
   }
-  if (input.mailboxOwnerUserId) accepted.add(input.mailboxOwnerUserId);
-  const candidates = [...accepted].filter((id) => !declined.has(id));
-  if (candidates.length === 0) return [];
+  // Il TITOLARE della casella in cui è arrivato l'evento riceve SEMPRE la sua
+  // card (`mailbox_owner`, com'era: correzione di 46), anche se non è membro
+  // esplicito; se non può confermare nel progetto, vale la regola di sempre.
+  // Il filtro dei membri ESPLICITI vale per gli ALTRI invitati.
+  const owner = input.mailboxOwnerUserId && !declined.has(input.mailboxOwnerUserId) ? input.mailboxOwnerUserId : null;
+  const candidates = [...accepted].filter((id) => !declined.has(id) && id !== owner);
+  if (candidates.length === 0) return owner ? [owner] : [];
   // Membri ESPLICITI: `project_members`, mai `projectViewerIds` (che aggiunge i full admin).
   const members = await db
     .select({ userId: projectMembers.userId })
@@ -95,7 +99,7 @@ export async function eventInviteeIds(
     .innerJoin(users, eq(users.id, projectMembers.userId))
     .where(and(eq(projectMembers.projectId, input.projectId), inArray(projectMembers.userId, candidates), eq(users.isAgent, false)));
   const memberIds = new Set(members.map((m) => m.userId));
-  return candidates.filter((id) => memberIds.has(id)).sort();
+  return [...candidates.filter((id) => memberIds.has(id)), ...(owner ? [owner] : [])].sort();
 }
 
 /** Da indirizzo (normalizzato) a persona: l'email di Stubwise o una casella collegata, mai un agente. */

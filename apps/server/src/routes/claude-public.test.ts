@@ -513,3 +513,38 @@ describe("lotto 9, voce 1: le citazioni dei messaggi di Claude", () => {
     }
   });
 });
+
+describe("revisione 8–9, I-1: la pubblicazione conta TUTTI i contesti, non solo il primario", () => {
+  const patch = (sid: string, payload: Record<string, unknown>) =>
+    app.inject({ method: "PATCH", url: `/api/claude/conversations/${sid}`, headers: { cookie: author.headers.cookie }, payload });
+
+  it("un contesto NON primario di un altro progetto si conferma pubblicando", async () => {
+    const sid = await conversation();
+    expect((await patch(sid, { contexts: [{ kind: "project", id: p2.id }, { kind: "project", id: p1.id }] })).statusCode).toBe(200);
+    const first = await as(author, "POST", `/api/claude/conversations/${sid}/visibility`, { visibility: "public" });
+    expect(first.statusCode).toBe(409);
+    expect((first.json() as { projects: { id: string }[] }).projects.map((p) => p.id).sort()).toEqual([p1.id, p2.id].sort());
+  });
+
+  it("dopo la pubblicazione il gruppo cambia e un progetto nuovo entra come contesto NON primario: resta fermo per l'autore", async () => {
+    const sid = await conversation();
+    expect((await patch(sid, { contexts: [{ kind: "project", id: p1.id }] })).statusCode).toBe(200);
+    await publish(sid);
+    // Il primario resta p1; p2 entra nel gruppo da non primario.
+    expect((await patch(sid, { contexts: [{ kind: "project", id: p2.id }, { kind: "project", id: p1.id }] })).statusCode).toBe(200);
+    // Il seguito privato comincia col messaggio dell'autore dopo la pubblicazione.
+    expect((await as(author, "POST", `/api/agent-sessions/${sid}/messages`, { text: "e questo?" })).statusCode).toBeLessThan(300);
+    const view = (await as(author, "GET", `/api/claude/conversations/${sid}`)).json() as { heldProjects: { id: string }[] };
+    expect(view.heldProjects.map((p) => p.id)).toEqual([p2.id]);
+  });
+});
+
+describe("revisione 8–9, M-5: dopo un rollback alla 0232 il `context_ref` scritto da un server di prima si accoda", () => {
+  it("il gruppo [p1] e un `context_ref` diverso (p2): la vista dice [p1, p2], primario p2", async () => {
+    const sid = await conversation();
+    await t.db.update(claudeConversations).set({ contextRefs: [{ kind: "project", id: p1.id }], contextRef: { kind: "project", id: p2.id } }).where(eq(claudeConversations.sessionId, sid));
+    const view = (await as(author, "GET", `/api/claude/conversations/${sid}`)).json() as { contexts: unknown[]; context: unknown };
+    expect(view.contexts).toEqual([{ kind: "project", id: p1.id }, { kind: "project", id: p2.id }]);
+    expect(view.context).toEqual({ kind: "project", id: p2.id });
+  });
+});
