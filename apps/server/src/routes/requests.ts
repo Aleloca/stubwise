@@ -1,5 +1,6 @@
 import { registerPersonMask } from "../services/people-known.js";
-import { backlogItemRequesters, backlogItems, projects } from "@stubwise/db";
+import { backlogItemRequesters, backlogItems, projects, type Db } from "@stubwise/db";
+import type { SessionUser } from "../auth/session.js";
 import { requestToConvertViewSchema, type RequestToConvertView } from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -24,6 +25,28 @@ const LIMIT = 200;
 /** Registro, A11 r.1414: le chiavi delle risposte che portano una persona. */
 const REQUEST_PERSON_KEYS: ReadonlySet<string> = new Set(["requesterIds"]);
 
+/**
+ * La regola delle richieste da trasformare (vedi sopra), in UN posto: la usano
+ * questa rotta e il polso aggregato (`GET /api/projects/pulses`, lotto 7, voce
+ * 4). `null` = chi guarda non può crearne in nessun progetto. La tabella
+ * `projects` va nel join di chi la usa (`backlogEnabled`).
+ */
+export async function requestsToConvertConditions(db: Db, viewer: SessionUser): Promise<SQL[] | null> {
+  const canCreate = await projectIdsWithPermission(db, viewer, "tickets.create");
+  if (!isAllProjects(canCreate) && canCreate.length === 0) return null;
+  const conditions: SQL[] = [
+    inArray(backlogItems.status, ["new", "refining", "ready"]),
+    isNull(backlogItems.mergedIntoId),
+    // Solo i progetti col backlog acceso (fix della review della fetta 3).
+    eq(projects.backlogEnabled, true),
+  ];
+  const inCreatable = inProjects(backlogItems.projectId, canCreate);
+  if (inCreatable) conditions.push(inCreatable);
+  const visible = backlogVisibleSql(await projectIdsWithPermission(db, viewer, "backlog.view_all"), viewer.id);
+  if (visible) conditions.push(visible);
+  return conditions;
+}
+
 export async function requestRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
   // Registro, A11 r.1414: chi guarda non riceve l'id di chi non conosce.
@@ -37,21 +60,8 @@ export async function requestRoutes(fastify: FastifyInstance): Promise<void> {
     },
     async (request): Promise<RequestToConvertView[]> => {
       const viewer = request.user!;
-      const canCreate = await projectIdsWithPermission(app.db, viewer, "tickets.create");
-      if (!isAllProjects(canCreate) && canCreate.length === 0) return [];
-      const conditions: SQL[] = [
-        inArray(backlogItems.status, ["new", "refining", "ready"]),
-        isNull(backlogItems.mergedIntoId),
-        // Solo i progetti col backlog acceso (fix della review della fetta 3).
-        eq(projects.backlogEnabled, true),
-      ];
-      const inCreatable = inProjects(backlogItems.projectId, canCreate);
-      if (inCreatable) conditions.push(inCreatable);
-      const visible = backlogVisibleSql(
-        await projectIdsWithPermission(app.db, viewer, "backlog.view_all"),
-        viewer.id,
-      );
-      if (visible) conditions.push(visible);
+      const conditions = await requestsToConvertConditions(app.db, viewer);
+      if (!conditions) return [];
       const rows = await app.db
         .select({
           id: backlogItems.id,

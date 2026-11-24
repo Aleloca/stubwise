@@ -1,4 +1,7 @@
 import { ArchiveError, deleteArchivedProject } from "../services/project-archive.js";
+import { projectPulses } from "../services/project-pulses.js";
+import { toPublicMilestone } from "./milestones.js";
+import { projectPulsesQuerySchema, projectPulsesResponseSchema } from "@stubwise/shared";
 import { orderedModules, patchProject } from "../services/project-patch.js";
 import {
   createProjectSchema,
@@ -440,6 +443,27 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         repositoryCount: countByProject.get(row.id) ?? 0,
         memberIds: membersOf.get(row.id) ?? [],
       }));
+    },
+  );
+
+  /**
+   * Lotto 7, voce 4: il polso della nuova app calcolato sul server
+   * (`services/project-pulses.ts`), al posto delle otto letture per progetto
+   * del renderer e senza il tetto delle 2000 righe. Letterale: PRIMA di
+   * `GET /:projectId` (vedi la nota di `/pulse` qui sotto).
+   */
+  app.get(
+    "/pulses",
+    {
+      config: { access: { kind: "user" } },
+      schema: {
+        querystring: projectPulsesQuerySchema,
+        response: { 200: projectPulsesResponseSchema, ...authErrorResponses },
+      },
+    },
+    async (request) => {
+      const rows = await projectPulses(app.db, request.user!, request.query.projectIds);
+      return { items: rows.map((r) => ({ ...r, nextMilestone: r.nextMilestone ? toPublicMilestone(r.nextMilestone) : null })) };
     },
   );
 
