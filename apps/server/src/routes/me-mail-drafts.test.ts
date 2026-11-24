@@ -958,8 +958,8 @@ describe("lotto 8, voce 2: rispondere da un alias (send-as), nessuno scope nuovo
     expect(mime).toMatch(/From: "Supporto Acme" <supporto@acme\.com>/);
     // Di nuovo senza `from`: resta l'alias.
     expect(((await save(me.headers, body)).json() as View).from).toBe(ALIAS);
-    // Esplicito al predefinito, poi uno fuori elenco.
-    expect(((await save(me.headers, { ...body, from: null })).json() as View).from).toBeNull();
+    // Esplicito al predefinito: qui il predefinito è l'alias, e si salva l'indirizzo EFFETTIVO (M-11).
+    expect(((await save(me.headers, { ...body, from: null })).json() as View).from).toBe(ALIAS);
     const bad = await save(me.headers, { ...body, from: "intruso@acme.com" });
     expect(bad.statusCode).toBe(422);
     expect(bad.json()).toMatchObject({ code: "invalid_from" });
@@ -973,6 +973,15 @@ describe("lotto 8, voce 2: rispondere da un alias (send-as), nessuno scope nuovo
     expect(res.statusCode, res.body).toBe(422);
     expect(res.json()).toMatchObject({ code: "invalid_from" });
     expect((await db.select({ state: mailDrafts.state }).from(mailDrafts).where(eq(mailDrafts.id, saved.id!)))[0]!.state).toBe("active");
+  });
+
+  it("revisione 8–9, M-11: `from: null` col predefinito che è un alias salva l'alias, e un alias tolto ferma l'Invia", async () => {
+    const { me, box, message } = await withAliases();
+    const saved = (await save(me.headers, { accountId: box.id, threadId: "t1", mode: "reply", replyToMessageId: message.id, to: [{ email: "cliente@x.it", name: null }], subject: "Re: Export", body: "Fatto.", quote: false, from: null })).json() as View;
+    expect(saved.from).toBe(ALIAS);
+    await db.update(googleAccounts).set({ sendAs: [{ email: box.email, displayName: null, isPrimary: true, isDefault: true, signature: null }] }).where(eq(googleAccounts.id, box.id));
+    const res = await app.inject({ method: "POST", url: `/api/me/mail/drafts/${saved.id}/send`, headers: me.headers, payload: {} });
+    expect(res.statusCode, res.body).toBe(422);
   });
 
   it("la casella dice i suoi alias (senza firma); senza gmail.modify `scope_missing`", async () => {

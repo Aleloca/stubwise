@@ -771,7 +771,12 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   nella vista. La riga non si cancella perché la leggono la numerazione
   (`max(n) + 1` in quattro posti), `lastRunAt` e l'origine di task,
   traguardi e richieste (`ON DELETE SET NULL`). Giro del worker ogni 10′, a
-  lotti da 200. Cosa dice l'app di una compattata: 94.
+  lotti da 200. Cosa dice l'app di una compattata: 94. **Limite accettato
+  (revisione 8–9, M-7)**: dopo la compattazione l'ORIGINE di una task o di un
+  traguardo creati dall'esecuzione dice ancora l'automazione e il numero, ma
+  non più il PASSO che li ha creati (`entry` null: il registro non c'è più).
+  La compattazione salta un'esecuzione presa da un giro vivo o con un input
+  ancora da consumare (un «Riprova», M-6).
 - F2, le email automatiche *(M, review F2 C2, 13 nov 2026)*: le email delle
   automazioni portano `Auto-Submitted: auto-generated`; un'email in arrivo
   automatica (`Auto-Submitted` diverso da `no`, mailer-daemon, postmaster)

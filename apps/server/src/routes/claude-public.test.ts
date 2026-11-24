@@ -405,9 +405,11 @@ describe("review della fetta 5", () => {
 describe("lotto 8, voce 3: i contesti accumulati e chi li legge", () => {
   it("NEGATIVO: in una pubblica il lettore non riceve i contesti di un progetto che non vede, né nel gruppo né sotto il messaggio", async () => {
     const sid = await conversation();
+    // Revisione 8–9 (I-2): una task di contesto si vede con la sua visibilità vera, quindi deve ESISTERE.
+    await t.db.insert(tickets).values({ projectId: p2.id, number: 501, title: "Di p2", type: "task", priority: "medium", source: "manual" });
     const contexts = [
       { kind: "project", id: p2.id },
-      { kind: "task", id: `${p2.code}-1` },
+      { kind: "task", id: `${p2.code}-501` },
       // Senza progetto: la posta dell'autore resta a lui solo.
       { kind: "mail", id: "casella-ada/thread-segreto" },
       { kind: "project", id: p1.id },
@@ -434,7 +436,7 @@ describe("lotto 8, voce 3: i contesti accumulati e chi li legge", () => {
     expect((events.json() as { events: { type: string; data: { contexts?: unknown[] } }[] }).events.find((e) => e.type === "input")!.data.contexts).toEqual([{ kind: "project", id: p1.id }]);
     for (const body of [view.body, events.body]) {
       expect(body).not.toContain(p2.id);
-      expect(body).not.toContain(`${p2.code}-1`);
+      expect(body).not.toContain(`${p2.code}-501`);
       expect(body).not.toContain("thread-segreto");
     }
   });
@@ -442,7 +444,9 @@ describe("lotto 8, voce 3: i contesti accumulati e chi li legge", () => {
   it("il gruppo: `contexts` sostituisce (senza doppioni, oltre 5 è 422), il vecchio `context` aggiunge in fondo e toglie il più vecchio", async () => {
     const sid = await conversation();
     const patch = (payload: Record<string, unknown>) => app.inject({ method: "PATCH", url: `/api/claude/conversations/${sid}`, headers: { cookie: author.headers.cookie }, payload });
-    const six = Array.from({ length: 6 }, (_, i) => ({ kind: "task", id: `${p1.code}-${i + 1}` }));
+    // Le task devono esistere (I-2: la visibilità vera dell'oggetto).
+    await t.db.insert(tickets).values(Array.from({ length: 6 }, (_, i) => ({ projectId: p1.id, number: 601 + i, title: `G${i}`, type: "task" as const, priority: "medium" as const, source: "manual" as const })));
+    const six = Array.from({ length: 6 }, (_, i) => ({ kind: "task", id: `${p1.code}-${601 + i}` }));
     const tooMany = await patch({ contexts: six });
     expect(tooMany.statusCode).toBe(422);
     expect(tooMany.json()).toMatchObject({ code: "too_many_contexts" });
@@ -500,6 +504,17 @@ describe("lotto 9, voce 1: le citazioni dei messaggi di Claude", () => {
     expect((resolved.json() as { items: { id: string; label: string }[] }).items.map((i) => i.id)).toEqual([a.id]);
   });
 
+  it("revisione 8–9, I-3: i codici della prosa di più turni, risolti insieme, vanno ognuno al SUO turno", async () => {
+    const sid = await conversation();
+    const ts = [await task(p1.id, p1.code), await task(p1.id, p1.code), await task(p1.id, p1.code)];
+    for (const tk of ts) {
+      await event(sid, "input", { text: "e questa?" });
+      await event(sid, "assistant_text", { text: `Parlo di ${tk.code}.` });
+      await event(sid, "turn_end", {});
+    }
+    expect(turnEnd((await as(author, "GET", `/api/agent-sessions/${sid}/events?limit=200`)).json().events)).toEqual(ts.map((tk) => [{ kind: "task", id: tk.id }]));
+  });
+
   it("FAIL-OPEN: se la registrazione non riesce, la lettura risponde lo stesso", async () => {
     const sid = await conversation();
     const a = await task(p1.id, p1.code);
@@ -546,5 +561,61 @@ describe("revisione 8–9, M-5: dopo un rollback alla 0232 il `context_ref` scri
     const view = (await as(author, "GET", `/api/claude/conversations/${sid}`)).json() as { contexts: unknown[]; context: unknown };
     expect(view.contexts).toEqual([{ kind: "project", id: p1.id }, { kind: "project", id: p2.id }]);
     expect(view.context).toEqual({ kind: "project", id: p2.id });
+  });
+});
+
+describe("revisione 8–9, I-2: i contesti si filtrano con la visibilità VERA dell'oggetto, non solo col progetto", () => {
+  it("un membro SENZA tickets.view_all (Contributor) non riceve il codice di una task che non vede: né nel gruppo, né sotto il messaggio, né nella continuazione", async () => {
+    const contributor = await createUserWithSession(app, `contrib-${randomUUID()}@example.com`);
+    await addMember(app, p1.id, contributor.id, "contributor");
+    const [tk] = await t.db.insert(tickets).values({ projectId: p1.id, number: 7_777, title: "Riservata", type: "task", priority: "medium", source: "manual" }).returning({ id: tickets.id });
+    void tk;
+    const taskCode = `${p1.code}-7777`;
+    const sid = await conversation();
+    const contexts = [{ kind: "task", id: taskCode }, { kind: "project", id: p1.id }];
+    expect((await app.inject({ method: "PATCH", url: `/api/claude/conversations/${sid}`, headers: { cookie: author.headers.cookie }, payload: { contexts } })).statusCode).toBe(200);
+    const sent = await as(author, "POST", `/api/agent-sessions/${sid}/messages`, { text: "guarda" });
+    const { inputId } = sent.json() as { inputId: string };
+    await t.db.update(agentSessionInputs).set({ status: "delivered", deliveredAt: new Date() }).where(eq(agentSessionInputs.sessionId, sid));
+    await event(sid, "input", { text: "guarda", inputId, authorUserId: author.id });
+    await event(sid, "turn_end", {});
+    await publish(sid);
+
+    const view = await as(contributor, "GET", `/api/claude/conversations/${sid}`);
+    expect(view.statusCode, view.body).toBe(200);
+    expect((view.json() as { contexts: unknown[] }).contexts).toEqual([{ kind: "project", id: p1.id }]);
+    const events = await as(contributor, "GET", `/api/agent-sessions/${sid}/events?limit=200`);
+    expect((events.json() as { events: { type: string; data: { contexts?: unknown[] } }[] }).events.find((e) => e.type === "input")!.data.contexts).toEqual([{ kind: "project", id: p1.id }]);
+    const cont = await as(contributor, "POST", `/api/claude/conversations/${sid}/continue`, {});
+    expect(cont.statusCode, cont.body).toBeLessThan(300);
+    const mine = (await as(contributor, "GET", `/api/claude/conversations/${(cont.json() as { id: string }).id}`)).json() as { contexts: unknown[] };
+    expect(mine.contexts).toEqual([{ kind: "project", id: p1.id }]);
+    for (const body of [view.body, events.body, JSON.stringify(mine)]) expect(body).not.toContain(taskCode);
+    // L'autore (che la vede) la ha ancora.
+    expect(((await as(author, "GET", `/api/claude/conversations/${sid}`)).json() as { contexts: unknown[] }).contexts).toEqual(contexts);
+  });
+});
+
+describe("revisione 8–9, M-1: l'elenco calcola la visibilità una volta, sempre quella di chi guarda", () => {
+  it("nell'elenco delle pubbliche il lettore riceve solo i contesti che vede; l'autore nel suo elenco tutti", async () => {
+    const sid = await conversation();
+    const contexts = [{ kind: "project", id: p2.id }, { kind: "project", id: p1.id }];
+    expect((await app.inject({ method: "PATCH", url: `/api/claude/conversations/${sid}`, headers: { cookie: author.headers.cookie }, payload: { contexts } })).statusCode).toBe(200);
+    await publish(sid);
+    const listed = (await as(reader, "GET", "/api/claude/conversations?scope=public")).json() as { items: { id: string; contexts: unknown[] }[] };
+    expect(listed.items.find((i) => i.id === sid)!.contexts).toEqual([{ kind: "project", id: p1.id }]);
+    const own = (await as(author, "GET", "/api/claude/conversations")).json() as { items: { id: string; contexts: unknown[] }[] };
+    expect(own.items.find((i) => i.id === sid)!.contexts).toEqual(contexts);
+  });
+});
+
+describe("revisione 8–9, M-4: per l'autore il primario è il vero ultimo, anche se il filtro lo toglie", () => {
+  it("l'ultimo contesto è una task che non esiste più: l'elenco la toglie, `context` resta lei per l'autore", async () => {
+    const sid = await conversation();
+    const gone = { kind: "task", id: `${p1.code}-99999` };
+    await t.db.update(claudeConversations).set({ contextRefs: [{ kind: "project", id: p1.id }, gone], contextRef: gone }).where(eq(claudeConversations.sessionId, sid));
+    const view = (await as(author, "GET", `/api/claude/conversations/${sid}`)).json() as { contexts: unknown[]; context: unknown };
+    expect(view.contexts).toEqual([{ kind: "project", id: p1.id }]);
+    expect(view.context).toEqual(gone);
   });
 });

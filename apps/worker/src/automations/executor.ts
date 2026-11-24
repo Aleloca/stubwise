@@ -12,6 +12,7 @@ import {
   type Db,
 } from "@stubwise/db";
 import { approversFor as resolveApprovers, publishNotification } from "@stubwise/notifications";
+import { AUTOMATION_RUN_DETAILS_DAYS } from "@stubwise/shared";
 import {
   advance,
   approvalProjectOf,
@@ -182,7 +183,8 @@ export async function executeDueRuns(deps: ExecutorDeps): Promise<number> {
  * lo stesso giorno. A lotti (`RUN_PRUNE_BATCH`), le righe prese con `SKIP
  * LOCKED`, una transazione per lotto; al più ogni `RUN_PRUNE_EVERY_MS`.
  */
-export const RUN_RETENTION_DAYS = 90;
+/** I giorni dopo i quali una finita si compatta: UNA costante, condivisa col prototipo (`@stubwise/shared`). */
+export const RUN_RETENTION_DAYS = AUTOMATION_RUN_DETAILS_DAYS;
 export const RUN_PRUNE_BATCH = 200;
 const RUN_PRUNE_EVERY_MS = 10 * 60_000;
 let lastRunPrune = 0;
@@ -195,7 +197,11 @@ export async function pruneFinishedRuns(db: Db, batch = RUN_PRUNE_BATCH): Promis
       .where(
         sql`${automationRuns.status} in ('done', 'failed', 'cancelled')
           and ${automationRuns.detailsPrunedAt} is null
-          and ${automationRuns.endedAt} < now() - make_interval(days => ${RUN_RETENTION_DAYS})`,
+          and ${automationRuns.endedAt} < now() - make_interval(days => ${RUN_RETENTION_DAYS})
+          -- Revisione 8–9 (M-6): mai sotto un altro giro dell'esecutore (presa
+          -- viva) né con un input ancora da consumare (un «Riprova»).
+          and (${automationRuns.claimedBy} is null or ${automationRuns.claimedAt} < now() - make_interval(secs => ${RUN_LEASE_MS / 1000}))
+          and not exists (select 1 from ${automationRunInputs} i where i.run_id = ${automationRuns.id} and i.consumed_at is null)`,
       )
       .orderBy(asc(automationRuns.endedAt))
       .limit(batch)

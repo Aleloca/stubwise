@@ -307,6 +307,15 @@ describe("executeDueRuns", () => {
     const { run: open } = await runOf([task({ approval: { mode: "ask", who: { owner: true } } })]);
     await exec();
     await t.db.update(automationRuns).set({ startedAt: old }).where(eq(automationRuns.id, open.id));
+    // Revisione 8–9: una NON terminale con `endedAt` vecchio (M-8), una finita
+    // presa da un giro vivo e una finita con un input da consumare (M-6) restano.
+    const { run: notEnded } = await runOf([]);
+    await t.db.update(automationRuns).set({ status: "suspended", endedAt: old }).where(eq(automationRuns.id, notEnded.id));
+    const { run: claimed } = await runOf([]);
+    await t.db.update(automationRuns).set({ status: "done", endedAt: old, claimedBy: "altro-giro", claimedAt: new Date() }).where(eq(automationRuns.id, claimed.id));
+    const { run: retried } = await runOf([]);
+    await t.db.update(automationRuns).set({ status: "failed", endedAt: old }).where(eq(automationRuns.id, retried.id));
+    await t.db.insert(automationRunInputs).values({ runId: retried.id, input: { control: "retry", byId: ownerId }, byId: ownerId });
 
     expect(await pruneFinishedRuns(t.db)).toBeGreaterThanOrEqual(1);
     const pruned = await reload(run.id);
@@ -319,6 +328,7 @@ describe("executeDueRuns", () => {
     expect((await reload(recent.id)).detailsPrunedAt).toBeNull();
     expect((await logOf(recent.id)).length).toBeGreaterThan(0);
     expect((await reload(open.id)).detailsPrunedAt).toBeNull();
+    for (const keep of [notEnded, claimed, retried]) expect((await reload(keep.id)).detailsPrunedAt).toBeNull();
     // Un secondo giro non la ritocca.
     const at = pruned.detailsPrunedAt!.getTime();
     await pruneFinishedRuns(t.db);

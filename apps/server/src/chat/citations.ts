@@ -287,50 +287,69 @@ export async function hasVisibleCitationSql(db: Db, viewer: ChatViewer, messageI
 
 /** Le task e le richieste che chi guarda vede, dai codici scritti nel testo. */
 export async function citeablesFromCodes(db: Db, viewer: ChatViewer, text: string): Promise<Citeable[]> {
+  const byCode = await citeablesByCode(db, viewer, text);
+  const out: Citeable[] = [];
+  for (const c of byCode.values()) if (!out.some((x) => x.kind === c.kind && x.id === c.id)) out.push(c);
+  return out;
+}
+
+/**
+ * I codici di `text` (task, richieste, pagine Docs, file del Drive) che chi
+ * guarda VEDE, per codice: quattro query al più, qualunque sia la lunghezza
+ * del testo. Revisione 8–9 (I-3): le citazioni dei turni di una pagina si
+ * risolvono con UNA chiamata e si distribuiscono per turno col codice.
+ */
+export async function citeablesByCode(db: Db, viewer: ChatViewer, text: string): Promise<Map<string, Citeable>> {
   const codes = codesIn(text);
-  if (codes.length === 0) return [];
+  if (codes.length === 0) return new Map();
+  const codeOf = (projectCode: string, kind: CodeKind, number: number) => codes.find((c) => c.projectCode === projectCode && c.kind === kind && c.number === number)?.code;
   const byCode = (kind: "task" | "request") =>
     codes.filter((c) => c.kind === kind).map((c) => and(eq(projects.code, c.projectCode), eq(kind === "task" ? tickets.number : backlogItems.number, c.number))!);
-  const found: { kind: CodeKind; id: string }[] = [];
+  const found: { kind: CodeKind; id: string; code: string }[] = [];
+  const push = (kind: CodeKind, rows: { id: string; projectCode: string; number: number }[]) => {
+    for (const r of rows) {
+      const code = codeOf(r.projectCode, kind, r.number);
+      if (code) found.push({ kind, id: r.id, code });
+    }
+  };
   const tasks = byCode("task");
   if (tasks.length > 0) {
-    const rows = await db
-      .select({ id: tickets.id })
-      .from(tickets)
-      .innerJoin(projects, eq(projects.id, tickets.projectId))
-      .where(or(...tasks));
-    found.push(...rows.map((r) => ({ kind: "task" as const, id: r.id })));
+    push("task", await db.select({ id: tickets.id, projectCode: projects.code, number: tickets.number }).from(tickets).innerJoin(projects, eq(projects.id, tickets.projectId)).where(or(...tasks)));
   }
   const requests = byCode("request");
   if (requests.length > 0) {
-    const rows = await db
-      .select({ id: backlogItems.id })
-      .from(backlogItems)
-      .innerJoin(projects, eq(projects.id, backlogItems.projectId))
-      .where(or(...requests));
-    found.push(...rows.map((r) => ({ kind: "request" as const, id: r.id })));
+    push("request", await db.select({ id: backlogItems.id, projectCode: projects.code, number: backlogItems.number }).from(backlogItems).innerJoin(projects, eq(projects.id, backlogItems.projectId)).where(or(...requests)));
   }
   const docs = codes.filter((c) => c.kind === "doc");
   if (docs.length > 0) {
-    const rows = await db
-      .select({ id: docPageCodes.id })
-      .from(docPageCodes)
-      .innerJoin(projects, eq(projects.id, docPageCodes.projectId))
-      .where(or(...docs.map((c) => and(eq(projects.code, c.projectCode), eq(docPageCodes.number, c.number))!)));
-    found.push(...rows.map((r) => ({ kind: "doc" as const, id: r.id })));
+    push(
+      "doc",
+      await db
+        .select({ id: docPageCodes.id, projectCode: projects.code, number: docPageCodes.number })
+        .from(docPageCodes)
+        .innerJoin(projects, eq(projects.id, docPageCodes.projectId))
+        .where(or(...docs.map((c) => and(eq(projects.code, c.projectCode), eq(docPageCodes.number, c.number))!))),
+    );
   }
   const files = codes.filter((c) => c.kind === "drive");
   if (files.length > 0) {
-    const rows = await db
-      .select({ id: driveFiles.id })
-      .from(driveFiles)
-      .innerJoin(projects, eq(projects.id, driveFiles.projectId))
-      .where(or(...files.map((c) => and(eq(projects.code, c.projectCode), eq(driveFiles.number, c.number))!)));
-    found.push(...rows.map((r) => ({ kind: "drive" as const, id: r.id })));
+    push(
+      "drive",
+      await db
+        .select({ id: driveFiles.id, projectCode: projects.code, number: driveFiles.number })
+        .from(driveFiles)
+        .innerJoin(projects, eq(projects.id, driveFiles.projectId))
+        .where(or(...files.map((c) => and(eq(projects.code, c.projectCode), eq(driveFiles.number, c.number))!))),
+    );
   }
   // La visibilità la decide `citeablesFor`, la stessa della lettura.
   const visible = await citeablesFor(db, viewer, found);
-  return [...visible.values()];
+  const out = new Map<string, Citeable>();
+  for (const f of found) {
+    const c = visible.get(keyOf(f.kind, f.id));
+    if (c) out.set(f.code, c);
+  }
+  return out;
 }
 
 /**
