@@ -177,6 +177,15 @@ E la tabella degli accoppiamenti in corso, `vault_device_pairings` (§6.2):
 
 ### 6.2 Il sigillo nasce SOLO dal browser, con la passkey
 
+> **Com'è stato costruito (72, 24 nov 2026, commit della voce 2).** Il corpo
+> del sigillo è `{ pairingState, deviceId, seal, actorProof }`: PAT e pubblica
+> del Mac il server li prende dall'associazione (non dal corpo, quindi niente
+> da confrontare). Il browser legge l'associazione con `POST
+> /api/vault/device-pairings/lookup { state }` (lo state nel corpo, non nel
+> percorso: non finisce nei log). I motivi di revoca: `forgotten` (dal Mac),
+> `removed` (dal browser), `admin_removed` (D-6), `replaced` (riassociato
+> dallo stesso PAT). Le forme delle rotte sono in `packages/shared/src/schemas/vault.ts`.
+
 `POST /api/vault/device-seals` (da **sessione** del browser, `browserOnly`,
 riconferma recente, cassaforte aperta):
 

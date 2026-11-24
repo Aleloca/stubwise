@@ -1639,6 +1639,13 @@
       "when": 1804723200000,
       "tag": "0235_calendar_project_guess",
       "breakpoints": true
+    },
+    {
+      "idx": 236,
+      "version": "7",
+      "when": 1804809600000,
+      "tag": "0236_vault_device_seals",
+      "breakpoints": true
     }
   ]
 }

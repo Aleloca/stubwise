@@ -143,6 +143,9 @@ describe("rotte con riconferma recente", () => {
       "DELETE /api/users/:id/git-identities/:email",
       "DELETE /api/users/:id/second-factor",
       "DELETE /api/users/:id/slack",
+      // Lotto 10: togliere un Mac dalla cassaforte (il proprio, o di un altro da un full admin).
+      "DELETE /api/vault/device-seals/:id",
+      "DELETE /api/vault/users/:userId/device-seals/:id",
       "PATCH /api/roles/:id",
       "PATCH /api/users/:id/email",
       "PATCH /api/users/:id/instance-role",
@@ -179,6 +182,8 @@ describe("rotte con riconferma recente", () => {
       "POST /api/users/:id/password-reset",
       "POST /api/users/:id/reactivate",
       "POST /api/vault/activate",
+      // Lotto 10: sigillare la propria chiave per un Mac (dal browser).
+      "POST /api/vault/device-seals",
       "POST /api/vault/keys",
       "POST /api/vault/keys/:id/seals",
       "POST /api/vault/recovery-key",

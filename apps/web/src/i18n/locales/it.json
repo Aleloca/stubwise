@@ -1148,7 +1148,9 @@
           "reactivated": "Account riattivato",
           "email_changed": "Email di accesso cambiata",
           "slack_linked": "Account Slack collegato da un altro",
-          "bitbucket_linked": "Utente Bitbucket collegato da un altro"
+          "bitbucket_linked": "Utente Bitbucket collegato da un altro",
+          "vault_device_sealed": "Mac associato alla cassaforte",
+          "vault_device_seal_revoked": "Mac tolto dalla cassaforte"
         }
       }
     },
