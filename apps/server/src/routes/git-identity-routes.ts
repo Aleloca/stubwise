@@ -1,9 +1,10 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { roleRuleErrorSchema } from "./roles.js";
-import { gitAuthorsSeen, gitIdentities, users } from "@stubwise/db";
+import { activityCommits, gitAuthorsSeen, gitIdentities, projects, repositories, users } from "@stubwise/db";
+import { inProjectsStrict, isAllProjects, visibleProjectIds } from "../auth/access.js";
 import { apiError } from "../errors.js";
 import { publishSecurityAlert } from "../auth/second-factor/alerts.js";
 import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
@@ -44,6 +45,14 @@ const observedAuthorSchema = z.object({
   lastSeenAt: z.iso.datetime(),
   /** Id del membro Stubwise linkato a questa email (via git_identities), o null. */
   linkedUserId: z.uuid().nullable(),
+  /**
+   * Rimandi, lotto 5 (il prototipo, «N commit in ACQ»): i commit di questa
+   * email nei report giornalieri (`activity_commits`), e i codici dei progetti
+   * in cui stanno — SOLO i progetti che chi guarda vede. `.default`: un
+   * server più vecchio non li manda.
+   */
+  commits: z.number().int().default(0),
+  projectCodes: z.array(z.string()).default([]),
 });
 
 export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void> {
@@ -263,7 +272,7 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
       config: { access: { kind: "instance", permission: "users.manage" } },
       schema: { response: { 200: z.array(observedAuthorSchema), ...authErrorResponses } },
     },
-    async () => {
+    async (request) => {
       const seen = await app.db
         .select()
         .from(gitAuthorsSeen)
@@ -272,11 +281,31 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
         .select({ email: gitIdentities.email, userId: gitIdentities.userId })
         .from(gitIdentities);
       const byEmail = new Map(linked.map((l) => [l.email, l.userId]));
+      // I commit per email e progetto, nei soli progetti visibili (nella WHERE). Una query.
+      const scope = await visibleProjectIds(app.db, request.user!);
+      const counts =
+        seen.length === 0 || (!isAllProjects(scope) && scope.length === 0)
+          ? []
+          : await app.db
+              .select({ email: sql<string>`lower(${activityCommits.authorEmail})`, code: projects.code, n: sql<number>`count(distinct ${activityCommits.sha})::int` })
+              .from(activityCommits)
+              .innerJoin(repositories, eq(repositories.id, activityCommits.repoId))
+              .innerJoin(projects, eq(projects.id, repositories.projectId))
+              .where(and(inProjectsStrict(repositories.projectId, scope), inArray(sql`lower(${activityCommits.authorEmail})`, seen.map((s) => s.email.toLowerCase()))))
+              .groupBy(sql`lower(${activityCommits.authorEmail})`, projects.code);
+      const commitsOf = new Map<string, { commits: number; projectCodes: string[] }>();
+      for (const c of [...counts].sort((a, b) => a.code.localeCompare(b.code))) {
+        const row = commitsOf.get(c.email) ?? { commits: 0, projectCodes: [] };
+        row.commits += c.n;
+        row.projectCodes.push(c.code);
+        commitsOf.set(c.email, row);
+      }
       return seen.map((s) => ({
         email: s.email,
         authorName: s.authorName,
         lastSeenAt: s.lastSeenAt.toISOString(),
         linkedUserId: byEmail.get(s.email) ?? null,
+        ...(commitsOf.get(s.email.toLowerCase()) ?? { commits: 0, projectCodes: [] }),
       }));
     },
   );

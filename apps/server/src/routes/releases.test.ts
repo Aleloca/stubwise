@@ -151,6 +151,26 @@ describe("i rilasci", () => {
     }
   });
 
+  it("⌘K (rimandi, lotto 5): per codice o titolo, SOLO nei progetti che chi cerca vede; il `%` dell'utente è letterale; sotto i 2 caratteri niente", async () => {
+    const a = await setup("failed");
+    const b = await setup("success");
+    await db.update(releases).set({ title: "Pagamenti 100% sicuri" }).where(eq(releases.id, b.release.id));
+    const search = async (headers: { cookie: string }, q: string) =>
+      ((await app.inject({ method: "GET", url: `/api/releases/search?q=${encodeURIComponent(q)}`, headers })).json() as { items: { id: string; code: string; label: string; projectCode: string; status: string }[] }).items;
+    // Il lead di A vede solo il rilascio di A, per titolo (senza distinzione di maiuscole) e per codice.
+    expect((await search(a.lead.headers, "checkout")).map((r) => r.id)).toEqual([a.release.id]);
+    expect(await search(a.lead.headers, a.release.code.toLowerCase())).toEqual([
+      { kind: "release", id: a.release.id, code: a.release.code, label: "Checkout", projectId: a.projectId, projectCode: a.release.code.split("-")[0], status: "failed" },
+    ]);
+    expect(await search(a.lead.headers, b.release.code)).toEqual([]);
+    // Chi non vede nessuno dei due: niente.
+    expect(await search(a.outsider.headers, "Checkout")).toEqual([]);
+    // `%` letterale: «100%» trova il titolo, «0%s» (che come motivo sarebbe «0…s») no.
+    expect((await search(b.lead.headers, "100%")).map((r) => r.id)).toEqual([b.release.id]);
+    expect(await search(b.lead.headers, "0%s")).toEqual([]);
+    expect(await search(b.lead.headers, "P")).toEqual([]);
+  });
+
   it("un rilascio non fallito non si fa sistemare (409); senza tickets.create 403 e nessuna task", async () => {
     const ok = await setup("success");
     expect((await call(ok.lead.headers, "POST", `/releases/${ok.release.code}/fix`, {})).statusCode).toBe(409);

@@ -242,3 +242,52 @@ export async function whatCan(db: Db, viewer: Viewer, userId: string, projectId:
   }
   return { userId, instance: instanceWithReasons(person), projects: perProject };
 }
+
+/**
+ * «You'd lose» (rimandi, lotto 5; registro, M1 di 46 sulla review di F1):
+ * cosa perderebbe DAVVERO chi guarda se il ruolo `roleId` avesse
+ * `nextPermissions`. La regola del prototipo (`viewerLosesIf`,
+ * `data/admin/roles.ts`): si confrontano i permessi EFFETTIVI di chi guarda
+ * prima e dopo, all'istanza e in ogni progetto di cui è membro — ruolo,
+ * concessioni personali, reparti, full admin —, quindi un permesso che resta
+ * da un'altra fonte non è perso. Prima i permessi tolti dal ruolo, poi il
+ * resto (un permesso che se ne va con `instance.full_admin`). Lettura pura.
+ */
+export async function viewerLosesIf(db: Db, viewer: Viewer, roleId: string, nextPermissions: readonly string[]): Promise<string[]> {
+  const [role] = await db.select({ id: roles.id, permissions: roles.permissions }).from(roles).where(eq(roles.id, roleId));
+  if (!role) throw new RoleRuleError(404, "not_found", "Role not found");
+  const [me] = await db
+    .select({ instanceRoleId: users.instanceRoleId, instanceRolePermissions: instanceRoles.permissions })
+    .from(users)
+    .innerJoin(instanceRoles, eq(instanceRoles.id, users.instanceRoleId))
+    .where(eq(users.id, viewer.id));
+  if (!me) return [];
+  const swap = (id: string | null, perms: readonly string[] | null) => (id === roleId ? nextPermissions : (perms ?? []));
+  const instBefore = effectiveInstancePermissions(me.instanceRolePermissions);
+  const instAfter = effectiveInstancePermissions(swap(me.instanceRoleId, me.instanceRolePermissions));
+  const lost = new Set<string>();
+  for (const p of instBefore) if (!instAfter.has(p)) lost.add(p);
+
+  const mine = await db
+    .select({
+      projectId: projectMembers.projectId,
+      roleId: projectMembers.roleId,
+      rolePermissions: memberRoles.permissions,
+      memberPermissions: memberPermissionsSql(memberRoles.permissions, projectMembers.projectId, projectMembers.userId),
+    })
+    .from(projectMembers)
+    .innerJoin(memberRoles, eq(memberRoles.id, projectMembers.roleId))
+    .where(eq(projectMembers.userId, viewer.id));
+  const projectIds = mine.map((m) => m.projectId);
+  const grants = groupByUser(await grantsOf(db, projectIds, [viewer.id])).get(viewer.id) ?? [];
+  const fromDepartments = (await departmentGrantsOf(db, [viewer.id])).map((g) => g.permission);
+  for (const m of mine) {
+    // Dopo: il ruolo nuovo (se è questo) più le fonti che non dipendono dal ruolo.
+    const others = [...grants.filter((g) => g.projectId === m.projectId).map((g) => g.permission), ...fromDepartments];
+    const before = effectiveProjectPermissions(instBefore, m.memberPermissions ?? []) ?? new Set();
+    const after = effectiveProjectPermissions(instAfter, [...swap(m.roleId, m.rolePermissions), ...others]) ?? new Set();
+    for (const p of before) if (!after.has(p)) lost.add(p);
+  }
+  const removed = role.permissions.filter((p) => !nextPermissions.includes(p));
+  return [...removed.filter((p) => lost.has(p)), ...[...lost].filter((p) => !removed.includes(p))];
+}

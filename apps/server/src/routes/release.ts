@@ -7,7 +7,7 @@ import { legacyScope, projectIdsWithPermission } from "../auth/access.js";
 import { fromTicket, ticketVisible } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
 import { listReleaseQueue, releasePullRequest } from "../services/release.js";
-import { fixRelease, getRelease, listProjectReleases, ReleaseError } from "../services/releases.js";
+import { fixRelease, getRelease, listProjectReleases, ReleaseError, searchReleases } from "../services/releases.js";
 import { listOpenPulls, setPrAnalysisOnly } from "../services/pulls.js";
 import { getPrReleaseNotes, putPrReleaseNotes } from "../services/pr-release-notes.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
@@ -62,6 +62,12 @@ export async function releaseRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => handle(reply, () => putPrReleaseNotes(app.db, app.encryptionKey, request.user!, { ...request.params, body: request.body.body })),
   );
   const codeParams = z.object({ code: z.string().min(1).max(40) });
+  // ⌘K (rimandi, lotto 5): PRIMA di `/releases/:code`, o «search» sarebbe un codice.
+  app.get(
+    "/releases/search",
+    { config: { access: { kind: "user" } }, schema: { querystring: z.object({ q: z.string().max(200).default("") }) } },
+    async (request) => ({ items: await searchReleases(app.db, request.user!, request.query.q) }),
+  );
   app.get("/releases/:code", { config: { access: { kind: "user" } }, schema: { params: codeParams } }, async (request, reply) =>
     handle(reply, () => getRelease(app.db, request.user!, request.params.code)),
   );

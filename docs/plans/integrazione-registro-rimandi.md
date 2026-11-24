@@ -733,12 +733,16 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   allora si collegano col webhook in arrivo), i webhook in uscita (area 9),
   le azioni di Claude sulle automazioni (area 10).
 
-- F3, il costo di un passo della prova *(S, 72, 13 nov 2026)*: la risposta di
+- ~~F3, il costo di un passo della prova *(S, 72, 13 nov 2026)*: la risposta di
   `POST …/test/claude` non ha `costUsd`, perché il `ChatLlm` del server non
   restituisce il costo allo stream (lo stima e lo scrive in `agent_runs`).
   Il consumo della prova c'è comunque in Usage (owner `automation_id`, senza
   run); se la pagina della prova vorrà il costo per passo, il `ChatLlm` deve
-  restituire i token a fine stream.
+  restituire i token a fine stream.~~ *Parte server chiusa il 24 nov 2026
+  (72, lotto 5)*: `ChatLlmInput.onUsage` riceve a fine stream modello, token
+  e costo stimato (la stessa cifra della riga di Usage); la risposta di
+  `POST …/test/claude` porta `costUsd` (null se il modello non ha un
+  prezzo), anche nei dettagli del 422 `claude_invalid`.
 
 - F3, le richieste dal supporto *(O, 46, review F3 I4, 13 nov 2026)*: titolo
   e descrizione di una richiesta sono tinti per `request_created` e
@@ -794,8 +798,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     per dopo;~~ *parte server chiusa il 23 nov 2026 (72, lotto 4)*: la
     risposta del repository (elenco e dettaglio) porta `canManage`
     (`repos.manage` di chi chiede, `.default(false)`); il renderer può
-    leggerlo al posto di `/api/auth/me`; la ricerca dei rilasci nella palette (`releases-search`)
-    resta spenta finché il server non ha una ricerca dei rilasci;
+    leggerlo al posto di `/api/auth/me`; ~~la ricerca dei rilasci nella palette (`releases-search`)
+    resta spenta finché il server non ha una ricerca dei rilasci;~~ *parte
+    server chiusa il 24 nov 2026 (72, lotto 5)*: `GET /api/releases/search?q=`
+    (`{ items: ReleaseSearchResult[] }`, per codice o titolo, solo nei
+    progetti visibili, dal più recente, 20 al più, da 2 caratteri);
   - fatti che il server non legge nella F1 e la pagina non inventa:
     `mergeable` (mai «conflitti» se non letto), il rischio di una PR esterna,
     l'autore di una PR esterna, le correzioni `discarded` (non derivate);
@@ -910,8 +917,12 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - **un `kind` sconosciuto nei filtri di un widget** (un server più nuovo):
     l'app lo legge come `__unknown__` e salvando lo toglie, perché non può
     rimandarlo com'era;
-  - **la ricerca ⌘K delle conversazioni** (`support-search`): nessuna rotta,
-    fuori dalla F3;
+  - ~~**la ricerca ⌘K delle conversazioni** (`support-search`): nessuna rotta,
+    fuori dalla F3;~~ *parte server chiusa il 24 nov 2026 (72, lotto 5)*:
+    `GET /api/support/search?q=` (`{ items: SupportSearchResult[] }`, per
+    codice o cliente — nome o email —, solo nei progetti visibili e nella
+    WHERE, dalla più recente, 20 al più, da 2 caratteri; il desiderio
+    riscritto non c'è sul server, quindi non si cerca);
   - **una card `support.*` non rilegge Support**: nessun legame fra le card
     dell'inbox e le aree; aprirla legge la conversazione, il ritmo (15 s /
     30 s) copre il resto.
@@ -1032,8 +1043,12 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - **il server di un ambiente si sceglie fra i suggerimenti** (i server che
     chi scrive vede), ma il campo resta testo: un codice che non vede è
     `invalid: serverCode` (lo stesso 422 `server_not_visible` del server);
-  - **SSH, analisi, progetto principale, ricerca ⌘K dei server**: spenti
-    (F4b, o fuori); le simulazioni restano solo del prototipo.
+  - **SSH, analisi, progetto principale, ~~ricerca ⌘K dei server~~**: spenti
+    (F4b, o fuori); le simulazioni restano solo del prototipo. *La ricerca
+    ⌘K, parte server, chiusa il 24 nov 2026 (72, lotto 5)*:
+    `GET /api/servers/search?q=` (`{ items: ServerSearchResult[] }`: codice,
+    nome, il progetto da cui aprirlo; per codice, nome o hostname, fra i
+    server visibili e nella WHERE, 20 al più, da 2 caratteri).
   - **Dalla review della F4a** *(O, 46, 14 nov 2026)*, limiti accettati:
     - M4: le card `monitor.*` di prima, ancorate a un progetto di
       `server_projects` che ora non vede più il server, aprono la pagina del
@@ -1244,13 +1259,25 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
       (innocuo: senza istruzione il campo, se arriva, si scarta per schema).~~
       *Chiusa il 23 nov 2026 (72, lotto 4)*: `reply` si chiede solo insieme
       alla sua istruzione.
-- Origine di una richiesta da Support; «View conversation» delle task del widget.
+- ~~Origine di una richiesta da Support; «View conversation» delle task del widget.~~
+  *Era già chiusa da f1f0b4718 (area 8, F3, S6), voce barrata il 24 nov
+  2026 (72, lotto 5)*: `origin` della richiesta (`{ kind: "support",
+  conversationCode, channel, customerName, messageCount }`) e
+  `supportConversationCode` della task, derivati a lettura
+  (`services/support-links.ts`); test in `support.test.ts` (verificati con
+  due mutazioni). L'id della conversazione la build app non lo riceve: il
+  renderer apre per codice.
 - Adozione delle PR e rilascio (merge) — confine di prodotto invariato.
 - Azioni di Claude: bozze di risposta di supporto e delle note di rilascio
   della PR (le iscrizioni agli avvisi sono arrivate con la F2, S7).
-- L'evento `release_page` della Chat (area 4, fetta 4, [DECIDE] 1 = a): il
+- ~~L'evento `release_page` della Chat (area 4, fetta 4, [DECIDE] 1 = a): il
   «general» lo ha acceso (D8), ma non ha una fonte finché l'area 8 non
-  definisce la pagina di Release. Nasce qui, con la sua scheda.
+  definisce la pagina di Release. Nasce qui, con la sua scheda.~~ *Era già
+  chiusa dall'area 8, F1, S11; voce barrata il 24 nov 2026 (72, lotto 5)*:
+  la pubblica il trigger `releases_chat_release_page` (migrazione 0175) a
+  ogni rilascio nuovo, nei canali che l'hanno acceso; la scheda
+  (`chat/events.ts`) dà codice, titolo e stato derivato solo a chi vede il
+  progetto. Test in `chat-f4.test.ts` (verificato con una mutazione).
 
 ## Area 9 — Amministrazione, preferenze, accesso
 
@@ -1354,23 +1381,33 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   gli allegati), che il server non esegue (registro di 72).
 
 - **F1 renderer, ciò che resta** *(94, 16 nov 2026)*:
-  - gli autori git osservati arrivano dal server senza commit né progetti
+  - ~~gli autori git osservati arrivano dal server senza commit né progetti
     (`GET /api/git/observed-authors` dà email, nome visto e data): le righe
-    di «Link a git email» non dicono «N commit in ACQ» *(S)*;
+    di «Link a git email» non dicono «N commit in ACQ» *(S)*;~~ *parte
+    server chiusa il 24 nov 2026 (72, lotto 5)*: ogni autore porta `commits`
+    e `projectCodes` (da `activity_commits`, solo nei progetti che chi guarda
+    vede, l'email senza distinzione di maiuscole; `.default`);
   - ~~le caselle Google in Preferenze → Account restano spente nell'app
     (`prefs-mailboxes`): stanno nel cassetto Google~~ **Chiuso (23 nov
     2026, decisione del maintainer: «Anche in Preferenze»)**: `prefs-mailboxes`
     accesa sulle rotte del cassetto (`/api/me/google`, `real/meMailboxes.ts`);
     collegare e ricollegare passano dal consenso nel browser, e il dialogo
     non ha il riquadro «Prototype only»;
-  - il colore delle iniziali nel profilo è neutro: `/api/auth/me` non dice
-    il reparto *(S)*;
+  - ~~il colore delle iniziali nel profilo è neutro: `/api/auth/me` non dice
+    il reparto *(S)*;~~ *parte server chiusa il 24 nov 2026 (72, lotto 5)*:
+    `/api/auth/me` porta `departments: [{ id, name, colorToken }]`
+    nell'ordine della persona (`position`, come `/api/people`), `.default([])`;
   - `department` fra le fonti dei permessi dei membri arriva con F8.
-  - Roles, «you'd lose»: cosa perde chi guarda salvando un ruolo lo compone
+  - ~~Roles, «you'd lose»: cosa perde chi guarda salvando un ruolo lo compone
     ancora il CLIENT dai motivi di `access.whatCan` (i permessi che gli
     vengono solo da quel ruolo). Il server ha i motivi, non la risposta:
     serve una lettura calcolata (come l'anteprima dei membri) che dica cosa
-    perde chi guarda con la bozza del ruolo *(S, review F1, M1 di 46)*.
+    perde chi guarda con la bozza del ruolo *(S, review F1, M1 di 46)*.~~
+    *Parte server chiusa il 24 nov 2026 (72, lotto 5)*:
+    `POST /api/roles/:id/viewer-loses` (`{ permissions }` → `{ lost }`,
+    `roles.manage`): la regola del prototipo, i permessi effettivi prima e
+    dopo all'istanza e in ogni progetto di chi guarda (ruolo, concessioni,
+    reparti, full admin); ciò che resta da un'altra fonte non è perso.
 
 - **F2 renderer, il registro delle modifiche nell'app** *(94, 18 nov 2026)*:
   - una voce d'invito non ha link: il server cancella gli inviti usati e

@@ -7,6 +7,23 @@ import type { ReleaseStatus } from "./status.js";
  * arriveranno dopo nascono facoltativi.
  */
 
+/**
+ * ⌘K (rimandi, lotto 5): un rilascio trovato per codice o titolo, nei
+ * progetti che chi cerca vede — la forma del prototipo (`ReleaseSearchResult`
+ * di `data/releases/reads.ts`), con `projectCode` al posto di `route`: il
+ * link lo costruisce il client (`releaseHref(projectCode, code)`).
+ */
+export interface ReleaseSearchResult {
+  kind: "release";
+  id: string;
+  code: string;
+  /** Il titolo della PR. */
+  label: string;
+  projectId: string;
+  projectCode: string;
+  status: ReleaseStatus["kind"];
+}
+
 /** Una run di CI del commit di merge, come l'ha letta il provider. Il log sta sul provider (P-1 = a): `url`. */
 export interface ReleaseRun {
   id: string;

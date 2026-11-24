@@ -261,6 +261,21 @@ export type ServerEnvironmentRef = z.infer<typeof serverEnvironmentRefSchema>;
  * mostra solo alla creazione e alla rigenerazione, in uno schema dedicato che
  * resta nella rotta: nessun client che parsa la legge).
  */
+/**
+ * ⌘K (rimandi, lotto 5): un server trovato per codice (`SRV-2`), nome o
+ * hostname, fra quelli che chi cerca vede — la forma del prototipo
+ * (`ServerSearchResult` di `data/servers/reads.ts`). `projectCode` è il
+ * progetto da cui aprirlo: il primo visibile fra i suoi ambienti, se no il
+ * primo progetto visibile (un server senza ambienti, visto con
+ * `monitor.view`).
+ */
+export const serverSearchResultSchema = z.object({
+  code: z.string(),
+  name: z.string(),
+  projectCode: z.string(),
+});
+export type ServerSearchResult = z.infer<typeof serverSearchResultSchema>;
+
 export const serverViewSchema = z.object({
   id: z.uuid(),
   name: z.string(),

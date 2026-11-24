@@ -22,13 +22,14 @@ import {
   type SupportConversation,
   type SupportCustomerPreview,
   type SupportMessage,
+  type SupportSearchResult,
   type SupportState,
   type SupportStateInput,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
-import { projectPermissionsFor } from "../auth/access.js";
+import { and, asc, desc, eq, ilike, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { inProjectsStrict, isAllProjects, projectPermissionsFor, visibleProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
-import { releaseStatusById } from "./releases.js";
+import { likeNeedle, releaseStatusById, SEARCH_LIMIT, SEARCH_MIN_CHARS } from "./releases.js";
 
 /**
  * Support: le conversazioni coi clienti (area 8, F3, S2). Le vede chi vede il
@@ -237,6 +238,45 @@ export async function listSupportConversations(db: Db, viewer: Viewer, projectId
     if (!filter.state || v.state === filter.state) views.push(v);
   }
   return views.sort(byGroup);
+}
+
+/**
+ * ⌘K (rimandi, lotto 5): le conversazioni per codice o cliente (nome o
+ * email), SOLO nei progetti che chi cerca vede (filtro nella WHERE, come
+ * l'elenco); dalla più recente, al più {@link SEARCH_LIMIT}. Lo stato è
+ * quello derivato dell'elenco.
+ */
+export async function searchSupport(db: Db, viewer: Viewer, q: string): Promise<SupportSearchResult[]> {
+  if (q.trim().length < SEARCH_MIN_CHARS) return [];
+  const scope = await visibleProjectIds(db, viewer);
+  if (!isAllProjects(scope) && scope.length === 0) return [];
+  const needle = likeNeedle(q);
+  const rows = await db
+    .select({ c: widgetConversations, projectCode: projects.code })
+    .from(widgetConversations)
+    .innerJoin(projects, eq(projects.id, widgetConversations.projectId))
+    .where(
+      and(
+        inProjectsStrict(widgetConversations.projectId, scope),
+        or(
+          sql`(${projects.code} || '-S' || ${widgetConversations.number}) ilike ${needle}`,
+          ilike(widgetConversations.externalUserName, needle),
+          ilike(widgetConversations.externalUserEmail, needle),
+        ),
+      ),
+    )
+    .orderBy(desc(widgetConversations.lastMessageAt))
+    .limit(SEARCH_LIMIT);
+  const perms = new Map<string, Awaited<ReturnType<typeof projectPermissionsFor>>>();
+  const out: SupportSearchResult[] = [];
+  for (const { c, projectCode } of rows) {
+    if (!perms.has(c.projectId)) perms.set(c.projectId, await projectPermissionsFor(db, viewer, c.projectId));
+    const permissions = perms.get(c.projectId);
+    if (!permissions) continue;
+    const view = await viewOf(db, c, { viewer, permissions, projectCode }, false);
+    out.push({ kind: "support", id: c.id, code: view.code, label: c.externalUserName ?? c.externalUserEmail ?? view.code, projectId: c.projectId, projectCode, state: view.state });
+  }
+  return out;
 }
 
 /** La riga e il contesto di una conversazione per codice; 404 se non c'è o il progetto non si vede. */
