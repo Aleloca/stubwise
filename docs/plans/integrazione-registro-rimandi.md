@@ -1377,8 +1377,8 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   `CLAUDE_PROPOSABLE_FNS` c'è nel catalogo del prototipo (tranne
   `pageAction` e `fillMailBody`, che lì passano dalla pagina e dalla Posta),
   e il permesso d'istanza di una voce è `CLAUDE_INSTANCE_PERMISSION`.
-  Restano solo del prototipo `setAttachments`, `setDefaultReviewer` e
-  `saveStorage` (dalla review di F7: endpoint e bucket decidono dove vanno
+  Restano solo del prototipo `setAttachments` e
+  `saveStorage` (`setDefaultReviewer` c'è dal lotto 6) (dalla review di F7: endpoint e bucket decidono dove vanno
   gli allegati), che il server non esegue (registro di 72).
 
 - **F1 renderer, ciò che resta** *(94, 16 nov 2026)*:
@@ -1579,13 +1579,19 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     perché sul server gli allegati non hanno un interruttore: si accendono
     da soli con l'archiviazione configurata e valida (`attachmentsEnabled` è
     derivato). Serve prima un interruttore d'istanza sul server *(S)*;
-  - Azioni di Claude (F7, Task 4): **`setDefaultReviewer`** non ha una voce:
+  - ~~Azioni di Claude (F7, Task 4): **`setDefaultReviewer`** non ha una voce:
     il `PUT /api/git-accounts/:id/default-reviewer` verifica il token
     chiamando il provider (account, scope, identità), e dentro il catalogo
     lo farebbe a ogni prova a secco di una proposta, nella transazione. Va
     separata la verifica (fuori dalla transazione, una volta, alla conferma)
     dalla scrittura *(M)*. Togliere il predefinito (`DELETE`) da solo
-    sarebbe facile, ma senza il suo inverso non si annulla;
+    sarebbe facile, ma senza il suo inverso non si annulla;~~ *Chiusa il 24
+    nov 2026 (72, lotto 6)*: verifica (`default-reviewer-verify.ts`, solo
+    letture) e scrittura (`default-reviewer-write.ts`, solo DB, con le
+    guardie) separate; la voce `setDefaultReviewer({ id, on })` (B,
+    l'inverso del prototipo) verifica nel preflight, la seconda uscita
+    sanzionata del catalogo (`preflight.ts`, invariante in
+    `docs/invariants/agent-sessions.md`);
 
 ## Area 10 — Integrazione di Claude
 

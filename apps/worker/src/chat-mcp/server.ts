@@ -96,6 +96,7 @@ export const PROPOSABLE_FNS = [
   "setProviderEnabled",
   "moveProvider",
   "updateGitAccount",
+  "setDefaultReviewer",
   "updateGoogleApp",
   "rerunSmoke",
   "removePlugin",

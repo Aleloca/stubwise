@@ -24,8 +24,9 @@ describe("il catalogo di Claude: prototipo e server", () => {
     );
   });
 
-  it("le tre voci dell'area 9 che il server non esegue sono solo del prototipo", () => {
-    for (const fn of ["setAttachments", "setDefaultReviewer", "saveStorage"]) {
+  it("le voci dell'area 9 che il server non esegue sono solo del prototipo (`setDefaultReviewer` la esegue dal lotto 6)", () => {
+    expect((CLAUDE_PROPOSABLE_FNS as readonly string[]).includes("setDefaultReviewer")).toBe(true);
+    for (const fn of ["setAttachments", "saveStorage"]) {
       expect(isCatalogFn(fn), fn).toBe(true);
       expect((CLAUDE_PROPOSABLE_FNS as readonly string[]).includes(fn), fn).toBe(false);
     }

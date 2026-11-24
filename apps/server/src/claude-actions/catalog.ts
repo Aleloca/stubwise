@@ -100,7 +100,7 @@ export interface CatalogRunResult {
 const startedWork = (task: { claudeRun?: string | null }) => task.claudeRun === "started";
 
 export type CatalogRefusal = {
-  code: "forbidden" | "not_found" | "invalid" | "conflict" | "busy" | "budget_exhausted";
+  code: "forbidden" | "not_found" | "invalid" | "conflict" | "busy" | "budget_exhausted" | "other";
   message: string;
 };
 
@@ -109,8 +109,12 @@ export type CatalogRun = (
   user: SessionUser,
   args: Record<string, unknown>,
   permissions: ReadonlySet<ProjectPermission>,
-  /** Le opzioni dei servizi che avviano il lavoro di Claude: il link pubblico delle notifiche. */
-  start: { publicUrl?: string },
+  /**
+   * Le opzioni dei servizi che avviano il lavoro di Claude: il link pubblico
+   * delle notifiche. `prepared` (lotto 6): ciò che il preflight della voce ha
+   * letto al run vero (`preflight.ts`); assente nella prova a secco.
+   */
+  start: { publicUrl?: string; prepared?: unknown },
 ) => Promise<{ ok: true; result: CatalogRunResult } | { ok: false; refusal: CatalogRefusal }>;
 
 export interface CatalogEntry {

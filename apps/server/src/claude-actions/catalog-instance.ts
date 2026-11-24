@@ -3,6 +3,9 @@ import type { AiModelChoice, AiOperation, UpdateOutgoingWebhookInput } from "@st
 import { asc, eq, sql } from "drizzle-orm";
 import { LAST_ENABLED, patchProvider, reorderProviders } from "../routes/ai-providers.js";
 import { patchGitAccount } from "../routes/git-accounts.js";
+import { isUniqueViolation } from "../routes/shared.js";
+import { clearDefaultReviewer, DefaultReviewerAccountChanged, DefaultReviewerAccountGone, writeDefaultReviewer } from "../services/default-reviewer-write.js";
+import type { DefaultReviewerPrepared } from "./preflight.js";
 import { patchGoogleWorkspace } from "../routes/google-workspaces.js";
 import { patchModelSettings } from "../routes/model-settings.js";
 import { putAutomationSettings, putInstanceSettings, readAutomationSettings } from "../services/instance-settings-writes.js";
@@ -150,6 +153,47 @@ export const INSTANCE_ENTRIES: CatalogEntry[] = [
         undoable ? { fn: "updateGitAccount", args: { id, ...(name !== undefined ? { name: was.name } : {}), ...(workspace !== undefined ? { workspace: was.workspace } : {}) } } : null,
         [await setting(tx, "git_account", id, ["git_account.updated"])],
       );
+    },
+  },
+  {
+    // Lotto 6, voce 1: il revisore predefinito, come il prototipo (`{ id, on }`).
+    // La verifica sul provider NON sta qui: la fa il preflight (`preflight.ts`)
+    // al run vero, fuori dalla transazione, e la riga verificata arriva in
+    // `start.prepared`; a secco si scrive senza (e si torna indietro). La
+    // scrittura rifà le guardie di DB (ambito, credenziali verificate).
+    fn: "setDefaultReviewer",
+    route: "PUT /api/git-accounts/:id/default-reviewer",
+    access: { kind: "instance", permission: "git_accounts.manage" },
+    request: (args) => ({ params: { id: args["id"] } }),
+    async run(tx, user, args, _permissions, start) {
+      const { id, on } = args as { id: string; on: boolean };
+      const objects = async () => [await setting(tx, "git_account", id, ["git_account.default_reviewer_changed", "git_account.updated"])];
+      if (!on) {
+        const [was] = await tx.select({ isDefaultReviewer: gitAccounts.isDefaultReviewer }).from(gitAccounts).where(eq(gitAccounts.id, id));
+        const after = await clearDefaultReviewer(tx, user, id);
+        if (!after || !was) return refused("not_found", "git_account_not_found");
+        return done({ fn: "setDefaultReviewer", args: { id, on: was.isDefaultReviewer } }, await objects());
+      }
+      const prepared = start.prepared as DefaultReviewerPrepared | undefined;
+      const [current] = await tx.select().from(gitAccounts).where(eq(gitAccounts.id, id));
+      if (!current) return refused("not_found", "git_account_not_found");
+      // Bitbucket senza workspace: il rifiuto della rotta, anche a secco (il preflight lo direbbe al run vero).
+      if (current.provider === "bitbucket" && !current.workspace) return refused("conflict", "default_reviewer_workspace_missing");
+      const row = prepared?.row ?? current;
+      try {
+        const out = await tx.transaction(async (sp) => writeDefaultReviewer(sp as unknown as Db, user, row, prepared?.providerUserId ?? null));
+        const inverse = row.isDefaultReviewer
+          ? { fn: "setDefaultReviewer" as const, args: { id, on: true } }
+          : out.replaced
+            ? { fn: "setDefaultReviewer" as const, args: { id: out.replaced.id, on: true } }
+            : { fn: "setDefaultReviewer" as const, args: { id, on: false } };
+        return done(inverse, await objects());
+      } catch (error) {
+        if (error instanceof DefaultReviewerAccountGone) return refused("not_found", "git_account_not_found");
+        if (error instanceof DefaultReviewerAccountChanged) return refused("conflict", "default_reviewer_account_changed");
+        if (isUniqueViolation(error)) return refused("conflict", "default_reviewer_conflict");
+        throw error;
+      }
     },
   },
   {

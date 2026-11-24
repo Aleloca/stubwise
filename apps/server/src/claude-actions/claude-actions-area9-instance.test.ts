@@ -1,5 +1,7 @@
 import { randomBytes } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { GitHubProvider } from "@stubwise/git";
+import { runPreflight } from "./preflight.js";
 import { eq } from "drizzle-orm";
 import { aiModelSettings, aiProviders, changeLog, gitAccounts, googleWorkspaces, instanceSettings, issueChatToolToken, outgoingWebhooks } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
@@ -20,10 +22,11 @@ let adminCookie: string;
 let memberId: string;
 let memberCookie: string;
 let n = 0;
+const KEY = randomBytes(32);
 
 beforeAll(async () => {
   t = await startTestDb();
-  app = buildApp({ db: t.db, sessionSecret: "x".repeat(40), encryptionKey: randomBytes(32).toString("base64"), publicUrl: "https://stubwise.example" });
+  app = buildApp({ db: t.db, sessionSecret: "x".repeat(40), encryptionKey: KEY.toString("base64"), publicUrl: "https://stubwise.example" });
   ({ adminId, adminCookie, memberId, memberCookie } = await seedUsers(app));
 }, 120_000);
 
@@ -154,5 +157,62 @@ describe("area 9, F7: le B dell'istanza", () => {
       const res = await propose([action], { id: memberId, cookie: memberCookie });
       expect(res.json()).toMatchObject({ status: "refused" });
     }
+  });
+});
+
+describe("lotto 6, voce 1: setDefaultReviewer — la verifica nel preflight (solo al run vero), la scrittura nella transazione", () => {
+  afterEach(() => vi.restoreAllMocks());
+  const flag = async (id: string) => (await t.db.select().from(gitAccounts).where(eq(gitAccounts.id, id)))[0]!;
+  const stubs = () => ({
+    validate: vi.spyOn(GitHubProvider.prototype, "validateAccount").mockResolvedValue([{ name: "Token", ok: true, detail: "ok" }] as never),
+    identity: vi.spyOn(GitHubProvider.prototype, "getAuthenticatedUserId").mockImplementation(async (p) => `uid-${p.credentials.token}`),
+  });
+
+  it("la prova a secco NON chiama il provider; la conferma sì, una volta; «Annulla» rimette il predefinito di prima (e lo riverifica)", async () => {
+    await t.db.update(gitAccounts).set({ isDefaultReviewer: false }).where(eq(gitAccounts.provider, "github"));
+    const a = (await call("POST", "/api/git-accounts", { name: "Rev A", provider: "github", credentials: { token: "tok-aaaaaaaa" } })).json() as { id: string };
+    const b = (await call("POST", "/api/git-accounts", { name: "Rev B", provider: "github", credentials: { token: "tok-bbbbbbbb" } })).json() as { id: string };
+    const { validate, identity } = stubs();
+    const proposed = (await propose([{ fn: "setDefaultReviewer", args: { id: a.id, on: true } }])).json() as { status: string; proposalId: string };
+    expect(proposed.status).toBe("awaiting_confirmation");
+    expect(validate).not.toHaveBeenCalled();
+    expect(identity).not.toHaveBeenCalled();
+    const confirmed = await app.inject({ method: "POST", url: `/api/claude/proposals/${proposed.proposalId}/confirm`, headers: { cookie: adminCookie }, payload: {} });
+    expect(confirmed.statusCode, confirmed.body).toBe(200);
+    expect(identity).toHaveBeenCalledTimes(1);
+    expect(await flag(a.id)).toMatchObject({ isDefaultReviewer: true, providerUserId: "uid-tok-aaaaaaaa" });
+    // B al posto di A; «Annulla» rimette A (con la sua verifica, al run vero dell'inverso).
+    const toB = await run([{ fn: "setDefaultReviewer", args: { id: b.id, on: true } }]);
+    expect(await flag(b.id)).toMatchObject({ isDefaultReviewer: true });
+    expect((await flag(a.id)).isDefaultReviewer).toBe(false);
+    expect((await undo(toB.groupId!)).statusCode).toBe(200);
+    expect((await flag(a.id)).isDefaultReviewer).toBe(true);
+    expect((await flag(b.id)).isDefaultReviewer).toBe(false);
+  });
+
+  it("fail-closed: l'identità non si legge → la conferma fallisce col suo codice e niente si scrive; togliere (`on: false`) non verifica niente", async () => {
+    await t.db.update(gitAccounts).set({ isDefaultReviewer: false }).where(eq(gitAccounts.provider, "github"));
+    const c = (await call("POST", "/api/git-accounts", { name: "Rev C", provider: "github", credentials: { token: "tok-cccccccc" } })).json() as { id: string };
+    const { identity } = stubs();
+    identity.mockRejectedValue(new Error("403"));
+    const failed = await run([{ fn: "setDefaultReviewer", args: { id: c.id, on: true } }]);
+    expect(failed.groupId).toBeNull();
+    expect(JSON.stringify(failed.res.json())).toContain("review_account_identity_unresolved");
+    expect((await flag(c.id)).isDefaultReviewer).toBe(false);
+    // Togliere: niente provider.
+    await t.db.update(gitAccounts).set({ isDefaultReviewer: true }).where(eq(gitAccounts.id, c.id));
+    identity.mockClear();
+    const off = await run([{ fn: "setDefaultReviewer", args: { id: c.id, on: false } }]);
+    expect(off.groupId).not.toBeNull();
+    expect(identity).not.toHaveBeenCalled();
+    expect((await flag(c.id)).isDefaultReviewer).toBe(false);
+  });
+
+  it("il preflight ha un tempo massimo: una piattaforma che non risponde è un rifiuto (`preflight_timeout`)", async () => {
+    const d = (await call("POST", "/api/git-accounts", { name: "Rev D", provider: "github", credentials: { token: "tok-dddddddd" } })).json() as { id: string };
+    vi.spyOn(GitHubProvider.prototype, "validateAccount").mockImplementation(() => new Promise(() => {}));
+    const user = { id: adminId, instancePermissions: new Set(["git_accounts.manage"]) } as never;
+    const out = await runPreflight(t.db, user, "setDefaultReviewer", { id: d.id, on: true }, { encryptionKey: KEY, timeoutMs: 50 });
+    expect(out).toMatchObject({ ok: false, refusal: { message: "preflight_timeout" } });
   });
 });

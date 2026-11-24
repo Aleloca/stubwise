@@ -1,15 +1,16 @@
 import { changedFields, recordChange } from "../services/change-log.js";
 import { createGitAccountSchema, secretLast4, defaultReviewerResponseSchema, gitCredentialsSchema, defaultReviewerWarningSchema, gitAccountSchema, gitValidateResponseSchema, updateGitAccountSchema } from "@stubwise/shared";
-import { BITBUCKET_REVIEWER_SCOPES, GitProviderError, bitbucketRequiredScopes, getProvider } from "@stubwise/git";
+import { GitProviderError, bitbucketRequiredScopes, getProvider } from "@stubwise/git";
 import { decrypt, encrypt, gitAccounts, projects, repositories, type Db } from "@stubwise/db";
-import { resolveProviderUserId, resolveReviewAccounts } from "@stubwise/notifications";
-import { and, asc, eq, inArray, ne, or, sql, type SQL } from "drizzle-orm";
+import { resolveReviewAccounts } from "@stubwise/notifications";
+import { and, asc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import { apiError } from "../errors.js";
-import { fetchPlatformIdentity } from "../services/platform-identity.js";
+import { clearDefaultReviewer, DefaultReviewerAccountChanged, DefaultReviewerAccountGone, gitAccountObject, sameReviewScope, writeDefaultReviewer } from "../services/default-reviewer-write.js";
+import { verifyDefaultReviewer } from "../services/default-reviewer-verify.js";
 import { requireReauth, scopeIncludes, visibleProjectIds } from "../auth/access.js";
 import { checkReviewAccount, logIdentityError } from "../services/review-account-check.js";
 
@@ -62,20 +63,6 @@ type DefaultReviewerWarning = z.infer<typeof defaultReviewerWarningSchema>;
 /** Concorrenza delle verifiche per repository dopo l'impostazione (D5). */
 const DEFAULT_REVIEWER_CHECK_CONCURRENCY = 4;
 
-/**
- * Le righe di `git_accounts` nello stesso AMBITO del revisore predefinito di
- * `row` (D1): gemello SQL di `reviewScopeKey` (`@stubwise/notifications`) e
- * dell'indice `git_accounts_default_reviewer_scope_uq` della 0082. Su
- * Bitbucket conta il workspace, con NULL uguale a ''; altrove solo il provider.
- */
-function sameReviewScope(row: Pick<GitAccountRow, "provider" | "workspace">): SQL {
-  if (row.provider !== "bitbucket") return eq(gitAccounts.provider, row.provider);
-  return and(
-    eq(gitAccounts.provider, "bitbucket"),
-    sql`coalesce(${gitAccounts.workspace}, '') = ${row.workspace ?? ""}`,
-  ) as SQL;
-}
-
 /** `fn` su ogni elemento, al più `limit` alla volta; l'ordine dei risultati è quello di `items`. */
 async function mapWithConcurrency<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const results = new Array<R>(items.length);
@@ -90,14 +77,6 @@ async function mapWithConcurrency<T, R>(items: readonly T[], limit: number, fn: 
   return results;
 }
 
-/** Sentinella: l'account è sparito dentro la transazione del PUT, che va annullata. */
-class DefaultReviewerAccountGone extends Error {}
-
-/**
- * Sentinella: l'account esiste ancora ma ha cambiato AMBITO (un PATCH del
- * workspace) fra la lettura del PUT e la sua transazione, che va annullata.
- */
-class DefaultReviewerAccountChanged extends Error {}
 
 /**
  * Proiezione pubblica di un account: campi elencati esplicitamente, mai spread
@@ -249,7 +228,6 @@ async function accountReviewRole(
  * decifrano le credenziali (validazione, elenco repo/branch) `git_accounts.manage`.
  */
 /** Area 9, F3: l'oggetto delle voci (l'account col nome dato da una persona) e il nome della piattaforma (un marchio, non una parola). */
-const gitAccountObject = (row: { id: string; name: string }) => ({ type: "git_account", id: row.id, label: row.name });
 const PLATFORM_NAME: Record<string, string> = { github: "GitHub", bitbucket: "Bitbucket" };
 
 /**
@@ -515,83 +493,17 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
       const [row] = await app.db.select().from(gitAccounts).where(eq(gitAccounts.id, id));
       if (!row) return apiError(reply, 404, "git_account_not_found", "Git account not found");
 
-      if (row.provider === "bitbucket" && !row.workspace) {
-        return apiError(
-          reply,
-          422,
-          "default_reviewer_workspace_missing",
-          "A Bitbucket default reviewer needs a workspace: set it on the git account first",
-        );
-      }
-
-      let credentials: z.infer<typeof gitCredentialsSchema>;
-      try {
-        credentials = decryptAccountCredentials(row, app.encryptionKey);
-      } catch {
-        return apiError(reply, 400, "credentials_undecryptable", "Account credentials cannot be decrypted");
-      }
-
-      const checks = await getProvider(row.provider).validateAccount(
-        { credentials: { provider: row.provider, credentials }, workspace: row.workspace ?? undefined },
-        { fetchImpl: fetch, requiredScopes: BITBUCKET_REVIEWER_SCOPES },
-      );
-      const failed = checks.filter((c) => !c.ok);
-      if (failed.length > 0) {
-        return apiError(
-          reply,
-          422,
-          "default_reviewer_invalid",
-          failed.map((c) => `${c.name}: ${c.detail}`).join("; "),
-        );
-      }
-
-      // Rinfrescata, non dalla cache: è il momento in cui l'admin deve sapere
-      // se il webhook potrà riconoscere le review di questo account.
-      const scopeHint =
-        row.provider === "bitbucket" ? " (on Bitbucket, check that the token has the read:user:bitbucket scope)" : "";
-      const identity = await resolveProviderUserId(app.db, app.encryptionKey, row, fetchPlatformIdentity, {
-        refresh: true,
-        onError: logIdentityError(app, row.id, "identità del revisore predefinito: il provider ha risposto con un errore"),
+      // Lotto 6, voce 1: la verifica (solo letture, fuori dalla transazione) e la
+      // scrittura (solo DB, con le sue guardie) sono due funzioni, le stesse
+      // dell'azione di Claude `setDefaultReviewer`. Comportamento invariato.
+      const check = await verifyDefaultReviewer(row, app.encryptionKey, {
+        onIdentityError: logIdentityError(app, row.id, "identità del revisore predefinito: il provider ha risposto con un errore"),
       });
-      if (identity === null) {
-        return apiError(
-          reply,
-          422,
-          "review_account_identity_unresolved",
-          `Could not read the account's identity from the provider${scopeHint}`,
-        );
-      }
+      if (!check.ok) return apiError(reply, check.status, check.code, check.message);
 
       let outcome: { account: GitAccountRow; replaced: { id: string; name: string } | null };
       try {
-        outcome = await app.db.transaction(async (tx) => {
-          const replaced = await tx
-            .update(gitAccounts)
-            .set({ isDefaultReviewer: false })
-            .where(and(sameReviewScope(row), eq(gitAccounts.isDefaultReviewer, true), ne(gitAccounts.id, id)))
-            .returning({ id: gitAccounts.id, name: gitAccounts.name });
-          // Marca solo se l'account sta ANCORA nell'ambito letto (e verificato)
-          // sopra: altrimenti si toglierebbe il predefinito del vecchio ambito e
-          // si marcherebbe un account che ormai sta in un altro.
-          const [account] = await tx
-            .update(gitAccounts)
-            .set({ isDefaultReviewer: true })
-            .where(and(eq(gitAccounts.id, id), sameReviewScope(row)))
-            .returning();
-          // Sparito o spostato fra la lettura e qui: si annulla anche la
-          // rimozione del predefinito precedente, che altrimenti resterebbe
-          // tolto per niente.
-          if (!account) {
-            const [exists] = await tx.select({ id: gitAccounts.id }).from(gitAccounts).where(eq(gitAccounts.id, id));
-            throw exists ? new DefaultReviewerAccountChanged() : new DefaultReviewerAccountGone();
-          }
-          // Area 9, F3: come il prototipo, il predecessore e il nuovo per nome;
-          // un account che era già il predefinito non scrive niente.
-          if (!row.isDefaultReviewer) {
-            await recordChange(tx, { type: "git_account.default_reviewer_changed", actor: request.user!, projectId: null, data: { object: gitAccountObject(account), before: replaced[0]?.name ?? null, after: account.name } });
-          }
-          return { account, replaced: replaced[0] ?? null };
-        });
+        outcome = await app.db.transaction(async (tx) => writeDefaultReviewer(tx as unknown as Db, request.user!, row, check.providerUserId));
       } catch (error) {
         if (error instanceof DefaultReviewerAccountGone) {
           return apiError(reply, 404, "git_account_not_found", "Git account not found");
@@ -631,16 +543,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
       },
     },
     async (request, reply) => {
-      const row = await app.db.transaction(async (tx) => {
-        const [before] = await tx.select().from(gitAccounts).where(eq(gitAccounts.id, request.params.id)).for("update");
-        if (!before) return undefined;
-        const [after] = await tx.update(gitAccounts).set({ isDefaultReviewer: false }).where(eq(gitAccounts.id, request.params.id)).returning();
-        // Come il prototipo: togliere il predefinito è un `updated` sul campo.
-        if (before.isDefaultReviewer) {
-          await recordChange(tx, { type: "git_account.updated", actor: request.user!, projectId: null, data: { object: gitAccountObject(after!), ...changedFields({ defaultReviewer: true }, { defaultReviewer: false })! } });
-        }
-        return after;
-      });
+      const row = await app.db.transaction(async (tx) => clearDefaultReviewer(tx as unknown as Db, request.user!, request.params.id));
       if (!row) return apiError(reply, 404, "git_account_not_found", "Git account not found");
       return reply.code(204).send(null);
     },
