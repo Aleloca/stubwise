@@ -42,7 +42,7 @@ function productRefusal(error: unknown): { ok: false; refusal: CatalogRefusal } 
   if (error instanceof ProductSectionBusyError) return refused("busy", error.code);
   if (error instanceof ProductUndoBlockedError || error instanceof FirstVersionUndoBlockedError) return refused("conflict", error.code);
   if (error instanceof ProductDocsError) {
-    if (error.code === "ai_blocked") return refused("invalid", "monthly_budget");
+    if (error.code === "budget_exhausted") return refused("budget_exhausted", "budget_exhausted");
     if (error.status === 403) return refused("forbidden", error.code);
     if (error.status === 404) return refused("not_found", error.code);
     if (error.status === 409) return refused("conflict", error.code);

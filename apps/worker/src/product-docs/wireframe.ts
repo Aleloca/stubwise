@@ -91,7 +91,7 @@ export async function runWireframeJob(
     });
   };
   const failNow = (error: WireframeFailure) => fail(error).then(() => helpers.finish("failed", error)).then(() => "failed" as const);
-  if ((await aiBudgetState(db, deps.monthlyCostUsdFn)).exhausted) return failNow("budget");
+  if (!job.budgetBypass && (await aiBudgetState(db, deps.monthlyCostUsdFn)).exhausted) return failNow("budget");
   const [page] = await db.select({ title: productPages.title, blocks: productPages.blocks }).from(productPages).where(eq(productPages.id, row.pageId));
   if (!page) return helpers.finish("done", "page_gone").then(() => "done");
   const blocks = readBlocks(page.blocks);

@@ -59,12 +59,10 @@ function mapFirstVersionError(error: unknown): never {
         ...((TOUCHES as readonly string[]).includes(touch ?? "") ? { touch } : {}),
       });
     }
-    if (
-      error.code === "space_not_empty" ||
-      error.code === "ai_blocked" ||
-      error.code === "no_sources"
-    )
-      throw new Error(error.code);
+    // Il budget finito: `budget_exhausted` dal server di oggi (D-7.1, review del
+    // lotto 4), `ai_blocked` da uno più vecchio; per il prototipo è `ai_blocked`.
+    if (error.code === "budget_exhausted" || error.code === "ai_blocked") throw new Error("ai_blocked");
+    if (error.code === "space_not_empty" || error.code === "no_sources") throw new Error(error.code);
     if (error.code === "invalid_source") throw new Error("invalid: source");
     if (error.code === "invalid_page") throw new Error("invalid: page");
     if (error.status === 403) throw new Error("forbidden");

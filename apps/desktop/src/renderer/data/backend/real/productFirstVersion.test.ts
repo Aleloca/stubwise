@@ -153,6 +153,7 @@ describe("la prima versione nella build app", () => {
     for (const [code, message] of [
       ["space_not_empty", "space_not_empty"],
       ["ai_blocked", "ai_blocked"],
+      ["budget_exhausted", "ai_blocked"],
       ["no_sources", "no_sources"],
       ["invalid_source", "invalid: source"],
     ] as const) {

@@ -33,6 +33,7 @@ import {
   type SlackMessenger,
   contentLanguageOf,
   sendableWebhook,
+  webhookWantsKind,
   sendToWebhook,
   type SendableWebhook,
 } from "@stubwise/notifications";
@@ -303,6 +304,11 @@ async function processDelivery(
       const webhook = await sendableWebhook(db, row.webhookId, deps.encryptionKey);
       if (!webhook) {
         await finish(db, row.id, "skipped", "webhook_disabled");
+        return;
+      }
+      // Rimandi, lotto 4: l'evento è stato tolto dal webhook dopo l'accodamento.
+      if (!webhookWantsKind(webhook, event.kind)) {
+        await finish(db, row.id, "skipped", "event_not_selected");
         return;
       }
       await (deps.sendToWebhook ?? sendToWebhook)(webhook, event, await contentLanguageOf(db));

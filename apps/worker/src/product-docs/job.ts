@@ -295,7 +295,7 @@ export async function runProductDocJob(deps: ProductDocJobDeps, job: JobRow): Pr
       retryOrFail: (error) => retryOrFail(db, job, error),
     });
   }
-  if ((await aiBudgetState(db, deps.monthlyCostUsdFn)).exhausted) return hold(db, job.id, "budget").then(() => "held");
+  if (!job.budgetBypass && (await aiBudgetState(db, deps.monthlyCostUsdFn)).exhausted) return hold(db, job.id, "budget").then(() => "held");
 
   // F6, Task 4: un aggiornamento chiesto a mano (`updateProductPage`) legge la
   // SUA fonte per UNA pagina, e chi l'ha chiesto non si aspetta da sé.
@@ -457,10 +457,11 @@ async function runSourceJob(
  * i lavori che aspettano (`not_before`) e i progetti col freno alle ondate.
  * Il claim NON conta un tentativo (`attempts` conta solo gli errori).
  */
-export async function claimProductDocJob(db: Db, exclude: readonly string[] = []): Promise<JobRow | null> {
+export async function claimProductDocJob(db: Db, exclude: readonly string[] = [], opts: { onlyBypass?: boolean } = {}): Promise<JobRow | null> {
   return db.transaction(async (txRaw) => {
     const tx = txRaw as unknown as Db;
     const excluded = exclude.length > 0 ? sql`and not (j.project_id = any(${`{${exclude.join(",")}}`}::uuid[]))` : sql``;
+    const bypassOnly = opts.onlyBypass ? sql`and j.budget_bypass` : sql``;
     const picked = await tx.execute<{ id: string }>(sql`
       select j.id from product_doc_jobs j
       join projects p on p.id = j.project_id
@@ -468,6 +469,7 @@ export async function claimProductDocJob(db: Db, exclude: readonly string[] = []
         and (j.not_before is null or j.not_before <= now())
         and (select count(*) from product_doc_jobs h where h.project_id = j.project_id and h.answered_at > now() - interval '1 hour') < ${PRODUCT_DOC_HOURLY_MAX}
         ${excluded}
+        ${bypassOnly}
       order by j.created_at
       limit 1
       for update of j skip locked`);
@@ -509,15 +511,18 @@ export async function requeueProductDocJobs(db: Db, now = new Date()): Promise<v
  * progetti DIVERSI, ognuno sotto il serializer del suo progetto. Non li
  * aspetta: restituisce le loro promise (i test le aspettano). Un progetto in
  * `inFlight` (un suo lavoro gira) si salta, così un fix lungo su un progetto
- * non ferma la doc degli altri. Col budget del mese finito non prende niente.
+ * non ferma la doc degli altri. Col budget del mese finito prende solo i
+ * lavori chiesti da chi lo scavalca (`budget_bypass`, D-7.1).
  */
 export async function pollProductDocsOnce(deps: ProductDocJobDeps & { serializer: ProjectSerializer; inFlight?: Set<string> }): Promise<Promise<ProductDocJobOutcome>[]> {
   await requeueProductDocJobs(deps.db);
-  if ((await aiBudgetState(deps.db, deps.monthlyCostUsdFn)).exhausted) return [];
+  // Col budget finito si prendono SOLO i lavori chiesti da chi lo scavalca
+  // (`budget_bypass`, D-7.1); gli altri restano in coda.
+  const onlyBypass = (await aiBudgetState(deps.db, deps.monthlyCostUsdFn)).exhausted;
   const inFlight = deps.inFlight ?? new Set<string>();
   const started: Promise<ProductDocJobOutcome>[] = [];
   for (let i = 0; i < JOBS_PER_TICK; i++) {
-    const job = await claimProductDocJob(deps.db, [...inFlight]);
+    const job = await claimProductDocJob(deps.db, [...inFlight], { onlyBypass });
     if (!job) break;
     inFlight.add(job.projectId);
     started.push(

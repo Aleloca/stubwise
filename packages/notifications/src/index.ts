@@ -360,6 +360,7 @@ export {
   sendToWebhook,
   webhookBody,
   webhookIdsForKind,
+  webhookWantsKind,
   webhookSignature,
   type SendableWebhook,
   type WebhookFormat,

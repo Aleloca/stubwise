@@ -794,8 +794,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     per dopo;~~ *parte server chiusa il 23 nov 2026 (72, lotto 4)*: la
     risposta del repository (elenco e dettaglio) porta `canManage`
     (`repos.manage` di chi chiede, `.default(false)`); il renderer può
-    leggerlo al posto di `/api/auth/me`; la ricerca dei rilasci nella palette (`releases-search`)
-    resta spenta finché il server non ha una ricerca dei rilasci;
+    leggerlo al posto di `/api/auth/me`; ~~la ricerca dei rilasci nella palette (`releases-search`)
+    resta spenta finché il server non ha una ricerca dei rilasci;~~ *parte
+    server chiusa il 24 nov 2026 (72, lotto 5)*: `GET /api/releases/search?q=`
+    (`{ items: ReleaseSearchResult[] }`, per codice o titolo, solo nei
+    progetti visibili, dal più recente, 20 al più, da 2 caratteri);
   - fatti che il server non legge nella F1 e la pagina non inventa:
     `mergeable` (mai «conflitti» se non letto), il rischio di una PR esterna,
     l'autore di una PR esterna, le correzioni `discarded` (non derivate);
@@ -1534,8 +1537,10 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   lei); lo standup e la richiesta d'origine sì. (Elimina task: chiusa, sotto.)~~
   *Parte server chiusa il 24 nov 2026 (72, lotto 4)*: la cronologia e
   l'attività del portafoglio portano `task_deleted` da `deleted_tickets`
-  (codice e titolo di allora, `byId`/`byName`, `viaClaude`). Con
-  `tickets.view_all` tutte, senza solo quelle eliminate da chi guarda; chi ha
+  (codice e titolo di allora, `byId`/`byName`, `viaClaude`). L'evento a
+  chiunque veda il progetto (46, 24 nov 2026, come il prototipo); codice e
+  titolo solo con `tickets.view_all` o a chi l'ha eliminata, null agli altri
+  («A task was deleted»); chi ha
   eliminato è mascherato a chi non lo conosce (r.1414). Resta al renderer la
   mappa nell'adattatore (`backend/real/overview.ts`, oggi le scarta).
 
@@ -1771,11 +1776,14 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   la riconferma ma non scrive nessuna voce (il registro della 9b non ha un
   tipo per Slack, che esce dall'app nuova). Si chiude col ritiro di Slack dal
   server (la voce «Togliere Slack dal server»), non con un tipo nuovo.
-- **Una consegna già in coda parte anche se il webhook ha tolto l'evento**
+- ~~**Una consegna già in coda parte anche se il webhook ha tolto l'evento**
   *(S, review di F3, 18 nov 2026)*: il poller controlla solo che il webhook
   esista e sia acceso, non che abbia ancora scelto l'evento. Il danno è un
   invio residuo, quello già accodato. Da chiudere se qualcuno se ne lamenta:
-  ricontrollare `events` al momento dell'invio e chiudere `skipped`.
+  ricontrollare `events` al momento dell'invio e chiudere `skipped`.~~
+  *Chiusa il 24 nov 2026 (72, lotto 4)*: al momento dell'invio il poller
+  rilegge gli eventi del webhook (`webhookWantsKind`, la stessa regola di
+  `webhookIdsForKind`) e chiude `skipped` con `event_not_selected`.
 - **Togliere Slack dal server** *(M, maintainer via 46, 16 nov 2026)*: Slack
   è fuori dall'app nuova e va tolto dal server, INSIEME al ritiro del web
   vecchio: rotte `/api/slack/*` e `/slack/*`, collegamento delle identità

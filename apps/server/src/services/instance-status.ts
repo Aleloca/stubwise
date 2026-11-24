@@ -75,7 +75,8 @@ export function retryCheck(
   const manages = perms?.has("project.settings.manage") ?? false;
   const starts = perms?.has("runs.start") ?? false;
   if (!manages || !starts) return { retry: "forbidden", retryNeeds: manages ? "startRun" : "manageSettings", retryBlock: null, retryStopsAtPlan: false, reason: null };
-  if (budgetReached) return { retry: "forbidden", retryNeeds: null, retryBlock: { reason: "monthly_budget" }, retryStopsAtPlan: false, reason: null };
+  // D-7.1: il budget finito ferma solo chi non ha `plans.approve` nel progetto (review del lotto 4, I-1).
+  if (budgetReached && !(perms?.has("plans.approve") ?? false)) return { retry: "forbidden", retryNeeds: null, retryBlock: { reason: "monthly_budget" }, retryStopsAtPlan: false, reason: null };
   return { retry: "allowed", retryNeeds: null, retryBlock: null, retryStopsAtPlan: !(perms?.has("plans.approve") ?? false), reason: null };
 }
 

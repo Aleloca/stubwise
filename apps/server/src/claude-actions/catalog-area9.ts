@@ -279,7 +279,7 @@ export const AREA9_ENTRIES: CatalogEntry[] = [
       const check = retryCheck(facts, perms, (await aiBudgetState(tx)).exhausted, new Date());
       if (check.reason === "conflict") return refused("conflict", "conflict");
       if (check.reason === "not_retryable") return refused("invalid", "not_retryable");
-      if (check.retryBlock) return refused("busy", "monthly_budget");
+      if (check.retryBlock) return refused("budget_exhausted", "budget_exhausted");
       if (check.retry !== "allowed") return refused("forbidden", "forbidden");
       const result = await startRun(tx, {
         ticketId: facts.ticketId,

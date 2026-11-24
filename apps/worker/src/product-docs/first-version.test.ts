@@ -254,6 +254,26 @@ describe("la prima versione nel worker", () => {
     }
   });
 
+  it("D-7.1 (review del lotto 4, I-1): col budget finito un lavoro chiesto da chi lo scavalca (`budget_bypass`) chiama il modello; il claim «solo scavalco» salta gli altri", async () => {
+    await t.db.insert(instanceSettings).values({ id: 1, monthlyBudgetUsd: "1" }).onConflictDoUpdate({ target: instanceSettings.id, set: { monthlyBudgetUsd: "1" } });
+    try {
+      const plain = await setup();
+      const bypassed = await setup();
+      await t.db.update(productDocJobs).set({ budgetBypass: true }).where(eq(productDocJobs.sourceId, bypassed.fv.id));
+      const job = (await claimProductDocJob(t.db, [], { onlyBypass: true }))!;
+      expect(job.sourceId).toBe(bypassed.fv.id);
+      expect(await claimProductDocJob(t.db, [], { onlyBypass: true })).toBeNull();
+      const { runner, calls } = fakeRunner(DRAFT);
+      expect(await runProductDocJob({ db: t.db, runner, log, monthlyCostUsdFn: async () => 5 }, job)).not.toBe("held");
+      expect(calls.length).toBeGreaterThan(0);
+      // L'altro resta in coda: lo prende il claim normale, e aspetta col budget.
+      const other = (await claimProductDocJob(t.db))!;
+      expect(other.sourceId).toBe(plain.fv.id);
+    } finally {
+      await t.db.delete(instanceSettings);
+    }
+  });
+
   it("la pausa della coda non ferma la prima versione (è un gesto di chi l'ha chiesta)", async () => {
     const { projectId, fv } = await setup();
     await t.db.update(projects).set({ queuePausedAt: new Date() }).where(eq(projects.id, projectId));

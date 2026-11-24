@@ -54,6 +54,14 @@ async function person(projectRoles: { projectId: string; preset: string }[], ins
   return { id: u!.id, cookie: await fullSessionCookie(app, u!.id) };
 }
 
+/** Chi gestisce il progetto e avvia il lavoro ma non approva i piani (nessun preset è così): il caso del budget (D-7.1). */
+async function managerWithoutApprove(projectId: string) {
+  const p = await person([]);
+  const [r] = await db.insert(roles).values({ name: `Gestore ${randomUUID().slice(0, 6)}`, scope: "project", permissions: ["project.settings.manage", "runs.start", "tickets.view_all", "repos.view"] }).returning({ id: roles.id });
+  await db.insert(projectMembers).values({ projectId, userId: p.id, roleId: r!.id });
+  return p;
+}
+
 describe("lo Stato dell'istanza", () => {
   it("senza instance.status.view: 403", async () => {
     const p = await person([], []);
@@ -116,8 +124,10 @@ describe("lo Stato dell'istanza", () => {
     await db.insert(instanceSettings).values({ id: 1, monthlyBudgetUsd: "1" }).onConflictDoUpdate({ target: instanceSettings.id, set: { monthlyBudgetUsd: "1" } });
     const [spent] = await db.insert(agentRuns).values({ phase: "triage", operation: "triage", model: "claude-sonnet-5-5", costUsd: "5" } as typeof agentRuns.$inferInsert).returning({ id: agentRuns.id });
     try {
-      const { body } = await status();
+      // D-7.1 (review del lotto 4, I-1): spento per chi non ha plans.approve, acceso per chi lo scavalca.
+      const { body } = await status((await managerWithoutApprove(s.projectId)).cookie);
       expect(body.jobs.find((j) => j.id === f.id)).toMatchObject({ retry: "forbidden", retryNeeds: null, retryBlock: { reason: "monthly_budget" } });
+      expect((await status()).body.jobs.find((j) => j.id === f.id)).toMatchObject({ retry: "allowed", retryBlock: null });
       expect(body.queues.find((q) => q.projectId === s.projectId)!.budgetAfterResume).toBe(1);
     } finally {
       await db.delete(agentRuns).where(eq(agentRuns.id, spent!.id));
@@ -271,9 +281,13 @@ describe("il rilancio (Task 6)", () => {
     await db.insert(instanceSettings).values({ id: 1, monthlyBudgetUsd: "1" }).onConflictDoUpdate({ target: instanceSettings.id, set: { monthlyBudgetUsd: "1" } });
     const [spent] = await db.insert(agentRuns).values({ phase: "triage", operation: "triage", model: "claude-sonnet-5-5", costUsd: "5" } as typeof agentRuns.$inferInsert).returning({ id: agentRuns.id });
     try {
-      const res = await retry(f.id);
-      expect(res.statusCode).toBe(422);
-      expect(res.json()).toMatchObject({ code: "monthly_budget" });
+      // D-7.1: chi non scavalca il budget riceve 409 `budget_exhausted` (il codice di ogni avvio a mano), e nulla riparte.
+      const res = await retry(f.id, (await managerWithoutApprove(s.projectId)).cookie);
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toMatchObject({ code: "budget_exhausted" });
+      expect(await jobsOf(c4.ticketId)).toHaveLength(1);
+      // Chi ha plans.approve (il full admin) lo scavalca: riparte.
+      expect((await retry(f.id)).statusCode).toBe(202);
     } finally {
       await db.delete(agentRuns).where(eq(agentRuns.id, spent!.id));
       await db.update(instanceSettings).set({ monthlyBudgetUsd: null });

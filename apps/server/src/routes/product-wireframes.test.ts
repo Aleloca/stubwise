@@ -82,7 +82,15 @@ describe("«Draw this screen»", () => {
     expect((await inject(vic, "POST", `/api/product-pages/${p.id}/wireframes`, { afterId: null })).statusCode).toBe(403);
     await t.db.insert(instanceSettings).values({ id: 1, monthlyBudgetUsd: "0" }).onConflictDoUpdate({ target: instanceSettings.id, set: { monthlyBudgetUsd: "0" } });
     try {
-      expect((await inject(ada, "POST", `/api/product-pages/${p.id}/wireframes`, { afterId: null })).json()).toMatchObject({ code: "ai_blocked" });
+      // D-7.1 (review del lotto 4, I-1): il Developer riceve budget_exhausted; il Project Lead lo scavalca.
+      expect((await inject(ada, "POST", `/api/product-pages/${p.id}/wireframes`, { afterId: null })).json()).toMatchObject({ code: "budget_exhausted" });
+      const lead = await createUserWithSession(app, `lead-wf-${randomUUID().slice(0, 6)}@example.com`);
+      await addMember(app, projectId, lead.id, "project_lead");
+      const drawn = await inject(lead, "POST", `/api/product-pages/${p.id}/wireframes`, { afterId: null });
+      expect(drawn.statusCode, drawn.body).toBe(202);
+      const wfId = (drawn.json() as { wireframeId: string }).wireframeId;
+      const [job] = await t.db.select().from(productDocJobs).where(eq(productDocJobs.sourceId, wfId));
+      expect(job).toMatchObject({ sourceKind: "wireframe", budgetBypass: true });
     } finally {
       await t.db.delete(instanceSettings);
     }

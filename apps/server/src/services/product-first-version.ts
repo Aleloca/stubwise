@@ -33,8 +33,9 @@ import { ProductDocsError, deleteProductPage } from "./product-docs.js";
  *   incollato. Una fonte che non vede è 422 `invalid_source`, come una che non
  *   c'è;
  * - lo spazio dev'essere vuoto e senza un'altra prima versione che scrive (409
- *   `space_not_empty`); col budget del mese finito non parte (409
- *   `ai_blocked`); la pausa della coda non la ferma;
+ *   `space_not_empty`); col budget del mese finito non parte per chi non ha
+ *   `plans.approve` (409 `budget_exhausted`, D-7.1; chi ce l'ha lo scavalca e
+ *   il lavoro lo porta, `budget_bypass`); la pausa della coda non la ferma;
  * - le pagine le scrive il worker, una alla volta (`writeFirstVersionPage`);
  *   «Stop» si onora prima della pagina dopo;
  * - «Undo» toglie tutte le sue pagine (dalle foglie alla radice) finché
@@ -133,7 +134,9 @@ export async function startFirstVersion(db: Db, viewer: Viewer, projectId: strin
     refs.set(s.kind === "drive" ? `drive:${s.fileId}` : `${s.kind}:${s.id}`, s.kind === "drive" ? { kind: "drive", fileId: s.fileId } : { kind: s.kind, id: s.id });
   }
   if (refs.size === 0) throw new ProductDocsError(422, "no_sources", "Choose at least one source");
-  if ((await aiBudgetState(db, budget.monthlyCostUsdFn)).exhausted) throw new ProductDocsError(409, "ai_blocked", "The monthly AI budget is used up");
+  // D-7.1 (review del lotto 4, I-1): chi ha `plans.approve` scavalca il budget, e il lavoro lo porta.
+  const budgetBypass = perms.has("plans.approve");
+  if (!budgetBypass && (await aiBudgetState(db, budget.monthlyCostUsdFn)).exhausted) throw new ProductDocsError(409, "budget_exhausted", "The monthly AI budget is used up");
   return db.transaction(async (txRaw) => {
     const tx = txRaw as unknown as Db;
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`stubwise-product-tree:${projectId}`}))`);
@@ -141,7 +144,7 @@ export async function startFirstVersion(db: Db, viewer: Viewer, projectId: strin
     const [writing] = await tx.select({ id: productFirstVersions.id }).from(productFirstVersions).where(and(eq(productFirstVersions.projectId, projectId), eq(productFirstVersions.status, "writing"))).limit(1);
     if (page || writing) throw new ProductDocsError(409, "space_not_empty", "The space already has pages, or a first version is being written");
     const [fv] = await tx.insert(productFirstVersions).values({ projectId, startedBy: viewer.id, sources: [...refs.values()], pastedText: pasted }).returning({ id: productFirstVersions.id });
-    await tx.insert(productDocJobs).values({ projectId, sourceKind: "first_version", sourceId: fv!.id });
+    await tx.insert(productDocJobs).values({ projectId, sourceKind: "first_version", sourceId: fv!.id, budgetBypass });
     return { groupId: fv!.id };
   });
 }

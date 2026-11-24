@@ -1474,6 +1474,10 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     if (err instanceof PushRejectedError) {
       return fail(
         `[correction] ${err.message}\n[correction] mai --force: la prossima richiesta ripartirà dal branch aggiornato`,
+        // ⚠️ Questa frase è la chiave del backfill della 0220 (`error LIKE
+        // 'push rifiutato:%'` → `outcome = 'discarded'`): le righe di prima si
+        // riconoscono da qui. Cambiarne l'inizio non tocca le righe nuove (hanno
+        // `outcome`), ma va saputo rileggendo la migrazione.
         `push rifiutato: qualcuno ha pushato sul branch ${branch} durante la correzione`,
         // Lotto 4: una correzione SCARTATA (qualcuno ha pushato prima), non fermata.
         { outcome: "discarded" },

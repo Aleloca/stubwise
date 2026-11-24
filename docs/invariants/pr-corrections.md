@@ -236,13 +236,26 @@
   un `plans.approve` da leggere (precisazione di 46): la conversazione libera
   con Claude (già così) e l'analisi a mano di un server
   (`POST /api/servers/:id/analyses`).
-  Restano come prima, e sono già fermi per tutti a budget finito: la prima
-  versione della doc di prodotto, le bozze di schermata, «aggiorna da fonte».
   Le automazioni non sono avvii a mano: restano in attesa (`held`).
   Due porte che passano da `startRun` hanno una forma propria (46, sul
   prototipo): il «Procedi» del pulse rifiuta PRIMA di creare la task (niente
   a metà); l'assegnazione a Claude non fallisce mai per il budget, assegna e
   non avvia (`refused:budget_exhausted`), e il blocco lo dice `/work`.
+  **Limite accettato (review del lotto 4, I-2)**: il controllo del pulse sta
+  prima della conversione, fuori dalla sua transazione, e `startRun` lo rifà
+  dopo. Se il budget finisce PROPRIO in quella finestra (millisecondi: la
+  durata della conversione), la task nasce e il run no: è l'esito
+  `ticket_only` di sempre, la card dice «solo la task» e il lavoro si avvia a
+  mano. Annullare la conversione vorrebbe dire rifare il flusso (la
+  conversione ha il suo claim, e `startRun` è una scrittura separata apposta,
+  vedi il docblock di `pulse.ts`); il budget finito non torna indietro nel
+  mese, quindi la finestra non si riapre.
+  Il budget si scavalca anche, con le stesse regole e lo stesso 409
+  `budget_exhausted` (review del lotto 4, I-1): il «Riprova» dello Stato
+  dell'istanza, la task di riparazione di un rilascio, la prima versione
+  della doc, le bozze di schermata e «aggiorna da fonte». Nei lavori della
+  doc di prodotto lo scavalco viaggia col lavoro (`product_doc_jobs.budget_bypass`,
+  0223): il worker prende e fa girare SOLO quelli col budget finito.
   Test: `apps/server/src/routes/budget-manual-starts.test.ts`, a due ruoli
   sugli stessi dati.
 - **Job e correzione si chiudono INSIEME.** `completeJob`/`failJob` e
