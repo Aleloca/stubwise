@@ -67,6 +67,41 @@ function fake(over: Partial<ProjectPluginsApi> = {}) {
 }
 
 describe("i plugin del progetto dal server", () => {
+  // Rimandi, lotto 5, voce 6 (72, 2fb6472c6): le descrizioni delle skill a
+  // tutti; i comandi degli hook solo a chi può salvare (decisione di 46): a
+  // chi legge arrivano `{}`, e vede il gruppo.
+  it("descrizioni delle skill e comandi degli hook dal server", async () => {
+    const withText = (canEdit: boolean) =>
+      fake({
+        get: async () => ({
+          ...GET,
+          canEdit,
+          registry: REGISTRY.map((r) =>
+            r.pluginId === SP
+              ? {
+                  ...r,
+                  skillDescriptions: { "writing-plans": "Write the plan first" },
+                  hookCommands: canEdit ? { "SessionStart#0": ["a.sh", "b.sh"] } : {},
+                }
+              : r,
+          ),
+        }),
+      }).api;
+    const editor = (await createRealProjectPlugins(withText(true)).getProjectPlugins("p1"))!;
+    const sp = editor.plugins.find((p) => p.name === "superpowers")!;
+    expect(sp.skills.find((s) => s.name === "writing-plans")!.description).toBe(
+      "Write the plan first",
+    );
+    expect(sp.skills.find((s) => s.name === "brainstorming")!.description).toBe("");
+    expect(sp.hooks[0]!.command).toBe("a.sh\nb.sh");
+    const reader = (await createRealProjectPlugins(withText(false)).getProjectPlugins("p1"))!;
+    const spr = reader.plugins.find((p) => p.name === "superpowers")!;
+    expect(spr.hooks[0]!.command).toBe("");
+    expect(spr.skills.find((s) => s.name === "writing-plans")!.description).toBe(
+      "Write the plan first",
+    );
+  });
+
   it("la lettura: il registro con le scelte, nei run solo se acceso e pronto", async () => {
     const view = (await createRealProjectPlugins(fake().api).getProjectPlugins("p1"))!;
     expect(view.version).toBe("v7");
