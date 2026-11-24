@@ -280,19 +280,21 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   la ricerca per testo copre i primi 100.000 caratteri, oltre trova la sola
   corsia semantica (al più 200 chunk per file); i tempi del VPS sono da
   misurare al deploy.
-- Motivo del `no_text` visibile *(S, F3, decisione dell'orchestratrice A(a))*:
+- ~~Motivo del `no_text` visibile *(S, F3, decisione dell'orchestratrice A(a))*:
   il server manda `contentReason` (`no_text_found`, `ocr_timeout`,
   `ocr_unavailable`, `unreadable`, `too_large`, `limits`), il desktop dice solo
-  «nessun testo» come il prototipo.
-- La ricerca del Drive non si rilegge mentre un risultato è «in lettura»
+  «nessun testo» come il prototipo.~~ *Chiusa il 24 nov 2026, decisione del maintainer (via 46): «resta com'è».* Un documento senza
+  testo non dice il motivo.
+- ~~La ricerca del Drive non si rilegge mentre un risultato è «in lettura»
   *(S, F3, review del renderer)*: parità col prototipo. Un file che finisce
   di leggersi mentre si guardano i risultati resta «Reading the content…»
   finché non si ricerca o si apre; l'elenco e il dettaglio invece si
-  rileggono.
-- «Retry» anche su un `no_text` transitorio *(S, F3, decisione
+  rileggono.~~ *Chiusa il 24 nov 2026, decisione del maintainer (via 46): «resta com'è».*
+- ~~«Retry» anche su un `no_text` transitorio *(S, F3, decisione
   dell'orchestratrice C(a))*: il server lo permette (`permissions.retry`) su
   `no_text` ed `error`; il desktop mostra «Retry» solo su `error`, come il
-  prototipo. Riaprire per `ocr_timeout` e `ocr_unavailable`.
+  prototipo. Riaprire per `ocr_timeout` e `ocr_unavailable`.~~ *Chiusa il 24 nov 2026, decisione del maintainer (via 46): «resta com'è».* Niente
+  «Retry» per un documento senza testo.
 - La corsia semantica del Drive per chi vede tutto *(S, area 5, review della
   F3)*: oggi esatta (filtro prima, senza indice); con 50.000 chunk la ricerca
   di un full admin sta a 290–340 ms. Se le istanze crescono, si torna
