@@ -29,6 +29,8 @@ export interface PreflightDeps {
   encryptionKey?: Buffer;
   /** I test: un tempo massimo più corto. */
   timeoutMs?: number;
+  /** Lo mette `runPreflight`: scatta allo scadere del tempo, e ferma le chiamate. */
+  signal?: AbortSignal;
 }
 
 export type PreflightResult = { ok: true; prepared: unknown } | { ok: false; refusal: CatalogRefusal };
@@ -51,7 +53,7 @@ const PREFLIGHTS: Partial<Record<ClaudeActionFn, Preflight>> = {
     if (!deps.encryptionKey) return refused("other", "preflight_unavailable");
     const [row] = await db.select().from(gitAccounts).where(eq(gitAccounts.id, args["id"] as string));
     if (!row) return refused("not_found", "git_account_not_found");
-    const check = await verifyDefaultReviewer(row, deps.encryptionKey);
+    const check = await verifyDefaultReviewer(row, deps.encryptionKey, deps.signal ? { signal: deps.signal } : {});
     if (!check.ok) return refused(check.status === 400 ? "invalid" : "conflict", check.code);
     return { ok: true, prepared: { row, providerUserId: check.providerUserId } satisfies DefaultReviewerPrepared };
   },
@@ -68,14 +70,18 @@ export async function runPreflight(db: Db, user: SessionUser, fn: ClaudeActionFn
   const preflight = PREFLIGHTS[fn];
   if (!preflight) return { ok: true, prepared: null };
   let timer: ReturnType<typeof setTimeout> | undefined;
+  // Revisione dei lotti 6–7 (M-1): allo scadere del tempo (o alla fine) le
+  // chiamate alla piattaforma si FERMANO, non restano appese dopo il rifiuto.
+  const controller = new AbortController();
   const timeout = new Promise<PreflightResult>((resolve) => {
     timer = setTimeout(() => resolve(refused("other", "preflight_timeout")), deps.timeoutMs ?? PREFLIGHT_TIMEOUT_MS);
   });
   try {
-    return await Promise.race([preflight(db, user, args, deps), timeout]);
+    return await Promise.race([preflight(db, user, args, { ...deps, signal: controller.signal }), timeout]);
   } catch {
     return refused("other", "preflight_failed");
   } finally {
     clearTimeout(timer);
+    controller.abort();
   }
 }
