@@ -88,6 +88,20 @@ describe("il segreto del webhook git (K-5)", () => {
     expect(JSON.stringify(entry)).not.toContain(fresh);
   });
 
+  it("review del lotto 5, I-1: per ID in modalità platform, l'URL del webhook sulla piattaforma è quello dello SLUG (quello che /webhooks/git cerca), anche nel rollback", async () => {
+    const r = await repo(true);
+    scopes(true);
+    const urls: string[] = [];
+    vi.spyOn(GitHubProvider.prototype, "ensureWebhook").mockImplementation(async (_p, hook) => {
+      urls.push(hook.url);
+    });
+    const res = await post(`/api/repositories/${r.id}/webhook-secret`);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toMatchObject({ mode: "platform" });
+    expect(urls).toEqual([expect.stringMatching(new RegExp(`/webhooks/git/${r.slug}$`))]);
+    expect(urls[0]).not.toContain(r.id);
+  });
+
   it("rimandi, lotto 5: si rigenera anche per ID del repository (l'app non ha lo slug), con le stesse regole", async () => {
     const r = await repo(false);
     const res = await post(`/api/repositories/${r.id}/webhook-secret`);

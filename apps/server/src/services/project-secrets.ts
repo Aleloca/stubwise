@@ -98,7 +98,9 @@ export async function regenerateWebhookSecret(
     if (!webhookCheck?.ok) throw new RoleRuleError(422, "webhook_scope_missing", webhookCheck?.detail ?? "The git token cannot manage webhooks");
 
     // 2. Il nuovo, in memoria, sulla piattaforma.
-    const url = `${publicUrl}/webhooks/git/${slug}`;
+    // Lo SLUG della riga, mai il parametro (review del lotto 5, I-1): chiamata
+    // per id, l'URL con l'uuid creerebbe un hook che /webhooks/git non trova.
+    const url = `${publicUrl}/webhooks/git/${repository.slug}`;
     try {
       await provider.ensureWebhook(config, { url, secret: fresh }, { fetchImpl: fetch });
     } catch (error) {
