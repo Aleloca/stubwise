@@ -13,7 +13,7 @@ import type {
   SecurityEvent,
   SourceView,
 } from "../../admin/types";
-import { appClient, session } from "./client";
+import { appClient } from "./client";
 import { eventKindOf } from "./meSecurity";
 import { instanceOrigin } from "./supportWidgets";
 
@@ -61,13 +61,11 @@ export interface AdminPeopleApi {
   duplicateRole(roleId: string): Promise<{ id: string }>;
   updateRole(roleId: string, patch: { name?: string; permissions?: string[] }): Promise<void>;
   deleteRole(roleId: string): Promise<void>;
-  /** Le fonti dei permessi di chi guarda (`access.whatCan`, calcolate dal server). */
-  myPermissions(): Promise<{
-    instance: { permission: string; reasons: { kind: string; roleId?: string | null }[] }[];
-    projects: {
-      permissions: { permission: string; reasons: { kind: string; roleId?: string | null }[] }[];
-    }[];
-  }>;
+  /**
+   * Rimandi, lotto 5, voce 5 (72, 610c2a9d5): cosa perderebbe chi guarda se il
+   * ruolo avesse questi permessi (`POST /api/roles/:id/viewer-loses`, sola lettura).
+   */
+  viewerLoses(roleId: string, permissions: string[]): Promise<{ lost: string[] }>;
   origin(): Promise<string>;
 }
 
@@ -370,20 +368,13 @@ export function createRealAdminPeople(api: AdminPeopleApi) {
     deleteRole: (roleId: string) => attempt(() => api.deleteRole(roleId)),
 
     /**
-     * Cosa perde chi guarda salvando il ruolo così: i permessi che gli vengono
-     * SOLO da quel ruolo (le fonti le calcola il server, `access.whatCan`) e
-     * che la versione nuova non ha più.
+     * Cosa perde chi guarda salvando il ruolo così: lo calcola il server (i
+     * permessi effettivi prima e dopo, d'istanza e in ogni progetto; uno che
+     * arriva ancora da una concessione o da un reparto non è perso). Il
+     * client non compone più le fonti di `access.whatCan`.
      */
     async viewerLosesIf(roleId: string, nextPermissions: string[]): Promise<string[]> {
-      const mine = await api.myPermissions();
-      const next = new Set(nextPermissions);
-      const lost = new Set<string>();
-      for (const p of [...mine.instance, ...mine.projects.flatMap((x) => x.permissions)]) {
-        const onlyThisRole =
-          p.reasons.length > 0 && p.reasons.every((r) => r.kind === "role" && r.roleId === roleId);
-        if (onlyThisRole && !next.has(p.permission)) lost.add(p.permission);
-      }
-      return [...lost];
+      return (await api.viewerLoses(roleId, nextPermissions)).lost;
     },
   };
 }
@@ -444,13 +435,8 @@ const liveApi: AdminPeopleApi = {
   deleteRole: async (roleId) => {
     await appClient().request("DELETE", `/api/roles/${seg(roleId)}`);
   },
-  // Review F1, M1: senza persona in sessione non si chiede niente (un
-  // `userId` vuoto non è nessuno): «cosa perdi» resta senza risposta.
-  myPermissions: async () => {
-    const userId = session.personId;
-    if (!userId) throw new Error("no_session");
-    return (await appClient().access.whatCan({ userId })) as Any;
-  },
+  viewerLoses: (roleId, permissions) =>
+    appClient().request("POST", `/api/roles/${seg(roleId)}/viewer-loses`, { permissions }),
   origin: instanceOrigin,
 };
 

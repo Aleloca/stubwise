@@ -8,11 +8,8 @@ const request = vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({
   expiresAt: "x",
   events: [],
 }));
-const { session, whatCan } = vi.hoisted(() => ({
-  session: { personId: "me" as string | null },
-  whatCan: vi.fn(async () => ({ instance: [], projects: [] })),
-}));
-vi.mock("./client", () => ({ appClient: () => ({ request, access: { whatCan } }), session }));
+const { session } = vi.hoisted(() => ({ session: { personId: "me" as string | null } }));
+vi.mock("./client", () => ({ appClient: () => ({ request }), session }));
 
 beforeEach(() => request.mockClear());
 
@@ -49,15 +46,12 @@ describe("People e Roles, i percorsi veri", () => {
     ]);
   });
 
-  it("cosa perde chi guarda: i permessi di chi è in sessione; senza sessione nessuna chiamata con userId vuoto (review F1, M1)", async () => {
+  it("cosa perde chi guarda: la lettura calcolata del server (rimandi, lotto 5)", async () => {
     const { liveAdminPeopleApiForTest: api } = await import("./adminPeople");
-    session.personId = "me";
-    await api.myPermissions();
-    expect(whatCan).toHaveBeenCalledWith({ userId: "me" });
-    whatCan.mockClear();
-    session.personId = null;
-    await expect(api.myPermissions()).rejects.toThrow("no_session");
-    expect(whatCan).not.toHaveBeenCalled();
-    session.personId = "me";
+    request.mockResolvedValueOnce({ lost: ["tickets.create"] });
+    expect(await api.viewerLoses("r1", ["release.merge"])).toEqual({ lost: ["tickets.create"] });
+    expect(request).toHaveBeenCalledWith("POST", "/api/roles/r1/viewer-loses", {
+      permissions: ["release.merge"],
+    });
   });
 });

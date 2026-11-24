@@ -150,23 +150,11 @@ function fakeApi(over: Partial<AdminPeopleApi> = {}) {
     duplicateRole: async () => ({ id: "r-copy" }),
     updateRole: log("update"),
     deleteRole: log("delete"),
-    myPermissions: async () => ({
-      instance: [],
-      projects: [
-        {
-          permissions: [
-            { permission: "tickets.create", reasons: [{ kind: "role", roleId: ROLE }] },
-            {
-              permission: "release.merge",
-              reasons: [
-                { kind: "role", roleId: ROLE },
-                { kind: "grant", roleId: null },
-              ],
-            },
-          ],
-        },
-      ],
-    }),
+    // Rimandi, lotto 5, voce 5 (72, 610c2a9d5): la lettura calcolata dal server.
+    viewerLoses: async (roleId, permissions) => (
+      calls.push(`viewerLoses ${roleId} ${JSON.stringify(permissions)}`),
+      { lost: ["tickets.create"] }
+    ),
     origin: async () => "https://stubwise.acme.test",
     ...over,
   };
@@ -370,16 +358,17 @@ describe("People, inviti e Roles dal server (area 9, R7)", () => {
     });
   });
 
-  it("i ruoli: chiave e preset dal presetKey; cosa perde chi guarda viene dalle fonti del server", async () => {
-    const people = createRealAdminPeople(fakeApi().api);
+  it("i ruoli: chiave e preset dal presetKey; cosa perde chi guarda lo calcola il server", async () => {
+    const { api, calls } = fakeApi();
+    const people = createRealAdminPeople(api);
     const roles = await people.listRoles();
     expect(roles.map((r) => [r.key, r.preset])).toEqual([
       ["developer", true],
       ["r-custom", false],
     ]);
-    // tickets.create gli viene solo da quel ruolo; release.merge anche da una concessione.
-    expect(await people.viewerLosesIf(ROLE, [])).toEqual(["tickets.create"]);
-    expect(await people.viewerLosesIf(ROLE, ["tickets.create"])).toEqual([]);
+    // Il client non compone più le fonti: legge `lost` di `POST /api/roles/:id/viewer-loses`.
+    expect(await people.viewerLosesIf(ROLE, ["release.merge"])).toEqual(["tickets.create"]);
+    expect(calls).toEqual([`viewerLoses ${ROLE} ["release.merge"]`]);
   });
 
   it("autori osservati: solo quelli non collegati; registro di sicurezza coi tipi del prototipo", async () => {
