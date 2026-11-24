@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildMimeMessage, createDraft, deleteDraft, encodeRaw, getDraft, getSendAsSignature, sendDraft, sendMessage, updateDraft } from "./gmail-compose.js";
+import { buildMimeMessage, createDraft, deleteDraft, encodeRaw, getDraft, getSendAsSignature, listSendAs, sendDraft, sendMessage, updateDraft } from "./gmail-compose.js";
 import { fakeFetch, jsonResponse } from "./test-support.js";
 
 /**
@@ -138,6 +138,25 @@ describe("getSendAsSignature (la firma di Gmail, F3: basta gmail.modify)", () =>
     expect(await getSendAsSignature({ accessToken: "at", sendAsEmail: "ada+x@acme.com" }, { fetchImpl: impl })).toBe("Ada Lovelace\nAcme & co.");
     expect(calls[0]!.url).toBe("https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs/ada%2Bx%40acme.com");
     expect(await getSendAsSignature({ accessToken: "at", sendAsEmail: "ada@acme.com" }, { fetchImpl: impl })).toBeNull();
+  });
+});
+
+describe("listSendAs (lotto 8, voce 2: gli alias, basta gmail.modify)", () => {
+  it("GET sendAs: solo il principale e gli alias accettati, con nome, predefinito e firma in testo", async () => {
+    const { impl, calls } = fakeFetch([
+      jsonResponse({
+        sendAs: [
+          { sendAsEmail: "ada@acme.com", displayName: "Ada", isPrimary: true, isDefault: false, signature: "<b>Ada</b>" },
+          { sendAsEmail: "supporto@acme.com", displayName: " Supporto Acme ", isDefault: true, verificationStatus: "accepted", signature: "" },
+          { sendAsEmail: "nuovo@acme.com", verificationStatus: "pending" },
+        ],
+      }),
+    ]);
+    expect(await listSendAs({ accessToken: "at" }, { fetchImpl: impl })).toEqual([
+      { email: "ada@acme.com", displayName: "Ada", isPrimary: true, isDefault: false, signature: "Ada" },
+      { email: "supporto@acme.com", displayName: "Supporto Acme", isPrimary: false, isDefault: true, signature: null },
+    ]);
+    expect(calls[0]!.url).toBe("https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs");
   });
 });
 

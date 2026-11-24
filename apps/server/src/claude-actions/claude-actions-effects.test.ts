@@ -224,6 +224,28 @@ describe("sul sorgente: nessun modulo raggiungibile dal catalogo esce da solo", 
     const offenders = files.flatMap((f) => WRITES.filter((re) => re.test(code(readFileSync(f, "utf8")))).map((re) => `${f}: ${re}`));
     expect(offenders).toEqual([]);
     expect(files.filter((f) => f.endsWith("claude-actions/effects.ts") || f.endsWith("default-reviewer-write.ts"))).toEqual([]);
+
+    // Revisione dei lotti 6–7 (M-2): la passeggiata sopra non entra nei package.
+    // Ciò che il preflight importa per VALORE da `@stubwise/*` è un elenco CHIUSO:
+    // un simbolo nuovo (anche di sola lettura) va guardato e aggiunto qui apposta.
+    const fromPackages = new Set<string>();
+    for (const f of files) {
+      for (const m of readFileSync(f, "utf8").matchAll(/^import (?!type\b)\{([^}]*)\} from "(@stubwise\/[^"]+)"/gms)) {
+        for (const raw of m[1]!.split(",")) {
+          const name = raw.trim();
+          if (name.length === 0 || name.startsWith("type ")) continue;
+          fromPackages.add(`${m[2]}:${name.split(" as ")[0]!.trim()}`);
+        }
+      }
+    }
+    expect([...fromPackages].sort()).toEqual([
+      "@stubwise/db:gitAccounts",
+      "@stubwise/git:BITBUCKET_REVIEWER_SCOPES",
+      "@stubwise/git:getProvider",
+      "@stubwise/notifications:decryptGitCredentials",
+    ]);
+    // `resolveProviderUserId` SALVA l'identità (scrive su `git_accounts`): mai nel preflight, da nessuna strada.
+    expect(files.filter((f) => /\bresolveProviderUserId\b/.test(code(readFileSync(f, "utf8"))))).toEqual([]);
   });
 
   it("solo `effects.ts` (dopo il commit, mai a secco) e `preflight.ts` (prima, solo lettura, mai a secco) possono uscire", () => {

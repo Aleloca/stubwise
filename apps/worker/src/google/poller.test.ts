@@ -801,6 +801,31 @@ describe("sincronizzazione Gmail", () => {
 // Ammissione (fase 6c) — Task 3: il pre-filtro AMMETTE, non attribuisce più.
 // ---------------------------------------------------------------------------
 
+describe("lotto 8, voce 2: gli alias della casella sono «io» (W1)", () => {
+  it("un messaggio mandato da un ALIAS su un thread sconosciuto non entra come ricevuto; gli alias si rileggono da Gmail se la copia è vecchia", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: { m1: message({ id: "m1", from: "Supporto <supporto@acme.com>" }) },
+    });
+    const listed: string[] = [];
+    const withAliases = {
+      ...gmail,
+      listSendAs: async (input: { accessToken: string }) => {
+        listed.push(input.accessToken);
+        return [{ email: "supporto@acme.com", displayName: "Supporto", isPrimary: false, isDefault: false, signature: null }];
+      },
+    };
+    const stats = await pollGoogleOnce(deps(account, withAliases as typeof gmail));
+    expect(listed).toHaveLength(1);
+    expect(stats.ingested).toBe(0);
+    expect(gmail.calls).not.toContain("full:m1");
+    const [row] = await db.select({ sendAs: googleAccounts.sendAs, at: googleAccounts.sendAsFetchedAt }).from(googleAccounts).where(eq(googleAccounts.id, account.id));
+    expect(row!.sendAs.map((a) => a.email)).toEqual(["supporto@acme.com"]);
+    expect(row!.at).not.toBeNull();
+  });
+});
+
 describe("ammissione (fase 6c)", () => {
   it("dominio Workspace REGISTRATO, senza nessuna regola di progetto: ingerito con scope_project_ids vuoto", async () => {
     // Nessun progetto, nessuna regola: prima di questa fase questo messaggio

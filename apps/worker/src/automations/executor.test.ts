@@ -20,10 +20,10 @@ import {
 } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { AutomationFlow, Step } from "@stubwise/shared";
-import { asc, eq, sql } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { effectKey, executeEffect } from "./effects.js";
-import { executeDueRuns, INPUT_RETENTION_DAYS, pruneConsumedInputs, releaseClaim, RUN_LEASE_MS } from "./executor.js";
+import { executeDueRuns, INPUT_RETENTION_DAYS, pruneConsumedInputs, pruneFinishedRuns, releaseClaim, RUN_LEASE_MS, RUN_RETENTION_DAYS } from "./executor.js";
 
 /**
  * L'ESECUTORE (area 7, F1): le esecuzioni dovute avanzano col motore puro, gli
@@ -290,6 +290,54 @@ describe("executeDueRuns", () => {
     // Due giri di fila senza `workerId`: prese con gettoni diversi, mai lo stesso nome per tutti.
     await executeDueRuns({ db: t.db });
     expect((await reload(run.id)).claimedBy).toBeNull();
+  });
+
+  it("lotto 8, voce 1: una finita da più di 90 giorni si COMPATTA — via registro, effetti, evento; titolo = nome; la riga e l'origine restano", async () => {
+    const { automation, run } = await runOf([task()]);
+    await exec();
+    expect((await reload(run.id)).status).toBe("done");
+    expect((await logOf(run.id)).length).toBeGreaterThan(0);
+    const [created] = await t.db.select({ id: tickets.id }).from(tickets).where(eq(tickets.automationRunId, run.id));
+    expect(created).toBeDefined();
+    const old = new Date(Date.now() - (RUN_RETENTION_DAYS + 1) * 86_400_000);
+    await t.db.update(automationRuns).set({ endedAt: old }).where(eq(automationRuns.id, run.id));
+    // Una finita di recente e una aperta vecchia: restano come sono.
+    const { run: recent } = await runOf([task()]);
+    await exec();
+    const { run: open } = await runOf([task({ approval: { mode: "ask", who: { owner: true } } })]);
+    await exec();
+    await t.db.update(automationRuns).set({ startedAt: old }).where(eq(automationRuns.id, open.id));
+
+    expect(await pruneFinishedRuns(t.db)).toBeGreaterThanOrEqual(1);
+    const pruned = await reload(run.id);
+    expect(pruned).toMatchObject({ status: "done", n: 1, title: automation.name, event: null, vars: {}, cursor: null, pending: null, error: null });
+    expect(pruned.detailsPrunedAt).not.toBeNull();
+    expect(await logOf(run.id)).toEqual([]);
+    expect(await t.db.select().from(automationEffects).where(eq(automationEffects.runId, run.id))).toEqual([]);
+    // L'origine di ciò che ha creato resta: la riga non se ne va.
+    expect((await t.db.select({ runId: tickets.automationRunId }).from(tickets).where(eq(tickets.id, created!.id)))[0]!.runId).toBe(run.id);
+    expect((await reload(recent.id)).detailsPrunedAt).toBeNull();
+    expect((await logOf(recent.id)).length).toBeGreaterThan(0);
+    expect((await reload(open.id)).detailsPrunedAt).toBeNull();
+    // Un secondo giro non la ritocca.
+    const at = pruned.detailsPrunedAt!.getTime();
+    await pruneFinishedRuns(t.db);
+    expect((await reload(run.id)).detailsPrunedAt!.getTime()).toBe(at);
+  });
+
+  it("lotto 8, voce 1: un giro compatta al più il suo lotto, le più vecchie per prime", async () => {
+    const a = await runOf([]);
+    const b = await runOf([]);
+    const older = new Date(Date.now() - (RUN_RETENTION_DAYS + 5) * 86_400_000);
+    const old = new Date(Date.now() - (RUN_RETENTION_DAYS + 2) * 86_400_000);
+    await t.db.update(automationRuns).set({ status: "done", endedAt: old }).where(eq(automationRuns.id, a.run.id));
+    await t.db.update(automationRuns).set({ status: "failed", endedAt: older }).where(eq(automationRuns.id, b.run.id));
+    // Le altre vecchie dei test prima: le si toglie di mezzo, così il lotto da 1 vede solo queste due.
+    await pruneFinishedRuns(t.db, 10_000);
+    await t.db.update(automationRuns).set({ detailsPrunedAt: null }).where(inArray(automationRuns.id, [a.run.id, b.run.id]));
+    expect(await pruneFinishedRuns(t.db, 1)).toBe(1);
+    expect((await reload(b.run.id)).detailsPrunedAt).not.toBeNull();
+    expect((await reload(a.run.id)).detailsPrunedAt).toBeNull();
   });
 
   it("review F1, M6: gli input consumati da più di 7 giorni si tolgono; quelli recenti o non consumati restano", async () => {

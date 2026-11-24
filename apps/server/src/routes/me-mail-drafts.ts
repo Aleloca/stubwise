@@ -32,7 +32,7 @@ import { authErrorResponses, errorSchema } from "./shared.js";
 export async function meMailDraftsRoutes(instance: FastifyInstance, opts: { client?: MailComposeClient }): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
   const client = opts.client ?? realMailComposeClient;
-  const errors = { 404: errorSchema, 409: errorSchema.extend({ missing: z.array(z.string()).optional() }), 502: errorSchema, ...authErrorResponses };
+  const errors = { 404: errorSchema, 409: errorSchema.extend({ missing: z.array(z.string()).optional() }), 422: errorSchema, 502: errorSchema, ...authErrorResponses };
 
   function sendError(reply: FastifyReply, err: DraftError) {
     switch (err.error) {
@@ -46,6 +46,9 @@ export async function meMailDraftsRoutes(instance: FastifyInstance, opts: { clie
       case "too_large":
       case "storage_not_configured":
         return apiError(reply, 400, err.error, "Cannot attach this file");
+      // Lotto 8, voce 2: un «Da» che non è fra gli indirizzi verificati della casella.
+      case "invalid_from":
+        return apiError(reply, 422, "invalid_from", "This address can't be used to send from this mailbox");
       default:
         return apiError(reply, 409, err.error, "Cannot save the draft");
     }
@@ -241,6 +244,7 @@ export async function meMailDraftsRoutes(instance: FastifyInstance, opts: { clie
           400: errorSchema.extend({ address: z.string().optional() }),
           404: errorSchema,
           409: errorSchema.extend({ missing: z.array(z.string()).optional() }),
+          422: errorSchema,
           ...authErrorResponses,
         },
       },
@@ -249,6 +253,9 @@ export async function meMailDraftsRoutes(instance: FastifyInstance, opts: { clie
       const out = await sendDraftLater(app.db, request.user!.id, request.params.id);
       if ("messageId" in out) return reply.code(202).send(out);
       switch (out.error) {
+        // Lotto 8, voce 2: il «Da» non è più fra gli alias della casella; la bozza resta.
+        case "invalid_from":
+          return apiError(reply, 422, out.error, "This address can't be used to send from this mailbox");
         case "invalid_recipients":
         case "too_many_attachments":
         case "too_large":

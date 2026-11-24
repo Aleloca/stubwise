@@ -3,7 +3,7 @@ import { automationEvents, automationRunInputs, automationRuns, automations, aut
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import type { AutomationFlow } from "@stubwise/shared";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
@@ -310,6 +310,17 @@ describe("«Remember for <client>» (S5)", () => {
     await db.update(users).set({ instanceRoleId: role!.id }).where(eq(users.id, u.id));
     return u;
   }
+
+  it("lotto 8, voce 1: la vista dice `detailsPruned` di un'esecuzione compattata (false finché non lo è)", async () => {
+    const p = await project();
+    const owner = await userWith(["automations.general.manage", "integrations.manage"]);
+    await addMember(app, p.id, owner.id, "project_lead");
+    const a = await waitingRun(owner.id, p.id, `Pota-${randomUUID().slice(0, 6)}.it`);
+    const read = async () => ((await call(owner.headers, "GET", `/automations/${a.code}/runs/1`)).json() as { detailsPruned: boolean }).detailsPruned;
+    expect(await read()).toBe(false);
+    await db.update(automationRuns).set({ status: "done", endedAt: new Date(), detailsPrunedAt: new Date() }).where(and(eq(automationRuns.automationId, a.id), eq(automationRuns.n, 1)));
+    expect(await read()).toBe(true);
+  });
 
   it("con integrations.manage: la scelta va in coda E la tabella si scrive (chiave normalizzata); il dettaglio dice rememberClient", async () => {
     const p = await project();

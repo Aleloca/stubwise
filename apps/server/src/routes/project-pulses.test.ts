@@ -60,11 +60,22 @@ describe("GET /api/projects/pulses (lotto 7, voce 4)", () => {
     expect((await pulses(`?projectIds=${hidden},${projectId}`)).map((x) => x.projectId)).toEqual([projectId]);
   });
 
-  it("oltre le 2000 righe dell'elenco i numeri restano esatti (niente «+»)", async () => {
+  it("revisione I-1: 3000 task si CONTANO esatte, senza tetto né «+»; le decisioni rivolte a chi guarda si contano", async () => {
     const { projectId } = await seedRepository(t.db);
     await addMember(app, projectId, users.memberId, "project_lead");
-    await insertTasks(projectId, "open", 2050);
+    await insertTasks(projectId, "open", 2600);
+    await insertTasks(projectId, "in_progress", 400);
+    const [first] = await t.db.select({ id: tickets.id }).from(tickets).where(eq(tickets.projectId, projectId)).limit(1);
+    const asked = await app.inject({ method: "POST", url: `/api/tasks/${first!.id}/decisions`, headers: { cookie: users.adminCookie }, payload: { askedOfId: users.memberId, question: "Quale?" } });
+    expect(asked.statusCode, asked.body).toBeLessThan(300);
+    // Una rivolta a un altro non conta per chi guarda.
+    const other = await app.inject({ method: "POST", url: `/api/tasks/${first!.id}/decisions`, headers: { cookie: users.memberCookie }, payload: { askedOfId: users.adminId, question: "E tu?" } });
+    expect(other.statusCode, other.body).toBeLessThan(300);
+    // Una ferma a mano: la conta la regola di `stallsOf`, dalla forma ridotta.
+    await t.db.update(tickets).set({ manualStallReason: "waiting_external", manualStallSince: new Date() }).where(eq(tickets.id, first!.id));
     const [p] = await pulses(`?projectIds=${projectId}`);
-    expect(p).toMatchObject({ open: { todo: 2050, active: 0 }, truncated: false });
-  });
+    // Ferme: le 400 attive senza assegnatario (`unassigned`, la regola di `stallOf`) più quella ferma a mano.
+    expect(p).toMatchObject({ open: { todo: 2600, active: 400 }, stalled: 401, truncated: false });
+    expect(p!.waiting.decisionsForMe).toBe(1);
+  }, 120_000);
 });

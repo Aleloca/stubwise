@@ -1,7 +1,7 @@
 import { gitAccounts } from "@stubwise/db";
 import { BITBUCKET_REVIEWER_SCOPES, getProvider } from "@stubwise/git";
 import { decryptGitCredentials, type FetchPlatformIdentity } from "@stubwise/notifications";
-import { fetchPlatformIdentity } from "./platform-identity.js";
+import { fetchPlatformIdentity, fetchPlatformIdentityWith } from "./platform-identity.js";
 
 /**
  * Il revisore predefinito, la VERIFICA (lotto 6, voce 1): solo letture, sul
@@ -21,7 +21,7 @@ export type DefaultReviewerCheck =
 export async function verifyDefaultReviewer(
   row: GitAccountRow,
   key: Buffer,
-  deps: { fetchIdentity?: FetchPlatformIdentity; onIdentityError?: (err: unknown) => void } = {},
+  deps: { fetchIdentity?: FetchPlatformIdentity; onIdentityError?: (err: unknown) => void; fetchImpl?: typeof fetch } = {},
 ): Promise<DefaultReviewerCheck> {
   if (row.provider === "bitbucket" && !row.workspace) {
     return { ok: false, status: 422, code: "default_reviewer_workspace_missing", message: "A Bitbucket default reviewer needs a workspace: set it on the git account first" };
@@ -31,7 +31,7 @@ export async function verifyDefaultReviewer(
   try {
     const checks = await getProvider(row.provider).validateAccount(
       { credentials: { provider: row.provider, credentials }, workspace: row.workspace ?? undefined },
-      { fetchImpl: fetch, requiredScopes: BITBUCKET_REVIEWER_SCOPES },
+      { fetchImpl: deps.fetchImpl ?? fetch, requiredScopes: BITBUCKET_REVIEWER_SCOPES },
     );
     const failed = checks.filter((c) => !c.ok);
     if (failed.length > 0) return { ok: false, status: 422, code: "default_reviewer_invalid", message: failed.map((c) => `${c.name}: ${c.detail}`).join("; ") };
@@ -42,7 +42,7 @@ export async function verifyDefaultReviewer(
   const scopeHint = row.provider === "bitbucket" ? " (on Bitbucket, check that the token has the read:user:bitbucket scope)" : "";
   let providerUserId: string | null = null;
   try {
-    providerUserId = (await (deps.fetchIdentity ?? fetchPlatformIdentity)({ provider: row.provider, credentials })) || null;
+    providerUserId = (await (deps.fetchIdentity ?? (deps.fetchImpl ? fetchPlatformIdentityWith(deps.fetchImpl) : fetchPlatformIdentity))({ provider: row.provider, credentials })) || null;
   } catch (err) {
     try {
       deps.onIdentityError?.(err);

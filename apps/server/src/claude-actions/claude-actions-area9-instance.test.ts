@@ -210,10 +210,30 @@ describe("lotto 6, voce 1: setDefaultReviewer — la verifica nel preflight (sol
 
   it("il preflight ha un tempo massimo: una piattaforma che non risponde è un rifiuto (`preflight_timeout`)", async () => {
     const d = (await call("POST", "/api/git-accounts", { name: "Rev D", provider: "github", credentials: { token: "tok-dddddddd" } })).json() as { id: string };
-    vi.spyOn(GitHubProvider.prototype, "validateAccount").mockImplementation(() => new Promise(() => {}));
+    // La chiamata alla piattaforma usa il `fetchImpl` ricevuto: resta appesa finché il suo segnale non scatta.
+    let aborted = false;
+    vi.spyOn(GitHubProvider.prototype, "validateAccount").mockImplementation(async (_p, opts) => {
+      const realFetch = globalThis.fetch;
+      vi.spyOn(globalThis, "fetch").mockImplementationOnce((_u, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            aborted = true;
+            reject(new Error("aborted"));
+          });
+        }),
+      );
+      try {
+        await (opts!.fetchImpl as typeof fetch)("https://api.github.com/user");
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+      return [];
+    });
     const user = { id: adminId, instancePermissions: new Set(["git_accounts.manage"]) } as never;
     const out = await runPreflight(t.db, user, "setDefaultReviewer", { id: d.id, on: true }, { encryptionKey: KEY, timeoutMs: 50 });
     expect(out).toMatchObject({ ok: false, refusal: { message: "preflight_timeout" } });
+    // Revisione dei lotti 6–7 (M-1): allo scadere la chiamata si FERMA, non resta appesa.
+    await vi.waitFor(() => expect(aborted).toBe(true), { timeout: 5_000 });
   });
 });
 

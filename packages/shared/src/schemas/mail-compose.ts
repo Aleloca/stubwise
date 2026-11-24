@@ -49,6 +49,12 @@ export const mailDraftSchema = z.object({
   signature: z.string().nullable().default(null),
   /** `scope_missing` = la casella non concede gmail.modify: si manda senza firma. */
   signatureStatus: z.enum(["present", "none", "scope_missing"]).default("none"),
+  /**
+   * Lotto 8, voce 2: l'indirizzo da cui parte (uno di `sendAs` della casella);
+   * null = l'indirizzo predefinito. In una risposta il server parte dall'alias
+   * a cui era indirizzato il messaggio. Un server di prima non lo manda.
+   */
+  from: z.string().nullable().default(null),
 });
 export type MailDraft = z.infer<typeof mailDraftSchema>;
 
@@ -66,6 +72,13 @@ export const mailDraftSaveSchema = z.object({
   subject: z.string().max(1000).default(""),
   body: z.string().max(200_000).default(""),
   quote: z.boolean().default(true),
+  /**
+   * Lotto 8, voce 2: l'indirizzo da cui parte; null = il predefinito; fuori
+   * dagli alias: 422 `invalid_from`. ASSENTE = resta quello che c'era (quello
+   * della bozza salvata, o quello che il server ha scelto per la risposta):
+   * un client che non lo conosce non lo azzera.
+   */
+  from: z.string().max(320).nullable().optional(),
   /**
    * «Tieni la mia» dopo un `draft_changed`: scrive sopra la versione cambiata
    * da Gmail. Un gesto esplicito, mai il default (la bozza di Gmail non si

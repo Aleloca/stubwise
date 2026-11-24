@@ -149,6 +149,7 @@ export async function runRowOf(db: Db, viewer: Viewer, r: RunRecord, a: Automati
     projectIds: r.projectIds.filter((p) => sees(v, p)),
     parentRunId: r.parentRunId,
     origin: r.origin,
+    detailsPruned: r.detailsPrunedAt !== null,
     ...(r.status === "suspended" && c.suspendedFrom ? { suspendedFrom: c.suspendedFrom as AutomationRun["suspendedFrom"] } : {}),
     // F3 (C-F3-4): ferma al passo di Claude per il budget del mese; riparte da sola.
     // Area 9, F4 (J-6 = a): o per la coda del progetto in pausa — chi (col nome,
