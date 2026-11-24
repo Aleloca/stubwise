@@ -3025,17 +3025,6 @@ async function calendarRows(): Promise<(typeof calendarEvents.$inferSelect)[]> {
   return db.select().from(calendarEvents).orderBy(calendarEvents.googleEventId);
 }
 
-/**
- * Lotto 9, voce 2 (d): un evento SINGOLO è una proposta condivisa fra gli
- * invitati MEMBRI ESPLICITI del progetto, il proprietario della casella
- * compreso: senza appartenenza nessuno riceve la card.
- */
-async function ownerMemberOf(account: typeof googleAccounts.$inferSelect, projectId: string): Promise<void> {
-  const { projectMembers, roles } = await import("@stubwise/db");
-  const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.scope, "project")).limit(1);
-  await db.insert(projectMembers).values({ projectId, userId: account.userId, roleId: role!.id });
-}
-
 /** La card del proprietario su una proposta condivisa del calendario (la sua riga fra i destinatari). */
 async function sharedCardOf(userId: string): Promise<string | null> {
   const { calendarProposalRecipients } = await import("@stubwise/db");
@@ -3050,7 +3039,6 @@ describe("il resync del calendario dopo un 410 vede anche le cancellazioni", () 
       .insert(projectEmailRoutes)
       .values({ projectId, kind: "sender_domain", value: "cliente.com" });
     const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
-    await ownerMemberOf(account, projectId);
 
     // Primo giro: nessun `calendarSyncToken` → resync per finestra (primo
     // giro), crea la riga e la fase 4 (accesa di default in questo file) la
@@ -4266,7 +4254,6 @@ describe("F3b: il calendario con TUTTI gli eventi", () => {
     const projectId = await seedProject("Acme");
     await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });
     const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
-    await ownerMemberOf(account, projectId);
     await tick(account, mixed());
 
     const rows = await calendarRows();
@@ -4545,7 +4532,6 @@ describe("review F3b, punto 2: un evento cancellato chiude la sua card, e la pot
     const projectId = await seedProject("Acme");
     await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });
     const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
-    await ownerMemberOf(account, projectId);
     await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { calendar: fakeCalendarSequence([{ events: [calendarEvent({ id: "e1" })], nextSyncToken: "t1" }]) }));
     // Lotto 9, voce 2 (d): la card è quella del destinatario della proposta condivisa.
     const cardId = await sharedCardOf(account.userId);
