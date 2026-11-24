@@ -7665,6 +7665,7 @@
     },
     "run": {
       "started": "Started {{date}} at {{time}}",
+      "detailsPruned": "This run's details are gone: they're kept for {{days}} days.",
       "byRun": "by",
       "ownersAutomation": "{{owner}}'s automation",
       "startedRuns": "It started:",

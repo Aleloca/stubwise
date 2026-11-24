@@ -26,6 +26,7 @@ import {
 import { MoreGlyph } from "./glyphs";
 import type { LogCtx } from "./LogEntryText";
 import { RunLog } from "./RunLog";
+import { AUTOMATION_RUN_DETAILS_DAYS } from "@stubwise/shared";
 import { RunStatusWord, codeClass, textLink, useNames } from "./shared";
 import { criticalSecondary, NowBox } from "./RunNow";
 import { PassTime } from "./PassTime";
@@ -248,29 +249,36 @@ export function RunDetail({ runId, entry }: { runId: string; entry?: string }) {
           titleRef={nowTitle}
         />
         {passTime && <PassTime run={run} />}
-        <RunLog
-          ctx={ctx}
-          entry={entry}
-          actionsFor={(e) =>
-            run.status === "failed" &&
-            run.permissions.manage &&
-            e.outcome === "failed" &&
-            e === [...run.log].reverse().find((x) => x.outcome === "failed") ? (
-              <span className="flex shrink-0 items-center gap-1">
-                <button
-                  type="button"
-                  className={`${quietButton} h-7`}
-                  onClick={() => setDialog("skip")}
-                >
-                  {t("automations.actions.skip")}
-                </button>
-                <button type="button" className={`${secondaryButton} h-7`} onClick={doRetry}>
-                  {t("automations.actions.retry")}
-                </button>
-              </span>
-            ) : null
-          }
-        />
+        {run.detailsPruned ? (
+          // Lotto 8, voce 3: compattata, il registro non c'è più.
+          <p className="text-sm text-ink-muted">
+            {t("automations.run.detailsPruned", { days: AUTOMATION_RUN_DETAILS_DAYS })}
+          </p>
+        ) : (
+          <RunLog
+            ctx={ctx}
+            entry={entry}
+            actionsFor={(e) =>
+              run.status === "failed" &&
+              run.permissions.manage &&
+              e.outcome === "failed" &&
+              e === [...run.log].reverse().find((x) => x.outcome === "failed") ? (
+                <span className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    className={`${quietButton} h-7`}
+                    onClick={() => setDialog("skip")}
+                  >
+                    {t("automations.actions.skip")}
+                  </button>
+                  <button type="button" className={`${secondaryButton} h-7`} onClick={doRetry}>
+                    {t("automations.actions.retry")}
+                  </button>
+                </span>
+              ) : null
+            }
+          />
+        )}
       </div>
       {dialog === "cancel" && (
         <CancelRunDialog run={run} onClose={() => setDialog(null)} onDone={focusNow} />
