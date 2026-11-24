@@ -643,6 +643,8 @@ export const gitAccounts = pgTable("git_accounts", {
   // JSON { username?, email?, token } cifrato AES-256-GCM (vedi secrets.ts).
   // Non esce MAI dall'API: si legge solo per validare/decifrare lato server.
   encryptedCredentials: text("encrypted_credentials").notNull(),
+  /** Le ultime 4 del token (0225); null per le righe di prima o un token corto. */
+  tokenLast4: text("token_last4"),
   // Slug del workspace Bitbucket. Obbligatorio per usare le feature repo di un
   // account Bitbucket con API token: Bitbucket Cloud (CHANGE-2770) ha dismesso
   // gli endpoint account/globali (410 Gone), quindi i repo si elencano solo
@@ -2088,6 +2090,8 @@ export const instanceSettings = pgTable("instance_settings", {
   s3Bucket: text("s3_bucket"),
   s3AccessKey: text("s3_access_key"),
   s3SecretKeyEncrypted: text("s3_secret_key_encrypted"),
+  /** Le ultime 4 della chiave S3 (0225); null senza chiave, o per le righe di prima. */
+  s3SecretKeyLast4: text("s3_secret_key_last4"),
   // Credenziali Slack per l'ingestion (slash command / interazioni) e per la
   // verifica delle richieste in arrivo. Entrambe nullable: l'integrazione Slack
   // è opzionale; con queste colonne a null la feature è disattivata. Cifrate a
@@ -5173,6 +5177,8 @@ export const googleWorkspaces = pgTable("google_workspaces", {
   domains: text("domains").array().notNull(),
   clientId: text("client_id").notNull(),
   clientSecretEncrypted: text("client_secret_encrypted").notNull(),
+  /** Le ultime 4 del client secret (0225); null senza segreto, o per le righe di prima. */
+  clientSecretLast4: text("client_secret_last4"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

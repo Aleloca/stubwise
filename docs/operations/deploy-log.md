@@ -6241,3 +6241,12 @@ deploy o di un rollback che la tocca.
   **server** (poi **caddy** per il renderer). **Rollback**: sicuro scendere
   d'immagine; per togliere le colonne, prima il server vecchio, poi
   `ALTER TABLE outgoing_webhooks DROP COLUMN last_test_at, DROP COLUMN last_test_outcome`.
+- **«Rimandi, lotto 5: le ultime 4 dei segreti»** *(24 nov 2026)*: branch
+  `feat/rimandi-server`. **Migrazione 0225** (`instance_settings.s3_secret_key_last4`,
+  `git_accounts.token_last4`, `google_workspaces.client_secret_last4`, text
+  nullable). Si scrivono quando il segreto si crea o si sostituisce; i segreti
+  di prima restano senza («••••») finché non li si sostituisce: il server non
+  decifra per ricavarle. Viste: `s3SecretKeyLast4`, `tokenLast4`,
+  `clientSecretLast4` (`.default(null)`). Solo **server** (poi **caddy**).
+  **Rollback**: sicuro; per togliere le colonne, prima il server vecchio, poi
+  i tre `DROP COLUMN`.

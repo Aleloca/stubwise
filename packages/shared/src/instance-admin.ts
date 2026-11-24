@@ -131,6 +131,8 @@ export const instanceSettingsViewSchema = z.object({
   s3Bucket: z.string().nullable().default(null),
   s3AccessKey: z.string().nullable().default(null),
   s3SecretKeySet: z.boolean().default(false),
+  /** Rimandi, lotto 5: le ultime 4 della chiave («•••• 9e2b»); null senza chiave o per una salvata prima della 0225. */
+  s3SecretKeyLast4: z.string().nullable().default(null),
   attachmentsEnabled: z.boolean().default(false),
   // Slack: solo i flag (il web vecchio; fuori dall'app nuova).
   slackSigningSecretSet: z.boolean().default(false),
@@ -226,3 +228,10 @@ export const aiUsageSnapshotSchema = z.object({
 });
 export type AiUsageSnapshot = z.infer<typeof aiUsageSnapshotSchema>;
 export const aiUsageSnapshotsSchema = z.array(aiUsageSnapshotSchema);
+
+/**
+ * Le ultime 4 cifre di un segreto da mostrare («•••• 9e2b»), o null se è
+ * troppo corto per non rivelarne una parte grossa (sotto gli 8 caratteri). La
+ * stessa regola delle credenziali dei provider AI (0190).
+ */
+export const secretLast4 = (secret: string): string | null => (secret.length >= 8 ? secret.slice(-4) : null);

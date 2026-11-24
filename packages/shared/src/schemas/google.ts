@@ -101,6 +101,8 @@ export const googleWorkspaceSchema = z.object({
   clientId: z.string(),
   /** true = c'è un client secret cifrato at rest. Il valore non esce mai. */
   clientSecretSet: z.boolean(),
+  /** Rimandi, lotto 5: le ultime 4 del client secret («•••• 9e2b»); null senza segreto o per uno salvato prima della 0225. */
+  clientSecretLast4: z.string().nullable().default(null),
   accountCount: z.number().int().min(0).default(0),
   redirectUri: z.string(),
   createdAt: z.string(),

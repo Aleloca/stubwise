@@ -1442,16 +1442,20 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     da 701afd81a (area 9, F4: `ai-usage` acceso; 23 nov 2026, verificata nel codice);
   - Storage: il server non ha la prova dell'archiviazione né l'interruttore
     degli allegati (li deriva dalla configurazione), quindi nell'app quei due
-    comandi non ci sono; niente ultime 4 della chiave («••••») *(S)*;
+    comandi non ci sono; ~~niente ultime 4 della chiave («••••») *(S)*;~~
+    *le ultime 4, parte server, chiuse il 24 nov 2026 (72, lotto 5)*:
+    `s3SecretKeyLast4` (0225);
   - Plugins: il server non dice chi ha registrato o aggiornato un plugin
     («updated … by» senza nome) *(S)*;
-  - Git accounts: niente ultime 4 del token («••••»); la validazione non
+  - Git accounts: ~~niente ultime 4 del token («••••»);~~ *(parte server
+    chiusa il 24 nov 2026, 72, lotto 5: `tokenLast4`, 0225)* la validazione non
     resta sul server (la ricorda la sessione); i repository che usano un
     account non arrivano, né nella riga né nel rifiuto `in_use`; chi
     verrebbe sostituito come revisore predefinito si sa solo dopo, dalla
     risposta *(S per ciascuno)*;
-  - Google Workspace: il server non tiene le ultime 4 del client secret
-    («••••»), e delle caselle collegate dà solo il numero: il dialogo di
+  - Google Workspace: ~~il server non tiene le ultime 4 del client secret
+    («••••»)~~ *(parte server chiusa il 24 nov 2026, 72, lotto 5:
+    `clientSecretLast4`, 0225)*, e delle caselle collegate dà solo il numero: il dialogo di
     un'app in uso le dice contate, senza i nomi *(S)*;
   - AI → Automation: le regole di `feedback` e `review` non si modificano
     nell'app (la pagina ha le tre righe delle task) e si rimandano com'erano
