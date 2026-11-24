@@ -244,6 +244,19 @@ describe("sul sorgente: nessun modulo raggiungibile dal catalogo esce da solo", 
       "@stubwise/git:getProvider",
       "@stubwise/notifications:decryptGitCredentials",
     ]);
+    // Revisione 8–9 (M-10): l'elenco chiuso vale solo se ogni import da
+    // `@stubwise/*` ha la forma `import { … }` che il conto riconosce. Ogni
+    // altra forma (namespace, default, `export … from`, import dinamico, un
+    // `import x, { … }`) porterebbe simboli che l'elenco non vede: vietata.
+    const OTHER_FORMS = [
+      /^import\s+\*\s+as\s+\w+\s+from\s+"@stubwise\//m,
+      /^import\s+(?!type\b)\w+\s*(,|from)\s*[^;]*"@stubwise\//m,
+      /^export\s+(\*|\{)[^;]*from\s+"@stubwise\//m,
+      /\bimport\(\s*["'`]@stubwise\//,
+      /\brequire\(\s*["'`]@stubwise\//,
+    ];
+    const otherForms = files.flatMap((f) => OTHER_FORMS.filter((re) => re.test(readFileSync(f, "utf8"))).map((re) => `${f}: ${re}`));
+    expect(otherForms).toEqual([]);
     // `resolveProviderUserId` SALVA l'identità (scrive su `git_accounts`): mai nel preflight, da nessuna strada.
     expect(files.filter((f) => /\bresolveProviderUserId\b/.test(code(readFileSync(f, "utf8"))))).toEqual([]);
   });
