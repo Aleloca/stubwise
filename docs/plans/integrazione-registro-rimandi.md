@@ -1255,7 +1255,14 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
       (innocuo: senza istruzione il campo, se arriva, si scarta per schema).~~
       *Chiusa il 23 nov 2026 (72, lotto 4)*: `reply` si chiede solo insieme
       alla sua istruzione.
-- Origine di una richiesta da Support; «View conversation» delle task del widget.
+- ~~Origine di una richiesta da Support; «View conversation» delle task del widget.~~
+  *Era già chiusa da f1f0b4718 (area 8, F3, S6), voce barrata il 24 nov
+  2026 (72, lotto 5)*: `origin` della richiesta (`{ kind: "support",
+  conversationCode, channel, customerName, messageCount }`) e
+  `supportConversationCode` della task, derivati a lettura
+  (`services/support-links.ts`); test in `support.test.ts` (verificati con
+  due mutazioni). L'id della conversazione la build app non lo riceve: il
+  renderer apre per codice.
 - Adozione delle PR e rilascio (merge) — confine di prodotto invariato.
 - Azioni di Claude: bozze di risposta di supporto e delle note di rilascio
   della PR (le iscrizioni agli avvisi sono arrivate con la F2, S7).
