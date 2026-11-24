@@ -120,7 +120,9 @@ function toEvent(e: ChronologyEvent): TimelineEvent | null {
     // codice e il titolo di allora. Senza (chi guarda non ha `tickets.view_all`
     // e non l'ha eliminata): l'evento c'è, nascosto, «A task was deleted».
     case "task_deleted": {
-      if (!e.taskId || !e.byId) return null;
+      // Revisione del lotto 5, Minor 6: senza `byId` (chi ha eliminato è stato
+      // a sua volta eliminato, ON DELETE SET NULL) l'evento resta, con «Someone».
+      if (!e.taskId) return null;
       // 72 (1ef4f49bb): null a chi non può vederli; un server di prima li ometteva.
       const shown = typeof e.taskCode === "string" && typeof e.title === "string";
       return {
@@ -129,8 +131,8 @@ function toEvent(e: ChronologyEvent): TimelineEvent | null {
         taskId: e.taskId,
         code: shown ? e.taskCode! : "",
         title: shown ? e.title! : "",
-        byId: e.byId,
-        byName: e.byName ?? null,
+        byId: e.byId ?? "",
+        byName: e.byId ? (e.byName ?? null) : null,
         ...(e.viaClaude ? { viaClaude: true } : {}),
         ...(shown ? {} : { concealed: true as const }),
       };

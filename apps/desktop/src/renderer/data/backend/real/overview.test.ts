@@ -234,6 +234,9 @@ describe("brief e cronologia dal server", () => {
             { kind: "task_deleted", at: AT, taskId: T, byId: "hidden-1", byName: null },
             // La forma di 72 (1ef4f49bb): codice e titolo null a chi non può vederli.
             { kind: "task_deleted", at: AT, taskId: T, taskCode: null, title: null, byId: "hidden-1", byName: null },
+            // Revisione del lotto 5, Minor 6: chi ha eliminato è stato a sua volta
+            // eliminato (ON DELETE SET NULL), e il server omette `byId`.
+            { kind: "task_deleted", at: AT, taskId: T, taskCode: "ACQ-9", title: "Old", byName: null },
           ],
           nextBefore: null,
         },
@@ -244,6 +247,7 @@ describe("brief e cronologia dal server", () => {
       { kind: "task_deleted", at: AT, taskId: T, code: "AUD-12", title: "Export", byId: "hidden-1", byName: null, viaClaude: true },
       { kind: "task_deleted", at: AT, taskId: T, code: "", title: "", byId: "hidden-1", byName: null, concealed: true },
       { kind: "task_deleted", at: AT, taskId: T, code: "", title: "", byId: "hidden-1", byName: null, concealed: true },
+      { kind: "task_deleted", at: AT, taskId: T, code: "ACQ-9", title: "Old", byId: "", byName: null },
     ]);
   });
 
