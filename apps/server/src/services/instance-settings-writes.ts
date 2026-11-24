@@ -1,4 +1,4 @@
-import { automationRuleSettingSchema, automationSettingsSchema, prReviewSettingsSchema, ticketTypeSchema, updateAutomationSettingsSchema, updateInstanceSettingsSchema, type TicketType } from "@stubwise/shared";
+import { automationRuleSettingSchema, secretLast4, automationSettingsSchema, prReviewSettingsSchema, ticketTypeSchema, updateAutomationSettingsSchema, updateInstanceSettingsSchema, type TicketType } from "@stubwise/shared";
 import { automationRules, automationRuns, encrypt, instanceSettings, type Db } from "@stubwise/db";
 import { aiBudgetState } from "@stubwise/notifications";
 import { and, eq, sql } from "drizzle-orm";
@@ -218,6 +218,8 @@ export async function putInstanceSettings(
   if (body.s3SecretKey !== undefined) {
     s3Set.s3SecretKeyEncrypted =
       body.s3SecretKey === "" ? null : encrypt(body.s3SecretKey, key());
+    // Le ultime 4, con la chiave (0225, rimandi lotto 5).
+    s3Set.s3SecretKeyLast4 = body.s3SecretKey === "" ? null : secretLast4(body.s3SecretKey);
   }
   // Segreti Slack: stessa semantica della secret S3. Assente → non toccare;
   // "" → azzera (null); non vuoto → cifra e salva. Mai esposti in lettura.

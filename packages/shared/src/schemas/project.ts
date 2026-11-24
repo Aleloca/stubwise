@@ -27,6 +27,8 @@ export const gitAccountSchema = z.object({
   // `.default(false)` per un client contro un server che non lo manda.
   isDefaultReviewer: z.boolean().default(false),
   createdAt: z.iso.datetime(),
+  /** Rimandi, lotto 5: le ultime 4 del token («•••• 9e2b»); null per un account salvato prima della 0225. */
+  tokenLast4: z.string().nullable().default(null),
 });
 export type GitAccount = z.infer<typeof gitAccountSchema>;
 

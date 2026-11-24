@@ -1,5 +1,5 @@
 import { changedFields, recordChange } from "../services/change-log.js";
-import { createGitAccountSchema, defaultReviewerResponseSchema, gitCredentialsSchema, defaultReviewerWarningSchema, gitAccountSchema, gitValidateResponseSchema, updateGitAccountSchema } from "@stubwise/shared";
+import { createGitAccountSchema, secretLast4, defaultReviewerResponseSchema, gitCredentialsSchema, defaultReviewerWarningSchema, gitAccountSchema, gitValidateResponseSchema, updateGitAccountSchema } from "@stubwise/shared";
 import { BITBUCKET_REVIEWER_SCOPES, GitProviderError, bitbucketRequiredScopes, getProvider } from "@stubwise/git";
 import { decrypt, encrypt, gitAccounts, repositories, type Db } from "@stubwise/db";
 import { resolveProviderUserId, resolveReviewAccounts } from "@stubwise/notifications";
@@ -112,6 +112,7 @@ function toPublicAccount(row: GitAccountRow): z.infer<typeof gitAccountSchema> {
     workspace: row.workspace,
     isDefaultReviewer: row.isDefaultReviewer,
     createdAt: row.createdAt.toISOString(),
+    tokenLast4: row.tokenLast4,
   };
 }
 
@@ -245,6 +246,7 @@ export async function patchGitAccount(
   if (workspace !== undefined) updates.workspace = workspace;
   if (credentials !== undefined) {
     updates.encryptedCredentials = encrypt(JSON.stringify(credentials), key());
+    updates.tokenLast4 = secretLast4(credentials.token);
     // Un token nuovo può appartenere a un ALTRO utente della piattaforma:
     // l'identità salvata (ciclo di correzione, design §5) non vale più e si
     // riscopre al primo uso. Tenerla farebbe passare dal filtro
@@ -321,7 +323,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
       const created = await app.db.transaction(async (tx) => {
         const [row] = await tx
           .insert(gitAccounts)
-          .values({ name, provider, encryptedCredentials, workspace: workspace ?? null })
+          .values({ name, provider, encryptedCredentials, tokenLast4: secretLast4(credentials.token), workspace: workspace ?? null })
           .returning();
         if (!row) throw new Error("insert dell'account non ha restituito la riga");
         await recordChange(tx, { type: "git_account.created", actor: request.user!, projectId: null, data: { object: gitAccountObject(row), params: { provider: PLATFORM_NAME[row.provider] ?? row.provider } } });

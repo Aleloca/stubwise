@@ -1,6 +1,7 @@
 import { changedFields, recordChange } from "../services/change-log.js";
 import { encrypt, googleAccounts, googleWorkspaces, type Db } from "@stubwise/db";
 import {
+  secretLast4,
   GOOGLE_OAUTH_CALLBACK_PATH,
   googleWorkspaceDraftSchema,
   googleWorkspacePatchSchema,
@@ -59,6 +60,7 @@ function toPublicWorkspace(
     domains: row.domains,
     clientId: row.clientId,
     clientSecretSet: row.clientSecretEncrypted !== NO_SECRET,
+    clientSecretLast4: row.clientSecretEncrypted !== NO_SECRET ? row.clientSecretLast4 : null,
     accountCount,
     redirectUri,
     createdAt: row.createdAt.toISOString(),
@@ -117,6 +119,7 @@ export async function patchGoogleWorkspace(
   if (clientSecret !== undefined) {
     updates.clientSecretEncrypted =
       clientSecret === "" ? NO_SECRET : encrypt(clientSecret, key());
+    updates.clientSecretLast4 = clientSecret === "" ? null : secretLast4(clientSecret);
   }
 
   // Drizzle rifiuta un update senza colonne: una patch vuota è una lettura.
@@ -178,6 +181,7 @@ export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<
             domains,
             clientId,
             clientSecretEncrypted: encrypt(clientSecret, app.encryptionKey),
+            clientSecretLast4: secretLast4(clientSecret),
           })
           .returning();
         if (!row) throw new Error("insert del Workspace non ha restituito la riga");

@@ -19,6 +19,7 @@ import {
   type RoleRow,
 } from "../services/roles.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
+import { viewerLosesIf } from "../services/access-query.js";
 import { apiError } from "../errors.js";
 
 /**
@@ -101,6 +102,28 @@ export async function roleRoutes(instance: FastifyInstance): Promise<void> {
       try {
         const role = await createRole(app.db, request.user!, request.body);
         return reply.code(201).send(toRoleView(role));
+      } catch (error) {
+        return sendRoleRuleError(reply, error);
+      }
+    },
+  );
+
+  // «You'd lose» (rimandi, lotto 5): cosa perderebbe chi guarda salvando il
+  // ruolo con questi permessi. Lettura calcolata (POST per il corpo), nessuna
+  // scrittura: niente riconferma.
+  app.post(
+    "/:id/viewer-loses",
+    {
+      config: { access: { kind: "instance", permission: "roles.manage" } },
+      schema: {
+        params: idParamsSchema,
+        body: z.object({ permissions: z.array(z.string().max(100)).max(200) }),
+        response: { 200: z.object({ lost: z.array(z.string()) }), ...authErrorResponses, ...ruleErrors },
+      },
+    },
+    async (request, reply) => {
+      try {
+        return { lost: await viewerLosesIf(app.db, request.user!, request.params.id, request.body.permissions) };
       } catch (error) {
         return sendRoleRuleError(reply, error);
       }

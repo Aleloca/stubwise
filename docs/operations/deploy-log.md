@@ -6233,3 +6233,20 @@ deploy o di un rollback che la tocca.
   sicuro scendere d'immagine (la colonna in più è ignorata, e un server
   vecchio torna a fermare tutti); per togliere la colonna, prima server e
   worker vecchi, poi `ALTER TABLE product_doc_jobs DROP COLUMN budget_bypass`.
+- **«Rimandi, lotto 5: l'ultima prova dei webhook in uscita»** *(24 nov
+  2026)*: branch `feat/rimandi-server`. **Migrazione 0224**
+  (`outgoing_webhooks.last_test_at` e `last_test_outcome`, nullable, con
+  CHECK). `POST /api/settings/webhooks/:id/test` la scrive; cambiare URL o
+  formato la toglie; la vista porta `lastTest` (`.default(null)`). Solo
+  **server** (poi **caddy** per il renderer). **Rollback**: sicuro scendere
+  d'immagine; per togliere le colonne, prima il server vecchio, poi
+  `ALTER TABLE outgoing_webhooks DROP COLUMN last_test_at, DROP COLUMN last_test_outcome`.
+- **«Rimandi, lotto 5: le ultime 4 dei segreti»** *(24 nov 2026)*: branch
+  `feat/rimandi-server`. **Migrazione 0225** (`instance_settings.s3_secret_key_last4`,
+  `git_accounts.token_last4`, `google_workspaces.client_secret_last4`, text
+  nullable). Si scrivono quando il segreto si crea o si sostituisce; i segreti
+  di prima restano senza («••••») finché non li si sostituisce: il server non
+  decifra per ricavarle. Viste: `s3SecretKeyLast4`, `tokenLast4`,
+  `clientSecretLast4` (`.default(null)`). Solo **server** (poi **caddy**).
+  **Rollback**: sicuro; per togliere le colonne, prima il server vecchio, poi
+  i tre `DROP COLUMN`.

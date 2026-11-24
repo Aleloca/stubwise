@@ -127,6 +127,29 @@ describe("i webhook in uscita", () => {
     await db.delete(outgoingWebhooks);
   });
 
+  it("rimandi, lotto 5: l'ultima prova si ricorda (`lastTest`): ok, errore della destinazione, nessuna risposta; cambiare l'URL la toglie, il nome no", async () => {
+    const w = (await call("POST", "/api/settings/webhooks", body())).json() as OutgoingWebhookWithSecret;
+    const lastTest = async () => ((await call("GET", "/api/settings/webhooks")).json() as { id: string; lastTest: { at: string; outcome: string } | null }[]).find((x) => x.id === w.id)!.lastTest;
+    expect(await lastTest()).toBeNull();
+    vi.stubGlobal("fetch", async () => new Response(null, { status: 200 }));
+    await call("POST", `/api/settings/webhooks/${w.id}/test`);
+    expect(await lastTest()).toMatchObject({ outcome: "ok", at: expect.any(String) });
+    vi.stubGlobal("fetch", async () => new Response(null, { status: 401 }));
+    await call("POST", `/api/settings/webhooks/${w.id}/test`);
+    expect((await lastTest())!.outcome).toBe("invalid_credentials");
+    vi.stubGlobal("fetch", async () => {
+      throw new TypeError("fetch failed");
+    });
+    await call("POST", `/api/settings/webhooks/${w.id}/test`);
+    expect((await lastTest())!.outcome).toBe("unreachable");
+    // Il nome non tocca la prova; l'URL sì (chiede la riconferma: la sessione di `cookie` è fresca).
+    await call("PATCH", `/api/settings/webhooks/${w.id}`, { name: "Rinominato" });
+    expect((await lastTest())!.outcome).toBe("unreachable");
+    await call("PATCH", `/api/settings/webhooks/${w.id}`, { url: "https://altro.example.com/in" });
+    expect(await lastTest()).toBeNull();
+    await db.delete(outgoingWebhooks);
+  });
+
   it("l'anteprima per formato ed evento usa i template veri; un evento senza notifica viva è 422", async () => {
     const slack = await call("GET", "/api/settings/webhooks/preview?format=slack&event=job.failed");
     expect(slack.statusCode).toBe(200);

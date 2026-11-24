@@ -50,6 +50,7 @@ function makeWorkspace(overrides: Partial<GoogleWorkspace> = {}): GoogleWorkspac
     domains: ["acme.com"],
     clientId: "123.apps.googleusercontent.com",
     clientSecretSet: true,
+    clientSecretLast4: null,
     accountCount: 0,
     redirectUri: "https://stubwise.example.com/api/me/google/callback",
     createdAt: "2026-09-07T10:00:00.000Z",

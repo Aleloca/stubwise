@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { and, count, desc, eq, gt, isNull, lte, ne, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, isNull, lte, ne, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -22,7 +22,7 @@ import {
   toSessionUser,
 } from "../auth/session.js";
 import type { SessionUserColumns } from "../auth/session.js";
-import { invites, passwordResetTokens, personalAccessTokens, roles, sessions, users } from "@stubwise/db";
+import { departmentMembers, departments, invites, passwordResetTokens, personalAccessTokens, roles, sessions, users } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import {
   authUserResponseSchema,
@@ -536,6 +536,13 @@ export async function authRoutes(
       instancePermissions: [...request.user!.instancePermissions],
       projectPermissions: await projectPermissionsMap(app.db, request.user!),
       departmentPermissions: await departmentPermissionsMap(app.db, request.user!.id),
+      // Rimandi, lotto 5: i reparti, nell'ordine della persona (il primo colora le iniziali).
+      departments: await app.db
+        .select({ id: departments.id, name: departments.name, colorToken: departments.colorToken })
+        .from(departmentMembers)
+        .innerJoin(departments, eq(departments.id, departmentMembers.departmentId))
+        .where(eq(departmentMembers.userId, request.user!.id))
+        .orderBy(asc(departmentMembers.position), asc(departmentMembers.departmentId)),
     }),
   );
 

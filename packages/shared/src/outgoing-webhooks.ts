@@ -62,6 +62,13 @@ export const outgoingWebhookViewSchema = z.object({
   secretSet: z.boolean().default(false),
   secretRotatedAt: z.iso.datetime().nullable().default(null),
   createdAt: z.iso.datetime(),
+  /**
+   * Rimandi, lotto 5: l'ultima prova (`POST …/test`), nelle parole del
+   * prototipo — `ok`, `invalid_credentials` (la destinazione ha risposto con
+   * un errore), `unreachable` (nessuna risposta). null = mai provato, o
+   * indirizzo/formato cambiati dopo. `.default(null)`.
+   */
+  lastTest: z.object({ at: z.iso.datetime(), outcome: z.enum(["ok", "invalid_credentials", "unreachable"]) }).nullable().default(null),
 });
 export type OutgoingWebhookView = z.infer<typeof outgoingWebhookViewSchema>;
 
