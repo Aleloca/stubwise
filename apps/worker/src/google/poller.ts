@@ -92,6 +92,12 @@ import { classifyNewMessagesV2 } from "./classify-v2.js";
 import { judgeWaitingThreads } from "./reply-judge.js";
 import { publishSharedProposals } from "./publish-shared.js";
 import {
+  closeCancelledSharedCalendarProposals,
+  closeDeclinedCalendarRecipients,
+  expireOldSharedCalendarProposals,
+  publishSharedCalendarProposals,
+} from "./calendar-shared.js";
+import {
   classifyNewMessages,
   needsReclassification,
   reclassifyReassignedProposal,
@@ -1417,7 +1423,7 @@ async function closeCancelledEvents(
           inArray(calendarEventsTable.googleEventId, googleEventIds),
         ),
       )
-      .returning({ id: calendarEventsTable.id, notificationId: calendarEventsTable.proposalNotificationId });
+      .returning({ id: calendarEventsTable.id, notificationId: calendarEventsTable.proposalNotificationId, sharedId: calendarEventsTable.calendarProposalId });
     const cards = closed.flatMap((r) => (r.notificationId ? [r.notificationId] : []));
     if (cards.length > 0) {
       await tx
@@ -1425,6 +1431,9 @@ async function closeCancelledEvents(
         .set({ status: "handled", handledAt: new Date() })
         .where(and(inArray(notifications.id, cards), eq(notifications.status, "open")));
     }
+    // Lotto 9, voce 2 (d): una copia di una proposta CONDIVISA cancellata.
+    const shared = [...new Set(closed.flatMap((r) => (r.sharedId ? [r.sharedId] : [])))];
+    if (shared.length > 0) await closeCancelledSharedCalendarProposals(tx, accountId, shared);
     return closed.length;
   });
 }
@@ -2177,6 +2186,13 @@ async function runProposePhase(
           sql`${calendarEventsTable.status} is distinct from 'cancelled'`,
           isNull(calendarEventsTable.proposalNotificationId),
           isNull(calendarEventsTable.outcome),
+          // Lotto 9, voce 2 (d): un evento SINGOLO non passa più da qui. È una
+          // proposta CONDIVISA fra gli invitati, una per appuntamento e
+          // progetto (`publishSharedCalendarProposals`, `calendar-shared.ts`);
+          // da qui passano solo le occorrenze delle serie, per casella come
+          // prima. I rami «evento singolo» qui sotto restano per quella
+          // funzione, che li ripete.
+          isNotNull(calendarEventsTable.recurringEventId),
           // Fix di review: il progetto CERTO è quello ri-dedotto dal routing
           // SOLO per un evento singolo (prima riga), quello FISSATO sulla
           // serie SOLO per un'occorrenza che ne appartiene una (seconda
@@ -2650,11 +2666,39 @@ async function runAccountTick(
   // cursore del calendario resta dov'era: la posta ha già il suo.
   const calendar = await syncCalendar(deps, ctx, account);
   await applyCalendarCursor(deps, account, calendar.syncToken);
+  // Lotto 9, voce 2 (d): un invitato che ha rifiutato DOPO la pubblicazione
+  // di una proposta condivisa si vede chiudere la sua card. Anche a proposte
+  // spente, come la chiusura per rifiuto di quelle per casella (`syncCalendar`).
+  try {
+    await closeDeclinedCalendarRecipients({ db: deps.db, ...(deps.logger ? { logger: deps.logger } : {}) }, account.id);
+  } catch (err) {
+    (deps.logger ?? defaultLogger).error(`google: rifiuti delle proposte condivise del calendario di ${account.email}: ${errText(err)}`);
+  }
 
   // Fase 4 — le righe pronte (di questo giro e di quelli prima) diventano
   // proposte in inbox. Dopo i cursori: non parla con Google, e un suo guasto
   // non deve poter costare una risincronizzazione.
   let proposed = account.proposalsEnabled ? await runProposePhase(deps, account) : 0;
+  // Lotto 9, voce 2 (d): gli eventi SINGOLI di questa casella, condivisi fra
+  // gli invitati (una proposta per appuntamento e progetto). Le serie sono
+  // passate da `runProposePhase`, per casella.
+  if (account.proposalsEnabled) {
+    try {
+      proposed += await publishSharedCalendarProposals(
+        {
+          db: deps.db,
+          ...(deps.lang ? { lang: deps.lang } : {}),
+          ...(deps.publish ? { publish: deps.publish } : {}),
+          ...(deps.now ? { now: deps.now } : {}),
+          ...(deps.logger ? { logger: deps.logger } : {}),
+          limit: Math.max(0, Math.trunc(deps.proposeMaxPerTick ?? DEFAULT_PROPOSE_MAX_PER_TICK)),
+        },
+        { id: account.id, userId: account.userId, email: account.email },
+      );
+    } catch (err) {
+      (deps.logger ?? defaultLogger).error(`google: proposte condivise del calendario di ${account.email}: ${errText(err)}`);
+    }
+  }
   // Area 6, F5a: le riunioni registrate di questa casella (il Doc di Gemini
   // letto con QUESTA casella, il riassunto e le proposte della riunione).
   // Dopo il calendario (gli allegati degli eventi sono freschi), prima della
@@ -2840,6 +2884,9 @@ export async function pruneOldCalendarEvents(db: Db, now: Date = new Date()): Pr
         .where(and(inArray(notifications.id, cards), eq(notifications.status, "open")));
     }
   });
+  // Lotto 9, voce 2 (d): le proposte CONDIVISE non hanno la loro riga qui, e
+  // si chiudono `expired` per conto loro, con le card di tutti.
+  await expireOldSharedCalendarProposals(db, cutoff);
   return removed.length;
 }
 

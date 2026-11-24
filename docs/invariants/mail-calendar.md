@@ -111,8 +111,10 @@
     senza il parametro `range` resta quello di prima, perché web e app
     leggono ancora i campi pesanti da lì.
   - Le proposte del calendario stanno anche in `/api/me/mail/proposals`
-    (col flag acceso, `kind: calendar`): sempre `mailbox_owner`, decise
-    dalla loro card.
+    (col flag acceso, `kind: calendar`), decise dalla loro card. Dal lotto 9
+    (voce 2 (d)) quelle degli eventi SINGOLI sono condivise fra gli
+    invitati (audience `event_invitees`, la voce più sotto); le occorrenze
+    delle serie e le proposte di prima restano `mailbox_owner`.
 
 - **Scrivere la posta (area 6, F3): bozze di Gmail, invio trattenuto, e
   Claude che PROPONE ma non manda mai.**
@@ -334,6 +336,57 @@
   usa `mailbox_owner` (audience `project_deciders`, ristretta da
   `onlyUserIds`) e non porta niente della casella: né mittente, né oggetto,
   né chi l'ha passata nel jsonb (`shared: true`).
+- **L'audience `event_invitees`: la proposta del calendario CONDIVISA fra
+  gli invitati (lotto 9, voce 2 (d), 24 nov 2026).** Un appuntamento SINGOLO
+  (`recurring_event_id` nullo) è UNA proposta per (`ical_uid`, progetto),
+  `calendar_proposals` (unique sulla coppia, `ON CONFLICT` di chi la crea):
+  la riunione è la richiesta, e le copie dello stesso appuntamento nei
+  calendari degli invitati sono un evento solo — la stessa regola di «UNA
+  PROPOSTA PER RICHIESTA, NON PER MESSAGGIO» qui sotto. La prima casella il
+  cui giro trova il candidato la crea; le altre copie ci si LEGANO
+  (`calendar_events.calendar_proposal_id`, il marcatore che toglie la riga
+  dal percorso per casella) senza creare un'altra proposta né un'altra card
+  per la stessa persona (`calendar_proposal_recipients`, chiave primaria
+  proposta + persona). `apps/worker/src/google/calendar-shared.ts`.
+  - **Chi la riceve** (`eventInviteeIds`): gli invitati che sono persone di
+    Stubwise e **non hanno rifiutato** (`hasDeclinedInvitation`), E sono
+    **membri ESPLICITI** del progetto (una riga `project_members`), più il
+    proprietario della casella in cui l'evento è stato trovato, trattato
+    come un invitato che ha accettato. L'audience non include MAI gli admin in quanto tali:
+    l'appartenenza implicita di un full admin non conta (non si usa
+    `projectViewerIds`), e non c'è un ramo `if (admin)`. Il calendario
+    collegato non serve: basta essere invitati. Ognuno ha la SUA card
+    `google.proposal`, consegnata con `mailbox_owner` un destinatario alla
+    volta, come le condivise della posta; tutte portano lo stesso
+    `proposalId` (`calendar_proposals.id`), la chiave del claim. Test
+    NEGATIVI in `calendar-shared.test.ts` (admin non invitato, admin
+    invitato non membro, invitato non membro).
+  - **Chi la vede e la decide**: un destinatario che non ha rifiutato, col
+    progetto visibile ADESSO (`mail-proposals-calendar.ts`); per gli altri è
+    404, come una che non c'è. L'estratto «titolo · data» a tutti, l'origine
+    (`calendarOrigin`, l'evento) solo a chi ha l'evento nel SUO calendario;
+    `sharedWith` = gli altri destinatari che la vedono ancora. Il primo che
+    conferma o ignora la decide per tutti: il claim chiude le card di tutti
+    (`propagateHandled` sul `proposalId`), l'esito si scrive sulla riga
+    bloccata (`FOR UPDATE`, `closeSharedCalendarProposal` in
+    `google-proposal.ts`), chi arriva dopo ha `already_handled` con chi l'ha
+    decisa (mascherato se non è fra gli invitati). La conferma chiede il
+    permesso dell'azione nel progetto, come prima; il calendario non si
+    passa né si sposta.
+  - **Le serie restano fuori**: le occorrenze di una serie sono per casella
+    (`calendar_series` è per casella, con la sua azione automatica) e
+    passano dal percorso di prima (`runProposePhase`, ora con
+    `recurring_event_id is not null`).
+  - **Rifiutare chiude la card**: un invitato che rifiuta DOPO la
+    pubblicazione (il poller rilegge gli invitati a ogni giro,
+    `closeDeclinedCalendarRecipients`) si vede chiudere la SUA card e non la
+    vede più (`declined_at`); la proposta resta agli altri, una già decisa
+    non si tocca. Una copia cancellata vale come un rifiuto per chi ha
+    quella casella; senza più copie vive la proposta si chiude per tutti
+    (`cancelled`).
+  - Le proposte del calendario pubblicate per casella PRIMA di questo
+    rilascio restano com'erano finché non si decidono (nessuna migrazione
+    dei dati).
 - **Confermare una proposta chiede il permesso nel progetto; chi non ce l'ha
   la PASSA, e la card passata è una card NUOVA (fase permessi, 22 ott
   2026).** La classificazione considera tutti i progetti, quindi il

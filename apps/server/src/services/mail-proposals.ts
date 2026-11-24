@@ -13,7 +13,7 @@ import { canSeeMeeting, permissionForMailAction, projectPermissionsOfUser, proje
 import type { Language, MailProposal, MailProposalAction, MailProposalStatus, ProjectPermission } from "@stubwise/shared";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { coversAll } from "./mail-proposals-decide.js";
-import { listCalendarProposals } from "./mail-proposals-calendar.js";
+import { calendarParticipantIds, listCalendarProposals } from "./mail-proposals-calendar.js";
 import { legacyRows, legacyView } from "./mail-proposals-legacy.js";
 import { meetingOriginFor } from "./meetings.js";
 import { hiddenFor } from "./people-known.js";
@@ -369,7 +369,8 @@ export const alreadyMasked = (payload: unknown): boolean => typeof payload === "
  */
 export async function mailParticipantIds(db: Db, proposalId: string): Promise<string[]> {
   const [row] = await db.select({ projectId: emailProposals.projectId, classification: emailProposals.classification }).from(emailProposals).where(eq(emailProposals.id, proposalId));
-  if (!row) return [];
+  // Lotto 9, voce 2 (d): una proposta del calendario CONDIVISA nomina i suoi destinatari.
+  if (!row) return calendarParticipantIds(db, proposalId);
   const recipients = await db.select({ userId: emailProposalRecipients.userId }).from(emailProposalRecipients).where(eq(emailProposalRecipients.proposalId, proposalId));
   const outside = row.projectId ? await outsiderIdsOf(db, row.projectId, (row.classification as StoredV2 | null)?.actions ?? []) : [];
   return [...recipients.map((r) => r.userId), ...outside];

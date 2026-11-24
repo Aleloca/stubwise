@@ -1625,6 +1625,13 @@
       "when": 1804550400000,
       "tag": "0233_claude_turn_citations",
       "breakpoints": true
+    },
+    {
+      "idx": 234,
+      "version": "7",
+      "when": 1804636800000,
+      "tag": "0234_calendar_shared_proposals",
+      "breakpoints": true
     }
   ]
 }

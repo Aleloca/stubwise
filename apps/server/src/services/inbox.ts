@@ -29,6 +29,8 @@ import {
   automationRuns,
   automations,
   calendarEvents,
+  calendarProposalRecipients,
+  calendarProposals,
   deletedTickets,
   emailMessages,
   emailProposalRecipients,
@@ -2003,6 +2005,26 @@ async function decisionRowsByNotification(
       status: row.status,
       outcome: (row.outcome as Record<string, unknown> | null) ?? null,
       error: null,
+    });
+  }
+  // Lotto 9, voce 2 (d): la card di un destinatario di una proposta del
+  // calendario CONDIVISA. L'esito sta sulla proposta, la card è sua.
+  const sharedCalendarRows = await db
+    .select({
+      notificationId: calendarProposalRecipients.notificationId,
+      status: calendarProposals.status,
+      outcome: calendarProposals.outcome,
+      error: calendarProposals.error,
+    })
+    .from(calendarProposalRecipients)
+    .innerJoin(calendarProposals, eq(calendarProposals.id, calendarProposalRecipients.proposalId))
+    .where(and(inArray(calendarProposalRecipients.notificationId, notificationIds), eq(calendarProposalRecipients.userId, userId)));
+  for (const row of sharedCalendarRows) {
+    if (row.notificationId === null) continue;
+    byNotification.set(row.notificationId, {
+      status: row.status,
+      outcome: (row.outcome as Record<string, unknown> | null) ?? null,
+      error: row.error ?? null,
     });
   }
   return byNotification;
