@@ -107,15 +107,19 @@ describe("collegamenti e allegati sulle rotte di oggi", () => {
   });
 
   it("allegati spenti: l'errore lo dice", async () => {
-    installFakeServer({
-      [`POST /api/tickets/${TICKET_ID}/attachments`]: {
-        status: 400,
-        body: { code: "storage_not_configured", message: "x" },
-      },
-    });
-    await expect(
-      addAttachment(TICKET_ID, { name: "a.txt", sizeBytes: 4, file: new Blob(["ciao"]) }),
-    ).rejects.toThrow("attachments_off");
+    // Lotto 6, voce 2: anche l'interruttore d'istanza spento (409 `attachments_off`).
+    for (const [status, code] of [
+      [400, "storage_not_configured"],
+      [409, "attachments_off"],
+    ] as const) {
+      installFakeServer({
+        [`POST /api/tickets/${TICKET_ID}/attachments`]: { status, body: { code, message: "x" } },
+      });
+      await expect(
+        addAttachment(TICKET_ID, { name: "a.txt", sizeBytes: 4, file: new Blob(["ciao"]) }),
+        code,
+      ).rejects.toThrow("attachments_off");
+    }
   });
 });
 

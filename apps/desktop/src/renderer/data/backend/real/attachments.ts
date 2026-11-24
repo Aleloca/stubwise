@@ -16,8 +16,11 @@ export class AttachmentsOffError extends Error {
   }
 }
 
+/** Nessuno storage, o l'interruttore d'istanza spento (lotto 6, voce 2: 409 `attachments_off`). */
+const OFF_CODES: ReadonlySet<string> = new Set(["storage_not_configured", "attachments_off"]);
+
 const offOrThrow = (error: unknown): never => {
-  if (error instanceof ApiError && error.code === "storage_not_configured") throw new AttachmentsOffError();
+  if (error instanceof ApiError && OFF_CODES.has(error.code ?? "")) throw new AttachmentsOffError();
   throw error;
 };
 

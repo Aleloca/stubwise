@@ -332,7 +332,9 @@ async function sendFromMain(path: string, file: File, options: DriveUploadOption
     if (out.ok) return { ok: true, body: out.body };
     if (out.reason === "too_large") return { ok: false, reason: "too_large" };
     if (out.reason === "canceled") return { ok: false, reason: "canceled" };
-    if (out.code === "storage_not_configured") return { ok: false, reason: "storage_off" };
+    // Nessuno storage, o l'interruttore d'istanza spento (lotto 6, voce 2).
+    if (out.code === "storage_not_configured" || out.code === "attachments_off")
+      return { ok: false, reason: "storage_off" };
     if (out.reason === "unsupported_type")
       return { ok: false, reason: "failed", code: "unsupported_type" };
     return {
@@ -373,7 +375,8 @@ function sendFromBrowser(path: string, file: File, options: DriveUploadOptions):
       if (xhr.status >= 200 && xhr.status < 300) return done({ ok: true, body });
       if (xhr.status === 413 || code === "file_too_large")
         return done({ ok: false, reason: "too_large" });
-      if (code === "storage_not_configured") return done({ ok: false, reason: "storage_off" });
+      if (code === "storage_not_configured" || code === "attachments_off")
+        return done({ ok: false, reason: "storage_off" });
       done({ ok: false, reason: "failed", ...(typeof code === "string" ? { code } : {}) });
     };
     if (options.signal?.aborted) return done({ ok: false, reason: "canceled" });

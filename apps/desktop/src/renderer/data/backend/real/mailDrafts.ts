@@ -132,6 +132,8 @@ const ATTACHMENT_ERRORS: Readonly<Record<string, string>> = {
   too_large: "invalid: too_large",
   too_many_attachments: "invalid: attachments",
   storage_not_configured: "invalid: storage_off",
+  // Lotto 6, voce 2: l'interruttore d'istanza spento.
+  attachments_off: "invalid: storage_off",
   attachment_unavailable: "attachment_unavailable",
   // Un tipo di file che il main non carica.
   unsupported_type: "invalid: type",

@@ -57,6 +57,8 @@ const INVALID_OF: Record<string, string> = {
   unsupported_type: "attachmentType",
   file_too_large: "attachmentSize",
   storage_not_configured: "attachmentsOff",
+  // Lotto 6, voce 2: l'interruttore d'istanza spento.
+  attachments_off: "attachmentsOff",
   // Review della fetta 4 (server): troppi file in sospeso (200 MB), un nome oltre 255 caratteri.
   pending_quota: "attachmentQuota",
   invalid_filename: "attachmentName",
