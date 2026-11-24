@@ -7,10 +7,9 @@ import { milestoneSchema } from "./milestone.js";
  * che il renderer leggeva con otto letture per progetto — le task aperte per
  * famiglia, le ferme, il traguardo aperto più vicino, le decisioni rivolte a
  * chi guarda, le richieste da trasformare, Claude al lavoro e in attesa di chi
- * guarda. Le task si contano senza il tetto delle 2000 righe dell'elenco
- * (`truncated` solo oltre {@link PROJECT_PULSES_TASK_CAP}).
+ * guarda. Le task si CONTANO in SQL, senza tetto (revisione I-1 dei lotti
+ * 6–7): `truncated` resta nella forma, sempre false, per un client che lo legge.
  */
-export const PROJECT_PULSES_TASK_CAP = 10_000;
 
 export const projectPulseViewSchema = z.object({
   projectId: z.uuid(),
@@ -24,7 +23,7 @@ export const projectPulseViewSchema = z.object({
   waiting: z
     .object({ decisionsForMe: z.number().int(), requestsToConvert: z.number().int(), claudeWaitingForMe: z.number().int() })
     .default({ decisionsForMe: 0, requestsToConvert: 0, claudeWaitingForMe: 0 }),
-  /** Le task aperte hanno superato il tetto: i numeri sono «almeno». */
+  /** Sempre false dalla revisione I-1 (si conta in SQL, senza tetto); resta per i client che lo leggono. */
   truncated: z.boolean().default(false),
 });
 export type ProjectPulseView = z.infer<typeof projectPulseViewSchema>;
