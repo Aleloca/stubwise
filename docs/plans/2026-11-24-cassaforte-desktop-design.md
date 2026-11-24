@@ -55,7 +55,7 @@ Perché così e non la privata di persona direttamente nel portachiavi:
   portachiavi) non dà la privata di persona.
 
 Primitive: la coppia del dispositivo e l'avvolgimento entrano in
-`@stubwise/vault-crypto` (funzioni nuove, `wrapDeviceSeal`/`openDeviceSeal`,
+`@stubwise/vault-crypto` (funzioni nuove: `generateDeviceKeyPair`, `importDeviceKey`, `sealForDevice` — nel browser, dal sigillo della passkey e dal suo PRF, così la privata in chiaro non esce mai dal package — e `openDeviceSeal`;
 con gli stessi test di formato delle altre buste); il main le usa da Node.
 
 ## 2. Dove sta la chiave sul Mac
@@ -156,7 +156,7 @@ Una tabella nuova, `vault_device_seals`:
 | `user_id` | fk `users`, cascata | di chi è |
 | `person_key_id` | fk `vault_person_keys`, cascata | la chiave di persona sigillata (solo `confirmed`) |
 | `pat_id` | fk `personal_access_tokens`, cascata | il PAT `desktop` a cui è legato |
-| `device_public_key` | text | la pubblica P-256 del dispositivo (non compressa, base64url) |
+| `device_public_key` | text | la pubblica P-256 del dispositivo, in JWK coi soli campi pubblici, come le pubbliche di persona |
 | `seal` | text | la busta opaca `{ v: 1, … }`: la privata di persona avvolta per la pubblica del dispositivo, AAD `device-seal:` ‖ personKeyId ‖ deviceId |
 | `device_name` | text | quello che dice il main («MacBook Pro di Ada»), solo per l'elenco |
 | `created_at`, `last_used_at`, `revoked_at` | timestamptz | |
@@ -365,6 +365,8 @@ D-6 e D-7; D-2, D-3, D-4 e D-8 li ha decisi 46 con le raccomandazioni.
 | # | Domanda | Raccomandazione | Decisione (24 nov 2026) |
 |---|---|---|---|
 | D-1 | Lo sblocco dal desktop chiede qualcosa (Touch ID, `systemPreferences.promptTouchID`) o è davvero automatico? | **Touch ID alla riapertura** (dopo stop, blocco schermo o 15 minuti), automatico solo all'avvio subito dopo l'associazione. Restringe il limite di §11 (un programma ostile non passa il Touch ID) e costa un tocco. **È una proposta contro la lettera della decisione**: cambia «si sblocca da solo» in «con un tocco, dopo una pausa». Se il maintainer vuole «da solo» alla lettera: automatico sempre, e il limite resta. | **Touch ID alla riapertura**, come raccomandato (maintainer). |
+| D-1a | Un Mac senza Touch ID (`canPromptTouchID()` falso)? | — | **La cassaforte si riapre dal browser con la passkey, il sigillo resta**; il desktop dice «Apri la cassaforte dal browser» (maintainer, scelta (a), 24 nov 2026). |
+| D-1b | Quando si chiede il tocco? | — | **Senza tocco solo la prima apertura subito dopo l'associazione**; poi ogni riapertura lo chiede, anche al riavvio dell'app (maintainer, 24 nov 2026). |
 | D-2 | La chiusura in memoria dopo quanto? | **15 minuti senza usarla**, più stop/blocco dello schermo. | **15 minuti**, più stop e blocco dello schermo (46). |
 | D-3 | Quanti Mac per persona? | **Senza tetto**, ognuno nell'elenco con nome e ultima apertura, revocabile. | **Nessun tetto** (46). |
 | D-4 | Secure Enclave quando l'app sarà firmata? | **Sì**, voce nel registro dei rimandi. | **Sì**, voce nel registro dei rimandi (46). |
