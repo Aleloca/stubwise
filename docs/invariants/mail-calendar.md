@@ -435,7 +435,12 @@
     ALMENO UNO dei candidati — mai un admin in quanto tale. Ogni card offre
     SOLO i candidati in cui chi la riceve può CONFERMARE la proposta che ne
     nascerebbe (il permesso della milestone, `permissionForProposalAction`);
-    chi non ne ha nessuno non la riceve.
+    chi non ne ha nessuno non la riceve — **NEMMENO il titolare** (decisione
+    di 46, 24 nov 2026): è l'eccezione alla regola «il titolare riceve sempre
+    la sua card» della proposta condivisa con un progetto, e vale solo qui,
+    perché una «Quale progetto?» senza un candidato confermabile avrebbe il
+    solo «Non fare nulla», e il calendario non si passa: una card che non
+    serve a niente.
   - **Decidere** (`chooseCalendarProposalProject`, rotta
     `/api/me/mail/proposals/:id/choose-project` e la card in inbox): un
     destinatario che vede almeno un candidato (gli altri: 404); un progetto
