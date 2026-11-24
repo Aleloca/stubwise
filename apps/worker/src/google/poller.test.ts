@@ -331,6 +331,12 @@ async function reload(id: string): Promise<typeof googleAccounts.$inferSelect> {
 // Claim
 // ---------------------------------------------------------------------------
 
+/** `now()` del DB: il riferimento per confrontare con un `created_at` scritto dal DB (non dall'orologio del test). */
+async function dbNow(): Promise<Date> {
+  const rows = (await db.execute(sql`select now() as now`)) as unknown as { now: Date | string }[];
+  return new Date(rows[0]!.now);
+}
+
 describe("claim delle caselle", () => {
   it("reclama solo le caselle dovute e sposta subito next_sync_at", async () => {
     const due = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
@@ -3838,7 +3844,10 @@ describe("proposte spente: si legge, non si propone", () => {
 
   it("riaccese: la posta ingerita PRIMA di `proposals_since` non si classifica mai, quella dopo sì", async () => {
     await routed();
-    const since = new Date();
+    // L'orologio del DB, non quello del test (lotto 6, voce 4): `created_at` lo
+    // scrive `now()` del DB, e sotto carico l'orologio del container può stare
+    // dietro a quello dell'host — la posta «dopo» finiva «prima» del taglio.
+    const since = await dbNow();
     const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000", proposalsSince: since });
     // Ingerita a proposte spente (prima del taglio), ancora `new`.
     await db.insert(emailMessages).values({
@@ -3926,7 +3935,7 @@ describe("proposte spente o tagliate: il controllo è nella WHERE", () => {
 
   it("riaccese: un figlio già classificato e una riga da smistare di posta VECCHIA non si pubblicano; quelle nuove sì", async () => {
     const projectId = await seedProject("Acme");
-    const since = new Date();
+    const since = await dbNow(); // l'orologio del DB (lotto 6, voce 4)
     const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), proposalsSince: since });
     const before = new Date(since.getTime() - 60_000);
     await seedChild(account.id, projectId, before);
