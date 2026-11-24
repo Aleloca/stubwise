@@ -1,11 +1,11 @@
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { claudeActionFailureSchema, claudeActionGroupViewSchema, claudeProposalViewSchema } from "@stubwise/shared";
+import { claudeActionFailureSchema, claudeActionGroupViewSchema, claudePageOutcomeSchema, claudePageOutcomeStatusSchema, claudeProposalViewSchema } from "@stubwise/shared";
 import { requireReauth } from "../auth/access.js";
 import { apiError } from "../errors.js";
 import type { ActionEffects } from "../claude-actions/effects.js";
-import { cancelProposal, confirmProposal, requestUndo } from "../claude-actions/proposals.js";
+import { cancelProposal, confirmProposal, requestUndo, settlePageOutcome } from "../claude-actions/proposals.js";
 import { retryActionEffect } from "../claude-actions/retry-effect.js";
 import { publicUrlOrUndefined } from "../ingest/shared.js";
 import { fillDraftBody } from "../services/mail-drafts.js";
@@ -25,12 +25,24 @@ import { authErrorResponses, errorSchema } from "./shared.js";
  * secco): lo storage per gli allegati, il link pubblico delle notifiche (il
  * piano da approvare di un lavoro avviato), il log della richiesta.
  */
+/** La chiave d'istanza, o undefined se `buildApp` non l'ha (il getter lancia). */
+function keyOrUndefined(app: FastifyInstance): Buffer | undefined {
+  try {
+    return app.encryptionKey;
+  } catch {
+    return undefined;
+  }
+}
+
 export function actionEffects(app: FastifyInstance, request: { log: FastifyBaseLogger }): ActionEffects {
   const publicUrl = publicUrlOrUndefined(app);
   return {
     storage: () => app.storage(),
     // Lotto 6: il preflight (solo lettura, solo al run vero) decifra le credenziali di un account git.
-    encryptionKey: app.encryptionKey,
+    // Letta senza lanciare: un'istanza senza chiave fa ogni altra proposta, e il
+    // preflight (fail-closed) risponde `preflight_unavailable` (lotto 7: la
+    // lettura diretta del getter faceva 500 su OGNI proposta senza chiave).
+    ...(keyOrUndefined(app) ? { encryptionKey: keyOrUndefined(app)! } : {}),
     ...(publicUrl !== undefined ? { publicUrl } : {}),
     log: (message, error) => request.log.warn({ err: error }, message),
     markEffectFailure: async (actionId, code) => {
@@ -117,6 +129,32 @@ export async function claudeActionRoutes(instance: FastifyInstance): Promise<voi
       if (result.ok) return result.proposal;
       if (result.error === "not_found") return apiError(reply, 404, "not_found", "Proposal not found");
       return apiError(reply, 409, result.error, result.error);
+    },
+  );
+
+  // Lotto 7, voce 1: l'esito di un'azione del renderer (pagina o bozza), per indice.
+  app.post(
+    "/proposals/:id/actions/:index/outcome",
+    {
+      config: { access: ACCESS },
+      schema: {
+        params: z.object({ id: z.uuid(), index: z.coerce.number().int().min(0).max(1000) }),
+        body: z.object({ status: claudePageOutcomeStatusSchema }),
+        response: {
+          200: claudePageOutcomeSchema,
+          404: errorSchema,
+          409: errorSchema.extend({ current: z.string() }),
+          422: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const result = await settlePageOutcome(app.db, request.user!, request.params.id, request.params.index, request.body.status);
+      if (result.ok) return result.outcome;
+      if (result.error === "invalid_move") return reply.code(409).send({ code: "invalid_move", message: "Move not allowed", current: result.current });
+      if (result.error === "not_found") return apiError(reply, 404, "not_found", "Proposal not found");
+      return apiError(reply, 422, "not_a_page_action", "Not a page action");
     },
   );
 
