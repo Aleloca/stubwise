@@ -94,6 +94,7 @@ describe("il segreto del webhook git (K-5)", () => {
     const urls: string[] = [];
     vi.spyOn(GitHubProvider.prototype, "ensureWebhook").mockImplementation(async (_p, hook) => {
       urls.push(hook.url);
+      return { created: false, updated: true, id: "1", detail: "ok" };
     });
     const res = await post(`/api/repositories/${r.id}/webhook-secret`);
     expect(res.statusCode, res.body).toBe(200);
