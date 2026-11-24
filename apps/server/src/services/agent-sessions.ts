@@ -3,6 +3,7 @@ import { canReadPublic, holdForOwnerMessage, readerCut } from "./claude-public.j
 import { jobPlanView } from "./plan-view.js";
 import { enrichAsides } from "./claude-asides.js";
 import { inputContextsForViewer } from "./claude-contexts-view.js";
+import { turnCitationsFor } from "./claude-citations.js";
 import { alias } from "drizzle-orm/pg-core";
 import {
   agentQuestions,
@@ -1093,6 +1094,11 @@ export async function listAgentSessionEvents(
         !withheld,
       )
     : new Map<string, { kind: string; id: string }[]>();
+  // Lotto 9, voce 1: le citazioni di ogni turno (ciò che Claude ha letto e i
+  // codici della sua prosa), sul `turn_end`, filtrate per chi guarda.
+  const turnCitations = conversation
+    ? await turnCitationsFor(db, viewer, id, ordered.filter((e) => e.type === "turn_end").map((e) => e.id), !withheld)
+    : new Map<bigint, unknown[]>();
   const events = ordered.map((e) => ({
     id: e.id.toString(),
     type: e.type,
@@ -1111,7 +1117,9 @@ export async function listAgentSessionEvents(
           }
         : withheld && (e.type === "tool_use" || e.type === "tool_result")
           ? toolEventForReader(e.type, e.data)
-          : e.data,
+          : conversation && e.type === "turn_end"
+            ? { ...e.data, citations: turnCitations.get(e.id) ?? [] }
+            : e.data,
   }));
   const before = !page.after && rows.length === page.limit ? (events[0]?.id ?? null) : null;
   // Area 10, F3: gli `aside` del lavoro fermo, coi codici e la visibilità di chi guarda.

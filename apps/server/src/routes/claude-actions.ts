@@ -1,7 +1,8 @@
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { claudeActionFailureSchema, claudeActionGroupViewSchema, claudePageOutcomeSchema, claudePageOutcomeStatusSchema, claudeProposalViewSchema } from "@stubwise/shared";
+import { chatCitationSchema, claudeActionFailureSchema, claudeActionGroupViewSchema, claudePageOutcomeSchema, claudePageOutcomeStatusSchema, claudeProposalViewSchema } from "@stubwise/shared";
+import { citeablesFor } from "../chat/citations.js";
 import { requireReauth } from "../auth/access.js";
 import { apiError } from "../errors.js";
 import type { ActionEffects } from "../claude-actions/effects.js";
@@ -112,6 +113,25 @@ export async function claudeActionRoutes(instance: FastifyInstance): Promise<voi
         return reply.code(409).send({ code: "refused", message: "The action was refused", proposal: result.proposal });
       }
       return apiError(reply, 409, result.error, result.error);
+    },
+  );
+
+  // Lotto 9, voce 1: le citazioni di un turno (`turn_end.citations`) come le
+  // legge chi guarda: solo ciò che vede (un riferimento invisibile non torna).
+  app.post(
+    "/citations/resolve",
+    {
+      config: { access: ACCESS },
+      schema: {
+        body: z.object({ refs: z.array(z.object({ kind: z.enum(["task", "request", "project", "doc", "drive"]), id: z.uuid() })).max(100) }),
+        response: { 200: z.object({ items: z.array(chatCitationSchema) }), ...authErrorResponses },
+      },
+    },
+    async (request) => {
+      const seen = await citeablesFor(app.db, request.user!, request.body.refs);
+      return {
+        items: [...seen.values()].map((c) => ({ kind: c.kind, id: c.id, label: c.label, projectId: c.projectId, code: c.code ?? null, doc: c.doc ?? null, drive: c.drive ?? null, product: c.product ?? null })),
+      };
     },
   );
 

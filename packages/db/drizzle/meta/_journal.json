@@ -1618,6 +1618,13 @@
       "when": 1804464000000,
       "tag": "0232_claude_context_refs",
       "breakpoints": true
+    },
+    {
+      "idx": 233,
+      "version": "7",
+      "when": 1804550400000,
+      "tag": "0233_claude_turn_citations",
+      "breakpoints": true
     }
   ]
 }
