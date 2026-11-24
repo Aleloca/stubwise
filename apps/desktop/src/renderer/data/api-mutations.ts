@@ -1,6 +1,6 @@
 import { isHiddenId, personMasker } from "./access/hidden";
 import { wouldCycle } from "../domain/decisionLog";
-import { planRecipientsOf as sharedPlanRecipientsOf } from "@stubwise/shared";
+import { claudePageOutcomeMoveAllowed, planRecipientsOf as sharedPlanRecipientsOf } from "@stubwise/shared";
 import { findSimilarRequest } from "../domain/requests";
 import { TEMPLATE_MODULES, TEMPLATE_STATUSES } from "../domain/templates";
 import type { PageState } from "../domain/claude/context";
@@ -3667,26 +3667,12 @@ export async function cancelProposal(id: string, proposalId: string): Promise<vo
 /** Lo stato in cui chiudere un evento del riquadro (`draft`, `pageAction`). */
 export type PageEventStatus = "placed" | "waiting" | "done" | "undone" | "changed_after" | "failed";
 
-/**
- * Da quale stato si va dove, per tipo d'evento (area 10b, Task 9): un'azione
- * della pagina si esegue (`done`) o no (`failed`), poi si annulla o è stata
- * cambiata dopo; una bozza va nel campo (`placed`) o aspetta la pagina
- * (`waiting`), poi lo stesso. Un evento chiuso non si riapre.
- */
-const PAGE_EVENT_MOVES: Record<
-  "pageAction" | "draft",
-  Record<string, readonly PageEventStatus[]>
-> = {
-  pageAction: {
-    pending: ["done", "failed"],
-    done: ["undone", "changed_after"],
-  },
-  draft: {
-    pending: ["placed", "waiting"],
-    waiting: ["placed"],
-    placed: ["undone", "changed_after"],
-  },
-};
+// Da quale stato si va dove (area 10b, Task 9): un'azione della pagina si
+// esegue (`done`) o no (`failed`), poi si annulla o è stata cambiata dopo; una
+// bozza va nel campo (`placed`) o aspetta la pagina (`waiting`), poi lo stesso.
+// Un evento chiuso non si riapre. Le mosse stanno in `@stubwise/shared`
+// (`CLAUDE_PAGE_OUTCOME_MOVES`, lotto 7, §1), le stesse che il server applica
+// all'esito salvato; un evento `draft` è l'azione `fillField`.
 
 /**
  * Chiude un evento `draft` o `pageAction` del riquadro: solo chi ha aperto
@@ -3711,7 +3697,9 @@ export async function settlePageEvent(
   if (c.ownerId !== me) throw forbidden();
   const event = eventsOf(conversationId).find((e) => e.id === eventId);
   if (!event || (event.type !== "pageAction" && event.type !== "draft")) throw notFound();
-  if (!PAGE_EVENT_MOVES[event.type][event.status]?.includes(status)) throw invalid("status");
+  const fn = event.type === "draft" ? "fillField" : "pageAction";
+  const from = event.status === "pending" ? null : event.status;
+  if (!claudePageOutcomeMoveAllowed(fn, from, status)) throw invalid("status");
   await runScript(
     conversationId,
     [{ step: "patch", eventId, patch: { type: event.type, status } as EventPatch }],
