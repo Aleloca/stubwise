@@ -338,6 +338,8 @@ export const credentialAccessLogEntrySchema = z.object({
   userId: z.uuid().nullable(),
   userEmail: z.string(),
   action: z.enum(["show", "copy"]),
+  /** Lotto 10 (D-8): dal browser o da un Mac. Additivo: un server di prima non lo manda. */
+  via: z.enum(["browser", "desktop"]).default("browser"),
   createdAt: z.iso.datetime(),
 });
 export type CredentialAccessLogEntry = z.infer<typeof credentialAccessLogEntrySchema>;

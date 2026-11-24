@@ -1,6 +1,6 @@
 import { createHash, generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   personalAccessTokens,
@@ -456,5 +456,181 @@ describe("i Mac di un'altra persona, da un full admin (D-6)", () => {
     expect(ev!.actorUserId).toBe(adminId);
     expect((await alerts(fay.id)).length).toBe(before + 1);
     expect((await call("GET", "/api/auth/me", fay.desktop.headers)).statusCode).toBe(200);
+  });
+});
+
+describe("il PAT desktop col sigillo sulle rotte della cassaforte (D-7)", () => {
+  let gus: Person;
+  let credentialId: string;
+  let projectId: string;
+  /** Una seconda persona con una chiave IN ATTESA: gus la può rifiutare (è full admin). */
+  let pendingKeyId: string;
+  /** Il secondo Mac di gus (PAT desktop col suo sigillo). */
+  let second: { id: string; headers: { authorization: string } };
+
+  async function asFullAdmin(p: Person): Promise<void> {
+    const { users } = await import("@stubwise/db");
+    const [admin] = await testDb.db.select({ instanceRoleId: users.instanceRoleId }).from(users).where(eq(users.id, adminId));
+    await testDb.db.update(users).set({ instanceRoleId: admin!.instanceRoleId }).where(eq(users.id, p.id));
+  }
+
+  async function sealed(p: Person): Promise<string> {
+    const pair = await pairing(p);
+    const res = await call("POST", "/api/vault/device-seals", { cookie: p.cookie }, await sealBody(p, pair));
+    expect(res.statusCode, res.body).toBe(201);
+    return pair.deviceId;
+  }
+
+  /** La sfida e la prova chieste da `headers` (sessione o PAT desktop). */
+  async function proofFrom(p: Person, headers: Record<string, string>) {
+    const res = await call("POST", "/api/vault/actor-challenge", headers);
+    expect(res.statusCode, res.body).toBe(201);
+    const { challengeId, wrapped, personKeyId } = res.json() as { challengeId: string; wrapped: string; personKeyId: string };
+    return { challengeId, proof: await openActorChallenge(wrapped, p.privateKey, challengeId, personKeyId) };
+  }
+
+  beforeAll(async () => {
+    const { credentialKeyCopies, credentials, projects } = await import("@stubwise/db");
+    gus = await person("gus-device@example.com");
+    await asFullAdmin(gus);
+    gus.cookie = await fullSessionCookie(app, gus.id);
+    const [project] = await testDb.db
+      .insert(projects)
+      .values({ name: "Mac", slug: "mac-vault", ingestionKey: "mac-vault-key" })
+      .returning({ id: projects.id });
+    projectId = project!.id;
+    credentialId = randomUUID();
+    await testDb.db.insert(credentials).values({ id: credentialId, projectId, service: "Servizio", passwordCiphertext: '{"v":1,"x":"cifrata"}' });
+    await testDb.db.insert(credentialKeyCopies).values({ credentialId, recipientId: gus.keyId, wrappedKey: '{"v":1,"x":"copia"}' });
+    const hal = await createUserWithSession(app, "hal-device@example.com");
+    const [pending] = await testDb.db
+      .insert(vaultPersonKeys)
+      .values({ userId: hal.id, publicKey: publicJwk(), status: "pending" })
+      .returning({ id: vaultPersonKeys.id });
+    pendingKeyId = pending!.id;
+  });
+
+  const reveal = (headers: Record<string, string>) => call("POST", `/api/credentials/${credentialId}/reveal`, headers, { action: "show" });
+
+  it("un PAT `manual` o `mobile` resta fuori: 403 `session_required` su reveal, sfida e accessi in attesa", async () => {
+    for (const kind of ["manual", "mobile"] as const) {
+      const headers = (await pat(gus.id, kind)).headers;
+      for (const res of [await reveal(headers), await call("POST", "/api/vault/actor-challenge", headers), await call("GET", "/api/vault/pending", headers)]) {
+        expect([res.statusCode, res.json().code], kind).toEqual([403, "session_required"]);
+      }
+    }
+  });
+
+  it("il PAT desktop SENZA sigillo → 403 `device_seal_required` (il desktop propone di associare); nessuna riga nel registro degli accessi", async () => {
+    const { credentialAccessLog } = await import("@stubwise/db");
+    for (const res of [await reveal(gus.desktop.headers), await call("POST", "/api/vault/actor-challenge", gus.desktop.headers), await call("GET", "/api/vault/pending", gus.desktop.headers)]) {
+      expect([res.statusCode, res.json().code]).toEqual([403, "device_seal_required"]);
+    }
+    expect(await testDb.db.select().from(credentialAccessLog).where(eq(credentialAccessLog.credentialId, credentialId))).toHaveLength(0);
+  });
+
+  it("col sigillo vivo: reveal dal Mac, e il registro degli accessi dice `desktop` e quale Mac; dal browser dice `browser`", async () => {
+    const { credentialAccessLog } = await import("@stubwise/db");
+    const sealId = await sealed(gus);
+    const res = await reveal(gus.desktop.headers);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toMatchObject({ passwordCiphertext: '{"v":1,"x":"cifrata"}', wrappedKey: '{"v":1,"x":"copia"}', personKeyId: gus.keyId });
+    expect((await reveal({ cookie: gus.cookie })).statusCode).toBe(200);
+    const rows = await testDb.db.select().from(credentialAccessLog).where(eq(credentialAccessLog.credentialId, credentialId));
+    expect(rows.map((r) => [r.via, r.deviceSealId]).sort()).toEqual([["browser", null], ["desktop", sealId]]);
+    const log = await call("GET", `/api/projects/${projectId}/credentials/log`, { cookie: gus.cookie });
+    expect((log.json() as { items: { via: string }[] }).items.map((i) => i.via).sort()).toEqual(["browser", "desktop"]);
+  });
+
+  it("le rotte di ultima istanza restano del browser anche col sigillo vivo: 403 `session_required`, niente scritto", async () => {
+    const before = await testDb.db.select().from(vaultPersonKeys).where(eq(vaultPersonKeys.userId, gus.id));
+    const cases: [string, string, unknown?][] = [
+      ["GET", "/api/vault/status"],
+      ["GET", "/api/vault/keys/mine"],
+      ["POST", "/api/vault/keys", { publicKey: publicJwk(), seals: [{ passkeyId: randomUUID(), sealedPrivateKey: '{"v":1}' }], device: "Mac" }],
+      ["POST", "/api/vault/activate", { recoveryPublicKey: publicJwk() }],
+      ["GET", "/api/vault/recovery-key/preview"],
+      ["POST", "/api/vault/recovery/challenge"],
+      ["POST", "/api/vault/device-pairings/lookup", { state: "x" }],
+      ["GET", "/api/vault/device-seals"],
+    ];
+    for (const [method, url, body] of cases) {
+      const res = await call(method as "GET" | "POST", url, gus.desktop.headers, body);
+      expect([res.statusCode, res.json().code], `${method} ${url}`).toEqual([403, "session_required"]);
+    }
+    expect(await testDb.db.select().from(vaultPersonKeys).where(eq(vaultPersonKeys.userId, gus.id))).toEqual(before);
+  });
+
+  it("la sfida chiesta dal Mac è legata al SUO PAT: non vale dal browser né da un altro PAT desktop, e viceversa", async () => {
+    const fromMac = await proofFrom(gus, gus.desktop.headers);
+    const byBrowser = await call("POST", `/api/vault/pending/${pendingKeyId}/reject`, { cookie: gus.cookie }, { actorProof: fromMac });
+    expect([byBrowser.statusCode, byBrowser.json().code]).toEqual([403, "vault_proof_invalid"]);
+    const fromBrowser = await proofFrom(gus, { cookie: gus.cookie });
+    const byMac = await call("POST", `/api/vault/pending/${pendingKeyId}/reject`, gus.desktop.headers, { actorProof: fromBrowser });
+    expect([byMac.statusCode, byMac.json().code]).toEqual([403, "vault_proof_invalid"]);
+    // Un secondo Mac della stessa persona, col suo sigillo: la sfida del primo non vale.
+    second = await pat(gus.id, "desktop");
+    const g2 = { ...gus, desktop: second };
+    await sealed(g2);
+    const fromFirst = await proofFrom(gus, gus.desktop.headers);
+    const bySecond = await call("POST", `/api/vault/pending/${pendingKeyId}/reject`, second.headers, { actorProof: fromFirst });
+    expect([bySecond.statusCode, bySecond.json().code]).toEqual([403, "vault_proof_invalid"]);
+    const [key] = await testDb.db.select().from(vaultPersonKeys).where(eq(vaultPersonKeys.id, pendingKeyId));
+    expect(key!.status).toBe("pending");
+  });
+
+  it("col sigillo vivo e la prova del Mac, il Mac rifiuta una chiave in attesa (come il browser)", async () => {
+    const proof = await proofFrom(gus, gus.desktop.headers);
+    const res = await call("POST", `/api/vault/pending/${pendingKeyId}/reject`, gus.desktop.headers, { actorProof: proof });
+    expect(res.statusCode, res.body).toBe(204);
+    const [key] = await testDb.db.select().from(vaultPersonKeys).where(eq(vaultPersonKeys.id, pendingKeyId));
+    expect(key!.status).toBe("rejected");
+  });
+
+  it("col sigillo vivo il Mac vede i lettori della credenziale (le rotte dei lettori passano dal gate)", async () => {
+    const res = await call("GET", `/api/credentials/${credentialId}/readers`, gus.desktop.headers);
+    expect(res.statusCode, res.body).toBe(200);
+  });
+
+  it("revoca a LETTURA: sigillo tolto dal browser, o chiave di persona ricreata → 403 `device_seal_required` SUBITO", async () => {
+    const { credentialAccessLog } = await import("@stubwise/db");
+    const [live] = await testDb.db
+      .select()
+      .from(vaultDeviceSeals)
+      .where(and(eq(vaultDeviceSeals.patId, gus.desktop.id), isNull(vaultDeviceSeals.revokedAt)));
+    expect((await call("DELETE", `/api/vault/device-seals/${live!.id}`, { cookie: gus.cookie })).statusCode).toBe(204);
+    const count = async () => (await testDb.db.select().from(credentialAccessLog).where(eq(credentialAccessLog.credentialId, credentialId))).length;
+    const before = await count();
+    const removed = await reveal(gus.desktop.headers);
+    expect([removed.statusCode, removed.json().code]).toEqual([403, "device_seal_required"]);
+    // Il secondo Mac di gus ha ancora il sigillo e legge; la chiave ricreata
+    // lo spegne SUBITO, con la riga del sigillo ancora viva.
+    expect((await reveal(second.headers)).statusCode).toBe(200);
+    const after = await count();
+    await testDb.db.update(vaultPersonKeys).set({ status: "superseded" }).where(eq(vaultPersonKeys.id, gus.keyId));
+    await testDb.db.insert(vaultPersonKeys).values({ userId: gus.id, publicKey: publicJwk(), status: "confirmed", confirmedAt: new Date() });
+    const recreated = await reveal(second.headers);
+    expect([recreated.statusCode, recreated.json().code]).toEqual([403, "device_seal_required"]);
+    const [stillLive] = await testDb.db
+      .select()
+      .from(vaultDeviceSeals)
+      .where(and(eq(vaultDeviceSeals.patId, second.id), isNull(vaultDeviceSeals.revokedAt)));
+    expect(stillLive).toBeDefined();
+    expect(after).toBe(before + 1);
+    expect(await count()).toBe(after);
+  });
+});
+
+describe("il gate (`vaultCallerOf`): la dichiarazione della rotta conta", () => {
+  it("col sigillo vivo il PAT desktop passa SOLO dove la rotta dichiara `desktopVault`; altrove `session_required`", async () => {
+    const { vaultCallerOf } = await import("../vault/device-access.js");
+    const ivy = await person("ivy-device@example.com");
+    const pair = await pairing(ivy);
+    expect((await call("POST", "/api/vault/device-seals", { cookie: ivy.cookie }, await sealBody(ivy, pair))).statusCode).toBe(201);
+    const user = { id: ivy.id, email: "ivy-device@example.com", patId: ivy.desktop.id, patKind: "desktop" };
+    const request = (config: Record<string, unknown>) => ({ user, routeOptions: { config } }) as never;
+    expect(await vaultCallerOf(testDb.db, request({ desktopVault: true }))).toEqual({ ok: true, caller: { via: "desktop", sealId: pair.deviceId } });
+    expect(await vaultCallerOf(testDb.db, request({}))).toEqual({ ok: false, code: "session_required" });
+    expect(await vaultCallerOf(testDb.db, request({ desktopVault: true, browserOnly: true }))).toMatchObject({ ok: true });
   });
 });

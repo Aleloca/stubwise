@@ -50,8 +50,8 @@ function hashState(state: string): string {
   return createHash("sha256").update(state).digest("hex");
 }
 
-/** La condizione di un sigillo VIVO: non revocato e con la chiave di persona confermata (quella attuale). */
-function liveSealCondition() {
+/** La condizione di un sigillo VIVO: non revocato e con la chiave di persona confermata (quella attuale). La usa anche `device-access.ts`. */
+export function liveSealCondition() {
   return and(
     isNull(vaultDeviceSeals.revokedAt),
     sql`exists (

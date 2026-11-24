@@ -125,6 +125,12 @@ declare module "fastify" {
      */
     browserOnly?: true;
     /**
+     * Lotto 10 (D-7): la rotta della cassaforte è aperta anche al PAT
+     * desktop col suo sigillo VIVO (`vault/device-access.ts`). Elenco chiuso
+     * in `route-access.test.ts`; non va insieme a `reauth`.
+     */
+    desktopVault?: true;
+    /**
      * Area 9, F3: la rotta chiede la riconferma solo per UNA PARTE del corpo
      * (un segreto nuovo): la verifica l'handler con {@link requireReauth}. È
      * una dichiarazione, così il test del registro ne tiene l'elenco chiuso.
