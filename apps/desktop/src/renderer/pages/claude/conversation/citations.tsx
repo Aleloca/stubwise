@@ -82,6 +82,9 @@ export function hiddenCodesOf(index: CitationIndex, refs: readonly CitationRef[]
   for (const ref of refs) {
     const view = index.byRef.get(refKey(ref));
     if (!view || view.visible) continue;
+    // Lotto 9 (decisione di 46): solo il file del Drive col codice registrato
+    // (R-H5) resta tenue; un altro invisibile nel testo è testo semplice.
+    if (!(ref.kind === "drive" && ref.code)) continue;
     const code = withRecordedCode(view, ref).code;
     if (code) out.add(code);
   }
@@ -330,9 +333,14 @@ function ObjectPreview({ id, view }: { id: string; view: CitationView }) {
 export function UsedLine({ refs }: { refs: readonly CitationRef[] }): ReactNode {
   const { t } = useTranslation();
   const index = useCitationIndex();
+  // Lotto 9 (decisione di 46): un oggetto che chi guarda non vede si TOGLIE,
+  // non si mostra sbiadito. Resta il file del Drive col codice registrato
+  // (R-H5: il server lo manda solo all'autore).
   const views = refs.flatMap((ref) => {
     const view = index.byRef.get(refKey(ref));
-    return view ? [withRecordedCode(view, ref)] : [];
+    if (!view) return [];
+    if (!view.visible && !(ref.kind === "drive" && ref.code)) return [];
+    return [withRecordedCode(view, ref)];
   });
   const line = useRef<HTMLParagraphElement>(null);
   const shape = views.map(refKey).join(" ");

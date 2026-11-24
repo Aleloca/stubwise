@@ -1,4 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
+import type { ClaudeConversationContext } from "@stubwise/shared";
 import { asideEventsOf } from "./claudeAsides";
 import { capabilitiesEventsOf } from "./claudeCapabilities";
 import { hasQuestionEvents, questionEventsOf, readQuestions } from "./claudeQuestions";
@@ -21,13 +22,14 @@ import type {
   AiBlock,
   ConversationActivity,
   ConversationDetail,
+  CitationRef,
   ConversationEvent,
   ConversationKind,
   ConversationRow,
   ConversationState,
   Outcome,
 } from "../../types";
-import { freeDetailOf, listMine, listPublic } from "./claudeChat";
+import { clientContextsOf, freeDetailOf, listMine, listPublic, warmContextCodes } from "./claudeChat";
 import {
   chatActionEvents,
   forgetPageStatuses,
@@ -596,7 +598,15 @@ async function readConversation(
       actions.groups,
       isConversationOwner(id),
     );
-    const flow = withChatActionEvents(eventsOf(conversation.session, events, {}, null), extra);
+    // Lotto 8, §1: i codici dei contesti (del gruppo e dei messaggi) si imparano prima.
+    const inputContexts = events.flatMap((e) =>
+      e.type === "input" ? ((e.data as { contexts?: ClaudeConversationContext[] }).contexts ?? []) : [],
+    );
+    await warmContextCodes([...((conversation as { contexts?: ClaudeConversationContext[] }).contexts ?? []), ...inputContexts]);
+    const flow = withMessageContexts(
+      withChatActionEvents(eventsOf(conversation.session, events, {}, null), [...extra, ...citationEventsOf(events)]),
+      events,
+    );
     return {
       ...freeDetailOf(conversation, flow),
       continuesFrom: withOrigin ? await originOf(conversation.continuesFrom) : null,
@@ -608,6 +618,46 @@ async function readConversation(
   const [events, plan, codes] = await Promise.all([readEvents(id), planOf(detail), projectCodes()]);
   return toDetail(detail, codes, eventsOf(detail, events, {}, plan));
 };
+
+/**
+ * Lotto 9, voce 1 (72, 2fe8b9989): le citazioni di un turno di Claude
+ * (`turn_end.data.citations`, già filtrate dal server per chi guarda)
+ * nell'evento `citation` del prototipo, all'istante della fine del turno:
+ * dopo l'ultimo testo di quel turno. Un file del Drive che l'autore non vede
+ * più porta il suo codice (R-H5).
+ */
+export function citationEventsOf(events: readonly Reader<AgentSessionEvent>[]): ConversationEvent[] {
+  return events.flatMap((e): ConversationEvent[] => {
+    if (e.type !== "turn_end") return [];
+    const cited = (e.data as { citations?: { kind: string; id: string; code?: string }[] }).citations ?? [];
+    const refs = cited.flatMap((c): CitationRef[] => {
+      if (!CITED_KINDS.has(c.kind)) return [];
+      const kind = c.kind as CitationRef["kind"];
+      return [kind === "drive" && c.code ? { kind, id: c.id, code: c.code } : { kind, id: c.id }];
+    });
+    return refs.length > 0 ? [{ id: `citation:${e.id}`, at: e.at, type: "citation", refs }] : [];
+  });
+}
+const CITED_KINDS = new Set(["task", "request", "project", "doc", "drive"]);
+
+/**
+ * Lotto 8, §1 (72, a5fdd0c23): ogni messaggio porta il gruppo dei contesti
+ * com'era quando è partito (`input.data.contexts`, già filtrato dal server
+ * per chi guarda), nella forma del prototipo.
+ */
+function withMessageContexts(
+  flow: ConversationEvent[],
+  events: readonly Reader<AgentSessionEvent>[],
+): ConversationEvent[] {
+  const byInput = new Map(
+    events.flatMap((e) => {
+      if (e.type !== "input") return [];
+      const contexts = clientContextsOf((e.data as { contexts?: ClaudeConversationContext[] }).contexts);
+      return contexts.length > 0 ? [[e.id, contexts] as const] : [];
+    }),
+  );
+  return flow.map((e) => (e.type === "user" && byInput.has(e.id) ? { ...e, contexts: byInput.get(e.id)! } : e));
+}
 
 /**
  * La pubblica da cui continua una conversazione (fetta 5), letta DAL VIVO e

@@ -452,12 +452,11 @@ describe("destinazione Claude: pubblica, privata, continuazione", () => {
     expect(giuliaLists.map((r) => r.id)).not.toContain(id);
   });
 
-  it("nella pubblica di Giulia i codici di AUD, che Sara non vede, non si aprono", async () => {
+  it("nella pubblica di Giulia i codici di AUD, che Sara non vede, non si aprono né si citano", async () => {
     renderRoute("/claude/cv-giulia-callbacks", "p-sara");
-    const used = await screen.findByText("Used:");
-    const line = used.parentElement!;
-    await waitFor(() => expect(line.querySelector('[data-citation="hidden"]')).not.toBeNull());
-    expect(within(line).getByText("AUD-9").tagName).toBe("SPAN");
+    await screen.findByText(/AUD-9/);
+    // Lotto 9 (decisione di 46): tolti dalle citazioni, nessun segno sbiadito.
+    await waitFor(() => expect(document.querySelector('[data-citation="hidden"]')).toBeNull());
     expect(document.querySelector('a[href*="AUD-9"]')).toBeNull();
     // Il progetto che non vede non compare nemmeno nella testata.
     expect(screen.getByRole("heading", { level: 1 }).parentElement!.textContent).not.toMatch(

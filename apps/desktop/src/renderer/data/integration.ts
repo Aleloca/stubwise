@@ -217,6 +217,8 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "notifications",
     "search",
     "task-detail",
+    // Lotto 8, §1 (72, a5fdd0c23): i contesti di Claude che si accumulano.
+    "claude-contexts",
     "new-task",
     "planning-week",
     "my-week",

@@ -1,5 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
-import { DRIVE_FILE_TYPES, type ChatChannelView, type ChatMessageView as ServerMessage, type Reader } from "@stubwise/shared";
+import { DRIVE_FILE_TYPES, type ChatChannelView, type ChatCitationView as ChatCitation, type ChatMessageView as ServerMessage, type Reader } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type {
   CitationRef,
@@ -165,6 +165,35 @@ export function rememberDocCitation(c: {
 
 /** I tipi che il server sa citare (gli altri, scelti da «#», non partono). */
 const CITABLE = new Set(["task", "request", "project", "person", "doc", "drive"]);
+
+/**
+ * Ricorda la vista di un oggetto citato confermato dal server (della Chat, o
+ * di un turno di Claude: `POST /api/claude/citations/resolve`), per
+ * `chatCitationView`. Il tipo del prototipo, o `null` se non si cita.
+ */
+export function rememberChatCitation(c: Reader<ChatCitation>): CitationRef["kind"] | null {
+  if (!CITABLE.has(c.kind)) return null;
+  const kind = c.kind as CitationRef["kind"];
+  citedViews.set(citeKey(kind, c.id), {
+    kind,
+    id: c.id,
+    label: c.label,
+    projectId: c.projectId,
+    code: c.code,
+    doc: c.doc ? { repositorySlug: c.doc.repositorySlug, slug: c.doc.slug } : null,
+    product: c.product ? { pageId: c.product.pageId } : null,
+    drive: c.drive
+      ? {
+          type: (DRIVE_FILE_TYPES as readonly string[]).includes(c.drive.type) ? (c.drive.type as DriveFileType) : "other",
+          projectCode: c.drive.projectCode,
+          projectName: c.drive.projectName,
+          opens90d: c.drive.opens90d,
+          summary: c.drive.summary,
+        }
+      : null,
+  });
+  return kind;
+}
 
 /**
  * La vista di una citazione della Chat confermata dal server, o `null`.
@@ -358,26 +387,8 @@ export function toMessage(v: ServerMsg): ChatMessageView {
           kind: a.mimeType.toLowerCase().startsWith("image/") ? ("image" as const) : ("file" as const),
         })),
     citations: v.citations.flatMap((c) => {
-      if (!CITABLE.has(c.kind)) return [];
-      const kind = c.kind as CitationRef["kind"];
-      citedViews.set(citeKey(kind, c.id), {
-        kind,
-        id: c.id,
-        label: c.label,
-        projectId: c.projectId,
-        code: c.code,
-        doc: c.doc ? { repositorySlug: c.doc.repositorySlug, slug: c.doc.slug } : null,
-        product: c.product ? { pageId: c.product.pageId } : null,
-        drive: c.drive
-          ? {
-              type: (DRIVE_FILE_TYPES as readonly string[]).includes(c.drive.type) ? (c.drive.type as DriveFileType) : "other",
-              projectCode: c.drive.projectCode,
-              projectName: c.drive.projectName,
-              opens90d: c.drive.opens90d,
-              summary: c.drive.summary,
-            }
-          : null,
-      });
+      const kind = rememberChatCitation(c);
+      if (!kind) return [];
       // Un file porta il suo codice nel riferimento (R-H5): resta anche se il file se ne va.
       return [kind === "drive" && c.code ? { kind, id: c.id, code: c.code } : { kind, id: c.id }];
     }),
