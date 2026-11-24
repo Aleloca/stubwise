@@ -3,7 +3,7 @@ import { SUPPORT_STATE_ORDER, supportOpenRequestBodySchema, supportReplyBodySche
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { getSupportConversation, listSupportConversations, supportCustomerPreview, SupportError } from "../services/support.js";
+import { getSupportConversation, listSupportConversations, searchSupport, supportCustomerPreview, SupportError } from "../services/support.js";
 import { markNotConcluded, openRequestFrom, replyToCollaborator } from "../services/support-writes.js";
 
 /**
@@ -42,6 +42,12 @@ export async function supportRoutes(instance: FastifyInstance): Promise<void> {
       handle(reply, async () => ({
         items: await listSupportConversations(app.db, request.user!, request.params.projectId, { ...(request.query.state ? { state: request.query.state } : {}) }),
       })),
+  );
+  // ⌘K (rimandi, lotto 5): per codice o cliente, nei progetti visibili.
+  app.get(
+    "/support/search",
+    { config: { access: { kind: "user" } }, schema: { querystring: z.object({ q: z.string().max(200).default("") }) } },
+    async (request) => ({ items: await searchSupport(app.db, request.user!, request.query.q) }),
   );
   // Le rotte letterali (`/preview`) prima delle altre sullo stesso prefisso.
   app.get("/support/conversations/by-code/:code/preview", { config: { access: { kind: "user" } }, schema: { params: codeParams } }, async (request, reply) =>

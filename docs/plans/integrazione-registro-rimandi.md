@@ -913,8 +913,12 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - **un `kind` sconosciuto nei filtri di un widget** (un server più nuovo):
     l'app lo legge come `__unknown__` e salvando lo toglie, perché non può
     rimandarlo com'era;
-  - **la ricerca ⌘K delle conversazioni** (`support-search`): nessuna rotta,
-    fuori dalla F3;
+  - ~~**la ricerca ⌘K delle conversazioni** (`support-search`): nessuna rotta,
+    fuori dalla F3;~~ *parte server chiusa il 24 nov 2026 (72, lotto 5)*:
+    `GET /api/support/search?q=` (`{ items: SupportSearchResult[] }`, per
+    codice o cliente — nome o email —, solo nei progetti visibili e nella
+    WHERE, dalla più recente, 20 al più, da 2 caratteri; il desiderio
+    riscritto non c'è sul server, quindi non si cerca);
   - **una card `support.*` non rilegge Support**: nessun legame fra le card
     dell'inbox e le aree; aprirla legge la conversazione, il ritmo (15 s /
     30 s) copre il resto.

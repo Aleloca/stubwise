@@ -97,6 +97,26 @@ export const supportConversationSchema = z.object({
 });
 export type SupportConversation = z.infer<typeof supportConversationSchema>;
 
+/**
+ * ⌘K (rimandi, lotto 5): una conversazione trovata per codice (`ACQ-S2`) o
+ * cliente, nei progetti che chi cerca vede — la forma del prototipo
+ * (`SupportSearchResult` di `data/support/reads.ts`) con `projectCode` al
+ * posto di `route`: il link lo fa il client (`supportHref(projectId, code)`).
+ * Il «desiderio riscritto» non c'è sul server (`rewrittenWish` è sempre null),
+ * quindi non si cerca.
+ */
+export const supportSearchResultSchema = z.object({
+  kind: z.literal("support"),
+  id: z.uuid(),
+  code: z.string(),
+  /** Il nome del cliente, o la sua email, o il codice. */
+  label: z.string(),
+  projectId: z.uuid(),
+  projectCode: z.string(),
+  state: supportStateSchema,
+});
+export type SupportSearchResult = z.infer<typeof supportSearchResultSchema>;
+
 export const supportConversationListSchema = z.object({ items: z.array(supportConversationSchema) });
 
 /** `GET …/by-code/:code/preview`: ESATTAMENTE ciò che vede il cliente. Mai un nome, una stima, un commento. */
