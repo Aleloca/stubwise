@@ -216,3 +216,22 @@ describe("lotto 6, voce 1: setDefaultReviewer — la verifica nel preflight (sol
     expect(out).toMatchObject({ ok: false, refusal: { message: "preflight_timeout" } });
   });
 });
+
+describe("lotto 6, voce 2: setAttachments", () => {
+  it("senza archiviazione è rifiutata già alla proposta; con l'archiviazione si spegne e «Annulla» la riaccende", async () => {
+    await t.db.insert(instanceSettings).values({ id: 1 }).onConflictDoNothing();
+    await t.db.update(instanceSettings).set({ s3Endpoint: null, s3Bucket: null, s3AccessKey: null, s3SecretKeyEncrypted: null, attachmentsSwitch: false }).where(eq(instanceSettings.id, 1));
+    const refused = await propose([{ fn: "setAttachments", args: { on: true } }]);
+    expect(JSON.stringify(refused.json())).toContain("not_set_up");
+    // L'archiviazione configurata (dalla rotta, con la chiave dell'app), interruttore acceso.
+    const put = await call("PUT", "/api/settings/instance", { contentLanguage: "en", s3Endpoint: "https://s3.example.com", s3Region: "eu", s3Bucket: "b", s3AccessKey: "AKIA", s3SecretKey: "segreto-lungo" });
+    expect(put.statusCode, put.body).toBe(200);
+    await t.db.update(instanceSettings).set({ attachmentsSwitch: true }).where(eq(instanceSettings.id, 1));
+    const off = await run([{ fn: "setAttachments", args: { on: false } }]);
+    expect(off.groupId).not.toBeNull();
+    expect((await instance()).attachmentsSwitch).toBe(false);
+    expect((await entries("storage.changed")).length).toBeGreaterThan(0);
+    expect((await undo(off.groupId!)).statusCode).toBe(200);
+    expect((await instance()).attachmentsSwitch).toBe(true);
+  });
+});

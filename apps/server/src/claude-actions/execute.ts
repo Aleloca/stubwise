@@ -126,7 +126,17 @@ export async function executeGroup(
     }
   }
   const { value, followUps } = await runActionContext({ dryRun: input.dryRun === true }, () =>
-    runGroup(db, user, input, { ...(input.effects?.publicUrl !== undefined ? { publicUrl: input.effects.publicUrl } : {}) }, prepared),
+    runGroup(
+      db,
+      user,
+      input,
+      {
+        ...(input.effects?.publicUrl !== undefined ? { publicUrl: input.effects.publicUrl } : {}),
+        // Lotto 6: la chiave per le verifiche che decifrano (gli allegati: l'archiviazione valida); assente a secco.
+        ...(input.effects?.encryptionKey ? { encryptionKey: input.effects.encryptionKey } : {}),
+      },
+      prepared,
+    ),
   );
   if (value.ok && !input.dryRun) await runFollowUps(followUps, input.effects ?? {});
   return value;
@@ -145,7 +155,7 @@ async function runGroup(
     expectQuietUndo?: boolean;
     guard?: (tx: Db) => Promise<ClaudeActionFailure | null>;
   },
-  start: { publicUrl?: string },
+  start: { publicUrl?: string; encryptionKey?: Buffer },
   prepared: ReadonlyMap<number, unknown> = new Map(),
 ): Promise<ExecuteResult> {
   try {

@@ -79,6 +79,8 @@ export const CLAUDE_ACTION_FNS = [
   "updateGitAccount",
   // Lotto 6: il revisore predefinito; la verifica sul provider nel preflight (solo lettura, solo al run vero).
   "setDefaultReviewer",
+  // Lotto 6: l'interruttore degli allegati.
+  "setAttachments",
   "updateGoogleApp",
   "rerunSmoke",
   "removePlugin",
@@ -161,6 +163,7 @@ export const CLAUDE_DECLARED_CLASS: Record<ClaudeActionFn, "A" | "B" | "C"> = {
   moveProvider: "B",
   updateGitAccount: "B",
   setDefaultReviewer: "B",
+  setAttachments: "B",
   updateGoogleApp: "B",
   rerunSmoke: "B",
   removePlugin: "B",
@@ -334,6 +337,7 @@ export const CLAUDE_ACTION_ARGS = {
     .strict()
     .refine((a) => a.name !== undefined || a.workspace !== undefined, "name or workspace"),
   setDefaultReviewer: z.object({ id, on: z.boolean() }).strict(),
+  setAttachments: z.object({ on: z.boolean() }).strict(),
   updateGoogleApp: z
     .object({ id, name: z.string().trim().min(1).max(200).optional(), domains: googleDomainsSchema.optional(), clientId: z.string().trim().min(1).max(500).optional() })
     .strict()
@@ -572,6 +576,7 @@ export const CLAUDE_INSTANCE_PERMISSION: Partial<Record<ClaudeActionFn, string>>
   moveProvider: "ai_providers.manage",
   updateGitAccount: "git_accounts.manage",
   setDefaultReviewer: "git_accounts.manage",
+  setAttachments: "settings.manage",
   updateGoogleApp: "integrations.manage",
   updateWebhook: "integrations.manage",
 };

@@ -6,6 +6,7 @@ import { patchGitAccount } from "../routes/git-accounts.js";
 import { isUniqueViolation } from "../routes/shared.js";
 import { clearDefaultReviewer, DefaultReviewerAccountChanged, DefaultReviewerAccountGone, writeDefaultReviewer } from "../services/default-reviewer-write.js";
 import type { DefaultReviewerPrepared } from "./preflight.js";
+import { setAttachments } from "../services/attachments-switch.js";
 import { patchGoogleWorkspace } from "../routes/google-workspaces.js";
 import { patchModelSettings } from "../routes/model-settings.js";
 import { putAutomationSettings, putInstanceSettings, readAutomationSettings } from "../services/instance-settings-writes.js";
@@ -153,6 +154,20 @@ export const INSTANCE_ENTRIES: CatalogEntry[] = [
         undoable ? { fn: "updateGitAccount", args: { id, ...(name !== undefined ? { name: was.name } : {}), ...(workspace !== undefined ? { workspace: was.workspace } : {}) } } : null,
         [await setting(tx, "git_account", id, ["git_account.updated"])],
       );
+    },
+  },
+  {
+    // Lotto 6, voce 2: l'interruttore degli allegati, come il prototipo (`{ on }`,
+    // l'inverso col valore di prima). Accenderlo chiede l'archiviazione valida.
+    fn: "setAttachments",
+    route: "PUT /api/settings/instance/attachments",
+    access: { kind: "instance", permission: "settings.manage" },
+    request: () => ({}),
+    async run(tx, user, args, _permissions, start) {
+      const { on } = args as { on: boolean };
+      const out = await setAttachments(tx, start.encryptionKey ?? null, user, on);
+      if (!out.ok) return refused("invalid", "not_set_up");
+      return done({ fn: "setAttachments", args: { on: out.was } }, [await setting(tx, "storage", "storage", ["storage.changed"])]);
     },
   },
   {

@@ -114,7 +114,7 @@ export type CatalogRun = (
    * delle notifiche. `prepared` (lotto 6): ciò che il preflight della voce ha
    * letto al run vero (`preflight.ts`); assente nella prova a secco.
    */
-  start: { publicUrl?: string; prepared?: unknown },
+  start: { publicUrl?: string; prepared?: unknown; encryptionKey?: Buffer },
 ) => Promise<{ ok: true; result: CatalogRunResult } | { ok: false; refusal: CatalogRefusal }>;
 
 export interface CatalogEntry {

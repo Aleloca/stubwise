@@ -1,5 +1,5 @@
 import fastifyCookie from "@fastify/cookie";
-import { uploadsOff } from "./services/attachments-switch.js";
+import { uploadsOff } from "./services/storage-uploads-gate.js";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyRateLimit from "@fastify/rate-limit";
 import fastifySwagger from "@fastify/swagger";

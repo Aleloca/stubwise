@@ -1377,8 +1377,8 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   `CLAUDE_PROPOSABLE_FNS` c'è nel catalogo del prototipo (tranne
   `pageAction` e `fillMailBody`, che lì passano dalla pagina e dalla Posta),
   e il permesso d'istanza di una voce è `CLAUDE_INSTANCE_PERMISSION`.
-  Restano solo del prototipo `setAttachments` e
-  `saveStorage` (`setDefaultReviewer` c'è dal lotto 6) (dalla review di F7: endpoint e bucket decidono dove vanno
+  Resta solo del prototipo
+  `saveStorage` (`setDefaultReviewer` e `setAttachments` ci sono dal lotto 6) (dalla review di F7: endpoint e bucket decidono dove vanno
   gli allegati), che il server non esegue (registro di 72).
 
 - **F1 renderer, ciò che resta** *(94, 16 nov 2026)*:
@@ -1581,8 +1581,9 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     derivato). Serve prima un interruttore d'istanza sul server *(S)*;~~
     *l'interruttore c'è dal 24 nov 2026 (72, lotto 6, 0228)*:
     `PUT /api/settings/instance/attachments`, `attachmentsSwitch` nella
-    vista; spento, le scritture dello storage rifiutano (la voce del
-    catalogo nel commit dopo);
+    vista; spento, le scritture dello storage rifiutano; *la voce
+    `setAttachments({ on })` (B, l'inverso col valore di prima) c'è dal 24
+    nov 2026 (72, lotto 6)*;
   - ~~Azioni di Claude (F7, Task 4): **`setDefaultReviewer`** non ha una voce:
     il `PUT /api/git-accounts/:id/default-reviewer` verifica il token
     chiamando il provider (account, scope, identità), e dentro il catalogo
