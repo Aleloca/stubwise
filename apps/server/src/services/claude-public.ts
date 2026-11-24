@@ -12,6 +12,8 @@ import {
   type Db,
 } from "@stubwise/db";
 import { effectiveInstancePermissions } from "@stubwise/shared";
+import { contextProjectIds } from "@stubwise/notifications";
+import { conversationContextGroup } from "./claude-contexts-view.js";
 import type { ClaudeConversationProject } from "@stubwise/shared";
 import { and, desc, eq, gte, inArray, lt, sql, type SQL } from "drizzle-orm";
 import { scopeIncludes, visibleProjectIds, type ProjectScope } from "../auth/access.js";
@@ -110,19 +112,6 @@ async function citedProjectIds(db: DbOrTx, sessionId: string, from?: bigint): Pr
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Il progetto del contesto della pagina (un progetto, una task o una richiesta per codice), se esiste. */
-export async function contextProjectId(db: DbOrTx, row: ConversationRow): Promise<string | null> {
-  const ctx = row.contextRef;
-  if (!ctx) return null;
-  if (ctx.kind === "project") {
-    if (!UUID.test(ctx.id)) return null;
-    const [p] = await db.select({ id: projects.id }).from(projects).where(eq(projects.id, ctx.id));
-    return p?.id ?? null;
-  }
-  const [id] = await projectIdsByCode(db, prefixesOf(ctx.id.toUpperCase()));
-  return id ?? null;
-}
-
 /** I progetti che l'AUTORE vede adesso (i suoi permessi d'istanza dal ruolo). */
 async function authorVisibleProjects(db: DbOrTx, ownerId: string): Promise<ProjectScope> {
   const [row] = await db
@@ -158,8 +147,10 @@ export async function touchedProjectIds(db: DbOrTx, row: ConversationRow, from?:
     );
   const out = new Set(recorded.map((r) => r.projectId));
   const derived = await citedProjectIds(db, row.sessionId, from);
-  const context = await contextProjectId(db, row);
-  if (context) derived.push(context);
+  // Revisione 8–9 (I-1): i progetti di TUTTO il gruppo dei contesti, non solo
+  // del primario: un contesto non primario non fa diventare pubblico un
+  // progetto senza conferma (né sfugge al seguito privato).
+  for (const id of await contextProjectIds(db, conversationContextGroup(row))) if (id) derived.push(id);
   if (derived.length > 0) {
     const visible = await authorVisibleProjects(db, row.ownerId);
     for (const id of derived) if (scopeIncludes(visible, id)) out.add(id);

@@ -1,5 +1,5 @@
-import { agentSessionInputs, type Db } from "@stubwise/db";
-import { visibleContexts, type ClaudeContextRef } from "@stubwise/notifications";
+import { agentSessionInputs, type claudeConversations, type Db } from "@stubwise/db";
+import { CLAUDE_CONTEXTS_MAX, visibleContexts, type ClaudeContextRef } from "@stubwise/notifications";
 import { inArray } from "drizzle-orm";
 import { scopeIncludes, visibleProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
@@ -38,4 +38,19 @@ export async function inputContextsForViewer(
     .where(inArray(agentSessionInputs.id, [...inputIds]));
   const filtered = await contextsForViewer(db, viewer, rows.map((r) => r.contexts ?? []), isAuthor);
   return new Map(rows.map((r, i) => [r.id, filtered[i]!]));
+}
+
+/**
+ * Il gruppo dei contesti di una conversazione: `context_refs`, o il solo
+ * `context_ref` di una riga di prima. Revisione 8–9 (M-5): dopo un rollback
+ * a un server di prima, che scrive solo `context_ref`, il primario può non
+ * coincidere con l'ultimo del gruppo: allora si ACCODA (togliendo il doppione).
+ */
+export function conversationContextGroup(row: Pick<typeof claudeConversations.$inferSelect, "contextRefs" | "contextRef">): ClaudeContextRef[] {
+  const group = [...row.contextRefs];
+  const primary = row.contextRef;
+  if (!primary) return group;
+  const last = group.at(-1);
+  if (last && last.kind === primary.kind && last.id === primary.id) return group;
+  return [...group.filter((c) => !(c.kind === primary.kind && c.id === primary.id)), primary].slice(-CLAUDE_CONTEXTS_MAX);
 }
