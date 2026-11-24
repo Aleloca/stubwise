@@ -274,6 +274,25 @@ describe("la prima versione nel worker", () => {
     }
   });
 
+  it("review del lotto 5 (decisione di 46): lo scavalco si RILEGGE quando il lavoro parte — chi l'ha chiesto ha perso plans.approve, e il lavoro torna ad aspettare col budget", async () => {
+    await t.db.insert(instanceSettings).values({ id: 1, monthlyBudgetUsd: "1" }).onConflictDoUpdate({ target: instanceSettings.id, set: { monthlyBudgetUsd: "1" } });
+    try {
+      const { projectId, ada, fv } = await setup();
+      await t.db.update(productDocJobs).set({ budgetBypass: true }).where(eq(productDocJobs.sourceId, fv.id));
+      // Ada era Project Lead alla richiesta; ora è Developer (niente plans.approve).
+      const [dev] = await t.db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "developer"));
+      await t.db.update(projectMembers).set({ roleId: dev!.id }).where(eq(projectMembers.userId, ada));
+      const job = (await claimProductDocJob(t.db, [], { onlyBypass: true }))!;
+      expect(job.sourceId).toBe(fv.id);
+      const { runner, calls } = fakeRunner(DRAFT);
+      expect(await runProductDocJob({ db: t.db, runner, log, monthlyCostUsdFn: async () => 5 }, job)).toBe("held");
+      expect(calls).toEqual([]);
+      void projectId;
+    } finally {
+      await t.db.delete(instanceSettings);
+    }
+  });
+
   it("la pausa della coda non ferma la prima versione (è un gesto di chi l'ha chiesta)", async () => {
     const { projectId, fv } = await setup();
     await t.db.update(projects).set({ queuePausedAt: new Date() }).where(eq(projects.id, projectId));
