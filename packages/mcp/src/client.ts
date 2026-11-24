@@ -104,6 +104,63 @@ export class StubwiseApiError extends Error {
   }
 }
 
+/** Lotto 7, voce 4: i criteri di `GET /api/tasks` che i tool usano. */
+export interface TaskListParams {
+  projectIds?: string[];
+  statusIds?: string[];
+  families?: ("todo" | "active" | "closed")[];
+  departmentIds?: string[];
+  sizes?: string[];
+  assigneeIds?: string[];
+  text?: string;
+  stalled?: boolean;
+}
+
+/** Una task della nuova app (forma difensiva: i soli campi che i tool mostrano). */
+export interface TaskItem {
+  id: string;
+  code: string;
+  projectId: string;
+  title: string;
+  description?: string;
+  statusId: string;
+  departmentId: string;
+  size: string | null;
+  priority: string;
+  type: string;
+  assigneeId: string | null;
+  plannedWeek?: string | null;
+  dueDate?: string | null;
+  requestId?: string | null;
+}
+
+export interface ProjectStatusItem {
+  id: string;
+  name: string;
+  family: "todo" | "active" | "closed";
+  position: number;
+}
+
+export interface DepartmentItem {
+  id: string;
+  name: string;
+  isDefault: boolean;
+}
+
+/** Una richiesta (`<PRJ>-R<n>`), forma difensiva. */
+export interface RequestItem {
+  id: string;
+  code: string;
+  projectId: string;
+  title: string;
+  description: string;
+  status: string;
+  urgency: string | null;
+  size: string | null;
+  taskIds?: string[];
+  mergedIntoCode?: string | null;
+}
+
 /** Priorità/urgenza: riusa la scala priority dei ticket. */
 export type Urgency = TicketPriority;
 
@@ -666,6 +723,45 @@ export class StubwiseClient {
   async getProjectBySlug(slug: string): Promise<Project | null> {
     const projects = await this.listProjects();
     return projects.find((p) => p.slug === slug) ?? null;
+  }
+
+  // --- Task, stati, reparti (lotto 7, voce 4) ------------------------------
+  //
+  // Le letture della nuova app (`/api/tasks`, gli stati per progetto, i
+  // reparti, i codici `<PRJ>-<n>` e `<PRJ>-R<n>`). Forma difensiva con cast
+  // tipizzato, come le altre liste: il server le valida già in uscita.
+
+  async listTasks(query: TaskListParams): Promise<{ items: TaskItem[]; truncated: boolean }> {
+    const csv = (v?: readonly string[]) => (v && v.length > 0 ? v.join(",") : undefined);
+    const page = await this.request<{ items: TaskItem[]; truncated?: boolean }>("/api/tasks", {
+      query: {
+        projectIds: csv(query.projectIds),
+        statusIds: csv(query.statusIds),
+        families: csv(query.families),
+        departmentIds: csv(query.departmentIds),
+        sizes: csv(query.sizes),
+        assigneeIds: csv(query.assigneeIds),
+        text: query.text,
+        stalled: query.stalled === undefined ? undefined : String(query.stalled),
+      },
+    });
+    return { items: page.items, truncated: page.truncated === true };
+  }
+
+  async listProjectStatuses(projectId: string): Promise<ProjectStatusItem[]> {
+    return this.request<ProjectStatusItem[]>(`/api/projects/${projectId}/statuses`);
+  }
+
+  async listDepartments(): Promise<DepartmentItem[]> {
+    return this.request<DepartmentItem[]>("/api/departments");
+  }
+
+  async getTaskByCode(code: string): Promise<TaskItem> {
+    return this.request<TaskItem>(`/api/tasks/by-code/${encodeURIComponent(code)}`);
+  }
+
+  async getRequestByCode(code: string): Promise<RequestItem> {
+    return this.request<RequestItem>(`/api/requests/by-code/${encodeURIComponent(code)}`);
   }
 
   // --- Backlog ------------------------------------------------------------

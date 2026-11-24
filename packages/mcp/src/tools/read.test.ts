@@ -734,7 +734,7 @@ describe("registerReadTools", () => {
 
     registerReadTools(server, ctx);
 
-    expect(registerTool).toHaveBeenCalledTimes(9);
+    expect(registerTool).toHaveBeenCalledTimes(12);
     const names = registerTool.mock.calls.map((c) => c[0]);
     expect(names).toEqual([
       "list_projects",
@@ -746,6 +746,9 @@ describe("registerReadTools", () => {
       "list_mail_proposals",
       "get_project_brief",
       "list_decisions",
+      "list_task_fields",
+      "list_tasks",
+      "get_by_code",
     ]);
     // Ogni registrazione passa un config con description + inputSchema e una callback.
     for (const call of registerTool.mock.calls) {

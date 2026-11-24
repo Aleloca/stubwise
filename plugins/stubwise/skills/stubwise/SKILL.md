@@ -21,6 +21,14 @@ progetto: il resoconto in markdown per chi non legge codice — dove siamo, cosa
 scorrere ticket e PR, e a riusarne il testo; un brief assente o ancora in coda
 è una risposta esplicita, non un errore), `list_decisions` (il registro delle
 decisioni già prese su un progetto, vedi § 11).
+Le task della nuova app (stati per progetto, reparti, taglie, codici):
+`list_task_fields` (gli stati del progetto con la famiglia todo/active/closed,
+i reparti, le taglie XS–XL), `list_tasks` (le task col codice `ACQ-12`, lo
+stato del progetto, il reparto e la taglia; filtri per stati e reparti per
+NOME, famiglie, taglie, `assignee` `me`/`none`, testo, ferme; oltre il tetto
+del server la lista è troncata e lo dice), `get_by_code` (`ACQ-12` è una
+task, `ACQ-R3` una richiesta). Per filtrare, prima `list_task_fields`: un
+nome sconosciuto è un errore che elenca i validi.
 `get_backlog_item`/`get_ticket` mostrano anche
 `implementationPlan` (il piano salvato) e `originContent` (il corpo/feedback
 originale, se il design ha sostituito il corpo principale).

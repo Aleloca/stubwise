@@ -12,6 +12,7 @@ import type {
 } from "../client.js";
 import { appendNotice } from "../notices.js";
 import { resolveProject, runTool, textResult } from "./shared.js";
+import { taskTools } from "./tasks.js";
 import type { ToolContext, ToolDef, ToolResult } from "./types.js";
 
 /**
@@ -478,6 +479,7 @@ export const readTools: ToolDef[] = [
   listMailProposals,
   getProjectBrief,
   listDecisions,
+  ...taskTools,
 ];
 
 /**
