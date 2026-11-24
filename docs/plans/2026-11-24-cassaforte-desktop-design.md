@@ -80,7 +80,7 @@ con gli stessi test di formato delle altre buste); il main le usa da Node.
   è cifrato con la password di login). NON protegge da un programma ostile
   che gira come lo stesso utente macOS a Mac sbloccato: con un'app non
   firmata l'ACL della voce del portachiavi è debole. È lo stesso limite della
-  sessione di oggi, e va scritto nei limiti accettati (§9).
+  sessione di oggi, e va scritto nei limiti accettati (§11).
 
 ## 3. Come la legge l'app (main e renderer)
 
@@ -171,6 +171,10 @@ Una tabella nuova, `vault_device_seals`:
 - Entra nell'elenco CHIUSO di `vault-isolation.test.ts`: la nominano solo
   `routes/vault.ts` e `routes/credentials.ts`.
 
+E la tabella degli accoppiamenti in corso, `vault_device_pairings` (§6.2):
+`state` (hash), `pat_id`, `device_public_key`, `device_name`, `expires_at`
+(10 minuti), `used_at`; uso singolo. Anche lei nell'elenco chiuso.
+
 ### 6.2 Il sigillo nasce SOLO dal browser, con la passkey
 
 `POST /api/vault/device-seals` (da **sessione** del browser, `browserOnly`,
@@ -210,7 +214,10 @@ dell'invariante. In più di un PAT qualunque:
   `via: "desktop"` e il `deviceSealId`);
 - le sfide e le prove della propria chiave (`actor-challenge`), quindi
   condividere, togliere un lettore, confermare una chiave altrui, rifiutare;
-- creare e cambiare password come oggi.
+- creare e cambiare password come oggi;
+- `DELETE /api/vault/device-seals/mine`: toglie SOLO il sigillo legato a QUEL
+  PAT (logout, login di un altro, «Dimentica questo Mac», §4–§5); registro
+  `vault_device_seal_revoked`, motivo «dimenticato dal Mac».
 
 Restano `session_required` anche col sigillo (la regola di adesso):
 
@@ -219,7 +226,7 @@ Restano `session_required` anche col sigillo (la regola di adesso):
 - **creare, ricreare o sigillare una chiave di persona** e **sigillare un
   dispositivo** (§6.2): un Mac non si accoppia da sé, né ne accoppia un altro;
 - **togliere un sigillo di un ALTRO dispositivo** dal desktop: si fa dal browser
-  (§7). Il proprio sì (logout).
+  (§8). Il proprio sì (logout).
 
 Ogni rotta che il PAT desktop apre si **dichiara** (`config.desktopVault: true`,
 test del registro delle rotte come per `config.reauth`), e il controllo sta in
@@ -234,8 +241,8 @@ delle rotte della cassaforte resta `browserOnly`.
   permesso tolto), `vault_device_seal_used` NO (sarebbe una riga per apertura):
   l'uso aggiorna `last_used_at`, e ogni `reveal` dal desktop è già nel registro
   degli accessi con `via: "desktop"`.
-- `vault-isolation.test.ts`: la tabella nuova nell'elenco delle tabelle, il
-  modulo nuovo (`vault/device-access.ts`) nel perimetro di `apps/server/src/vault`.
+- `vault-isolation.test.ts`: le tabelle nuove (`vault_device_seals`,
+  `vault_device_pairings`) nell'elenco delle tabelle, il modulo nuovo (`vault/device-access.ts`) nel perimetro di `apps/server/src/vault`.
 
 ## 7. Il protocollo dell'associazione, lato desktop (94)
 
@@ -311,7 +318,7 @@ Perché resta accettabile:
   cassaforte aperta, ma più lungo (D-1, D-2 di 94 lo riducono: Touch ID, chiusura
   dopo 15 minuti). Contro il furto del Mac spento: `safeStorage` sta nel
   portachiavi, e il file da solo non serve senza il login macOS; il sigillo si
-  revoca da remoto (§7).
+  revoca da remoto (§8).
 - **Il server compromesso** (limite accettato già scritto) resta tale: potrebbe
   servire al desktop una pubblica di persona falsa — ma il main verifica che la
   pubblica sia la metà della privata aperta, come il browser
@@ -330,7 +337,9 @@ Perché resta accettabile:
   è 403/404 SUBITO, con la riga del sigillo ancora in DB (la revoca a lettura).
 - Le rotte che restano `session_required` lo restano col sigillo vivo: attivare,
   recupero, kit, chiavi di persona, sigillare un dispositivo.
-- `vault-isolation.test.ts`: la tabella nuova non la nomina nessuno fuori dalle
+- `DELETE /api/vault/device-seals/mine` col PAT desktop non toglie il sigillo
+  di un'altra persona né quello di un altro PAT della stessa persona (404).
+- `vault-isolation.test.ts`: le tabelle nuove non le nomina nessuno fuori dalle
   rotte della cassaforte.
 
 ## 11. Limiti accettati (proposti)
@@ -347,7 +356,7 @@ Perché resta accettabile:
 
 | # | Domanda | Raccomandazione |
 |---|---|---|
-| D-1 | Lo sblocco dal desktop chiede qualcosa (Touch ID, `systemPreferences.promptTouchID`) o è davvero automatico? | **Touch ID alla riapertura** (dopo stop, blocco schermo o 15 minuti), automatico solo all'avvio subito dopo l'associazione. Restringe il limite di §9 (un programma ostile non passa il Touch ID) e costa un tocco. Se il maintainer vuole «da solo» alla lettera: automatico sempre, e il limite resta. |
+| D-1 | Lo sblocco dal desktop chiede qualcosa (Touch ID, `systemPreferences.promptTouchID`) o è davvero automatico? | **Touch ID alla riapertura** (dopo stop, blocco schermo o 15 minuti), automatico solo all'avvio subito dopo l'associazione. Restringe il limite di §11 (un programma ostile non passa il Touch ID) e costa un tocco. **È una proposta contro la lettera della decisione**: cambia «si sblocca da solo» in «con un tocco, dopo una pausa». Se il maintainer vuole «da solo» alla lettera: automatico sempre, e il limite resta. |
 | D-2 | La chiusura in memoria dopo quanto? | **15 minuti senza usarla**, più stop/blocco dello schermo. |
 | D-3 | Quanti Mac per persona? | **Senza tetto**, ognuno nell'elenco con nome e ultima apertura, revocabile. |
 | D-4 | Secure Enclave quando l'app sarà firmata? | **Sì**, voce nel registro dei rimandi. |
