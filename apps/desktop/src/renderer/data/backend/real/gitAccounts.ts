@@ -9,10 +9,10 @@ import { appClient } from "./client";
 // il token, elimina), l'ambito del revisore predefinito (`replaced` nella
 // risposta) e il 409 `git_account_in_use`.
 //
-// Differenze dichiarate (parità): niente ultime 4 del token («••••»); la
-// validazione non resta sul server (la ricorda la sessione); i repository
-// che usano un account non arrivano (né nella riga né nel rifiuto `in_use`);
-// chi verrebbe sostituito come revisore si sa solo dopo, dalla risposta.
+// Differenze dichiarate (parità): la validazione non resta sul server (la
+// ricorda la sessione); chi verrebbe sostituito come revisore si sa solo
+// dopo, dalla risposta. I repository dell'account e chi lo usa nel rifiuto
+// `in_use` li dà il server (rimandi, lotto 5, voce 6).
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- forme del server lette dai Reader */
 type Any = any;
@@ -36,12 +36,28 @@ export interface GitAccountsApi {
   remove(id: string): Promise<void>;
 }
 
+/** Una riga di repository del server, col progetto (null se staccato). */
+const repoRef =
+  <K extends "name" | "label">(key: K) =>
+  (r: Any): Record<K, string> & { projectCode: string | null } =>
+    ({ [key]: String(r[key] ?? ""), projectCode: r.projectCode ?? null }) as Record<K, string> & {
+      projectCode: string | null;
+    };
+
 function refusalOf(error: unknown): Extract<InstanceResult, { ok: false }> {
   if (!(error instanceof ApiError)) throw error;
   const code = error.code ?? "";
   if (code === "reauth_required") return { ok: false, error: "reauth_required" };
-  if (code === "git_account_in_use")
-    return { ok: false, error: "in_use", usedBy: [], hiddenCount: 0 };
+  if (code === "git_account_in_use") {
+    // Rimandi, lotto 5, voce 6 (72, ef1136f2e): chi lo usa, nei progetti visibili; gli altri contati.
+    const d = (error.details ?? {}) as { usedBy?: unknown; hiddenCount?: unknown };
+    return {
+      ok: false,
+      error: "in_use",
+      usedBy: Array.isArray(d.usedBy) ? (d.usedBy as Any[]).map(repoRef("label")) : [],
+      hiddenCount: typeof d.hiddenCount === "number" ? d.hiddenCount : 0,
+    } as Extract<InstanceResult, { ok: false }>;
+  }
   if (error.status === 404) return { ok: false, error: "not_found" };
   if (error.status === 403) return { ok: false, error: "forbidden" };
   if (error.status === 409) return { ok: false, error: "conflict" };
@@ -67,8 +83,9 @@ export function createRealGitAccounts(api: GitAccountsApi) {
     defaultReviewer: !!a.isDefaultReviewer,
     lastValidation: validations.get(a.id) ?? null,
     createdAt: a.createdAt,
-    repositories: [],
-    hiddenRepositories: 0,
+    // Rimandi, lotto 5, voce 6 (72): i nomi solo nei progetti visibili; un server di prima: nessuno.
+    repositories: Array.isArray(a.repositories) ? a.repositories.map(repoRef("name")) : [],
+    hiddenRepositories: typeof a.hiddenRepositories === "number" ? a.hiddenRepositories : 0,
     replacesAsReviewer: null,
   });
 
