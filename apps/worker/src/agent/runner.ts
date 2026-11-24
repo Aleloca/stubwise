@@ -105,7 +105,7 @@ export interface UsageTag {
    * Solo con jobId: fase per i lettori per-ticket (il CHECK
    * `agent_runs_job_phase_check` la pretende quando c'è un job).
    */
-  phase?: "triage" | "fix" | "review" | "email_classify";
+  phase?: "triage" | "fix" | "review" | "email_classify" | "calendar_classify";
   /**
    * false = il chiamante scrive da sé le righe (writer storici: triage, fix,
    * correzione, review, posta — che usano `AgentRunResult.runId`). Default

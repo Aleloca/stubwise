@@ -98,6 +98,7 @@ import { loadViaClaude, type ViaClaudeFields } from "./via-claude.js";
 import { getContentLanguage } from "../settings.js";
 import { decidersOf as automationDecidersOf } from "../automations/runs.js";
 import { chooseMailProposalProject, confirmMailProposal, handedSharedProposalsOf, ignoreMailProposal, sharedProposalOfNotification } from "./mail-proposals-decide.js";
+import { calendarChooseOfNotification, chooseCalendarProposalProject, ignoreCalendarChoose } from "./mail-proposals-calendar.js";
 import { listMailProposals } from "./mail-proposals.js";
 
 // Catalogo delle azioni: implementazione in `@stubwise/notifications/actions`
@@ -425,6 +426,37 @@ export async function executeAction(
           : picked.includes(actionCount)
             ? null
             : await confirmMailProposal(db, { id: actor.id }, sharedProposalId, { indices: picked }, await getContentLanguage(db));
+      if (!decided) return { ok: false, error: "invalid_answer" };
+      if (!decided.ok) {
+        if (decided.error === "already_handled") {
+          const [by] = decided.decidedBy
+            ? await db.select({ id: users.id, email: users.email }).from(users).where(eq(users.id, decided.decidedBy.userId))
+            : [];
+          return { ok: false, error: "already_handled", ...(by ? { handledBy: by } : {}) };
+        }
+        return { ok: false, error: decided.error === "not_found" ? "not_found" : decided.error === "forbidden" ? "forbidden" : "invalid_answer" };
+      }
+      return { ok: true, action, kind: row.kind, notificationJobId: row.jobId, changedNotificationIds: [row.id] };
+    }
+    // Lotto 9, voce 2 (a): la «Quale progetto?» condivisa del CALENDARIO si
+    // decide dal suo servizio (`mail-proposals-calendar.ts`), mai
+    // dall'esecutore di prima (che su una proposta del calendario rifiuta
+    // `choose_project`). La mappa opzione → progetto è quella che la card
+    // MOSTRA (`event.actions`), come per la posta qui sopra.
+    const calendarChooseId = isMailProposal ? await calendarChooseOfNotification(db, actor.id, row.id) : null;
+    if (calendarChooseId) {
+      const picked = input.payload?.answer?.optionIndices ?? (input.payload?.answer?.optionIndex === undefined ? [] : [input.payload.answer.optionIndex]);
+      if (picked.length !== 1) return { ok: false, error: "invalid_answer" };
+      const [card] = await db.select({ event: notifications.event }).from(notifications).where(eq(notifications.id, row.id));
+      const cardActions = ((card?.event as { actions?: { type?: string; projectId?: string }[] } | null)?.actions ?? []).filter(Boolean);
+      const chosen = cardActions[picked[0]!];
+      if (!chosen) return { ok: false, error: "invalid_answer" };
+      const decided =
+        chosen.type === "ignore"
+          ? await ignoreCalendarChoose(db, actor.id, calendarChooseId)
+          : chosen.type === "choose_project" && chosen.projectId
+            ? await chooseCalendarProposalProject(db, actor.id, calendarChooseId, chosen.projectId)
+            : null;
       if (!decided) return { ok: false, error: "invalid_answer" };
       if (!decided.ok) {
         if (decided.error === "already_handled") {

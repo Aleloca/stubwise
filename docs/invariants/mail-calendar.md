@@ -95,8 +95,11 @@
     «flag spento: stessi candidati e stesse proposte su un insieme misto».
   - **A flag acceso** (`MAIL_CLASSIFY_V2`): un invitato o l'organizzatore,
     escluso il proprietario, membro esplicito di UN progetto
-    (`projectBy: model`), calcolato per lotto; con più progetti nessuna
-    proposta (la «Quale progetto?» del calendario è nel registro).
+    (`projectBy: model`), calcolato per lotto. Con più progetti un evento
+    SINGOLO è candidato SENZA progetto e il progetto lo sceglie il modello,
+    o lo chiede la «Quale progetto?» condivisa (lotto 9, voce 2 (a): la voce
+    «Il progetto di un appuntamento con più candidati» più sotto); le
+    occorrenze delle serie con più progetti restano senza proposta.
   - **Le due linee di base**: il primo giro completo dopo il deploy
     (`calendar_baseline_at`; il syncToken azzerato forza il resync) e il
     primo giro col flag acceso (`calendar_v2_baseline_at`) chiudono
@@ -392,6 +395,63 @@
   - Le proposte del calendario pubblicate per casella PRIMA di questo
     rilascio restano com'erano finché non si decidono (nessuna migrazione
     dei dati).
+- **Il progetto di un appuntamento con più candidati, e la «Quale
+  progetto?» condivisa del calendario (lotto 9, voce 2 (a), 24 nov 2026).**
+  Col flag acceso un evento SINGOLO i cui invitati portano a PIÙ progetti
+  (quelli che il titolare della casella vede) non resta senza proposta.
+  `apps/worker/src/google/calendar-guess.ts`, `calendar-shared.ts`
+  (`publishCalendarChooseProposals`), server
+  `apps/server/src/services/mail-proposals-calendar.ts`.
+  - **Il modello sceglie SOLO fra i candidati, e risponde `null` quando non
+    è sicuro.** Stessa dottrina della classificazione della posta (la voce
+    qui sotto): titolo, descrizione (troncata, ripulita dall'HTML) e
+    invitati sono NON FIDATI, stanno fra `EMAIL_DELIMITER_START/END`
+    passati da `untrusted()` (lo stesso di `classify-v2.ts`), nessun tool,
+    cwd vuota, `permissionMode: "default"`. La difesa vera è la
+    rivalidazione (`revalidateGuess`): un id fuori dai candidati vale come
+    `null`, come `extractSuggestedProjectIds`. Test con una descrizione
+    OSTILE e un runner che le obbedisce (`calendar-guess.test.ts`).
+  - **UNA volta per evento.** L'esito si scrive su
+    `calendar_events.project_guess` (`projectId|null`, `reason`, `by`,
+    `candidates`): il modello non si richiama a ogni giro, e una copia dello
+    stesso `ical_uid` in un'altra casella RIUSA la scelta (vale lì solo se il
+    progetto è anche fra i SUOI candidati; altrimenti quella copia non
+    propone). Il sync non riscrive il progetto di una riga scelta. Un errore
+    del modello lascia la riga da indovinare al giro dopo, fino a
+    `CALENDAR_GUESS_MAX_ATTEMPTS` tentativi: finiti, si chiede. Un'attesa per
+    quota non consuma un tentativo. Il `reason` è testo GENERATO: non si
+    mostra e non entra mai nel registro decisioni.
+  - **Il costo**: l'operazione resta `mail_classify` (stesso modello, stesso
+    conto del mese), con la SUA phase `calendar_classify` e nessun owner:
+    il tetto giornaliero della posta (`countClassifyRunsSince`, phase
+    `email_classify` di un messaggio) non la conta. Il freno è il tetto per
+    giro (`GMAIL_MAX_PER_TICK`).
+  - **Sotto la soglia, UNA «Quale progetto?» condivisa**:
+    `calendar_proposals` con `project_id` nullo e `candidate_project_ids`,
+    una per appuntamento (indice unico parziale su `ical_uid`); le copie
+    delle altre caselle ci si legano e aggiungono i loro candidati. La
+    ricevono il TITOLARE della casella (se non ha rifiutato) e gli altri
+    invitati di Stubwise che non hanno rifiutato e sono membri ESPLICITI di
+    ALMENO UNO dei candidati — mai un admin in quanto tale. Ogni card offre
+    SOLO i candidati in cui chi la riceve può CONFERMARE la proposta che ne
+    nascerebbe (il permesso della milestone, `permissionForProposalAction`);
+    chi non ne ha nessuno non la riceve.
+  - **Decidere** (`chooseCalendarProposalProject`, rotta
+    `/api/me/mail/proposals/:id/choose-project` e la card in inbox): un
+    destinatario che vede almeno un candidato (gli altri: 404); un progetto
+    fuori dai candidati o che non vede è `invalid_target`, uno che vede ma in
+    cui non può confermare è `forbidden` — test NEGATIVI, col DB invariato.
+    La prima scelta vince (riga `FOR UPDATE`): le card di tutti si chiudono,
+    l'esito è `project_chosen`, e le copie legate prendono il progetto (solo
+    dove il titolare lo vede) e si SLEGANO: la proposta vera la fa nascere il
+    worker al giro dopo, col percorso di progetto e i suoi destinatari. Chi
+    arriva dopo ha `already_handled`. «Non fare nulla» la chiude per tutti.
+    Nessuna riga nel registro decisioni (è uno smistamento, come per la
+    posta). ⚠️ Non passa MAI da `dispatchAction`: `findSourceRow` non
+    restituisce una riga d'origine per una proposta del calendario senza
+    progetto (`proposal_stale`, niente si chiude), e il case
+    `choose_project` di là continua a rifiutare il calendario — le sue due
+    semantiche (voce più sotto) non si toccano.
 - **Confermare una proposta chiede il permesso nel progetto; chi non ce l'ha
   la PASSA, e la card passata è una card NUOVA (fase permessi, 22 ott
   2026).** La classificazione considera tutti i progetti, quindi il
@@ -458,7 +518,8 @@
   sparisce, e se non ne resta nessuna il messaggio diventa `ignored` senza
   proposta. Stessa forma di `apps/worker/src/backlog/prompts.ts` per
   l'intake: chi aggiunge un nuovo punto che manda testo non fidato al
-  modello copi questa dottrina, non la reinventi.
+  modello copi questa dottrina, non la reinventi. (Lo fa la scelta del
+  progetto di un appuntamento, `calendar-guess.ts`, lotto 9, voce 2 (a).)
 - **Il modulo che scrive nel registro decisioni non importa MAI un esecutore
   AI — vale anche per `google-proposal.ts`.** La conferma di una proposta
   email o calendario registra una decisione con `source: "email"` e un testo
@@ -595,6 +656,11 @@
   leggibile da solo. Le tre non si toccano fra loro: `choose_project` non è
   stata modificata da quel commit, e i suoi test asseriscono ancora il
   comportamento storico.
+  La «Quale progetto?» CONDIVISA (della posta, `chooseMailProposalProject`,
+  e dal lotto 9, voce 2 (a), del calendario,
+  `chooseCalendarProposalProject`) porta un `choose_project` sulla card ma
+  ha un servizio SUO e non arriva mai a quel case: non è una terza
+  semantica di `dispatchAction`, che sul calendario continua a rifiutarla.
 - **Una serie ricorrente è spenta di default, e la sua azione automatica non
   avvia MAI lavoro.** È la lezione diretta dell'incidente del 9 settembre
   2026 (fase 7b, design §1): `calendar_series.enabled` nasce `false` — senza

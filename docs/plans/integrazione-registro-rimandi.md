@@ -450,11 +450,23 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   (e) un `fillMailBody` riuscito non si annulla (Gmail ha la bozza: si
   cambia dal compositore).
 - F3b, rimandati e limiti accettati *(O)* (12 nov 2026):
-  (a) la «Quale progetto?» del calendario: col flag acceso un evento con
+  (a) ~~la «Quale progetto?» del calendario: col flag acceso un evento con
   invitati di più progetti oggi non propone niente (servono una colonna dei
-  progetti incerti, una variante di card e la scelta);
-  (b) una classificazione col MODELLO degli eventi (oggi la scelta è
-  deterministica dagli invitati: tanti eventi e poco testo);
+  progetti incerti, una variante di card e la scelta);~~ *fatta il 24 nov
+  2026 (72, lotto 9, voce 2 (a)): sotto la soglia del modello nasce UNA
+  «Quale progetto?» CONDIVISA fra gli invitati (`calendar_proposals` senza
+  progetto, coi candidati), ognuno sceglie fra i candidati in cui può
+  confermare; scelta, l'evento torna al percorso di progetto. Solo gli
+  eventi SINGOLI: le occorrenze delle serie con più progetti restano senza
+  proposta;*
+  (b) ~~una classificazione col MODELLO degli eventi (oggi la scelta è
+  deterministica dagli invitati: tanti eventi e poco testo);~~ *fatta il 24
+  nov 2026 (72, lotto 9, voce 2 (a)), SOLO per scegliere il progetto quando i
+  candidati sono più d'uno: con un candidato la scelta resta deterministica
+  dagli invitati e il modello non si chiama. Una volta per evento (riusata
+  dalle copie delle altre caselle), `mail_classify` con la phase
+  `calendar_classify` fuori dal tetto della posta, `null` quando non è
+  sicuro (`calendar-guess.ts`);*
   (c) i calendari diversi dal principale (il prototipo ne ha uno per account)
   *(decisa NO dal maintainer il 24 nov 2026, lotto 9: restano fuori)*;
   (d) le proposte del calendario condivise fra gli invitati (oggi restano

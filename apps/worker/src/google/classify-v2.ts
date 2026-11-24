@@ -279,8 +279,12 @@ export async function loadCandidateProjects(db: Db, recipientUserIds: readonly s
   return out;
 }
 
-/** Un testo non fidato non può aprire né chiudere il blocco dell'email. */
-function untrusted(text: string): string {
+/**
+ * Un testo non fidato non può aprire né chiudere il blocco dell'email. Lo usa
+ * anche la scelta del progetto di un appuntamento (`calendar-guess.ts`): lo
+ * stesso meccanismo, non una copia.
+ */
+export function untrusted(text: string): string {
   return text.replace(/<<</g, "‹‹‹").replace(/>>>/g, "›››");
 }
 

@@ -6376,3 +6376,47 @@ deploy o di un rollback che la tocca.
   server e worker vecchi, poi `ALTER TABLE calendar_events DROP COLUMN
   calendar_proposal_id`, `DROP TABLE calendar_proposal_recipients`, `DROP
   TABLE calendar_proposals`.
+- **«Lotto 9: il progetto di un appuntamento con più candidati e la «Quale
+  progetto?» del calendario»** *(24 nov 2026, lotto 9, voce 2 (a))*: branch
+  `feat/rimandi-server`. **Migrazione 0235** (`agent_run_phase` +
+  `calendar_classify`, statement a sé e mai usato nel batch;
+  `calendar_events.project_guess` jsonb nullable e `project_guess_attempts`
+  smallint default 0; `calendar_proposals.project_id` DROP NOT NULL,
+  `candidate_project_ids uuid[]`, CHECK `calendar_proposals_choose_chk`
+  `(project_id is null) = (candidate_project_ids is not null)`, indice unico
+  parziale `calendar_proposals_ical_uid_choose_unique` su `ical_uid` dove
+  `project_id is null`). Col flag `MAIL_CLASSIFY_V2` un evento SINGOLO con più
+  progetti candidati: il modello ne sceglie uno (operazione `mail_classify`,
+  phase `calendar_classify`, fuori dal tetto giornaliero della posta, una
+  volta per evento), sotto la soglia UNA «Quale progetto?» condivisa
+  (`docs/invariants/mail-calendar.md`). Nessuna env nuova (il tetto per giro
+  è `GMAIL_MAX_PER_TICK`, il modello quello di `mail_classify`/`GMAIL_MODEL`);
+  nessun `notification_kind` nuovo (le card sono `google.proposal`).
+  **Ordine**: **server** (migrazione applicata, healthy), poi **worker** (la
+  scelta, la pubblicazione della domanda), poi **caddy** (nessun cambio del
+  renderer necessario: la «Quale progetto?» del calendario ha la stessa forma
+  di quella della posta, `projectId` sempre valorizzato nella vista).
+  **Rollback del worker**: sicuro. Un worker vecchio non sceglie e non
+  pubblica domande; le righe con `project_guess` e progetto scelto le
+  pubblica come una proposta di progetto qualsiasi, quelle senza progetto le
+  ignora. ⚠️ **Rollback del server: NON pulito se esiste una «Quale
+  progetto?» del calendario** (una riga `calendar_proposals` con
+  `project_id` nullo). Un server vecchio la legge come una proposta con
+  `project_id` nullo: per un destinatario che è full admin costruisce una
+  vista con `projectId: null`, che lo schema di risposta rifiuta, e
+  `GET /api/me/mail/proposals` gli risponde **500**; e la card in inbox
+  passerebbe dall'esecutore di prima, che su un `choose_project` del
+  calendario fallisce e chiude la domanda `failed` per tutti. Prima di
+  scendere, a worker fermo (o già sceso):
+  `update notifications set status = 'handled', handled_at = now() where status = 'open' and id in (select r.notification_id from calendar_proposal_recipients r join calendar_proposals p on p.id = r.proposal_id where p.project_id is null);`
+  poi `delete from calendar_proposals where project_id is null;` (i
+  destinatari se ne vanno in cascata, le copie si slegano da sole). Se poi si
+  torna avanti, quelle domande rinascono al primo giro (le copie hanno ancora
+  `project_guess` senza progetto): per non riproporle,
+  `update calendar_events set outcome = '{"type":"baseline"}'::jsonb where project_guess is not null and project_guess ->> 'projectId' is null and outcome is null;`.
+  Il caddy scende insieme al server. Per togliere lo schema (server e worker
+  vecchi, dopo i passi sopra): `DROP INDEX calendar_proposals_ical_uid_choose_unique`,
+  `ALTER TABLE calendar_proposals DROP CONSTRAINT calendar_proposals_choose_chk, DROP COLUMN candidate_project_ids, ALTER COLUMN project_id SET NOT NULL`,
+  `ALTER TABLE calendar_events DROP COLUMN project_guess, DROP COLUMN project_guess_attempts`;
+  il valore `calendar_classify` dell'enum non si toglie (Postgres non lo
+  permette senza ricreare il tipo) ed è innocuo.
