@@ -95,3 +95,35 @@ export function ContextNote({ context }: { context: ContextRef }) {
     </span>
   );
 }
+
+/** Il nome breve di un contesto, riletto per chi guarda; niente se non lo vede. */
+function ContextLabel({ context, first }: { context: ContextRef; first: boolean }) {
+  const { t } = useTranslation();
+  const d = useDescribeContext(context).data;
+  if (!d) return null;
+  return (
+    <>
+      {!first && ", "}
+      {contextShort(d, t)}
+    </>
+  );
+}
+
+/**
+ * Lotto 8, §1: sotto un messaggio, i nomi brevi di TUTTI i contesti partiti
+ * con lui (scelta di 46); con uno solo è la nota di sempre.
+ */
+export function ContextsNote({ contexts }: { contexts: readonly ContextRef[] }) {
+  const { t } = useTranslation();
+  if (contexts.length === 0) return null;
+  if (contexts.length === 1) return <ContextNote context={contexts[0]!} />;
+  return (
+    <span data-message-context className="min-w-0 truncate text-ink-faint">
+      <span aria-hidden="true">· </span>
+      {t("claude.panel.onMany")}{" "}
+      {contexts.map((c, i) => (
+        <ContextLabel key={JSON.stringify(c)} context={c} first={i === 0} />
+      ))}
+    </span>
+  );
+}
