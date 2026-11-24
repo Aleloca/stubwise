@@ -160,6 +160,100 @@ async function seenRelease(releaseId: string) {
  * codice di un rilascio (`read_release`).
  */
 export async function serverContextOf(ref: ContextRef): Promise<ClaudeConversationContext | null> {
+  const server = await serverContextNow(ref);
+  // Lotto 8, §1: il riferimento esatto, per rileggerlo com'era (la rotta di una pagina).
+  if (server) rememberedRefs().set(contextKey(server), ref);
+  return server;
+}
+
+/** I riferimenti del prototipo dietro i contesti del server visti in questa sessione, PER PERSONA. */
+const refsByPerson = new Map<string, Map<string, ContextRef>>();
+function rememberedRefs(): Map<string, ContextRef> {
+  const me = session.personId ?? "";
+  let refs = refsByPerson.get(me);
+  if (!refs) refsByPerson.set(me, (refs = new Map()));
+  return refs;
+}
+const contextKey = (c: ClaudeConversationContext) => `${c.kind}:${c.id}`;
+
+/** Le chiavi di un codice: il codice di un oggetto → il suo id, dai codici già visti. */
+function idOfCode(code: string): string | null {
+  for (const [id, c] of codeOfObjectFor()) if (c === code) return id;
+  return null;
+}
+
+/**
+ * Lotto 8, §1 (72, a5fdd0c23): un contesto del server nella forma del
+ * prototipo. Quelli aggiunti in questa sessione tornano esatti; gli altri si
+ * ricostruiscono — un oggetto dal suo codice (già imparato: `warmContextCodes`),
+ * un progetto come la sua Overview, la posta e una PR dal loro id. `null` se
+ * non si sa (il chip non c'è).
+ */
+export function clientContextOf(c: ClaudeConversationContext): ContextRef | null {
+  const known = rememberedRefs().get(contextKey(c));
+  if (known) return known;
+  switch (c.kind) {
+    case "project":
+      return { kind: "page", route: "overview", projectId: c.id };
+    case "page":
+      return { kind: "page", route: c.id, projectId: null };
+    case "mail": {
+      const [account, thread] = c.id.split("/");
+      return account && thread ? { kind: "mail", threadId: `${account}_${thread}` } : null;
+    }
+    case "pr": {
+      const at = c.id.lastIndexOf(":");
+      return at > 0 ? { kind: "pr", prId: `${c.id.slice(0, at)}#${c.id.slice(at + 1)}` } : null;
+    }
+    case "task":
+    case "request":
+    case "automation":
+    case "support":
+    case "release": {
+      const id = idOfCode(c.id);
+      if (!id) return null;
+      if (c.kind === "task") return { kind: "task", taskId: id };
+      if (c.kind === "request") return { kind: "request", requestId: id };
+      if (c.kind === "automation") return { kind: "automation", automationId: id };
+      if (c.kind === "support") return { kind: "support", conversationId: id };
+      return { kind: "release", releaseId: id };
+    }
+    default:
+      return null;
+  }
+}
+
+/** Impara gli id dei codici dei contesti (una lettura per codice non ancora visto). */
+export async function warmContextCodes(contexts: readonly ClaudeConversationContext[]): Promise<void> {
+  await Promise.all(
+    contexts.map(async (c) => {
+      if (rememberedRefs().has(contextKey(c)) || idOfCode(c.id)) return;
+      if (c.kind === "task" || c.kind === "automation" || c.kind === "support" || c.kind === "release")
+        await contextIdOf(c.kind, c.id).catch(() => null);
+      else if (c.kind === "request") {
+        const r = await getRequestByCode(c.id).catch(() => null);
+        if (r) codeOfObjectFor().set(r.id, r.code);
+      }
+    }),
+  );
+}
+
+/** I contesti del server nella forma del prototipo, senza quelli che non si sanno dire. */
+export const clientContextsOf = (contexts: readonly ClaudeConversationContext[] | undefined): ContextRef[] =>
+  (contexts ?? []).flatMap((c) => clientContextOf(c) ?? []);
+
+/**
+ * Lotto 8, §1: il gruppo dei contesti si sostituisce sul server
+ * (`PATCH { contexts }`); un riferimento che il server non sa dire si salta.
+ */
+export const setConversationContexts: typeof Fake.setConversationContexts = async (id, contexts) => {
+  const server = (await Promise.all(contexts.map(serverContextOf))).filter(
+    (c): c is ClaudeConversationContext => c !== null,
+  );
+  await call(() => appClient().claude.conversations.update(id, { contexts: server }));
+};
+
+async function serverContextNow(ref: ContextRef): Promise<ClaudeConversationContext | null> {
   switch (ref.kind) {
     case "task": {
       const code = codeOfObjectFor().get(ref.taskId) ?? (await taskCodeOf(ref.taskId))?.code;
@@ -303,6 +397,7 @@ export const isFreeConversation = (id: string): boolean => freeIdsFor().has(id);
 /** Cambio di persona o test: via le memorie della chat. */
 export function forgetChatCaches(): void {
   codesByPerson.clear();
+  refsByPerson.clear();
   freeByPerson.clear();
 }
 
@@ -319,6 +414,8 @@ export function toConversation(v: View): Conversation {
     ownerId: v.author?.id ?? (v.isOwner ? (session.personId ?? "") : ""),
     projectId: null,
     contextProjectId: contextProjectOf(v.context),
+    // Lotto 8, §1: il gruppo dei contesti (gli id dei codici si imparano prima: `warmContextCodes`).
+    contexts: clientContextsOf((v as { contexts?: ClaudeConversationContext[] }).contexts),
     taskId: null,
     requestId: null,
     state: stateOf(v.state),

@@ -422,6 +422,8 @@ const INTEGRATED_CALLS = new Set([
   "revokePlanApproval",
   "answerQuestion",
   "sendMessage",
+  // Lotto 8, §1: il gruppo dei contesti (aggiungere e togliere un chip).
+  "setConversationContexts",
   "stop",
   "stopAndSend",
   "listClaudeDecisions",

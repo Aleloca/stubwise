@@ -250,6 +250,7 @@ export {
   resolveCodes,
   searchMentions,
   setConversationContext,
+  setConversationContexts,
   // Fetta 5: le pubbliche e la continuazione.
   setVisibility,
 } from "./claudeChat";

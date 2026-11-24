@@ -24,6 +24,7 @@ const ALL: IntegrationTarget[] = [
       "notifications",
       "search",
       "task-detail",
+      "claude-contexts",
       "new-task",
       "view-as",
       "claude-panel",
@@ -228,6 +229,8 @@ describe("isIntegrated", () => {
         "feature:notifications",
         "feature:search",
         "feature:task-detail",
+        // Lotto 8, §1: i contesti di Claude che si accumulano.
+        "feature:claude-contexts",
         "feature:new-task",
         "destination:planning",
         "projectSection:planning",
