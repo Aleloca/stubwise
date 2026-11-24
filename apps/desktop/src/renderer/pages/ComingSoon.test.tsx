@@ -226,6 +226,8 @@ const INTEGRATED_CALLS = new Set([
   "instance.deleteProvider",
   // Area 9, F3: Storage.
   "instance.getStorage",
+  // Lotto 6, voce 2: l'interruttore degli allegati.
+  "instance.setAttachments",
   "instance.saveStorage",
   // Area 9, F3: Plugins.
   "instance.listPlugins",
@@ -1064,8 +1066,10 @@ describe("aree non integrate nella build app", () => {
   });
 
   // Area 9, F3: Amministrazione → Storage, su `/api/settings/instance`; senza
-  // la prova e l'interruttore degli allegati (il server non li ha).
-  it("aprire Storage legge solo chiamate integrate, senza prova né interruttore degli allegati", async () => {
+  // la prova (il server non ce l'ha). Lotto 6, voce 2: l'interruttore degli
+  // allegati c'è, sulla sua rotta (`instance.setAttachments`).
+  it("aprire Storage legge solo chiamate integrate: l'interruttore degli allegati sì, la prova no", async () => {
+    const user = userEvent.setup();
     signedInAs("p-roberta");
     renderRoute("/admin/storage");
     await waitFor(() => expect(calls).toContain("instance.getStorage"));
@@ -1073,7 +1077,10 @@ describe("aree non integrate nella build app", () => {
     expect(document.querySelector("[data-coming-soon]")).toBeNull();
     expect(document.querySelector("[data-prototype-only]")).toBeNull();
     expect(screen.queryByRole("button", { name: "Check connection" })).toBeNull();
-    expect(screen.queryByRole("switch", { name: "Attachments" })).toBeNull();
+    const toggle = await screen.findByRole("switch", { name: "Attachments" });
+    await user.click(toggle);
+    await user.click(await screen.findByRole("button", { name: "Turn off" }));
+    await waitFor(() => expect(calls).toContain("instance.setAttachments"));
     expect(outside()).toEqual([]);
   });
 

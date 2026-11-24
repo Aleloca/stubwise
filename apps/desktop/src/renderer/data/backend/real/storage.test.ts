@@ -31,6 +31,7 @@ function fakeApi(over: Partial<StorageApi> = {}) {
       current = { ...current, ...input };
       return current;
     },
+    setAttachments: async () => {},
     ...over,
   };
   return { api, saved, now: () => current };
@@ -48,6 +49,39 @@ describe("l'archiviazione dal server (area 9, F3)", () => {
       fakeApi({ get: async () => settings({ s3SecretKeyLast4: null }) }).api,
     ).getStorage();
     expect(old.last4).toBe("");
+  });
+
+  // Lotto 6, voce 2 (72, 54aac71bd): l'interruttore d'istanza degli allegati.
+  // `attachmentsEnabled` = archiviazione valida E interruttore acceso; lo
+  // stato «attachments_off» viene dall'interruttore spento.
+  it("l'interruttore: spento è «attachments_off», e si cambia sulla sua rotta", async () => {
+    const calls: boolean[] = [];
+    const off = createRealStorage(
+      fakeApi({
+        get: async () => settings({ attachmentsSwitch: false, attachmentsEnabled: false }),
+        setAttachments: async (on) => {
+          calls.push(on);
+        },
+      }).api,
+    );
+    expect(await off.getStorage()).toMatchObject({
+      attachmentsEnabled: false,
+      status: "attachments_off",
+    });
+    expect(await off.setAttachments(true)).toEqual({ ok: true });
+    expect(calls).toEqual([true]);
+    const noStorage = createRealStorage(
+      fakeApi({
+        setAttachments: async () => {
+          throw new ApiError(422, "not set up", "not_set_up");
+        },
+      }).api,
+    );
+    expect(await noStorage.setAttachments(true)).toEqual({
+      ok: false,
+      error: "invalid",
+      reason: "not_set_up",
+    });
   });
 
   it("la vista: i campi in chiaro, il segreto solo come «c'è», lo stato dagli allegati del server", async () => {
