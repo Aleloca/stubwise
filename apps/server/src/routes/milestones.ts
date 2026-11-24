@@ -50,7 +50,7 @@ function emptyCounts(): Counts {
 }
 
 /** Proiezione pubblica senza avanzamento. */
-function toPublicMilestone(row: MilestoneRow): z.infer<typeof milestoneSchema> {
+export function toPublicMilestone(row: MilestoneRow): z.infer<typeof milestoneSchema> {
   return {
     id: row.id,
     projectId: row.projectId,

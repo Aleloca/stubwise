@@ -1971,10 +1971,27 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   della fetta 4)*: `GET /api/tickets/:id/attachments` dà già l'URL firmato, che
   così arriva al renderer. Da togliere quando i ticket scaricano solo da
   `api:download` (il proxy toglie già il `Location` dei percorsi di download).
-- **MCP** (`@stubwise/mcp`): imparare stati per progetto, reparti, taglie, codici
-  R<n>, Home e filtri.
-- Elenchi oltre le 2000 righe (oggi troncati e dichiarati); una rotta aggregata
-  per il polso del portafoglio.
+- ~~**MCP** (`@stubwise/mcp`): imparare stati per progetto, reparti, taglie, codici
+  R<n>, Home e filtri.~~ *Chiusa il 24 nov 2026 (72, lotto 7, voce 4)*:
+  `list_task_fields`, `list_tasks` (stati e reparti per nome, famiglie,
+  taglie, assegnatario, testo, ferme; dice quando è troncata) e
+  `get_by_code` (`ACQ-12` e `ACQ-R3`), sopra le rotte della nuova app, con
+  il changeset. **Accettato, senza lavoro: la «Home» nell'MCP** — è una
+  nozione d'interfaccia (i blocchi della pagina di chi guarda); la parte che
+  serve a chi lavora da Claude Code c'è già (`my_requests`, `list_proposals`,
+  `list_tasks` con `assignee: "me"`).
+- ~~Elenchi oltre le 2000 righe (oggi troncati e dichiarati); una rotta aggregata
+  per il polso del portafoglio.~~ *Chiusa il 24 nov 2026 (72, lotto 7, voce
+  4)*: `GET /api/projects/pulses` calcola il polso sul server con le
+  funzioni delle rotte che il renderer combinava (task aperte e ferme,
+  decisioni per chi guarda, richieste da trasformare, Claude) e la formula di
+  `pulseOf`, contando le task senza il tetto dell'elenco (fino a 10.000,
+  poi `truncated`): l'unico posto in cui il tetto dava numeri sbagliati
+  (il «+») non c'è più. **Accettato, senza lavoro: gli elenchi oltre le
+  2000 righe** — il troncamento è dichiarato (`truncated`) e la pagina lo
+  dice; nessuna istanza ci si avvicina; la cura vera (paginazione a cursore
+  di `GET /api/tasks`) cambia il renderer più del server, e non vale oggi.
+  Da riaprire se un'istanza ci arriva.
 - **CLI `claude` del worker aggiornato con regolarità** *(M)*, ogni volta col
   giro completo dei golden e i testi del limite riverificati.
 - App mobile: riceve il fix del reader dei traguardi (e gli altri cambi delle

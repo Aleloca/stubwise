@@ -45,6 +45,7 @@ export * from "./schemas/roles.js";
 // (vite fallirebbe con "createHash is not exported by __vite-browser-external").
 // È esposto come sottopercorso: `@stubwise/shared/mirror-slug`.
 export * from "./schemas/milestone.js";
+export * from "./schemas/project-pulses.js";
 export * from "./schemas/google.js";
 export * from "./schemas/mail-proposals.js";
 export * from "./schemas/mail-compose.js";
