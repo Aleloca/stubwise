@@ -1865,14 +1865,24 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   migrazione che toglie le colonne in un rilascio successivo, come per
   `users.role`.
 
-- **Gli `idx` del journal di drizzle sono sfasati da 0158 in poi** *(S,
+- ~~**Gli `idx` del journal di drizzle sono sfasati da 0158 in poi** *(S,
   72, 13 nov 2026)*: in `packages/db/drizzle/meta/_journal.json` manca la
   voce di indice 157 (la 0157 dell'area 6, F3b, rinumerata), quindi da
   `0158_mail_attachment_orphans` ogni voce ha `idx` = posizione + 1. Il
   migratore non ordina per `idx` (legge le voci nell'ordine e i `when`
   crescenti), quindi oggi non rompe niente; visto unendo l'area 6 nella F1
   dell'area 7. Da riallineare in un rilascio a sé, mai insieme a una
-  migrazione nuova, controllando che `drizzle-kit` non lo usi.
+  migrazione nuova, controllando che `drizzle-kit` non lo usi.~~ *Chiusa il
+  24 nov 2026 (72, lotto 6) SENZA riallineare*: il controllo su
+  `drizzle-kit` dice l'opposto. Il migratore di drizzle-orm non legge `idx`
+  (solo `tag`, `breakpoints`, `when`; le istanze già migrate confrontano
+  `when`), ma `drizzle-kit generate` numera la prossima `idx + 1`
+  dell'ultima voce e ne fa il prefisso del file: oggi `idx` = numero del tag
+  (anche 0171 manca), e la prossima generata sarebbe `0229_…`, giusta;
+  riallinearlo alla posizione la farebbe nascere `0227_…`, che esiste già.
+  La regola giusta è quindi `idx` = numero del tag, ed è ora fissata da un
+  test (`packages/db/src/migrations-journal.test.ts`: `idx` = tag, `when`
+  crescente, un file per voce e una voce per file).
 
 - **`apps/server/src/slack/routes.test.ts` da stabilizzare** *(O, 46, 13 nov
   2026)*: instabile già da prima della F5a. Tre test di `block_actions`
