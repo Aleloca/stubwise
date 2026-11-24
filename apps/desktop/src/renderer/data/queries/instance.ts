@@ -38,6 +38,7 @@ export type {
   ProviderView,
   QuotaView,
   TestOutcome,
+  WebhookTestOutcome,
 } from "../instance";
 export { BACKGROUND_WEEKLY_THRESHOLD } from "../instance/constants";
 export { GOOGLE_SETUP } from "../instance/constants";
@@ -259,7 +260,7 @@ export function useDeleteProvider() {
 /** SOLO PROTOTIPO: l'esito della prossima prova (un provider, un account, "storage" o "webhook"). */
 export function useSimulateNextTest() {
   return useWrite(
-    ([target, outcome]: [string, api.instance.TestOutcome]) =>
+    ([target, outcome]: [string, api.instance.WebhookTestOutcome]) =>
       api.instance.simulateNextTest(target, outcome),
     ["instance"],
   );

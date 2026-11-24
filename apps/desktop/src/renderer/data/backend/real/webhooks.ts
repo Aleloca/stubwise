@@ -1,5 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
-import type { TestOutcome } from "../../instance/state";
+import type { WebhookTestOutcome } from "../../instance/state";
 import type { InstanceResult } from "../../instance/types";
 import type {
   WebhookEventId,
@@ -57,15 +57,38 @@ function refusalOf(error: unknown): Extract<InstanceResult, { ok: false }> {
 }
 
 /** L'esito di una prova del server nelle parole del prototipo. */
-const outcomeOf = (r: { ok: boolean; status: number | null }): TestOutcome =>
-  r.ok ? "ok" : r.status !== null ? "invalid_credentials" : "unreachable";
+/**
+ * L'esito della prova appena fatta (revisione del lotto 5, M-5, come il
+ * server): 401/403 credenziali, un altro codice errore della destinazione,
+ * nessuna risposta irraggiungibile.
+ */
+const outcomeOf = (r: { ok: boolean; status: number | null }): WebhookTestOutcome =>
+  r.ok
+    ? "ok"
+    : r.status === null
+      ? "unreachable"
+      : r.status === 401 || r.status === 403
+        ? "invalid_credentials"
+        : "destination_error";
 
-const OUTCOMES: ReadonlySet<string> = new Set(["ok", "invalid_credentials", "unreachable"]);
+const OUTCOMES: ReadonlySet<string> = new Set([
+  "ok",
+  "invalid_credentials",
+  "destination_error",
+  "unreachable",
+]);
 
 /** L'ultima prova del server; un esito che il client non conosce: «non ancora provata». */
-const lastTestOf = (t: Any): { at: string; outcome: TestOutcome } | null =>
+const lastTestOf = (
+  t: Any,
+): { at: string; outcome: WebhookTestOutcome; status: number | null } | null =>
   t && typeof t.at === "string" && OUTCOMES.has(t.outcome)
-    ? { at: t.at, outcome: t.outcome as TestOutcome }
+    ? {
+        at: t.at,
+        outcome: t.outcome as WebhookTestOutcome,
+        // Una riga di prima del codice (0227): null.
+        status: typeof t.status === "number" ? t.status : null,
+      }
     : null;
 
 export function createRealWebhooks(api: WebhooksApi) {

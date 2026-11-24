@@ -13,7 +13,7 @@ import {
   useWebhook,
   useWebhookPreview,
   useWebhooks,
-  type TestOutcome,
+  type WebhookTestOutcome,
   type WebhookEventId,
   type WebhookFormat,
   type WebhookGroup,
@@ -706,7 +706,12 @@ function TestWords({
     <>
       <span className="inline-flex items-center gap-1 text-critical">
         <CrossGlyph />
-        <span>{t(`admin.webhooks.result.${last.outcome}`)}</span>
+        {/* Revisione del lotto 5, M-5: il codice della risposta, quando c'è. */}
+        <span>
+          {last.status !== null && last.outcome !== "unreachable"
+            ? t(`admin.webhooks.result.${last.outcome}_status`, { status: last.status })
+            : t(`admin.webhooks.result.${last.outcome}`)}
+        </span>
       </span>
       <Dot />
       {date}
@@ -781,14 +786,16 @@ function renderMessage(text: string, format: "slack" | "discord"): ReactNode[] {
 function NextTestBox() {
   const { t } = useTranslation();
   const simulate = useSimulateNextTest();
-  const [outcome, setOutcome] = useState<TestOutcome>("ok");
+  const [outcome, setOutcome] = useState<WebhookTestOutcome>("ok");
   return (
     <PrototypeBox label={t("admin.integrations.prototype.label")}>
       <p className="text-sm text-ink-muted">{t("admin.webhooks.prototype.intro")}</p>
-      <Segmented<TestOutcome>
+      <Segmented<WebhookTestOutcome>
         label={t("admin.webhooks.prototype.outcome")}
         value={outcome}
-        options={(["ok", "invalid_credentials", "unreachable"] as const).map((o) => ({
+        options={(
+          ["ok", "invalid_credentials", "destination_error", "unreachable"] as const
+        ).map((o) => ({
           value: o,
           label: t(`admin.webhooks.prototype.${o}`),
         }))}

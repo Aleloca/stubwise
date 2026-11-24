@@ -150,5 +150,6 @@ export type {
   RegisteredPlugin,
   StorageSettings,
   TestOutcome,
+  WebhookTestOutcome,
   UsageRecord,
 } from "./state";

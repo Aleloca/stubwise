@@ -14,6 +14,12 @@ import type { TaskType } from "../model";
 // `admin/secrets.ts`) e le ultime 4 cifre.
 
 export type TestOutcome = "ok" | "invalid_credentials" | "unreachable";
+/**
+ * La prova di un webhook (revisione del lotto 5, M-5): `invalid_credentials`
+ * solo per 401/403, `destination_error` per un altro errore della
+ * destinazione; il codice della risposta sta in `status`.
+ */
+export type WebhookTestOutcome = TestOutcome | "destination_error";
 
 export interface AiProvider {
   id: string;
@@ -101,7 +107,7 @@ export interface OutgoingWebhook {
   secretId: string | null;
   secretRotatedAt: string | null;
   createdAt: string;
-  lastTest: { at: string; outcome: TestOutcome } | null;
+  lastTest: { at: string; outcome: WebhookTestOutcome; status: number | null } | null;
 }
 
 export interface QueuePause {
@@ -165,6 +171,8 @@ export interface InstanceState {
    */
   simulate: {
     nextTest: Record<string, TestOutcome>;
+    /** La prossima prova del webhook (ha un esito in più degli altri). */
+    nextWebhookTest?: WebhookTestOutcome;
     budgetReached: boolean;
     nextPluginOutcome: "ready" | "failed";
   };

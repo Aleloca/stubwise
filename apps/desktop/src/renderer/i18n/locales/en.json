@@ -11724,8 +11724,11 @@
       "sending": "Sending…",
       "testsSaved": "The test goes to the saved address.",
       "result": {
+        "invalid_credentials_status": "The address refused the credentials ({{status}})",
+        "destination_error": "The address answered with an error",
+        "destination_error_status": "The address answered with an error ({{status}})",
         "ok": "Sent · delivered",
-        "invalid_credentials": "The address answered with an error",
+        "invalid_credentials": "The address refused the credentials",
         "unreachable": "Couldn't reach the address",
         "never": "No test sent yet"
       },
@@ -11745,7 +11748,8 @@
         "intro": "Nothing real is contacted. Choose what the next test answers.",
         "outcome": "Next test",
         "ok": "Delivered",
-        "invalid_credentials": "Error from the address",
+        "invalid_credentials": "Credentials refused",
+        "destination_error": "Error from the address",
         "unreachable": "Unreachable"
       },
       "new": "New webhook",

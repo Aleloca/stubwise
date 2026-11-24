@@ -11724,8 +11724,11 @@
       "sending": "Invio in corso…",
       "testsSaved": "La prova va all'indirizzo salvato.",
       "result": {
+        "invalid_credentials_status": "L'indirizzo ha rifiutato le credenziali ({{status}})",
+        "destination_error": "L'indirizzo ha risposto con un errore",
+        "destination_error_status": "L'indirizzo ha risposto con un errore ({{status}})",
         "ok": "Inviata · consegnata",
-        "invalid_credentials": "L'indirizzo ha risposto con un errore",
+        "invalid_credentials": "L'indirizzo ha rifiutato le credenziali",
         "unreachable": "Impossibile raggiungere l'indirizzo",
         "never": "Nessuna prova inviata"
       },
@@ -11745,7 +11748,8 @@
         "intro": "Non si contatta niente di vero. Scegli cosa risponde la prossima prova.",
         "outcome": "Prossima prova",
         "ok": "Consegnata",
-        "invalid_credentials": "Errore dall'indirizzo",
+        "invalid_credentials": "Credenziali rifiutate",
+        "destination_error": "Errore dall'indirizzo",
         "unreachable": "Non raggiungibile"
       },
       "new": "Nuovo webhook",

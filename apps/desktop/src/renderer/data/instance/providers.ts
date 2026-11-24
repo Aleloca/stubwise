@@ -5,7 +5,7 @@ import { gate, newId, now, state } from "../store";
 import { forbidden, writer } from "../writer";
 import { isLimited } from "./blocks";
 import { canI, reauthRefusal, refuse } from "./common";
-import type { AiProvider, TestOutcome } from "./state";
+import type { AiProvider, TestOutcome, WebhookTestOutcome } from "./state";
 import type { InstanceRefusal, InstanceResult } from "./types";
 
 export { BACKGROUND_WEEKLY_THRESHOLD } from "./constants";
@@ -306,7 +306,7 @@ export async function deleteProvider(id: string): Promise<InstanceResult> {
  */
 export async function simulateNextTest(
   target: string,
-  outcome: TestOutcome,
+  outcome: WebhookTestOutcome,
 ): Promise<InstanceResult> {
   const me = await writer("instance.simulateNextTest");
   const permission = providerOf(target)
@@ -318,6 +318,9 @@ export async function simulateNextTest(
         : null;
   if (permission === null) return refuse.notFound();
   if (!canI(me, permission)) return refuse.forbidden();
-  state.instance.simulate.nextTest[target] = outcome;
+  // L'errore della destinazione è solo della prova di un webhook (revisione del lotto 5, M-5).
+  if (target === "webhook") state.instance.simulate.nextWebhookTest = outcome;
+  else if (outcome === "destination_error") return refuse.invalid("outcome");
+  else state.instance.simulate.nextTest[target] = outcome;
   return { ok: true };
 }
