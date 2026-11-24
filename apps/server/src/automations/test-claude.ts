@@ -140,16 +140,23 @@ async function testStep(db: Db, llm: ChatLlm, viewer: Viewer, a: { id: string; p
   if ((await aiBudgetState(db)).exhausted) throw new AutomationError(409, "budget", "The monthly AI budget is used up");
   const { prompt, truncated } = buildClaudePrompt(step, inputsOf(step, vars));
   let text = "";
+  // Rimandi, lotto 5: il costo del passo, dai consumi riportati a fine stream
+  // (stimato dai token, la stessa cifra della riga di Usage); null se non si sa.
+  let costUsd: number | null = null;
   for await (const delta of llm.stream({
     system: "",
     messages: [{ role: "user", content: prompt }],
     usage: { operation: "automation_step", projectId: a.projectId, automationId: a.id, defaultModel: AUTOMATION_STEP_DEFAULT_MODEL, userId: viewer.id },
+    onUsage: (u) => {
+      costUsd = u.costUsd;
+    },
   })) {
     text += delta;
   }
   const answer = parseClaudeAnswer(text);
-  if (!answer) throw new AutomationError(422, "claude_invalid", "Claude's answer is not a JSON object", { result: { raw: text.slice(0, 2_000) } });
+  if (!answer) throw new AutomationError(422, "claude_invalid", "Claude's answer is not a JSON object", { result: { raw: text.slice(0, 2_000) }, costUsd });
   const check = checkClaudeResult(step, answer);
-  if (!check.ok) throw new AutomationError(422, "claude_invalid", "Claude's answer doesn't fit the step", { result: answer, error: check.error });
-  return { ...answer, truncated };
+  if (!check.ok) throw new AutomationError(422, "claude_invalid", "Claude's answer doesn't fit the step", { result: answer, error: check.error, costUsd });
+  // `costUsd` dopo la risposta: un campo omonimo nella risposta di Claude non lo copre.
+  return { ...answer, truncated, costUsd };
 }

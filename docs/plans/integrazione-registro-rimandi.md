@@ -733,12 +733,16 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   allora si collegano col webhook in arrivo), i webhook in uscita (area 9),
   le azioni di Claude sulle automazioni (area 10).
 
-- F3, il costo di un passo della prova *(S, 72, 13 nov 2026)*: la risposta di
+- ~~F3, il costo di un passo della prova *(S, 72, 13 nov 2026)*: la risposta di
   `POST …/test/claude` non ha `costUsd`, perché il `ChatLlm` del server non
   restituisce il costo allo stream (lo stima e lo scrive in `agent_runs`).
   Il consumo della prova c'è comunque in Usage (owner `automation_id`, senza
   run); se la pagina della prova vorrà il costo per passo, il `ChatLlm` deve
-  restituire i token a fine stream.
+  restituire i token a fine stream.~~ *Parte server chiusa il 24 nov 2026
+  (72, lotto 5)*: `ChatLlmInput.onUsage` riceve a fine stream modello, token
+  e costo stimato (la stessa cifra della riga di Usage); la risposta di
+  `POST …/test/claude` porta `costUsd` (null se il modello non ha un
+  prezzo), anche nei dettagli del 422 `claude_invalid`.
 
 - F3, le richieste dal supporto *(O, 46, review F3 I4, 13 nov 2026)*: titolo
   e descrizione di una richiesta sono tinti per `request_created` e

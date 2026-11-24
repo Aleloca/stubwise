@@ -41,6 +41,24 @@ export interface ChatLlmInput {
    * non compila, invece di finire in Usage con un'operazione sbagliata.
    */
   usage: ChatUsage;
+  /**
+   * Rimandi, lotto 5: i consumi della generazione a fine stream (gli stessi
+   * della riga di `agent_runs`, col costo STIMATO dai token; null se il
+   * modello non ha un prezzo). Chiamata al più una volta, solo se la
+   * richiesta è partita davvero; serve a chi deve dire il costo di UNA
+   * generazione (il passo di Claude della prova di un'automazione).
+   */
+  onUsage?: (usage: ChatStreamUsage) => void;
+}
+
+/** I consumi di una generazione, come li riceve {@link ChatLlmInput.onUsage}. */
+export interface ChatStreamUsage {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  costUsd: number | null;
 }
 
 /** Operazione e progetto di una generazione della chat (vedi {@link ChatLlmInput.usage}). */
@@ -311,6 +329,11 @@ export function createAnthropicChatLlm(options: CreateAnthropicChatLlmOptions): 
         // della risposta al client. recordUsage non lancia mai.
         if (tokens) {
           void recordUsage({ usage: input.usage, providerId: resolved.providerId, model, tokens });
+          try {
+            input.onUsage?.({ model, ...tokens, costUsd: estimateCostUsd(model, tokens) });
+          } catch (err) {
+            logger?.warn({ err }, "chat: onUsage ha lanciato");
+          }
         }
       }
     },
