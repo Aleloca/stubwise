@@ -1452,8 +1452,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     persona);
   - Git accounts: ~~niente ultime 4 del token («••••»);~~ *(parte server
     chiusa il 24 nov 2026, 72, lotto 5: `tokenLast4`, 0225)* la validazione non
-    resta sul server (la ricorda la sessione); i repository che usano un
-    account non arrivano, né nella riga né nel rifiuto `in_use`; chi
+    resta sul server (la ricorda la sessione); ~~i repository che usano un
+    account non arrivano, né nella riga né nel rifiuto `in_use`;~~ *(parte
+    server chiusa il 24 nov 2026, 72, lotto 5: `repositories` e
+    `hiddenRepositories` nella riga, `usedBy`/`hiddenCount` nel 409, con la
+    regola R-G5 del prototipo)* chi
     verrebbe sostituito come revisore predefinito si sa solo dopo, dalla
     risposta *(S per ciascuno)*;
   - Google Workspace: ~~il server non tiene le ultime 4 del client secret

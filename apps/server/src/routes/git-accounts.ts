@@ -1,16 +1,16 @@
 import { changedFields, recordChange } from "../services/change-log.js";
 import { createGitAccountSchema, secretLast4, defaultReviewerResponseSchema, gitCredentialsSchema, defaultReviewerWarningSchema, gitAccountSchema, gitValidateResponseSchema, updateGitAccountSchema } from "@stubwise/shared";
 import { BITBUCKET_REVIEWER_SCOPES, GitProviderError, bitbucketRequiredScopes, getProvider } from "@stubwise/git";
-import { decrypt, encrypt, gitAccounts, repositories, type Db } from "@stubwise/db";
+import { decrypt, encrypt, gitAccounts, projects, repositories, type Db } from "@stubwise/db";
 import { resolveProviderUserId, resolveReviewAccounts } from "@stubwise/notifications";
-import { and, eq, ne, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, ne, or, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import { apiError } from "../errors.js";
 import { fetchPlatformIdentity } from "../services/platform-identity.js";
-import { requireReauth } from "../auth/access.js";
+import { requireReauth, scopeIncludes, visibleProjectIds } from "../auth/access.js";
 import { checkReviewAccount, logIdentityError } from "../services/review-account-check.js";
 
 /**
@@ -104,8 +104,36 @@ class DefaultReviewerAccountChanged extends Error {}
  * della riga, così `encryptedCredentials` non può trapelare nemmeno se lo
  * schema cambiasse.
  */
-function toPublicAccount(row: GitAccountRow): z.infer<typeof gitAccountSchema> {
+type AccountUsage = { repositories: { name: string; projectCode: string | null }[]; hiddenRepositories: number };
+
+/**
+ * Rimandi, lotto 5 (il prototipo, `usageOf` di `data/instance/git.ts`): i
+ * repository che usano ogni account, per chi guarda — per nome quelli dei
+ * progetti che vede e quelli staccati (senza progetto: il nome non dice da
+ * quale progetto eliminato vengono), gli altri solo contati. Una query.
+ */
+async function usageOf(db: Db, viewer: Parameters<typeof visibleProjectIds>[1], accountIds: readonly string[]): Promise<Map<string, AccountUsage>> {
+  const out = new Map<string, AccountUsage>(accountIds.map((id) => [id, { repositories: [], hiddenRepositories: 0 }]));
+  if (accountIds.length === 0) return out;
+  const scope = await visibleProjectIds(db, viewer);
+  const rows = await db
+    .select({ accountId: repositories.gitAccountId, name: repositories.name, projectId: repositories.projectId, code: projects.code })
+    .from(repositories)
+    .leftJoin(projects, eq(projects.id, repositories.projectId))
+    .where(inArray(repositories.gitAccountId, [...accountIds]))
+    .orderBy(asc(repositories.name));
+  for (const r of rows) {
+    const u = out.get(r.accountId)!;
+    if (r.projectId === null) u.repositories.push({ name: r.name, projectCode: null });
+    else if (r.code && scopeIncludes(scope, r.projectId)) u.repositories.push({ name: r.name, projectCode: r.code });
+    else u.hiddenRepositories += 1;
+  }
+  return out;
+}
+
+function toPublicAccount(row: GitAccountRow, usage: AccountUsage = { repositories: [], hiddenRepositories: 0 }): z.infer<typeof gitAccountSchema> {
   return {
+    ...usage,
     id: row.id,
     name: row.name,
     provider: row.provider,
@@ -339,9 +367,10 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
       config: { access: { kind: "instance", permission: "git_accounts.view" } },
       schema: { response: { 200: z.array(gitAccountSchema), ...authErrorResponses } },
     },
-    async () => {
+    async (request) => {
       const rows = await app.db.select().from(gitAccounts).orderBy(gitAccounts.createdAt);
-      return rows.map(toPublicAccount);
+      const usage = await usageOf(app.db, request.user!, rows.map((r) => r.id));
+      return rows.map((r) => toPublicAccount(r, usage.get(r.id)));
     },
   );
 
@@ -360,7 +389,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
         .from(gitAccounts)
         .where(eq(gitAccounts.id, request.params.id));
       if (!row) return apiError(reply, 404, "git_account_not_found", "Git account not found");
-      return toPublicAccount(row);
+      return toPublicAccount(row, (await usageOf(app.db, request.user!, [row.id])).get(row.id));
     },
   );
 
@@ -390,7 +419,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
         );
       }
       if (row === "not_found") return apiError(reply, 404, "git_account_not_found", "Git account not found");
-      return toPublicAccount(row);
+      return toPublicAccount(row, (await usageOf(app.db, request.user!, [row.id])).get(row.id));
     },
   );
 
@@ -403,7 +432,11 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
         response: {
           204: z.null(),
           404: errorSchema,
-          409: errorSchema,
+          // `usedBy`/`hiddenCount` sul rifiuto `git_account_in_use` (rimandi, lotto 5).
+          409: errorSchema.extend({
+            usedBy: z.array(z.object({ label: z.string(), projectCode: z.string().nullable() })).optional(),
+            hiddenCount: z.number().int().optional(),
+          }),
           ...authErrorResponses,
         },
       },
@@ -417,7 +450,14 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
         .where(eq(repositories.gitAccountId, request.params.id))
         .limit(1);
       if (used) {
-        return apiError(reply, 409, "git_account_in_use", "Git account in use by one or more repositories: unlink it before deleting");
+        // Rimandi, lotto 5: chi lo usa, con la regola della riga (`usedBy` per nome, gli altri contati).
+        const usage = (await usageOf(app.db, request.user!, [request.params.id])).get(request.params.id)!;
+        return reply.code(409).send({
+          code: "git_account_in_use",
+          message: "Git account in use by one or more repositories: unlink it before deleting",
+          usedBy: usage.repositories.map((r) => ({ label: r.name, projectCode: r.projectCode })),
+          hiddenCount: usage.hiddenRepositories,
+        });
       }
       const deleted = await app.db.transaction(async (tx) => {
         const gone = await tx.delete(gitAccounts).where(eq(gitAccounts.id, request.params.id)).returning();
@@ -576,7 +616,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
       }
 
       const warnings = await defaultReviewerWarnings(app, outcome.account);
-      return { account: toPublicAccount(outcome.account), replaced: outcome.replaced, warnings };
+      return { account: toPublicAccount(outcome.account, (await usageOf(app.db, request.user!, [outcome.account.id])).get(outcome.account.id)), replaced: outcome.replaced, warnings };
     },
   );
 
