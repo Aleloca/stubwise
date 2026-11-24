@@ -9,10 +9,11 @@ import {
   type ReleaseFixResult,
   type ReleasePipeline,
   type ReleaseRow,
+  type ReleaseSearchResult,
   type ReleaseStatus,
 } from "@stubwise/shared";
-import { and, desc, eq, sql } from "drizzle-orm";
-import { projectPermissionsFor } from "../auth/access.js";
+import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
+import { inProjectsStrict, isAllProjects, projectPermissionsFor, visibleProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { startRun } from "./jobs.js";
 
@@ -281,6 +282,40 @@ export async function listProjectReleases(db: Db, viewer: Viewer, projectId: str
   const records = await db.select().from(releases).where(eq(releases.projectId, projectId)).orderBy(desc(releases.mergedAt)).limit(100);
   const out: ReleaseRow[] = [];
   for (const r of records) out.push((await rowOf(db, viewer, r, now, scope)).row);
+  return out;
+}
+
+/** I risultati della ricerca ⌘K al più (il palette ne mostra pochi). */
+export const SEARCH_LIMIT = 20;
+/** Da 2 caratteri, come il prototipo (`MIN_QUERY`). */
+export const SEARCH_MIN_CHARS = 2;
+
+/** Un pezzo di testo come motivo di `ilike`: `%` e `_` dell'utente sono letterali. */
+export const likeNeedle = (q: string) => `%${q.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+
+/**
+ * ⌘K (rimandi, lotto 5): i rilasci per codice o titolo, SOLO nei progetti
+ * che chi cerca vede — il filtro sta nella WHERE (permissions.md), quindi un
+ * rilascio di un progetto invisibile non esce nemmeno come conteggio. Dal più
+ * recente; lo stato è quello derivato delle pagine.
+ */
+export async function searchReleases(db: Db, viewer: Viewer, q: string, now = new Date()): Promise<ReleaseSearchResult[]> {
+  if (q.trim().length < SEARCH_MIN_CHARS) return [];
+  const scope = await visibleProjectIds(db, viewer);
+  if (!isAllProjects(scope) && scope.length === 0) return [];
+  const needle = likeNeedle(q);
+  const rows = await db
+    .select({ release: releases, projectCode: projects.code })
+    .from(releases)
+    .innerJoin(projects, eq(projects.id, releases.projectId))
+    .where(and(inProjectsStrict(releases.projectId, scope), or(ilike(releases.code, needle), ilike(releases.title, needle))))
+    .orderBy(desc(releases.mergedAt))
+    .limit(SEARCH_LIMIT);
+  const out: ReleaseSearchResult[] = [];
+  for (const { release, projectCode } of rows) {
+    const status = await releaseStatusById(db, release.id, now);
+    out.push({ kind: "release", id: release.id, code: release.code, label: release.title, projectId: release.projectId, projectCode, status: status?.kind ?? "unknown" });
+  }
   return out;
 }
 

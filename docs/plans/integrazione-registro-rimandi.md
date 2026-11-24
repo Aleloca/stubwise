@@ -794,8 +794,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     per dopo;~~ *parte server chiusa il 23 nov 2026 (72, lotto 4)*: la
     risposta del repository (elenco e dettaglio) porta `canManage`
     (`repos.manage` di chi chiede, `.default(false)`); il renderer può
-    leggerlo al posto di `/api/auth/me`; la ricerca dei rilasci nella palette (`releases-search`)
-    resta spenta finché il server non ha una ricerca dei rilasci;
+    leggerlo al posto di `/api/auth/me`; ~~la ricerca dei rilasci nella palette (`releases-search`)
+    resta spenta finché il server non ha una ricerca dei rilasci;~~ *parte
+    server chiusa il 24 nov 2026 (72, lotto 5)*: `GET /api/releases/search?q=`
+    (`{ items: ReleaseSearchResult[] }`, per codice o titolo, solo nei
+    progetti visibili, dal più recente, 20 al più, da 2 caratteri);
   - fatti che il server non legge nella F1 e la pagina non inventa:
     `mergeable` (mai «conflitti» se non letto), il rischio di una PR esterna,
     l'autore di una PR esterna, le correzioni `discarded` (non derivate);
