@@ -22,15 +22,28 @@ const NETWORK = [
   /getaddrinfo/i,
   /timed? ?out after/i,
   /\btimeout\b/i,
+  // Il TLS e la richiesta che non arriva (review del lotto 5, M-4).
+  /certificate (has expired|verify failed|is not yet valid)/i,
+  /\bCERT_[A-Z_]+\b/,
+  /request to \S+ failed/i,
 ];
-const CREDENTIAL = [/\b401\b/, /\b403\b/, /invalid[ _-]?(api[ _-]?)?key/i, /authenticat/i, /unauthori[sz]ed/i, /forbidden/i, /invalid (x-api-key|credentials?|token)/i, /oauth/i, /expired/i];
+// Review del lotto 5 (M-4): niente `/oauth/` né `/expired/` — compaiono anche
+// negli errori di rete («OAuth refresh failed: ENOTFOUND», «certificate has
+// expired»). Un rifiuto della credenziale lo dicono un 401/403 o le parole
+// del rifiuto.
+const CREDENTIAL = [/\b401\b/, /\b403\b/, /invalid[ _-]?(api[ _-]?)?key/i, /authenticat/i, /unauthori[sz]ed/i, /forbidden/i, /invalid (x-api-key|credentials?|token)/i];
+/** Il rifiuto esplicito: un 401/403 o una chiave/credenziale non valida. Vince anche su un errore di rete. */
+const EXPLICIT_REJECTION = [/\b401\b/, /\b403\b/, /invalid[ _-]?(api[ _-]?)?key/i, /invalid (x-api-key|credentials?|token)/i];
 
 export type CredentialTestFailure = "invalid_credentials" | "unreachable";
 
 export function credentialTestFailureOf(error: string | null | undefined): CredentialTestFailure {
   const text = error ?? "";
-  // La credenziale vince se il testo la nomina: un 401 dopo una richiesta riuscita alla rete.
-  if (CREDENTIAL.some((re) => re.test(text))) return "invalid_credentials";
+  // Un rifiuto esplicito vince sempre (un 401 dopo un ritentativo di rete).
+  if (EXPLICIT_REJECTION.some((re) => re.test(text))) return "invalid_credentials";
+  // Poi la rete: un codice E* o «fetch failed» senza 401/403 è la rete, anche
+  // se il testo parla di autenticazione («authentication request failed: ECONNRESET»).
   if (NETWORK.some((re) => re.test(text))) return "unreachable";
+  if (CREDENTIAL.some((re) => re.test(text))) return "invalid_credentials";
   return "invalid_credentials";
 }
