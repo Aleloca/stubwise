@@ -2060,6 +2060,22 @@ function projectsOfSteps(steps: ScriptStep[]): string[] {
  * ADESSO — mai più indietro, perché gli eventi fino a qui chi guarda li ha
  * già ricevuti.
  */
+/**
+ * I progetti del gruppo dei contesti che `me` vede adesso (decisione di 46,
+ * 24 nov 2026, la regola del server): un chip nomina il suo progetto, quindi
+ * conta per la pubblicazione come ciò che Claude ha letto.
+ */
+function contextProjectIds(me: string, c: Conversation): string[] {
+  return [
+    ...new Set(
+      (c.contexts ?? []).flatMap((ref) => {
+        const projectId = contextOf(me, ref)?.projectId;
+        return projectId ? [projectId] : [];
+      }),
+    ),
+  ];
+}
+
 function touchProjects(c: Conversation, projectIds: string[]): boolean {
   const fresh = projectIds.filter((id) => !c.touchedProjectIds.includes(id));
   if (fresh.length === 0) return false;
@@ -2644,8 +2660,10 @@ async function freeReply(
   steps = prepareTrials(me, steps, prepared);
   const runs = prepared.runs.map((task) => ({ task, c: openRun(me, task) }));
   // Le righe eseguite sono già nel flusso: i loro progetti li dice `prepared`.
+  // Anche i progetti del gruppo dei contesti (decisione di 46): un progetto
+  // nuovo dal chip, in una pubblica, trattiene il seguito come una lettura.
   const touchedNew = touchProjects(c, [
-    ...new Set([...projectsOfSteps(steps), ...prepared.projectIds]),
+    ...new Set([...projectsOfSteps(steps), ...prepared.projectIds, ...contextProjectIds(me, c)]),
   ]);
   // Si consegna solo la trattenuta di QUESTO turno, se c'è ancora (una
   // riconferma nel frattempo l'ha già consegnata).
@@ -3807,6 +3825,8 @@ export async function setVisibility(
     // Area 10 (review di F1, 46): ciò che Claude ha letto di privato resta di
     // chi l'ha chiesto, quindi la conversazione non si pubblica più.
     if (readsPrivateContent(id)) return { status: "private_content" };
+    // Il gruppo dei contesti conta anche se è cresciuto senza un turno (il chip del riquadro).
+    touchProjects(c, contextProjectIds(me, c));
     const touched = [...new Set(c.touchedProjectIds)].sort().join();
     const confirmed = [...new Set(options.confirmedProjectIds ?? [])].sort().join();
     if (options.confirmedProjectIds === undefined || touched !== confirmed) {
