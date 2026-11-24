@@ -49,6 +49,15 @@ describe("i contesti accumulati nella build app", () => {
     expect(clientContextOf({ kind: "task", id: "ZZZ-1" })).toBeNull();
   });
 
+  it("un codice ripetuto nei messaggi si legge una volta sola (revisione 8–9, M-2)", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/tasks/by-code/ZZZ-9": { status: 404, body: { code: "not_found", message: "x" } },
+    });
+    const same = { kind: "task", id: "ZZZ-9" };
+    await warmContextCodes([same, { ...same }, { ...same }]);
+    expect(seen.filter((r) => r.path.startsWith("/api/tasks/by-code/ZZZ-9"))).toHaveLength(1);
+  });
+
   it("una pagina aggiunta in questa sessione torna com'era (la rotta, non solo il progetto)", async () => {
     installFakeServer({ "GET /api/projects": { body: [serverProject()] } });
     const planning = { kind: "page" as const, route: "planning", projectId: PROJECT_ID };
