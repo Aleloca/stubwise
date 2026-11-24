@@ -6,7 +6,8 @@ import type { Task } from "../data/types";
 // L'assegnazione è scritta; qui la frase del codice. Un codice che il client
 // non conosce (un server più nuovo) ha la frase generica.
 
-const KNOWN = new Set(["job_in_flight"]);
+// Lotto 4, D-7.1: `budget_exhausted`, il budget del mese finito per chi non ha `plans.approve`.
+const KNOWN = new Set(["job_in_flight", "budget_exhausted"]);
 
 /** Il codice del rifiuto, o null se il lavoro è partito (o la task non è stata assegnata a Claude). */
 export function claudeRunRefusal(task: Pick<Task, "claudeRun">): string | null {

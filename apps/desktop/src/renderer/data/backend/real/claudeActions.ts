@@ -46,8 +46,22 @@ function queuedRun(taskId: string, jobId: string): Conversation {
   };
 }
 
+/**
+ * Lotto 4, D-7.1 (72, 42abe14be): il budget del mese finito per chi non ha
+ * `plans.approve` è 409 `budget_exhausted`; il prototipo lo dice
+ * `invalid: monthly_budget`.
+ */
+async function budgetWords<T>(call: () => Promise<T>): Promise<T> {
+  try {
+    return await call();
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "budget_exhausted") throw new Error("invalid: monthly_budget");
+    throw error;
+  }
+}
+
 export const startRun: typeof Fake.startRun = async (taskId) =>
-  queuedRun(taskId, (await appClient().tickets.runAi(taskId)).jobId);
+  queuedRun(taskId, (await budgetWords(() => appClient().tickets.runAi(taskId))).jobId);
 
 /**
  * «Rilancia con indicazioni», come il web: le indicazioni diventano un
@@ -55,7 +69,7 @@ export const startRun: typeof Fake.startRun = async (taskId) =>
  */
 export const relaunchWithInstructions: typeof Fake.relaunchWithInstructions = async (taskId, instructions) => {
   await appClient().tickets.comment(taskId, instructions);
-  return queuedRun(taskId, (await appClient().tickets.runAi(taskId, { withInstructions: true })).jobId);
+  return queuedRun(taskId, (await budgetWords(() => appClient().tickets.runAi(taskId, { withInstructions: true }))).jobId);
 };
 
 /** Il ticket con le sue PR e il loro ciclo: chi riprendere, dove correggere. */
@@ -71,7 +85,10 @@ async function repositoriesOf(taskId: string) {
 export const resumeCorrection: typeof Fake.resumeCorrection = async (taskId) => {
   const held = (await repositoriesOf(taskId)).find((r) => r.cycle?.heldJobId)?.cycle?.heldJobId;
   if (!held) throw Object.assign(new Error("correction_not_held"), { code: "correction_not_held" });
-  return queuedRun(taskId, (await appClient().tickets.runAi(taskId, { resumeCorrectionJobId: held })).jobId);
+  return queuedRun(
+    taskId,
+    (await budgetWords(() => appClient().tickets.runAi(taskId, { resumeCorrectionJobId: held }))).jobId,
+  );
 };
 
 /** Il numero di una PR dal suo indirizzo (`…/pull/7`, `…/pull-requests/7`, `…/merge_requests/7`). */
@@ -97,7 +114,9 @@ export const requestChanges: typeof Fake.requestChanges = async (taskId, text) =
     repos[0];
   if (!repo) throw Object.assign(new Error("pr_not_open"), { code: "pr_not_open" });
   const note = text.trim();
-  const out = await appClient().tickets.requestCorrection(taskId, repo.repositoryId, note ? { note } : {});
+  const out = await budgetWords(() =>
+    appClient().tickets.requestCorrection(taskId, repo.repositoryId, note ? { note } : {}),
+  );
   return queuedRun(taskId, out.correctionId ?? taskId);
 };
 

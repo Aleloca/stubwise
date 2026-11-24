@@ -856,6 +856,7 @@
   "tasks": {
     "claudeRun": {
       "job_in_flight": "{{code}} is assigned to Claude, but no new work started: Claude is already working on it.",
+      "budget_exhausted": "{{code}} is assigned to Claude, but the work didn't start: the monthly AI budget is used up.",
       "other": "{{code}} is assigned to Claude, but the work didn't start. Start it from the task's Claude section.",
       "bulk_one": "{{count}} task is assigned to Claude, but its work didn't start. Start it from the task's Claude section.",
       "bulk_other": "{{count}} tasks are assigned to Claude, but their work didn't start. Start it from each task's Claude section."

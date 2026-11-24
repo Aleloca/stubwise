@@ -49,14 +49,6 @@ const prs = createRealPrs(
 const repoSettings = createRealRepoSettings({
   list: (projectId) => appClient().repositories.list(projectId),
   update: (slug, patch) => appClient().repositories.updateReleaseSettings(slug, patch),
-  // `repos.manage` di chi guarda: i permessi che il server calcola (`/api/auth/me`).
-  canManage: async (projectId) => {
-    const me = await appClient().auth.me();
-    return (
-      me.instancePermissions.includes("instance.full_admin") ||
-      (me.projectPermissions[projectId] ?? []).includes("repos.manage" as never)
-    );
-  },
 });
 
 // Gli ambienti (area 8, F4a): le rotte di F1, coi server che chi scrive vede.

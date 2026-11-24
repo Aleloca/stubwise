@@ -23,6 +23,8 @@ interface RepoRow {
   releasePipeline: { mode: string; names?: string[] };
   ciProvider: string | null;
   colleaguePrs: string;
+  /** Lotto 4, pulizia 2: `repos.manage` di chi guarda nel progetto (`.default(false)`). */
+  canManage?: boolean;
 }
 
 const PR_MODES: readonly string[] = ["analyze_and_fix", "analyze_only", "off"];
@@ -38,8 +40,6 @@ export interface RepoSettingsApi {
       colleaguePrs?: ColleaguePrMode;
     },
   ): Promise<unknown>;
-  /** `repos.manage` di chi guarda nel progetto (dai permessi di `/api/auth/me`). */
-  canManage(projectId: string): Promise<boolean>;
 }
 
 /** `owner/repo` dall'indirizzo del repository (il nome da solo se non si legge). */
@@ -65,9 +65,12 @@ export function createRealRepoSettings(api: RepoSettingsApi) {
 
   return {
     async getRepositorySettings(projectId: string): Promise<RepositorySettings | null> {
-      const [repos, canManage] = await Promise.all([api.list(projectId), api.canManage(projectId)]);
+      const repos = await api.list(projectId);
       return {
-        canManage,
+        // Lotto 4, pulizia 2 (72, 6bd813428): `repos.manage` di chi guarda lo dice
+        // la riga (`canManage`, calcolato dal server). Un server di prima senza
+        // il campo, o nessun repository: niente da gestire.
+        canManage: repos.some((r) => r.canManage === true),
         repositories: repos.map((r) => {
           byId.set(r.id, { slug: r.slug, branch: r.releaseBranch, defaultBranch: r.defaultBranch });
           const pipeline: NonNullable<Repository["releasePipeline"]> =

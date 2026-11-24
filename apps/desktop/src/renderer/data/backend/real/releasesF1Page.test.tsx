@@ -286,6 +286,8 @@ describe("i rilasci nella build app (area 8, F1, releases)", () => {
               ciProvider: "github_actions",
               colleaguePrs: "analyze_only",
               createdAt: "2026-11-01T09:00:00.000Z",
+              // Lotto 4, pulizia 2: `repos.manage` di chi guarda, calcolato dal server sulla riga.
+              canManage: true,
             },
           ],
         },

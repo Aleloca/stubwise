@@ -80,6 +80,8 @@ const CORRECTION_ERRORS: Record<string, Exclude<CorrectionRequestResult, { ok: t
   needs_maintainer: "needs_maintainer",
   not_fixable: "not_fixable",
   monthly_budget: "monthly_budget",
+  // Lotto 4, D-7.1 (72, 42abe14be): il budget finito per chi non ha `plans.approve`.
+  budget_exhausted: "monthly_budget",
   // Review F1, I2: una PR di un collega, ognuno con le sue parole.
   pr_not_found: "pr_not_found",
   adopted_pr_admin_only: "adopted_pr_admin_only",

@@ -77,6 +77,8 @@ export function asPrototypeError(error: unknown): unknown {
   if (!(error instanceof ApiError)) return error;
   if (error.status === 404) return new Error("not_found");
   if (error.status === 403) return new Error("forbidden");
+  // Lotto 4, D-7.1: il budget del mese finito per chi non può scavalcarlo, nelle parole del prototipo.
+  if (error.code === "budget_exhausted") return new Error("invalid: monthly_budget");
   if (error.code) return new Error(`invalid: ${error.code}`);
   return error;
 }
