@@ -408,6 +408,19 @@ describe("generazione, grafo e chat (Task 3)", () => {
     });
   });
 
+  // Lotto 7, §2 (decisione del maintainer, 24 nov 2026): il testo della
+  // risposta CRESCE mentre arriva; le citazioni arrivano a risposta finita.
+  it("la risposta arriva a pezzi: ogni pezzo allunga il testo, l'ultimo è la risposta intera", async () => {
+    const seen: string[] = [];
+    const answer = await docs.askDocs(
+      { projectId: "prj-aud", question: "How do scheduled callbacks work?" },
+      (soFar) => seen.push(soFar),
+    );
+    expect(seen.length).toBeGreaterThan(1);
+    for (let i = 1; i < seen.length; i++) expect(seen[i]!.startsWith(seen[i - 1]!)).toBe(true);
+    expect(seen.at(-1)).toBe(answer.text);
+  });
+
   it("la chat del repository cerca solo lì; un tema assente lo dice senza inventare", async () => {
     const none = await docs.askDocs({
       projectId: "prj-stw",

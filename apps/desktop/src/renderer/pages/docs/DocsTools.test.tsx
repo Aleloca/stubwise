@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { failNext, resetApi, setLatency } from "../../data/api";
+import { failNext, resetApi, setLatency, setStreamLatency } from "../../data/api";
 import { state } from "../../data/store";
 import type { DocGeneration } from "../../data/types";
 import { resetViewerGrants } from "../../data/viewer";
@@ -367,6 +367,31 @@ describe("Docs — chat", () => {
     await userEvent.click(within(chat).getByRole("button", { name: "New chat" }));
     expect(within(chat).queryByText("Used:")).toBeNull();
     expect(within(chat).getByRole("button", { name: /Scheduled callbacks/ })).toBeInTheDocument();
+  });
+
+  // Lotto 7, §2 (decisione del maintainer): il testo cresce mentre arriva,
+  // e «Used:» compare solo a risposta finita.
+  it("la risposta cresce mentre arriva, poi le fonti", async () => {
+    setStreamLatency(150);
+    try {
+      renderRoute("/p/AUD/docs", "p-laura");
+      const chat = await screen.findByRole("complementary", { name: "Ask the docs" });
+      await userEvent.click(await within(chat).findByRole("button", { name: /Scheduled callbacks/ }));
+      const growing = await waitFor(
+        () => {
+          const el = chat.querySelector("[data-docs-answer='streaming']");
+          expect(el?.textContent?.trim()).toBeTruthy();
+          return el!;
+        },
+        { timeout: 3000 },
+      );
+      expect(growing).toBeInTheDocument();
+      expect(within(chat).queryByText("Used:")).toBeNull();
+      expect(await within(chat).findByText("Used:", undefined, { timeout: 8000 })).toBeInTheDocument();
+      expect(chat.querySelector("[data-docs-answer='streaming']")).toBeNull();
+    } finally {
+      setStreamLatency(null);
+    }
   });
 
   it("chat del repository: si apre dalla barra, la fonte apre la pagina e la chat resta", async () => {

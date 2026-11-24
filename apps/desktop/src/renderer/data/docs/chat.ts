@@ -17,6 +17,7 @@ import i18n from "../../i18n";
 import { readsAs } from "../api-mutations";
 import { readableProductPages } from "../productDocs/reads";
 import { gate, now, state } from "../store";
+import { streamText } from "../stream";
 import type { DocsAnswer, DocsQuestion } from "../types";
 import { docsAccess, docSpaceOf, repositoryById } from "./reads";
 
@@ -29,12 +30,23 @@ import { docsAccess, docSpaceOf, repositoryById } from "./reads";
 
 const notFound = () => new Error("not_found");
 
-/** Una domanda alla chat dei Docs: la risposta in Markdown con le pagine citate. */
-export async function askDocs({
-  projectId,
-  repositoryId,
-  question,
-}: DocsQuestion): Promise<DocsAnswer> {
+/**
+ * Una domanda alla chat dei Docs: la risposta in Markdown con le pagine
+ * citate. Lotto 7, §2 (decisione del maintainer, 24 nov 2026): il testo
+ * CRESCE mentre arriva — `onText` riceve il testo fin lì, a pezzi, con le
+ * pause delle risposte di Claude (`streamText`); le citazioni arrivano a
+ * risposta finita, come il frame `done` del server.
+ */
+export async function askDocs(
+  question: DocsQuestion,
+  onText?: (soFar: string) => void,
+): Promise<DocsAnswer> {
+  const answer = await answerDocs(question);
+  if (onText) await streamText(answer.text, `docs:${question.question}`, onText, () => true);
+  return answer;
+}
+
+async function answerDocs({ projectId, repositoryId, question }: DocsQuestion): Promise<DocsAnswer> {
   const me = await gate("docs.askDocs");
   const access = docsAccess(me, projectId);
   if (access === "none") throw notFound();
