@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import {
   emailProposals,
   instanceSettings,
@@ -220,6 +220,32 @@ describe("updateProductPage", () => {
     } finally {
       await t.db.delete(instanceSettings);
     }
+  });
+
+  it("revisione dei lotti 6–7 (I-2): la ripresa rimette in coda SOLO un fermo per il budget; il backoff e un fermo per il limite restano come sono", async () => {
+    const s = await space();
+    const source = { kind: "email" as const, id: s.adaMail.messageId };
+    const asAda = { id: ada.id, instancePermissions: new Set<string>() } as never;
+    await addMember(app, s.projectId, ada.id, "project_lead");
+    const later = new Date(Date.now() + 3_600_000);
+    // In backoff: in coda, ma non prima di `later`.
+    const backoff = await page(s);
+    const a = await requestProductPageUpdate(t.db, asAda, backoff.id, source);
+    await t.db.update(productDocJobs).set({ status: "queued", notBefore: later }).where(eq(productDocJobs.sourceId, a.updateId));
+    // Fermo per il limite del provider.
+    const limited = await page(s);
+    const b = await requestProductPageUpdate(t.db, asAda, limited.id, source);
+    await t.db.update(productDocJobs).set({ status: "held", heldReason: "limit", notBefore: later }).where(eq(productDocJobs.sourceId, b.updateId));
+    await t.db.update(productDocJobs).set({ budgetBypass: false }).where(inArray(productDocJobs.sourceId, [a.updateId, b.updateId]));
+
+    expect(await requestProductPageUpdate(t.db, asAda, backoff.id, source)).toEqual({ updateId: a.updateId });
+    expect(await requestProductPageUpdate(t.db, asAda, limited.id, source)).toEqual({ updateId: b.updateId });
+    const [ja] = await t.db.select().from(productDocJobs).where(eq(productDocJobs.sourceId, a.updateId));
+    const [jb] = await t.db.select().from(productDocJobs).where(eq(productDocJobs.sourceId, b.updateId));
+    expect(ja).toMatchObject({ status: "queued", heldReason: null, budgetBypass: true });
+    expect(ja!.notBefore?.getTime()).toBe(later.getTime());
+    expect(jb).toMatchObject({ status: "held", heldReason: "limit", budgetBypass: true });
+    expect(jb!.notBefore?.getTime()).toBe(later.getTime());
   });
 
   it("la fonte deve essere di chi chiede da aprire (l'email di Bea per Ada è come se non ci fosse) e del progetto; senza `docs.edit` niente", async () => {

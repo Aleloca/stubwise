@@ -709,7 +709,7 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   (`docs/invariants/automations.md`). Nessun controllo automatico lo impone:
   la review di una migrazione deve guardarlo.
 
-- F1, la ritenzione delle esecuzioni *(S, 72, review F1 M6, 13 nov 2026)*:
+- ~~F1, la ritenzione delle esecuzioni~~ *(S, 72, review F1 M6, 13 nov 2026)*:
   gli input consumati si tolgono dopo 7 giorni (`INPUT_RETENTION_DAYS`,
   l'esecutore a ogni giro), come gli eventi consumati; il registro
   (`automation_run_log`) vive con la sua esecuzione (FK in cascata). Le
@@ -717,6 +717,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   automazione crescono piano, ma un'automazione accesa da anni ne accumula.
   Da decidere quando servirà (es. finite da più di un anno, tenendo il
   registro delle task e delle richieste create, che già lo nominano).
+  *Chiusa il 24 nov 2026 (72, lotto 8, voce 1; decisione del maintainer: 90
+  giorni)*: le esecuzioni finite da più di 90 giorni si COMPATTANO (scelta A
+  di 46) — via registro, effetti, input, evento e variabili; il titolo
+  diventa il nome dell'automazione (decisione di 46: l'oggetto di un'email
+  è un dato dell'esecuzione); `details_pruned_at` (0230) e `detailsPruned`
+  nella vista. La riga non si cancella perché la leggono la numerazione
+  (`max(n) + 1` in quattro posti), `lastRunAt` e l'origine di task,
+  traguardi e richieste (`ON DELETE SET NULL`). Giro del worker ogni 10′, a
+  lotti da 200. Cosa dice l'app di una compattata: 94.
 - F2, le email automatiche *(M, review F2 C2, 13 nov 2026)*: le email delle
   automazioni portano `Auto-Submitted: auto-generated`; un'email in arrivo
   automatica (`Auto-Submitted` diverso da `no`, mailer-daemon, postmaster)

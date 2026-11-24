@@ -18,3 +18,12 @@ export const fetchPlatformIdentity: FetchPlatformIdentity = ({ provider, credent
  * far scadere la consegna.
  */
 export const PLATFORM_CALL_TIMEOUT_MS = 5_000;
+
+/**
+ * Revisione dei lotti 6–7 (M-1): la stessa chiamata col `fetch` dato — quello
+ * del preflight, che si ferma allo scadere del suo tempo. Il `fetch` lo
+ * costruisce `preflight.ts` (l'uscita sanzionata), non questo modulo.
+ */
+export function fetchPlatformIdentityWith(fetchImpl: typeof fetch): FetchPlatformIdentity {
+  return ({ provider, credentials }) => getProvider(provider).getAuthenticatedUserId({ credentials }, { timeoutMs: PLATFORM_CALL_TIMEOUT_MS, fetchImpl });
+}

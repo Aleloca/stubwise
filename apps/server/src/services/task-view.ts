@@ -252,12 +252,14 @@ export interface LoadedTask {
  * `limit`. La visibilità sta QUI, non nel chiamante: nessuna lettura delle
  * task la dimentica.
  */
-export async function loadTaskViews(
-  db: Db,
-  viewer: TaskViewer,
-  where: SQL[],
-  limit = TASK_LIST_CAP + 1,
-): Promise<LoadedTask[]> {
+/**
+ * La lettura principale delle task che chi guarda vede (la riga, la famiglia,
+ * l'ultima attività, la settimana effettiva e gli slittamenti), con la
+ * visibilità QUI. La usano `loadTaskViews` (che ci aggiunge il resto della
+ * vista) e `loadStallTasks` (lotto 7, revisione I-1: solo ciò che serve a
+ * `stallsOf`), così le espressioni non esistono in due copie.
+ */
+async function loadTaskRows(db: Db, viewer: TaskViewer, where: SQL[], limit?: number) {
   const visible = await visibleTasksCondition(db, viewer);
   const lastActivity = sql<Date>`greatest(
     ${tickets.updatedAt},
@@ -279,7 +281,68 @@ export async function loadTaskViews(
     .innerJoin(projectStatuses, eq(projectStatuses.id, tickets.statusId))
     .where(and(...(visible ? [visible] : []), ...where))
     .orderBy(asc(projects.code), asc(tickets.number))
-    .limit(limit);
+    .limit(limit ?? Number.MAX_SAFE_INTEGER);
+  return { rows, visible };
+}
+
+/** La forma di una task che `stallsOf` legge: i soli campi della regola. */
+export interface StallTask {
+  view: Pick<TaskViewData, "id" | "projectId" | "assigneeId" | "manualStall" | "links" | "lastActivityAt" | "plannedWeek" | "slipCount">;
+  family: StatusFamily;
+}
+
+/** Il collegamento di una task verso una che chi guarda vede (l'id di un'invisibile non esce). */
+async function visibleLinksOf(db: Db, ids: string[], visible: SQL | undefined) {
+  return db
+    .select({
+      sourceTicketId: ticketLinks.sourceTicketId,
+      targetTicketId: ticketLinks.targetTicketId,
+      kind: ticketLinks.kind,
+    })
+    .from(ticketLinks)
+    .innerJoin(tickets, eq(tickets.id, ticketLinks.targetTicketId))
+    .where(and(inArray(ticketLinks.sourceTicketId, ids), ...(visible ? [visible] : [])))
+    .orderBy(asc(ticketLinks.createdAt));
+}
+
+const manualStallOf = (t: typeof tickets.$inferSelect) =>
+  t.manualStallReason && t.manualStallSince
+    ? { reason: t.manualStallReason, note: t.manualStallNote ?? "", since: t.manualStallSince.toISOString(), byId: t.manualStallByUserId }
+    : null;
+
+/**
+ * Lotto 7, revisione I-1: le task che rispettano `where` nella forma ridotta
+ * che basta a `stallsOf`, SENZA tetto e senza costruire le viste intere
+ * (follower, allegati, lavori, origini, permessi). Per contare le ferme.
+ */
+export async function loadStallTasks(db: Db, viewer: TaskViewer, where: SQL[]): Promise<StallTask[]> {
+  const { rows, visible } = await loadTaskRows(db, viewer, where);
+  if (rows.length === 0) return [];
+  const links = await visibleLinksOf(db, rows.map((r) => r.t.id), visible);
+  const linksOf = new Map<string, typeof links>();
+  for (const l of links) linksOf.set(l.sourceTicketId, [...(linksOf.get(l.sourceTicketId) ?? []), l]);
+  return rows.map(({ t, family, lastActivityAt, effectiveWeek, slips }) => ({
+    family,
+    view: {
+      id: t.id,
+      projectId: t.projectId,
+      assigneeId: t.assigneeId,
+      manualStall: manualStallOf(t),
+      links: (linksOf.get(t.id) ?? []).map((l) => ({ kind: LINK_KIND[l.kind], taskId: l.targetTicketId })),
+      lastActivityAt: new Date(lastActivityAt).toISOString(),
+      plannedWeek: effectiveWeek ? mondayToIsoWeek(effectiveWeek) : null,
+      slipCount: slips,
+    },
+  }));
+}
+
+export async function loadTaskViews(
+  db: Db,
+  viewer: TaskViewer,
+  where: SQL[],
+  limit = TASK_LIST_CAP + 1,
+): Promise<LoadedTask[]> {
+  const { rows, visible } = await loadTaskRows(db, viewer, where, limit);
   if (rows.length === 0) return [];
   const ids = rows.map((r) => r.t.id);
 
@@ -287,16 +350,7 @@ export async function loadTaskViews(
     db.select().from(ticketFollowers).where(inArray(ticketFollowers.ticketId, ids)),
     // Solo i collegamenti verso task che chi guarda vede: l'id di una task
     // invisibile non esce nemmeno come riferimento (come in `stallsOf`).
-    db
-      .select({
-        sourceTicketId: ticketLinks.sourceTicketId,
-        targetTicketId: ticketLinks.targetTicketId,
-        kind: ticketLinks.kind,
-      })
-      .from(ticketLinks)
-      .innerJoin(tickets, eq(tickets.id, ticketLinks.targetTicketId))
-      .where(and(inArray(ticketLinks.sourceTicketId, ids), ...(visible ? [visible] : [])))
-      .orderBy(asc(ticketLinks.createdAt)),
+    visibleLinksOf(db, ids, visible),
     db
       .select({ id: attachments.id, ticketId: attachments.ticketId, name: attachments.filename, sizeBytes: attachments.sizeBytes })
       .from(attachments)
@@ -376,15 +430,7 @@ export async function loadTaskViews(
       })(),
       links: (linksOf.get(t.id) ?? []).map((l) => ({ kind: LINK_KIND[l.kind], taskId: l.targetTicketId })),
       attachments: (filesOf.get(t.id) ?? []).map((f) => ({ id: f.id, name: f.name, sizeBytes: f.sizeBytes })),
-      manualStall:
-        t.manualStallReason && t.manualStallSince
-          ? {
-              reason: t.manualStallReason,
-              note: t.manualStallNote ?? "",
-              since: t.manualStallSince.toISOString(),
-              byId: t.manualStallByUserId,
-            }
-          : null,
+      manualStall: manualStallOf(t),
       claude: claudeStateOf(jobOf.get(t.id) ?? null),
       createdAt: t.createdAt.toISOString(),
       closedAt: t.closedAt?.toISOString() ?? null,
@@ -408,7 +454,7 @@ export async function loadTaskViews(
 export async function stallsOf(
   db: Db,
   viewer: TaskViewer,
-  tasks: LoadedTask[],
+  tasks: readonly StallTask[],
   today: string,
 ): Promise<Map<string, Stall>> {
   const open = tasks.filter((t) => t.family !== "closed");

@@ -419,6 +419,12 @@ export interface AutomationRun {
   /** L'esecuzione che l'ha avviata con «Avvia un'altra automazione» (catena di al massimo 3). */
   parentRunId?: string | null;
   /**
+   * Lotto 8, voce 1: finita da più di 90 giorni, i suoi dettagli sono stati
+   * tolti (registro, evento, variabili; il titolo è il nome dell'automazione).
+   * Assente da un server di prima.
+   */
+  detailsPruned?: boolean;
+  /**
    * Review F4: l'evento viene da fuori per intero (figlia di una madre da
    * sorgente, email o supporto, o a sua volta figlia di una così): le
    * destinazioni che Claude ricava dai campi dell'inizio chiedono

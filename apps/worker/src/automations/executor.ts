@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  automationEffects,
   automationRunInputs,
   automationRunLog,
   automationRuns,
@@ -154,7 +155,70 @@ export async function executeDueRuns(deps: ExecutorDeps): Promise<number> {
     }
   }
   await pruneConsumedInputs(deps.db);
+  if (Date.now() - lastRunPrune >= RUN_PRUNE_EVERY_MS) {
+    lastRunPrune = Date.now();
+    try {
+      const pruned = await pruneFinishedRuns(deps.db);
+      if (pruned > 0) deps.log?.(`[automations] compattate ${pruned} esecuzioni finite da più di ${RUN_RETENTION_DAYS} giorni`);
+    } catch (err) {
+      // Un giro di pulizia fallito non ferma le esecuzioni: il prossimo riprova.
+      deps.log?.(`[automations] compattazione delle esecuzioni: ${String(err)}`);
+    }
+  }
   return ids.length;
+}
+
+/**
+ * Lotto 8, voce 1 (decisione del maintainer, scelta A di 46): le esecuzioni
+ * FINITE (`done`, `failed`, `cancelled`) da più di 90 giorni non tengono i
+ * loro dati. Si COMPATTANO invece di cancellare la riga: via il registro, gli
+ * effetti e gli input; evento, variabili, cursore, attesa ed errore vuoti; il
+ * titolo (reso dal modello, può contenere l'oggetto di un'email) diventa il
+ * nome dell'automazione; `details_pruned_at` lo segna. La riga ridotta resta
+ * perché la leggono la numerazione (`max(n) + 1` in quattro posti),
+ * `lastRunAt` dell'elenco e l'origine di task, traguardi e richieste create
+ * (`automation_run_id`, `ON DELETE SET NULL`). Gli scatti a orario
+ * (`automation_schedule_fires`) restano: impediscono di ripartire due volte
+ * lo stesso giorno. A lotti (`RUN_PRUNE_BATCH`), le righe prese con `SKIP
+ * LOCKED`, una transazione per lotto; al più ogni `RUN_PRUNE_EVERY_MS`.
+ */
+export const RUN_RETENTION_DAYS = 90;
+export const RUN_PRUNE_BATCH = 200;
+const RUN_PRUNE_EVERY_MS = 10 * 60_000;
+let lastRunPrune = 0;
+
+export async function pruneFinishedRuns(db: Db, batch = RUN_PRUNE_BATCH): Promise<number> {
+  return db.transaction(async (tx) => {
+    const rows = await tx
+      .select({ id: automationRuns.id })
+      .from(automationRuns)
+      .where(
+        sql`${automationRuns.status} in ('done', 'failed', 'cancelled')
+          and ${automationRuns.detailsPrunedAt} is null
+          and ${automationRuns.endedAt} < now() - make_interval(days => ${RUN_RETENTION_DAYS})`,
+      )
+      .orderBy(asc(automationRuns.endedAt))
+      .limit(batch)
+      .for("update", { skipLocked: true });
+    if (rows.length === 0) return 0;
+    const ids = rows.map((r) => r.id);
+    await tx.delete(automationRunLog).where(inArray(automationRunLog.runId, ids));
+    await tx.delete(automationEffects).where(inArray(automationEffects.runId, ids));
+    await tx.delete(automationRunInputs).where(inArray(automationRunInputs.runId, ids));
+    await tx
+      .update(automationRuns)
+      .set({
+        event: null,
+        vars: {},
+        cursor: null,
+        pending: null,
+        error: null,
+        title: sql`(select a.name from ${automations} a where a.id = ${automationRuns.automationId})`,
+        detailsPrunedAt: sql`now()`,
+      })
+      .where(inArray(automationRuns.id, ids));
+    return ids.length;
+  });
 }
 
 /**

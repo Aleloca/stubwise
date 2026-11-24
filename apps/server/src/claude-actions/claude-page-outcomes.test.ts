@@ -91,6 +91,16 @@ describe("l'esito delle azioni della pagina (lotto 7, voce 1)", () => {
     expect((await view(sid, id)).pageOutcomes).toMatchObject([{ index: 0, status: "changed_after" }]);
   });
 
+  it("revisione 6–7 (M-5): nell'elenco ognuna ha i SUOI esiti (letti con una query per tutte)", async () => {
+    const sid = await conversation();
+    const a = await propose(sid, [theme]);
+    const b = await propose(sid, [theme, { fn: "pageAction", args: { kind: "language", to: "it" } }]);
+    expect((await outcome(lead, a, 0, "failed")).statusCode).toBe(200);
+    expect((await outcome(lead, b, 1, "done")).statusCode).toBe(200);
+    expect((await view(sid, a)).pageOutcomes).toMatchObject([{ index: 0, status: "failed" }]);
+    expect((await view(sid, b)).pageOutcomes).toMatchObject([{ index: 1, status: "done" }]);
+  });
+
   it("solo chi ha chiesto la proposta (gli altri 404, come confermare); un indice o un'azione che non è della pagina è 422", async () => {
     const sid = await conversation();
     const id = await propose(sid, [theme]);

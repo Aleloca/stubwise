@@ -12,7 +12,7 @@ import {
 } from "@stubwise/db";
 import { aiBudgetState } from "@stubwise/notifications";
 import type { ProductChange, ProductChanges, ProductPageUpdateSource } from "@stubwise/shared";
-import { and, desc, eq, gte, inArray, isNull, ne, notExists } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, ne, notExists, sql } from "drizzle-orm";
 import { inProjects, isAllProjects, projectIdsWithPermission, projectPermissionsFor, scopeIncludes } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { namesFor, productSourceViews } from "./product-claude.js";
@@ -114,7 +114,15 @@ export async function requestProductPageUpdate(
         const resumed = live
           ? await tx
               .update(productDocJobs)
-              .set({ budgetBypass: true, status: "queued", heldReason: null, notBefore: null })
+              // Revisione dei lotti 6–7 (I-2): torna in coda SOLO un lavoro fermo
+              // per il budget; uno fermo per altro (limite, sezione occupata,
+              // pausa) resta fermo col suo motivo, e `notBefore` (il backoff)
+              // non si tocca mai. Lo scavalco lo porta comunque.
+              .set({
+                budgetBypass: true,
+                status: sql`case when ${productDocJobs.status} = 'held' and ${productDocJobs.heldReason} = 'budget' then 'queued' else ${productDocJobs.status} end`,
+                heldReason: sql`case when ${productDocJobs.heldReason} = 'budget' then null else ${productDocJobs.heldReason} end`,
+              })
               .where(and(eq(productDocJobs.sourceKind, "page_update"), eq(productDocJobs.sourceId, live.id), inArray(productDocJobs.status, ["queued", "held"])))
               .returning({ id: productDocJobs.id })
           : [];

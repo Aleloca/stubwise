@@ -6292,3 +6292,24 @@ deploy o di un rollback che la tocca.
   renderer lo legge). **Rollback**: sicuro; un server vecchio non legge la
   tabella e le azioni tornano «non applicate» dalla storia. Per toglierla:
   server vecchio, poi `DROP TABLE claude_page_outcomes`.
+- **«Lotto 8: la conservazione delle esecuzioni delle automazioni»** *(24 nov
+  2026)*: branch `feat/rimandi-server`. **Migrazione 0230**
+  (`automation_runs.details_pruned_at`, nullable). Il **worker** (ogni 10′,
+  lotti da 200) COMPATTA le esecuzioni FINITE (`done`, `failed`,
+  `cancelled`) da più di 90 giorni: cancella il loro registro
+  (`automation_run_log`), gli effetti e gli input, svuota evento, variabili,
+  cursore, attesa ed errore, e **sostituisce il titolo col nome
+  dell'automazione** (decisione di 46: il titolo può contenere l'oggetto di
+  un'email). La riga ridotta resta (numerazione, «ultima esecuzione»,
+  origine di task e traguardi). Ordine: **server** (migrazione), poi
+  **worker**. ⚠️ **Il primo giro toglie lo storico vecchio, ed è
+  irreversibile**: prima del deploy, backup del DB e conta quante righe
+  toccherà (in lotti da 200 ogni 10′, ~1.200 l'ora):
+  `select count(*) from automation_runs where status in ('done','failed','cancelled') and ended_at < now() - interval '90 days';`
+  e i passi del registro che se ne andranno:
+  `select count(*) from automation_run_log l join automation_runs r on r.id = l.run_id where r.status in ('done','failed','cancelled') and r.ended_at < now() - interval '90 days';`
+  Dopo: lo stesso conteggio con `and details_pruned_at is null` scende a 0.
+  **Rollback**: un worker vecchio smette di compattare (ciò che è stato tolto
+  non torna, se non dal backup); un server vecchio ignora la colonna e
+  mostra le compattate come esecuzioni senza registro. Per togliere la
+  colonna: worker e server vecchi, poi `DROP COLUMN details_pruned_at`.

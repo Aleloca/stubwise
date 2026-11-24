@@ -359,7 +359,14 @@ async function expired(db: Db, row: ProposalRow, now: Date): Promise<boolean> {
 }
 
 /** La proposta come la legge chi l'ha chiesta: classe e motivi ADESSO, scadenza derivata. */
-export async function proposalView(db: Db, user: SessionUser, row: ProposalRow, now = new Date()): Promise<ClaudeProposalView> {
+export async function proposalView(
+  db: Db,
+  user: SessionUser,
+  row: ProposalRow,
+  now = new Date(),
+  /** Revisione 6–7 (M-5): gli esiti già letti per tutte le proposte di un elenco, in UNA query. */
+  outcomes?: ReadonlyMap<string, ClaudePageOutcome[]>,
+): Promise<ClaudeProposalView> {
   const isExpired = await expired(db, row, now);
   let cls: "A" | "B" | "C" = row.declaredCls;
   let reasons: ClaudeClassReason[] = [];
@@ -398,18 +405,21 @@ export async function proposalView(db: Db, user: SessionUser, row: ProposalRow, 
     undoOfGroupId: row.undoOfGroupId,
     createdAt: row.createdAt.toISOString(),
     reauth: needsReauth,
-    pageOutcomes: actions.some((a) => RENDERER_FNS.has(a.fn)) ? await pageOutcomesOf(db, row.id) : [],
+    pageOutcomes: actions.some((a) => RENDERER_FNS.has(a.fn)) ? (outcomes ? (outcomes.get(row.id) ?? []) : ((await pageOutcomesOf(db, [row.id])).get(row.id) ?? [])) : [],
   };
 }
 
-/** Lotto 7, voce 1: gli esiti salvati delle azioni del renderer di una proposta, per indice. */
-async function pageOutcomesOf(db: Db, proposalId: string): Promise<ClaudePageOutcome[]> {
+/** Lotto 7, voce 1: gli esiti salvati delle azioni del renderer delle proposte date, per indice; UNA query (M-5). */
+async function pageOutcomesOf(db: Db, proposalIds: readonly string[]): Promise<Map<string, ClaudePageOutcome[]>> {
+  const out = new Map<string, ClaudePageOutcome[]>();
+  if (proposalIds.length === 0) return out;
   const rows = await db
     .select()
     .from(claudePageOutcomes)
-    .where(eq(claudePageOutcomes.proposalId, proposalId))
-    .orderBy(asc(claudePageOutcomes.actionIndex));
-  return rows.map((r) => ({ index: r.actionIndex, status: r.status, at: r.at.toISOString() }));
+    .where(inArray(claudePageOutcomes.proposalId, [...proposalIds]))
+    .orderBy(asc(claudePageOutcomes.proposalId), asc(claudePageOutcomes.actionIndex));
+  for (const r of rows) out.set(r.proposalId, [...(out.get(r.proposalId) ?? []), { index: r.actionIndex, status: r.status, at: r.at.toISOString() }]);
+  return out;
 }
 
 export type PageOutcomeResult =
@@ -472,7 +482,9 @@ export async function listProposals(db: Db, user: SessionUser, sessionId: string
       ),
     )
     .orderBy(asc(claudeProposals.createdAt));
-  return Promise.all(rows.map((r) => proposalView(db, user, r)));
+  const withPage = rows.filter((r) => (r.actions as PlannedAction[]).some((a) => RENDERER_FNS.has(a.fn))).map((r) => r.id);
+  const outcomes = await pageOutcomesOf(db, withPage);
+  return Promise.all(rows.map((r) => proposalView(db, user, r, new Date(), outcomes)));
 }
 
 /** I gruppi eseguiti di una conversazione, con lo stato di «Annulla» per chi guarda. */
