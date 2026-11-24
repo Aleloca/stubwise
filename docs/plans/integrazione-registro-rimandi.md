@@ -1419,9 +1419,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     arrivate con le loro fette.
 
 - **F3 renderer, i webhook in uscita nell'app** *(94, 18 nov 2026)*:
-  - il server non ricorda l'ultima prova di un webhook (`POST …/test` dice
+  - ~~il server non ricorda l'ultima prova di un webhook (`POST …/test` dice
     solo com'è andata): l'app la tiene per la sessione, e ricaricando torna
-    «not tested yet» *(S, serve `lastTest` nella vista del server)*;
+    «not tested yet» *(S, serve `lastTest` nella vista del server)*;~~
+    *parte server chiusa il 24 nov 2026 (72, lotto 5)*: la vista porta
+    `lastTest: { at, outcome } | null` (0224), nelle parole del prototipo
+    (`ok`/`invalid_credentials`/`unreachable`); cambiare URL o formato la
+    toglie;
   - AI → Providers: la prova la fa il worker (si rilegge finché non è più
     `pending`, al più ~60 s, poi «prova ancora in corso»); `failed` non
     distingue la credenziale sbagliata dalla rete e si dice «credenziale

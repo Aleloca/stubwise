@@ -1993,6 +1993,9 @@ export const outgoingWebhooks = pgTable("outgoing_webhooks", {
   events: text("events").array().notNull().default(sql`'{}'::text[]`),
   secretEncrypted: text("secret_encrypted"),
   secretRotatedAt: timestamp("secret_rotated_at", { withTimezone: true }),
+  /** L'ultima prova (0224, rimandi lotto 5): quando e com'è andata; null = mai provato (o URL/formato cambiati). */
+  lastTestAt: timestamp("last_test_at", { withTimezone: true }),
+  lastTestOutcome: text("last_test_outcome", { enum: ["ok", "invalid_credentials", "unreachable"] }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
 });

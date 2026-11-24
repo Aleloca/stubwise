@@ -35,6 +35,7 @@ export function toWebhookView(row: Row): OutgoingWebhookView {
     secretSet: row.secretEncrypted !== null,
     secretRotatedAt: row.secretRotatedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
+    lastTest: row.lastTestAt && row.lastTestOutcome ? { at: row.lastTestAt.toISOString(), outcome: row.lastTestOutcome } : null,
   };
 }
 
@@ -84,7 +85,13 @@ export async function updateWebhook(db: Db, actor: Actor, id: string, patch: Upd
     if (!before) throw notFound();
     // Una patch vuota è una lettura (drizzle rifiuta un update senza colonne).
     if (Object.keys(patch).length === 0) return toWebhookView(before);
-    const [after] = await tx.update(outgoingWebhooks).set(patch).where(eq(outgoingWebhooks.id, id)).returning();
+    // Cambiare indirizzo o formato rimette la prova a «mai provato» (come il prototipo).
+    const retest = (patch.url !== undefined && patch.url !== before.url) || (patch.format !== undefined && patch.format !== before.format);
+    const [after] = await tx
+      .update(outgoingWebhooks)
+      .set({ ...patch, ...(retest ? { lastTestAt: null, lastTestOutcome: null } : {}) })
+      .where(eq(outgoingWebhooks.id, id))
+      .returning();
     // Come il prototipo (`webhook.ts`, voce `fields`): i soli campi cambiati,
     // l'URL com'è (non è un segreto, [IN 4]), gli eventi come lista di id
     // ordinata. Una modifica che non cambia niente non scrive.
@@ -124,13 +131,18 @@ export async function testWebhook(db: Db, key: Buffer, id: string, publicUrl: st
   const webhook = await sendableWebhook(db, id, key, { includeDisabled: true });
   if (!webhook) throw notFound();
   const event = sampleEventFor("ticket.created", publicUrl)!;
+  let result: { ok: boolean; status: number | null; error: string | null };
   try {
     const response = await sendToWebhook(webhook, event, await contentLanguageOf(db));
-    return { ok: true, status: response.status, error: null };
+    result = { ok: true, status: response.status, error: null };
   } catch (error) {
     const status = /status (\d+)/.exec(String((error as Error).message))?.[1];
-    return { ok: false, status: status ? Number(status) : null, error: (error as Error).message };
+    result = { ok: false, status: status ? Number(status) : null, error: (error as Error).message };
   }
+  // Rimandi, lotto 5: la prova si ricorda (`lastTest`), nelle parole del prototipo.
+  const outcome = result.ok ? "ok" : result.status !== null ? "invalid_credentials" : "unreachable";
+  await db.update(outgoingWebhooks).set({ lastTestAt: new Date(), lastTestOutcome: outcome }).where(eq(outgoingWebhooks.id, id));
+  return result;
 }
 
 /** L'anteprima: il corpo che arriverebbe, coi template veri e un evento d'esempio. */
