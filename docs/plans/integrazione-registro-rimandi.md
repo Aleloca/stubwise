@@ -1039,8 +1039,12 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - **il server di un ambiente si sceglie fra i suggerimenti** (i server che
     chi scrive vede), ma il campo resta testo: un codice che non vede è
     `invalid: serverCode` (lo stesso 422 `server_not_visible` del server);
-  - **SSH, analisi, progetto principale, ricerca ⌘K dei server**: spenti
-    (F4b, o fuori); le simulazioni restano solo del prototipo.
+  - **SSH, analisi, progetto principale, ~~ricerca ⌘K dei server~~**: spenti
+    (F4b, o fuori); le simulazioni restano solo del prototipo. *La ricerca
+    ⌘K, parte server, chiusa il 24 nov 2026 (72, lotto 5)*:
+    `GET /api/servers/search?q=` (`{ items: ServerSearchResult[] }`: codice,
+    nome, il progetto da cui aprirlo; per codice, nome o hostname, fra i
+    server visibili e nella WHERE, 20 al più, da 2 caratteri).
   - **Dalla review della F4a** *(O, 46, 14 nov 2026)*, limiti accettati:
     - M4: le card `monitor.*` di prima, ancorate a un progetto di
       `server_projects` che ora non vede più il server, aprono la pagina del
