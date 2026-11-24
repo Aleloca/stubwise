@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import {
   agentSessionEvents,
   agentSessionInputs,
@@ -9,6 +9,7 @@ import {
   issueChatToolToken,
   projects,
   roles,
+  tickets,
   users,
 } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
@@ -454,5 +455,61 @@ describe("lotto 8, voce 3: i contesti accumulati e chi li legge", () => {
     expect(last!.context).toEqual(six[5]);
     // `context: null` non cambia niente.
     expect(((await patch({ context: null })).json() as { contexts: unknown[] }).contexts).toHaveLength(5);
+  });
+});
+
+describe("lotto 9, voce 1: le citazioni dei messaggi di Claude", () => {
+  let seq = 900;
+  const task = async (projectId: string, code: string) => {
+    const n = ++seq;
+    const [row] = await t.db.insert(tickets).values({ projectId, number: n, title: `Citata ${n}`, type: "task", priority: "medium", source: "manual" }).returning({ id: tickets.id });
+    return { id: row!.id, code: `${code}-${n}` };
+  };
+  const turnEnd = (events: { type: string; data: { citations?: { kind: string; id: string }[] } }[]) => events.filter((e) => e.type === "turn_end").map((e) => e.data.citations);
+
+  it("si registra ciò che Claude ha LETTO; sul `turn_end` del turno, e chi legge una pubblica vede solo ciò che vede (NEGATIVO)", async () => {
+    const sid = await conversation();
+    const a = await task(p1.id, p1.code);
+    const b = await task(p2.id, p2.code);
+    const c = await task(p1.id, p1.code);
+    const tok = await issueChatToolToken(t.db, { sessionId: sid, userId: author.id, ttlMs: 60_000 });
+    await event(sid, "input", { text: "dimmi" });
+    for (const code of [a.code, b.code]) {
+      const read = await app.inject({ method: "GET", url: `/api/tasks/by-code/${code}`, headers: { authorization: `Bearer ${tok}` } });
+      expect(read.statusCode, read.body).toBe(200);
+    }
+    // Un codice nella prosa (r.60): non letto, ma nominato.
+    await event(sid, "assistant_text", { text: `Ho guardato, e c'è anche ${c.code}.` });
+    await event(sid, "turn_end", {});
+    // Un secondo turno senza letture: niente citazioni.
+    await event(sid, "input", { text: "grazie" });
+    await event(sid, "assistant_text", { text: "Prego." });
+    await event(sid, "turn_end", {});
+    await publish(sid);
+
+    expect(turnEnd((await as(author, "GET", `/api/agent-sessions/${sid}/events?limit=200`)).json().events)).toEqual([
+      [{ kind: "task", id: a.id }, { kind: "task", id: b.id }, { kind: "task", id: c.id }],
+      [],
+    ]);
+    const forReader = await as(reader, "GET", `/api/agent-sessions/${sid}/events?limit=200`);
+    expect(turnEnd(forReader.json().events)).toEqual([[{ kind: "task", id: a.id }, { kind: "task", id: c.id }], []]);
+    expect(forReader.body).not.toContain(b.id);
+    // La risoluzione: solo ciò che chi chiede vede.
+    const resolved = await as(reader, "POST", "/api/claude/citations/resolve", { refs: [{ kind: "task", id: a.id }, { kind: "task", id: b.id }] });
+    expect(resolved.statusCode, resolved.body).toBe(200);
+    expect((resolved.json() as { items: { id: string; label: string }[] }).items.map((i) => i.id)).toEqual([a.id]);
+  });
+
+  it("FAIL-OPEN: se la registrazione non riesce, la lettura risponde lo stesso", async () => {
+    const sid = await conversation();
+    const a = await task(p1.id, p1.code);
+    const tok = await issueChatToolToken(t.db, { sessionId: sid, userId: author.id, ttlMs: 60_000 });
+    await t.db.execute(sql`alter table claude_turn_citations rename to claude_turn_citations_off`);
+    try {
+      const read = await app.inject({ method: "GET", url: `/api/tasks/by-code/${a.code}`, headers: { authorization: `Bearer ${tok}` } });
+      expect(read.statusCode, read.body).toBe(200);
+    } finally {
+      await t.db.execute(sql`alter table claude_turn_citations_off rename to claude_turn_citations`);
+    }
   });
 });

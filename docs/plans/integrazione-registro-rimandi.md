@@ -71,12 +71,23 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   CORSO (piano `docs/plans/2026-11-10-integrazione-claude-chat-f5-plan.md`,
   decisioni del maintainer del 10 nov 2026: gli eventi dei tool restano
   visibili ai lettori, D1) *(M)*.
-  - Renderer (F5.4) *(S)*: i codici nella prosa di Claude non si collegano
+  - ~~Renderer (F5.4) *(S)*: i codici nella prosa di Claude non si collegano
     nella build app (solo le citazioni registrate, che il server non
     registra): R-G5 regge per costruzione, ma neanche l'autrice apre un
-    codice citato dalla prosa.
-- Le citazioni registrate sui messaggi (oggi solo i codici nel testo)
-  *(O)*. ✅ *«Claude can help you…»: area 10, F7 (sotto).* Menzioni,
+    codice citato dalla prosa.~~ *Parte server chiusa il 24 nov 2026 (72,
+    lotto 9, voce 1)*: i codici della prosa di un turno entrano nelle sue
+    citazioni (`turn_end.citations`), risolti per chi guarda; il renderer
+    li collega da lì (94).
+- ~~Le citazioni registrate sui messaggi (oggi solo i codici nel testo)
+  *(O)*.~~ *Parte server chiusa il 24 nov 2026 (72, lotto 9, voce 1; forma e
+  scelta (a) di 46)*: si registra ciò che Claude ha LETTO col token del
+  turno (task, richieste, pagine Docs per codice, file del Drive, progetti;
+  `claude_turn_citations`, 0233, l'hook `onSend` della lettura, fail-open),
+  mai ciò che dice; i codici della prosa si leggono a lettura; il turno le
+  porta sul suo `turn_end` (`data.citations`), filtrate per chi guarda (un
+  riferimento che non vede si TOGLIE; R-H5 solo per l'autore, col codice del
+  file del Drive); `POST /api/claude/citations/resolve`. Fuori: le
+  citazioni di file del repository (nessun tool legge il codice). ✅ *«Claude can help you…»: area 10, F7 (sotto).* Menzioni,
   riquadro come chat e ⌘J/⌘K: chiuse (sotto).
 - Azioni delle altre aree: entrano **con la loro area** (sotto) *(O)*.
 - **Limiti della fetta 5 (server e worker)** *(S, stubwise-72, 10 nov 2026)*:
@@ -558,6 +569,8 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   finché non cambia di nuovo su Gmail; le righe di prima della 0149 sono
   `unread = null`, lette come «letto». Un recupero (rileggere le etichette
   dei thread recenti al resync) costa una chiamata per messaggio: non ora.
+  *Decisa NO dal maintainer il 24 nov 2026 (lotto 9): il costo di una
+  chiamata per messaggio non vale; resta un limite accettato.*
 - F4, «tutta la serie» e l'etag *(S, review F4 punto 11)*: l'`If-Match` è
   l'etag del padre appena riletto; l'etag del client protegge solo la data
   trascinata.
@@ -604,7 +617,9 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   il prototipo esclude (R-I21).
 - F5a, le email di Gemini di PRIMA del deploy *(S)*: il riconoscimento è
   all'ingestione, quindi non diventano riunioni; un recupero vorrebbe
-  rileggere le intestazioni da Gmail.
+  rileggere le intestazioni da Gmail. *Decisa NO dal maintainer il 24 nov
+  2026 (lotto 9): niente recupero, per lo stesso costo per messaggio; resta un
+  limite accettato.*
 - ~~F5a, il badge delle proposte nell'ELENCO delle conversazioni *(S)*:
   `me-mail.ts` conta le condivise `mail_recipients` per thread; quelle di una
   riunione compaiono aprendo la conversazione (filtro per messaggio e
@@ -623,6 +638,8 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   lo mette Google dal suo elenco, se c'è).
 - F4, il libero/occupato legge solo il calendario `primary` *(S)*: come il
   poller; un evento su un calendario secondario del collega non occupa.
+  *Decisa NO dal maintainer il 24 nov 2026 (lotto 9, r.362 c): i calendari
+  secondari restano fuori, dal poller e dal libero/occupato.*
 - F4, le righe di prima della 0164 senza `etag` *(S)*: finché il worker non
   le ripassa, una modifica parte senza `If-Match` (il primo giro dopo il
   deploy; vedi la voce del deploy-log).
@@ -1526,7 +1543,8 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     un'app in uso le dice contate, senza i nomi *(S)*;
   - AI → Automation: le regole di `feedback` e `review` non si modificano
     nell'app (la pagina ha le tre righe delle task) e si rimandano com'erano
-    *(S, se servono due righe in più)*;
+    *(S, se servono due righe in più)*. *Decisa NO dal maintainer il 24 nov
+    2026 (lotto 9): restano non modificabili nell'app.*;
   - ~~«Load more» del registro e «Undid…» (area 10a, F7): la data della riga
     porta alla voce annullata solo se è fra le pagine già lette *(S, da
     rivedere con F7)*.~~ Chiusa il 23 nov 2026 (rimandi, lotto 2): la data
@@ -1752,9 +1770,9 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 - **Chiuse con F8 (20 nov 2026)**: «/status» (seguiti, polso senza il suo
   fermo, task ferme con le soglie dei progetti) e «/today» (le decisioni che
   aspettano chi scrive e le sue task aperte, `assigneeIds=me`). Restano
-  aperti, come dice il design: le citazioni registrate sui messaggi della
-  conversazione (anche quelle di file, area 5 D6, sopra) e gli allegati
-  (`claude-attachments`).
+  aperti, come dice il design: ~~le citazioni registrate sui messaggi della
+  conversazione~~ (chiuse il 24 nov 2026, lotto 9, voce 1; restano fuori
+  quelle di file, area 5 D6, sopra) e gli allegati (`claude-attachments`).
 
 ## Area 11 — Documentazione di prodotto
 

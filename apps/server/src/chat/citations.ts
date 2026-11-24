@@ -22,7 +22,7 @@ import type { ChatViewer } from "./access.js";
  */
 
 /** Ciò che chi guarda vede di un oggetto citabile: l'etichetta e come il testo lo nomina. */
-interface Citeable {
+export interface Citeable {
   kind: ChatCitationKind;
   id: string;
   label: string;
@@ -286,7 +286,7 @@ export async function hasVisibleCitationSql(db: Db, viewer: ChatViewer, messageI
 }
 
 /** Le task e le richieste che chi guarda vede, dai codici scritti nel testo. */
-async function citeablesFromCodes(db: Db, viewer: ChatViewer, text: string): Promise<Citeable[]> {
+export async function citeablesFromCodes(db: Db, viewer: ChatViewer, text: string): Promise<Citeable[]> {
   const codes = codesIn(text);
   if (codes.length === 0) return [];
   const byCode = (kind: "task" | "request") =>
