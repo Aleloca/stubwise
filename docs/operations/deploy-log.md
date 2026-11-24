@@ -6327,3 +6327,13 @@ deploy o di un rollback che la tocca.
   `from_address` e una bozza con un alias torna a partire dalla casella (la
   bozza su Gmail ha già il From dell'alias finché non si risalva). Per
   togliere le colonne: server e worker vecchi, poi i tre `DROP COLUMN`.
+- **«Lotto 8: più contesti per conversazione con Claude»** *(24 nov 2026)*:
+  branch `feat/rimandi-server`. **Migrazione 0232**
+  (`claude_conversations.context_refs` jsonb default `[]`, riempita da
+  `context_ref` per le conversazioni che ne hanno uno;
+  `agent_session_inputs.contexts`, nullable). Ordine: **server**
+  (migrazione), poi **worker** (il prompt con tutti i contesti), poi
+  **caddy**. **Rollback**: sicuro; il server tiene `context_ref` uguale
+  all'ultimo del gruppo, quindi un server vecchio legge il primario come
+  prima e ignora il resto. Per togliere le colonne: server e worker
+  vecchi, poi i due `DROP COLUMN`.

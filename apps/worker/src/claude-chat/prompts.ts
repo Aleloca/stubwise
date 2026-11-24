@@ -26,6 +26,11 @@ export interface ChatPromptContext {
   authorName: string;
   /** Il contesto della pagina da cui nasce la conversazione, se c'è. */
   context: ClaudeConversationContext | null;
+  /**
+   * Lotto 8, voce 3: TUTTI i contesti della conversazione (dal più vecchio,
+   * l'ultimo primario), già filtrati per l'autore. Assente = il solo `context`.
+   */
+  contexts?: readonly ClaudeConversationContext[];
   /** Il server MCP dei tool è disponibile in questo turno. */
   toolsAvailable: boolean;
   recentTranscript: { role: "user" | "agent"; text: string }[];
@@ -165,12 +170,8 @@ export function buildChatPrimingPrompt(ctx: ChatPromptContext, openingText: stri
       "",
     );
   }
-  if (ctx.context !== null) {
-    parts.push(
-      block("PAGE THE PERSON IS LOOKING AT", `${ctx.context.kind}: ${ctx.context.id} (read it with the tools if it matters)`),
-      "",
-    );
-  }
+  const pages = contextBlock(ctx.contexts ?? (ctx.context ? [ctx.context] : []));
+  if (pages !== null) parts.push(pages, "");
   if (ctx.recentTranscript.length > 0) {
     parts.push(
       block(
@@ -189,13 +190,30 @@ export function buildChatPrimingPrompt(ctx: ChatPromptContext, openingText: stri
  * il contesto della pagina può essere cambiato (chi scrive ha aperto un'altra
  * task): si ripete, come `tipo: id`, solo quando c'è.
  */
-export function buildChatResumePrompt(openingText: string, context: ClaudeConversationContext | null = null): string {
-  if (context === null) return openingText;
-  return [
-    block("PAGE THE PERSON IS LOOKING AT", `${context.kind}: ${context.id} (read it with the tools if it matters)`),
-    "",
-    block("MESSAGE", openingText),
-  ].join("\n");
+export function buildChatResumePrompt(openingText: string, context: ClaudeConversationContext | null | readonly ClaudeConversationContext[] = null): string {
+  const pages = contextBlock(Array.isArray(context) ? context : context ? [context as ClaudeConversationContext] : []);
+  if (pages === null) return openingText;
+  return [pages, "", block("MESSAGE", openingText)].join("\n");
+}
+
+/**
+ * Lotto 8, voce 3: le pagine da cui la persona ha aperto la conversazione, come
+ * riferimenti `tipo: id`. Con UNA il blocco di sempre; con più, tutte, e il
+ * PRIMARIO (l'ultima aggiunta, la pagina da cui scrive adesso) segnato: «questa
+ * task» si riferisce a lui.
+ */
+function contextBlock(contexts: readonly ClaudeConversationContext[]): string | null {
+  if (contexts.length === 0) return null;
+  if (contexts.length === 1) {
+    const only = contexts[0]!;
+    return block("PAGE THE PERSON IS LOOKING AT", `${only.kind}: ${only.id} (read it with the tools if it matters)`);
+  }
+  const primary = contexts.at(-1)!;
+  const lines = [
+    `${primary.kind}: ${primary.id} — PRIMARY: the page they are writing from now ("this task", "this page" mean this one)`,
+    ...contexts.slice(0, -1).reverse().map((c) => `${c.kind}: ${c.id} — also open in this conversation`),
+  ];
+  return block("PAGES THE PERSON OPENED THIS CONVERSATION FROM", `${lines.join("\n")}\n(read them with the tools if they matter)`);
 }
 
 /**

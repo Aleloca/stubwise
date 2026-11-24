@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { claudeAutomationGuide } from "@stubwise/shared";
-import { AUTOMATION_DRAFTS_RULE, BULK_ARCHIVE_RULE, PRODUCT_DOCS_RULE, CAPABILITIES_RULE, FIELD_DRAFT_RULE, STALLED_AND_SPENDING_RULE, STATUS_AND_TODAY_RULE, buildChatPrimingPrompt, CHAT_UNDO_LABEL, chatMentionContract } from "./prompts.js";
+import { AUTOMATION_DRAFTS_RULE, BULK_ARCHIVE_RULE, PRODUCT_DOCS_RULE, CAPABILITIES_RULE, FIELD_DRAFT_RULE, STALLED_AND_SPENDING_RULE, STATUS_AND_TODAY_RULE, buildChatPrimingPrompt, buildChatResumePrompt, CHAT_UNDO_LABEL, chatMentionContract } from "./prompts.js";
 
 const prompt = (language: "en" | "it") =>
   buildChatPrimingPrompt({ language, authorName: "Ada", context: null, toolsAvailable: true, recentTranscript: [] }, "ciao");
@@ -160,5 +160,23 @@ describe("area 10, F7: S0, cosa sa fare Claude", () => {
     expect(prompt("it")).toContain(CAPABILITIES_RULE);
     expect(CAPABILITIES_RULE).toMatch(/show_capabilities/);
     expect(CAPABILITIES_RULE).toMatch(/instead of inventing an action/);
+  });
+});
+
+describe("lotto 8, voce 3: più contesti nel prompt", () => {
+  const base = { language: "en" as const, authorName: "Ada", context: null, toolsAvailable: true, recentTranscript: [] };
+  it("con uno il blocco di sempre; con più tutti, il PRIMARIO (l'ultimo) segnato per primo", () => {
+    const one = buildChatPrimingPrompt({ ...base, contexts: [{ kind: "task", id: "AUD-12" }] }, "ciao");
+    expect(one).toContain("PAGE THE PERSON IS LOOKING AT");
+    expect(one).toContain("task: AUD-12 (read it with the tools if it matters)");
+    const many = buildChatPrimingPrompt({ ...base, contexts: [{ kind: "project", id: "p-1" }, { kind: "task", id: "AUD-12" }, { kind: "request", id: "AUD-R3" }] }, "ciao");
+    expect(many).toContain("PAGES THE PERSON OPENED THIS CONVERSATION FROM");
+    expect(many).toMatch(/request: AUD-R3 — PRIMARY[^\n]*\ntask: AUD-12 — also open[^\n]*\nproject: p-1 — also open/);
+    expect(many).not.toContain("PAGE THE PERSON IS LOOKING AT");
+  });
+  it("il prompt di ripresa porta il gruppo; senza contesti è il solo messaggio", () => {
+    expect(buildChatResumePrompt("ciao", [])).toBe("ciao");
+    expect(buildChatResumePrompt("ciao", [{ kind: "task", id: "AUD-1" }, { kind: "task", id: "AUD-2" }])).toContain("task: AUD-2 — PRIMARY");
+    expect(buildChatResumePrompt("ciao", { kind: "task", id: "AUD-1" })).toContain("task: AUD-1 (read it with the tools if it matters)");
   });
 });

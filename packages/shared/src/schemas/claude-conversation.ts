@@ -44,7 +44,14 @@ export const claudeConversationSchema = z.object({
   /** Dalla prima domanda (un template, mai il modello), rinominabile. */
   title: z.string(),
   archived: z.boolean().default(false),
+  /** Il PRIMARIO dei contesti (l'ultimo di `contexts`), per i client di prima. */
   context: claudeConversationContextSchema.nullable().default(null),
+  /**
+   * Lotto 8, voce 3: i contesti accumulati, dal più vecchio al più nuovo (al
+   * più 5); l'ultimo è il primario. Solo quelli che chi guarda vede. `[]` da
+   * un server di prima.
+   */
+  contexts: z.array(claudeConversationContextSchema).default([]),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
   /** Lo stato DERIVATO della sessione (al lavoro, in coda, ferma). */
@@ -104,7 +111,10 @@ export const patchClaudeConversationSchema = z
   .object({
     title: z.string().trim().min(1).max(CLAUDE_CONVERSATION_TITLE_MAX),
     archived: z.boolean(),
+    /** Il campo di prima: AGGIUNGE in fondo al gruppo (null non cambia niente). */
     context: claudeConversationContextSchema.nullable(),
+    /** Lotto 8, voce 3: SOSTITUISCE il gruppo (così si toglie un chip); oltre 5: 422 `too_many_contexts`. */
+    contexts: z.array(claudeConversationContextSchema).max(50),
   })
   .partial();
 export type PatchClaudeConversationInput = z.infer<typeof patchClaudeConversationSchema>;

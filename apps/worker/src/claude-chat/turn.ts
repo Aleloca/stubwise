@@ -1,4 +1,4 @@
-import { aiBudgetState, instancePermissionsOfUser } from "@stubwise/notifications";
+import { aiBudgetState, instancePermissionsOfUser, projectPermissionsOfUser, visibleContexts } from "@stubwise/notifications";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { and, eq, sql } from "drizzle-orm";
@@ -210,6 +210,12 @@ export async function runChatTurn(
       if (call === null || call === opening.text) return buildChatMentionPrimingPrompt({ language, callerName, instancePermissions }, opening.text);
       return `${buildChatMentionPrimingPrompt({ language, callerName, instancePermissions }, call)}\n\n${buildChatMentionAnswerPrompt(callerName, opening.text)}`;
     };
+    // Lotto 8, voce 3: il gruppo dei contesti, con la visibilità dell'AUTORE:
+    // uno il cui progetto non vede più non entra nel prompt.
+    const authorContexts = async (): Promise<ClaudeConversationContext[]> => {
+      const group = conv.conversation.contextRefs.length > 0 ? conv.conversation.contextRefs : conv.conversation.contextRef ? [conv.conversation.contextRef] : [];
+      return visibleContexts(db, group, async (projectId) => (await projectPermissionsOfUser(db, ownerId, projectId)) !== null, { isAuthor: true });
+    };
     const priming = async () =>
       mention
         ? mentionPriming()
@@ -220,6 +226,7 @@ export async function runChatTurn(
           instancePermissions: await instancePermissionsOfUser(db, ownerId),
           authorName: conv.displayName?.trim() || conv.email.split("@")[0]!,
           context: (conv.conversation.contextRef as ClaudeConversationContext | null) ?? null,
+          contexts: await authorContexts(),
           toolsAvailable: true,
           recentTranscript: await recentTranscript(db, sid, opening.id),
           // La continuazione di una pubblica (F5.3): la prosa leggibile dell'originale.
@@ -278,7 +285,7 @@ export async function runChatTurn(
     };
 
     const stored = conv.conversation.cliSessionId;
-    const context = (conv.conversation.contextRef as ClaudeConversationContext | null) ?? null;
+    const context = await authorContexts();
     const firstPrompt =
       stored !== null
         ? mention

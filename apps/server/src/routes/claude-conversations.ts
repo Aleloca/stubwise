@@ -111,12 +111,14 @@ export async function claudeConversationRoutes(instance: FastifyInstance): Promi
       schema: {
         params: idParams,
         body: patchClaudeConversationSchema,
-        response: { 200: claudeConversationSchema, 404: errorSchema, ...authErrorResponses },
+        response: { 200: claudeConversationSchema, 404: errorSchema, 422: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
       const updated = await patchClaudeConversation(app.db, request.user!, request.params.id, request.body);
       if (!updated) return apiError(reply, 404, "not_found", "Conversation not found");
+      // Lotto 8, voce 3: il gruppo dei contesti ha un tetto.
+      if ("error" in updated) return apiError(reply, 422, "too_many_contexts", "At most 5 contexts per conversation");
       return updated;
     },
   );
