@@ -5,6 +5,8 @@ import type { RegisterResult, UploadResult } from "../main/apiUpload";
 import type { StreamPortMessage } from "../main/apiStream";
 import type { SaveFileRequest, SaveFileResult } from "../main/security";
 import type { SessionChange } from "../main/browserLogin";
+import type { UnlockResult, VaultStatus } from "../main/vaultLock";
+import type { PairingCode } from "../main/vaultPairing";
 
 type ResolvedTheme = "light" | "dark";
 type MenuChannel = "menu:search" | "menu:preferences" | "menu:ask-claude" | "menu:undo" | "menu:redo";
@@ -134,6 +136,34 @@ contextBridge.exposeInMainWorld("stubwise", {
       ipcRenderer.invoke("session:status"),
   },
   openWeb: (path: string): Promise<{ ok: boolean }> => ipcRenderer.invoke("open:web", path),
+  // Lotto 10: la cassaforte del main. Esiti e stato (con l'impronta della
+  // chiave del dispositivo), MAI la chiave.
+  vault: {
+    status: (): Promise<VaultStatus> => ipcRenderer.invoke("vault:status"),
+    unlock: (): Promise<UnlockResult> => ipcRenderer.invoke("vault:unlock"),
+    lock: (): Promise<{ ok: boolean }> => ipcRenderer.invoke("vault:lock"),
+    /** «Dimentica questo Mac»: `remote: false` se il server non ha risposto. */
+    forget: (): Promise<{ ok: true; remote: boolean } | { ok: false; code: string }> =>
+      ipcRenderer.invoke("vault:forget"),
+    /** Apre l'associazione nel browser; l'impronta da confrontare. L'esito arriva con `onPaired`. */
+    pairStart: (): Promise<{ ok: true; fingerprint: string } | { ok: false; code: PairingCode }> =>
+      ipcRenderer.invoke("vault:pair-start"),
+    pairCancel: (): Promise<{ ok: boolean }> => ipcRenderer.invoke("vault:pair-cancel"),
+    onChanged: (cb: (status: VaultStatus) => void): (() => void) => {
+      const handler = (_event: unknown, status: VaultStatus) => cb(status);
+      ipcRenderer.on("vault:changed", handler);
+      return () => {
+        ipcRenderer.removeListener("vault:changed", handler);
+      };
+    },
+    onPaired: (cb: (result: { ok: true } | { ok: false; code: PairingCode }) => void): (() => void) => {
+      const handler = (_event: unknown, result: { ok: true } | { ok: false; code: PairingCode }) => cb(result);
+      ipcRenderer.on("vault:paired", handler);
+      return () => {
+        ipcRenderer.removeListener("vault:paired", handler);
+      };
+    },
+  },
   google: {
     /** Lotto 4, §6: lo state del ritorno dal consenso di Google (`stubwise://google`). */
     prepareConnect: (): Promise<{ ok: true; state: string } | { ok: false }> =>

@@ -16,6 +16,8 @@ export const HKDF_INFO = {
   unlock: "stubwise/vault/v1/unlock",
   /** Chiave di wrapping: HKDF(ECDH effimera-statica) → AES-256-GCM che cifra la chiave d'oggetto. */
   wrap: "stubwise/vault/v1/wrap",
+  /** Sigillo del dispositivo: HKDF(ECDH effimera-statica verso il Mac) → AES-256-GCM che cifra la privata di persona. */
+  deviceSeal: "stubwise/vault/v1/device-seal",
 } as const;
 
 /**
@@ -94,8 +96,8 @@ export function randomIv(): Uint8Array<ArrayBuffer> {
 /** Prefisso dell'AAD del sigillo; segue lo SHA-256 del punto pubblico (65 byte, `raw`). */
 const SEAL_AAD_PREFIX = "stubwise/vault/v1/seal:";
 
-/** Il punto pubblico non compresso (65 byte), dalla pubblica JWK. */
-async function rawPublicPoint(publicKey: string): Promise<Uint8Array<ArrayBuffer>> {
+/** Il punto pubblico non compresso (65 byte), dalla pubblica JWK. Interna al package (non in `index.ts`). */
+export async function rawPublicPoint(publicKey: string): Promise<Uint8Array<ArrayBuffer>> {
   return new Uint8Array(await subtle().exportKey("raw", await importPublicKey(publicKey)));
 }
 
@@ -119,7 +121,7 @@ async function sealAad(publicKey: string): Promise<Uint8Array<ArrayBuffer>> {
  * attimo come estraibile per leggerne il punto pubblico (`x`, `y` del JWK) e
  * lo si confronta con quello di `publicKey`. Lancia se non coincidono.
  */
-async function assertPairMatches(pkcs8: Uint8Array<ArrayBuffer>, publicKey: string): Promise<void> {
+export async function assertPairMatches(pkcs8: Uint8Array<ArrayBuffer>, publicKey: string): Promise<void> {
   const privateKey = await subtle().importKey("pkcs8", pkcs8, ECDH, true, ["deriveBits"]);
   const jwk = await subtle().exportKey("jwk", privateKey);
   const expected = JSON.parse(await exportPublicKey(await importPublicKey(publicKey))) as JsonWebKey;
@@ -148,8 +150,8 @@ export async function sealPrivateKey(prfOutput: ArrayBuffer, pkcs8: Uint8Array, 
   }
 }
 
-/** Decifra il sigillo (AAD della pubblica) e verifica la coppia; la pkcs8 resta al chiamante da azzerare. */
-async function unsealPkcs8(prfOutput: ArrayBuffer, sealed: string, publicKey: string): Promise<Uint8Array<ArrayBuffer>> {
+/** Decifra il sigillo (AAD della pubblica) e verifica la coppia; la pkcs8 resta al chiamante da azzerare. Interna al package (`device-seal.ts`), non in `index.ts`. */
+export async function unsealPkcs8(prfOutput: ArrayBuffer, sealed: string, publicKey: string): Promise<Uint8Array<ArrayBuffer>> {
   const { iv, ct } = parseEnvelope(sealed, ["iv", "ct"]);
   const key = await hkdfAesKey(prfOutput, HKDF_INFO.unlock);
   const pkcs8 = new Uint8Array(

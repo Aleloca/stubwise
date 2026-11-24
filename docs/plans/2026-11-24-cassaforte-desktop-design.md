@@ -55,7 +55,7 @@ Perché così e non la privata di persona direttamente nel portachiavi:
   portachiavi) non dà la privata di persona.
 
 Primitive: la coppia del dispositivo e l'avvolgimento entrano in
-`@stubwise/vault-crypto` (funzioni nuove, `wrapDeviceSeal`/`openDeviceSeal`,
+`@stubwise/vault-crypto` (funzioni nuove: `generateDeviceKeyPair`, `importDeviceKey`, `sealForDevice` — nel browser, dal sigillo della passkey e dal suo PRF, così la privata in chiaro non esce mai dal package — e `openDeviceSeal`;
 con gli stessi test di formato delle altre buste); il main le usa da Node.
 
 ## 2. Dove sta la chiave sul Mac
@@ -132,8 +132,8 @@ con gli stessi test di formato delle altre buste); il main le usa da Node.
 
 - **«Dimentica questo Mac»** (Impostazioni → Sicurezza, nel desktop):
   cancella `vault-device.bin` e la privata in memoria, e toglie il PROPRIO
-  sigillo sul server; il login resta (dal browser, invece, togliere un Mac
-  revoca anche il suo PAT: §8, D-5). Se il server non risponde, il locale si
+  sigillo sul server; il login resta (anche dal browser togliere un Mac
+  toglie solo il sigillo: §8, D-5). Se il server non risponde, il locale si
   cancella comunque e l'app lo dice: il sigillo resta finché non lo toglie il
   browser (§8).
 - **Logout**: come sopra (§4), sempre.
@@ -156,7 +156,7 @@ Una tabella nuova, `vault_device_seals`:
 | `user_id` | fk `users`, cascata | di chi è |
 | `person_key_id` | fk `vault_person_keys`, cascata | la chiave di persona sigillata (solo `confirmed`) |
 | `pat_id` | fk `personal_access_tokens`, cascata | il PAT `desktop` a cui è legato |
-| `device_public_key` | text | la pubblica P-256 del dispositivo (non compressa, base64url) |
+| `device_public_key` | text | la pubblica P-256 del dispositivo, in JWK coi soli campi pubblici, come le pubbliche di persona |
 | `seal` | text | la busta opaca `{ v: 1, … }`: la privata di persona avvolta per la pubblica del dispositivo, AAD `device-seal:` ‖ personKeyId ‖ deviceId |
 | `device_name` | text | quello che dice il main («MacBook Pro di Ada»), solo per l'elenco |
 | `created_at`, `last_used_at`, `revoked_at` | timestamptz | |
@@ -272,11 +272,12 @@ Come il login (`browserLogin.ts`), con il passo di 72 (§6.2):
   vivi: nome, impronta della pubblica, creato, ultimo uso. In Impostazioni →
   Sicurezza, accanto alle passkey.
 - **Togliere un Mac dal browser** (`DELETE /api/vault/device-seals/:id`, sessione,
-  riconferma): `revoked_at`, **e revoca anche il PAT desktop legato** (un Mac
-  perso non deve restare connesso a Stubwise col login, oltre che senza
-  cassaforte). Registro e avviso.
+  riconferma): `revoked_at` sul SOLO sigillo; il PAT desktop legato resta
+  (decisione D-5: il Mac resta collegato a Stubwise ma non apre più la
+  cassaforte; il login si toglie da Impostazioni → token, come oggi).
+  Registro e avviso.
 - **Mac perso, senza il browser a portata**: un full admin può togliere i sigilli
-  e i PAT desktop di una persona (Utenti → la persona → Dispositivi), con la
+  di una persona (D-6; il solo sigillo, come D-5) (Utenti → la persona → Dispositivi), con la
   riconferma, registro e avviso alla persona — lo stesso schema di «admin che
   azzera un pari grado» del secondo fattore.
 - **Revoche implicite, applicate a LETTURA** (come la revoca dei lettori,
@@ -351,16 +352,25 @@ Perché resta accettabile:
   dimentica (come nel browser).
 - Un Mac associato e perso: finché non si revoca (§8), chi lo apre con la
   password di login dell'utente apre la cassaforte.
+- Togliere un Mac dalla cassaforte (D-5) non lo scollega da Stubwise: chi ha
+  quel Mac vede ancora ciò che il login gli dà fuori dalla cassaforte, finché
+  qualcuno non revoca il suo PAT desktop (Impostazioni → token).
 
-## 12. Da decidere (per il maintainer)
+## 12. Da decidere (per il maintainer) — DECISO il 24 nov 2026
 
-| # | Domanda | Raccomandazione |
-|---|---|---|
-| D-1 | Lo sblocco dal desktop chiede qualcosa (Touch ID, `systemPreferences.promptTouchID`) o è davvero automatico? | **Touch ID alla riapertura** (dopo stop, blocco schermo o 15 minuti), automatico solo all'avvio subito dopo l'associazione. Restringe il limite di §11 (un programma ostile non passa il Touch ID) e costa un tocco. **È una proposta contro la lettera della decisione**: cambia «si sblocca da solo» in «con un tocco, dopo una pausa». Se il maintainer vuole «da solo» alla lettera: automatico sempre, e il limite resta. |
-| D-2 | La chiusura in memoria dopo quanto? | **15 minuti senza usarla**, più stop/blocco dello schermo. |
-| D-3 | Quanti Mac per persona? | **Senza tetto**, ognuno nell'elenco con nome e ultima apertura, revocabile. |
-| D-4 | Secure Enclave quando l'app sarà firmata? | **Sì**, voce nel registro dei rimandi. |
-| D-5 | Togliere un Mac dal browser revoca anche il suo PAT desktop (il login), o solo il sigillo? | **Anche il PAT**: un Mac perso non deve restare connesso. |
-| D-6 | Un full admin può togliere i Mac di un'altra persona (Mac perso, persona senza browser)? | **Sì**, con riconferma, registro e avviso alla persona, come l'azzeramento del secondo fattore. |
-| D-7 | Dal desktop col sigillo si può condividere e confermare (con la prova della propria chiave), o solo leggere? | **Sì, tutto ciò che fa il browser a cassaforte aperta**, salvo attivare, recupero, kit e chiavi di persona (la decisione del 10 nov: «dal desktop tutto»). |
-| D-8 | Il `reveal` dal desktop si distingue nel registro degli accessi (`via: "desktop"`)? | **Sì**: chi guarda il registro deve sapere da dove si è letta una password. |
+*Il maintainer ha approvato il design il 24 nov 2026 e ha deciso D-1, D-5,
+D-6 e D-7; D-2, D-3, D-4 e D-8 li ha decisi 46 con le raccomandazioni.
+**D-5 è diverso dalla raccomandazione.***
+
+| # | Domanda | Raccomandazione | Decisione (24 nov 2026) |
+|---|---|---|---|
+| D-1 | Lo sblocco dal desktop chiede qualcosa (Touch ID, `systemPreferences.promptTouchID`) o è davvero automatico? | **Touch ID alla riapertura** (dopo stop, blocco schermo o 15 minuti), automatico solo all'avvio subito dopo l'associazione. Restringe il limite di §11 (un programma ostile non passa il Touch ID) e costa un tocco. **È una proposta contro la lettera della decisione**: cambia «si sblocca da solo» in «con un tocco, dopo una pausa». Se il maintainer vuole «da solo» alla lettera: automatico sempre, e il limite resta. | **Touch ID alla riapertura**, come raccomandato (maintainer). |
+| D-1a | Un Mac senza Touch ID (`canPromptTouchID()` falso)? | — | **La cassaforte si riapre dal browser con la passkey, il sigillo resta**; il desktop dice «Apri la cassaforte dal browser» (maintainer, scelta (a), 24 nov 2026). |
+| D-1b | Quando si chiede il tocco? | — | **Senza tocco solo la prima apertura subito dopo l'associazione**; poi ogni riapertura lo chiede, anche al riavvio dell'app (maintainer, 24 nov 2026). |
+| D-2 | La chiusura in memoria dopo quanto? | **15 minuti senza usarla**, più stop/blocco dello schermo. | **15 minuti**, più stop e blocco dello schermo (46). |
+| D-3 | Quanti Mac per persona? | **Senza tetto**, ognuno nell'elenco con nome e ultima apertura, revocabile. | **Nessun tetto** (46). |
+| D-4 | Secure Enclave quando l'app sarà firmata? | **Sì**, voce nel registro dei rimandi. | **Sì**, voce nel registro dei rimandi (46). |
+| D-5 | Togliere un Mac dal browser revoca anche il suo PAT desktop (il login), o solo il sigillo? | **Anche il PAT**: un Mac perso non deve restare connesso. | **Solo il sigillo** (maintainer, DIVERSA dalla raccomandazione): il Mac resta collegato a Stubwise ma non apre più la cassaforte; il PAT desktop non si tocca. |
+| D-6 | Un full admin può togliere i Mac di un'altra persona (Mac perso, persona senza browser)? | **Sì**, con riconferma, registro e avviso alla persona, come l'azzeramento del secondo fattore. | **Sì**, con riconferma, registro e avviso alla persona (maintainer); il solo sigillo, come D-5. |
+| D-7 | Dal desktop col sigillo si può condividere e confermare (con la prova della propria chiave), o solo leggere? | **Sì, tutto ciò che fa il browser a cassaforte aperta**, salvo attivare, recupero, kit e chiavi di persona (la decisione del 10 nov: «dal desktop tutto»). | **Tutto come il browser**, salvo attivazione, recupero, kit e chiavi di persona (maintainer). |
+| D-8 | Il `reveal` dal desktop si distingue nel registro degli accessi (`via: "desktop"`)? | **Sì**: chi guarda il registro deve sapere da dove si è letta una password. | **Sì**, `via: "desktop"` nel registro degli accessi (46). |

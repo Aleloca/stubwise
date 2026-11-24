@@ -57,6 +57,22 @@ export function isAllowedApiPath(path: unknown): path is string {
   return true;
 }
 
+/**
+ * Lotto 10, design §3: le rotte della cassaforte con la privata di persona
+ * (tutto `/api/vault/*` e il `reveal` di una credenziale) passano SOLO dai
+ * canali `vault:*` del main. Sul percorso DECODIFICATO e senza maiuscole: un
+ * `%76ault` è lo stesso percorso per il server.
+ */
+export function isVaultOnlyPath(path: string): boolean {
+  let p: string;
+  try {
+    p = decodeURIComponent(path.split("?")[0]!).toLowerCase();
+  } catch {
+    return true;
+  }
+  return p === "/api/vault" || p.startsWith("/api/vault/") || /^\/api\/credentials\/[^/]+\/reveal\/?$/.test(p);
+}
+
 function parseRequest(raw: unknown): ApiProxyRequest | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
@@ -152,6 +168,7 @@ export interface ApiProxyDeps {
 export async function handleApiRequest(raw: unknown, deps: ApiProxyDeps): Promise<ApiProxyResponse> {
   const req = parseRequest(raw);
   if (!req) return fail(400, "invalid_request");
+  if (isVaultOnlyPath(req.path)) return fail(403, "vault_via_main");
   const base = deps.instanceUrl();
   if (!base) return fail(400, "no_instance");
   const token = deps.token();

@@ -42,6 +42,30 @@ describe("proxy delle richieste API", () => {
     expect(d.fetch).not.toHaveBeenCalled();
   });
 
+  // Lotto 10, design §3: le rotte della cassaforte passano SOLO dai canali
+  // `vault:*` del main (che tiene la privata); un renderer compromesso non le
+  // costruisce da sé. Anche scritte in un altro modo.
+  it("la cassaforte non passa dal proxy: `/api/vault/*` e il `reveal` di una credenziale", async () => {
+    for (const path of [
+      "/api/vault/device-seals/mine",
+      "/api/vault/actor-challenge",
+      "/api/VAULT/settings",
+      "/api/%76ault/settings",
+      "/api/credentials/11111111-1111-4111-8111-111111111111/reveal",
+      "/api/credentials/11111111-1111-4111-8111-111111111111/Reveal?x=1",
+      "/api/credentials/11111111-1111-4111-8111-111111111111/%72eveal",
+    ]) {
+      const d = deps();
+      const res = await handleApiRequest({ method: "POST", path }, d);
+      expect(res.status, path).toBe(403);
+      expect(d.fetch, path).not.toHaveBeenCalled();
+    }
+    // L'elenco delle credenziali (in chiaro, senza password) sì.
+    const d = deps();
+    await handleApiRequest({ method: "GET", path: "/api/credentials" }, d);
+    expect(d.fetch).toHaveBeenCalled();
+  });
+
   it("accetta i percorsi /api/ con la query", () => {
     expect(isAllowedApiPath("/api/tasks?families=todo,active&q=a%20b")).toBe(true);
   });
