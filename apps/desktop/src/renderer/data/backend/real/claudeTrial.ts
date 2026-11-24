@@ -6,7 +6,7 @@ import {
   type SimulationExample,
 } from "@stubwise/shared";
 import type { ConversationEvent, TrialOutcome, Utterance } from "../../types";
-import { liveAutomations } from "./automationsLive";
+import { liveAutomations, trialWrittenExamples } from "./automationsLive";
 import { session } from "./client";
 import { listPeople } from "./people";
 
@@ -43,6 +43,14 @@ export interface TrialDeps {
   automationIdOf(code: string): Promise<string | null>;
   draftTrigger(automationId: string): Promise<AutomationTrigger>;
   listExamples(automationId: string): Promise<SimulationExample[]>;
+  /**
+   * Lotto 6, voce 5 (72, f7964e643): gli esempi scritti dalla regola
+   * deterministica del server, per quando non ce n'è uno vero (`written` di
+   * `GET …/examples`; assente da un server di prima). Nessun modello li scrive.
+   */
+  writtenExamples?(
+    automationId: string,
+  ): Promise<{ passes: Record<string, unknown> | null; fails: Record<string, unknown> | null } | null>;
   start(automationId: string, event: Record<string, unknown>): Promise<string>;
   step(simId: string): Promise<TrialSim>;
   get(simId: string): Promise<TrialSim | null>;
@@ -117,20 +125,37 @@ export function createTrialRunner(
           deps.draftTrigger(automationId),
           deps.listExamples(automationId),
         ]);
-        const passes = examples.find((e) => passesStartFilter(trigger, e.event));
+        const written = (await deps.writtenExamples?.(automationId)) ?? null;
+        /** Uno scritto, solo se sta davvero dalla parte giusta del filtro (I1 del prototipo). */
+        const writtenOn = (event: Record<string, unknown> | null | undefined, passes: boolean) =>
+          event && passesStartFilter(trigger, event) === passes ? { event } : undefined;
+        type Pick = { event: Record<string, unknown>; real?: SimulationExample };
+        const asReal = (e: SimulationExample | undefined): Pick | undefined =>
+          e ? { event: e.event, real: e } : undefined;
+        const passes =
+          asReal(examples.find((e) => passesStartFilter(trigger, e.event))) ??
+          writtenOn(written?.passes, true);
         const fails = hasFilter(trigger)
-          ? examples.find((e) => !passesStartFilter(trigger, e.event))
+          ? (asReal(examples.find((e) => !passesStartFilter(trigger, e.event))) ??
+            writtenOn(written?.fails, false))
           : undefined;
         const results: TrialResult[] = [];
-        for (const e of [passes, fails]) {
+        for (const e of [passes, fails] as (Pick | undefined)[]) {
           if (!e) continue;
           const simId = await deps.start(automationId, e.event);
           const view = await advance(deps, simId);
           if (!view) continue;
           results.push({
             ...outcomeOf(simId, view, visible),
-            label: { key: "claude.trial.example", params: { code: e.code ?? "", title: e.label } },
-            written: false,
+            ...(e.real
+              ? {
+                  label: {
+                    key: "claude.trial.example",
+                    params: { code: e.real.code ?? "", title: e.real.label },
+                  },
+                  written: false,
+                }
+              : { label: { key: "claude.trial.exampleWritten" }, written: true }),
           });
         }
         const first = passes ? (results[0] ?? null) : null;
@@ -168,6 +193,7 @@ function liveRunner() {
       return last.flow.trigger as AutomationTrigger;
     },
     listExamples: (id) => liveAutomations.listSimulationExamples(id, "draft"),
+    writtenExamples: async (id) => trialWrittenExamples(id),
     start: (id, event) => liveAutomations.startSimulation(id, "draft", event),
     step: (simId) => liveAutomations.simulationStep(simId, { kind: "next" }) as Promise<TrialSim>,
     get: (simId) => liveAutomations.getSimulation(simId) as Promise<TrialSim | null>,

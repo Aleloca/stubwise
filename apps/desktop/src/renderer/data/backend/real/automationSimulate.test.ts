@@ -134,6 +134,23 @@ function fakeApi(ctx: SimulationContext) {
 }
 
 describe("la prova nella build app", () => {
+  // Lotto 6, voce 5 (72, f7964e643): gli esempi scritti della lettura restano
+  // per la prova di Claude; un server di prima (senza `written`) dà null.
+  it("ricorda gli esempi scritti dell'ultima lettura degli esempi", async () => {
+    const { api } = fakeApi(context([task(), notify]));
+    const plain = createRealSimulation(api);
+    expect(plain.writtenExamples("a-1", "draft")).toBeNull();
+    await plain.listSimulationExamples("a-1", "draft");
+    expect(plain.writtenExamples("a-1", "draft")).toBeNull();
+    const written = { passes: { task: { titolo: "x" } }, fails: null };
+    const withWritten = createRealSimulation({
+      ...api,
+      examples: async (id, v) => ({ ...(await api.examples(id, v)), written }),
+    });
+    await withWritten.listSimulationExamples("a-1", "draft");
+    expect(withWritten.writtenExamples("a-1", "draft")).toEqual(written);
+  });
+
   it("una prova completa: le anteprime dai fatti del server, e solo GET esempi più /tested con la rev", async () => {
     const { api, calls } = fakeApi(context([task(), notify]));
     const s = createRealSimulation(api);

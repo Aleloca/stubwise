@@ -335,12 +335,15 @@ export function createRealSimulation(api: SimulationApi) {
   const trials = new Map<string, Trial>();
   /** L'ultimo contesto letto per (automazione, versione): gli esempi e l'inizio della prova lo condividono. */
   const contexts = new Map<string, SimulationContext>();
+  /** Gli esempi scritti dell'ultima lettura (lotto 6, voce 5), per la prova di Claude. */
+  const writtens = new Map<string, SimulationExamplesView["written"] | null>();
   let seq = 0;
   const key = (automationId: string, version: number | "draft") => `${automationId}:${version}`;
 
   async function load(automationId: string, version: number | "draft") {
     const view = await api.examples(automationId, version);
     contexts.set(key(automationId, version), view.context);
+    writtens.set(key(automationId, version), view.written ?? null);
     return view;
   }
 
@@ -387,6 +390,11 @@ export function createRealSimulation(api: SimulationApi) {
   }
 
   return {
+    /** Gli esempi scritti dall'ultima lettura degli esempi; `null` se non c'erano (o un server di prima). */
+    writtenExamples(automationId: string, version: number | "draft") {
+      return writtens.get(key(automationId, version)) ?? null;
+    },
+
     async listSimulationExamples(
       automationId: string,
       version: number | "draft",

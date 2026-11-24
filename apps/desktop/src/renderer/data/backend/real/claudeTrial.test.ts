@@ -105,6 +105,39 @@ describe("la prova di Claude nella build app", () => {
     ]);
   });
 
+  // Lotto 6, voce 5 (72, f7964e643): senza un esempio vero, quelli scritti
+  // dalla regola deterministica del server (`written`), etichettati «Example
+  // written by Claude». Uno che non sta dalla parte giusta del filtro si
+  // scarta (I1 del prototipo): la prova non dice ciò che il dato non dimostra.
+  it("senza esempi veri: quelli scritti dal server, verificati col filtro", async () => {
+    const passing = { richiesta: { urgenza: "urgent" } };
+    const failing = { richiesta: { urgenza: "low" } };
+    const { d, started } = deps({
+      examples: [],
+      writtenExamples: async () => ({ passes: passing, fails: failing }),
+    });
+    const out = (await createTrialRunner(d).run("AUD-A3")) as Done;
+    expect(started).toEqual([passing, failing]);
+    expect(out.results).toEqual([
+      expect.objectContaining({ label: { key: "claude.trial.exampleWritten" }, written: true }),
+      expect.objectContaining({ label: { key: "claude.trial.exampleWritten" }, written: true }),
+    ]);
+    // Dalla parte sbagliata (un «passa» che il filtro ferma): scartato.
+    const wrong = deps({
+      examples: [],
+      writtenExamples: async () => ({ passes: failing, fails: null }),
+    });
+    expect(((await createTrialRunner(wrong.d).run("AUD-A3")) as Done).results).toEqual([]);
+    expect(wrong.started).toEqual([]);
+    // Un esempio vero che passa vince su quello scritto.
+    const real = deps({
+      examples: [example("AUD-R2", "urgent")],
+      writtenExamples: async () => ({ passes: passing, fails: failing }),
+    });
+    await createTrialRunner(real.d).run("AUD-A3");
+    expect(real.started).toEqual([example("AUD-R2", "urgent").event, failing]);
+  });
+
   it("senza filtro nell'inizio: solo l'esempio che passa", async () => {
     const { d, started } = deps({ trigger: noFilter });
     const out = (await createTrialRunner(d).run("AUD-A3")) as Done;
