@@ -8,10 +8,10 @@ import { CLAUDE_CATALOG, isCatalogFn } from "./catalog";
 // può proporre (`CLAUDE_PROPOSABLE_FNS`) e del permesso d'istanza di una voce
 // (`CLAUDE_INSTANCE_PERMISSION`, la stessa mappa che toglie al modello le voci
 // che chi chiede non può proporre). Il prototipo ha anche voci che il server
-// non ha ancora (aree 10 e 11), e tre dell'area 9 che il server non esegue
-// (registro dei rimandi: `setAttachments`, `setDefaultReviewer`; e
-// `saveStorage`, dalla review di F7: endpoint e bucket decidono dove vanno gli
-// allegati, come l'URL di un webhook).
+// non ha ancora (aree 10 e 11). Le tre dell'area 9 che il server non
+// eseguiva le esegue tutte: `setDefaultReviewer` e `setAttachments` dal lotto
+// 6, `saveStorage` dal lotto 10 (decisione del maintainer: la riconferma solo
+// se cambiano endpoint o bucket, decisa per campo dal server).
 
 describe("il catalogo di Claude: prototipo e server", () => {
   it("ogni voce che il server propone c'è nel prototipo, tranne le tre che lì passano da un'altra strada", () => {
@@ -24,11 +24,10 @@ describe("il catalogo di Claude: prototipo e server", () => {
     );
   });
 
-  it("le voci dell'area 9 che il server non esegue sono solo del prototipo (`setDefaultReviewer` e `setAttachments` le esegue dal lotto 6)", () => {
-    for (const fn of ["setDefaultReviewer", "setAttachments"]) expect((CLAUDE_PROPOSABLE_FNS as readonly string[]).includes(fn), fn).toBe(true);
-    for (const fn of ["saveStorage"]) {
+  it("le voci dell'area 9 che il server non eseguiva le esegue tutte (lotto 6 e, `saveStorage`, lotto 10)", () => {
+    for (const fn of ["setDefaultReviewer", "setAttachments", "saveStorage"]) {
       expect(isCatalogFn(fn), fn).toBe(true);
-      expect((CLAUDE_PROPOSABLE_FNS as readonly string[]).includes(fn), fn).toBe(false);
+      expect((CLAUDE_PROPOSABLE_FNS as readonly string[]).includes(fn), fn).toBe(true);
     }
   });
 

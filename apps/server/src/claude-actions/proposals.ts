@@ -33,7 +33,7 @@ import { monthlyBudgetExhausted } from "../services/agent-sessions.js";
 import { readerCut, recordConversationProjects } from "../services/claude-public.js";
 import type { ActionEffects } from "./effects.js";
 import { canFillField } from "../services/claude-field-access.js";
-import { declaredClassOf, parseArgs } from "./catalog.js";
+import { parseArgs, reauthOf } from "./catalog.js";
 import { actionLabels } from "./labels.js";
 import { classOfGroup, executeGroup, RECLASSIFIED, type ExecuteResult, type PlannedAction } from "./execute.js";
 import { undoGroup, undoStateOf } from "./undo.js";
@@ -386,14 +386,17 @@ export async function proposalView(
   // Area 9, F7 (M-3 = a): la conferma chiede la riconferma se il gruppo
   // (o l'inverso, per un «Annulla» da confermare) ha una C.
   const reauthPlan = row.undoOfGroupId ? ((await undoInversesOf(db, user, row.undoOfGroupId)) ?? actions) : actions;
-  const needsReauth = reauthPlan.some((a) => declaredClassOf(a.fn) === "C");
+  // Lotto 10, voce 1: la riconferma decisa per campo (`reauthOf`), non solo per voce.
+  const reauthEach = await Promise.all(reauthPlan.map((a) => reauthOf(db, a.fn, a.args)));
+  const needsReauth = reauthEach.some(Boolean);
+  const actionReauth = await Promise.all(actions.map((a) => reauthOf(db, a.fn, a.args)));
   if (needsReauth) cls = "C";
   const labels = await actionLabels(db, user, actions);
   return {
     id: row.id,
     sessionId: row.sessionId,
     // Area 9, F7: la riconferma anche PER AZIONE, per «Conferma 2 di 3» (una C non scelta non la chiede).
-    actions: actions.map((a, i) => ({ fn: a.fn, args: a.args, reauth: declaredClassOf(a.fn) === "C", labels: labels[i]! })),
+    actions: actions.map((a, i) => ({ fn: a.fn, args: a.args, reauth: actionReauth[i]!, labels: labels[i]! })),
     summary: row.summary,
     cls,
     reasons,
@@ -525,7 +528,7 @@ export async function groupViewOf(db: Db, user: SessionUser, g: typeof claudeAct
           : "not_undoable",
       changedBy: undo.state === "changed_after" ? undo.byUserId : null,
       undoneAt: g.undoneAt?.toISOString() ?? null,
-      undoReauth: undo.state === "available" && undo.inverses.some((a) => declaredClassOf(a.fn) === "C"),
+      undoReauth: undo.state === "available" && (await Promise.all(undo.inverses.map((a) => reauthOf(db, a.fn, a.args)))).some(Boolean),
     };
   }
 }
@@ -600,7 +603,7 @@ export async function confirmProposal(
   // `proposalView`: altrimenti la riconferma si salterebbe e `undoGroup` li
   // eseguirebbe lo stesso, se intanto lo stato tornasse «available».
   const reauthPlan = row.undoOfGroupId ? ((await undoInversesOf(db, user, row.undoOfGroupId)) ?? baseActions) : selected.map((i) => baseActions[i]!);
-  if (reauthPlan.some((a) => declaredClassOf(a.fn) === "C") && !(opts.reauth && (await opts.reauth()))) {
+  if ((await Promise.all(reauthPlan.map((a) => reauthOf(db, a.fn, a.args)))).some(Boolean) && !(opts.reauth && (await opts.reauth()))) {
     return { ok: false, error: "reauth_required" };
   }
   // Una sola conferma: la riga si reclama prima di eseguire.

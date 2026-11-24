@@ -28,7 +28,7 @@ import type { ClaudeActionFn } from "@stubwise/shared";
 import { and, asc, desc, eq, gt, inArray, isNull, notInArray, or, sql, type SQL } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
 import type { SessionUser } from "../auth/session.js";
-import { declaredClassOf, type ActionObject } from "./catalog.js";
+import { reauthOf, type ActionObject } from "./catalog.js";
 import type { ActionEffects } from "./effects.js";
 import { executeGroup, inverseAsksConfirmation, RECLASSIFIED, type ExecuteResult, type PlannedAction } from "./execute.js";
 
@@ -266,7 +266,9 @@ export async function undoGroup(
     // Area 9, F7: un inverso C (togliere o rimettere un membro…) chiede SEMPRE
     // una scheda, e la sua conferma la riconferma: un «Annulla» diretto
     // scavalcherebbe la riconferma.
-    if (inverseAsksConfirmation(dry) || state.inverses.some((a) => declaredClassOf(a.fn) === "C")) {
+    // Lotto 10, voce 1: la riconferma decisa per campo (`reauthOf`: un inverso di
+    // `saveStorage` che rimette un altro endpoint o bucket la chiede).
+    if (inverseAsksConfirmation(dry) || (await Promise.all(state.inverses.map((a) => reauthOf(db, a.fn, a.args)))).some(Boolean)) {
       return { ok: true, kind: "needs_confirmation", inverses: state.inverses, notified: dry.notified };
     }
   }

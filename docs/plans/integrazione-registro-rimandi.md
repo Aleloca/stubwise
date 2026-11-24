@@ -1482,9 +1482,10 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   `CLAUDE_PROPOSABLE_FNS` c'è nel catalogo del prototipo (tranne
   `pageAction` e `fillMailBody`, che lì passano dalla pagina e dalla Posta),
   e il permesso d'istanza di una voce è `CLAUDE_INSTANCE_PERMISSION`.
-  Resta solo del prototipo
+  ~~Resta solo del prototipo
   `saveStorage` (`setDefaultReviewer` e `setAttachments` ci sono dal lotto 6) (dalla review di F7: endpoint e bucket decidono dove vanno
-  gli allegati), che il server non esegue (registro di 72).
+  gli allegati), che il server non esegue (registro di 72).~~ *Chiusa il 24
+  nov 2026 (72, lotto 10, voce 1)*: il server le esegue tutte.
 
 - **F1 renderer, ciò che resta** *(94, 16 nov 2026)*:
   - ~~gli autori git osservati arrivano dal server senza commit né progetti
@@ -1651,7 +1652,14 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     webhook è fuori dagli argomenti di `updateWebhook`. In più la lettura di
     Claude non mostra la chiave d'accesso, e gli argomenti obbligatori
     l'avrebbero azzerata. Se servirà: una C, o una patch senza endpoint e
-    bucket *(S, da decidere)*;
+    bucket *(S, da decidere)*; ~~(la voce)~~ *chiusa il 24 nov 2026 (72,
+    lotto 10, voce 1; decisione del maintainer)*: `saveStorage` è una PATCH
+    (un campo assente resta: la chiave d'accesso non si azzera), mai col
+    segreto (lo schema stretto lo rifiuta); classe B, e la riconferma la
+    chiede il server PER CAMPO (`reauthOf`) solo se cambiano endpoint o
+    bucket, nella vista, alla conferma e nell'«Annulla». Non esiste un campo
+    «prefisso» dell'archiviazione: il lato B è regione e chiave d'accesso.
+    Limite: l'«Annulla» di un campo che prima era vuoto non lo rimette vuoto.;
   - ~~Azioni di Claude, i Minor della review di F7 *(S ciascuno)*:
     - `changed_after` dei tipi `member`/`project`/`setting` legge il
       registro senza un lock: un salvataggio a mano che fa commit fra la
