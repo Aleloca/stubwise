@@ -25,6 +25,7 @@ import type {
   MailMessageView,
   MailSendResult,
   Project,
+  SendAsAddress,
 } from "../../data/types";
 import { placeDraft } from "../../domain/claude/intents/mailDraft";
 import { hasModKey, shortcutLabel } from "../../platform/platform";
@@ -503,6 +504,7 @@ export function Composer(props: ComposerProps) {
           </MenuButton>
         </div>
       )}
+      <FromField box={box} value={fields.from} onChange={(from) => setFields({ from })} />
       <RecipientField
         label={t("mail.compose.to")}
         value={fields.to}
@@ -858,6 +860,74 @@ export function Composer(props: ComposerProps) {
         </button>
       </header>
       {form}
+    </div>
+  );
+}
+
+/**
+ * Lotto 8, §2 (decisione del maintainer; scelte di 46): il «Da» — la casella
+ * e i suoi alias di Gmail, il predefinito per primo segnato. Solo quando c'è
+ * da scegliere; a una casella senza `gmail.modify` dice di ricollegarla.
+ */
+function FromField({
+  box,
+  value,
+  onChange,
+}: {
+  box: { email: string; sendAs?: SendAsAddress[]; sendAsStatus?: "present" | "scope_missing" } | undefined;
+  value: string | null;
+  onChange: (from: string | null) => void;
+}) {
+  const { t } = useTranslation();
+  if (!box) return null;
+  if (box.sendAsStatus === "scope_missing") {
+    return (
+      <p className="flex flex-wrap items-center gap-x-2 border-b border-rule px-3 py-1.5 text-xs text-ink-muted">
+        {t("mail.compose.from.reconnect")}
+        <button
+          type="button"
+          onClick={() => openGoogleAccount()}
+          className="font-medium text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
+        >
+          {t("mail.compose.from.reconnectAction")}
+        </button>
+      </p>
+    );
+  }
+  const options = box.sendAs ?? [];
+  if (options.length < 2) return null;
+  const current = value ?? options.find((a) => a.isDefault)?.email ?? box.email;
+  const label = (a: SendAsAddress) => (a.displayName ? `${a.displayName} <${a.email}>` : a.email);
+  const chosen = options.find((a) => a.email.toLowerCase() === current.toLowerCase());
+  return (
+    <div className="flex h-9 items-center gap-2 border-b border-rule px-3 text-sm">
+      <span className="shrink-0 text-ink-muted">{t("mail.compose.from.label")}</span>
+      <MenuButton
+        menuLabel={t("mail.compose.from.menu")}
+        ariaLabel={`${t("mail.compose.from.menu")}: ${chosen ? label(chosen) : current}`}
+        className="inline-flex h-6 min-w-0 items-center gap-1 rounded-md px-1.5 text-sm text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 aria-expanded:bg-ink/10"
+        label={
+          <>
+            <span className="truncate">{chosen ? label(chosen) : current}</span>
+            <Chevron />
+          </>
+        }
+      >
+        {(closeMenu) => (
+          <MenuGroup label={t("mail.compose.from.menu")}>
+            {options.map((a) => (
+              <RadioItem
+                key={a.email}
+                checked={a.email.toLowerCase() === current.toLowerCase()}
+                onSelect={() => (onChange(a.email), closeMenu())}
+              >
+                {label(a)}
+                {a.isDefault ? ` · ${t("mail.compose.from.default")}` : ""}
+              </RadioItem>
+            ))}
+          </MenuGroup>
+        )}
+      </MenuButton>
     </div>
   );
 }

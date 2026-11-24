@@ -6481,6 +6481,13 @@
       "replyToAll": "Rispondi a tutti ({{count}})",
       "modeMenu": "Tipo di risposta",
       "to": "A",
+      "from": {
+        "label": "Da",
+        "menu": "Invia da",
+        "default": "predefinito",
+        "reconnect": "Ricollega la casella per usare i tuoi alias.",
+        "reconnectAction": "Ricollega"
+      },
       "cc": "Cc",
       "subject": "Oggetto",
       "message": "Messaggio",

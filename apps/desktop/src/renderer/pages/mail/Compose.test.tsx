@@ -80,6 +80,34 @@ afterEach(() => {
 });
 
 describe("Rispondere in fondo alla conversazione", () => {
+  // Lotto 8, §2 (decisione del maintainer; scelte di 46): il «Da» elenca la
+  // casella e i suoi alias; una casella senza `gmail.modify` dice di
+  // ricollegarla.
+  it("il «Da»: parte dalla casella a cui era indirizzato; si sceglie l'alias e l'email parte da lì", async () => {
+    await openMail(`/mail/${CALL_NOTES()}`);
+    const p = await pane(CALL_NOTES());
+    await userEvent.click(within(p).getByRole("button", { name: "Reply" }));
+    const form = await composer("Reply to Matteo Conti");
+    const from = await within(form).findByRole("button", { name: /^Send from: Giulia/ });
+    await userEvent.click(from);
+    await userEvent.click(
+      await screen.findByRole("menuitemradio", { name: /Acquedotto accounts <accounts@acquedotto.example>/ }),
+    );
+    expect(
+      await within(form).findByRole("button", { name: /^Send from: Acquedotto accounts/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("una casella senza lo scope: «Reconnect the mailbox to use your aliases.»", async () => {
+    state.mailboxes.find((b) => b.personId === "p-giulia")!.sendAsStatus = "scope_missing";
+    await openMail(`/mail/${CALL_NOTES()}`);
+    const p = await pane(CALL_NOTES());
+    await userEvent.click(within(p).getByRole("button", { name: "Reply" }));
+    const form = await composer("Reply to Matteo Conti");
+    expect(await within(form).findByText("Reconnect the mailbox to use your aliases.")).toBeInTheDocument();
+    expect(within(form).getByRole("button", { name: "Reconnect" })).toBeInTheDocument();
+  });
+
   it("«Reply»: la casella in fondo con destinatario e oggetto, il fuoco nel corpo, il bottone segnato", async () => {
     await openMail(`/mail/${CALL_NOTES()}`);
     const p = await pane(CALL_NOTES());

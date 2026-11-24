@@ -6481,6 +6481,13 @@
       "replyToAll": "Reply to all ({{count}})",
       "modeMenu": "Reply type",
       "to": "To",
+      "from": {
+        "label": "From",
+        "menu": "Send from",
+        "default": "default",
+        "reconnect": "Reconnect the mailbox to use your aliases.",
+        "reconnectAction": "Reconnect"
+      },
       "cc": "Cc",
       "subject": "Subject",
       "message": "Message",

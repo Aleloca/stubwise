@@ -2552,6 +2552,22 @@ export interface Mailbox {
   proposalsEnabled: boolean;
   syncedAt: string;
   sync: "ok" | "syncing" | "failed";
+  /**
+   * Lotto 8, §2: gli indirizzi da cui si può scrivere — la casella e gli alias
+   * VERIFICATI di Gmail (send-as). Vuoto o assente: solo la casella.
+   */
+  sendAs?: SendAsAddress[];
+  /** `scope_missing`: la casella non ha `gmail.modify`, gli alias si usano ricollegandola. */
+  sendAsStatus?: "present" | "scope_missing";
+}
+
+/** Un indirizzo da cui scrivere: la casella stessa (`isPrimary`) o un alias di Gmail. */
+export interface SendAsAddress {
+  email: string;
+  displayName: string | null;
+  isPrimary: boolean;
+  /** Quello predefinito di Gmail: un'email nuova parte da lui. */
+  isDefault: boolean;
 }
 
 export type MailImportance = "high" | "normal" | "low";
@@ -2760,6 +2776,12 @@ export interface MailDraft {
    */
   signature?: string | null;
   signatureStatus?: "present" | "none" | "scope_missing";
+  /**
+   * Lotto 8, §2: l'indirizzo da cui parte (uno della casella: `sendAs`);
+   * `null` = il predefinito. Una risposta parte dall'alias a cui era
+   * indirizzato il messaggio, come Gmail.
+   */
+  from?: string | null;
   /** Build app: l'`updatedAt` del server (`null` = mai salvata), la base del salvataggio dopo. */
   serverUpdatedAt?: string | null;
 }

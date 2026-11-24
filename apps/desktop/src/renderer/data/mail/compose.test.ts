@@ -37,6 +37,56 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+// Lotto 8, §2 (decisione del maintainer, «Sì, con riconsenso»; scelte di 46):
+// si risponde anche da un alias di Gmail. La casella elenca i suoi indirizzi
+// (`sendAs`); una risposta parte dall'alias a cui era indirizzato il
+// messaggio; un `from` fuori elenco è `invalid: from`; gli alias non sono
+// mai fra i destinatari.
+describe("rispondere da un alias (send-as)", () => {
+  const ALIAS = "billing@studio.example";
+  const withAlias = () => {
+    const box = state.mailboxes.find((b) => b.personId === "p-giulia")!;
+    box.sendAs = [
+      { email: box.email, displayName: "Giulia Ferri", isPrimary: true, isDefault: true },
+      { email: ALIAS, displayName: "Studio billing", isPrimary: false, isDefault: false },
+    ];
+    return box;
+  };
+
+  it("la risposta parte dall'alias a cui era indirizzato il messaggio; senza, dall'indirizzo che l'ha ricevuto", async () => {
+    const box = withAlias();
+    const last = state.mailMessages.filter((m) => m.threadId === CALL_NOTES()).at(-1)!;
+    last.to = [{ email: ALIAS, name: "Studio billing", personId: null }];
+    expect((await mail.getDraft(CALL_NOTES(), "reply")).from).toBe(ALIAS);
+    last.to = [{ email: box.email, name: "Giulia", personId: "p-giulia" }];
+    expect((await mail.getDraft(CALL_NOTES(), "reply")).from).toBe(box.email);
+  });
+
+  it("si cambia il «Da» fra gli alias; uno fuori elenco no; gli alias non sono destinatari", async () => {
+    withAlias();
+    const draft = await mail.getDraft(CALL_NOTES(), "replyAll");
+    const saved = await mail.saveDraft({ ...draft, from: ALIAS });
+    expect(saved.from).toBe(ALIAS);
+    await expect(mail.saveDraft({ ...draft, from: "someone@else.example" })).rejects.toThrow(
+      "invalid: from",
+    );
+    const last = state.mailMessages.filter((m) => m.threadId === CALL_NOTES()).at(-1)!;
+    last.cc = [...(last.cc ?? []), { email: ALIAS, name: "Studio billing", personId: null }];
+    const again = await mail.getDraft(CALL_NOTES(), "replyAll");
+    expect([...again.to, ...again.cc].map((a) => a.email)).not.toContain(ALIAS);
+  });
+
+  it("l'email parte dall'alias scelto; tolto su Gmail nel frattempo, non parte", async () => {
+    const box = withAlias();
+    const saved = await mail.saveDraft({ ...(await mail.getDraft(CALL_NOTES(), "reply")), from: ALIAS });
+    box.sendAs = box.sendAs!.filter((a) => a.email !== ALIAS);
+    await expect(mail.sendDraft(saved.id)).rejects.toThrow("invalid: from");
+    withAlias();
+    await mail.sendDraft(saved.id);
+    expect(mySends().at(-1)!.from).toMatchObject({ email: ALIAS, name: "Studio billing" });
+  });
+});
+
 describe("Bozze: una per persona e conversazione", () => {
   it("Rispondi: destinatario, oggetto e messaggio a cui risponde; nulla salvato finché non si salva", async () => {
     const draft = await mail.getDraft(CALL_NOTES(), "reply");
