@@ -165,6 +165,8 @@ declare module "fastify" {
      * da registrare sul provider git.
      */
     publicUrl: string;
+    /** Lotto 10: la cassaforte dal desktop è accesa (`VAULT_DESKTOP`, BuildAppOptions.vaultDesktop). */
+    vaultDesktop: boolean;
     /**
      * Risolve l'ObjectStorage attivo a runtime dalle instance settings, o
      * `null` se lo storage non è configurato/valido. Iniettabile nei test via
@@ -349,6 +351,11 @@ export interface BuildAppOptions {
   driveGoogleClient?: DriveGoogleClient;
   /** Area 6, F2: la classificazione nuova è accesa (`MAIL_CLASSIFY_V2`). Default false. */
   mailClassifyV2?: boolean;
+  /**
+   * Lotto 10: la cassaforte dal desktop è accesa (`VAULT_DESKTOP`). Default
+   * false: l'associazione e le rotte aperte al Mac rispondono 404.
+   */
+  vaultDesktop?: boolean;
   /**
    * Fidarsi degli header X-Forwarded-* del reverse proxy (Caddy nel deploy
    * Docker). Va abilitato dietro un proxy affinché `secure: "auto"` sul cookie
@@ -563,6 +570,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // URL pubblico, normalizzato senza slash finale. Getter come gli altri:
   // esplode solo chi compone l'URL del webhook senza averlo configurato.
   const publicUrl = opts.publicUrl?.replace(/\/+$/, "");
+  app.decorate("vaultDesktop", opts.vaultDesktop ?? false);
   app.decorate("publicUrl", {
     getter(): string {
       if (!publicUrl) {

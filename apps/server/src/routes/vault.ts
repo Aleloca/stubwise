@@ -732,8 +732,16 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
    *    `2026-11-24-cassaforte-desktop-design.md` §6 e §8). Le rotte con parte
    *    letterale (`/mine`) PRIMA di quelle parametriche (CLAUDE.md). ── */
 
-  /** SOLO il PAT desktop: `false` se la 403 è già partita. */
+  /**
+   * SOLO il PAT desktop: `false` se la risposta è già partita. Con
+   * l'interruttore `VAULT_DESKTOP` spento (il default) queste rotte non ci
+   * sono per nessuno: 404.
+   */
   function desktopOnly(reply: FastifyReply, user: SessionUser): user is SessionUser & { patId: string } {
+    if (!app.vaultDesktop) {
+      void apiError(reply, 404, "not_found", "Not found");
+      return false;
+    }
     if (isDesktopPat(user)) return true;
     if (isPat(user)) void sessionRequired(reply);
     else void apiError(reply, 403, "desktop_required", "This action is for the desktop app");

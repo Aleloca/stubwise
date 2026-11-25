@@ -266,6 +266,14 @@ UN posto (`vault/device-access.ts`): PAT `desktop`, non revocato, sigillo vivo
 legato a quel PAT e alla chiave `confirmed` ATTUALE della persona. Il resto
 delle rotte della cassaforte resta `browserOnly`.
 
+### 6.3-bis L'interruttore d'istanza (decisione di 46, 25 nov 2026)
+
+`VAULT_DESKTOP` (env del server, SPENTA di default): difesa in profondità
+finché l'app distribuita non è il build firmato. Spenta, l'associazione e le
+rotte aperte al Mac (`desktopVault`, `/device-seals/mine`) rispondono 404 al
+PAT desktop, come se non ci fossero; le rotte del browser restano. Si
+accende solo quando c'è l'app firmata (voce di deploy).
+
 ### 6.4 Registro e isolamento
 
 - Registro di sicurezza: `vault_device_sealed`, `vault_device_seal_revoked`

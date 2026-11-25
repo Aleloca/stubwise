@@ -6433,8 +6433,14 @@ deploy o di un rollback che la tocca.
   `device-seals`, `device-seals/mine`, `device-seals/:id`,
   `users/:userId/device-seals[/:id]`), tipi del registro di sicurezza
   `vault_device_sealed`/`vault_device_seal_revoked` e soggetti d'avviso
-  omonimi (nessun `notification_kind` nuovo: sono `security.alert`). Nessuna
-  env nuova. **Ordine**: **server** (migrazione applicata, healthy), poi
+  omonimi (nessun `notification_kind` nuovo: sono `security.alert`). **Env
+  nuova `VAULT_DESKTOP`** (server, SPENTA di default; decisione di 46 del 25
+  nov 2026): spenta, l'associazione di un Mac e le rotte aperte al Mac
+  rispondono 404 come se non ci fossero, quelle del browser restano. **Si
+  accende (`VAULT_DESKTOP=true` in `/opt/stubwise/.env`, poi `docker compose
+  up -d server`) SOLO quando l'app desktop distribuita è il build FIRMATO**,
+  con la chiave del Mac nel Secure Enclave; spegnerla è il rollback della
+  funzione senza scendere d'immagine. **Ordine**: **server** (migrazione applicata, healthy), poi
   **caddy** (la pagina `vault-pair` e l'elenco dei Mac), poi l'app desktop
   (`package:mac`). Il worker non c'entra (non nomina queste tabelle).
   ⚠️ **Rollback del server: NON pulito se un Mac è stato associato o
@@ -6492,9 +6498,10 @@ deploy o di un rollback che la tocca.
   ferma gli avvii a mano» (un **cambio di comportamento**: a budget finito
   chi non ha `plans.approve` riceve subito 409 `budget_exhausted`).
 
-  **Env nuove: nessuna** (né sul server né sul worker né nel compose; il
-  flag `MAIL_CLASSIFY_V2` e `GMAIL_MAX_PER_TICK`, che la 0235 usa, c'erano
-  già). Nessun `notification_kind` nuovo. Nessuno scope nuovo dei token
+  **Env nuove: UNA, `VAULT_DESKTOP`** (server, nel compose e in
+  `.env.example`; SPENTA di default: la si lascia spenta al deploy, sotto).
+  Nessun'altra (il flag `MAIL_CLASSIFY_V2` e `GMAIL_MAX_PER_TICK`, che la
+  0235 usa, c'erano già). Nessun `notification_kind` nuovo. Nessuno scope nuovo dei token
   (gli alias di Gmail bastano con `gmail.modify`).
 
   **PRIMA del deploy** (sul DB di produzione):
@@ -6569,9 +6576,13 @@ deploy o di un rollback che la tocca.
     il Touch ID si aggira (un programma dello stesso utente legge la chiave
     da `safeStorage`). Il build non firmato di oggi (`package:mac`, dmg
     locale) NON va distribuito con la cassaforte accesa.
-  - **Accenderla solo col build firmato**: lato server le rotte ci sono dal
-    deploy (0236), e oggi **non c'è un interruttore d'istanza** che le
-    tenga spente: a impedire l'associazione da un'app non firmata è l'app
-    stessa (94). Un'associazione chiede comunque la riconferma del desktop e
-    la passkey nel browser (review I2), quindi un PAT da solo non basta.
+  - **Accenderla solo col build firmato: l'interruttore `VAULT_DESKTOP`**
+    (decisione di 46, 25 nov 2026, difesa in profondità). Al deploy resta
+    SPENTO (default): l'associazione e le rotte aperte al Mac rispondono
+    404, le rotte del browser restano. Si accende con `VAULT_DESKTOP=true`
+    in `/opt/stubwise/.env` e `docker compose up -d server` SOLO quando
+    l'app distribuita è il build firmato; spegnerlo è il rollback della
+    funzione (i sigilli restano in DB, i Mac non li usano finché non si
+    riaccende). Anche acceso, un'associazione chiede la riconferma del
+    desktop e la passkey nel browser (review I2): un PAT da solo non basta.
   - Il resto è nella voce di 0236: ordine server → caddy → app.

@@ -177,6 +177,9 @@ beforeAll(async () => {
     encryptionKey: randomBytes(32).toString("base64"),
     authRateLimit: { max: 1000, timeWindow: "1 minute" },
     publicUrl: "https://stubwise.example.com",
+    // L'interruttore d'istanza (`VAULT_DESKTOP`, spento di default): qui acceso,
+    // il caso spento ha il suo describe in fondo.
+    vaultDesktop: true,
   });
   ({ adminId } = await seedUsers(app));
   adminCookie = await fullSessionCookie(app, adminId);
@@ -722,10 +725,12 @@ describe("il gate (`vaultCallerOf`): la dichiarazione della rotta conta", () => 
     const pair = await pairing(ivy);
     expect((await call("POST", "/api/vault/device-seals", { cookie: ivy.cookie }, await sealBody(ivy, pair))).statusCode).toBe(201);
     const user = { id: ivy.id, email: "ivy-device@example.com", patId: ivy.desktop.id, patKind: "desktop" };
-    const request = (config: Record<string, unknown>) => ({ user, routeOptions: { config } }) as never;
+    const request = (config: Record<string, unknown>, vaultDesktop = true) => ({ user, routeOptions: { config }, server: { vaultDesktop } }) as never;
     expect(await vaultCallerOf(testDb.db, request({ desktopVault: true }))).toEqual({ ok: true, caller: { via: "desktop", sealId: pair.deviceId } });
     expect(await vaultCallerOf(testDb.db, request({}))).toEqual({ ok: false, code: "session_required" });
     expect(await vaultCallerOf(testDb.db, request({ desktopVault: true, browserOnly: true }))).toMatchObject({ ok: true });
+    // L'interruttore d'istanza spento: la rotta dichiarata non c'è per il Mac.
+    expect(await vaultCallerOf(testDb.db, request({ desktopVault: true }, false))).toEqual({ ok: false, code: "not_found" });
   });
 });
 
@@ -838,5 +843,86 @@ describe("togliere un ALTRO proprio Mac dal desktop (decisione del maintainer, 2
     expect((await call("GET", "/api/vault/device-seals/mine", other.headers)).statusCode).toBe(404);
     // Il Mac che ha tolto l'altro tiene il suo sigillo.
     expect((await call("GET", "/api/vault/device-seals/mine", jo.desktop.headers)).statusCode).toBe(200);
+  });
+});
+
+describe("l'interruttore `VAULT_DESKTOP` SPENTO (default, decisione di 46 del 25 nov 2026)", () => {
+  let off: FastifyInstance;
+  let olga: Person;
+  let sealId: string;
+  let credentialId: string;
+
+  beforeAll(async () => {
+    const { credentialKeyCopies, credentials, projects, users } = await import("@stubwise/db");
+    // Lo stesso DB, con un sigillo VIVO fatto dall'app accesa: spento, il Mac non lo usa più.
+    olga = await person("olga-device@example.com");
+    const [admin] = await testDb.db.select({ instanceRoleId: users.instanceRoleId }).from(users).where(eq(users.id, adminId));
+    await testDb.db.update(users).set({ instanceRoleId: admin!.instanceRoleId }).where(eq(users.id, olga.id));
+    const pair = await pairing(olga);
+    expect((await call("POST", "/api/vault/device-seals", { cookie: olga.cookie }, await sealBody(olga, pair))).statusCode).toBe(201);
+    sealId = pair.deviceId;
+    const [project] = await testDb.db.insert(projects).values({ name: "Olga", slug: "olga-vault", ingestionKey: "olga-vault-key" }).returning({ id: projects.id });
+    credentialId = randomUUID();
+    await testDb.db.insert(credentials).values({ id: credentialId, projectId: project!.id, service: "S", passwordCiphertext: '{"v":1,"x":"c"}' });
+    await testDb.db.insert(credentialKeyCopies).values({ credentialId, recipientId: olga.keyId, wrappedKey: '{"v":1,"x":"k"}' });
+    off = buildApp({
+      db: testDb.db,
+      sessionSecret: "segreto-di-test-lungo-almeno-32-caratteri!!",
+      encryptionKey: randomBytes(32).toString("base64"),
+      authRateLimit: { max: 1000, timeWindow: "1 minute" },
+      publicUrl: "https://stubwise.example.com",
+      // `vaultDesktop` assente: il default è spento.
+    });
+  });
+
+  afterAll(async () => {
+    await off.close();
+  });
+
+  const inject = (method: "GET" | "POST" | "DELETE", url: string, headers: Record<string, string>, payload?: unknown) =>
+    off.inject({ method, url, headers, ...(payload !== undefined ? { payload: payload as Record<string, unknown> } : {}) });
+
+  it("il PAT desktop riceve 404 `not_found` sull'associazione e sul proprio sigillo, come se le rotte non ci fossero; niente scritto", async () => {
+    const before = (await testDb.db.select().from(vaultDevicePairings)).length;
+    const cases: [string, string, unknown?][] = [
+      ["POST", "/api/vault/device-pairings", { devicePublicKey: publicJwk(), deviceName: "Mac" }],
+      ["GET", "/api/vault/device-seals/mine"],
+      ["DELETE", "/api/vault/device-seals/mine"],
+    ];
+    for (const [method, url, body] of cases) {
+      const res = await inject(method as "GET" | "POST" | "DELETE", url, olga.desktop.headers, body);
+      expect([res.statusCode, res.json().code], `${method} ${url}`).toEqual([404, "not_found"]);
+    }
+    expect(await testDb.db.select().from(vaultDevicePairings)).toHaveLength(before);
+    expect((await sealsOf(olga.id)).find((s) => s.id === sealId)!.revokedAt).toBeNull();
+  });
+
+  it("le rotte aperte al Mac (`desktopVault`) danno 404 al PAT desktop anche col sigillo vivo; il registro degli accessi non si muove", async () => {
+    const { credentialAccessLog } = await import("@stubwise/db");
+    const cases: [string, string, unknown?][] = [
+      ["POST", `/api/credentials/${credentialId}/reveal`, { action: "show" }],
+      ["POST", "/api/vault/actor-challenge"],
+      ["GET", "/api/vault/pending"],
+      ["GET", "/api/vault/device-seals"],
+      ["GET", `/api/credentials/${credentialId}/readers`],
+    ];
+    for (const [method, url, body] of cases) {
+      const res = await inject(method as "GET" | "POST", url, olga.desktop.headers, body);
+      expect([res.statusCode, res.json().code], `${method} ${url}`).toEqual([404, "not_found"]);
+    }
+    expect(await testDb.db.select().from(credentialAccessLog).where(eq(credentialAccessLog.credentialId, credentialId))).toHaveLength(0);
+  });
+
+  it("le rotte del browser restano: reveal, l'elenco dei Mac e la rimozione di un Mac funzionano dalla sessione", async () => {
+    expect((await inject("POST", `/api/credentials/${credentialId}/reveal`, { cookie: olga.cookie }, { action: "show" })).statusCode).toBe(200);
+    const list = await inject("GET", "/api/vault/device-seals", { cookie: olga.cookie });
+    expect((list.json() as { items: { id: string }[] }).items.map((i) => i.id)).toContain(sealId);
+    expect((await inject("DELETE", `/api/vault/device-seals/${sealId}`, { cookie: olga.cookie })).statusCode).toBe(204);
+  });
+
+  it("un PAT `manual` resta `session_required` (non cambia nulla per lui)", async () => {
+    const manual = await pat(olga.id, "manual");
+    const res = await inject("POST", "/api/vault/actor-challenge", manual.headers);
+    expect([res.statusCode, res.json().code]).toEqual([403, "session_required"]);
   });
 });

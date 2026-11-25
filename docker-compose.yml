@@ -71,6 +71,10 @@ services:
       # Area 6, F2: la stessa variabile del worker. Il server la dice alle
       # superfici dell'ammissione della posta (che con lei non si applica più).
       MAIL_CLASSIFY_V2: ${MAIL_CLASSIFY_V2:-false}
+      # Lotto 10: la cassaforte dal desktop (la chiave del Mac). SPENTA di
+      # default; si accende SOLO quando l'app desktop distribuita è il build
+      # FIRMATO (docs/operations/deploy-log.md, «Rimandi dell'integrazione»).
+      VAULT_DESKTOP: ${VAULT_DESKTOP:-false}
       # Caddy fa da reverse proxy davanti: il server deve fidarsi degli
       # X-Forwarded-* per impostare il flag Secure sul cookie di sessione.
       TRUST_PROXY: "true"

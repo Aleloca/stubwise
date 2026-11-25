@@ -10,6 +10,14 @@ const validEnv = {
 };
 
 describe("loadConfig", () => {
+  it("VAULT_DESKTOP: SPENTA di default e con la stringa vuota; accesa con true, 1, on (lotto 10)", () => {
+    expect(loadConfig({ ...validEnv }).vaultDesktop).toBe(false);
+    expect(loadConfig({ ...validEnv, VAULT_DESKTOP: "" }).vaultDesktop).toBe(false);
+    for (const value of ["false", "0", "off"]) expect(loadConfig({ ...validEnv, VAULT_DESKTOP: value }).vaultDesktop, value).toBe(false);
+    for (const value of ["true", "1", "on"]) expect(loadConfig({ ...validEnv, VAULT_DESKTOP: value }).vaultDesktop, value).toBe(true);
+    expect(() => loadConfig({ ...validEnv, VAULT_DESKTOP: "sì" })).toThrow();
+  });
+
   it("MAIL_CLASSIFY_V2: spenta di default e con la stringa vuota, accesa solo con true (area 6, F2)", () => {
     expect(loadConfig({ ...validEnv }).mailClassifyV2).toBe(false);
     expect(loadConfig({ ...validEnv, MAIL_CLASSIFY_V2: "" }).mailClassifyV2).toBe(false);
@@ -26,6 +34,7 @@ describe("loadConfig", () => {
       publicUrl: validEnv.PUBLIC_URL,
       // Area 6, F2: la classificazione nuova spenta di default.
       mailClassifyV2: false,
+      vaultDesktop: false,
       trustProxy: false,
       // Default degli embedding (Ollama in-rete, bge-m3, niente API key).
       embeddingBaseUrl: "http://ollama:11434/v1",
