@@ -40,6 +40,8 @@ export type VaultState = "unpaired" | "locked" | "open" | "revoked" | "disabled"
 export interface VaultStatus {
   state: VaultState;
   fingerprint: string | null;
+  /** Il Mac ha Touch ID (D-1a: senza, la cassaforte si apre dal browser). */
+  touchId: boolean;
 }
 
 export type UnlockCode =
@@ -164,11 +166,17 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
   };
 
   async function status(): Promise<VaultStatus> {
-    if (disabled) return { state: "disabled", fingerprint: null };
-    if (!(await deps.supported()).enclave) return { state: "unsupported", fingerprint: null };
+    if (disabled) return { state: "disabled", fingerprint: null, touchId: false };
+    const support = await deps.supported();
+    if (!support.enclave) return { state: "unsupported", fingerprint: null, touchId: false };
+    const touchId = support.biometry;
     const d = device();
-    if (!d) return { state: revoked ? "revoked" : "unpaired", fingerprint: null };
-    return { state: key ? "open" : "locked", fingerprint: await deps.fingerprint(d.publicKey) };
+    if (!d) return { state: revoked ? "revoked" : "unpaired", fingerprint: null, touchId };
+    return {
+      state: key ? "open" : "locked",
+      fingerprint: await deps.fingerprint(d.publicKey),
+      touchId,
+    };
   }
 
   const changed = () => {

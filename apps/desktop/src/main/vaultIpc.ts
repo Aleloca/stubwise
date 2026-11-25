@@ -75,7 +75,9 @@ export function registerVaultIpc<E>(ipc: Ipc<E>, deps: VaultIpcDeps<E>): void {
       deps.fromApp(event) ? run() : refused;
 
   ipc.handle("vault:status", async (event: E) =>
-    deps.fromApp(event) ? deps.lock.status() : { state: "unpaired", fingerprint: null },
+    deps.fromApp(event)
+      ? deps.lock.status()
+      : { state: "unpaired", fingerprint: null, touchId: false },
   );
   ipc.handle(
     "vault:unlock",

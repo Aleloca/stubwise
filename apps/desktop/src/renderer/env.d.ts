@@ -17,7 +17,11 @@ type StubwiseApiRequest = {
   headers?: Record<string, string>;
   body?: string | ArrayBuffer;
 };
-type StubwiseApiResponse = { status: number; headers: Record<string, string>; body: string | ArrayBuffer };
+type StubwiseApiResponse = {
+  status: number;
+  headers: Record<string, string>;
+  body: string | ArrayBuffer;
+};
 /** L'esito di un download (`api:download`): mai il percorso scelto, mai l'URL firmato. */
 /** Un file scelto dall'utente, aperto dal main: il token, mai il percorso. */
 type StubwiseRegisterResult =
@@ -27,7 +31,14 @@ type StubwiseUploadResult =
   | { ok: true; status: number; body: unknown }
   | {
       ok: false;
-      reason: "invalid" | "busy" | "unauthenticated" | "too_large" | "unsupported_type" | "failed" | "canceled";
+      reason:
+        | "invalid"
+        | "busy"
+        | "unauthenticated"
+        | "too_large"
+        | "unsupported_type"
+        | "failed"
+        | "canceled";
       status?: number;
       code?: string;
     };
@@ -36,12 +47,16 @@ type StubwiseDownloadResult =
   | { ok: false; reason: "invalid" | "unauthenticated" | "not_found" | "failed" | "canceled" };
 // `session:changed` (`src/main/browserLogin.ts`): l'esito del login dal browser
 // o la sessione scaduta, mai il token.
-type StubwiseSessionChange = { signedIn: true; user: unknown } | { signedIn: false; error?: string };
+type StubwiseSessionChange =
+  | { signedIn: true; user: unknown }
+  | { signedIn: false; error?: string };
 // La cassaforte del main (`src/main/vaultLock.ts`, lotto 10): stato ed esiti,
 // mai la chiave.
 type StubwiseVaultStatus = {
   state: "unpaired" | "locked" | "open" | "revoked" | "disabled" | "unsupported";
   fingerprint: string | null;
+  /** Il Mac ha Touch ID (D-1a). */
+  touchId: boolean;
 };
 type StubwiseVaultUnlock = { ok: true } | { ok: false; code: string };
 type StubwiseVaultFail = { ok: false; code: string };
@@ -92,7 +107,16 @@ type StubwiseStreamMessage =
   | { type: "docsChat"; events: import("@stubwise/shared").DocsChatStreamEvent[] }
   | {
       type: "end";
-      reason: "closed" | "network" | "timeout" | "rotate" | "http" | "redirect" | "unauthorized" | "rejected" | "limit";
+      reason:
+        | "closed"
+        | "network"
+        | "timeout"
+        | "rotate"
+        | "http"
+        | "redirect"
+        | "unauthorized"
+        | "rejected"
+        | "limit";
       fatal: boolean;
       status?: number;
       code?: string;
@@ -106,7 +130,9 @@ interface Window {
     setTheme?: (resolved: "light" | "dark") => void;
     /** Voci di menu dell'applicazione; restituisce la funzione per disiscriversi. */
     onMenu?: (
-      cb: (channel: "menu:search" | "menu:preferences" | "menu:ask-claude" | "menu:undo" | "menu:redo") => void,
+      cb: (
+        channel: "menu:search" | "menu:preferences" | "menu:ask-claude" | "menu:undo" | "menu:redo",
+      ) => void,
     ) => () => void;
     /** Salva un PDF (stampato dal main) o un Word: la finestra di salvataggio, poi l'esito (area 11a). */
     saveFile?: (req: StubwiseSaveFileRequest) => Promise<StubwiseSaveFileResult>;
@@ -114,7 +140,9 @@ interface Window {
     files?: {
       register: (file: File) => Promise<StubwiseRegisterResult>;
       cancel: (uploadId: string) => Promise<boolean>;
-      onProgress: (fn: (progress: { uploadId: string; sent: number; total: number }) => void) => () => void;
+      onProgress: (
+        fn: (progress: { uploadId: string; sent: number; total: number }) => void,
+      ) => () => void;
     };
     /** Le richieste API verso l'istanza, col token aggiunto dal main (build app, integrazione area 2). */
     api?: {
@@ -122,7 +150,11 @@ interface Window {
       /** Il download di un allegato (fetta 4 della Chat): il main lo scarica e chiede dove salvarlo. */
       download?: (path: string) => Promise<StubwiseDownloadResult>;
       /** Il caricamento di un file del Drive (fetta 2 dell'area 5): il main legge il file in streaming. */
-      upload?: (req: { grant: string; path: string; uploadId: string }) => Promise<StubwiseUploadResult>;
+      upload?: (req: {
+        grant: string;
+        path: string;
+        uploadId: string;
+      }) => Promise<StubwiseUploadResult>;
     };
     /**
      * Lo stream di una sessione (`/api/agent-sessions/:uuid/stream?after=n`),
@@ -164,12 +196,16 @@ interface Window {
         credentialId: string,
         target: { userId: string } | { roleId: string },
       ) => Promise<{ ok: true; waiting: string[] } | StubwiseVaultFail>;
-      removeReader: (credentialId: string, readerId: string) => Promise<{ ok: true } | StubwiseVaultFail>;
+      removeReader: (
+        credentialId: string,
+        readerId: string,
+      ) => Promise<{ ok: true } | StubwiseVaultFail>;
       pending: () => Promise<{ ok: true; items: StubwiseVaultPendingPerson[] } | StubwiseVaultFail>;
       confirm: (
         personKeyId: string,
       ) => Promise<
-        { ok: true; saved: number; keyChanged: number; notAllowed: number; unopenable: number } | StubwiseVaultFail
+        | { ok: true; saved: number; keyChanged: number; notAllowed: number; unopenable: number }
+        | StubwiseVaultFail
       >;
       reject: (personKeyId: string) => Promise<{ ok: true } | StubwiseVaultFail>;
     };
