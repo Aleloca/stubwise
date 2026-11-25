@@ -4,7 +4,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetApi, setLatency } from "../../data/api";
 import { setVaultClipboard } from "../../data/vault/index";
 import { setLanguage } from "../../i18n";
-import { renderRoute } from "../../test/renderRoute";
+import type { CredentialView } from "../../data/vault/types";
+import { queryKeys } from "../../data/queries";
+import { lastQueryClient, renderRoute } from "../../test/renderRoute";
 import { setMatchMedia } from "../../test/setup";
 import { CREDENTIAL_PANEL_DOCKED_QUERY } from "./CredentialPanel";
 
@@ -75,5 +77,25 @@ describe("il «⋯» di una riga", () => {
     await user.click(screen.getByRole("button", { name: "Delete Aruba hosting" }));
     expect(await screen.findByText("Aruba hosting deleted.")).toBeInTheDocument();
     await waitFor(() => expect(services()).not.toContain("Aruba hosting"));
+  });
+
+  // Quarta revisione, punto 1: «Access log» lo apre il server (`canSeeLog`),
+  // non «può modificare o condividere».
+  it("chi modifica senza `canSeeLog`: niente Access log nel «⋯»", async () => {
+    const user = userEvent.setup();
+    renderRoute("/p/ACQ/credentials", "p-laura");
+    await screen.findByRole("button", { name: "More for Aruba hosting" });
+    const key = queryKeys.credentials("p-laura", "prj-acq");
+    act(() =>
+      lastQueryClient().setQueryData(key, (rows: CredentialView[] | undefined) =>
+        rows?.map((r) => (r.service === "Aruba hosting" ? { ...r, canSeeLog: false } : r)),
+      ),
+    );
+    const menu = await openMenu(user, "Aruba hosting");
+    expect(menu.getAllByRole("menuitem").map((i) => i.textContent)).toEqual([
+      "Edit",
+      "Readers",
+      "Delete…",
+    ]);
   });
 });
