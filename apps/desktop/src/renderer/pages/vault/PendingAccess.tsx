@@ -107,9 +107,15 @@ function PendingCard({ person }: { person: PendingPersonView }) {
     setAsking(null);
     const out = await confirm.mutateAsync(person.keyId).catch(() => null);
     if (!out?.ok) return void toast.error(t("vault.pending.failed"));
-    const parts = [t("vault.pending.now", { name: person.name, count: out.saved })];
+    // Review M5: zero passate non è «now reads 0»; le non apribili si dicono.
+    const parts = [
+      out.saved > 0
+        ? t("vault.pending.now", { name: person.name, count: out.saved })
+        : t("vault.pending.nothing", { name: person.name }),
+    ];
     if (out.keyChanged > 0) parts.push(t("vault.pending.changed", { count: out.keyChanged }));
     if (out.notAllowed > 0) parts.push(t("vault.pending.notAllowed", { count: out.notAllowed }));
+    if (out.unopenable > 0) parts.push(t("vault.pending.unopenable", { count: out.unopenable }));
     toast.show(parts.join(" "));
   };
   const onReject = async () => {

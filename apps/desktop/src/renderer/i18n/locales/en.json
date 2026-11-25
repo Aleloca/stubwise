@@ -13767,10 +13767,13 @@
       "rejectYes": "Yes, reject the key",
       "now_one": "{{name}} now reads {{count}} credential.",
       "now_other": "{{name}} now reads {{count}} credentials.",
+      "nothing": "Nothing new reached {{name}}.",
       "changed_one": "{{count}} credential changed in the meantime: confirm again.",
       "changed_other": "{{count}} credentials changed in the meantime: confirm again.",
       "notAllowed_one": "{{count}} credential you can't pass on waits for another reader.",
       "notAllowed_other": "{{count}} credentials you can't pass on wait for another reader.",
+      "unopenable_one": "{{count}} credential couldn't be opened on this Mac: it waits for another reader.",
+      "unopenable_other": "{{count}} credentials couldn't be opened on this Mac: they wait for another reader.",
       "rejected": "{{name}}'s key was rejected.",
       "failed": "Couldn't complete it. Try again.",
       "empty": "Nobody is waiting for access."

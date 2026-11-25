@@ -13767,10 +13767,13 @@
       "rejectYes": "Sì, rifiuta la chiave",
       "now_one": "{{name}} ora legge {{count}} credenziale.",
       "now_other": "{{name}} ora legge {{count}} credenziali.",
+      "nothing": "A {{name}} non è arrivato niente di nuovo.",
       "changed_one": "{{count}} credenziale è cambiata nel frattempo: conferma di nuovo.",
       "changed_other": "{{count}} credenziali sono cambiate nel frattempo: conferma di nuovo.",
       "notAllowed_one": "{{count}} credenziale che non puoi passare aspetta un altro lettore.",
       "notAllowed_other": "{{count}} credenziali che non puoi passare aspettano un altro lettore.",
+      "unopenable_one": "{{count}} credenziale non si è aperta su questo Mac: aspetta un altro lettore.",
+      "unopenable_other": "{{count}} credenziali non si sono aperte su questo Mac: aspettano un altro lettore.",
       "rejected": "La chiave di {{name}} è stata rifiutata.",
       "failed": "Non è stato possibile completare. Riprova.",
       "empty": "Nessuno aspetta l'accesso."
