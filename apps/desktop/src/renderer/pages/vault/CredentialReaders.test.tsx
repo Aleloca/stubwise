@@ -5,7 +5,8 @@ import { resetApi, setLatency } from "../../data/api";
 import { VAULT_IDS } from "../../data/seed/vault";
 import { setVaultClipboard } from "../../data/vault/index";
 import { setLanguage } from "../../i18n";
-import { renderRoute } from "../../test/renderRoute";
+import { queryKeys } from "../../data/queries";
+import { lastQueryClient, renderRoute } from "../../test/renderRoute";
 import { setMatchMedia } from "../../test/setup";
 import { CREDENTIAL_PANEL_DOCKED_QUERY } from "./CredentialPanel";
 
@@ -103,5 +104,30 @@ describe("i lettori di una credenziale", () => {
     expect(
       p.getByText("You can share it once you read it yourself: ask someone who reads it."),
     ).toBeInTheDocument();
+  });
+
+  // Review M3: senza il nome del ruolo (un server di prima), «via a role»,
+  // non «role » vuoto.
+  it("un lettore via ruolo senza nome del ruolo: «via a role»", async () => {
+    renderRoute(`/p/ACQ/credentials?credential=${VAULT_IDS.ARUBA}`, "p-laura");
+    const p = await panel();
+    await p.findByRole("list", { name: "Who reads it" });
+    act(() =>
+      lastQueryClient().setQueryData(queryKeys.readers("p-laura", VAULT_IDS.ARUBA), {
+        direct: [],
+        effective: [
+          {
+            personId: "p-x",
+            name: "Marco Bellini",
+            source: "role",
+            roleName: null,
+            state: "reads",
+          },
+        ],
+        canShare: false,
+      }),
+    );
+    const who = await p.findByRole("list", { name: "Who reads it" });
+    await waitFor(() => expect(row(who, "Marco Bellini")?.textContent).toContain("via a role"));
   });
 });

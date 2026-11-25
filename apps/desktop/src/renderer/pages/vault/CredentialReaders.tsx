@@ -87,7 +87,9 @@ export function CredentialReaders({
             <li key={r.personId} className="flex items-baseline gap-2 py-1 text-sm">
               <span className="text-ink">{r.name}</span>
               <span className="text-ink-muted">
-                {t(`vault.readers.source.${r.source}`, { role: r.roleName ?? "" })}
+                {r.source === "role" && !r.roleName
+                  ? t("vault.readers.source.roleUnknown")
+                  : t(`vault.readers.source.${r.source}`, { role: r.roleName ?? "" })}
                 {r.state !== "reads" && ` · ${t(`vault.readers.state.${r.state}`)}`}
               </span>
             </li>

@@ -13723,7 +13723,8 @@
         "full_admin": "full admin",
         "created": "created it",
         "direct": "added directly",
-        "role": "role {{role}}"
+        "role": "role {{role}}",
+        "roleUnknown": "via a role"
       },
       "state": {
         "no_key": "waiting: no vault key yet",

@@ -200,6 +200,7 @@ describe("le letture della cassaforte, dalle rotte", () => {
                 fullAdmin: false,
                 status: "pending",
                 keyStatus: "pending",
+                roleName: "Developer",
               },
             ],
           },
@@ -216,9 +217,10 @@ describe("le letture della cassaforte, dalle rotte", () => {
           addedAt: "2026-11-21T10:00:00.000Z",
         },
       ]);
-      expect(r.effective.map((e) => [e.name, e.source, e.state])).toEqual([
-        ["Laura Costa", "created", "reads"],
-        ["Marco Bellini", "role", "key_pending"],
+      expect(r.effective.map((e) => [e.name, e.source, e.roleName, e.state])).toEqual([
+        ["Laura Costa", "created", null, "reads"],
+        // Il nome del ruolo dal server (72, f9e9193ce; review M3).
+        ["Marco Bellini", "role", "Developer", "key_pending"],
       ]);
     });
 

@@ -13723,7 +13723,8 @@
         "full_admin": "full admin",
         "created": "l'ha creata",
         "direct": "aggiunta direttamente",
-        "role": "ruolo {{role}}"
+        "role": "ruolo {{role}}",
+        "roleUnknown": "tramite un ruolo"
       },
       "state": {
         "no_key": "in attesa: ancora senza chiave della cassaforte",

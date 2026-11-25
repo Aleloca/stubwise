@@ -191,8 +191,9 @@ export const listReaders: FakeVault["listReaders"] = async (id) => {
           : directPeople.has(p.userId)
             ? ("direct" as const)
             : ("role" as const),
-      // Il server non dice per quale ruolo: la riga dice solo «role».
-      roleName: null,
+      // Il ruolo nel progetto, quando è fra i lettori invitati (72, f9e9193ce);
+      // `null` da un server di prima: la riga dice «via a role».
+      roleName: p.roleName ?? null,
       state: stateOf(p),
     })),
     canShare: view?.canShare === true,
