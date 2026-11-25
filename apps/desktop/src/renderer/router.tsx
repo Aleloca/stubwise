@@ -82,6 +82,7 @@ import { ProductSpace } from "./pages/productDocs/ProductSpace";
 import { ProductIndex } from "./pages/productDocs/ProductIndex";
 import { ProductPageRoute } from "./pages/productDocs/ProductPageRoute";
 import { DrivePage } from "./pages/drive/DrivePage";
+import { VaultPage } from "./pages/vault/VaultPage";
 import { DRIVE_SEARCH_KEYS, isDriveSearchValue } from "./pages/drive/driveFilters";
 import { MailPage } from "./pages/mail/MailPage";
 import { MAIL_SEARCH_KEYS, NO_PROJECT, isMailSearchValue } from "./pages/mail/mailFilters";
@@ -207,6 +208,8 @@ export interface AppSearch {
   credential?: string;
   /** Credentials e Vault: il pannello degli accessi da confermare (`1`). */
   pending?: string;
+  /** Vault: il filtro per progetto, i codici separati da virgola (`ACQ,MKX`). */
+  projects?: string;
   /** Support → Widget: il pannello di un widget (l'id, o `new`). */
   widget?: string;
   /**
@@ -286,6 +289,7 @@ const SEARCH_KEYS = [
   "pr",
   "credential",
   "pending",
+  "projects",
   "widget",
   "range",
   "to",
@@ -356,28 +360,30 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
                       key === "credential" ||
                       key === "pending"
                     ? /^[\w-]+$/.test(value)
-                    : // Releases: l'id della PR; nella build app è `<repository>#<numero>`
-                      // (`data/backend/real/releasePrs.ts`).
-                      key === "pr"
-                      ? /^[\w-]+(#\d+)?$/.test(value)
-                      : key === "range"
-                        ? /^(1h|24h|7d|30d|90d|month|custom)$/.test(value)
-                        : key === "section" || key === "tab" || key === "then"
-                          ? /^[a-z]+$/.test(value)
-                          : key === "date"
-                            ? /^\d{4}-\d{2}-\d{2}$/.test(value)
-                            : key === "view" || key === "group" || key === "scope"
-                              ? /^[a-z-]+$/.test(value)
-                              : key === "ask"
-                                ? value.trim().length > 0 && value.length <= ASK_MAX
-                                : key === "refine" ||
-                                    key === "requestCard" ||
-                                    key === "recordDecision" ||
-                                    key === "settings" ||
-                                    key === "newMeeting" ||
-                                    key === "new"
-                                  ? value === "1"
-                                  : false;
+                    : key === "projects"
+                      ? /^[A-Z]{2,4}(,[A-Z]{2,4})*$/.test(value)
+                      : // Releases: l'id della PR; nella build app è `<repository>#<numero>`
+                        // (`data/backend/real/releasePrs.ts`).
+                        key === "pr"
+                        ? /^[\w-]+(#\d+)?$/.test(value)
+                        : key === "range"
+                          ? /^(1h|24h|7d|30d|90d|month|custom)$/.test(value)
+                          : key === "section" || key === "tab" || key === "then"
+                            ? /^[a-z]+$/.test(value)
+                            : key === "date"
+                              ? /^\d{4}-\d{2}-\d{2}$/.test(value)
+                              : key === "view" || key === "group" || key === "scope"
+                                ? /^[a-z-]+$/.test(value)
+                                : key === "ask"
+                                  ? value.trim().length > 0 && value.length <= ASK_MAX
+                                  : key === "refine" ||
+                                      key === "requestCard" ||
+                                      key === "recordDecision" ||
+                                      key === "settings" ||
+                                      key === "newMeeting" ||
+                                      key === "new"
+                                    ? value === "1"
+                                    : false;
     // I filtri di WORK dello Stato dell'istanza (area 9b, ruling 10) hanno la
     // loro forma: non dipendono da quelle omonime di Automations e registro.
     const workFilter =
@@ -614,6 +620,7 @@ function pageOf(name: (typeof APP_ROUTES)[number]) {
   if (name === "claude") return ClaudePage;
   if (name === "chat") return ChatPage;
   if (name === "drive") return DriveRoutePage;
+  if (name === "vault") return VaultPage;
   if (name === "mail") return MailRoutePage;
   if (name === "calendar") return CalendarRoutePage;
   if (name === "automations") return AutomationsPage;

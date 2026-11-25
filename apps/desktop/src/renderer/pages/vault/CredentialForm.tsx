@@ -15,7 +15,11 @@ import { useOpenVault } from "./VaultBar";
 // chiusa il salvataggio apre prima col Touch ID. La password scritta vive
 // solo nello stato del modulo, e se ne va con lui.
 
-type Mode = { kind: "new"; projectId: string } | { kind: "edit"; view: CredentialView };
+type Mode =
+  | { kind: "new"; projectId: string }
+  /** Dalla pagina Vault: il progetto si sceglie fra quelli dove chi guarda crea. */
+  | { kind: "new"; projectChoices: { id: string; code: string }[] }
+  | { kind: "edit"; view: CredentialView };
 
 function Field({
   label,
@@ -66,9 +70,21 @@ export function CredentialForm({
   const [password, setPassword] = useState("");
   const [notes, setNotes] = useState(editing?.notes ?? "");
   const [saving, setSaving] = useState(false);
+  const choices = mode.kind === "new" && "projectChoices" in mode ? mode.projectChoices : null;
+  // Con un solo progetto possibile lo si prende da sé.
+  const [projectId, setProjectId] = useState(
+    mode.kind === "new"
+      ? "projectId" in mode
+        ? mode.projectId
+        : mode.projectChoices.length === 1
+          ? mode.projectChoices[0]!.id
+          : ""
+      : "",
+  );
 
   const orNull = (s: string) => (s.trim() === "" ? null : s.trim());
-  const valid = service.trim() !== "" && (editing !== null || password !== "");
+  const valid =
+    service.trim() !== "" && (editing !== null || (password !== "" && projectId !== ""));
 
   const save = async () => {
     if (!valid || saving) return;
@@ -83,7 +99,7 @@ export function CredentialForm({
       };
       if (mode.kind === "new") {
         const out = await create
-          .mutateAsync({ projectId: mode.projectId, input: { ...plain, password } })
+          .mutateAsync({ projectId, input: { ...plain, password } })
           .catch(() => null);
         if (!out?.ok) return void toast.error(t("vault.form.failed"));
         toast.show(t("vault.form.created"));
@@ -119,6 +135,25 @@ export function CredentialForm({
       <h2 className="text-lg font-semibold text-ink">
         {editing ? t("vault.form.editTitle", { name: editing.service }) : t("vault.form.newTitle")}
       </h2>
+      {choices && choices.length > 1 && (
+        <Field label={t("vault.form.project")}>
+          {(id) => (
+            <select
+              id={id}
+              className={inputClass}
+              value={projectId}
+              onChange={(e) => setProjectId(e.target.value)}
+            >
+              <option value="" />
+              {choices.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.code}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+      )}
       <Field label={t("vault.form.service")}>
         {(id) => (
           <input

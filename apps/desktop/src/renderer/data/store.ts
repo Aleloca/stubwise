@@ -696,6 +696,7 @@ export type ApiFnName =
   | "vault.deleteCredential"
   | "vault.listReaders"
   | "vault.listShareTargets"
+  | "vault.getVaultEntry"
   | "vault.share"
   | "vault.removeReader"
   | "vault.listPending"

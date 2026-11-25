@@ -5,6 +5,7 @@
     "mail": "Posta",
     "calendar": "Calendario",
     "drive": "Drive",
+    "vault": "Cassaforte",
     "claude": "Claude",
     "automations": "Automazioni",
     "projects": "Tutti i progetti",
@@ -46,7 +47,8 @@
     "mailWaiting_one": "{{count}} proposta da decidere",
     "mailWaiting_other": "{{count}} proposte da decidere",
     "automationsWaiting_one": "{{count}} decisione aspetta te",
-    "automationsWaiting_other": "{{count}} decisioni aspettano te"
+    "automationsWaiting_other": "{{count}} decisioni aspettano te",
+    "vaultWaiting": "Accessi da confermare"
   },
   "column": {
     "projectSections": "Sezioni del progetto",
@@ -13703,7 +13705,8 @@
       "created": "Credenziale salvata.",
       "saved": "Modifiche salvate.",
       "failed": "Non è stato possibile salvare la credenziale.",
-      "locked": "Apri la cassaforte per cambiare la password."
+      "locked": "Apri la cassaforte per cambiare la password.",
+      "project": "Progetto"
     },
     "readers": {
       "title": "Lettori",
@@ -13762,6 +13765,37 @@
       "rejected": "La chiave di {{name}} è stata rifiutata.",
       "failed": "Non è stato possibile completare. Riprova.",
       "empty": "Nessuno aspetta l'accesso."
+    },
+    "page": {
+      "title": "Cassaforte",
+      "subtitle": "Tutte le credenziali che puoi leggere, in tutti i tuoi progetti.",
+      "search": "Cerca credenziali",
+      "projects": "Progetti",
+      "none": "Non puoi ancora leggere nessuna credenziale.",
+      "noneProjects": "Nessuna credenziale in questi progetti.",
+      "noMatch": "Nessuna credenziale corrisponde alla ricerca."
+    },
+    "pairing": {
+      "title": "Associa questo Mac",
+      "intro": "Questo Mac aprirà la tua cassaforte con Touch ID. Lo confermi una volta, nel browser, con la tua passkey.",
+      "key": "La chiave di questo Mac",
+      "step1": "Il browser apre Stubwise.",
+      "step2": "Scrivi lì gli ultimi 4 caratteri di questa chiave ({{last4}}).",
+      "step3": "Scegli «Associa questo Mac» lì.",
+      "waiting": "In attesa del browser… scade fra 10 minuti",
+      "cancel": "Annulla",
+      "done": "Fatto",
+      "retry": "Riprova",
+      "starting": "Chiedo a Stubwise…",
+      "success": "Questo Mac apre la tua cassaforte.",
+      "errors": {
+        "expired": "L'associazione è scaduta. Ricomincia.",
+        "open_failed": "La risposta del browser non corrisponde a questo Mac. Non è stato salvato niente. Ricomincia.",
+        "no_secure_storage": "Questo Mac non può tenere la chiave al sicuro (manca il portachiavi di sistema). Apri la cassaforte nel browser.",
+        "session_changed": "Nel frattempo hai rifatto l'accesso. Ricomincia.",
+        "vault_key_not_confirmed": "La tua chiave della cassaforte non è ancora confermata: la conferma un lettore quando ti passa una credenziale.",
+        "other": "Non è stato possibile associare questo Mac. Riprova."
+      }
     }
   }
 }

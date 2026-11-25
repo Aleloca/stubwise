@@ -1442,6 +1442,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   dal server (F8-2 = a); riconferma solo quando si danno accessi (F8-3 = a).
 - Azioni di Claude dell'area 9 (membri, ruoli, impostazioni senza segreti), con
   la riconferma.
+- **«Share with» della cassaforte desktop: una select, cercabile sopra una
+  soglia** *(S, 94, 25 nov 2026, accettato da 46)*: la shape (`vault.md` §3
+  «Readers») vuole un campo che cerca persone e ruoli del progetto; il
+  prototipo ha una select con le due liste (`CredentialReaders.tsx`, commit
+  «feat(desktop): i lettori di una credenziale nel prototipo»). Con i
+  progetti del seme basta. Da fare cercabile quando le persone e i ruoli
+  del progetto superano una ventina di voci.
 - ~~Classe C delle azioni di Claude *(O, 10 nov 2026)*: nel renderer la
   conferma di una proposta MODIFICATA (`confirmEdited`, scheda «Edit») salta
   il wrapper `reauth()` che usa la conferma semplice.~~ **Chiuso (F7

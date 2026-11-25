@@ -229,11 +229,29 @@ export async function setVaultSimulation(next: Partial<VaultSimulation>): Promis
 
 // --- l'associazione --------------------------------------------------------------
 
+let pairingSeq = 0;
+
+/** L'esito del ritorno dal browser (nell'app lo dice il main; qui `finishPairing`). */
+export type PairingResult = { ok: true } | { ok: false; code: string };
+const pairingListeners = new Set<(result: PairingResult) => void>();
+
+/** Il dialogo dell'associazione sente com'è andato il ritorno dal browser. */
+export function subscribePairing(listener: (result: PairingResult) => void): () => void {
+  pairingListeners.add(listener);
+  return () => pairingListeners.delete(listener);
+}
+
+const tellPairing = (result: PairingResult) => {
+  for (const l of pairingListeners) l(result);
+};
+
 export async function startPairing(): Promise<{ ok: true; fingerprint: string } | VaultFailure> {
   const me = await gate("vault.startPairing");
   if (!v().active) return fail("vault_not_active");
   if (keyOf(me)?.status !== "confirmed") return fail("vault_key_not_confirmed");
-  const fingerprint = fakeFingerprint(`${me}:${now()}:${v().macs.length}`);
+  // Ogni richiesta una chiave nuova (l'orologio del prototipo può essere fermo).
+  pairingSeq += 1;
+  const fingerprint = fakeFingerprint(`${me}:${now()}:${v().macs.length}:${pairingSeq}`);
   mac(me).pairing = { fingerprint, until: new Date(Date.parse(now()) + 10 * 60_000).toISOString() };
   return { ok: true, fingerprint };
 }
@@ -247,8 +265,14 @@ export async function finishPairing(
   const pairing = m.pairing;
   m.pairing = null;
   if (!pairing) return fail("no_pending");
-  if (outcome === "expired") return fail("expired");
-  if (outcome === "mismatch") return fail("open_failed");
+  if (outcome === "expired") {
+    tellPairing({ ok: false, code: "expired" });
+    return fail("expired");
+  }
+  if (outcome === "mismatch") {
+    tellPairing({ ok: false, code: "open_failed" });
+    return fail("open_failed");
+  }
   const id = newId("mac");
   const first = (nameOf(me) ?? "").split(" ")[0];
   v().macs.push({
@@ -265,6 +289,7 @@ export async function finishPairing(
   // D-1b: subito aperta, senza tocco questa volta.
   m.open = true;
   m.freshlyPaired = false;
+  tellPairing({ ok: true });
   return { ok: true };
 }
 
@@ -384,6 +409,28 @@ export async function getCredentialsEntry(
   const waitingMe =
     show && v().keys.some((k) => passable(me, k.personId).some((c) => c.projectId === projectId));
   return { show, waitingMe, canCreate };
+}
+
+/**
+ * La voce «Vault» della barra laterale (shape §3, VA-Q1): c'è se la
+ * cassaforte è attiva e chi guarda vede almeno una credenziale (anche in
+ * attesa) o può crearne in almeno un progetto; `waitingMe` accende il punto
+ * quando c'è chi aspetta che sia lui a confermarlo; `createProjectIds` sono i
+ * progetti dove «New credential» può creare.
+ */
+export async function getVaultEntry(): Promise<{
+  show: boolean;
+  waitingMe: boolean;
+  createProjectIds: string[];
+}> {
+  const me = await gate("vault.getVaultEntry");
+  if (!v().active) return { show: false, waitingMe: false, createProjectIds: [] };
+  const projectIds = [...new Set(accessState().memberships.map((m) => m.projectId))];
+  const createProjectIds = projectIds.filter((p) => canI(me, "credentials.create", p)).sort();
+  const sees = v().credentials.some((c) => viewOf(me, c));
+  const show = sees || createProjectIds.length > 0;
+  const waitingMe = show && v().keys.some((k) => passable(me, k.personId).length > 0);
+  return { show, waitingMe, createProjectIds };
 }
 
 export async function getCredential(id: string): Promise<CredentialView | null> {

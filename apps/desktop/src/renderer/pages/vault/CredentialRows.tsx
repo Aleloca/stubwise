@@ -1,4 +1,4 @@
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import type { CredentialView } from "../../data/vault/types";
 import { quietButton } from "../tasks/controls";
@@ -102,9 +102,13 @@ export function CredentialRows({
           className="flex min-h-11 items-center gap-4 border-b border-rule px-3 py-1.5"
         >
           {projectCodeOf && (
-            <span className="num w-12 shrink-0 text-sm font-semibold text-ink-muted">
+            <Link
+              to="/p/$code/$section"
+              params={{ code: projectCodeOf(row.projectId), section: "credentials" }}
+              className="num w-12 shrink-0 text-sm font-semibold text-ink-muted hover:text-ink hover:underline"
+            >
               {projectCodeOf(row.projectId)}
-            </span>
+            </Link>
           )}
           <span className="flex w-56 min-w-0 shrink-0 flex-col items-start">
             <button
