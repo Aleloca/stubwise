@@ -222,6 +222,12 @@ export async function lock(): Promise<{ ok: true }> {
 }
 
 /** Cosa succede la prossima volta (riquadro «Prototype only»). */
+/** Cosa decide il riquadro «Prototype only» (il prossimo Touch ID, la prossima apertura). */
+export async function getVaultSimulation(): Promise<VaultSimulation> {
+  await gate("vault.getVaultSimulation");
+  return { ...v().simulation };
+}
+
 export async function setVaultSimulation(next: Partial<VaultSimulation>): Promise<void> {
   await gate("vault.setVaultSimulation");
   Object.assign(v().simulation, next);

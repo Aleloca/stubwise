@@ -13833,6 +13833,23 @@
       "removed": "Tolto. L'avviso è arrivato a {{name}}.",
       "failed": "Non è stato possibile togliere quel Mac. Riprova.",
       "reauth": "togliere un Mac dalla cassaforte di un'altra persona"
+    },
+    "prototype": {
+      "barLabel": "Solo prototipo: la cassaforte",
+      "pairingLabel": "Solo prototipo: l'associazione",
+      "note": "Decide cosa succede dopo. Nel prototipo non si cifra niente.",
+      "touch": "Prossimo Touch ID:",
+      "touchWorks": "Funziona",
+      "touchCancelled": "Annullato",
+      "touchUnavailable": "Questo Mac non ha Touch ID",
+      "opening": "Prossima apertura:",
+      "openingWorks": "Funziona",
+      "openingRevoked": "Sigillo revocato",
+      "openingUnreachable": "Stubwise non raggiungibile",
+      "pairing": "Associazione:",
+      "pairingOk": "Ritorno dal browser",
+      "pairingExpired": "Scade",
+      "pairingMismatch": "Il sigillo non corrisponde"
     }
   }
 }

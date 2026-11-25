@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import * as api from "@backend/api";
 import { queryKeys, useSessionPersonId, useWrite } from "../queries";
-import type { ReaderTarget } from "../vault/types";
+import type { ReaderTarget, VaultSimulation } from "../vault/types";
 
 // Gli hook della Cassaforte (lotto 10, shape `vault.md`); `data/queries` li
 // ri-esporta. Tutto sta nell'area «vault»: aprire, chiudere, condividere,
@@ -77,6 +77,30 @@ export function useVaultLock() {
 /** «Show»: la password solo nel risultato, mai in una cache. */
 export function useShowPassword() {
   return useWrite((id: string) => api.vault.show(id), VAULT_AREAS, { secret: true });
+}
+
+/** Il riquadro «Prototype only»: cosa succede al prossimo Touch ID e alla prossima apertura. */
+export function useVaultSimulation() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.vaultSimulation(me),
+    queryFn: () => api.vault.getVaultSimulation(),
+  });
+}
+
+export function useSetVaultSimulation() {
+  return useWrite(
+    (next: Partial<VaultSimulation>) => api.vault.setVaultSimulation(next),
+    VAULT_AREAS,
+  );
+}
+
+/** Il ritorno dal browser, simulato (il riquadro nel dialogo dell'associazione). */
+export function useFinishPairing() {
+  return useWrite(
+    (outcome: "ok" | "expired" | "mismatch") => api.vault.finishPairing(outcome),
+    VAULT_AREAS,
+  );
 }
 
 /** I propri Mac che aprono la cassaforte (Preferenze → Security). */

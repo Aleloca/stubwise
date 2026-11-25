@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { PairingDialog } from "./PairingDialog";
+import { VaultPrototype } from "./VaultPrototype";
 import { isAppBuild } from "../../data/build";
 import { useVaultLock, useVaultStatus, useVaultUnlock } from "../../data/queries";
 import type { VaultStatusView } from "../../data/vault/types";
@@ -187,6 +188,8 @@ export function VaultBar({ onPair: onPairProp }: { onPair?: () => void }) {
         <span className="min-w-0 flex-1">{text}</span>
         {action && <span className="shrink-0">{action}</span>}
       </div>
+      {/* Solo nel prototipo: cosa succede al prossimo Touch ID e alla prossima apertura. */}
+      {!isAppBuild() && <VaultPrototype />}
     </>
   );
 }

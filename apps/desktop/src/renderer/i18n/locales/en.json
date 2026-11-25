@@ -13833,6 +13833,23 @@
       "removed": "Removed. {{name}} was told.",
       "failed": "Couldn't remove that Mac. Try again.",
       "reauth": "remove a Mac from someone's vault"
+    },
+    "prototype": {
+      "barLabel": "Prototype only: the vault",
+      "pairingLabel": "Prototype only: pairing",
+      "note": "This decides what happens next. Nothing is encrypted in the prototype.",
+      "touch": "Next Touch ID:",
+      "touchWorks": "Works",
+      "touchCancelled": "Cancelled",
+      "touchUnavailable": "This Mac has no Touch ID",
+      "opening": "Next opening:",
+      "openingWorks": "Works",
+      "openingRevoked": "Seal revoked",
+      "openingUnreachable": "Stubwise unreachable",
+      "pairing": "Pairing:",
+      "pairingOk": "Return from the browser",
+      "pairingExpired": "Expire",
+      "pairingMismatch": "Seal doesn't match"
     }
   }
 }

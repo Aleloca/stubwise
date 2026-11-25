@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useCancelPairing, usePairingResult, useStartPairing } from "../../data/queries";
+import { isAppBuild } from "../../data/build";
 import { Dialog } from "../../tasks-ui/Dialog";
 import { primaryButton, quietButton, secondaryButton } from "../tasks/controls";
+import { PairingPrototype } from "./VaultPrototype";
 
 // La finestra dell'associazione (shape `vault.md` §3 «Pair this Mac», [VA 8]):
 // un dialogo, tre momenti. Si apre e chiede l'accoppiamento (il main apre il
@@ -103,6 +105,7 @@ export function PairingDialog({ onClose }: { onClose: () => void }) {
             <li>{t("vault.pairing.step2", { last4 })}</li>
             <li>{t("vault.pairing.step3")}</li>
           </ol>
+          {!isAppBuild() && <PairingPrototype />}
           <p role="status" className="flex items-center gap-2 text-sm text-ink-muted">
             <span
               aria-hidden="true"
