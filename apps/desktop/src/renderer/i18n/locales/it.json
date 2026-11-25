@@ -13652,7 +13652,9 @@
       "keyPending": "La tua chiave della cassaforte aspetta la conferma. La conferma un lettore che può condividere, quando ti passa una credenziale.",
       "ownFingerprint": "L'impronta della tua chiave:",
       "inactive": "La cassaforte non è ancora stata attivata su questa istanza.",
-      "openFailed": "Questo Mac non è riuscito ad aprire la cassaforte."
+      "openFailed": "Questo Mac non è riuscito ad aprire la cassaforte.",
+      "disabled": "Questa istanza apre la cassaforte solo dal browser.",
+      "unsupported": "Questo Mac non può aprire la cassaforte (manca il Secure Enclave, o la build non lo prevede). Aprila dal browser."
     },
     "row": {
       "show": "Mostra",

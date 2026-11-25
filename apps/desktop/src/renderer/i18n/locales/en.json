@@ -13652,7 +13652,9 @@
       "keyPending": "Your vault key is waiting for confirmation. A reader who can share confirms it when they pass you a credential.",
       "ownFingerprint": "Your key fingerprint:",
       "inactive": "The vault hasn't been activated on this instance yet.",
-      "openFailed": "This Mac couldn't open the vault."
+      "openFailed": "This Mac couldn't open the vault.",
+      "disabled": "This instance opens the vault only in the browser.",
+      "unsupported": "This Mac can't open the vault (no Secure Enclave, or a build without it). Open it in the browser."
     },
     "row": {
       "show": "Show",

@@ -137,6 +137,15 @@ export function VaultBar({ onPair: onPairProp }: { onPair?: () => void }) {
         </button>
       ) : null;
       break;
+    // Due stati che produce solo il main dell'app: la cassaforte si apre dal browser.
+    case "disabled":
+      text = t("vault.bar.disabled");
+      action = browser;
+      break;
+    case "unsupported":
+      text = t("vault.bar.unsupported");
+      action = browser;
+      break;
     case "unreachable":
       glyph = "▲";
       text = t("vault.bar.unreachable");
