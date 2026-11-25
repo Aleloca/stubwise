@@ -53,6 +53,10 @@ describe("il pacchetto del Mac", () => {
     expect(scripts["package:mac:unsigned"]).not.toMatch(/STUBWISE_VAULT_DESKTOP=on/);
     expect(scripts["package:mac:unsigned"]).toMatch(/node scripts\/check-fuses\.mjs/);
     expect(existsSync(resolve(root, "scripts/check-fuses.mjs"))).toBe(true);
+    // Una regola sola per il seme (72, fd12ed443): il controllo su tutto `out/`.
+    for (const name of ["package:mac", "package:mac:unsigned"])
+      expect(scripts[name], name).toMatch(/pnpm check:seed:app && /);
+    expect(scripts["check:seed:app"]).toMatch(/check-no-seed\.mjs out$/);
   });
 
   it("l'helper del Secure Enclave si compila prima del pacchetto e va accanto all'eseguibile", () => {
