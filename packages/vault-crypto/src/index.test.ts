@@ -6,6 +6,7 @@ describe("@stubwise/vault-crypto", () => {
     expect(Object.keys(vault).sort()).toEqual([
       "PRF_INPUT",
       "decryptPassword",
+      "devicePublicKeyFromRaw",
       "encryptForInsert",
       "encryptPassword",
       "generateDeviceKeyPair",

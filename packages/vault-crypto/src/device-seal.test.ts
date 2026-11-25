@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseEnvelope } from "./encoding.js";
 import { HKDF_INFO, generatePersonKeyPair, hkdfAesKey, rawPublicPoint, sealPrivateKey } from "./keys.js";
 import { decryptPassword, encryptPassword, unwrapItemKey, wrapItemKey } from "./items.js";
-import { generateDeviceKeyPair, importDeviceKey, openDeviceSeal, sealForDevice } from "./device-seal.js";
+import { devicePublicKeyFromRaw, generateDeviceKeyPair, importDeviceKey, openDeviceSeal, sealForDevice } from "./device-seal.js";
 
 const prf = () => crypto.getRandomValues(new Uint8Array(32)).buffer;
 const PERSON_KEY_ID = "11111111-1111-4111-8111-111111111111";
@@ -118,5 +118,68 @@ describe("sealForDevice / openDeviceSeal", () => {
   it("rifiuta una pubblica del dispositivo che non è un punto P-256", async () => {
     const { person, sealed, prfOutput } = await setup();
     await expect(sealForDevice({ prfOutput, sealed, personPublicKey: person.publicKey, personKeyId: PERSON_KEY_ID, devicePublicKey: '{"kty":"EC","crv":"P-256","x":"AA","y":"AA"}', deviceId: DEVICE_ID })).rejects.toThrow();
+  });
+});
+
+describe("openDeviceSeal con l'ECDH fuori dal processo (Secure Enclave, review I1)", () => {
+  /** Un «enclave» finto: tiene la privata, espone solo l'ECDH sul punto effimero. */
+  async function fakeEnclave() {
+    const pair = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
+    const raw = new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey));
+    const seen: Uint8Array[] = [];
+    const deriveBits = async (ephemeralPublicKey: Uint8Array) => {
+      seen.push(ephemeralPublicKey);
+      const eph = await crypto.subtle.importKey("raw", new Uint8Array(ephemeralPublicKey), { name: "ECDH", namedCurve: "P-256" }, false, []);
+      return new Uint8Array(await crypto.subtle.deriveBits({ name: "ECDH", public: eph }, pair.privateKey, 256));
+    };
+    return { raw, deriveBits, seen };
+  }
+
+  async function sealFor(devicePublicKey: string) {
+    const person = await generatePersonKeyPair();
+    const prfOutput = prf();
+    const sealed = await sealPrivateKey(prfOutput, person.privateKeyPkcs8, person.publicKey);
+    const deviceSeal = await sealForDevice({ prfOutput, sealed, personPublicKey: person.publicKey, personKeyId: PERSON_KEY_ID, devicePublicKey, deviceId: DEVICE_ID });
+    return { person, deviceSeal };
+  }
+
+  it("la pubblica dell'enclave (punto non compresso) diventa il JWK che il server vuole, e il sigillo si apre col `deriveBits` iniettato", async () => {
+    const enclave = await fakeEnclave();
+    const devicePublicKey = await devicePublicKeyFromRaw(enclave.raw);
+    expect(Object.keys(JSON.parse(devicePublicKey) as object).sort()).toEqual(["crv", "kty", "x", "y"]);
+    const { person, deviceSeal } = await sealFor(devicePublicKey);
+    const opened = await openDeviceSeal({ deviceSeal, deriveBits: enclave.deriveBits, personPublicKey: person.publicKey, personKeyId: PERSON_KEY_ID, deviceId: DEVICE_ID });
+    expect(opened.extractable).toBe(false);
+    // L'enclave riceve SOLO il punto effimero della busta (65 byte, 0x04): niente altro esce.
+    expect(enclave.seen).toHaveLength(1);
+    expect(enclave.seen[0]!.length).toBe(65);
+    expect(enclave.seen[0]![0]).toBe(4);
+    const { epk } = parseEnvelope(deviceSeal, ["epk", "iv", "ct"]);
+    expect(enclave.seen[0]).toEqual(epk);
+    const { ciphertext, itemKey } = await encryptPassword("cred-1", "segreta");
+    const copy = await wrapItemKey(itemKey, person.publicKey, "cred-1", PERSON_KEY_ID);
+    expect(await decryptPassword("cred-1", ciphertext, await unwrapItemKey(copy, opened, "cred-1", PERSON_KEY_ID))).toBe("segreta");
+  });
+
+  it("un enclave di un ALTRO Mac non lo apre; un segreto della lunghezza sbagliata lancia", async () => {
+    const enclave = await fakeEnclave();
+    const { person, deviceSeal } = await sealFor(await devicePublicKeyFromRaw(enclave.raw));
+    const other = await fakeEnclave();
+    const base = { deviceSeal, personPublicKey: person.publicKey, personKeyId: PERSON_KEY_ID, deviceId: DEVICE_ID };
+    await expect(openDeviceSeal({ ...base, deriveBits: other.deriveBits })).rejects.toThrow();
+    await expect(openDeviceSeal({ ...base, deriveBits: async () => new Uint8Array(16) })).rejects.toThrow(/32/);
+  });
+
+  it("o la privata o `deriveBits`, mai tutte e due né nessuna", async () => {
+    const enclave = await fakeEnclave();
+    const { person, deviceSeal } = await sealFor(await devicePublicKeyFromRaw(enclave.raw));
+    const key = await importDeviceKey((await generateDeviceKeyPair()).privateKeyPkcs8);
+    const base = { deviceSeal, personPublicKey: person.publicKey, personKeyId: PERSON_KEY_ID, deviceId: DEVICE_ID };
+    await expect(openDeviceSeal({ ...base, devicePrivateKey: key, deriveBits: enclave.deriveBits } as never)).rejects.toThrow(/una sola/);
+    await expect(openDeviceSeal(base as never)).rejects.toThrow(/una sola/);
+  });
+
+  it("`devicePublicKeyFromRaw` rifiuta ciò che non è un punto P-256", async () => {
+    await expect(devicePublicKeyFromRaw(new Uint8Array(65))).rejects.toThrow();
   });
 });
