@@ -21,7 +21,7 @@ function setup() {
       handlers.set(channel, fn),
   };
   const lock: VaultLock = {
-    status: vi.fn(async () => ({ state: "open" as const, fingerprint: "fp" })),
+    status: vi.fn(async () => ({ state: "open" as const, fingerprint: "fp", touchId: true })),
     unlock: vi.fn(async () => ({ ok: true as const })),
     lock: vi.fn(),
     use: vi.fn(async (run) => run(SECRET, "pk-1")),
@@ -78,7 +78,7 @@ describe("l'IPC della cassaforte", () => {
       expect(JSON.stringify(out), channel).not.toContain("PERSON-PRIVATE-KEY");
       expect(out, channel).not.toBe(SECRET);
     }
-    expect(await call("vault:status")).toEqual({ state: "open", fingerprint: "fp" });
+    expect(await call("vault:status")).toEqual({ state: "open", fingerprint: "fp", touchId: true });
     // «Copy» non restituisce la password: gli appunti li scrive il main.
     expect(await call("vault:copy", true, CRED)).toEqual({ ok: true });
     expect(await call("vault:pair-start")).toEqual({ ok: true, fingerprint: "fp" });
@@ -86,7 +86,11 @@ describe("l'IPC della cassaforte", () => {
 
   it("un mittente che non è l'app: niente, e nessuna azione", async () => {
     const { call, lock, pairing, ops } = setup();
-    expect(await call("vault:status", false)).toEqual({ state: "unpaired", fingerprint: null });
+    expect(await call("vault:status", false)).toEqual({
+      state: "unpaired",
+      fingerprint: null,
+      touchId: false,
+    });
     // Ogni canale tranne lo stato, anche con argomenti validi.
     for (const channel of VAULT_CHANNELS.filter((c) => c !== "vault:status")) {
       expect(await call(channel, false, CRED, { userId: USER }), channel).toEqual({

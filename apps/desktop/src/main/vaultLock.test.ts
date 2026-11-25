@@ -80,17 +80,17 @@ describe("la cassaforte nel main", () => {
   it("senza un dispositivo associato: `unpaired`, e non si apre", async () => {
     const { lock, setStored } = setup();
     setStored(null);
-    expect(await lock.status()).toEqual({ state: "unpaired", fingerprint: null });
+    expect(await lock.status()).toEqual({ state: "unpaired", fingerprint: null, touchId: true });
     expect(await lock.unlock()).toEqual({ ok: false, code: "unpaired" });
   });
 
   it("si apre col Touch ID; lo stato dice l'impronta del dispositivo, mai la chiave", async () => {
     const { lock, calls } = setup();
-    expect(await lock.status()).toEqual({ state: "locked", fingerprint: "fp(pub)" });
+    expect(await lock.status()).toEqual({ state: "locked", fingerprint: "fp(pub)", touchId: true });
     expect(await lock.unlock()).toEqual({ ok: true });
     expect(calls).toEqual(["touch"]);
     const status = await lock.status();
-    expect(status).toEqual({ state: "open", fingerprint: "fp(pub)" });
+    expect(status).toEqual({ state: "open", fingerprint: "fp(pub)", touchId: true });
     expect(JSON.stringify(status)).not.toContain("priv");
     // L'operazione riceve la chiave DENTRO il main, con l'id della chiave di
     // persona del sigillo (serve alla prova della propria chiave).
@@ -119,7 +119,11 @@ describe("la cassaforte nel main", () => {
 
   it("un build senza la cassaforte o un Mac senza enclave: `unsupported`, si apre dal browser", async () => {
     const { lock, calls } = setup({ supported: async () => ({ enclave: false, biometry: true }) });
-    expect(await lock.status()).toEqual({ state: "unsupported", fingerprint: null });
+    expect(await lock.status()).toEqual({
+      state: "unsupported",
+      fingerprint: null,
+      touchId: false,
+    });
     expect(await lock.unlock()).toEqual({ ok: false, code: "unsupported" });
     expect(calls).toEqual([]);
   });
@@ -235,7 +239,7 @@ describe("la cassaforte nel main", () => {
     const { lock, calls } = setup({ fetchSeal: async () => ({ revoked: true }) });
     expect(await lock.unlock()).toEqual({ ok: false, code: "revoked" });
     expect(calls).toContain("forget-local");
-    expect(await lock.status()).toEqual({ state: "revoked", fingerprint: null });
+    expect(await lock.status()).toEqual({ state: "revoked", fingerprint: null, touchId: true });
   });
 
   it("«Dimentica questo Mac»: il file, la chiave e il sigillo sul server; il server giù non ferma il locale", async () => {
@@ -285,7 +289,7 @@ describe("la cassaforte nel main", () => {
 
   it("senza sessione: niente stato da mostrare, niente apertura", async () => {
     const { lock } = setup({ identity: () => null });
-    expect(await lock.status()).toEqual({ state: "unpaired", fingerprint: null });
+    expect(await lock.status()).toEqual({ state: "unpaired", fingerprint: null, touchId: true });
     expect(await lock.unlock()).toEqual({ ok: false, code: "no_session" });
   });
 
@@ -294,14 +298,14 @@ describe("la cassaforte nel main", () => {
     await lock.unlock();
     lock.markRevoked();
     expect(calls).toContain("forget-local");
-    expect(await lock.status()).toEqual({ state: "revoked", fingerprint: null });
+    expect(await lock.status()).toEqual({ state: "revoked", fingerprint: null, touchId: true });
     await expect(lock.use(async () => 1)).rejects.toThrow("vault_locked");
   });
 
   it("VAULT_DESKTOP spento (785387279): l'apertura dice `disabled`, la barra pure; il Mac associato resta", async () => {
     const { lock, calls } = setup({ fetchSeal: async () => ({ disabled: true }) });
     expect(await lock.unlock()).toEqual({ ok: false, code: "disabled" });
-    expect(await lock.status()).toEqual({ state: "disabled", fingerprint: null });
+    expect(await lock.status()).toEqual({ state: "disabled", fingerprint: null, touchId: false });
     expect(calls).not.toContain("forget-local");
   });
 
@@ -350,5 +354,17 @@ describe("la cassaforte nel main", () => {
     await lock.unlock();
     setStored(null);
     await expect(lock.use(async () => 1)).rejects.toThrow("vault_locked");
+  });
+
+  // La barra del renderer dice «questo Mac non ha Touch ID» (D-1a): lo stato
+  // porta la biometria del Mac; senza, la cassaforte resta chiusa e si apre
+  // dal browser.
+  it("un Mac senza Touch ID: `locked` con `touchId: false`", async () => {
+    const { lock } = setup({ supported: async () => ({ enclave: true, biometry: false }) });
+    expect(await lock.status()).toEqual({
+      state: "locked",
+      fingerprint: "fp(pub)",
+      touchId: false,
+    });
   });
 });

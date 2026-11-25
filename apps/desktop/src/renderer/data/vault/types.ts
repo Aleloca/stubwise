@@ -114,7 +114,11 @@ export type VaultBarState =
   | "locked"
   | "open"
   | "revoked"
-  | "unreachable";
+  | "unreachable"
+  /** L'istanza ha la cassaforte dal desktop spenta (`VAULT_DESKTOP`): solo dal browser. Solo nell'app. */
+  | "disabled"
+  /** Un build o un Mac senza Secure Enclave: solo dal browser. Solo nell'app. */
+  | "unsupported";
 
 export interface VaultStatusView {
   state: VaultBarState;
