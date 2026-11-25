@@ -101,6 +101,8 @@ export function CredentialForm({
         const out = await create
           .mutateAsync({ projectId, input: { ...plain, password } })
           .catch(() => null);
+        // Review I3: le variabili (con la password) non restano nella mutazione.
+        create.reset();
         if (!out?.ok) return void toast.error(t("vault.form.failed"));
         toast.show(t("vault.form.created"));
         onSaved(out.id);
@@ -116,6 +118,7 @@ export function CredentialForm({
           input: password !== "" ? { ...plain, password } : plain,
         })
         .catch(() => null);
+      update.reset();
       if (!out?.ok) return void toast.error(t("vault.form.failed"));
       toast.show(t("vault.form.saved"));
       onSaved(mode.view.id);

@@ -35,6 +35,9 @@ export function usePasswordReveal() {
     show: async (id: string) => {
       if (!(await ensureOpen())) return;
       const out = await showMutation.mutateAsync(id).catch(() => null);
+      // Review I3: la password resta SOLO nello stato della riga; la
+      // mutazione la scorda subito (e la cache, con `secret`, non la tiene).
+      showMutation.reset();
       if (out?.ok) setShown((m) => ({ ...m, [id]: out.password }));
       else toast.error(t("vault.revealFailed"));
     },

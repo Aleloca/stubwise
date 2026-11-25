@@ -253,6 +253,8 @@ export function useCreateCredential() {
     ({ projectId, input }: { projectId: string; input: api.vault.CredentialInput }) =>
       api.vault.createCredential(projectId, input),
     VAULT_AREAS,
+    // Le variabili portano la password: la cache delle mutazioni non le tiene (review I3).
+    { secret: true },
   );
 }
 
@@ -262,6 +264,7 @@ export function useUpdateCredential() {
     ({ id, input }: { id: string; input: Partial<api.vault.CredentialInput> }) =>
       api.vault.updateCredential(id, input),
     VAULT_AREAS,
+    { secret: true },
   );
 }
 
