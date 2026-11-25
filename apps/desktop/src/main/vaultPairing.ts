@@ -36,29 +36,42 @@ export type PairingCode =
   | "open_failed"
   | "no_secure_storage"
   | "unavailable"
+  | "unsupported_build"
+  | "touch_id_unavailable"
+  | "touch_id_cancelled"
   | (string & {});
 
 export interface VaultPairingDeps {
   identity: () => DeviceIdentity | null;
   deviceName: () => string;
+  /** Cosa sa fare questo build su questo Mac: il Secure Enclave e la biometria. */
+  supported: () => Promise<{ enclave: boolean; biometry: boolean }>;
+  /** Una chiave nuova nel Secure Enclave (`generateDeviceKey`). */
   generate: () => Promise<{
     publicKey: string;
-    stored: Pick<StoredDevice, "publicKey" | "privateKey">;
+    stored: Pick<StoredDevice, "publicKey" | "enclaveKey">;
   }>;
-  devicePrivateKey: (device: Pick<StoredDevice, "privateKey">) => Promise<CryptoKey>;
+  /** L'ECDH dell'enclave, col Touch ID (`deviceAgreement`). */
+  agreement: (device: Pick<StoredDevice, "enclaveKey">) => {
+    deriveBits: (ephemeralPublicKey: Uint8Array) => Promise<Uint8Array>;
+  };
   pair: (devicePublicKey: string, deviceName: string) => Promise<Pairing>;
   openExternal: (url: string) => Promise<void> | void;
   fetchSeal: () => Promise<SealResponse>;
   openSeal: (input: {
     deviceSeal: string;
-    devicePrivateKey: CryptoKey;
+    deriveBits: (ephemeralPublicKey: Uint8Array) => Promise<Uint8Array>;
     personPublicKey: string;
     personKeyId: string;
     deviceId: string;
   }) => Promise<CryptoKey>;
   save: (device: Omit<StoredDevice, "v">) => boolean;
-  /** Associato: la cassaforte segna la prima apertura senza tocco (`markPaired`). */
-  paired: () => void;
+  /**
+   * Associato: la chiave di persona già aperta (col Touch ID, per verificare
+   * il sigillo) passa alla cassaforte (`adopt`, D-1b). Resta nel main: il
+   * risultato di `handleUrl`, che va al renderer, non la porta.
+   */
+  paired: (key: CryptoKey, personKeyId: string) => void;
   fingerprint: (publicKey: string) => Promise<string>;
   now?: () => number;
 }
@@ -67,7 +80,7 @@ interface Pending {
   state: string;
   deviceId: string;
   identity: DeviceIdentity;
-  stored: Pick<StoredDevice, "publicKey" | "privateKey">;
+  stored: Pick<StoredDevice, "publicKey" | "enclaveKey">;
   until: number;
 }
 
@@ -99,6 +112,11 @@ export function createVaultPairing(deps: VaultPairingDeps) {
     const identity = deps.identity();
     if (!identity) return fail("no_session");
     pending = null;
+    // Senza enclave (o in un build senza la cassaforte) non c'è dove tenere la chiave;
+    // senza biometria la chiave dell'enclave non si userebbe: dal browser.
+    const support = await deps.supported();
+    if (!support.enclave) return fail("unsupported_build");
+    if (!support.biometry) return fail("touch_id_unavailable");
     try {
       const pair = await deps.generate();
       const pairing = await deps.pair(pair.publicKey, deps.deviceName());
@@ -138,15 +156,20 @@ export function createVaultPairing(deps: VaultPairingDeps) {
     }
     if ("revoked" in seal) return fail("revoked");
     if ("disabled" in seal) return fail("vault_desktop_disabled");
+    let opened: CryptoKey;
     try {
-      await deps.openSeal({
+      // Il Touch ID lo chiede l'enclave qui: la verifica del sigillo È l'apertura.
+      opened = await deps.openSeal({
         deviceSeal: seal.seal,
-        devicePrivateKey: await deps.devicePrivateKey(p.stored),
+        ...deps.agreement(p.stored),
         personPublicKey: seal.personPublicKey,
         personKeyId: seal.personKeyId,
         deviceId: p.deviceId,
       });
-    } catch {
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "";
+      if (code === "cancelled") return fail("touch_id_cancelled");
+      if (code === "no_biometry" || code === "lockout") return fail("touch_id_unavailable");
       return fail("open_failed");
     }
     if (
@@ -159,7 +182,7 @@ export function createVaultPairing(deps: VaultPairingDeps) {
     ) {
       return fail("no_secure_storage");
     }
-    deps.paired();
+    deps.paired(opened, seal.personKeyId);
     return { ok: true };
   }
 

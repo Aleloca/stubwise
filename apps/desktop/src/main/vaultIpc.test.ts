@@ -26,7 +26,7 @@ function setup() {
     lock: vi.fn(),
     use: vi.fn(async (run) => run(SECRET, "pk-1")),
     forget: vi.fn(async () => ({ ok: true as const, remote: true })),
-    markPaired: vi.fn(),
+    adopt: vi.fn(),
     sessionChanged: vi.fn(),
     markRevoked: vi.fn(),
     markDisabled: vi.fn(),

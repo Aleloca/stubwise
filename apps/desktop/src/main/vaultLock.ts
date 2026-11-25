@@ -7,10 +7,15 @@ import type { DeviceIdentity, StoredDevice } from "./vaultDevice";
 // La privata di persona si apre dal sigillo del dispositivo e vive SOLO qui,
 // come `CryptoKey` non estraibile: il renderer chiede operazioni (`use`) e
 // riceve esiti, mai la chiave. Le regole:
-// - D-1: si riapre col Touch ID; D-1b: senza tocco solo la prima apertura
-//   subito dopo l'associazione (in memoria: al riavvio il tocco torna);
-//   D-1a: un Mac senza Touch ID non si riapre da solo, si apre dal browser
-//   con la passkey e il sigillo resta;
+// - D-1: si riapre col Touch ID, e il tocco lo chiede il SISTEMA: l'ECDH
+//   del sigillo lo fa il Secure Enclave, con la biometria a ogni uso
+//   (revisione di sicurezza I1; prima era un blocco d'interfaccia,
+//   aggirabile). D-1b: dopo l'associazione la chiave aperta per verificare
+//   il sigillo passa qui (`adopt`): un tocco solo, e nessuna apertura senza
+//   tocco esiste più. D-1a: un Mac senza biometria non si apre da qui, si
+//   apre dal browser con la passkey e il sigillo resta. Un build senza la
+//   cassaforte (`MAIN_VITE_VAULT_DESKTOP`) o un Mac senza enclave:
+//   `unsupported`, dal browser;
 // - D-2: si chiude (la chiave si dimentica, il dispositivo resta) dopo
 //   15 minuti senza usarla, a schermo bloccato e in stop (`lock()`, dai
 //   segnali di `powerMonitor`);
@@ -24,11 +29,12 @@ import type { DeviceIdentity, StoredDevice } from "./vaultDevice";
 /** D-2: la chiusura dopo questo tempo senza usarla. */
 export const VAULT_IDLE_MS = 15 * 60 * 1000;
 
-/** M1 (revisione di sicurezza): quanto vale l'apertura senza tocco dopo l'associazione. */
-export const FRESH_PAIRING_MS = 10_000;
-
-/** `disabled`: l'istanza non abilita la cassaforte dal desktop (`VAULT_DESKTOP` spento). */
-export type VaultState = "unpaired" | "locked" | "open" | "revoked" | "disabled";
+/**
+ * `disabled`: l'istanza non abilita la cassaforte dal desktop (`VAULT_DESKTOP`
+ * spento). `unsupported`: questo build o questo Mac non la sanno tenere
+ * (niente flag di build, niente Secure Enclave): si apre dal browser.
+ */
+export type VaultState = "unpaired" | "locked" | "open" | "revoked" | "disabled" | "unsupported";
 
 /** Ciò che il renderer vede: lo stato e l'impronta della chiave del dispositivo. */
 export interface VaultStatus {
@@ -39,6 +45,7 @@ export interface VaultStatus {
 export type UnlockCode =
   | "interrupted"
   | "disabled"
+  | "unsupported"
   | "no_session"
   | "unpaired"
   | "revoked"
@@ -62,19 +69,27 @@ export interface VaultLockDeps {
   /** La sessione desktop di adesso; null senza login. */
   identity: () => DeviceIdentity | null;
   store: { read: (me: DeviceIdentity) => StoredDevice | null; forget: () => void };
-  devicePrivateKey: (device: StoredDevice) => Promise<CryptoKey>;
-  touchId: { available: () => boolean; prompt: (reason: string) => Promise<void> };
+  /**
+   * Cosa sa fare questo build su questo Mac: il Secure Enclave (e il flag di
+   * build della cassaforte) e la biometria.
+   */
+  supported: () => Promise<{ enclave: boolean; biometry: boolean }>;
+  /** L'accordo di chiave del dispositivo: l'ECDH dell'enclave, col Touch ID (`deviceAgreement`). */
+  agreement: (device: StoredDevice) => {
+    deriveBits: (ephemeralPublicKey: Uint8Array) => Promise<Uint8Array>;
+  };
   /** `GET /api/vault/device-seals/mine` (72). */
   fetchSeal: () => Promise<SealResponse>;
   /**
-   * Apre il sigillo con la privata del dispositivo (`openDeviceSeal` di
-   * `@stubwise/vault-crypto`): restituisce la privata di persona NON
-   * estraibile dopo aver verificato che sia la metà di `personPublicKey`, e
-   * lancia per un altro Mac, altri id o un'altra pubblica (§1).
+   * Apre il sigillo con l'accordo dell'enclave (`openDeviceSeal` di
+   * `@stubwise/vault-crypto`, `deriveBits`): restituisce la privata di persona
+   * NON estraibile dopo aver verificato che sia la metà di `personPublicKey`,
+   * e lancia per un altro Mac, altri id o un'altra pubblica (§1); un tocco
+   * annullato lancia `cancelled`.
    */
   openSeal: (input: {
     deviceSeal: string;
-    devicePrivateKey: CryptoKey;
+    deriveBits: (ephemeralPublicKey: Uint8Array) => Promise<Uint8Array>;
     personPublicKey: string;
     personKeyId: string;
     deviceId: string;
@@ -84,14 +99,12 @@ export interface VaultLockDeps {
   fingerprint: (publicKey: string) => Promise<string>;
   /** Avvisa il renderer di un cambio di stato (`vault:changed`). */
   onChange: (status: VaultStatus) => void;
-  /** Il testo del Touch ID («Stubwise vuole <reason>»). */
-  touchReason?: string;
 }
 
 export interface VaultLock {
   status: () => Promise<VaultStatus>;
-  /** `afterPairing`: SOLO dal ritorno dell'associazione (`receiveVaultUrl`), l'apertura senza tocco (D-1b, M1). */
-  unlock: (options?: { afterPairing?: boolean }) => Promise<UnlockResult>;
+  /** Apre col Touch ID dell'enclave. */
+  unlock: () => Promise<UnlockResult>;
   lock: () => void;
   /**
    * Un'operazione con la privata di persona, dentro il main, con l'id della
@@ -100,8 +113,12 @@ export interface VaultLock {
   use: <T>(run: (key: CryptoKey, personKeyId: string) => Promise<T>) => Promise<T>;
   /** «Dimentica questo Mac»: il sigillo sul server (best-effort), il file e la chiave. */
   forget: () => Promise<{ ok: true; remote: boolean }>;
-  /** Appena associato: la prossima apertura è senza tocco (D-1b). */
-  markPaired: () => void;
+  /**
+   * D-1b: la chiave di persona che l'associazione ha GIÀ aperto (col Touch ID,
+   * per verificare il sigillo prima di scriverlo) passa qui, senza un secondo
+   * tocco. Solo dal ritorno dell'associazione (`receiveVaultUrl`).
+   */
+  adopt: (key: CryptoKey, personKeyId: string) => void;
   /**
    * Login nuovo, cambio d'istanza, 401: toglie il sigillo sul server
    * (best-effort, M3) e cancella il locale. Va chiamata PRIMA che il token
@@ -121,8 +138,6 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
   let revoked = false;
   /** `VAULT_DESKTOP` spento sull'istanza: finché non cambia la sessione. */
   let disabled = false;
-  /** M1: quando il Mac è stato appena associato (null: nessuna apertura senza tocco). */
-  let pairedAt: number | null = null;
   /**
    * I3 (revisione di sicurezza): cresce a ogni `lock()` e a ogni cancellazione
    * del locale. Un'apertura che finisce in un'epoca diversa da quella in cui è
@@ -137,6 +152,7 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
 
   async function status(): Promise<VaultStatus> {
     if (disabled) return { state: "disabled", fingerprint: null };
+    if (!(await deps.supported()).enclave) return { state: "unsupported", fingerprint: null };
     const d = device();
     if (!d) return { state: revoked ? "revoked" : "unpaired", fingerprint: null };
     return { state: key ? "open" : "locked", fingerprint: await deps.fingerprint(d.publicKey) };
@@ -158,7 +174,6 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
   function lock(): void {
     const was = key !== null;
     epoch += 1;
-    pairedAt = null;
     key = null;
     personKeyId = null;
     disarm();
@@ -170,30 +185,19 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
     key = null;
     personKeyId = null;
     disarm();
-    pairedAt = null;
     deps.store.forget();
   }
 
-  async function unlock(options: { afterPairing?: boolean } = {}): Promise<UnlockResult> {
+  async function unlock(): Promise<UnlockResult> {
     if (!deps.identity()) return { ok: false, code: "no_session" };
+    const support = await deps.supported();
+    if (!support.enclave) return { ok: false, code: "unsupported" };
     const d = device();
     if (!d) return { ok: false, code: revoked ? "revoked" : "unpaired" };
     if (key) return { ok: true };
+    // D-1a: senza biometria la chiave dell'enclave non si usa: dal browser.
+    if (!support.biometry) return { ok: false, code: "touch_id_unavailable" };
     const started = epoch;
-    const fresh =
-      options.afterPairing === true &&
-      pairedAt !== null &&
-      Date.now() - pairedAt <= FRESH_PAIRING_MS;
-    pairedAt = null;
-    if (!fresh) {
-      if (!deps.touchId.available()) return { ok: false, code: "touch_id_unavailable" };
-      try {
-        await deps.touchId.prompt(deps.touchReason ?? "open the vault");
-      } catch {
-        return { ok: false, code: "touch_id_cancelled" };
-      }
-    }
-    if (epoch !== started) return { ok: false, code: "interrupted" };
     let seal: SealResponse;
     try {
       seal = await deps.fetchSeal();
@@ -214,14 +218,19 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
     }
     let opened: CryptoKey;
     try {
+      // Il Touch ID lo chiede l'enclave qui, per l'ECDH del sigillo.
       opened = await deps.openSeal({
         deviceSeal: seal.seal,
-        devicePrivateKey: await deps.devicePrivateKey(d),
+        ...deps.agreement(d),
         personPublicKey: seal.personPublicKey,
         personKeyId: seal.personKeyId,
         deviceId: d.deviceId,
       });
-    } catch {
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "";
+      if (code === "cancelled") return { ok: false, code: "touch_id_cancelled" };
+      if (code === "no_biometry" || code === "lockout")
+        return { ok: false, code: "touch_id_unavailable" };
       return { ok: false, code: "open_failed" };
     }
     // Chiusa, o cambiata la sessione, mentre si apriva: la chiave non resta.
@@ -262,9 +271,12 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
     lock,
     use,
     forget,
-    markPaired: () => {
+    adopt: (opened, id) => {
+      if (disabled) return;
       revoked = false;
-      pairedAt = Date.now();
+      key = opened;
+      personKeyId = id;
+      arm();
       changed();
     },
     sessionChanged: () => {

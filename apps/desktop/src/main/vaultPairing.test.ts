@@ -17,11 +17,17 @@ function setup(over: Partial<VaultPairingDeps> = {}) {
   const deps: VaultPairingDeps = {
     identity: () => ME,
     deviceName: () => "MacBook Pro",
+    supported: async () => ({ enclave: true, biometry: true }),
     generate: async () => ({
       publicKey: '{"kty":"EC"}',
-      stored: { publicKey: '{"kty":"EC"}', privateKey: "pk8" },
+      stored: { publicKey: '{"kty":"EC"}', enclaveKey: "enclave-blob" },
     }),
-    devicePrivateKey: async () => ({}) as CryptoKey,
+    agreement: (stored) => ({
+      deriveBits: async () => {
+        calls.push(`touch:${stored.enclaveKey}`);
+        return new Uint8Array(32);
+      },
+    }),
     pair: async (pub, name) => {
       calls.push(`pair:${name}`);
       return { state: STATE, deviceId: "d-1", expiresAt: "x" };
@@ -36,13 +42,16 @@ function setup(over: Partial<VaultPairingDeps> = {}) {
       personKeyId: "pk-1",
       personPublicKey: "ppub",
     }),
-    openSeal: async () => ({}) as CryptoKey,
+    openSeal: async (input) => {
+      await input.deriveBits(new Uint8Array(65));
+      return PERSON_KEY;
+    },
     save: (d) => {
       calls.push(`save:${d.deviceId}:${d.personKeyId}`);
       return true;
     },
-    paired: () => {
-      calls.push("paired");
+    paired: (key, personKeyId) => {
+      calls.push(`paired:${key === PERSON_KEY}:${personKeyId}`);
     },
     fingerprint: async () => "fp",
     now: () => now,
@@ -50,6 +59,8 @@ function setup(over: Partial<VaultPairingDeps> = {}) {
   };
   return { p: createVaultPairing(deps), calls, advance: (ms: number) => (now += ms) };
 }
+
+const PERSON_KEY = { type: "private" } as unknown as CryptoKey;
 
 describe("l'associazione del Mac", () => {
   it("chiede l'accoppiamento col PAT e apre il browser con SOLO lo state; dice l'impronta da confrontare", async () => {
@@ -62,11 +73,12 @@ describe("l'associazione del Mac", () => {
     ]);
   });
 
-  it("il ritorno con lo state giusto: apre il sigillo, POI scrive il file e lo segna appena associato", async () => {
+  it("il ritorno con lo state giusto: apre il sigillo nell'enclave (un tocco), POI scrive il file e passa la chiave aperta al main", async () => {
     const { p, calls } = setup();
     await p.start();
+    // La chiave non esce nel risultato (va al renderer): la riceve solo `paired`.
     expect(await p.handleUrl(`stubwise://vault?state=${STATE}`)).toEqual({ ok: true });
-    expect(calls.slice(2)).toEqual(["save:d-1:pk-1", "paired"]);
+    expect(calls.slice(2)).toEqual(["touch:enclave-blob", "save:d-1:pk-1", "paired:true:pk-1"]);
     // Uso singolo.
     expect(await p.handleUrl(`stubwise://vault?state=${STATE}`)).toEqual({
       ok: false,
@@ -140,8 +152,28 @@ describe("l'associazione del Mac", () => {
   });
 
   it("VAULT_DESKTOP spento: l'accoppiamento dice `vault_desktop_disabled`, e il browser non si apre", async () => {
-    const { p, calls } = setup({ pair: async () => Promise.reject(new Error("vault_desktop_disabled")) });
+    const { p, calls } = setup({
+      pair: async () => Promise.reject(new Error("vault_desktop_disabled")),
+    });
     expect(await p.start()).toEqual({ ok: false, code: "vault_desktop_disabled" });
     expect(calls.some((c) => c.startsWith("open:"))).toBe(false);
+  });
+
+  it("un build o un Mac senza enclave non si associa (`unsupported_build`); senza biometria nemmeno", async () => {
+    const a = setup({ supported: async () => ({ enclave: false, biometry: true }) });
+    expect(await a.p.start()).toEqual({ ok: false, code: "unsupported_build" });
+    expect(a.calls).toEqual([]);
+    const b = setup({ supported: async () => ({ enclave: true, biometry: false }) });
+    expect(await b.p.start()).toEqual({ ok: false, code: "touch_id_unavailable" });
+  });
+
+  it("un tocco annullato al ritorno: niente su disco, la chiave non passa", async () => {
+    const { p, calls } = setup({ openSeal: async () => Promise.reject(new Error("cancelled")) });
+    await p.start();
+    expect(await p.handleUrl(`stubwise://vault?state=${STATE}`)).toEqual({
+      ok: false,
+      code: "touch_id_cancelled",
+    });
+    expect(calls.some((c) => c.startsWith("save") || c.startsWith("paired"))).toBe(false);
   });
 });

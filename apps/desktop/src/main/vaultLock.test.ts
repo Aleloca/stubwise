@@ -5,23 +5,29 @@ import type { DeviceIdentity, StoredDevice } from "./vaultDevice";
 
 // Lotto 10, design §3–§5 e §12 (decisioni del maintainer, 24 nov 2026):
 // - la privata di persona vive SOLO nella memoria del main, non estraibile;
-// - si riapre col Touch ID (D-1); senza tocco solo la prima apertura dopo
-//   l'associazione (D-1b); un Mac senza Touch ID si riapre dal browser (D-1a);
+// - si riapre col Touch ID (D-1) chiesto dal Secure Enclave per l'ECDH del
+//   sigillo (revisione I1): qui il `deriveBits` finto registra «touch»;
+//   dopo l'associazione la chiave già aperta passa con `adopt` (D-1b, un
+//   tocco solo); un Mac senza biometria si apre dal browser (D-1a), un build
+//   o un Mac senza enclave è `unsupported`;
 // - si chiude dopo 15 minuti senza usarla, a schermo bloccato, in stop (D-2);
 // - un sigillo revocato lascia il login (D-5): lo stato è `revoked`.
 
 const ME: DeviceIdentity = { instanceUrl: "https://stubwise.example", patId: "pat-1" };
 const DEVICE: StoredDevice = {
-  v: 1,
+  v: 2,
   ...ME,
   deviceId: "d-1",
   personKeyId: "pk-1",
   publicKey: "pub",
-  privateKey: "priv",
+  enclaveKey: "enclave-blob",
 };
 const PERSON_KEY = { type: "private", extractable: false } as unknown as CryptoKey;
 
-function setup(over: Partial<VaultLockDeps> = {}) {
+function setup(
+  over: Partial<VaultLockDeps> = {},
+  touch: "works" | "cancelled" | "lockout" = "works",
+) {
   const calls: string[] = [];
   let stored: StoredDevice | null = DEVICE;
   const deps: VaultLockDeps = {
@@ -33,13 +39,15 @@ function setup(over: Partial<VaultLockDeps> = {}) {
         stored = null;
       },
     },
-    devicePrivateKey: async () => ({}) as CryptoKey,
-    touchId: {
-      available: () => true,
-      prompt: async () => {
-        calls.push("touch");
+    supported: async () => ({ enclave: true, biometry: true }),
+    // Il Touch ID lo chiede l'enclave, nell'ECDH del sigillo.
+    agreement: (device) => ({
+      deriveBits: async () => {
+        calls.push(device.enclaveKey === "enclave-blob" ? "touch" : `touch:${device.enclaveKey}`);
+        if (touch !== "works") throw new Error(touch);
+        return new Uint8Array(32);
       },
-    },
+    }),
     fetchSeal: async () => ({
       id: "d-1",
       deviceName: "Mac",
@@ -47,7 +55,10 @@ function setup(over: Partial<VaultLockDeps> = {}) {
       personKeyId: "pk-1",
       personPublicKey: "ppub",
     }),
-    openSeal: async () => PERSON_KEY,
+    openSeal: async (input) => {
+      await input.deriveBits(new Uint8Array(65));
+      return PERSON_KEY;
+    },
     forgetRemote: async () => {
       calls.push("forget-remote");
     },
@@ -83,37 +94,34 @@ describe("la cassaforte nel main", () => {
     expect(JSON.stringify(status)).not.toContain("priv");
     // L'operazione riceve la chiave DENTRO il main, con l'id della chiave di
     // persona del sigillo (serve alla prova della propria chiave).
-    expect(await lock.use(async (key, personKeyId) => key === PERSON_KEY && personKeyId === "pk-1")).toBe(true);
+    expect(
+      await lock.use(async (key, personKeyId) => key === PERSON_KEY && personKeyId === "pk-1"),
+    ).toBe(true);
   });
 
-  it("D-1b: dopo l'associazione la prima apertura è senza tocco, poi sempre col tocco", async () => {
+  it("D-1b: la chiave che l'associazione ha già aperto passa con `adopt` (un tocco solo); poi sempre col tocco", async () => {
     const { lock, calls } = setup();
-    lock.markPaired();
-    expect(await lock.unlock({ afterPairing: true })).toEqual({ ok: true });
+    lock.adopt(PERSON_KEY, "pk-1");
+    expect((await lock.status()).state).toBe("open");
     expect(calls).toEqual([]);
     lock.lock();
     expect(await lock.unlock()).toEqual({ ok: true });
     expect(calls).toEqual(["touch"]);
   });
 
-  // Revisione di sicurezza, M1: l'apertura senza tocco la consuma SOLO il
-  // ritorno dell'associazione (`receiveVaultUrl`), entro pochi secondi; un
-  // `vault:unlock` del renderer, un `lock()` o il tempo la tolgono.
-  it("M1: senza tocco solo dal ritorno dell'associazione, entro 10 s; il renderer e `lock()` no", async () => {
-    const a = setup();
-    a.lock.markPaired();
-    expect(await a.lock.unlock()).toEqual({ ok: true });
-    expect(a.calls).toEqual(["touch"]);
-    const b = setup();
-    b.lock.markPaired();
-    b.lock.lock();
-    await b.lock.unlock({ afterPairing: true });
-    expect(b.calls).toEqual(["touch"]);
-    const c = setup();
-    c.lock.markPaired();
-    vi.advanceTimersByTime(10_001);
-    await c.lock.unlock({ afterPairing: true });
-    expect(c.calls).toEqual(["touch"]);
+  it("M1: non c'è più un'apertura senza tocco: ogni `unlock` passa dall'enclave", async () => {
+    const { lock, calls } = setup();
+    await lock.unlock();
+    lock.lock();
+    await lock.unlock();
+    expect(calls).toEqual(["touch", "touch"]);
+  });
+
+  it("un build senza la cassaforte o un Mac senza enclave: `unsupported`, si apre dal browser", async () => {
+    const { lock, calls } = setup({ supported: async () => ({ enclave: false, biometry: true }) });
+    expect(await lock.status()).toEqual({ state: "unsupported", fingerprint: null });
+    expect(await lock.unlock()).toEqual({ ok: false, code: "unsupported" });
+    expect(calls).toEqual([]);
   });
 
   // Revisione di sicurezza, I3: un `lock()` o un cambio di sessione mentre
@@ -124,7 +132,13 @@ describe("la cassaforte nel main", () => {
     const { lock } = setup({
       fetchSeal: async () => {
         await gate;
-        return { id: "d-1", deviceName: "Mac", seal: "sealed", personKeyId: "pk-1", personPublicKey: "ppub" };
+        return {
+          id: "d-1",
+          deviceName: "Mac",
+          seal: "sealed",
+          personKeyId: "pk-1",
+          personPublicKey: "ppub",
+        };
       },
     });
     const pending = lock.unlock();
@@ -155,18 +169,20 @@ describe("la cassaforte nel main", () => {
   });
 
   it("D-1a: un Mac senza Touch ID non si riapre da solo (dal browser), e il sigillo resta", async () => {
-    const { lock, calls } = setup({ touchId: { available: () => false, prompt: async () => {} } });
+    const { lock, calls } = setup({ supported: async () => ({ enclave: true, biometry: false }) });
     expect(await lock.unlock()).toEqual({ ok: false, code: "touch_id_unavailable" });
     expect(calls).toEqual([]);
     expect((await lock.status()).state).toBe("locked");
   });
 
-  it("un tocco annullato non apre", async () => {
-    const { lock } = setup({
-      touchId: { available: () => true, prompt: async () => Promise.reject(new Error("cancel")) },
-    });
+  it("un tocco annullato non apre; la biometria bloccata dice di aprire dal browser", async () => {
+    const { lock } = setup({}, "cancelled");
     expect(await lock.unlock()).toEqual({ ok: false, code: "touch_id_cancelled" });
     await expect(lock.use(async () => 1)).rejects.toThrow("vault_locked");
+    expect(await setup({}, "lockout").lock.unlock()).toEqual({
+      ok: false,
+      code: "touch_id_unavailable",
+    });
   });
 
   it("un sigillo che non si apre (un altro Mac, un'altra pubblica di persona: `openDeviceSeal` lancia) è `open_failed`, e non resta niente in memoria", async () => {

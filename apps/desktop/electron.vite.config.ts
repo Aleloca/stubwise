@@ -10,6 +10,10 @@ const mode = backendMode();
 export default defineConfig({
   main: {
     build: { rollupOptions: { input: resolve(__dirname, "src/main/index.ts") } },
+    // I1: la cassaforte dal desktop solo nel pacchetto firmato (`package:mac`).
+    define: {
+      __STUBWISE_VAULT_DESKTOP__: JSON.stringify(process.env["STUBWISE_VAULT_DESKTOP"] === "on"),
+    },
   },
   preload: {
     // Un preload con sandbox:true deve essere CommonJS, anche se il package è ESM.

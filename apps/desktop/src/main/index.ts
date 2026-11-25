@@ -14,7 +14,6 @@ import {
   powerMonitor,
   session,
   shell,
-  systemPreferences,
 } from "electron";
 import {
   createPendingDownloads,
@@ -24,15 +23,32 @@ import {
   type DownloadResult,
 } from "./apiDownload";
 import { handleApiRequest, isWebPath } from "./apiProxy";
-import { createActiveUploads, createUploadTokens, uploadFile, type UploadResult } from "./apiUpload";
+import {
+  createActiveUploads,
+  createUploadTokens,
+  uploadFile,
+  type UploadResult,
+} from "./apiUpload";
 import { createStreamRegistry } from "./apiStream";
 import { normalizeInstanceUrl, readInstanceUrl, writeInstanceUrl } from "./instance";
 import { buildMenuTemplate } from "./menu";
 import { hostname as osHostname } from "node:os";
-import { authUrlFromArgv, createBrowserLogin, deviceNameFrom, type SessionChange } from "./browserLogin";
+import {
+  authUrlFromArgv,
+  createBrowserLogin,
+  deviceNameFrom,
+  type SessionChange,
+} from "./browserLogin";
 import { createGoogleReturn } from "./googleReturn";
 import { clearToken, logout, readPatId, readToken, replaceToken } from "./session";
-import { devicePrivateKey, forgetDevice, generateDeviceKey, readDevice, saveDevice } from "./vaultDevice";
+import { createKeyHelper, helperPath, spawnRunner } from "./keyHelper";
+import {
+  deviceAgreement,
+  forgetDevice,
+  generateDeviceKey,
+  readDevice,
+  saveDevice,
+} from "./vaultDevice";
 import { registerVaultIpc } from "./vaultIpc";
 import { createVaultLock } from "./vaultLock";
 import { createVaultOps } from "./vaultOps";
@@ -47,7 +63,14 @@ import {
   withExtension,
   type SaveFileResult,
 } from "./security";
-import { groundFor, isResolvedTheme, overlayFor, printOnPaper, themeFromDark, windowOptions } from "./window";
+import {
+  groundFor,
+  isResolvedTheme,
+  overlayFor,
+  printOnPaper,
+  themeFromDark,
+  windowOptions,
+} from "./window";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const devUrl = process.env["ELECTRON_RENDERER_URL"];
@@ -132,7 +155,9 @@ ipcMain.handle("file:save", async (event, raw: unknown): Promise<SaveFileResult>
   try {
     const data =
       req.format === "pdf"
-        ? await printOnPaper(win, () => event.sender.printToPDF({ printBackground: true, pageSize: "A4" }))
+        ? await printOnPaper(win, () =>
+            event.sender.printToPDF({ printBackground: true, pageSize: "A4" }),
+          )
         : req.data;
     const choice = await dialog.showSaveDialog(win, {
       defaultPath: join(app.getPath("downloads"), safeFileName(req.name, req.format)),
@@ -183,16 +208,33 @@ const openAllowed = async (url: string) => {
 
 const vaultRemote = createVaultRemote({ instanceUrl: readInstanceUrl, token: readToken });
 
+// I1 (revisione di sicurezza): la chiave del Mac nel Secure Enclave, attraverso
+// l'helper firmato con l'app; il Touch ID lo chiede il sistema a ogni uso.
+const keyHelper = createKeyHelper({ run: spawnRunner(helperPath(app.getPath("exe"))) });
+const touchReason = app.getLocale().toLowerCase().startsWith("it")
+  ? "aprire la cassaforte"
+  : "open the vault";
+
+/**
+ * La cassaforte dal desktop esiste solo nel pacchetto firmato
+ * (`STUBWISE_VAULT_DESKTOP=on` al build) e su un Mac col Secure Enclave; senza
+ * biometria si apre dal browser (D-1a). L'helper si chiede una volta.
+ */
+let support: Promise<{ enclave: boolean; biometry: boolean }> | null = null;
+function vaultSupported(): Promise<{ enclave: boolean; biometry: boolean }> {
+  if (!__STUBWISE_VAULT_DESKTOP__ || process.platform !== "darwin")
+    return Promise.resolve({ enclave: false, biometry: false });
+  support ??= keyHelper
+    .available()
+    .then((a) => ({ enclave: a.secureEnclave, biometry: a.biometry }));
+  return support;
+}
+
 const vault = createVaultLock({
   identity: vaultIdentity,
   store: { read: readDevice, forget: forgetDevice },
-  devicePrivateKey,
-  // D-1, D-1a: il tocco dove c'è; senza, la cassaforte si apre dal browser.
-  touchId: {
-    available: () => process.platform === "darwin" && systemPreferences.canPromptTouchID(),
-    prompt: (reason) => systemPreferences.promptTouchID(reason),
-  },
-  touchReason: app.getLocale().toLowerCase().startsWith("it") ? "aprire la cassaforte" : "open the vault",
+  supported: vaultSupported,
+  agreement: (device) => deviceAgreement(device, keyHelper, touchReason),
   fetchSeal: () => vaultRemote.fetchSeal(),
   openSeal: openDeviceSeal,
   forgetRemote: () => vaultRemote.forgetRemote(),
@@ -203,14 +245,16 @@ const vault = createVaultLock({
 const vaultPairing = createVaultPairing({
   identity: vaultIdentity,
   deviceName: () => deviceNameFrom(osHostname()),
-  generate: generateDeviceKey,
-  devicePrivateKey,
+  supported: vaultSupported,
+  generate: () => generateDeviceKey(keyHelper),
+  agreement: (device) => deviceAgreement(device, keyHelper, touchReason),
   pair: (pub, name) => vaultRemote.pair(pub, name),
   openExternal: openAllowed,
   fetchSeal: () => vaultRemote.fetchSeal(),
   openSeal: openDeviceSeal,
   save: saveDevice,
-  paired: () => vault.markPaired(),
+  // D-1b: la chiave già aperta (col Touch ID, per verificare il sigillo) resta nel main.
+  paired: (key, personKeyId) => vault.adopt(key, personKeyId),
   fingerprint: keyFingerprint,
 });
 
@@ -222,11 +266,13 @@ const vaultOps = createVaultOps({
   clipboard: { write: (text) => clipboard.writeText(text), read: () => clipboard.readText() },
 });
 
-/** Il ritorno dall'associazione: si apre subito (D-1b, senza tocco) e il renderer lo sa. */
+/**
+ * Il ritorno dall'associazione: la cassaforte è già aperta (l'associazione ha
+ * verificato il sigillo col Touch ID e passato la chiave con `adopt`), e il
+ * renderer riceve solo l'esito.
+ */
 async function receiveVaultUrl(url: string): Promise<void> {
   const result = await vaultPairing.handleUrl(url);
-  // M1: SOLO qui l'apertura senza tocco (D-1b), e solo subito dopo l'associazione.
-  if (result.ok) await vault.unlock({ afterPairing: true });
   broadcast("vault:paired", result);
 }
 
@@ -300,7 +346,11 @@ const DOWNLOAD_START_TIMEOUT_MS = 60_000;
 
 ipcMain.handle("api:download", async (event, raw: unknown): Promise<DownloadResult> => {
   if (!fromApp(event)) return { ok: false, reason: "invalid" };
-  const target = await resolveDownload(raw, { instanceUrl: readInstanceUrl, token: readToken, onUnauthorized });
+  const target = await resolveDownload(raw, {
+    instanceUrl: readInstanceUrl,
+    token: readToken,
+    onUnauthorized,
+  });
   if (!target.ok) return target;
   return new Promise<DownloadResult>((resolve) => {
     const settle = (result: DownloadResult) => {
@@ -356,19 +406,25 @@ ipcMain.handle("api:upload", async (event, raw: unknown): Promise<UploadResult> 
   const uploadId = r!.uploadId as string;
   let last = 0;
   try {
-    return await uploadFile(entry, typeof r?.path === "string" ? r.path : "", {
-      instanceUrl: readInstanceUrl,
-      token: readToken,
-      onUnauthorized,
-    }, {
-      signal: begun.signal,
-      onProgress: (sent, total) => {
-        const t = Date.now();
-        if (t - last < PROGRESS_EVERY_MS && sent < total) return;
-        last = t;
-        if (!event.sender.isDestroyed()) event.sender.send("files:progress", { uploadId, sent, total });
+    return await uploadFile(
+      entry,
+      typeof r?.path === "string" ? r.path : "",
+      {
+        instanceUrl: readInstanceUrl,
+        token: readToken,
+        onUnauthorized,
       },
-    });
+      {
+        signal: begun.signal,
+        onProgress: (sent, total) => {
+          const t = Date.now();
+          if (t - last < PROGRESS_EVERY_MS && sent < total) return;
+          last = t;
+          if (!event.sender.isDestroyed())
+            event.sender.send("files:progress", { uploadId, sent, total });
+        },
+      },
+    );
   } finally {
     begun.end();
   }
@@ -396,8 +452,12 @@ function installDownloads(): void {
     // Un blob/data del renderer (codici di backup, guida SDK): nessuno aspetta l'esito.
     const settle = decision === "requested" ? pendingDownloads.take(url) : undefined;
     const win = BrowserWindow.fromWebContents(contents);
-    const options = { defaultPath: join(app.getPath("downloads"), safeDownloadName(item.getFilename())) };
-    const chosen = win ? dialog.showSaveDialogSync(win, options) : dialog.showSaveDialogSync(options);
+    const options = {
+      defaultPath: join(app.getPath("downloads"), safeDownloadName(item.getFilename())),
+    };
+    const chosen = win
+      ? dialog.showSaveDialogSync(win, options)
+      : dialog.showSaveDialogSync(options);
     if (!chosen) {
       item.cancel();
       settle?.({ ok: false, reason: "canceled" });
@@ -405,7 +465,11 @@ function installDownloads(): void {
     }
     item.setSavePath(chosen);
     item.once("done", (_e, state) =>
-      settle?.(state === "completed" ? { ok: true } : { ok: false, reason: state === "cancelled" ? "canceled" : "failed" }),
+      settle?.(
+        state === "completed"
+          ? { ok: true }
+          : { ok: false, reason: state === "cancelled" ? "canceled" : "failed" },
+      ),
     );
   });
 }
