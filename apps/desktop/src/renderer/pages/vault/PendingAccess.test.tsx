@@ -135,4 +135,24 @@ describe("gli accessi da confermare", () => {
       spy.mockRestore();
     }
   });
+
+  it("punto 2: Confirm col Touch ID annullato: nessun errore, la scheda resta", async () => {
+    const user = userEvent.setup();
+    const p = await openReview(user);
+    await vault.setVaultSimulation({ touchId: "cancelled" });
+    await user.click(card(p, "Marco Bellini").getByRole("button", { name: "Confirm" }));
+    await user.click(p.getByRole("button", { name: "Yes, I checked: confirm" }));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(screen.queryByText("Couldn't complete it. Try again.")).toBeNull();
+    expect(card(p, "Marco Bellini").getByRole("button", { name: "Confirm" })).toBeInTheDocument();
+  });
+
+  it("punto 2: Confirm e Reject spenti senza Touch ID su questo Mac", async () => {
+    await vault.setVaultSimulation({ touchId: "unavailable" });
+    const user = userEvent.setup();
+    const p = await openReview(user);
+    const c = card(p, "Marco Bellini");
+    await waitFor(() => expect(c.getByRole("button", { name: "Confirm" })).toBeDisabled());
+    expect(c.getByRole("button", { name: "Reject" })).toBeDisabled();
+  });
 });

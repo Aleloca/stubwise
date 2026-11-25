@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { isTouchCancelled, useVaultUsable } from "./useVaultUsable";
 import { useTranslation } from "react-i18next";
 import { useReaders, useRemoveReader, useShare, useShareTargets } from "../../data/queries";
 import type { CredentialView, ReadersView } from "../../data/vault/types";
@@ -37,12 +38,14 @@ export function CredentialReaders({
   const [choice, setChoice] = useState("");
 
   // Review M7: l'azione fa il suo Touch ID (nel main), niente apertura prima.
+  const gate = useVaultUsable();
   const directName = (d: Direct) =>
     d.kind === "role" ? t("vault.readers.rolePrefix", { name: d.name }) : d.name;
 
   const onRemove = async (d: Direct) => {
     setConfirming(null);
     const out = await remove.mutateAsync({ id: view.id, readerId: d.readerId }).catch(() => null);
+    if (isTouchCancelled(out)) return;
     if (out?.ok) setRemoved(d);
     else toast.error(t("vault.readers.failed"));
   };
@@ -58,6 +61,7 @@ export function CredentialReaders({
           })
         : (targets?.people.find((p) => p.personId === id)?.name ?? id);
     const out = await share.mutateAsync({ id: view.id, target }).catch(() => null);
+    if (isTouchCancelled(out)) return;
     if (!out?.ok) return void toast.error(t("vault.readers.failed"));
     setChoice("");
     if (out.waiting.length > 0)
@@ -118,6 +122,8 @@ export function CredentialReaders({
                     <button
                       type="button"
                       className={quietButton}
+                      disabled={!gate.usable}
+                      title={gate.title}
                       onClick={() => setConfirming(d.readerId)}
                     >
                       {t("vault.readers.remove")}
@@ -183,7 +189,8 @@ export function CredentialReaders({
           <button
             type="button"
             className={secondaryButton}
-            disabled={choice === "" || share.isPending}
+            disabled={choice === "" || share.isPending || !gate.usable}
+            title={gate.title}
             onClick={() => void onShare()}
           >
             {t("vault.readers.share")}
