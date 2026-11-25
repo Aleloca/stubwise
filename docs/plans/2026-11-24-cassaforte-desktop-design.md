@@ -60,6 +60,31 @@ con gli stessi test di formato delle altre buste); il main le usa da Node.
 
 ## 2. Dove sta la chiave sul Mac
 
+> **Superato dalla revisione di sicurezza, I1 (decisione di 46, 25 nov 2026,
+> piano di 94).** Il testo sotto (`safeStorage`, «Secure Enclave: non ora»)
+> è la prima forma e resta per memoria. Quella decisa:
+> - **la chiave del Mac nasce nel Secure Enclave** (`stubwise-keyhelper`,
+>   l'helper Swift dell'app firmata): P-256 di key agreement, NON
+>   esportabile, con controllo d'accesso `privateKeyUsage` +
+>   `biometryCurrentSet` e `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`:
+>   ogni ECDH chiede il Touch ID al sistema, e una nuova impronta registrata
+>   la invalida. L'ECDH lo fa l'enclave (`openDeviceSeal` con `deriveBits`,
+>   `@stubwise/vault-crypto`); la privata non arriva mai al processo;
+> - **la chiave è una voce del Keychain di DATA PROTECTION**
+>   (`kSecUseDataProtectionKeychain`), non del portachiavi di login, con
+>   l'**access group del Team ID** (`<TeamID>.<bundle id>`, dall'entitlement
+>   `keychain-access-groups` dell'app firmata): la usa SOLO un binario
+>   firmato da quel team, non un altro programma dello stesso utente macOS —
+>   è ciò che chiude il «Touch ID aggirabile» dell'app non firmata;
+> - su disco (`vault-device.bin`, cifrato con `safeStorage`) restano solo gli
+>   id (istanza, PAT, `deviceId`, `personKeyId`) e la pubblica: nessun
+>   materiale della chiave. Il file della versione con la pkcs8 non vale più
+>   e si cancella;
+> - senza Secure Enclave o senza Touch ID (D-1a) non si associa: la
+>   cassaforte si apre dal browser;
+> - lato server non cambia niente (il server non vede la chiave, e
+>   `VAULT_DESKTOP` resta una scelta di deploy, §11).
+
 - **`safeStorage`, non un modulo nativo del portachiavi.** È ciò che usa già
   la sessione (`session.bin`, `apps/desktop/src/main/session.ts`): su Mac la
   chiave di cifratura di `safeStorage` sta nel **portachiavi di login**
@@ -358,7 +383,8 @@ Perché resta accettabile:
 - **Il rischio nuovo è il Mac**: chi ha il Mac sbloccato con la sessione aperta
   apre le password della persona. È lo stesso rischio del browser con la
   cassaforte aperta, ma più lungo (D-1, D-2 di 94 lo riducono: Touch ID, chiusura
-  dopo 15 minuti). Contro il furto del Mac spento: `safeStorage` sta nel
+  dopo 15 minuti; e dalla review I1 il Touch ID è del sistema, sulla chiave
+  nel Secure Enclave, §2). Contro il furto del Mac spento: `safeStorage` sta nel
   portachiavi, e il file da solo non serve senza il login macOS; il sigillo si
   revoca da remoto (§8).
 - **Il server compromesso** (limite accettato già scritto) resta tale: potrebbe

@@ -177,7 +177,11 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
   confrontare con quella che vede chi conferma.
 - **Il sigillo del dispositivo (lotto 10, 24 nov 2026): una COPIA della
   chiave di persona per un Mac, che nasce solo da uno sblocco con passkey.**
-  Il main del desktop genera una coppia P-256 sua e chiede l'associazione
+  Il main del desktop fa generare una coppia P-256 al Secure Enclave
+  (review I1, decisione di 46 del 25 nov 2026: una voce del Keychain di data
+  protection con l'access group del Team ID, accesso `privateKeyUsage` +
+  `biometryCurrentSet`; la privata non esce dall'enclave, che fa l'ECDH via
+  `deriveBits`, e su disco restano solo id e pubblica) e chiede l'associazione
   COL SUO PAT desktop E la sua riconferma recente (`POST
   /api/vault/device-pairings`, review I2: un PAT da solo non basta; la
   riconferma è DICHIARATA sulla rotta, `config.reauth`, review 2 M4, e la
