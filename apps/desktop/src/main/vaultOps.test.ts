@@ -122,6 +122,21 @@ describe("le operazioni della cassaforte nel main", () => {
     expect(clipboard.read()).toBe("something else");
   });
 
+  // M4 (revisione di sicurezza): all'uscita dall'app gli appunti si
+  // svuotano subito se contengono ancora la password copiata, senza aspettare.
+  it("M4: `clearClipboard()` (a before-quit) svuota subito gli appunti se c'è ancora la password; altro no", async () => {
+    const { ops, clipboard, setClip } = setup({
+      [`POST /api/credentials/${CRED}/reveal`]: () => ({ passwordCiphertext: stored.passwordCiphertext, wrappedKey: stored.mine, personKeyId: PK }),
+    });
+    await ops.copy(CRED);
+    await ops.clearClipboard();
+    expect(clipboard.read()).toBe("");
+    await ops.copy(CRED);
+    setClip("something else");
+    await ops.clearClipboard();
+    expect(clipboard.read()).toBe("something else");
+  });
+
   it("cassaforte chiusa: `vault_locked`, niente chiesto al server", async () => {
     const { ops, calls, lock } = setup({});
     await lock.use(async () => null).catch(() => null);

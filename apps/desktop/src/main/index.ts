@@ -552,6 +552,12 @@ app.on("open-url", (event, url) => {
 
 registerVaultIpc(ipcMain, { lock: vault, pairing: vaultPairing, ops: vaultOps, fromApp });
 
+// M4: uscendo, la password copiata non resta negli appunti; la privata si dimentica.
+app.on("before-quit", () => {
+  vault.lock();
+  void vaultOps.clearClipboard();
+});
+
 void app.whenReady().then(() => {
   // D-2: in stop e a schermo bloccato la privata si dimentica (il dispositivo resta).
   powerMonitor.on("suspend", () => vault.lock());
