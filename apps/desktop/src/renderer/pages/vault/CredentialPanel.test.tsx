@@ -1,11 +1,13 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetApi, setLatency } from "../../data/api";
 import { VAULT_IDS } from "../../data/seed/vault";
 import { setVaultClipboard } from "../../data/vault/index";
 import { setLanguage } from "../../i18n";
-import { renderRoute } from "../../test/renderRoute";
+import { vault } from "../../data/api";
+import { queryKeys } from "../../data/queries";
+import { lastQueryClient, renderRoute } from "../../test/renderRoute";
 import { setMatchMedia } from "../../test/setup";
 import { CREDENTIAL_PANEL_DOCKED_QUERY } from "./CredentialPanel";
 
@@ -71,5 +73,36 @@ describe("il dettaglio di una credenziale", () => {
     await screen.findByRole("heading", { level: 1, name: "Credentials" });
     await new Promise((r) => setTimeout(r, 50));
     expect(screen.queryByRole("region", { name: /Credential/ })).toBeNull();
+  });
+
+  // Review M4: il registro c'è quando lo dice il server (`canSeeLog`), non
+  // perché si può modificare (chi l'ha creata la modifica, ma non vede il
+  // registro); un errore del registro si dice.
+  it("M4: chi modifica senza `canSeeLog` non vede il registro", async () => {
+    renderRoute(`/p/ACQ/credentials?credential=${VAULT_IDS.ARUBA}`, "p-laura");
+    const p = within(await panel());
+    await p.findByRole("list", { name: "Access log" });
+    const view = lastQueryClient().getQueryData(
+      queryKeys.credential("p-laura", VAULT_IDS.ARUBA),
+    ) as object;
+    act(() =>
+      lastQueryClient().setQueryData(queryKeys.credential("p-laura", VAULT_IDS.ARUBA), {
+        ...view,
+        canEdit: true,
+        canSeeLog: false,
+      }),
+    );
+    await waitFor(() => expect(p.queryByRole("list", { name: "Access log" })).toBeNull());
+  });
+
+  it("M4: il registro che non si carica lo dice", async () => {
+    const spy = vi.spyOn(vault, "listAccessLog").mockRejectedValue(new Error("forbidden"));
+    try {
+      renderRoute(`/p/ACQ/credentials?credential=${VAULT_IDS.ARUBA}`, "p-laura");
+      const p = within(await panel());
+      expect(await p.findByText("Couldn't load the access log.")).toBeInTheDocument();
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

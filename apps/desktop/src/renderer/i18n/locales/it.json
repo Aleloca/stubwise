@@ -13690,7 +13690,8 @@
       "copied": "copiata",
       "fromMac": "dal Mac",
       "fromBrowser": "dal browser",
-      "close": "Chiudi"
+      "close": "Chiudi",
+      "logError": "Non è stato possibile caricare il registro degli accessi."
     },
     "form": {
       "edit": "Modifica",

@@ -33,6 +33,7 @@ const viewOf = (c: Reader<CredentialItem>): CredentialView => ({
   access: accessOf(c.access),
   canEdit: c.canEdit,
   canShare: c.canShare,
+  canSeeLog: c.canSeeLog,
   updatedAt: c.updatedAt,
 });
 
@@ -105,11 +106,15 @@ export const getCredentialsEntry: FakeVault["getCredentialsEntry"] = async (proj
   ]);
   const perms = p.inProject(projectId);
   const canCreate = p.fullAdmin || perms.includes("credentials.create");
-  const canSeeLog =
-    p.fullAdmin || perms.includes("credentials.edit") || perms.includes("credentials.share");
-  // `waitingMe` (il punto «ti aspetta»): chi aspetta lo sa solo il main a
-  // cassaforte aperta; qui resta spento (fetta 3).
-  return { show: list.items.length > 0 || canCreate, waitingMe: false, canCreate, canSeeLog };
+  // `waitingMe` (il punto «ti aspetta») resta spento nella colonna: il main
+  // non dice il progetto di ogni credenziale (registro dei rimandi).
+  // `canSeeLog` lo calcola il server, anche a elenco vuoto (review M4).
+  return {
+    show: list.items.length > 0 || canCreate,
+    waitingMe: false,
+    canCreate,
+    canSeeLog: list.canSeeLog,
+  };
 };
 
 export const getVaultEntry: FakeVault["getVaultEntry"] = async () => {
@@ -201,18 +206,11 @@ export const listReaders: FakeVault["listReaders"] = async (id) => {
 };
 
 export const listAccessLog: FakeVault["listAccessLog"] = async (filter) => {
-  let items;
-  try {
-    items = (
-      await appClient().credentials.log(filter.projectId, {
-        ...(filter.credentialId ? { credentialId: filter.credentialId } : {}),
-      })
-    ).items;
-  } catch (error) {
-    // Chi non gestisce le credenziali del progetto non legge il registro: niente righe.
-    if (error instanceof ApiError && error.status === 403) return [];
-    throw error;
-  }
+  // Review M4: un 403 è un errore (la voce compare solo con `canSeeLog`),
+  // non «nessuno l'ha vista».
+  const { items } = await appClient().credentials.log(filter.projectId, {
+    ...(filter.credentialId ? { credentialId: filter.credentialId } : {}),
+  });
   const names = await namesById();
   return items.map((e) => ({
     id: e.id,

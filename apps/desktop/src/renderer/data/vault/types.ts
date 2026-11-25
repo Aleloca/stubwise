@@ -145,6 +145,8 @@ export interface CredentialView {
   access: "reads" | "waiting" | "manages";
   canEdit: boolean;
   canShare: boolean;
+  /** Il registro degli accessi: lo calcola il server (`credentials.edit` o `.share`, review M4). */
+  canSeeLog: boolean;
   updatedAt: string;
 }
 

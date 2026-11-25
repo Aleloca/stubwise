@@ -24,6 +24,7 @@ const item = (id: string, over: Record<string, unknown> = {}) => ({
   access: "read",
   canEdit: true,
   canShare: true,
+  canSeeLog: true,
   ...over,
 });
 const C1 = "c1c1c1c1-0000-4000-8000-000000000001";
@@ -90,21 +91,31 @@ describe("le letture della cassaforte, dalle rotte", () => {
     expect(await vault.getCredential(OTHER)).toBeNull();
   });
 
-  it("l'entrata della sezione: c'è chi crea; chi gestisce vede il registro", async () => {
+  it("l'entrata della sezione: c'è chi crea; il registro lo dice il SERVER (review M4)", async () => {
     installFakeServer({
       "GET /api/auth/me": {
         body: me({
           projectPermissions: { [PROJECT_ID]: ["credentials.create", "credentials.share"] },
         }),
       },
-      [`GET /api/projects/${PROJECT_ID}/credentials`]: { body: { items: [] } },
+      // Il client direbbe «sì» dai permessi: vale il server.
+      [`GET /api/projects/${PROJECT_ID}/credentials`]: { body: { items: [], canSeeLog: false } },
     });
     expect(await vault.getCredentialsEntry(PROJECT_ID)).toEqual({
       show: true,
       waitingMe: false,
       canCreate: true,
-      canSeeLog: true,
+      canSeeLog: false,
     });
+  });
+
+  it("la riga porta `canSeeLog` dal server", async () => {
+    installFakeServer({
+      [`GET /api/projects/${PROJECT_ID}/credentials`]: {
+        body: { items: [item(C1, { canSeeLog: false })], canSeeLog: true },
+      },
+    });
+    expect((await vault.listCredentials({ projectId: PROJECT_ID }))[0]!.canSeeLog).toBe(false);
   });
 
   it("l'entrata della pagina Vault: c'è con una credenziale o un progetto dove si crea", async () => {
@@ -224,7 +235,7 @@ describe("le letture della cassaforte, dalle rotte", () => {
       ]);
     });
 
-    it("il registro: da dove (desktop → mac), l'azione, il nome; chi non gestisce (403) riceve niente", async () => {
+    it("il registro: da dove (desktop → mac), l'azione, il nome; un 403 è un errore", async () => {
       installFakeServer({
         "GET /api/people": { body: people },
         [`GET /api/projects/${PROJECT_ID}/credentials/log`]: {
@@ -264,7 +275,8 @@ describe("le letture della cassaforte, dalle rotte", () => {
           body: { code: "forbidden", message: "x" },
         },
       });
-      expect(await vault.listAccessLog({ projectId: PROJECT_ID })).toEqual([]);
+      // Review M4: un 403 è un errore, non «nessuno l'ha vista».
+      await expect(vault.listAccessLog({ projectId: PROJECT_ID })).rejects.toThrow();
     });
 
     it("Share with: persone e ruoli del progetto, tolti i già aggiunti; niente senza canShare", async () => {

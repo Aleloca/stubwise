@@ -103,6 +103,10 @@ function viewOf(me: string, c: Credential): CredentialView | null {
     access,
     canEdit: canI(me, "credentials.edit", c.projectId),
     canShare: canI(me, "credentials.share", c.projectId),
+    canSeeLog:
+      isFullAdmin(me) ||
+      canI(me, "credentials.edit", c.projectId) ||
+      canI(me, "credentials.share", c.projectId),
     updatedAt: c.updatedAt,
   };
 }

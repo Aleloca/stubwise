@@ -53,7 +53,13 @@ function ProjectAccessLogPanel({ code }: { code: string }) {
             {t("vault.detail.close")}
           </button>
         </header>
-        <AccessLogList entries={log.data} showService />
+        {log.isError ? (
+          <p role="alert" className="text-sm text-ink-muted">
+            {t("vault.detail.logError")}
+          </p>
+        ) : (
+          <AccessLogList entries={log.data} showService />
+        )}
       </div>
     </DetailPanel>
   );

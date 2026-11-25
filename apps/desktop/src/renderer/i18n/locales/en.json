@@ -13690,7 +13690,8 @@
       "copied": "copied",
       "fromMac": "from the Mac",
       "fromBrowser": "from the browser",
-      "close": "Close"
+      "close": "Close",
+      "logError": "Couldn't load the access log."
     },
     "form": {
       "edit": "Edit",
