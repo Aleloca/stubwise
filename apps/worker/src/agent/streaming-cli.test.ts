@@ -14,6 +14,7 @@ import {
   type UsageTag,
 } from "./runner.js";
 import { INTERACTIVE_SEGMENTS } from "@stubwise/shared";
+import type { RateLimitInfo } from "./rate-limit-event.js";
 import {
   DELIVERABLE_REMINDER,
   SEGMENT_DELIVERABLE,
@@ -71,6 +72,9 @@ rl.on("line", (line) => {
     // non risponde mai: serve al test del timeout
   } else if (text.includes("ENV")) {
     finish("env: " + process.env.ANTHROPIC_API_KEY + " " + process.env.EXTRA_TOKEN);
+  } else if (text.includes("RATELIMIT")) {
+    out({ type: "rate_limit_event", rate_limit_info: { status: "allowed", rateLimitType: "seven_day", unifiedWindows: { seven_day: { utilization: 0.28, resetsAt: 1795428000 } } } });
+    finish("echo: " + text);
   } else finish("echo: " + text + (text.includes("SECRET") ? " value=hunter2-secret" : ""));
 });
 rl.on("close", () => process.exit(failing ? 3 : 0));
@@ -414,6 +418,43 @@ describe("StreamingClaudeRunner", () => {
     expect(dump).not.toContain("sk-ant-provider-secret");
     expect(dump).not.toContain("extra-token-value");
     expect(dump).toContain("•••");
+  });
+
+  it("consegna il rate_limit_event a onRateLimit con l'istante d'arrivo", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const runner = new StreamingClaudeRunner({ claudePath: bin, resultGraceMs: 20 });
+    const calls: Array<{ info: RateLimitInfo; at: Date }> = [];
+    const before = Date.now();
+    await runner.run({ ...base, cwd, prompt: "RATELIMIT", onRateLimit: (info, at) => { calls.push({ info, at }); } });
+    const after = Date.now();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.info.windows["seven_day"]!.usedPercent).toBe(28);
+    expect(calls[0]!.at.getTime()).toBeGreaterThanOrEqual(before);
+    expect(calls[0]!.at.getTime()).toBeLessThanOrEqual(after);
+  });
+
+  it("una onRateLimit che lancia (sincrona o promise rifiutata) non cambia l'esito del run", async () => {
+    for (const cb of [
+      () => { throw new Error("sync boom"); },
+      () => Promise.reject(new Error("async boom")),
+    ]) {
+      const { bin, cwd } = await fakeClaude();
+      const logs: string[] = [];
+      const runner = new StreamingClaudeRunner({ claudePath: bin, resultGraceMs: 20, log: (m) => logs.push(m) });
+      const result = await runner.run({ ...base, cwd, prompt: "RATELIMIT", onRateLimit: cb });
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain("echo:");
+      await new Promise((r) => setTimeout(r, 20));
+      expect(logs.join("\n")).toMatch(/onRateLimit/);
+    }
+  });
+
+  it("senza RATELIMIT la callback non è chiamata", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const runner = new StreamingClaudeRunner({ claudePath: bin, resultGraceMs: 20 });
+    let n = 0;
+    await runner.run({ ...base, cwd, prompt: "hello", onRateLimit: () => { n++; } });
+    expect(n).toBe(0);
   });
 
   it("exit non-zero: output = testo dell'ultimo result + coda dello stderr, MAI lo stream-json", async () => {

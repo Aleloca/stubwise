@@ -107,16 +107,17 @@ The web app exposes two complementary views:
 
 - **Usage & costs** aggregates the **tokens and cost** consumed by the AI jobs,
   so you can see how much the pipeline is spending.
-- For **Account** credentials, the worker also performs a **best-effort** read
-  of the **remaining subscription usage** (the 5-hour **session** window and the
-  **weekly** window) by scraping the CLI's `/usage` output. This is shown next to
-  the provider in **Settings → AI providers**.
+- For **Account** credentials, the worker also records the **remaining
+  subscription usage** (the **weekly** window, and the 5-hour **session** window
+  when the plan has one) from the rate-limit event the CLI emits on every run;
+  accounts that are idle get a minimal probe run now and then. This is shown next
+  to the provider in **Settings → AI providers**.
 
-Because `/usage` is a CLI surface that can change, the read is best-effort: if
-the deterministic parser can no longer recognize the output, the app shows a
-**diagnostic banner** with the raw text, and the parser in
-`apps/worker/src/agent/usage-parser.ts` needs updating. Usage reading never
-affects whether jobs run — it only informs.
+The older reader that scraped the CLI's `/usage` screen has been retired; the
+**diagnostic banner** with raw text now only appears for old snapshots it left
+behind. Usage reading only informs the limit logic (it can lift an early
+"at limit" mark or hold back background work near the weekly threshold); it
+never decides by itself whether a job runs.
 
 :::caution[Terms of Service: multiple accounts]
 Chaining **two or more Account credentials to get past usage limits is

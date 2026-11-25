@@ -242,6 +242,8 @@ mancante non esce mai 0: un golden che non ha girato non è un golden verde.
 
 ## Gli scenari
 
+Con il runner in streaming ogni scenario riporta nel riepilogo finale «rate_limit_event: N» (gli eventi consegnati a `onRateLimit`, da cui nasce l'utilizzo degli account) e `plan-only` FALLISCE se N = 0: è il punto in cui un aggiornamento del CLI che cambia o toglie l'evento viene fuori.
+
 Tutti girano sul repo fixture di `fixture/` (un mini negozio con qualche bug
 piantato), copiato in una working dir temporanea e inizializzato come repo git.
 La `cwd` dell'agente è la **parent dir** che contiene `shop/`, come nei run di

@@ -317,6 +317,51 @@ describe("pollLimitResumeOnce", () => {
     expect(await generationStatus(db, recent)).toBe("paused");
   });
 
+  it("snapshot fresco con la sola settimanale al 30% → headroom (riprende senza cooldown)", async () => {
+    const { db } = testDb;
+    const providerId = await seedProvider(db, { position: 1, kind: "account" });
+    await db.insert(aiUsageSnapshots).values({
+      providerId,
+      capturedAt: new Date(),
+      weeklyRemaining: { percentUsed: 30, percentRemaining: 70, resetsLabel: null },
+      source: "deterministic",
+      parseOk: true,
+    });
+    const { repositoryId } = await seedRepository(db);
+    const generationId = await seedPausedGeneration(db, repositoryId, {
+      pinnedProviderId: providerId,
+      pausedAt: minutesAgo(5),
+    });
+
+    const resumed = await pollLimitResumeOnce(makeDeps({ cooldownMs: 60 * MINUTE }));
+
+    expect(resumed).toBe(1);
+    expect(await generationStatus(db, generationId)).toBe("running");
+  });
+
+  it("sola settimanale al 100% con reset passato → riprende", async () => {
+    const { db } = testDb;
+    const providerId = await seedProvider(db, { position: 1, kind: "account" });
+    await db.insert(aiUsageSnapshots).values({
+      providerId,
+      capturedAt: new Date(),
+      weeklyRemaining: { percentUsed: 100, percentRemaining: 0, resetsLabel: null },
+      weeklyResetAt: minutesAgo(10),
+      source: "deterministic",
+      parseOk: true,
+    });
+    const { repositoryId } = await seedRepository(db);
+    const generationId = await seedPausedGeneration(db, repositoryId, {
+      pinnedProviderId: providerId,
+      pausedAt: minutesAgo(5),
+    });
+
+    const resumed = await pollLimitResumeOnce(makeDeps({ cooldownMs: 60 * MINUTE }));
+
+    expect(resumed).toBe(1);
+    expect(await generationStatus(db, generationId)).toBe("running");
+  });
+
   it("snapshot stantio su account → degrada al fallback a tempo (pausedAt oltre cooldown → riprende)", async () => {
     const { db } = testDb;
     const providerId = await seedProvider(db, { position: 1, kind: "account" });
