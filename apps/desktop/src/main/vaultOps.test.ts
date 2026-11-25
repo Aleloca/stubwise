@@ -189,14 +189,30 @@ describe("le operazioni della cassaforte nel main", () => {
     expect(lock.markRevoked).toHaveBeenCalled();
   });
 
-  it("VAULT_DESKTOP spento: un 404 `not_found` di una rotta del Mac è `disabled`, e la cassaforte lo sa", async () => {
+  it("VAULT_DESKTOP spento: un 404 `vault_desktop_disabled` è `disabled`, e la cassaforte lo sa", async () => {
+    const { ops, lock } = setup({
+      [`POST /api/credentials/${CRED}/reveal`]: () => {
+        throw new VaultHttpError(404, "vault_desktop_disabled");
+      },
+    });
+    expect(await ops.show(CRED)).toEqual({ ok: false, code: "disabled" });
+    expect(lock.markDisabled).toHaveBeenCalled();
+  });
+
+  it("M2: una credenziale che non c'è (404 `not_found`) non spegne la cassaforte", async () => {
     const { ops, lock } = setup({
       [`POST /api/credentials/${CRED}/reveal`]: () => {
         throw new VaultHttpError(404, "not_found");
       },
     });
-    expect(await ops.show(CRED)).toEqual({ ok: false, code: "disabled" });
-    expect(lock.markDisabled).toHaveBeenCalled();
+    expect(await ops.show(CRED)).toEqual({ ok: false, code: "not_found" });
+    expect(lock.markDisabled).not.toHaveBeenCalled();
+  });
+
+  it("M2: confermare chi non aspetta più è `not_pending`, e la cassaforte resta accesa", async () => {
+    const { ops, lock } = setup({ "GET /api/vault/pending": () => ({ items: [] }) });
+    expect(await ops.confirm(OTHER_PK)).toEqual({ ok: false, code: "not_pending" });
+    expect(lock.markDisabled).not.toHaveBeenCalled();
   });
 
   it("condividere: anteprima, copia ricifrata per la persona, prova della propria chiave; un 409 `recipients_changed` riprova una volta", async () => {

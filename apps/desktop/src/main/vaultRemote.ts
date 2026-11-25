@@ -32,12 +32,16 @@ export interface VaultRemote {
 
 /**
  * L'interruttore d'istanza `VAULT_DESKTOP` spento (72, 785387279, di default):
- * le rotte del Mac rispondono 404 `not_found`. È diverso da
+ * le rotte del Mac rispondono 404 `vault_desktop_disabled` (M2 della seconda
+ * revisione: un `not_found` qualunque, una credenziale che non c'è, non
+ * spegne più la cassaforte). È diverso da
  * `device_seal_not_found` (sigillo tolto) e da `device_seal_required` (da
  * associare): la cassaforte dal desktop non è abilitata, si apre dal browser.
  */
 export const isDisabled = (error: unknown): boolean =>
-  error instanceof VaultHttpError && error.status === 404 && error.code === "not_found";
+  error instanceof VaultHttpError &&
+  error.status === 404 &&
+  error.code === "vault_desktop_disabled";
 
 /** Un errore del server: lo stato, il codice (il messaggio) e i dettagli del corpo. */
 export class VaultHttpError extends Error {
