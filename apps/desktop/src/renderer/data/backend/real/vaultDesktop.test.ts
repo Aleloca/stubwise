@@ -309,4 +309,32 @@ describe("la cassaforte nella build app, dal main", () => {
     expect(await vault.unlock()).toEqual({ ok: true });
     expect((await vault.getVaultStatus()).state).toBe("locked");
   });
+
+  // Quarta revisione, punto 4: anche un'azione col tocco che non raggiunge
+  // Stubwise rende la barra `unreachable`; e il Mac aperto da un'altra
+  // strada (adozione, associazione) la azzera.
+  it("punto 4: Share senza server → `unreachable`; il main `open` lo azzera", async () => {
+    const status = vi.fn(
+      async (): Promise<{ state: string; fingerprint: string; touchId: boolean }> => ({
+        state: "locked",
+        fingerprint: "91be 4c07 2a3f d6e5",
+        touchId: true,
+      }),
+    );
+    bridge({ status, share: vi.fn(async () => ({ ok: false, code: "unavailable" })) });
+    statusOf({
+      activated: true,
+      myKey: { id: KEY, status: "confirmed", createdAt: "2026-11-20T10:00:00.000Z" },
+    });
+    expect(await vault.share("c1", { personId: "p" })).toEqual({ ok: false, code: "unavailable" });
+    expect((await vault.getVaultStatus()).state).toBe("unreachable");
+    // Aperta altrove (adozione o associazione): non è più irraggiungibile.
+    status.mockResolvedValueOnce({
+      state: "open",
+      fingerprint: "91be 4c07 2a3f d6e5",
+      touchId: true,
+    });
+    expect((await vault.getVaultStatus()).state).toBe("open");
+    expect((await vault.getVaultStatus()).state).toBe("locked");
+  });
 });

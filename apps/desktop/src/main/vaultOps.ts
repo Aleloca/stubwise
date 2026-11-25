@@ -127,6 +127,7 @@ export function createVaultOps(deps: VaultOpsDeps) {
           "touch_id_unavailable",
           "revoked",
           "disabled",
+          "unavailable",
         ].includes(code)
           ? code
           : "open_failed",

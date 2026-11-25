@@ -281,7 +281,14 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
     if (!d || !deps.identity()) throw new Error("vault_locked");
     const wasOpen = key !== null;
     const started = epoch;
-    const seal = await deps.fetchSeal();
+    let seal: SealResponse;
+    try {
+      seal = await deps.fetchSeal();
+    } catch {
+      // Come all'apertura: il sigillo che non arriva è «irraggiungibile»
+      // (quarta revisione, punto 4), e il tocco non si chiede.
+      throw new Error("unavailable");
+    }
     if ("disabled" in seal) {
       disabled = true;
       lock();

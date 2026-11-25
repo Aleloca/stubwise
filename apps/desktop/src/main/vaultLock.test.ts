@@ -382,4 +382,17 @@ describe("la cassaforte nel main", () => {
       touchId: false,
     });
   });
+
+  // Quarta revisione, punto 4: un'azione col tocco che non raggiunge il
+  // server per il sigillo è `unavailable` (la barra: «Couldn't reach
+  // Stubwise»), non un guasto generico.
+  it("useWithTouch: il sigillo che non arriva dalla rete è `unavailable`", async () => {
+    const { lock, calls } = setup({
+      fetchSeal: async () => {
+        throw new Error("fetch failed");
+      },
+    });
+    await expect(lock.useWithTouch(async () => 1)).rejects.toThrow("unavailable");
+    expect(calls).not.toContain("touch");
+  });
 });

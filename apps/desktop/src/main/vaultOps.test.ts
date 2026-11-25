@@ -645,4 +645,12 @@ describe("le operazioni della cassaforte nel main", () => {
     expect(await ops.macs()).toEqual({ ok: true, items: [] });
     expect(lock.markRevoked).not.toHaveBeenCalled();
   });
+
+  it("punto 4: un'azione col tocco senza rete arriva al renderer come `unavailable`", async () => {
+    const { ops, lock } = setup({});
+    lock.useWithTouch = async () => {
+      throw new Error("unavailable");
+    };
+    expect(await ops.reject(OTHER_PK)).toEqual({ ok: false, code: "unavailable" });
+  });
 });
