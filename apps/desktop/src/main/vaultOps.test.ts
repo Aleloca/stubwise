@@ -1,12 +1,11 @@
 // @vitest-environment node
 import {
   encryptForInsert,
-  generateDeviceKeyPair,
-  importDeviceKey,
   keyFingerprint,
   unwrapItemKey,
   wrapActorChallenge,
 } from "@stubwise/vault-crypto";
+import { softwareDeviceKey } from "@stubwise/vault-crypto/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CLIPBOARD_CLEAR_MS, createVaultOps } from "./vaultOps";
 import { VaultHttpError } from "./vaultRemote";
@@ -27,8 +26,8 @@ let stored: { passwordCiphertext: string; mine: string; recovery: string };
 
 async function keyPair() {
   // Una coppia ECDH P-256 con la pubblica in JWK, come le chiavi di persona.
-  const p = await generateDeviceKeyPair();
-  return { publicKey: p.publicKey, privateKey: await importDeviceKey(p.privateKeyPkcs8) };
+  const p = await softwareDeviceKey();
+  return { publicKey: p.publicKey, privateKey: p.privateKey };
 }
 
 beforeEach(async () => {
