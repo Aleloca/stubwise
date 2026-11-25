@@ -25,6 +25,7 @@ function setup() {
     unlock: vi.fn(async () => ({ ok: true as const })),
     lock: vi.fn(),
     use: vi.fn(async (run) => run(SECRET, "pk-1")),
+    useWithTouch: vi.fn(async (run) => run(SECRET, "pk-1")),
     forget: vi.fn(async () => ({ ok: true as const, remote: true })),
     adopt: vi.fn(),
     sessionChanged: vi.fn(),

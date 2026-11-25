@@ -111,6 +111,13 @@ export interface VaultLock {
    * chiave di persona del sigillo (per la prova); chiusa: `vault_locked`.
    */
   use: <T>(run: (key: CryptoKey, personKeyId: string) => Promise<T>) => Promise<T>;
+  /**
+   * M5 (revisione di sicurezza): un'azione che PASSA l'accesso (condividere,
+   * confermare, rifiutare, togliere un lettore) a cassaforte aperta riapre il
+   * sigillo dall'enclave — un Touch ID vero per quell'azione — e usa quella
+   * chiave. Chiusa: `vault_locked`; tocco annullato: `touch_id_cancelled`.
+   */
+  useWithTouch: <T>(run: (key: CryptoKey, personKeyId: string) => Promise<T>) => Promise<T>;
   /** «Dimentica questo Mac»: il sigillo sul server (best-effort), il file e la chiave. */
   forget: () => Promise<{ ok: true; remote: boolean }>;
   /**
@@ -248,6 +255,43 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
     return run(key, personKeyId);
   }
 
+  async function useWithTouch<T>(run: (k: CryptoKey, id: string) => Promise<T>): Promise<T> {
+    const d = device();
+    if (!key || !d) throw new Error("vault_locked");
+    const started = epoch;
+    const seal = await deps.fetchSeal();
+    if ("disabled" in seal) {
+      disabled = true;
+      lock();
+      throw new Error("disabled");
+    }
+    if ("revoked" in seal) {
+      dropLocal();
+      revoked = true;
+      changed();
+      throw new Error("revoked");
+    }
+    let fresh: CryptoKey;
+    try {
+      fresh = await deps.openSeal({
+        deviceSeal: seal.seal,
+        ...deps.agreement(d),
+        personPublicKey: seal.personPublicKey,
+        personKeyId: seal.personKeyId,
+        deviceId: d.deviceId,
+      });
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "";
+      if (code === "cancelled") throw new Error("touch_id_cancelled");
+      if (code === "no_biometry" || code === "lockout") throw new Error("touch_id_unavailable");
+      throw new Error("open_failed");
+    }
+    // Chiusa o cambiata la sessione mentre si chiedeva il tocco: l'azione non parte.
+    if (epoch !== started || !key) throw new Error("vault_locked");
+    arm();
+    return run(fresh, seal.personKeyId);
+  }
+
   async function forget(): Promise<{ ok: true; remote: boolean }> {
     let remote = true;
     try {
@@ -270,6 +314,7 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
     unlock,
     lock,
     use,
+    useWithTouch,
     forget,
     adopt: (opened, id) => {
       if (disabled) return;

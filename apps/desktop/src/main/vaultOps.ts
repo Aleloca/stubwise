@@ -30,6 +30,8 @@ export const CLIPBOARD_CLEAR_MS = 30_000;
 export interface VaultOpsDeps {
   lock: {
     use: <T>(run: (key: CryptoKey, personKeyId: string) => Promise<T>) => Promise<T>;
+    /** M5: un Touch ID vero per le azioni che passano l'accesso. */
+    useWithTouch: <T>(run: (key: CryptoKey, personKeyId: string) => Promise<T>) => Promise<T>;
     markRevoked: () => void;
     markDisabled: () => void;
   };
@@ -68,9 +70,11 @@ export function createVaultOps(deps: VaultOpsDeps) {
   /** Ogni operazione: la cassaforte aperta, gli errori in un codice, la revoca. */
   async function guarded<T extends object>(
     run: (key: CryptoKey, personKeyId: string) => Promise<T>,
+    options: { touch?: boolean } = {},
   ): Promise<({ ok: true } & T) | OpFailure> {
     try {
-      const out = await deps.lock.use(run);
+      // M5: le azioni che passano l'accesso chiedono un Touch ID vero a sé.
+      const out = await (options.touch ? deps.lock.useWithTouch(run) : deps.lock.use(run));
       return { ok: true, ...out };
     } catch (error) {
       if (isDisabled(error)) {
@@ -85,7 +89,15 @@ export function createVaultOps(deps: VaultOpsDeps) {
       const code = error instanceof Error ? error.message : "";
       return {
         ok: false,
-        code: ["vault_locked", "invalid_response", "stale_key"].includes(code)
+        code: [
+          "vault_locked",
+          "invalid_response",
+          "stale_key",
+          "touch_id_cancelled",
+          "touch_id_unavailable",
+          "revoked",
+          "disabled",
+        ].includes(code)
           ? code
           : "open_failed",
       };
@@ -135,6 +147,9 @@ export function createVaultOps(deps: VaultOpsDeps) {
     if (copied === password) copied = null;
   }
 
+  /** M5: condividere, togliere un lettore, confermare e rifiutare chiedono un Touch ID a sé. */
+  const TOUCH = { touch: true } as const;
+
   async function share(credentialId: string, target: ReaderTarget) {
     return guarded(async (key, personKeyId) => {
       const query =
@@ -174,7 +189,7 @@ export function createVaultOps(deps: VaultOpsDeps) {
         if (!current?.success) throw error;
         return attempt(current.data);
       }
-    });
+    }, TOUCH);
   }
 
   async function pendingPeople() {
@@ -216,7 +231,7 @@ export function createVaultOps(deps: VaultOpsDeps) {
           },
         );
         return {};
-      }),
+      }, TOUCH),
 
     /** Chi aspetta che io confermi: persone, impronta e credenziali, senza le copie. */
     pending: () =>
@@ -282,7 +297,7 @@ export function createVaultOps(deps: VaultOpsDeps) {
           notAllowed: result.skipped.filter((s) => s.reason === "not_allowed").length,
           unopenable,
         };
-      }),
+      }, TOUCH),
 
     reject: (targetKeyId: string) =>
       guarded(async (key, personKeyId) => {
@@ -290,7 +305,7 @@ export function createVaultOps(deps: VaultOpsDeps) {
           actorProof: await prove(key, personKeyId),
         });
         return {};
-      }),
+      }, TOUCH),
   };
 }
 

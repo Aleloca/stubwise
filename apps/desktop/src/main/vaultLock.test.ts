@@ -304,4 +304,33 @@ describe("la cassaforte nel main", () => {
     expect(await lock.status()).toEqual({ state: "disabled", fingerprint: null });
     expect(calls).not.toContain("forget-local");
   });
+
+  // M5 (revisione di sicurezza): un'azione che PASSA l'accesso (condividere,
+  // confermare, rifiutare) chiede un Touch ID vero a sé, non basta la
+  // cassaforte aperta: il sigillo si riapre dall'enclave per quell'azione.
+  it("M5: `useWithTouch` riapre dall'enclave (un tocco in più) e usa quella chiave; chiusa: `vault_locked`", async () => {
+    const { lock, calls } = setup();
+    await expect(lock.useWithTouch(async () => 1)).rejects.toThrow("vault_locked");
+    await lock.unlock();
+    expect(await lock.useWithTouch(async (key, id) => key === PERSON_KEY && id === "pk-1")).toBe(
+      true,
+    );
+    expect(calls).toEqual(["touch", "touch"]);
+  });
+
+  it("M5: un tocco annullato ferma l'azione (`touch_id_cancelled`), la cassaforte resta aperta", async () => {
+    let cancel = false;
+    const { lock } = setup({
+      agreement: () => ({
+        deriveBits: async () => {
+          if (cancel) throw new Error("cancelled");
+          return new Uint8Array(32);
+        },
+      }),
+    });
+    await lock.unlock();
+    cancel = true;
+    await expect(lock.useWithTouch(async () => 1)).rejects.toThrow("touch_id_cancelled");
+    expect((await lock.status()).state).toBe("open");
+  });
 });

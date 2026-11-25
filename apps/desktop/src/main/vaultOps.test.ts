@@ -57,6 +57,7 @@ type Call = { method: string; path: string; body?: unknown };
 function setup(routes: Record<string, (body: unknown) => unknown>) {
   const calls: Call[] = [];
   let open = true;
+  let touches = 0;
   const lock = {
     use: async <T>(run: (key: CryptoKey, personKeyId: string) => Promise<T>) => {
       if (!open) throw new Error("vault_locked");
@@ -68,6 +69,12 @@ function setup(routes: Record<string, (body: unknown) => unknown>) {
     markDisabled: vi.fn(() => {
       open = false;
     }),
+    // M5: le azioni che passano l'accesso riaprono dall'enclave (un tocco).
+    useWithTouch: async <T>(run: (key: CryptoKey, personKeyId: string) => Promise<T>) => {
+      if (!open) throw new Error("vault_locked");
+      touches += 1;
+      return run(me.privateKey, PK);
+    },
   };
   let clip = "";
   const clipboard = { write: (t: string) => void (clip = t), read: () => clip };
@@ -78,7 +85,14 @@ function setup(routes: Record<string, (body: unknown) => unknown>) {
     return route(body);
   };
   const ops = createVaultOps({ lock, request, clipboard });
-  return { ops, calls, lock, clipboard, setClip: (t: string) => (clip = t) };
+  return {
+    ops,
+    calls,
+    lock,
+    clipboard,
+    setClip: (t: string) => (clip = t),
+    touches: () => touches,
+  };
 }
 
 const challengeRoute = () => ({
@@ -129,7 +143,11 @@ describe("le operazioni della cassaforte nel main", () => {
   // svuotano subito se contengono ancora la password copiata, senza aspettare.
   it("M4: `clearClipboard()` (a before-quit) svuota subito gli appunti se c'è ancora la password; altro no", async () => {
     const { ops, clipboard, setClip } = setup({
-      [`POST /api/credentials/${CRED}/reveal`]: () => ({ passwordCiphertext: stored.passwordCiphertext, wrappedKey: stored.mine, personKeyId: PK }),
+      [`POST /api/credentials/${CRED}/reveal`]: () => ({
+        passwordCiphertext: stored.passwordCiphertext,
+        wrappedKey: stored.mine,
+        personKeyId: PK,
+      }),
     });
     await ops.copy(CRED);
     await ops.clearClipboard();
@@ -333,5 +351,23 @@ describe("le operazioni della cassaforte nel main", () => {
     expect(
       (calls.find((c) => c.path.endsWith("/reject"))!.body as { actorProof: unknown }).actorProof,
     ).toBeTruthy();
+  });
+
+  it("M5: condividere, confermare, rifiutare e togliere un lettore chiedono ciascuno un Touch ID; Show e Copy no", async () => {
+    const { ops, touches } = setup({
+      ...challengeRoute(),
+      [`POST /api/vault/pending/${OTHER_PK}/reject`]: () => null,
+      [`DELETE /api/credentials/${CRED}/readers/r-1`]: () => ({ direct: [], effective: [] }),
+      [`POST /api/credentials/${CRED}/reveal`]: () => ({
+        passwordCiphertext: stored.passwordCiphertext,
+        wrappedKey: stored.mine,
+        personKeyId: PK,
+      }),
+    });
+    await ops.show(CRED);
+    expect(touches()).toBe(0);
+    await ops.reject(OTHER_PK);
+    await ops.removeReader(CRED, "r-1");
+    expect(touches()).toBe(2);
   });
 });
