@@ -229,11 +229,29 @@ export async function setVaultSimulation(next: Partial<VaultSimulation>): Promis
 
 // --- l'associazione --------------------------------------------------------------
 
+let pairingSeq = 0;
+
+/** L'esito del ritorno dal browser (nell'app lo dice il main; qui `finishPairing`). */
+export type PairingResult = { ok: true } | { ok: false; code: string };
+const pairingListeners = new Set<(result: PairingResult) => void>();
+
+/** Il dialogo dell'associazione sente com'è andato il ritorno dal browser. */
+export function subscribePairing(listener: (result: PairingResult) => void): () => void {
+  pairingListeners.add(listener);
+  return () => pairingListeners.delete(listener);
+}
+
+const tellPairing = (result: PairingResult) => {
+  for (const l of pairingListeners) l(result);
+};
+
 export async function startPairing(): Promise<{ ok: true; fingerprint: string } | VaultFailure> {
   const me = await gate("vault.startPairing");
   if (!v().active) return fail("vault_not_active");
   if (keyOf(me)?.status !== "confirmed") return fail("vault_key_not_confirmed");
-  const fingerprint = fakeFingerprint(`${me}:${now()}:${v().macs.length}`);
+  // Ogni richiesta una chiave nuova (l'orologio del prototipo può essere fermo).
+  pairingSeq += 1;
+  const fingerprint = fakeFingerprint(`${me}:${now()}:${v().macs.length}:${pairingSeq}`);
   mac(me).pairing = { fingerprint, until: new Date(Date.parse(now()) + 10 * 60_000).toISOString() };
   return { ok: true, fingerprint };
 }
@@ -247,8 +265,14 @@ export async function finishPairing(
   const pairing = m.pairing;
   m.pairing = null;
   if (!pairing) return fail("no_pending");
-  if (outcome === "expired") return fail("expired");
-  if (outcome === "mismatch") return fail("open_failed");
+  if (outcome === "expired") {
+    tellPairing({ ok: false, code: "expired" });
+    return fail("expired");
+  }
+  if (outcome === "mismatch") {
+    tellPairing({ ok: false, code: "open_failed" });
+    return fail("open_failed");
+  }
   const id = newId("mac");
   const first = (nameOf(me) ?? "").split(" ")[0];
   v().macs.push({
@@ -265,6 +289,7 @@ export async function finishPairing(
   // D-1b: subito aperta, senza tocco questa volta.
   m.open = true;
   m.freshlyPaired = false;
+  tellPairing({ ok: true });
   return { ok: true };
 }
 

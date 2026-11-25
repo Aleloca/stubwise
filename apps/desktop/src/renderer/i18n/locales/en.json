@@ -13774,6 +13774,28 @@
       "none": "You can't read any credential yet.",
       "noneProjects": "No credentials in these projects.",
       "noMatch": "No credentials match your search."
+    },
+    "pairing": {
+      "title": "Pair this Mac",
+      "intro": "This Mac will open your vault with Touch ID. You confirm it once, in the browser, with your passkey.",
+      "key": "This Mac's key",
+      "step1": "The browser opens Stubwise.",
+      "step2": "Type the last 4 characters of this key there ({{last4}}).",
+      "step3": "Choose \"Pair this Mac\" there.",
+      "waiting": "Waiting for the browser… expires in 10 minutes",
+      "cancel": "Cancel",
+      "done": "Done",
+      "retry": "Try again",
+      "starting": "Asking Stubwise…",
+      "success": "This Mac opens your vault.",
+      "errors": {
+        "expired": "The pairing expired. Start again.",
+        "open_failed": "The browser's answer didn't match this Mac. Nothing was saved. Start again.",
+        "no_secure_storage": "This Mac can't keep the key safely (no system keychain). Open the vault in the browser.",
+        "session_changed": "You signed in again meanwhile. Start again.",
+        "vault_key_not_confirmed": "Your vault key isn't confirmed yet: a reader confirms it when they pass you a credential.",
+        "other": "Couldn't pair this Mac. Try again."
+      }
     }
   }
 }

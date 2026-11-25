@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 import * as api from "@backend/api";
 import { queryKeys, useSessionPersonId, useWrite } from "../queries";
 import type { ReaderTarget } from "../vault/types";
@@ -76,6 +77,34 @@ export function useVaultLock() {
 /** «Show»: la password solo nel risultato, mai in una cache. */
 export function useShowPassword() {
   return useWrite((id: string) => api.vault.show(id), VAULT_AREAS, { secret: true });
+}
+
+/** «Pair this Mac»: il main chiede l'accoppiamento e apre il browser; risponde l'impronta. */
+export function useStartPairing() {
+  return useWrite(() => api.vault.startPairing(), VAULT_AREAS);
+}
+
+/** Chiudere il dialogo durante l'attesa: la richiesta si dimentica. */
+export function useCancelPairing() {
+  return useWrite(() => api.vault.cancelPairing(), VAULT_AREAS);
+}
+
+/** L'esito del ritorno dal browser, a chi ha il dialogo aperto. */
+export function usePairingResult(listener: (result: api.vault.PairingResult) => void) {
+  const latest = useRef(listener);
+  latest.current = listener;
+  const client = useQueryClient();
+  const me = useSessionPersonId();
+  useEffect(
+    () =>
+      api.vault.subscribePairing((r) => {
+        // Il ritorno arriva fuori da `useWrite` (dal browser, dal main): la
+        // barra e le righe si rileggono, la cassaforte ora è aperta.
+        void client.invalidateQueries({ queryKey: ["as", me, "vault"] });
+        latest.current(r);
+      }),
+    [client, me],
+  );
 }
 
 /** La voce «Vault» della barra laterale (e dove «New credential» può creare). */

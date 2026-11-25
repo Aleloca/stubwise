@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { PairingDialog } from "./PairingDialog";
 import { isAppBuild } from "../../data/build";
 import { useVaultLock, useVaultStatus, useVaultUnlock } from "../../data/queries";
 import type { VaultStatusView } from "../../data/vault/types";
@@ -42,8 +44,11 @@ export function openVaultInBrowser(): void {
   if (isAppBuild()) openInWeb("/credentials");
 }
 
-export function VaultBar({ onPair }: { onPair?: () => void }) {
+export function VaultBar({ onPair: onPairProp }: { onPair?: () => void }) {
   const { t } = useTranslation();
+  // «Pair this Mac» apre la finestra dell'associazione (shape §3, [VA 8]).
+  const [pairing, setPairing] = useState(false);
+  const onPair = onPairProp ?? (() => setPairing(true));
   const toast = useToast();
   const status = useVaultStatus();
   const { open, pending } = useOpenVault();
@@ -168,17 +173,20 @@ export function VaultBar({ onPair }: { onPair?: () => void }) {
   }
 
   return (
-    <div className={ROW} data-vault-bar={s.state}>
-      <span
-        aria-hidden="true"
-        className={
-          glyph === "●" ? "text-positive" : glyph === "▲" ? "text-warning" : "text-ink-muted"
-        }
-      >
-        {glyph}
-      </span>
-      <span className="min-w-0 flex-1">{text}</span>
-      {action && <span className="shrink-0">{action}</span>}
-    </div>
+    <>
+      {pairing && <PairingDialog onClose={() => setPairing(false)} />}
+      <div className={ROW} data-vault-bar={s.state}>
+        <span
+          aria-hidden="true"
+          className={
+            glyph === "●" ? "text-positive" : glyph === "▲" ? "text-warning" : "text-ink-muted"
+          }
+        >
+          {glyph}
+        </span>
+        <span className="min-w-0 flex-1">{text}</span>
+        {action && <span className="shrink-0">{action}</span>}
+      </div>
+    </>
   );
 }
