@@ -1,7 +1,8 @@
 # Shape brief — La Cassaforte delle credenziali, e la chiave del Mac
 
 Superficie: la sezione di progetto **Credentials**
-(`#/p/<CODE>/credentials`), con il dettaglio di una credenziale, «Show» e
+(`#/p/<CODE>/credentials`) e la pagina unica **Vault** (`#/vault`, tutte
+le credenziali che chi guarda vede, filtrabili per progetto), con il dettaglio di una credenziale, «Show» e
 «Copy», i lettori (condividere, togliere), gli accessi da confermare e il
 registro degli accessi; la **barra della cassaforte** in testa alla
 sezione (chiusa, aperta, da associare, revocata, irraggiungibile); la
@@ -20,7 +21,7 @@ serve, non come appare): `apps/web/src/routes/credentials.tsx`,
 `apps/web/src/components/vault/*`, chiavi `vault.*`. Mondo: «Catalogo
 numerato», modalità **Operate**; l'impronta e la password sono i soli
 testi monospace della superficie. Scelte del brief **[VA n]**, raccolte
-in fondo; quelle che il maintainer deve decidere in «Da decidere».
+in fondo; le decisioni del maintainer (25 nov 2026) nella tabella finale.
 
 ## 1. Lavoro e pubblico
 
@@ -75,8 +76,9 @@ in fondo; quelle che il maintainer deve decidere in «Da decidere».
   da confermare) si aprono nel pannello di destra, come il membro di
   `admin-roles-members.md` **[VA 1]**.
 - **Momento focale**: la **riga con la password mostrata** — la password
-  in monospace 15px al posto dei pallini, «Hide» e il conto alla rovescia
-  in parola («Hides in 30 s»).
+  in monospace 15px al posto dei pallini, e «Hide» accanto. Resta finché
+  non la si nasconde (VA-Q3, maintainer), o finché la cassaforte non si
+  chiude.
 
 ```
 ┌─ ACQ ─ Credentials ───────────────────────────────────────────────────────┐
@@ -89,7 +91,7 @@ in fondo; quelle che il maintainer deve decidere in «Da decidere».
 │ ○ 2 people are waiting for access                         [Review]        │
 │ ───────────────────────────────────────────────────────────────────────── │
 │ Aruba hosting      admin@acquedotto     ••••••••••      Show  Copy   ⋯   │
-│ Cloudflare         ops@acquedotto       Gq7#v2-Lm…pZ    Hide · hides in 23 s│
+│ Cloudflare         ops@acquedotto       Gq7#v2-Lm…pZ    Hide  Copy   ⋯   │
 │ Mailgun            postmaster           ••••••••••      Show  Copy   ⋯   │
 │ Stripe (test)      laura.costa          Waiting for confirmation          │
 └───────────────────────────────────────────────────────────────────────────┘
@@ -107,9 +109,34 @@ in fondo; quelle che il maintainer deve decidere in «Da decidere».
   (sotto «Passkeys», sopra «Open sessions»).
 - **Amministrazione → la pagina di una persona**: la parte **Vault**
   (sotto «Linked identities»), solo full admin.
+- **La pagina unica «Vault»** (VA-Q1 «Entrambe», maintainer, 25 nov
+  2026): una **destinazione della barra laterale**, `#/vault`, subito
+  dopo «Drive» — come il Drive raccoglie i file di tutti i progetti, la
+  Vault raccoglie le credenziali di tutti i progetti, con lo stesso filtro
+  per progetto. La voce c'è solo se la cassaforte è attiva e chi guarda
+  legge (o aspetta) almeno una credenziale, o può crearne in almeno un
+  progetto; il punto «ti aspetta» come la sezione, per gli accessi da
+  confermare **[VA 2]**.
 - **⌘K**: «Open the vault» (Touch ID, da qualunque pagina), «Lock the
-  vault» (aperta), «Pair this Mac» (non associato). Nessuna voce in barra
-  laterale: la cassaforte non è una destinazione, è dentro i progetti.
+  vault» (aperta), «Pair this Mac» (non associato), «Find a credential»
+  (apre la Vault con la ricerca).
+
+### La pagina unica «Vault»
+
+- Stessa cornice della sezione: h1 «Vault», riga in prosa «Every
+  credential you can read, in all your projects.», la **barra della
+  cassaforte**, la riga degli accessi da confermare (di tutti i progetti).
+- Sopra l'elenco: campo di ricerca (servizio, etichetta, utente) e il
+  **filtro per progetto** del Drive (scelta multipla coi codici; vuoto =
+  tutti). Il filtro sta nell'indirizzo (`?project=ACQ,MKX`).
+- Le righe sono quelle della sezione con in più, prima del servizio, il
+  **codice del progetto** (cifre tabellari 600, link alla sezione
+  Credentials del progetto). Ordine: progetto, poi servizio.
+- **New credential** chiede prima il progetto (solo quelli dove chi guarda
+  ha `credentials.create`); con un solo progetto possibile lo prende da
+  sé. Il dettaglio, i lettori, il registro: lo stesso pannello di destra.
+- Vuoto: «You can't read any credential yet.»; con un filtro che non
+  trova niente: «No credentials in these projects.»
 
 ### La barra della cassaforte
 
@@ -149,9 +176,10 @@ sotto la riga in prosa. Uno stato alla volta (dallo stato del main,
 - **Show** / **Copy** (aperta) — spenti con `title` «Open the vault first»
   a cassaforte chiusa; un clic su uno dei due a chiusa apre il Touch ID e,
   riuscito, fa l'azione chiesta (un passo in meno) **[VA 4]**.
-- **Show**: la password in monospace 15px nella riga, «Hide · hides in
-  30 s» (la parola cambia ogni 5 s, nessun numero che scorre ogni
-  secondo); dopo 30 s torna pallini. Una sola mostrata per volta.
+- **Show**: la password in monospace 15px nella riga e **Hide** al posto
+  di «Show». Resta mostrata finché non si preme **Hide**, come nel web
+  (VA-Q3, maintainer): torna pallini da sola solo quando la cassaforte si
+  chiude. Più password possono essere mostrate insieme.
 - **Copy**: toast «Copied. The clipboard is cleared in 30 seconds.»; il
   main cancella gli appunti dopo 30 s **solo se** contengono ancora quella
   password **[VA 5]**.
@@ -170,7 +198,7 @@ sotto la riga in prosa. Uno stato alla volta (dallo stato del main,
 ### Nuova e modifica
 
 - Pannello di destra, modulo: Service · Label · URL · Username · Password
-  (con «Generate» che propone 20 caratteri) · Notes. Sotto Password, 12px:
+  · Notes (niente «Generate»: VA-Q6, maintainer). Sotto Password, 12px:
   «Encrypted on this Mac: the server never sees it.»; sotto Notes:
   «Notes aren't encrypted: don't write secrets here.» In modifica:
   «Leave empty to keep the current password.»
@@ -266,8 +294,11 @@ browser, with your passkey.
   «This Mac stops opening the vault. You stay signed in.» → fatto: la
   riga sparisce; se il server non risponde, «Forgotten on this Mac. The
   server didn't answer: remove it from the browser too.»
-- **Un altro Mac**: **Remove** apre la stessa pagina nel browser (la
-  rotta è del browser, §6.3 del design) **[VA 9]**.
+- **Un altro Mac**: **Remove** si fa da qui (VA-Q4 «Anche dal desktop»,
+  maintainer) → la cassaforte deve essere aperta (Touch ID: la rotta
+  vuole la prova della propria chiave) → conferma a due tempi in posto:
+  «That Mac stops opening the vault. It stays signed in.» → toast
+  «Removed. You'll get a security alert.» **[VA 9]**.
 - Vuoto: «No Mac opens your vault yet.» + **Pair this Mac**.
 
 ### Amministrazione → una persona: Vault (D-6)
@@ -298,10 +329,11 @@ browser, with your passkey.
   Vault dell'admin, ⌘K, riquadro «Prototype only».
 - **Fuori** (restano del browser, D-7): attivare la cassaforte, il kit di
   recupero e la sua rotazione, creare o ricreare la propria chiave,
-  sigillare un Mac; togliere un ALTRO Mac (§6.3, **[VA 9]**).
+  sigillare un Mac; togliere i Mac di UN'ALTRA persona (l'admin, dal
+  browser).
 - **Anti-obiettivi**: una password nel DOM a cassaforte chiusa; una
   password che resta mostrata dopo la chiusura; «Show» che apre un
-  dialogo modale con la password; un contatore che scorre ogni secondo;
+  dialogo modale con la password;
   la domanda della conferma accorciata a «Confirm?»; l'impronta in un
   tooltip soltanto.
 
@@ -346,8 +378,9 @@ browser, with your passkey.
 
 1. **[VA 1]** Sezione del progetto con una barra di stato in testa; il
    raro nel pannello di destra.
-2. **[VA 2]** Si entra dalla sezione di progetto, da Security, dalla
-   pagina della persona e da ⌘K; nessuna voce in barra laterale.
+2. **[VA 2]** Si entra dalla sezione di progetto, dalla destinazione
+   «Vault» in barra laterale (dopo Drive), da Security, dalla pagina della
+   persona e da ⌘K.
 3. **[VA 3]** Senza Touch ID, «Open in the browser» (D-1a).
 4. **[VA 4]** Show/Copy a cassaforte chiusa aprono il Touch ID e fanno
    l'azione.
@@ -357,16 +390,16 @@ browser, with your passkey.
 7. **[VA 7]** La domanda della conferma intera, come nel web.
 8. **[VA 8]** L'associazione in un dialogo con l'impronta grande e tre
    passi.
-9. **[VA 9]** Togliere un altro Mac (proprio o di un altro) si fa dal
-   browser.
+9. **[VA 9]** I propri altri Mac si tolgono dall'app, con la cassaforte
+   aperta; quelli di un'altra persona li toglie l'admin dal browser.
 
-## Da decidere (per il maintainer)
+## Decisioni del maintainer (25 nov 2026, via 46)
 
-| # | Domanda | Raccomandazione |
+| # | Domanda | Decisione |
 |---|---|---|
-| VA-Q1 | **Dove sta la cassaforte nel layout?** (a) una sezione di ogni progetto, «Credentials», come nel web; (b) una destinazione in barra laterale, «Vault», con tutte le credenziali che leggo, filtrabili per progetto; (c) tutte e due. | **(a)**: le credenziali sono del progetto (permessi e lettori stanno lì), e la barra laterale resta dei posti dove si lavora ogni giorno. «Le mie credenziali» del web diventa una ricerca ⌘K («Find a credential») invece di una pagina. |
-| VA-Q2 | **Show e Copy a cassaforte chiusa**: spenti finché non apro, o aprono il Touch ID e poi fanno l'azione? | **Aprono il Touch ID e fanno l'azione** [VA 4]: chi clicca «Copy» vuole la password, non un passo in più. |
-| VA-Q3 | **La password mostrata si nasconde da sola dopo 30 s?** Il web la lascia finché non si preme «Hide». | **Sì, 30 s**, come la copia negli appunti: il Mac resta sulla scrivania più a lungo di una scheda del browser. |
-| VA-Q4 | **Togliere un ALTRO Mac dal desktop.** D-7 dice «dal desktop tutto come nel browser», ma il §6.3 del design lascia al browser il sigillo di un altro dispositivo (anche per l'admin). Dal desktop: (a) «Remove» apre il browser; (b) si toglie da qui (serve una rotta del PAT desktop in più, 72). | **(a)**: un Mac rubato e aperto non deve poter staccare gli altri Mac del proprietario, e la rotta resta una sola. Se il maintainer intende D-7 alla lettera, è (b) e lo dico a 72. |
-| VA-Q5 | **Il registro dice «from the Mac» anche a chi guarda il registro del progetto, o solo all'admin?** | **A tutti quelli che vedono il registro**: è un fatto, e serve proprio a chi condivide. |
-| VA-Q6 | **«Generate» nella password nuova**: lo mettiamo (il web non ce l'ha)? | **Sì**, 20 caratteri con simboli; è il momento in cui si sceglie una password. Se si preferisce la parità col web, si toglie. |
+| VA-Q1 | Dove sta la cassaforte | **Entrambe**: la sezione «Credentials» di ogni progetto E la pagina unica «Vault» con tutte le credenziali, filtrabili per progetto. La pagina unica è una destinazione in barra laterale dopo «Drive» (scelta di 94, §3). |
+| VA-Q2 | Show e Copy a cassaforte chiusa | **Aprono il Touch ID e fanno l'azione** (la raccomandazione). |
+| VA-Q3 | La password mostrata si nasconde da sola? | **No**: resta finché non si preme «Hide», come nel web. «Copy» svuota comunque gli appunti dopo 30 s. |
+| VA-Q4 | Togliere un altro proprio Mac dal desktop | **Anche dal desktop**, con la cassaforte aperta (rotta del PAT desktop chiesta a 72). Quelli di un'altra persona: l'admin, dal browser. |
+| VA-Q5 | «from the Mac» nel registro | **A chiunque legga il registro** (la raccomandazione). |
+| VA-Q6 | «Generate» nella password nuova | **No**. |
