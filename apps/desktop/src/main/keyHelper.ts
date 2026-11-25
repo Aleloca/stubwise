@@ -13,10 +13,19 @@ export type HelperRunner = (input: string) => Promise<string>;
 
 export interface KeyHelper {
   available: () => Promise<{ secureEnclave: boolean; biometry: boolean }>;
-  /** Una chiave nuova nell'enclave: il blob opaco e la pubblica x9.63 (65 byte). */
-  create: () => Promise<{ key: string; publicKey: Uint8Array }>;
-  /** Il segreto condiviso (32 byte) con il punto effimero; chiede il Touch ID con `reason`. */
-  ecdh: (key: string, peer: Uint8Array, reason: string) => Promise<Uint8Array>;
+  /**
+   * Una chiave nuova nell'enclave, come voce del Keychain di data protection
+   * col tag dato e l'access group del Team ID (I1, seconda revisione): solo i
+   * binari firmati del team la usano. Risponde la pubblica x9.63 (65 byte).
+   */
+  create: (tag: string) => Promise<{ publicKey: Uint8Array }>;
+  /**
+   * Il segreto condiviso (32 byte) con il punto effimero. Il Touch ID lo chiede
+   * il sistema con una frase FISSATA nell'helper: la richiesta non la porta.
+   */
+  ecdh: (tag: string, peer: Uint8Array) => Promise<Uint8Array>;
+  /** Toglie la voce del Keychain (un Mac dimenticato, un file scartato). */
+  deleteKey: (tag: string) => Promise<void>;
   /** Gli appunti coi tipi Concealed/Transient; il `changeCount` per `clearIf`. */
   copy: (text: string) => Promise<number>;
   /** Svuota gli appunti solo se nessuno li ha cambiati dopo `copy`. */
@@ -51,18 +60,20 @@ export function createKeyHelper(deps: { run: HelperRunner }): KeyHelper {
         return { secureEnclave: false, biometry: false };
       }
     },
-    async create() {
-      const out = await call({ cmd: "create" });
+    async create(tag) {
+      const out = await call({ cmd: "create", tag });
       const publicKey = unb64(out.publicKey);
-      if (typeof out.key !== "string" || out.key === "" || publicKey?.length !== 65)
-        throw new Error("invalid_response");
-      return { key: out.key, publicKey };
+      if (publicKey?.length !== 65) throw new Error("invalid_response");
+      return { publicKey };
     },
-    async ecdh(key, peer, reason) {
-      const out = await call({ cmd: "ecdh", key, peer: b64(peer), reason });
+    async ecdh(tag, peer) {
+      const out = await call({ cmd: "ecdh", tag, peer: b64(peer) });
       const secret = unb64(out.secret);
       if (secret?.length !== 32) throw new Error("invalid_response");
       return secret;
+    },
+    async deleteKey(tag) {
+      await call({ cmd: "delete", tag });
     },
     async copy(text) {
       const out = await call({ cmd: "copy", text });

@@ -49,10 +49,10 @@ export interface VaultPairingDeps {
   /** Una chiave nuova nel Secure Enclave (`generateDeviceKey`). */
   generate: () => Promise<{
     publicKey: string;
-    stored: Pick<StoredDevice, "publicKey" | "enclaveKey">;
+    stored: Pick<StoredDevice, "publicKey" | "keyTag">;
   }>;
   /** L'ECDH dell'enclave, col Touch ID (`deviceAgreement`). */
-  agreement: (device: Pick<StoredDevice, "enclaveKey">) => {
+  agreement: (device: Pick<StoredDevice, "keyTag">) => {
     deriveBits: (ephemeralPublicKey: Uint8Array) => Promise<Uint8Array>;
   };
   pair: (devicePublicKey: string, deviceName: string) => Promise<Pairing>;
@@ -83,7 +83,7 @@ interface Pending {
   state: string;
   deviceId: string;
   identity: DeviceIdentity;
-  stored: Pick<StoredDevice, "publicKey" | "enclaveKey">;
+  stored: Pick<StoredDevice, "publicKey" | "keyTag">;
   until: number;
 }
 

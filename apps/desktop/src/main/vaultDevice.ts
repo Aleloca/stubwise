@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { devicePublicKeyFromRaw } from "@stubwise/vault-crypto";
@@ -11,9 +12,12 @@ import type { KeyHelper } from "./keyHelper";
 // Sul Mac non si salva la privata di persona, e nemmeno quella del
 // dispositivo: la chiave del dispositivo è NEL Secure Enclave
 // (`stubwise-keyhelper`), non esportabile, e ogni uso chiede il Touch ID al
-// sistema. Su disco, in `vault-device.bin` cifrato con `safeStorage`, sta
-// solo il suo `dataRepresentation` — un blob opaco che solo l'enclave di
-// questo Mac sa usare — con la pubblica e gli id. Senza cifratura del sistema
+// sistema. Dalla seconda revisione (I1) è una voce del Keychain di data
+// protection con l'access group del Team ID: solo i binari firmati del team
+// la usano (prima era un `dataRepresentation` su disco, che qualunque
+// binario poteva dare all'enclave). Su disco, in `vault-device.bin` cifrato
+// con `safeStorage`, stanno solo gli id, il TAG della voce e la pubblica.
+// Senza cifratura del sistema
 // non si salva niente. Il file vale SOLO per la sessione con cui è nato
 // (istanza e PAT): un altro login non lo eredita, e un file che non coincide
 // (o di una versione vecchia, con la pkcs8) si cancella. Niente di questo
@@ -29,17 +33,17 @@ export interface DeviceIdentity {
   patId: string;
 }
 
-/** Ciò che si scrive (cifrato) su disco. La versione 1 (con la pkcs8) non vale più. */
+/** Ciò che si scrive (cifrato) su disco. Le versioni 1 (pkcs8) e 2 (blob dell'enclave) non valgono più. */
 export interface StoredDevice extends DeviceIdentity {
-  v: 2;
+  v: 3;
   /** L'id del sigillo sul server (`vault_device_seals.id`, nell'AAD). */
   deviceId: string;
   /** La chiave di persona sigillata; null finché il server non lo dice. */
   personKeyId: string | null;
   /** La pubblica del dispositivo, JWK (come le chiavi di persona). */
   publicKey: string;
-  /** La chiave nel Secure Enclave: il suo `dataRepresentation` (base64), inutile fuori da questo Mac. */
-  enclaveKey: string;
+  /** Il tag della voce del Keychain (la chiave nell'enclave): `stubwise.vault.<32 hex>`. */
+  keyTag: string;
 }
 
 const file = () => join(app.getPath("userData"), "vault-device.bin");
@@ -52,30 +56,30 @@ const file = () => join(app.getPath("userData"), "vault-device.bin");
  */
 export async function generateDeviceKey(helper: Pick<KeyHelper, "create">): Promise<{
   publicKey: string;
-  stored: Pick<StoredDevice, "publicKey" | "enclaveKey">;
+  stored: Pick<StoredDevice, "publicKey" | "keyTag">;
 }> {
-  const made = await helper.create();
+  const keyTag = `stubwise.vault.${randomBytes(16).toString("hex")}`;
+  const made = await helper.create(keyTag);
   const publicKey = await devicePublicKeyFromRaw(made.publicKey);
-  return { publicKey, stored: { publicKey, enclaveKey: made.key } };
+  return { publicKey, stored: { publicKey, keyTag } };
 }
 
 /**
  * L'accordo di chiave del dispositivo per `openDeviceSeal`: l'ECDH lo fa
- * l'enclave (Touch ID con `reason`, a ogni uso), HKDF e AES-GCM restano in
- * `@stubwise/vault-crypto`.
+ * l'enclave (Touch ID a ogni uso, con la frase fissata nell'helper), HKDF e
+ * AES-GCM restano in `@stubwise/vault-crypto`.
  */
 export function deviceAgreement(
-  device: Pick<StoredDevice, "enclaveKey">,
+  device: Pick<StoredDevice, "keyTag">,
   helper: Pick<KeyHelper, "ecdh">,
-  reason: string,
 ): { deriveBits: (ephemeralPublicKey: Uint8Array) => Promise<Uint8Array> } {
-  return { deriveBits: (eph) => helper.ecdh(device.enclaveKey, eph, reason) };
+  return { deriveBits: (eph) => helper.ecdh(device.keyTag, eph) };
 }
 
 /** Scrive il file; `false` (e niente su disco) senza cifratura del sistema. */
 export function saveDevice(device: Omit<StoredDevice, "v">): boolean {
   if (!safeStorage.isEncryptionAvailable()) return false;
-  const stored: StoredDevice = { v: 2, ...device };
+  const stored: StoredDevice = { v: 3, ...device };
   writeFileSync(file(), safeStorage.encryptString(JSON.stringify(stored)));
   return true;
 }
@@ -87,8 +91,8 @@ function isStored(value: unknown): value is StoredDevice {
   const d = value as Partial<StoredDevice> | null;
   return (
     !!d &&
-    d.v === 2 &&
-    [d.instanceUrl, d.patId, d.deviceId, d.publicKey, d.enclaveKey].every(
+    d.v === 3 &&
+    [d.instanceUrl, d.patId, d.deviceId, d.publicKey, d.keyTag].every(
       (x) => typeof x === "string" && x !== "",
     ) &&
     (d.personKeyId === null || typeof d.personKeyId === "string")
@@ -118,11 +122,37 @@ export function readDevice(me: DeviceIdentity): StoredDevice | null {
   return null;
 }
 
+let keyDeleter: ((tag: string) => Promise<void>) | null = null;
+
+/** Chi toglie la voce del Keychain quando il file sparisce (il main: l'helper). */
+export function setKeyDeleter(deleter: ((tag: string) => Promise<void>) | null): void {
+  keyDeleter = deleter;
+}
+
+/** Il tag nel file, di chiunque sia (per togliere la voce anche di un file scartato). */
+function storedTag(): string | null {
+  if (!safeStorage.isEncryptionAvailable()) return null;
+  try {
+    const parsed = JSON.parse(safeStorage.decryptString(readFileSync(file()))) as {
+      keyTag?: unknown;
+    };
+    return typeof parsed.keyTag === "string" && parsed.keyTag !== "" ? parsed.keyTag : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * La revoca locale: il file sparisce (la chiave di persona in memoria la
- * toglie `vaultLock`). La chiave nell'enclave resta, inutilizzabile senza il
- * blob.
+ * La revoca locale: il file sparisce, e con lui la voce del Keychain
+ * (best-effort, mai silenzioso). La chiave di persona in memoria la toglie
+ * `vaultLock`.
  */
 export function forgetDevice(): void {
+  const tag = storedTag();
   rmSync(file(), { force: true });
+  if (tag && keyDeleter) {
+    void keyDeleter(tag).catch((error: unknown) => {
+      console.warn("stubwise: cassaforte — voce del Keychain non tolta (best-effort)", error);
+    });
+  }
 }
