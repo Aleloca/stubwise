@@ -7,6 +7,7 @@ import { useVaultLock, useVaultStatus, useVaultUnlock } from "../../data/queries
 import type { VaultStatusView } from "../../data/vault/types";
 import { useViewer } from "../../data/viewing";
 import { openInWeb } from "../../platform/openWeb";
+import { isWebAppBuild } from "../../platform/vaultBridge";
 import { useToast } from "../../tasks-ui/Toast";
 import { primaryButton, secondaryButton } from "../tasks/controls";
 
@@ -146,8 +147,18 @@ export function VaultBar({ onPair: onPairProp }: { onPair?: () => void }) {
       action = browser;
       break;
     case "unsupported":
-      text = t("vault.bar.unsupported");
-      action = browser;
+      // Review M10: nella build web non è «questo Mac», è il browser.
+      if (isWebAppBuild()) {
+        text = t("vault.bar.unsupportedWeb");
+        action = (
+          <button type="button" className={secondaryButton} onClick={openVaultInBrowser}>
+            {t("vault.bar.openWebPage")}
+          </button>
+        );
+      } else {
+        text = t("vault.bar.unsupported");
+        action = browser;
+      }
       break;
     case "unreachable":
       glyph = "▲";

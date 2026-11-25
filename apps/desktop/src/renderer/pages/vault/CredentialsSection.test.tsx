@@ -1,8 +1,9 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetApi, setLatency, vault } from "../../data/api";
 import { VAULT_IDS } from "../../data/seed/vault";
+import { setSessionPersonId } from "../../data/session";
 import { setVaultClipboard } from "../../data/vault/index";
 import { setLanguage } from "../../i18n";
 import { queryKeys } from "../../data/queries";
@@ -14,6 +15,14 @@ import { lastQueryClient, renderRoute } from "../../test/renderRoute";
 // nel DOM nemmeno per un momento.
 
 const PASSWORDS = /Kx4!pa|Gq7#v2|mg-Tr9|sk-Wd2|Fg5&k1/;
+// La sezione nella build «app» (M10) non è ancora accesa in `INTEGRATED`
+// (lo decide il piano): qui la si tratta come integrata. Fuori dalla build
+// «app» `isIntegrated` è già sempre vero, quindi gli altri test non cambiano.
+vi.mock("../../data/integration", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../data/integration")>()),
+  isIntegrated: () => true,
+}));
+
 let clip = "";
 
 beforeEach(() => {
@@ -178,5 +187,53 @@ describe("Credentials — la voce della colonna", () => {
     );
     await waitFor(() => expect(bar().dataset.vaultBar).toBe("inactive"));
     expect(within(bar()).getByText("Activate it in the browser.")).toBeInTheDocument();
+  });
+
+  // Review M10: nella build web (l'app servita su /app, senza il ponte del
+  // desktop) cifrare non si può: niente «New credential», e la barra dice
+  // come si apre la cassaforte dal browser.
+  describe("M10: la build web", () => {
+    beforeEach(() => {
+      vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+      // Nella build «app» chi guarda è la persona della sessione del livello dati.
+      setSessionPersonId("p-laura");
+    });
+    afterEach(() => {
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    });
+
+    it("niente «New credential» nella sezione", async () => {
+      await openSection("p-laura");
+      expect(screen.queryByRole("button", { name: "New credential" })).toBeNull();
+    });
+
+    it("con il ponte del desktop «New credential» c'è", async () => {
+      vi.stubGlobal("stubwise", { vault: { create: vi.fn() } });
+      await openSection("p-laura");
+      expect(screen.getByRole("button", { name: "New credential" })).toBeInTheDocument();
+    });
+
+    it("la barra «unsupported» con la frase del browser", async () => {
+      await openSection("p-laura");
+      act(() =>
+        lastQueryClient().setQueryData(queryKeys.vaultStatus("p-laura"), {
+          state: "unsupported",
+          touchId: false,
+          macFingerprint: null,
+          ownFingerprint: null,
+          pairing: null,
+        }),
+      );
+      await waitFor(() => expect(bar().dataset.vaultBar).toBe("unsupported"));
+      expect(
+        within(bar()).getByText(
+          "In the browser, the vault opens on Stubwise's web pages, with your passkey.",
+        ),
+      ).toBeInTheDocument();
+      expect(
+        within(bar()).getByRole("button", { name: "Open the vault page" }),
+      ).toBeInTheDocument();
+    });
   });
 });
