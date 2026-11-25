@@ -268,24 +268,27 @@ describe("le rotte aperte al PAT desktop riconfermato (la regola unica)", () => 
   });
 });
 
-describe("la cassaforte resta solo-browser (aperta per decisione, bloccata dallo sblocco PRF)", () => {
-  it("il PAT desktop riconfermato riceve session_required su ogni tipo di rotta della cassaforte", async () => {
+describe("la cassaforte dal desktop passa SOLO dal sigillo del Mac, mai dalla riconferma (lotto 10)", () => {
+  it("il PAT desktop riconfermato riceve session_required sulle rotte del browser, e `device_seal_required` (senza sigillo) su quelle aperte al Mac", async () => {
     const p = await pat("desktop");
     await testDb.db
       .update(personalAccessTokens)
       .set({ secondFactorAt: new Date() })
       .where(eq(personalAccessTokens.id, p.id));
-    for (const url of ["/api/vault/status", "/api/vault/pending", "/api/vault/keys/mine"]) {
+    for (const url of ["/api/vault/status", "/api/vault/keys/mine"]) {
       const res = await app.inject({ method: "GET", url, headers: bearer(p.token) });
       expect(res.statusCode, url).toBe(403);
       expect(res.json(), url).toMatchObject({ code: "session_required" });
     }
+    // La riconferma del desktop NON apre la cassaforte: serve il sigillo del Mac.
+    const pending = await app.inject({ method: "GET", url: "/api/vault/pending", headers: bearer(p.token) });
+    expect([pending.statusCode, pending.json().code]).toEqual([403, "device_seal_required"]);
   });
 
-  it("ogni rotta /api/vault dichiara browserOnly (anche quelle col solo gate della riconferma)", async () => {
+  it("ogni rotta /api/vault dichiara browserOnly, salvo quelle aperte al Mac col sigillo (`desktopVault`, elenco chiuso in route-access.test.ts)", async () => {
     // L'osservatore gira PRIMA dell'hook della cassaforte: si tiene l'oggetto
     // della rotta e lo si legge a registrazione finita.
-    const seen: { url: string; config?: { browserOnly?: unknown } }[] = [];
+    const seen: { url: string; config?: { browserOnly?: unknown; desktopVault?: unknown } }[] = [];
     const probe = buildApp({
       onRoute: (route) => {
         // `/api/vault/credentials` è di `credentials.ts`: il PAT «crea e
@@ -296,7 +299,9 @@ describe("la cassaforte resta solo-browser (aperta per decisione, bloccata dallo
     await probe.ready();
     await probe.close();
     expect(seen.length).toBeGreaterThan(10);
-    expect(seen.filter((r) => r.config?.browserOnly !== true).map((r) => r.url)).toEqual([]);
+    expect(seen.filter((r) => r.config?.browserOnly !== true && r.config?.desktopVault !== true).map((r) => r.url)).toEqual([]);
+    // E nessuna è entrambe le cose.
+    expect(seen.filter((r) => r.config?.browserOnly === true && r.config?.desktopVault === true).map((r) => r.url)).toEqual([]);
   });
 
   it("una rotta della cassaforte col SOLO gate della riconferma resta chiusa al desktop riconfermato", async () => {

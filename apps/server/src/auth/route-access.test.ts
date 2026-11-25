@@ -25,6 +25,8 @@ interface CollectedRoute {
   partialReauth?: true;
   /** `config.archived`, se dichiarato (area 9, F6). */
   archived?: "read" | "write";
+  /** `config.desktopVault`, se dichiarato (lotto 10, la cassaforte dal desktop). */
+  desktopVault?: true;
 }
 
 /**
@@ -51,6 +53,7 @@ function collect(route: RouteOptions, into: Map<string, CollectedRoute>): void {
       credentialDoor: route.config?.credentialDoor ?? prev?.credentialDoor,
       partialReauth: route.config?.partialReauth ?? prev?.partialReauth,
       archived: route.config?.archived ?? prev?.archived,
+      desktopVault: route.config?.desktopVault ?? prev?.desktopVault,
     });
   }
 }
@@ -74,6 +77,36 @@ describe("ogni rotta dichiara config.access", () => {
     expect(keys).toContain("GET /health");
     expect(keys).toContain("POST /webhooks/git/:projectSlug");
     expect(keys.length).toBeGreaterThan(100);
+  });
+});
+
+describe("la cassaforte dal desktop (lotto 10, D-7)", () => {
+  /**
+   * Le rotte che il PAT desktop col suo sigillo vivo raggiunge
+   * (`config.desktopVault`, `vault/device-access.ts`): tutto ciò che fa il
+   * browser a cassaforte aperta, salvo attivazione, recupero, kit e chiavi di
+   * persona (decisione del maintainer, 24 nov 2026). L'elenco è CHIUSO: una
+   * rotta della cassaforte aperta al desktop per sbaglio è una porta senza
+   * passkey, e chi ne aggiunge una aggiorna questo elenco e l'invariante.
+   */
+  it("le rotte aperte al PAT desktop col sigillo sono ESATTAMENTE queste", async () => {
+    const desktop = (await registeredRoutes()).filter((r) => r.desktopVault).map((r) => r.key);
+    expect(desktop).toEqual([
+      "DELETE /api/credentials/:id/readers/:readerId",
+      "GET /api/credentials/:id/readers",
+      "GET /api/credentials/:id/readers/preview",
+      "GET /api/vault/pending",
+      "POST /api/credentials/:id/readers",
+      "POST /api/credentials/:id/reveal",
+      "POST /api/vault/actor-challenge",
+      "POST /api/vault/pending/:personKeyId/confirm",
+      "POST /api/vault/pending/:personKeyId/reject",
+    ]);
+  });
+
+  it("nessuna di loro chiede la riconferma (il gate del PAT desktop non le aprirebbe)", async () => {
+    const both = (await registeredRoutes()).filter((r) => r.desktopVault && r.reauth !== undefined).map((r) => r.key);
+    expect(both).toEqual([]);
   });
 });
 
@@ -143,6 +176,9 @@ describe("rotte con riconferma recente", () => {
       "DELETE /api/users/:id/git-identities/:email",
       "DELETE /api/users/:id/second-factor",
       "DELETE /api/users/:id/slack",
+      // Lotto 10: togliere un Mac dalla cassaforte (il proprio, o di un altro da un full admin).
+      "DELETE /api/vault/device-seals/:id",
+      "DELETE /api/vault/users/:userId/device-seals/:id",
       "PATCH /api/roles/:id",
       "PATCH /api/users/:id/email",
       "PATCH /api/users/:id/instance-role",
@@ -179,6 +215,8 @@ describe("rotte con riconferma recente", () => {
       "POST /api/users/:id/password-reset",
       "POST /api/users/:id/reactivate",
       "POST /api/vault/activate",
+      // Lotto 10: sigillare la propria chiave per un Mac (dal browser).
+      "POST /api/vault/device-seals",
       "POST /api/vault/keys",
       "POST /api/vault/keys/:id/seals",
       "POST /api/vault/recovery-key",

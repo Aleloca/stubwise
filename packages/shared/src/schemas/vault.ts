@@ -338,6 +338,8 @@ export const credentialAccessLogEntrySchema = z.object({
   userId: z.uuid().nullable(),
   userEmail: z.string(),
   action: z.enum(["show", "copy"]),
+  /** Lotto 10 (D-8): dal browser o da un Mac. Additivo: un server di prima non lo manda. */
+  via: z.enum(["browser", "desktop"]).default("browser"),
   createdAt: z.iso.datetime(),
 });
 export type CredentialAccessLogEntry = z.infer<typeof credentialAccessLogEntrySchema>;
@@ -563,3 +565,80 @@ export const vaultConfirmResponseSchema = z.object({
   ),
 });
 export type VaultConfirmResponse = z.infer<typeof vaultConfirmResponseSchema>;
+
+/*
+ * La cassaforte dal desktop: la chiave del Mac (lotto 10,
+ * `docs/plans/2026-11-24-cassaforte-desktop-design.md` §6). Il server riceve
+ * solo la pubblica del Mac (JWK) e il sigillo (busta opaca).
+ */
+
+const deviceNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(100)
+  .regex(/^[^\p{Cc}\p{Cf}]*$/u, "no control characters");
+
+/** Il main, col suo PAT desktop: chiede di associare il Mac. */
+export const vaultDevicePairingBodySchema = z.object({
+  devicePublicKey: vaultPublicKeySchema,
+  deviceName: deviceNameSchema,
+});
+export type VaultDevicePairingBody = z.infer<typeof vaultDevicePairingBodySchema>;
+
+export const vaultDevicePairingResponseSchema = z.object({
+  /** Va nell'URL `/app/#/vault-pair?state=…` (solo lui). */
+  state: z.string(),
+  /** Il `deviceId` dell'AAD del sigillo, e l'id del sigillo. */
+  deviceId: z.uuid(),
+  expiresAt: z.iso.datetime(),
+});
+export type VaultDevicePairingResponse = z.infer<typeof vaultDevicePairingResponseSchema>;
+
+/** Il browser legge l'associazione: lo `state` nel CORPO, così non finisce nei log delle richieste. */
+export const vaultDevicePairingLookupBodySchema = z.object({ state: z.string().min(1).max(200) });
+
+export const vaultDevicePairingLookupResponseSchema = z.object({
+  deviceId: z.uuid(),
+  deviceName: z.string(),
+  devicePublicKey: z.string(),
+  expiresAt: z.iso.datetime(),
+});
+export type VaultDevicePairingLookupResponse = z.infer<typeof vaultDevicePairingLookupResponseSchema>;
+
+/** Il browser sigilla: pubblica del Mac e PAT li prende il server dall'associazione. */
+export const vaultDeviceSealBodySchema = z.object({
+  pairingState: z.string().min(1).max(200),
+  deviceId: z.uuid(),
+  seal: envelopeSchema,
+  actorProof: vaultActorProofSchema,
+});
+export type VaultDeviceSealBody = z.infer<typeof vaultDeviceSealBodySchema>;
+
+export const vaultDeviceSealCreatedSchema = z.object({
+  id: z.uuid(),
+  deviceName: z.string(),
+  createdAt: z.iso.datetime(),
+});
+
+/** Il main scarica il proprio sigillo, per aprirlo con la privata del Mac. */
+export const vaultDeviceSealMineSchema = z.object({
+  id: z.uuid(),
+  deviceName: z.string(),
+  personKeyId: z.uuid(),
+  personPublicKey: z.string(),
+  seal: z.string(),
+});
+export type VaultDeviceSealMine = z.infer<typeof vaultDeviceSealMineSchema>;
+
+/** Un Mac nell'elenco (Impostazioni → Sicurezza, o la persona vista da un full admin). */
+export const vaultDeviceSealItemSchema = z.object({
+  id: z.uuid(),
+  deviceName: z.string(),
+  devicePublicKey: z.string(),
+  createdAt: z.iso.datetime(),
+  lastUsedAt: z.iso.datetime().nullable(),
+});
+export type VaultDeviceSealItem = z.infer<typeof vaultDeviceSealItemSchema>;
+
+export const vaultDeviceSealListSchema = z.object({ items: z.array(vaultDeviceSealItemSchema) });

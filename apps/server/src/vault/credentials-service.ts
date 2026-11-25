@@ -412,6 +412,8 @@ export async function revealCredential(
   user: Pick<SessionUser, "id" | "email">,
   id: string,
   action: "show" | "copy",
+  /** Da dove (D-8): il browser, o il Mac e il suo sigillo. */
+  caller: { via: "session" } | { via: "desktop"; sealId: string },
 ): Promise<CredentialRevealResponse | null> {
   return db.transaction(async (tx) => {
     const [credential] = await tx
@@ -453,6 +455,8 @@ export async function revealCredential(
       userId: user.id,
       userEmail: user.email,
       action,
+      via: caller.via === "desktop" ? "desktop" : "browser",
+      deviceSealId: caller.via === "desktop" ? caller.sealId : null,
     });
     return { passwordCiphertext: credential.passwordCiphertext, wrappedKey: copy.wrappedKey, personKeyId: key.id };
   });
@@ -472,6 +476,7 @@ export async function listAccessLog(
       userId: credentialAccessLog.userId,
       userEmail: credentialAccessLog.userEmail,
       action: credentialAccessLog.action,
+      via: credentialAccessLog.via,
       createdAt: credentialAccessLog.createdAt,
     })
     .from(credentialAccessLog)

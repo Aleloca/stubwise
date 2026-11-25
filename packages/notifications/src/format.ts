@@ -832,7 +832,10 @@ export type SecurityAlertSubject =
   | "email_changed"
   // Review di F1 (I2): un'identità esterna collegata da un altro.
   | "slack_linked"
-  | "bitbucket_linked";
+  | "bitbucket_linked"
+  // Lotto 10: un Mac associato alla cassaforte, o tolto (dal browser, da un admin).
+  | "vault_device_sealed"
+  | "vault_device_seal_revoked";
 
 /**
  * AVVISO DI SICUREZZA all'interessato (secondo fattore, 23 ott 2026): sul suo
@@ -1533,6 +1536,14 @@ const SECURITY_ALERT_KEY: Record<SecurityAlertSubject, { withActor: string; with
   bitbucket_linked: {
     withActor: "notify.securityAlert.bitbucket_linked.actor",
     withoutActor: "notify.securityAlert.bitbucket_linked",
+  },
+  vault_device_sealed: {
+    withActor: "notify.securityAlert.vault_device_sealed.actor",
+    withoutActor: "notify.securityAlert.vault_device_sealed",
+  },
+  vault_device_seal_revoked: {
+    withActor: "notify.securityAlert.vault_device_seal_revoked.actor",
+    withoutActor: "notify.securityAlert.vault_device_seal_revoked",
   },
 };
 

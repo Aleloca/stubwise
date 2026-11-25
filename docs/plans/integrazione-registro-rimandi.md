@@ -1447,8 +1447,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   il wrapper `reauth()` che usa la conferma semplice.~~ **Chiuso (F7
   renderer)**: `confirmEditedVia` passa dalla riconferma come Confirm, e una
   riconferma annullata rifiuta (il dialogo lo dice).
-- **Cassaforte dal desktop: aperta al desktop riconfermato per decisione del
-  maintainer, bloccata tecnicamente dallo sblocco PRF** *(M, 10 nov 2026)*. Il
+- ~~**Cassaforte dal desktop: aperta al desktop riconfermato per decisione del
+  maintainer, bloccata tecnicamente dallo sblocco PRF** *(M, 10 nov 2026)*.~~
+  **Chiusa lato server il 24 nov 2026** (72, lotto 10; design
+  `docs/plans/2026-11-24-cassaforte-desktop-design.md`, la seconda strada:
+  la chiave del Mac): sigillo del dispositivo, sfide legate al PAT, rotte
+  `desktopVault` (`docs/invariants/vault.md`). Il main di Electron e la
+  pagina `vault-pair` sono di 94. Secure Enclave (D-4) resta un rimando. Il
   maintainer vuole che dal desktop si faccia tutto quello che si fa dal
   browser, cassaforte compresa (leggere, condividere, confermare). Ma la
   chiave di una persona si apre solo nel client col segreto PRF di una
