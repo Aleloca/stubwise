@@ -131,6 +131,14 @@ declare module "fastify" {
      */
     desktopVault?: true;
     /**
+     * Lotto 10: la rotta è SOLO del PAT desktop (l'associazione di un Mac, il
+     * proprio sigillo). Non è `browserOnly`, così una sua `reauth` dichiarata
+     * passa dalla finestra del desktop (review 2, M4). Elenco chiuso in
+     * `route-access.test.ts`; chi chiama lo controlla `desktopOnly` in
+     * `routes/vault.ts`.
+     */
+    desktopOnly?: true;
+    /**
      * Area 9, F3: la rotta chiede la riconferma solo per UNA PARTE del corpo
      * (un segreto nuovo): la verifica l'handler con {@link requireReauth}. È
      * una dichiarazione, così il test del registro ne tiene l'elenco chiuso.

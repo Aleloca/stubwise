@@ -177,7 +177,9 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
   chiave di persona per un Mac, che nasce solo da uno sblocco con passkey.**
   Il main del desktop genera una coppia P-256 sua e chiede l'associazione
   COL SUO PAT desktop E la sua riconferma recente (`POST
-  /api/vault/device-pairings`, review I2: un PAT da solo non basta; solo
+  /api/vault/device-pairings`, review I2: un PAT da solo non basta; la
+  riconferma è DICHIARATA sulla rotta, `config.reauth`, review 2 M4, e la
+  rotta è `config.desktopOnly`, elenco chiuso in `route-access.test.ts`; solo
   l'hash dello state, 10 minuti, uso singolo, legata a QUEL PAT e a QUELLA
   pubblica). Il browser vede da quando esiste quel login e il suo ultimo uso. Il
   browser la legge per state (`/lookup`, lo state nel corpo, mai nei log), la

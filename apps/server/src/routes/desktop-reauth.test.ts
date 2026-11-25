@@ -288,10 +288,10 @@ describe("la cassaforte dal desktop passa SOLO dal sigillo del Mac, mai dalla ri
     expect([pending.statusCode, pending.json().code]).toEqual([404, "vault_desktop_disabled"]);
   });
 
-  it("ogni rotta /api/vault dichiara browserOnly, salvo quelle aperte al Mac col sigillo (`desktopVault`, elenco chiuso in route-access.test.ts)", async () => {
+  it("ogni rotta /api/vault dichiara browserOnly, salvo quelle aperte al Mac col sigillo (`desktopVault`) e quelle SOLO del Mac (`desktopOnly`), elenchi chiusi in route-access.test.ts", async () => {
     // L'osservatore gira PRIMA dell'hook della cassaforte: si tiene l'oggetto
     // della rotta e lo si legge a registrazione finita.
-    const seen: { url: string; config?: { browserOnly?: unknown; desktopVault?: unknown } }[] = [];
+    const seen: { url: string; config?: { browserOnly?: unknown; desktopVault?: unknown; desktopOnly?: unknown } }[] = [];
     const probe = buildApp({
       onRoute: (route) => {
         // `/api/vault/credentials` è di `credentials.ts`: il PAT «crea e
@@ -302,9 +302,10 @@ describe("la cassaforte dal desktop passa SOLO dal sigillo del Mac, mai dalla ri
     await probe.ready();
     await probe.close();
     expect(seen.length).toBeGreaterThan(10);
-    expect(seen.filter((r) => r.config?.browserOnly !== true && r.config?.desktopVault !== true).map((r) => r.url)).toEqual([]);
+    const open = (r: (typeof seen)[number]) => r.config?.desktopVault === true || r.config?.desktopOnly === true;
+    expect(seen.filter((r) => r.config?.browserOnly !== true && !open(r)).map((r) => r.url)).toEqual([]);
     // E nessuna è entrambe le cose.
-    expect(seen.filter((r) => r.config?.browserOnly === true && r.config?.desktopVault === true).map((r) => r.url)).toEqual([]);
+    expect(seen.filter((r) => r.config?.browserOnly === true && open(r)).map((r) => r.url)).toEqual([]);
   });
 
   it("una rotta della cassaforte col SOLO gate della riconferma resta chiusa al desktop riconfermato", async () => {

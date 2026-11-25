@@ -41,7 +41,7 @@ import {
   vaultDeviceSealListSchema,
   vaultDeviceSealMineSchema,
 } from "@stubwise/shared";
-import { browserOrConfirmedDesktop, isDesktopPat } from "../auth/access.js";
+import { isDesktopPat } from "../auth/access.js";
 import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
 import type { SessionUser } from "../auth/session.js";
 import { apiError } from "../errors.js";
@@ -119,7 +119,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
     defaultJson(request, body as string, done);
   });
   instance.addHook("onRoute", (route) => {
-    if (route.config?.desktopVault === true) return;
+    if (route.config?.desktopVault === true || route.config?.desktopOnly === true) return;
     route.config = { ...(route.config ?? {}), browserOnly: true };
   });
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -760,7 +760,9 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/device-pairings",
     {
-      config: { access: { kind: "user" } },
+      // Review 2, M4: la riconferma del desktop DICHIARATA (il gate la
+      // applica prima dell'handler e scrive la riga `reauth_desktop`).
+      config: { access: { kind: "user" }, reauth: true, desktopOnly: true },
       schema: {
         body: vaultDevicePairingBodySchema,
         response: { 201: vaultDevicePairingResponseSchema, ...errorResponses },
@@ -768,14 +770,11 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const user = request.user!;
-      if (!desktopOnly(reply, user)) return reply;
       // Review I2: un PAT desktop da solo non associa un Mac (rubato, più un
       // link mandato alla vittima, farebbe sigillare la chiave di persona per
-      // un attaccante): serve la finestra di riconferma del desktop.
-      const verdict = browserOrConfirmedDesktop(user);
-      if (!verdict.ok) {
-        return apiError(reply, 403, "reauth_required", "Recent second factor confirmation required");
-      }
+      // un attaccante): la finestra di riconferma del desktop la chiede il
+      // gate (`config.reauth`), prima di qui.
+      if (!desktopOnly(reply, user)) return reply;
       const outcome = await createPairing(app.db, user, request.body);
       if (!outcome.ok) return vaultNotActive(reply);
       return reply.code(201).send(outcome.value);
@@ -830,7 +829,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/device-seals/mine",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, desktopOnly: true },
       schema: { response: { 200: vaultDeviceSealMineSchema, ...errorResponses } },
     },
     async (request, reply) => {
@@ -846,7 +845,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/device-seals/mine",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, desktopOnly: true },
       schema: { response: { 204: z.null(), ...errorResponses } },
     },
     async (request, reply) => {

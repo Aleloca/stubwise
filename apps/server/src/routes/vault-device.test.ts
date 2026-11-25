@@ -230,8 +230,14 @@ describe("l'associazione (POST /api/vault/device-pairings): la chiede SOLO il PA
     expect(await testDb.db.select().from(vaultDevicePairings)).toHaveLength(before);
   });
 
-  it("il PAT desktop la ottiene; sul server resta solo l'HASH dello state, legato a quel PAT", async () => {
+  it("il PAT desktop la ottiene; sul server resta solo l'HASH dello state, legato a quel PAT; la riconferma usata lascia la riga `reauth_desktop` (review 2, M4)", async () => {
+    const reauthRows = async () =>
+      (await testDb.db.select().from(securityEvents).where(and(eq(securityEvents.userId, ada.id), eq(securityEvents.kind, "reauth_desktop")))).filter(
+        (r) => r.detail === "POST /api/vault/device-pairings",
+      ).length;
+    const before = await reauthRows();
     const pair = await pairing(ada);
+    expect(await reauthRows()).toBe(before + 1);
     const [row] = await testDb.db.select().from(vaultDevicePairings).where(eq(vaultDevicePairings.id, pair.deviceId));
     expect(row).toMatchObject({ userId: ada.id, patId: ada.desktop.id, usedAt: null });
     expect(row!.stateHash).not.toContain(pair.state);
