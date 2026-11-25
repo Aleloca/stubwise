@@ -175,6 +175,10 @@ export const queryKeys = {
     ["as", personId, "vault", "entry", projectId] as const,
   credential: (personId: string, id: string) =>
     ["as", personId, "vault", "credential", id] as const,
+  readers: (personId: string, id: string) => ["as", personId, "vault", "readers", id] as const,
+  vaultPending: (personId: string) => ["as", personId, "vault", "pending"] as const,
+  shareTargets: (personId: string, id: string) =>
+    ["as", personId, "vault", "share-targets", id] as const,
   accessLog: (personId: string, projectId: string, credentialId: string) =>
     ["as", personId, "vault", "log", projectId, credentialId] as const,
   /** Server (area 8b): tutto nell'area «servers». */

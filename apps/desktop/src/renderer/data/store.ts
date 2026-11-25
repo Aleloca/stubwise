@@ -695,6 +695,7 @@ export type ApiFnName =
   | "vault.updateCredential"
   | "vault.deleteCredential"
   | "vault.listReaders"
+  | "vault.listShareTargets"
   | "vault.share"
   | "vault.removeReader"
   | "vault.listPending"
@@ -1819,9 +1820,7 @@ export const now = (): string =>
   clockOffsetMs === 0
     ? CLOCK_START
     : // Lo stesso formato dell'orologio fermo, senza millisecondi.
-      new Date(Date.parse(CLOCK_START) + clockOffsetMs)
-        .toISOString()
-        .replace(/\.\d{3}Z$/, "Z");
+      new Date(Date.parse(CLOCK_START) + clockOffsetMs).toISOString().replace(/\.\d{3}Z$/, "Z");
 
 /**
  * SOLO PROTOTIPO: manda avanti l'orologio di `ms` (i test della finestra di

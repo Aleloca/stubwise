@@ -2,7 +2,7 @@ import { accessState } from "../access/index";
 import { isFullAdmin, projectRoleOf } from "../access/effective";
 import { canI, nameOf } from "../admin/common";
 import { requireReauth } from "../auth/reauth";
-import { PEOPLE } from "../seed/people";
+import { person as addressOf } from "../seed/mail/helpers";
 import { gate, newId, now, state } from "../store";
 import type {
   AccessLogView,
@@ -131,7 +131,8 @@ function mac(me: string): ThisMac {
 }
 
 const isOpen = (me: string) => mac(me).open && mac(me).macId !== null;
-const emailOf = (personId: string) => PEOPLE.find((p) => p.id === personId)?.email ?? personId;
+/** L'email di una persona del team, come la mostra il resto del prototipo. */
+const emailOf = (personId: string) => addressOf(personId).email;
 
 /** Le copie che chi non è più lettore effettivo perde (la revoca a lettura, poi la pulizia). */
 function pruneCopies(c: Credential): void {
@@ -372,13 +373,17 @@ export async function listCredentials(filter: {
  * credenziale o può crearne lì; `waitingMe` accende il punto «ti aspetta»
  * quando c'è chi aspetta che sia lui a confermarlo.
  */
-export async function getCredentialsEntry(projectId: string): Promise<{ show: boolean; waitingMe: boolean }> {
+export async function getCredentialsEntry(
+  projectId: string,
+): Promise<{ show: boolean; waitingMe: boolean; canCreate: boolean }> {
   const me = await gate("vault.getCredentialsEntry");
-  if (!v().active) return { show: false, waitingMe: false };
+  if (!v().active) return { show: false, waitingMe: false, canCreate: false };
   const sees = v().credentials.some((c) => c.projectId === projectId && viewOf(me, c));
-  const show = sees || canI(me, "credentials.create", projectId);
-  const waitingMe = show && v().keys.some((k) => passable(me, k.personId).some((c) => c.projectId === projectId));
-  return { show, waitingMe };
+  const canCreate = canI(me, "credentials.create", projectId);
+  const show = sees || canCreate;
+  const waitingMe =
+    show && v().keys.some((k) => passable(me, k.personId).some((c) => c.projectId === projectId));
+  return { show, waitingMe, canCreate };
 }
 
 export async function getCredential(id: string): Promise<CredentialView | null> {
@@ -557,6 +562,32 @@ export async function listReaders(id: string): Promise<ReadersView> {
   const order = { full_admin: 2, created: 0, direct: 1, role: 1 };
   effective.sort((a, b) => order[a.source] - order[b.source] || a.name.localeCompare(b.name));
   return { direct, effective, canShare: canI(me, "credentials.share", c.projectId) };
+}
+
+/**
+ * Con chi si può condividere (il campo «Share with»): le persone e i ruoli
+ * del progetto della credenziale, tolti quelli già aggiunti direttamente.
+ * Vuoto per chi non ha `credentials.share`.
+ */
+export async function listShareTargets(id: string): Promise<{
+  people: { personId: string; name: string }[];
+  roles: { roleId: string; name: string }[];
+}> {
+  const me = await gate("vault.listShareTargets");
+  const c = credentialById(id);
+  if (!c || !viewOf(me, c) || !canI(me, "credentials.share", c.projectId))
+    return { people: [], roles: [] };
+  const direct = v().readers.filter((r) => r.credentialId === c.id);
+  const members = accessState().memberships.filter((m) => m.projectId === c.projectId);
+  const people = [...new Set(members.map((m) => m.personId))]
+    .filter((p) => !direct.some((r) => r.personId === p))
+    .map((personId) => ({ personId, name: nameOf(personId) ?? personId }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const roles = [...new Set(members.map((m) => m.roleId))]
+    .filter((r) => !direct.some((d) => d.roleId === r))
+    .map((roleId) => ({ roleId, name: roleName(roleId) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return { people, roles };
 }
 
 /** Condivide: chi ha la chiave confermata riceve la copia subito; gli altri aspettano. */

@@ -1,8 +1,11 @@
 import { useTranslation } from "react-i18next";
-import { useCredentials, useProject } from "../../data/queries";
+import { useNavigate } from "@tanstack/react-router";
+import { useCredentials, useCredentialsEntry, useProject } from "../../data/queries";
+import { secondaryButton } from "../tasks/controls";
 import { PageEmpty, PageError } from "../../tasks-ui/PageStates";
 import { ListSkeleton } from "../servers/ServersPage";
 import { CredentialRows } from "./CredentialRows";
+import { PendingRow } from "./PendingAccess";
 import { VaultBar } from "./VaultBar";
 
 // La sezione Credentials di un progetto (`#/p/ACQ/credentials`, shape
@@ -14,6 +17,13 @@ export function CredentialsSection({ projectCode }: { projectCode: string }) {
   const { t } = useTranslation();
   const project = useProject(projectCode).data ?? undefined;
   const rows = useCredentials({ projectId: project?.id }, !!project);
+  const entry = useCredentialsEntry(project?.id).data;
+  const navigate = useNavigate();
+  const newCredential = () =>
+    void navigate({
+      to: ".",
+      search: ((prev: Record<string, unknown>) => ({ ...prev, credential: "new" })) as never,
+    });
 
   return (
     <section className="flex min-h-full flex-col pb-16 pl-8">
@@ -25,8 +35,16 @@ export function CredentialsSection({ projectCode }: { projectCode: string }) {
               {t("vault.subtitle", { code: projectCode })}
             </p>
           </div>
+          {entry?.canCreate && (
+            <button type="button" className={secondaryButton} onClick={newCredential}>
+              {t("vault.new")}
+            </button>
+          )}
         </header>
-        <VaultBar />
+        <div className="flex flex-col">
+          <VaultBar />
+          <PendingRow />
+        </div>
         {rows.isError ? (
           <PageError message={t("vault.errors.list")} onRetry={() => void rows.refetch()} />
         ) : !rows.data ? (

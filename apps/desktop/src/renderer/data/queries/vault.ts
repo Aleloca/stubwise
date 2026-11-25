@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import * as api from "@backend/api";
 import { queryKeys, useSessionPersonId, useWrite } from "../queries";
+import type { ReaderTarget } from "../vault/types";
 
 // Gli hook della Cassaforte (lotto 10, shape `vault.md`); `data/queries` li
 // ri-esporta. Tutto sta nell'area «vault»: aprire, chiudere, condividere,
@@ -75,6 +76,79 @@ export function useVaultLock() {
 /** «Show»: la password solo nel risultato, mai in una cache. */
 export function useShowPassword() {
   return useWrite((id: string) => api.vault.show(id), VAULT_AREAS, { secret: true });
+}
+
+/** Chi aspetta che io confermi la sua chiave (con le credenziali che posso passargli). */
+export function useVaultPending() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.vaultPending(me),
+    queryFn: () => api.vault.listPending(),
+  });
+}
+
+/** «Yes, I checked: confirm»: con la cassaforte aperta. */
+export function useConfirmKey() {
+  return useWrite((keyId: string) => api.vault.confirm(keyId), VAULT_AREAS);
+}
+
+/** «Yes, reject the key»: con la cassaforte aperta. */
+export function useRejectKey() {
+  return useWrite((keyId: string) => api.vault.reject(keyId), VAULT_AREAS);
+}
+
+/** I lettori di una credenziale (effettivi e diretti) nel dettaglio. */
+export function useReaders(id: string | undefined) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.readers(me, id ?? ""),
+    queryFn: () => api.vault.listReaders(id!),
+    enabled: !!id,
+  });
+}
+
+/** Persone e ruoli del progetto con cui condividere (vuoto senza `credentials.share`). */
+export function useShareTargets(id: string | undefined, enabled: boolean) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.shareTargets(me, id ?? ""),
+    queryFn: () => api.vault.listShareTargets(id!),
+    enabled: !!id && enabled,
+  });
+}
+
+/** «Share»: con la cassaforte aperta (la prova e le copie le fa il livello dati). */
+export function useShare() {
+  return useWrite(
+    ({ id, target }: { id: string; target: ReaderTarget }) => api.vault.share(id, target),
+    VAULT_AREAS,
+  );
+}
+
+/** «Remove» di un lettore diretto, con la cassaforte aperta. */
+export function useRemoveReader() {
+  return useWrite(
+    ({ id, readerId }: { id: string; readerId: string }) => api.vault.removeReader(id, readerId),
+    VAULT_AREAS,
+  );
+}
+
+/** Una credenziale nuova (non chiede la cassaforte aperta: le copie le dà il livello dati). */
+export function useCreateCredential() {
+  return useWrite(
+    ({ projectId, input }: { projectId: string; input: api.vault.CredentialInput }) =>
+      api.vault.createCredential(projectId, input),
+    VAULT_AREAS,
+  );
+}
+
+/** La modifica: i campi in chiaro; una password nuova vuole la cassaforte aperta. */
+export function useUpdateCredential() {
+  return useWrite(
+    ({ id, input }: { id: string; input: Partial<api.vault.CredentialInput> }) =>
+      api.vault.updateCredential(id, input),
+    VAULT_AREAS,
+  );
 }
 
 /** «Copy»: gli appunti li scrive il livello dati (nell'app, il main). */
