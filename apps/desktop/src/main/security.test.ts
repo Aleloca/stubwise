@@ -7,6 +7,9 @@ import {
   parseSaveFileRequest,
   PRODUCTION_CSP,
   refusedDebugSwitch,
+  appContentType,
+  appFilePath,
+  bridgeAllowed,
   rendererDevUrl,
   webPreferencesFor,
   safeFileName,
@@ -14,22 +17,30 @@ import {
   withExtension,
 } from "./security";
 
-const packagedUrl = "file:///Applications/Stubwise.app/out/renderer/index.html";
+// Dal protocollo dell'app (seconda revisione, dopo M5): il renderer
+// impacchettato si serve da `app://stubwise/`, non più da `file://`, così la
+// fuse `grantFileProtocolExtraPrivileges` si spegne.
+const packagedUrl = "app://stubwise/index.html";
+const fileUrl =
+  "file:///Applications/Stubwise.app/Contents/Resources/app.asar/out/renderer/index.html";
 
 describe("isNavigationAllowed", () => {
   it("in dev ammette solo l'origine del dev server", () => {
-    const o = { devUrl: "http://localhost:5173", packagedUrl };
+    const o = { devUrl: "http://localhost:5173" };
     expect(isNavigationAllowed("http://localhost:5173/#/home", o)).toBe(true);
     expect(isNavigationAllowed("http://localhost:5174/", o)).toBe(false);
     expect(isNavigationAllowed("https://example.com/", o)).toBe(false);
     expect(isNavigationAllowed(packagedUrl, o)).toBe(false);
   });
-  it("impacchettato ammette solo lo stesso file (l'hash cambia)", () => {
-    expect(isNavigationAllowed(`${packagedUrl}#/p/STW`, { packagedUrl })).toBe(true);
-    expect(isNavigationAllowed("file:///etc/passwd", { packagedUrl })).toBe(false);
-    expect(isNavigationAllowed("https://example.com/", { packagedUrl })).toBe(false);
-    expect(isNavigationAllowed("javascript:alert(1)", { packagedUrl })).toBe(false);
-    expect(isNavigationAllowed("non un url", { packagedUrl })).toBe(false);
+  it("impacchettato ammette solo app://stubwise/index.html (l'hash cambia); file:// mai", () => {
+    expect(isNavigationAllowed(`${packagedUrl}#/p/STW`, {})).toBe(true);
+    expect(isNavigationAllowed(fileUrl, {})).toBe(false);
+    expect(isNavigationAllowed("app://stubwise/other.html", {})).toBe(false);
+    expect(isNavigationAllowed("app://altro/index.html", {})).toBe(false);
+    expect(isNavigationAllowed("file:///etc/passwd", {})).toBe(false);
+    expect(isNavigationAllowed("https://example.com/", {})).toBe(false);
+    expect(isNavigationAllowed("javascript:alert(1)", {})).toBe(false);
+    expect(isNavigationAllowed("non un url", {})).toBe(false);
   });
 });
 
@@ -148,9 +159,7 @@ describe("rendererDevUrl (C1)", () => {
   });
   it("e senza devUrl la navigazione resta sul file impacchettato", () => {
     const devUrl = rendererDevUrl({ isPackaged: true, env });
-    expect(isNavigationAllowed("http://attacker.example:5173/", { devUrl, packagedUrl })).toBe(
-      false,
-    );
+    expect(isNavigationAllowed("http://attacker.example:5173/", { devUrl })).toBe(false);
   });
 });
 
@@ -188,7 +197,68 @@ describe("webPreferencesFor (M6)", () => {
       nodeIntegration: false,
       sandbox: true,
       devTools: false,
+      additionalArguments: [],
     });
     expect(webPreferencesFor({ isPackaged: false, preload: "/p.cjs" }).devTools).toBe(true);
+    // Il dev server lo sa il preload da un argomento (il bridge si espone solo a lui o ad app://).
+    expect(
+      webPreferencesFor({
+        isPackaged: false,
+        preload: "/p.cjs",
+        devOrigin: "http://localhost:5173",
+      }).additionalArguments,
+    ).toEqual(["--stubwise-dev-origin=http://localhost:5173"]);
+  });
+});
+
+// Il protocollo dell'app: serve SOLO i file del renderer impacchettato.
+describe("appFilePath (app://)", () => {
+  const root = "/App/Contents/Resources/app.asar/out/renderer";
+  it("i file del renderer, la radice è index.html", () => {
+    expect(appFilePath("app://stubwise/index.html", root)).toBe(`${root}/index.html`);
+    expect(appFilePath("app://stubwise/", root)).toBe(`${root}/index.html`);
+    expect(appFilePath("app://stubwise/assets/index-1.js?x=1#y", root)).toBe(
+      `${root}/assets/index-1.js`,
+    );
+    expect(appFilePath("app://stubwise/assets/a%20b.css", root)).toBe(`${root}/assets/a b.css`);
+  });
+  it("niente fuori dalla radice, niente altri host o schemi", () => {
+    for (const bad of [
+      "app://stubwise/../../../etc/passwd",
+      "app://stubwise/%2e%2e/%2e%2e/etc/passwd",
+      "app://stubwise/assets/..%2f..%2f..%2fetc%2fpasswd",
+      "app://stubwise//etc/passwd",
+      "app://altro/index.html",
+      "file:///etc/passwd",
+      "non un url",
+    ])
+      expect(appFilePath(bad, root), bad).toBeNull();
+  });
+});
+
+// Il bridge (`window.stubwise`) si espone solo alla pagina dell'app: una
+// pagina file:// (o qualunque altra) che finisse nella finestra non lo riceve.
+describe("bridgeAllowed (preload)", () => {
+  it("app://stubwise sì; file://, http esterni e un altro host app:// no", () => {
+    expect(bridgeAllowed("app://stubwise/index.html#/home", undefined)).toBe(true);
+    expect(bridgeAllowed(fileUrl, undefined)).toBe(false);
+    expect(bridgeAllowed("https://example.com/", undefined)).toBe(false);
+    expect(bridgeAllowed("app://altro/index.html", undefined)).toBe(false);
+  });
+  it("in sviluppo anche il dev server, e solo lui", () => {
+    expect(bridgeAllowed("http://localhost:5173/#/home", "http://localhost:5173")).toBe(true);
+    expect(bridgeAllowed("http://localhost:5174/", "http://localhost:5173")).toBe(false);
+    expect(bridgeAllowed(fileUrl, "http://localhost:5173")).toBe(false);
+  });
+});
+
+describe("appContentType (app://)", () => {
+  it("il tipo dall'estensione; uno sconosciuto non si indovina", () => {
+    expect(appContentType("/r/index.html")).toBe("text/html; charset=utf-8");
+    expect(appContentType("/r/assets/a.js")).toBe("text/javascript; charset=utf-8");
+    expect(appContentType("/r/assets/a.css")).toBe("text/css; charset=utf-8");
+    expect(appContentType("/r/assets/f.woff2")).toBe("font/woff2");
+    expect(appContentType("/r/assets/i.svg")).toBe("image/svg+xml");
+    expect(appContentType("/r/assets/x.bin")).toBe("application/octet-stream");
   });
 });

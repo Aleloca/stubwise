@@ -1,6 +1,6 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { keyFingerprint, openDeviceSeal } from "@stubwise/vault-crypto";
 import {
   app,
@@ -12,6 +12,7 @@ import {
   MessageChannelMain,
   nativeTheme,
   powerMonitor,
+  protocol,
   session,
   shell,
 } from "electron";
@@ -75,6 +76,11 @@ import {
   refusedDebugSwitch,
   rendererDevUrl,
   webPreferencesFor,
+  APP_ENTRY,
+  APP_SCHEME,
+  appContentType,
+  appFilePath,
+  PRODUCTION_CSP,
   parseSaveFileRequest,
   safeFileName,
   saveFilterFor,
@@ -104,7 +110,37 @@ if (debugSwitch) {
 
 // C1: nel pacchetto nessun dev server, qualunque sia l'env.
 const devUrl = rendererDevUrl({ isPackaged: app.isPackaged, env: process.env });
-const packagedFile = join(here, "../renderer/index.html");
+const rendererRoot = join(here, "../renderer");
+
+// Il renderer impacchettato si serve da `app://stubwise/` (non da file://, così
+// la fuse `grantFileProtocolExtraPrivileges` è spenta). Privilegi stretti:
+// origine standard e sicura, fetch verso sé stessa; niente bypassCSP, niente
+// service worker, niente CORS verso altri. Va registrato prima di `ready`.
+protocol.registerSchemesAsPrivileged([
+  { scheme: APP_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
+]);
+
+/** Serve SOLO i file del renderer (`appFilePath`), con la CSP come header e `nosniff`. */
+function installAppProtocol(): void {
+  protocol.handle(APP_SCHEME, async (request) => {
+    const file = appFilePath(request.url, rendererRoot);
+    if (!file || request.method !== "GET") return new Response(null, { status: 404 });
+    let body: Buffer;
+    try {
+      body = await readFile(file);
+    } catch {
+      return new Response(null, { status: 404 });
+    }
+    return new Response(new Uint8Array(body), {
+      status: 200,
+      headers: {
+        "content-type": appContentType(file),
+        "content-security-policy": PRODUCTION_CSP,
+        "x-content-type-options": "nosniff",
+      },
+    });
+  });
+}
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -116,6 +152,7 @@ function createWindow(): BrowserWindow {
     webPreferences: webPreferencesFor({
       isPackaged: app.isPackaged,
       preload: join(here, "../preload/index.cjs"),
+      devOrigin: devUrl ? new URL(devUrl).origin : undefined,
     }),
   });
 
@@ -127,8 +164,7 @@ function createWindow(): BrowserWindow {
   });
   // La finestra non esce mai dal renderer: né dal dev server né dal file impacchettato.
   win.webContents.on("will-navigate", (event, url) => {
-    const packagedUrl = pathToFileURL(packagedFile).href;
-    if (!isNavigationAllowed(url, { devUrl, packagedUrl })) event.preventDefault();
+    if (!isNavigationAllowed(url, { devUrl })) event.preventDefault();
   });
 
   // I file scelti e i caricamenti in corso di questa finestra finiscono con
@@ -145,8 +181,7 @@ function createWindow(): BrowserWindow {
     if (details.isMainFrame && !details.isSameDocument) dropUploads();
   });
 
-  if (devUrl) void win.loadURL(devUrl);
-  else void win.loadFile(packagedFile);
+  void win.loadURL(devUrl ?? APP_ENTRY);
   return win;
 }
 
@@ -170,7 +205,7 @@ ipcMain.on("theme:changed", (event, theme: unknown) => {
 /** Chi chiede è il renderer dell'app (stessa regola della navigazione), per ogni canale `handle`. */
 function fromApp(event: Electron.IpcMainInvokeEvent): boolean {
   const sender = event.senderFrame?.url ?? "";
-  return isNavigationAllowed(sender, { devUrl, packagedUrl: pathToFileURL(packagedFile).href });
+  return isNavigationAllowed(sender, { devUrl });
 }
 
 ipcMain.handle("file:save", async (event, raw: unknown): Promise<SaveFileResult> => {
@@ -489,10 +524,7 @@ function installDownloads(): void {
   session.defaultSession.on("will-download", (_event, item, contents) => {
     const url = item.getURLChain()[0] ?? item.getURL();
     // Dalla finestra dell'app: la stessa regola della navigazione.
-    const fromAppContents = isNavigationAllowed(contents.getURL(), {
-      devUrl,
-      packagedUrl: pathToFileURL(packagedFile).href,
-    });
+    const fromAppContents = isNavigationAllowed(contents.getURL(), { devUrl });
     const decision = downloadDecision(url, (u) => pendingDownloads.has(u), fromAppContents);
     // Un http(s) non chiesto con `api:download`, un blob da fuori: si annulla.
     if (decision === "reject") {
@@ -678,6 +710,7 @@ void app.whenReady().then(() => {
   // D-2: in stop e a schermo bloccato la privata si dimentica (il dispositivo resta).
   powerMonitor.on("suspend", () => vault.lock());
   powerMonitor.on("lock-screen", () => vault.lock());
+  if (!devUrl) installAppProtocol();
   installMenu();
   installDownloads();
   createWindow();
