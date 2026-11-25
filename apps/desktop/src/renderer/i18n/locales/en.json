@@ -13665,6 +13665,24 @@
     "revealFailed": "The password couldn't be opened.",
     "column": {
       "waiting": "Someone is waiting for you to confirm their access"
+    },
+    "detail": {
+      "label": "Credential {{name}}",
+      "url": "URL",
+      "username": "Username",
+      "password": "Password",
+      "notes": "Notes",
+      "notesHint": "Notes aren't encrypted.",
+      "copyUsername": "Copy the username of {{name}}",
+      "usernameCopied": "Username copied.",
+      "openUrl": "Open {{url}} in the browser",
+      "log": "Access log",
+      "logEmpty": "Nobody has shown or copied this password yet.",
+      "shown": "shown",
+      "copied": "copied",
+      "fromMac": "from the Mac",
+      "fromBrowser": "from the browser",
+      "close": "Close"
     }
   }
 }

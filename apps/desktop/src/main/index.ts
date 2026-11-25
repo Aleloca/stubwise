@@ -40,7 +40,14 @@ import {
   type SessionChange,
 } from "./browserLogin";
 import { createGoogleReturn } from "./googleReturn";
-import { clearToken, logout, readPatId, readToken, replaceToken } from "./session";
+import {
+  clearToken,
+  logout,
+  onSessionMismatch,
+  readPatId,
+  readToken,
+  replaceToken,
+} from "./session";
 import { createKeyHelper, helperPath, spawnRunner } from "./keyHelper";
 import {
   deviceAgreement,
@@ -58,6 +65,9 @@ import { createVaultRemote } from "./vaultRemote";
 import {
   isExternalOpenAllowed,
   isNavigationAllowed,
+  refusedDebugSwitch,
+  rendererDevUrl,
+  webPreferencesFor,
   parseSaveFileRequest,
   safeFileName,
   saveFilterFor,
@@ -74,7 +84,19 @@ import {
 } from "./window";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
-const devUrl = process.env["ELECTRON_RENDERER_URL"];
+// C2: nel pacchetto niente debug remoto di Chromium; si esce subito, prima di
+// ogni finestra (`exit`, non `quit`: nessun evento di chiusura da aspettare).
+const debugSwitch = refusedDebugSwitch({
+  isPackaged: app.isPackaged,
+  hasSwitch: (name) => app.commandLine.hasSwitch(name),
+});
+if (debugSwitch) {
+  console.error(`stubwise: --${debugSwitch} non è ammesso nell'app impacchettata`);
+  app.exit(1);
+}
+
+// C1: nel pacchetto nessun dev server, qualunque sia l'env.
+const devUrl = rendererDevUrl({ isPackaged: app.isPackaged, env: process.env });
 const packagedFile = join(here, "../renderer/index.html");
 
 function createWindow(): BrowserWindow {
@@ -84,12 +106,10 @@ function createWindow(): BrowserWindow {
     minWidth: 1024,
     minHeight: 680,
     ...windowOptions(process.platform, themeFromDark(nativeTheme.shouldUseDarkColors)),
-    webPreferences: {
+    webPreferences: webPreferencesFor({
+      isPackaged: app.isPackaged,
       preload: join(here, "../preload/index.cjs"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
+    }),
   });
 
   // Nessuna nuova finestra: i link http(s) vanno al browser di sistema (mai
@@ -288,12 +308,21 @@ const browserLogin = createBrowserLogin({
   hostname: osHostname,
   // Il token di prima (un login già fatto) si revoca: un PAT per dispositivo.
   // Il dispositivo della cassaforte era di quel login (§4): si cancella.
-  saveToken: (token, patId) => {
+  saveToken: (token, patId, instanceUrl) => {
     vault.sessionChanged();
     vaultPairing.cancel();
-    void replaceToken(token, patId, { instanceUrl: readInstanceUrl() });
+    void replaceToken(token, patId, { instanceUrl });
   },
   notify: notifySession,
+});
+
+// I3: un token scartato perché l'istanza non è la sua (instance.json riscritto)
+// chiude la sessione come un cambio d'istanza: cassaforte, associazione, renderer.
+onSessionMismatch(() => {
+  vault.sessionChanged();
+  vaultPairing.cancel();
+  browserLogin.cancel();
+  notifySession({ signedIn: false });
 });
 
 // Lotto 4, §6: il ritorno dal consenso di Google (`stubwise://google`). Al
@@ -590,7 +619,9 @@ function installMenu(): void {
     const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
     win?.webContents.send(channel);
   };
-  const template = buildMenuTemplate(process.platform, app.name, send);
+  const template = buildMenuTemplate(process.platform, app.name, send, {
+    devTools: !app.isPackaged,
+  });
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 

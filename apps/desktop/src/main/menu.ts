@@ -25,6 +25,8 @@ export function buildMenuTemplate(
   platform: NodeJS.Platform,
   appName: string,
   send: (channel: string) => void,
+  /** M6: «Toggle Developer Tools» solo in sviluppo (il chiamante passa `!app.isPackaged`). */
+  options: { devTools: boolean } = { devTools: false },
 ): MenuItemConstructorOptions[] {
   const search: MenuItemConstructorOptions = {
     label: "Search…",
@@ -57,7 +59,7 @@ export function buildMenuTemplate(
     label: "View",
     submenu: [
       { role: "reload" },
-      { role: "toggleDevTools" },
+      ...(options.devTools ? [{ role: "toggleDevTools" } as const] : []),
       { type: "separator" },
       { role: "resetZoom" },
       { role: "zoomIn" },

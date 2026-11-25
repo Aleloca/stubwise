@@ -27,6 +27,51 @@ export const PRODUCTION_CSP = [
  * server (se c'è) o verso il file `index.html` impacchettato (cambia l'hash,
  * non il file). Tutto il resto — http(s) esterni, altri file — è negato.
  */
+/**
+ * L'indirizzo del dev server (C1, seconda revisione della cassaforte): solo in
+ * sviluppo. Nel pacchetto `ELECTRON_RENDERER_URL` non conta mai, altrimenti
+ * chi rilancia l'app con quella env le fa caricare una pagina sua, col bridge
+ * intero (cassaforte aperta, `api:request` col PAT).
+ */
+export function rendererDevUrl(opts: {
+  isPackaged: boolean;
+  env: Record<string, string | undefined>;
+}): string | undefined {
+  if (opts.isPackaged) return undefined;
+  return opts.env["ELECTRON_RENDERER_URL"] || undefined;
+}
+
+/** Gli switch del debug remoto di Chromium: nessun fuse li copre (C2). */
+const DEBUG_SWITCHES = ["remote-debugging-port", "remote-debugging-pipe"] as const;
+
+/**
+ * C2 (seconda revisione della cassaforte): nel pacchetto l'app non parte col
+ * debug remoto di Chromium, che darebbe a un altro processo la pagina con la
+ * cassaforte aperta. Restituisce lo switch trovato (l'app esce), o `null`.
+ */
+export function refusedDebugSwitch(opts: {
+  isPackaged: boolean;
+  hasSwitch: (name: string) => boolean;
+}): string | null {
+  if (!opts.isPackaged) return null;
+  return DEBUG_SWITCHES.find((name) => opts.hasSwitch(name)) ?? null;
+}
+
+/**
+ * Le preferenze della finestra: isolamento del contesto, niente Node, sandbox;
+ * e i DevTools solo in sviluppo (M6, seconda revisione della cassaforte: dal
+ * pacchetto la console leggerebbe il bridge con la cassaforte aperta).
+ */
+export function webPreferencesFor(opts: { isPackaged: boolean; preload: string }) {
+  return {
+    preload: opts.preload,
+    contextIsolation: true,
+    nodeIntegration: false,
+    sandbox: true,
+    devTools: !opts.isPackaged,
+  };
+}
+
 export function isNavigationAllowed(
   target: string,
   opts: { devUrl?: string; packagedUrl: string },
@@ -86,7 +131,8 @@ export function parseSaveFileRequest(v: unknown): SaveFileRequest | null {
     if (keys.length !== 3 || !("data" in o)) return null;
     const { data } = o;
     if (!(data instanceof Uint8Array)) return null;
-    if (data.byteLength < ZIP_MAGIC.length || data.byteLength > MAX_SAVE_BYTES || !isZip(data)) return null;
+    if (data.byteLength < ZIP_MAGIC.length || data.byteLength > MAX_SAVE_BYTES || !isZip(data))
+      return null;
     return { format, name, data };
   }
   return null;
@@ -110,7 +156,9 @@ export function safeFileName(name: string, format: SaveFormat): string {
 
 /** Il filtro della finestra di salvataggio: solo l'estensione del formato. */
 export function saveFilterFor(format: SaveFormat): { name: string; extensions: string[] } {
-  return format === "pdf" ? { name: "PDF", extensions: ["pdf"] } : { name: "Word", extensions: ["docx"] };
+  return format === "pdf"
+    ? { name: "PDF", extensions: ["pdf"] }
+    : { name: "Word", extensions: ["docx"] };
 }
 
 /** Il percorso scelto con l'estensione del formato (aggiunta se manca). */

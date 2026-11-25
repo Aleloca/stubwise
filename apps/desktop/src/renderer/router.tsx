@@ -203,6 +203,8 @@ export interface AppSearch {
   then?: string;
   /** Releases: il pannello di una PR aperta (l'id). */
   pr?: string;
+  /** Credentials e Vault: il dettaglio di una credenziale (lotto 10). */
+  credential?: string;
   /** Support → Widget: il pannello di un widget (l'id, o `new`). */
   widget?: string;
   /**
@@ -280,6 +282,7 @@ const SEARCH_KEYS = [
   ...CALENDAR_SEARCH_KEYS,
   ...AUTOMATION_SEARCH_KEYS,
   "pr",
+  "credential",
   "widget",
   "range",
   "to",
@@ -347,7 +350,8 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
       key === "comment" ||
       key === "mark" ||
       key === "history" ||
-      key === "decision"
+      key === "decision" ||
+      key === "credential"
         ? /^[\w-]+$/.test(value)
         : // Releases: l'id della PR; nella build app è `<repository>#<numero>`
           // (`data/backend/real/releasePrs.ts`).

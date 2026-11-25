@@ -6,6 +6,9 @@ import {
   MAX_SAVE_BYTES,
   parseSaveFileRequest,
   PRODUCTION_CSP,
+  refusedDebugSwitch,
+  rendererDevUrl,
+  webPreferencesFor,
   safeFileName,
   saveFilterFor,
   withExtension,
@@ -61,7 +64,10 @@ describe("file:save — parseSaveFileRequest", () => {
   };
 
   it("accetta un PDF col solo nome, e un Word coi byte di uno zip", () => {
-    expect(parseSaveFileRequest({ format: "pdf", name: "x" })).toEqual({ format: "pdf", name: "x" });
+    expect(parseSaveFileRequest({ format: "pdf", name: "x" })).toEqual({
+      format: "pdf",
+      name: "x",
+    });
     const data = zip();
     expect(parseSaveFileRequest({ format: "docx", name: "ACQ Product", data })).toEqual({
       format: "docx",
@@ -93,7 +99,9 @@ describe("file:save — parseSaveFileRequest", () => {
     ];
     for (const v of rejected) expect(parseSaveFileRequest(v)).toBeNull();
     expect(parseSaveFileRequest({ format: "pdf", name: "x".repeat(120) })).not.toBeNull();
-    expect(parseSaveFileRequest({ format: "docx", name: "x", data: zip(MAX_SAVE_BYTES) })).not.toBeNull();
+    expect(
+      parseSaveFileRequest({ format: "docx", name: "x", data: zip(MAX_SAVE_BYTES) }),
+    ).not.toBeNull();
   });
 });
 
@@ -117,8 +125,70 @@ describe("file:save — safeFileName, saveFilterFor, withExtension", () => {
     expect(saveFilterFor("pdf")).toEqual({ name: "PDF", extensions: ["pdf"] });
     expect(saveFilterFor("docx")).toEqual({ name: "Word", extensions: ["docx"] });
     expect(withExtension("/Users/x/Desktop/Sign-in", "docx")).toBe("/Users/x/Desktop/Sign-in.docx");
-    expect(withExtension("/Users/x/Desktop/Sign-in.DOCX", "docx")).toBe("/Users/x/Desktop/Sign-in.DOCX");
+    expect(withExtension("/Users/x/Desktop/Sign-in.DOCX", "docx")).toBe(
+      "/Users/x/Desktop/Sign-in.DOCX",
+    );
     expect(withExtension("C:\\Users\\x\\Sign-in.pdf", "pdf")).toBe("C:\\Users\\x\\Sign-in.pdf");
     expect(withExtension("/tmp/report.pdf", "docx")).toBe("/tmp/report.pdf.docx");
+  });
+});
+
+// Seconda revisione di sicurezza della cassaforte, C1: nel pacchetto
+// `ELECTRON_RENDERER_URL` non conta. Rilanciando l'app con quella env, una
+// pagina qualunque riceverebbe il bridge intero (cassaforte, `api:request`
+// col PAT) e la navigazione verso la sua origine sarebbe permessa.
+describe("rendererDevUrl (C1)", () => {
+  const env = { ELECTRON_RENDERER_URL: "http://attacker.example:5173" };
+  it("nel pacchetto è sempre assente, qualunque sia l'env", () => {
+    expect(rendererDevUrl({ isPackaged: true, env })).toBeUndefined();
+  });
+  it("in sviluppo è quella del dev server", () => {
+    expect(rendererDevUrl({ isPackaged: false, env })).toBe("http://attacker.example:5173");
+    expect(rendererDevUrl({ isPackaged: false, env: {} })).toBeUndefined();
+  });
+  it("e senza devUrl la navigazione resta sul file impacchettato", () => {
+    const devUrl = rendererDevUrl({ isPackaged: true, env });
+    expect(isNavigationAllowed("http://attacker.example:5173/", { devUrl, packagedUrl })).toBe(
+      false,
+    );
+  });
+});
+
+// C2: nessun fuse copre il debug remoto di Chromium. Nel pacchetto, con
+// `--remote-debugging-port` o `--remote-debugging-pipe`, l'app esce prima di
+// aprire una finestra: chi vi si attaccasse leggerebbe la cassaforte aperta.
+describe("refusedDebugSwitch (C2)", () => {
+  const has =
+    (...on: string[]) =>
+    (name: string) =>
+      on.includes(name);
+  it("nel pacchetto rifiuta il debug remoto, per porta o per pipe", () => {
+    expect(refusedDebugSwitch({ isPackaged: true, hasSwitch: has("remote-debugging-port") })).toBe(
+      "remote-debugging-port",
+    );
+    expect(refusedDebugSwitch({ isPackaged: true, hasSwitch: has("remote-debugging-pipe") })).toBe(
+      "remote-debugging-pipe",
+    );
+    expect(refusedDebugSwitch({ isPackaged: true, hasSwitch: has("lang") })).toBeNull();
+  });
+  it("in sviluppo li lascia passare", () => {
+    expect(
+      refusedDebugSwitch({ isPackaged: false, hasSwitch: has("remote-debugging-port") }),
+    ).toBeNull();
+  });
+});
+
+// M6: i DevTools solo in sviluppo; il resto dell'isolamento non cambia.
+describe("webPreferencesFor (M6)", () => {
+  it("nel pacchetto niente DevTools; isolamento e sandbox sempre", () => {
+    const packaged = webPreferencesFor({ isPackaged: true, preload: "/p.cjs" });
+    expect(packaged).toEqual({
+      preload: "/p.cjs",
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      devTools: false,
+    });
+    expect(webPreferencesFor({ isPackaged: false, preload: "/p.cjs" }).devTools).toBe(true);
   });
 });

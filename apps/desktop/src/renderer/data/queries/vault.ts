@@ -43,6 +43,27 @@ export function useCredentialsEntry(projectId: string | undefined) {
   });
 }
 
+/** Una credenziale (il pannello di dettaglio); `null` se chi guarda non la vede. */
+export function useCredential(id: string | undefined) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.credential(me, id ?? ""),
+    queryFn: () => api.vault.getCredential(id!),
+    enabled: !!id,
+  });
+}
+
+/** Il registro degli accessi (di una credenziale, o del progetto con `credentialId` vuoto). */
+export function useAccessLog(projectId: string | undefined, credentialId = "") {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.accessLog(me, projectId ?? "", credentialId),
+    queryFn: () =>
+      api.vault.listAccessLog({ projectId: projectId!, ...(credentialId ? { credentialId } : {}) }),
+    enabled: !!projectId,
+  });
+}
+
 export function useVaultUnlock() {
   return useWrite(() => api.vault.unlock(), VAULT_AREAS);
 }
