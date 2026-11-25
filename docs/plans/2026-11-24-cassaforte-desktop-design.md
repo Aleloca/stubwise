@@ -278,6 +278,13 @@ dell'invariante. In più di un PAT qualunque:
   PAT (logout, login di un altro, «Dimentica questo Mac», §4–§5); registro
   `vault_device_seal_revoked`, motivo «dimenticato dal Mac».
 
+**Anche SENZA sigillo** (25 nov 2026, richiesta di 94, `config.desktopRead`):
+`GET /api/vault/status`, nella risposta ridotta `{ activated, myKey: { id,
+status, createdAt, publicKey } | null, seals: [], passkeys: [] }` — il Mac
+mostra gli stati «nessuna chiave» e «chiave in attesa» (con l'impronta)
+prima di essere associato. Sola lettura, nessuna busta; rispetta
+`VAULT_DESKTOP`; `manual` e `mobile` restano `session_required`.
+
 Restano `session_required` anche col sigillo (la regola di adesso):
 
 - **attivare la cassaforte, il recupero col kit, rigenerare il kit**: sono i

@@ -609,7 +609,6 @@ describe("il PAT desktop col sigillo sulle rotte della cassaforte (D-7)", () => 
   it("le rotte di ultima istanza restano del browser anche col sigillo vivo: 403 `session_required`, niente scritto", async () => {
     const before = await testDb.db.select().from(vaultPersonKeys).where(eq(vaultPersonKeys.userId, gus.id));
     const cases: [string, string, unknown?][] = [
-      ["GET", "/api/vault/status"],
       ["GET", "/api/vault/keys/mine"],
       ["POST", "/api/vault/keys", { publicKey: publicJwk(), seals: [{ passkeyId: randomUUID(), sealedPrivateKey: '{"v":1}' }], device: "Mac" }],
       ["POST", "/api/vault/activate", { recoveryPublicKey: publicJwk() }],
@@ -737,6 +736,59 @@ describe("il gate (`vaultCallerOf`): la dichiarazione della rotta conta", () => 
     expect(await vaultCallerOf(testDb.db, request({ desktopVault: true, browserOnly: true }))).toMatchObject({ ok: true });
     // L'interruttore d'istanza spento: la rotta dichiarata non c'è per il Mac.
     expect(await vaultCallerOf(testDb.db, request({ desktopVault: true }, false))).toEqual({ ok: false, code: "vault_desktop_disabled" });
+  });
+});
+
+describe("lo stato della cassaforte dal Mac (GET /api/vault/status, `desktopRead`, 25 nov 2026)", () => {
+  /** Un Mac senza sigillo: è proprio quando la chiave manca o aspetta conferma che il desktop deve dirlo. */
+  async function macOf(email: string) {
+    const user = await createUserWithSession(app, email);
+    const { userPasskeys } = await import("@stubwise/db");
+    // Una passkey c'è: la risposta al Mac non la nomina comunque.
+    await testDb.db.insert(userPasskeys).values({ userId: user.id, credentialId: randomBytes(16).toString("base64url"), publicKey: "pk", name: "P" });
+    const desktop = await pat(user.id, "desktop");
+    return { id: user.id, cookie: user.headers.cookie, desktop };
+  }
+
+  it("senza chiave: il PAT desktop SENZA sigillo legge `myKey: null`, e niente sigilli né passkey", async () => {
+    const mac = await macOf("status-nokey@example.com");
+    const res = await call("GET", "/api/vault/status", mac.desktop.headers);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toEqual({ activated: expect.any(Boolean), myKey: null, seals: [], passkeys: [] });
+    // Dal browser la stessa persona vede la sua passkey: al Mac è tolta apposta.
+    const browser = await call("GET", "/api/vault/status", { cookie: mac.cookie });
+    expect((browser.json() as { passkeys: unknown[] }).passkeys).toHaveLength(1);
+  });
+
+  it("chiave in attesa: il Mac ne legge id, stato, data e la PUBBLICA (per l'impronta), senza sigilli", async () => {
+    const mac = await macOf("status-pending@example.com");
+    const pub = publicJwk();
+    const [key] = await testDb.db
+      .insert(vaultPersonKeys)
+      .values({ userId: mac.id, publicKey: pub, status: "pending" })
+      .returning({ id: vaultPersonKeys.id, createdAt: vaultPersonKeys.createdAt });
+    const res = await call("GET", "/api/vault/status", mac.desktop.headers);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toEqual({
+      activated: expect.any(Boolean),
+      myKey: { id: key!.id, status: "pending", createdAt: key!.createdAt.toISOString(), publicKey: pub },
+      seals: [],
+      passkeys: [],
+    });
+  });
+
+  it("chiave confermata ma Mac non associato: 200, non `device_seal_required` (lo stato non apre niente)", async () => {
+    const res = await call("GET", "/api/vault/status", ada.desktop.headers);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toMatchObject({ myKey: { id: ada.keyId, status: "confirmed", publicKey: ada.publicKey }, seals: [], passkeys: [] });
+  });
+
+  it("un PAT `manual` o `mobile` resta `session_required`", async () => {
+    for (const kind of ["manual", "mobile"] as const) {
+      const other = await pat(ada.id, kind);
+      const res = await call("GET", "/api/vault/status", other.headers);
+      expect([res.statusCode, res.json().code], kind).toEqual([403, "session_required"]);
+    }
   });
 });
 
@@ -911,6 +963,8 @@ describe("l'interruttore `VAULT_DESKTOP` SPENTO (default, decisione di 46 del 25
       ["GET", "/api/vault/pending"],
       ["GET", "/api/vault/device-seals"],
       ["GET", `/api/credentials/${credentialId}/readers`],
+      // 25 nov 2026: lo stato della cassaforte dal Mac (`desktopRead`).
+      ["GET", "/api/vault/status"],
     ];
     for (const [method, url, body] of cases) {
       const res = await inject(method as "GET" | "POST", url, olga.desktop.headers, body);

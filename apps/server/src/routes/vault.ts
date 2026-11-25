@@ -119,7 +119,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
     defaultJson(request, body as string, done);
   });
   instance.addHook("onRoute", (route) => {
-    if (route.config?.desktopVault === true || route.config?.desktopOnly === true) return;
+    if (route.config?.desktopVault === true || route.config?.desktopOnly === true || route.config?.desktopRead === true) return;
     route.config = { ...(route.config ?? {}), browserOnly: true };
   });
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -188,27 +188,41 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
    * l'id WebAuthn delle passkey che la aprono — per scegliere il sigillo
    * della passkey appena usata — e di tutte le sue passkey (per sigillare
    * una chiave nuova). Mai la privata sigillata: quella la dà `/keys/mine`.
+   *
+   * Dal 25 nov 2026 (`desktopRead`) la legge anche il PAT desktop, SENZA
+   * sigillo: il Mac deve poter dire «nessuna chiave» o «la tua chiave aspetta
+   * conferma» prima di essere associato. A lui la risposta ridotta: stato e
+   * chiave (con la pubblica, per l'impronta), sigilli e passkey vuoti. Con
+   * `VAULT_DESKTOP` spento 404 `vault_desktop_disabled`; ogni altro PAT resta
+   * `session_required`.
    */
   app.get(
     "/status",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, desktopRead: true },
       schema: { response: { 200: vaultStatusResponseSchema, ...errorResponses } },
     },
     async (request, reply) => {
       const user = request.user!;
-      if (isPat(user)) return sessionRequired(reply);
+      const fromMac = isDesktopPat(user);
+      if (isPat(user) && !fromMac) return sessionRequired(reply);
+      if (fromMac && !app.vaultDesktop) return vaultDesktopDisabled(reply);
       const [settings] = await app.db.select({ id: vaultSettings.id }).from(vaultSettings);
       const [key] = await app.db
         .select({
           id: vaultPersonKeys.id,
           status: vaultPersonKeys.status,
           createdAt: vaultPersonKeys.createdAt,
+          publicKey: vaultPersonKeys.publicKey,
         })
         .from(vaultPersonKeys)
         .where(eq(vaultPersonKeys.userId, user.id))
         .orderBy(desc(vaultPersonKeys.createdAt))
         .limit(1);
+      const myKey = key
+        ? { id: key.id, status: key.status, createdAt: key.createdAt.toISOString(), publicKey: key.publicKey }
+        : null;
+      if (fromMac) return reply.code(200).send({ activated: settings !== undefined, myKey, seals: [], passkeys: [] });
       // Una chiave rifiutata non si apre più: nessun sigillo da proporre.
       const seals = key && key.status !== "rejected" ? await sealsOf(key.id) : [];
       const passkeys = await app.db
@@ -218,9 +232,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
         .orderBy(userPasskeys.createdAt);
       return reply.code(200).send({
         activated: settings !== undefined,
-        myKey: key
-          ? { id: key.id, status: key.status, createdAt: key.createdAt.toISOString() }
-          : null,
+        myKey,
         seals: seals.map(({ passkeyId, credentialIdB64url }) => ({ passkeyId, credentialIdB64url })),
         passkeys,
       });

@@ -72,8 +72,15 @@ export const vaultStatusResponseSchema = z.object({
       id: z.uuid(),
       status: vaultPersonKeyStatusSchema,
       createdAt: z.iso.datetime(),
+      /**
+       * La pubblica di persona (25 nov 2026): il desktop ne mostra l'impronta
+       * mentre la chiave aspetta conferma. Opzionale: un server più vecchio
+       * non la manda.
+       */
+      publicKey: z.string().optional(),
     })
     .nullable(),
+  /** Al PAT desktop sempre vuoti: dal Mac non servono e non si espongono. */
   seals: z.array(vaultSealRefSchema),
   passkeys: z.array(vaultSealRefSchema).default([]),
 });
