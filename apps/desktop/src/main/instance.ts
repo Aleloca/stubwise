@@ -11,10 +11,14 @@ const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 /**
  * L'indirizzo normalizzato (senza slash finale), o `null` se non si accetta:
- * solo `https:`, o `http:` su localhost (sviluppo); niente credenziali,
- * query o frammento.
+ * solo `https:`, o `http:` su localhost in sviluppo — mai nell'app
+ * impacchettata (I3, seconda revisione della cassaforte: il PAT viaggia solo
+ * su https); niente credenziali, query o frammento.
  */
-export function normalizeInstanceUrl(raw: unknown): string | null {
+export function normalizeInstanceUrl(
+  raw: unknown,
+  allowLocalHttp: boolean = !app.isPackaged,
+): string | null {
   if (typeof raw !== "string") return null;
   let url: URL;
   try {
@@ -23,7 +27,7 @@ export function normalizeInstanceUrl(raw: unknown): string | null {
     return null;
   }
   const secure = url.protocol === "https:";
-  const local = url.protocol === "http:" && LOCAL_HOSTS.has(url.hostname);
+  const local = allowLocalHttp && url.protocol === "http:" && LOCAL_HOSTS.has(url.hostname);
   if (!secure && !local) return null;
   if (url.username || url.password || url.search || url.hash) return null;
   if (raw.includes("?") || raw.includes("#")) return null;
