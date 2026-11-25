@@ -688,6 +688,7 @@ export type ApiFnName =
   | "vault.removeMacOf"
   | "vault.listCredentials"
   | "vault.getCredential"
+  | "vault.getCredentialsEntry"
   | "vault.show"
   | "vault.copy"
   | "vault.createCredential"

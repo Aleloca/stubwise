@@ -167,6 +167,11 @@ export const queryKeys = {
   myRequestStatus: (personId: string, requestId: string) =>
     ["as", personId, "support", "myRequest", requestId] as const,
   supportSearch: (personId: string, q: string) => ["as", personId, "support", "search", q] as const,
+  /** La Cassaforte (lotto 10): tutto nell'area «vault». */
+  vaultStatus: (personId: string) => ["as", personId, "vault", "status"] as const,
+  credentials: (personId: string, scope: string) => ["as", personId, "vault", "list", scope] as const,
+  credentialsEntry: (personId: string, projectId: string) =>
+    ["as", personId, "vault", "entry", projectId] as const,
   /** Server (area 8b): tutto nell'area «servers». */
   projectServers: (personId: string, projectId: string) =>
     ["as", personId, "servers", "list", projectId] as const,
@@ -4491,6 +4496,7 @@ export * from "./queries/alerts";
 export * from "./queries/releases";
 export * from "./queries/support";
 export * from "./queries/servers";
+export * from "./queries/vault";
 export * from "./queries/admin";
 export * from "./queries/entry";
 export * from "./queries/me";

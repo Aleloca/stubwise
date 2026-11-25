@@ -366,6 +366,21 @@ export async function listCredentials(filter: {
     .sort((a, b) => a.projectId.localeCompare(b.projectId) || a.service.localeCompare(b.service));
 }
 
+/**
+ * La voce «Credentials» della colonna del progetto (shape §3, «Dove si
+ * entra»): c'è se la cassaforte è attiva e chi guarda vede almeno una
+ * credenziale o può crearne lì; `waitingMe` accende il punto «ti aspetta»
+ * quando c'è chi aspetta che sia lui a confermarlo.
+ */
+export async function getCredentialsEntry(projectId: string): Promise<{ show: boolean; waitingMe: boolean }> {
+  const me = await gate("vault.getCredentialsEntry");
+  if (!v().active) return { show: false, waitingMe: false };
+  const sees = v().credentials.some((c) => c.projectId === projectId && viewOf(me, c));
+  const show = sees || canI(me, "credentials.create", projectId);
+  const waitingMe = show && v().keys.some((k) => passable(me, k.personId).some((c) => c.projectId === projectId));
+  return { show, waitingMe };
+}
+
 export async function getCredential(id: string): Promise<CredentialView | null> {
   const me = await gate("vault.getCredential");
   const c = credentialById(id);
