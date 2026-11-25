@@ -1,7 +1,16 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
 import { spawn } from "node:child_process";
-import { codesignVerifier, createKeyHelper, helperRequirement, spawnRunner } from "./keyHelper";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  codesignVerifier,
+  createKeyHelper,
+  helperPath,
+  helperRequirement,
+  spawnRunner,
+} from "./keyHelper";
 
 // Revisione di sicurezza della cassaforte, I1: il main parla con l'helper
 // Swift del Secure Enclave (`native/keyhelper/main.swift`) con UNA richiesta
@@ -96,7 +105,7 @@ describe("l'helper del Secure Enclave", () => {
 describe("la firma dell'helper (I2)", () => {
   it("il requisito: anchor apple generic, l'identifier e il Team ID; senza Team ID non c'è requisito", () => {
     expect(helperRequirement("ABCDE12345")).toBe(
-      'anchor apple generic and identifier "stubwise-keyhelper" and certificate leaf[subject.OU] = "ABCDE12345"',
+      'anchor apple generic and identifier "dev.aleloca.stubwise.keyhelper" and certificate leaf[subject.OU] = "ABCDE12345"',
     );
     expect(helperRequirement("")).toBeNull();
     expect(helperRequirement('AB" or true')).toBeNull();
@@ -113,6 +122,24 @@ describe("la firma dell'helper (I2)", () => {
     expect(await run('{"cmd":"available"}')).toBe('{"cmd":"available"}');
     expect(pids).toHaveLength(1);
     expect(pids[0]).toBeGreaterThan(0);
+  });
+
+  it("un helper che chiude lo stdin senza leggere (padre non fidato, senza firma): niente EPIPE non gestito", async () => {
+    // Chiude lo stdin e resta vivo un poco: la scrittura trova la pipe chiusa.
+    const dir = mkdtempSync(join(tmpdir(), "stubwise-helper-"));
+    const script = join(dir, "closes-stdin");
+    writeFileSync(script, "#!/bin/sh\nexec 0<&-\nsleep 0.3\n", { mode: 0o755 });
+    try {
+      const run = spawnRunner(script, {
+        verify: async () => {
+          await new Promise((r) => setTimeout(r, 100));
+          return true;
+        },
+      });
+      await expect(run("x".repeat(1 << 20))).resolves.toBe("");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("non verificato: `unverified`, e il processo non ha ricevuto niente", async () => {
@@ -138,4 +165,15 @@ describe("la firma dell'helper (I2)", () => {
       }
     },
   );
+});
+
+// I1, seconda parte: l'helper è un bundle (`Contents/Helpers/…app`), perché
+// gli entitlements riservati del Keychain del team vogliono un profilo di
+// provisioning incorporato, e un eseguibile nudo non può averlo.
+describe("dove sta l'helper (I1)", () => {
+  it("nel bundle dell'helper, dentro Contents/Helpers dell'app", () => {
+    expect(helperPath("/Applications/Stubwise.app/Contents/MacOS/Stubwise")).toBe(
+      "/Applications/Stubwise.app/Contents/Helpers/StubwiseKeyHelper.app/Contents/MacOS/stubwise-keyhelper",
+    );
+  });
 });

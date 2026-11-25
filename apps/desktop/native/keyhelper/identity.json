@@ -1,0 +1,7 @@
+{
+  "bundleId": "dev.aleloca.stubwise.keyhelper",
+  "bundleName": "StubwiseKeyHelper",
+  "executable": "stubwise-keyhelper",
+  "accessGroupSuffix": "dev.aleloca.stubwise.vault",
+  "appBundleId": "dev.aleloca.stubwise"
+}
