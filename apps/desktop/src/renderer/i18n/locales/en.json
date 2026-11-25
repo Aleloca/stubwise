@@ -13838,7 +13838,9 @@
       "cancel": "Cancel",
       "removed": "Removed. {{name}} was told.",
       "failed": "Couldn't remove that Mac. Try again.",
-      "reauth": "remove a Mac from someone's vault"
+      "reauth": "remove a Mac from someone's vault",
+      "browserNote": "The Macs that open {{name}}'s vault are managed in the browser.",
+      "manageInBrowser": "Manage {{name}}'s Macs in the browser"
     },
     "prototype": {
       "barLabel": "Prototype only: the vault",

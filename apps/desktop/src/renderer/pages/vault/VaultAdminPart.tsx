@@ -8,27 +8,43 @@ import { openInWeb } from "../../platform/openWeb";
 import { Dialog } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
 import { Part } from "../preferences/parts";
-import { dangerSolidButton, quietButton } from "../tasks/controls";
+import { useViewer } from "../../data/viewing";
+import { dangerSolidButton, quietButton, secondaryButton } from "../tasks/controls";
 
 // Amministrazione → una persona, la parte «Vault» (D-6, shape `vault.md` §3,
 // sotto «Linked identities»): solo per un full admin (il livello dati
 // risponde `forbidden` agli altri, e la parte non c'è). I Mac della persona
 // che aprono la cassaforte, senza impronta, e «Remove…» per riga: un dialogo
 // con le conseguenze, una per riga, poi la riconferma. Dal desktop vero la
-// rotta dell'admin è del browser [VA 9]: «Remove…» apre la pagina lì.
+// rotta dell'admin è del browser [VA 9]: la parte è una riga che apre lì la
+// pagina della persona (46, 25 nov 2026), senza chiedere i Mac.
 
 const day = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 
 export function VaultAdminPart({ personId, name }: { personId: string; name: string }) {
   const { t } = useTranslation();
-  const macs = useMacsOf(personId).data;
+  const app = isAppBuild();
+  const { viewer } = useViewer();
+  // Nell'app la lista è del browser [VA 9]: qui non si chiede niente.
+  const macs = useMacsOf(personId, !app).data;
   const [removing, setRemoving] = useState<MacView | null>(null);
+  const inBrowser = () => openInWeb(`/admin/people/${encodeURIComponent(personId)}`);
+  if (app) {
+    if (!viewer.instancePermissions.includes("instance.full_admin")) return null;
+    return (
+      <Part title={t("vault.admin.title")}>
+        <div className="flex items-center gap-3">
+          <p className="flex-1 text-md text-ink-muted">{t("vault.admin.browserNote", { name })}</p>
+          <button type="button" className={secondaryButton} onClick={inBrowser}>
+            {t("vault.admin.manageInBrowser", { name })}
+          </button>
+        </div>
+      </Part>
+    );
+  }
   if (!macs || !macs.ok) return null;
-  const onRemove = (mac: MacView) => {
-    if (isAppBuild()) return openInWeb(`/admin/people/${encodeURIComponent(personId)}`);
-    setRemoving(mac);
-  };
+  const onRemove = (mac: MacView) => setRemoving(mac);
   return (
     <Part title={t("vault.admin.title")}>
       <p className="text-md text-ink-muted">{t("vault.admin.intro", { name })}</p>
