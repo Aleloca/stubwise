@@ -456,6 +456,14 @@ export function createVaultOps(deps: VaultOpsDeps) {
           deps.lock.markDisabled();
           return { ok: false, code: "disabled" };
         }
+        // Review M8: senza sigillo (Mac non associato) nessun Mac apre la
+        // cassaforte da qui: elenco vuoto, così Security propone «Pair this Mac».
+        if (
+          error instanceof VaultHttpError &&
+          error.status === 403 &&
+          error.code === "device_seal_required"
+        )
+          return { ok: true, items: [] };
         if (error instanceof VaultHttpError) return { ok: false, code: error.code };
         return { ok: false, code: "open_failed" };
       }

@@ -623,4 +623,17 @@ describe("le operazioni della cassaforte nel main", () => {
     closeVault();
     expect(await ops.pending()).toEqual({ ok: true, items: [] });
   });
+
+  // Review M8: su un Mac non associato la rotta dei Mac vuole il sigillo
+  // (`device_seal_required`): l'elenco è vuoto, così Security mostra «No Mac
+  // opens your vault yet.» con «Pair this Mac», invece di sparire.
+  it("M8: i Mac su un Mac non associato: elenco vuoto, non un errore", async () => {
+    const { ops, lock } = setup({
+      "GET /api/vault/device-seals": () => {
+        throw new VaultHttpError(403, "device_seal_required");
+      },
+    });
+    expect(await ops.macs()).toEqual({ ok: true, items: [] });
+    expect(lock.markRevoked).not.toHaveBeenCalled();
+  });
 });
