@@ -18,6 +18,8 @@ const EXPECTED = {
   [FuseV1Options.EnableNodeCliInspectArguments]: FuseState.DISABLE,
   [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: FuseState.ENABLE,
   [FuseV1Options.OnlyLoadAppFromAsar]: FuseState.ENABLE,
+  [FuseV1Options.EnableCookieEncryption]: FuseState.ENABLE,
+  [FuseV1Options.GrantFileProtocolExtraPrivileges]: FuseState.DISABLE,
 };
 
 const out = process.argv[2] ?? "release";

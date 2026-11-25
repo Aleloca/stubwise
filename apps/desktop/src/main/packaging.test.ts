@@ -30,6 +30,13 @@ describe("il pacchetto del Mac", () => {
     expect(fuses).toMatch(/enableNodeCliInspectArguments: false/);
     expect(fuses).toMatch(/enableEmbeddedAsarIntegrityValidation: true/);
     expect(fuses).toMatch(/onlyLoadAppFromAsar: true/);
+    // M5 (seconda revisione), col renderer su app://: file:// senza privilegi
+    // in più, e i cookie cifrati.
+    expect(fuses).toMatch(/grantFileProtocolExtraPrivileges: false/);
+    expect(fuses).toMatch(/enableCookieEncryption: true/);
+    const check = read("scripts/check-fuses.mjs");
+    expect(check).toMatch(/\[FuseV1Options\.GrantFileProtocolExtraPrivileges\]: FuseState\.DISABLE/);
+    expect(check).toMatch(/\[FuseV1Options\.EnableCookieEncryption\]: FuseState\.ENABLE/);
     expect(builder).toMatch(/asar: true/);
   });
 
