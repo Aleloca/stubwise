@@ -31,6 +31,7 @@ import {
   vaultRecoveryPendingBodySchema,
   vaultStatusResponseSchema,
   type VaultConfirmCopy,
+  vaultActorProofSchema,
   vaultDevicePairingBodySchema,
   vaultDevicePairingLookupBodySchema,
   vaultDevicePairingLookupResponseSchema,
@@ -850,15 +851,22 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   /**
    * Togliere un proprio Mac: il SOLO sigillo, il Mac resta collegato (D-5).
    * Dal browser, o (decisione del maintainer, 25 nov 2026) da un ALTRO Mac
-   * della persona col suo sigillo vivo e la riconferma del desktop; il proprio
-   * sigillo il Mac lo toglie con `DELETE .../mine` (409 `use_mine`). Un Mac di
-   * un'altra persona → 404.
+   * della persona col suo sigillo vivo, la riconferma del desktop E la prova
+   * della propria chiave (`actorProof`, decisione di 46 del 25 nov 2026: la
+   * cassaforte è aperta, quindi il Touch ID è passato; la riconferma dice che
+   * è la persona). Il proprio sigillo il Mac lo toglie con `DELETE .../mine`
+   * (409 `use_mine`). Un Mac di un'altra persona → 404.
    */
   app.delete(
     "/device-seals/:id",
     {
       config: { access: { kind: "user" }, reauth: true, desktopVault: true },
-      schema: { params: z.object({ id: z.uuid() }), response: { 204: z.null(), ...errorResponses } },
+      schema: {
+        params: z.object({ id: z.uuid() }),
+        // Dal browser il corpo non serve; dal Mac `actorProof` è obbligatorio (sotto).
+        body: z.object({ actorProof: vaultActorProofSchema.optional() }).nullish(),
+        response: { 204: z.null(), ...errorResponses },
+      },
     },
     async (request, reply) => {
       const user = request.user!;
@@ -866,6 +874,12 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
       if (!caller) return reply;
       if (caller.via === "desktop" && caller.sealId === request.params.id) {
         return apiError(reply, 409, "use_mine", "To forget this Mac use DELETE /api/vault/device-seals/mine");
+      }
+      if (caller.via === "desktop") {
+        const proof = request.body?.actorProof;
+        if (!proof || !(await consumeActorProof(app.db, user, proof))) {
+          return apiError(reply, 403, "vault_proof_invalid", "Vault key proof missing, wrong, expired or already used");
+        }
       }
       const from = caller.via === "desktop" ? { sealId: caller.sealId } : null;
       if (!(await revokeSeal(app.db, user, { id: request.params.id }, "removed", null, from))) return sealNotFound(reply);

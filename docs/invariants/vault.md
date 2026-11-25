@@ -187,8 +187,8 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
   rifiutata lo spegne senza riscrivere la riga); un PAT revocato lo porta via
   in cascata. **Togliere un Mac toglie il SOLO sigillo, non il PAT** (D-5,
   decisione del maintainer): dal desktop («Dimentica questo Mac», logout; e
-  dal 25 nov 2026, D-9, anche gli ALTRI propri Mac, col sigillo vivo e la
-  riconferma del desktop — limite accettato: un Mac rubato e sbloccato può
+  dal 25 nov 2026, D-9, anche gli ALTRI propri Mac, col sigillo vivo, la
+  riconferma del desktop E la prova della propria chiave — limite accettato: un Mac rubato e sbloccato può
   staccare gli altri), dal browser (riconferma), o da un full admin per un'altra persona (D-6,
   riconferma, registro con l'attore, avviso alla persona). Ogni sigillo e
   ogni revoca finiscono nel registro di sicurezza (`vault_device_sealed`,
