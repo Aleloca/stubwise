@@ -288,8 +288,9 @@ browser, with your passkey.
 - Parte con titolo `headline`, riga in prosa: «These Macs open your vault
   with Touch ID. Removing one doesn't sign it out.»
 - Righe 40px: nome del Mac («MacBook Pro di Laura») · «this Mac» per il
-  corrente · «Paired Nov 24 · used today» · impronta breve 12px
-  monospace (`3f9a…91be`, intera nel `title`) · azione a destra.
+  corrente · «Paired Nov 24 · used today» · impronta **intera** 12px
+  monospace (`3f9a 1c2e 07d4 91be`: un'impronta troncata non si confronta,
+  revisione di sicurezza M7) · azione a destra.
 - **Questo Mac**: **Forget this Mac** → conferma a due tempi in posto:
   «This Mac stops opening the vault. You stay signed in.» → fatto: la
   riga sparisce; se il server non risponde, «Forgotten on this Mac. The
