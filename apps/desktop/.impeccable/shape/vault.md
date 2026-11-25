@@ -332,6 +332,11 @@ browser, with your passkey.
   «Seal revoked» · «Stubwise unreachable»; «Pairing:» · «Return from the
   browser» · «Expire» · «Seal doesn't match». Frase: «This decides what
   happens next. Nothing is encrypted in the prototype.»
+- **«Pairing:» sta DENTRO il dialogo dell'associazione** (94, 25 nov 2026):
+  il dialogo è modale, e un riquadro sotto la barra non si potrebbe
+  toccare mentre aspetta; lì c'è un secondo riquadro tratteggiato, solo
+  durante l'attesa. Sotto la barra restano «Next Touch ID» e «Next
+  opening».
 
 ## 4. Ambito e confini
 

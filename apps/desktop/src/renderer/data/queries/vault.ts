@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import * as api from "@backend/api";
 import { queryKeys, useSessionPersonId, useWrite } from "../queries";
-import type { ReaderTarget } from "../vault/types";
+import type { ReaderTarget, VaultSimulation } from "../vault/types";
 
 // Gli hook della Cassaforte (lotto 10, shape `vault.md`); `data/queries` li
 // ri-esporta. Tutto sta nell'area «vault»: aprire, chiudere, condividere,
@@ -77,6 +77,64 @@ export function useVaultLock() {
 /** «Show»: la password solo nel risultato, mai in una cache. */
 export function useShowPassword() {
   return useWrite((id: string) => api.vault.show(id), VAULT_AREAS, { secret: true });
+}
+
+/** Il riquadro «Prototype only»: cosa succede al prossimo Touch ID e alla prossima apertura. */
+export function useVaultSimulation() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.vaultSimulation(me),
+    queryFn: () => api.vault.getVaultSimulation(),
+  });
+}
+
+export function useSetVaultSimulation() {
+  return useWrite(
+    (next: Partial<VaultSimulation>) => api.vault.setVaultSimulation(next),
+    VAULT_AREAS,
+  );
+}
+
+/** Il ritorno dal browser, simulato (il riquadro nel dialogo dell'associazione). */
+export function useFinishPairing() {
+  return useWrite(
+    (outcome: "ok" | "expired" | "mismatch") => api.vault.finishPairing(outcome),
+    VAULT_AREAS,
+  );
+}
+
+/** I propri Mac che aprono la cassaforte (Preferenze → Security). */
+export function useMyMacs() {
+  const me = useSessionPersonId();
+  return useQuery({ queryKey: queryKeys.myMacs(me), queryFn: () => api.vault.listMyMacs() });
+}
+
+/** I Mac di un'altra persona (D-6): solo per un full admin (altrimenti `forbidden`). */
+export function useMacsOf(personId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.macsOf(me, personId),
+    queryFn: () => api.vault.listMacsOf(personId),
+  });
+}
+
+/** «Remove…» del Mac di un'altra persona (D-6), con la riconferma. */
+export function useRemoveMacOf() {
+  return useWrite(
+    ({ personId, macId }: { personId: string; macId: string }) =>
+      api.vault.removeMacOf(personId, macId),
+    VAULT_AREAS,
+  );
+}
+
+/** «Forget this Mac»: il proprio sigillo e il locale; il login resta. */
+export function useForgetThisMac() {
+  return useWrite(() => api.vault.forgetThisMac(), VAULT_AREAS);
+}
+
+/** «Remove» di un altro proprio Mac: riconferma e cassaforte aperta (VA-Q4). */
+export function useRemoveMac() {
+  return useWrite((macId: string) => api.vault.removeMac(macId), VAULT_AREAS);
 }
 
 /** «Pair this Mac»: il main chiede l'accoppiamento e apre il browser; risponde l'impronta. */

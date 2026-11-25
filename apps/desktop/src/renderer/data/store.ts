@@ -678,6 +678,7 @@ export type ApiFnName =
   | "vault.unlock"
   | "vault.lock"
   | "vault.setVaultSimulation"
+  | "vault.getVaultSimulation"
   | "vault.startPairing"
   | "vault.finishPairing"
   | "vault.cancelPairing"

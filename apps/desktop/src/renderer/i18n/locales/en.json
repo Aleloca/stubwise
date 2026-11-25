@@ -13796,6 +13796,60 @@
         "vault_key_not_confirmed": "Your vault key isn't confirmed yet: a reader confirms it when they pass you a credential.",
         "other": "Couldn't pair this Mac. Try again."
       }
+    },
+    "macs": {
+      "title": "Macs that open the vault",
+      "intro": "These Macs open your vault with Touch ID. Removing one doesn't sign it out.",
+      "thisMac": "this Mac",
+      "paired": "Paired {{paired}} · used {{used}}",
+      "pairedNever": "Paired {{paired}} · never used",
+      "forget": "Forget this Mac",
+      "forgetQuestion": "This Mac stops opening the vault. You stay signed in.",
+      "forgetYes": "Forget",
+      "forgotten": "This Mac no longer opens the vault.",
+      "forgottenLocal": "Forgotten on this Mac. The server didn't answer: remove it from the browser too.",
+      "remove": "Remove",
+      "removeQuestion": "That Mac stops opening the vault. It stays signed in.",
+      "removeYes": "Remove {{name}}",
+      "cancel": "Cancel",
+      "removed": "Removed. You'll get a security alert.",
+      "failed": "Couldn't remove that Mac. Try again.",
+      "reauth": "remove a Mac from the vault",
+      "empty": "No Mac opens your vault yet.",
+      "pair": "Pair this Mac"
+    },
+    "admin": {
+      "title": "Vault",
+      "intro": "{{name}}'s Macs that open the vault",
+      "empty": "No Mac opens {{name}}'s vault.",
+      "removeAria": "Remove {{mac}}…",
+      "remove": "Remove…",
+      "dialogTitle": "Remove {{name}}'s {{mac}} from the vault?",
+      "stops": "That Mac stops opening the vault.",
+      "staysSignedIn": "{{name}} stays signed in on it.",
+      "alerted": "{{name}} gets a security alert, and it's recorded in the change log.",
+      "confirm": "Remove",
+      "cancel": "Cancel",
+      "removed": "Removed. {{name}} was told.",
+      "failed": "Couldn't remove that Mac. Try again.",
+      "reauth": "remove a Mac from someone's vault"
+    },
+    "prototype": {
+      "barLabel": "Prototype only: the vault",
+      "pairingLabel": "Prototype only: pairing",
+      "note": "This decides what happens next. Nothing is encrypted in the prototype.",
+      "touch": "Next Touch ID:",
+      "touchWorks": "Works",
+      "touchCancelled": "Cancelled",
+      "touchUnavailable": "This Mac has no Touch ID",
+      "opening": "Next opening:",
+      "openingWorks": "Works",
+      "openingRevoked": "Seal revoked",
+      "openingUnreachable": "Stubwise unreachable",
+      "pairing": "Pairing:",
+      "pairingOk": "Return from the browser",
+      "pairingExpired": "Expire",
+      "pairingMismatch": "Seal doesn't match"
     }
   }
 }
