@@ -1,15 +1,18 @@
 import {
+  credentialRecipientsSchema,
   credentialRevealResponseSchema,
   credentialSharePreviewSchema,
   vaultActorChallengeResponseSchema,
   vaultConfirmResponseSchema,
   vaultDeviceSealListSchema,
   vaultPendingResponseSchema,
+  type CredentialRecipients,
   type CredentialSharePreview,
   type VaultActorProof,
 } from "@stubwise/shared";
 import {
   decryptPassword,
+  encryptForInsert,
   keyFingerprint,
   openActorChallenge,
   unwrapItemKey,
@@ -77,6 +80,15 @@ export interface MacEntry {
   lastUsedAt: string | null;
   current: boolean;
   fingerprint: string;
+}
+
+/** I campi in chiaro di una credenziale nuova (come `CredentialInput` del renderer, senza password). */
+export interface CredentialFields {
+  service: string;
+  label: string | null;
+  url: string | null;
+  username: string | null;
+  notes: string | null;
 }
 
 export function createVaultOps(deps: VaultOpsDeps) {
@@ -198,6 +210,54 @@ export function createVaultOps(deps: VaultOpsDeps) {
         return attempt(current.data);
       }
     }, TOUCH);
+  }
+
+  /**
+   * Cifra e scrive (creazione o password nuova), come il web
+   * (`apps/web/src/lib/vault/credentials.ts`): la password per ESATTAMENTE
+   * i destinatari dati, le persone e il recupero. Se nel frattempo
+   * l'insieme è cambiato, il server risponde 409 `recipients_changed` coi
+   * destinatari ATTUALI: si ricifra per quelli e si riprova UNA volta.
+   */
+  async function writeEncrypted(input: {
+    credentialId: string;
+    password: string;
+    recipientsPath: string;
+    write: (body: {
+      passwordCiphertext: string;
+      copies: { recipientId: string; wrappedKey: string }[];
+      recoveryPublicKey: string;
+    }) => Promise<unknown>;
+  }): Promise<void> {
+    const encrypt = async (r: CredentialRecipients) => {
+      const { passwordCiphertext, copies } = await encryptForInsert({
+        credentialId: input.credentialId,
+        password: input.password,
+        recipients: [
+          ...r.people.map((p) => ({ recipientId: p.personKeyId, publicKey: p.publicKey })),
+          { recipientId: "recovery", publicKey: r.recoveryPublicKey },
+        ],
+      });
+      return { passwordCiphertext, copies, recoveryPublicKey: r.recoveryPublicKey };
+    };
+    const first = parse(
+      credentialRecipientsSchema,
+      await deps.request("GET", input.recipientsPath),
+    );
+    try {
+      await input.write(await encrypt(first));
+    } catch (error) {
+      const current =
+        error instanceof VaultHttpError &&
+        error.status === 409 &&
+        error.code === "recipients_changed"
+          ? credentialRecipientsSchema.safeParse(
+              (error.details as { recipients?: unknown } | undefined)?.recipients,
+            )
+          : null;
+      if (!current?.success) throw error;
+      await input.write(await encrypt(current.data));
+    }
   }
 
   async function pendingPeople() {
@@ -352,6 +412,53 @@ export function createVaultOps(deps: VaultOpsDeps) {
       guarded(async (key, personKeyId) => {
         await deps.request("DELETE", `/api/vault/device-seals/${seg(macId)}`, {
           actorProof: await prove(key, personKeyId),
+        });
+        return {};
+      }),
+
+    /**
+     * Una credenziale nuova (fetta 4): non vuole la cassaforte aperta (si
+     * cifra con le PUBBLICHE dei destinatari, come fa il PAT da sempre). L'id
+     * lo genera il client: la cifratura è legata alla credenziale.
+     */
+    create: async (
+      projectId: string,
+      fields: CredentialFields,
+      password: string,
+    ): Promise<{ ok: true; id: string } | OpFailure> => {
+      const id = crypto.randomUUID();
+      try {
+        await writeEncrypted({
+          credentialId: id,
+          password,
+          recipientsPath: `/api/projects/${seg(projectId)}/credentials/recipients`,
+          write: (enc) =>
+            deps.request("POST", `/api/projects/${seg(projectId)}/credentials`, {
+              id,
+              ...fields,
+              ...enc,
+            }),
+        });
+        return { ok: true, id };
+      } catch (error) {
+        if (isDisabled(error)) {
+          deps.lock.markDisabled();
+          return { ok: false, code: "disabled" };
+        }
+        if (error instanceof VaultHttpError) return { ok: false, code: error.code };
+        return { ok: false, code: "failed" };
+      }
+    },
+
+    /** La password nuova (fetta 4): con la cassaforte aperta, come vuole la shape. */
+    setPassword: (credentialId: string, password: string) =>
+      guarded(async () => {
+        await writeEncrypted({
+          credentialId,
+          password,
+          recipientsPath: `/api/credentials/${seg(credentialId)}/recipients`,
+          write: (enc) =>
+            deps.request("PUT", `/api/credentials/${seg(credentialId)}/password`, enc),
         });
         return {};
       }),

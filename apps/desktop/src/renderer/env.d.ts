@@ -223,6 +223,21 @@ interface Window {
         | StubwiseVaultFail
       >;
       removeMac: (macId: string) => Promise<{ ok: true } | StubwiseVaultFail>;
+      create: (
+        projectId: string,
+        fields: {
+          service: string;
+          label: string | null;
+          url: string | null;
+          username: string | null;
+          notes: string | null;
+        },
+        password: string,
+      ) => Promise<{ ok: true; id: string } | StubwiseVaultFail>;
+      setPassword: (
+        credentialId: string,
+        password: string,
+      ) => Promise<{ ok: true } | StubwiseVaultFail>;
     };
   };
 }

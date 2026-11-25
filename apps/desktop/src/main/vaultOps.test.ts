@@ -2,6 +2,7 @@
 import {
   encryptForInsert,
   keyFingerprint,
+  decryptPassword,
   unwrapItemKey,
   wrapActorChallenge,
 } from "@stubwise/vault-crypto";
@@ -105,6 +106,9 @@ function setup(routes: Record<string, (body: unknown) => unknown>) {
       changeCount += 1;
     },
     touches: () => touches,
+    closeVault: () => {
+      open = false;
+    },
   };
 }
 
@@ -460,5 +464,104 @@ describe("le operazioni della cassaforte nel main", () => {
       },
     });
     expect(await ops.removeMac(MAC)).toEqual({ ok: false, code: "reauth_required" });
+  });
+
+  // Fetta 4: creare e cambiare la password, cifrate dal main con le
+  // pubbliche dei destinatari (come il web): la password non va mai in chiaro
+  // sulla rotta. Creare non vuole la cassaforte aperta; la password nuova sì.
+  describe("creare e cambiare la password", () => {
+    const PROJECT = "bbbbbbbb-0000-4000-8000-000000000001";
+    const recipientsOf = () => ({
+      people: [
+        {
+          userId: "dddddddd-0000-4000-8000-000000000001",
+          email: "me@x",
+          personKeyId: PK,
+          publicKey: me.publicKey,
+        },
+      ],
+      recoveryPublicKey: other.publicKey,
+    });
+
+    it("crea: id dal client, cifrata per i destinatari e il recupero; la mia copia la apre", async () => {
+      const { ops, calls, lock } = setup({
+        [`GET /api/projects/${PROJECT}/credentials/recipients`]: () => recipientsOf(),
+        [`POST /api/projects/${PROJECT}/credentials`]: () => ({ id: "x" }),
+      });
+      lock.markRevoked.mockClear();
+      const out = await ops.create(
+        PROJECT,
+        { service: "Brevo SMTP", label: null, url: null, username: "postmaster", notes: null },
+        "Bb3!brevo-99",
+      );
+      expect(out).toMatchObject({ ok: true });
+      const post = calls.find((c) => c.method === "POST")!;
+      const body = post.body as {
+        id: string;
+        service: string;
+        passwordCiphertext: string;
+        copies: { recipientId: string; wrappedKey: string }[];
+        recoveryPublicKey: string;
+      };
+      expect(out).toEqual({ ok: true, id: body.id });
+      expect(body.service).toBe("Brevo SMTP");
+      expect(JSON.stringify(body)).not.toContain("Bb3!brevo-99");
+      expect(body.copies.map((c) => c.recipientId).sort()).toEqual([PK, "recovery"].sort());
+      const mine = body.copies.find((c) => c.recipientId === PK)!;
+      const itemKey = await unwrapItemKey(mine.wrappedKey, me.privateKey, body.id, PK);
+      expect(await decryptPassword(body.id, body.passwordCiphertext, itemKey)).toBe("Bb3!brevo-99");
+    });
+
+    it("crea: un 409 `recipients_changed` ricifra per i destinatari attuali, una volta", async () => {
+      let posts = 0;
+      const { ops } = setup({
+        [`GET /api/projects/${PROJECT}/credentials/recipients`]: () => ({
+          ...recipientsOf(),
+          people: [],
+        }),
+        [`POST /api/projects/${PROJECT}/credentials`]: (body: unknown) => {
+          posts += 1;
+          const copies = (body as { copies: unknown[] }).copies;
+          if (copies.length === 1)
+            throw new VaultHttpError(409, "recipients_changed", { recipients: recipientsOf() });
+          return { id: "x" };
+        },
+      });
+      expect(
+        await ops.create(
+          PROJECT,
+          { service: "S", label: null, url: null, username: null, notes: null },
+          "pw",
+        ),
+      ).toMatchObject({ ok: true });
+      expect(posts).toBe(2);
+    });
+
+    it("la password nuova: con la cassaforte aperta, cifrata per i destinatari della credenziale", async () => {
+      const { ops, calls } = setup({
+        [`GET /api/credentials/${CRED}/recipients`]: () => recipientsOf(),
+        [`PUT /api/credentials/${CRED}/password`]: () => null,
+      });
+      expect(await ops.setPassword(CRED, "Nn1!nuova-22")).toEqual({ ok: true });
+      const put = calls.find((c) => c.method === "PUT")!;
+      const body = put.body as {
+        passwordCiphertext: string;
+        copies: { recipientId: string; wrappedKey: string }[];
+      };
+      expect(JSON.stringify(body)).not.toContain("Nn1!nuova-22");
+      const mine = body.copies.find((c) => c.recipientId === PK)!;
+      const itemKey = await unwrapItemKey(mine.wrappedKey, me.privateKey, CRED, PK);
+      expect(await decryptPassword(CRED, body.passwordCiphertext, itemKey)).toBe("Nn1!nuova-22");
+    });
+
+    it("la password nuova a cassaforte chiusa: `vault_locked`, niente sulla rotta", async () => {
+      const { ops, calls, closeVault } = setup({
+        [`GET /api/credentials/${CRED}/recipients`]: () => recipientsOf(),
+        [`PUT /api/credentials/${CRED}/password`]: () => null,
+      });
+      closeVault();
+      expect(await ops.setPassword(CRED, "pw")).toEqual({ ok: false, code: "vault_locked" });
+      expect(calls.some((c) => c.method === "PUT")).toBe(false);
+    });
   });
 });
