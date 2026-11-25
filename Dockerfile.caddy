@@ -88,8 +88,7 @@ RUN pnpm --filter @stubwise/docs build
 # del seed del prototipo.
 COPY apps/desktop apps/desktop
 RUN pnpm --filter "@stubwise/desktop^..." build \
-  && pnpm --filter @stubwise/desktop build:web \
-  && node apps/desktop/scripts/check-no-seed.mjs apps/desktop/dist-web
+  && pnpm --filter @stubwise/desktop check:seed:web
 
 FROM caddy:2-alpine AS runtime
 # Statici della SPA serviti da /srv/web (root nel Caddyfile).
