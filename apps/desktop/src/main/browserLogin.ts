@@ -25,7 +25,8 @@ export interface BrowserLoginDeps {
   instanceUrl: () => string | null;
   openExternal: (url: string) => Promise<void> | void;
   hostname: () => string;
-  saveToken: (token: string, patId: string | null) => void;
+  /** `instanceUrl`: l'istanza dello scambio, a cui il token è legato (I3). */
+  saveToken: (token: string, patId: string | null, instanceUrl: string) => void;
   notify: (change: SessionChange) => void;
   fetch?: typeof fetch;
   now?: () => number;
@@ -39,7 +40,12 @@ const FORBIDDEN = /[\u0000-\u001f\u007f‎‏‪-‮⁦-⁩]/g;
 
 /** Il nome del Mac per `Desktop · <nome>`: senza `.local`, pulito, ≤60 caratteri. */
 export function deviceNameFrom(hostname: string): string {
-  const clean = hostname.replace(/\.local$/i, "").replace(FORBIDDEN, "").trim().slice(0, 60).trim();
+  const clean = hostname
+    .replace(/\.local$/i, "")
+    .replace(FORBIDDEN, "")
+    .trim()
+    .slice(0, 60)
+    .trim();
   return clean || "Mac";
 }
 
@@ -125,7 +131,11 @@ export function createBrowserLogin(deps: BrowserLoginDeps) {
       res = await (deps.fetch ?? fetch)(`${instance}/api/auth/desktop-exchange`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ code, codeVerifier: current.verifier, deviceName: current.deviceName }),
+        body: JSON.stringify({
+          code,
+          codeVerifier: current.verifier,
+          deviceName: current.deviceName,
+        }),
       });
     } catch {
       return fail("network_error");
@@ -133,7 +143,7 @@ export function createBrowserLogin(deps: BrowserLoginDeps) {
     const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
     if (!res.ok) return fail(typeof body?.code === "string" ? body.code : `http_${res.status}`);
     if (!body || typeof body.token !== "string") return fail("invalid_response");
-    deps.saveToken(body.token, typeof body.patId === "string" ? body.patId : null);
+    deps.saveToken(body.token, typeof body.patId === "string" ? body.patId : null, instance);
     const user = body.user ?? null;
     deps.notify({ signedIn: true, user });
     return { ok: true, user };

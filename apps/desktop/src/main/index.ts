@@ -40,7 +40,14 @@ import {
   type SessionChange,
 } from "./browserLogin";
 import { createGoogleReturn } from "./googleReturn";
-import { clearToken, logout, readPatId, readToken, replaceToken } from "./session";
+import {
+  clearToken,
+  logout,
+  onSessionMismatch,
+  readPatId,
+  readToken,
+  replaceToken,
+} from "./session";
 import { createKeyHelper, helperPath, spawnRunner } from "./keyHelper";
 import {
   deviceAgreement,
@@ -301,12 +308,21 @@ const browserLogin = createBrowserLogin({
   hostname: osHostname,
   // Il token di prima (un login già fatto) si revoca: un PAT per dispositivo.
   // Il dispositivo della cassaforte era di quel login (§4): si cancella.
-  saveToken: (token, patId) => {
+  saveToken: (token, patId, instanceUrl) => {
     vault.sessionChanged();
     vaultPairing.cancel();
-    void replaceToken(token, patId, { instanceUrl: readInstanceUrl() });
+    void replaceToken(token, patId, { instanceUrl });
   },
   notify: notifySession,
+});
+
+// I3: un token scartato perché l'istanza non è la sua (instance.json riscritto)
+// chiude la sessione come un cambio d'istanza: cassaforte, associazione, renderer.
+onSessionMismatch(() => {
+  vault.sessionChanged();
+  vaultPairing.cancel();
+  browserLogin.cancel();
+  notifySession({ signedIn: false });
 });
 
 // Lotto 4, §6: il ritorno dal consenso di Google (`stubwise://google`). Al
