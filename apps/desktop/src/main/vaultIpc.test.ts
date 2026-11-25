@@ -29,6 +29,7 @@ function setup() {
     markPaired: vi.fn(),
     sessionChanged: vi.fn(),
     markRevoked: vi.fn(),
+    markDisabled: vi.fn(),
   };
   const pairing = {
     start: vi.fn(async () => ({ ok: true as const, fingerprint: "fp" })),

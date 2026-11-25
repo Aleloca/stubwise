@@ -40,7 +40,7 @@ type StubwiseSessionChange = { signedIn: true; user: unknown } | { signedIn: fal
 // La cassaforte del main (`src/main/vaultLock.ts`, lotto 10): stato ed esiti,
 // mai la chiave.
 type StubwiseVaultStatus = {
-  state: "unpaired" | "locked" | "open" | "revoked";
+  state: "unpaired" | "locked" | "open" | "revoked" | "disabled";
   fingerprint: string | null;
 };
 type StubwiseVaultUnlock = { ok: true } | { ok: false; code: string };

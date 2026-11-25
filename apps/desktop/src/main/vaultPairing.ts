@@ -137,6 +137,7 @@ export function createVaultPairing(deps: VaultPairingDeps) {
       return fail("unavailable");
     }
     if ("revoked" in seal) return fail("revoked");
+    if ("disabled" in seal) return fail("vault_desktop_disabled");
     try {
       await deps.openSeal({
         deviceSeal: seal.seal,
