@@ -20,6 +20,7 @@ import { SourceDetailHost } from "../pages/automations/SourcePanel";
 import { PrPanelHost } from "../pages/releases/PrPanel";
 import { CredentialPanelHost } from "../pages/vault/CredentialPanel";
 import { PendingPanelHost } from "../pages/vault/PendingAccess";
+import { ProjectAccessLogHost } from "../pages/vault/ProjectAccessLog";
 import { DepartmentPanelHost } from "../pages/admin/DepartmentPanel";
 import { MemberPanelHost } from "../pages/settings/MembersSettings";
 import { useAutomationsLiveRefresh } from "../data/queries";
@@ -83,6 +84,7 @@ export function AppLayout() {
         <PrPanelHost />
         <CredentialPanelHost />
         <PendingPanelHost />
+        <ProjectAccessLogHost />
         <DepartmentPanelHost />
         <MemberPanelHost />
         {/* L'anteprima intera di un file del Drive copre l'area di lavoro (binario e colonna restano). */}

@@ -13863,6 +13863,12 @@
       "cancel": "Annulla",
       "deleted": "{{name}}: eliminata.",
       "deleteFailed": "Non è stato possibile eliminare {{name}}."
+    },
+    "sectionMenu": {
+      "more": "Altro per Credenziali",
+      "menu": "Azioni delle credenziali",
+      "log": "Registro degli accessi",
+      "panel": "Registro degli accessi di {{code}}"
     }
   }
 }

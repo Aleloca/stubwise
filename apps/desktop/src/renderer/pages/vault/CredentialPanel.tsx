@@ -14,6 +14,7 @@ import { useMediaQuery } from "../../layout/useMediaQuery";
 import { openInWeb } from "../../platform/openWeb";
 import { useToast } from "../../tasks-ui/Toast";
 import { quietButton } from "../tasks/controls";
+import { AccessLogList } from "./AccessLogList";
 import { CredentialForm } from "./CredentialForm";
 import { CredentialReaders } from "./CredentialReaders";
 import { AccessWord, PasswordField } from "./CredentialRows";
@@ -243,29 +244,7 @@ function CredentialBody({
       {manages && (
         <section className="flex flex-col gap-2 border-t border-rule pt-4">
           <h3 className="text-md font-semibold text-ink">{t("vault.detail.log")}</h3>
-          {log.data && log.data.length === 0 ? (
-            <p className="text-sm text-ink-muted">{t("vault.detail.logEmpty")}</p>
-          ) : (
-            <ul aria-label={t("vault.detail.log")} className="flex flex-col">
-              {(log.data ?? []).map((e) => (
-                <li key={e.id} className="flex items-baseline gap-2 py-1 text-sm">
-                  <span className="num w-28 shrink-0 text-ink-muted">
-                    {new Date(e.at).toLocaleString(undefined, {
-                      day: "numeric",
-                      month: "short",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </span>
-                  <span className="text-ink">{e.name}</span>
-                  <span className="text-ink-muted">
-                    {t(`vault.detail.${e.action}`)} ·{" "}
-                    {e.via === "mac" ? t("vault.detail.fromMac") : t("vault.detail.fromBrowser")}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <AccessLogList entries={log.data} />
         </section>
       )}
     </div>

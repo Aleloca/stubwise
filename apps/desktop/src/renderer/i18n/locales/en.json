@@ -13863,6 +13863,12 @@
       "cancel": "Cancel",
       "deleted": "{{name}} deleted.",
       "deleteFailed": "Couldn't delete {{name}}."
+    },
+    "sectionMenu": {
+      "more": "More for Credentials",
+      "menu": "Credentials actions",
+      "log": "Access log",
+      "panel": "Access log of {{code}}"
     }
   }
 }
