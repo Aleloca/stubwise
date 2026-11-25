@@ -76,10 +76,22 @@ con gli stessi test di formato delle altre buste); il main le usa da Node.
 >   `keychain-access-groups` dell'app firmata): la usa SOLO un binario
 >   firmato da quel team, non un altro programma dello stesso utente macOS —
 >   è ciò che chiude il «Touch ID aggirabile» dell'app non firmata;
-> - su disco (`vault-device.bin`, cifrato con `safeStorage`) restano solo gli
->   id (istanza, PAT, `deviceId`, `personKeyId`) e la pubblica: nessun
->   materiale della chiave. Il file della versione con la pkcs8 non vale più
->   e si cancella;
+>   **Com'è costruita (94, 5561aa297 e aa348fc4f):** voce PERMANENTE del
+>   Keychain di data protection nell'enclave, tag `stubwise.vault.<32 hex>`,
+>   access group `<Team ID>.dev.aleloca.stubwise.vault`. L'helper legge il
+>   Team ID dalla PROPRIA firma, mai dalla richiesta; la frase del Touch ID è
+>   fissata nell'helper, nella lingua del sistema (una `reason` nella
+>   richiesta si ignora). L'helper è un bundle a sé,
+>   `Contents/Helpers/StubwiseKeyHelper.app` (`dev.aleloca.stubwise.keyhelper`),
+>   con profilo Developer ID incorporato ed entitlement
+>   `application-identifier`, `team-identifier` e `keychain-access-groups`;
+>   lo firma lo script di build, electron-builder non lo rifirma. Il main lo
+>   verifica per pid prima di ogni richiesta (review 2, I2);
+> - su disco (`vault-device.bin` **v3**, cifrato con `safeStorage`) restano
+>   solo gli id (istanza, PAT, `deviceId`, `personKeyId`), il tag della voce e
+>   la pubblica: nessun materiale della chiave. Un file v1 (la pkcs8) o v2 (il
+>   `dataRepresentation`) si cancella e il Mac si riassocia; quando il file
+>   sparisce si toglie anche la voce del Keychain;
 > - senza Secure Enclave o senza Touch ID (D-1a) non si associa: la
 >   cassaforte si apre dal browser;
 > - lato server non cambia niente (il server non vede la chiave, e
@@ -447,6 +459,18 @@ Perché resta accettabile:
   si apre solo con la chiave del Mac che l'ha chiesto. La garanzia della
   firma (il Touch ID che non si aggira) è del CLIENT; il server la presume
   per decisione di chi accende l'interruttore.
+
+- **L'helper firmato si può lanciare da un altro processo dello stesso
+  utente** (limite residuo di I1, testo di 94, 25 nov 2026): un processo
+  dello stesso utente può lanciare l'helper firmato e chiedergli un `ecdh`
+  con un punto effimero suo. L'helper chiede comunque il Touch ID, con la
+  frase fissa di Stubwise: se la persona tocca un prompt che non ha chiesto,
+  quel processo ottiene il segreto e apre il sigillo del Mac. La difesa è il
+  tocco consapevole. Non c'è difesa contro chi ha già il controllo dell'app
+  firmata, ma le fuse e C1/C2 chiudono le porte note. *Rinforzo proposto da
+  94, da decidere con 46*: l'helper risponde solo se il processo padre è
+  l'app Stubwise firmata dal team (requisito di codice verificato per pid);
+  se entra, questo limite si riduce a «chi controlla l'app firmata».
 
 ## 12. Da decidere (per il maintainer) — DECISO il 24 nov 2026
 
