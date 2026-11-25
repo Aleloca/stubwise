@@ -270,8 +270,9 @@ delle rotte della cassaforte resta `browserOnly`.
 
 `VAULT_DESKTOP` (env del server, SPENTA di default): difesa in profondità
 finché l'app distribuita non è il build firmato. Spenta, l'associazione e le
-rotte aperte al Mac (`desktopVault`, `/device-seals/mine`) rispondono 404 al
-PAT desktop, come se non ci fossero; le rotte del browser restano. Si
+rotte aperte al Mac (`desktopVault`, `/device-seals/mine`) rispondono 404
+`vault_desktop_disabled` al PAT desktop (review M2: un codice suo, così il Mac
+non lo confonde con una credenziale cancellata); le rotte del browser restano. Si
 accende solo quando c'è l'app firmata (voce di deploy).
 
 ### 6.4 Registro e isolamento

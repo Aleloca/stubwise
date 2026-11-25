@@ -54,7 +54,7 @@ import {
   type ConfirmError,
   type VaultActor,
 } from "../vault/pending.js";
-import { requireVaultCaller } from "../vault/device-access.js";
+import { requireVaultCaller, vaultDesktopDisabled } from "../vault/device-access.js";
 import { createPairing, createSeal, listSeals, lookupPairing, mineSeal, ownLiveSeal, revokeSeal } from "../vault/device-seals.js";
 import { currentPersonKey } from "../vault/readers.js";
 import {
@@ -739,7 +739,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
    */
   function desktopOnly(reply: FastifyReply, user: SessionUser): user is SessionUser & { patId: string } {
     if (!app.vaultDesktop) {
-      void apiError(reply, 404, "not_found", "Not found");
+      void vaultDesktopDisabled(reply);
       return false;
     }
     if (isDesktopPat(user)) return true;

@@ -730,7 +730,7 @@ describe("il gate (`vaultCallerOf`): la dichiarazione della rotta conta", () => 
     expect(await vaultCallerOf(testDb.db, request({}))).toEqual({ ok: false, code: "session_required" });
     expect(await vaultCallerOf(testDb.db, request({ desktopVault: true, browserOnly: true }))).toMatchObject({ ok: true });
     // L'interruttore d'istanza spento: la rotta dichiarata non c'è per il Mac.
-    expect(await vaultCallerOf(testDb.db, request({ desktopVault: true }, false))).toEqual({ ok: false, code: "not_found" });
+    expect(await vaultCallerOf(testDb.db, request({ desktopVault: true }, false))).toEqual({ ok: false, code: "vault_desktop_disabled" });
   });
 });
 
@@ -882,7 +882,7 @@ describe("l'interruttore `VAULT_DESKTOP` SPENTO (default, decisione di 46 del 25
   const inject = (method: "GET" | "POST" | "DELETE", url: string, headers: Record<string, string>, payload?: unknown) =>
     off.inject({ method, url, headers, ...(payload !== undefined ? { payload: payload as Record<string, unknown> } : {}) });
 
-  it("il PAT desktop riceve 404 `not_found` sull'associazione e sul proprio sigillo, come se le rotte non ci fossero; niente scritto", async () => {
+  it("il PAT desktop riceve 404 `vault_desktop_disabled` (review M2: non il `not_found` generico) sull'associazione e sul proprio sigillo, come se le rotte non ci fossero; niente scritto", async () => {
     const before = (await testDb.db.select().from(vaultDevicePairings)).length;
     const cases: [string, string, unknown?][] = [
       ["POST", "/api/vault/device-pairings", { devicePublicKey: publicJwk(), deviceName: "Mac" }],
@@ -891,7 +891,7 @@ describe("l'interruttore `VAULT_DESKTOP` SPENTO (default, decisione di 46 del 25
     ];
     for (const [method, url, body] of cases) {
       const res = await inject(method as "GET" | "POST" | "DELETE", url, olga.desktop.headers, body);
-      expect([res.statusCode, res.json().code], `${method} ${url}`).toEqual([404, "not_found"]);
+      expect([res.statusCode, res.json().code], `${method} ${url}`).toEqual([404, "vault_desktop_disabled"]);
     }
     expect(await testDb.db.select().from(vaultDevicePairings)).toHaveLength(before);
     expect((await sealsOf(olga.id)).find((s) => s.id === sealId)!.revokedAt).toBeNull();
@@ -908,7 +908,7 @@ describe("l'interruttore `VAULT_DESKTOP` SPENTO (default, decisione di 46 del 25
     ];
     for (const [method, url, body] of cases) {
       const res = await inject(method as "GET" | "POST", url, olga.desktop.headers, body);
-      expect([res.statusCode, res.json().code], `${method} ${url}`).toEqual([404, "not_found"]);
+      expect([res.statusCode, res.json().code], `${method} ${url}`).toEqual([404, "vault_desktop_disabled"]);
     }
     expect(await testDb.db.select().from(credentialAccessLog).where(eq(credentialAccessLog.credentialId, credentialId))).toHaveLength(0);
   });

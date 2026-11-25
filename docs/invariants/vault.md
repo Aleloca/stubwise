@@ -68,7 +68,8 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
   `mobile`) restano come sono. **E sopra tutto l'interruttore d'istanza
   `VAULT_DESKTOP`** (decisione di 46, 25 nov 2026, SPENTO di default, si
   accende solo con l'app desktop firmata): spento, il PAT desktop riceve 404
-  `not_found` sulle rotte `desktopVault` e su quelle del sigillo del Mac
+  `vault_desktop_disabled` (review M2: un codice suo, mai il `not_found` di una
+  credenziale cancellata) sulle rotte `desktopVault` e su quelle del sigillo del Mac
   (`/device-pairings`, `/device-seals/mine`), come se non ci fossero; le rotte
   del browser restano. Il controllo sta negli stessi due punti
   (`vault/device-access.ts` e `desktopOnly` in `routes/vault.ts`).

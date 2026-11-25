@@ -285,7 +285,7 @@ describe("la cassaforte dal desktop passa SOLO dal sigillo del Mac, mai dalla ri
     // è spento: per il Mac la rotta non c'è. Acceso, senza sigillo è
     // `device_seal_required` (vault-device.test.ts).
     const pending = await app.inject({ method: "GET", url: "/api/vault/pending", headers: bearer(p.token) });
-    expect([pending.statusCode, pending.json().code]).toEqual([404, "not_found"]);
+    expect([pending.statusCode, pending.json().code]).toEqual([404, "vault_desktop_disabled"]);
   });
 
   it("ogni rotta /api/vault dichiara browserOnly, salvo quelle aperte al Mac col sigillo (`desktopVault`, elenco chiuso in route-access.test.ts)", async () => {
