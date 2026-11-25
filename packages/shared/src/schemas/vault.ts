@@ -603,6 +603,9 @@ export const vaultDevicePairingLookupResponseSchema = z.object({
   deviceName: z.string(),
   devicePublicKey: z.string(),
   expiresAt: z.iso.datetime(),
+  /** Review I2 (25 nov 2026): quando è nato il login del Mac, e l'ultimo uso. Additivi. */
+  patCreatedAt: z.iso.datetime().nullable().default(null),
+  patLastUsedAt: z.iso.datetime().nullable().default(null),
 });
 export type VaultDevicePairingLookupResponse = z.infer<typeof vaultDevicePairingLookupResponseSchema>;
 
@@ -638,6 +641,8 @@ export const vaultDeviceSealItemSchema = z.object({
   devicePublicKey: z.string(),
   createdAt: z.iso.datetime(),
   lastUsedAt: z.iso.datetime().nullable(),
+  /** Il Mac che chiede (dal desktop, 25 nov 2026): vero solo sul suo sigillo. Additivo. */
+  current: z.boolean().default(false),
 });
 export type VaultDeviceSealItem = z.infer<typeof vaultDeviceSealItemSchema>;
 

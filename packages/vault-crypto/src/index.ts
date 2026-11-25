@@ -18,7 +18,14 @@ export {
   wrapItemKey,
 } from "./items.js";
 export { openActorChallenge, wrapActorChallenge } from "./actor-challenge.js";
-export { generateDeviceKeyPair, importDeviceKey, openDeviceSeal, sealForDevice } from "./device-seal.js";
+export {
+  devicePublicKeyFromRaw,
+  generateDeviceKeyPair,
+  importDeviceKey,
+  openDeviceSeal,
+  sealForDevice,
+  type DeviceKeyAgreement,
+} from "./device-seal.js";
 export {
   generateRecoveryKit,
   openRecoveryChallenge,

@@ -52,10 +52,11 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
   SIGILLO DEL MAC VIVO»** (voce «Il sigillo del dispositivo» sotto): sulle
   SOLE rotte che dichiarano `config.desktopVault` — `reveal`, la sfida della
   propria chiave, gli accessi in attesa (elenco, conferma, rifiuto) e i
-  lettori (elenco, anteprima, condivisione, revoca) — il PAT desktop passa se
+  lettori (elenco, anteprima, condivisione, revoca), e dal 25 nov 2026 (D-9)
+  l'elenco dei propri Mac e la rimozione di un ALTRO proprio Mac — il PAT desktop passa se
   ha un sigillo vivo legato a lui (D-7: tutto come il browser a cassaforte
-  aperta). L'elenco è chiuso in `route-access.test.ts` e nessuna di quelle
-  rotte chiede la riconferma; il controllo sta in UN posto,
+  aperta). L'elenco è chiuso in `route-access.test.ts`, e solo la rimozione
+  di un Mac chiede anche la riconferma (dal desktop, `desktop-reauth`); il controllo sta in UN posto,
   `vault/device-access.ts` (`requireVaultCaller`). La riconferma del desktop
   (`desktop-reauth`) NON apre la cassaforte: senza sigillo il desktop riceve
   403 `device_seal_required`. Restano del browser, anche col sigillo:
@@ -168,8 +169,10 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
 - **Il sigillo del dispositivo (lotto 10, 24 nov 2026): una COPIA della
   chiave di persona per un Mac, che nasce solo da uno sblocco con passkey.**
   Il main del desktop genera una coppia P-256 sua e chiede l'associazione
-  COL SUO PAT desktop (`POST /api/vault/device-pairings`: solo l'hash dello
-  state, 10 minuti, uso singolo, legata a QUEL PAT e a QUELLA pubblica). Il
+  COL SUO PAT desktop E la sua riconferma recente (`POST
+  /api/vault/device-pairings`, review I2: un PAT da solo non basta; solo
+  l'hash dello state, 10 minuti, uso singolo, legata a QUEL PAT e a QUELLA
+  pubblica). Il browser vede da quando esiste quel login e il suo ultimo uso. Il
   browser la legge per state (`/lookup`, lo state nel corpo, mai nei log), la
   persona confronta l'impronta del Mac nelle due finestre, e con la passkey
   (riconferma recente, PRF) e la prova della propria chiave confermata
@@ -185,8 +188,10 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
   la sua chiave di persona è ANCORA quella confermata (una chiave ricreata o
   rifiutata lo spegne senza riscrivere la riga); un PAT revocato lo porta via
   in cascata. **Togliere un Mac toglie il SOLO sigillo, non il PAT** (D-5,
-  decisione del maintainer): dal desktop («Dimentica questo Mac», logout),
-  dal browser (riconferma), o da un full admin per un'altra persona (D-6,
+  decisione del maintainer): dal desktop («Dimentica questo Mac», logout; e
+  dal 25 nov 2026, D-9, anche gli ALTRI propri Mac, col sigillo vivo, la
+  riconferma del desktop E la prova della propria chiave — limite accettato: un Mac rubato e sbloccato può
+  staccare gli altri), dal browser (riconferma), o da un full admin per un'altra persona (D-6,
   riconferma, registro con l'attore, avviso alla persona). Ogni sigillo e
   ogni revoca finiscono nel registro di sicurezza (`vault_device_sealed`,
   `vault_device_seal_revoked`) e avvisano la persona. Test:

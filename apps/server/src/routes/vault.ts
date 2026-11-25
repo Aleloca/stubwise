@@ -31,6 +31,7 @@ import {
   vaultRecoveryPendingBodySchema,
   vaultStatusResponseSchema,
   type VaultConfirmCopy,
+  vaultActorProofSchema,
   vaultDevicePairingBodySchema,
   vaultDevicePairingLookupBodySchema,
   vaultDevicePairingLookupResponseSchema,
@@ -40,7 +41,7 @@ import {
   vaultDeviceSealListSchema,
   vaultDeviceSealMineSchema,
 } from "@stubwise/shared";
-import { isDesktopPat } from "../auth/access.js";
+import { browserOrConfirmedDesktop, isDesktopPat } from "../auth/access.js";
 import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
 import type { SessionUser } from "../auth/session.js";
 import { apiError } from "../errors.js";
@@ -54,7 +55,7 @@ import {
   type VaultActor,
 } from "../vault/pending.js";
 import { requireVaultCaller } from "../vault/device-access.js";
-import { createPairing, createSeal, listSeals, lookupPairing, mineSeal, revokeSeal } from "../vault/device-seals.js";
+import { createPairing, createSeal, listSeals, lookupPairing, mineSeal, ownLiveSeal, revokeSeal } from "../vault/device-seals.js";
 import { currentPersonKey } from "../vault/readers.js";
 import {
   checkRecoveryProof,
@@ -104,6 +105,19 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   // `config.desktopVault` sono aperte anche al PAT desktop col suo sigillo
   // vivo (`vault/device-access.ts`, elenco chiuso in `route-access.test.ts`);
   // tutte le altre restano solo del browser.
+  // Review M9: un DELETE con `content-type: application/json` e corpo VUOTO
+  // (il browser, togliendo un Mac) è un corpo assente, non un 400. Solo in
+  // questo scope; per il resto è il parser di Fastify (con le sue difese
+  // contro proto/constructor poisoning).
+  const defaultJson = instance.getDefaultJsonParser("error", "error");
+  instance.removeContentTypeParser("application/json");
+  instance.addContentTypeParser("application/json", { parseAs: "string" }, (request, body, done) => {
+    if (body === "") {
+      done(null, null);
+      return;
+    }
+    defaultJson(request, body as string, done);
+  });
   instance.addHook("onRoute", (route) => {
     if (route.config?.desktopVault === true) return;
     route.config = { ...(route.config ?? {}), browserOnly: true };
@@ -747,6 +761,13 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const user = request.user!;
       if (!desktopOnly(reply, user)) return reply;
+      // Review I2: un PAT desktop da solo non associa un Mac (rubato, più un
+      // link mandato alla vittima, farebbe sigillare la chiave di persona per
+      // un attaccante): serve la finestra di riconferma del desktop.
+      const verdict = browserOrConfirmedDesktop(user);
+      if (!verdict.ok) {
+        return apiError(reply, 403, "reauth_required", "Recent second factor confirmation required");
+      }
       const outcome = await createPairing(app.db, user, request.body);
       if (!outcome.ok) return vaultNotActive(reply);
       return reply.code(201).send(outcome.value);
@@ -828,30 +849,63 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
-  /** I propri Mac (Impostazioni → Sicurezza). */
+  /**
+   * I propri Mac (Impostazioni → Sicurezza): dal browser, o dal Mac col suo
+   * sigillo vivo (decisione del maintainer, 25 nov 2026), che vede `current`
+   * vero sul proprio.
+   */
   app.get(
     "/device-seals",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, desktopVault: true },
       schema: { response: { 200: vaultDeviceSealListSchema, ...errorResponses } },
     },
     async (request, reply) => {
-      const user = request.user!;
-      if (isPat(user)) return sessionRequired(reply);
-      return reply.code(200).send({ items: await listSeals(app.db, user.id) });
+      const caller = await requireVaultCaller(app.db, request, reply);
+      if (!caller) return reply;
+      const current = caller.via === "desktop" ? caller.sealId : null;
+      return reply.code(200).send({ items: await listSeals(app.db, request.user!.id, current) });
     },
   );
 
-  /** Togliere un proprio Mac dal browser: il SOLO sigillo, il Mac resta collegato (D-5). */
+  /**
+   * Togliere un proprio Mac: il SOLO sigillo, il Mac resta collegato (D-5).
+   * Dal browser, o (decisione del maintainer, 25 nov 2026) da un ALTRO Mac
+   * della persona col suo sigillo vivo, la riconferma del desktop E la prova
+   * della propria chiave (`actorProof`, decisione di 46 del 25 nov 2026: la
+   * cassaforte è aperta, quindi il Touch ID è passato; la riconferma dice che
+   * è la persona). Il proprio sigillo il Mac lo toglie con `DELETE .../mine`
+   * (409 `use_mine`). Un Mac di un'altra persona → 404.
+   */
   app.delete(
     "/device-seals/:id",
     {
-      config: { access: { kind: "user" }, reauth: true },
-      schema: { params: z.object({ id: z.uuid() }), response: { 204: z.null(), ...errorResponses } },
+      config: { access: { kind: "user" }, reauth: true, desktopVault: true },
+      schema: {
+        params: z.object({ id: z.uuid() }),
+        // Dal browser il corpo non serve; dal Mac `actorProof` è obbligatorio (sotto).
+        body: z.object({ actorProof: vaultActorProofSchema.optional() }).nullish(),
+        response: { 204: z.null(), ...errorResponses },
+      },
     },
     async (request, reply) => {
       const user = request.user!;
-      if (!(await revokeSeal(app.db, user, { id: request.params.id }, "removed", null))) return sealNotFound(reply);
+      const caller = await requireVaultCaller(app.db, request, reply);
+      if (!caller) return reply;
+      if (caller.via === "desktop" && caller.sealId === request.params.id) {
+        return apiError(reply, 409, "use_mine", "To forget this Mac use DELETE /api/vault/device-seals/mine");
+      }
+      if (caller.via === "desktop") {
+        // Review M9: prima il sigillo (della persona, vivo), POI la prova: un
+        // id sbagliato non brucia la sfida.
+        if (!(await ownLiveSeal(app.db, user.id, request.params.id))) return sealNotFound(reply);
+        const proof = request.body?.actorProof;
+        if (!proof || !(await consumeActorProof(app.db, user, proof))) {
+          return apiError(reply, 403, "vault_proof_invalid", "Vault key proof missing, wrong, expired or already used");
+        }
+      }
+      const from = caller.via === "desktop" ? { sealId: caller.sealId } : null;
+      if (!(await revokeSeal(app.db, user, { id: request.params.id }, "removed", null, from))) return sealNotFound(reply);
       return reply.code(204).send(null);
     },
   );
