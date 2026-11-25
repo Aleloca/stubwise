@@ -15,14 +15,6 @@ import { lastQueryClient, renderRoute } from "../../test/renderRoute";
 // nel DOM nemmeno per un momento.
 
 const PASSWORDS = /Kx4!pa|Gq7#v2|mg-Tr9|sk-Wd2|Fg5&k1/;
-// La sezione nella build «app» (M10) non è ancora accesa in `INTEGRATED`
-// (lo decide il piano): qui la si tratta come integrata. Fuori dalla build
-// «app» `isIntegrated` è già sempre vero, quindi gli altri test non cambiano.
-vi.mock("../../data/integration", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../data/integration")>()),
-  isIntegrated: () => true,
-}));
-
 let clip = "";
 
 beforeEach(() => {
