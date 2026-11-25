@@ -93,8 +93,11 @@ describe("la cassaforte dal desktop (lotto 10, D-7)", () => {
     const desktop = (await registeredRoutes()).filter((r) => r.desktopVault).map((r) => r.key);
     expect(desktop).toEqual([
       "DELETE /api/credentials/:id/readers/:readerId",
+      // 25 nov 2026: togliere un ALTRO proprio Mac dal desktop, e l'elenco dei Mac.
+      "DELETE /api/vault/device-seals/:id",
       "GET /api/credentials/:id/readers",
       "GET /api/credentials/:id/readers/preview",
+      "GET /api/vault/device-seals",
       "GET /api/vault/pending",
       "POST /api/credentials/:id/readers",
       "POST /api/credentials/:id/reveal",
@@ -104,9 +107,9 @@ describe("la cassaforte dal desktop (lotto 10, D-7)", () => {
     ]);
   });
 
-  it("nessuna di loro chiede la riconferma (il gate del PAT desktop non le aprirebbe)", async () => {
+  it("una sola chiede ANCHE la riconferma (dal desktop, la finestra di `desktop-reauth`): togliere un Mac", async () => {
     const both = (await registeredRoutes()).filter((r) => r.desktopVault && r.reauth !== undefined).map((r) => r.key);
-    expect(both).toEqual([]);
+    expect(both).toEqual(["DELETE /api/vault/device-seals/:id"]);
   });
 });
 

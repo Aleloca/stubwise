@@ -386,10 +386,13 @@ describe("i Mac dal browser (GET /api/vault/device-seals, DELETE /api/vault/devi
     expect(items.map((i) => i.id)).toEqual((await sealsOf(ada.id)).filter((s) => !s.revokedAt).map((s) => s.id));
   });
 
-  it("un PAT (anche desktop) non elenca né toglie: 403 `session_required`", async () => {
+  it("un PAT `manual` o `mobile` non elenca né toglie: 403 `session_required` (il desktop col sigillo sì: sotto)", async () => {
     const [row] = await sealsOf(ada.id);
-    expect((await call("GET", "/api/vault/device-seals", ada.desktop.headers)).json().code).toBe("session_required");
-    expect((await call("DELETE", `/api/vault/device-seals/${row!.id}`, ada.desktop.headers)).json().code).toBe("session_required");
+    for (const kind of ["manual", "mobile"] as const) {
+      const headers = (await pat(ada.id, kind)).headers;
+      expect((await call("GET", "/api/vault/device-seals", headers)).json().code, kind).toBe("session_required");
+      expect((await call("DELETE", `/api/vault/device-seals/${row!.id}`, headers)).json().code, kind).toBe("session_required");
+    }
   });
 
   it("il Mac di un'altra persona → 404, intatto; senza riconferma recente → 403 `reauth_required`", async () => {
@@ -552,7 +555,6 @@ describe("il PAT desktop col sigillo sulle rotte della cassaforte (D-7)", () => 
       ["GET", "/api/vault/recovery-key/preview"],
       ["POST", "/api/vault/recovery/challenge"],
       ["POST", "/api/vault/device-pairings/lookup", { state: "x" }],
-      ["GET", "/api/vault/device-seals"],
     ];
     for (const [method, url, body] of cases) {
       const res = await call(method as "GET" | "POST", url, gus.desktop.headers, body);
@@ -632,5 +634,92 @@ describe("il gate (`vaultCallerOf`): la dichiarazione della rotta conta", () => 
     expect(await vaultCallerOf(testDb.db, request({ desktopVault: true }))).toEqual({ ok: true, caller: { via: "desktop", sealId: pair.deviceId } });
     expect(await vaultCallerOf(testDb.db, request({}))).toEqual({ ok: false, code: "session_required" });
     expect(await vaultCallerOf(testDb.db, request({ desktopVault: true, browserOnly: true }))).toMatchObject({ ok: true });
+  });
+});
+
+describe("togliere un ALTRO proprio Mac dal desktop (decisione del maintainer, 25 nov 2026)", () => {
+  let jo: Person;
+  /** Il secondo Mac di jo, da togliere dal primo. */
+  let other: { id: string; headers: { authorization: string } };
+  let otherSealId: string;
+
+  const fresh = (patId: string, at: Date | null = new Date()) =>
+    testDb.db.update(personalAccessTokens).set({ secondFactorAt: at }).where(eq(personalAccessTokens.id, patId));
+
+  async function sealedFor(p: Person, desktop: { id: string; headers: { authorization: string } }) {
+    const pair = await pairing({ ...p, desktop });
+    const res = await call("POST", "/api/vault/device-seals", { cookie: p.cookie }, await sealBody(p, pair));
+    expect(res.statusCode, res.body).toBe(201);
+    return pair.deviceId;
+  }
+
+  beforeAll(async () => {
+    jo = await person("jo-device@example.com");
+    await sealedFor(jo, jo.desktop);
+    other = await pat(jo.id, "desktop");
+    otherSealId = await sealedFor(jo, other);
+  });
+
+  const remove = (id: string, headers: Record<string, string>) => call("DELETE", `/api/vault/device-seals/${id}`, headers);
+
+  it("un PAT `manual` → 403 `session_required`, niente tolto", async () => {
+    const manual = await pat(jo.id, "manual");
+    const res = await remove(otherSealId, manual.headers);
+    expect([res.statusCode, res.json().code]).toEqual([403, "session_required"]);
+    expect((await sealsOf(jo.id)).find((s) => s.id === otherSealId)!.revokedAt).toBeNull();
+  });
+
+  it("senza la riconferma del desktop → 403 `reauth_required`, niente tolto", async () => {
+    await fresh(jo.desktop.id, null);
+    const res = await remove(otherSealId, jo.desktop.headers);
+    expect([res.statusCode, res.json().code]).toEqual([403, "reauth_required"]);
+    expect((await sealsOf(jo.id)).find((s) => s.id === otherSealId)!.revokedAt).toBeNull();
+  });
+
+  it("un PAT desktop riconfermato ma SENZA sigillo vivo → 403 `device_seal_required`, niente tolto", async () => {
+    const bare = await pat(jo.id, "desktop");
+    await fresh(bare.id);
+    const res = await remove(otherSealId, bare.headers);
+    expect([res.statusCode, res.json().code]).toEqual([403, "device_seal_required"]);
+    expect((await sealsOf(jo.id)).find((s) => s.id === otherSealId)!.revokedAt).toBeNull();
+  });
+
+  it("l'elenco dal Mac (col sigillo vivo): i propri Mac vivi, `current` vero SOLO per il suo; dal browser `current` è falso", async () => {
+    const mine = (await call("GET", "/api/vault/device-seals/mine", jo.desktop.headers)).json() as { id: string };
+    const res = await call("GET", "/api/vault/device-seals", jo.desktop.headers);
+    expect(res.statusCode, res.body).toBe(200);
+    const items = (res.json() as { items: { id: string; current: boolean }[] }).items;
+    expect(items.map((i) => [i.id, i.current]).sort()).toEqual([[mine.id, true], [otherSealId, false]].sort());
+    const browser = (await call("GET", "/api/vault/device-seals", { cookie: jo.cookie })).json() as { items: { current: boolean }[] };
+    expect(browser.items.every((i) => i.current === false)).toBe(true);
+  });
+
+  it("il sigillo del Mac che chiama, per id → 409 `use_mine` (per quello c'è DELETE .../mine), intatto", async () => {
+    await fresh(jo.desktop.id);
+    const mine = (await call("GET", "/api/vault/device-seals/mine", jo.desktop.headers)).json() as { id: string };
+    const res = await remove(mine.id, jo.desktop.headers);
+    expect([res.statusCode, res.json().code]).toEqual([409, "use_mine"]);
+    expect((await sealsOf(jo.id)).find((s) => s.id === mine.id)!.revokedAt).toBeNull();
+  });
+
+  it("il Mac di un'ALTRA persona → 404, intatto", async () => {
+    const kim = await person("kim-device@example.com");
+    const kimSeal = await sealedFor(kim, kim.desktop);
+    await fresh(jo.desktop.id);
+    expect((await remove(kimSeal, jo.desktop.headers)).statusCode).toBe(404);
+    expect((await sealsOf(kim.id))[0]!.revokedAt).toBeNull();
+  });
+
+  it("col sigillo vivo e la riconferma, il Mac toglie l'ALTRO Mac della persona: il solo sigillo, registro e avviso; l'altro Mac resta collegato", async () => {
+    await fresh(jo.desktop.id);
+    const before = (await alerts(jo.id)).length;
+    expect((await remove(otherSealId, jo.desktop.headers)).statusCode).toBe(204);
+    expect((await sealsOf(jo.id)).find((s) => s.id === otherSealId)).toMatchObject({ revokedReason: "removed" });
+    expect(await events(jo.id, "vault_device_seal_revoked")).toHaveLength(1);
+    expect((await alerts(jo.id)).length).toBe(before + 1);
+    expect((await call("GET", "/api/auth/me", other.headers)).statusCode).toBe(200);
+    expect((await call("GET", "/api/vault/device-seals/mine", other.headers)).statusCode).toBe(404);
+    // Il Mac che ha tolto l'altro tiene il suo sigillo.
+    expect((await call("GET", "/api/vault/device-seals/mine", jo.desktop.headers)).statusCode).toBe(200);
   });
 });
