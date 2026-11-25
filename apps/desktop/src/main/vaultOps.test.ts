@@ -507,7 +507,7 @@ describe("le operazioni della cassaforte nel main", () => {
         copies: { recipientId: string; wrappedKey: string }[];
         recoveryPublicKey: string;
       };
-      expect(out).toEqual({ ok: true, id: body.id });
+      expect(out).toEqual({ ok: true, id: body.id, resaved: false });
       expect(body.service).toBe("Brevo SMTP");
       expect(JSON.stringify(body)).not.toContain("Bb3!brevo-99");
       expect(body.copies.map((c) => c.recipientId).sort()).toEqual([PK, "recovery"].sort());
@@ -537,7 +537,7 @@ describe("le operazioni della cassaforte nel main", () => {
           { service: "S", label: null, url: null, username: null, notes: null },
           "pw",
         ),
-      ).toMatchObject({ ok: true });
+      ).toEqual({ ok: true, id: expect.any(String), resaved: true });
       expect(posts).toBe(2);
     });
 
@@ -546,7 +546,8 @@ describe("le operazioni della cassaforte nel main", () => {
         [`GET /api/credentials/${CRED}/recipients`]: () => recipientsOf(),
         [`PUT /api/credentials/${CRED}/password`]: () => null,
       });
-      expect(await ops.setPassword(CRED, "Nn1!nuova-22")).toEqual({ ok: true });
+      // [VA 6]: risalvato solo dopo un 409; qui no.
+      expect(await ops.setPassword(CRED, "Nn1!nuova-22")).toEqual({ ok: true, resaved: false });
       const put = calls.find((c) => c.method === "PUT")!;
       const body = put.body as {
         passwordCiphertext: string;

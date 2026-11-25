@@ -231,7 +231,7 @@ export function createVaultOps(deps: VaultOpsDeps) {
       copies: { recipientId: string; wrappedKey: string }[];
       recoveryPublicKey: string;
     }) => Promise<unknown>;
-  }): Promise<void> {
+  }): Promise<{ resaved: boolean }> {
     const encrypt = async (r: CredentialRecipients) => {
       const { passwordCiphertext, copies } = await encryptForInsert({
         credentialId: input.credentialId,
@@ -249,6 +249,7 @@ export function createVaultOps(deps: VaultOpsDeps) {
     );
     try {
       await input.write(await encrypt(first));
+      return { resaved: false };
     } catch (error) {
       const current =
         error instanceof VaultHttpError &&
@@ -260,6 +261,8 @@ export function createVaultOps(deps: VaultOpsDeps) {
           : null;
       if (!current?.success) throw error;
       await input.write(await encrypt(current.data));
+      // [VA 6]: risalvata per i lettori di adesso; il renderer lo dice.
+      return { resaved: true };
     }
   }
 
@@ -492,10 +495,10 @@ export function createVaultOps(deps: VaultOpsDeps) {
       projectId: string,
       fields: CredentialFields,
       password: string,
-    ): Promise<{ ok: true; id: string } | OpFailure> => {
+    ): Promise<{ ok: true; id: string; resaved: boolean } | OpFailure> => {
       const id = crypto.randomUUID();
       try {
-        await writeEncrypted({
+        const { resaved } = await writeEncrypted({
           credentialId: id,
           password,
           recipientsPath: `/api/projects/${seg(projectId)}/credentials/recipients`,
@@ -506,7 +509,7 @@ export function createVaultOps(deps: VaultOpsDeps) {
               ...enc,
             }),
         });
-        return { ok: true, id };
+        return { ok: true, id, resaved };
       } catch (error) {
         if (isDisabled(error)) {
           deps.lock.markDisabled();
@@ -519,16 +522,15 @@ export function createVaultOps(deps: VaultOpsDeps) {
 
     /** La password nuova (fetta 4): con la cassaforte aperta, come vuole la shape. */
     setPassword: (credentialId: string, password: string) =>
-      guarded(async () => {
-        await writeEncrypted({
+      guarded(async () =>
+        writeEncrypted({
           credentialId,
           password,
           recipientsPath: `/api/credentials/${seg(credentialId)}/recipients`,
           write: (enc) =>
             deps.request("PUT", `/api/credentials/${seg(credentialId)}/password`, enc),
-        });
-        return {};
-      }),
+        }),
+      ),
 
     reject: (targetKeyId: string) =>
       guarded(async (key, personKeyId) => {

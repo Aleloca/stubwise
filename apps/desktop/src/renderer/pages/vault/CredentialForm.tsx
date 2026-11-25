@@ -104,7 +104,7 @@ export function CredentialForm({
         // Review I3: le variabili (con la password) non restano nella mutazione.
         create.reset();
         if (!out?.ok) return void toast.error(t("vault.form.failed"));
-        toast.show(t("vault.form.created"));
+        toast.show(t(out.resaved ? "vault.form.resaved" : "vault.form.created"));
         onSaved(out.id);
         return;
       }
@@ -120,7 +120,7 @@ export function CredentialForm({
         .catch(() => null);
       update.reset();
       if (!out?.ok) return void toast.error(t("vault.form.failed"));
-      toast.show(t("vault.form.saved"));
+      toast.show(t(out.resaved ? "vault.form.resaved" : "vault.form.saved"));
       onSaved(mode.view.id);
     } finally {
       setSaving(false);

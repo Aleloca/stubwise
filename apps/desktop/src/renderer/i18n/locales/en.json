@@ -13713,7 +13713,8 @@
       "saved": "Changes saved.",
       "failed": "Couldn't save the credential.",
       "locked": "Open the vault to change the password.",
-      "project": "Project"
+      "project": "Project",
+      "resaved": "Someone's access changed while you were saving. Saved again for the current readers."
     },
     "readers": {
       "title": "Readers",

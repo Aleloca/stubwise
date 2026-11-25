@@ -352,6 +352,7 @@ describe("le letture della cassaforte, dalle rotte", () => {
       });
       expect(await vault.updateCredential(C1, { label: "Pannello", notes: null })).toEqual({
         ok: true,
+        resaved: false,
       });
       expect(seen.find((r) => r.method === "PATCH")!.body).toEqual({
         label: "Pannello",
@@ -361,11 +362,23 @@ describe("le letture della cassaforte, dalle rotte", () => {
       seen.length = 0;
       expect(await vault.updateCredential(C1, { label: "X", password: "Nn1!segreta" })).toEqual({
         ok: true,
+        resaved: false,
       });
       expect(setPassword).toHaveBeenCalledWith(C1, "Nn1!segreta");
       expect(order.slice(-2)).toEqual(["password", "patch"]);
       // Sulla rotta la password non va mai.
       expect(JSON.stringify(seen)).not.toContain("Nn1!segreta");
+    });
+
+    // [VA 6]: il main ha risalvato per i lettori cambiati; l'adattatore lo porta su.
+    it("la password nuova risalvata dal main: `resaved`", async () => {
+      vi.stubGlobal("stubwise", {
+        vault: { setPassword: vi.fn(async () => ({ ok: true as const, resaved: true })) },
+      });
+      expect(await vault.updateCredential(C1, { password: "Nn1!segreta" })).toEqual({
+        ok: true,
+        resaved: true,
+      });
     });
 
     it("la password nuova a cassaforte chiusa: `vault_locked`, e i campi non si toccano", async () => {
@@ -391,7 +404,11 @@ describe("le letture della cassaforte, dalle rotte", () => {
         notes: null,
         password: "Bb3!",
       };
-      expect(await vault.createCredential(PROJECT_ID, input)).toEqual({ ok: true, id: C2 });
+      expect(await vault.createCredential(PROJECT_ID, input)).toEqual({
+        ok: true,
+        id: C2,
+        resaved: false,
+      });
       expect(create).toHaveBeenCalledWith(
         PROJECT_ID,
         { service: "Brevo SMTP", label: null, url: null, username: "pm", notes: null },

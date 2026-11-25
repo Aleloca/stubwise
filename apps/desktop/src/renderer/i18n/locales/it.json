@@ -13713,7 +13713,8 @@
       "saved": "Modifiche salvate.",
       "failed": "Non è stato possibile salvare la credenziale.",
       "locked": "Apri la cassaforte per cambiare la password.",
-      "project": "Progetto"
+      "project": "Progetto",
+      "resaved": "L'accesso di qualcuno è cambiato mentre salvavi. Salvata di nuovo per chi la legge adesso."
     },
     "readers": {
       "title": "Lettori",

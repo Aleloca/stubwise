@@ -261,16 +261,19 @@ const failOf = (error: unknown): { ok: false; code: string } => ({
  */
 export const updateCredential: FakeVault["updateCredential"] = async (id, input) => {
   const { password, ...plain } = input;
+  // [VA 6]: il main dice se ha risalvato per i lettori cambiati.
+  let resaved = false;
   if (password !== undefined && password !== "") {
     const b = window.stubwise?.vault;
     if (!b) return { ok: false, code: "unsupported" };
     const out = await b.setPassword(id, password);
     if (!out.ok) return { ok: false, code: out.code };
+    resaved = out.resaved === true;
   }
-  if (Object.keys(plain).length === 0) return { ok: true };
+  if (Object.keys(plain).length === 0) return { ok: true, resaved };
   try {
     await appClient().credentials.update(id, plain);
-    return { ok: true };
+    return { ok: true, resaved };
   } catch (error) {
     return failOf(error);
   }
@@ -282,7 +285,9 @@ export const createCredential: FakeVault["createCredential"] = async (projectId,
   if (!b) return { ok: false, code: "unsupported" };
   const { password, ...fields } = input;
   const out = await b.create(projectId, fields, password);
-  return out.ok ? { ok: true, id: out.id } : { ok: false, code: out.code };
+  return out.ok
+    ? { ok: true, id: out.id, resaved: out.resaved === true }
+    : { ok: false, code: out.code };
 };
 
 export const deleteCredential: FakeVault["deleteCredential"] = async (id) => {

@@ -537,7 +537,7 @@ export interface CredentialInput {
 export async function createCredential(
   projectId: string,
   input: CredentialInput,
-): Promise<{ ok: true; id: string } | VaultFailure> {
+): Promise<{ ok: true; id: string; resaved?: boolean } | VaultFailure> {
   const me = await gate("vault.createCredential");
   if (!v().active) return fail("vault_not_active");
   if (!canI(me, "credentials.create", projectId)) return fail("forbidden");
@@ -561,7 +561,7 @@ export async function createCredential(
 export async function updateCredential(
   id: string,
   input: Partial<CredentialInput>,
-): Promise<{ ok: true } | VaultFailure> {
+): Promise<{ ok: true; resaved?: boolean } | VaultFailure> {
   const me = await gate("vault.updateCredential");
   const c = credentialById(id);
   if (!c || !viewOf(me, c)) return fail("not_found");
