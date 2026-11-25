@@ -81,6 +81,9 @@ const EVENT_KINDS: Record<string, string> = {
   vault_activated: "vault_activated",
   vault_seal_replaced: "vault_seal_replaced",
   vault_recovery_key_rotated: "vault_recovery_key_rotated",
+  // Lotto 10 (72, 6a13ab3c1): il Mac associato alla cassaforte, e tolto.
+  vault_device_sealed: "vault_device_sealed",
+  vault_device_seal_revoked: "vault_device_seal_revoked",
   reauth_desktop: "reauth_desktop",
 };
 

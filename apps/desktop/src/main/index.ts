@@ -5,6 +5,7 @@ import { keyFingerprint, openDeviceSeal } from "@stubwise/vault-crypto";
 import {
   app,
   BrowserWindow,
+  clipboard,
   dialog,
   ipcMain,
   Menu,
@@ -34,6 +35,7 @@ import { clearToken, logout, readPatId, readToken, replaceToken } from "./sessio
 import { devicePrivateKey, forgetDevice, generateDeviceKey, readDevice, saveDevice } from "./vaultDevice";
 import { registerVaultIpc } from "./vaultIpc";
 import { createVaultLock } from "./vaultLock";
+import { createVaultOps } from "./vaultOps";
 import { createVaultPairing } from "./vaultPairing";
 import { createVaultRemote } from "./vaultRemote";
 import {
@@ -210,6 +212,14 @@ const vaultPairing = createVaultPairing({
   save: saveDevice,
   paired: () => vault.markPaired(),
   fingerprint: keyFingerprint,
+});
+
+// Le operazioni con la chiave di persona (a912fbcb8): al renderer la password
+// di «Show», esiti e conteggi; «Copy» scrive gli appunti da qui.
+const vaultOps = createVaultOps({
+  lock: vault,
+  request: (method, path, body) => vaultRemote.request(method, path, body),
+  clipboard: { write: (text) => clipboard.writeText(text), read: () => clipboard.readText() },
 });
 
 /** Il ritorno dall'associazione: si apre subito (D-1b, senza tocco) e il renderer lo sa. */
@@ -537,7 +547,7 @@ app.on("open-url", (event, url) => {
   void app.whenReady().then(() => receiveAuthUrl(url));
 });
 
-registerVaultIpc(ipcMain, { lock: vault, pairing: vaultPairing, fromApp });
+registerVaultIpc(ipcMain, { lock: vault, pairing: vaultPairing, ops: vaultOps, fromApp });
 
 void app.whenReady().then(() => {
   // D-2: in stop e a schermo bloccato la privata si dimentica (il dispositivo resta).

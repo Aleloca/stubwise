@@ -6,6 +6,8 @@ import { createVaultRemote } from "./vaultRemote";
 // desktop, chiamate dal main col suo token. Il token non esce dal main.
 
 const BASE = "https://stubwise.example";
+const DEVICE = "dddddddd-0000-4000-8000-000000000001";
+const PERSON_KEY = "eeeeeeee-0000-4000-8000-000000000001";
 
 function remote(respond: (url: string, init: RequestInit) => Response) {
   const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) =>
@@ -20,11 +22,11 @@ const json = (status: number, body: unknown) =>
 describe("le rotte del sigillo del dispositivo, dal main", () => {
   it("l'accoppiamento: la pubblica e il nome col bearer; risponde state e id del dispositivo", async () => {
     const { r, fetch } = remote(() =>
-      json(201, { state: "s-1", deviceId: "d-1", expiresAt: "2026-11-24T10:10:00Z" }),
+      json(201, { state: "s-1", deviceId: DEVICE, expiresAt: "2026-11-24T10:10:00Z" }),
     );
     expect(await r.pair('{"kty":"EC"}', "MacBook Pro")).toEqual({
       state: "s-1",
-      deviceId: "d-1",
+      deviceId: DEVICE,
       expiresAt: "2026-11-24T10:10:00Z",
     });
     const [url, init] = fetch.mock.calls[0]!;
@@ -44,9 +46,9 @@ describe("le rotte del sigillo del dispositivo, dal main", () => {
 
   it("il sigillo: la forma della rotta; un 404 `device_seal_not_found` è la revoca", async () => {
     const seal = {
-      id: "d-1",
+      id: DEVICE,
       deviceName: "Mac",
-      personKeyId: "pk-1",
+      personKeyId: PERSON_KEY,
       personPublicKey: "{}",
       seal: "env",
     };
@@ -60,6 +62,14 @@ describe("le rotte del sigillo del dispositivo, dal main", () => {
     await expect(
       remote(() => json(500, { code: "internal", message: "x" })).r.fetchSeal(),
     ).rejects.toThrow();
+  });
+
+  it("una risposta che non ha la forma degli schemi (`@stubwise/shared`) è un errore, non un sigillo", async () => {
+    const bad = { id: "not-a-uuid", deviceName: "Mac", personKeyId: PERSON_KEY, personPublicKey: "{}", seal: "env" };
+    await expect(remote(() => json(200, bad)).r.fetchSeal()).rejects.toThrow("invalid_response");
+    await expect(
+      remote(() => json(201, { state: "s-1", deviceId: DEVICE })).r.pair("{}", "Mac"),
+    ).rejects.toThrow("invalid_response");
   });
 
   it("«Dimentica»: DELETE del proprio sigillo; 204 anche se non c'è", async () => {

@@ -7,6 +7,7 @@ import type { SaveFileRequest, SaveFileResult } from "../main/security";
 import type { SessionChange } from "../main/browserLogin";
 import type { UnlockResult, VaultStatus } from "../main/vaultLock";
 import type { PairingCode } from "../main/vaultPairing";
+import type { PendingPersonView, ReaderTarget } from "../main/vaultOps";
 
 type ResolvedTheme = "light" | "dark";
 type MenuChannel = "menu:search" | "menu:preferences" | "menu:ask-claude" | "menu:undo" | "menu:redo";
@@ -149,6 +150,29 @@ contextBridge.exposeInMainWorld("stubwise", {
     pairStart: (): Promise<{ ok: true; fingerprint: string } | { ok: false; code: PairingCode }> =>
       ipcRenderer.invoke("vault:pair-start"),
     pairCancel: (): Promise<{ ok: boolean }> => ipcRenderer.invoke("vault:pair-cancel"),
+    // Le operazioni con la chiave, fatte nel main: «Show» dà la password,
+    // «Copy» no (scrive gli appunti il main); il resto esiti e conteggi.
+    show: (credentialId: string): Promise<{ ok: true; password: string } | { ok: false; code: string }> =>
+      ipcRenderer.invoke("vault:show", credentialId),
+    copy: (credentialId: string): Promise<{ ok: true } | { ok: false; code: string }> =>
+      ipcRenderer.invoke("vault:copy", credentialId),
+    share: (
+      credentialId: string,
+      target: ReaderTarget,
+    ): Promise<{ ok: true; waiting: string[] } | { ok: false; code: string }> =>
+      ipcRenderer.invoke("vault:share", credentialId, target),
+    removeReader: (credentialId: string, readerId: string): Promise<{ ok: true } | { ok: false; code: string }> =>
+      ipcRenderer.invoke("vault:remove-reader", credentialId, readerId),
+    pending: (): Promise<{ ok: true; items: PendingPersonView[] } | { ok: false; code: string }> =>
+      ipcRenderer.invoke("vault:pending"),
+    confirm: (
+      personKeyId: string,
+    ): Promise<
+      | { ok: true; saved: number; keyChanged: number; notAllowed: number; unopenable: number }
+      | { ok: false; code: string }
+    > => ipcRenderer.invoke("vault:confirm", personKeyId),
+    reject: (personKeyId: string): Promise<{ ok: true } | { ok: false; code: string }> =>
+      ipcRenderer.invoke("vault:reject", personKeyId),
     onChanged: (cb: (status: VaultStatus) => void): (() => void) => {
       const handler = (_event: unknown, status: VaultStatus) => cb(status);
       ipcRenderer.on("vault:changed", handler);
