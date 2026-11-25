@@ -60,6 +60,7 @@ import {
   isNavigationAllowed,
   refusedDebugSwitch,
   rendererDevUrl,
+  webPreferencesFor,
   parseSaveFileRequest,
   safeFileName,
   saveFilterFor,
@@ -98,12 +99,10 @@ function createWindow(): BrowserWindow {
     minWidth: 1024,
     minHeight: 680,
     ...windowOptions(process.platform, themeFromDark(nativeTheme.shouldUseDarkColors)),
-    webPreferences: {
+    webPreferences: webPreferencesFor({
+      isPackaged: app.isPackaged,
       preload: join(here, "../preload/index.cjs"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
+    }),
   });
 
   // Nessuna nuova finestra: i link http(s) vanno al browser di sistema (mai
@@ -604,7 +603,9 @@ function installMenu(): void {
     const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
     win?.webContents.send(channel);
   };
-  const template = buildMenuTemplate(process.platform, app.name, send);
+  const template = buildMenuTemplate(process.platform, app.name, send, {
+    devTools: !app.isPackaged,
+  });
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 

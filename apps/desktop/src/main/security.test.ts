@@ -8,6 +8,7 @@ import {
   PRODUCTION_CSP,
   refusedDebugSwitch,
   rendererDevUrl,
+  webPreferencesFor,
   safeFileName,
   saveFilterFor,
   withExtension,
@@ -174,5 +175,20 @@ describe("refusedDebugSwitch (C2)", () => {
     expect(
       refusedDebugSwitch({ isPackaged: false, hasSwitch: has("remote-debugging-port") }),
     ).toBeNull();
+  });
+});
+
+// M6: i DevTools solo in sviluppo; il resto dell'isolamento non cambia.
+describe("webPreferencesFor (M6)", () => {
+  it("nel pacchetto niente DevTools; isolamento e sandbox sempre", () => {
+    const packaged = webPreferencesFor({ isPackaged: true, preload: "/p.cjs" });
+    expect(packaged).toEqual({
+      preload: "/p.cjs",
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      devTools: false,
+    });
+    expect(webPreferencesFor({ isPackaged: false, preload: "/p.cjs" }).devTools).toBe(true);
   });
 });

@@ -57,6 +57,21 @@ export function refusedDebugSwitch(opts: {
   return DEBUG_SWITCHES.find((name) => opts.hasSwitch(name)) ?? null;
 }
 
+/**
+ * Le preferenze della finestra: isolamento del contesto, niente Node, sandbox;
+ * e i DevTools solo in sviluppo (M6, seconda revisione della cassaforte: dal
+ * pacchetto la console leggerebbe il bridge con la cassaforte aperta).
+ */
+export function webPreferencesFor(opts: { isPackaged: boolean; preload: string }) {
+  return {
+    preload: opts.preload,
+    contextIsolation: true,
+    nodeIntegration: false,
+    sandbox: true,
+    devTools: !opts.isPackaged,
+  };
+}
+
 export function isNavigationAllowed(
   target: string,
   opts: { devUrl?: string; packagedUrl: string },
