@@ -35,7 +35,9 @@ describe("il pacchetto del Mac", () => {
     expect(fuses).toMatch(/grantFileProtocolExtraPrivileges: false/);
     expect(fuses).toMatch(/enableCookieEncryption: true/);
     const check = read("scripts/check-fuses.mjs");
-    expect(check).toMatch(/\[FuseV1Options\.GrantFileProtocolExtraPrivileges\]: FuseState\.DISABLE/);
+    expect(check).toMatch(
+      /\[FuseV1Options\.GrantFileProtocolExtraPrivileges\]: FuseState\.DISABLE/,
+    );
     expect(check).toMatch(/\[FuseV1Options\.EnableCookieEncryption\]: FuseState\.ENABLE/);
     expect(builder).toMatch(/asar: true/);
   });
