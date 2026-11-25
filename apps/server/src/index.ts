@@ -39,6 +39,7 @@ const app = buildApp({
   encryptionKey: config.encryptionKey,
   publicUrl: config.publicUrl,
   mailClassifyV2: config.mailClassifyV2,
+  vaultDesktop: config.vaultDesktop,
   trustProxy: config.trustProxy,
   embeddingBaseUrl: config.embeddingBaseUrl,
   embeddingModel: config.embeddingModel,

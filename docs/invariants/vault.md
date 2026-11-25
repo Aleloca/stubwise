@@ -65,7 +65,13 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
   dichiara `config.browserOnly` su ogni altra rotta). La sfida della propria
   chiave chiesta dal Mac è legata al SUO PAT (`pat_id`, non la sessione): non
   vale dal browser né da un altro Mac, e viceversa. Gli altri PAT (`manual`,
-  `mobile`) restano come sono.
+  `mobile`) restano come sono. **E sopra tutto l'interruttore d'istanza
+  `VAULT_DESKTOP`** (decisione di 46, 25 nov 2026, SPENTO di default, si
+  accende solo con l'app desktop firmata): spento, il PAT desktop riceve 404
+  `not_found` sulle rotte `desktopVault` e su quelle del sigillo del Mac
+  (`/device-pairings`, `/device-seals/mine`), come se non ci fossero; le rotte
+  del browser restano. Il controllo sta negli stessi due punti
+  (`vault/device-access.ts` e `desktopOnly` in `routes/vault.ts`).
 - **Conferma umana obbligatoria, mai automatica.** Una persona entra su una
   credenziale solo se un'altra persona che la apre già (con `credentials.share`,
   o un full admin) conferma che la sua chiave è davvero la sua. Nessun

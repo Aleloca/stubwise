@@ -52,6 +52,17 @@ const envSchema = z.object({
       .transform((value) => value === true || value === "true")
       .default(false),
   ),
+  // Lotto 10 (decisione di 46, 25 nov 2026): la cassaforte dal desktop.
+  // SPENTA di default: si accende SOLO quando l'app desktop distribuita è il
+  // build FIRMATO (chiave del Mac nel Secure Enclave). Spenta, l'associazione
+  // e le rotte aperte al Mac rispondono 404; quelle del browser restano.
+  VAULT_DESKTOP: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .union([z.boolean(), z.enum(["true", "false", "1", "0", "on", "off"])])
+      .transform((value) => value === true || value === "true" || value === "1" || value === "on")
+      .default(false),
+  ),
   TRUST_PROXY: z.preprocess(
     (value) => (value === "" ? undefined : value),
     z
@@ -205,6 +216,8 @@ export interface Config {
   publicUrl: string;
   /** Area 6, F2: la classificazione nuova della posta (MAIL_CLASSIFY_V2, default false). */
   mailClassifyV2: boolean;
+  /** Lotto 10: la cassaforte dal desktop (VAULT_DESKTOP, default false). */
+  vaultDesktop: boolean;
   /** Fidarsi degli header X-Forwarded-* (dietro reverse proxy). */
   trustProxy: boolean;
   /** Base URL OpenAI-compatibile per gli embedding (ricerca/chat Docs). */
@@ -266,6 +279,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     port: parsed.PORT,
     publicUrl: parsed.PUBLIC_URL,
     mailClassifyV2: parsed.MAIL_CLASSIFY_V2,
+    vaultDesktop: parsed.VAULT_DESKTOP,
     trustProxy: parsed.TRUST_PROXY,
     embeddingBaseUrl: parsed.EMBEDDING_BASE_URL,
     embeddingModel: parsed.EMBEDDING_MODEL,
