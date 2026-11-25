@@ -20,11 +20,11 @@ function setup(over: Partial<VaultPairingDeps> = {}) {
     supported: async () => ({ enclave: true, biometry: true }),
     generate: async () => ({
       publicKey: '{"kty":"EC"}',
-      stored: { publicKey: '{"kty":"EC"}', enclaveKey: "enclave-blob" },
+      stored: { publicKey: '{"kty":"EC"}', keyTag: "enclave-blob" },
     }),
     agreement: (stored) => ({
       deriveBits: async () => {
-        calls.push(`touch:${stored.enclaveKey}`);
+        calls.push(`touch:${stored.keyTag}`);
         return new Uint8Array(32);
       },
     }),

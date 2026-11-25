@@ -63,13 +63,20 @@ beforeEach(async () => {
 });
 
 describe("vault-pair: associare il Mac", () => {
-  it("prima di sigillare: l'avviso, il Mac e il suo login, l'impronta intera", async () => {
+  it("prima di sigillare: l'avviso, il Mac e il suo login; l'impronta NO (M3)", async () => {
     renderPage();
     await screen.findByText("MacBook Pro di Laura");
     expect(
       screen.getByText(/Continue only if you started this from your Mac just now/),
     ).toBeInTheDocument();
-    expect(await screen.findByText(fingerprint)).toBeInTheDocument();
+    // M3 (seconda revisione): il codice si legge SUL MAC e si scrive qui; la
+    // pagina non lo mostra, o lo si copierebbe da lei (anche da un link
+    // mandato da chi ha avviato l'associazione al posto tuo).
+    await screen.findByLabelText(/last 4 characters/i);
+    const text = document.body.textContent!.replace(/\s/g, "").toLowerCase();
+    expect(text).not.toContain(fingerprint.replace(/\s/g, "").toLowerCase());
+    expect(text).not.toContain(fingerprint.replace(/\s/g, "").slice(-4).toLowerCase());
+    expect(screen.getByText(/shown by Stubwise on your Mac/)).toBeInTheDocument();
     // Il login del Mac: quando è nato e l'ultimo uso (per riconoscere un login non tuo).
     const login = screen.getByText(/Its sign-in was created/);
     expect(login.textContent).toContain(formatDateTime("2026-11-25T09:58:00.000Z"));

@@ -27,33 +27,39 @@ describe("l'helper del Secure Enclave", () => {
     expect(await broken.available()).toEqual({ secureEnclave: false, biometry: false });
   });
 
-  it("create: il blob dell'enclave e la pubblica x9.63 (65 byte)", async () => {
+  // I1, seconda revisione: la chiave è una voce del Keychain (per tag), e la
+  // frase del Touch ID la fissa l'helper: la richiesta non la porta mai.
+  it("create: la voce col tag dato; risponde solo la pubblica x9.63 (65 byte)", async () => {
     const pub = Buffer.alloc(65, 4);
-    const { h, run } = helper(() => ({ ok: true, key: "S0VZ", publicKey: pub.toString("base64") }));
-    const made = await h.create();
-    expect(made.key).toBe("S0VZ");
+    const { h, run } = helper(() => ({ ok: true, publicKey: pub.toString("base64") }));
+    const made = await h.create("stubwise.vault.abc");
     expect(made.publicKey).toEqual(new Uint8Array(pub));
-    expect(JSON.parse(run.mock.calls[0]![0])).toEqual({ cmd: "create" });
+    expect(JSON.parse(run.mock.calls[0]![0])).toEqual({ cmd: "create", tag: "stubwise.vault.abc" });
   });
 
-  it("ecdh: il punto effimero e la frase del Touch ID su stdin; il segreto di 32 byte", async () => {
+  it("ecdh: il tag e il punto effimero su stdin, nessuna frase; il segreto di 32 byte", async () => {
     const secret = Buffer.alloc(32, 7);
     const { h, run } = helper(() => ({ ok: true, secret: secret.toString("base64") }));
     const eph = new Uint8Array(65).fill(4);
-    expect(await h.ecdh("S0VZ", eph, "open the vault")).toEqual(new Uint8Array(secret));
+    expect(await h.ecdh("stubwise.vault.abc", eph)).toEqual(new Uint8Array(secret));
     expect(JSON.parse(run.mock.calls[0]![0])).toEqual({
       cmd: "ecdh",
-      key: "S0VZ",
+      tag: "stubwise.vault.abc",
       peer: Buffer.from(eph).toString("base64"),
-      reason: "open the vault",
     });
+  });
+
+  it("deleteKey: toglie la voce del tag", async () => {
+    const { h, run } = helper(() => ({ ok: true }));
+    await h.deleteKey("stubwise.vault.abc");
+    expect(JSON.parse(run.mock.calls[0]![0])).toEqual({ cmd: "delete", tag: "stubwise.vault.abc" });
   });
 
   it("un tocco annullato o un errore dell'helper diventano il suo codice", async () => {
     await expect(
-      helper(() => ({ ok: false, code: "cancelled" })).h.ecdh("k", new Uint8Array(65), "r"),
+      helper(() => ({ ok: false, code: "cancelled" })).h.ecdh("k", new Uint8Array(65)),
     ).rejects.toThrow("cancelled");
-    await expect(helper(() => "not json").h.create()).rejects.toThrow();
+    await expect(helper(() => "not json").h.create("t")).rejects.toThrow();
   });
 
   it("un segreto che non è di 32 byte, o una pubblica che non è di 65, sono un errore", async () => {
@@ -61,15 +67,13 @@ describe("l'helper del Secure Enclave", () => {
       helper(() => ({ ok: true, secret: Buffer.alloc(16).toString("base64") })).h.ecdh(
         "k",
         new Uint8Array(65),
-        "r",
       ),
     ).rejects.toThrow("invalid_response");
     await expect(
       helper(() => ({
         ok: true,
-        key: "k",
         publicKey: Buffer.alloc(33).toString("base64"),
-      })).h.create(),
+      })).h.create("t"),
     ).rejects.toThrow("invalid_response");
   });
 

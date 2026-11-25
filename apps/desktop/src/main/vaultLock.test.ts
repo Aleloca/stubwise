@@ -15,12 +15,12 @@ import type { DeviceIdentity, StoredDevice } from "./vaultDevice";
 
 const ME: DeviceIdentity = { instanceUrl: "https://stubwise.example", patId: "pat-1" };
 const DEVICE: StoredDevice = {
-  v: 2,
+  v: 3,
   ...ME,
   deviceId: "d-1",
   personKeyId: "pk-1",
   publicKey: "pub",
-  enclaveKey: "enclave-blob",
+  keyTag: "enclave-blob",
 };
 const PERSON_KEY = { type: "private", extractable: false } as unknown as CryptoKey;
 
@@ -43,7 +43,7 @@ function setup(
     // Il Touch ID lo chiede l'enclave, nell'ECDH del sigillo.
     agreement: (device) => ({
       deriveBits: async () => {
-        calls.push(device.enclaveKey === "enclave-blob" ? "touch" : `touch:${device.enclaveKey}`);
+        calls.push(device.keyTag === "enclave-blob" ? "touch" : `touch:${device.keyTag}`);
         if (touch !== "works") throw new Error(touch);
         return new Uint8Array(32);
       },

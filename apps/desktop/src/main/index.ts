@@ -61,6 +61,7 @@ import {
   generateDeviceKey,
   readDevice,
   saveDevice,
+  setKeyDeleter,
 } from "./vaultDevice";
 import { registerVaultIpc } from "./vaultIpc";
 import { chooseClipboard, electronClipboard, helperClipboard } from "./vaultClipboard";
@@ -245,9 +246,9 @@ const keyHelper = createKeyHelper({
     verify: helperReq ? codesignVerifier(helperReq) : async () => false,
   }),
 });
-const touchReason = app.getLocale().toLowerCase().startsWith("it")
-  ? "aprire la cassaforte"
-  : "open the vault";
+// I1: la frase del Touch ID la fissa l'helper (mai dalla richiesta); quando il
+// file del Mac sparisce, si toglie anche la voce del Keychain.
+setKeyDeleter((tag) => keyHelper.deleteKey(tag));
 
 /**
  * La cassaforte dal desktop esiste solo nel pacchetto firmato
@@ -268,7 +269,7 @@ const vault = createVaultLock({
   identity: vaultIdentity,
   store: { read: readDevice, forget: forgetDevice },
   supported: vaultSupported,
-  agreement: (device) => deviceAgreement(device, keyHelper, touchReason),
+  agreement: (device) => deviceAgreement(device, keyHelper),
   fetchSeal: () => vaultRemote.fetchSeal(),
   openSeal: openDeviceSeal,
   forgetRemote: () => vaultRemote.forgetRemote(),
@@ -281,7 +282,7 @@ const vaultPairing = createVaultPairing({
   deviceName: () => deviceNameFrom(osHostname()),
   supported: vaultSupported,
   generate: () => generateDeviceKey(keyHelper),
-  agreement: (device) => deviceAgreement(device, keyHelper, touchReason),
+  agreement: (device) => deviceAgreement(device, keyHelper),
   pair: (pub, name) => vaultRemote.pair(pub, name),
   openExternal: openAllowed,
   fetchSeal: () => vaultRemote.fetchSeal(),
