@@ -35,14 +35,20 @@ const SECTION = /^\/p\/([^/]+)\/credentials\/?$/;
 export const CREDENTIAL_PANEL_DOCKED_QUERY = "(min-width: 1024px)";
 
 export function CredentialPanelHost() {
-  const search = useSearch({ strict: false }) as { credential?: string };
+  const search = useSearch({ strict: false }) as { credential?: string; edit?: string };
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   if (!search.credential || !WHERE.test(pathname)) return null;
   if (search.credential === "new") {
     const code = SECTION.exec(pathname)?.[1];
     return code ? <NewCredentialPanel code={code} /> : <NewCredentialPanelVault />;
   }
-  return <CredentialPanelFor key={search.credential} id={search.credential} />;
+  return (
+    <CredentialPanelFor
+      key={search.credential}
+      id={search.credential}
+      startEditing={search.edit === "1"}
+    />
+  );
 }
 
 /** Il pannello col modulo di una credenziale nuova, nel progetto della sezione. */
@@ -106,12 +112,13 @@ function useGoToCredential() {
   );
 }
 
-function CredentialPanelFor({ id }: { id: string }) {
+function CredentialPanelFor({ id, startEditing }: { id: string; startEditing: boolean }) {
   const { t } = useTranslation();
   const go = useGoToCredential();
   const docked = useMediaQuery(CREDENTIAL_PANEL_DOCKED_QUERY);
   const credential = useCredential(id);
-  const [editing, setEditing] = useState(false);
+  // Dal «⋯» della riga il dettaglio si apre già in modifica (`?edit=1`).
+  const [editing, setEditing] = useState(startEditing);
   const close = useCallback(() => go(undefined), [go]);
   const unknown = credential.data === null || credential.isError;
   useEffect(() => {

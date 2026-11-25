@@ -13850,6 +13850,19 @@
       "pairingOk": "Ritorno dal browser",
       "pairingExpired": "Scade",
       "pairingMismatch": "Il sigillo non corrisponde"
+    },
+    "rowMenu": {
+      "more": "Altro per {{name}}",
+      "menu": "Azioni per {{name}}",
+      "edit": "Modifica",
+      "readers": "Lettori",
+      "log": "Registro degli accessi",
+      "delete": "Elimina…",
+      "deleteQuestion": "Eliminare {{name}}? Chi la legge la perde.",
+      "deleteYes": "Elimina {{name}}",
+      "cancel": "Annulla",
+      "deleted": "{{name}}: eliminata.",
+      "deleteFailed": "Non è stato possibile eliminare {{name}}."
     }
   }
 }

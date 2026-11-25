@@ -13850,6 +13850,19 @@
       "pairingOk": "Return from the browser",
       "pairingExpired": "Expire",
       "pairingMismatch": "Seal doesn't match"
+    },
+    "rowMenu": {
+      "more": "More for {{name}}",
+      "menu": "Actions for {{name}}",
+      "edit": "Edit",
+      "readers": "Readers",
+      "log": "Access log",
+      "delete": "Delete…",
+      "deleteQuestion": "Delete {{name}}? Everyone who reads it loses it.",
+      "deleteYes": "Delete {{name}}",
+      "cancel": "Cancel",
+      "deleted": "{{name}} deleted.",
+      "deleteFailed": "Couldn't delete {{name}}."
     }
   }
 }

@@ -206,6 +206,8 @@ export interface AppSearch {
   pr?: string;
   /** Credentials e Vault: il dettaglio di una credenziale (lotto 10). */
   credential?: string;
+  /** Con `credential`: il dettaglio si apre già in modifica (`1`, dal «⋯» della riga). */
+  edit?: string;
   /** Credentials e Vault: il pannello degli accessi da confermare (`1`). */
   pending?: string;
   /** Vault: il filtro per progetto, i codici separati da virgola (`ACQ,MKX`). */
@@ -288,6 +290,7 @@ const SEARCH_KEYS = [
   ...AUTOMATION_SEARCH_KEYS,
   "pr",
   "credential",
+  "edit",
   "pending",
   "projects",
   "widget",
@@ -381,7 +384,8 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
                                       key === "recordDecision" ||
                                       key === "settings" ||
                                       key === "newMeeting" ||
-                                      key === "new"
+                                      key === "new" ||
+                                      key === "edit"
                                     ? value === "1"
                                     : false;
     // I filtri di WORK dello Stato dell'istanza (area 9b, ruling 10) hanno la

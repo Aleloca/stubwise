@@ -247,6 +247,11 @@ export function useUpdateCredential() {
   );
 }
 
+/** «Delete…» di una credenziale (con `canEdit`): lettori e copie se ne vanno con lei. */
+export function useDeleteCredential() {
+  return useWrite((id: string) => api.vault.deleteCredential(id), VAULT_AREAS);
+}
+
 /** «Copy»: gli appunti li scrive il livello dati (nell'app, il main). */
 export function useCopyPassword() {
   return useWrite((id: string) => api.vault.copy(id), VAULT_AREAS);
