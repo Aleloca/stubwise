@@ -233,9 +233,10 @@ export const prState = pgEnum("pr_state", enumValues(prStateSchema));
 // I valori derivano da `aiProviderKindSchema` (shared = unica fonte di verità):
 // il tipo di credenziale entra nella forma pubblica di un job AI.
 export const aiProviderKind = pgEnum("ai_provider_kind", enumValues(aiProviderKindSchema));
-// Origine di uno snapshot di consumo: "deterministic" (estratto da un output
-// strutturato/parsabile del CLI) o "llm_fallback" (dedotto da un modello quando
-// il parsing deterministico fallisce). Marca l'affidabilità del dato.
+// Origine di uno snapshot di consumo: "deterministic" (letto senza LLM; dal
+// 19 nov 2026 è il `rate_limit_event` dello stream-json del CLI) o
+// "llm_fallback" (dedotto da un modello dal vecchio lettore PTY di `/usage`,
+// ritirato: esiste solo nelle righe storiche). Marca l'affidabilità del dato.
 export const aiUsageSource = pgEnum("ai_usage_source", ["deterministic", "llm_fallback"]);
 
 // Enum del dominio Docs (documentazione autogenerata). I valori derivano dagli

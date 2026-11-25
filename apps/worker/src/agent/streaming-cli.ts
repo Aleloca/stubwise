@@ -4,6 +4,7 @@ import { createInterface } from "node:readline";
 import { execa } from "execa";
 import { INTERACTIVE_SEGMENTS, type AgentSegmentLabel } from "@stubwise/shared";
 import { buildAgentEnv, type ClaudeCliRunnerOptions } from "./claude-cli.js";
+import { parseRateLimitEvent } from "./rate-limit-event.js";
 import { buildCliArgs, validateRunOptions, withMcpConfig } from "./cli-args.js";
 import { initToolsViolation } from "./native-tools.js";
 import { AGENT_PAUSE_BUDGET_MS, PauseBudgets } from "./pause-budget.js";
@@ -240,7 +241,7 @@ function safeSink(sink: SegmentSink, log: (msg: string) => void): SegmentSink {
  * Una riga che apre o prosegue un turno, e quindi annulla la grazia dopo un
  * `result`: un turno nuovo finirà con un altro `result`, che la riarma. Le
  * altre (system/status, hook, rate_limit_event…) possono arrivare DOPO
- * l'ultimo `result` senza che nessun turno segua: se annullassero la grazia,
+ * l'ultimo `result` senza che nessun turno segua (il rate_limit_event è consegnato a `onRateLimit`, vedi sotto): se annullassero la grazia,
  * stdin resterebbe aperto fino al timeout e un run finito diventerebbe un
  * AgentTimeoutError.
  */
@@ -566,6 +567,24 @@ export class StreamingClaudeRunner implements AgentRunner {
               }),
             },
           ]);
+        }
+      }
+      // rate_limit_event: la percentuale d'uso dell'account, consegnata a chi
+      // l'ha chiesta. Fire-and-forget: non attende e non può rompere lo stream.
+      // Non entra in toSessionEvents: resta fuori dalle sessioni.
+      if (ev.type === "rate_limit_event" && opts.onRateLimit !== undefined) {
+        const info = parseRateLimitEvent(ev);
+        if (info !== null) {
+          try {
+            const r = opts.onRateLimit(info, new Date());
+            if (r !== undefined) {
+              Promise.resolve(r).catch((error: unknown) =>
+                this.log(`onRateLimit fallito: ${errorText(error)}`),
+              );
+            }
+          } catch (error) {
+            this.log(`onRateLimit fallito: ${errorText(error)}`);
+          }
         }
       }
       tracker.observe(ev);

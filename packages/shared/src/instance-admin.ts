@@ -210,7 +210,15 @@ export type UpdateAutomationSettingsInput = z.input<typeof updateAutomationSetti
 
 // --- La quota degli account (`GET /api/ai-usage/snapshots`, `usage.view`) ---
 
-/** Una finestra della quota (sessione di 5 ore o settimana); null = non letta. */
+/**
+ * Una finestra della quota (sessione di 5 ore o settimana): percentuale usata
+ * e residua (interi 0–100, complementari), più `resetsLabel`, l'orario di
+ * reset come label testuale della vecchia TUI `/usage` (non-ISO, es. "2:39pm
+ * (Europe/Rome)") — opzionale. Gli snapshot nuovi nascono dal
+ * `rate_limit_event` del CLI e hanno SEMPRE `resetsLabel` null: il reset sta
+ * nei `*ResetAt`, e il pannello li usa quando la label manca. null = finestra
+ * non letta o assente (es. nessun limite di 5 ore per gli account Ultra).
+ */
 export const aiUsageWindowSchema = z
   .object({
     percentUsed: z.number(),
@@ -220,7 +228,15 @@ export const aiUsageWindowSchema = z
   .nullable()
   .default(null);
 
-/** L'ultimo campione per provider, come lo legge il worker dal CLI. */
+/**
+ * L'ultimo campione per provider. Dal 19 nov 2026 lo scrive il worker
+ * leggendo il `rate_limit_event` dello stream-json (a ogni run di un account,
+ * più una sonda minima per quelli fermi): `source` è `deterministic` = letto
+ * senza LLM, `parseOk` true, `rawText` null. `llm_fallback` e `parseOk=false`
+ * esistono solo per le righe del vecchio lettore `/usage` (ritirato).
+ * `rawText` è incluso SOLO per quelle ultime (admin-only, serve al banner di
+ * diagnosi): resta assente/null per tutti gli snapshot nuovi.
+ */
 export const aiUsageSnapshotSchema = z.object({
   providerId: z.uuid(),
   providerLabel: z.string(),

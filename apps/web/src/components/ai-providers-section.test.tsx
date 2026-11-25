@@ -411,10 +411,10 @@ describe("AiProvidersSection — usage residuo abbonamento", () => {
     renderSection();
 
     const row = (await screen.findByText("Account Max")).closest("li") as HTMLElement;
-    // Avviso di parsing fallito + hint sul parser deterministico (findByText:
+    // Avviso di parsing fallito + hint sul lettore `/usage` ritirato (findByText:
     // dato dallo snapshot, query separata — vedi test del residuo).
     expect(await within(row).findByText(/parsing of \/usage failed/i)).toBeInTheDocument();
-    expect(within(row).getByText(/usage-parser\.ts/)).toBeInTheDocument();
+    expect(within(row).getByText(/retired `\/usage` reader/)).toBeInTheDocument();
     // Il testo grezzo è mostrato (blocco monospace).
     expect(within(row).getByText(/windows: \?\?\?/)).toBeInTheDocument();
   });

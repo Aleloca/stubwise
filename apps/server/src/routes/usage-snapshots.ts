@@ -5,13 +5,6 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { authErrorResponses } from "./shared.js";
 import { aiUsageSnapshotsSchema } from "@stubwise/shared";
 
-/**
- * Finestra di consumo normalizzata (formato del parser del worker): percentuale
- * usata e residua, più `resetsLabel`, l'orario di reset come label testuale
- * della TUI (non-ISO, es. "2:39pm (Europe/Rome)") — opzionale. Nullable perché
- * lo snapshot la conserva come jsonb libero e uno snapshot con parse fallito
- * potrebbe non averla.
- */
 // Area 9, F3, Task 8c: le forme stanno in `@stubwise/shared` (le legge il client).
 export { aiUsageSnapshotsSchema, type AiUsageSnapshot } from "@stubwise/shared";
 

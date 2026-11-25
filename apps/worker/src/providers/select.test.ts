@@ -303,9 +303,17 @@ describe("selectProviders", () => {
     const none = await provider("account", 3);
     const under = await provider("account", 4);
     await snapshot(over, { weeklyPercent: 90 }); // = soglia: escluso
-    await snapshot(stale, { weeklyPercent: 99, ageMs: 16 * MIN });
+    await snapshot(stale, { weeklyPercent: 99, ageMs: 46 * MIN });
     await snapshot(under, { weeklyPercent: 89 });
     expect(ids(await selectProviders(deps(), background()))).toEqual([stale, none, under]);
+  });
+
+  it("sfondo: settimanale oltre soglia ma weekly_reset_at passato → ammesso", async () => {
+    const expired = await provider("account", 1);
+    const live = await provider("account", 2);
+    await snapshot(expired, { weeklyPercent: 99, weeklyResetAt: new Date(NOW.getTime() - MIN) });
+    await snapshot(live, { weeklyPercent: 99, weeklyResetAt: new Date(NOW.getTime() + 60 * MIN) });
+    expect(ids(await selectProviders(deps(), background()))).toEqual([expired]);
   });
 
   it("interactive: lo stesso account oltre soglia è ammesso", async () => {
