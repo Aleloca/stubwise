@@ -89,11 +89,69 @@ describe("la cassaforte nel main", () => {
   it("D-1b: dopo l'associazione la prima apertura è senza tocco, poi sempre col tocco", async () => {
     const { lock, calls } = setup();
     lock.markPaired();
-    expect(await lock.unlock()).toEqual({ ok: true });
+    expect(await lock.unlock({ afterPairing: true })).toEqual({ ok: true });
     expect(calls).toEqual([]);
     lock.lock();
     expect(await lock.unlock()).toEqual({ ok: true });
     expect(calls).toEqual(["touch"]);
+  });
+
+  // Revisione di sicurezza, M1: l'apertura senza tocco la consuma SOLO il
+  // ritorno dell'associazione (`receiveVaultUrl`), entro pochi secondi; un
+  // `vault:unlock` del renderer, un `lock()` o il tempo la tolgono.
+  it("M1: senza tocco solo dal ritorno dell'associazione, entro 10 s; il renderer e `lock()` no", async () => {
+    const a = setup();
+    a.lock.markPaired();
+    expect(await a.lock.unlock()).toEqual({ ok: true });
+    expect(a.calls).toEqual(["touch"]);
+    const b = setup();
+    b.lock.markPaired();
+    b.lock.lock();
+    await b.lock.unlock({ afterPairing: true });
+    expect(b.calls).toEqual(["touch"]);
+    const c = setup();
+    c.lock.markPaired();
+    vi.advanceTimersByTime(10_001);
+    await c.lock.unlock({ afterPairing: true });
+    expect(c.calls).toEqual(["touch"]);
+  });
+
+  // Revisione di sicurezza, I3: un `lock()` o un cambio di sessione mentre
+  // un'apertura è in corso vincono: l'apertura che finisce dopo scarta la chiave.
+  it("I3: un lock() durante un'apertura in corso non viene annullato", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const { lock } = setup({
+      fetchSeal: async () => {
+        await gate;
+        return { id: "d-1", deviceName: "Mac", seal: "sealed", personKeyId: "pk-1", personPublicKey: "ppub" };
+      },
+    });
+    const pending = lock.unlock();
+    await Promise.resolve();
+    lock.lock();
+    release();
+    expect(await pending).toEqual({ ok: false, code: "interrupted" });
+    expect((await lock.status()).state).toBe("locked");
+    await expect(lock.use(async () => 1)).rejects.toThrow("vault_locked");
+  });
+
+  it("I3: un cambio di sessione durante un'apertura in corso: niente chiave in memoria", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const { lock } = setup({
+      openSeal: async () => {
+        await gate;
+        return PERSON_KEY;
+      },
+    });
+    const pending = lock.unlock();
+    // Fino a dentro `openSeal` (timer finti: si avanza a microtask).
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    lock.sessionChanged();
+    release();
+    expect(await pending).toEqual({ ok: false, code: "interrupted" });
+    await expect(lock.use(async () => 1)).rejects.toThrow("vault_locked");
   });
 
   it("D-1a: un Mac senza Touch ID non si riapre da solo (dal browser), e il sigillo resta", async () => {

@@ -225,7 +225,8 @@ const vaultOps = createVaultOps({
 /** Il ritorno dall'associazione: si apre subito (D-1b, senza tocco) e il renderer lo sa. */
 async function receiveVaultUrl(url: string): Promise<void> {
   const result = await vaultPairing.handleUrl(url);
-  if (result.ok) await vault.unlock();
+  // M1: SOLO qui l'apertura senza tocco (D-1b), e solo subito dopo l'associazione.
+  if (result.ok) await vault.unlock({ afterPairing: true });
   broadcast("vault:paired", result);
 }
 

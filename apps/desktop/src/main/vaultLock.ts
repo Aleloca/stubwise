@@ -24,6 +24,9 @@ import type { DeviceIdentity, StoredDevice } from "./vaultDevice";
 /** D-2: la chiusura dopo questo tempo senza usarla. */
 export const VAULT_IDLE_MS = 15 * 60 * 1000;
 
+/** M1 (revisione di sicurezza): quanto vale l'apertura senza tocco dopo l'associazione. */
+export const FRESH_PAIRING_MS = 10_000;
+
 export type VaultState = "unpaired" | "locked" | "open" | "revoked";
 
 /** Ciò che il renderer vede: lo stato e l'impronta della chiave del dispositivo. */
@@ -33,6 +36,7 @@ export interface VaultStatus {
 }
 
 export type UnlockCode =
+  | "interrupted"
   | "no_session"
   | "unpaired"
   | "revoked"
@@ -83,7 +87,8 @@ export interface VaultLockDeps {
 
 export interface VaultLock {
   status: () => Promise<VaultStatus>;
-  unlock: () => Promise<UnlockResult>;
+  /** `afterPairing`: SOLO dal ritorno dell'associazione (`receiveVaultUrl`), l'apertura senza tocco (D-1b, M1). */
+  unlock: (options?: { afterPairing?: boolean }) => Promise<UnlockResult>;
   lock: () => void;
   /**
    * Un'operazione con la privata di persona, dentro il main, con l'id della
@@ -105,7 +110,14 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
   let personKeyId: string | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let revoked = false;
-  let freshlyPaired = false;
+  /** M1: quando il Mac è stato appena associato (null: nessuna apertura senza tocco). */
+  let pairedAt: number | null = null;
+  /**
+   * I3 (revisione di sicurezza): cresce a ogni `lock()` e a ogni cancellazione
+   * del locale. Un'apertura che finisce in un'epoca diversa da quella in cui è
+   * partita scarta la chiave: una chiusura durante l'apertura vince.
+   */
+  let epoch = 0;
 
   const device = (): StoredDevice | null => {
     const me = deps.identity();
@@ -133,6 +145,8 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
 
   function lock(): void {
     const was = key !== null;
+    epoch += 1;
+    pairedAt = null;
     key = null;
     personKeyId = null;
     disarm();
@@ -140,21 +154,23 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
   }
 
   function dropLocal(): void {
+    epoch += 1;
     key = null;
     personKeyId = null;
     disarm();
-    freshlyPaired = false;
+    pairedAt = null;
     deps.store.forget();
   }
 
-  async function unlock(): Promise<UnlockResult> {
+  async function unlock(options: { afterPairing?: boolean } = {}): Promise<UnlockResult> {
     if (!deps.identity()) return { ok: false, code: "no_session" };
     const d = device();
     if (!d) return { ok: false, code: revoked ? "revoked" : "unpaired" };
     if (key) return { ok: true };
-    if (freshlyPaired) {
-      freshlyPaired = false;
-    } else {
+    const started = epoch;
+    const fresh = options.afterPairing === true && pairedAt !== null && Date.now() - pairedAt <= FRESH_PAIRING_MS;
+    pairedAt = null;
+    if (!fresh) {
       if (!deps.touchId.available()) return { ok: false, code: "touch_id_unavailable" };
       try {
         await deps.touchId.prompt(deps.touchReason ?? "open the vault");
@@ -162,30 +178,36 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
         return { ok: false, code: "touch_id_cancelled" };
       }
     }
+    if (epoch !== started) return { ok: false, code: "interrupted" };
     let seal: SealResponse;
     try {
       seal = await deps.fetchSeal();
     } catch {
       return { ok: false, code: "unavailable" };
     }
+    if (epoch !== started) return { ok: false, code: "interrupted" };
     if ("revoked" in seal) {
       dropLocal();
       revoked = true;
       changed();
       return { ok: false, code: "revoked" };
     }
+    let opened: CryptoKey;
     try {
-      key = await deps.openSeal({
+      opened = await deps.openSeal({
         deviceSeal: seal.seal,
         devicePrivateKey: await deps.devicePrivateKey(d),
         personPublicKey: seal.personPublicKey,
         personKeyId: seal.personKeyId,
         deviceId: d.deviceId,
       });
-      personKeyId = seal.personKeyId;
     } catch {
       return { ok: false, code: "open_failed" };
     }
+    // Chiusa, o cambiata la sessione, mentre si apriva: la chiave non resta.
+    if (epoch !== started) return { ok: false, code: "interrupted" };
+    key = opened;
+    personKeyId = seal.personKeyId;
     arm();
     changed();
     return { ok: true };
@@ -222,7 +244,7 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
     forget,
     markPaired: () => {
       revoked = false;
-      freshlyPaired = true;
+      pairedAt = Date.now();
       changed();
     },
     sessionChanged: () => {
