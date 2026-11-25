@@ -71,7 +71,10 @@ export interface VaultPairingDeps {
    * il sigillo) passa alla cassaforte (`adopt`, D-1b). Resta nel main: il
    * risultato di `handleUrl`, che va al renderer, non la porta.
    */
-  paired: (key: CryptoKey, personKeyId: string) => void;
+  /** `since`: l'epoca della cassaforte presa PRIMA del tocco (M1, `vaultLock.adopt`). */
+  paired: (key: CryptoKey, personKeyId: string, since: number) => void;
+  /** L'epoca della cassaforte di adesso (`vaultLock.epoch`). */
+  epoch: () => number;
   fingerprint: (publicKey: string) => Promise<string>;
   now?: () => number;
 }
@@ -137,6 +140,9 @@ export function createVaultPairing(deps: VaultPairingDeps) {
     }
   }
 
+  /** M1: avanza a ogni `cancel`, anche a richiesta già presa da `handleUrl`. */
+  let cancelled = 0;
+
   async function handleUrl(raw: string): Promise<{ ok: true } | { ok: false; code: PairingCode }> {
     const state = vaultStateFromUrl(raw);
     if (!state) return fail("invalid_url");
@@ -145,6 +151,9 @@ export function createVaultPairing(deps: VaultPairingDeps) {
     const p = pending;
     // Uso singolo: da qui la richiesta non c'è più, comunque vada.
     pending = null;
+    // M1: prese PRIMA del tocco; un annullamento o una chiusura nel frattempo vincono.
+    const generation = cancelled;
+    const since = deps.epoch();
     if (now() > p.until) return fail("expired");
     const identity = deps.identity();
     if (!identity || !sameIdentity(identity, p.identity)) return fail("session_changed");
@@ -172,6 +181,11 @@ export function createVaultPairing(deps: VaultPairingDeps) {
       if (code === "no_biometry" || code === "lockout") return fail("touch_id_unavailable");
       return fail("open_failed");
     }
+    // M1: durante il tocco l'associazione è stata annullata o la sessione è cambiata.
+    const after = deps.identity();
+    if (cancelled !== generation || !after || !sameIdentity(after, p.identity)) {
+      return fail("session_changed");
+    }
     if (
       !deps.save({
         ...p.identity,
@@ -182,7 +196,7 @@ export function createVaultPairing(deps: VaultPairingDeps) {
     ) {
       return fail("no_secure_storage");
     }
-    deps.paired(opened, seal.personKeyId);
+    deps.paired(opened, seal.personKeyId, since);
     return { ok: true };
   }
 
@@ -191,6 +205,7 @@ export function createVaultPairing(deps: VaultPairingDeps) {
     handleUrl,
     cancel: () => {
       pending = null;
+      cancelled += 1;
     },
     isPending: () => pending !== null && now() <= pending.until,
   };

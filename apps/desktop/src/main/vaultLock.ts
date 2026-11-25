@@ -125,7 +125,13 @@ export interface VaultLock {
    * per verificare il sigillo prima di scriverlo) passa qui, senza un secondo
    * tocco. Solo dal ritorno dell'associazione (`receiveVaultUrl`).
    */
-  adopt: (key: CryptoKey, personKeyId: string) => void;
+  adopt: (key: CryptoKey, personKeyId: string, since: number) => void;
+  /**
+   * M1 (seconda revisione): l'epoca di adesso. L'associazione la prende PRIMA
+   * del tocco e la passa ad `adopt`: una chiusura o un cambio di sessione nel
+   * frattempo la fa avanzare, e la chiave aperta si scarta.
+   */
+  epoch: () => number;
   /**
    * Login nuovo, cambio d'istanza, 401: toglie il sigillo sul server
    * (best-effort, M3) e cancella il locale. Va chiamata PRIMA che il token
@@ -251,6 +257,11 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
 
   async function use<T>(run: (k: CryptoKey, id: string) => Promise<T>): Promise<T> {
     if (!key || !personKeyId) throw new Error("vault_locked");
+    // M1: il dispositivo sparito (file cancellato, sessione cambiata) chiude.
+    if (!device()) {
+      lock();
+      throw new Error("vault_locked");
+    }
     arm();
     return run(key, personKeyId);
   }
@@ -316,8 +327,9 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
     use,
     useWithTouch,
     forget,
-    adopt: (opened, id) => {
-      if (disabled) return;
+    epoch: () => epoch,
+    adopt: (opened, id, since) => {
+      if (disabled || since !== epoch || !device()) return;
       revoked = false;
       key = opened;
       personKeyId = id;

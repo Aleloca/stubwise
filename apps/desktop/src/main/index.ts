@@ -288,7 +288,8 @@ const vaultPairing = createVaultPairing({
   openSeal: openDeviceSeal,
   save: saveDevice,
   // D-1b: la chiave già aperta (col Touch ID, per verificare il sigillo) resta nel main.
-  paired: (key, personKeyId) => vault.adopt(key, personKeyId),
+  epoch: () => vault.epoch(),
+  paired: (key, personKeyId, since) => vault.adopt(key, personKeyId, since),
   fingerprint: keyFingerprint,
 });
 

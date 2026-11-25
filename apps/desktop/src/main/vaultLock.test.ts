@@ -101,7 +101,7 @@ describe("la cassaforte nel main", () => {
 
   it("D-1b: la chiave che l'associazione ha già aperto passa con `adopt` (un tocco solo); poi sempre col tocco", async () => {
     const { lock, calls } = setup();
-    lock.adopt(PERSON_KEY, "pk-1");
+    lock.adopt(PERSON_KEY, "pk-1", lock.epoch());
     expect((await lock.status()).state).toBe("open");
     expect(calls).toEqual([]);
     lock.lock();
@@ -332,5 +332,23 @@ describe("la cassaforte nel main", () => {
     cancel = true;
     await expect(lock.useWithTouch(async () => 1)).rejects.toThrow("touch_id_cancelled");
     expect((await lock.status()).state).toBe("open");
+  });
+
+  // M1 (seconda revisione): l'associazione aspetta un tocco che può durare.
+  // Se nel frattempo la cassaforte è stata chiusa o la sessione è cambiata,
+  // la chiave aperta non passa: `adopt` porta l'epoca di quando è partita.
+  it("M1: `adopt` con un'epoca vecchia (chiusa o sessione cambiata durante il tocco) non apre", async () => {
+    const { lock } = setup();
+    const since = lock.epoch();
+    lock.lock();
+    lock.adopt(PERSON_KEY, "pk-1", since);
+    expect((await lock.status()).state).toBe("locked");
+  });
+
+  it("M1: `use` a cassaforte aperta ma col dispositivo sparito (file cancellato): `vault_locked`", async () => {
+    const { lock, setStored } = setup();
+    await lock.unlock();
+    setStored(null);
+    await expect(lock.use(async () => 1)).rejects.toThrow("vault_locked");
   });
 });
