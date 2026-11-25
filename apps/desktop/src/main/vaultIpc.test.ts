@@ -56,6 +56,8 @@ function setup() {
     removeMac: vi.fn(ok),
     create: vi.fn(async () => ({ ok: true as const, id: CRED })),
     setPassword: vi.fn(ok),
+    serverStatus: vi.fn(async () => ({ ok: true as const, activated: true, myKey: null })),
+    mine: vi.fn(async () => ({ ok: true as const, items: [] })),
   };
   const fromApp = (event: unknown) => (event as { app?: boolean }).app === true;
   registerVaultIpc(ipc, { lock, pairing, ops, fromApp });

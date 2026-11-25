@@ -564,4 +564,47 @@ describe("le operazioni della cassaforte nel main", () => {
       expect(calls.some((c) => c.method === "PUT")).toBe(false);
     });
   });
+
+  // Review C1: nell'app ogni `/api/vault*` passa dal main (il proxy le
+  // rifiuta al renderer, `vault_via_main`): lo stato della propria chiave e
+  // «le mie» credenziali hanno i loro canali.
+  describe("le letture /api/vault* dal main", () => {
+    it("lo stato della propria chiave: senza seals né passkeys", async () => {
+      const { ops } = setup({
+        "GET /api/vault/status": () => ({
+          activated: true,
+          myKey: {
+            id: PK,
+            status: "pending",
+            createdAt: "2026-11-20T10:00:00.000Z",
+            publicKey: me.publicKey,
+          },
+          seals: [],
+          passkeys: [],
+        }),
+      });
+      expect(await ops.serverStatus()).toEqual({
+        ok: true,
+        activated: true,
+        myKey: {
+          id: PK,
+          status: "pending",
+          createdAt: "2026-11-20T10:00:00.000Z",
+          publicKey: me.publicKey,
+        },
+      });
+    });
+
+    it("«le mie» credenziali; `VAULT_DESKTOP` spento: `disabled`", async () => {
+      const { ops } = setup({ "GET /api/vault/credentials": () => ({ items: [] }) });
+      expect(await ops.mine()).toEqual({ ok: true, items: [] });
+      const off = setup({
+        "GET /api/vault/credentials": () => {
+          throw new VaultHttpError(404, "vault_desktop_disabled");
+        },
+      });
+      expect(await off.ops.mine()).toEqual({ ok: false, code: "disabled" });
+      expect(off.lock.markDisabled).toHaveBeenCalled();
+    });
+  });
 });

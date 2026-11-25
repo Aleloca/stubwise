@@ -27,6 +27,8 @@ export const VAULT_CHANNELS = [
   "vault:remove-mac",
   "vault:create",
   "vault:set-password",
+  "vault:server-status",
+  "vault:mine",
 ] as const;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -90,6 +92,8 @@ export interface VaultIpcDeps<E> {
     | "removeMac"
     | "create"
     | "setPassword"
+    | "serverStatus"
+    | "mine"
   >;
   fromApp: (event: E) => boolean;
 }
@@ -191,6 +195,14 @@ export function registerVaultIpc<E>(ipc: Ipc<E>, deps: VaultIpcDeps<E>): void {
         ? deps.ops.create(projectId, fields, password)
         : null;
     }),
+  );
+  ipc.handle(
+    "vault:server-status",
+    withArgs(() => deps.ops.serverStatus()),
+  );
+  ipc.handle(
+    "vault:mine",
+    withArgs(() => deps.ops.mine()),
   );
   ipc.handle(
     "vault:set-password",

@@ -84,7 +84,25 @@ beforeEach(() => setAppClientForTests(null));
 afterEach(() => vi.unstubAllGlobals());
 
 const KEY = "aaaaaaaa-0000-4000-8000-000000000001";
-const statusOf = (body: unknown) => installFakeServer({ "GET /api/vault/status": { body } });
+/**
+ * Lo stato del server dal canale del main (`vault:server-status`, review C1:
+ * nell'app il proxy rifiuta `/api/vault*` al renderer). Il bridge deve
+ * esserci già (`bridge()`); restituisce la spia del canale.
+ */
+const statusOf = (body: {
+  activated: boolean;
+  myKey: { id: string; status: string; createdAt: string; publicKey?: string } | null;
+}) => {
+  const spy = vi.fn(async () => ({
+    ok: true as const,
+    activated: body.activated,
+    myKey: body.myKey ? { ...body.myKey, publicKey: body.myKey.publicKey ?? null } : null,
+  }));
+  (
+    window as unknown as { stubwise: { vault: Record<string, unknown> } }
+  ).stubwise.vault.serverStatus = spy;
+  return spy;
+};
 
 describe("la cassaforte nella build app, dal main", () => {
   it("lo stato della barra dal main: stato, Touch ID, impronta del Mac", async () => {
@@ -92,8 +110,6 @@ describe("la cassaforte nella build app, dal main", () => {
     statusOf({
       activated: true,
       myKey: { id: KEY, status: "confirmed", createdAt: "2026-11-20T10:00:00.000Z" },
-      seals: [],
-      passkeys: [],
     });
     expect(await vault.getVaultStatus()).toEqual({
       state: "locked",
@@ -163,20 +179,17 @@ describe("la cassaforte nella build app, dal main", () => {
   describe("lo stato del server", () => {
     it("cassaforte dell'istanza non attivata: `inactive`", async () => {
       bridge();
-      statusOf({ activated: false, myKey: null, seals: [], passkeys: [] });
+      statusOf({ activated: false, myKey: null });
       expect((await vault.getVaultStatus()).state).toBe("inactive");
     });
 
     it("senza chiave, o con una rifiutata: `no_key`", async () => {
       bridge();
-      statusOf({ activated: true, myKey: null, seals: [], passkeys: [] });
+      statusOf({ activated: true, myKey: null });
       expect((await vault.getVaultStatus()).state).toBe("no_key");
-      setAppClientForTests(null);
       statusOf({
         activated: true,
         myKey: { id: KEY, status: "rejected", createdAt: "2026-11-20T10:00:00.000Z" },
-        seals: [],
-        passkeys: [],
       });
       expect((await vault.getVaultStatus()).state).toBe("no_key");
     });
@@ -192,8 +205,6 @@ describe("la cassaforte nella build app, dal main", () => {
           createdAt: "2026-11-20T10:00:00.000Z",
           publicKey: own.publicKey,
         },
-        seals: [],
-        passkeys: [],
       });
       const s = await vault.getVaultStatus();
       expect(s.state).toBe("key_pending");
@@ -202,12 +213,9 @@ describe("la cassaforte nella build app, dal main", () => {
 
     it("`VAULT_DESKTOP` spento sul server: `disabled`", async () => {
       bridge();
-      installFakeServer({
-        "GET /api/vault/status": {
-          status: 404,
-          body: { code: "vault_desktop_disabled", message: "x" },
-        },
-      });
+      (
+        window as unknown as { stubwise: { vault: Record<string, unknown> } }
+      ).stubwise.vault.serverStatus = vi.fn(async () => ({ ok: false as const, code: "disabled" }));
       expect((await vault.getVaultStatus()).state).toBe("disabled");
     });
 
@@ -215,9 +223,9 @@ describe("la cassaforte nella build app, dal main", () => {
       bridge({
         status: vi.fn(async () => ({ state: "unsupported", fingerprint: null, touchId: false })),
       });
-      const { seen } = statusOf({ activated: true, myKey: null, seals: [], passkeys: [] });
+      const spy = statusOf({ activated: true, myKey: null });
       expect((await vault.getVaultStatus()).state).toBe("unsupported");
-      expect(seen).toHaveLength(0);
+      expect(spy).not.toHaveBeenCalled();
     });
   });
 

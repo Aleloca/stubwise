@@ -36,6 +36,20 @@ const viewOf = (c: Reader<CredentialItem>): CredentialView => ({
   updatedAt: c.updatedAt,
 });
 
+/**
+ * «Le mie» credenziali: nell'app dal main (`vault:mine`, review C1: il proxy
+ * rifiuta `/api/vault*` al renderer); nella build web dalla rotta.
+ */
+async function myCredentials(): Promise<Reader<CredentialItem>[]> {
+  const b = window.stubwise?.vault;
+  if (b?.mine) {
+    const out = await b.mine();
+    if (!out.ok) throw new Error(out.code);
+    return out.items as Reader<CredentialItem>[];
+  }
+  return (await appClient().credentials.mine()).items;
+}
+
 /** I permessi di chi guarda in un progetto (dal server, `/api/auth/me`). */
 async function permissions(): Promise<{
   fullAdmin: boolean;
@@ -58,7 +72,7 @@ export const listCredentials: FakeVault["listCredentials"] = async (filter) => {
     return items.map(viewOf);
   }
   // La pagina Vault: «le mie» (lette o in attesa), in tutti i progetti visibili.
-  const { items } = await appClient().credentials.mine();
+  const items = await myCredentials();
   const only = filter.projectIds?.length ? new Set(filter.projectIds) : null;
   return items.filter((c) => !only || only.has(c.projectId)).map(viewOf);
 };
@@ -69,7 +83,7 @@ export const listCredentials: FakeVault["listCredentials"] = async (filter) => {
  * esiste). `null` se non la vede, come il prototipo.
  */
 export const getCredential: FakeVault["getCredential"] = async (id) => {
-  const mine = (await appClient().credentials.mine()).items.find((c) => c.id === id);
+  const mine = (await myCredentials()).find((c) => c.id === id);
   if (mine) return viewOf(mine);
   const p = await permissions();
   for (const projectId of p.projectIds) {
@@ -101,7 +115,7 @@ export const getCredentialsEntry: FakeVault["getCredentialsEntry"] = async (proj
 export const getVaultEntry: FakeVault["getVaultEntry"] = async () => {
   const [p, mine, waiting] = await Promise.all([
     permissions(),
-    appClient().credentials.mine(),
+    myCredentials().then((items) => ({ items })),
     // Il punto «ti aspetta» [VA 2]: chi aspetta lo sa il main, a cassaforte aperta.
     listPending().catch(() => []),
   ]);

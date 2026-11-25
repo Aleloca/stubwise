@@ -1,4 +1,5 @@
 import {
+  credentialListResponseSchema,
   credentialRecipientsSchema,
   credentialRevealResponseSchema,
   credentialSharePreviewSchema,
@@ -6,6 +7,8 @@ import {
   vaultConfirmResponseSchema,
   vaultDeviceSealListSchema,
   vaultPendingResponseSchema,
+  vaultStatusResponseSchema,
+  type CredentialItem,
   type CredentialRecipients,
   type CredentialSharePreview,
   type VaultActorProof,
@@ -260,6 +263,22 @@ export function createVaultOps(deps: VaultOpsDeps) {
     }
   }
 
+  /** Una lettura senza chiave: gli stessi esiti delle altre (`disabled`, il codice del server). */
+  async function plainRead<T extends object>(
+    run: () => Promise<T>,
+  ): Promise<({ ok: true } & T) | OpFailure> {
+    try {
+      return { ok: true, ...(await run()) };
+    } catch (error) {
+      if (isDisabled(error)) {
+        deps.lock.markDisabled();
+        return { ok: false, code: "disabled" };
+      }
+      if (error instanceof VaultHttpError) return { ok: false, code: error.code };
+      return { ok: false, code: "invalid_response" };
+    }
+  }
+
   async function pendingPeople() {
     return parse(vaultPendingResponseSchema, await deps.request("GET", "/api/vault/pending")).items;
   }
@@ -367,6 +386,43 @@ export function createVaultOps(deps: VaultOpsDeps) {
           unopenable,
         };
       }, TOUCH),
+
+    /**
+     * Lo stato della propria chiave (`GET /api/vault/status`, `desktopRead`):
+     * nell'app ogni `/api/vault*` passa dal main (review C1), e il renderer
+     * riceve solo ciò che serve alla barra — niente `seals` né `passkeys`.
+     */
+    serverStatus: async (): Promise<
+      | {
+          ok: true;
+          activated: boolean;
+          myKey: { id: string; status: string; createdAt: string; publicKey: string | null } | null;
+        }
+      | OpFailure
+    > =>
+      plainRead(async () => {
+        const s = parse(vaultStatusResponseSchema, await deps.request("GET", "/api/vault/status"));
+        return {
+          activated: s.activated,
+          myKey: s.myKey
+            ? {
+                id: s.myKey.id,
+                status: s.myKey.status,
+                createdAt: s.myKey.createdAt,
+                publicKey: s.myKey.publicKey ?? null,
+              }
+            : null,
+        };
+      }),
+
+    /** «Le mie» credenziali (`GET /api/vault/credentials`): lette o in attesa; niente cifrati. */
+    mine: async (): Promise<{ ok: true; items: CredentialItem[] } | OpFailure> =>
+      plainRead(async () => ({
+        items: parse(
+          credentialListResponseSchema,
+          await deps.request("GET", "/api/vault/credentials"),
+        ).items,
+      })),
 
     /**
      * I propri Mac (Preferenze → Security): l'elenco, con `current` sul

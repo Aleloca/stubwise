@@ -238,6 +238,22 @@ interface Window {
         credentialId: string,
         password: string,
       ) => Promise<{ ok: true } | StubwiseVaultFail>;
+      serverStatus: () => Promise<
+        | {
+            ok: true;
+            activated: boolean;
+            myKey: {
+              id: string;
+              status: string;
+              createdAt: string;
+              publicKey: string | null;
+            } | null;
+          }
+        | StubwiseVaultFail
+      >;
+      mine: () => Promise<
+        { ok: true; items: import("@stubwise/shared").CredentialItem[] } | StubwiseVaultFail
+      >;
     };
   };
 }

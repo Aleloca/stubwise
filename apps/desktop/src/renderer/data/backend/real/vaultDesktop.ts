@@ -1,4 +1,3 @@
-import { ApiError } from "@stubwise/api-client";
 import { keyFingerprint } from "@stubwise/vault-crypto";
 import type * as Fake from "../../api";
 import { appClient } from "./client";
@@ -46,19 +45,16 @@ export const getVaultStatus: FakeVault["getVaultStatus"] = async () => {
   // Fetta 2a: la propria chiave dal server (`GET /api/vault/status`,
   // `desktopRead`): cassaforte non attivata, nessuna chiave, chiave da
   // confermare. Con la chiave confermata decide il Mac.
-  let server: Awaited<ReturnType<ReturnType<typeof appClient>["vault"]["status"]>>;
-  try {
-    server = await appClient().vault.status();
-  } catch (error) {
-    if (
-      error instanceof ApiError &&
-      error.status === 404 &&
-      error.code === "vault_desktop_disabled"
-    )
+  // Review C1: nell'app ogni `/api/vault*` passa dal main (il proxy le
+  // rifiuta al renderer): lo stato della propria chiave ha il suo canale.
+  const out = await b.serverStatus();
+  if (!out.ok) {
+    if (out.code === "disabled" || out.code === "vault_desktop_disabled")
       return { ...view, state: "disabled" };
     // Il server non risponde: la barra resta quella del Mac (aprire lo dirà).
     return view;
   }
+  const server = out;
   if (!server.activated) return { ...view, state: "inactive" };
   const myKey = server.myKey;
   // Una chiave rifiutata o sostituita non apre più niente: va ricreata nel browser.
