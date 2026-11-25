@@ -12,7 +12,7 @@ import {
 import type { SessionChange } from "../main/browserLogin";
 import type { UnlockResult, VaultStatus } from "../main/vaultLock";
 import type { PairingCode } from "../main/vaultPairing";
-import type { PendingPersonView, ReaderTarget } from "../main/vaultOps";
+import type { MacEntry, PendingPersonView, ReaderTarget } from "../main/vaultOps";
 
 type ResolvedTheme = "light" | "dark";
 type MenuChannel =
@@ -209,6 +209,12 @@ const bridge = {
     > => ipcRenderer.invoke("vault:confirm", personKeyId),
     reject: (personKeyId: string): Promise<{ ok: true } | { ok: false; code: string }> =>
       ipcRenderer.invoke("vault:reject", personKeyId),
+    /** I propri Mac (Preferenze → Security), con `current` e l'impronta intera. */
+    macs: (): Promise<{ ok: true; items: MacEntry[] } | { ok: false; code: string }> =>
+      ipcRenderer.invoke("vault:macs"),
+    /** Togliere un ALTRO proprio Mac: cassaforte aperta e riconferma (`reauth_required`). */
+    removeMac: (macId: string): Promise<{ ok: true } | { ok: false; code: string }> =>
+      ipcRenderer.invoke("vault:remove-mac", macId),
     onChanged: (cb: (status: VaultStatus) => void): (() => void) => {
       const handler = (_event: unknown, status: VaultStatus) => cb(status);
       ipcRenderer.on("vault:changed", handler);

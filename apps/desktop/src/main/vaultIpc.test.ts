@@ -44,12 +44,21 @@ function setup() {
     share: vi.fn(async () => ({ ok: true as const, waiting: [] })),
     removeReader: vi.fn(ok),
     pending: vi.fn(async () => ({ ok: true as const, items: [] })),
-    confirm: vi.fn(async () => ({ ok: true as const, saved: 1, keyChanged: 0, notAllowed: 0, unopenable: 0 })),
+    confirm: vi.fn(async () => ({
+      ok: true as const,
+      saved: 1,
+      keyChanged: 0,
+      notAllowed: 0,
+      unopenable: 0,
+    })),
     reject: vi.fn(ok),
+    macs: vi.fn(async () => ({ ok: true as const, items: [] })),
+    removeMac: vi.fn(ok),
   };
   const fromApp = (event: unknown) => (event as { app?: boolean }).app === true;
   registerVaultIpc(ipc, { lock, pairing, ops, fromApp });
-  const call = (channel: string, app = true, ...args: unknown[]) => handlers.get(channel)!({ app }, ...args);
+  const call = (channel: string, app = true, ...args: unknown[]) =>
+    handlers.get(channel)!({ app }, ...args);
   return { handlers, call, lock, pairing, ops };
 }
 
@@ -105,12 +114,17 @@ describe("l'IPC della cassaforte", () => {
       ["vault:remove-reader", [CRED, "not-a-uuid"]],
       ["vault:confirm", ["x"]],
       ["vault:reject", [undefined]],
+      ["vault:remove-mac", ["../mine"]],
     ] as const) {
-      expect(await call(channel, true, ...args), channel).toEqual({ ok: false, code: "invalid_request" });
+      expect(await call(channel, true, ...args), channel).toEqual({
+        ok: false,
+        code: "invalid_request",
+      });
     }
     expect(ops.copy).not.toHaveBeenCalled();
     expect(ops.removeReader).not.toHaveBeenCalled();
     expect(ops.confirm).not.toHaveBeenCalled();
     expect(ops.reject).not.toHaveBeenCalled();
+    expect(ops.removeMac).not.toHaveBeenCalled();
   });
 });

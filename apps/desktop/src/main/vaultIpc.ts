@@ -23,6 +23,8 @@ export const VAULT_CHANNELS = [
   "vault:pending",
   "vault:confirm",
   "vault:reject",
+  "vault:macs",
+  "vault:remove-mac",
 ] as const;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -49,7 +51,18 @@ export interface VaultIpcDeps<E> {
     start: () => Promise<{ ok: true; fingerprint: string } | { ok: false; code: string }>;
     cancel: () => void;
   };
-  ops: Pick<VaultOps, "show" | "copy" | "share" | "removeReader" | "pending" | "confirm" | "reject">;
+  ops: Pick<
+    VaultOps,
+    | "show"
+    | "copy"
+    | "share"
+    | "removeReader"
+    | "pending"
+    | "confirm"
+    | "reject"
+    | "macs"
+    | "removeMac"
+  >;
   fromApp: (event: E) => boolean;
 }
 
@@ -99,8 +112,14 @@ export function registerVaultIpc<E>(ipc: Ipc<E>, deps: VaultIpcDeps<E>): void {
       return (await run(...args)) ?? refused;
     };
 
-  ipc.handle("vault:show", withArgs((id) => (isId(id) ? deps.ops.show(id) : null)));
-  ipc.handle("vault:copy", withArgs((id) => (isId(id) ? deps.ops.copy(id) : null)));
+  ipc.handle(
+    "vault:show",
+    withArgs((id) => (isId(id) ? deps.ops.show(id) : null)),
+  );
+  ipc.handle(
+    "vault:copy",
+    withArgs((id) => (isId(id) ? deps.ops.copy(id) : null)),
+  );
   ipc.handle(
     "vault:share",
     withArgs((id, raw) => {
@@ -110,9 +129,28 @@ export function registerVaultIpc<E>(ipc: Ipc<E>, deps: VaultIpcDeps<E>): void {
   );
   ipc.handle(
     "vault:remove-reader",
-    withArgs((id, readerId) => (isId(id) && isId(readerId) ? deps.ops.removeReader(id, readerId) : null)),
+    withArgs((id, readerId) =>
+      isId(id) && isId(readerId) ? deps.ops.removeReader(id, readerId) : null,
+    ),
   );
-  ipc.handle("vault:pending", withArgs(() => deps.ops.pending()));
-  ipc.handle("vault:confirm", withArgs((keyId) => (isId(keyId) ? deps.ops.confirm(keyId) : null)));
-  ipc.handle("vault:reject", withArgs((keyId) => (isId(keyId) ? deps.ops.reject(keyId) : null)));
+  ipc.handle(
+    "vault:pending",
+    withArgs(() => deps.ops.pending()),
+  );
+  ipc.handle(
+    "vault:confirm",
+    withArgs((keyId) => (isId(keyId) ? deps.ops.confirm(keyId) : null)),
+  );
+  ipc.handle(
+    "vault:reject",
+    withArgs((keyId) => (isId(keyId) ? deps.ops.reject(keyId) : null)),
+  );
+  ipc.handle(
+    "vault:macs",
+    withArgs(() => deps.ops.macs()),
+  );
+  ipc.handle(
+    "vault:remove-mac",
+    withArgs((macId) => (isId(macId) ? deps.ops.removeMac(macId) : null)),
+  );
 }

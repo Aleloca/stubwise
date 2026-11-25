@@ -399,4 +399,66 @@ describe("le operazioni della cassaforte nel main", () => {
     await ops.removeReader(CRED, "r-1");
     expect(touches()).toBe(2);
   });
+
+  // I propri Mac (Preferenze → Security) dal main: l'elenco con `current`
+  // (il sigillo di questo Mac) e l'impronta dalla pubblica; togliere un ALTRO
+  // Mac vuole la cassaforte aperta (la prova della propria chiave) e la
+  // riconferma del desktop, che il server chiede con `reauth_required`.
+  it("i Mac: l'elenco con l'impronta e `current`; Remove con la prova", async () => {
+    const MAC = "eeeeeeee-0000-4000-8000-000000000001";
+    const { ops, calls } = setup({
+      ...challengeRoute(),
+      "GET /api/vault/device-seals": () => ({
+        items: [
+          {
+            id: "eeeeeeee-0000-4000-8000-0000000000aa",
+            deviceName: "MacBook Pro di Laura",
+            devicePublicKey: other.publicKey,
+            createdAt: "2026-11-24T09:00:00.000Z",
+            lastUsedAt: "2026-11-25T09:00:00.000Z",
+            current: true,
+          },
+          {
+            id: MAC,
+            deviceName: "iMac in ufficio",
+            devicePublicKey: other.publicKey,
+            createdAt: "2026-11-20T10:00:00.000Z",
+            lastUsedAt: null,
+            current: false,
+          },
+        ],
+      }),
+      [`DELETE /api/vault/device-seals/${MAC}`]: () => null,
+    });
+    const list = await ops.macs();
+    expect(list).toMatchObject({
+      ok: true,
+      items: [
+        { name: "MacBook Pro di Laura", current: true },
+        {
+          id: MAC,
+          name: "iMac in ufficio",
+          pairedAt: "2026-11-20T10:00:00.000Z",
+          lastUsedAt: null,
+          current: false,
+          fingerprint: await keyFingerprint(other.publicKey),
+        },
+      ],
+    });
+    expect(await ops.removeMac(MAC)).toEqual({ ok: true });
+    const del = calls.find((c) => c.path === `/api/vault/device-seals/${MAC}`)!;
+    expect(del.method).toBe("DELETE");
+    expect((del.body as { actorProof?: unknown }).actorProof).toBeDefined();
+  });
+
+  it("Remove di un Mac senza riconferma: `reauth_required` (il renderer apre «Confirm it's you»)", async () => {
+    const MAC = "eeeeeeee-0000-4000-8000-000000000002";
+    const { ops } = setup({
+      ...challengeRoute(),
+      [`DELETE /api/vault/device-seals/${MAC}`]: () => {
+        throw new VaultHttpError(403, "reauth_required");
+      },
+    });
+    expect(await ops.removeMac(MAC)).toEqual({ ok: false, code: "reauth_required" });
+  });
 });
