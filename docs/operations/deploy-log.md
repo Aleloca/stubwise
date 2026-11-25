@@ -6576,6 +6576,11 @@ deploy o di un rollback che la tocca.
     il Touch ID si aggira (un programma dello stesso utente legge la chiave
     da `safeStorage`). Il build non firmato di oggi (`package:mac`, dmg
     locale) NON va distribuito con la cassaforte accesa.
+  - **Il Team ID al build dell'app**: `STUBWISE_TEAM_ID` nell'ambiente di
+    `package:mac` (94). Dà l'access group del Keychain di data protection
+    dove sta la chiave del Mac (`<TeamID>.<bundle id>`, review I1): senza,
+    il pacchetto firmato non ha il gruppo giusto. È una variabile del BUILD
+    del Mac, non del server né del compose.
   - **Accenderla solo col build firmato: l'interruttore `VAULT_DESKTOP`**
     (decisione di 46, 25 nov 2026, difesa in profondità). Al deploy resta
     SPENTO (default): l'associazione e le rotte aperte al Mac rispondono
