@@ -106,7 +106,8 @@ describe("credentials", () => {
     const view = await client.credentials.readers(C);
     expect(lastCall(fetchImpl)).toMatchObject({ path: `/api/credentials/${C}/readers`, method: "GET" });
     expect(view.readers[0]).toMatchObject({ creator: false });
-    expect(view.people[0]).toMatchObject({ status: "can_read" });
+    // Un server di prima del 25 nov 2026 non manda `roleName`: diventa `null`.
+    expect(view.people[0]).toMatchObject({ status: "can_read", roleName: null });
   });
 
   it("update: PATCH /api/credentials/:id col solo corpo dato; risponde la riga", async () => {
