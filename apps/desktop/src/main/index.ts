@@ -48,7 +48,13 @@ import {
   readToken,
   replaceToken,
 } from "./session";
-import { createKeyHelper, helperPath, spawnRunner } from "./keyHelper";
+import {
+  codesignVerifier,
+  createKeyHelper,
+  helperPath,
+  helperRequirement,
+  spawnRunner,
+} from "./keyHelper";
 import {
   deviceAgreement,
   forgetDevice,
@@ -231,7 +237,14 @@ const vaultRemote = createVaultRemote({ instanceUrl: readInstanceUrl, token: rea
 
 // I1 (revisione di sicurezza): la chiave del Mac nel Secure Enclave, attraverso
 // l'helper firmato con l'app; il Touch ID lo chiede il sistema a ogni uso.
-const keyHelper = createKeyHelper({ run: spawnRunner(helperPath(app.getPath("exe"))) });
+// I2: prima di ogni uso l'helper si verifica (firma del team, sul processo
+// avviato); senza Team ID al build non c'è requisito e l'helper non parte.
+const helperReq = helperRequirement(__STUBWISE_TEAM_ID__);
+const keyHelper = createKeyHelper({
+  run: spawnRunner(helperPath(app.getPath("exe")), {
+    verify: helperReq ? codesignVerifier(helperReq) : async () => false,
+  }),
+});
 const touchReason = app.getLocale().toLowerCase().startsWith("it")
   ? "aprire la cassaforte"
   : "open the vault";
@@ -243,7 +256,7 @@ const touchReason = app.getLocale().toLowerCase().startsWith("it")
  */
 let support: Promise<{ enclave: boolean; biometry: boolean }> | null = null;
 function vaultSupported(): Promise<{ enclave: boolean; biometry: boolean }> {
-  if (!__STUBWISE_VAULT_DESKTOP__ || process.platform !== "darwin")
+  if (!__STUBWISE_VAULT_DESKTOP__ || !helperReq || process.platform !== "darwin")
     return Promise.resolve({ enclave: false, biometry: false });
   support ??= keyHelper
     .available()

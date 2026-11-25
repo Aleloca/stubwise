@@ -79,29 +79,75 @@ export function createKeyHelper(deps: { run: HelperRunner }): KeyHelper {
 /** Dove sta l'helper nel pacchetto: accanto all'eseguibile dell'app. */
 export const helperPath = (exePath: string): string => join(dirname(exePath), "stubwise-keyhelper");
 
+/** L'identifier con cui l'helper è firmato (lo stesso nome del binario). */
+export const HELPER_IDENTIFIER = "stubwise-keyhelper";
+
 /**
- * Il runner vero: un processo per richiesta, l'input su stdin. Il tempo
- * massimo copre l'attesa del Touch ID (la persona deve toccare).
+ * I2 (seconda revisione della cassaforte): il requisito di firma dell'helper —
+ * firmato da Apple per il team, con il suo identifier. Senza Team ID (un build
+ * non firmato) non c'è requisito: la cassaforte dal desktop resta spenta.
  */
-export function spawnRunner(path: string, timeoutMs = 120_000): HelperRunner {
+export function helperRequirement(teamId: string): string | null {
+  if (!/^[A-Z0-9]{10}$/.test(teamId)) return null;
+  return `anchor apple generic and identifier "${HELPER_IDENTIFIER}" and certificate leaf[subject.OU] = "${teamId}"`;
+}
+
+/** Verifica dinamica (per pid) con `codesign`: vero solo se il processo soddisfa il requisito. */
+export function codesignVerifier(requirement: string): (pid: number) => Promise<boolean> {
+  return (pid) =>
+    new Promise((resolve) => {
+      const child = spawn("/usr/bin/codesign", ["--verify", `-R=${requirement}`, String(pid)], {
+        stdio: "ignore",
+        env: {},
+      });
+      child.on("error", () => resolve(false));
+      child.on("close", (code) => resolve(code === 0));
+    });
+}
+
+/**
+ * Avvia l'helper, ne verifica la firma sul processo GIÀ avviato (I2: si
+ * controlla il codice che gira, non un file che si potrebbe scambiare dopo)
+ * e solo allora gli scrive la richiesta. Verifica fallita o impossibile:
+ * l'helper si uccide senza aver ricevuto niente, ed è `unverified`.
+ */
+export function spawnRunner(
+  path: string,
+  opts: { verify: (pid: number) => Promise<boolean>; timeoutMs?: number },
+): HelperRunner {
+  const timeoutMs = opts.timeoutMs ?? 120_000;
   return (input) =>
     new Promise((resolve, reject) => {
       const child = spawn(path, [], { stdio: ["pipe", "pipe", "ignore"], env: {} });
       let out = "";
+      let settled = false;
+      const finish = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        fn();
+      };
       const timer = setTimeout(() => {
-        child.kill();
-        reject(new Error("timeout"));
+        child.kill("SIGKILL");
+        finish(() => reject(new Error("timeout")));
       }, timeoutMs);
       child.stdout.setEncoding("utf8");
       child.stdout.on("data", (chunk: string) => (out += chunk));
-      child.on("error", (error) => {
-        clearTimeout(timer);
-        reject(error);
-      });
-      child.on("close", () => {
-        clearTimeout(timer);
-        resolve(out);
-      });
-      child.stdin.end(input);
+      child.on("error", (error) => finish(() => reject(error)));
+      child.on("close", () => finish(() => resolve(out)));
+      const pid = child.pid;
+      if (pid === undefined) return;
+      opts
+        .verify(pid)
+        .catch(() => false)
+        .then((ok) => {
+          if (settled) return;
+          if (!ok) {
+            child.kill("SIGKILL");
+            finish(() => reject(new Error("unverified")));
+            return;
+          }
+          child.stdin.end(input);
+        });
     });
 }

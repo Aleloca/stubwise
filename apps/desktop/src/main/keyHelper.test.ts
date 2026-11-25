@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
-import { createKeyHelper } from "./keyHelper";
+import { spawn } from "node:child_process";
+import { codesignVerifier, createKeyHelper, helperRequirement, spawnRunner } from "./keyHelper";
 
 // Revisione di sicurezza della cassaforte, I1: il main parla con l'helper
 // Swift del Secure Enclave (`native/keyhelper/main.swift`) con UNA richiesta
@@ -80,4 +81,57 @@ describe("l'helper del Secure Enclave", () => {
     expect(await h.clearIf(12)).toBe(true);
     expect(run.mock.calls.map((c) => JSON.parse(c[0]).cmd)).toEqual(["copy", "clear-if"]);
   });
+});
+
+// Seconda revisione di sicurezza della cassaforte, I2: il main passa all'helper
+// le password (per gli appunti) e le richieste di Touch ID. Prima di scrivergli
+// QUALUNQUE cosa ne verifica la firma, sul processo GIÀ AVVIATO (per pid: si
+// controlla il codice che gira, non un file che si può scambiare dopo la
+// verifica), con un requisito esplicito: anchor apple generic, identifier e
+// Team ID. Verifica fallita: l'helper si uccide e non riceve niente.
+describe("la firma dell'helper (I2)", () => {
+  it("il requisito: anchor apple generic, l'identifier e il Team ID; senza Team ID non c'è requisito", () => {
+    expect(helperRequirement("ABCDE12345")).toBe(
+      'anchor apple generic and identifier "stubwise-keyhelper" and certificate leaf[subject.OU] = "ABCDE12345"',
+    );
+    expect(helperRequirement("")).toBeNull();
+    expect(helperRequirement('AB" or true')).toBeNull();
+  });
+
+  it("verificato: riceve la richiesta (cat la rimanda); la verifica vede il pid del processo avviato", async () => {
+    const pids: number[] = [];
+    const run = spawnRunner("/bin/cat", {
+      verify: async (pid) => {
+        pids.push(pid);
+        return true;
+      },
+    });
+    expect(await run('{"cmd":"available"}')).toBe('{"cmd":"available"}');
+    expect(pids).toHaveLength(1);
+    expect(pids[0]).toBeGreaterThan(0);
+  });
+
+  it("non verificato: `unverified`, e il processo non ha ricevuto niente", async () => {
+    const run = spawnRunner("/bin/cat", { verify: async () => false });
+    await expect(run("segreto")).rejects.toThrow("unverified");
+    const failing = spawnRunner("/bin/cat", {
+      verify: async () => {
+        throw new Error("codesign assente");
+      },
+    });
+    await expect(failing("segreto")).rejects.toThrow("unverified");
+  });
+
+  it.runIf(process.platform === "darwin")(
+    "codesignVerifier: un processo di sistema soddisfa «anchor apple», non un Team ID qualunque",
+    async () => {
+      const child = spawn("/bin/sleep", ["5"]);
+      try {
+        expect(await codesignVerifier("anchor apple")(child.pid!)).toBe(true);
+        expect(await codesignVerifier(helperRequirement("ABCDE12345")!)(child.pid!)).toBe(false);
+      } finally {
+        child.kill();
+      }
+    },
+  );
 });
