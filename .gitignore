@@ -39,3 +39,6 @@ designs/
 # App desktop: build web della nuova app (/app) e pacchetti locali.
 apps/desktop/dist-web/
 apps/desktop/release/
+
+# Le chiavi API di App Store Connect (notarizzazione, I1): mai nella repo.
+*.p8
