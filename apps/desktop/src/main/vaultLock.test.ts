@@ -243,6 +243,30 @@ describe("la cassaforte nel main", () => {
     expect((await lock.status()).state).toBe("unpaired");
   });
 
+  // M3 (revisione di sicurezza): al cambio d'istanza, al 401 e al nuovo
+  // login il sigillo sul server si toglie best-effort, PRIMA che il token
+  // cambi: la chiamata parte subito (il token si legge allora), poi il locale.
+  it("M3: il cambio di sessione toglie il sigillo sul server, subito e prima del locale; un errore non ferma niente", async () => {
+    const { lock, calls } = setup({
+      forgetRemote: () => {
+        calls.push("forget-remote");
+        return Promise.reject(new Error("offline"));
+      },
+    });
+    lock.sessionChanged();
+    // Sincrono: niente `await` fra la chiamata e il controllo.
+    expect(calls).toEqual(["forget-remote", "forget-local"]);
+    await Promise.resolve();
+    expect((await lock.status()).state).toBe("unpaired");
+  });
+
+  it("M3: senza un Mac associato non si chiama il server", async () => {
+    const { lock, calls, setStored } = setup();
+    setStored(null);
+    lock.sessionChanged();
+    expect(calls).not.toContain("forget-remote");
+  });
+
   it("senza sessione: niente stato da mostrare, niente apertura", async () => {
     const { lock } = setup({ identity: () => null });
     expect(await lock.status()).toEqual({ state: "unpaired", fingerprint: null });

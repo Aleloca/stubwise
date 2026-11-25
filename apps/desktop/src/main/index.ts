@@ -271,9 +271,10 @@ function receiveAuthUrl(url: string): void {
 /** Un 401 di sessione: si chiude, ma una richiesta partita col token di prima non chiude la sessione nuova. */
 function onUnauthorized(used: string): void {
   if (readToken() !== used) return;
-  clearToken();
+  // M3: il sigillo prima del token (best-effort: col 401 il server può già rifiutare).
   vault.sessionChanged();
   vaultPairing.cancel();
+  clearToken();
   notifySession({ signedIn: false, error: "unauthorized" });
 }
 
@@ -454,10 +455,11 @@ ipcMain.handle("instance:set", (event, raw: unknown) => {
   // Un'istanza diversa è un'altra sessione: il token di prima non vale lì, e
   // un login dal browser in corso era per l'altra.
   if (next !== readInstanceUrl()) {
-    clearToken();
-    browserLogin.cancel();
+    // M3: il sigillo sull'istanza di prima, col suo token, poi il token.
     vault.sessionChanged();
     vaultPairing.cancel();
+    clearToken();
+    browserLogin.cancel();
   }
   return { ok: true, url: writeInstanceUrl(next) };
 });

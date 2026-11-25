@@ -99,7 +99,11 @@ export interface VaultLock {
   forget: () => Promise<{ ok: true; remote: boolean }>;
   /** Appena associato: la prossima apertura è senza tocco (D-1b). */
   markPaired: () => void;
-  /** Login nuovo o logout: chiude e cancella il locale. */
+  /**
+   * Login nuovo, cambio d'istanza, 401: toglie il sigillo sul server
+   * (best-effort, M3) e cancella il locale. Va chiamata PRIMA che il token
+   * cambi: la chiamata al server parte subito e legge il token di adesso.
+   */
   sessionChanged: () => void;
   /** Il server dice `device_seal_required` (Mac tolto, chiave ricreata): D-5, il login resta. */
   markRevoked: () => void;
@@ -248,6 +252,12 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
       changed();
     },
     sessionChanged: () => {
+      // M3: il sigillo di questo PAT sul server, finché il token è ancora quello.
+      if (device()) {
+        void deps.forgetRemote().catch((error: unknown) => {
+          console.warn("stubwise: cassaforte — sigillo del Mac non tolto al cambio di sessione (best-effort)", error);
+        });
+      }
       dropLocal();
       revoked = false;
       changed();
