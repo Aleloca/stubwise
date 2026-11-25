@@ -6437,14 +6437,141 @@ deploy o di un rollback che la tocca.
   env nuova. **Ordine**: **server** (migrazione applicata, healthy), poi
   **caddy** (la pagina `vault-pair` e l'elenco dei Mac), poi l'app desktop
   (`package:mac`). Il worker non c'entra (non nomina queste tabelle).
-  **Rollback del server: sicuro.** Un server vecchio non nomina le tabelle
-  nuove, scrive sempre `session_id` nelle sfide (il CHECK nuovo lo
-  accetta), e legge il registro degli accessi per colonne esplicite. Un Mac
+  ⚠️ **Rollback del server: NON pulito se un Mac è stato associato o
+  tolto** (corretto il 25 nov 2026: era scritto «sicuro»). Le tabelle nuove,
+  le sfide (`session_id` sempre scritto dal vecchio) e il registro degli
+  accessi (colonne esplicite) non danno problemi; ma il registro di
+  sicurezza sì: un server vecchio non conosce `vault_device_sealed` né
+  `vault_device_seal_revoked`, e la lista del registro (Impostazioni →
+  Sicurezza e la scheda dell'utente) risponde **500** appena ne trova una
+  riga, come per `reauth_desktop` (0132). Prima di scendere col server:
+  `delete from security_events where kind in ('vault_device_sealed', 'vault_device_seal_revoked');`.
+  Le card `security.alert` con quei soggetti non rompono nulla: un soggetto
+  ignoto degrada al `kind` nel recinto di chi rende la card. Un Mac
   associato smette di aprire la cassaforte (le rotte non ci sono più) finché
-  il server non risale: niente da ripulire. Il caddy scende insieme al
+  il server non risale. Il caddy scende insieme al
   server. Per togliere lo schema (server vecchio): `ALTER TABLE
   vault_recovery_challenges DROP CONSTRAINT vault_recovery_challenges_holder_chk, DROP COLUMN pat_id`,
   poi `delete from vault_recovery_challenges where session_id is null;` e
   `ALTER TABLE vault_recovery_challenges ALTER COLUMN session_id SET NOT NULL`;
   `ALTER TABLE credential_access_log DROP CONSTRAINT credential_access_log_via_chk, DROP COLUMN device_seal_id, DROP COLUMN via`;
   `DROP TABLE vault_device_seals`, `DROP TABLE vault_device_pairings`.
+- **«Rimandi dell'integrazione (lotti 1–10)»** *(25 nov 2026)*: la voce
+  OMBRELLO del ramo `feat/integrazione-rimandi` (server `feat/rimandi-server`,
+  renderer `feat/rimandi-renderer`). Non sostituisce le voci di lotto: dice in
+  che ORDINE leggerle e cosa fare prima, durante e dopo. Ogni dettaglio
+  (schema, rollback completo) sta nella voce richiamata per titolo.
+
+  **Le migrazioni, in ordine (0219–0236)** — girano in UN batch, in una sola
+  transazione, al primo avvio del server nuovo (la 0235 aggiunge un valore
+  d'enum in uno statement a sé e il batch non lo usa):
+  | Migrazione | Voce | Rollback |
+  |---|---|---|
+  | 0219 `release_ci_runs.run_group` | «Rimandi: una run rilanciata sostituisce solo quella del suo workflow» | sicuro |
+  | 0220 `pr_corrections.outcome` (+ backfill) | «Rimandi, lotto 4: la correzione scartata» | sicuro (le scartate tornano `stopped`) |
+  | 0221 `oauth_states.client`, `return_state` | «Rimandi, lotto 4: il ritorno OAuth della casella all'app» | sicuro |
+  | 0222 `repo_graphs.setup_pr_state` | «Rimandi, lotto 4: lo stato della PR di setup del grafo» | sicuro |
+  | 0223 `product_doc_jobs.budget_bypass` | «Rimandi, lotto 4, review: il budget finito scavalcato davvero» | sicuro |
+  | 0224 `outgoing_webhooks.last_test_*` | «Rimandi, lotto 5: l'ultima prova dei webhook in uscita» | sicuro |
+  | 0225 le ultime 4 dei segreti | «Rimandi, lotto 5: le ultime 4 dei segreti» | sicuro |
+  | 0226 `plugins.registered_by/updated_by` | «Rimandi, lotto 5: chi ha registrato e aggiornato un plugin» | sicuro |
+  | 0227 `outgoing_webhooks.last_test_status` | «Rimandi, lotto 5, review: il codice dell'ultima prova dei webhook» | ⚠️ SQL prima (sotto) |
+  | 0228 `instance_settings.attachments_switch` | «Lotto 6: l'interruttore degli allegati» | ⚠️ l'interruttore spento si riaccende |
+  | 0229 `claude_page_outcomes` | «Lotto 7: l'esito delle azioni della pagina» | sicuro |
+  | 0230 `automation_runs.details_pruned_at` | «Lotto 8: la conservazione delle esecuzioni delle automazioni» | ⚠️ irreversibile ciò che è compattato |
+  | 0231 `google_accounts.send_as`, `mail_drafts.from_address` | «Lotto 8: rispondere da un alias di Gmail» | sicuro |
+  | 0232 `claude_conversations.context_refs`, `agent_session_inputs.contexts` | «Lotto 8: più contesti per conversazione con Claude» | sicuro |
+  | 0233 `claude_turn_citations` | «Lotto 9: le citazioni dei messaggi di Claude» | sicuro |
+  | 0234 `calendar_proposals`, `calendar_proposal_recipients` | «Lotto 9: le proposte del calendario condivise fra gli invitati» | ⚠️ worker: SQL prima (sotto) |
+  | 0235 «Quale progetto?» del calendario | «Lotto 9: il progetto di un appuntamento con più candidati e la «Quale progetto?» del calendario» | ⚠️ server: SQL prima (sotto) |
+  | 0236 sigillo del Mac | «Lotto 10: la cassaforte dal desktop, il sigillo del Mac» | ⚠️ server: SQL prima (sotto) |
+  Le voci SENZA migrazione dello stesso ramo, da leggere comunque: «Rimandi:
+  il modulo Docs spento chiude le rotte», «Rimandi: gli oggetti degli
+  allegati di una bozza che se ne va», «Rimandi, lotto 4: la card di chi
+  decide una proposta passata», «Rimandi, lotto 4: il budget mensile finito
+  ferma gli avvii a mano» (un **cambio di comportamento**: a budget finito
+  chi non ha `plans.approve` riceve subito 409 `budget_exhausted`).
+
+  **Env nuove: nessuna** (né sul server né sul worker né nel compose; il
+  flag `MAIL_CLASSIFY_V2` e `GMAIL_MAX_PER_TICK`, che la 0235 usa, c'erano
+  già). Nessun `notification_kind` nuovo. Nessuno scope nuovo dei token
+  (gli alias di Gmail bastano con `gmail.modify`).
+
+  **PRIMA del deploy** (sul DB di produzione):
+  1. **Backup del DB** — obbligatorio: la compattazione delle esecuzioni
+     (0230) è irreversibile.
+  2. **Il modulo Docs spento** (voce «il modulo Docs spento chiude le
+     rotte»): la query dei progetti senza `docs` con dati dei Docs o del
+     Product; se torna righe, accendere il modulo o avvisare il maintainer.
+  3. **La prima compattazione** (voce di 0230): contare le esecuzioni finite
+     da più di 90 giorni e i loro passi di registro (le due `select
+     count(*)` della voce): è quanto il primo giro toglierà, ~1.200 righe
+     l'ora.
+  4. **I webhook**: nessun resync né scope nuovo. I webhook in uscita
+     partono senza «ultima prova» (`lastTest` nullo, 0224/0227) finché
+     qualcuno non li prova; la card «proposta passata» (lotto 4) cambia solo
+     le card nuove.
+  5. **Worker a riposo**: nessuna generazione Docs viva
+     (`select id from doc_generations where status in ('running','paused');`
+     vuota) e nessun elemento del giro notturno reclamato («Giro notturno»):
+     il worker si riavvia.
+
+  **ORDINE dei servizi**:
+  1. **server** (le 18 migrazioni; aspettare healthy e la 0236 applicata:
+     worker e renderer nominano colonne nuove);
+  2. **worker** (compattazione, alias, contesti, calendario condiviso e
+     «Quale progetto?», bozze e storage);
+  3. **caddy** (web, `/guide`, il renderer in `/app`, la pagina
+     `vault-pair` e la pagina `desktop-google`);
+  4. l'**app desktop**: SOLO il build firmato (sotto).
+  Il `push-relay` e `graphify` non cambiano.
+
+  **DOPO il deploy**:
+  - le migrazioni ci sono tutte: `select max(created_at) from
+    drizzle.__drizzle_migrations;` = `1804809600000` (il `when` della 0236);
+  - la compattazione avanza: il conteggio della voce 0230 con `and
+    details_pruned_at is null` scende a 0 (ore, non minuti);
+  - gli alias di Gmail compaiono entro un giorno per casella (la prima
+    rilettura); fino ad allora si manda dall'indirizzo della casella;
+  - il calendario condiviso vale per gli appuntamenti pubblicati da ora: le
+    proposte per casella di prima restano com'erano;
+  - il **plugin MCP**: il changeset del ramo (`.changeset/`) esce al merge su
+    `main` con la CI verde; dopo Release, `npm view @stubwise/mcp version`
+    deve dire la versione nuova.
+
+  **Le discese NON sicure, con il loro SQL** (il resto scende pulito, e il
+  caddy scende SEMPRE insieme al server):
+  - **0227, il server**: `UPDATE outgoing_webhooks SET last_test_outcome = 'invalid_credentials' WHERE last_test_outcome = 'destination_error';`
+  - **0228, il server**: un server vecchio ignora l'interruttore, quindi con
+    `attachments_switch = false` gli allegati tornano ACCESI. Se devono
+    restare spenti, spegnerli dall'archiviazione (togliere la configurazione
+    S3) prima di scendere.
+  - **0230, il worker**: ciò che è già compattato non torna se non dal
+    backup; un worker vecchio smette solo di compattare.
+  - **0234, il worker** (calendario condiviso), a worker fermo:
+    `update calendar_events set outcome = '{"type":"baseline"}'::jsonb where calendar_proposal_id is not null and outcome is null and proposal_notification_id is null;`
+  - **0235, il server** («Quale progetto?» senza progetto), a worker fermo:
+    `update notifications set status = 'handled', handled_at = now() where status = 'open' and id in (select r.notification_id from calendar_proposal_recipients r join calendar_proposals p on p.id = r.proposal_id where p.project_id is null);`
+    poi `delete from calendar_proposals where project_id is null;` (e, per
+    tornare avanti senza riproporle, l'`update` di `calendar_events` della
+    voce).
+  - **0236, il server** (il registro di sicurezza):
+    `delete from security_events where kind in ('vault_device_sealed', 'vault_device_seal_revoked');`
+  - Le card aperte di «proposta passata» (lotto 4) restano decidibili dalla
+    Posta; la query per contarle è nella voce.
+  Se scendono tutti e due, l'ordine è: worker (coi suoi passi), poi server
+  e caddy insieme (coi loro passi).
+
+  **La cassaforte dal desktop: cosa serve per accenderla**
+  (`docs/plans/2026-11-24-cassaforte-desktop-design.md`):
+  - **L'app FIRMATA** (Developer ID e i suoi entitlement): la chiave del Mac
+    sta nel Secure Enclave via l'helper Swift (review I1), e senza la firma
+    il Touch ID si aggira (un programma dello stesso utente legge la chiave
+    da `safeStorage`). Il build non firmato di oggi (`package:mac`, dmg
+    locale) NON va distribuito con la cassaforte accesa.
+  - **Accenderla solo col build firmato**: lato server le rotte ci sono dal
+    deploy (0236), e oggi **non c'è un interruttore d'istanza** che le
+    tenga spente: a impedire l'associazione da un'app non firmata è l'app
+    stessa (94). Un'associazione chiede comunque la riconferma del desktop e
+    la passkey nel browser (review I2), quindi un PAT da solo non basta.
+  - Il resto è nella voce di 0236: ordine server → caddy → app.
