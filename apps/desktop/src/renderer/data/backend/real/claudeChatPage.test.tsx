@@ -51,6 +51,8 @@ const session = (over: Record<string, unknown> = {}) => ({
 
 /** Le rotte che la chat può chiamare; ogni altra risponde 404 e il test lo dice. */
 const ALLOWED = [
+  // Lotto 10: la voce «Vault» del binario e della palette (le credenziali che leggo).
+  /^GET \/api\/vault\/credentials$/,
   // Registro: i blocchi dell'istanza accesi, il composer chiede se si può caricare.
   /^GET \/api\/storage\/uploads$/,
   // Il punto della Chat sul binario (area 4, fetta 1).

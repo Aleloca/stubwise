@@ -6,6 +6,7 @@
 // mai nel bundle.
 import type * as Fake from "../../api";
 import * as liveVaultDesktop from "./vaultDesktop";
+import * as liveVaultReads from "./vaultReads";
 import { liveAlerts } from "./alerts";
 import { liveSupport } from "./support";
 import { liveWidgets } from "./supportWidgets";
@@ -132,6 +133,8 @@ export const support: typeof Fake.support = partialNamespace<typeof Fake.support
 export const vault: typeof Fake.vault = partialNamespace<typeof Fake.vault>("vault", {
   // Fetta 1: stato, aprire e chiudere, associazione, i propri Mac (dal main).
   ...liveVaultDesktop,
+  // Fetta 2b: elenchi, dettaglio ed entrate, dalle rotte.
+  ...liveVaultReads,
 });
 
 export const servers: typeof Fake.servers = partialNamespace<typeof Fake.servers>("servers", {

@@ -91,6 +91,8 @@ const groupA = (over: Record<string, unknown> = {}) => ({
 });
 
 const ALLOWED = [
+  // Lotto 10: la voce «Vault» del binario e della palette (le credenziali che leggo).
+  /^GET \/api\/vault\/credentials$/,
   // Lotto 7, §1: l'esito di un'azione della pagina, salvato sul server.
   /^POST \/api\/claude\/proposals\/[^/]+\/actions\/\d+\/outcome$/,
   // Lotto 4, §5: «Retry» di un fillMailBody non salvato.
