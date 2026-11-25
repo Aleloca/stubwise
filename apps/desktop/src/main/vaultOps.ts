@@ -321,8 +321,11 @@ export function createVaultOps(deps: VaultOpsDeps) {
       }, TOUCH),
 
     /** Chi aspetta che io confermi: persone, impronta e credenziali, senza le copie. */
+    // Review I1: non passa da `lock.use` (riarmerebbe i 15 minuti a ogni
+    // lettura del binario, di ⌘K, della pagina): basta la lista con le
+    // pubbliche, niente chiave.
     pending: () =>
-      guarded(async () => ({
+      plainRead(async () => ({
         items: await Promise.all(
           (await pendingPeople()).map(
             async (p): Promise<PendingPersonView> => ({

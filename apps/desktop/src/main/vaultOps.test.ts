@@ -58,9 +58,12 @@ function setup(routes: Record<string, (body: unknown) => unknown>) {
   const calls: Call[] = [];
   let open = true;
   let touches = 0;
+  let uses = 0;
   const lock = {
     use: async <T>(run: (key: CryptoKey, personKeyId: string) => Promise<T>) => {
       if (!open) throw new Error("vault_locked");
+      // `use` riarma il timer dei 15 minuti (D-2): qui si conta.
+      uses += 1;
       return run(me.privateKey, PK);
     },
     markRevoked: vi.fn(() => {
@@ -109,6 +112,7 @@ function setup(routes: Record<string, (body: unknown) => unknown>) {
     closeVault: () => {
       open = false;
     },
+    uses: () => uses,
   };
 }
 
@@ -606,5 +610,17 @@ describe("le operazioni della cassaforte nel main", () => {
       expect(await off.ops.mine()).toEqual({ ok: false, code: "disabled" });
       expect(off.lock.markDisabled).toHaveBeenCalled();
     });
+  });
+
+  // Review I1: chi aspetta si legge di continuo (binario, ⌘K, pagina Vault,
+  // riga sotto la barra): non deve passare da `lock.use`, che riarma i 15
+  // minuti e terrebbe la cassaforte aperta per sempre. Serve la lista e la
+  // pubblica, non la chiave.
+  it("I1: chi aspetta si legge senza la cassaforte aperta, e non rinnova i 15 minuti", async () => {
+    const { ops, uses, closeVault } = setup({ "GET /api/vault/pending": () => ({ items: [] }) });
+    expect(await ops.pending()).toEqual({ ok: true, items: [] });
+    expect(uses()).toBe(0);
+    closeVault();
+    expect(await ops.pending()).toEqual({ ok: true, items: [] });
   });
 });
