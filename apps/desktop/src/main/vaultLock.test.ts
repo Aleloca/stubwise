@@ -395,4 +395,11 @@ describe("la cassaforte nel main", () => {
     await expect(lock.useWithTouch(async () => 1)).rejects.toThrow("unavailable");
     expect(calls).not.toContain("touch");
   });
+
+  it("punto 5: `hasDevice` dice se il Mac ha il dispositivo associato", async () => {
+    const { lock, setStored } = setup();
+    expect(lock.hasDevice()).toBe(true);
+    setStored(null);
+    expect(lock.hasDevice()).toBe(false);
+  });
 });
