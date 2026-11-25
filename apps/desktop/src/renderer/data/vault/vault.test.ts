@@ -327,4 +327,20 @@ describe("il registro", () => {
     as("p-sara");
     expect(await vault.listAccessLog({ projectId: "prj-acq" })).toEqual([]);
   });
+
+  // Review M11: la pagina Vault elenca ciò che chi guarda LEGGE (o aspetta),
+  // come `credentials.mine` del server: una credenziale gestita senza
+  // leggerla sta solo nella sezione del progetto.
+  it("M11: la pagina Vault non ha le righe gestite senza leggerle; la sezione sì", async () => {
+    as("p-laura");
+    const section = await vault.listCredentials({ projectId: "prj-acq" });
+    expect(section.find((r) => r.id === VAULT_IDS.MAILGUN)?.access).toBe("manages");
+    const page = await vault.listCredentials({});
+    expect(page.map((r) => r.id)).not.toContain(VAULT_IDS.MAILGUN);
+    expect(page.map((r) => r.id)).toContain(VAULT_IDS.ARUBA);
+    expect(page.map((r) => r.id)).toContain(VAULT_IDS.STRIPE);
+    expect(
+      (await vault.listCredentials({ projectIds: ["prj-acq"] })).map((r) => r.id),
+    ).not.toContain(VAULT_IDS.MAILGUN);
+  });
 });

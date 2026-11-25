@@ -47,12 +47,13 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
   // Area 5, fetta 2: il Drive (`drive`, destinazione, sezione e feature).
   // Area 6, fetta 1: il Calendario in lettura (`calendar`) e la Posta (`mail`).
   // Area 7, fetta 1: le Automations (`automations`, destinazione, sezione e feature).
-  destination: new Set(["home", "projects", "planning", "filters", "claude", "chat", "drive", "calendar", "mail", "automations"]),
+  // Area 10, cassaforte: la pagina unica Vault (`vault`) e la sezione Credentials.
+  destination: new Set(["home", "projects", "planning", "filters", "claude", "chat", "drive", "calendar", "mail", "automations", "vault"]),
   // Area 5, fetta 1: i Docs del progetto (`docs`, sezione e feature).
   // Area 8, fetta 1: la sezione Releases con le sole PR aperte (`releases-prs`).
   // Area 8, fetta 3: Support (le conversazioni coi clienti, letture e scritture).
   // Area 8, F4a: i Server in sola lettura (`servers`, sezione e Amministrazione).
-  projectSection: new Set(["overview", "tasks", "requests", "planning", "chat", "docs", "drive", "automations", "releases", "support", "servers"]),
+  projectSection: new Set(["overview", "tasks", "requests", "planning", "chat", "docs", "drive", "automations", "releases", "support", "servers", "credentials"]),
   // Stati e soglie del progetto.
   // Area 8, fetta 1 (46): «Repositories» ridotta al solo blocco «Releases» (`releases-repo-settings`).
   // Area 9, F1, R8: Members sulle letture calcolate del server.

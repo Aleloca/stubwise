@@ -182,6 +182,9 @@ describe("isIntegrated", () => {
         "feature:servers-ssh",
         "feature:servers",
         "feature:environment-containers",
+        // Area 10, cassaforte: la sezione Credentials e la pagina Vault.
+        "projectSection:credentials",
+        "destination:vault",
         "destination:projects",
         "projectSection:tasks",
         "projectSettings:statuses",
