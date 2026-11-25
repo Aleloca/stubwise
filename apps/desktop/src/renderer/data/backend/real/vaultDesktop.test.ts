@@ -1,5 +1,9 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { keyFingerprint } from "@stubwise/vault-crypto";
+import { softwareDeviceKey } from "@stubwise/vault-crypto/testing";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setAppClientForTests } from "./client";
+import { installFakeServer } from "./fakeServer";
 import * as vault from "./vaultDesktop";
 
 // La cassaforte nella build app (lotto 10, fetta 1 dell'adattatore): stato,
@@ -49,11 +53,21 @@ function bridge(over: Record<string, unknown> = {}) {
   return { v, change: (s: unknown) => changed?.(s), pair: (r: unknown) => paired?.(r) };
 }
 
+beforeEach(() => setAppClientForTests(null));
 afterEach(() => vi.unstubAllGlobals());
+
+const KEY = "aaaaaaaa-0000-4000-8000-000000000001";
+const statusOf = (body: unknown) => installFakeServer({ "GET /api/vault/status": { body } });
 
 describe("la cassaforte nella build app, dal main", () => {
   it("lo stato della barra dal main: stato, Touch ID, impronta del Mac", async () => {
     bridge();
+    statusOf({
+      activated: true,
+      myKey: { id: KEY, status: "confirmed", createdAt: "2026-11-20T10:00:00.000Z" },
+      seals: [],
+      passkeys: [],
+    });
     expect(await vault.getVaultStatus()).toEqual({
       state: "locked",
       touchId: true,
@@ -115,5 +129,68 @@ describe("la cassaforte nella build app, dal main", () => {
     expect(await vault.removeMac("m-2")).toEqual({ ok: false, code: "reauth_required" });
     expect(v.removeMac).toHaveBeenCalledWith("m-2");
     expect(await vault.forgetThisMac()).toEqual({ ok: true, remote: true });
+  });
+
+  // Fetta 2a: lo stato della propria chiave dal server (`GET /api/vault/status`,
+  // `desktopRead` di 72): la barra dice quando non c'è niente da aprire dal Mac.
+  describe("lo stato del server", () => {
+    it("cassaforte dell'istanza non attivata: `inactive`", async () => {
+      bridge();
+      statusOf({ activated: false, myKey: null, seals: [], passkeys: [] });
+      expect((await vault.getVaultStatus()).state).toBe("inactive");
+    });
+
+    it("senza chiave, o con una rifiutata: `no_key`", async () => {
+      bridge();
+      statusOf({ activated: true, myKey: null, seals: [], passkeys: [] });
+      expect((await vault.getVaultStatus()).state).toBe("no_key");
+      setAppClientForTests(null);
+      statusOf({
+        activated: true,
+        myKey: { id: KEY, status: "rejected", createdAt: "2026-11-20T10:00:00.000Z" },
+        seals: [],
+        passkeys: [],
+      });
+      expect((await vault.getVaultStatus()).state).toBe("no_key");
+    });
+
+    it("chiave da confermare: `key_pending`, con l'impronta della propria chiave", async () => {
+      bridge();
+      const own = await softwareDeviceKey();
+      statusOf({
+        activated: true,
+        myKey: {
+          id: KEY,
+          status: "pending",
+          createdAt: "2026-11-20T10:00:00.000Z",
+          publicKey: own.publicKey,
+        },
+        seals: [],
+        passkeys: [],
+      });
+      const s = await vault.getVaultStatus();
+      expect(s.state).toBe("key_pending");
+      expect(s.ownFingerprint).toBe(await keyFingerprint(own.publicKey));
+    });
+
+    it("`VAULT_DESKTOP` spento sul server: `disabled`", async () => {
+      bridge();
+      installFakeServer({
+        "GET /api/vault/status": {
+          status: 404,
+          body: { code: "vault_desktop_disabled", message: "x" },
+        },
+      });
+      expect((await vault.getVaultStatus()).state).toBe("disabled");
+    });
+
+    it("il main dice già `unsupported`: il server non si chiede", async () => {
+      bridge({
+        status: vi.fn(async () => ({ state: "unsupported", fingerprint: null, touchId: false })),
+      });
+      const { seen } = statusOf({ activated: true, myKey: null, seals: [], passkeys: [] });
+      expect((await vault.getVaultStatus()).state).toBe("unsupported");
+      expect(seen).toHaveLength(0);
+    });
   });
 });
