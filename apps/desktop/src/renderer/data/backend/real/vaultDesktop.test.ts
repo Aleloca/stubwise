@@ -39,6 +39,33 @@ function bridge(over: Record<string, unknown> = {}) {
       ],
     })),
     removeMac: vi.fn(async () => ({ ok: true })),
+    show: vi.fn(async () => ({ ok: true, password: "Kx4!pa-77Wq" })),
+    copy: vi.fn(async () => ({ ok: true })),
+    share: vi.fn(async () => ({ ok: true, waiting: ["marco@x.test"] })),
+    removeReader: vi.fn(async () => ({ ok: true })),
+    pending: vi.fn(async () => ({
+      ok: true,
+      items: [
+        {
+          userId: "55555555-5555-4555-8555-555555555555",
+          email: "marco@x.test",
+          personKeyId: "aaaaaaaa-0000-4000-8000-0000000000a2",
+          status: "pending",
+          createdAt: "2026-11-24T16:20:00.000Z",
+          device: "Chrome on macOS",
+          fingerprint: "7d20 e5a9 c31f 6b84",
+          credentials: [{ id: "c1", service: "Aruba hosting", label: null }],
+        },
+      ],
+    })),
+    confirm: vi.fn(async () => ({
+      ok: true,
+      saved: 1,
+      keyChanged: 0,
+      notAllowed: 0,
+      unopenable: 0,
+    })),
+    reject: vi.fn(async () => ({ ok: true })),
     onChanged: vi.fn((cb: (s: unknown) => void) => {
       changed = cb;
       return () => (changed = null);
@@ -191,6 +218,66 @@ describe("la cassaforte nella build app, dal main", () => {
       const { seen } = statusOf({ activated: true, myKey: null, seals: [], passkeys: [] });
       expect((await vault.getVaultStatus()).state).toBe("unsupported");
       expect(seen).toHaveLength(0);
+    });
+  });
+
+  // Fetta 3: le operazioni con la chiave, fatte dal main (la password di
+  // «Show» arriva dal main; «Copy» non la restituisce mai).
+  describe("le operazioni con la chiave", () => {
+    it("Show, Copy, Share (personId → userId) e Remove reader passano dal main", async () => {
+      const { v } = bridge();
+      expect(await vault.show("c1")).toEqual({ ok: true, password: "Kx4!pa-77Wq" });
+      expect(await vault.copy("c1")).toEqual({ ok: true });
+      expect(await vault.share("c1", { personId: "p-1" })).toEqual({
+        ok: true,
+        waiting: ["marco@x.test"],
+      });
+      expect(v.share).toHaveBeenCalledWith("c1", { userId: "p-1" });
+      await vault.share("c1", { roleId: "r-1" });
+      expect(v.share).toHaveBeenLastCalledWith("c1", { roleId: "r-1" });
+      expect(await vault.removeReader("c1", "rd-1")).toEqual({ ok: true });
+    });
+
+    it("chi aspetta: dal main, col nome dalla rubrica; a cassaforte chiusa nessuno", async () => {
+      bridge();
+      installFakeServer({
+        "GET /api/people": {
+          body: [
+            {
+              id: "55555555-5555-4555-8555-555555555555",
+              name: "Marco Bellini",
+              initials: "MB",
+              departmentIds: [],
+              email: "marco@x.test",
+            },
+          ],
+        },
+      });
+      const [p] = await vault.listPending();
+      expect(p).toMatchObject({
+        keyId: "aaaaaaaa-0000-4000-8000-0000000000a2",
+        personId: "55555555-5555-4555-8555-555555555555",
+        name: "Marco Bellini",
+        email: "marco@x.test",
+        device: "Chrome on macOS",
+        fingerprint: "7d20 e5a9 c31f 6b84",
+      });
+      expect(p!.credentials.map((c) => c.service)).toEqual(["Aruba hosting"]);
+      vi.unstubAllGlobals();
+      bridge({ pending: vi.fn(async () => ({ ok: false, code: "vault_locked" })) });
+      expect(await vault.listPending()).toEqual([]);
+    });
+
+    it("Confirm e Reject: gli esiti del main", async () => {
+      bridge();
+      expect(await vault.confirm("k-1")).toEqual({
+        ok: true,
+        saved: 1,
+        keyChanged: 0,
+        notAllowed: 0,
+        unopenable: 0,
+      });
+      expect(await vault.reject("k-1")).toEqual({ ok: true });
     });
   });
 });

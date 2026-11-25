@@ -124,3 +124,65 @@ export const removeMac: FakeVault["removeMac"] = async (macId) => {
   const out = await need().removeMac(macId);
   return out.ok ? { ok: true } : { ok: false, code: out.code };
 };
+
+// --- fetta 3: le operazioni con la chiave, dal main ------------------------------
+
+const outcome = <T extends object>(out: ({ ok: true } & T) | { ok: false; code: string }) =>
+  out.ok ? out : { ok: false as const, code: out.code };
+
+/** «Show»: la password arriva dal main (che la registra); resta nello stato di chi la mostra. */
+export const show: FakeVault["show"] = async (id) => outcome(await need().show(id));
+
+/** «Copy»: gli appunti li scrive il main; qui non torna mai la password. */
+export const copy: FakeVault["copy"] = async (id) => {
+  const out = await need().copy(id);
+  return out.ok ? { ok: true } : { ok: false, code: out.code };
+};
+
+/** «Share»: il bersaglio del prototipo (`personId`) è un `userId` per il main. */
+export const share: FakeVault["share"] = async (id, target) =>
+  outcome(
+    await need().share(
+      id,
+      "personId" in target ? { userId: target.personId } : { roleId: target.roleId },
+    ),
+  );
+
+export const removeReader: FakeVault["removeReader"] = async (id, readerId) => {
+  const out = await need().removeReader(id, readerId);
+  return out.ok ? { ok: true } : { ok: false, code: out.code };
+};
+
+/**
+ * Chi aspetta che io confermi: il main lo legge con la chiave, quindi a
+ * cassaforte chiusa nessuno (la riga «waiting for access» non c'è). I nomi
+ * dalla rubrica del team; l'email se manca.
+ */
+export const listPending: FakeVault["listPending"] = async () => {
+  const b = bridge();
+  if (!b) return [];
+  const out = await b.pending();
+  if (!out.ok) return [];
+  const people = await appClient()
+    .people.list()
+    .catch(() => []);
+  const names = new Map(people.map((p) => [p.id, p.name]));
+  return out.items.map((p) => ({
+    keyId: p.personKeyId,
+    personId: p.userId,
+    name: names.get(p.userId) ?? p.email,
+    email: p.email,
+    createdAt: p.createdAt,
+    device: p.device,
+    fingerprint: p.fingerprint,
+    // Il main non dice il progetto: la scheda mostra solo quante sono.
+    credentials: p.credentials.map((c) => ({ id: c.id, service: c.service, projectId: "" })),
+  }));
+};
+
+export const confirm: FakeVault["confirm"] = async (keyId) => outcome(await need().confirm(keyId));
+
+export const reject: FakeVault["reject"] = async (keyId) => {
+  const out = await need().reject(keyId);
+  return out.ok ? { ok: true } : { ok: false, code: out.code };
+};

@@ -4,6 +4,7 @@ import type * as Fake from "../../api";
 import type { CredentialView } from "../../vault/types";
 import { appClient } from "./client";
 import { currentMe } from "./session";
+import { listPending } from "./vaultDesktop";
 
 // Fetta 2b dell'adattatore della cassaforte: le letture dalle rotte
 // (`api-client`, gruppo `credentials`, 72 aeaf4c903), con le firme del
@@ -98,13 +99,18 @@ export const getCredentialsEntry: FakeVault["getCredentialsEntry"] = async (proj
 };
 
 export const getVaultEntry: FakeVault["getVaultEntry"] = async () => {
-  const [p, mine] = await Promise.all([permissions(), appClient().credentials.mine()]);
+  const [p, mine, waiting] = await Promise.all([
+    permissions(),
+    appClient().credentials.mine(),
+    // Il punto «ti aspetta» [VA 2]: chi aspetta lo sa il main, a cassaforte aperta.
+    listPending().catch(() => []),
+  ]);
   const createProjectIds = p.projectIds
     .filter((id) => p.fullAdmin || p.inProject(id).includes("credentials.create"))
     .sort();
   return {
     show: mine.items.length > 0 || createProjectIds.length > 0,
-    waitingMe: false,
+    waitingMe: waiting.length > 0,
     createProjectIds,
   };
 };

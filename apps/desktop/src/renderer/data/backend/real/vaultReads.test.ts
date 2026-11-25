@@ -121,6 +121,27 @@ describe("le letture della cassaforte, dalle rotte", () => {
       waitingMe: false,
       createProjectIds: [PROJECT_ID],
     });
+    // A cassaforte aperta il main sa chi aspetta: il punto si accende.
+    vi.stubGlobal("stubwise", {
+      vault: {
+        pending: async () => ({
+          ok: true,
+          items: [
+            {
+              userId: OTHER,
+              email: "marco@x.test",
+              personKeyId: C2,
+              status: "pending",
+              createdAt: "2026-11-24T16:20:00.000Z",
+              device: null,
+              fingerprint: "7d20 e5a9 c31f 6b84",
+              credentials: [],
+            },
+          ],
+        }),
+      },
+    });
+    expect((await vault.getVaultEntry()).waitingMe).toBe(true);
   });
 
   // Fetta 2c: lettori, registro e «Share with».
