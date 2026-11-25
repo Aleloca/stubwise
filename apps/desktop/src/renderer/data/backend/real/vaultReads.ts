@@ -226,3 +226,37 @@ export const listShareTargets: FakeVault["listShareTargets"] = async (id) => {
     .sort((a, b) => a.name.localeCompare(b.name));
   return { people, roles };
 };
+
+// --- fetta 2d: i campi in chiaro e Delete -------------------------------------
+
+const failOf = (error: unknown): { ok: false; code: string } => ({
+  ok: false,
+  code: error instanceof ApiError && error.code ? error.code : "failed",
+});
+
+/**
+ * La modifica: i campi in chiaro con `PATCH` (un campo assente resta com'è,
+ * `null` lo svuota). La password nuova la cifra il main con la chiave (fetta
+ * 4): finché non c'è, il rifiuto è esplicito e la password non va MAI sulla
+ * rotta in chiaro.
+ */
+export const updateCredential: FakeVault["updateCredential"] = async (id, input) => {
+  const { password, ...plain } = input;
+  if (password !== undefined && password !== "")
+    return { ok: false, code: "password_not_integrated" };
+  try {
+    await appClient().credentials.update(id, plain);
+    return { ok: true };
+  } catch (error) {
+    return failOf(error);
+  }
+};
+
+export const deleteCredential: FakeVault["deleteCredential"] = async (id) => {
+  try {
+    await appClient().credentials.remove(id);
+    return { ok: true };
+  } catch (error) {
+    return failOf(error);
+  }
+};

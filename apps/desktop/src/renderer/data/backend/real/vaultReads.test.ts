@@ -298,4 +298,38 @@ describe("le letture della cassaforte, dalle rotte", () => {
       expect(await vault.listShareTargets(C1)).toEqual({ people: [], roles: [] });
     });
   });
+
+  // Fetta 2d: i campi in chiaro e Delete, dalle rotte. La password nuova la
+  // cifra il main (fetta 4): mai in chiaro su una rotta.
+  describe("modifica e cancellazione", () => {
+    it("i campi in chiaro con PATCH (vuoto → null); la password non va mai sulla rotta", async () => {
+      const { seen } = installFakeServer({
+        [`PATCH /api/credentials/${C1}`]: { body: item(C1, { label: "Pannello" }) },
+      });
+      expect(await vault.updateCredential(C1, { label: "Pannello", notes: null })).toEqual({
+        ok: true,
+      });
+      const patch = seen.find((r) => r.method === "PATCH")!;
+      expect(patch.body).toEqual({ label: "Pannello", notes: null });
+      seen.length = 0;
+      expect(await vault.updateCredential(C1, { password: "Nn1!segreta" })).toEqual({
+        ok: false,
+        code: "password_not_integrated",
+      });
+      expect(JSON.stringify(seen)).not.toContain("Nn1!segreta");
+    });
+
+    it("Delete con DELETE; un rifiuto del server resta un codice", async () => {
+      installFakeServer({ [`DELETE /api/credentials/${C1}`]: { status: 204 } });
+      expect(await vault.deleteCredential(C1)).toEqual({ ok: true });
+      setAppClientForTests(null);
+      installFakeServer({
+        [`DELETE /api/credentials/${C1}`]: {
+          status: 403,
+          body: { code: "forbidden", message: "x" },
+        },
+      });
+      expect(await vault.deleteCredential(C1)).toEqual({ ok: false, code: "forbidden" });
+    });
+  });
 });
