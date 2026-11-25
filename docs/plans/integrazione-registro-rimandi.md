@@ -1449,18 +1449,16 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   «feat(desktop): i lettori di una credenziale nel prototipo»). Con i
   progetti del seme basta. Da fare cercabile quando le persone e i ruoli
   del progetto superano una ventina di voci.
-- **Il punto «ti aspetta» della cassaforte nella colonna del progetto,
+- ~~**Il punto «ti aspetta» della cassaforte nella colonna del progetto,
   nell'app** *(S, 94, 25 nov 2026, chiesto da 46)*: la shape (`vault.md`
   §3 «Dove si entra» **[VA 2]**) vuole il punto sulla voce «Credentials»
-  quando c'è chi aspetta che sia CHI GUARDA a confermarlo. Nel prototipo
-  c'è; nell'app `getCredentialsEntry` (`data/backend/real/vaultReads.ts`)
-  dà sempre `waitingMe: false`. Il motivo: gli accessi da confermare li
-  legge il main (`vault:pending`, dalle rotte `/api/vault*` che il renderer
-  non chiama), e la risposta non dice a quale progetto appartiene ciascuna
-  credenziale. Resta la riga «N people are waiting for access» dentro la
-  sezione e la pagina Vault. Per accenderlo serve il progetto di ogni
-  credenziale in `vault:pending` (lato server, 72), oppure un conteggio per
-  progetto dal main.
+  quando c'è chi aspetta che sia CHI GUARDA a confermarlo; nell'app
+  `getCredentialsEntry` dava sempre `waitingMe: false`, perché il main non
+  portava al renderer il progetto delle credenziali di `vault:pending`.~~
+  **Chiuso (94, 25 nov 2026, 4389e6a47)**: il server lo mandava già
+  (`vaultPendingResponseSchema`, `projectId` obbligatorio; visibilità con i
+  test negativi di 72, 76e3aaeb7). Il main lo porta in `vault:pending` e
+  il punto si accende solo nel progetto della credenziale in attesa.
 - ~~Classe C delle azioni di Claude *(O, 10 nov 2026)*: nel renderer la
   conferma di una proposta MODIFICATA (`confirmEdited`, scheda «Edit») salta
   il wrapper `reauth()` che usa la conferma semplice.~~ **Chiuso (F7
