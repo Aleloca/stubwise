@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { generateDeviceKeyPair, keyFingerprint } from "@stubwise/vault-crypto";
+import { keyFingerprint } from "@stubwise/vault-crypto";
+import { softwareDeviceKey } from "@stubwise/vault-crypto/testing";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../lib/api";
 import { formatDateTime } from "../lib/format";
@@ -47,7 +48,7 @@ function renderPage(state = "pair-state-123") {
 
 beforeEach(async () => {
   vi.clearAllMocks();
-  devicePublicKey = (await generateDeviceKeyPair()).publicKey;
+  devicePublicKey = (await softwareDeviceKey()).publicKey;
   fingerprint = await keyFingerprint(devicePublicKey);
   apiMock.lookup.mockResolvedValue({
     deviceId: DEVICE,

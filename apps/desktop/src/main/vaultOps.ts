@@ -96,6 +96,7 @@ export function createVaultOps(deps: VaultOpsDeps) {
           "invalid_response",
           "stale_key",
           "touch_id_cancelled",
+          "not_pending",
           "touch_id_unavailable",
           "revoked",
           "disabled",
@@ -260,7 +261,8 @@ export function createVaultOps(deps: VaultOpsDeps) {
     confirm: (targetKeyId: string) =>
       guarded(async (key, personKeyId) => {
         const person = (await pendingPeople()).find((p) => p.personKey.id === targetKeyId);
-        if (!person) throw new VaultHttpError(404, "not_found");
+        // Un codice locale, non un 404 del server (M2): non spegne niente.
+        if (!person) throw new Error("not_pending");
         const copies: { credentialId: string; wrappedKey: string; keyVersion: string }[] = [];
         let unopenable = 0;
         for (const c of person.credentials) {

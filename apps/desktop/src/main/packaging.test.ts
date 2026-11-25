@@ -2,6 +2,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+// @ts-expect-error -- uno script .mjs senza tipi
+import { signatureProblems } from "../../scripts/check-signature.mjs";
 
 // Revisione di sicurezza della cassaforte, I1 (piano approvato da 46, 25 nov
 // 2026): l'app si firma con hardened runtime ed entitlements minimi, le fuse
@@ -65,5 +67,55 @@ describe("il pacchetto del Mac", () => {
     expect(builder).toMatch(/from: build\/bin\/stubwise-keyhelper\s+to: MacOS\/stubwise-keyhelper/);
     expect(existsSync(resolve(root, "scripts/build-keyhelper.mjs"))).toBe(true);
     expect(existsSync(resolve(root, "native/keyhelper/main.swift"))).toBe(true);
+  });
+
+  // M5 (seconda revisione di sicurezza): dopo il pacchetto firmato si
+  // verificano la firma (`codesign --verify --deep --strict`), l'hardened
+  // runtime e il Team ID su app E helper, e l'identifier dell'helper (il
+  // requisito di I2 lo nomina). Il pacchetto locale si firma ad-hoc, senza
+  // hardened runtime: senza una firma valida macOS lo uccide all'avvio.
+  it("M5: il firmato verifica la firma dopo il pacchetto; il locale si firma ad-hoc", () => {
+    expect(scripts["package:mac"]).toMatch(/&& node scripts\/check-signature\.mjs release$/);
+    expect(scripts["package:mac:unsigned"]).toMatch(
+      /--config\.mac\.identity=- --config\.mac\.hardenedRuntime=false/,
+    );
+    expect(scripts["package:mac:unsigned"]).toMatch(
+      /node scripts\/check-signature\.mjs release --adhoc$/,
+    );
+  });
+
+  it("M5: l'helper nasce con l'identifier del requisito di firma", () => {
+    const script = read("scripts/build-keyhelper.mjs");
+    // Un Info.plist incorporato: codesign ne prende l'identifier a ogni rifirma.
+    expect(script).toMatch(/HELPER_IDENTIFIER = "stubwise-keyhelper"/);
+    expect(script).toMatch(/"__info_plist"/);
+    expect(script).toMatch(
+      /<key>CFBundleIdentifier<\/key><string>\$\{HELPER_IDENTIFIER\}<\/string>/,
+    );
+  });
+
+  const info = (over: Partial<Record<"id" | "flags" | "team", string>> = {}) =>
+    [
+      `Identifier=${over.id ?? "stubwise-keyhelper"}`,
+      `CodeDirectory v=20500 size=1 flags=${over.flags ?? "0x10000(runtime)"} hashes=1+0 location=embedded`,
+      `TeamIdentifier=${over.team ?? "ABCDE12345"}`,
+    ].join("\n");
+
+  it("M5: le regole della firma — runtime, Team ID, identifier", () => {
+    const want = { teamId: "ABCDE12345", identifier: "stubwise-keyhelper" };
+    expect(signatureProblems(info(), want)).toEqual([]);
+    expect(signatureProblems(info({ flags: "0x20002(adhoc,linker-signed)" }), want)).toEqual([
+      "senza hardened runtime",
+    ]);
+    expect(signatureProblems(info({ team: "not set" }), want)).toEqual([
+      "Team ID not set, atteso ABCDE12345",
+    ]);
+    expect(signatureProblems(info({ id: "stubwise-keyhelper-arm64" }), want)).toEqual([
+      "identifier stubwise-keyhelper-arm64, atteso stubwise-keyhelper",
+    ]);
+    // L'app: identifier libero, runtime e team sì.
+    expect(
+      signatureProblems(info({ id: "dev.stubwise.desktop" }), { teamId: "ABCDE12345" }),
+    ).toEqual([]);
   });
 });

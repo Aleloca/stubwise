@@ -1,10 +1,5 @@
-import {
-  generateDeviceKeyPair,
-  generatePersonKeyPair,
-  importDeviceKey,
-  openDeviceSeal,
-  sealPrivateKey,
-} from "@stubwise/vault-crypto";
+import { generatePersonKeyPair, openDeviceSeal, sealPrivateKey } from "@stubwise/vault-crypto";
+import { softwareDeviceKey } from "@stubwise/vault-crypto/testing";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -34,7 +29,7 @@ const PROOF = { challengeId: "bbbbbbbb-0000-4000-8000-000000000001", proof: "p" 
 
 let person: Awaited<ReturnType<typeof generatePersonKeyPair>>;
 let prf: Uint8Array;
-let device: { publicKey: string; privateKey: CryptoKey };
+let device: Awaited<ReturnType<typeof softwareDeviceKey>>;
 const status = {
   myKey: { id: PERSON_KEY, status: "confirmed" },
   seals: [{ credentialIdB64url: CRED }],
@@ -45,8 +40,7 @@ beforeEach(async () => {
   person = await generatePersonKeyPair();
   prf = crypto.getRandomValues(new Uint8Array(32));
   const sealed = await sealPrivateKey(prf.slice().buffer, person.privateKeyPkcs8, person.publicKey);
-  const pair = await generateDeviceKeyPair();
-  device = { publicKey: pair.publicKey, privateKey: await importDeviceKey(pair.privateKeyPkcs8) };
+  device = await softwareDeviceKey();
   api.postReauthPasskeyOptions.mockResolvedValue({
     challenge: "c",
     allowCredentials: [{ id: CRED, type: "public-key" }],
@@ -85,7 +79,7 @@ describe("sealForMac", () => {
     expect(body).toMatchObject({ pairingState: "s-1", deviceId: DEVICE, actorProof: PROOF });
     const opened = await openDeviceSeal({
       deviceSeal: body.seal,
-      devicePrivateKey: device.privateKey,
+      deriveBits: device.deriveBits,
       personPublicKey: person.publicKey,
       personKeyId: PERSON_KEY,
       deviceId: DEVICE,

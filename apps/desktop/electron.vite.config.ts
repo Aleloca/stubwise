@@ -13,6 +13,8 @@ export default defineConfig({
     // I1: la cassaforte dal desktop solo nel pacchetto firmato (`package:mac`).
     define: {
       __STUBWISE_VAULT_DESKTOP__: JSON.stringify(process.env["STUBWISE_VAULT_DESKTOP"] === "on"),
+      // I2: il Team ID della firma, per verificare l'helper prima di ogni uso.
+      __STUBWISE_TEAM_ID__: JSON.stringify(process.env["STUBWISE_TEAM_ID"] ?? ""),
     },
   },
   preload: {

@@ -50,8 +50,10 @@ function setup(over: Partial<VaultPairingDeps> = {}) {
       calls.push(`save:${d.deviceId}:${d.personKeyId}`);
       return true;
     },
-    paired: (key, personKeyId) => {
+    epoch: () => 7,
+    paired: (key, personKeyId, since) => {
       calls.push(`paired:${key === PERSON_KEY}:${personKeyId}`);
+      if (since !== 7) calls.push(`epoch:${since}`);
     },
     fingerprint: async () => "fp",
     now: () => now,
@@ -175,5 +177,57 @@ describe("l'associazione del Mac", () => {
       code: "touch_id_cancelled",
     });
     expect(calls.some((c) => c.startsWith("save") || c.startsWith("paired"))).toBe(false);
+  });
+
+  // M1 (seconda revisione): il Touch ID del ritorno può durare. Se durante il
+  // tocco l'associazione è stata annullata (login nuovo, cambio d'istanza) o
+  // la sessione è cambiata, non si scrive niente e la chiave non passa.
+  it("M1: annullata durante il tocco: niente su disco, la chiave non passa", async () => {
+    const holder: { cancel?: () => void } = {};
+    const { p, calls } = setup({
+      openSeal: async () => {
+        holder.cancel?.();
+        return PERSON_KEY;
+      },
+    });
+    holder.cancel = p.cancel;
+    await p.start();
+    expect(await p.handleUrl(`stubwise://vault?state=${STATE}`)).toEqual({
+      ok: false,
+      code: "session_changed",
+    });
+    expect(calls.filter((c) => c.startsWith("save") || c.startsWith("paired"))).toEqual([]);
+  });
+
+  it("M1: la sessione cambiata durante il tocco: niente su disco, la chiave non passa", async () => {
+    let me: typeof ME | null = ME;
+    const { p, calls } = setup({
+      identity: () => me,
+      openSeal: async () => {
+        me = { ...ME, patId: "pat-2" };
+        return PERSON_KEY;
+      },
+    });
+    await p.start();
+    expect(await p.handleUrl(`stubwise://vault?state=${STATE}`)).toEqual({
+      ok: false,
+      code: "session_changed",
+    });
+    expect(calls.filter((c) => c.startsWith("save") || c.startsWith("paired"))).toEqual([]);
+  });
+
+  it("M1: l'epoca passata a `paired` è quella di PRIMA del tocco", async () => {
+    let epoch = 7;
+    const { p, calls } = setup({
+      epoch: () => epoch,
+      openSeal: async () => {
+        epoch = 8;
+        return PERSON_KEY;
+      },
+    });
+    await p.start();
+    await p.handleUrl(`stubwise://vault?state=${STATE}`);
+    expect(calls).not.toContain("epoch:8");
+    expect(calls).toContain("paired:true:pk-1");
   });
 });

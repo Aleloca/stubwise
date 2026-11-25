@@ -63,7 +63,9 @@ describe("le rotte del sigillo del dispositivo, dal main", () => {
     await expect(
       remote(() => json(404, { code: "route_not_found", message: "x" })).r.fetchSeal(),
     ).rejects.toThrow("route_not_found");
-    await expect(remote(() => new Response("gone", { status: 404 })).r.fetchSeal()).rejects.toThrow();
+    await expect(
+      remote(() => new Response("gone", { status: 404 })).r.fetchSeal(),
+    ).rejects.toThrow();
     // Un altro errore non è una revoca: chi chiama non cancella niente.
     await expect(
       remote(() => json(500, { code: "internal", message: "x" })).r.fetchSeal(),
@@ -71,7 +73,13 @@ describe("le rotte del sigillo del dispositivo, dal main", () => {
   });
 
   it("una risposta che non ha la forma degli schemi (`@stubwise/shared`) è un errore, non un sigillo", async () => {
-    const bad = { id: "not-a-uuid", deviceName: "Mac", personKeyId: PERSON_KEY, personPublicKey: "{}", seal: "env" };
+    const bad = {
+      id: "not-a-uuid",
+      deviceName: "Mac",
+      personKeyId: PERSON_KEY,
+      personPublicKey: "{}",
+      seal: "env",
+    };
     await expect(remote(() => json(200, bad)).r.fetchSeal()).rejects.toThrow("invalid_response");
     await expect(
       remote(() => json(201, { state: "s-1", deviceId: DEVICE })).r.pair("{}", "Mac"),
@@ -93,11 +101,19 @@ describe("le rotte del sigillo del dispositivo, dal main", () => {
   });
 
   // L'interruttore d'istanza `VAULT_DESKTOP` (72, 785387279), spento di
-  // default: le rotte del Mac rispondono 404 `not_found`. Non è una revoca né
-  // un Mac da associare: la cassaforte dal desktop non è abilitata.
+  // default: le rotte del Mac rispondono 404 `vault_desktop_disabled` (M2
+  // della seconda revisione: prima era il generico `not_found`). Non è una
+  // revoca né un Mac da associare: la cassaforte dal desktop non è abilitata.
   it("VAULT_DESKTOP spento: il sigillo dice `disabled`; «Dimentica» col 404 conta come fatto", async () => {
-    expect(await remote(() => json(404, { code: "not_found", message: "x" })).r.fetchSeal()).toEqual({ disabled: true });
-    await expect(remote(() => json(404, { code: "not_found", message: "x" })).r.forgetRemote()).resolves.toBeUndefined();
-    await expect(remote(() => json(404, { code: "not_found", message: "x" })).r.pair("{}", "Mac")).rejects.toThrow("vault_desktop_disabled");
+    const off = () => json(404, { code: "vault_desktop_disabled", message: "x" });
+    expect(await remote(off).r.fetchSeal()).toEqual({ disabled: true });
+    await expect(remote(off).r.forgetRemote()).resolves.toBeUndefined();
+    await expect(remote(off).r.pair("{}", "Mac")).rejects.toThrow("vault_desktop_disabled");
+  });
+
+  it("M2: un 404 `not_found` qualunque NON spegne la cassaforte", async () => {
+    await expect(
+      remote(() => json(404, { code: "not_found", message: "x" })).r.fetchSeal(),
+    ).rejects.toThrow("not_found");
   });
 });
