@@ -316,11 +316,27 @@ export const credentialItemSchema = z.object({
   /** Calcolati dal server: `credentials.edit` o creatore; `credentials.share` e la legge adesso. */
   canEdit: z.boolean().default(false),
   canShare: z.boolean().default(false),
+  /**
+   * 25 nov 2026: chi guarda può aprire il registro delle letture del progetto
+   * della riga (`credentials.edit` o `credentials.share`, la regola di
+   * `GET .../credentials/log`). Aver CREATO la credenziale non basta.
+   */
+  canSeeLog: z.boolean().default(false),
 });
 export type CredentialItem = z.infer<typeof credentialItemSchema>;
 
 export const credentialListResponseSchema = z.object({ items: z.array(credentialItemSchema) });
 export type CredentialListResponse = z.infer<typeof credentialListResponseSchema>;
+
+/**
+ * L'elenco di UN progetto (`GET /api/projects/:projectId/credentials`):
+ * le righe, più `canSeeLog` per l'entrata del registro della sezione — vale
+ * anche quando l'elenco è vuoto (25 nov 2026).
+ */
+export const credentialProjectListResponseSchema = credentialListResponseSchema.extend({
+  canSeeLog: z.boolean().default(false),
+});
+export type CredentialProjectListResponse = z.infer<typeof credentialProjectListResponseSchema>;
 
 /** Corpo di `POST /api/credentials/:id/reveal`. */
 export const credentialRevealBodySchema = z.object({ action: z.enum(["show", "copy"]) });
@@ -392,6 +408,13 @@ export const credentialReaderPersonSchema = z.object({
   fullAdmin: z.boolean(),
   status: z.enum(["can_read", "pending"]),
   keyStatus: z.enum(["none", "pending", "confirmed"]),
+  /**
+   * 25 nov 2026: il nome del ruolo di progetto per cui la persona legge,
+   * quando il suo ruolo nel progetto è fra i lettori invitati (anche se è
+   * invitata ANCHE di persona); `null` se legge solo di persona o da full
+   * admin. Additivo: un server di prima non lo manda.
+   */
+  roleName: z.string().nullable().default(null),
 });
 export type CredentialReaderPerson = z.infer<typeof credentialReaderPersonSchema>;
 

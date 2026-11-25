@@ -78,14 +78,22 @@ describe("credentials", () => {
     const { client, fetchImpl } = clientAnswering({ items: [oldItem] });
     const { items } = await client.credentials.mine();
     expect(lastCall(fetchImpl)).toMatchObject({ path: "/api/vault/credentials", method: "GET" });
-    expect(items[0]).toMatchObject({ id: C, access: "pending", canEdit: false, canShare: false });
+    expect(items[0]).toMatchObject({ id: C, access: "pending", canEdit: false, canShare: false, canSeeLog: false });
   });
 
   it("ofProject: GET /api/projects/:projectId/credentials", async () => {
-    const { client, fetchImpl } = clientAnswering({ items: [{ ...oldItem, access: "read", canEdit: true, canShare: true }] });
-    const { items } = await client.credentials.ofProject(P);
+    const { client, fetchImpl } = clientAnswering({ items: [{ ...oldItem, access: "read", canEdit: true, canShare: true, canSeeLog: true }], canSeeLog: true });
+    const list = await client.credentials.ofProject(P);
     expect(lastCall(fetchImpl)).toMatchObject({ path: `/api/projects/${P}/credentials`, method: "GET" });
-    expect(items[0]).toMatchObject({ access: "read", canEdit: true, canShare: true });
+    expect(list.items[0]).toMatchObject({ access: "read", canEdit: true, canShare: true, canSeeLog: true });
+    expect(list.canSeeLog).toBe(true);
+  });
+
+  it("ofProject da un server di prima del 25 nov 2026: `canSeeLog` assente → `false`, sulla riga e sulla sezione", async () => {
+    const { client } = clientAnswering({ items: [oldItem] });
+    const list = await client.credentials.ofProject(P);
+    expect(list.canSeeLog).toBe(false);
+    expect(list.items[0]!.canSeeLog).toBe(false);
   });
 
   it("log: senza filtro nessun parametro; con `credentialId` e `limit` in querystring; `via` assente → `browser`", async () => {
@@ -106,7 +114,8 @@ describe("credentials", () => {
     const view = await client.credentials.readers(C);
     expect(lastCall(fetchImpl)).toMatchObject({ path: `/api/credentials/${C}/readers`, method: "GET" });
     expect(view.readers[0]).toMatchObject({ creator: false });
-    expect(view.people[0]).toMatchObject({ status: "can_read" });
+    // Un server di prima del 25 nov 2026 non manda `roleName`: diventa `null`.
+    expect(view.people[0]).toMatchObject({ status: "can_read", roleName: null });
   });
 
   it("update: PATCH /api/credentials/:id col solo corpo dato; risponde la riga", async () => {
