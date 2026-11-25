@@ -199,6 +199,8 @@ import type { Invite, SecurityEvent } from "./admin/types";
 import { DEPARTMENTS } from "./seed/departments";
 import { INVITES, SECURITY_EVENTS } from "./seed/invites";
 import { seedGoogleWorkspaces, seedPasskeys, seedSessions, seedTokens } from "./seed/me";
+import { seedVault } from "./seed/vault";
+import type { VaultState } from "./vault/types";
 import type {
   EmailChange,
   EntryState,
@@ -672,6 +674,32 @@ export type ApiFnName =
   | "support.simulateCustomerLeaves"
   | "support.simulateTriageDone"
   // Server (area 8b)
+  | "vault.getVaultStatus"
+  | "vault.unlock"
+  | "vault.lock"
+  | "vault.setVaultSimulation"
+  | "vault.startPairing"
+  | "vault.finishPairing"
+  | "vault.cancelPairing"
+  | "vault.listMyMacs"
+  | "vault.forgetThisMac"
+  | "vault.removeMac"
+  | "vault.listMacsOf"
+  | "vault.removeMacOf"
+  | "vault.listCredentials"
+  | "vault.getCredential"
+  | "vault.show"
+  | "vault.copy"
+  | "vault.createCredential"
+  | "vault.updateCredential"
+  | "vault.deleteCredential"
+  | "vault.listReaders"
+  | "vault.share"
+  | "vault.removeReader"
+  | "vault.listPending"
+  | "vault.confirm"
+  | "vault.reject"
+  | "vault.listAccessLog"
   | "servers.listProjectServers"
   | "servers.listAllServers"
   | "servers.listLinkableServers"
@@ -1034,6 +1062,8 @@ interface State {
   sessions: PersonalSession[];
   /** Le passkey; `access.people[].secondFactor.passkeys` ne è il conteggio, scritto insieme. */
   passkeys: Passkey[];
+  /** La Cassaforte delle credenziali (lotto 10, `vault/`). */
+  vault: VaultState;
   /** Il segreto TOTP confermato di ciascuno (id in `secrets.ts`); il seme non ne ha. */
   confirmedTotp: Map<string, string>;
   /** I token personali, senza valore. */
@@ -1375,6 +1405,7 @@ function freshState(): State {
     resetLinks: [],
     sessions: seedSessions(),
     passkeys: seedPasskeys(),
+    vault: seedVault(),
     confirmedTotp: new Map(),
     tokens: seedTokens(),
     emailChanges: [],

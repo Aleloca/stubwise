@@ -186,6 +186,8 @@ export * as auth from "./auth";
 export * as admin from "./admin";
 /** Le Preferenze personali (area 9a): `api.me.getMySecurity()`, `api.me.createToken(…)`… */
 export * as me from "./me";
+// Lotto 10: la Cassaforte delle credenziali e la chiave del Mac (shape `vault.md`).
+export * as vault from "./vault";
 /** L'istanza (area 9b): `api.instance.listProviders()`, `api.instance.getUsage(…)`… */
 export * as instance from "./instance";
 /** Progetto → Settings (area 9c): `api.projectSettings.getProjectSettings(…)`… */
