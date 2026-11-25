@@ -175,9 +175,10 @@ export const removeReader: FakeVault["removeReader"] = async (id, readerId) => {
 };
 
 /**
- * Chi aspetta che io confermi: il main lo legge con la chiave, quindi a
- * cassaforte chiusa nessuno (la riga «waiting for access» non c'è). I nomi
- * dalla rubrica del team; l'email se manca.
+ * Chi aspetta che io confermi: il main lo legge senza la chiave (`plainRead`,
+ * review I1), quindi anche a cassaforte chiusa; col progetto di ogni
+ * credenziale (il punto «ti aspetta»). I nomi dalla rubrica del team;
+ * l'email se manca.
  */
 export const listPending: FakeVault["listPending"] = async () => {
   const b = bridge();

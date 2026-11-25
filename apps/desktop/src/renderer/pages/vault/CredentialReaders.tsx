@@ -12,8 +12,8 @@ import { quietButton, secondaryButton } from "../tasks/controls";
 // «created it») e il perché di chi aspetta; chi è aggiunto direttamente, con
 // «Remove» (conferma a due tempi in posto, poi la frase del web che resta, e
 // «Change the password»); «Share with» persone e ruoli del progetto. Share e
-// Remove vogliono la cassaforte aperta (la prova e le copie le fa il livello
-// dati): a chiusa aprono col Touch ID, poi fanno l'azione.
+// Remove (solo a chi la legge) chiedono il loro Touch ID nel livello dati
+// (M7): niente apertura prima, la cassaforte resta com'era.
 
 type Direct = ReadersView["direct"][number];
 
