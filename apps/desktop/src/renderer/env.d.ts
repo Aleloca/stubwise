@@ -208,6 +208,21 @@ interface Window {
         | StubwiseVaultFail
       >;
       reject: (personKeyId: string) => Promise<{ ok: true } | StubwiseVaultFail>;
+      macs: () => Promise<
+        | {
+            ok: true;
+            items: {
+              id: string;
+              name: string;
+              pairedAt: string;
+              lastUsedAt: string | null;
+              current: boolean;
+              fingerprint: string;
+            }[];
+          }
+        | StubwiseVaultFail
+      >;
+      removeMac: (macId: string) => Promise<{ ok: true } | StubwiseVaultFail>;
     };
   };
 }

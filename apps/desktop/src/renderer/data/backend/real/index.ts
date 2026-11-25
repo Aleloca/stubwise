@@ -5,6 +5,7 @@
 // tipata `typeof Fake.<nome>` con un `import type`, così il finto non entra
 // mai nel bundle.
 import type * as Fake from "../../api";
+import * as liveVaultDesktop from "./vaultDesktop";
 import { liveAlerts } from "./alerts";
 import { liveSupport } from "./support";
 import { liveWidgets } from "./supportWidgets";
@@ -128,7 +129,10 @@ export const support: typeof Fake.support = partialNamespace<typeof Fake.support
  * rotte del PAT desktop di 72); le pagine la raggiungono quando la shape
  * `vault.md` è costruita nel prototipo.
  */
-export const vault: typeof Fake.vault = partialNamespace<typeof Fake.vault>("vault", {});
+export const vault: typeof Fake.vault = partialNamespace<typeof Fake.vault>("vault", {
+  // Fetta 1: stato, aprire e chiudere, associazione, i propri Mac (dal main).
+  ...liveVaultDesktop,
+});
 
 export const servers: typeof Fake.servers = partialNamespace<typeof Fake.servers>("servers", {
   ...liveServers,
