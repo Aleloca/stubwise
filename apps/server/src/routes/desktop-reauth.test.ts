@@ -275,7 +275,9 @@ describe("la cassaforte dal desktop passa SOLO dal sigillo del Mac, mai dalla ri
       .update(personalAccessTokens)
       .set({ secondFactorAt: new Date() })
       .where(eq(personalAccessTokens.id, p.id));
-    for (const url of ["/api/vault/status", "/api/vault/keys/mine"]) {
+    // `/status` non è più qui (25 nov 2026, `desktopRead`): la legge anche il
+    // Mac senza sigillo, e con l'interruttore spento dà 404 come `/pending` sotto.
+    for (const url of ["/api/vault/keys/mine"]) {
       const res = await app.inject({ method: "GET", url, headers: bearer(p.token) });
       expect(res.statusCode, url).toBe(403);
       expect(res.json(), url).toMatchObject({ code: "session_required" });
@@ -284,14 +286,16 @@ describe("la cassaforte dal desktop passa SOLO dal sigillo del Mac, mai dalla ri
     // Mac, e prima ancora l'interruttore `VAULT_DESKTOP`, che qui (il default)
     // è spento: per il Mac la rotta non c'è. Acceso, senza sigillo è
     // `device_seal_required` (vault-device.test.ts).
-    const pending = await app.inject({ method: "GET", url: "/api/vault/pending", headers: bearer(p.token) });
-    expect([pending.statusCode, pending.json().code]).toEqual([404, "vault_desktop_disabled"]);
+    for (const url of ["/api/vault/pending", "/api/vault/status"]) {
+      const res = await app.inject({ method: "GET", url, headers: bearer(p.token) });
+      expect([res.statusCode, res.json().code], url).toEqual([404, "vault_desktop_disabled"]);
+    }
   });
 
   it("ogni rotta /api/vault dichiara browserOnly, salvo quelle aperte al Mac col sigillo (`desktopVault`) e quelle SOLO del Mac (`desktopOnly`), elenchi chiusi in route-access.test.ts", async () => {
     // L'osservatore gira PRIMA dell'hook della cassaforte: si tiene l'oggetto
     // della rotta e lo si legge a registrazione finita.
-    const seen: { url: string; config?: { browserOnly?: unknown; desktopVault?: unknown; desktopOnly?: unknown } }[] = [];
+    const seen: { url: string; config?: { browserOnly?: unknown; desktopVault?: unknown; desktopOnly?: unknown; desktopRead?: unknown } }[] = [];
     const probe = buildApp({
       onRoute: (route) => {
         // `/api/vault/credentials` è di `credentials.ts`: il PAT «crea e
@@ -302,7 +306,8 @@ describe("la cassaforte dal desktop passa SOLO dal sigillo del Mac, mai dalla ri
     await probe.ready();
     await probe.close();
     expect(seen.length).toBeGreaterThan(10);
-    const open = (r: (typeof seen)[number]) => r.config?.desktopVault === true || r.config?.desktopOnly === true;
+    const open = (r: (typeof seen)[number]) =>
+      r.config?.desktopVault === true || r.config?.desktopOnly === true || r.config?.desktopRead === true;
     expect(seen.filter((r) => r.config?.browserOnly !== true && !open(r)).map((r) => r.url)).toEqual([]);
     // E nessuna è entrambe le cose.
     expect(seen.filter((r) => r.config?.browserOnly === true && open(r)).map((r) => r.url)).toEqual([]);

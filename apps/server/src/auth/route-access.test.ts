@@ -29,6 +29,8 @@ interface CollectedRoute {
   desktopVault?: true;
   /** `config.desktopOnly`, se dichiarato (lotto 10: le rotte SOLO del PAT desktop). */
   desktopOnly?: true;
+  /** `config.desktopRead`, se dichiarato (25 nov 2026: le letture del desktop SENZA sigillo). */
+  desktopRead?: true;
 }
 
 /**
@@ -57,6 +59,7 @@ function collect(route: RouteOptions, into: Map<string, CollectedRoute>): void {
       archived: route.config?.archived ?? prev?.archived,
       desktopVault: route.config?.desktopVault ?? prev?.desktopVault,
       desktopOnly: route.config?.desktopOnly ?? prev?.desktopOnly,
+      desktopRead: route.config?.desktopRead ?? prev?.desktopRead,
     });
   }
 }
@@ -119,6 +122,18 @@ describe("la cassaforte dal desktop (lotto 10, D-7)", () => {
     ]);
     expect(routes.filter((r) => r.reauth !== undefined).map((r) => r.key)).toEqual(["POST /api/vault/device-pairings"]);
     expect(routes.filter((r) => r.desktopVault).map((r) => r.key)).toEqual([]);
+  });
+
+  /**
+   * 25 nov 2026: le letture che il PAT desktop fa ANCHE senza sigillo — lo
+   * stato della cassaforte serve proprio quando il Mac non è ancora associato
+   * (nessuna chiave, chiave in attesa). Sola lettura, nessuna busta, nessuna
+   * riconferma, e né `desktopVault` né `desktopOnly`.
+   */
+  it("le letture del PAT desktop senza sigillo (`desktopRead`) sono ESATTAMENTE queste", async () => {
+    const routes = (await registeredRoutes()).filter((r) => r.desktopRead);
+    expect(routes.map((r) => r.key)).toEqual(["GET /api/vault/status"]);
+    expect(routes.filter((r) => r.reauth !== undefined || r.desktopVault || r.desktopOnly).map((r) => r.key)).toEqual([]);
   });
 
   it("una sola chiede ANCHE la riconferma (dal desktop, la finestra di `desktop-reauth`): togliere un Mac", async () => {
