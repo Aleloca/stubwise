@@ -3,7 +3,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error -- uno script .mjs senza tipi
-import { signatureProblems } from "../../scripts/check-signature.mjs";
+import { entitlementProblems, signatureProblems } from "../../scripts/check-signature.mjs";
+// @ts-expect-error -- uno script .mjs senza tipi
+import { helperEntitlements, helperInfoPlist } from "../../scripts/keyhelper-bundle.mjs";
+import identity from "../../native/keyhelper/identity.json";
+import { HELPER_IDENTIFIER } from "./keyHelper";
 
 // Revisione di sicurezza della cassaforte, I1 (piano approvato da 46, 25 nov
 // 2026): l'app si firma con hardened runtime ed entitlements minimi, le fuse
@@ -45,6 +49,11 @@ describe("il pacchetto del Mac", () => {
     expect(builder).not.toMatch(/[A-Za-z0-9_/-]+\.p8\b/);
     const ignore = read("../../.gitignore");
     expect(ignore).toMatch(/\*\.p8/);
+    // Il profilo dell'helper (I1, seconda revisione) arriva da env.
+    expect(ignore).toMatch(/\*\.provisionprofile/);
+    expect(read("scripts/build-keyhelper.mjs")).toMatch(
+      /process\.env\["STUBWISE_KEYHELPER_PROFILE"\]/,
+    );
   });
 
   it("due pacchetti: il firmato (cassaforte dal desktop accesa, fuse rilette) e il locale (spenta)", () => {
@@ -61,10 +70,15 @@ describe("il pacchetto del Mac", () => {
     expect(scripts["check:seed:app"]).toMatch(/check-no-seed\.mjs out$/);
   });
 
-  it("l'helper del Secure Enclave si compila prima del pacchetto e va accanto all'eseguibile", () => {
-    for (const name of ["package:mac", "package:mac:unsigned"])
-      expect(scripts[name], name).toMatch(/^node scripts\/build-keyhelper\.mjs && /);
-    expect(builder).toMatch(/from: build\/bin\/stubwise-keyhelper\s+to: MacOS\/stubwise-keyhelper/);
+  it("l'helper del Secure Enclave si compila prima del pacchetto, come bundle in Contents/Helpers", () => {
+    // Il firmato lo firma lo script (entitlements e profilo), il locale ad-hoc.
+    expect(scripts["package:mac"]).toMatch(/^node scripts\/build-keyhelper\.mjs --sign && /);
+    expect(scripts["package:mac:unsigned"]).toMatch(/^node scripts\/build-keyhelper\.mjs && /);
+    expect(builder).toMatch(
+      /from: build\/bin\/StubwiseKeyHelper\.app\s+to: Helpers\/StubwiseKeyHelper\.app/,
+    );
+    // electron-builder non lo rifirma: perderebbe entitlements e profilo.
+    expect(builder).toContain('signIgnore:\n    - "StubwiseKeyHelper\\\\.app"');
     expect(existsSync(resolve(root, "scripts/build-keyhelper.mjs"))).toBe(true);
     expect(existsSync(resolve(root, "native/keyhelper/main.swift"))).toBe(true);
   });
@@ -84,25 +98,50 @@ describe("il pacchetto del Mac", () => {
     );
   });
 
-  it("M5: l'helper nasce con l'identifier del requisito di firma", () => {
-    const script = read("scripts/build-keyhelper.mjs");
-    // Un Info.plist incorporato: codesign ne prende l'identifier a ogni rifirma.
-    expect(script).toMatch(/HELPER_IDENTIFIER = "stubwise-keyhelper"/);
-    expect(script).toMatch(/"__info_plist"/);
-    expect(script).toMatch(
-      /<key>CFBundleIdentifier<\/key><string>\$\{HELPER_IDENTIFIER\}<\/string>/,
+  it("I1: un'identità sola dell'helper — main, script e Swift dicono la stessa", () => {
+    expect(HELPER_IDENTIFIER).toBe(identity.bundleId);
+    expect(read("native/keyhelper/main.swift")).toContain(`.${identity.accessGroupSuffix}`);
+    // Il rinforzo del processo padre (46, 25 nov 2026): l'helper risponde solo
+    // all'app firmata dal team, col SUO identifier — lo stesso del pacchetto.
+    expect(builder).toMatch(
+      new RegExp(`^appId: ${identity.appBundleId.replace(/\./g, "\\.")}$`, "m"),
     );
+    expect(read("native/keyhelper/main.swift")).toContain(
+      `identifier \\"${identity.appBundleId}\\"`,
+    );
+    const plist = helperInfoPlist();
+    expect(plist).toContain(`<key>CFBundleIdentifier</key><string>${identity.bundleId}</string>`);
+    expect(plist).toContain(`<key>CFBundleExecutable</key><string>${identity.executable}</string>`);
+    expect(plist).toContain("<key>LSUIElement</key><true/>");
+  });
+
+  it("I1: gli entitlements dell'helper — application-identifier, team e il gruppo del Keychain", () => {
+    const xml = helperEntitlements("ABCDE12345");
+    expect(xml).toContain(
+      `<key>com.apple.application-identifier</key><string>ABCDE12345.${identity.bundleId}</string>`,
+    );
+    expect(xml).toContain(
+      "<key>com.apple.developer.team-identifier</key><string>ABCDE12345</string>",
+    );
+    expect(xml).toContain(
+      `<key>keychain-access-groups</key><array><string>ABCDE12345.${identity.accessGroupSuffix}</string></array>`,
+    );
+    expect(() => helperEntitlements("")).toThrow();
+    expect(entitlementProblems(xml, { teamId: "ABCDE12345" })).toEqual([]);
+    expect(entitlementProblems("<plist/>", { teamId: "ABCDE12345" })).toEqual([
+      `manca il gruppo del Keychain ABCDE12345.${identity.accessGroupSuffix}`,
+    ]);
   });
 
   const info = (over: Partial<Record<"id" | "flags" | "team", string>> = {}) =>
     [
-      `Identifier=${over.id ?? "stubwise-keyhelper"}`,
+      `Identifier=${over.id ?? "dev.aleloca.stubwise.keyhelper"}`,
       `CodeDirectory v=20500 size=1 flags=${over.flags ?? "0x10000(runtime)"} hashes=1+0 location=embedded`,
       `TeamIdentifier=${over.team ?? "ABCDE12345"}`,
     ].join("\n");
 
   it("M5: le regole della firma — runtime, Team ID, identifier", () => {
-    const want = { teamId: "ABCDE12345", identifier: "stubwise-keyhelper" };
+    const want = { teamId: "ABCDE12345", identifier: "dev.aleloca.stubwise.keyhelper" };
     expect(signatureProblems(info(), want)).toEqual([]);
     expect(signatureProblems(info({ flags: "0x20002(adhoc,linker-signed)" }), want)).toEqual([
       "senza hardened runtime",
@@ -111,7 +150,7 @@ describe("il pacchetto del Mac", () => {
       "Team ID not set, atteso ABCDE12345",
     ]);
     expect(signatureProblems(info({ id: "stubwise-keyhelper-arm64" }), want)).toEqual([
-      "identifier stubwise-keyhelper-arm64, atteso stubwise-keyhelper",
+      "identifier stubwise-keyhelper-arm64, atteso dev.aleloca.stubwise.keyhelper",
     ]);
     // L'app: identifier libero, runtime e team sì.
     expect(

@@ -1,12 +1,15 @@
 import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
+import identity from "../../native/keyhelper/identity.json";
 
 // Il ponte fra il main e l'helper Swift del Secure Enclave
 // (`native/keyhelper/main.swift`; revisione di sicurezza della cassaforte,
 // I1). Una richiesta JSON su stdin, una risposta JSON su stdout: nessun
-// segreto passa per argomenti o variabili d'ambiente. L'helper sta nel
-// pacchetto accanto all'eseguibile (`Contents/MacOS/stubwise-keyhelper`) ed
-// è firmato con l'app.
+// segreto passa per argomenti o variabili d'ambiente. L'helper è un bundle
+// in `Contents/Helpers/StubwiseKeyHelper.app` (I1, seconda revisione: gli
+// entitlements riservati del Keychain del team vogliono un profilo di
+// provisioning, che un eseguibile nudo non può incorporare), firmato dal team
+// con i suoi entitlements. L'identità sta in `native/keyhelper/identity.json`.
 
 /** Esegue l'helper con `input` su stdin e restituisce lo stdout. */
 export type HelperRunner = (input: string) => Promise<string>;
@@ -88,10 +91,19 @@ export function createKeyHelper(deps: { run: HelperRunner }): KeyHelper {
 }
 
 /** Dove sta l'helper nel pacchetto: accanto all'eseguibile dell'app. */
-export const helperPath = (exePath: string): string => join(dirname(exePath), "stubwise-keyhelper");
+export const helperPath = (exePath: string): string =>
+  join(
+    dirname(exePath),
+    "..",
+    "Helpers",
+    `${identity.bundleName}.app`,
+    "Contents",
+    "MacOS",
+    identity.executable,
+  );
 
-/** L'identifier con cui l'helper è firmato (lo stesso nome del binario). */
-export const HELPER_IDENTIFIER = "stubwise-keyhelper";
+/** L'identifier con cui l'helper è firmato: il `CFBundleIdentifier` del suo bundle. */
+export const HELPER_IDENTIFIER: string = identity.bundleId;
 
 /**
  * I2 (seconda revisione della cassaforte): il requisito di firma dell'helper —
@@ -142,6 +154,10 @@ export function spawnRunner(
         child.kill("SIGKILL");
         finish(() => reject(new Error("timeout")));
       }, timeoutMs);
+      // Un helper che esce senza leggere (padre non fidato, senza firma)
+      // chiude lo stdin: la scrittura dà EPIPE, che non deve far cadere il
+      // main. L'esito lo dice lo stdout (`ok: false` col codice) o la chiusura.
+      child.stdin.on("error", () => {});
       child.stdout.setEncoding("utf8");
       child.stdout.on("data", (chunk: string) => (out += chunk));
       child.on("error", (error) => finish(() => reject(error)));

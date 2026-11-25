@@ -28,6 +28,12 @@
 // - `clear-if`   → svuota gli appunti SOLO se nessuno li ha cambiati dopo `copy`.
 //
 // Nessun segreto passa per argomenti o variabili d'ambiente: solo stdin.
+//
+// Rinforzo del processo padre (seconda revisione, deciso da 46 il 25 nov
+// 2026): l'helper risponde SOLO se chi l'ha lanciato è l'app Stubwise firmata
+// dallo stesso team (requisito verificato sul padre, per pid). Un altro
+// processo dello stesso utente che lanciasse l'helper firmato per chiedergli
+// un `ecdh` riceve `untrusted_parent`, prima di qualunque prompt del Touch ID.
 
 import AppKit
 import CryptoKit
@@ -114,6 +120,26 @@ func keyQuery(_ tag: Data, _ group: String) -> [String: Any] {
 func errorOf(_ cfError: Unmanaged<CFError>?) -> Error {
   cfError?.takeRetainedValue() as Error? ?? NSError(domain: "stubwise", code: -1)
 }
+
+/// Il padre è l'app Stubwise firmata dal team? (Se il padre muore, getppid è
+/// launchd, che non soddisfa il requisito.)
+func parentIsStubwise(team: String) -> Bool {
+  let requirementText =
+    "anchor apple generic and identifier \"dev.aleloca.stubwise\" and certificate leaf[subject.OU] = \"\(team)\""
+  var requirement: SecRequirement?
+  guard SecRequirementCreateWithString(requirementText as CFString, [], &requirement) == errSecSuccess,
+    let requirement
+  else { return false }
+  var parent: SecCode?
+  let attributes = [kSecGuestAttributePid: getppid()] as CFDictionary
+  guard SecCodeCopyGuestWithAttributes(nil, attributes, [], &parent) == errSecSuccess, let parent
+  else { return false }
+  return SecCodeCheckValidity(parent, [], requirement) == errSecSuccess
+}
+
+// Prima di leggere la richiesta: senza firma del team niente, e solo all'app.
+guard let team = teamID() else { fail("unsigned") }
+guard parentIsStubwise(team: team) else { fail("untrusted_parent") }
 
 let input = FileHandle.standardInput.readDataToEndOfFile()
 guard let request = try? JSONDecoder().decode(Request.self, from: input) else { fail("invalid_request") }
