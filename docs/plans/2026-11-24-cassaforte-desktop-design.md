@@ -238,8 +238,11 @@ Restano `session_required` anche col sigillo (la regola di adesso):
   (§8). Il proprio sì (logout).~~ **Superata il 25 nov 2026 (D-9)**: dal desktop
   col sigillo vivo si tolgono anche gli ALTRI propri Mac — `DELETE
   /api/vault/device-seals/:id`, la stessa rotta del browser, dichiarata
-  `desktopVault`, con la riconferma del desktop (`desktop-reauth`, 10 minuti),
-  il registro (`removed: <Mac tolto> (from the Mac «<chi l'ha tolto>»)`) e
+  `desktopVault`, con la riconferma del desktop (`desktop-reauth`, 10 minuti)
+  E la prova della propria chiave nel corpo (`{ actorProof }`, decisione di 46
+  del 25 nov 2026: la prova dice che la cassaforte è aperta, quindi che il
+  Touch ID è passato; la riconferma che chi agisce è la persona; senza prova
+  403 `vault_proof_invalid`; dal browser il corpo non serve), il registro (`removed: <Mac tolto> (from the Mac «<chi l'ha tolto>»)`) e
   l'avviso alla persona; il proprio sigillo per id → 409 `use_mine` (c'è
   `DELETE .../mine`); un Mac di un'altra persona → 404. Anche l'elenco
   (`GET /api/vault/device-seals`) è aperto al Mac, con `current` vero sul suo.
@@ -374,8 +377,9 @@ Perché resta accettabile:
   qualcuno non revoca il suo PAT desktop (Impostazioni → token).
 
 - **Un Mac rubato e sbloccato può staccare gli altri Mac della persona** (D-9,
-  accettato dal maintainer il 25 nov 2026): con la cassaforte aperta e la
-  riconferma del desktop toglie i sigilli degli altri Mac, così la persona
+  accettato dal maintainer il 25 nov 2026): con la cassaforte aperta (la prova
+  della propria chiave, quindi il Touch ID passato) e la riconferma del
+  desktop toglie i sigilli degli altri Mac, così la persona
   resta a leggere solo da quel Mac e dal browser. Non apre nulla di più di
   quanto già apre, e ogni rimozione finisce nel registro e avvisa la persona;
   il rimedio è togliere il Mac rubato dal browser (o da un full admin, D-6) e

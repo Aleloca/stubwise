@@ -660,7 +660,15 @@ describe("togliere un ALTRO proprio Mac dal desktop (decisione del maintainer, 2
     otherSealId = await sealedFor(jo, other);
   });
 
-  const remove = (id: string, headers: Record<string, string>) => call("DELETE", `/api/vault/device-seals/${id}`, headers);
+  const remove = (id: string, headers: Record<string, string>, body?: unknown) => call("DELETE", `/api/vault/device-seals/${id}`, headers, body);
+
+  /** La prova della propria chiave chiesta dal Mac (`headers`) o dal browser. */
+  async function proof(headers: Record<string, string>) {
+    const res = await call("POST", "/api/vault/actor-challenge", headers);
+    expect(res.statusCode, res.body).toBe(201);
+    const { challengeId, wrapped, personKeyId } = res.json() as { challengeId: string; wrapped: string; personKeyId: string };
+    return { challengeId, proof: await openActorChallenge(wrapped, jo.privateKey, challengeId, personKeyId) };
+  }
 
   it("un PAT `manual` → 403 `session_required`, niente tolto", async () => {
     const manual = await pat(jo.id, "manual");
@@ -702,18 +710,29 @@ describe("togliere un ALTRO proprio Mac dal desktop (decisione del maintainer, 2
     expect((await sealsOf(jo.id)).find((s) => s.id === mine.id)!.revokedAt).toBeNull();
   });
 
+  it("dal Mac, con la riconferma ma SENZA la prova della propria chiave (o con quella del browser) → 403 `vault_proof_invalid`, niente tolto (decisione di 46, 25 nov 2026)", async () => {
+    await fresh(jo.desktop.id);
+    const none = await remove(otherSealId, jo.desktop.headers);
+    expect([none.statusCode, none.json().code]).toEqual([403, "vault_proof_invalid"]);
+    const browserProof = await proof({ cookie: jo.cookie });
+    const wrong = await remove(otherSealId, jo.desktop.headers, { actorProof: browserProof });
+    expect([wrong.statusCode, wrong.json().code]).toEqual([403, "vault_proof_invalid"]);
+    expect((await sealsOf(jo.id)).find((s) => s.id === otherSealId)!.revokedAt).toBeNull();
+    expect(await events(jo.id, "vault_device_seal_revoked")).toHaveLength(0);
+  });
+
   it("il Mac di un'ALTRA persona → 404, intatto", async () => {
     const kim = await person("kim-device@example.com");
     const kimSeal = await sealedFor(kim, kim.desktop);
     await fresh(jo.desktop.id);
-    expect((await remove(kimSeal, jo.desktop.headers)).statusCode).toBe(404);
+    expect((await remove(kimSeal, jo.desktop.headers, { actorProof: await proof(jo.desktop.headers) })).statusCode).toBe(404);
     expect((await sealsOf(kim.id))[0]!.revokedAt).toBeNull();
   });
 
   it("col sigillo vivo e la riconferma, il Mac toglie l'ALTRO Mac della persona: il solo sigillo, registro e avviso; l'altro Mac resta collegato", async () => {
     await fresh(jo.desktop.id);
     const before = (await alerts(jo.id)).length;
-    expect((await remove(otherSealId, jo.desktop.headers)).statusCode).toBe(204);
+    expect((await remove(otherSealId, jo.desktop.headers, { actorProof: await proof(jo.desktop.headers) })).statusCode).toBe(204);
     expect((await sealsOf(jo.id)).find((s) => s.id === otherSealId)).toMatchObject({ revokedReason: "removed" });
     expect(await events(jo.id, "vault_device_seal_revoked")).toHaveLength(1);
     expect((await alerts(jo.id)).length).toBe(before + 1);
