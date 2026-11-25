@@ -42,3 +42,5 @@ apps/desktop/release/
 
 # Le chiavi API di App Store Connect (notarizzazione, I1): mai nella repo.
 *.p8
+# L'helper del Secure Enclave compilato (apps/desktop, scripts/build-keyhelper.mjs).
+apps/desktop/build/bin/

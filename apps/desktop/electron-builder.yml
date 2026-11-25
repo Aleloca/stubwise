@@ -41,6 +41,10 @@ mac:
   entitlementsInherit: build/entitlements.mac.plist
   # La notarizzazione la accende `package:mac` (`--config.mac.notarize=true`).
   notarize: false
+  # L'helper del Secure Enclave (I1): accanto all'eseguibile, firmato con l'app.
+  extraFiles:
+    - from: build/bin/stubwise-keyhelper
+      to: MacOS/stubwise-keyhelper
 dmg:
   sign: false
 publish: null

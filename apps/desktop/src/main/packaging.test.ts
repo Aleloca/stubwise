@@ -54,4 +54,12 @@ describe("il pacchetto del Mac", () => {
     expect(scripts["package:mac:unsigned"]).toMatch(/node scripts\/check-fuses\.mjs/);
     expect(existsSync(resolve(root, "scripts/check-fuses.mjs"))).toBe(true);
   });
+
+  it("l'helper del Secure Enclave si compila prima del pacchetto e va accanto all'eseguibile", () => {
+    for (const name of ["package:mac", "package:mac:unsigned"])
+      expect(scripts[name], name).toMatch(/^node scripts\/build-keyhelper\.mjs && /);
+    expect(builder).toMatch(/from: build\/bin\/stubwise-keyhelper\s+to: MacOS\/stubwise-keyhelper/);
+    expect(existsSync(resolve(root, "scripts/build-keyhelper.mjs"))).toBe(true);
+    expect(existsSync(resolve(root, "native/keyhelper/main.swift"))).toBe(true);
+  });
 });
