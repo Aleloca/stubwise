@@ -79,6 +79,22 @@ export function useShowPassword() {
   return useWrite((id: string) => api.vault.show(id), VAULT_AREAS, { secret: true });
 }
 
+/** I propri Mac che aprono la cassaforte (Preferenze → Security). */
+export function useMyMacs() {
+  const me = useSessionPersonId();
+  return useQuery({ queryKey: queryKeys.myMacs(me), queryFn: () => api.vault.listMyMacs() });
+}
+
+/** «Forget this Mac»: il proprio sigillo e il locale; il login resta. */
+export function useForgetThisMac() {
+  return useWrite(() => api.vault.forgetThisMac(), VAULT_AREAS);
+}
+
+/** «Remove» di un altro proprio Mac: riconferma e cassaforte aperta (VA-Q4). */
+export function useRemoveMac() {
+  return useWrite((macId: string) => api.vault.removeMac(macId), VAULT_AREAS);
+}
+
 /** «Pair this Mac»: il main chiede l'accoppiamento e apre il browser; risponde l'impronta. */
 export function useStartPairing() {
   return useWrite(() => api.vault.startPairing(), VAULT_AREAS);

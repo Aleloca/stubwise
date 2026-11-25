@@ -14,6 +14,7 @@ import {
   type TotpSetup,
 } from "../../data/queries";
 import { useReauth } from "../../layout/useReauth";
+import { MacsPart } from "../vault/MacsPart";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
 import { isAppBuild, isDesktopApp } from "../../data/build";
@@ -104,6 +105,8 @@ export function SecuritySection() {
             <BackupCodes codes={codes} onDone={() => setCodes(null)} />
           </Part>
         )}
+        {/* La cassaforte (lotto 10): sotto «Passkeys», sopra «Open sessions». */}
+        <MacsPart />
         <SessionsPart sessions={s.sessions} />
         <LogPart events={s.events} />
       </>

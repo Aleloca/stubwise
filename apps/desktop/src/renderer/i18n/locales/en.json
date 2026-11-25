@@ -13796,6 +13796,27 @@
         "vault_key_not_confirmed": "Your vault key isn't confirmed yet: a reader confirms it when they pass you a credential.",
         "other": "Couldn't pair this Mac. Try again."
       }
+    },
+    "macs": {
+      "title": "Macs that open the vault",
+      "intro": "These Macs open your vault with Touch ID. Removing one doesn't sign it out.",
+      "thisMac": "this Mac",
+      "paired": "Paired {{paired}} · used {{used}}",
+      "pairedNever": "Paired {{paired}} · never used",
+      "forget": "Forget this Mac",
+      "forgetQuestion": "This Mac stops opening the vault. You stay signed in.",
+      "forgetYes": "Forget",
+      "forgotten": "This Mac no longer opens the vault.",
+      "forgottenLocal": "Forgotten on this Mac. The server didn't answer: remove it from the browser too.",
+      "remove": "Remove",
+      "removeQuestion": "That Mac stops opening the vault. It stays signed in.",
+      "removeYes": "Remove {{name}}",
+      "cancel": "Cancel",
+      "removed": "Removed. You'll get a security alert.",
+      "failed": "Couldn't remove that Mac. Try again.",
+      "reauth": "remove a Mac from the vault",
+      "empty": "No Mac opens your vault yet.",
+      "pair": "Pair this Mac"
     }
   }
 }

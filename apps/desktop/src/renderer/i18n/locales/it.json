@@ -13796,6 +13796,27 @@
         "vault_key_not_confirmed": "La tua chiave della cassaforte non è ancora confermata: la conferma un lettore quando ti passa una credenziale.",
         "other": "Non è stato possibile associare questo Mac. Riprova."
       }
+    },
+    "macs": {
+      "title": "I Mac che aprono la cassaforte",
+      "intro": "Questi Mac aprono la tua cassaforte con Touch ID. Toglierne uno non lo disconnette.",
+      "thisMac": "questo Mac",
+      "paired": "Associato il {{paired}} · usato il {{used}}",
+      "pairedNever": "Associato il {{paired}} · mai usato",
+      "forget": "Dimentica questo Mac",
+      "forgetQuestion": "Questo Mac smette di aprire la cassaforte. Resti connesso.",
+      "forgetYes": "Dimentica",
+      "forgotten": "Questo Mac non apre più la cassaforte.",
+      "forgottenLocal": "Dimenticato su questo Mac. Il server non ha risposto: toglilo anche dal browser.",
+      "remove": "Togli",
+      "removeQuestion": "Quel Mac smette di aprire la cassaforte. Resta connesso.",
+      "removeYes": "Togli {{name}}",
+      "cancel": "Annulla",
+      "removed": "Tolto. Riceverai un avviso di sicurezza.",
+      "failed": "Non è stato possibile togliere quel Mac. Riprova.",
+      "reauth": "togliere un Mac dalla cassaforte",
+      "empty": "Nessun Mac apre ancora la tua cassaforte.",
+      "pair": "Associa questo Mac"
     }
   }
 }
