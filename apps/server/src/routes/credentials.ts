@@ -197,13 +197,17 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
       config: { access: { kind: "project", permission: "member", project: fromParam("projectId") } },
       schema: {
         params: projectParams,
-        querystring: z.object({ limit: z.coerce.number().int().min(1).max(1000).default(200) }),
+        // `credentialId` (25 nov 2026): le righe di una credenziale sola, per il dettaglio del desktop.
+        querystring: z.object({
+          limit: z.coerce.number().int().min(1).max(1000).default(200),
+          credentialId: z.uuid().optional(),
+        }),
         response: { 200: credentialAccessLogResponseSchema, ...errorResponses },
       },
     },
     async (request, reply) => {
       if (!managesCredentials(routePermissions(request))) return forbidden(reply);
-      const items = await listAccessLog(app.db, request.params.projectId, request.query.limit);
+      const items = await listAccessLog(app.db, request.params.projectId, request.query.limit, request.query.credentialId);
       return reply.code(200).send({ items });
     },
   );

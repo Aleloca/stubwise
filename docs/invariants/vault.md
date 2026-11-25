@@ -65,12 +65,19 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
   dichiara `config.browserOnly` su ogni altra rotta). La sfida della propria
   chiave chiesta dal Mac è legata al SUO PAT (`pat_id`, non la sessione): non
   vale dal browser né da un altro Mac, e viceversa. Gli altri PAT (`manual`,
-  `mobile`) restano come sono. **E sopra tutto l'interruttore d'istanza
+  `mobile`) restano come sono. **Una sola lettura passa dal PAT desktop
+  ANCHE SENZA sigillo** (25 nov 2026, `config.desktopRead`, elenco chiuso in
+  `route-access.test.ts`): `GET /api/vault/status`, perché il Mac deve dire
+  «nessuna chiave» o «la tua chiave aspetta conferma» proprio prima di
+  essere associato. Al Mac la risposta ridotta — attiva o no, la propria
+  chiave (id, stato, data, pubblica per l'impronta), sigilli e passkey vuoti
+  —, nessuna busta; con l'interruttore spento 404 `vault_desktop_disabled`.
+  **E sopra tutto l'interruttore d'istanza
   `VAULT_DESKTOP`** (decisione di 46, 25 nov 2026, SPENTO di default, si
   accende solo con l'app desktop firmata): spento, il PAT desktop riceve 404
   `vault_desktop_disabled` (review M2: un codice suo, mai il `not_found` di una
   credenziale cancellata) sulle rotte `desktopVault` e su quelle del sigillo del Mac
-  (`/device-pairings`, `/device-seals/mine`), come se non ci fossero; le rotte
+  (`/device-pairings`, `/device-seals/mine`) e sullo stato, come se non ci fossero; le rotte
   del browser restano. È una scelta di DEPLOY, non un'attestazione del
   client (review 2, M7): il server non verifica che chi chiama sia l'app
   firmata. Il controllo sta negli stessi due punti
@@ -189,7 +196,8 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
   l'hash dello state, 10 minuti, uso singolo, legata a QUEL PAT e a QUELLA
   pubblica). Il browser vede da quando esiste quel login e il suo ultimo uso. Il
   browser la legge per state (`/lookup`, lo state nel corpo, mai nei log), la
-  persona confronta l'impronta del Mac nelle due finestre, e con la passkey
+  persona scrive nel browser il codice che il Mac mostra (gli ultimi 4 caratteri della sua impronta) — la pagina NON mostra l'impronta,
+  che altrimenti si copierebbe da lei (review 2, M3) — e con la passkey
   (riconferma recente, PRF) e la prova della propria chiave confermata
   (`actorProof`) sigilla la privata di persona per la pubblica del Mac
   (`sealForDevice`, `@stubwise/vault-crypto`: la privata in chiaro non esce
@@ -225,7 +233,7 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
   esiste UN secondo meccanismo, il sigillo del Mac, e nasce SOLO da uno
   sblocco con passkey nel browser: non è un'altra porta, è una copia della
   stessa chiave avvolta per un dispositivo che la persona ha scelto e
-  confrontato a vista (voce sotto). Per il resto: lo sblocco usa `/api/me/security/reauth/passkey/*`
+  riconosciuto scrivendo il codice che il Mac mostra (voce sotto). Per il resto: lo sblocco usa `/api/me/security/reauth/passkey/*`
   (`purpose: "vault"` aggiunge la valutazione PRF) e quindi rinnova anche
   `secondFactorAt`. `PRF_INPUT` vive in UN posto, `@stubwise/vault-crypto`; il
   server lo importa (passkey) e non ne ha una copia. Una passkey senza PRF non

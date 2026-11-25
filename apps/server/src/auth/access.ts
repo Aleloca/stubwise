@@ -139,6 +139,14 @@ declare module "fastify" {
      */
     desktopOnly?: true;
     /**
+     * 25 nov 2026: una LETTURA della cassaforte aperta al PAT desktop anche
+     * SENZA sigillo (lo stato: serve proprio prima dell'associazione). Sola
+     * lettura, nessuna busta, nessuna riconferma; rispetta `VAULT_DESKTOP`.
+     * Elenco chiuso in `route-access.test.ts`; chi chiama lo controlla la
+     * rotta in `routes/vault.ts`.
+     */
+    desktopRead?: true;
+    /**
      * Area 9, F3: la rotta chiede la riconferma solo per UNA PARTE del corpo
      * (un segreto nuovo): la verifica l'handler con {@link requireReauth}. È
      * una dichiarazione, così il test del registro ne tiene l'elenco chiuso.

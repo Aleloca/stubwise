@@ -616,6 +616,23 @@ describe("credenziali della cassaforte", () => {
       expect((await req("GET", `/api/projects/${projectId}/credentials/log`, stranger.session)).statusCode).toBe(404);
     });
 
+    it("registro di UNA credenziale (`?credentialId=`, 25 nov 2026): solo le sue righe; un id sconosciuto → vuoto; non un uuid → 400", async () => {
+      await testDb.db.insert(credentialAccessLog).values([
+        { credentialId: devReadable, projectId, credentialSnapshot: "Filtro A", userEmail: "dev@example.com", action: "show" },
+        { credentialId: devPending, projectId, credentialSnapshot: "Filtro B", userEmail: "dev@example.com", action: "copy" },
+      ]);
+      const all = (await req("GET", `/api/projects/${projectId}/credentials/log`, lead.pat!)).json() as { items: { credentialId: string }[] };
+      expect(all.items.map((i) => i.credentialId)).toEqual(expect.arrayContaining([devReadable, devPending]));
+      const one = await req("GET", `/api/projects/${projectId}/credentials/log?credentialId=${devPending}`, lead.pat!);
+      expect(one.statusCode, one.body).toBe(200);
+      expect((one.json() as { items: { credentialId: string }[] }).items.map((i) => i.credentialId)).toEqual([devPending]);
+      const none = await req("GET", `/api/projects/${projectId}/credentials/log?credentialId=${randomUUID()}`, lead.pat!);
+      expect(none.json()).toEqual({ items: [] });
+      expect((await req("GET", `/api/projects/${projectId}/credentials/log?credentialId=x`, lead.pat!)).statusCode).toBe(400);
+      // Il permesso resta quello del registro intero.
+      expect((await req("GET", `/api/projects/${projectId}/credentials/log?credentialId=${devPending}`, dev.pat!)).statusCode).toBe(403);
+    });
+
     it("DELETE: un lettore qualsiasi no; credentials.edit sì, e il registro resta con la fotografia", async () => {
       expect((await req("DELETE", `/api/credentials/${devReadable}`, dev.pat!)).statusCode).toBe(403);
       const res = await req("DELETE", `/api/credentials/${devReadable}`, lead.pat!);

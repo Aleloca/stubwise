@@ -467,6 +467,8 @@ export async function listAccessLog(
   db: Db,
   projectId: string,
   limit: number,
+  /** Solo le righe di UNA credenziale (25 nov 2026, il dettaglio del desktop). */
+  credentialId?: string,
 ): Promise<CredentialAccessLogEntry[]> {
   const rows = await db
     .select({
@@ -480,7 +482,12 @@ export async function listAccessLog(
       createdAt: credentialAccessLog.createdAt,
     })
     .from(credentialAccessLog)
-    .where(eq(credentialAccessLog.projectId, projectId))
+    .where(
+      and(
+        eq(credentialAccessLog.projectId, projectId),
+        credentialId !== undefined ? eq(credentialAccessLog.credentialId, credentialId) : undefined,
+      ),
+    )
     .orderBy(desc(credentialAccessLog.createdAt), desc(credentialAccessLog.id))
     .limit(limit);
   return rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() }));
