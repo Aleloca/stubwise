@@ -134,15 +134,12 @@ export function VaultPairPage({
               </dd>
             )}
           </dl>
-          <div className="flex flex-col gap-1">
-            <span className="text-sm text-fg-muted">{t("vault:pair.fingerprint")}</span>
-            <span className="font-mono text-2xl tabular-nums tracking-wide">
-              {fingerprint ?? "…"}
-            </span>
-            <span className="text-xs text-fg-muted">{t("vault:pair.fingerprintHint")}</span>
-          </div>
+          {/* M3 (seconda revisione): l'impronta NON si mostra qui. Si legge sul
+              Mac e si scrive; la pagina la calcola dalla pubblica del server e
+              confronta. Mostrata, la si copierebbe dalla pagina stessa. */}
           <label className="flex flex-col gap-1 text-sm">
             {t("vault:pair.confirmLabel")}
+            <span className="text-xs text-fg-muted">{t("vault:pair.fingerprintHint")}</span>
             <input
               value={typed}
               onChange={(e) => setTyped(e.target.value)}

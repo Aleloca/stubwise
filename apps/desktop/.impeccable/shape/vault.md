@@ -260,7 +260,7 @@ browser, with your passkey.
   3f9a 1c2e 07d4 91be                      ← monospace 24px, cifre tabellari
 
   1  The browser opens Stubwise.
-  2  Check that it shows the same four groups.
+  2  Type the last 4 characters of this key there (91be).
   3  Choose "Pair this Mac" there.
 
   ◌ Waiting for the browser…  expires in 10 minutes        [Cancel]
@@ -269,6 +269,13 @@ browser, with your passkey.
 - **Pair this Mac** (dalla barra o ⌘K): il main chiede l'accoppiamento e
   apre il browser; il dialogo mostra l'impronta e i tre passi, e «Waiting
   for the browser…» con l'anello.
+- **Il codice si scrive, non si confronta** (M3 della seconda revisione,
+  decisione di 46, 25 nov 2026): la pagina `vault-pair` del web NON mostra
+  l'impronta; chiede gli ultimi 4 caratteri di quella che mostra QUESTO
+  dialogo, e li confronta con l'impronta calcolata dalla pubblica del
+  server. Mostrata anche nel browser, la si copierebbe dalla pagina stessa
+  — anche da un link mandato da chi ha avviato un'associazione al posto
+  tuo, che senza il dialogo sul Mac non ha niente da farti scrivere.
 - **Riuscita** (ritorno `stubwise://vault`): «This Mac opens your vault.»
   con ✓, la barra già aperta sotto (D-1b: senza Touch ID questa volta);
   **Done** chiude.
@@ -406,3 +413,4 @@ browser, with your passkey.
 | VA-Q4 | Togliere un altro proprio Mac dal desktop | **Anche dal desktop**, con la cassaforte aperta (rotta del PAT desktop chiesta a 72). Quelli di un'altra persona: l'admin, dal browser. |
 | VA-Q5 | «from the Mac» nel registro | **A chiunque legga il registro** (la raccomandazione). |
 | VA-Q6 | «Generate» nella password nuova | **No**. |
+| M3 (rev. 2) | L'impronta nella pagina d'associazione del browser | **Non si mostra** (46): il browser chiede gli ultimi 4 caratteri del codice che mostra il dialogo sul Mac, e li confronta con l'impronta della pubblica del server. |
