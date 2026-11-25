@@ -143,6 +143,14 @@ export function useStartPairing() {
   return useWrite(() => api.vault.startPairing(), VAULT_AREAS);
 }
 
+/**
+ * Annulla l'associazione senza un componente montato (review M6: il dialogo
+ * chiuso mentre la richiesta era in volo; quando torna, si annulla da qui).
+ */
+export function cancelPairingNow(): Promise<void> {
+  return api.vault.cancelPairing();
+}
+
 /** Chiudere il dialogo durante l'attesa: la richiesta si dimentica. */
 export function useCancelPairing() {
   return useWrite(() => api.vault.cancelPairing(), VAULT_AREAS);
