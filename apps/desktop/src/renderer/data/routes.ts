@@ -23,6 +23,7 @@ export const APP_ROUTES = [
   "mail",
   "calendar",
   "drive",
+  "vault",
   "claude",
   "automations",
   "projects",
@@ -114,9 +115,7 @@ export function isPeopleSearchValue(key: string, value: string): boolean {
     case "roles":
       return /^[\w-]+(,[\w-]+)*$/.test(value);
     case "statuses":
-      return value
-        .split(",")
-        .every((s) => (PEOPLE_STATUSES as readonly string[]).includes(s));
+      return value.split(",").every((s) => (PEOPLE_STATUSES as readonly string[]).includes(s));
     case "invite":
       return value === "1";
     case "inviteProject":

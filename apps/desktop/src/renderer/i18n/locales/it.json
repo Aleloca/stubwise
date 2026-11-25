@@ -5,6 +5,7 @@
     "mail": "Posta",
     "calendar": "Calendario",
     "drive": "Drive",
+    "vault": "Cassaforte",
     "claude": "Claude",
     "automations": "Automazioni",
     "projects": "Tutti i progetti",
@@ -46,7 +47,8 @@
     "mailWaiting_one": "{{count}} proposta da decidere",
     "mailWaiting_other": "{{count}} proposte da decidere",
     "automationsWaiting_one": "{{count}} decisione aspetta te",
-    "automationsWaiting_other": "{{count}} decisioni aspettano te"
+    "automationsWaiting_other": "{{count}} decisioni aspettano te",
+    "vaultWaiting": "Accessi da confermare"
   },
   "column": {
     "projectSections": "Sezioni del progetto",
@@ -13703,7 +13705,8 @@
       "created": "Credenziale salvata.",
       "saved": "Modifiche salvate.",
       "failed": "Non è stato possibile salvare la credenziale.",
-      "locked": "Apri la cassaforte per cambiare la password."
+      "locked": "Apri la cassaforte per cambiare la password.",
+      "project": "Progetto"
     },
     "readers": {
       "title": "Lettori",
@@ -13762,6 +13765,15 @@
       "rejected": "La chiave di {{name}} è stata rifiutata.",
       "failed": "Non è stato possibile completare. Riprova.",
       "empty": "Nessuno aspetta l'accesso."
+    },
+    "page": {
+      "title": "Cassaforte",
+      "subtitle": "Tutte le credenziali che puoi leggere, in tutti i tuoi progetti.",
+      "search": "Cerca credenziali",
+      "projects": "Progetti",
+      "none": "Non puoi ancora leggere nessuna credenziale.",
+      "noneProjects": "Nessuna credenziale in questi progetti.",
+      "noMatch": "Nessuna credenziale corrisponde alla ricerca."
     }
   }
 }

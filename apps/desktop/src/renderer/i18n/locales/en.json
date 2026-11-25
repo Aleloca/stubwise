@@ -5,6 +5,7 @@
     "mail": "Mail",
     "calendar": "Calendar",
     "drive": "Drive",
+    "vault": "Vault",
     "claude": "Claude",
     "automations": "Automations",
     "projects": "All projects",
@@ -46,7 +47,8 @@
     "mailWaiting_one": "{{count}} proposal to decide",
     "mailWaiting_other": "{{count}} proposals to decide",
     "automationsWaiting_one": "{{count}} decision waiting for you",
-    "automationsWaiting_other": "{{count}} decisions waiting for you"
+    "automationsWaiting_other": "{{count}} decisions waiting for you",
+    "vaultWaiting": "Access to confirm"
   },
   "column": {
     "projectSections": "Project sections",
@@ -13703,7 +13705,8 @@
       "created": "Credential saved.",
       "saved": "Changes saved.",
       "failed": "Couldn't save the credential.",
-      "locked": "Open the vault to change the password."
+      "locked": "Open the vault to change the password.",
+      "project": "Project"
     },
     "readers": {
       "title": "Readers",
@@ -13762,6 +13765,15 @@
       "rejected": "{{name}}'s key was rejected.",
       "failed": "Couldn't complete it. Try again.",
       "empty": "Nobody is waiting for access."
+    },
+    "page": {
+      "title": "Vault",
+      "subtitle": "Every credential you can read, in all your projects.",
+      "search": "Search credentials",
+      "projects": "Projects",
+      "none": "You can't read any credential yet.",
+      "noneProjects": "No credentials in these projects.",
+      "noMatch": "No credentials match your search."
     }
   }
 }

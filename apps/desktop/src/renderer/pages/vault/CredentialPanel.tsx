@@ -1,7 +1,13 @@
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useAccessLog, useCredential, useProject } from "../../data/queries";
+import {
+  useAccessLog,
+  useCredential,
+  useProject,
+  useProjects,
+  useVaultEntry,
+} from "../../data/queries";
 import type { CredentialView } from "../../data/vault/types";
 import { DetailPanel } from "../../layout/useDetailPanel";
 import { useMediaQuery } from "../../layout/useMediaQuery";
@@ -34,7 +40,7 @@ export function CredentialPanelHost() {
   if (!search.credential || !WHERE.test(pathname)) return null;
   if (search.credential === "new") {
     const code = SECTION.exec(pathname)?.[1];
-    return code ? <NewCredentialPanel code={code} /> : null;
+    return code ? <NewCredentialPanel code={code} /> : <NewCredentialPanelVault />;
   }
   return <CredentialPanelFor key={search.credential} id={search.credential} />;
 }
@@ -54,6 +60,32 @@ function NewCredentialPanel({ code }: { code: string }) {
     >
       <CredentialForm
         mode={{ kind: "new", projectId: project.id }}
+        onSaved={(id) => go(id)}
+        onCancel={() => go(undefined)}
+      />
+    </DetailPanel>
+  );
+}
+
+/** Dalla pagina Vault: il progetto si sceglie fra quelli dove chi guarda crea. */
+function NewCredentialPanelVault() {
+  const { t } = useTranslation();
+  const docked = useMediaQuery(CREDENTIAL_PANEL_DOCKED_QUERY);
+  const entry = useVaultEntry().data;
+  const projects = useProjects().data;
+  const go = useGoToCredential();
+  if (!entry || !projects) return null;
+  const choices = entry.createProjectIds
+    .map((id) => ({ id, code: projects.find((p) => p.id === id)?.code ?? id }))
+    .sort((a, b) => a.code.localeCompare(b.code));
+  return (
+    <DetailPanel
+      mode={docked ? "docked" : "overlay"}
+      label={t("vault.form.newTitle")}
+      onClose={() => go(undefined)}
+    >
+      <CredentialForm
+        mode={{ kind: "new", projectChoices: choices }}
         onSaved={(id) => go(id)}
         onCancel={() => go(undefined)}
       />

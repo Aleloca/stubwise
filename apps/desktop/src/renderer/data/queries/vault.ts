@@ -78,6 +78,15 @@ export function useShowPassword() {
   return useWrite((id: string) => api.vault.show(id), VAULT_AREAS, { secret: true });
 }
 
+/** La voce «Vault» della barra laterale (e dove «New credential» può creare). */
+export function useVaultEntry() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.vaultEntry(me),
+    queryFn: () => api.vault.getVaultEntry(),
+  });
+}
+
 /** Chi aspetta che io confermi la sua chiave (con le credenziali che posso passargli). */
 export function useVaultPending() {
   const me = useSessionPersonId();

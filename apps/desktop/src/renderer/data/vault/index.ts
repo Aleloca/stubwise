@@ -386,6 +386,28 @@ export async function getCredentialsEntry(
   return { show, waitingMe, canCreate };
 }
 
+/**
+ * La voce «Vault» della barra laterale (shape §3, VA-Q1): c'è se la
+ * cassaforte è attiva e chi guarda vede almeno una credenziale (anche in
+ * attesa) o può crearne in almeno un progetto; `waitingMe` accende il punto
+ * quando c'è chi aspetta che sia lui a confermarlo; `createProjectIds` sono i
+ * progetti dove «New credential» può creare.
+ */
+export async function getVaultEntry(): Promise<{
+  show: boolean;
+  waitingMe: boolean;
+  createProjectIds: string[];
+}> {
+  const me = await gate("vault.getVaultEntry");
+  if (!v().active) return { show: false, waitingMe: false, createProjectIds: [] };
+  const projectIds = [...new Set(accessState().memberships.map((m) => m.projectId))];
+  const createProjectIds = projectIds.filter((p) => canI(me, "credentials.create", p)).sort();
+  const sees = v().credentials.some((c) => viewOf(me, c));
+  const show = sees || createProjectIds.length > 0;
+  const waitingMe = show && v().keys.some((k) => passable(me, k.personId).length > 0);
+  return { show, waitingMe, createProjectIds };
+}
+
 export async function getCredential(id: string): Promise<CredentialView | null> {
   const me = await gate("vault.getCredential");
   const c = credentialById(id);
