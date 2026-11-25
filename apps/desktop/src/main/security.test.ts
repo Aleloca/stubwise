@@ -6,6 +6,7 @@ import {
   MAX_SAVE_BYTES,
   parseSaveFileRequest,
   PRODUCTION_CSP,
+  refusedDebugSwitch,
   rendererDevUrl,
   safeFileName,
   saveFilterFor,
@@ -149,5 +150,29 @@ describe("rendererDevUrl (C1)", () => {
     expect(isNavigationAllowed("http://attacker.example:5173/", { devUrl, packagedUrl })).toBe(
       false,
     );
+  });
+});
+
+// C2: nessun fuse copre il debug remoto di Chromium. Nel pacchetto, con
+// `--remote-debugging-port` o `--remote-debugging-pipe`, l'app esce prima di
+// aprire una finestra: chi vi si attaccasse leggerebbe la cassaforte aperta.
+describe("refusedDebugSwitch (C2)", () => {
+  const has =
+    (...on: string[]) =>
+    (name: string) =>
+      on.includes(name);
+  it("nel pacchetto rifiuta il debug remoto, per porta o per pipe", () => {
+    expect(refusedDebugSwitch({ isPackaged: true, hasSwitch: has("remote-debugging-port") })).toBe(
+      "remote-debugging-port",
+    );
+    expect(refusedDebugSwitch({ isPackaged: true, hasSwitch: has("remote-debugging-pipe") })).toBe(
+      "remote-debugging-pipe",
+    );
+    expect(refusedDebugSwitch({ isPackaged: true, hasSwitch: has("lang") })).toBeNull();
+  });
+  it("in sviluppo li lascia passare", () => {
+    expect(
+      refusedDebugSwitch({ isPackaged: false, hasSwitch: has("remote-debugging-port") }),
+    ).toBeNull();
   });
 });

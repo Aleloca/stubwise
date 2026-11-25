@@ -41,6 +41,22 @@ export function rendererDevUrl(opts: {
   return opts.env["ELECTRON_RENDERER_URL"] || undefined;
 }
 
+/** Gli switch del debug remoto di Chromium: nessun fuse li copre (C2). */
+const DEBUG_SWITCHES = ["remote-debugging-port", "remote-debugging-pipe"] as const;
+
+/**
+ * C2 (seconda revisione della cassaforte): nel pacchetto l'app non parte col
+ * debug remoto di Chromium, che darebbe a un altro processo la pagina con la
+ * cassaforte aperta. Restituisce lo switch trovato (l'app esce), o `null`.
+ */
+export function refusedDebugSwitch(opts: {
+  isPackaged: boolean;
+  hasSwitch: (name: string) => boolean;
+}): string | null {
+  if (!opts.isPackaged) return null;
+  return DEBUG_SWITCHES.find((name) => opts.hasSwitch(name)) ?? null;
+}
+
 export function isNavigationAllowed(
   target: string,
   opts: { devUrl?: string; packagedUrl: string },

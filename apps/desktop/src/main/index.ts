@@ -58,6 +58,7 @@ import { createVaultRemote } from "./vaultRemote";
 import {
   isExternalOpenAllowed,
   isNavigationAllowed,
+  refusedDebugSwitch,
   rendererDevUrl,
   parseSaveFileRequest,
   safeFileName,
@@ -75,6 +76,17 @@ import {
 } from "./window";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
+// C2: nel pacchetto niente debug remoto di Chromium; si esce subito, prima di
+// ogni finestra (`exit`, non `quit`: nessun evento di chiusura da aspettare).
+const debugSwitch = refusedDebugSwitch({
+  isPackaged: app.isPackaged,
+  hasSwitch: (name) => app.commandLine.hasSwitch(name),
+});
+if (debugSwitch) {
+  console.error(`stubwise: --${debugSwitch} non è ammesso nell'app impacchettata`);
+  app.exit(1);
+}
+
 // C1: nel pacchetto nessun dev server, qualunque sia l'env.
 const devUrl = rendererDevUrl({ isPackaged: app.isPackaged, env: process.env });
 const packagedFile = join(here, "../renderer/index.html");
