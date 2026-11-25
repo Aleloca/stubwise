@@ -14,8 +14,9 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { identity } from "./keyhelper-bundle.mjs";
 
-export const HELPER_IDENTIFIER = "stubwise-keyhelper";
+export const HELPER_IDENTIFIER = identity.bundleId;
 
 /** Le violazioni nell'uscita di `codesign -dv` (vuoto = a posto). */
 export function signatureProblems(text, want) {
@@ -29,6 +30,15 @@ export function signatureProblems(text, want) {
     const id = field("Identifier");
     if (id !== want.identifier) problems.push(`identifier ${id}, atteso ${want.identifier}`);
   }
+  return problems;
+}
+
+/** Le violazioni negli entitlements dell'helper (`codesign -d --entitlements - --xml`). */
+export function entitlementProblems(xml, want) {
+  const group = `${want.teamId}.${identity.accessGroupSuffix}`;
+  const problems = [];
+  if (!xml.includes(`<string>${group}</string>`))
+    problems.push(`manca il gruppo del Keychain ${group}`);
   return problems;
 }
 
@@ -73,7 +83,25 @@ function main() {
       continue;
     }
     if (adhoc) continue;
-    const helper = join(app, "Contents", "MacOS", HELPER_IDENTIFIER);
+    const helperBundle = join(app, "Contents", "Helpers", `${identity.bundleName}.app`);
+    const helper = helperBundle;
+    if (!existsSync(join(helperBundle, "Contents", "embedded.provisionprofile"))) {
+      console.error(`check-signature: ${helperBundle}: manca embedded.provisionprofile`);
+      failed = true;
+    }
+    for (const problem of entitlementProblems(
+      execFileSync(
+        "sh",
+        ["-c", 'codesign -d --entitlements - --xml "$0" 2>/dev/null', helperBundle],
+        {
+          encoding: "utf8",
+        },
+      ),
+      { teamId },
+    )) {
+      console.error(`check-signature: ${helperBundle}: ${problem}`);
+      failed = true;
+    }
     for (const [path, want] of [
       [app, { teamId }],
       [helper, { teamId, identifier: HELPER_IDENTIFIER }],
