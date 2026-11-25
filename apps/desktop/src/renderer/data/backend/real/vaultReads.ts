@@ -123,7 +123,7 @@ export const getVaultEntry: FakeVault["getVaultEntry"] = async () => {
   const [p, mine, waiting] = await Promise.all([
     permissions(),
     myCredentials().then((items) => ({ items })),
-    // Il punto «ti aspetta» [VA 2]: chi aspetta lo sa il main, a cassaforte aperta.
+    // Il punto «ti aspetta» [VA 2]: chi aspetta lo sa il main (senza chiave, I1).
     listPending().catch(() => []),
   ]);
   const createProjectIds = p.projectIds

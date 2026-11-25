@@ -115,4 +115,40 @@ describe("la finestra dell'associazione", () => {
       expect(await vault.finishPairing("ok")).toEqual({ ok: false, code: "no_pending" });
     });
   });
+
+  // Quarta revisione, punto 6: anche uno smontaggio (si cambia pagina col
+  // dialogo aperto) annulla, non solo Cancel.
+  it("smontato mentre si chiede l'associazione: un ritorno dopo non associa", async () => {
+    const user = userEvent.setup();
+    const router = renderRoute("/p/ACQ/credentials", "p-laura");
+    const pair = await screen.findByRole("button", { name: "Pair this Mac" });
+    setLatency(300);
+    await user.click(pair);
+    await screen.findByRole("dialog", { name: "Pair this Mac" });
+    await act(async () => {
+      await router.navigate({ to: "/home" });
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Pair this Mac" })).toBeNull());
+    setLatency(0);
+    await new Promise((r) => setTimeout(r, 600));
+    await act(async () => {
+      expect(await vault.finishPairing("ok")).toEqual({ ok: false, code: "no_pending" });
+    });
+  });
+
+  it("smontato durante l'attesa del browser: un ritorno dopo non associa", async () => {
+    const user = userEvent.setup();
+    const router = renderRoute("/p/ACQ/credentials", "p-laura");
+    await user.click(await screen.findByRole("button", { name: "Pair this Mac" }));
+    const d = within(await screen.findByRole("dialog", { name: "Pair this Mac" }));
+    await d.findByText(/Waiting for the browser…/);
+    await act(async () => {
+      await router.navigate({ to: "/home" });
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Pair this Mac" })).toBeNull());
+    await new Promise((r) => setTimeout(r, 50));
+    await act(async () => {
+      expect(await vault.finishPairing("ok")).toEqual({ ok: false, code: "no_pending" });
+    });
+  });
 });

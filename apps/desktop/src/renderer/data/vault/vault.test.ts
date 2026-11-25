@@ -343,4 +343,27 @@ describe("il registro", () => {
       (await vault.listCredentials({ projectIds: ["prj-acq"] })).map((r) => r.id),
     ).not.toContain(VAULT_IDS.MAILGUN);
   });
+
+  // Quarta revisione, punto 3: il prototipo come il server. Condividere e
+  // togliere vogliono la PROPRIA copia: chi gestisce senza leggere non può.
+  it("chi gestisce senza leggere (Matteo su Aruba): niente canShare, e Remove rifiutato", async () => {
+    as("p-matteo");
+    const view = await vault.getCredential(ARUBA);
+    expect(view?.access).toBe("manages");
+    expect(view?.canShare).toBe(false);
+    expect((await vault.listReaders(ARUBA)).canShare).toBe(false);
+    // Con un Mac associato il tocco passa: il rifiuto è perché non la legge.
+    state.vault.thisMac.set("p-matteo", {
+      macId: "mac-matteo-mba",
+      open: false,
+      freshlyPaired: false,
+      revoked: false,
+      pairing: null,
+      unreachable: false,
+    });
+    expect(await vault.removeReader(ARUBA, "rd-1")).toEqual({ ok: false, code: "not_a_reader" });
+    // Chi legge sì (Laura su Aruba).
+    as("p-laura");
+    expect((await vault.getCredential(ARUBA))?.canShare).toBe(true);
+  });
 });

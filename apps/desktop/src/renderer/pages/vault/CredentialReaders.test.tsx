@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetApi, setLatency, vault } from "../../data/api";
 import { VAULT_IDS } from "../../data/seed/vault";
+import { setSessionPersonId } from "../../data/session";
 import { setVaultClipboard } from "../../data/vault/index";
 import { setLanguage } from "../../i18n";
 import { queryKeys } from "../../data/queries";
@@ -101,6 +102,8 @@ describe("i lettori di una credenziale", () => {
     const p = await panel();
     await p.findByRole("list", { name: "Who reads it" });
     expect(p.queryByLabelText("Share with")).toBeNull();
+    // Quarta revisione, punto 3: «Remove» come Share, solo a chi legge.
+    expect(p.queryByRole("button", { name: "Remove" })).toBeNull();
     expect(
       p.getByText("You can share it once you read it yourself: ask someone who reads it."),
     ).toBeInTheDocument();
@@ -151,5 +154,35 @@ describe("i lettori di una credenziale", () => {
     } finally {
       unlock.mockRestore();
     }
+  });
+
+  // Quarta revisione, punto 2: annullare il Touch ID è una scelta (come
+  // all'apertura): nessun errore. E nello stato sbagliato l'azione non c'è.
+  it("Share col Touch ID annullato: nessun toast d'errore, niente condiviso", async () => {
+    const user = userEvent.setup();
+    await vault.setVaultSimulation({ touchId: "cancelled" });
+    renderRoute(`/p/ACQ/credentials?credential=${VAULT_IDS.ARUBA}`, "p-laura");
+    const p = await panel();
+    await user.selectOptions(await p.findByLabelText("Share with"), "Sara Montanari");
+    await user.click(p.getByRole("button", { name: "Share" }));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(screen.queryByText("Couldn't change who reads it.")).toBeNull();
+    expect(screen.queryByText("Shared with Sara Montanari.")).toBeNull();
+  });
+
+  it("Share e Remove spenti quando la cassaforte non si apre da qui (Mac da associare)", async () => {
+    setSessionPersonId("p-laura");
+    await vault.forgetThisMac();
+    renderRoute(`/p/ACQ/credentials?credential=${VAULT_IDS.ARUBA}`, "p-laura");
+    const user = userEvent.setup();
+    const p = await panel();
+    // Con una persona scelta: spento per lo stato, non perché manca la scelta.
+    await user.selectOptions(await p.findByLabelText("Share with"), "Sara Montanari");
+    await waitFor(() => expect(p.getByRole("button", { name: "Share" })).toBeDisabled());
+    expect(p.getByRole("button", { name: "Share" })).toHaveAttribute(
+      "title",
+      "Open the vault first",
+    );
+    for (const b of p.getAllByRole("button", { name: "Remove" })) expect(b).toBeDisabled();
   });
 });

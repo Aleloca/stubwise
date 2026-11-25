@@ -42,6 +42,8 @@ export interface VaultOpsDeps {
     useWithTouch: <T>(run: (key: CryptoKey, personKeyId: string) => Promise<T>) => Promise<T>;
     markRevoked: () => void;
     markDisabled: () => void;
+    /** C'è il dispositivo associato su questo Mac (le chiavi locali). */
+    hasDevice: () => boolean;
   };
   /** `vaultRemote.request`: il PAT desktop, `VaultHttpError` sugli errori. */
   request: (method: string, path: string, body?: unknown) => Promise<unknown>;
@@ -127,6 +129,7 @@ export function createVaultOps(deps: VaultOpsDeps) {
           "touch_id_unavailable",
           "revoked",
           "disabled",
+          "unavailable",
         ].includes(code)
           ? code
           : "open_failed",
@@ -278,9 +281,25 @@ export function createVaultOps(deps: VaultOpsDeps) {
         deps.lock.markDisabled();
         return { ok: false, code: "disabled" };
       }
+      noteSealRequired(error);
       if (error instanceof VaultHttpError) return { ok: false, code: error.code };
       return { ok: false, code: "invalid_response" };
     }
+  }
+
+  /**
+   * Quarta revisione, punto 5: `device_seal_required` con il dispositivo
+   * locale presente vuol dire che il Mac è stato tolto (D-5): si segna
+   * revocato, così barra e Security dicono la stessa cosa. Senza
+   * dispositivo è solo «da associare» (M8).
+   */
+  function noteSealRequired(error: unknown): boolean {
+    const required =
+      error instanceof VaultHttpError &&
+      error.status === 403 &&
+      error.code === "device_seal_required";
+    if (required && deps.lock.hasDevice()) deps.lock.markRevoked();
+    return required;
   }
 
   async function pendingPeople() {
@@ -463,12 +482,7 @@ export function createVaultOps(deps: VaultOpsDeps) {
         }
         // Review M8: senza sigillo (Mac non associato) nessun Mac apre la
         // cassaforte da qui: elenco vuoto, così Security propone «Pair this Mac».
-        if (
-          error instanceof VaultHttpError &&
-          error.status === 403 &&
-          error.code === "device_seal_required"
-        )
-          return { ok: true, items: [] };
+        if (noteSealRequired(error)) return { ok: true, items: [] };
         if (error instanceof VaultHttpError) return { ok: false, code: error.code };
         return { ok: false, code: "open_failed" };
       }

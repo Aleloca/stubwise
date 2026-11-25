@@ -188,7 +188,8 @@ export function CredentialRows({
                   >
                     {t("vault.rowMenu.readers")}
                   </button>
-                  {(row.canEdit || row.canShare) && (
+                  {/* Il registro lo apre il server (quarta revisione, punto 1). */}
+                  {row.canSeeLog && (
                     <button
                       type="button"
                       role="menuitem"

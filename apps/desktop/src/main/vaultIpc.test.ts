@@ -32,6 +32,7 @@ function setup() {
     sessionChanged: vi.fn(),
     markRevoked: vi.fn(),
     markDisabled: vi.fn(),
+    hasDevice: vi.fn(() => true),
   };
   const pairing = {
     start: vi.fn(async () => ({ ok: true as const, fingerprint: "fp" })),

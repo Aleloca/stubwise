@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { isTouchCancelled, useVaultUsable } from "./useVaultUsable";
 import { useTranslation } from "react-i18next";
 import { useReaders, useRemoveReader, useShare, useShareTargets } from "../../data/queries";
 import type { CredentialView, ReadersView } from "../../data/vault/types";
@@ -11,8 +12,8 @@ import { quietButton, secondaryButton } from "../tasks/controls";
 // «created it») e il perché di chi aspetta; chi è aggiunto direttamente, con
 // «Remove» (conferma a due tempi in posto, poi la frase del web che resta, e
 // «Change the password»); «Share with» persone e ruoli del progetto. Share e
-// Remove vogliono la cassaforte aperta (la prova e le copie le fa il livello
-// dati): a chiusa aprono col Touch ID, poi fanno l'azione.
+// Remove (solo a chi la legge) chiedono il loro Touch ID nel livello dati
+// (M7): niente apertura prima, la cassaforte resta com'era.
 
 type Direct = ReadersView["direct"][number];
 
@@ -28,7 +29,8 @@ export function CredentialReaders({
   const toast = useToast();
   const readers = useReaders(view.id).data;
   const canShare = readers?.canShare === true;
-  const targets = useShareTargets(view.id, canShare && view.access === "reads").data;
+  // `canShare` dal server vuole già che chi guarda la legga (punto 3).
+  const targets = useShareTargets(view.id, canShare).data;
   const share = useShare();
   const remove = useRemoveReader();
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -36,12 +38,14 @@ export function CredentialReaders({
   const [choice, setChoice] = useState("");
 
   // Review M7: l'azione fa il suo Touch ID (nel main), niente apertura prima.
+  const gate = useVaultUsable();
   const directName = (d: Direct) =>
     d.kind === "role" ? t("vault.readers.rolePrefix", { name: d.name }) : d.name;
 
   const onRemove = async (d: Direct) => {
     setConfirming(null);
     const out = await remove.mutateAsync({ id: view.id, readerId: d.readerId }).catch(() => null);
+    if (isTouchCancelled(out)) return;
     if (out?.ok) setRemoved(d);
     else toast.error(t("vault.readers.failed"));
   };
@@ -57,6 +61,7 @@ export function CredentialReaders({
           })
         : (targets?.people.find((p) => p.personId === id)?.name ?? id);
     const out = await share.mutateAsync({ id: view.id, target }).catch(() => null);
+    if (isTouchCancelled(out)) return;
     if (!out?.ok) return void toast.error(t("vault.readers.failed"));
     setChoice("");
     if (out.waiting.length > 0)
@@ -117,6 +122,8 @@ export function CredentialReaders({
                     <button
                       type="button"
                       className={quietButton}
+                      disabled={!gate.usable}
+                      title={gate.title}
                       onClick={() => setConfirming(d.readerId)}
                     >
                       {t("vault.readers.remove")}
@@ -145,10 +152,11 @@ export function CredentialReaders({
 
       {/* Review I4: condividere ricifra la PROPRIA copia della chiave: chi
           gestisce senza leggerla non ce l'ha, e lo si dice. */}
-      {canShare && view.access !== "reads" && (
+      {/* Gestisce (ha il permesso) ma non legge: condivide chi legge. */}
+      {view.access === "manages" && (
         <p className="text-sm text-ink-muted">{t("vault.readers.shareNeedsRead")}</p>
       )}
-      {canShare && view.access === "reads" && targets && (
+      {canShare && targets && (
         <div className="flex items-end gap-2">
           <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm text-ink-muted">
             {t("vault.readers.shareWith")}
@@ -181,7 +189,8 @@ export function CredentialReaders({
           <button
             type="button"
             className={secondaryButton}
-            disabled={choice === "" || share.isPending}
+            disabled={choice === "" || share.isPending || !gate.usable}
+            title={gate.title}
             onClick={() => void onShare()}
           >
             {t("vault.readers.share")}

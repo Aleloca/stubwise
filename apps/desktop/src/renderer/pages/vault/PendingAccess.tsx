@@ -1,4 +1,5 @@
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
+import { isTouchCancelled, useVaultUsable } from "./useVaultUsable";
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useConfirmKey, useRejectKey, useVaultPending } from "../../data/queries";
@@ -102,10 +103,12 @@ function PendingCard({ person }: { person: PendingPersonView }) {
   const reject = useRejectKey();
   const [asking, setAsking] = useState<"confirm" | "reject" | null>(null);
   // Review M7: l'azione fa il suo Touch ID (nel main), niente apertura prima.
+  const gate = useVaultUsable();
 
   const onConfirm = async () => {
     setAsking(null);
     const out = await confirm.mutateAsync(person.keyId).catch(() => null);
+    if (isTouchCancelled(out)) return;
     if (!out?.ok) return void toast.error(t("vault.pending.failed"));
     // Review M5: zero passate non è «now reads 0»; le non apribili si dicono.
     const parts = [
@@ -121,6 +124,7 @@ function PendingCard({ person }: { person: PendingPersonView }) {
   const onReject = async () => {
     setAsking(null);
     const out = await reject.mutateAsync(person.keyId).catch(() => null);
+    if (isTouchCancelled(out)) return;
     if (!out?.ok) return void toast.error(t("vault.pending.failed"));
     toast.show(t("vault.pending.rejected", { name: person.name }));
   };
@@ -182,10 +186,22 @@ function PendingCard({ person }: { person: PendingPersonView }) {
         </div>
       ) : (
         <div className="flex gap-2">
-          <button type="button" className={secondaryButton} onClick={() => setAsking("confirm")}>
+          <button
+            type="button"
+            className={secondaryButton}
+            disabled={!gate.usable}
+            title={gate.title}
+            onClick={() => setAsking("confirm")}
+          >
             {t("vault.pending.confirm")}
           </button>
-          <button type="button" className={quietButton} onClick={() => setAsking("reject")}>
+          <button
+            type="button"
+            className={quietButton}
+            disabled={!gate.usable}
+            title={gate.title}
+            onClick={() => setAsking("reject")}
+          >
             {t("vault.pending.reject")}
           </button>
         </div>

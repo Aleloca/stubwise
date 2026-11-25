@@ -60,6 +60,8 @@ function setup(routes: Record<string, (body: unknown) => unknown>) {
   let touches = 0;
   let uses = 0;
   const lock = {
+    // Il Mac ha il dispositivo associato (le chiavi locali): di default no.
+    hasDevice: vi.fn(() => false),
     use: async <T>(run: (key: CryptoKey, personKeyId: string) => Promise<T>) => {
       if (!open) throw new Error("vault_locked");
       // `use` riarma il timer dei 15 minuti (D-2): qui si conta.
@@ -643,6 +645,43 @@ describe("le operazioni della cassaforte nel main", () => {
       },
     });
     expect(await ops.macs()).toEqual({ ok: true, items: [] });
+    expect(lock.markRevoked).not.toHaveBeenCalled();
+  });
+
+  it("punto 4: un'azione col tocco senza rete arriva al renderer come `unavailable`", async () => {
+    const { ops, lock } = setup({});
+    lock.useWithTouch = async () => {
+      throw new Error("unavailable");
+    };
+    expect(await ops.reject(OTHER_PK)).toEqual({ ok: false, code: "unavailable" });
+  });
+
+  // Quarta revisione, punto 5: con il dispositivo locale presente, un
+  // `device_seal_required` vuol dire che il Mac è stato tolto (D-5): la
+  // barra deve dirlo come Security, quindi `markRevoked`. Senza dispositivo
+  // (mai associato) resta «da associare» (M8, sopra).
+  it("punto 5: Mac associato e `device_seal_required` su macs e pending → revocato", async () => {
+    const sealRequired = () => {
+      throw new VaultHttpError(403, "device_seal_required");
+    };
+    const { ops, lock } = setup({
+      "GET /api/vault/device-seals": sealRequired,
+      "GET /api/vault/pending": sealRequired,
+    });
+    lock.hasDevice.mockReturnValue(true);
+    expect(await ops.macs()).toEqual({ ok: true, items: [] });
+    expect(lock.markRevoked).toHaveBeenCalledTimes(1);
+    expect(await ops.pending()).toEqual({ ok: false, code: "device_seal_required" });
+    expect(lock.markRevoked).toHaveBeenCalledTimes(2);
+  });
+
+  it("punto 5: senza Mac associato pending non revoca", async () => {
+    const { ops, lock } = setup({
+      "GET /api/vault/pending": () => {
+        throw new VaultHttpError(403, "device_seal_required");
+      },
+    });
+    expect(await ops.pending()).toEqual({ ok: false, code: "device_seal_required" });
     expect(lock.markRevoked).not.toHaveBeenCalled();
   });
 });

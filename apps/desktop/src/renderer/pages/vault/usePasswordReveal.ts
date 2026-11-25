@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useVaultUsable } from "./useVaultUsable";
 import { useTranslation } from "react-i18next";
 import { useCopyPassword, useShowPassword, useVaultStatus } from "../../data/queries";
 import { useToast } from "../../tasks-ui/Toast";
@@ -26,7 +27,7 @@ export function usePasswordReveal() {
     if (state !== "open") setShown({});
   }, [state]);
   // A chiusa i gesti aprono prima; da associare, revocata o senza Touch ID non c'è niente da aprire qui.
-  const usable = state === "open" || (state === "locked" && status?.touchId === true);
+  const { usable } = useVaultUsable();
   const ensureOpen = async () => state === "open" || (await open());
 
   return {

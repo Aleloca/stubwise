@@ -61,6 +61,17 @@ export function PairingDialog({ onClose }: { onClose: () => void }) {
     // Una volta all'apertura; «Try again» ricomincia da sé.
   }, []);
 
+  // Quarta revisione, punto 6: anche uno smontaggio (si cambia pagina col
+  // dialogo aperto) annulla, come Cancel. Rimesso a `false` al montaggio, per
+  // il doppio effetto di StrictMode in sviluppo.
+  useEffect(() => {
+    closed.current = false;
+    return () => {
+      closed.current = true;
+      if (waiting.current) void cancelPairingNow().catch(() => null);
+    };
+  }, []);
+
   usePairingResult((result) => {
     if (!waiting.current) return;
     setPhase(result.ok ? { kind: "done" } : { kind: "failed", code: result.code });

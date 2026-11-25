@@ -142,6 +142,8 @@ export interface VaultLock {
   sessionChanged: () => void;
   /** Il server dice `device_seal_required` (Mac tolto, chiave ricreata): D-5, il login resta. */
   markRevoked: () => void;
+  /** C'è il dispositivo associato su questo Mac (quarta revisione, punto 5). */
+  hasDevice: () => boolean;
   /** L'istanza non abilita la cassaforte dal desktop: si apre dal browser (il Mac associato resta). */
   markDisabled: () => void;
 }
@@ -281,7 +283,14 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
     if (!d || !deps.identity()) throw new Error("vault_locked");
     const wasOpen = key !== null;
     const started = epoch;
-    const seal = await deps.fetchSeal();
+    let seal: SealResponse;
+    try {
+      seal = await deps.fetchSeal();
+    } catch {
+      // Come all'apertura: il sigillo che non arriva è «irraggiungibile»
+      // (quarta revisione, punto 4), e il tocco non si chiede.
+      throw new Error("unavailable");
+    }
     if ("disabled" in seal) {
       disabled = true;
       lock();
@@ -375,5 +384,6 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
       revoked = true;
       changed();
     },
+    hasDevice: () => device() !== null,
   };
 }

@@ -47,6 +47,9 @@ export const getVaultStatus: FakeVault["getVaultStatus"] = async () => {
     ownFingerprint: null,
     pairing: null,
   };
+  // Aperta da qualunque strada (Touch ID, adozione, associazione): non è
+  // più irraggiungibile (quarta revisione, punto 4).
+  if (s.state === "open") unreachable = false;
   if (unreachable && s.state === "locked") return { ...view, state: "unreachable" };
   // Il main sa già che dal Mac non si apre: il server non serve.
   if (s.state === "disabled" || s.state === "unsupported") return view;
@@ -136,6 +139,16 @@ export const removeMac: FakeVault["removeMac"] = async (macId) => {
 const outcome = <T extends object>(out: ({ ok: true } & T) | { ok: false; code: string }) =>
   out.ok ? out : { ok: false as const, code: out.code };
 
+/**
+ * Le azioni col tocco (Share, Remove, Confirm, Reject) chiedono il sigillo al
+ * server come l'apertura: se non arriva (`unavailable`) la barra lo dice
+ * (quarta revisione, punto 4).
+ */
+const touched = <T extends { ok: boolean; code?: string }>(out: T): T => {
+  if (!out.ok && out.code === "unavailable") unreachable = true;
+  return out;
+};
+
 /** «Show»: la password arriva dal main (che la registra); resta nello stato di chi la mostra. */
 export const show: FakeVault["show"] = async (id) => outcome(await need().show(id));
 
@@ -148,21 +161,24 @@ export const copy: FakeVault["copy"] = async (id) => {
 /** «Share»: il bersaglio del prototipo (`personId`) è un `userId` per il main. */
 export const share: FakeVault["share"] = async (id, target) =>
   outcome(
-    await need().share(
-      id,
-      "personId" in target ? { userId: target.personId } : { roleId: target.roleId },
+    touched(
+      await need().share(
+        id,
+        "personId" in target ? { userId: target.personId } : { roleId: target.roleId },
+      ),
     ),
   );
 
 export const removeReader: FakeVault["removeReader"] = async (id, readerId) => {
-  const out = await need().removeReader(id, readerId);
+  const out = touched(await need().removeReader(id, readerId));
   return out.ok ? { ok: true } : { ok: false, code: out.code };
 };
 
 /**
- * Chi aspetta che io confermi: il main lo legge con la chiave, quindi a
- * cassaforte chiusa nessuno (la riga «waiting for access» non c'è). I nomi
- * dalla rubrica del team; l'email se manca.
+ * Chi aspetta che io confermi: il main lo legge senza la chiave (`plainRead`,
+ * review I1), quindi anche a cassaforte chiusa; col progetto di ogni
+ * credenziale (il punto «ti aspetta»). I nomi dalla rubrica del team;
+ * l'email se manca.
  */
 export const listPending: FakeVault["listPending"] = async () => {
   const b = bridge();
@@ -190,9 +206,10 @@ export const listPending: FakeVault["listPending"] = async () => {
   }));
 };
 
-export const confirm: FakeVault["confirm"] = async (keyId) => outcome(await need().confirm(keyId));
+export const confirm: FakeVault["confirm"] = async (keyId) =>
+  outcome(touched(await need().confirm(keyId)));
 
 export const reject: FakeVault["reject"] = async (keyId) => {
-  const out = await need().reject(keyId);
+  const out = touched(await need().reject(keyId));
   return out.ok ? { ok: true } : { ok: false, code: out.code };
 };

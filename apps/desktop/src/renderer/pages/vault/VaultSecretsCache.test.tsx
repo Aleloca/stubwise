@@ -54,7 +54,7 @@ describe("la password non resta nella cache", () => {
     expect(cached()).not.toContain("Kx4!pa-77Wq");
   });
 
-  it("creare e la password nuova: le variabili non restano nella cache", async () => {
+  it("la password nuova: le variabili non restano nella cache", async () => {
     const user = userEvent.setup();
     renderRoute(`/p/ACQ/credentials?credential=${VAULT_IDS.ARUBA}`, "p-laura");
     const p = within(await screen.findByRole("region", { name: "Credential Aruba hosting" }));
@@ -64,5 +64,19 @@ describe("la password non resta nella cache", () => {
     await waitFor(() => expect(cached()).not.toContain("Nn1!nuova-22"));
     await screen.findAllByRole("button", { name: "Show the password of Aruba hosting" });
     expect(cached()).not.toContain("Nn1!nuova-22");
+  });
+
+  // Quarta revisione, punto 6: il caso «creare» che il nome prometteva.
+  it("creare: le variabili (con la password) non restano nella cache", async () => {
+    const user = userEvent.setup();
+    renderRoute("/p/ACQ/credentials", "p-laura");
+    await user.click(await screen.findByRole("button", { name: "New credential" }));
+    const p = within(await screen.findByRole("region", { name: "New credential" }));
+    await user.type(p.getByLabelText("Service"), "Brevo SMTP");
+    await user.type(p.getByLabelText("Password"), "Zz9!crea-77");
+    await user.click(p.getByRole("button", { name: "Save" }));
+    await screen.findByRole("region", { name: "Credential Brevo SMTP" });
+    await waitFor(() => expect(cached()).not.toContain("Zz9!crea-77"));
+    expect(cached()).toContain("Brevo SMTP");
   });
 });

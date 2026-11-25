@@ -219,9 +219,15 @@ sotto la riga in prosa. Uno stato alla volta (dallo stato del main,
 - **Share with**: un campo che cerca persone e ruoli del progetto («All
   Developers») · **Share**. Per ora (25 nov 2026, 94 con 46) è una select
   con persone e ruoli: diventa cercabile sopra una ventina di voci (voce nel
-  registro dei rimandi, area 9). Serve la cassaforte aperta (la prova della
-  propria chiave e le copie le fa il main). Fatto: toast «Shared with
-  Marco.» o «Waiting for confirmation: marco@….»
+  registro dei rimandi, area 9). Non serve la cassaforte aperta: Share
+  chiede il SUO Touch ID nel main (un tocco per azione, review M7, 25 nov
+  2026), che apre il sigillo per sé, fa la prova della propria chiave e le
+  copie, e lascia la cassaforte com'era. Annullare il tocco non dice niente;
+  da associare, revocata o senza Touch ID il bottone è spento («Open the
+  vault first») e la barra dice cosa fare. Lo stesso vale per Remove,
+  Confirm e Reject. Solo chi LEGGE la credenziale condivide e toglie (serve
+  la propria copia). Fatto: toast «Shared with Marco.» o «Waiting for
+  confirmation: marco@….»
 - **Remove**: conferma a due tempi in posto, poi la frase del web, che
   non si toglie: «Marco no longer reads this credential. If he saw the
   password, change it on the service and here.» + **Change the password**.

@@ -102,7 +102,9 @@ function viewOf(me: string, c: Credential): CredentialView | null {
     notes: c.notes,
     access,
     canEdit: canI(me, "credentials.edit", c.projectId),
-    canShare: canI(me, "credentials.share", c.projectId),
+    // Come il server (quarta revisione, punto 3): condividere vuole la
+    // PROPRIA copia, quindi il permesso E leggerla.
+    canShare: canI(me, "credentials.share", c.projectId) && access === "reads",
     canSeeLog:
       isFullAdmin(me) ||
       canI(me, "credentials.edit", c.projectId) ||
@@ -652,7 +654,11 @@ export async function listReaders(id: string): Promise<ReadersView> {
   });
   const order = { full_admin: 2, created: 0, direct: 1, role: 1 };
   effective.sort((a, b) => order[a.source] - order[b.source] || a.name.localeCompare(b.name));
-  return { direct, effective, canShare: canI(me, "credentials.share", c.projectId) };
+  return {
+    direct,
+    effective,
+    canShare: canI(me, "credentials.share", c.projectId) && reads(me, c),
+  };
 }
 
 /**
@@ -729,6 +735,8 @@ export async function removeReader(
   if (!canI(me, "credentials.share", c.projectId)) return fail("forbidden");
   const touch = touchFor(me);
   if (touch) return touch;
+  // Togliere vuole la prova della propria copia: chi non la legge no (server).
+  if (!reads(me, c)) return fail("not_a_reader");
   if (!v().readers.some((r) => r.id === readerId && r.credentialId === id))
     return fail("not_found");
   v().readers = v().readers.filter((r) => r.id !== readerId);
