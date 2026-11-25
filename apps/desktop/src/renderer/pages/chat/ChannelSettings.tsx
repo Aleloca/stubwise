@@ -1,4 +1,4 @@
-import { isHiddenId } from "../../data/access/hidden";
+import { isHiddenId } from "../../data/access/hiddenId";
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";

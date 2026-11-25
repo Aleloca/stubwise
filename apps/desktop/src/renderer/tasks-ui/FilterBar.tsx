@@ -1,5 +1,5 @@
 import { featureIntegrated } from "../data/integration";
-import { isHiddenId } from "../data/access/hidden";
+import { isHiddenId } from "../data/access/hiddenId";
 import { isAssignableIn } from "../data/assignable";
 import { useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";

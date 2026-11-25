@@ -138,4 +138,10 @@ describe("l'associazione del Mac", () => {
     expect(await p.start()).toEqual({ ok: false, code: "reauth_required" });
     expect(calls.some((c) => c.startsWith("open:"))).toBe(false);
   });
+
+  it("VAULT_DESKTOP spento: l'accoppiamento dice `vault_desktop_disabled`, e il browser non si apre", async () => {
+    const { p, calls } = setup({ pair: async () => Promise.reject(new Error("vault_desktop_disabled")) });
+    expect(await p.start()).toEqual({ ok: false, code: "vault_desktop_disabled" });
+    expect(calls.some((c) => c.startsWith("open:"))).toBe(false);
+  });
 });

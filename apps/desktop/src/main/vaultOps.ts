@@ -14,7 +14,7 @@ import {
   unwrapItemKey,
   wrapItemKey,
 } from "@stubwise/vault-crypto";
-import { VaultHttpError } from "./vaultRemote";
+import { isDisabled, VaultHttpError } from "./vaultRemote";
 
 // Le operazioni con la chiave di persona, nel main (lotto 10; rotte del PAT
 // desktop col sigillo, 72, a912fbcb8). La privata non esce da `vaultLock`
@@ -31,6 +31,7 @@ export interface VaultOpsDeps {
   lock: {
     use: <T>(run: (key: CryptoKey, personKeyId: string) => Promise<T>) => Promise<T>;
     markRevoked: () => void;
+    markDisabled: () => void;
   };
   /** `vaultRemote.request`: il PAT desktop, `VaultHttpError` sugli errori. */
   request: (method: string, path: string, body?: unknown) => Promise<unknown>;
@@ -72,6 +73,11 @@ export function createVaultOps(deps: VaultOpsDeps) {
       const out = await deps.lock.use(run);
       return { ok: true, ...out };
     } catch (error) {
+      if (isDisabled(error)) {
+        // `VAULT_DESKTOP` spento: si apre dal browser.
+        deps.lock.markDisabled();
+        return { ok: false, code: "disabled" };
+      }
       if (error instanceof VaultHttpError) {
         if (error.status === 403 && error.code === "device_seal_required") deps.lock.markRevoked();
         return { ok: false, code: error.code };

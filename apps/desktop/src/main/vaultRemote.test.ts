@@ -61,8 +61,8 @@ describe("le rotte del sigillo del dispositivo, dal main", () => {
     // M2 (revisione di sicurezza): un 404 con un altro codice (un proxy, una
     // rotta sbagliata) NON è una revoca: non si cancella niente.
     await expect(
-      remote(() => json(404, { code: "not_found", message: "x" })).r.fetchSeal(),
-    ).rejects.toThrow("not_found");
+      remote(() => json(404, { code: "route_not_found", message: "x" })).r.fetchSeal(),
+    ).rejects.toThrow("route_not_found");
     await expect(remote(() => new Response("gone", { status: 404 })).r.fetchSeal()).rejects.toThrow();
     // Un altro errore non è una revoca: chi chiama non cancella niente.
     await expect(
@@ -90,5 +90,14 @@ describe("le rotte del sigillo del dispositivo, dal main", () => {
     const r = createVaultRemote({ instanceUrl: () => null, token: () => null, fetch });
     await expect(r.fetchSeal()).rejects.toThrow("no_session");
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  // L'interruttore d'istanza `VAULT_DESKTOP` (72, 785387279), spento di
+  // default: le rotte del Mac rispondono 404 `not_found`. Non è una revoca né
+  // un Mac da associare: la cassaforte dal desktop non è abilitata.
+  it("VAULT_DESKTOP spento: il sigillo dice `disabled`; «Dimentica» col 404 conta come fatto", async () => {
+    expect(await remote(() => json(404, { code: "not_found", message: "x" })).r.fetchSeal()).toEqual({ disabled: true });
+    await expect(remote(() => json(404, { code: "not_found", message: "x" })).r.forgetRemote()).resolves.toBeUndefined();
+    await expect(remote(() => json(404, { code: "not_found", message: "x" })).r.pair("{}", "Mac")).rejects.toThrow("vault_desktop_disabled");
   });
 });

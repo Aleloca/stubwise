@@ -35,9 +35,8 @@ export function personMasker(
   };
 }
 
-/** Il campo è un segnaposto: non si risolve, non si clicca, non torna al server. */
-export const isHiddenId = (id: string | null | undefined): boolean =>
-  typeof id === "string" && id.startsWith("hidden-");
+/** Il campo è un segnaposto: sta in `hiddenId.ts` (senza import, lo usano le pagine). */
+export { isHiddenId } from "./hiddenId";
 
 type Masker = ReturnType<typeof personMasker>;
 

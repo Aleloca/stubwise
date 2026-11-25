@@ -27,7 +27,8 @@ export const VAULT_IDLE_MS = 15 * 60 * 1000;
 /** M1 (revisione di sicurezza): quanto vale l'apertura senza tocco dopo l'associazione. */
 export const FRESH_PAIRING_MS = 10_000;
 
-export type VaultState = "unpaired" | "locked" | "open" | "revoked";
+/** `disabled`: l'istanza non abilita la cassaforte dal desktop (`VAULT_DESKTOP` spento). */
+export type VaultState = "unpaired" | "locked" | "open" | "revoked" | "disabled";
 
 /** Ciò che il renderer vede: lo stato e l'impronta della chiave del dispositivo. */
 export interface VaultStatus {
@@ -37,6 +38,7 @@ export interface VaultStatus {
 
 export type UnlockCode =
   | "interrupted"
+  | "disabled"
   | "no_session"
   | "unpaired"
   | "revoked"
@@ -53,7 +55,8 @@ export type UnlockResult = { ok: true } | { ok: false; code: UnlockCode };
  */
 export type SealResponse =
   | { id: string; deviceName: string; seal: string; personKeyId: string; personPublicKey: string }
-  | { revoked: true };
+  | { revoked: true }
+  | { disabled: true };
 
 export interface VaultLockDeps {
   /** La sessione desktop di adesso; null senza login. */
@@ -107,6 +110,8 @@ export interface VaultLock {
   sessionChanged: () => void;
   /** Il server dice `device_seal_required` (Mac tolto, chiave ricreata): D-5, il login resta. */
   markRevoked: () => void;
+  /** L'istanza non abilita la cassaforte dal desktop: si apre dal browser (il Mac associato resta). */
+  markDisabled: () => void;
 }
 
 export function createVaultLock(deps: VaultLockDeps): VaultLock {
@@ -114,6 +119,8 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
   let personKeyId: string | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let revoked = false;
+  /** `VAULT_DESKTOP` spento sull'istanza: finché non cambia la sessione. */
+  let disabled = false;
   /** M1: quando il Mac è stato appena associato (null: nessuna apertura senza tocco). */
   let pairedAt: number | null = null;
   /**
@@ -129,6 +136,7 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
   };
 
   async function status(): Promise<VaultStatus> {
+    if (disabled) return { state: "disabled", fingerprint: null };
     const d = device();
     if (!d) return { state: revoked ? "revoked" : "unpaired", fingerprint: null };
     return { state: key ? "open" : "locked", fingerprint: await deps.fingerprint(d.publicKey) };
@@ -172,7 +180,10 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
     if (!d) return { ok: false, code: revoked ? "revoked" : "unpaired" };
     if (key) return { ok: true };
     const started = epoch;
-    const fresh = options.afterPairing === true && pairedAt !== null && Date.now() - pairedAt <= FRESH_PAIRING_MS;
+    const fresh =
+      options.afterPairing === true &&
+      pairedAt !== null &&
+      Date.now() - pairedAt <= FRESH_PAIRING_MS;
     pairedAt = null;
     if (!fresh) {
       if (!deps.touchId.available()) return { ok: false, code: "touch_id_unavailable" };
@@ -190,6 +201,11 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
       return { ok: false, code: "unavailable" };
     }
     if (epoch !== started) return { ok: false, code: "interrupted" };
+    if ("disabled" in seal) {
+      disabled = true;
+      changed();
+      return { ok: false, code: "disabled" };
+    }
     if ("revoked" in seal) {
       dropLocal();
       revoked = true;
@@ -255,11 +271,23 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
       // M3: il sigillo di questo PAT sul server, finché il token è ancora quello.
       if (device()) {
         void deps.forgetRemote().catch((error: unknown) => {
-          console.warn("stubwise: cassaforte — sigillo del Mac non tolto al cambio di sessione (best-effort)", error);
+          console.warn(
+            "stubwise: cassaforte — sigillo del Mac non tolto al cambio di sessione (best-effort)",
+            error,
+          );
         });
       }
       dropLocal();
       revoked = false;
+      disabled = false;
+      changed();
+    },
+    markDisabled: () => {
+      epoch += 1;
+      key = null;
+      personKeyId = null;
+      disarm();
+      disabled = true;
       changed();
     },
     markRevoked: () => {

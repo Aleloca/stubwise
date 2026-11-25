@@ -1,5 +1,5 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { isHiddenId } from "../../data/access/hidden";
+import { isHiddenId } from "../../data/access/hiddenId";
 import { isAppBuild } from "../../data/build";
 import { openOnGoogle } from "../mail/mailFeatures";
 import {

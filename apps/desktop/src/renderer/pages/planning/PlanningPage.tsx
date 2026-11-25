@@ -1,4 +1,4 @@
-import { isHiddenId } from "../../data/access/hidden";
+import { isHiddenId } from "../../data/access/hiddenId";
 import {
   DndContext,
   DragOverlay,

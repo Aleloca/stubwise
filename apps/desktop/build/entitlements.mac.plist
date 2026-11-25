@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Gli entitlements dell'app sotto hardened runtime (revisione di sicurezza
+  della cassaforte, I1): SOLO il JIT di V8. Niente
+  disable-library-validation né allow-dyld-environment-variables, che
+  riaprirebbero le porte che le fuse chiudono. Il Secure Enclave (CryptoKit,
+  chiave salvata come `dataRepresentation`) non chiede altri entitlements.
+-->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+</dict>
+</plist>

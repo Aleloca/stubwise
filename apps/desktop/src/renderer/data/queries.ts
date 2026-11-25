@@ -11,7 +11,7 @@ import {
 } from "@tanstack/react-query";
 import { placeEvent, settleSaved } from "./calendarCache";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { subscribeAccess } from "./access/state";
+import { subscribeAccess } from "@backend/runtime";
 import * as api from "@backend/api";
 import { isAppBuild } from "./build";
 import { automationAvailability, featureIntegrated } from "./integration";

@@ -1,0 +1,57 @@
+// @vitest-environment node
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { describe, expect, it } from "vitest";
+
+// Revisione di sicurezza della cassaforte, I1 (piano approvato da 46, 25 nov
+// 2026): l'app si firma con hardened runtime ed entitlements minimi, le fuse
+// chiudono le porte da cui un programma dello stesso utente leggerebbe la
+// chiave del Mac (RunAsNode, NODE_OPTIONS, --inspect, un app.asar
+// sostituito), e la firma e la notarizzazione prendono le credenziali SOLO
+// da env o dal portachiavi. Il build locale non firmato esiste ancora, con
+// la cassaforte dal desktop spenta.
+
+const root = resolve(__dirname, "../..");
+const read = (rel: string) => readFileSync(resolve(root, rel), "utf8");
+const builder = read("electron-builder.yml");
+const scripts = (JSON.parse(read("package.json")) as { scripts: Record<string, string> }).scripts;
+
+describe("il pacchetto del Mac", () => {
+  it("le fuse: RunAsNode, NODE_OPTIONS e --inspect spenti; integrità dell'asar e solo dall'asar accese", () => {
+    const fuses = builder.slice(builder.indexOf("electronFuses:"));
+    expect(fuses).toMatch(/runAsNode: false/);
+    expect(fuses).toMatch(/enableNodeOptionsEnvironmentVariable: false/);
+    expect(fuses).toMatch(/enableNodeCliInspectArguments: false/);
+    expect(fuses).toMatch(/enableEmbeddedAsarIntegrityValidation: true/);
+    expect(fuses).toMatch(/onlyLoadAppFromAsar: true/);
+    expect(builder).toMatch(/asar: true/);
+  });
+
+  it("hardened runtime con entitlements minimi: solo allow-jit, niente che allarghi il runtime", () => {
+    expect(builder).toMatch(/hardenedRuntime: true/);
+    expect(builder).toMatch(/entitlements: build\/entitlements\.mac\.plist/);
+    expect(builder).toMatch(/entitlementsInherit: build\/entitlements\.mac\.plist/);
+    const plist = read("build/entitlements.mac.plist");
+    const keys = [...plist.matchAll(/<key>([^<]+)<\/key>/g)].map((m) => m[1]);
+    expect(keys).toEqual(["com.apple.security.cs.allow-jit"]);
+  });
+
+  it("nessuna credenziale nella repo: identità e notarizzazione da env o dal portachiavi", () => {
+    expect(builder).not.toMatch(/identity:\s*["']?[A-Z0-9]{10}/);
+    expect(builder).not.toMatch(/APPLE_(API_KEY|ID|APP_SPECIFIC_PASSWORD)\s*[:=]/);
+    // Un percorso di chiave (`AuthKey_X.p8`, `keys/…p8`), non la parola nel commento.
+    expect(builder).not.toMatch(/[A-Za-z0-9_/-]+\.p8\b/);
+    const ignore = read("../../.gitignore");
+    expect(ignore).toMatch(/\*\.p8/);
+  });
+
+  it("due pacchetti: il firmato (cassaforte dal desktop accesa, fuse rilette) e il locale (spenta)", () => {
+    expect(scripts["package:mac"]).toMatch(/STUBWISE_VAULT_DESKTOP=on/);
+    expect(scripts["package:mac"]).toMatch(/--config\.mac\.notarize=true/);
+    expect(scripts["package:mac"]).toMatch(/node scripts\/check-fuses\.mjs/);
+    expect(scripts["package:mac:unsigned"]).toMatch(/CSC_IDENTITY_AUTO_DISCOVERY=false/);
+    expect(scripts["package:mac:unsigned"]).not.toMatch(/STUBWISE_VAULT_DESKTOP=on/);
+    expect(scripts["package:mac:unsigned"]).toMatch(/node scripts\/check-fuses\.mjs/);
+    expect(existsSync(resolve(root, "scripts/check-fuses.mjs"))).toBe(true);
+  });
+});

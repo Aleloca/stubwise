@@ -30,6 +30,15 @@ export interface VaultRemote {
   request: (method: string, path: string, body?: unknown) => Promise<unknown>;
 }
 
+/**
+ * L'interruttore d'istanza `VAULT_DESKTOP` spento (72, 785387279, di default):
+ * le rotte del Mac rispondono 404 `not_found`. È diverso da
+ * `device_seal_not_found` (sigillo tolto) e da `device_seal_required` (da
+ * associare): la cassaforte dal desktop non è abilitata, si apre dal browser.
+ */
+export const isDisabled = (error: unknown): boolean =>
+  error instanceof VaultHttpError && error.status === 404 && error.code === "not_found";
+
 /** Un errore del server: lo stato, il codice (il messaggio) e i dettagli del corpo. */
 export class VaultHttpError extends Error {
   constructor(
@@ -76,7 +85,12 @@ export function createVaultRemote(deps: VaultRemoteDeps): VaultRemote {
 
   return {
     async pair(devicePublicKey, deviceName) {
-      const res = await call("POST", "/api/vault/device-pairings", { devicePublicKey, deviceName });
+      const res = await call("POST", "/api/vault/device-pairings", {
+        devicePublicKey,
+        deviceName,
+      }).catch((error: unknown) => {
+        throw isDisabled(error) ? new Error("vault_desktop_disabled") : error;
+      });
       const p = await parsed(res, vaultDevicePairingResponseSchema);
       return { state: p.state, deviceId: p.deviceId, expiresAt: p.expiresAt };
     },
@@ -100,11 +114,15 @@ export function createVaultRemote(deps: VaultRemoteDeps): VaultRemote {
           error.code === "device_seal_not_found"
         )
           return { revoked: true };
+        if (isDisabled(error)) return { disabled: true };
         throw error;
       }
     },
     async forgetRemote() {
-      await call("DELETE", "/api/vault/device-seals/mine");
+      // Spento sull'istanza: non c'è niente da togliere, e va bene così.
+      await call("DELETE", "/api/vault/device-seals/mine").catch((error: unknown) => {
+        if (!isDisabled(error)) throw error;
+      });
     },
     async request(method, path, body) {
       const res = await call(method, path, body);

@@ -40,7 +40,8 @@ describe("architettura", () => {
   // sono rotte loro. Passarli a `updateTask` (`change(task, {…})`) li
   // scriverebbe nel prototipo e fallirebbe nella build app.
   it("nessuna superficie passa followerIds, manualStall, attachments o links a updateTask", () => {
-    const WHOLE_LIST = /\b(?:change|updateTask|apply)\(\s*[\w.]+,\s*\{\s*(?:followerIds|manualStall|attachments|links)\s*:/;
+    const WHOLE_LIST =
+      /\b(?:change|updateTask|apply)\(\s*[\w.]+,\s*\{\s*(?:followerIds|manualStall|attachments|links)\s*:/;
     const offenders = Object.entries(SOURCES)
       .filter(([, source]) => WHOLE_LIST.test(source))
       .map(([path]) => path);
@@ -117,6 +118,64 @@ function reachable(start: string): Set<string> {
     todo.push(...importsOf(p));
   }
   return seen;
+}
+
+// Anti-obiettivo «dati finti davanti a un utente vero» (integrazione area 2):
+// l'adattatore vero (`backend/real/`) non raggiunge MAI, nemmeno di riflesso,
+// lo stato del prototipo (`store.ts`) né il seme. Successo il 24 nov 2026:
+// `real/releases.ts` prendeva `releaseHref` da `releases/visibility.ts`, che
+// importa `access.ts` e quindi `store.ts` e ogni seme: tutto il seme finiva
+// nel bundle dell'app (lo ha visto `check-no-seed.mjs` al primo pacchetto).
+describe("l'adattatore vero non tocca il prototipo", () => {
+  it("nessun modulo di backend/real/ raggiunge store.ts o il seme", () => {
+    const real = Object.keys(DATA_SOURCES).filter(
+      (p) => p.startsWith("./backend/real/") && p !== "./backend/real/stubs.generated.ts",
+    );
+    expect(real.length).toBeGreaterThan(20);
+    const offenders = real.flatMap((p) => {
+      const path = valueReachable(p);
+      const hit = [...path.keys()].find((r) => r === "./store.ts" || r.startsWith("./seed/"));
+      if (!hit) return [];
+      const chain = [hit];
+      for (let at = path.get(hit); at; at = path.get(at)) chain.push(at);
+      return [chain.reverse().join(" → ")];
+    });
+    expect(offenders).toEqual([]);
+  });
+});
+
+/** Gli import di VALORE di `path` dentro `data/` (un `import type` sparisce nel build). */
+function valueImportsOf(path: string): string[] {
+  const source = DATA_SOURCES[path]!.replace(/^\s*(?:import|export)\s+type\b[^;]*;/gm, "").replace(
+    /typeof import\(\s*["'][^"']+["']\s*\)/g,
+    "",
+  );
+  const dir = path.split("/").slice(0, -1);
+  return [...source.matchAll(IMPORT_RE)].flatMap(([, spec]) => {
+    const parts = [...dir];
+    for (const seg of spec!.split("/")) {
+      if (seg === "..") parts.pop();
+      else if (seg !== ".") parts.push(seg);
+    }
+    const base = parts.join("/");
+    const hit = [`${base}.ts`, `${base}.tsx`, `${base}/index.ts`].find((p) => p in DATA_SOURCES);
+    return hit ? [hit] : [];
+  });
+}
+
+/** Ciò che `start` raggiunge per import di valore, con da dove (per dire la catena). */
+function valueReachable(start: string): Map<string, string | null> {
+  const from = new Map<string, string | null>([[start, null]]);
+  const todo = [start];
+  while (todo.length) {
+    const p = todo.shift()!;
+    for (const next of valueImportsOf(p)) {
+      if (from.has(next)) continue;
+      from.set(next, p);
+      todo.push(next);
+    }
+  }
+  return from;
 }
 
 describe("chiavi private dei server", () => {

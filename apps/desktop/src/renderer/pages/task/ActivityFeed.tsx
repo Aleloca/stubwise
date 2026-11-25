@@ -1,5 +1,5 @@
 import { useId, useState, type ReactNode } from "react";
-import { isHiddenId } from "../../data/access/hidden";
+import { isHiddenId } from "../../data/access/hiddenId";
 import { useTranslation } from "react-i18next";
 import {
   useActivity,

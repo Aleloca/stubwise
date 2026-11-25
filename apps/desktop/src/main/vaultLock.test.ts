@@ -281,4 +281,11 @@ describe("la cassaforte nel main", () => {
     expect(await lock.status()).toEqual({ state: "revoked", fingerprint: null });
     await expect(lock.use(async () => 1)).rejects.toThrow("vault_locked");
   });
+
+  it("VAULT_DESKTOP spento (785387279): l'apertura dice `disabled`, la barra pure; il Mac associato resta", async () => {
+    const { lock, calls } = setup({ fetchSeal: async () => ({ disabled: true }) });
+    expect(await lock.unlock()).toEqual({ ok: false, code: "disabled" });
+    expect(await lock.status()).toEqual({ state: "disabled", fingerprint: null });
+    expect(calls).not.toContain("forget-local");
+  });
 });
