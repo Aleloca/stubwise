@@ -105,4 +105,15 @@ describe("il dettaglio di una credenziale", () => {
       spy.mockRestore();
     }
   });
+
+  it("M2: il registro vuoto con la frase della shape", async () => {
+    const spy = vi.spyOn(vault, "listAccessLog").mockResolvedValue([]);
+    try {
+      renderRoute(`/p/ACQ/credentials?credential=${VAULT_IDS.ARUBA}`, "p-laura");
+      const p = within(await panel());
+      expect(await p.findByText("Nobody has shown or copied a password yet.")).toBeInTheDocument();
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });

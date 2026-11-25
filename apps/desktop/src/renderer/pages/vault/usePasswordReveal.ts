@@ -32,6 +32,7 @@ export function usePasswordReveal() {
   return {
     shown,
     usable,
+    locked: state !== "open",
     show: async (id: string) => {
       if (!(await ensureOpen())) return;
       const out = await showMutation.mutateAsync(id).catch(() => null);

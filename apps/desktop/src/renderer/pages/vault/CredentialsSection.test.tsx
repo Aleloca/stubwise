@@ -5,7 +5,8 @@ import { resetApi, setLatency, vault } from "../../data/api";
 import { VAULT_IDS } from "../../data/seed/vault";
 import { setVaultClipboard } from "../../data/vault/index";
 import { setLanguage } from "../../i18n";
-import { renderRoute } from "../../test/renderRoute";
+import { queryKeys } from "../../data/queries";
+import { lastQueryClient, renderRoute } from "../../test/renderRoute";
 
 // La sezione Credentials (lotto 10, shape `vault.md` §3): la barra della
 // cassaforte, le righe con Show/Hide/Copy, la voce della colonna. La
@@ -127,5 +128,55 @@ describe("Credentials — la voce della colonna", () => {
     // La lettura della voce risponde (`show: false`) prima di guardare la colonna.
     await new Promise((r) => setTimeout(r, 50));
     expect(screen.queryByRole("link", { name: /^Credentials/ })).toBeNull();
+  });
+
+  // Review M2: i testi della shape.
+  it("M2: il sottotitolo della shape, e Show/Copy a chiusa col title «Open the vault first»", async () => {
+    await openSection("p-laura");
+    expect(
+      screen.getByText(
+        "Passwords for the project's services. Only the people who read one see it.",
+      ),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(bar().dataset.vaultBar).toBe("locked"));
+    const aruba = within(row(VAULT_IDS.ARUBA));
+    expect(
+      aruba.getByRole("button", { name: "Show the password of Aruba hosting" }),
+    ).toHaveAttribute("title", "Open the vault first");
+    expect(
+      aruba.getByRole("button", { name: "Copy the password of Aruba hosting" }),
+    ).toHaveAttribute("title", "Open the vault first");
+  });
+
+  it("M2: non attiva, «Activate it in the browser.» solo per l'admin", async () => {
+    const inactive = (person: string) =>
+      act(() =>
+        lastQueryClient().setQueryData(queryKeys.vaultStatus(person), {
+          state: "inactive",
+          touchId: true,
+          macFingerprint: null,
+          ownFingerprint: null,
+          pairing: null,
+        }),
+      );
+    await openSection("p-laura");
+    inactive("p-laura");
+    await waitFor(() => expect(bar().dataset.vaultBar).toBe("inactive"));
+    expect(within(bar()).queryByText("Activate it in the browser.")).toBeNull();
+  });
+
+  it("M2: non attiva, l'admin legge «Activate it in the browser.»", async () => {
+    await openSection("p-roberta");
+    act(() =>
+      lastQueryClient().setQueryData(queryKeys.vaultStatus("p-roberta"), {
+        state: "inactive",
+        touchId: true,
+        macFingerprint: null,
+        ownFingerprint: null,
+        pairing: null,
+      }),
+    );
+    await waitFor(() => expect(bar().dataset.vaultBar).toBe("inactive"));
+    expect(within(bar()).getByText("Activate it in the browser.")).toBeInTheDocument();
   });
 });

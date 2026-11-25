@@ -13624,7 +13624,7 @@
   },
   "vault": {
     "title": "Credentials",
-    "subtitle": "Passwords for {{code}}'s services. Only the people who read one see it.",
+    "subtitle": "Passwords for the project's services. Only the people who read one see it.",
     "new": "New credential",
     "empty": "No credentials in this project yet.",
     "errors": {
@@ -13654,7 +13654,8 @@
       "inactive": "The vault hasn't been activated on this instance yet.",
       "openFailed": "This Mac couldn't open the vault.",
       "disabled": "This instance opens the vault only in the browser.",
-      "unsupported": "This Mac can't open the vault (no Secure Enclave, or a build without it). Open it in the browser."
+      "unsupported": "This Mac can't open the vault (no Secure Enclave, or a build without it). Open it in the browser.",
+      "inactiveAdmin": "Activate it in the browser."
     },
     "row": {
       "show": "Show",
@@ -13667,7 +13668,8 @@
       "hidden": "Hidden password",
       "waiting": "Waiting for confirmation",
       "manages": "You don't read this one",
-      "shownLive": "Password shown"
+      "shownLive": "Password shown",
+      "openFirst": "Open the vault first"
     },
     "copied": "Copied. The clipboard is cleared in 30 seconds.",
     "revealFailed": "The password couldn't be opened.",
@@ -13685,7 +13687,7 @@
       "usernameCopied": "Username copied.",
       "openUrl": "Open {{url}} in the browser",
       "log": "Access log",
-      "logEmpty": "Nobody has shown or copied this password yet.",
+      "logEmpty": "Nobody has shown or copied a password yet.",
       "shown": "shown",
       "copied": "copied",
       "fromMac": "from the Mac",
