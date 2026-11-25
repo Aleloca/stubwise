@@ -149,6 +149,8 @@ import type {
   WidgetRepositoryFilters,
   WidgetSettings,
   WidgetUpsertBody,
+  VaultDevicePairingLookupResponse,
+  VaultDeviceSealBody,
 } from "@stubwise/shared";
 
 // Import RUNTIME (non di solo tipo).
@@ -496,6 +498,20 @@ export function postPasskey(name: string, response: unknown): Promise<PasskeyVie
 /** Stato della cassaforte per chi guarda (`passkeys` difeso a lettura: campo aggiunto dopo). */
 export function getVaultStatus(): Promise<VaultStatusResponse> {
   return api.get("/api/vault/status");
+}
+
+/**
+ * Lotto 10, la chiave del Mac: l'associazione che il Mac ha chiesto, letta
+ * dallo `state` (nel CORPO, non nell'indirizzo: non finisce nei log). 404
+ * `pairing_invalid` se è sconosciuta, scaduta, usata o d'altri.
+ */
+export function postVaultDevicePairingLookup(state: string): Promise<VaultDevicePairingLookupResponse> {
+  return api.post("/api/vault/device-pairings/lookup", { state });
+}
+
+/** Il sigillo della propria chiave per il Mac (riconferma, prova della propria chiave). */
+export function postVaultDeviceSeal(body: VaultDeviceSealBody): Promise<{ id: string; deviceName: string; createdAt: string }> {
+  return api.post("/api/vault/device-seals", body);
 }
 
 /** Attivazione (full admin): la sola chiave PUBBLICA di recupero (409 `vault_already_active`). */

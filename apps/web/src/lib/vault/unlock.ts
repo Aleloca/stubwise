@@ -1,7 +1,8 @@
 import { startAuthentication } from "@simplewebauthn/browser";
-import type { PasskeyAuthenticationOptions, VaultStatusResponse } from "@stubwise/shared";
+import type { PasskeyAuthenticationOptions, VaultActorProof, VaultStatusResponse } from "@stubwise/shared";
 import {
   generatePersonKeyPair,
+  sealForDevice,
   openPrivateKey,
   resealPrivateKey,
   sealPrivateKey,
@@ -10,6 +11,7 @@ import {
   getMyVaultKey,
   postReauthPasskeyOptions,
   postReauthPasskeyVerify,
+  postVaultDeviceSeal,
   postVaultKey,
   postVaultKeySeal,
 } from "../api";
@@ -382,5 +384,53 @@ export async function addPasskeySeal(status: VaultStatusResponse, passkeyId: str
   } finally {
     wipe(first.prfOutput);
     if (second) wipe(second.prfOutput);
+  }
+}
+
+/**
+ * Lotto 10, la chiave del Mac (design `2026-11-24-cassaforte-desktop-design.md`
+ * §6.2, §7): sigilla la propria chiave di persona per la chiave del Mac
+ * dell'associazione `state`. Una cerimonia sola, con la PRF (è anche la
+ * riconferma che la rotta vuole): col segreto si apre la chiave per la prova
+ * di possesso (`prove`, una per azione) e si sigilla per il Mac
+ * (`sealForDevice`: la pkcs8 non esce da `@stubwise/vault-crypto`). Il segreto
+ * PRF si azzera alla fine, comunque vada.
+ */
+export async function sealForMac(
+  status: VaultStatusResponse,
+  pairing: { state: string; deviceId: string; devicePublicKey: string },
+  prove: (key: { privateKey: CryptoKey; personKeyId: string }) => Promise<VaultActorProof>,
+): Promise<void> {
+  if (!hasLiveKey(status)) throw new VaultError("no_seal");
+  const sealed = sealedCredentialIds(status);
+  if (sealed.length === 0) throw new VaultError("no_seal");
+  const assertion = await assertWithPrf(sealed);
+  if (!assertion) throw new VaultError("open_failed");
+  try {
+    const mine = await getMyVaultKey();
+    const seal = (mine.seals ?? []).find((s) => s.credentialIdB64url === assertion.credentialId);
+    if (!seal) throw new VaultError("no_seal");
+    const key = await openLiveKey(assertion);
+    let deviceSeal: string;
+    try {
+      deviceSeal = await sealForDevice({
+        prfOutput: assertion.prfOutput,
+        sealed: seal.sealedPrivateKey,
+        personPublicKey: mine.publicKey,
+        personKeyId: mine.id,
+        devicePublicKey: pairing.devicePublicKey,
+        deviceId: pairing.deviceId,
+      });
+    } catch {
+      throw new VaultError("open_failed");
+    }
+    await postVaultDeviceSeal({
+      pairingState: pairing.state,
+      deviceId: pairing.deviceId,
+      seal: deviceSeal,
+      actorProof: await prove(key),
+    });
+  } finally {
+    wipe(assertion.prfOutput);
   }
 }
