@@ -110,11 +110,12 @@ export function useMyMacs() {
 }
 
 /** I Mac di un'altra persona (D-6): solo per un full admin (altrimenti `forbidden`). */
-export function useMacsOf(personId: string) {
+export function useMacsOf(personId: string, enabled = true) {
   const me = useSessionPersonId();
   return useQuery({
     queryKey: queryKeys.macsOf(me, personId),
     queryFn: () => api.vault.listMacsOf(personId),
+    enabled,
   });
 }
 

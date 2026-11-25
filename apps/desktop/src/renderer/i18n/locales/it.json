@@ -13838,7 +13838,9 @@
       "cancel": "Annulla",
       "removed": "Tolto. L'avviso è arrivato a {{name}}.",
       "failed": "Non è stato possibile togliere quel Mac. Riprova.",
-      "reauth": "togliere un Mac dalla cassaforte di un'altra persona"
+      "reauth": "togliere un Mac dalla cassaforte di un'altra persona",
+      "browserNote": "I Mac che aprono la cassaforte di {{name}} si gestiscono dal browser.",
+      "manageInBrowser": "Gestisci i Mac di {{name}} nel browser"
     },
     "prototype": {
       "barLabel": "Solo prototipo: la cassaforte",

@@ -1,7 +1,8 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resetApi, setLatency } from "../../data/api";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetApi, setLatency, vault } from "../../data/api";
+import { setSessionPersonId } from "../../data/session";
 import { setLanguage } from "../../i18n";
 import { renderRoute } from "../../test/renderRoute";
 
@@ -56,5 +57,29 @@ describe("la parte Vault nella pagina di una persona", () => {
     await screen.findByRole("heading", { level: 1, name: "Laura Costa" });
     await new Promise((r) => setTimeout(r, 50));
     expect(screen.queryByRole("region", { name: "Vault" })).toBeNull();
+  });
+
+  // Nell'app la lista dei Mac di un'altra persona è del browser [VA 9]: la
+  // parte c'è (al full admin) con una riga che apre lì la pagina della
+  // persona, senza chiedere niente alla cassaforte.
+  it("nell'app: «Manage … Macs in the browser» apre la pagina della persona", async () => {
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+    const openWeb = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal("stubwise", { openWeb });
+    const spy = vi.spyOn(vault, "listMacsOf");
+    // Nella build «app» chi guarda è la persona della sessione del livello dati.
+    setSessionPersonId("p-roberta");
+    try {
+      const user = userEvent.setup();
+      renderRoute("/admin/people/p-laura", "p-roberta");
+      const p = await part();
+      await user.click(p.getByRole("button", { name: "Manage Laura Costa's Macs in the browser" }));
+      expect(openWeb).toHaveBeenCalledWith(expect.stringMatching(/\/admin\/people\/p-laura$/));
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
   });
 });
