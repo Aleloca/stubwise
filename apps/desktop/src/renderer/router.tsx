@@ -208,6 +208,8 @@ export interface AppSearch {
   credential?: string;
   /** Con `credential`: il dettaglio si apre già in modifica (`1`, dal «⋯» della riga). */
   edit?: string;
+  /** Vault: la ricerca a fuoco all'apertura (`1`, dal comando ⌘K «Find a credential»). */
+  findCredential?: string;
   /** Credentials: il registro degli accessi del progetto (`1`, dal «⋯» della sezione). */
   log?: string;
   /** Credentials e Vault: il pannello degli accessi da confermare (`1`). */
@@ -294,6 +296,7 @@ const SEARCH_KEYS = [
   "credential",
   "edit",
   "log",
+  "findCredential",
   "pending",
   "projects",
   "widget",
@@ -389,7 +392,8 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
                                       key === "newMeeting" ||
                                       key === "new" ||
                                       key === "edit" ||
-                                      key === "log"
+                                      key === "log" ||
+                                      key === "findCredential"
                                     ? value === "1"
                                     : false;
     // I filtri di WORK dello Stato dell'istanza (area 9b, ruling 10) hanno la

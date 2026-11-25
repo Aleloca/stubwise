@@ -168,7 +168,11 @@
       "inviteSomeone": "Invite someone",
       "whoCanIn": "Who can {{what}} in {{code}}",
       "whoCanAnywhere": "Who can {{what}} in a project",
-      "whoCanInstance": "Who can {{what}}"
+      "whoCanInstance": "Who can {{what}}",
+      "vaultOpen": "Open the vault",
+      "vaultLock": "Lock the vault",
+      "vaultPair": "Pair this Mac",
+      "vaultFind": "Find a credential"
     },
     "filterPlaceholder": "Choose a filter",
     "channelPlaceholder": "Go to a channel or direct message…",

@@ -31,6 +31,8 @@ export interface CommandContext {
   openNewAutomation(projectCode?: string): void;
   /** Apre il riquadro di Claude (area 10a), col testo nella casella e non inviato. */
   openClaudePanel(detail?: { draft?: string }): void;
+  /** La cassaforte (lotto 10): apre col Touch ID, chiude, associa questo Mac. */
+  vaultCommand(command: "open" | "lock" | "pair"): void;
 }
 
 /** Il progetto in cui si è, per i comandi che valgono solo lì. */
@@ -41,6 +43,11 @@ export interface CommandScope {
   serverCode?: string;
   /** Lo stato dell'accesso SSH del server aperto, come lo dice il livello dati (assente finché non è letto). */
   serverAccessState?: AccessState;
+  /**
+   * La cassaforte (lotto 10): lo stato della barra, se il Mac ha Touch ID e se
+   * chi guarda ne vede la pagina; assente finché non è letto (nessun comando).
+   */
+  vault?: { state: string; touchId: boolean; show: boolean };
 }
 
 export interface Command {
@@ -68,6 +75,31 @@ function themeCommand(preference: ThemePreference): Command {
 }
 
 export const COMMANDS: readonly Command[] = [
+  // La cassaforte (lotto 10, shape vault.md §3): ognuno solo nello stato in cui ha senso.
+  {
+    id: "vault.open",
+    labelKey: "palette.commands.vaultOpen",
+    run: (ctx) => ctx.vaultCommand("open"),
+    when: (_viewer, scope) => scope.vault?.state === "locked" && scope.vault.touchId,
+  },
+  {
+    id: "vault.lock",
+    labelKey: "palette.commands.vaultLock",
+    run: (ctx) => ctx.vaultCommand("lock"),
+    when: (_viewer, scope) => scope.vault?.state === "open",
+  },
+  {
+    id: "vault.pair",
+    labelKey: "palette.commands.vaultPair",
+    run: (ctx) => ctx.vaultCommand("pair"),
+    when: (_viewer, scope) => scope.vault?.state === "unpaired" || scope.vault?.state === "revoked",
+  },
+  {
+    id: "vault.find",
+    labelKey: "palette.commands.vaultFind",
+    run: (ctx) => ctx.navigate("/vault?findCredential=1"),
+    when: (_viewer, scope) => scope.vault?.show === true,
+  },
   {
     id: "task.new",
     labelKey: "palette.commands.newTask",

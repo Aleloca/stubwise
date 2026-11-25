@@ -49,6 +49,7 @@ describe("comandi di Claude (area 3)", () => {
       openLinkFolder: () => {},
       openNewAutomation: () => {},
       openClaudePanel: (detail?: unknown) => opened.push(detail),
+      vaultCommand: () => {},
     };
     cmd.run({ ...ctx, query: "  Explain AUD-3 " });
     // «Ask Claude…» senza testo apre il riquadro e basta.
@@ -80,6 +81,7 @@ describe("comandi degli avvisi (area 8a)", () => {
       openLinkFolder: () => {},
       openNewAutomation: () => {},
       openClaudePanel: () => {},
+      vaultCommand: () => {},
     });
     expect(paths).toEqual(["/preferences/notifications?project=AUD"]);
   });
@@ -148,6 +150,7 @@ describe("comandi delle Automations (area 7)", () => {
       openLinkFolder: () => {},
       openNewAutomation: (code) => opened.push(code),
       openClaudePanel: () => {},
+      vaultCommand: () => {},
     });
     expect(opened).toEqual(["AUD"]);
   });
