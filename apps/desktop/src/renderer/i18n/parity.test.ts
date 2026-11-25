@@ -60,6 +60,8 @@ describe("parità delle chiavi en/it", () => {
         "releases",
         "servers",
         "support",
+        // Lotto 10: la Cassaforte delle credenziali.
+        "vault",
         "project",
         "rail",
         "taskUi",

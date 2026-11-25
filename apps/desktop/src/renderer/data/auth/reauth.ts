@@ -40,6 +40,9 @@ export const PROTOTYPE_TOTP_CODE = "123456";
  * decisione visibile nel diff.
  */
 export const REAUTH_REQUIRED: ReadonlySet<ApiFnName> = new Set<ApiFnName>([
+  // Lotto 10 (VA-Q4, maintainer): togliere un altro proprio Mac, e quelli di un altro (l'admin).
+  "vault.removeMac",
+  "vault.removeMacOf",
   // Task 4: l'Amministrazione
   "admin.setInstanceRole",
   "admin.createPasswordResetLink",

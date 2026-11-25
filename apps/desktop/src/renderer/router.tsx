@@ -105,6 +105,7 @@ import { ReleasesPage } from "./pages/releases/ReleasesPage";
 import { ReleaseDetail } from "./pages/releases/ReleaseDetail";
 import { ServerDetail } from "./pages/servers/ServerDetail";
 import { ServersPage } from "./pages/servers/ServersPage";
+import { CredentialsSection } from "./pages/vault/CredentialsSection";
 import { ConversationNotFound, SupportPage } from "./pages/support/SupportPage";
 import { PageError } from "./tasks-ui/PageStates";
 import { useSupportConversation } from "./data/queries";
@@ -1019,6 +1020,11 @@ function ProjectSectionPage() {
   }
   if (section === "servers") {
     return <ServersPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />;
+  }
+  if (section === "credentials") {
+    return (
+      <CredentialsSection key={`${project.code}:${viewer.personId}`} projectCode={project.code} />
+    );
   }
   return (
     <Placeholder

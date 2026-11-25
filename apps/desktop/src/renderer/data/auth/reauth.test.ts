@@ -21,6 +21,9 @@ import {
  * commit in cui entra in `REAUTH_REQUIRED` e in `ApiFnName`.
  */
 const EXPECTED_REAUTH: readonly ApiFnName[] = [
+  // Lotto 10 (VA-Q4, maintainer): togliere un altro proprio Mac; l'admin per un'altra persona.
+  "vault.removeMac",
+  "vault.removeMacOf",
   // Task 4: People, inviti, Roles, Departments, Members
   "admin.setInstanceRole",
   "admin.createPasswordResetLink",

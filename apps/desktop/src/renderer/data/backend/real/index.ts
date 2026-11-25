@@ -123,6 +123,13 @@ export const support: typeof Fake.support = partialNamespace<typeof Fake.support
  * (elenchi, dettaglio, metriche, episodi). Scritture, SSH, analisi e
  * correzione restano «non integrati».
  */
+/**
+ * La Cassaforte (lotto 10): il main la tiene già (`window.stubwise.vault`,
+ * rotte del PAT desktop di 72); le pagine la raggiungono quando la shape
+ * `vault.md` è costruita nel prototipo.
+ */
+export const vault: typeof Fake.vault = partialNamespace<typeof Fake.vault>("vault", {});
+
 export const servers: typeof Fake.servers = partialNamespace<typeof Fake.servers>("servers", {
   ...liveServers,
   // Area 8, F4b: la sezione Server della task (`GET /api/tasks/:id/server`) e la correzione.

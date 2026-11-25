@@ -1,0 +1,131 @@
+import { act, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { resetApi, setLatency, vault } from "../../data/api";
+import { VAULT_IDS } from "../../data/seed/vault";
+import { setVaultClipboard } from "../../data/vault/index";
+import { setLanguage } from "../../i18n";
+import { renderRoute } from "../../test/renderRoute";
+
+// La sezione Credentials (lotto 10, shape `vault.md` §3): la barra della
+// cassaforte, le righe con Show/Hide/Copy, la voce della colonna. La
+// password non è MAI nel DOM finché non la si mostra; «Copy» non la mette
+// nel DOM nemmeno per un momento.
+
+const PASSWORDS = /Kx4!pa|Gq7#v2|mg-Tr9|sk-Wd2|Fg5&k1/;
+let clip = "";
+
+beforeEach(() => {
+  setLatency(0);
+  resetApi();
+  window.localStorage.clear();
+  clip = "";
+  setVaultClipboard({ write: (t) => void (clip = t), read: () => clip });
+});
+afterEach(() => act(() => setLanguage("en")));
+
+const row = (id: string) => document.querySelector<HTMLElement>(`[data-credential="${id}"]`)!;
+const bar = () => document.querySelector<HTMLElement>("[data-vault-bar]")!;
+
+async function openSection(person: string, code = "ACQ") {
+  const router = renderRoute(`/p/${code}/credentials`, person);
+  await screen.findByRole("heading", { level: 1, name: "Credentials" });
+  await waitFor(() => expect(row(VAULT_IDS.ARUBA) ?? row(VAULT_IDS.CLOUDFLARE)).toBeTruthy());
+  return router;
+}
+
+describe("Credentials — l'elenco e la barra", () => {
+  it("Laura: chiusa col Touch ID; le righe dicono chi legge, chi aspetta, chi gestisce; nessuna password", async () => {
+    await openSection("p-laura");
+    await waitFor(() => expect(bar().dataset.vaultBar).toBe("locked"));
+    expect(within(bar()).getByText("Locked.")).toBeInTheDocument();
+    expect(within(bar()).getByRole("button", { name: "Open with Touch ID" })).toBeInTheDocument();
+    expect(within(row(VAULT_IDS.MAILGUN)).getByText("You don't read this one")).toBeInTheDocument();
+    expect(within(row(VAULT_IDS.STRIPE)).getByText("Waiting for confirmation")).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(PASSWORDS);
+  });
+
+  it("VA-Q2: Show a cassaforte chiusa apre col Touch ID e mostra; resta finché Hide (VA-Q3); Lock la nasconde", async () => {
+    const user = userEvent.setup();
+    await openSection("p-laura");
+    await waitFor(() => expect(bar().dataset.vaultBar).toBe("locked"));
+    await user.click(
+      within(row(VAULT_IDS.ARUBA)).getByRole("button", {
+        name: "Show the password of Aruba hosting",
+      }),
+    );
+    await waitFor(() => expect(row(VAULT_IDS.ARUBA).textContent).toContain("Kx4!pa-77Wq"));
+    expect(bar().dataset.vaultBar).toBe("open");
+    await user.click(
+      within(row(VAULT_IDS.CLOUDFLARE)).getByRole("button", {
+        name: "Show the password of Cloudflare",
+      }),
+    );
+    await waitFor(() => expect(row(VAULT_IDS.CLOUDFLARE).textContent).toContain("Gq7#v2-LmpZ"));
+    // Hide nasconde solo quella riga.
+    await user.click(
+      within(row(VAULT_IDS.ARUBA)).getByRole("button", {
+        name: "Hide the password of Aruba hosting",
+      }),
+    );
+    expect(row(VAULT_IDS.ARUBA).textContent).not.toContain("Kx4!pa");
+    expect(row(VAULT_IDS.CLOUDFLARE).textContent).toContain("Gq7#v2");
+    // Lock: ogni password torna pallini.
+    await user.click(within(bar()).getByRole("button", { name: "Lock" }));
+    await waitFor(() => expect(bar().dataset.vaultBar).toBe("locked"));
+    expect(document.body.textContent).not.toMatch(PASSWORDS);
+  });
+
+  it("Copy: gli appunti dal livello dati, la password mai nel DOM; il toast lo dice", async () => {
+    const user = userEvent.setup();
+    await openSection("p-laura");
+    await waitFor(() => expect(bar().dataset.vaultBar).toBe("locked"));
+    await user.click(
+      within(row(VAULT_IDS.CLOUDFLARE)).getByRole("button", {
+        name: "Copy the password of Cloudflare",
+      }),
+    );
+    await screen.findByText("Copied. The clipboard is cleared in 30 seconds.");
+    expect(clip).toBe("Gq7#v2-LmpZ");
+    expect(document.body.textContent).not.toMatch(PASSWORDS);
+  });
+
+  it("D-1a: un Mac senza Touch ID si apre nel browser; Show e Copy restano spenti", async () => {
+    await vault.setVaultSimulation({ touchId: "unavailable" });
+    await openSection("p-laura");
+    await waitFor(() => expect(bar().dataset.vaultBar).toBe("locked"));
+    expect(within(bar()).getByText(/This Mac has no Touch ID/)).toBeInTheDocument();
+    expect(within(bar()).getByRole("button", { name: "Open in the browser" })).toBeInTheDocument();
+    expect(
+      within(row(VAULT_IDS.ARUBA)).getByRole("button", {
+        name: "Show the password of Aruba hosting",
+      }),
+    ).toBeDisabled();
+  });
+
+  it("Marco (chiave in attesa): la barra dice di aspettare, con l'impronta della sua chiave", async () => {
+    await openSection("p-marco");
+    await waitFor(() => expect(bar().dataset.vaultBar).toBe("key_pending"));
+    expect(bar().textContent).toContain("7d20 e5a9 c31f 6b84");
+  });
+});
+
+describe("Credentials — la voce della colonna", () => {
+  it("Laura la vede, col punto «ti aspetta»: Marco aspetta che lei lo confermi", async () => {
+    await openSection("p-laura");
+    const link = await screen.findByRole("link", { name: /^Credentials/ });
+    await waitFor(() => expect(link.querySelector("[data-waiting-dot]")).not.toBeNull());
+  });
+
+  it("Marta (Contributor in ACQ, nessuna credenziale, non può crearne): la voce non c'è", async () => {
+    renderRoute("/p/ACQ/overview", "p-marta");
+    await screen.findByRole("link", { name: /^Tasks/ });
+    // La lettura della voce è arrivata: c'è la colonna completa, senza Credentials.
+    await waitFor(() =>
+      expect(screen.getAllByRole("link", { name: /^Settings/ }).length).toBeGreaterThan(0),
+    );
+    // La lettura della voce risponde (`show: false`) prima di guardare la colonna.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByRole("link", { name: /^Credentials/ })).toBeNull();
+  });
+});

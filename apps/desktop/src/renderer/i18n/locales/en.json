@@ -86,7 +86,8 @@
       "support": "Support",
       "servers": "Servers",
       "settings": "Settings",
-      "automations": "Automations"
+      "automations": "Automations",
+      "credentials": "Credentials"
     },
     "notFound": "Project not found",
     "notFoundBody": "This project doesn't exist or you can't see it.",
@@ -13613,6 +13614,57 @@
         "archived": "Archived",
         "moreTasks": "+{{count}}"
       }
+    }
+  },
+  "vault": {
+    "title": "Credentials",
+    "subtitle": "Passwords for {{code}}'s services. Only the people who read one see it.",
+    "new": "New credential",
+    "empty": "No credentials in this project yet.",
+    "errors": {
+      "list": "Couldn't load credentials",
+      "status": "Couldn't check the vault"
+    },
+    "bar": {
+      "checking": "Checking the vault…",
+      "open": "Open · locks after 15 minutes without use",
+      "recorded": "Every Show and Copy is recorded.",
+      "lock": "Lock",
+      "locked": "Locked.",
+      "openTouch": "Open with Touch ID",
+      "opening": "Opening…",
+      "noTouchId": "Locked. This Mac has no Touch ID: open the vault in the browser with your passkey.",
+      "openBrowser": "Open in the browser",
+      "openedBrowser": "Opened in the browser.",
+      "unpaired": "This Mac doesn't open the vault yet. Pair it once with your passkey in the browser.",
+      "pair": "Pair this Mac",
+      "revoked": "This Mac no longer opens the vault. You're still signed in.",
+      "pairAgain": "Pair again",
+      "unreachable": "Couldn't reach Stubwise to open the vault.",
+      "retry": "Try again",
+      "noKey": "You don't have a vault key yet. Create it in the browser with a passkey: credentials shared with you reach you after a reader confirms it.",
+      "keyPending": "Your vault key is waiting for confirmation. A reader who can share confirms it when they pass you a credential.",
+      "ownFingerprint": "Your key fingerprint:",
+      "inactive": "The vault hasn't been activated on this instance yet.",
+      "openFailed": "This Mac couldn't open the vault."
+    },
+    "row": {
+      "show": "Show",
+      "hide": "Hide",
+      "copy": "Copy",
+      "showAria": "Show the password of {{name}}",
+      "hideAria": "Hide the password of {{name}}",
+      "copyAria": "Copy the password of {{name}}",
+      "passwordOf": "Password of {{name}}",
+      "hidden": "Hidden password",
+      "waiting": "Waiting for confirmation",
+      "manages": "You don't read this one",
+      "shownLive": "Password shown"
+    },
+    "copied": "Copied. The clipboard is cleared in 30 seconds.",
+    "revealFailed": "The password couldn't be opened.",
+    "column": {
+      "waiting": "Someone is waiting for you to confirm their access"
     }
   }
 }

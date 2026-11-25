@@ -190,6 +190,10 @@ describe("canali IPC", () => {
     expect(main).toMatch(/registerVaultIpc\(ipcMain, \{ lock: vault, pairing: vaultPairing, ops: vaultOps, fromApp \}\)/);
     expect(main).toMatch(/broadcast\("vault:changed", status\)/);
     expect(main).toMatch(/broadcast\("vault:paired", result\)/);
+    // M3: il sigillo sul server si toglie PRIMA che il token cambi (nuovo login, istanza, 401).
+    expect(main).toMatch(/vault\.sessionChanged\(\);\s*vaultPairing\.cancel\(\);\s*void replaceToken\(/);
+    expect(main).toMatch(/vault\.sessionChanged\(\);\s*vaultPairing\.cancel\(\);\s*clearToken\(\);\s*browserLogin\.cancel\(\);/);
+    expect(main).toMatch(/if \(readToken\(\) !== used\) return;[\s\S]*?vault\.sessionChanged\(\);[\s\S]*?clearToken\(\);/);
     // Stop e schermo bloccato chiudono la cassaforte (D-2).
     expect(main).toMatch(/powerMonitor\.on\("suspend", \(\) => vault\.lock\(\)\)/);
     expect(main).toMatch(/powerMonitor\.on\("lock-screen", \(\) => vault\.lock\(\)\)/);

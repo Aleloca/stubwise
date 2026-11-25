@@ -295,8 +295,10 @@ browser, with your passkey.
   riga sparisce; se il server non risponde, «Forgotten on this Mac. The
   server didn't answer: remove it from the browser too.»
 - **Un altro Mac**: **Remove** si fa da qui (VA-Q4 «Anche dal desktop»,
-  maintainer) → la cassaforte deve essere aperta (Touch ID: la rotta
-  vuole la prova della propria chiave) → conferma a due tempi in posto:
+  maintainer) con la **riconferma** («Confirm it's you», come le altre
+  azioni delicate) **e** la cassaforte aperta (Touch ID: la rotta vuole
+  anche la prova della propria chiave; 72, e5b85be0e) → conferma a due
+  tempi in posto:
   «That Mac stops opening the vault. It stays signed in.» → toast
   «Removed. You'll get a security alert.» **[VA 9]**.
 - Vuoto: «No Mac opens your vault yet.» + **Pair this Mac**.
