@@ -13,14 +13,14 @@ import {
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import {
-  generateDeviceKeyPair,
   generatePersonKeyPair,
-  importDeviceKey,
   openActorChallenge,
   openDeviceSeal,
   sealForDevice,
   sealPrivateKey,
 } from "@stubwise/vault-crypto";
+// Review 2, M8: il «Mac di software» al posto del Secure Enclave, solo per i test.
+import { softwareDeviceKey } from "@stubwise/vault-crypto/testing";
 import { buildApp } from "../app.js";
 import { createSession, SESSION_COOKIE } from "../auth/session.js";
 import { listInbox } from "../services/inbox.js";
@@ -131,7 +131,7 @@ async function actorProof(p: Person) {
 
 /** Il main chiede l'associazione col SUO PAT desktop. */
 async function pairing(p: Person, devicePublicKey?: string) {
-  const device = await generateDeviceKeyPair();
+  const device = await softwareDeviceKey();
   const res = await call("POST", "/api/vault/device-pairings", p.desktop.headers, {
     devicePublicKey: devicePublicKey ?? device.publicKey,
     deviceName: "MacBook di prova",
@@ -329,7 +329,7 @@ describe("il sigillo (POST /api/vault/device-seals): nasce SOLO dal browser, con
   it("il PAT dell'associazione revocato nel frattempo → 409 `pairing_invalid` (l'associazione sparisce col PAT)", async () => {
     const extra = await pat(ada.id, "desktop");
     await desktopWindow(extra.id);
-    const device = await generateDeviceKeyPair();
+    const device = await softwareDeviceKey();
     const res = await call("POST", "/api/vault/device-pairings", extra.headers, { devicePublicKey: device.publicKey, deviceName: "Mac" });
     const pair = { ...(res.json() as { state: string; deviceId: string }), device };
     const body = await sealBody(ada, pair);
@@ -393,7 +393,7 @@ describe("il proprio sigillo (GET/DELETE /api/vault/device-seals/mine): solo il 
     expect(mine).toMatchObject({ id: pair.deviceId, personKeyId: bob.keyId, personPublicKey: bob.publicKey });
     const opened = await openDeviceSeal({
       deviceSeal: mine.seal,
-      devicePrivateKey: await importDeviceKey(pair.device.privateKeyPkcs8),
+      deriveBits: pair.device.deriveBits,
       personPublicKey: mine.personPublicKey,
       personKeyId: mine.personKeyId,
       deviceId: mine.id,

@@ -55,7 +55,7 @@ Perché così e non la privata di persona direttamente nel portachiavi:
   portachiavi) non dà la privata di persona.
 
 Primitive: la coppia del dispositivo e l'avvolgimento entrano in
-`@stubwise/vault-crypto` (funzioni nuove: `generateDeviceKeyPair`, `importDeviceKey`, `sealForDevice` — nel browser, dal sigillo della passkey e dal suo PRF, così la privata in chiaro non esce mai dal package — e `openDeviceSeal`;
+`@stubwise/vault-crypto` (funzioni nuove: `sealForDevice` — nel browser, dal sigillo della passkey e dal suo PRF, così la privata in chiaro non esce mai dal package — `openDeviceSeal` con l'ECDH dell'enclave (`deriveBits`) e `devicePublicKeyFromRaw`; review 2, M8: la coppia generata e importata nel processo, `generateDeviceKeyPair`/`importDeviceKey`, è uscita dall'API, e i test usano `softwareDeviceKey` da `@stubwise/vault-crypto/testing`;
 con gli stessi test di formato delle altre buste); il main le usa da Node.
 
 ## 2. Dove sta la chiave sul Mac
