@@ -5,7 +5,7 @@ import type {
   ReleaseStatus,
 } from "@stubwise/shared";
 import type { Conversation } from "../../model";
-import { releaseHref } from "../../releases/visibility";
+import { releaseHref } from "../../hrefs";
 import type { FixResult, ReleaseSearchResult, ReleaseView } from "../../releases";
 import { inPrototypeWords, orNull } from "./automationRefs";
 

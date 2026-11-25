@@ -8,7 +8,7 @@ import type {
   SupportSearchResult as ServerSearchResult,
 } from "@stubwise/shared";
 import type * as Fake from "../../api";
-import { supportHrefIn } from "../../support/visibility";
+import { supportHrefIn } from "../../hrefs";
 import type {
   CustomerPreview,
   SupportConversationView,

@@ -31,9 +31,9 @@ export function conversationFor(me: string, code: string): SupportConversation {
 export const supportHref = (projectId: string, code: string): string =>
   supportHrefIn(projectCodeOf(projectId), code);
 
-/** Lo stesso indirizzo dal codice del progetto (il server lo dà già, ⌘K). */
-export const supportHrefIn = (projectCode: string, code: string): string =>
-  `#/p/${projectCode}/support/${code}`;
+/** Lo stesso indirizzo dal codice del progetto (il server lo dà già, ⌘K): sta in `hrefs.ts`. */
+export { supportHrefIn } from "../hrefs";
+import { supportHrefIn } from "../hrefs";
 
 /** L'indirizzo di una richiesta nel pannello delle richieste. */
 export const requestHref = (req: ProjectRequest): string =>

@@ -1,4 +1,4 @@
-import { isHiddenId } from "../../data/access/hidden";
+import { isHiddenId } from "../../data/access/hiddenId";
 import type { ChatEventKind, ChatMessageView } from "../../data/types";
 
 // Il flusso di un canale come si disegna: i messaggi letti (pagina + stream)
