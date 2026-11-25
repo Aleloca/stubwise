@@ -1,8 +1,4 @@
-import {
-  generatePersonKeyPair,
-  openDeviceSeal,
-  sealPrivateKey,
-} from "@stubwise/vault-crypto";
+import { generatePersonKeyPair, openDeviceSeal, sealPrivateKey } from "@stubwise/vault-crypto";
 import { softwareDeviceKey } from "@stubwise/vault-crypto/testing";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
