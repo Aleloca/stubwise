@@ -20,8 +20,6 @@ export {
 export { openActorChallenge, wrapActorChallenge } from "./actor-challenge.js";
 export {
   devicePublicKeyFromRaw,
-  generateDeviceKeyPair,
-  importDeviceKey,
   openDeviceSeal,
   sealForDevice,
   type DeviceKeyAgreement,

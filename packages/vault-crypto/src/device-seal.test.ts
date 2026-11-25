@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { parseEnvelope } from "./encoding.js";
 import { HKDF_INFO, generatePersonKeyPair, hkdfAesKey, rawPublicPoint, sealPrivateKey } from "./keys.js";
 import { decryptPassword, encryptPassword, unwrapItemKey, wrapItemKey } from "./items.js";
-import { devicePublicKeyFromRaw, generateDeviceKeyPair, importDeviceKey, openDeviceSeal, sealForDevice } from "./device-seal.js";
+import { devicePublicKeyFromRaw, openDeviceSeal, sealForDevice } from "./device-seal.js";
+import * as vault from "./index.js";
+import { softwareDeviceKey } from "./testing.js";
 
 const prf = () => crypto.getRandomValues(new Uint8Array(32)).buffer;
 const PERSON_KEY_ID = "11111111-1111-4111-8111-111111111111";
@@ -13,8 +15,8 @@ async function setup() {
   const person = await generatePersonKeyPair();
   const prfOutput = prf();
   const sealed = await sealPrivateKey(prfOutput, person.privateKeyPkcs8, person.publicKey);
-  const device = await generateDeviceKeyPair();
-  const deviceKey = await importDeviceKey(device.privateKeyPkcs8);
+  const device = await softwareDeviceKey();
+  const deviceKey = device.privateKey;
   const deviceSeal = await sealForDevice({
     prfOutput,
     sealed,
@@ -26,21 +28,28 @@ async function setup() {
   return { person, prfOutput, sealed, device, deviceKey, deviceSeal };
 }
 
-describe("generateDeviceKeyPair / importDeviceKey", () => {
-  it("pubblica = JWK con i soli campi pubblici; la privata importata NON è estraibile", async () => {
-    const device = await generateDeviceKeyPair();
+describe("la vecchia via senza tocco è fuori dall'API (review 2, M8)", () => {
+  it("l'API pubblica non genera né importa più una chiave del Mac nel processo", () => {
+    expect(Object.keys(vault)).not.toContain("generateDeviceKeyPair");
+    expect(Object.keys(vault)).not.toContain("importDeviceKey");
+  });
+
+  it("il «Mac di software» dei test (`@stubwise/vault-crypto/testing`): pubblica JWK coi soli campi pubblici, privata NON estraibile, `deriveBits` di 32 byte", async () => {
+    const device = await softwareDeviceKey();
     const jwk = JSON.parse(device.publicKey) as Record<string, unknown>;
     expect(Object.keys(jwk).sort()).toEqual(["crv", "kty", "x", "y"]);
     expect(jwk.crv).toBe("P-256");
-    expect(device.privateKeyPkcs8.length).toBeGreaterThan(32);
-    expect((await importDeviceKey(device.privateKeyPkcs8)).extractable).toBe(false);
+    expect(device.privateKey.extractable).toBe(false);
+    const other = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
+    const raw = new Uint8Array(await crypto.subtle.exportKey("raw", other.publicKey));
+    expect(new Uint8Array(await device.deriveBits(raw)).length).toBe(32);
   });
 });
 
 describe("sealForDevice / openDeviceSeal", () => {
   it("andata e ritorno: il Mac apre la chiave di persona, non estraibile, che apre le copie", async () => {
-    const { person, deviceKey, deviceSeal } = await setup();
-    const opened = await openDeviceSeal({ deviceSeal, devicePrivateKey: deviceKey, personPublicKey: person.publicKey, personKeyId: PERSON_KEY_ID, deviceId: DEVICE_ID });
+    const { person, device, deviceSeal } = await setup();
+    const opened = await openDeviceSeal({ deviceSeal, deriveBits: device.deriveBits, personPublicKey: person.publicKey, personKeyId: PERSON_KEY_ID, deviceId: DEVICE_ID });
     expect(opened.extractable).toBe(false);
     const { ciphertext, itemKey } = await encryptPassword("cred-1", "segreta");
     const copy = await wrapItemKey(itemKey, person.publicKey, "cred-1", PERSON_KEY_ID);
@@ -60,21 +69,21 @@ describe("sealForDevice / openDeviceSeal", () => {
 
   it("un ALTRO Mac non lo apre", async () => {
     const { person, deviceSeal } = await setup();
-    const other = await importDeviceKey((await generateDeviceKeyPair()).privateKeyPkcs8);
-    await expect(openDeviceSeal({ deviceSeal, devicePrivateKey: other, personPublicKey: person.publicKey, personKeyId: PERSON_KEY_ID, deviceId: DEVICE_ID })).rejects.toThrow();
+    const other = await softwareDeviceKey();
+    await expect(openDeviceSeal({ deviceSeal, deriveBits: other.deriveBits, personPublicKey: person.publicKey, personKeyId: PERSON_KEY_ID, deviceId: DEVICE_ID })).rejects.toThrow();
   });
 
   it("AAD: con un altro deviceId o un altro personKeyId non si apre (un sigillo non si sposta su un'altra riga)", async () => {
-    const { person, deviceKey, deviceSeal } = await setup();
+    const { person, device, deviceSeal } = await setup();
     const other = "33333333-3333-4333-8333-333333333333";
-    await expect(openDeviceSeal({ deviceSeal, devicePrivateKey: deviceKey, personPublicKey: person.publicKey, personKeyId: PERSON_KEY_ID, deviceId: other })).rejects.toThrow();
-    await expect(openDeviceSeal({ deviceSeal, devicePrivateKey: deviceKey, personPublicKey: person.publicKey, personKeyId: other, deviceId: DEVICE_ID })).rejects.toThrow();
+    await expect(openDeviceSeal({ deviceSeal, deriveBits: device.deriveBits, personPublicKey: person.publicKey, personKeyId: PERSON_KEY_ID, deviceId: other })).rejects.toThrow();
+    await expect(openDeviceSeal({ deviceSeal, deriveBits: device.deriveBits, personPublicKey: person.publicKey, personKeyId: other, deviceId: DEVICE_ID })).rejects.toThrow();
   });
 
   it("AAD = la pubblica di persona: se il server presenta un'altra pubblica, il Mac non apre (non cifrerebbe per chiavi d'altri)", async () => {
-    const { deviceKey, deviceSeal } = await setup();
+    const { device, deviceSeal } = await setup();
     const other = await generatePersonKeyPair();
-    await expect(openDeviceSeal({ deviceSeal, devicePrivateKey: deviceKey, personPublicKey: other.publicKey, personKeyId: PERSON_KEY_ID, deviceId: DEVICE_ID })).rejects.toThrow();
+    await expect(openDeviceSeal({ deviceSeal, deriveBits: device.deriveBits, personPublicKey: other.publicKey, personKeyId: PERSON_KEY_ID, deviceId: DEVICE_ID })).rejects.toThrow();
   });
 
   it("il browser non sigilla con un PRF sbagliato, né per una pubblica di persona che non è quella del sigillo", async () => {
@@ -89,14 +98,14 @@ describe("sealForDevice / openDeviceSeal", () => {
     await expect(unwrapItemKey(deviceSeal, deviceKey, PERSON_KEY_ID, DEVICE_ID)).rejects.toThrow();
     const { itemKey } = await encryptPassword("cred-1", "x");
     const copy = await wrapItemKey(itemKey, device.publicKey, PERSON_KEY_ID, DEVICE_ID);
-    await expect(openDeviceSeal({ deviceSeal: copy, devicePrivateKey: deviceKey, personPublicKey: person.publicKey, personKeyId: PERSON_KEY_ID, deviceId: DEVICE_ID })).rejects.toThrow();
+    await expect(openDeviceSeal({ deviceSeal: copy, deriveBits: device.deriveBits, personPublicKey: person.publicKey, personKeyId: PERSON_KEY_ID, deviceId: DEVICE_ID })).rejects.toThrow();
   });
 
   it("la forma esatta, ricalcolata a mano: HKDF con `info` suo e AAD `…device-seal:<personKeyId>:<deviceId>:` ‖ SHA-256(punto di persona); senza il punto, o con l'`info` delle copie, non si decifra", async () => {
-    const { person, deviceKey, deviceSeal } = await setup();
+    const { person, device, deviceSeal } = await setup();
     const { epk, iv, ct } = parseEnvelope(deviceSeal, ["epk", "iv", "ct"]);
     const eph = await crypto.subtle.importKey("raw", epk, { name: "ECDH", namedCurve: "P-256" }, false, []);
-    const shared = await crypto.subtle.deriveBits({ name: "ECDH", public: eph }, deviceKey, 256);
+    const shared = await crypto.subtle.deriveBits({ name: "ECDH", public: eph }, device.privateKey, 256);
     const prefix = new TextEncoder().encode(`stubwise/vault/v1/device-seal:${PERSON_KEY_ID}:${DEVICE_ID}:`);
     const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", await rawPublicPoint(person.publicKey)));
     const full = new Uint8Array([...prefix, ...digest]);
@@ -170,13 +179,13 @@ describe("openDeviceSeal con l'ECDH fuori dal processo (Secure Enclave, review I
     await expect(openDeviceSeal({ ...base, deriveBits: async () => new Uint8Array(16) })).rejects.toThrow(/32/);
   });
 
-  it("o la privata o `deriveBits`, mai tutte e due né nessuna", async () => {
+  it("SOLO `deriveBits` (review 2, M8): una privata passata al posto suo non apre niente, e senza lancia", async () => {
     const enclave = await fakeEnclave();
     const { person, deviceSeal } = await sealFor(await devicePublicKeyFromRaw(enclave.raw));
-    const key = await importDeviceKey((await generateDeviceKeyPair()).privateKeyPkcs8);
+    const key = (await softwareDeviceKey()).privateKey;
     const base = { deviceSeal, personPublicKey: person.publicKey, personKeyId: PERSON_KEY_ID, deviceId: DEVICE_ID };
-    await expect(openDeviceSeal({ ...base, devicePrivateKey: key, deriveBits: enclave.deriveBits } as never)).rejects.toThrow(/una sola/);
-    await expect(openDeviceSeal(base as never)).rejects.toThrow(/una sola/);
+    await expect(openDeviceSeal({ ...base, devicePrivateKey: key } as never)).rejects.toThrow(/Secure Enclave/);
+    await expect(openDeviceSeal(base as never)).rejects.toThrow(/Secure Enclave/);
   });
 
   it("`devicePublicKeyFromRaw` rifiuta ciò che non è un punto P-256", async () => {

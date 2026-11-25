@@ -27,6 +27,8 @@ interface CollectedRoute {
   archived?: "read" | "write";
   /** `config.desktopVault`, se dichiarato (lotto 10, la cassaforte dal desktop). */
   desktopVault?: true;
+  /** `config.desktopOnly`, se dichiarato (lotto 10: le rotte SOLO del PAT desktop). */
+  desktopOnly?: true;
 }
 
 /**
@@ -54,6 +56,7 @@ function collect(route: RouteOptions, into: Map<string, CollectedRoute>): void {
       partialReauth: route.config?.partialReauth ?? prev?.partialReauth,
       archived: route.config?.archived ?? prev?.archived,
       desktopVault: route.config?.desktopVault ?? prev?.desktopVault,
+      desktopOnly: route.config?.desktopOnly ?? prev?.desktopOnly,
     });
   }
 }
@@ -105,6 +108,17 @@ describe("la cassaforte dal desktop (lotto 10, D-7)", () => {
       "POST /api/vault/pending/:personKeyId/confirm",
       "POST /api/vault/pending/:personKeyId/reject",
     ]);
+  });
+
+  it("le rotte SOLO del PAT desktop (`desktopOnly`) sono ESATTAMENTE queste, e solo l'associazione chiede la riconferma", async () => {
+    const routes = (await registeredRoutes()).filter((r) => r.desktopOnly);
+    expect(routes.map((r) => r.key)).toEqual([
+      "DELETE /api/vault/device-seals/mine",
+      "GET /api/vault/device-seals/mine",
+      "POST /api/vault/device-pairings",
+    ]);
+    expect(routes.filter((r) => r.reauth !== undefined).map((r) => r.key)).toEqual(["POST /api/vault/device-pairings"]);
+    expect(routes.filter((r) => r.desktopVault).map((r) => r.key)).toEqual([]);
   });
 
   it("una sola chiede ANCHE la riconferma (dal desktop, la finestra di `desktop-reauth`): togliere un Mac", async () => {
@@ -218,6 +232,8 @@ describe("rotte con riconferma recente", () => {
       "POST /api/users/:id/password-reset",
       "POST /api/users/:id/reactivate",
       "POST /api/vault/activate",
+      // Review 2, M4: chiedere l'associazione di un Mac (la riconferma del desktop, dichiarata).
+      "POST /api/vault/device-pairings",
       // Lotto 10: sigillare la propria chiave per un Mac (dal browser).
       "POST /api/vault/device-seals",
       "POST /api/vault/keys",

@@ -13,14 +13,14 @@ import {
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import {
-  generateDeviceKeyPair,
   generatePersonKeyPair,
-  importDeviceKey,
   openActorChallenge,
   openDeviceSeal,
   sealForDevice,
   sealPrivateKey,
 } from "@stubwise/vault-crypto";
+// Review 2, M8: il «Mac di software» al posto del Secure Enclave, solo per i test.
+import { softwareDeviceKey } from "@stubwise/vault-crypto/testing";
 import { buildApp } from "../app.js";
 import { createSession, SESSION_COOKIE } from "../auth/session.js";
 import { listInbox } from "../services/inbox.js";
@@ -131,7 +131,7 @@ async function actorProof(p: Person) {
 
 /** Il main chiede l'associazione col SUO PAT desktop. */
 async function pairing(p: Person, devicePublicKey?: string) {
-  const device = await generateDeviceKeyPair();
+  const device = await softwareDeviceKey();
   const res = await call("POST", "/api/vault/device-pairings", p.desktop.headers, {
     devicePublicKey: devicePublicKey ?? device.publicKey,
     deviceName: "MacBook di prova",
@@ -230,8 +230,14 @@ describe("l'associazione (POST /api/vault/device-pairings): la chiede SOLO il PA
     expect(await testDb.db.select().from(vaultDevicePairings)).toHaveLength(before);
   });
 
-  it("il PAT desktop la ottiene; sul server resta solo l'HASH dello state, legato a quel PAT", async () => {
+  it("il PAT desktop la ottiene; sul server resta solo l'HASH dello state, legato a quel PAT; la riconferma usata lascia la riga `reauth_desktop` (review 2, M4)", async () => {
+    const reauthRows = async () =>
+      (await testDb.db.select().from(securityEvents).where(and(eq(securityEvents.userId, ada.id), eq(securityEvents.kind, "reauth_desktop")))).filter(
+        (r) => r.detail === "POST /api/vault/device-pairings",
+      ).length;
+    const before = await reauthRows();
     const pair = await pairing(ada);
+    expect(await reauthRows()).toBe(before + 1);
     const [row] = await testDb.db.select().from(vaultDevicePairings).where(eq(vaultDevicePairings.id, pair.deviceId));
     expect(row).toMatchObject({ userId: ada.id, patId: ada.desktop.id, usedAt: null });
     expect(row!.stateHash).not.toContain(pair.state);
@@ -323,7 +329,7 @@ describe("il sigillo (POST /api/vault/device-seals): nasce SOLO dal browser, con
   it("il PAT dell'associazione revocato nel frattempo → 409 `pairing_invalid` (l'associazione sparisce col PAT)", async () => {
     const extra = await pat(ada.id, "desktop");
     await desktopWindow(extra.id);
-    const device = await generateDeviceKeyPair();
+    const device = await softwareDeviceKey();
     const res = await call("POST", "/api/vault/device-pairings", extra.headers, { devicePublicKey: device.publicKey, deviceName: "Mac" });
     const pair = { ...(res.json() as { state: string; deviceId: string }), device };
     const body = await sealBody(ada, pair);
@@ -387,7 +393,7 @@ describe("il proprio sigillo (GET/DELETE /api/vault/device-seals/mine): solo il 
     expect(mine).toMatchObject({ id: pair.deviceId, personKeyId: bob.keyId, personPublicKey: bob.publicKey });
     const opened = await openDeviceSeal({
       deviceSeal: mine.seal,
-      devicePrivateKey: await importDeviceKey(pair.device.privateKeyPkcs8),
+      deriveBits: pair.device.deriveBits,
       personPublicKey: mine.personPublicKey,
       personKeyId: mine.personKeyId,
       deviceId: mine.id,
@@ -730,7 +736,7 @@ describe("il gate (`vaultCallerOf`): la dichiarazione della rotta conta", () => 
     expect(await vaultCallerOf(testDb.db, request({}))).toEqual({ ok: false, code: "session_required" });
     expect(await vaultCallerOf(testDb.db, request({ desktopVault: true, browserOnly: true }))).toMatchObject({ ok: true });
     // L'interruttore d'istanza spento: la rotta dichiarata non c'è per il Mac.
-    expect(await vaultCallerOf(testDb.db, request({ desktopVault: true }, false))).toEqual({ ok: false, code: "not_found" });
+    expect(await vaultCallerOf(testDb.db, request({ desktopVault: true }, false))).toEqual({ ok: false, code: "vault_desktop_disabled" });
   });
 });
 
@@ -882,7 +888,7 @@ describe("l'interruttore `VAULT_DESKTOP` SPENTO (default, decisione di 46 del 25
   const inject = (method: "GET" | "POST" | "DELETE", url: string, headers: Record<string, string>, payload?: unknown) =>
     off.inject({ method, url, headers, ...(payload !== undefined ? { payload: payload as Record<string, unknown> } : {}) });
 
-  it("il PAT desktop riceve 404 `not_found` sull'associazione e sul proprio sigillo, come se le rotte non ci fossero; niente scritto", async () => {
+  it("il PAT desktop riceve 404 `vault_desktop_disabled` (review M2: non il `not_found` generico) sull'associazione e sul proprio sigillo, come se le rotte non ci fossero; niente scritto", async () => {
     const before = (await testDb.db.select().from(vaultDevicePairings)).length;
     const cases: [string, string, unknown?][] = [
       ["POST", "/api/vault/device-pairings", { devicePublicKey: publicJwk(), deviceName: "Mac" }],
@@ -891,7 +897,7 @@ describe("l'interruttore `VAULT_DESKTOP` SPENTO (default, decisione di 46 del 25
     ];
     for (const [method, url, body] of cases) {
       const res = await inject(method as "GET" | "POST" | "DELETE", url, olga.desktop.headers, body);
-      expect([res.statusCode, res.json().code], `${method} ${url}`).toEqual([404, "not_found"]);
+      expect([res.statusCode, res.json().code], `${method} ${url}`).toEqual([404, "vault_desktop_disabled"]);
     }
     expect(await testDb.db.select().from(vaultDevicePairings)).toHaveLength(before);
     expect((await sealsOf(olga.id)).find((s) => s.id === sealId)!.revokedAt).toBeNull();
@@ -908,7 +914,7 @@ describe("l'interruttore `VAULT_DESKTOP` SPENTO (default, decisione di 46 del 25
     ];
     for (const [method, url, body] of cases) {
       const res = await inject(method as "GET" | "POST", url, olga.desktop.headers, body);
-      expect([res.statusCode, res.json().code], `${method} ${url}`).toEqual([404, "not_found"]);
+      expect([res.statusCode, res.json().code], `${method} ${url}`).toEqual([404, "vault_desktop_disabled"]);
     }
     expect(await testDb.db.select().from(credentialAccessLog).where(eq(credentialAccessLog.credentialId, credentialId))).toHaveLength(0);
   });

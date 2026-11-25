@@ -1,9 +1,9 @@
 // Il sigillo del dispositivo (lotto 10, `docs/plans/2026-11-24-cassaforte-desktop-design.md`
 // §1): la privata di PERSONA avvolta per la pubblica di un Mac associato.
 //
-// - La coppia del dispositivo è ECDH P-256, la pubblica in JWK come quelle di
-//   persona; la privata esce in pkcs8 UNA volta, perché il main la scriva
-//   sigillata da `safeStorage`, poi vive come CryptoKey non estraibile.
+// - La coppia del dispositivo è ECDH P-256 e nasce nel Secure Enclave (review
+//   I1): la pubblica arriva da lì (`devicePublicKeyFromRaw` → JWK), la
+//   privata non esce mai dall'enclave e l'ECDH lo fa lui (`deriveBits`).
 // - Il browser sigilla a partire dal sigillo della PASSKEY e dalla sua uscita
 //   PRF (come `resealPrivateKey`): la privata in chiaro non esce mai da questo
 //   modulo, e la CryptoKey aperta nel browser resta non estraibile.
@@ -20,7 +20,6 @@ import {
   HKDF_INFO,
   assertPairMatches,
   exportPublicKey,
-  generateExportableKeyPair,
   hkdfAesKey,
   importPrivateKey,
   importPublicKey,
@@ -46,16 +45,6 @@ async function deviceSealAad(personKeyId: string, deviceId: string, personPublic
   out.set(prefix);
   out.set(digest, prefix.length);
   return out;
-}
-
-/** La coppia del Mac: pubblica (JWK, solo campi pubblici) e privata pkcs8 da sigillare con `safeStorage`. */
-export async function generateDeviceKeyPair(): Promise<{ publicKey: string; privateKeyPkcs8: Uint8Array<ArrayBuffer> }> {
-  return generateExportableKeyPair();
-}
-
-/** La privata del Mac (pkcs8) come chiave ECDH NON estraibile. */
-export async function importDeviceKey(pkcs8: Uint8Array): Promise<CryptoKey> {
-  return importPrivateKey(pkcs8);
 }
 
 /**
@@ -100,32 +89,27 @@ export async function devicePublicKeyFromRaw(raw: Uint8Array): Promise<string> {
 }
 
 /**
- * L'ECDH col Mac: la privata come CryptoKey (WebCrypto) o — review I1, la
- * chiave nel Secure Enclave — una funzione che riceve il punto effimero della
- * busta (non compresso, 65 byte) e restituisce i 32 byte del segreto
- * condiviso (la coordinata x, come `deriveBits` di WebCrypto e
- * `sharedSecretFromKeyAgreement` di CryptoKit). Una sola delle due.
+ * L'ECDH col Mac — review I1, la chiave nel Secure Enclave (Keychain di data
+ * protection): una funzione che riceve il punto effimero della busta (non
+ * compresso, 65 byte) e restituisce i 32 byte del segreto condiviso (la
+ * coordinata x, come `sharedSecretFromKeyAgreement` di CryptoKit). Review 2,
+ * M8: è l'UNICA via; quella con la privata come CryptoKey nel processo (la
+ * vecchia, senza tocco) non c'è più, e i test usano `@stubwise/vault-crypto/testing`.
  */
-export type DeviceKeyAgreement =
-  | { devicePrivateKey: CryptoKey; deriveBits?: never }
-  | { deriveBits: (ephemeralPublicKey: Uint8Array) => Promise<ArrayBuffer | Uint8Array>; devicePrivateKey?: never };
+export type DeviceKeyAgreement = {
+  deriveBits: (ephemeralPublicKey: Uint8Array) => Promise<ArrayBuffer | Uint8Array>;
+};
 
 async function sharedSecret(agreement: DeviceKeyAgreement, epk: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer>> {
-  const hasKey = agreement.devicePrivateKey !== undefined;
-  const hasFn = agreement.deriveBits !== undefined;
-  if (hasKey === hasFn) throw new Error("serve una sola fra devicePrivateKey e deriveBits");
-  if (agreement.devicePrivateKey !== undefined) {
-    const ephemeral = await subtle().importKey("raw", epk, ECDH, false, []);
-    return bytes(await subtle().deriveBits({ name: "ECDH", public: ephemeral }, agreement.devicePrivateKey, 256));
-  }
+  if (typeof agreement.deriveBits !== "function") throw new Error("serve deriveBits (l'ECDH del Secure Enclave)");
   const shared = bytes(await agreement.deriveBits(new Uint8Array(epk)));
   if (shared.length !== 32) throw new Error("il segreto condiviso dev'essere di 32 byte");
   return shared;
 }
 
 /**
- * Nel main del desktop: apre il sigillo del Mac con la privata del Mac (o con
- * l'ECDH dell'enclave, {@link DeviceKeyAgreement}) e dà
+ * Nel main del desktop: apre il sigillo del Mac con l'ECDH dell'enclave
+ * ({@link DeviceKeyAgreement}) e dà
  * la privata di persona come CryptoKey NON estraibile, dopo aver verificato
  * che sia la metà di `personPublicKey` (la pubblica CONFERMATA che dice il
  * server). Lancia su un altro Mac, su id o pubblica che non sono i suoi.
