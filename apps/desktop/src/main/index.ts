@@ -50,6 +50,7 @@ import {
   saveDevice,
 } from "./vaultDevice";
 import { registerVaultIpc } from "./vaultIpc";
+import { chooseClipboard, electronClipboard, helperClipboard } from "./vaultClipboard";
 import { createVaultLock } from "./vaultLock";
 import { createVaultOps } from "./vaultOps";
 import { createVaultPairing } from "./vaultPairing";
@@ -263,7 +264,12 @@ const vaultPairing = createVaultPairing({
 const vaultOps = createVaultOps({
   lock: vault,
   request: (method, path, body) => vaultRemote.request(method, path, body),
-  clipboard: { write: (text) => clipboard.writeText(text), read: () => clipboard.readText() },
+  // M4: i tipi Concealed/Transient dall'helper dove c'è l'enclave; altrimenti Electron.
+  clipboard: chooseClipboard({
+    useHelper: async () => (await vaultSupported()).enclave,
+    helper: helperClipboard(keyHelper),
+    electron: electronClipboard(clipboard),
+  }),
 });
 
 /**

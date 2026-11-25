@@ -14,6 +14,7 @@ import {
   unwrapItemKey,
   wrapItemKey,
 } from "@stubwise/vault-crypto";
+import type { VaultClipboard } from "./vaultClipboard";
 import { isDisabled, VaultHttpError } from "./vaultRemote";
 
 // Le operazioni con la chiave di persona, nel main (lotto 10; rotte del PAT
@@ -37,7 +38,8 @@ export interface VaultOpsDeps {
   };
   /** `vaultRemote.request`: il PAT desktop, `VaultHttpError` sugli errori. */
   request: (method: string, path: string, body?: unknown) => Promise<unknown>;
-  clipboard: { write: (text: string) => void; read: () => string | Promise<string> };
+  /** Gli appunti (M4: coi tipi Concealed/Transient dall'helper, `vaultClipboard.ts`). */
+  clipboard: VaultClipboard;
 }
 
 export type OpFailure = { ok: false; code: string };
@@ -132,19 +134,13 @@ export function createVaultOps(deps: VaultOpsDeps) {
   }
 
   let clearTimer: ReturnType<typeof setTimeout> | undefined;
-  /** L'ultima password copiata, finché gli appunti non si svuotano (M4: per `before-quit`). */
-  let copied: string | null = null;
+  /** Il segnale dell'ultima copia, finché gli appunti non si svuotano (M4: per `before-quit`). */
+  let copied: { token: unknown } | null = null;
 
-  /** Svuota gli appunti se contengono ancora la password copiata (non poter rileggere: si svuotano comunque). */
-  async function clearIfStill(password: string): Promise<void> {
-    let now: string | null = null;
-    try {
-      now = await deps.clipboard.read();
-    } catch {
-      now = null;
-    }
-    if (now === null || now === password) deps.clipboard.write("");
-    if (copied === password) copied = null;
+  /** Svuota gli appunti se nessuno li ha cambiati dopo quella copia. */
+  async function clearIfStill(written: { token: unknown }): Promise<void> {
+    if (copied === written) copied = null;
+    await deps.clipboard.clearIf(written.token);
   }
 
   /** M5: condividere, togliere un lettore, confermare e rifiutare chiedono un Touch ID a sé. */
@@ -205,10 +201,10 @@ export function createVaultOps(deps: VaultOpsDeps) {
     copy: (credentialId: string) =>
       guarded(async (key) => {
         const password = await reveal(credentialId, "copy", key);
-        deps.clipboard.write(password);
-        copied = password;
+        const written = { token: await deps.clipboard.copy(password) };
+        copied = written;
         clearTimeout(clearTimer);
-        clearTimer = setTimeout(() => void clearIfStill(password), CLIPBOARD_CLEAR_MS);
+        clearTimer = setTimeout(() => void clearIfStill(written), CLIPBOARD_CLEAR_MS);
         return {};
       }),
 

@@ -76,8 +76,19 @@ function setup(routes: Record<string, (body: unknown) => unknown>) {
       return run(me.privateKey, PK);
     },
   };
+  // Gli appunti finti col modello dell'helper: ogni scrittura alza il changeCount.
   let clip = "";
-  const clipboard = { write: (t: string) => void (clip = t), read: () => clip };
+  let changeCount = 0;
+  const clipboard = {
+    copy: async (t: string) => {
+      clip = t;
+      return ++changeCount;
+    },
+    clearIf: async (token: unknown) => {
+      if (token === changeCount) clip = "";
+    },
+    read: () => clip,
+  };
   const request = async (method: string, path: string, body?: unknown) => {
     calls.push({ method, path, body });
     const route = routes[`${method} ${path}`];
@@ -90,7 +101,10 @@ function setup(routes: Record<string, (body: unknown) => unknown>) {
     calls,
     lock,
     clipboard,
-    setClip: (t: string) => (clip = t),
+    setClip: (t: string) => {
+      clip = t;
+      changeCount += 1;
+    },
     touches: () => touches,
   };
 }
