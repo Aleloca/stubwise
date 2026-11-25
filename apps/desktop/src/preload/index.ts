@@ -1,3 +1,4 @@
+import type { CredentialItem } from "@stubwise/shared";
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { DownloadResult } from "../main/apiDownload";
 import type { ApiProxyRequest, ApiProxyResponse } from "../main/apiProxy";
@@ -222,6 +223,18 @@ const bridge = {
       password: string,
     ): Promise<{ ok: true; id: string } | { ok: false; code: string }> =>
       ipcRenderer.invoke("vault:create", projectId, fields, password),
+    /** Lo stato della propria chiave (`/api/vault/status`, dal main: review C1). */
+    serverStatus: (): Promise<
+      | {
+          ok: true;
+          activated: boolean;
+          myKey: { id: string; status: string; createdAt: string; publicKey: string | null } | null;
+        }
+      | { ok: false; code: string }
+    > => ipcRenderer.invoke("vault:server-status"),
+    /** «Le mie» credenziali (`/api/vault/credentials`, dal main: review C1). */
+    mine: (): Promise<{ ok: true; items: CredentialItem[] } | { ok: false; code: string }> =>
+      ipcRenderer.invoke("vault:mine"),
     /** La password nuova: con la cassaforte aperta, cifrata dal main. */
     setPassword: (
       credentialId: string,

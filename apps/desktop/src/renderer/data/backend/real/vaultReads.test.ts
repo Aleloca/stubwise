@@ -24,6 +24,7 @@ const item = (id: string, over: Record<string, unknown> = {}) => ({
   access: "read",
   canEdit: true,
   canShare: true,
+  canSeeLog: true,
   ...over,
 });
 const C1 = "c1c1c1c1-0000-4000-8000-000000000001";
@@ -90,21 +91,31 @@ describe("le letture della cassaforte, dalle rotte", () => {
     expect(await vault.getCredential(OTHER)).toBeNull();
   });
 
-  it("l'entrata della sezione: c'è chi crea; chi gestisce vede il registro", async () => {
+  it("l'entrata della sezione: c'è chi crea; il registro lo dice il SERVER (review M4)", async () => {
     installFakeServer({
       "GET /api/auth/me": {
         body: me({
           projectPermissions: { [PROJECT_ID]: ["credentials.create", "credentials.share"] },
         }),
       },
-      [`GET /api/projects/${PROJECT_ID}/credentials`]: { body: { items: [] } },
+      // Il client direbbe «sì» dai permessi: vale il server.
+      [`GET /api/projects/${PROJECT_ID}/credentials`]: { body: { items: [], canSeeLog: false } },
     });
     expect(await vault.getCredentialsEntry(PROJECT_ID)).toEqual({
       show: true,
       waitingMe: false,
       canCreate: true,
-      canSeeLog: true,
+      canSeeLog: false,
     });
+  });
+
+  it("la riga porta `canSeeLog` dal server", async () => {
+    installFakeServer({
+      [`GET /api/projects/${PROJECT_ID}/credentials`]: {
+        body: { items: [item(C1, { canSeeLog: false })], canSeeLog: true },
+      },
+    });
+    expect((await vault.listCredentials({ projectId: PROJECT_ID }))[0]!.canSeeLog).toBe(false);
   });
 
   it("l'entrata della pagina Vault: c'è con una credenziale o un progetto dove si crea", async () => {
@@ -200,6 +211,7 @@ describe("le letture della cassaforte, dalle rotte", () => {
                 fullAdmin: false,
                 status: "pending",
                 keyStatus: "pending",
+                roleName: "Developer",
               },
             ],
           },
@@ -216,13 +228,14 @@ describe("le letture della cassaforte, dalle rotte", () => {
           addedAt: "2026-11-21T10:00:00.000Z",
         },
       ]);
-      expect(r.effective.map((e) => [e.name, e.source, e.state])).toEqual([
-        ["Laura Costa", "created", "reads"],
-        ["Marco Bellini", "role", "key_pending"],
+      expect(r.effective.map((e) => [e.name, e.source, e.roleName, e.state])).toEqual([
+        ["Laura Costa", "created", null, "reads"],
+        // Il nome del ruolo dal server (72, f9e9193ce; review M3).
+        ["Marco Bellini", "role", "Developer", "key_pending"],
       ]);
     });
 
-    it("il registro: da dove (desktop → mac), l'azione, il nome; chi non gestisce (403) riceve niente", async () => {
+    it("il registro: da dove (desktop → mac), l'azione, il nome; un 403 è un errore", async () => {
       installFakeServer({
         "GET /api/people": { body: people },
         [`GET /api/projects/${PROJECT_ID}/credentials/log`]: {
@@ -262,7 +275,8 @@ describe("le letture della cassaforte, dalle rotte", () => {
           body: { code: "forbidden", message: "x" },
         },
       });
-      expect(await vault.listAccessLog({ projectId: PROJECT_ID })).toEqual([]);
+      // Review M4: un 403 è un errore, non «nessuno l'ha vista».
+      await expect(vault.listAccessLog({ projectId: PROJECT_ID })).rejects.toThrow();
     });
 
     it("Share with: persone e ruoli del progetto, tolti i già aggiunti; niente senza canShare", async () => {
@@ -338,6 +352,7 @@ describe("le letture della cassaforte, dalle rotte", () => {
       });
       expect(await vault.updateCredential(C1, { label: "Pannello", notes: null })).toEqual({
         ok: true,
+        resaved: false,
       });
       expect(seen.find((r) => r.method === "PATCH")!.body).toEqual({
         label: "Pannello",
@@ -347,11 +362,23 @@ describe("le letture della cassaforte, dalle rotte", () => {
       seen.length = 0;
       expect(await vault.updateCredential(C1, { label: "X", password: "Nn1!segreta" })).toEqual({
         ok: true,
+        resaved: false,
       });
       expect(setPassword).toHaveBeenCalledWith(C1, "Nn1!segreta");
       expect(order.slice(-2)).toEqual(["password", "patch"]);
       // Sulla rotta la password non va mai.
       expect(JSON.stringify(seen)).not.toContain("Nn1!segreta");
+    });
+
+    // [VA 6]: il main ha risalvato per i lettori cambiati; l'adattatore lo porta su.
+    it("la password nuova risalvata dal main: `resaved`", async () => {
+      vi.stubGlobal("stubwise", {
+        vault: { setPassword: vi.fn(async () => ({ ok: true as const, resaved: true })) },
+      });
+      expect(await vault.updateCredential(C1, { password: "Nn1!segreta" })).toEqual({
+        ok: true,
+        resaved: true,
+      });
     });
 
     it("la password nuova a cassaforte chiusa: `vault_locked`, e i campi non si toccano", async () => {
@@ -377,7 +404,11 @@ describe("le letture della cassaforte, dalle rotte", () => {
         notes: null,
         password: "Bb3!",
       };
-      expect(await vault.createCredential(PROJECT_ID, input)).toEqual({ ok: true, id: C2 });
+      expect(await vault.createCredential(PROJECT_ID, input)).toEqual({
+        ok: true,
+        id: C2,
+        resaved: false,
+      });
       expect(create).toHaveBeenCalledWith(
         PROJECT_ID,
         { service: "Brevo SMTP", label: null, url: null, username: "pm", notes: null },

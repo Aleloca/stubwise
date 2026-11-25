@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useCancelPairing, usePairingResult, useStartPairing } from "../../data/queries";
+import {
+  cancelPairingNow,
+  useCancelPairing,
+  usePairingResult,
+  useStartPairing,
+} from "../../data/queries";
 import { isAppBuild } from "../../data/build";
 import { Dialog } from "../../tasks-ui/Dialog";
 import { primaryButton, quietButton, secondaryButton } from "../tasks/controls";
@@ -35,10 +40,18 @@ export function PairingDialog({ onClose }: { onClose: () => void }) {
   const [phase, setPhase] = useState<Phase>({ kind: "starting" });
   const waiting = useRef(false);
   waiting.current = phase.kind === "waiting";
+  // Review M6: chiuso mentre la richiesta è ancora in volo; quando torna,
+  // l'associazione appena aperta si annulla.
+  const closed = useRef(false);
 
   const begin = async () => {
     setPhase({ kind: "starting" });
     const out = await start.mutateAsync(undefined).catch(() => null);
+    if (closed.current) {
+      // Il dialogo è già smontato: la mutazione non partirebbe più.
+      if (out?.ok) void cancelPairingNow().catch(() => null);
+      return;
+    }
     if (out?.ok) setPhase({ kind: "waiting", fingerprint: out.fingerprint });
     else setPhase({ kind: "failed", code: out && !out.ok ? out.code : "other" });
   };
@@ -54,6 +67,7 @@ export function PairingDialog({ onClose }: { onClose: () => void }) {
   });
 
   const close = () => {
+    closed.current = true;
     if (waiting.current) void cancel.mutateAsync(undefined).catch(() => null);
     onClose();
   };

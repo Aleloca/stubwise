@@ -1,4 +1,3 @@
-import { ApiError } from "@stubwise/api-client";
 import { keyFingerprint } from "@stubwise/vault-crypto";
 import type * as Fake from "../../api";
 import { appClient } from "./client";
@@ -15,6 +14,13 @@ type FakeVault = typeof Fake.vault;
 type Bridge = NonNullable<NonNullable<Window["stubwise"]>["vault"]>;
 
 const bridge = (): Bridge | null => window.stubwise?.vault ?? null;
+
+/**
+ * Review I2: l'ultima apertura non ha raggiunto Stubwise (`unavailable` dal
+ * main). La barra lo dice — «Couldn't reach Stubwise…» · Try again — finché
+ * un'apertura riesce o la cassaforte si chiude.
+ */
+let unreachable = false;
 
 function need(): Bridge {
   const b = bridge();
@@ -41,24 +47,22 @@ export const getVaultStatus: FakeVault["getVaultStatus"] = async () => {
     ownFingerprint: null,
     pairing: null,
   };
+  if (unreachable && s.state === "locked") return { ...view, state: "unreachable" };
   // Il main sa già che dal Mac non si apre: il server non serve.
   if (s.state === "disabled" || s.state === "unsupported") return view;
   // Fetta 2a: la propria chiave dal server (`GET /api/vault/status`,
   // `desktopRead`): cassaforte non attivata, nessuna chiave, chiave da
   // confermare. Con la chiave confermata decide il Mac.
-  let server: Awaited<ReturnType<ReturnType<typeof appClient>["vault"]["status"]>>;
-  try {
-    server = await appClient().vault.status();
-  } catch (error) {
-    if (
-      error instanceof ApiError &&
-      error.status === 404 &&
-      error.code === "vault_desktop_disabled"
-    )
+  // Review C1: nell'app ogni `/api/vault*` passa dal main (il proxy le
+  // rifiuta al renderer): lo stato della propria chiave ha il suo canale.
+  const out = await b.serverStatus();
+  if (!out.ok) {
+    if (out.code === "disabled" || out.code === "vault_desktop_disabled")
       return { ...view, state: "disabled" };
     // Il server non risponde: la barra resta quella del Mac (aprire lo dirà).
     return view;
   }
+  const server = out;
   if (!server.activated) return { ...view, state: "inactive" };
   const myKey = server.myKey;
   // Una chiave rifiutata o sostituita non apre più niente: va ricreata nel browser.
@@ -77,10 +81,12 @@ export const getVaultStatus: FakeVault["getVaultStatus"] = async () => {
 
 export const unlock: FakeVault["unlock"] = async () => {
   const out = await need().unlock();
+  unreachable = !out.ok && out.code === "unavailable";
   return out.ok ? { ok: true } : { ok: false, code: out.code };
 };
 
 export const lock: FakeVault["lock"] = async () => {
+  unreachable = false;
   await need().lock();
   return { ok: true };
 };

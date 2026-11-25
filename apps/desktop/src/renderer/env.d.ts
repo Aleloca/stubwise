@@ -233,11 +233,27 @@ interface Window {
           notes: string | null;
         },
         password: string,
-      ) => Promise<{ ok: true; id: string } | StubwiseVaultFail>;
+      ) => Promise<{ ok: true; id: string; resaved?: boolean } | StubwiseVaultFail>;
       setPassword: (
         credentialId: string,
         password: string,
-      ) => Promise<{ ok: true } | StubwiseVaultFail>;
+      ) => Promise<{ ok: true; resaved?: boolean } | StubwiseVaultFail>;
+      serverStatus: () => Promise<
+        | {
+            ok: true;
+            activated: boolean;
+            myKey: {
+              id: string;
+              status: string;
+              createdAt: string;
+              publicKey: string | null;
+            } | null;
+          }
+        | StubwiseVaultFail
+      >;
+      mine: () => Promise<
+        { ok: true; items: import("@stubwise/shared").CredentialItem[] } | StubwiseVaultFail
+      >;
     };
   };
 }

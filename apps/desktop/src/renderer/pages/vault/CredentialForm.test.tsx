@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resetApi, setLatency } from "../../data/api";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetApi, setLatency, vault } from "../../data/api";
 import { VAULT_IDS } from "../../data/seed/vault";
 import { setVaultClipboard } from "../../data/vault/index";
 import { setLanguage } from "../../i18n";
@@ -110,5 +110,26 @@ describe("nuova e modifica di una credenziale", () => {
     const p = within(await panel());
     await p.findByText("ops@acquedotto");
     expect(p.queryByRole("button", { name: "Edit" })).toBeNull();
+  });
+
+  // [VA 6] (review M2): il main ha risalvato per i lettori di adesso dopo
+  // un 409 `recipients_changed`: la frase della shape, non «Saved.».
+  it("VA 6: risalvata per i lettori cambiati, la frase lo dice", async () => {
+    const spy = vi.spyOn(vault, "updateCredential").mockResolvedValue({ ok: true, resaved: true });
+    try {
+      const user = userEvent.setup();
+      renderRoute(`/p/ACQ/credentials?credential=${VAULT_IDS.ARUBA}`, "p-laura");
+      const p = within(await screen.findByRole("region", { name: "Credential Aruba hosting" }));
+      await user.click(p.getByRole("button", { name: "Edit" }));
+      await user.type(await p.findByLabelText("Password"), "Nn1!nuova-22");
+      await user.click(p.getByRole("button", { name: "Save" }));
+      expect(
+        await screen.findByText(
+          "Someone's access changed while you were saving. Saved again for the current readers.",
+        ),
+      ).toBeInTheDocument();
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

@@ -1,14 +1,13 @@
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useConfirmKey, useRejectKey, useVaultPending, useVaultStatus } from "../../data/queries";
+import { useConfirmKey, useRejectKey, useVaultPending } from "../../data/queries";
 import type { PendingPersonView } from "../../data/vault/types";
 import { DetailPanel } from "../../layout/useDetailPanel";
 import { useMediaQuery } from "../../layout/useMediaQuery";
 import { useToast } from "../../tasks-ui/Toast";
 import { dangerSolidButton, primaryButton, quietButton, secondaryButton } from "../tasks/controls";
 import { CREDENTIAL_PANEL_DOCKED_QUERY } from "./CredentialPanel";
-import { useOpenVault } from "./VaultBar";
 
 // Gli accessi da confermare (shape `vault.md` §3): la riga sotto la barra
 // per chi ha persone da confermare («N people are waiting for access ·
@@ -99,26 +98,28 @@ function PendingPanel() {
 function PendingCard({ person }: { person: PendingPersonView }) {
   const { t } = useTranslation();
   const toast = useToast();
-  const status = useVaultStatus().data;
-  const { open } = useOpenVault();
   const confirm = useConfirmKey();
   const reject = useRejectKey();
   const [asking, setAsking] = useState<"confirm" | "reject" | null>(null);
-  const ensureOpen = async () => status?.state === "open" || (await open());
+  // Review M7: l'azione fa il suo Touch ID (nel main), niente apertura prima.
 
   const onConfirm = async () => {
     setAsking(null);
-    if (!(await ensureOpen())) return;
     const out = await confirm.mutateAsync(person.keyId).catch(() => null);
     if (!out?.ok) return void toast.error(t("vault.pending.failed"));
-    const parts = [t("vault.pending.now", { name: person.name, count: out.saved })];
+    // Review M5: zero passate non è «now reads 0»; le non apribili si dicono.
+    const parts = [
+      out.saved > 0
+        ? t("vault.pending.now", { name: person.name, count: out.saved })
+        : t("vault.pending.nothing", { name: person.name }),
+    ];
     if (out.keyChanged > 0) parts.push(t("vault.pending.changed", { count: out.keyChanged }));
     if (out.notAllowed > 0) parts.push(t("vault.pending.notAllowed", { count: out.notAllowed }));
+    if (out.unopenable > 0) parts.push(t("vault.pending.unopenable", { count: out.unopenable }));
     toast.show(parts.join(" "));
   };
   const onReject = async () => {
     setAsking(null);
-    if (!(await ensureOpen())) return;
     const out = await reject.mutateAsync(person.keyId).catch(() => null);
     if (!out?.ok) return void toast.error(t("vault.pending.failed"));
     toast.show(t("vault.pending.rejected", { name: person.name }));

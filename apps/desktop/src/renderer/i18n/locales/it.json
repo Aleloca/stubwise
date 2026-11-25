@@ -13624,7 +13624,7 @@
   },
   "vault": {
     "title": "Credenziali",
-    "subtitle": "Le password dei servizi di {{code}}. Le vede solo chi le legge.",
+    "subtitle": "Le password dei servizi del progetto. Le vede solo chi ne legge una.",
     "new": "Nuova credenziale",
     "empty": "Ancora nessuna credenziale in questo progetto.",
     "errors": {
@@ -13654,7 +13654,10 @@
       "inactive": "La cassaforte non è ancora stata attivata su questa istanza.",
       "openFailed": "Questo Mac non è riuscito ad aprire la cassaforte.",
       "disabled": "Questa istanza apre la cassaforte solo dal browser.",
-      "unsupported": "Questo Mac non può aprire la cassaforte (manca il Secure Enclave, o la build non lo prevede). Aprila dal browser."
+      "unsupported": "Questo Mac non può aprire la cassaforte (manca il Secure Enclave, o la build non lo prevede). Aprila dal browser.",
+      "inactiveAdmin": "Attivala nel browser.",
+      "unsupportedWeb": "Nel browser la cassaforte si apre dalle pagine web di Stubwise, con la tua passkey.",
+      "openWebPage": "Apri la pagina della cassaforte"
     },
     "row": {
       "show": "Mostra",
@@ -13667,7 +13670,8 @@
       "hidden": "Password nascosta",
       "waiting": "In attesa di conferma",
       "manages": "Questa non la leggi",
-      "shownLive": "Password mostrata"
+      "shownLive": "Password mostrata",
+      "openFirst": "Prima apri la cassaforte"
     },
     "copied": "Copiata. Gli appunti si svuotano fra 30 secondi.",
     "revealFailed": "Non è stato possibile aprire la password.",
@@ -13685,12 +13689,13 @@
       "usernameCopied": "Utente copiato.",
       "openUrl": "Apri {{url}} nel browser",
       "log": "Registro degli accessi",
-      "logEmpty": "Nessuno ha ancora mostrato o copiato questa password.",
+      "logEmpty": "Nessuno ha ancora mostrato o copiato una password.",
       "shown": "mostrata",
       "copied": "copiata",
       "fromMac": "dal Mac",
       "fromBrowser": "dal browser",
-      "close": "Chiudi"
+      "close": "Chiudi",
+      "logError": "Non è stato possibile caricare il registro degli accessi."
     },
     "form": {
       "edit": "Modifica",
@@ -13712,7 +13717,8 @@
       "saved": "Modifiche salvate.",
       "failed": "Non è stato possibile salvare la credenziale.",
       "locked": "Apri la cassaforte per cambiare la password.",
-      "project": "Progetto"
+      "project": "Progetto",
+      "resaved": "L'accesso di qualcuno è cambiato mentre salvavi. Salvata di nuovo per chi la legge adesso."
     },
     "readers": {
       "title": "Lettori",
@@ -13723,7 +13729,8 @@
         "full_admin": "full admin",
         "created": "l'ha creata",
         "direct": "aggiunta direttamente",
-        "role": "ruolo {{role}}"
+        "role": "ruolo {{role}}",
+        "roleUnknown": "tramite un ruolo"
       },
       "state": {
         "no_key": "in attesa: ancora senza chiave della cassaforte",
@@ -13744,7 +13751,8 @@
       "share": "Condividi",
       "shared": "Condivisa con {{name}}.",
       "waiting": "In attesa di conferma: {{emails}}.",
-      "failed": "Non è stato possibile cambiare chi la legge."
+      "failed": "Non è stato possibile cambiare chi la legge.",
+      "shareNeedsRead": "Potrai condividerla quando la leggerai anche tu: chiedi a chi la legge."
     },
     "pending": {
       "waiting_one": "{{count}} persona aspetta l'accesso",
@@ -13764,10 +13772,13 @@
       "rejectYes": "Sì, rifiuta la chiave",
       "now_one": "{{name}} ora legge {{count}} credenziale.",
       "now_other": "{{name}} ora legge {{count}} credenziali.",
+      "nothing": "A {{name}} non è arrivato niente di nuovo.",
       "changed_one": "{{count}} credenziale è cambiata nel frattempo: conferma di nuovo.",
       "changed_other": "{{count}} credenziali sono cambiate nel frattempo: conferma di nuovo.",
       "notAllowed_one": "{{count}} credenziale che non puoi passare aspetta un altro lettore.",
       "notAllowed_other": "{{count}} credenziali che non puoi passare aspettano un altro lettore.",
+      "unopenable_one": "{{count}} credenziale non si è aperta su questo Mac: aspetta un altro lettore.",
+      "unopenable_other": "{{count}} credenziali non si sono aperte su questo Mac: aspettano un altro lettore.",
       "rejected": "La chiave di {{name}} è stata rifiutata.",
       "failed": "Non è stato possibile completare. Riprova.",
       "empty": "Nessuno aspetta l'accesso."

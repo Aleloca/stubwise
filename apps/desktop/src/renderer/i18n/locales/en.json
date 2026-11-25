@@ -13624,7 +13624,7 @@
   },
   "vault": {
     "title": "Credentials",
-    "subtitle": "Passwords for {{code}}'s services. Only the people who read one see it.",
+    "subtitle": "Passwords for the project's services. Only the people who read one see it.",
     "new": "New credential",
     "empty": "No credentials in this project yet.",
     "errors": {
@@ -13654,7 +13654,10 @@
       "inactive": "The vault hasn't been activated on this instance yet.",
       "openFailed": "This Mac couldn't open the vault.",
       "disabled": "This instance opens the vault only in the browser.",
-      "unsupported": "This Mac can't open the vault (no Secure Enclave, or a build without it). Open it in the browser."
+      "unsupported": "This Mac can't open the vault (no Secure Enclave, or a build without it). Open it in the browser.",
+      "inactiveAdmin": "Activate it in the browser.",
+      "unsupportedWeb": "In the browser, the vault opens on Stubwise's web pages, with your passkey.",
+      "openWebPage": "Open the vault page"
     },
     "row": {
       "show": "Show",
@@ -13667,7 +13670,8 @@
       "hidden": "Hidden password",
       "waiting": "Waiting for confirmation",
       "manages": "You don't read this one",
-      "shownLive": "Password shown"
+      "shownLive": "Password shown",
+      "openFirst": "Open the vault first"
     },
     "copied": "Copied. The clipboard is cleared in 30 seconds.",
     "revealFailed": "The password couldn't be opened.",
@@ -13685,12 +13689,13 @@
       "usernameCopied": "Username copied.",
       "openUrl": "Open {{url}} in the browser",
       "log": "Access log",
-      "logEmpty": "Nobody has shown or copied this password yet.",
+      "logEmpty": "Nobody has shown or copied a password yet.",
       "shown": "shown",
       "copied": "copied",
       "fromMac": "from the Mac",
       "fromBrowser": "from the browser",
-      "close": "Close"
+      "close": "Close",
+      "logError": "Couldn't load the access log."
     },
     "form": {
       "edit": "Edit",
@@ -13712,7 +13717,8 @@
       "saved": "Changes saved.",
       "failed": "Couldn't save the credential.",
       "locked": "Open the vault to change the password.",
-      "project": "Project"
+      "project": "Project",
+      "resaved": "Someone's access changed while you were saving. Saved again for the current readers."
     },
     "readers": {
       "title": "Readers",
@@ -13723,7 +13729,8 @@
         "full_admin": "full admin",
         "created": "created it",
         "direct": "added directly",
-        "role": "role {{role}}"
+        "role": "role {{role}}",
+        "roleUnknown": "via a role"
       },
       "state": {
         "no_key": "waiting: no vault key yet",
@@ -13744,7 +13751,8 @@
       "share": "Share",
       "shared": "Shared with {{name}}.",
       "waiting": "Waiting for confirmation: {{emails}}.",
-      "failed": "Couldn't change who reads it."
+      "failed": "Couldn't change who reads it.",
+      "shareNeedsRead": "You can share it once you read it yourself: ask someone who reads it."
     },
     "pending": {
       "waiting_one": "{{count}} person is waiting for access",
@@ -13764,10 +13772,13 @@
       "rejectYes": "Yes, reject the key",
       "now_one": "{{name}} now reads {{count}} credential.",
       "now_other": "{{name}} now reads {{count}} credentials.",
+      "nothing": "Nothing new reached {{name}}.",
       "changed_one": "{{count}} credential changed in the meantime: confirm again.",
       "changed_other": "{{count}} credentials changed in the meantime: confirm again.",
       "notAllowed_one": "{{count}} credential you can't pass on waits for another reader.",
       "notAllowed_other": "{{count}} credentials you can't pass on wait for another reader.",
+      "unopenable_one": "{{count}} credential couldn't be opened on this Mac: it waits for another reader.",
+      "unopenable_other": "{{count}} credentials couldn't be opened on this Mac: they wait for another reader.",
       "rejected": "{{name}}'s key was rejected.",
       "failed": "Couldn't complete it. Try again.",
       "empty": "Nobody is waiting for access."

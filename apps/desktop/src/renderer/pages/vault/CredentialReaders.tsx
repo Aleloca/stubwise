@@ -1,17 +1,10 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  useReaders,
-  useRemoveReader,
-  useShare,
-  useShareTargets,
-  useVaultStatus,
-} from "../../data/queries";
+import { useReaders, useRemoveReader, useShare, useShareTargets } from "../../data/queries";
 import type { CredentialView, ReadersView } from "../../data/vault/types";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
 import { quietButton, secondaryButton } from "../tasks/controls";
-import { useOpenVault } from "./VaultBar";
 
 // I lettori nel dettaglio di una credenziale (shape `vault.md` §3
 // «Readers»): chi la legge, con la fonte («role Developer», «full admin»,
@@ -35,22 +28,19 @@ export function CredentialReaders({
   const toast = useToast();
   const readers = useReaders(view.id).data;
   const canShare = readers?.canShare === true;
-  const targets = useShareTargets(view.id, canShare).data;
-  const status = useVaultStatus().data;
-  const { open } = useOpenVault();
+  const targets = useShareTargets(view.id, canShare && view.access === "reads").data;
   const share = useShare();
   const remove = useRemoveReader();
   const [confirming, setConfirming] = useState<string | null>(null);
   const [removed, setRemoved] = useState<Direct | null>(null);
   const [choice, setChoice] = useState("");
 
-  const ensureOpen = async () => status?.state === "open" || (await open());
+  // Review M7: l'azione fa il suo Touch ID (nel main), niente apertura prima.
   const directName = (d: Direct) =>
     d.kind === "role" ? t("vault.readers.rolePrefix", { name: d.name }) : d.name;
 
   const onRemove = async (d: Direct) => {
     setConfirming(null);
-    if (!(await ensureOpen())) return;
     const out = await remove.mutateAsync({ id: view.id, readerId: d.readerId }).catch(() => null);
     if (out?.ok) setRemoved(d);
     else toast.error(t("vault.readers.failed"));
@@ -59,7 +49,6 @@ export function CredentialReaders({
   const onShare = async () => {
     const [kind, id] = choice.split(":");
     if (!kind || !id) return;
-    if (!(await ensureOpen())) return;
     const target = kind === "role" ? { roleId: id } : { personId: id };
     const name =
       kind === "role"
@@ -87,7 +76,9 @@ export function CredentialReaders({
             <li key={r.personId} className="flex items-baseline gap-2 py-1 text-sm">
               <span className="text-ink">{r.name}</span>
               <span className="text-ink-muted">
-                {t(`vault.readers.source.${r.source}`, { role: r.roleName ?? "" })}
+                {r.source === "role" && !r.roleName
+                  ? t("vault.readers.source.roleUnknown")
+                  : t(`vault.readers.source.${r.source}`, { role: r.roleName ?? "" })}
                 {r.state !== "reads" && ` · ${t(`vault.readers.state.${r.state}`)}`}
               </span>
             </li>
@@ -152,7 +143,12 @@ export function CredentialReaders({
         </div>
       )}
 
-      {canShare && targets && (
+      {/* Review I4: condividere ricifra la PROPRIA copia della chiave: chi
+          gestisce senza leggerla non ce l'ha, e lo si dice. */}
+      {canShare && view.access !== "reads" && (
+        <p className="text-sm text-ink-muted">{t("vault.readers.shareNeedsRead")}</p>
+      )}
+      {canShare && view.access === "reads" && targets && (
         <div className="flex items-end gap-2">
           <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm text-ink-muted">
             {t("vault.readers.shareWith")}

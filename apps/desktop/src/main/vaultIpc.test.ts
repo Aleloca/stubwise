@@ -54,8 +54,10 @@ function setup() {
     reject: vi.fn(ok),
     macs: vi.fn(async () => ({ ok: true as const, items: [] })),
     removeMac: vi.fn(ok),
-    create: vi.fn(async () => ({ ok: true as const, id: CRED })),
-    setPassword: vi.fn(ok),
+    create: vi.fn(async () => ({ ok: true as const, id: CRED, resaved: false })),
+    setPassword: vi.fn(async () => ({ ok: true as const, resaved: false })),
+    serverStatus: vi.fn(async () => ({ ok: true as const, activated: true, myKey: null })),
+    mine: vi.fn(async () => ({ ok: true as const, items: [] })),
   };
   const fromApp = (event: unknown) => (event as { app?: boolean }).app === true;
   registerVaultIpc(ipc, { lock, pairing, ops, fromApp });
@@ -173,13 +175,16 @@ describe("l'IPC della cassaforte", () => {
         { service: " Brevo ", label: null, url: null, username: "pm", notes: null, extra: 1 },
         "pw",
       ),
-    ).toEqual({ ok: true, id: CRED });
+    ).toEqual({ ok: true, id: CRED, resaved: false });
     expect(ops.create).toHaveBeenCalledWith(
       CRED,
       { service: "Brevo", label: null, url: null, username: "pm", notes: null },
       "pw",
     );
-    expect(await call("vault:set-password", true, CRED, "Nn1!")).toEqual({ ok: true });
+    expect(await call("vault:set-password", true, CRED, "Nn1!")).toEqual({
+      ok: true,
+      resaved: false,
+    });
     expect(ops.setPassword).toHaveBeenCalledWith(CRED, "Nn1!");
   });
 });

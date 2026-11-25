@@ -158,8 +158,11 @@ describe("accessi da confermare", () => {
     expect(pending.map((p) => [p.personId, p.fingerprint, p.credentials.map((c) => c.id)])).toEqual(
       [["p-marco", "7d20 e5a9 c31f 6b84", [ARUBA]]],
     );
+    // Review M7: senza un Mac associato niente tocco: `vault_locked`.
+    await vault.forgetThisMac();
     expect(await vault.confirm(pending[0]!.keyId)).toEqual({ ok: false, code: "vault_locked" });
-    await vault.unlock();
+    resetApi();
+    as("p-laura");
     expect(await vault.confirm(pending[0]!.keyId)).toEqual({
       ok: true,
       saved: 1,
@@ -209,14 +212,18 @@ describe("i lettori", () => {
     expect(byId["p-federico"]).toEqual(["role", "no_key"]);
   });
 
-  it("condividere vuole la cassaforte aperta; con una chiave confermata la persona legge subito", async () => {
+  // Review M7: condividere fa il SUO Touch ID (anche a cassaforte chiusa,
+  // che resta chiusa); un tocco annullato non condivide.
+  it("condividere chiede il suo Touch ID; con una chiave confermata la persona legge subito", async () => {
     as("p-laura");
+    await vault.setVaultSimulation({ touchId: "cancelled" });
     expect(await vault.share(ARUBA, { personId: "p-sara" })).toEqual({
       ok: false,
-      code: "vault_locked",
+      code: "touch_id_cancelled",
     });
-    await vault.unlock();
+    await vault.setVaultSimulation({ touchId: "works" });
     expect(await vault.share(ARUBA, { personId: "p-sara" })).toEqual({ ok: true, waiting: [] });
+    expect((await vault.getVaultStatus()).state).toBe("locked");
     as("p-sara");
     expect((await vault.listCredentials({})).map((r) => r.id)).toContain(ARUBA);
   });

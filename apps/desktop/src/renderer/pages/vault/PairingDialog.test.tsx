@@ -95,4 +95,24 @@ describe("la finestra dell'associazione", () => {
     });
     expect(screen.getByRole("button", { name: "Pair this Mac" })).toBeInTheDocument();
   });
+
+  // Review M6: chiudere mentre l'associazione si sta ancora chiedendo la
+  // annulla lo stesso (il main può averla già aperta).
+  it("M6: Cancel mentre si chiede l'associazione: un ritorno dopo non associa", async () => {
+    const user = userEvent.setup();
+    renderRoute("/p/ACQ/credentials", "p-laura");
+    const pair = await screen.findByRole("button", { name: "Pair this Mac" });
+    // La richiesta dell'associazione è lenta: il dialogo resta in «starting».
+    setLatency(300);
+    await user.click(pair);
+    const d = within(await screen.findByRole("dialog", { name: "Pair this Mac" }));
+    expect(d.getByText("Asking Stubwise…")).toBeInTheDocument();
+    await user.click(d.getByRole("button", { name: "Cancel" }));
+    // La richiesta in volo ha già il suo ritardo; l'annullamento che segue no.
+    setLatency(0);
+    await new Promise((r) => setTimeout(r, 600));
+    await act(async () => {
+      expect(await vault.finishPairing("ok")).toEqual({ ok: false, code: "no_pending" });
+    });
+  });
 });

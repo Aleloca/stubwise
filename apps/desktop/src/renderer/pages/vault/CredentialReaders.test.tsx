@@ -1,11 +1,12 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resetApi, setLatency } from "../../data/api";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetApi, setLatency, vault } from "../../data/api";
 import { VAULT_IDS } from "../../data/seed/vault";
 import { setVaultClipboard } from "../../data/vault/index";
 import { setLanguage } from "../../i18n";
-import { renderRoute } from "../../test/renderRoute";
+import { queryKeys } from "../../data/queries";
+import { lastQueryClient, renderRoute } from "../../test/renderRoute";
 import { setMatchMedia } from "../../test/setup";
 import { CREDENTIAL_PANEL_DOCKED_QUERY } from "./CredentialPanel";
 
@@ -90,5 +91,65 @@ describe("i lettori di una credenziale", () => {
     await p.findByRole("list", { name: "Who reads it" });
     expect(p.queryByLabelText("Share with")).toBeNull();
     expect(p.queryByRole("button", { name: "Remove" })).toBeNull();
+  });
+
+  // Review I4: condividere vuol dire ricifrare la PROPRIA copia della chiave
+  // per un altro: chi gestisce senza leggere non ce l'ha. Niente «Share
+  // with», e la frase che dice perché.
+  it("chi gestisce senza leggere (Matteo su Aruba): niente Share with, e il perché", async () => {
+    renderRoute(`/p/ACQ/credentials?credential=${VAULT_IDS.ARUBA}`, "p-matteo");
+    const p = await panel();
+    await p.findByRole("list", { name: "Who reads it" });
+    expect(p.queryByLabelText("Share with")).toBeNull();
+    expect(
+      p.getByText("You can share it once you read it yourself: ask someone who reads it."),
+    ).toBeInTheDocument();
+  });
+
+  // Review M3: senza il nome del ruolo (un server di prima), «via a role»,
+  // non «role » vuoto.
+  it("un lettore via ruolo senza nome del ruolo: «via a role»", async () => {
+    renderRoute(`/p/ACQ/credentials?credential=${VAULT_IDS.ARUBA}`, "p-laura");
+    const p = await panel();
+    await p.findByRole("list", { name: "Who reads it" });
+    act(() =>
+      lastQueryClient().setQueryData(queryKeys.readers("p-laura", VAULT_IDS.ARUBA), {
+        direct: [],
+        effective: [
+          {
+            personId: "p-x",
+            name: "Marco Bellini",
+            source: "role",
+            roleName: null,
+            state: "reads",
+          },
+        ],
+        canShare: false,
+      }),
+    );
+    const who = await p.findByRole("list", { name: "Who reads it" });
+    await waitFor(() => expect(row(who, "Marco Bellini")?.textContent).toContain("via a role"));
+  });
+
+  // Review M7: un solo Touch ID per azione. Share fa il suo tocco nel main:
+  // a cassaforte chiusa il renderer non la apre prima (sarebbe il secondo),
+  // e la cassaforte resta chiusa.
+  it("M7: Share a cassaforte chiusa: nessuna apertura prima, e resta chiusa", async () => {
+    const user = userEvent.setup();
+    renderRoute(`/p/ACQ/credentials?credential=${VAULT_IDS.ARUBA}`, "p-laura");
+    const p = await panel();
+    await act(async () => {
+      await vault.lock();
+    });
+    const unlock = vi.spyOn(vault, "unlock");
+    try {
+      await user.selectOptions(await p.findByLabelText("Share with"), "Sara Montanari");
+      await user.click(p.getByRole("button", { name: "Share" }));
+      expect(await screen.findByText("Shared with Sara Montanari.")).toBeInTheDocument();
+      expect(unlock).not.toHaveBeenCalled();
+      expect((await vault.getVaultStatus()).state).toBe("locked");
+    } finally {
+      unlock.mockRestore();
+    }
   });
 });

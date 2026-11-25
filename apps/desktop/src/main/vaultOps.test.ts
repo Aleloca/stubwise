@@ -58,9 +58,12 @@ function setup(routes: Record<string, (body: unknown) => unknown>) {
   const calls: Call[] = [];
   let open = true;
   let touches = 0;
+  let uses = 0;
   const lock = {
     use: async <T>(run: (key: CryptoKey, personKeyId: string) => Promise<T>) => {
       if (!open) throw new Error("vault_locked");
+      // `use` riarma il timer dei 15 minuti (D-2): qui si conta.
+      uses += 1;
       return run(me.privateKey, PK);
     },
     markRevoked: vi.fn(() => {
@@ -109,6 +112,7 @@ function setup(routes: Record<string, (body: unknown) => unknown>) {
     closeVault: () => {
       open = false;
     },
+    uses: () => uses,
   };
 }
 
@@ -503,7 +507,7 @@ describe("le operazioni della cassaforte nel main", () => {
         copies: { recipientId: string; wrappedKey: string }[];
         recoveryPublicKey: string;
       };
-      expect(out).toEqual({ ok: true, id: body.id });
+      expect(out).toEqual({ ok: true, id: body.id, resaved: false });
       expect(body.service).toBe("Brevo SMTP");
       expect(JSON.stringify(body)).not.toContain("Bb3!brevo-99");
       expect(body.copies.map((c) => c.recipientId).sort()).toEqual([PK, "recovery"].sort());
@@ -533,7 +537,7 @@ describe("le operazioni della cassaforte nel main", () => {
           { service: "S", label: null, url: null, username: null, notes: null },
           "pw",
         ),
-      ).toMatchObject({ ok: true });
+      ).toEqual({ ok: true, id: expect.any(String), resaved: true });
       expect(posts).toBe(2);
     });
 
@@ -542,7 +546,8 @@ describe("le operazioni della cassaforte nel main", () => {
         [`GET /api/credentials/${CRED}/recipients`]: () => recipientsOf(),
         [`PUT /api/credentials/${CRED}/password`]: () => null,
       });
-      expect(await ops.setPassword(CRED, "Nn1!nuova-22")).toEqual({ ok: true });
+      // [VA 6]: risalvato solo dopo un 409; qui no.
+      expect(await ops.setPassword(CRED, "Nn1!nuova-22")).toEqual({ ok: true, resaved: false });
       const put = calls.find((c) => c.method === "PUT")!;
       const body = put.body as {
         passwordCiphertext: string;
@@ -563,5 +568,73 @@ describe("le operazioni della cassaforte nel main", () => {
       expect(await ops.setPassword(CRED, "pw")).toEqual({ ok: false, code: "vault_locked" });
       expect(calls.some((c) => c.method === "PUT")).toBe(false);
     });
+  });
+
+  // Review C1: nell'app ogni `/api/vault*` passa dal main (il proxy le
+  // rifiuta al renderer, `vault_via_main`): lo stato della propria chiave e
+  // «le mie» credenziali hanno i loro canali.
+  describe("le letture /api/vault* dal main", () => {
+    it("lo stato della propria chiave: senza seals né passkeys", async () => {
+      const { ops } = setup({
+        "GET /api/vault/status": () => ({
+          activated: true,
+          myKey: {
+            id: PK,
+            status: "pending",
+            createdAt: "2026-11-20T10:00:00.000Z",
+            publicKey: me.publicKey,
+          },
+          seals: [],
+          passkeys: [],
+        }),
+      });
+      expect(await ops.serverStatus()).toEqual({
+        ok: true,
+        activated: true,
+        myKey: {
+          id: PK,
+          status: "pending",
+          createdAt: "2026-11-20T10:00:00.000Z",
+          publicKey: me.publicKey,
+        },
+      });
+    });
+
+    it("«le mie» credenziali; `VAULT_DESKTOP` spento: `disabled`", async () => {
+      const { ops } = setup({ "GET /api/vault/credentials": () => ({ items: [] }) });
+      expect(await ops.mine()).toEqual({ ok: true, items: [] });
+      const off = setup({
+        "GET /api/vault/credentials": () => {
+          throw new VaultHttpError(404, "vault_desktop_disabled");
+        },
+      });
+      expect(await off.ops.mine()).toEqual({ ok: false, code: "disabled" });
+      expect(off.lock.markDisabled).toHaveBeenCalled();
+    });
+  });
+
+  // Review I1: chi aspetta si legge di continuo (binario, ⌘K, pagina Vault,
+  // riga sotto la barra): non deve passare da `lock.use`, che riarma i 15
+  // minuti e terrebbe la cassaforte aperta per sempre. Serve la lista e la
+  // pubblica, non la chiave.
+  it("I1: chi aspetta si legge senza la cassaforte aperta, e non rinnova i 15 minuti", async () => {
+    const { ops, uses, closeVault } = setup({ "GET /api/vault/pending": () => ({ items: [] }) });
+    expect(await ops.pending()).toEqual({ ok: true, items: [] });
+    expect(uses()).toBe(0);
+    closeVault();
+    expect(await ops.pending()).toEqual({ ok: true, items: [] });
+  });
+
+  // Review M8: su un Mac non associato la rotta dei Mac vuole il sigillo
+  // (`device_seal_required`): l'elenco è vuoto, così Security mostra «No Mac
+  // opens your vault yet.» con «Pair this Mac», invece di sparire.
+  it("M8: i Mac su un Mac non associato: elenco vuoto, non un errore", async () => {
+    const { ops, lock } = setup({
+      "GET /api/vault/device-seals": () => {
+        throw new VaultHttpError(403, "device_seal_required");
+      },
+    });
+    expect(await ops.macs()).toEqual({ ok: true, items: [] });
+    expect(lock.markRevoked).not.toHaveBeenCalled();
   });
 });

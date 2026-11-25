@@ -173,7 +173,9 @@ function CredentialBody({
   const { t } = useTranslation();
   const toast = useToast();
   const reveal = usePasswordReveal();
-  const manages = view.canEdit || view.canShare;
+  // Il registro lo apre il server (`canSeeLog`, review M4): poterla
+  // modificare (chi l'ha creata) non basta.
+  const manages = view.canSeeLog;
   const log = useAccessLog(manages ? view.projectId : undefined, view.id);
 
   return (
@@ -244,7 +246,13 @@ function CredentialBody({
       {manages && (
         <section className="flex flex-col gap-2 border-t border-rule pt-4">
           <h3 className="text-md font-semibold text-ink">{t("vault.detail.log")}</h3>
-          <AccessLogList entries={log.data} />
+          {log.isError ? (
+            <p role="alert" className="text-sm text-ink-muted">
+              {t("vault.detail.logError")}
+            </p>
+          ) : (
+            <AccessLogList entries={log.data} />
+          )}
         </section>
       )}
     </div>

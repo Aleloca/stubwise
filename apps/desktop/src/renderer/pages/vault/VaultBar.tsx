@@ -5,7 +5,9 @@ import { VaultPrototype } from "./VaultPrototype";
 import { isAppBuild } from "../../data/build";
 import { useVaultLock, useVaultStatus, useVaultUnlock } from "../../data/queries";
 import type { VaultStatusView } from "../../data/vault/types";
+import { useViewer } from "../../data/viewing";
 import { openInWeb } from "../../platform/openWeb";
+import { isWebAppBuild } from "../../platform/vaultBridge";
 import { useToast } from "../../tasks-ui/Toast";
 import { primaryButton, secondaryButton } from "../tasks/controls";
 
@@ -47,6 +49,8 @@ export function openVaultInBrowser(): void {
 
 export function VaultBar({ onPair: onPairProp }: { onPair?: () => void }) {
   const { t } = useTranslation();
+  const { viewer } = useViewer();
+  const fullAdmin = viewer.instancePermissions.includes("instance.full_admin");
   // «Pair this Mac» apre la finestra dell'associazione (shape §3, [VA 8]).
   const [pairing, setPairing] = useState(false);
   const onPair = onPairProp ?? (() => setPairing(true));
@@ -143,8 +147,18 @@ export function VaultBar({ onPair: onPairProp }: { onPair?: () => void }) {
       action = browser;
       break;
     case "unsupported":
-      text = t("vault.bar.unsupported");
-      action = browser;
+      // Review M10: nella build web non è «questo Mac», è il browser.
+      if (isWebAppBuild()) {
+        text = t("vault.bar.unsupportedWeb");
+        action = (
+          <button type="button" className={secondaryButton} onClick={openVaultInBrowser}>
+            {t("vault.bar.openWebPage")}
+          </button>
+        );
+      } else {
+        text = t("vault.bar.unsupported");
+        action = browser;
+      }
       break;
     case "unreachable":
       glyph = "▲";
@@ -178,7 +192,13 @@ export function VaultBar({ onPair: onPairProp }: { onPair?: () => void }) {
       );
       break;
     case "inactive":
-      text = t("vault.bar.inactive");
+      // Review M2: all'admin la shape dice dove attivarla.
+      text = (
+        <span className="flex flex-col">
+          <span>{t("vault.bar.inactive")}</span>
+          {fullAdmin && <span>{t("vault.bar.inactiveAdmin")}</span>}
+        </span>
+      );
       break;
   }
 

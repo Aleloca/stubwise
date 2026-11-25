@@ -53,6 +53,8 @@ export function PasswordField({ row, reveal }: { row: CredentialView; reveal: Re
             className={quietButton}
             disabled={!reveal.usable}
             aria-label={t("vault.row.showAria", { name: row.service })}
+            // Review M2: a cassaforte chiusa il clic apre il Touch ID [VA 4].
+            title={reveal.locked ? t("vault.row.openFirst") : undefined}
             onClick={() => void reveal.show(row.id)}
           >
             {t("vault.row.show")}
@@ -63,6 +65,8 @@ export function PasswordField({ row, reveal }: { row: CredentialView; reveal: Re
           className={quietButton}
           disabled={!reveal.usable}
           aria-label={t("vault.row.copyAria", { name: row.service })}
+          // Review M2: a cassaforte chiusa il clic apre il Touch ID [VA 4].
+          title={reveal.locked ? t("vault.row.openFirst") : undefined}
           onClick={() => void reveal.copy(row.id)}
         >
           {t("vault.row.copy")}

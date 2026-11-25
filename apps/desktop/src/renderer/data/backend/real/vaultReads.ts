@@ -33,8 +33,23 @@ const viewOf = (c: Reader<CredentialItem>): CredentialView => ({
   access: accessOf(c.access),
   canEdit: c.canEdit,
   canShare: c.canShare,
+  canSeeLog: c.canSeeLog,
   updatedAt: c.updatedAt,
 });
+
+/**
+ * «Le mie» credenziali: nell'app dal main (`vault:mine`, review C1: il proxy
+ * rifiuta `/api/vault*` al renderer); nella build web dalla rotta.
+ */
+async function myCredentials(): Promise<Reader<CredentialItem>[]> {
+  const b = window.stubwise?.vault;
+  if (b?.mine) {
+    const out = await b.mine();
+    if (!out.ok) throw new Error(out.code);
+    return out.items as Reader<CredentialItem>[];
+  }
+  return (await appClient().credentials.mine()).items;
+}
 
 /** I permessi di chi guarda in un progetto (dal server, `/api/auth/me`). */
 async function permissions(): Promise<{
@@ -58,7 +73,7 @@ export const listCredentials: FakeVault["listCredentials"] = async (filter) => {
     return items.map(viewOf);
   }
   // La pagina Vault: «le mie» (lette o in attesa), in tutti i progetti visibili.
-  const { items } = await appClient().credentials.mine();
+  const items = await myCredentials();
   const only = filter.projectIds?.length ? new Set(filter.projectIds) : null;
   return items.filter((c) => !only || only.has(c.projectId)).map(viewOf);
 };
@@ -69,7 +84,7 @@ export const listCredentials: FakeVault["listCredentials"] = async (filter) => {
  * esiste). `null` se non la vede, come il prototipo.
  */
 export const getCredential: FakeVault["getCredential"] = async (id) => {
-  const mine = (await appClient().credentials.mine()).items.find((c) => c.id === id);
+  const mine = (await myCredentials()).find((c) => c.id === id);
   if (mine) return viewOf(mine);
   const p = await permissions();
   for (const projectId of p.projectIds) {
@@ -91,17 +106,21 @@ export const getCredentialsEntry: FakeVault["getCredentialsEntry"] = async (proj
   ]);
   const perms = p.inProject(projectId);
   const canCreate = p.fullAdmin || perms.includes("credentials.create");
-  const canSeeLog =
-    p.fullAdmin || perms.includes("credentials.edit") || perms.includes("credentials.share");
-  // `waitingMe` (il punto «ti aspetta»): chi aspetta lo sa solo il main a
-  // cassaforte aperta; qui resta spento (fetta 3).
-  return { show: list.items.length > 0 || canCreate, waitingMe: false, canCreate, canSeeLog };
+  // `waitingMe` (il punto «ti aspetta») resta spento nella colonna: il main
+  // non dice il progetto di ogni credenziale (registro dei rimandi).
+  // `canSeeLog` lo calcola il server, anche a elenco vuoto (review M4).
+  return {
+    show: list.items.length > 0 || canCreate,
+    waitingMe: false,
+    canCreate,
+    canSeeLog: list.canSeeLog,
+  };
 };
 
 export const getVaultEntry: FakeVault["getVaultEntry"] = async () => {
   const [p, mine, waiting] = await Promise.all([
     permissions(),
-    appClient().credentials.mine(),
+    myCredentials().then((items) => ({ items })),
     // Il punto «ti aspetta» [VA 2]: chi aspetta lo sa il main, a cassaforte aperta.
     listPending().catch(() => []),
   ]);
@@ -177,8 +196,9 @@ export const listReaders: FakeVault["listReaders"] = async (id) => {
           : directPeople.has(p.userId)
             ? ("direct" as const)
             : ("role" as const),
-      // Il server non dice per quale ruolo: la riga dice solo «role».
-      roleName: null,
+      // Il ruolo nel progetto, quando è fra i lettori invitati (72, f9e9193ce);
+      // `null` da un server di prima: la riga dice «via a role».
+      roleName: p.roleName ?? null,
       state: stateOf(p),
     })),
     canShare: view?.canShare === true,
@@ -186,18 +206,11 @@ export const listReaders: FakeVault["listReaders"] = async (id) => {
 };
 
 export const listAccessLog: FakeVault["listAccessLog"] = async (filter) => {
-  let items;
-  try {
-    items = (
-      await appClient().credentials.log(filter.projectId, {
-        ...(filter.credentialId ? { credentialId: filter.credentialId } : {}),
-      })
-    ).items;
-  } catch (error) {
-    // Chi non gestisce le credenziali del progetto non legge il registro: niente righe.
-    if (error instanceof ApiError && error.status === 403) return [];
-    throw error;
-  }
+  // Review M4: un 403 è un errore (la voce compare solo con `canSeeLog`),
+  // non «nessuno l'ha vista».
+  const { items } = await appClient().credentials.log(filter.projectId, {
+    ...(filter.credentialId ? { credentialId: filter.credentialId } : {}),
+  });
   const names = await namesById();
   return items.map((e) => ({
     id: e.id,
@@ -248,16 +261,19 @@ const failOf = (error: unknown): { ok: false; code: string } => ({
  */
 export const updateCredential: FakeVault["updateCredential"] = async (id, input) => {
   const { password, ...plain } = input;
+  // [VA 6]: il main dice se ha risalvato per i lettori cambiati.
+  let resaved = false;
   if (password !== undefined && password !== "") {
     const b = window.stubwise?.vault;
     if (!b) return { ok: false, code: "unsupported" };
     const out = await b.setPassword(id, password);
     if (!out.ok) return { ok: false, code: out.code };
+    resaved = out.resaved === true;
   }
-  if (Object.keys(plain).length === 0) return { ok: true };
+  if (Object.keys(plain).length === 0) return { ok: true, resaved };
   try {
     await appClient().credentials.update(id, plain);
-    return { ok: true };
+    return { ok: true, resaved };
   } catch (error) {
     return failOf(error);
   }
@@ -269,7 +285,9 @@ export const createCredential: FakeVault["createCredential"] = async (projectId,
   if (!b) return { ok: false, code: "unsupported" };
   const { password, ...fields } = input;
   const out = await b.create(projectId, fields, password);
-  return out.ok ? { ok: true, id: out.id } : { ok: false, code: out.code };
+  return out.ok
+    ? { ok: true, id: out.id, resaved: out.resaved === true }
+    : { ok: false, code: out.code };
 };
 
 export const deleteCredential: FakeVault["deleteCredential"] = async (id) => {

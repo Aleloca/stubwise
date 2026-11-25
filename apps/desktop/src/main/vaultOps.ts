@@ -1,4 +1,5 @@
 import {
+  credentialListResponseSchema,
   credentialRecipientsSchema,
   credentialRevealResponseSchema,
   credentialSharePreviewSchema,
@@ -6,6 +7,8 @@ import {
   vaultConfirmResponseSchema,
   vaultDeviceSealListSchema,
   vaultPendingResponseSchema,
+  vaultStatusResponseSchema,
+  type CredentialItem,
   type CredentialRecipients,
   type CredentialSharePreview,
   type VaultActorProof,
@@ -228,7 +231,7 @@ export function createVaultOps(deps: VaultOpsDeps) {
       copies: { recipientId: string; wrappedKey: string }[];
       recoveryPublicKey: string;
     }) => Promise<unknown>;
-  }): Promise<void> {
+  }): Promise<{ resaved: boolean }> {
     const encrypt = async (r: CredentialRecipients) => {
       const { passwordCiphertext, copies } = await encryptForInsert({
         credentialId: input.credentialId,
@@ -246,6 +249,7 @@ export function createVaultOps(deps: VaultOpsDeps) {
     );
     try {
       await input.write(await encrypt(first));
+      return { resaved: false };
     } catch (error) {
       const current =
         error instanceof VaultHttpError &&
@@ -257,6 +261,24 @@ export function createVaultOps(deps: VaultOpsDeps) {
           : null;
       if (!current?.success) throw error;
       await input.write(await encrypt(current.data));
+      // [VA 6]: risalvata per i lettori di adesso; il renderer lo dice.
+      return { resaved: true };
+    }
+  }
+
+  /** Una lettura senza chiave: gli stessi esiti delle altre (`disabled`, il codice del server). */
+  async function plainRead<T extends object>(
+    run: () => Promise<T>,
+  ): Promise<({ ok: true } & T) | OpFailure> {
+    try {
+      return { ok: true, ...(await run()) };
+    } catch (error) {
+      if (isDisabled(error)) {
+        deps.lock.markDisabled();
+        return { ok: false, code: "disabled" };
+      }
+      if (error instanceof VaultHttpError) return { ok: false, code: error.code };
+      return { ok: false, code: "invalid_response" };
     }
   }
 
@@ -302,8 +324,11 @@ export function createVaultOps(deps: VaultOpsDeps) {
       }, TOUCH),
 
     /** Chi aspetta che io confermi: persone, impronta e credenziali, senza le copie. */
+    // Review I1: non passa da `lock.use` (riarmerebbe i 15 minuti a ogni
+    // lettura del binario, di ⌘K, della pagina): basta la lista con le
+    // pubbliche, niente chiave.
     pending: () =>
-      guarded(async () => ({
+      plainRead(async () => ({
         items: await Promise.all(
           (await pendingPeople()).map(
             async (p): Promise<PendingPersonView> => ({
@@ -369,6 +394,43 @@ export function createVaultOps(deps: VaultOpsDeps) {
       }, TOUCH),
 
     /**
+     * Lo stato della propria chiave (`GET /api/vault/status`, `desktopRead`):
+     * nell'app ogni `/api/vault*` passa dal main (review C1), e il renderer
+     * riceve solo ciò che serve alla barra — niente `seals` né `passkeys`.
+     */
+    serverStatus: async (): Promise<
+      | {
+          ok: true;
+          activated: boolean;
+          myKey: { id: string; status: string; createdAt: string; publicKey: string | null } | null;
+        }
+      | OpFailure
+    > =>
+      plainRead(async () => {
+        const s = parse(vaultStatusResponseSchema, await deps.request("GET", "/api/vault/status"));
+        return {
+          activated: s.activated,
+          myKey: s.myKey
+            ? {
+                id: s.myKey.id,
+                status: s.myKey.status,
+                createdAt: s.myKey.createdAt,
+                publicKey: s.myKey.publicKey ?? null,
+              }
+            : null,
+        };
+      }),
+
+    /** «Le mie» credenziali (`GET /api/vault/credentials`): lette o in attesa; niente cifrati. */
+    mine: async (): Promise<{ ok: true; items: CredentialItem[] } | OpFailure> =>
+      plainRead(async () => ({
+        items: parse(
+          credentialListResponseSchema,
+          await deps.request("GET", "/api/vault/credentials"),
+        ).items,
+      })),
+
+    /**
      * I propri Mac (Preferenze → Security): l'elenco, con `current` sul
      * sigillo di questo Mac e l'impronta INTERA dalla pubblica (M7). Non
      * vuole la cassaforte aperta: è un elenco, nessuna chiave.
@@ -397,6 +459,14 @@ export function createVaultOps(deps: VaultOpsDeps) {
           deps.lock.markDisabled();
           return { ok: false, code: "disabled" };
         }
+        // Review M8: senza sigillo (Mac non associato) nessun Mac apre la
+        // cassaforte da qui: elenco vuoto, così Security propone «Pair this Mac».
+        if (
+          error instanceof VaultHttpError &&
+          error.status === 403 &&
+          error.code === "device_seal_required"
+        )
+          return { ok: true, items: [] };
         if (error instanceof VaultHttpError) return { ok: false, code: error.code };
         return { ok: false, code: "open_failed" };
       }
@@ -425,10 +495,10 @@ export function createVaultOps(deps: VaultOpsDeps) {
       projectId: string,
       fields: CredentialFields,
       password: string,
-    ): Promise<{ ok: true; id: string } | OpFailure> => {
+    ): Promise<{ ok: true; id: string; resaved: boolean } | OpFailure> => {
       const id = crypto.randomUUID();
       try {
-        await writeEncrypted({
+        const { resaved } = await writeEncrypted({
           credentialId: id,
           password,
           recipientsPath: `/api/projects/${seg(projectId)}/credentials/recipients`,
@@ -439,7 +509,7 @@ export function createVaultOps(deps: VaultOpsDeps) {
               ...enc,
             }),
         });
-        return { ok: true, id };
+        return { ok: true, id, resaved };
       } catch (error) {
         if (isDisabled(error)) {
           deps.lock.markDisabled();
@@ -452,16 +522,15 @@ export function createVaultOps(deps: VaultOpsDeps) {
 
     /** La password nuova (fetta 4): con la cassaforte aperta, come vuole la shape. */
     setPassword: (credentialId: string, password: string) =>
-      guarded(async () => {
-        await writeEncrypted({
+      guarded(async () =>
+        writeEncrypted({
           credentialId,
           password,
           recipientsPath: `/api/credentials/${seg(credentialId)}/recipients`,
           write: (enc) =>
             deps.request("PUT", `/api/credentials/${seg(credentialId)}/password`, enc),
-        });
-        return {};
-      }),
+        }),
+      ),
 
     reject: (targetKeyId: string) =>
       guarded(async (key, personKeyId) => {

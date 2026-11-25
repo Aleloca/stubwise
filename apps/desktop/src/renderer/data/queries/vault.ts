@@ -143,6 +143,14 @@ export function useStartPairing() {
   return useWrite(() => api.vault.startPairing(), VAULT_AREAS);
 }
 
+/**
+ * Annulla l'associazione senza un componente montato (review M6: il dialogo
+ * chiuso mentre la richiesta era in volo; quando torna, si annulla da qui).
+ */
+export function cancelPairingNow(): Promise<void> {
+  return api.vault.cancelPairing();
+}
+
 /** Chiudere il dialogo durante l'attesa: la richiesta si dimentica. */
 export function useCancelPairing() {
   return useWrite(() => api.vault.cancelPairing(), VAULT_AREAS);
@@ -253,6 +261,8 @@ export function useCreateCredential() {
     ({ projectId, input }: { projectId: string; input: api.vault.CredentialInput }) =>
       api.vault.createCredential(projectId, input),
     VAULT_AREAS,
+    // Le variabili portano la password: la cache delle mutazioni non le tiene (review I3).
+    { secret: true },
   );
 }
 
@@ -262,6 +272,7 @@ export function useUpdateCredential() {
     ({ id, input }: { id: string; input: Partial<api.vault.CredentialInput> }) =>
       api.vault.updateCredential(id, input),
     VAULT_AREAS,
+    { secret: true },
   );
 }
 
