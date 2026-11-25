@@ -57,7 +57,8 @@ describe("l'associazione del Mac", () => {
     expect(await p.start()).toEqual({ ok: true, fingerprint: "fp" });
     expect(calls).toEqual([
       "pair:MacBook Pro",
-      `open:https://stubwise.example/app/#/vault-pair?state=${STATE}`,
+      // La pagina sta nel web (89bd14da2), accanto alle altre della cassaforte.
+      `open:https://stubwise.example/vault-pair?state=${STATE}`,
     ]);
   });
 
@@ -130,5 +131,11 @@ describe("l'associazione del Mac", () => {
     });
     const { p } = setup({ pair: async () => Promise.reject(new Error("vault_not_active")) });
     expect(await p.start()).toEqual({ ok: false, code: "vault_not_active" });
+  });
+
+  it("l'associazione senza la riconferma del desktop (189c3a1af): `reauth_required`, e il browser non si apre", async () => {
+    const { p, calls } = setup({ pair: async () => Promise.reject(new Error("reauth_required")) });
+    expect(await p.start()).toEqual({ ok: false, code: "reauth_required" });
+    expect(calls.some((c) => c.startsWith("open:"))).toBe(false);
   });
 });

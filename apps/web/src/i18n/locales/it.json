@@ -3808,6 +3808,24 @@
       "cancel": "Annulla",
       "missing": "Non hai la copia di queste credenziali, e la rotazione le vuole TUTTE: fattele condividere (o usa il kit di adesso per confermarti) e riprova.",
       "done": "Il kit di recupero è stato sostituito: quello vecchio non vale più. Gli altri full admin sono stati avvisati."
+    },
+    "pair": {
+      "title": "Associa questo Mac",
+      "intro": "Stubwise per Mac vuole aprire la tua cassaforte con Touch ID. Associalo una volta, qui, con la tua passkey.",
+      "warning": "Continua solo se l'hai avviato tu ora dal tuo Mac. Se non l'hai avviato tu, chiudi questa pagina: qualcuno potrebbe provare a leggere le tue password.",
+      "loading": "Leggo l'associazione…",
+      "invalid": "Questa associazione non è più valida (scaduta, già usata o non tua). Ricomincia dal tuo Mac.",
+      "device": "Mac",
+      "login": "Il suo accesso è stato creato il {{created}} e usato l'ultima volta il {{used}}.",
+      "loginNever": "Il suo accesso è stato creato il {{created}} e non è ancora stato usato.",
+      "fingerprint": "La chiave di questo Mac",
+      "fingerprintHint": "Controlla che il tuo Mac mostri gli stessi quattro gruppi.",
+      "confirmLabel": "Scrivi gli ultimi 4 caratteri della chiave che vedi sul Mac",
+      "action": "Associa questo Mac",
+      "working": "Associo…",
+      "done": "Ora questo Mac apre la tua cassaforte. Puoi tornare all'app.",
+      "back": "Torna all'app",
+      "expires": "Scade alle {{time}}."
     }
   }
 }

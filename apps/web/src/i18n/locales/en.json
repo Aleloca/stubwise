@@ -3808,6 +3808,24 @@
       "cancel": "Cancel",
       "missing": "You have no copy of these credentials, and the rotation needs ALL of them: have them shared with you (or use the current kit to confirm yourself) and retry.",
       "done": "The recovery kit was replaced: the old one no longer works. The other full admins were notified."
+    },
+    "pair": {
+      "title": "Pair this Mac",
+      "intro": "Stubwise for Mac wants to open your vault with Touch ID. Pair it once, here, with your passkey.",
+      "warning": "Continue only if you started this from your Mac just now. If you didn't, close this page: someone may be trying to read your passwords.",
+      "loading": "Reading the pairing…",
+      "invalid": "This pairing isn't valid any more (expired, used or not yours). Start again from your Mac.",
+      "device": "Mac",
+      "login": "Its sign-in was created on {{created}} and last used on {{used}}.",
+      "loginNever": "Its sign-in was created on {{created}} and hasn't been used yet.",
+      "fingerprint": "This Mac's key",
+      "fingerprintHint": "Check that your Mac shows the same four groups.",
+      "confirmLabel": "Type the last 4 characters of the key shown on your Mac",
+      "action": "Pair this Mac",
+      "working": "Pairing…",
+      "done": "This Mac now opens your vault. You can go back to the app.",
+      "back": "Back to the app",
+      "expires": "Expires at {{time}}."
     }
   }
 }

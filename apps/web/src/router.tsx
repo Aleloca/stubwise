@@ -125,6 +125,7 @@ import { SettingsStoragePage } from "./routes/settings/storage";
 import { SettingsUsagePage } from "./routes/settings/usage";
 import { VaultSetupPage } from "./routes/vault-setup";
 import { VaultRecoveryPage } from "./routes/vault-recovery";
+import { VaultPairPage } from "./routes/vault-pair";
 import { MyCredentialsPage } from "./routes/credentials";
 import { SetupPage } from "./routes/setup";
 import { TeamPage } from "./routes/team";
@@ -887,6 +888,23 @@ const credentialsRoute = createRoute({
   component: MyCredentialsPage,
 });
 
+/**
+ * Lotto 10, la chiave del Mac: la pagina che sigilla la propria chiave per il
+ * Mac che ha chiesto l'associazione (`/vault-pair?state=…`, la apre il main
+ * del desktop). Solo lo state nell'indirizzo; il resto lo dice il server.
+ */
+const vaultPairRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/vault-pair",
+  validateSearch: (search: Record<string, unknown>) => ({
+    state: typeof search.state === "string" && /^[A-Za-z0-9_-]{8,256}$/.test(search.state) ? search.state : "",
+  }),
+  component: function VaultPairRoute() {
+    const { state } = vaultPairRoute.useSearch();
+    return <VaultPairPage state={state} />;
+  },
+});
+
 const teamRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/team",
@@ -1178,6 +1196,7 @@ const routeTree = rootRoute.addChildren([
     calendarRoute,
     releaseQueueRoute,
     credentialsRoute,
+    vaultPairRoute,
     teamRoute,
     settingsRoute.addChildren([
       settingsIndexRoute,
