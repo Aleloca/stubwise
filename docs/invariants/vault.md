@@ -71,7 +71,9 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
   `vault_desktop_disabled` (review M2: un codice suo, mai il `not_found` di una
   credenziale cancellata) sulle rotte `desktopVault` e su quelle del sigillo del Mac
   (`/device-pairings`, `/device-seals/mine`), come se non ci fossero; le rotte
-  del browser restano. Il controllo sta negli stessi due punti
+  del browser restano. È una scelta di DEPLOY, non un'attestazione del
+  client (review 2, M7): il server non verifica che chi chiama sia l'app
+  firmata. Il controllo sta negli stessi due punti
   (`vault/device-access.ts` e `desktopOnly` in `routes/vault.ts`).
 - **Conferma umana obbligatoria, mai automatica.** Una persona entra su una
   credenziale solo se un'altra persona che la apre già (con `credentials.share`,

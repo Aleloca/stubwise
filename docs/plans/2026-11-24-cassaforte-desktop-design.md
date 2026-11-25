@@ -410,6 +410,18 @@ Perché resta accettabile:
   il rimedio è togliere il Mac rubato dal browser (o da un full admin, D-6) e
   riassociare gli altri.
 
+- **`VAULT_DESKTOP` è una scelta di DEPLOY, non un'attestazione del client**
+  (review 2, M7, 25 nov 2026). Accenderlo dice «su questa istanza abbiamo
+  deciso di distribuire l'app firmata», non «chi chiama è l'app firmata»: il
+  server non verifica la firma né il Secure Enclave di chi gli parla, e con
+  l'interruttore acceso un PAT desktop di un'app NON firmata (o un client
+  scritto a mano col PAT) passa come gli altri. Ciò che resta vero anche
+  allora: un'associazione vuole la riconferma del desktop e la passkey nel
+  browser con la persona che confronta l'impronta (review I2), e il sigillo
+  si apre solo con la chiave del Mac che l'ha chiesto. La garanzia della
+  firma (il Touch ID che non si aggira) è del CLIENT; il server la presume
+  per decisione di chi accende l'interruttore.
+
 ## 12. Da decidere (per il maintainer) — DECISO il 24 nov 2026
 
 *Il maintainer ha approvato il design il 24 nov 2026 e ha deciso D-1, D-5,
