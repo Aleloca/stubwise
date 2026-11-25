@@ -208,7 +208,7 @@ riconferma recente, cassaforte aperta):
   mandando `devicePublicKey`; il server crea una riga d'accoppiamento
   (`pairingState` casuale, hash, 10 minuti, uso singolo) legata a QUEL `pat_id`
   e a QUELLA pubblica, e risponde lo `state`. Il main apre il browser su
-  `/app/#/vault-pair?state=…`. Il browser legge dal server la pubblica e il
+  `<istanza>/vault-pair?state=…` (pagina del web, decisione di 46 per I2). Il browser legge dal server la pubblica e il
   nome del dispositivo per quello `state` (mai dall'URL: un URL si inoltra), e
   la persona confronta l'**impronta** del dispositivo che il Mac mostra con
   quella del browser prima di sigillare. Il `POST` del sigillo vuole lo stesso
@@ -292,7 +292,7 @@ Come il login (`browserLogin.ts`), con il passo di 72 (§6.2):
    server risponde lo `state` (10 minuti, uso singolo, legato a quel PAT e a
    quella pubblica). La privata del dispositivo resta in memoria finché
    l'associazione non finisce;
-2. il main apre nel browser `<istanza>/app/#/vault-pair?state=<s>` (nell'URL
+2. il main apre nel browser `<istanza>/vault-pair?state=<s>` (pagina del web, decisione di 46 per I2) (nell'URL
    SOLO lo state) e mostra nella sua finestra l'**impronta** della chiave del
    dispositivo, con «Confronta con quella nel browser»;
 3. il browser, a cassaforte aperta con la passkey, legge dal server pubblica e
