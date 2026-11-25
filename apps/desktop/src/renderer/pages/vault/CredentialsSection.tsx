@@ -5,6 +5,7 @@ import { secondaryButton } from "../tasks/controls";
 import { PageEmpty, PageError } from "../../tasks-ui/PageStates";
 import { ListSkeleton } from "../servers/ServersPage";
 import { CredentialRows } from "./CredentialRows";
+import { PendingRow } from "./PendingAccess";
 import { VaultBar } from "./VaultBar";
 
 // La sezione Credentials di un progetto (`#/p/ACQ/credentials`, shape
@@ -40,7 +41,10 @@ export function CredentialsSection({ projectCode }: { projectCode: string }) {
             </button>
           )}
         </header>
-        <VaultBar />
+        <div className="flex flex-col">
+          <VaultBar />
+          <PendingRow />
+        </div>
         {rows.isError ? (
           <PageError message={t("vault.errors.list")} onRetry={() => void rows.refetch()} />
         ) : !rows.data ? (

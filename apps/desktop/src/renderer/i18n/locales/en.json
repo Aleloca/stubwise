@@ -13736,6 +13736,32 @@
       "shared": "Shared with {{name}}.",
       "waiting": "Waiting for confirmation: {{emails}}.",
       "failed": "Couldn't change who reads it."
+    },
+    "pending": {
+      "waiting_one": "{{count}} person is waiting for access",
+      "waiting_other": "{{count}} people are waiting for access",
+      "review": "Review",
+      "title": "Waiting for access",
+      "created": "Key created on {{date}}",
+      "device": "Device: {{device}}",
+      "credentials_one": "{{count}} credential",
+      "credentials_other": "{{count}} credentials",
+      "confirm": "Confirm",
+      "reject": "Reject",
+      "cancel": "Cancel",
+      "confirmQuestion": "Did you check with {{name}}, in person or on the phone, that this key is theirs (date, device, fingerprint)?",
+      "confirmYes": "Yes, I checked: confirm",
+      "rejectQuestion": "Reject {{name}}'s key? It receives nothing, and {{name}} will have to create a new one.",
+      "rejectYes": "Yes, reject the key",
+      "now_one": "{{name}} now reads {{count}} credential.",
+      "now_other": "{{name}} now reads {{count}} credentials.",
+      "changed_one": "{{count}} credential changed in the meantime: confirm again.",
+      "changed_other": "{{count}} credentials changed in the meantime: confirm again.",
+      "notAllowed_one": "{{count}} credential you can't pass on waits for another reader.",
+      "notAllowed_other": "{{count}} credentials you can't pass on wait for another reader.",
+      "rejected": "{{name}}'s key was rejected.",
+      "failed": "Couldn't complete it. Try again.",
+      "empty": "Nobody is waiting for access."
     }
   }
 }

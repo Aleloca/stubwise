@@ -2,7 +2,7 @@ import { accessState } from "../access/index";
 import { isFullAdmin, projectRoleOf } from "../access/effective";
 import { canI, nameOf } from "../admin/common";
 import { requireReauth } from "../auth/reauth";
-import { PEOPLE } from "../seed/people";
+import { person as addressOf } from "../seed/mail/helpers";
 import { gate, newId, now, state } from "../store";
 import type {
   AccessLogView,
@@ -131,7 +131,8 @@ function mac(me: string): ThisMac {
 }
 
 const isOpen = (me: string) => mac(me).open && mac(me).macId !== null;
-const emailOf = (personId: string) => PEOPLE.find((p) => p.id === personId)?.email ?? personId;
+/** L'email di una persona del team, come la mostra il resto del prototipo. */
+const emailOf = (personId: string) => addressOf(personId).email;
 
 /** Le copie che chi non è più lettore effettivo perde (la revoca a lettura, poi la pulizia). */
 function pruneCopies(c: Credential): void {

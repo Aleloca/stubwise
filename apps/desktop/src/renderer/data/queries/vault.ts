@@ -78,6 +78,25 @@ export function useShowPassword() {
   return useWrite((id: string) => api.vault.show(id), VAULT_AREAS, { secret: true });
 }
 
+/** Chi aspetta che io confermi la sua chiave (con le credenziali che posso passargli). */
+export function useVaultPending() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.vaultPending(me),
+    queryFn: () => api.vault.listPending(),
+  });
+}
+
+/** «Yes, I checked: confirm»: con la cassaforte aperta. */
+export function useConfirmKey() {
+  return useWrite((keyId: string) => api.vault.confirm(keyId), VAULT_AREAS);
+}
+
+/** «Yes, reject the key»: con la cassaforte aperta. */
+export function useRejectKey() {
+  return useWrite((keyId: string) => api.vault.reject(keyId), VAULT_AREAS);
+}
+
 /** I lettori di una credenziale (effettivi e diretti) nel dettaglio. */
 export function useReaders(id: string | undefined) {
   const me = useSessionPersonId();

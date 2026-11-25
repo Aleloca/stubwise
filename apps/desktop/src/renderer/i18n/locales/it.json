@@ -13736,6 +13736,32 @@
       "shared": "Condivisa con {{name}}.",
       "waiting": "In attesa di conferma: {{emails}}.",
       "failed": "Non è stato possibile cambiare chi la legge."
+    },
+    "pending": {
+      "waiting_one": "{{count}} persona aspetta l'accesso",
+      "waiting_other": "{{count}} persone aspettano l'accesso",
+      "review": "Rivedi",
+      "title": "In attesa di accesso",
+      "created": "Chiave creata il {{date}}",
+      "device": "Dispositivo: {{device}}",
+      "credentials_one": "{{count}} credenziale",
+      "credentials_other": "{{count}} credenziali",
+      "confirm": "Conferma",
+      "reject": "Rifiuta",
+      "cancel": "Annulla",
+      "confirmQuestion": "Hai verificato con {{name}}, di persona o al telefono, che questa chiave è sua (data, dispositivo, impronta)?",
+      "confirmYes": "Sì, ho verificato: conferma",
+      "rejectQuestion": "Rifiutare la chiave di {{name}}? Non riceve niente, e {{name}} dovrà crearne una nuova.",
+      "rejectYes": "Sì, rifiuta la chiave",
+      "now_one": "{{name}} ora legge {{count}} credenziale.",
+      "now_other": "{{name}} ora legge {{count}} credenziali.",
+      "changed_one": "{{count}} credenziale è cambiata nel frattempo: conferma di nuovo.",
+      "changed_other": "{{count}} credenziali sono cambiate nel frattempo: conferma di nuovo.",
+      "notAllowed_one": "{{count}} credenziale che non puoi passare aspetta un altro lettore.",
+      "notAllowed_other": "{{count}} credenziali che non puoi passare aspettano un altro lettore.",
+      "rejected": "La chiave di {{name}} è stata rifiutata.",
+      "failed": "Non è stato possibile completare. Riprova.",
+      "empty": "Nessuno aspetta l'accesso."
     }
   }
 }

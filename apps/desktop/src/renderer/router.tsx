@@ -205,6 +205,8 @@ export interface AppSearch {
   pr?: string;
   /** Credentials e Vault: il dettaglio di una credenziale (lotto 10). */
   credential?: string;
+  /** Credentials e Vault: il pannello degli accessi da confermare (`1`). */
+  pending?: string;
   /** Support → Widget: il pannello di un widget (l'id, o `new`). */
   widget?: string;
   /**
@@ -283,6 +285,7 @@ const SEARCH_KEYS = [
   ...AUTOMATION_SEARCH_KEYS,
   "pr",
   "credential",
+  "pending",
   "widget",
   "range",
   "to",
@@ -316,65 +319,65 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
     out[key] = undefined;
     if (typeof value !== "string") continue;
     // `request` e `view` dipendono dal percorso: qui si controlla la forma, la route decide.
-    const shapeOk =
-      (PEOPLE_SEARCH_KEYS as readonly string[]).includes(key)
-        ? isPeopleSearchValue(key, value)
-        : (AUDIT_SEARCH_KEYS as readonly string[]).includes(key) ||
-            (key === "project" && value === INSTANCE_ONLY)
+    const shapeOk = (PEOPLE_SEARCH_KEYS as readonly string[]).includes(key)
+      ? isPeopleSearchValue(key, value)
+      : (AUDIT_SEARCH_KEYS as readonly string[]).includes(key) ||
+          (key === "project" && value === INSTANCE_ONLY)
         ? isAuditSearchValue(key, value) || key === "project"
         : (key === "from" || key === "to") && /^\d{4}-\d{2}-\d{2}$/.test(value)
-        ? true
-        : (AUTOMATION_SEARCH_KEYS as readonly string[]).includes(key)
-        ? isAutomationSearchValue(key, value)
-        : (SEARCH_PARAM_KEYS as readonly string[]).includes(key)
-        ? isSearchParamValue(key, value)
-        : (DRIVE_SEARCH_KEYS as readonly string[]).includes(key)
-          ? // `source` è anche il pannello di una sorgente delle Automations (un id).
-            isDriveSearchValue(key, value) || (key === "source" && /^[\w-]+$/.test(value))
-          : (MAIL_SEARCH_KEYS as readonly string[]).includes(key) ||
-              (key === "project" && value === NO_PROJECT)
-            ? isMailSearchValue(key, value)
-            : key === "request" ||
-      key === "event" ||
-      key === "series" ||
-      key === "brief" ||
-      key === "dept" ||
-      key === "department" ||
-      key === "member" ||
-      key === "addMember" ||
-      key === "repo" ||
-      key === "thread" ||
-      key === "message" ||
-      key === "widget" ||
-      key === "check" ||
-      key === "comment" ||
-      key === "mark" ||
-      key === "history" ||
-      key === "decision" ||
-      key === "credential"
-        ? /^[\w-]+$/.test(value)
-        : // Releases: l'id della PR; nella build app è `<repository>#<numero>`
-          // (`data/backend/real/releasePrs.ts`).
-          key === "pr"
-          ? /^[\w-]+(#\d+)?$/.test(value)
-          : key === "range"
-          ? /^(1h|24h|7d|30d|90d|month|custom)$/.test(value)
-          : key === "section" || key === "tab" || key === "then"
-            ? /^[a-z]+$/.test(value)
-        : key === "date"
-          ? /^\d{4}-\d{2}-\d{2}$/.test(value)
-          : key === "view" || key === "group" || key === "scope"
-            ? /^[a-z-]+$/.test(value)
-            : key === "ask"
-              ? value.trim().length > 0 && value.length <= ASK_MAX
-              : key === "refine" ||
-                  key === "requestCard" ||
-                  key === "recordDecision" ||
-                  key === "settings" ||
-                  key === "newMeeting" ||
-                  key === "new"
-                ? value === "1"
-                : false;
+          ? true
+          : (AUTOMATION_SEARCH_KEYS as readonly string[]).includes(key)
+            ? isAutomationSearchValue(key, value)
+            : (SEARCH_PARAM_KEYS as readonly string[]).includes(key)
+              ? isSearchParamValue(key, value)
+              : (DRIVE_SEARCH_KEYS as readonly string[]).includes(key)
+                ? // `source` è anche il pannello di una sorgente delle Automations (un id).
+                  isDriveSearchValue(key, value) || (key === "source" && /^[\w-]+$/.test(value))
+                : (MAIL_SEARCH_KEYS as readonly string[]).includes(key) ||
+                    (key === "project" && value === NO_PROJECT)
+                  ? isMailSearchValue(key, value)
+                  : key === "request" ||
+                      key === "event" ||
+                      key === "series" ||
+                      key === "brief" ||
+                      key === "dept" ||
+                      key === "department" ||
+                      key === "member" ||
+                      key === "addMember" ||
+                      key === "repo" ||
+                      key === "thread" ||
+                      key === "message" ||
+                      key === "widget" ||
+                      key === "check" ||
+                      key === "comment" ||
+                      key === "mark" ||
+                      key === "history" ||
+                      key === "decision" ||
+                      key === "credential" ||
+                      key === "pending"
+                    ? /^[\w-]+$/.test(value)
+                    : // Releases: l'id della PR; nella build app è `<repository>#<numero>`
+                      // (`data/backend/real/releasePrs.ts`).
+                      key === "pr"
+                      ? /^[\w-]+(#\d+)?$/.test(value)
+                      : key === "range"
+                        ? /^(1h|24h|7d|30d|90d|month|custom)$/.test(value)
+                        : key === "section" || key === "tab" || key === "then"
+                          ? /^[a-z]+$/.test(value)
+                          : key === "date"
+                            ? /^\d{4}-\d{2}-\d{2}$/.test(value)
+                            : key === "view" || key === "group" || key === "scope"
+                              ? /^[a-z-]+$/.test(value)
+                              : key === "ask"
+                                ? value.trim().length > 0 && value.length <= ASK_MAX
+                                : key === "refine" ||
+                                    key === "requestCard" ||
+                                    key === "recordDecision" ||
+                                    key === "settings" ||
+                                    key === "newMeeting" ||
+                                    key === "new"
+                                  ? value === "1"
+                                  : false;
     // I filtri di WORK dello Stato dell'istanza (area 9b, ruling 10) hanno la
     // loro forma: non dipendono da quelle omonime di Automations e registro.
     const workFilter =
@@ -402,7 +405,12 @@ function EntryGate() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { stage, empty } = useEntryGate();
   if (empty) return pathname === "/setup" ? <Outlet /> : <Navigate to="/setup" replace />;
-  if (pathname === "/setup") return stage === "in" ? <Navigate to="/home" search={landingSearch()} replace /> : <Navigate to="/login" replace />;
+  if (pathname === "/setup")
+    return stage === "in" ? (
+      <Navigate to="/home" search={landingSearch()} replace />
+    ) : (
+      <Navigate to="/login" replace />
+    );
   if (ENTRY_PATH.test(pathname)) return <Outlet />;
   if (stage !== "in") return <Navigate to="/login" replace />;
   return <AppLayout />;
@@ -422,7 +430,8 @@ const loginRoute = createRoute({
 
 /** I parametri che l'app desktop mette nel link: solo testo, la pagina li valida. */
 function validateDesktopLoginSearch(search: Record<string, unknown>): DesktopLoginParams {
-  const text = (key: string) => (typeof search[key] === "string" ? (search[key] as string) : undefined);
+  const text = (key: string) =>
+    typeof search[key] === "string" ? (search[key] as string) : undefined;
   return { challenge: text("challenge"), state: text("state"), device: text("device") };
 }
 
@@ -518,7 +527,8 @@ function PlanningRoutePage() {
   const { viewer } = useViewer();
   // «Planning» trasversale: solo a chi ha `planning.others` in almeno un progetto.
   // Chi non ce l'ha torna dove si atterra (nella build app La mia settimana).
-  if (!can(viewer, "planning.others")) return <Navigate to="/home" search={landingSearch()} replace />;
+  if (!can(viewer, "planning.others"))
+    return <Navigate to="/home" search={landingSearch()} replace />;
   return <PlanningPage key={viewer.personId} />;
 }
 
@@ -688,16 +698,10 @@ function ProjectChatLanding({ projectId, code }: { projectId: string; code: stri
   }
   const general = data.find((c) => c.isGeneral) ?? data.find((c) => c.isMember && !c.archived);
   if (!general) {
-    return (
-      <Placeholder titleKey="project.sections.chat" bodyKey="chat.project.noChannels" />
-    );
+    return <Placeholder titleKey="project.sections.chat" bodyKey="chat.project.noChannels" />;
   }
   return (
-    <Navigate
-      to="/p/$code/chat/$channelId"
-      params={{ code, channelId: general.id }}
-      replace
-    />
+    <Navigate to="/p/$code/chat/$channelId" params={{ code, channelId: general.id }} replace />
   );
 }
 
@@ -758,9 +762,7 @@ function ReleaseRoutePage() {
   const { viewer } = useViewer();
   // Area 8, F1: con le sole PR accese (`releases-prs`) il rilascio è «in arrivo».
   if (!releasesIntegrated()) return <ComingSoon titleKey="releases.title" />;
-  return (
-    <ReleaseDetail key={`${release}:${viewer.personId}`} projectCode={code} code={release} />
-  );
+  return <ReleaseDetail key={`${release}:${viewer.personId}`} projectCode={code} code={release} />;
 }
 
 /**
@@ -998,13 +1000,14 @@ function ProjectSectionPage() {
   if (section === "chat") return <ProjectChatLanding projectId={project.id} code={project.code} />;
   if (section === "automations") {
     return (
-      <ProjectAutomationsPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />
+      <ProjectAutomationsPage
+        key={`${project.code}:${viewer.personId}`}
+        projectCode={project.code}
+      />
     );
   }
   if (section === "releases") {
-    return (
-      <ReleasesPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />
-    );
+    return <ReleasesPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />;
   }
   if (section === "support") {
     return <SupportPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />;
@@ -1155,7 +1158,11 @@ function DocSpaceRoutePage() {
   return (
     <DocsProjectGate code={code}>
       {(project) => (
-        <DocSpace key={`${project.code}:${repo}:${viewer.personId}`} project={project} repo={repo} />
+        <DocSpace
+          key={`${project.code}:${repo}:${viewer.personId}`}
+          project={project}
+          repo={repo}
+        />
       )}
     </DocsProjectGate>
   );
