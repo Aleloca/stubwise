@@ -640,6 +640,35 @@ describe("accessi in attesa: elenco, conferma, rifiuto", () => {
     expect((await req("GET", "/api/vault/pending", lead.pat)).json()).toMatchObject({ code: "session_required" });
   });
 
+  it("una credenziale di un progetto che chi guarda NON vede non compare, nemmeno con invito e copia rimasti", async () => {
+    // `who` è in attesa in due progetti; lead è membro solo di `projectId`.
+    const who = await person("due-progetti", "developer");
+    await addMember(app, otherProjectId, who.id, "developer");
+    const pendingKey = await key(who.id, "pending");
+    const leadKey = await confirmedKeyOf(lead);
+    const visible = await seedCredential({ readers: [lead.id, who.id], copiesFor: [leadKey] });
+    // Nell'altro progetto lead ha ancora l'invito diretto e la copia (per
+    // esempio è uscito dal progetto): resta fuori lo stesso.
+    const hidden = await seedCredential({ project: otherProjectId, readers: [lead.id, who.id], copiesFor: [leadKey] });
+    const items = await pendingOf(lead);
+    const entry = items.find((i) => i.personKey.id === pendingKey);
+    expect(entry!.credentials.map((c) => c.id)).toEqual([visible]);
+    expect(entry!.credentials[0]!.projectId).toBe(projectId);
+    expect(items.flatMap((i) => i.credentials).some((c) => c.id === hidden || c.projectId === otherProjectId)).toBe(false);
+  });
+
+  it("nel proprio progetto, con share, una credenziale da cui chi guarda è stato TOLTO non compare (la copia rimasta non basta)", async () => {
+    const who = await person("tolto", "developer");
+    const pendingKey = await key(who.id, "pending");
+    const leadKey = await confirmedKeyOf(lead);
+    const visible = await seedCredential({ readers: [lead.id, who.id], copiesFor: [leadKey] });
+    // La revoca si applica a lettura: lead non è più lettore ma la sua copia resta.
+    const revoked = await seedCredential({ readers: [who.id], copiesFor: [leadKey] });
+    const entry = (await pendingOf(lead)).find((i) => i.personKey.id === pendingKey);
+    expect(entry!.credentials.map((c) => c.id)).toEqual([visible]);
+    expect(entry!.credentials.some((c) => c.id === revoked)).toBe(false);
+  });
+
   it("conferma: la chiave diventa confirmed (con confirmedAt/By), si salvano solo le copie che chi conferma poteva dare", async () => {
     const { who, pendingKey, credentialId } = await pendingScenario("conferma");
     // Una seconda credenziale in attesa che lead NON apre (nessuna copia per lead).
