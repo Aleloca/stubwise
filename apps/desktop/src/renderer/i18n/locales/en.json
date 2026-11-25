@@ -13704,6 +13704,38 @@
       "saved": "Changes saved.",
       "failed": "Couldn't save the credential.",
       "locked": "Open the vault to change the password."
+    },
+    "readers": {
+      "title": "Readers",
+      "who": "Who reads it",
+      "direct": "Added directly",
+      "none": "Nobody added directly.",
+      "source": {
+        "full_admin": "full admin",
+        "created": "created it",
+        "direct": "added directly",
+        "role": "role {{role}}"
+      },
+      "state": {
+        "no_key": "waiting: no vault key yet",
+        "key_pending": "waiting: their key needs confirmation",
+        "waiting_copy": "waiting for a copy of the key"
+      },
+      "rolePrefix": "role {{name}}",
+      "remove": "Remove",
+      "confirmRemove": "Confirm remove",
+      "cancel": "Cancel",
+      "removedPerson": "{{name}} no longer reads this credential. If they saw the password, change it on the service and here.",
+      "removedRole": "Role {{name}} no longer reads this credential. If someone saw the password, change it on the service and here.",
+      "changePassword": "Change the password",
+      "shareWith": "Share with",
+      "choose": "Choose a person or a role",
+      "people": "People",
+      "roles": "Roles",
+      "share": "Share",
+      "shared": "Shared with {{name}}.",
+      "waiting": "Waiting for confirmation: {{emails}}.",
+      "failed": "Couldn't change who reads it."
     }
   }
 }

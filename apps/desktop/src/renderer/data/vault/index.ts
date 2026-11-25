@@ -563,6 +563,32 @@ export async function listReaders(id: string): Promise<ReadersView> {
   return { direct, effective, canShare: canI(me, "credentials.share", c.projectId) };
 }
 
+/**
+ * Con chi si può condividere (il campo «Share with»): le persone e i ruoli
+ * del progetto della credenziale, tolti quelli già aggiunti direttamente.
+ * Vuoto per chi non ha `credentials.share`.
+ */
+export async function listShareTargets(id: string): Promise<{
+  people: { personId: string; name: string }[];
+  roles: { roleId: string; name: string }[];
+}> {
+  const me = await gate("vault.listShareTargets");
+  const c = credentialById(id);
+  if (!c || !viewOf(me, c) || !canI(me, "credentials.share", c.projectId))
+    return { people: [], roles: [] };
+  const direct = v().readers.filter((r) => r.credentialId === c.id);
+  const members = accessState().memberships.filter((m) => m.projectId === c.projectId);
+  const people = [...new Set(members.map((m) => m.personId))]
+    .filter((p) => !direct.some((r) => r.personId === p))
+    .map((personId) => ({ personId, name: nameOf(personId) ?? personId }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const roles = [...new Set(members.map((m) => m.roleId))]
+    .filter((r) => !direct.some((d) => d.roleId === r))
+    .map((roleId) => ({ roleId, name: roleName(roleId) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return { people, roles };
+}
+
 /** Condivide: chi ha la chiave confermata riceve la copia subito; gli altri aspettano. */
 export async function share(
   id: string,

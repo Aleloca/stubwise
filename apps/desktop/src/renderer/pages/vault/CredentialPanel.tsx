@@ -9,6 +9,7 @@ import { openInWeb } from "../../platform/openWeb";
 import { useToast } from "../../tasks-ui/Toast";
 import { quietButton } from "../tasks/controls";
 import { CredentialForm } from "./CredentialForm";
+import { CredentialReaders } from "./CredentialReaders";
 import { AccessWord, PasswordField } from "./CredentialRows";
 import { usePasswordReveal } from "./usePasswordReveal";
 
@@ -197,6 +198,8 @@ function CredentialBody({
           </Field>
         )}
       </div>
+
+      <CredentialReaders view={view} onChangePassword={onEdit} />
 
       {manages && (
         <section className="flex flex-col gap-2 border-t border-rule pt-4">

@@ -13704,6 +13704,38 @@
       "saved": "Modifiche salvate.",
       "failed": "Non è stato possibile salvare la credenziale.",
       "locked": "Apri la cassaforte per cambiare la password."
+    },
+    "readers": {
+      "title": "Lettori",
+      "who": "Chi la legge",
+      "direct": "Aggiunti direttamente",
+      "none": "Nessuno aggiunto direttamente.",
+      "source": {
+        "full_admin": "full admin",
+        "created": "l'ha creata",
+        "direct": "aggiunta direttamente",
+        "role": "ruolo {{role}}"
+      },
+      "state": {
+        "no_key": "in attesa: ancora senza chiave della cassaforte",
+        "key_pending": "in attesa: la sua chiave va confermata",
+        "waiting_copy": "in attesa di una copia della chiave"
+      },
+      "rolePrefix": "ruolo {{name}}",
+      "remove": "Togli",
+      "confirmRemove": "Conferma",
+      "cancel": "Annulla",
+      "removedPerson": "{{name}} non legge più questa credenziale. Se ha visto la password, cambiala sul servizio e qui.",
+      "removedRole": "Il ruolo {{name}} non legge più questa credenziale. Se qualcuno ha visto la password, cambiala sul servizio e qui.",
+      "changePassword": "Cambia la password",
+      "shareWith": "Condividi con",
+      "choose": "Scegli una persona o un ruolo",
+      "people": "Persone",
+      "roles": "Ruoli",
+      "share": "Condividi",
+      "shared": "Condivisa con {{name}}.",
+      "waiting": "In attesa di conferma: {{emails}}.",
+      "failed": "Non è stato possibile cambiare chi la legge."
     }
   }
 }
