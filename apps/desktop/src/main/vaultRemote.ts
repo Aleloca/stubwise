@@ -65,7 +65,10 @@ export function createVaultRemote(deps: VaultRemoteDeps): VaultRemote {
   }
 
   /** Il corpo validato con lo schema di `@stubwise/shared` (72): fuori forma è un errore. */
-  async function parsed<T>(res: Response, schema: { safeParse: (v: unknown) => { success: true; data: T } | { success: false } }): Promise<T> {
+  async function parsed<T>(
+    res: Response,
+    schema: { safeParse: (v: unknown) => { success: true; data: T } | { success: false } },
+  ): Promise<T> {
     const out = schema.safeParse(await res.json().catch(() => null));
     if (!out.success) throw new Error("invalid_response");
     return out.data;
@@ -90,7 +93,13 @@ export function createVaultRemote(deps: VaultRemoteDeps): VaultRemote {
         };
       } catch (error) {
         // Nessun sigillo, tolto, o chiave di persona non più quella attuale: la revoca (D-5).
-        if (error instanceof VaultHttpError && error.status === 404) return { revoked: true };
+        // M2: solo il codice della rotta, non un 404 qualunque (un proxy, una rotta che non c'è).
+        if (
+          error instanceof VaultHttpError &&
+          error.status === 404 &&
+          error.code === "device_seal_not_found"
+        )
+          return { revoked: true };
         throw error;
       }
     },

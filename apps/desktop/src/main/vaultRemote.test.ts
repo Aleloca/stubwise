@@ -58,6 +58,12 @@ describe("le rotte del sigillo del dispositivo, dal main", () => {
     ).toEqual({
       revoked: true,
     });
+    // M2 (revisione di sicurezza): un 404 con un altro codice (un proxy, una
+    // rotta sbagliata) NON è una revoca: non si cancella niente.
+    await expect(
+      remote(() => json(404, { code: "not_found", message: "x" })).r.fetchSeal(),
+    ).rejects.toThrow("not_found");
+    await expect(remote(() => new Response("gone", { status: 404 })).r.fetchSeal()).rejects.toThrow();
     // Un altro errore non è una revoca: chi chiama non cancella niente.
     await expect(
       remote(() => json(500, { code: "internal", message: "x" })).r.fetchSeal(),
