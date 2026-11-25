@@ -358,7 +358,12 @@ describe("canali IPC", () => {
   });
 
   it("il preload espone solo platform, setTheme, onMenu, saveFile, api, files, openStream, instance, session, openWeb, vault e google", () => {
-    const exposed = preload.match(/exposeInMainWorld\("stubwise", \{([\s\S]*)\}\);/)?.[1] ?? "";
+    const exposed = preload.match(/^const bridge = \{([\s\S]*?)^\};$/m)?.[1] ?? "";
+    // E solo alla pagina dell'app (protocollo app://): una pagina file:// non lo riceve.
+    expect(preload).toMatch(
+      /if \(bridgeAllowed\(href, devOrigin\)\) contextBridge\.exposeInMainWorld\("stubwise", bridge\);/,
+    );
+    expect(preload.match(/exposeInMainWorld/g)).toHaveLength(1);
     const keys = [...exposed.matchAll(/^ {2}([a-zA-Z]+):/gm)].map((m) => m[1]);
     expect(keys).toEqual([
       "platform",

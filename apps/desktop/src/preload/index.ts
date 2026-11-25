@@ -3,14 +3,24 @@ import type { DownloadResult } from "../main/apiDownload";
 import type { ApiProxyRequest, ApiProxyResponse } from "../main/apiProxy";
 import type { RegisterResult, UploadResult } from "../main/apiUpload";
 import type { StreamPortMessage } from "../main/apiStream";
-import type { SaveFileRequest, SaveFileResult } from "../main/security";
+import {
+  bridgeAllowed,
+  DEV_ORIGIN_ARG,
+  type SaveFileRequest,
+  type SaveFileResult,
+} from "../main/security";
 import type { SessionChange } from "../main/browserLogin";
 import type { UnlockResult, VaultStatus } from "../main/vaultLock";
 import type { PairingCode } from "../main/vaultPairing";
 import type { PendingPersonView, ReaderTarget } from "../main/vaultOps";
 
 type ResolvedTheme = "light" | "dark";
-type MenuChannel = "menu:search" | "menu:preferences" | "menu:ask-claude" | "menu:undo" | "menu:redo";
+type MenuChannel =
+  | "menu:search"
+  | "menu:preferences"
+  | "menu:ask-claude"
+  | "menu:undo"
+  | "menu:redo";
 const MENU_CHANNELS: readonly MenuChannel[] = [
   "menu:search",
   "menu:preferences",
@@ -20,8 +30,13 @@ const MENU_CHANNELS: readonly MenuChannel[] = [
 ];
 
 // Si espone solo `window.stubwise`, con funzioni a scopo stretto: mai
-// `ipcRenderer` (né un canale scelto dal renderer).
-contextBridge.exposeInMainWorld("stubwise", {
+// `ipcRenderer` (né un canale scelto dal renderer). E solo alla pagina
+// dell'app (`bridgeAllowed`): app://stubwise, o il dev server in sviluppo; una
+// pagina file:// o qualunque altra che finisse nella finestra non lo riceve.
+const devOrigin = process.argv
+  .find((a) => a.startsWith(DEV_ORIGIN_ARG))
+  ?.slice(DEV_ORIGIN_ARG.length);
+const bridge = {
   platform: process.platform,
   setTheme: (resolved: ResolvedTheme): void => {
     ipcRenderer.send("theme:changed", resolved);
@@ -42,12 +57,14 @@ contextBridge.exposeInMainWorld("stubwise", {
   // Il server vero (integrazione area 2, fetta 1). Il token resta nel main:
   // qui passano solo richieste, esiti e l'utente della sessione.
   api: {
-    request: (req: ApiProxyRequest): Promise<ApiProxyResponse> => ipcRenderer.invoke("api:request", req),
+    request: (req: ApiProxyRequest): Promise<ApiProxyResponse> =>
+      ipcRenderer.invoke("api:request", req),
     /**
      * Il download di un allegato (area 4, fetta 4): il main lo chiede col
      * token, segue il 302 e apre la finestra «Salva». Qui torna solo l'esito.
      */
-    download: (path: string): Promise<DownloadResult> => ipcRenderer.invoke("api:download", { path }),
+    download: (path: string): Promise<DownloadResult> =>
+      ipcRenderer.invoke("api:download", { path }),
     /**
      * Il caricamento di un file del Drive (area 5, fetta 2): `grant` viene da
      * `files.register`, il main legge il file in streaming e lo manda alla rotta.
@@ -63,11 +80,19 @@ contextBridge.exposeInMainWorld("stubwise", {
    */
   files: {
     register: (file: File): Promise<RegisterResult> =>
-      ipcRenderer.invoke("files:register", { path: webUtils.getPathForFile(file), mime: file.type }),
-    cancel: (uploadId: string): Promise<boolean> => ipcRenderer.invoke("files:cancel", { uploadId }),
-    onProgress: (fn: (progress: { uploadId: string; sent: number; total: number }) => void): (() => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, progress: { uploadId: string; sent: number; total: number }) =>
-        fn(progress);
+      ipcRenderer.invoke("files:register", {
+        path: webUtils.getPathForFile(file),
+        mime: file.type,
+      }),
+    cancel: (uploadId: string): Promise<boolean> =>
+      ipcRenderer.invoke("files:cancel", { uploadId }),
+    onProgress: (
+      fn: (progress: { uploadId: string; sent: number; total: number }) => void,
+    ): (() => void) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        progress: { uploadId: string; sent: number; total: number },
+      ) => fn(progress);
       ipcRenderer.on("files:progress", handler);
       return () => {
         ipcRenderer.removeListener("files:progress", handler);
@@ -108,7 +133,11 @@ contextBridge.exposeInMainWorld("stubwise", {
       port.start();
     };
     ipcRenderer.on("api:stream-port", onPort);
-    ipcRenderer.send("api:stream-open", { id, path, ...(options.body !== undefined ? { body: options.body } : {}) });
+    ipcRenderer.send("api:stream-open", {
+      id,
+      path,
+      ...(options.body !== undefined ? { body: options.body } : {}),
+    });
     return () => {
       closed = true;
       ipcRenderer.removeListener("api:stream-port", onPort);
@@ -117,13 +146,15 @@ contextBridge.exposeInMainWorld("stubwise", {
   },
   instance: {
     get: (): Promise<string | null> => ipcRenderer.invoke("instance:get"),
-    set: (url: string): Promise<{ ok: boolean; url?: string }> => ipcRenderer.invoke("instance:set", url),
+    set: (url: string): Promise<{ ok: boolean; url?: string }> =>
+      ipcRenderer.invoke("instance:set", url),
   },
   session: {
     /** Apre il login nel browser di sistema; l'esito arriva con `onChanged`. */
     startBrowserLogin: (): Promise<{ ok: true } | { ok: false; code: string }> =>
       ipcRenderer.invoke("session:start-browser-login"),
-    cancelBrowserLogin: (): Promise<{ ok: boolean }> => ipcRenderer.invoke("session:cancel-browser-login"),
+    cancelBrowserLogin: (): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke("session:cancel-browser-login"),
     /** Login riuscito o fallito, sessione scaduta: mai il token. Restituisce la funzione per disiscriversi. */
     onChanged: (cb: (change: SessionChange) => void): (() => void) => {
       const handler = (_event: unknown, change: SessionChange) => cb(change);
@@ -152,7 +183,9 @@ contextBridge.exposeInMainWorld("stubwise", {
     pairCancel: (): Promise<{ ok: boolean }> => ipcRenderer.invoke("vault:pair-cancel"),
     // Le operazioni con la chiave, fatte nel main: «Show» dà la password,
     // «Copy» no (scrive gli appunti il main); il resto esiti e conteggi.
-    show: (credentialId: string): Promise<{ ok: true; password: string } | { ok: false; code: string }> =>
+    show: (
+      credentialId: string,
+    ): Promise<{ ok: true; password: string } | { ok: false; code: string }> =>
       ipcRenderer.invoke("vault:show", credentialId),
     copy: (credentialId: string): Promise<{ ok: true } | { ok: false; code: string }> =>
       ipcRenderer.invoke("vault:copy", credentialId),
@@ -161,7 +194,10 @@ contextBridge.exposeInMainWorld("stubwise", {
       target: ReaderTarget,
     ): Promise<{ ok: true; waiting: string[] } | { ok: false; code: string }> =>
       ipcRenderer.invoke("vault:share", credentialId, target),
-    removeReader: (credentialId: string, readerId: string): Promise<{ ok: true } | { ok: false; code: string }> =>
+    removeReader: (
+      credentialId: string,
+      readerId: string,
+    ): Promise<{ ok: true } | { ok: false; code: string }> =>
       ipcRenderer.invoke("vault:remove-reader", credentialId, readerId),
     pending: (): Promise<{ ok: true; items: PendingPersonView[] } | { ok: false; code: string }> =>
       ipcRenderer.invoke("vault:pending"),
@@ -180,8 +216,11 @@ contextBridge.exposeInMainWorld("stubwise", {
         ipcRenderer.removeListener("vault:changed", handler);
       };
     },
-    onPaired: (cb: (result: { ok: true } | { ok: false; code: PairingCode }) => void): (() => void) => {
-      const handler = (_event: unknown, result: { ok: true } | { ok: false; code: PairingCode }) => cb(result);
+    onPaired: (
+      cb: (result: { ok: true } | { ok: false; code: PairingCode }) => void,
+    ): (() => void) => {
+      const handler = (_event: unknown, result: { ok: true } | { ok: false; code: PairingCode }) =>
+        cb(result);
       ipcRenderer.on("vault:paired", handler);
       return () => {
         ipcRenderer.removeListener("vault:paired", handler);
@@ -202,4 +241,8 @@ contextBridge.exposeInMainWorld("stubwise", {
       };
     },
   },
-});
+};
+
+// Il preload non ha i tipi del DOM: `location` dalla pagina che lo carica.
+const href = (globalThis as { location?: { href?: string } }).location?.href ?? "";
+if (bridgeAllowed(href, devOrigin)) contextBridge.exposeInMainWorld("stubwise", bridge);
