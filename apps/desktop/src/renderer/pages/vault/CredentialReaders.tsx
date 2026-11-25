@@ -35,7 +35,7 @@ export function CredentialReaders({
   const toast = useToast();
   const readers = useReaders(view.id).data;
   const canShare = readers?.canShare === true;
-  const targets = useShareTargets(view.id, canShare).data;
+  const targets = useShareTargets(view.id, canShare && view.access === "reads").data;
   const status = useVaultStatus().data;
   const { open } = useOpenVault();
   const share = useShare();
@@ -152,7 +152,12 @@ export function CredentialReaders({
         </div>
       )}
 
-      {canShare && targets && (
+      {/* Review I4: condividere ricifra la PROPRIA copia della chiave: chi
+          gestisce senza leggerla non ce l'ha, e lo si dice. */}
+      {canShare && view.access !== "reads" && (
+        <p className="text-sm text-ink-muted">{t("vault.readers.shareNeedsRead")}</p>
+      )}
+      {canShare && view.access === "reads" && targets && (
         <div className="flex items-end gap-2">
           <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm text-ink-muted">
             {t("vault.readers.shareWith")}

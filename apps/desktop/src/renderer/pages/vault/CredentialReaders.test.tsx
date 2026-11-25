@@ -91,4 +91,17 @@ describe("i lettori di una credenziale", () => {
     expect(p.queryByLabelText("Share with")).toBeNull();
     expect(p.queryByRole("button", { name: "Remove" })).toBeNull();
   });
+
+  // Review I4: condividere vuol dire ricifrare la PROPRIA copia della chiave
+  // per un altro: chi gestisce senza leggere non ce l'ha. Niente «Share
+  // with», e la frase che dice perché.
+  it("chi gestisce senza leggere (Matteo su Aruba): niente Share with, e il perché", async () => {
+    renderRoute(`/p/ACQ/credentials?credential=${VAULT_IDS.ARUBA}`, "p-matteo");
+    const p = await panel();
+    await p.findByRole("list", { name: "Who reads it" });
+    expect(p.queryByLabelText("Share with")).toBeNull();
+    expect(
+      p.getByText("You can share it once you read it yourself: ask someone who reads it."),
+    ).toBeInTheDocument();
+  });
 });

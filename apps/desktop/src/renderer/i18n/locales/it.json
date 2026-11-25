@@ -13744,7 +13744,8 @@
       "share": "Condividi",
       "shared": "Condivisa con {{name}}.",
       "waiting": "In attesa di conferma: {{emails}}.",
-      "failed": "Non è stato possibile cambiare chi la legge."
+      "failed": "Non è stato possibile cambiare chi la legge.",
+      "shareNeedsRead": "Potrai condividerla quando la leggerai anche tu: chiedi a chi la legge."
     },
     "pending": {
       "waiting_one": "{{count}} persona aspetta l'accesso",

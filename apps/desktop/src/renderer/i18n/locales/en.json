@@ -13744,7 +13744,8 @@
       "share": "Share",
       "shared": "Shared with {{name}}.",
       "waiting": "Waiting for confirmation: {{emails}}.",
-      "failed": "Couldn't change who reads it."
+      "failed": "Couldn't change who reads it.",
+      "shareNeedsRead": "You can share it once you read it yourself: ask someone who reads it."
     },
     "pending": {
       "waiting_one": "{{count}} person is waiting for access",
