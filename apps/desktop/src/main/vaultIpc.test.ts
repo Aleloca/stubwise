@@ -54,6 +54,8 @@ function setup() {
     reject: vi.fn(ok),
     macs: vi.fn(async () => ({ ok: true as const, items: [] })),
     removeMac: vi.fn(ok),
+    create: vi.fn(async () => ({ ok: true as const, id: CRED })),
+    setPassword: vi.fn(ok),
   };
   const fromApp = (event: unknown) => (event as { app?: boolean }).app === true;
   registerVaultIpc(ipc, { lock, pairing, ops, fromApp });
@@ -119,6 +121,33 @@ describe("l'IPC della cassaforte", () => {
       ["vault:confirm", ["x"]],
       ["vault:reject", [undefined]],
       ["vault:remove-mac", ["../mine"]],
+      // Creare: il progetto, i campi in chiaro coi limiti del server, una password.
+      [
+        "vault:create",
+        ["x", { service: "S", label: null, url: null, username: null, notes: null }, "pw"],
+      ],
+      [
+        "vault:create",
+        [CRED, { service: "  ", label: null, url: null, username: null, notes: null }, "pw"],
+      ],
+      [
+        "vault:create",
+        [CRED, { service: "S", label: 3, url: null, username: null, notes: null }, "pw"],
+      ],
+      [
+        "vault:create",
+        [
+          CRED,
+          { service: "S".repeat(201), label: null, url: null, username: null, notes: null },
+          "pw",
+        ],
+      ],
+      [
+        "vault:create",
+        [CRED, { service: "S", label: null, url: null, username: null, notes: null }, ""],
+      ],
+      ["vault:set-password", [CRED, ""]],
+      ["vault:set-password", ["x", "pw"]],
     ] as const) {
       expect(await call(channel, true, ...args), channel).toEqual({
         ok: false,
@@ -130,5 +159,27 @@ describe("l'IPC della cassaforte", () => {
     expect(ops.confirm).not.toHaveBeenCalled();
     expect(ops.reject).not.toHaveBeenCalled();
     expect(ops.removeMac).not.toHaveBeenCalled();
+    expect(ops.create).not.toHaveBeenCalled();
+    expect(ops.setPassword).not.toHaveBeenCalled();
+  });
+
+  it("creare e la password nuova: argomenti validi arrivano alle operazioni (i campi ripuliti)", async () => {
+    const { call, ops } = setup();
+    expect(
+      await call(
+        "vault:create",
+        true,
+        CRED,
+        { service: " Brevo ", label: null, url: null, username: "pm", notes: null, extra: 1 },
+        "pw",
+      ),
+    ).toEqual({ ok: true, id: CRED });
+    expect(ops.create).toHaveBeenCalledWith(
+      CRED,
+      { service: "Brevo", label: null, url: null, username: "pm", notes: null },
+      "pw",
+    );
+    expect(await call("vault:set-password", true, CRED, "Nn1!")).toEqual({ ok: true });
+    expect(ops.setPassword).toHaveBeenCalledWith(CRED, "Nn1!");
   });
 });

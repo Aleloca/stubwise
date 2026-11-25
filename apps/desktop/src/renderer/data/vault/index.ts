@@ -241,6 +241,16 @@ let pairingSeq = 0;
 export type PairingResult = { ok: true } | { ok: false; code: string };
 const pairingListeners = new Set<(result: PairingResult) => void>();
 
+/**
+ * Lo stato della cassaforte cambiato da fuori (nell'app: il main, per
+ * chiusura a tempo, sospensione o revoca). Nel prototipo ogni cambio passa
+ * da una scrittura, che rinnova già la barra: niente da ascoltare.
+ */
+export function subscribeVaultChanges(listener: () => void): () => void {
+  void listener;
+  return () => {};
+}
+
 /** Il dialogo dell'associazione sente com'è andato il ritorno dal browser. */
 export function subscribePairing(listener: (result: PairingResult) => void): () => void {
   pairingListeners.add(listener);

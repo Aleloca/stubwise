@@ -51,6 +51,21 @@ function isSignedOut(error: unknown): boolean {
  */
 let lastMe: Promise<Awaited<ReturnType<ReturnType<typeof appClient>["auth"]["me"]>>> | null = null;
 
+type AuthMe = Awaited<ReturnType<ReturnType<typeof appClient>["auth"]["me"]>>;
+
+/** L'ultima risposta di `/api/auth/me` con cui `getViewer` ha calcolato chi guarda. */
+let viewerMe: AuthMe | null = null;
+
+/**
+ * I permessi di chi guarda come li ha usati l'ultimo `getViewer`, senza una
+ * seconda lettura di `/api/auth/me` (la cassaforte, lotto 10): `lastMe` vale
+ * una volta sola, e non si tocca. Solo se il viewer non c'è ancora, una
+ * lettura a parte.
+ */
+export function currentMe(): Promise<AuthMe> {
+  return viewerMe ? Promise.resolve(viewerMe) : appClient().auth.me();
+}
+
 /** L'ultima persona vista dentro: anche dopo un 401 a metà, che azzera `session.personId`. */
 let lastPerson: string | null = null;
 
@@ -59,7 +74,10 @@ export const getSessionPerson: typeof Fake.getSessionPerson = async () => {
   lastMe = appClient().auth.me();
   try {
     const me = await lastMe;
-    if (before !== null && before !== me.user.id) forgetClientCaches();
+    if (before !== null && before !== me.user.id) {
+      viewerMe = null;
+      forgetClientCaches();
+    }
     lastPerson = me.user.id;
     session.personId = me.user.id;
     session.partial = false;
@@ -67,6 +85,7 @@ export const getSessionPerson: typeof Fake.getSessionPerson = async () => {
   } catch (error) {
     lastMe = null;
     if (!isSignedOut(error)) throw error;
+    viewerMe = null;
     if (before !== null) forgetClientCaches();
     lastPerson = null;
     session.personId = null;
@@ -120,6 +139,7 @@ export const getViewer: typeof Fake.getViewer = async () => {
   const pending = lastMe;
   lastMe = null;
   const me = await (pending ?? appClient().auth.me());
+  viewerMe = me;
   return {
     personId: me.user.id,
     instancePermissions: me.instancePermissions,
@@ -166,7 +186,8 @@ const loginStage: Auth["loginStage"] = async () => {
 
 const loginSecondFactor: Auth["loginSecondFactor"] = async (input) => {
   webOnly("loginSecondFactor");
-  const r = input.method === "passkey" ? await web.verifyPasskey() : await web.verifyCode(input.code);
+  const r =
+    input.method === "passkey" ? await web.verifyPasskey() : await web.verifyCode(input.code);
   if (r.ok) return { ok: true, stage: "in", personId: r.userId };
   if (r.error === "locked") return { ok: false, error: "locked", lockedUntil: r.lockedUntil };
   if (r.error === "login_expired") return { ok: false, error: "login_expired" };
@@ -198,7 +219,8 @@ const desktopHandoff: Auth["desktopHandoff"] = async (input) => {
     const r = await appClient().auth.desktopHandoff(input);
     return { ok: true, code: r.code };
   } catch (error) {
-    if (error instanceof ApiError && error.code === "reauth_required") return { ok: false, error: "reauth_required" };
+    if (error instanceof ApiError && error.code === "reauth_required")
+      return { ok: false, error: "reauth_required" };
     return { ok: false, error: "failed" };
   }
 };
@@ -211,7 +233,11 @@ function reauthFailure(error: unknown): ReauthResult {
   if (error instanceof ApiError) {
     if (error.status === 423) {
       const body = error.details as { lockedUntil?: string } | undefined;
-      return { ok: false, error: "locked", lockedUntil: body?.lockedUntil ?? new Date().toISOString() };
+      return {
+        ok: false,
+        error: "locked",
+        lockedUntil: body?.lockedUntil ?? new Date().toISOString(),
+      };
     }
     if (error.code === "invalid_second_factor") {
       // Il server non dice quanti tentativi restano: la frase generica.

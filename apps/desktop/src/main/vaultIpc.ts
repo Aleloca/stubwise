@@ -1,5 +1,5 @@
 import type { VaultLock } from "./vaultLock";
-import type { ReaderTarget, VaultOps } from "./vaultOps";
+import type { CredentialFields, ReaderTarget, VaultOps } from "./vaultOps";
 
 // I canali della cassaforte fra renderer e main (lotto 10, design §3). Il
 // renderer riceve esiti e lo stato (con l'impronta della chiave del
@@ -25,10 +25,36 @@ export const VAULT_CHANNELS = [
   "vault:reject",
   "vault:macs",
   "vault:remove-mac",
+  "vault:create",
+  "vault:set-password",
 ] as const;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isId = (value: unknown): value is string => typeof value === "string" && UUID.test(value);
+
+/** I limiti dei campi in chiaro (`credentialCreateBodySchema` del server). */
+const FIELD_MAX = { label: 200, url: 2000, username: 500, notes: 10_000 } as const;
+
+/** Una password scritta: non vuota, e non più lunga di quanto ha senso cifrare. */
+const isPassword = (value: unknown): value is string =>
+  typeof value === "string" && value.length > 0 && value.length <= 4096;
+
+/** I campi in chiaro dal renderer, ripuliti; `null` se uno non va (nessuna chiamata parte). */
+function credentialFields(raw: unknown): CredentialFields | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.service !== "string") return null;
+  const service = r.service.trim();
+  if (service === "" || service.length > 200) return null;
+  const out: CredentialFields = { service, label: null, url: null, username: null, notes: null };
+  for (const key of ["label", "url", "username", "notes"] as const) {
+    const v = r[key];
+    if (v === null || v === undefined) continue;
+    if (typeof v !== "string" || v.length > FIELD_MAX[key]) return null;
+    out[key] = v;
+  }
+  return out;
+}
 
 /** Una persona O un ruolo, e niente altro. */
 function readerTarget(value: unknown): ReaderTarget | null {
@@ -62,6 +88,8 @@ export interface VaultIpcDeps<E> {
     | "reject"
     | "macs"
     | "removeMac"
+    | "create"
+    | "setPassword"
   >;
   fromApp: (event: E) => boolean;
 }
@@ -154,5 +182,20 @@ export function registerVaultIpc<E>(ipc: Ipc<E>, deps: VaultIpcDeps<E>): void {
   ipc.handle(
     "vault:remove-mac",
     withArgs((macId) => (isId(macId) ? deps.ops.removeMac(macId) : null)),
+  );
+  ipc.handle(
+    "vault:create",
+    withArgs((projectId, raw, password) => {
+      const fields = credentialFields(raw);
+      return isId(projectId) && fields && isPassword(password)
+        ? deps.ops.create(projectId, fields, password)
+        : null;
+    }),
+  );
+  ipc.handle(
+    "vault:set-password",
+    withArgs((id, password) =>
+      isId(id) && isPassword(password) ? deps.ops.setPassword(id, password) : null,
+    ),
   );
 }

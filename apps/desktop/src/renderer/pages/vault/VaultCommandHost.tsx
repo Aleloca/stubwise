@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useVaultLock } from "../../data/queries";
+import { useVaultChanges, useVaultLock } from "../../data/queries";
 import { PairingDialog } from "./PairingDialog";
 import { useOpenVault } from "./VaultBar";
 
@@ -19,6 +19,8 @@ export function VaultCommandHost() {
   const { open } = useOpenVault();
   const lock = useVaultLock();
   const [pairing, setPairing] = useState(false);
+  // Il main dice quando la cassaforte cambia da sé: la barra si rilegge.
+  useVaultChanges();
   useEffect(() => {
     const listener = (command: VaultCommand) => {
       if (command === "open") void open();

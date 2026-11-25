@@ -147,6 +147,23 @@ export function useCancelPairing() {
   return useWrite(() => api.vault.cancelPairing(), VAULT_AREAS);
 }
 
+/**
+ * Lo stato della cassaforte cambiato da fuori (nell'app: il main, per
+ * chiusura a tempo, sospensione, revoca): l'area «vault» si rilegge.
+ * Montato una volta, dall'host dei comandi della cassaforte.
+ */
+export function useVaultChanges() {
+  const client = useQueryClient();
+  const me = useSessionPersonId();
+  useEffect(
+    () =>
+      api.vault.subscribeVaultChanges(() => {
+        void client.invalidateQueries({ queryKey: ["as", me, "vault"] });
+      }),
+    [client, me],
+  );
+}
+
 /** L'esito del ritorno dal browser, a chi ha il dialogo aperto. */
 export function usePairingResult(listener: (result: api.vault.PairingResult) => void) {
   const latest = useRef(listener);

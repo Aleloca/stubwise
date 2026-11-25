@@ -12,7 +12,7 @@ import {
 import type { SessionChange } from "../main/browserLogin";
 import type { UnlockResult, VaultStatus } from "../main/vaultLock";
 import type { PairingCode } from "../main/vaultPairing";
-import type { MacEntry, PendingPersonView, ReaderTarget } from "../main/vaultOps";
+import type { CredentialFields, MacEntry, PendingPersonView, ReaderTarget } from "../main/vaultOps";
 
 type ResolvedTheme = "light" | "dark";
 type MenuChannel =
@@ -215,6 +215,19 @@ const bridge = {
     /** Togliere un ALTRO proprio Mac: cassaforte aperta e riconferma (`reauth_required`). */
     removeMac: (macId: string): Promise<{ ok: true } | { ok: false; code: string }> =>
       ipcRenderer.invoke("vault:remove-mac", macId),
+    /** Una credenziale nuova: il main la cifra per i destinatari (non vuole la cassaforte aperta). */
+    create: (
+      projectId: string,
+      fields: CredentialFields,
+      password: string,
+    ): Promise<{ ok: true; id: string } | { ok: false; code: string }> =>
+      ipcRenderer.invoke("vault:create", projectId, fields, password),
+    /** La password nuova: con la cassaforte aperta, cifrata dal main. */
+    setPassword: (
+      credentialId: string,
+      password: string,
+    ): Promise<{ ok: true } | { ok: false; code: string }> =>
+      ipcRenderer.invoke("vault:set-password", credentialId, password),
     onChanged: (cb: (status: VaultStatus) => void): (() => void) => {
       const handler = (_event: unknown, status: VaultStatus) => cb(status);
       ipcRenderer.on("vault:changed", handler);
