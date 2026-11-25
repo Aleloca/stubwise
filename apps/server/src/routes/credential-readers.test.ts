@@ -277,6 +277,45 @@ describe("lettori di una credenziale", () => {
     expect(body.readers).toContainEqual(expect.objectContaining({ userId: lead.id, creator: false }));
   });
 
+  it("GET readers: chi legge VIA RUOLO porta il nome del ruolo (`roleName`, 25 nov 2026); diretto o full admin → null", async () => {
+    const { roles } = await import("@stubwise/db");
+    const [developer] = await testDb.db.select({ name: roles.name }).from(roles).where(eq(roles.id, developerRoleId));
+    // Un progetto suo: il ruolo invitato non deve toccare le attese degli altri test.
+    const [own] = await testDb.db
+      .insert(projects)
+      .values({ name: "ruoli", slug: "ruoli-lettori", ingestionKey: "ruoli-lettori-key" })
+      .returning({ id: projects.id });
+    const leader = await person("role-lead", "project_lead", own!.id);
+    // …che in UN ALTRO progetto è developer: qui il ruolo invitato non è il suo.
+    await addMember(app, otherProjectId, leader.id, "developer");
+    const dev = await person("role-dev", "developer", own!.id);
+    // Developer, ma in UN ALTRO progetto: qui non legge.
+    const elsewhere = await person("role-elsewhere", "developer", otherProjectId);
+    const id = await seedCredential({
+      project: own!.id,
+      readers: [leader.id],
+      roleReaders: [developerRoleId],
+      copiesFor: [await confirmedKeyOf(leader), await confirmedKeyOf(dev)],
+    });
+    const body = (await req("GET", `/api/credentials/${id}/readers`, leader.session)).json() as {
+      people: { userId: string; roleName: string | null }[];
+    };
+    const byUser = new Map(body.people.map((p) => [p.userId, p.roleName]));
+    expect(byUser.get(dev.id)).toBe(developer!.name);
+    expect(byUser.get(leader.id)).toBeNull();
+    expect(byUser.get(admin.id)).toBeNull();
+    expect(byUser.has(elsewhere.id)).toBe(false);
+    // Invitato ANCHE di persona: il ruolo resta detto.
+    const both = await seedCredential({
+      project: own!.id,
+      readers: [leader.id, dev.id],
+      roleReaders: [developerRoleId],
+      copiesFor: [await confirmedKeyOf(leader), await confirmedKeyOf(dev)],
+    });
+    const again = (await req("GET", `/api/credentials/${both}/readers`, leader.session)).json() as { people: { userId: string; roleName: string | null }[] };
+    expect(again.people.find((p) => p.userId === dev.id)!.roleName).toBe(developer!.name);
+  });
+
   it("condividere senza poterla aprire → 403 anche con credentials.share, nulla scritto", async () => {
     const target = await person("target", "developer");
     const targetKey = await confirmedKeyOf(target);
