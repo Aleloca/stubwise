@@ -13817,6 +13817,22 @@
       "reauth": "togliere un Mac dalla cassaforte",
       "empty": "Nessun Mac apre ancora la tua cassaforte.",
       "pair": "Associa questo Mac"
+    },
+    "admin": {
+      "title": "Cassaforte",
+      "intro": "I Mac di {{name}} che aprono la cassaforte",
+      "empty": "Nessun Mac apre la cassaforte di {{name}}.",
+      "removeAria": "Togli {{mac}}…",
+      "remove": "Togli…",
+      "dialogTitle": "Togliere {{mac}} di {{name}} dalla cassaforte?",
+      "stops": "Quel Mac smette di aprire la cassaforte.",
+      "staysSignedIn": "Su quel Mac {{name}} mantiene l'accesso.",
+      "alerted": "{{name}} riceve un avviso di sicurezza, e resta nel registro delle modifiche.",
+      "confirm": "Togli",
+      "cancel": "Annulla",
+      "removed": "Tolto. L'avviso è arrivato a {{name}}.",
+      "failed": "Non è stato possibile togliere quel Mac. Riprova.",
+      "reauth": "togliere un Mac dalla cassaforte di un'altra persona"
     }
   }
 }

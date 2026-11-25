@@ -179,6 +179,7 @@ export const queryKeys = {
   vaultPending: (personId: string) => ["as", personId, "vault", "pending"] as const,
   vaultEntry: (personId: string) => ["as", personId, "vault", "entry-all"] as const,
   myMacs: (personId: string) => ["as", personId, "vault", "my-macs"] as const,
+  macsOf: (personId: string, of: string) => ["as", personId, "vault", "macs-of", of] as const,
   shareTargets: (personId: string, id: string) =>
     ["as", personId, "vault", "share-targets", id] as const,
   accessLog: (personId: string, projectId: string, credentialId: string) =>

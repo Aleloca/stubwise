@@ -13817,6 +13817,22 @@
       "reauth": "remove a Mac from the vault",
       "empty": "No Mac opens your vault yet.",
       "pair": "Pair this Mac"
+    },
+    "admin": {
+      "title": "Vault",
+      "intro": "{{name}}'s Macs that open the vault",
+      "empty": "No Mac opens {{name}}'s vault.",
+      "removeAria": "Remove {{mac}}…",
+      "remove": "Remove…",
+      "dialogTitle": "Remove {{name}}'s {{mac}} from the vault?",
+      "stops": "That Mac stops opening the vault.",
+      "staysSignedIn": "{{name}} stays signed in on it.",
+      "alerted": "{{name}} gets a security alert, and it's recorded in the change log.",
+      "confirm": "Remove",
+      "cancel": "Cancel",
+      "removed": "Removed. {{name}} was told.",
+      "failed": "Couldn't remove that Mac. Try again.",
+      "reauth": "remove a Mac from someone's vault"
     }
   }
 }

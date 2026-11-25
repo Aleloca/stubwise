@@ -85,6 +85,24 @@ export function useMyMacs() {
   return useQuery({ queryKey: queryKeys.myMacs(me), queryFn: () => api.vault.listMyMacs() });
 }
 
+/** I Mac di un'altra persona (D-6): solo per un full admin (altrimenti `forbidden`). */
+export function useMacsOf(personId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.macsOf(me, personId),
+    queryFn: () => api.vault.listMacsOf(personId),
+  });
+}
+
+/** «Remove…» del Mac di un'altra persona (D-6), con la riconferma. */
+export function useRemoveMacOf() {
+  return useWrite(
+    ({ personId, macId }: { personId: string; macId: string }) =>
+      api.vault.removeMacOf(personId, macId),
+    VAULT_AREAS,
+  );
+}
+
 /** «Forget this Mac»: il proprio sigillo e il locale; il login resta. */
 export function useForgetThisMac() {
   return useWrite(() => api.vault.forgetThisMac(), VAULT_AREAS);
