@@ -169,8 +169,10 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
 - **Il sigillo del dispositivo (lotto 10, 24 nov 2026): una COPIA della
   chiave di persona per un Mac, che nasce solo da uno sblocco con passkey.**
   Il main del desktop genera una coppia P-256 sua e chiede l'associazione
-  COL SUO PAT desktop (`POST /api/vault/device-pairings`: solo l'hash dello
-  state, 10 minuti, uso singolo, legata a QUEL PAT e a QUELLA pubblica). Il
+  COL SUO PAT desktop E la sua riconferma recente (`POST
+  /api/vault/device-pairings`, review I2: un PAT da solo non basta; solo
+  l'hash dello state, 10 minuti, uso singolo, legata a QUEL PAT e a QUELLA
+  pubblica). Il browser vede da quando esiste quel login e il suo ultimo uso. Il
   browser la legge per state (`/lookup`, lo state nel corpo, mai nei log), la
   persona confronta l'impronta del Mac nelle due finestre, e con la passkey
   (riconferma recente, PRF) e la prova della propria chiave confermata

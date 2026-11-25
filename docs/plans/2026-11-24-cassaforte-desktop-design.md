@@ -177,6 +177,15 @@ E la tabella degli accoppiamenti in corso, `vault_device_pairings` (§6.2):
 
 ### 6.2 Il sigillo nasce SOLO dal browser, con la passkey
 
+> **Review di sicurezza, I2 (25 nov 2026):** anche CHIEDERE l'associazione
+> vuole la riconferma del desktop (`desktop-reauth`, 10 minuti), non il solo
+> PAT: un PAT rubato più un link mandato alla vittima farebbe sigillare la
+> chiave di persona per la pubblica dell'attaccante. Senza: 403
+> `reauth_required`, nulla scritto. E la pagina del browser riceve dal
+> `lookup` quando è nato il login del Mac e quando l'ha usato l'ultima volta
+> (`patCreatedAt`, `patLastUsedAt`): un login nuovo che la persona non
+> riconosce è il segnale.
+
 > **Com'è stato costruito (72, 24 nov 2026, commit della voce 2).** Il corpo
 > del sigillo è `{ pairingState, deviceId, seal, actorProof }`: PAT e pubblica
 > del Mac il server li prende dall'associazione (non dal corpo, quindi niente
@@ -240,8 +249,11 @@ Restano `session_required` anche col sigillo (la regola di adesso):
   /api/vault/device-seals/:id`, la stessa rotta del browser, dichiarata
   `desktopVault`, con la riconferma del desktop (`desktop-reauth`, 10 minuti)
   E la prova della propria chiave nel corpo (`{ actorProof }`, decisione di 46
-  del 25 nov 2026: la prova dice che la cassaforte è aperta, quindi che il
-  Touch ID è passato; la riconferma che chi agisce è la persona; senza prova
+  del 25 nov 2026: la prova dice che chi agisce ha la chiave di persona
+  aperta nel main — e quindi che è passato dal Touch ID SOLO quando l'app
+  sarà firmata e la chiave del Mac starà nel Secure Enclave (review di
+  sicurezza, I1: oggi, con un'app non firmata, il Touch ID si aggira e la
+  prova dimostra il possesso della chiave, non il tocco); la riconferma che chi agisce è la persona; senza prova
   403 `vault_proof_invalid`; dal browser il corpo non serve), il registro (`removed: <Mac tolto> (from the Mac «<chi l'ha tolto>»)`) e
   l'avviso alla persona; il proprio sigillo per id → 409 `use_mine` (c'è
   `DELETE .../mine`); un Mac di un'altra persona → 404. Anche l'elenco
@@ -378,7 +390,8 @@ Perché resta accettabile:
 
 - **Un Mac rubato e sbloccato può staccare gli altri Mac della persona** (D-9,
   accettato dal maintainer il 25 nov 2026): con la cassaforte aperta (la prova
-  della propria chiave, quindi il Touch ID passato) e la riconferma del
+  della propria chiave: il possesso della chiave, e il Touch ID solo ad app
+  firmata) e la riconferma del
   desktop toglie i sigilli degli altri Mac, così la persona
   resta a leggere solo da quel Mac e dal browser. Non apre nulla di più di
   quanto già apre, e ogni rimozione finisce nel registro e avvisa la persona;
@@ -393,7 +406,7 @@ D-6 e D-7; D-2, D-3, D-4 e D-8 li ha decisi 46 con le raccomandazioni.
 
 | # | Domanda | Raccomandazione | Decisione (24 nov 2026) |
 |---|---|---|---|
-| D-1 | Lo sblocco dal desktop chiede qualcosa (Touch ID, `systemPreferences.promptTouchID`) o è davvero automatico? | **Touch ID alla riapertura** (dopo stop, blocco schermo o 15 minuti), automatico solo all'avvio subito dopo l'associazione. Restringe il limite di §11 (un programma ostile non passa il Touch ID) e costa un tocco. **È una proposta contro la lettera della decisione**: cambia «si sblocca da solo» in «con un tocco, dopo una pausa». Se il maintainer vuole «da solo» alla lettera: automatico sempre, e il limite resta. | **Touch ID alla riapertura**, come raccomandato (maintainer). |
+| D-1 | Lo sblocco dal desktop chiede qualcosa (Touch ID, `systemPreferences.promptTouchID`) o è davvero automatico? | **Touch ID alla riapertura** (dopo stop, blocco schermo o 15 minuti), automatico solo all'avvio subito dopo l'associazione. Restringe il limite di §11 (un programma ostile non passa il Touch ID) e costa un tocco. **È una proposta contro la lettera della decisione**: cambia «si sblocca da solo» in «con un tocco, dopo una pausa». Se il maintainer vuole «da solo» alla lettera: automatico sempre, e il limite resta. | **Touch ID alla riapertura**, come raccomandato (maintainer). **Nota della review di sicurezza (25 nov 2026, I1):** finché l'app non è firmata il Touch ID si aggira (un programma dello stesso utente legge la chiave del Mac da `safeStorage`), quindi oggi il tocco è un'abitudine, non una garanzia; il maintainer ha deciso di firmare l'app adesso, con la chiave del Mac nel Secure Enclave (l'ECDH lo fa l'enclave, `openDeviceSeal` con `deriveBits` iniettato). |
 | D-1a | Un Mac senza Touch ID (`canPromptTouchID()` falso)? | — | **La cassaforte si riapre dal browser con la passkey, il sigillo resta**; il desktop dice «Apri la cassaforte dal browser» (maintainer, scelta (a), 24 nov 2026). |
 | D-1b | Quando si chiede il tocco? | — | **Senza tocco solo la prima apertura subito dopo l'associazione**; poi ogni riapertura lo chiede, anche al riavvio dell'app (maintainer, 24 nov 2026). |
 | D-2 | La chiusura in memoria dopo quanto? | **15 minuti senza usarla**, più stop/blocco dello schermo. | **15 minuti**, più stop e blocco dello schermo (46). |

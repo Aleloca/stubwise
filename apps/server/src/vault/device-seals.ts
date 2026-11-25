@@ -122,10 +122,23 @@ export async function lookupPairing(
       deviceName: vaultDevicePairings.deviceName,
       devicePublicKey: vaultDevicePairings.devicePublicKey,
       expiresAt: vaultDevicePairings.expiresAt,
+      patCreatedAt: personalAccessTokens.createdAt,
+      patLastUsedAt: personalAccessTokens.lastUsedAt,
     })
     .from(vaultDevicePairings)
+    .innerJoin(personalAccessTokens, eq(personalAccessTokens.id, vaultDevicePairings.patId))
     .where(usablePairing(userId, state));
-  return row ? { ...row, expiresAt: row.expiresAt.toISOString() } : null;
+  // Review I2: la pagina del browser mostra da quando esiste il login del Mac
+  // e quando l'ha usato l'ultima volta: un login nato da poco che la persona
+  // non riconosce è il segnale di un PAT rubato.
+  return row
+    ? {
+        ...row,
+        expiresAt: row.expiresAt.toISOString(),
+        patCreatedAt: row.patCreatedAt.toISOString(),
+        patLastUsedAt: row.patLastUsedAt?.toISOString() ?? null,
+      }
+    : null;
 }
 
 export type CreateSealError = "vault_key_not_confirmed" | "vault_proof_invalid" | "pairing_invalid";
@@ -223,6 +236,15 @@ export async function mineSeal(db: Db, user: { id: string; patId: string }): Pro
     .from(vaultPersonKeys)
     .where(eq(vaultPersonKeys.id, row.personKeyId));
   return { ...row, personPublicKey: key!.publicKey };
+}
+
+/** Il sigillo `id` è di `userId` e non è revocato? (Per non consumare una prova su un id sbagliato.) */
+export async function ownLiveSeal(db: Db, userId: string, id: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: vaultDeviceSeals.id })
+    .from(vaultDeviceSeals)
+    .where(and(eq(vaultDeviceSeals.id, id), eq(vaultDeviceSeals.userId, userId), isNull(vaultDeviceSeals.revokedAt)));
+  return row !== undefined;
 }
 
 /** I Mac vivi di una persona, per l'elenco. */
