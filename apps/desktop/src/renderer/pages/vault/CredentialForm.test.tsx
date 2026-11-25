@@ -39,16 +39,16 @@ describe("nuova e modifica di una credenziale", () => {
     expect(p.queryByRole("button", { name: /generate/i })).toBeNull();
     const save = p.getByRole("button", { name: "Save" });
     expect(save).toBeDisabled();
-    await user.type(p.getByLabelText("Service"), "Mailgun");
+    await user.type(p.getByLabelText("Service"), "Brevo SMTP");
     await user.type(p.getByLabelText("Username"), "postmaster@acquedotto");
     await user.type(p.getByLabelText("Password"), "Zz9!mail-01");
     await user.click(save);
-    const detail = within(await screen.findByRole("region", { name: "Credential Mailgun" }));
+    const detail = within(await screen.findByRole("region", { name: "Credential Brevo SMTP" }));
     expect(detail.getByText("postmaster@acquedotto")).toBeInTheDocument();
     await waitFor(() =>
       expect(
         [...document.querySelectorAll("li[data-credential]")].some((li) =>
-          li.textContent?.includes("Mailgun"),
+          li.textContent?.includes("Brevo SMTP"),
         ),
       ).toBe(true),
     );
