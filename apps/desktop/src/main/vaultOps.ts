@@ -3,6 +3,7 @@ import {
   credentialSharePreviewSchema,
   vaultActorChallengeResponseSchema,
   vaultConfirmResponseSchema,
+  vaultDeviceSealListSchema,
   vaultPendingResponseSchema,
   type CredentialSharePreview,
   type VaultActorProof,
@@ -66,6 +67,16 @@ function parse<T>(
   const out = schema.safeParse(value);
   if (!out.success) throw new Error("invalid_response");
   return out.data;
+}
+
+/** Un proprio Mac nell'elenco di Preferenze → Security (come `MacView` del renderer). */
+export interface MacEntry {
+  id: string;
+  name: string;
+  pairedAt: string;
+  lastUsedAt: string | null;
+  current: boolean;
+  fingerprint: string;
 }
 
 export function createVaultOps(deps: VaultOpsDeps) {
@@ -296,6 +307,54 @@ export function createVaultOps(deps: VaultOpsDeps) {
           unopenable,
         };
       }, TOUCH),
+
+    /**
+     * I propri Mac (Preferenze → Security): l'elenco, con `current` sul
+     * sigillo di questo Mac e l'impronta INTERA dalla pubblica (M7). Non
+     * vuole la cassaforte aperta: è un elenco, nessuna chiave.
+     */
+    macs: async (): Promise<{ ok: true; items: MacEntry[] } | OpFailure> => {
+      try {
+        const list = parse(
+          vaultDeviceSealListSchema,
+          await deps.request("GET", "/api/vault/device-seals"),
+        );
+        return {
+          ok: true,
+          items: await Promise.all(
+            list.items.map(async (m) => ({
+              id: m.id,
+              name: m.deviceName,
+              pairedAt: m.createdAt,
+              lastUsedAt: m.lastUsedAt,
+              current: m.current,
+              fingerprint: await keyFingerprint(m.devicePublicKey),
+            })),
+          ),
+        };
+      } catch (error) {
+        if (isDisabled(error)) {
+          deps.lock.markDisabled();
+          return { ok: false, code: "disabled" };
+        }
+        if (error instanceof VaultHttpError) return { ok: false, code: error.code };
+        return { ok: false, code: "open_failed" };
+      }
+    },
+
+    /**
+     * Togliere un ALTRO proprio Mac (VA-Q4): con la cassaforte aperta (la
+     * prova della propria chiave) e la riconferma del desktop, che il server
+     * chiede con `reauth_required` (il renderer apre «Confirm it's you» e
+     * riprova). Il proprio Mac si toglie con «Forget this Mac».
+     */
+    removeMac: (macId: string) =>
+      guarded(async (key, personKeyId) => {
+        await deps.request("DELETE", `/api/vault/device-seals/${seg(macId)}`, {
+          actorProof: await prove(key, personKeyId),
+        });
+        return {};
+      }),
 
     reject: (targetKeyId: string) =>
       guarded(async (key, personKeyId) => {
