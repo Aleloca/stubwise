@@ -58,6 +58,7 @@ import { createVaultRemote } from "./vaultRemote";
 import {
   isExternalOpenAllowed,
   isNavigationAllowed,
+  rendererDevUrl,
   parseSaveFileRequest,
   safeFileName,
   saveFilterFor,
@@ -74,7 +75,8 @@ import {
 } from "./window";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
-const devUrl = process.env["ELECTRON_RENDERER_URL"];
+// C1: nel pacchetto nessun dev server, qualunque sia l'env.
+const devUrl = rendererDevUrl({ isPackaged: app.isPackaged, env: process.env });
 const packagedFile = join(here, "../renderer/index.html");
 
 function createWindow(): BrowserWindow {

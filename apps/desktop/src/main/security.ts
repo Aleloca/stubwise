@@ -27,6 +27,20 @@ export const PRODUCTION_CSP = [
  * server (se c'è) o verso il file `index.html` impacchettato (cambia l'hash,
  * non il file). Tutto il resto — http(s) esterni, altri file — è negato.
  */
+/**
+ * L'indirizzo del dev server (C1, seconda revisione della cassaforte): solo in
+ * sviluppo. Nel pacchetto `ELECTRON_RENDERER_URL` non conta mai, altrimenti
+ * chi rilancia l'app con quella env le fa caricare una pagina sua, col bridge
+ * intero (cassaforte aperta, `api:request` col PAT).
+ */
+export function rendererDevUrl(opts: {
+  isPackaged: boolean;
+  env: Record<string, string | undefined>;
+}): string | undefined {
+  if (opts.isPackaged) return undefined;
+  return opts.env["ELECTRON_RENDERER_URL"] || undefined;
+}
+
 export function isNavigationAllowed(
   target: string,
   opts: { devUrl?: string; packagedUrl: string },
@@ -86,7 +100,8 @@ export function parseSaveFileRequest(v: unknown): SaveFileRequest | null {
     if (keys.length !== 3 || !("data" in o)) return null;
     const { data } = o;
     if (!(data instanceof Uint8Array)) return null;
-    if (data.byteLength < ZIP_MAGIC.length || data.byteLength > MAX_SAVE_BYTES || !isZip(data)) return null;
+    if (data.byteLength < ZIP_MAGIC.length || data.byteLength > MAX_SAVE_BYTES || !isZip(data))
+      return null;
     return { format, name, data };
   }
   return null;
@@ -110,7 +125,9 @@ export function safeFileName(name: string, format: SaveFormat): string {
 
 /** Il filtro della finestra di salvataggio: solo l'estensione del formato. */
 export function saveFilterFor(format: SaveFormat): { name: string; extensions: string[] } {
-  return format === "pdf" ? { name: "PDF", extensions: ["pdf"] } : { name: "Word", extensions: ["docx"] };
+  return format === "pdf"
+    ? { name: "PDF", extensions: ["pdf"] }
+    : { name: "Word", extensions: ["docx"] };
 }
 
 /** Il percorso scelto con l'estensione del formato (aggiunta se manca). */
