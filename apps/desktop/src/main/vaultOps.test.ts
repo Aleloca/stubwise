@@ -320,7 +320,15 @@ describe("le operazioni della cassaforte nel main", () => {
           createdAt: "2026-11-22T10:12:00.000Z",
           device: "Chrome on macOS",
           fingerprint: await keyFingerprint(other.publicKey),
-          credentials: [{ id: CRED, service: "Aruba", label: null }],
+          // Il progetto di ogni credenziale: il punto «ti aspetta» della colonna.
+          credentials: [
+            {
+              id: CRED,
+              projectId: "eeeeeeee-0000-4000-8000-000000000001",
+              service: "Aruba",
+              label: null,
+            },
+          ],
         },
       ],
     });

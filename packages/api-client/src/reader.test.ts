@@ -32,14 +32,18 @@ const ARGS_FOR: Record<string, unknown[]> = {
   "usage.summary": [{ range: { days: 30 }, groupBy: "project" }],
 };
 
-function responseSchemas(): {
+async function responseSchemas(): Promise<{
   schemas: { name: string; schema: ZodType }[];
   failures: { name: string; error: string }[];
-} {
+}> {
   const collected: { name: string; schema: ZodType }[] = [];
   const failures: { name: string; error: string }[] = [];
+  // I metodi che hanno chiamato `request` (con o senza schema).
+  const requested = new Set<string>();
+  const pending: Promise<void>[] = [];
   let current = "";
   const request = ((_m: string, _p: string, _b?: unknown, schema?: ZodType) => {
+    requested.add(current);
     if (schema) collected.push({ name: current, schema });
     return Promise.resolve(undefined);
   }) as unknown as ApiRequest;
@@ -49,27 +53,46 @@ function responseSchemas(): {
     for (const [method, fn] of Object.entries(group)) {
       if (typeof fn !== "function") continue;
       current = `${groupName}.${method}`;
+      const name = current;
       try {
-        (fn as (...a: unknown[]) => unknown).call(group, ...(ARGS_FOR[current] ?? [ID, ID, ID]));
+        const out = (fn as (...a: unknown[]) => unknown).call(
+          group,
+          ...(ARGS_FOR[name] ?? [ID, ID, ID]),
+        );
+        // Il corpo finto è `undefined`: un metodo che lo legge dopo `request`
+        // (`(await request(...)).items`) rifiuta, ed è atteso. Si aspetta la
+        // promise (un rifiuto non gestito farebbe uscire vitest con 1) e conta
+        // come guasto solo il rifiuto PRIMA di `request`: un `async` che lancia
+        // subito si sottrarrebbe alla raccolta come un lancio sincrono.
+        if (out instanceof Promise)
+          pending.push(
+            out.then(
+              () => undefined,
+              (error: unknown) => {
+                if (!requested.has(name)) failures.push({ name, error: String(error) });
+              },
+            ),
+          );
       } catch (error) {
         // Gli argomenti sono finti, ma un endpoint NON deve lanciare prima di
         // chiamare `request`: se lo facesse uscirebbe da questi controlli in
         // silenzio, e il pavimento sul numero di schemi non se ne accorgerebbe
         // di UNO solo. Si raccoglie e si asserisce vuoto.
-        failures.push({ name: current, error: String(error) });
+        failures.push({ name, error: String(error) });
       }
     }
   }
+  await Promise.all(pending);
   return { schemas: collected, failures };
 }
 
 describe("guardiano dei tipi di nodo", () => {
-  it("ogni schema di risposta del client è attraversabile da readerSchema", () => {
+  it("ogni schema di risposta del client è attraversabile da readerSchema", async () => {
     // Se uno schema contenesse un nodo che la derivazione non sa attraversare
     // (un `record`, un oggetto con catchall), passerebbe invariato — sicuro,
     // ma gli enum lì dentro resterebbero CHIUSI in silenzio: di nuovo il bug
     // che tutto questo esiste per evitare, proprio dove nessuno lo cerca.
-    const { schemas, failures } = responseSchemas();
+    const { schemas, failures } = await responseSchemas();
     // Nessun endpoint deve essersi sottratto alla raccolta.
     expect(failures).toEqual([]);
 
@@ -79,12 +102,12 @@ describe("guardiano dei tipi di nodo", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("il guardiano non passa a vuoto: gli schemi ci sono e contengono enum", () => {
-    const { schemas } = responseSchemas();
+  it("il guardiano non passa a vuoto: gli schemi ci sono e contengono enum", async () => {
+    const { schemas } = await responseSchemas();
     expect(schemas.length).toBeGreaterThan(30);
-    expect(schemas.filter(({ schema }) => readerNodeKinds(schema).has("enum")).length).toBeGreaterThan(
-      10,
-    );
+    expect(
+      schemas.filter(({ schema }) => readerNodeKinds(schema).has("enum")).length,
+    ).toBeGreaterThan(10);
   });
 });
 

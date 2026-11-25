@@ -69,7 +69,7 @@ type StubwiseVaultPendingPerson = {
   createdAt: string;
   device: string | null;
   fingerprint: string;
-  credentials: { id: string; service: string; label: string | null }[];
+  credentials: { id: string; projectId: string; service: string; label: string | null }[];
 };
 // Lo stream dal vivo di una sessione (`api:stream-open`, `src/main/apiStream.ts`,
 // area 3 fetta 3a): `frame` è il risultato di `parseAgentStreamFrame` di

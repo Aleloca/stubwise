@@ -118,6 +118,41 @@ describe("le letture della cassaforte, dalle rotte", () => {
     expect((await vault.listCredentials({ projectId: PROJECT_ID }))[0]!.canSeeLog).toBe(false);
   });
 
+  // Il punto «ti aspetta» della colonna: chi aspetta una credenziale DI QUEL
+  // progetto, dal `projectId` che il main porta da `vault:pending`.
+  it("l'entrata della sezione: «ti aspetta» solo nel progetto della credenziale in attesa", async () => {
+    installFakeServer({
+      "GET /api/auth/me": { body: me({ projectPermissions: { [PROJECT_ID]: [], [OTHER]: [] } }) },
+      [`GET /api/projects/${PROJECT_ID}/credentials`]: {
+        body: { items: [item(C1)], canSeeLog: false },
+      },
+      [`GET /api/projects/${OTHER}/credentials`]: {
+        body: { items: [item(C2, { projectId: OTHER })], canSeeLog: false },
+      },
+    });
+    vi.stubGlobal("stubwise", {
+      vault: {
+        pending: async () => ({
+          ok: true,
+          items: [
+            {
+              userId: OTHER,
+              email: "marco@x.test",
+              personKeyId: C2,
+              status: "pending",
+              createdAt: "2026-11-24T16:20:00.000Z",
+              device: null,
+              fingerprint: "7d20 e5a9 c31f 6b84",
+              credentials: [{ id: C1, projectId: PROJECT_ID, service: "S", label: null }],
+            },
+          ],
+        }),
+      },
+    });
+    expect((await vault.getCredentialsEntry(PROJECT_ID)).waitingMe).toBe(true);
+    expect((await vault.getCredentialsEntry(OTHER)).waitingMe).toBe(false);
+  });
+
   it("l'entrata della pagina Vault: c'è con una credenziale o un progetto dove si crea", async () => {
     installFakeServer({
       "GET /api/auth/me": {

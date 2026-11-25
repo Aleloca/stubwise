@@ -61,7 +61,8 @@ export interface PendingPersonView {
   createdAt: string;
   device: string | null;
   fingerprint: string;
-  credentials: { id: string; service: string; label: string | null }[];
+  /** `projectId` per il punto «ti aspetta» della colonna del progetto. */
+  credentials: { id: string; projectId: string; service: string; label: string | null }[];
 }
 
 const seg = encodeURIComponent;
@@ -341,6 +342,7 @@ export function createVaultOps(deps: VaultOpsDeps) {
               fingerprint: await keyFingerprint(p.personKey.fingerprintSource),
               credentials: p.credentials.map((c) => ({
                 id: c.id,
+                projectId: c.projectId,
                 service: c.service,
                 label: c.label,
               })),
