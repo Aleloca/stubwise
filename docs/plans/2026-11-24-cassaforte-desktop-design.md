@@ -367,7 +367,10 @@ Perché resta accettabile:
 - Senza `actorProof`, o con quella di un'altra sessione → 403 `vault_proof_invalid`.
 - Dopo la revoca del PAT, la ricreazione della chiave di persona, la
   disattivazione della persona o la revoca dal browser → il `reveal` dal desktop
-  è 403/404 SUBITO, con la riga del sigillo ancora in DB (la revoca a lettura).
+  è 403/404 SUBITO, con la riga del sigillo ancora in DB (la revoca a lettura)
+  dove la riga resta: chiave ricreata e revoca dal browser. Il PAT revocato e
+  la persona disattivata (che revoca i suoi PAT) la portano via in cascata, e
+  il Mac riceve 401 (verificato il 25 nov 2026, review M8).
 - Le rotte che restano `session_required` lo restano col sigillo vivo: attivare,
   recupero, kit, chiavi di persona, sigillare un dispositivo.
 - `DELETE /api/vault/device-seals/mine` col PAT desktop non toglie il sigillo
