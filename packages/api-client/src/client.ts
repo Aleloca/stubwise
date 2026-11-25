@@ -42,6 +42,7 @@ import { createGoogleEndpoints } from "./endpoints/google.js";
 import { createClaudeEndpoints } from "./endpoints/claude.js";
 import { createMilestonesEndpoints } from "./endpoints/milestones.js";
 import { createPatsEndpoints } from "./endpoints/pats.js";
+import { createCredentialsEndpoints, createVaultEndpoints } from "./endpoints/vault.js";
 import { createProjectsEndpoints } from "./endpoints/projects.js";
 import { createRepositoriesEndpoints } from "./endpoints/repositories.js";
 import { createSearchEndpoints } from "./endpoints/search.js";
@@ -151,6 +152,9 @@ export function createEndpoints(request: ApiRequest) {
     // Chat con Claude, fetta 1: le conversazioni libere.
     claude: createClaudeEndpoints(request),
     pats: createPatsEndpoints(request),
+    // 25 nov 2026: la cassaforte del desktop, solo letture e campi in chiaro.
+    vault: createVaultEndpoints(request),
+    credentials: createCredentialsEndpoints(request),
     projects: createProjectsEndpoints(request),
     repositories: createRepositoriesEndpoints(request),
     servers: createServersEndpoints(request),
