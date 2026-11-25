@@ -122,4 +122,180 @@ describe("le letture della cassaforte, dalle rotte", () => {
       createProjectIds: [PROJECT_ID],
     });
   });
+
+  // Fetta 2c: lettori, registro e «Share with».
+  describe("lettori, registro e Share with", () => {
+    const LAURA = "44444444-4444-4444-8444-444444444444";
+    const MARCO = "55555555-5555-4555-8555-555555555555";
+    const ROLE = "66666666-6666-4666-8666-666666666666";
+    const people = [
+      { id: LAURA, name: "Laura Costa", initials: "LC", departmentIds: [], email: "laura@x.test" },
+      {
+        id: MARCO,
+        name: "Marco Bellini",
+        initials: "MB",
+        departmentIds: [],
+        email: "marco@x.test",
+      },
+    ];
+
+    it("i lettori: diretti (senza chi l'ha creata) ed effettivi con la fonte e il perché dell'attesa", async () => {
+      installFakeServer({
+        "GET /api/vault/credentials": { body: { items: [item(C1)] } },
+        "GET /api/people": { body: people },
+        [`GET /api/credentials/${C1}/readers`]: {
+          body: {
+            readers: [
+              {
+                id: "77777777-7777-4777-8777-777777777771",
+                userId: LAURA,
+                email: "laura@x.test",
+                roleId: null,
+                roleName: null,
+                createdAt: "2026-11-20T10:00:00.000Z",
+                creator: true,
+              },
+              {
+                id: "77777777-7777-4777-8777-777777777772",
+                userId: null,
+                email: null,
+                roleId: ROLE,
+                roleName: "Developer",
+                createdAt: "2026-11-21T10:00:00.000Z",
+                creator: false,
+              },
+            ],
+            people: [
+              {
+                userId: LAURA,
+                email: "laura@x.test",
+                fullAdmin: false,
+                status: "can_read",
+                keyStatus: "confirmed",
+              },
+              {
+                userId: MARCO,
+                email: "marco@x.test",
+                fullAdmin: false,
+                status: "pending",
+                keyStatus: "pending",
+              },
+            ],
+          },
+        },
+      });
+      const r = await vault.listReaders(C1);
+      expect(r.canShare).toBe(true);
+      expect(r.direct).toEqual([
+        {
+          readerId: "77777777-7777-4777-8777-777777777772",
+          kind: "role",
+          id: ROLE,
+          name: "Developer",
+          addedAt: "2026-11-21T10:00:00.000Z",
+        },
+      ]);
+      expect(r.effective.map((e) => [e.name, e.source, e.state])).toEqual([
+        ["Laura Costa", "created", "reads"],
+        ["Marco Bellini", "role", "key_pending"],
+      ]);
+    });
+
+    it("il registro: da dove (desktop → mac), l'azione, il nome; chi non gestisce (403) riceve niente", async () => {
+      installFakeServer({
+        "GET /api/people": { body: people },
+        [`GET /api/projects/${PROJECT_ID}/credentials/log`]: {
+          body: {
+            items: [
+              {
+                id: "88888888-8888-4888-8888-888888888881",
+                credentialId: C1,
+                credentialSnapshot: "Aruba hosting",
+                userId: LAURA,
+                userEmail: "laura@x.test",
+                action: "show",
+                via: "desktop",
+                createdAt: "2026-11-25T09:00:00.000Z",
+              },
+            ],
+          },
+        },
+      });
+      expect(await vault.listAccessLog({ projectId: PROJECT_ID, credentialId: C1 })).toEqual([
+        {
+          id: "88888888-8888-4888-8888-888888888881",
+          at: "2026-11-25T09:00:00.000Z",
+          personId: LAURA,
+          name: "Laura Costa",
+          credentialId: C1,
+          service: "Aruba hosting",
+          action: "shown",
+          via: "mac",
+        },
+      ]);
+      setAppClientForTests(null);
+      installFakeServer({
+        "GET /api/people": { body: people },
+        [`GET /api/projects/${PROJECT_ID}/credentials/log`]: {
+          status: 403,
+          body: { code: "forbidden", message: "x" },
+        },
+      });
+      expect(await vault.listAccessLog({ projectId: PROJECT_ID })).toEqual([]);
+    });
+
+    it("Share with: persone e ruoli del progetto, tolti i già aggiunti; niente senza canShare", async () => {
+      const members = [
+        {
+          userId: LAURA,
+          email: "laura@x.test",
+          avatarUrl: null,
+          roleId: "99999999-9999-4999-8999-999999999991",
+          roleName: "Project Lead",
+          createdAt: "2026-11-01T10:00:00.000Z",
+        },
+        {
+          userId: MARCO,
+          email: "marco@x.test",
+          avatarUrl: null,
+          roleId: ROLE,
+          roleName: "Developer",
+          createdAt: "2026-11-01T10:00:00.000Z",
+        },
+      ];
+      installFakeServer({
+        "GET /api/vault/credentials": { body: { items: [item(C1)] } },
+        "GET /api/people": { body: people },
+        [`GET /api/projects/${PROJECT_ID}/members`]: { body: members },
+        [`GET /api/credentials/${C1}/readers`]: {
+          body: {
+            readers: [
+              {
+                id: "77777777-7777-4777-8777-777777777772",
+                userId: null,
+                email: null,
+                roleId: ROLE,
+                roleName: "Developer",
+                createdAt: "2026-11-21T10:00:00.000Z",
+                creator: false,
+              },
+            ],
+            people: [],
+          },
+        },
+      });
+      expect(await vault.listShareTargets(C1)).toEqual({
+        people: [
+          { personId: LAURA, name: "Laura Costa" },
+          { personId: MARCO, name: "Marco Bellini" },
+        ],
+        roles: [{ roleId: "99999999-9999-4999-8999-999999999991", name: "Project Lead" }],
+      });
+      setAppClientForTests(null);
+      installFakeServer({
+        "GET /api/vault/credentials": { body: { items: [item(C1, { canShare: false })] } },
+      });
+      expect(await vault.listShareTargets(C1)).toEqual({ people: [], roles: [] });
+    });
+  });
 });

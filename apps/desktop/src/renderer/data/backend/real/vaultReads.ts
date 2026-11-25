@@ -1,3 +1,4 @@
+import { ApiError } from "@stubwise/api-client";
 import type { CredentialItem, Reader } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type { CredentialView } from "../../vault/types";
@@ -106,4 +107,122 @@ export const getVaultEntry: FakeVault["getVaultEntry"] = async () => {
     waitingMe: false,
     createProjectIds,
   };
+};
+
+// --- fetta 2c: lettori, registro, «Share with» ---------------------------------
+
+/** I nomi delle persone (la rubrica del team); chi non c'è resta con l'email. */
+async function namesById(): Promise<Map<string, string>> {
+  const people = await appClient().people.list();
+  return new Map(people.map((p) => [p.id, p.name]));
+}
+
+type ReaderPerson = Reader<
+  Awaited<ReturnType<ReturnType<typeof appClient>["credentials"]["readers"]>>
+>["people"][number];
+
+/** Il perché di chi aspetta, dal server: nessuna chiave, chiave da confermare, copia da ricevere. */
+function stateOf(p: ReaderPerson): "reads" | "no_key" | "key_pending" | "waiting_copy" {
+  if (p.status === "can_read") return "reads";
+  if (p.keyStatus === "none") return "no_key";
+  if (p.keyStatus === "pending") return "key_pending";
+  return "waiting_copy";
+}
+
+export const listReaders: FakeVault["listReaders"] = async (id) => {
+  const [view, readers, names] = await Promise.all([
+    getCredential(id),
+    appClient().credentials.readers(id),
+    namesById(),
+  ]);
+  const creators = new Set(
+    readers.readers.filter((r) => r.creator && r.userId).map((r) => r.userId!),
+  );
+  const directPeople = new Set(readers.readers.filter((r) => r.userId).map((r) => r.userId!));
+  return {
+    // Chi l'ha creata è lettrice diretta dalla creazione: sta in «Who reads it»
+    // («created it»), non fra gli aggiunti (non si toglie da qui).
+    direct: readers.readers
+      .filter((r) => !r.creator)
+      .map((r) =>
+        r.userId
+          ? {
+              readerId: r.id,
+              kind: "person" as const,
+              id: r.userId,
+              name: names.get(r.userId) ?? r.email ?? r.userId,
+              addedAt: r.createdAt,
+            }
+          : {
+              readerId: r.id,
+              kind: "role" as const,
+              id: r.roleId ?? r.id,
+              name: r.roleName ?? "",
+              addedAt: r.createdAt,
+            },
+      ),
+    effective: readers.people.map((p) => ({
+      personId: p.userId,
+      name: names.get(p.userId) ?? p.email,
+      source: p.fullAdmin
+        ? ("full_admin" as const)
+        : creators.has(p.userId)
+          ? ("created" as const)
+          : directPeople.has(p.userId)
+            ? ("direct" as const)
+            : ("role" as const),
+      // Il server non dice per quale ruolo: la riga dice solo «role».
+      roleName: null,
+      state: stateOf(p),
+    })),
+    canShare: view?.canShare === true,
+  };
+};
+
+export const listAccessLog: FakeVault["listAccessLog"] = async (filter) => {
+  let items;
+  try {
+    items = (
+      await appClient().credentials.log(filter.projectId, {
+        ...(filter.credentialId ? { credentialId: filter.credentialId } : {}),
+      })
+    ).items;
+  } catch (error) {
+    // Chi non gestisce le credenziali del progetto non legge il registro: niente righe.
+    if (error instanceof ApiError && error.status === 403) return [];
+    throw error;
+  }
+  const names = await namesById();
+  return items.map((e) => ({
+    id: e.id,
+    at: e.createdAt,
+    personId: e.userId ?? "",
+    name: (e.userId && names.get(e.userId)) || e.userEmail,
+    credentialId: e.credentialId ?? "",
+    service: e.credentialSnapshot,
+    action: e.action === "show" ? ("shown" as const) : ("copied" as const),
+    via: e.via === "desktop" ? ("mac" as const) : ("browser" as const),
+  }));
+};
+
+/** «Share with»: persone e ruoli del progetto, tolti i già aggiunti; vuoto senza `canShare`. */
+export const listShareTargets: FakeVault["listShareTargets"] = async (id) => {
+  const view = await getCredential(id);
+  if (!view?.canShare) return { people: [], roles: [] };
+  const [members, readers, names] = await Promise.all([
+    appClient().projects.members(view.projectId),
+    appClient().credentials.readers(id),
+    namesById(),
+  ]);
+  const directPeople = new Set(readers.readers.map((r) => r.userId).filter(Boolean));
+  const directRoles = new Set(readers.readers.map((r) => r.roleId).filter(Boolean));
+  const people = [...new Map(members.map((m) => [m.userId, m])).values()]
+    .filter((m) => !directPeople.has(m.userId))
+    .map((m) => ({ personId: m.userId, name: names.get(m.userId) ?? m.email }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const roles = [...new Map(members.map((m) => [m.roleId, m.roleName])).entries()]
+    .filter(([roleId]) => !directRoles.has(roleId))
+    .map(([roleId, name]) => ({ roleId, name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return { people, roles };
 };
