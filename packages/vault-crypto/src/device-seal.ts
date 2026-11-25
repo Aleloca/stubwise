@@ -19,6 +19,7 @@ import { bytes, formatEnvelope, parseEnvelope, utf8 } from "./encoding.js";
 import {
   HKDF_INFO,
   assertPairMatches,
+  exportPublicKey,
   generateExportableKeyPair,
   hkdfAesKey,
   importPrivateKey,
@@ -88,22 +89,58 @@ export async function sealForDevice(input: {
 }
 
 /**
- * Nel main del desktop: apre il sigillo del Mac con la privata del Mac e dà
+ * La pubblica di una chiave del Mac nata FUORI da WebCrypto (Secure Enclave,
+ * review I1: il punto non compresso, 65 byte, che dà CryptoKit) come JWK con
+ * i soli campi pubblici, la forma che il server vuole. Lancia se non è un
+ * punto P-256.
+ */
+export async function devicePublicKeyFromRaw(raw: Uint8Array): Promise<string> {
+  const key = await subtle().importKey("raw", bytes(raw), ECDH, true, []);
+  return exportPublicKey(key);
+}
+
+/**
+ * L'ECDH col Mac: la privata come CryptoKey (WebCrypto) o — review I1, la
+ * chiave nel Secure Enclave — una funzione che riceve il punto effimero della
+ * busta (non compresso, 65 byte) e restituisce i 32 byte del segreto
+ * condiviso (la coordinata x, come `deriveBits` di WebCrypto e
+ * `sharedSecretFromKeyAgreement` di CryptoKit). Una sola delle due.
+ */
+export type DeviceKeyAgreement =
+  | { devicePrivateKey: CryptoKey; deriveBits?: never }
+  | { deriveBits: (ephemeralPublicKey: Uint8Array) => Promise<ArrayBuffer | Uint8Array>; devicePrivateKey?: never };
+
+async function sharedSecret(agreement: DeviceKeyAgreement, epk: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer>> {
+  const hasKey = agreement.devicePrivateKey !== undefined;
+  const hasFn = agreement.deriveBits !== undefined;
+  if (hasKey === hasFn) throw new Error("serve una sola fra devicePrivateKey e deriveBits");
+  if (agreement.devicePrivateKey !== undefined) {
+    const ephemeral = await subtle().importKey("raw", epk, ECDH, false, []);
+    return bytes(await subtle().deriveBits({ name: "ECDH", public: ephemeral }, agreement.devicePrivateKey, 256));
+  }
+  const shared = bytes(await agreement.deriveBits(new Uint8Array(epk)));
+  if (shared.length !== 32) throw new Error("il segreto condiviso dev'essere di 32 byte");
+  return shared;
+}
+
+/**
+ * Nel main del desktop: apre il sigillo del Mac con la privata del Mac (o con
+ * l'ECDH dell'enclave, {@link DeviceKeyAgreement}) e dà
  * la privata di persona come CryptoKey NON estraibile, dopo aver verificato
  * che sia la metà di `personPublicKey` (la pubblica CONFERMATA che dice il
  * server). Lancia su un altro Mac, su id o pubblica che non sono i suoi.
  */
-export async function openDeviceSeal(input: {
-  deviceSeal: string;
-  devicePrivateKey: CryptoKey;
-  personPublicKey: string;
-  personKeyId: string;
-  deviceId: string;
-}): Promise<CryptoKey> {
+export async function openDeviceSeal(
+  input: {
+    deviceSeal: string;
+    personPublicKey: string;
+    personKeyId: string;
+    deviceId: string;
+  } & DeviceKeyAgreement,
+): Promise<CryptoKey> {
   const aad = await deviceSealAad(input.personKeyId, input.deviceId, input.personPublicKey);
   const { epk, iv, ct } = parseEnvelope(input.deviceSeal, ["epk", "iv", "ct"]);
-  const ephemeral = await subtle().importKey("raw", epk, ECDH, false, []);
-  const shared = await subtle().deriveBits({ name: "ECDH", public: ephemeral }, input.devicePrivateKey, 256);
+  const shared = await sharedSecret(input, epk);
   const key = await hkdfAesKey(shared, HKDF_INFO.deviceSeal, epk);
   const pkcs8 = bytes(await subtle().decrypt({ name: "AES-GCM", iv, additionalData: aad }, key, ct));
   try {

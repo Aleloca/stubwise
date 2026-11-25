@@ -66,6 +66,28 @@ async function pat(userId: string, kind: "desktop" | "mobile" | "manual") {
   return { id: created.id, headers: bearer(created.token) };
 }
 
+/** La finestra di riconferma del PAT desktop (`desktop-reauth`): adesso, o nessuna. */
+async function desktopWindow(patId: string, at: Date | null = new Date()) {
+  await testDb.db.update(personalAccessTokens).set({ secondFactorAt: at }).where(eq(personalAccessTokens.id, patId));
+}
+
+/** Ricrea la chiave di persona COME la ricrea il browser (`POST /api/vault/keys`): la vecchia diventa `superseded`. */
+async function recreateKey(p: Person) {
+  const { userPasskeys } = await import("@stubwise/db");
+  const [passkey] = await testDb.db
+    .insert(userPasskeys)
+    .values({ userId: p.id, credentialId: randomBytes(16).toString("base64url"), publicKey: "pk", name: "Nuova" })
+    .returning({ id: userPasskeys.id });
+  const res = await call("POST", "/api/vault/keys", { cookie: await fullSessionCookie(app, p.id) }, {
+    publicKey: publicJwk(),
+    seals: [{ passkeyId: passkey!.id, sealedPrivateKey: '{"v":1,"x":"AA"}' }],
+    device: "Browser",
+  });
+  expect(res.statusCode, res.body).toBe(201);
+  const [old] = await testDb.db.select().from(vaultPersonKeys).where(eq(vaultPersonKeys.id, p.keyId));
+  expect(old!.status).toBe("superseded");
+}
+
 async function person(email: string): Promise<Person> {
   const user = await createUserWithSession(app, email);
   const pair = await generatePersonKeyPair();
@@ -83,7 +105,11 @@ async function person(email: string): Promise<Person> {
     privateKey: pair.privateKey,
     passkeySeal,
     prf,
-    desktop: await pat(user.id, "desktop"),
+    desktop: await (async () => {
+      const desktop = await pat(user.id, "desktop");
+      await desktopWindow(desktop.id);
+      return desktop;
+    })(),
   };
 }
 
@@ -190,6 +216,17 @@ describe("l'associazione (POST /api/vault/device-pairings): la chiede SOLO il PA
     expect(await testDb.db.select().from(vaultDevicePairings)).toHaveLength(0);
   });
 
+  it("review I2: il PAT desktop SENZA la finestra di riconferma → 403 `reauth_required`, niente scritto (un PAT rubato da solo non associa un Mac)", async () => {
+    const bare = await pat(ada.id, "desktop");
+    const before = (await testDb.db.select().from(vaultDevicePairings)).length;
+    for (const at of [null, new Date(Date.now() - 11 * 60_000)]) {
+      await desktopWindow(bare.id, at);
+      const res = await call("POST", "/api/vault/device-pairings", bare.headers, { devicePublicKey: publicJwk(), deviceName: "Mac" });
+      expect([res.statusCode, res.json().code]).toEqual([403, "reauth_required"]);
+    }
+    expect(await testDb.db.select().from(vaultDevicePairings)).toHaveLength(before);
+  });
+
   it("il PAT desktop la ottiene; sul server resta solo l'HASH dello state, legato a quel PAT", async () => {
     const pair = await pairing(ada);
     const [row] = await testDb.db.select().from(vaultDevicePairings).where(eq(vaultDevicePairings.id, pair.deviceId));
@@ -229,6 +266,10 @@ describe("la lettura dell'associazione (POST /api/vault/device-pairings/lookup):
     const res = await call("POST", "/api/vault/device-pairings/lookup", { cookie: ada.cookie }, { state: pair.state });
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json()).toMatchObject({ deviceId: pair.deviceId, deviceName: "MacBook di prova", devicePublicKey: pair.device.publicKey });
+    // Review I2: la pagina del browser mostra quando è nato il login del Mac e quando l'ha usato l'ultima volta.
+    const [token] = await testDb.db.select().from(personalAccessTokens).where(eq(personalAccessTokens.id, ada.desktop.id));
+    expect(res.json()).toMatchObject({ patCreatedAt: token!.createdAt.toISOString() });
+    expect(res.json()).toHaveProperty("patLastUsedAt");
   });
 });
 
@@ -278,6 +319,7 @@ describe("il sigillo (POST /api/vault/device-seals): nasce SOLO dal browser, con
 
   it("il PAT dell'associazione revocato nel frattempo → 409 `pairing_invalid` (l'associazione sparisce col PAT)", async () => {
     const extra = await pat(ada.id, "desktop");
+    await desktopWindow(extra.id);
     const device = await generateDeviceKeyPair();
     const res = await call("POST", "/api/vault/device-pairings", extra.headers, { devicePublicKey: device.publicKey, deviceName: "Mac" });
     const pair = { ...(res.json() as { state: string; deviceId: string }), device };
@@ -324,7 +366,11 @@ describe("il proprio sigillo (GET/DELETE /api/vault/device-seals/mine): solo il 
   });
 
   it("un ALTRO PAT desktop della stessa persona non scarica il sigillo legato al primo (404 `device_seal_not_found`)", async () => {
-    const other = await pat(ada.id, "desktop");
+    const lia = await person("lia-device@example.com");
+    const pair = await pairing(lia);
+    expect((await call("POST", "/api/vault/device-seals", { cookie: lia.cookie }, await sealBody(lia, pair))).statusCode).toBe(201);
+    expect((await call("GET", "/api/vault/device-seals/mine", lia.desktop.headers)).statusCode).toBe(200);
+    const other = await pat(lia.id, "desktop");
     const res = await call("GET", "/api/vault/device-seals/mine", other.headers);
     expect([res.statusCode, res.json().code]).toEqual([404, "device_seal_not_found"]);
   });
@@ -352,8 +398,7 @@ describe("il proprio sigillo (GET/DELETE /api/vault/device-seals/mine): solo il 
     const dan = await person("dan-device@example.com");
     const pair = await pairing(dan);
     expect((await call("POST", "/api/vault/device-seals", { cookie: dan.cookie }, await sealBody(dan, pair))).statusCode).toBe(201);
-    await testDb.db.update(vaultPersonKeys).set({ status: "superseded" }).where(eq(vaultPersonKeys.id, dan.keyId));
-    await testDb.db.insert(vaultPersonKeys).values({ userId: dan.id, publicKey: publicJwk(), status: "confirmed", confirmedAt: new Date() });
+    await recreateKey(dan);
     const res = await call("GET", "/api/vault/device-seals/mine", dan.desktop.headers);
     expect([res.statusCode, res.json().code]).toEqual([404, "device_seal_not_found"]);
     const [row] = await sealsOf(dan.id);
@@ -371,10 +416,15 @@ describe("il proprio sigillo (GET/DELETE /api/vault/device-seals/mine): solo il 
     expect(await events(bob.id, "vault_device_seal_revoked")).toHaveLength(1);
   });
 
-  it("DELETE mine col PAT di un'altra persona non tocca il sigillo di Ada", async () => {
-    expect((await call("DELETE", "/api/vault/device-seals/mine", bob.desktop.headers)).statusCode).toBe(204);
-    const [row] = await sealsOf(ada.id);
-    expect(row!.revokedAt).toBeNull();
+  it("revokeSeal tocca SOLO i sigilli della persona indicata: l'id del sigillo di un'altra non basta (review M8)", async () => {
+    const { revokeSeal } = await import("../vault/device-seals.js");
+    const mia = await person("mia-device@example.com");
+    const pair = await pairing(mia);
+    expect((await call("POST", "/api/vault/device-seals", { cookie: mia.cookie }, await sealBody(mia, pair))).statusCode).toBe(201);
+    expect(await revokeSeal(testDb.db, { id: bob.id, email: "bob-device@example.com" }, { id: pair.deviceId }, "removed", null)).toBe(false);
+    expect(await revokeSeal(testDb.db, { id: bob.id, email: "bob-device@example.com" }, { patId: mia.desktop.id }, "forgotten", null)).toBe(false);
+    expect((await sealsOf(mia.id))[0]!.revokedAt).toBeNull();
+    expect(await events(mia.id, "vault_device_seal_revoked")).toHaveLength(0);
   });
 });
 
@@ -406,7 +456,9 @@ describe("i Mac dal browser (GET /api/vault/device-seals, DELETE /api/vault/devi
 
   it("toglierlo dal browser revoca il SOLO sigillo: il Mac resta collegato (il suo PAT funziona), ma non scarica più il sigillo", async () => {
     const [row] = await sealsOf(ada.id);
-    expect((await call("DELETE", `/api/vault/device-seals/${row!.id}`, { cookie: ada.cookie })).statusCode).toBe(204);
+    // Review M9: un DELETE del browser con content-type json e corpo VUOTO non è un 400.
+    const res = await app.inject({ method: "DELETE", url: `/api/vault/device-seals/${row!.id}`, headers: { cookie: ada.cookie, "content-type": "application/json" }, payload: "" });
+    expect(res.statusCode, res.body).toBe(204);
     expect((await sealsOf(ada.id))[0]).toMatchObject({ revokedReason: "removed" });
     expect((await call("GET", "/api/auth/me", ada.desktop.headers)).statusCode).toBe(200);
     expect((await call("GET", "/api/vault/device-seals/mine", ada.desktop.headers)).statusCode).toBe(404);
@@ -572,6 +624,7 @@ describe("il PAT desktop col sigillo sulle rotte della cassaforte (D-7)", () => 
     expect([byMac.statusCode, byMac.json().code]).toEqual([403, "vault_proof_invalid"]);
     // Un secondo Mac della stessa persona, col suo sigillo: la sfida del primo non vale.
     second = await pat(gus.id, "desktop");
+    await desktopWindow(second.id);
     const g2 = { ...gus, desktop: second };
     await sealed(g2);
     const fromFirst = await proofFrom(gus, gus.desktop.headers);
@@ -609,8 +662,7 @@ describe("il PAT desktop col sigillo sulle rotte della cassaforte (D-7)", () => 
     // lo spegne SUBITO, con la riga del sigillo ancora viva.
     expect((await reveal(second.headers)).statusCode).toBe(200);
     const after = await count();
-    await testDb.db.update(vaultPersonKeys).set({ status: "superseded" }).where(eq(vaultPersonKeys.id, gus.keyId));
-    await testDb.db.insert(vaultPersonKeys).values({ userId: gus.id, publicKey: publicJwk(), status: "confirmed", confirmedAt: new Date() });
+    await recreateKey(gus);
     const recreated = await reveal(second.headers);
     expect([recreated.statusCode, recreated.json().code]).toEqual([403, "device_seal_required"]);
     const [stillLive] = await testDb.db
@@ -620,6 +672,46 @@ describe("il PAT desktop col sigillo sulle rotte della cassaforte (D-7)", () => 
     expect(stillLive).toBeDefined();
     expect(after).toBe(before + 1);
     expect(await count()).toBe(after);
+  });
+});
+
+describe("§10 del design: PAT revocato e persona disattivata spengono il Mac SUBITO (review M8)", () => {
+  let nia: Person;
+  let credentialId: string;
+
+  beforeAll(async () => {
+    const { credentialKeyCopies, credentials, projects, users } = await import("@stubwise/db");
+    nia = await person("nia-device@example.com");
+    const [admin] = await testDb.db.select({ instanceRoleId: users.instanceRoleId }).from(users).where(eq(users.id, adminId));
+    await testDb.db.update(users).set({ instanceRoleId: admin!.instanceRoleId }).where(eq(users.id, nia.id));
+    const [project] = await testDb.db.insert(projects).values({ name: "Nia", slug: "nia-vault", ingestionKey: "nia-vault-key" }).returning({ id: projects.id });
+    credentialId = randomUUID();
+    await testDb.db.insert(credentials).values({ id: credentialId, projectId: project!.id, service: "S", passwordCiphertext: '{"v":1,"x":"c"}' });
+    await testDb.db.insert(credentialKeyCopies).values({ credentialId, recipientId: nia.keyId, wrappedKey: '{"v":1,"x":"k"}' });
+  });
+
+  const reveal = (headers: Record<string, string>) => call("POST", `/api/credentials/${credentialId}/reveal`, headers, { action: "show" });
+
+  it("PAT desktop revocato → il reveal dal Mac non passa più (401), e il sigillo se ne va con lui", async () => {
+    const mac = await pat(nia.id, "desktop");
+    await desktopWindow(mac.id);
+    const pair = await pairing({ ...nia, desktop: mac });
+    expect((await call("POST", "/api/vault/device-seals", { cookie: nia.cookie }, await sealBody(nia, pair))).statusCode).toBe(201);
+    expect((await reveal(mac.headers)).statusCode).toBe(200);
+    await testDb.db.delete(personalAccessTokens).where(eq(personalAccessTokens.id, mac.id));
+    expect((await reveal(mac.headers)).statusCode).toBe(401);
+    expect(await testDb.db.select().from(vaultDeviceSeals).where(eq(vaultDeviceSeals.id, pair.deviceId))).toHaveLength(0);
+  });
+
+  it("persona disattivata (dalla rotta vera) → il reveal dal Mac non passa più; la disattivazione revoca i PAT, e il sigillo se ne va con loro", async () => {
+    const pair = await pairing(nia);
+    expect((await call("POST", "/api/vault/device-seals", { cookie: nia.cookie }, await sealBody(nia, pair))).statusCode).toBe(201);
+    expect((await reveal(nia.desktop.headers)).statusCode).toBe(200);
+    const off = await call("POST", `/api/users/${nia.id}/deactivate`, { cookie: adminCookie }, {});
+    expect(off.statusCode, off.body).toBeLessThan(300);
+    const res = await reveal(nia.desktop.headers);
+    expect([401, 403]).toContain(res.statusCode);
+    expect(await testDb.db.select().from(vaultDeviceSeals).where(eq(vaultDeviceSeals.id, pair.deviceId))).toHaveLength(0);
   });
 });
 
@@ -657,6 +749,7 @@ describe("togliere un ALTRO proprio Mac dal desktop (decisione del maintainer, 2
     jo = await person("jo-device@example.com");
     await sealedFor(jo, jo.desktop);
     other = await pat(jo.id, "desktop");
+    await desktopWindow(other.id);
     otherSealId = await sealedFor(jo, other);
   });
 
@@ -721,12 +814,17 @@ describe("togliere un ALTRO proprio Mac dal desktop (decisione del maintainer, 2
     expect(await events(jo.id, "vault_device_seal_revoked")).toHaveLength(0);
   });
 
-  it("il Mac di un'ALTRA persona → 404, intatto", async () => {
+  it("il Mac di un'ALTRA persona → 404, intatto, e la prova NON si consuma (review M9: prima il sigillo, poi la prova)", async () => {
     const kim = await person("kim-device@example.com");
     const kimSeal = await sealedFor(kim, kim.desktop);
     await fresh(jo.desktop.id);
-    expect((await remove(kimSeal, jo.desktop.headers, { actorProof: await proof(jo.desktop.headers) })).statusCode).toBe(404);
+    const p = await proof(jo.desktop.headers);
+    expect((await remove(kimSeal, jo.desktop.headers, { actorProof: p })).statusCode).toBe(404);
+    expect((await remove(randomUUID(), jo.desktop.headers, { actorProof: p })).statusCode).toBe(404);
     expect((await sealsOf(kim.id))[0]!.revokedAt).toBeNull();
+    const { vaultRecoveryChallenges } = await import("@stubwise/db");
+    const [challenge] = await testDb.db.select().from(vaultRecoveryChallenges).where(eq(vaultRecoveryChallenges.id, p.challengeId));
+    expect(challenge!.usedAt).toBeNull();
   });
 
   it("col sigillo vivo e la riconferma, il Mac toglie l'ALTRO Mac della persona: il solo sigillo, registro e avviso; l'altro Mac resta collegato", async () => {

@@ -603,6 +603,9 @@ export const vaultDevicePairingLookupResponseSchema = z.object({
   deviceName: z.string(),
   devicePublicKey: z.string(),
   expiresAt: z.iso.datetime(),
+  /** Review I2 (25 nov 2026): quando è nato il login del Mac, e l'ultimo uso. Additivi. */
+  patCreatedAt: z.iso.datetime().nullable().default(null),
+  patLastUsedAt: z.iso.datetime().nullable().default(null),
 });
 export type VaultDevicePairingLookupResponse = z.infer<typeof vaultDevicePairingLookupResponseSchema>;
 
