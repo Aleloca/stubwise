@@ -828,30 +828,47 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
-  /** I propri Mac (Impostazioni → Sicurezza). */
+  /**
+   * I propri Mac (Impostazioni → Sicurezza): dal browser, o dal Mac col suo
+   * sigillo vivo (decisione del maintainer, 25 nov 2026), che vede `current`
+   * vero sul proprio.
+   */
   app.get(
     "/device-seals",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, desktopVault: true },
       schema: { response: { 200: vaultDeviceSealListSchema, ...errorResponses } },
     },
     async (request, reply) => {
-      const user = request.user!;
-      if (isPat(user)) return sessionRequired(reply);
-      return reply.code(200).send({ items: await listSeals(app.db, user.id) });
+      const caller = await requireVaultCaller(app.db, request, reply);
+      if (!caller) return reply;
+      const current = caller.via === "desktop" ? caller.sealId : null;
+      return reply.code(200).send({ items: await listSeals(app.db, request.user!.id, current) });
     },
   );
 
-  /** Togliere un proprio Mac dal browser: il SOLO sigillo, il Mac resta collegato (D-5). */
+  /**
+   * Togliere un proprio Mac: il SOLO sigillo, il Mac resta collegato (D-5).
+   * Dal browser, o (decisione del maintainer, 25 nov 2026) da un ALTRO Mac
+   * della persona col suo sigillo vivo e la riconferma del desktop; il proprio
+   * sigillo il Mac lo toglie con `DELETE .../mine` (409 `use_mine`). Un Mac di
+   * un'altra persona → 404.
+   */
   app.delete(
     "/device-seals/:id",
     {
-      config: { access: { kind: "user" }, reauth: true },
+      config: { access: { kind: "user" }, reauth: true, desktopVault: true },
       schema: { params: z.object({ id: z.uuid() }), response: { 204: z.null(), ...errorResponses } },
     },
     async (request, reply) => {
       const user = request.user!;
-      if (!(await revokeSeal(app.db, user, { id: request.params.id }, "removed", null))) return sealNotFound(reply);
+      const caller = await requireVaultCaller(app.db, request, reply);
+      if (!caller) return reply;
+      if (caller.via === "desktop" && caller.sealId === request.params.id) {
+        return apiError(reply, 409, "use_mine", "To forget this Mac use DELETE /api/vault/device-seals/mine");
+      }
+      const from = caller.via === "desktop" ? { sealId: caller.sealId } : null;
+      if (!(await revokeSeal(app.db, user, { id: request.params.id }, "removed", null, from))) return sealNotFound(reply);
       return reply.code(204).send(null);
     },
   );

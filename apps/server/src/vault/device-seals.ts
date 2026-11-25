@@ -226,7 +226,7 @@ export async function mineSeal(db: Db, user: { id: string; patId: string }): Pro
 }
 
 /** I Mac vivi di una persona, per l'elenco. */
-export async function listSeals(db: Db, userId: string): Promise<VaultDeviceSealItem[]> {
+export async function listSeals(db: Db, userId: string, currentSealId: string | null = null): Promise<VaultDeviceSealItem[]> {
   const rows = await db
     .select({
       id: vaultDeviceSeals.id,
@@ -242,6 +242,7 @@ export async function listSeals(db: Db, userId: string): Promise<VaultDeviceSeal
     ...r,
     createdAt: r.createdAt.toISOString(),
     lastUsedAt: r.lastUsedAt?.toISOString() ?? null,
+    current: r.id === currentSealId,
   }));
 }
 
@@ -256,6 +257,8 @@ export async function revokeSeal(
   target: { id: string } | { patId: string },
   reason: Exclude<VaultDeviceSealRevokedReason, "replaced">,
   actor: { id: string; email: string } | null,
+  /** Tolto da un ALTRO Mac della persona (25 nov 2026): il registro dice quale. */
+  from: { sealId: string } | null = null,
 ): Promise<boolean> {
   const which = "id" in target ? eq(vaultDeviceSeals.id, target.id) : eq(vaultDeviceSeals.patId, target.patId);
   const revoked = await db.transaction(async (tx) => {
@@ -265,11 +268,16 @@ export async function revokeSeal(
       .where(and(which, eq(vaultDeviceSeals.userId, owner.id), isNull(vaultDeviceSeals.revokedAt)))
       .returning({ deviceName: vaultDeviceSeals.deviceName });
     if (rows.length === 0) return false;
+    let via = "";
+    if (from) {
+      const [mac] = await tx.select({ name: vaultDeviceSeals.deviceName }).from(vaultDeviceSeals).where(eq(vaultDeviceSeals.id, from.sealId));
+      via = ` (from the Mac «${mac?.name ?? from.sealId}»)`;
+    }
     await recordSecurityEvent(tx, {
       kind: "vault_device_seal_revoked",
       user: owner,
       actor,
-      detail: `${reason}: ${rows[0]!.deviceName}`,
+      detail: `${reason}: ${rows[0]!.deviceName}${via}`,
     });
     return true;
   });

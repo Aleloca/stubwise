@@ -638,6 +638,8 @@ export const vaultDeviceSealItemSchema = z.object({
   devicePublicKey: z.string(),
   createdAt: z.iso.datetime(),
   lastUsedAt: z.iso.datetime().nullable(),
+  /** Il Mac che chiede (dal desktop, 25 nov 2026): vero solo sul suo sigillo. Additivo. */
+  current: z.boolean().default(false),
 });
 export type VaultDeviceSealItem = z.infer<typeof vaultDeviceSealItemSchema>;
 

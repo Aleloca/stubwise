@@ -234,8 +234,16 @@ Restano `session_required` anche col sigillo (la regola di adesso):
   gesti di ultima istanza, legati alla passkey e alla riconferma del browser;
 - **creare, ricreare o sigillare una chiave di persona** e **sigillare un
   dispositivo** (§6.2): un Mac non si accoppia da sé, né ne accoppia un altro;
-- **togliere un sigillo di un ALTRO dispositivo** dal desktop: si fa dal browser
-  (§8). Il proprio sì (logout).
+- ~~**togliere un sigillo di un ALTRO dispositivo** dal desktop: si fa dal browser
+  (§8). Il proprio sì (logout).~~ **Superata il 25 nov 2026 (D-9)**: dal desktop
+  col sigillo vivo si tolgono anche gli ALTRI propri Mac — `DELETE
+  /api/vault/device-seals/:id`, la stessa rotta del browser, dichiarata
+  `desktopVault`, con la riconferma del desktop (`desktop-reauth`, 10 minuti),
+  il registro (`removed: <Mac tolto> (from the Mac «<chi l'ha tolto>»)`) e
+  l'avviso alla persona; il proprio sigillo per id → 409 `use_mine` (c'è
+  `DELETE .../mine`); un Mac di un'altra persona → 404. Anche l'elenco
+  (`GET /api/vault/device-seals`) è aperto al Mac, con `current` vero sul suo.
+  Quelli di un'ALTRA persona (full admin, D-6) restano del browser.
 
 Ogni rotta che il PAT desktop apre si **dichiara** (`config.desktopVault: true`,
 test del registro delle rotte come per `config.reauth`), e il controllo sta in
@@ -365,6 +373,14 @@ Perché resta accettabile:
   quel Mac vede ancora ciò che il login gli dà fuori dalla cassaforte, finché
   qualcuno non revoca il suo PAT desktop (Impostazioni → token).
 
+- **Un Mac rubato e sbloccato può staccare gli altri Mac della persona** (D-9,
+  accettato dal maintainer il 25 nov 2026): con la cassaforte aperta e la
+  riconferma del desktop toglie i sigilli degli altri Mac, così la persona
+  resta a leggere solo da quel Mac e dal browser. Non apre nulla di più di
+  quanto già apre, e ogni rimozione finisce nel registro e avvisa la persona;
+  il rimedio è togliere il Mac rubato dal browser (o da un full admin, D-6) e
+  riassociare gli altri.
+
 ## 12. Da decidere (per il maintainer) — DECISO il 24 nov 2026
 
 *Il maintainer ha approvato il design il 24 nov 2026 e ha deciso D-1, D-5,
@@ -383,3 +399,4 @@ D-6 e D-7; D-2, D-3, D-4 e D-8 li ha decisi 46 con le raccomandazioni.
 | D-6 | Un full admin può togliere i Mac di un'altra persona (Mac perso, persona senza browser)? | **Sì**, con riconferma, registro e avviso alla persona, come l'azzeramento del secondo fattore. | **Sì**, con riconferma, registro e avviso alla persona (maintainer); il solo sigillo, come D-5. |
 | D-7 | Dal desktop col sigillo si può condividere e confermare (con la prova della propria chiave), o solo leggere? | **Sì, tutto ciò che fa il browser a cassaforte aperta**, salvo attivare, recupero, kit e chiavi di persona (la decisione del 10 nov: «dal desktop tutto»). | **Tutto come il browser**, salvo attivazione, recupero, kit e chiavi di persona (maintainer). |
 | D-8 | Il `reveal` dal desktop si distingue nel registro degli accessi (`via: "desktop"`)? | **Sì**: chi guarda il registro deve sapere da dove si è letta una password. | **Sì**, `via: "desktop"` nel registro degli accessi (46). |
+| D-9 | Dal desktop si tolgono anche gli ALTRI propri Mac? | (§6.3: no, dal browser) | **Sì** (maintainer, 25 nov 2026, VA-Q4): con il sigillo vivo e la riconferma del desktop; l'admin per un'altra persona resta dal browser. Limite scritto nel §11. |
