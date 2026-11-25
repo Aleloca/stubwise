@@ -467,17 +467,20 @@ Perché resta accettabile:
   firma (il Touch ID che non si aggira) è del CLIENT; il server la presume
   per decisione di chi accende l'interruttore.
 
-- **L'helper firmato si può lanciare da un altro processo dello stesso
-  utente** (limite residuo di I1, testo di 94, 25 nov 2026): un processo
-  dello stesso utente può lanciare l'helper firmato e chiedergli un `ecdh`
-  con un punto effimero suo. L'helper chiede comunque il Touch ID, con la
-  frase fissa di Stubwise: se la persona tocca un prompt che non ha chiesto,
-  quel processo ottiene il segreto e apre il sigillo del Mac. La difesa è il
-  tocco consapevole. Non c'è difesa contro chi ha già il controllo dell'app
-  firmata, ma le fuse e C1/C2 chiudono le porte note. *Rinforzo proposto da
-  94, da decidere con 46*: l'helper risponde solo se il processo padre è
-  l'app Stubwise firmata dal team (requisito di codice verificato per pid);
-  se entra, questo limite si riduce a «chi controlla l'app firmata».
+- **L'helper risponde solo all'app Stubwise firmata dal team** (limite
+  residuo di I1, ridotto dal rinforzo deciso da 46 il 25 nov 2026, 94
+  d5b189466). Prima di leggere la richiesta l'helper verifica il processo
+  PADRE per pid (`getppid`, `SecCodeCopyGuestWithAttributes` +
+  `SecCodeCheckValidity`) col requisito `anchor apple generic and identifier
+  "dev.aleloca.stubwise" and certificate leaf[subject.OU] = "<Team ID>"`, il
+  Team ID letto dalla propria firma. Un padre che non è l'app riceve
+  `untrusted_parent` PRIMA di qualunque prompt del Touch ID; un helper senza
+  firma risponde `unsigned`; se il padre muore, `getppid` diventa launchd e la
+  verifica fallisce. Resta fuori solo chi controlla già l'app firmata; le
+  fuse, C1 e C2 chiudono le porte note per farlo. *Prima del rinforzo*: un
+  altro processo dello stesso utente poteva lanciare l'helper e chiedergli
+  un `ecdh` col suo punto effimero, e l'unica difesa era il tocco
+  consapevole del prompt.
 
 ## 12. Da decidere (per il maintainer) — DECISO il 24 nov 2026
 
