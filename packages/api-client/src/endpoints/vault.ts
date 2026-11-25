@@ -2,6 +2,7 @@ import {
   credentialAccessLogResponseSchema,
   credentialItemSchema,
   credentialListResponseSchema,
+  credentialProjectListResponseSchema,
   credentialReadersResponseSchema,
   vaultStatusResponseSchema,
 } from "@stubwise/shared";
@@ -9,6 +10,7 @@ import type {
   CredentialAccessLogResponse,
   CredentialItem,
   CredentialListResponse,
+  CredentialProjectListResponse,
   CredentialReadersResponse,
   CredentialUpdateBody,
   Reader,
@@ -44,9 +46,12 @@ export function createCredentialsEndpoints(request: ApiRequest) {
     mine(): Promise<Reader<CredentialListResponse>> {
       return request("GET", "/api/vault/credentials", undefined, credentialListResponseSchema);
     },
-    /** Le credenziali di un progetto che chi guarda legge o gestisce. */
-    ofProject(projectId: string): Promise<Reader<CredentialListResponse>> {
-      return request("GET", `/api/projects/${seg(projectId)}/credentials`, undefined, credentialListResponseSchema);
+    /**
+     * Le credenziali di un progetto che chi guarda legge o gestisce, più
+     * `canSeeLog` della sezione (l'entrata del registro, anche a elenco vuoto).
+     */
+    ofProject(projectId: string): Promise<Reader<CredentialProjectListResponse>> {
+      return request("GET", `/api/projects/${seg(projectId)}/credentials`, undefined, credentialProjectListResponseSchema);
     },
     /** Il registro delle letture del progetto (`credentials.edit`/`share`), o di UNA credenziale. */
     log(projectId: string, options: { credentialId?: string; limit?: number } = {}): Promise<Reader<CredentialAccessLogResponse>> {

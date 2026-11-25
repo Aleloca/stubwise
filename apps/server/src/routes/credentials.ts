@@ -7,6 +7,7 @@ import {
   credentialCreateBodySchema,
   credentialItemSchema,
   credentialListResponseSchema,
+  credentialProjectListResponseSchema,
   credentialPasswordBodySchema,
   credentialRemoveReaderBodySchema,
   credentialRecipientsChangedSchema,
@@ -217,7 +218,7 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
     "/projects/:projectId/credentials",
     {
       config: { access: { kind: "project", permission: "member", project: fromParam("projectId") } },
-      schema: { params: projectParams, response: { 200: credentialListResponseSchema, ...errorResponses } },
+      schema: { params: projectParams, response: { 200: credentialProjectListResponseSchema, ...errorResponses } },
     },
     async (request, reply) => {
       const items = await listProjectCredentials(
@@ -226,7 +227,8 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
         request.params.projectId,
         routePermissions(request),
       );
-      return reply.code(200).send({ items });
+      // L'entrata del registro della sezione: la regola della rotta del registro.
+      return reply.code(200).send({ items, canSeeLog: managesCredentials(routePermissions(request)) });
     },
   );
 

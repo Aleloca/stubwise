@@ -215,6 +215,8 @@ async function selectItems(
       access,
       canEdit: permissions.has("credentials.edit") || row.createdByUserId === user.id,
       canShare: permissions.has("credentials.share") && access === "read",
+      // La stessa regola della rotta del registro: una sola funzione.
+      canSeeLog: managesCredentials(permissions),
     };
   });
 }
