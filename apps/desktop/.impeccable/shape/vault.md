@@ -217,7 +217,9 @@ sotto la riga in prosa. Uno stato alla volta (dallo stato del main,
   key yet», «waiting: their key needs confirmation», «waiting for a copy
   of the key»).
 - **Share with**: un campo che cerca persone e ruoli del progetto («All
-  Developers») · **Share**. Serve la cassaforte aperta (la prova della
+  Developers») · **Share**. Per ora (25 nov 2026, 94 con 46) è una select
+  con persone e ruoli: diventa cercabile sopra una ventina di voci (voce nel
+  registro dei rimandi, area 9). Serve la cassaforte aperta (la prova della
   propria chiave e le copie le fa il main). Fatto: toast «Shared with
   Marco.» o «Waiting for confirmation: marco@….»
 - **Remove**: conferma a due tempi in posto, poi la frase del web, che
