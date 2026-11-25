@@ -495,6 +495,8 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Integrazione area 11, F5: Claude dalle fonti e le domande» (21 nov 2026; migrazioni 0210–0213, server → worker → caddy, il worker scende col server; costo: una run sonnet per fonte nei progetti con una doc)
   - «Integrazione area 11, F6: prima versione, bozze di schermata, backlog, il catalogo di Claude» (22 nov 2026; migrazioni 0214–0218, server → worker → caddy, il caddy scende col server, rollback NON sicuro finché esistono revisioni `first_version`, blocchi `wireframe` o lavori della doc `first_version`/`wireframe`/`page_update` vivi)
   - «Integrazione area 11: l'area intera (F1–F6)» (22 nov 2026; migrazioni 0202–0218 in ordine, le discese non sicure)
+  - «Rimandi dell'integrazione (lotti 1–10)» (25 nov 2026, voce ombrello: migrazioni 0219–0236 in ordine, passi prima e dopo, discese non sicure con il loro SQL; le voci dei singoli lotti sono richiamate lì per titolo)
+  - «Lotto 10: la cassaforte dal desktop, il sigillo del Mac» (24 nov 2026; solo con l'app firmata)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
