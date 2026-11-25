@@ -19,14 +19,15 @@ import { liveSealCondition } from "./device-seals.js";
  * - ogni altro PAT (`manual`, `mobile`) e il desktop sulle rotte non
  *   dichiarate: 403 `session_required`, come prima;
  * - con l'interruttore `VAULT_DESKTOP` spento (il default) il PAT desktop
- *   riceve 404 `not_found` sulle rotte dichiarate, come se non ci fossero.
+ *   riceve 404 `vault_desktop_disabled` sulle rotte dichiarate (review M2: un
+ *   codice suo, così il Mac non lo confonde con una credenziale cancellata).
  */
 export type VaultCaller = { via: "session" } | { via: "desktop"; sealId: string };
 
 export async function vaultCallerOf(
   db: Db,
   request: FastifyRequest,
-): Promise<{ ok: true; caller: VaultCaller } | { ok: false; code: "session_required" | "device_seal_required" | "not_found" }> {
+): Promise<{ ok: true; caller: VaultCaller } | { ok: false; code: "session_required" | "device_seal_required" | "vault_desktop_disabled" }> {
   const user = request.user!;
   if (user.patId === undefined) {
     return user.sessionId !== undefined ? { ok: true, caller: { via: "session" } } : { ok: false, code: "session_required" };
@@ -36,7 +37,7 @@ export async function vaultCallerOf(
   }
   // L'interruttore d'istanza (`VAULT_DESKTOP`, spento di default): spento, per
   // il Mac queste rotte non ci sono.
-  if (request.server.vaultDesktop !== true) return { ok: false, code: "not_found" };
+  if (request.server.vaultDesktop !== true) return { ok: false, code: "vault_desktop_disabled" };
   const [seal] = await db
     .select({ id: vaultDeviceSeals.id })
     .from(vaultDeviceSeals)
@@ -44,12 +45,17 @@ export async function vaultCallerOf(
   return seal ? { ok: true, caller: { via: "desktop", sealId: seal.id } } : { ok: false, code: "device_seal_required" };
 }
 
+/** La funzione è spenta sull'istanza (`VAULT_DESKTOP`): 404 col codice SUO, mai il `not_found` generico. */
+export function vaultDesktopDisabled(reply: FastifyReply): FastifyReply {
+  return apiError(reply, 404, "vault_desktop_disabled", "Opening the vault from the desktop is turned off on this instance");
+}
+
 /** {@link vaultCallerOf} con la risposta: `null` = la 403 è già partita. */
 export async function requireVaultCaller(db: Db, request: FastifyRequest, reply: FastifyReply): Promise<VaultCaller | null> {
   const verdict = await vaultCallerOf(db, request);
   if (verdict.ok) return verdict.caller;
-  if (verdict.code === "not_found") {
-    await apiError(reply, 404, "not_found", "Not found");
+  if (verdict.code === "vault_desktop_disabled") {
+    await vaultDesktopDisabled(reply);
   } else if (verdict.code === "device_seal_required") {
     await apiError(reply, 403, "device_seal_required", "Pair this Mac with your vault from the browser first");
   } else {

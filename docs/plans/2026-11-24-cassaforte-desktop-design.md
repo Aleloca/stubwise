@@ -55,10 +55,35 @@ Perché così e non la privata di persona direttamente nel portachiavi:
   portachiavi) non dà la privata di persona.
 
 Primitive: la coppia del dispositivo e l'avvolgimento entrano in
-`@stubwise/vault-crypto` (funzioni nuove: `generateDeviceKeyPair`, `importDeviceKey`, `sealForDevice` — nel browser, dal sigillo della passkey e dal suo PRF, così la privata in chiaro non esce mai dal package — e `openDeviceSeal`;
+`@stubwise/vault-crypto` (funzioni nuove: `sealForDevice` — nel browser, dal sigillo della passkey e dal suo PRF, così la privata in chiaro non esce mai dal package — `openDeviceSeal` con l'ECDH dell'enclave (`deriveBits`) e `devicePublicKeyFromRaw`; review 2, M8: la coppia generata e importata nel processo, `generateDeviceKeyPair`/`importDeviceKey`, è uscita dall'API, e i test usano `softwareDeviceKey` da `@stubwise/vault-crypto/testing`;
 con gli stessi test di formato delle altre buste); il main le usa da Node.
 
 ## 2. Dove sta la chiave sul Mac
+
+> **Superato dalla revisione di sicurezza, I1 (decisione di 46, 25 nov 2026,
+> piano di 94).** Il testo sotto (`safeStorage`, «Secure Enclave: non ora»)
+> è la prima forma e resta per memoria. Quella decisa:
+> - **la chiave del Mac nasce nel Secure Enclave** (`stubwise-keyhelper`,
+>   l'helper Swift dell'app firmata): P-256 di key agreement, NON
+>   esportabile, con controllo d'accesso `privateKeyUsage` +
+>   `biometryCurrentSet` e `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`:
+>   ogni ECDH chiede il Touch ID al sistema, e una nuova impronta registrata
+>   la invalida. L'ECDH lo fa l'enclave (`openDeviceSeal` con `deriveBits`,
+>   `@stubwise/vault-crypto`); la privata non arriva mai al processo;
+> - **la chiave è una voce del Keychain di DATA PROTECTION**
+>   (`kSecUseDataProtectionKeychain`), non del portachiavi di login, con
+>   l'**access group del Team ID** (`<TeamID>.<bundle id>`, dall'entitlement
+>   `keychain-access-groups` dell'app firmata): la usa SOLO un binario
+>   firmato da quel team, non un altro programma dello stesso utente macOS —
+>   è ciò che chiude il «Touch ID aggirabile» dell'app non firmata;
+> - su disco (`vault-device.bin`, cifrato con `safeStorage`) restano solo gli
+>   id (istanza, PAT, `deviceId`, `personKeyId`) e la pubblica: nessun
+>   materiale della chiave. Il file della versione con la pkcs8 non vale più
+>   e si cancella;
+> - senza Secure Enclave o senza Touch ID (D-1a) non si associa: la
+>   cassaforte si apre dal browser;
+> - lato server non cambia niente (il server non vede la chiave, e
+>   `VAULT_DESKTOP` resta una scelta di deploy, §11).
 
 - **`safeStorage`, non un modulo nativo del portachiavi.** È ciò che usa già
   la sessione (`session.bin`, `apps/desktop/src/main/session.ts`): su Mac la
@@ -270,8 +295,9 @@ delle rotte della cassaforte resta `browserOnly`.
 
 `VAULT_DESKTOP` (env del server, SPENTA di default): difesa in profondità
 finché l'app distribuita non è il build firmato. Spenta, l'associazione e le
-rotte aperte al Mac (`desktopVault`, `/device-seals/mine`) rispondono 404 al
-PAT desktop, come se non ci fossero; le rotte del browser restano. Si
+rotte aperte al Mac (`desktopVault`, `/device-seals/mine`) rispondono 404
+`vault_desktop_disabled` al PAT desktop (review M2: un codice suo, così il Mac
+non lo confonde con una credenziale cancellata); le rotte del browser restano. Si
 accende solo quando c'è l'app firmata (voce di deploy).
 
 ### 6.4 Registro e isolamento
@@ -357,7 +383,8 @@ Perché resta accettabile:
 - **Il rischio nuovo è il Mac**: chi ha il Mac sbloccato con la sessione aperta
   apre le password della persona. È lo stesso rischio del browser con la
   cassaforte aperta, ma più lungo (D-1, D-2 di 94 lo riducono: Touch ID, chiusura
-  dopo 15 minuti). Contro il furto del Mac spento: `safeStorage` sta nel
+  dopo 15 minuti; e dalla review I1 il Touch ID è del sistema, sulla chiave
+  nel Secure Enclave, §2). Contro il furto del Mac spento: `safeStorage` sta nel
   portachiavi, e il file da solo non serve senza il login macOS; il sigillo si
   revoca da remoto (§8).
 - **Il server compromesso** (limite accettato già scritto) resta tale: potrebbe
@@ -408,6 +435,18 @@ Perché resta accettabile:
   quanto già apre, e ogni rimozione finisce nel registro e avvisa la persona;
   il rimedio è togliere il Mac rubato dal browser (o da un full admin, D-6) e
   riassociare gli altri.
+
+- **`VAULT_DESKTOP` è una scelta di DEPLOY, non un'attestazione del client**
+  (review 2, M7, 25 nov 2026). Accenderlo dice «su questa istanza abbiamo
+  deciso di distribuire l'app firmata», non «chi chiama è l'app firmata»: il
+  server non verifica la firma né il Secure Enclave di chi gli parla, e con
+  l'interruttore acceso un PAT desktop di un'app NON firmata (o un client
+  scritto a mano col PAT) passa come gli altri. Ciò che resta vero anche
+  allora: un'associazione vuole la riconferma del desktop e la passkey nel
+  browser con la persona che confronta l'impronta (review I2), e il sigillo
+  si apre solo con la chiave del Mac che l'ha chiesto. La garanzia della
+  firma (il Touch ID che non si aggira) è del CLIENT; il server la presume
+  per decisione di chi accende l'interruttore.
 
 ## 12. Da decidere (per il maintainer) — DECISO il 24 nov 2026
 

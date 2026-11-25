@@ -6436,7 +6436,7 @@ deploy o di un rollback che la tocca.
   omonimi (nessun `notification_kind` nuovo: sono `security.alert`). **Env
   nuova `VAULT_DESKTOP`** (server, SPENTA di default; decisione di 46 del 25
   nov 2026): spenta, l'associazione di un Mac e le rotte aperte al Mac
-  rispondono 404 come se non ci fossero, quelle del browser restano. **Si
+  rispondono 404 `vault_desktop_disabled` come se non ci fossero, quelle del browser restano. **Si
   accende (`VAULT_DESKTOP=true` in `/opt/stubwise/.env`, poi `docker compose
   up -d server`) SOLO quando l'app desktop distribuita è il build FIRMATO**,
   con la chiave del Mac nel Secure Enclave; spegnerla è il rollback della
