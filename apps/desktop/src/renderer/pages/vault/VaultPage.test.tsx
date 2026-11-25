@@ -59,7 +59,7 @@ describe("la pagina Vault", () => {
 
   it("il filtro per progetto (nell'indirizzo) e la ricerca", async () => {
     const user = userEvent.setup();
-    const router = renderRoute("/vault", "p-matteo");
+    const router = renderRoute("/vault", "p-roberta");
     await waitFor(() => expect(services()).toEqual(expect.arrayContaining(["Figma", "Stripe"])));
     await user.click(screen.getByRole("button", { name: "MKX" }));
     await waitFor(() => expect(services()).toEqual(["Figma"]));
@@ -71,6 +71,13 @@ describe("la pagina Vault", () => {
     await user.clear(screen.getByRole("searchbox", { name: "Search credentials" }));
     await user.type(screen.getByRole("searchbox", { name: "Search credentials" }), "nessuna");
     expect(await screen.findByText("No credentials match your search.")).toBeInTheDocument();
+  });
+
+  // Review M11: «Every credential you can read», come `credentials.mine` del
+  // server nell'app: ciò che Matteo gestisce senza leggerlo sta nella sezione.
+  it("M11: solo ciò che si legge (o si aspetta)", async () => {
+    renderRoute("/vault", "p-matteo");
+    await waitFor(() => expect(services()).toEqual(["Mailgun", "Stripe"]));
   });
 
   it("New credential chiede prima il progetto (solo quelli dove si crea), poi è nell'elenco", async () => {

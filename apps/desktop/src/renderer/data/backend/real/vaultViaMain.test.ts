@@ -104,7 +104,10 @@ describe("nell'app le letture /api/vault* passano dal main, mai dal proxy", () =
     expect(await reads.listReaders(C1)).toMatchObject({ canShare: true });
     expect(await reads.listAccessLog({ projectId: PROJECT_ID, credentialId: C1 })).toEqual([]);
     expect(await reads.listShareTargets(C1)).toEqual({ people: [], roles: [] });
-    expect(await reads.updateCredential(C1, { label: "x", password: "pw" })).toEqual({ ok: true });
+    expect(await reads.updateCredential(C1, { label: "x", password: "pw" })).toEqual({
+      ok: true,
+      resaved: false,
+    });
     expect(await reads.deleteCredential(C1)).toEqual({ ok: true });
     expect(
       await reads.createCredential(PROJECT_ID, {
@@ -115,7 +118,7 @@ describe("nell'app le letture /api/vault* passano dal main, mai dal proxy", () =
         notes: null,
         password: "pw",
       }),
-    ).toEqual({ ok: true, id: C1 });
+    ).toEqual({ ok: true, id: C1, resaved: false });
     expect(asked.filter(vaultOnly)).toEqual([]);
   });
 });

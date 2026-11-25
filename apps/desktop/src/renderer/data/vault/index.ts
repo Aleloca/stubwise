@@ -419,10 +419,16 @@ export async function listCredentials(filter: {
     : filter.projectIds?.length
       ? filter.projectIds
       : null;
-  return v()
-    .credentials.filter((c) => !projects || projects.includes(c.projectId))
-    .flatMap((c) => viewOf(me, c) ?? [])
-    .sort((a, b) => a.projectId.localeCompare(b.projectId) || a.service.localeCompare(b.service));
+  return (
+    v()
+      .credentials.filter((c) => !projects || projects.includes(c.projectId))
+      .flatMap((c) => viewOf(me, c) ?? [])
+      // Review M11: la pagina Vault (senza `projectId`) è «Every credential you
+      // can read», come `credentials.mine` del server: le righe gestite senza
+      // leggerle stanno solo nella sezione del progetto.
+      .filter((r) => filter.projectId !== undefined || r.access !== "manages")
+      .sort((a, b) => a.projectId.localeCompare(b.projectId) || a.service.localeCompare(b.service))
+  );
 }
 
 /**
