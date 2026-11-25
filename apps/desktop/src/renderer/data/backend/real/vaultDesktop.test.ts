@@ -288,4 +288,23 @@ describe("la cassaforte nella build app, dal main", () => {
       expect(await vault.reject("k-1")).toEqual({ ok: true });
     });
   });
+
+  // Review I2: se il main non raggiunge Stubwise per aprire (`unavailable`),
+  // la barra lo dice come nella shape («Couldn't reach Stubwise…» · Try
+  // again) finché un'apertura non riesce o la cassaforte si chiude.
+  it("I2: un'apertura senza server rende la barra `unreachable`; riuscita, torna lo stato del Mac", async () => {
+    const unlock = vi.fn(
+      async (): Promise<{ ok: boolean; code?: string }> => ({ ok: false, code: "unavailable" }),
+    );
+    bridge({ unlock });
+    statusOf({
+      activated: true,
+      myKey: { id: KEY, status: "confirmed", createdAt: "2026-11-20T10:00:00.000Z" },
+    });
+    expect(await vault.unlock()).toEqual({ ok: false, code: "unavailable" });
+    expect((await vault.getVaultStatus()).state).toBe("unreachable");
+    unlock.mockResolvedValueOnce({ ok: true });
+    expect(await vault.unlock()).toEqual({ ok: true });
+    expect((await vault.getVaultStatus()).state).toBe("locked");
+  });
 });

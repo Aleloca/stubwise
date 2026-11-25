@@ -15,6 +15,13 @@ type Bridge = NonNullable<NonNullable<Window["stubwise"]>["vault"]>;
 
 const bridge = (): Bridge | null => window.stubwise?.vault ?? null;
 
+/**
+ * Review I2: l'ultima apertura non ha raggiunto Stubwise (`unavailable` dal
+ * main). La barra lo dice — «Couldn't reach Stubwise…» · Try again — finché
+ * un'apertura riesce o la cassaforte si chiude.
+ */
+let unreachable = false;
+
 function need(): Bridge {
   const b = bridge();
   if (!b) throw new Error("vault_bridge_missing");
@@ -40,6 +47,7 @@ export const getVaultStatus: FakeVault["getVaultStatus"] = async () => {
     ownFingerprint: null,
     pairing: null,
   };
+  if (unreachable && s.state === "locked") return { ...view, state: "unreachable" };
   // Il main sa già che dal Mac non si apre: il server non serve.
   if (s.state === "disabled" || s.state === "unsupported") return view;
   // Fetta 2a: la propria chiave dal server (`GET /api/vault/status`,
@@ -73,10 +81,12 @@ export const getVaultStatus: FakeVault["getVaultStatus"] = async () => {
 
 export const unlock: FakeVault["unlock"] = async () => {
   const out = await need().unlock();
+  unreachable = !out.ok && out.code === "unavailable";
   return out.ok ? { ok: true } : { ok: false, code: out.code };
 };
 
 export const lock: FakeVault["lock"] = async () => {
+  unreachable = false;
   await need().lock();
   return { ok: true };
 };
