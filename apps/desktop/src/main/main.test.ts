@@ -194,6 +194,8 @@ describe("canali IPC", () => {
     expect(main).toMatch(/vault\.sessionChanged\(\);\s*vaultPairing\.cancel\(\);\s*void replaceToken\(/);
     expect(main).toMatch(/vault\.sessionChanged\(\);\s*vaultPairing\.cancel\(\);\s*clearToken\(\);\s*browserLogin\.cancel\(\);/);
     expect(main).toMatch(/if \(readToken\(\) !== used\) return;[\s\S]*?vault\.sessionChanged\(\);[\s\S]*?clearToken\(\);/);
+    // M4: all'uscita gli appunti si svuotano e la cassaforte si chiude.
+    expect(main).toMatch(/app\.on\("before-quit", \(\) => \{\s*vault\.lock\(\);\s*void vaultOps\.clearClipboard\(\);/);
     // Stop e schermo bloccato chiudono la cassaforte (D-2).
     expect(main).toMatch(/powerMonitor\.on\("suspend", \(\) => vault\.lock\(\)\)/);
     expect(main).toMatch(/powerMonitor\.on\("lock-screen", \(\) => vault\.lock\(\)\)/);

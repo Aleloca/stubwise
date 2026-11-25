@@ -114,6 +114,20 @@ export function createVaultOps(deps: VaultOpsDeps) {
   }
 
   let clearTimer: ReturnType<typeof setTimeout> | undefined;
+  /** L'ultima password copiata, finché gli appunti non si svuotano (M4: per `before-quit`). */
+  let copied: string | null = null;
+
+  /** Svuota gli appunti se contengono ancora la password copiata (non poter rileggere: si svuotano comunque). */
+  async function clearIfStill(password: string): Promise<void> {
+    let now: string | null = null;
+    try {
+      now = await deps.clipboard.read();
+    } catch {
+      now = null;
+    }
+    if (now === null || now === password) deps.clipboard.write("");
+    if (copied === password) copied = null;
+  }
 
   async function share(credentialId: string, target: ReaderTarget) {
     return guarded(async (key, personKeyId) => {
@@ -171,18 +185,17 @@ export function createVaultOps(deps: VaultOpsDeps) {
       guarded(async (key) => {
         const password = await reveal(credentialId, "copy", key);
         deps.clipboard.write(password);
+        copied = password;
         clearTimeout(clearTimer);
-        clearTimer = setTimeout(() => {
-          void Promise.resolve(deps.clipboard.read()).then(
-            (now) => {
-              if (now === password) deps.clipboard.write("");
-            },
-            // Non poter rileggere non è un motivo per lasciarci la password (come il web).
-            () => deps.clipboard.write(""),
-          );
-        }, CLIPBOARD_CLEAR_MS);
+        clearTimer = setTimeout(() => void clearIfStill(password), CLIPBOARD_CLEAR_MS);
         return {};
       }),
+
+    /** M4: all'uscita (`before-quit`) gli appunti si svuotano subito, se c'è ancora la password. */
+    clearClipboard: async () => {
+      clearTimeout(clearTimer);
+      if (copied !== null) await clearIfStill(copied);
+    },
 
     share,
 
