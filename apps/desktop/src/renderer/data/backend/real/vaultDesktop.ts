@@ -181,8 +181,12 @@ export const listPending: FakeVault["listPending"] = async () => {
     createdAt: p.createdAt,
     device: p.device,
     fingerprint: p.fingerprint,
-    // Il main non dice il progetto: la scheda mostra solo quante sono.
-    credentials: p.credentials.map((c) => ({ id: c.id, service: c.service, projectId: "" })),
+    // Il progetto dal server, via il main: il punto «ti aspetta» della colonna.
+    credentials: p.credentials.map((c) => ({
+      id: c.id,
+      service: c.service,
+      projectId: c.projectId,
+    })),
   }));
 };
 

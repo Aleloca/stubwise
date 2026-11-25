@@ -54,7 +54,7 @@ function bridge(over: Record<string, unknown> = {}) {
           createdAt: "2026-11-24T16:20:00.000Z",
           device: "Chrome on macOS",
           fingerprint: "7d20 e5a9 c31f 6b84",
-          credentials: [{ id: "c1", service: "Aruba hosting", label: null }],
+          credentials: [{ id: "c1", projectId: "prj-1", service: "Aruba hosting", label: null }],
         },
       ],
     })),
@@ -270,7 +270,9 @@ describe("la cassaforte nella build app, dal main", () => {
         device: "Chrome on macOS",
         fingerprint: "7d20 e5a9 c31f 6b84",
       });
-      expect(p!.credentials.map((c) => c.service)).toEqual(["Aruba hosting"]);
+      expect(p!.credentials.map((c) => [c.service, c.projectId])).toEqual([
+        ["Aruba hosting", "prj-1"],
+      ]);
       vi.unstubAllGlobals();
       bridge({ pending: vi.fn(async () => ({ ok: false, code: "vault_locked" })) });
       expect(await vault.listPending()).toEqual([]);

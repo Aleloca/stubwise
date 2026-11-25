@@ -100,18 +100,20 @@ export const getCredential: FakeVault["getCredential"] = async (id) => {
 };
 
 export const getCredentialsEntry: FakeVault["getCredentialsEntry"] = async (projectId) => {
-  const [p, list] = await Promise.all([
+  const [p, list, waiting] = await Promise.all([
     permissions(),
     appClient().credentials.ofProject(projectId),
+    listPending().catch(() => []),
   ]);
   const perms = p.inProject(projectId);
   const canCreate = p.fullAdmin || perms.includes("credentials.create");
-  // `waitingMe` (il punto «ti aspetta») resta spento nella colonna: il main
-  // non dice il progetto di ogni credenziale (registro dei rimandi).
+  // Il punto «ti aspetta»: qualcuno aspetta da me una credenziale DI QUESTO
+  // progetto (`projectId` dal server, via `vault:pending`; il server mette
+  // solo le credenziali che chi guarda apre, nei progetti dove condivide).
   // `canSeeLog` lo calcola il server, anche a elenco vuoto (review M4).
   return {
     show: list.items.length > 0 || canCreate,
-    waitingMe: false,
+    waitingMe: waiting.some((w) => w.credentials.some((c) => c.projectId === projectId)),
     canCreate,
     canSeeLog: list.canSeeLog,
   };
