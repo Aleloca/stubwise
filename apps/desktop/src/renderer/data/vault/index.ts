@@ -135,6 +135,19 @@ function mac(me: string): ThisMac {
 }
 
 const isOpen = (me: string) => mac(me).open && mac(me).macId !== null;
+
+/**
+ * Review M7: le azioni che passano l'accesso (Share, Remove, Confirm,
+ * Reject) chiedono il LORO Touch ID, come nel main: a cassaforte chiusa
+ * l'azione si fa con quel tocco e la cassaforte resta chiusa.
+ */
+function touchFor(me: string): VaultFailure | null {
+  const m = mac(me);
+  if (!m.macId) return fail("vault_locked");
+  if (v().simulation.touchId === "unavailable") return fail("touch_id_unavailable");
+  if (v().simulation.touchId === "cancelled") return fail("touch_id_cancelled");
+  return null;
+}
 /** L'email di una persona del team, come la mostra il resto del prototipo. */
 const emailOf = (personId: string) => addressOf(personId).email;
 
@@ -671,7 +684,8 @@ export async function share(
   const c = credentialById(id);
   if (!c || !viewOf(me, c)) return fail("not_found");
   if (!canI(me, "credentials.share", c.projectId)) return fail("forbidden");
-  if (!isOpen(me)) return fail("vault_locked");
+  const touch = touchFor(me);
+  if (touch) return touch;
   if (!reads(me, c)) return fail("not_allowed");
   const exists = v().readers.some(
     (r) =>
@@ -707,7 +721,8 @@ export async function removeReader(
   const c = credentialById(id);
   if (!c || !viewOf(me, c)) return fail("not_found");
   if (!canI(me, "credentials.share", c.projectId)) return fail("forbidden");
-  if (!isOpen(me)) return fail("vault_locked");
+  const touch = touchFor(me);
+  if (touch) return touch;
   if (!v().readers.some((r) => r.id === readerId && r.credentialId === id))
     return fail("not_found");
   v().readers = v().readers.filter((r) => r.id !== readerId);
@@ -762,7 +777,8 @@ export async function confirm(
   const personId = personOfKey(keyId);
   const key = keyOf(personId);
   if (!key || personId === me) return fail("not_found");
-  if (!isOpen(me)) return fail("vault_locked");
+  const touch = touchFor(me);
+  if (touch) return touch;
   const creds = passable(me, personId);
   if (creds.length === 0) return fail("nothing_to_confirm");
   key.status = "confirmed";
@@ -775,7 +791,8 @@ export async function reject(keyId: string): Promise<{ ok: true } | VaultFailure
   const personId = personOfKey(keyId);
   if (!keyOf(personId) || personId === me || passable(me, personId).length === 0)
     return fail("not_found");
-  if (!isOpen(me)) return fail("vault_locked");
+  const touch = touchFor(me);
+  if (touch) return touch;
   // Rifiutata: non riceve nulla, e dovrà ricreare la chiave nel browser.
   v().keys = v().keys.filter((k) => k.personId !== personId);
   return { ok: true };

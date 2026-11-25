@@ -276,7 +276,10 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
 
   async function useWithTouch<T>(run: (k: CryptoKey, id: string) => Promise<T>): Promise<T> {
     const d = device();
-    if (!key || !d) throw new Error("vault_locked");
+    // Review M7: a cassaforte chiusa l'azione apre il sigillo per sé (un
+    // solo tocco) e la cassaforte resta chiusa; serve un Mac associato.
+    if (!d || !deps.identity()) throw new Error("vault_locked");
+    const wasOpen = key !== null;
     const started = epoch;
     const seal = await deps.fetchSeal();
     if ("disabled" in seal) {
@@ -306,8 +309,8 @@ export function createVaultLock(deps: VaultLockDeps): VaultLock {
       throw new Error("open_failed");
     }
     // Chiusa o cambiata la sessione mentre si chiedeva il tocco: l'azione non parte.
-    if (epoch !== started || !key) throw new Error("vault_locked");
-    arm();
+    if (epoch !== started || (wasOpen && !key)) throw new Error("vault_locked");
+    if (wasOpen) arm();
     return run(fresh, seal.personKeyId);
   }
 

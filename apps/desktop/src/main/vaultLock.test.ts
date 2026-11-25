@@ -312,14 +312,29 @@ describe("la cassaforte nel main", () => {
   // M5 (revisione di sicurezza): un'azione che PASSA l'accesso (condividere,
   // confermare, rifiutare) chiede un Touch ID vero a sé, non basta la
   // cassaforte aperta: il sigillo si riapre dall'enclave per quell'azione.
-  it("M5: `useWithTouch` riapre dall'enclave (un tocco in più) e usa quella chiave; chiusa: `vault_locked`", async () => {
+  it("M5: `useWithTouch` riapre dall'enclave (un tocco) e usa quella chiave", async () => {
     const { lock, calls } = setup();
-    await expect(lock.useWithTouch(async () => 1)).rejects.toThrow("vault_locked");
     await lock.unlock();
     expect(await lock.useWithTouch(async (key, id) => key === PERSON_KEY && id === "pk-1")).toBe(
       true,
     );
     expect(calls).toEqual(["touch", "touch"]);
+  });
+
+  // Review M7: un solo Touch ID per azione. A cassaforte chiusa l'azione
+  // apre il sigillo per sé (un tocco) e la cassaforte resta chiusa: il
+  // renderer non la apre prima (che sarebbe il secondo tocco).
+  it("M7: a cassaforte chiusa `useWithTouch` fa l'azione con UN tocco, e la cassaforte resta chiusa", async () => {
+    const { lock, calls } = setup();
+    expect(await lock.useWithTouch(async (key) => key === PERSON_KEY)).toBe(true);
+    expect(calls).toEqual(["touch"]);
+    expect((await lock.status()).state).toBe("locked");
+  });
+
+  it("M7: senza Mac associato `useWithTouch` resta `vault_locked`", async () => {
+    const { lock, setStored } = setup();
+    setStored(null);
+    await expect(lock.useWithTouch(async () => 1)).rejects.toThrow("vault_locked");
   });
 
   it("M5: un tocco annullato ferma l'azione (`touch_id_cancelled`), la cassaforte resta aperta", async () => {

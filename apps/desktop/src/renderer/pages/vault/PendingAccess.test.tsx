@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resetApi, setLatency } from "../../data/api";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetApi, setLatency, vault } from "../../data/api";
 import { setVaultClipboard } from "../../data/vault/index";
 import { setLanguage } from "../../i18n";
 import { renderRoute } from "../../test/renderRoute";
@@ -88,5 +88,25 @@ describe("gli accessi da confermare", () => {
     renderRoute("/p/ACQ/credentials", "p-sara");
     await screen.findByRole("button", { name: "Cloudflare" });
     expect(screen.queryByText(/waiting for access/)).toBeNull();
+  });
+
+  it("M7: Confirm a cassaforte chiusa: nessuna apertura prima, e resta chiusa", async () => {
+    const user = userEvent.setup();
+    const p = await openReview(user);
+    await act(async () => {
+      await vault.lock();
+    });
+    const unlock = vi.spyOn(vault, "unlock");
+    try {
+      await user.click(card(p, "Marco Bellini").getByRole("button", { name: "Confirm" }));
+      await user.click(p.getByRole("button", { name: "Yes, I checked: confirm" }));
+      expect(
+        await screen.findByText(/Marco Bellini now reads \d+ credentials?\./),
+      ).toBeInTheDocument();
+      expect(unlock).not.toHaveBeenCalled();
+      expect((await vault.getVaultStatus()).state).toBe("locked");
+    } finally {
+      unlock.mockRestore();
+    }
   });
 });

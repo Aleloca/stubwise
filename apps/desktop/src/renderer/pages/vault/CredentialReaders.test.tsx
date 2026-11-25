@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resetApi, setLatency } from "../../data/api";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetApi, setLatency, vault } from "../../data/api";
 import { VAULT_IDS } from "../../data/seed/vault";
 import { setVaultClipboard } from "../../data/vault/index";
 import { setLanguage } from "../../i18n";
@@ -129,5 +129,27 @@ describe("i lettori di una credenziale", () => {
     );
     const who = await p.findByRole("list", { name: "Who reads it" });
     await waitFor(() => expect(row(who, "Marco Bellini")?.textContent).toContain("via a role"));
+  });
+
+  // Review M7: un solo Touch ID per azione. Share fa il suo tocco nel main:
+  // a cassaforte chiusa il renderer non la apre prima (sarebbe il secondo),
+  // e la cassaforte resta chiusa.
+  it("M7: Share a cassaforte chiusa: nessuna apertura prima, e resta chiusa", async () => {
+    const user = userEvent.setup();
+    renderRoute(`/p/ACQ/credentials?credential=${VAULT_IDS.ARUBA}`, "p-laura");
+    const p = await panel();
+    await act(async () => {
+      await vault.lock();
+    });
+    const unlock = vi.spyOn(vault, "unlock");
+    try {
+      await user.selectOptions(await p.findByLabelText("Share with"), "Sara Montanari");
+      await user.click(p.getByRole("button", { name: "Share" }));
+      expect(await screen.findByText("Shared with Sara Montanari.")).toBeInTheDocument();
+      expect(unlock).not.toHaveBeenCalled();
+      expect((await vault.getVaultStatus()).state).toBe("locked");
+    } finally {
+      unlock.mockRestore();
+    }
   });
 });

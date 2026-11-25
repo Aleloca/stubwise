@@ -1,17 +1,10 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  useReaders,
-  useRemoveReader,
-  useShare,
-  useShareTargets,
-  useVaultStatus,
-} from "../../data/queries";
+import { useReaders, useRemoveReader, useShare, useShareTargets } from "../../data/queries";
 import type { CredentialView, ReadersView } from "../../data/vault/types";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
 import { quietButton, secondaryButton } from "../tasks/controls";
-import { useOpenVault } from "./VaultBar";
 
 // I lettori nel dettaglio di una credenziale (shape `vault.md` §3
 // «Readers»): chi la legge, con la fonte («role Developer», «full admin»,
@@ -36,21 +29,18 @@ export function CredentialReaders({
   const readers = useReaders(view.id).data;
   const canShare = readers?.canShare === true;
   const targets = useShareTargets(view.id, canShare && view.access === "reads").data;
-  const status = useVaultStatus().data;
-  const { open } = useOpenVault();
   const share = useShare();
   const remove = useRemoveReader();
   const [confirming, setConfirming] = useState<string | null>(null);
   const [removed, setRemoved] = useState<Direct | null>(null);
   const [choice, setChoice] = useState("");
 
-  const ensureOpen = async () => status?.state === "open" || (await open());
+  // Review M7: l'azione fa il suo Touch ID (nel main), niente apertura prima.
   const directName = (d: Direct) =>
     d.kind === "role" ? t("vault.readers.rolePrefix", { name: d.name }) : d.name;
 
   const onRemove = async (d: Direct) => {
     setConfirming(null);
-    if (!(await ensureOpen())) return;
     const out = await remove.mutateAsync({ id: view.id, readerId: d.readerId }).catch(() => null);
     if (out?.ok) setRemoved(d);
     else toast.error(t("vault.readers.failed"));
@@ -59,7 +49,6 @@ export function CredentialReaders({
   const onShare = async () => {
     const [kind, id] = choice.split(":");
     if (!kind || !id) return;
-    if (!(await ensureOpen())) return;
     const target = kind === "role" ? { roleId: id } : { personId: id };
     const name =
       kind === "role"
