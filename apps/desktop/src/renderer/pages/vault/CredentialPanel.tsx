@@ -14,6 +14,7 @@ import { useMediaQuery } from "../../layout/useMediaQuery";
 import { openInWeb } from "../../platform/openWeb";
 import { useToast } from "../../tasks-ui/Toast";
 import { quietButton } from "../tasks/controls";
+import { AccessLogList } from "./AccessLogList";
 import { CredentialForm } from "./CredentialForm";
 import { CredentialReaders } from "./CredentialReaders";
 import { AccessWord, PasswordField } from "./CredentialRows";
@@ -35,14 +36,20 @@ const SECTION = /^\/p\/([^/]+)\/credentials\/?$/;
 export const CREDENTIAL_PANEL_DOCKED_QUERY = "(min-width: 1024px)";
 
 export function CredentialPanelHost() {
-  const search = useSearch({ strict: false }) as { credential?: string };
+  const search = useSearch({ strict: false }) as { credential?: string; edit?: string };
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   if (!search.credential || !WHERE.test(pathname)) return null;
   if (search.credential === "new") {
     const code = SECTION.exec(pathname)?.[1];
     return code ? <NewCredentialPanel code={code} /> : <NewCredentialPanelVault />;
   }
-  return <CredentialPanelFor key={search.credential} id={search.credential} />;
+  return (
+    <CredentialPanelFor
+      key={search.credential}
+      id={search.credential}
+      startEditing={search.edit === "1"}
+    />
+  );
 }
 
 /** Il pannello col modulo di una credenziale nuova, nel progetto della sezione. */
@@ -106,12 +113,13 @@ function useGoToCredential() {
   );
 }
 
-function CredentialPanelFor({ id }: { id: string }) {
+function CredentialPanelFor({ id, startEditing }: { id: string; startEditing: boolean }) {
   const { t } = useTranslation();
   const go = useGoToCredential();
   const docked = useMediaQuery(CREDENTIAL_PANEL_DOCKED_QUERY);
   const credential = useCredential(id);
-  const [editing, setEditing] = useState(false);
+  // Dal «⋯» della riga il dettaglio si apre già in modifica (`?edit=1`).
+  const [editing, setEditing] = useState(startEditing);
   const close = useCallback(() => go(undefined), [go]);
   const unknown = credential.data === null || credential.isError;
   useEffect(() => {
@@ -236,29 +244,7 @@ function CredentialBody({
       {manages && (
         <section className="flex flex-col gap-2 border-t border-rule pt-4">
           <h3 className="text-md font-semibold text-ink">{t("vault.detail.log")}</h3>
-          {log.data && log.data.length === 0 ? (
-            <p className="text-sm text-ink-muted">{t("vault.detail.logEmpty")}</p>
-          ) : (
-            <ul aria-label={t("vault.detail.log")} className="flex flex-col">
-              {(log.data ?? []).map((e) => (
-                <li key={e.id} className="flex items-baseline gap-2 py-1 text-sm">
-                  <span className="num w-28 shrink-0 text-ink-muted">
-                    {new Date(e.at).toLocaleString(undefined, {
-                      day: "numeric",
-                      month: "short",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </span>
-                  <span className="text-ink">{e.name}</span>
-                  <span className="text-ink-muted">
-                    {t(`vault.detail.${e.action}`)} ·{" "}
-                    {e.via === "mac" ? t("vault.detail.fromMac") : t("vault.detail.fromBrowser")}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <AccessLogList entries={log.data} />
         </section>
       )}
     </div>

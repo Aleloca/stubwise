@@ -168,7 +168,11 @@
       "inviteSomeone": "Invite someone",
       "whoCanIn": "Who can {{what}} in {{code}}",
       "whoCanAnywhere": "Who can {{what}} in a project",
-      "whoCanInstance": "Who can {{what}}"
+      "whoCanInstance": "Who can {{what}}",
+      "vaultOpen": "Open the vault",
+      "vaultLock": "Lock the vault",
+      "vaultPair": "Pair this Mac",
+      "vaultFind": "Find a credential"
     },
     "filterPlaceholder": "Choose a filter",
     "channelPlaceholder": "Go to a channel or direct message…",
@@ -13850,6 +13854,25 @@
       "pairingOk": "Return from the browser",
       "pairingExpired": "Expire",
       "pairingMismatch": "Seal doesn't match"
+    },
+    "rowMenu": {
+      "more": "More for {{name}}",
+      "menu": "Actions for {{name}}",
+      "edit": "Edit",
+      "readers": "Readers",
+      "log": "Access log",
+      "delete": "Delete…",
+      "deleteQuestion": "Delete {{name}}? Everyone who reads it loses it.",
+      "deleteYes": "Delete {{name}}",
+      "cancel": "Cancel",
+      "deleted": "{{name}} deleted.",
+      "deleteFailed": "Couldn't delete {{name}}."
+    },
+    "sectionMenu": {
+      "more": "More for Credentials",
+      "menu": "Credentials actions",
+      "log": "Access log",
+      "panel": "Access log of {{code}}"
     }
   }
 }

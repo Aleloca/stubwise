@@ -1,7 +1,9 @@
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "@tanstack/react-router";
 import { useCredentials, useCredentialsEntry, useProject } from "../../data/queries";
-import { secondaryButton } from "../tasks/controls";
+import { itemClass } from "../../tasks-ui/Menu";
+import { MoreGlyph } from "../preferences/glyphs";
+import { MenuButton, quietButton, secondaryButton } from "../tasks/controls";
 import { PageEmpty, PageError } from "../../tasks-ui/PageStates";
 import { ListSkeleton } from "../servers/ServersPage";
 import { CredentialRows } from "./CredentialRows";
@@ -39,6 +41,37 @@ export function CredentialsSection({ projectCode }: { projectCode: string }) {
             <button type="button" className={secondaryButton} onClick={newCredential}>
               {t("vault.new")}
             </button>
+          )}
+          {/* Il «⋯» della sezione: il registro di tutto il progetto, per chi gestisce. */}
+          {entry?.canSeeLog && (
+            <MenuButton
+              label={<MoreGlyph />}
+              ariaLabel={t("vault.sectionMenu.more")}
+              menuLabel={t("vault.sectionMenu.menu")}
+              className={quietButton}
+              align="right"
+            >
+              {(close) => (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={itemClass}
+                  onClick={() => {
+                    close();
+                    void navigate({
+                      to: ".",
+                      search: ((prev: Record<string, unknown>) => ({
+                        ...prev,
+                        log: "1",
+                        credential: undefined,
+                      })) as never,
+                    });
+                  }}
+                >
+                  {t("vault.sectionMenu.log")}
+                </button>
+              )}
+            </MenuButton>
           )}
         </header>
         <div className="flex flex-col">

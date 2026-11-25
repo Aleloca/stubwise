@@ -20,7 +20,7 @@ import { VaultBar } from "./VaultBar";
 export function VaultPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const search = useSearch({ strict: false }) as { projects?: string };
+  const search = useSearch({ strict: false }) as { projects?: string; findCredential?: string };
   const projects = useProjects().data ?? [];
   const entry = useVaultEntry().data;
   const rows = useCredentials({});
@@ -91,6 +91,8 @@ export function VaultPage() {
             aria-label={t("vault.page.search")}
             placeholder={t("vault.page.search")}
             className={`${inputClass} w-72`}
+            // Dal comando ⌘K «Find a credential»: la ricerca già a fuoco.
+            autoFocus={search.findCredential === "1"}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />

@@ -406,15 +406,20 @@ export async function listCredentials(filter: {
  */
 export async function getCredentialsEntry(
   projectId: string,
-): Promise<{ show: boolean; waitingMe: boolean; canCreate: boolean }> {
+): Promise<{ show: boolean; waitingMe: boolean; canCreate: boolean; canSeeLog: boolean }> {
   const me = await gate("vault.getCredentialsEntry");
-  if (!v().active) return { show: false, waitingMe: false, canCreate: false };
+  if (!v().active) return { show: false, waitingMe: false, canCreate: false, canSeeLog: false };
   const sees = v().credentials.some((c) => c.projectId === projectId && viewOf(me, c));
   const canCreate = canI(me, "credentials.create", projectId);
   const show = sees || canCreate;
   const waitingMe =
     show && v().keys.some((k) => passable(me, k.personId).some((c) => c.projectId === projectId));
-  return { show, waitingMe, canCreate };
+  // Il registro del progetto: chi gestisce le credenziali lì (come `listAccessLog`).
+  const canSeeLog =
+    isFullAdmin(me) ||
+    canI(me, "credentials.edit", projectId) ||
+    canI(me, "credentials.share", projectId);
+  return { show, waitingMe, canCreate, canSeeLog };
 }
 
 /**
