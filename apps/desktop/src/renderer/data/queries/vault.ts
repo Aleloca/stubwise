@@ -77,6 +77,24 @@ export function useShowPassword() {
   return useWrite((id: string) => api.vault.show(id), VAULT_AREAS, { secret: true });
 }
 
+/** Una credenziale nuova (non chiede la cassaforte aperta: le copie le dà il livello dati). */
+export function useCreateCredential() {
+  return useWrite(
+    ({ projectId, input }: { projectId: string; input: api.vault.CredentialInput }) =>
+      api.vault.createCredential(projectId, input),
+    VAULT_AREAS,
+  );
+}
+
+/** La modifica: i campi in chiaro; una password nuova vuole la cassaforte aperta. */
+export function useUpdateCredential() {
+  return useWrite(
+    ({ id, input }: { id: string; input: Partial<api.vault.CredentialInput> }) =>
+      api.vault.updateCredential(id, input),
+    VAULT_AREAS,
+  );
+}
+
 /** «Copy»: gli appunti li scrive il livello dati (nell'app, il main). */
 export function useCopyPassword() {
   return useWrite((id: string) => api.vault.copy(id), VAULT_AREAS);

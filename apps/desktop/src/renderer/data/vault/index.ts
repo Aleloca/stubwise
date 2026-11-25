@@ -372,13 +372,17 @@ export async function listCredentials(filter: {
  * credenziale o può crearne lì; `waitingMe` accende il punto «ti aspetta»
  * quando c'è chi aspetta che sia lui a confermarlo.
  */
-export async function getCredentialsEntry(projectId: string): Promise<{ show: boolean; waitingMe: boolean }> {
+export async function getCredentialsEntry(
+  projectId: string,
+): Promise<{ show: boolean; waitingMe: boolean; canCreate: boolean }> {
   const me = await gate("vault.getCredentialsEntry");
-  if (!v().active) return { show: false, waitingMe: false };
+  if (!v().active) return { show: false, waitingMe: false, canCreate: false };
   const sees = v().credentials.some((c) => c.projectId === projectId && viewOf(me, c));
-  const show = sees || canI(me, "credentials.create", projectId);
-  const waitingMe = show && v().keys.some((k) => passable(me, k.personId).some((c) => c.projectId === projectId));
-  return { show, waitingMe };
+  const canCreate = canI(me, "credentials.create", projectId);
+  const show = sees || canCreate;
+  const waitingMe =
+    show && v().keys.some((k) => passable(me, k.personId).some((c) => c.projectId === projectId));
+  return { show, waitingMe, canCreate };
 }
 
 export async function getCredential(id: string): Promise<CredentialView | null> {

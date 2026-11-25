@@ -1,13 +1,14 @@
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useAccessLog, useCredential } from "../../data/queries";
+import { useAccessLog, useCredential, useProject } from "../../data/queries";
 import type { CredentialView } from "../../data/vault/types";
 import { DetailPanel } from "../../layout/useDetailPanel";
 import { useMediaQuery } from "../../layout/useMediaQuery";
 import { openInWeb } from "../../platform/openWeb";
 import { useToast } from "../../tasks-ui/Toast";
 import { quietButton } from "../tasks/controls";
+import { CredentialForm } from "./CredentialForm";
 import { AccessWord, PasswordField } from "./CredentialRows";
 import { usePasswordReveal } from "./usePasswordReveal";
 
@@ -20,28 +21,65 @@ import { usePasswordReveal } from "./usePasswordReveal";
 
 /** Dove il pannello si apre: la sezione Credentials di un progetto, o la pagina Vault. */
 const WHERE = /^\/(?:p\/[^/]+\/credentials|vault)\/?$/;
+/** Nella sezione di un progetto, il suo codice (`?credential=new` crea lì). */
+const SECTION = /^\/p\/([^/]+)\/credentials\/?$/;
 
 /** Come il pannello delle PR: affiancato già da 1024 px. */
 export const CREDENTIAL_PANEL_DOCKED_QUERY = "(min-width: 1024px)";
 
 export function CredentialPanelHost() {
   const search = useSearch({ strict: false }) as { credential?: string };
-  const here = useRouterState({ select: (s) => WHERE.test(s.location.pathname) });
-  if (!search.credential || !here) return null;
-  return <CredentialPanelFor id={search.credential} />;
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  if (!search.credential || !WHERE.test(pathname)) return null;
+  if (search.credential === "new") {
+    const code = SECTION.exec(pathname)?.[1];
+    return code ? <NewCredentialPanel code={code} /> : null;
+  }
+  return <CredentialPanelFor key={search.credential} id={search.credential} />;
+}
+
+/** Il pannello col modulo di una credenziale nuova, nel progetto della sezione. */
+function NewCredentialPanel({ code }: { code: string }) {
+  const { t } = useTranslation();
+  const docked = useMediaQuery(CREDENTIAL_PANEL_DOCKED_QUERY);
+  const project = useProject(code).data;
+  const go = useGoToCredential();
+  if (!project) return null;
+  return (
+    <DetailPanel
+      mode={docked ? "docked" : "overlay"}
+      label={t("vault.form.newTitle")}
+      onClose={() => go(undefined)}
+    >
+      <CredentialForm
+        mode={{ kind: "new", projectId: project.id }}
+        onSaved={(id) => go(id)}
+        onCancel={() => go(undefined)}
+      />
+    </DetailPanel>
+  );
+}
+
+/** Cambia `?credential=` (un id, o `undefined` per chiudere). */
+function useGoToCredential() {
+  const navigate = useNavigate();
+  return useCallback(
+    (id: string | undefined) =>
+      void navigate({
+        to: ".",
+        search: ((prev: Record<string, unknown>) => ({ ...prev, credential: id })) as never,
+      }),
+    [navigate],
+  );
 }
 
 function CredentialPanelFor({ id }: { id: string }) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const go = useGoToCredential();
   const docked = useMediaQuery(CREDENTIAL_PANEL_DOCKED_QUERY);
   const credential = useCredential(id);
-  const close = useCallback(() => {
-    void navigate({
-      to: ".",
-      search: ((prev: Record<string, unknown>) => ({ ...prev, credential: undefined })) as never,
-    });
-  }, [navigate]);
+  const [editing, setEditing] = useState(false);
+  const close = useCallback(() => go(undefined), [go]);
   const unknown = credential.data === null || credential.isError;
   useEffect(() => {
     if (unknown) close();
@@ -54,7 +92,20 @@ function CredentialPanelFor({ id }: { id: string }) {
       label={t("vault.detail.label", { name: view.service })}
       onClose={close}
     >
-      <CredentialBody key={view.id} view={view} onClose={close} />
+      {editing ? (
+        <CredentialForm
+          mode={{ kind: "edit", view }}
+          onSaved={() => setEditing(false)}
+          onCancel={() => setEditing(false)}
+        />
+      ) : (
+        <CredentialBody
+          key={view.id}
+          view={view}
+          onClose={close}
+          onEdit={view.canEdit ? () => setEditing(true) : undefined}
+        />
+      )}
     </DetailPanel>
   );
 }
@@ -68,7 +119,16 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function CredentialBody({ view, onClose }: { view: CredentialView; onClose: () => void }) {
+function CredentialBody({
+  view,
+  onClose,
+  onEdit,
+}: {
+  view: CredentialView;
+  onClose: () => void;
+  /** Solo con `canEdit`. */
+  onEdit?: () => void;
+}) {
   const { t } = useTranslation();
   const toast = useToast();
   const reveal = usePasswordReveal();
@@ -82,6 +142,11 @@ function CredentialBody({ view, onClose }: { view: CredentialView; onClose: () =
           <h2 className="text-lg font-semibold text-ink">{view.service}</h2>
           {view.label && <span className="text-sm text-ink-muted">{view.label}</span>}
         </div>
+        {onEdit && (
+          <button type="button" className={quietButton} onClick={onEdit}>
+            {t("vault.form.edit")}
+          </button>
+        )}
         <button type="button" className={quietButton} onClick={onClose}>
           {t("vault.detail.close")}
         </button>

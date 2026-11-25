@@ -13683,6 +13683,27 @@
       "fromMac": "from the Mac",
       "fromBrowser": "from the browser",
       "close": "Close"
+    },
+    "form": {
+      "edit": "Edit",
+      "newTitle": "New credential",
+      "editTitle": "Edit {{name}}",
+      "service": "Service",
+      "label": "Label",
+      "url": "URL",
+      "username": "Username",
+      "password": "Password",
+      "notes": "Notes",
+      "passwordHint": "Encrypted on this Mac: the server never sees it.",
+      "keepPassword": "Leave empty to keep the current password.",
+      "notesHint": "Notes aren't encrypted: don't write secrets here.",
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel",
+      "created": "Credential saved.",
+      "saved": "Changes saved.",
+      "failed": "Couldn't save the credential.",
+      "locked": "Open the vault to change the password."
     }
   }
 }

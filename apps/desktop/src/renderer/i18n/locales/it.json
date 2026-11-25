@@ -13683,6 +13683,27 @@
       "fromMac": "dal Mac",
       "fromBrowser": "dal browser",
       "close": "Chiudi"
+    },
+    "form": {
+      "edit": "Modifica",
+      "newTitle": "Nuova credenziale",
+      "editTitle": "Modifica {{name}}",
+      "service": "Servizio",
+      "label": "Etichetta",
+      "url": "URL",
+      "username": "Utente",
+      "password": "Password",
+      "notes": "Note",
+      "passwordHint": "Cifrata su questo Mac: il server non la vede mai.",
+      "keepPassword": "Lascia vuoto per tenere la password di adesso.",
+      "notesHint": "Le note non sono cifrate: non scriverci segreti.",
+      "save": "Salva",
+      "saving": "Salvataggio…",
+      "cancel": "Annulla",
+      "created": "Credenziale salvata.",
+      "saved": "Modifiche salvate.",
+      "failed": "Non è stato possibile salvare la credenziale.",
+      "locked": "Apri la cassaforte per cambiare la password."
     }
   }
 }
