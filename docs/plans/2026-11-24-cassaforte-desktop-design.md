@@ -247,8 +247,12 @@ riconferma recente, cassaforte aperta):
   e a QUELLA pubblica, e risponde lo `state`. Il main apre il browser su
   `<istanza>/vault-pair?state=…` (pagina del web, decisione di 46 per I2). Il browser legge dal server la pubblica e il
   nome del dispositivo per quello `state` (mai dall'URL: un URL si inoltra), e
-  la persona confronta l'**impronta** del dispositivo che il Mac mostra con
-  quella del browser prima di sigillare. Il `POST` del sigillo vuole lo stesso
+  la persona **scrive nel browser il codice che il Mac mostra** (gli ultimi 4
+  caratteri dell'impronta della sua chiave): il browser lo confronta con
+  l'impronta calcolata dalla pubblica del server, e solo se coincide si
+  sigilla. La pagina del browser NON mostra l'impronta (review 2, M3, 94
+  7a01a5465): mostrata, si sarebbe copiata dalla pagina stessa, anche da un
+  link mandato da chi aveva avviato l'associazione al posto tuo. Il `POST` del sigillo vuole lo stesso
   `state`: il server controlla che `patId` e `devicePublicKey` siano quelli
   dell'accoppiamento, che il PAT sia `desktop`, non revocato e della STESSA
   persona della sessione. Altrimenti 409 `pairing_invalid`, nulla scritto;
@@ -331,11 +335,13 @@ Come il login (`browserLogin.ts`), con il passo di 72 (§6.2):
    quella pubblica). La privata del dispositivo resta in memoria finché
    l'associazione non finisce;
 2. il main apre nel browser `<istanza>/vault-pair?state=<s>` (pagina del web, decisione di 46 per I2) (nell'URL
-   SOLO lo state) e mostra nella sua finestra l'**impronta** della chiave del
-   dispositivo, con «Confronta con quella nel browser»;
+   SOLO lo state) e mostra nella sua finestra il **codice** del dispositivo
+   (gli ultimi 4 caratteri dell'impronta della sua chiave), da scrivere nel
+   browser;
 3. il browser, a cassaforte aperta con la passkey, legge dal server pubblica e
-   nome per quello state, mostra la stessa impronta, e con «Associa questo
-   Mac» sigilla la privata di persona (`POST /api/vault/device-seals`, §6.2),
+   nome per quello state, chiede il codice del Mac (senza mostrare
+   l'impronta, review 2 M3) e lo confronta con l'impronta della pubblica, e
+   con «Associa questo Mac» sigilla la privata di persona (`POST /api/vault/device-seals`, §6.2),
    poi riapre `stubwise://vault?state=<s>`;
 4. il main accetta SOLO lo state pendente, scarica il sigillo
    (`GET /api/vault/device-seals/mine`), lo APRE e verifica la privata contro
@@ -382,7 +388,7 @@ legata a un dispositivo accoppiato dalla passkey**.
    meccanismo» diventa «… **Il secondo meccanismo è il sigillo del dispositivo,
    che nasce solo da uno sblocco con passkey** (§6.2): non è un'altra porta, è
    una copia della stessa chiave, avvolta per un dispositivo che la persona ha
-   scelto e confrontato a vista».
+   scelto e riconosciuto scrivendo il codice che il Mac mostra».
 3. **Nuova voce**: il sigillo del dispositivo — dove sta, a cosa è legato, chi lo
    crea, come si revoca (a lettura), cosa non può fare.
 
@@ -455,7 +461,8 @@ Perché resta accettabile:
   l'interruttore acceso un PAT desktop di un'app NON firmata (o un client
   scritto a mano col PAT) passa come gli altri. Ciò che resta vero anche
   allora: un'associazione vuole la riconferma del desktop e la passkey nel
-  browser con la persona che confronta l'impronta (review I2), e il sigillo
+  browser con la persona che scrive il codice mostrato dal Mac (review I2 e
+  2-M3), e il sigillo
   si apre solo con la chiave del Mac che l'ha chiesto. La garanzia della
   firma (il Touch ID che non si aggira) è del CLIENT; il server la presume
   per decisione di chi accende l'interruttore.
