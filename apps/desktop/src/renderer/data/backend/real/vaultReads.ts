@@ -241,21 +241,35 @@ const failOf = (error: unknown): { ok: false; code: string } => ({
 });
 
 /**
- * La modifica: i campi in chiaro con `PATCH` (un campo assente resta com'è,
- * `null` lo svuota). La password nuova la cifra il main con la chiave (fetta
- * 4): finché non c'è, il rifiuto è esplicito e la password non va MAI sulla
- * rotta in chiaro.
+ * La modifica: una password nuova la cifra il main (fetta 4, con la
+ * cassaforte aperta) PRIMA dei campi in chiaro, così a cassaforte chiusa
+ * non si salva niente a metà; i campi in chiaro con `PATCH` (un campo
+ * assente resta com'è, `null` lo svuota). La password non va MAI sulla rotta.
  */
 export const updateCredential: FakeVault["updateCredential"] = async (id, input) => {
   const { password, ...plain } = input;
-  if (password !== undefined && password !== "")
-    return { ok: false, code: "password_not_integrated" };
+  if (password !== undefined && password !== "") {
+    const b = window.stubwise?.vault;
+    if (!b) return { ok: false, code: "unsupported" };
+    const out = await b.setPassword(id, password);
+    if (!out.ok) return { ok: false, code: out.code };
+  }
+  if (Object.keys(plain).length === 0) return { ok: true };
   try {
     await appClient().credentials.update(id, plain);
     return { ok: true };
   } catch (error) {
     return failOf(error);
   }
+};
+
+/** Una credenziale nuova: la cifra il main per i destinatari (non vuole la cassaforte aperta). */
+export const createCredential: FakeVault["createCredential"] = async (projectId, input) => {
+  const b = window.stubwise?.vault;
+  if (!b) return { ok: false, code: "unsupported" };
+  const { password, ...fields } = input;
+  const out = await b.create(projectId, fields, password);
+  return out.ok ? { ok: true, id: out.id } : { ok: false, code: out.code };
 };
 
 export const deleteCredential: FakeVault["deleteCredential"] = async (id) => {

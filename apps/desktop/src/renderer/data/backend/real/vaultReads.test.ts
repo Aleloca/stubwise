@@ -323,21 +323,66 @@ describe("le letture della cassaforte, dalle rotte", () => {
   // Fetta 2d: i campi in chiaro e Delete, dalle rotte. La password nuova la
   // cifra il main (fetta 4): mai in chiaro su una rotta.
   describe("modifica e cancellazione", () => {
-    it("i campi in chiaro con PATCH (vuoto → null); la password non va mai sulla rotta", async () => {
+    it("i campi in chiaro con PATCH; la password nuova la cifra il main, PRIMA dei campi", async () => {
+      const order: string[] = [];
+      const setPassword = vi.fn(async () => {
+        order.push("password");
+        return { ok: true as const };
+      });
+      vi.stubGlobal("stubwise", { vault: { setPassword } });
       const { seen } = installFakeServer({
-        [`PATCH /api/credentials/${C1}`]: { body: item(C1, { label: "Pannello" }) },
+        [`PATCH /api/credentials/${C1}`]: () => {
+          order.push("patch");
+          return { body: item(C1, { label: "Pannello" }) };
+        },
       });
       expect(await vault.updateCredential(C1, { label: "Pannello", notes: null })).toEqual({
         ok: true,
       });
-      const patch = seen.find((r) => r.method === "PATCH")!;
-      expect(patch.body).toEqual({ label: "Pannello", notes: null });
-      seen.length = 0;
-      expect(await vault.updateCredential(C1, { password: "Nn1!segreta" })).toEqual({
-        ok: false,
-        code: "password_not_integrated",
+      expect(seen.find((r) => r.method === "PATCH")!.body).toEqual({
+        label: "Pannello",
+        notes: null,
       });
+      expect(setPassword).not.toHaveBeenCalled();
+      seen.length = 0;
+      expect(await vault.updateCredential(C1, { label: "X", password: "Nn1!segreta" })).toEqual({
+        ok: true,
+      });
+      expect(setPassword).toHaveBeenCalledWith(C1, "Nn1!segreta");
+      expect(order.slice(-2)).toEqual(["password", "patch"]);
+      // Sulla rotta la password non va mai.
       expect(JSON.stringify(seen)).not.toContain("Nn1!segreta");
+    });
+
+    it("la password nuova a cassaforte chiusa: `vault_locked`, e i campi non si toccano", async () => {
+      vi.stubGlobal("stubwise", {
+        vault: { setPassword: vi.fn(async () => ({ ok: false as const, code: "vault_locked" })) },
+      });
+      const { seen } = installFakeServer({ [`PATCH /api/credentials/${C1}`]: { body: item(C1) } });
+      expect(await vault.updateCredential(C1, { label: "X", password: "pw" })).toEqual({
+        ok: false,
+        code: "vault_locked",
+      });
+      expect(seen.some((r) => r.method === "PATCH")).toBe(false);
+    });
+
+    it("creare: dal main, che cifra; l'id è quello che dice il main", async () => {
+      const create = vi.fn(async () => ({ ok: true as const, id: C2 }));
+      vi.stubGlobal("stubwise", { vault: { create } });
+      const input = {
+        service: "Brevo SMTP",
+        label: null,
+        url: null,
+        username: "pm",
+        notes: null,
+        password: "Bb3!",
+      };
+      expect(await vault.createCredential(PROJECT_ID, input)).toEqual({ ok: true, id: C2 });
+      expect(create).toHaveBeenCalledWith(
+        PROJECT_ID,
+        { service: "Brevo SMTP", label: null, url: null, username: "pm", notes: null },
+        "Bb3!",
+      );
     });
 
     it("Delete con DELETE; un rifiuto del server resta un codice", async () => {
