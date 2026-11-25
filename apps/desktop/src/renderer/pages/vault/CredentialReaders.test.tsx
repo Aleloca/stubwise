@@ -101,6 +101,8 @@ describe("i lettori di una credenziale", () => {
     const p = await panel();
     await p.findByRole("list", { name: "Who reads it" });
     expect(p.queryByLabelText("Share with")).toBeNull();
+    // Quarta revisione, punto 3: «Remove» come Share, solo a chi legge.
+    expect(p.queryByRole("button", { name: "Remove" })).toBeNull();
     expect(
       p.getByText("You can share it once you read it yourself: ask someone who reads it."),
     ).toBeInTheDocument();
