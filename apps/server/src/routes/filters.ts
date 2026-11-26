@@ -93,7 +93,7 @@ export async function filterRoutes(fastify: FastifyInstance): Promise<void> {
   app.get(
     "/filters",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" } , mcp: { action: "filters.list", summary: "I filtri salvati che vedi (tuoi e condivisi).", effect: "read" }},
       schema: { response: { 200: z.array(savedFilterViewSchema), ...authErrorResponses } },
     },
     async (request) => {
@@ -110,7 +110,7 @@ export async function filterRoutes(fastify: FastifyInstance): Promise<void> {
   app.get(
     "/filters/:id",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" } , mcp: { action: "filters.get", summary: "Un filtro salvato.", effect: "read" }},
       schema: { params: idParams, response: { 200: savedFilterViewSchema, 404: errorSchema, ...authErrorResponses } },
     },
     async (request, reply) => {
@@ -123,7 +123,7 @@ export async function filterRoutes(fastify: FastifyInstance): Promise<void> {
   app.post(
     "/filters",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" } , mcp: { action: "filters.create", summary: "Salva un filtro delle task.", effect: "write" }},
       schema: { body: newFilterRequestSchema, response: { 201: savedFilterViewSchema, 400: errorSchema, ...authErrorResponses } },
     },
     async (request, reply) => {
@@ -143,7 +143,7 @@ export async function filterRoutes(fastify: FastifyInstance): Promise<void> {
   app.patch(
     "/filters/:id",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" } , mcp: { action: "filters.update", summary: "Modifica un filtro salvato.", effect: "write" }},
       schema: {
         params: idParams,
         body: filterPatchBodySchema,
@@ -176,7 +176,7 @@ export async function filterRoutes(fastify: FastifyInstance): Promise<void> {
   app.delete(
     "/filters/:id",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" } , mcp: { action: "filters.delete", summary: "Elimina un filtro salvato.", effect: "destructive" }},
       schema: { params: idParams, response: { 204: z.null(), 404: errorSchema, ...authErrorResponses } },
     },
     async (request, reply) => {
@@ -190,7 +190,7 @@ export async function filterRoutes(fastify: FastifyInstance): Promise<void> {
   app.get(
     "/me/pinned-filters",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" } , mcp: { action: "filters.pinned", summary: "I filtri che hai fissato nella barra laterale.", effect: "read" }},
       schema: { response: { 200: z.array(z.uuid()), ...authErrorResponses } },
     },
     async (request) => {
@@ -208,7 +208,7 @@ export async function filterRoutes(fastify: FastifyInstance): Promise<void> {
   app.put(
     "/me/pinned-filters/:id",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" } , mcp: { action: "filters.pin", summary: "Fissa un filtro nella barra laterale.", effect: "write" }},
       schema: { params: idParams, response: { 204: z.null(), 404: errorSchema, ...authErrorResponses } },
     },
     async (request, reply) => {
@@ -236,7 +236,7 @@ export async function filterRoutes(fastify: FastifyInstance): Promise<void> {
   app.delete(
     "/me/pinned-filters/:id",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" } , mcp: { action: "filters.unpin", summary: "Toglie un filtro dalla barra laterale.", effect: "destructive" }},
       schema: { params: idParams, response: { 204: z.null(), ...authErrorResponses } },
     },
     async (request, reply) => {

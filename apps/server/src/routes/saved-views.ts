@@ -84,7 +84,7 @@ export async function savedViewRoutes(instance: FastifyInstance): Promise<void> 
   app.post(
     "/",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" } , mcp: { action: "savedViews.create", summary: "Salva una vista del web.", effect: "write" }},
       schema: {
         body: createSavedViewBodySchema,
         response: { 201: savedViewSchema, 409: errorSchema, ...authErrorResponses },
@@ -112,7 +112,7 @@ export async function savedViewRoutes(instance: FastifyInstance): Promise<void> 
   app.get(
     "/",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" } , mcp: { action: "savedViews.list", summary: "Le viste salvate del web.", effect: "read" }},
       schema: { response: { 200: z.array(savedViewSchema), ...authErrorResponses } },
     },
     async (request) => {
@@ -134,7 +134,7 @@ export async function savedViewRoutes(instance: FastifyInstance): Promise<void> 
   app.patch(
     "/:id",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" } , mcp: { action: "savedViews.update", summary: "Modifica una vista salvata del web.", effect: "write" }},
       schema: {
         params: idParamsSchema,
         body: updateSavedViewBodySchema,
@@ -187,7 +187,7 @@ export async function savedViewRoutes(instance: FastifyInstance): Promise<void> 
   app.delete(
     "/:id",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" } , mcp: { action: "savedViews.delete", summary: "Elimina una vista salvata del web.", effect: "destructive" }},
       schema: {
         params: idParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
