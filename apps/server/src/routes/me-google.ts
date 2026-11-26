@@ -183,7 +183,7 @@ export async function meGoogleRoutes(
   app.get(
     "/workspaces",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, mcp: { action: "google.workspaces", summary: "I Workspace di Google fra cui scegliere per collegare una casella.", effect: "read" } },
       schema: { response: { 200: z.array(googleWorkspaceOptionSchema), ...authErrorResponses } },
     },
     async () => {
@@ -214,7 +214,7 @@ export async function meGoogleRoutes(
   app.post(
     "/connect",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, mcp: { action: "google.connect", summary: "Avvia il collegamento di una casella Google: risponde con l'indirizzo della pagina di consenso.", effect: "write", note: "Il consenso si dà su Google, in un browser: dai l'indirizzo all'utente e non aprirlo tu." } },
       schema: {
         body: googleConnectBodySchema,
         response: {
@@ -299,7 +299,7 @@ export async function meGoogleRoutes(
   app.get(
     "/accounts",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, mcp: { action: "google.accounts", summary: "Le tue caselle Google collegate (posta, calendario, Drive), con stato e permessi dati.", effect: "read" } },
       schema: { response: { 200: z.array(googleAccountSchema), ...authErrorResponses } },
     },
     async (request) => {
@@ -320,7 +320,7 @@ export async function meGoogleRoutes(
   app.patch(
     "/accounts/:id",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, mcp: { action: "google.setProposals", summary: "Accende o spegne le proposte dalla posta di una tua casella.", effect: "write" } },
       schema: {
         params: idParamsSchema,
         body: googleAccountPatchSchema,
@@ -382,7 +382,7 @@ export async function meGoogleRoutes(
   app.post(
     "/accounts/:id/sync",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, mcp: { action: "google.syncNow", summary: "«Aggiorna ora»: chiede di rileggere adesso posta e calendario di una tua casella.", effect: "write" } },
       schema: {
         params: idParamsSchema,
         response: {
@@ -459,7 +459,7 @@ export async function meGoogleRoutes(
   app.delete(
     "/accounts/:id",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, mcp: { action: "google.disconnect", summary: "Scollega una tua casella Google: revoca l'accesso e toglie da Stubwise la posta e gli eventi letti da quella casella.", effect: "destructive" } },
       schema: {
         params: idParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },

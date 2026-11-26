@@ -38,27 +38,30 @@ export async function releaseRoutes(instance: FastifyInstance): Promise<void> {
       throw error;
     }
   };
-  app.get("/projects/:projectId/releases", { config: { access: { kind: "user" } }, schema: { params: z.object({ projectId: z.uuid() }) } }, async (request, reply) =>
+  app.get("/projects/:projectId/releases", { config: { access: { kind: "user" }, mcp: { action: "releases.list", summary: "I rilasci di un progetto, con stato e PR comprese.", effect: "read" } }, schema: { params: z.object({ projectId: z.uuid() }) } }, async (request, reply) =>
     handle(reply, async () => ({ items: await listProjectReleases(app.db, request.user!, request.params.projectId) })),
   );
   // S5b: le PR aperte del progetto, a chi lo vede (la coda resta di `release.merge`).
-  app.get("/projects/:projectId/pulls", { config: { access: { kind: "user" } }, schema: { params: z.object({ projectId: z.uuid() }) } }, async (request, reply) =>
+  app.get("/projects/:projectId/pulls", { config: { access: { kind: "user" }, mcp: { action: "pulls.list", summary: "Le PR aperte di un progetto, con review, stato dei controlli e task collegata.", effect: "read" } }, schema: { params: z.object({ projectId: z.uuid() }) } }, async (request, reply) =>
     handle(reply, async () => ({ items: await listOpenPulls(app.db, app.encryptionKey, request.user!, request.params.projectId) })),
   );
   // Area 8, F1, S8: «Solo analisi» su una PR di un collega (`prs.adopt`, nel servizio).
   const pullParams = z.object({ repositoryId: z.uuid(), prNumber: z.coerce.number().int().positive() });
-  for (const [method, on] of [["post", true], ["delete", false]] as const) {
-    app[method]("/repositories/:repositoryId/pulls/:prNumber/analysis-only", { config: { access: { kind: "user" } }, schema: { params: pullParams } }, async (request, reply) =>
+  for (const [method, on, mcp] of [
+    ["post", true, { action: "pulls.setAnalysisOnly", summary: "Segna una PR di un collega come «solo analisi»: Stubwise la legge ma non la corregge (serve `prs.adopt`).", effect: "write" }],
+    ["delete", false, { action: "pulls.clearAnalysisOnly", summary: "Toglie il segno «solo analisi» da una PR.", effect: "destructive" }],
+  ] as const) {
+    app[method]("/repositories/:repositoryId/pulls/:prNumber/analysis-only", { config: { access: { kind: "user" }, mcp }, schema: { params: pullParams } }, async (request, reply) =>
       handle(reply, () => setPrAnalysisOnly(app.db, request.user!, { ...request.params, on })),
     );
   }
   // Area 8, F1, S9: le note di rilascio di una PR (leggere: chi vede; scrivere: `release.merge` o `tickets.edit`).
-  app.get("/repositories/:repositoryId/pulls/:prNumber/release-notes", { config: { access: { kind: "user" } }, schema: { params: pullParams } }, async (request, reply) =>
+  app.get("/repositories/:repositoryId/pulls/:prNumber/release-notes", { config: { access: { kind: "user" }, mcp: { action: "pulls.releaseNotes", summary: "Le note di rilascio di una PR.", effect: "read" } }, schema: { params: pullParams } }, async (request, reply) =>
     handle(reply, () => getPrReleaseNotes(app.db, app.encryptionKey, request.user!, request.params)),
   );
   app.put(
     "/repositories/:repositoryId/pulls/:prNumber/release-notes",
-    { config: { access: { kind: "user" } }, schema: { params: pullParams, body: z.object({ body: z.string().max(20_000) }) } },
+    { config: { access: { kind: "user" }, mcp: { action: "pulls.setReleaseNotes", summary: "Scrive le note di rilascio di una PR (serve `release.merge` o `tickets.edit`).", effect: "write" } }, schema: { params: pullParams, body: z.object({ body: z.string().max(20_000) }) } },
     async (request, reply) => handle(reply, () => putPrReleaseNotes(app.db, app.encryptionKey, request.user!, { ...request.params, body: request.body.body })),
   );
   const codeParams = z.object({ code: z.string().min(1).max(40) });
@@ -66,7 +69,7 @@ export async function releaseRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/releases/search",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, mcp: { action: "releases.search", summary: "Cerca un rilascio per codice o titolo nei progetti che vedi.", effect: "read" } },
       schema: {
         querystring: z.object({ q: z.string().max(200).default("") }),
         // Lo schema della risposta (review del lotto 5, M-9): la forma di `ReleaseSearchResult`.
@@ -82,13 +85,13 @@ export async function releaseRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request) => ({ items: await searchReleases(app.db, request.user!, request.query.q) }),
   );
-  app.get("/releases/:code", { config: { access: { kind: "user" } }, schema: { params: codeParams } }, async (request, reply) =>
+  app.get("/releases/:code", { config: { access: { kind: "user" }, mcp: { action: "releases.get", summary: "Il dettaglio di un rilascio dal suo codice: PR, ambienti, esito.", effect: "read" } }, schema: { params: codeParams } }, async (request, reply) =>
     handle(reply, () => getRelease(app.db, request.user!, request.params.code)),
   );
   // 201 per una task nuova, 200 per quella già aperta (`existing`); `start` fa partire Claude se si può.
   app.post(
     "/releases/:code/fix",
-    { config: { access: { kind: "user" } }, schema: { params: codeParams, body: z.object({ note: z.string().max(4000).optional(), start: z.boolean().optional() }).default({}) } },
+    { config: { access: { kind: "user" }, mcp: { action: "releases.fix", summary: "Apre (o riprende) la task per sistemare un rilascio andato male; con `start` fa partire Claude se si può.", effect: "write", note: "Con `start` fa partire Claude: spende budget." } }, schema: { params: codeParams, body: z.object({ note: z.string().max(4000).optional(), start: z.boolean().optional() }).default({}) } },
     async (request, reply) =>
       handle(reply, async () => {
         const out = await fixRelease(app.db, request.user!, request.params.code, request.body ?? {});
@@ -99,7 +102,7 @@ export async function releaseRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/release-queue",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, mcp: { action: "releases.queue", summary: "La coda di rilascio: le PR pronte da mergiare nei progetti in cui hai `release.merge`.", effect: "read", note: "Il merge si fa col tool `merge_pull_request`." } },
       schema: { response: { 200: releaseQueueSchema, ...authErrorResponses } },
     },
     async (request) => {

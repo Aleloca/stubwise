@@ -39,7 +39,7 @@ export async function correctionRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/tickets/:id/repositories/:repositoryId/corrections",
     {
-      config: { access: onTicket("corrections.request") },
+      config: { access: onTicket("corrections.request"), mcp: { action: "pulls.requestCorrection", summary: "Chiede una correzione di una PR aperta da Stubwise («Chiedi modifiche»), con le indicazioni; il lavoro parte da solo.", effect: "write", note: "Non si usa il tool `run_ticket` per correggere una PR: ripartirebbe dal branch di default. Il budget lo scavalca solo chi ha `plans.approve`." } },
       schema: {
         params: correctionParamsSchema,
         // nullish: una POST senza corpo arriva `null` (come /run-ai).
@@ -103,7 +103,7 @@ export async function correctionRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/tickets/:id/repositories/:repositoryId/adoption",
     {
-      config: { access: onTicket("prs.adopt") },
+      config: { access: onTicket("prs.adopt"), mcp: { action: "pulls.adopt", summary: "Adotta una PR aperta da altri, così Stubwise la può correggere (serve `prs.adopt`).", effect: "write" } },
       schema: {
         params: correctionParamsSchema,
         body: adoptPrBodySchema.nullish(),
@@ -177,7 +177,7 @@ export async function correctionRoutes(instance: FastifyInstance): Promise<void>
   app.delete(
     "/tickets/:id/repositories/:repositoryId/adoption",
     {
-      config: { access: onTicket("prs.adopt") },
+      config: { access: onTicket("prs.adopt"), mcp: { action: "pulls.releaseAdoption", summary: "Rilascia l'adozione di una PR: Stubwise smette di correggerla.", effect: "destructive" } },
       schema: {
         params: correctionParamsSchema,
         response: { 204: z.null(), 404: errorSchema, 409: errorSchema, ...authErrorResponses },

@@ -141,6 +141,25 @@ export interface TaskItem {
   requestId?: string | null;
 }
 
+/** Una persona di `GET /api/people` (i campi che usa `update_task`). */
+export interface PersonItem {
+  id: string;
+  name: string;
+  email: string;
+  isClaude?: boolean;
+  deactivated?: boolean;
+}
+
+/** Il corpo di `PATCH /api/tasks/:id` che manda `update_task`: solo i campi toccati. */
+export interface TaskPatchBody {
+  statusId?: string;
+  assigneeId?: string | null;
+  departmentId?: string;
+  size?: string | null;
+  priority?: string;
+  plannedWeek?: string | null;
+}
+
 export interface ProjectStatusItem {
   id: string;
   name: string;
@@ -542,6 +561,51 @@ const catalogDetailSchema = catalogActionSchema.extend({
 });
 export type CatalogActionDetail = z.infer<typeof catalogDetailSchema>;
 
+/**
+ * Il nome del file di un `Content-Disposition`: `filename*` (RFC 5987, UTF-8)
+ * prima di `filename`. Solo il nome: chi salva lo ripulisce comunque.
+ */
+export function filenameFromDisposition(header: string | null): string | null {
+  if (!header) return null;
+  const star = /filename\*\s*=\s*([^']*)'[^']*'([^;]+)/i.exec(header);
+  if (star) {
+    try {
+      return decodeURIComponent(star[2]!.trim().replace(/^"|"$/g, ""));
+    } catch {
+      // un nome codificato male: si prova col `filename` semplice
+    }
+  }
+  const plain = /filename\s*=\s*("([^"]*)"|[^;]+)/i.exec(header);
+  if (!plain) return null;
+  return (plain[2] ?? plain[1]!).trim() || null;
+}
+
+/** Il corpo di una risposta del catalogo: JSON se lo è, altrimenti il testo. */
+function parseActionBody(text: string): unknown {
+  if (!text) return undefined;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return text;
+  }
+}
+
+/** Un rifiuto del server col suo `code` e il messaggio; gli altri campi (`decidedBy` di un 409, `rule`) servono a dire perché. */
+function actionError(status: number, data: unknown): StubwiseApiError {
+  const body = data && typeof data === "object" ? (data as ApiErrorBody) : null;
+  const code = body?.code ?? "api_error";
+  const rest: Record<string, unknown> = { ...(body ?? {}) };
+  delete rest.code;
+  delete rest.message;
+  const json = Object.keys(rest).length > 0 ? JSON.stringify(rest) : "";
+  const extra =
+    json === ""
+      ? ""
+      : ` ${json.length > ERROR_EXTRA_MAX_CHARS ? `${json.slice(0, ERROR_EXTRA_MAX_CHARS)}[…]` : json}`;
+  // I campi del corpo restano anche in `details` (revisione del lotto 1, I5).
+  return new StubwiseApiError(`HTTP ${status} ${code}: ${body?.message ?? "errore del server"}${extra}`, status, code, rest);
+}
+
 /** I valori di una query di `callAction`: un array ripete la chiave. */
 export type ActionQuery = Record<
   string,
@@ -800,6 +864,76 @@ export class StubwiseClient {
     entry: Pick<CatalogAction, "method" | "path">,
     input: { params?: Record<string, string | number>; query?: ActionQuery; body?: unknown } = {},
   ): Promise<ActionResponse> {
+    const url = this.actionUrl(entry, input);
+    const headers = this.actionHeaders();
+    let payload: string | undefined;
+    if (input.body !== undefined) {
+      headers["content-type"] = "application/json";
+      payload = JSON.stringify(input.body);
+    }
+    const response = await this.fetchAction(url, { method: entry.method, headers, body: payload });
+    const data = parseActionBody(await response.text());
+    if (!response.ok) throw actionError(response.status, data);
+    return { status: response.status, data };
+  }
+
+  /**
+   * Lotto 2 (`upload_file`): manda UN file a una voce multipart del catalogo,
+   * nel campo `file`: le rotte multipart del server ne leggono uno solo, senza
+   * altri campi (`request.file({ fields: 0 })`). Il tipo lo dice chi chiama.
+   */
+  async uploadAction(
+    entry: Pick<CatalogAction, "method" | "path">,
+    input: { params?: Record<string, string | number>; query?: ActionQuery },
+    file: { data: Uint8Array<ArrayBuffer>; name: string; type: string },
+  ): Promise<ActionResponse> {
+    const url = this.actionUrl(entry, input);
+    const form = new FormData();
+    form.append("file", new Blob([file.data], { type: file.type }), file.name);
+    const response = await this.fetchAction(url, { method: entry.method, headers: this.actionHeaders(), body: form });
+    const data = parseActionBody(await response.text());
+    if (!response.ok) throw actionError(response.status, data);
+    return { status: response.status, data };
+  }
+
+  /**
+   * Lotto 2 (`download_file`): apre una voce binaria del catalogo e ne
+   * restituisce il CORPO come stream (chi salva lo conta e lo scrive mentre
+   * arriva), col tipo, la lunghezza dichiarata e il nome che dice il server
+   * (`Content-Disposition`). Un errore resta JSON, letto come per `callAction`.
+   */
+  async downloadAction(
+    entry: Pick<CatalogAction, "method" | "path">,
+    input: { params?: Record<string, string | number>; query?: ActionQuery },
+  ): Promise<{
+    status: number;
+    body: ReadableStream<Uint8Array> | null;
+    contentType: string | null;
+    contentLength: number | null;
+    filename: string | null;
+  }> {
+    const url = this.actionUrl(entry, input);
+    const response = await this.fetchAction(url, { method: entry.method, headers: this.actionHeaders() });
+    if (!response.ok) throw actionError(response.status, parseActionBody(await response.text()));
+    const length = Number(response.headers.get("content-length"));
+    return {
+      status: response.status,
+      body: response.body,
+      contentType: response.headers.get("content-type"),
+      contentLength: Number.isFinite(length) && response.headers.has("content-length") ? length : null,
+      filename: filenameFromDisposition(response.headers.get("content-disposition")),
+    };
+  }
+
+  /**
+   * L'URL di una voce del catalogo: i parametri del percorso (`:nome`) da
+   * `params`, più la query. Lo usano le tre chiamate (JSON, upload, download),
+   * così le difese del percorso valgono per tutte.
+   */
+  private actionUrl(
+    entry: Pick<CatalogAction, "method" | "path">,
+    input: { params?: Record<string, string | number>; query?: ActionQuery },
+  ): string {
     const missing: string[] = [];
     const dotted: string[] = [];
     const path = entry.path.replace(/:([A-Za-z0-9_]+)/g, (_m, name: string) => {
@@ -844,18 +978,19 @@ export class StubwiseClient {
         "invalid_params",
       );
     }
-    const headers: Record<string, string> = {
-      authorization: `Bearer ${this.token}`,
-      [CLIENT_HEADER]: CLIENT_NAME,
-    };
-    let payload: string | undefined;
-    if (input.body !== undefined) {
-      headers["content-type"] = "application/json";
-      payload = JSON.stringify(input.body);
-    }
+    return url;
+  }
+
+  /** Le intestazioni di una chiamata del catalogo: il token e il client («via Claude Code», D4). */
+  private actionHeaders(): Record<string, string> {
+    return { authorization: `Bearer ${this.token}`, [CLIENT_HEADER]: CLIENT_NAME };
+  }
+
+  /** La chiamata di una voce: un host irraggiungibile e un 401 hanno i loro errori. */
+  private async fetchAction(url: string, init: RequestInit): Promise<Response> {
     let response: Response;
     try {
-      response = await this.fetchFn(url, { method: entry.method, headers, body: payload });
+      response = await this.fetchFn(url, init);
     } catch (err) {
       throw new StubwiseApiError(
         `Impossibile raggiungere Stubwise a ${this.baseUrl} (${(err as Error).message})`,
@@ -864,35 +999,7 @@ export class StubwiseClient {
       );
     }
     if (response.status === 401) throw await this.toApiError(response);
-    const text = await response.text();
-    let data: unknown = undefined;
-    if (text) {
-      try {
-        data = JSON.parse(text) as unknown;
-      } catch {
-        data = text;
-      }
-    }
-    if (!response.ok) {
-      const body = data && typeof data === "object" ? (data as ApiErrorBody) : null;
-      const code = body?.code ?? "api_error";
-      // Gli altri campi dell'errore (`decidedBy` di un 409, `rule` di un rifiuto) servono a dire perché.
-      const rest: Record<string, unknown> = { ...(body ?? {}) };
-      delete rest.code;
-      delete rest.message;
-      const json = Object.keys(rest).length > 0 ? JSON.stringify(rest) : "";
-      const extra =
-        json === ""
-          ? ""
-          : ` ${json.length > ERROR_EXTRA_MAX_CHARS ? `${json.slice(0, ERROR_EXTRA_MAX_CHARS)}[…]` : json}`;
-      throw new StubwiseApiError(
-        `HTTP ${response.status} ${code}: ${body?.message ?? "errore del server"}${extra}`,
-        response.status,
-        code,
-        rest,
-      );
-    }
-    return { status: response.status, data };
+    return response;
   }
 
   // --- Profilo e Docs -----------------------------------------------------
@@ -1003,6 +1110,21 @@ export class StubwiseClient {
 
   async getTaskByCode(code: string): Promise<TaskItem> {
     return this.request<TaskItem>(`/api/tasks/by-code/${encodeURIComponent(code)}`);
+  }
+
+  /** Lotto 2 (`update_task`): le persone che il token vede, compreso l'utente di sistema «Claude». */
+  async listPeople(): Promise<PersonItem[]> {
+    return this.request<PersonItem[]>("/api/people");
+  }
+
+  /** Lotto 2 (`update_task`): `PATCH /api/tasks/:id`, solo i campi mandati. */
+  async patchTask(id: string, patch: TaskPatchBody): Promise<TaskItem> {
+    return this.request<TaskItem>(`/api/tasks/${encodeURIComponent(id)}`, { method: "PATCH", body: patch });
+  }
+
+  /** Lotto 2 (`update_task`): il giorno (1–5, lun–ven) della task nella sua settimana, per chi ce l'ha in carico. */
+  async setTaskDay(id: string, body: { week: string; day: number | null }): Promise<{ taskId: string; week: string; day: number | null }> {
+    return this.request(`/api/tasks/${encodeURIComponent(id)}/day`, { method: "PUT", body });
   }
 
   async getRequestByCode(code: string): Promise<RequestItem> {

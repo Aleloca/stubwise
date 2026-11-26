@@ -44,7 +44,7 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/follows",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, mcp: { action: "me.follows", summary: "I progetti che segui.", effect: "read" } },
       schema: { response: { 200: projectFollowsSchema, ...authErrorResponses } },
     },
     async (request) => {
@@ -75,7 +75,7 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
   app.put(
     "/follows",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, mcp: { action: "me.setFollows", summary: "Sostituisce l'insieme dei progetti che segui (manda l'elenco completo).", effect: "write" } },
       schema: {
         body: projectFollowsSchema,
         response: { 204: z.null(), 400: errorSchema, ...authErrorResponses },

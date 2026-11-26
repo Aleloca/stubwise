@@ -276,7 +276,7 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/unread-count",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, mcp: { action: "inbox.unreadCount", summary: "Il numero di notifiche non lette della tua inbox.", effect: "read" } },
       schema: {
         response: { 200: unreadCountSchema, ...authErrorResponses },
       },
@@ -291,7 +291,7 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/read",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, mcp: { action: "inbox.markRead", summary: "Segna una notifica come letta.", effect: "write" } },
       schema: {
         params: idParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
@@ -308,15 +308,15 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
   );
 
   // Area 9, F1 (design 1.8): «Restore», «Move to New», «segna non letta».
-  for (const [path, transition] of [
-    ["/:id/restore", "restore"],
-    ["/:id/move-to-new", "move_to_new"],
-    ["/:id/unread", "unread"],
+  for (const [path, transition, mcp] of [
+    ["/:id/restore", "restore", { action: "inbox.restore", summary: "Riporta nell'inbox una notifica archiviata.", effect: "write" }],
+    ["/:id/move-to-new", "move_to_new", { action: "inbox.moveToNew", summary: "Riporta una notifica fra le nuove.", effect: "write" }],
+    ["/:id/unread", "unread", { action: "inbox.markUnread", summary: "Segna una notifica come non letta.", effect: "write" }],
   ] as const) {
     app.post(
       path,
       {
-        config: { access: { kind: "user" } },
+        config: { access: { kind: "user" }, mcp },
         schema: {
           params: idParamsSchema,
           response: { 204: z.null(), 404: errorSchema, 409: errorSchema, ...authErrorResponses },
@@ -345,7 +345,7 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/snooze",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, mcp: { action: "inbox.snooze", summary: "Rinvia una notifica fino a un momento: sparisce e torna alla scadenza.", effect: "write" } },
       schema: {
         params: idParamsSchema,
         body: z.object({ until: snoozeUntilSchema }),
@@ -371,7 +371,7 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/handled",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, mcp: { action: "inbox.archive", summary: "Archivia una notifica (solo la tua copia).", effect: "write" } },
       schema: {
         params: idParamsSchema,
         response: { 204: z.null(), ...actionErrorResponses },

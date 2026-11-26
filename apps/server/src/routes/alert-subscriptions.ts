@@ -44,7 +44,7 @@ export async function alertSubscriptionRoutes(instance: FastifyInstance): Promis
     handle(reply, async () => ({ before: await muteProjectAlerts(app.db, request.user!, request.params.projectId) })),
   );
   // S6: «Non avvisarmi più di questo» dalla card.
-  app.post("/inbox/:id/mute-type", { config: { access: { kind: "user" } }, schema: { params: z.object({ id: z.uuid() }) } }, async (request, reply) =>
+  app.post("/inbox/:id/mute-type", { config: { access: { kind: "user" }, mcp: { action: "inbox.muteType", summary: "«Non avvisarmi più di questo»: spegne gli avvisi di quel tipo per quel progetto.", effect: "write" } }, schema: { params: z.object({ id: z.uuid() }) } }, async (request, reply) =>
     handle(reply, () => muteFromNotification(app.db, request.user!, request.params.id)),
   );
   app.put(

@@ -89,6 +89,8 @@ function makeClient() {
     deleteDesign: vi.fn(),
     setPlan: vi.fn(),
     deletePlan: vi.fn(),
+    listPeople: vi.fn(),
+    getMe: vi.fn(),
   };
 }
 
@@ -156,6 +158,34 @@ describe("create_ticket", () => {
     expect(client.createTicket).toHaveBeenCalledWith(
       expect.objectContaining({ type: "bug", priority: "urgent" }),
     );
+  });
+
+  it("revisione del lotto 2 (I5): assegnatario in parole ed etichette, come la rotta", async () => {
+    const client = makeClient();
+    client.getProjectBySlug.mockResolvedValue(fakeProject({ slug: "acme" }));
+    client.listPeople.mockResolvedValue([
+      { id: "u-marco", name: "Marco Rossi", email: "marco@acme.it" },
+      { id: "u-claude", name: "Claude", email: "claude@stubwise.local", isClaude: true },
+    ]);
+    client.createTicket.mockResolvedValue(fakeTicket({ type: "task", number: 8 }));
+    const { ctx } = makeCtx(client);
+    await tool("create_ticket").handler({ project: "acme", title: "Fattura", assignee: "MARCO@acme.it", labels: ["fatture", "q4"] }, ctx);
+    expect(client.createTicket).toHaveBeenCalledWith(expect.objectContaining({ assigneeId: "u-marco", labels: ["fatture", "q4"] }));
+    const res = await tool("create_ticket").handler({ project: "acme", title: "Fattura", assignee: "Claude" }, ctx);
+    expect(client.createTicket).toHaveBeenLastCalledWith(expect.objectContaining({ assigneeId: "u-claude" }));
+    expect(firstText(res)).toContain("avvia il lavoro");
+    expect(tool("create_ticket").description).toContain("runs.start");
+  });
+
+  it("un assegnatario che non si trova: errore, nessun ticket", async () => {
+    const client = makeClient();
+    client.getProjectBySlug.mockResolvedValue(fakeProject({ slug: "acme" }));
+    client.listPeople.mockResolvedValue([{ id: "u-marco", name: "Marco Rossi", email: "marco@acme.it" }]);
+    const { ctx } = makeCtx(client);
+    const res = await tool("create_ticket").handler({ project: "acme", title: "X", assignee: "giulia" }, ctx);
+    expect(res.isError).toBe(true);
+    expect(firstText(res)).toContain("nessuna persona «giulia»");
+    expect(client.createTicket).not.toHaveBeenCalled();
   });
 
   it("senza progetto risolvibile ritorna errore che chiede il progetto e non crea il ticket", async () => {

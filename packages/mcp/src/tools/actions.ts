@@ -75,7 +75,7 @@ function line(e: CatalogAction): string {
   return `- ${e.action} (${e.method} ${e.path}, ${e.effect}, ${e.access})${tool}: ${e.summary}`;
 }
 
-function capped(text: string): string {
+export function capped(text: string): string {
   if (text.length <= ACTION_OUTPUT_MAX_CHARS) return text;
   return (
     `${text.slice(0, ACTION_OUTPUT_MAX_CHARS)}\n\n` +
@@ -83,7 +83,7 @@ function capped(text: string): string {
   );
 }
 
-async function findEntry(
+export async function findEntry(
   ctx: Parameters<ToolDef["handler"]>[1],
   action: string,
 ): Promise<{ entry: CatalogAction } | { error: ToolResult }> {
@@ -101,11 +101,11 @@ async function findEntry(
   };
 }
 
-const paramsSchema = z
+export const paramsSchema = z
   .record(z.string(), z.union([z.string(), z.number()]))
   .optional()
   .describe('I parametri del percorso, per nome: per `/api/tasks/:ticketId` → { ticketId: "…" }.');
-const querySchema = z
+export const querySchema = z
   .record(
     z.string(),
     z.union([

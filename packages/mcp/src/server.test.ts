@@ -76,6 +76,9 @@ describe("buildServer", () => {
       "describe_action",
       "read_action",
       "write_action",
+      "upload_file",
+      "download_file",
+      "update_task",
     ]);
 
     spy.mockRestore();

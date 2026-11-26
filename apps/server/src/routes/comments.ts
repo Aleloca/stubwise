@@ -136,7 +136,7 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/",
     {
-      config: { access: onTicket("tickets.comment") },
+      config: { access: onTicket("tickets.comment"), mcp: { action: "comments.create", summary: "Scrive un commento su un ticket o una task.", effect: "write" } },
       schema: {
         params: ticketParamsSchema,
         body: createCommentBodySchema,
@@ -170,7 +170,7 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      config: { access: onTicket("member") },
+      config: { access: onTicket("member"), mcp: { action: "comments.list", summary: "I commenti di un ticket o di una task.", effect: "read" } },
       schema: {
         params: ticketParamsSchema,
         response: { 200: z.array(commentSchema), 404: errorSchema, ...authErrorResponses },
@@ -202,7 +202,7 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/:commentId",
     {
-      config: { access: onTicket("member") },
+      config: { access: onTicket("member"), mcp: { action: "comments.update", summary: "Modifica un tuo commento (solo l'autore, mai un commento dell'AI o di sistema).", effect: "write" } },
       schema: {
         params: commentParamsSchema,
         body: editCommentBodySchema,
@@ -251,7 +251,7 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/:commentId",
     {
-      config: { access: onTicket("member") },
+      config: { access: onTicket("member"), mcp: { action: "comments.delete", summary: "Elimina un commento: il tuo, o qualunque commento umano con `tickets.moderate`.", effect: "destructive", note: "Il testo sparisce dal database; resta nel registro decisioni se il commento era legato a una decisione." } },
       schema: {
         params: commentParamsSchema,
         response: {

@@ -133,7 +133,7 @@ export async function ticketAttachmentRoutes(instance: FastifyInstance): Promise
   app.post(
     "/",
     {
-      config: { access: onTicket("tickets.comment") },
+      config: { access: onTicket("tickets.comment"), mcp: { action: "attachments.upload", summary: "Allega un file locale a una task o a un ticket (un file per chiamata).", effect: "write", tool: "upload_file" } },
       schema: {
         params: ticketParamsSchema,
         // Body multipart: non descritto via Zod (consumeremo lo stream a mano).
@@ -249,7 +249,7 @@ export async function ticketAttachmentRoutes(instance: FastifyInstance): Promise
   app.get(
     "/",
     {
-      config: { access: onTicket("member") },
+      config: { access: onTicket("member"), mcp: { action: "attachments.list", summary: "Gli allegati di un ticket o di una task, con nome, dimensione e chi li ha caricati.", effect: "read" } },
       schema: {
         params: ticketParamsSchema,
         response: {
@@ -300,7 +300,7 @@ export async function attachmentRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/:attachmentId/download",
     {
-      config: { access: ON_ATTACHMENT },
+      config: { access: ON_ATTACHMENT, mcp: { action: "attachments.download", summary: "Scarica un allegato di una task e lo salva su disco.", effect: "read", tool: "download_file" } },
       schema: {
         params: attachmentParamsSchema,
         response: { 302: z.null(), 400: errorSchema, 404: errorSchema, ...authErrorResponses },
@@ -332,7 +332,7 @@ export async function attachmentRoutes(instance: FastifyInstance): Promise<void>
   app.delete(
     "/:attachmentId",
     {
-      config: { access: ON_ATTACHMENT },
+      config: { access: ON_ATTACHMENT, mcp: { action: "attachments.delete", summary: "Elimina un allegato di una task.", effect: "destructive" } },
       schema: {
         params: attachmentParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },

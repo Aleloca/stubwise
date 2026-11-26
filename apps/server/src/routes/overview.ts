@@ -31,7 +31,7 @@ export async function overviewRoutes(fastify: FastifyInstance): Promise<void> {
   app.get(
     "/projects/:projectId/chronology",
     {
-      config: { access: onProject("member") },
+      config: { access: onProject("member"), mcp: { action: "projects.chronology", summary: "La cronologia di un progetto (l'Overview): fatti recenti, a pagine.", effect: "read" } },
       schema: {
         params: z.object({ projectId: z.uuid() }),
         querystring: beforeQuery,
@@ -51,7 +51,7 @@ export async function overviewRoutes(fastify: FastifyInstance): Promise<void> {
   app.get(
     "/projects/:projectId/briefs/latest",
     {
-      config: { access: onProject("tickets.view_all") },
+      config: { access: onProject("tickets.view_all"), mcp: { action: "projects.latestBrief", summary: "L'ultimo brief settimanale pronto di un progetto (narrativa generata).", effect: "read" } },
       schema: {
         params: z.object({ projectId: z.uuid() }),
         response: { 200: weeklyBriefViewSchema.nullable(), 404: errorSchema, ...authErrorResponses },
@@ -63,7 +63,7 @@ export async function overviewRoutes(fastify: FastifyInstance): Promise<void> {
   app.get(
     "/activity/portfolio",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, mcp: { action: "activity.portfolio", summary: "L'attività recente nei progetti che vedi, a pagine.", effect: "read" } },
       schema: { querystring: beforeQuery, response: { 200: chronologyPageSchema, ...authErrorResponses } },
     },
     async (request) =>
