@@ -48,4 +48,17 @@ describe("extractOfficeInThread", () => {
     expect((await extractOfficeInThread(f, { timeoutMs: 20_000 })).kind).toBe("ok");
     expect(await extractOfficeInThread(f, { maxOldGenerationSizeMb: 8, timeoutMs: 20_000 })).toEqual({ kind: "limits" });
   }, 60_000);
+
+  it("l'estrazione oltre il tetto NON gira nel processo del worker: un OOM uccide solo lei", async () => {
+    // CI del 26 nov 2026 (PR #125): su Node 22 Linux (l'immagine del worker è
+    // `node:22-slim`) un worker_thread oltre `resourceLimits` dentro una
+    // replace globale abbatte l'INTERO processo («Reached heap limit»), non
+    // solo il thread. Il caso non dipende dalla piattaforma se l'estrazione
+    // sta in un processo a sé: lo si vede dal pid, non dall'esito.
+    const seen: number[] = [];
+    const f = await file(zipSync({ "word/document.xml": strToU8("<w:p><w:t>pid</w:t></w:p>") }));
+    expect(await extractOfficeInThread(f, { onStart: (pid) => seen.push(pid) })).toEqual({ kind: "ok", text: "pid" });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).not.toBe(process.pid);
+  }, 30_000);
 });
