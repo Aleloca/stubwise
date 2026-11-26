@@ -1031,7 +1031,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/questions/answer",
     {
-      config: { access: onTicket("member") },
+      config: { access: onTicket("member"), mcp: { action: "tickets.answerQuestion", summary: "Risponde alla domanda dell'agente sulla pianificazione di un ticket.", effect: "write", tool: "answer_agent_question" } },
       schema: {
         params: idParamsSchema,
         // `answerBodySchema` PIÙ la domanda mostrata: `extend` e non una
@@ -1677,7 +1677,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/approve-plan",
     {
-      config: { access: onTicket("plans.approve") },
+      config: { access: onTicket("plans.approve"), mcp: { action: "tickets.approvePlan", summary: "Approva il piano di un ticket in attesa di approvazione.", effect: "write", tool: "approve_plan" } },
       schema: {
         params: idParamsSchema,
         // Area 3: il digest del piano letto, facoltativo (senza, come prima).
@@ -1709,7 +1709,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/reject-plan",
     {
-      config: { access: onTicket("plans.approve") },
+      config: { access: onTicket("plans.approve"), mcp: { action: "tickets.rejectPlan", summary: "Rifiuta il piano di un ticket, con le indicazioni per rifarlo.", effect: "write", tool: "reject_plan" } },
       schema: {
         params: idParamsSchema,
         // nullish come run-ai: il client può non mandare corpo affatto.
@@ -1741,7 +1741,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/pre-approve-plan",
     {
-      config: { access: onTicket("plans.approve") },
+      config: { access: onTicket("plans.approve"), mcp: { action: "tickets.preApprovePlan", summary: "Pre-approva il piano salvato di un ticket.", effect: "write", tool: "pre_approve_plan" } },
       schema: {
         params: idParamsSchema,
         response: {
@@ -1779,7 +1779,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/:id/pre-approve-plan",
     {
-      config: { access: onTicket("plans.approve") },
+      config: { access: onTicket("plans.approve"), mcp: { action: "tickets.revokePlanPreApproval", summary: "Toglie la pre-approvazione del piano di un ticket.", effect: "destructive", tool: "revoke_plan_pre_approval" } },
       schema: {
         params: idParamsSchema,
         response: { 200: ticketDetailSchema, 404: errorSchema, ...authErrorResponses },

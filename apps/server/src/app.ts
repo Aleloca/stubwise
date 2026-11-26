@@ -51,7 +51,7 @@ import { meEmailChangeRoutes } from "./routes/me-email-change.js";
 import { accessRoutes } from "./routes/access.js";
 import { mcpRoutes } from "./routes/mcp.js";
 import { createRouteCollector } from "./mcp/catalog.js";
-import { registerViaClientStore, withViaClientTransactions } from "./mcp/via-client.js";
+import { outsideRequest, registerViaClientStore, withViaClientTransactions } from "./mcp/via-client.js";
 import { adminViewRoutes } from "./routes/admin-views.js";
 import { changeLogRoutes } from "./routes/change-log.js";
 import { outgoingWebhookRoutes } from "./routes/outgoing-webhooks.js";
@@ -546,7 +546,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   let productLive: ProductLiveHub | undefined;
   app.decorate("productLive", {
     getter(this: FastifyInstance): ProductLiveHub {
-      productLive ??= new ProductLiveHub(this.db, Date.now, this.log, opts.productLive ?? {});
+      // Fuori dalla richiesta che lo crea: il suo `setInterval` non deve portarne il segno («via Claude Code»).
+      productLive ??= outsideRequest(() => new ProductLiveHub(this.db, Date.now, this.log, opts.productLive ?? {}));
       return productLive;
     },
   });
@@ -624,11 +625,13 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // senza, esplode solo chi tocca la chat senza averli configurati).
   let realChatLlm: ChatLlm | undefined;
   const getRealChatLlm = (): ChatLlm => {
-    realChatLlm ??= createAnthropicChatLlm({
-      db: app.db,
-      encryptionKey: app.encryptionKey,
-      logger: app.log,
-    });
+    realChatLlm ??= outsideRequest(() =>
+      createAnthropicChatLlm({
+        db: app.db,
+        encryptionKey: app.encryptionKey,
+        logger: app.log,
+      }),
+    );
     return realChatLlm;
   };
   const chatLlm: ChatLlm = opts.chatLlm ?? {

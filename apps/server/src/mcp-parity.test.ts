@@ -89,6 +89,29 @@ const MULTIPART_ROUTES = [
   "POST /api/me/mail/drafts/:id/attachments",
 ];
 
+/**
+ * Le rotte delle DECISIONI e dell'inbox (lotto 1): passano solo dal loro tool
+ * curato, dove la descrizione dice cosa succede dopo e i rifiuti si leggono per
+ * quello che sono. Senza `tool`, `write_action` le chiamerebbe alla cieca.
+ */
+const CURATED_ROUTES: Record<string, string> = {
+  "GET /api/inbox": "list_inbox",
+  "POST /api/tickets/:id/approve-plan": "approve_plan",
+  "POST /api/tickets/:id/reject-plan": "reject_plan",
+  "POST /api/tickets/:id/pre-approve-plan": "pre_approve_plan",
+  "DELETE /api/tickets/:id/pre-approve-plan": "revoke_plan_pre_approval",
+  "POST /api/tickets/:id/questions/answer": "answer_agent_question",
+  "POST /api/decisions/:id/answer": "answer_decision_request",
+  "POST /api/decisions/:id/withdraw": "answer_decision_request",
+  "POST /api/inbox/:id/actions/:action": "decide_pulse_proposal",
+  "POST /api/me/mail/proposals/:id/confirm": "decide_mail_proposal",
+  "POST /api/me/mail/proposals/:id/ignore": "decide_mail_proposal",
+  "POST /api/me/mail/proposals/:id/hand": "decide_mail_proposal",
+  "POST /api/me/mail/proposals/:id/reassign": "decide_mail_proposal",
+  "POST /api/me/mail/proposals/:id/choose-project": "decide_mail_proposal",
+  "POST /api/tickets/:id/repositories/:repositoryId/release": "merge_pull_request",
+};
+
 describe("parità MCP: ogni rotta dichiara config.mcp", () => {
   it("ogni rotta è un'azione, un'esclusione dichiarata, un'esclusione del registro o in PENDING_MCP", async () => {
     const pending = new Set(PENDING_MCP);
@@ -184,6 +207,15 @@ describe("parità MCP: ogni rotta dichiara config.mcp", () => {
       if (!r) return true;
       const mcp = mcpOf(r);
       return isMcpAction(mcp) && mcp.tool === undefined;
+    });
+    expect(wrong).toEqual([]);
+  });
+
+  it("le rotte delle decisioni sono azioni col loro tool curato (elenco chiuso)", async () => {
+    const routes = new Map((await registered()).map((r) => [r.key, r]));
+    const wrong = Object.entries(CURATED_ROUTES).flatMap(([key, tool]) => {
+      const mcp = routes.get(key) ? mcpOf(routes.get(key)!) : undefined;
+      return isMcpAction(mcp) && mcp.tool === tool ? [] : [`${key} → ${tool}`];
     });
     expect(wrong).toEqual([]);
   });

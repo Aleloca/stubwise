@@ -63,7 +63,7 @@ export async function decisionRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/answer",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, mcp: { action: "decisions.answer", summary: "Risponde a una richiesta di decisione fatta a te su una task.", effect: "write", tool: "answer_decision_request" } },
       schema: {
         params: idParamsSchema,
         body: z.union([
@@ -79,7 +79,7 @@ export async function decisionRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/withdraw",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, mcp: { action: "decisions.withdraw", summary: "Ritira una richiesta di decisione che hai fatto tu.", effect: "write", tool: "answer_decision_request" } },
       schema: { params: idParamsSchema, response: closeResponses },
     },
     async (request, reply) => sendClose(reply, await withdrawDecision(app.db, request.user!, request.params.id)),

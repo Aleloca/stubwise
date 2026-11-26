@@ -487,8 +487,10 @@ describe("list_proposals", () => {
     expect(text).not.toContain("null");
     // L'id della notifica c'è: è l'ancora per ritrovarla in inbox.
     expect(text).toContain(NOTIFICATION_ID);
-    // E si dice dove si risponde davvero.
-    expect(text).toContain("Slack");
+    // E si dice come decidere da qui (lotto 1 della parità), con l'indice da 0.
+    expect(text).toContain("decide_pulse_proposal");
+    expect(text).toContain("numero − 1");
+    expect(text).not.toContain("non c'è un tool MCP");
   });
 
   it("rende comprensibile la lista vuota, senza segnalarla come errore", async () => {
@@ -556,6 +558,7 @@ describe("list_mail_proposals", () => {
         subject: "Rinviamo il rilascio?",
         receivedAt: "2026-09-07T08:14:00.000Z",
         signal: "decision",
+        sourceProposalId: "proposta-1",
       },
       projectId: PROJECT_ID,
       ticketId: null,
@@ -579,7 +582,10 @@ describe("list_mail_proposals", () => {
     expect(text).toContain("segnale: decision");
     expect(text).toContain("email");
     expect(text).toContain(MAIL_NOTIFICATION_ID);
-    expect(text).toContain("Slack");
+    // L'id della PROPOSTA (non della notifica) è quello che vuole decide_mail_proposal.
+    expect(text).toContain("proposta: proposta-1");
+    expect(text).toContain("decide_mail_proposal");
+    expect(text).not.toContain("non c'è un tool MCP");
   });
 
   it("distingue una proposta dal calendario", async () => {

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { changeLog, comments, decisionRequests, ticketEvents, users, VIA_CLIENT_SETTING } from "./schema.js";
+import { changeLog, comments, decisionRequests, projectDecisions, ticketEvents, users, VIA_CLIENT_SETTING } from "./schema.js";
 import { expectSqlState, seedTicket, startTestDb, type TestDb } from "./testing.js";
 
 /**
@@ -22,8 +22,8 @@ afterAll(async () => {
 const entry = () => ({ actorEmail: "a@example.com", actorKind: "user" as const, type: "project.renamed", subjectKind: "project", subjectId: randomUUID() });
 
 describe("migrazione 0237", () => {
-  it("le quattro colonne prendono la variabile di transazione; fuori, o azzerata, sono null", async () => {
-    const { ticketId } = await seedTicket(t.db, { number: 237 });
+  it("le cinque colonne prendono la variabile di transazione; fuori, o azzerata, sono null", async () => {
+    const { ticketId, projectId } = await seedTicket(t.db, { number: 237 });
     const [u] = await t.db.insert(users).values({ email: `v-${randomUUID().slice(0, 6)}@acme.com`, passwordHash: "x", role: "member" }).returning({ id: users.id });
     const write = () =>
       Promise.all([
@@ -31,6 +31,7 @@ describe("migrazione 0237", () => {
         t.db.insert(ticketEvents).values({ ticketId, actorId: u!.id, kind: "title_changed" }).returning({ v: ticketEvents.viaClient }),
         t.db.insert(decisionRequests).values({ ticketId, askedByUserId: u!.id, askedOfUserId: u!.id, question: "?" }).returning({ v: decisionRequests.viaClient }),
         t.db.insert(changeLog).values(entry()).returning({ v: changeLog.viaClient }),
+        t.db.insert(projectDecisions).values({ projectId, source: "manual", sourceKey: `manual:${randomUUID()}`, title: "t", decision: "d" }).returning({ v: projectDecisions.viaClient }),
       ]);
     const inside = await t.db.transaction(async (tx) => {
       await tx.execute(sql`select set_config(${VIA_CLIENT_SETTING}, 'claude_code', true)`);
@@ -39,10 +40,11 @@ describe("migrazione 0237", () => {
         tx.insert(ticketEvents).values({ ticketId, actorId: u!.id, kind: "title_changed" }).returning({ v: ticketEvents.viaClient }),
         tx.insert(decisionRequests).values({ ticketId, askedByUserId: u!.id, askedOfUserId: u!.id, question: "?" }).returning({ v: decisionRequests.viaClient }),
         tx.insert(changeLog).values(entry()).returning({ v: changeLog.viaClient }),
+        tx.insert(projectDecisions).values({ projectId, source: "manual", sourceKey: `manual:${randomUUID()}`, title: "t", decision: "d" }).returning({ v: projectDecisions.viaClient }),
       ]);
     });
-    expect(inside.map((r) => r[0]!.v)).toEqual(["claude_code", "claude_code", "claude_code", "claude_code"]);
-    expect((await write()).map((r) => r[0]!.v)).toEqual([null, null, null, null]);
+    expect(inside.map((r) => r[0]!.v)).toEqual(["claude_code", "claude_code", "claude_code", "claude_code", "claude_code"]);
+    expect((await write()).map((r) => r[0]!.v)).toEqual([null, null, null, null, null]);
     const cleared = await t.db.transaction(async (tx) => {
       await tx.execute(sql`select set_config(${VIA_CLIENT_SETTING}, '', true)`);
       return tx.insert(changeLog).values(entry()).returning({ v: changeLog.viaClient });

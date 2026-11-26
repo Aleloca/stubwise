@@ -61,6 +61,7 @@ function decision(overrides: Partial<ProjectDecision> = {}): ProjectDecision {
     decidedAt: "2026-09-06T10:00:00.000Z",
     supersededById: null,
     createdAt: "2026-09-06T10:00:00.000Z",
+    viaClaudeCode: false,
     ...overrides,
   };
 }

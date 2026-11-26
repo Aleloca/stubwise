@@ -218,7 +218,8 @@ export async function listChanges(db: Db, viewer: Viewer, filter: ChangeLogFilte
       // Area 9, F7 (0195): «By Claude». L'id dell'azione non esce.
       via: r.viaClaudeActionId !== null ? "claude" : null,
       // D4 della parità MCP (0237): «via Claude Code».
-      viaClaudeCode: r.viaClient === "claude_code",
+      // Solo la voce di una persona (una di sistema nella stessa transazione no).
+      viaClaudeCode: r.actorKind === "user" && r.viaClient === "claude_code",
       undoOf: undone.get(r.id)?.id ?? null,
     };
   };
