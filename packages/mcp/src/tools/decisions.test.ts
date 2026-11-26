@@ -87,6 +87,25 @@ describe("piani", () => {
     expect(text(r)).toContain("plan_changed");
     expect(text(r)).toContain("rileggi");
   });
+
+  it("i 409 si leggono per codice (revisione del lotto 1, I5)", async () => {
+    const fail = (code: string, details: Record<string, unknown> = {}) => vi.fn().mockRejectedValue(new StubwiseApiError(`HTTP 409 ${code}: x`, 409, code, details));
+    // Già deciso: rileggi.
+    expect(text(await tool("approve_plan").handler({ ticket_id: "t1" }, ctxWith(fail("already_handled"))))).toContain("L'ha già fatto qualcun altro");
+    // Non mergiabile: non ritentare.
+    for (const code of ["checks_failed", "checks_unreadable", "not_mergeable"]) {
+      const r = await tool("merge_pull_request").handler({ ticket_id: "t1", repository_id: "r1" }, ctxWith(fail(code)));
+      expect(text(r), code).toContain("non è mergiabile");
+      expect(text(r), code).toContain("non ritentare");
+      expect(text(r), code).not.toContain("L'ha già fatto qualcun altro");
+    }
+    // Il ticket c'è, il run no: lo dice col ticket.
+    const pulse = vi.fn().mockResolvedValueOnce({ status: 200, data: { items: [{ id: "n1", kind: "project.pulse" }] } }).mockRejectedValueOnce(new StubwiseApiError("HTTP 409 run_not_started: x", 409, "run_not_started", { ticketId: "t9", ticketNumber: 9 }));
+    const r = await tool("decide_pulse_proposal").handler({ notification_id: "n1", option_index: 0 }, ctxWith(pulse));
+    expect(text(r)).toContain("ticket #9 creato");
+    expect(text(r)).toContain("t9");
+    expect(text(r)).toContain("il run non è partito");
+  });
 });
 
 describe("risposte", () => {
@@ -106,6 +125,13 @@ describe("risposte", () => {
     }
   });
 
+  it("withdraw con un'opzione o un testo è un errore (M6)", async () => {
+    const callAction = vi.fn();
+    const r = await tool("answer_decision_request").handler({ decision_id: "d1", action: "withdraw", option_index: 0 }, ctxWith(callAction));
+    expect(r.isError).toBe(true);
+    expect(callAction).not.toHaveBeenCalled();
+  });
+
   it("answer_decision_request: rispondere col testo, e ritirare", async () => {
     const a = ok({ id: "d1" });
     await tool("answer_decision_request").handler({ decision_id: "d1", text: "Sì" }, ctxWith(a));
@@ -117,11 +143,29 @@ describe("risposte", () => {
 });
 
 describe("proposte", () => {
-  it("decide_pulse_proposal: `answer` sulla card, con l'indice", async () => {
-    const callAction = ok({ ok: true, ticketNumber: 42 });
+  it("decide_pulse_proposal: verifica che la card sia una proposta del polso aperta, poi `answer` con l'indice", async () => {
+    const callAction = vi.fn()
+      .mockResolvedValueOnce({ status: 200, data: { items: [{ id: "n1", kind: "project.pulse" }] } })
+      .mockResolvedValueOnce({ status: 200, data: { ok: true, ticketNumber: 42, runStatus: "awaiting_plan_approval" } });
     const r = await tool("decide_pulse_proposal").handler({ notification_id: "n1", option_index: 0 }, ctxWith(callAction));
-    expect(callAction).toHaveBeenCalledWith({ method: "POST", path: "/api/inbox/:id/actions/:action" }, { params: { id: "n1", action: "answer" }, body: { optionIndex: 0 } });
+    expect(callAction).toHaveBeenNthCalledWith(1, { method: "GET", path: "/api/inbox" }, { query: { status: "open", kind: "project.pulse", limit: 100 } });
+    expect(callAction).toHaveBeenNthCalledWith(2, { method: "POST", path: "/api/inbox/:id/actions/:action" }, { params: { id: "n1", action: "answer" }, body: { optionIndex: 0 } });
     expect(text(r)).toContain("ticket #42");
+    expect(text(r)).toContain("approvazione del piano");
+  });
+
+  it("decide_pulse_proposal su una card che non è del polso (una domanda dell'agente): niente `answer` (revisione del lotto 1, M1)", async () => {
+    const callAction = vi.fn().mockResolvedValueOnce({ status: 200, data: { items: [{ id: "altra", kind: "project.pulse" }] } });
+    const r = await tool("decide_pulse_proposal").handler({ notification_id: "n1", option_index: 0 }, ctxWith(callAction));
+    expect(r.isError).toBe(true);
+    expect(callAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("una conferma finita in `failed` riporta l'errore (M5)", async () => {
+    const callAction = ok({ status: "failed", error: "task_create_failed", results: [] });
+    const r = await tool("decide_mail_proposal").handler({ proposal_id: "m1", decision: "confirm" }, ctxWith(callAction));
+    expect(text(r)).toContain("failed");
+    expect(text(r)).toContain("task_create_failed");
   });
 
   it.each([
@@ -172,10 +216,31 @@ describe("list_inbox", () => {
       ],
     });
     const r = await tool("list_inbox").handler({ status: "open", kind: "job.awaiting_input" }, ctxWith(callAction));
-    expect(callAction).toHaveBeenCalledWith({ method: "GET", path: "/api/inbox" }, { query: { status: "open", kind: "job.awaiting_input", limit: undefined } });
+    expect(callAction).toHaveBeenCalledWith({ method: "GET", path: "/api/inbox" }, { query: { status: "open", kind: "job.awaiting_input", limit: undefined, cursor: undefined } });
     expect(text(r)).toBe(
       "Card (1):\n- [job.awaiting_input] L'agente chiede (card n1, task ACQ-1, ticket t1)\n  azioni: answer\n  domanda (q1): Quale?\n    0. A\n    1. B\n    (ammette testo libero)",
     );
+  });
+
+  it("gli id giusti per ogni tipo di card, e le opzioni della posta NON numerate (revisione del lotto 1, I1, I2, I3)", async () => {
+    const callAction = ok({
+      items: [
+        { id: "n1", kind: "google.proposal", status: "open", text: "Mail", actions: ["answer"], question: { questionId: "x", question: "?", options: [{ label: "Crea" }, { label: "Non fare nulla" }], allowFreeText: false }, google: { source: "email", sourceProposalId: "prop-1" }, createdAt: "" },
+        { id: "n2", kind: "google.proposal", status: "open", text: "Evento", actions: ["answer"], google: { source: "calendar", sourceProposalId: null, calendarEventId: "ev-1" }, createdAt: "" },
+        { id: "n3", kind: "google.proposal_handed", status: "open", text: "Passata", actions: [], google: { source: "email", sourceProposalId: "prop-3" }, createdAt: "" },
+        { id: "n4", kind: "decision.requested", status: "open", text: "Decidi", actions: [], decisionRequest: { decisionId: "d1", question: "Colore?", options: ["Rosso", "Blu"], open: true }, createdAt: "" },
+        { id: "n5", kind: "job.held", status: "open", text: "Ferma", actions: [], jobId: "j1", ticketId: "t1", createdAt: "" },
+      ],
+      nextCursor: "c2",
+    });
+    const out = text(await tool("list_inbox").handler({}, ctxWith(callAction)));
+    expect(out).toContain("proposta: prop-1 (decide_mail_proposal; le azioni con i loro indici: list_mail_proposals)");
+    expect(out).not.toContain("0. Crea");
+    expect(out).toContain("proposta: ev-1");
+    expect(out).toContain("proposta: prop-3");
+    expect(out).toContain("richiesta di decisione d1 (answer_decision_request): Colore?\n    0. Rosso\n    1. Blu");
+    expect(out).toContain("job j1");
+    expect(out).toContain('Ce ne sono altre: cursor "c2"');
   });
 
   it("nessuna card", async () => {

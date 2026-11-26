@@ -283,3 +283,25 @@ describe("notifiche ai follower", () => {
     expect((await notificationsOf(third.id, "ticket.activity")).filter((x) => x.ticketId === ticketId)).toHaveLength(0);
   });
 });
+
+describe("la card decision.requested porta la richiesta, derivata a lettura (revisione del lotto 1 della parità MCP, I2)", () => {
+  it("id, domanda, opzioni e se è aperta: dalla riga di adesso, per rispondere dall'MCP", async () => {
+    const ticketId = await task();
+    const asked = await post(`/api/tasks/${ticketId}/decisions`, { askedOfId: target.id, question: "Quale colore?", options: ["Rosso", "Blu"] });
+    expect(asked.statusCode, asked.body).toBe(201);
+    const decisionId = (asked.json() as { id: string }).id;
+    const card = async () => {
+      const res = await app.inject({ method: "GET", url: "/api/inbox?kind=decision.requested", headers: target.headers });
+      expect(res.statusCode, res.body).toBe(200);
+      return (res.json() as { items: Array<{ decisionRequest?: unknown }> }).items.find((i) => (i.decisionRequest as { decisionId?: string } | null)?.decisionId === decisionId);
+    };
+    expect((await card())?.decisionRequest).toEqual({ decisionId, question: "Quale colore?", options: ["Rosso", "Blu"], open: true });
+    const answered = await post(`/api/decisions/${decisionId}/answer`, { optionIndex: 1 }, target.headers.cookie);
+    expect(answered.statusCode, answered.body).toBe(200);
+    // La card può essere gestita dalla risposta: si legge anche fra le gestite.
+    const all = await app.inject({ method: "GET", url: "/api/inbox?kind=decision.requested&status=handled", headers: target.headers });
+    const open = await app.inject({ method: "GET", url: "/api/inbox?kind=decision.requested", headers: target.headers });
+    const items = [...(all.json() as { items: Array<{ decisionRequest?: { decisionId: string; open: boolean } | null }> }).items, ...(open.json() as { items: Array<{ decisionRequest?: { decisionId: string; open: boolean } | null }> }).items];
+    expect(items.find((i) => i.decisionRequest?.decisionId === decisionId)?.decisionRequest?.open).toBe(false);
+  });
+});

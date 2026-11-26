@@ -356,8 +356,10 @@ export async function patchDecision(
         ...(patch.context !== undefined ? { context: patch.context } : {}),
         ...(patch.consequences !== undefined ? { consequences: patch.consequences } : {}),
         ...(patch.supersededById !== undefined ? { supersededById: patch.supersededById } : {}),
-        // D4: una modifica da Claude Code segna la voce (un UPDATE non prende il DEFAULT).
-        ...(currentViaClient() ? { viaClient: currentViaClient() } : {}),
+        // D4: una modifica da Claude Code segna la voce (un UPDATE non prende il DEFAULT),
+        // ma SOLO se chi la fa è l'autore: «via Claude Code» sta accanto al suo nome, e
+        // la modifica di un altro non deve leggersi come sua (revisione del lotto 1, I4).
+        ...(currentViaClient() && current.decidedBy?.id === input.actor.id ? { viaClient: currentViaClient() } : {}),
       })
       .where(eq(projectDecisions.id, input.decisionId));
     return null;

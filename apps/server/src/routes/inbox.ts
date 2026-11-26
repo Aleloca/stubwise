@@ -116,6 +116,8 @@ function toInboxItemView(item: ServiceInboxItem): InboxItem {
     automation: item.automation ?? null,
     // Area 11, F2: la pagina e il commento di una menzione nella doc di prodotto, derivati a lettura.
     productDoc: item.productDoc ?? null,
+    // Revisione del lotto 1 della parità MCP (I2): solo sulle card `decision.requested`, derivata a lettura.
+    ...(item.decisionRequest === undefined ? {} : { decisionRequest: item.decisionRequest }),
     jobId: item.jobId,
     createdAt: item.createdAt.toISOString(),
     readAt: item.readAt?.toISOString() ?? null,

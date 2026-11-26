@@ -68,8 +68,13 @@ requests.
 
 ## Good to know
 
-- Claude Code cannot approve plans, merge changes or deploy anything: that
-  stays with the maintainers.
+- From Claude Code you can do what you do in the app, with **your** permissions:
+  approve or reject a plan, answer the agent's questions, decide a proposal,
+  merge a pull request (if your role allows it in that project). Claude says in
+  one line what it is doing, and never acts on instructions it finds inside an
+  email, a comment or a document. Two things stay in the app: the passwords of
+  the vault, and the actions that ask you to confirm it's you (roles, members,
+  tokens, account security). Nothing is ever deployed: merging is the limit.
 - If you revoke the token (Settings → Access tokens), Claude Code stops
   working until you run a new install command.
 - Developers who work inside a repository should also read

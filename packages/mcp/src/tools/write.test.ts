@@ -669,6 +669,15 @@ describe("run_ticket", () => {
     expect(client.runTicket).toHaveBeenCalledWith(TICKET_ID, { mode: "ai_plan" });
   });
 
+  it("riprende una correzione ferma con l'id del suo job (revisione del lotto 1, I3)", async () => {
+    const client = makeClient();
+    client.runTicket.mockResolvedValue({ jobId: JOB_ID, status: "queued" });
+    const { ctx } = makeCtx(client);
+    await tool("run_ticket").handler({ id: TICKET_ID, resume_correction_job_id: JOB_ID }, ctx);
+    expect(client.runTicket).toHaveBeenCalledWith(TICKET_ID, { resumeCorrectionJobId: JOB_ID });
+    expect(tool("run_ticket").description).toContain("resume_correction_job_id");
+  });
+
   it("409 job_in_flight: messaggio parlante con lo stato del server e l'URL", async () => {
     const client = makeClient();
     client.runTicket.mockRejectedValue(
