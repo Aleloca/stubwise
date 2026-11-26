@@ -2133,6 +2133,18 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   «fix(worker): elenco esplicito dei tool nativi per ogni run del CLI»,
   `docs/invariants/agent-sessions.md`, «I tool NATIVI di ogni run»). Si
   chiude con quel rilascio.
+- **Il ritorno del consenso Google non è legato alla sessione del browser**
+  *(M, parità MCP, revisione del lotto 3, 26 nov 2026)*: `POST
+  /api/me/google/connect` restituisce l'indirizzo della pagina di consenso,
+  e con l'MCP quell'indirizzo passa per una conversazione con un modello. Il
+  ritorno di Google (`/api/me/google/callback`) collega la casella a chi ha
+  AVVIATO il collegamento (lo `state`), non a chi ha il browser: un link
+  inoltrato, per sbaglio o perché un contenuto letto lo chiede, collegherebbe
+  la casella di un ALTRO all'account di chi l'ha avviato. Oggi la difesa è
+  la nota della voce `google.connect` («l'indirizzo è solo per l'utente:
+  non mandarlo né scriverlo a nessuno»). Il rimedio è legare lo `state` a un
+  cookie del browser che avvia il consenso (il web) o all'app desktop, e
+  rifiutare un ritorno che non lo porta.
 
 ## Chiuse
 
