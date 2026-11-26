@@ -498,6 +498,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Rimandi dell'integrazione (lotti 1–10)» (25 nov 2026, voce ombrello: migrazioni 0219–0236 in ordine, passi prima e dopo, discese non sicure con il loro SQL; le voci dei singoli lotti sono richiamate lì per titolo)
   - «Lotto 10: la cassaforte dal desktop, il sigillo del Mac» (24 nov 2026; solo con l'app firmata)
   - «L'utilizzo degli account dal rate_limit_event» (19 nov 2026)
+  - «Rilascio dell'integrazione: aree 2–11 e rimandi (lotti 1–10)» (26 nov 2026, voce consolidata: migrazioni 0107–0236, worker fermo prima del server, discese non sicure)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.

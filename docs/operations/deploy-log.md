@@ -3934,7 +3934,7 @@ deploy o di un rollback che la tocca.
   copre la lettura); un server vecchio, a un consenso nuovo, torna a chiedere
   i suoi scope di sola lettura.
 
-- **«Integrazione area 6, fetta 2: la classificazione nuova» (in corso, 12 nov
+- **«Integrazione area 6, fetta 2: la classificazione nuova» (12 nov
   2026)**: piano `docs/plans/2026-11-12-integrazione-area6-fetta2-plan.md`,
   branch `feat/area6-f2`. Migrazioni **0151** (classificazione per email e
   proposta condivisa, `email_proposal_recipients`) e **0152**
@@ -3950,6 +3950,11 @@ deploy o di un rollback che la tocca.
   Haiku a listino, ≈ 190 $ al mese con l'ipotesi di 800 email al giorno; una
   classificazione per Message-ID, il cooldown, il tetto giornaliero
   (`GMAIL_MAX_PER_DAY`) e il budget mensile la frenano.
+  ⚠️ **La misura resta da fare** prima di accendere `MAIL_CLASSIFY_V2`: la
+  funzione esce SPENTA col «Rilascio dell'integrazione: aree 2–11 e rimandi
+  (lotti 1–10)», che non la richiede. `cost.sql` era un file temporaneo di
+  una sessione passata e non è nel repository: le tre query vanno riscritte
+  quando si accende.
 
   **Accendere la classificazione nuova** (dopo questo rilascio, non con lui):
   1. la misura del costo scritta qui sopra, e il budget mensile d'istanza
@@ -6650,3 +6655,497 @@ deploy o di un rollback che la tocca.
   NON è innocuo come prima, quindi un rollback va tenuto breve. Gli snapshot scritti nel frattempo sono
   righe valide nel formato di sempre: niente da ripulire, nessuna migrazione
   da invertire.
+- **«Rilascio dell'integrazione: aree 2–11 e rimandi (lotti 1–10)»** *(26 nov
+  2026)*: la voce CONSOLIDATA per portare in produzione, in un colpo solo,
+  il ramo `feat/integrazione-rimandi` (aree 2–11 dell'integrazione e rimandi,
+  lotti 1–10). Non sostituisce le voci di fetta e di lotto: dice cosa fare e
+  in che ordine, e per ogni passo nomina fra parentesi la voce da cui viene,
+  dove sta il dettaglio. Comprende le voci-ombrello «Integrazione area 10:
+  l'area intera», «Integrazione area 11: l'area intera» e «Rimandi
+  dell'integrazione (lotti 1–10)». I passi senza una voce sono segnati
+  *(nessuna voce)*.
+
+  **Punto di partenza.** In produzione gira `8feede7a1`, il branch della PR
+  #124 («L'utilizzo degli account dal rate_limit_event»): niente aree 2–11,
+  niente `/app`, migrazioni fino alla **0106**. Il ramo contiene `origin/main`,
+  PR #124 compresa: il rilascio non tocca l'utilizzo degli account dal
+  `rate_limit_event`, che resta com'è in produzione.
+
+  **Le migrazioni: dalla 0107 alla 0236** (128 file; la 0157 e la 0171 non
+  esistono, rinumerate prima del rilascio in 0161 e 0172). Girano TUTTE in UN
+  batch, in una sola transazione, al primo avvio del server nuovo. Gli `ADD
+  VALUE` d'enum stanno ognuno in uno statement a sé e il batch non li usa
+  (0110, 0115, 0136, 0138, 0152, 0169, 0170, 0174, 0175, 0177, 0179, 0181,
+  0182, 0200, 0203, 0235). Il `when` della 0236 è `1804809600000`.
+  - Per area: 0107–0122 (area 2), 0123–0134 (area 3 e chat con Claude),
+    0135–0141 (area 4), 0142–0148 (area 5), 0149–0168 (area 6), 0169–0174
+    (area 7), 0175–0184 (area 8), 0185–0196 (area 9), 0197–0201 (area 10),
+    0202–0218 (area 11), 0219–0236 (rimandi).
+  - ⚠️ **Migrazioni che rendono NON sicura una discesa d'immagine**, con la
+    voce che dice cosa ripulire (l'elenco operativo per la discesa verso
+    `8feede7a1` sta più sotto, in «Rollback»):
+    - **0110, 0115, 0136, 0138, 0169, 0175, 0177, 0179, 0181, 0200, 0203**:
+      `notification_kind` nuovi, 500 su `/api/inbox` finché ne esistono righe
+      («Integrazione area 2, fetta 1», «fetta 2», «area 4, fetta 1», «fetta
+      2», «area 7, fetta 1», «area 8, fetta 1», «fetta 2», «fetta 3», «fetta
+      4b», «area 10, F5», «area 11, F2»);
+    - **0115**: `ticket_event_kind` nuovi, 500 sull'attività del ticket nel
+      web vecchio («area 2, fetta 2»);
+    - **0112**: i PAT `desktop` («area 2, fetta 1»);
+    - **0114, 0133, 0135, 0143, 0169, 0174, 0179, 0180**: permessi nuovi nei
+      preset, che un server vecchio rifiuta salvando un ruolo, e
+      `monitor.view` tolto al preset `User` («area 2, fetta 2», «Chat con
+      Claude, fetta 5», «area 4, fetta 1», «area 5, fetta 2», «area 7, fetta
+      1», «fetta 4», «area 8, fetta 3», «fetta 4a»);
+    - **0125**: l'utente di sistema Claude («Claude assegnabile»);
+    - **0126, 0140**: le sessioni `free` e `chat_mention`, che un server
+      vecchio renderebbe VISIBILI («Chat con Claude, fette 1 e 2», «area 4,
+      fetta 3»);
+    - **0130**: l'eliminazione vera delle task, irreversibile senza backup
+      («Elimina task»);
+    - **0131, 0198, 0199, 0201**: tipi d'evento delle sessioni, 500 sulla
+      pagina degli eventi («Chat con Claude, fetta 3», «area 10, F2», «F3»,
+      «F7»);
+    - **0132, 0185, 0236**: tipi nuovi del registro di sicurezza, 500 sulla
+      pagina di chi ha quelle righe («Riconferma dal desktop», «area 9, F1»,
+      «Lotto 10: la cassaforte dal desktop»);
+    - **0141, 0169, 0210**: TRIGGER che continuano a scrivere sotto un codice
+      vecchio («area 4, fetta 4», «area 7, fetta 1», «area 11, F5»);
+    - **0142**: le citazioni delle note di rilascio tolte dal backfill, che
+      non tornano («area 5, fetta 1»);
+    - **0152, 0169, 0182**: `ticket_source` nuovi (`email`, `automation`,
+      `server`) («area 6, fetta 2», «area 7, fetta 1», «area 8, fetta 4b»);
+    - **0161, 0165**: il worker vecchio proporrebbe le occorrenze personali e
+      classificherebbe le email di Gemini («area 6, fetta 3b», «fetta 5a»);
+    - **0167**: i riferimenti Google del Drive, con `storage_key` nulla
+      («area 6, fetta 5b»);
+    - **0175**: le PR dei colleghi collegate dal sistema, lette come adottate
+      («area 8, fetta 1»);
+    - **0185**: i disattivati rientrano con la password, i permessi personali
+      si perdono («area 9, F1»);
+    - **0188**: i webhook multipli e le consegne con `webhook_id` («area 9,
+      F3»);
+    - **0193**: un repository staccato manda in 500 `GET /api/repositories`
+      («area 9, F6»);
+    - **0196**: i permessi dai reparti si perdono («area 9, F8»);
+    - **0228**: con l'interruttore spento gli allegati si riaccendono («Lotto
+      6»);
+    - **0230**: la compattazione è irreversibile («Lotto 8: la conservazione
+      delle esecuzioni»);
+    - **0234, 0235**: le proposte del calendario condivise e la «Quale
+      progetto?» senza progetto (le due voci del calendario del «Lotto 9»).
+    Molte discese «NON sicure» dei lotti (0227, i passi della 0234) valgono
+    per una discesa intermedia, non verso `8feede7a1`, che quelle funzioni
+    non le ha.
+
+  **Env nuove o cambiate, contate dalla produzione** (tutte nel compose,
+  nessuna obbligatoria: con tutte assenti il rilascio parte e valgono i
+  default):
+  - **server**:
+    - `VAULT_DESKTOP` (default `false`): spenta, l'associazione di un Mac e
+      le rotte aperte al Mac rispondono 404 `vault_desktop_disabled`, quelle
+      del browser restano. **In questo rilascio RESTA SPENTA** («Lotto 10: la
+      cassaforte dal desktop», «Rimandi dell'integrazione»);
+    - `MAIL_CLASSIFY_V2` (default `false`, la stessa del worker): spenta,
+      l'ammissione e le regole della posta di sempre. Resta spenta («area 6,
+      fetta 2»);
+    - `PRODUCT_EMBED_POLL_SECONDS` (default 30, almeno 5; sostituzione con
+      `-`: la stringa VUOTA spegne il poller, e la ricerca della doc di
+      prodotto resta per testo) («area 11, F3»);
+    - `SMTP_URL` e `MAIL_FROM` (facoltative, vuote di default): senza, il
+      cambio dell'email di login dalle Preferenze dice «non disponibile» e
+      resta quello fatto da un admin («area 9, F1»);
+    - `AUTOMATION_WEBHOOK_MAX_PER_MINUTE` (default 600) e
+      `AUTOMATION_WEBHOOK_MAX_PER_DAY` (default 50 000): il tetto d'istanza
+      del webhook in arrivo, che nessuna scelta per automazione supera
+      («area 7, fetta 4»).
+  - **worker**:
+    - `CHAT_SERVER_URL` (default `http://server:${PORT}`), `CHAT_MAX_CONCURRENT`
+      (2), `CHAT_TURN_TIMEOUT_MS` (300000, anche la vita del token del turno),
+      `CHAT_MAX_TURNS` (15). Con l'URL sbagliato il ponte dei tool non parte:
+      la chat resta muta e i messaggi restano in coda («Chat con Claude,
+      fette 1 e 2»);
+    - `MAIL_CLASSIFY_V2` (default `false`): vedi sopra («area 6, fetta 2»);
+    - `DRIVE_CONTENT_POLL_SECONDS` (default 10, 0 = spento: niente contenuto
+      dei file né sincronizzazione delle cartelle Google) («area 5, fetta 3»,
+      «area 6, fetta 5b»);
+    - `AUTOMATIONS_POLL_SECONDS` (default 5, 0 = spento: gli eventi restano in
+      coda e le esecuzioni ferme, nessuna perdita) («area 7, fetta 1»);
+    - `RELEASE_POLL_SECONDS` (default 60, 0 = spento: i rilasci nascono dal
+      merge, ma senza run di CI) («area 8, fetta 1»).
+  - **worker, immagine**: `ARG CLAUDE_CODE_VERSION` da 2.1.287 a **2.1.322**,
+    che si rilascia solo insieme alla correzione dei tool nativi (`--tools`)
+    («CLI claude 2.1.322»); `ARG` nuovi per poppler, tesseract (ita+eng) e
+    libheif, +108,8 MB d'immagine («area 5, fetta 3»).
+  - **caddy**: nessuna env. `Dockerfile.caddy` costruisce anche il renderer
+    in `/srv/app` (con `ELECTRON_SKIP_BINARY_DOWNLOAD=1` dentro l'immagine) e
+    ci lancia `check-no-seed`; il Caddyfile serve `/app` (308 su `/app/`)
+    prima del fallback della SPA («area 2, fetta 1»).
+
+  **PRIMA del deploy, in quest'ordine**:
+  1. **La prova del `rate_limit_event` sul CLI 2.1.322**, chiesta dal
+     maintainer: i golden della PR #124 erano passati col 2.1.287, e ora il
+     worker ha il 2.1.322. Il golden `plan-only` fallisce se il run non
+     produce nessun `rate_limit_event` (il riepilogo stampa «rate_limit_event:
+     N»). Esito: **da riportare** («L'utilizzo degli account dal
+     rate_limit_event», «CLI claude 2.1.322»).
+  2. **Golden col CLI 2.1.322**: per questo rilascio il maintainer ha
+     chiesto la prova del punto 1 (decisione del 26 nov 2026). Degli
+     scenari che le voci chiedono, elencati qui sotto, la maggior parte ha
+     l'esito sul 2.1.322 scritto nella voce della fetta. ⚠️ Quattro gruppi
+     invece le voci li dicono «da lanciare al rilascio» senza riportarne un
+     esito: `chat-automation-read`, `chat-mail-hostile`, i `product-doc-*`
+     (email, vague, contradicts, hostile) e `product-doc-first-version` con i
+     quattro della chat sulla doc. Se lanciarli prima del deploy lo decide il
+     maintainer.
+     Elenco:
+     plan-only, execute, correction, stop-pause, ask-user e no-ask (5
+     volte), intervene, intervene-plan, refine, refine-read, cancel (3),
+     refine-read-bash, `golden:nightly`, i `chat-*`, `chat-mention-*`,
+     `chat-drive-*`, i `chat-*-read`/`-hostile` dell'area 10, i
+     `product-doc-*` e i `chat-product-*` («CLI claude 2.1.322», «Annulla il
+     lavoro», «Chat con Claude, fetta 3», «area 4, fetta 3», «area 5, fetta
+     3», «area 10, F1», «area 11, F5», «F6»). `mail-classify-v2` e
+     `automation-step` servono prima di ACCENDERE le loro funzioni, non per il
+     deploy («area 6, fetta 2», «area 7, fetta 3»).
+  3. **Backup del DB** (`pg_dump`), obbligatorio: la 0130 abilita
+     eliminazioni definitive, la 0142 toglie citazioni, la 0188 scarta
+     `notify_google_proposal` («area 2, fetta 1», «Elimina task», «area 5,
+     fetta 1», «area 9, F3»).
+  4. **Il proprietario del database è l'utente dell'app**, in sola lettura:
+     la 0137 crea `pg_trgm` (estensione *trusted*) senza superuser, ma solo
+     se l'utente ha il permesso `CREATE` sul database; se non ce l'ha, fallisce
+     tutto il batch e il server non parte («area 4, fetta 2»). Con le
+     credenziali di `DATABASE_URL`:
+     ```sql
+     select current_user,
+            pg_get_userbyid(d.datdba) as proprietario,
+            pg_get_userbyid(d.datdba) = current_user as utente_app_proprietario,
+            has_database_privilege(current_user, current_database(), 'CREATE') as puo_creare,
+            (select count(*) from pg_available_extensions where name = 'pg_trgm') as pg_trgm_disponibile
+       from pg_database d
+      where d.datname = current_database();
+     ```
+     Atteso: `utente_app_proprietario`, `puo_creare` veri e
+     `pg_trgm_disponibile` = 1.
+  5. **Controlli in sola lettura sul DB di produzione**:
+     - ⚠️ **una sola produzione per progetto**, o la 0175 si ferma e il
+       server NON parte: `select project_id, count(*) from
+       project_environments where kind = 'production' group by 1 having
+       count(*) > 1;` deve essere vuota, altrimenti le altre diventano
+       `staging` («area 8, fetta 1»);
+     - i server collegati SOLO dal web (`server_projects`, nessun ambiente):
+       la query della voce. Dopo il deploy li vede solo chi ha
+       `monitor.view`/`monitor.manage` («area 8, fetta 4a»);
+     - il webhook d'istanza con le proposte della posta accese: `select
+       webhook_url is not null as configured, enabled, notify_google_proposal
+       from notification_settings;`. Se `configured` e
+       `notify_google_proposal` sono veri, avvisare chi ci contava: dopo il
+       deploy non le riceve più («area 9, F3»);
+     - i ruoli con `settings.manage` senza `integrations.manage`, che non
+       vedranno più la pagina Notifiche: `select name from roles where
+       permissions @> array['settings.manage'] and not permissions @>
+       array['integrations.manage'];` («area 9, F3»);
+     - quanto pesa la chat nel budget mensile: la query di stima della voce e
+       `select monthly_budget_usd from instance_settings;`. Se la somma
+       supera il budget, alzarlo prima o accettare che il lavoro si fermi
+       («area 6, fetta 3»). Da questo rilascio, inoltre, a budget finito chi
+       non ha `plans.approve` riceve SUBITO 409 `budget_exhausted` («Rimandi,
+       lotto 4: il budget mensile finito»);
+     - le caselle Google: `select count(*) from google_accounts where
+       disabled_at is null and not ('https://www.googleapis.com/auth/gmail.modify'
+       = any(scopes));` (da ricollegare), `select count(*) from
+       google_accounts where not proposals_enabled and disabled_at is null;`
+       (da ora si LEGGONO), `select account_id, count(*) from calendar_events
+       group by 1;` e `select count(*) from calendar_series where auto;` (la
+       linea di base del calendario) («area 6, fetta 1», «fetta 3b»).
+     Due controlli «prima» dell'ombrello dei rimandi NON si fanno qui, perché
+     nominano tabelle che in produzione nascono con questo rilascio: il
+     conteggio della compattazione (`automation_runs`, 0169: non esiste
+     un'esecuzione più vecchia di 90 giorni, e il primo giro non toglie
+     niente) e l'«ultima prova» dei webhook (`outgoing_webhooks`, 0188: tutti
+     partono senza prova). La query del modulo Docs spento si lancia DOPO il
+     server (sotto) («Rimandi dell'integrazione», «Lotto 8: la conservazione
+     delle esecuzioni», «Rimandi, lotto 5: l'ultima prova dei webhook»).
+  6. **Google Cloud Console** (app OAuth **External**): aggiungere alla
+     schermata di consenso gli scope `gmail.modify`, `calendar.events` e
+     `drive.readonly`, e farli passare dalla **verifica di Google**. Senza,
+     nessuno riesce a collegare o ricollegare una casella. Un'app
+     **Internal** non ne ha bisogno («area 6, fetta 1», «fetta 4», «fetta
+     5b»). Gli alias di Gmail non chiedono scope nuovi («Lotto 8: rispondere
+     da un alias di Gmail»).
+  7. **Avvisi da mandare prima**:
+     - il webhook d'istanza parte SENZA firma (sotto, «Dopo») («area 9, F3»);
+     - la chiave d'ingestione non si vede più dai membri: la vede chi crea il
+       progetto o chi la rigenera («area 9, F5»);
+     - un progetto si elimina solo da archiviato e solo da un full admin
+       («area 9, F6»);
+     - i `monitor.*` di un server con un solo progetto smettono di andare su
+       Slack («area 8, fetta 2»).
+  8. **Worker a riposo**, su più campioni a qualche minuto di distanza, tutti
+     vuoti o a 0. Oltre al riavvio, la 0142 fa un `CREATE TRIGGER` su
+     `doc_pages` che aspetta ogni transazione aperta che ci scrive («area 5,
+     fetta 1», «L'utilizzo degli account dal rate_limit_event», «Worker
+     fail-on-restart» in `CLAUDE.md`):
+     - `select id from doc_generations where status in ('running','paused');`
+     - nessun job `triaging`/`fixing` e nessun job di backlog attivo;
+     - `select count(*) from agent_sessions where cardinality(live_segment_ids) > 0 and heartbeat_at > now() - interval '90 seconds';`
+     - `select count(*) from activity_reports where status = 'running';`
+     - `select count(*) from nightly_items where status = 'pending' and claimed_at > now() - interval '60 minutes';`
+     Se il giro notturno è in corso si aspetta che finisca, o si fa il
+     deploy di giorno.
+
+  **ORDINE dei servizi** (decisione del maintainer: il worker si ferma PRIMA
+  del server, così non lavora contro le tabelle bloccate dal batch né contro
+  lo schema nuovo con un codice vecchio):
+  1. **Controlli d'inattività** (il punto 8 qui sopra).
+  2. **Immagini costruite**, senza avviarle: `docker compose build server
+     worker caddy`.
+  3. **`docker compose stop worker`.**
+  4. **`server`**: `docker compose up -d server`. Applica 0107–0236 in un
+     batch. Aspettare `docker inspect -f '{{.State.Health.Status}}'
+     stubwise-server-1` = `healthy` e le migrazioni applicate: `select
+     count(*), max(created_at) from drizzle.__drizzle_migrations;` = 235
+     righe e `1804809600000`. Worker e renderer nominano colonne nuove: non si
+     va avanti prima («Rimandi dell'integrazione», «area 10: l'area intera»,
+     «area 11: l'area intera»).
+  5. **Il modulo Docs spento**: ora che le tabelle esistono, la query della
+     voce (i progetti senza `docs` con dati dei Docs o del Product). Se
+     torna righe, accendere il modulo su quei progetti o avvisare il
+     maintainer: col server nuovo i loro dati non si vedono più («Rimandi: il
+     modulo Docs spento chiude le rotte»).
+  6. **`worker`**: `docker compose up -d worker`. Col worker fermo dal passo 3
+     non ci sono invii, analisi, correzioni di server né lavori della doc in
+     volo («area 6, fetta 3», «area 8, fetta 4b», «area 11, F5»).
+  7. **`caddy`**: `docker compose up -d caddy` (web, `/guide`, `/widget.js`
+     col token d'identità, il renderer in `/app` con `vault-pair` e
+     `desktop-google`) («area 8, fetta 3», «l'API per i siti», «Rimandi
+     dell'integrazione»).
+  - `graphify` e `push-relay` NON cambiano: nessun rebuild (il pin
+    `graphifyy` è invariato) («Rimandi dell'integrazione»).
+  - L'immagine dell'**agente di monitoraggio** la ripubblica la CI al merge
+    (`packages/agent` cambia); gli host NON si aggiornano da soli, e non serve
+    farlo, salvo volere le operazioni su un host («area 8, fetta 4b»).
+  - **Nessuna app per Mac** in questo rilascio (sotto, «Cosa NON si fa»).
+
+  **DOPO il deploy, verifiche**:
+  - **Servizi e bundle**:
+    - `/health` dall'interno (non passa da caddy): `docker compose exec
+      server node -e
+      "fetch('http://127.0.0.1:3000/health').then(r=>r.text()).then(console.log)"`
+      → `{"status":"ok"}` *(nessuna voce)*;
+    - `docker exec stubwise-caddy-1 sh -c 'ls /srv/app/index.html'` e `curl
+      -sI https://<istanza>/app` → 308 verso `/app/` («area 2, fetta 1»);
+    - `docker exec stubwise-caddy-1 sh -c 'grep -rl "day-arrangements"
+      /srv/app'` («area 2, fetta 2») e lo stesso con `desktop-google` per
+      l'ultimo lotto *(nessuna voce)*;
+    - `docker compose exec worker claude --version` = `2.1.322` («CLI claude
+      2.1.322»);
+    - nel log del worker: `chat max 2` (non «disabilitata (ponte non
+      avviato)»), nessun «annullamenti: LISTEN fallito», nessuna riga
+      `[chat]` con un token («Chat con Claude, fette 1 e 2», «Annulla il
+      lavoro»);
+    - **i tempi dell'estrazione sul VPS**: `docker compose run --rm
+      --entrypoint node worker dist/drive/extract/selfcheck.js` esce **0**
+      (sei casi col testo atteso); i tempi che stampa si scrivono nella voce
+      «Integrazione area 5, fetta 3», accanto a quelli misurati su Apple
+      Silicon («area 5, fetta 3»).
+  - **Dati delle migrazioni** (le query sono nelle voci):
+    - area 2: `tickets.status_id` mai null, un codice per progetto, 5 stati
+      per progetto, il reparto «General», i cinque valori d'enum della 0115,
+      `planning.others` nel preset `project_lead`, 5 filtri d'esempio, una
+      Home per reparto, il trigger e l'indice della 0119/0120, i numeri delle
+      richieste senza doppioni («area 2», fette 1–4);
+    - `select email, is_agent, role from users where is_agent;` = una riga
+      («Claude assegnabile»); `deleted_tickets` = 0 («Elimina task»);
+      `claude_proposals` = 0 («Chat con Claude, fetta 3»);
+    - `drive.upload` vero per Project Lead, Developer, Contributor, Legacy
+      Member e falso per `viewer` («area 5, fetta 2»).
+  - **Nelle prime ore** (sola lettura):
+    - gli embedding delle pagine manuali arrivano a 0 mancanti entro un'ora,
+      con ollama su («area 5, fetta 1»);
+    - il contenuto del Drive scende verso `ready`/`no_text`/`unsupported`,
+      senza `failed` che crescono, con un riassunto Haiku per file in
+      Consumi («area 5, fetta 3»);
+    - la linea di base del calendario: `proposal_candidate` dell'ordine di
+      prima, nessuna ondata di `google.proposal` nell'ultima ora, la
+      dimensione di `calendar_events` che si stabilizza («area 6, fetta 3b»);
+    - `mail_outgoing` senza `failed` che crescono, `sent_unrecorded`,
+      `claude_actions.effect_failure` («area 6, fetta 3»);
+    - `automation_events` non consumati che restano pochi («area 7, fetta
+      1»); `select colleague_prs, count(*) from repositories group by 1;`
+      tutti `analyze_only` («area 8, fetta 1»);
+    - il giudizio del supporto (`support_triage_check`) e quello dei clienti
+      in attesa (`mail_reply_judgment`): un picco di run Haiku nelle prime ore,
+      poi solo i messaggi nuovi («area 8, fetta 3», «Clienti in attesa»);
+    - le analisi dei server partono accese di default all'apertura di un
+      episodio (10 min, 1 $): spegnerle o stringerle in Impostazioni se non
+      servono; `instance_signing_keys` vive ≤ 1 («area 8, fetta 4b»);
+    - `worker_heartbeats` che si aggiornano («area 9, F4»);
+    - gli alias di Gmail entro un giorno per casella («Lotto 8: rispondere da
+      un alias di Gmail»);
+    - le proposte del calendario condivise valgono per gli appuntamenti
+      pubblicati da ora («Lotto 9: le proposte del calendario condivise»).
+  - **Plugin MCP**: i changeset del ramo (`mcp-get-by-code-prefix`,
+    `mcp-task-vocabulary`, `support-mcp-conversation`) escono al merge su
+    `main` con la CI verde. Dopo Release, `npm view @stubwise/mcp version`
+    dice la versione nuova, e su `main` c'è il commit di versione («area 8,
+    fetta 3», «Rimandi dell'integrazione», «Rilascio senza PR di
+    versioning»).
+
+  **DOPO il deploy, passi manuali**:
+  - **Il segreto del webhook in uscita**: il webhook di oggi diventa il primo
+    dei webhook, SENZA segreto, e gli invii partono non firmati. Rigenerarlo
+    (Impostazioni → Webhook, con la riconferma) e dare il segreto, che si vede
+    una volta sola, ai destinatari JSON che verificano la firma («area 9,
+    F3»).
+  - **Il segreto del webhook git** non si legge più: chi ha configurato a
+    mano un webhook su un provider lo rigenera solo se gli serve, e allora lo
+    incolla subito sul provider, o il webhook si rompe («area 9, F5»).
+  - **I ruoli personalizzati con `monitor.view` senza `monitor.manage`**
+    vedono ancora ogni server: la query della voce; la decisione è
+    dell'admin («area 8, fetta 4a»).
+  - **Le caselle Google**: a chi manca `gmail.modify`, `calendar.events` o
+    `drive.readonly` le ricollega dal cassetto Google (stessa riga). Fino ad
+    allora letto/non letto, scritture del calendario e Drive rispondono 409
+    `google_scope_missing` («area 6, fetta 1», «fetta 4», «fetta 5b»).
+  - **La prova sui Drive condivisi** *(nessuna voce: il comportamento viene
+    dalla review della F5b, commit `100e636f7`, `corpora=allDrives` in
+    `packages/google/src/drive.ts`)*: collegare dal Drive di un progetto una
+    cartella che sta in un Drive CONDIVISO di Google, e controllare che i suoi
+    file compaiano e che il contenuto arrivi a `ready`.
+  - **Prova a mano del maintainer su `/app`**: login completo, secondo
+    fattore e configurazione al primo accesso («area 2, fetta 1»); le prove
+    di fetta dell'area 2 (pianificazione, Home, filtri, richieste, nuovo
+    progetto), della chat con Claude (`/app/#/claude`), della Chat
+    (`/app/#/chat`, `@Nome`, un DM invisibile al full admin) e del webhook in
+    arrivo (202, 422) («area 2», fette 2–4, «Chat con Claude, fetta 3», «area
+    4, fetta 1», «fetta 2», «area 7, fetta 4»).
+  - **Il login del desktop**: vale solo per chi ha un dmg locale. Il token
+    del desktop è ora legato all'istanza dello scambio, quindi una sessione
+    salvata prima non vale più e si rifà il login una volta *(nessuna voce:
+    commit `2802fc7f0`)*.
+  - **L'app mobile**: il fix del reader (`d33e0569`) arriva solo con una
+    build nuova, a mano; il server non c'entra («area 2, fetta 3»).
+
+  **Cosa NON si fa in questo rilascio**:
+  - **Nessuna app per Mac** (decisione del maintainer): si rilascia solo
+    `/app`. Il dmg resta una build locale del maintainer (`package:mac`, non
+    firmata) e si distribuisce quando c'è la firma Apple (Developer ID,
+    `STUBWISE_TEAM_ID` al build), che accende anche la cassaforte dal desktop
+    («Rimandi dell'integrazione»).
+  - **`VAULT_DESKTOP` resta spenta.** Si accende (`VAULT_DESKTOP=true` in
+    `/opt/stubwise/.env`, poi `docker compose up -d server`) solo quando
+    l'app distribuita è il build FIRMATO; spegnerla è il rollback della
+    funzione («Lotto 10: la cassaforte dal desktop», «Rimandi
+    dell'integrazione»).
+  - **`MAIL_CLASSIFY_V2` resta spenta**, e con lei la misura del costo
+    (`cost.sql` non serve al deploy): si accende dopo la misura, col budget
+    impostato di conseguenza e il golden `mail-classify-v2`, con `docker
+    compose up -d server worker` («area 6, fetta 2»). Restano spente anche le
+    riunioni registrate e la «Quale progetto?» del calendario, che la vogliono
+    accesa («area 6, fetta 5a», «Lotto 9: il progetto di un appuntamento con
+    più candidati»).
+  - **La vecchia ammissione della posta NON si toglie** (le rotte
+    `email-routes`, `email-labels`, `mail-admission`, colonne e tabelle): si
+    toglie quando la classificazione nuova è accesa e stabile (registro dei
+    rimandi, «F2, dopo che la classificazione nuova è accesa e stabile»).
+  - Nessuna automazione con un passo di Claude si accende finché il golden
+    `automation-step` non è verde («area 7, fetta 3»).
+  - Nessun aggiornamento dell'agente sugli host, nessuna build mobile.
+
+  **Rollback dell'intero rilascio** (verso `8feede7a1`). Le migrazioni non si
+  annullano: un ritorno pieno è solo il backup. Il caddy scende SEMPRE
+  insieme al server, il worker con loro. L'ordine è: worker fermo coi suoi
+  passi, poi server e caddy coi loro («Rimandi dell'integrazione»). Il worker
+  vecchio torna al CLI 2.1.287 («CLI claude 2.1.322»).
+  **Prima di scendere, a worker fermo**:
+  - le **card dei 24 `notification_kind` nuovi** (500 su `/api/inbox`):
+    `delete from notifications where kind in ('decision.requested',
+    'decision.answered', 'ticket.activity', 'planning.changed',
+    'task.assigned', 'chat.mention', 'chat.question', 'automation.approval',
+    'automation.failed', 'automation.notify', 'automation.paused',
+    'release.failed', 'release.merged', 'release.succeeded', 'pr.opened',
+    'pr.analysis_issues', 'pr.corrected', 'docs.release_note',
+    'support.request', 'server.diagnosis_ready', 'member.added',
+    'product_doc.mention', 'product_doc.updated', 'product_doc.question');`
+    (le consegne cadono in cascata) (le voci delle migrazioni 0110–0203);
+  - gli eventi nuovi del feed: `delete from ticket_events where kind in
+    ('planned_week_changed', 'department_changed', 'effort_changed');`
+    («area 2, fetta 2»);
+  - i PAT del desktop: `delete from personal_access_tokens where kind =
+    'desktop';` («area 2, fetta 1»);
+  - le sessioni private che un server vecchio renderebbe visibili (va detto
+    agli utenti, le loro conversazioni spariscono): `delete from
+    agent_sessions where kind in ('free', 'chat_mention');` («Chat con
+    Claude, fette 1 e 2», «area 4, fetta 3»);
+  - i tipi d'evento delle sessioni rimasti: `delete from agent_session_events
+    where type in ('proposal', 'actions_executed', 'question', 'aside',
+    'capabilities');` («Chat con Claude, fetta 3», «area 10: l'area
+    intera»);
+  - il registro di sicurezza: `delete from security_events where kind in
+    ('reauth_desktop', 'deactivated', 'reactivated', 'email_changed',
+    'slack_linked', 'bitbucket_linked', 'vault_device_sealed',
+    'vault_device_seal_revoked');`, o si accetta il 500 sulla pagina di chi
+    le ha («Riconferma dal desktop», «area 9, F1», «Lotto 10»);
+  - le sorgenti nuove delle task: verso `8feede7a1` lo schema di risposta
+    delle task è a enum chiuso, quindi tutte e tre tornano a `manual`:
+    `update tickets set source = 'manual' where source in ('email',
+    'automation', 'server');` («area 6, fetta 2», «area 7, fetta 1», «area 8,
+    fetta 4b»);
+  - i permessi nuovi nei ruoli, che un server vecchio rifiuta salvando (400):
+    `update roles set permissions = array(select p from unnest(permissions) p
+    where p not like 'chat.%' and p not like 'drive.%' and p not in
+    ('planning.others', 'claude.public.view', 'automations.manage',
+    'automations.general.manage', 'support.manage', 'servers.operate',
+    'servers.ssh.manage', 'changelog.view', 'instance.status.view'));`, e il
+    ritorno di `monitor.view` al preset `User` con l'`update` della voce
+    («area 2, fetta 2», «Chat con Claude, fetta 5», «area 4, fetta 1», «area
+    7, fetta 4», «area 8, fetta 4a»). ⚠️ L'elenco è ricostruito dalle voci e
+    dalle migrazioni (0114, 0133, 0135, 0143, 0169, 0174, 0179, 0181, 0187,
+    0191) e non è stato provato: prima di lanciarlo, confrontarlo col
+    catalogo dei permessi di `8feede7a1`;
+  - l'utente Claude: lasciare `password_hash = '!agent-no-login'` e avvisare
+    gli admin di non reimpostarla, oppure togliere le assegnazioni ed
+    eliminare la riga («Claude assegnabile»);
+  - nessun repository staccato (500 su `GET /api/repositories`): `select id,
+    name from repositories where project_id is null;` vuota. Gli archiviati
+    riappaiono aperti («area 9, F6»);
+  - i riferimenti Google del Drive: `update drive_files set deleted_at =
+    coalesce(deleted_at, now()), storage_purged = true where source =
+    'google';` («area 6, fetta 5b»);
+  - i trigger: `drop trigger` dei cinque della 0141 (Chat) e `disable
+    trigger` dei cinque delle automazioni (0169), con gli statement delle
+    voci; la coda della doc: `update product_doc_jobs set status = 'held',
+    held_reason = 'paused' where status = 'queued';` («area 4, fetta 4»,
+    «area 7, fetta 1», «area 11, F5»);
+  - la posta: nessun `mail_outgoing` `queued`; le automazioni con casella in
+    pausa e le loro email annullate; le email di Gemini chiuse (`kind =
+    'transcript'`); `update email_messages set status = 'ignored' where
+    status = 'new' and account_id in (select id from google_accounts where
+    not proposals_enabled);` («area 6, fetta 1», «fetta 3», «fetta 5a»,
+    «area 7, fetta 2»);
+  - il calendario: `delete from calendar_events where proposal_candidate =
+    false;` (e azzerare `calendar_baseline_at` e `calendar_sync_token` delle
+    caselle), più i passi della 0234 e della 0235 («area 6, fetta 3b», le due
+    voci del calendario del «Lotto 9»);
+  - le PR dei colleghi collegate dal sistema: l'`update` di
+    `ticket_repositories` della voce («area 8, fetta 1»);
+  - le consegne con `webhook_id`: `update notification_deliveries set status
+    = 'skipped', error = 'rollback area 9 F3' where status = 'pending' and
+    webhook_id is not null;` («area 9, F3»);
+  - le pause delle code tolte; i disattivati con la password cambiata (o si
+    accetta che rientrino); i progetti gestiti solo via reparto con un
+    gestore dato a mano (le query delle voci) («area 9, F1», «F4», «F8»);
+  - con l'interruttore degli allegati spento: togliere la configurazione S3,
+    o gli allegati tornano accesi («Lotto 6»).
+  Restano persi comunque: le task eliminate, le citazioni delle note di
+  rilascio, il registro delle modifiche per il tempo del rollback (un buco da
+  annotare), le esecuzioni compattate («Elimina task», «area 5, fetta 1»,
+  «area 9, F2», «Lotto 8»).
+
+  **Ancora aperto al momento della voce**:
+  - l'esito della prova del `rate_limit_event` sul CLI 2.1.322 (passo 1 di
+    «PRIMA»): da riportare qui;
+  - i tempi dell'estrazione sul VPS: da scrivere nella voce dell'area 5,
+    fetta 3 dopo il deploy.
