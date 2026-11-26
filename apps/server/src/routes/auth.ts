@@ -686,7 +686,7 @@ export async function authRoutes(
   app.get(
     "/invites",
     {
-      config: { mcp: { action: "auth.invites", summary: "Gli inviti emessi, col loro stato.", effect: "read" }, access: { kind: "instance", permission: "users.invite" } },
+      config: { mcp: { action: "auth.invites", summary: "Gli inviti emessi, col loro stato.", effect: "read", note: "Il token di ogni invito è nascosto (un link d'invito vale un account): per revocarne uno usa admin.revokeInvite, per id; l'elenco con gli id è admin.invites." }, access: { kind: "instance", permission: "users.invite" } },
       schema: {
         response: {
           200: z.array(
@@ -730,7 +730,7 @@ export async function authRoutes(
   app.delete(
     "/invites/:token",
     {
-      config: { mcp: { action: "auth.revokeInvite", summary: "Revoca un invito, dal suo token.", effect: "destructive", note: "Cambia cosa possono fare altre persone: dillo all'utente nella riga che annuncia l'azione." }, access: { kind: "instance", permission: "users.invite" } },
+      config: { mcp: { action: "auth.revokeInvite", summary: "Revoca un invito, dal suo token.", effect: "destructive", note: "Vuole il token, che l'MCP nasconde: usa admin.revokeInvite (per id, da admin.invites). Revocare cambia cosa possono fare altre persone." }, access: { kind: "instance", permission: "users.invite" } },
       schema: {
         params: z.object({ token: z.string().min(1) }),
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },

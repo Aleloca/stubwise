@@ -17,6 +17,7 @@ import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
+import { requireReauth } from "../auth/access.js";
 import { canViewServer } from "../auth/monitor-access.js";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
@@ -134,7 +135,7 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
   app.post(
     "/:id/checks",
     {
-      config: { mcp: { action: "servers.createCheck", summary: "Aggiunge un controllo di servizio a un server.", effect: "write" }, access: { kind: "instance", permission: "monitor.manage" } },
+      config: { mcp: { action: "servers.createCheck", summary: "Aggiunge un controllo di servizio a un server.", effect: "write", note: "Il DSN di un controllo postgres o mysql contiene la password: un DSN nuovo chiede la riconferma, e da qui risponde session_required (si scrive dall'app). Gli altri tipi passano." }, access: { kind: "instance", permission: "monitor.manage" }, partialReauth: true },
       schema: {
         params: idParamsSchema,
         body: createCheckSchema,
@@ -147,6 +148,10 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
         return apiError(reply, 404, "server_not_found", "Server not found");
       }
       const { type, name, target, intervalSeconds, enabled } = request.body;
+      // Un DSN porta la password del database: come ogni segreto nuovo chiede la
+      // riconferma (revisione del lotto 6 della parità MCP, I1). Col PAT,
+      // `session_required`; dal browser, il secondo fattore recente.
+      if (isDbCheckType(type) && !(await requireReauth(request, reply))) return reply;
       // Check DB: il DSN (arrivato in `target`) va cifrato in dsn_encrypted e la
       // colonna target resta vuota. Altri tipi: target in chiaro, nessun DSN.
       const db = isDbCheckType(type);
@@ -196,7 +201,7 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
   app.put(
     "/:id/checks/:checkId",
     {
-      config: { mcp: { action: "servers.updateCheck", summary: "Modifica un controllo di servizio.", effect: "write" }, access: { kind: "instance", permission: "monitor.manage" } },
+      config: { mcp: { action: "servers.updateCheck", summary: "Modifica un controllo di servizio.", effect: "write", note: "Il DSN di un controllo postgres o mysql contiene la password: un DSN nuovo chiede la riconferma, e da qui risponde session_required (si scrive dall'app). Gli altri tipi passano." }, access: { kind: "instance", permission: "monitor.manage" }, partialReauth: true },
       schema: {
         params: checkParamsSchema,
         body: updateCheckSchema,
@@ -220,6 +225,8 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
           "Changing the check type requires a new `target`",
         );
       }
+      // Un DSN NUOVO (anche per un controllo che diventa DB) chiede la riconferma (I1).
+      if (target !== undefined && isDbCheckType(type ?? existing.type) && !(await requireReauth(request, reply))) return reply;
       const updates: Partial<typeof serviceChecks.$inferInsert> = {};
       if (type !== undefined) updates.type = type;
       if (name !== undefined) updates.name = name;

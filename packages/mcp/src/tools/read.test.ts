@@ -593,6 +593,19 @@ describe("list_mail_proposals", () => {
     expect(text).toContain("si può: passare, spostare");
   });
 
+  it("una proposta che chiede il PROGETTO mostra i candidati e dice choose_project (revisione del lotto 6, M4)", async () => {
+    const client = {
+      ...makeClient(),
+      callAction: vi.fn().mockResolvedValue({
+        status: 200,
+        data: { items: [view({ id: "prop-c", actions: [{ type: "choose_project", args: { projectIds: ["p-a", "p-b"] }, label: "" }], canConfirm: false })] },
+      }),
+    };
+    const text = firstText(await tool("list_mail_proposals").handler({}, makeCtx(client as never).ctx));
+    expect(text).toContain("scegli il progetto (choose_project con project_id): p-a, p-b");
+    expect(text).not.toContain("0. choose_project");
+  });
+
   it("rende comprensibile la lista vuota, senza segnalarla come errore", async () => {
     const client = { ...makeClient(), callAction: vi.fn().mockResolvedValue({ status: 200, data: { items: [] } }) };
     const res = await tool("list_mail_proposals").handler({}, makeCtx(client as never).ctx);

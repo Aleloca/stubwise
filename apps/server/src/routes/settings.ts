@@ -302,7 +302,7 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
   app.get(
     "/notifications",
     {
-      config: { mcp: { action: "settings.notifications", summary: "Il webhook in uscita storico delle notifiche, senza segreti.", effect: "read" }, access: { kind: "instance", permission: "integrations.manage" } },
+      config: { mcp: { action: "settings.notifications", summary: "Il webhook in uscita storico delle notifiche: formato, stato, quali notifiche manda (l'URL nascosto).", effect: "read", note: "Gli URL dei webhook sono credenziali al portatore (Slack, Discord): l'MCP li nasconde, si vedono dall'app." }, access: { kind: "instance", permission: "integrations.manage" } },
       schema: {
         response: { 200: notificationSettingsResponseSchema, ...authErrorResponses },
       },

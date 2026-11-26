@@ -23,9 +23,33 @@ export const REDACTED_FIELDS: ReadonlySet<string> = new Set([
   "s3SecretKey",
   "slackBotToken",
   "slackSigningSecret",
+  // L'URL di un webhook in uscita (Slack, Discord) è una credenziale al portatore (revisione del lotto 6, I2).
+  "webhookUrl",
 ]);
 
 const HIDDEN = "[nascosto: si vede dall'app]";
+
+/**
+ * Una copia di `value` coi PERCORSI nascosti: quelli che la voce del catalogo
+ * dichiara (`redact`), per i segreti con un nome comune (l'`url` di un webhook
+ * in uscita). Forma: `url`, `[].url`, `items.[].url`. Revisione del lotto 6 (I2).
+ */
+export function redactPaths(value: unknown, paths: readonly string[]): unknown {
+  let out = value;
+  for (const path of paths) out = redactPath(out, path.split("."));
+  return out;
+}
+
+function redactPath(value: unknown, steps: string[]): unknown {
+  if (steps.length === 0) return value;
+  const [step, ...rest] = steps as [string, ...string[]];
+  if (step === "[]") return Array.isArray(value) ? value.map((v) => redactPath(v, rest)) : value;
+  if (value === null || typeof value !== "object" || Array.isArray(value) || !(step in value)) return value;
+  const obj = value as Record<string, unknown>;
+  const current = obj[step];
+  if (rest.length === 0) return { ...obj, [step]: current === null || current === "" || current === undefined ? current : HIDDEN };
+  return { ...obj, [step]: redactPath(current, rest) };
+}
 
 /** Una copia di `value` coi segreti nascosti (un valore vuoto o null resta com'è). */
 export function redactSecrets(value: unknown): unknown {

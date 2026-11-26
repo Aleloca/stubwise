@@ -37,6 +37,8 @@ export interface CatalogEntry {
   effect: RouteMcpAction["effect"];
   tool?: string;
   note?: string;
+  /** I percorsi della risposta da nascondere (vedi `RouteMcpAction.redact`). */
+  redact?: string[];
   /** `user`, `project:<permesso>` o `instance:<permesso>`. */
   access: string;
   /** Il permesso d'istanza che la rotta chiede, per il filtro del catalogo. */
@@ -99,6 +101,7 @@ export function catalogEntries(routes: readonly RouteOptions[]): CatalogEntry[] 
         effect: mcp.effect,
         ...(mcp.tool ? { tool: mcp.tool } : {}),
         ...(mcp.note ? { note: mcp.note } : {}),
+        ...(mcp.redact && mcp.redact.length > 0 ? { redact: [...mcp.redact] } : {}),
         ...accessLabel(route.config?.access),
       });
     }

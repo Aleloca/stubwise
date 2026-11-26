@@ -140,6 +140,13 @@ describe("callAction", () => {
     expect(err.details).toEqual({ ticketId: "t9", ticketNumber: 9 });
   });
 
+  it("anche i campi d'errore passano dalla redazione (revisione del lotto 6, M2)", async () => {
+    const client = makeClient(vi.fn().mockResolvedValue(jsonResponse({ code: "conflict", message: "x", token: "tok_segreto" }, 409)));
+    const err = (await client.callAction({ method: "POST", path: "/api/x" }).catch((e: unknown) => e)) as StubwiseApiError;
+    expect(err.message).not.toContain("tok_segreto");
+    expect(err.details.token).not.toBe("tok_segreto");
+  });
+
   it("i campi in più di un errore hanno un tetto", async () => {
     const client = makeClient(vi.fn().mockResolvedValue(jsonResponse({ code: "conflict", message: "no", detail: "x".repeat(10_000) }, 409)));
     const err = (await client.callAction({ method: "POST", path: "/api/x" }).catch((e: unknown) => e)) as StubwiseApiError;

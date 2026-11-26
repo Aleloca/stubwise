@@ -79,6 +79,8 @@ const SESSION_ONLY = new Set(["POST /api/me/security/reauth", "POST /api/me/secu
  * lotto 6). Elenco chiuso.
  */
 const SECRET_ONCE = new Set(["POST /api/servers", "POST /api/servers/:id/regenerate-key"]);
+/** Le rotte dell'app mobile che non servono da Claude Code e sarebbero un vettore (revisione del lotto 6, I2). */
+const APP_ONLY = new Set(["PUT /api/me/devices"]);
 /**
  * Le rotte che rifiutano il PAT nell'handler (`requireBrowserOrConfirmedDesktop`):
  * dichiarano anche `config.reauth`, così il catalogo non le offre. Elenco
@@ -216,6 +218,8 @@ describe("parità MCP: ogni rotta dichiara config.mcp", () => {
             return SESSION_ONLY.has(r.key);
           case "secret_once":
             return SECRET_ONCE.has(r.key);
+          case "app_only":
+            return APP_ONLY.has(r.key);
           default:
             return false;
         }
@@ -278,43 +282,134 @@ describe("parità MCP: ogni rotta dichiara config.mcp", () => {
     expect(wrong).toEqual([]);
   });
 
+  it("ogni rotta degli elenchi chiusi dichiara la SUA esclusione, una per una (revisione del lotto 6, M6)", async () => {
+    const routes = new Map((await registered()).map((r) => [r.key, r]));
+    const wrong: string[] = [];
+    for (const [list, reason] of [[SESSION_ONLY, "session_only"], [SECRET_ONCE, "secret_once"], [APP_ONLY, "app_only"], [DESKTOP_LINK, "desktop_link"], [INFRA, "infra"]] as const) {
+      for (const key of list) {
+        const mcp = routes.get(key) ? mcpOf(routes.get(key)!) : undefined;
+        if (!mcp || isMcpAction(mcp) || mcp.exclude !== reason) wrong.push(`${key} → ${reason}`);
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+
   it("le rotte di session_only sono quelle che rifiutano il PAT nell'handler (contate sul sorgente)", () => {
     const text = readFileSync(join(here, "routes", "me-security.ts"), "utf8");
     expect(text.match(/return sessionRequired\(reply\)/g)?.length ?? 0).toBe(SESSION_ONLY.size);
   });
 
-  it("nessun segreto in chiaro arriva al modello: un campo dall'aria segreta nella risposta di un'azione è nascosto dall'MCP o dichiarato innocuo", async () => {
-    const redacted = new Set(
-      [...readFileSync(join(here, "../../../packages/mcp/src/tools/redact.ts"), "utf8").matchAll(/^ {2}"([A-Za-z0-9]+)",$/gm)].map((m) => m[1]!),
-    );
-    expect(redacted.has("ingestionKey")).toBe(true);
-    const app = buildApp();
-    await app.ready();
-    const spec = app.swagger() as { paths: Record<string, Record<string, { responses?: Record<string, { content?: Record<string, { schema?: unknown }> }> }>> };
-    await app.close();
-    const SECRETISH = /^(key|token|secret|password|apiKey)$|(Secret|Token|Key|Password)$/;
+  describe("nessun segreto in chiaro passa dal modello (revisioni del lotto 6)", () => {
+    /** Un nome dall'aria segreta, in risposta o in ingresso (M4: anche i cifrati e i DSN). */
+    const SECRETISH = /^(key|token|secret|password|apiKey|dsn)$|(Secret|Token|Key|Password|Ciphertext)$|^(wrapped|sealed)/;
     /** Nomi innocui per costruzione (un colore, un preset, una chiave PUBBLICA, un gate). */
     const INNOCENT_NAMES = new Set(["colorToken", "presetKey", "publicKey", "subKey", "residentKey", "resetPassword"]);
     /** `key` dove non è un segreto: il raggruppamento dei consumi, l'hook di un plugin, la chiave pubblica di un widget, il nome di una variabile. */
     const INNOCENT_PATHS = new Set(["rows.[].key", "rows.[].children.[].key", "plugins.[].inventory.hooks.[].key", "inventory.hooks.[].key", "widgets.[].key", "widget.key", "[].vars.[].key", "vars.[].key"]);
-    const found: string[] = [];
-    const walk = (schema: unknown, path: string, depth: number, key: string) => {
-      if (!schema || typeof schema !== "object" || depth > 10) return;
-      const sc = schema as { properties?: Record<string, unknown>; items?: unknown; anyOf?: unknown[]; oneOf?: unknown[]; allOf?: unknown[] };
-      for (const [name, sub] of Object.entries(sc.properties ?? {})) {
-        const at = `${path}${name}`;
-        if (SECRETISH.test(name) && !redacted.has(name) && !INNOCENT_NAMES.has(name) && !INNOCENT_PATHS.has(at)) found.push(`${key}: ${at}`);
-        walk(sub, `${at}.`, depth + 1, key);
-      }
-      if (sc.items) walk(sc.items, `${path}[].`, depth + 1, key);
-      for (const sub of [...(sc.anyOf ?? []), ...(sc.oneOf ?? []), ...(sc.allOf ?? [])]) walk(sub, path, depth, key);
-    };
-    for (const r of await registered()) {
-      if (!isMcpAction(mcpOf(r))) continue;
-      const op = spec.paths[r.url.replace(/:([A-Za-z0-9_]+)/g, "{$1}")]?.[r.method.toLowerCase()];
-      for (const code of ["200", "201", "202"]) walk(op?.responses?.[code]?.content?.["application/json"]?.schema, "", 0, r.key);
+    /**
+     * Le azioni la cui risposta non ha uno schema JSON 2xx né un 204 (I3a):
+     * elenco chiuso, ciascuna col perché. Una nuova senza schema fa fallire.
+     */
+    const NO_RESPONSE_SCHEMA = new Set<string>([
+      // Rotte nate senza `response` nello schema: il serializzatore non filtra i
+      // campi, e aggiungerlo ora potrebbe toglierne ai client. La redazione PER
+      // NOME dell'MCP vale comunque a runtime; qui il test non può guardarle.
+      // Da chiudere aggiungendo lo schema, una per una (registro dei rimandi).
+      "GET /api/client-links",
+      "GET /api/client-links/suggestions",
+      "PUT /api/client-links/:key",
+      "DELETE /api/client-links/:key",
+      "GET /api/projects/:projectId/support/conversations",
+      "GET /api/support/search",
+      "GET /api/support/conversations/by-code/:code",
+      "GET /api/support/conversations/by-code/:code/preview",
+      "POST /api/support/conversations/by-code/:code/replies",
+      "POST /api/support/conversations/by-code/:code/request",
+      "POST /api/support/conversations/by-code/:code/not-concluded",
+      // Dai lotti 2 e 3 di 94.
+      "GET /api/me/releases",
+      "GET /api/projects/:projectId/pulls",
+      "GET /api/projects/:projectId/releases",
+      "GET /api/releases/:code",
+      "POST /api/releases/:code/fix",
+      "GET /api/repositories/:repositoryId/pulls/:prNumber/release-notes",
+      "PUT /api/repositories/:repositoryId/pulls/:prNumber/release-notes",
+      "POST /api/repositories/:repositoryId/pulls/:prNumber/analysis-only",
+      "DELETE /api/repositories/:repositoryId/pulls/:prNumber/analysis-only",
+      "GET /api/drive/files/:id/open",
+      "POST /api/inbox/:id/mute-type",
+    ]);
+    /** Un campo d'INGRESSO dall'aria segreta che non lo è: il token push di un telefono (dell'app mobile). */
+    const INNOCENT_BODY = new Set(["POST /api/me/devices/delete: token"]);
+
+    type Op = { requestBody?: { content?: Record<string, { schema?: unknown }> }; responses?: Record<string, { content?: Record<string, { schema?: unknown }> }> };
+    async function specAndRedacted() {
+      const redacted = new Set(
+        [...readFileSync(join(here, "../../../packages/mcp/src/tools/redact.ts"), "utf8").matchAll(/^ {2}"([A-Za-z0-9]+)",$/gm)].map((m) => m[1]!),
+      );
+      const app = buildApp();
+      await app.ready();
+      const spec = app.swagger() as { paths: Record<string, Record<string, Op>> };
+      await app.close();
+      return { redacted, spec };
     }
-    expect(found).toEqual([]);
+    /** Tutti i campi di uno schema: `properties`, `items`, `anyOf`/`oneOf`/`allOf` e (I3b) `additionalProperties`. */
+    function fields(schema: unknown, path = "", depth = 0, out: Array<{ name: string; at: string }> = []) {
+      if (!schema || typeof schema !== "object" || depth > 12) return out;
+      const sc = schema as { properties?: Record<string, unknown>; items?: unknown; anyOf?: unknown[]; oneOf?: unknown[]; allOf?: unknown[]; additionalProperties?: unknown };
+      for (const [name, sub] of Object.entries(sc.properties ?? {})) {
+        out.push({ name, at: `${path}${name}` });
+        fields(sub, `${path}${name}.`, depth + 1, out);
+      }
+      if (sc.items) fields(sc.items, `${path}[].`, depth + 1, out);
+      if (sc.additionalProperties && typeof sc.additionalProperties === "object") fields(sc.additionalProperties, `${path}*.`, depth + 1, out);
+      for (const sub of [...(sc.anyOf ?? []), ...(sc.oneOf ?? []), ...(sc.allOf ?? [])]) fields(sub, path, depth, out);
+      return out;
+    }
+    const opOf = (spec: { paths: Record<string, Record<string, Op>> }, r: Collected) => spec.paths[r.url.replace(/:([A-Za-z0-9_]+)/g, "{$1}")]?.[r.method.toLowerCase()];
+
+    it("in RISPOSTA: un campo dall'aria segreta di un'azione è nascosto dall'MCP (per nome o per percorso della voce) o dichiarato innocuo", async () => {
+      const { redacted, spec } = await specAndRedacted();
+      expect(redacted.has("ingestionKey")).toBe(true);
+      const found: string[] = [];
+      for (const r of await registered()) {
+        const mcp = mcpOf(r);
+        if (!isMcpAction(mcp)) continue;
+        const byPath = new Set(mcp.redact ?? []);
+        for (const code of ["200", "201", "202"]) {
+          for (const f of fields(opOf(spec, r)?.responses?.[code]?.content?.["application/json"]?.schema)) {
+            const secretish = SECRETISH.test(f.name) && !INNOCENT_NAMES.has(f.name) && !INNOCENT_PATHS.has(f.at);
+            // I3c: l'`url` di un webhook in USCITA è una credenziale al portatore (Slack, Discord).
+            const webhookUrl = f.name === "url" && /^\/api\/settings\/webhooks(\/|$)/.test(r.url);
+            if ((secretish || webhookUrl) && !redacted.has(f.name) && !byPath.has(f.at)) found.push(`${r.key}: ${f.at}`);
+          }
+        }
+      }
+      expect(found).toEqual([]);
+    });
+
+    it("in INGRESSO: un'azione che riceve un segreto (dsn, password, token, secret…) chiede la riconferma per quella parte (partialReauth)", async () => {
+      const { spec } = await specAndRedacted();
+      const found: string[] = [];
+      for (const r of await registered()) {
+        if (!isMcpAction(mcpOf(r)) || r.route.config?.partialReauth) continue;
+        for (const f of fields(opOf(spec, r)?.requestBody?.content?.["application/json"]?.schema)) {
+          if (SECRETISH.test(f.name) && !INNOCENT_NAMES.has(f.name) && !INNOCENT_PATHS.has(f.at) && !INNOCENT_BODY.has(`${r.key}: ${f.at}`)) found.push(`${r.key}: ${f.at}`);
+        }
+      }
+      expect(found).toEqual([]);
+    });
+
+    it("ogni azione ha uno schema JSON 2xx o un 204, o sta in un elenco chiuso (I3a)", async () => {
+      const { spec } = await specAndRedacted();
+      const missing = (await registered()).flatMap((r) => {
+        if (!isMcpAction(mcpOf(r)) || mcpOf(r) && (mcpOf(r) as { tool?: string }).tool) return [];
+        const responses = opOf(spec, r)?.responses ?? {};
+        const ok = "204" in responses || ["200", "201", "202"].some((c) => responses[c]?.content?.["application/json"]?.schema !== undefined);
+        return ok || NO_RESPONSE_SCHEMA.has(r.key) ? [] : [r.key];
+      });
+      expect(missing).toEqual([]);
+    });
   });
 
   it("una voce con `tool` nomina un tool che il pacchetto MCP ha", async () => {

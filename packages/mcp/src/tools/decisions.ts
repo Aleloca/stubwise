@@ -216,9 +216,23 @@ const decidePulseProposal: ToolDef = {
     // domanda dell'agente RISPONDEREBBE a quella. Si verifica che la card sia
     // una proposta del polso aperta di chi chiede.
     try {
-      const page = await ctx.client.callAction({ method: "GET", path: "/api/inbox" }, { query: { status: "open", kind: "project.pulse", limit: 100 } });
-      const items = ((page.data ?? {}) as { items?: Array<{ id: string; kind: string }> }).items ?? [];
-      if (!items.some((i) => i.id === notificationId && i.kind === "project.pulse")) {
+      // Aperte e rimandate, pagina dopo pagina (revisione del lotto 6, M3).
+      let found = false;
+      for (const status of ["open", "snoozed"] as const) {
+        let cursor: string | null = null;
+        for (let page = 0; page < 10 && !found; page += 1) {
+          const res = await ctx.client.callAction(
+            { method: "GET", path: "/api/inbox" },
+            { query: { status, kind: "project.pulse", limit: 100, ...(cursor ? { cursor } : {}) } },
+          );
+          const data = (res.data ?? {}) as { items?: Array<{ id: string; kind: string }>; nextCursor?: string | null };
+          found = (data.items ?? []).some((i) => i.id === notificationId && i.kind === "project.pulse");
+          cursor = data.nextCursor ?? null;
+          if (!cursor) break;
+        }
+        if (found) break;
+      }
+      if (!found) {
         return errorResult(`La card ${notificationId} non è una proposta del polso aperta per te (list_proposals le elenca): non la decido.`);
       }
     } catch (err) {
@@ -320,7 +334,7 @@ interface InboxRow {
   ticketId?: string | null;
   jobId?: string | null;
   question?: { questionId: string; question: string; options: Array<{ label: string }>; allowFreeText: boolean };
-  google?: { source?: string; sourceProposalId?: string | null; calendarEventId?: string };
+  google?: { source?: string; sourceProposalId?: string | null; calendarEventId?: string; calendarProposalId?: string };
   decisionRequest?: { decisionId: string; question: string; options: string[]; open: boolean } | null;
   createdAt: string;
 }
@@ -333,7 +347,11 @@ interface InboxRow {
  */
 function cardDetails(i: InboxRow): string {
   if (i.kind === "google.proposal" || i.kind === "google.proposal_handed") {
-    const id = i.google?.source === "calendar" ? (i.google.calendarEventId ?? i.google.sourceProposalId) : i.google?.sourceProposalId;
+    // Il calendario: la proposta CONDIVISA si decide per il suo id (revisione del lotto 6, I1), una di prima per l'appuntamento.
+    const id =
+      i.google?.source === "calendar"
+        ? (i.google.calendarProposalId ?? i.google.calendarEventId ?? i.google.sourceProposalId)
+        : i.google?.sourceProposalId;
     return id ? `\n  proposta: ${id} (decide_mail_proposal; le azioni con i loro indici: list_mail_proposals)` : "";
   }
   if (i.kind === "decision.requested" && i.decisionRequest) {

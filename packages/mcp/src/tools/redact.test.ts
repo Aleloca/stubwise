@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { REDACTED_FIELDS, redactSecrets } from "./redact.js";
+import { REDACTED_FIELDS, redactPaths, redactSecrets } from "./redact.js";
 
 /**
  * Un segreto che viaggia DENTRO una lettura ordinaria (la chiave d'ingestione
@@ -36,7 +36,18 @@ describe("redactSecrets", () => {
 
   it("l'elenco dei campi nascosti", () => {
     expect([...REDACTED_FIELDS].sort()).toEqual(
-      ["apiKey", "clientSecret", "ingestionKey", "password", "s3AccessKey", "s3SecretKey", "secret", "slackBotToken", "slackSigningSecret", "token", "webhookSecret"].sort(),
+      ["apiKey", "clientSecret", "ingestionKey", "password", "s3AccessKey", "s3SecretKey", "secret", "slackBotToken", "slackSigningSecret", "token", "webhookSecret", "webhookUrl"].sort(),
     );
+  });
+});
+
+describe("redactPaths (revisione del lotto 6, I2)", () => {
+  it("nasconde i percorsi dichiarati dalla voce del catalogo, e solo quelli", () => {
+    const data = [{ id: "w1", url: "https://hooks.slack.com/services/T/B/x" }, { id: "w2", url: null }];
+    expect(redactPaths(data, ["[].url"])).toEqual([{ id: "w1", url: "[nascosto: si vede dall'app]" }, { id: "w2", url: null }]);
+    expect(redactPaths({ url: "https://discord.com/api/webhooks/1/x", name: "n" }, ["url"])).toEqual({ url: "[nascosto: si vede dall'app]", name: "n" });
+    expect(redactPaths({ items: [{ url: "u" }] }, ["items.[].url"])).toEqual({ items: [{ url: "[nascosto: si vede dall'app]" }] });
+    // Un percorso che non c'è non cambia niente.
+    expect(redactPaths({ a: 1 }, ["[].url", "b.c"])).toEqual({ a: 1 });
   });
 });

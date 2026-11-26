@@ -1071,6 +1071,8 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     userId,
     page.filter((r) => r.kind === "google.proposal").map((r) => r.id),
   );
+  // Revisione del lotto 6 della parità MCP (I1): l'id delle proposte condivise del calendario.
+  const calendarProposalIds = await calendarProposalIdsByNotification(db, userId, page.filter((r) => r.kind === "google.proposal").map((r) => r.id));
   // Revisione del lotto 1 della parità MCP (I2): la richiesta di decisione delle card `decision.requested`, a lettura.
   const decisionRequestCards = await decisionRequestsOfCards(db, page.filter((r) => r.kind === "decision.requested"));
   // Rimandi, lotto 4 (§2): la card di chi decide una condivisa passata porta la
@@ -1200,8 +1202,14 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
         : {}),
       objectGone,
       chat,
-      ...(rendered.google && handedShared.has(r.id)
-        ? { google: { ...rendered.google, ...(handedFacts.get(handedShared.get(r.id)!) ?? { handedByUser: null, proposalDecided: false }) } }
+      ...(rendered.google && (handedShared.has(r.id) || calendarProposalIds.has(r.id))
+        ? {
+            google: {
+              ...rendered.google,
+              ...(handedShared.has(r.id) ? (handedFacts.get(handedShared.get(r.id)!) ?? { handedByUser: null, proposalDecided: false }) : {}),
+              ...(calendarProposalIds.has(r.id) ? { calendarProposalId: calendarProposalIds.get(r.id)! } : {}),
+            },
+          }
         : {}),
       ...(isProductDocKind(r.kind) ? { productDoc } : {}),
       ...(isAutomationKind(r.kind) ? { automation } : {}),
@@ -1998,6 +2006,25 @@ async function sourceProposalIdsByNotification(
     if (row.notificationId !== null) byNotification.set(row.notificationId, row.proposalId);
   }
   return byNotification;
+}
+
+/**
+ * Revisione del lotto 6 della parità MCP (I1): la proposta CONDIVISA del
+ * calendario (lotto 9) ha una card per destinatario in
+ * `calendar_proposal_recipients`, e si decide per `calendar_proposals.id`,
+ * non per la copia dell'evento di chi riceve (che può non averla). Un campo
+ * a sé, `google.calendarProposalId`: `sourceProposalId` resta `null` per il
+ * calendario, perché il web lo usa per aprire il dettaglio di una MAIL.
+ */
+async function calendarProposalIdsByNotification(db: Db, userId: string, notificationIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (notificationIds.length === 0) return out;
+  const rows = await db
+    .select({ notificationId: calendarProposalRecipients.notificationId, proposalId: calendarProposalRecipients.proposalId })
+    .from(calendarProposalRecipients)
+    .where(and(inArray(calendarProposalRecipients.notificationId, notificationIds), eq(calendarProposalRecipients.userId, userId)));
+  for (const row of rows) if (row.notificationId !== null) out.set(row.notificationId, row.proposalId);
+  return out;
 }
 
 /**

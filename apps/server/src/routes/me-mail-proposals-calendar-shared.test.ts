@@ -244,3 +244,19 @@ describe("decidere una condivisa del calendario", () => {
     expect(card!.status).toBe("open");
   });
 });
+
+describe("la card condivisa del calendario porta l'id della PROPOSTA (revisione del lotto 6, I1)", () => {
+  it("calendarProposalId è calendar_proposals.id, derivato dai destinatari, anche per chi non ha la copia dell'evento; sourceProposalId resta null", async () => {
+    const { matteo, giulia, proposal } = await seed();
+    for (const who of [matteo, giulia]) {
+      const res = await app.inject({ method: "GET", url: "/api/inbox?kind=google.proposal", headers: who.headers });
+      expect(res.statusCode, res.body).toBe(200);
+      const [card] = (res.json() as { items: Array<{ google?: { sourceProposalId?: string | null; calendarProposalId?: string } }> }).items;
+      expect(card?.google?.calendarProposalId).toBe(proposal.id);
+      // Il web apre con sourceProposalId il dettaglio di una MAIL: per il calendario resta null.
+      expect(card?.google?.sourceProposalId ?? null).toBeNull();
+    }
+    // Ed è l'id con cui la proposta si decide.
+    expect((await post(giulia.headers, proposal.id, "ignore")).statusCode).toBe(200);
+  });
+});

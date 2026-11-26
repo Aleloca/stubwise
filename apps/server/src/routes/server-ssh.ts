@@ -115,7 +115,7 @@ export async function serverSshRoutes(instance: FastifyInstance): Promise<void> 
 
   app.put(
     "/:id/ssh",
-    { config: { mcp: { action: "servers.connectSsh", summary: "Configura l'accesso SSH di un server (host, porta): genera la coppia di chiavi e dà la chiave PUBBLICA da installare.", effect: "write", note: "Stubwise potrà entrare sul server con quella chiave, coi limiti dell'analisi." }, access }, schema: { params: idParamsSchema, body: connectBodySchema, response: { ...response, 400: errorSchema } } },
+    { config: { mcp: { action: "servers.connectSsh", summary: "Configura l'accesso SSH di un server (host, porta): genera la coppia di chiavi e dà la chiave PUBBLICA da installare.", effect: "destructive", note: "Sostituisce l'accesso esistente e rifissa la host key su host: chi la usava deve reinstallare la chiave pubblica. Stubwise potrà entrare sul server con quella chiave, coi limiti dell'analisi." }, access }, schema: { params: idParamsSchema, body: connectBodySchema, response: { ...response, 400: errorSchema } } },
     async (request, reply) => {
       const { id } = request.params;
       if (!(await serverExists(id))) return apiError(reply, 404, "not_found", "Server not found");
@@ -161,7 +161,7 @@ export async function serverSshRoutes(instance: FastifyInstance): Promise<void> 
     return viewOf(await rowOf(row.serverId));
   });
 
-  app.delete("/:id/ssh", { config: { mcp: { action: "servers.revokeSsh", summary: "Revoca l'accesso SSH di un server.", effect: "destructive" }, access }, schema: { params: idParamsSchema, response } }, async (request, reply) => {
+  app.delete("/:id/ssh", { config: { mcp: { action: "servers.revokeSsh", summary: "Revoca l'accesso SSH di un server.", effect: "destructive", note: "Le analisi perdono le letture SSH, e sull'host resta l'utente da togliere a mano (removeCommand nella risposta)." }, access }, schema: { params: idParamsSchema, response } }, async (request, reply) => {
     const row = await rowOf(request.params.id);
     if (!row) return apiError(reply, 404, "not_found", "No SSH access for this server");
     await app.db

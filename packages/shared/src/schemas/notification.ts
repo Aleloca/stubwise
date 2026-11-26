@@ -478,6 +478,15 @@ export const inboxGoogleSchema = z.object({
    */
   sourceProposalId: z.string().nullable().default(null),
   /**
+   * Revisione del lotto 6 della parità MCP (I1): solo su una card di una
+   * proposta CONDIVISA del calendario (lotto 9), `calendar_proposals.id`,
+   * l'id con cui la proposta si decide (`/api/me/mail/proposals/:id/*`).
+   * DERIVATO a lettura da `calendar_proposal_recipients`, mai dall'evento.
+   * Un campo a sé apposta: {@link sourceProposalId} resta `null` per il
+   * calendario. Additivo: assente altrove e da un server più vecchio.
+   */
+  calendarProposalId: z.string().optional(),
+  /**
    * Gli indici delle opzioni che si possono SCEGLIERE INSIEME («una mail, più
    * azioni e più progetti», 26 set 2026): le azioni proposte dal modello,
    * quando sono almeno due. `[]` = scelta singola, come prima.

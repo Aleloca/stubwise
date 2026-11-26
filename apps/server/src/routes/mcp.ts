@@ -24,6 +24,7 @@ const entrySchema = z.object({
   effect: z.enum(["read", "write", "destructive"]),
   tool: z.string().optional(),
   note: z.string().optional(),
+  redact: z.array(z.string()).optional(),
   access: z.string(),
 });
 

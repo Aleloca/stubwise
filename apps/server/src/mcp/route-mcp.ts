@@ -26,6 +26,13 @@ export interface RouteMcpAction {
   tool?: string;
   /** Ciò che il modello deve sapere prima di chiamarla (riconferma parziale, invii fuori…). */
   note?: string;
+  /**
+   * I percorsi della risposta che l'MCP nasconde prima di mostrarla, oltre ai
+   * nomi di `packages/mcp/src/tools/redact.ts`: un segreto con un nome comune
+   * (l'`url` di un webhook in uscita, una credenziale al portatore). Forma:
+   * `url`, `[].url`, `items.[].url`. Revisione del lotto 6 (I2).
+   */
+  redact?: readonly string[];
 }
 
 export interface RouteMcpExclusion {
@@ -47,6 +54,10 @@ export interface RouteMcpExclusion {
  * - `session_only`: una rotta che rifiuta il PAT NEL SUO HANDLER senza
  *   dichiarare `config.reauth` (la riconferma dell'identità stessa: elenco
  *   chiuso, contato sul sorgente);
+ * - `app_only`: una rotta dell'app mobile che da Claude Code non serve e
+ *   sarebbe un vettore (registrare il token push di un telefono lo intesta a
+ *   chi lo registra: un'istruzione iniettata dirotterebbe le notifiche).
+ *   Elenco chiuso, revisione del lotto 6 (I2);
  * - `secret_once`: una rotta il cui scopo è RESTITUIRE un segreto in chiaro
  *   (la chiave di un agente di monitoraggio appena creata o rigenerata):
  *   decisione del maintainer, si fa solo dall'app (elenco chiuso). Un segreto
@@ -56,7 +67,7 @@ export interface RouteMcpExclusion {
  *   ogni campo dall'aria segreta di un'azione sia nascosto o dichiarato
  *   innocuo.
  */
-export type DeclaredMcpExclusion = "vault" | "login" | "inbound" | "infra" | "stream" | "desktop_link" | "session_only" | "secret_once";
+export type DeclaredMcpExclusion = "vault" | "login" | "inbound" | "infra" | "stream" | "desktop_link" | "session_only" | "secret_once" | "app_only";
 
 /** Le esclusioni che dà il registro (vedi il docblock del file). */
 export type ImpliedMcpExclusion = "reauth" | "vault" | "login";

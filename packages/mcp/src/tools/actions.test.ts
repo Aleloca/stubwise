@@ -148,6 +148,14 @@ describe("read_action", () => {
     expect(text(await tool("write_action").handler({ action: "tasks.update", params: { ticketId: "t1" } }, write))).not.toContain('"t"');
   });
 
+  it("i percorsi `redact` della voce si nascondono (gli URL dei webhook)", async () => {
+    const webhooks = entry({ action: "settings.webhooks", path: "/api/settings/webhooks", area: "settings", redact: ["[].url"] });
+    const ctx = ctxWith({ getCatalog: vi.fn().mockResolvedValue([webhooks]), callAction: vi.fn().mockResolvedValue({ status: 200, data: [{ id: "w1", url: "https://hooks.slack.com/x" }] }) });
+    const out = text(await tool("read_action").handler({ action: "settings.webhooks" }, ctx));
+    expect(out).not.toContain("hooks.slack.com");
+    expect(out).toContain("nascosto");
+  });
+
   it("il JSON è compatto prima del taglio (più contenuto nei 30.000 caratteri)", async () => {
     const data = { a: [1, 2], b: { c: "d" } };
     const ctx = ctxWith({ getCatalog: vi.fn().mockResolvedValue(CATALOG), callAction: vi.fn().mockResolvedValue({ status: 200, data }) });

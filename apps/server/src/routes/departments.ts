@@ -327,7 +327,7 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
   app.put(
     "/:id/roles",
     {
-      config: { mcp: { action: "departments.setRoles", summary: "Sostituisce i ruoli di un reparto (chi ne gestisce la Home).", effect: "destructive", note: "Sostituisce l'insieme: chi non c'è più perde il ruolo. Cambia cosa possono fare altre persone: dillo all'utente nella riga che annuncia l'azione." }, access: MANAGE },
+      config: { mcp: { action: "departments.setRoles", summary: "Sostituisce i ruoli di un reparto (chi ne gestisce la Home).", effect: "destructive", note: "Sostituisce l'insieme: chi non c'è più perde il ruolo, chi è in elenco lo ottiene. Cambia cosa possono fare altre persone: dillo all'utente nella riga che annuncia l'azione." }, access: MANAGE },
       schema: {
         params: idParamsSchema,
         body: z.object({

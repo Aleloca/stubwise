@@ -299,7 +299,7 @@ interface MailProposalView {
   id: string;
   kind?: "email" | "calendar" | "meeting";
   status: string;
-  actions?: Array<{ type: string; label: string }>;
+  actions?: Array<{ type: string; label: string; args?: Record<string, unknown> }>;
   blockedIndices?: number[];
   canConfirm?: boolean;
   canHand?: boolean;
@@ -323,7 +323,12 @@ function renderMailProposal(p: MailProposalView): string {
     : (p.calendarOrigin?.title ?? p.meetingOrigin?.title ?? "(senza titolo)");
   const status = p.status === "handed" ? "passata al progetto" : "da decidere";
   const blocked = new Set(p.blockedIndices ?? []);
-  const actions = (p.actions ?? []).map((a, i) => `    ${i}. ${a.label || a.type}${blocked.has(i) ? " (bloccata: ti manca il permesso nel progetto)" : ""}`);
+  // Una proposta che chiede il PROGETTO non ha azioni da confermare: si sceglie fra i candidati (revisione del lotto 6, M4).
+  const choose = (p.actions ?? []).find((a) => a.type === "choose_project");
+  const candidates = Array.isArray(choose?.args?.projectIds) ? (choose!.args!.projectIds as string[]) : [];
+  const actions = choose
+    ? [`    scegli il progetto (choose_project con project_id): ${candidates.join(", ") || "nessun candidato"}`]
+    : (p.actions ?? []).map((a, i) => `    ${i}. ${a.label || a.type}${blocked.has(i) ? " (bloccata: ti manca il permesso nel progetto)" : ""}`);
   const can = [p.canConfirm ? "confermare" : null, p.canHand ? "passare" : null, p.canReassign ? "spostare" : null].filter(Boolean);
   return [
     `- [${KIND_LABEL[kind] ?? kind}] ${what} (proposta: ${p.id}, ${status})`,

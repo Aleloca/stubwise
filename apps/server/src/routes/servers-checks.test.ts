@@ -14,6 +14,8 @@ import { eq, sql } from "drizzle-orm";
 import { METRICS_POINT_LIMIT } from "./servers-checks.js";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
+import { personalAccessTokens } from "@stubwise/db";
+import { generatePat, hashServerKey } from "./shared.js";
 import { seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
@@ -23,6 +25,7 @@ let testDb: TestDb;
 let app: FastifyInstance;
 let adminCookie: string;
 let memberCookie: string;
+let adminPat: string;
 
 beforeAll(async () => {
   testDb = await startTestDb();
@@ -33,7 +36,11 @@ beforeAll(async () => {
     publicUrl: "https://stubwise.example.com",
     monitorRateLimit: { max: 10_000, timeWindow: "1 minute" },
   });
-  ({ adminCookie, memberCookie } = await seedUsers(app));
+  let adminId: string;
+  ({ adminCookie, memberCookie, adminId } = await seedUsers(app));
+  const token = generatePat();
+  await testDb.db.insert(personalAccessTokens).values({ userId: adminId, name: "mcp", tokenHash: hashServerKey(token), kind: "manual" });
+  adminPat = `Bearer ${token}`;
 }, 120_000);
 
 afterAll(async () => {
@@ -888,5 +895,36 @@ describe("GET /api/servers/:id/metrics", () => {
       url: `/api/servers/${id}/metrics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
     });
     expect(res.statusCode).toBe(401);
+  });
+});
+
+describe("un DSN nuovo chiede la riconferma: col PAT è session_required (revisione del lotto 6 della parità MCP, I1)", () => {
+  const withPat = (method: "POST" | "PUT", url: string, payload: Record<string, unknown>) =>
+    app.inject({ method, url, headers: { authorization: adminPat }, payload });
+
+  it("creare un controllo postgres col PAT: 403 session_required, niente riga; un http passa", async () => {
+    const { id } = await createServerReturning("checks-dsn-pat");
+    const db = await withPat("POST", `/api/servers/${id}/checks`, { type: "postgres", name: "db", target: "postgres://u:pw@h:5432/a", intervalSeconds: 60, enabled: true });
+    expect(db.statusCode, db.body).toBe(403);
+    expect(db.json()).toMatchObject({ code: "session_required" });
+    expect(await testDb.db.select().from(serviceChecks).where(eq(serviceChecks.serverId, id))).toHaveLength(0);
+    const http = await withPat("POST", `/api/servers/${id}/checks`, { type: "http", name: "web", target: "https://example.com", intervalSeconds: 60, enabled: true });
+    expect(http.statusCode, http.body).toBe(201);
+  });
+
+  it("modificare un controllo DB col PAT: un DSN nuovo è session_required, il nome no", async () => {
+    const { id } = await createServerReturning("checks-dsn-pat-put");
+    const created = await postCheck(id, { type: "mysql", name: "db", target: "mysql://u:pw@h:3306/a", intervalSeconds: 60, enabled: true });
+    expect(created.statusCode, created.body).toBe(201);
+    const checkId = (created.json() as { id: string }).id;
+    const dsn = await withPat("PUT", `/api/servers/${id}/checks/${checkId}`, { target: "mysql://u:altra@h:3306/a" });
+    expect(dsn.statusCode, dsn.body).toBe(403);
+    expect(dsn.json()).toMatchObject({ code: "session_required" });
+    const name = await withPat("PUT", `/api/servers/${id}/checks/${checkId}`, { name: "db principale" });
+    expect(name.statusCode, name.body).toBe(200);
+    // Un controllo http che DIVENTA postgres porta un DSN nuovo.
+    const http = await postCheck(id, { type: "http", name: "web", target: "https://example.com", intervalSeconds: 60, enabled: true });
+    const toDb = await withPat("PUT", `/api/servers/${id}/checks/${(http.json() as { id: string }).id}`, { type: "postgres", target: "postgres://u:pw@h:5432/a" });
+    expect(toDb.statusCode, toDb.body).toBe(403);
   });
 });

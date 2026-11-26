@@ -154,11 +154,24 @@ describe("proposte", () => {
     expect(text(r)).toContain("approvazione del piano");
   });
 
+  it("decide_pulse_proposal trova la card anche alla pagina dopo e fra le rimandate (revisione del lotto 6, M3)", async () => {
+    const callAction = vi.fn()
+      .mockResolvedValueOnce({ status: 200, data: { items: [{ id: "altra", kind: "project.pulse" }], nextCursor: "c2" } })
+      .mockResolvedValueOnce({ status: 200, data: { items: [], nextCursor: null } })
+      .mockResolvedValueOnce({ status: 200, data: { items: [{ id: "n1", kind: "project.pulse" }], nextCursor: null } })
+      .mockResolvedValueOnce({ status: 200, data: { ok: true } });
+    const r = await tool("decide_pulse_proposal").handler({ notification_id: "n1", option_index: 0 }, ctxWith(callAction));
+    expect(r.isError).toBeUndefined();
+    expect(callAction).toHaveBeenNthCalledWith(2, { method: "GET", path: "/api/inbox" }, { query: { status: "open", kind: "project.pulse", limit: 100, cursor: "c2" } });
+    expect(callAction).toHaveBeenNthCalledWith(3, { method: "GET", path: "/api/inbox" }, { query: { status: "snoozed", kind: "project.pulse", limit: 100 } });
+  });
+
   it("decide_pulse_proposal su una card che non è del polso (una domanda dell'agente): niente `answer` (revisione del lotto 1, M1)", async () => {
-    const callAction = vi.fn().mockResolvedValueOnce({ status: 200, data: { items: [{ id: "altra", kind: "project.pulse" }] } });
+    const callAction = vi.fn().mockResolvedValue({ status: 200, data: { items: [{ id: "altra", kind: "project.pulse" }], nextCursor: null } });
     const r = await tool("decide_pulse_proposal").handler({ notification_id: "n1", option_index: 0 }, ctxWith(callAction));
     expect(r.isError).toBe(true);
-    expect(callAction).toHaveBeenCalledTimes(1);
+    // Solo letture (aperte e rimandate): nessun `answer`.
+    expect(callAction.mock.calls.every((c) => (c[0] as { method: string }).method === "GET")).toBe(true);
   });
 
   it("una conferma finita in `failed` riporta l'errore (M5)", async () => {
@@ -227,6 +240,7 @@ describe("list_inbox", () => {
       items: [
         { id: "n1", kind: "google.proposal", status: "open", text: "Mail", actions: ["answer"], question: { questionId: "x", question: "?", options: [{ label: "Crea" }, { label: "Non fare nulla" }], allowFreeText: false }, google: { source: "email", sourceProposalId: "prop-1" }, createdAt: "" },
         { id: "n2", kind: "google.proposal", status: "open", text: "Evento", actions: ["answer"], google: { source: "calendar", sourceProposalId: null, calendarEventId: "ev-1" }, createdAt: "" },
+        { id: "n6", kind: "google.proposal", status: "open", text: "Evento condiviso", actions: ["answer"], google: { source: "calendar", sourceProposalId: null, calendarEventId: "copia-mia", calendarProposalId: "cal-prop-1" }, createdAt: "" },
         { id: "n3", kind: "google.proposal_handed", status: "open", text: "Passata", actions: [], google: { source: "email", sourceProposalId: "prop-3" }, createdAt: "" },
         { id: "n4", kind: "decision.requested", status: "open", text: "Decidi", actions: [], decisionRequest: { decisionId: "d1", question: "Colore?", options: ["Rosso", "Blu"], open: true }, createdAt: "" },
         { id: "n5", kind: "job.held", status: "open", text: "Ferma", actions: [], jobId: "j1", ticketId: "t1", createdAt: "" },
@@ -237,6 +251,9 @@ describe("list_inbox", () => {
     expect(out).toContain("proposta: prop-1 (decide_mail_proposal; le azioni con i loro indici: list_mail_proposals)");
     expect(out).not.toContain("0. Crea");
     expect(out).toContain("proposta: ev-1");
+    // Una condivisa del calendario si decide per la PROPOSTA, non per la copia dell'evento (revisione del lotto 6, I1).
+    expect(out).toContain("proposta: cal-prop-1");
+    expect(out).not.toContain("proposta: copia-mia");
     expect(out).toContain("proposta: prop-3");
     expect(out).toContain("richiesta di decisione d1 (answer_decision_request): Colore?\n    0. Rosso\n    1. Blu");
     expect(out).toContain("job j1");

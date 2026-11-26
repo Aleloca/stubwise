@@ -224,7 +224,7 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
   app.put(
     "/devices",
     {
-      config: { mcp: { action: "me.registerDevice", summary: "Registra il token push di un telefono (lo usa l'app mobile).", effect: "write", note: "È dell'app mobile: da Claude Code non serve." }, access: { kind: "user" } },
+      config: { mcp: { exclude: "app_only" }, access: { kind: "user" } },
       schema: {
         body: deviceRegistrationSchema,
         response: { 204: z.null(), 400: errorSchema, ...authErrorResponses },
@@ -315,7 +315,7 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/devices/delete",
     {
-      config: { mcp: { action: "me.unregisterDevice", summary: "Toglie la registrazione push di un telefono: non riceve più notifiche.", effect: "write", note: "È il logout dell'app mobile su quel telefono." }, access: { kind: "user" } },
+      config: { mcp: { action: "me.unregisterDevice", summary: "Toglie la registrazione push di un telefono: non riceve più notifiche.", effect: "destructive", note: "È il logout dell'app mobile su quel telefono." }, access: { kind: "user" } },
       schema: {
         body: deviceDeletionSchema,
         response: { 204: z.null(), 400: errorSchema, ...authErrorResponses },

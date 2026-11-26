@@ -1972,6 +1972,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 ## Trasversali
 
+- **22 azioni del catalogo MCP senza schema di risposta** *(S ciascuna,
+  lotto 6 della parità MCP, 26 nov 2026; decisione di 46)*: client-links
+  (4), Support (7), e dai lotti 2–3 rilasci e PR, `drive/files/:id/open`,
+  `inbox/:id/mute-type`. Senza `response` il serializzatore non filtra i
+  campi, e il test di parità non può verificare che nessun segreto arrivi al
+  modello (la redazione per nome dell'MCP vale comunque a runtime). Stanno
+  in `NO_RESPONSE_SCHEMA` di `apps/server/src/mcp-parity.test.ts`, che si
+  accorcia soltanto: si chiude aggiungendo lo schema, una rotta alla volta,
+  controllando che nessun client legga un campo che lo schema toglierebbe.
 - **`affectedCount` dei ruoli conta anche chi chi guarda non vede** *(S,
   accettato, review di F1, 18 nov 2026)*: in `GET /api/admin/roles` è un
   NUMERO («salvare cambia ciò che possono fare N persone»), non nomina

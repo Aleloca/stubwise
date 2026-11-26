@@ -1,3 +1,4 @@
+import { redactSecrets } from "./tools/redact.js";
 import type {
   BacklogItemStatus,
   InboxItem,
@@ -544,6 +545,8 @@ const catalogActionSchema = z
     effect: z.string(),
     tool: z.string().optional(),
     note: z.string().optional(),
+    /** I percorsi della risposta da nascondere (revisione del lotto 6, I2). */
+    redact: z.array(z.string()).optional(),
     access: z.string(),
   })
   .loose();
@@ -592,7 +595,8 @@ function parseActionBody(text: string): unknown {
 
 /** Un rifiuto del server col suo `code` e il messaggio; gli altri campi (`decidedBy` di un 409, `rule`) servono a dire perché. */
 function actionError(status: number, data: unknown): StubwiseApiError {
-  const body = data && typeof data === "object" ? (data as ApiErrorBody) : null;
+  // Anche gli errori passano dalla redazione (revisione del lotto 6, M2): arrivano al modello.
+  const body = data && typeof data === "object" ? (redactSecrets(data) as ApiErrorBody) : null;
   const code = body?.code ?? "api_error";
   const rest: Record<string, unknown> = { ...(body ?? {}) };
   delete rest.code;
