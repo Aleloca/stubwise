@@ -342,7 +342,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/",
     {
-      config: { access: { kind: "instance", permission: "git_accounts.view" } },
+      config: { mcp: { action: "gitAccounts.list", summary: "Gli account git dell'istanza (GitHub, Bitbucket), senza credenziali.", effect: "read" }, access: { kind: "instance", permission: "git_accounts.view" } },
       schema: { response: { 200: z.array(gitAccountSchema), ...authErrorResponses } },
     },
     async (request) => {
@@ -355,7 +355,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/:id",
     {
-      config: { access: { kind: "instance", permission: "git_accounts.view" } },
+      config: { mcp: { action: "gitAccounts.get", summary: "Un account git, senza credenziali.", effect: "read" }, access: { kind: "instance", permission: "git_accounts.view" } },
       schema: {
         params: idParamsSchema,
         response: { 200: gitAccountSchema, 404: errorSchema, ...authErrorResponses },
@@ -374,7 +374,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.patch(
     "/:id",
     {
-      config: { access: { kind: "instance", permission: "git_accounts.manage" }, partialReauth: true },
+      config: { mcp: { action: "gitAccounts.update", summary: "Modifica un account git: nome, workspace.", effect: "write", note: "Credenziali nuove chiedono la riconferma: da qui session_required, si cambiano dall'app." }, access: { kind: "instance", permission: "git_accounts.manage" }, partialReauth: true },
       schema: {
         params: idParamsSchema,
         body: updateGitAccountSchema,
@@ -475,7 +475,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.put(
     "/:id/default-reviewer",
     {
-      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
+      config: { mcp: { action: "gitAccounts.setDefaultReviewer", summary: "Imposta il revisore predefinito delle PR del suo ambito (provider e workspace).", effect: "write", note: "Cambia cosa possono fare altre persone: dillo all'utente nella riga che annuncia l'azione." }, access: { kind: "instance", permission: "git_accounts.manage" } },
       schema: {
         params: idParamsSchema,
         response: {
@@ -536,7 +536,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.delete(
     "/:id/default-reviewer",
     {
-      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
+      config: { mcp: { action: "gitAccounts.clearDefaultReviewer", summary: "Toglie il revisore predefinito.", effect: "destructive", note: "Cambia cosa possono fare altre persone: dillo all'utente nella riga che annuncia l'azione." }, access: { kind: "instance", permission: "git_accounts.manage" } },
       schema: {
         params: idParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
@@ -559,7 +559,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/:id/validate",
     {
-      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
+      config: { mcp: { action: "gitAccounts.validate", summary: "Verifica le credenziali di un account git sul provider.", effect: "write" }, access: { kind: "instance", permission: "git_accounts.manage" } },
       schema: {
         params: idParamsSchema,
         response: { 200: gitValidateResponseSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
@@ -596,7 +596,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/:id/validate-repo",
     {
-      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
+      config: { mcp: { action: "gitAccounts.validateRepo", summary: "Verifica che un account git raggiunga un repository.", effect: "read" }, access: { kind: "instance", permission: "git_accounts.manage" } },
       schema: {
         params: idParamsSchema,
         querystring: validateRepoQuerySchema,
@@ -631,7 +631,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/:id/repositories",
     {
-      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
+      config: { mcp: { action: "gitAccounts.repositories", summary: "I repository che un account git vede sul provider.", effect: "read" }, access: { kind: "instance", permission: "git_accounts.manage" } },
       schema: {
         params: idParamsSchema,
         querystring: repositoriesQuerySchema,
@@ -675,7 +675,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/:id/branches",
     {
-      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
+      config: { mcp: { action: "gitAccounts.branches", summary: "I branch di un repository visto da un account git.", effect: "read" }, access: { kind: "instance", permission: "git_accounts.manage" } },
       schema: {
         params: idParamsSchema,
         querystring: branchesQuerySchema,

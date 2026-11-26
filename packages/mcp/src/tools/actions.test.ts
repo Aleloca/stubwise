@@ -140,6 +140,14 @@ describe("read_action", () => {
     expect(callAction).toHaveBeenCalledWith(fresh, {});
   });
 
+  it("i segreti dentro la risposta non arrivano al modello (read e write)", async () => {
+    const data = [{ id: "p1", ingestionKey: "ik_123" }];
+    const read = ctxWith({ getCatalog: vi.fn().mockResolvedValue(CATALOG), callAction: vi.fn().mockResolvedValue({ status: 200, data }) });
+    expect(text(await tool("read_action").handler({ action: "tasks.list" }, read))).toBe('[{"id":"p1","ingestionKey":"[nascosto: si vede dall\'app]"}]');
+    const write = ctxWith({ getCatalog: vi.fn().mockResolvedValue(CATALOG), callAction: vi.fn().mockResolvedValue({ status: 200, data: { token: "t" } }) });
+    expect(text(await tool("write_action").handler({ action: "tasks.update", params: { ticketId: "t1" } }, write))).not.toContain('"t"');
+  });
+
   it("il JSON è compatto prima del taglio (più contenuto nei 30.000 caratteri)", async () => {
     const data = { a: [1, 2], b: { c: "d" } };
     const ctx = ctxWith({ getCatalog: vi.fn().mockResolvedValue(CATALOG), callAction: vi.fn().mockResolvedValue({ status: 200, data }) });

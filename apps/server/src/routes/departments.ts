@@ -271,7 +271,7 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "departments.list", summary: "I reparti, coi membri e i permessi di progetto che danno.", effect: "read" }, access: { kind: "user" } },
       schema: { response: { 200: z.array(departmentViewSchema), ...authErrorResponses } },
     },
     async (request) => {
@@ -312,7 +312,7 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/roles",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "departments.roles", summary: "I ruoli di reparto: chi gestisce la Home di quale reparto.", effect: "read" }, access: { kind: "user" } },
       schema: { response: { 200: z.array(departmentRoleViewSchema), ...authErrorResponses } },
     },
     async () => rolesOf(app.db),
@@ -327,7 +327,7 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
   app.put(
     "/:id/roles",
     {
-      config: { access: MANAGE },
+      config: { mcp: { action: "departments.setRoles", summary: "Sostituisce i ruoli di un reparto (chi ne gestisce la Home).", effect: "destructive", note: "Sostituisce l'insieme: chi non c'è più perde il ruolo. Cambia cosa possono fare altre persone: dillo all'utente nella riga che annuncia l'azione." }, access: MANAGE },
       schema: {
         params: idParamsSchema,
         body: z.object({
@@ -443,7 +443,7 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/:id/preview",
     {
-      config: { access: MANAGE },
+      config: { mcp: { action: "departments.preview", summary: "Anteprima di una modifica di reparto: chi guadagna o perde quali permessi. Non scrive niente.", effect: "write" }, access: MANAGE },
       schema: {
         params: idParamsSchema,
         body: z.object({
@@ -475,7 +475,7 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/",
     {
-      config: { access: MANAGE },
+      config: { mcp: { action: "departments.create", summary: "Crea un reparto.", effect: "write" }, access: MANAGE },
       schema: {
         body: z.object({ name: nameSchema, colorToken: departmentColorTokenSchema }),
         response: { 201: departmentViewSchema, 409: errorSchema, ...authErrorResponses },
@@ -511,7 +511,7 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
       // Area 9, F8 (F8-3 = a): la riconferma solo quando la scrittura fa
       // ARRIVARE permessi a qualcuno (un permesso aggiunto, o una persona
       // aggiunta a un reparto che ne dà). Nome, colore e togliere no.
-      config: { access: MANAGE, partialReauth: true },
+      config: { mcp: { action: "departments.update", summary: "Modifica un reparto: nome, colore, membri, permessi di progetto che dà.", effect: "destructive", note: "Togliere membri o permessi toglie accesso a quelle persone; DARE permessi (o aggiungere persone a un reparto che ne dà) chiede la riconferma e da qui risponde session_required: quello si fa dall'app. Cambia cosa possono fare altre persone: dillo all'utente nella riga che annuncia l'azione." }, access: MANAGE, partialReauth: true },
       schema: {
         params: idParamsSchema,
         body: z.object({
@@ -700,7 +700,7 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
   app.delete(
     "/:id",
     {
-      config: { access: MANAGE },
+      config: { mcp: { action: "departments.delete", summary: "Elimina un reparto: i suoi membri perdono i permessi che dava.", effect: "destructive", note: "Cambia cosa possono fare altre persone: dillo all'utente nella riga che annuncia l'azione." }, access: MANAGE },
       schema: {
         params: idParamsSchema,
         querystring: z.object({ moveTasksTo: z.uuid().optional() }),

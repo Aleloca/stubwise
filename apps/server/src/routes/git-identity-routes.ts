@@ -233,7 +233,7 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
   app.delete(
     "/users/:id/bitbucket",
     {
-      config: { access: { kind: "instance", permission: "users.manage" } },
+      config: { mcp: { action: "users.unlinkBitbucket", summary: "Scollega l'identità Bitbucket di una persona.", effect: "destructive", note: "Le sue review e correzioni su Bitbucket non saranno più attribuite a lei. Cambia cosa possono fare altre persone: dillo all'utente nella riga che annuncia l'azione." }, access: { kind: "instance", permission: "users.manage" } },
       schema: {
         params: z.object({ id: z.uuid() }),
         response: {
@@ -269,7 +269,7 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
   app.get(
     "/git/observed-authors",
     {
-      config: { access: { kind: "instance", permission: "users.manage" } },
+      config: { mcp: { action: "git.observedAuthors", summary: "Gli autori dei commit visti nei repository, e a chi sono collegati.", effect: "read" }, access: { kind: "instance", permission: "users.manage" } },
       schema: { response: { 200: z.array(observedAuthorSchema), ...authErrorResponses } },
     },
     async (request) => {

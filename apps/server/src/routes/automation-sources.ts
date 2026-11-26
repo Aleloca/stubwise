@@ -94,17 +94,17 @@ export async function automationSourceRoutes(instance: FastifyInstance): Promise
   );
 
   // La tabella cliente → progetto. Le rotte letterali prima di `/:key` (la trappola di routing di CLAUDE.md).
-  app.get("/client-links", { config: { access: USER } }, async (request, reply) => handle(reply, async () => ({ items: await listClientLinks(app.db, me(request)) })));
-  app.get("/client-links/suggestions", { config: { access: INTEGRATIONS } }, async (request, reply) =>
+  app.get("/client-links", { config: { mcp: { action: "clientLinks.list", summary: "I collegamenti fra clienti esterni e progetti.", effect: "read" }, access: USER } }, async (request, reply) => handle(reply, async () => ({ items: await listClientLinks(app.db, me(request)) })));
+  app.get("/client-links/suggestions", { config: { mcp: { action: "clientLinks.suggestions", summary: "Clienti visti ma non ancora collegati a un progetto.", effect: "read" }, access: INTEGRATIONS } }, async (request, reply) =>
     handle(reply, async () => ({ items: await listClientSuggestions(app.db, me(request)) })),
   );
   const keyParams = z.object({ key: z.string().min(1).max(200) });
   app.put(
     "/client-links/:key",
-    { config: { access: INTEGRATIONS }, schema: { params: keyParams, body: z.object({ clientName: z.string().max(200), projectId: z.uuid() }) } },
+    { config: { mcp: { action: "clientLinks.set", summary: "Collega un cliente esterno a un progetto (crea o sostituisce).", effect: "write", note: "Cambia cosa possono fare altre persone: dillo all'utente nella riga che annuncia l'azione." }, access: INTEGRATIONS }, schema: { params: keyParams, body: z.object({ clientName: z.string().max(200), projectId: z.uuid() }) } },
     async (request, reply) => handle(reply, () => putClientLink(app.db, me(request), request.params.key, request.body)),
   );
-  app.delete("/client-links/:key", { config: { access: INTEGRATIONS }, schema: { params: keyParams } }, async (request, reply) =>
+  app.delete("/client-links/:key", { config: { mcp: { action: "clientLinks.delete", summary: "Scollega un cliente da un progetto.", effect: "destructive", note: "Cambia cosa possono fare altre persone: dillo all'utente nella riga che annuncia l'azione." }, access: INTEGRATIONS }, schema: { params: keyParams } }, async (request, reply) =>
     handle(reply, async () => {
       await removeClientLink(app.db, me(request), request.params.key);
       return reply.code(204).send();

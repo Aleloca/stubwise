@@ -230,7 +230,7 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
   app.get(
     "/automation",
     {
-      config: { access: { kind: "instance", permission: "settings.manage" } },
+      config: { mcp: { action: "settings.automation", summary: "Le regole d'istanza delle automazioni e della review delle PR.", effect: "read" }, access: { kind: "instance", permission: "settings.manage" } },
       schema: {
         response: { 200: automationSettingsSchema, ...authErrorResponses },
       },
@@ -243,7 +243,7 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
   app.put(
     "/automation",
     {
-      config: { access: { kind: "instance", permission: "settings.manage" } },
+      config: { mcp: { action: "settings.updateAutomation", summary: "Modifica le regole d'istanza delle automazioni e della review delle PR.", effect: "write", note: "Vale per tutta l'istanza, non solo per chi la cambia." }, access: { kind: "instance", permission: "settings.manage" } },
       schema: {
         body: updateAutomationSettingsSchema,
         response: { 200: automationSettingsSchema, 400: errorSchema, ...authErrorResponses },
@@ -261,7 +261,7 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
   app.get(
     "/server-analysis",
     {
-      config: { access: { kind: "instance", permission: "settings.manage" } },
+      config: { mcp: { action: "settings.serverAnalysis", summary: "I limiti dell'analisi AI dei server (acceso, minuti, costo, letture).", effect: "read" }, access: { kind: "instance", permission: "settings.manage" } },
       schema: { response: { 200: serverAnalysisSettingsSchema, ...authErrorResponses } },
     },
     async () => readServerAnalysisLimits((await app.db.select().from(instanceSettings).where(eq(instanceSettings.id, 1)))[0]?.serverAnalysisLimits),
@@ -270,7 +270,7 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
   app.put(
     "/server-analysis",
     {
-      config: { access: { kind: "instance", permission: "settings.manage" } },
+      config: { mcp: { action: "settings.updateServerAnalysis", summary: "Modifica i limiti dell'analisi AI dei server (acceso, minuti, costo, letture).", effect: "write", note: "Vale per tutta l'istanza, non solo per chi la cambia." }, access: { kind: "instance", permission: "settings.manage" } },
       schema: { body: serverAnalysisSettingsSchema, response: { 200: serverAnalysisSettingsSchema, 400: errorSchema, ...authErrorResponses } },
     },
     async (request) => {
@@ -302,7 +302,7 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
   app.get(
     "/notifications",
     {
-      config: { access: { kind: "instance", permission: "integrations.manage" } },
+      config: { mcp: { action: "settings.notifications", summary: "Il webhook in uscita storico delle notifiche, senza segreti.", effect: "read" }, access: { kind: "instance", permission: "integrations.manage" } },
       schema: {
         response: { 200: notificationSettingsResponseSchema, ...authErrorResponses },
       },
@@ -314,7 +314,7 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
   app.put(
     "/notifications",
     {
-      config: { access: { kind: "instance", permission: "integrations.manage" }, partialReauth: true },
+      config: { mcp: { action: "settings.updateNotifications", summary: "Modifica il webhook in uscita storico: URL, formato, acceso, quali notifiche manda.", effect: "write", note: "Un URL nuovo chiede la riconferma: da qui session_required. Vale per tutta l'istanza, non solo per chi la cambia." }, access: { kind: "instance", permission: "integrations.manage" }, partialReauth: true },
       schema: {
         body: updateNotificationsBodySchema,
         response: {
@@ -340,7 +340,7 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
   app.post(
     "/notifications/test",
     {
-      config: { access: { kind: "instance", permission: "integrations.manage" } },
+      config: { mcp: { action: "settings.testNotifications", summary: "Manda un evento di prova al webhook delle notifiche.", effect: "write", note: "Parte una chiamata vera verso fuori." }, access: { kind: "instance", permission: "integrations.manage" } },
       schema: {
         response: { 200: testNotificationResponseSchema, ...authErrorResponses },
       },
@@ -357,7 +357,7 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
   app.get(
     "/instance",
     {
-      config: { access: { kind: "instance", permission: "settings.manage" } },
+      config: { mcp: { action: "settings.instance", summary: "Le impostazioni dell'istanza (lingua dei contenuti, budget mensile, storage S3, Slack), senza segreti.", effect: "read" }, access: { kind: "instance", permission: "settings.manage" } },
       schema: {
         response: { 200: instanceSettingsViewSchema, ...authErrorResponses },
       },
@@ -370,7 +370,7 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
   app.put(
     "/instance",
     {
-      config: { access: { kind: "instance", permission: "settings.manage" }, partialReauth: true },
+      config: { mcp: { action: "settings.updateInstance", summary: "Modifica le impostazioni dell'istanza: lingua dei contenuti, budget mensile, storage S3, Slack.", effect: "write", note: "Un segreto nuovo (chiave S3, segreti Slack) chiede la riconferma: da qui session_required. Vale per tutta l'istanza, non solo per chi la cambia." }, access: { kind: "instance", permission: "settings.manage" }, partialReauth: true },
       schema: {
         body: updateInstanceSettingsSchema,
         response: {
@@ -397,7 +397,7 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
   app.put(
     "/instance/attachments",
     {
-      config: { access: { kind: "instance", permission: "settings.manage" } },
+      config: { mcp: { action: "settings.setAttachments", summary: "Accende o spegne gli allegati per tutta l'istanza.", effect: "write", note: "Vale per tutta l'istanza, non solo per chi la cambia." }, access: { kind: "instance", permission: "settings.manage" } },
       schema: { body: z.object({ on: z.boolean() }), response: { 200: instanceSettingsViewSchema, 422: errorSchema, ...authErrorResponses } },
     },
     async (request, reply) => {
@@ -412,7 +412,7 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
     {
       // Vedi il commento sul docblock di settingsRoutes: unica GET del file
       // aperta a tutti gli autenticati, non solo agli admin.
-      config: { access: { kind: "instance", permission: "mail_admission.view" } },
+      config: { mcp: { action: "settings.mailAdmission", summary: "Le regole d'ammissione della posta: domini del Workspace, etichette escluse, mail automatiche.", effect: "read" }, access: { kind: "instance", permission: "mail_admission.view" } },
       schema: {
         response: { 200: mailAdmissionSchema, ...authErrorResponses },
       },
@@ -425,7 +425,7 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
   app.patch(
     "/mail-admission",
     {
-      config: { access: { kind: "instance", permission: "settings.manage" } },
+      config: { mcp: { action: "settings.updateMailAdmission", summary: "Modifica le regole d'ammissione della posta.", effect: "write", note: "Cambia quali mail di TUTTI entrano in Stubwise. Vale per tutta l'istanza, non solo per chi la cambia." }, access: { kind: "instance", permission: "settings.manage" } },
       schema: {
         body: mailAdmissionPatchSchema,
         response: {

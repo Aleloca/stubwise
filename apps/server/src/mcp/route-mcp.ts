@@ -43,9 +43,20 @@ export interface RouteMcpExclusion {
  *   ingresso, widget, agente di monitoraggio, Slack, callback OAuth);
  * - `infra`: una rotta pubblica d'infrastruttura (`/health`, la spec OpenAPI);
  * - `stream`: SSE, con `instead`;
- * - `desktop_link`: le rotte del PAT dell'app desktop.
+ * - `desktop_link`: le rotte del PAT dell'app desktop;
+ * - `session_only`: una rotta che rifiuta il PAT NEL SUO HANDLER senza
+ *   dichiarare `config.reauth` (la riconferma dell'identità stessa: elenco
+ *   chiuso, contato sul sorgente);
+ * - `secret_once`: una rotta il cui scopo è RESTITUIRE un segreto in chiaro
+ *   (la chiave di un agente di monitoraggio appena creata o rigenerata):
+ *   decisione del maintainer, si fa solo dall'app (elenco chiuso). Un segreto
+ *   che viaggia DENTRO una lettura ordinaria (la chiave d'ingestione di un
+ *   progetto) non esclude la rotta: l'MCP lo nasconde prima di mostrarlo
+ *   (`packages/mcp/src/tools/redact.ts`), e il test di parità pretende che
+ *   ogni campo dall'aria segreta di un'azione sia nascosto o dichiarato
+ *   innocuo.
  */
-export type DeclaredMcpExclusion = "vault" | "login" | "inbound" | "infra" | "stream" | "desktop_link";
+export type DeclaredMcpExclusion = "vault" | "login" | "inbound" | "infra" | "stream" | "desktop_link" | "session_only" | "secret_once";
 
 /** Le esclusioni che dà il registro (vedi il docblock del file). */
 export type ImpliedMcpExclusion = "reauth" | "vault" | "login";

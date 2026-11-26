@@ -149,7 +149,7 @@ export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<
   app.get(
     "/",
     {
-      config: { access: { kind: "instance", permission: "integrations.manage" } },
+      config: { mcp: { action: "settings.googleWorkspaces", summary: "I Workspace Google collegati all'istanza, senza segreti.", effect: "read" }, access: { kind: "instance", permission: "integrations.manage" } },
       schema: { response: { 200: z.array(googleWorkspaceSchema), ...authErrorResponses } },
     },
     async () => {
@@ -195,7 +195,7 @@ export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<
   app.patch(
     "/:id",
     {
-      config: { access: { kind: "instance", permission: "integrations.manage" }, partialReauth: true },
+      config: { mcp: { action: "settings.updateGoogleWorkspace", summary: "Modifica un Workspace Google collegato: nome, domini, client id.", effect: "write", note: "Un client secret nuovo chiede la riconferma: da qui session_required. Vale per tutta l'istanza, non solo per chi la cambia." }, access: { kind: "instance", permission: "integrations.manage" }, partialReauth: true },
       schema: {
         params: idParamsSchema,
         body: googleWorkspacePatchSchema,

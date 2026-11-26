@@ -24,7 +24,7 @@ export async function aiUsageSnapshotsRoutes(instance: FastifyInstance): Promise
   app.get(
     "/snapshots",
     {
-      config: { access: { kind: "instance", permission: "usage.view" } },
+      config: { mcp: { action: "aiUsage.snapshots", summary: "Le fotografie dell'utilizzo degli account AI (limiti di finestra e settimanali).", effect: "read" }, access: { kind: "instance", permission: "usage.view" } },
       schema: { response: { 200: aiUsageSnapshotsSchema, ...authErrorResponses } },
     },
     async () => {

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { ActionQuery, CatalogAction } from "../client.js";
+import { redactSecrets } from "./redact.js";
 import { errorResult, runTool, textResult } from "./shared.js";
 import type { ToolDef, ToolResult } from "./types.js";
 
@@ -232,7 +233,7 @@ const readAction: ToolDef = {
         capped(
           res.data === undefined
             ? `Fatto (HTTP ${res.status}), nessun contenuto.`
-            : JSON.stringify(res.data),
+            : JSON.stringify(redactSecrets(res.data)),
         ),
       );
     }),
@@ -260,7 +261,7 @@ const writeAction: ToolDef = {
         return errorResult(`«${entry.action}» ha un tool dedicato: usa \`${entry.tool}\`.`);
       const res = await ctx.client.callAction(entry, sendInput(args));
       return textResult(
-        capped(res.data === undefined ? `Fatto (HTTP ${res.status}).` : JSON.stringify(res.data)),
+        capped(res.data === undefined ? `Fatto (HTTP ${res.status}).` : JSON.stringify(redactSecrets(res.data))),
       );
     }),
 };

@@ -23,14 +23,14 @@ export async function adminViewRoutes(instance: FastifyInstance): Promise<void> 
 
   app.get(
     "/people",
-    { config: { access: { kind: "user" } }, schema: { response: { 200: z.array(personRowSchema), ...authErrorResponses } } },
+    { config: { mcp: { action: "admin.people", summary: "Le persone dell'istanza come le vede l'amministrazione: ruolo, stato, progetti.", effect: "read" }, access: { kind: "user" } }, schema: { response: { 200: z.array(personRowSchema), ...authErrorResponses } } },
     async (request) => listPeopleRows(app.db, request.user!),
   );
 
   app.get(
     "/people/:id",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "admin.person", summary: "Il dettaglio di una persona per l'amministrazione: ruoli, progetti, reparti, cosa si può fare su di lei.", effect: "read" }, access: { kind: "user" } },
       schema: { params: z.object({ id: z.uuid() }), response: { 200: personDetailSchema, ...authErrorResponses, 404: errorSchema } },
     },
     async (request, reply) => {
@@ -45,7 +45,7 @@ export async function adminViewRoutes(instance: FastifyInstance): Promise<void> 
   // I ruoli: chi può leggere il catalogo (`GET /api/roles`) legge anche questa vista.
   app.get(
     "/roles",
-    { config: { access: { kind: "user" } }, schema: { response: { 200: z.array(adminRoleViewSchema), ...authErrorResponses } } },
+    { config: { mcp: { action: "admin.roles", summary: "I ruoli d'istanza e di progetto come li mostra l'amministrazione, con chi li ha.", effect: "read" }, access: { kind: "user" } }, schema: { response: { 200: z.array(adminRoleViewSchema), ...authErrorResponses } } },
     async (request, reply) => {
       const user = request.user!;
       const perms = user.instancePermissions;
@@ -59,7 +59,7 @@ export async function adminViewRoutes(instance: FastifyInstance): Promise<void> 
 
   app.get(
     "/invites",
-    { config: { access: { kind: "instance", permission: "users.invite" } }, schema: { response: { 200: z.array(inviteViewSchema), ...authErrorResponses } } },
+    { config: { mcp: { action: "admin.invites", summary: "Gli inviti in attesa.", effect: "read" }, access: { kind: "instance", permission: "users.invite" } }, schema: { response: { 200: z.array(inviteViewSchema), ...authErrorResponses } } },
     async (request) => inviteViews(app.db, request.user!),
   );
 
@@ -67,7 +67,7 @@ export async function adminViewRoutes(instance: FastifyInstance): Promise<void> 
   app.delete(
     "/invites/:id",
     {
-      config: { access: { kind: "instance", permission: "users.invite" } },
+      config: { mcp: { action: "admin.revokeInvite", summary: "Revoca un invito in attesa: il link non vale più.", effect: "destructive", note: "Cambia cosa possono fare altre persone: dillo all'utente nella riga che annuncia l'azione." }, access: { kind: "instance", permission: "users.invite" } },
       schema: { params: z.object({ id: z.string().regex(/^i_[0-9a-f]{32}$/) }), response: { 204: z.null(), 404: errorSchema, ...authErrorResponses } },
     },
     async (request, reply) => {
@@ -85,7 +85,7 @@ export async function adminViewRoutes(instance: FastifyInstance): Promise<void> 
 
   app.get(
     "/invite-choices",
-    { config: { access: { kind: "instance", permission: "users.invite" } }, schema: { response: { 200: inviteChoicesSchema, ...authErrorResponses } } },
+    { config: { mcp: { action: "admin.inviteChoices", summary: "Cosa si può scegliere invitando una persona (ruoli, progetti, reparti) con i permessi di chi invita.", effect: "read" }, access: { kind: "instance", permission: "users.invite" } }, schema: { response: { 200: inviteChoicesSchema, ...authErrorResponses } } },
     async (request) => inviteChoices(app.db, request.user!),
   );
 }

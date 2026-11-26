@@ -68,6 +68,18 @@ const INFRA = new Set(["GET /health", "GET /api/openapi.json"]);
 /** Le rotte del PAT dell'app desktop: elenco chiuso. */
 const DESKTOP_LINK = new Set(["POST /api/auth/desktop-reauth"]);
 /**
+ * Le rotte che rifiutano il PAT nell'handler senza `config.reauth`: la
+ * riconferma dell'identità stessa (lotto 6). Elenco chiuso, contato sul
+ * sorgente (`return sessionRequired(reply)` di `me-security.ts`).
+ */
+const SESSION_ONLY = new Set(["POST /api/me/security/reauth", "POST /api/me/security/reauth/passkey/options", "POST /api/me/security/reauth/passkey/verify"]);
+/**
+ * Le rotte il cui scopo è restituire un segreto in chiaro (la chiave di un
+ * agente di monitoraggio): si fanno solo dall'app (decisione del maintainer,
+ * lotto 6). Elenco chiuso.
+ */
+const SECRET_ONCE = new Set(["POST /api/servers", "POST /api/servers/:id/regenerate-key"]);
+/**
  * Le rotte che rifiutano il PAT nell'handler (`requireBrowserOrConfirmedDesktop`):
  * dichiarano anche `config.reauth`, così il catalogo non le offre. Elenco
  * chiuso, contato sul sorgente.
@@ -158,6 +170,10 @@ describe("parità MCP: ogni rotta dichiara config.mcp", () => {
             return mcp.instead !== undefined && actions.has(mcp.instead);
           case "desktop_link":
             return DESKTOP_LINK.has(r.key);
+          case "session_only":
+            return SESSION_ONLY.has(r.key);
+          case "secret_once":
+            return SECRET_ONCE.has(r.key);
           default:
             return false;
         }
@@ -218,6 +234,45 @@ describe("parità MCP: ogni rotta dichiara config.mcp", () => {
       return isMcpAction(mcp) && mcp.tool === tool ? [] : [`${key} → ${tool}`];
     });
     expect(wrong).toEqual([]);
+  });
+
+  it("le rotte di session_only sono quelle che rifiutano il PAT nell'handler (contate sul sorgente)", () => {
+    const text = readFileSync(join(here, "routes", "me-security.ts"), "utf8");
+    expect(text.match(/return sessionRequired\(reply\)/g)?.length ?? 0).toBe(SESSION_ONLY.size);
+  });
+
+  it("nessun segreto in chiaro arriva al modello: un campo dall'aria segreta nella risposta di un'azione è nascosto dall'MCP o dichiarato innocuo", async () => {
+    const redacted = new Set(
+      [...readFileSync(join(here, "../../../packages/mcp/src/tools/redact.ts"), "utf8").matchAll(/^ {2}"([A-Za-z0-9]+)",$/gm)].map((m) => m[1]!),
+    );
+    expect(redacted.has("ingestionKey")).toBe(true);
+    const app = buildApp();
+    await app.ready();
+    const spec = app.swagger() as { paths: Record<string, Record<string, { responses?: Record<string, { content?: Record<string, { schema?: unknown }> }> }>> };
+    await app.close();
+    const SECRETISH = /^(key|token|secret|password|apiKey)$|(Secret|Token|Key|Password)$/;
+    /** Nomi innocui per costruzione (un colore, un preset, una chiave PUBBLICA, un gate). */
+    const INNOCENT_NAMES = new Set(["colorToken", "presetKey", "publicKey", "subKey", "residentKey", "resetPassword"]);
+    /** `key` dove non è un segreto: il raggruppamento dei consumi, l'hook di un plugin, la chiave pubblica di un widget, il nome di una variabile. */
+    const INNOCENT_PATHS = new Set(["rows.[].key", "rows.[].children.[].key", "plugins.[].inventory.hooks.[].key", "inventory.hooks.[].key", "widgets.[].key", "widget.key", "[].vars.[].key", "vars.[].key"]);
+    const found: string[] = [];
+    const walk = (schema: unknown, path: string, depth: number, key: string) => {
+      if (!schema || typeof schema !== "object" || depth > 10) return;
+      const sc = schema as { properties?: Record<string, unknown>; items?: unknown; anyOf?: unknown[]; oneOf?: unknown[]; allOf?: unknown[] };
+      for (const [name, sub] of Object.entries(sc.properties ?? {})) {
+        const at = `${path}${name}`;
+        if (SECRETISH.test(name) && !redacted.has(name) && !INNOCENT_NAMES.has(name) && !INNOCENT_PATHS.has(at)) found.push(`${key}: ${at}`);
+        walk(sub, `${at}.`, depth + 1, key);
+      }
+      if (sc.items) walk(sc.items, `${path}[].`, depth + 1, key);
+      for (const sub of [...(sc.anyOf ?? []), ...(sc.oneOf ?? []), ...(sc.allOf ?? [])]) walk(sub, path, depth, key);
+    };
+    for (const r of await registered()) {
+      if (!isMcpAction(mcpOf(r))) continue;
+      const op = spec.paths[r.url.replace(/:([A-Za-z0-9_]+)/g, "{$1}")]?.[r.method.toLowerCase()];
+      for (const code of ["200", "201", "202"]) walk(op?.responses?.[code]?.content?.["application/json"]?.schema, "", 0, r.key);
+    }
+    expect(found).toEqual([]);
   });
 
   it("una voce con `tool` nomina un tool che il pacchetto MCP ha", async () => {

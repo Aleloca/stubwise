@@ -101,7 +101,7 @@ export async function pluginRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      config: { access: { kind: "instance", permission: "plugins.manage" } },
+      config: { mcp: { action: "plugins.list", summary: "I plugin dell'agente registrati, col loro stato.", effect: "read" }, access: { kind: "instance", permission: "plugins.manage" } },
       schema: { response: { 200: pluginRegistrySchema, ...authErrorResponses } },
     },
     async () => {
@@ -156,7 +156,7 @@ export async function pluginRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:id",
     {
-      config: { access: { kind: "instance", permission: "plugins.manage" } },
+      config: { mcp: { action: "plugins.get", summary: "Un plugin registrato: sha, skill e hook dell'inventario, ultimo smoke.", effect: "read" }, access: { kind: "instance", permission: "plugins.manage" } },
       schema: {
         params: idParamsSchema,
         response: { 200: pluginSchema, 404: errorSchema, ...authErrorResponses },
@@ -209,7 +209,7 @@ export async function pluginRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/smoke",
     {
-      config: { access: { kind: "instance", permission: "plugins.manage" } },
+      config: { mcp: { action: "plugins.smoke", summary: "Rilancia lo smoke run di un plugin.", effect: "write", note: "Lo smoke ESEGUE il codice del plugin (gli hook girano coi permessi del worker): si rilancia solo su un plugin di cui ci si fida." }, access: { kind: "instance", permission: "plugins.manage" } },
       schema: {
         params: idParamsSchema,
         response: {
@@ -248,7 +248,7 @@ export async function pluginRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/:id",
     {
-      config: { access: { kind: "instance", permission: "plugins.manage" } },
+      config: { mcp: { action: "plugins.delete", summary: "Toglie un plugin dal registro: non entra più nei run di nessun progetto.", effect: "destructive", note: "Cambia cosa possono fare altre persone: dillo all'utente nella riga che annuncia l'azione." }, access: { kind: "instance", permission: "plugins.manage" } },
       schema: {
         params: idParamsSchema,
         response: { 204: z.null(), 404: errorSchema, 409: errorSchema, ...authErrorResponses },

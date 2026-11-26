@@ -15,7 +15,7 @@ export async function storageUploadsRoutes(instance: FastifyInstance): Promise<v
   const app = instance.withTypeProvider<ZodTypeProvider>();
   app.get(
     "/uploads",
-    { config: { access: { kind: "user" } }, schema: { response: { 200: storageUploadsSchema, ...authErrorResponses } } },
+    { config: { mcp: { action: "storage.uploads", summary: "Se gli allegati si possono caricare (interruttore acceso e storage configurato).", effect: "read" }, access: { kind: "user" } }, schema: { response: { 200: storageUploadsSchema, ...authErrorResponses } } },
     async () => {
       const [row] = await app.db.select().from(instanceSettings).limit(1);
       // Lotto 6, voce 2: e l'interruttore degli allegati acceso.

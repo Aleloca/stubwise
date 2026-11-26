@@ -4,7 +4,7 @@ import type { FastifyInstance, RouteOptions } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { catalogEntries, catalogInput, openApiPath, visibleEntries, type CatalogEntry } from "../mcp/catalog.js";
-import { createUserWithPat } from "../test/fixtures.js";
+import { createUserWithPat, seedUsers } from "../test/fixtures.js";
 
 /**
  * `GET /api/mcp/catalog` (design `docs/plans/2026-11-26-mcp-parita-design.md`
@@ -16,11 +16,13 @@ let testDb: TestDb;
 let db: Db;
 let app: FastifyInstance;
 let pat: { authorization: string };
+let adminCookie: string;
 
 beforeAll(async () => {
   testDb = await startTestDb();
   db = testDb.db;
   app = buildApp({ db, sessionSecret: "segreto-di-test-lungo-almeno-32-caratteri!!", encryptionKey: Buffer.alloc(32, 9).toString("base64") });
+  ({ adminCookie } = await seedUsers(app));
   ({ headers: pat } = await createUserWithPat(app, "mcp-catalog@acme.com"));
 }, 120_000);
 afterAll(async () => {
@@ -61,6 +63,17 @@ describe("GET /api/mcp/catalog", () => {
     expect(Object.keys(body.input.params?.properties ?? {})).toEqual(["action"]);
     expect(body.input.params?.required).toEqual(["action"]);
     expect(body.input.bodyKind).toBe("none");
+  });
+
+  it("le voci `instance` senza il permesso non ci sono, né nell'elenco né da sole; chi ha il permesso le vede (M7 del lotto 0)", async () => {
+    const asMember = (await app.inject({ method: "GET", url: "/api/mcp/catalog", headers: pat })).json() as { actions: Array<{ action: string }> };
+    const asAdmin = (await app.inject({ method: "GET", url: "/api/mcp/catalog", headers: { cookie: adminCookie } })).json() as { actions: Array<{ action: string; access: string }> };
+    expect(asMember.actions.map((a) => a.action)).not.toContain("admin.invites");
+    expect(asAdmin.actions.find((a) => a.action === "admin.invites")).toMatchObject({ access: "instance:users.invite" });
+    // Una voce `user` la vedono entrambi.
+    expect(asMember.actions.map((a) => a.action)).toContain("access.whoCan");
+    expect((await app.inject({ method: "GET", url: "/api/mcp/catalog/admin.invites", headers: pat })).statusCode).toBe(404);
+    expect((await app.inject({ method: "GET", url: "/api/mcp/catalog/admin.invites", headers: { cookie: adminCookie } })).statusCode).toBe(200);
   });
 
   it("un'azione che non c'è: 404", async () => {
