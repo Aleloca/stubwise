@@ -49,6 +49,7 @@ function row(over: Partial<CommentRow>): CommentRow {
     authorId: A,
     body: "testo",
     viaClaudeActionId: null,
+    viaClient: null,
     createdAt: new Date("2026-10-05T09:00:00Z"),
     replyToCommentId: null,
     editedAt: null,

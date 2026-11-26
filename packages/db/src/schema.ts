@@ -306,6 +306,17 @@ const VIA_CLAUDE_DEFAULT = sql`nullif(current_setting('stubwise.via_claude_actio
  * inverso di «Annulla»). La imposta solo l'esecutore; DEFAULT di
  * `change_log.undo_of_action_id`.
  */
+/**
+ * D4 della parità MCP (0237, `docs/plans/2026-11-26-mcp-parita-design.md`):
+ * la scrittura in corso l'ha fatta una persona DA Claude Code (l'MCP col suo
+ * PAT). La imposta il server, a inizio di ogni transazione di una richiesta
+ * dell'MCP (`apps/server/src/mcp/via-client.ts`); DEFAULT di
+ * `via_client` su commenti, storia del ticket, richieste di decisione e
+ * registro delle modifiche. L'autore resta la persona.
+ */
+export const VIA_CLIENT_SETTING = "stubwise.via_client";
+const VIA_CLIENT_DEFAULT = sql`nullif(current_setting('stubwise.via_client', true), '')`;
+export type ViaClient = "claude_code";
 export const UNDO_OF_CLAUDE_SETTING = "stubwise.undo_of_claude_action_id";
 const UNDO_OF_CLAUDE_DEFAULT = sql`nullif(current_setting('stubwise.undo_of_claude_action_id', true), '')::uuid`;
 
@@ -589,10 +600,13 @@ export const changeLog = pgTable(
     // annulla. DEFAULT dalle variabili di transazione dell'esecutore; senza FK.
     viaClaudeActionId: uuid("via_claude_action_id").default(VIA_CLAUDE_DEFAULT),
     undoOfActionId: uuid("undo_of_action_id").default(UNDO_OF_CLAUDE_DEFAULT),
+    // D4 della parità MCP (0237): «via Claude Code».
+    viaClient: text("via_client").$type<ViaClient>().default(VIA_CLIENT_DEFAULT),
   },
   (table) => [
     index("change_log_via_claude_idx").on(table.viaClaudeActionId).where(sql`${table.viaClaudeActionId} is not null`),
     check("change_log_actor_kind_chk", sql`${table.actorKind} in ('user', 'agent', 'system')`),
+    check("change_log_via_client_chk", sql`${table.viaClient} IS NULL OR ${table.viaClient} = 'claude_code'`),
     index("change_log_at_idx").on(table.at.desc(), table.id.desc()),
     index("change_log_project_at_idx").on(table.projectId, table.at.desc()),
     index("change_log_actor_at_idx").on(table.actorUserId, table.at.desc()),
@@ -1221,8 +1235,11 @@ export const decisionRequests = pgTable(
     answeredByUserId: uuid("answered_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
+    // D4 della parità MCP (0237): la DOMANDA fatta da Claude Code (la risposta no: è un UPDATE).
+    viaClient: text("via_client").$type<ViaClient>().default(VIA_CLIENT_DEFAULT),
   },
   (table) => [
+    check("decision_requests_via_client_chk", sql`${table.viaClient} IS NULL OR ${table.viaClient} = 'claude_code'`),
     index("decision_requests_ticket_idx").on(table.ticketId, table.createdAt),
     index("decision_requests_open_target_idx")
       .on(table.askedOfUserId)
@@ -1394,6 +1411,8 @@ export const comments = pgTable(
     viaClaudeActionId: uuid("via_claude_action_id")
       .references((): AnyPgColumn => claudeActions.id, { onDelete: "set null" })
       .default(VIA_CLAUDE_DEFAULT),
+    /** D4 della parità MCP (0237): il commento l'ha scritto l'autore da Claude Code. */
+    viaClient: text("via_client").$type<ViaClient>().default(VIA_CLIENT_DEFAULT),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     // Il commento a cui questo risponde (0083). Self-reference: la FK esiste in
     // migrazione (ON DELETE SET NULL: cancellare l'originale lascia la
@@ -1420,6 +1439,7 @@ export const comments = pgTable(
     // Il SET NULL di una FK senza indice scandisce la tabella.
     index("comments_reply_to_comment_id_idx").on(table.replyToCommentId),
     check("comments_deleted_body_empty_chk", sql`deleted_at IS NULL OR body = ''`),
+    check("comments_via_client_chk", sql`${table.viaClient} IS NULL OR ${table.viaClient} = 'claude_code'`),
     check(
       "comments_deleted_by_requires_deleted_chk",
       sql`deleted_by_user_id IS NULL OR deleted_at IS NOT NULL`,
@@ -1448,10 +1468,15 @@ export const ticketEvents = pgTable(
     viaClaudeActionId: uuid("via_claude_action_id")
       .references((): AnyPgColumn => claudeActions.id, { onDelete: "set null" })
       .default(VIA_CLAUDE_DEFAULT),
+    /** D4 della parità MCP (0237): la modifica l'ha fatta l'attore da Claude Code. */
+    viaClient: text("via_client").$type<ViaClient>().default(VIA_CLIENT_DEFAULT),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   // La timeline si carica sempre per ticket, ordinata cronologicamente.
-  (table) => [index("ticket_events_ticket_id_created_at_idx").on(table.ticketId, table.createdAt)],
+  (table) => [
+    index("ticket_events_ticket_id_created_at_idx").on(table.ticketId, table.createdAt),
+    check("ticket_events_via_client_chk", sql`${table.viaClient} IS NULL OR ${table.viaClient} = 'claude_code'`),
+  ],
 );
 
 /**

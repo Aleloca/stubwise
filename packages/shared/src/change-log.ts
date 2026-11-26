@@ -323,6 +323,12 @@ const changeEntryBaseSchema = z.object({
    */
   via: z.literal("claude").nullable().default(null),
   /**
+   * D4 della parità MCP (0237): l'attore l'ha fatta da Claude Code, col suo
+   * PAT («via Claude Code»). Additivo: le voci di prima, e un server più
+   * vecchio, danno false.
+   */
+  viaClaudeCode: z.boolean().default(false),
+  /**
    * Area 9, F7: la voce viene da un «Annulla», e questa è la voce che annulla
    * (stessa azione di Claude, stesso oggetto) — SOLO se chi guarda la legge;
    * altrimenti null.

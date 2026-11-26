@@ -1,3 +1,4 @@
+import { currentViaClient } from "../mcp/via-client.js";
 import { changeLog, type Db } from "@stubwise/db";
 import { sql } from "drizzle-orm";
 import { CHANGE_DATA_SCHEMAS, changeLogTypeOf, type ChangeData, type ChangeLogKind } from "@stubwise/shared";
@@ -50,6 +51,8 @@ export async function recordChange(tx: Tx | Db, entry: ChangeInput): Promise<str
     subjectKind: data.object.type,
     subjectId: data.object.id,
     data,
+    // D4 della parità MCP: «via Claude Code» anche fuori da una transazione (altrimenti lo dà il DEFAULT).
+    ...(currentViaClient() ? { viaClient: currentViaClient() } : {}),
   }).returning({ id: changeLog.id });
   return row!.id;
 }

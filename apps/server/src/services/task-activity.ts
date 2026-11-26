@@ -86,7 +86,7 @@ export async function taskActivity(
     db.select().from(comments).where(eq(comments.ticketId, ticketId)),
     db.select().from(ticketEvents).where(eq(ticketEvents.ticketId, ticketId)),
     db
-      .select({ id: decisionRequests.id, by: decisionRequests.askedByUserId, at: decisionRequests.createdAt })
+      .select({ id: decisionRequests.id, by: decisionRequests.askedByUserId, at: decisionRequests.createdAt, viaClient: decisionRequests.viaClient })
       .from(decisionRequests)
       .where(eq(decisionRequests.ticketId, ticketId)),
   ]);
@@ -138,6 +138,7 @@ export async function taskActivity(
       ...(c.deletedAt ? { deletedAt: c.deletedAt.toISOString() } : {}),
       ...(c.deletedByUserId ? { deletedById: c.deletedByUserId } : {}),
       ...via(c.viaClaudeActionId),
+      viaClaudeCode: c.viaClient === "claude_code",
       sortAt: c.createdAt.getTime(),
     })),
     ...eventRows.map((e) => {
@@ -152,6 +153,7 @@ export async function taskActivity(
         from: valueOf(e.kind, payload, "from"),
         to: valueOf(e.kind, payload, "to"),
         ...via(e.viaClaudeActionId),
+        viaClaudeCode: e.viaClient === "claude_code",
         sortAt: e.createdAt.getTime(),
       };
     }),
@@ -163,6 +165,7 @@ export async function taskActivity(
       at: d.at.toISOString(),
       decisionRequestId: d.id,
       ...NOT_VIA_CLAUDE,
+      viaClaudeCode: d.viaClient === "claude_code",
       sortAt: d.at.getTime(),
     })),
   ];

@@ -534,13 +534,55 @@ const catalogDetailSchema = catalogActionSchema.extend({
 export type CatalogActionDetail = z.infer<typeof catalogDetailSchema>;
 
 /** I valori di una query di `callAction`: un array ripete la chiave. */
-export type ActionQuery = Record<string, string | number | boolean | Array<string | number | boolean> | undefined>;
+export type ActionQuery = Record<
+  string,
+  string | number | boolean | Array<string | number | boolean> | undefined
+>;
 
 /** Una chiamata a un'azione del catalogo, così come l'ha fatta il server. */
 export interface ActionResponse {
   status: number;
   data: unknown;
 }
+
+/** Il tetto dei campi in più di un errore del server, nel messaggio. */
+const ERROR_EXTRA_MAX_CHARS = 2_000;
+
+/** `.` o `..`, anche con spazi intorno o codificati (`%2e`). */
+function isDotSegment(value: string): boolean {
+  let decoded = value;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    // Un `%` isolato: resta com'è, e `encodeURIComponent` lo codifica.
+  }
+  const t = decoded.trim();
+  return t === "." || t === "..";
+}
+
+/**
+ * L'URL, normalizzato come lo normalizza `fetch`, sta sotto
+ * `<percorso del baseUrl><prefisso statico della voce>` e ha tanti segmenti
+ * quanti il modello della voce.
+ */
+function staysWithin(url: string, baseUrl: string, template: string): boolean {
+  const base = new URL(baseUrl).pathname.replace(/\/$/, "");
+  const pathname = new URL(url).pathname;
+  const staticPrefix = template.split("/:")[0]!;
+  const segments = (p: string) => p.split("/").filter((x) => x !== "").length;
+  return (
+    pathname.startsWith(`${base}${staticPrefix}`) &&
+    segments(pathname) === segments(base) + segments(template)
+  );
+}
+
+/**
+ * D4 della parità MCP: ogni richiesta dice che arriva da Claude Code. Col PAT
+ * `manual` il server ne fa «via Claude Code» accanto all'autore, nella storia
+ * del ticket e nel registro delle modifiche (`apps/server/src/mcp/via-client.ts`).
+ */
+const CLIENT_HEADER = "x-stubwise-client";
+const CLIENT_NAME = "claude-code";
 
 export interface StubwiseClientDeps {
   fetch?: typeof fetch;
@@ -595,6 +637,7 @@ export class StubwiseClient {
 
     const headers: Record<string, string> = {
       authorization: `Bearer ${this.token}`,
+      [CLIENT_HEADER]: CLIENT_NAME,
     };
     let payload: string | undefined;
     if (body !== undefined) {
@@ -716,9 +759,18 @@ export class StubwiseClient {
       }
       throw err;
     }
-    const { actions } = this.parseResponse(z.object({ actions: z.array(catalogActionSchema) }), raw, "il catalogo delle azioni");
+    const { actions } = this.parseResponse(
+      z.object({ actions: z.array(catalogActionSchema) }),
+      raw,
+      "il catalogo delle azioni",
+    );
     this.catalogCache = actions;
     return actions;
+  }
+
+  /** Dimentica il catalogo in cache: la prossima `getCatalog` lo rilegge. */
+  invalidateCatalog(): void {
+    this.catalogCache = null;
   }
 
   /** Una voce del catalogo con gli schemi (`GET /api/mcp/catalog/:action`). */
@@ -738,16 +790,32 @@ export class StubwiseClient {
     input: { params?: Record<string, string | number>; query?: ActionQuery; body?: unknown } = {},
   ): Promise<ActionResponse> {
     const missing: string[] = [];
+    const dotted: string[] = [];
     const path = entry.path.replace(/:([A-Za-z0-9_]+)/g, (_m, name: string) => {
       const value = input.params?.[name];
       if (value === undefined || value === "") {
         missing.push(name);
         return `:${name}`;
       }
+      // Un segmento `.` o `..` (anche con spazi o codificato: il fetch di Node
+      // normalizza pure `%2e%2e`) porterebbe la chiamata FUORI dalla voce, su
+      // rotte che il catalogo non offre (revisione del lotto 0, I1).
+      if (isDotSegment(String(value))) dotted.push(name);
       return encodeURIComponent(String(value));
     });
     if (missing.length > 0) {
-      throw new StubwiseApiError(`Mancano i parametri del percorso: ${missing.join(", ")}`, 0, "missing_params");
+      throw new StubwiseApiError(
+        `Mancano i parametri del percorso: ${missing.join(", ")}`,
+        0,
+        "missing_params",
+      );
+    }
+    if (dotted.length > 0) {
+      throw new StubwiseApiError(
+        `Parametri del percorso non validi («.» o «..»): ${dotted.join(", ")}`,
+        0,
+        "invalid_params",
+      );
     }
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries(input.query ?? {})) {
@@ -756,7 +824,19 @@ export class StubwiseClient {
     }
     const qs = query.toString();
     const url = `${this.baseUrl}${path}${qs ? `?${qs}` : ""}`;
-    const headers: Record<string, string> = { authorization: `Bearer ${this.token}` };
+    // Difesa: dopo la normalizzazione l'URL resta sotto il prefisso statico
+    // della voce e ha i suoi segmenti, qualunque cosa contenga la voce.
+    if (!staysWithin(url, this.baseUrl, entry.path)) {
+      throw new StubwiseApiError(
+        `Il percorso di «${entry.method} ${entry.path}» esce dalla voce del catalogo`,
+        0,
+        "invalid_params",
+      );
+    }
+    const headers: Record<string, string> = {
+      authorization: `Bearer ${this.token}`,
+      [CLIENT_HEADER]: CLIENT_NAME,
+    };
     let payload: string | undefined;
     if (input.body !== undefined) {
       headers["content-type"] = "application/json";
@@ -766,7 +846,11 @@ export class StubwiseClient {
     try {
       response = await this.fetchFn(url, { method: entry.method, headers, body: payload });
     } catch (err) {
-      throw new StubwiseApiError(`Impossibile raggiungere Stubwise a ${this.baseUrl} (${(err as Error).message})`, 0, "network_error");
+      throw new StubwiseApiError(
+        `Impossibile raggiungere Stubwise a ${this.baseUrl} (${(err as Error).message})`,
+        0,
+        "network_error",
+      );
     }
     if (response.status === 401) throw await this.toApiError(response);
     const text = await response.text();
@@ -785,8 +869,16 @@ export class StubwiseClient {
       const rest: Record<string, unknown> = { ...(body ?? {}) };
       delete rest.code;
       delete rest.message;
-      const extra = Object.keys(rest).length > 0 ? ` ${JSON.stringify(rest)}` : "";
-      throw new StubwiseApiError(`HTTP ${response.status} ${code}: ${body?.message ?? "errore del server"}${extra}`, response.status, code);
+      const json = Object.keys(rest).length > 0 ? JSON.stringify(rest) : "";
+      const extra =
+        json === ""
+          ? ""
+          : ` ${json.length > ERROR_EXTRA_MAX_CHARS ? `${json.slice(0, ERROR_EXTRA_MAX_CHARS)}[…]` : json}`;
+      throw new StubwiseApiError(
+        `HTTP ${response.status} ${code}: ${body?.message ?? "errore del server"}${extra}`,
+        response.status,
+        code,
+      );
     }
     return { status: response.status, data };
   }
