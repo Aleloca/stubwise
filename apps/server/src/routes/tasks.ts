@@ -342,7 +342,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/:ticketId",
     {
-      config: { access: onTicket("tickets.edit"), mcp: { action: "tasks.update", summary: "Modifica una task: titolo, descrizione, stato, assegnatario, settimana, priorità, milestone o etichette (solo i campi mandati).", effect: "write", note: "Assegnare l'utente «Claude» avvia il lavoro come il tool `run_ticket`: serve `runs.start`, passa dal gate del piano e spende budget." } },
+      config: { access: onTicket("tickets.edit"), mcp: { action: "tasks.update", summary: "Modifica una task: titolo, descrizione, stato, assegnatario, spostarla di settimana o di giorno, priorità, milestone o etichette (solo i campi mandati).", effect: "write", note: "Assegnare l'utente «Claude» avvia il lavoro come il tool `run_ticket`: serve `runs.start`, passa dal gate del piano e spende budget." } },
       schema: {
         params: ticketParamsSchema,
         body: taskPatchSchema,

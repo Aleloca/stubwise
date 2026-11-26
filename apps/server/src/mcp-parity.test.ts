@@ -3,8 +3,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { RouteOptions } from "fastify";
 import { describe, expect, it } from "vitest";
+import { DEPARTMENT_PERMISSIONS, INSTANCE_PERMISSIONS, PROJECT_PERMISSIONS } from "@stubwise/shared";
 import { buildApp } from "./app.js";
-import { PENDING_MCP, PENDING_MCP_MAX } from "./mcp/pending.js";
 import { impliedMcpExclusion, isMcpAction, type RouteMcp } from "./mcp/route-mcp.js";
 import {
   CHAT_TOOL_WRITE_ROUTES,
@@ -61,8 +61,8 @@ import {
  * cassaforte, login: `impliedMcpExclusion`). Non esiste un'esclusione «non la
  * usa l'app»: così la parità non dipende da un elenco a mano.
  *
- * Transizione: `PENDING_MCP` (`mcp/pending.ts`) elenca le rotte non ancora
- * dichiarate, e si può solo ACCORCIARE. Sparisce all'ultimo lotto.
+ * Nessuna transizione: dal lotto 7 (26 nov 2026) non c'è più un elenco di
+ * rotte in attesa. Una rotta nuova senza `config.mcp` fa fallire il test.
  */
 
 interface Collected {
@@ -160,6 +160,58 @@ function mcpToolNames(): Promise<Set<string>> {
   })();
   return toolNamesCache;
 }
+
+/**
+ * I testi che citano tool e azioni per nome (lotto 7): la skill e i comandi
+ * del plugin, le istruzioni del server MCP, le descrizioni dei tool
+ * registrati (anche dei loro campi) e sommari e note del catalogo.
+ */
+async function citingTexts(): Promise<{ where: string; text: string }[]> {
+  const out: { where: string; text: string }[] = [];
+  const plugin = join(here, "../../../plugins/stubwise");
+  for (const dir of ["skills/stubwise", "commands"]) {
+    for (const f of readdirSync(join(plugin, dir))) if (f.endsWith(".md")) out.push({ where: `${dir}/${f}`, text: readFileSync(join(plugin, dir, f), "utf8") });
+  }
+  const { SERVER_INSTRUCTIONS } = (await import(pathToFileURL(join(here, "../../../packages/mcp/src/instructions.ts")).href)) as { SERVER_INSTRUCTIONS: string };
+  out.push({ where: "instructions.ts", text: SERVER_INSTRUCTIONS });
+  const serverModule = join(here, "../../../packages/mcp/src/server.ts");
+  const { buildServer } = (await import(pathToFileURL(serverModule).href)) as {
+    buildServer: (ctx: unknown) => { _registeredTools?: Record<string, { description?: string; inputSchema?: unknown }> };
+  };
+  const server = buildServer({ client: {}, config: { baseUrl: "http://localhost", token: "x", projectSlug: null } });
+  for (const [name, tool] of Object.entries(server._registeredTools ?? {})) {
+    const parts = [tool.description ?? ""];
+    const seen = new Set<unknown>();
+    const walk = (v: unknown, depth: number) => {
+      if (!v || typeof v !== "object" || seen.has(v) || depth > 8) return;
+      seen.add(v);
+      const d = (v as { description?: unknown }).description;
+      if (typeof d === "string") parts.push(d);
+      for (const child of Object.values(v as Record<string, unknown>)) walk(child, depth + 1);
+    };
+    walk(tool.inputSchema, 0);
+    out.push({ where: `tool ${name}`, text: parts.join("\n") });
+  }
+  for (const r of await registered()) {
+    const mcp = mcpOf(r);
+    if (isMcpAction(mcp)) out.push({ where: r.key, text: `${mcp.summary}\n${mcp.note ?? ""}` });
+  }
+  return out;
+}
+
+/**
+ * Le parole fra backtick che non sono né tool né azioni né permessi né codici
+ * d'errore, e che i testi citano apposta. Elenco chiuso.
+ */
+const CITED_WORDS = new Set<string>([
+  // Gli stati di un ticket che la skill fa avanzare.
+  "in_progress",
+  "in_review",
+  // Il tool delle domande dell'agente sul WORKER, non del pacchetto MCP.
+  "ask_user",
+  // Un valore di `source` del registro decisioni (`list_decisions`).
+  "plan_review",
+]);
 
 /**
  * I codici d'errore del server (`apiError(reply, 403, "session_required", …)`,
@@ -345,22 +397,9 @@ function okResponses(route: RouteOptions): unknown[] {
 }
 
 describe("parità MCP: ogni rotta dichiara config.mcp", () => {
-  it("ogni rotta è un'azione, un'esclusione dichiarata, un'esclusione del registro o in PENDING_MCP", async () => {
-    const pending = new Set(PENDING_MCP);
-    const missing = (await registered()).filter((r) => mcpOf(r) === undefined && implied(r) === null && !pending.has(r.key)).map((r) => r.key);
+  it("ogni rotta è un'azione, un'esclusione dichiarata o un'esclusione del registro, senza eccezioni", async () => {
+    const missing = (await registered()).filter((r) => mcpOf(r) === undefined && implied(r) === null).map((r) => r.key);
     expect(missing).toEqual([]);
-  });
-
-  it("PENDING_MCP si può solo accorciare: niente voci dichiarate, escluse dal registro, doppie o inesistenti", async () => {
-    const routes = new Map((await registered()).map((r) => [r.key, r]));
-    const stale = PENDING_MCP.filter((key) => {
-      const r = routes.get(key);
-      return r === undefined || mcpOf(r) !== undefined || implied(r) !== null;
-    });
-    expect(stale).toEqual([]);
-    expect(new Set(PENDING_MCP).size).toBe(PENDING_MCP.length);
-    // Una rotta NUOVA non si accoda: il tetto si abbassa soltanto (revisione del lotto 0, I2).
-    expect(PENDING_MCP.length).toBeLessThanOrEqual(PENDING_MCP_MAX);
   });
 
   it("una rotta esclusa dal registro (riconferma, cassaforte, login) non dichiara nulla", async () => {
@@ -655,6 +694,26 @@ describe("parità MCP: ogni rotta dichiara config.mcp", () => {
       if (!isMcpAction(mcp) || mcp.note === undefined) return [];
       return [...mcp.note.matchAll(/`([a-z]+(?:_[a-z]+)+)`/g)].map((m) => m[1]!).filter((t) => !names.has(t) && !codes.has(t)).map((t) => `${r.key} → ${t}`);
     });
+    expect(unknown).toEqual([]);
+  });
+
+  it("i nomi fra backtick di skill, comandi, istruzioni, descrizioni dei tool e voci del catalogo esistono (lotto 7)", async () => {
+    const texts = await citingTexts();
+    const tools = await mcpToolNames();
+    const codes = serverErrorCodes();
+    const routes = await registered();
+    const actions = new Set(routes.flatMap((r) => (isMcpAction(mcpOf(r)) ? [(mcpOf(r) as { action: string }).action] : [])));
+    const permissions = new Set<string>([...INSTANCE_PERMISSIONS, ...PROJECT_PERMISSIONS, ...DEPARTMENT_PERMISSIONS]);
+    expect(texts.length).toBeGreaterThan(40);
+    const unknown: string[] = [];
+    for (const { where, text } of texts) {
+      for (const m of text.matchAll(/`([a-z]+(?:_[a-z]+)+)`/g)) {
+        if (!tools.has(m[1]!) && !codes.has(m[1]!) && !CITED_WORDS.has(m[1]!)) unknown.push(`${where} → ${m[1]}`);
+      }
+      for (const m of text.matchAll(/`([a-z][a-zA-Z]*\.[a-z][a-zA-Z]*)`/g)) {
+        if (!actions.has(m[1]!) && !permissions.has(m[1]!) && !CITED_WORDS.has(m[1]!)) unknown.push(`${where} → ${m[1]}`);
+      }
+    }
     expect(unknown).toEqual([]);
   });
 

@@ -149,7 +149,7 @@ export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<
   app.get(
     "/",
     {
-      config: { mcp: { action: "settings.googleWorkspaces", summary: "I Workspace Google collegati all'istanza, senza segreti.", effect: "read" }, access: { kind: "instance", permission: "integrations.manage" } },
+      config: { mcp: { action: "settings.googleWorkspaces", summary: "Le app Google (i Workspace) collegate all'istanza, senza segreti.", effect: "read" }, access: { kind: "instance", permission: "integrations.manage" } },
       schema: { response: { 200: z.array(googleWorkspaceSchema), ...authErrorResponses } },
     },
     async () => {

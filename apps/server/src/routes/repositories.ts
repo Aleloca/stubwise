@@ -640,7 +640,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
   app.patch(
     "/:slug",
     {
-      config: { mcp: { action: "repositories.update", summary: "Modifica un repository: nome, URL, branch, comandi, revisore, branch protetti, rilascio, grafo.", effect: "write" }, access: repositoryAccess("slug", "repos.manage") },
+      config: { mcp: { action: "repositories.update", summary: "Modifica un repository: nome, URL, branch, comandi, revisore, branch protetti, rilascio (pipeline, modalità delle PR), grafo.", effect: "write" }, access: repositoryAccess("slug", "repos.manage") },
       schema: {
         params: slugParamsSchema,
         body: updateRepositorySchema,
