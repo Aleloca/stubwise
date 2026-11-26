@@ -517,6 +517,17 @@ describe("i Server dal server (area 8, F4a)", () => {
     ]);
   });
 
+  it("un DSN nuovo senza riconferma (lotto 6): `reauth_required` arriva alla pagina così, non come «invalid»", async () => {
+    const refuse = async () => {
+      throw new ApiError(403, "reauth_required", "reauth_required");
+    };
+    const servers = createRealServers(fakeApi({ createCheck: refuse, updateCheck: refuse }), () => NOW);
+    await servers.getServer("SRV-1");
+    const input = { name: "DB", type: "postgres" as const, target: "postgres://u:p@db/app", intervalSeconds: 30, enabled: true };
+    await expect(servers.createCheck("SRV-1", input)).rejects.toThrow(/^reauth_required$/);
+    await expect(servers.updateCheck(CHK, { target: "postgres://u:q@db/app" })).rejects.toThrow(/^reauth_required$/);
+  });
+
   it("F4b: l'analisi dell'episodio e l'ultima a mano, nelle forme del prototipo (`serverOps.analyses`)", async () => {
     const api = fakeApi({
       analyses: async () => ({

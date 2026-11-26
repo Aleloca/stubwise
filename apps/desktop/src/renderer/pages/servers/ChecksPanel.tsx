@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useCreateCheck, useDeleteCheck, useUpdateCheck } from "../../data/queries";
+import { useReauth } from "../../layout/useReauth";
 import type { CheckInput } from "../../data/servers";
 import type { ServerCheck } from "../../data/types";
 import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
@@ -41,6 +42,7 @@ function CheckDialog({
   });
   const [error, setError] = useState<{ field: string; text: string } | null>(null);
   const pending = create.isPending || update.isPending;
+  const reauth = useReauth();
 
   const save = async () => {
     setError(null);
@@ -51,9 +53,24 @@ function CheckDialog({
       intervalSeconds: Number(draft.interval),
       enabled: draft.enabled,
     };
+    // Un DSN nuovo di un database chiede la riconferma: il dialogo si apre solo
+    // se il livello dati risponde `reauth_required`, poi il salvataggio riparte.
+    const attempt = async () => {
+      try {
+        if (check) await update.mutateAsync({ checkId: check.id, patch: input });
+        else await create.mutateAsync({ code: serverCode, input });
+        return { ok: true as const };
+      } catch (e) {
+        if (e instanceof Error && e.message === "reauth_required") {
+          return { ok: false as const, error: "reauth_required" as const };
+        }
+        throw e;
+      }
+    };
     try {
-      if (check) await update.mutateAsync({ checkId: check.id, patch: input });
-      else await create.mutateAsync({ code: serverCode, input });
+      const result = await reauth(attempt, { action: t("servers.checks.saveAction") });
+      // Riconferma annullata: niente è cambiato, il dialogo del controllo resta aperto.
+      if (!result.ok) return;
       onClose();
     } catch (e) {
       const field = e instanceof Error ? e.message.replace(/^invalid: /, "") : "";

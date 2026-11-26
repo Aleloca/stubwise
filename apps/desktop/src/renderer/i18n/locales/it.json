@@ -9833,6 +9833,7 @@
       "almostFull": "quasi pieno"
     },
     "checks": {
+      "saveAction": "salvare questo controllo",
       "add": "Aggiungi controllo",
       "addTitle": "Aggiungi controllo",
       "editTitle": "Modifica «{{name}}»",
