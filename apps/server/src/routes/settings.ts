@@ -224,6 +224,18 @@ async function loadMailAdmission(db: Db): Promise<Omit<z.infer<typeof mailAdmiss
  * renderebbe la sezione "Posta" del progetto incomprensibile a chi non è
  * admin. La scrittura resta `settings.manage`, come per le regole di progetto.
  */
+/**
+ * Cambiano l'endpoint o il bucket dello storage rispetto a quelli salvati?
+ * Lo stesso confronto di `reauthOf` (`claude-actions/catalog.ts`): un campo
+ * assente non cambia, gli spazi intorno non contano.
+ */
+async function storageTargetChanges(db: Db, body: { s3Endpoint?: string | null; s3Bucket?: string | null }): Promise<boolean> {
+  const [row] = await db.select({ endpoint: instanceSettings.s3Endpoint, bucket: instanceSettings.s3Bucket }).from(instanceSettings).limit(1);
+  const norm = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  const changes = (next: string | null | undefined, saved: string | null | undefined) => next !== undefined && norm(next) !== norm(saved);
+  return changes(body.s3Endpoint, row?.endpoint) || changes(body.s3Bucket, row?.bucket);
+}
+
 export async function settingsRoutes(instance: FastifyInstance, opts: { mailClassifyV2?: boolean } = {}): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
@@ -382,10 +394,17 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
     },
     async (request, reply) => {
       const body = request.body;
-      // Area 9, F3 (D-5): la riconferma solo quando il corpo porta un segreto
+      // Area 9, F3 (D-5): la riconferma quando il corpo porta un segreto
       // (sostituito o azzerato), con la regola del gate (`requireReauth`).
+      // Dal 26 nov 2026 (decisione del maintainer) anche quando CAMBIANO
+      // l'endpoint o il bucket dello storage, per qualunque chiamante: decidono
+      // DOVE vanno e da dove si servono gli allegati di tutti, col segreto
+      // salvato che resta in uso (è la regola che il lotto 10 aveva dato
+      // all'azione di Claude `saveStorage`, `reauthOf`). Lo stesso valore,
+      // spazi a parte, non è un cambio.
       const touchesSecret = [body.s3SecretKey, body.slackSigningSecret, body.slackBotToken].some((v) => v !== undefined);
-      if (touchesSecret && !(await requireReauth(request, reply))) return reply;
+      const movesStorage = body.s3Endpoint !== undefined || body.s3Bucket !== undefined ? await storageTargetChanges(app.db, body) : false;
+      if ((touchesSecret || movesStorage) && !(await requireReauth(request, reply))) return reply;
       // Area 9, F7: la funzione, la stessa delle azioni di Claude (`saveBudget`).
       const { reachedBefore } = await putInstanceSettings(app.db, app.encryptionKey, request.user!, body);
       const view = await loadInstanceSettings(app.db, app.encryptionKey);
