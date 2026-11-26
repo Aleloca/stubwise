@@ -260,7 +260,10 @@ async function claimRuns(deps: ExecutorDeps, now: Date, token: string): Promise<
       .where(
         sql`(${automationRuns.claimedAt} is null or ${automationRuns.claimedAt} < ${leaseStart}::timestamptz)
           and (
-            (${automationRuns.status} in ('running', 'waiting_event') and ${automationRuns.dueAt} <= ${now.toISOString()}::timestamptz)
+            -- «Adesso» di JS è un millesimo intero [now, now + 1 ms): \`due_at\` ha i
+            -- microsecondi (il default è \`now()\` di Postgres), e una riga dovuta
+            -- in quel millesimo va presa (CI del 26 nov 2026). Resta sull'indice.
+            (${automationRuns.status} in ('running', 'waiting_event') and ${automationRuns.dueAt} < ${now.toISOString()}::timestamptz + interval '1 millisecond')
             or exists (
               select 1 from ${automationRunInputs} i where i.run_id = ${automationRuns.id} and i.consumed_at is null
                 -- Una sospesa si muove solo per un controllo (riprendi, annulla): gli altri input aspettano la ripresa.

@@ -268,6 +268,24 @@ describe("executeDueRuns", () => {
     expect((await ticketsOfRun(run.id)).map((x) => x.title)).toEqual(["Sì"]);
   });
 
+  it("un'esecuzione dovuta nello stesso millesimo del giro si prende: `due_at` (µs, `now()` di Postgres) contro l'ora di JS (ms)", async () => {
+    // CI del 26 nov 2026 (PR #125): una riga appena inserita, col default
+    // `now()` di Postgres, ha i microsecondi; il giro subito dopo usa
+    // `new Date()`, troncato al millesimo. Nello STESSO millesimo la riga
+    // sembrava dovuta nel futuro e restava `running`. Qui la condizione è
+    // fissata, non affidata al caso: `due_at` = l'ora del giro + 500 µs.
+    const { run } = await runOf([task()]);
+    const now = new Date(Date.now() - 60_000);
+    await t.db.update(automationRuns).set({ dueAt: sql`${now.toISOString()}::timestamptz + interval '500 microseconds'` }).where(eq(automationRuns.id, run.id));
+    expect(await executeDueRuns({ db: t.db, now: () => now })).toBe(1);
+    expect((await reload(run.id)).status).toBe("done");
+    // Un millesimo dopo, però, non è ancora dovuta: il margine è il millesimo di JS, non di più.
+    const { run: later } = await runOf([task()]);
+    await t.db.update(automationRuns).set({ dueAt: sql`${now.toISOString()}::timestamptz + interval '1 millisecond'` }).where(eq(automationRuns.id, later.id));
+    expect(await executeDueRuns({ db: t.db, now: () => now })).toBe(0);
+    expect((await reload(later.id)).status).toBe("running");
+  });
+
   it("il lease: un'esecuzione presa da un altro worker non si tocca finché non scade", async () => {
     const { run } = await runOf([task()]);
     const now = new Date();
