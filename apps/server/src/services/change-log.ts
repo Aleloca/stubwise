@@ -1,4 +1,5 @@
 import { currentViaClient } from "../mcp/via-client.js";
+import { maskUrlCredentials } from "./url-credentials.js";
 import { changeLog, type Db } from "@stubwise/db";
 import { sql } from "drizzle-orm";
 import { CHANGE_DATA_SCHEMAS, changeLogTypeOf, type ChangeData, type ChangeLogKind } from "@stubwise/shared";
@@ -36,7 +37,7 @@ export async function recordChange(tx: Tx | Db, entry: ChangeInput): Promise<str
   if ((type.scope === "project") !== (entry.projectId !== null)) {
     throw new Error(`${entry.type}: una voce ${type.scope === "project" ? "di progetto vuole" : "d'istanza non vuole"} un projectId`);
   }
-  const data = CHANGE_DATA_SCHEMAS[entry.type]!.parse(entry.data);
+  const data = CHANGE_DATA_SCHEMAS[entry.type]!.parse(scrubLogData(entry.data));
   const actor = entry.actor;
   const [row] = await tx.insert(changeLog).values({
     // L'istante dell'INSERIMENTO, non l'inizio della transazione (`now()`): una
@@ -56,6 +57,49 @@ export async function recordChange(tx: Tx | Db, entry: ChangeInput): Promise<str
   }).returning({ id: changeLog.id });
   return row!.id;
 }
+
+/**
+ * Revisione del lotto 5 della parità MCP (I1): il controllo di sorgente qui
+ * sotto vede solo le chiavi scritte DENTRO la chiamata, non quelle di un
+ * helper che costruisce il prima/dopo (`fields(w)` → `changedFields`). Qui,
+ * a runtime e in UN posto: una chiave dall'aria segreta nel prima, nel dopo o
+ * nei params è un errore di programmazione (lancia); le credenziali dentro un
+ * URL (`user:pass@`) si mascherano in `user:***@`, perché un URL dato da una
+ * persona può portarle senza che lo scrittore lo sappia.
+ */
+function scrubLogData(data: ChangeInput["data"]): ChangeInput["data"] {
+  const json = (text: string | null | undefined): string | null | undefined => {
+    if (typeof text !== "string") return text;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return maskUrlCredentials(text);
+    }
+    return JSON.stringify(scrubValue(parsed));
+  };
+  return {
+    ...data,
+    ...(data.before !== undefined ? { before: json(data.before) } : {}),
+    ...(data.after !== undefined ? { after: json(data.after) } : {}),
+    ...(data.params !== undefined ? { params: scrubValue(data.params) as ChangeData["params"] } : {}),
+  };
+}
+
+function scrubValue(value: unknown): unknown {
+  if (typeof value === "string") return maskUrlCredentials(value);
+  if (Array.isArray(value)) return value.map(scrubValue);
+  if (value !== null && typeof value === "object") {
+    const keys = Object.keys(value);
+    const bad = keys.filter((k) => isSecretLogKey(k));
+    if (bad.length > 0) throw new Error(`registro delle modifiche: un campo dall'aria di segreto (${bad.join(", ")}); per un segreto si scrive solo «sostituito»`);
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, scrubValue(v)]));
+  }
+  return value;
+}
+
+const isSecretLogKey = (key: string) => !ALLOWED_KEY_NAMES.has(key) && /secret|token|password|key|dsn/i.test(key);
+
 
 /**
  * Le chiavi PROIBITE dentro le chiamate a `recordChange` di un sorgente: un

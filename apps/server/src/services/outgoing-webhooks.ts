@@ -79,6 +79,24 @@ export async function createWebhook(db: Db, key: Buffer, actor: Actor, input: Cr
   return { ...toWebhookView(row), secret };
 }
 
+/** L'URL di un webhook come entra nel registro: host e ultime 4 cifre. */
+export function maskedUrl(url: string): string {
+  let host = "";
+  try {
+    host = new URL(url).host;
+  } catch {
+    host = "?";
+  }
+  return `${host} …${url.slice(-4)}`;
+}
+
+/** Il JSON di un prima/dopo con l'URL mascherato (e «cambiato» se la maschera non lo mostrerebbe). */
+function maskWebhookUrlField(json: string, sameMask: boolean): string {
+  const fields = JSON.parse(json) as Record<string, unknown>;
+  if (typeof fields.url === "string") fields.url = maskedUrl(fields.url) + (sameMask ? " (cambiato)" : "");
+  return JSON.stringify(fields);
+}
+
 export async function updateWebhook(db: Db, actor: Actor, id: string, patch: UpdateOutgoingWebhookInput): Promise<OutgoingWebhookView> {
   return db.transaction(async (tx) => {
     const [before] = await tx.select().from(outgoingWebhooks).where(eq(outgoingWebhooks.id, id)).for("update");
@@ -93,10 +111,14 @@ export async function updateWebhook(db: Db, actor: Actor, id: string, patch: Upd
       .where(eq(outgoingWebhooks.id, id))
       .returning();
     // Come il prototipo (`webhook.ts`, voce `fields`): i soli campi cambiati,
-    // l'URL com'è (non è un segreto, [IN 4]), gli eventi come lista di id
-    // ordinata. Una modifica che non cambia niente non scrive.
+    // gli eventi come lista di id ordinata. Una modifica che non cambia niente
+    // non scrive. L'URL NON entra com'è: per un webhook in uscita È un
+    // segreto (Slack e simili lo portano nel percorso; [IN 4] è superata
+    // dalla revisione del lotto 5 della parità MCP, I1) — entra come host e
+    // ultime 4 cifre, e un cambio che le lascia uguali si vede lo stesso.
     const fields = (w: Row) => ({ name: w.name, url: w.url, format: w.format, enabled: w.enabled, events: [...w.events].sort() });
-    const diff = changedFields(fields(before), fields(after!));
+    const raw = changedFields(fields(before), fields(after!));
+    const diff = raw && { before: maskWebhookUrlField(raw.before, false), after: maskWebhookUrlField(raw.after, maskedUrl(before.url) === maskedUrl(after!.url)) };
     if (diff) await recordChange(tx, { type: "webhook.updated", actor, projectId: null, data: { object: webhookObject(after!), ...diff } });
     return toWebhookView(after!);
   });
