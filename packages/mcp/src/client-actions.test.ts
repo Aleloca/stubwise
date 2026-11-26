@@ -146,3 +146,63 @@ describe("callAction", () => {
     expect(err.message).toContain("STUBWISE_TOKEN");
   });
 });
+
+describe("uploadAction (lotto 2, upload_file)", () => {
+  const UPLOAD = { method: "POST", path: "/api/tickets/:ticketId/attachments" };
+
+  it("manda un multipart con UN file nel campo `file`, col nome e il tipo, e le intestazioni del catalogo", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: "a1" }, 201));
+    const res = await makeClient(fetchMock).uploadAction(UPLOAD, { params: { ticketId: "t1" } }, { data: new Uint8Array([104, 105]), name: "nota.txt", type: "text/plain" });
+    expect(res).toEqual({ status: 201, data: { id: "a1" } });
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("https://stubwise.example.com/api/tickets/t1/attachments");
+    expect(init.method).toBe("POST");
+    expect(init.headers).toEqual({ authorization: "Bearer stw_pat_secret", "x-stubwise-client": "claude-code" });
+    const form = init.body as FormData;
+    expect([...form.keys()]).toEqual(["file"]);
+    const file = form.get("file") as File;
+    expect(file.name).toBe("nota.txt");
+    expect(file.type).toBe("text/plain");
+    expect(await file.text()).toBe("hi");
+  });
+
+  it("un rifiuto del server arriva col suo code; un `..` nei parametri non parte", async () => {
+    const refused = makeClient(vi.fn().mockResolvedValue(jsonResponse({ code: "file_too_large", message: "Too large" }, 413)));
+    const err = (await refused.uploadAction(UPLOAD, { params: { ticketId: "t1" } }, { data: new Uint8Array([1]), name: "x", type: "application/octet-stream" }).catch((e: unknown) => e)) as StubwiseApiError;
+    expect(err.code).toBe("file_too_large");
+    expect(err.message).toBe("HTTP 413 file_too_large: Too large");
+    const fetchMock = vi.fn();
+    const dotted = (await makeClient(fetchMock).uploadAction(UPLOAD, { params: { ticketId: ".." } }, { data: new Uint8Array([1]), name: "x", type: "application/octet-stream" }).catch((e: unknown) => e)) as StubwiseApiError;
+    expect(dotted.code).toBe("invalid_params");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("downloadAction (lotto 2, download_file)", () => {
+  const DOWNLOAD = { method: "GET", path: "/api/attachments/:attachmentId/download" };
+
+  it("restituisce i byte, il tipo e il nome di Content-Disposition (filename* prima di filename)", async () => {
+    const body = new Uint8Array([0, 255, 10]);
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(body, {
+        status: 200,
+        headers: { "content-type": "image/png", "content-disposition": `attachment; filename="schermata.png"; filename*=UTF-8''schermata%20%C3%A8.png` },
+      }),
+    );
+    const res = await makeClient(fetchMock).downloadAction(DOWNLOAD, { params: { attachmentId: "a1" } });
+    expect(res.status).toBe(200);
+    expect([...res.bytes]).toEqual([0, 255, 10]);
+    expect(res.contentType).toBe("image/png");
+    expect(res.filename).toBe("schermata è.png");
+    expect(fetchMock.mock.calls[0]![1].headers).toEqual({ authorization: "Bearer stw_pat_secret", "x-stubwise-client": "claude-code" });
+  });
+
+  it("senza Content-Disposition il nome è null; un errore resta JSON col suo code", async () => {
+    const plain = await makeClient(vi.fn().mockResolvedValue(new Response(new Uint8Array([1]), { status: 200 }))).downloadAction(DOWNLOAD, { params: { attachmentId: "a1" } });
+    expect(plain.filename).toBeNull();
+    const err = (await makeClient(vi.fn().mockResolvedValue(jsonResponse({ code: "not_found", message: "Attachment not found" }, 404)))
+      .downloadAction(DOWNLOAD, { params: { attachmentId: "a1" } })
+      .catch((e: unknown) => e)) as StubwiseApiError;
+    expect(err.code).toBe("not_found");
+  });
+});
