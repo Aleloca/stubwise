@@ -499,6 +499,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Lotto 10: la cassaforte dal desktop, il sigillo del Mac» (24 nov 2026; solo con l'app firmata)
   - «L'utilizzo degli account dal rate_limit_event» (19 nov 2026)
   - «Rilascio dell'integrazione: aree 2–11 e rimandi (lotti 1–10)» (26 nov 2026, voce consolidata: migrazioni 0107–0236, worker fermo prima del server, discese non sicure)
+  - «Riconferma su endpoint e bucket dello storage» (27 nov 2026; server e caddy, nessuna migrazione, rollback sicuro)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.

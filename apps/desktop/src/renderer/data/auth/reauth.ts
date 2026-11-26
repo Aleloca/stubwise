@@ -86,8 +86,9 @@ export const REAUTH_REQUIRED: ReadonlySet<ApiFnName> = new Set<ApiFnName>([
   // Area 9b, Task 1: chi crea, sostituisce o cancella un segreto scritto da
   // chi amministra (chiave o setup-token, token git, client secret, chiave
   // S3), più registrare e aggiornare un plugin, che ne esegue il codice
-  // (scelta del controller). `saveStorage` chiede la riconferma solo quando
-  // porta una chiave nuova (`secretAccessKey`): lo decide la funzione.
+  // (scelta del controller). `saveStorage` chiede la riconferma quando porta
+  // una chiave nuova (`secretAccessKey`) o cambia endpoint o bucket: lo decide
+  // la funzione, come la rotta del server.
   // Dei webhook in uscita (F3) la chiedono creare e rigenerare il segreto
   // (nasce un segreto) ed eliminare; `updateWebhook` solo quando cambia
   // l'URL (maintainer, 18 nov 2026: nome, formato, eventi e stato restano

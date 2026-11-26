@@ -347,6 +347,8 @@ describe("nessun segreto dal riquadro", () => {
   });
 
   it("il suo inverso rimette endpoint, regione, bucket e access key id, mai la chiave", () => {
+    // Il bucket nuovo è una C: la voce gira dopo la riconferma.
+    markReauthenticated(ROBERTA);
     const before = storageArgs();
     const run = CLAUDE_CATALOG.saveStorage.run(ROBERTA, { ...before, bucket: "b-2" });
     expect(state.instance.storage.bucket).toBe("b-2");

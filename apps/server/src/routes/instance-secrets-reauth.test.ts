@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { aiProviders, gitAccounts, googleWorkspaces, instanceSettings, plugins, users, type Db } from "@stubwise/db";
+import { aiProviders, gitAccounts, googleWorkspaces, instanceSettings, personalAccessTokens, plugins, users, type Db } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { createSession, SESSION_COOKIE } from "../auth/session.js";
+import { generatePat, hashServerKey } from "./shared.js";
 import { fullSessionCookie, seedUsers } from "../test/fixtures.js";
 
 /**
@@ -82,6 +83,32 @@ describe("la riconferma sulle rotte con segreti", () => {
     await expectReauth(await call(stale, "PUT", "/api/settings/instance", { contentLanguage: "it", s3SecretKey: "" }));
     const [settings] = await db.select().from(instanceSettings);
     expect(settings?.slackBotTokenEncrypted ?? null).toBeNull();
+  });
+});
+
+describe("endpoint e bucket dello storage chiedono la riconferma, per QUALUNQUE chiamante (decisione del maintainer, 26 nov 2026)", () => {
+  // Lotto 10 la voleva per l'azione di Claude (`saveStorage`); ora vale anche
+  // per la rotta: endpoint e bucket decidono DOVE vanno e da dove si servono
+  // gli allegati di tutti, col segreto salvato che resta in uso.
+  it("sessione scaduta: cambiare l'endpoint o il bucket è 403 reauth_required e non scrive; lo stesso valore, o la regione, passano", async () => {
+    expect((await call(fresh, "PUT", "/api/settings/instance", { contentLanguage: "it", s3Endpoint: "https://s3.prima.example", s3Bucket: "prima" })).statusCode).toBe(200);
+    await expectReauth(await call(stale, "PUT", "/api/settings/instance", { contentLanguage: "it", s3Endpoint: "https://s3.altro.example" }));
+    await expectReauth(await call(stale, "PUT", "/api/settings/instance", { contentLanguage: "it", s3Bucket: "altro" }));
+    const [row] = await db.select().from(instanceSettings);
+    expect(row).toMatchObject({ s3Endpoint: "https://s3.prima.example", s3Bucket: "prima" });
+    // Rimandare gli stessi valori (anche con spazi) non cambia dove vanno gli allegati.
+    expect((await call(stale, "PUT", "/api/settings/instance", { contentLanguage: "it", s3Endpoint: " https://s3.prima.example ", s3Bucket: "prima" })).statusCode).toBe(200);
+    expect((await call(stale, "PUT", "/api/settings/instance", { contentLanguage: "it", s3Region: "eu-west-1" })).statusCode).toBe(200);
+  });
+
+  it("col PAT: session_required, e niente scritto", async () => {
+    const token = generatePat();
+    await db.insert(personalAccessTokens).values({ userId: adminId, name: "mcp", tokenHash: hashServerKey(token), kind: "manual" });
+    const res = await app.inject({ method: "PUT", url: "/api/settings/instance", headers: { authorization: `Bearer ${token}` }, payload: { contentLanguage: "it", s3Bucket: "di-un-altro" } });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ code: "session_required" });
+    const [row] = await db.select().from(instanceSettings);
+    expect(row?.s3Bucket).not.toBe("di-un-altro");
   });
 });
 

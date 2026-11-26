@@ -1682,6 +1682,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     bucket, nella vista, alla conferma e nell'«Annulla». Non esiste un campo
     «prefisso» dell'archiviazione: il lato B è regione e chiave d'accesso.
     Limite: l'«Annulla» di un campo che prima era vuoto non lo rimette vuoto.;
+    **26 nov 2026, decisione del maintainer**: la riconferma su endpoint e
+    bucket vale per QUALUNQUE chiamante, non solo per l'azione di Claude:
+    anche `PUT /api/settings/instance` la chiede quando cambiano
+    (`storageTargetChanges` in `routes/settings.ts`, lo stesso confronto di
+    `reauthOf`; col PAT `session_required`). Prima la rotta seguiva solo D-5
+    dell'area 9 (la riconferma per i segreti). Resta da fare nel desktop:
+    `StoragePage` apre la riconferma solo quando si scrive la chiave segreta,
+    quindi un cambio di endpoint o bucket senza chiave arriva a
+    `reauth_required` senza dialogo *(S, renderer)*;
   - ~~Azioni di Claude, i Minor della review di F7 *(S ciascuno)*:
     - `changed_after` dei tipi `member`/`project`/`setting` legge il
       registro senza un lock: un salvataggio a mano che fa commit fra la
