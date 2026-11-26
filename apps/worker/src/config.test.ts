@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { effectiveModelDefaults, loadWorkerConfig, MODEL_ENV_OPERATIONS, modelEnvOperations } from "./config.js";
+import { effectiveModelDefaults, loadWorkerConfig, MODEL_ENV_OPERATIONS, modelEnvOperations, WORKER_ENV_NAMES } from "./config.js";
 import { DEFAULT_AGENT_QUESTION_MAX_ROUNDS } from "./pipeline/ask-user.js";
 
 const VALID = {
@@ -980,5 +980,118 @@ describe("classificazione nuova della posta (area 6, F2)", () => {
     expect(loadWorkerConfig({ ...VALID, MAIL_CLASSIFY_V2: "" }).mailClassifyV2).toBe(false);
     expect(loadWorkerConfig({ ...VALID, MAIL_CLASSIFY_V2: "true" }).mailClassifyV2).toBe(true);
     expect(() => loadWorkerConfig({ ...VALID, MAIL_CLASSIFY_V2: "si" })).toThrow(/MAIL_CLASSIFY_V2/);
+  });
+});
+
+/*
+ * Il compose NON usa `env_file`: una env che manca dall'`environment` del
+ * servizio non arriva al container, e regolarla in `/opt/stubwise/.env` non ha
+ * effetto (26 nov 2026: ne mancavano 27 al worker, fra cui le cinque nuove
+ * dei poller e della sonda d'uso). Questi test leggono il compose vero.
+ */
+
+/** Le voci dell'`environment` di un servizio del compose, nome → valore grezzo. */
+function composeEnvironment(service: string): Map<string, string> {
+  const text = readFileSync(fileURLToPath(new URL("../../../docker-compose.yml", import.meta.url)), "utf8");
+  const out = new Map<string, string>();
+  let inService = false;
+  let inEnv = false;
+  for (const line of text.split("\n")) {
+    if (/^ {2}[a-z][\w-]*:\s*$/.test(line)) {
+      inService = line.trim() === `${service}:`;
+      inEnv = false;
+      continue;
+    }
+    if (!inService) continue;
+    if (/^ {4}environment:\s*$/.test(line)) {
+      inEnv = true;
+      continue;
+    }
+    if (/^ {4}\S/.test(line)) inEnv = false;
+    if (!inEnv) continue;
+    const m = /^\s+-\s*([A-Z][A-Z0-9_]*)=(.*)$/.exec(line) ?? /^\s+([A-Z][A-Z0-9_]*):\s*(.*)$/.exec(line);
+    if (m) out.set(m[1]!, m[2]!.trim().replace(/^"(.*)"$/, "$1"));
+  }
+  return out;
+}
+
+/**
+ * Ciò che il container riceve quando `.env` NON nomina la variabile (né le
+ * altre a cui il default rimanda): la sostituzione di compose con un ambiente
+ * vuoto. `${A:-x}` e `${A-x}` → x, `${A}` → stringa vuota.
+ */
+function composeDefault(raw: string): string {
+  let out = "";
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i] !== "$" || raw[i + 1] !== "{") {
+      out += raw[i];
+      continue;
+    }
+    let depth = 0;
+    let j = i + 1;
+    for (; j < raw.length; j++) {
+      if (raw[j] === "{") depth++;
+      else if (raw[j] === "}" && --depth === 0) break;
+    }
+    const inner = raw.slice(i + 2, j);
+    const m = /^[A-Z][A-Z0-9_]*(:?-)([\s\S]*)$/.exec(inner);
+    out += m ? composeDefault(m[2]!) : "";
+    i = j;
+  }
+  return out;
+}
+
+/** La forma `${NOME:-…}`/`${NOME-…}` di una voce che rimanda a sé stessa, o null (valore fisso). */
+function selfReference(name: string, raw: string): ":-" | "-" | "" | null {
+  const m = new RegExp(`^\\$\\{${name}(:?-)?`).exec(raw);
+  if (!m) return null;
+  return (m[1] ?? "") as ":-" | "-" | "";
+}
+
+/**
+ * Come una env regolabile deve stare in `.env.example`: `NOME=` una volta
+ * sola; ma con `${NOME-…}` (la stringa vuota ha un significato suo, di solito
+ * «spento») COMMENTATA, `#NOME=`: una riga vuota copiata in `.env` spegnerebbe
+ * la funzione. Restituisce il problema, o null.
+ */
+function exampleProblem(example: string[], name: string, form: ":-" | "-" | ""): string | null {
+  const plain = example.filter((line) => line.startsWith(`${name}=`)).length;
+  const commented = example.filter((line) => line.startsWith(`#${name}=`)).length;
+  if (form === "-") return plain === 0 && commented === 1 ? null : `${name}: serve una sola riga #${name}= e nessuna ${name}=`;
+  return plain === 1 ? null : `${name}: serve una sola riga ${name}= (ne ha ${plain})`;
+}
+
+describe("docker-compose: le env del worker", () => {
+  const env = composeEnvironment("worker");
+  const example = readFileSync(fileURLToPath(new URL("../../../.env.example", import.meta.url)), "utf8").split("\n");
+
+  it("(a) ogni env dello schema arriva al worker dal compose", () => {
+    expect(env.size).toBeGreaterThan(50);
+    expect(WORKER_ENV_NAMES.filter((name) => !env.has(name))).toEqual([]);
+  });
+
+  it("(b) il default del compose dà la config del default del codice; `:-` solo dove vuota = assente", () => {
+    const base = loadWorkerConfig(VALID);
+    let checked = 0;
+    for (const [name, raw] of env) {
+      if (!WORKER_ENV_NAMES.includes(name) || name in VALID) continue;
+      const form = selfReference(name, raw);
+      // Un valore fisso (un percorso dell'immagine) non è regolabile da `.env`.
+      if (form === null) continue;
+      checked++;
+      expect(loadWorkerConfig({ ...VALID, [name]: composeDefault(raw) }), `${name} = ${raw}`).toEqual(base);
+      // `${NOME:-…}` passa il default anche per una riga VUOTA in `.env`: va
+      // bene solo se lo schema tratta la vuota come assente. Se no, `${NOME-…}`.
+      if (form === ":-") expect(loadWorkerConfig({ ...VALID, [name]: "" }), `${name}: vuota ≠ assente, serve \${${name}-…}`).toEqual(base);
+    }
+    expect(checked).toBeGreaterThan(50);
+  });
+
+  it("(c) ogni env regolabile dello schema compare in .env.example, nella forma giusta", () => {
+    const problems = WORKER_ENV_NAMES.flatMap((name) => {
+      const form = selfReference(name, env.get(name) ?? "");
+      return form === null ? [] : [exampleProblem(example, name, form)].filter((p) => p !== null);
+    });
+    expect(problems).toEqual([]);
   });
 });

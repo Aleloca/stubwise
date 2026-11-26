@@ -257,6 +257,13 @@ export interface Config {
  * Lancia un errore con un messaggio leggibile che elenca ogni variabile
  * mancante o non valida (esperienza self-hosting).
  */
+/**
+ * I nomi delle env dello schema: il test li confronta con l'`environment`
+ * del server in `docker-compose.yml` (niente `env_file`: ciò che manca lì
+ * non arriva al container).
+ */
+export const SERVER_ENV_NAMES: readonly string[] = Object.keys(envSchema.shape);
+
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
   const result = envSchema.safeParse(env);
   if (!result.success) {
