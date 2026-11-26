@@ -293,7 +293,7 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
   );
   app.post(
     "/channels/:id/messages",
-    { config: { access: ACCESS, mcp: { action: "chat.send", summary: "Scrive un messaggio in un canale o in un thread, con menzioni e allegati già caricati.", effect: "write", note: "Citare @Claude nel messaggio avvia una sua risposta: Avvia lavoro dell'AI: spende budget." } }, schema: { params: idParams, body: postChatMessageSchema, response: { 201: chatMessageSchema, ...errors } } },
+    { config: { access: ACCESS, mcp: { action: "chat.send", summary: "Manda un messaggio: scrivi in un canale o in un thread, con menzioni e allegati già caricati.", effect: "write", note: "Citare @Claude nel messaggio avvia una sua risposta: Avvia lavoro dell'AI: spende budget." } }, schema: { params: idParams, body: postChatMessageSchema, response: { 201: chatMessageSchema, ...errors } } },
     async (request, reply) =>
       handle(reply, async () =>
         reply.code(201).send(
