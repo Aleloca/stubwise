@@ -24,12 +24,14 @@
  * mai uscita.
  *
  * ⚠️ `npm view` gira SENZA la configurazione utente
- * (`NPM_CONFIG_USERCONFIG=/dev/null`). Dopo `actions/setup-node` con
- * `registry-url`, quella configurazione è un `.npmrc` col token preso da
- * `NODE_AUTH_TOKEN`, che fuori dal passo di pubblicazione vale un SEGNAPOSTO:
- * il registro risponderebbe 401 a ogni lettura, ogni pacchetto risulterebbe
- * «non pubblicato» e il giro lavorerebbe a ogni merge. Le letture di
- * pacchetti pubblici non vogliono autenticazione.
+ * (`NPM_CONFIG_USERCONFIG=/dev/null`). Fino al 26 nov 2026 `actions/setup-node`
+ * aveva `registry-url`, e quella configurazione era un `.npmrc` col token preso
+ * da `NODE_AUTH_TOKEN`, che fuori dal passo di pubblicazione valeva un
+ * SEGNAPOSTO: il registro rispondeva 401 a ogni lettura, ogni pacchetto
+ * risultava «non pubblicato» e il giro lavorava a ogni merge. Col Trusted
+ * Publishing quel `.npmrc` non c'è più, ma la guardia resta: le letture di
+ * pacchetti pubblici non vogliono autenticazione, e un `.npmrc` qualunque
+ * (anche in locale) non deve deciderne l'esito.
  */
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, readdirSync, readFileSync } from "node:fs";
