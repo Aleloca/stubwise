@@ -231,14 +231,23 @@ describe("permessi", () => {
     expect(await instance.updateGoogleApp("gw-example", { name: "Example Inc" })).toMatchObject({
       ok: true,
     });
+    // Regione e access key id sì; endpoint e bucket nuovi no (fix/storage-endpoint-reauth).
     expect(
       await instance.saveStorage({
-        endpoint: "https://s3.eu-south-1.amazonaws.com",
+        endpoint: state.instance.storage.endpoint,
         region: "eu-south-1",
-        bucket: "stubwise-prod",
+        bucket: state.instance.storage.bucket,
         accessKeyId: "AKIAPROTOTYPE4STUB",
       }),
     ).toMatchObject({ ok: true });
+    expect(
+      await instance.saveStorage({
+        endpoint: "https://s3.altro.example.com",
+        region: "eu-south-1",
+        bucket: state.instance.storage.bucket,
+        accessKeyId: "AKIAPROTOTYPE4STUB",
+      }),
+    ).toMatchObject({ ok: false, error: "reauth_required" });
     expect(await instance.setAttachments(false)).toMatchObject({ ok: true });
     expect(await instance.testStorage()).toMatchObject({ ok: true });
     expect(await instance.updateWebhook(SEED_WEBHOOK, { name: "Slack #ops" })).toMatchObject({
@@ -775,6 +784,8 @@ describe("archiviazione", () => {
   });
 
   it("salvare la configurazione: i campi cambiati nel prima/dopo, la prova va rifatta", async () => {
+    // Endpoint e bucket nuovi chiedono la riconferma (fix/storage-endpoint-reauth).
+    reauth(ROBERTA);
     expect(
       await instance.saveStorage({
         endpoint: "https://s3.eu-south-1.amazonaws.com",

@@ -7209,6 +7209,26 @@ deploy o di un rollback che la tocca.
   bypass 2FA, scope `@stubwise`) nei secret del repository; i Trusted
   Publisher su npmjs.com possono restare. Le versioni già pubblicate non si
   ritirano.
+
+- **«Riconferma su endpoint e bucket dello storage»** *(27 nov 2026)*: branch
+  `fix/sicurezza-riconferma-storage`. Due difetti trovati dalla revisione
+  della parità MCP, in produzione dal rilascio del 26 nov:
+  - confermare una proposta di Claude dopo averla **modificata** («Modifica»)
+    saltava la riconferma per campo: la riconferma si calcolava sugli
+    argomenti salvati, l'esecuzione usava quelli modificati (`saveStorage`
+    con endpoint e bucket nuovi passava con una sessione vecchia). Ora
+    riconferma ed esecuzione usano gli stessi argomenti
+    (`apps/server/src/claude-actions/proposals.ts`);
+  - `PUT /api/settings/instance` chiedeva la riconferma solo per i segreti:
+    per decisione del maintainer (27 nov 2026) la chiede anche quando
+    cambiano `s3Endpoint` o `s3Bucket`, per qualunque chiamante (403
+    `reauth_required` con una sessione non riconfermata, `session_required`
+    col PAT). La pagina Storage dell'app nuova apre il dialogo «Confirm it's
+    you»; il web vecchio lo faceva già con l'intercettore globale.
+  **Deploy**: nessuna migrazione, nessuna env. Ribuildare **`server`** e
+  **`caddy`** (il renderer di `/app`); il worker non cambia. **Rollback**:
+  sicuro, scendere server e caddy insieme.
+
 - **«Parità MCP con la nuova app» (26 nov 2026)**: design
   `docs/plans/2026-11-26-mcp-parita-design.md` (lotti 0–7). Ogni rotta del
   server dichiara `config.mcp` (un'azione del catalogo o un'esclusione con un
@@ -7226,7 +7246,8 @@ deploy o di un rollback che la tocca.
      dall'adattatore vero). Il codice del web non cambia, ma il web vede
      comportamenti nuovi del server: la riconferma ora la chiedono anche il
      DSN di un controllo postgres/mysql, le credenziali (`user:pass@`) nel
-     target di un controllo http, l'endpoint e il bucket dello storage; i
+     target di un controllo http, l'endpoint e il bucket dello storage
+     (questi due già dal 27 nov, voce precedente); i
      target dei controlli si leggono mascherati (`user:***@`, campo
      `hasCredentials`), e rimandati così come sono valgono «invariato».
      Un `400 masked_credentials` (un `***` come password dove non ce n'è una

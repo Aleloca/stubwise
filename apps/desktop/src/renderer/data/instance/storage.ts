@@ -102,7 +102,9 @@ export function saveStorageAs(
   const secret = input.secretAccessKey?.trim();
   if (secret === "" || (secret === undefined && s.secretId === null))
     return refuse.invalid("secret_access_key");
-  if (secret !== undefined) {
+  // La riconferma: una chiave nuova, o un endpoint o un bucket diversi (dove
+  // vanno i file di tutti), come la rotta del server (fix/storage-endpoint-reauth).
+  if (secret !== undefined || endpoint !== s.endpoint || bucket !== s.bucket) {
     const blocked = reauthRefusal(me, "instance.saveStorage");
     if (blocked) return blocked;
   }

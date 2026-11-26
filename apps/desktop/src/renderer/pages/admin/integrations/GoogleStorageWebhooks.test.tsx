@@ -232,14 +232,22 @@ describe("Storage", () => {
     expect(screen.getByText("Files already uploaded stay where they are.")).toBeVisible();
     expect(screen.getByText("•••• w3m7")).toBeVisible();
 
-    // Salvare senza chiave nuova: nessuna riconferma.
+    // Un bucket nuovo chiede la riconferma, come sul server (fix/storage-endpoint-reauth).
     const bucket = screen.getByLabelText("Bucket");
     await user.clear(bucket);
     await user.type(bucket, "stubwise-prod");
     await user.click(screen.getByRole("button", { name: "Save" }));
+    await confirmItsYou(user);
     expect(await screen.findByText("Saved.")).toBeVisible();
-    expect(screen.queryByRole("dialog", { name: "Confirm it's you" })).toBeNull();
     expect(state.instance.storage.bucket).toBe("stubwise-prod");
+
+    // La sola regione no: si salva senza dialogo.
+    const region = screen.getByLabelText("Region");
+    await user.clear(region);
+    await user.type(region, "eu-south-1");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(state.instance.storage.region).toBe("eu-south-1"));
+    expect(screen.queryByRole("dialog", { name: "Confirm it's you" })).toBeNull();
     expect(await screen.findByText("not checked yet")).toBeVisible();
 
     // La prossima verifica non raggiunge il bucket: i caricamenti si spengono.
@@ -266,6 +274,23 @@ describe("Storage", () => {
       "aria-checked",
       "false",
     );
+  });
+
+  it("un endpoint nuovo: `reauth_required` apre il dialogo, e riconfermato la richiesta riparte e salva", async () => {
+    const user = userEvent.setup();
+    renderRoute("/admin/storage", ROBERTA);
+    await screen.findByText("Uploads are on.");
+    const endpoint = screen.getByLabelText("Endpoint");
+    await user.clear(endpoint);
+    await user.type(endpoint, "https://s3.altro.example.com");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    // Prima della riconferma niente è cambiato.
+    expect(await screen.findByRole("dialog", { name: "Confirm it's you" })).toBeVisible();
+    expect(state.instance.storage.endpoint).not.toBe("https://s3.altro.example.com");
+    await confirmItsYou(user);
+    expect(await screen.findByText("Saved.")).toBeVisible();
+    expect(state.instance.storage.endpoint).toBe("https://s3.altro.example.com");
+    expect(screen.queryByText("Couldn't save. Try again.")).toBeNull();
   });
 
   it("una chiave nuova chiede la riconferma; poi solo le ultime 4 (RF 1)", async () => {
