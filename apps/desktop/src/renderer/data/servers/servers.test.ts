@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { METRIC_POINTS_MAX } from "../../domain/servers/limits";
 import { failNext, listNotifications, releases, resetApi, servers, setLatency } from "../api";
+import { markReauthenticated } from "../auth/reauth";
 import { setSessionPersonId } from "../session";
 import { state, storeGeneration } from "../store";
 import type { ServerService } from "../types";
@@ -416,8 +417,41 @@ describe("monitor: creare, modificare, togliere (monitor.manage)", () => {
     await expect(servers.setThresholds("SRV-1", base)).rejects.toThrow("forbidden");
   });
 
+  it("un controllo di database: il DSN nuovo chiede la riconferma, il resto no", async () => {
+    as("p-roberta");
+    const db = {
+      name: "Admin DB",
+      type: "mysql" as const,
+      target: "mysql://u:p@db/app",
+      intervalSeconds: 30,
+      enabled: true,
+    };
+    const before = state.serverChecks.length;
+    await expect(servers.createCheck("SRV-4", db)).rejects.toThrow(/^reauth_required$/);
+    expect(state.serverChecks.length).toBe(before);
+    // Un controllo HTTP non porta una password.
+    const web = await servers.createCheck("SRV-4", {
+      ...db,
+      type: "http",
+      target: "https://x.test",
+    });
+    expect(web.type).toBe("http");
+    markReauthenticated("p-roberta");
+    const c = await servers.createCheck("SRV-4", db);
+    state.reauth.clear();
+    // Intervallo, stato e lo STESSO bersaglio passano; un DSN diverso no.
+    expect(
+      await servers.updateCheck(c.id, { intervalSeconds: 120, enabled: false, target: db.target }),
+    ).toMatchObject({ intervalSeconds: 120 });
+    await expect(servers.updateCheck(c.id, { target: "mysql://u:q@db/app" })).rejects.toThrow(
+      /^reauth_required$/,
+    );
+    expect(state.serverChecks.find((x) => x.id === c.id)!.target).toBe(db.target);
+  });
+
   it("controlli: crea, modifica, togli; intervallo 10–3600 e tipi del web", async () => {
     as("p-roberta");
+    markReauthenticated("p-roberta");
     const c = await servers.createCheck("SRV-4", {
       name: "Admin DB",
       type: "mysql",

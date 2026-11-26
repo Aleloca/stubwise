@@ -9833,6 +9833,7 @@
       "almostFull": "almost full"
     },
     "checks": {
+      "saveAction": "save this check",
       "add": "Add check",
       "addTitle": "Add check",
       "editTitle": "Edit “{{name}}”",

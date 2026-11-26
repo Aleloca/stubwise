@@ -3,6 +3,7 @@ import { changedFields } from "../changelog/settingValues";
 import { copy, newId, now, state } from "../store";
 import type { MonitoredServer, ServerCheck, ServerThresholds } from "../types";
 import { forbidden, invalid, writer } from "../writer";
+import { requireReauth } from "../auth/reauth";
 import { environmentFor } from "../releases/visibility";
 import { dropSshAccess } from "./access";
 import { recordServerChange } from "./changes";
@@ -246,10 +247,16 @@ function checkFields(input: CheckInput): CheckInput {
   };
 }
 
+/** I controlli il cui bersaglio è un DSN con la password dentro. */
+const isDbCheck = (type: ServerCheck["type"]) => type === "postgres" || type === "mysql";
+
 /** Un controllo nuovo: stato sconosciuto finché l'agente non lo prova. */
 export async function createCheck(code: string, input: CheckInput): Promise<ServerCheck> {
   const me = await writer("servers.createCheck");
   const server = managed(me, code);
+  // Un DSN nuovo di un database porta la password: la riconferma, come la rotta.
+  if (isDbCheck(input.type) && requireReauth(me, "servers.createCheck"))
+    throw new Error("reauth_required");
   const check: ServerCheck = {
     id: newId("chk"),
     serverCode: server.code,
@@ -270,6 +277,15 @@ export async function updateCheck(
   const me = await writer("servers.updateCheck");
   const check = checkFor(me, checkId);
   if (!canMonitor(me)) throw forbidden();
+  // Un DSN nuovo di un database porta la password: la riconferma, come la rotta.
+  const dsnChanged = patch.target !== undefined && patch.target !== check.target;
+  if (
+    dsnChanged &&
+    isDbCheck(patch.type ?? check.type) &&
+    requireReauth(me, "servers.updateCheck")
+  ) {
+    throw new Error("reauth_required");
+  }
   const fields = checkFields({
     name: patch.name ?? check.name,
     type: patch.type ?? check.type,

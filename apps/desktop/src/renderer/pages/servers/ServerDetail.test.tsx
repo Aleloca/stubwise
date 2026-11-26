@@ -445,6 +445,29 @@ describe("gestione: solo con monitor.manage", () => {
     );
   });
 
+  it("un controllo PostgreSQL col DSN chiede la riconferma (il DSN porta la password): il dialogo, poi il controllo; HTTP no", async () => {
+    const user = userEvent.setup();
+    await open("/p/ACQ/servers/SRV-1", "p-roberta");
+    const before = state.serverChecks.length;
+    await user.click(within(part("Checks")).getByRole("button", { name: "Add check" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add check" });
+    await user.type(within(dialog).getByRole("textbox", { name: "Name" }), "Database");
+    await user.selectOptions(within(dialog).getByRole("combobox", { name: "Type" }), "postgres");
+    await user.type(
+      within(dialog).getByRole("textbox", { name: "Target" }),
+      "postgres://app:segreto@db:5432/app",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Add check" }));
+    const confirm = await screen.findByRole("dialog", { name: "Confirm it's you" });
+    expect(state.serverChecks.length).toBe(before);
+    await user.type(within(confirm).getByLabelText("Code"), "123456");
+    expect(
+      await within(part("Checks")).findByRole("button", { name: /^Database, Unknown/ }),
+    ).toBeInTheDocument();
+    expect(state.serverChecks.length).toBe(before + 1);
+    expect(screen.queryByRole("dialog", { name: "Confirm it's you" })).toBeNull();
+  });
+
   it("Roberta: rigenerare la chiave la mostra una volta, dopo la conferma", async () => {
     const user = userEvent.setup();
     await open("/p/ACQ/servers/SRV-1", "p-roberta");
