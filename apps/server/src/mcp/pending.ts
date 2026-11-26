@@ -9,7 +9,7 @@
  * Il tetto di `PENDING_MCP`: si abbassa SOLTANTO, a ogni lotto, fino a zero.
  * Senza, una rotta nuova si accoderebbe all'elenco e il test passerebbe.
  */
-export const PENDING_MCP_MAX = 428;
+export const PENDING_MCP_MAX = 402;
 
 export const PENDING_MCP: readonly string[] = [
   "DELETE /api/admin/invites/:id",
@@ -34,8 +34,6 @@ export const PENDING_MCP: readonly string[] = [
   "DELETE /api/me/calendar/series/:recurringEventId",
   "DELETE /api/me/email-change",
   "DELETE /api/me/google/accounts/:id",
-  "DELETE /api/me/mail/drafts/:id",
-  "DELETE /api/me/mail/drafts/:id/attachments/:attachmentId",
   "DELETE /api/me/sessions/:id",
   "DELETE /api/pats/:id",
   "DELETE /api/plugins/:id",
@@ -132,21 +130,6 @@ export const PENDING_MCP: readonly string[] = [
   "GET /api/me/email-change",
   "GET /api/me/google/accounts",
   "GET /api/me/google/workspaces",
-  "GET /api/me/mail",
-  "GET /api/me/mail/:source/:id",
-  "GET /api/me/mail/:source/:id/original",
-  "GET /api/me/mail/drafts",
-  "GET /api/me/mail/drafts/compose",
-  "GET /api/me/mail/outgoing/:id",
-  "GET /api/me/mail/proposals",
-  "GET /api/me/mail/proposals/:id",
-  "GET /api/me/mail/recipients",
-  "GET /api/me/mail/rejections",
-  "GET /api/me/mail/summary",
-  "GET /api/me/mail/threads",
-  "GET /api/me/mail/threads/:threadId",
-  "GET /api/me/meetings/:noteId",
-  "GET /api/me/meetings/:noteId/tasks",
   "GET /api/me/notification-prefs",
   "GET /api/me/product-questions",
   "GET /api/me/security",
@@ -338,15 +321,7 @@ export const PENDING_MCP: readonly string[] = [
   "POST /api/me/devices/delete",
   "POST /api/me/google/accounts/:id/sync",
   "POST /api/me/google/connect",
-  "POST /api/me/mail/:source/:id/repropose",
-  "POST /api/me/mail/drafts/:id/attachments",
-  "POST /api/me/mail/drafts/:id/attachments/drive",
-  "POST /api/me/mail/drafts/:id/send",
   "POST /api/me/mail/drafts/claude",
-  "POST /api/me/mail/outgoing/:id/discard",
-  "POST /api/me/mail/outgoing/:id/retry",
-  "POST /api/me/mail/outgoing/:id/undo",
-  "POST /api/me/mail/threads/:threadId/read",
   "POST /api/me/security/reauth",
   "POST /api/me/security/reauth/passkey/options",
   "POST /api/me/security/reauth/passkey/verify",
@@ -428,7 +403,6 @@ export const PENDING_MCP: readonly string[] = [
   "PUT /api/me/calendar/events/:id/project",
   "PUT /api/me/calendar/series/:recurringEventId",
   "PUT /api/me/devices",
-  "PUT /api/me/mail/drafts",
   "PUT /api/product-pages/:id/follow",
   "PUT /api/projects/:projectId/email-routes",
   "PUT /api/projects/:projectId/plugins",
