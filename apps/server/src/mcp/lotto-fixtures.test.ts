@@ -15,6 +15,7 @@ const TOOLS = join(import.meta.dirname, "../../../../packages/mcp/src/tools");
 const FIXTURES = [
   { file: "lotto2.fixture.ts", name: "LOTTO2_CATALOG" },
   { file: "lotto3.fixture.ts", name: "LOTTO3_CATALOG" },
+  { file: "lotto4.fixture.ts", name: "LOTTO4_CATALOG" },
 ];
 
 type Entry = Omit<CatalogEntry, "instancePermission">;
