@@ -3,6 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import type { StubwiseClient } from "../client.js";
 import type { StubwiseConfig } from "../config.js";
 import { actionTools } from "./actions.js";
+import { docsTools } from "./docs.js";
+import { fileTools } from "./files.js";
+import { readTools } from "./read.js";
+import { requestTools } from "./requests.js";
+import { writeTools } from "./write.js";
 import { LOTTO2_CATALOG } from "./lotto2.fixture.js";
 import type { ToolContext, ToolDef, ToolResult } from "./types.js";
 
@@ -61,8 +66,8 @@ describe("lotto 2: le voci si trovano con le parole di chi chiede", () => {
     ["Notifiche e ricerca", "segna la notifica come letta", "inbox.markRead"],
     ["Persone e attività", "attività del giorno per persona", "people.activity"],
     ["Registro delle modifiche", "registro delle modifiche del progetto", "changeLog.project"],
-    // Senza «PR»: oggi la sigla di due lettere fa prefisso a `project` e porta in testa
-    // tutte le rotte di /api/projects (segnalato a 72, il punteggio è del lotto 0).
+    // Anche con la sigla: dopo il fix di 72 (3063f4dd4) «pr» vale intera e cerca anche «pull».
+    ["Rilasci e PR", "chiedi una correzione della PR", "pulls.requestCorrection"],
     ["Rilasci e PR", "chiedi una correzione", "pulls.requestCorrection"],
     ["Rilasci e PR", "correggi la pull request", "pulls.requestCorrection"],
     ["Rilasci e PR", "scrivi le note di rilascio", "pulls.setReleaseNotes"],
@@ -88,12 +93,14 @@ describe("lotto 2: le voci si chiamano coi tool generici", () => {
     expect(callAction).toHaveBeenCalledWith(entry("requests.getByCode"), { params: { code: "ACQ-R3" } });
   });
 
-  it("write_action: sposta una task su un giorno, con parametri e corpo", async () => {
-    const callAction = vi.fn().mockResolvedValue({ status: 204, data: undefined });
+  it("write_action: sposta una task su un giorno della settimana, con la forma vera del corpo e della risposta", async () => {
+    // `setDayBodySchema`: la settimana ISO e il giorno 1..5 (lun–ven); la rotta risponde 200 con la sistemazione.
+    const arrangement = { taskId: "t1", week: "2026-W49", day: 4 };
+    const callAction = vi.fn().mockResolvedValue({ status: 200, data: arrangement });
     const ctx = ctxWith({ getCatalog: vi.fn().mockResolvedValue(LOTTO2_CATALOG), callAction });
-    const r = await tool("write_action").handler({ action: "tasks.setDay", params: { ticketId: "t1" }, body: { day: "2026-12-03" } }, ctx);
-    expect(callAction).toHaveBeenCalledWith(entry("tasks.setDay"), { params: { ticketId: "t1" }, body: { day: "2026-12-03" } });
-    expect(text(r)).toBe("Fatto (HTTP 204).");
+    const r = await tool("write_action").handler({ action: "tasks.setDay", params: { ticketId: "t1" }, body: { week: "2026-W49", day: 4 } }, ctx);
+    expect(callAction).toHaveBeenCalledWith(entry("tasks.setDay"), { params: { ticketId: "t1" }, body: { week: "2026-W49", day: 4 } });
+    expect(JSON.parse(text(r))).toEqual(arrangement);
   });
 
   it("write_action: archivia una notifica", async () => {
@@ -112,11 +119,11 @@ describe("lotto 2: le voci si chiamano coi tool generici", () => {
     expect(callAction).not.toHaveBeenCalled();
   });
 
-  it("le voci del lotto con un tool nominano solo tool del pacchetto", () => {
-    const names = new Set(["create_ticket", "create_backlog_item", "create_backlog_from_design", "convert_backlog_to_ticket", "set_design", "delete_design", "set_plan", "delete_plan"]);
+  it("le voci del lotto con un tool nominano tool veri del pacchetto (i ToolDef registrati)", () => {
+    const names = new Set([...readTools, ...writeTools, ...docsTools, ...requestTools, ...actionTools, ...fileTools].map((t) => t.name));
     const withTool = LOTTO2_CATALOG.filter((e) => e.tool !== undefined);
-    // Ticket: create, design e piano (5); backlog: create, from-design, convert, design e piano (7).
-    expect(withTool.length).toBe(12);
+    // Ticket: create, design e piano (5); backlog: create, from-design, convert, design e piano (7); allegati: upload e download (2).
+    expect(withTool.length).toBe(14);
     for (const e of withTool) expect(names.has(e.tool!), e.action).toBe(true);
   });
 });
