@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { DepartmentItem, ProjectStatusItem, TaskItem } from "../client.js";
+import { CLAUDE_ASSIGNED_LINE, resolveAssignee } from "./assignee.js";
 import { errorResult, resolveProject, runTool, textResult } from "./shared.js";
 import type { ToolDef, ToolResult } from "./types.js";
 
@@ -146,3 +147,194 @@ const getByCode: ToolDef = {
 };
 
 export const taskTools: ToolDef[] = [listTaskFields, listTasks, getByCode];
+
+// --- update_task -------------------------------------------------------------------
+//
+// Lotto 2 della parità (decisione di 46): una task per codice o per id, coi campi
+// che si cambiano dall'app, in parole. Copre «sposta ACQ-12 a giovedì»: il GIORNO
+// è la sistemazione personale di chi ha la task nella sua settimana
+// (`PUT /api/tasks/:id/day`, 1–5), la SETTIMANA è un campo della task.
+
+const PRIORITIES = ["low", "medium", "high", "urgent"] as const;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ISO_WEEK_RE = /^(\d{4})-W(\d{2})$/;
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** I giorni lavorativi in parole (italiano e inglese, con o senza accento) → 1–5; sabato e domenica → 6, 7. */
+const WEEKDAYS: Record<string, number> = {
+  lunedi: 1, lun: 1, monday: 1, mon: 1,
+  martedi: 2, mar: 2, tuesday: 2, tue: 2,
+  mercoledi: 3, mer: 3, wednesday: 3, wed: 3,
+  giovedi: 4, gio: 4, thursday: 4, thu: 4,
+  venerdi: 5, ven: 5, friday: 5, fri: 5,
+  sabato: 6, sab: 6, saturday: 6, sat: 6,
+  domenica: 7, dom: 7, sunday: 7, sun: 7,
+};
+const DAY_NAMES = ["", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"];
+
+const plain = (s: string) => s.trim().toLocaleLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+
+/** Il giorno della settimana ISO di una data AAAA-MM-GG (1 = lunedì … 7 = domenica). */
+function isoWeekday(date: string): number {
+  const d = new Date(`${date}T00:00:00Z`);
+  return ((d.getUTCDay() + 6) % 7) + 1;
+}
+
+/** La settimana ISO (`2026-W49`) di una data AAAA-MM-GG. */
+export function isoWeekOf(date: string): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  // Il giovedì della stessa settimana decide l'anno ISO.
+  const thursday = new Date(d);
+  thursday.setUTCDate(d.getUTCDate() + 4 - isoWeekday(date));
+  const year = thursday.getUTCFullYear();
+  const jan1 = new Date(Date.UTC(year, 0, 1));
+  const week = Math.floor((thursday.getTime() - jan1.getTime()) / 86_400_000 / 7) + 1;
+  return `${year}-W${String(week).padStart(2, "0")}`;
+}
+
+function validDate(s: string): boolean {
+  if (!ISO_DATE_RE.test(s)) return false;
+  const d = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+}
+
+const updateTask: ToolDef = {
+  name: "update_task",
+  description:
+    "Modifica una task per CODICE (es. ACQ-12) o per id: stato (per nome, quelli del progetto), assegnatario ('me', 'none', email o nome, anche «Claude»), settimana (ISO 2026-W49, una data, o 'none'), giorno (lunedì–venerdì, 1–5, una data, o 'none'), priorità (low, medium, high, urgent), reparto (per nome), taglia (XS–XL o 'none'). Cambia solo i campi dati. " +
+    "«Sposta ACQ-12 a giovedì» è `day: \"giovedì\"`: il giorno vale nella settimana della task, ed è la sistemazione personale di chi ce l'ha in carico (solo l'assegnatario la imposta). " +
+    "Assegnare l'utente «Claude» avvia il lavoro come `run_ticket`: serve `runs.start`, passa dal gate del piano e spende budget. Prima di chiamarlo di' all'utente in una riga cosa cambi e su quale task.",
+  inputSchema: {
+    task: z.string().min(3).max(64).describe("Il codice della task (ACQ-12) o il suo id."),
+    status: z.string().min(1).max(100).optional().describe("Il nuovo stato, per nome (vedi list_task_fields)."),
+    assignee: z.string().min(1).max(320).optional().describe("'me', 'none', l'email o il nome di una persona, o «Claude»."),
+    week: z.string().min(1).max(20).optional().describe("La settimana pianificata: ISO (2026-W49), una data AAAA-MM-GG, o 'none' per toglierla."),
+    day: z.union([z.string().min(1).max(20), z.number().int()]).optional().describe("Il giorno nella settimana: lunedì–venerdì, 1–5, una data AAAA-MM-GG, o 'none'."),
+    priority: z.enum(PRIORITIES).optional().describe("La priorità."),
+    department: z.string().min(1).max(100).optional().describe("Il reparto, per nome (vedi list_task_fields)."),
+    size: z.string().min(1).max(5).optional().describe("La taglia: XS, S, M, L, XL o 'none'."),
+  },
+  handler: (args, ctx): Promise<ToolResult> =>
+    runTool(async () => {
+      const fields = ["status", "assignee", "week", "day", "priority", "department", "size"] as const;
+      if (fields.every((f) => args[f] === undefined)) {
+        return errorResult(`Per ${String(args.task)} non c'è niente da cambiare: dai almeno uno fra ${fields.join(", ")}.`);
+      }
+
+      // La task: per codice si legge intera, per id dal ticket (progetto) e, se serve, dalla risposta del PATCH.
+      const raw = String(args.task).trim();
+      let taskId: string;
+      let projectId: string;
+      let label: string;
+      let plannedWeek: string | null | undefined;
+      if (UUID_RE.test(raw)) {
+        const ticket = await ctx.client.getTicket(raw);
+        taskId = raw;
+        projectId = ticket.projectId;
+        label = `la task ${raw}`;
+      } else {
+        const code = raw.toUpperCase();
+        const m = CODE_RE.exec(code);
+        if (!m || m[1] === "R") return errorResult(`'${raw}' non è il codice di una task: si scrive come ACQ-12 (o si dà l'id).`);
+        const t = await ctx.client.getTaskByCode(code);
+        taskId = t.id;
+        projectId = t.projectId;
+        label = t.code;
+        plannedWeek = t.plannedWeek ?? null;
+      }
+
+      const problems: string[] = [];
+      const patch: Record<string, unknown> = {};
+      const said: string[] = [];
+
+      if (args.status !== undefined) {
+        const statuses = await ctx.client.listProjectStatuses(projectId);
+        const hit = statuses.find((s) => norm(s.name) === norm(String(args.status)));
+        if (hit) {
+          patch.statusId = hit.id;
+          said.push(`stato: ${hit.name}`);
+        } else problems.push(`stato sconosciuto: ${String(args.status)} (validi: ${statuses.map((s) => s.name).join(", ")})`);
+      }
+      if (args.department !== undefined) {
+        const departments = await ctx.client.listDepartments();
+        const hit = departments.find((d) => norm(d.name) === norm(String(args.department)));
+        if (hit) {
+          patch.departmentId = hit.id;
+          said.push(`reparto: ${hit.name}`);
+        } else problems.push(`reparto sconosciuto: ${String(args.department)} (validi: ${departments.map((d) => d.name).join(", ")})`);
+      }
+      let claude = false;
+      if (args.assignee !== undefined) {
+        const a = await resolveAssignee(ctx, String(args.assignee));
+        if (a.ok) {
+          patch.assigneeId = a.id;
+          claude = a.claude;
+          said.push(`assegnatario: ${a.label}`);
+        } else problems.push(a.problem);
+      }
+      if (args.priority !== undefined) {
+        patch.priority = args.priority;
+        said.push(`priorità: ${String(args.priority)}`);
+      }
+      if (args.size !== undefined) {
+        const size = norm(String(args.size)) === "none" ? null : String(args.size).trim().toUpperCase();
+        if (size !== null && !(SIZES as readonly string[]).includes(size)) problems.push(`taglia sconosciuta: ${String(args.size)} (valide: ${SIZES.join(", ")}, none)`);
+        else {
+          patch.size = size;
+          said.push(`taglia: ${size ?? "nessuna"}`);
+        }
+      }
+
+      // La settimana: data o ISO; `none` la toglie.
+      let week: string | null | undefined;
+      if (args.week !== undefined) {
+        const w = String(args.week).trim();
+        if (norm(w) === "none") week = null;
+        else if (ISO_WEEK_RE.test(w.toUpperCase())) week = w.toUpperCase();
+        else if (validDate(w)) week = isoWeekOf(w);
+        else problems.push(`settimana non valida: ${w} (si scrive 2026-W49, oppure una data AAAA-MM-GG, oppure none)`);
+      }
+
+      // Il giorno: 1–5, un nome, una data (che dice anche la settimana), o `none`.
+      let day: number | null | undefined;
+      if (args.day !== undefined) {
+        const d = String(args.day).trim();
+        let n: number | null | undefined;
+        if (norm(d) === "none") n = null;
+        else if (/^\d$/.test(d)) n = Number(d);
+        else if (validDate(d)) {
+          n = isoWeekday(d);
+          const fromDate = isoWeekOf(d);
+          if (week !== undefined && week !== fromDate) problems.push(`il giorno ${d} non è nella settimana ${String(week)}`);
+          week = fromDate;
+        } else if (WEEKDAYS[plain(d)] !== undefined) n = WEEKDAYS[plain(d)];
+        else problems.push(`giorno non valido: ${d} (lunedì–venerdì, 1–5, una data AAAA-MM-GG, o none)`);
+        if (n !== undefined && n !== null && (n < 1 || n > 5)) problems.push(`${DAY_NAMES[n] ?? d} non è un giorno lavorativo: il giorno va da lunedì a venerdì`);
+        else day = n;
+      }
+
+      if (week !== undefined && week !== plannedWeek) {
+        patch.plannedWeek = week;
+        said.push(`settimana: ${week ?? "nessuna"}`);
+      }
+      const dayWeek = week !== undefined ? week : plannedWeek;
+      if (day !== undefined && dayWeek === undefined) {
+        problems.push(`per mettere ${label} in un giorno serve la settimana: dalla col campo week, dai il giorno come data, o usa il codice della task`);
+      } else if (day !== undefined && day !== null && dayWeek === null) {
+        problems.push(`${label} non è pianificata in nessuna settimana: dalla col campo week, o dai il giorno come data`);
+      }
+      if (problems.length > 0) return errorResult(`Non cambio ${label}: ${problems.join("; ")}.`);
+
+      let updated: { plannedWeek?: string | null } | undefined;
+      if (Object.keys(patch).length > 0) updated = await ctx.client.patchTask(taskId, patch);
+      if (day !== undefined) {
+        const w = (week !== undefined ? week : (updated?.plannedWeek ?? plannedWeek)) as string;
+        await ctx.client.setTaskDay(taskId, { week: w, day });
+        said.push(day === null ? `giorno: nessuno (${w})` : `giorno: ${DAY_NAMES[day]} (${w})`);
+      }
+      const after = claude ? `\n${CLAUDE_ASSIGNED_LINE}` : "";
+      return textResult(`Aggiornata ${label}: ${said.join(", ")}.${after}`);
+    }),
+};
+
+export const taskWriteTools: ToolDef[] = [updateTask];

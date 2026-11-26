@@ -1,3 +1,4 @@
+import { CLAUDE_ASSIGNED_LINE, resolveAssignee } from "./assignee.js";
 import type { TicketPriority, TicketStatus, TicketType } from "@stubwise/shared";
 import { z } from "zod";
 
@@ -42,17 +43,35 @@ const createTicketInput = {
     .enum(["low", "medium", "high", "urgent"])
     .optional()
     .describe("Priorità del ticket."),
+  assignee: z
+    .string()
+    .min(1)
+    .max(320)
+    .optional()
+    .describe("A chi assegnarlo: 'me', l'email o il nome di una persona, o «Claude»."),
+  labels: z.array(z.string().trim().min(1).max(60)).max(30).optional().describe("Le etichette."),
 };
 
 const createTicket: ToolDef = {
   name: "create_ticket",
   description:
-    "Crea un nuovo ticket in un progetto Stubwise. Risolve il progetto dallo slug 'project' o dal repo collegato. Il tipo di default è 'task'. Ritorna number, id e l'URL del dettaglio.",
+    "Crea un nuovo ticket in un progetto Stubwise. Risolve il progetto dallo slug 'project' o dal repo collegato. Il tipo di default è 'task'. Si può assegnare ('me', email, nome) e dare le etichette. Ritorna number, id e l'URL del dettaglio. " +
+    "Assegnarlo all'utente «Claude» avvia il lavoro come `run_ticket`: serve `runs.start`, passa dal gate del piano e spende budget.",
   inputSchema: createTicketInput,
   handler: (args, ctx): Promise<ToolResult> =>
     runTool(async () => {
       const resolved = await resolveProject(args.project as string | undefined, ctx);
       if (!resolved.ok) return resolved.result;
+
+      let assigneeId: string | undefined;
+      let claude = false;
+      if (typeof args.assignee === "string") {
+        const a = await resolveAssignee(ctx, args.assignee);
+        if (!a.ok) return errorResult(`Non creo il ticket: ${a.problem}.`);
+        if (a.id !== null) assigneeId = a.id;
+        claude = a.claude;
+      }
+      const labels = Array.isArray(args.labels) ? (args.labels as string[]) : undefined;
 
       const ticket = await ctx.client.createTicket({
         projectId: resolved.project.id,
@@ -60,11 +79,13 @@ const createTicket: ToolDef = {
         body: args.body as string | undefined,
         type: (args.type as TicketType | undefined) ?? "task",
         priority: args.priority as TicketPriority | undefined,
+        ...(assigneeId !== undefined ? { assigneeId } : {}),
+        ...(labels !== undefined ? { labels } : {}),
       });
 
       const url = `${ctx.config.baseUrl}/tickets/${ticket.id}`;
       return textResult(
-        `Ticket #${ticket.number} creato (id: ${ticket.id}, tipo: ${ticket.type}, priorità: ${ticket.priority}).\nURL: ${url}`,
+        `Ticket #${ticket.number} creato (id: ${ticket.id}, tipo: ${ticket.type}, priorità: ${ticket.priority}).\nURL: ${url}${claude ? `\n${CLAUDE_ASSIGNED_LINE}` : ""}`,
       );
     }),
 };

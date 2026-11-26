@@ -134,6 +134,25 @@ export interface TaskItem {
   requestId?: string | null;
 }
 
+/** Una persona di `GET /api/people` (i campi che usa `update_task`). */
+export interface PersonItem {
+  id: string;
+  name: string;
+  email: string;
+  isClaude?: boolean;
+  deactivated?: boolean;
+}
+
+/** Il corpo di `PATCH /api/tasks/:id` che manda `update_task`: solo i campi toccati. */
+export interface TaskPatchBody {
+  statusId?: string;
+  assigneeId?: string | null;
+  departmentId?: string;
+  size?: string | null;
+  priority?: string;
+  plannedWeek?: string | null;
+}
+
 export interface ProjectStatusItem {
   id: string;
   name: string;
@@ -1070,6 +1089,21 @@ export class StubwiseClient {
 
   async getTaskByCode(code: string): Promise<TaskItem> {
     return this.request<TaskItem>(`/api/tasks/by-code/${encodeURIComponent(code)}`);
+  }
+
+  /** Lotto 2 (`update_task`): le persone che il token vede, compreso l'utente di sistema «Claude». */
+  async listPeople(): Promise<PersonItem[]> {
+    return this.request<PersonItem[]>("/api/people");
+  }
+
+  /** Lotto 2 (`update_task`): `PATCH /api/tasks/:id`, solo i campi mandati. */
+  async patchTask(id: string, patch: TaskPatchBody): Promise<TaskItem> {
+    return this.request<TaskItem>(`/api/tasks/${encodeURIComponent(id)}`, { method: "PATCH", body: patch });
+  }
+
+  /** Lotto 2 (`update_task`): il giorno (1–5, lun–ven) della task nella sua settimana, per chi ce l'ha in carico. */
+  async setTaskDay(id: string, body: { week: string; day: number | null }): Promise<{ taskId: string; week: string; day: number | null }> {
+    return this.request(`/api/tasks/${encodeURIComponent(id)}/day`, { method: "PUT", body });
   }
 
   async getRequestByCode(code: string): Promise<RequestItem> {
