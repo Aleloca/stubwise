@@ -15,7 +15,7 @@ export async function claudeHelpRoutes(instance: FastifyInstance): Promise<void>
 
   app.get(
     "/capabilities",
-    { config: { access: { kind: "user" } }, schema: { response: { 200: claudeCapabilitiesSchema, ...authErrorResponses } } },
+    { config: { access: { kind: "user" }, mcp: { action: "claude.capabilities", summary: "Cosa sa fare Claude in questa istanza, per chi guarda.", effect: "read" } }, schema: { response: { 200: claudeCapabilitiesSchema, ...authErrorResponses } } },
     async (request) => ({ items: await claudeCapabilitiesOf(app.db, request.user!) }),
   );
 
@@ -23,13 +23,13 @@ export async function claudeHelpRoutes(instance: FastifyInstance): Promise<void>
   // chi guarda, o null (anche per un oggetto che non vede: mai 404).
   app.get(
     "/suggestions",
-    { config: { access: { kind: "user" } }, schema: { querystring: claudeSuggestionQuerySchema, response: { 200: claudeSuggestionSchema, ...authErrorResponses } } },
+    { config: { access: { kind: "user" }, mcp: { action: "claude.suggestion", summary: "Il suggerimento «Claude can help you…» per una pagina, o null.", effect: "read" } }, schema: { querystring: claudeSuggestionQuerySchema, response: { 200: claudeSuggestionSchema, ...authErrorResponses } } },
     async (request) => claudeSuggestionFor(app.db, request.user!, request.query),
   );
   // «Not now»: per chi guarda, su quel tipo e quell'oggetto.
   app.post(
     "/suggestions/dismiss",
-    { config: { access: { kind: "user" } }, schema: { body: dismissClaudeSuggestionSchema } },
+    { config: { access: { kind: "user" }, mcp: { action: "claude.dismissSuggestion", summary: "«Not now»: nasconde il suggerimento di Claude su quel tipo e quell'oggetto.", effect: "write" } }, schema: { body: dismissClaudeSuggestionSchema } },
     async (request, reply) => {
       await dismissClaudeSuggestion(app.db, request.user!, { kind: request.body.kind, objectId: request.body.objectId });
       return reply.code(204).send();

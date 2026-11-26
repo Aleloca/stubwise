@@ -520,7 +520,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:ticketId/cancel-run",
     {
-      config: { access: onTicket("runs.start") },
+      config: { access: onTicket("runs.start"), mcp: { action: "tasks.cancelRun", summary: "«Annulla il lavoro»: chiude subito il lavoro parcheggiato dell'agente su una task (serve `runs.start`).", effect: "write", note: "Su un lavoro in esecuzione risponde 409 `run_in_progress`: prima va fermato." } },
       schema: {
         params: ticketParamsSchema,
         response: { 200: taskWorkViewSchema, 202: taskWorkViewSchema, 404: errorSchema, 409: errorSchema, ...authErrorResponses },
