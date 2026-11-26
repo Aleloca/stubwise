@@ -120,16 +120,21 @@ function writers(dir: string): string[] {
 describe("un segreto non entra nel registro (a runtime, revisione del lotto 5, I1)", () => {
   const hook = () => ({ type: "webhook", id: randomUUID(), label: "W" });
 
-  it("un prima/dopo costruito da un helper con una chiave dall'aria segreta è un errore, non una voce", async () => {
+  it("un prima/dopo costruito da un helper con una chiave dall'aria segreta entra «[nascosto]»: la voce si scrive, la modifica non fallisce", async () => {
     const actor = await person();
-    for (const key of ["webhookSecret", "token", "dsn", "apiKey"]) {
-      await expect(
-        recordChange(db, { type: "webhook.updated", actor, projectId: null, data: { object: hook(), before: JSON.stringify({ [key]: "a" }), after: JSON.stringify({ [key]: "b" }) } }),
-        key,
-      ).rejects.toThrow(/segreto/);
+    for (const key of ["webhookSecret", "token", "dsn", "apiKey", "presetKey"]) {
+      const object = hook();
+      await recordChange(db, { type: "webhook.updated", actor, projectId: null, data: { object, before: JSON.stringify({ [key]: "valore-a", name: "x" }), after: JSON.stringify({ [key]: "valore-b", name: "y" }) } });
+      const [row] = await db.select().from(changeLog).where(eq(changeLog.subjectId, object.id));
+      const d = row!.data as { before: string; after: string };
+      expect(JSON.parse(d.before), key).toEqual({ [key]: "[nascosto]", name: "x" });
+      expect(JSON.parse(d.after), key).toEqual({ [key]: "[nascosto]", name: "y" });
     }
-    // `keyLast4` e `accessKeyId` restano le eccezioni dichiarate.
-    await recordChange(db, { type: "webhook.updated", actor, projectId: null, data: { object: hook(), before: JSON.stringify({ keyLast4: "1234" }), after: JSON.stringify({ keyLast4: "5678" }) } });
+    // `keyLast4` e `accessKeyId` restano le eccezioni dichiarate: si vedono.
+    const object = hook();
+    await recordChange(db, { type: "webhook.updated", actor, projectId: null, data: { object, before: JSON.stringify({ keyLast4: "1234" }), after: JSON.stringify({ keyLast4: "5678" }) } });
+    const [row] = await db.select().from(changeLog).where(eq(changeLog.subjectId, object.id));
+    expect(JSON.parse((row!.data as { after: string }).after)).toEqual({ keyLast4: "5678" });
   });
 
   it("le credenziali dentro un URL (user:pass@) si mascherano, in prima/dopo e nei params", async () => {

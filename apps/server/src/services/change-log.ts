@@ -62,10 +62,12 @@ export async function recordChange(tx: Tx | Db, entry: ChangeInput): Promise<str
  * Revisione del lotto 5 della parità MCP (I1): il controllo di sorgente qui
  * sotto vede solo le chiavi scritte DENTRO la chiamata, non quelle di un
  * helper che costruisce il prima/dopo (`fields(w)` → `changedFields`). Qui,
- * a runtime e in UN posto: una chiave dall'aria segreta nel prima, nel dopo o
- * nei params è un errore di programmazione (lancia); le credenziali dentro un
- * URL (`user:pass@`) si mascherano in `user:***@`, perché un URL dato da una
- * persona può portarle senza che lo scrittore lo sappia.
+ * a runtime e in UN posto: il valore di una chiave dall'aria segreta nel
+ * prima, nel dopo o nei params diventa «[nascosto]», e le credenziali dentro
+ * un URL (`user:pass@`) diventano `user:***@` (un URL dato da una persona può
+ * portarle senza che lo scrittore lo sappia). Si MASCHERA, non si lancia: in
+ * produzione una voce con «[nascosto]» è meglio di una modifica che fallisce
+ * per il nome innocuo di un campo (un `presetKey`, un `colorToken`).
  */
 function scrubLogData(data: ChangeInput["data"]): ChangeInput["data"] {
   const json = (text: string | null | undefined): string | null | undefined => {
@@ -90,13 +92,13 @@ function scrubValue(value: unknown): unknown {
   if (typeof value === "string") return maskUrlCredentials(value);
   if (Array.isArray(value)) return value.map(scrubValue);
   if (value !== null && typeof value === "object") {
-    const keys = Object.keys(value);
-    const bad = keys.filter((k) => isSecretLogKey(k));
-    if (bad.length > 0) throw new Error(`registro delle modifiche: un campo dall'aria di segreto (${bad.join(", ")}); per un segreto si scrive solo «sostituito»`);
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, scrubValue(v)]));
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, isSecretLogKey(k) && v !== null && v !== "" ? HIDDEN_IN_LOG : scrubValue(v)]));
   }
   return value;
 }
+
+/** Il valore di un campo dall'aria segreta, come entra nel registro. */
+export const HIDDEN_IN_LOG = "[nascosto]";
 
 const isSecretLogKey = (key: string) => !ALLOWED_KEY_NAMES.has(key) && /secret|token|password|key|dsn/i.test(key);
 
