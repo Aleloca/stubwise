@@ -299,6 +299,29 @@ describe("lotto 10, voce 1: saveStorage, la riconferma solo se cambiano endpoint
     }
   });
 
+  it("NEGATIVO: «Modifica» non salta la riconferma — una B (la regione) confermata con endpoint e bucket cambiati vuole la riconferma, e niente si scrive", async () => {
+    await seed();
+    const res = await propose([{ fn: "saveStorage", args: { region: "us" } }]);
+    const { proposalId } = res.json() as View;
+    expect(await viewOf(proposalId)).toMatchObject({ cls: "B", reauth: false });
+    const edited = [{ index: 0, args: { ...base, endpoint: "https://evil.example.com", bucket: "exfil" } }];
+    const no = await app.inject({ method: "POST", url: `/api/claude/proposals/${proposalId}/confirm`, headers: { cookie: await stale() }, payload: { edited } });
+    expect([no.statusCode, (no.json() as { code: string }).code]).toEqual([403, "reauth_required"]);
+    expect(await instance()).toMatchObject({ s3Endpoint: base.endpoint, s3Bucket: base.bucket, s3Region: base.region });
+    // La proposta resta aperta: con la riconferma (una sessione fresca) la stessa modifica si scrive.
+    const ok = await app.inject({ method: "POST", url: `/api/claude/proposals/${proposalId}/confirm`, headers: { cookie: adminCookie }, payload: { edited } });
+    expect(ok.statusCode, ok.body).toBe(200);
+    expect(await instance()).toMatchObject({ s3Endpoint: "https://evil.example.com", s3Bucket: "exfil" });
+  });
+
+  it("una modifica che resta B (la sola regione) si conferma senza riconferma anche da una sessione vecchia", async () => {
+    await seed();
+    const { proposalId } = (await propose([{ fn: "saveStorage", args: { region: "us" } }])).json() as View;
+    const ok = await app.inject({ method: "POST", url: `/api/claude/proposals/${proposalId}/confirm`, headers: { cookie: await stale() }, payload: { edited: [{ index: 0, args: { region: "ap" } }] } });
+    expect(ok.statusCode, ok.body).toBe(200);
+    expect(await instance()).toMatchObject({ s3Region: "ap", s3Endpoint: base.endpoint });
+  });
+
   it("una PATCH: solo la regione cambia, la chiave d'accesso (che Claude non legge) resta, ed è B", async () => {
     await seed();
     const res = await propose([{ fn: "saveStorage", args: { region: "ap" } }]);
