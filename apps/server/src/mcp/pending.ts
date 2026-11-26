@@ -9,7 +9,7 @@
  * Il tetto di `PENDING_MCP`: si abbassa SOLTANTO, a ogni lotto, fino a zero.
  * Senza, una rotta nuova si accoderebbe all'elenco e il test passerebbe.
  */
-export const PENDING_MCP_MAX = 402;
+export const PENDING_MCP_MAX = 387;
 
 export const PENDING_MCP: readonly string[] = [
   "DELETE /api/admin/invites/:id",
@@ -30,8 +30,6 @@ export const PENDING_MCP: readonly string[] = [
   "DELETE /api/git-accounts/:id/default-reviewer",
   "DELETE /api/me/alert-subscriptions/:projectId/:type",
   "DELETE /api/me/avatar",
-  "DELETE /api/me/calendar/events/:id",
-  "DELETE /api/me/calendar/series/:recurringEventId",
   "DELETE /api/me/email-change",
   "DELETE /api/me/google/accounts/:id",
   "DELETE /api/me/sessions/:id",
@@ -119,13 +117,6 @@ export const PENDING_MCP: readonly string[] = [
   "GET /api/me/alert-subscriptions",
   "GET /api/me/automation-approvals",
   "GET /api/me/automation-runs",
-  "GET /api/me/calendar",
-  "GET /api/me/calendar/events/:id",
-  "GET /api/me/calendar/events/:id/summary",
-  "GET /api/me/calendar/events/:id/tasks",
-  "GET /api/me/calendar/freebusy",
-  "GET /api/me/calendar/range",
-  "GET /api/me/calendar/series",
   "GET /api/me/claude-decisions",
   "GET /api/me/email-change",
   "GET /api/me/google/accounts",
@@ -246,7 +237,6 @@ export const PENDING_MCP: readonly string[] = [
   "PATCH /api/credentials/:id",
   "PATCH /api/departments/:id",
   "PATCH /api/git-accounts/:id",
-  "PATCH /api/me/calendar/events/:id",
   "PATCH /api/me/google/accounts/:id",
   "PATCH /api/me/notification-prefs",
   "PATCH /api/me/security/passkeys/:id",
@@ -315,9 +305,6 @@ export const PENDING_MCP: readonly string[] = [
   "POST /api/instance/jobs/:id/retry",
   "POST /api/me/alert-subscriptions/:projectId/copy",
   "POST /api/me/alert-subscriptions/:projectId/mute",
-  "POST /api/me/calendar/events",
-  "POST /api/me/calendar/events/:id/move",
-  "POST /api/me/calendar/events/:id/respond",
   "POST /api/me/devices/delete",
   "POST /api/me/google/accounts/:id/sync",
   "POST /api/me/google/connect",
@@ -400,8 +387,6 @@ export const PENDING_MCP: readonly string[] = [
   "PUT /api/git-accounts/:id/default-reviewer",
   "PUT /api/me/alert-subscriptions/:projectId/:type",
   "PUT /api/me/avatar",
-  "PUT /api/me/calendar/events/:id/project",
-  "PUT /api/me/calendar/series/:recurringEventId",
   "PUT /api/me/devices",
   "PUT /api/product-pages/:id/follow",
   "PUT /api/projects/:projectId/email-routes",
