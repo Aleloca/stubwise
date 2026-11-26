@@ -9,7 +9,7 @@
  * Il tetto di `PENDING_MCP`: si abbassa SOLTANTO, a ogni lotto, fino a zero.
  * Senza, una rotta nuova si accoderebbe all'elenco e il test passerebbe.
  */
-export const PENDING_MCP_MAX = 366;
+export const PENDING_MCP_MAX = 360;
 
 export const PENDING_MCP: readonly string[] = [
   "DELETE /api/admin/invites/:id",
@@ -29,7 +29,6 @@ export const PENDING_MCP: readonly string[] = [
   "DELETE /api/me/alert-subscriptions/:projectId/:type",
   "DELETE /api/me/avatar",
   "DELETE /api/me/email-change",
-  "DELETE /api/me/google/accounts/:id",
   "DELETE /api/me/sessions/:id",
   "DELETE /api/pats/:id",
   "DELETE /api/plugins/:id",
@@ -108,8 +107,6 @@ export const PENDING_MCP: readonly string[] = [
   "GET /api/me/automation-runs",
   "GET /api/me/claude-decisions",
   "GET /api/me/email-change",
-  "GET /api/me/google/accounts",
-  "GET /api/me/google/workspaces",
   "GET /api/me/notification-prefs",
   "GET /api/me/product-questions",
   "GET /api/me/security",
@@ -222,7 +219,6 @@ export const PENDING_MCP: readonly string[] = [
   "PATCH /api/credentials/:id",
   "PATCH /api/departments/:id",
   "PATCH /api/git-accounts/:id",
-  "PATCH /api/me/google/accounts/:id",
   "PATCH /api/me/notification-prefs",
   "PATCH /api/me/security/passkeys/:id",
   "PATCH /api/product-pages/:id",
@@ -289,8 +285,6 @@ export const PENDING_MCP: readonly string[] = [
   "POST /api/me/alert-subscriptions/:projectId/copy",
   "POST /api/me/alert-subscriptions/:projectId/mute",
   "POST /api/me/devices/delete",
-  "POST /api/me/google/accounts/:id/sync",
-  "POST /api/me/google/connect",
   "POST /api/me/mail/drafts/claude",
   "POST /api/me/security/reauth",
   "POST /api/me/security/reauth/passkey/options",
