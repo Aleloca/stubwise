@@ -5,6 +5,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { SERVER_INSTRUCTIONS } from "./instructions.js";
 import { appendNotice } from "./notices.js";
 import { actionTools } from "./tools/actions.js";
+import { decisionTools } from "./tools/decisions.js";
 import { fileTools } from "./tools/files.js";
 import { taskWriteTools } from "./tools/tasks.js";
 import { docsTools } from "./tools/docs.js";
@@ -64,6 +65,6 @@ export function buildServer(ctx: ToolContext): McpServer {
   );
   registerReadTools(server, ctx);
   registerWriteTools(server, ctx);
-  registerToolDefs(server, ctx, [...docsTools, ...requestTools, ...actionTools, ...fileTools, ...taskWriteTools]);
+  registerToolDefs(server, ctx, [...docsTools, ...requestTools, ...decisionTools, ...actionTools, ...fileTools, ...taskWriteTools]);
   return server;
 }

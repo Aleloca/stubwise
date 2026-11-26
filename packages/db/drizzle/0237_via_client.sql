@@ -1,7 +1,8 @@
 -- D4 della parità MCP (`docs/plans/2026-11-26-mcp-parita-design.md`): una
 -- scrittura fatta da una persona DA Claude Code (l'MCP col suo PAT) porta
 -- «via Claude Code» accanto all'autore, nella storia del ticket e nel
--- registro delle modifiche. `via_client` prende di DEFAULT la variabile di
+-- registro delle modifiche, e (decisione del maintainer, revisione del lotto 2)
+-- nel registro decisioni scritto dall'MCP. `via_client` prende di DEFAULT la variabile di
 -- transazione `stubwise.via_client`, che SOLO il server imposta all'inizio di
 -- ogni transazione di una richiesta dell'MCP (`apps/server/src/mcp/via-client.ts`),
 -- come `stubwise.via_claude_action_id` per il Claude dell'app (0131). L'autore
@@ -19,6 +20,10 @@ ALTER TABLE "ticket_events" ADD CONSTRAINT "ticket_events_via_client_chk" CHECK 
 ALTER TABLE "decision_requests" ADD COLUMN "via_client" text DEFAULT nullif(current_setting('stubwise.via_client', true), '');
 --> statement-breakpoint
 ALTER TABLE "decision_requests" ADD CONSTRAINT "decision_requests_via_client_chk" CHECK ("via_client" IS NULL OR "via_client" = 'claude_code');
+--> statement-breakpoint
+ALTER TABLE "project_decisions" ADD COLUMN "via_client" text DEFAULT nullif(current_setting('stubwise.via_client', true), '');
+--> statement-breakpoint
+ALTER TABLE "project_decisions" ADD CONSTRAINT "project_decisions_via_client_chk" CHECK ("via_client" IS NULL OR "via_client" = 'claude_code');
 --> statement-breakpoint
 ALTER TABLE "change_log" ADD COLUMN "via_client" text DEFAULT nullif(current_setting('stubwise.via_client', true), '');
 --> statement-breakpoint

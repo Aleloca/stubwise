@@ -120,6 +120,7 @@ export async function releaseRoutes(instance: FastifyInstance): Promise<void> {
     "/tickets/:id/repositories/:repositoryId/release",
     {
       config: {
+        mcp: { action: "tickets.mergePullRequest", summary: "Mergia la PR aperta di un ticket su un suo repository (la coda di rilascio).", effect: "destructive", tool: "merge_pull_request", note: "Non si ritira. Mai un deploy: solo il merge." },
         access: {
           kind: "project",
           permission: "release.merge",

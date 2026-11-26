@@ -37,6 +37,22 @@ interface ViaClientStore {
 
 const storage = new AsyncLocalStorage<ViaClientStore>();
 
+/**
+ * Esegue `fn` FUORI dallo store della richiesta (revisione della D4, M1): un
+ * singleton pigro nato dentro una richiesta segnata (un hub con il suo
+ * `setInterval`, un client con le sue code) porterebbe il segno in ogni
+ * transazione futura. Chi crea qualcosa che vive oltre la richiesta passa
+ * da qui.
+ */
+export function outsideRequest<T>(fn: () => T): T {
+  return storage.exit(fn);
+}
+
+/** `fn` dentro uno store con questo segno: per i test, e per chi lavora fuori da Fastify. */
+export function runWithViaClient<T>(via: ViaClient | null, fn: () => T): T {
+  return storage.run({ via }, fn);
+}
+
 /** Il segno della richiesta in corso, se c'è. */
 export function currentViaClient(): ViaClient | null {
   return storage.getStore()?.via ?? null;

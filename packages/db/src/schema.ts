@@ -302,11 +302,6 @@ export const roles = pgTable(
 export const VIA_CLAUDE_SETTING = "stubwise.via_claude_action_id";
 const VIA_CLAUDE_DEFAULT = sql`nullif(current_setting('stubwise.via_claude_action_id', true), '')::uuid`;
 /**
- * Area 9, F7 (0195): l'azione di Claude che la scrittura in corso ANNULLA (un
- * inverso di «Annulla»). La imposta solo l'esecutore; DEFAULT di
- * `change_log.undo_of_action_id`.
- */
-/**
  * D4 della parità MCP (0237, `docs/plans/2026-11-26-mcp-parita-design.md`):
  * la scrittura in corso l'ha fatta una persona DA Claude Code (l'MCP col suo
  * PAT). La imposta il server, a inizio di ogni transazione di una richiesta
@@ -317,6 +312,11 @@ const VIA_CLAUDE_DEFAULT = sql`nullif(current_setting('stubwise.via_claude_actio
 export const VIA_CLIENT_SETTING = "stubwise.via_client";
 const VIA_CLIENT_DEFAULT = sql`nullif(current_setting('stubwise.via_client', true), '')`;
 export type ViaClient = "claude_code";
+/**
+ * Area 9, F7 (0195): l'azione di Claude che la scrittura in corso ANNULLA (un
+ * inverso di «Annulla»). La imposta solo l'esecutore; DEFAULT di
+ * `change_log.undo_of_action_id`.
+ */
 export const UNDO_OF_CLAUDE_SETTING = "stubwise.undo_of_claude_action_id";
 const UNDO_OF_CLAUDE_DEFAULT = sql`nullif(current_setting('stubwise.undo_of_claude_action_id', true), '')::uuid`;
 
@@ -5228,8 +5228,13 @@ export const projectDecisions = pgTable(
     // riferimento alla tabella in corso di definizione.
     supersededById: uuid("superseded_by_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // D4 della parità MCP (0237): la voce l'ha scritta o modificata la persona da
+    // Claude Code, col suo PAT. Una scrittura dell'utente, non dell'AI: il
+    // registro resta MAI scritto da un run del modello (decisions-never-ai).
+    viaClient: text("via_client").$type<ViaClient>().default(VIA_CLIENT_DEFAULT),
   },
   (table) => [
+    check("project_decisions_via_client_chk", sql`${table.viaClient} IS NULL OR ${table.viaClient} = 'claude_code'`),
     uniqueIndex("project_decisions_project_source_key_unique").on(
       table.projectId,
       table.sourceKey,

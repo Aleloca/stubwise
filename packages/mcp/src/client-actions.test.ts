@@ -54,6 +54,15 @@ describe("getCatalog", () => {
   });
 });
 
+describe("describeAction", () => {
+  it.each([".", "..", "%2e%2e"])("un'azione «%s» è rifiutata senza chiamare il server (revisione D4, M5)", async (bad) => {
+    const fetchMock = vi.fn();
+    const err = (await makeClient(fetchMock).describeAction(bad).catch((e: unknown) => e)) as StubwiseApiError;
+    expect(err.code).toBe("invalid_params");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("callAction", () => {
   it("riempie i parametri del percorso (codificati), la query con gli array ripetuti e il corpo JSON", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));

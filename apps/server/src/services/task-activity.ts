@@ -138,7 +138,8 @@ export async function taskActivity(
       ...(c.deletedAt ? { deletedAt: c.deletedAt.toISOString() } : {}),
       ...(c.deletedByUserId ? { deletedById: c.deletedByUserId } : {}),
       ...via(c.viaClaudeActionId),
-      viaClaudeCode: c.viaClient === "claude_code",
+      // Solo il commento di una PERSONA: uno di sistema scritto nella stessa transazione no (revisione D4, M3).
+      viaClaudeCode: c.authorType === "user" && c.viaClient === "claude_code",
       sortAt: c.createdAt.getTime(),
     })),
     ...eventRows.map((e) => {
@@ -153,7 +154,7 @@ export async function taskActivity(
         from: valueOf(e.kind, payload, "from"),
         to: valueOf(e.kind, payload, "to"),
         ...via(e.viaClaudeActionId),
-        viaClaudeCode: e.viaClient === "claude_code",
+        viaClaudeCode: e.actorId !== null && e.viaClient === "claude_code",
         sortAt: e.createdAt.getTime(),
       };
     }),
@@ -165,7 +166,7 @@ export async function taskActivity(
       at: d.at.toISOString(),
       decisionRequestId: d.id,
       ...NOT_VIA_CLAUDE,
-      viaClaudeCode: d.viaClient === "claude_code",
+      viaClaudeCode: d.by !== null && d.viaClient === "claude_code",
       sortAt: d.at.getTime(),
     })),
   ];

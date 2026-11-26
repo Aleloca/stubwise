@@ -227,7 +227,7 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, mcp: { action: "inbox.list", summary: "L'inbox di chi chiede: le card aperte, gestite o rimandate, con le azioni disponibili.", effect: "read", tool: "list_inbox" } },
       schema: {
         querystring: z.object({
           status: inboxStatusSchema.default("open"),
@@ -399,7 +399,7 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/actions/:action",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, mcp: { action: "inbox.act", summary: "Decide una card dell'inbox: le proposte del polso (answer), e i piani e le domande delle card che li portano.", effect: "write", tool: "decide_pulse_proposal", note: "I piani e le domande dell'agente hanno i loro tool (approve_plan, reject_plan, answer_agent_question), sulle rotte del ticket." } },
       schema: {
         params: idParamsSchema.extend({ action: inboxActionSchema }),
         // nullish (non optional): fastify-type-provider-zod passa `null` quando

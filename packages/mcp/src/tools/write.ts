@@ -154,7 +154,7 @@ const runTicketInput = {
 const runTicket: ToolDef = {
   name: "run_ticket",
   description:
-    "Avvia l'esecuzione del ticket sul worker Stubwise (POST run-ai). Con un piano salvato (set_plan) il worker esegue direttamente quel piano; se il tuo utente è operatore il job attende l'approvazione di un maintainer prima di eseguire. Usa mode 'ai_plan' per forzare triage+pianificazione anche con piano salvato. Se il run PIANIFICA (nessun piano salvato, o mode 'ai_plan'), l'agente può fermarsi con una DOMANDA a scelta multipla: si risponde dall'inbox di Stubwise, da Slack o dalla pagina del ticket, e la pianificazione riprende da sola — non rilanciare run_ticket. NON serve a correggere una PR già aperta da Stubwise: ripartirebbe dal branch di default senza aggiornarla. Una PR aperta si corregge dal bottone 'Chiedi modifiche' sotto la PR, su Stubwise (web o app), oppure con il 'Request changes' della revisione sulla piattaforma (Bitbucket/GitHub), e la review AI, se chiede modifiche, ne avvia da sola un numero limitato; nessun tool MCP lancia una correzione. Con una correzione ferma (budget, limite del provider) non rilanciare run_ticket alla cieca: questo tool non dice QUALE correzione riprendere, quindi il server decide dallo stato del momento — riprende la correzione se è ancora l'ultimo job, ma se nel frattempo è stata annullata o chiusa avvia un fix nuovo dal branch di default. Si riprende dal bottone 'Riprendi la correzione' sul ticket; a budget esaurito la riprende solo un maintainer. Sui ticket di tipo review (la review di una PR aperta da una persona o da un altro strumento) run_ticket è RIFIUTATO (409 review_ticket_not_runnable): un fix ripartirebbe dal branch di default senza toccare quella PR. Per far correggere a Stubwise una PR aperta da altri, un maintainer la ADOTTA dal ticket di review, su Stubwise (web o app), col bottone 'Fai correggere a Stubwise'; da lì le correzioni seguono il ciclo solito. Nessun tool MCP adotta una PR.",
+    "Avvia l'esecuzione del ticket sul worker Stubwise (POST run-ai). Con un piano salvato (set_plan) il worker esegue direttamente quel piano; se il tuo utente è operatore il job attende l'approvazione di un maintainer prima di eseguire. Usa mode 'ai_plan' per forzare triage+pianificazione anche con piano salvato. Se il run PIANIFICA (nessun piano salvato, o mode 'ai_plan'), l'agente può fermarsi con una DOMANDA a scelta multipla: si risponde con answer_agent_question (o dall'app), e la pianificazione riprende da sola — non rilanciare run_ticket. NON serve a correggere una PR già aperta da Stubwise: ripartirebbe dal branch di default senza aggiornarla. Una PR aperta si corregge dal bottone 'Chiedi modifiche' sotto la PR, su Stubwise (web o app), oppure con il 'Request changes' della revisione sulla piattaforma (Bitbucket/GitHub), e la review AI, se chiede modifiche, ne avvia da sola un numero limitato; da qui si chiede con l'azione della correzione (find_actions «correzione»), mai con run_ticket. Con una correzione ferma (budget, limite del provider) non rilanciare run_ticket alla cieca: questo tool non dice QUALE correzione riprendere, quindi il server decide dallo stato del momento — riprende la correzione se è ancora l'ultimo job, ma se nel frattempo è stata annullata o chiusa avvia un fix nuovo dal branch di default. Si riprende col bottone 'Riprendi la correzione' sul ticket o con la sua azione (find_actions «riprendi correzione»); a budget esaurito la riprende solo un maintainer. Sui ticket di tipo review (la review di una PR aperta da una persona o da un altro strumento) run_ticket è RIFIUTATO (409 review_ticket_not_runnable): un fix ripartirebbe dal branch di default senza toccare quella PR. Per far correggere a Stubwise una PR aperta da altri, un maintainer la ADOTTA dal ticket di review, su Stubwise (web o app), col bottone 'Fai correggere a Stubwise' o con la sua azione (find_actions «adotta»); da lì le correzioni seguono il ciclo solito.",
   inputSchema: runTicketInput,
   handler: (args, ctx): Promise<ToolResult> =>
     runTool(async () => {
@@ -174,12 +174,12 @@ const runTicket: ToolDef = {
         // che non arriverà mai.
         if (err instanceof StubwiseApiError && err.code === "review_ticket_not_runnable") {
           return errorResult(
-            `Questo è un ticket di review (la review di una PR aperta da altri): run_ticket non lo esegue. Per far correggere a Stubwise quella PR, un maintainer la adotta dal ticket, su Stubwise (web o app), col bottone 'Fai correggere a Stubwise'; non c'è un tool MCP che lo faccia.\nURL: ${url}`,
+            `Questo è un ticket di review (la review di una PR aperta da altri): run_ticket non lo esegue. Per far correggere a Stubwise quella PR, un maintainer la adotta dal ticket, su Stubwise (web o app), col bottone 'Fai correggere a Stubwise' o, da qui, con la sua azione (find_actions «adotta»).\nURL: ${url}`,
           );
         }
         if (err instanceof StubwiseApiError && err.status === 409) {
           return errorResult(
-            `C'è già un job in corso per questo ticket: ${err.message}. Attendi che finisca (o, se è in attesa di approvazione del piano, che un maintainer lo approvi) oppure controlla il ticket.\nURL: ${url}`,
+            `C'è già un job in corso per questo ticket: ${err.message}. Attendi che finisca (o, se è in attesa di approvazione del piano, che chi ha plans.approve lo approvi: approve_plan) oppure controlla il ticket.\nURL: ${url}`,
           );
         }
         throw err;
@@ -187,7 +187,7 @@ const runTicket: ToolDef = {
 
       if (result.status === "awaiting_plan_approval") {
         return textResult(
-          `Job creato in attesa di approvazione del piano (job ${result.jobId}): un maintainer deve approvarlo prima dell'esecuzione. Dopo l'approvazione l'esecuzione parte automaticamente: non rilanciare run_ticket.\nURL: ${url}`,
+          `Job creato in attesa di approvazione del piano (job ${result.jobId}): serve l'approvazione di chi ha plans.approve nel progetto (approve_plan, anche da qui). Dopo l'approvazione l'esecuzione parte automaticamente: non rilanciare run_ticket.\nURL: ${url}`,
         );
       }
       // Il tool non sa se questo run pianifica (dipende dal piano salvato sul
@@ -196,7 +196,7 @@ const runTicket: ToolDef = {
       // tentata di rilanciare `run_ticket` vedendo il job fermo.
       return textResult(
         `Esecuzione avviata sul ticket (job ${result.jobId}): il worker la prenderà in carico a breve. ` +
-          `Se il run include una pianificazione, l'agente può fermarsi con una domanda: si risponde dall'inbox di Stubwise, da Slack o dalla pagina del ticket e l'esecuzione riprende da sola, senza rilanciare run_ticket. ` +
+          `Se il run include una pianificazione, l'agente può fermarsi con una domanda: si risponde con answer_agent_question (o dall'app) e l'esecuzione riprende da sola, senza rilanciare run_ticket. ` +
           `Segui l'avanzamento:\nURL: ${url}`,
       );
     }),

@@ -9,7 +9,7 @@
  * Il tetto di `PENDING_MCP`: si abbassa SOLTANTO, a ogni lotto, fino a zero.
  * Senza, una rotta nuova si accoderebbe all'elenco e il test passerebbe.
  */
-export const PENDING_MCP_MAX = 443;
+export const PENDING_MCP_MAX = 428;
 
 export const PENDING_MCP: readonly string[] = [
   "DELETE /api/admin/invites/:id",
@@ -46,7 +46,6 @@ export const PENDING_MCP: readonly string[] = [
   "DELETE /api/servers/:id",
   "DELETE /api/servers/:id/checks/:checkId",
   "DELETE /api/servers/:id/ssh",
-  "DELETE /api/tickets/:id/pre-approve-plan",
   "DELETE /api/users/:id/bitbucket",
   "GET /api/access/what-can",
   "GET /api/access/who-can",
@@ -118,7 +117,6 @@ export const PENDING_MCP: readonly string[] = [
   "GET /api/git-accounts/:id/repositories",
   "GET /api/git-accounts/:id/validate-repo",
   "GET /api/git/observed-authors",
-  "GET /api/inbox",
   "GET /api/instance/status",
   "GET /api/me/alert-subscriptions",
   "GET /api/me/automation-approvals",
@@ -326,14 +324,11 @@ export const PENDING_MCP: readonly string[] = [
   "POST /api/claude/proposals/:id/cancel",
   "POST /api/claude/proposals/:id/confirm",
   "POST /api/claude/suggestions/dismiss",
-  "POST /api/decisions/:id/answer",
-  "POST /api/decisions/:id/withdraw",
   "POST /api/departments",
   "POST /api/departments/:id/preview",
   "POST /api/drive/files/:id/retry",
   "POST /api/drive/google/folders/:id/sync",
   "POST /api/git-accounts/:id/validate",
-  "POST /api/inbox/:id/actions/:action",
   "POST /api/instance/jobs/:id/retry",
   "POST /api/me/alert-subscriptions/:projectId/copy",
   "POST /api/me/alert-subscriptions/:projectId/mute",
@@ -351,11 +346,6 @@ export const PENDING_MCP: readonly string[] = [
   "POST /api/me/mail/outgoing/:id/discard",
   "POST /api/me/mail/outgoing/:id/retry",
   "POST /api/me/mail/outgoing/:id/undo",
-  "POST /api/me/mail/proposals/:id/choose-project",
-  "POST /api/me/mail/proposals/:id/confirm",
-  "POST /api/me/mail/proposals/:id/hand",
-  "POST /api/me/mail/proposals/:id/ignore",
-  "POST /api/me/mail/proposals/:id/reassign",
   "POST /api/me/mail/threads/:threadId/read",
   "POST /api/me/security/reauth",
   "POST /api/me/security/reauth/passkey/options",
@@ -422,11 +412,6 @@ export const PENDING_MCP: readonly string[] = [
   "POST /api/tasks/:ticketId/server-fix/approve",
   "POST /api/tasks/:ticketId/server-fix/reject",
   "POST /api/tasks/:ticketId/server-fix/stop",
-  "POST /api/tickets/:id/approve-plan",
-  "POST /api/tickets/:id/pre-approve-plan",
-  "POST /api/tickets/:id/questions/answer",
-  "POST /api/tickets/:id/reject-plan",
-  "POST /api/tickets/:id/repositories/:repositoryId/release",
   "POST /api/tickets/:id/run-ai",
   "PUT /api/automation-sources/:id/example",
   "PUT /api/automations/:code/draft",

@@ -637,6 +637,8 @@ describe("run_ticket", () => {
     expect(firstText(res)).toContain("approvazione");
     // L'agente non deve rilanciare il tool aspettando l'approvazione.
     expect(firstText(res)).toContain("non rilanciare run_ticket");
+    // Chi ha plans.approve lo approva da qui (lotto 1 della parità).
+    expect(firstText(res)).toContain("approve_plan");
     expect(firstText(res)).toContain(JOB_ID);
     expect(firstText(res)).toContain(`${BASE_URL}/tickets/${TICKET_ID}`);
   });
@@ -645,7 +647,10 @@ describe("run_ticket", () => {
     const description = tool("run_ticket").description;
     expect(description).toContain("Chiedi modifiche");
     expect(description).toContain("Request changes");
-    expect(description).toContain("nessun tool MCP lancia una correzione");
+    // Lotto 1 della parità: la correzione si chiede anche da qui, ma NON con run_ticket.
+    expect(description).not.toContain("nessun tool MCP");
+    expect(description).toContain("find_actions");
+    expect(description).toContain("answer_agent_question");
   });
 
   it("la descrizione dice di non rilanciare alla cieca su una correzione ferma", () => {
@@ -707,7 +712,7 @@ describe("run_ticket", () => {
     expect(firstText(res)).toContain("C'è già un job in corso per questo ticket");
     expect(firstText(res)).toContain("A job for this ticket is already running");
     // Il job in volo può essere fermo sul gate del piano: il testo lo dice.
-    expect(firstText(res)).toContain("che un maintainer lo approvi");
+    expect(firstText(res)).toContain("che chi ha plans.approve lo approvi: approve_plan");
     expect(firstText(res)).toContain(`${BASE_URL}/tickets/${TICKET_ID}`);
   });
 

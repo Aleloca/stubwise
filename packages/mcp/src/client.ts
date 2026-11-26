@@ -339,13 +339,15 @@ export interface InboxGoogle {
   subject: string;
   receivedAt?: string;
   signal: "decision" | "request" | "deadline" | "blocker" | "none";
+  /** L'id della proposta (`email_proposals.id`), derivato a lettura dal server; quello di decide_mail_proposal. */
+  sourceProposalId?: string | null;
 }
 
 /**
  * Forma difensiva di una riga d'inbox (`GET /api/inbox`): i soli campi che i
  * tool MCP leggono. Il contratto completo (azioni, snooze, chi l'ha gestita,
- * la domanda dell'agente...) resta al client web: qui l'inbox si LEGGE e basta
- * — non esiste un tool MCP che decida da questa superficie.
+ * la domanda dell'agente...) resta al client web. Le decisioni hanno i loro
+ * tool (lotto 1 della parità: `decisions.ts`).
  */
 export interface InboxItemSummary {
   id: string;
@@ -838,6 +840,8 @@ export class StubwiseClient {
 
   /** Una voce del catalogo con gli schemi (`GET /api/mcp/catalog/:action`). */
   async describeAction(action: string): Promise<CatalogActionDetail> {
+    // Come in callAction: un `.`/`..` porterebbe la richiesta fuori dal catalogo (revisione della D4, M5).
+    if (isDotSegment(action)) throw new StubwiseApiError("Azione non valida («.» o «..»)", 0, "invalid_params");
     const raw = await this.request<unknown>(`/api/mcp/catalog/${encodeURIComponent(action)}`);
     return this.parseResponse(catalogDetailSchema, raw, `la voce ${action} del catalogo`);
   }

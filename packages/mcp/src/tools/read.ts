@@ -266,7 +266,7 @@ const listProposals: ToolDef = {
   name: "list_proposals",
   description:
     "Elenca le proposte APERTE del pulse proattivo indirizzate A TE (l'utente del token): per ogni progetto fermo, le voci di backlog da cui Stubwise suggerisce di ripartire, con urgenza, effort e id della voce. " +
-    "Serve a SAPERE, non ad agire: da qui NON si avvia niente e non esiste un tool MCP che risponda a una proposta. Si sceglie dalla card in inbox nella web app o dal DM Slack, e il resto (ticket + run che si ferma sull'approvazione del piano) parte da solo. " +
+    "Per sceglierne una: decide_pulse_proposal, con l'id della notifica e l'indice della proposta (il numero dell'elenco meno uno); il resto (ticket + run che si ferma sull'approvazione del piano) parte da solo, come dalla card in inbox. " +
     "Il pulse è per DESTINATARIO, non per progetto: una lista vuota significa solo che a te non ne è arrivato nessuno di aperto — non che i progetti non abbiano proposte.",
   inputSchema: {},
   handler: (_args, ctx): Promise<ToolResult> =>
@@ -285,7 +285,7 @@ const listProposals: ToolDef = {
       const blocks = page.items.map(renderPulseItem);
       return textResult(
         `Proposte del pulse aperte per te (${page.items.length}):\n${blocks.join("\n")}\n\n` +
-          "Per avviarne una si risponde dall'inbox della web app o dal DM Slack: non c'è un tool MCP per farlo da qui. " +
+          "Per sceglierne una: decide_pulse_proposal con l'id della notifica e option_index = numero − 1. " +
           "Una volta scelta, la voce diventa un ticket e il run si ferma sull'approvazione del piano di un maintainer.",
       );
     }),
@@ -305,14 +305,16 @@ function renderMailItem(item: InboxItemSummary): string {
   const { source, from, subject, signal } = item.google;
   const originLabel = source === "email" ? "email" : "evento di calendario";
   const subjectPart = subject ? ` — "${subject}"` : "";
-  return `- [${originLabel}] ${from || "mittente sconosciuto"}${subjectPart} · segnale: ${signal} (notifica: ${item.id})`;
+  // L'id della PROPOSTA è quello che vuole decide_mail_proposal; la notifica resta l'ancora per l'inbox.
+  const proposal = item.google.sourceProposalId ? `proposta: ${item.google.sourceProposalId}, ` : "";
+  return `- [${originLabel}] ${from || "mittente sconosciuto"}${subjectPart} · segnale: ${signal} (${proposal}notifica: ${item.id})`;
 }
 
 const listMailProposals: ToolDef = {
   name: "list_mail_proposals",
   description:
     "Elenca le proposte APERTE nate dalla posta o dal calendario (kind google.proposal), indirizzate A TE (l'utente del token): per ogni email o evento in perimetro, mittente/organizzatore, oggetto/titolo, segnale riconosciuto (decisione/richiesta/scadenza/blocco) e id della notifica. " +
-    "Serve a SAPERE, non ad agire: da qui NON si conferma niente e non esiste un tool MCP che risponda a una proposta — si sceglie dall'inbox della web app o dal DM Slack, dove si vede anche l'azione proposta (voce di backlog, milestone, aggiornamento o commento a un ticket, decisione registrata). " +
+    "Per deciderne una: decide_mail_proposal con l'id della PROPOSTA (non della notifica). Aggiungere un incaricato come membro del progetto resta dell'app (chiede la riconferma). " +
     "La proposta è per DESTINATARIO, non per casella: solo il proprietario della casella la vede (mai un admin), e una lista vuota significa solo che a te non ne è arrivata nessuna di aperta.",
   inputSchema: {},
   handler: (_args, ctx): Promise<ToolResult> =>
@@ -329,7 +331,7 @@ const listMailProposals: ToolDef = {
       const blocks = page.items.map(renderMailItem);
       return textResult(
         `Proposte dalla posta aperte per te (${page.items.length}):\n${blocks.join("\n")}\n\n` +
-          "Per confermarne una si risponde dall'inbox della web app o dal DM Slack: non c'è un tool MCP per farlo da qui. " +
+          "Per deciderne una: decide_mail_proposal con l'id della proposta (confirm, ignore, hand, reassign, choose_project). " +
           "L'elenco completo (comprese quelle già trattate, fallite o riproponibili) è nella pagina Posta della web app.",
       );
     }),
