@@ -229,7 +229,7 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      config: { access: { kind: "user" }, mcp: { action: "inbox.list", summary: "L'inbox di chi chiede: le card aperte, gestite o rimandate, con le azioni disponibili.", effect: "read", tool: "list_inbox" } },
+      config: { access: { kind: "user" }, mcp: { action: "inbox.list", summary: "L'inbox (le notifiche) di chi chiede: le card aperte, gestite o rimandate, con le azioni disponibili.", effect: "read", tool: "list_inbox" } },
       schema: {
         querystring: z.object({
           status: inboxStatusSchema.default("open"),

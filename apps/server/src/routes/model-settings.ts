@@ -121,7 +121,7 @@ export async function modelSettingsRoutes(instance: FastifyInstance): Promise<vo
   app.get(
     "/",
     {
-      config: { mcp: { action: "settings.models", summary: "Il modello AI usato per ogni operazione.", effect: "read" }, access: { kind: "instance", permission: "settings.manage" } },
+      config: { mcp: { action: "settings.models", summary: "I modelli AI: quello usato per ogni operazione.", effect: "read" }, access: { kind: "instance", permission: "settings.manage" } },
       schema: { response: { 200: modelSettingsSchema, ...authErrorResponses } },
     },
     async () => loadModelSettings(app.db),

@@ -382,7 +382,7 @@ export async function meGoogleRoutes(
   app.post(
     "/accounts/:id/sync",
     {
-      config: { access: { kind: "user" }, mcp: { action: "google.syncNow", summary: "«Aggiorna ora»: chiede di rileggere adesso posta e calendario di una tua casella.", effect: "write" } },
+      config: { access: { kind: "user" }, mcp: { action: "google.syncNow", summary: "«Aggiorna ora»: sincronizza adesso posta e calendario di una tua casella (li rilegge da Google).", effect: "write" } },
       schema: {
         params: idParamsSchema,
         response: {

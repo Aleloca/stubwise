@@ -53,6 +53,15 @@ describe("find_actions", () => {
     expect(text(r)).not.toContain("me.mail.send");
   });
 
+  it("a pari punteggio vince la parola RARA: «list webhooks» trova i webhook fra cento elenchi (controprova del lotto 7)", async () => {
+    const lists = Array.from({ length: 30 }, (_, i) => entry({ action: `area${String(i).padStart(2, "0")}.list`, path: `/api/area${i}`, area: `area${i}` }));
+    const webhooks = entry({ action: "settings.webhooks", path: "/api/settings/webhooks", area: "settings", summary: "Elenca i webhook in uscita." });
+    const ctx = ctxWith({ getCatalog: vi.fn().mockResolvedValue([...lists, webhooks]) });
+    const lines = text(await tool("find_actions").handler({ query: "list webhooks" }, ctx)).split("\n").slice(1);
+    expect(lines[0]).toContain("settings.webhooks");
+    expect(lines).toHaveLength(FIND_ACTIONS_LIMIT);
+  });
+
   it("nomina il tool dedicato di una voce", async () => {
     const ctx = ctxWith({ getCatalog: vi.fn().mockResolvedValue(CATALOG) });
     const r = await tool("find_actions").handler({ query: "approva piano" }, ctx);
@@ -76,6 +85,16 @@ describe("find_actions", () => {
     const r = await tool("find_actions").handler({ query: "task" }, ctxWith({ getCatalog }));
     expect(r.isError).toBe(true);
     expect(text(r)).toContain("va aggiornata");
+  });
+
+  it("i verbi italiani trovano il nome inglese dell'azione, e «posta» l'area mail (controprova del lotto 7)", () => {
+    const sync = entry({ action: "google.syncNow", method: "POST", path: "/api/me/google/sync", area: "me", summary: "Rilegge adesso.", effect: "write" });
+    const send = entry({ action: "mail.send", method: "POST", path: "/api/me/mail/drafts/:id/send", area: "mail", summary: "Invia una bozza.", effect: "write" });
+    expect(scoreAction(sync, ["sincronizza"])).toBe(3);
+    expect(scoreAction(send, ["manda"])).toBe(3);
+    expect(scoreAction(send, ["posta"])).toBe(3);
+    // Un verbo che non c'entra resta a zero.
+    expect(scoreAction(sync, ["manda"])).toBe(0);
   });
 
   it("una parola sotto le tre lettere vale solo intera, e «pr» è anche «pull» (segnalazione di 94, lotto 2)", async () => {
