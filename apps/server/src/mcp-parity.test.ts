@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { RouteOptions } from "fastify";
 import { describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
@@ -76,14 +76,45 @@ const HANDLER_PAT_REFUSALS = ["POST /api/users/:id/password-reset", "POST /api/a
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-/** I nomi dei tool del pacchetto MCP, letti dai sorgenti: il `name` di un ToolDef, due spazi a inizio riga (revisione del lotto 0, M7). */
-function mcpToolNames(): Set<string> {
-  const toolsDir = join(here, "../../../packages/mcp/src/tools");
-  return new Set(
-    readdirSync(toolsDir)
-      .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
-      .flatMap((f) => [...readFileSync(join(toolsDir, f), "utf8").matchAll(/^ {2}name: "([a-z_]+)",$/gm)].map((m) => m[1]!)),
-  );
+/**
+ * I nomi dei tool che il server MCP REGISTRA davvero (`buildServer` del
+ * pacchetto, revisione del lotto 2, M8): non i `name:` dei sorgenti, che
+ * possono stare su un ToolDef mai registrato. Il pacchetto non è una
+ * dipendenza del server: si importa per percorso, come la fixture.
+ */
+let toolNamesCache: Promise<Set<string>> | null = null;
+function mcpToolNames(): Promise<Set<string>> {
+  toolNamesCache ??= (async () => {
+    const serverModule = join(here, "../../../packages/mcp/src/server.ts");
+    const { buildServer } = (await import(pathToFileURL(serverModule).href)) as {
+      buildServer: (ctx: unknown) => { _registeredTools?: Record<string, unknown> };
+    };
+    const server = buildServer({ client: {}, config: { baseUrl: "http://localhost", token: "x", projectSlug: null } });
+    return new Set(Object.keys(server._registeredTools ?? {}));
+  })();
+  return toolNamesCache;
+}
+
+/**
+ * I codici d'errore del server (`apiError(reply, 403, "session_required", …)`,
+ * `code: "too_late"`), letti dai sorgenti: in una `note` un nome fra backtick
+ * con il trattino basso è un tool del pacchetto o uno di questi.
+ */
+function serverErrorCodes(): Set<string> {
+  const codes = new Set<string>();
+  const walk = (dir: string) => {
+    for (const f of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, f.name);
+      if (f.isDirectory()) walk(full);
+      else if (f.name.endsWith(".ts") && !f.name.endsWith(".test.ts")) {
+        const src = readFileSync(full, "utf8");
+        for (const m of src.matchAll(/apiError\([^,]+,\s*\d+,\s*"([a-z]+(?:_[a-z]+)+)"/g)) codes.add(m[1]!);
+        for (const m of src.matchAll(/\b(?:code|error):\s*"([a-z]+(?:_[a-z]+)+)"/g)) codes.add(m[1]!);
+      }
+    }
+  };
+  walk(here);
+  return codes;
 }
 
 /**
@@ -231,7 +262,7 @@ describe("parità MCP: ogni rotta dichiara config.mcp", () => {
   });
 
   it("una voce con `tool` nomina un tool che il pacchetto MCP ha", async () => {
-    const names = mcpToolNames();
+    const names = await mcpToolNames();
     expect(names.size).toBeGreaterThan(20);
     const unknown = (await registered()).flatMap((r) => {
       const mcp = mcpOf(r);
@@ -241,18 +272,23 @@ describe("parità MCP: ogni rotta dichiara config.mcp", () => {
   });
 
 
-  it("una `note` che nomina un tool («tool `nome`») nomina un tool che il pacchetto MCP ha", async () => {
-    const names = mcpToolNames();
+  it("in una `note` ogni nome fra backtick col trattino basso è un tool registrato o un codice d'errore del server (revisione del lotto 2, M8)", async () => {
+    const names = await mcpToolNames();
+    const codes = serverErrorCodes();
+    expect(codes.has("session_required")).toBe(true);
     const unknown = (await registered()).flatMap((r) => {
       const mcp = mcpOf(r);
       if (!isMcpAction(mcp) || mcp.note === undefined) return [];
-      return [...mcp.note.matchAll(/\btool `([a-z_]+)`/g)].map((m) => m[1]!).filter((t) => !names.has(t)).map((t) => `${r.key} → ${t}`);
+      return [...mcp.note.matchAll(/`([a-z]+(?:_[a-z]+)+)`/g)].map((m) => m[1]!).filter((t) => !names.has(t) && !codes.has(t)).map((t) => `${r.key} → ${t}`);
     });
     expect(unknown).toEqual([]);
   });
 
   it("un'azione con `partialReauth` ha una `note`: dice quale parte del corpo col PAT non passa (revisione del lotto 2, I6)", async () => {
-    const silent = (await registered()).filter((r) => r.route.config?.partialReauth && isMcpAction(mcpOf(r)) && !(mcpOf(r) as { note?: string }).note?.trim()).map((r) => r.key);
+    // La nota dice il rifiuto, non una frase qualunque (revisione del lotto 2, M8).
+    const silent = (await registered())
+      .filter((r) => r.route.config?.partialReauth && isMcpAction(mcpOf(r)) && !/session_required|riconferma/.test((mcpOf(r) as { note?: string }).note ?? ""))
+      .map((r) => r.key);
     expect(silent).toEqual([]);
   });
 });

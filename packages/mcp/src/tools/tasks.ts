@@ -1,3 +1,4 @@
+import { addWeeks, currentIsoWeek, isIsoWeek, mondayToIsoWeek } from "@stubwise/shared";
 import { z } from "zod";
 import type { DepartmentItem, ProjectStatusItem, TaskItem } from "../client.js";
 import { CLAUDE_ASSIGNED_LINE, resolveAssignee } from "./assignee.js";
@@ -157,7 +158,6 @@ export const taskTools: ToolDef[] = [listTaskFields, listTasks, getByCode];
 
 const PRIORITIES = ["low", "medium", "high", "urgent"] as const;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const ISO_WEEK_RE = /^(\d{4})-W(\d{2})$/;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** I giorni lavorativi in parole (italiano e inglese, con o senza accento) → 1–5; sabato e domenica → 6, 7. */
@@ -180,16 +180,9 @@ function isoWeekday(date: string): number {
   return ((d.getUTCDay() + 6) % 7) + 1;
 }
 
-/** La settimana ISO (`2026-W49`) di una data AAAA-MM-GG. */
+/** La settimana ISO (`2026-W49`) di una data AAAA-MM-GG: la regola dello shared (`@stubwise/shared`, tasks/weeks). */
 export function isoWeekOf(date: string): string {
-  const d = new Date(`${date}T00:00:00Z`);
-  // Il giovedì della stessa settimana decide l'anno ISO.
-  const thursday = new Date(d);
-  thursday.setUTCDate(d.getUTCDate() + 4 - isoWeekday(date));
-  const year = thursday.getUTCFullYear();
-  const jan1 = new Date(Date.UTC(year, 0, 1));
-  const week = Math.floor((thursday.getTime() - jan1.getTime()) / 86_400_000 / 7) + 1;
-  return `${year}-W${String(week).padStart(2, "0")}`;
+  return mondayToIsoWeek(date);
 }
 
 function validDate(s: string): boolean {
@@ -227,10 +220,12 @@ const updateTask: ToolDef = {
       let projectId: string;
       let label: string;
       let plannedWeek: string | null | undefined;
+      let taskAssignee: string | null;
       if (UUID_RE.test(raw)) {
         const ticket = await ctx.client.getTicket(raw);
         taskId = raw;
         projectId = ticket.projectId;
+        taskAssignee = ticket.assigneeId;
         label = `la task ${raw}`;
       } else {
         const code = raw.toUpperCase();
@@ -240,6 +235,9 @@ const updateTask: ToolDef = {
         taskId = t.id;
         projectId = t.projectId;
         label = t.code;
+        taskAssignee = t.assigneeId;
+        // È la settimana EFFETTIVA: il server la dà già slittata (`loadTaskViews`,
+        // `stubwise_effective_week`), la stessa che controlla `PUT …/day`.
         plannedWeek = t.plannedWeek ?? null;
       }
 
@@ -289,10 +287,13 @@ const updateTask: ToolDef = {
       let week: string | null | undefined;
       if (args.week !== undefined) {
         const w = String(args.week).trim();
+        const now = currentIsoWeek(new Date());
         if (norm(w) === "none") week = null;
-        else if (ISO_WEEK_RE.test(w.toUpperCase())) week = w.toUpperCase();
+        else if (["this", "questa", "corrente"].includes(plain(w))) week = now;
+        else if (["next", "prossima"].includes(plain(w))) week = addWeeks(now, 1);
+        else if (isIsoWeek(w.toUpperCase())) week = w.toUpperCase();
         else if (validDate(w)) week = isoWeekOf(w);
-        else problems.push(`settimana non valida: ${w} (si scrive 2026-W49, oppure una data AAAA-MM-GG, oppure none)`);
+        else problems.push(`settimana non valida: ${w} (si scrive 2026-W49, this, next, una data AAAA-MM-GG, oppure none)`);
       }
 
       // Il giorno: 1–5, un nome, una data (che dice anche la settimana), o `none`.
@@ -309,7 +310,7 @@ const updateTask: ToolDef = {
           week = fromDate;
         } else if (WEEKDAYS[plain(d)] !== undefined) n = WEEKDAYS[plain(d)];
         else problems.push(`giorno non valido: ${d} (lunedì–venerdì, 1–5, una data AAAA-MM-GG, o none)`);
-        if (n !== undefined && n !== null && (n < 1 || n > 5)) problems.push(`${DAY_NAMES[n] ?? d} non è un giorno lavorativo: il giorno va da lunedì a venerdì`);
+        if (n !== undefined && n !== null && (n < 1 || n > 5)) problems.push(`${DAY_NAMES[n] || d} non è un giorno lavorativo: il giorno va da lunedì a venerdì`);
         else day = n;
       }
 
@@ -323,13 +324,28 @@ const updateTask: ToolDef = {
       } else if (day !== undefined && day !== null && dayWeek === null) {
         problems.push(`${label} non è pianificata in nessuna settimana: dalla col campo week, o dai il giorno come data`);
       }
+      // Il giorno è la sistemazione di CHI HA la task: dopo il cambio, l'assegnatario dev'essere chi chiama.
+      if (day !== undefined && problems.length === 0) {
+        const me = await ctx.client.getMe();
+        const after = "assigneeId" in patch ? (patch.assigneeId as string | null) : taskAssignee;
+        if (after !== me.id) {
+          problems.push(`il giorno lo sistema solo chi ha la task in carico, e ${label} ${after === null ? "non è assegnata a nessuno" : "non è assegnata a te"}: cambia l'assegnatario o lascia stare il giorno`);
+        }
+      }
       if (problems.length > 0) return errorResult(`Non cambio ${label}: ${problems.join("; ")}.`);
 
       let updated: { plannedWeek?: string | null } | undefined;
       if (Object.keys(patch).length > 0) updated = await ctx.client.patchTask(taskId, patch);
       if (day !== undefined) {
         const w = (week !== undefined ? week : (updated?.plannedWeek ?? plannedWeek)) as string;
-        await ctx.client.setTaskDay(taskId, { week: w, day });
+        try {
+          await ctx.client.setTaskDay(taskId, { week: w, day });
+        } catch (err) {
+          // I campi sono già scritti: si dice cosa è fatto e cosa no.
+          const why = err instanceof Error ? err.message : String(err);
+          const done = said.length > 0 ? `Aggiornata ${label}: ${said.join(", ")}; il giorno` : `Per ${label} il giorno`;
+          return errorResult(`${done} NON è stato impostato: ${why}`);
+        }
         said.push(day === null ? `giorno: nessuno (${w})` : `giorno: ${DAY_NAMES[day]} (${w})`);
       }
       const after = claude ? `\n${CLAUDE_ASSIGNED_LINE}` : "";

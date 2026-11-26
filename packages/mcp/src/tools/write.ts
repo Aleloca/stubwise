@@ -49,7 +49,7 @@ const createTicketInput = {
     .max(320)
     .optional()
     .describe("A chi assegnarlo: 'me', l'email o il nome di una persona, o «Claude»."),
-  labels: z.array(z.string().trim().min(1).max(60)).max(30).optional().describe("Le etichette."),
+  labels: z.array(z.string().trim().min(1).max(50)).max(20).optional().describe("Le etichette: al più 20, da 50 caratteri (come la rotta)."),
 };
 
 const createTicket: ToolDef = {

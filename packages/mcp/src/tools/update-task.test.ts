@@ -135,12 +135,57 @@ describe("update_task", () => {
     expect(client.patchTask).not.toHaveBeenCalled();
   });
 
-  it("un rifiuto del server sul giorno (solo l'assegnatario sistema la sua settimana) arriva com'è, dopo i campi", async () => {
-    const client = makeClient({ setTaskDay: vi.fn().mockRejectedValue(new StubwiseApiError("HTTP 403 forbidden: Only the assignee arranges a task in their week", 403, "forbidden")) });
+  it("revisione I3: se i campi passano e il giorno no, la risposta dice cosa è fatto e cosa no", async () => {
+    const client = makeClient({ setTaskDay: vi.fn().mockRejectedValue(new StubwiseApiError("HTTP 409 not_in_week: The task is not planned in this week", 409, "not_in_week")) });
     const r = await tool.handler({ task: "ACQ-12", priority: "urgent", day: "lunedì" }, ctxOf(client));
     expect(client.patchTask).toHaveBeenCalledWith(TASK.id, { priority: "urgent" });
     expect(r.isError).toBe(true);
-    expect(text(r)).toContain("Only the assignee");
+    expect(text(r)).toBe("Aggiornata ACQ-12: priorità: urgent; il giorno NON è stato impostato: HTTP 409 not_in_week: The task is not planned in this week");
+  });
+
+  it("revisione I3: il giorno di una task che resta o finisce a un altro si rifiuta PRIMA di scrivere", async () => {
+    const toMarco = makeClient();
+    const r = await tool.handler({ task: "ACQ-12", assignee: "marco@acq.it", day: "giovedì" }, ctxOf(toMarco));
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("il giorno lo sistema solo chi ha la task in carico");
+    expect(toMarco.patchTask).not.toHaveBeenCalled();
+    expect(toMarco.setTaskDay).not.toHaveBeenCalled();
+    const notMine = makeClient({ getMe: vi.fn().mockResolvedValue({ id: "u-marco", email: "marco@acq.it", role: "member" }) });
+    expect((await tool.handler({ task: "ACQ-12", day: "giovedì" }, ctxOf(notMine))).isError).toBe(true);
+    expect(notMine.setTaskDay).not.toHaveBeenCalled();
+  });
+
+  it("revisione I4: una task slittata usa la settimana EFFETTIVA che dà il server, la stessa che controlla il giorno", async () => {
+    // Pianificata nella W45 e mai chiusa: `loadTaskViews` la dà già nella settimana corrente (W49).
+    const client = makeClient({ getTaskByCode: vi.fn().mockResolvedValue({ ...TASK, plannedWeek: "2026-W49", slipCount: 4 }) });
+    await tool.handler({ task: "ACQ-12", day: "martedì" }, ctxOf(client));
+    expect(client.patchTask).not.toHaveBeenCalled();
+    expect(client.setTaskDay).toHaveBeenCalledWith(TASK.id, { week: "2026-W49", day: 2 });
+  });
+
+  it("revisione M1: la settimana `this` e `next` dal giorno di oggi (Europe/Rome)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-12-09T10:00:00Z")); // mercoledì della W50
+    try {
+      const client = makeClient();
+      await tool.handler({ task: "ACQ-12", week: "this" }, ctxOf(client));
+      expect(client.patchTask).toHaveBeenLastCalledWith(TASK.id, { plannedWeek: "2026-W50" });
+      await tool.handler({ task: "ACQ-12", week: "next" }, ctxOf(client));
+      expect(client.patchTask).toHaveBeenLastCalledWith(TASK.id, { plannedWeek: "2026-W51" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("revisione M2 e M3: `day: 0` si rifiuta col suo nome; «Claude» per id avvia il lavoro come per nome", async () => {
+    const zero = await tool.handler({ task: "ACQ-12", day: 0 }, ctxOf(makeClient()));
+    expect(zero.isError).toBe(true);
+    expect(text(zero)).toContain("0 non è un giorno lavorativo");
+    const CLAUDE_ID = "33333333-3333-4333-8333-333333333333";
+    const client = makeClient({ listPeople: vi.fn().mockResolvedValue([{ id: CLAUDE_ID, name: "Claude", email: "claude@stubwise.local", isClaude: true }]) });
+    const r = await tool.handler({ task: "ACQ-12", assignee: CLAUDE_ID }, ctxOf(client));
+    expect(client.patchTask).toHaveBeenCalledWith(TASK.id, { assigneeId: CLAUDE_ID });
+    expect(text(r)).toContain("avvia il lavoro");
   });
 });
 

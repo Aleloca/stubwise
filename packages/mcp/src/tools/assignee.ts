@@ -24,8 +24,12 @@ export async function resolveAssignee(ctx: ToolContext, raw: string): Promise<Re
     const me = await ctx.client.getMe();
     return { ok: true, id: me.id, label: `tu (${me.email})`, claude: false };
   }
-  if (UUID_RE.test(who)) return { ok: true, id: who, label: who, claude: false };
   const people = (await ctx.client.listPeople()).filter((p) => !p.deactivated);
+  // Anche per id si guarda fra le persone: un id di «Claude» avvia il lavoro come il nome.
+  if (UUID_RE.test(who)) {
+    const p = people.find((x) => x.id.toLowerCase() === who.toLowerCase());
+    return { ok: true, id: who, label: p?.name ?? who, claude: p?.isClaude === true };
+  }
   const byEmail = people.filter((p) => norm(p.email) === norm(who));
   const matches =
     byEmail.length > 0

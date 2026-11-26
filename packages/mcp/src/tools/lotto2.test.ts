@@ -7,6 +7,8 @@ import { docsTools } from "./docs.js";
 import { fileTools } from "./files.js";
 import { readTools } from "./read.js";
 import { requestTools } from "./requests.js";
+import { taskTools, taskWriteTools } from "./tasks.js";
+import { decisionTools } from "./decisions.js";
 import { writeTools } from "./write.js";
 import { LOTTO2_CATALOG } from "./lotto2.fixture.js";
 import type { ToolContext, ToolDef, ToolResult } from "./types.js";
@@ -120,7 +122,7 @@ describe("lotto 2: le voci si chiamano coi tool generici", () => {
   });
 
   it("le voci del lotto con un tool nominano tool veri del pacchetto (i ToolDef registrati)", () => {
-    const names = new Set([...readTools, ...writeTools, ...docsTools, ...requestTools, ...actionTools, ...fileTools].map((t) => t.name));
+    const names = new Set([...readTools, ...writeTools, ...docsTools, ...requestTools, ...actionTools, ...fileTools, ...taskTools, ...taskWriteTools, ...decisionTools].map((t) => t.name));
     const withTool = LOTTO2_CATALOG.filter((e) => e.tool !== undefined);
     // Ticket: create, design e piano (5); backlog: create, from-design, convert, design e piano (7); allegati: upload e download (2).
     expect(withTool.length).toBe(14);
