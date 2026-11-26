@@ -21,11 +21,37 @@ type U = Awaited<ReturnType<typeof createUserWithSession>>;
 let editor: U;
 let reader: U;
 let projectId: string;
+/** Richieste `/live` arrivate al server e `open()` concluse, per pagina (vedi beforeAll). */
+const liveArrived = new Map<string, number>();
+const liveSettled = new Map<string, number>();
+/** Un server lento, nei test che lo chiedono: ogni `open()` aspetta tanto prima di partire e dopo, a posto preso. */
+let openDelayMs = 0;
 
 beforeAll(async () => {
   t = await startTestDb();
   // Tempi corti per il test: permessi riletti ogni 200 ms, presenza che scade a 1,5 s.
   app = buildApp({ db: t.db, sessionSecret: "x".repeat(40), productLive: { permsTtlMs: 200, presenceTtlMs: 1500 } });
+  // CI della PR #125: per sapere quando il SERVER ha finito con gli stream
+  // annullati, si contano le richieste `/live` ARRIVATE e le `open()` CONCLUSE,
+  // per pagina. L'hook va registrato prima che l'app sia pronta (il primo inject).
+  app.addHook("onRequest", async (request) => {
+    const m = /^\/api\/product-pages\/([^/]+)\/live$/.exec(request.url);
+    if (m && request.method === "GET") liveArrived.set(m[1]!, (liveArrived.get(m[1]!) ?? 0) + 1);
+  });
+  const open = app.productLive.open.bind(app.productLive);
+  app.productLive.open = async (input) => {
+    try {
+      // Lenta prima (arriva a `open()` dopo che il contatore della pagina è già a 0)
+      // e dopo: il posto resta preso mentre la persona riapre.
+      const slow = openDelayMs;
+      if (slow > 0) await new Promise((r) => setTimeout(r, slow));
+      const unsubscribe = await open(input);
+      if (slow > 0) await new Promise((r) => setTimeout(r, slow));
+      return unsubscribe;
+    } finally {
+      liveSettled.set(input.pageId, (liveSettled.get(input.pageId) ?? 0) + 1);
+    }
+  };
   await seedUsers(app);
   ({ projectId } = await seedRepository(t.db));
   editor = await createUserWithSession(app, "editor-live@example.com");
@@ -264,16 +290,26 @@ describe("il canale dal vivo", () => {
 
   it("review di F4 (I2): chi se ne va mentre lo stream si apre non resta nei tetti", async () => {
     const p = await page();
+    // Il server della CI del 26 nov 2026: lento, le aperture annullate arrivano a
+    // `open()` DOPO che il client le ha già lasciate. Qui la lentezza è fissata.
+    openDelayMs = 150;
     for (let i = 0; i < 12; i++) {
       const c = new AbortController();
       const f = fetch(`${base}/api/product-pages/${p.id}/live`, { headers: { cookie: reader.headers.cookie }, signal: c.signal }).catch(() => undefined);
       setTimeout(() => c.abort(), i % 3);
       await f;
     }
-    const deadline = Date.now() + 3000;
-    while (app.productLive.count(p.id) > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+    // Si aspetta che il SERVER abbia finito con ogni richiesta arrivata (ognuna
+    // conclude la sua `open()`, poi la rotta la scarta) e che la pagina sia
+    // vuota: non basta la pagina vuota, una richiesta in ritardo non c'è ancora.
+    const settledAll = () => (liveSettled.get(p.id) ?? 0) === (liveArrived.get(p.id) ?? 0) && app.productLive.count(p.id) === 0;
+    const deadline = Date.now() + 10_000;
+    while (!settledAll() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
     expect(app.productLive.count(p.id)).toBe(0);
+    // Il server ha finito con OGNI richiesta arrivata: nessuna sta ancora per prendere un posto.
+    expect(liveSettled.get(p.id) ?? 0).toBe(liveArrived.get(p.id) ?? 0);
     // E la persona apre ancora uno stream (nessun orfano che le occupi i 10 posti).
+    openDelayMs = 0;
     const s2 = await stream(reader, p.id);
     expect(s2.res.status).toBe(200);
     s2.close();
