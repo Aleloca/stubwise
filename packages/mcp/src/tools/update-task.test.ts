@@ -163,6 +163,13 @@ describe("update_task", () => {
     expect(client.setTaskDay).toHaveBeenCalledWith(TASK.id, { week: "2026-W49", day: 2 });
   });
 
+  it("una settimana data dall'utente si manda sempre, anche se è quella effettiva (task slittata ripianificata)", async () => {
+    const client = makeClient({ getTaskByCode: vi.fn().mockResolvedValue({ ...TASK, plannedWeek: "2026-W49", slipCount: 3 }) });
+    const r = await tool.handler({ task: "ACQ-12", week: "2026-W49" }, ctxOf(client));
+    expect(client.patchTask).toHaveBeenCalledWith(TASK.id, { plannedWeek: "2026-W49" });
+    expect(text(r)).toBe("Aggiornata ACQ-12: settimana: 2026-W49.");
+  });
+
   it("revisione M1: la settimana `this` e `next` dal giorno di oggi (Europe/Rome)", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-12-09T10:00:00Z")); // mercoledì della W50
