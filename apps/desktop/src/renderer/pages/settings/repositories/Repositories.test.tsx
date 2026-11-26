@@ -348,6 +348,14 @@ describe("la pagina del repository, da Laura", () => {
 });
 
 describe("il webhook", () => {
+  // La configurazione finisce dopo l'esito: `run` aspetta anche la pausa
+  // della verifica (CHECK_MS) prima di tornare a «Configure again». Ogni
+  // passo aspetta che sia finita: un clic durante «Configuring…» si
+  // ignora, e un test chiuso con la configurazione in volo la vedeva finire
+  // ad ambiente già smontato («window is not defined», CI di main, 26 nov 2026).
+  const configured = (webhook: HTMLElement) =>
+    waitFor(() => expect(within(webhook).queryByText("Configuring…")).toBeNull());
+
   it("Configure automatically → Configured; il secondo → Updated; failed → la frase, mai Configured", async () => {
     const user = userEvent.setup();
     await openRepository(LAURA, "repo-acq", "portale-utenti");
@@ -362,10 +370,12 @@ describe("il webhook", () => {
     expect(
       screen.getByRole("heading", { level: 1 }).parentElement!.parentElement,
     ).toHaveTextContent("Webhook configured");
+    await configured(webhook);
 
     clearToasts();
     await user.click(within(webhook).getByRole("button", { name: "Configure again" }));
     expect(await screen.findByText("Webhook updated.")).toBeInTheDocument();
+    await configured(webhook);
 
     clearToasts();
     const box = within(webhook).getByRole("region", { name: "Prototype only" });
@@ -382,6 +392,7 @@ describe("il webhook", () => {
     expect(
       screen.getByRole("heading", { level: 1 }).parentElement!.parentElement,
     ).toHaveTextContent("Webhook setup failed");
+    await configured(webhook);
   });
 });
 
