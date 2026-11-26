@@ -241,7 +241,7 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
       // Lettura per chi vede il progetto: sono un'anagrafica, non un segreto —
       // a differenza dei valori dei file d'ambiente (`repos.manage`). Solo le
       // scritture vogliono `environments.manage`.
-      config: { access: READ_ACCESS },
+      config: { access: READ_ACCESS , mcp: { action: "environments.list", summary: "Gli ambienti di un progetto con i loro server e i repository che ci girano.", effect: "read" }},
       schema: {
         params: projectParamsSchema,
         response: { 200: z.array(projectEnvironmentSchema), 404: errorSchema, ...authErrorResponses },
@@ -278,7 +278,7 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
   app.post(
     "/:projectId/environments",
     {
-      config: { access: MANAGE_ACCESS },
+      config: { access: MANAGE_ACCESS , mcp: { action: "environments.create", summary: "Crea un ambiente di un progetto (nome, server, repository).", effect: "write" }},
       schema: {
         params: projectParamsSchema,
         body: createEnvironmentSchema,
@@ -360,7 +360,7 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
   app.patch(
     "/:projectId/environments/:environmentId",
     {
-      config: { access: MANAGE_ACCESS },
+      config: { access: MANAGE_ACCESS , mcp: { action: "environments.update", summary: "Modifica un ambiente di un progetto.", effect: "write" }},
       schema: {
         params: environmentParamsSchema,
         body: patchEnvironmentSchema,
@@ -440,7 +440,7 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
   app.put(
     "/:projectId/environments/:environmentId/containers",
     {
-      config: { access: MANAGE_ACCESS },
+      config: { access: MANAGE_ACCESS , mcp: { action: "environments.setContainers", summary: "Dice quali container di un server sono di questo ambiente.", effect: "write" }},
       schema: {
         params: environmentParamsSchema,
         body: setEnvironmentContainersSchema,
@@ -509,7 +509,7 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
     {
       // Area 9, F5 (decisione B): la riconferma solo se l'ambiente ha file
       // d'ambiente, che la cascata cancellerebbe con lui.
-      config: { access: MANAGE_ACCESS, partialReauth: true },
+      config: { access: MANAGE_ACCESS, mcp: { action: "environments.delete", summary: "Elimina un ambiente di un progetto.", effect: "destructive" }, partialReauth: true },
       schema: {
         params: environmentParamsSchema,
         response: { 204: z.null(), 404: errorSchema, 409: errorSchema, ...authErrorResponses },
