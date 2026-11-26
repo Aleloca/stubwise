@@ -7158,3 +7158,10 @@ deploy o di un rollback che la tocca.
   (con i default del codice, verificati da `config.test.ts` di worker e
   server) ora sono regolabili da `/opt/stubwise/.env`; basta la ricreazione
   dei container server e worker, già compresa nell'ordine sopra.
+
+  **Estrazione Office nel worker** (`a8956d9a9`): l'estrazione dei file
+  Office del Drive gira in un processo figlio (`node --max-old-space-size`),
+  non più in un worker_thread, che su Node 22 Linux, oltre il tetto di
+  memoria, abbatteva l'intero worker (con il fail-on-restart dei Docs).
+  Nessuna env né migrazione. E `claimRuns` delle automazioni prende anche le
+  righe dovute nello stesso millesimo (`dd9ca7be9`): prima un giro di ritardo.
