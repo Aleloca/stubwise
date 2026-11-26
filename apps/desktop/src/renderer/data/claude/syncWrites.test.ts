@@ -614,6 +614,8 @@ const CASES: Case[] = [
   {
     name: "saveStorage",
     who: ROBERTA,
+    // Un bucket o un endpoint nuovi chiedono la riconferma (fix/storage-endpoint-reauth).
+    reauth: true,
     pub: () => instance.saveStorage(storage()),
     sync: (me) => saveStorageAs(me, storage()),
     expected: "ok",

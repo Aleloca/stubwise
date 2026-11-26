@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetApi, setLatency } from "../api";
+import { markReauthenticated } from "../auth/reauth";
 import { setSessionPersonId } from "../session";
 import { state } from "../store";
 import { CLAUDE_CATALOG, reauthOf } from "./catalog";
@@ -46,6 +47,8 @@ describe("saveStorage: la patch e la riconferma per campo", () => {
   });
 
   it("«Undo» di un endpoint cambiato chiede anch'esso la riconferma", () => {
+    // La voce gira dopo la conferma di una C, quindi dopo la riconferma.
+    markReauthenticated(ROBERTA);
     const run = CLAUDE_CATALOG.saveStorage.run(ROBERTA, { endpoint: "https://s3.other.example" });
     expect(reauthOf("saveStorage", run.inverse!.args)).toBe(true);
   });

@@ -123,10 +123,10 @@ function StorageForm({ storage: s }: { storage: StorageView }) {
       accessKeyId,
       ...(writing ? { secretAccessKey: secret } : {}),
     };
-    const result = await (writing
-      ? reauth(() => save.mutateAsync(input), { action: t("admin.storage.saveAction") })
-      : save.mutateAsync(input)
-    ).catch(() => null);
+    // Sempre dentro `reauth`: il dialogo si apre solo se il livello dati (o il
+    // server) risponde `reauth_required` — una chiave nuova, o endpoint o
+    // bucket cambiati (fix/storage-endpoint-reauth).
+    const result = await reauth(() => save.mutateAsync(input), { action: t("admin.storage.saveAction") }).catch(() => null);
     setBusy(false);
     if (result === null) return setErrors({ form: t("admin.integrations.saveFailed") });
     const refusal = refusalOf(result);
