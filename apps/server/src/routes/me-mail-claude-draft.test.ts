@@ -125,6 +125,19 @@ describe("POST /api/me/mail/drafts/claude", () => {
     void tag;
   });
 
+  it("parità MCP (lotto 4, I2): con `?stream=false` la stessa risposta in UN JSON — il testo intero, il progetto, le task citate — e lo stesso consumo", async () => {
+    const { me, box, project, threadId } = await seed();
+    const res = await app.inject({ method: "POST", url: "/api/me/mail/drafts/claude?stream=false", headers: me.headers, payload: { accountId: box.id, threadId, mode: "reply", hint: "digli che arriva lunedì" } });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/application\/json/);
+    expect(res.json()).toEqual({
+      text: reply.join(""),
+      projectId: project.id,
+      used: [{ taskId: expect.any(String), code: expect.stringMatching(/-91$/), title: "Banner review", late: true }],
+    });
+    expect(seen[0]!.usage).toEqual({ operation: "mail_draft", projectId: project.id, defaultModel: "claude-sonnet-5-5", userId: me.id });
+  });
+
   it("il testo delle email è un DATO: in un blocco, scappato (non chiude il blocco), e il sistema lo dice; l'indicazione è di chi scrive", async () => {
     const { me, box, threadId } = await seed();
     await ask(me.headers, { accountId: box.id, threadId, mode: "reply", hint: "digli che arriva lunedì" });

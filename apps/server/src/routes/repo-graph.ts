@@ -238,7 +238,7 @@ export async function repoGraphRoutes(
   app.post(
     "/:id/graph/generate",
     {
-      config: { access: onRepository("repos.manage"), mcp: { action: "graph.generate", summary: "Rigenera il grafo del codice di un repository (serve `repos.manage`).", effect: "write" } },
+      config: { access: onRepository("repos.manage"), mcp: { action: "graph.generate", summary: "Rigenera il grafo del codice di un repository (serve `repos.manage`).", effect: "write", note: "Con le etichette AI del grafo accese (GRAPH_LABEL_ENABLED) spende budget." } },
       schema: {
         params: repositoryParamsSchema,
         body: generateBodySchema,
@@ -269,7 +269,7 @@ export async function repoGraphRoutes(
   app.post(
     "/:id/graph/setup-pr",
     {
-      config: { access: onRepository("repos.manage"), mcp: { action: "graph.setupPr", summary: "Apre la PR di configurazione del grafo sul repository (serve `repos.manage`).", effect: "write", note: "Apre davvero una PR sul repository." } },
+      config: { access: onRepository("repos.manage"), mcp: { action: "graph.setupPr", summary: "Apre la PR di configurazione del grafo sul repository (serve `repos.manage`).", effect: "destructive", note: "Apre davvero una PR sul repository, e il branch di configurazione (`stubwise/…`) si spinge con un push forzato: ricreato a ogni rilancio." } },
       schema: {
         params: repositoryParamsSchema,
         response: {
