@@ -602,7 +602,14 @@ export async function confirmProposal(
   // rilasciarlo), si giudica sugli inversi SALVATI nella proposta, come
   // `proposalView`: altrimenti la riconferma si salterebbe e `undoGroup` li
   // eseguirebbe lo stesso, se intanto lo stato tornasse «available».
-  const reauthPlan = row.undoOfGroupId ? ((await undoInversesOf(db, user, row.undoOfGroupId)) ?? baseActions) : selected.map((i) => baseActions[i]!);
+  //
+  // E la riconferma si giudica su ciò che si ESEGUIRÀ: con «Modifica» (`edited`)
+  // gli argomenti scelti, non quelli salvati nella proposta. Altrimenti una B
+  // confermata con argomenti da C (un endpoint o un bucket nuovi) passerebbe
+  // senza riconferma, col PAT o con una sessione vecchia.
+  const edited = new Map((opts.edited ?? []).map((e) => [e.index, e.args]));
+  const chosen = selected.map((i) => ({ fn: baseActions[i]!.fn, args: edited.get(i) ?? baseActions[i]!.args }));
+  const reauthPlan = row.undoOfGroupId ? ((await undoInversesOf(db, user, row.undoOfGroupId)) ?? baseActions) : chosen;
   if ((await Promise.all(reauthPlan.map((a) => reauthOf(db, a.fn, a.args)))).some(Boolean) && !(opts.reauth && (await opts.reauth()))) {
     return { ok: false, error: "reauth_required" };
   }
@@ -630,9 +637,6 @@ export async function confirmProposal(
         ? { ok: false, failure: undone.failure }
         : { ok: false, failure: { code: "conflict", index: 0, permission: null, projectId: null, message: undone.error } };
   } else {
-    const base = baseActions;
-    const edited = new Map((opts.edited ?? []).map((e) => [e.index, e.args]));
-    const chosen = selected.map((i) => ({ fn: base[i]!.fn, args: edited.get(i) ?? base[i]!.args }));
     result =
       chosen.length === 0
         ? { ok: false, failure: { code: "invalid", index: 0, permission: null, projectId: null, message: "nothing selected" } }
