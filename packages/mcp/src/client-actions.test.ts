@@ -200,15 +200,17 @@ describe("downloadAction (lotto 2, download_file)", () => {
     );
     const res = await makeClient(fetchMock).downloadAction(DOWNLOAD, { params: { attachmentId: "a1" } });
     expect(res.status).toBe(200);
-    expect([...res.bytes]).toEqual([0, 255, 10]);
+    expect([...new Uint8Array(await new Response(res.body).arrayBuffer())]).toEqual([0, 255, 10]);
     expect(res.contentType).toBe("image/png");
     expect(res.filename).toBe("schermata è.png");
     expect(fetchMock.mock.calls[0]![1].headers).toEqual({ authorization: "Bearer stw_pat_secret", "x-stubwise-client": "claude-code" });
   });
 
-  it("senza Content-Disposition il nome è null; un errore resta JSON col suo code", async () => {
+  it("senza Content-Disposition il nome è null; la lunghezza dichiarata arriva; un errore resta JSON col suo code", async () => {
     const plain = await makeClient(vi.fn().mockResolvedValue(new Response(new Uint8Array([1]), { status: 200 }))).downloadAction(DOWNLOAD, { params: { attachmentId: "a1" } });
     expect(plain.filename).toBeNull();
+    const sized = await makeClient(vi.fn().mockResolvedValue(new Response(new Uint8Array([1, 2]), { status: 200, headers: { "content-length": "2" } }))).downloadAction(DOWNLOAD, { params: { attachmentId: "a1" } });
+    expect(sized.contentLength).toBe(2);
     const err = (await makeClient(vi.fn().mockResolvedValue(jsonResponse({ code: "not_found", message: "Attachment not found" }, 404)))
       .downloadAction(DOWNLOAD, { params: { attachmentId: "a1" } })
       .catch((e: unknown) => e)) as StubwiseApiError;

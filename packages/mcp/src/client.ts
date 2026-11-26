@@ -889,21 +889,30 @@ export class StubwiseClient {
   }
 
   /**
-   * Lotto 2 (`download_file`): legge una voce binaria del catalogo e ne
-   * restituisce i BYTE, col tipo e il nome che dice il server
+   * Lotto 2 (`download_file`): apre una voce binaria del catalogo e ne
+   * restituisce il CORPO come stream (chi salva lo conta e lo scrive mentre
+   * arriva), col tipo, la lunghezza dichiarata e il nome che dice il server
    * (`Content-Disposition`). Un errore resta JSON, letto come per `callAction`.
    */
   async downloadAction(
     entry: Pick<CatalogAction, "method" | "path">,
     input: { params?: Record<string, string | number>; query?: ActionQuery },
-  ): Promise<{ status: number; bytes: Uint8Array; contentType: string | null; filename: string | null }> {
+  ): Promise<{
+    status: number;
+    body: ReadableStream<Uint8Array> | null;
+    contentType: string | null;
+    contentLength: number | null;
+    filename: string | null;
+  }> {
     const url = this.actionUrl(entry, input);
     const response = await this.fetchAction(url, { method: entry.method, headers: this.actionHeaders() });
     if (!response.ok) throw actionError(response.status, parseActionBody(await response.text()));
+    const length = Number(response.headers.get("content-length"));
     return {
       status: response.status,
-      bytes: new Uint8Array(await response.arrayBuffer()),
+      body: response.body,
       contentType: response.headers.get("content-type"),
+      contentLength: Number.isFinite(length) && response.headers.has("content-length") ? length : null,
       filename: filenameFromDisposition(response.headers.get("content-disposition")),
     };
   }
