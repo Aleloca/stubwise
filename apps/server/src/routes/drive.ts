@@ -124,7 +124,7 @@ export async function driveRoutes(instance: FastifyInstance): Promise<void> {
     "/chat/attachments/:id/save-to-drive",
     {
       config: {
-        access: ACCESS,
+        access: ACCESS, mcp: { action: "chat.saveToDrive", summary: "Salva una copia di un allegato della Chat nel Drive di un progetto.", effect: "write" },
         rateLimit: { max: 30, timeWindow: "1 minute", hook: "preHandler", keyGenerator: (request: FastifyRequest) => request.user?.id ?? request.ip },
       },
       schema: { params: idParams, body: saveToDriveBodySchema, response: { 201: driveUploadResultSchema, ...errors } },
