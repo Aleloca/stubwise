@@ -3483,7 +3483,10 @@ export interface ServerCheck {
   serverCode: string;
   name: string;
   type: "http" | "tcp" | "process" | "postgres" | "mysql";
+  /** Nelle letture le credenziali di un http sono mascherate (`user:***@`, M6); in chiaro solo nello stato. */
   target: string;
+  /** Il target porta credenziali (M6): lo mettono le letture, lo stato non lo tiene. */
+  hasCredentials?: boolean;
   intervalSeconds: number;
   enabled: boolean;
   status: "up" | "down" | "unknown";

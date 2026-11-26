@@ -9881,6 +9881,7 @@
         "active": "Active"
       },
       "errors": {
+        "masked_credentials": "The target has a masked password (***): write the real one, or leave the target as it was.",
         "name": "Give the check a name.",
         "type": "Choose a type.",
         "target": "Say what to check.",

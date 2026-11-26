@@ -31,6 +31,7 @@ import type {
 } from "../types";
 import { can, viewerFor } from "../viewer";
 import { invalid, notFound } from "../writer";
+import { hasUrlCredentials, maskUrlCredentials } from "./urlCredentials";
 
 // Chi vede che cosa nei Server (area 8b) — l'unica regola, per letture e
 // scritture. Un server è un oggetto d'istanza che entra nei progetti
@@ -42,6 +43,19 @@ import { invalid, notFound } from "../writer";
 // (`sk_…`) non sta nello stato: nessuna lettura la può restituire.
 
 export { holds, sees };
+
+/**
+ * Un controllo come lo legge chi guarda (M6, come il server): le credenziali di
+ * un http mascherate, nel target e nell'ultimo errore, e `hasCredentials`.
+ */
+export function checkView(c: ServerCheck): ServerCheck {
+  return {
+    ...structuredClone(c),
+    target: maskUrlCredentials(c.target),
+    hasCredentials: hasUrlCredentials(c.target),
+    lastError: c.lastError === null ? null : maskUrlCredentials(c.lastError),
+  };
+}
 
 /**
  * Perché `me` non può avviare adesso la correzione della task (`null` se
@@ -450,7 +464,7 @@ export function serverDetail(me: string, s: MonitoredServer): ServerDetail {
     disks: structuredClone(s.disks),
     checks: state.serverChecks
       .filter((c) => c.serverCode === s.code)
-      .map((c) => structuredClone(c)),
+      .map((c) => checkView(c)),
     episodes: state.serverEpisodes
       .filter((e) => e.serverCode === s.code)
       .sort((a, b) => b.startedAt.localeCompare(a.startedAt))

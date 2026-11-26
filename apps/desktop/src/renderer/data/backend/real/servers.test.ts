@@ -293,6 +293,8 @@ describe("i Server dal server (area 8, F4a)", () => {
         name: "Portal",
         type: "http",
         target: "https://acq.test/health",
+        // La fixture non dà `hasCredentials` (un server più vecchio): il default dello schema è false (M6).
+        hasCredentials: false,
         intervalSeconds: 60,
         enabled: true,
         status: "up",

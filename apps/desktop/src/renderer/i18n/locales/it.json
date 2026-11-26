@@ -9881,6 +9881,7 @@
         "active": "Attivo"
       },
       "errors": {
+        "masked_credentials": "Il target ha una password mascherata (***): scrivi quella vera, o lascia il target com'era.",
         "name": "Dai un nome al controllo.",
         "type": "Scegli un tipo.",
         "target": "Scrivi cosa controllare.",

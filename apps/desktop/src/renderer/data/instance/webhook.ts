@@ -179,6 +179,25 @@ export async function updateWebhook(
   return updateWebhookAs(await writer("instance.updateWebhook"), id, patch);
 }
 
+/** L'URL di un webhook come entra nel registro: host e ultime 4 cifre (come il server). */
+export function maskedUrl(url: string): string {
+  let host = "";
+  try {
+    host = new URL(url).host;
+  } catch {
+    host = "?";
+  }
+  return `${host} …${url.slice(-4)}`;
+}
+
+/** Il JSON di un prima/dopo con l'URL mascherato (e «cambiato» se la maschera non lo mostrerebbe). */
+function maskWebhookUrlField(json: string, sameMask: boolean): string {
+  const fields = JSON.parse(json) as Record<string, unknown>;
+  if (typeof fields.url === "string")
+    fields.url = maskedUrl(fields.url) + (sameMask ? " (cambiato)" : "");
+  return JSON.stringify(fields);
+}
+
 /** La forma sincrona di `updateWebhook` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
 export function updateWebhookAs(
   me: string,
@@ -203,10 +222,17 @@ export function updateWebhookAs(
     const reauth = reauthRefusal(me, "instance.updateWebhook");
     if (reauth) return reauth;
   }
-  const diff = changedFields(
+  const raw = changedFields(
     { name: w.name, url: w.url, format: w.format, enabled: w.enabled, events: ordered(w.events) },
     next,
   );
+  // L'URL di un webhook È il suo segreto (Slack lo porta nel percorso): nel
+  // registro entra come host e ultime 4 cifre, come il server (revisione del
+  // lotto 5 della parità MCP, I1), e un cambio che le lascia uguali si vede.
+  const diff = raw && {
+    before: maskWebhookUrlField(raw.before, false),
+    after: maskWebhookUrlField(raw.after, maskedUrl(w.url) === maskedUrl(next.url)),
+  };
   if (!diff) return { ok: true };
   const retest = w.url !== next.url || w.format !== next.format;
   Object.assign(w, next);
