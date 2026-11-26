@@ -1456,8 +1456,14 @@ tutti.
   `pnpm version-packages`, `pnpm changeset publish` (idempotente: salta le
   versioni già su npm) e pusha su `main` il commit di versione
   («chore: versiona i package rilasciabili [skip ci]») con i tag. NON usare `npm publish` a mano (non risolve i
-  `workspace:` del monorepo pnpm). Il secret `NPM_TOKEN` è un granular token con
-  bypass-2FA sullo scope `@stubwise`.
+  `workspace:` del monorepo pnpm). Nessun token npm: dal 26 nov 2026 Release pubblica col
+  Trusted Publishing di npm (OIDC, `id-token: write`, npm ≥ 11.5.1). Su
+  npmjs.com ogni pacchetto pubblico ha un Trusted Publisher (GitHub Actions,
+  `Aleloca/stubwise`, `release.yml`, environment vuoto): un pacchetto pubblico
+  NUOVO va configurato lì prima del suo primo rilascio, e il suo
+  `package.json` deve avere `repository.url` su questo repository (la
+  provenienza, automatica, lo pretende). Voce «Pubblicazione npm col Trusted
+  Publishing» in deploy-log.
 
 ### Grafo locale del repo (`graphify-out/`)
 
