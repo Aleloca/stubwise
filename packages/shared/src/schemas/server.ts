@@ -329,6 +329,12 @@ export const serverCheckViewSchema = z.object({
   name: z.string(),
   target: z.string(),
   hasDsn: z.boolean(),
+  /**
+   * Revisione del lotto 5 della parità MCP (M6): il `target` di un controllo
+   * http porta credenziali (`user:pass@`), mostrate mascherate (`user:***@`).
+   * Additivo, con default: un server più vecchio non lo manda.
+   */
+  hasCredentials: z.boolean().default(false),
   intervalSeconds: z.number().int(),
   enabled: z.boolean(),
   lastStatus: checkStatusSchema,

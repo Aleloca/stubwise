@@ -14,10 +14,11 @@ import {
   serviceChecks,
 } from "@stubwise/db";
 import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireReauth } from "../auth/access.js";
+import { hasMaskedCredentials, hasUrlCredentials, maskUrlCredentials } from "../services/url-credentials.js";
 import { canViewServer } from "../auth/monitor-access.js";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
@@ -65,6 +66,11 @@ function isDbCheckType(type: CheckRow["type"]): boolean {
 const checkViewSchema = serverCheckViewSchema;
 type CheckView = z.infer<typeof checkViewSchema>;
 
+/** Un `***` come password: è la maschera di una lettura, non un valore da salvare (M6). */
+function maskedCredentials(reply: FastifyReply) {
+  return apiError(reply, 400, "masked_credentials", "The target carries a masked password (***): write the real one, or send the target back unchanged");
+}
+
 /** Compone la proiezione pubblica: mai `dsnEncrypted`, mai il DSN in chiaro. */
 export function toCheckView(row: CheckRow): CheckView {
   return {
@@ -72,14 +78,16 @@ export function toCheckView(row: CheckRow): CheckView {
     serverId: row.serverId,
     type: row.type,
     name: row.name,
-    target: row.target,
+    // M6: le credenziali di un http si leggono mascherate; in chiaro le ha solo l'agente.
+    target: maskUrlCredentials(row.target),
     hasDsn: row.dsnEncrypted !== null,
+    hasCredentials: hasUrlCredentials(row.target),
     intervalSeconds: row.intervalSeconds,
     enabled: row.enabled,
     lastStatus: row.lastStatus,
     lastCheckedAt: row.lastCheckedAt ? row.lastCheckedAt.toISOString() : null,
     lastLatencyMs: row.lastLatencyMs,
-    lastError: row.lastError,
+    lastError: row.lastError === null ? null : maskUrlCredentials(row.lastError),
     downSince: row.downSince ? row.downSince.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
   };
@@ -135,7 +143,7 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
   app.post(
     "/:id/checks",
     {
-      config: { mcp: { action: "servers.createCheck", summary: "Aggiunge un controllo di servizio a un server.", effect: "write", note: "Il DSN di un controllo postgres o mysql contiene la password: un DSN nuovo chiede la riconferma, e da qui risponde session_required (si scrive dall'app). Gli altri tipi passano." }, access: { kind: "instance", permission: "monitor.manage" }, partialReauth: true },
+      config: { mcp: { action: "servers.createCheck", summary: "Aggiunge un controllo di servizio a un server.", effect: "write", note: "Il DSN di un controllo postgres o mysql, e un URL http con credenziali (user:pass@), contengono una password: un valore nuovo chiede la riconferma, e da qui risponde session_required (si scrive dall'app). Un target letto (con la password come ***) rimandato com'è vale invariato; un altro *** è 400 masked_credentials." }, access: { kind: "instance", permission: "monitor.manage" }, partialReauth: true },
       schema: {
         params: idParamsSchema,
         body: createCheckSchema,
@@ -152,6 +160,10 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
       // riconferma (revisione del lotto 6 della parità MCP, I1). Col PAT,
       // `session_required`; dal browser, il secondo fattore recente.
       if (isDbCheckType(type) && !(await requireReauth(request, reply))) return reply;
+      // M6 (revisione del lotto 5): le credenziali di un http come il DSN. Un
+      // `***` è una lettura rimandata indietro, mai una password: 400.
+      if (!isDbCheckType(type) && hasMaskedCredentials(target)) return maskedCredentials(reply);
+      if (!isDbCheckType(type) && hasUrlCredentials(target) && !(await requireReauth(request, reply))) return reply;
       // Check DB: il DSN (arrivato in `target`) va cifrato in dsn_encrypted e la
       // colonna target resta vuota. Altri tipi: target in chiaro, nessun DSN.
       const db = isDbCheckType(type);
@@ -201,7 +213,7 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
   app.put(
     "/:id/checks/:checkId",
     {
-      config: { mcp: { action: "servers.updateCheck", summary: "Modifica un controllo di servizio.", effect: "write", note: "Il DSN di un controllo postgres o mysql contiene la password: un DSN nuovo chiede la riconferma, e da qui risponde session_required (si scrive dall'app). Gli altri tipi passano." }, access: { kind: "instance", permission: "monitor.manage" }, partialReauth: true },
+      config: { mcp: { action: "servers.updateCheck", summary: "Modifica un controllo di servizio.", effect: "write", note: "Il DSN di un controllo postgres o mysql, e un URL http con credenziali (user:pass@), contengono una password: un valore nuovo chiede la riconferma, e da qui risponde session_required (si scrive dall'app). Un target letto (con la password come ***) rimandato com'è vale invariato; un altro *** è 400 masked_credentials." }, access: { kind: "instance", permission: "monitor.manage" }, partialReauth: true },
       schema: {
         params: checkParamsSchema,
         body: updateCheckSchema,
@@ -227,6 +239,16 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
       }
       // Un DSN NUOVO (anche per un controllo che diventa DB) chiede la riconferma (I1).
       if (target !== undefined && isDbCheckType(type ?? existing.type) && !(await requireReauth(request, reply))) return reply;
+      // M6 (revisione del lotto 5): il target mascherato rimandato com'è da un
+      // form vale «invariato» (la password salvata resta, nessuna riconferma);
+      // un altro `***` è 400; credenziali nuove chiedono la riconferma.
+      const keepsTarget =
+        target !== undefined && !isDbCheckType(type ?? existing.type) && !isDbCheckType(existing.type) && hasUrlCredentials(existing.target) && target === maskUrlCredentials(existing.target);
+      const newTarget = keepsTarget ? undefined : target;
+      if (newTarget !== undefined && !isDbCheckType(type ?? existing.type)) {
+        if (hasMaskedCredentials(newTarget)) return maskedCredentials(reply);
+        if (hasUrlCredentials(newTarget) && !(await requireReauth(request, reply))) return reply;
+      }
       const updates: Partial<typeof serviceChecks.$inferInsert> = {};
       if (type !== undefined) updates.type = type;
       if (name !== undefined) updates.name = name;
@@ -237,13 +259,13 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
       // ri-cifrare (colonna target vuota); per gli altri è il target in chiaro
       // (nessun DSN). Il tipo effettivo tiene conto di un eventuale cambio di
       // type nello stesso PUT. `target` assente = invariato (DSN incluso).
-      if (target !== undefined) {
+      if (newTarget !== undefined) {
         const effectiveType = type ?? existing.type;
         if (isDbCheckType(effectiveType)) {
-          updates.dsnEncrypted = encrypt(target, app.encryptionKey);
+          updates.dsnEncrypted = encrypt(newTarget, app.encryptionKey);
           updates.target = "";
         } else {
-          updates.target = target;
+          updates.target = newTarget;
           updates.dsnEncrypted = null;
         }
       }

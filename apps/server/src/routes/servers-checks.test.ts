@@ -928,3 +928,69 @@ describe("un DSN nuovo chiede la riconferma: col PAT è session_required (revisi
     expect(toDb.statusCode, toDb.body).toBe(403);
   });
 });
+
+describe("le credenziali nell'URL di un controllo http (revisione del lotto 5 della parità MCP, M6)", () => {
+  const withPat = (method: "POST" | "PUT", url: string, payload: Record<string, unknown>) =>
+    app.inject({ method, url, headers: { authorization: adminPat }, payload });
+  const withCookie = (method: "PUT" | "GET", url: string, payload?: Record<string, unknown>) =>
+    app.inject({ method, url, headers: { cookie: adminCookie }, ...(payload ? { payload } : {}) });
+
+  it("si leggono mascherate, con hasCredentials; in chiaro restano solo per l'agente", async () => {
+    const { id } = await createServerReturning("checks-http-cred-view");
+    const created = await postCheck(id, { type: "http", name: "web", target: "https://bob:s3cr3t@example.com/health", intervalSeconds: 60, enabled: true });
+    expect(created.statusCode, created.body).toBe(201);
+    expect(created.json()).toMatchObject({ target: "https://bob:***@example.com/health", hasCredentials: true });
+    const list = await withCookie("GET", `/api/servers/${id}/checks`);
+    expect(list.body).not.toContain("s3cr3t");
+    expect(list.json()).toEqual([expect.objectContaining({ target: "https://bob:***@example.com/health", hasCredentials: true })]);
+    const detail = await withCookie("GET", `/api/servers/${id}`);
+    expect(detail.body).not.toContain("s3cr3t");
+    const plain = await postCheck(id, { type: "http", name: "senza", target: "https://example.com", intervalSeconds: 60, enabled: true });
+    expect(plain.json()).toMatchObject({ target: "https://example.com", hasCredentials: false });
+    const [row] = await testDb.db.select().from(serviceChecks).where(eq(serviceChecks.id, (created.json() as { id: string }).id));
+    expect(row!.target).toBe("https://bob:s3cr3t@example.com/health");
+  });
+
+  it("il target mascherato rimandato com'è (un form che salva) vale INVARIATO: la password resta, nessuna riconferma", async () => {
+    const { id } = await createServerReturning("checks-http-cred-roundtrip");
+    const created = await postCheck(id, { type: "http", name: "web", target: "https://bob:s3cr3t@example.com/health", intervalSeconds: 60, enabled: true });
+    const checkId = (created.json() as { id: string }).id;
+    const put = await withPat("PUT", `/api/servers/${id}/checks/${checkId}`, { name: "web 2", target: "https://bob:***@example.com/health" });
+    expect(put.statusCode, put.body).toBe(200);
+    const [row] = await testDb.db.select().from(serviceChecks).where(eq(serviceChecks.id, checkId));
+    expect(row).toMatchObject({ name: "web 2", target: "https://bob:s3cr3t@example.com/health" });
+  });
+
+  it("credenziali NUOVE chiedono la riconferma: col PAT session_required, niente scritto", async () => {
+    const { id } = await createServerReturning("checks-http-cred-pat");
+    const post = await withPat("POST", `/api/servers/${id}/checks`, { type: "http", name: "web", target: "https://bob:s3cr3t@example.com", intervalSeconds: 60, enabled: true });
+    expect(post.statusCode, post.body).toBe(403);
+    expect(post.json()).toMatchObject({ code: "session_required" });
+    expect(await testDb.db.select().from(serviceChecks).where(eq(serviceChecks.serverId, id))).toHaveLength(0);
+    const plain = await postCheck(id, { type: "http", name: "web", target: "https://example.com", intervalSeconds: 60, enabled: true });
+    const checkId = (plain.json() as { id: string }).id;
+    const add = await withPat("PUT", `/api/servers/${id}/checks/${checkId}`, { target: "https://bob:s3cr3t@example.com" });
+    expect(add.statusCode, add.body).toBe(403);
+    expect(add.json()).toMatchObject({ code: "session_required" });
+    // Stessa password ma un host diverso: è comunque un target con credenziali nuovo.
+    const withCred = await postCheck(id, { type: "http", name: "web2", target: "https://bob:s3cr3t@example.com", intervalSeconds: 60, enabled: true });
+    const moved = await withPat("PUT", `/api/servers/${id}/checks/${(withCred.json() as { id: string }).id}`, { target: "https://bob:s3cr3t@altro.example.org" });
+    expect(moved.statusCode, moved.body).toBe(403);
+    const [row] = await testDb.db.select().from(serviceChecks).where(eq(serviceChecks.id, checkId));
+    expect(row!.target).toBe("https://example.com");
+  });
+
+  it("un `***` come password dove non ce n'è una salvata (o con un altro host) è 400 masked_credentials, non una password", async () => {
+    const { id } = await createServerReturning("checks-http-cred-masked");
+    const post = await postCheck(id, { type: "http", name: "web", target: "https://bob:***@example.com", intervalSeconds: 60, enabled: true });
+    expect(post.statusCode, post.body).toBe(400);
+    expect(post.json()).toMatchObject({ code: "masked_credentials" });
+    const plain = await postCheck(id, { type: "http", name: "web", target: "https://example.com", intervalSeconds: 60, enabled: true });
+    const put = await withCookie("PUT", `/api/servers/${id}/checks/${(plain.json() as { id: string }).id}`, { target: "https://bob:***@example.com" });
+    expect(put.statusCode, put.body).toBe(400);
+    expect(put.json()).toMatchObject({ code: "masked_credentials" });
+    const cred = await postCheck(id, { type: "http", name: "c", target: "https://bob:s3cr3t@example.com", intervalSeconds: 60, enabled: true });
+    const other = await withCookie("PUT", `/api/servers/${id}/checks/${(cred.json() as { id: string }).id}`, { target: "https://bob:***@evil.example.net" });
+    expect(other.statusCode, other.body).toBe(400);
+  });
+});
