@@ -539,6 +539,12 @@ export interface DecisionLogEntry {
    * macchina. Le righe del seed non lo hanno: lo dice il loro testo.
    */
   planOutcome?: "approved" | "rejected";
+  /**
+   * D4 della parità MCP: la persona l'ha fatto da Claude Code col suo PAT
+   * («via Claude Code» accanto al nome). Assente sulle voci di prima e da un
+   * server più vecchio.
+   */
+  viaClaudeCode?: boolean;
 }
 
 /** Il report giornaliero di un progetto: narrativa generata, come il brief. */
@@ -651,6 +657,12 @@ export interface ActivityEntry {
   from?: string | null;
   to?: string | null;
   decisionRequestId?: string;
+  /**
+   * D4 della parità MCP: la persona l'ha fatto da Claude Code col suo PAT
+   * («via Claude Code» accanto al nome). Assente sulle voci di prima e da un
+   * server più vecchio.
+   */
+  viaClaudeCode?: boolean;
   /** Area 10a: scritta da Claude per `authorId`; assente se a mano o nata prima. */
   via?: "claude";
   /**

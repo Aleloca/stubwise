@@ -69,6 +69,12 @@ export interface ChangeEntry {
    * compone la pagina. Assente sulle voci a mano e su quelle nate prima.
    */
   via?: "claude";
+  /**
+   * D4 della parità MCP: la persona l'ha fatto da Claude Code col suo PAT
+   * («via Claude Code» accanto al nome). Assente sulle voci di prima e da un
+   * server più vecchio.
+   */
+  viaClaudeCode?: boolean;
   /** Area 10a: l'azione di Claude che l'ha scritta (resta nel livello dati). */
   claudeActionId?: string;
   /** Area 10a: dentro un «Annulla», la voce dell'azione annullata sullo stesso oggetto. */

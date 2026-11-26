@@ -2353,6 +2353,7 @@
       "supersededBy": "Superata da «{{title}}»",
       "superseded": "Superata",
       "someone": "Una persona non più presente",
+      "viaClaudeCode": "{{name}} via Claude Code",
       "sources": {
         "manual": "Registrata a mano",
         "ask_user": "Risposta a una domanda di Claude",
@@ -12798,6 +12799,7 @@
     },
     "via": {
       "actor": "Claude per conto di {{name}}",
+      "claudeCode": "{{name}} via Claude Code",
       "mark": "Fatta con Claude",
       "filter": "Fatte con Claude",
       "undid": "Ha annullato: {{sentence}}",
@@ -12978,6 +12980,7 @@
   "activity": {
     "viaClaude": "con Claude",
     "onBehalf": "Claude per conto di {{name}}",
+    "viaClaudeCode": "{{name}} via Claude Code",
     "deletedTask": "{{name}} ha eliminato <code>{{code}}</code> «{{title}}»",
     "deletedTaskConcealed": "Una task è stata eliminata"
   },

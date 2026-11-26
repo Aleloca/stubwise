@@ -204,7 +204,11 @@ function DecisionRow({
       </p>
       {entry.context && <p className="max-w-[72ch] text-sm text-ink-muted">{entry.context}</p>}
       <p className="flex flex-wrap items-baseline gap-x-1.5 text-xs text-ink-muted">
-        <span>{who ?? t("overview.decisions.someone")}</span>
+        <span>
+          {entry.viaClaudeCode
+            ? t("overview.decisions.viaClaudeCode", { name: who ?? t("overview.decisions.someone") })
+            : (who ?? t("overview.decisions.someone"))}
+        </span>
         <span aria-hidden="true">·</span>
         <span className="num">{formatDate(entry.decidedAt, i18n.language)}</span>
         <span aria-hidden="true">·</span>

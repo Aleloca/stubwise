@@ -455,6 +455,7 @@ function view(
     before: hiddenPerson ? null : entry.before,
     after: hiddenPerson ? null : entry.after,
     ...(entry.via ? { via: entry.via } : {}),
+    ...(entry.viaClaudeCode ? { viaClaudeCode: true } : {}),
     undoOf,
     ...(undone ? { undoneEntry: view(me, undone, people, visible, known, mask, true) } : {}),
     object: hiddenPerson ? { ...entry.object, id: mask(entry.object.id), label: "" } : { ...entry.object },

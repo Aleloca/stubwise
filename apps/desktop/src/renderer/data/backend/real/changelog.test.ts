@@ -215,6 +215,17 @@ describe("il registro delle modifiche dal server (area 9, F2)", () => {
     expect(hand.entries[0]!.via).toBeUndefined();
   });
 
+  it("«via Claude Code» (D4 della parità MCP): solo se il server lo dice vero", async () => {
+    const { api } = withEntries(
+      entry({ viaClaudeCode: true }),
+      entry({ id: "99999999-9999-4999-8999-999999999999", viaClaudeCode: false }),
+    );
+    const [cc, hand] = (await createRealChangelog(api).listChangesPage()).entries;
+    expect(cc).toMatchObject({ viaClaudeCode: true });
+    expect(cc!.via).toBeUndefined();
+    expect(hand).not.toHaveProperty("viaClaudeCode");
+  });
+
   it("F7: «Undid…» porta la voce annullata (undoneEntry, solo se chi guarda la legge)", async () => {
     const undone = entry({ id: "88888888-8888-4888-8888-888888888888", via: "claude" });
     const { api } = withEntries(

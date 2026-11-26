@@ -50,6 +50,8 @@ function toEntry(d: ProjectDecision): DecisionLogEntry {
     decidedById: d.decidedBy?.id ?? null,
     decidedAt: d.decidedAt,
     supersededById: d.supersededById,
+    // «via Claude Code» (D4 della parità MCP): solo se vero.
+    ...(d.viaClaudeCode ? { viaClaudeCode: true } : {}),
   };
 }
 

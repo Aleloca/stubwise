@@ -33,7 +33,9 @@ function authorLabel(
   name: string,
   t: (key: string, opts?: Record<string, unknown>) => string,
 ): string {
-  return entry.via === "claude" ? t("activity.onBehalf", { name }) : name;
+  if (entry.via === "claude") return t("activity.onBehalf", { name });
+  // D4 della parità MCP: fatta dalla persona, da Claude Code col suo token.
+  return entry.viaClaudeCode ? t("activity.viaClaudeCode", { name }) : name;
 }
 
 /**
@@ -253,7 +255,9 @@ function DecisionRow({
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <p className="flex items-baseline gap-2">
           <span className="min-w-0 flex-1 text-sm text-ink">
-            {t("taskDetail.activity.decided", { name: who?.name ?? t("taskUi.stall.someone") })}
+            {t("taskDetail.activity.decided", {
+              name: authorLabel(entry, who?.name ?? t("taskUi.stall.someone"), t),
+            })}
           </span>
           <When at={entry.at} />
         </p>

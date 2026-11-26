@@ -2353,6 +2353,7 @@
       "supersededBy": "Superseded by “{{title}}”",
       "superseded": "Superseded",
       "someone": "Someone no longer here",
+      "viaClaudeCode": "{{name}} via Claude Code",
       "sources": {
         "manual": "Recorded by hand",
         "ask_user": "Answer to Claude's question",
@@ -12798,6 +12799,7 @@
     },
     "via": {
       "actor": "Claude on behalf of {{name}}",
+      "claudeCode": "{{name}} via Claude Code",
       "mark": "Made with Claude",
       "filter": "Made with Claude",
       "undid": "Undid: {{sentence}}",
@@ -12978,6 +12980,7 @@
   "activity": {
     "viaClaude": "with Claude",
     "onBehalf": "Claude on behalf of {{name}}",
+    "viaClaudeCode": "{{name}} via Claude Code",
     "deletedTask": "{{name}} deleted <code>{{code}}</code> “{{title}}”",
     "deletedTaskConcealed": "A task was deleted"
   },
