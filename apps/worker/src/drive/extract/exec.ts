@@ -19,11 +19,12 @@ export type ExecResult =
   | { ok: false; kind: "missing" | "timeout" | "failed" | "output_limit"; detail: string };
 
 export type ExecOptions = { cwd: string; timeoutMs: number; maxBuffer: number };
-export type Exec = (cmd: string, args: readonly string[], opts: ExecOptions) => Promise<ExecResult>;
+/** `prlimit`: se i figli passano da prlimit (lo legge anche l'estrazione Office, che lancia `node` da sé). */
+export type Exec = ((cmd: string, args: readonly string[], opts: ExecOptions) => Promise<ExecResult>) & { readonly prlimit?: boolean };
 type Spawn = (file: string, args: readonly string[], opts: ExecOptions) => Promise<ExecResult>;
 
 /** L'ambiente dei figli: solo il PATH, la lingua e un thread per tesseract. */
-const CHILD_ENV = { PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin", LANG: "C.UTF-8", OMP_THREAD_LIMIT: "1" };
+export const CHILD_ENV = { PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin", LANG: "C.UTF-8", OMP_THREAD_LIMIT: "1" };
 
 const realSpawn: Spawn = (file, args, opts) =>
   new Promise((resolve) => {
@@ -65,11 +66,22 @@ export function createExec(opts: {
   const spawn = opts.spawn ?? realSpawn;
   const which = opts.which ?? onPath;
   const memory = opts.memoryBytes ?? EXTRACT_LIMITS.childMemoryBytes;
-  return async (cmd, args, run) => {
+  const exec = async (cmd: string, args: readonly string[], run: ExecOptions): Promise<ExecResult> => {
     if (run.timeoutMs <= 0) return { ok: false, kind: "timeout", detail: "no time left for the job" };
     if (!(await which(cmd))) return { ok: false, kind: "missing", detail: `${cmd} not found` };
     if (!opts.prlimit) return spawn(cmd, args, run);
-    const cpuSeconds = Math.ceil(run.timeoutMs / 1000) + 5;
-    return spawn("prlimit", [`--as=${memory}`, `--cpu=${cpuSeconds}`, `--fsize=${EXTRACT_LIMITS.childFileBytes}`, "--", cmd, ...args], run);
+    return spawn("prlimit", [...prlimitArgs(run.timeoutMs, memory), cmd, ...args], run);
   };
+  return Object.assign(exec, { prlimit: opts.prlimit });
+}
+
+/**
+ * Gli argomenti di `prlimit` davanti a un figlio, fino al `--`: memoria
+ * virtuale, cpu (il timeout più un margine) e file scritti. Gli stessi per
+ * ogni estrattore; l'estrazione Office (`office-thread.ts`) passa
+ * `memoryBytes: null`, senza `--as` (lì il tetto è l'heap di V8: vedi là).
+ */
+export function prlimitArgs(timeoutMs: number, memoryBytes: number | null = EXTRACT_LIMITS.childMemoryBytes): string[] {
+  const cpuSeconds = Math.ceil(timeoutMs / 1000) + 5;
+  return [...(memoryBytes === null ? [] : [`--as=${memoryBytes}`]), `--cpu=${cpuSeconds}`, `--fsize=${EXTRACT_LIMITS.childFileBytes}`, "--"];
 }

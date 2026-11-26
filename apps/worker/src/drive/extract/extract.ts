@@ -93,8 +93,8 @@ export async function extractContent(
       if (kind === "text") return finish(decode(await head(inputPath, L.textMaxChars * 4 + 4)), "none");
       if (kind === "office") {
         const { size } = await stat(inputPath);
-        // In un worker_thread col suo tempo e la sua memoria (review della F3): mai nel thread principale.
-        const r = await extractOfficeInThread({ path: inputPath, size, mime: input.mime }, { timeoutMs: budget(L.officeMs) });
+        // In un processo figlio col suo tempo, la sua memoria e, in produzione, prlimit come gli altri: mai nel worker.
+        const r = await extractOfficeInThread({ path: inputPath, size, mime: input.mime }, { timeoutMs: budget(L.officeMs), prlimit: deps.exec.prlimit === true });
         return r.kind === "ok" ? finish(r.text, "none") : noText(r.kind);
       }
 

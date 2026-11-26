@@ -9,7 +9,7 @@ export const EXTRACT_LIMITS = {
   childMemoryBytes: 1024 ** 3,
   /** Tempo per pagina OCR (tesseract) e per la conversione di un HEIC. */
   ocrPageMs: 60_000,
-  /** Tempo dell'estrazione Office/ODF, nel suo worker_thread (review della F3). */
+  /** Tempo dell'estrazione Office/ODF, nel suo processo figlio (`office-thread.ts`). */
   officeMs: 60_000,
   /** Tempo di `pdfinfo` e `pdftotext`. */
   pdfTextMs: 30_000,
