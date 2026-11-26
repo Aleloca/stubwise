@@ -7223,11 +7223,21 @@ deploy o di un rollback che la tocca.
      transazione, un ALTER senza riscrittura). Aspetta che sia healthy.
   2. `caddy`: il renderer di `/app` (la riconferma del DSN nella pagina dei
      controlli dei server, `reauth_required` portato così com'è
-     dall'adattatore vero). Il web non cambia.
+     dall'adattatore vero). Il codice del web non cambia, ma il web vede
+     comportamenti nuovi del server: la riconferma ora la chiedono anche il
+     DSN di un controllo postgres/mysql, le credenziali (`user:pass@`) nel
+     target di un controllo http, l'endpoint e il bucket dello storage; i
+     target dei controlli si leggono mascherati (`user:***@`, campo
+     `hasCredentials`), e rimandati così come sono valgono «invariato».
+     Un `400 masked_credentials` (un `***` come password dove non ce n'è una
+     salvata) sul web compare come errore generico.
   3. Il `worker` non cambia: nessun rebuild.
   4. Il pacchetto `@stubwise/mcp` e il plugin escono col changeset
      (`.changeset/mcp-parita-*.md`) quando la CI del merge è verde: verifica
-     `npm view @stubwise/mcp version` e il commit di versione su `main`.
+     `npm view @stubwise/mcp version` e il commit di versione su `main`,
+     E che il pacchetto pubblicato parta davvero: in una cartella vuota,
+     `npx -y @stubwise/mcp@<versione> --help` (o l'avvio del server) deve
+     rispondere senza errori di modulo mancante.
      Un client col plugin nuovo contro un server vecchio riceve il 404 del
      catalogo e lo dice («va aggiornata»); gli altri strumenti funzionano.
   **Rollback**: il server e il caddy scendono insieme. Scendere il server è
