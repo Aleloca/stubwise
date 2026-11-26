@@ -7,7 +7,7 @@ import type { CatalogAction } from "../client.js";
  * panoramica, notifiche e ricerca, persone e attività, registro delle
  * modifiche, rilasci e PR, allegati. Servono a `lotto2.test.ts` per cercare fra
  * vicini veri, non fra quattro voci. Il pacchetto non importa il server: le
- * lega al server `apps/server/src/mcp/lotto2-fixture.test.ts`, che fallisce se
+ * lega al server `apps/server/src/mcp/lotto-fixtures.test.ts`, che fallisce se
  * una voce qui diverge da `config.mcp` (revisione del lotto 2, M2).
  */
 export const LOTTO2_CATALOG: CatalogAction[] = [
