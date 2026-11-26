@@ -382,7 +382,7 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
   app.put(
     "/instance",
     {
-      config: { mcp: { action: "settings.updateInstance", summary: "Modifica le impostazioni dell'istanza: lingua dei contenuti, budget mensile, storage S3, Slack.", effect: "write", note: "Un segreto nuovo (chiave S3, segreti Slack) chiede la riconferma: da qui session_required. Vale per tutta l'istanza, non solo per chi la cambia." }, access: { kind: "instance", permission: "settings.manage" }, partialReauth: true },
+      config: { mcp: { action: "settings.updateInstance", summary: "Modifica le impostazioni dell'istanza: lingua dei contenuti, budget mensile, storage S3, Slack.", effect: "write", note: "Un segreto nuovo (chiave S3, segreti Slack) e un cambio di endpoint o bucket dello storage (decidono dove vanno gli allegati di tutti) chiedono la riconferma: da qui session_required. Vale per tutta l'istanza, non solo per chi la cambia." }, access: { kind: "instance", permission: "settings.manage" }, partialReauth: true },
       schema: {
         body: updateInstanceSettingsSchema,
         response: {
