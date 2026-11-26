@@ -1,3 +1,4 @@
+import { scrubForRead } from "./change-log.js";
 import { changeLog, deletedProjectMembers, deletedProjects, departments, projects, roles, users, type Db } from "@stubwise/db";
 import {
   CHANGE_LOG_TYPES,
@@ -209,7 +210,8 @@ export async function listChanges(db: Db, viewer: Viewer, filter: ChangeLogFilte
       projectCode: r.projectCode,
       scope: type.scope,
       group: type.group,
-      data: redact(r.type, data, readable.visiblePeople, allProjectsVisible ? null : visibleCodes),
+      // Revisione finale della parità MCP, I1: le voci vecchie hanno i segreti com'erano.
+      data: redact(r.type, scrubForRead(r.type, data) as ChangeEntry["data"], readable.visiblePeople, allProjectsVisible ? null : visibleCodes),
       objectDeleted: !existing.has(`${r.subjectKind}:${r.subjectId}`),
       hidden: false,
       // Area 9, F6: DERIVATO a lettura, mai scritto nella voce. Il client

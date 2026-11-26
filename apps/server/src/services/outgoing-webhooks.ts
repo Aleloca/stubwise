@@ -1,3 +1,4 @@
+import { maskedUrl } from "./url-credentials.js";
 import { randomBytes } from "node:crypto";
 import { encrypt, outgoingWebhooks, type Db } from "@stubwise/db";
 import { contentLanguageOf, sampleEventFor, sendableWebhook, sendToWebhook, webhookBody } from "@stubwise/notifications";
@@ -77,17 +78,6 @@ export async function createWebhook(db: Db, key: Buffer, actor: Actor, input: Cr
     return created!;
   });
   return { ...toWebhookView(row), secret };
-}
-
-/** L'URL di un webhook come entra nel registro: host e ultime 4 cifre. */
-export function maskedUrl(url: string): string {
-  let host = "";
-  try {
-    host = new URL(url).host;
-  } catch {
-    host = "?";
-  }
-  return `${host} …${url.slice(-4)}`;
 }
 
 /** Il JSON di un prima/dopo con l'URL mascherato (e «cambiato» se la maschera non lo mostrerebbe). */

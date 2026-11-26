@@ -25,3 +25,14 @@ export function hasUrlCredentials(text: string): boolean {
 export function hasMaskedCredentials(text: string): boolean {
   return [...text.matchAll(CREDENTIALS)].some((m) => m[3] === MASKED_PASSWORD);
 }
+
+/** L'URL di un webhook come entra nel registro: host e ultime 4 cifre. */
+export function maskedUrl(url: string): string {
+  let host = "";
+  try {
+    host = new URL(url).host;
+  } catch {
+    host = "?";
+  }
+  return `${host} …${url.slice(-4)}`;
+}

@@ -1,5 +1,5 @@
 import { currentViaClient } from "../mcp/via-client.js";
-import { maskUrlCredentials } from "./url-credentials.js";
+import { maskedUrl, maskUrlCredentials } from "./url-credentials.js";
 import { changeLog, type Db } from "@stubwise/db";
 import { sql } from "drizzle-orm";
 import { CHANGE_DATA_SCHEMAS, changeLogTypeOf, type ChangeData, type ChangeLogKind } from "@stubwise/shared";
@@ -86,6 +86,31 @@ function scrubLogData(data: ChangeInput["data"]): ChangeInput["data"] {
     ...(data.after !== undefined ? { after: json(data.after) } : {}),
     ...(data.params !== undefined ? { params: scrubValue(data.params) as ChangeData["params"] } : {}),
   };
+}
+
+/**
+ * La stessa maschera in LETTURA (revisione finale della parità MCP, I1): le
+ * voci scritte prima della maschera alla scrittura (il codice di main) hanno
+ * ancora i segreti com'erano, e il registro non si riscrive (trigger). Più,
+ * per le voci `webhook.*`, l'URL come «host …ultime4»: un valore che è ancora
+ * un URL è di una voce vecchia (una nuova è già mascherata, e non si tocca).
+ */
+export function scrubForRead(type: string, data: ChangeInput["data"]): ChangeInput["data"] {
+  const scrubbed = scrubLogData(data);
+  if (!type.startsWith("webhook.")) return scrubbed;
+  const url = (text: string | null | undefined) => {
+    if (typeof text !== "string") return text;
+    try {
+      const fields = JSON.parse(text) as unknown;
+      if (fields === null || typeof fields !== "object" || Array.isArray(fields)) return text;
+      const f = fields as Record<string, unknown>;
+      if (typeof f.url === "string" && /^[a-z][a-z0-9+.-]*:\/\//i.test(f.url)) f.url = maskedUrl(f.url);
+      return JSON.stringify(f);
+    } catch {
+      return text;
+    }
+  };
+  return { ...scrubbed, before: url(scrubbed.before), after: url(scrubbed.after) };
 }
 
 function scrubValue(value: unknown): unknown {
