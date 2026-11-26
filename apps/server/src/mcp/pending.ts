@@ -9,7 +9,7 @@
  * Il tetto di `PENDING_MCP`: si abbassa SOLTANTO, a ogni lotto, fino a zero.
  * Senza, una rotta nuova si accoderebbe all'elenco e il test passerebbe.
  */
-export const PENDING_MCP_MAX = 387;
+export const PENDING_MCP_MAX = 366;
 
 export const PENDING_MCP: readonly string[] = [
   "DELETE /api/admin/invites/:id",
@@ -25,8 +25,6 @@ export const PENDING_MCP: readonly string[] = [
   "DELETE /api/client-links/:key",
   "DELETE /api/credentials/:id",
   "DELETE /api/departments/:id",
-  "DELETE /api/drive/files/:id",
-  "DELETE /api/drive/google/folders/:id",
   "DELETE /api/git-accounts/:id/default-reviewer",
   "DELETE /api/me/alert-subscriptions/:projectId/:type",
   "DELETE /api/me/avatar",
@@ -98,15 +96,6 @@ export const PENDING_MCP: readonly string[] = [
   "GET /api/departments/roles",
   "GET /api/docs/codes/:code",
   "GET /api/docs/spaces",
-  "GET /api/drive/codes/:code",
-  "GET /api/drive/files",
-  "GET /api/drive/files/:id",
-  "GET /api/drive/files/:id/download",
-  "GET /api/drive/files/:id/open",
-  "GET /api/drive/files/:id/preview",
-  "GET /api/drive/files/by-code/:code/content",
-  "GET /api/drive/google/links",
-  "GET /api/drive/google/outside",
   "GET /api/git-accounts",
   "GET /api/git-accounts/:id",
   "GET /api/git-accounts/:id/branches",
@@ -152,10 +141,6 @@ export const PENDING_MCP: readonly string[] = [
   "GET /api/projects/:projectId/docs/highlights",
   "GET /api/projects/:projectId/docs/search",
   "GET /api/projects/:projectId/docs/spaces",
-  "GET /api/projects/:projectId/drive/files",
-  "GET /api/projects/:projectId/drive/google/files",
-  "GET /api/projects/:projectId/drive/google/folders",
-  "GET /api/projects/:projectId/drive/google/links",
   "GET /api/projects/:projectId/email-labels",
   "GET /api/projects/:projectId/email-routes",
   "GET /api/projects/:projectId/integration",
@@ -299,8 +284,6 @@ export const PENDING_MCP: readonly string[] = [
   "POST /api/claude/suggestions/dismiss",
   "POST /api/departments",
   "POST /api/departments/:id/preview",
-  "POST /api/drive/files/:id/retry",
-  "POST /api/drive/google/folders/:id/sync",
   "POST /api/git-accounts/:id/validate",
   "POST /api/instance/jobs/:id/retry",
   "POST /api/me/alert-subscriptions/:projectId/copy",
@@ -334,9 +317,6 @@ export const PENDING_MCP: readonly string[] = [
   "POST /api/projects/:projectId/archive",
   "POST /api/projects/:projectId/credentials",
   "POST /api/projects/:projectId/docs/chat",
-  "POST /api/projects/:projectId/drive/files",
-  "POST /api/projects/:projectId/drive/google/files",
-  "POST /api/projects/:projectId/drive/google/folders",
   "POST /api/projects/:projectId/members/:userId/preview",
   "POST /api/projects/:projectId/product/first-version",
   "POST /api/projects/:projectId/product/first-version/stop",
@@ -383,7 +363,6 @@ export const PENDING_MCP: readonly string[] = [
   "PUT /api/client-links/:key",
   "PUT /api/credentials/:id/password",
   "PUT /api/departments/:id/roles",
-  "PUT /api/drive/files/:id/hidden",
   "PUT /api/git-accounts/:id/default-reviewer",
   "PUT /api/me/alert-subscriptions/:projectId/:type",
   "PUT /api/me/avatar",
