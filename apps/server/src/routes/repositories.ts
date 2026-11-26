@@ -326,7 +326,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/",
     {
-      config: { access: { kind: "project", permission: "repos.manage", project: fromBody("projectId") } },
+      config: { mcp: { action: "repositories.create", summary: "Collega un repository a un progetto.", effect: "write", note: "Il segreto del webhook che la risposta porta è nascosto: si vede dall'app." }, access: { kind: "project", permission: "repos.manage", project: fromBody("projectId") } },
       schema: {
         body: createRepositorySchema,
         response: {
@@ -448,7 +448,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "repositories.list", summary: "I repository dei progetti che vedi.", effect: "read" }, access: { kind: "user" } },
       schema: {
         querystring: z.object({ projectId: z.uuid().optional() }),
         response: { 200: z.array(repositorySchema), ...authErrorResponses },
@@ -503,7 +503,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
     {
       // Membro del progetto, poi `repos.view` o `docs.view` (sotto): la
       // configurazione solo con `repos.view`.
-      config: { access: repositoryAccess("slug", "member") },
+      config: { mcp: { action: "repositories.get", summary: "Un repository: provider, branch, comandi, revisore, pipeline di rilascio.", effect: "read" }, access: repositoryAccess("slug", "member") },
       schema: {
         params: slugParamsSchema,
         response: { 200: repositorySchema, 404: errorSchema, ...authErrorResponses },
@@ -533,7 +533,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/:slug/webhook",
     {
-      config: { access: repositoryAccess("slug", "repos.manage") },
+      config: { mcp: { action: "repositories.webhook", summary: "Lo stato del webhook git di un repository (configurato, ultime 4 cifre del segreto).", effect: "read" }, access: repositoryAccess("slug", "repos.manage") },
       schema: {
         params: slugParamsSchema,
         response: { 200: webhookConfigSchema, 404: errorSchema, ...authErrorResponses },
@@ -558,7 +558,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/:slug/configure-webhook",
     {
-      config: { access: repositoryAccess("slug", "repos.manage") },
+      config: { mcp: { action: "repositories.configureWebhook", summary: "Configura il webhook git del repository sul provider (GitHub, Bitbucket).", effect: "write", note: "Scrive sul provider, con l'account git del progetto." }, access: repositoryAccess("slug", "repos.manage") },
       schema: {
         params: slugParamsSchema,
         response: {
@@ -640,7 +640,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
   app.patch(
     "/:slug",
     {
-      config: { access: repositoryAccess("slug", "repos.manage") },
+      config: { mcp: { action: "repositories.update", summary: "Modifica un repository: nome, URL, branch, comandi, revisore, branch protetti, rilascio, grafo.", effect: "write" }, access: repositoryAccess("slug", "repos.manage") },
       schema: {
         params: slugParamsSchema,
         body: updateRepositorySchema,

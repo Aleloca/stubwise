@@ -101,7 +101,13 @@ const SESSION_ONLY = new Set(["POST /api/me/security/reauth", "POST /api/me/secu
  * agente di monitoraggio): si fanno solo dall'app (decisione del maintainer,
  * lotto 6). Elenco chiuso.
  */
-const SECRET_ONCE = new Set(["POST /api/servers", "POST /api/servers/:id/regenerate-key"]);
+const SECRET_ONCE = new Set([
+  "POST /api/servers",
+  "POST /api/servers/:id/regenerate-key",
+  // Lotto 5: l'indirizzo di un webhook in ingresso delle automazioni, col segreto, una volta sola.
+  "POST /api/automation-sources",
+  "POST /api/automation-sources/:id/regenerate",
+]);
 /** Le rotte dell'app mobile che non servono da Claude Code e sarebbero un vettore (revisione del lotto 6, I2). */
 const APP_ONLY = new Set(["PUT /api/me/devices"]);
 /**
@@ -190,6 +196,9 @@ const CURATED_ROUTES: Record<string, string> = {
   "POST /api/me/mail/proposals/:id/choose-project": "decide_mail_proposal",
   "POST /api/tickets/:id/repositories/:repositoryId/release": "merge_pull_request",
   "POST /api/tickets/:id/run-ai": "run_ticket",
+  // Lotto 5 (decisione di 46): la correzione di un server esegue comandi sull'host.
+  "POST /api/tasks/:ticketId/server-fix/approve": "approve_server_fix",
+  "POST /api/tasks/:ticketId/server-fix/reject": "reject_server_fix",
 };
 
 /**
@@ -383,7 +392,7 @@ describe("parità MCP: ogni rotta dichiara config.mcp", () => {
     /** Un nome dall'aria segreta, in risposta o in ingresso (M4: anche i cifrati e i DSN). */
     const SECRETISH = /^(key|token|secret|password|apiKey|dsn)$|(Secret|Token|Key|Password|Ciphertext)$|^(wrapped|sealed)/;
     /** Nomi innocui per costruzione (un colore, un preset, una chiave PUBBLICA, un gate). */
-    const INNOCENT_NAMES = new Set(["colorToken", "presetKey", "publicKey", "subKey", "residentKey", "resetPassword"]);
+    const INNOCENT_NAMES = new Set(["colorToken", "presetKey", "publicKey", "subKey", "residentKey", "resetPassword", "canRegenerateKey", "canRegenerateWebhookSecret"]);
     /** `key` dove non è un segreto: il raggruppamento dei consumi, l'hook di un plugin, la chiave pubblica di un widget, il nome di una variabile. */
     const INNOCENT_PATHS = new Set(["rows.[].key", "rows.[].children.[].key", "plugins.[].inventory.hooks.[].key", "inventory.hooks.[].key", "widgets.[].key", "widget.key", "[].vars.[].key", "vars.[].key"]);
     /**
@@ -421,6 +430,48 @@ describe("parità MCP: ogni rotta dichiara config.mcp", () => {
       // Dal lotto 4 di 94.
       "GET /api/repositories/:id/graph/report",
       "POST /api/claude/suggestions/dismiss",
+      // Lotto 5, gli avvisi personali.
+      "GET /api/me/alert-subscriptions",
+      "PUT /api/me/alert-subscriptions/:projectId/:type",
+      "DELETE /api/me/alert-subscriptions/:projectId/:type",
+      "POST /api/me/alert-subscriptions/:projectId/copy",
+      "POST /api/me/alert-subscriptions/:projectId/mute",
+      // Lotto 5, l'area 7 (automazioni): nessuna sua rotta dichiara la risposta.
+      "DELETE /api/automations/:code/draft",
+      "GET /api/automation-origin",
+      "GET /api/automation-runs",
+      "GET /api/automation-sources",
+      "GET /api/automation-sources/:id/events",
+      "GET /api/automations",
+      "GET /api/automations/:code",
+      "GET /api/automations/:code/examples",
+      "GET /api/automations/:code/runs/:n",
+      "GET /api/automations/:code/test/client-project",
+      "GET /api/me/automation-approvals",
+      "GET /api/me/automation-runs",
+      "GET /api/projects/:projectId/automations",
+      "PATCH /api/automation-sources/:id",
+      "PATCH /api/automation-sources/:id/fields/:key",
+      "PATCH /api/automations/:code",
+      "POST /api/automation-sources/:id/example/preview",
+      "POST /api/automations",
+      "POST /api/automations/:code/activate",
+      "POST /api/automations/:code/check",
+      "POST /api/automations/:code/duplicate",
+      "POST /api/automations/:code/pause",
+      "POST /api/automations/:code/publish",
+      "POST /api/automations/:code/runs",
+      "POST /api/automations/:code/runs/:n/approve",
+      "POST /api/automations/:code/runs/:n/cancel",
+      "POST /api/automations/:code/runs/:n/project",
+      "POST /api/automations/:code/runs/:n/reject",
+      "POST /api/automations/:code/runs/:n/retry",
+      "POST /api/automations/:code/runs/:n/skip",
+      "POST /api/automations/:code/test/claude",
+      "POST /api/automations/:code/test/estimate",
+      "POST /api/automations/:code/tested",
+      "PUT /api/automation-sources/:id/example",
+      "PUT /api/automations/:code/draft",
     ]);
     /** Un campo d'INGRESSO dall'aria segreta che non lo è: il token push di un telefono (dell'app mobile). */
     const INNOCENT_BODY = new Set(["POST /api/me/devices/delete: token"]);

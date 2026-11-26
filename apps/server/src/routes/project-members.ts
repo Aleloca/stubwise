@@ -53,7 +53,7 @@ export async function projectMemberRoutes(instance: FastifyInstance): Promise<vo
   app.get(
     "/:projectId/members/view",
     {
-      config: { access: { kind: "project", permission: "member", project: fromParam("projectId") } },
+      config: { mcp: { action: "projects.membersView", summary: "La vista dei membri di un progetto come l'amministrazione: chi c'è, cosa si può dare, chi si può aggiungere.", effect: "read", note: "Aggiungere, togliere o cambiare il ruolo di un membro chiede la riconferma: si fa dall'app." }, access: { kind: "project", permission: "member", project: fromParam("projectId") } },
       schema: { params: projectParamsSchema, response: { 200: projectMembersViewSchema, 404: errorSchema, ...authErrorResponses } },
     },
     async (request) => projectMembersView(app.db, request.user!, request.params.projectId),
@@ -62,7 +62,7 @@ export async function projectMemberRoutes(instance: FastifyInstance): Promise<vo
   app.post(
     "/:projectId/members/:userId/preview",
     {
-      config: { access: { kind: "project", permission: "project.members.manage", project: fromParam("projectId") } },
+      config: { mcp: { action: "projects.memberPreview", summary: "Anteprima: cosa guadagnerebbe o perderebbe una persona con un ruolo e dei permessi. Non scrive niente.", effect: "write" }, access: { kind: "project", permission: "project.members.manage", project: fromParam("projectId") } },
       schema: {
         params: z.object({ projectId: z.uuid(), userId: z.uuid() }),
         body: memberDraftSchema,
@@ -81,7 +81,7 @@ export async function projectMemberRoutes(instance: FastifyInstance): Promise<vo
   app.get(
     "/:projectId/members",
     {
-      config: {
+      config: { mcp: { action: "projects.members", summary: "I membri di un progetto, coi ruoli e i permessi.", effect: "read" },
         access: { kind: "project", permission: "member", project: fromParam("projectId") },
       },
       schema: {

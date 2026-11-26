@@ -20,7 +20,7 @@ export async function projectSecretRoutes(instance: FastifyInstance): Promise<vo
   app.get(
     "/projects/:projectId/integration",
     {
-      config: { access: { kind: "project", permission: "member", project: fromParam("projectId") } },
+      config: { mcp: { action: "projects.integration", summary: "Come entrano le cose in un progetto: chiave d'ingestione (nascosta), indirizzi in ingresso, webhook git.", effect: "read" }, access: { kind: "project", permission: "member", project: fromParam("projectId") } },
       schema: { params: z.object({ projectId: z.uuid() }), response: { 200: projectIntegrationSchema, 404: roleRuleErrorSchema, ...authErrorResponses } },
     },
     async (request, reply) => {

@@ -1981,10 +1981,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 ## Trasversali
 
-- **24 azioni del catalogo MCP senza schema di risposta** *(S ciascuna,
+- **64 azioni del catalogo MCP senza schema di risposta** *(S ciascuna,
   lotto 6 della parità MCP, 26 nov 2026; decisione di 46)*: client-links
   (4), Support (7), e dai lotti 2–4 rilasci e PR, `drive/files/:id/open`,
-  `inbox/:id/mute-type`, il report del grafo, il «dismiss» dei suggerimenti. Senza `response` il serializzatore non filtra i
+  `inbox/:id/mute-type`, il report del grafo, il «dismiss» dei suggerimenti;
+  dal lotto 5 TUTTA l'area automazioni (35) e gli avvisi personali (5). Senza `response` il serializzatore non filtra i
   campi, e il test di parità non può verificare che nessun segreto arrivi al
   modello (la redazione per nome dell'MCP vale comunque a runtime). Stanno
   in `NO_RESPONSE_SCHEMA` di `apps/server/src/mcp-parity.test.ts`, che si

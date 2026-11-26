@@ -113,7 +113,7 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
   app.post(
     "/:id/env-files",
     {
-      config: { access: REPOS_MANAGE }, // D-5: niente riconferma per un file VUOTO (il prototipo lo esclude apposta)
+      config: { mcp: { action: "repositories.createEnvFile", summary: "Aggiunge un file d'ambiente (vuoto) a un repository.", effect: "write", note: "I valori delle variabili chiedono la riconferma: si scrivono dall'app." }, access: REPOS_MANAGE }, // D-5: niente riconferma per un file VUOTO (il prototipo lo esclude apposta)
       schema: {
         params: projectParamsSchema,
         body: createFileSchema,
@@ -175,7 +175,7 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
   app.get(
     "/:id/env-files",
     {
-      config: { access: REPOS_MANAGE },
+      config: { mcp: { action: "repositories.envFiles", summary: "I file d'ambiente di un repository: percorso e nomi delle variabili, MAI i valori.", effect: "read" }, access: REPOS_MANAGE },
       schema: {
         params: projectParamsSchema,
         response: { 200: z.array(publicFileSchema), 404: errorSchema, ...authErrorResponses },

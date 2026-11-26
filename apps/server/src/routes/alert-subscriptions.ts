@@ -31,16 +31,16 @@ export async function alertSubscriptionRoutes(instance: FastifyInstance): Promis
   };
   const projectParams = z.object({ projectId: z.uuid() });
 
-  app.get("/me/alert-subscriptions", { config: { access: { kind: "user" } } }, async (request) => ({
+  app.get("/me/alert-subscriptions", { config: { mcp: { action: "alerts.mine", summary: "I tuoi avvisi per progetto: quali tipi ti arrivano, nell'app e sul telefono.", effect: "read" }, access: { kind: "user" } } }, async (request) => ({
     items: await listAlertSubscriptions(app.db, request.user!),
   }));
   app.post(
     "/me/alert-subscriptions/:projectId/copy",
-    { config: { access: { kind: "user" } }, schema: { params: projectParams, body: z.object({ fromProjectId: z.uuid() }) } },
+    { config: { mcp: { action: "alerts.copy", summary: "Copia i tuoi avvisi da un altro progetto.", effect: "write" }, access: { kind: "user" } }, schema: { params: projectParams, body: z.object({ fromProjectId: z.uuid() }) } },
     async (request, reply) =>
       handle(reply, async () => ({ before: await copyAlertSubscriptions(app.db, request.user!, { projectId: request.params.projectId, fromProjectId: request.body.fromProjectId }) })),
   );
-  app.post("/me/alert-subscriptions/:projectId/mute", { config: { access: { kind: "user" } }, schema: { params: projectParams } }, async (request, reply) =>
+  app.post("/me/alert-subscriptions/:projectId/mute", { config: { mcp: { action: "alerts.mute", summary: "Silenzia tutti i tuoi avvisi di un progetto.", effect: "write" }, access: { kind: "user" } }, schema: { params: projectParams } }, async (request, reply) =>
     handle(reply, async () => ({ before: await muteProjectAlerts(app.db, request.user!, request.params.projectId) })),
   );
   // S6: «Non avvisarmi più di questo» dalla card.
@@ -50,7 +50,7 @@ export async function alertSubscriptionRoutes(instance: FastifyInstance): Promis
   app.put(
     "/me/alert-subscriptions/:projectId/:type",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "alerts.set", summary: "Accende o spegne un tuo avviso di un progetto (nell'app, sul telefono).", effect: "write" }, access: { kind: "user" } },
       schema: { params: z.object({ projectId: z.uuid(), type: z.string().min(1).max(80) }), body: setAlertSubscriptionSchema },
     },
     async (request, reply) =>
@@ -59,7 +59,7 @@ export async function alertSubscriptionRoutes(instance: FastifyInstance): Promis
   // Review F2 (46): torna al default (nessuna scelta salvata, partner compresi).
   app.delete(
     "/me/alert-subscriptions/:projectId/:type",
-    { config: { access: { kind: "user" } }, schema: { params: z.object({ projectId: z.uuid(), type: z.string().min(1).max(80) }) } },
+    { config: { mcp: { action: "alerts.reset", summary: "Riporta un tuo avviso di un progetto al valore predefinito.", effect: "destructive" }, access: { kind: "user" } }, schema: { params: z.object({ projectId: z.uuid(), type: z.string().min(1).max(80) }) } },
     async (request, reply) =>
       handle(reply, () => resetAlertSubscription(app.db, request.user!, { projectId: request.params.projectId, type: request.params.type })),
   );

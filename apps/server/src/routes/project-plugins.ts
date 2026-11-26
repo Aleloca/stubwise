@@ -49,7 +49,7 @@ export async function projectPluginRoutes(instance: FastifyInstance): Promise<vo
   app.get(
     "/:projectId/plugins",
     {
-      config: { access: READ_ACCESS },
+      config: { mcp: { action: "projects.plugins", summary: "I plugin dell'agente abilitati in un progetto, per skill e hook.", effect: "read" }, access: READ_ACCESS },
       schema: {
         params: paramsSchema,
         response: { 200: projectPluginsSchema, 404: errorSchema, ...authErrorResponses },
@@ -73,7 +73,7 @@ export async function projectPluginRoutes(instance: FastifyInstance): Promise<vo
   app.put(
     "/:projectId/plugins",
     {
-      config: { access: ACCESS },
+      config: { mcp: { action: "projects.setPlugins", summary: "SOSTITUISCE le abilitazioni dei plugin di un progetto (per skill e gruppo di hook).", effect: "write", note: "Con ifMatch: 409 se nel frattempo un altro le ha cambiate. Vale per i run di tutti nel progetto." }, access: ACCESS },
       schema: {
         params: paramsSchema,
         body: putBodySchema,

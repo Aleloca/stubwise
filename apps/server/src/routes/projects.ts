@@ -531,7 +531,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:projectId/email-routes",
     {
-      config: { access: onProject("member") },
+      config: { mcp: { action: "projects.emailRoutes", summary: "Le regole che dicono quali email parlano di un progetto (dominio, indirizzo, etichetta Gmail).", effect: "read" }, access: onProject("member") },
       schema: {
         params: idParamsSchema,
         response: { 200: emailRoutesSchema, 404: errorSchema, ...authErrorResponses },
@@ -555,7 +555,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   app.put(
     "/:projectId/email-routes",
     {
-      config: { access: onProject("project.settings.manage") },
+      config: { mcp: { action: "projects.setEmailRoutes", summary: "SOSTITUISCE le regole della posta di un progetto: quelle assenti spariscono.", effect: "destructive", note: "Cambia quali mail di tutti diventano proposte di questo progetto." }, access: onProject("project.settings.manage") },
       schema: {
         params: idParamsSchema,
         body: emailRoutesPutSchema,
@@ -599,7 +599,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:projectId/email-labels",
     {
-      config: { access: onProject("member") },
+      config: { mcp: { action: "projects.emailLabels", summary: "Le etichette Gmail viste nelle tue caselle, per le regole della posta.", effect: "read" }, access: onProject("member") },
       schema: {
         params: idParamsSchema,
         response: { 200: emailLabelsSchema, 404: errorSchema, ...authErrorResponses },
@@ -991,7 +991,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/:projectId",
     {
-      config: { access: onProject("project.settings.manage") },
+      config: { mcp: { action: "projects.update", summary: "Modifica un progetto: nome, codice, cliente, descrizione, provider AI, moduli accesi, polso, brief, Docs notturni, tetto delle correzioni.", effect: "write", note: "Spegnere un modulo lo toglie a tutti i membri. Cambia cosa possono fare altre persone: dillo all'utente nella riga che annuncia l'azione." }, access: onProject("project.settings.manage") },
       schema: {
         params: idParamsSchema,
         body: updateProjectSchema,

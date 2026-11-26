@@ -72,6 +72,8 @@ describe("buildServer", () => {
       "decide_pulse_proposal",
       "decide_mail_proposal",
       "merge_pull_request",
+      "approve_server_fix",
+      "reject_server_fix",
       "find_actions",
       "describe_action",
       "read_action",

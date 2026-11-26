@@ -39,6 +39,8 @@ describe("i tool delle decisioni", () => {
       "decide_pulse_proposal",
       "decide_mail_proposal",
       "merge_pull_request",
+      "approve_server_fix",
+      "reject_server_fix",
     ]);
     for (const t of decisionTools.filter((d) => d.name !== "list_inbox")) {
       expect(t.description, t.name).toContain("in una riga");
@@ -262,5 +264,32 @@ describe("list_inbox", () => {
 
   it("nessuna card", async () => {
     expect(text(await tool("list_inbox").handler({}, ctxWith(ok({ items: [] }))))).toBe("Nessuna card con questi filtri.");
+  });
+});
+
+describe("correzioni dei server (lotto 5, decisione di 46)", () => {
+  const fix = { serverCode: "SRV-3", status: "running", steps: [{ index: 0, action: "restart_service", params: { service: "nginx" }, why: "è fermo", status: "done", commandId: null }] };
+
+  it("approve_server_fix: dice che ESEGUE sull'host, chiama la rotta con l'impronta del piano e riporta comandi ed esito", async () => {
+    expect(tool("approve_server_fix").description).toContain("ESEGUONO");
+    expect(tool("approve_server_fix").description).toContain("comandi esatti");
+    expect(tool("approve_server_fix").description).toContain("output del server");
+    const callAction = ok(fix);
+    const r = await tool("approve_server_fix").handler({ ticket_id: "t1", plan_digest: "d1" }, ctxWith(callAction));
+    expect(callAction).toHaveBeenCalledWith({ method: "POST", path: "/api/tasks/:ticketId/server-fix/approve" }, { params: { ticketId: "t1" }, body: { planDigest: "d1" } });
+    expect(text(r)).toContain("SRV-3");
+    expect(text(r)).toContain('0. restart_service {"service":"nginx"} — done');
+    expect(text(r)).toContain("running");
+  });
+
+  it("reject_server_fix porta la nota", async () => {
+    const callAction = ok({ ...fix, status: "rejected", steps: [] });
+    await tool("reject_server_fix").handler({ ticket_id: "t1", note: "Non ora" }, ctxWith(callAction));
+    expect(callAction).toHaveBeenCalledWith({ method: "POST", path: "/api/tasks/:ticketId/server-fix/reject" }, { params: { ticketId: "t1" }, body: { note: "Non ora" } });
+  });
+
+  it("un 409 (piano cambiato) e un 403 si leggono come le altre decisioni", async () => {
+    const r = await tool("approve_server_fix").handler({ ticket_id: "t1", plan_digest: "d1" }, ctxWith(vi.fn().mockRejectedValue(new StubwiseApiError("HTTP 403 forbidden: x", 403, "forbidden"))));
+    expect(text(r)).toContain("Non hai il permesso per approvare la correzione di un server");
   });
 });

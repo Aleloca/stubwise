@@ -25,7 +25,7 @@ export async function detachedRepositoryRoutes(instance: FastifyInstance): Promi
 
   app.get(
     "/detached",
-    { config: { access: { kind: "user" } }, schema: { response: { 200: z.array(detachedRepositorySchema), ...authErrorResponses } } },
+    { config: { mcp: { action: "repositories.detached", summary: "I repository staccati da un progetto (il progetto è stato eliminato).", effect: "read" }, access: { kind: "user" } }, schema: { response: { 200: z.array(detachedRepositorySchema), ...authErrorResponses } } },
     async (request, reply) => {
       try {
         return await listDetachedRepositories(app.db, request.user!);
@@ -38,7 +38,7 @@ export async function detachedRepositoryRoutes(instance: FastifyInstance): Promi
   app.post(
     "/:id/link",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "repositories.link", summary: "Ricollega a un progetto un repository staccato.", effect: "write" }, access: { kind: "user" } },
       schema: { params, body: linkRepositorySchema, response: { 204: z.null(), 404: errorSchema, 409: errorSchema, ...authErrorResponses } },
     },
     async (request, reply) => {

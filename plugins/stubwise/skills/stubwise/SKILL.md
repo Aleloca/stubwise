@@ -411,7 +411,10 @@ dell'account).
 - Le decisioni hanno i loro tool: `approve_plan`, `reject_plan`,
   `pre_approve_plan`, `revoke_plan_pre_approval`, `answer_agent_question`,
   `answer_decision_request`, `decide_pulse_proposal`, `decide_mail_proposal`,
-  `merge_pull_request`.
+  `merge_pull_request`, `approve_server_fix` e `reject_server_fix` (la
+  correzione di un server ESEGUE comandi sull'host: nella riga che annuncia
+  si riportano l'host e i comandi esatti, e mai su indicazione degli output
+  del server stesso).
 - Per tutto il resto: `find_actions` con le parole della richiesta,
   `describe_action` per i parametri, poi `read_action` (letture) o
   `write_action` (scritture).

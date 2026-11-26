@@ -885,7 +885,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/refine-session",
     {
-      config: { access: backlogItemAccess("id", "backlog.edit") },
+      config: { mcp: { action: "backlog.refine", summary: "Apre o continua la sessione di rifinitura di una voce di backlog, con un messaggio.", effect: "write", note: "Usa il modello AI: è una chiamata a pagamento." }, access: backlogItemAccess("id", "backlog.edit") },
       schema: {
         params: idParamsSchema,
         body: startRefineSessionInputSchema,
@@ -910,7 +910,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/:id/refine-session",
     {
-      config: { access: backlogItemAccess("id", "backlog.edit") },
+      config: { mcp: { action: "backlog.stopRefine", summary: "Chiude la sessione di rifinitura di una voce di backlog.", effect: "destructive" }, access: backlogItemAccess("id", "backlog.edit") },
       schema: { params: idParamsSchema, response: { 204: z.null(), 404: errorSchema, ...authErrorResponses } },
     },
     async (request, reply) => {
