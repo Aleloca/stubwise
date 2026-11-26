@@ -1587,7 +1587,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/run-ai",
     {
-      config: { mcp: { action: "tickets.runAi", summary: "Avvia il run AI di un ticket (esecuzione del piano salvato, o pianificazione), o riprende una correzione ferma.", effect: "write", tool: "run_ticket", note: "Non corregge una PR aperta (riparte dal branch di default). Una correzione ferma si riprende con resumeCorrectionJobId, l'id del suo job: senza, il server decide dallo stato del momento." }, access: onTicket("runs.start") },
+      config: { mcp: { action: "tickets.runAi", summary: "Avvia il run AI di un ticket (esecuzione del piano salvato, o pianificazione), o riprende una correzione ferma. Per rilanciare con istruzioni nuove: prima un commento con le istruzioni.", effect: "write", tool: "run_ticket", note: "Non corregge una PR aperta (riparte dal branch di default). Una correzione ferma si riprende con resumeCorrectionJobId, l'id del suo job: senza, il server decide dallo stato del momento." }, access: onTicket("runs.start") },
       schema: {
         params: idParamsSchema,
         // nullish (non optional): fastify-type-provider-zod passa `null` quando

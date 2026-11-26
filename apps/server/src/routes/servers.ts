@@ -518,7 +518,7 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/:id",
     {
-      config: { mcp: { action: "servers.update", summary: "Modifica un server: nome, intervallo dei campioni, progetti, soglie degli avvisi.", effect: "write", note: "Cambiare i progetti cambia CHI vede il server e riceve i suoi avvisi." }, access: { kind: "instance", permission: "monitor.manage" } },
+      config: { mcp: { action: "servers.update", summary: "Modifica un server: nome, intervallo dei campioni, progetti, soglie degli avvisi (thresholds).", effect: "write", note: "Cambiare i progetti cambia CHI vede il server e riceve i suoi avvisi." }, access: { kind: "instance", permission: "monitor.manage" } },
       schema: {
         params: idParamsSchema,
         body: updateServerSchema,

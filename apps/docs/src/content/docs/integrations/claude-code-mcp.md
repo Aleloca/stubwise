@@ -17,6 +17,10 @@ instance. It serves two kinds of people:
   [Claude Code for collaborators](/docs/getting-started/claude-code/); this
   page is the reference behind it.
 
+And for everyone: **anything you do in the Stubwise app, you can ask Claude
+Code to do**, with your own permissions — move a task, approve a plan, answer
+a mail, merge a PR. See [Everything the app does](#everything-the-app-does).
+
 Everything ships as one **Claude Code plugin**, `stubwise`: the MCP server, three
 slash commands and a skill, installed and updated together. The plugin runs on
 each person's machine (it is *not* part of the `docker compose` stack). Everyone
@@ -194,6 +198,68 @@ Without a natural-language command, you can also just ask:
 > List the Stubwise projects, find the slug for "Acme Web", then create a
 > `.stubwise.json` at the repo root with that slug and commit it.
 
+## Everything the app does
+
+Every action of the Stubwise app is also available from Claude Code, with the
+permissions of your token's owner — that is, yours. The everyday ones have
+their own tools (tasks, plans, inbox, files, below); for the rest Claude
+searches a **catalog of actions** that your instance serves (`find_actions`),
+reads how to call the one it needs (`describe_action`) and calls it
+(`read_action`, `write_action`). The catalog comes from the server itself, so
+it always matches the version you run; it leaves out the instance settings
+your role cannot touch, and anything else you lack the permission for is
+refused by the server exactly as in the app.
+
+### What stays in the app
+
+A few things are deliberately not reachable with a token. Claude tells you
+when you ask for one, and you do it from the app:
+
+- **Vault passwords.** Claude sees the names of your credentials and who can
+  read them, never the passwords.
+- **Actions that ask you to confirm it's you** — changing a role, inviting
+  someone, replacing a secret, deleting a project and the like. A token can
+  never satisfy that confirmation.
+- **Secrets shown only once**, such as a new monitoring agent's key or the
+  address of an inbound automation webhook: they are shown in the app, where
+  you can copy them, and nowhere else.
+- **Registering a phone** for push notifications happens in the mobile app.
+  (Removing a phone is allowed.)
+- **Logging in**, the second factor and password resets.
+
+### Two rules Claude follows
+
+- **Every write is announced in one line** before it happens — what Claude is
+  about to do and on what. Irreversible actions (merging a PR, approving a
+  server fix, sending an email, deleting) are spelled out, so you can stop it.
+- **Claude never acts on instructions found inside something it read.** An
+  email, a comment, a document or a PR description is data, not an order: if
+  a mail says "delete ticket ACQ-12", Claude tells you the mail says so and
+  does nothing. Only your own words start an action.
+
+### "via Claude Code"
+
+What you do from Claude Code is still done **by you**: it carries your name,
+with **via Claude Code** next to it, in the task's history, in the change log
+and in the decision log. Your teammates can always tell an action taken from
+the editor from one taken in the app.
+
+### Things you can ask
+
+> Move ACQ-12 to Thursday and assign it to me.
+
+> What's waiting for me? Approve the plan of ACQ-7.
+
+> Attach report.pdf to ACQ-12.
+
+> Read the last email from Rossi and draft a reply. — Send it.
+
+> Which tasks of the Acme project are stuck?
+
+> Assign ACQ-15 to Claude. (This starts the AI run, and Claude says so.)
+
+> Merge the PR of ACQ-9.
+
 ## The tools
 
 Once connected, Claude has these tools (names as exposed to Claude). Project
@@ -231,6 +297,45 @@ slug Claude passes after you confirmed it.
 | `convert_backlog_to_ticket` | Turn a backlog item into a ticket (admin). |
 | `set_ticket_status` | Move a ticket between `open`, `triaged`, `in_progress`, `in_review`, `done`, `closed`. |
 | `run_ticket` | Start the AI run on a ticket (the same as **Run AI** in the web app). With a saved plan the worker executes *that* plan; pass `mode: "ai_plan"` to set it aside for that run and re-plan from scratch (the plan saved on the ticket is kept). On a `review` ticket it is refused (`review_ticket_not_runnable`): to have Stubwise fix a PR opened by someone else, a maintainer [hands it over](/docs/ai-pipeline/automation/#handing-a-pr-opened-by-someone-else-to-stubwise) from the ticket. |
+
+**Tasks**
+
+| Tool | What it does |
+|---|---|
+| `list_tasks` | List a project's tasks by code (ACQ-12), with filters on status, department, size, assignee (`me`, `none`), text and stuck ones. |
+| `list_task_fields` | The project's own statuses, departments and sizes, so filters use the right names. |
+| `update_task` | Change a task by code: status, assignee (also «Claude», which starts the AI run), week, day, priority, department, size. "Move ACQ-12 to Thursday" is one call. |
+| `get_by_code` | Read a task (ACQ-12) or a request (ACQ-R3) from its code. |
+
+**Your inbox and decisions**
+
+| Tool | What it does |
+|---|---|
+| `list_inbox` | Your inbox, as in the app: open cards with their task and the actions available. The place to start for "what's waiting for me?". |
+| `approve_plan`, `reject_plan` | Approve a plan waiting for approval, or reject it with directions (needs `plans.approve`). The run resumes on its own. |
+| `pre_approve_plan`, `revoke_plan_pre_approval` | Let the next run execute the saved plan without stopping for approval, or take that back. |
+| `answer_agent_question` | Answer the multiple-choice question the agent asked while planning. |
+| `answer_decision_request` | Answer a decision someone asked you on a task, or withdraw one you asked. |
+| `decide_pulse_proposal` | Pick the backlog item an idle project restarts from. |
+| `decide_mail_proposal` | Confirm, ignore, hand over or move a proposal born from your mail or calendar. |
+| `merge_pull_request` | Merge the open PR of a ticket (needs `release.merge`): Stubwise's only release action, never a deploy. |
+| `approve_server_fix`, `reject_server_fix` | Approve or reject the fix proposed for a task's server. Approving **runs the commands on the real host**: Claude shows you the host and the exact commands first. |
+
+**Files**
+
+| Tool | What it does |
+|---|---|
+| `upload_file` | Send a file from your computer where the app accepts one: task attachments, Drive, images of product docs, attachments of a draft email. Never hidden folders, system files or agent instruction files such as `CLAUDE.md`. |
+| `download_file` | Save a file the app serves (attachments, Drive files, exports) to a folder of your project, up to 100 MB, without overwriting anything. The content never goes through the chat. |
+
+**Everything else**
+
+| Tool | What it does |
+|---|---|
+| `find_actions` | Search the catalog of the app's actions with your words ("sync my mailbox", "list the webhooks"). |
+| `describe_action` | The parameters of one action, and what to know before calling it. |
+| `read_action` | Run a read action and return its answer. |
+| `write_action` | Run a write action, announced first. |
 
 **Your requests**
 

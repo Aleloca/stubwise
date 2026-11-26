@@ -30,7 +30,7 @@ const STOPWORDS = new Set(
 );
 
 /** Le parole di una ricerca: minuscole, senza accenti, di almeno due lettere, senza le parole vuote. */
-function words(text: string): string[] {
+export function words(text: string): string[] {
   return text
     .toLowerCase()
     .normalize("NFD")
@@ -41,9 +41,46 @@ function words(text: string): string[] {
 
 /**
  * Le sigle che le persone usano e i percorsi no: «PR» è `pulls` (segnalazione
- * di 94, lotto 2). La sigla resta anche com'è.
+ * di 94, lotto 2). E i verbi italiani: i nomi delle azioni sono inglesi, così
+ * «sincronizza» o «manda» non toccavano mai l'azione (controprova del lotto 7);
+ * «posta» è l'area `mail`. La parola resta anche com'è. Elenco chiuso: le
+ * forme dell'imperativo e dell'infinito che si dicono a Claude.
  */
-const SYNONYMS: Readonly<Record<string, readonly string[]>> = { pr: ["pull"], mr: ["pull"] };
+const SYNONYMS: Readonly<Record<string, readonly string[]>> = {
+  pr: ["pull"],
+  mr: ["pull"],
+  posta: ["mail"],
+  cerca: ["search"],
+  cercare: ["search"],
+  sincronizza: ["sync"],
+  sincronizzare: ["sync"],
+  manda: ["send"],
+  mandare: ["send"],
+  invia: ["send"],
+  inviare: ["send"],
+  sposta: ["move"],
+  spostare: ["move"],
+  approva: ["approve"],
+  approvare: ["approve"],
+  rifiuta: ["reject"],
+  rifiutare: ["reject"],
+  elimina: ["delete"],
+  eliminare: ["delete"],
+  crea: ["create"],
+  creare: ["create"],
+  archivia: ["archive"],
+  archiviare: ["archive"],
+  riprendi: ["resume"],
+  riprendere: ["resume"],
+  ferma: ["stop"],
+  fermare: ["stop"],
+  allega: ["attach"],
+  allegare: ["attach"],
+  carica: ["upload"],
+  caricare: ["upload"],
+  scarica: ["download"],
+  scaricare: ["download"],
+};
 
 /**
  * Il punteggio di una voce per una ricerca: una parola che sta nell'azione o
@@ -68,6 +105,24 @@ export function scoreAction(entry: CatalogAction, query: string[]): number {
     else if (hit(summary, w)) score += 1;
   }
   return score;
+}
+
+/**
+ * Le voci per una ricerca (già in parole), le prime `FIND_ACTIONS_LIMIT`. A pari
+ * punteggio vince chi corrisponde alla parola più RARA nelle voci in esame
+ * (controprova del lotto 7): con «list webhooks» un verbo che sta in cento voci
+ * non spinge fuori dai risultati l'unica voce dei webhook.
+ */
+export function rankActions(catalog: readonly CatalogAction[], query: string[]): CatalogAction[] {
+  const spread = new Map(query.map((w) => [w, catalog.filter((e) => scoreAction(e, [w]) > 0).length]));
+  const rarity = (e: CatalogAction) =>
+    query.reduce((sum, w) => (scoreAction(e, [w]) > 0 ? sum + 1 / (spread.get(w) || 1) : sum), 0);
+  return catalog
+    .map((e) => ({ e, score: scoreAction(e, query), rare: rarity(e) }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score || b.rare - a.rare || a.e.action.localeCompare(b.e.action))
+    .slice(0, FIND_ACTIONS_LIMIT)
+    .map((x) => x.e);
 }
 
 function line(e: CatalogAction): string {
@@ -147,12 +202,10 @@ const findActions: ToolDef = {
           ? args.area.trim().toLowerCase()
           : null;
       const catalog = await ctx.client.getCatalog();
-      const ranked = catalog
-        .filter((e) => area === null || e.area.toLowerCase() === area)
-        .map((e) => ({ e, score: scoreAction(e, query) }))
-        .filter((x) => x.score > 0)
-        .sort((a, b) => b.score - a.score || a.e.action.localeCompare(b.e.action))
-        .slice(0, FIND_ACTIONS_LIMIT);
+      const ranked = rankActions(
+        catalog.filter((e) => area === null || e.area.toLowerCase() === area),
+        query,
+      ).map((e) => ({ e }));
       if (ranked.length === 0) {
         return textResult(
           `Nessuna azione trovata per «${String(args.query)}»${area ? ` nell'area ${area}` : ""} (${catalog.length} voci nel catalogo). Prova con altre parole o senza l'area.`,
