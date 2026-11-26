@@ -6787,7 +6787,10 @@ deploy o di un rollback che la tocca.
      maintainer: i golden della PR #124 erano passati col 2.1.287, e ora il
      worker ha il 2.1.322. Il golden `plan-only` fallisce se il run non
      produce nessun `rate_limit_event` (il riepilogo stampa «rate_limit_event:
-     N»). Esito: **da riportare** («L'utilizzo degli account dal
+     N»). Esito: **PASSATO** il 26 nov 2026 (CLI 2.1.322, runner in
+     streaming, sonnet, `stubwise-base` + superpowers allo sha di produzione
+     `b9e16498`, sorgenti `2e54ad6f8`): exit 0, `rate_limit_event: 1`, tutti i
+     controlli del contratto verdi («L'utilizzo degli account dal
      rate_limit_event», «CLI claude 2.1.322»).
   2. **Golden col CLI 2.1.322**: per questo rilascio il maintainer ha
      chiesto la prova del punto 1 (decisione del 26 nov 2026). Degli
@@ -7145,7 +7148,13 @@ deploy o di un rollback che la tocca.
   «area 9, F2», «Lotto 8»).
 
   **Ancora aperto al momento della voce**:
-  - l'esito della prova del `rate_limit_event` sul CLI 2.1.322 (passo 1 di
-    «PRIMA»): da riportare qui;
+  - la decisione del maintainer sui quattro gruppi di golden senza esito
+    (passo 2 di «PRIMA»);
   - i tempi dell'estrazione sul VPS: da scrivere nella voce dell'area 5,
     fetta 3 dopo il deploy.
+
+  **Env del compose** (`2e54ad6f8`): nessun cambio di comportamento. Le 27
+  env del worker e le 2 del server che mancavano dal `docker-compose.yml`
+  (con i default del codice, verificati da `config.test.ts` di worker e
+  server) ora sono regolabili da `/opt/stubwise/.env`; basta la ricreazione
+  dei container server e worker, già compresa nell'ordine sopra.
