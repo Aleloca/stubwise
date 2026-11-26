@@ -306,7 +306,10 @@ async function treatableNotes(deps: MeetingPhaseDeps, now: Date, limit: number) 
         or(eq(emailMessages.id, meetingNotes.sourceMessageId), and(isNotNull(meetingNotes.rfcMessageId), eq(emailMessages.rfcMessageId, meetingNotes.rfcMessageId))),
       ),
     )
-    .where(and(eq(meetingNotes.docStatus, "reading"), lte(meetingNotes.nextAttemptAt, now), ...(since ? [gte(emailMessages.createdAt, since)] : [])))
+    // «Adesso» di JS è un millesimo intero [now, now + 1 ms): `next_attempt_at` ha i
+    // microsecondi (il default è `now()` di Postgres), e una nota dovuta in quel
+    // millesimo va presa (CI del 26 nov 2026; la stessa regola di `claimRuns`).
+    .where(and(eq(meetingNotes.docStatus, "reading"), sql`${meetingNotes.nextAttemptAt} < ${now.toISOString()}::timestamptz + interval '1 millisecond'`, ...(since ? [gte(emailMessages.createdAt, since)] : [])))
     .orderBy(meetingNotes.createdAt)
     .limit(limit * 3);
   const out: { note: NoteRow; message: MessageRow }[] = [];

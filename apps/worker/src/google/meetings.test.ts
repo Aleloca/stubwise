@@ -18,7 +18,7 @@ import {
 } from "@stubwise/db";
 import { deleteAllProjects, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { GoogleApiError, type DriveFileMeta } from "@stubwise/google";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { AgentRunOptions, AgentRunResult, AgentRunner } from "../agent/runner.js";
 import { fakeSelect } from "../providers/select-fake.js";
@@ -218,6 +218,27 @@ describe("processMeetingNotes", () => {
     const two = await geminiNote(ada.accountId!, { subject: "Notes: “Standup”" });
     await processMeetingNotes(phase({ id: ada.accountId!, email: ada.email }, runner, fakeDrive().client));
     expect((await noteOf(two.note.id)).icalUid).toBeNull();
+  });
+
+  it("una riunione da leggere nello stesso millesimo del giro si prende: `next_attempt_at` (µs, `now()` di Postgres) contro l'ora di JS (ms)", async () => {
+    // CI del 26 nov 2026 (PR #125, terzo giro): la nota appena inserita ha
+    // `next_attempt_at` = `now()` di Postgres, coi microsecondi; il giro subito
+    // dopo usa `new Date()`, troncato al millesimo. Nello STESSO millesimo la
+    // nota sembrava rimandata e non si leggeva (il ripiego per titolo restava
+    // null). Qui la condizione è fissata: l'ora del giro + 500 µs.
+    const ada = await person("ada-ms@acme.com");
+    const now = new Date(Date.now() - 60_000);
+    const ev = { accountId: ada.accountId!, googleEventId: randomUUID(), title: "Millesimo", startsAt: new Date(now.getTime() - 2 * HOUR), endsAt: new Date(now.getTime() - HOUR), fingerprint: "f", icalUid: `uid-${randomUUID()}`, hangoutLink: "https://meet.google.com/x", organizer: "ada-ms@acme.com" };
+    await db.insert(calendarEvents).values(ev);
+    const due = await geminiNote(ada.accountId!, { subject: "Notes: “Millesimo”", receivedAt: now, to: ["ada-ms@acme.com"] });
+    await db.update(meetingNotes).set({ nextAttemptAt: sql`${now.toISOString()}::timestamptz + interval '500 microseconds'` }).where(eq(meetingNotes.id, due.note.id));
+    // Un millesimo dopo, invece, è davvero rimandata.
+    const later = await geminiNote(ada.accountId!, { subject: "Notes: “Millesimo”", receivedAt: now, to: ["ada-ms@acme.com"] });
+    await db.update(meetingNotes).set({ nextAttemptAt: sql`${now.toISOString()}::timestamptz + interval '1 millisecond'` }).where(eq(meetingNotes.id, later.note.id));
+    const runner = new FakeRunner([JSON.stringify({ summary: "s" }), JSON.stringify({ summary: "s" })]);
+    await processMeetingNotes(phase({ id: ada.accountId!, email: ada.email }, runner, fakeDrive().client, { now: () => now }));
+    expect((await noteOf(due.note.id)).icalUid).toBe(ev.icalUid);
+    expect((await noteOf(later.note.id)).icalUid).toBeNull();
   });
 
   it("senza drive.readonly: scope_missing senza chiamare Drive; riconsentito, si riprende", async () => {
