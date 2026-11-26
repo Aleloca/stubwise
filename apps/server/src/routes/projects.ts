@@ -1,3 +1,8 @@
+import { ArchiveError, deleteArchivedProject } from "../services/project-archive.js";
+import { projectPulses } from "../services/project-pulses.js";
+import { toPublicMilestone } from "./milestones.js";
+import { projectPulsesQuerySchema, projectPulsesResponseSchema } from "@stubwise/shared";
+import { orderedModules, patchProject } from "../services/project-patch.js";
 import {
   createProjectSchema,
   decisionDraftSchema,
@@ -18,9 +23,12 @@ import {
   updateProjectSchema,
   compareProjectNames,
   needsViewer,
+  TEMPLATE_MODULES,
+  TEMPLATE_STATUSES,
+  deleteProjectSchema,
 } from "@stubwise/shared";
-import { summarizeProject, type ProjectPulseSummary } from "@stubwise/notifications";
-import { eq, sql } from "drizzle-orm";
+import { summarizeProject, userIdsWithPermission, type ProjectPulseSummary } from "@stubwise/notifications";
+import { eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -28,8 +36,10 @@ import {
   inProjects,
   projectPermissionsFor,
   routePermissions,
+  scopeProjectIds,
   visibleProjectIds,
   type RouteAccess,
+  inProjectsStrict,
 } from "../auth/access.js";
 import { fromParam } from "../auth/project-resolvers.js";
 import type { ProjectPermission } from "@stubwise/shared";
@@ -37,17 +47,24 @@ import {
   aiProviders,
   projectEnvironments,
   projectMembers,
+  projectStatuses,
   projects,
   repositories,
+  users,
+  roles,
+  type Db,
 } from "@stubwise/db";
 import { leadRoleId } from "../services/roles.js";
+import { legacyStatusesFor } from "./project-statuses.js";
 import {
   authErrorResponses,
   errorSchema,
   generateIngestionKey,
   isUniqueViolation,
+  uniqueViolationConstraint,
 } from "./shared.js";
 import { apiError } from "../errors.js";
+import { deleteStoredObjects, storageKeysOfProject } from "../chat/attachments.js";
 import {
   TIMELINE_MAX_DAYS,
   buildProjectTimeline,
@@ -60,6 +77,8 @@ import {
   listProjectDecisions,
   patchDecision,
 } from "../services/project-decisions.js";
+import { recordChange } from "../services/change-log.js";
+import { memberObject } from "../services/roles.js";
 import {
   listEmailRoutes,
   listObservedEmailLabels,
@@ -136,12 +155,50 @@ function pulseOrder(a: ProjectPulseSummary, b: ProjectPulseSummary): number {
 type ProjectRow = typeof projects.$inferSelect;
 
 /**
+ * Chi vede ciascun progetto: i membri più i full admin, membri impliciti di
+ * ogni progetto (`docs/invariants/permissions.md`). Due query per tutta la
+ * pagina, non una per progetto. Derivato a lettura (integrazione area 2): il
+ * renderer ne prende gli assegnatari proposti.
+ */
+async function effectiveMemberIds(db: Db, projectIds: string[]): Promise<Map<string, string[]>> {
+  const result = new Map<string, string[]>();
+  if (projectIds.length === 0) return result;
+  const [members, admins] = await Promise.all([
+    db
+      .select({ projectId: projectMembers.projectId, userId: projectMembers.userId })
+      .from(projectMembers)
+      .where(inArray(projectMembers.projectId, projectIds)),
+    userIdsWithPermission(db, null, null),
+  ]);
+  for (const id of projectIds) result.set(id, [...admins]);
+  for (const m of members) {
+    const list = result.get(m.projectId)!;
+    if (!list.includes(m.userId)) list.push(m.userId);
+  }
+  return result;
+}
+
+/**
  * Proiezione pubblica del progetto (gruppo): campi elencati esplicitamente,
  * mai spread della riga. Porta le impostazioni di prodotto (provider AI,
  * auto-update docs) che valgono per tutti i repository del progetto.
  */
-function toPublicProject(row: ProjectRow): z.infer<typeof projectSchema> {
+/**
+ * Area 9, F4 (J-6 = a): i nomi di chi ha messo in pausa le code di questi
+ * progetti, in UNA query (la `toPublicProject` resta sincrona).
+ */
+async function pauserNames(db: Db, rows: ProjectRow[]): Promise<Map<string, string>> {
+  const ids = [...new Set(rows.flatMap((r) => (r.queuePausedAt && r.queuePausedByUserId ? [r.queuePausedByUserId] : [])))];
+  if (ids.length === 0) return new Map();
+  const found = await db.select({ id: users.id, name: users.displayName, email: users.email }).from(users).where(inArray(users.id, ids));
+  return new Map(found.map((u) => [u.id, u.name ?? u.email]));
+}
+
+function toPublicProject(row: ProjectRow, pausers: Map<string, string> = new Map()): z.infer<typeof projectSchema> {
   return {
+    queuePause: row.queuePausedAt
+      ? { byId: row.queuePausedByUserId, byName: row.queuePausedByUserId ? (pausers.get(row.queuePausedByUserId) ?? "") : "", since: row.queuePausedAt.toISOString() }
+      : null,
     id: row.id,
     name: row.name,
     slug: row.slug,
@@ -168,13 +225,25 @@ function toPublicProject(row: ProjectRow): z.infer<typeof projectSchema> {
     // Ciclo di correzione (30 set 2026): tetto delle correzioni automatiche
     // per tornata; 0 = ciclo automatico spento.
     prCorrectionMaxRounds: row.prCorrectionMaxRounds,
-    // Ingestion di prodotto (Fase 3): la chiave con cui gli SDK inviano
-    // errori/feedback e il contatore ticket per-progetto, saliti dal repo.
-    ingestionKey: row.ingestionKey,
+    // Area 9, F5 (I2): la chiave d'ingestione NON esce più da una lettura
+    // (la vedeva ogni membro del progetto). Si legge solo dalla rigenerazione,
+    // una volta; l'Integrazione (`GET …/integration`) ne dà le ultime 4. Il
+    // campo resta, `null`, per i client che lo nominano.
+    ingestionKey: null,
     nextTicketNumber: row.nextTicketNumber,
     createdAt: row.createdAt.toISOString(),
+    // Integrazione area 2: il codice (le task sono `<CODICE>-<number>`) e le
+    // soglie «ferma» del progetto.
+    code: row.code,
+    stallThresholds: { activeDays: row.stallActiveDays, todoDays: row.stallTodoDays },
+    // Fetta 4: modello, moduli (in ordine), cliente e `kind` derivato.
+    template: row.template,
+    modules: orderedModules(row.modules),
+    clientName: row.clientName,
+    kind: row.clientName ? "client" : "internal",
   };
 }
+
 
 /**
  * Route dei progetti (gruppi), registrate sotto /api/projects. Lettura per chi
@@ -225,7 +294,18 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         pulseEnabled,
         pulseEveryDays,
         weeklyBriefEnabled,
+        code,
+        template,
+        clientName,
+        modules,
       } = request.body;
+
+      // Fetta 4: un codice già usato è un 409 prima di creare qualunque cosa
+      // (la violazione unique dentro la transazione resta l'arbitro sotto concorrenza).
+      if (code !== undefined) {
+        const [taken] = await app.db.select({ id: projects.id }).from(projects).where(eq(projects.code, code));
+        if (taken) return apiError(reply, 409, "code_taken", "Another project already uses this code");
+      }
 
       // Provider AI opzionale: se valorizzato deve riferire una riga esistente
       // (non serve enabled: è configurazione, l'enabled si valuta all'esecuzione).
@@ -267,9 +347,34 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
                 // di collisione (astronomicamente improbabile) l'insert rilancia e
                 // il giro dopo ne genera un'altra insieme allo slug.
                 ingestionKey: generateIngestionKey(),
+                // Area 9, F5 (I2): quando e da chi, per l'Integrazione.
+                ingestionKeyCreatedAt: new Date(),
+                ingestionKeyCreatedByUserId: request.user!.id,
+                ...(code !== undefined ? { code } : {}),
+                ...(template !== undefined ? { template } : {}),
+                ...(clientName != null ? { clientName } : {}),
+                modules: orderedModules(modules ?? TEMPLATE_MODULES[template ?? "software"]),
               })
               .returning();
             if (!created) throw new Error("insert del progetto non ha restituito la riga");
+            // Fetta 4: con un modello esplicito gli stati sono i SUOI, al posto di
+            // quelli che il trigger `projects_default_statuses` ha appena messo
+            // (il progetto è nato in questa transazione: nessuna task li usa).
+            // Senza modello (un client di prima) restano quelli di default.
+            if (template !== undefined) {
+              const statuses = TEMPLATE_STATUSES[template];
+              const legacy = legacyStatusesFor(statuses.map((st) => st.family));
+              await tx.delete(projectStatuses).where(eq(projectStatuses.projectId, created.id));
+              await tx.insert(projectStatuses).values(
+                statuses.map((st, position) => ({
+                  projectId: created.id,
+                  name: st.name,
+                  family: st.family,
+                  position,
+                  legacyStatus: legacy[position]!,
+                })),
+              );
+            }
             // Fase 8: ogni progetto ha SEMPRE un ambiente `test` — è l'invariante
             // che la migrazione 0074 stabilisce per i progetti esistenti col
             // backfill, e che qui si mantiene per ogni progetto NUOVO creato dopo
@@ -284,12 +389,21 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
               await tx
                 .insert(projectMembers)
                 .values({ projectId: created.id, userId: request.user!.id, roleId: leadRole });
+              // Area 9, F2: chi crea il progetto ne entra come lead.
+              const [lead] = await tx.select({ name: roles.name }).from(roles).where(eq(roles.id, leadRole));
+              await recordChange(tx, { type: "member.added", actor: request.user!, projectId: created.id, data: { object: memberObject(request.user!), after: lead?.name ?? null } });
             }
             return created;
           });
-          return await reply.code(201).send(toPublicProject(created));
+          // Area 9, F5 (decisione D): la chiave d'ingestione intera, UNA volta,
+          // a chi crea (come una rigenerazione); ogni lettura poi la tace.
+          return await reply.code(201).header("cache-control", "no-store").send({ ...toPublicProject(created), ingestionKey: created.ingestionKey });
         } catch (error) {
           if (!isUniqueViolation(error)) throw error;
+          // Il codice preso da una richiesta concorrente: niente di creato (transazione), 409.
+          if (code !== undefined && uniqueViolationConstraint(error) === "projects_code_unique") {
+            return apiError(reply, 409, "code_taken", "Another project already uses this code");
+          }
         }
       }
       throw new Error(`impossibile generare uno slug unico per "${baseSlug}"`);
@@ -319,13 +433,37 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
           count: sql<number>`count(*)::int`,
         })
         .from(repositories)
-        .where(inProjects(repositories.projectId, visible))
+        .where(inProjectsStrict(repositories.projectId, visible))
         .groupBy(repositories.projectId);
       const countByProject = new Map(counts.map((c) => [c.projectId, c.count]));
+      const membersOf = await effectiveMemberIds(app.db, rows.map((r) => r.id));
+      const pausers = await pauserNames(app.db, rows);
       return rows.map((row) => ({
-        ...toPublicProject(row),
+        ...toPublicProject(row, pausers),
         repositoryCount: countByProject.get(row.id) ?? 0,
+        memberIds: membersOf.get(row.id) ?? [],
       }));
+    },
+  );
+
+  /**
+   * Lotto 7, voce 4: il polso della nuova app calcolato sul server
+   * (`services/project-pulses.ts`), al posto delle otto letture per progetto
+   * del renderer e senza il tetto delle 2000 righe. Letterale: PRIMA di
+   * `GET /:projectId` (vedi la nota di `/pulse` qui sotto).
+   */
+  app.get(
+    "/pulses",
+    {
+      config: { access: { kind: "user" } },
+      schema: {
+        querystring: projectPulsesQuerySchema,
+        response: { 200: projectPulsesResponseSchema, ...authErrorResponses },
+      },
+    },
+    async (request) => {
+      const rows = await projectPulses(app.db, request.user!, request.query.projectIds);
+      return { items: rows.map((r) => ({ ...r, nextMilestone: r.nextMilestone ? toPublicMilestone(r.nextMilestone) : null })) };
     },
   );
 
@@ -354,10 +492,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request) => {
       const visible = await visibleProjectIds(app.db, request.user!);
-      const projectIds =
-        visible === "all"
-          ? (await app.db.select({ id: projects.id }).from(projects)).map((row) => row.id)
-          : visible;
+      const projectIds = await scopeProjectIds(app.db, visible);
 
       const summaries = (
         await Promise.all(
@@ -713,14 +848,16 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         body: decisionDraftSchema,
         response: {
           201: projectDecisionSchema,
+          400: errorSchema,
           404: errorSchema,
+          409: errorSchema,
           ...authErrorResponses,
         },
       },
     },
     async (request, reply) => {
       const { projectId } = request.params;
-      const created = await createManualDecision(app.db, {
+      const result = await createManualDecision(app.db, {
         projectId,
         authorId: request.user!.id,
         title: request.body.title,
@@ -729,8 +866,19 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         ...(request.body.consequences ? { consequences: request.body.consequences } : {}),
         ...(request.body.ticketId ? { ticketId: request.body.ticketId } : {}),
         ...(request.body.decidedAt ? { decidedAt: request.body.decidedAt } : {}),
+        ...(request.body.supersedesId ? { supersedesId: request.body.supersedesId } : {}),
+        actor: { id: request.user!.id, permissions: routePermissions(request) },
       });
-      return reply.code(201).send(created);
+      if (!result.ok) {
+        if (result.error === "forbidden") {
+          return apiError(reply, 403, "decision_forbidden", "Only the author or a maintainer can supersede this decision");
+        }
+        if (result.error === "already_superseded") {
+          return apiError(reply, 409, "already_superseded", "This decision has already been superseded");
+        }
+        return apiError(reply, 400, "invalid_supersede", "supersedesId must be a decision of the same project");
+      }
+      return reply.code(201).send(result.decision);
     },
   );
 
@@ -791,6 +939,9 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
           "The text of an automatic decision cannot be edited; it can only be superseded",
         );
       }
+      if (result.error === "decision_cycle") {
+        return apiError(reply, 400, "decision_cycle", "This would make the superseded-by chain a loop");
+      }
       return apiError(
         reply,
         400,
@@ -826,9 +977,10 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         .where(eq(repositories.projectId, row.id))
         .orderBy(repositories.createdAt);
       return {
-        ...toPublicProject(row),
+        ...toPublicProject(row, await pauserNames(app.db, [row])),
         repositories: repos,
         myPermissions: [...routePermissions(request)],
+        memberIds: (await effectiveMemberIds(app.db, [row.id])).get(row.id) ?? [],
       };
     },
   );
@@ -840,113 +992,63 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       schema: {
         params: idParamsSchema,
         body: updateProjectSchema,
-        response: { 200: projectSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
+        response: {
+          200: projectSchema,
+          400: errorSchema,
+          404: errorSchema,
+          409: errorSchema,
+          ...authErrorResponses,
+        },
       },
     },
     async (request, reply) => {
-      const {
-        name,
-        description,
-        aiProviderId,
-        aiProviderExclusive,
-        docAutoUpdate,
-        dailyReportEnabled,
-        backlogEnabled,
-        pulseEnabled,
-        pulseEveryDays,
-        weeklyBriefEnabled,
-        prCorrectionMaxRounds,
-      } = request.body;
-      const updates: Partial<ProjectRow> = {};
-      if (name !== undefined) updates.name = name;
-      // null azzera la descrizione, una stringa la imposta; omesso lascia.
-      if (description !== undefined) updates.description = description;
-      // Toggle auto-aggiornamento Docs: omesso lo lascia invariato.
-      if (docAutoUpdate !== undefined) updates.docAutoUpdate = docAutoUpdate;
-      // Toggle standup giornaliero (report attività): omesso lo lascia invariato.
-      if (dailyReportEnabled !== undefined) updates.dailyReportEnabled = dailyReportEnabled;
-      // Toggle backlog di discovery: omesso lo lascia invariato.
-      if (backlogEnabled !== undefined) updates.backlogEnabled = backlogEnabled;
-      // Toggle e cadenza del pulse proattivo: omessi li lasciano invariati. Il
-      // range 1..30 lo ha già applicato lo schema del corpo (400), e il CHECK
-      // del DB resta l'arbitro per chi scrive senza passare da qui.
-      if (pulseEnabled !== undefined) updates.pulseEnabled = pulseEnabled;
-      if (pulseEveryDays !== undefined) updates.pulseEveryDays = pulseEveryDays;
-      // Toggle brief settimanale: omesso lo lascia invariato.
-      if (weeklyBriefEnabled !== undefined) updates.weeklyBriefEnabled = weeklyBriefEnabled;
-      // Tetto del ciclo di correzione: range già applicato dallo schema (400).
-      if (prCorrectionMaxRounds !== undefined)
-        updates.prCorrectionMaxRounds = prCorrectionMaxRounds;
-      // Provider AI del progetto (Docs e fix). null lo azzera (automatico); un
-      // uuid deve riferire una riga ai_providers esistente; omesso lo lascia.
-      if (aiProviderId !== undefined) {
-        if (aiProviderId !== null) {
-          const [aiProvider] = await app.db
-            .select({ id: aiProviders.id })
-            .from(aiProviders)
-            .where(eq(aiProviders.id, aiProviderId));
-          if (!aiProvider) {
-            return apiError(reply, 400, "ai_provider_not_found", "AI provider not found");
-          }
-        }
-        updates.aiProviderId = aiProviderId;
-        // Provider tolto: «solo questo» non sopravvive, qualunque cosa dica il body.
-        if (aiProviderId === null) updates.aiProviderExclusive = false;
+      // Area 9, F7: il servizio, lo stesso delle azioni di Claude.
+      const outcome = await patchProject(app.db, request.user!, request.params.projectId, request.body);
+      if (!outcome.ok) {
+        if (outcome.error === "not_found") return apiError(reply, 404, "project_not_found", "Project not found");
+        if (outcome.error === "ai_provider_not_found") return apiError(reply, 400, "ai_provider_not_found", "AI provider not found");
+        if (outcome.error === "code_taken") return apiError(reply, 409, "code_taken", "Another project already uses this code");
+        return apiError(reply, 400, "pulse_needs_backlog", "The pulse proposes from the backlog: turn on backlog discovery first");
       }
-      // «Solo questo» vale solo con un provider (nel body o già in colonna).
-      if (aiProviderExclusive !== undefined && aiProviderId === undefined) {
-        if (aiProviderExclusive) {
-          const [current] = await app.db
-            .select({ aiProviderId: projects.aiProviderId })
-            .from(projects)
-            .where(eq(projects.id, request.params.projectId));
-          updates.aiProviderExclusive = current?.aiProviderId != null;
-        } else {
-          updates.aiProviderExclusive = false;
-        }
-      } else if (aiProviderExclusive !== undefined && aiProviderId !== null) {
-        updates.aiProviderExclusive = aiProviderExclusive;
-      }
-
-      // Drizzle rifiuta un update senza colonne: un PATCH vuoto è una lettura.
-      if (Object.keys(updates).length > 0) {
-        const [updated] = await app.db
-          .update(projects)
-          .set(updates)
-          .where(eq(projects.id, request.params.projectId))
-          .returning();
-        if (!updated) return apiError(reply, 404, "project_not_found", "Project not found");
-        return toPublicProject(updated);
-      }
-
-      const [row] = await app.db
-        .select()
-        .from(projects)
-        .where(eq(projects.id, request.params.projectId));
-      if (!row) return apiError(reply, 404, "project_not_found", "Project not found");
-      return toPublicProject(row);
+      return toPublicProject(outcome.row);
     },
   );
 
-  // Eliminazione del progetto (`project.settings.manage`). Il DB cancella in cascata i
-  // repository del progetto (e con essi ticket/milestone/docs): nessuna guard
-  // di "non se ha repository", coerentemente con la cascade definita sullo
-  // schema. Risponde 204 No Content, o 404 se il progetto non esiste.
+  // Area 9, F6 (D-8): si elimina SOLO un archiviato, SOLO un full admin, con
+  // la riconferma e il codice scritto esatto (`{ confirmCode }`). I
+  // repository restano, staccati (L-2); di un progetto restano solo codice,
+  // nome e membri (`deleted_projects`); la voce `project.deleted` è
+  // d'istanza. Un client vecchio riceve 403 (chi non è full admin) o 400
+  // (senza corpo). Prima era `project.settings.manage`, senza archivio né
+  // riconferma.
   app.delete(
     "/:projectId",
     {
-      config: { access: onProject("project.settings.manage") },
+      config: { access: onProject("member"), archived: "write", reauth: true },
       schema: {
         params: idParamsSchema,
-        response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
+        body: deleteProjectSchema,
+        response: { 204: z.null(), 400: errorSchema, 404: errorSchema, 409: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
-      const [deleted] = await app.db
-        .delete(projects)
-        .where(eq(projects.id, request.params.projectId))
-        .returning({ id: projects.id });
-      if (!deleted) return apiError(reply, 404, "project_not_found", "Project not found");
+      // Gli allegati (Chat e ticket) vanno via in cascata col progetto: le chiavi
+      // dello storage si leggono prima, e si tolgono dopo il commit (review
+      // della fetta 4 della Chat). Lo storage giù non fa fallire l'eliminazione.
+      let keys: string[];
+      try {
+        ({ storageKeys: keys } = await deleteArchivedProject(app.db, request.user!, request.params.projectId, request.body.confirmCode, storageKeysOfProject));
+      } catch (error) {
+        if (error instanceof ArchiveError) return apiError(reply, error.status, error.code, error.message);
+        throw error;
+      }
+      if (keys.length > 0) {
+        try {
+          await deleteStoredObjects(await app.storage(), keys, (m) => request.log.warn(m));
+        } catch (error) {
+          request.log.warn({ err: error }, "storage non raggiungibile: oggetti degli allegati del progetto da togliere a mano");
+        }
+      }
       return reply.code(204).send(null);
     },
   );

@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import {
   decrypt,
+  environmentServers,
   gitAccounts,
   prReviews,
   projectEnvironments,
@@ -20,6 +21,7 @@ import {
 import type { ReleaseQueueItem } from "@stubwise/shared";
 import type { ProjectActor } from "./jobs.js";
 import { loadLatestServicesByServer } from "./server-samples.js";
+import { recordRelease } from "./releases.js";
 
 /**
  * Rilascia (mergia) una PR — fase 8, Task 9. **Il cancello che rende vero il
@@ -50,7 +52,7 @@ export type ReleasePullRequestError =
   | "merge_failed";
 
 export type ReleasePullRequestResult =
-  | { ok: true; sha: string }
+  | { ok: true; sha: string; /** Area 8, F1: il rilascio nato dal merge; null = non era il ramo di rilascio. */ releaseCode?: string | null }
   | { ok: false; error: ReleasePullRequestError };
 
 interface GitCredentials {
@@ -167,7 +169,7 @@ async function releaseAt(
 export async function releasePullRequest(
   db: Db,
   encryptionKey: Buffer,
-  input: { ticketId: string; repositoryId: string; actor: ProjectActor },
+  input: { ticketId: string; repositoryId: string; actor: ProjectActor; publicUrl?: string | null },
 ): Promise<ReleasePullRequestResult> {
   const { ticketId, repositoryId, actor } = input;
   if (!actor.permissions.has("release.merge")) return { ok: false, error: "forbidden" };
@@ -193,7 +195,29 @@ export async function releasePullRequest(
     const credentials = decryptCredentials(account.encryptedCredentials, encryptionKey);
     if (!credentials) return { ok: false, error: "merge_failed" };
     const gitConfig = { repoUrl: repository.repoUrl, defaultBranch: repository.defaultBranch, credentials };
-    return releaseAt(getProvider(repository.provider), gitConfig, prNumber);
+    const result = await releaseAt(getProvider(repository.provider), gitConfig, prNumber);
+    if (result.ok) {
+      const [ticket] = await db.select({ title: tickets.title, type: tickets.type }).from(tickets).where(eq(tickets.id, ticketId));
+      // Le PR di Stubwise puntano al ramo di default del repository. Una PR di
+      // un collega (la riga del ticket `review`, anche un'adozione vecchia)
+      // punta dove dice la sua review, col SUO titolo: un target ignoto non
+      // registra niente qui (lo fa il webhook, che lo sa) — review area 8 F1.
+      let target: string | null = repository.defaultBranch;
+      let title = ticket?.title ?? "";
+      if (ticket?.type === "review") {
+        const [rev] = await db
+          .select({ targetBranch: prReviews.targetBranch, prTitle: prReviews.prTitle })
+          .from(prReviews)
+          .where(and(eq(prReviews.repositoryId, repositoryId), eq(prReviews.prNumber, prNumber)))
+          .orderBy(desc(prReviews.createdAt))
+          .limit(1);
+        target = rev?.targetBranch ?? null;
+        title = rev?.prTitle ?? title;
+      }
+      const releaseCode = target === null ? null : await recordAfterMerge(db, { repositoryId, targetBranch: target, prNumber, prUrl: tr.prUrl, title, mergeSha: result.sha, actorId: actor.id, publicUrl: input.publicUrl ?? null });
+      return { ...result, releaseCode };
+    }
+    return result;
   }
 
   // Nessuna riga ticket_repositories: prova la sorgente ESTERNA (review fix
@@ -229,7 +253,53 @@ export async function releasePullRequest(
   }
   if (state !== "open") return { ok: false, error: "already_closed" };
 
-  return releaseAt(provider, gitConfig, review.prNumber);
+  const result = await releaseAt(provider, gitConfig, review.prNumber);
+  if (result.ok) {
+    // Un target ignoto non registra niente qui: lo fa il webhook, che lo sa.
+    const releaseCode = review.targetBranch === null ? null : await recordAfterMerge(db, {
+      repositoryId,
+      targetBranch: review.targetBranch,
+      prNumber: review.prNumber,
+      prUrl: review.prUrl,
+      title: review.prTitle,
+      mergeSha: result.sha,
+      actorId: actor.id,
+      publicUrl: input.publicUrl ?? null,
+    });
+    return { ...result, releaseCode };
+  }
+  return result;
+}
+
+/**
+ * Area 8, F1: il rilascio del merge appena fatto da Stubwise (`recordRelease`,
+ * idempotente col webhook che lo stesso merge fa scattare). Best-effort: un
+ * errore qui non cambia la risposta del merge (che è avvenuto), e il webhook
+ * registra comunque il rilascio.
+ */
+async function recordAfterMerge(
+  db: Db,
+  input: { repositoryId: string; targetBranch: string; prNumber: number; prUrl: string; title: string; mergeSha: string; actorId: string; publicUrl: string | null },
+): Promise<string | null> {
+  try {
+    const out = await recordRelease(db, {
+      repositoryId: input.repositoryId,
+      targetBranch: input.targetBranch,
+      prNumber: input.prNumber,
+      prUrl: input.prUrl,
+      title: input.title,
+      mergeSha: input.mergeSha,
+      mergedAt: new Date(),
+      mergedBy: input.actorId,
+      mergedGitName: null,
+      viaStubwise: true,
+      publicUrl: input.publicUrl,
+    });
+    return out.recorded ? out.code : null;
+  } catch {
+    // il webhook del provider lo registra lo stesso
+    return null;
+  }
 }
 
 /**
@@ -435,15 +505,26 @@ export async function listReleaseQueue(
         .where(and(inArray(projectEnvironments.projectId, allProjectIds), eq(projectEnvironments.kind, "production")))
     : [];
   const deployTargets = [...stagingEnvironments, ...productionEnvironments];
-  const serverIds = [...new Set(deployTargets.flatMap((e) => (e.serverId ? [e.serverId] : [])))];
+  // Area 8, F1 (R-L2): il server di un ambiente è PER REPOSITORY (`environment_servers`).
+  const envServerRows = deployTargets.length > 0
+    ? await db.select().from(environmentServers).where(inArray(environmentServers.environmentId, deployTargets.map((e) => e.id)))
+    : [];
+  const serverOf = new Map(envServerRows.map((r) => [`${r.environmentId}:${r.repositoryId}`, r.serverId]));
+  // Senza una riga per QUELLA repository (una repository aggiunta dopo la
+  // scrittura) vale il server dell'ambiente, la forma di prima (review F1).
+  const serverFor = (env: (typeof deployTargets)[number], repositoryId: string): string | null =>
+    serverOf.get(`${env.id}:${repositoryId}`) ?? env.serverId ?? null;
+  const serverIds = [...new Set([...envServerRows.map((r) => r.serverId), ...deployTargets.flatMap((e) => (e.serverId ? [e.serverId] : []))])];
   const servicesByServer = await loadLatestServicesByServer(db, serverIds);
 
-  function deployedOnFor(projectId: string, headSha: string | undefined): string[] {
+  function deployedOnFor(projectId: string, repositoryId: string, headSha: string | undefined): string[] {
     if (!headSha) return [];
     const names: string[] = [];
     for (const env of deployTargets) {
-      if (env.projectId !== projectId || !env.serverId) continue;
-      const services = servicesByServer.get(env.serverId) ?? [];
+      if (env.projectId !== projectId) continue;
+      const serverId = serverFor(env, repositoryId);
+      if (!serverId) continue;
+      const services = servicesByServer.get(serverId) ?? [];
       // Stessa regola di `reviewStale` (`sameCommit`): per prefisso, in
       // entrambi i versi, senza maiuscole, con una lunghezza minima.
       const match = services.some((s) => sameCommit(s.commitSha, headSha));
@@ -495,11 +576,12 @@ export async function listReleaseQueue(
         // esiste solo se la review è girata su QUESTA PR): senza review una
         // PR nata da Stubwise vedrebbe sempre "deployedOn" vuoto anche se lo
         // era davvero.
-        deployedOn: deployedOnFor(project.id, checks.headSha),
+        deployedOn: deployedOnFor(project.id, repository.id, checks.headSha),
         // Il verdetto è su una head diversa da quella della PR di ADESSO
         // (letta dal vivo, la stessa lettura dei check): un'informazione, il
         // merge non cambia.
         reviewStale: isReviewStale(review?.verdict, review?.headSha, checks.headSha),
+        headSha: checks.headSha ?? null,
       };
     }),
   );
@@ -559,8 +641,9 @@ export async function listReleaseQueue(
           testStatus: null,
           risk: null,
           riskReason: null,
-          deployedOn: deployedOnFor(project.id, checks.headSha),
+          deployedOn: deployedOnFor(project.id, repository.id, checks.headSha),
           reviewStale: isReviewStale(candidate.verdict, candidate.headSha, checks.headSha),
+          headSha: checks.headSha ?? null,
         };
       }),
     )

@@ -1,7 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useUploadFiles } from "../../data/queries";
+import { useSaveAttachmentToDrive } from "../../data/queries";
 import { onBeforePersonaChange } from "../../data/session";
 import type { Attachment, DriveUploadInput, Project } from "../../data/types";
 import { useToast } from "../../tasks-ui/Toast";
@@ -62,7 +62,7 @@ export function SaveToDriveButton({
   const toast = useToast();
   const navigate = useNavigate();
   const eligible = useUploadProjects();
-  const upload = useUploadFiles();
+  const upload = useSaveAttachmentToDrive();
   const [asking, setAsking] = useState(false);
   // Cambio di persona: la domanda «in quale progetto?» di chi guardava prima
   // non resta aperta (i progetti idonei erano i suoi).
@@ -76,9 +76,14 @@ export function SaveToDriveButton({
   const save = (project: Project) => {
     if (upload.isPending) return;
     upload.mutate(
-      { projectId: project.id, files: [uploadInputOf(attachment)] },
       {
-        onSuccess: ([result]) => {
+        attachmentId: attachment.id,
+        input: uploadInputOf(attachment),
+        // Nel canale di progetto il progetto è il suo: il server non lo vuole sentire.
+        target: { projectId: project.id, channelProject: here !== null && here.id === project.id },
+      },
+      {
+        onSuccess: (result) => {
           setAsking(false);
           if (!result?.file) {
             toast.error(t("chat.saveToDrive.tooLarge", { name: attachment.name }));

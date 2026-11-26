@@ -1,19 +1,49 @@
 import { Link } from "@tanstack/react-router";
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useOpenRequestFrom, type SupportConversationView } from "../../data/queries";
+import {
+  useMarkNotConcluded,
+  useOpenRequestFrom,
+  type SupportConversationView,
+} from "../../data/queries";
 import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
-import { wishTitle } from "../../domain/support/state";
+import { SUPPORT_TRIAGE_IDLE_MINUTES, wishTitle } from "../../domain/support/state";
 import { formatDateTime } from "../../notifications/time";
 import { useToast } from "../../tasks-ui/Toast";
 import { primaryButton, secondaryButton, WorkingRing } from "../claude/conversation/parts";
 import { RequestStatusLabel } from "../requests/marks";
+import { WhoCanLink } from "../../components/WhoCanLink";
 
 // Il blocco della richiesta in testa al dettaglio (shape support.md §3, §5):
 // cosa vuole il cliente, come un'intestazione di scheda — il desiderio
 // riscritto con il codice della richiesta e cosa vede il cliente. In triage
 // lo dice l'anello di Claude; su una «non conclusa» chi ha `backlog.create`
 // apre la richiesta a mano (mai da sola, mai da un'email) [A 5].
+
+/**
+ * «Not concluded» (area 8, F3, decisione del maintainer): chi ha
+ * `support.manage` non è d'accordo che la risposta del widget sia bastata, e
+ * la rimette fra quelle che aspettano il team.
+ */
+function NotConcludedButton({ code }: { code: string }) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const mark = useMarkNotConcluded();
+  return (
+    <div>
+      <button
+        type="button"
+        className={secondaryButton}
+        disabled={mark.isPending}
+        onClick={() =>
+          mark.mutate(code, { onError: () => toast.error(t("support.request.notConcludedError")) })
+        }
+      >
+        {t("support.request.notConcluded")}
+      </button>
+    </div>
+  );
+}
 
 /** Oltre quante righe il desiderio si chiude con «Show all». */
 const WISH_LINES = 6;
@@ -191,6 +221,35 @@ export function RequestBlock({ conv }: { conv: SupportConversationView }) {
     );
   }
 
+  // Build app (area 8, F3-1): l'esito è un TICKET aperto dal widget, senza richiesta.
+  if (conv.task) {
+    const task = conv.task;
+    return (
+      <section aria-label={t("support.task.label")} data-request-block className={card}>
+        <div className="flex min-w-0 items-center gap-x-3">
+          <span className="heading-group shrink-0">{t("support.task.label")}</span>
+          <Link
+            to="/p/$code/$section"
+            params={{ code: conv.projectCode, section: "tasks" }}
+            search={{ task: task.code }}
+            className="flex min-w-0 items-baseline gap-2 rounded-sm text-md text-ink underline-offset-4 hover:underline"
+          >
+            <span className="num shrink-0 text-xs font-semibold tracking-[0.02em]">
+              {task.code}
+            </span>
+            <span className="min-w-0 truncate">{task.title}</span>
+          </Link>
+        </div>
+        <p className="text-xs text-ink-muted">
+          {t("support.request.customerSees")}{" "}
+          <span className="font-semibold text-ink">
+            {t(`support.customerStatus.${task.customerStatus}`)}
+          </span>
+        </p>
+      </section>
+    );
+  }
+
   if (conv.state === "triage") {
     return (
       <section aria-label={t("support.request.label")} data-request-block className={card}>
@@ -198,6 +257,19 @@ export function RequestBlock({ conv }: { conv: SupportConversationView }) {
           <WorkingRing size={12} />
           {t("support.request.triage")}
         </p>
+      </section>
+    );
+  }
+
+  if (conv.state === "answered") {
+    return (
+      <section aria-label={t("support.request.label")} data-request-block className={card}>
+        <p className="text-md text-ink">{t("support.request.answered")}</p>
+        <p className="text-sm text-ink-muted">
+          {t("support.request.answeredWhy", { minutes: SUPPORT_TRIAGE_IDLE_MINUTES })}
+          {conv.canMarkNotConcluded && ` ${t("support.request.answeredMark")}`}
+        </p>
+        {conv.canMarkNotConcluded && <NotConcludedButton code={conv.code} />}
       </section>
     );
   }
@@ -212,7 +284,10 @@ export function RequestBlock({ conv }: { conv: SupportConversationView }) {
           </button>
         </div>
       ) : (
-        <p className="text-sm text-ink-muted">{t("support.request.cannotOpen")}</p>
+        <p className="text-sm text-ink-muted">
+          {t("support.request.cannotOpen")}{" "}
+          <WhoCanLink action="manageSupport" projectCode={conv.projectCode} />
+        </p>
       )}
       {dialog && (
         <OpenRequestDialog

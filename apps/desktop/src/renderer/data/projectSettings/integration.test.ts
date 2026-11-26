@@ -59,6 +59,9 @@ describe("la lettura di Integration", () => {
         url: "https://stubwise.example.test/webhooks/git/repo-acq",
         secretLast4: null,
         canRegenerate: true,
+        // F5: stato e piattaforma nella vista, la pagina non legge Repositories.
+        state: "not_configured",
+        provider: "bitbucket",
       },
     ]);
     expect(view.canRegenerateKey).toBe(true);
@@ -184,6 +187,25 @@ describe("la rigenerazione del secret del webhook git", () => {
     expect(entries("repository.webhook_secret_regenerated")[0]).toMatchObject({
       projectId: ACQ,
       object: { type: "repository", id: "repo-acq", label: "portale-utenti" },
+    });
+  });
+
+  it("il modo, come il server (F5): «platform» se il webhook l'ha configurato Stubwise, altrimenti «manual»", async () => {
+    as(LAURA);
+    markReauthenticated(LAURA);
+    const repo = state.repositories.find((r) => r.id === "repo-acq")!;
+    repo.webhook = {
+      ...(repo.webhook ?? { configuredAt: null, secretId: null, last4: null }),
+      state: "configured",
+    };
+    expect(await projectSettings.regenerateWebhookSecret("repo-acq")).toMatchObject({
+      ok: true,
+      mode: "platform",
+    });
+    repo.webhook = { ...repo.webhook!, state: "not_configured" };
+    expect(await projectSettings.regenerateWebhookSecret("repo-acq")).toMatchObject({
+      ok: true,
+      mode: "manual",
     });
   });
 

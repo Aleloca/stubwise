@@ -1,4 +1,4 @@
-import { PRESET_ROLES, PROJECT_PERMISSIONS } from "@stubwise/shared";
+import { type InstancePermission, PRESET_ROLES } from "@stubwise/shared";
 import type { DepartmentRole, LocalInstancePermission, LocalProjectPermission } from "../types";
 import { daysFromToday } from "../seed/dates";
 import { DEPARTMENTS } from "../seed/departments";
@@ -12,42 +12,14 @@ import type {
   PersonalGrant,
   RoleDef,
 } from "./state";
+import { LOCAL_PROJECT_PERMISSIONS } from "./catalog";
+
+export { ALL_PROJECT_PERMISSIONS, LOCAL_PROJECT_PERMISSIONS } from "./catalog";
 
 // Il seme degli accessi: da qui parte lo stato `access` e qui torna `resetApi`.
 // Riproduce i permessi delle aree 2–8 (il fixture di parità lo verifica);
 // la sola aggiunta è il permesso di reparto di Development, che non cambia
 // niente a nessuno (vedi `DEPARTMENT_PROJECT_PERMISSIONS`).
-
-/**
- * Permessi di progetto che vivono solo nel prototipo, per preset: entrano nel
- * registro di `@stubwise/shared` quando si costruisce il backend.
- * `planning.others` è del Project Lead (e implicito per il full admin); i
- * canali della Chat (area 4) li crea il Project Lead o il Developer e li
- * gestisce il Project Lead. Il Drive (area 5): carica chiunque lavori nel
- * progetto (anche il Legacy Member, shape drive.md [A 14]), non il Viewer;
- * gestire e vedere lo storico delle aperture è del Project Lead. Le
- * automazioni del progetto (area 7) le gestisce il Project Lead. Ai clienti di
- * Support (area 8a) risponde chi lavora al progetto: Project Lead, Developer e
- * Legacy Member, non il Contributor né il Viewer. `servers.operate` (area 8b)
- * non è di nessun preset: si dà persona per persona (`SEED_PROJECT_GRANTS`).
- */
-export const LOCAL_PROJECT_PERMISSIONS: Readonly<
-  Record<string, readonly LocalProjectPermission[]>
-> = {
-  project_lead: [
-    "planning.others",
-    "chat.channels.create",
-    "chat.channels.manage",
-    "drive.upload",
-    "drive.manage",
-    "drive.history",
-    "automations.manage",
-    "support.reply",
-  ],
-  developer: ["chat.channels.create", "drive.upload", "support.reply"],
-  contributor: ["drive.upload"],
-  legacy_member: ["drive.upload", "support.reply"],
-};
 
 /**
  * I permessi d'istanza del prototipo dei due preset. «Vedere le conversazioni
@@ -57,13 +29,17 @@ export const LOCAL_PROJECT_PERMISSIONS: Readonly<
  * registro delle modifiche) all'Admin. Prima erano cablati su
  * `key === "admin"`: ora sono permessi del ruolo, modificabili.
  */
-const LOCAL_INSTANCE_BY_PRESET: Readonly<Record<string, readonly LocalInstancePermission[]>> = {
+// `departments.manage` è nel registro condiviso dall'integrazione area 2, ma il
+// preset Admin del prototipo continua a darlo per ruolo.
+const LOCAL_INSTANCE_BY_PRESET: Readonly<
+  Record<string, readonly (InstancePermission | LocalInstancePermission)[]>
+> = {
   user: ["claude.public.view", "chat.general.create"],
   admin: [
     "claude.public.view",
     "chat.general.create",
     "chat.general.manage",
-    "automations.manage",
+    "automations.general.manage",
     "servers.ssh.manage",
     "departments.manage",
     "instance.status.view",
@@ -165,10 +141,13 @@ function seedMemberships(): Membership[] {
 // suo ruolo (che resta com'è).
 //
 // R-J10 (area 7): Matteo possiede «Nuovo contratto» (AUT-1), un'automazione
-// generale, quindi ha `automations.manage` d'istanza; la sua casella è
+// generale, quindi ha `automations.general.manage`; la sua casella è
 // collegata, così le email dell'automazione partono davvero.
-export const SEED_INSTANCE_GRANTS: Record<string, readonly LocalInstancePermission[]> = {
-  "p-matteo": ["automations.manage"],
+export const SEED_INSTANCE_GRANTS: Record<
+  string,
+  readonly (InstancePermission | LocalInstancePermission)[]
+> = {
+  "p-matteo": ["automations.general.manage"],
 };
 
 // Per progetto (codice), sulle righe dei progetti di cui la persona è membro.
@@ -230,10 +209,10 @@ export const DEPARTMENT_ROLES: DepartmentRole[] = [
  * I permessi di progetto che un reparto dà ai suoi membri (design, «Permessi
  * del reparto»). L'esempio del design: tutto Development risponde ai
  * clienti. Oggi non cambia niente a nessuno: i membri di Development sono
- * Developer o Project Lead, che `support.reply` l'hanno già dal ruolo.
+ * Developer o Project Lead, che `support.manage` l'hanno già dal ruolo.
  */
 const DEPARTMENT_PROJECT_PERMISSIONS: Record<string, readonly string[]> = {
-  "dep-development": ["support.reply"],
+  "dep-development": ["support.manage"],
 };
 
 function seedDepartments(): DepartmentAccess[] {
@@ -279,11 +258,9 @@ export function seedAccessState(): AccessState {
     departments: seedDepartments(),
     people: seedPeople(),
     revocations: [],
+    // Gli ex membri del seme, allineati al registro (`member.removed` di
+    // Federico da AUD, data/seed/changelog.ts): revisione del lotto 2, I3.
+    formerMemberships: [{ projectId: "prj-aud", personId: "p-federico" }],
   };
 }
 
-/** Ogni permesso di progetto, del registro condiviso e del prototipo (quelli che il full admin ha ovunque). */
-export const ALL_PROJECT_PERMISSIONS: readonly string[] = [
-  ...PROJECT_PERMISSIONS,
-  ...new Set([...Object.values(LOCAL_PROJECT_PERMISSIONS).flat(), "servers.operate"]),
-];

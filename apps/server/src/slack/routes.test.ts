@@ -34,7 +34,7 @@ import type { ChatAvailability, ChatLlm, ChatLlmInput } from "../routes/chat-llm
 import { createTicket } from "../db/tickets.js";
 import { addMember, createFakeGraphMcpClient, createUserWithPat, seedUsers, type SeededUsers, withOfflinePlatformIdentity } from "../test/fixtures.js";
 import type { SlackClient } from "./api.js";
-import type { SlackClientFactory } from "./routes.js";
+import { settleSlackBackground, type SlackClientFactory } from "./routes.js";
 import {
   ACTION_IDS,
   BLOCK_IDS,
@@ -396,6 +396,8 @@ afterAll(async () => {
 });
 
 afterEach(async () => {
+  // Il lavoro dopo l'ack di questo caso finisce QUI, non nelle spie del prossimo.
+  await settleSlackBackground();
   openView.mockClear();
   getUserEmail.mockClear();
   getUserProfile.mockClear();
@@ -658,6 +660,21 @@ describe("POST /api/slack/commands — /docs", () => {
     expect(values).toContain(projWithDocs);
     expect(values).not.toContain(projWithoutDocs);
     expect(values).not.toContain(projHidden);
+  });
+
+  it("revisione del lotto 1: un progetto col modulo Docs spento non compare nel selettore", async () => {
+    await testDb.db.update(users).set({ slackUserId: "Udocslinked" }).where(eq(users.id, reporterUserId));
+    const projOff = await createProjectGroup(`sel-off-${randomUUID().slice(0, 8)}`);
+    const repoOff = await createRepoInProject(projOff, `sel-off-repo-${randomUUID().slice(0, 8)}`);
+    await seedDocsForRepo(testDb.db, repoOff, { title: "Pagina spenta", slug: `sel-off-page-${randomUUID().slice(0, 8)}`, content: "Docs di un progetto col modulo spento." });
+    const values = async () => {
+      openView.mockClear();
+      await slackPost("/api/slack/commands", "command=%2Fdocs&trigger_id=TRIGOFF&user_id=Udocslinked&channel_id=C1&response_url=https%3A%2F%2Fhooks.slack.com%2Foff");
+      return selectOptionValues(openView.mock.calls[0]![1]);
+    };
+    expect(await values()).toContain(projOff);
+    await testDb.db.update(projects).set({ modules: ["releases"] }).where(eq(projects.id, projOff));
+    expect(await values()).not.toContain(projOff);
   });
 
   it("utente risolto per email del profilo Slack (stessa regola del modal ticket) → apre il modale Docs", async () => {
@@ -1179,6 +1196,20 @@ describe("POST /api/slack/interactions — view_submission docs_query", () => {
     expect(p.text).toContain("non è disponibile");
   });
 
+  it("revisione del lotto 1: il modulo Docs spento al submit → «Progetto non disponibile.», nessuna risposta dai Docs", async () => {
+    await linkSubmitter();
+    const projectId = await createProjectGroup(`ask-off-${randomUUID().slice(0, 8)}`);
+    const repositoryId = await createRepoInProject(projectId, `ask-off-repo-${randomUUID().slice(0, 8)}`);
+    await seedDocsForRepo(testDb.db, repositoryId, { title: "Spenta", slug: `ask-off-${randomUUID().slice(0, 8)}`, content: "Per configurare apri le impostazioni." });
+    await testDb.db.update(projects).set({ modules: [] }).where(eq(projects.id, projectId));
+    const body = docsSubmissionBody({ projectId, question: "Come si configura?", meta: { responseUrl: RESPONSE_URL, channelId: "C9", slackUserId: META_USER } });
+    expect((await slackPost("/api/slack/interactions", body)).statusCode).toBe(200);
+    await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
+    const [, payload] = postResponse.mock.calls[0]!;
+    expect(payload).toMatchObject({ response_type: "ephemeral", text: "Progetto non disponibile." });
+    expect(JSON.stringify(postResponse.mock.calls)).not.toContain("Risposta dai docs.");
+  });
+
   it("answerProjectDocsQuestion che lancia → messaggio d'errore, nessun throw/5xx", async () => {
     await linkSubmitter();
     // Stream che lancia: simula un fallimento di generazione/retrieval. Yield
@@ -1565,9 +1596,9 @@ describe("POST /api/slack/interactions — block_actions dell'inbox", () => {
     );
     expect(res.statusCode).toBe(200);
 
-    await vi.waitFor(async () => {
-      expect((await readNotification(notificationId))?.status).toBe("handled");
-    });
+    // L'azione intera (non solo la card `handled`): i lavori nascono dopo.
+    await settleSlackBackground();
+    expect((await readNotification(notificationId))?.status).toBe("handled");
     const jobs = await testDb.db.select().from(backlogJobs).where(eq(backlogJobs.projectId, ticketProjectId));
     expect(jobs).toHaveLength(2);
     const [child] = await testDb.db.select().from(emailProposals).where(eq(emailProposals.id, childId));

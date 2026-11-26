@@ -138,7 +138,8 @@ function GraphMenu({ space }: { space: DocSpaceView }) {
   const { t } = useTranslation();
   const toast = useToast();
   const { run } = useAction(space);
-  const pr = space.graph.setupPr;
+  // Lotto 4, pulizia 5: una PR chiusa senza merge non c'è più, se ne apre un'altra.
+  const pr = space.graph.setupPr?.state === "closed_unmerged" ? undefined : space.graph.setupPr;
   const item = (label: string, onSelect: () => void) => (
     <button key={label} type="button" role="menuitem" className={itemClass} onClick={onSelect}>
       {label}
@@ -164,7 +165,11 @@ function GraphMenu({ space }: { space: DocSpaceView }) {
         }),
         item(pr ? t("docs.graph.viewSetupPr") : t("docs.graph.openSetupPr"), () => {
           close();
-          if (pr) toast.show(t("docs.graph.setupPrIs", { url: pr.url }));
+          // Lo stato si dice solo se il server lo sa: sconosciuto, la frase di sempre (mai «aperta»).
+          if (pr)
+            toast.show(
+              t(pr.state ? `docs.graph.setupPrIs_${pr.state}` : "docs.graph.setupPrIs", { url: pr.url }),
+            );
           else run("setup_pr", () => toast.show(t("docs.graph.setupPrOpened")));
         }),
       ]}

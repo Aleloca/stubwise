@@ -3,17 +3,16 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetApi, setLatency } from "../../data/api";
 import { state } from "../../data/store";
-import { resetViewerGrants, viewerFor } from "../../data/viewer";
+import { resetViewerGrants } from "../../data/viewer";
 import { setLanguage } from "../../i18n";
 import { renderRoute } from "../../test/renderRoute";
 import { setMatchMedia } from "../../test/setup";
-import { BLOCKS } from "../home/blocks/registry";
 import { SUPPORT_TWO_UP_QUERY } from "./format";
 import { clearReplyStore } from "./replyStore";
 
-// Le porte d'ingresso di Support (Task 9): il blocco Home «Clienti in
-// attesa» ([A 17]: nel catalogo di chi ha `support.reply`, mai nelle Home
-// di default) e ⌘K (le conversazioni per codice, «New widget»).
+// Le porte d'ingresso di Support (Task 9): ⌘K (le conversazioni per codice,
+// «New widget»). Il blocco Home «Clienti in attesa» non è più di Support
+// (area 8: sta sulla posta, `WaitingCustomersBlock.test.tsx`).
 
 beforeEach(() => {
   setLatency(0);
@@ -27,47 +26,6 @@ afterEach(() => {
   act(() => setLanguage("en"));
 });
 
-/** La Home di `personId` con il solo blocco «Clienti in attesa». */
-function homeWithWaiting(personId: string) {
-  state.personalHomes = [
-    ...state.personalHomes.filter((h) => h.personId !== personId),
-    { personId, blocks: [{ kind: "waitingCustomers" }], seenDepartmentUpdates: {} },
-  ];
-}
-
-describe("Home — «Customers waiting»", () => {
-  it("nel catalogo di chi ha support.reply, non di Sara; mai nelle Home di default", async () => {
-    expect(BLOCKS.waitingCustomers.available(viewerFor("p-matteo"))).toBe(true);
-    expect(BLOCKS.waitingCustomers.available(viewerFor("p-sara"))).toBe(false);
-    renderRoute("/home", "p-laura");
-    await screen.findByRole("heading", { name: "Home", level: 1 });
-    expect(screen.queryByRole("region", { name: /^Customers waiting/ })).toBeNull();
-  });
-
-  it("le attese più vecchie in alto, con «waiting»; il clic apre il dettaglio", async () => {
-    homeWithWaiting("p-matteo");
-    const user = userEvent.setup();
-    const router = renderRoute("/home", "p-matteo");
-    const block = await screen.findByRole("region", { name: /^Customers waiting/ });
-    const row = await within(block).findByRole("link", { name: /ACQ-S2/ });
-    expect(row).toHaveTextContent("Lucia Benedetti");
-    expect(row).toHaveTextContent("waiting 3 h");
-    await user.click(row);
-    await waitFor(() => expect(router.state.location.pathname).toBe("/p/ACQ/support/ACQ-S2"));
-  });
-
-  it("vuoto: «No customer is waiting»", async () => {
-    homeWithWaiting("p-matteo");
-    // Le due che aspettano noi: ACQ-S2 e ACQ-S7 (5 nov 2026).
-    state.supportConversations = state.supportConversations.filter(
-      (c) => c.code !== "ACQ-S2" && c.code !== "ACQ-S7",
-    );
-    renderRoute("/home", "p-matteo");
-    const block = await screen.findByRole("region", { name: /^Customers waiting/ });
-    expect(await within(block).findByText("No customer is waiting")).toBeInTheDocument();
-  });
-});
-
 describe("⌘K — conversazioni di Support", () => {
   it("una conversazione per codice: codice · cliente · stato, e porta al dettaglio", async () => {
     const user = userEvent.setup();
@@ -79,7 +37,7 @@ describe("⌘K — conversazioni di Support", () => {
     const group = await within(dialog).findByRole("group", { name: "Support" });
     const option = within(group).getByRole("option", { name: /ACQ-S2/ });
     expect(option).toHaveTextContent("Lucia Benedetti");
-    expect(option).toHaveTextContent("Waiting on us");
+    expect(option).toHaveTextContent("Request open");
     await user.click(option);
     await waitFor(() => expect(router.state.location.pathname).toBe("/p/ACQ/support/ACQ-S2"));
   });

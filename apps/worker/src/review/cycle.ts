@@ -453,6 +453,13 @@ async function advanceCycle(db: Db, input: AfterReviewCompletedInput): Promise<C
       trigger: "review",
       reviewId: input.reviewId,
     });
+    if (!result.ok && result.error === "colleague_analysis_only") {
+      // La PR di un collega con «solo analisi» (repository o PR): il giro
+      // automatico non parte (area 8, F1, S8), e la review si notifica come
+      // quella di una PR che Stubwise non corregge — senza ciclo.
+      console.error(`[stubwise-worker] pr-review: PR #${where.prNumber}: solo analisi, nessun giro automatico`);
+      return { notify: true };
+    }
     if (!result.ok) {
       // Con `trigger: "review"` restano `correction_in_flight` — una `queued`
       // su QUESTA PR comparsa dopo la lettura qui sopra (una richiesta arrivata

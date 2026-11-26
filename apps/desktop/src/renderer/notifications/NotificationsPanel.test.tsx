@@ -280,6 +280,22 @@ describe("pannello", () => {
     expect(router.state.location.pathname).toBe("/home");
   });
 
+  it("area 9: «Mark as unread» dal «⋯» di una letta rimette il segno, senza navigare", async () => {
+    const router = renderAt("/home");
+    const user = userEvent.setup();
+    const panel = await openPanel(user);
+    const before = (await within(panel).findAllByText("Unread")).length;
+    const item = within(panel).getAllByText("Unread")[0]!.closest("li")!;
+    await user.click(within(item).getByRole("button", { name: "Mark as read" }));
+    await waitFor(() => expect(within(panel).queryAllByText("Unread")).toHaveLength(before - 1));
+    // Una letta ha il «⋯» con «Mark as unread»; una non letta no.
+    await user.click(within(item).getByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Mark as unread" }));
+    await waitFor(() => expect(within(panel).getAllByText("Unread")).toHaveLength(before));
+    expect(within(item).queryByRole("menuitem", { name: "Mark as unread" })).toBeNull();
+    expect(router.state.location.pathname).toBe("/home");
+  });
+
   it("Esc chiude il pannello e il fuoco torna alla campanella", async () => {
     renderAt("/home");
     const user = userEvent.setup();
@@ -480,9 +496,6 @@ describe("«Don't alert me about this in <progetto>» (area 8a)", () => {
     const panel = await openPanel(user);
     const item = await waitFor(() => itemOf(panel, "n-a8-5"));
     expect(item).toHaveTextContent("You get this because you did the merge");
-    expect(
-      within(itemOf(panel, "n-a8-10")).getByText("You get this because you follow this conversation"),
-    ).toBeVisible();
     await user.click(within(item).getByRole("button", { name: "More actions" }));
     const menu = await screen.findByRole("menu", { name: "More actions" });
     expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual([
@@ -495,7 +508,18 @@ describe("«Don't alert me about this in <progetto>» (area 8a)", () => {
     expect(screen.queryByRole("dialog", { name: "Notifications" })).toBeNull();
   });
 
-  it("fuori dal catalogo (decisioni, menzioni, sicurezza) niente «⋯»", async () => {
+  it("obbligatorio: un'altra ragione, scritta sotto il corpo (l'autore della PR)", async () => {
+    // Era «segui la conversazione» su Support, uscita con l'area 8, F3: la
+    // stessa prova su un'altra ragione del seme, le card della PR di Marco.
+    const user = userEvent.setup();
+    renderRoute("/home", "p-marco");
+    const panel = await openPanel(user);
+    const reasons = await within(panel).findAllByText("You get this because you opened this PR");
+    expect(reasons.length).toBeGreaterThan(0);
+    for (const r of reasons) expect(r).toBeVisible();
+  });
+
+  it("fuori dal catalogo (decisioni, menzioni, sicurezza) nessuna voce d'avviso: non letta niente «⋯», letta solo «Mark as unread»", async () => {
     const user = userEvent.setup();
     renderRoute("/home", "p-laura");
     const panel = await openPanel(user);
@@ -506,7 +530,17 @@ describe("«Don't alert me about this in <progetto>» (area 8a)", () => {
     );
     expect(outside.length).toBeGreaterThan(0);
     for (const n of outside) {
-      expect(within(itemOf(panel, n.id)).queryByRole("button", { name: "More actions" })).toBeNull();
+      const more = within(itemOf(panel, n.id)).queryByRole("button", { name: "More actions" });
+      if (!n.read) {
+        expect(more).toBeNull();
+        continue;
+      }
+      // Area 9 (decisione del maintainer): una letta ha il «⋯», ma solo con «Mark as unread».
+      await user.click(more!);
+      const items = (await screen.findAllByRole("menuitem")).map((i) => i.textContent);
+      expect(items).toEqual(["Mark as unread"]);
+      // Esc chiuderebbe anche il pannello: si richiude dal «⋯».
+      await user.click(more!);
     }
   });
 });

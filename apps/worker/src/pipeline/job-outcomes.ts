@@ -1,9 +1,10 @@
-import { automationRules, comments, instanceSettings, users, type Db, type tickets } from "@stubwise/db";
+import { aiJobs, automationRules, comments, projects, tickets as ticketsTable, users, type Db, type tickets } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
 import { eq } from "drizzle-orm";
+import { monthlyBudgetLimitUsd, publishNotification } from "@stubwise/notifications";
 import type { AgentRunCancelledError, AgentRunner } from "../agent/runner.js";
 import type { ResolvedProvider } from "../providers/chain.js";
-import { appendLog, getJobLog, holdJob, writeFailureSummary } from "../queue.js";
+import { appendLog, getJobLog, holdJob, writeFailureSummary, type ParkResult } from "../queue.js";
 import { aiJobSession, sessionOption } from "../sessions/owners.js";
 import { generateFailureSummary } from "../summaries/failure-summary.js";
 import { notify, type NotifyDeps } from "./notify.js";
@@ -116,8 +117,10 @@ export async function notifyJobFailed(ctx: JobOutcomeContext, error: string): Pr
  * cifre nel commento sono arrotondate a 4 decimali per leggibilità; lo scope
  * è tradotto con le chiavi notify.scope* condivise con la notifica.
  *
- * Restituisce l'esito di `holdJob`: `false` = ownership persa (il job non era
- * più attivo). Il commento e la notifica partono comunque, come prima. */
+ * Restituisce l'esito di `holdJob` (`ParkResult`): `lost` = ownership persa
+ * (il job non era più attivo), commento e notifica partono comunque, come
+ * prima; `cancelled` = «Annulla il lavoro» chiesto in questo tentativo, il job
+ * è chiuso skipped e parte solo il commento dell'annullamento. */
 export async function holdForBudget(
   ctx: JobOutcomeContext,
   scope: "ticket" | "monthly",
@@ -125,9 +128,30 @@ export async function holdForBudget(
   spentUsd: number,
   /** Il template del commento: la correzione di una PR passa il suo (E5), il fix quello di sempre. */
   commentKey: "comment.budgetHeld" | "comment.correctionBudgetHeld" = "comment.budgetHeld",
-): Promise<boolean> {
+): Promise<ParkResult> {
   const fmtUsd = (n: number): string => n.toFixed(4);
   const scopeLabel = t(ctx.lang, scope === "monthly" ? "notify.scopeMonthly" : "notify.scopeTicket");
+  const held = await holdJob(ctx.db, ctx.jobId, {
+    log: `${ctx.logPrefix} budget di costo superato (${scope}): spesi $${fmtUsd(spentUsd)} sul limite di $${fmtUsd(limitUsd)} → job in pausa (held), avvio manuale per forzare`,
+    // "budget": tetto di spesa superato, decisione umana (il resume poller
+    // dei limiti NON lo riaccoda).
+    heldReason: "budget",
+  });
+  // «Annulla il lavoro» chiesto in questo tentativo (review dell'area 3,
+  // punto 2): niente pausa, il job è chiuso skipped; il commento è quello
+  // dell'annullamento, non quello del budget.
+  if (held === "cancelled") {
+    await recordRunCancelledSafely(ctx.db, {
+      ticketId: ctx.ticket.id,
+      jobId: ctx.jobId,
+      kind: commentKey === "comment.correctionBudgetHeld" ? "correction" : "fix",
+      lang: ctx.lang,
+    });
+    return held;
+  }
+  if (held === "lost") {
+    await appendLog(ctx.db, ctx.jobId, `${ctx.logPrefix} ownership persa dopo il hold per budget`);
+  }
   await ctx.db.transaction(async (tx) => {
     await tx.insert(comments).values({
       ticketId: ctx.ticket.id,
@@ -139,15 +163,6 @@ export async function holdForBudget(
       }),
     });
   });
-  const held = await holdJob(ctx.db, ctx.jobId, {
-    log: `${ctx.logPrefix} budget di costo superato (${scope}): spesi $${fmtUsd(spentUsd)} sul limite di $${fmtUsd(limitUsd)} → job in pausa (held), avvio manuale per forzare`,
-    // "budget": tetto di spesa superato, decisione umana (il resume poller
-    // dei limiti NON lo riaccoda).
-    heldReason: "budget",
-  });
-  if (!held) {
-    await appendLog(ctx.db, ctx.jobId, `${ctx.logPrefix} ownership persa dopo il hold per budget`);
-  }
   await notify(
     ctx.notifyDeps,
     ctx.db,
@@ -183,13 +198,8 @@ export type BudgetCheck =
  * converte. Condiviso con i turni di refinement (`backlog/refine/turn.ts`).
  */
 export async function loadMonthlyBudgetUsd(db: Db): Promise<number | null> {
-  const [settings] = await db
-    .select({ monthlyBudgetUsd: instanceSettings.monthlyBudgetUsd })
-    .from(instanceSettings)
-    .where(eq(instanceSettings.id, 1));
-  return settings?.monthlyBudgetUsd != null && settings.monthlyBudgetUsd !== ""
-    ? Number(settings.monthlyBudgetUsd)
-    : null;
+  // Area 7, F3 (C-F3-1): la lettura sta in UN posto, `@stubwise/notifications`.
+  return monthlyBudgetLimitUsd(db);
 }
 
 /**
@@ -281,4 +291,61 @@ export async function recordAgentStopExpired(
     t(input.lang, `comment.agentStopCancelled.${input.kind}`),
   ].join(" ");
   await db.insert(comments).values({ ticketId: input.ticketId, authorType: "system", body });
+}
+
+/**
+ * Commento e avviso di un lavoro ANNULLATO da una persona («Annulla il
+ * lavoro» su un job in esecuzione, area 3, 3b.1-bis): lo stesso testo
+ * dell'annullamento a riposo del server (`comment.runCancelled.head` + la
+ * frase del fix o della correzione), con chi l'ha chiesto letto dal job
+ * (`cancel_requested_by_user_id`), e `ticket.activity` ai follower col change
+ * `run_cancelled` come dato. Chiamato solo DOPO che il job è stato chiuso
+ * `skipped` da questo processo. La notifica non fa mai fallire niente.
+ */
+/** `recordRunCancelled` che non fa mai fallire il chiamante: un errore resta una riga nel log del job. */
+export async function recordRunCancelledSafely(
+  db: Db,
+  input: { ticketId: string; jobId: string; kind: "fix" | "correction"; lang: Language },
+): Promise<void> {
+  await recordRunCancelled(db, input).catch(async (e: unknown) => {
+    await appendLog(db, input.jobId, `[stubwise] commento dell'annullamento non scritto: ${e instanceof Error ? e.message : String(e)}`).catch(
+      () => undefined,
+    );
+  });
+}
+
+export async function recordRunCancelled(
+  db: Db,
+  input: { ticketId: string; jobId: string; kind: "fix" | "correction"; lang: Language },
+): Promise<void> {
+  const [row] = await db
+    .select({ by: aiJobs.cancelRequestedByUserId, email: users.email })
+    .from(aiJobs)
+    .leftJoin(users, eq(users.id, aiJobs.cancelRequestedByUserId))
+    .where(eq(aiJobs.id, input.jobId));
+  const head = row?.email
+    ? t(input.lang, "comment.runCancelled.head", { who: row.email })
+    : t(input.lang, "comment.agentStopCancelled.headGeneric");
+  const body = [head, t(input.lang, `comment.agentStopCancelled.${input.kind}`)].join(" ");
+  await db.insert(comments).values({ ticketId: input.ticketId, authorType: "system", body });
+  const [ticket] = await db
+    .select({ number: ticketsTable.number, projectId: ticketsTable.projectId, code: projects.code })
+    .from(ticketsTable)
+    .innerJoin(projects, eq(projects.id, ticketsTable.projectId))
+    .where(eq(ticketsTable.id, input.ticketId));
+  if (!ticket) return;
+  await publishNotification(
+    db,
+    {
+      kind: "ticket.activity",
+      ticketId: input.ticketId,
+      ticketNumber: ticket.number,
+      projectId: ticket.projectId,
+      projectCode: ticket.code,
+      change: "run_cancelled",
+      summary: "",
+      actorUserId: row?.by ?? null,
+    },
+    { projectId: ticket.projectId, ticketId: input.ticketId },
+  );
 }

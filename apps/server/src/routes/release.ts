@@ -1,11 +1,15 @@
+import { registerPersonMask } from "../services/people-known.js";
 import { releaseQueueSchema, releaseResultSchema } from "@stubwise/shared";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { projectIdsWithPermission } from "../auth/access.js";
+import { legacyScope, projectIdsWithPermission } from "../auth/access.js";
 import { fromTicket, ticketVisible } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
 import { listReleaseQueue, releasePullRequest } from "../services/release.js";
+import { fixRelease, getRelease, listProjectReleases, ReleaseError, searchReleases } from "../services/releases.js";
+import { listOpenPulls, setPrAnalysisOnly } from "../services/pulls.js";
+import { getPrReleaseNotes, putPrReleaseNotes } from "../services/pr-release-notes.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 const releaseParamsSchema = z.object({ id: z.uuid(), repositoryId: z.uuid() });
@@ -21,6 +25,77 @@ const releaseParamsSchema = z.object({ id: z.uuid(), repositoryId: z.uuid() });
 export async function releaseRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
+  // Registro, A11 r.1414: chi guarda non riceve l'id di chi non conosce.
+  registerPersonMask(app, new Set(["mergedById", "byId", "updatedById"]));
+
+  // Area 8, F1 (S5): i rilasci. Leggere: chi vede il progetto (404 altrimenti,
+  // nel servizio). «Fai sistemare a Claude»: `tickets.create`, nel servizio.
+  const handle = async <T>(reply: { code: (n: number) => { send: (b: unknown) => unknown } }, fn: () => Promise<T>) => {
+    try {
+      return await fn();
+    } catch (error) {
+      if (error instanceof ReleaseError) return reply.code(error.status).send({ code: error.code, message: error.message });
+      throw error;
+    }
+  };
+  app.get("/projects/:projectId/releases", { config: { access: { kind: "user" } }, schema: { params: z.object({ projectId: z.uuid() }) } }, async (request, reply) =>
+    handle(reply, async () => ({ items: await listProjectReleases(app.db, request.user!, request.params.projectId) })),
+  );
+  // S5b: le PR aperte del progetto, a chi lo vede (la coda resta di `release.merge`).
+  app.get("/projects/:projectId/pulls", { config: { access: { kind: "user" } }, schema: { params: z.object({ projectId: z.uuid() }) } }, async (request, reply) =>
+    handle(reply, async () => ({ items: await listOpenPulls(app.db, app.encryptionKey, request.user!, request.params.projectId) })),
+  );
+  // Area 8, F1, S8: «Solo analisi» su una PR di un collega (`prs.adopt`, nel servizio).
+  const pullParams = z.object({ repositoryId: z.uuid(), prNumber: z.coerce.number().int().positive() });
+  for (const [method, on] of [["post", true], ["delete", false]] as const) {
+    app[method]("/repositories/:repositoryId/pulls/:prNumber/analysis-only", { config: { access: { kind: "user" } }, schema: { params: pullParams } }, async (request, reply) =>
+      handle(reply, () => setPrAnalysisOnly(app.db, request.user!, { ...request.params, on })),
+    );
+  }
+  // Area 8, F1, S9: le note di rilascio di una PR (leggere: chi vede; scrivere: `release.merge` o `tickets.edit`).
+  app.get("/repositories/:repositoryId/pulls/:prNumber/release-notes", { config: { access: { kind: "user" } }, schema: { params: pullParams } }, async (request, reply) =>
+    handle(reply, () => getPrReleaseNotes(app.db, app.encryptionKey, request.user!, request.params)),
+  );
+  app.put(
+    "/repositories/:repositoryId/pulls/:prNumber/release-notes",
+    { config: { access: { kind: "user" } }, schema: { params: pullParams, body: z.object({ body: z.string().max(20_000) }) } },
+    async (request, reply) => handle(reply, () => putPrReleaseNotes(app.db, app.encryptionKey, request.user!, { ...request.params, body: request.body.body })),
+  );
+  const codeParams = z.object({ code: z.string().min(1).max(40) });
+  // ⌘K (rimandi, lotto 5): PRIMA di `/releases/:code`, o «search» sarebbe un codice.
+  app.get(
+    "/releases/search",
+    {
+      config: { access: { kind: "user" } },
+      schema: {
+        querystring: z.object({ q: z.string().max(200).default("") }),
+        // Lo schema della risposta (review del lotto 5, M-9): la forma di `ReleaseSearchResult`.
+        response: {
+          200: z.object({
+            items: z.array(
+              z.object({ kind: z.literal("release"), id: z.uuid(), code: z.string(), label: z.string(), projectId: z.uuid(), projectCode: z.string(), status: z.string() }),
+            ),
+          }),
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request) => ({ items: await searchReleases(app.db, request.user!, request.query.q) }),
+  );
+  app.get("/releases/:code", { config: { access: { kind: "user" } }, schema: { params: codeParams } }, async (request, reply) =>
+    handle(reply, () => getRelease(app.db, request.user!, request.params.code)),
+  );
+  // 201 per una task nuova, 200 per quella già aperta (`existing`); `start` fa partire Claude se si può.
+  app.post(
+    "/releases/:code/fix",
+    { config: { access: { kind: "user" } }, schema: { params: codeParams, body: z.object({ note: z.string().max(4000).optional(), start: z.boolean().optional() }).default({}) } },
+    async (request, reply) =>
+      handle(reply, async () => {
+        const out = await fixRelease(app.db, request.user!, request.params.code, request.body ?? {});
+        return reply.code(out.existing ? 200 : 201).send(out);
+      }),
+  );
+
   app.get(
     "/release-queue",
     {
@@ -29,7 +104,7 @@ export async function releaseRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request) => {
       const projectIds = await projectIdsWithPermission(app.db, request.user!, "release.merge");
-      return { items: await listReleaseQueue(app.db, app.encryptionKey, projectIds) };
+      return { items: await listReleaseQueue(app.db, app.encryptionKey, await legacyScope(app.db, projectIds)) };
     },
   );
 
@@ -65,8 +140,9 @@ export async function releaseRoutes(instance: FastifyInstance): Promise<void> {
         ticketId: request.params.id,
         repositoryId: request.params.repositoryId,
         actor: { id: request.user!.id, permissions: request.access!.permissions },
+        publicUrl: app.publicUrl ?? null,
       });
-      if (result.ok) return { merged: true as const, sha: result.sha };
+      if (result.ok) return { merged: true as const, sha: result.sha, releaseCode: result.releaseCode ?? null };
 
       switch (result.error) {
         case "forbidden":

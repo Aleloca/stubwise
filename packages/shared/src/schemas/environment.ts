@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CONTAINER_NAME_RE } from "../servers/operations.js";
 
 /**
  * Schemi degli AMBIENTI di progetto (fase 8 — ambienti e coda di rilascio).
@@ -26,12 +27,53 @@ export const projectEnvironmentSchema = z.object({
   kind: environmentKindSchema,
   url: z.url().nullable(),
   serverId: z.uuid().nullable(),
+  /** Area 8, F4a: il codice `SRV-<n>` di `serverId` (null senza; facoltativo per un server più vecchio). */
+  serverCode: z.string().nullable().optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
   /** Immagine del servizio (docker) trovato sul server collegato, se noto. */
   runningImage: z.string().optional(),
   /** `org.opencontainers.image.revision` del servizio, se il servizio la porta. */
   runningCommitSha: z.string().optional(),
+  /**
+   * Area 8, F1 (R-L2): su quale server gira ogni repository del progetto in
+   * questo ambiente (repository diverse su server diversi). `.default([])`:
+   * un server più vecchio non lo manda (e lì vale `serverId` per tutte).
+   */
+  servers: z
+    .array(
+      z.object({
+        repositoryId: z.uuid(),
+        serverId: z.uuid(),
+        // Area 8, F1 (facoltativi, solo nell'elenco): il nome del server, il
+        // commit che l'agente riporta per QUESTA repository e quando, e il
+        // rilascio di quel commit (`= AUD-V6`), se è di un rilascio della
+        // repository. Il commit è quello di un servizio del server che
+        // combacia con un rilascio della repository (`sameCommit`); senza,
+        // quello del servizio col nome dell'ambiente (la convenzione di
+        // `runningCommitSha`), e nessun codice.
+        serverName: z.string().optional(),
+        /** Area 8, F4a: il codice `SRV-<n>` del server (facoltativo). */
+        serverCode: z.string().optional(),
+        reportedSha: z.string().nullable().optional(),
+        reportedAt: z.iso.datetime().nullable().optional(),
+        releaseCode: z.string().nullable().optional(),
+        /**
+         * Area 8, F4b (S12): i container di QUEL server che appartengono a
+         * questo ambiente (l'attribuzione di un guasto a un progetto).
+         * Facoltativo: un server più vecchio non lo manda.
+         */
+        containers: z.array(z.string()).optional(),
+      }),
+    )
+    .default([]),
+  /** Area 8, F1: chi guarda ha `environments.manage` nel progetto (calcolato dal server). */
+  canManage: z.boolean().optional(),
+  /**
+   * Area 8, F1 (R-L7): i server di questo ambiente che NESSUN altro progetto
+   * usa — togliendone l'ultima riga il server resta orfano.
+   */
+  onlyHere: z.array(z.uuid()).optional(),
 });
 export type ProjectEnvironment = z.infer<typeof projectEnvironmentSchema>;
 
@@ -45,6 +87,8 @@ export const createEnvironmentSchema = z.object({
   kind: environmentKindSchema,
   url: z.url().nullable().optional(),
   serverId: z.uuid().nullable().optional(),
+  /** Area 8, F1 (R-L2): il server per repository; vince su `serverId` per le repository che nomina. */
+  servers: z.array(z.object({ repositoryId: z.uuid(), serverId: z.uuid() })).max(200).optional(),
 });
 export type CreateEnvironmentInput = z.infer<typeof createEnvironmentSchema>;
 
@@ -58,5 +102,22 @@ export const patchEnvironmentSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   url: z.url().nullable().optional(),
   serverId: z.uuid().nullable().optional(),
+  /**
+   * Area 8, F1 (R-L2): il server delle repository nominate (`serverId: null`
+   * lo toglie a quella repository); le altre restano come sono.
+   */
+  servers: z.array(z.object({ repositoryId: z.uuid(), serverId: z.uuid().nullable() })).max(200).optional(),
 });
 export type PatchEnvironmentInput = z.infer<typeof patchEnvironmentSchema>;
+
+/**
+ * Area 8, F4b (S12): i container di un ambiente su uno dei suoi server. Solo
+ * nomi che l'agente riporta per quel server (422 altrimenti), mai di un altro
+ * progetto (409). Sostituisce l'elenco su ogni repository dell'ambiente che
+ * usa quel server.
+ */
+export const setEnvironmentContainersSchema = z.object({
+  serverId: z.uuid(),
+  containers: z.array(z.string().regex(CONTAINER_NAME_RE)).max(50),
+});
+export type SetEnvironmentContainers = z.infer<typeof setEnvironmentContainersSchema>;

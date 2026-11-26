@@ -1,5 +1,6 @@
 import { useCallback, useId, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { featureIntegrated } from "../../data/integration";
 import { useDepartments, usePeople, useStorageAllowsUploads } from "../../data/queries";
 import type { Attachment, CitationRef } from "../../data/types";
 import { CheckItem, itemClass, MenuGroup, MenuNote } from "../../tasks-ui/Menu";
@@ -91,14 +92,19 @@ function usePeopleSuggestions(
       detail: t("chat.composer.channelMention"),
       insert: "@channel",
     },
-    {
-      id: "claude",
-      group: "special",
-      code: null,
-      label: "@Claude",
-      detail: t("chat.composer.claudeMention"),
-      insert: "@Claude",
-    },
+    // Build app: @Claude nei canali è della fetta 3 (`chat-claude`).
+    ...(featureIntegrated("chat-claude")
+      ? [
+          {
+            id: "claude",
+            group: "special",
+            code: null,
+            label: "@Claude",
+            detail: t("chat.composer.claudeMention"),
+            insert: "@Claude",
+          },
+        ]
+      : []),
   ].filter((s) => matches(s.label.slice(1)));
   const groups: SuggestionGroup[] = [
     { label: t("chat.composer.groups.people"), items: sorted },
@@ -147,6 +153,11 @@ export function ChatComposer({
 }) {
   const { t } = useTranslation();
   const [text, setTextState] = useState(() => readDraft(viewerId, draftKey));
+  // Build app: allegati (fetta 4), la domanda e «anche nel canale» (fetta 2), @Claude (fetta 3).
+  const attachOn = featureIntegrated("chat-attachments");
+  const questionsOn = featureIntegrated("chat-questions");
+  const alsoOn = featureIntegrated("chat-also-in-channel");
+  const claudeOn = featureIntegrated("chat-claude");
   const [asksReply, setAsksReply] = useState(false);
   const [alsoInChannel, setAlsoInChannel] = useState(false);
   const alsoId = useId();
@@ -203,8 +214,8 @@ export function ChatComposer({
       text: text.trim(),
       attachments: attachments.map((a) => a.attachment),
       citations: tokens.flatMap((tok) => (tok.ref && text.includes(tok.insert) ? [tok.ref] : [])),
-      asksReply,
-      alsoInChannel: alsoSendTo !== undefined && alsoInChannel,
+      asksReply: questionsOn && asksReply,
+      alsoInChannel: alsoOn && alsoSendTo !== undefined && alsoInChannel,
     });
     composer.reset();
     setAsksReply(false);
@@ -230,7 +241,7 @@ export function ChatComposer({
 
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = [...(e.clipboardData?.files ?? [])];
-    if (files.length === 0 || uploadsOff) return;
+    if (files.length === 0 || uploadsOff || !attachOn) return;
     e.preventDefault();
     onAddFiles(files);
   };
@@ -301,7 +312,7 @@ export function ChatComposer({
             onPaste={onPaste}
             className="block max-h-[216px] min-h-9 w-full resize-none bg-transparent px-3 pt-2.5 pb-1 text-md text-ink outline-none placeholder:text-ink-faint focus-visible:outline-none"
           />
-          {alsoSendTo !== undefined && (
+          {alsoSendTo !== undefined && alsoOn && (
             <label
               htmlFor={alsoId}
               className="flex min-w-0 cursor-pointer items-center gap-2 px-3 pt-0.5 pb-1 text-sm text-ink-muted hover:text-ink"
@@ -331,6 +342,7 @@ export function ChatComposer({
                 e.target.value = "";
               }}
             />
+            {attachOn && (
             <MenuButton
               placement="above"
               menuLabel={t("chat.composer.attachMenu")}
@@ -381,6 +393,8 @@ export function ChatComposer({
                 </MenuGroup>
               )}
             </MenuButton>
+            )}
+            {questionsOn && (
             <MenuButton
               placement="above"
               menuLabel={t("chat.composer.options")}
@@ -398,6 +412,7 @@ export function ChatComposer({
                 </MenuGroup>
               )}
             </MenuButton>
+            )}
             <span className="ml-1 min-w-0 truncate text-xs text-ink-faint" aria-hidden="true">
               {t("chat.composer.triggers")}
             </span>
@@ -415,7 +430,7 @@ export function ChatComposer({
           </div>
         </div>
         <p id={hintId} className="min-h-4 pt-1.5 text-xs text-ink-muted" aria-live="polite">
-          {callsClaude(text)
+          {claudeOn && callsClaude(text)
             ? t("chat.composer.claudeWarning", { name: channelLabel })
             : asksReply
               ? t("chat.composer.asksReplyOn")

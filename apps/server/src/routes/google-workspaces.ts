@@ -1,5 +1,7 @@
-import { encrypt, googleAccounts, googleWorkspaces } from "@stubwise/db";
+import { changedFields, recordChange } from "../services/change-log.js";
+import { encrypt, googleAccounts, googleWorkspaces, type Db } from "@stubwise/db";
 import {
+  secretLast4,
   GOOGLE_OAUTH_CALLBACK_PATH,
   googleWorkspaceDraftSchema,
   googleWorkspacePatchSchema,
@@ -10,6 +12,7 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { apiError } from "../errors.js";
+import { requireReauth } from "../auth/access.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
@@ -57,6 +60,7 @@ function toPublicWorkspace(
     domains: row.domains,
     clientId: row.clientId,
     clientSecretSet: row.clientSecretEncrypted !== NO_SECRET,
+    clientSecretLast4: row.clientSecretEncrypted !== NO_SECRET ? row.clientSecretLast4 : null,
     accountCount,
     redirectUri,
     createdAt: row.createdAt.toISOString(),
@@ -83,6 +87,55 @@ async function countAccounts(db: FastifyInstance["db"], workspaceId: string): Pr
     .from(googleAccounts)
     .where(eq(googleAccounts.workspaceId, workspaceId));
   return row?.count ?? 0;
+}
+
+/** Area 9, F3: l'oggetto delle voci del registro (l'app col nome dato da una persona). */
+const googleAppObject = (row: { id: string; name: string }) => ({ type: "google_app", id: row.id, label: row.name });
+
+/**
+ * La patch di un'app Google (`PATCH /api/settings/google-workspaces/:id`,
+ * area 9, F7: estratta dalla rotta). La riconferma per il secret la chiede la
+ * ROTTA; Claude non lo porta mai (`encryptionKey` null).
+ */
+export async function patchGoogleWorkspace(
+  db: Db,
+  encryptionKey: Buffer | null,
+  actor: { id: string; email: string },
+  id: string,
+  body: { name?: string | undefined; domains?: string[] | undefined; clientId?: string | undefined; clientSecret?: string | undefined },
+): Promise<GoogleWorkspaceRow | undefined> {
+  const { name, domains, clientId, clientSecret } = body;
+  const key = (): Buffer => {
+    if (!encryptionKey) throw new Error("patchGoogleWorkspace: un secret senza chiave di cifratura");
+    return encryptionKey;
+  };
+  const updates: Partial<GoogleWorkspaceRow> = {};
+  if (name !== undefined) updates.name = name;
+  if (domains !== undefined) updates.domains = domains;
+  if (clientId !== undefined) updates.clientId = clientId;
+  // Qui vive la semantica write-only: `undefined` (campo assente nel body)
+  // non entra in `updates` e il segreto salvato resta intatto; `""` scrive
+  // la sentinella di azzeramento; qualunque altro valore viene ricifrato.
+  if (clientSecret !== undefined) {
+    updates.clientSecretEncrypted =
+      clientSecret === "" ? NO_SECRET : encrypt(clientSecret, key());
+    updates.clientSecretLast4 = clientSecret === "" ? null : secretLast4(clientSecret);
+  }
+
+  // Drizzle rifiuta un update senza colonne: una patch vuota è una lettura.
+  const row = await db.transaction(async (tx) => {
+    const [before] = await tx.select().from(googleWorkspaces).where(eq(googleWorkspaces.id, id)).for("update");
+    if (!before || Object.keys(updates).length === 0) return before;
+    const [after] = await tx.update(googleWorkspaces).set(updates).where(eq(googleWorkspaces.id, id)).returning();
+    // Area 9, F3: come il prototipo (`google.ts`), i soli campi cambiati;
+    // il secret solo «sostituito».
+    const fields = (w: GoogleWorkspaceRow) => ({ name: w.name, domains: w.domains, clientId: w.clientId });
+    const diff = changedFields(fields(before), fields(after!));
+    if (diff) await recordChange(tx, { type: "google_app.updated", actor: actor, projectId: null, data: { object: googleAppObject(after!), ...diff } });
+    if (clientSecret !== undefined) await recordChange(tx, { type: "google_app.secret_replaced", actor: actor, projectId: null, data: { object: googleAppObject(after!) } });
+    return after;
+  });
+  return row;
 }
 
 export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<void> {
@@ -112,7 +165,7 @@ export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<
   app.post(
     "/",
     {
-      config: { access: { kind: "instance", permission: "integrations.manage" } },
+      config: { access: { kind: "instance", permission: "integrations.manage" }, reauth: true },
       schema: {
         body: googleWorkspaceDraftSchema,
         response: { 201: googleWorkspaceSchema, 400: errorSchema, ...authErrorResponses },
@@ -120,16 +173,21 @@ export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<
     },
     async (request, reply) => {
       const { name, domains, clientId, clientSecret } = request.body;
-      const [created] = await app.db
-        .insert(googleWorkspaces)
-        .values({
-          name,
-          domains,
-          clientId,
-          clientSecretEncrypted: encrypt(clientSecret, app.encryptionKey),
-        })
-        .returning();
-      if (!created) throw new Error("insert del Workspace non ha restituito la riga");
+      const created = await app.db.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(googleWorkspaces)
+          .values({
+            name,
+            domains,
+            clientId,
+            clientSecretEncrypted: encrypt(clientSecret, app.encryptionKey),
+            clientSecretLast4: secretLast4(clientSecret),
+          })
+          .returning();
+        if (!row) throw new Error("insert del Workspace non ha restituito la riga");
+        await recordChange(tx, { type: "google_app.created", actor: request.user!, projectId: null, data: { object: googleAppObject(row) } });
+        return row;
+      });
       return reply.code(201).send(toPublicWorkspace(created, 0, redirectUri()));
     },
   );
@@ -137,7 +195,7 @@ export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<
   app.patch(
     "/:id",
     {
-      config: { access: { kind: "instance", permission: "integrations.manage" } },
+      config: { access: { kind: "instance", permission: "integrations.manage" }, partialReauth: true },
       schema: {
         params: idParamsSchema,
         body: googleWorkspacePatchSchema,
@@ -151,30 +209,11 @@ export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<
     },
     async (request, reply) => {
       const { name, domains, clientId, clientSecret } = request.body;
-      const updates: Partial<GoogleWorkspaceRow> = {};
-      if (name !== undefined) updates.name = name;
-      if (domains !== undefined) updates.domains = domains;
-      if (clientId !== undefined) updates.clientId = clientId;
-      // Qui vive la semantica write-only: `undefined` (campo assente nel body)
-      // non entra in `updates` e il segreto salvato resta intatto; `""` scrive
-      // la sentinella di azzeramento; qualunque altro valore viene ricifrato.
-      if (clientSecret !== undefined) {
-        updates.clientSecretEncrypted =
-          clientSecret === "" ? NO_SECRET : encrypt(clientSecret, app.encryptionKey);
-      }
-
-      // Drizzle rifiuta un update senza colonne: una patch vuota è una lettura.
-      const [row] =
-        Object.keys(updates).length === 0
-          ? await app.db
-              .select()
-              .from(googleWorkspaces)
-              .where(eq(googleWorkspaces.id, request.params.id))
-          : await app.db
-              .update(googleWorkspaces)
-              .set(updates)
-              .where(eq(googleWorkspaces.id, request.params.id))
-              .returning();
+      // Area 9, F3 (D-5): la riconferma solo quando il corpo porta un segreto
+      // (sostituito o azzerato), con la regola del gate (`requireReauth`).
+      if (clientSecret !== undefined && !(await requireReauth(request, reply))) return reply;
+      // Area 9, F7: la funzione, la stessa dell'azione di Claude `updateGoogleApp`.
+      const row = await patchGoogleWorkspace(app.db, app.encryptionKey, request.user!, request.params.id, { name, domains, clientId, clientSecret });
       if (!row) {
         return apiError(reply, 404, "google_workspace_not_found", "Google Workspace not found");
       }
@@ -185,7 +224,7 @@ export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<
   app.delete(
     "/:id",
     {
-      config: { access: { kind: "instance", permission: "integrations.manage" } },
+      config: { access: { kind: "instance", permission: "integrations.manage" }, reauth: true },
       schema: {
         params: idParamsSchema,
         response: {
@@ -218,7 +257,10 @@ export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<
         );
       }
 
-      await app.db.delete(googleWorkspaces).where(eq(googleWorkspaces.id, row.id));
+      await app.db.transaction(async (tx) => {
+        const gone = await tx.delete(googleWorkspaces).where(eq(googleWorkspaces.id, row.id)).returning();
+        for (const g of gone) await recordChange(tx, { type: "google_app.deleted", actor: request.user!, projectId: null, data: { object: googleAppObject(g) } });
+      });
       return reply.code(204).send(null);
     },
   );

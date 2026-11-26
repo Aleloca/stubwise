@@ -124,20 +124,26 @@ export function RequestStatusLabel({
 
 const LEVEL: Record<ProjectRequest["urgency"], number> = { low: 1, medium: 2, high: 3 };
 
-/** L'urgenza: tre barre crescenti, piene quante il livello, e la parola accanto. */
+/**
+ * L'urgenza: tre barre crescenti, piene quante il livello, e la parola accanto.
+ * `urgent` (solo dal server vero, fetta 4): «urgent», più alta di «high», si
+ * mostra al livello più alto col suo nome.
+ */
 export function UrgencyMark({
   urgency,
+  urgent = false,
   nameClassName = "",
 }: {
   urgency: ProjectRequest["urgency"];
+  urgent?: boolean;
   nameClassName?: string;
 }) {
   const { t } = useTranslation();
-  const name = t(`requests.urgency.${urgency}`);
-  const level = LEVEL[urgency];
+  const name = urgent ? t("requests.urgency.urgent") : t(`requests.urgency.${urgency}`);
+  const level = urgent ? LEVEL.high : LEVEL[urgency];
   return (
     <span
-      data-urgency={urgency}
+      data-urgency={urgent ? "urgent" : urgency}
       title={t("requests.urgency.aria", { name })}
       className="flex min-w-0 items-center gap-1.5 text-sm text-ink-muted"
     >

@@ -1,3 +1,4 @@
+import { isHiddenId } from "../../data/access/hiddenId";
 import type { ChatEventKind, ChatMessageView } from "../../data/types";
 
 // Il flusso di un canale come si disegna: i messaggi letti (pagina + stream)
@@ -96,6 +97,8 @@ export function flowDays(
         last?.kind === "message" &&
         previous !== null &&
         previous.authorId === m.authorId &&
+        // R.1414: un segnaposto non si fonde mai col messaggio prima (masker diversi fra pagine).
+        !isHiddenId(m.authorId) &&
         previous.deletedAt === null &&
         m.deletedAt === null &&
         // Una risposta «anche nel canale» porta la sua riga: apre sempre un gruppo.
@@ -134,6 +137,8 @@ export function threadRows(
       m.kind === "person" &&
       previous.kind === "person" &&
       previous.authorId === m.authorId &&
+        // R.1414: un segnaposto non si fonde mai col messaggio prima (masker diversi fra pagine).
+        !isHiddenId(m.authorId) &&
       previous.deletedAt === null &&
       m.deletedAt === null &&
       previous.createdAt.slice(0, 10) === m.createdAt.slice(0, 10) &&

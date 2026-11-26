@@ -1,15 +1,17 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { featureIntegrated, isIntegrated } from "../../data/integration";
 import { useMilestones, useProject, useTasks } from "../../data/queries";
 import { GROUP_BYS, TASK_VIEWS } from "../../data/routes";
 import type { FilterCriteria, GroupBy, SavedFilter, Task, TaskView } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
-import { parseCriteria } from "../../domain/filters";
+import { can, useViewer } from "../../data/viewing";
+import { parseCriteria, runnableCriteria } from "../../domain/filters";
 import { DeptLegend } from "../../layout/DeptStrip";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
 import { FilterBar } from "../../tasks-ui/FilterBar";
 import { PageEmpty, PageError, PageSkeleton } from "../../tasks-ui/PageStates";
+import { ComingSoonBlock } from "../Placeholder";
 import { SaveFilterDialog } from "../filters/SaveFilterDialog";
 import { useGroupContextState, useStallMap } from "./context";
 import { Chevron, MenuButton, primaryButton, quietButton, secondaryButton } from "./controls";
@@ -116,19 +118,26 @@ export function TasksPage({
         ? DEFAULT_GROUP[view]
         : rawGroup;
   // La pagina del progetto aggiunge il progetto ai criteri, senza scriverlo nell'indirizzo.
-  const effective = useMemo(
-    () => (projectId ? { ...criteria, projectIds: [projectId] } : criteria),
-    [criteria, projectId],
-  );
+  // R.1414 (scelta A di 46): i criteri di un filtro salvato si eseguono col
+  // suo id, che rimette gli id veri al posto dei segnaposto «Someone».
+  const effective = useMemo(() => {
+    const own = savedFilter ? runnableCriteria(savedFilter, criteria) : criteria;
+    return projectId ? { ...own, projectIds: [projectId] } : own;
+  }, [criteria, projectId, savedFilter]);
   const enabled = !projectCode || !!projectId;
   const changed =
     search.view !== undefined || search.group !== undefined || search.filters !== undefined;
 
   const tasksQuery = useTasks(effective, { enabled });
   // Quante ce ne sono senza filtri: dice se il vuoto è «ancora nessuna» o «nessuna corrisponde».
-  const allQuery = useTasks(projectId ? { projectIds: [projectId] } : savedFilter?.criteria, {
-    enabled,
-  });
+  const allQuery = useTasks(
+    projectId
+      ? { projectIds: [projectId] }
+      : savedFilter && runnableCriteria(savedFilter),
+    {
+      enabled,
+    },
+  );
   const tasks = enabled ? tasksQuery.data : undefined;
   const context = useGroupContextState(tasks, projectId);
   const ctx = context.ctx;
@@ -206,23 +215,23 @@ export function TasksPage({
       <PageEmpty
         title={t("tasks.states.emptyTitle")}
         body={
-          canCreate
-            ? t("tasks.states.emptyBody", { project: project?.name })
-            : (
+          canCreate ? (
+            t("tasks.states.emptyBody", { project: project?.name })
+          ) : (
+            <>
+              {t("tasks.states.emptyWho", { project: project?.name ?? title })}
+              {project && (
                 <>
-                  {t("tasks.states.emptyWho", { project: project?.name ?? title })}
-                  {project && (
-                    <>
-                      {" "}
-                      <WhoCanLink
-                        action="createTasks"
-                        projectId={project.id}
-                        projectCode={project.code}
-                      />
-                    </>
-                  )}
+                  {" "}
+                  <WhoCanLink
+                    action="createTasks"
+                    projectId={project.id}
+                    projectCode={project.code}
+                  />
                 </>
-              )
+              )}
+            </>
+          )
         }
         action={
           canCreate ? (
@@ -245,6 +254,9 @@ export function TasksPage({
         onOpen={open}
       />
     );
+  } else if (view === "timeline" && !isIntegrated({ kind: "taskView", name: "timeline" })) {
+    // La Timeline arriva con la fetta 2: nella build app resta nella scelta, senza dati.
+    body = <ComingSoonBlock />;
   } else if (view === "timeline") {
     body = (
       <TaskTimeline
@@ -334,13 +346,18 @@ export function TasksPage({
               </MenuGroup>
             )}
           </MenuButton>
-          <button
-            type="button"
-            className={`${quietButton} ml-auto`}
-            onClick={() => setSaving(true)}
-          >
-            {t("tasks.saveAsFilter")}
-          </button>
+          {/* I filtri salvati arrivano con la fetta 3 (design dell'integrazione, «Tasks di progetto»). */}
+          {featureIntegrated("saved-filters") ? (
+            <button
+              type="button"
+              className={`${quietButton} ml-auto`}
+              onClick={() => setSaving(true)}
+            >
+              {t("tasks.saveAsFilter")}
+            </button>
+          ) : (
+            <span className="ml-auto" />
+          )}
           {canCreate && (
             <button type="button" className={primaryButton} onClick={newTask}>
               {t("tasks.newTask")}

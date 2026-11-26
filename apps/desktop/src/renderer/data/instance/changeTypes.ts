@@ -1,4 +1,5 @@
-import { registerChangeTypes, type ChangeType } from "../changelog/index";
+import { registerChangeTypes } from "../changelog/registry";
+import type { ChangeType } from "../changelog/types";
 
 // I tipi di voce del registro dell'area 9b, TUTTI qui (Task 1): ogni task
 // dopo scrive solo tipi già registrati. Il `readPermission` è il permesso che
@@ -43,7 +44,8 @@ const plugins = instance("integrations", "plugins.manage");
 const google = instance("integrations", "integrations.manage");
 const settings = instance("integrations", "settings.manage");
 const servers = instance("servers", "monitor.manage");
-const queue = project("queue", "settings.manage");
+// F4: come il server, la coda la legge chi gestisce il progetto.
+const queue = project("queue", "project.settings.manage");
 
 export const INSTANCE_CHANGE_TYPES: readonly ChangeType[] = [
   providers("provider.created"),
@@ -55,6 +57,7 @@ export const INSTANCE_CHANGE_TYPES: readonly ChangeType[] = [
   aiSettings("automation.changed"),
   aiSettings("budget.changed"),
   aiSettings("content_language.changed"),
+  aiSettings("server_analysis.changed"),
   git("git_account.created"),
   git("git_account.updated"),
   git("git_account.token_replaced"),
@@ -70,7 +73,12 @@ export const INSTANCE_CHANGE_TYPES: readonly ChangeType[] = [
   google("google_app.deleted"),
   settings("storage.changed"),
   settings("storage.secret_replaced"),
-  settings("webhook.changed"),
+  // Integrazione area 9, F3 (H-3): una voce per azione su UN webhook, con
+  // `integrations.manage` (H-1), come il catalogo del server.
+  google("webhook.created"),
+  google("webhook.updated"),
+  google("webhook.secret_replaced"),
+  google("webhook.deleted"),
   servers("server.created"),
   servers("server.updated"),
   servers("server.deleted"),

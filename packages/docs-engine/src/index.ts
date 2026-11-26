@@ -18,7 +18,7 @@
  * `runGeneration`, i suoi prompt e i marcatori `===TECHNICAL===`/`===FUNCTIONAL===`/
  * `===CAPABILITY PAGE===`) è stata RIMOSSA, sostituita dal motore a DAG.
  */
-export { chunkMarkdown, estimateTokens, TOKENS_PER_WORD } from "./chunk.js";
+export { chunkMarkdown, DOC_CHUNK_OVERLAP_WORDS, DOC_CHUNK_TARGET_TOKENS, estimateTokens, TOKENS_PER_WORD } from "./chunk.js";
 export type { MarkdownChunk, ChunkOptions } from "./chunk.js";
 
 // ── Motore ricorsivo a DAG (contratto + parser dell'output strutturato) ───────────────

@@ -1,4 +1,5 @@
 import { alertTypeOf } from "../../domain/alerts/catalog";
+import { personMasker } from "../access/hidden";
 import { fold } from "../../domain/textSearch";
 import { releaseMandatory } from "../alerts/publish";
 import { currentChannels } from "../alerts/reads";
@@ -50,10 +51,11 @@ export async function listReleaseQueue(projectId: string): Promise<QueueItem[]> 
 export async function listReleases(projectId: string): Promise<ReleaseView[]> {
   const me = await gate("releases.listReleases");
   if (!sees(me, projectId)) return [];
+  const mask = personMasker(me);
   return state.releases
     .filter((r) => r.projectId === projectId)
     .sort(byRecency)
-    .map((r) => releaseView(me, r));
+    .map((r) => releaseView(me, r, mask));
 }
 
 /** Il dettaglio di un rilascio (`AUD-V3`): stato, run, task di riparazione. */

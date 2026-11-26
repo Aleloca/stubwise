@@ -1,9 +1,14 @@
 import {
+  widgetConversations,
+  widgetMessages,
   agentSessions,
   backlogItemRequesters,
   backlogItems,
   backlogItemTickets,
   backlogJobs,
+  chatChannels,
+  chatMessageLinks,
+  chatMessages,
   comments,
   notifications,
   projectMembers,
@@ -15,7 +20,7 @@ import {
   type Db,
   type EmbeddingProvider,
 } from "@stubwise/db";
-import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { BacklogIntakePayload } from "@stubwise/shared";
 import { and, eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
@@ -37,7 +42,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterEach(async () => {
-  await testDb.db.delete(projects); // tutto casca dal progetto.
+  await deleteAllProjects(testDb.db); // tutto casca dal progetto.
 });
 
 afterAll(async () => {
@@ -237,6 +242,43 @@ describe("runIntake — nuova voce", () => {
     expect(link!.itemId).toBe(item!.id);
   });
 
+  it("area 8, F3, S6: una voce nata dal ticket di un widget si lega alla sua conversazione di Support", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const ticket = await createTicket(db, projectId, { title: "Titolo", body: "Corpo del feedback" });
+    const [conv] = await db.insert(widgetConversations).values({ projectId, externalUserId: "v-1" }).returning();
+    await db.insert(widgetMessages).values({ conversationId: conv!.id, role: "user", content: "vorrei", ticketId: ticket.id });
+    const deps = makeDeps(db, {
+      embeddingClient: embeddingClient({ "Titolo\n\nCorpo del feedback": vecOrtho }),
+      runner: fakeRunner(INTAKE_JSON),
+    });
+    const [lead] = await db.insert(users).values({ email: `lead-${randomUUID()}@x.it`, passwordHash: "x", role: "member" }).returning();
+    const [leadRole] = await db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "project_lead"));
+    await db.insert(projectMembers).values({ projectId, userId: lead!.id, roleId: leadRole!.id });
+    await runIntake(deps, fakeJob(projectId), { ticketId: ticket.id });
+    const [item] = await db.select().from(backlogItems).where(eq(backlogItems.projectId, projectId));
+    expect(item!.supportConversationId).toBe(conv!.id);
+    // S7: la richiesta nata da una conversazione si annuncia (`support.request`), a chi ha backlog.edit.
+    const cards = await db.select().from(notifications).where(and(eq(notifications.userId, lead!.id), eq(notifications.kind, "support.request")));
+    expect(cards).toHaveLength(1);
+    expect(cards[0]!.event).toMatchObject({ title: "Voce generata", customerName: null });
+  });
+
+  it("area 8, F3, S12: una richiesta dal server MCP con la conversazione (canale `mcp`) si lega alla conversazione del suo job", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const job = fakeJob(projectId);
+    await db.insert(backlogJobs).values({ id: job.id, projectId, kind: "intake", payload: { title: "Export PDF", body: "Vorrei il PDF" } }).onConflictDoNothing();
+    const [conv] = await db.insert(widgetConversations).values({ projectId, externalUserId: "mcp:x", channel: "mcp", intakeJobId: job.id }).returning();
+    const deps = makeDeps(db, {
+      embeddingClient: embeddingClient({ "Export PDF\n\nVorrei il PDF": vecOrtho }),
+      runner: fakeRunner(INTAKE_JSON),
+    });
+    await runIntake(deps, job, { title: "Export PDF", body: "Vorrei il PDF" });
+    const [item] = await db.select().from(backlogItems).where(eq(backlogItems.projectId, projectId));
+    expect(item!.supportConversationId).toBe(conv!.id);
+  });
+
   it("(c) zona grigia (similarità tra le due soglie) → nuova voce con similarToId", async () => {
     const db = testDb.db;
     const projectId = await createProject(db);
@@ -276,6 +318,51 @@ describe("runIntake — nuova voce", () => {
     expect(item!.similarToId).toBeNull();
     // Nessun ticket creato/collegato.
     expect(await db.select().from(backlogItemTickets)).toHaveLength(0);
+  });
+
+  it("(d-chat) «Create request» da un messaggio della Chat: la voce si lega al messaggio; un messaggio sparito non ferma l'intake", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const [general] = await db.select({ id: chatChannels.id }).from(chatChannels).where(eq(chatChannels.projectId, projectId));
+    const [message] = await db.insert(chatMessages).values({ channelId: general!.id, body: "serve un export" }).returning();
+    const feedback = "Idea\n\nDescrizione dell'idea";
+    const deps = makeDeps(db, {
+      embeddingClient: embeddingClient({ [feedback]: vecOrtho }),
+      runner: fakeRunner(INTAKE_JSON),
+    });
+    await runIntake(deps, fakeJob(projectId), { title: "Idea", body: "Descrizione dell'idea", chatMessageId: message!.id });
+    const [item] = await db.select().from(backlogItems).where(eq(backlogItems.projectId, projectId));
+    const links = await db.select().from(chatMessageLinks).where(eq(chatMessageLinks.messageId, message!.id));
+    expect(links).toEqual([expect.objectContaining({ backlogItemId: item!.id, ticketId: null })]);
+    const [after] = await db.select().from(chatMessages).where(eq(chatMessages.id, message!.id));
+    expect(after!.updatedAt.getTime()).toBeGreaterThan(message!.updatedAt.getTime());
+
+    // Un messaggio che non c'è più (canale eliminato): la voce c'è, il legame no, nessun errore.
+    const other = await createProject(db);
+    await expect(
+      runIntake(deps, fakeJob(other), { title: "Idea", body: "Descrizione dell'idea", chatMessageId: randomUUID() }),
+    ).resolves.toBeUndefined();
+    expect(await db.select().from(backlogItems).where(eq(backlogItems.projectId, other))).toHaveLength(1);
+  });
+
+  it("review della F3: una richiesta nata da un'email (externalOrigin) lo ricorda, sia nuova sia fusa in una che c'era", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const feedback = "Da email\n\nIl cliente chiede l'export";
+    const deps = makeDeps(db, { embeddingClient: embeddingClient({ [feedback]: vecOrtho }), runner: fakeRunner(INTAKE_JSON) });
+    await runIntake(deps, fakeJob(projectId), { title: "Da email", body: "Il cliente chiede l'export", externalOrigin: "email" });
+    const [item] = await db.select().from(backlogItems).where(eq(backlogItems.projectId, projectId));
+    expect(item!.externalOrigin).toBe("email");
+    // Senza il campo, niente segno.
+    const other = await createProject(db);
+    await runIntake(deps, fakeJob(other), { title: "Da email", body: "Il cliente chiede l'export" });
+    const [plain] = await db.select().from(backlogItems).where(eq(backlogItems.projectId, other));
+    expect(plain!.externalOrigin).toBeNull();
+    // Fusa nella voce che c'era (stesso vettore, sopra soglia): la voce prende il segno.
+    await runIntake(deps, fakeJob(other), { title: "Da email", body: "Il cliente chiede l'export", externalOrigin: "email" });
+    const merged = await db.select().from(backlogItems).where(eq(backlogItems.projectId, other));
+    expect(merged).toHaveLength(1);
+    expect(merged[0]!.externalOrigin).toBe("email");
   });
 
   it("(d-bis) titolo che è l'INIZIO del corpo (cattura dall'app) → trattato come assente, non come un punto troncato", async () => {

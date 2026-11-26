@@ -1098,6 +1098,12 @@ export function TicketDetailPage() {
               options={[
                 { value: "", label: t("tickets:detail.unassigned") },
                 ...users.map((user) => ({ value: user.id, label: user.email })),
+                // Claude (l'utente di sistema) non è fra gli utenti del Team: lo
+                // dice il server (`assigneeIsAgent`, area 3). `?? false`: il web
+                // non parsa, e un server più vecchio non manda il campo.
+                ...((ticket.assigneeIsAgent ?? false) && ticket.assigneeId
+                  ? [{ value: ticket.assigneeId, label: "Claude" }]
+                  : []),
               ]}
             />
             {assignee && (

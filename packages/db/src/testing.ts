@@ -5,15 +5,21 @@ import {
 import type { BacklogItemStatus, GitProviderKind } from "@stubwise/shared";
 import type postgres from "postgres";
 import { randomUUID } from "node:crypto";
+import { and, asc, eq } from "drizzle-orm";
 import { createDb, runMigrations, type Db } from "./client.js";
 import {
   backlogItems,
   commitSummaries,
+  decisionRequests,
+  departmentMembers,
+  departments,
   emailMessages,
   gitAccounts,
   googleAccounts,
   googleWorkspaces,
+  graphJobs,
   projectEnvironments,
+  projectStatuses,
   projects,
   repositories,
   ticketRepositories,
@@ -375,4 +381,84 @@ export async function seedCommitSummary(
     documentedAt: opts.documentedAt ?? null,
   });
   return sha;
+}
+
+let departmentSeq = 0;
+
+/**
+ * Un reparto (0107). Nome univoco per chiamata se non dato; colore `--dept-2`.
+ * `isDefault: true` fallisce se il ripiego esiste già (la migrazione lo crea):
+ * per il ripiego si legge quello esistente.
+ */
+export async function seedDepartment(
+  db: Db,
+  opts: { name?: string; isDefault?: boolean; colorToken?: string } = {},
+): Promise<{ id: string }> {
+  departmentSeq += 1;
+  const [row] = await db
+    .insert(departments)
+    .values({
+      name: opts.name ?? `Reparto ${departmentSeq}`,
+      colorToken: opts.colorToken ?? "--dept-2",
+      isDefault: opts.isDefault ?? false,
+    })
+    .returning({ id: departments.id });
+  return { id: row!.id };
+}
+
+/** Mette una persona in un reparto; `position` default 0 (il suo primo reparto). */
+export async function addDepartmentMember(
+  db: Db,
+  departmentId: string,
+  userId: string,
+  position = 0,
+): Promise<void> {
+  await db.insert(departmentMembers).values({ departmentId, userId, position });
+}
+
+/** Il primo stato (per posizione) di una famiglia in un progetto (0108). */
+export async function firstStatusOf(
+  db: Db,
+  projectId: string,
+  family: "todo" | "active" | "closed",
+): Promise<string> {
+  const [row] = await db
+    .select({ id: projectStatuses.id })
+    .from(projectStatuses)
+    .where(and(eq(projectStatuses.projectId, projectId), eq(projectStatuses.family, family)))
+    .orderBy(asc(projectStatuses.position))
+    .limit(1);
+  if (!row) throw new Error(`nessuno stato ${family} nel progetto ${projectId}`);
+  return row.id;
+}
+
+/** Una richiesta di decisione aperta su una task (0109). */
+export async function seedDecisionRequest(
+  db: Db,
+  opts: { ticketId: string; askedOfUserId: string; askedByUserId?: string | null; options?: string[]; question?: string },
+): Promise<{ id: string }> {
+  const [row] = await db
+    .insert(decisionRequests)
+    .values({
+      ticketId: opts.ticketId,
+      askedOfUserId: opts.askedOfUserId,
+      askedByUserId: opts.askedByUserId ?? null,
+      question: opts.question ?? "Quale delle due?",
+      options: opts.options ?? [],
+    })
+    .returning({ id: decisionRequests.id });
+  return { id: row!.id };
+}
+
+/**
+ * Area 9, F6: la pulizia di TUTTI i progetti nei test. Eliminare un progetto
+ * STACCA i suoi repository (0193, `ON DELETE SET NULL`) e i job del grafo non
+ * hanno più la FK sul repository (0194): una `delete(projects)` da sola li
+ * lascia lì, e si accumulano fra un test e l'altro (doc_generations,
+ * commit, job…). Gli account git restano: chi li vuole via li toglie dopo.
+ */
+export async function deleteAllProjects(db: Db): Promise<void> {
+  await db.delete(graphJobs);
+  await db.delete(repositories);
+  await db.delete(projects);
 }

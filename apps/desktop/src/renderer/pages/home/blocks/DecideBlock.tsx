@@ -27,6 +27,8 @@ import type {
   ProjectRequest,
   Task,
 } from "../../../data/types";
+import { featureIntegrated, isIntegrated } from "../../../data/integration";
+import { openInWeb } from "../../../platform/openWeb";
 import { relativeTime } from "../../../notifications/time";
 import { inputClass } from "../../../tasks-ui/Dialog";
 import { Avatar } from "../../../tasks-ui/PersonChip";
@@ -131,15 +133,29 @@ export function DecideBlock() {
       ),
   ];
   const visible = items.filter((i) => !pending.has(i.id));
+  // Le sorgenti di un'area non integrata non partono (build app): non contano
+  // nemmeno per lo stato, o il blocco resterebbe in caricamento.
+  const sources = [
+    decisions,
+    ...(featureIntegrated("claude-decisions") ? [claude] : []),
+    // Le domande della Chat (fetta 2) e quelle di @Claude nei canali (fetta 3).
+    ...(featureIntegrated("chat") && featureIntegrated("chat-questions") ? [chatQuestions] : []),
+    ...(featureIntegrated("chat") && featureIntegrated("chat-claude") ? [chatClaude] : []),
+    ...(featureIntegrated("mail") ? [mail] : []),
+    ...(featureIntegrated("automations") ? [automations] : []),
+    tasks,
+    requests,
+    projects,
+  ];
   const state = queryState(
-    [decisions, claude, chatQuestions, chatClaude, mail, automations, tasks, requests, projects],
+    sources,
     {
       when: visible.length === 0,
       text: t("home.decide.empty"),
       body: t("home.decide.emptyBody"),
     },
   );
-  const person = (id: string) => people.data?.find((p) => p.id === id);
+  const person = (id: string | null) => (id ? people.data?.find((p) => p.id === id) : undefined);
 
   return (
     <BlockSection title={t("home.blocks.decide")} count={visible.length} state={state}>
@@ -384,7 +400,18 @@ export function RequestItem({
           <span className="num shrink-0 text-xs font-semibold tracking-[0.02em] text-ink">
             {request.code}
           </span>
-          {project ? (
+          {/* Requests è della fetta 4: nella build app la richiesta si apre nel web vecchio. */}
+          {request.webHref && !isIntegrated({ kind: "projectSection", name: "requests" }) ? (
+            <button
+              type="button"
+              onClick={() => openInWeb(request.webHref!)}
+              aria-label={t("home.decide.openRequestInWeb", { title: request.title })}
+              title={request.title}
+              className="min-w-0 truncate text-left text-md text-ink hover:underline hover:underline-offset-4"
+            >
+              {request.title}
+            </button>
+          ) : project ? (
             <Link
               to="/p/$code/$section"
               params={{ code: project.code, section: "requests" }}

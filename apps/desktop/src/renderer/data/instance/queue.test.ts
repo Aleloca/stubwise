@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeAccess } from "../access/index";
-import { changelog, instance, resetApi, setLatency, startRun } from "../api";
+import { changelog, instance, resetApi, servers, setLatency, startRun } from "../api";
+import { whenAnalysesIdle } from "../servers/analysis";
 import { setSessionPersonId } from "../session";
-import { advanceNow, now, state } from "../store";
+import { advanceNow, now, setStreamLatency, state } from "../store";
 import { whenIdle } from "../stream";
 import {
   grantInstancePermission,
+  grantProjectPermission,
   resetViewerGrants,
   revokeProjectPermission,
   type LocalInstancePermission,
@@ -126,8 +128,11 @@ describe("lo Stato dell'istanza del seme", () => {
     expect(view.nightly.filter((r) => r.state === "failed")).toHaveLength(1);
   });
 
-  it("si legge con instance.status.view o settings.manage, non senza", async () => {
+  it("si legge SOLO con instance.status.view (review F4, I2: come il server)", async () => {
     as(SARA);
+    await expect(status()).rejects.toThrow("forbidden");
+    // settings.manage da solo non basta più.
+    give(SARA, "settings.manage");
     await expect(status()).rejects.toThrow("forbidden");
     give(SARA, "instance.status.view");
     const view = await status();
@@ -172,6 +177,29 @@ describe("lo Stato dell'istanza del seme", () => {
   });
 });
 
+describe("F4b-4: l'analisi di un server, che non è di un progetto finché non lo dice", () => {
+  it("in corso: un lavoro senza progetto, aperto dall'Amministrazione, solo per chi legge la sessione; fuori dalle code", async () => {
+    setStreamLatency(20);
+    await servers.simulateServerRecovery("SRV-1").catch(() => undefined);
+    await servers.simulateServerAlert("SRV-1", "memory");
+    const job = (await status()).jobs.find((j) => j.kind === "server_analysis")!;
+    expect(job).toMatchObject({
+      projectId: null,
+      projectCode: "",
+      code: "SRV-1",
+      state: "running",
+      href: "#/admin/servers/SRV-1",
+    });
+    expect((await status()).queues.find((q) => q.code === "ACQ")?.running ?? 0).toBe(0);
+    // Laura legge lo Stato ma non gestisce il monitor: la sessione non la vede, il lavoro nemmeno.
+    give(LAURA, "instance.status.view");
+    as(LAURA);
+    expect((await status()).jobs.some((j) => j.kind === "server_analysis")).toBe(false);
+    as(ROBERTA);
+    await whenAnalysesIdle();
+  });
+});
+
 describe("aiBlockFor", () => {
   it("il budget raggiunto vale ovunque, anche senza progetto", async () => {
     await instance.simulateBudgetReached(true);
@@ -195,10 +223,16 @@ describe("aiBlockFor", () => {
 });
 
 describe("Pause e Resume", () => {
-  it("chiedono settings.manage su un progetto visibile; una pausa già messa è already_paused", async () => {
+  it("chiedono project.settings.manage NEL progetto (F4); una pausa già messa è already_paused", async () => {
+    // Laura è Project Lead di ACQ: la pausa di ACQ la mette lei.
     as(LAURA);
+    expect(await instance.pauseQueue(ACQ)).toEqual({ ok: true });
+    expect(await instance.resumeQueue(ACQ)).toEqual({ ok: true });
+    // Marco no, nemmeno con settings.manage d'istanza (prima bastava).
+    give(MARCO, "settings.manage");
+    as(MARCO);
     expect(await instance.pauseQueue(ACQ)).toEqual({ ok: false, error: "forbidden" });
-    expect(await instance.resumeQueue(STW)).toEqual({ ok: false, error: "forbidden" });
+    state.changelog.splice(0);
     give(CHIARA, "settings.manage");
     as(CHIARA);
     expect(await instance.resumeQueue(STW)).toEqual({ ok: false, error: "not_found" });
@@ -415,19 +449,20 @@ describe("Retry (RF 5)", () => {
   });
 
   it("con settings.manage ma senza runs.start → forbidden", async () => {
-    give(SARA, "settings.manage");
+    give(SARA, "instance.status.view");
     as(SARA);
     expect((await status()).jobs.find((j) => j.id === "cv-run-acq-3")!.retry).toBe("forbidden");
     expect(await instance.retryJob("cv-run-acq-3")).toEqual({ ok: false, error: "forbidden" });
     as(MARCO);
     expect(await instance.retryJob("cv-run-acq-3")).toEqual({ ok: false, error: "forbidden" });
     as(CHIARA);
-    give(CHIARA, "settings.manage");
+    give(CHIARA, "instance.status.view");
     expect(await instance.retryJob("cv-run-acq-3")).toEqual({ ok: false, error: "not_found" });
   });
 
-  it("Marco con settings.manage riprova: parte a suo nome e si ferma al gate del piano", async () => {
-    give(MARCO, "settings.manage");
+  it("Marco, che gestisce ACQ (F4), riprova: parte a suo nome e si ferma al gate del piano", async () => {
+    give(MARCO, "instance.status.view");
+    grantProjectPermission(MARCO, ACQ, "project.settings.manage" as never);
     as(MARCO);
     expect((await status()).jobs.find((j) => j.id === "cv-run-acq-3")!.retry).toBe("allowed");
     const result = await instance.retryJob("cv-run-acq-3");
@@ -468,7 +503,7 @@ describe("le voci del registro della coda", () => {
       "running",
     ]);
 
-    give(CHIARA, "settings.manage");
+    give(CHIARA, "instance.status.view");
     as(CHIARA);
     expect((await changelog.listChanges()).filter((e) => kinds.includes(e.kind))).toEqual([]);
   });
@@ -496,8 +531,9 @@ describe("lo Stato dell'istanza per la pagina (Task 13)", () => {
     as(SARA);
     expect(await acq3()).toMatchObject({ retry: "forbidden", retryNeeds: "manageSettings" });
 
-    // Ruling 2: Marco, con settings.manage, ha runs.start in ACQ ma non plans.approve.
-    give(MARCO, "settings.manage");
+    // Ruling 2: Marco gestisce ACQ (F4: nel progetto), ha runs.start ma non plans.approve.
+    give(MARCO, "instance.status.view");
+    grantProjectPermission(MARCO, ACQ, "project.settings.manage" as never);
     as(MARCO);
     expect(await acq3()).toMatchObject({
       retry: "allowed",
@@ -512,10 +548,16 @@ describe("lo Stato dell'istanza per la pagina (Task 13)", () => {
     });
   });
 
-  it("final I1: col budget raggiunto Retry è spento e la vista dice il blocco; il rifiuto dice monthly_budget", async () => {
+  it("final I1: col budget raggiunto Retry è spento e la vista dice il blocco a chi non ha plans.approve; il rifiuto dice monthly_budget", async () => {
     const acq3 = async () => (await status()).jobs.find((j) => j.id === "cv-run-acq-3")!;
     expect(await acq3()).toMatchObject({ retry: "allowed", retryBlock: null });
     await instance.simulateBudgetReached(true);
+    // D-7.1: Roberta (full admin) scavalca il budget, e la vista non lo dice.
+    expect(await acq3()).toMatchObject({ retry: "allowed", retryBlock: null });
+    // Laura senza `plans.approve` in ACQ: può rilanciare, ma il budget la ferma.
+    revokeProjectPermission(LAURA, ACQ, "plans.approve");
+    give(LAURA, "instance.status.view");
+    as(LAURA);
     expect(await acq3()).toMatchObject({
       retry: "forbidden",
       retryNeeds: null,

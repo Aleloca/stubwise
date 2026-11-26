@@ -17,6 +17,8 @@ function EventRow({ message }: { message: ChatMessageView }) {
   const index = useCitationIndex();
   const ref = message.event?.ref;
   const view = ref ? index.byRef.get(refKey(ref)) : undefined;
+  // Build app: l'oggetto non c'è più (una task eliminata): resta l'intestazione col tipo.
+  if (message.event?.gone) return null;
   return (
     <span className="flex min-w-0 items-baseline gap-3 text-sm">
       <span className="min-w-0 flex-1 truncate">

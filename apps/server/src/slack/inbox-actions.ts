@@ -41,7 +41,7 @@ import {
   type SnoozeUntil,
 } from "@stubwise/notifications";
 import { multiSelectableIndices } from "@stubwise/shared";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { resolveReporter, resolveReporterBySlackId } from "../ingest/reporter.js";
 import { executeAction, type ExecuteActionResult } from "../services/inbox.js";
 import { renderAnswer, type AnswerInput } from "../services/questions.js";
@@ -172,7 +172,9 @@ export async function resolveSlackActor(
   const [row] = await db
     .select({ id: users.id, role: users.role, email: users.email, language: users.language })
     .from(users)
-    .where(eq(users.id, userId));
+    // Una persona disattivata non agisce da Slack (area 9, F1): i resolver la
+    // escludono già, e qui lo si ribadisce sulla riga che diventa l'attore.
+    .where(and(eq(users.id, userId), isNull(users.deactivatedAt)));
   return row ?? null;
 }
 
@@ -209,6 +211,8 @@ export function inboxErrorText(
         : t(lang, "notify.inbox.errAlreadyHandledUnknown");
     case "job_in_flight":
       return t(lang, "notify.inbox.errJobInFlight", { status: result.jobStatus ?? "running" });
+    case "budget_exhausted":
+      return t(lang, "notify.inbox.errBudgetExhausted");
     case "plan_not_pending":
       return t(lang, "notify.inbox.errPlanNotPending");
     case "invalid_answer":

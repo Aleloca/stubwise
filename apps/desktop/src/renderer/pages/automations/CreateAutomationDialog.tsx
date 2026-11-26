@@ -41,9 +41,10 @@ export function CreateAutomationDialog({
   const create = useCreateAutomation();
   const navigate = useNavigate();
   const toast = useToast();
-  const [template, setTemplate] = useState<AutomationTemplate | null>(initialTemplate ?? null);
+  const fromTemplate = perms.templates ? (initialTemplate ?? null) : null;
+  const [template, setTemplate] = useState<AutomationTemplate | null>(fromTemplate);
   const [name, setName] = useState(
-    initialTemplate ? t(`automations.templates.${initialTemplate}.title`) : "",
+    fromTemplate ? t(`automations.templates.${fromTemplate}.title`) : "",
   );
   const [touched, setTouched] = useState(false);
   const [project, setProject] = useState<string>(
@@ -189,19 +190,21 @@ export function CreateAutomationDialog({
           ))}
         </select>
       </DialogField>
-      <div className="flex flex-col gap-1.5">
-        <span id={startId} className="text-sm font-medium text-ink">
-          {t("automations.create.startFrom")}
-        </span>
-        <div role="radiogroup" aria-labelledby={startId} className="flex flex-col gap-1.5">
-          {row(null)}
-          {row("newContract")}
-          {row("askClient")}
+      {perms.templates && (
+        <div className="flex flex-col gap-1.5">
+          <span id={startId} className="text-sm font-medium text-ink">
+            {t("automations.create.startFrom")}
+          </span>
+          <div role="radiogroup" aria-labelledby={startId} className="flex flex-col gap-1.5">
+            {row(null)}
+            {row("newContract")}
+            {row("askClient")}
+          </div>
+          {template && (
+            <p className="text-xs text-ink-muted">{t("automations.create.templateNote")}</p>
+          )}
         </div>
-        {template && (
-          <p className="text-xs text-ink-muted">{t("automations.create.templateNote")}</p>
-        )}
-      </div>
+      )}
     </Dialog>
   );
 }

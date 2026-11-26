@@ -1,0 +1,75 @@
+# Il pacchetto dell'app desktop per Mac, puntato all'istanza scelta al primo
+# avvio. Prima builda il renderer in modo «app» (`STUBWISE_BUILD=app`):
+# nessun dato del seed dentro. Niente auto-update né pubblicazione.
+#
+# Revisione di sicurezza della cassaforte, I1 (piano approvato da 46, 25 nov
+# 2026): l'app si FIRMA (Developer ID) con hardened runtime ed entitlements
+# minimi e si notarizza, e le fuse chiudono le porte da cui un programma
+# dello stesso utente leggerebbe la chiave del Mac. Due pacchetti:
+# - `package:mac`: firmato e notarizzato, cassaforte dal desktop accesa
+#   (`STUBWISE_VAULT_DESKTOP=on`). L'identità la trova electron-builder nel
+#   portachiavi di login (o `CSC_NAME`/`CSC_LINK` da env); la notarizzazione
+#   vuole la chiave API di App Store Connect da env (`APPLE_API_KEY` = il
+#   percorso del .p8, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`). Mai nella repo.
+# - `package:mac:unsigned`: locale, non firmato, cassaforte dal desktop
+#   SPENTA (si apre dal browser). Le fuse ci sono lo stesso.
+# Dopo ogni pacchetto `scripts/check-fuses.mjs` rilegge le fuse dal binario.
+appId: dev.aleloca.stubwise
+productName: Stubwise
+artifactName: ${productName}-${version}.${ext}
+directories:
+  output: release
+  buildResources: build
+# Main, preload e renderer sono interi nel bundle di electron-vite (`out/`):
+# il main importa solo `electron` e i moduli di Node. Nessun `node_modules`
+# nel pacchetto (e niente ricostruzione di moduli nativi).
+files:
+  - out/**/*
+  - package.json
+  - "!node_modules/**/*"
+npmRebuild: false
+asar: true
+mac:
+  target:
+    - dmg
+  category: public.app-category.productivity
+  # La firma: l'identità la cerca electron-builder (portachiavi o env), mai
+  # scritta qui; il pacchetto locale la spegne con CSC_IDENTITY_AUTO_DISCOVERY=false.
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # La notarizzazione la accende `package:mac` (`--config.mac.notarize=true`).
+  notarize: false
+  # L'helper del Secure Enclave (I1): un bundle in Contents/Helpers, già
+  # firmato da `scripts/build-keyhelper.mjs` con i SUOI entitlements e il
+  # profilo di provisioning (seconda revisione): electron-builder non lo
+  # rifirma, o li perderebbe. Il sigillo dell'app lo copre comunque.
+  extraFiles:
+    - from: build/bin/StubwiseKeyHelper.app
+      to: Helpers/StubwiseKeyHelper.app
+  signIgnore:
+    - "StubwiseKeyHelper\\.app"
+dmg:
+  sign: false
+publish: null
+# Le fuse di Electron (I1): niente `ELECTRON_RUN_AS_NODE`, niente
+# `NODE_OPTIONS`, niente `--inspect`; l'app si carica SOLO dal suo app.asar,
+# e l'integrità dell'asar si verifica all'avvio (un app.asar sostituito non
+# parte). `scripts/check-fuses.mjs` le rilegge dal binario impacchettato.
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  # Il renderer si serve da app://stubwise (seconda revisione, dopo M5):
+  # le pagine file:// non hanno più privilegi oltre a quelli di un browser.
+  grantFileProtocolExtraPrivileges: false
+# Il login dal browser riapre l'app con `stubwise://auth?code=…&state=…`
+# (integrazione area 2, 9 nov 2026): lo schema si registra nel pacchetto.
+protocols:
+  - name: Stubwise
+    schemes:
+      - stubwise

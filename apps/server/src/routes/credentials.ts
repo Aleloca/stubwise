@@ -7,6 +7,7 @@ import {
   credentialCreateBodySchema,
   credentialItemSchema,
   credentialListResponseSchema,
+  credentialProjectListResponseSchema,
   credentialPasswordBodySchema,
   credentialRemoveReaderBodySchema,
   credentialRecipientsChangedSchema,
@@ -50,6 +51,7 @@ import {
   type WriteOutcome,
 } from "../vault/credentials-service.js";
 import { effectiveReaderUserIds, VaultNotActiveError } from "../vault/readers.js";
+import { requireVaultCaller } from "../vault/device-access.js";
 import { consumeActorProof } from "../vault/recovery-challenge.js";
 import {
   readersView,
@@ -196,13 +198,17 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
       config: { access: { kind: "project", permission: "member", project: fromParam("projectId") } },
       schema: {
         params: projectParams,
-        querystring: z.object({ limit: z.coerce.number().int().min(1).max(1000).default(200) }),
+        // `credentialId` (25 nov 2026): le righe di una credenziale sola, per il dettaglio del desktop.
+        querystring: z.object({
+          limit: z.coerce.number().int().min(1).max(1000).default(200),
+          credentialId: z.uuid().optional(),
+        }),
         response: { 200: credentialAccessLogResponseSchema, ...errorResponses },
       },
     },
     async (request, reply) => {
       if (!managesCredentials(routePermissions(request))) return forbidden(reply);
-      const items = await listAccessLog(app.db, request.params.projectId, request.query.limit);
+      const items = await listAccessLog(app.db, request.params.projectId, request.query.limit, request.query.credentialId);
       return reply.code(200).send({ items });
     },
   );
@@ -212,7 +218,7 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
     "/projects/:projectId/credentials",
     {
       config: { access: { kind: "project", permission: "member", project: fromParam("projectId") } },
-      schema: { params: projectParams, response: { 200: credentialListResponseSchema, ...errorResponses } },
+      schema: { params: projectParams, response: { 200: credentialProjectListResponseSchema, ...errorResponses } },
     },
     async (request, reply) => {
       const items = await listProjectCredentials(
@@ -221,7 +227,8 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
         request.params.projectId,
         routePermissions(request),
       );
-      return reply.code(200).send({ items });
+      // L'entrata del registro della sezione: la regola della rotta del registro.
+      return reply.code(200).send({ items, canSeeLog: managesCredentials(routePermissions(request)) });
     },
   );
 
@@ -255,7 +262,8 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
   );
 
   /**
-   * Mostra o copia. Solo da sessione: un PAT riceve 403 `session_required`
+   * Mostra o copia. Da sessione, o dal PAT desktop col sigillo vivo (lotto 10,
+   * `vault/device-access.ts`); ogni altro PAT riceve 403 `session_required`
    * PRIMA di ogni altro controllo (per questo l'accesso è `user` e non
    * `project`: l'hook risponderebbe 404 a un progetto invisibile prima che il
    * PAT si possa rifiutare). Chi non la legge ADESSO → 404 `not_found`, come
@@ -264,7 +272,7 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/credentials/:id/reveal",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, desktopVault: true },
       schema: {
         params: credentialParams,
         body: credentialRevealBodySchema,
@@ -273,10 +281,11 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
     },
     async (request, reply) => {
       const user = request.user!;
-      if (user.patId !== undefined || user.sessionId === undefined) {
-        return apiError(reply, 403, "session_required", "This action requires a browser session");
-      }
-      const revealed = await revealCredential(app.db, user, request.params.id, request.body.action);
+      // Lotto 10: anche dal PAT desktop col suo sigillo vivo (D-7), e il
+      // registro dice da dove (D-8). Ogni altro PAT: `session_required`.
+      const caller = await requireVaultCaller(app.db, request, reply);
+      if (!caller) return reply;
+      const revealed = await revealCredential(app.db, user, request.params.id, request.body.action, caller);
       if (!revealed) return notFound(reply);
       return reply.code(200).send(revealed);
     },
@@ -352,10 +361,11 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
     },
   );
 
-  /* ── Lettori (Task 7): solo da sessione, `credentials.share` + lettore. ── */
+  /* ── Lettori (Task 7): da sessione (o dal PAT desktop col sigillo vivo, lotto 10), `credentials.share` + lettore. ── */
 
   /**
-   * La credenziale del parametro `:id` per una rotta dei lettori: un PAT →
+   * La credenziale del parametro `:id` per una rotta dei lettori: un PAT (che
+   * non sia il desktop col suo sigillo vivo, `vault/device-access.ts`) →
    * 403 `session_required` PRIMA di ogni altro controllo (come `reveal`: per
    * questo l'accesso dichiarato è `user`); poi progetto e credenziale devono
    * essere visibili (404 altrimenti) e serve `credentials.share` (403).
@@ -366,10 +376,7 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
     reply: FastifyReply,
   ): Promise<{ projectId: string } | null> {
     const user = request.user!;
-    if (user.patId !== undefined || user.sessionId === undefined) {
-      apiError(reply, 403, "session_required", "This action requires a browser session");
-      return null;
-    }
+    if (!(await requireVaultCaller(app.db, request, reply))) return null;
     const projectId = await fromCredential("id")(request, app.db);
     const permissions = projectId ? await projectPermissionsFor(app.db, user, projectId) : null;
     if (!projectId || !permissions || !(await credentialVisible("id")(request, app.db, user, permissions))) {
@@ -414,7 +421,7 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/credentials/:id/readers",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, desktopVault: true },
       schema: { params: credentialParams, response: { 200: credentialReadersResponseSchema, ...errorResponses } },
     },
     async (request, reply) => {
@@ -434,7 +441,7 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/credentials/:id/readers/preview",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, desktopVault: true },
       schema: {
         params: credentialParams,
         querystring: credentialSharePreviewQuerySchema,
@@ -466,7 +473,7 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/credentials/:id/readers",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, desktopVault: true },
       schema: {
         params: credentialParams,
         body: credentialShareBodySchema,
@@ -516,7 +523,7 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
   app.delete(
     "/credentials/:id/readers/:readerId",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, desktopVault: true },
       schema: {
         params: readerParams,
         body: credentialRemoveReaderBodySchema,

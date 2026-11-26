@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { sinceText, usePauserName, WithWho } from "../components/InstanceBlock";
 import {
   useChatChannels,
+  useCredentialsEntry,
   useDocSpaces,
   usePeople,
   useProject,
@@ -17,7 +18,7 @@ import {
 import { PROJECT_SECTIONS, PROJECT_SETTINGS_SECTIONS } from "../data/routes";
 import type { ChannelRow, Project } from "../data/types";
 import type { ProjectSettingsSection } from "../data/routes";
-import { can, useViewer } from "../data/viewer";
+import { can, useViewer } from "../data/viewing";
 import {
   ChannelLink,
   MentionPill,
@@ -149,7 +150,13 @@ function ProjectSections({ project }: { project: Project }) {
   // «Automations» solo se c'è qualcosa o chi guarda può crearne [A 22]; conta le esecuzioni in corso.
   const automations = useProjectAutomations(project.id).data;
   const running = automations?.runs.length ?? 0;
-  const sections = sectionsOf(project).filter((s) => s.id !== "automations" || automations?.show);
+  // «Credentials» (lotto 10, shape vault.md): solo se chi guarda vede o può creare
+  // una credenziale; il punto «ti aspetta» se qualcuno aspetta che sia lui a confermarlo.
+  const credentials = useCredentialsEntry(project.id).data;
+  const sections = sectionsOf(project).filter(
+    (s) =>
+      (s.id !== "automations" || automations?.show) && (s.id !== "credentials" || credentials?.show),
+  );
   // «Releases» ([R 6]): il conteggio delle PR aperte; il punto pieno solo per un
   // rilascio fallito che aspetta chi guarda (destinatario obbligatorio, senza riparazione).
   const hasReleases = sections.some((s) => s.id === "releases");
@@ -205,6 +212,16 @@ function ProjectSections({ project }: { project: Project }) {
                       {t("chat.column.mentions", { count: mentions })}
                     </span>
                     <MentionPill count={mentions} />
+                  </span>
+                )}
+                {s.id === "credentials" && credentials?.waitingMe && (
+                  <span className="ml-auto flex shrink-0 items-center">
+                    <span
+                      aria-hidden="true"
+                      data-waiting-dot
+                      className="size-2 shrink-0 rounded-full bg-ink"
+                    />
+                    <span className="sr-only">{t("vault.column.waiting")}</span>
                   </span>
                 )}
                 {s.id === "automations" && running > 0 && (

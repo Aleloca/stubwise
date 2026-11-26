@@ -4,6 +4,8 @@ import {
   notificationDeliveries,
   notificationSettings,
   notifications,
+  outgoingWebhooks,
+  encrypt,
   projectMembers,
   roles,
   tickets,
@@ -27,7 +29,7 @@ import type {
   PushRelayToken,
 } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   backoffMs,
@@ -457,6 +459,102 @@ describe("processDeliveriesOnce", () => {
     const row = await readDelivery(id);
     expect(row.status).toBe("pending");
     expect(row.attempts).toBe(0);
+  });
+});
+
+describe("webhook in uscita (area 9, F3)", () => {
+  async function hook(opts: { url: string; secret?: string; enabled?: boolean; format?: "slack" | "discord" | "generic" }) {
+    const [row] = await db
+      .insert(outgoingWebhooks)
+      .values({
+        name: `W ${randomUUID().slice(0, 4)}`,
+        url: opts.url,
+        format: opts.format ?? "generic",
+        events: ["ticket.created"],
+        enabled: opts.enabled ?? true,
+        secretEncrypted: opts.secret ? encrypt(opts.secret, encryptionKey) : null,
+      })
+      .returning({ id: outgoingWebhooks.id });
+    return row!.id;
+  }
+  async function deliveryFor(webhookId: string) {
+    const [row] = await db
+      .insert(notificationDeliveries)
+      .values({ channel: "webhook", event: sampleEvent("Per webhook") as unknown as Record<string, unknown>, webhookId })
+      .returning({ id: notificationDeliveries.id });
+    return row!.id;
+  }
+
+  it("ogni consegna parte verso il SUO webhook, firmata col suo segreto; uno che fallisce non ferma l'altro", async () => {
+    const good = await hook({ url: "https://good.example.test/in", secret: "segreto-buono" });
+    const bad = await hook({ url: "https://bad.example.test/in", secret: "segreto-altro" });
+    const goodId = await deliveryFor(good);
+    const badId = await deliveryFor(bad);
+    const seen: { url: string; headers: Headers; body: string }[] = [];
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      seen.push({ url, headers: new Headers(init.headers), body: String(init.body) });
+      return new Response(null, { status: url.includes("bad") ? 500 : 200 });
+    });
+    try {
+      const legacy = vi.fn(async () => {});
+      await processDeliveriesOnce(deps(legacy));
+      expect(legacy).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect((await readDelivery(goodId)).status).toBe("sent");
+    const failed = await readDelivery(badId);
+    expect(failed.status).toBe("pending");
+    expect(failed.attempts).toBe(1);
+    const sent = seen.find((s) => s.url.includes("good"))!;
+    const [, t, v1] = /^t=(\d+),v1=([0-9a-f]{64})$/.exec(sent.headers.get("x-stubwise-signature")!)!;
+    expect(createHmac("sha256", "segreto-buono").update(`${t}.${sent.body}`).digest("hex")).toBe(v1);
+    await db.delete(outgoingWebhooks);
+  });
+
+  it("review F3: un segreto che non si decifra NON lascia la consegna pending per sempre — ritenta, e al tetto è failed", async () => {
+    const id0 = await hook({ url: "https://broken.example.test/in" });
+    await db.update(outgoingWebhooks).set({ secretEncrypted: "non-decifrabile" }).where(eq(outgoingWebhooks.id, id0));
+    const [d] = await db
+      .insert(notificationDeliveries)
+      .values({ channel: "webhook", event: sampleEvent("Rotto") as unknown as Record<string, unknown>, webhookId: id0, attempts: 4 })
+      .returning({ id: notificationDeliveries.id });
+    await processDeliveriesOnce(deps(async () => {}));
+    const row = await readDelivery(d!.id);
+    expect(row.status).toBe("failed");
+    expect(row.error).not.toBeNull();
+    await db.delete(outgoingWebhooks);
+  });
+
+  it("rimandi, lotto 4: un webhook che nel frattempo ha TOLTO l'evento — la consegna già in coda si chiude `skipped` senza invio", async () => {
+    const id0 = await hook({ url: "https://changed.example.test/in" });
+    const id = await deliveryFor(id0);
+    await db.update(outgoingWebhooks).set({ events: ["job.failed"] }).where(eq(outgoingWebhooks.id, id0));
+    const fetcher = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetcher);
+    try {
+      await processDeliveriesOnce(deps(async () => {}));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(await readDelivery(id)).toMatchObject({ status: "skipped", error: "event_not_selected" });
+    await db.delete(outgoingWebhooks);
+  });
+
+  it("un webhook spento nel frattempo: la consegna si chiude senza invio", async () => {
+    const off = await hook({ url: "https://off.example.test/in", enabled: false });
+    const id = await deliveryFor(off);
+    const fetcher = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetcher);
+    try {
+      await processDeliveriesOnce(deps(async () => {}));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(await readDelivery(id)).toMatchObject({ status: "skipped", error: "webhook_disabled" });
+    await db.delete(outgoingWebhooks);
   });
 });
 
@@ -895,6 +993,8 @@ interface PushDeliveryOpts {
   attempts?: number;
   /** Se false il destinatario NON è membro del progetto (uscito dopo la publish). */
   member?: boolean;
+  /** Il `event` della CONSEGNA (registro, A4 r.169: il gruppo di una menzione di gruppo). */
+  deliveryEvent?: Record<string, unknown>;
 }
 
 interface PushDeliverySeed {
@@ -970,6 +1070,7 @@ async function insertPushDelivery(opts: PushDeliveryOpts = {}): Promise<PushDeli
       channel: "push",
       notificationId: notification!.id,
       ...(opts.attempts ? { attempts: opts.attempts } : {}),
+      ...(opts.deliveryEvent ? { event: opts.deliveryEvent } : {}),
     })
     .returning({ id: notificationDeliveries.id });
   return {
@@ -1224,6 +1325,17 @@ describe("processDeliveriesOnce — canale push", () => {
     expect(row.status).toBe("failed");
     expect(row.error).toContain("fuori contratto");
     expect(row.attempts).toBe(1);
+  });
+
+  it("registro, A4 r.169: il gruppo scritto nella consegna arriva al testo della push; senza, la menzione resta a nome", async () => {
+    const mention = { kind: "chat.mention", chatMessageId: randomUUID(), channelId: randomUUID(), channelName: "general", projectId: null, authorUserId: null, authorName: "Ada" } as unknown as NotificationEvent;
+    await insertPushDelivery({ event: mention, language: "en", deliveryEvent: { pushGroup: "@channel" } });
+    const relay = fakeRelay();
+    await processDeliveriesOnce(pushDeps(relay));
+    expect(relay.calls[0]!.payload).toMatchObject({ title: "@channel was mentioned in the chat", body: "Ada mentioned @channel in #general" });
+    await insertPushDelivery({ event: mention, language: "en" });
+    await processDeliveriesOnce(pushDeps(relay));
+    expect(relay.calls[1]!.payload).toMatchObject({ title: "You were mentioned in the chat", body: "Ada mentioned you in #general" });
   });
 
   it("il badge è l'unread count del destinatario, non delle sue push", async () => {

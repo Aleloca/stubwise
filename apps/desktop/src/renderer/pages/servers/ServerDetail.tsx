@@ -1,6 +1,8 @@
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { isAppBuild } from "../../data/build";
+import { featureIntegrated } from "../../data/integration";
 import { useServer } from "../../data/queries";
 import type { MetricRange, ServerDetail as Detail } from "../../data/servers";
 import { PageError } from "../../tasks-ui/PageStates";
@@ -9,6 +11,7 @@ import { DisksPanel } from "./DisksPanel";
 import { healthParts, lastReport, whereLine } from "./format";
 import { HealthGlyph } from "./glyphs";
 import { MetricsCharts, RANGES } from "./MetricsCharts";
+import { ManualAnalysis } from "./ManualAnalysis";
 import { NowBox, showsNow } from "./NowBox";
 import { ServerSettings } from "./ServerSettings";
 import { ServicesTable } from "./ServicesTable";
@@ -110,14 +113,17 @@ function Page({ server, projectCode }: { server: Detail; projectCode: string | n
       search: ((prev: Record<string, unknown>) => ({ ...prev, ...patch })) as never,
       replace: true,
     });
+  // Build app (area 8, F4a): l'accesso SSH è della F4b, le scritture non
+  // ancora (`servers-write`): né le loro parti né i loro pannelli (I1).
+  const writes = server.canManage && featureIntegrated("servers-write");
   const parts: PartId[] = [
     "charts",
     "services",
     "disks",
     "checks",
-    "access",
+    ...(featureIntegrated("servers-ssh") ? (["access"] as const) : []),
     "thresholds",
-    ...(server.canManage ? (["settings"] as const) : []),
+    ...(writes ? (["settings"] as const) : []),
   ];
   const [current, setCurrent] = useState<PartId>("charts");
 
@@ -237,6 +243,8 @@ function Page({ server, projectCode }: { server: Detail; projectCode: string | n
         </nav>
         <div className="flex flex-col gap-10 pt-6">
           {showsNow(server) && <NowBox server={server} />}
+          {/* L'analisi a mano (R0-A2): con l'analisi, accesa insieme a lei. */}
+          {featureIntegrated("servers-analysis") && <ManualAnalysis server={server} />}
           <MetricsCharts
             server={server}
             range={range}
@@ -249,7 +257,7 @@ function Page({ server, projectCode }: { server: Detail; projectCode: string | n
           <ChecksPanel
             serverCode={server.code}
             checks={server.checks}
-            canManage={server.canManage}
+            canManage={writes}
             selectedId={check?.id ?? null}
             onSelect={(id) => {
               setSearch({ check: id ?? undefined });
@@ -257,14 +265,15 @@ function Page({ server, projectCode }: { server: Detail; projectCode: string | n
                 document.getElementById("server-charts")?.scrollIntoView?.({ block: "start" });
             }}
           />
-          <SshAccessPanel server={server} />
+          {featureIntegrated("servers-ssh") && <SshAccessPanel server={server} />}
           <ThresholdsPanel
             serverCode={server.code}
             thresholds={server.thresholds}
-            canManage={server.canManage}
+            canManage={writes}
           />
-          {server.canManage && <ServerSettings server={server} projectCode={projectCode} />}
-          <SimulatePanel server={server} />
+          {writes && <ServerSettings server={server} projectCode={projectCode} />}
+          {/* Le simulazioni sono solo del prototipo. */}
+          {!isAppBuild() && <SimulatePanel server={server} />}
         </div>
       </div>
     </section>

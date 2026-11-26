@@ -1,20 +1,8 @@
 import type { InstancePermission, ProjectPermission } from "@stubwise/shared";
-import type { FlowIssue } from "../domain/automations/validate";
 import type { Stall } from "../domain/stalled";
 import type {
   AiBlock,
-  Approval,
-  Automation,
-  AutomationFlow,
-  AutomationRun,
-  AutomationSource,
-  ClientProjectLink,
-  Condition,
   DataField,
-  ReasonCode,
-  RunLogEntry,
-  RunStatus,
-  Step,
   Channel,
   ChatMessage,
   CitationRef,
@@ -50,43 +38,24 @@ export type { ActionClass, ClassReason, ClaudeBusyReason, ExecutedFailure } from
 /**
  * Permessi di progetto che vivono solo nel prototipo (non nel registro
  * condiviso): pianificare per altri, dall'area 4 creare e gestire i
- * canali della Chat del progetto, dall'area 5 caricare nel Drive, gestirlo e
- * vederne lo storico delle aperture, dall'area 7 gestire le automazioni del
+ * canali della Chat del progetto, dall'area 7 gestire le automazioni del
  * progetto, dall'area 8b avviare la correzione di un server da una task
  * (`servers.operate`: nessun preset, solo concessioni persona × progetto).
  */
-export type LocalProjectPermission =
-  | "planning.others"
-  | "chat.channels.create"
-  | "chat.channels.manage"
-  | "drive.upload"
-  | "drive.manage"
-  | "drive.history"
-  | "automations.manage"
-  | "support.reply"
-  | "servers.operate";
+export type LocalProjectPermission = "servers.operate";
 
 /**
  * Permessi d'istanza che vivono solo nel prototipo: vedere le conversazioni
- * pubbliche con Claude e l'attività delle persone (area 3), creare e gestire
+ * pubbliche con Claude (area 3; l'attività delle persone, `people.activity.view`, è nel registro dall'integrazione area 3, fetta 3d), creare e gestire
  * i canali generali della Chat (area 4), gestire le automazioni generali
  * (area 7: stesso nome del permesso di progetto, vedi `can`), collegare,
  * verificare, rigenerare e revocare gli accessi SSH dei server (area 8b,
- * separato da `monitor.manage`), dall'area 9a gestire i reparti, vedere lo
- * stato dell'istanza e leggere il registro delle modifiche (tutti e tre del
- * preset Admin, mai di Claude). Entrano nel registro di `@stubwise/shared`
+ * separato da `monitor.manage`), dall'area 9a vedere lo stato dell'istanza
+ * (del preset Admin, mai di Claude). `changelog.view` è nel registro dalla
+ * F2 dell'integrazione area 9. `departments.manage` è già nel registro (integrazione area 2). Entrano nel registro di `@stubwise/shared`
  * quando si costruisce il backend.
  */
-export type LocalInstancePermission =
-  | "claude.public.view"
-  | "people.activity.view"
-  | "chat.general.create"
-  | "chat.general.manage"
-  | "automations.manage"
-  | "servers.ssh.manage"
-  | "departments.manage"
-  | "instance.status.view"
-  | "changelog.view";
+export type LocalInstancePermission = never;
 
 export interface Viewer {
   personId: string;
@@ -121,6 +90,11 @@ export interface ProjectPulse {
   claudeWaiting?: AiBlock | null;
   /** Il traguardo aperto con la data più vicina (anche se passata). */
   nextMilestone: Milestone | null;
+  /**
+   * Build app: la lettura delle task aperte ha superato il tetto del server,
+   * quindi i numeri sono «almeno» (la riga mette un «+»).
+   */
+  truncated?: boolean;
 }
 
 /**
@@ -140,7 +114,8 @@ export type TimelineEvent =
       at: string;
       prId: string;
       taskId: string;
-      number: number;
+      /** Assente se il server non lo sa: la voce si mostra senza numero. */
+      number?: number;
     }
   /**
    * Area 10a: una task eliminata, con codice e titolo di allora (la task non
@@ -160,12 +135,24 @@ export type TimelineEvent =
       byName?: string | null;
       /** Eliminata da Claude per `byId` (assente se a mano). */
       viaClaude?: boolean;
+      /**
+       * Lotto 4 (46, 24 nov 2026), a lettura: chi guarda non ha
+       * `tickets.view_all` nel progetto e non l'ha eliminata. Codice e
+       * titolo vuoti; la riga dice «A task was deleted».
+       */
+      concealed?: true;
     };
 
 export type TimelineKind = TimelineEvent["kind"];
 
 /** Una voce dell'attività del portafoglio: un evento di cronologia col suo progetto. */
 export type PortfolioEvent = TimelineEvent & { projectId: string };
+
+/** Una pagina di cronologia o di attività, dalla più recente; `nextBefore` null = non c'è altra storia. */
+export interface TimelinePage<E> {
+  events: E[];
+  nextBefore: string | null;
+}
 
 // --- area 3: letture delle conversazioni con Claude --------------------------
 
@@ -217,6 +204,11 @@ export interface TaskRun {
    * (`Conversation.skills`); `null` per una sessione nata prima del 9c.
    */
   skills: { plugin: string; skill: string }[] | null;
+  /**
+   * Build app (3b.1-bis): «Annulla il lavoro» chiesto su un lavoro in
+   * esecuzione, il worker lo sta chiudendo. Assente nel prototipo.
+   */
+  cancelRequested?: boolean;
 }
 
 /** I fatti esterni di una PR, quanto ne legge la sezione (il ciclo si deriva: `prCycles`). */
@@ -225,6 +217,8 @@ export type PrFactView = Omit<PrFact, "taskId">;
 /** Un report giornaliero con i commit della giornata arrivati dopo che è stato scritto. */
 export interface DailyReportView extends DailyReport {
   newCommits: number;
+  /** Build app: il report è in coda o si sta scrivendo (`GET /api/activity`). Assente nel prototipo. */
+  pending?: boolean;
 }
 
 /**
@@ -277,7 +271,7 @@ export interface PlanDecision {
   status: "approved" | "rejected";
 }
 
-export type RunAction = "start" | "relaunch" | "resume" | "requestChanges";
+export type RunAction = "start" | "relaunch" | "resume" | "requestChanges" | "cancel";
 
 /**
  * `allowed`: si può fare; `forbidden`: lo stato lo consente ma chi guarda
@@ -380,6 +374,8 @@ export type ConversationClaudeDecision = {
       kind: "plan";
       /** L'evento del piano: la decisione vale solo per questo piano. */
       planId: string;
+      /** Build app: il digest di questo piano, da rimandare decidendo (punto 13 della review). */
+      planDigest?: string;
       summary: string;
       /**
        * Correzione di un server (area 8b): perché il piano non si può
@@ -400,7 +396,9 @@ export type ReadOnlyReason =
   | "not_interactive"
   | "no_permission"
   /** Area 9b: la sessione è nata ma aspetta un blocco d'istanza (la coda in pausa). */
-  | "waiting";
+  | "waiting"
+  /** Area 8, F4b: la sessione di una correzione di server; si decide dalla task. */
+  | "server_fix";
 
 /** Quello che chi guarda può fare in una conversazione: lo calcola il livello dati, mai la UI. */
 export interface ConversationPermissions {
@@ -421,6 +419,12 @@ export interface ConversationPermissions {
   canContinue: boolean;
   /** Rinominare, archiviare, eliminare, renderla pubblica o privata (l'autore, solo libere). */
   canManage: boolean;
+  /**
+   * Build app (fetta 5): renderla pubblica o privata, come dice il server
+   * (`canPublish`); un server più vecchio non lo manda e non saprebbe farlo.
+   * Assente nel prototipo, dove vale `canManage`.
+   */
+  canPublish?: boolean;
   /** Refine: «Close session» (`backlog.edit`, sessione aperta). */
   canClose: boolean;
   /**
@@ -430,21 +434,29 @@ export interface ConversationPermissions {
   canStartNew: boolean;
   readOnlyReason: ReadOnlyReason | null;
   /**
-   * Correzione di un server (area 8b): perché il piano non si può approvare
-   * adesso, anche da chi ha `plans.approve` — il server non è più del
-   * progetto, o l'accesso di correzione è revocato o non verificato. `null`
-   * altrove, e per chi comunque non potrebbe decidere.
+   * Correzione di un server (area 8, F4b): perché il piano non si può
+   * approvare adesso, anche da chi ha `plans.approve` — il server non è più
+   * del progetto, o l'agente non ha le operazioni accese. `null` altrove, e
+   * per chi comunque non potrebbe decidere.
    */
   planBlockedReason: ServerFixBlock | null;
 }
 
-/** Perché una correzione di server non può eseguire comandi adesso (`serverFixBlock`). */
-export type ServerFixBlock = "server_gone" | "fix_access_revoked" | "fix_access_unverified";
+/** Perché una correzione di server non può eseguire azioni adesso (`serverFixBlock`). */
+export type ServerFixBlock = "server_gone" | "operations_off";
 
 export interface ConversationDetail extends ConversationRow, ConversationPermissions {
   /** Il flusso com'è adesso (proposte scadute già `expired`); dal vivo arriva dallo stream. */
   events: ConversationEvent[];
   planPreApproved: boolean;
+  /**
+   * Correzione di un server (area 8, F4b-8 = c; `pruneWarning` del
+   * server): con un piano che libera spazio, gli ALTRI progetti che usano
+   * il server — i nomi di quelli che chi guarda vede, gli altri contati. La
+   * scheda del piano lo dice prima di approvare. `null`/assente: nessun
+   * altro progetto, nessuna pulizia, o non è una correzione.
+   */
+  serverFixPruneWarning?: { projects: string[]; hiddenCount: number } | null;
   /**
    * La pubblica da cui continua, letta dal vivo (non copiata): titolo e
    * flusso visibile da mostrare in sola lettura in testa. Se l'originale non
@@ -458,6 +470,8 @@ export interface ConversationDetail extends ConversationRow, ConversationPermiss
         title: string;
         /** Chi l'ha aperta («Continues from … · Giulia Ferri»). */
         ownerId: string;
+        /** Build app: il suo nome dal server (anche se chi guarda non la vede fra le persone). */
+        ownerName?: string | null;
         events: ConversationEvent[];
       }
     | { id: string; available: false; title: null; ownerId: null; events: [] }
@@ -542,7 +556,24 @@ export interface MentionResult {
 
 /** Il risultato di «Rendi pubblica»: la prima volta chiede di confermare i progetti toccati. */
 export type SetVisibilityResult =
-  | { status: "needs_confirmation"; touchedProjects: { id: string; code: string; name: string }[] }
+  | {
+      status: "needs_confirmation";
+      touchedProjects: { id: string; code: string; name: string }[];
+      /**
+       * Build app (fetta 5, D1 del maintainer): chi legge vedrà anche ciò che
+       * Claude ha letto per te, e il dialogo lo dice. Assente nel prototipo.
+       */
+      includesToolReads?: boolean;
+      /** Build app: è la riconferma di un seguito privato (i progetti sono solo i nuovi). */
+      reconfirm?: boolean;
+    }
+  /**
+   * Area 10 (review di F1): Claude in questa conversazione ha letto
+   * contenuti privati (posta, calendario, un canale privato o un DM,
+   * un'automazione generale), quindi non si pubblica più. Nel prototipo:
+   * il chip della posta, una bozza di email, un'automazione generale.
+   */
+  | { status: "private_content" }
   | { status: "done"; conversation: Conversation };
 
 /** La rassegna del giorno di una persona (o di un autore di commit non collegato). */
@@ -550,6 +581,13 @@ export interface PersonDayActivity {
   /** `null`: autore di commit non collegato a nessuna persona. */
   personId: string | null;
   name: string;
+  /**
+   * Solo senza persona, nella build app (area 3, 3e.2): l'email git
+   * dell'autore (quella che «Link a person» collega) e lo username GitHub di
+   * una noreply. Assenti nel prototipo e da un server più vecchio.
+   */
+  authorEmail?: string | null;
+  authorUsername?: string | null;
   departmentIds: string[];
   tasksClosed: { taskId: string; code: string; title: string; projectId: string; at: string }[];
   tasksMoved: {
@@ -748,6 +786,13 @@ export interface ChatMessageHit {
   root?: ChatMessageView | null;
 }
 
+/** L'esito del download di un allegato (Chat o task): mai il percorso scelto né l'URL. */
+export type AttachmentDownloadResult =
+  | { ok: true }
+  | { ok: false; reason: "invalid" | "unauthenticated" | "not_found" | "failed" | "canceled" };
+/** Il download di un allegato della Chat (fetta 4). */
+export type ChatDownloadResult = AttachmentDownloadResult;
+
 export interface ChatSearchFilters {
   channelId?: string;
   authorId?: string;
@@ -812,12 +857,23 @@ export interface ChatMessageInput {
  * `doc` lo dice. `email` è l'email di Gemini, solo se chi guarda la vede.
  */
 export interface MeetingSummary {
-  eventId: string;
+  /**
+   * L'evento di CHI GUARDA; `null` per un invitato che non ce l'ha nel suo
+   * calendario e arriva alla riunione per nota (Q-A = a).
+   */
+  eventId: string | null;
+  /** La riunione (F5a): `getMeetingByNote`, «Open the meeting». */
+  noteId?: string;
   docTitle: string;
   doc: MeetingTranscript["doc"];
   summary: string | null;
   transcript: string | null;
-  email: { threadId: string; sourceId: string; at: string } | null;
+  /** `threadId` null: la conversazione non si apre (build app, senza la casella). */
+  email: { threadId: string | null; sourceId: string; at: string } | null;
+  /** Build app (F5): il link al Doc di Gemini («Open the transcript» apre Google Docs). */
+  docUrl?: string | null;
+  /** Build app (F5a): perché il Doc non si legge, o si legge solo in parte (`too_long`). */
+  docReason?: import("./model").MeetingDocReason | null;
 }
 
 /**
@@ -835,6 +891,14 @@ export interface MeetingTask {
   inProgress: boolean;
   dueDate: string | null;
   departmentId: string | null;
+  /**
+   * Lotto 4, §3: il codice del progetto della riga, per il link di una
+   * richiesta anche dove la lista non lo sa (il pannello per nota). `null`
+   * (o assente) da un server di prima: vale quello della lista.
+   */
+  projectCode?: string | null;
+  /** Lotto 4, §3: una richiesta ancora nell'intake (id del job, senza codice né link). */
+  pending?: boolean;
 }
 
 /**
@@ -884,372 +948,38 @@ export interface MeetingPrep {
   };
 }
 
-// --- Automations (area 7): le letture -------------------------------------------
+// --- Automations (area 7): le letture e la prova --------------------------------
 
-/** Un'automazione come la legge chi guarda, con i permessi calcolati dal «server». */
-export interface AutomationRow extends Automation {
-  permissions: { manage: boolean };
-  /** Le esecuzioni non finite (in corso, in attesa, sospese). */
-  openRuns: number;
-  /** Quelle ferme su un'approvazione, un evento o la scelta del progetto. */
-  waitingRuns: number;
-  lastRunAt: string | null;
-  /** C'è una bozza: mai accesa, o della versione successiva a quella attiva. */
-  hasDraft: boolean;
-  /** Gli errori di configurazione dell'ultima versione (quella che si modifica). */
-  configErrorCount: number;
-  /** Quelli della versione pubblicata adesso (0 per una bozza mai accesa). */
-  liveErrorCount: number;
-}
-
-/** Un'esecuzione con il suo codice («AUD-A1 #2») e la sua automazione. */
-export interface AutomationRunRow extends AutomationRun {
-  code: string;
-  automationCode: string;
-  automationName: string;
-  /** Il progetto dell'automazione (null = generale). */
-  automationProjectId: string | null;
-}
-
-export interface AutomationDetail {
-  automation: AutomationRow;
-  /** Gli errori dell'ultima versione (la bozza, se c'è): finché ci sono non si pubblica. */
-  configErrors: FlowIssue[];
-  /** Gli errori della versione pubblicata adesso (es. una sorgente scollegata). */
-  liveErrors: FlowIssue[];
-  /** Le esecuzioni, in corso in alto, poi dalla più recente (al massimo 20). */
-  runs: AutomationRunRow[];
-}
-
-export interface AutomationRunDetail extends AutomationRunRow {
-  /** Il flusso della versione con cui gira. */
-  flow: AutomationFlow;
-  /** Chi decide adesso (approvazione o progetto), risolto ora. */
-  deciders: string[];
-  /** Il proprietario dell'automazione adesso (anche per chi non vede l'automazione). */
-  ownerId: string | null;
-  permissions: {
-    /** Annulla, Riprova, Salta, «Fai passare il tempo». */
-    manage: boolean;
-    approve: boolean;
-    chooseProject: boolean;
-  };
-  /** L'esecuzione che l'ha avviata e quelle avviate da lei, se chi guarda le vede. */
-  parent: { id: string; code: string } | null;
-  children: { id: string; code: string; status: RunStatus }[];
-  /**
-   * Il passo da approvare come anteprima condivisa (task, email…: la stessa
-   * della prova e di «Da decidere»), risolta adesso; `null` se non ce n'è
-   * una o se chi guarda non può leggerla (R-J13/R-J16).
-   */
-  pendingEffect: SimulationEffectPreview | null;
-}
-
-export interface AutomationSourceView extends AutomationSource {
-  permissions: { manage: boolean };
-}
-
-/** Una riga della tabella cliente → progetto: un progetto che chi guarda non vede resta senza id. */
-export interface ClientLinkView extends ClientProjectLink {
-  projectVisible: boolean;
-}
-
-/** Una decisione in «Da decidere»: un passo da approvare o il progetto da scegliere. */
-export interface AutomationDecision {
-  kind: "approval" | "project";
-  runId: string;
-  code: string;
-  title: string;
-  automationId: string;
-  automationName: string;
-  projectId: string | null;
-  stepKind: Step["kind"];
-  preview: Record<string, unknown>;
-  /** Da quando aspetta. */
-  since: string;
-  /** Il passo che aspetta (R-J5): la decisione vale solo per lui. */
-  cursor: string;
-  /** Il codice dell'automazione e il numero dell'esecuzione («AUD-A1», 12). */
-  automationCode: string;
-  n: number;
-  /** Chi decide vede l'automazione: il link al suo dettaglio c'è solo allora. */
-  automationVisible: boolean;
-  /** «Scegli il progetto»: il cliente letto dall'evento, se c'è. */
-  clientName: string;
-  /** L'anteprima condivisa del passo da approvare (vedi `AutomationRunDetail.pendingEffect`). */
-  effect: SimulationEffectPreview | null;
-}
-
-/** Un'esecuzione nel blocco Home «Automations», con il motivo per cui riguarda chi guarda. */
-export interface MyAutomationRun extends AutomationRunRow {
-  /** Aspetta me; fallita di un'automazione che gestisco; di un'automazione mia, non finita. */
-  concern: "waiting_me" | "failed" | "owner";
-}
-
-/**
- * Un'esecuzione nella sezione «Automations» di un progetto. Senza
- * `linkable` (una generale che chi guarda non vede, shape [A 23]) restano
- * solo codice, titolo e stato: niente registro né nome dell'automazione.
- */
-export interface ProjectAutomationRun {
-  id: string;
-  n: number;
-  code: string;
-  title: string;
-  status: RunStatus;
-  startedAt: string;
-  automationCode: string;
-  automationName: string;
-  linkable: boolean;
-}
-
-/** La sezione «Automations» di un progetto (shape automations.md [A 22]). */
-export interface ProjectAutomationsView {
-  /** La voce della colonna c'è: qualcosa da vedere, o chi guarda può crearne. */
-  show: boolean;
-  canCreate: boolean;
-  automations: AutomationRow[];
-  /** Le esecuzioni non finite delle automazioni del progetto e delle generali che vi hanno agito. */
-  runs: ProjectAutomationRun[];
-  /** Le generali che vi hanno agito: solo a chi le vede. */
-  general: { id: string; code: string; name: string; lastActedAt: string; runCount: number }[];
-}
-
-/** «Created by automation …» su una task o un traguardo: senza nomi né link se non la vedo [A 24]. */
-export type AutomationOrigin =
-  | { visible: false }
-  | { visible: true; code: string; name: string; n: number; entry: string | null };
-
-export interface AutomationSearchResult {
-  kind: "automation" | "run";
-  id: string;
-  code: string;
-  label: string;
-  route: string;
-  /** Lo stato in parola (⌘K): dell'automazione o dell'esecuzione. */
-  status: Automation["status"] | RunStatus;
-}
-
-/** Nome e descrizione di un'automazione. */
-export interface AutomationMeta {
-  name?: string;
-  description?: string;
-}
-
-// --- Automations (area 7): la prova ----------------------------------------------
-//
-// Le anteprime della prova: cosa FAREBBE un passo, risolto con le regole
-// dell'esecuzione vera. Nessun codice (non nasce niente): una cosa si lega
-// al suo passo col percorso (`path`, R-J5), e il registro della prova ha
-// `effects[].code` sempre vuoto.
-
-/** Un progetto in un'anteprima; uno che chi prova non vede ha id, codice e nome vuoti (R-G5). */
-export interface SimulationProject {
-  id: string;
-  code: string;
-  name: string;
-}
-
-interface SimulationAt {
-  stepId: string;
-  /** Il percorso del passo (R-J5), giro compreso. */
-  path: string;
-}
-
-export interface SimulationTaskPreview extends SimulationAt {
-  project: SimulationProject;
-  title: string;
-  description: string;
-  assigneeId: string | null;
-  departmentId: string | null;
-  /** Come si è scelto l'incaricato: la persona, il reparto (senza incaricato), il primo col ruolo nel progetto, nessuno. */
-  assignedBy: "person" | "department" | "role" | "none";
-  role: string | null;
-  /** L'avviso del registro (es. nessuno ha il ruolo: la task nascerebbe senza incaricato). */
-  warning: ReasonCode | null;
-  dueDate: string | null;
-  dueInDays: number | null;
-  /** Il traguardo che nascerebbe da un passo precedente della prova. */
-  milestone: { name: string; stepId: string; path: string } | null;
-}
-
-export interface SimulationMilestonePreview extends SimulationAt {
-  project: SimulationProject;
-  name: string;
-  dueDate: string | null;
-  dueInDays: number | null;
-}
-
-export interface SimulationRequestPreview extends SimulationAt {
-  project: SimulationProject;
-  title: string;
-  description: string;
-}
-
-export interface SimulationEmailPreview extends SimulationAt {
-  /** La casella del proprietario da cui partirebbe. */
-  from: string;
-  to: string;
-  subject: string;
-  body: string;
-  attachments: string[];
-  /**
-   * Partirebbe come risposta nella conversazione aperta dall'email di quel
-   * passo (stesso indirizzo, come nell'esecuzione vera: il promemoria
-   * risponde alla richiesta); `null` = una conversazione nuova.
-   */
-  sameConversationAs: { stepId: string; path: string } | null;
-}
-
-export interface SimulationNotificationPreview extends SimulationAt {
-  personId: string;
-  text: string;
-  project: SimulationProject | null;
-}
-
-/** «Avvia un'altra automazione»: la prova dice solo che partirebbe, non ne percorre i passi. */
-export interface SimulationStartPreview extends SimulationAt {
-  automationId: string;
-  code: string;
-  name: string;
-}
-
-export interface SimulationClaudePreview extends SimulationAt {
-  outcome: string | null;
-  fields: Record<string, unknown>;
-  reason: string;
-  /** I documenti che Claude ha letto (nomi), per «Read: …». */
-  read: string[];
-}
-
-/** Un evento d'esempio per la prova: dalla sorgente, o un oggetto vero recente che chi prova vede. */
-export interface SimulationExample {
-  /** Una riga leggibile (es. «Nuovo contratto – Rossi Srl», «AUD-12 Titolo»). */
-  label: string;
-  /** Il codice dell'oggetto vero, se è una task o una richiesta. */
-  code: string | null;
-  at: string | null;
-  event: Record<string, unknown>;
-}
-
-export type SimulationEffectPreview =
-  | ({ kind: "task" } & SimulationTaskPreview)
-  | ({ kind: "milestone" } & SimulationMilestonePreview)
-  | ({ kind: "request" } & SimulationRequestPreview)
-  | ({ kind: "email" } & SimulationEmailPreview)
-  | ({ kind: "notification" } & SimulationNotificationPreview)
-  | ({ kind: "start" } & SimulationStartPreview);
-
-/** Dove la prova si è fermata ad aspettare chi prova. */
-export type SimulationWaiting =
-  | (SimulationAt & {
-      kind: "approval";
-      who: Extract<Approval, { mode: "ask" }>["who"];
-      /** Chi approverebbe davvero, risolto adesso (nella prova approva chi prova). */
-      realApproverIds: string[];
-      /** Chi sarebbe il proprietario. */
-      ownerId: string;
-    })
-  | (SimulationAt & {
-      kind: "event";
-      /** Fin quando aspetterebbe: «Avanti» manda un input `time` con questa data. */
-      until: string;
-      wait: Extract<Step, { kind: "wait" }>["for"];
-      /** L'email a cui si aspetta risposta (`replyTo`), se nella prova è partita. */
-      email: SimulationEmailPreview | null;
-      /** La task di cui si aspetta la chiusura (`taskClosed`). */
-      task: SimulationTaskPreview | null;
-    })
-  | (SimulationAt & {
-      kind: "project";
-      clientKey: string;
-      clientName: string | null;
-      /** Chi sceglierebbe davvero il progetto. */
-      ownerId: string;
-      /**
-       * I progetti fra cui scegliere: quelli che il proprietario vedrebbe
-       * (come nell'esecuzione vera), fra quelli che chi prova vede (R-G5);
-       * per codice.
-       */
-      choices: SimulationProject[];
-    });
-
-/** Un confronto del filtro dell'inizio su un esempio della prova (area 10b, D3). */
-export interface FilterCheck {
-  condition: Condition;
-  /** Il valore del dato nell'esempio (null se manca). */
-  value: unknown;
-  matches: boolean;
-}
-
-export interface SimulationView {
-  id: string;
-  automationId: string;
-  automationCode: string;
-  automationName: string;
-  /** La versione provata, e se è la bozza. */
-  version: number;
-  draft: boolean;
-  /** Chi sarebbe il proprietario: chi prova per una bozza (accenderla lo farebbe tale), altrimenti quello di adesso. */
-  ownerId: string;
-  event: Record<string, unknown>;
-  /** `running` = pronta per «Passo successivo»; le attese, la fine, il fallimento come in un'esecuzione. */
-  status: RunStatus;
-  /**
-   * Area 10b (D3): il filtro dell'inizio non vale per l'esempio, quindi la
-   * vera non partirebbe. La prova è `done` subito, senza anteprime, e non
-   * conta come provata. Facoltativo: assente vale `false`.
-   */
-  filteredOut?: boolean;
-  /**
-   * Con `filteredOut`: ogni confronto del filtro col valore dell'esempio e il
-   * suo esito, calcolati dal livello dati (la pagina li legge soltanto).
-   * Facoltativo: assente = nessun confronto da mostrare.
-   */
-  filterChecks?: FilterCheck[];
-  /**
-   * Area 10b (D2): la prova l'ha fatta Claude sul suo esempio — un evento vero
-   * (codice e titolo, come li vede chi l'ha chiesta) o uno scritto da lui. La
-   * pagina della prova adottata lo dice senza riconoscere l'evento da sé.
-   * Facoltativo: assente = una prova fatta a mano.
-   */
-  claudeExample?: { code: string | null; title: string | null; written: boolean };
-  error: string | null;
-  cursor: string | null;
-  /** L'«adesso» della prova (va avanti con «Avanti»). */
-  now: string;
-  log: RunLogEntry[];
-  vars: Record<string, unknown>;
-  loops: Record<string, unknown[]>;
-  /**
-   * Gli elementi di ogni «Per ogni» entrato nella prova (per percorso del
-   * passo), anche a giri finiti: i titoli dei giri («Round 3 of 6 · …»).
-   */
-  loopItems: Record<string, unknown[]>;
-  /**
-   * Il passo al cursore, quando sta per fare qualcosa (pronto per «Passo
-   * successivo», o in attesa di approvazione): la sua anteprima, o il
-   * fallimento con cui la vera si fermerebbe.
-   */
-  current: {
-    stepId: string;
-    path: string;
-    kind: Step["kind"];
-    preview: SimulationEffectPreview | null;
-    failure: { error: string; reason: string | null; why: ReasonCode | null } | null;
-  } | null;
-  waiting: SimulationWaiting | null;
-  /** Tutto ciò che farebbe, finora. */
-  preview: {
-    tasks: SimulationTaskPreview[];
-    milestones: SimulationMilestonePreview[];
-    requests: SimulationRequestPreview[];
-    emails: SimulationEmailPreview[];
-    notifications: SimulationNotificationPreview[];
-    starts: SimulationStartPreview[];
-    claude: SimulationClaudePreview[];
-  };
-}
+// In `@stubwise/shared` (`automations/views.ts`): le rotte del server
+// rispondono con questi tipi. Qui si ri-esportano, così nessun import cambia.
+export type {
+  AutomationRow,
+  AutomationRunRow,
+  AutomationDetail,
+  AutomationRunDetail,
+  AutomationSourceView,
+  ClientLinkView,
+  AutomationDecision,
+  MyAutomationRun,
+  ProjectAutomationRun,
+  ProjectAutomationsView,
+  AutomationOrigin,
+  AutomationSearchResult,
+  AutomationMeta,
+  SimulationProject,
+  SimulationTaskPreview,
+  SimulationMilestonePreview,
+  SimulationRequestPreview,
+  SimulationEmailPreview,
+  SimulationNotificationPreview,
+  SimulationStartPreview,
+  SimulationClaudePreview,
+  SimulationExample,
+  SimulationEffectPreview,
+  SimulationWaiting,
+  FilterCheck,
+  SimulationView,
+} from "@stubwise/shared";
 
 /** «Replace example» di un webhook, prima di confermare (area 7). */
 export interface WebhookExamplePreview {

@@ -27,6 +27,10 @@ export const sessionUserSchema = publicUserSchema.extend({
   language: languageSchema,
   avatarUrl: z.string().nullable(),
   slackUserId: z.string().nullable(),
+  // Integrazione area 2: il nome visualizzato; null = la parte locale
+  // dell'email. `.optional()` (e non `.default`): un server più vecchio non
+  // lo manda, e le fixture dei client che non lo conoscono restano valide.
+  displayName: z.string().nullable().optional(),
 });
 export type SessionUser = z.infer<typeof sessionUserSchema>;
 
@@ -59,6 +63,14 @@ export const sessionResponseSchema = z.object({
   user: sessionUserSchema,
   instancePermissions: z.array(z.string()).default([]),
   projectPermissions: z.record(z.string(), z.array(z.string())).default({}),
+  /** Fetta 3: i permessi di REPARTO, per reparto (`department_roles`). Un full admin li ha su ogni reparto: lo dice già `instancePermissions`. */
+  departmentPermissions: z.record(z.string(), z.array(z.string())).default({}),
+  /**
+   * Rimandi, lotto 5: i reparti di chi è dentro, nell'ordine della persona
+   * (`department_members.position`, come `/api/people`): il primo dà il colore
+   * delle iniziali nel profilo. `.default([])`: un server più vecchio non li manda.
+   */
+  departments: z.array(z.object({ id: z.uuid(), name: z.string(), colorToken: z.string() })).default([]),
 });
 export type SessionResponse = z.infer<typeof sessionResponseSchema>;
 

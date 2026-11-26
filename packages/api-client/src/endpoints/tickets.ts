@@ -279,9 +279,14 @@ export function createTicketsEndpoints(request: ApiRequest) {
       return request("POST", `/api/tickets/${seg(ticketId)}/run-ai`, opts, runAiResultSchema);
     },
 
-    /** Approva il piano in attesa: il worker lo esegue. 409 se non ce n'è uno. */
-    approvePlan(ticketId: string): Promise<Reader<PlanDecisionResult>> {
-      return request("POST", `/api/tickets/${seg(ticketId)}/approve-plan`, undefined, planDecisionResultSchema);
+    /**
+     * Approva il piano in attesa: il worker lo esegue. 409 se non ce n'è uno.
+     * Con `planDigest` (il digest del piano LETTO, area 3): 409 `plan_changed`
+     * se nel frattempo è cambiato, e niente si decide.
+     */
+    approvePlan(ticketId: string, opts?: { planDigest?: string }): Promise<Reader<PlanDecisionResult>> {
+      const body = opts?.planDigest ? { planDigest: opts.planDigest } : undefined;
+      return request("POST", `/api/tickets/${seg(ticketId)}/approve-plan`, body, planDecisionResultSchema);
     },
 
     /**
@@ -289,7 +294,7 @@ export function createTicketsEndpoints(request: ApiRequest) {
      * (max 4000) diventano un commento del team sul ticket — cioè proprio ciò
      * che il nuovo piano rilegge.
      */
-    rejectPlan(ticketId: string, body?: { instructions?: string }): Promise<Reader<PlanDecisionResult>> {
+    rejectPlan(ticketId: string, body?: { instructions?: string; planDigest?: string }): Promise<Reader<PlanDecisionResult>> {
       return request("POST", `/api/tickets/${seg(ticketId)}/reject-plan`, body, planDecisionResultSchema);
     },
 

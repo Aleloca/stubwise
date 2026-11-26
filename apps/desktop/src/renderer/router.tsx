@@ -1,3 +1,4 @@
+import { releasesIntegrated } from "./data/queries/releases";
 import {
   createRootRoute,
   createRoute,
@@ -10,14 +11,18 @@ import {
   type RouterHistory,
 } from "@tanstack/react-router";
 import { AppLayout } from "./layout/AppLayout";
-import { Placeholder } from "./pages/Placeholder";
+import { ComingSoon, Placeholder } from "./pages/Placeholder";
+import { isIntegrated, landingSearch } from "./data/integration";
 import { NotFound } from "./pages/NotFound";
 import { ProjectNotFound } from "./pages/ProjectNotFound";
 import { useTranslation } from "react-i18next";
 import { useChatChannels, useEntryGate, useProject } from "./data/queries";
+import { DesktopLoginPage, type DesktopLoginParams } from "./pages/entry/DesktopLoginPage";
+import { DesktopGooglePage, type DesktopGoogleParams } from "./pages/entry/DesktopGooglePage";
 import { LoginPage } from "./pages/entry/LoginPage";
 import { RegisterPage } from "./pages/entry/RegisterPage";
 import { ResetPasswordPage } from "./pages/entry/ResetPasswordPage";
+import { EmailChangePage } from "./pages/entry/EmailChangePage";
 import { SetupPage } from "./pages/entry/SetupPage";
 import {
   APP_ROUTES,
@@ -35,13 +40,14 @@ import {
   isValidSearchParam,
 } from "./data/routes";
 import { projectSettingsAccess } from "./data/adminSections";
-import { can, useViewer } from "./data/viewer";
+import { can, useViewer } from "./data/viewing";
 import {
   AdminIndex,
   AdminSectionPage,
   AdminInvitePage,
   AdminPersonPage,
   AdminPluginPage,
+  AdminWebhookPage,
   AdminRolePage,
   AdminServerPage,
 } from "./pages/admin/AdminLayout";
@@ -76,6 +82,7 @@ import { ProductSpace } from "./pages/productDocs/ProductSpace";
 import { ProductIndex } from "./pages/productDocs/ProductIndex";
 import { ProductPageRoute } from "./pages/productDocs/ProductPageRoute";
 import { DrivePage } from "./pages/drive/DrivePage";
+import { VaultPage } from "./pages/vault/VaultPage";
 import { DRIVE_SEARCH_KEYS, isDriveSearchValue } from "./pages/drive/driveFilters";
 import { MailPage } from "./pages/mail/MailPage";
 import { MAIL_SEARCH_KEYS, NO_PROJECT, isMailSearchValue } from "./pages/mail/mailFilters";
@@ -99,6 +106,7 @@ import { ReleasesPage } from "./pages/releases/ReleasesPage";
 import { ReleaseDetail } from "./pages/releases/ReleaseDetail";
 import { ServerDetail } from "./pages/servers/ServerDetail";
 import { ServersPage } from "./pages/servers/ServersPage";
+import { CredentialsSection } from "./pages/vault/CredentialsSection";
 import { ConversationNotFound, SupportPage } from "./pages/support/SupportPage";
 import { PageError } from "./tasks-ui/PageStates";
 import { useSupportConversation } from "./data/queries";
@@ -196,6 +204,18 @@ export interface AppSearch {
   then?: string;
   /** Releases: il pannello di una PR aperta (l'id). */
   pr?: string;
+  /** Credentials e Vault: il dettaglio di una credenziale (lotto 10). */
+  credential?: string;
+  /** Con `credential`: il dettaglio si apre già in modifica (`1`, dal «⋯» della riga). */
+  edit?: string;
+  /** Vault: la ricerca a fuoco all'apertura (`1`, dal comando ⌘K «Find a credential»). */
+  findCredential?: string;
+  /** Credentials: il registro degli accessi del progetto (`1`, dal «⋯» della sezione). */
+  log?: string;
+  /** Credentials e Vault: il pannello degli accessi da confermare (`1`). */
+  pending?: string;
+  /** Vault: il filtro per progetto, i codici separati da virgola (`ACQ,MKX`). */
+  projects?: string;
   /** Support → Widget: il pannello di un widget (l'id, o `new`). */
   widget?: string;
   /**
@@ -207,6 +227,8 @@ export interface AppSearch {
   section?: string;
   /** Una pagina di prodotto (area 11a): il filo di un commento da aprire (l'id della radice). */
   comment?: string;
+  /** Area 11, F5 (build app): col filo di `comment`, la scheda «Open a request» aperta (`1`). */
+  requestCard?: string;
   /** 11b (P43): il segno di Claude da aprire (l'id d'ancora) e la riga della cronologia (la revisione). */
   mark?: string;
   history?: string;
@@ -242,6 +264,7 @@ export interface AppSearch {
 const SEARCH_KEYS = [
   "task",
   "comment",
+  "requestCard",
   "mark",
   "history",
   "newTask",
@@ -270,6 +293,12 @@ const SEARCH_KEYS = [
   ...CALENDAR_SEARCH_KEYS,
   ...AUTOMATION_SEARCH_KEYS,
   "pr",
+  "credential",
+  "edit",
+  "log",
+  "findCredential",
+  "pending",
+  "projects",
   "widget",
   "range",
   "to",
@@ -303,60 +332,70 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
     out[key] = undefined;
     if (typeof value !== "string") continue;
     // `request` e `view` dipendono dal percorso: qui si controlla la forma, la route decide.
-    const shapeOk =
-      (PEOPLE_SEARCH_KEYS as readonly string[]).includes(key)
-        ? isPeopleSearchValue(key, value)
-        : (AUDIT_SEARCH_KEYS as readonly string[]).includes(key) ||
-            (key === "project" && value === INSTANCE_ONLY)
+    const shapeOk = (PEOPLE_SEARCH_KEYS as readonly string[]).includes(key)
+      ? isPeopleSearchValue(key, value)
+      : (AUDIT_SEARCH_KEYS as readonly string[]).includes(key) ||
+          (key === "project" && value === INSTANCE_ONLY)
         ? isAuditSearchValue(key, value) || key === "project"
         : (key === "from" || key === "to") && /^\d{4}-\d{2}-\d{2}$/.test(value)
-        ? true
-        : (AUTOMATION_SEARCH_KEYS as readonly string[]).includes(key)
-        ? isAutomationSearchValue(key, value)
-        : (SEARCH_PARAM_KEYS as readonly string[]).includes(key)
-        ? isSearchParamValue(key, value)
-        : (DRIVE_SEARCH_KEYS as readonly string[]).includes(key)
-          ? // `source` è anche il pannello di una sorgente delle Automations (un id).
-            isDriveSearchValue(key, value) || (key === "source" && /^[\w-]+$/.test(value))
-          : (MAIL_SEARCH_KEYS as readonly string[]).includes(key) ||
-              (key === "project" && value === NO_PROJECT)
-            ? isMailSearchValue(key, value)
-            : key === "request" ||
-      key === "event" ||
-      key === "series" ||
-      key === "brief" ||
-      key === "dept" ||
-      key === "department" ||
-      key === "member" ||
-      key === "addMember" ||
-      key === "repo" ||
-      key === "thread" ||
-      key === "message" ||
-      key === "pr" ||
-      key === "widget" ||
-      key === "check" ||
-      key === "comment" ||
-      key === "mark" ||
-      key === "history" ||
-      key === "decision"
-        ? /^[\w-]+$/.test(value)
-        : key === "range"
-          ? /^(1h|24h|7d|30d|90d|month|custom)$/.test(value)
-          : key === "section" || key === "tab" || key === "then"
-            ? /^[a-z]+$/.test(value)
-        : key === "date"
-          ? /^\d{4}-\d{2}-\d{2}$/.test(value)
-          : key === "view" || key === "group" || key === "scope"
-            ? /^[a-z-]+$/.test(value)
-            : key === "ask"
-              ? value.trim().length > 0 && value.length <= ASK_MAX
-              : key === "refine" ||
-                  key === "recordDecision" ||
-                  key === "settings" ||
-                  key === "newMeeting" ||
-                  key === "new"
-                ? value === "1"
-                : false;
+          ? true
+          : (AUTOMATION_SEARCH_KEYS as readonly string[]).includes(key)
+            ? isAutomationSearchValue(key, value)
+            : (SEARCH_PARAM_KEYS as readonly string[]).includes(key)
+              ? isSearchParamValue(key, value)
+              : (DRIVE_SEARCH_KEYS as readonly string[]).includes(key)
+                ? // `source` è anche il pannello di una sorgente delle Automations (un id).
+                  isDriveSearchValue(key, value) || (key === "source" && /^[\w-]+$/.test(value))
+                : (MAIL_SEARCH_KEYS as readonly string[]).includes(key) ||
+                    (key === "project" && value === NO_PROJECT)
+                  ? isMailSearchValue(key, value)
+                  : key === "request" ||
+                      key === "event" ||
+                      key === "series" ||
+                      key === "brief" ||
+                      key === "dept" ||
+                      key === "department" ||
+                      key === "member" ||
+                      key === "addMember" ||
+                      key === "repo" ||
+                      key === "thread" ||
+                      key === "message" ||
+                      key === "widget" ||
+                      key === "check" ||
+                      key === "comment" ||
+                      key === "mark" ||
+                      key === "history" ||
+                      key === "decision" ||
+                      key === "credential" ||
+                      key === "pending"
+                    ? /^[\w-]+$/.test(value)
+                    : key === "projects"
+                      ? /^[A-Z]{2,4}(,[A-Z]{2,4})*$/.test(value)
+                      : // Releases: l'id della PR; nella build app è `<repository>#<numero>`
+                        // (`data/backend/real/releasePrs.ts`).
+                        key === "pr"
+                        ? /^[\w-]+(#\d+)?$/.test(value)
+                        : key === "range"
+                          ? /^(1h|24h|7d|30d|90d|month|custom)$/.test(value)
+                          : key === "section" || key === "tab" || key === "then"
+                            ? /^[a-z]+$/.test(value)
+                            : key === "date"
+                              ? /^\d{4}-\d{2}-\d{2}$/.test(value)
+                              : key === "view" || key === "group" || key === "scope"
+                                ? /^[a-z-]+$/.test(value)
+                                : key === "ask"
+                                  ? value.trim().length > 0 && value.length <= ASK_MAX
+                                  : key === "refine" ||
+                                      key === "requestCard" ||
+                                      key === "recordDecision" ||
+                                      key === "settings" ||
+                                      key === "newMeeting" ||
+                                      key === "new" ||
+                                      key === "edit" ||
+                                      key === "log" ||
+                                      key === "findCredential"
+                                    ? value === "1"
+                                    : false;
     // I filtri di WORK dello Stato dell'istanza (area 9b, ruling 10) hanno la
     // loro forma: non dipendono da quelle omonime di Automations e registro.
     const workFilter =
@@ -371,7 +410,8 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
 const ASK_MAX = 2000;
 
 /** Le rotte d'ingresso: fuori dall'intelaiatura (niente binario né colonna). */
-const ENTRY_PATH = /^\/(login|setup|register\/[^/]+|reset-password\/[^/]+)\/?$/;
+const ENTRY_PATH =
+  /^\/(login|setup|desktop-login|desktop-google|register\/[^/]+|reset-password\/[^/]+|email-change\/[^/]+)\/?$/;
 
 /**
  * Il cancello dell'ingresso (area 9a, shape `entry.md`). Con l'istanza vuota
@@ -383,7 +423,12 @@ function EntryGate() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { stage, empty } = useEntryGate();
   if (empty) return pathname === "/setup" ? <Outlet /> : <Navigate to="/setup" replace />;
-  if (pathname === "/setup") return <Navigate to={stage === "in" ? "/home" : "/login"} replace />;
+  if (pathname === "/setup")
+    return stage === "in" ? (
+      <Navigate to="/home" search={landingSearch()} replace />
+    ) : (
+      <Navigate to="/login" replace />
+    );
   if (ENTRY_PATH.test(pathname)) return <Outlet />;
   if (stage !== "in") return <Navigate to="/login" replace />;
   return <AppLayout />;
@@ -399,6 +444,50 @@ const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
   component: LoginPage,
+});
+
+/** I parametri che l'app desktop mette nel link: solo testo, la pagina li valida. */
+function validateDesktopLoginSearch(search: Record<string, unknown>): DesktopLoginParams {
+  const text = (key: string) =>
+    typeof search[key] === "string" ? (search[key] as string) : undefined;
+  return { challenge: text("challenge"), state: text("state"), device: text("device") };
+}
+
+function DesktopLoginRoutePage() {
+  const params = desktopLoginRoute.useSearch();
+  return <DesktopLoginPage {...params} />;
+}
+
+/**
+ * `/desktop-login` (integrazione area 2, «Aggiunta del 9 nov 2026: il
+ * login»): nel browser, la conferma del login dell'app desktop. Una pagina
+ * dell'ingresso, fuori dall'intelaiatura.
+ */
+const desktopLoginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/desktop-login",
+  validateSearch: validateDesktopLoginSearch,
+  component: DesktopLoginRoutePage,
+});
+
+function DesktopGoogleRoutePage() {
+  const params = desktopGoogleRoute.useSearch();
+  return <DesktopGooglePage {...params} />;
+}
+
+/**
+ * `/desktop-google` (lotto 4, §6): nel browser, il ritorno dal consenso di
+ * Google per una casella collegata dal desktop. Una pagina dell'ingresso,
+ * fuori dall'intelaiatura e senza sessione.
+ */
+const desktopGoogleRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/desktop-google",
+  validateSearch: (search: Record<string, unknown>): DesktopGoogleParams => ({
+    outcome: typeof search.outcome === "string" ? search.outcome : undefined,
+    state: typeof search.state === "string" ? search.state : undefined,
+  }),
+  component: DesktopGoogleRoutePage,
 });
 
 function RegisterRoutePage() {
@@ -425,6 +514,18 @@ const resetPasswordRoute = createRoute({
   component: ResetPasswordRoutePage,
 });
 
+function EmailChangeRoutePage() {
+  const { token } = emailChangeRoute.useParams();
+  return <EmailChangePage key={token} token={token} />;
+}
+
+/** Area 9, R2: il link del cambio dell'email di login, pubblico come il reset. */
+const emailChangeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/email-change/$token",
+  component: EmailChangeRoutePage,
+});
+
 const setupRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/setup",
@@ -435,7 +536,7 @@ const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   beforeLoad: () => {
-    throw redirect({ to: "/home", replace: true });
+    throw redirect({ to: "/home", search: landingSearch(), replace: true });
   },
 });
 
@@ -443,7 +544,9 @@ const indexRoute = createRoute({
 function PlanningRoutePage() {
   const { viewer } = useViewer();
   // «Planning» trasversale: solo a chi ha `planning.others` in almeno un progetto.
-  if (!can(viewer, "planning.others")) return <Navigate to="/home" replace />;
+  // Chi non ce l'ha torna dove si atterra (nella build app La mia settimana).
+  if (!can(viewer, "planning.others"))
+    return <Navigate to="/home" search={landingSearch()} replace />;
   return <PlanningPage key={viewer.personId} />;
 }
 
@@ -529,6 +632,7 @@ function pageOf(name: (typeof APP_ROUTES)[number]) {
   if (name === "claude") return ClaudePage;
   if (name === "chat") return ChatPage;
   if (name === "drive") return DriveRoutePage;
+  if (name === "vault") return VaultPage;
   if (name === "mail") return MailRoutePage;
   if (name === "calendar") return CalendarRoutePage;
   if (name === "automations") return AutomationsPage;
@@ -613,16 +717,10 @@ function ProjectChatLanding({ projectId, code }: { projectId: string; code: stri
   }
   const general = data.find((c) => c.isGeneral) ?? data.find((c) => c.isMember && !c.archived);
   if (!general) {
-    return (
-      <Placeholder titleKey="project.sections.chat" bodyKey="chat.project.noChannels" />
-    );
+    return <Placeholder titleKey="project.sections.chat" bodyKey="chat.project.noChannels" />;
   }
   return (
-    <Navigate
-      to="/p/$code/chat/$channelId"
-      params={{ code, channelId: general.id }}
-      replace
-    />
+    <Navigate to="/p/$code/chat/$channelId" params={{ code, channelId: general.id }} replace />
   );
 }
 
@@ -681,9 +779,9 @@ const projectChatChannelRoute = createRoute({
 function ReleaseRoutePage() {
   const { code, release } = releaseRoute.useParams();
   const { viewer } = useViewer();
-  return (
-    <ReleaseDetail key={`${release}:${viewer.personId}`} projectCode={code} code={release} />
-  );
+  // Area 8, F1: con le sole PR accese (`releases-prs`) il rilascio è «in arrivo».
+  if (!releasesIntegrated()) return <ComingSoon titleKey="releases.title" />;
+  return <ReleaseDetail key={`${release}:${viewer.personId}`} projectCode={code} code={release} />;
 }
 
 /**
@@ -853,12 +951,28 @@ const projectIndexRoute = createRoute({
   beforeLoad: ({ params }) => {
     throw redirect({
       to: "/p/$code/$section",
-      params: { code: params.code.toUpperCase(), section: "overview" },
+      params: { code: params.code.toUpperCase(), section: landingSection() },
       search: (prev) => prev,
       replace: true,
     });
   },
 });
+
+/**
+ * Dove atterra un progetto: l'Overview, o Tasks nella build app finché
+ * l'Overview non è integrata (integrazione area 2, fetta 1).
+ */
+function landingSection(): "overview" | "tasks" {
+  return isIntegrated({ kind: "projectSection", name: "overview" }) ? "overview" : "tasks";
+}
+
+/** La prima sezione delle impostazioni di progetto integrata in questa build. */
+function firstSettingsSection() {
+  return (
+    PROJECT_SETTINGS_SECTIONS.find((s) => isIntegrated({ kind: "projectSettings", name: s.id })) ??
+    PROJECT_SETTINGS_SECTIONS[0]
+  ).id;
+}
 
 function ProjectSectionPage() {
   const { code, section } = projectSectionRoute.useParams();
@@ -890,7 +1004,7 @@ function ProjectSectionPage() {
   const def = PROJECT_SECTIONS.find((s) => s.id === section);
   const needed = def && "module" in def ? def.module : undefined;
   if (needed && !project.modules.includes(needed)) {
-    return <Navigate to="/p/$code/$section" params={{ code, section: "overview" }} replace />;
+    return <Navigate to="/p/$code/$section" params={{ code, section: landingSection() }} replace />;
   }
   if (section === "tasks") return <TasksPage projectCode={project.code} />;
   if (section === "planning") {
@@ -905,13 +1019,14 @@ function ProjectSectionPage() {
   if (section === "chat") return <ProjectChatLanding projectId={project.id} code={project.code} />;
   if (section === "automations") {
     return (
-      <ProjectAutomationsPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />
+      <ProjectAutomationsPage
+        key={`${project.code}:${viewer.personId}`}
+        projectCode={project.code}
+      />
     );
   }
   if (section === "releases") {
-    return (
-      <ReleasesPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />
-    );
+    return <ReleasesPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />;
   }
   if (section === "support") {
     return <SupportPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />;
@@ -924,13 +1039,18 @@ function ProjectSectionPage() {
     return (
       <Navigate
         to="/p/$code/settings/$section"
-        params={{ code: project.code, section: PROJECT_SETTINGS_SECTIONS[0].id }}
+        params={{ code: project.code, section: firstSettingsSection() }}
         replace
       />
     );
   }
   if (section === "servers") {
     return <ServersPage key={`${project.code}:${viewer.personId}`} projectCode={project.code} />;
+  }
+  if (section === "credentials") {
+    return (
+      <CredentialsSection key={`${project.code}:${viewer.personId}`} projectCode={project.code} />
+    );
   }
   return (
     <Placeholder
@@ -944,7 +1064,7 @@ const projectSectionRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/p/$code/$section",
   beforeLoad: ({ params }) => {
-    const section = isProjectSection(params.section) ? params.section : "overview";
+    const section = isProjectSection(params.section) ? params.section : landingSection();
     if (section !== params.section || upperCaseCode(params.code)) {
       throw redirect({
         to: "/p/$code/$section",
@@ -994,11 +1114,13 @@ function ProjectSettingsRoutePage() {
   const def = PROJECT_SETTINGS_SECTIONS.find((s) => s.id === section);
   if (!def || !access[def.id].visible) {
     // Senza messaggio, come [AI 3]: la prima sezione che chi guarda vede.
-    const first = PROJECT_SETTINGS_SECTIONS.find((s) => access[s.id].visible)?.id;
+    const first = PROJECT_SETTINGS_SECTIONS.find(
+      (s) => access[s.id].visible && isIntegrated({ kind: "projectSettings", name: s.id }),
+    )?.id;
     return (
       <Navigate
         to="/p/$code/settings/$section"
-        params={{ code, section: first ?? PROJECT_SETTINGS_SECTIONS[0].id }}
+        params={{ code, section: first ?? firstSettingsSection() }}
         replace
       />
     );
@@ -1055,7 +1177,11 @@ function DocSpaceRoutePage() {
   return (
     <DocsProjectGate code={code}>
       {(project) => (
-        <DocSpace key={`${project.code}:${repo}:${viewer.personId}`} project={project} repo={repo} />
+        <DocSpace
+          key={`${project.code}:${repo}:${viewer.personId}`}
+          project={project}
+          repo={repo}
+        />
       )}
     </DocsProjectGate>
   );
@@ -1253,6 +1379,18 @@ const adminPluginRoute = createRoute({
   component: AdminPluginRoutePage,
 });
 
+/** La pagina di un webhook in uscita (`/admin/webhooks/$webhookId`, F3), dentro Outgoing webhooks. */
+function AdminWebhookRoutePage() {
+  const { webhookId } = adminWebhookRoute.useParams();
+  return <AdminWebhookPage webhookId={webhookId} />;
+}
+
+const adminWebhookRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/webhooks/$webhookId",
+  component: AdminWebhookRoutePage,
+});
+
 /**
  * Il dettaglio di un server dall'Amministrazione (`/admin/servers/SRV-2`,
  * area 9b), dentro Servers, con `monitor.manage`: lo stesso dell'8b.
@@ -1331,8 +1469,11 @@ const automationTestRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
+  desktopLoginRoute,
+  desktopGoogleRoute,
   registerRoute,
   resetPasswordRoute,
+  emailChangeRoute,
   setupRoute,
   ...appRoutes.map((r) => (r === mailRoute ? mailRoute.addChildren([mailThreadRoute]) : r)),
   conversationRoute,
@@ -1342,6 +1483,7 @@ const routeTree = rootRoute.addChildren([
   adminInviteRoute,
   adminRoleRoute,
   adminPluginRoute,
+  adminWebhookRoute,
   adminServerRoute,
   automationSourcesRoute,
   automationRoute,

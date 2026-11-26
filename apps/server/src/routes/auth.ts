@@ -1,9 +1,9 @@
 import { randomBytes } from "node:crypto";
-import { and, count, desc, eq, gt, isNull, lte, ne, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, isNull, lte, ne, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { projectPermissionsMap } from "../auth/access.js";
+import { projectPermissionsMap, requireBrowserOrConfirmedDesktop } from "../auth/access.js";
 import { hashPassword, verifyPassword } from "../auth/password.js";
 import {
   findLiveResetToken,
@@ -22,7 +22,7 @@ import {
   toSessionUser,
 } from "../auth/session.js";
 import type { SessionUserColumns } from "../auth/session.js";
-import { invites, passwordResetTokens, roles, sessions, users } from "@stubwise/db";
+import { departmentMembers, departments, invites, passwordResetTokens, personalAccessTokens, roles, sessions, users } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import {
   authUserResponseSchema,
@@ -31,12 +31,15 @@ import {
   languageSchema,
   loginResponseSchema,
   mobileLoginBodySchema,
+  DEVICE_NAME_FORBIDDEN,
   mobileLoginResponseSchema,
   sessionResponseSchema,
   setupStatusSchema,
+  inviteLinkSchema,
 } from "@stubwise/shared";
 import { createPatForUser, revokeMobilePats } from "./pat.js";
 import { secondFactorLoginRoutes } from "./second-factor-login.js";
+import { desktopHandoffRoutes } from "./desktop-handoff.js";
 import { hasConfirmedTotp } from "../auth/second-factor/totp.js";
 import { attemptSecondFactor, verifySecondFactorCode } from "../auth/second-factor/index.js";
 import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
@@ -45,12 +48,22 @@ import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
 import {
   applyInviteGrants,
   assertInviteGrants,
+  inviteDepartmentWarnings,
+  type InviteWarning,
   inviteGrants,
   saveInviteGrants,
 } from "../services/roles.js";
+import { departmentPermissionsMap } from "../services/home.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
 import { apiError } from "../errors.js";
+import { avatarUrlsFor } from "../services/avatars.js";
+import { confirmEmailChange, peekEmailChange } from "../services/email-change.js";
+import { readInvite } from "../services/invite-link.js";
+import { sendEmailChangeError } from "./me-email-change.js";
+import { personObject, recordChange } from "../services/change-log.js";
+import { inviteObject, inviteParams } from "../services/invite-change.js";
+import { inviteIdOf } from "../services/admin-people.js";
 import {
   loadSlackCreds,
   defaultSlackClientFactory,
@@ -141,7 +154,11 @@ async function verifyCredentials(
     .select({ ...sessionUserSelection, passwordHash: users.passwordHash })
     .from(users)
     .innerJoin(roles, eq(roles.id, users.instanceRoleId))
-    .where(eq(users.email, email));
+    // L'utente di sistema «Claude» (area 3, fetta 3e) non entra MAI: è un
+    // utente che non c'è, con la stessa verifica a vuoto (tempo costante).
+    // Area 9, F1: una persona disattivata è come una che non c'è (stessa
+    // verifica a vuoto, stesso errore di una password sbagliata).
+    .where(and(eq(users.email, email), eq(users.isAgent, false), isNull(users.deactivatedAt)));
   if (!user) {
     await verifyPassword(await getDummyHash(), password);
     return null;
@@ -153,6 +170,7 @@ async function verifyCredentials(
     role: user.role,
     language: user.language,
     slackAvatarUrl: user.slackAvatarUrl,
+    displayName: user.displayName,
     slackUserId: user.slackUserId,
     instanceRolePermissions: user.instanceRolePermissions,
   };
@@ -188,6 +206,22 @@ export function credentialsBucketViolation(
     `per IP (vedi il commento su credentialsRateLimit; eccezioni: ${OWN_BUCKET_ROUTES.join(", ")}).`
   );
 }
+
+/**
+ * Il nome da mostrare, con le stesse regole ovunque si scriva: `PATCH
+ * /api/auth/me`, e (review di F1, C1) i corpi di `register` e `setup`, così il
+ * nome si scrive sulla persona NUOVA e non su chi ha già un cookie nel browser.
+ */
+const displayNameSchema = z
+  .string()
+  .trim()
+  .max(80)
+  .refine((v) => !DEVICE_NAME_FORBIDDEN.test(v), {
+    message: "displayName must not contain line breaks or bidirectional formatting characters",
+  })
+  .nullable()
+  .optional();
+const displayNameValue = (v: string | null | undefined) => (v === undefined || v === null || v === "" ? null : v);
 
 const credentialsSchema = z.object({
   email: z.email(),
@@ -268,7 +302,7 @@ export async function authRoutes(
     "/setup",
     { config: { access: { kind: "public" } }, schema: { response: { 200: setupStatusSchema } } },
     async () => {
-      const [row] = await app.db.select({ value: count() }).from(users);
+      const [row] = await app.db.select({ value: count() }).from(users).where(eq(users.isAgent, false));
       return { needed: (row?.value ?? 0) === 0 };
     },
   );
@@ -278,13 +312,13 @@ export async function authRoutes(
     {
       config: { access: { kind: "public" } },
       schema: {
-        body: credentialsSchema,
+        body: credentialsSchema.extend({ displayName: displayNameSchema }),
         response: { 201: authUserResponseSchema, 403: errorSchema },
       },
     },
     async (request, reply) => {
       // Fast path: se un utente esiste già si rifiuta senza pagare l'hash.
-      const [row] = await app.db.select({ value: count() }).from(users);
+      const [row] = await app.db.select({ value: count() }).from(users).where(eq(users.isAgent, false));
       if ((row?.value ?? 0) > 0) {
         return apiError(reply, 403, "setup_already_completed", "Setup already completed");
       }
@@ -295,13 +329,15 @@ export async function authRoutes(
       // vengono serializzati e solo il primo crea l'admin.
       const user = await app.db.transaction(async (tx) => {
         await tx.execute(sql`select pg_advisory_xact_lock(${SETUP_LOCK_KEY})`);
-        const [recount] = await tx.select({ value: count() }).from(users);
+        const [recount] = await tx.select({ value: count() }).from(users).where(eq(users.isAgent, false));
         if ((recount?.value ?? 0) > 0) return null;
         const [created] = await tx
           .insert(users)
-          .values({ email: request.body.email, passwordHash, role: "admin" })
+          .values({ email: request.body.email, passwordHash, role: "admin", displayName: displayNameValue(request.body.displayName) })
           .returning();
         if (!created) throw new Error("insert dell'admin non ha restituito la riga");
+        // Area 9, F2: la prima voce del registro, del sistema.
+        await recordChange(tx, { type: "instance.first_admin_created", actor: "system", projectId: null, data: { object: personObject(created) } });
         return created;
       });
       if (!user) {
@@ -315,7 +351,7 @@ export async function authRoutes(
     "/login",
     {
       onRequest: credentialsRateLimit,
-      config: { access: { kind: "public" } },
+      config: { access: { kind: "public" }, credentialDoor: true },
       schema: {
         // Nessun vincolo di lunghezza al login: la policy vale alla creazione.
         body: z.object({ email: z.email(), password: z.string().min(1) }),
@@ -356,6 +392,8 @@ export async function authRoutes(
 
   // Il secondo passo del login: qui dentro, così condivide il bucket.
   secondFactorLoginRoutes(instance, credentialsRateLimit);
+  // Integrazione area 2: il login del desktop dal browser (stesso bucket).
+  desktopHandoffRoutes(instance, credentialsRateLimit);
 
   /**
    * Login dell'app mobile: stesse credenziali del web, ma invece di aprire una
@@ -379,7 +417,7 @@ export async function authRoutes(
     "/mobile-login",
     {
       onRequest: credentialsRateLimit,
-      config: { access: { kind: "public" } },
+      config: { access: { kind: "public" }, credentialDoor: true },
       schema: {
         body: mobileLoginBodySchema,
         response: {
@@ -435,6 +473,49 @@ export async function authRoutes(
   // Best effort, senza requireAuth: il logout deve riuscire anche con cookie
   // assente, manomesso o già scaduto. Si elimina la riga solo se il cookie
   // si risolve; in ogni caso si pulisce il cookie e si risponde 204.
+  // Area 9, F1 (D-13): la conferma del cambio dell'email di login, dal link
+  // mandato alla NUOVA. Pubblica (la prova è aver ricevuto il link), col tetto
+  // dei tentativi del login. Non dà né sessione né token: non è una «porta»
+  // (`credentialDoor`). docs/invariants/identity.md.
+  // La LETTURA del link, che non conferma niente: la pagina mostra la nuova
+  // email e conferma solo col bottone (gli scanner della posta aprono i link).
+  app.get(
+    "/email-change/:token",
+    {
+      onRequest: credentialsRateLimit,
+      config: { access: { kind: "public" } },
+      schema: {
+        params: z.object({ token: z.string().min(1).max(200) }),
+        response: {
+          200: z.union([
+            z.object({ status: z.literal("valid"), newEmail: z.string() }),
+            z.object({ status: z.literal("invalid") }),
+          ]),
+        },
+      },
+    },
+    async (request) => peekEmailChange(app.db, request.params.token),
+  );
+
+  app.post(
+    "/email-change/confirm",
+    {
+      onRequest: credentialsRateLimit,
+      config: { access: { kind: "public" } },
+      schema: {
+        body: z.object({ token: z.string().min(1).max(200) }),
+        response: { 200: z.object({ email: z.string() }), 400: errorSchema, 409: errorSchema },
+      },
+    },
+    async (request, reply) => {
+      try {
+        return await confirmEmailChange(app.db, app.mailTransport, request.body.token);
+      } catch (error) {
+        return sendEmailChangeError(reply, error);
+      }
+    },
+  );
+
   app.post("/logout", { config: { access: { kind: "public" } } }, async (request, reply) => {
     const sessionId = sessionIdFromRequest(request);
     if (sessionId) await deleteSession(app.db, sessionId);
@@ -450,27 +531,60 @@ export async function authRoutes(
       },
     },
     async (request) => ({
-      user: request.user!,
+      // Area 9, F1: la foto caricata vince sull'avatar di Slack.
+      user: { ...request.user!, avatarUrl: (await avatarUrlsFor(app.db, [request.user!.id])).get(request.user!.id) ?? request.user!.avatarUrl },
       instancePermissions: [...request.user!.instancePermissions],
       projectPermissions: await projectPermissionsMap(app.db, request.user!),
+      departmentPermissions: await departmentPermissionsMap(app.db, request.user!.id),
+      // Rimandi, lotto 5: i reparti, nell'ordine della persona (il primo colora le iniziali).
+      departments: await app.db
+        .select({ id: departments.id, name: departments.name, colorToken: departments.colorToken })
+        .from(departmentMembers)
+        .innerJoin(departments, eq(departments.id, departmentMembers.departmentId))
+        .where(eq(departmentMembers.userId, request.user!.id))
+        .orderBy(asc(departmentMembers.position), asc(departmentMembers.departmentId)),
     }),
   );
 
-  // Ogni utente cambia solo la propria preferenza di lingua: l'id è quello
-  // della sessione, mai dal body, quindi non serve un controllo di ruolo.
+  // Ogni utente cambia solo la propria lingua e il proprio nome visualizzato:
+  // l'id è quello della sessione, mai dal body, quindi non serve un controllo
+  // di ruolo. È una PATCH vera (integrazione area 2): i campi assenti restano,
+  // così l'app mobile che manda la sola lingua continua a funzionare.
   app.patch(
     "/me",
     {
       config: { access: { kind: "user" } },
       schema: {
-        body: z.object({ language: languageSchema }),
-        response: { 200: languageResponseSchema, ...authErrorResponses },
+        body: z.object({
+          language: languageSchema.optional(),
+          // Le regole del nome di un dispositivo: niente a-capo, caratteri di
+          // controllo o di direzione del testo (un nome si mostra ovunque).
+          displayName: displayNameSchema,
+        }),
+        response: {
+          200: languageResponseSchema.extend({ displayName: z.string().nullable().optional() }),
+          ...authErrorResponses,
+        },
       },
     },
     async (request, reply) => {
-      const { language } = request.body;
-      await app.db.update(users).set({ language }).where(eq(users.id, request.user!.id));
-      return reply.code(200).send({ language });
+      const { language, displayName } = request.body;
+      const updates: Partial<typeof users.$inferInsert> = {};
+      if (language !== undefined) updates.language = language;
+      // Una stringa vuota torna al ripiego (la parte locale dell'email).
+      if (displayName !== undefined) updates.displayName = displayName === "" ? null : displayName;
+      const [row] =
+        Object.keys(updates).length > 0
+          ? await app.db
+              .update(users)
+              .set(updates)
+              .where(eq(users.id, request.user!.id))
+              .returning({ language: users.language, displayName: users.displayName })
+          : await app.db
+              .select({ language: users.language, displayName: users.displayName })
+              .from(users)
+              .where(eq(users.id, request.user!.id));
+      return reply.code(200).send({ language: row!.language, displayName: row!.displayName });
     },
   );
 
@@ -495,7 +609,15 @@ export async function authRoutes(
           projects: z.array(inviteProjectSchema).max(200).optional(),
         }),
         response: {
-          201: z.object({ token: z.string(), expiresAt: z.iso.datetime() }),
+          // `id` (review di F1, I2): l'id OPACO dell'invito, quello delle viste.
+          201: z.object({
+            id: z.string(),
+            token: z.string(),
+            expiresAt: z.iso.datetime(),
+            // Rimandi, lotto 4: i progetti che l'accettazione scarterà (il
+            // reparto di ripiego porta permessi che chi invita lì non ha).
+            warnings: z.array(z.object({ projectId: z.uuid(), code: z.literal("department_permissions_dropped"), missing: z.array(z.string()) })),
+          }),
           ...authErrorResponses,
           400: roleRuleErrorSchema,
           403: roleRuleErrorSchema,
@@ -527,6 +649,7 @@ export async function authRoutes(
       }
       const token = randomBytes(32).toString("base64url");
       const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
+      let warnings: InviteWarning[] = [];
       try {
         await app.db.transaction(async (tx) => {
           // Senza ruolo nell'invito si risolve e si verifica il preset
@@ -542,11 +665,14 @@ export async function authRoutes(
             invitedByUserId: request.user!.id,
           });
           await saveInviteGrants(tx, token, grants);
+          warnings = await inviteDepartmentWarnings(tx, request.user!, grants);
+          // Area 9, F2: con l'id opaco e i nomi, mai il token.
+          await recordChange(tx, { type: "invite.created", actor: request.user!, projectId: null, data: { object: inviteObject(token, email), params: await inviteParams(tx, roleId, grants) } });
         });
       } catch (error) {
         return sendRoleRuleError(reply, error);
       }
-      return reply.code(201).send({ token, expiresAt: expiresAt.toISOString() });
+      return reply.code(201).send({ id: inviteIdOf(token), token, expiresAt: expiresAt.toISOString(), warnings });
     },
   );
 
@@ -608,10 +734,11 @@ export async function authRoutes(
       },
     },
     async (request, reply) => {
-      const [deleted] = await app.db
-        .delete(invites)
-        .where(eq(invites.token, request.params.token))
-        .returning({ token: invites.token });
+      const deleted = await app.db.transaction(async (tx) => {
+        const [row] = await tx.delete(invites).where(eq(invites.token, request.params.token)).returning({ token: invites.token, email: invites.email });
+        if (row) await recordChange(tx, { type: "invite.revoked", actor: request.user!, projectId: null, data: { object: inviteObject(row.token, row.email) } });
+        return row;
+      });
       if (!deleted) {
         return apiError(reply, 404, "invite_not_found", "Invite not found");
       }
@@ -619,14 +746,33 @@ export async function authRoutes(
     },
   );
 
+  // Area 9, F1 (decisione del maintainer): la lettura pubblica dell'invito,
+  // prima di registrarsi. Col tetto del login; non dà sessioni (non è una
+  // `credentialDoor`) e non cambia niente. Dettagli solo su un invito valido.
+  app.get(
+    "/invites/:token",
+    {
+      onRequest: credentialsRateLimit,
+      config: { access: { kind: "public" } },
+      schema: {
+        params: z.object({ token: z.string().min(1).max(200) }),
+        response: { 200: inviteLinkSchema },
+      },
+    },
+    async (request) => readInvite(app.db, request.params.token),
+  );
+
   app.post(
     "/register",
     {
       config: { rateLimit: opts.rateLimit, access: { kind: "public" } },
       schema: {
-        body: credentialsSchema.extend({ token: z.string().min(1) }),
+        // Area 9, F1: `email` facoltativa, vale quella dell'invito; se mandata
+        // deve coincidere (400 `invite_email_mismatch`).
+        body: z.object({ email: z.email().optional(), password: newPasswordSchema, token: z.string().min(1), displayName: displayNameSchema }),
         response: {
           201: authUserResponseSchema,
+          400: errorSchema,
           409: errorSchema,
           410: errorSchema,
         },
@@ -646,11 +792,16 @@ export async function authRoutes(
         await app.db.delete(invites).where(eq(invites.token, invite.token));
         return apiError(reply, 410, "invite_expired", "Invite expired");
       }
+      // L'email è quella dell'invito: se il client la manda, deve coincidere.
+      if (request.body.email !== undefined && request.body.email.trim().toLowerCase() !== invite.email.trim().toLowerCase()) {
+        return apiError(reply, 400, "invite_email_mismatch", "The email is not the one this invite was sent to");
+      }
+      const email = invite.email;
 
       const [existing] = await app.db
         .select({ id: users.id })
         .from(users)
-        .where(eq(users.email, request.body.email));
+        .where(eq(users.email, email));
       if (existing) {
         return apiError(
           reply,
@@ -699,8 +850,9 @@ export async function authRoutes(
           const [created] = await tx
             .insert(users)
             .values({
-              email: request.body.email,
+              email,
               passwordHash,
+              displayName: displayNameValue(request.body.displayName),
               // `role` è derivato dal ruolo d'istanza (trigger della 0097):
               // senza ruolo nell'invito, il trigger dà il preset `User`.
               role: "member",
@@ -710,6 +862,8 @@ export async function authRoutes(
             })
             .returning();
           if (!created) throw new Error("insert del member non ha restituito la riga");
+          // Area 9, F2: l'attore è chi entra.
+          await recordChange(tx, { type: "invite.accepted", actor: { id: created.id, email: created.email }, projectId: null, data: { object: inviteObject(invite.token, invite.email) } });
           // Riverificati coi permessi ATTUALI di chi ha invitato (R51).
           await applyInviteGrants(tx, created.id, grants, invite.invitedByUserId, (grant, reason) =>
             request.log.warn(
@@ -857,15 +1011,12 @@ export async function authRoutes(
     },
     async (request, reply) => {
       const me = request.user!;
-      const sessionId = sessionIdFromRequest(request);
-      if (me.patId !== undefined || !sessionId) {
-        return apiError(
-          reply,
-          403,
-          "session_required",
-          "Changing the password requires a browser session",
-        );
+      // Dal browser, o dal PAT desktop riconfermato (decisione del maintainer,
+      // 10 nov 2026). Con un PAT non c'è un cookie: `sessionId` resta null.
+      if (!(await requireBrowserOrConfirmedDesktop(request, reply, "Changing the password requires a browser session"))) {
+        return reply;
       }
+      const sessionId = me.patId === undefined ? sessionIdFromRequest(request) : null;
       const [row] = await app.db
         .select({ passwordHash: users.passwordHash })
         .from(users)
@@ -876,14 +1027,19 @@ export async function authRoutes(
       const passwordHash = await hashPassword(request.body.newPassword);
       await app.db.transaction(async (tx) => {
         await tx.update(users).set({ passwordHash }).where(eq(users.id, me.id));
+        // Le sessioni tranne quella corrente (dal desktop non ce n'è una: tutte).
         await tx
           .delete(sessions)
-          .where(and(eq(sessions.userId, me.id), ne(sessions.id, sessionId)));
-        // Tutti i token dell'app: oggi il cambio arriva solo dal browser (un
-        // PAT è rifiutato sopra), quindi non c'è un token «corrente» da
-        // risparmiare. Se un giorno l'app potrà cambiare la password, qui va
-        // passato `me.patId` come eccezione.
-        await revokeMobilePats(tx, me.id);
+          .where(sessionId ? and(eq(sessions.userId, me.id), ne(sessions.id, sessionId)) : eq(sessions.userId, me.id));
+        // I token delle app tranne quello che sta cambiando la password (il
+        // desktop riconfermato), che resta ma perde la finestra di riconferma.
+        await revokeMobilePats(tx, me.id, me.patId);
+        if (me.patId !== undefined) {
+          await tx
+            .update(personalAccessTokens)
+            .set({ secondFactorAt: null })
+            .where(eq(personalAccessTokens.id, me.patId));
+        }
         await revokePendingResetTokens(tx, me.id);
       });
       return reply.code(204).send(null);

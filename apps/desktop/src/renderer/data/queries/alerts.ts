@@ -1,7 +1,9 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import * as api from "../api";
+import * as api from "@backend/api";
+import { featureIntegrated } from "../integration";
 import {
   queryKeys,
+  useConversationChanges,
   useInvalidate,
   useOptimistic,
   useSessionPersonId,
@@ -23,9 +25,12 @@ const ALERT_AREAS = ["alerts", "notifications", "releases"] as const;
 /** Le iscrizioni di chi guarda, per progetto (Preferenze → Notifiche e popover). */
 export function useAlertSubscriptions() {
   const me = useSessionPersonId();
+  // Claude può cambiarle dal riquadro accanto (`setSubscription`): un cambio della conversazione le rilegge.
+  useConversationChanges();
   return useQuery({
     queryKey: queryKeys.alertSubscriptions(me),
     queryFn: () => api.alerts.subscriptionRows(),
+    enabled: featureIntegrated("alerts"),
   });
 }
 

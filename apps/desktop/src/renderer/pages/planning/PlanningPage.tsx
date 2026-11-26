@@ -1,3 +1,4 @@
+import { isHiddenId } from "../../data/access/hiddenId";
 import {
   DndContext,
   DragOverlay,
@@ -19,10 +20,12 @@ import {
   usePlanTask,
   useProject,
   useProjects,
+  tasksTruncated,
   useTasks,
 } from "../../data/queries";
+import { assignableIn, isAssignableIn } from "../../data/assignable";
 import type { FilterCriteria, Person, Project, Task } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import {
   busiestCell,
   isToPlan,
@@ -31,7 +34,7 @@ import {
   type PlanBlock,
   type PlanRights,
 } from "../../domain/planning";
-import { addWeeks, compareWeeks, currentWeek, weekDays } from "../../domain/weeks";
+import { addWeeks, compareWeeks, weekDays } from "../../domain/weeks";
 import { DeptLegend } from "../../layout/DeptStrip";
 import { useMediaQuery } from "../../layout/useMediaQuery";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
@@ -52,7 +55,10 @@ import {
 import { GridSkeleton, PeopleGrid, type GridRow } from "./PeopleGrid";
 import { ChipBody, chipClass } from "./PlanChip";
 import { PlanMenu } from "./PlanMenu";
+import { planRefusalOf } from "./planRefusal";
 import { Unplanned, type PoolGroup } from "./Unplanned";
+import { useCurrentWeek } from "../../data/clock";
+import { claudeRunText } from "../../tasks-ui/claudeRun";
 
 /** Le settimane in vista secondo la larghezza della finestra (shape planning.md §6). */
 export const WEEKS_3_QUERY = "(min-width: 1440px)";
@@ -117,7 +123,7 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
   const planTask = usePlanTask();
   const search = useSearch({ strict: false }) as { task?: string };
   const openTask = useOpenTask();
-  const now = currentWeek();
+  const now = useCurrentWeek();
 
   const projectQuery = useProject(projectCode ?? "");
   const project = projectCode ? projectQuery.data ?? undefined : undefined;
@@ -130,7 +136,8 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
   // --- vasca: filtri e raggruppamento --------------------------------------
   const [criteria, setCriteria] = useState<FilterCriteria>({});
   const [group, setGroup] = useState<PoolGroup>("department");
-  const pool = useTasks(projectId ? { ...criteria, projectIds: [projectId] } : criteria, {
+  const poolCriteria = projectId ? { ...criteria, projectIds: [projectId] } : criteria;
+  const pool = useTasks(poolCriteria, {
     enabled: !projectCode || !!projectId,
   });
 
@@ -141,7 +148,9 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
 
   // --- settimane in vista ---------------------------------------------------
   const count = useWeekCount();
-  const [start, setStart] = useState(now);
+  // La prima settimana in vista, come distanza da quella corrente: al cambio di settimana si sposta con lei.
+  const [offset, setOffset] = useState(0);
+  const start = addWeeks(now, offset);
   const weeks = useMemo(() => Array.from({ length: count }, (_, i) => addWeeks(start, i)), [start, count]);
   const menuWeeks = useMemo(() => Array.from({ length: MENU_WEEKS }, (_, i) => addWeeks(now, i)), [now]);
 
@@ -155,9 +164,9 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
       me,
       others: can(viewer, "planning.others", task.projectId),
       edit: can(viewer, "tickets.edit", task.projectId),
-      members: projectById.get(task.projectId)?.memberIds ?? [],
+      members: assignableIn(projectById.get(task.projectId), people.data ?? []),
     }),
-    [me, viewer, projectById],
+    [me, viewer, projectById, people.data],
   );
   const othersHere = projectId ? can(viewer, "planning.others", projectId) : false;
   const blockText = useCallback(
@@ -178,11 +187,11 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
 
   // --- righe e carico --------------------------------------------------------
   const rowPeople = useMemo(() => {
+    // Claude ha sempre la sua riga, col suo carico, come nel prototipo; dove chi
+    // guarda non può assegnarlo è in sola lettura (`readOnly` sotto, e
+    // `planBlock` con `assignableIn` la toglie dai bersagli).
     const list = people.data ?? [];
-    if (projectCode) {
-      const members = new Set(project?.memberIds ?? []);
-      return list.filter((p) => members.has(p.id)).sort(byName);
-    }
+    if (projectCode) return list.filter((p) => p.isClaude || isAssignableIn(p, project)).sort(byName);
     // Trasversale: le persone del reparto, e Claude sempre ultimo.
     return list.filter((p) => p.isClaude || (departmentId && p.departmentIds.includes(departmentId))).sort(byName);
   }, [people.data, projectCode, project, departmentId]);
@@ -212,10 +221,17 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
           )
           .sort((a, b) => b.slipCount - a.slipCount || a.code.localeCompare(b.code, "en", { numeric: true }));
       }
-      const readOnly = projectId && !othersHere && person.id !== me ? t("planning.readOnlyRow") : null;
+      const readOnly =
+        // Claude dove chi guarda non può avviarne il lavoro (area 3, 3e.2); nel
+        // trasversale lo decide `planBlock` task per task.
+        person.isClaude && projectId && !isAssignableIn(person, project)
+          ? t("planning.claudeReadOnly")
+          : projectId && !othersHere && person.id !== me
+            ? t("planning.readOnlyRow")
+            : null;
       return { person, load: loads.get(person.id)!, tasksByWeek, readOnly };
     });
-  }, [all.data, rowPeople, weeks, projectId, othersHere, me, loads, t]);
+  }, [all.data, rowPeople, weeks, projectId, project, othersHere, me, loads, t]);
 
   const poolTasks = useMemo(() => {
     const rowIds = new Set(rowPeople.map((p) => p.id));
@@ -247,7 +263,11 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
   }, []);
 
   const personName = useCallback(
-    (id: string | null) => people.data?.find((p) => p.id === id)?.name ?? t("taskUi.unassigned"),
+    (id: string | null) =>
+      // R.1414: un segnaposto è una persona che chi guarda non conosce.
+      isHiddenId(id)
+        ? t("planning.someone")
+        : (people.data?.find((p) => p.id === id)?.name ?? t("taskUi.unassigned")),
     [people.data, t],
   );
 
@@ -263,26 +283,41 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
         : t("planning.moved", { code: task.code, person: personName(assigneeId), week: shortWeek(week) });
     setAnnouncement(moved);
     planTask.mutate(
-      { id: task.id, assigneeId, week },
+      // R.1414 (scelta A di 46): un segnaposto non si scrive mai; omesso,
+      // l'assegnatario resta quello che è.
+      { id: task.id, ...(isHiddenId(assigneeId) ? {} : { assigneeId }), week },
       {
-        onSuccess: () => {
+        onSuccess: (updated) => {
+          // Assegnata a Claude ma il lavoro non è partito: la frase del codice.
+          const refused = claudeRunText(t, updated);
+          if (refused) toast.error(refused);
           if (opts.undo) return;
           toast.show(
             week === null
               ? t("planning.toastToPool", { code: task.code })
               : t("planning.toastPlanned", { code: task.code, person: personName(assigneeId), week: shortWeek(week) }),
-            {
-              action: {
-                label: t("planning.undo"),
-                run: () => plan({ ...task, assigneeId, plannedWeek: week }, previous.assigneeId, previous.week, { undo: true }),
-              },
-            },
+            // Nessun «Undo» verso un assegnatario che chi guarda non conosce.
+            isHiddenId(previous.assigneeId) && previous.assigneeId !== assigneeId
+              ? {}
+              : {
+                  action: {
+                    label: t("planning.undo"),
+                    run: () => plan({ ...task, assigneeId, plannedWeek: week }, previous.assigneeId, previous.week, { undo: true }),
+                  },
+                },
           );
         },
-        onError: () =>
+        onError: (error) => {
+          // Un rifiuto (regola del server) ha la sua frase e non si riprova.
+          const refusal = planRefusalOf(error);
+          if (refusal) {
+            toast.error(t(`planning.refused.${refusal}`, { code: task.code }));
+            return;
+          }
           toast.error(t("planning.moveFailed", { code: task.code }), {
             action: { label: t("planning.tryAgain"), run: () => plan(task, assigneeId, week, opts) },
-          }),
+          });
+        },
       },
     );
   }
@@ -369,7 +404,7 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
             type="button"
             className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink"
             aria-label={t("planning.nav.laterLabel", { week: shortWeek(nextStart) })}
-            onClick={() => setStart(nextStart)}
+            onClick={() => setOffset((o) => o + count)}
           >
             {t("planning.nav.later")}
             <Arrow dir="right" />
@@ -446,7 +481,7 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
                 className={`${quietButton} disabled:text-ink-faint`}
                 aria-label={t("planning.nav.previousLabel")}
                 disabled={compareWeeks(start, now) <= 0}
-                onClick={() => setStart((w) => addWeeks(w, -1))}
+                onClick={() => setOffset((o) => o - 1)}
               >
                 <Arrow dir="left" />
               </button>
@@ -454,7 +489,7 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
                 type="button"
                 className={`${quietButton} disabled:text-ink-faint`}
                 disabled={start === now}
-                onClick={() => setStart(now)}
+                onClick={() => setOffset(0)}
               >
                 {t("planning.nav.thisWeek")}
               </button>
@@ -462,7 +497,7 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
                 type="button"
                 className={quietButton}
                 aria-label={t("planning.nav.nextLabel")}
-                onClick={() => setStart((w) => addWeeks(w, 1))}
+                onClick={() => setOffset((o) => o + 1)}
               >
                 <Arrow dir="right" />
               </button>
@@ -471,6 +506,14 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
               <DeptLegend departmentIds={legendIds} />
             </span>
           </div>
+          {/* Carico e vasca si calcolano sopra le task lette: se una lista è troncata, lo dice, ognuna con la sua frase. */}
+          {tasksTruncated(undefined, all.data) ? (
+            <p className="text-sm text-ink-muted">{t("planning.loadTruncated")}</p>
+          ) : (
+            tasksTruncated(poolCriteria, pool.data) && (
+              <p className="text-sm text-ink-muted">{t("planning.poolTruncated")}</p>
+            )
+          )}
         </header>
         <DndContext
           sensors={sensors}
@@ -546,10 +589,13 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
   );
 }
 
-/** I candidati del menu «Plan»: i membri del progetto della task, Claude per ultimo. */
+/**
+ * I candidati del menu «Plan»: i membri del progetto della task, Claude per
+ * ultimo dove si assegna (come le righe: `isAssignableIn`).
+ */
 function candidates(task: Task, projects: Map<string, Project>, people: Person[]): Person[] {
-  const members = new Set(projects.get(task.projectId)?.memberIds ?? []);
-  return people.filter((p) => members.has(p.id)).sort(byName);
+  const project = projects.get(task.projectId);
+  return people.filter((p) => isAssignableIn(p, project)).sort(byName);
 }
 
 /** «Oct 19 – Nov 6»: dal lunedì della prima settimana al venerdì dell'ultima. */

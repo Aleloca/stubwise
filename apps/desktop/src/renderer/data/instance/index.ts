@@ -24,6 +24,7 @@ export {
   moveProvider,
   pickProvider,
   replaceProviderCredential,
+  renameProvider,
   setProviderEnabled,
   simulateNextTest,
   testProvider,
@@ -41,6 +42,7 @@ export {
   type ModelSource,
 } from "./models";
 export { getAutomation, saveAutomation, type AutomationSettings } from "./automation";
+export { getServerAnalysisSettings, saveServerAnalysisSettings } from "./serverAnalysis";
 export {
   budgetReached,
   getBudget,
@@ -77,6 +79,7 @@ export {
   createGoogleApp,
   deleteGoogleApp,
   listGoogleApps,
+  getGoogleRedirectUri,
   replaceGoogleSecret,
   updateGoogleApp,
   type GoogleAppView,
@@ -92,13 +95,19 @@ export {
 } from "./storage";
 export {
   WEBHOOK_EVENTS,
+  WEBHOOK_LIMIT,
+  createWebhook,
+  deleteWebhook,
   getWebhook,
+  listWebhooks,
   previewWebhook,
-  saveWebhook,
+  regenerateWebhookSecret,
   testWebhook,
+  updateWebhook,
   type WebhookEventId,
   type WebhookFormat,
   type WebhookGroup,
+  type WebhookInput,
   type WebhookView,
 } from "./webhook";
 export { getAiBlock, getQueuePause, getUploadsAllowed } from "./blocks";
@@ -141,5 +150,6 @@ export type {
   RegisteredPlugin,
   StorageSettings,
   TestOutcome,
+  WebhookTestOutcome,
   UsageRecord,
 } from "./state";

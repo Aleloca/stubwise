@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { ClaudeMark } from "../../../components/ClaudeMark";
 import { now } from "../../../data/dates";
@@ -20,6 +20,7 @@ import type {
 import { formatDate } from "../../../notifications/time";
 import { CloseIcon } from "../../task/parts";
 import { GestureFailed, UndoReason } from "../claude/ProductClaudeMark";
+import { RefusalText, refusalOf, type GestureRefusal } from "../claude/gestureRefusal";
 import { SourceLine } from "../claude/SourceLine";
 import { blockLabel } from "../editor/BlockBody";
 import { RichView } from "../editor/RichView";
@@ -174,12 +175,15 @@ function summaryOf(
 function useRowName() {
   const { t } = useTranslation();
   const nameOf = usePersonName();
-  return (r: ProductRevisionView): string =>
-    r.answerOf
-      ? t("productDocs.history.answerFrom", { name: r.actorName })
+  return (r: ProductRevisionView): string => {
+    // R.1414: chi non conosce la persona legge «Someone».
+    const actor = r.actorName ?? t("productDocs.history.someone");
+    return r.answerOf
+      ? t("productDocs.history.answerFrom", { name: actor })
       : r.via === "claude" && r.onBehalfOfId
         ? t("productDocs.history.onBehalfOf", { name: nameOf(r.onBehalfOfId) })
-        : r.actorName;
+        : actor;
+  };
 }
 
 /** L'anello «ritorna» di un annullamento: disegnato, non un glifo. */
@@ -227,7 +231,11 @@ export function HistoryPanel({
   const listId = useId();
   const rowName = useRowName();
 
-  const all = revisions.data ?? [];
+  // Le pagine di 100 già lette, in fila (I2 della revisione): «Show older»
+  // mostra le righe lette e, finite, legge la pagina seguente.
+  const all = useMemo(() => revisions.data?.pages.flat() ?? [], [revisions.data]);
+  const loaded = revisions.data ? all : null;
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = revisions;
   const hasFirstVersion = all.some((r) => r.kind === "first_version");
   const firstVersion = useProductFirstVersion(project.id, { enabled: hasFirstVersion }).data ?? null;
 
@@ -235,14 +243,19 @@ export function HistoryPanel({
   const followed = useRef<number | null>(null);
   const [focusRow, setFocusRow] = useState<string | null>(null);
   useEffect(() => {
-    if (!focus || followed.current === focus.n || !revisions.data) return;
-    const index = revisions.data.findIndex((r) => r.id === focus.revisionId);
+    if (!focus || followed.current === focus.n || !loaded) return;
+    const index = loaded.findIndex((r) => r.id === focus.revisionId);
+    // Più vecchia di quelle lette: si legge la pagina seguente, poi si riguarda.
+    if (index === -1 && hasNextPage) {
+      if (!isFetchingNextPage) void fetchNextPage();
+      return;
+    }
     followed.current = focus.n;
     if (index === -1) return;
     if (index >= limit) setLimit(index + 1);
     setOpenRows((prev) => new Set(prev).add(focus.revisionId));
     setFocusRow(focus.revisionId);
-  }, [focus, revisions.data, limit]);
+  }, [focus, loaded, limit, hasNextPage, isFetchingNextPage, fetchNextPage]);
   // Il fuoco dopo un «Undo» resta sulla riga: sul suo testo nuovo («Undone by …»).
   const [focusAfter, setFocusAfter] = useState<string | null>(null);
   useEffect(() => {
@@ -382,7 +395,8 @@ export function HistoryPanel({
                                 : "border border-rule-strong text-ink-muted"
                             }`}
                           >
-                            {person?.initials ?? r.actorName.slice(0, 1)}
+                            {/* R.1414: di chi non si conosce, né nome né iniziali. */}
+                            {r.actorName === null ? "?" : (person?.initials ?? r.actorName.slice(0, 1))}
                           </span>
                           <span className="flex min-w-0 flex-1 flex-col">
                             <span data-row-name="" className="font-semibold text-ink [overflow-wrap:anywhere]">
@@ -454,10 +468,14 @@ export function HistoryPanel({
               </li>
             ))}
           </ul>
-          {all.length > limit && (
+          {(all.length > limit || hasNextPage) && (
             <button
               type="button"
-              onClick={() => setLimit((n) => n + FIRST)}
+              disabled={isFetchingNextPage}
+              onClick={() => {
+                if (all.length <= limit + FIRST && hasNextPage) void fetchNextPage();
+                setLimit((n) => n + FIRST);
+              }}
               className="mx-4 mt-2 inline-flex h-7 items-center self-start rounded-md px-1.5 text-sm font-medium text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink"
             >
               {t("productDocs.history.showOlder")}
@@ -588,24 +606,40 @@ function useUndoOnce(onUndone: (focusKey: string, announce: string) => void) {
   const undo = useUndoProductChange();
   const inflight = useRef(false);
   const [failed, setFailed] = useState(false);
+  // Un rifiuto è definitivo, col motivo (revisione di R11-5, 3); un errore di rete si riprova.
+  const [refused, setRefused] = useState<GestureRefusal | null>(null);
   const run = (revisionId: string, anchorId: string | undefined, focusKey: string) => {
     if (inflight.current) return;
     inflight.current = true;
     setFailed(false);
+    setRefused(null);
     undo.mutateAsync({ revisionId, anchorId }).then(
       () => onUndone(focusKey, t("productDocs.mark.undone")),
-      () => {
+      (error: unknown) => {
         inflight.current = false;
-        setFailed(true);
+        const why = refusalOf(error);
+        if (why) setRefused(why);
+        else setFailed(true);
       },
     );
   };
-  return { run, pending: undo.isPending, failed };
+  return { run, pending: undo.isPending, failed, refused };
 }
 
-function UndoFailed({ onRetry }: { onRetry: () => void }) {
+/** Un «Undo» non riuscito: il rifiuto col suo motivo, o l'errore con «Retry» (solo se l'«Undo» è ancora acceso). */
+function UndoFailed({
+  once,
+  off,
+  onRetry,
+}: {
+  once: { failed: boolean; refused: GestureRefusal | null };
+  off: boolean;
+  onRetry: () => void;
+}) {
   const { t } = useTranslation();
-  return <GestureFailed text={t("productDocs.mark.undoFailed")} onRetry={onRetry} />;
+  if (once.refused) return <RefusalText refusal={once.refused} />;
+  if (!once.failed) return null;
+  return <GestureFailed text={t("productDocs.mark.undoFailed")} onRetry={() => !off && onRetry()} />;
 }
 
 /** «Undone», «Undone by …»: il testo nuovo della riga, dove resta il fuoco dopo un «Undo». */
@@ -661,9 +695,9 @@ function AnchorUndo({
           <UndoReason undo={off} id={reasonId} />
         </span>
       )}
-      {once.failed && (
+      {(once.failed || once.refused) && (
         <span className="basis-full">
-          <UndoFailed onRetry={() => once.run(revisionId, anchorId, key)} />
+          <UndoFailed once={once} off={!!off} onRetry={() => once.run(revisionId, anchorId, key)} />
         </span>
       )}
     </>
@@ -775,7 +809,8 @@ function RowExtras({
   }
   if (status) lines.push(<p key="status">{status}</p>);
   if (reason) lines.push(<p key="reason">{reason}</p>);
-  if (once.failed) lines.push(<UndoFailed key="failed" onRetry={() => once.run(r.id, undefined, r.id)} />);
+  if (once.failed || once.refused)
+    lines.push(<UndoFailed key="failed" once={once} off={r.undo?.enabled === false} onRetry={() => once.run(r.id, undefined, r.id)} />);
 
   if (r.kind === "undo" && r.undoOf) {
     const undone = all.find((x) => x.id === r.undoOf);

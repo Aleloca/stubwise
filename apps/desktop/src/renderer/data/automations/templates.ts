@@ -1,4 +1,4 @@
-import { visitSteps } from "../../domain/automations/fields";
+import { visitSteps } from "@stubwise/shared";
 import { clientDataFlow, newContractFlow } from "../seed/automations/automations";
 import { copy } from "../store";
 import type { AutomationFlow, Step } from "../types";

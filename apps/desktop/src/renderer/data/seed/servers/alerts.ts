@@ -1,10 +1,10 @@
 import type { AppNotification } from "../../types";
-import { SERVER_ANALYSES, SERVER_TASK_CODE } from "./analysis";
+import { SERVER_ANALYSES, SERVER_TASK_CODE, SRV2_UNDETERMINED_BODY } from "./analysis";
 import { SRV2_DISK_EPISODE, SRV3_SILENT_EPISODE } from "./episodes";
 
 // Gli avvisi dei server (area 8b), kind locali: come quelli dell'8a non
 // portano destinatari fissi (`recipientIds: []`), li calcola la lettura
-// dal catalogo, dove li registra `data/servers/alertTypes.ts` (Task 5).
+// dal catalogo (le righe dei server, in `@stubwise/shared` dalla F2).
 // L'allarme e il rientro di memoria di SRV-1 restano le righe
 // `monitor.alert` / `monitor.recovered` di `notifications.ts`.
 //
@@ -15,13 +15,15 @@ import { SRV2_DISK_EPISODE, SRV3_SILENT_EPISODE } from "./episodes";
 type Row = [string, string, string, string, string, string, string, boolean];
 
 const diagnosis = SERVER_ANALYSES[0]!;
+const SRV2_ANALYSIS = SERVER_ANALYSES.find((a) => a.serverCode === "SRV-2")!;
 
 // prettier-ignore
 const ROWS: Row[] = [
   ["server.diagnosis_ready", "ACQ", "SRV-1", "Diagnosis ready", `Claude looked into acq-prod-01 with read-only access: ${SERVER_TASK_CODE} Memory leak in the nightly import worker.`, diagnosis.endedAt!, `#/p/ACQ/tasks?task=${SERVER_TASK_CODE}`, false],
-  ["server.trouble", "STW", "SRV-2", "Server in trouble", "db-stw-01: disk at 93% (alert at 90%) and the check “Replica port” is down. Claude can't look into it: no SSH access.", SRV2_DISK_EPISODE.startedAt, "#/p/STW/servers/SRV-2", false],
+  ["server.trouble", "STW", "SRV-2", "Server in trouble", "db-stw-01: disk at 93% (alert at 90%) and the check “Replica port” is down. Claude is looking into it, without SSH reads.", SRV2_DISK_EPISODE.startedAt, "#/p/STW/servers/SRV-2", false],
   ["server.down", "AUD", "SRV-3", "Server not responding", "aud-app-01: the agent stopped reporting.", SRV3_SILENT_EPISODE.startedAt, "#/p/AUD/servers/SRV-3", true],
   ["server.recovered", "AUD", "SRV-3", "Server back to normal", "aud-app-01 is reporting again, after 22 minutes.", SRV3_SILENT_EPISODE.recoveredAt!, "#/p/AUD/servers/SRV-3", true],
+  ["server.diagnosis_ready", "STW", "SRV-2", "Cause not determined", SRV2_UNDETERMINED_BODY, SRV2_ANALYSIS.endedAt!, "#/p/STW/servers/SRV-2", false],
 ];
 
 export const SERVER_ALERT_NOTIFICATIONS: AppNotification[] = ROWS.map(

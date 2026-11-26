@@ -28,19 +28,16 @@ export type EventPrefix = (typeof EVENT_PREFIXES)[number];
 
 /**
  * Kind locali del prototipo, non (ancora) in `notificationKindSchema`: li
- * pubblicano le azioni dell'area 2 (pianificazione altrui, risposta a una
- * richiesta di decisione), l'assegnazione a un altro (area 10a) e gli avvisi dell'area 8a (PR, rilasci, note di
- * rilascio, task nuove, Support) e dell'area 8b (server), che hanno i
- * destinatari calcolati a lettura.
+ * pubblicano gli avvisi dell'area 8a (PR, rilasci, note di rilascio, task
+ * nuove, Support) e dell'area 8b (server), che hanno i destinatari calcolati
+ * a lettura. `decision.answered` (risposta a una richiesta di decisione) è
+ * nel registro condiviso dall'integrazione area 2; `planning.changed`
+ * (pianificazione altrui, area 2) e `task.assigned` (area 10a) dalla fetta 2.
  */
 export const LOCAL_NOTIFICATION_KINDS = [
-  "planning.changed",
-  // Area 10a (decisione del maintainer): chi riceve una task lo sa.
-  "task.assigned",
   // Area 10b (D4): chi entra in un progetto lo sa. Per il motore è un
   // `notification_kind` nuovo, con la regola di rollback del CLAUDE.md.
   "member.added",
-  "decision.answered",
   "pr.opened",
   "pr.analysis_issues",
   "pr.corrected",
@@ -50,7 +47,6 @@ export const LOCAL_NOTIFICATION_KINDS = [
   "docs.release_note",
   "task.created",
   "support.request",
-  "support.customer_replied",
   "server.trouble",
   "server.down",
   "server.recovered",
@@ -78,7 +74,7 @@ type Row = [
   number,
   boolean,
   string[]?,
-  Pick<AppNotification, "actorId" | "plannedWeek" | "roleId">?,
+  Pick<AppNotification, "actorId" | "plannedWeek" | "roleId" | "memberId" | "mandatory">?,
 ];
 
 const ROWS: Row[] = [
@@ -340,21 +336,28 @@ const ROWS: Row[] = [
     432,
     true,
     ["p-stefano"],
-    { actorId: "p-laura", roleId: "role-developer" },
+    // Dal 19 nov 2026 un tipo del catalogo (F5): Stefano per motivo
+    // obbligatorio; chi gestisce i membri di AUD (Matteo) per iscrizione.
+    {
+      actorId: "p-laura",
+      roleId: "role-developer",
+      memberId: "p-stefano",
+      mandatory: [{ personId: "p-stefano", reason: "added" }],
+    },
   ],
 ];
 
 /**
  * Kind che CHIEDONO una decisione o una risposta: nel pannello notifiche
  * (solo informazioni) non compaiono mai. Le decisioni vivono in Home, le
- * proposte della posta in Mail.
+ * proposte della posta in Mail. `google.proposal_handed` no (lotto 4,
+ * D-2.0): a chi riceve una proposta passata dice che c'è, e apre la Home.
  */
 export const DECISION_NOTIFICATION_KINDS = [
   "job.plan_review",
   "job.awaiting_input",
   "project.pulse",
   "google.proposal",
-  "google.proposal_handed",
 ] as const;
 
 function projectlessLink(kind: string): string {

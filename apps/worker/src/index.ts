@@ -1,9 +1,12 @@
+import { randomUUID } from "node:crypto";
 import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDb } from "@stubwise/db";
 import { createEmbeddingClient } from "@stubwise/embeddings";
 import { createPushRelayClient } from "@stubwise/notifications";
+import { executeDueRuns } from "./automations/executor.js";
+import { startAutomationsPoller } from "./automations/poller.js";
 import { ClaudeCliRunner } from "./agent/claude-cli.js";
 import type { AgentRunner } from "./agent/runner.js";
 import { AGENT_PAUSE_BUDGET_MS } from "./agent/pause-budget.js";
@@ -13,20 +16,41 @@ import { startRefineBridge } from "./backlog/refine/bridge.js";
 import { RefineScheduler } from "./backlog/refine/scheduler.js";
 import { runRefineTurn } from "./backlog/refine/turn.js";
 import { createRefineWorktreeRegistry } from "./backlog/refine/worktrees.js";
+import { startChatBridge } from "./claude-chat/bridge.js";
+import { startServerAnalysisPoller, type ServerAnalysisPoller } from "./server-ops/analysis.js";
+import { startServerOpsBridge } from "./server-ops/bridge.js";
+import { startServerFixPoller, type ServerFixPoller } from "./server-ops/fix-run.js";
+import { askChatQuestion } from "./claude-chat/mention.js";
+import { askConversationQuestion } from "./claude-chat/conversation-question.js";
+import { writeCapabilities, writeStalledAside } from "./claude-chat/aside.js";
+import { ChatScheduler } from "./claude-chat/scheduler.js";
+import { turnDispatcher } from "./sessions/turn-dispatch.js";
+import { runChatTurn } from "./claude-chat/turn.js";
 import { startCredentialTester } from "./agent/credential-tester.js";
 import { startUsagePoller } from "./agent/usage-poller.js";
-import { effectiveModelDefaults, loadWorkerConfig, type WorkerConfig } from "./config.js";
+import { effectiveModelDefaults, loadWorkerConfig, modelEnvOperations, type WorkerConfig } from "./config.js";
 import { createModelResolver, writeWorkerModelDefaults } from "./agent/model-settings.js";
 import { TrackingAgentRunner } from "./agent/tracking-runner.js";
 import { requeueWaitingReviewsAtStartup, startPrReviewPoller } from "./review/poller.js";
 import { createDocHandler, failDocJobOnError } from "./docs/handler.js";
 import { dispatchNode } from "./docs/recursive/node-dispatch.js";
 import { createGenerationWorktreeRegistry } from "./docs/recursive/registry.js";
+import { startHeartbeat } from "./heartbeat.js";
 import { MirrorManager } from "./git/mirrors.js";
 import { createGraphifyRunner } from "./graph/graphify-cli.js";
 import { startGraphPoller } from "./graph/poller.js";
+import { startDriveContentPoller } from "./drive/content-job.js";
+import { startFolderSyncPoller } from "./drive/folder-sync.js";
+import { createGoogleDriveSource } from "./drive/google-source.js";
+import { createExec } from "./drive/extract/exec.js";
+import { sweepStaleJobTmps } from "./drive/extract/tmp.js";
+import { createDriveReaderCache, loadDriveS3Config } from "./drive/storage-read.js";
 import { createHandler, createProjectSerializer } from "./handler.js";
+import { createCancelRegistry, startCancelWatch } from "./pipeline/cancel.js";
 import { startMonitorAlertPoller } from "./monitor/alerts.js";
+import { startReleasePoller } from "./releases/poller.js";
+import { startTriageCheckPoller } from "./support/triage-check.js";
+import { startProductDocsPoller } from "./product-docs/job.js";
 import { PUSH_RELAY_TIMEOUT_MS, startDeliveriesPoller } from "./notify/deliveries-poller.js";
 import { startPluginPoller } from "./plugins/poller.js";
 import { startMonitorRollupPoller } from "./monitor/rollup.js";
@@ -35,6 +59,7 @@ import type { SelectDeps } from "./providers/select.js";
 import { MAX_SNAPSHOT_AGE_MS } from "./providers/usage-window.js";
 import { startBriefPoller } from "./briefs/poller.js";
 import { startGooglePoller } from "./google/poller.js";
+import { startMailSender } from "./google/mail-sender.js";
 import { startPulsePoller } from "./pulse/poller.js";
 import { startDailyReportPoller } from "./reports/daily-report-poller.js";
 import { startNightlyScheduler } from "./nightly/orchestrator.js";
@@ -204,11 +229,19 @@ if (config.agentStreaming) await resetLiveSegmentsAtStartup(db);
 // Sessioni di refinement (design 2026-10-14): lo scheduler nasce più giù (gli
 // servono mirror e serializer); il relay gli parla attraverso questa chiusura.
 let refineScheduler: RefineScheduler | null = null;
+// La chat con Claude (fetta 1): le conversazioni `free` hanno il loro scheduler;
+// il relay smista per kind, ESPLICITAMENTE (`turnDispatcher`).
+let chatScheduler: ChatScheduler | null = null;
+const dispatchTurn = turnDispatcher({
+  refine: (id) => refineScheduler?.requestTurn(id),
+  chat: (id) => chatScheduler?.requestTurn(id),
+  log: (m) => console.warn(m),
+});
 const relay = config.agentStreaming
   ? new SessionInputRelay({
       db,
       listen: (channel, cb) => client.listen(channel, cb),
-      turnStarter: { requestTurn: (id) => refineScheduler?.requestTurn(id) },
+      turnStarter: { requestTurn: (id, kind) => dispatchTurn(id, kind) },
     })
   : null;
 if (relay) await relay.start();
@@ -224,7 +257,7 @@ const runner: AgentRunner = new TrackingAgentRunner({
 });
 // Default effettivi (env + codice) per la UI delle impostazioni: best-effort,
 // un errore non ferma l'avvio.
-await writeWorkerModelDefaults(db, effectiveModelDefaults(config));
+await writeWorkerModelDefaults(db, effectiveModelDefaults(config), console, modelEnvOperations(process.env));
 const mirrors = new MirrorManager({ mirrorsDir: config.mirrorsDir });
 
 // Serializzatore per-progetto CONDIVISO fra fix e doc-generation: un doc-job e
@@ -247,10 +280,23 @@ const select: SelectDeps = {
   legacyLimit: { until: null },
 };
 
+// «Annulla il lavoro» in esecuzione (area 3, 3b.1-bis, `pipeline/cancel.ts`):
+// il registro dei job in corso, svegliato dal NOTIFY del server e, come rete,
+// dal controllo della colonna `cancel_requested_at` ogni 10 s. Fail-open: senza
+// LISTEN resta il controllo periodico. Un worker a processo singolo, come il relay.
+const cancels = createCancelRegistry();
+const stopCancelWatch = await startCancelWatch({
+  db,
+  registry: cancels,
+  listen: (channel, cb) => client.listen(channel, cb),
+  log: (line) => console.error(`[stubwise-worker] ${line}`),
+});
+
 const handler = createHandler(
   {
     db,
     runner,
+    cancels,
     // Triage, fix e correzione risolvono il modello prima del log (stesso
     // resolver del decoratore): log e run nominano lo stesso modello.
     models: modelResolver,
@@ -658,6 +704,88 @@ if (relay && refineBridge) {
   );
 }
 
+// Chat con Claude (fetta 1): turni a sola lettura, come il refinement ma senza
+// worktree. Il ponte chiama il server (`CHAT_SERVER_URL`) col token del turno.
+// Fail-open: un ponte che non parte spegne la chat (i messaggi restano
+// `pending`), mai il worker.
+let chatBridge: Awaited<ReturnType<typeof startChatBridge>> | null = null;
+if (relay) {
+  try {
+    // `ask_question` di @Claude nella Chat (area 4, fetta 3): la scrive il worker nel DB.
+    chatBridge = await startChatBridge({
+      serverUrl: config.chatServerUrl,
+      // Area 10, F2: nella conversazione libera (c'è l'input del turno) la domanda va in `claude_conversation_questions`.
+      // Area 10, F3 (S2): «Hypothesis» e «Details» del lavoro fermo.
+      stalledAside: async (sessionId, stalled) => {
+        await writeStalledAside(db, sessionId, stalled);
+      },
+      // Area 10, F7 (S0): l'elenco di ciò che Claude sa fare, con gli id del server.
+      capabilities: async (sessionId, json) => {
+        await writeCapabilities(db, sessionId, json);
+      },
+      askQuestion: (sessionId, args, inputId) => (inputId !== undefined ? askConversationQuestion(db, sessionId, inputId, args) : askChatQuestion(db, sessionId, args)),
+    });
+  } catch (error) {
+    console.error(`[stubwise-worker] ponte della chat non avviato, chat con Claude spenta: ${String(error)}`);
+  }
+}
+if (relay && chatBridge) {
+  const bridge = chatBridge;
+  const scheduler = new ChatScheduler({
+    db,
+    maxConcurrent: config.chatMaxConcurrent,
+    bridge,
+    listen: (channel, cb) => client.listen(channel, cb),
+    log: (m) => console.warn(m),
+    runTurn: (input) =>
+      runChatTurn(
+        {
+          db,
+          runner,
+          bridge,
+          model: config.backlogModel,
+          maxTurns: config.chatMaxTurns,
+          turnTimeoutMs: config.chatTurnTimeoutMs,
+          select,
+          log: (m) => console.warn(m),
+        },
+        input,
+      ),
+  });
+  scheduler.attachRelay(relay);
+  await scheduler.start();
+  chatScheduler = scheduler;
+  const sweep = setInterval(() => void scheduler.sweep(), 10 * 60_000);
+  sweep.unref();
+  controller.signal.addEventListener(
+    "abort",
+    () => {
+      clearInterval(sweep);
+      scheduler.stopAcceptingTurns();
+    },
+    { once: true },
+  );
+}
+
+// Area 8, F4b, S5: l'analisi per SERVER all'apertura di un episodio (sole
+// letture, tetti di Impostazioni, budget dell'istanza). Il ponte degli
+// strumenti vive qui, su loopback; il modello lo risolve il TrackingAgentRunner
+// (`server_analysis`). Fail-open: un ponte che non parte spegne le analisi,
+// mai il worker (gli episodi restano, senza diagnosi).
+let serverOpsBridge: Awaited<ReturnType<typeof startServerOpsBridge>> | null = null;
+let serverAnalysisPoller: ServerAnalysisPoller | null = null;
+let serverFixPoller: ServerFixPoller | null = null;
+try {
+  serverOpsBridge = await startServerOpsBridge({ db, encryptionKey: config.encryptionKey, log: (m) => console.warn(m) });
+  serverAnalysisPoller = startServerAnalysisPoller({ db, encryptionKey: config.encryptionKey, publicUrl: config.publicUrl, runner, bridge: serverOpsBridge, select, log: (m) => console.warn(m) });
+  controller.signal.addEventListener("abort", () => serverAnalysisPoller?.stop(), { once: true });
+  // S6: la correzione (piano nuovo, passi approvati) su un giro suo: un passo può attendere minuti.
+  serverFixPoller = startServerFixPoller({ db, encryptionKey: config.encryptionKey, runner, bridge: serverOpsBridge, select, log: (m) => console.warn(m) });
+  controller.signal.addEventListener("abort", () => serverFixPoller?.stop(), { once: true });
+} catch (error) {
+  console.error(`[stubwise-worker] ponte dei server non avviato, analisi dei server spente: ${String(error)}`);
+}
+
 // Poller della coda del KNOWLEDGE GRAPH (graphify): task SEPARATO dal loop dei
 // job, sul proprio intervallo. Reclama i `graph_jobs` queued claimabili (il
 // webhook push fa debounce spostando notBefore) ed esegue la build nella CATENA
@@ -684,6 +812,56 @@ startGraphPoller({
   timeoutMs: config.graphBuildTimeoutMs,
   serializer,
   intervalSeconds: config.graphPollSeconds,
+  signal: controller.signal,
+});
+
+// Poller del CONTENUTO dei file del Drive (area 5, fetta 3): legge il file dallo
+// storage in SOLA LETTURA (`drive/storage-read.ts`, solo chiavi `drive/`), ne
+// estrae il testo con poppler/tesseract/libheif dietro `prlimit`, scrive il
+// riassunto (drive_summary, senza tool) e gli embedding. Fuori dal serializer
+// per progetto (non tocca mirror né worktree), uno per volta, best-effort.
+// Le tmp dei job del contenuto rimaste da un worker morto (review della F3).
+void sweepStaleJobTmps().then(
+  (n) => n > 0 && console.error(`[stubwise-worker] drive: tolte ${n} tmp di job rimaste`),
+  (error: unknown) => console.error("[stubwise-worker] drive: pulizia delle tmp non riuscita", error),
+);
+// Un lettore dello storage (e un client S3) riusato, distrutto all'arresto (review della F3).
+const driveReaders = createDriveReaderCache(() => loadDriveS3Config(db, config.encryptionKey));
+controller.signal.addEventListener("abort", () => driveReaders.close(), { once: true });
+startDriveContentPoller({
+  db,
+  reader: () => driveReaders.get(),
+  exec: createExec({ prlimit: true }),
+  runner,
+  select,
+  model: effectiveModelDefaults(config).drive_summary,
+  embeddings: embeddingClient,
+  log: (m) => console.error(`[stubwise-worker] ${m}`),
+  intervalSeconds: config.driveContentPollSeconds,
+  signal: controller.signal,
+  // Area 6, F5b: i riferimenti Google si leggono con la LORO casella (B3).
+  google: createGoogleDriveSource({ db, encryptionKey: config.encryptionKey }),
+});
+// Area 6, F5b (B5, QB1 = b): le cartelle Google collegate, al collegamento, a
+// «Sincronizza ora» e una volta al giorno, con la casella di chi le ha
+// collegate; un lease per cartella; solo letture.
+startFolderSyncPoller({
+  db,
+  encryptionKey: config.encryptionKey,
+  log: (m) => console.error(`[stubwise-worker] ${m}`),
+  intervalSeconds: config.driveContentPollSeconds,
+  signal: controller.signal,
+});
+
+// Poller delle AUTOMATIONS (area 7): il consumatore degli eventi scritti dai
+// trigger della 0169 e l'esecutore delle esecuzioni dovute. FUORI dal
+// serializer per-progetto; un riavvio non perde niente (vedi `poller.ts`).
+startAutomationsPoller({
+  db,
+  // F3: i passi di Claude passano dal runner che traccia (modello di `automation_step`, consumi in `agent_runs`).
+  execute: () => executeDueRuns({ db, runner, select, log: (m) => console.error(`[stubwise-worker] ${m}`) }),
+  log: (m) => console.error(`[stubwise-worker] ${m}`),
+  intervalSeconds: config.automationsPollSeconds,
   signal: controller.signal,
 });
 
@@ -736,6 +914,47 @@ startMonitorAlertPoller({
   publicUrl: config.publicUrl,
   intervalMinutes: config.monitorAlertIntervalMinutes,
   signal: controller.signal,
+});
+
+// Area 8, F1: il poller dei RILASCI — le run di CI del commit di merge e il
+// commit in produzione, per lo stato derivato; `release.failed` al primo
+// fallimento. Legge soltanto (nessuna pipeline, nessun deploy). Best-effort.
+startReleasePoller({
+  db,
+  encryptionKey: config.encryptionKey,
+  publicUrl: config.publicUrl,
+  intervalSeconds: config.releasePollSeconds,
+  signal: controller.signal,
+});
+
+// Area 8, F3 (S10, G-1 del maintainer): il giudizio sul triage di Support dopo
+// il silenzio. Una sessione breve del CLI dal runner del worker (Haiku di
+// default, `support_triage_check`, nessun tool), una volta per silenzio, nel
+// budget mensile. Fuori dal serializer di progetto (niente mirror). Best-effort.
+startTriageCheckPoller({
+  db,
+  runner,
+  select,
+  intervalSeconds: 60,
+  signal: controller.signal,
+  log: (message) => console.warn(message),
+});
+
+// Area 11, F5: Claude aggiorna la doc di prodotto dalle fonti (la coda
+// `product_doc_jobs`, riempita dai trigger della 0210). Un lavoro per volta,
+// sotto il serializer del suo progetto; il modello lo risolve il
+// TrackingAgentRunner (`product_doc_update`).
+startProductDocsPoller({
+  db,
+  runner,
+  select,
+  serializer,
+  intervalSeconds: 20,
+  signal: controller.signal,
+  log: {
+    warn: (obj, msg) => console.warn(`[stubwise-worker] ${msg ?? ""}`, obj),
+    info: (obj, msg) => console.error(`[stubwise-worker] ${msg ?? ""}`, obj),
+  },
 });
 
 // Poller del PULSE PROATTIVO: task SEPARATO dal loop dei job, sul proprio
@@ -799,10 +1018,28 @@ startBriefPoller({
 // di classificazione non toccano un worktree. È BEST-EFFORT (non fa mai
 // crashare il worker) e NON tocca il lock/heartbeat dei job. Si ferma sullo
 // stesso AbortSignal. GMAIL_POLL_MINUTES=0 non avvia nulla: è il rollback.
+// Area 6, F3 (D6): l'invio della posta allo scadere dei 10 s che il server
+// trattiene. Svegliato dal NOTIFY dell'Invia, col controllo ogni 2 s; parte
+// dopo aver segnato falliti gli invii interrotti da un riavvio.
+startMailSender({
+  db,
+  encryptionKey: config.encryptionKey,
+  listen: (channel, cb) => client.listen(channel, cb),
+  logger: {
+    info: (m) => console.error(`[stubwise-worker] ${m}`),
+    warn: (m) => console.error(`[stubwise-worker] ${m}`),
+    error: (m) => console.error(`[stubwise-worker] ${m}`),
+  },
+  signal: controller.signal,
+});
+
 startGooglePoller({
   db,
   encryptionKey: config.encryptionKey,
   intervalMinutes: config.gmailPollMinutes,
+  // «Aggiorna ora» (area 6, F1.2): la sveglia dal NOTIFY del server, col
+  // ripiego ogni 15 s sulla colonna. Spento il poller, niente LISTEN.
+  listen: (channel, cb) => client.listen(channel, cb),
   retentionDays: config.gmailRetentionDays,
   classifyMaxPerTick: config.gmailMaxPerTick,
   // Fase 2 del tick: la classificazione dei segnali. Stesso runner CLI del
@@ -821,6 +1058,8 @@ startGooglePoller({
   // default di `classify.ts`).
   gmailMaxPerDay: config.gmailMaxPerDay,
   gmailThreadCooldownMinutes: config.gmailThreadCooldownMinutes,
+  // Area 6, F2: la classificazione nuova, dietro MAIL_CLASSIFY_V2.
+  classifyV2: config.mailClassifyV2,
   signal: controller.signal,
 });
 
@@ -834,6 +1073,7 @@ console.error(
     `, daily-report ${config.dailyReportPollMinutes > 0 ? `ogni ${config.dailyReportPollMinutes}'` : "disabilitato"}` +
     `, backlog ${config.backlogPollSeconds > 0 ? `ogni ${config.backlogPollSeconds}"` : "disabilitato"}` +
     `, backlog-refine ${refineScheduler ? `max ${config.backlogRefineMaxConcurrent} (idle ${config.backlogRefineIdleMinutes}')` : relay ? "disabilitato (ponte non avviato)" : "disabilitato (AGENT_STREAMING=false)"}` +
+    `, chat ${chatScheduler ? `max ${config.chatMaxConcurrent}` : relay ? "disabilitata (ponte non avviato)" : "disabilitata (AGENT_STREAMING=false)"}` +
     `, graph ${config.graphPollSeconds > 0 ? `ogni ${config.graphPollSeconds}"` : "disabilitato"}` +
     `, plugins ${config.pluginPollSeconds > 0 ? `ogni ${config.pluginPollSeconds}" (in ${config.pluginsDir})` : "disabilitato"}` +
     `, monitor-rollup ${config.monitorRollupIntervalMinutes > 0 ? `ogni ${config.monitorRollupIntervalMinutes}'` : "disabilitato"}` +
@@ -852,6 +1092,17 @@ console.error(
   "[stubwise-worker] doc-generation a DAG ATTIVA: priorità ai fix; job-nodo e trigger di generazione solo con capacità libera e nessun fix in coda. " +
     "Mutua esclusione fix↔generazione: i fix dei progetti con un worktree di generazione aperto sono esclusi dal claim (invariante del mirror).",
 );
+// Area 9, F4: l'heartbeat per lo Stato dell'istanza (J-2 = a: coi lavori in mano).
+const heartbeat = startHeartbeat({
+  db,
+  workerId: `${hostname()}-${process.pid}-${randomUUID().slice(0, 8)}`,
+  concurrency: config.concurrency,
+  running: () => [
+    ...cancels.ids().map((id) => ({ kind: "ai_job", id })),
+    ...generationRegistry.activeGenerationIds().map((id) => ({ kind: "doc_generation", id })),
+  ],
+});
+controller.signal.addEventListener("abort", () => heartbeat.stop(), { once: true });
 await runWorker({
   db,
   handler,
@@ -865,6 +1116,12 @@ await runWorker({
 });
 await refineScheduler?.shutdown();
 await refineBridge?.close();
+await chatScheduler?.shutdown();
+await chatBridge?.close();
+serverAnalysisPoller?.stop();
+serverFixPoller?.stop();
+await serverOpsBridge?.close();
 relay?.stop();
+stopCancelWatch();
 await client.end();
 console.error("[stubwise-worker] fermato");

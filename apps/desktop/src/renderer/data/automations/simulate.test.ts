@@ -416,7 +416,7 @@ describe("Automations: la prova (simulazione)", () => {
   });
 
   it("i progetti che chi prova non vede restano senza id né nome (R-G5)", async () => {
-    grantInstancePermission("p-laura", "automations.manage");
+    grantInstancePermission("p-laura", "automations.general.manage");
     as("p-laura");
     expect(state.projectsById.get("prj-cbv")!.memberIds).not.toContain("p-laura");
     const id = await automations.startSimulation(A.newContract, 1, sample(S.audin, 0));
@@ -543,7 +543,7 @@ describe("Automations: la prova (simulazione)", () => {
     };
     const a = await automations.createAutomation({ name: "Avvia", projectId: null, flow });
     await automations.activate(a.id);
-    grantInstancePermission("p-sara", "automations.manage");
+    grantInstancePermission("p-sara", "automations.general.manage");
     as("p-sara");
     const id = await automations.startSimulation(a.id, 1, { avvio: { data: "2026-10-26" } });
     let sim = (await automations.getSimulation(id))!;
@@ -636,7 +636,7 @@ describe("Automations: gli esempi della prova", () => {
       own.every((e) => (e.event as { task: { progetto: string } }).task.progetto === "AUD"),
     ).toBe(true);
     // Una generale provata da Laura: mai task di progetti che Laura non vede.
-    grantInstancePermission("p-laura", "automations.manage");
+    grantInstancePermission("p-laura", "automations.general.manage");
     as("p-laura");
     const general = await draftWith({ kind: "stubwise", event: "task_created" }, null);
     const seen = await automations.listSimulationExamples(general.id, "draft");

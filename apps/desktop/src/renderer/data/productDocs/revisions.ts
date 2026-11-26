@@ -1,6 +1,7 @@
 import { blockChanges } from "../../domain/productDocs/blocks";
 import { docsAccess } from "../docs/reads";
-import { PEOPLE } from "../seed/people";
+import { personMasker } from "../access/hidden";
+import { knownNameOf, knownPeopleFor } from "../access/whoCan";
 import { copy, gate, newId, nextSeq, now, state } from "../store";
 import type {
   ProductBlock,
@@ -123,23 +124,41 @@ export function recordRevision(
 }
 
 /** Le revisioni di una pagina, dalla più recente (`lastSeq`). */
-export async function listProductRevisions(pageId: string): Promise<ProductRevisionView[]> {
+/** Una pagina della cronologia, come sul server (area 11, F1). */
+export const PRODUCT_REVISION_PAGE = 100;
+
+/**
+ * La cronologia di una pagina, dalla più recente, a pagine di
+ * `PRODUCT_REVISION_PAGE` come il server: `before` è il `lastSeq` più vecchio
+ * già letto (I2 della revisione di R11-1).
+ */
+export async function listProductRevisions(
+  pageId: string,
+  { before }: { before?: number } = {},
+): Promise<ProductRevisionView[]> {
   const me = await gate("productDocs.listProductRevisions");
   const page = productPageById(pageId);
   if (!page) return [];
   const access = docsAccess(me, page.projectId);
   if (access === "forbidden") throw new Error("forbidden");
   if (access === "none") return [];
+  const known = knownPeopleFor(me);
+  const mask = personMasker(me, known);
   return state.productRevisions
-    .filter((r) => r.pageId === pageId)
+    .filter((r) => r.pageId === pageId && (before === undefined || r.lastSeq < before))
     .sort((a, b) => b.lastSeq - a.lastSeq)
+    .slice(0, PRODUCT_REVISION_PAGE)
     .map((r) => {
       const row: ProductRevisionView = {
         ...copy(r),
-        actorName: PEOPLE.find((p) => p.id === r.actorId)?.name ?? r.actorId,
+        // R.1414: il nome solo a chi conosce la persona.
+        actorName: knownNameOf(me, r.actorId, known),
         // 11b: «per conto di», la fonte vista da chi guarda, «Annulla» e la domanda (marks.ts).
         ...claudeRevisionFields(me, r, page.projectId),
       };
+      // R.1414: gli id di chi non si conosce, segnaposti (uno per la risposta).
+      row.actorId = mask(row.actorId);
+      if (row.onBehalfOfId !== undefined) row.onBehalfOfId = mask(row.onBehalfOfId);
       // Mai la fonte grezza (R-G5: un id di email o riunione dice di cosa si
       // parla): chi guarda la legge in `sourceView`.
       delete row.source;

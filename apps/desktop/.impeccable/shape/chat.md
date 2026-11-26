@@ -239,3 +239,38 @@ confermare.
   («general, 3 unread, 1 mention»).
 - Colore mai unico segnale: non letto = peso, menzione = numero, archiviato
   e privato = parola o glifo con nome accessibile.
+
+## Avvisi di gruppo: `@channel` e `@reparto` (registro, A4 r.169, 23 nov 2026)
+
+Decisione del maintainer: `@channel` e `@reparto` AVVISANO. Supera la R-G6
+(«avvisano solo le menzioni dirette»). La forma, fatta prima nel prototipo
+(`data/chat/writes.ts` `deliverMentions`, `data/chat/reads.ts`
+`presentChatNotification`), da portare sul server così com'è:
+
+- **Chi**: `@channel` → ogni MEMBRO del canale; `@<Reparto>` → ogni membro
+  del canale che è in quel reparto. Chi legge un canale aperto senza esserne
+  membro NON riceve la card di gruppo (la riceve solo se nominato a nome).
+  L'autore mai. Chi non legge più il canale non la vede (come oggi).
+- **Le preferenze di ciascuno**: la card di gruppo arriva solo a chi ha il
+  canale su **«all»** — la stessa regola per cui un gruppo conta già fra le
+  menzioni del canale (`channelCounts`). «Mentions only» e «Muted» la
+  SPENGONO: è un avviso spegnibile, per canale. La menzione a nome resta
+  obbligatoria (arriva a qualunque livello, come prima).
+- **Una card per persona e messaggio**: nominata a nome E col gruppo, ha
+  solo quella a nome («mentioned you»).
+- **Il kind**: lo stesso `chat.mention` (nessun kind nuovo, nessuna voce del
+  catalogo degli avvisi: le menzioni della Chat non ci sono, le governa il
+  livello del canale). Una domanda (`asksReply`) resta delle sole persone
+  nominate.
+- **Il motivo della card** si DERIVA a lettura dal messaggio di adesso, non
+  si scrive nell'evento: titolo «<Autore> mentioned @channel in <canale>» o
+  «<Autore> mentioned @<Reparto> in <canale>» (il reparto di chi guarda che
+  il testo nomina); a nome resta «mentioned you» / «asked you».
+- **Thread**: chi è avvisato dal gruppo NON comincia a seguire il thread
+  (lo segue solo chi è nominato a nome).
+- **Modifica di un messaggio**: come le menzioni a nome, avvisa solo alla
+  creazione (il limite accettato del registro vale anche qui). Una modifica
+  che TOGLIE il gruppo non fa dire alla card «mentioned you»: la card
+  ricorda il gruppo della creazione (`chatGroup`, vero solo in quel
+  momento) e la lettura lo usa quando il messaggio di adesso non nomina più
+  chi legge (revisione del lotto 2; scelta di 94, da allineare sul server).

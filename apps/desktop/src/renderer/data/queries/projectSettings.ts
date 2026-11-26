@@ -1,9 +1,10 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { canSeeAdminSection, projectSettingsAccess, type SectionAccess } from "../adminSections";
-import * as api from "../api";
+import * as api from "@backend/api";
+import { featureIntegrated } from "../integration";
 import { PROJECT_AREAS, useSessionPersonId, useWrite } from "../queries";
 import type { ProjectSettingsSection } from "../routes";
-import { useViewer } from "../viewer";
+import { useViewer } from "../viewing";
 
 // Gli hook di Progetto → Settings (area 9c); `data/queries` li ri-esporta.
 // L'import circolare con `../queries` è innocuo: gli helper si usano solo
@@ -23,27 +24,33 @@ export type {
   RemoteRepository,
   RepositoryView,
 } from "../projectSettings";
+// Valori puri, ciascuno dal suo modulo: l'indice `../projectSettings` porta
+// con sé lo stato finto (integrazione area 2, fetta 1: niente seme nella
+// build app).
 export {
   CORRECTION_CAP_MAX,
   CORRECTION_CAP_MIN,
-  DESCRIPTION_MAX,
-  NAME_MAX,
   PROJECT_SWITCHES,
+  PULSE_DAYS_MAX,
+  PULSE_DAYS_MIN,
+  pulseNeedsBacklogFor,
+} from "../projectSettings/state";
+export { DESCRIPTION_MAX, NAME_MAX } from "../projectSettings/limits";
+export {
   applyPluginPreset,
   pluginBothChanged,
   pluginChangedKeys,
   pluginChoosable,
   pluginDisabledInput,
+  pluginEnabledInput,
   pluginHookKey,
+  pluginKey,
   pluginOffKeys,
   pluginPresetApplied,
   pluginSkillKey,
   reconcilePluginDraft,
-  PULSE_DAYS_MAX,
-  PULSE_DAYS_MIN,
-  pulseNeedsBacklogFor,
-  reviewAccountChoices,
-} from "../projectSettings";
+} from "../projectSettings/pluginDraft";
+export { reviewAccountChoices } from "../projectSettings/reviewers";
 
 export type { SectionAccess } from "../adminSections";
 
@@ -100,6 +107,7 @@ export function useProjectSwitches(projectId: string) {
   return useQuery({
     queryKey: ["as", me, "projectSettings", "switches", projectId] as const,
     queryFn: () => api.projectSettings.getProjectSwitches(projectId),
+    enabled: featureIntegrated("project-switches"),
   });
 }
 
@@ -110,6 +118,7 @@ export function useProjectsSwitches(projectIds: readonly string[]) {
     queries: projectIds.map((projectId) => ({
       queryKey: ["as", me, "projectSettings", "switches", projectId] as const,
       queryFn: () => api.projectSettings.getProjectSwitches(projectId),
+      enabled: featureIntegrated("project-switches"),
     })),
     combine: (results) =>
       new Map(projectIds.map((id, i) => [id, results[i]?.data ?? undefined] as const)),
@@ -416,6 +425,9 @@ function useLifecycleWrite<TVars, TData>(mutationFn: (vars: TVars) => Promise<TD
         predicate: (q) => mine(q.queryKey) && subjectOfLifecycle(q.queryKey),
         refetchType: "none",
       });
+      // Anche i permessi di chi guarda (review F6, I1): `/api/auth/me` esclude
+      // gli archiviati, e il viewer non scade da solo (staleTime Infinity).
+      await client.invalidateQueries({ queryKey: ["viewer"] });
     },
   });
 }
@@ -443,6 +455,7 @@ export function useArchivedProjects() {
   return useQuery({
     queryKey: ["as", me, "archived", "list"] as const,
     queryFn: () => api.projectSettings.listArchivedProjects(),
+    enabled: featureIntegrated("archive"),
   });
 }
 

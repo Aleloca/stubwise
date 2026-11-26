@@ -1,10 +1,12 @@
 import {
+  alertMuteResultSchema,
   inboxActionResultSchema,
   inboxPageSchema,
   snoozeResultSchema,
   unreadCountSchema,
 } from "@stubwise/shared";
 import type {
+  AlertMuteResult,
   Reader,
   InboxActionResult,
   InboxAnswerBodyFields,
@@ -73,6 +75,16 @@ export function createInboxEndpoints(request: ApiRequest) {
   }
 
   return {
+    /**
+     * Area 8, F2 (S6): «Non avvisarmi più di questo» — spegne il tipo della
+     * card (e la sua riga) nel suo progetto. Risponde con la riga di prima
+     * (l'«Annulla»: `client.alerts.set` con quei valori) e quella nuova.
+     * 403 `alert_mandatory` (card arrivata da obbligatorio), 422
+     * `not_a_catalog_alert`, 404 una card non tua.
+     */
+    muteType(id: string): Promise<Reader<AlertMuteResult>> {
+      return request("POST", `/api/inbox/${seg(id)}/mute-type`, undefined, alertMuteResultSchema);
+    },
     list(filters: InboxFilters = {}, cursor?: string, limit?: number): Promise<Reader<InboxPage>> {
       const query = toQuery({
         status: filters.status,
@@ -101,6 +113,21 @@ export function createInboxEndpoints(request: ApiRequest) {
     /** Archivia la notifica: chiude solo la propria riga, mai quelle altrui. */
     handled(id: string): Promise<void> {
       return request("POST", `/api/inbox/${seg(id)}/handled`);
+    },
+
+    /**
+     * Area 9, F1: igiene personale, 204. `restore` da handled a open,
+     * `moveToNew` da snoozed a open, `unread` rimette `read_at` a null.
+     * Errori: 404 `not_found` (non è tua), 409 `invalid_state`.
+     */
+    restore(id: string): Promise<void> {
+      return request("POST", `/api/inbox/${seg(id)}/restore`);
+    },
+    moveToNew(id: string): Promise<void> {
+      return request("POST", `/api/inbox/${seg(id)}/move-to-new`);
+    },
+    unread(id: string): Promise<void> {
+      return request("POST", `/api/inbox/${seg(id)}/unread`);
     },
 
     act,

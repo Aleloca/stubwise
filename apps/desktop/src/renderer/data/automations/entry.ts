@@ -135,7 +135,10 @@ export async function getProjectAutomations(
 export async function automationOrigin(
   ref: AutomationRef,
   createdCode: string,
+  // La build app chiede al server per task o per traguardo; qui basta il riferimento.
+  _kind?: "task" | "milestone",
 ): Promise<AutomationOrigin> {
+  void _kind;
   const me = await gate("automations.automationOrigin");
   const a = automationById(ref.automationId);
   const run = state.automationRuns.find((r) => r.id === ref.runId);

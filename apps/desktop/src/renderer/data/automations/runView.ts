@@ -1,4 +1,10 @@
-import { visitSteps } from "../../domain/automations/fields";
+import { hideProject } from "../../domain/automations/runRules";
+export { hideProject };
+import { knownPeopleFor } from "../access/whoCan";
+import { CLAUDE_ID, PEOPLE } from "../seed/people";
+import { hideReplies } from "@stubwise/shared";
+import { visitSteps } from "@stubwise/shared";
+import { personMasker } from "../access/hidden";
 import { copy, state, visibleProjectIds } from "../store";
 import type { AutomationRun, ReasonCode, RunLogEntry } from "../types";
 import { budgetReached } from "../instance/blocks";
@@ -49,12 +55,6 @@ function hiddenTarget(me: string, run: AutomationRun, e: RunLogEntry): string | 
     });
   const target = id ? automationById(id) : undefined;
   return id && (!target || !canSeeAutomation(me, target)) ? id : undefined;
-}
-
-/** R-J12: un `progetto` (dati di una riga, anteprima) che chi guarda non vede diventa `""`. */
-export function hideProject(o: Record<string, unknown>, visible: ReadonlySet<string>): void {
-  if (typeof o.progetto === "string" && o.progetto !== "" && !visible.has(o.progetto))
-    o.progetto = "";
 }
 
 /** Una task creata da un passo e poi eliminata (area 10a): il suo progetto. */
@@ -109,7 +109,12 @@ function mailOrigin(run: AutomationRun): { ownerId: string | null } | null {
  * - R-G5 attraverso «Avvia un'altra automazione»: un'esecuzione figlia che
  *   non vede resta senza codice, e il bersaglio senza id né nome.
  */
-export function viewRun(me: string, run: AutomationRun): AutomationRun {
+export function viewRun(
+  me: string,
+  run: AutomationRun,
+  // R.1414 (lotto 3): il masker della risposta.
+  mask: ReturnType<typeof personMasker> = personMasker(me),
+): AutomationRun {
   const v = copy(run);
   const visible = visibleProjectIds(me);
   // Ferma per un blocco d'istanza (area 9b): il blocco di adesso, col codice
@@ -146,6 +151,19 @@ export function viewRun(me: string, run: AutomationRun): AutomationRun {
       !visible.has(project)
     );
   });
+  // R.1414 (revisione del lotto 2-3): un motivo che nomina chi chi guarda non
+  // conosce (il proprietario che ha perso il permesso, chi ha annullato) non
+  // ne dice il nome: il parametro resta vuoto, il testo pronto non esce.
+  const known = knownPeopleFor(me);
+  const unknownNames = PEOPLE.filter(
+    (p) => p.id !== me && p.id !== CLAUDE_ID && !known.has(p.id),
+  ).map((p) => p.name);
+  for (const e of v.log) {
+    if (e.why?.params)
+      for (const [k, val] of Object.entries(e.why.params))
+        if (typeof val === "string" && unknownNames.includes(val)) e.why.params[k] = "";
+    if (e.reason && unknownNames.some((n) => e.reason!.includes(n))) e.reason = null;
+  }
   for (const e of v.log) {
     scrub(e.input);
     scrub(e.output);
@@ -179,7 +197,7 @@ export function viewRun(me: string, run: AutomationRun): AutomationRun {
     )
       v.pending.preview.automazione = "";
     // Chi decide si legge adesso (come `decide`): il proprietario può essere cambiato.
-    v.pending.approverIds = decidersOf(run);
+    v.pending.approverIds = decidersOf(run).map(mask);
   }
   const a = automationById(run.automationId);
   if (a?.ownerId !== me) {
@@ -209,45 +227,7 @@ export function viewRun(me: string, run: AutomationRun): AutomationRun {
     }
     if (v.pending && !decidersOf(run).includes(me)) v.pending.preview = {};
   }
+  // R.1414 (lotto 3): chi ha agito nel registro, alla fine (le regole sopra leggono gli id veri).
+  v.log = v.log.map((e) => (e.byId ? { ...e, byId: mask(e.byId) } : e));
   return v;
-}
-
-/**
- * R-J16 (shape [A 21]): la risposta del cliente sta nella casella del
- * proprietario, e il suo testo lo vede solo lui — su OGNI esecuzione, non
- * solo su quelle partite da un'email. Per gli altri ogni testo che la
- * contiene diventa `""`: l'uscita dell'attesa, gli ingressi di chi la legge
- * (Claude, condizioni, ripetizioni), le variabili, i campi di Claude che la
- * ripetono; la riga lo dice con `replyHidden`. L'anteprima di chi deve
- * approvare resta intera (R-J14).
- */
-function hideReplies(v: AutomationRun, preview: boolean): void {
-  const replies = new Set<string>();
-  const add = (t: unknown) => {
-    if (typeof t === "string" && t.trim()) replies.add(t);
-  };
-  for (const e of v.log) if (e.kind === "wait") add(e.output["risposta.testo"]);
-  add(v.vars["risposta.testo"]);
-  if (replies.size === 0) return;
-  const echoes = (s: string) => [...replies].some((r) => s.includes(r));
-  const hide = (o: unknown): boolean => {
-    if (!o || typeof o !== "object") return false;
-    let hit = false;
-    const rec = o as Record<string, unknown>;
-    for (const [k, val] of Object.entries(rec)) {
-      if (typeof val === "string" && echoes(val)) {
-        rec[k] = "";
-        hit = true;
-      } else if (val && typeof val === "object" && hide(val)) hit = true;
-    }
-    return hit;
-  };
-  for (const e of v.log) {
-    const a = hide(e.input);
-    const b = hide(e.output);
-    if (a || b) e.replyHidden = true;
-  }
-  hide(v.vars);
-  if (v.loops) hide(v.loops);
-  if (preview && v.pending) hide(v.pending.preview);
 }

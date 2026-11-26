@@ -142,7 +142,7 @@ export function DriveAttachDialog({
   const [chosen, setChosen] = useState<DriveFileRow[]>([]);
   const files = useDriveFiles(
     { projectId: projectId ?? undefined, sort: "name" },
-    { enabled: !!project },
+    { enabled: !!project, poll: true },
   );
   const keys = useListKeys();
   const noteId = useId();

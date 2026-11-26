@@ -1,0 +1,87 @@
+import { ApiError } from "@stubwise/api-client";
+import { parseCriteria, type SavedFilterView } from "@stubwise/shared";
+import type * as Fake from "../../api";
+import type { SavedFilter } from "../../types";
+import { appClient } from "./client";
+import { withPlaceholderErrors } from "./placeholderErrors";
+
+// I filtri salvati della build app (integrazione area 2, fetta 3): i miei e i
+// pubblici, dal server. I criteri arrivano larghi e si normalizzano con
+// `parseCriteria` (un criterio che questa app non conosce si scarta); chi può
+// modificare ed eliminare lo dice il server (`canEdit`), il client lo legge.
+// Le task di un filtro si leggono con `listTasks(criteria)`: un filtro
+// pubblico mostra a ciascuno solo le task che vede già.
+
+/**
+ * Per ogni filtro letto, le chiavi dei criteri che `parseCriteria` ha scartato
+ * (un criterio che questa app non conosce, o di una forma che non legge):
+ * salvando i criteri tornano, così un'app più vecchia del server non li
+ * cancella. Si svuota al cambio di persona.
+ */
+const droppedCriteria = new Map<string, Record<string, unknown>>();
+
+export function forgetFilterCaches(): void {
+  droppedCriteria.clear();
+}
+
+export function toFilter(view: SavedFilterView): SavedFilter {
+  const parsed = (parseCriteria(view.criteria) ?? {}) as Record<string, unknown>;
+  const dropped = Object.fromEntries(Object.entries(view.criteria).filter(([key]) => !(key in parsed)));
+  droppedCriteria.set(view.id, dropped);
+  return {
+    id: view.id,
+    name: view.name,
+    ownerId: view.ownerId,
+    visibility: view.visibility,
+    criteria: parsed,
+    view: view.view,
+    groupBy: view.groupBy,
+    canEdit: view.canEdit,
+  } as SavedFilter;
+}
+
+export const listSavedFilters: typeof Fake.listSavedFilters = async () =>
+  (await appClient().filters.list()).map((v) => toFilter(v as SavedFilterView));
+
+/** Un filtro che non vedo (privato d'altri, o eliminato) risponde come uno che non c'è: `null`. */
+export const getSavedFilter: typeof Fake.getSavedFilter = async (id) => {
+  try {
+    return toFilter((await appClient().filters.get(id)) as SavedFilterView);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
+};
+
+export const listPinnedFilterIds: typeof Fake.listPinnedFilterIds = () => appClient().filters.pinned();
+
+export const saveFilter: typeof Fake.saveFilter = async (input) =>
+  toFilter(
+    (await withPlaceholderErrors(() =>
+      appClient().filters.create({
+        name: input.name,
+        visibility: input.visibility,
+        criteria: input.criteria,
+        view: input.view,
+        groupBy: input.groupBy,
+        // Revisione I-6 (72, f0d312736): l'origine di un «Salva come», per i segnaposto.
+        ...(input.savedFilterId ? { savedFilterId: input.savedFilterId } : {}),
+      } as never),
+    )) as SavedFilterView,
+  );
+
+export const updateFilter: typeof Fake.updateFilter = async (id, patch) => {
+  const body =
+    patch.criteria !== undefined
+      ? { ...patch, criteria: { ...(droppedCriteria.get(id) ?? {}), ...patch.criteria } }
+      : patch;
+  return toFilter(
+    (await withPlaceholderErrors(() => appClient().filters.update(id, body as never))) as SavedFilterView,
+  );
+};
+
+/** Lo toglie anche dai fissati di tutti; nelle Home resta un blocco «non disponibile». */
+export const deleteFilter: typeof Fake.deleteFilter = (id) => appClient().filters.remove(id);
+
+export const setFilterPinned: typeof Fake.setFilterPinned = (filterId, pinned) =>
+  pinned ? appClient().filters.pin(filterId) : appClient().filters.unpin(filterId);

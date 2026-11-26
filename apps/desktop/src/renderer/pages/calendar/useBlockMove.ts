@@ -24,6 +24,7 @@ import {
 } from "./blockMove";
 import { timeLabel } from "./calendarFormat";
 import { outsideWindow, type WindowDays } from "./calendarParams";
+import { calendarWrites, canEditEvent, sameSpan } from "./calendarWrites";
 
 // Tastiera e puntatore sui blocchi della griglia oraria (shape calendar.md
 // §6): Space prende, frecce spostano, Space lascia, Esc annulla; col
@@ -129,7 +130,8 @@ export function useBlockMove({
     if (e.key === " ") {
       e.preventDefault();
       if (!pending) {
-        if (!focused.isOrganizer) {
+        if (!calendarWrites()) return;
+        if (!canEditEvent(focused)) {
           const organizer = focused.attendees.find((a) => a.organizer)?.name ?? "";
           announce(t("calendar.move.cantMove", { name: organizer }));
           return;
@@ -145,7 +147,7 @@ export function useBlockMove({
       const p = pending;
       const moving = events.find((x) => x.id === p.id);
       dispatch({ type: "clear" });
-      if (moving && (p.startsAt !== moving.startsAt || p.endsAt !== moving.endsAt)) {
+      if (moving && !sameSpan(p, moving)) {
         onMove({ event: moving, startsAt: p.startsAt, endsAt: p.endsAt });
       } else {
         announce(t("calendar.move.dropped"));
@@ -258,7 +260,7 @@ export function useBlockMove({
     if (!g.started) return;
     suppressNextClick();
     dispatch({ type: "clear" });
-    if (!p || (p.startsAt === ev.startsAt && p.endsAt === ev.endsAt)) return;
+    if (!p || sameSpan(p, ev)) return;
     if (!inWindowSpan(p, ev.allDay, win)) {
       refuse();
       return;
@@ -335,7 +337,7 @@ export function useBlockMove({
     if (e.button !== 0) return;
     suppressClick.current = false;
     const original = events.find((x) => x.id === ev.id)!;
-    if (!original.isOrganizer || (kind === "resize" && original.allDay)) return;
+    if (!canEditEvent(original) || (kind === "resize" && original.allDay)) return;
     e.stopPropagation();
     const under = dayAt(e.clientX);
     startGesture({
@@ -383,7 +385,7 @@ export function useBlockMove({
         if (k.key === " ") k.preventDefault();
       },
       onBlur: (f: ReactFocusEvent<HTMLElement>) => onBlockBlur(f, ev),
-      onPointerDown: original.isOrganizer
+      onPointerDown: canEditEvent(original)
         ? (p: ReactPointerEvent<HTMLElement>) => onBlockPointerDown(p, ev, "move", day)
         : undefined,
     };

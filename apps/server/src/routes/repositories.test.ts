@@ -131,14 +131,22 @@ describe("POST /api/projects", () => {
       graphEnabled: false,
       // Nessun branch protetto se non indicato (7 ott 2026).
       protectedBranches: [],
+      // Area 8, F1: le impostazioni di rilascio ai valori di partenza (P-2 = a: i colleghi in «solo analisi»).
+      releaseBranch: null,
+      releasePipeline: { mode: "auto" },
+      ciProvider: null,
+      colleaguePrs: "analyze_only",
       createdAt: expect.any(String),
       // L'admin ha `repos.view`: la configurazione c'è.
       config: true,
+      canManage: true,
       // L'identità del principale non si legge (il doppio di default rigetta):
       // avviso non bloccante, il repository è creato comunque.
       warnings: ["main_account_identity_unresolved"],
+      // Area 9, F5 (decisione C): il segreto del webhook esce intero SOLO qui, alla creazione.
+      webhookSecret: expect.stringMatching(/^[0-9a-f]{32}$/),
     });
-    expect(res.body).not.toContain("webhookSecret");
+    expect(res.headers["cache-control"]).toBe("no-store");
     expect(res.body).not.toContain("credentials");
     expect(res.body).not.toContain(PLAINTEXT_TOKEN);
   });
@@ -310,6 +318,15 @@ describe("GET /api/projects/:slug", () => {
     expect(res.body).not.toContain("webhookSecret");
   });
 
+  it("rimandi, lotto 4: `canManage` dice `repos.manage` di chi chiede, nel dettaglio e nell'elenco (Legacy Member no, full admin sì)", async () => {
+    const get = async (url: string, cookie: string) => (await app.inject({ method: "GET", url, headers: { cookie } })).json() as unknown;
+    expect(((await get("/api/repositories/sito-vetrina", memberCookie)) as { canManage: boolean }).canManage).toBe(false);
+    expect(((await get("/api/repositories/sito-vetrina", adminCookie)) as { canManage: boolean }).canManage).toBe(true);
+    const row = async (cookie: string) => ((await get("/api/repositories", cookie)) as { slug: string; canManage: boolean }[]).find((r) => r.slug === "sito-vetrina")!.canManage;
+    expect(await row(memberCookie)).toBe(false);
+    expect(await row(adminCookie)).toBe(true);
+  });
+
   it("slug inesistente: 404", async () => {
     const res = await app.inject({
       method: "GET",
@@ -321,15 +338,18 @@ describe("GET /api/projects/:slug", () => {
 });
 
 describe("GET /api/projects/:slug/webhook", () => {
-  it("l'admin legge il webhookSecret e il path del webhook", async () => {
+  it("l'admin legge il path del webhook e le ultime 4 del segreto, mai il segreto intero (F5, decisione C)", async () => {
     const res = await app.inject({
       method: "GET",
       url: "/api/repositories/sito-vetrina/webhook",
       headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(200);
-    const body = res.json() as { webhookSecret: string; webhookPath: string };
-    expect(body.webhookSecret).toMatch(/^[0-9a-f]{32}$/);
+    const body = res.json() as { webhookSecret?: string; secretLast4: string; webhookPath: string };
+    const [row] = await testDb.db.select({ webhookSecret: repositories.webhookSecret }).from(repositories).where(eq(repositories.slug, "sito-vetrina"));
+    expect(body.webhookSecret).toBeUndefined();
+    expect(body.secretLast4).toBe(row!.webhookSecret.slice(-4));
+    expect(res.body).not.toContain(row!.webhookSecret);
     expect(body.webhookPath).toBe("/webhooks/git/sito-vetrina");
   });
 
@@ -556,12 +576,9 @@ describe("POST /api/projects/:slug/configure-webhook", () => {
       }),
     );
 
-    const webhookRes = await app.inject({
-      method: "GET",
-      url: "/api/repositories/sito-vetrina/webhook",
-      headers: { cookie: adminCookie },
-    });
-    const expectedSecret = (webhookRes.json() as { webhookSecret: string }).webhookSecret;
+    // Il segreto intero non esce più da una lettura (F5, decisione C): lo si prende dal DB.
+    const [stored] = await testDb.db.select({ webhookSecret: repositories.webhookSecret }).from(repositories).where(eq(repositories.slug, "sito-vetrina"));
+    const expectedSecret = stored!.webhookSecret;
 
     const res = await configure("sito-vetrina");
     expect(res.statusCode).toBe(200);
@@ -1912,5 +1929,35 @@ describe("branch protetti della repository (7 ott 2026)", () => {
     expect(res.statusCode).toBe(400);
     const get = await app.inject({ method: "GET", url: `/api/repositories/${repo.slug}`, headers: { cookie: adminCookie } });
     expect((get.json() as { protectedBranches: string[] }).protectedBranches).toEqual(["develop"]);
+  });
+});
+
+describe("area 8, F1: le impostazioni dei rilasci della repository", () => {
+  async function created(name: string) {
+    const res = await createProject({ ...basePayload(), name });
+    expect(res.statusCode).toBe(201);
+    return res.json() as { slug: string; releaseBranch: string | null; releasePipeline: unknown; ciProvider: string | null; colleaguePrs: string };
+  }
+  const patch = (slug: string, payload: Record<string, unknown>) =>
+    app.inject({ method: "PATCH", url: `/api/repositories/${slug}`, headers: { cookie: adminCookie }, payload });
+
+  it("i default (ramo null, tutte le run, nessuna CI, PR dei colleghi in solo analisi) e il PATCH che li cambia; senza i campi restano", async () => {
+    const repo = await created("Rilasci Impostazioni");
+    expect(repo).toMatchObject({ releaseBranch: null, releasePipeline: { mode: "auto" }, ciProvider: null, colleaguePrs: "analyze_only" });
+    const res = await patch(repo.slug, { releaseBranch: "release", releasePipeline: { mode: "named", names: ["build", "test"] }, ciProvider: "github_actions", colleaguePrs: "analyze_and_fix" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ releaseBranch: "release", releasePipeline: { mode: "named", names: ["build", "test"] }, ciProvider: "github_actions", colleaguePrs: "analyze_and_fix" });
+    const again = await patch(repo.slug, { name: "Rilasci Impostazioni 2" });
+    expect(again.json()).toMatchObject({ releaseBranch: "release", ciProvider: "github_actions", colleaguePrs: "analyze_and_fix" });
+    expect((await patch(repo.slug, { releaseBranch: null })).json()).toMatchObject({ releaseBranch: null });
+  });
+
+  it("valori non ammessi: 400 e niente scritto", async () => {
+    const repo = await created("Rilasci Invalidi");
+    expect((await patch(repo.slug, { colleaguePrs: "sempre" })).statusCode).toBe(400);
+    expect((await patch(repo.slug, { releasePipeline: { mode: "named", names: [] } })).statusCode).toBe(400);
+    expect((await patch(repo.slug, { ciProvider: "jenkins" })).statusCode).toBe(400);
+    const get = await app.inject({ method: "GET", url: `/api/repositories/${repo.slug}`, headers: { cookie: adminCookie } });
+    expect(get.json()).toMatchObject({ colleaguePrs: "analyze_only", releasePipeline: { mode: "auto" }, ciProvider: null });
   });
 });

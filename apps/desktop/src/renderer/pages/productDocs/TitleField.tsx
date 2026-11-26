@@ -91,6 +91,8 @@ export const TitleField = forwardRef<
         if (typeof document.execCommand === "function") document.execCommand("insertText", false, text);
       }}
       onBlur={commit}
+      // Uscire dalla pagina lo salva (§3.12, revisione di R11-6, M7).
+      data-save-on-blur=""
       className="-mx-1.5 rounded-md px-1.5 text-[28px] leading-9 font-semibold text-balance text-ink transition-colors duration-[var(--duration-fast)] ease-out [overflow-wrap:anywhere] outline-none hover:bg-ink/6 focus:bg-transparent focus-visible:outline-2 focus-visible:outline-focus"
     />
   );

@@ -8,14 +8,14 @@ import {
   startRunAs,
 } from "../api-mutations";
 import { shortRepo } from "../../domain/releases/repo";
-import { dropEnvironmentFiles } from "../projectSettings/envFiles";
+import { requireReauth } from "../auth/reauth";
+import { dropEnvironmentFiles, environmentHasFiles } from "../projectSettings/envFiles";
 import { recordChange } from "../changelog/index";
 import { changedFields } from "../changelog/settingValues";
 // Per effetto: registra i tipi di voce di progetto (`recordChange` lancia su uno ignoto).
 import "../projectSettings/changeTypes";
-import { alertProjectsOf } from "../../domain/servers/projects";
 import { publishAlert } from "../alerts/publish";
-import { aiBlockFor } from "../instance/blocks";
+import { manualStartBlockFor } from "../instance/blocks";
 import { noteProductSource } from "../productDocs/sourceEvents";
 import { PEOPLE } from "../seed/people";
 import { copy, latestRunOf, newId, now, state, storeGeneration } from "../store";
@@ -29,6 +29,7 @@ import type {
   Repository,
   Task,
 } from "../types";
+import { CONTAINER_NAME_RE } from "@stubwise/shared";
 import { forbidden, invalid, notFound, writer } from "../writer";
 import { assertServerCodesVisible } from "../servers/visibility";
 import {
@@ -89,7 +90,9 @@ export type MergeError =
   | "checks_failed"
   | "checks_unreadable"
   | "not_mergeable"
-  | "merge_forbidden";
+  | "merge_forbidden"
+  /** Build app: il provider ha rifiutato il merge per un guasto (502). */
+  | "merge_failed";
 
 /**
  * `release`: il rilascio nato dal merge; `null` se la PR non era sul ramo
@@ -328,7 +331,15 @@ export type CorrectionRequestResult =
         | "not_fixable"
         | "analysis_only"
         /** Area 9b: il budget AI del mese è esaurito, Claude non parte. */
-        | "monthly_budget";
+        | "monthly_budget"
+        /** Build app (review F1, I2): la PR di un collega è ancora in analisi. */
+        | "pr_not_found"
+        /** Build app: una PR adottata la corregge solo un admin. */
+        | "adopted_pr_admin_only"
+        /** Build app: non è una PR che Stubwise può correggere. */
+        | "not_stubwise_pr"
+        /** Build app: il ramo della PR adottata è protetto. */
+        | "adopted_branch_protected";
     };
 
 /**
@@ -348,7 +359,7 @@ export async function requestPrCorrection(
   if (!text.trim()) throw invalid("text");
   if (pr.state !== "open") return { ok: false, error: "already_closed" };
   // Area 9b: col budget del mese esaurito Claude non parte, su nessuna PR.
-  if (aiBlockFor(pr.projectId)?.reason === "monthly_budget")
+  if (manualStartBlockFor(me, pr.projectId)?.reason === "monthly_budget")
     return { ok: false, error: "monthly_budget" };
   const st = stateOfPr(pr);
   if (pr.origin === "stubwise") {
@@ -417,7 +428,8 @@ function fixDescription(r: Release, logLines: boolean, note?: string): string {
  * percorso normale di «Avvia» (gate del piano per chi non ha `plans.approve`);
  * senza, la task aspetta qualcuno che la avvii.
  */
-export type FixResult = Task & { existing: boolean; noteAdded: boolean };
+/** `started`: Claude è partito sulla task nuova (`runs.start` e il budget del mese). */
+export type FixResult = Task & { existing: boolean; noteAdded: boolean; started?: boolean };
 
 export async function fixRelease(code: string, note?: string): Promise<FixResult> {
   const gen = storeGeneration();
@@ -448,9 +460,10 @@ export async function fixRelease(code: string, note?: string): Promise<FixResult
   );
   r.fixTaskId = task.id;
   // Col budget del mese esaurito (area 9b) la task nasce ma non parte: aspetta chi la avvii.
-  if (holds(me, "runs.start", r.projectId) && aiBlockFor(r.projectId)?.reason !== "monthly_budget")
-    await startRunAs(me, task, gen);
-  return { ...copy(task), existing: false, noteAdded: false };
+  const start =
+    holds(me, "runs.start", r.projectId) && manualStartBlockFor(me, r.projectId)?.reason !== "monthly_budget";
+  if (start) await startRunAs(me, task, gen);
+  return { ...copy(task), existing: false, noteAdded: false, started: start };
 }
 
 /**
@@ -579,7 +592,6 @@ export async function updateEnvironment(
   if (patch.kind !== undefined) env.kind = patch.kind;
   if (patch.url !== undefined) env.url = patch.url?.trim() || null;
   if (patch.servers !== undefined) env.servers = serverRows(env.servers, patch.servers);
-  dropStalePrimaries();
   // I server collegati non hanno un prima/dopo: se cambiano solo loro c'è la frase.
   const diff = changedFields(before, { name: env.name, kind: env.kind, url: env.url });
   recordChange({
@@ -592,30 +604,74 @@ export async function updateEnvironment(
   return copy(env);
 }
 
-export async function deleteEnvironment(id: string): Promise<void> {
+/**
+ * I container di un ambiente su uno dei suoi server (area 8, F4b, R0-D: PUT
+ * …/environments/:id/containers sul server). Solo nomi che l'agente
+ * riporta per quel server (`unknown_container`), mai di un ALTRO progetto
+ * sullo stesso server (`container_of_other_project`); sostituisce l'elenco
+ * su ogni riga dell'ambiente con quel server. Chi scrive ha
+ * `environments.manage` nel progetto: non serve che veda il server.
+ */
+export async function setEnvironmentContainers(
+  id: string,
+  input: { serverCode: string; containers: string[] },
+): Promise<{ serverCode: string; containers: string[] }> {
+  const me = await writer("releases.setEnvironmentContainers");
+  const env = environmentFor(me, id);
+  if (!holds(me, "environments.manage", env.projectId)) throw forbidden();
+  const serverCode = input.serverCode.trim().toUpperCase();
+  const rows = env.servers.filter((s) => s.serverCode === serverCode);
+  if (rows.length === 0) throw invalid("server_not_in_environment");
+  const containers = [...new Set(input.containers)];
+  if (containers.length > 50 || containers.some((c) => !CONTAINER_NAME_RE.test(c)))
+    throw invalid("containers");
+  const server = state.servers.find((s) => s.code === serverCode);
+  const seen = new Set(
+    (server?.services ?? []).filter((x) => x.source === "docker").map((x) => x.name),
+  );
+  if (containers.some((c) => !seen.has(c))) throw invalid("unknown_container");
+  // Di un altro progetto: fra i suoi container su quel server, o col NOME
+  // di un suo ambiente senza container (la regola di shared, 72 review).
+  const clash = state.environments.some(
+    (e) =>
+      e.projectId !== env.projectId &&
+      e.servers.some((s) => {
+        if (s.serverCode !== serverCode) return false;
+        const own = s.containers?.length ? s.containers : [e.name];
+        return own.some((c) => containers.includes(c));
+      }),
+  );
+  if (clash) throw invalid("container_of_other_project");
+  for (const r of rows) r.containers = [...containers];
+  recordChange({
+    kind: "environment.updated",
+    actorId: me,
+    projectId: env.projectId,
+    object: environmentObject(env),
+  });
+  return { serverCode, containers };
+}
+
+/**
+ * Elimina un ambiente. I suoi file d'ambiente (area 9c) se ne vanno con lui,
+ * segreti compresi: se ne ha, serve la riconferma (+R) e ogni file lascia la
+ * sua voce (area 9, F5, decisione del maintainer). Senza file, niente +R.
+ */
+export async function deleteEnvironment(
+  id: string,
+): Promise<{ ok: true } | { ok: false; error: "reauth_required" }> {
   const me = await writer("releases.deleteEnvironment");
   const env = environmentFor(me, id);
   if (!holds(me, "environments.manage", env.projectId)) throw forbidden();
+  if (environmentHasFiles(id) && requireReauth(me, "releases.deleteEnvironment"))
+    return { ok: false, error: "reauth_required" };
+  dropEnvironmentFiles(id, me, env.projectId);
   state.environments = state.environments.filter((e) => e.id !== id);
-  // I suoi file d'ambiente (area 9c) se ne vanno con lui, segreti compresi.
-  dropEnvironmentFiles(id);
-  dropStalePrimaries();
   recordChange({
     kind: "environment.deleted",
     actorId: me,
     projectId: env.projectId,
     object: environmentObject(env),
   });
-}
-
-/**
- * Il progetto principale di un server è una delle produzioni che lo usano:
- * tolto il server da quella produzione (riga o ambiente), il principale si
- * azzera e l'analisi ricade sulla prima produzione rimasta (`analysisProjectOf`).
- */
-function dropStalePrimaries(): void {
-  for (const s of state.servers) {
-    if (s.primaryProjectId && !alertProjectsOf(s.code, state.environments).includes(s.primaryProjectId))
-      s.primaryProjectId = null;
-  }
+  return { ok: true };
 }

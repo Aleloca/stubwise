@@ -59,7 +59,8 @@ export function PlanChip({
   const { t } = useTranslation();
   const ctx = usePlanning();
   const deptLabel = useDeptLabel(task.departmentId);
-  const movable = canMove(task, ctx.rightsOf(task));
+  // Sul server vero lo dice la vista (`canPlan`): il client lo legge, non lo deduce.
+  const movable = task.canPlan ?? canMove(task, ctx.rightsOf(task));
   const lock = movable ? null : ctx.lockReason(task);
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: dragId(spot, task.id),

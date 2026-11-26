@@ -1,10 +1,12 @@
-import { notificationKindSchema } from "@stubwise/shared";
+import { attributeServerCause, notificationKindSchema } from "@stubwise/shared";
 import { describe, expect, it } from "vitest";
 import type { StallReason } from "../domain/stalled";
 import { stallOf } from "../domain/stalled";
+import { inClosedSet } from "../domain/servers/commands";
+import { serverProjectsOf } from "../domain/servers/projects";
 import { TEMPLATE_MODULES } from "../domain/templates";
 import { compareWeeks } from "../domain/weeks";
-import { validateFlow } from "../domain/automations/validate";
+import { validateFlow } from "@stubwise/shared";
 import { chat, resetApi, setLatency } from "./api";
 import { setSessionPersonId } from "./session";
 import { ACTIVITY } from "./seed/activity";
@@ -505,8 +507,9 @@ describe("seed: notifiche", () => {
       [...ALERT_NOTIFICATIONS, ...SERVER_ALERT_NOTIFICATIONS].map((n) => n.id),
     );
     for (const n of NOTIFICATIONS) {
-      // Gli avvisi delle aree 8a e 8b hanno i destinatari calcolati a lettura.
-      if (alertIds.has(n.id)) continue;
+      // Gli avvisi delle aree 8a e 8b hanno i destinatari calcolati a lettura,
+      // e così quelli della doc di prodotto (area 11, N-1 = a: obblighi e iscritti).
+      if (alertIds.has(n.id) || n.kind.startsWith("product_doc.")) continue;
       expect(n.recipientIds.length).toBeGreaterThan(0);
       for (const r of n.recipientIds) {
         expect(PEOPLE.find((p) => p.id === r)?.isClaude).toBe(false);
@@ -552,7 +555,6 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
       "docs.release_note",
       "task.created",
       "support.request",
-      "support.customer_replied",
     ];
     for (const k of kinds8a) {
       expect(LOCAL_NOTIFICATION_KINDS as readonly string[]).toContain(k);
@@ -770,12 +772,12 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
     expect(prodOf(STW)[0]!.servers.map((s) => [s.repositoryId, s.serverCode])).toEqual([
       [null, "SRV-2"],
     ]);
-    expect(prodOf(AUD)[0]!.servers.map((s) => [repoOf(s.repositoryId!).name, s.serverCode])).toEqual(
-      [
-        ["audin-app", "SRV-3"],
-        ["audin-admin", "SRV-4"],
-      ],
-    );
+    expect(
+      prodOf(AUD)[0]!.servers.map((s) => [repoOf(s.repositoryId!).name, s.serverCode]),
+    ).toEqual([
+      ["audin-app", "SRV-3"],
+      ["audin-admin", "SRV-4"],
+    ]);
     // STW: la produzione riporta STW-V1 («in produzione»), non STW-V2 («non ancora»).
     const stwProd = prodOf(STW)[0]!.servers[0]!;
     const byCode = (c: string) => RELEASES.find((r) => r.code === c)!;
@@ -797,30 +799,52 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
       for (const m of c.messages) {
         if (m.from === "team") expect(project.memberIds).toContain(m.authorId);
         else expect(m.authorId).toBeNull();
+        // Area 8, F3: al cliente del widget il team non scrive mai.
+        if (c.channel === "widget") expect(m.from, c.code).not.toBe("team");
+      }
+      // Con un esito la conversazione è chiusa: dopo l'esito il cliente scrive nella successiva.
+      if (c.requestId || c.taskId) {
+        const outcomeAt = c.confirmedAt ?? c.messages.at(-1)!.at;
+        expect(
+          c.messages.filter((m) => m.from === "customer" && m.at > outcomeAt),
+          c.code,
+        ).toEqual([]);
+      }
+      if (c.continuedInId) {
+        const next = SUPPORT_CONVERSATIONS.find((x) => x.id === c.continuedInId)!;
+        expect([next.projectId, next.channel, next.widgetId]).toEqual([
+          c.projectId,
+          c.channel,
+          c.widgetId,
+        ]);
+        expect(next.customer).toEqual(c.customer);
       }
       const ats = c.messages.map((m) => m.at);
       expect(ats).toEqual([...ats].sort());
       if (c.requestId) {
         const request = requestsById.get(c.requestId)!;
         expect(request.projectId).toBe(c.projectId);
-        expect(request.origin).toEqual({ kind: "support", conversationId: c.id });
+        expect(request.origin).toEqual({
+          kind: "support",
+          conversationId: c.id,
+          conversationCode: c.code,
+        });
       }
-      for (const id of c.followerIds) expect(project.memberIds).toContain(id);
     }
     const acq = SUPPORT_CONVERSATIONS.filter((c) => c.projectId === ACQ);
-    // In triage: nessuna richiesta, il cliente non se n'è andato.
-    expect(acq.some((c) => c.channel === "widget" && !c.requestId && !c.leftAt)).toBe(true);
-    // Aspettano noi (richiesta aperta, l'ultimo messaggio è del cliente) in
-    // due: ACQ-S2 con la bozza di Claude pronta, ACQ-S7 senza. La riga
-    // «Claude can help you write the reply» si vede solo sulla seconda.
-    const waiting = acq.filter((c) => c.requestId && c.messages.at(-1)!.from === "customer");
-    expect(waiting.map((c) => [c.code, c.claudeDraft !== null])).toEqual([
-      ["ACQ-S2", true],
-      ["ACQ-S7", false],
-    ]);
-    // Non conclusa: se n'è andato, nessuna richiesta.
-    const left = acq.find((c) => c.leftAt)!;
-    expect(left.requestId).toBeNull();
+    // In triage: nessuna richiesta, nessun giudizio dopo il silenzio.
+    expect(acq.some((c) => c.channel === "widget" && !c.requestId && !c.triage)).toBe(true);
+    // Area 8, F3: con un esito chiusa; ACQ-S2 continua in ACQ-S9.
+    const closedThenContinued = acq.filter((c) => c.continuedInId);
+    expect(closedThenContinued.map((c) => c.code)).toEqual(["ACQ-S2"]);
+    // Non conclusa e risposta bastata (area 8, F3): il giudizio del controllo, nessuna richiesta.
+    const judged = acq.filter((c) => c.triage);
+    expect(judged.map((c) => [c.code, c.triage!.outcome, c.triage!.byUserId, c.requestId])).toEqual(
+      [
+        ["ACQ-S3", "not_concluded", null, null],
+        ["ACQ-S8", "concluded", null, null],
+      ],
+    );
     // Dal server MCP, con la conversazione allegata alla richiesta.
     const mcp = acq.find((c) => c.channel === "mcp")!;
     expect(mcp.requestId).not.toBeNull();
@@ -831,7 +855,9 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
     for (const r of REQUESTS) {
       if (!r.origin || r.origin.kind === "product_doc") continue;
       expect(r.origin.kind).toBe("support");
-      const c = SUPPORT_CONVERSATIONS.find((x) => x.id === (r.origin as { conversationId: string }).conversationId)!;
+      const c = SUPPORT_CONVERSATIONS.find(
+        (x) => x.id === (r.origin as { conversationId: string }).conversationId,
+      )!;
       expect(c.requestId).toBe(r.id);
     }
     // Area 10b: più ACQ-S5 e ACQ-S6; poi ACQ-S7 (5 nov 2026).
@@ -870,6 +896,10 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
           "language",
           "dailyMessageCap",
           "dailyRequestCap",
+          // API per i siti (S6): l'identità dei clienti.
+          "identitySecretSet",
+          "identitySecretRotatedAt",
+          "identityRequired",
           "createdAt",
         ].sort(),
       );
@@ -897,7 +927,7 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
     expect(state.notificationMarks.size).toBe(0);
     expect(state.releaseCodeSeq.get(AUD)).toBe(3);
     expect(state.releaseCodeSeq.get(STW)).toBe(2);
-    expect(state.supportCodeSeq.get(ACQ)).toBe(7);
+    expect(state.supportCodeSeq.get(ACQ)).toBe(9);
     // Copie: cambiare lo stato non tocca il seme.
     state.releases[0]!.title = "changed";
     expect(RELEASES[0]!.title).not.toBe("changed");
@@ -953,7 +983,14 @@ describe("seed: conversazioni con Claude", () => {
         expect(c.publishedAt).toBeNull();
         // La posta resta del titolare; le altre sessioni seguono il progetto.
         expect(c.visibility).toBe(c.kind === "mail_classify" ? "private" : "project");
-        if (c.kind !== "mail_classify") expect(c.projectId).not.toBeNull();
+        // Un'analisi di un server con la causa non determinata resta senza
+        // progetto (F4b-4): la legge chi gestisce il monitor (SRV-2, scelta A2 di 46).
+        const undetermined =
+          c.kind === "server_analysis" &&
+          SERVER_ANALYSES.some(
+            (a) => a.conversationId === c.id && a.attribution?.kind === "undetermined",
+          );
+        if (c.kind !== "mail_classify" && !undetermined) expect(c.projectId).not.toBeNull();
       }
       if (c.kind === "task_run" || c.kind === "pr_review") expect(c.taskId).not.toBeNull();
       if (c.kind === "refine" || c.kind === "intake") expect(c.requestId).not.toBeNull();
@@ -2059,14 +2096,25 @@ describe("seed: Posta (area 6)", () => {
       expect(p.source, p.id).toBe("calendar");
       const e = events.get(p.sourceId);
       expect(e, p.id).toBeDefined();
-      const members = new Set(projectsById.get(p.projectId)!.memberIds);
+      // Lotto 9, voce 2 (a): una «Quale progetto?» (scadenza senza progetto)
+      // sceglie fra i candidati dell'evento, col traguardo pronto per ognuno.
+      const choose = p.actions.find((a) => a.fn === "chooseProject");
+      const projectIds = choose ? (choose.args.projectIds as string[]) : [p.projectId];
+      if (choose) {
+        expect(e!.projectId, p.id).toBeNull();
+        expect(projectIds, p.id).toEqual(e!.projectCandidateIds);
+      }
+      const members = new Set(projectIds.flatMap((id) => projectsById.get(id)!.memberIds));
       expect(
         e!.attendees.some(
           (a) => a.personId && a.response !== "declined" && members.has(a.personId),
         ),
         p.id,
       ).toBe(true);
-      for (const a of p.actions) {
+      const actions = choose
+        ? Object.values(choose.args.actionsByProject as Record<string, typeof p.actions>).flat()
+        : p.actions;
+      for (const a of actions) {
         expect(["createMilestone", "createRequest", "acknowledgeReminder"], p.id).toContain(a.fn);
         // Un promemoria non crea nulla: porta solo titolo e data.
         if (a.fn === "acknowledgeReminder")
@@ -2512,8 +2560,12 @@ describe("seed: Automations (area 7)", () => {
     // Le task di AUT-1 #1: senza incaricato, del reparto indicato, nel traguardo creato.
     const done = run(AUTOMATION_CASES.runs.done);
     const milestoneCode = done.log.find((e) => e.kind === "createMilestone")!.effects[0]!.code;
+    // Il registro dice il nome di allora; il traguardo è stato rinominato dopo (`created.ts`).
+    expect(done.log.find((e) => e.kind === "createMilestone")!.input).toMatchObject({
+      nome: "Attivazione CRM – Cantina Bellavista Srl",
+    });
     expect(MILESTONES.find((m) => m.id === milestoneCode)!.name).toBe(
-      "Attivazione CRM – Cantina Bellavista Srl",
+      "Attivazione CRM – Cantina Bellavista",
     );
     const departments: Record<string, string> = {
       "nc-task-dev": "dep-development",
@@ -2555,9 +2607,8 @@ describe("seed: server (area 8b)", () => {
       expect(s.code).toMatch(/^SRV-\d+$/);
       const envs = ENVIRONMENTS.filter((e) => e.servers.some((x) => x.serverCode === s.code));
       expect(envs.length, s.code).toBeGreaterThan(0);
-      // Il progetto principale è uno di quelli in cui il server è in produzione.
-      const prodProjects = envs.filter((e) => e.kind === "production").map((e) => e.projectId);
-      expect(prodProjects).toContain(s.primaryProjectId);
+      // F4b-4: nessun progetto principale (l'analisi parte dal server e dice il progetto).
+      expect(s).not.toHaveProperty("primaryProjectId");
       expect(s.thresholds).toEqual(DEFAULT_THRESHOLDS);
       expect(s.services.length).toBeGreaterThan(0);
       expect(s.disks.length).toBeGreaterThan(0);
@@ -2571,10 +2622,6 @@ describe("seed: server (area 8b)", () => {
       diskPct: 90,
       sustainedMinutes: 5,
     });
-    expect(server("SRV-1").primaryProjectId).toBe(ACQ);
-    expect(server("SRV-2").primaryProjectId).toBe(STW);
-    expect(server("SRV-3").primaryProjectId).toBe(AUD);
-    expect(server("SRV-4").primaryProjectId).toBe(AUD);
     // I controlli: id unici, di un server del seme, uno solo giù (su SRV-2).
     expect(new Set(SERVER_CHECKS.map((c) => c.id)).size).toBe(SERVER_CHECKS.length);
     for (const c of SERVER_CHECKS) expect(SERVERS.some((s) => s.code === c.serverCode)).toBe(true);
@@ -2585,12 +2632,22 @@ describe("seed: server (area 8b)", () => {
     expect(down[0]!.latencyMs).toBeNull();
   });
 
-  it("SRV-1 (ACQ): accesso verificato su entrambi, episodio di memoria coerente con gli avvisi del seme", () => {
+  it("SRV-1 (ACQ): accesso di sola lettura verificato, operazioni dell'agente accese, episodio di memoria coerente con gli avvisi del seme", () => {
     const a = accessOf("SRV-1")!;
-    expect(a.keys).not.toBeNull();
+    expect(a.key).not.toBeNull();
     expect(a.pending).toBeNull();
     expect(a.revokedAt).toBeNull();
-    expect(a.verification).toMatchObject({ read: "ok", fix: "ok", reason: null, ofPending: false });
+    expect(a.verification).toMatchObject({
+      login: "ok",
+      sudo: false,
+      docker: false,
+      journal: true,
+      ok: true,
+      reason: null,
+      ofPending: false,
+    });
+    // Area 8, F4b: solo l'agente di SRV-1 ha le operazioni accese.
+    expect(SERVERS.filter((s) => s.agentOperations).map((s) => s.code)).toEqual(["SRV-1"]);
     const [ep, ...rest] = episodesOf("SRV-1");
     expect(rest).toEqual([]);
     expect(ep!.severity).toBe("trouble");
@@ -2607,18 +2664,35 @@ describe("seed: server (area 8b)", () => {
   it("SRV-1: analisi conclusa in sola lettura, con la sessione server_analysis e l'ultimo uso", () => {
     const ep = episodesOf("SRV-1")[0]!;
     const an = SERVER_ANALYSES.find((x) => x.id === ep.analysisId)!;
-    expect(SERVER_ANALYSES).toEqual([an]);
+    // Due analisi nel seme: questa e quella di SRV-2 (senza SSH, sotto).
+    expect(SERVER_ANALYSES.filter((x) => x.serverCode === "SRV-1")).toEqual([an]);
     expect(an).toMatchObject({
       serverCode: "SRV-1",
       episodeId: ep.id,
-      projectId: ACQ,
       outcome: "diagnosed",
     });
+    // F4b-4: l'attribuzione del seme è quella che la regola di shared dà sui
+    // dati del seme (SRV-1 lo usa solo ACQ), non una scritta a mano.
+    const serverProjects = serverProjectsOf(
+      "SRV-1",
+      ENVIRONMENTS,
+      (id) => projectsById.get(id)!.code,
+    );
+    expect(an.attribution).toEqual(
+      attributeServerCause({
+        serverProjects,
+        seenContainers: server("SRV-1")
+          .services.filter((x) => x.source === "docker")
+          .map((x) => x.name),
+        cause: { projectCode: "ACQ", containers: ["portale-import"] },
+      }),
+    );
+    expect(an.attribution).toEqual({ kind: "attributed", projectId: ACQ, projectCode: "ACQ" });
     expect(an.startedAt >= ep.startedAt).toBe(true);
     expect(an.endedAt! > an.startedAt).toBe(true);
     // La sessione: di Claude, del progetto, conclusa, solo comandi di lettura con le uscite.
     const c = CONVERSATIONS.find((x) => x.id === an.conversationId)!;
-    expect(SERVER_CONVERSATIONS.map((s) => s.conversation.id)).toEqual([c.id]);
+    expect(SERVER_CONVERSATIONS.map((s) => s.conversation.id)).toEqual([c.id, "cv-srv-2-analysis"]);
     expect(c).toMatchObject({
       kind: "server_analysis",
       ownerId: "p-claude",
@@ -2635,22 +2709,23 @@ describe("seed: server (area 8b)", () => {
       expect(e).toMatchObject({ tool: "server.read", state: "done" });
       expect(e.input).toBeTruthy();
       expect(e.result).toBeTruthy();
-      // Nessun comando che scrive o che legge l'ambiente dei container.
-      expect(e.input).not.toMatch(/docker (inspect|restart|rm|exec)|\brm\b|\bkill\b/);
+      // Solo letture degli insiemi chiusi (F4b): mai sudo, mai docker via SSH.
+      expect(e.serverCommand).toMatchObject({ kind: "read", approvalId: null });
+      expect(inClosedSet(e.serverCommand!)).toBe(true);
+      expect(e.input).not.toMatch(/\bsudo\b|\bdocker\b|\brm\b|\bkill\b/);
     }
     const result = events.find((e) => e.type === "work_result")!;
     expect(result).toMatchObject({
       kind: "server_diagnosis",
       link: `#/p/ACQ/tasks?task=${SERVER_TASK_CODE}`,
     });
-    // L'ultimo uso dell'accesso di lettura è l'analisi; quello di correzione non c'è mai stato.
+    // L'ultimo uso dell'accesso (di sola lettura) è l'analisi.
     const a = accessOf("SRV-1")!;
-    expect(a.lastUse.read).toEqual({
+    expect(a.lastUse).toEqual({
       at: expect.any(String),
       ref: { kind: "analysis", analysisId: an.id },
     });
-    expect(a.lastUse.read!.at >= an.startedAt && a.lastUse.read!.at <= an.endedAt!).toBe(true);
-    expect(a.lastUse.fix).toBeUndefined();
+    expect(a.lastUse!.at >= an.startedAt && a.lastUse!.at <= an.endedAt!).toBe(true);
   });
 
   it("SRV-1: la task è la prossima di ACQ, bug, senza incaricato, di Claude, legata al server", () => {
@@ -2659,9 +2734,7 @@ describe("seed: server (area 8b)", () => {
     const later = new Set([...TASKS_10B, ...TASKS_11B].map((t) => t.id));
     const acqNumbers = TASKS.filter(
       (t) => t.projectId === ACQ && t.id !== an.taskId && !later.has(t.id),
-    ).map((t) =>
-      Number(t.code.split("-")[1]),
-    );
+    ).map((t) => Number(t.code.split("-")[1]));
     expect(SERVER_TASK_CODE).toBe(`ACQ-${Math.max(...acqNumbers) + 1}`);
     expect(SERVER_TASKS).toHaveLength(1);
     const task = TASKS.find((t) => t.id === an.taskId)!;
@@ -2690,31 +2763,59 @@ describe("seed: server (area 8b)", () => {
     expect(n.createdAt).toBe(an.endedAt);
   });
 
-  it("SRV-2 (STW): accesso non collegato, episodio disco aperto senza analisi, l'avviso lo dice", () => {
+  // Decisione del maintainer del 15 nov 2026, riconfermata il 23 nov: senza
+  // SSH l'analisi parte lo stesso, solo senza le letture SSH. Scelta A2 di 46:
+  // nel seme è già finita, con la causa non determinata e nessuna task.
+  it("SRV-2 (STW): accesso non collegato, episodio disco aperto, analisi senza SSH finita senza task; gli avvisi lo dicono", () => {
     expect(accessOf("SRV-2")).toBeUndefined();
     const open = episodesOf("SRV-2").filter((e) => e.recoveredAt === null);
     expect(open).toHaveLength(1);
     const ep = open[0]!;
     expect(ep.severity).toBe("trouble");
-    expect(ep.analysisId).toBeNull();
+    const an = SERVER_ANALYSES.find((a) => a.id === ep.analysisId)!;
+    expect(an).toMatchObject({
+      serverCode: "SRV-2",
+      episodeId: ep.id,
+      outcome: "diagnosed",
+      attribution: { kind: "undetermined" },
+      taskId: null,
+    });
+    expect(an.diagnosis).toMatch(/without SSH reads/);
+    // L'attribuzione è quella che la regola di shared dà sui dati del seme:
+    // SRV-2 lo usa solo STW, ma il container nominato l'agente non lo riporta.
+    expect(an.attribution).toEqual(
+      attributeServerCause({
+        serverProjects: serverProjectsOf("SRV-2", ENVIRONMENTS, (id) => projectsById.get(id)!.code),
+        seenContainers: server("SRV-2")
+          .services.filter((x) => x.source === "docker")
+          .map((x) => x.name),
+        cause: { projectCode: "STW", containers: ["stw-replica"] },
+      }),
+    );
     const down = SERVER_CHECKS.find((c) => c.status === "down")!;
     expect(ep.reasons).toEqual([
       { kind: "disk", valuePct: diskPctOf("SRV-2"), thresholdPct: 90 },
       { kind: "check", checkId: down.id },
     ]);
     expect(diskPctOf("SRV-2")).toBeGreaterThan(90);
-    expect(SERVER_ANALYSES.some((a) => a.serverCode === "SRV-2")).toBe(false);
+    expect(SERVER_ANALYSES.filter((a) => a.serverCode === "SRV-2")).toEqual([an]);
     const n = notification("server.trouble", "SRV-2");
     expect(n).toMatchObject({ projectId: STW, createdAt: ep.startedAt });
-    expect(n.body).toMatch(/no SSH access/);
+    expect(n.body).toMatch(/Claude is looking into it, without SSH reads\./);
+    const ready = notification("server.diagnosis_ready", "SRV-2");
+    expect(ready).toMatchObject({
+      projectId: STW,
+      title: "Cause not determined",
+      createdAt: an.endedAt,
+    });
   });
 
-  it("SRV-3 (AUD, audin-app): in salute, accesso in attesa del comando (chiavi generate, mai verificate)", () => {
+  it("SRV-3 (AUD, audin-app): in salute, accesso in attesa del comando (chiave generata, mai verificata)", () => {
     const a = accessOf("SRV-3")!;
-    expect(a.keys).toBeNull();
+    expect(a.key).toBeNull();
     expect(a.pending).not.toBeNull();
     expect(a.verification).toBeNull();
-    expect(a.lastUse).toEqual({});
+    expect(a.lastUse).toBeNull();
     expect(a.revokedAt).toBeNull();
     // Il vecchio episodio (agente muto) è rientrato da giorni: oggi è in salute.
     const [old, ...rest] = episodesOf("SRV-3");
@@ -2724,7 +2825,10 @@ describe("seed: server (area 8b)", () => {
     expect(ms(NOW) - ms(old!.recoveredAt!)).toBeGreaterThan(24 * 3600_000);
     expect(notification("server.down", "SRV-3").createdAt).toBe(old!.startedAt);
     expect(notification("server.recovered", "SRV-3").createdAt).toBe(old!.recoveredAt);
-    for (const n of [notification("server.down", "SRV-3"), notification("server.recovered", "SRV-3")])
+    for (const n of [
+      notification("server.down", "SRV-3"),
+      notification("server.recovered", "SRV-3"),
+    ])
       expect(n.projectId).toBe(AUD);
   });
 
@@ -2733,20 +2837,18 @@ describe("seed: server (area 8b)", () => {
     expect(episodesOf("SRV-4")).toEqual([]);
   });
 
-  it("chiavi pubbliche ssh-ed25519 col commento dell'utente; nessuna chiave privata nel seme", () => {
+  it("chiavi pubbliche ssh-ed25519 dell'unico utente di lettura; nessuna chiave privata nel seme", () => {
     expect(SERVER_ACCESS.map((a) => a.serverCode)).toEqual(["SRV-1", "SRV-3"]);
     for (const a of SERVER_ACCESS) {
-      for (const pair of [a.keys, a.pending]) {
-        if (!pair) continue;
-        for (const kind of ["read", "fix"] as const) {
-          expect(pair[kind].publicKey).toMatch(
-            new RegExp(`^ssh-ed25519 AAAA[A-Za-z0-9+/]+ stubwise-${kind}@${a.serverCode}$`),
-          );
-          expect(pair[kind].fingerprint).toMatch(/^SHA256:[A-Za-z0-9+/]{43}$/);
-        }
-        expect(pair.read.publicKey).not.toBe(pair.fix.publicKey);
+      for (const key of [a.key, a.pending]) {
+        if (!key) continue;
+        expect(key.publicKey).toMatch(
+          new RegExp(`^ssh-ed25519 AAAA[A-Za-z0-9+/]+ stubwise-read@${a.serverCode}$`),
+        );
+        expect(key.fingerprint).toMatch(/^SHA256:[A-Za-z0-9+/]{43}$/);
       }
     }
+    expect(JSON.stringify(SERVER_ACCESS)).not.toMatch(/stubwise-fix|"fix"/);
     const all = JSON.stringify([SERVERS, SERVER_ACCESS, SERVER_CONVERSATIONS, SERVER_TASKS]);
     expect(all).not.toMatch(/PRIVATE KEY/);
   });
@@ -2761,26 +2863,34 @@ describe("seed: server (area 8b)", () => {
       expect(points).toEqual(metricsOf(s.code));
       expect(ms(NOW) - ms(points[0]!.ts)).toBeGreaterThan(89 * 86400_000);
       expect(points.at(-1)!.ts <= NOW).toBe(true);
-      // Gli ultimi 7 giorni sono a passo di 30 s, prima a 15 minuti.
+      // Gli ultimi 7 giorni sono a passo di 30 s, prima a 15 minuti. Gli
+      // stessi controlli di sempre, su ~28 000 campioni per server: le
+      // violazioni si raccolgono e si confrontano con `[]` UNA volta
+      // (un `expect` per campione costava secondi, e sotto carico il timeout).
       const fine = points.filter((p) => ms(p.ts) >= ms(NOW) - 7 * 86400_000);
-      for (let i = 1; i < fine.length; i++) {
-        if (s.code !== "SRV-3") expect(ms(fine[i]!.ts) - ms(fine[i - 1]!.ts)).toBe(30_000);
-      }
       const coarse = points.slice(0, points.length - fine.length);
       expect(coarse.length).toBeGreaterThan(7_000);
-      for (let i = 1; i < coarse.length; i++) {
-        if (s.code !== "SRV-3") expect(ms(coarse[i]!.ts) - ms(coarse[i - 1]!.ts)).toBe(900_000);
+      const steps = (list: typeof points, step: number) =>
+        list.slice(1).flatMap((p, i) => {
+          const gap = ms(p.ts) - ms(list[i]!.ts);
+          return gap === step ? [] : [`${s.code} ${p.ts}: ${gap}`];
+        });
+      if (s.code !== "SRV-3") {
+        expect(steps(fine, 30_000)).toEqual([]);
+        expect(steps(coarse, 900_000)).toEqual([]);
       }
+      const bad: string[] = [];
       let previous = 0;
       for (const p of points) {
-        expect((ms(p.ts) - previous) % 30_000).toBe(0);
-        expect(ms(p.ts)).toBeGreaterThan(previous);
-        previous = ms(p.ts);
+        const t = ms(p.ts);
+        if ((t - previous) % 30_000 !== 0) bad.push(`${s.code} ${p.ts}: fuori dal passo`);
+        if (!(t > previous)) bad.push(`${s.code} ${p.ts}: non crescente`);
+        previous = t;
         for (const v of [p.cpuPct, p.memPct, p.diskPct]) {
-          expect(v).toBeGreaterThanOrEqual(0);
-          expect(v).toBeLessThanOrEqual(100);
+          if (!(v >= 0 && v <= 100)) bad.push(`${s.code} ${p.ts}: ${v} fuori da 0–100`);
         }
       }
+      expect(bad).toEqual([]);
     }
     // Senza buchi sono 28 128 campioni (20 160 a 30 s + 7 968 a 15 min); SRV-3 tace durante il suo episodio.
     expect(SERVER_METRICS.get("SRV-1")).toHaveLength(28_128);

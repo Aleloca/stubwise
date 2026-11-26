@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { admin, failNext, resetApi, setLatency } from "../../data/api";
+import { admin, auth, failNext, resetApi, setLatency } from "../../data/api";
 import { markReauthenticated } from "../../data/auth/reauth";
 import { setSessionPersonId } from "../../data/session";
 import { accessState, writeAccess } from "../../data/access/index";
@@ -237,6 +237,7 @@ describe("la pagina di una persona", () => {
     const menu = screen.getByRole("menu");
     expect(within(menu).getAllByRole("menuitem").map((i) => i.textContent)).toEqual([
       "Reset password…",
+      "Change email…",
       "Reset two-step verification…",
       "Deactivate…",
     ]);
@@ -377,6 +378,31 @@ describe("la pagina di una persona", () => {
     expect(alerts()).toBe(before + 1);
   });
 
+  it("area 9, R2: «Change email…» cambia SUBITO l'email di login, con la riconferma; un indirizzo preso si dice", async () => {
+    const user = userEvent.setup();
+    renderRoute("/admin/people/p-marco", ROBERTA);
+    await heading("Marco Bellini");
+    await user.click(screen.getByRole("button", { name: "More actions for Marco Bellini" }));
+    await user.click(screen.getByRole("menuitem", { name: "Change email…" }));
+    const dialog = screen.getByRole("dialog", { name: "Change Marco Bellini's sign-in email?" });
+    expect(dialog).toHaveTextContent("It changes now, without a confirmation link.");
+    expect(dialog).toHaveTextContent("Marco Bellini gets a security alert.");
+    // Un indirizzo preso si dice subito, prima della riconferma.
+    await user.type(within(dialog).getByLabelText("New email"), "laura.costa@example.com");
+    await user.click(within(dialog).getByRole("button", { name: "Change email" }));
+    expect(
+      await within(dialog).findByText("That email already belongs to someone else in Stubwise."),
+    ).toBeVisible();
+    await user.clear(within(dialog).getByLabelText("New email"));
+    await user.type(within(dialog).getByLabelText("New email"), "marco@new.example.com");
+    await user.click(within(dialog).getByRole("button", { name: "Change email" }));
+    await confirmItsYou(user);
+    expect(await screen.findByText("Marco Bellini now signs in with marco@new.example.com.")).toBeVisible();
+    expect(
+      (await auth.login({ email: "marco@new.example.com", password: "stubwise" })).ok,
+    ).toBe(true);
+  });
+
   it("Sara senza secondo fattore: la voce è spenta col motivo", async () => {
     const user = userEvent.setup();
     renderRoute("/admin/people/p-sara", ROBERTA);
@@ -443,6 +469,31 @@ describe("RF 4: disattiva con riassegnazione, poi riattiva", () => {
     await user.click(screen.getByRole("menuitem", { name: "Reactivate" }));
     await user.click(screen.getByRole("menuitem", { name: "Reactivate — sure?" }));
     expect(await screen.findByText("Marco Bellini is active again.")).toBeVisible();
+    expect(accessState().people.find((p) => p.personId === MARCO)!.status).toBe("active");
+  });
+
+  it("area 9, R6: una riga che non vale più (la task è passata ad altri nel frattempo) si segna, e niente cambia", async () => {
+    const user = userEvent.setup();
+    renderRoute("/admin/people/p-marco", ROBERTA);
+    await heading("Marco Bellini");
+    await user.click(screen.getByRole("button", { name: "More actions for Marco Bellini" }));
+    await user.click(screen.getByRole("menuitem", { name: "Deactivate…" }));
+    const dialog = screen.getByRole("dialog", { name: "Deactivate Marco Bellini?" });
+    const rows = within(dialog).getAllByRole("button", { name: /^Reassign .+ to:/ });
+    const code = /^Reassign (\S+) to:/.exec(rows[0]!.getAttribute("aria-label")!)![1]!;
+    await user.click(rows[0]!);
+    await user.click(screen.getAllByRole("menuitemradio")[1]!);
+    // Nel frattempo la task passa a un altro.
+    const task = state.tasks.find((x) => x.code === code)!;
+    state.tasksById.get(task.id)!.assigneeId = "p-federico";
+    // Le righe si controllano prima della riconferma: nessun dialogo.
+    await user.click(within(dialog).getByRole("button", { name: "Deactivate" }));
+    // La lista si rilegge (la task non è più di Marco), e il messaggio la nomina.
+    expect(
+      await within(dialog).findByText(
+        `${code} can't be reassigned any more: it changed meanwhile. The list is up to date.`,
+      ),
+    ).toBeVisible();
     expect(accessState().people.find((p) => p.personId === MARCO)!.status).toBe("active");
   });
 

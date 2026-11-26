@@ -8,7 +8,18 @@ import { useMediaQuery } from "../../layout/useMediaQuery";
 import { formatDate } from "../../notifications/time";
 import { ClaudeSuggestionRow } from "../../tasks-ui/ClaudeSuggestionRow";
 import { CloseIcon, Section, ghostButton } from "../task/parts";
-import { ago, clock, prProse, prUrl, riskWord, shortRepo, shortSha } from "./format";
+import {
+  ago,
+  clock,
+  discardedCorrectionText,
+  githubLink,
+  platformOf,
+  prProse,
+  prUrl,
+  riskWord,
+  shortRepo,
+  shortSha,
+} from "./format";
 import { ExternalGlyph, PrStateWord } from "./glyphs";
 import { MergeButton, MergeExpansion, useMergeFlow } from "./MergeConfirm";
 import { PrActions, PrSimulate } from "./PrActions";
@@ -80,9 +91,9 @@ function Analysis({ pr }: { pr: OpenPrView }) {
             {issues.map((issue, i) => (
               <li key={i} className="[overflow-wrap:anywhere]">
                 {issue.title}
-                {issue.file && (
+                {issue.file && githubLink(pr, "blob", a.sha, issue.file) && (
                   <a
-                    href={`https://github.com/${pr.repo}/blob/${a.sha}/${issue.file}`}
+                    href={githubLink(pr, "blob", a.sha, issue.file) ?? undefined}
                     target="_blank"
                     rel="noreferrer"
                     className="ml-1.5 inline-flex items-center gap-0.5 text-sm text-ink-muted underline-offset-4 hover:text-ink hover:underline"
@@ -144,16 +155,18 @@ function Corrections({ pr }: { pr: OpenPrView }) {
                         sha: shortSha(c.commitSha),
                         time: clock(c.at, i18n.language),
                       })
-                    : t(`releases.panel.correction.${c.state}`, { name: pr.authorName })}
+                    : c.state === "discarded"
+                      ? discardedCorrectionText(pr, t)
+                      : t(`releases.panel.correction.${c.state}`, { name: pr.authorName })}
                   {" · "}
                   {how}
                 </p>
                 {c.why && (
                   <p className="text-sm text-ink-muted [overflow-wrap:anywhere]">{c.why}</p>
                 )}
-                {c.commitSha && (
+                {c.commitSha && githubLink(pr, "commit", c.commitSha) && (
                   <a
-                    href={`https://github.com/${pr.repo}/commit/${c.commitSha}`}
+                    href={githubLink(pr, "commit", c.commitSha) ?? undefined}
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex items-center gap-1 self-start text-sm text-ink-muted underline-offset-4 hover:text-ink hover:underline"
@@ -188,7 +201,9 @@ function PrBody({
   const { t, i18n } = useTranslation();
   const people = usePeople().data;
   const flow = useMergeFlow(pr, projectCode);
-  const author = people?.find((p) => p.id === pr.authorId)?.name ?? pr.authorName;
+  // R.1414: un autore segnaposto non ha nome (nemmeno quello git): «Someone».
+  const author =
+    people?.find((p) => p.id === pr.authorId)?.name ?? (pr.authorName || t("chat.message.someone"));
   const prose = prProse(pr, t);
   return (
     <div className="flex flex-col">
@@ -197,15 +212,17 @@ function PrBody({
           <span className="num text-xs font-semibold tracking-[0.02em] text-ink">
             {pr.repo}#{pr.number}
           </span>
-          <a
-            href={prUrl(pr)}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 text-sm text-ink-muted underline-offset-4 hover:text-ink hover:underline"
-          >
-            {t("releases.openOn", { platform: "GitHub" })}
-            <ExternalGlyph />
-          </a>
+          {prUrl(pr) && (
+            <a
+              href={prUrl(pr) ?? undefined}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-sm text-ink-muted underline-offset-4 hover:text-ink hover:underline"
+            >
+              {t("releases.openOn", { platform: platformOf(prUrl(pr)) })}
+              <ExternalGlyph />
+            </a>
+          )}
           <button
             type="button"
             aria-label={t("releases.panel.close")}

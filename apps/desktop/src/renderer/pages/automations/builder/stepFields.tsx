@@ -1,8 +1,8 @@
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
-import { templateRefs } from "../../../domain/automations/validate";
+import { templateRefs } from "@stubwise/shared";
 import type { Step } from "../../../data/types";
-import { availableFields } from "../../../domain/automations/fields";
+import { availableFields } from "@stubwise/shared";
 import { usePeople } from "../../../data/queries";
 import { useBuilder } from "./context";
 import { Field, Segmented, selectClass, smallInput } from "./controls";

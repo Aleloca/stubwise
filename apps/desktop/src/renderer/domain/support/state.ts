@@ -1,53 +1,34 @@
+import { supportState as deriveSupportState, type SupportStateInput } from "@stubwise/shared";
 import type { SupportConversation } from "../../data/model";
 
-// Lo stato di una conversazione di Support (shape support.md §5 [A 2]): si
-// DERIVA, non si salva. Con una richiesta decide l'ultimo messaggio: del
-// cliente → aspetta noi; nostro (team) → risposta inviata; altrimenti
-// richiesta aperta. Senza richiesta: cliente andato → non conclusa,
-// altrimenti in triage. Chi riporta in triage una «non conclusa» (un
-// messaggio nuovo del cliente) lo fa togliendo `leftAt`, non qui.
+// Lo stato di una conversazione di Support (shape support.md §5 [A 2]): la
+// regola è UNA, in `@stubwise/shared` (area 8, F3), con l'ingresso neutro del
+// server (esito, giudizio dopo il silenzio, messaggi). Qui il prototipo la
+// legge da una sua conversazione: l'esito è la richiesta legata o la task.
+// Con un esito la conversazione è CHIUSA (`request_open`): un messaggio nuovo
+// del cliente apre la successiva.
 
-export type SupportState =
-  | "triage"
-  | "request_open"
-  | "waiting_us"
-  | "reply_sent"
-  | "not_concluded";
-
-export function supportState(c: SupportConversation): SupportState {
-  if (c.requestId === null) return c.leftAt !== null ? "not_concluded" : "triage";
-  const last = c.messages.at(-1);
-  if (last?.from === "customer") return "waiting_us";
-  if (last?.from === "team") return "reply_sent";
-  return "request_open";
-}
+export {
+  SUPPORT_STATE_ORDER,
+  SUPPORT_TRIAGE_IDLE_MINUTES,
+  wishTitle,
+  type SupportState,
+  type SupportStateInput,
+} from "@stubwise/shared";
+export { deriveSupportState };
 
 /**
- * Da quando il cliente aspetta noi: il primo dei suoi messaggi in fondo alla
- * conversazione, ancora senza risposta. `null` se non aspetta noi.
+ * Lo slot di una bozza della Posta per una conversazione (`support-ACQ-S2`,
+ * R-K14). Era di «Scrivigli per email», uscita con l'area 8, F3: la Posta lo
+ * accetta ancora finché la sua macchina degli slot non si toglie (registro).
  */
-export function waitingSince(c: SupportConversation): string | null {
-  if (supportState(c) !== "waiting_us") return null;
-  let i = c.messages.length - 1;
-  while (i > 0 && c.messages[i - 1]!.from === "customer") i--;
-  return c.messages[i]!.at;
-}
+export const SUPPORT_MAIL_SLOT = /^support-[A-Z0-9]{2,10}-S\d+$/;
 
-/**
- * Lo slot della Posta per la bozza di «Scrivigli anche per email» di una
- * conversazione (R-K14): un posto suo accanto alla «nuova email», che così
- * non si sovrascrive. Lo usano il livello dati della Posta e l'indirizzo
- * `#/mail?compose=<slot>`.
- */
-export const supportMailSlot = (code: string): string => `support-${code}`;
-export const SUPPORT_MAIL_SLOT = /^support-[A-Z]{2,4}-S\d+$/;
+const inputOf = (c: SupportConversation): SupportStateInput => ({
+  // L'esito: una richiesta legata o la task aperta dal widget (F3-1).
+  hasOutcome: c.requestId !== null || c.taskId !== null,
+  judgment: c.triage,
+  messages: c.messages,
+});
 
-/**
- * Il titolo di una richiesta dal desiderio del cliente: la prima frase, senza
- * il punto finale, al più 80 caratteri. Lo usano il triage concluso e
- * «Apri la richiesta» (precompilato, shape support §5).
- */
-export function wishTitle(wish: string): string {
-  const first = wish.split(/(?<=[.!?])\s/)[0]!.replace(/[.!?]$/, "");
-  return first.length > 80 ? `${first.slice(0, 79)}…` : first;
-}
+export const supportState = (c: SupportConversation) => deriveSupportState(inputOf(c));

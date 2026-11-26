@@ -10,9 +10,10 @@ import {
   type GitAccountView,
   type TestOutcome,
 } from "../../../data/queries";
-import { can, useViewer } from "../../../data/viewer";
+import { can, useViewer } from "../../../data/viewing";
 import { itemClass } from "../../../tasks-ui/Menu";
 import { useToast } from "../../../tasks-ui/Toast";
+import { isAppBuild } from "../../../data/build";
 import { PrototypeBox } from "../../automations/shared";
 import { Segmented, selectClass } from "../../automations/builder/controls";
 import { ErrorLine } from "../../entry/parts";
@@ -113,7 +114,8 @@ export function GitAccountsPage() {
               />
             ))}
           </ul>
-          {canWrite && <NextCheckBox accounts={accounts.data} />}
+          {/* L'esito della prossima verifica si sceglie solo nel prototipo. */}
+          {canWrite && !isAppBuild() && <NextCheckBox accounts={accounts.data} />}
         </>
       )}
       {dialog?.kind === "create" && (

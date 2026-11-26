@@ -1,0 +1,2296 @@
+# Registro dei rimandi dell'integrazione del prototipo desktop
+
+Unico posto in cui sta **tutto ciò che è stato rimandato a una fase successiva**
+durante l'integrazione del prototipo (`apps/desktop`) col backend vero, insieme
+alle **decisioni già prese** su quelle cose. Le tabelle di parità
+(`apps/desktop/docs/integration-*.md`) dicono cosa è stato fatto in una fetta;
+questo registro dice cosa **deve entrare** nelle fasi che verranno.
+
+**Regola (maintainer, 10 nov 2026)**: chi apre il design di una fase o di
+un'area lo parte da qui. Ogni voce della sua area entra nel design (o resta qui
+con un motivo scritto); alla chiusura della fase le voci fatte si spostano in
+«Chiuse», con il commit o la tabella di parità che le chiude. Una decisione già
+presa e scritta qui non si ridecide senza il maintainer.
+
+Legenda: *(M)* decisione del maintainer, *(O)* scelta dell'orchestratrice,
+*(S)* limite del server da colmare.
+
+---
+
+## Area 3 — Claude come collega (in corso)
+
+- «Annulla il lavoro» DOPO il push *(O, 10 nov 2026)*: non vale più, la PR si
+  apre comunque (il lavoro è già sul remoto). Accettato; da riguardare se un
+  giorno serve «annulla e chiudi la PR».
+- «Annulla il lavoro» col runner classico (`AGENT_STREAMING=false`) *(S)*: il
+  CLI non si uccide a metà, vale solo il controllo fra i passi.
+- «Annullato da» nella storia del ticket si perde al RICICLO del job *(O, 10
+  nov 2026)*: la richiesta vale per un tentativo e ogni ripartenza la azzera,
+  e la storia la legge dal job; come il `pr_opened`, che il riciclo perde già
+  (limite dichiarato di `ticket-history`). Copiarla in `ticket_events` alla
+  chiusura vorrebbe una migrazione: rimandato. Né `requeueStale` scrive il
+  commento quando chiude uno stantio annullato.
+- ~~Il dettaglio della sessione non porta il piano né il suo digest *(S)*: il
+  digest da rimandare ad approve/reject si legge da `/work` o da «Da decidere».~~
+  *Chiusa il 23 nov 2026 (72, lotto 4, §7.2)*: `plan` nel dettaglio (e nel
+  messaggio `session`), con la regola di `/work` (`planStatusOf`, condivisa).
+  Rimasto fuori *(O, 94)*: chi ha deciso il piano e le sue istruzioni non
+  arrivano da nessuna rotta («Approved by …» senza nome).
+- Abbinare un commit per **username** del provider *(S)*: nessuna tabella lega
+  un utente al suo login GitHub, quindi lo username (letto dalle noreply) si
+  mostra ma non abbina; si abbina per email (account o `git_identities`).
+- ~~Chi ha avviato una sessione e chi ha risposto a una domanda (e quando) *(S)*:
+  oggi non arrivano.~~ *Chiusa il 23 nov 2026 (72, lotto 4, §7.1)*:
+  `startedById` sulla sessione (richiedente del job, chi ha avviato il
+  refinement; null per le automatiche) e `answeredById`/`answeredAt` sulle
+  domande, mascherati per chi non conosce la persona (anche nel messaggio
+  `session` dello stream). Rimasto fuori *(O, 94)*: `inputs[].authorName`
+  (chi scrive in una sessione) è l'email e non passa dalla maschera.
+- ~~Consumi per task (`usage`) e blocco d'istanza (`blocked`) in `/work` *(S)*.~~
+  *Chiusa il 23 nov 2026 (72, lotto 4, §7.3 e D-7.1)*: `usage` (lo stesso conto
+  di `/usage`, dal costo più alto), `blocked` = il blocco degli avvii NUOVI
+  del progetto (`monthly_budget` a chi non ha `plans.approve`, `queue_paused`),
+  e l'attesa di un run su `runs[].waiting`. A budget finito un avvio a mano di
+  chi non lo scavalca è rifiutato subito (invariante in pr-corrections.md).
+- Allegati nei messaggi a una sessione *(S)*: il server non li accetta.
+- ~~`generatedAt` dei report giornalieri *(S)*.~~ *Chiusa il 23 nov 2026 (72, lotto 4, §7.4)*: in `GET /api/activity`, `finished_at` di un report `done`, altrimenti null.
+- Report giornaliero per progetto (oggi si rigenerano tutti i progetti del
+  giorno) *(O, differenza dal prototipo)*.
+
+## Fase «Chat con Claude e azioni» (dopo l'area 3)
+
+Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
+
+- Classi A/B/C/D come il prototipo, calcolate dal server *(M)*.
+- Prima versione: azioni delle sole aree integrate (task, commenti, richieste,
+  traguardi, filtri, avvio del lavoro, azioni della pagina) *(M)*.
+- Fuori portata: risponde il modello; per un'azione non in catalogo dice che non
+  può e dove si fa a mano *(M)*.
+- **Conversazioni pubbliche e continuazione**, `claude.public.view`, conferma dei
+  progetti, messaggi privati se Claude tocca un progetto nuovo: fetta 5, IN
+  CORSO (piano `docs/plans/2026-11-10-integrazione-claude-chat-f5-plan.md`,
+  decisioni del maintainer del 10 nov 2026: gli eventi dei tool restano
+  visibili ai lettori, D1) *(M)*.
+  - ~~Renderer (F5.4) *(S)*: i codici nella prosa di Claude non si collegano
+    nella build app (solo le citazioni registrate, che il server non
+    registra): R-G5 regge per costruzione, ma neanche l'autrice apre un
+    codice citato dalla prosa.~~ *Parte server chiusa il 24 nov 2026 (72,
+    lotto 9, voce 1)*: i codici della prosa di un turno entrano nelle sue
+    citazioni (`turn_end.citations`), risolti per chi guarda; il renderer
+    li collega da lì (94).
+- ~~Le citazioni registrate sui messaggi (oggi solo i codici nel testo)
+  *(O)*.~~ *Parte server chiusa il 24 nov 2026 (72, lotto 9, voce 1; forma e
+  scelta (a) di 46)*: si registra ciò che Claude ha LETTO col token del
+  turno (task, richieste, pagine Docs per codice, file del Drive, progetti;
+  `claude_turn_citations`, 0233, l'hook `onSend` della lettura, fail-open),
+  mai ciò che dice; i codici della prosa si leggono a lettura; il turno le
+  porta sul suo `turn_end` (`data.citations`), filtrate per chi guarda (un
+  riferimento che non vede si TOGLIE; R-H5 solo per l'autore, col codice del
+  file del Drive); `POST /api/claude/citations/resolve`. Fuori: le
+  citazioni di file del repository (nessun tool legge il codice). ✅ *«Claude can help you…»: area 10, F7 (sotto).* Menzioni,
+  riquadro come chat e ⌘J/⌘K: chiuse (sotto).
+- Azioni delle altre aree: entrano **con la loro area** (sotto) *(O)*.
+- **Limiti della fetta 5 (server e worker)** *(S, stubwise-72, 10 nov 2026)*:
+  - **Ordine di «Public».** Si ordina per `updated_at`: il messaggio
+    dell'autore in una pubblica fa salire la riga anche se il turno resta
+    privato. Si vede che c'è attività, non il contenuto.
+  - **Progetti letti o toccati (D2).** Non vede ciò che Claude ricava senza
+    citarlo né leggerlo per codice o per id, cioè gli elenchi generici; la
+    responsabilità resta della conferma dell'autore.
+  - **La trascrizione dell'originale di una continuazione** è un'istantanea
+    presa al «Continua» (`origin_transcript`), non letta dal vivo. Ha un tetto
+    di 40 messaggi e 12.000 caratteri.
+  - **La prosa di Claude** resta com'è, e un codice invisibile si mostra come
+    testo (R-G5, il renderer).
+- **La classe C (riconferma) arriva con l'area 9** *(S, 10 nov 2026)*: la
+  fetta 4 della chat per ora è vuota. Nel prototipo una C è un'azione la cui
+  funzione sta in `REAUTH_REQUIRED` (`data/auth/reauth.ts`): sono solo
+  `admin.*`, `me.*` e `instance.*` (aree 8 e 9), e nessuna voce del catalogo
+  delle aree 2–3 lo è. Il server ha già ciò che serve per la C: la
+  riconferma dal desktop (0132). Le C entrano con le azioni di Claude
+  dell'area 9.
+- **Limiti della fetta 1 (runner)** *(S, stubwise-72)*: i tool di lettura sono
+  sette (progetti, persone — dalla fetta 3, senza email —, cerca/leggi task,
+  leggi richiesta, cerca docs, brief + registro decisioni). Non leggono commenti e storia della task, la pagina
+  Docs intera, il codice o il grafo; restituiscono il JSON delle rotte
+  compattato (senza chiavi da segreto, tetto 12.000 caratteri), non le viste
+  delle pagine. Si allargano aggiungendo rotte di LETTURA a
+  `CHAT_TOOL_READ_ROUTES` (col test del registro) e un tool al ponte.
+- **Limiti della fetta 3 (worker)** *(S, stubwise-72)*: l'idempotenza di
+  `propose_action` usa l'id del `tool_use` che il CLI passa nel `_meta` della
+  chiamata MCP (`claudecode/toolUseId`, verificato sul 2.1.322). Se un CLI
+  futuro smettesse di passarlo, il ponte conia un id nuovo per chiamata: la
+  proposta funziona, ma un doppio invio della STESSA chiamata ne farebbe due.
+  Da riverificare a ogni aggiornamento del CLI (il test del server MCP lo
+  fissa solo lato nostro). Le firme delle azioni nel contratto si generano
+  dagli schemi zod (`claudeActionSignatures`): `pageAction` di tipo
+  `filter` vi compare, ma il modello non conosce le rotte del renderer: lo
+  userà davvero solo dove la pagina gliele dà (F3.4).
+- ~~**Esito delle azioni della pagina salvato dal server** *(S, F3.4, review)*:
+  oggi l'esito (D3) è del renderer, per persona e in memoria, e un'azione
+  parte solo se arriva dal vivo in quella finestra; letta dalla storia (un
+  ricaricamento, un riavvio, un'altra scheda del browser) resta «non
+  applicata» col gesto «Apply». Salvato sul server, la riga direbbe l'esito
+  vero anche dopo.~~ *Parte server chiusa il 24 nov 2026 (72, lotto 7, voce
+  1, contratto di 94 in `docs/plans/2026-11-24-rimandi-lotto7-contratti.md`
+  §1)*: per indice, in `claude_page_outcomes` (0229), con
+  `POST /api/claude/proposals/:id/actions/:index/outcome` e `pageOutcomes`
+  nella vista. Gli stati sono l'unione delle due famiglie del prototipo
+  (`pageAction`: `done`/`failed`, poi `undone`/`changed_after`; `fillField`:
+  `placed`/`waiting`, poi `undone`/`changed_after`), con le mosse in
+  `CLAUDE_PAGE_OUTCOME_MOVES` di `@stubwise/shared` (allineate con 94). Chi
+  non ha chiesto la proposta riceve 404, come per confermare e annullare
+  (il contratto diceva 403: non si dice che la proposta esiste). Resta a
+  94 la lettura nel renderer.
+- Il contesto della pagina arriva al modello come `tipo: id`, non come il suo
+  contenuto: Claude lo legge con i tool se serve *(S)*.
+- Conservazione *(M, review delle fette 1–2)*: le conversazioni inattive da 14
+  giorni si potano come le altre sessioni, con le trascrizioni del CLI; la
+  casella lo dice. Nessuna chiusura per inattività (la conversazione resta
+  aperta finché vive).
+- Budget del mese finito: in chat nessuno lo scavalca (una conversazione non ha
+  un progetto, quindi nessun `plans.approve`) *(S)*.
+- **Limiti della fetta 2 (renderer, destinazione)** *(S, stubwise-72)*:
+  - «#» propone task, progetti, (dall'area 5, fetta 1) pagine Docs e
+    (dall'area 10, F8) richieste; «@» le persone. ✅ *Le richieste: area 10,
+    F8.*
+  - «/» ha i comandi di lettura (`/explain`, `/docs`) e, dalla F3.4, quelli
+    d'azione (`/plan`, `/new-task`, `/new-request`, `/run`). ✅ *Area 10, F8:
+    `/status` e `/today` (i tool `read_followed_projects` e `read_my_week`)
+    e le skill dei plugin del progetto di contesto (`GET
+    /api/projects/:id/plugins`).* Resta diverso dal prototipo: ~~le skill non
+    hanno la descrizione (il registro dà solo i nomi)~~ *(dal 24 nov 2026 il
+    registro del progetto porta `skillDescriptions`, 72, lotto 5)* e il plugin base non
+    c'è (sta fuori dal registro).
+  - Le citazioni registrate su un messaggio non esistono sul server: Claude
+    cita col codice nel testo, che la pagina risolve (`resolveCodes`, task e
+    richieste).
+  - ~~Il contesto è UNO per conversazione: un messaggio col chip di una pagina
+    lo sostituisce (l'ultimo vince) e il turno lo ripete al modello; il
+    contesto di progetto scelto all'inizio si perde dopo un messaggio con un
+    chip di task.~~ *Parte server chiusa il 24 nov 2026 (72, lotto 8, voce 3;
+    decisione del maintainer «tutti quelli aperti», contratto di 94 §1)*: il
+    gruppo (al più 5, l'ultimo primario) sta in `context_refs` (0232) e
+    `context_ref` resta l'ultimo; `PATCH { contexts }` sostituisce (422
+    `too_many_contexts`), il vecchio `{ context }` aggiunge in fondo; ogni
+    messaggio ricorda i suoi (`agent_session_inputs.contexts`, sull'evento
+    `input` a lettura). Visibilità: un contesto il cui progetto chi guarda
+    non vede si toglie dal gruppo e dai messaggi (la fuga trovata da 94 nel
+    prototipo); uno senza progetto (posta, PR) resta solo all'autore. Il
+    prompt li porta tutti, col primario segnato, filtrati per l'autore.
+  - Riquadro: il chip c'è per task, richieste, pagine e impostazioni di
+    progetto e, dall'area 10 F1, per automazioni (`automation: AUD-A3`),
+    conversazioni di supporto (`support: AUD-S4`) e la propria posta
+    (`mail: <casella>/<thread>`, il `ref` di `read_mail_thread`) e,
+    dall'area 10 F6, per la PR aperta nel pannello (`pr:
+    <repository>:<numero>`, solo una PR che chi guarda ha letto e che ha un
+    numero). ~~I rilasci non danno ancora chip né contesto.~~ Chiusa il 23 nov
+    2026 (rimandi, lotto 1): il chip «release» e il contesto
+    `release: <codice>` (per `read_release`), riletti con
+    `GET /api/releases/:code` (`real/claudeChat.ts`). Server, canali e appuntamenti non
+    hanno chip nemmeno nel prototipo: i tool di 72 li leggono quando il
+    modello ne ha il codice. Le domande della doc di prodotto sotto il chip
+    restano spente (`product-docs`, area 11).
+    *Area 10, F1 (19 nov 2026), lato server CHIUSO*: Claude legge
+    automazioni (`read_automation`), server (`read_server`), conversazioni
+    di supporto (`read_support_conversation`), canali (`read_channel`),
+    posta e appuntamenti di chi chiede (`read_mail_thread`,
+    `read_calendar_event`); rilasci e file del Drive li leggeva già. Restano
+    fuori le PR (nessun tool).
+
+## Area 4 — Chat
+
+Design: `docs/plans/2026-11-10-integrazione-area4-chat-design.md`. Fetta 1
+chiusa (sotto, «Chiuse»); invariante `docs/invariants/chat.md`.
+
+Fetta 2 chiusa (sotto, «Chiuse»). Fetta 3: server e renderer (sotto, «Chiuse»).
+Fetta 4: renderer (sotto, «Chiuse»).
+
+- (S) Motivo «limite» per le risposte di @Claude: oggi un limite o un errore
+  dell'API del CLI chiude la risposta `failed`/`other` (review della fetta 3,
+  scelta dell'orchestratrice dell'11 nov 2026). Un valore a sé vuole il CHECK
+  della 0140 e il client: da riprendere col prossimo aggiornamento del pin del
+  CLI.
+- ~~Limite *(S, renderer della fetta 4)*: un invio con più file si ferma al primo
+  file rifiutato; quelli già caricati restano «in sospeso» e il server li pota
+  dopo 24 ore (non li si toglie con `DELETE /api/chat/attachments/:id`).~~
+  Chiusa il 23 nov 2026 (rimandi, lotto 1): un invio fallito (un file o il
+  messaggio rifiutati) toglie i file già caricati con
+  `client.chat.attachments.remove`, al meglio (`real/chat.ts`, `dropPending`).
+- ~~`@channel` e `@reparto` non avvisano nessuno (R-G6). È la regola della fetta
+  1, da riprendere se il maintainer vuole avvisi di gruppo.~~ *Chiusa il 23
+  nov 2026 (72), decisione del maintainer: avvisano.* `groupNotified`
+  (`chat/service.ts`), la forma di `chat.md` («Avvisi di gruppo»): i membri
+  del canale (per `@reparto` quelli del reparto) col canale su «all», alla
+  creazione del messaggio, una card `chat.mention` per persona (vince quella a
+  nome), senza seguire il thread. Il gruppo (`chat.group` della card) e la
+  frase si derivano a lettura. La push dice il gruppo («@channel was
+  mentioned in the chat», «Ada mentioned @channel in #general»): il gruppo è
+  noto all'invio e sta nella consegna push (`pushGroup`), non nell'evento.
+- Limite accettato: modificare un messaggio avvisa solo chi viene nominato
+  per la PRIMA volta. Chi era già nominato non riceve una seconda card, e chi
+  viene tolto dal testo tiene la card che aveva (la sua domanda però esce da
+  «Da decidere»).
+- Limite accettato: i messaggi scritti prima della 0137 hanno `search_folded`
+  solo in minuscolo, con gli accenti, finché non vengono modificati. In
+  produzione non ce ne sono: la fetta 1 esce con la 0137.
+- Limite accettato: una richiesta nata da un messaggio mostra il codice solo
+  a fine intake (lo scrive il worker), non subito.
+
+## Area 5 — Docs e Drive
+
+Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
+(Docs) chiusa lato server (sotto, «Chiuse»); invariante `docs/invariants/docs.md`.
+
+- Il Drive, fetta 3: il contenuto dei file (estrazione del testo, OCR con le
+  regole dell'input non fidato), il riassunto (`summaryLine`, `drive.summary`
+  delle citazioni, oggi null), la ricerca per contenuto e i tool di Claude sul
+  Drive. I riferimenti a Google Drive (sorgente `google`, «Togli», «Nascondi»,
+  le cartelle collegate) stanno nell'area 6. Fuori da entrambe: versioni,
+  modifica dei file, cartelle in Stubwise, condivisione esterna.
+- Limite accettato (fetta 2): l'anteprima inline vuole lo storage su
+  un'origine diversa dall'istanza; senza `endpoint`, o sullo stesso host, è
+  sempre un download (`docs/invariants/drive.md`).
+- Limite accettato (fetta 2): una citazione `drive` scelta col «#» resta solo
+  se il testo nomina il file per NOME o per codice, come il titolo di una
+  pagina; rinominare un file non è possibile oggi, quindi il nome non cambia
+  sotto i piedi.
+- Limite accettato (fetta 2): gli allegati della Chat (`chat.attachments.upload`
+  nell'api-client) stanno in un gruppo annidato, e il guardiano dei tipi
+  (`reader.test.ts`) guarda solo i metodi di primo livello: il loro schema di
+  risposta non è controllato da lui. Il Drive sta al primo livello apposta.
+- Limite accettato (fetta 1): la cronologia della ricerca globale
+  (`search_history`, `type = 'doc'`) punta a id di pagina, che una
+  rigenerazione cambia. Un clic vecchio può non trovare più la pagina.
+- Limite accettato (fetta 1): `provider_error` nello stato della generazione
+  non si emette, perché manca un segnale strutturato che lo distingua da
+  `other`.
+- Differenze dichiarate del renderer (fetta 1, *S*): le «pagine toccate» da
+  una nota di rilascio (il server non le dà); l'estratto negli elenchi; lo
+  slug di una manuale che non cambia; il riassunto e le vicine delle comunità
+  del grafo; ~~«Abilita» il grafo dal desktop (impostazioni del repository non
+  integrate)~~ (chiusa il 23 nov 2026, rimandi, lotto 1: «Genera» su un grafo
+  spento lo accende con PATCH `graphEnabled` e poi genera, `real/docs.ts`).
+  Elenco completo in `apps/desktop/docs/integration-area5-f1.md`.
+- ~~Stato della PR di setup del grafo *(S, fetta 1, review del renderer)*: il
+  server dà l'indirizzo della PR (`setupPrUrl`), non se è aperta, mergiata o
+  chiusa; il desktop la mostra sempre aperta.~~ *Parte server chiusa il 24
+  nov 2026 (72, lotto 4)*: `setupPrState` (`open`/`merged`/`closed_unmerged`,
+  null = non si sa), migrazione 0222, scritto dal worker all'apertura e dal
+  webhook alla chiusura o riapertura. Resta al renderer leggerlo invece di
+  mostrarla sempre aperta.
+- ~~Chat dei Docs senza streaming *(S, fetta 1)*: se `CHAT_MAX_TOKENS` sale molto
+  o arriva un modello lento, il primo a scattare è il timeout di 300 s del main
+  (undici); la strada è lo streaming, non un timeout più alto.~~ *Parte server
+  chiusa il 24 nov 2026 (72, lotto 7, voce 2)*: il server già rispondeva SSE;
+  ora manda `: ping` ogni 25 s mentre il modello tace (`DOCS_CHAT_PING_MS`),
+  e `@stubwise/shared` ha `parseDocsChatFrame` (`delta`, `done` con le fonti
+  validate una per una, `error`) e `isAllowedDocsChatStreamPath` (le due
+  POST). Il maintainer ha deciso che il testo CRESCE mentre arriva, anche nel
+  prototipo: main (`apiStream.ts`) e renderer sono di 94.
+- Differenze dichiarate del renderer (fetta 2, *S*): l'anteprima sul desktop è
+  un salvataggio e sul web la rotta `preview` in una scheda nuova (niente
+  Quick Look né miniatura nella build app); `counted` di un'apertura non si
+  sa; (contenuto, riassunto e passaggi: arrivati con la F3); «#» cerca i file da
+  2 caratteri; sul web una sessione scaduta durante un caricamento la chiude
+  la richiesta dopo. Elenco completo in `apps/desktop/docs/integration-area5-f2.md`.
+- Il contenuto dei file: limiti dichiarati *(S, area 5, fetta 3)*: doc, xls,
+  ppt e RTF sono `unsupported` (D Office/ODF = a); un documento ostile può far
+  mentire il SUO riassunto (narrativa generata, mai nel registro decisioni);
+  la ricerca per testo copre i primi 100.000 caratteri, oltre trova la sola
+  corsia semantica (al più 200 chunk per file); i tempi del VPS sono da
+  misurare al deploy.
+- ~~Motivo del `no_text` visibile *(S, F3, decisione dell'orchestratrice A(a))*:
+  il server manda `contentReason` (`no_text_found`, `ocr_timeout`,
+  `ocr_unavailable`, `unreadable`, `too_large`, `limits`), il desktop dice solo
+  «nessun testo» come il prototipo.~~ *Chiusa il 24 nov 2026, decisione del maintainer (via 46): «resta com'è».* Un documento senza
+  testo non dice il motivo.
+- ~~La ricerca del Drive non si rilegge mentre un risultato è «in lettura»
+  *(S, F3, review del renderer)*: parità col prototipo. Un file che finisce
+  di leggersi mentre si guardano i risultati resta «Reading the content…»
+  finché non si ricerca o si apre; l'elenco e il dettaglio invece si
+  rileggono.~~ *Chiusa il 24 nov 2026, decisione del maintainer (via 46): «resta com'è».*
+- ~~«Retry» anche su un `no_text` transitorio *(S, F3, decisione
+  dell'orchestratrice C(a))*: il server lo permette (`permissions.retry`) su
+  `no_text` ed `error`; il desktop mostra «Retry» solo su `error`, come il
+  prototipo. Riaprire per `ocr_timeout` e `ocr_unavailable`.~~ *Chiusa il 24 nov 2026, decisione del maintainer (via 46): «resta com'è».* Niente
+  «Retry» per un documento senza testo.
+- La corsia semantica del Drive per chi vede tutto *(S, area 5, review della
+  F3)*: oggi esatta (filtro prima, senza indice); con 50.000 chunk la ricerca
+  di un full admin sta a 290–340 ms. Se le istanze crescono, si torna
+  all'indice HNSW con `SET LOCAL hnsw.ef_search` alto (e, con pgvector ≥ 0.8,
+  `hnsw.iterative_scan`) per chi vede tutti i progetti, lasciando esatto chi
+  ne vede pochi.
+- Credenziali di sola lettura separate per il worker, se lo storage lo
+  permette *(S, area 5, fetta 3)*: oggi il worker legge gli oggetti del Drive
+  con le credenziali dell'istanza, e la sola lettura è una regola del codice
+  (una funzione, solo `drive/`, test sul sorgente). Un utente S3 di sola
+  lettura sul prefisso `drive/` la renderebbe una regola dello storage.
+- `nosniff` sull'anteprima del Drive *(S, limite accettato, review della
+  fetta 2)*: l'URL firmato di S3 non può aggiungere
+  `X-Content-Type-Options: nosniff` (le firme permettono di sovrascrivere solo
+  Content-Type e Content-Disposition). Accettato perché il Content-Type
+  dell'anteprima inline lo decide il server (solo PDF, immagini raster e
+  testo come `text/plain`) e l'anteprima inline esiste solo da un'origine
+  diversa dall'istanza. Si riapre se lo storage passa dietro un proxy nostro.
+
+## Area 6 — Posta e Calendario
+
+- Più account Google nel cassetto *(S, F1, decisione B(a) dell'orchestratrice)*:
+  il server tiene una casella per Workspace; il cassetto del desktop ne mostra
+  una (quella da ricollegare, se c'è, altrimenti la prima). La Posta e il
+  Calendario le mostrano tutte. Da riprendere con la F5 (Drive Google).
+  **Limite accettato** (decisione del maintainer, 23 nov 2026): «resta una
+  casella». Il cassetto mostra quella da ricollegare, altrimenti la prima; le
+  altre stanno in Posta e Calendario (`drawerAccount` di `real/google.ts`).
+  Il prototipo ha un account Google per persona: non c'è un cassetto a più
+  caselle da copiare.
+- Ritorno OAuth della casella all'app con `stubwise://` *(S, F1, decisione
+  dell'orchestratrice)*: oggi il callback resta quello del web («puoi tornare
+  all'app») e il desktop rilegge le caselle mentre «Collega» aspetta e al
+  ritorno in primo piano.
+- ~~I testi del cassetto Google col Drive *(S, F1 → F5)*: senza il Drive Google
+  il cassetto parla di Posta e Calendario (intro, scaduto, scollegare senza
+  cartelle); con la F5 tornano i testi del prototipo.~~ Chiusa da 6e089e247
+  e b01485168 (F5b, `apps/desktop/docs/integration-area6-f5b.md`, riga «Il
+  cassetto Google»; 23 nov 2026, verificata nel codice).
+- Il Calendario in lettura *(F1)*: nella build app restano nascosti i gesti
+  che scrivono su Google (nuova riunione, sposta e ridimensiona, modifica,
+  elimina, rispondi, il progetto a mano: F4) e il riassunto e le task di una
+  riunione passata (F5). Il server non sa i NOMI
+  degli invitati (solo l'indirizzo e la risposta): il dettaglio mostra
+  l'indirizzo. La serie non porta la sua regola (`RRULE` sta sulle
+  occorrenze): la colonna non la dice a parole.
+- La Posta in lettura *(F1)*: la posta TRATTATA per conversazione, le
+  proposte della casella accanto al messaggio d'origine, letto/non letto
+  con Gmail. Dalla F3 si scrive (nuova email, rispondi, inoltra, le bozze
+  di Gmail, gli allegati, Invia coi 10 s del server, la bozza di Claude in
+  streaming, che resta una proposta). Un'email nuova appena inviata non ha
+  ancora una conversazione (la crea Gmail quando parte): si resta
+  sull'elenco col suo «Annulla», e la conversazione arriva al giro del
+  poller.
+  Dalla F2 ci sono importanza, scadenza, «Importanti» e l'estratto
+  nell'elenco. Differenze dichiarate: un allegato non ha
+  la dimensione e si apre da Gmail; la proposta mostra la frase che il
+  server scrive per ogni azione (non i campi) e non l'estratto letto; la
+  scelta del progetto di un'email incerta (`choose_project`) non c'è (il
+  worker non la produce più).
+- Le proposte di PRIMA (classificazione vecchia, per casella) *(F2)*: si
+  leggono e si decidono dalla stessa rotta, conferma parziale compresa, ma
+  i campi non si modificano: il server lo dice (`editable` falso) e «Edit»
+  non c'è; se un server di prima risponde `invalid_edits`, la scheda lo dice
+  in parole chiare. Lo smistamento di prima (`email_triage`, «Quale progetto?»
+  della classificazione vecchia) resta sull'inbox e nella Posta non compare.
+- Scrivere *(F3)*, i rimandi dal prototipo: i file di Google Drive allegati
+  come LINK (F5, `drive.readonly`); lo slot «Scrivigli anche per email» di
+  una conversazione di Support (R-K14: area 8, non integrata).
+- Il consenso del collegamento della casella *(O, decisione
+  dell'orchestratrice)*: un testo unico, valido con la classificazione
+  vecchia e con la nuova (`classifyV2`), senza «ammessa» e senza leggere
+  `mail-admission` (rotta d'istanza). Il consenso può promettere più di
+  quanto avviene, mai meno: resta la frase sul provider di analisi AI.
+- Scrivere sul calendario *(F4)*, i rimandi: la disponibilità dei colleghi
+  è quella dei calendari collegati in Stubwise (D8 = b), non la freeBusy di
+  Google sul Workspace (D8 = a, scartata); «Trova un orario» si calcola nel
+  client dal libero/occupato; la scheda di preparazione resta della F5. Il
+  libero/occupato dei colleghi collegati lo vede chiunque nell'istanza
+  organizzi una riunione, solo gli intervalli *(O, decisione
+  dell'orchestratrice)*.
+- Il Calendario con TUTTI gli eventi *(F3b, decisione del maintainer; O
+  dell'orchestratrice sui dettagli)*: i calendari come nel prototipo; esclusi
+  `workingLocation` e compleanni, `outOfOffice` resta; le proposte del
+  calendario dentro `/api/me/mail/proposals` con un `kind`. Nel renderer:
+  «Suggested by Stubwise» solo per un evento riconosciuto (`recognized`,
+  `projectBy`), una lista leggera per la griglia col dettaglio per id, le
+  serie di lavoro prima, il libero/occupato da `transparency`.
+- I progetti di una conversazione abbinati per NOME *(S, review della F1)*:
+  le righe di `/threads` danno solo `projectNames`, e due progetti con lo
+  stesso nome si confondono. Chiusa con la F2: `projectIds` dal server (per
+  nome resta solo con un server di prima).
+- La lettura automatica dopo 1 s scrive su Gmail *(O, decisione
+  dell'orchestratrice)*: aprire la conversazione È il gesto, come nel
+  prototipo (D5 = b). Va scritto esplicito nell'invariante «Nessuna
+  scrittura verso Google senza un gesto» (chiesto a stubwise-72).
+- `/api/inbox` senza filtro per tipo *(S, review della F1)*: chiusa con la
+  F2, la Posta legge e decide le proposte da `/api/me/mail/proposals`.
+- Una casella con le proposte spente si legge e si allinea come le altre
+  *(M, decisione del maintainer: come il prototipo; chiusa con la F1 del
+  server, 02df56c8)*: il poller la legge comunque e «Aggiorna ora» funziona;
+  «Proposte attive» spegne solo le proposte.
+- Firma di Gmail *(M)* (area 6, F3, 12 nov 2026): decisa «la firma di
+  Gmail», con `gmail.modify` e NON con `gmail.settings.basic` — la lettura di
+  `users.settings.sendAs` accetta gmail.modify, e gmail.settings.basic è
+  restricted e serve solo a scrivere le impostazioni (pagine Google citate
+  nel piano della F3). Nessun riconsenso in più. Rimandato: nessuna firma
+  HTML (mandiamo text/plain), ~~nessuna firma per alias diversi
+  dall'indirizzo della casella~~. *Alias chiusi il 24 nov 2026 (72, lotto 8,
+  voce 2, decisione del maintainer «sì, con riconsenso», scelte di 46)*:
+  nessuno scope nuovo; la casella porta `sendAs` (solo i verificati) e
+  `sendAsStatus` (`scope_missing` senza `gmail.modify`: si ricollega col
+  flusso di sempre); la bozza porta `from` (assente nel salvataggio = resta
+  quello che c'era), una risposta parte dall'alias a cui era indirizzato il
+  messaggio (come Gmail), con la firma di quell'alias; un `from` fuori
+  elenco è 422 `invalid_from` al salvataggio e all'Invia, e il worker lo
+  riverifica con Gmail all'invio vero. Rispondendo a tutti, gli alias non
+  sono destinatari. Contratto di 94 (`2026-11-24-rimandi-lotto8-contratti.md` §2).
+- F3, rimandati e limiti accettati *(O)* (12 nov 2026):
+  (a) ~~«Riprova» per un `fillMailBody` non salvato su Gmail: oggi la scheda
+  lo dice (`effectFailure`) e offre il testo da copiare; il riprova vuole
+  una rotta che rilanci il seguito per quell'azione;~~ *chiusa il 23 nov 2026
+  (72, lotto 4, §5)*: `POST /api/claude/groups/:id/actions/:index/retry` e
+  `canRetryEffect` nella vista (calcolato dal server); una bozza cambiata dopo
+  l'azione non si sovrascrive (`draft_changed`). Limite accettato: se nel
+  frattempo la mail è partita, il riprova crea una bozza nuova nel thread;
+  (b) la bozza di Claude in json (`?stream=false`) per un client che non
+  legge SSE (il mobile): oggi solo SSE;
+  (c) ~~gli oggetti dello storage degli allegati restano orfani~~ CHIUSO
+  dalla review della F3 (0158): ogni riga d'allegato che se ne va lascia il
+  suo oggetto in `storage_orphans` nella stessa transazione, cascate
+  comprese, e il purge orario lo toglie;
+  (d) la firma solo in testo ~~e solo per l'indirizzo della casella (nessun
+  alias)~~ (gli alias dal 24 nov 2026, lotto 8, voce 2: ognuno la sua);
+  (e) un `fillMailBody` riuscito non si annulla (Gmail ha la bozza: si
+  cambia dal compositore).
+- F3b, rimandati e limiti accettati *(O)* (12 nov 2026):
+  (a) ~~la «Quale progetto?» del calendario: col flag acceso un evento con
+  invitati di più progetti oggi non propone niente (servono una colonna dei
+  progetti incerti, una variante di card e la scelta);~~ *fatta il 24 nov
+  2026 (72, lotto 9, voce 2 (a)): sotto la soglia del modello nasce UNA
+  «Quale progetto?» CONDIVISA fra gli invitati (`calendar_proposals` senza
+  progetto, coi candidati), ognuno sceglie fra i candidati in cui può
+  confermare; scelta, l'evento torna al percorso di progetto. Solo gli
+  eventi SINGOLI: le occorrenze delle serie con più progetti restano senza
+  proposta;*
+  (b) ~~una classificazione col MODELLO degli eventi (oggi la scelta è
+  deterministica dagli invitati: tanti eventi e poco testo);~~ *fatta il 24
+  nov 2026 (72, lotto 9, voce 2 (a)), SOLO per scegliere il progetto quando i
+  candidati sono più d'uno: con un candidato la scelta resta deterministica
+  dagli invitati e il modello non si chiama. Una volta per evento (riusata
+  dalle copie delle altre caselle), `mail_classify` con la phase
+  `calendar_classify` fuori dal tetto della posta, `null` quando non è
+  sicuro (`calendar-guess.ts`);*
+  (c) i calendari diversi dal principale (il prototipo ne ha uno per account)
+  *(decisa NO dal maintainer il 24 nov 2026, lotto 9: restano fuori)*;
+  (d) le proposte del calendario condivise fra gli invitati (oggi restano
+  della casella di chi le vede, `mailbox_owner`). *Decisa sì dal maintainer
+  il 24 nov 2026 (lotto 9, voce 2), in corso (72).* **Scelta, con 46: solo
+  gli EVENTI SINGOLI diventano condivisi; le occorrenze delle SERIE restano
+  per casella**, perché la serie è configurata per casella
+  (`calendar_series` per account: accesa o no, anticipo, azione, «agisce da
+  sola» a nome di chi la configura) e renderla condivisa mescolerebbe le
+  impostazioni di persone diverse; coerente col contratto di 94 («la serie
+  che agisce da sola: invariata»). Riaprirla vuole una decisione a sé (di
+  chi è la serie condivisa).
+  Dalla review della F3b, limiti accettati *(O)*:
+  (e) la linea di base del deploy chiude anche un evento IN PERIMETRO nato
+  fra l'ultimo giro prima del deploy e il resync (una finestra di minuti):
+  quel candidato non propone. Il campo `created` di Google non lo salviamo,
+  quindi non si distingue; il costo è una proposta mancata, non una in più;
+  (f) `mailProposalSchema.messageId` è passato da uuid obbligatorio a
+  nullable: per un client vecchio NON è additivo (con `readerSchema` una
+  lista con una proposta del calendario non parsa). Accettato perché l'app
+  mobile ha un solo utente e non è sugli store (nessun client vecchio in
+  giro), e le proposte del calendario compaiono solo col flag acceso;
+  (g) a ogni resync della finestra un UPDATE per evento già visto (il ramo
+  dei non candidati): i resync sono rari (linea di base, 410), e un giro
+  incrementale porta solo gli eventi cambiati.
+- Calendario «Tutti, come il prototipo» *(M)* (12 nov 2026): fetta F3b,
+  prima della F4. Decisioni *(O)* di 46: `workingLocation` e `birthday`
+  esclusi dall'ingestione, `outOfOffice` resta; calendari come il
+  prototipo; proposte del calendario dentro `/api/me/mail/proposals` col
+  flag acceso.
+
+- I riferimenti a Google Drive nel Drive dei progetti (area 5, D1 = a): le
+  cartelle collegate, «Aggiungi da Google Drive», «Quale progetto?», i file
+  non disponibili. Servono lo scope `drive.readonly` (ristretto: riconsenso e
+  verifica di Google) e il cassetto Google comune a Drive, Posta e
+  Calendario.
+
+- Il blocco della Home «Posta importante» è acceso dalla F2 (le conversazioni
+  con un messaggio di importanza alta non letto). «Prossimi appuntamenti» è
+  acceso dalla F1, con la finestra
+  del prototipo (da adesso a fine di domani, senza i rifiutati) *(O,
+  decisione dell'orchestratrice: il prototipo è la specifica)*.
+- Azione di Claude «bozza del corpo dell'email».
+- F1.2 «Aggiorna ora», scelte accettate *(O)* (12 nov 2026, commit 31151503):
+  (a) 409 `proposals_disabled` per una casella con le proposte spente — tolto
+  dalla decisione *(M)* sotto, insieme alla richiesta tolta dal PATCH; (b) il
+  NOTIFY sveglia soltanto, è il claim di sempre a prendere la casella (le
+  richieste prima delle altre dovute); (c) a fine giro si azzera la richiesta
+  vista al claim, una scritta a giro in corso resta e la casella torna dovuta;
+  (d) con `GMAIL_POLL_MINUTES=0` una richiesta non viene servita (il
+  rollback): va nell'invariante `mail-calendar.md` alla F1.5.
+- Proposte spente, la casella si legge *(M)* (12 nov 2026): claim e indice
+  solo su `disabled_at`, classificazione e pubblicazione saltate; «Aggiorna
+  ora» funziona. Il taglio alla riaccensione *(O)*: `proposals_since`
+  (0150), scritto dal PATCH da spente ad accese; la posta con `created_at`
+  precedente non si classifica mai e resta `new`; il calendario non ha
+  taglio (propone solo appuntamenti futuri, come al primo collegamento).
+  Invariante in `mail-calendar.md`, voce del deploy-log dell'area 6 F1.
+- ~~Ritorno OAuth al desktop *(O)* (area 6, F1): nessun deep link, il callback
+  resta quello del web e il renderer rilegge `accounts()` al ritorno in primo
+  piano. Rimandato `stubwise://google?outcome=…` (come `stubwise://auth`),
+  che riporterebbe l'esito direttamente all'app.~~ *Chiusa il 23 nov 2026
+  (lotto 4, §6; il server di 72, il renderer e il main di 94)*:
+  `POST /connect` con `client: "desktop"` e `returnState` (sulla riga del
+  nonce, 0221), `returnTo` nella risposta, e il callback che torna a
+  `/app/#/desktop-google?outcome=…&state=…` con soli quei due parametri.
+  D-6.3 *(O, 94)*: le chiavi `settings:account.googleAccounts.outcome.*` del
+  web vecchio non servono al desktop, che dice l'esito nella pagina nuova.
+- F2, chi riceve la proposta condivisa *(M)* (12 nov 2026): A = (a) un
+  destinatario membro senza casella collegata la riceve e la vede con
+  l'estratto, il messaggio intero solo se è nella SUA casella; B = (b)
+  l'interruttore «Proposte attive per questa casella» decide solo se
+  classificare la PROPRIA posta, e la notifica arriva a TUTTI i destinatari
+  membri, anche a chi le ha spente (la frase dell'interruttore nella UI non
+  promette più «niente notifiche»).
+- F2, decidere una proposta condivisa, scelte *(O)* (12 nov 2026):
+  «Passa al progetto» non crea una card nuova: la proposta passata la vede e
+  la decide chi nel progetto ha i permessi di OGNI sua azione, in
+  `/proposals?status=handed` (~~rimandato: una card per loro~~ *chiusa il 23
+  nov 2026 (72, lotto 4, §2; D-2.0 del maintainer)*: al passaggio, una card
+  `google.proposal_handed` obbligatoria a ognuno di loro, tranne chi passa e
+  i destinatari, senza origine; dice chi l'ha passata (mascherato) e se è
+  già decisa; la decisione chiude le card di tutti); «Quale
+  progetto?» scelto cancella la domanda e riclassifica l'email solo per quel
+  progetto; i Contributor si aggiungono con `putProjectMember` (le regole di
+  Membri) prima della conferma, e se ne vanno se la conferma non riesce
+  (non sono nella stessa transazione delle azioni).
+- Lotto 4, §2, rimasti fuori *(O, 94, 23 nov 2026)*: dopo il passaggio la
+  card di chi passa (e degli altri destinatari che non possono confermare)
+  resta `open`, mentre il prototipo la toglie da «Da decidere»; chi ottiene i
+  permessi DOPO il passaggio non riceve la card (D-2.C, limite accettato: la
+  vede in «Da decidere»); nel worker non c'è un percorso che chiuda le card
+  delle proposte condivise quando il thread le supera.
+- F2, dopo che la classificazione nuova è accesa e stabile *(O)*: togliere
+  le rotte `/api/projects/:id/email-routes`, `/email-labels`,
+  `/api/settings/mail-admission` (PATCH), le colonne d'ammissione di
+  `instance_settings`, `project_email_routes`, le sezioni web (oggi un avviso
+  al posto del modulo) e `email_rejections` con la schermata mobile «Le mail
+  tenute fuori» (oggi la rotta resta e si svuota in 30 giorni).
+- F2, la misura vera del costo *(S)*: le tre query di `cost.sql` su
+  produzione (le lancia il maintainer); la stima resta nel piano e nel
+  deploy-log finché non arrivano i numeri.
+- F2, card per chi riceve una proposta PASSATA *(O)*: oggi la vede in
+  `/proposals?status=handed`, senza una card in inbox.
+- F2, lo smistamento di prima (`email_triage`) resta solo sull'inbox, non in
+  Posta *(O)*.
+- ~~F3, Annulla l'invio con un'altra bozza nello stesso slot *(O)*: oggi 409
+  `draft_slot_taken` (l'invio resta in coda); il prototipo unisce le due bozze
+  (il testo tornato sotto, gli allegati oltre i limiti elencati). Rimandato:
+  l'unione chiede di riscrivere la bozza su Gmail.~~ *Chiusa il 23 nov 2026
+  (72)*: Annulla (e «Elimina» di un invio fallito) unisce come il prototipo,
+  nella transazione che ferma l'invio: il testo tornato sotto, destinatari e
+  oggetto della bozza che c'era, gli allegati spostati finché stanno nei limiti
+  di Gmail (i link non contano) e gli altri in `droppedAttachments`. Dopo, la
+  bozza unita si riscrive su Gmail e quella annullata se ne va da Gmail
+  (`syncMergedDraft`); se Gmail non riscrive, `gmailOutdated: true` (additivo)
+  e l'unione resta in Stubwise fino al prossimo Salva. `unsaved` non torna più
+  vero (resta nello schema).
+- F1.3 letto / non letto, limite *(S)*: dopo un resync per query (primo
+  giro, history scaduta) i messaggi GIÀ ingeriti non rileggono `UNREAD`
+  finché non cambia di nuovo su Gmail; le righe di prima della 0149 sono
+  `unread = null`, lette come «letto». Un recupero (rileggere le etichette
+  dei thread recenti al resync) costa una chiamata per messaggio: non ora.
+  *Decisa NO dal maintainer il 24 nov 2026 (lotto 9): il costo di una
+  chiamata per messaggio non vale; resta un limite accettato.*
+- F4, «tutta la serie» e l'etag *(S, review F4 punto 11)*: l'`If-Match` è
+  l'etag del padre appena riletto; l'etag del client protegge solo la data
+  trascinata.
+- F5b, il picker delle cartelle senza `path` né `fileCount` *(S)*: Google
+  non li dà senza una chiamata per cartella; `path` è `[]` e `fileCount`
+  `null`. «Aggiungi da Google Drive» resta un elenco piatto con la ricerca
+  (R-H3 del prototipo).
+- F5b, la sincronizzazione giornaliera delle cartelle *(M, QB1 = b)*: una
+  volta al giorno, col lease, sull'intervallo del job del contenuto; le
+  cartelle scadute si saltano, la richiesta resta. Un file di un riferimento
+  aggiunto A MANO non si rilegge da solo quando cambia su Google (lo fa solo
+  la cartella): «Riprova» o rimuoverlo e riaggiungerlo.
+- F5b, `sizeBytes` da numero a nullable nella riga del Drive *(S, review
+  del server, minore)*: NON è un cambio additivo (un client che lo legge
+  come numero riceve `null` per un riferimento Google). Accettato perché
+  l'app mobile ha un solo utente e il web/desktop si aggiornano col deploy;
+  da ricordare se l'app torna sugli store.
+- F5b, un riferimento aggiunto a mano dopo che la casella di chi l'ha
+  aggiunto è scaduta *(S)*: resta disponibile (si apre su Google) col
+  contenuto di prima, ma non si rilegge; il prototipo rende «accesso perso»
+  solo i file di cartella.
+- F5a, l'elenco degli invitati e l'ora di Google *(S, review F5a punto 8)*:
+  vince la riga dell'organizzatore (`organizer_self`); senza, «la più
+  recente» è l'ora della NOSTRA riga, non l'`updated` di Google (non lo
+  salviamo): un evento di un organizzatore esterno può restare indietro di
+  un giro.
+- F5a, la verifica del Doc delle note *(S, review F5a punto 2)*: non c'è
+  un'ancora «sicura» nell'email di Gemini su cui contare; la verifica è su
+  Drive (tipo, data di creazione, proprietario fra i partecipanti, allegati
+  dell'evento). Un Doc creato da un partecipante nelle stesse ore e linkato
+  nel titolo passerebbe: il rischio residuo è un Doc che quel partecipante
+  poteva già condividere.
+- ~~F5a, «Task da questa riunione» senza le RICHIESTE *(S)*: una proposta
+  confermata come richiesta lascia un job dell'intake (`results.kind =
+  request`, id del job), non la voce di backlog; risolverla (e mostrare le
+  task di una richiesta convertita) vuole il legame job → voce. Oggi escono
+  solo le task.~~ *Chiusa il 23 nov 2026 (72, lotto 4, §3)*: `tasksOf` risolve
+  la richiesta a lettura da `backlog_jobs.result_item_id` (la voce; le task
+  di una convertita al suo posto; la sorgente «done» di una fusa a mano; in
+  intake `pending` senza codice), con `requestVisibility` e
+  `visibleTasksCondition` nella WHERE; ogni riga porta `projectCode`.
+  Rimasto fuori *(O, 94, D-3.4)*: il cancello di `tasksOf`
+  (`projectPermissionsOfUser`) lascia passare un full admin non membro, che
+  il prototipo esclude (R-I21).
+- F5a, le email di Gemini di PRIMA del deploy *(S)*: il riconoscimento è
+  all'ingestione, quindi non diventano riunioni; un recupero vorrebbe
+  rileggere le intestazioni da Gmail. *Decisa NO dal maintainer il 24 nov
+  2026 (lotto 9): niente recupero, per lo stesso costo per messaggio; resta un
+  limite accettato.*
+- ~~F5a, il badge delle proposte nell'ELENCO delle conversazioni *(S)*:
+  `me-mail.ts` conta le condivise `mail_recipients` per thread; quelle di una
+  riunione compaiono aprendo la conversazione (filtro per messaggio e
+  thread) e in «Da decidere», non nel conteggio della riga.~~ *Chiusa il 23
+  nov 2026 (72, lotto 4, §4)*: `openSharedProposalsByThread` conta con la
+  regola della conversazione aperta (riunioni comprese, destinatario
+  derivato, progetto visibile ADESSO anche per `mail_recipients`). Rimasto
+  fuori *(O, 94)*: `/summary` (il badge di nav) conta le card
+  `google.proposal` aperte, non verificato per le riunioni.
+- F5a, con la classificazione di PRIMA *(S)*: il riconoscimento c'è anche
+  senza `MAIL_CLASSIFY_V2`, ma dopo l'ammissione (un'email di Gemini
+  respinta non entra), e la fase delle riunioni gira solo con la
+  classificazione nuova.
+- F4, il nome di un invitato di Stubwise *(S)*: `users` non ha un nome,
+  quindi l'invito a una persona di Stubwise parte col solo indirizzo (il nome
+  lo mette Google dal suo elenco, se c'è).
+- F4, il libero/occupato legge solo il calendario `primary` *(S)*: come il
+  poller; un evento su un calendario secondario del collega non occupa.
+  *Decisa NO dal maintainer il 24 nov 2026 (lotto 9, r.362 c): i calendari
+  secondari restano fuori, dal poller e dal libero/occupato.*
+- F4, le righe di prima della 0164 senza `etag` *(S)*: finché il worker non
+  le ripassa, una modifica parte senza `If-Match` (il primo giro dopo il
+  deploy; vedi la voce del deploy-log).
+- F4, il progetto dell'evento per tutti (Q1 = a), limite *(O, 46)*: le
+  righe degli ALTRI invitati (stesso iCalUID) prendono il progetto — coi
+  limiti della review F4: solo senza progetto o con uno che chi lo mette
+  vede, mai su una messa a mano da un altro, solo se il proprietario vede il
+  progetto nuovo —, ma le
+  loro card aperte restano col progetto con cui sono nate — la card è nella
+  loro inbox, e in lettura il progetto della card vince su quello della riga
+  (`mail-proposals-calendar.ts`). Segue il progetto solo la card della MIA
+  riga, e solo per una scadenza (non per una data di serie). Togliere il
+  progetto (`null`) lascia la card com'è.
+
+- F3b, il libero sugli eventi tutto il giorno *(O, 46, 12 nov 2026)*: NON
+  si segna, né col contorno né con la parola, perché per Google un tutto il
+  giorno è libero per default e segnarlo sarebbe rumore. «Out of office» e
+  «Focus time» restano a parola dovunque; il libero solo sugli eventi a
+  orario (`isMarkedFree` in `pages/calendar/EventBlock.tsx`).
+
+- F5, riunioni registrate e Google Drive: l'inventario di 94 *(12 nov 2026)*,
+  con le forme mandate a 72 per il suo piano. Da ricordare:
+  - **il «permesso di lettura Drive» è D9 = a, lo scope `drive.readonly`**
+    (design, righe 121-125 e 194-197): legge il Doc di Gemini e chiude i
+    riferimenti a Google Drive dell'area 5. Non `documents.readonly`, che è
+    l'opzione b, scartata. È già nella lista degli scope, è ristretto, e alla
+    callback non è obbligatorio (solo `missingScopes`): le rotte del Drive
+    rispondono `google_scope_missing`;
+  - il prototipo NON riconosce l'email di Gemini (il seme la scrive
+    `kind: "transcript"`): la regola e l'aggancio email ↔ evento sono del
+    server. Per 72 prima gli `attachments` dell'evento, poi Meet + orario;
+  - **visibilità di riassunto e proposte** *(M, 12 nov 2026: «Tutti gli
+    invitati», come il prototipo, NON la consigliata)*: tutti gli invitati
+    che sono persone di Stubwise, con qualunque risposta (R-I15), anche
+    senza l'evento nel loro calendario; senza evento, chi ha ricevuto
+    l'email di Gemini; mai un membro che non c'era, mai un admin non
+    invitato. È un'eccezione dichiarata a «Posta e Calendario restano
+    PERSONALI», da scrivere nell'invariante con i test negativi;
+  - la trascrizione intera non va al client: il prototipo mostra il riassunto
+    e «Open the transcript» (un avviso), l'app apre il Doc (`docUrl`);
+  - il prototipo non ha la regola «almeno B» per le letture non fidate: la
+    autorità è il server (`CHAT_TOOL_UNTRUSTED_ROUTES`), e la trascrizione e
+    i file Google ci entrano quando un tool li legge;
+  - «Aggiungi da Google Drive» del prototipo è un elenco piatto con la
+    ricerca, senza navigare le cartelle (R-H3, `ossatura-follow-ups.md`).
+
+- F5a, il renderer delle riunioni *(13 nov 2026)*:
+  - **Q-A = a** *(O, 46)*: la proposta di una riunione per un invitato
+    SENZA l'email di Gemini (decisione M, Q1) non porta a una conversazione
+    che non ha. Il link diventa «Open the meeting»: l'evento se ce l'ha,
+    altrimenti il riassunto per nota in un pannello, con le task
+    (`GET /api/me/meetings/:noteId` e `/tasks`). Chi ha cosa lo calcola il
+    server (`meetingOrigin.threadId`/`accountId`/`eventId` di chi guarda,
+    null se non li ha), il client non lo deduce. Nel prototipo la nota è
+    l'email di Gemini (`messageId` della trascrizione), e un invitato è
+    destinatario delle proposte della riunione anche senza l'email
+    (`isProposalRecipient`);
+  - **Q-B = 1** *(O, 46)*: il codice del Drive Google (riferimenti, cartelle,
+    allegati come link, la voce `drive` del cassetto) resta sul branch della
+    F5a dietro il flag `google` spento; la F5b lo accende. ComingSoon lo
+    copre: una chiamata del Drive Google col flag spento fa fallire i test del
+    Drive e del cassetto (provato con una mutazione);
+  - rimandi *(S)*: ~~il riassunto nel dettaglio dell'evento non dice
+    `too_long`~~ (chiuso il 13 nov 2026: `docReason` su `MeetingSummary`,
+    review F5a); ~~nel pannello per nota le richieste nate non hanno il link
+    al progetto (`projectCode: null`: l'origine non porta il codice); le
+    task di tipo `request` non escono ancora dal server (le richieste nate
+    da una riunione sono job d'intake, risolverle nella voce di backlog è un
+    rimando di 72)~~ (chiusi il 23 nov 2026, lotto 4, §3: il server manda le
+    richieste e `projectCode` su ogni riga).
+
+## Area 7 — Automazioni
+
+- ~~Blocco della Home delle automazioni.~~ *Chiusa il 24 nov 2026 (94,
+  lotto 7)*: c'era già dalla fetta 1 (`AutomationsBlock` su `listMyRuns`,
+  `GET /api/me/automation-runs`); il test sull'adattatore è 96b22b5f5.
+- ~~Effetti che il prototipo ha e la build app spegne: segnali alle automazioni
+  alla chiusura di un traguardo e alla conversione di una richiesta.~~
+  *Chiusa il 24 nov 2026 (lotto 7, voce 3)*: c'era già, nel DB —
+  `milestones_automation_reached` (0169, al passaggio a `closed` da un altro
+  stato) e `backlog_item_tickets_automation_converted` (0169, al legame
+  `converted_to` di `convertBacklogItem`), più il messaggio di Chat
+  `milestones_chat_reached` (0141); la voce era di prima (94). La prova DALLE
+  ROTTE l'ha aggiunta 72: `milestones.test.ts` (una chiusura = un segnale,
+  rinominare un chiuso no, riaprire e richiudere sì) e `backlog.test.ts` (la
+  conversione dà UN `request_converted` con la task nata); mutazioni sui due
+  trigger prese. La build app non deve emettere niente: il segnale lo dà il
+  server. Vedi `docs/plans/2026-11-24-rimandi-lotto7-contratti.md` §3.
+- Azioni di Claude: crea automazione in bozza, salva/elimina bozza, prova.
+- F4, `automations.manage` d'ISTANZA *(S, verifica di Q7, 13 nov 2026)*:
+  serve solo alle automazioni generali. Come il prototipo
+  (`apps/desktop/src/renderer/data/access/seed.ts`), al solo preset Admin
+  (che da noi è `instance.full_admin`, quindi già implicito), con la regola
+  dei preset; in F1 c'è solo il permesso di progetto (Project Lead). La
+  chiave VERA è `automations.general.manage` *(O, 46, 13 nov 2026)*: stesso
+  significato, chiave distinta perché il catalogo di shared vieta una chiave
+  a due livelli (`automations.manage` resta di progetto). Nel prototipo la
+  sposta 94 con R3 della F4.
+- F1, le operazioni di massa e la GUC *(S)*: ogni migrazione o job di
+  manutenzione futuro che crea o chiude task, richieste o traguardi apre con
+  `set_config('stubwise.automation_events', 'off', true)`
+  (`docs/invariants/automations.md`). Nessun controllo automatico lo impone:
+  la review di una migrazione deve guardarlo.
+
+- ~~F1, la ritenzione delle esecuzioni~~ *(S, 72, review F1 M6, 13 nov 2026)*:
+  gli input consumati si tolgono dopo 7 giorni (`INPUT_RETENTION_DAYS`,
+  l'esecutore a ogni giro), come gli eventi consumati; il registro
+  (`automation_run_log`) vive con la sua esecuzione (FK in cascata). Le
+  esecuzioni FINITE oggi non scadono mai: con al più 100 aperte per
+  automazione crescono piano, ma un'automazione accesa da anni ne accumula.
+  Da decidere quando servirà (es. finite da più di un anno, tenendo il
+  registro delle task e delle richieste create, che già lo nominano).
+  *Chiusa il 24 nov 2026 (72, lotto 8, voce 1; decisione del maintainer: 90
+  giorni)*: le esecuzioni finite da più di 90 giorni si COMPATTANO (scelta A
+  di 46) — via registro, effetti, input, evento e variabili; il titolo
+  diventa il nome dell'automazione (decisione di 46: l'oggetto di un'email
+  è un dato dell'esecuzione); `details_pruned_at` (0230) e `detailsPruned`
+  nella vista. La riga non si cancella perché la leggono la numerazione
+  (`max(n) + 1` in quattro posti), `lastRunAt` e l'origine di task,
+  traguardi e richieste (`ON DELETE SET NULL`). Giro del worker ogni 10′, a
+  lotti da 200. Cosa dice l'app di una compattata: 94. **Limite accettato
+  (revisione 8–9, M-7)**: dopo la compattazione l'ORIGINE di una task o di un
+  traguardo creati dall'esecuzione dice ancora l'automazione e il numero, ma
+  non più il PASSO che li ha creati (`entry` null: il registro non c'è più).
+  La compattazione salta un'esecuzione presa da un giro vivo o con un input
+  ancora da consumare (un «Riprova», M-6).
+- F2, le email automatiche *(M, review F2 C2, 13 nov 2026)*: le email delle
+  automazioni portano `Auto-Submitted: auto-generated`; un'email in arrivo
+  automatica (`Auto-Submitted` diverso da `no`, mailer-daemon, postmaster)
+  non fa partire automazioni ma sveglia le attese. Nessun filtro su
+  `Precedence`/`List-Id`, nessun tetto giornaliero: se un caso nuovo di giro
+  si presentasse (un risponditore che non marca), si riparte da qui.
+- F2, «email in arrivo» *(M, 13 nov 2026)*: TUTTE le email ricevute
+  (F2-1), tranne le risposte in una conversazione in cui la stessa
+  automazione ha mandato un'email: svegliano solo le sue attese (C-F2-5 del
+  piano della F2, `docs/invariants/automations.md`). Nessun filtro sui
+  messaggi automatici (`Auto-Submitted`): se un caso di giro fra due
+  automazioni diverse si presentasse, è da lì che si riparte.
+- F2, le altre risposte (13 nov 2026, piano della F2): F2-2 = a *(M)*,
+  l'email di un'automazione parte subito, senza i 10 secondi; F2-6 = a
+  *(M)*, una risposta arrivata in pausa si tiene; F2-3, F2-4, F2-5 = a
+  *(O, 46)*. Il contenuto delle email che la Posta tiene fuori entra come
+  non fidato, e il filtro dell'inizio è l'unica difesa contro il volume.
+  L'eccezione «il worker manda un'email senza un gesto» *(O, 46)*,
+  dichiarata perché discende da Q4 = b, con l'elenco chiuso degli scrittori
+  di `mail_outgoing` verificato da un test. Rimandati: i rimbalzi (il
+  registro dell'esecuzione non sa di un indirizzo inesistente) e gli
+  allegati delle email (F3/F4).
+
+- ~~F3, la pausa d'istanza della coda AI *(S, 72, C-F3-3, 13 nov 2026)*: il
+  passo di Claude si ferma solo per il budget mensile; `queue_paused`
+  (`aiHoldOf` del prototipo) arriva con l'area 9b, quando il backend avrà la
+  pausa della coda.~~ Chiusa da af17d96da e 5713037b2 (area 9, F4: il
+  worker scrive `aiWaiting: queue_paused`, il server lo legge in
+  `automations/runs.ts`, il desktop lo dice: `automationsF3Page.test.tsx`;
+  23 nov 2026, verificata nel codice).
+- Il piano della F4 (`docs/plans/2026-11-13-integrazione-area7-fetta4-plan.md`,
+  13 nov 2026, le automazioni generali e il webhook in arrivo). F4-1 = a
+  *(M)*: un webhook per automazione. F4-2 = c *(M)*, NON la consigliata: il
+  tetto di frequenza lo sceglie chi gestisce l'automazione
+  (`automations.manage` sull'automazione, non `integrations.manage`),
+  default 60 al minuto e 5 000 al giorno; sopra c'è un massimo d'istanza non
+  superabile *(O, 46: il maintainer non ne ha parlato)*, env del server,
+  600 al minuto e 50 000 al giorno *(O, 46)*. F4-3…F4-6 = a *(O, 46)*: corpo
+  al più 256 KB; i due modelli Audin fuori finché non c'è il connettore;
+  tipi sbagliati rifiutati (422) e mostrati; eventi recenti solo a chi ha
+  `integrations.manage`. Rimandati da lì: i connettori Audin e HubSpot
+  (Q2 *(M)*: eventi nativi, OAuth o chiave, dopo questa area; fino ad
+  allora si collegano col webhook in arrivo), i webhook in uscita (area 9),
+  le azioni di Claude sulle automazioni (area 10).
+
+- ~~F3, il costo di un passo della prova *(S, 72, 13 nov 2026)*: la risposta di
+  `POST …/test/claude` non ha `costUsd`, perché il `ChatLlm` del server non
+  restituisce il costo allo stream (lo stima e lo scrive in `agent_runs`).
+  Il consumo della prova c'è comunque in Usage (owner `automation_id`, senza
+  run); se la pagina della prova vorrà il costo per passo, il `ChatLlm` deve
+  restituire i token a fine stream.~~ *Parte server chiusa il 24 nov 2026
+  (72, lotto 5)*: `ChatLlmInput.onUsage` riceve a fine stream modello, token
+  e costo stimato (la stessa cifra della riga di Usage); la risposta di
+  `POST …/test/claude` porta `costUsd` (null se il modello non ha un
+  prezzo), anche nei dettagli del 422 `claude_invalid`.
+
+- F3, le richieste dal supporto *(O, 46, review F3 I4, 13 nov 2026)*: titolo
+  e descrizione di una richiesta sono tinti per `request_created` e
+  `request_converted` (possono venire dal widget di supporto), salvo un
+  filtro dell'inizio che escluda `richiesta.dal_supporto`. Le sorgenti
+  esterne (F4) entreranno nella stessa regola (`taintedKeys(flow, sources)`:
+  oggi il server passa `[]` perché le sorgenti non esistono ancora).
+- F4, il tetto del webhook nel prototipo *(S, 94, 13 nov 2026)*: il tetto
+  per automazione (F4-2 = c) è solo del server, che lo applica a
+  `/hooks/in`. Il prototipo non ne ha uno: la riga di «About» compare solo
+  quando il server manda `webhookLimits`, e `setWebhookLimits` del prototipo
+  risponde `not_available`. Da portare nel prototipo solo se servisse a una
+  shape.
+- F4, la prova e le esecuzioni aperte dell'automazione da avviare *(S, 94 e
+  72, 13 nov 2026)*: «avvia un'altra» nella prova segue `planStartAutomation`
+  (vista, gestibile, accesa, niente cicli, catena = questa) ma non conta le
+  esecuzioni aperte dell'altra (`MAX_ACTIVE_RUNS` del consumatore): è un
+  freno di sicurezza dell'esecuzione vera, non una regola che la prova debba
+  mostrare, e il contesto non le porta. Un `openRuns` in
+  `SimulationStartTarget` costerebbe una query per prova (72).
+
+## Area 8 — Rilasci, ambienti, avvisi, Support, Servers
+
+- F1 (piano `docs/plans/2026-11-13-integrazione-area8-fetta1-plan.md`), le
+  decisioni dell'orchestratrice *(O, 13 nov 2026)*: **P-1 = a**, il log di una
+  run di CI dentro l'app NON entra nella F1 (solo il link alla run sul
+  provider; leggere i log delle Actions, archivio zip per job, e di Bitbucket,
+  per passo, è lavoro a sé, rimandato); **P-2 = a**, i repository già collegati
+  partono con le PR dei colleghi in «solo analisi» (`colleague_prs =
+  analyze_only`): nessun push nuovo sui rami dei colleghi il giorno del
+  deploy, finché chi ha `repos.manage` non sceglie «analisi e correzioni».
+
+- F1, lato renderer (94, 13 nov 2026), ciò che resta fuori dalla build app:
+  - **gli ambienti per repository** (`environments`) si accendono con la F4a
+    *(O, 46)*: il form sceglie i server da un elenco (il prototipo li scrive
+    come `SRV-n`, che il server vero non ha); 72 aggiunge intanto per
+    repository nome del server, commit riportato e `releaseCode`,
+    `canManage` e `onlyHere` per ambiente. Il tipo di un ambiente resta non
+    modificabile nel PATCH (salvo decisione di 46): il form non lo offre;
+  - ~~**«Spiega»** (`releases-explain`): si accende quando il tool `read_release`
+    della chat c'è e il golden della chat è verde *(scelta del maintainer)*;~~
+    chiusa da d66e9546d (`releases-explain` acceso, tool `read_release` in
+    `chat-tool-routes.ts`; 23 nov 2026, verificata nel codice);
+  - **la sezione «Repositories» intera**: nella build app è ridotta al
+    blocco «Releases» *(O, 46)*; dettagli, account git, file d'ambiente,
+    webhook e «nuovo repository» arrivano con l'area 9;
+  - dalla review del renderer (46, 14 nov 2026): la bozza delle note della
+    PR per il riquadro di Claude (`releaseNotesDraftFromServer`, dalla GET
+    `…/release-notes`) è pronta ma non collegata al riquadro: entra con le
+    bozze di Claude nella build app; ~~`canManage` delle impostazioni del
+    repository viene dai permessi di `/api/auth/me` (calcolati dal server):
+    più pulito un `canManage` nella risposta del repository, cambio server
+    per dopo;~~ *parte server chiusa il 23 nov 2026 (72, lotto 4)*: la
+    risposta del repository (elenco e dettaglio) porta `canManage`
+    (`repos.manage` di chi chiede, `.default(false)`); il renderer può
+    leggerlo al posto di `/api/auth/me`; ~~la ricerca dei rilasci nella palette (`releases-search`)
+    resta spenta finché il server non ha una ricerca dei rilasci;~~ *parte
+    server chiusa il 24 nov 2026 (72, lotto 5)*: `GET /api/releases/search?q=`
+    (`{ items: ReleaseSearchResult[] }`, per codice o titolo, solo nei
+    progetti visibili, dal più recente, 20 al più, da 2 caratteri);
+  - fatti che il server non legge nella F1 e la pagina non inventa:
+    `mergeable` (mai «conflitti» se non letto), il rischio di una PR esterna,
+    l'autore di una PR esterna, le correzioni `discarded` (non derivate);
+    i problemi di una PR esterna sono un elemento sintetico dal riassunto
+    della review («request_changes»).
+
+- L'inventario dell'area 8 (`docs/plans/2026-11-13-integrazione-area8-inventario.md`,
+  13 nov 2026, lato server di 72 e renderer di 94), con le **Decisioni**:
+  confermate *(M)* le due riscritture d'invariante del design del prototipo
+  (la correzione di un server via SSH come unica azione sull'ambiente, mai per
+  rilasciare; niente adozione esplicita delle PR, la prima correzione parte da
+  sola salvo «solo analisi»), da applicare a CLAUDE.md e `docs/invariants/`
+  PRIMA del codice della loro fetta (righe nell'inventario). S-3, S-5, S-10 =
+  a *(M)*; S-1, S-2, S-4, S-6…S-9 e R-1…R-5 = a *(O)*. Quattro fette: rilasci,
+  avvisi, Support, Servers (SSH per ultimo).
+
+- F1, S8 (le PR dei colleghi senza adozione), due rimandi *(O, 46, 13 nov
+  2026)*:
+  - ~~(a) `derivePrCycle.canRequestCorrection` (la riga del ciclo del web
+    vecchio e dell'app) non guarda ancora l'impostazione delle PR dei
+    colleghi: con «Solo analisi» sulla PR o il repository «spento» il bottone
+    «Chiedi modifiche» resta, e la rotta risponde 409
+    `colleague_analysis_only`. `/pulls` (`permissions.requestCorrection`) lo
+    dice già giusto.~~ *Chiusa il 23 nov 2026 (72)*: `derivePrCycle` passa
+    da `colleagueCorrectionPermitted` col trigger `stubwise`, lo stesso
+    cancello di `enqueueCorrection`.
+  - ~~(b) Lo stato «scartata» di una correzione (push rifiutato perché l'autore
+    ha spinto in parallelo) non si deriva: in `/pulls` compare come «fermata»
+    (`prStateOf` lo leggerebbe, manca un esito distinto del job).~~ *Chiusa il
+    23 nov 2026 (72, lotto 4, §1 dei contratti di 94)*: `pr_corrections.outcome`
+    (0220, con backfill), scritto dal worker insieme alla chiusura; `/pulls`
+    la mostra `discarded` senza motivo, e (D-1.2, 46) non conta nel tetto dei
+    giri automatici.
+  - Rimasti fuori dal §1 *(O, 94, lotto 4)*: una scartata manda ancora
+    `job.failed` (il prototipo non avvisa nessuno: è una scelta di notifiche,
+    D-1.3); una correzione `stopped` conta nel tetto vero mentre il
+    prototipo dice «doesn't count» (la stessa divergenza della scartata, non
+    toccata).
+
+- F1, S10, ruling di 72 approvato con una precisazione *(O, 46, 13 nov
+  2026)*: con la review automatica dell'istanza SPENTA una PR senza analisi
+  può essere «pronta» (non c'è un'analisi da aspettare), ma non dice mai
+  «analizzata, senza problemi»: `prState.state = analysis_off` («non
+  analizzata»). Con la review accesa una PR senza analisi resta «in
+  analisi» e non è pronta.
+
+- F1, review del server, due rimandi *(O, 46, 14 nov 2026)*:
+  - ~~Una run di CI **rilanciata** dopo che il rilascio si è sistemato come
+    `failed` non si vede: il poller non riguarda i rilasci sistemati (la
+    run rilanciata e verde lascerebbe il rilascio «fallito»).~~ *Chiusa il 23
+    nov 2026 (72)*: nella finestra delle 24 ore il poller riguarda anche i
+    rilasci sistemati come falliti (avvisati e mai riusciti), al più ogni
+    `RELEASE_FAILED_RECHECK_MINUTES` (10); e in `releaseStatusOf` (shared) una
+    run con lo stesso nome partita DOPO prende il posto di quella di prima (su
+    Bitbucket una pipeline rilanciata ha un altro id). Rilanciata e verde: il
+    rilascio è riuscito, con l'avviso `release.succeeded`.
+  - `GET /api/me/releases` legge le PR aperte con `listOpenPulls` per OGNI
+    progetto in cui chi guarda ha `release.merge` — per un full admin, tutti:
+    una chiamata al provider per PR. Non c'è un ripiego economico (la
+    prontezza vuole i controlli letti dal provider); da rivedere se pesa.
+
+- F2 (avvisi e iscrizioni), due decisioni *(ruling di 72 approvati da 46, O,
+  14 nov 2026)*:
+  - Le iscrizioni sono lo stato di ADESSO (`alert_subscriptions`, upsert;
+    nessuna riga = il default del catalogo). La tabella della storia
+    `alert_subscription_changes` della bozza **non si fa**: sul server la card
+    nasce alla pubblicazione, nessuna lettura chiede il passato. Se un domani
+    servisse un registro delle modifiche, si aggiunge accanto.
+  - Un `monitor.*` di un server senza un solo progetto (nessun `projectId`)
+    resta sul routing di oggi (`monitor.manage`): le iscrizioni sono per
+    progetto. Test nella F2.
+
+- F2, lato renderer (94, 14 nov 2026), ciò che resta fuori dalla build app:
+  - ~~**le card degli avvisi dei server** (`monitor.*`, poi `server.*`) restano
+    «Open in web» finché la sezione Servers non è integrata (fetta Servers):
+    `appLinkFor` (`apps/desktop/src/renderer/data/backend/real/notifications.ts`)
+    apre nell'app solo rilasci, pannello della PR e Docs;~~ chiusa da
+    85e84fb97 (area 8, F4a, S12: `MONITOR_KINDS` e `server.diagnosis_ready`
+    aprono la pagina del server nell'app; 23 nov 2026, verificata nel codice);
+  - ~~**i permessi del catalogo condiviso** sono stringhe perché
+    `servers.operate` vive ancora solo nel prototipo (`support.reply` è nel
+    registro dalla F3): quando entra nel registro di `@stubwise/shared`, il
+    catalogo si può tipare sui permessi veri e il restringimento del
+    prototipo (`domain/alerts/catalog.ts`) sparisce;~~ *Chiusa il 23 nov 2026
+    (72, lotto 4)*: `servers.operate` era già nel registro (F4b); il catalogo
+    condiviso è tipato su `AlertPermission` (progetto + istanza). Nel
+    prototipo il cast sparisce: `ruleApplies` legge il permesso della riga,
+    che lì resta del tipo più largo `Permission` perché `registerAlertTypes`
+    accetta anche righe coi permessi locali;
+  - **«Annulla» contro un server senza `saved`** (un rollback, un'istanza
+    non aggiornata): il campo manca, vale `false`, e l'«Annulla» chiede il
+    ritorno al default (`DELETE`), che quel server non ha (404, «Undo» non
+    riesce e lo dice). Server e caddy escono insieme, quindi solo in un
+    rilascio scompagnato; non si ripiega su `PUT`, che fisserebbe il default.
+
+- F3, lato renderer (94, 14 nov 2026), ciò che resta fuori dalla build app
+  (parità: `apps/desktop/docs/integration-area8-f3.md`):
+  - *(superati dalla premessa corretta del maintainer, 14 nov 2026: la bozza
+    di Claude, «Segui», «Scrivigli per email» e la risposta nel widget sono
+    usciti; i siti ammessi tornano col campo `origins` del server.)*
+  - **la macchina degli slot della Posta** (`slot` delle bozze,
+    `?compose=support-…`): serviva solo a «Scrivigli per email», uscita; resta
+    accettata (`SUPPORT_MAIL_SLOT` locale) finché non si toglie in un giro di
+    pulizia della Posta;
+  - **«Clienti in attesa» nel prototipo aspetta la fetta delle email** (la
+    posta delle caselle, soglia 24 h, dopo la F3): con le conversazioni
+    chiuse il blocco del prototipo è vuoto, e il suo esempio arriverà con
+    quella fetta (46, 14 nov 2026); nella build app il blocco è spento;
+  - **Claude non ha più il permesso di Support**: `support.reply` era nel suo
+    insieme fisso, `support.manage` no (Claude non ha mai un `*.manage`):
+    non apre richieste né segna conversazioni;
+  - **un `kind` sconosciuto nei filtri di un widget** (un server più nuovo):
+    l'app lo legge come `__unknown__` e salvando lo toglie, perché non può
+    rimandarlo com'era;
+  - ~~**la ricerca ⌘K delle conversazioni** (`support-search`): nessuna rotta,
+    fuori dalla F3;~~ *parte server chiusa il 24 nov 2026 (72, lotto 5)*:
+    `GET /api/support/search?q=` (`{ items: SupportSearchResult[] }`, per
+    codice o cliente — nome o email —, solo nei progetti visibili e nella
+    WHERE, dalla più recente, 20 al più, da 2 caratteri; il desiderio
+    riscritto non c'è sul server, quindi non si cerca);
+  - **una card `support.*` non rilegge Support**: nessun legame fra le card
+    dell'inbox e le aree; aprirla legge la conversazione, il ritmo (15 s /
+    30 s) copre il resto.
+
+- F2, S4, limite accettato *(O, 46, 14 nov 2026)*: l'obbligatorio
+  `pr_author` di `pr.analysis_issues` e `pr.corrected` si risolve per una PR
+  di Stubwise dall'autore della task, per la PR di un collega dall'email git
+  del commit collegata a un membro (`git_identities`). Nessun login della
+  piattaforma è legato a un utente: un collega la cui email git non è in
+  `git_identities` non riceve nulla da obbligatorio, solo per iscrizione
+  (`pr.corrected`, solo obbligatorio, non gli arriva affatto).
+
+- F2, review del server *(O, 46, 14 nov 2026)*, limiti che restano:
+  - **Il Telefono di una riga MISTA** (iscrizione più motivi obbligatori,
+    es. `release.failed` per chi ha fatto il merge): la pubblicazione manda
+    il push a un obbligatorio secondo la sua iscrizione o, senza riga,
+    `defaultPhone` e `push` — anche con l'App spenta. Le Preferenze mostrano
+    l'iscrizione; la riga lo dice con una nota sui motivi obbligatori (lato
+    renderer, 94). Le righe SOLO obbligatorie mostrano già il Telefono vero.
+  - **«Annulla» della card e delle Preferenze non è condizionato** a
+    `updated_at`, a differenza di quello di Claude: lo fa il client entro i
+    pochi secondi del toast, e le righe le scrive solo chi annulla — un
+    cambio «dopo» sarebbe suo, da un altro dispositivo, in quella finestra.
+    L'«Annulla» di Claude resta disponibile per sempre: lì serve.
+  - **Costo delle letture**: `listAlertSubscriptions` fa tre query per
+    progetto (permessi, `push`, righe salvate); l'inbox aggiunge un EXISTS
+    per ogni tipo vivo con un permesso d'iscrizione. Da raccogliere in una
+    lettura per pagina se pesa.
+
+- F3 (Support) *(O, 46, 14 nov 2026)*:
+  - **Il triage rifatto nel widget** (domande una alla volta, desiderio
+    riscritto e confermato, una RICHIESTA invece di un ticket: decisione 5
+    del maintainer nel design del prototipo) e **la scala degli stati per il
+    cliente nel widget** (F3-1 = a): fuori dalla F3. Oggi il widget apre un
+    ticket, e lo stato della conversazione guarda l'esito (richiesta legata o
+    ticket).
+  - **Una richiesta fusa** in una che c'era (l'intake del ticket di un
+    widget, o del canale `mcp`) non si lega alla conversazione: la voce di
+    destinazione tiene la sua provenienza, e la conversazione resta senza
+    esito (il controllo la giudicherà).
+  - **Costo delle letture di Support**: la vista di ogni conversazione fa
+    qualche query (esito, stato delle PR della richiesta o della task);
+    l'elenco la fa per conversazione. Va bene per 0–80 per progetto; da
+    raccogliere in blocco se pesa.
+  - **Le risposte del team via Claude Code** (canale `mcp`, l'unico in cui
+    il team scrive): `my_requests` mostra le ultime tre, senza un «non
+    lette».
+  - **La premessa corretta** *(M, 14 nov 2026)*: il team non scrive MAI al
+    cliente nel widget; una conversazione con un esito è chiusa e un
+    messaggio nuovo apre la successiva. Escono dalla F3 (scritti e tolti, o
+    mai scritti): la risposta nel widget e la sua lettura, il compositore
+    sulle conversazioni del widget, la bozza automatica di Claude e «Chiedi
+    a Claude», `support.customer_replied`, «Segui», gli stati `waiting_us` e
+    `reply_sent`, «Scrivigli per email», la versione Support di «Clienti in
+    attesa». Il prototipo va riallineato (94).
+  - **Un widget vecchio dopo la chiusura** (S17): continua a scrivere
+    all'id della conversazione chiusa e il server porta i messaggi alla
+    successiva; ma all'apertura del pannello ricarica la storia della
+    CHIUSA, quindi il cliente non vede i messaggi nuovi finché il bundle
+    del widget non si aggiorna (caddy, lo stesso deploy). Accettato: il
+    bundle è servito da noi.
+  - **L'AI del widget nella successiva** parte senza la storia della
+    chiusa: un «grazie» dopo un ticket apre una conversazione nuova che il
+    controllo giudicherà (di solito `answered`). Accettato: è la regola.
+  - **I siti ammessi** (S16): elenco vuoto = tutto ammesso, per i widget già
+    installati, con un avviso nella UI *(M, 14 nov 2026)*. L'`Origin` lo
+    falsifica chiunque non sia un browser: protegge dall'embed su siti
+    altrui, non sostituisce la chiave.
+  - **Dalla review finale della F3** *(O, 72, 14 nov 2026)*, limiti accettati:
+    - il messaggio del cliente si scrive DOPO il lock della catena
+      (`openConversationFor`): se «Apri la richiesta» cade in quei
+      millisecondi, il messaggio finisce sulla conversazione appena chiusa
+      (visibile al team, nessun danno);
+    - col backlog del progetto spento, `create_backlog_item` apre un ticket
+      `feature` e la conversazione del collaboratore si perde senza dirlo
+      (come `/from-design`);
+    - il test «nessun altro scrive `team`» guarda solo il letterale in
+      `apps/server` e `apps/worker`;
+    - un'anteprima del widget da un'app impacchettata (`file://`,
+      `app://`) è rifiutata con un elenco di siti pieno: l'anteprima
+      dell'app web (`PUBLIC_URL`) è ammessa.
+- F4a (Servers, monitor e ambienti) *(O, 72, 14 nov 2026)*, limiti e rimandi:
+  - **`inArchivedOnly`** resta `false`: i progetti non hanno ancora un
+    archivio sul server (il prototipo sì, area 9c).
+  - **Il progetto principale** di un server (`primaryProjectId`, dove
+    l'analisi apre la task), `work`, `access` (l'SSH), il controllo «busy»
+    dell'eliminazione: con la F4b.
+  - **`server_projects`** resta come tabella inerte per il rollback (il web
+    nuovo non la scrive, il server ignora `projectIds`): si toglie in un
+    rilascio dopo, col ritiro del web.
+  - **Il link delle card `monitor.*`** nell'evento resta quello del web
+    (`/monitor/servers/<id>`): l'app usa `serverCode`, derivato a lettura.
+  - **Le letture dei server** fanno qualche query per server (ambienti,
+    episodi, CPU recente): va bene per decine di server; da raccogliere se
+    pesa.
+  - **Dalla review finale della F4a** *(O, 72, 14 nov 2026)*, limiti accettati:
+    - creare un server con un ambiente SOSTITUISCE il server già legato a
+      quella (ambiente, repository), come il form degli ambienti;
+    - i controlli di `POST /api/servers` con un ambiente stanno fuori dalla
+      transazione: un ambiente cancellato nel mezzo dà 500 (nessun server
+      orfano: la transazione torna indietro); `repositoryIds` senza tetto;
+    - `orphan` esce in ogni vista (per chi vede il server da un ambiente è
+      sempre `false`);
+    - `PATCH /api/servers/:id` ignora `projectIds` e risponde 200 (un web in
+      cache crede di aver salvato), scelta dichiarata;
+    - il tipo web delle metriche conosce solo `raw` | `5m` (a runtime ogni
+      altro valore è trattato come aggregato);
+    - il backfill della 0180 sui server esistenti non ha un test (il DB dei
+      test parte vuoto);
+    - `syncEpisode` legge e riscrive i motivi senza lock: sicuro perché il
+      poller degli avvisi è single-flight in un processo worker solo.
+- F4a, lato renderer (94, 14 nov 2026), ciò che resta fuori o diverge:
+  - *(fatto: «New server» da un progetto nasce dentro un ambiente per tutto il
+    progetto, decisione c di 46.)*
+  - **il tipo di un ambiente non cambia** nella build app (il PATCH del
+    server non lo accetta): il dialogo lo blocca in modifica e lo dice; nel
+    prototipo si cambia;
+  - **il server di un ambiente si sceglie fra i suggerimenti** (i server che
+    chi scrive vede), ma il campo resta testo: un codice che non vede è
+    `invalid: serverCode` (lo stesso 422 `server_not_visible` del server);
+  - **SSH, analisi, progetto principale, ~~ricerca ⌘K dei server~~**: spenti
+    (F4b, o fuori); le simulazioni restano solo del prototipo. *La ricerca
+    ⌘K, parte server, chiusa il 24 nov 2026 (72, lotto 5)*:
+    `GET /api/servers/search?q=` (`{ items: ServerSearchResult[] }`: codice,
+    nome, il progetto da cui aprirlo; per codice, nome o hostname, fra i
+    server visibili e nella WHERE, 20 al più, da 2 caratteri).
+  - **Dalla review della F4a** *(O, 46, 14 nov 2026)*, limiti accettati:
+    - M4: le card `monitor.*` di prima, ancorate a un progetto di
+      `server_projects` che ora non vede più il server, aprono la pagina del
+      server in quel progetto, dove il server non c'è più (404 «non
+      esiste»): restano finché non si archiviano;
+    - M5: il link di una card è quello del momento della lettura, e due
+      persone che modificano lo stesso ambiente insieme: vince l'ultima (il
+      PATCH non ha una precondizione di versione).
+- F4b, lato renderer (94, 14–15 nov 2026), cablaggio sull'app:
+  - *(fatto: i container degli ambienti, `environment-containers`, ad69d9a8e.)*
+  - *(fatto: le analisi lette sul server, `servers-analysis`: l'analisi di
+    ogni episodio e l'ultima a mano, da `serverOps.analyses`.)*
+  - *(fatto: il bottone dell'analisi a mano, con `canStartAnalysis` del server.)*
+  - *(fatto: l'accesso SSH di sola lettura, `servers-ssh`: lo stato a chi
+    vede il server dal riassunto `ssh` del dettaglio, la vista intera e le
+    azioni a chi ha `servers.ssh.manage`; host di base quello dell'agente.)*
+  - *(fatto: la rigenerazione della chiave SSH, una chiave sola: la vecchia
+    smette subito, prototipo allineato; decisione del maintainer, 15 nov 2026.)*
+  - *(fatto: la sezione Server della task e la correzione, `servers`: la
+    scheda del piano dalla vista, approva col digest, rifiuta con la nota,
+    stop, il registro dei comandi per task; decisione 3 del maintainer.)*
+  - **Correzione, divergenze dichiarate nell'app**: le «note per Claude»
+    all'avvio il server non le prende (il campo non c'è nell'app); la riga
+    «You started this fix» non c'è (il server non dice chi l'ha chiesta); lo
+    stato si deriva dalla correzione (72): `done` = risolta (il rientro lo
+    dice l'episodio), `failed` con `step_failed`/`step_expired` = non
+    risolta, con gli altri motivi = fermata, `none` con un motivo = nessun
+    piano; la salute del server nella riga del server non arriva;
+    il dettaglio del controllo finale resta nella sessione. Nel prototipo i
+    passi approvati girano ancora dentro la sessione di Claude (sul server
+    sono deterministici): per chi guarda conta la sezione Server.
+  - **SSH, divergenze dichiarate nell'app**: il comando d'installazione è
+    quello del server (in inglese, senza i commenti nella lingua di chi
+    guarda); l'ultimo uso è solo la data (non con quale analisi o task: le
+    letture stanno nel registro dei comandi); a chi non gestisce l'SSH una
+    verifica fallita non dice se per privilegi; senza un hostname
+    dall'agente il collegamento risponde `invalid: host_required` e il
+    prototipo non ha un campo Host.
+  - **`done` del server** si mostra come «Diagnosis ready», o come diagnosi
+    parziale con `endedBy: "time"`; «irraggiungibile» e «fermata» del
+    prototipo il server non li distingue (resta così);
+  - ~~**i tetti dell'analisi** (R0-C, `servers-analysis-limits`): restano
+    spenti finché Amministrazione → AI non è integrata (area 9).~~ Chiusa
+    il 23 nov 2026 (rimandi, lotto 1): accesi sotto AI → Budget, su
+    GET/PUT `/api/settings/server-analysis` (`real/serverAnalysis.ts`).
+  - Divergenze del prototipo dal server, dichiarate: col budget esaurito o
+    l'analisi spenta il prototipo rifiuta l'analisi a mano SUBITO
+    (`invalid: monthly_budget` / `invalid: disabled`), il server la accoda
+    e la segna `blocked`; un «Cause not determined» su un server di solo
+    staging non arriva a nessuno (gli avvisi vanno alle produzioni).
+  - ~~**Da decidere (46)**: l'analisi AUTOMATICA senza l'accesso SSH. Il
+    worker la fa partire comunque (con stato, metriche, controlli, episodi
+    e ambienti); il prototipo no («Claude can't look into it: no SSH
+    access»).~~ Già allineati: la decisione del 15 nov (l'analisi automatica
+    parte anche senza SSH, solo senza le letture) è stata confermata dal
+    maintainer il 23 nov 2026. Il testo del seme del prototipo lo corregge
+    il renderer.
+- **L'API per i siti** *(M, 14 nov 2026; fetta a sé DOPO la F3)*: il cliente
+  segue sul sito che ospita il widget le sue richieste e i suoi ticket.
+  Note di 72 per il design:
+  - **Autenticazione**: la chiave del widget da sola non basta (è nel
+    client, chiunque può dichiararsi un altro cliente). Serve un'identità
+    del cliente FIRMATA dal sito (un token firmato col segreto del widget,
+    lato server dell'host: `{ externalUserId, email?, exp }`, HMAC), o una
+    chiave server-to-server per widget che il sito usa dal suo backend.
+    Oggi il widget dichiara `userId` in chiaro: va bene per la chat, non
+    per leggere lo stato delle richieste.
+  - **Il legame cliente → richieste**: `widget_conversations.external_user_id`
+    → la conversazione → la richiesta (`backlog_items.support_conversation_id`)
+    o il ticket (`widget_messages.ticket_id`); le conversazioni successive
+    (`continued_in_id`) sono dello stesso cliente. Una richiesta FUSA in
+    un'altra perde il legame (limite della F3, sopra): l'API dovrà seguire
+    la fusione.
+  - **Cosa mostra**: lo stato in parole del cliente (`customerStatus`,
+    già in `@stubwise/shared`, con i suoi test), il titolo, il codice, le
+    date; MAI nomi del team, stime, commenti, il testo interno.
+  - **I siti ammessi** (`widgets.allowed_origins`, F3 S16) valgono anche
+    per l'API se è chiamata dal browser.
+  - **Il rate limit e il tetto** per chiave, come le rotte del widget.
+- **«Clienti in attesa»** *(M, 14 nov 2026; fetta a sé DOPO la F3, insieme
+  alla cattura della posta inviata)*: il blocco della Home resta, ma legato
+  alle EMAIL delle caselle, non al widget. La versione Support
+  (`/me/waiting-customers` sulle conversazioni) esce dalla F3.
+  - **Definizione** (proposta di 72, approvata): un cliente aspetta me = un
+    thread delle MIE caselle (a) ammesso, in un progetto che vedo; (b) il cui
+    ultimo messaggio viene da un indirizzo ESTERNO (non la mia casella né
+    un'altra casella collegata dell'istanza); (c) ricevuto da più di **24
+    ore** *(M)*; (d) senza un nostro messaggio dopo (posta inviata
+    catturata, o un `mail_outgoing` `sent` sullo stesso `gmailThreadId`); (e)
+    non rumore: `signal` ≠ `none` OPPURE importanza alta.
+  - **Fonte**: una query accanto a `GET /me/mail/threads`
+    (`apps/server/src/routes/me-mail.ts`, che dà già una riga per thread con
+    `lastFrom`/`lastReceivedAt`, sulle sole caselle di chi guarda), servita
+    come `GET /api/me/waiting-customers`; dall'attesa più vecchia, al più 20.
+  - **Le righe**: nome/email del cliente, oggetto, progetto, «aspetta da N
+    ore/giorni», il segnale (richiesta, scadenza…); il clic apre il thread
+    nella Posta. Lo vede chi ha una casella collegata, senza permesso (è la
+    sua posta: mai le caselle dei colleghi, mai agli admin, `mailbox_owner`).
+    Nel catalogo della Home, mai nelle Home di default ([A 17]).
+  - **Prerequisito**: la posta inviata va catturata anche nel primo giro e
+    nel resync sui thread ammessi (oggi `newer_than:7d -from:me`, e i thread
+    non noti restano fuori: `apps/worker/src/google/poller.ts`), o (d) dà
+    falsi positivi (un thread a cui si è risposto da Gmail).
+  - **Le automazioni** *(M)*: FUORI dal blocco. Le esecuzioni in
+    `waiting_event` con `replyTo` sono «noi aspettiamo il cliente» e restano
+    nel loro blocco.
+  - **Le tre decisioni** *(M, 14 nov 2026)*: soglia 24 ore; automazioni
+    fuori; una fetta a sé dopo la F3, con la cattura della posta inviata.
+
+- F2, S7, l'azione di Claude `setSubscription` *(O, 46, 14 nov 2026)*:
+  - Golden: perimetro RIDOTTO autorizzato dal maintainer (perimetro (a)):
+    `chat-subscription`, `chat-propose-not-execute` e `chat-never-catalog`,
+    3 volte ciascuno, CLI 2.1.322. **La serie intera della chat si rilancia
+    al prossimo aggiornamento del CLI** (insieme alle altre voci rimandate a
+    quel giro).
+  - «Annulla» di una riga senza scelta salvata la riporta al DEFAULT
+    (`resetSubscription`, review F2): nessuna riga fissata, il Telefono segue
+    di nuovo `push`.
+
+- F4b, le risposte del maintainer *(M, via 46, 15 nov 2026)* e i limiti
+  ACCETTATI:
+  - **Un server che va e viene, nessun limite**: un'analisi per episodio,
+    nel budget mensile dell'istanza. Ogni episodio apre la sua analisi, una
+    task se attribuita, un triage: il freno è il budget, non un tetto per
+    server. Limite accettato, non un buco da chiudere.
+  - **I container di nessuno** si legano come oggi, da chi ha
+    `environments.manage`: è il confine di fiducia DICHIARATO in
+    `docs/invariants/server-operations.md` («Chi, quando, dove»).
+  - «Non determinata» e «fallita» vanno anche agli iscritti delle produzioni
+    del server; la rigenerazione SSH spegne subito la chiave vecchia; il
+    piano si approva nella sezione Server della task, dalla vista della
+    correzione.
+  - I 4 *ruling* della review finale (tetto di costo come cancello, la
+    proposta di un piano non segue l'interruttore delle analisi, la diagnosi
+    nel testo della task, nessun controllo «progetto della task = progetto
+    della correzione») restano com'erano *(O, 46)*.
+
+- ~~Blocchi della Home «Rilasci» (anche l'extra di `resolveHome` per
+  `release.merge`) e «Clienti in attesa».~~ Chiusa da 58b6ddeee
+  (`releases`, la Home «Rilasci») e ee5c45c5a (`mail-waiting`, «Clienti in
+  attesa»); i due tipi sono in `KNOWN_KINDS` di `real/home.ts` (23 nov 2026, verificata nel codice).
+- «L'API per i siti» *(O, 72, review finale, 16 nov 2026)*, i minori
+  rimandati. Branch `feat/area8-site-api`; l'Important (la catena delle
+  conversazioni senza token) e quattro minori sono corretti nel giro della
+  review.
+  - ~~**Costo dell'elenco**: `listSiteRequests`
+    (`apps/server/src/services/site-requests.ts`) legge TUTTE le conversazioni
+    verificate del `sub` e per ognuna calcola l'esito (fusioni, task,
+    rilasci); il tetto di 50 viene dopo. Un cliente col token può aprire
+    conversazioni senza un tetto giornaliero, quindi ogni lettura può costare
+    migliaia di query. La correzione vera è un tetto alle conversazioni
+    aperte per `sub` al giorno, o l'esito calcolato in SQL.
+  - **Rate limit «per cliente»**: il bucket è la chiave più l'hash dell'header
+    `Authorization` grezzo, non il `sub` (il `keyGenerator` gira prima della
+    verifica). Header inventati aprono bucket nuovi, e ognuno costa una
+    decifratura e un HMAC prima del 401. Lo stesso vale già oggi per
+    `X-Stubwise-Key` inventate sul limitatore per chiave. La correzione vera è
+    un limitatore DOPO `identify`, per `sub` verificato.~~ *Chiuse il 23 nov
+    2026 (72)*, in `routes/widget.ts`: al più
+    `WIDGET_VERIFIED_CONVERSATIONS_PER_DAY` (50) conversazioni verificate per
+    `sub` in 24 ore (429 `too_many_conversations`); le letture del cliente
+    hanno un limitatore per `sub` verificato in preHandler, dopo `identify`
+    (`createRateLimit`: il plugin ne fa girare uno per richiesta), e il bucket
+    per chiave della rotta (onRequest, dieci volte quello di un cliente) conta
+    gli header inventati prima della decifratura.
+- «Clienti in attesa» *(O, 72, review finale, 15 nov 2026)*, i minori
+  rimandati. Branch `feat/area8-waiting`; gli Important sono corretti in
+  8c51606b8.
+  - ~~**Alias di invio** (`send-as`): `from:me` del resync (W1) porta anche la
+    posta mandata da un alias, ma `isFromMailbox` (`apps/worker/src/google/sync.ts`)
+    confronta solo l'indirizzo primario. Quel messaggio passa come ricevuto
+    (automazioni in arrivo, ammissione, classificazione), e nel taglio
+    l'alias conta come esterno, cioè la mia risposta sembra il cliente che
+    aspetta. Il percorso incrementale (History) lo faceva già: W1 lo allarga
+    al resync. È stantio il commento in `poller.ts` («il resync per query la
+    esclude già con -from:me»). La correzione vera è leggere gli alias
+    (`users.settings.sendAs`, uno scope in più).~~ *Chiusa il 24 nov 2026
+    (72, lotto 8, voce 2)*: nessuno scope in più (`sendAs.list` accetta
+    `gmail.modify`, decisione di 46): il worker rilegge gli alias verificati
+    al più una volta al giorno (`google_accounts.send_as`, 0231) e
+    `isFromMailbox` conta anche loro. Insieme: rispondere da un alias (vedi
+    la voce della firma, qui sotto in area 6).
+  - ~~**Colleghi disattivati**: il CTE `instance` del taglio
+    (`packages/notifications/src/waiting-customers.ts`) prende anche le caselle
+    disattivate, `replyContext` no. L'indirizzo di un collega con la casella
+    spenta è «non esterno» nel taglio, ma il prompt non lo nomina come collega.~~
+    *Chiusa il 23 nov 2026 (72, lotto 4)*: `replyContext` nomina anche le
+    caselle disattivate, come il taglio (un collega resta un collega).
+    Test: `reply-judge.test.ts`, la casella disattivata nell'elenco del prompt.
+  - **Campi della riga e visibilità**: oggetto, stato e importanza vengono
+    dall'ultimo messaggio ammesso, anche se è di un progetto che chi guarda
+    non vede; si filtra solo il progetto. È la casella di chi guarda, quindi
+    nessuna fuga: solo un'incoerenza. Va insieme al *ruling* del primo di
+    `scope_project_ids`.
+  - ~~**Claim del tentativo**: la WHERE è solo `reply_judgment is null`, senza
+    `attempts < 2`. Due tick sovrapposti sulla stessa casella potrebbero
+    giudicarla due volte. Oggi il claim per casella del poller li serializza.~~
+    *Chiusa il 23 nov 2026 (72, lotto 4)*: il claim guarda anche
+    `reply_judgment_attempts < REPLY_JUDGMENT_MAX_ATTEMPTS`. Test:
+    `reply-judge.test.ts`, un giro sovrapposto che consuma l'ultimo tentativo
+    fra la lettura e il claim.
+  - **Piccole**:
+    - ~~la rotta salta una riga il cui progetto manca, ma `total` la conta
+      ancora;~~ *Chiusa il 23 nov 2026 (72, lotto 4)*: il taglio
+      (`waitingCandidatesPage`) scarta un progetto che non c'è più (il
+      perimetro `scope_project_ids` non ha chiave esterna), quindi né riga né
+      `total`; il salto nella rotta resta come difesa;
+    - ~~J2 non scrive `model` nel giudizio, perché il modello lo risolve il
+      `TrackingAgentRunner` per operazione;~~ *Chiusa il 23 nov 2026 (72, lotto
+      4)*: il risultato del `TrackingAgentRunner` dice il modello risolto
+      (`AgentRunResult.model`), e J2 lo scrive;
+    - ~~`OUTPUT_SHAPE` di J1 chiede `reply` anche quando `replyContext` è null
+      (innocuo: senza istruzione il campo, se arriva, si scarta per schema).~~
+      *Chiusa il 23 nov 2026 (72, lotto 4)*: `reply` si chiede solo insieme
+      alla sua istruzione.
+- ~~Origine di una richiesta da Support; «View conversation» delle task del widget.~~
+  *Era già chiusa da f1f0b4718 (area 8, F3, S6), voce barrata il 24 nov
+  2026 (72, lotto 5)*: `origin` della richiesta (`{ kind: "support",
+  conversationCode, channel, customerName, messageCount }`) e
+  `supportConversationCode` della task, derivati a lettura
+  (`services/support-links.ts`); test in `support.test.ts` (verificati con
+  due mutazioni). L'id della conversazione la build app non lo riceve: il
+  renderer apre per codice.
+- Adozione delle PR e rilascio (merge) — confine di prodotto invariato.
+- Azioni di Claude: bozze di risposta di supporto e delle note di rilascio
+  della PR (le iscrizioni agli avvisi sono arrivate con la F2, S7).
+- ~~L'evento `release_page` della Chat (area 4, fetta 4, [DECIDE] 1 = a): il
+  «general» lo ha acceso (D8), ma non ha una fonte finché l'area 8 non
+  definisce la pagina di Release. Nasce qui, con la sua scheda.~~ *Era già
+  chiusa dall'area 8, F1, S11; voce barrata il 24 nov 2026 (72, lotto 5)*:
+  la pubblica il trigger `releases_chat_release_page` (migrazione 0175) a
+  ogni rilascio nuovo, nei canali che l'hanno acceso; la scheda
+  (`chat/events.ts`) dà codice, titolo e stato derivato solo a chi vede il
+  progetto. Test in `chat-f4.test.ts` (verificato con una mutazione).
+
+## Area 9 — Amministrazione, preferenze, accesso
+
+- Audit vera dei membri di progetto *(O)* (area 6, F2, 12 nov 2026): oggi
+  `putProjectMember` non lascia traccia, e i Contributor aggiunti (e tolti)
+  da una conferma della posta lasciano solo una riga nel log della rotta.
+  Va col registro delle modifiche qui sotto.
+- Registro delle modifiche dell'istanza vero (oggi i ruoli di reparto lasciano
+  solo una riga di log).
+- Archiviati, interruttori di brief e report, pausa della coda e lavoro fermo.
+  Chiusi in parte (23 nov 2026, verificata nel codice): ~~archiviati~~ da 0e5d339c3 (area 9, F6,
+  `archive`), ~~pausa della coda~~ da 80461f5f4 (area 9, F4, `queue-pause`).
+  Restano aperti gli interruttori di brief e report (Settings → Automations
+  del progetto non è fra le `projectSettings` integrate) e il lavoro fermo.
+  Chiusi tutti e due (23 nov 2026): ~~gli interruttori di brief e report~~
+  (Settings → Automations, `projectSettings:automations`, e le frasi
+  «spento», `project-switches`, sul GET e sulla PATCH del progetto, in
+  a1f6e324b); ~~il lavoro fermo~~ (il lavoro
+  dell'agente fermo, `held`: lo coprono lo Stato dell'istanza con pausa,
+  ripresa, rilancio e i fermi per budget, c2d57d441 e 80461f5f4 della F4, e
+  le task ferme da `listStalled`, 2bfa57287).
+- ~~**I blocchi dell'istanza fuori dalla pausa** *(S, 23 nov 2026)*: la
+  funzione `instance` resta spenta.~~ **Chiuso (23 nov 2026)**: `instance`
+  accesa. «Si possono caricare file adesso» (`getUploadsAllowed`) viene da
+  `GET /api/storage/uploads` (72, 344fff90a), e un server senza la rotta
+  non blocca niente. `onInstanceChange` nella build app non avvisa mai: i
+  blocchi si rileggono alla lettura dopo (limite accettato, nessun evento
+  dal server).
+- Le altre impostazioni di progetto (AI, repository, membri, integrazione,
+  widget, regole mail, server, ambienti, plugin, elimina).
+- Preferenze, persone e accessi, istanza (compresa la pagina Google, con
+  l'origine vera dell'istanza al posto di `INSTANCE_ORIGIN` finto).
+- ~~Inbox: «Restore», «Move to New» e «segna come non letta» *(S)*.~~
+  Fatto in F1 (12bf4d6a9, 759d917ac): «Restore» vale solo su una card
+  ARCHIVIATA da chi chiama (`handled_action`, 0186).
+- ~~Tentativi rimasti del secondo fattore *(S)*.~~ Fatto in F1 (691f356e8).
+- **Card chiuse da altri scrittori: non ripristinabili** *(S, 72, review di
+  F1, 16 nov 2026)*: `handled_action` lo scrivono l'archiviazione
+  (`archive`) e `propagateHandled` (`decision`). Gli altri scrittori che
+  chiudono una card (poller Google e classificazione del worker, calendario,
+  `mail-proposals-decide`, pulse del worker, il claim della `google.proposal`
+  vecchia) la lasciano NULL, cioè «non ripristinabile». È il lato sicuro;
+  se un giorno servisse ripristinarle, ognuno va guardato per il suo claim.
+- **`assignee.deactivated` sulla task: non necessario** *(S, 72 con 94,
+  16 nov 2026)*: il design §1.3 lo nominava, ma l'app legge «(deactivated)»
+  da `/api/people`.`deactivated`. Si chiude se nessuno lo chiede.
+- **`touchSession` e l'id opaco delle sessioni** *(S, review di F1, 16 nov
+  2026)*: `touchSession` fa un UPDATE condizionale a ogni richiesta con una
+  sessione completa (scrive al più ogni 5′, ma il viaggio c'è sempre); l'id
+  opaco `b_` è un HMAC con `ENCRYPTION_KEY` (separato solo dal prefisso
+  `session:`). Né l'uno né l'altro è un difetto; da rivedere se il carico o
+  una rotazione della chiave lo chiedono.
+- ~~Permessi di progetto dati da un reparto (`department-permissions`): non
+  previsti dal server.~~ **Chiuso (area 9, F8)**: una lista per reparto,
+  valida nei progetti di cui la persona è già membro (F8-1 = a); anteprima
+  dal server (F8-2 = a); riconferma solo quando si danno accessi (F8-3 = a).
+- Azioni di Claude dell'area 9 (membri, ruoli, impostazioni senza segreti), con
+  la riconferma.
+- **«Share with» della cassaforte desktop: una select, cercabile sopra una
+  soglia** *(S, 94, 25 nov 2026, accettato da 46)*: la shape (`vault.md` §3
+  «Readers») vuole un campo che cerca persone e ruoli del progetto; il
+  prototipo ha una select con le due liste (`CredentialReaders.tsx`, commit
+  «feat(desktop): i lettori di una credenziale nel prototipo»). Con i
+  progetti del seme basta. Da fare cercabile quando le persone e i ruoli
+  del progetto superano una ventina di voci.
+- ~~**Il punto «ti aspetta» della cassaforte nella colonna del progetto,
+  nell'app** *(S, 94, 25 nov 2026, chiesto da 46)*: la shape (`vault.md`
+  §3 «Dove si entra» **[VA 2]**) vuole il punto sulla voce «Credentials»
+  quando c'è chi aspetta che sia CHI GUARDA a confermarlo; nell'app
+  `getCredentialsEntry` dava sempre `waitingMe: false`, perché il main non
+  portava al renderer il progetto delle credenziali di `vault:pending`.~~
+  **Chiuso (94, 25 nov 2026, 4389e6a47)**: il server lo mandava già
+  (`vaultPendingResponseSchema`, `projectId` obbligatorio; visibilità con i
+  test negativi di 72, 76e3aaeb7). Il main lo porta in `vault:pending` e
+  il punto si accende solo nel progetto della credenziale in attesa.
+- ~~Classe C delle azioni di Claude *(O, 10 nov 2026)*: nel renderer la
+  conferma di una proposta MODIFICATA (`confirmEdited`, scheda «Edit») salta
+  il wrapper `reauth()` che usa la conferma semplice.~~ **Chiuso (F7
+  renderer)**: `confirmEditedVia` passa dalla riconferma come Confirm, e una
+  riconferma annullata rifiuta (il dialogo lo dice).
+- ~~**Cassaforte dal desktop: aperta al desktop riconfermato per decisione del
+  maintainer, bloccata tecnicamente dallo sblocco PRF** *(M, 10 nov 2026)*.~~
+  **Chiusa lato server il 24 nov 2026** (72, lotto 10; design
+  `docs/plans/2026-11-24-cassaforte-desktop-design.md`, la seconda strada:
+  la chiave del Mac): sigillo del dispositivo, sfide legate al PAT, rotte
+  `desktopVault` (`docs/invariants/vault.md`). Il main di Electron e la
+  pagina `vault-pair` sono di 94. Secure Enclave (D-4) resta un rimando. Il
+  maintainer vuole che dal desktop si faccia tutto quello che si fa dal
+  browser, cassaforte compresa (leggere, condividere, confermare). Ma la
+  chiave di una persona si apre solo nel client col segreto PRF di una
+  passkey, e dal desktop le passkey non ci sono (decisione D1 della
+  riconferma). Le sfide (`vault_recovery_challenges`) sono poi legate alla
+  SESSIONE. Oggi quindi `vaultRoutes` è `config.browserOnly` e `credentials.ts`
+  tiene i suoi `session_required` (`docs/invariants/vault.md`). Le due strade:
+  - **la passkey nel browser, consegnata all'app**: un passaggio come il login
+    del desktop, che porta il segreto PRF (o la chiave aperta) all'app per la
+    durata della finestra;
+  - **un secondo modo di sbloccare** la chiave dal desktop (per esempio una
+    chiave del dispositivo sigillata alla prima apertura nel browser): è un
+    cambio d'invariante della cassaforte («non esiste un secondo
+    meccanismo»), da decidere col maintainer.
+  Con l'una o l'altra servono anche le sfide legate al PAT (`pat_id` in
+  alternativa a `session_id`, con un CHECK) e la rimozione di `browserOnly`.
+  **Aggiornamento del 16 nov 2026** *(M, via 46, D-12 = a dell'area 9)*:
+  resta FUORI dall'area 9, con un design a sé dopo. Il maintainer ha chiesto
+  se l'app possa chiedere il secondo fattore: no, il TOTP non apre la chiave
+  senza rompere «il server non decifra mai». Le due strade candidate per
+  quel design:
+  - la **passkey del browser che consegna lo sblocco all'app** (il
+    passaggio come il login del desktop);
+  - una **chiave del Mac** (Keychain / Touch ID) iscritta dal browser, col
+    secondo fattore come prova in più. Cambia l'invariante «non esiste un
+    secondo meccanismo».
+- ~~**Gli insiemi `CLAUDE_*_PERMISSIONS` del prototipo**~~ **Chiuso (F7
+  renderer)**: non decidono cosa Claude propone (restano solo per Claude
+  come chi agisce, `claudeCan`). Cosa si propone lo tiene un test di parità
+  col server (`data/claude/catalogParity.test.ts`): ogni voce di
+  `CLAUDE_PROPOSABLE_FNS` c'è nel catalogo del prototipo (tranne
+  `pageAction` e `fillMailBody`, che lì passano dalla pagina e dalla Posta),
+  e il permesso d'istanza di una voce è `CLAUDE_INSTANCE_PERMISSION`.
+  ~~Resta solo del prototipo
+  `saveStorage` (`setDefaultReviewer` e `setAttachments` ci sono dal lotto 6) (dalla review di F7: endpoint e bucket decidono dove vanno
+  gli allegati), che il server non esegue (registro di 72).~~ *Chiusa il 24
+  nov 2026 (72, lotto 10, voce 1)*: il server le esegue tutte.
+
+- **F1 renderer, ciò che resta** *(94, 16 nov 2026)*:
+  - ~~gli autori git osservati arrivano dal server senza commit né progetti
+    (`GET /api/git/observed-authors` dà email, nome visto e data): le righe
+    di «Link a git email» non dicono «N commit in ACQ» *(S)*;~~ *parte
+    server chiusa il 24 nov 2026 (72, lotto 5)*: ogni autore porta `commits`
+    e `projectCodes` (da `activity_commits`, solo nei progetti che chi guarda
+    vede, l'email senza distinzione di maiuscole; `.default`);
+  - ~~le caselle Google in Preferenze → Account restano spente nell'app
+    (`prefs-mailboxes`): stanno nel cassetto Google~~ **Chiuso (23 nov
+    2026, decisione del maintainer: «Anche in Preferenze»)**: `prefs-mailboxes`
+    accesa sulle rotte del cassetto (`/api/me/google`, `real/meMailboxes.ts`);
+    collegare e ricollegare passano dal consenso nel browser, e il dialogo
+    non ha il riquadro «Prototype only»;
+  - ~~il colore delle iniziali nel profilo è neutro: `/api/auth/me` non dice
+    il reparto *(S)*;~~ *parte server chiusa il 24 nov 2026 (72, lotto 5)*:
+    `/api/auth/me` porta `departments: [{ id, name, colorToken }]`
+    nell'ordine della persona (`position`, come `/api/people`), `.default([])`;
+  - `department` fra le fonti dei permessi dei membri arriva con F8.
+  - ~~Roles, «you'd lose»: cosa perde chi guarda salvando un ruolo lo compone
+    ancora il CLIENT dai motivi di `access.whatCan` (i permessi che gli
+    vengono solo da quel ruolo). Il server ha i motivi, non la risposta:
+    serve una lettura calcolata (come l'anteprima dei membri) che dica cosa
+    perde chi guarda con la bozza del ruolo *(S, review F1, M1 di 46)*.~~
+    *Parte server chiusa il 24 nov 2026 (72, lotto 5)*:
+    `POST /api/roles/:id/viewer-loses` (`{ permissions }` → `{ lost }`,
+    `roles.manage`): la regola del prototipo, i permessi effettivi prima e
+    dopo all'istanza e in ogni progetto di chi guarda (ruolo, concessioni,
+    reparti, full admin); ciò che resta da un'altra fonte non è perso.
+
+- **F2 renderer, il registro delle modifiche nell'app** *(94, 18 nov 2026)*:
+  - una voce d'invito non ha link: il server cancella gli inviti usati e
+    revocati, e la voce non dice se l'invito è ancora aperto *(S)*;
+  - ~~«By Claude» e la riga «Undid…» restano spenti fino a F7.~~ **Chiuso
+    (F7, 0195 di 72)**: `via`, `undoOf` e `undoneEntry` dal server (la voce
+    annullata solo a chi la legge), «By Claude» con `?via=claude` e
+    `filters.claude`; le voci dell'istanza (9b) e del progetto (9c) sono
+    arrivate con le loro fette.
+
+- **F3 renderer, i webhook in uscita nell'app** *(94, 18 nov 2026)*:
+  - ~~il server non ricorda l'ultima prova di un webhook (`POST …/test` dice
+    solo com'è andata): l'app la tiene per la sessione, e ricaricando torna
+    «not tested yet» *(S, serve `lastTest` nella vista del server)*;~~
+    *parte server chiusa il 24 nov 2026 (72, lotto 5)*: la vista porta
+    `lastTest: { at, outcome } | null` (0224), nelle parole del prototipo
+    (`ok`/`invalid_credentials`/`unreachable`); cambiare URL o formato la
+    toglie;
+  - AI → Providers: la prova la fa il worker (si rilegge finché non è più
+    `pending`, al più ~60 s, poi «prova ancora in corso»); ~~`failed` non
+    distingue la credenziale sbagliata dalla rete e si dice «credenziale
+    non valida»;~~ *parte server chiusa il 24 nov 2026 (72, lotto 5)*: la
+    vista porta `testFailure` (`unreachable`/`invalid_credentials`, null se
+    non è fallito), derivato a lettura dal testo dell'errore
+    (`credentialTestFailureOf` di `@stubwise/shared`; un testo senza segni
+    resta «credenziale»); le credenziali salvate prima della 0190 non hanno le
+    ultime 4 («••••»); la riga della quota la vede solo chi ha
+    `usage.view` *(dichiarato; S per distinguere l'errore di rete)*;
+  - ~~AI → Usage resta «Coming soon»: il server ha `/api/usage-costs` (del
+    web vecchio) ma non c'è nel client, e la forma non è quella della scheda
+    (gruppi, sotto-gruppi, giorni) *(M, non era nel piano di F3)*;~~ chiusa
+    da 701afd81a (area 9, F4: `ai-usage` acceso; 23 nov 2026, verificata nel codice);
+  - Storage: il server non ha la prova dell'archiviazione né l'interruttore
+    degli allegati (li deriva dalla configurazione), quindi nell'app quei due
+    comandi non ci sono; ~~niente ultime 4 della chiave («••••») *(S)*;~~
+    *le ultime 4, parte server, chiuse il 24 nov 2026 (72, lotto 5)*:
+    `s3SecretKeyLast4` (0225);
+  - ~~Plugins: il server non dice chi ha registrato o aggiornato un plugin
+    («updated … by» senza nome) *(S)*;~~ *parte server chiusa il 24 nov
+    2026 (72, lotto 5)*: `registeredById`/`registeredByName` e
+    `updatedById`/`updatedByName` (0226; mascherati per chi non conosce la
+    persona);
+  - Git accounts: ~~niente ultime 4 del token («••••»);~~ *(parte server
+    chiusa il 24 nov 2026, 72, lotto 5: `tokenLast4`, 0225)* la validazione non
+    resta sul server (la ricorda la sessione); ~~i repository che usano un
+    account non arrivano, né nella riga né nel rifiuto `in_use`;~~ *(parte
+    server chiusa il 24 nov 2026, 72, lotto 5: `repositories` e
+    `hiddenRepositories` nella riga, `usedBy`/`hiddenCount` nel 409, con la
+    regola R-G5 del prototipo)* chi
+    verrebbe sostituito come revisore predefinito si sa solo dopo, dalla
+    risposta *(S per ciascuno)*;
+  - Google Workspace: ~~il server non tiene le ultime 4 del client secret
+    («••••»)~~ *(parte server chiusa il 24 nov 2026, 72, lotto 5:
+    `clientSecretLast4`, 0225)*, e delle caselle collegate dà solo il numero: il dialogo di
+    un'app in uso le dice contate, senza i nomi *(S)*;
+  - AI → Automation: le regole di `feedback` e `review` non si modificano
+    nell'app (la pagina ha le tre righe delle task) e si rimandano com'erano
+    *(S, se servono due righe in più)*. *Decisa NO dal maintainer il 24 nov
+    2026 (lotto 9): restano non modificabili nell'app.*;
+  - ~~«Load more» del registro e «Undid…» (area 10a, F7): la data della riga
+    porta alla voce annullata solo se è fra le pagine già lette *(S, da
+    rivedere con F7)*.~~ Chiusa il 23 nov 2026 (rimandi, lotto 2): la data
+    legge le pagine dopo finché trova la voce; lette tutte, dice «That change
+    isn't in the log anymore.» (`JournalList` di `ChangeLogPage.tsx`, prototipo
+    e app).
+  - Progetto → Settings → Integration (F5): ~~il server non manda la
+    piattaforma dei webhook git (`gitWebhooks[].provider`)~~ *(parte server
+    chiusa il 24 nov 2026, 72, lotto 5: `gitWebhooks[].provider`)*, quindi nell'app
+    il dialogo del segreto dice «la piattaforma git» e non «GitHub» o
+    «Bitbucket»; lo stato è solo configurato/non configurato (niente
+    `failed`) *(S)*;
+  - ~~Integration: il segreto del webhook si rigenera per slug, che
+    l'adattatore ricorda dall'ultima lettura della pagina (la rigenerazione
+    passa solo l'id del repository) *(S, se il server accetta l'id)*.~~
+    *Parte server chiusa il 24 nov 2026 (72, lotto 5)*:
+    `POST /api/repositories/:slug/webhook-secret` accetta anche l'id del
+    repository, con le stesse regole.
+  - ~~Progetto → Settings → Plugins (F5): la semantica è da decidere.~~
+    **Chiuso (19 nov 2026, decisione del maintainer): opt-in**, come il
+    server. Prototipo e app hanno la casella «acceso per questo progetto»
+    per plugin; dentro un plugin acceso, skill e hook per sottrazione. Dalla
+    review di F5 (M3/M4) anche il prototipo nomina i plugin per **slug**,
+    come il server (scelte salvate, bozza, salvataggio, registro delle
+    modifiche); il `name` del manifest resta per il preset e per il
+    namespace di «/»;
+  - Plugins: il plugin base non c'è (sta fuori dal registro del server, nel
+    prototipo viene dal seme); ~~le skill non hanno descrizione e i gruppi di
+    hook non hanno comando (il registro del progetto non li manda) *(S)*;~~
+    *parte server chiusa il 24 nov 2026 (72, lotto 5)*: `skillDescriptions`
+    a tutti, `hookCommands` SOLO a chi può salvare (`canEdit`, decisione di
+    46: il comando è il codice che l'hook esegue; chi legge vede i nomi dei
+    gruppi; il prototipo va allineato, oggi li mostra a chiunque legga);
+  - ~~Plugins: la lettura è sotto `project.settings.manage`.~~ **Chiuso
+    (review di F5)**: la GET risponde a chi vede il progetto, con `canEdit`
+    del server (72, f480e527b); la pagina è in sola lettura per gli altri.
+  - ~~Archivio (F6): nell'app una voce del registro di un progetto
+    archiviato non porta a `/archived/<CODE>` come nel prototipo.~~
+    **Chiuso (72, Task 7)**: ogni voce ha `projectArchived`, derivato dal
+    server a lettura; la voce sul progetto porta alla sua pagina, le altre
+    di Settings non hanno link, un membro si apre come persona;
+  - Archivio (F6): archiviare, riaprire ed eliminare dal riquadro di Claude
+    (le azioni del catalogo dell'area 10) arrivano con F7. **Archiviare e
+    riaprire arrivate (F7, Task 3)**; eliminare resta a mano (la rotta è
+    solo dei full admin, col codice scritto: nessuna voce);
+  - Permessi dei reparti, i Minor della review di F8 *(S ciascuno)*:
+    - ~~la riconferma del `PATCH` si decide sul salvato letto FUORI dalla
+      transazione. Un `memberIds` intero mandato da una bozza vecchia, senza
+      `ifMatch`, può rimettere una persona tolta nel frattempo senza
+      riconferma. Con `ifMatch` è un 409 `stale`. Va ricalcolata dentro la
+      transazione (`reauth_required`);~~ *Chiusa il 23 nov 2026 (72)*: il
+      giudizio si rifà sul salvato bloccato; se ora serve e fuori non era
+      servita, la transazione si annulla, risponde `requireReauth` (la stessa
+      regola) e, se la riconferma c'è, si riscrive. Test della corsa in
+      `department-reauth-race.test.ts`;
+    - ~~il 403 `escalation` di chi entra in un progetto porta solo
+      `permission`, non `missing` (il `PATCH` del reparto sì);~~ *Chiusa il
+      23 nov 2026 (72, lotto 4)*: `assertNoEscalation` porta sempre anche
+      `missing` (tutto ciò che manca), su ogni rotta che la usa;
+    - il costo sul ripiego (tutti): togliere un suo permesso blocca e conta i
+      gestori di quasi ogni progetto. ~~`judgeDepartmentDraft` filtra le
+      appartenenze per ogni utente (serve una `Map`). `whoCan` legge i
+      reparti di tutte le persone visibili, non dei soli membri;~~ *le due
+      letture chiuse il 23 nov 2026 (72, lotto 4)*: una `Map` per persona in
+      `judgeDepartmentDraft`; `whoCan` legge i reparti dei soli membri e
+      raggruppa per persona. Resta il blocco dei gestori sul ripiego;
+    - ~~all'invito (`assertInviteGrants`, alla creazione) nessuno dice che il
+      ripiego porterà i suoi permessi: lo scarto avviene all'accettazione;~~
+      *Chiusa il 23 nov 2026 (72, lotto 4)*: la creazione dell'invito risponde
+      `warnings` (`department_permissions_dropped`, coi `missing` per
+      progetto), con la regola dell'accettazione sui permessi di adesso. Non è
+      un rifiuto: il ripiego può cambiare prima dell'accettazione;
+  - Azioni di Claude (review di F7): **`saveStorage`** non ha una voce.
+    Endpoint e bucket decidono DOVE vanno e da dove si servono gli allegati,
+    col secret salvato che resta in uso: è la ragione per cui l'url di un
+    webhook è fuori dagli argomenti di `updateWebhook`. In più la lettura di
+    Claude non mostra la chiave d'accesso, e gli argomenti obbligatori
+    l'avrebbero azzerata. Se servirà: una C, o una patch senza endpoint e
+    bucket *(S, da decidere)*; ~~(la voce)~~ *chiusa il 24 nov 2026 (72,
+    lotto 10, voce 1; decisione del maintainer)*: `saveStorage` è una PATCH
+    (un campo assente resta: la chiave d'accesso non si azzera), mai col
+    segreto (lo schema stretto lo rifiuta); classe B, e la riconferma la
+    chiede il server PER CAMPO (`reauthOf`) solo se cambiano endpoint o
+    bucket, nella vista, alla conferma e nell'«Annulla». Non esiste un campo
+    «prefisso» dell'archiviazione: il lato B è regione e chiave d'accesso.
+    Limite: l'«Annulla» di un campo che prima era vuoto non lo rimette vuoto.;
+  - ~~Azioni di Claude, i Minor della review di F7 *(S ciascuno)*:
+    - `changed_after` dei tipi `member`/`project`/`setting` legge il
+      registro senza un lock: un salvataggio a mano che fa commit fra la
+      guardia di «Annulla» e l'inverso viene sovrascritto. Va bloccata la
+      riga (progetto, membro, `instance_settings`) nella guardia;
+    - lo `stamp` è `now()` della transazione, cioè il suo INIZIO: una
+      scrittura a mano iniziata prima ma con commit dopo ha `at` minore e
+      «Annulla» non la vede. `now()::text` dipende anche da `DateStyle`
+      (oggi ISO);
+    - `updateProjectGeneral` ha i massimi (200/2000) che la rotta non ha:
+      l'inverso di un nome o una descrizione più lunghi non passa lo schema,
+      e quell'«Annulla» finisce `invalid`;
+    - un riordino a mano via `PATCH /api/ai-providers/:id { position }` non
+      scrive `provider.reordered`, quindi l'«Annulla» di `moveProvider` non
+      lo vede;~~
+    *Chiuse il 23 nov 2026 (72)*, test in
+    `claude-actions-undo-minors.test.ts`:
+    - la guardia blocca FOR UPDATE le righe degli oggetti giudicati dal
+      registro (`lockLoggedSubjects` in `undo.ts`: progetto, membro,
+      `instance_settings` e la riga dell'impostazione) prima di leggerlo;
+    - `recordChange` scrive `at = clock_timestamp()` (l'istante
+      dell'inserimento) e lo `stamp` è il `clock_timestamp()` a fine
+      scrittura, in ISO UTC scritto a mano (niente `DateStyle`); le voci
+      delle altre azioni dello stesso gruppo non contano
+      (`via_claude_action_id`). Le voci di una stessa transazione non hanno
+      più lo stesso `at`: l'ordine del registro è quello d'inserimento;
+    - `updateProjectGeneral` senza massimi, come la rotta;
+    - `patchProvider` con `position` scrive `provider.reordered` (stessa
+      forma di `reorderProviders`) se l'ordine cambia;
+  - Azioni di Claude (F7, Task 4): **`setAttachments`** non ha una voce,
+    perché sul server gli allegati non hanno un interruttore: ~~si accendono
+    da soli con l'archiviazione configurata e valida (`attachmentsEnabled` è
+    derivato). Serve prima un interruttore d'istanza sul server *(S)*;~~
+    *l'interruttore c'è dal 24 nov 2026 (72, lotto 6, 0228)*:
+    `PUT /api/settings/instance/attachments`, `attachmentsSwitch` nella
+    vista; spento, le scritture dello storage rifiutano; *la voce
+    `setAttachments({ on })` (B, l'inverso col valore di prima) c'è dal 24
+    nov 2026 (72, lotto 6)*;
+  - ~~Azioni di Claude (F7, Task 4): **`setDefaultReviewer`** non ha una voce:
+    il `PUT /api/git-accounts/:id/default-reviewer` verifica il token
+    chiamando il provider (account, scope, identità), e dentro il catalogo
+    lo farebbe a ogni prova a secco di una proposta, nella transazione. Va
+    separata la verifica (fuori dalla transazione, una volta, alla conferma)
+    dalla scrittura *(M)*. Togliere il predefinito (`DELETE`) da solo
+    sarebbe facile, ma senza il suo inverso non si annulla;~~ *Chiusa il 24
+    nov 2026 (72, lotto 6)*: verifica (`default-reviewer-verify.ts`, solo
+    letture) e scrittura (`default-reviewer-write.ts`, solo DB, con le
+    guardie) separate; la voce `setDefaultReviewer({ id, on })` (B,
+    l'inverso del prototipo) verifica nel preflight, la seconda uscita
+    sanzionata del catalogo (`preflight.ts`, invariante in
+    `docs/invariants/agent-sessions.md`);
+
+- **Divergenza prototipo/server sugli inviti** (24 nov 2026, 94 su
+  richiesta di 46): il server mette chi accetta un invito nel **reparto di
+  ripiego** (`departments.isDefault`, trigger della 0109), e
+  l'accettazione scarta i progetti dove chi ha invitato non ha i permessi di
+  progetto di quel reparto (`applyInviteGrants`). Alla creazione lo dice
+  già con `warnings` (`department_permissions_dropped`, `missing` per
+  progetto, `inviteDepartmentWarnings`). Il prototipo invece **non ha il
+  reparto di ripiego**: chi si registra con un invito nasce con
+  `departmentIds: []` (`data/auth/register.ts`), quindi `createInvite`
+  risponde sempre `warnings: []`. La riga dell'avviso accanto al link
+  (`InviteWarnings` in `pages/admin/InviteDialog.tsx`) la mostrano le due
+  build, ma nel prototipo non compare mai. Chi rifà gli inviti (o
+  l'accettazione) nel prototipo porti lì il reparto di ripiego e la regola
+  dello scarto, poi tolga questa voce *(M)*.
+
+## Area 10 — Integrazione di Claude
+
+- Le citazioni di file del repository (`kind file`, `<repo>:<path>`, visibili
+  con `repos.view`, senza destinazione) (area 5, D6 = a): arrivano con un tool
+  di Claude che legge il codice; oggi niente le produce.
+
+- ~~Le task eliminate nella cronologia del progetto *(S)*: il server non ha una
+  cronologia di progetto che le nomini (la storia della task se ne va con
+  lei); lo standup e la richiesta d'origine sì. (Elimina task: chiusa, sotto.)~~
+  *Parte server chiusa il 24 nov 2026 (72, lotto 4)*: la cronologia e
+  l'attività del portafoglio portano `task_deleted` da `deleted_tickets`
+  (codice e titolo di allora, `byId`/`byName`, `viaClaude`). L'evento a
+  chiunque veda il progetto (46, 24 nov 2026, come il prototipo); codice e
+  titolo solo con `tickets.view_all` o a chi l'ha eliminata, null agli altri
+  («A task was deleted»); chi ha
+  eliminato è mascherato a chi non lo conosce (r.1414). Resta al renderer la
+  mappa nell'adattatore (`backend/real/overview.ts`, oggi le scarta).
+
+- **Chiuse con F2 (19 nov 2026)**: Claude fa domande a scelta anche nella
+  conversazione libera (`ask_question`, una per risposta,
+  `GET/POST /api/claude/conversations/:id/questions…`); le bozze di
+  automazione nel catalogo (`createAutomation`, `saveAutomationDraft`,
+  `deleteAutomationDraft`), mai accese da Claude.
+- ~~Gli esempi scritti da Claude nella prova di S1 (F2, decisione 2a di 46,
+  19 nov 2026): nel prototipo, se il progetto non ha un evento che passa (o
+  che non passa) il filtro dell'inizio, Claude ne scrive uno («Example
+  written by Claude», `pickTrialExamples`/`writtenEvent`). Nell'app la prova
+  usa solo gli esempi veri del server (il più recente che passa e, con un
+  filtro, il più recente che non passa); senza, la riga dice «Nothing to try
+  it on yet». Nel prototipo non manca niente: è l'app che resta indietro.~~
+  *Parte server chiusa il 24 nov 2026 (72, lotto 6)*: la regola è
+  `writtenTrialEvent` in `@stubwise/shared` (pura, DETERMINISTICA, mai un
+  modello: «written by Claude» è solo l'etichetta, e il docblock lo dice), e
+  `GET /api/automations/:code/examples` porta `written: { passes, fails }`
+  (opzionale; `passes` solo senza un esempio vero, `fails` solo con un
+  filtro, `null` dove la regola non sa scriverlo). Resta a 94 l'uso nella
+  prova dell'app (e, se vuole, il prototipo che importa la regola condivisa
+  al posto della sua copia).
+
+- **Chiuse con F3 (20 nov 2026)**: Claude legge il lavoro fermo (con le
+  soglie dei progetti, la regola della lista delle task) e la spesa del mese
+  (coi permessi del server, D-13 = a), con «Hypothesis» e «Details» sotto la
+  risposta (evento `aside`).
+
+- **Chiusa con F4 (20 nov 2026)**: archiviare in blocco — Claude legge i
+  candidati (`GET /api/projects/archive-candidates`) e propone solo quelli;
+  gli occupati e i non gestibili li nomina in prosa (D-9 = a).
+
+- **Chiusa con F5 (20 nov 2026)**: `member.added` — la card a chi entra in un
+  progetto e a chi ne gestisce i membri (D-11 = b), mai a chi ha agito, con
+  «Undone by» derivato dal registro.
+
+- **Chiuse con F6 (20 nov 2026)**: le bozze di Claude nei campi
+  (`fillField`): la descrizione di una task e le note di rilascio di una PR
+  (F6-1 = a, con `read_pull_request_notes`), eseguite dal renderer e salvate
+  dalla persona. Renderer (94): la bozza è l'evento `draft` del prototipo;
+  nella build app il suo esito vive solo nella finestra (come le azioni
+  della pagina), quindi una bozza letta alla prima occhiata non entra da
+  sola nemmeno a campo aperto e aspetta «Put it in the field».
+
+- **Chiuse con F7 (20 nov 2026)**: S0 (le capacità di Claude per chi chiede,
+  dai permessi veri, evento `capabilities` scritto dal worker) e le righe
+  «Claude can help you…» (`claude-suggestions`, quattro pagine: PR,
+  Automations, Overview, Usage) col «Not now» per persona e per oggetto.
+  Renderer (94): `claude-suggestions` acceso; la riga è quella del server,
+  senza `can()`; nella build app «Not now» va solo al server (niente
+  `localStorage`, che resta del prototipo). La lista delle capacità è quella
+  del prototipo, con gli id ignoti saltati.
+- ~~Le capacità della doc di prodotto (`productFirstVersion`, `productUpdate`,
+  `productBacklog`, `productWireframe`, `productChanges`) arrivano con
+  l'area 11 (F7-1 = a, maintainer): il server non le manda, il renderer salta
+  ciò che non riceve.~~ Chiusa da b869a902c (area 11, F6 Task 4: il server
+  le manda da `services/claude-capabilities.ts`; 23 nov 2026, verificata nel codice).
+- La riga «write the reply» sulla conversazione di supporto resta fuori
+  (premessa del maintainer del 14 nov 2026).
+
+- **Chiuse con F8 (20 nov 2026)**: «/status» (seguiti, polso senza il suo
+  fermo, task ferme con le soglie dei progetti) e «/today» (le decisioni che
+  aspettano chi scrive e le sue task aperte, `assigneeIds=me`). Restano
+  aperti, come dice il design: ~~le citazioni registrate sui messaggi della
+  conversazione~~ (chiuse il 24 nov 2026, lotto 9, voce 1; restano fuori
+  quelle di file, area 5 D6, sopra) e gli allegati (`claude-attachments`).
+
+## Area 11 — Documentazione di prodotto
+
+- **Chiusa con F1 (20 nov 2026)**: lo spazio Product e l'editor (pagine,
+  albero, scrittura a operazioni, cronologia in lettura, Segui, immagini).
+- ~~**Il modulo Docs spento non chiude le rotte** *(S, buco di prima, F1 e 46,
+  20 nov 2026)*: con `projects.modules` senza `docs` la sezione sparisce
+  dall'interfaccia, ma le rotte dei Docs E dello spazio Product rispondono
+  ancora a chi ha `docs.view`/`docs.edit` (il server non legge i moduli).
+  Da chiudere per tutti e due insieme, con un controllo nel resolver di
+  progetto delle rotte `docs.*`.~~
+  *Chiusa il 23 nov 2026 (72).* `moduleOfPermission` (`auth/access.ts`): un
+  permesso `docs.*` vuole il modulo `docs`. `evaluateProjectAccess` risponde
+  404 `not_found` col modulo spento, come per un progetto invisibile, anche a
+  un full admin (vale per le rotte e per le azioni di Claude, che passano di
+  lì); `projectIdsWithPermission` toglie quei progetti dagli elenchi
+  d'istanza (hub dei Docs, cambi della doc, codici, domande aperte, ricerca);
+  la pagina per codice (rotta `user`) fa lo stesso controllo. Restano fuori
+  il worker e `@stubwise/notifications`: un lavoro della coda della doc già
+  accodato e i destinatari dei suoi avvisi non guardano il modulo (nessuna
+  rotta li fa partire col modulo spento).
+- ~~L'«Undo» di una revisione dalla cronologia: nel prototipo c'è solo per le
+  modifiche di Claude, quindi arriva con F5. *(Review di F2)*: quel ripristino
+  rimette blocchi tolti come il ⌘Z, e deve chiamare `restoreMergedAnchors`
+  (`services/product-comments.ts`) come fa già `saveProductBlocks` con
+  `undoOf`, o i fili spostati da un `merge` restano sul blocco che l'aveva
+  assorbito.~~
+  *Chiusa il 23 nov 2026 (72, con 46): non serve.* L'«Undo» arrivato con F5
+  e F6 (`writeUndo` in `services/product-claude.ts`) NON rimette blocchi
+  tolti: Claude scrive solo `insert` e `set`, e i suoi inversi sono solo
+  `delete` (un blocco che Claude aveva aggiunto) e `set` (un blocco che c'è
+  ancora: `restoreOp` dà null se il blocco non c'è più). Un filo spostato da
+  un `merge` ha `original_anchor_id` su un blocco ASSORBITO, cioè sparito, e
+  un `merge` dopo la revisione di Claude la blocca comunque
+  (`changed_after`). Se un giorno un inverso rimetterà un blocco tolto, la
+  chiamata va aggiunta lì.
+- **Gli id di chi ha scritto escono anche quando il nome è nascosto**
+  *(S, review di F2, F1 e F2 insieme)*: con R-G5 il NOME di una persona che
+  chi guarda non vede è null, ma il suo id no: `actorId` delle revisioni (F1),
+  `authorId` e `resolved.byId` dei commenti, `productDoc.authorId` della card
+  (F2). Coerente con il resto dell'app, dove gli id non sono un segreto; da
+  rivedere insieme se R-G5 deve coprire anche gli id.
+  **Decisione del maintainer (23 nov 2026)**: chi non vede una persona o un
+  progetto non ne riceve nemmeno l'id: al suo posto un segnaposto opaco
+  (`hidden-<n>`, stabile nella stessa risposta). Disattivati ed ex membri dei
+  progetti visibili restano visibili («Nome (deactivated)»); la directory
+  admin resta fuori. Il predicato è `peopleKnownTo` (prototipo,
+  `domain/access/whoCan.ts`), con gli ex membri in `formerMemberships`.
+  Seconda decisione (23 nov 2026): «chi scrive in un canale che vedo è
+  conosciuto» (membri e autori dei canali leggibili, `knownPeopleFor`).
+  In corso a lotti (rimandi, lotto 2), nel prototipo: fatti le due fughe di
+  NOME (`actorName` delle revisioni della doc e del registro), l'elenco
+  delle persone solo coi conosciuti, e il segnaposto (`personMasker`,
+  `data/access/hidden.ts`) in Chat, commenti e revisioni della doc,
+  registro delle modifiche e inbox. Restano, a lotti: tasks, attività,
+  decisioni, richieste, filtri, conversazioni con Claude, automazioni,
+  server, rilasci, supporto, calendario, posta, Drive, admin (inventario del
+  23 nov 2026), e i `params` con nomi congelati del registro. Lato server
+  (72): la proposta in `docs/invariants/permissions.md`.
+- ~~Origine di una richiesta dalla documentazione di prodotto. *(F5, 72)*: c'è
+  quella di una DOMANDA di Claude (`origin.product_doc` con `questionId`
+  obbligatorio, su `POST /api/requests` e sulla voce `createRequest` del
+  catalogo); in F6 la proposta dalla pagina senza domanda (`questionId`
+  opzionale, e il «già proposta» su pagina e ancora del prototipo, che vuole
+  l'origine salvata sulla richiesta).~~ Chiusa da a2e2bd051 (area 11, F6
+  Task 1: `questionId` opzionale in `schemas/project-request.ts`; 23 nov 2026, verificata nel codice).
+- ~~**`waited` sulla card `product_doc.updated`** *(XS, F5, 72)*: il prototipo
+  dice se la card arriva dopo un'attesa della coda (budget o pausa). Sul
+  server non si può derivare: ripreso il lavoro, la riga di
+  `product_doc_jobs` torna `queued` e perde il motivo (il CHECK lega
+  `held_reason` allo stato `held`). Il campo c'è ed è sempre null; serve una
+  colonna (`last_held_reason`) scritta alla ripresa e passata allo scrittore.~~
+  *Chiusa il 22 nov 2026 (72).* La colonna c'era già (0213) e resta fino alla
+  fine del lavoro. Il worker la passa allo scrittore, che la mette
+  NELL'EVENTO della card: a lavoro finito si azzera, quindi a lettura non
+  si ricostruisce. Le card di prima restano a null. Budget e pausa restano
+  fino alla fine del lavoro: un limite o una sezione presa dopo non li
+  cancellano (revisione del 22 nov, M3). Fra budget e pausa vale l'ultima.
+  Anche «una card per pagina con più fonti dopo un rilascio della coda» del
+  prototipo non c'è: una card per fonte e pagina.
+- ~~Le cinque capacità `product*` di Claude in S0 (dall'area 10, F7-1 = a).~~
+  Chiusa da b869a902c (23 nov 2026, verificata nel codice).
+- ~~Azioni di Claude dell'area 11.~~ Chiusa da b869a902c (le voci sul server)
+  e 51122c993 (`product-claude-actions` acceso nella build app; 23 nov 2026, verificata nel codice).
+- *Prototipo riallineato (94, 20 nov 2026), prima dell'integrazione*: le
+  notifiche della doc nel catalogo con N-1 = a (`product_doc.mention` solo
+  obbligatoria, motivo `mentioned`; `.updated` e `.question` con la riga del
+  progetto, iscrizione `docs.view`, accesa di partenza per chi ha
+  `docs.edit`, e il motivo `follower` per chi segue la pagina; tolto il
+  concetto `addressed`). I due motivi stanno nel prototipo finché F2 di 72
+  non li porta nel catalogo condiviso. F6-1 = a: «Write the first version» e
+  «Draw this screen» sono B col motivo `startsWork`.
+- *Renderer di F1, R11-1 (94, 20 nov 2026)*: lo spazio (`product-space`) e
+  la card Product della Home dei Docs sono accesi. Le fette dopo leggono
+  solo con la loro funzione (`PRODUCT_LATER` in `data/queries/productDocs.ts`):
+  `product-comments` (F2: fili, segni, «Comment», «@»), `product-search` e
+  `product-export` (F3: «Search ⌘K» e Export, nella barra e nel «⋯»),
+  `product-live` (F4: presenza, ingresso, l'iscrizione alla pagina),
+  `product-docs` (F5–F6: segni e domande di Claude, prima versione, attese,
+  dalla doc al backlog, «Screen sketch», le voci di Claude del «⋯» e del
+  titolo). Restano da fare dopo:
+  - ~~**«Replace with an image» della bozza di schermata** *(S, F6)*~~
+    *(chiusa, 94, 21 nov 2026)*: il file passa da `storeProductImage` come
+    gli altri blocchi immagine (nella build app `product-image:<id>`, quello
+    che `POST …/wireframes/:blockId/replace-image` vuole); un caricamento
+    rifiutato dal server è la frase sotto il blocco, e la bozza resta.
+  - **L'immagine sul desktop resta in cache per la sessione** *(XS,
+    accettato da 46)*: letta una volta (`staleTime: Infinity`, l'immagine di
+    un id non cambia). Il server dice `no-cache` per rivalidare chi la può
+    vedere: sul desktop una visibilità tolta si vede alla rilettura della
+    pagina, non dell'immagine.
+  - ~~**Un commento doppio dopo un errore di rete** *(XS, review di R11-2, 7)*:
+    `POST /api/product-pages/:id/comments` non ha una chiave del client; se
+    il commento è salvato ma la risposta si perde, «Retry» ne scrive un
+    secondo. Si chiude con una chiave idempotente sulla rotta (72).~~
+    *Chiusa lato server il 22 nov 2026 (72, 0218).* `clientId` (uuid,
+    opzionale) nel body: stessa chiave e stesso autore danno lo stesso
+    commento, anche se intanto il blocco è stato tolto, e senza una seconda
+    menzione. *Chiusa nel renderer il 22 nov 2026 (94)*: la casella genera
+    la chiave al primo invio di un testo, la rimanda identica nel «Retry»
+    dello stesso testo e la lascia quando il commento è scritto (lo stesso
+    testo dopo è un commento nuovo); il prototipo la tratta come il server.
+  - **Una scrittura della pagina che fallisce dopo lo smontaggio** *(S,
+    accettato da 46, revisione di R11-6, 22 nov 2026)*: una pagina che si
+    smonta senza passare da «Some changes aren't saved yet» (una rilettura
+    in errore) manda le bozze e la fila; se una di quelle scritture è
+    rifiutata o fallisce, non c'è più nessun riquadro né «Retry» a dirlo, e
+    il testo si perde.
+  - **Una sessione smontata con la fila piena e una nuova sulla stessa
+    pagina** *(S, accettato da 46, stessa revisione)*: nel prototipo, per
+    meno di un secondo, le scritture della sessione smontata possono
+    arrivare dopo quelle della nuova e coprirle.
+- *Revisione di R11-1 (46, 20 nov 2026), chiuse*: le immagini (la rotta dà
+  i byte, 72 69b09a99d: sul web `<img src>` sulla rotta, sul desktop i byte
+  da `api:request` come data URL); la cronologia a pagine di 100 con
+  «Show older» (`useInfiniteQuery`); la card della Home che non nasconde
+  più un errore diverso da 403/404; il motivo dell'eliminazione spenta dal
+  server (`deleteBlockedBy`, M1).
+
+## Trasversali
+
+- **`affectedCount` dei ruoli conta anche chi chi guarda non vede** *(S,
+  accettato, review di F1, 18 nov 2026)*: in `GET /api/admin/roles` è un
+  NUMERO («salvare cambia ciò che possono fare N persone»), non nomina
+  nessuno, e serve proprio perché la modifica tocca anche progetti che chi
+  guarda non vede; `holders` resta coi soli visibili. È il comportamento del
+  prototipo (`RoleView.affectedCount`).
+- **Il token degli inviti in chiaro in `GET /api/auth/invites`** *(S, 94 e
+  72, 16 nov 2026)*: il token è il segreto della registrazione, ma quella
+  rotta lo dà a chiunque abbia `users.invite` (lo usa la pagina Team del web
+  vecchio per revocare e copiare il link), e sul server è la chiave primaria
+  in chiaro di `invites`. Le viste nuove (`/api/admin/invites`, People) usano
+  un id OPACO (`i_` + sha256) e revocano con quello. Da togliere col ritiro
+  del web vecchio: la rotta, e il token salvato come hash come i link di reset.
+- **Il webhook non riceve più le proposte della posta** *(S, 46, area 9 F3,
+  18 nov 2026)*: il catalogo dei 21 eventi del prototipo esclude la posta, e
+  la 0188 scarta `notify_google_proposal` migrando il webhook di oggi. Dove
+  era acceso, dopo il deploy il webhook smette di mandarle, in silenzio (la
+  voce di deploy-log lo dice, con la query di controllo). Da rimettere solo
+  se qualcuno lo chiede: un evento `google.proposal` nel catalogo, nel CHECK
+  della tabella e nella mappa dei kind.
+- **Un webhook in uscita può puntare alla rete interna (SSRF), limite
+  accettato** *(S, 46, area 9 F3, 18 nov 2026)*: l'URL deve essere https, ma
+  nessun controllo rifiuta un host interno (`localhost`, `10.x`,
+  `169.254.169.254`…). Chi ha `integrations.manage` può quindi far chiamare
+  al worker (consegne) e al server (prova) un indirizzo della rete interna.
+  È come oggi col webhook unico, e su un'istanza self-hosted può essere
+  legittimo (un servizio interno che riceve gli eventi). Opzione futura:
+  rifiutare IP privati e link-local, risolti al momento dell'invio e non solo
+  alla creazione (sennò un DNS che cambia li aggira), dietro un interruttore
+  d'istanza per chi li vuole.
+- **I segreti Slack non lasciano voce nel registro** *(S, review di F3, 18
+  nov 2026)*: sostituirli o azzerarli con `PUT /api/settings/instance` chiede
+  la riconferma ma non scrive nessuna voce (il registro della 9b non ha un
+  tipo per Slack, che esce dall'app nuova). Si chiude col ritiro di Slack dal
+  server (la voce «Togliere Slack dal server»), non con un tipo nuovo.
+- ~~**Una consegna già in coda parte anche se il webhook ha tolto l'evento**
+  *(S, review di F3, 18 nov 2026)*: il poller controlla solo che il webhook
+  esista e sia acceso, non che abbia ancora scelto l'evento. Il danno è un
+  invio residuo, quello già accodato. Da chiudere se qualcuno se ne lamenta:
+  ricontrollare `events` al momento dell'invio e chiudere `skipped`.~~
+  *Chiusa il 24 nov 2026 (72, lotto 4)*: al momento dell'invio il poller
+  rilegge gli eventi del webhook (`webhookWantsKind`, la stessa regola di
+  `webhookIdsForKind`) e chiude `skipped` con `event_not_selected`.
+- **Togliere Slack dal server** *(M, maintainer via 46, 16 nov 2026)*: Slack
+  è fuori dall'app nuova e va tolto dal server, INSIEME al ritiro del web
+  vecchio: rotte `/api/slack/*` e `/slack/*`, collegamento delle identità
+  (`PUT /api/users/:id/slack`, che dalla review di F1 chiede `users.manage`
+  sul collegamento di un altro), `resolveSlackActor`, i DM dell'inbox del
+  worker, `slack_user_id`/`slack_avatar_url`, le preferenze DM. Con la
+  migrazione che toglie le colonne in un rilascio successivo, come per
+  `users.role`.
+
+- ~~**Gli `idx` del journal di drizzle sono sfasati da 0158 in poi** *(S,
+  72, 13 nov 2026)*: in `packages/db/drizzle/meta/_journal.json` manca la
+  voce di indice 157 (la 0157 dell'area 6, F3b, rinumerata), quindi da
+  `0158_mail_attachment_orphans` ogni voce ha `idx` = posizione + 1. Il
+  migratore non ordina per `idx` (legge le voci nell'ordine e i `when`
+  crescenti), quindi oggi non rompe niente; visto unendo l'area 6 nella F1
+  dell'area 7. Da riallineare in un rilascio a sé, mai insieme a una
+  migrazione nuova, controllando che `drizzle-kit` non lo usi.~~ *Chiusa il
+  24 nov 2026 (72, lotto 6) SENZA riallineare*: il controllo su
+  `drizzle-kit` dice l'opposto. Il migratore di drizzle-orm non legge `idx`
+  (solo `tag`, `breakpoints`, `when`; le istanze già migrate confrontano
+  `when`), ma `drizzle-kit generate` numera la prossima `idx + 1`
+  dell'ultima voce e ne fa il prefisso del file: oggi `idx` = numero del tag
+  (anche 0171 manca), e la prossima generata sarebbe `0229_…`, giusta;
+  riallinearlo alla posizione la farebbe nascere `0227_…`, che esiste già.
+  La regola giusta è quindi `idx` = numero del tag, ed è ora fissata da un
+  test (`packages/db/src/migrations-journal.test.ts`: `idx` = tag, `when`
+  crescente, un file per voce e una voce per file).
+
+- **`apps/server/src/slack/routes.test.ts` da stabilizzare** *(O, 46, 13 nov
+  2026)*: instabile già da prima della F5a. Tre test di `block_actions`
+  dell'inbox (`inbox:answer:all`, e «firma non valida → 401») falliscono a
+  intermittenza: la spia di `postResponse` riceve la risposta asincrona
+  («Notification not found.») di un test PRECEDENTE. Un giro rosso su quattro
+  da solo, e nel giro completo del server il 13 nov 2026; poi verde.
+- ~~Due test a tempo del worker sotto carico *(S, 13 nov 2026)*:
+  `graph/poller.test.ts` («non sovrappone i tick») e `pipeline/fix.test.ts`
+  (l'heartbeat durante un run lento) cadono nel giro completo con la macchina
+  carica, verdi da soli.~~ *Chiusa il 24 nov 2026 (72, lotto 6)*, con un terzo
+  trovato da 46 nel giro completo (`google/poller.test.ts`, i due «riaccese»):
+  - i tick del poller li fa scattare il test (`setInterval` finto, DB vero), e
+    il primo claim si ASPETTA (`vi.waitFor`); l'unica attesa rimasta può solo
+    far vedere il difetto, mai far fallire un poller corretto;
+  - il run del fix resta aperto a un cancello; `lastActivityAt` si riporta
+    indietro una volta che il run è fermo (da lì lo muove solo l'heartbeat) e
+    il battito si aspetta — prima la mutazione «niente heartbeat» passava,
+    perché lo toccavano anche le scritture del log;
+  - i due «riaccese» prendevano il taglio dall'orologio del test e il
+    `created_at` dall'orologio del DB: col container indietro, la posta
+    «dopo» finiva «prima». Il taglio ora è `now()` del DB (con 5 s di scarto
+    simulato i due casi cadono, col DB no).
+- **Test lenti del desktop sotto carico — STABILIZZATI** *(O, 46, 13 nov
+  2026, `fix/desktop-flaky`)*. Le cause, nessun timeout alzato e nessuna
+  asserzione tolta:
+  - **`resetApi` costava ~170 ms, a ogni test del desktop**:
+    `pluginChoicesOf` (`data/projectSettings/seed.ts`) rifaceva l'intero
+    stato d'istanza, compresi i consumi di 90 giorni, per OGNI progetto, solo
+    per leggere l'inventario di `superpowers`. Ora si legge una volta per
+    seme e il reset scende a ~12 ms. È questo che pesava sul test di volume
+    del Drive (500 file, 21 s nel giro): da solo 1,2 s.
+  - `data/seed.test.ts` «metriche: 90 giorni»: un `expect` per campione,
+    su ~28 000 campioni per server. Gli stessi controlli ora raccolgono le
+    violazioni e le confrontano con `[]` una volta per proprietà: da 7 s a
+    0,5 s (mutazioni sul passo e sui limiti prese).
+  - `FirstVersion.test.tsx` «l'annuncio dice ogni pagina scritta»:
+    aspettava con l'orologio vero uno stato intermedio (la prima pagina
+    scritta), che sotto carico era già passato. Ora lo stream lo muove il
+    test con i timer finti; una mutazione sull'annuncio viene presa.
+  - Verifica: i tre test 5 volte di fila insieme a una suite parallela del
+    desktop, tutti verdi.
+  - Web, `apps/web/src/routes/projects/projects.test.tsx` «admin: salvataggio
+    del provider invia il PATCH al gruppo» (`Value "p-claude" not found in
+    options`, rosso 2 volte su 3 anche da solo e su main): selezionava prima
+    che `/api/ai-providers` riempisse le opzioni. Ora aspetta l'opzione: 6
+    giri su 6 verdi.
+- **Ritiro del web vecchio** e passaggio di `/app` alla radice (decisione aperta
+  del design della fetta 1); con il ritiro: togliere `tickets.status` enum,
+  `saved_views`, `/api/projects/pulse` se nessuno lo legge più.
+- `downloadUrl` nelle liste degli allegati dei ticket *(S, 11 nov 2026, review
+  della fetta 4)*: `GET /api/tickets/:id/attachments` dà già l'URL firmato, che
+  così arriva al renderer. Da togliere quando i ticket scaricano solo da
+  `api:download` (il proxy toglie già il `Location` dei percorsi di download).
+- ~~**MCP** (`@stubwise/mcp`): imparare stati per progetto, reparti, taglie, codici
+  R<n>, Home e filtri.~~ *Chiusa il 24 nov 2026 (72, lotto 7, voce 4)*:
+  `list_task_fields`, `list_tasks` (stati e reparti per nome, famiglie,
+  taglie, assegnatario, testo, ferme; dice quando è troncata) e
+  `get_by_code` (`ACQ-12` e `ACQ-R3`), sopra le rotte della nuova app, con
+  il changeset. **Accettato, senza lavoro: la «Home» nell'MCP** — è una
+  nozione d'interfaccia (i blocchi della pagina di chi guarda); la parte che
+  serve a chi lavora da Claude Code c'è già (`my_requests`, `list_proposals`,
+  `list_tasks` con `assignee: "me"`).
+- ~~Elenchi oltre le 2000 righe (oggi troncati e dichiarati); una rotta aggregata
+  per il polso del portafoglio.~~ *Chiusa il 24 nov 2026 (72, lotto 7, voce
+  4)*: `GET /api/projects/pulses` calcola il polso sul server con le
+  funzioni delle rotte che il renderer combinava (task aperte e ferme,
+  decisioni per chi guarda, richieste da trasformare, Claude) e la formula di
+  `pulseOf`, contando le task senza il tetto dell'elenco (fino a 10.000,
+  poi `truncated`): l'unico posto in cui il tetto dava numeri sbagliati
+  (il «+») non c'è più. **Accettato, senza lavoro: gli elenchi oltre le
+  2000 righe** — il troncamento è dichiarato (`truncated`) e la pagina lo
+  dice; nessuna istanza ci si avvicina; la cura vera (paginazione a cursore
+  di `GET /api/tasks`) cambia il renderer più del server, e non vale oggi.
+  Da riaprire se un'istanza ci arriva.
+- **CLI `claude` del worker aggiornato con regolarità** *(M)*, ogni volta col
+  giro completo dei golden e i testi del limite riverificati.
+- App mobile: riceve il fix del reader dei traguardi (e gli altri cambi delle
+  risposte) solo con una nuova build.
+- Web vecchio, Posta e Calendario *(O, 12 nov 2026)*: i giorni e i mesi seguono la lingua del browser (`Intl.DateTimeFormat(undefined, …)`), le frasi quella dell'utente, quindi un utente in inglese con un browser in italiano legge «Every week on lunedì». Nel desktop i formatter usano `i18n.language`. Non si corregge: sparisce col ritiro del web vecchio.
+- Prova a mano complessiva: `apps/desktop/docs/integration-manual-tests.md`.
+- **Produzione 2.1.287 e tool nativi** *(M, 10 nov 2026)*: l'init espone gli
+  stessi tool nativi del 2.1.322 (CronCreate, RemoteTrigger, SendMessage,
+  PushNotification, ToolSearch…; traccia di `streaming-cli.test`,
+  `apps/worker/src/sessions/fixtures/interrupt-then-message.jsonl`);
+  eseguibilità non verificata (il binario non c'è e non si scarica).
+  Decisione del maintainer del 10 nov: correzione solo col rilascio del pin
+  2.1.322, insieme all'elenco esplicito dei nativi per run (commit
+  «fix(worker): elenco esplicito dei tool nativi per ogni run del CLI»,
+  `docs/invariants/agent-sessions.md`, «I tool NATIVI di ogni run»). Si
+  chiude con quel rilascio.
+
+## Chiuse
+
+(Le voci fatte si spostano qui con il riferimento che le chiude.)
+
+- **Gli snippet di `search_docs` come contenuto non fidato** *(S, area 5,
+  fetta 3, chiusa l'11 nov 2026, decisione (a) dell'orchestratrice)*: la
+  ricerca nei Docs è in `CHAT_TOOL_UNTRUSTED_ROUTES` accanto alla pagina
+  intera; dopo una ricerca nei Docs ogni proposta della conversazione è almeno
+  B (`claude-actions/untrusted-input.test.ts`).
+
+- **Area 5, fetta 2: il Drive dei file caricati, server** *(M/O, 11 nov
+  2026)*: 0143 (`drive_files`, `drive_opens`, permessi `drive.*`), le rotte
+  del Drive col caricamento in streaming fino a 100 MB, l'anteprima inline
+  solo per i tipi sicuri e da un'altra origine, la lapide e la pulizia oraria
+  degli oggetti, i codici F, «Save to Drive» come copia, le citazioni `drive`
+  e `client.drive`. Il renderer è di stubwise-94.
+
+- **Area 5, fetta 1: Docs nel desktop, server** *(M/O, 11 nov 2026)*: codici
+  D stabili (0142) con le citazioni `doc` della Chat sul codice e il link;
+  `GET /api/docs/codes/:code`; embedding delle pagine manuali; `read_doc_page`
+  per Claude; nello stato motivo, rientro e avanzamento; `projectId` sugli
+  spazi; l'api-client dei Docs e le forme del grafo in shared. Il renderer è di
+  stubwise-94. Chiude «Docs del progetto e modulo Docs dei progetti».
+
+- **Area 4, fetta 4: eventi dei progetti e allegati, server** *(M/O, 11 nov
+  2026)*: i messaggi di sistema dai trigger della 0141 (task chiusa,
+  richiesta nuova, traguardo, brief, PR aperta e mergiata), con la scheda
+  derivata a lettura; `setPublishedEvents`; gli allegati dei messaggi
+  (25 MB, 10 per messaggio, tipo ed estensione, download firmato per chi
+  legge, potatura dei sospesi dopo 24 ore dal server); il filtro «con
+  allegati» e i nomi dei file nella ricerca. `release_page` resta all'area 8.
+  Il renderer è di stubwise-94.
+- **Area 4, fetta 4: eventi dei progetti e allegati, renderer** *(M, 11 nov
+  2026)*: `chat-events` e `chat-attachments` accesi (sono accesi tutti i flag
+  della Chat); parità in `apps/desktop/docs/integration-area4-f4.md`. Chiude
+  anche il filtro «con allegati» della ricerca.
+- **Download degli allegati dal desktop** *(Trasversali, 11 nov 2026)*: il 302
+  presigned non passava dal proxy. Ora `api:download` del main
+  (`apps/desktop/src/main/apiDownload.ts`) vale per gli allegati della Chat e
+  dei ticket: bearer solo verso l'istanza, Location https (http solo su
+  un'istanza http), «Salva» sempre chiesto, mai aperto. Il bottone
+  «Download» sugli allegati della task c'è (`downloadTaskAttachment`,
+  `pages/task/LinksSection.tsx`, test in `real/taskPanel.test.tsx`).
+
+- **Area 4, fetta 3: @Claude nei canali, server e worker** *(M/O, 10 nov
+  2026)*: la chiamata e la sessione privata di chi chiama (D5), il contesto
+  del thread costruito dal server, le proposte sempre B senza «Annulla», la
+  domanda a chi chiama (`ask_question` scritto dal worker) in «Da decidere»,
+  stop, «Try again», eliminazione, budget → `failed`/`budget`. Migrazione
+  0140; golden `chat-mention-*`. Il renderer è di stubwise-94.
+
+- **Area 4, fetta 3: @Claude nei canali, renderer** *(M/O, 11 nov 2026)*:
+  `chat-claude` acceso; la parità sta in
+  `apps/desktop/docs/integration-area4-f3.md` («Renderer»). Comprende anche
+  i difetti trovati nella review della fetta 1: «apri il thread dopo l'invio»
+  con la persona vera della build app (`useSessionPersonId`, test
+  `real/chatOpenThread.test.tsx`) e le bozze del riquadro di Claude per
+  persona (`answerDraft`, `wantDraft`, `undoDraft`, `fillable.test.tsx`).
+  Dopo il primo giro: le schede per chi non ha chiamato mostrano i dettagli
+  degli oggetti che vede (decisione del maintainer, server 63ccd90a); Modifica
+  ed Elimina dei messaggi seguono `canEdit`/`canDelete` del server; gli
+  eventi della sessione si rileggono al più ogni 4 s mentre Claude scrive.
+
+- Messaggi «via Claude» nella Chat *(M, 10 nov 2026, piano della fetta 3)*:
+  si chiude senza codice. Nessuna azione del catalogo scrive in Chat, e
+  «Claude nella Chat» è la risposta `kind claude` «chiamato da X».
+  `chat_messages.via_claude_action_id` resta inerte: un'azione «scrivi nel
+  canale» sarebbe una decisione nuova.
+
+- **Area 4, fetta 2: DM, privati, generali, domande, ricerca, server**
+  *(M/O, 10 nov 2026)*. Comprende:
+  - DM da 2 a 8 persone, invisibili anche al full admin;
+  - privati con invito e rimozione, che chi gestisce vede ma non legge;
+  - canali generali d'istanza (i permessi `chat.general.*` della 0135 ora
+    hanno le rotte);
+  - la ricerca;
+  - le domande `chat.question` in «Da decidere»;
+  - «Create task/request» con i `linkedCodes`;
+  - «anche nel canale»;
+  - i permessi del canale del prototipo.
+
+  Migrazioni 0137–0138. Commit «feat(area4): fetta 2 della Chat, server — …»
+  e «feat(area4): task e richieste nate da un messaggio della Chat (F2.5)»;
+  `docs/invariants/chat.md`. Il renderer è di stubwise-94.
+
+- **Area 4, fetta 1: la Chat fra persone, server** *(M/O, 10 nov 2026)*:
+  canali di progetto aperti, il «general» creato col progetto (backfill e
+  trigger, 0135; era la voce «Canale "general" creato col progetto» di
+  `integration-slice4.md`), thread, reazioni, letture, «Threads»,
+  «Mentions», `@Nome` con la card `chat.mention` derivata a lettura (0136) e
+  lo stream SSE — commit «feat(area4): fetta 1, F1.1 — …» e «feat(area4):
+  fetta 1, F1.2 — il server della Chat», `docs/invariants/chat.md`. Il
+  renderer è la F1.3 (stubwise-94).
+
+- **Riconferma dal desktop** *(S/O, 10 nov 2026)*: decisa dal maintainer
+  (opzione B di `docs/plans/2026-11-10-riconferma-desktop-design.md`) e
+  costruita (0132). Il codice si scrive dentro l'app (`POST
+  /api/auth/desktop-reauth`, solo un PAT `desktop`), e la finestra di 10 minuti
+  vale su tutte le rotte con `config.reauth`. Niente passkey dal desktop.
+  Con la seconda decisione dello stesso giorno, la regola unica
+  (`browserOrConfirmedDesktop`) vale anche negli handler: aperti PAT,
+  desktop-handoff, il link di reset altrui e la propria password. Resta fuori
+  solo la cassaforte, bloccata dallo sblocco PRF (voce nell'area 9).
+
+- La riga di benvenuto con la promessa di sola lettura e «/» senza comandi
+  d'azione *(S, fetta 2)*: `landing.intro` e `/plan`, `/new-task`,
+  `/new-request`, `/run` col flag `claude-chat-actions` — commit
+  «feat(desktop): la chat con Claude agisce nella build app (F3.4)».
+- «via Claude» a lettura *(S, 10 nov 2026)*: commenti, registro della task,
+  card d'inbox e standup per persona (`tasksMoved`, `comments`, oltre a
+  `tasksDeleted`) derivano `viaClaude`, l'azione e il richiedente (dal gruppo)
+  dalle colonne `via_claude_action_id`; il jsonb delle notifiche non si tocca
+  — commit «feat(server): viaClaude derivato a lettura».
+
+- **Elimina task** *(M, 10 nov 2026)* e lo standup «`tasksDeleted` sempre
+  vuoto» *(S)*: eliminazione vera (0130, lapide `deleted_tickets`, FK decise,
+  numero mai riusato, chi lo decide il server, `busy`), «Delete task…» nella
+  build app; la richiesta d'origine (`deletedTaskCodes`), le card d'inbox
+  (`objectGone`) e lo standup la nominano — commit «feat(server): elimina task
+  (F3.0, server)» e «feat(desktop): elimina task (F3.0, renderer)»,
+  `apps/desktop/docs/integration-claude-chat.md`.
+- Le sessioni dell'agente di una task eliminata se ne vanno con lei *(M,
+  decisione del maintainer del 10 nov 2026; il prototipo le tiene)*: la loro
+  visibilità passa dal ticket (R26). Il dialogo lo dice: «Anche il lavoro di
+  Claude su questa task (sessioni, piano, domande) viene eliminato; restano i
+  consumi e il registro decisioni».
+
+- Chat con Claude, **fette 1 e 2** *(O)*: conversazioni libere private sul
+  server (sessioni `free`, 0126–0128), turni a sola lettura col token del turno
+  e `--tools ""`, golden `chat-*`; nel renderer «New», N, «Mine», la pagina, il
+  riquadro (⌘J, ⌘K) col chip del contesto, menzioni e comandi di lettura —
+  parità in `apps/desktop/docs/integration-claude-chat.md`, commit «feat(chat):
+  …» (F1.1, F1.2, F2.1a, F2.1b).
+- Area 3, la riga di Claude nel Planning di progetto per chi NON può
+  assegnarlo *(O, 10 nov 2026)*: c'è per chiunque veda il Planning, col suo
+  carico, in sola lettura col motivo e fuori dai bersagli — commit
+  «fix(desktop): la riga di Claude nel Planning, in sola lettura»,
+  `apps/desktop/docs/integration-area3e.md`.
+
+- Area 3, 3e.2 **Claude assegnabile, renderer** *(M)*: riga e carico nel
+  Planning, assegnatario solo dove `claudeAssignableProjectIds` lo dice, la sua
+  frase per `claude_assign_forbidden` — commit «feat(desktop): Claude
+  assegnabile (3e.2)», `apps/desktop/docs/integration-area3e.md`.
+- Polso e «aspetta te» con Claude *(O)*: «Claude al lavoro» (sessioni `ai_job`
+  dal vivo) e «Claude aspetta te» (voci di Claude in «Da decidere») nel polso e
+  sulle tessere — stesso commit.
+
+- Area 3, 3e.1 **Claude assegnabile, server** *(M)*: utente di sistema (0125,
+  `users.is_agent`), niente accesso né notifiche, assegnarlo avvia il run con le
+  regole di `run-ai` e chiede `runs.start` — commit «feat(area3): Claude
+  assegnabile (3e.1)».
+- Area 3, **«Link a person» nello standup, renderer** *(O)*: sul web
+  `POST /api/users/:id/git-identities` con la riconferma, dal desktop il gesto
+  apre il web sulla stessa pagina; la riga senza persona mostra email e
+  username — commit «feat(desktop): Link a person nello standup»,
+  `apps/desktop/docs/integration-area3e.md`.
+- Area 3, **«Link a person» nello standup, server** *(S)*: i commit si
+  attribuiscono anche via `git_identities`; le righe senza persona sono per
+  email e portano `authorEmail` e `authorUsername` — commit «feat(area3):
+  collegare un autore di commit allo standup».

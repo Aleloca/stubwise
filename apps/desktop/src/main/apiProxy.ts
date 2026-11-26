@@ -1,0 +1,217 @@
+import { endsSession } from "@stubwise/shared";
+import { isAllowedDownloadPath } from "./apiDownload";
+
+// Il proxy delle richieste API dell'app desktop (integrazione area 2, fetta
+// 1): il renderer non fa rete (CSP `connect-src 'self'`) e non vede il token;
+// chiede `api:request` e il main la manda all'istanza col bearer. Solo
+// percorsi sotto `/api/`, senza risalite né host diversi.
+
+export type ApiMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+const METHODS: ReadonlySet<string> = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
+
+export interface ApiProxyRequest {
+  method: ApiMethod;
+  path: string;
+  headers?: Record<string, string>;
+  body?: string | ArrayBuffer;
+}
+
+export interface ApiProxyResponse {
+  status: number;
+  headers: Record<string, string>;
+  body: string | ArrayBuffer;
+}
+
+/** Le intestazioni che il renderer non sceglie: le mette il main, o nessuno. */
+const DROPPED_HEADERS = new Set(["authorization", "cookie", "host", "origin", "referer", "connection"]);
+const MAX_PATH = 4096;
+const MAX_BODY = 15 * 1024 * 1024;
+/**
+ * L'upload di un allegato della Chat (area 4, fetta 4): fino a 25 MB per file
+ * (`CHAT_ATTACHMENT_MAX_BYTES`), più il multipart. Vale SOLO per questa rotta:
+ * altrove il tetto resta `MAX_BODY`.
+ */
+const MAX_CHAT_UPLOAD_BODY = 26 * 1024 * 1024;
+const CHAT_UPLOAD_PATH = /^\/api\/chat\/channels\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/attachments$/i;
+
+function bodyLimit(method: string, path: string): number {
+  return method === "POST" && CHAT_UPLOAD_PATH.test(path) ? MAX_CHAT_UPLOAD_BODY : MAX_BODY;
+}
+
+/** Un percorso sotto `/api/`, nient'altro: niente schema, host, `..`, `//`, `\` o frammento. */
+export function isAllowedApiPath(path: unknown): path is string {
+  if (typeof path !== "string" || path.length > MAX_PATH) return false;
+  if (!path.startsWith("/api/")) return false;
+  if (/[\\#\s]/.test(path) || /[\u0000-\u001f\u007f]/.test(path)) return false;
+  const pathname = path.split("?")[0]!;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    return false;
+  }
+  for (const p of [pathname, decoded]) {
+    if (p.includes("//") || p.includes("\\")) return false;
+    if (p.split("/").some((seg) => seg === ".." || seg === ".")) return false;
+  }
+  return true;
+}
+
+/**
+ * Lotto 10, design §3: le rotte della cassaforte con la privata di persona
+ * (tutto `/api/vault/*` e il `reveal` di una credenziale) passano SOLO dai
+ * canali `vault:*` del main. Sul percorso DECODIFICATO e senza maiuscole: un
+ * `%76ault` è lo stesso percorso per il server.
+ */
+export function isVaultOnlyPath(path: string): boolean {
+  let p: string;
+  try {
+    p = decodeURIComponent(path.split("?")[0]!).toLowerCase();
+  } catch {
+    return true;
+  }
+  return p === "/api/vault" || p.startsWith("/api/vault/") || /^\/api\/credentials\/[^/]+\/reveal\/?$/.test(p);
+}
+
+function parseRequest(raw: unknown): ApiProxyRequest | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.method !== "string" || !METHODS.has(r.method)) return null;
+  if (!isAllowedApiPath(r.path)) return null;
+  const headers: Record<string, string> = {};
+  if (r.headers !== undefined) {
+    if (!r.headers || typeof r.headers !== "object") return null;
+    for (const [k, v] of Object.entries(r.headers as Record<string, unknown>)) {
+      if (typeof v !== "string") return null;
+      const key = k.toLowerCase();
+      if (!DROPPED_HEADERS.has(key)) headers[key] = v;
+    }
+  }
+  let body: string | ArrayBuffer | undefined;
+  if (typeof r.body === "string") body = r.body;
+  else if (r.body instanceof ArrayBuffer) body = r.body;
+  else if (ArrayBuffer.isView(r.body)) {
+    const view = r.body as ArrayBufferView;
+    body = new Uint8Array(view.buffer, view.byteOffset, view.byteLength).slice().buffer;
+  } else if (r.body !== undefined && r.body !== null) return null;
+  const size = typeof body === "string" ? body.length : (body?.byteLength ?? 0);
+  if (size > bodyLimit(r.method, r.path)) return null;
+  return { method: r.method as ApiMethod, path: r.path, headers, ...(body !== undefined ? { body } : {}) };
+}
+
+const fail = (status: number, code: string): ApiProxyResponse => ({
+  status,
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ code, message: code }),
+});
+
+const isText = (type: string) => /^(text\/|application\/(json|problem\+json|x-ndjson))/i.test(type);
+
+/** Il `code` di un corpo d'errore JSON, se c'è. */
+function codeOf(body: string | ArrayBuffer): string | undefined {
+  if (typeof body !== "string") return undefined;
+  try {
+    const parsed = JSON.parse(body) as { code?: unknown };
+    return typeof parsed.code === "string" ? parsed.code : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Il tetto di un'immagine di una pagina di prodotto, come il caricamento (5 MB). */
+export const PRODUCT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const PRODUCT_IMAGE_PATH =
+  /^\/api\/product-pages\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/images\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Il corpo fino a `max` byte; `null` se ne dichiara o ne porta di più (smette di leggere). */
+async function readCapped(res: Response, max: number): Promise<ArrayBuffer | null> {
+  if (Number(res.headers.get("content-length") ?? "0") > max) {
+    await res.body?.cancel().catch(() => undefined);
+    return null;
+  }
+  if (!res.body) return new ArrayBuffer(0);
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.byteLength;
+  }
+  return out.buffer;
+}
+
+export interface ApiProxyDeps {
+  instanceUrl: () => string | null;
+  token: () => string | null;
+  /**
+   * La sessione è finita. Riceve il token con cui è partita la richiesta: chi
+   * cancella lo fa solo se è ancora quello corrente (un login nel frattempo
+   * non va perso per un 401 della sessione di prima).
+   */
+  onUnauthorized: (usedToken: string) => void;
+  fetch?: typeof fetch;
+}
+
+/** `api:request`: valida, aggiunge il bearer, inoltra; un 401 cancella il token. */
+export async function handleApiRequest(raw: unknown, deps: ApiProxyDeps): Promise<ApiProxyResponse> {
+  const req = parseRequest(raw);
+  if (!req) return fail(400, "invalid_request");
+  if (isVaultOnlyPath(req.path)) return fail(403, "vault_via_main");
+  const base = deps.instanceUrl();
+  if (!base) return fail(400, "no_instance");
+  const token = deps.token();
+  if (!token) return fail(401, "unauthenticated");
+  let res: Response;
+  try {
+    res = await (deps.fetch ?? fetch)(`${base}${req.path}`, {
+      method: req.method,
+      headers: { ...req.headers, authorization: `Bearer ${token}` },
+      ...(req.body !== undefined ? { body: req.body } : {}),
+      redirect: "manual",
+    });
+  } catch {
+    return fail(502, "network_error");
+  }
+  const headers: Record<string, string> = {};
+  // Il download di un allegato: il Location è l'URL firmato, e al renderer non
+  // arriva (lo segue solo `api:download`). La query non conta: un `?x=1` in
+  // coda non lo fa passare.
+  const download = isAllowedDownloadPath(req.path.split("?")[0]);
+  res.headers.forEach((v, k) => {
+    if (k === "set-cookie" || (download && k === "location")) return;
+    headers[k] = v;
+  });
+  const type = res.headers.get("content-type") ?? "";
+  // Un'immagine di una pagina di prodotto (area 11): i byte con un tetto,
+  // dichiarati o letti, così un'esportazione non riempie il main (I1 della
+  // revisione di R11-3). Oltre, 413 e i byte non si tengono.
+  if (res.ok && PRODUCT_IMAGE_PATH.test(req.path.split("?")[0]!)) {
+    const capped = await readCapped(res, PRODUCT_IMAGE_MAX_BYTES);
+    if (!capped) return fail(413, "image_too_large");
+    return { status: res.status, headers, body: capped };
+  }
+  const body = type === "" || isText(type) ? await res.text() : await res.arrayBuffer();
+  // Solo un 401 di SESSIONE cancella il token (un codice di riconferma
+  // sbagliato è un 401 con la sessione viva): la regola è `endsSession`.
+  if (res.status === 401 && endsSession(req.path, res.status, codeOf(body))) deps.onUnauthorized(token);
+  return { status: res.status, headers, body };
+}
+
+/** `open:web`: un percorso dell'istanza (`/tickets/<id>`), mai un altro host o schema. */
+export function isWebPath(path: unknown): path is string {
+  if (typeof path !== "string" || path.length > MAX_PATH) return false;
+  if (!path.startsWith("/") || path.startsWith("//")) return false;
+  return !/[\\\s]/.test(path) && !/[\u0000-\u001f\u007f]/.test(path);
+}

@@ -113,6 +113,7 @@ export function ReleaseGlyph({ kind }: { kind: ReleaseView["status"]["kind"] }) 
         </Glyph>
       );
     case "unavailable":
+    case "unknown":
       return (
         <Glyph className="text-ink-faint">
           <circle cx="8" cy="8" r="4" />

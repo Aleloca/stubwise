@@ -104,27 +104,26 @@ describe("ACQ", () => {
     expect((await listRequests(ACQ)).filter((r) => r.origin?.kind === "support")).toHaveLength(5);
   });
 
-  it("ACQ-S7 aspetta il team SENZA bozza di Claude: lì si vede la riga di suggerimento", async () => {
+  it("ACQ-S7 ha la sua richiesta (area 8, F3: con l'esito è chiusa)", async () => {
     as(DAVIDE);
     const view = (await support.getSupportConversation("ACQ-S7"))!;
-    expect(view.state).toBe("waiting_us");
-    expect(state.supportConversations.find((c) => c.code === "ACQ-S7")!.claudeDraft).toBeNull();
+    expect(view.state).toBe("request_open");
     // La sua richiesta non è `high`: il filtro dell'automazione di prova lo
     // passa solo `req-acq-3`.
     const request = state.requests.find((r) => r.origin?.kind === "support" && r.origin.conversationId === "sup-acq-7")!;
     expect(request.urgency).not.toBe("high");
   });
 
-  it("ACQ-S2 aspetta il team: è la conversazione che le scene del supporto usano", async () => {
+  it("ACQ-S2, la conversazione che le scene del supporto usano, ha la sua richiesta", async () => {
     as(LAURA);
-    expect((await support.getSupportConversation("ACQ-S2"))!.state).toBe("waiting_us");
+    expect((await support.getSupportConversation("ACQ-S2"))!.state).toBe("request_open");
   });
 
   it("chi può cosa in ACQ", () => {
     expect(visibleProjectIds(LUCA).has(ACQ)).toBe(false);
     expect(holds(LAURA, "project.members.manage", ACQ)).toBe(true);
     expect(holds(LAURA, "automations.manage", ACQ)).toBe(true);
-    expect(holds(DAVIDE, "support.reply", ACQ)).toBe(true);
+    expect(holds(DAVIDE, "support.manage", ACQ)).toBe(true);
     expect(holds(SARA, "automations.manage", ACQ)).toBe(false);
     expect(holds(SARA, "project.usage.view", ACQ)).toBe(false);
     expect(holds(SARA, "usage.view", ACQ)).toBe(false);

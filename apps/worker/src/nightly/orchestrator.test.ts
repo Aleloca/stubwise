@@ -205,6 +205,44 @@ describe("runNight: riassunti a turno", () => {
     expect(h.ensureMirror).toHaveBeenCalledTimes(2);
   });
 
+  it("area 9, F4 (review I1): un progetto con la coda in pausa resta FUORI dal giro (niente mirror, niente Claude, niente pagine pianificate a metà); l'altro va; i suoi elementi non fanno ripartire il giro", async () => {
+    const paused = await seedNightRepo("pausato", { dailyReport: true });
+    const b = await seedNightRepo("attivo", { dailyReport: true });
+    await db.update(projects).set({ queuePausedAt: new Date() }).where(eq(projects.id, paused.projectId));
+    try {
+      const h = harness({ commitsByUrl: { [paused.url]: [commit("1", "p1")], [b.url]: [commit("5", "b1")] } });
+      const res = await runNight(h.deps, NOW);
+      const order = h.run.mock.calls.map(([opts]) => subjectOf((opts as AgentRunOptions).prompt));
+      expect(order).toEqual(["b1"]);
+      expect(res).toMatchObject({ repositories: 1 });
+      expect(h.ensureMirror).toHaveBeenCalledTimes(1);
+      expect((await db.select().from(nightlyItems).where(eq(nightlyItems.projectId, paused.projectId))).filter((i) => i.phase.startsWith("page"))).toEqual([]);
+      await db.insert(nightlyItems).values({ repositoryId: paused.repositoryId, projectId: paused.projectId, phase: "summary", key: sha("9"), night: NIGHT });
+      expect(await hasPendingNightWork({ db }, NIGHT)).toBe(false);
+    } finally {
+      await db.update(projects).set({ queuePausedAt: null }).where(eq(projects.id, paused.projectId));
+    }
+  });
+
+  it("area 9, F6: un progetto ARCHIVIATO resta fuori dal giro come uno in pausa; un repository STACCATO non c'è proprio", async () => {
+    const archived = await seedNightRepo("archiviato", { dailyReport: true });
+    const detached = await seedNightRepo("staccato", { dailyReport: true });
+    const b = await seedNightRepo("aperto", { dailyReport: true });
+    await db.update(projects).set({ archivedAt: new Date() }).where(eq(projects.id, archived.projectId));
+    await db.update(repositories).set({ projectId: null }).where(eq(repositories.id, detached.repositoryId));
+    try {
+      const h = harness({ commitsByUrl: { [archived.url]: [commit("1", "a1")], [detached.url]: [commit("2", "d1")], [b.url]: [commit("5", "b1")] } });
+      const res = await runNight(h.deps, NOW);
+      const order = h.run.mock.calls.map(([opts]) => subjectOf((opts as AgentRunOptions).prompt));
+      expect(order).toEqual(["b1"]);
+      expect(res).toMatchObject({ repositories: 1 });
+      expect(h.ensureMirror).toHaveBeenCalledTimes(1);
+    } finally {
+      await db.update(projects).set({ archivedAt: null }).where(eq(projects.id, archived.projectId));
+      await db.update(repositories).set({ projectId: detached.projectId }).where(eq(repositories.id, detached.repositoryId));
+    }
+  });
+
   it("quota finita al 2° elemento → giro fermo; la ripresa continua senza rifare nulla; un riavvio non rifà niente", async () => {
     const a = await seedNightRepo("alpha");
     const b = await seedNightRepo("beta");
@@ -497,6 +535,33 @@ describe("runNight: Docs", () => {
     expect(remove).toHaveBeenCalledTimes(1);
     const [g] = await db.select().from(docGenerations).where(eq(docGenerations.id, gen));
     expect(g!.commitSha).toBe(HEAD);
+  });
+
+  it("revisione del lotto 1: col modulo Docs spento il report sì, i Docs no; `doc_auto_update` resta acceso e gli elementi dei Docs non fanno ripartire il giro", async () => {
+    const a = await seedNightRepo("alpha", { docs: true, dailyReport: true });
+    const gen = await seedCurrentGeneration(db, a.repositoryId, BOOKMARK);
+    await seedGenerationPage(db, a.repositoryId, gen, { slug: "app", sourcePath: "src" });
+    await db.update(projects).set({ modules: ["releases"] }).where(eq(projects.id, a.projectId));
+    const listDefault = vi.fn(async () => ({ commits: [sha("1")], headSha: HEAD, fallback: false }));
+    const openWorktreeAtSha = vi.fn(async () => ({ dir: "/srv/none/wt", remove: vi.fn(async () => undefined) }));
+    const h = harness({
+      commitsByUrl: { [a.url]: [commit("1", "a1")] },
+      run: docsRunner(),
+      mirrors: { listDefaultBranchCommitsSince: listDefault, listAncestorsSince: vi.fn(async () => []), openWorktreeAtSha } as never,
+    });
+    await runNight(h.deps, NOW);
+    expect(await itemsOf(a.repositoryId, "summary")).toEqual([expect.objectContaining({ status: "done" })]);
+    expect(await itemsOf(a.repositoryId, "release")).toEqual([]);
+    expect(await itemsOf(a.repositoryId, "page_update")).toEqual([]);
+    expect(listDefault).not.toHaveBeenCalled();
+    expect(openWorktreeAtSha).not.toHaveBeenCalled();
+    const [p] = await db.select({ docAutoUpdate: projects.docAutoUpdate }).from(projects).where(eq(projects.id, a.projectId));
+    expect(p!.docAutoUpdate).toBe(true);
+    // Un elemento dei Docs rimasto in coda (scritto prima dello spegnimento) non fa ripartire il giro.
+    await db.insert(nightlyItems).values({ projectId: a.projectId, repositoryId: a.repositoryId, phase: "page_update", key: "app", payload: {}, night: NIGHT } as never);
+    expect(await hasPendingNightWork({ db }, NIGHT)).toBe(false);
+    await db.update(projects).set({ modules: ["docs", "releases"] }).where(eq(projects.id, a.projectId));
+    expect(await hasPendingNightWork({ db }, NIGHT)).toBe(true);
   });
 
   it("generazione completa in corso → riassunti sì, Docs no (generation_running)", async () => {

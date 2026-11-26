@@ -1,4 +1,7 @@
+import { isHiddenId, personMasker } from "./access/hidden";
+import { MAX_CONVERSATION_CONTEXTS, sameContext, withContext } from "../domain/claude/contexts";
 import { wouldCycle } from "../domain/decisionLog";
+import { claudePageOutcomeMoveAllowed, planRecipientsOf as sharedPlanRecipientsOf } from "@stubwise/shared";
 import { findSimilarRequest } from "../domain/requests";
 import { TEMPLATE_MODULES, TEMPLATE_STATUSES } from "../domain/templates";
 import type { PageState } from "../domain/claude/context";
@@ -16,6 +19,7 @@ import { recordChange } from "./changelog/index";
 import { changedFields } from "./changelog/settingValues";
 // Per effetto: registra i tipi di voce di progetto (`recordChange` lancia su uno ignoto).
 import "./projectSettings/changeTypes";
+import { issueIngestionKey, type IngestionKeyOnce } from "./projectSettings/integration";
 import { skillsForRun } from "./projectSettings/plugins";
 import { linkIdentityAs } from "./admin/people";
 // Le letture servono al motore di intenti (a nome di chi conversa): si usano
@@ -60,13 +64,12 @@ import type { TaskBusyReason } from "./taskDelete";
 // I blocchi d'istanza (area 9b): la foglia dei blocchi, la fila dei lavori
 // fermi e i modelli. Usati solo dentro le funzioni.
 import type { AiOperation } from "@stubwise/shared";
-import { aiBlockFor, pickProvider, requiredProviderOf } from "./instance/blocks";
+import { aiBlockFor, manualStartBlockFor, pickProvider, requiredProviderOf } from "./instance/blocks";
 import { modelIdFor } from "./instance/models";
 import { recordChatTurnUsage } from "./instance/usage";
 import { contextIdFor, contextOf } from "./claude/context";
 import { mailDraftFor, taskDescriptionDraftFor } from "./claude/drafts";
 import { releaseNotesDraftFor } from "./releases/notes";
-import { supportReplyDraftFor } from "./support/visibility";
 import { dropHeld, holdJob, type JobKind } from "./instance/queue";
 import { getSessionPersonId, setSessionPersonId } from "./session";
 import {
@@ -110,6 +113,7 @@ import {
 } from "./stream";
 import type {
   ActivityEntry,
+  AttachmentDownloadResult,
   AiBlock,
   AppNotification,
   Attachment,
@@ -136,6 +140,7 @@ import type {
   RequestLevel,
   RequestPatch,
   SavedFilter,
+  FilterCriteria,
   PrRef,
   ScriptStep,
   SetVisibilityResult,
@@ -165,6 +170,7 @@ import { overStubwiseCap } from "./releases/visibility";
 import {
   executeServerFix,
   replanServerFix,
+  serverPlanStillFits,
   stopAndReplanServerFixAs,
   stopServerFixAs,
 } from "./servers/fix";
@@ -319,16 +325,9 @@ export function planRecipientsOf(
   task: Pick<Task, "assigneeId" | "plannedWeek">,
   plan: { assigneeId: string | null; week: string | null },
 ): { assigned: string | null; planningChanged: string[] } {
-  const reassigned = task.assigneeId !== plan.assigneeId;
-  const moved = task.plannedWeek !== plan.week;
-  // `planning.changed` va a chi aveva la task: la perde (riassegnata) o la
-  // tiene spostata di settimana. Chi la prende ha `task.assigned`, e un fatto
-  // solo dà un avviso solo (pre-flight).
-  const interested = reassigned || moved ? task.assigneeId : null;
-  return {
-    assigned: reassigned ? assignedRecipientOf(me, plan.assigneeId) : null,
-    planningChanged: interested && interested !== me ? [interested] : [],
-  };
+  // La regola sta in `@stubwise/shared` (integrazione area 2, fetta 2): la usa
+  // anche il server. Qui il solo «chi è un agente» del seme.
+  return sharedPlanRecipientsOf(me, task, plan, (id) => PEOPLE.some((p) => p.id === id && p.isClaude));
 }
 
 const personName = (id: string | null) => PEOPLE.find((p) => p.id === id)?.name ?? null;
@@ -623,6 +622,80 @@ export async function updateTask(id: string, patch: TaskPatch): Promise<Task> {
   return copy(updateTaskAs(me, id, patch));
 }
 
+// --- scritture dedicate della task (integrazione area 2, fetta 1) ---------------
+//
+// Seguire, la ferma a mano, gli allegati e i collegamenti hanno sul server
+// rotte loro: le pagine le chiamano per nome invece di passare l'elenco
+// intero a `updateTask`. Nel prototipo sono `updateTask` col campo calcolato
+// qui, quindi il comportamento (permessi, eventi, notifiche) è quello di prima.
+
+/** Segue la task (o smette), per chi chiama. */
+export async function followTask(id: string, follow: boolean): Promise<Task> {
+  const me = getSessionPersonId();
+  const followers = state.tasksById.get(id)?.followerIds ?? [];
+  return updateTask(id, {
+    followerIds: follow ? [...new Set([...followers, me])] : followers.filter((x) => x !== me),
+  });
+}
+
+/** «Mark as stalled»: motivo e nota, da oggi, a nome di chi chiama. */
+export async function setManualStall(id: string, input: { reason: string; note: string }): Promise<Task> {
+  const me = getSessionPersonId();
+  return updateTask(id, {
+    manualStall: { reason: input.reason, note: input.note, since: TODAY, byId: me },
+  });
+}
+
+/** «No longer stalled». */
+export async function clearManualStall(id: string): Promise<Task> {
+  return updateTask(id, { manualStall: null });
+}
+
+/**
+ * Aggiunge un allegato. Nel prototipo è finto (nome e dimensione, nessun
+ * byte); sul server vero `file` è il contenuto, caricato con le rotte di oggi.
+ */
+export async function addAttachment(
+  id: string,
+  input: { name: string; sizeBytes: number; file?: Blob },
+): Promise<Task> {
+  const files = state.tasksById.get(id)?.attachments ?? [];
+  return updateTask(id, {
+    attachments: [
+      ...files,
+      { id: `att-${id}-${files.length + 1}-${input.name}`, name: input.name, sizeBytes: input.sizeBytes },
+    ],
+  });
+}
+
+export async function removeAttachment(id: string, attachmentId: string): Promise<Task> {
+  const files = state.tasksById.get(id)?.attachments ?? [];
+  return updateTask(id, { attachments: files.filter((a) => a.id !== attachmentId) });
+}
+
+/**
+ * Il download di un allegato della task. Nel prototipo gli allegati sono
+ * finti (nessun byte): non c'è niente da scaricare. La build app lo chiede al
+ * server (sul desktop dal main, che chiede dove salvarlo).
+ */
+export async function downloadTaskAttachment(attachmentId: string): Promise<AttachmentDownloadResult> {
+  void attachmentId;
+  return { ok: false, reason: "invalid" };
+}
+
+/** Un collegamento si scrive sulla task che lo tiene (`blocks`, `relates`, `parent`). */
+export async function addLink(id: string, link: { kind: StoredLinkKind; taskId: string }): Promise<Task> {
+  const links = state.tasksById.get(id)?.links ?? [];
+  return updateTask(id, { links: [...links, link] });
+}
+
+export async function removeLink(id: string, link: { kind: StoredLinkKind; taskId: string }): Promise<Task> {
+  const links = state.tasksById.get(id)?.links ?? [];
+  return updateTask(id, {
+    links: links.filter((l) => !(l.kind === link.kind && l.taskId === link.taskId)),
+  });
+}
+
 /** Tutto o niente: si controllano tutte prima di scriverne una. */
 export async function bulkUpdateTasks(ids: string[], patch: TaskPatch): Promise<Task[]> {
   const me = await gate("bulkUpdateTasks");
@@ -638,7 +711,7 @@ export async function bulkUpdateTasks(ids: string[], patch: TaskPatch): Promise<
  */
 export async function planTask(
   id: string,
-  plan: { assigneeId: string | null; week: string | null },
+  plan: { assigneeId?: string | null; week: string | null },
 ): Promise<Task> {
   const me = await gate("planTask");
   return copy(planTaskAs(me, id, plan));
@@ -648,9 +721,17 @@ export async function planTask(
 export function planTaskAs(
   me: string,
   id: string,
-  plan: { assigneeId: string | null; week: string | null },
+  input: { assigneeId?: string | null; week: string | null },
 ): Task {
   const task = taskFor(me, id);
+  // Registro, A11 r.1414 (scelta A di 46, 23 nov 2026): un `assigneeId`
+  // omesso vuol dire «invariato» (chi guarda può avere solo il segnaposto
+  // dell'assegnatario); un segnaposto non si scrive mai.
+  if (isHiddenId(input.assigneeId)) throw invalid("assignee");
+  const plan = {
+    assigneeId: input.assigneeId === undefined ? task.assigneeId : input.assigneeId,
+    week: input.week,
+  };
   const forOthers = can(viewerFor(me), "planning.others", task.projectId);
   const members = state.projectsById.get(task.projectId)!.memberIds;
   if (forOthers) {
@@ -857,7 +938,7 @@ export async function answerDecision(
     seq: nextSeq(),
   });
   task.lastActivityAt = at;
-  if (request.askedById !== me) {
+  if (request.askedById && request.askedById !== me) {
     publish(
       me,
       "decision.answered",
@@ -896,9 +977,27 @@ export interface NewRequestInput {
   origin?: { kind: "support"; conversationId: string } | ProductDocOrigin;
 }
 
-export async function createRequest(input: NewRequestInput): Promise<ProjectRequest> {
+export async function createRequest(
+  input: NewRequestInput,
+  // Sul server vero ferma l'attesa dell'intake (il dialogo si chiude); qui non serve.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _options?: { signal?: AbortSignal },
+): Promise<ProjectRequest> {
   const me = await gate("createRequest");
   return copy(createRequestAs(me, input));
+}
+
+/**
+ * «Create request» dalla scheda nel filo di una domanda di Claude (area 11,
+ * F5, build app; nel prototipo la scheda sta nel riquadro): crea la richiesta
+ * con l'origine della domanda, che si chiude. Nel prototipo l'intake è
+ * immediato e il codice c'è subito; sul server vero arriva con la domanda.
+ */
+export async function createRequestFromQuestion(
+  input: NewRequestInput & { origin: Required<ProductDocOrigin> },
+): Promise<{ code: string | null }> {
+  const me = await gate("createRequest");
+  return { code: createRequestAs(me, input).code };
 }
 
 /** Crea una richiesta a nome di `me` (anche «Create request» da un messaggio della Chat). */
@@ -915,6 +1014,11 @@ export function checkNewRequest(
 
 export function createRequestAs(me: string, input: NewRequestInput): ProjectRequest {
   const project = checkNewRequest(me, input);
+  // Da una conversazione di Support: anche `support.manage` (review F3, m6),
+  // come «Apri la richiesta»; nessuna strada più larga.
+  if (input.origin?.kind === "support" && !can(viewerFor(me), "support.manage", project.id)) {
+    throw forbidden();
+  }
   // Dalla doc di prodotto (11b, P20): pagina e progetto si controllano a
   // parte, e la domanda (se c'è) si chiude nella stessa scrittura.
   const fromDoc = input.origin?.kind === "product_doc" ? input.origin : null;
@@ -988,7 +1092,7 @@ export function insertRequest(
     taskIds: [],
     createdAt: now(),
     ...(conv
-      ? { origin: { kind: "support" as const, conversationId: conv.id } }
+      ? { origin: { kind: "support" as const, conversationId: conv.id, conversationCode: conv.code } }
       : input.origin?.kind === "product_doc"
         ? { origin: productDocOriginOf(input.origin) }
         : {}),
@@ -1157,6 +1261,10 @@ export function convertRequestAs(
   request.taskIds = [...request.taskIds, task.id];
   request.status = "converted";
   wrote("request", request.id, me);
+  // Q5 = a *(M)*: «richiesta convertita» E «task creata» (prima la conversione
+  // non segnalava niente: `addTask` non è `createTaskAs`).
+  signalAutomations({ kind: "request_converted", requestId: id, taskId: task.id });
+  signalAutomations({ kind: "task_created", taskId: task.id });
   // Una task nata assegnata, come da `createTaskAs` (area 10a).
   publishAssigned(me, task);
   return task;
@@ -1165,10 +1273,62 @@ export function convertRequestAs(
 // --- filtri salvati -----------------------------------------------------------
 
 export async function saveFilter(
-  input: Pick<SavedFilter, "name" | "visibility" | "criteria" | "view" | "groupBy">,
+  input: Pick<SavedFilter, "name" | "visibility" | "criteria" | "view" | "groupBy"> & {
+    /** L'origine di un «Salva come» (I-6): i suoi sconosciuti prendono il posto dei segnaposto. */
+    savedFilterId?: string;
+  },
 ): Promise<SavedFilter> {
   const me = await gate("saveFilter");
-  return copy(saveFilterAs(me, input));
+  const { savedFilterId, ...rest } = input;
+  const origin = savedFilterId ? visibleFilterOrNull(me, savedFilterId) : null;
+  return maskedFilter(me, saveFilterAs(me, rest, origin));
+}
+
+const visibleFilterOrNull = (me: string, id: string): SavedFilter | null => {
+  try {
+    return filterFor(me, id);
+  } catch {
+    return null;
+  }
+};
+
+/** Un filtro come lo legge chi l'ha appena salvato: chi non conosce, segnaposto (r.1414). */
+function maskedFilter(me: string, f: SavedFilter): SavedFilter {
+  const mask = personMasker(me);
+  const out = { ...copy(f), ownerId: mask(f.ownerId) };
+  if (f.criteria.assigneeIds)
+    out.criteria = {
+      ...out.criteria,
+      assigneeIds: f.criteria.assigneeIds.map((id) => (id === "none" ? id : mask(id))),
+    };
+  return out;
+}
+
+/**
+ * Revisione I-6 (la forma di 72, f0d312736): i segnaposto `hidden-*` di
+ * `assigneeIds` diventano gli assegnatari di `origin` che chi salva non
+ * conosce. Prendono il posto del PRIMO segnaposto, gli altri spariscono; gli
+ * id veri mandati restano, nell'ordine. Senza un'origine, `invalid`.
+ * `savedFilterId` non è un criterio: non si salva.
+ */
+function criteriaToStore(me: string, criteria: FilterCriteria, origin: SavedFilter | null): FilterCriteria {
+  const { savedFilterId: _from, ...plain } = criteria;
+  void _from;
+  const ids = plain.assigneeIds;
+  if (!ids?.some(isHiddenId)) return plain;
+  if (!origin) throw invalid("criteria");
+  const mask = personMasker(me);
+  const strangers = (origin.criteria.assigneeIds ?? []).filter((id) => id !== "none" && mask(id) !== id);
+  const out: string[] = [];
+  let placed = false;
+  for (const id of ids) {
+    if (!isHiddenId(id)) out.push(id);
+    else if (!placed) {
+      placed = true;
+      out.push(...strangers);
+    }
+  }
+  return { ...plain, assigneeIds: out };
 }
 
 /**
@@ -1179,10 +1339,14 @@ export async function saveFilter(
 export function saveFilterAs(
   me: string,
   input: Pick<SavedFilter, "name" | "visibility" | "criteria" | "view" | "groupBy">,
+  origin: SavedFilter | null = null,
 ): SavedFilter {
   if (!input.name.trim()) throw invalid("name");
+  // R.1414: un segnaposto si salva solo con l'origine (I-6); Claude non ne ha, e lo rifiuta.
+  const criteria = criteriaToStore(me, input.criteria, origin);
   const filter: SavedFilter = {
     ...copy(input),
+    criteria,
     name: input.name.trim(),
     id: newId("flt"),
     ownerId: me,
@@ -1205,10 +1369,13 @@ export async function updateFilter(
   const me = await gate("updateFilter");
   const filter = ownedFilter(me, id);
   if (patch.name !== undefined && !patch.name.trim()) throw invalid("name");
-  Object.assign(filter, copy(patch));
+  // R.1414 (I-6): i segnaposto tornano gli sconosciuti del filtro stesso; senza `criteria` restano quelli veri.
+  const next = copy(patch);
+  if (patch.criteria) next.criteria = criteriaToStore(me, patch.criteria, filter);
+  Object.assign(filter, next);
   if (patch.name !== undefined) filter.name = patch.name.trim();
   noteWrite("filter", id, me, currentVia()?.actionId);
-  return copy(filter);
+  return maskedFilter(me, filter);
 }
 
 export async function deleteFilter(id: string): Promise<void> {
@@ -1294,11 +1461,18 @@ export async function setDepartmentHome(
  * Chi ha la Home personalizzata ha visto l'ultima modifica di quella del
  * reparto. Chi usa quella del reparto non ha nulla da segnare.
  */
-export async function markDepartmentHomeSeen(departmentId: string): Promise<void> {
+/**
+ * «Vedi le novità»: segna vista la Home del reparto MOSTRATA (`updatedAt`),
+ * come il server (fetta 3): si tiene la meno recente fra quella e l'attuale,
+ * così una modifica arrivata nel frattempo resta da vedere.
+ */
+export async function markDepartmentHomeSeen(departmentId: string, updatedAt?: string): Promise<void> {
   const me = await gate("markDepartmentHomeSeen");
   const personal = state.personalHomes.find((h) => h.personId === me);
   const dept = state.departmentHomes.find((h) => h.departmentId === departmentId);
-  if (personal && dept) personal.seenDepartmentUpdates[departmentId] = dept.updatedAt;
+  if (!personal || !dept) return;
+  const shown = updatedAt ?? dept.updatedAt;
+  personal.seenDepartmentUpdates[departmentId] = shown < dept.updatedAt ? shown : dept.updatedAt;
 }
 
 // --- progetti ---------------------------------------------------------------------
@@ -1320,7 +1494,13 @@ function freshProjectId(code: string): string {
   return id;
 }
 
-export async function createProject(input: NewProjectInput): Promise<Project> {
+/**
+ * Il progetto appena creato, con la sua chiave d'ingestione intera (area 9,
+ * F5): esce qui una volta sola, a chi crea; `null` se il server non la manda.
+ */
+export type CreatedProject = Project & { ingestion: IngestionKeyOnce | null };
+
+export async function createProject(input: NewProjectInput): Promise<CreatedProject> {
   const me = await gate("createProject");
   need(me, "projects.create");
   if (!CODE_PATTERN.test(input.code)) throw invalid("code");
@@ -1374,7 +1554,10 @@ export async function createProject(input: NewProjectInput): Promise<Project> {
     publishedEvents: [...DEFAULT_PUBLISHED_EVENTS],
     createdAt: now(),
   });
-  return copy(project);
+  // Area 9, F5: la chiave d'ingestione nasce col progetto, e la vede intera
+  // solo chi lo crea, qui; dopo, le ultime 4 (Settings → Integration).
+  const ingestion = issueIngestionKey(project, me);
+  return { ...copy(project), ingestion };
 }
 
 const FAMILIES: StatusFamily[] = ["todo", "active", "closed"];
@@ -1776,7 +1959,6 @@ export function readsAs(me: string): ReadApi {
       return seen ? { code: seen.code, projectId: seen.projectId } : null;
     },
     supportConversationIdOf: async (code) => contextIdFor(me, "support", code),
-    supportReplyDraft: async (conversationId) => supportReplyDraftFor(me, conversationId),
     releaseNotesDraft: async (prId) => releaseNotesDraftFor(me, prId),
     mailDraft: (threadId, hint) => mailDraftFor(me, threadId, hint),
     taskDescriptionDraft: async (taskId) => taskDescriptionDraftFor(me, taskId),
@@ -1862,9 +2044,7 @@ function projectsOfSteps(steps: ScriptStep[]): string[] {
     // un'email nessun progetto: è la posta di chi chiede).
     if (e.type === "draft" && e.field) {
       const f = e.field;
-      if (f.kind === "supportReply")
-        add(state.supportConversations.find((x) => x.id === f.conversationId)?.projectId);
-      else if (f.kind === "releaseNotes")
+      if (f.kind === "releaseNotes")
         add(state.openPrs.find((p) => p.id === f.prId)?.projectId);
       else if (f.kind === "taskDescription") add(ofTask(f.taskId));
     }
@@ -1880,6 +2060,22 @@ function projectsOfSteps(steps: ScriptStep[]): string[] {
  * ADESSO — mai più indietro, perché gli eventi fino a qui chi guarda li ha
  * già ricevuti.
  */
+/**
+ * I progetti del gruppo dei contesti che `me` vede adesso (decisione di 46,
+ * 24 nov 2026, la regola del server): un chip nomina il suo progetto, quindi
+ * conta per la pubblicazione come ciò che Claude ha letto.
+ */
+function contextProjectIds(me: string, c: Conversation): string[] {
+  return [
+    ...new Set(
+      (c.contexts ?? []).flatMap((ref) => {
+        const projectId = contextOf(me, ref)?.projectId;
+        return projectId ? [projectId] : [];
+      }),
+    ),
+  ];
+}
+
 function touchProjects(c: Conversation, projectIds: string[]): boolean {
   const fresh = projectIds.filter((id) => !c.touchedProjectIds.includes(id));
   if (fresh.length === 0) return false;
@@ -2399,6 +2595,10 @@ async function freeReply(
   // vede ADESSO — uno diventato invisibile risponde come un codice che non c'è.
   const seenContext = context ? contextOf(me, context) : null;
   const contextProjectId = seenContext?.projectId ?? c.contextProjectId;
+  // Lotto 8, §1: il contesto del messaggio entra nel gruppo (in fondo, il
+  // primario), e il messaggio porta il gruppo com'era quando è partito.
+  if (context) c.contexts = withContext(c.contexts ?? [], context);
+  const group = c.contexts ?? [];
   const user: ScriptStep = {
     step: "event",
     event: {
@@ -2408,6 +2608,7 @@ async function freeReply(
       attachments,
       delivery: "pending",
       ...(context ? { context } : {}),
+      ...(group.length > 0 ? { contexts: [...group] } : {}),
     },
   };
   const messageIndex = eventsOf(id).length;
@@ -2459,8 +2660,10 @@ async function freeReply(
   steps = prepareTrials(me, steps, prepared);
   const runs = prepared.runs.map((task) => ({ task, c: openRun(me, task) }));
   // Le righe eseguite sono già nel flusso: i loro progetti li dice `prepared`.
+  // Anche i progetti del gruppo dei contesti (decisione di 46): un progetto
+  // nuovo dal chip, in una pubblica, trattiene il seguito come una lettura.
   const touchedNew = touchProjects(c, [
-    ...new Set([...projectsOfSteps(steps), ...prepared.projectIds]),
+    ...new Set([...projectsOfSteps(steps), ...prepared.projectIds, ...contextProjectIds(me, c)]),
   ]);
   // Si consegna solo la trattenuta di QUESTO turno, se c'è ancora (una
   // riconferma nel frattempo l'ha già consegnata).
@@ -2565,6 +2768,8 @@ export async function stop(id: string): Promise<void> {
   const gen = storeGeneration();
   const me = await afterGate("stop", gen);
   const c = conversationFor(me, id);
+  // Una correzione di server già chiusa non si ferma (le parole del server, F4b).
+  if (c.serverFix && c.state === "finished") throw invalid("not_running");
   if (!conversationPermissions(me, c).canInterrupt) throw forbidden();
   if (c.kind === "free") {
     await stopFree(me, c, gen);
@@ -2730,7 +2935,10 @@ export async function decidePlan(
   decision: "approve" | "reject",
   instructions?: string,
   planId?: string,
+  // Build app: il digest del piano mostrato; il finto decide per `planId`.
+  planDigest?: string,
 ): Promise<void> {
+  void planDigest;
   const gen = storeGeneration();
   const me = await afterGate("decidePlan", gen);
   const c = conversationFor(me, id);
@@ -2760,19 +2968,24 @@ export async function decidePlan(
   // `canRejectPlan` è il piano che aspetta e chi può deciderlo; il rifiuto
   // resta anche con l'approvazione spenta (correzione di un server).
   if (!plan || !perms.canRejectPlan) {
-    throw invalid("status");
+    // Le parole del server per una correzione (F4b): niente piano che aspetta.
+    throw invalid(c.serverFix ? "not_awaiting_approval" : "status");
   }
-  // Correzione di un server: server ancora del progetto e accesso di
-  // correzione usabile, ricontrollati qui (`serverFixBlock`); altrimenti
+  // Correzione di un server: server ancora del progetto e operazioni
+  // dell'agente accese, ricontrollati qui (`serverFixBlock`); altrimenti
   // niente approvazione, col motivo.
   if (decision === "approve" && !perms.canDecidePlan) {
-    const block = serverFixBlock(c);
-    throw invalid(block === "server_gone" ? "server_gone" : block ? "fix_access" : "status");
+    throw invalid(serverFixBlock(c) ?? "status");
+  }
+  // Il piano si rivalida all'approvazione (F4b): un container passato a un
+  // altro progetto, o sparito, lo rende vecchio.
+  if (decision === "approve" && c.serverFix && !serverPlanStillFits(c)) {
+    throw invalid("plan_stale");
   }
   const task = state.tasksById.get(c.taskId!)!;
   const note = instructions?.trim() || undefined;
-  // Un piano di correzione con l'approvazione spenta (revoca, accesso non
-  // verificato, server tolto): rifiutarlo chiude la correzione e libera il
+  // Un piano di correzione con l'approvazione spenta (operazioni spente,
+  // server tolto): rifiutarlo chiude la correzione e libera il
   // server, anche con indicazioni. Riscriverlo darebbe un piano di nuovo
   // bloccato e il server resterebbe occupato.
   const blocked = c.serverFix !== undefined && serverFixBlock(c) !== null;
@@ -2959,7 +3172,9 @@ export type ProposalOutcome =
 export async function confirmProposal(
   id: string,
   proposalId: string,
-  options: { actionIndexes?: number[] } = {},
+  // `edited`: la build app (chat, fetta 3) conferma coi valori di «Edit»; il
+  // prototipo li esegue a mano dal dialogo (`completeEditedProposal`).
+  options: { actionIndexes?: number[]; edited?: { index: number; args: Record<string, unknown> }[] } = {},
 ): Promise<ProposalOutcome> {
   const gen = storeGeneration();
   const me = await afterGate("confirmProposal", gen);
@@ -2981,6 +3196,11 @@ export async function settleProposal(
   const chosen = selectActions(proposal.actions, options.actionIndexes);
   if (place.conversationId !== undefined) {
     return settleInConversation(me, place, place.conversationId, chosen, gen);
+  }
+  // Una C senza riconferma fresca non parte e non chiude la proposta, come
+  // nel riquadro (review F7, I1): la Chat chiede il codice e rimanda.
+  if (classOfGroup(me, chosen.actions).cls === "C" && reauthMissing(me, chosen.actions)) {
+    return { ok: false, error: "reauth_required" };
   }
   claims.set(key, me);
   // Le conferme di @Claude nella Chat portano il segno «per conto di» come
@@ -3207,6 +3427,23 @@ export async function setConversationContext(id: string, projectId: string | nul
   if (c.archived) throw forbidden();
   if (projectId !== null) projectFor(me, projectId);
   c.contextProjectId = projectId;
+  c.updatedAt = now();
+  notifyConversationChange(id);
+}
+
+/**
+ * Lotto 8, §1: il gruppo dei contesti di una libera (l'autore), come il
+ * `PATCH { contexts }` del server: lo sostituisce, al più
+ * {@link MAX_CONVERSATION_CONTEXTS}, senza doppioni; l'ultimo è il primario.
+ * Così si toglie un chip.
+ */
+export async function setConversationContexts(id: string, contexts: ContextRef[]): Promise<void> {
+  const me = await gate("setConversationContexts");
+  const c = ownFreeConversation(me, id);
+  if (c.archived) throw forbidden();
+  const group = contexts.reduce<ContextRef[]>((acc, ref) => [...acc.filter((x) => !sameContext(x, ref)), ref], []);
+  if (group.length > MAX_CONVERSATION_CONTEXTS) throw invalid("too_many_contexts");
+  c.contexts = group;
   c.updatedAt = now();
   notifyConversationChange(id);
 }
@@ -3471,26 +3708,12 @@ export async function cancelProposal(id: string, proposalId: string): Promise<vo
 /** Lo stato in cui chiudere un evento del riquadro (`draft`, `pageAction`). */
 export type PageEventStatus = "placed" | "waiting" | "done" | "undone" | "changed_after" | "failed";
 
-/**
- * Da quale stato si va dove, per tipo d'evento (area 10b, Task 9): un'azione
- * della pagina si esegue (`done`) o no (`failed`), poi si annulla o è stata
- * cambiata dopo; una bozza va nel campo (`placed`) o aspetta la pagina
- * (`waiting`), poi lo stesso. Un evento chiuso non si riapre.
- */
-const PAGE_EVENT_MOVES: Record<
-  "pageAction" | "draft",
-  Record<string, readonly PageEventStatus[]>
-> = {
-  pageAction: {
-    pending: ["done", "failed"],
-    done: ["undone", "changed_after"],
-  },
-  draft: {
-    pending: ["placed", "waiting"],
-    waiting: ["placed"],
-    placed: ["undone", "changed_after"],
-  },
-};
+// Da quale stato si va dove (area 10b, Task 9): un'azione della pagina si
+// esegue (`done`) o no (`failed`), poi si annulla o è stata cambiata dopo; una
+// bozza va nel campo (`placed`) o aspetta la pagina (`waiting`), poi lo stesso.
+// Un evento chiuso non si riapre. Le mosse stanno in `@stubwise/shared`
+// (`CLAUDE_PAGE_OUTCOME_MOVES`, lotto 7, §1), le stesse che il server applica
+// all'esito salvato; un evento `draft` è l'azione `fillField`.
 
 /**
  * Chiude un evento `draft` o `pageAction` del riquadro: solo chi ha aperto
@@ -3500,8 +3723,14 @@ const PAGE_EVENT_MOVES: Record<
 export async function settlePageEvent(
   conversationId: string,
   eventId: string,
-  status: PageEventStatus,
+  /**
+   * `not_run` (lotto 7, §1, decisione 1.b): un'azione che non è partita
+   * (vecchia, o letta dalla storia nella build app). Qui è `failed` come
+   * sempre; la build app la tiene solo in locale e non la dice al server.
+   */
+  settled: PageEventStatus | "not_run",
 ): Promise<void> {
+  const status: PageEventStatus = settled === "not_run" ? "failed" : settled;
   const gen = storeGeneration();
   const me = await afterGate("settlePageEvent", gen);
   const c = conversationFor(me, conversationId);
@@ -3509,7 +3738,9 @@ export async function settlePageEvent(
   if (c.ownerId !== me) throw forbidden();
   const event = eventsOf(conversationId).find((e) => e.id === eventId);
   if (!event || (event.type !== "pageAction" && event.type !== "draft")) throw notFound();
-  if (!PAGE_EVENT_MOVES[event.type][event.status]?.includes(status)) throw invalid("status");
+  const fn = event.type === "draft" ? "fillField" : "pageAction";
+  const from = event.status === "pending" ? null : event.status;
+  if (!claudePageOutcomeMoveAllowed(fn, from, status)) throw invalid("status");
   await runScript(
     conversationId,
     [{ step: "patch", eventId, patch: { type: event.type, status } as EventPatch }],
@@ -3552,6 +3783,26 @@ export function proposalActionArgs(
 }
 
 /**
+ * Se Claude, in questa conversazione, ha letto contenuti privati di chi
+ * chiede (area 10, review di F1, come il server): la posta o l'email nuova
+ * (il chip `mail`), una bozza di email (`mailBody`), un'automazione generale
+ * (il chip di una senza progetto). Si deriva dagli eventi a lettura. Calendario,
+ * canali privati e DM la libera del prototipo non li legge.
+ */
+function readsPrivateContent(conversationId: string): boolean {
+  return eventsOf(conversationId).some((e) => {
+    if (e.type === "draft") return e.field?.kind === "mailBody";
+    if (e.type !== "user" || !e.context) return false;
+    if (e.context.kind === "mail") return true;
+    if (e.context.kind === "automation") {
+      const automationId = e.context.automationId;
+      return state.automations.find((a) => a.id === automationId)?.projectId === null;
+    }
+    return false;
+  });
+}
+
+/**
  * Rende pubblica o privata una conversazione libera (l'autore). Pubblica
  * chiede prima di confermare i progetti che Claude ha letto o toccato:
  * senza `confirmedProjectIds` uguale all'elenco di adesso risponde
@@ -3571,6 +3822,11 @@ export async function setVisibility(
     c.privateFromIndex = null;
     c.publishedProjectIds = [];
   } else {
+    // Area 10 (review di F1, 46): ciò che Claude ha letto di privato resta di
+    // chi l'ha chiesto, quindi la conversazione non si pubblica più.
+    if (readsPrivateContent(id)) return { status: "private_content" };
+    // Il gruppo dei contesti conta anche se è cresciuto senza un turno (il chip del riquadro).
+    touchProjects(c, contextProjectIds(me, c));
     const touched = [...new Set(c.touchedProjectIds)].sort().join();
     const confirmed = [...new Set(options.confirmedProjectIds ?? [])].sort().join();
     if (options.confirmedProjectIds === undefined || touched !== confirmed) {
@@ -3677,11 +3933,12 @@ function prepareRun(me: string, task: Task, pending: Task[] = []): void {
 /**
  * Il blocco d'istanza di un avvio di Claude nel progetto: col budget del
  * mese esaurito l'avvio è rifiutato (`monthly_budget`), prima di ogni
- * scrittura; con la coda in pausa la sessione nasce in attesa
- * (`startOrHold`). `null`: parte subito.
+ * scrittura, a chi non ha `plans.approve` nel progetto (D-7.1, chi ce l'ha
+ * lo scavalca: `manualStartBlockFor`); con la coda in pausa la sessione nasce
+ * in attesa (`startOrHold`). `null`: parte subito.
  */
-export function aiStartBlock(projectId: string): AiBlock | null {
-  const block = aiBlockFor(projectId);
+export function aiStartBlock(me: string, projectId: string): AiBlock | null {
+  const block = manualStartBlockFor(me, projectId);
   if (block?.reason === "monthly_budget") throw invalid("monthly_budget");
   return block;
 }
@@ -3818,7 +4075,7 @@ export async function startRunAs(me: string, task: Task, gen: number): Promise<C
  */
 export function openRunAs(me: string, task: Task): Conversation {
   prepareRun(me, task);
-  aiStartBlock(task.projectId);
+  aiStartBlock(me, task.projectId);
   return openRun(me, task);
 }
 
@@ -3829,7 +4086,8 @@ export function openRunAs(me: string, task: Task): Conversation {
  */
 export async function launchRun(me: string, c: Conversation, gen: number): Promise<void> {
   const task = state.tasksById.get(c.taskId!)!;
-  const block = aiBlockFor(task.projectId);
+  // D-7.1: lo stesso blocco dell'avvio (chi ha `plans.approve` scavalca il budget).
+  const block = manualStartBlockFor(me, task.projectId);
   await startOrHold(me, c, "task_run", block, gen, () => playRun(me, c, task, gen));
 }
 
@@ -3852,7 +4110,7 @@ export async function relaunchWithInstructions(
   if (previous && previous.state !== "finished" && previous.state !== "paused") throw conflict();
   // La PR è già mergiata: il lavoro è chiuso, non si rilancia (`runPreconditions`).
   if (!runPreconditions(task).relaunch) throw invalid("status");
-  aiStartBlock(task.projectId);
+  aiStartBlock(me, task.projectId);
   if (previous?.state === "paused") {
     // Una correzione ripresa che aspettava la coda non riparte più (area 9b).
     if (previous.waiting) {
@@ -3868,12 +4126,38 @@ export async function relaunchWithInstructions(
     if (live && live.state !== "finished") throw conflict();
   }
   // Riletto dopo l'attesa: il budget può essere finito nel frattempo.
-  const block = aiStartBlock(task.projectId);
+  const block = aiStartBlock(me, task.projectId);
   const c = openRun(me, task);
   await startOrHold(me, c, "task_run", block, gen, () =>
     playRun(me, c, task, gen, instructions.trim()),
   );
   return copy(c);
+}
+
+/**
+ * «Annulla il lavoro» (`runs.start`, decisione del maintainer del 10 nov
+ * 2026): chiude l'ultimo lavoro della task come fermato. PARCHEGGIATO —
+ * fermo, in pausa, in attesa di una risposta o dell'approvazione, in coda —
+ * si chiude subito (`cancelled`); AL LAVORO, come sul server vero (3b.1-bis),
+ * la richiesta parte e Claude si ferma da sé (`requested`: qui il copione si
+ * chiude come lo chiuderebbe il worker). Senza lavoro vivo non c'è niente da
+ * annullare (`nothing_to_cancel`). Le PR non si toccano.
+ */
+export async function cancelRun(taskId: string): Promise<"cancelled" | "requested"> {
+  const gen = storeGeneration();
+  const me = await afterGate("cancelRun", gen);
+  const task = taskFor(me, taskId);
+  need(me, "runs.start", task.projectId);
+  const run = latestRunOf(task.id);
+  if (!run || run.state === "finished") throw Object.assign(new Error("nothing_to_cancel"), { code: "nothing_to_cancel" });
+  const requested = run.state === "working" && !run.waiting;
+  if (run.waiting) {
+    dropHeld(run.id);
+    run.waiting = null;
+  }
+  interruptScripts(run.id, i18n.t("claude.conversation.delivery.stoppedBeforeTurn"));
+  await runScript(run.id, [{ step: "state", state: "finished", outcome: "stopped" }], gen);
+  return requested ? "requested" : "cancelled";
 }
 
 /**
@@ -3892,7 +4176,7 @@ export async function resumeCorrection(taskId: string): Promise<Conversation> {
   // Già ripresa, in attesa della coda (area 9b): riparte una volta sola.
   if (run.waiting) throw conflict();
   // Ruling 13: col budget esaurito è rifiutata, con la coda in pausa aspetta.
-  const block = aiStartBlock(task.projectId);
+  const block = aiStartBlock(me, task.projectId);
   // La correzione ripresa è la stessa: stessa PR.
   const pr =
     eventsOf(run.id)
@@ -3964,7 +4248,7 @@ export async function requestChangesAs(
   pr: PrRef | undefined,
 ): Promise<Conversation> {
   // Area 9b: col budget esaurito è rifiutata, con la coda in pausa aspetta.
-  const block = aiStartBlock(task.projectId);
+  const block = aiStartBlock(me, task.projectId);
   // Una correzione parte già in esecuzione: il suo modello è quello di `fix_execute`.
   const c = openRun(me, task, "fix_execute");
   // La correzione è di una PR: quella scelta dal chiamante (da «Chiedi
@@ -4090,7 +4374,13 @@ export async function generateDailyReport(projectId: string, date: string): Prom
  * La scrittura è quella della pagina della persona (`linkIdentityAs`, area
  * 9a): un solo collegamento, con la sua voce nel registro.
  */
-export async function linkCommitAuthor(authorName: string, personId: string): Promise<void> {
+export async function linkCommitAuthor(
+  authorName: string,
+  personId: string,
+  // La build app collega l'email dell'autore (area 3, 3e.2); il finto per nome.
+  authorEmail?: string | null,
+): Promise<LinkCommitAuthorResult> {
+  void authorEmail;
   const me = await gate("linkCommitAuthor");
   need(me, "users.manage");
   const unlinked = COMMITS.some((c) => c.authorId === null && c.authorName === authorName);
@@ -4098,4 +4388,12 @@ export async function linkCommitAuthor(authorName: string, personId: string): Pr
   const person = PEOPLE.find((p) => p.id === personId);
   if (!person || person.isClaude) throw notFound();
   linkIdentityAs(me, personId, authorName);
+  return { ok: true };
 }
+
+/**
+ * L'esito di «Link a person». Sul server vero la rotta vuole la riconferma
+ * (`reauth_required`, la gestisce `useReauth`) e un'email già collegata a
+ * qualcuno è `taken`; ogni altro errore si lancia.
+ */
+export type LinkCommitAuthorResult = { ok: true } | { ok: false; error: "reauth_required" | "taken" };

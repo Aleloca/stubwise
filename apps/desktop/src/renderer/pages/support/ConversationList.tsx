@@ -6,14 +6,7 @@ import { Chevron, RadioItem } from "../../tasks-ui/Menu";
 import { PageEmpty } from "../../tasks-ui/PageStates";
 import { whenLabel } from "../mail/format";
 import { MenuButton } from "../tasks/controls";
-import {
-  ChannelGlyph,
-  customerName,
-  sinceWords,
-  STATE_ORDER,
-  stateWord,
-  WaitingSince,
-} from "./format";
+import { ChannelGlyph, customerName, STATE_ORDER, stateWord } from "./format";
 
 // L'elenco delle conversazioni (shape support.md §3, [A 2]): raggruppato per
 // stato, non cronologico — la domanda è «chi aspetta noi?». Righe di 64 px a
@@ -61,8 +54,9 @@ function Row({
   onOpen: (code: string, how: "click" | "keys") => void;
 }) {
   const { t, i18n } = useTranslation();
-  const waiting = c.state === "waiting_us";
-  const dot = waiting && c.canReply;
+  // Aspetta te (area 8, F3): una non conclusa da cui puoi aprire la richiesta.
+  const waiting = c.state === "not_concluded";
+  const dot = waiting && c.canOpenRequest;
   const name = customerName(c, t);
   const last = c.lastMessage;
   const teamName = last?.from === "team" && last.authorId !== me ? personName(last.authorId) : null;
@@ -73,9 +67,6 @@ function Row({
     name,
     t(`support.channel.${c.channel}`),
     stateWord(c.state, t),
-    waiting && c.waitingSince
-      ? t("support.waiting", { time: sinceWords(c.waitingSince, t) })
-      : null,
   ]
     .filter(Boolean)
     .join(", ");
@@ -104,14 +95,10 @@ function Row({
           {name}
         </span>
         <ChannelGlyph channel={c.channel} />
-        {waiting && c.waitingSince ? (
-          <WaitingSince since={c.waitingSince} />
-        ) : (
-          last && (
-            <span className="num shrink-0 text-xs text-ink-muted">
-              {whenLabel(last.at, i18n.language)}
-            </span>
-          )
+        {last && (
+          <span className="num shrink-0 text-xs text-ink-muted">
+            {whenLabel(last.at, i18n.language)}
+          </span>
         )}
       </div>
       <div className="flex min-w-0 items-center gap-1.5 pl-4 text-xs">

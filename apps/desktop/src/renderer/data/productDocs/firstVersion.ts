@@ -2,7 +2,7 @@ import { buildProductTree, flattenTree } from "../../domain/productDocs/tree";
 import { visiblePeopleFor } from "../access/whoCan";
 import { docsAccess } from "../docs/reads";
 import { canSeeDriveFile } from "../drive/visibility";
-import { aiBlockFor } from "../instance/blocks";
+import { manualStartBlockFor } from "../instance/blocks";
 import { canSeeMessage, canSeeTranscript } from "../mail/visibility";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { VRD_FIRST_VERSION, VRD_IDS } from "../seed/productDocs/vrdFirstVersion";
@@ -351,7 +351,8 @@ export function startFirstVersionAs(
   if (refs.length === 0) throw new Error("no_sources");
   if (productPagesOf(projectId).length > 0 || latestOf(projectId)?.status === "writing")
     throw new Error("space_not_empty");
-  if (aiBlockFor(projectId)?.reason === "monthly_budget") throw new Error("ai_blocked");
+  // D-7.1: chi ha `plans.approve` nel progetto scavalca il budget.
+  if (manualStartBlockFor(me, projectId)?.reason === "monthly_budget") throw new Error("ai_blocked");
 
   const keys = new Set(refs.map(keyOf));
   const prepared = PREPARED[projectId];
@@ -470,6 +471,9 @@ async function play(
     if (at !== storeGeneration() || fv.status !== "writing" || !state.productFirstVersions.includes(fv))
       return;
     if (fv.written.some((w) => !productPageById(w.pageId))) return interrupt(fv);
+    // «Stop» prima della prima pagina: Claude non comincia (come il server
+    // con la bozza ancora in coda); zero pagine scritte.
+    if (fv.stopRequested && i === 0) return interrupt(fv);
     try {
       writePage(fv, page, pageOfKey, source);
     } catch {
@@ -478,10 +482,34 @@ async function play(
       return interrupt(fv);
     }
     fv.pagesDone = i + 1;
+    // «Stop»: la pagina in corso è scritta, le altre no.
+    if (fv.stopRequested && i < draft.length - 1) return interrupt(fv);
     emitProductFirstVersion(fv.projectId);
   }
   fv.status = "done";
   emitProductFirstVersion(fv.projectId);
+}
+
+/**
+ * «Stop» (decisione del maintainer, 22 nov 2026): Claude finisce la pagina
+ * in corso e si ferma; le pagine scritte restano e si annullano come
+ * sempre. Chiede `docs.edit` (`not_found` a chi non legge i Docs, come il
+ * server); senza una prima versione che scrive, o già fermata, non fa
+ * niente (idempotente). Fra il clic e l'arresto la vista dice `stopping`
+ * a tutti e nessuno ha più «Stop» (la forma del server, a7f558344).
+ */
+export function stopFirstVersionAs(me: string, projectId: string): void {
+  const access = docsAccess(me, projectId);
+  if (access === "none") throw notFound();
+  if (access === "forbidden" || !can(viewerFor(me), "docs.edit", projectId)) throw forbidden();
+  const fv = latestOf(projectId);
+  if (fv?.status !== "writing" || fv.stopRequested) return;
+  fv.stopRequested = true;
+  emitProductFirstVersion(projectId);
+}
+
+export async function stopFirstVersion(projectId: string): Promise<void> {
+  stopFirstVersionAs(await writer("productDocs.stopFirstVersion"), projectId);
 }
 
 // --- «Annulla» e «Accetta» ---------------------------------------------------------
@@ -668,7 +696,11 @@ export function productFirstVersionOf(
         ? []
         : alive.filter((p) => !fv.acceptedPageIds.includes(p.id)).map((p) => p.id),
     undo: undoViewOf(me, fv),
-    permissions: { edit: canEdit(me, projectId) },
+    stopping: fv.status === "writing" && fv.stopRequested === true,
+    permissions: {
+      edit: canEdit(me, projectId),
+      stop: fv.status === "writing" && !fv.stopRequested && canEdit(me, projectId),
+    },
   };
 }
 

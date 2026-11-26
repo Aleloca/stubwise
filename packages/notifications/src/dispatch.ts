@@ -118,6 +118,37 @@ const TOGGLE_FOR_KIND: Record<NotificationKind, keyof NotificationSettingsRow> =
   // Mai consultato (vedi `shouldSendWebhook`): l'avviso di sicurezza non
   // esce mai su un canale condiviso. Riga presente per l'esaustività.
   "security.alert": "notifyGoogleProposal",
+  // Mai consultati (vedi `shouldSendWebhook`): decisioni e attività sono
+  // rivolte a persone, non al canale del team. Righe per l'esaustività.
+  "decision.requested": "notifyGoogleProposal",
+  "decision.answered": "notifyGoogleProposal",
+  "ticket.activity": "notifyGoogleProposal",
+  // Mai consultati: pianificazione e assegnazione sono personali (fetta 2).
+  "planning.changed": "notifyGoogleProposal",
+  "task.assigned": "notifyGoogleProposal",
+  // Mai consultato: una menzione è personale (audience `account_owner`).
+  "chat.mention": "notifyGoogleProposal",
+  "chat.question": "notifyGoogleProposal",
+  // Mai consultati: le card delle Automations sono personali (area 7).
+  "automation.approval": "notifyGoogleProposal",
+  "automation.failed": "notifyGoogleProposal",
+  "automation.notify": "notifyGoogleProposal",
+  "automation.paused": "notifyGoogleProposal",
+  // Area 8, F1: riusa l'interruttore dei job falliti (è lo stesso tipo di avviso: «qualcosa è andato storto»).
+  "release.failed": "notifyJobFailed",
+  // Area 8, F2: mai consultati — i tipi del catalogo non vanno sul webhook (M3, `shouldSendWebhook`).
+  "release.merged": "notifyJobFailed",
+  "release.succeeded": "notifyJobFailed",
+  "pr.opened": "notifyJobFailed",
+  "pr.analysis_issues": "notifyJobFailed",
+  "pr.corrected": "notifyJobFailed",
+  "docs.release_note": "notifyJobFailed",
+  "support.request": "notifyJobFailed",
+  "member.added": "notifyJobFailed",
+  "product_doc.mention": "notifyJobFailed",
+  "product_doc.updated": "notifyJobFailed",
+  "product_doc.question": "notifyJobFailed",
+  "server.diagnosis_ready": "notifyJobFailed",
 };
 
 /** Una transazione drizzle aperta su `Db` (il `tx` di `db.transaction`). */
@@ -244,14 +275,33 @@ async function postWebhook(
  * Secondo fattore: e per `account_owner` (`security.alert`). Un avviso sul
  * secondo fattore di una persona riguarda lei sola, non un canale del team.
  */
+/**
+ * Il kind va a un'audience PERSONALE (la casella di qualcuno, chi decide, il
+ * titolare dell'account, una decisione chiesta o risposta, l'attività di una
+ * task seguita): non va MAI in un webhook d'istanza, qualunque cosa questo
+ * abbia scelto. Una regola sola per il webhook di oggi e per quelli nuovi
+ * (area 9, F3).
+ */
+export function isPersonalWebhookAudience(kind: NotificationKind): boolean {
+  const audience = audienceFor(kind);
+  return (
+    audience === "mailbox_owner" ||
+    audience === "project_deciders" ||
+    audience === "account_owner" ||
+    // Integrazione area 2: una decisione chiesta a una persona, la sua
+    // risposta e l'attività di una task seguita sono PERSONALI.
+    audience === "decision_target" ||
+    audience === "decision_asker" ||
+    audience === "ticket_followers" ||
+    audience === "task_people"
+  );
+}
+
 export function shouldSendWebhook(
   settings: NotificationSettingsRow | null,
   kind: NotificationKind,
 ): boolean {
-  const audience = audienceFor(kind);
-  if (audience === "mailbox_owner" || audience === "project_deciders" || audience === "account_owner") {
-    return false;
-  }
+  if (isPersonalWebhookAudience(kind)) return false;
   if (!settings || !settings.enabled || !settings.webhookUrl) return false;
   return settings[TOGGLE_FOR_KIND[kind]] === true;
 }

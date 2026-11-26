@@ -3,6 +3,7 @@ import { and, eq, gt, isNull } from "drizzle-orm";
 import { passwordResetTokens, users } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import { z } from "zod";
+import { personObject, recordChange } from "../services/change-log.js";
 import { hashServerKey } from "../routes/shared.js";
 
 /**
@@ -50,17 +51,23 @@ export async function revokePendingResetTokens(db: DbOrTx, userId: string): Prom
 export async function issuePasswordResetToken(
   db: Db,
   userId: string,
-  createdByUserId: string,
+  actor: { id: string; email: string },
 ): Promise<{ token: string; expiresAt: Date } | null> {
+  const createdByUserId = actor.id;
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MS);
   return db.transaction(async (tx) => {
     const [target] = await tx
-      .select({ id: users.id })
+      .select({ id: users.id, email: users.email, deactivatedAt: users.deactivatedAt })
       .from(users)
       .where(eq(users.id, userId))
       .for("update");
-    if (!target) return null;
+    // Una persona disattivata non riceve un link (review di F1, m6): non
+    // entrerebbe, e la lettura del link ne rivelerebbe l'email.
+    if (!target || target.deactivatedAt) return null;
+    // Area 9, F2: la voce del registro nella transazione del link. Il token
+    // non entra mai nella voce.
+    await recordChange(tx, { type: "person.password_reset_link_created", actor, projectId: null, data: { object: personObject(target) } });
     await revokePendingResetTokens(tx, userId);
     await tx.insert(passwordResetTokens).values({
       userId,
@@ -93,6 +100,8 @@ export async function findLiveResetToken(
     .where(
       and(
         eq(passwordResetTokens.tokenHash, hashResetToken(token)),
+        // L'utente di sistema «Claude» non ha password da reimpostare (fetta 3e).
+        eq(users.isAgent, false),
         isNull(passwordResetTokens.usedAt),
         gt(passwordResetTokens.expiresAt, new Date()),
       ),

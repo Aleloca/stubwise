@@ -94,7 +94,7 @@ function snapshot(): string {
 /** Il rifiuto atteso, con lo stato e il registro invariati. */
 async function refused(
   call: () => Promise<AdminResult<object>>,
-  expected: Partial<{ error: string; reason: string; missing: string[] }>,
+  expected: Partial<{ error: string; reason: string; missing: string[]; taskId: string }>,
 ) {
   const before = snapshot();
   const entries = state.changelog.length;
@@ -125,6 +125,8 @@ const SENSITIVE: Record<string, { setup?: () => void; call: () => Promise<AdminR
     "admin.setInstanceRole": { call: () => admin.setInstanceRole("p-marco", roleIdOf("au-1")) },
     "admin.createPasswordResetLink": { call: () => admin.createPasswordResetLink("p-marco") },
     "admin.resetSecondFactor": { call: () => admin.resetSecondFactor("p-marco") },
+    // Area 9, R2.
+    "admin.changeEmail": { call: () => admin.changeEmail("p-marco", "marco@new.example.com") },
     "admin.unlinkGitIdentity": {
       setup: () => state.commitAuthorLinks.set("kevin.ortega", "p-marco"),
       call: () => admin.unlinkGitIdentity("p-marco", "kevin.ortega"),
@@ -146,25 +148,23 @@ const SENSITIVE: Record<string, { setup?: () => void; call: () => Promise<AdminR
     },
     "admin.duplicateRole": { call: () => admin.duplicateRole(roleIdOf("developer")) },
     "admin.deleteRole": { call: () => admin.deleteRole(roleIdOf("au-1")) },
+    // F8-3 (maintainer): chiede il codice chi aggiunge una persona a un reparto CHE DÀ permessi.
     "admin.setDepartmentMembers": {
       call: () =>
-        admin.setDepartmentMembers("dep-sales", [
-          ...accessState().departments.find((d) => d.departmentId === "dep-sales")!.memberIds,
-          "p-marco",
+        admin.setDepartmentMembers("dep-development", [
+          ...accessState().departments.find((d) => d.departmentId === "dep-development")!.memberIds,
+          "p-giulia",
         ]),
     },
-    "admin.setHomeManagers": {
-      call: () => admin.setHomeManagers("dep-sales", ["p-matteo", "p-elena"]),
-    },
     "admin.setDepartmentPermissions": {
-      call: () => admin.setDepartmentPermissions("dep-sales", ["support.reply"]),
+      call: () => admin.setDepartmentPermissions("dep-sales", ["support.manage"]),
     },
     "admin.saveDepartment": {
       call: () =>
-        admin.saveDepartment("dep-sales", {
-          memberIds: [...dept("dep-sales").memberIds, "p-marco"],
-          homeManagerIds: dept("dep-sales").homeManagerIds,
-          projectPermissions: dept("dep-sales").projectPermissions,
+        admin.saveDepartment("dep-development", {
+          memberIds: [...dept("dep-development").memberIds, "p-giulia"],
+          homeManagerIds: dept("dep-development").homeManagerIds,
+          projectPermissions: dept("dep-development").projectPermissions,
         }),
     },
     "admin.addMember": { call: () => admin.addMember(ACQ, "p-giulia", roleIdOf("developer")) },
@@ -199,6 +199,49 @@ describe("riconferma", () => {
     });
   }
 
+  // F8-3 (maintainer): la riconferma sui reparti solo dove si danno accessi:
+  // i permessi aggiunti e una persona aggiunta a un reparto che ne dà. Non
+  // rinominare, non togliere, non chi gestisce la Home.
+  it("F8-3: senza riconferma passano rinominare, togliere, la Home, e aggiungere a un reparto senza permessi", async () => {
+    as("p-roberta");
+    const dev = structuredClone(dept("dep-development"));
+    const sales = structuredClone(dept("dep-sales"));
+    expect(
+      await admin.saveDepartment("dep-development", {
+        name: "Engineering",
+        memberIds: dev.memberIds,
+        homeManagerIds: dev.homeManagerIds,
+        projectPermissions: dev.projectPermissions,
+      }),
+    ).toEqual({ ok: true });
+    expect(
+      await admin.setDepartmentPermissions("dep-development", []),
+    ).toEqual({ ok: true });
+    expect(
+      await admin.setDepartmentMembers("dep-sales", [...sales.memberIds, "p-marco"]),
+    ).toEqual({ ok: true });
+    expect(await admin.setDepartmentMembers("dep-sales", sales.memberIds)).toEqual({ ok: true });
+    expect(await admin.setHomeManagers("dep-sales", ["p-matteo", "p-elena"])).toEqual({ ok: true });
+    expect(REAUTH_REQUIRED.has("admin.setHomeManagers" as ApiFnName)).toBe(false);
+  });
+
+  it("F8-3: aggiungere un permesso al reparto chiede il codice; anche dentro la bozza intera", async () => {
+    as("p-roberta");
+    await refused(() => admin.setDepartmentPermissions("dep-sales", ["support.manage"]), {
+      error: "reauth_required",
+    });
+    const sales = structuredClone(dept("dep-sales"));
+    await refused(
+      () =>
+        admin.saveDepartment("dep-sales", {
+          memberIds: sales.memberIds,
+          homeManagerIds: sales.homeManagerIds,
+          projectPermissions: ["support.manage"],
+        }),
+      { error: "reauth_required" },
+    );
+  });
+
   it("la riconferma è della persona: quella di Roberta non vale per Laura", async () => {
     reauth("p-roberta");
     as("p-laura");
@@ -216,6 +259,7 @@ describe("senza permesso: forbidden, stato invariato, nessuna voce", () => {
     ["setInstanceRole", () => admin.setInstanceRole("p-marco", roleIdOf("au-1"))],
     ["createPasswordResetLink", () => admin.createPasswordResetLink("p-marco")],
     ["resetSecondFactor", () => admin.resetSecondFactor("p-marco")],
+    ["changeEmail", () => admin.changeEmail("p-marco", "marco@new.example.com")],
     ["linkGitIdentity", () => admin.linkGitIdentity("p-marco", "kevin.ortega")],
     ["unlinkGitIdentity", () => admin.unlinkGitIdentity("p-marco", "kevin.ortega")],
     ["setBitbucketUsername", () => admin.setBitbucketUsername("p-marco", "marcob")],
@@ -358,7 +402,7 @@ describe("RF 1: si dà solo ciò che si ha", () => {
     });
   });
 
-  describe("Laura aggiunge Giulia a Development, che porta support.reply", () => {
+  describe("Laura aggiunge Giulia a Development, che porta support.manage", () => {
     it("senza departments.manage → forbidden", async () => {
       as("p-laura");
       reauth("p-laura");
@@ -369,7 +413,7 @@ describe("RF 1: si dà solo ciò che si ha", () => {
       );
     });
 
-    it("con departments.manage e support.reply nei progetti di chi entra → ammesso", async () => {
+    it("con departments.manage e support.manage nei progetti di chi entra → ammesso", async () => {
       giveInstance("p-laura", "departments.manage");
       onlyInProjectsOf("p-marco", "p-laura");
       as("p-laura");
@@ -384,10 +428,10 @@ describe("RF 1: si dà solo ciò che si ha", () => {
       giveInstance("p-laura", "departments.manage");
       as("p-laura");
       reauth("p-laura");
-      // Giulia è anche in CBV e OLV, dove Laura non è: lì support.reply non ce l'ha.
+      // Giulia è anche in CBV e OLV, dove Laura non è: lì support.manage non ce l'ha.
       await refused(
         () => admin.setDepartmentMembers("dep-development", [...developmentMembers(), "p-giulia"]),
-        { error: "escalation", missing: ["support.reply"] },
+        { error: "escalation", missing: ["support.manage"] },
       );
     });
 
@@ -449,7 +493,7 @@ describe("RF 1: si dà solo ciò che si ha", () => {
       });
       await refused(
         () => admin.setDepartmentMembers("dep-development", [...developmentMembers(), "p-marco"]),
-        { error: "escalation", missing: ["support.reply", "servers.operate"] },
+        { error: "escalation", missing: ["support.manage", "servers.operate"] },
       );
     });
   });
@@ -480,9 +524,9 @@ describe("RF 1: si dà solo ciò che si ha", () => {
           ...marketing().projectPermissions,
           "plans.approve",
         ]),
-      "automations.manage nel ruolo d'istanza User (Laura ce l'ha solo di progetto)": () =>
+      "automations.general.manage nel ruolo d'istanza User (Laura ha solo automations.manage di progetto)": () =>
         admin.updateRole(roleIdOf("user"), {
-          permissions: [...user().permissions, "automations.manage"],
+          permissions: [...user().permissions, "automations.general.manage"],
         }),
       "Alessia in STW, con servers.operate dal reparto": () =>
         admin.addMember(STW, "p-alessia", roleIdOf("viewer")),
@@ -490,8 +534,8 @@ describe("RF 1: si dà solo ciò che si ha", () => {
     const missingOf: Record<keyof typeof scenarios, string> = {
       "release.merge nel preset Developer (Federico ce l'avrebbe su CBV)": "release.merge",
       "plans.approve nel reparto Marketing (Giulia ce l'avrebbe su CBV)": "plans.approve",
-      "automations.manage nel ruolo d'istanza User (Laura ce l'ha solo di progetto)":
-        "automations.manage",
+      "automations.general.manage nel ruolo d'istanza User (Laura ha solo automations.manage di progetto)":
+        "automations.general.manage",
       "Alessia in STW, con servers.operate dal reparto": "servers.operate",
     };
 
@@ -509,7 +553,7 @@ describe("RF 1: si dà solo ciò che si ha", () => {
       expect(state.projectsById.get(CBV)!.memberIds).not.toContain("p-laura");
       expect(can(viewerFor("p-laura"), "release.merge", ACQ)).toBe(true);
       expect(can(viewerFor("p-laura"), "automations.manage", ACQ)).toBe(true);
-      expect(can(viewerFor("p-laura"), "automations.manage")).toBe(false);
+      expect(can(viewerFor("p-laura"), "automations.general.manage")).toBe(false);
       expect(can(viewerFor("p-laura"), "servers.operate", STW)).toBe(false);
       expect(can(viewerFor("p-laura"), "project.members.manage", STW)).toBe(true);
     });
@@ -802,10 +846,7 @@ describe("disattivare e riattivare", () => {
       expect(await admin.deactivatePerson("p-laura", {})).toMatchObject({ ok: true });
       expect(state.invites.find((i) => i.id === made.inviteId)!.revokedAt).not.toBeNull();
       // Come un invito revocato a mano (`getInvite` e `register`).
-      expect(await auth.getInvite(made.link)).toEqual({
-        status: "revoked",
-        invitedByName: "Laura Costa",
-      });
+      expect(await auth.getInvite(made.link)).toEqual({ status: "revoked" });
       expect(await auth.register(made.link, { name: "Nora", password: "a-long-one" })).toEqual({
         ok: false,
         error: "revoked",
@@ -872,13 +913,55 @@ describe("disattivare e riattivare", () => {
         !state.projectsById.get(task!.projectId)!.memberIds.includes(p.personId),
     )!.personId;
     await refused(() => admin.deactivatePerson("p-marco", { [task!.id]: outsider }), {
-      reason: "assignee",
+      reason: "invalid_reassignment",
+      taskId: task!.id,
     });
     const stw = openTasksOf("p-marco").find((t) => t.projectId === "prj-stw");
     if (stw)
       await refused(() => admin.deactivatePerson("p-marco", { [stw.id]: "p-simone" }), {
-        reason: "assignee",
+        reason: "invalid_reassignment",
+        taskId: stw.id,
       });
+  });
+
+  it("area 9 (decisione del maintainer): Claude non è fra i destinatari, nemmeno dove è membro; una sua riga è invalid_reassignment", async () => {
+    // Assegnare a Claude AVVIA il lavoro (chiede `runs.start`): la
+    // disattivazione è una transazione amministrativa, e non lo fa.
+    const task = openTasksOf("p-marco").find((t) =>
+      state.projectsById.get(t.projectId)!.memberIds.includes(CLAUDE_ID),
+    )!;
+    expect(task).toBeTruthy();
+    const detail = await admin.getPerson("p-marco");
+    expect(detail.openTasks.find((t) => t.taskId === task.id)!.reassignTo).not.toContain(CLAUDE_ID);
+    expect(await admin.deactivatePerson("p-marco", { [task.id]: CLAUDE_ID })).toEqual({
+      ok: false,
+      error: "invalid",
+      reason: "invalid_reassignment",
+      taskId: task.id,
+    });
+    expect(state.tasksById.get(task.id)!.assigneeId).toBe("p-marco");
+  });
+
+  it("area 9, R6: una riga non valida fa fallire tutto, con l'id della sua task (invalid_reassignment)", async () => {
+    const [good, bad] = openTasksOf("p-marco");
+    const to = state.projectsById
+      .get(good!.projectId)!
+      .memberIds.find(
+        (id) =>
+          id !== "p-marco" &&
+          accessState().people.some((p) => p.personId === id && p.status === "active"),
+      )!;
+    // `bad` non è più di Marco: una riga non valida.
+    state.tasksById.get(bad!.id)!.assigneeId = to;
+    const result = await admin.deactivatePerson("p-marco", { [good!.id]: to, [bad!.id]: null });
+    expect(result).toEqual({
+      ok: false,
+      error: "invalid",
+      reason: "invalid_reassignment",
+      taskId: bad!.id,
+    });
+    expect(state.tasksById.get(good!.id)!.assigneeId).toBe("p-marco");
+    expect(accessState().people.find((p) => p.personId === "p-marco")!.status).toBe("active");
   });
 });
 
@@ -1381,7 +1464,7 @@ describe("saveDepartment: la bozza intera, tutto o niente", () => {
   });
 
   it("giro 2 (N-1): un membro salvato tolto dalla bozza e rimesso non è un'aggiunta", async () => {
-    // Marco gestisce i reparti; Development dà «reply to customers», che Marco
+    // Marco gestisce i reparti; Development dà «manage Support conversations», che Marco
     // non ha nei progetti di Laura dove lui non è.
     giveInstance("p-marco", "departments.manage");
     as("p-marco");
@@ -1478,12 +1561,12 @@ describe("saveDepartment: la bozza intera, tutto o niente", () => {
       await admin.saveDepartment("dep-sales", {
         memberIds: [...sales.memberIds, "p-sara"],
         homeManagerIds: [...sales.homeManagerIds, "p-sara"],
-        projectPermissions: ["support.reply"],
+        projectPermissions: ["support.manage"],
       }),
     ).toEqual({ ok: true });
     expect(dept("dep-sales").memberIds).toContain("p-sara");
     expect(dept("dep-sales").homeManagerIds).toContain("p-sara");
-    expect(dept("dep-sales").projectPermissions).toEqual(["support.reply"]);
+    expect(dept("dep-sales").projectPermissions).toEqual(["support.manage"]);
     expect(state.changelog.slice(entries).map((e) => e.kind).sort()).toEqual([
       "department.home_managers_changed",
       "department.members_changed",
@@ -1498,9 +1581,9 @@ describe("saveDepartment: la bozza intera, tutto o niente", () => {
     });
     expect(byKind("department.home_managers_changed").params.added).toBe("p-sara");
     expect(byKind("department.permissions_changed").params).toMatchObject({
-      added: "support.reply",
+      added: "support.manage",
       before: "",
-      after: "support.reply",
+      after: "support.manage",
     });
   });
 
@@ -1512,7 +1595,7 @@ describe("saveDepartment: la bozza intera, tutto o niente", () => {
         if (p.instanceRoleId === roleIdOf("admin")) p.instanceRoleId = roleIdOf("user");
       for (const m of s.memberships) if (m.projectId === ACQ) m.roleId = roleIdOf("developer");
       s.departments.find((d) => d.departmentId === "dep-development")!.projectPermissions = [
-        "support.reply",
+        "support.manage",
         "project.members.manage",
       ];
     });
@@ -1526,7 +1609,7 @@ describe("saveDepartment: la bozza intera, tutto o niente", () => {
         admin.saveDepartment("dep-development", {
           memberIds: dev.memberIds,
           homeManagerIds: [...dev.homeManagerIds, other],
-          projectPermissions: ["support.reply"],
+          projectPermissions: ["support.manage"],
         }),
       { error: "invalid", reason: "last_members_manager" },
     );
@@ -1562,11 +1645,11 @@ describe("viewerLosesIf: cosa perde davvero chi salva un ruolo", () => {
 
   it("chi ha il permesso anche da un'altra fonte non lo perde; la simulazione non scrive niente", async () => {
     const lead = accessState().roles.find((r) => r.key === "project_lead")!;
-    const next = lead.permissions.filter((p) => p !== "support.reply");
+    const next = lead.permissions.filter((p) => p !== "support.manage");
     giveInstance("p-laura", "roles.manage");
     as("p-laura");
     const before = snapshot();
-    // Laura è in Development, che dà «reply to customers»: la tiene.
+    // Laura è in Development, che dà «manage Support conversations»: la tiene.
     expect(dept("dep-development").memberIds).toContain("p-laura");
     expect(await admin.viewerLosesIf(lead.id, next)).toEqual([]);
     expect(snapshot()).toBe(before);
@@ -1700,17 +1783,17 @@ describe("prima e dopo nelle voci dei permessi", () => {
   });
 
   it("setDepartmentPermissions: before è l'insieme di prima, after quello salvato", async () => {
-    expect(dept("dep-development").projectPermissions).toEqual(["support.reply"]);
+    expect(dept("dep-development").projectPermissions).toEqual(["support.manage"]);
     expect(
-      await admin.setDepartmentPermissions("dep-development", ["support.reply", "docs.edit"]),
+      await admin.setDepartmentPermissions("dep-development", ["support.manage", "docs.edit"]),
     ).toEqual({ ok: true });
     const entry = state.changelog.at(-1)!;
     expect(entry.kind).toBe("department.permissions_changed");
     expect(entry.params).toMatchObject({
       added: "docs.edit",
       removed: "",
-      before: "support.reply",
-      after: "support.reply,docs.edit",
+      before: "support.manage",
+      after: "support.manage,docs.edit",
     });
     expect(entry.params.before).not.toBe(entry.params.after);
   });

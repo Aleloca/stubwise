@@ -1,7 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import { PRODUCT_PAGES } from "../../../data/seed/productDocs";
 import { exportModelOf, exportRunsOf, type ExportDoc } from "../../../domain/productDocs/exportModel";
-import { buildDocx, docxImageOf, docxRunsOf, imageSizeOf, svgToPng, wordLeftOutImages, wordLeftOutReasons } from "./docx";
+import {
+  buildDocx,
+  docxImageOf,
+  docxRunsOf,
+  imageSizeOf,
+  svgToPng,
+  wordImageBytes,
+  wordLeftOutImages,
+  wordLeftOutReasons,
+} from "./docx";
 
 // Il Word dell'esportazione (area 11a, Task 12; ruling P36): nel renderer
 // senza Node, quindi niente `Buffer` (le uscite sono `ArrayBuffer`), le
@@ -220,5 +229,25 @@ describe("la bozza di schermata nel Word (11b)", () => {
     expect(await hasMedia(bytes)).toBe(false);
     expect(xml).toContain(MISSING);
     expect(xml).not.toContain("Bozza di Claude");
+  });
+});
+
+describe("wordImageBytes (I1 della revisione di R11-3)", () => {
+  it("la stima dei byte delle immagini prima di costruire: base64 per 3/4; un riferimento non letto non conta", () => {
+    const b64 = btoa("x".repeat(3000));
+    const doc = {
+      title: "T",
+      pages: [
+        {
+          page: { id: "p", code: "AUD-D1", title: "P" },
+          depth: 0,
+          blocks: [
+            { kind: "image", src: `data:image/png;base64,${b64}`, caption: "" },
+            { kind: "image", src: "product-image:dddddddd-0000-4000-8000-000000000001", caption: "" },
+          ],
+        },
+      ],
+    } as unknown as Parameters<typeof wordImageBytes>[0];
+    expect(wordImageBytes(doc)).toBe(3000);
   });
 });

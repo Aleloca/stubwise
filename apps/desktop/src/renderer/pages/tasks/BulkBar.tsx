@@ -1,3 +1,5 @@
+import { featureIntegrated } from "../../data/integration";
+import { planRefusalOf } from "../planning/planRefusal";
 import { useTranslation } from "react-i18next";
 import { useBulkUpdateTasks, useMilestones, useProjectStatuses } from "../../data/queries";
 import type { Task, TaskPatch } from "../../data/types";
@@ -12,6 +14,7 @@ import {
   WeekOptions,
   useProjectMembers,
 } from "./pickers";
+import { claudeRunBulkText } from "../../tasks-ui/claudeRun";
 
 const barButton =
   "inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 aria-expanded:bg-ink/10";
@@ -47,8 +50,18 @@ export function BulkBar({ tasks, onClear }: { tasks: Task[]; onClear: () => void
     bulk.mutate(
       { ids, patch },
       {
-        onSuccess: () => toast.show(t("tasks.bulk.done", { count })),
-        onError: () => toast.error(t("tasks.bulk.failed", { count })),
+        onSuccess: (updated) => {
+          toast.show(t("tasks.bulk.done", { count }));
+          // Assegnate a Claude ma qualcuna non è partita: lo si dice.
+          const text = claudeRunBulkText(t, updated);
+          if (text) toast.error(text);
+        },
+        onError: (error) =>
+          toast.error(
+            planRefusalOf(error) === "claude_assign_forbidden"
+              ? t("tasks.bulk.claudeForbidden", { count })
+              : t("tasks.bulk.failed", { count }),
+          ),
       },
     );
   };
@@ -117,24 +130,27 @@ export function BulkBar({ tasks, onClear }: { tasks: Task[]; onClear: () => void
           </MenuGroup>
         )}
       </MenuButton>
-      <MenuButton
-        menuLabel={t("tasks.bulk.week")}
-        className={barButton}
-        placement="above"
-        label={label("week")}
-      >
-        {(close) => (
-          <MenuGroup>
-            <WeekOptions
-              current={common(tasks, (task) => task.plannedWeek)}
-              onPick={(plannedWeek) => {
-                close();
-                apply({ plannedWeek });
-              }}
-            />
-          </MenuGroup>
-        )}
-      </MenuButton>
+      {/* La settimana arriva con la fetta 2: nella build app non c'è. */}
+      {featureIntegrated("planning-week") && (
+        <MenuButton
+          menuLabel={t("tasks.bulk.week")}
+          className={barButton}
+          placement="above"
+          label={label("week")}
+        >
+          {(close) => (
+            <MenuGroup>
+              <WeekOptions
+                current={common(tasks, (task) => task.plannedWeek)}
+                onPick={(plannedWeek) => {
+                  close();
+                  apply({ plannedWeek });
+                }}
+              />
+            </MenuGroup>
+          )}
+        </MenuButton>
+      )}
       <MenuButton
         menuLabel={t("tasks.bulk.milestone")}
         className={barButton}

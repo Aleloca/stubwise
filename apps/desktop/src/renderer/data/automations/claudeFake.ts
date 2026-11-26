@@ -1,6 +1,6 @@
-import type { EngineInput } from "../../domain/automations/engine";
-import { AUTOMATION_LIMITS } from "../../domain/automations/fields";
-import { show } from "../../domain/automations/preview";
+import type { EngineInput } from "@stubwise/shared";
+import { AUTOMATION_LIMITS } from "@stubwise/shared";
+import { show } from "@stubwise/shared";
 import { fold } from "../../domain/textSearch";
 import type { Step } from "../types";
 

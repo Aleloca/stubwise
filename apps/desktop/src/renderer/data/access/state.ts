@@ -1,5 +1,3 @@
-import { INSTANCE_PERMISSIONS } from "@stubwise/shared";
-import type { LocalInstancePermission } from "../types";
 import { seedAccessState } from "./seed";
 
 // Gli accessi come stato del livello dati (area 9a): ruoli, appartenenze ai
@@ -66,40 +64,27 @@ export interface PersonalRevocation {
   permission: string;
 }
 
+/**
+ * Chi è uscito da un progetto (registro, A11 r.1414): lo scrive `writeAccess`
+ * a ogni uscita, in UN posto. Serve a `peopleKnownTo`: un ex membro di un
+ * progetto visibile resta una persona che chi guarda conosce.
+ */
+export interface FormerMembership {
+  projectId: string;
+  personId: string;
+}
+
 export interface AccessState {
   roles: RoleDef[];
   memberships: Membership[];
+  formerMemberships: FormerMembership[];
   grants: PersonalGrant[];
   departments: DepartmentAccess[];
   people: PersonAccess[];
   revocations: PersonalRevocation[];
 }
 
-/** I permessi d'istanza del prototipo, nell'ordine in cui si mostrano. */
-export const LOCAL_INSTANCE_PERMISSIONS: readonly LocalInstancePermission[] = [
-  "claude.public.view",
-  "people.activity.view",
-  "chat.general.create",
-  "chat.general.manage",
-  "automations.manage",
-  "servers.ssh.manage",
-  "departments.manage",
-  "instance.status.view",
-  "changelog.view",
-];
-
-/** Ogni permesso d'istanza, del registro condiviso e del prototipo. */
-export const INSTANCE_SET: ReadonlySet<string> = new Set<string>([
-  ...INSTANCE_PERMISSIONS,
-  ...LOCAL_INSTANCE_PERMISSIONS,
-]);
-
-/**
- * Permessi che esistono con lo stesso nome a due livelli (area 7: le
- * automazioni di progetto e quelle generali). Con un progetto vale quello di
- * progetto, senza quello d'istanza.
- */
-export const BOTH_LEVELS: ReadonlySet<string> = new Set<string>(["automations.manage"]);
+export { INSTANCE_SET, LOCAL_INSTANCE_PERMISSIONS } from "./catalog";
 
 // --- lo stato e la sua versione ----------------------------------------------
 
@@ -127,6 +112,16 @@ export function registerMembershipSync(next: MembershipSync): void {
 
 const pairsOf = (s: AccessState) =>
   new Set(s.memberships.map((m) => `${m.projectId}\u0000${m.personId}`));
+
+/** Chi è uscito da un progetto fra due fotografie resta un ex membro (r.1414). */
+function rememberLeavers(before: Set<string>, after: Set<string>): void {
+  const known = new Set(current.formerMemberships.map((m) => `${m.projectId}\u0000${m.personId}`));
+  for (const key of before) {
+    if (after.has(key) || known.has(key)) continue;
+    const [projectId, personId] = key.split("\u0000") as [string, string];
+    current.formerMemberships.push({ projectId, personId });
+  }
+}
 
 /** Avvisa lo store di chi è entrato o uscito da un progetto, fra due fotografie. */
 function notify(before: Set<string>, after: Set<string>): void {
@@ -163,12 +158,16 @@ export function writeAccess(fn: (s: AccessState) => void): void {
   const before = pairsOf(current);
   fn(current);
   version += 1;
-  notify(before, pairsOf(current));
+  const after = pairsOf(current);
+  rememberLeavers(before, after);
+  notify(before, after);
   for (const listener of listeners) listener();
 }
 
 /** Riporta gli accessi al seme, sullo stesso oggetto (così `state.access` resta valido). */
 export function resetAccessState(): AccessState {
   writeAccess((s) => Object.assign(s, seedAccessState()));
+  // Il ripristino non è un'uscita: gli ex membri tornano quelli del seme.
+  current.formerMemberships = seedAccessState().formerMemberships;
   return current;
 }

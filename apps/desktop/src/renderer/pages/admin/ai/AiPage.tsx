@@ -2,8 +2,10 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { aiTabsFor } from "../../../data/adminSections";
+import { isIntegrated } from "../../../data/integration";
+import { ComingSoonBlock } from "../../Placeholder";
 import type { AI_TABS } from "../../../data/routes";
-import { can, useViewer } from "../../../data/viewer";
+import { can, useViewer } from "../../../data/viewing";
 import { AutomationPanel } from "./AutomationPanel";
 import { BudgetPanel } from "./BudgetPanel";
 import { ModelsPanel } from "./ModelsPanel";
@@ -59,11 +61,18 @@ export function AiPage() {
           aria-labelledby={tabs.length > 1 ? tabId(current) : undefined}
           className="mt-5"
         >
-          {current === "providers" && <ProvidersPanel canWrite={writesProviders} />}
-          {current === "models" && <ModelsPanel canWrite={writesSettings} />}
-          {current === "automation" && <AutomationPanel canWrite={writesSettings} />}
-          {current === "budget" && <BudgetPanel canWrite={writesSettings} />}
-          {current === "usage" && <UsagePanel />}
+          {/* Area 9, F3: nella build app ogni scheda si accende da sola (`ai-<tab>`). */}
+          {!isIntegrated({ kind: "feature", name: `ai-${current}` }) ? (
+            <ComingSoonBlock />
+          ) : (
+            <>
+              {current === "providers" && <ProvidersPanel canWrite={writesProviders} />}
+              {current === "models" && <ModelsPanel canWrite={writesSettings} />}
+              {current === "automation" && <AutomationPanel canWrite={writesSettings} />}
+              {current === "budget" && <BudgetPanel canWrite={writesSettings} />}
+              {current === "usage" && <UsagePanel />}
+            </>
+          )}
         </div>
       </div>
     </section>

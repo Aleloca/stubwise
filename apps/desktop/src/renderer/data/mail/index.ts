@@ -2,6 +2,7 @@
 // che cosa lo decide `canSeeMessage` (visibility.ts), per letture e
 // scritture: solo i destinatari, admin compresi. Le proposte condivise
 // (`proposals.ts`) seguono `canSeeMailProposal`, nello stesso file.
+export { listWaitingCustomers, type WaitingCustomer } from "./waiting";
 export {
   getMailThread,
   listImportantMail,
@@ -57,4 +58,4 @@ export {
   undoSend,
   whenSendSettled,
 } from "./send";
-export { getMeetingSummary, tasksBornFrom } from "./transcripts";
+export { getMeetingByNote, getMeetingSummary, tasksBornFrom, tasksOfNote } from "./transcripts";

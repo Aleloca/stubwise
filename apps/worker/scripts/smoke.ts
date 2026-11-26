@@ -46,6 +46,7 @@ import {
   createDb,
   encrypt,
   gitAccounts,
+  isAttachedRepository,
   projects,
   repositories,
   runMigrations,
@@ -598,6 +599,11 @@ async function runRemote(keep: boolean): Promise<number> {
       .where(eq(repositories.slug, projectSlug));
     if (!repository) {
       console.error(`[smoke] repository con slug '${projectSlug}' non trovato nel DB.`);
+      return 2;
+    }
+    // Area 9, F6: un repository staccato non ha progetto, quindi niente ticket da eseguire.
+    if (!isAttachedRepository(repository)) {
+      console.error(`[smoke] il repository '${projectSlug}' è staccato (nessun progetto): collegalo prima.`);
       return 2;
     }
     log(`repository: ${repository.name} (${repository.provider}, ${repository.repoUrl})`);

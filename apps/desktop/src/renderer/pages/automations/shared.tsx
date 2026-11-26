@@ -1,3 +1,4 @@
+import { automationAvailability, generalsAvailable } from "../../data/integration";
 import { Link } from "@tanstack/react-router";
 import { useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -11,7 +12,7 @@ import {
   useProjects,
   useSessionPersonId,
 } from "../../data/queries";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import type { Automation, RunStatus } from "../../data/types";
 import { problemsOf, type Names, type TemplatePart } from "./format";
 import { ClaudeMark } from "../../components/ClaudeMark";
@@ -54,19 +55,27 @@ const CREATE_PERMISSION = {
 /**
  * Cosa può fare chi guarda, dai permessi calcolati: creare automazioni (in
  * almeno un progetto o d'istanza), le generali (d'istanza), le sorgenti.
+ * Nella build app, finché c'è solo la fetta 1 (area 7), niente generali,
+ * sorgenti e tabella cliente (F4) né modelli (P2 = a).
  */
 export function useAutomationPerms() {
   const { viewer } = useViewer();
-  const instance = can(viewer, "automations.manage");
+  const instance = can(viewer, "automations.general.manage");
+  const f1 = automationAvailability() !== undefined;
+  // Le generali e le sorgenti: nel prototipo, e nella build app dalla F4.
+  const generals = generalsAvailable();
   return {
-    instance,
+    /** Le automazioni generali (fra i progetti): il permesso d'istanza, fuori dalla fetta 1. */
+    instance: instance && generals,
+    /** I modelli di «New automation»: fuori dalla fetta 1. */
+    templates: !f1,
     anywhere:
       instance ||
       Object.values(viewer.projectPermissions).some((p) =>
         (p as readonly string[]).includes("automations.manage"),
       ),
     inProject: (projectId: string) => can(viewer, "automations.manage", projectId),
-    integrations: can(viewer, "integrations.manage"),
+    integrations: can(viewer, "integrations.manage") && generals,
     createTasks: (projectId: string) => can(viewer, "tickets.create", projectId),
     /** Il permesso che serve per creare ciò che crea un passo (come `activate`/`publish`). */
     canCreate: (kind: "createTask" | "createMilestone" | "createRequest", projectId: string) =>
@@ -102,7 +111,8 @@ export function useAttention() {
       automationIds,
       runIds,
       waitingMe: mine,
-      count: automationIds.size + runIds.size,
+      // Anche le approvazioni la cui esecuzione non è nella prima pagina dell'elenco.
+      count: automationIds.size + new Set([...runIds, ...mine]).size,
       ready: automations.data !== undefined && runs.data !== undefined,
     };
   }, [automations.data, runs.data, approvals.data]);

@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -222,10 +222,10 @@ describe("registro decisioni: decisions.record", () => {
 });
 
 describe("impostazioni del progetto: project.settings.manage", () => {
-  it("senza (Developer): PATCH, DELETE, email-routes, brief e plugin 403, stato invariato", async () => {
+  it("senza (Developer): PATCH, DELETE, email-routes, brief e PUT dei plugin 403 (il GET in sola lettura), stato invariato", async () => {
     const patch = await call(dev, "PATCH", `/api/projects/${projectId}`, { name: "Rinominato" });
     expect(patch.statusCode).toBe(403);
-    const del = await call(dev, "DELETE", `/api/projects/${projectId}`);
+    const del = await call(dev, "DELETE", `/api/projects/${projectId}`, { confirmCode: "X" });
     expect(del.statusCode).toBe(403);
     const routes = await call(dev, "PUT", `/api/projects/${projectId}/email-routes`, {
       routes: [{ kind: "sender_domain", value: "example.com" }],
@@ -233,7 +233,10 @@ describe("impostazioni del progetto: project.settings.manage", () => {
     expect(routes.statusCode).toBe(403);
     const brief = await call(dev, "POST", `/api/projects/${projectId}/briefs/generate`, {});
     expect(brief.statusCode).toBe(403);
-    expect((await call(dev, "GET", `/api/projects/${projectId}/plugins`)).statusCode).toBe(403);
+    // Review di F5: i plugin si LEGGONO da chi vede il progetto, in sola lettura.
+    const plugins = await call(dev, "GET", `/api/projects/${projectId}/plugins`);
+    expect(plugins.statusCode).toBe(200);
+    expect((plugins.json() as { canEdit: boolean }).canEdit).toBe(false);
     expect(
       (await call(dev, "PUT", `/api/projects/${projectId}/plugins`, { plugins: [] })).statusCode,
     ).toBe(403);
@@ -255,11 +258,14 @@ describe("impostazioni del progetto: project.settings.manage", () => {
     expect((await call(lead, "GET", `/api/projects/${projectId}/plugins`)).statusCode).toBe(200);
   });
 
-  it("DELETE del progetto: il Project Lead può, un non membro riceve 404", async () => {
+  it("DELETE del progetto (area 9, F6): nemmeno il Project Lead (solo un full admin, da archiviato, con la riconferma); con un PAT la riconferma risponde per prima, esista il progetto o no", async () => {
     const { projectId: other } = await seedRepository(testDb.db);
     await addMember(app, other, lead.id, "project_lead");
-    expect((await call(dev, "DELETE", `/api/projects/${other}`)).statusCode).toBe(404);
-    expect((await call(lead, "DELETE", `/api/projects/${other}`)).statusCode).toBe(204);
+    const stranger = await call(dev, "DELETE", `/api/projects/${other}`, { confirmCode: "X" });
+    const missing = await call(dev, "DELETE", `/api/projects/${randomUUID()}`, { confirmCode: "X" });
+    expect([stranger.statusCode, (stranger.json() as { code: string }).code]).toEqual([403, "session_required"]);
+    expect([missing.statusCode, (missing.json() as { code: string }).code]).toEqual([403, "session_required"]);
+    expect((await call(lead, "DELETE", `/api/projects/${other}`, { confirmCode: "X" })).statusCode).toBe(403);
   });
 });
 

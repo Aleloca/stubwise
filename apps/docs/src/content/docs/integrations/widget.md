@@ -196,6 +196,11 @@ The `user` you pass is **trusted as declared by the host site** — Stubwise doe
 not verify it. Treat conversations and reports as coming from *whoever the
 embedding site says they are*. Embed the widget only on surfaces you control, and
 don't rely on the widget's identity for anything security-sensitive.
+
+To **verify** it, your backend signs the customer's identity with the widget's
+identity secret and passes the token as `identityToken`: see
+[Show customers their requests](/docs/integrations/widget-customer-requests/),
+which also lets your site show each customer the requests they opened.
 :::
 
 - **Daily caps per widget** — to bound cost and abuse, each widget has a daily

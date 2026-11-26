@@ -81,32 +81,97 @@ non è dato a nessun ruolo esistente salvo che la sua migrazione lo dica.
   trasversali (ruling R43); nell'app i bottoni restano nascosti mentre `/me`
   carica o fallisce (fail-closed, ruling R46). I campi nuovi delle risposte
   nascono `.default([])` (regola dell'app in CLAUDE.md).
-- **Nessuna escalation, e il BERSAGLIO è protetto.** In
-  `apps/server/src/services/roles.ts`, in UN posto:
-  - si assegna un ruolo — o lo si rende effettivo modificandone i permessi —
-    solo se i suoi permessi sono inclusi nei propri (nel progetto, per un
-    ruolo di progetto; d'istanza, per uno d'istanza): `assertNoEscalation`,
-    403 **`escalation`** con la chiave mancante in `permission`;
-  - si cambia o toglie il ruolo d'istanza di un utente, o il ruolo o
-    l'appartenenza di un membro, solo se i permessi del suo ruolo ATTUALE
-    sono inclusi nei propri (ruling R28): `assertTargetNotAbove`, 403
-    **`target_above`**. Vale per ogni azione di `users.manage` su un altro
-    utente — reset della password (che restituisce l'URL, e permetterebbe di
-    prendere l'account di un full admin), collegamento delle identità git,
-    Bitbucket e Slack (ruling R31). E il confronto vale anche nei PROGETTI
-    (ruling R50, `assertTargetProjectsNotAbove`): in ogni progetto dove il
-    bersaglio è membro, o ha un invito pendente per la sua email, i permessi
-    del suo ruolo lì devono stare in quelli di chi agisce NELLO STESSO
-    progetto — altrimenti un `users.manage` d'istanza senza ruoli nei
-    progetti prenderebbe l'account di un `Project Lead`;
-  - si modifica o elimina un ruolo solo se i suoi permessi ATTUALI sono
-    inclusi nei propri in ogni progetto dove è assegnato o promesso da un
-    invito pendente (ruling R30): chiude il declassamento in blocco che R28
-    vieta utente per utente.
+- **Nessuna escalation sul DARE; nessuna gerarchia fra persone** *(maintainer,
+  30 ott 2026, confermato il 16 nov)*. In `apps/server/src/services/roles.ts`,
+  in UN posto, `assertNoEscalation` (403 **`escalation`**, con la chiave
+  mancante in `permission`): si assegna un ruolo, si rende effettivo un ruolo
+  modificandone i permessi, si dà un permesso personale a un membro, si
+  invita, solo se ciò che si dà è incluso nei propri permessi nello stesso
+  ambito. **Con F8 (19 nov 2026) anche i reparti**: un permesso messo in un
+  reparto, o una persona che entra in un reparto che ne dà, arriva in ogni
+  progetto di cui le sue persone sono membri, e chi agisce lo deve avere in
+  OGNUNO di quei progetti, archiviati compresi. È `judgeDepartmentDraft`
+  (`apps/server/src/services/department-access.ts`), la stessa regola per
+  l'anteprima e per la scrittura. E chi ENTRA in un progetto ci porta i
+  permessi dei suoi reparti: `putProjectMember` li controlla per chi entra
+  (F8-4 = a). TOGLIERE non chiede
+  niente: chi ha il permesso di gestione (`users.manage`,
+  `project.members.manage`, `roles.manage`, `departments.manage`) modifica
+  chiunque, anche chi ha più permessi di lui. Restano il rifiuto su sé stessi
+  (ruolo d'istanza, reset, disattivazione) e «resta sempre un full admin».
+  **Rischio accettato, scritto apposta**: chi ha `users.manage` può
+  azzerare il secondo fattore di un full admin e generarne il link di reset,
+  e quindi prenderne il posto. La difesa è la traccia, non il divieto:
+  entrambe le azioni chiedono la riconferma, lasciano la voce nel registro
+  delle modifiche (`person.second_factor_reset`,
+  `person.password_reset_link`) e in `security_events`, e mandano un
+  `security.alert` all'interessato. Chi dà `users.manage` a qualcuno sta
+  dando questo potere.
 
-  Un full admin passa sempre. I codici sono dedicati (ruling R44) perché la
-  UI legge il codice, non il testo inglese. Un selettore che offre un ruolo
-  che darà `escalation` è coerente con «il client non deduce», non un bug.
+  Un full admin passa sempre. Il codice è dedicato (ruling R44) perché la UI
+  legge il codice, non il testo inglese. Un selettore che offre un ruolo che
+  darà `escalation` è coerente con «il client non deduce», non un bug.
+- **I permessi effettivi in un progetto sono UNA funzione**: ruolo ∪
+  permessi personali (`project_member_permissions`) ∪ i permessi di progetto
+  dei reparti della persona (F8, `department_project_permissions`: UNA lista
+  per reparto, valida in ogni progetto di cui la persona è GIÀ membro, F8-1
+  = a), più l'implicito del full admin. Il pezzo SQL è UNO,
+  `memberPermissionsSql` (`packages/db/src/member-permissions.ts`): un
+  reparto non rende membri (un non membro resta null), e un utente di sistema
+  non ne riceve mai. Sopra ci sono `effectiveProjectPermissions`
+  (`@stubwise/shared`) e `projectPermissionsFor`
+  (`apps/server/src/auth/access.ts`). Le FONTI (Members, la pagina della
+  persona, «Chi può farlo?», l'anteprima del membro) leggono la stessa unione
+  da `departmentGrantsOf`, e la fonte `department` sta accanto a `role` e
+  `grant`. Ogni gate, ogni
+  WHERE, `/api/auth/me` e «Chi può farlo?» passano da lì, e un test d'accordo
+  lega `who-can` a `can()`. Un permesso personale vale esattamente come uno
+  del ruolo; togliere un membro toglie i suoi permessi personali (cascade);
+  Claude non ne riceve mai (insieme fisso). Un progetto non resta senza un
+  `project.members.manage` fuori dai full admin (`last_manager`), anche
+  quando a toglierlo è un reparto: un permesso tolto, una persona uscita, il
+  reparto eliminato (F8-5 = a). La riconferma sui reparti la chiede SOLO una
+  scrittura che fa arrivare permessi a qualcuno: un permesso aggiunto, o una
+  persona aggiunta a un reparto che ne dà (F8-3 = a del maintainer).
+- **Una persona disattivata non entra da nessuna porta, e non si
+  disattiva l'ultimo full admin.** Disattivare cancella nella stessa
+  transazione sessioni, PAT e `device_tokens`, e revoca gli inviti
+  pendenti che ha mandato; la lettura dell'identità la tratta come assente
+  anche se una sessione sopravvivesse a una corsa. Il login risponde come a
+  una password sbagliata. Riattivare non riporta i token di prima.
+- **Un progetto archiviato è come uno che non c'è, tranne che per chi lo
+  legge DI PROPOSITO.** `visibleProjectIds` e le WHERE lo escludono; lo
+  leggono in sola lettura i suoi membri e i full admin solo dalle letture
+  `archived=true`; nessuna scrittura (`409 archived`); il worker non reclama
+  il suo lavoro. Si elimina SOLO un archiviato, SOLO un full admin, con la
+  riconferma e il codice digitato; i suoi repository restano staccati.
+  La regola sta in UN posto: `projectPermissionsFor` e
+  `projectPermissionsByProject` danno `null`, e un full admin riceve
+  `ProjectScope` (`{ all, archived }`), mai `"all"`, così ogni elenco
+  decide degli archiviati (`inProjects`, `scopeIncludes`). Una lettura non
+  dichiarata è 404, una scrittura 409 `archived` a chi lo vedrebbe; le
+  eccezioni si dichiarano con `config.archived` (elenco chiuso in
+  `route-access.test.ts`). Tre eccezioni volute: i consumi d'istanza
+  (`usage.view`) contano la spesa degli archiviati senza nominarli; il
+  registro delle modifiche mostra le loro voci a chi li vedrebbe; le
+  approvazioni d'automazione senza progetto restano al full admin. Le
+  superfici pubbliche (SDK, ingresso, widget, webhook git) trattano un
+  archiviato come uno slug sconosciuto (401), e non nasce nessuna notifica
+  per un archiviato. Limite accettato: archiviare non blocca i claim del
+  worker, quindi un job reclamato a cavallo del commit finisce.
+- **Di un progetto eliminato restano SOLO codice, nome e chi ne era membro
+  (`deleted_projects`, `deleted_project_members`, 0193), e servono SOLO a
+  dire «chi lo conosceva».** Gli ex membri e i full admin leggono
+  l'etichetta `CODICE · Nome` di `project.deleted`, la provenienza
+  (`formerProject`) e il nome intero di un repository staccato; gli altri
+  leggono «un progetto che non vedi» (`hidden`), mai il codice, il nome né
+  l'id. Un ex membro eliminato esce dalla memoria (cascata). Le voci del
+  registro del progetto tengono il suo `project_id` (nessuna FK): non
+  diventano voci senza progetto, e non le legge più nessuno tranne
+  `project.deleted`. Un repository staccato non è di nessun progetto: lo
+  elencano solo le rotte dei repository staccati, e nessuna lettura di
+  progetto lo trova, nemmeno col `"all"` del full admin (le query uniscono
+  `projects`).
 - **Un invito non dà mai più di quanto ha chi invita, nemmeno per omissione
   né col passare del tempo** (ruling R51, `assertInviteGrants` e
   `applyInviteGrants` in `services/roles.ts`). Senza `instanceRoleId` il
@@ -264,3 +329,174 @@ non è dato a nessun ruolo esistente salvo che la sua migrazione lo dica.
   utenti completo → `users.view_all` (R24). Un PAT agisce coi permessi del
   suo utente; Slack con quelli dell'utente collegato (un utente Slack non
   collegato non apre ticket, R42).
+
+- **L'utente di sistema «Claude» (10 nov 2026, integrazione area 3, fetta 3e,
+  migrazione 0125).** Uno per istanza (`users.is_agent`, indice unico
+  parziale). **Non entra mai**: login (`verifyCredentials`), sessione
+  (`findSessionUser`), PAT (`findPatUser`) e reset della password lo
+  rifiutano nella query, per costruzione — la password è un segnaposto che non
+  è un hash. **Non riceve mai una notifica**: `publishNotification` lo toglie
+  dai destinatari di QUALUNQUE audience, un punto solo (anche se finisse fra
+  membri o follower). **Non è una persona da gestire**: fuori dal Team
+  (`/api/users`), 404 sulle rotte `/api/users/:id` e sull'aggiunta come membro
+  di un progetto, mai l'autore di un ticket ingerito. Il suo ruolo d'istanza è
+  il preset `User`, **mai il full admin**: lo conterebbe fra gli
+  amministratori («resta sempre un full admin») e fra i destinatari degli admin.
+  E se un admin ALLARGA il preset `User` fino al full admin, Claude comunque non
+  conta: `assertFullAdminRemains` esclude `is_agent` (review dell'area 3, punto
+  9 — scelto al posto di un ruolo d'istanza dedicato, che vorrebbe una
+  migrazione e un preset in più da proteggere); gli altri effetti di un preset
+  allargato sono calcoli su chi GUARDA, e Claude non guarda mai, e i destinatari
+  li esclude già `publishNotification`.
+  Vede le task che gli si assegnano per una regola esplicita
+  (`canUserSeeTicket`), non per un permesso. **Assegnarlo AVVIA il lavoro**
+  da OGNI porta — le rotte nuove (PATCH, in blocco, Planning, creazione:
+  `services/task-writes.ts`) e quelle vecchie del web vecchio, dell'app e
+  dell'MCP (`POST /api/tickets`, `PATCH /api/tickets/:id`) —, con la regola
+  in UN posto (`services/claude-assign.ts`: `claudeAssignGuard`,
+  `startClaudeRuns`); quindi chiede `runs.start` nel progetto (403
+  `claude_assign_forbidden`, niente scritto) — nel Planning al posto di
+  `planning.others`, che riguarda le persone, ma insieme a `tickets.edit` e
+  su una task aperta (altrimenti 403 `forbidden`, come la PATCH) —, e il run parte con `startRun` a nome di chi assegna: stesse
+  precondizioni e stesso gate del piano di run-ai. Toglierlo non annulla niente
+  (resta «Annulla il lavoro»). `/api/people` lo mostra a tutti (`isClaude`), così
+  il nome di una task assegnata a lui si legge sempre; dove chi guarda può
+  assegnarlo lo dice il server (`claudeAssignableProjectIds`). Sul web vecchio
+  e nell'app, che leggono i nomi da `/api/users` (dove Claude NON entra: il
+  Team, i conteggi degli admin e i selettori ne resterebbero sporcati), il
+  ticket porta `assigneeIsAgent` (additivo, facoltativo) e il client scrive
+  «Claude»; e non è mai «assegnatario senza accesso» (`assigneeWithoutAccess`
+  lo esclude: non è membro per costruzione, non per revoca). L'impostazione
+  iniziale dell'istanza non lo conta fra gli utenti.
+
+- **Un permesso nuovo dato a un preset si dà anche ai ruoli che lo
+  contenevano (decisione del maintainer, 10 nov 2026).** La guardia
+  anti-escalation confronta i permessi (dal 16 nov 2026, area 9, solo sul
+  DARE: la guardia sul bersaglio, `target_above` R28, non c'è più; la regola
+  resta perché tiene i ruoli fatti a mano coerenti coi preset). Se una
+  migrazione dà un permesso nuovo al solo preset, un ruolo fatto a mano che
+  stava SOPRA quel preset (per esempio il preset User più `users.manage`) si
+  ritrova sotto, e non gestisce più chi ha il preset.
+  **La regola**: la migrazione che dà un permesso nuovo a un preset lo dà,
+  nello stesso `UPDATE`, anche a ogni ruolo dello stesso scope che conteneva
+  già TUTTI i permessi di quel preset (`permissions @> ARRAY[…]::text[]`,
+  con l'elenco del preset DI PRIMA), con `distinct unnest` per restare
+  idempotente. Un ruolo che non lo conteneva non riceve niente.
+  Applicazioni:
+  - 0133, `claude.public.view` (User);
+  - 0135, i permessi `chat.*` (Project Lead, Developer, User).
+
+  Ciascuna ha il suo test in `packages/db/src/roles-migration.test.ts`.
+  Nei test, un ruolo creato OGGI che deve stare sopra un preset si
+  costruisce dal preset di adesso (`PRESET_ROLES`), non da un elenco scritto
+  a mano.
+
+
+## PROPOSTA (23 nov 2026, 94, da portare sul server con 72): chi non vede una persona o un progetto non ne riceve nemmeno l'id
+
+Decisione del maintainer del 23 nov 2026 (registro, A11 r.1414). Oggi R-G5
+nasconde il NOME di una persona che chi guarda non vede, ma il suo id esce
+(`actorId`, `authorId`, `byId`, `memberIds`, …): da qui in avanti NO. Lo
+stesso per l'id di un progetto invisibile. Lo stato: il prototipo è fatto a
+lotti (`apps/desktop/src/renderer/data/`), il server no — la lista dei
+punti lato server sta nell'inventario consegnato a 72 (sotto).
+
+- **Chi si conosce** — un predicato SOLO, più largo di chi si vede per
+  scegliere o per «Who can?»: le persone che sono o sono state membri di un
+  progetto che chi guarda vede — compreso un progetto ARCHIVIATO che chi
+  guarda può leggere (decisione di 46, revisione del lotto 2) — (le attive,
+  le DISATTIVATE e gli EX membri:
+  restano «Nome (deactivated)»), più i full admin, più sé stesso; e (seconda
+  decisione del maintainer, 23 nov 2026: «chi scrive in un canale che vedo è
+  conosciuto») i MEMBRI e gli AUTORI dei canali della Chat che chi guarda
+  può leggere, anche senza un progetto in comune — i canali di tutta
+  l'azienda. In un canale leggibile autori e membri hanno quindi nome e
+  avatar; il segnaposto resta per chi non condivide né un progetto visibile
+  né un canale leggibile (per esempio la reazione di chi poi è uscito dal
+  canale senza averci scritto). Un full admin conosce tutti. Nel prototipo: `peopleKnownTo`
+  (`domain/access/whoCan.ts`), con gli ex membri ricordati in
+  `formerMemberships` dello stato degli accessi, scritto in UN posto a ogni
+  uscita (`writeAccess`); i canali li aggiunge `knownPeopleFor`
+  (`data/access/whoCan.ts`), lo stesso predicato che usano l'elenco delle
+  persone e il segnaposto. Lato server serve la stessa traccia delle uscite
+  (o la si deriva dal registro delle modifiche, `project.member_removed`).
+  `peopleVisibleTo` resta com'è per chi si sceglie (assegnabili, «Who
+  can?»): sono due domande diverse.
+- **Fuori dalla regola**: la directory di Amministrazione → People (chi ha
+  il permesso vede tutti, per costruzione).
+- **Eccezione dichiarata: gli avvisi di sicurezza** (`security.*`, solo
+  all'interessato; decisione di 46, revisione del lotto 2). Il nome di chi ha
+  agito sul TUO account (un reset, un cambio d'email, un secondo fattore
+  azzerato) resta anche se non lo conosci: è trasparenza sul proprio
+  account. Per ogni altra card il nome di chi ha agito non si scrive nel
+  testo salvato, o non esce a chi non lo conosce: il testo si compone a
+  lettura da `actorName` / `memberName` («Someone»).
+- **Eccezione dichiarata: chi compare nell'email o nell'evento** (scelta A
+  di 46, lotto 3, 23 nov 2026). Chi sta nelle intestazioni di un'email che
+  chi guarda ha ricevuto (mittente, `to`, `cc`; mai i ccn) e chi è invitato
+  a un evento del suo calendario è conosciuto PER QUELLA proposta o QUEL
+  evento: resta col suo id e il suo nome (`sharedWith`, gli invitati). Anche
+  `outsiders` e gli incaricati negli argomenti delle azioni restano veri:
+  servono al gesto «Aggiungere come Contributor?» e all'editor dell'evento,
+  che rimandano quegli id. Chi ha deciso, passato o scelto il progetto della
+  proposta (`decidedBy`, `handedBy`, il `byId` di `already_handled`) segue
+  invece la regola: se non è fra quelle persone e chi guarda non lo conosce,
+  è il segnaposto, col nome vuoto («Someone»). Sul server: `maskMailDeciders` (`services/mail-proposals.ts`).
+- **Il registro e le persone che non si vedono** (scelta di 46, lotto 3):
+  una voce d'istanza `person.*` su una persona che chi guarda non vede non
+  esiste per lui; chi gestisce le persone (`users.manage`) le legge tutte
+  (la regola del server, `adminVisiblePersonIds`, area 9). Gli id dentro i
+  `params` il server li toglie e il prototipo li maschera: vanno bene tutte
+  e due.
+- **I filtri per persona** (scelta A di 46, lotto 3): un filtro salvato si
+  esegue nel livello dati con i criteri veri. Nella vista, un criterio su
+  una persona che chi guarda non conosce è il segnaposto (il chip dice
+  «Someone», non cliccabile), e un salvataggio con un `hidden-*` è
+  `invalid`. Si esegue con `savedFilterId` (`GET /api/tasks`): il livello
+  dati rimette al posto dei segnaposto gli id del filtro che chi guarda non
+  conosce; senza un filtro che vede, un segnaposto nei criteri è `invalid`.
+  Il filtro «aggiunto da» del Drive si fa con un id vero: chi ha aggiunto un
+  file e chi guarda non conosce arriva come segnaposto e non è fra le
+  scelte; un segnaposto nel filtro è `invalid`.
+- **Il segnaposto**: al posto dell'id di una persona che chi guarda non
+  conosce, `hidden-<n>`, dove `<n>` è un intero da 1 assegnato nell'ordine
+  in cui le persone nascoste compaiono nella RISPOSTA. Stabile dentro la
+  stessa risposta (la stessa persona nascosta è lo stesso `hidden-2` in
+  tutti i campi e in tutte le righe di quella risposta, così raggruppare i
+  messaggi per autore, le key di React e «è sempre la stessa persona»
+  continuano a funzionare), MAI fra due risposte (non è un id: non si salva,
+  non si manda indietro, non si confronta fra due letture). Per un progetto
+  invisibile vale lo stesso con `hidden-project-<n>`, dove la vista non può
+  semplicemente toglierlo.
+- **Come si mostra**: un segnaposto non si risolve con l'elenco delle
+  persone; il nome è `null` e la pagina scrive «Someone» / «Qualcuno»
+  (avatar senza iniziali, «?»). Un segnaposto non è mai cliccabile.
+- **Un client non manda mai un segnaposto al server.** NESSUNA scrittura
+  accetta un `hidden-…`: risponde 400 come per un id non valido. E un campo
+  persona OMESSO in una scrittura parziale resta INVARIATO (scelta A di 46,
+  23 nov 2026): chi ha solo il segnaposto dell'assegnatario sposta una task
+  di settimana senza mandarlo (`POST /api/tasks/:id/plan` con la sola
+  `week`), e non si offre un «Undo» verso un assegnatario segnaposto.
+- **Le eccezioni ai segnaposto nelle scritture e nei filtri** (revisione
+  3bbe2ddc6..444b8b773, I-6 e decisioni di 46): un segnaposto si RISOLVE solo
+  dove il server ha un'origine con gli id veri. Un filtro salvato
+  (`savedFilterId` su `GET /api/tasks` e sul POST di `/api/filters`, il
+  filtro stesso in PATCH) e il flusso di un'automazione (un posto vuoto `{}`
+  riprende la persona della versione di prima). Altrimenti 400 `invalid`.
+- **Filtrare per un uuid VERO fa da oracolo, ed è accettato** (revisione
+  3bbe2ddc6..444b8b773, M-5). Chi conosce già l'id di una persona (da un link
+  vecchio, da una risposta di prima) può chiedere `GET /api/tasks?assigneeIds=<id>`
+  o `GET /api/drive/files?addedById=<id>` e capire, dal risultato, se quella
+  persona ha task o file nei progetti che VEDE. Non impara niente oltre ciò
+  che già vede (le task e i file restano filtrati sui suoi progetti, e
+  l'assegnatario nella risposta resta mascherato); rifiutare un id
+  sconosciuto direbbe a sua volta chi è conosciuto. Lo stesso vale per i
+  progetti, gli stati e i traguardi di un filtro (M-1): i criteri non
+  nominano quelli di un progetto invisibile, ma l'esecuzione li usa.
+- **Chi guarda resta sé stesso**: il proprio id non diventa mai un
+  segnaposto (servono i confronti «è mio»).
+- **Lato server** l'inventario dei punti (la colonna R/server: l'adattatore
+  del desktop copia il campo così com'è) è nel messaggio di 94 a 72 del 23
+  nov 2026; per ognuno il campo va sostituito nella VISTA, a lettura, come
+  ogni campo che dipende da chi guarda (vedi «Le card d'inbox derivano a
+  lettura…» sopra).

@@ -3,10 +3,19 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "electron-vite";
 import { PRODUCTION_CSP } from "./src/main/security";
+import { backendAliases, backendDefine, backendMode } from "./vite.backend";
+
+const mode = backendMode();
 
 export default defineConfig({
   main: {
     build: { rollupOptions: { input: resolve(__dirname, "src/main/index.ts") } },
+    // I1: la cassaforte dal desktop solo nel pacchetto firmato (`package:mac`).
+    define: {
+      __STUBWISE_VAULT_DESKTOP__: JSON.stringify(process.env["STUBWISE_VAULT_DESKTOP"] === "on"),
+      // I2: il Team ID della firma, per verificare l'helper prima di ogni uso.
+      __STUBWISE_TEAM_ID__: JSON.stringify(process.env["STUBWISE_TEAM_ID"] ?? ""),
+    },
   },
   preload: {
     // Un preload con sandbox:true deve essere CommonJS, anche se il package è ESM.
@@ -19,6 +28,8 @@ export default defineConfig({
   },
   renderer: {
     root: resolve(__dirname, "src/renderer"),
+    resolve: { alias: backendAliases(mode) },
+    define: backendDefine(mode),
     plugins: [
       react(),
       tailwindcss(),

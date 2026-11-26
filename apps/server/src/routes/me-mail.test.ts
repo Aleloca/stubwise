@@ -19,7 +19,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { fullSessionCookie, seedUsers } from "../test/fixtures.js";
+import { addMember, fullSessionCookie, seedUsers } from "../test/fixtures.js";
 import type { MailOriginalClient } from "./me-mail.js";
 
 /**
@@ -981,6 +981,9 @@ describe("GET /api/me/mail/:source/:id/original (fase 7b, Task 7)", () => {
   const fakeGoogleClient: MailOriginalClient = {
     refreshAccessToken: async () => FAKE_TOKENS,
     getMessageFull: async () => fakeGmailMessage(),
+    modifyThread: async () => {
+      throw new Error("modifyThread non previsto in questi test");
+    },
   };
   let appOriginal: FastifyInstance;
   let memberCookieOriginal: string;
@@ -1150,6 +1153,9 @@ describe("GET /api/me/mail/:source/:id/original — la cache (Task 2)", () => {
   const fakeGoogleClient: MailOriginalClient = {
     refreshAccessToken: async () => FAKE_TOKENS,
     getMessageFull: async () => fakeGmailMessage(),
+    modifyThread: async () => {
+      throw new Error("modifyThread non previsto in questi test");
+    },
   };
   let appCache: FastifyInstance;
   let cookie: string;
@@ -1968,5 +1974,308 @@ describe("GET /api/me/mail/rejections", () => {
 
     const body = (await getRejections(memberCookie)).json() as { accounts: { accountId: string }[] };
     expect(body.accounts.map((a) => a.accountId)).toEqual([conScarti.accountId]);
+  });
+});
+
+describe("GET /api/me/mail/threads?q (area 6, F1.4)", () => {
+  function getThreads(cookie: string, query: string) {
+    return app.inject({ method: "GET", url: `/api/me/mail/threads${query}`, headers: { cookie } });
+  }
+  const threadsOf = (res: { json(): unknown }) => (res.json() as { items: { threadId: string; messageCount: number }[] }).items;
+
+  it("trova per oggetto, per mittente (nome e pezzo d'indirizzo) e per estratto, senza maiuscole", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const bySubject = `t-${randomUUID()}`;
+    const byName = `t-${randomUUID()}`;
+    const byAddress = `t-${randomUUID()}`;
+    const byExcerpt = `t-${randomUUID()}`;
+    await seedEmail(accountId, { threadId: bySubject, subject: "Preventivo Zanzibar" });
+    await seedEmail(accountId, { threadId: byName, subject: "x", fromName: "Ottavio Brancaleone" });
+    await seedEmail(accountId, { threadId: byAddress, subject: "x", fromAddress: "quintiliano@cliente.test" });
+    await seedEmail(accountId, { threadId: byExcerpt, subject: "x", textExcerpt: "ci vediamo a Kathmandu giovedì" });
+    await seedEmail(accountId, { subject: "Nient'altro" });
+
+    expect(threadsOf(await getThreads(memberCookie, "?q=zanzibar")).map((t) => t.threadId)).toEqual([bySubject]);
+    expect(threadsOf(await getThreads(memberCookie, "?q=BRANCALEONE")).map((t) => t.threadId)).toEqual([byName]);
+    expect(threadsOf(await getThreads(memberCookie, "?q=quintil")).map((t) => t.threadId)).toEqual([byAddress]);
+    expect(threadsOf(await getThreads(memberCookie, "?q=kathmandu")).map((t) => t.threadId)).toEqual([byExcerpt]);
+  });
+
+  it("un thread compare se UN suo messaggio combacia, e resta intero (conteggio di tutti i messaggi)", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const threadId = `t-${randomUUID()}`;
+    await seedEmail(accountId, { threadId, subject: "Prima", receivedAt: new Date("2026-09-01T08:00:00.000Z") });
+    await seedEmail(accountId, { threadId, subject: "Re: Prima", textExcerpt: "parola Ornitorinco", receivedAt: new Date("2026-09-02T08:00:00.000Z") });
+    const [thread] = threadsOf(await getThreads(memberCookie, "?q=ornitorinco"));
+    expect(thread).toMatchObject({ threadId, messageCount: 2 });
+  });
+
+  it("NEGATIVO: un admin con un `q` che combacia SOLO nella casella del member non la vede; il member sì", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const threadId = `t-${randomUUID()}`;
+    await seedEmail(accountId, { threadId, subject: "Segreto Pterodattilo" });
+    const mine = await seedAccount(adminId);
+    await seedEmail(mine.accountId, { subject: "Altro" });
+    expect(threadsOf(await getThreads(adminCookie, "?q=pterodattilo"))).toEqual([]);
+    expect(threadsOf(await getThreads(memberCookie, "?q=pterodattilo")).map((t) => t.threadId)).toEqual([threadId]);
+  });
+
+  it("to e cc si MOSTRANO, non si cercano", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedEmail(accountId, { subject: "x", toAddresses: ["destinatario-unico@acme.test"], ccAddresses: ["copia-unica@acme.test"] });
+    expect(threadsOf(await getThreads(memberCookie, "?q=destinatario-unico"))).toEqual([]);
+    expect(threadsOf(await getThreads(memberCookie, "?q=copia-unica"))).toEqual([]);
+  });
+
+  it("i metacaratteri LIKE sono letterali: `%%` non trova tutto", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedEmail(accountId, { subject: "qualunque" });
+    expect(threadsOf(await getThreads(memberCookie, `?q=${encodeURIComponent("%%")}`))).toEqual([]);
+  });
+
+  it("q di 1 carattere o oltre 200: 400 invalid_query; vuoto (solo spazi): nessun filtro", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedEmail(accountId, { subject: "uno" });
+    const short = await getThreads(memberCookie, "?q=a");
+    expect(short.statusCode).toBe(400);
+    expect((short.json() as { code: string }).code).toBe("invalid_query");
+    expect((await getThreads(memberCookie, `?q=${"x".repeat(201)}`)).statusCode).toBe(400);
+    expect(threadsOf(await getThreads(memberCookie, "?q=%20%20"))).toHaveLength(1);
+  });
+
+  it("la paginazione col cursore funziona anche filtrando", async () => {
+    const { accountId } = await seedAccount(memberId);
+    for (let i = 0; i < 3; i += 1) {
+      await seedEmail(accountId, { subject: `Lemure ${i}`, receivedAt: new Date(`2026-09-0${i + 1}T08:00:00.000Z`) });
+    }
+    await seedEmail(accountId, { subject: "estraneo", receivedAt: new Date("2026-09-09T08:00:00.000Z") });
+    const first = await getThreads(memberCookie, "?q=lemure&limit=2");
+    const page1 = first.json() as { items: { subject: string }[]; nextCursor: string };
+    expect(page1.items.map((t) => t.subject)).toEqual(["Lemure 2", "Lemure 1"]);
+    const second = await getThreads(memberCookie, `?q=lemure&limit=2&cursor=${encodeURIComponent(page1.nextCursor)}`);
+    expect((second.json() as { items: { subject: string }[] }).items.map((t) => t.subject)).toEqual(["Lemure 0"]);
+  });
+});
+
+describe("POST /api/me/mail/threads/:threadId/read (area 6, F1.3)", () => {
+  const FULL = [
+    "openid",
+    "email",
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/calendar.readonly",
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/drive.readonly",
+  ];
+  const modifyCalls: { accessToken: string; id: string; addLabelIds?: string[]; removeLabelIds?: string[] }[] = [];
+  let modifyFailure: unknown = null;
+  const fake: MailOriginalClient = {
+    refreshAccessToken: async () => ({ ...FAKE_TOKENS, accessToken: "at-della-casella" }),
+    getMessageFull: async () => fakeGmailMessage(),
+    modifyThread: async (input) => {
+      modifyCalls.push(input);
+      if (modifyFailure) throw modifyFailure;
+    },
+  };
+  let appRead: FastifyInstance;
+  let cookie: string;
+  let otherCookie: string;
+
+  beforeAll(async () => {
+    appRead = buildApp({ db, sessionSecret: SESSION_SECRET, encryptionKey: ENCRYPTION_KEY.toString("base64"), mailGoogleClient: fake });
+    cookie = await fullSessionCookie(appRead, memberId);
+    otherCookie = await fullSessionCookie(appRead, adminId);
+  }, 60_000);
+  afterAll(async () => {
+    await appRead.close();
+  });
+  beforeEach(() => {
+    modifyCalls.length = 0;
+    modifyFailure = null;
+  });
+
+  async function seedThread(scopes = FULL) {
+    const { accountId } = await seedAccount(memberId);
+    await db.update(googleAccounts).set({ scopes }).where(eq(googleAccounts.id, accountId));
+    const threadId = `t-${randomUUID()}`;
+    await seedEmail(accountId, { threadId, unread: true, receivedAt: new Date("2026-09-01T08:00:00.000Z") });
+    await seedEmail(accountId, { threadId, unread: null, receivedAt: new Date("2026-09-02T08:00:00.000Z") });
+    return { accountId, threadId };
+  }
+  function markRead(c: string, threadId: string, body: Record<string, unknown>) {
+    return appRead.inject({ method: "POST", url: `/api/me/mail/threads/${encodeURIComponent(threadId)}/read`, headers: { cookie: c }, payload: body });
+  }
+  async function unreadOf(threadId: string) {
+    const rows = await db.select({ unread: emailMessages.unread }).from(emailMessages).where(eq(emailMessages.threadId, threadId)).orderBy(emailMessages.receivedAt);
+    return rows.map((r) => r.unread);
+  }
+
+  it("letto: toglie UNREAD su Google col token della casella, POI scrive lo stato locale, e risponde col thread", async () => {
+    const { accountId, threadId } = await seedThread();
+    const res = await markRead(cookie, threadId, { account: accountId, read: true });
+    expect(res.statusCode).toBe(200);
+    expect(modifyCalls).toEqual([{ accessToken: "at-della-casella", id: threadId, removeLabelIds: ["UNREAD"] }]);
+    expect(await unreadOf(threadId)).toEqual([false, false]);
+    const body = res.json() as { threadId: string; messages: { unread: boolean }[] };
+    expect(body.threadId).toBe(threadId);
+    expect(body.messages.map((m) => m.unread)).toEqual([false, false]);
+  });
+
+  it("non letto: aggiunge UNREAD, e /threads lo dice", async () => {
+    const { accountId, threadId } = await seedThread();
+    await db.update(emailMessages).set({ unread: false }).where(eq(emailMessages.threadId, threadId));
+    const res = await markRead(cookie, threadId, { account: accountId, read: false });
+    expect(res.statusCode).toBe(200);
+    expect(modifyCalls[0]).toMatchObject({ addLabelIds: ["UNREAD"] });
+    expect(await unreadOf(threadId)).toEqual([true, true]);
+    const list = await appRead.inject({ method: "GET", url: "/api/me/mail/threads", headers: { cookie } });
+    expect((list.json() as { items: { threadId: string; unread: boolean }[] }).items.find((t) => t.threadId === threadId)!.unread).toBe(true);
+  });
+
+  it("un rifiuto di Google NON cambia lo stato locale", async () => {
+    const { accountId, threadId } = await seedThread();
+    modifyFailure = new GoogleApiError({ api: "gmail.threads.modify", status: 500, code: "backendError", reason: "backendError" });
+    const res = await markRead(cookie, threadId, { account: accountId, read: true });
+    expect(res.statusCode).toBe(502);
+    expect(await unreadOf(threadId)).toEqual([true, null]);
+  });
+
+  it("senza gmail.modify (una casella di prima): 409 google_scope_missing con `missing`, e nessuna chiamata a Google", async () => {
+    const legacy = ["openid", "email", "https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/calendar.readonly"];
+    const { accountId, threadId } = await seedThread(legacy);
+    const res = await markRead(cookie, threadId, { account: accountId, read: true });
+    expect(res.statusCode).toBe(409);
+    const body = res.json() as { code: string; missing: string[] };
+    expect(body.code).toBe("google_scope_missing");
+    expect(body.missing).toContain("https://www.googleapis.com/auth/gmail.modify");
+    expect(modifyCalls).toEqual([]);
+    expect(await unreadOf(threadId)).toEqual([true, null]);
+  });
+
+  it("il thread di un altro (anche per un admin): 404, nessuna chiamata a Google", async () => {
+    const { accountId, threadId } = await seedThread();
+    const res = await markRead(otherCookie, threadId, { account: accountId, read: true });
+    expect(res.statusCode).toBe(404);
+    expect(modifyCalls).toEqual([]);
+    expect(await unreadOf(threadId)).toEqual([true, null]);
+  });
+
+  it("un thread che non c'è in quella casella: 404", async () => {
+    const { accountId } = await seedThread();
+    expect((await markRead(cookie, "nessuno", { account: accountId, read: true })).statusCode).toBe(404);
+  });
+
+  it("una casella disabilitata: 409 account_disabled, nessuna chiamata", async () => {
+    const { accountId, threadId } = await seedThread();
+    await db.update(googleAccounts).set({ disabledAt: new Date(), disabledReason: "revoked" }).where(eq(googleAccounts.id, accountId));
+    const res = await markRead(cookie, threadId, { account: accountId, read: true });
+    expect(res.statusCode).toBe(409);
+    expect((res.json() as { code: string }).code).toBe("account_disabled");
+    expect(modifyCalls).toEqual([]);
+  });
+
+  it("review F1 (punto 2): un 403 di SCOPE (insufficientPermissions) è google_scope_missing; un 403 di QUOTA è 503 «riprova»; un 403 nudo 502 — stato sempre invariato", async () => {
+    const cases = [
+      { error: new GoogleApiError({ api: "gmail.threads.modify", status: 403, code: "insufficient_scope", reason: "insufficientPermissions" }), status: 409, code: "google_scope_missing" },
+      { error: new GoogleApiError({ api: "gmail.threads.modify", status: 403, code: "rate_limited", reason: "userRateLimitExceeded" }), status: 503, code: "google_rate_limited" },
+      { error: new GoogleApiError({ api: "gmail.threads.modify", status: 429, code: "rate_limited", reason: "rateLimitExceeded" }), status: 503, code: "google_rate_limited" },
+      { error: new GoogleApiError({ api: "gmail.threads.modify", status: 403, code: "forbidden", reason: "forbidden" }), status: 502, code: "google_unavailable" },
+    ];
+    for (const c of cases) {
+      const { accountId, threadId } = await seedThread();
+      modifyFailure = c.error;
+      const res = await markRead(cookie, threadId, { account: accountId, read: true });
+      expect(res.statusCode, c.code).toBe(c.status);
+      expect((res.json() as { code: string }).code).toBe(c.code);
+      expect(await unreadOf(threadId)).toEqual([true, null]);
+    }
+  });
+
+  it("token scaduto su Google: 409 token_expired, stato invariato", async () => {
+    const { accountId, threadId } = await seedThread();
+    modifyFailure = new GoogleApiError({ api: "gmail.threads.modify", status: 401, code: "unauthorized", reason: "authError" });
+    const res = await markRead(cookie, threadId, { account: accountId, read: true });
+    expect(res.statusCode).toBe(409);
+    expect((res.json() as { code: string }).code).toBe("token_expired");
+    expect(await unreadOf(threadId)).toEqual([true, null]);
+  });
+});
+
+describe("GET /api/me/mail/threads — la classificazione nuova (area 6, F2, task 5)", () => {
+  function getThreads(cookie: string, query = "") {
+    return app.inject({ method: "GET", url: `/api/me/mail/threads${query}`, headers: { cookie } });
+  }
+  type Row = { threadId: string; importance: string | null; dueDate: string | null; analysing: boolean; failed: boolean; projectIds: string[]; projectNames: string[]; snippet: string };
+  const rows = (res: { json(): unknown }) => (res.json() as { items: Row[] }).items;
+
+  it("importanza più alta, scadenza più vicina, in analisi, fallita, progetti per id, l'inizio dell'ultimo messaggio", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const projectId = await seedProject("Audin");
+    await addMember(app, projectId, memberId, "viewer");
+    const t = `t-${randomUUID()}`;
+    await seedEmail(accountId, { threadId: t, classificationState: "done", importance: "low", dueDate: "2026-12-01", scopeProjectIds: [projectId], receivedAt: new Date("2026-11-01T08:00:00.000Z") });
+    await seedEmail(accountId, { threadId: t, classificationState: "done", importance: "high", dueDate: "2026-11-20", receivedAt: new Date("2026-11-02T08:00:00.000Z") });
+    await seedEmail(accountId, { threadId: t, classificationState: "pending", importance: null, textExcerpt: "\n  Ciao, ecco l'ultimo\nseconda riga", receivedAt: new Date("2026-11-03T08:00:00.000Z") });
+    const other = `t-${randomUUID()}`;
+    await seedEmail(accountId, { threadId: other, classificationState: "failed" });
+
+    const items = rows(await getThreads(memberCookie));
+    const row = items.find((r) => r.threadId === t)!;
+    expect(row).toMatchObject({ importance: "high", dueDate: "2026-11-20", analysing: true, failed: false, projectIds: [projectId], projectNames: ["Audin"], snippet: "Ciao, ecco l'ultimo" });
+    expect(items.find((r) => r.threadId === other)).toMatchObject({ failed: true, importance: null });
+  });
+
+  it("una riga di prima (nessuna classificazione nuova): i default", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedEmail(accountId, {});
+    expect(rows(await getThreads(memberCookie))[0]).toMatchObject({ importance: null, dueDate: null, analysing: false, failed: false, projectIds: [] });
+  });
+
+  it("i filtri: importanza, progetto, senza progetto, importanti (alta E non letta)", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const projectId = await seedProject("Audin");
+    await addMember(app, projectId, memberId, "viewer");
+    const high = `t-${randomUUID()}`;
+    const highRead = `t-${randomUUID()}`;
+    const none = `t-${randomUUID()}`;
+    const legacy = `t-${randomUUID()}`;
+    await seedEmail(accountId, { threadId: high, classificationState: "done", importance: "high", unread: true, scopeProjectIds: [projectId] });
+    await seedEmail(accountId, { threadId: highRead, classificationState: "done", importance: "high", unread: false });
+    await seedEmail(accountId, { threadId: none, classificationState: "done", importance: "normal" });
+    await seedEmail(accountId, { threadId: legacy });
+    const ids = async (q: string) => rows(await getThreads(memberCookie, q)).map((r) => r.threadId).sort();
+    expect(await ids("?importance=high")).toEqual([high, highRead].sort());
+    expect(await ids(`?project=${projectId}`)).toEqual([high]);
+    expect(await ids("?noProject=true")).toEqual([highRead, none].sort());
+    expect(await ids("?important=true")).toEqual([high]);
+  });
+
+  it("NEGATIVO: i filtri non allargano mai alla casella di un altro", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedEmail(accountId, { classificationState: "done", importance: "high", unread: true });
+    expect(rows(await getThreads(adminCookie, "?important=true"))).toEqual([]);
+  });
+  it("NEGATIVO (review F2, punto 4): un progetto che chi guarda NON vede non arriva — né in elenco, né nel filtro, né nel dettaglio", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const mine = await seedProject("Audin");
+    const hidden = await seedProject("Progetto riservato");
+    await addMember(app, mine, memberId, "viewer");
+    const t = `t-${randomUUID()}`;
+    // Un esterno ha messo in Cc un membro di un altro progetto: lo scope lo contiene.
+    await seedEmail(accountId, { threadId: t, classificationState: "done", importance: "normal", scopeProjectIds: [mine, hidden], uncertainProjectIds: [hidden] });
+    const solo = `t-${randomUUID()}`;
+    await seedEmail(accountId, { threadId: solo, classificationState: "done", importance: "normal", scopeProjectIds: [hidden] });
+
+    const items = rows(await getThreads(memberCookie));
+    const row = items.find((r) => r.threadId === t)!;
+    expect(row.projectIds).toEqual([mine]);
+    expect(row.projectNames).toEqual(["Audin"]);
+    expect(items.find((r) => r.threadId === solo)!.projectIds).toEqual([]);
+    // Il filtro non ne conferma l'esistenza; «senza progetto» lo tratta come assente.
+    expect(rows(await getThreads(memberCookie, `?project=${hidden}`))).toEqual([]);
+    expect(rows(await getThreads(memberCookie, "?noProject=true")).map((r) => r.threadId)).toEqual([solo]);
+    const detail = (await app.inject({ method: "GET", url: `/api/me/mail/threads/${t}`, headers: { cookie: memberCookie } })).json() as {
+      messages: { classification: { projectIds: string[]; uncertainProjectIds: string[] } }[];
+    };
+    expect(detail.messages[0]!.classification).toMatchObject({ projectIds: [mine], uncertainProjectIds: [] });
   });
 });

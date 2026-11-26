@@ -111,13 +111,13 @@ describe("la riga dell'attesa", () => {
     );
   });
 
-  it("la coda in pausa: la frase col nome di chi l'ha messa", async () => {
+  it("la coda in pausa: la frase SENZA chi l'ha messa (il server non lo porta; decisione del maintainer)", async () => {
     expect(pauseQueueAs(ROBERTA, ACQ)).toEqual({ ok: true });
     twoWaiting();
     await open();
     await waitFor(() => expect(line()).not.toBeNull());
     expect(flat(line()!)).toBe(
-      "Claude will resume updating the doc when Roberta Fontana resumes the queue · 2 updates waiting · Who?",
+      "Claude will resume updating the doc when the queue resumes · 2 updates waiting · Who?",
     );
   });
 
@@ -128,7 +128,7 @@ describe("la riga dell'attesa", () => {
     await open();
     await waitFor(() => expect(line()).not.toBeNull());
     expect(flat(line()!)).toBe(
-      "Claude riprenderà ad aggiornare la doc quando Roberta Fontana riprende la coda · 2 aggiornamenti in attesa · Chi?",
+      "Claude riprenderà ad aggiornare la doc quando riprende la coda · 2 aggiornamenti in attesa · Chi?",
     );
   });
 
@@ -170,5 +170,24 @@ describe("la riga dell'attesa", () => {
     const who = within(line()!).getByRole("button", { name: /^Who/ });
     expect(who.closest(".whitespace-nowrap")).not.toBeNull();
     expect(line()!.className).not.toMatch(/truncate|whitespace-nowrap/);
+  });
+});
+
+describe("la riga dell'attesa: la quota dell'account e la sezione presa (decisione del maintainer)", () => {
+  it("un fatto che aspetta una sezione presa da una persona: la frase della sezione, senza «Who?»", async () => {
+    state.productPending.push({ id: "pend-1", pageId: PAGE, projectId: ACQ, ref: { kind: "task", id: "t-x" }, fact: {} as never, arrivedSeq: 0 });
+    await open();
+    await waitFor(() => expect(line()).not.toBeNull());
+    expect(flat(line()!)).toBe("Claude is waiting for someone to finish writing in a section · 1 update waiting");
+  });
+
+  it("la quota dell'account dell'agente (build app): la sua frase, in inglese e in italiano", async () => {
+    const { ClaudeWaitingText } = await import("./ClaudeWaitingLine");
+    const { render } = await import("@testing-library/react");
+    const { container } = render(<ClaudeWaitingText reason="limit" />);
+    expect(container.textContent).toBe("Claude will update the docs when the account quota resets");
+    act(() => setLanguage("it"));
+    const it = render(<ClaudeWaitingText reason="limit" />);
+    expect(it.container.textContent).toBe("Claude aggiorna la doc quando si azzera la quota dell'account");
   });
 });

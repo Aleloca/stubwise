@@ -1,4 +1,3 @@
-import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { WhoCanLink } from "../../../components/WhoCanLink";
@@ -8,7 +7,7 @@ import { Markdown } from "../../../tasks-ui/Markdown";
 import type { Ev } from "./flow";
 import { TroubleGlyph } from "../../servers/glyphs";
 import { WaitingDot } from "./QuestionCard";
-import type { ServerFixPlan } from "./serverFixPlan";
+import { stepLabel, type ServerFixPlan } from "./serverFixPlan";
 import {
   cardClass,
   DisclosureGlyph,
@@ -31,13 +30,17 @@ import {
  * già che il piano aspetta (la riga di stato della task), e la scheda non
  * lo ripete — si intitola solo «Plan».
  *
- * `serverFix` (area 8b): il piano di una correzione di server. Dice con
- * quale accesso girerà («può fare tutto») e che un piano che rilascia va
+ * `serverFix` (area 8, F4b): il piano di una correzione di server. Mostra
+ * SOLO le azioni dell'insieme chiuso (`serverPlan`), tradotte, col perché
+ * come testo — mai un comando, mai un campo per scriverne uno —; dice che
+ * le esegue l'agente, una alla volta, e che un piano che rilascia va
  * rifiutato; nessuna approvazione in anticipo; chi l'ha avviata e può
- * approvare legge che approvando partono i comandi. Con l'approvazione
- * spenta (`blockedReason`, calcolata dal livello dati) Approve resta
- * visibile ma spento, col motivo sopra, e Reject resta attivo se il livello
- * dati lo permette (`canReject`).
+ * approvare legge che approvando partono le azioni. Un piano che libera
+ * spazio su un server CONDIVISO lo dice prima dei bottoni, coi progetti che
+ * chi guarda vede (decisione del maintainer). Con l'approvazione spenta
+ * (`blockedReason`, calcolata dal livello dati) Approve resta visibile ma
+ * spento, col motivo sopra, e Reject resta attivo se il livello dati lo
+ * permette (`canReject`).
  */
 export function PlanCard({
   conversationId,
@@ -47,6 +50,8 @@ export function PlanCard({
   onReadFull,
   statusShown = false,
   serverFix,
+  onDecide,
+  decideElsewhere = false,
 }: {
   conversationId: string;
   event: Ev<"plan">;
@@ -55,12 +60,26 @@ export function PlanCard({
   onReadFull?: () => void;
   statusShown?: boolean;
   serverFix?: ServerFixPlan | undefined;
+  /**
+   * La decisione passa da qui invece che dalla conversazione: la scheda di
+   * una correzione nella sezione Server della task (decisione del
+   * maintainer, 15 nov 2026), con le azioni della correzione.
+   */
+  onDecide?: (decision: "approve" | "reject", instructions?: string) => Promise<void>;
+  /**
+   * La sessione di una correzione: il piano si legge, ma si decide nella
+   * sezione Server della task (nessun bottone qui, la frase lo dice).
+   */
+  decideElsewhere?: boolean;
 }) {
   const { t } = useTranslation();
   const decide = useDecidePlan();
+  const [deciding, setDeciding] = useState(false);
+  const busy = decide.isPending || deciding;
   const [full, setFull] = useState(false);
   const [rejecting, setRejecting] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
+  /** `changed`: 409 `plan_changed`, il piano è stato riscritto dopo che lo si è letto. */
+  const [failed, setFailed] = useState<boolean | "changed" | "stale">(false);
   const [lostTo, setLostTo] = useState<string | null>(null);
   const decidedBy = usePersonName(event.decidedById);
   const lostToName = usePersonName(lostTo);
@@ -80,6 +99,8 @@ export function PlanCard({
   );
   // Un'apertura come quella dei gruppi d'azione: in inchiostro, con la freccia
   // che gira (o che porta alla sessione, nel pannello della task).
+  // Senza testo del piano né sessione da aprire non c'è niente da leggere (review F4b).
+  const readable = event.planText !== "" || onReadFull !== undefined;
   const toggle = (
     <button
       type="button"
@@ -99,7 +120,9 @@ export function PlanCard({
 
   if (event.status !== "pending") {
     const line =
-      event.status === "approved"
+      event.status === "undecided"
+        ? t("claude.conversation.plan.undecided")
+        : event.status === "approved"
         ? t("claude.conversation.plan.approvedBy", { name: decidedBy })
         : event.status === "pre_approved"
           ? t("claude.conversation.plan.preApprovedBy", { name: decidedBy })
@@ -128,17 +151,37 @@ export function PlanCard({
 
   const run = (decision: "approve" | "reject", instructions?: string) => {
     setFailed(false);
+    if (onDecide) {
+      setDeciding(true);
+      void onDecide(decision, instructions)
+        .then(() => setRejecting(null))
+        .catch((error: Error) =>
+          setFailed(
+            /plan_changed/.test(error.message)
+              ? "changed"
+              : /plan_stale/.test(error.message)
+                ? "stale"
+                : true,
+          ),
+        )
+        .finally(() => setDeciding(false));
+      return;
+    }
     decide.mutate(
       {
         id: conversationId,
         decision,
         planId: event.id,
+        // Il digest del piano che chi decide ha davanti (build app).
+        ...(event.digest ? { planDigest: event.digest } : {}),
         ...(instructions ? { instructions } : {}),
       },
       {
         onError: (error) => {
           if (error.message === "already_answered") {
             setLostTo((error as Error & { byId?: string | null }).byId ?? "");
+          } else if ((error as { code?: unknown }).code === "plan_changed") {
+            setFailed("changed");
           } else setFailed(true);
         },
       },
@@ -147,7 +190,7 @@ export function PlanCard({
 
   // Rifiutare resta possibile anche con l'approvazione spenta (correzione di server).
   const canReject = serverFix ? serverFix.canReject : canDecidePlan;
-  const decides = canDecidePlan || canReject;
+  const decides = !decideElsewhere && (canDecidePlan || canReject);
   const F = "taskDetail.server.planCard";
   return (
     <section
@@ -173,52 +216,63 @@ export function PlanCard({
           {t(`${F}.runsAs`, { code: serverFix.code })}
         </p>
       )}
-      <div className="flex min-w-0 flex-col gap-1">
-        <span className="text-xs font-semibold text-ink-muted">
-          {t("claude.conversation.plan.inBrief")}
-        </span>
-        <Markdown source={event.summary} className="max-w-[68ch]" />
-      </div>
-      {serverFix && event.commands && event.commands.length > 0 && (
-        // Chi approva legge il piano comando per comando, sempre a vista (shape server-task §3).
+      {/* La scheda della sezione Server (dalla vista della correzione) non ha un riassunto. */}
+      {event.summary && (
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="text-xs font-semibold text-ink-muted">
+            {t("claude.conversation.plan.inBrief")}
+          </span>
+          <Markdown source={event.summary} className="max-w-[68ch]" />
+        </div>
+      )}
+      {serverFix && event.serverPlan && event.serverPlan.steps.length > 0 && (
+        // Chi approva legge il piano azione per azione, sempre a vista (shape
+        // server-task §3): le azioni tradotte, il perché (del modello) come testo.
         <ol
           aria-label={t(`${F}.commands`, { code: serverFix.code })}
           className="flex min-w-0 flex-col gap-2"
         >
-          {event.commands.map((c, i) => (
-            <li key={i} className="flex min-w-0 gap-2">
+          {event.serverPlan.steps.map((step, i) => (
+            <li key={i} className="flex min-w-0 gap-2" data-plan-step={step.action}>
               <span className="num w-4 shrink-0 text-right text-xs leading-5 text-ink-muted">
                 {i + 1}
               </span>
               <span className="flex min-w-0 flex-col">
-                <code title={c.input} className="truncate font-code text-xs leading-5 text-ink">
-                  {c.input}
-                </code>
-                <span className="text-[13px] text-ink-muted">{c.why}</span>
+                <span className="text-sm leading-5 font-medium text-ink [overflow-wrap:anywhere]">
+                  {stepLabel(t, step)}
+                </span>
+                <span className="text-[13px] text-ink-muted [overflow-wrap:anywhere]">
+                  {step.why}
+                </span>
               </span>
             </li>
           ))}
         </ol>
       )}
-      {toggle}
+      {serverFix?.pruneWarning && (
+        // «Libera spazio» tocca tutto il server: su uno condiviso si dice
+        // PRIMA di approvare, coi progetti che chi guarda vede (gli altri contati).
+        <div
+          role="note"
+          aria-label={t(`${F}.shared.title`, { code: serverFix.code })}
+          data-shared-warning
+          className="flex items-start gap-1.5 border-l border-critical py-0.5 pl-2.5 text-sm text-ink"
+        >
+          <span className="mt-0.5 shrink-0">
+            <TroubleGlyph />
+          </span>
+          <span>{sharedLine(t, serverFix.code, serverFix.pruneWarning)}</span>
+        </div>
+      )}
+      {readable && toggle}
       {fullPlan}
       {serverFix &&
         decides &&
         rejecting === null &&
         // Sopra i bottoni: perché Approve è spento, o che approvando partono i comandi.
         (serverFix.blockedReason ? (
-          <p role="note" className="flex flex-wrap items-baseline gap-x-2 text-sm text-ink">
-            <span>{t(`${F}.blocked.${serverFix.blockedReason}`, { code: serverFix.code })}</span>
-            {serverFix.accessProject && serverFix.blockedReason !== "server_gone" && (
-              <Link
-                to="/p/$code/servers/$server"
-                params={{ code: serverFix.accessProject, server: serverFix.code }}
-                search={{ section: "access" } as never}
-                className="font-medium text-ink underline decoration-ink/30 underline-offset-4 hover:decoration-ink"
-              >
-                {t("taskDetail.server.linkAccess")}
-              </Link>
-            )}
+          <p role="note" className="text-sm text-ink">
+            {t(`${F}.blocked.${serverFix.blockedReason}`, { code: serverFix.code })}
           </p>
         ) : (
           serverFix.startedByViewer &&
@@ -233,7 +287,7 @@ export function PlanCard({
             <button
               type="button"
               className={secondaryButton}
-              disabled={decide.isPending || lostTo !== null || !canReject}
+              disabled={busy || lostTo !== null || !canReject}
               // Approvazione spenta: il rifiuto chiude la correzione e libera il
               // server, senza indicazioni (un piano riscritto sarebbe bloccato uguale).
               onClick={() => (serverFix?.blockedReason ? run("reject") : setRejecting(""))}
@@ -245,7 +299,9 @@ export function PlanCard({
             <button
               type="button"
               className={primaryButton}
-              disabled={decide.isPending || lostTo !== null || !canDecidePlan}
+              // Review F4b I1: con l'approvazione spenta (operazioni dell'agente
+              // spente, server tolto) Approve resta spento anche se il permesso c'è.
+              disabled={busy || lostTo !== null || !canDecidePlan || !!serverFix?.blockedReason}
               onClick={() => run("approve")}
             >
               {serverFix ? t(`${F}.approve`) : t("claude.conversation.plan.approve")}
@@ -278,7 +334,7 @@ export function PlanCard({
               <button
                 type="submit"
                 className={primaryButton}
-                disabled={decide.isPending || lostTo !== null}
+                disabled={busy || lostTo !== null}
               >
                 {t("claude.conversation.plan.rejectAndSend")}
               </button>
@@ -286,6 +342,11 @@ export function PlanCard({
           </form>
         )
       ) : (
+        decideElsewhere ? (
+          <p data-plan-where className="text-sm text-ink-muted">
+            {t(`${F}.decideInServer`, { code: serverFix?.code ?? "" })}
+          </p>
+        ) : (
         // Al posto di Approve, dove chi può decidere trova i bottoni: chi decide.
         <p data-plan-who className="text-right text-sm text-ink-muted">
           {serverFix
@@ -302,6 +363,7 @@ export function PlanCard({
             </>
           )}
         </p>
+        )
       )}
       {serverFix && (
         <p data-release-rule className="text-xs text-ink-muted">
@@ -315,9 +377,29 @@ export function PlanCard({
       )}
       {failed && (
         <p role="alert" className="text-sm text-critical">
-          {t("claude.conversation.plan.failed")}
+          {t(
+            failed === "changed"
+              ? "claude.conversation.plan.changed"
+              : failed === "stale"
+                ? "taskDetail.server.planCard.stale"
+                : "claude.conversation.plan.failed",
+          )}
         </p>
       )}
     </section>
   );
+}
+
+/** La frase dell'avviso «server condiviso»: i progetti che chi guarda vede, gli altri contati. */
+function sharedLine(
+  t: ReturnType<typeof useTranslation>["t"],
+  code: string,
+  warning: NonNullable<ServerFixPlan["pruneWarning"]>,
+): string {
+  const F = "taskDetail.server.planCard.shared";
+  const projects = warning.projects.join(", ");
+  const count = warning.hiddenCount;
+  if (warning.projects.length > 0 && count > 0) return t(`${F}.both`, { code, projects, count });
+  if (warning.projects.length > 0) return t(`${F}.projects`, { code, projects });
+  return t(`${F}.hidden`, { code, count });
 }

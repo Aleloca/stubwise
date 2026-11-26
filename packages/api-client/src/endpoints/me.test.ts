@@ -63,3 +63,29 @@ describe("endpoints me: device push", () => {
     expect(String(call.body)).not.toContain("%2F");
   });
 });
+
+describe("endpoints me: «Da decidere» di Claude (area 3, fetta 3b)", () => {
+  it("claudeDecisions: GET /api/me/claude-decisions; una voce di un server più nuovo con un kind ignoto si legge UNKNOWN", async () => {
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(
+      async () =>
+        new Response(
+          JSON.stringify([
+            {
+              id: "j:plan",
+              kind: "un_tipo_nuovo",
+              title: "T",
+              projectId: "7f1c2a1e-0000-4000-8000-0000000000a1",
+              taskId: "7f1c2a1e-0000-4000-8000-0000000000a2",
+              at: "2026-11-10T10:00:00.000Z",
+              webHref: "/tickets/x",
+            },
+          ]),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    const client = createStubwiseClient({ baseUrl: "", getAuthHeader: () => null, fetch: fetchImpl });
+    const [d] = await client.me.claudeDecisions();
+    expect(String(fetchImpl.mock.calls[0]![0])).toBe("/api/me/claude-decisions");
+    expect(d).toMatchObject({ kind: "__unknown__", conversationKind: "task_run", ownerId: null, blockedReason: null });
+  });
+});

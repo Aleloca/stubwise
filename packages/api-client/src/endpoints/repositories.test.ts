@@ -43,6 +43,17 @@ describe("endpoints repositories", () => {
     expect(fetchImpl.mock.calls.at(-1)![1]?.method).toBe("GET");
   });
 
+  // Registro, A5 r.209: «Abilita» il grafo dal desktop, solo quel campo.
+  it("setGraphEnabled: PATCH per slug col solo `graphEnabled`", async () => {
+    const { client, fetchImpl } = clientConRepository();
+    const r = await client.repositories.setGraphEnabled("portale-b2b", true);
+    const [url, init] = fetchImpl.mock.calls.at(-1)!;
+    expect(String(url)).toBe("/api/repositories/portale-b2b");
+    expect(init?.method).toBe("PATCH");
+    expect(JSON.parse(String(init?.body))).toEqual({ graphEnabled: true });
+    expect(r.graphEnabled).toBe(true);
+  });
+
   it("uno slug con caratteri da codificare non esce dal path", async () => {
     const { client, fetchImpl } = clientConRepository();
     await client.repositories.get("a/b?c");
@@ -75,5 +86,54 @@ describe("endpoints repositories", () => {
     const client = createStubwiseClient({ baseUrl: "", getAuthHeader: () => null, fetch: fetchImpl });
     const repository = await client.repositories.get("portale-b2b");
     expect(repository).not.toHaveProperty("webhookSecret");
+  });
+});
+
+describe("area 8, F1: le impostazioni di rilascio", () => {
+  it("PATCH per slug coi soli campi di rilascio; una risposta senza i campi nuovi (server di prima) si legge coi default", async () => {
+    const { client, fetchImpl } = clientConRepository();
+    const read = await client.repositories.updateReleaseSettings("portale-b2b", { releaseBranch: "production", colleaguePrs: "analyze_and_fix" });
+    const [url, init] = fetchImpl.mock.calls.at(-1)!;
+    expect(String(url)).toBe("/api/repositories/portale-b2b");
+    expect(init?.method).toBe("PATCH");
+    expect(JSON.parse(String(init?.body))).toEqual({ releaseBranch: "production", colleaguePrs: "analyze_and_fix" });
+    expect(read).toMatchObject({ slug: "portale-b2b", releaseBranch: null, colleaguePrs: "analyze_only" });
+  });
+});
+
+describe("area 8, F1: l'elenco dei repository di un progetto", () => {
+  it("GET /api/repositories?projectId=…; una risposta di un server di prima si legge coi default dei rilasci", async () => {
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async () => new Response(JSON.stringify([REPOSITORY]), { status: 200, headers: { "content-type": "application/json" } }));
+    const client = createStubwiseClient({ baseUrl: "", getAuthHeader: () => null, fetch: fetchImpl });
+    const [read] = await client.repositories.list("p-1");
+    expect(String(fetchImpl.mock.calls.at(-1)![0])).toBe("/api/repositories?projectId=p-1");
+    expect(read).toMatchObject({ slug: "portale-b2b", releasePipeline: { mode: "auto" }, colleaguePrs: "analyze_only" });
+    await client.repositories.list();
+    expect(String(fetchImpl.mock.calls.at(-1)![0])).toBe("/api/repositories");
+  });
+});
+
+describe("area 9, F6: i repository senza progetto", () => {
+  function clientWith(body: unknown, status = 200) {
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async () =>
+      status === 204 ? new Response(null, { status }) : new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } }),
+    );
+    return { client: createStubwiseClient({ baseUrl: "", getAuthHeader: () => null, fetch: fetchImpl }), fetchImpl };
+  }
+
+  it("detached parsa le righe coi default; link e deleteDetached: verbi, path e corpo", async () => {
+    const row = { id: "50000000-0000-4000-8000-000000000001", name: "sito", provider: "github" };
+    const list = clientWith([row]);
+    expect(await list.client.repositories.detached()).toEqual([
+      { ...row, fullName: null, repoUrl: null, gitAccountName: null, gitAccountProvider: null, detachedAt: null, formerProject: null, canDelete: false, linkTargets: [] },
+    ]);
+    expect(String(list.fetchImpl.mock.calls.at(-1)![0])).toBe("/api/repositories/detached");
+    const { client, fetchImpl } = clientWith(null, 204);
+    await client.repositories.link("r/1", "p1");
+    let [url, init] = fetchImpl.mock.calls.at(-1)!;
+    expect([String(url), init?.method, JSON.parse(String(init?.body))]).toEqual(["/api/repositories/r%2F1/link", "POST", { projectId: "p1" }]);
+    await client.repositories.deleteDetached("r");
+    [url, init] = fetchImpl.mock.calls.at(-1)!;
+    expect([String(url), init?.method]).toEqual(["/api/repositories/r", "DELETE"]);
   });
 });

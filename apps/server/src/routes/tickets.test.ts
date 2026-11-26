@@ -161,6 +161,8 @@ describe("POST /api/tickets", () => {
       createdAt: expect.any(String),
       updatedAt: expect.any(String),
       requestedBy: { id: users.memberId, email: expect.any(String) },
+      // Area 3 (review, punto 6): l'assegnatario non è Claude.
+      assigneeIsAgent: false,
     });
   });
 
@@ -1416,6 +1418,10 @@ describe("commenti — /api/tickets/:ticketId/comments", () => {
       canEdit: true,
       canDelete: true,
       inDecisionLog: false,
+      // Chat, fetta 3 (F3.4): un commento scritto a mano non porta il segno «via Claude».
+      viaClaude: false,
+      viaClaudeActionId: null,
+      viaClaudeRequesterId: null,
     });
   });
 

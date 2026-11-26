@@ -198,6 +198,96 @@
     (`AGENT_SESSION_EVENTS_CHANNEL`, `AGENT_SESSION_PARTIAL_CHANNEL`,
     `AGENT_SESSION_INPUT_CHANNEL`), importati da worker e server: mai un
     letterale, né nel codice né nei test.
+- **«Annulla il lavoro» (10 nov 2026, integrazione area 3, 3b.1 e
+  3b.1-bis): chi lo chiede lo dice la COLONNA, chi chiude è il proprietario
+  del job.** `POST /api/tasks/:id/cancel-run` (`runs.start`, task visibile,
+  `apps/server/src/services/cancel-run.ts`): un job PARCHEGGIATO (`queued`,
+  `held`, `awaiting_plan_approval`, `awaiting_input` — nessun processo vivo)
+  lo chiude il server, `skipped`, con correzione `done` nella stessa
+  transazione, le card `job.awaiting_input`/`job.plan_review` chiuse e la
+  domanda aperta segnata `cancelled_at` (mai una risposta). Un job IN
+  ESECUZIONE (`triaging`, `fixing`) il server NON lo tocca: scrive
+  `ai_jobs.cancel_requested_at`/`_by_user_id` (la fonte: sopravvive a un
+  LISTEN caduto e a un riavvio) e manda `AI_JOB_CANCEL_CHANNEL` (la sveglia);
+  il worker (`apps/worker/src/pipeline/cancel.ts`) tiene un AbortController
+  per job, lo fa scattare dal NOTIFY o dal controllo della colonna ogni 10 s,
+  passa il segnale a ogni run (`withCancelSignal`: lo streaming uccide il CLI
+  sul percorso di `AgentRunCancelledError`) e lo ricontrolla PRIMA di commit
+  e push (`assertNotCancelled`). La chiusura è `RunCancelRequestedError`, una
+  sottoclasse di `AgentRunCancelledError`: i catch di fix, correzione e
+  triage la prendono già (job `skipped`, niente commit, push né PR, niente
+  `job.failed`, stato del ticket intatto), e cambiano solo il commento
+  (`comment.runCancelled.head`, con chi). ⚠️ **Dopo il push l'annullamento non
+  vale più**: la PR si apre comunque (il lavoro è già sul remoto). Col runner
+  classico (`AGENT_STREAMING=false`) il CLI non si uccide a metà: vale solo il
+  controllo fra i passi. Il registro è in memoria: worker a processo SINGOLO,
+  come il relay. Lo scenario golden `cancel` lo rifissa sul CLI pinnato.
+  ⚠️ **La richiesta vale per UN tentativo** (review dell'area 3, 10 nov
+  2026): ogni transizione che fa ripartire il job — riciclo e forzatura di
+  `startRun`, `resolvePlan` (approva e rifiuta), la risposta a una domanda,
+  la ripresa dopo un limite, `requeueStale` — scrive
+  `CANCEL_REQUEST_CLEARED` (`@stubwise/db`) nella sua UPDATE; senza, il job
+  ripartito veniva annullato al claim e la task non si rilanciava più. Il
+  worker, come difesa, onora la colonna solo se successiva a `started_at`
+  del tentativo (`cancelRequestedThisAttempt`, `pipeline/cancel.ts`).
+  `requeueStale` chiude `skipped` (con la sua correzione) uno stantio che ha
+  la richiesta di questo tentativo, invece di riaccodarlo; il commento di
+  chiusura lì non c'è (il processo che l'avrebbe scritto è morto). Chi
+  aggiunge una transizione verso `queued` aggiunge anche quell'oggetto.
+  ⚠️ **Nemmeno un parcheggio scavalca la richiesta** (review, punto 2): un
+  job annullato mentre lavorava può arrivare al gate del piano, a una domanda
+  o a un `held` (gate dell'automazione, budget, provider al limite) prima
+  che il CLI riceva l'abort. `parkForPlanApproval`, `parkForInput` e
+  `holdJob` (`apps/worker/src/queue.ts`) rifiutano nella stessa UPDATE un
+  job con la richiesta di questo tentativo, lo chiudono `skipped` con la sua
+  correzione (`closeCancelledJob`) e rispondono `cancelled` (`ParkResult`:
+  `parked` | `lost` | `cancelled`); il chiamante scrive il commento
+  dell'annullamento (`recordRunCancelledSafely`) al posto di quello e della
+  notifica del parcheggio. ⚠️ Chi chiama un parcheggio confronta il
+  risultato con le stringhe: `!parked` su una stringa compila e non vuol
+  dire più niente.
+- **I tool NATIVI di ogni run del CLI sono un elenco ESPLICITO, mai la sola
+  lista dei negati (10 nov 2026, CLI 2.1.322).** Il CLI espone tool nativi
+  nuovi — `CronCreate`/`CronDelete`/`CronList`, `RemoteTrigger`,
+  `SendMessage`, `PushNotification`, `ToolSearch`, `ListAgents`, `Workflow`,
+  `ScheduleWakeup`, `Monitor`, `EnterWorktree`/`ExitWorktree`… — che in `-p`
+  partono SENZA chiedere permesso. Misurato a mano sul 2.1.322 col profilo
+  del turno di refinement (`permissionMode: "default"`, allowedTools
+  ristretti): `RemoteTrigger` ha chiamato l'API remota con l'account del CLI
+  (HTTP 200), `SendMessage` e `CronCreate` sono stati eseguiti, `ListAgents`
+  vedeva le sessioni della macchina; `Write` era negato. L'init di una
+  traccia vera del 2.1.287 (`apps/worker/src/sessions/fixtures/
+  interrupt-then-message.jsonl`) elenca gli stessi tool: c'erano già.
+  La regola:
+  - **Ogni run dichiara `builtinTools`** (`AgentRunOptions`), un elenco di
+    `NATIVE_TOOLS` (`apps/worker/src/agent/native-tools.ts`): testo
+    (riassunti, brief, report, note di rilascio, triage, intake, stima,
+    posta, test delle credenziali, sonda della quota) nessuno; Docs ricorsivi
+    e review `Read`/`Grep`/`Glob`; pagine notturne `Read`/`Grep` (l'allowlist
+    per file); refinement `Read`/`Grep`/`Glob`/`Skill`; smoke dei plugin
+    `Skill`; piano del fix `Read`/`Grep`/`Glob`/`Skill`/`Task`; esecuzione,
+    self-repair e correzione in più `Write`/`Edit`/`Bash`/`NotebookEdit`.
+    `Bash` entra in un elenco di lettura solo con un pattern `Bash(...)` negli
+    allowedTools (`nativeToolsWith`: i comandi del grafo), che resta il
+    cancello dei comandi. Un test sul sorgente
+    (`native-tools-registry.test.ts`) fa fallire ogni `.run({ … })` senza
+    `builtinTools`. Nessun elenco contiene i tool sopra (test in
+    `native-tools.test.ts`): chi ne vuole uno lo decide col maintainer.
+  - **Fail-closed**: l'argv porta SEMPRE `--tools <elenco>`, e `--tools ""`
+    (nessun nativo) se il run non dichiara niente (`cli-args.ts`). Un
+    sottoagente (`Task`) eredita lo stesso set (misurato).
+  - **`--strict-mcp-config` SEMPRE**, anche senza server MCP del run: senza,
+    un sottoagente del 2.1.322 vedeva i connettori claude.ai dell'account.
+  - **L'init si controlla**: il runner in streaming confronta il campo
+    `tools` dell'init con `builtinTools` e i server di `mcpConfig`
+    (`initToolsViolation`) e, se il CLI espone altro, ferma il run al primo
+    evento, prima di ogni turno, con un `AgentRunError` che nomina i tool.
+    È la rete per un CLI che ignorasse `--tools`, ed è il controllo degli
+    scenari golden, che usano lo stesso runner. Il runner classico
+    (`AGENT_STREAMING=false`) non vede l'init: lì vale solo `--tools`.
+  **Quando si aggiorna il CLI**: rileggere l'init di un run (i nomi nuovi), e
+  rilanciare i golden; un nome nuovo di un nativo che un run usa (per esempio
+  un alias) va in `NATIVE_TOOLS`/`INIT_ALIASES` dopo averlo misurato.
 - **Le sessioni degli agenti nell'app: privacy, fuoco, confini (9 ott 2026,
   piano C).** (1) **Mai su AsyncStorage**: una sessione contiene il testo
   delle email e l'output dei tool. `shouldPersistQuery`
@@ -248,3 +338,114 @@
   Il deep link `inbox/:id` ha sotto la lista dell'Inbox
   (`initialRouteName: "List"`). (6) `canWrite`/`canInterrupt`/`canAnswer`
   li calcola il server; l'app li legge.
+
+- **Chat con Claude: Claude PROPONE, il server ESEGUE (10 nov 2026, fetta 3).**
+  Nel turno di una conversazione `free` l'unico tool che non legge è
+  `propose_action`, e scrive una PROPOSTA, mai un'esecuzione diretta: il
+  ponte fa il POST su `CHAT_TOOL_WRITE_ROUTES` (UNA voce) e al modello torna
+  solo l'esito. Le regole:
+  - **La classe la calcola il server**, su una prova a secco (lo stesso giro e
+    poi ROLLBACK), alla nascita, a ogni lettura e alla conferma; sale e non
+    scende mai. Il modello non la decide. Niente esce dalla transazione a
+    secco: ogni seguito passa da `claude-actions/effects.ts` (scartato a
+    secco, dopo il commit dal vero), e un test sul sorgente vincola i moduli
+    raggiungibili dal catalogo.
+  - **Una sola uscita PRIMA del commit, e solo in lettura:
+    `claude-actions/preflight.ts`** (lotto 6, decisione di 46, 24 nov 2026).
+    Perché: certe voci devono VERIFICARE qualcosa fuori dal DB prima di
+    scrivere — il revisore predefinito (`setDefaultReviewer`) verifica il
+    token sul provider, come la sua rotta —, e farlo dentro il catalogo lo
+    farebbe a ogni prova a secco, dentro la transazione. Le regole:
+    1. gira SOLO al run vero, mai a secco, una volta per azione, prima della
+       transazione e solo se chi chiede ha il permesso della voce;
+    2. SOLO LETTURA: non scrive niente, né in DB né sul provider (un secondo
+       test sul sorgente vieta, in tutto ciò che raggiunge con un import di
+       valore, insert/update/delete, il registro, le notifiche, `effects.ts`
+       e il modulo di scrittura);
+    3. fail-closed col suo tempo massimo: un errore, un timeout o
+       un'eccezione sono un rifiuto con un codice chiaro per la scheda;
+    4. ciò che legge passa a `run` (`start.prepared`), che RIFÀ le guardie di
+       DB: se fra il preflight e la scrittura cambia qualcosa (l'account, il
+       suo ambito, le credenziali verificate), la scrittura rifiuta.
+    Una voce nuova in `preflight.ts` è un'eccezione a questa regola e va
+    scritta qui col suo perché.
+  - **Si esegue coi servizi e l'accesso delle rotte** (lo STESSO
+    `RouteAccess`, valutato su una richiesta sintetica), coi permessi della
+    persona di adesso, tutto o niente. Una via parallela o un controllo più
+    largo rompono questa voce.
+  - **Conferma, rifiuto e «Annulla» sono gesti dell'autore**, col suo cookie o
+    PAT: il token del turno non conferma e non annulla mai. Claude non propone
+    l'inverso di ciò che ha fatto: lo dice il contratto, e lo verifica il
+    golden `chat-undo`.
+  - **Il catalogo è chiuso, e il «mai» è verificato sul sorgente**
+    (`claude-actions-never.test.ts`, server e worker): piani, risposte agli
+    agenti, merge e rilasci, registro decisioni, segreti, invii fuori, token,
+    inviti, reset. Il segno «via Claude» (`via_claude_action_id`) lo accende
+    SOLO l'esecutore, e l'attore resta la persona.
+  - **Al modello non arriva ciò che non serve**: dalle letture via le chiavi
+    da segreto, da `list_people` via le email.
+  - **Dopo un contenuto NON fidato ogni proposta è almeno B (11 nov 2026,
+    area 5, fetta 3, decisione O dell'orchestratrice).** Il testo di un file
+    del Drive (`read_drive_file`, e gli snippet di `search_drive`) e una
+    pagina Docs (`read_doc_page`, e gli snippet di `search_docs`: le manuali
+    le scrive chiunque abbia `docs.edit`) li ha scritti qualcun altro. Una lettura RIUSCITA del token
+    del turno su una rotta di `CHAT_TOOL_UNTRUSTED_ROUTES`
+    (`auth/chat-tool-routes.ts`) segna la CONVERSAZIONE
+    (`claude_conversations.untrusted_read_at`, 0146) nell'`onSend`, e
+    FAIL-CLOSED: se il segno non si scrive, il contenuto non parte. Da lì
+    `createProposal` dà almeno B e lo scrive sulla proposta
+    (`untrusted_input`), e `proposalView` non la riporta ad A quando ricalcola.
+    Per conversazione e non per turno: il testo letto resta nel contesto dei
+    turni dopo. Lo calcola il server, non il modello né il client
+    (`claude-actions/untrusted-input.test.ts`). Il testo arriva al modello
+    dentro `untrusted_document` con una nota fissa (`UNTRUSTED_DOCUMENT_NOTE`
+    del ponte, la stessa nelle descrizioni dei tool), come dato. Chi aggiunge
+    un tool che legge testo scritto da altri aggiunge la sua rotta a
+    quell'elenco. Il golden `chat-drive-hostile` prova il comportamento del
+    modello; la regola regge anche se il golden sbaglia.
+    **E una task o una richiesta nata da FUORI** (12 nov 2026, decisione del
+    maintainer, review della F3): leggerla (per codice, per id, nella ricerca
+    delle task) segna la conversazione come sopra, ma SOLO se fra ciò che la
+    risposta restituisce c'è un oggetto esterno — una task con `source`
+    `widget`, `sdk_error`, `sdk_feedback` o `webhook`
+    (`EXTERNAL_TICKET_SOURCES`), una richiesta nata da un'email in entrata
+    (`backlog_items.external_origin`, 0148, scritta dall'intake) o da una di
+    quelle task, una task convertita da una richiesta così
+    (`CHAT_TOOL_EXTERNAL_CONTENT_ROUTES`). Quelle scritte dai colleghi no.
+    Anche la continuazione di una pubblica eredita il segno dell'originale, e
+    un'azione della pagina dopo il segno è una scheda da confermare.
+
+- **Chat con Claude: una conversazione PUBBLICA si legge come la decide il
+  server, e gli eventi dei tool restano visibili ai lettori (10 nov 2026,
+  fetta 5).** La regola, in UN modulo (`apps/server/src/services/claude-public.ts`):
+  - **Chi la vede**: l'autore; da pubblica, chi ha `claude.public.view`
+    (`visibleTo`, nella WHERE). Una privata resta dell'autore, anche per un
+    full admin. Solo l'autore scrive, pubblica, archivia, elimina; un lettore
+    per proseguire CONTINUA (una conversazione nuova, sua).
+  - **Pubblicare vuole una conferma ESPLICITA** dei progetti letti o toccati
+    (sempre, anche un elenco vuoto). Li ricava il server (D2):
+    - le letture del token del turno per codice o per id (`onSend`,
+      `recordChatToolReadProjects`);
+    - le azioni proposte;
+    - i codici citati nelle risposte;
+    - il contesto della pagina.
+
+    Un elenco diverso da quello di adesso è `needs_confirmation`.
+  - **Decisione del maintainer (D1): gli eventi dei tool RESTANO** anche per
+    i lettori. Esempio confermato dal maintainer: i dati del progetto X letti
+    da Claude per l'autore li vede chi legge la pubblica. La difesa è la
+    conferma, che lo DICE (`includesToolReads`), non una proiezione che li
+    toglie. Chi «corregge» togliendo i tool ai lettori cambia una decisione di
+    prodotto, non un dettaglio.
+  - **Il seguito privato si deriva a lettura** (`holdOf`). Il messaggio
+    dell'autore in una pubblica fissa un confine (`private_from_event_id`), e
+    i lettori non ricevono nulla da lì in poi (eventi, tool compresi,
+    proposte, gruppi, parziali dello stream) finché il turno non è finito e
+    non ha toccato progetti nuovi. Se li ha toccati, finché l'autore non li
+    riconferma. Un confine attivo non si sposta in avanti: il seguito non
+    torna pubblico da solo.
+  - **I lettori non ricevono gli interventi** (in coda, consegnati o no), né il
+    contesto di un progetto che non vedono, né la classe ricalcolata delle
+    proposte (niente prova a secco per chi non le ha chieste).
+  - **Una pubblica non si pota**; tornata privata, la finestra dei 14 giorni
+    riparte da «Make private» (`pruneAgentSessions`, D5).

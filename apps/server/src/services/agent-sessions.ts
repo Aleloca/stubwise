@@ -1,4 +1,9 @@
 import { and, desc, eq, gt, inArray, isNull, lt, not, or, sql, type SQL } from "drizzle-orm";
+import { canReadPublic, holdForOwnerMessage, readerCut } from "./claude-public.js";
+import { jobPlanView } from "./plan-view.js";
+import { enrichAsides } from "./claude-asides.js";
+import { inputContextsForViewer } from "./claude-contexts-view.js";
+import { turnCitationsFor } from "./claude-citations.js";
 import { alias } from "drizzle-orm/pg-core";
 import {
   agentQuestions,
@@ -10,6 +15,7 @@ import {
   backlogItems,
   backlogJobs,
   backlogRefineSessions,
+  claudeConversations,
   docGenerations,
   emailMessages,
   prReviews,
@@ -20,7 +26,7 @@ import {
   type Db,
 } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
-import { actorAllows, stateAllows } from "@stubwise/notifications";
+import { actorAllows, aiBudgetState, stateAllows } from "@stubwise/notifications";
 import {
   AGENT_SESSION_INPUT_CHANNEL,
   agentQuestionAnswerSchema,
@@ -45,11 +51,14 @@ import {
   type BacklogJobStatus,
   type DocGenerationStatus,
   type Language,
+  conversationTitleFrom,
 } from "@stubwise/shared";
 import { getContentLanguage } from "../settings.js";
+import { memoPermissions, type PermissionsOf } from "./permissions-memo.js";
 import { reopenRefineSessionIfClosed } from "./backlog-refine.js";
 import {
   inProjects,
+  isAllProjects,
   projectIdsWithPermission,
   projectPermissionsFor,
 } from "../auth/access.js";
@@ -135,10 +144,22 @@ const WINDOW_DAYS = 14;
  * Visibilità: una sessione di posta la vede SOLO il proprietario della
  * casella, nessun ramo per ruolo (invariante mailbox_owner).
  */
-export function visibleTo(viewer: Actor): SQL {
-  return or(
-    isNull(agentSessions.mailboxOwnerUserId),
-    eq(agentSessions.mailboxOwnerUserId, viewer.id),
+export function visibleTo(viewer: Actor & { instancePermissions?: ReadonlySet<string> }): SQL {
+  return and(
+    or(isNull(agentSessions.mailboxOwnerUserId), eq(agentSessions.mailboxOwnerUserId, viewer.id)),
+    // La conversazione libera con Claude (chat, fetta 1) la vede il suo autore;
+    // dalla fetta 5, se è PUBBLICA, anche chi ha `claude.public.view`
+    // (`claude-public.ts`). Una privata resta dell'autore: nessun ramo per
+    // ruolo, nemmeno per un full admin.
+    // Anche la chiamata a @Claude nella Chat (`chat_mention`, fetta 3): la vede
+    // SOLO chi ha chiamato (D5: gli eventi dei tool sono suoi), mai pubblica.
+    or(
+      sql`${agentSessions.kind} not in ('free', 'chat_mention')`,
+      sql`exists (select 1 from ${claudeConversations} cc where cc.session_id = ${agentSessions.id} and cc.owner_id = ${viewer.id})`,
+      canReadPublic(viewer)
+        ? sql`exists (select 1 from ${claudeConversations} cc where cc.session_id = ${agentSessions.id} and cc.visibility = 'public')`
+        : sql`false`,
+    ),
   )!;
 }
 
@@ -194,6 +215,8 @@ export interface SessionDerivationInput {
   refineStatus?: "active" | "closed" | null;
   /** Un input `pending` sulla sessione (refinement: un turno in coda). */
   pendingInput?: boolean;
+  /** Solo la conversazione libera (chat, fetta 1): c'è la sua riga. */
+  conversation?: boolean;
 }
 
 /** Regola UNICA dello stato (design §8.2); l'ordine dei casi è la precedenza. */
@@ -203,6 +226,8 @@ export function deriveAgentSessionState(i: SessionDerivationInput): AgentSession
   // messaggio in attesa di un turno è `queued`. Nessun'altra fonte vale qui.
   if (i.refineStatus === "closed") return "ended";
   if (i.refineStatus === "active") return i.pendingInput === true ? "queued" : "idle";
+  // Conversazione libera: come un refinement aperto, sempre (archiviata compresa).
+  if (i.conversation === true) return i.pendingInput === true ? "queued" : "idle";
   if (i.aiJobStatus === "awaiting_input") return "waiting_input";
   if (i.aiJobStatus === "awaiting_plan_approval") return "awaiting_approval";
   if (i.aiJobStatus === "held" || i.docGenerationStatus === "paused") return "held";
@@ -515,6 +540,9 @@ function baseSelect(db: Db) {
         backlogItemTitle: backlogItems.title,
         backlogItemStatus: backlogItems.status,
         refineStatus: backlogRefineSessions.status,
+        conversationOwnerId: claudeConversations.ownerId,
+        conversationTitle: claudeConversations.title,
+        conversationArchivedAt: claudeConversations.archivedAt,
         pendingInput: pendingInputSql,
         backlogJobKind: backlogJobs.kind,
         emailMessageId: emailMessages.id,
@@ -538,6 +566,9 @@ function baseSelect(db: Db) {
         lastTool: lastToolEvent,
         aiJobId: agentSessions.aiJobId,
         backlogItemId: agentSessions.backlogItemId,
+        // Lotto 4 (§7.1): chi l'ha avviata, per i kind che lo sanno.
+        jobRequestedBy: aiJobs.requestedByUserId,
+        refineStartedBy: backlogRefineSessions.startedByUserId,
       })
       .from(agentSessions)
       .leftJoin(projects, eq(projects.id, agentSessions.projectId))
@@ -548,6 +579,7 @@ function baseSelect(db: Db) {
       .leftJoin(backlogJobs, eq(backlogJobs.id, agentSessions.backlogJobId))
       .leftJoin(backlogItems, eq(backlogItems.id, agentSessions.backlogItemId))
       .leftJoin(backlogRefineSessions, eq(backlogRefineSessions.agentSessionId, agentSessions.id))
+      .leftJoin(claudeConversations, eq(claudeConversations.sessionId, agentSessions.id))
       .leftJoin(reviewRepositories, eq(reviewRepositories.id, prReviews.repositoryId))
       .leftJoin(docRepositories, eq(docRepositories.id, docGenerations.repositoryId))
       // Per FK (0086, CASCADE): un join sulla chiave primaria del messaggio,
@@ -585,6 +617,9 @@ function displayTitle(row: Row, lang: Language): string {
       break;
     case "backlog_item":
       if (row.backlogItemTitle !== null) return row.backlogItemTitle;
+      break;
+    case "free":
+      if (row.conversationTitle !== null) return row.conversationTitle;
       break;
     case "backlog_refine":
       if (row.backlogItemTitle !== null) {
@@ -640,6 +675,7 @@ function toSummary(row: Row, lang: Language): AgentSessionSummary {
     lastSegmentEnd: row.lastSegmentEnd ?? null,
     refineStatus: row.refineStatus ?? null,
     pendingInput: row.pendingInput === true,
+    conversation: row.conversationOwnerId !== null,
   };
   const state = deriveAgentSessionState(input);
   return {
@@ -658,8 +694,37 @@ function toSummary(row: Row, lang: Language): AgentSessionSummary {
     lastActivity: input.live && row.lastTool ? describeAgentActivity(row.lastTool) : null,
     aiJobId: row.aiJobId ?? null,
     backlogItemId: row.backlogItemId ?? null,
+    // Rimandi, lotto 4 (§7.1): il richiedente del job (`ai_job`), chi ha avviato
+    // il refinement (`backlog_refine`); null per le sessioni automatiche e per
+    // un utente eliminato. Lo maschera la rotta (chi si conosce, r.1414).
+    startedById: row.kind === "ai_job" ? (row.jobRequestedBy ?? null) : row.kind === "backlog_refine" ? (row.refineStartedBy ?? null) : null,
     outcome: deriveAgentSessionOutcome(state, input),
+    // Lo calcola `withWaitsOnViewer` per chi guarda (elenco e dettaglio).
+    waitsOnViewer: false,
   };
+}
+
+/**
+ * Lo stato derivato di più conversazioni libere di chi guarda, in UNA query
+ * (l'elenco di `/api/claude/conversations`): le altre, e quelle di un altro,
+ * non tornano.
+ */
+export async function freeSessionStates(
+  db: Db,
+  viewer: SessionViewer,
+  ids: readonly string[],
+): Promise<Map<string, { state: AgentSessionState; lastEventAt: string | null }>> {
+  if (ids.length === 0) return new Map();
+  const lang = await getContentLanguage(db);
+  const rows = await baseSelect(db).where(
+    and(visibleTo(viewer), eq(agentSessions.kind, "free"), inArray(agentSessions.id, [...ids])),
+  );
+  return new Map(
+    rows.map((row) => {
+      const summary = toSummary(row, lang);
+      return [summary.id, { state: summary.state, lastEventAt: summary.lastEventAt }] as const;
+    }),
+  );
 }
 
 /** Email degli utenti in `ids` (UNA query): la stessa proiezione degli autori dei commenti. */
@@ -683,6 +748,10 @@ export async function listAgentSessions(
   const conditions: SQL[] = [
     visibleTo(viewer),
     sql`${lastActivitySql} > now() - make_interval(days => ${WINDOW_DAYS}::int)`,
+    // Le conversazioni libere hanno il loro elenco (`/api/claude/conversations`)
+    // e le chiamate di @Claude nella Chat vivono nel loro thread (review della
+    // fetta 3): qui solo le sessioni di lavoro.
+    sql`${agentSessions.kind} not in ('free', 'chat_mention')`,
   ];
   // Solo le sessioni dei progetti in cui chi guarda ha `repos.view` (ruling
   // R26; le sessioni senza progetto, la posta, restano governate da
@@ -693,13 +762,17 @@ export async function listAgentSessions(
     projectIdsWithPermission(db, viewer, "repos.view"),
     projectIdsWithPermission(db, viewer, writePermissionFor("backlog_refine")),
   ]);
-  if (readable !== "all") {
+  if (isAllProjects(readable)) {
+    // Un full admin: ogni sessione tranne quelle degli archiviati (F6); restano le senza progetto.
+    const open = inProjects(sessionProjectSql, readable);
+    if (open) conditions.push(open);
+  } else {
     const allowed: SQL[] = [isNull(sessionProjectSql)];
-    if (readable.length > 0) allowed.push(inArray(sessionProjectSql, readable));
-    if (refineReadable === "all") {
-      allowed.push(eq(agentSessions.kind, "backlog_refine"));
+    if (readable.length > 0) allowed.push(inArray(sessionProjectSql, [...readable]));
+    if (isAllProjects(refineReadable)) {
+      allowed.push(and(eq(agentSessions.kind, "backlog_refine"), inProjects(sessionProjectSql, refineReadable))!);
     } else if (refineReadable.length > 0) {
-      allowed.push(and(eq(agentSessions.kind, "backlog_refine"), inArray(sessionProjectSql, refineReadable))!);
+      allowed.push(and(eq(agentSessions.kind, "backlog_refine"), inArray(sessionProjectSql, [...refineReadable]))!);
     }
     conditions.push(or(...allowed)!);
   }
@@ -708,6 +781,7 @@ export async function listAgentSessions(
   if (filters.projectId) conditions.push(eq(agentSessions.projectId, filters.projectId));
   if (filters.ticketId) conditions.push(eq(agentSessions.ticketId, filters.ticketId));
   if (filters.aiJobId) conditions.push(eq(agentSessions.aiJobId, filters.aiJobId));
+  if (filters.kind) conditions.push(eq(agentSessions.kind, filters.kind));
   const lang = await getContentLanguage(db);
   // Le sessioni non finite si mostrano TUTTE (spec §8.2, «Al lavoro ora»): il
   // tetto vale solo per le finite. Prima le possibilmente attive, senza limite;
@@ -720,14 +794,65 @@ export async function listAgentSessions(
   const lastActivity = (s: AgentSessionSummary) => s.lastEventAt ?? s.startedAt;
   const byLastActivityDesc = (a: AgentSessionSummary, b: AgentSessionSummary) =>
     lastActivity(b).localeCompare(lastActivity(a));
-  const active = activeRows.map((row) => toSummary(row, lang));
-  const rest = restRows.map((row) => toSummary(row, lang));
+  // Una sola lettura dei permessi per pagina: attive e recenti insieme.
+  const all = await withWaitsOnViewer(db, viewer, [
+    ...activeRows.map((row) => toSummary(row, lang)),
+    ...restRows.map((row) => toSummary(row, lang)),
+  ]);
+  const active = all.slice(0, activeRows.length);
+  const rest = all.slice(activeRows.length);
+  // Stato e «aspetta me» sono DERIVATI: si filtrano dopo la derivazione.
+  const keep = (s: AgentSessionSummary) =>
+    (filters.state === undefined || s.state === filters.state) &&
+    (filters.waitingOnMe === undefined || s.waitsOnViewer === (filters.waitingOnMe === "true"));
   return {
-    live: active.filter((s) => s.state !== "ended").sort(byLastActivityDesc),
+    live: active.filter((s) => s.state !== "ended" && keep(s)).sort(byLastActivityDesc),
     recent: [...active.filter((s) => s.state === "ended"), ...rest]
+      .filter(keep)
       .sort(byLastActivityDesc)
       .slice(0, RECENT_LIMIT),
   };
+}
+
+/**
+ * `waitsOnViewer` di ogni riga (area 3, fetta 3a), in blocco: un piano in
+ * attesa aspetta chi ha `plans.approve` nel progetto (il gate), una domanda
+ * chi la può rispondere — `actorAllows`/`stateAllows`, le stesse di
+ * `answerQuestion` e di `canAnswer`. Una query per i job delle righe che
+ * aspettano, una lettura di permessi per progetto.
+ */
+async function withWaitsOnViewer(
+  db: Db,
+  viewer: SessionViewer,
+  rows: AgentSessionSummary[],
+  permissionsOf: PermissionsOf = memoPermissions(async (pid) => (await projectPermissionsFor(db, viewer, pid)) ?? new Set()),
+): Promise<AgentSessionSummary[]> {
+  const waiting = rows.filter(
+    (r) => (r.state === "waiting_input" || r.state === "awaiting_approval") && r.aiJobId !== null && r.projectId !== null,
+  );
+  if (waiting.length === 0) return rows;
+  const jobs = await db
+    .select({ id: aiJobs.id, status: aiJobs.status, requestedByUserId: aiJobs.requestedByUserId })
+    .from(aiJobs)
+    .where(inArray(aiJobs.id, waiting.map((r) => r.aiJobId!)));
+  const jobOf = new Map(jobs.map((j) => [j.id, j]));
+  const projectIds = [...new Set(waiting.map((r) => r.projectId!))];
+  const permsOf = new Map(await Promise.all(projectIds.map(async (pid) => [pid, await permissionsOf(pid)] as const)));
+  const waits = new Set<string>();
+  for (const r of waiting) {
+    const job = jobOf.get(r.aiJobId!);
+    const permissions = permsOf.get(r.projectId!)!;
+    if (!job) continue;
+    if (job.status === "awaiting_plan_approval" && permissions.has("plans.approve")) waits.add(r.id);
+    if (
+      job.status === "awaiting_input" &&
+      actorAllows({ kind: "job.awaiting_input", requestedByUserId: job.requestedByUserId }, "answer", { id: viewer.id, permissions }) &&
+      stateAllows("job.awaiting_input", "answer", job.status)
+    ) {
+      waits.add(r.id);
+    }
+  }
+  return rows.map((r) => (waits.has(r.id) ? { ...r, waitsOnViewer: true } : r));
 }
 
 /**
@@ -776,9 +901,13 @@ async function agentQuestionsOf(
     options: q.options,
     recommendedIndex: q.recommendedIndex ?? undefined,
     allowFreeText: q.allowFreeText,
-    canAnswer: q.answeredAt === null && mayAnswer,
+    canAnswer: q.answeredAt === null && q.cancelledAt === null && mayAnswer,
+    cancelled: q.cancelledAt !== null,
     ticketId: q.ticketId,
     answer: q.answeredAt !== null ? storedAnswerOf(q.answer) : null,
+    // Lotto 4 (§7.1): chi ha risposto e quando; null su un'aperta o annullata.
+    answeredById: q.answeredAt !== null ? (q.answeredByUserId ?? null) : null,
+    answeredAt: q.answeredAt?.toISOString() ?? null,
   }));
 }
 
@@ -786,11 +915,14 @@ export async function loadAgentSession(
   db: Db,
   viewer: SessionViewer,
   id: string,
+  opts: { permissionsOf?: PermissionsOf } = {},
 ): Promise<{
   detail: AgentSessionDetail;
   live: boolean;
   /** Stato della riga di refinement (`null` = nessuna): interno, non nel dettaglio. */
   refineStatus: "active" | "closed" | null;
+  /** Solo la conversazione libera: archiviata (si legge, non si scrive). */
+  conversationArchived: boolean;
   /** I permessi di chi guarda nel progetto della sessione: interni. */
   permissions: ReadonlySet<ProjectPermission>;
 } | null> {
@@ -800,33 +932,52 @@ export async function loadAgentSession(
   if (!row) return null;
   const permissions = await sessionPermissions(db, viewer, id);
   if (!permissions) return null;
-  const summary = toSummary(row, await getContentLanguage(db));
+  const summary = (
+    await withWaitsOnViewer(db, viewer, [toSummary(row, await getContentLanguage(db))], opts.permissionsOf)
+  )[0]!;
   const live = row.live === true;
   const turnBased = TURN_BASED_SESSION_KINDS.has(row.kind);
   // La parte dell'ATTORE, senza lo stato del segmento: il permesso di
   // scrittura del kind (`writePermissionFor`) nel progetto della sessione, su
   // un tipo in cui si interviene (job AI e refinement). Stabile per tutto il
   // run, così il client tiene montato il campo anche fra un segmento e l'altro.
+  // La conversazione libera: ci scrive SOLO il suo autore (nessun permesso di progetto).
   const intervenable =
-    INTERVENABLE_SESSION_KINDS.has(row.kind) && permissions.has(writePermissionFor(row.kind));
+    INTERVENABLE_SESSION_KINDS.has(row.kind) &&
+    (row.kind === "free" ? row.conversationOwnerId === viewer.id : permissions.has(writePermissionFor(row.kind)));
   // In un processo si interviene solo a un segmento aperto e interattivo.
   const liveWritable = intervenable && live && row.activeSegmentOpen === true && row.interactive;
   const itemOpen = row.backlogItemStatus !== "converted" && row.backlogItemStatus !== "archived";
   // A turni: scrivere avvia (o riprende) la sessione, viva o no, finché la
   // voce è aperta — attiva o chiusa che sia.
-  const writable = turnBased ? intervenable && row.refineStatus !== null && itemOpen : liveWritable;
+  // Una conversazione archiviata si legge, non si scrive.
+  const writable =
+    row.kind === "free"
+      ? intervenable && row.conversationArchivedAt === null
+      : turnBased
+        ? intervenable && row.refineStatus !== null && itemOpen
+        : liveWritable;
   const questions: AgentSessionQuestion[] = row.aiJobId
     ? await agentQuestionsOf(db, viewer, permissions, row.aiJobId)
     : [];
   // Interventi, consegnati o no (design §6.2): gli ultimi MAX_INPUTS, in ordine.
-  const inputRows = (
-    await db
-      .select()
-      .from(agentSessionInputs)
-      .where(eq(agentSessionInputs.sessionId, id))
-      .orderBy(desc(agentSessionInputs.createdAt))
-      .limit(MAX_INPUTS)
-  ).reverse();
+  // Chi LEGGE una pubblica di un altro non riceve gli interventi (in coda,
+  // consegnati o no): i messaggi pubblicati sono gli eventi `input` fino al
+  // confine del seguito privato (fetta 5).
+  const reader = row.kind === "free" && row.conversationOwnerId !== viewer.id;
+  // Un lettore col seguito privato non vede l'attività del turno trattenuto
+  // (il tool in corso, il segmento): review della fetta 5.
+  const readerHeld = reader && (await readerCut(db, viewer.id, id)) !== null;
+  const inputRows = reader
+    ? []
+    : (
+        await db
+          .select()
+          .from(agentSessionInputs)
+          .where(eq(agentSessionInputs.sessionId, id))
+          .orderBy(desc(agentSessionInputs.createdAt))
+          .limit(MAX_INPUTS)
+      ).reverse();
   const authors = await emailsOf(
     db,
     inputRows.flatMap((r) => (r.authorUserId !== null ? [r.authorUserId] : [])),
@@ -851,13 +1002,17 @@ export async function loadAgentSession(
   return {
     live,
     refineStatus: row.refineStatus ?? null,
+    conversationArchived: row.conversationArchivedAt !== null,
     permissions,
     detail: {
       ...summary,
+      // Lotto 4 (§7.2): il piano del job, con la regola di `/work`.
+      plan: row.kind === "ai_job" && row.aiJobId ? await jobPlanView(db, row.aiJobId) : null,
+      ...(readerHeld ? { lastActivity: null, activeSegment: null, state: "idle" as const } : {}),
       canWrite: writable,
       canIntervene: intervenable,
       // «Chiudi sessione»: solo a turni, su una sessione aperta, per chi può scrivere.
-      canClose: turnBased && row.refineStatus === "active" && intervenable,
+      canClose: row.kind === "backlog_refine" && row.refineStatus === "active" && intervenable,
       // Niente «Ferma» su un agente già fermo: né in pausa, né mentre uno
       // «Ferma» senza testo aspetta ancora la consegna (la finestra prima che
       // `paused` diventi vero). Lo leggono i client: spariscono «Ferma» e
@@ -880,8 +1035,9 @@ export async function getAgentSession(
   db: Db,
   viewer: SessionViewer,
   id: string,
+  opts: { permissionsOf?: PermissionsOf } = {},
 ): Promise<AgentSessionDetail | null> {
-  return (await loadAgentSession(db, viewer, id))?.detail ?? null;
+  return (await loadAgentSession(db, viewer, id, opts))?.detail ?? null;
 }
 
 export async function listAgentSessionEvents(
@@ -897,6 +1053,10 @@ export async function listAgentSessionEvents(
   if (!visible) return null;
   if (!(await sessionPermissions(db, viewer, id))) return null;
   const conditions = [eq(agentSessionEvents.sessionId, id)];
+  // Il seguito privato di una pubblica: chi la LEGGE non riceve nulla oltre
+  // il confine finché non è rilasciato (fetta 5, `claude-public.ts`).
+  const cut = await readerCut(db, viewer.id, id);
+  if (cut !== null) conditions.push(lt(agentSessionEvents.id, cut));
   if (page.after) conditions.push(gt(agentSessionEvents.id, BigInt(page.after)));
   if (page.before) conditions.push(lt(agentSessionEvents.id, BigInt(page.before)));
   // Con `after` si legge in avanti (riconnessione SSE); altrimenti le ultime N.
@@ -907,6 +1067,13 @@ export async function listAgentSessionEvents(
     .orderBy(page.after ? agentSessionEvents.id : desc(agentSessionEvents.id))
     .limit(page.limit);
   const ordered = page.after ? rows : rows.reverse();
+  // Area 10, review di F3–F8 (I2a): in una conversazione con Claude, a chi NON
+  // ne è l'autore (il lettore di una pubblica) le letture dei tool arrivano
+  // senza contenuto. Quel contenuto è la risposta del server all'AUTORE, coi
+  // suoi permessi: un filtro per chi guarda su un evento strutturato non
+  // serve a niente se il JSON grezzo arriva accanto (`claude-actions.md`).
+  const [conversation] = await db.select({ ownerId: claudeConversations.ownerId }).from(claudeConversations).where(eq(claudeConversations.sessionId, id));
+  const withheld = conversation !== undefined && conversation.ownerId !== viewer.id;
   // Autore degli interventi: DERIVATO qui e sovrascritto su quello che il jsonb dicesse.
   const authors = await emailsOf(
     db,
@@ -916,6 +1083,22 @@ export async function listAgentSessionEvents(
         : [],
     ),
   );
+  // Lotto 8, voce 3: i contesti con cui è partito ogni messaggio, DERIVATI
+  // dall'input e filtrati per chi guarda (una pubblica non fa uscire i codici
+  // dei progetti che il lettore non vede).
+  const inputContexts = conversation
+    ? await inputContextsForViewer(
+        db,
+        viewer,
+        ordered.flatMap((e) => (e.type === "input" && typeof e.data["inputId"] === "string" ? [e.data["inputId"]] : [])),
+        !withheld,
+      )
+    : new Map<string, { kind: string; id: string }[]>();
+  // Lotto 9, voce 1: le citazioni di ogni turno (ciò che Claude ha letto e i
+  // codici della sua prosa), sul `turn_end`, filtrate per chi guarda.
+  const turnCitations = conversation
+    ? await turnCitationsFor(db, viewer, id, ordered.filter((e) => e.type === "turn_end").map((e) => e.id), !withheld)
+    : new Map<bigint, unknown[]>();
   const events = ordered.map((e) => ({
     id: e.id.toString(),
     type: e.type,
@@ -929,11 +1112,27 @@ export async function listAgentSessionEvents(
               typeof e.data["authorUserId"] === "string"
                 ? (authors.get(e.data["authorUserId"]) ?? null)
                 : null,
+            // Sovrascrive quello che il jsonb dicesse: la fonte è l'input, filtrata.
+            ...(conversation ? { contexts: (typeof e.data["inputId"] === "string" ? inputContexts.get(e.data["inputId"]) : undefined) ?? [] } : {}),
           }
-        : e.data,
+        : withheld && (e.type === "tool_use" || e.type === "tool_result")
+          ? toolEventForReader(e.type, e.data)
+          : conversation && e.type === "turn_end"
+            ? { ...e.data, citations: turnCitations.get(e.id) ?? [] }
+            : e.data,
   }));
   const before = !page.after && rows.length === page.limit ? (events[0]?.id ?? null) : null;
-  return { events, before };
+  // Area 10, F3: gli `aside` del lavoro fermo, coi codici e la visibilità di chi guarda.
+  return { events: await enrichAsides(db, viewer, events), before };
+}
+
+/**
+ * Il `tool_use`/`tool_result` per chi legge una conversazione altrui: il nome
+ * del tool e l'esito, mai argomenti né contenuto (`withheld: true`).
+ */
+function toolEventForReader(type: "tool_use" | "tool_result", data: Record<string, unknown>): Record<string, unknown> {
+  if (type === "tool_use") return { toolUseId: data["toolUseId"], name: data["name"], input: {}, withheld: true };
+  return { toolUseId: data["toolUseId"], isError: data["isError"] === true, content: "", withheld: true };
 }
 
 export type SendAgentMessageResult =
@@ -946,7 +1145,9 @@ export type SendAgentMessageResult =
         | "session_ended"
         | "not_interactive"
         | "interrupt_unsupported"
-        | "item_closed";
+        | "item_closed"
+        | "conversation_archived"
+        | "budget_exhausted";
     };
 
 /**
@@ -976,6 +1177,39 @@ export async function sendAgentMessage(
   const loaded = await loadAgentSession(db, input.actor, input.sessionId);
   if (!loaded) return { ok: false, error: "not_found" };
   const kind = loaded.detail.kind;
+  // La conversazione libera (chat, fetta 1): la vede e la scrive solo l'autore
+  // (un altro non arriva qui: `loadAgentSession` gli risponde null → 404).
+  if (kind === "free") {
+    if (!loaded.detail.canIntervene) return { ok: false, error: "forbidden" };
+    if (loaded.conversationArchived) return { ok: false, error: "conversation_archived" };
+    if (input.interrupt && !loaded.detail.canInterrupt) return { ok: false, error: "interrupt_unsupported" };
+    // Un messaggio con testo è un turno nuovo: col budget del mese finito non parte.
+    if (input.text.trim().length > 0 && (await monthlyBudgetExhausted(db))) {
+      return { ok: false, error: "budget_exhausted" };
+    }
+    return db.transaction(async (tx) => {
+      // Nata vuota (la casella crea prima, poi scrive): il primo messaggio le
+      // dà il titolo, da TEMPLATE (`conversationTitleFrom`), mai dal modello.
+      // Solo se è ancora vuoto: un titolo rinominato non si tocca.
+      const title = input.text.trim().length > 0 ? conversationTitleFrom(input.text) : "";
+      await tx
+        .update(claudeConversations)
+        .set({
+          updatedAt: sql`now()`,
+          ...(title ? { title: sql`case when ${claudeConversations.title} = '' then ${title} else ${claudeConversations.title} end` } : {}),
+        })
+        .where(eq(claudeConversations.sessionId, input.sessionId));
+      if (title) {
+        await tx
+          .update(agentSessions)
+          .set({ title })
+          .where(and(eq(agentSessions.id, input.sessionId), eq(agentSessions.title, "")));
+      }
+      // In una pubblica il turno resta privato finché non è finito e pulito (fetta 5).
+      if (input.text.trim().length > 0) await holdForOwnerMessage(tx, input.sessionId);
+      return insertInput(tx, input);
+    });
+  }
   // Il permesso, UN posto, prima di qualunque riga: senza il permesso di
   // scrittura del kind (`writePermissionFor`) nel progetto della sessione non
   // si scrive. Un kind su cui non si interviene lo dicono, dopo,
@@ -1029,6 +1263,12 @@ async function insertInput(
   tx: Tx,
   input: { sessionId: string; actor: SessionViewer; text: string; interrupt: boolean },
 ): Promise<{ ok: true; inputId: string }> {
+  // Lotto 8, voce 3: in una conversazione con Claude, il messaggio parte coi
+  // contesti del gruppo di ADESSO (gli eventi `input` li ricevono a lettura).
+  const [conv] = await tx
+    .select({ refs: claudeConversations.contextRefs, ref: claudeConversations.contextRef })
+    .from(claudeConversations)
+    .where(eq(claudeConversations.sessionId, input.sessionId));
   const [row] = await tx
     .insert(agentSessionInputs)
     .values({
@@ -1036,6 +1276,7 @@ async function insertInput(
       authorUserId: input.actor.id,
       text: input.text,
       interrupt: input.interrupt,
+      ...(conv ? { contexts: conv.refs.length > 0 ? conv.refs : conv.ref ? [conv.ref] : [] } : {}),
     })
     .returning({ id: agentSessionInputs.id });
   // Dentro la transazione: la NOTIFY parte al commit, quindi il relay del
@@ -1045,3 +1286,14 @@ async function insertInput(
   );
   return { ok: true, inputId: row!.id };
 }
+
+/**
+ * Il budget del mese dell'istanza è finito (`instance_settings.monthly_budget_usd`,
+ * `null` = nessun limite): un turno nuovo di una conversazione libera non parte
+ * (chat, fetta 1). Lo stesso conto dei run (`monthlyCostUsd`).
+ */
+export async function monthlyBudgetExhausted(db: Db | Tx): Promise<boolean> {
+  // Area 7, F3 (C-F3-1): la lettura sta in UN posto, `@stubwise/notifications`.
+  return (await aiBudgetState(db)).exhausted;
+}
+

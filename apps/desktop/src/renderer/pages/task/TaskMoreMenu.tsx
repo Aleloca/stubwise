@@ -1,3 +1,4 @@
+import { featureIntegrated } from "../../data/integration";
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { WhoCanLink } from "../../components/WhoCanLink";
@@ -176,18 +177,21 @@ export function TaskMoreMenu({
                 <MenuNote>{t("export.preparing")}</MenuNote>
               )}
             </MenuGroup>
-            <MenuGroup>
-              <DeleteItem
-                state={deletion}
-                projectCode={project?.code ?? ""}
-                projectId={task.projectId}
-                onOpen={() => {
-                  // Prima il fuoco torna al «⋯»: il dialogo lo ricorda come origine.
-                  close();
-                  setDeleting(true);
-                }}
-              />
-            </MenuGroup>
+            {/* «Elimina task» (area 10a) non è nella fetta 1 dell'integrazione. */}
+            {featureIntegrated("task-delete") && (
+              <MenuGroup>
+                <DeleteItem
+                  state={deletion}
+                  projectCode={project?.code ?? ""}
+                  projectId={task.projectId}
+                  onOpen={() => {
+                    // Prima il fuoco torna al «⋯»: il dialogo lo ricorda come origine.
+                    close();
+                    setDeleting(true);
+                  }}
+                />
+              </MenuGroup>
+            )}
           </>
         )}
       </MenuButton>

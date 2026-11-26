@@ -216,6 +216,12 @@ const myRequests: ToolDef = {
           `- «${item.title}»${where(item.projectId)} — ${label} — chiesta il ${day(item.createdAt)}`,
         );
         if (info) pushNotes(itemLines, info.notes);
+        // Area 8, F3: le risposte del team alla conversazione allegata (il team, mai un nome).
+        const replies = item.teamReplies ?? [];
+        if (replies.length > 0) {
+          itemLines.push("  Risposte del team:");
+          for (const r of replies) itemLines.push(`  · ${day(r.at)}: ${r.body}`);
+        }
       });
 
       // Segnalazioni (ticket), con gli ultimi commenti umani. I commenti si

@@ -17,9 +17,18 @@ import { toQuery } from "../query.js";
  */
 export function createSearchEndpoints(request: ApiRequest) {
   return {
-    /** `repositoryId` restringe SOLO il gruppo docs; gli altri restano globali. */
-    global(q: string, repositoryId?: string): Promise<Reader<SearchResults>> {
-      return request("GET", `/api/search${toQuery({ q, repositoryId })}`, undefined, searchResultsSchema);
+    /**
+     * `repositoryId` restringe SOLO il gruppo docs; gli altri restano globali.
+     * `citable`: il gruppo docs delle sole pagine citabili, senza le note di
+     * rilascio (il «#» e ⌘K del desktop).
+     */
+    global(q: string, repositoryId?: string, opts: { citable?: boolean } = {}): Promise<Reader<SearchResults>> {
+      return request(
+        "GET",
+        `/api/search${toQuery({ q, repositoryId, citable: opts.citable ? "true" : undefined })}`,
+        undefined,
+        searchResultsSchema,
+      );
     },
 
     /** Corsia semantica sui soli Docs, da fondere nel gruppo docs di `global`. */

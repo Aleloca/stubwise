@@ -2782,6 +2782,3820 @@ deploy o di un rollback che la tocca.
   `project_lead` va ripristinato a mano con la stessa `update` della
   0103). Un ritorno pieno allo stato di prima è solo il backup — e le
   credenziali inserite dopo il rilascio ci sono solo nel DB attuale.
+- **«Integrazione area 2, fetta 1» (9 nov 2026)**: design
+  `docs/plans/2026-11-09-integrazione-area2-task-design.md` (con
+  l'«Aggiunta del 9 nov 2026: il login»), piano
+  `docs/plans/2026-11-09-integrazione-area2-task-plan.md`, invarianti in
+  `docs/invariants/tasks.md` (stati per progetto) e
+  `docs/invariants/second-factor.md` (la porta `/desktop-exchange`). Il
+  renderer di `apps/desktop` gira contro il server vero, come app desktop
+  (dmg locale) e come SPA su `/app`; il web vecchio resta alla radice.
+  Migrazioni **0107** (codici di progetto `projects.code` con il trigger
+  `projects_assign_code`; reparti `departments` + `department_members` col
+  ripiego «General» e tutte le persone dentro; `users.display_name`),
+  **0108** (stati per progetto `project_statuses`, `tickets.status_id` e
+  `closed_at`, i trigger `projects_default_statuses` e `tickets_status_sync`
+  che tiene l'enum `tickets.status` coerente), **0109** (soglie «ferma» sui
+  progetti, `tickets.department_id` col trigger del ripiego, le ferme a
+  mano, `ticket_followers`, `decision_requests`, il trigger che mette ogni
+  persona nuova in «General»), **0110** (tre `notification_kind` DA SOLI:
+  `decision.requested`, `decision.answered`, `ticket.activity`), **0111**
+  (`tickets.due_date`), **0112** (`desktop_handoffs` e `kind = 'desktop'`
+  nel CHECK di `personal_access_tokens`). Env nuove: **nessuna**.
+  `Dockerfile.caddy` costruisce la nuova app (`build:web` di
+  `apps/desktop`, `base: "/app/"`) in `/srv/app` e lancia
+  `apps/desktop/scripts/check-no-seed.mjs` sul bundle DENTRO l'immagine: un
+  dato del seed del prototipo nel bundle fa fallire il build. Il Caddyfile
+  serve `/app` (308 su `/app/`) prima del fallback della SPA.
+  **PRIMA del deploy, backup del DB.**
+  **ORDINE**: (1) **backup**; (2) **`server`** — applica 0107–0112
+  all'avvio; aspetta healthy e verifica: `select count(*) from tickets
+  where status_id is null;` = 0 (la colonna è NOT NULL: la query prova che
+  il backfill è passato), `select code from projects;` (un codice per
+  progetto, ricavato dallo slug), `select project_id, count(*) from
+  project_statuses group by project_id;` (5 per progetto: To do, In
+  progress, In review, Done, Discarded), `select name from departments where
+  is_default;` («General»); (3) **`worker`** — nessun codice nuovo, ma va
+  confermato che la pipeline muova lo stato tramite il trigger: alla prima
+  PR aperta, `select t.status, s.name from tickets t join project_statuses s
+  on s.id = t.status_id where t.id = '<ticket>';` dice `in_review` / «In
+  review». Controllo d'inattività di sempre prima del riavvio (generazioni
+  Docs, job, sessioni dal vivo, giro notturno: vedi «Quota degli account» e
+  «Giro notturno»); (4) **`caddy`** — verifica `docker exec
+  stubwise-caddy-1 sh -c 'ls /srv/app/index.html'` e che `curl -sI
+  https://<istanza>/app` risponda 308 verso `/app/`.
+  **Dopo il rilascio**: prova a mano del maintainer sull'app desktop (dmg
+  locale, `pnpm --filter @stubwise/desktop package:mac`, puntata
+  all'istanza; login dal browser di sistema, passkey compresa) e sul browser
+  su `/app` (login completo, secondo fattore e configurazione al primo
+  accesso).
+  **Rollback**: caddy scende **insieme** al server (il bundle `/app` parla
+  con `/api/tasks` & co., che il server vecchio non ha). Le migrazioni non
+  si annullano, e il DB nuovo regge un server vecchio — verificato sullo
+  schema: un INSERT vecchio di `projects` senza `code` lo riceve dal trigger
+  `projects_assign_code` (BEFORE INSERT), uno di `tickets` senza
+  `status_id` né `department_id` li riceve da `tickets_status_sync` (lo
+  stato dall'enum) e da `tickets_default_department` (il ripiego), un
+  UPDATE vecchio del solo `status` (pipeline, webhook, web vecchio) sposta
+  `status_id` con la regola di `docs/invariants/tasks.md`, e un utente nuovo
+  entra in «General» col trigger AFTER INSERT. Gli schemi Drizzle vecchi non
+  nominano le colonne nuove, quindi nessun INSERT le manda vuote a mano.
+  **Prima di scendere**:
+  `delete from notifications where kind in ('decision.requested',
+  'decision.answered', 'ticket.activity');` — un `notification_kind` che il
+  server vecchio non conosce dà 500 su `/api/inbox` (le consegne push e
+  Slack in coda cadono in cascata, `notification_deliveries.notification_id`
+  è `ON DELETE CASCADE`; nessuna di queste va al webhook d'istanza);
+  e i token del desktop: `delete from personal_access_tokens where kind =
+  'desktop';` — il server vecchio li accetterebbe ancora come PAT, ma la sua
+  revoca al cambio o al reset della password tocca solo i `mobile`, e
+  `/desktop-exchange` non c'è più per riemetterli: il Mac rifà il login
+  quando si risale. Il CHECK della 0112 resta (ammette `desktop` senza
+  imporlo), e `desktop_handoffs` resta vuota e inerte. Reparti, stati,
+  follower, decisioni e scadenze restano in DB e il server vecchio li
+  ignora; i nomi degli stati cambiati dall'app nuova non si vedono dal web
+  vecchio, che legge l'enum. Un ritorno pieno allo stato di prima è solo il
+  backup.
+- **«Integrazione area 2, fetta 2» (9 nov 2026)**: design
+  `docs/plans/2026-11-09-integrazione-area2-fetta2-design.md`, piano
+  `docs/plans/2026-11-09-integrazione-area2-fetta2-plan.md`, invarianti in
+  `docs/invariants/tasks.md` («La settimana pianificata e lo
+  slittamento»). Il Planning e La mia settimana dell'app nuova girano sul
+  server vero: settimana pianificata, slittamento derivato a lettura,
+  sistemazioni per giorno personali, `POST /api/tasks/:id/plan` e gli
+  avvisi personali della pianificazione.
+  Migrazioni **0113** (`tickets.planned_week`, un lunedì, e
+  `tickets.slip_count`; le funzioni `stubwise_current_monday`, fuso
+  Europe/Rome, `stubwise_effective_week` e `stubwise_slip_weeks`; i trigger
+  `tickets_consolidate_slip` e `tickets_reset_day_arrangements`; la tabella
+  `task_day_arrangements`), **0114** (`planning.others` nel preset
+  `project_lead`, e in nessun altro), **0115** (DA SOLI, gli `ADD VALUE`:
+  `notification_kind` `planning.changed` e `task.assigned`;
+  `ticket_event_kind` `planned_week_changed`, `department_changed`,
+  `effort_changed`). Env nuove: **nessuna**. Le card nuove vanno solo a chi
+  vede la task, mai a chi fa la modifica, e non al webhook d'istanza
+  (audience `task_people`).
+  **PRIMA del deploy, backup del DB.**
+  **ORDINE**: (1) **backup**; (2) **`server`** — applica 0113–0115
+  all'avvio; aspetta healthy e verifica: `select planned_week, slip_count
+  from tickets limit 5;` (le colonne ci sono: `null` e `0` sulle task di
+  prima), `select stubwise_current_monday();` (il lunedì di questa
+  settimana, ora di Roma), `select enumlabel from pg_enum e join pg_type t
+  on t.oid = e.enumtypid where t.typname in ('notification_kind',
+  'ticket_event_kind') and enumlabel in ('planning.changed',
+  'task.assigned', 'planned_week_changed', 'department_changed',
+  'effort_changed');` (cinque righe), `select 'planning.others' =
+  any(permissions) from roles where preset_key = 'project_lead';`
+  (`true`), `select to_regclass('task_day_arrangements');` (non `null`);
+  (3) **`worker`** — subito dopo il server: le consegne push e Slack dei
+  due kind nuovi le formatta il worker (`packages/notifications`), e uno
+  vecchio non li conosce. Controllo d'inattività di sempre prima del
+  riavvio (generazioni Docs, job, sessioni dal vivo, giro notturno: vedi
+  «Quota degli account» e «Giro notturno»); (4) **`caddy`** — il bundle
+  `/app` con Planning e La mia settimana; verifica con una stringa nuova
+  del bundle (`docker exec stubwise-caddy-1 sh -c 'grep -rl
+  "day-arrangements" /srv/app'`).
+  **Dopo il rilascio**: prova a mano del maintainer su `/app` e sull'app
+  desktop (dmg locale): pianificare una task propria e una altrui (con un
+  Project Lead), spostarla di giorno in La mia settimana, e la card
+  `task.assigned` / `planning.changed` nell'inbox dell'altra persona.
+  **Rollback** (verso il server della fetta 1): caddy scende **insieme** al
+  server (il bundle parla con `/plan`, `/day` e `/api/me/day-arrangements`,
+  che il server vecchio non ha). Le migrazioni non si annullano, e il DB
+  nuovo regge un server vecchio — verificato sul codice della fetta 1:
+  gli schemi Drizzle vecchi non nominano `planned_week` né `slip_count`, un
+  INSERT vecchio riceve `null` e `0`, e un server vecchio non scrive mai
+  `planned_week`, quindi `tickets_consolidate_slip` non scatta;
+  `tickets_reset_day_arrangements` scatta su un cambio d'assegnatario del
+  web vecchio o della pipeline e cancella le sistemazioni di quella task,
+  che è la stessa regola del server nuovo. `task_day_arrangements` resta
+  inerte. Le funzioni SQL non le chiama nessuno.
+  **Prima di scendere**:
+  `delete from notifications where kind in ('planning.changed',
+  'task.assigned');` — un `notification_kind` che il server vecchio non
+  conosce dà 500 su `/api/inbox` (le consegne in coda cadono in cascata;
+  nessuna va al webhook d'istanza);
+  e gli eventi nuovi del feed: `delete from ticket_events where kind in
+  ('planned_week_changed', 'department_changed', 'effort_changed');` — il
+  feed del web vecchio (`GET /api/tickets/:id/activity`) valida `eventKind`
+  con lo `z.enum` dei valori che conosce, e un solo evento nuovo farebbe
+  500 sull'attività di quel ticket. Il feed della fetta 1
+  (`/api/tasks/:id/activity`) e la storia del ticket (`ticket-history`, che
+  legge solo `status_changed`) li tollererebbero; la delete serve per il
+  web vecchio. Si perdono solo quelle righe di storia: risalendo non
+  tornano.
+  **Il preset `project_lead`**: `planning.others` il server vecchio lo
+  legge senza danno (un permesso che non conosce non apre niente), ma la UI
+  dei ruoli rimanda l'insieme completo e il salvataggio riceve 400 `unknown
+  permissions`. O si accetta che quel preset (e un ruolo personalizzato che
+  lo contenga) resti in sola lettura finché si risale, o PRIMA di scendere:
+  `update roles set permissions = array_remove(permissions,
+  'planning.others') where 'planning.others' = any(permissions);`
+  (risalendo, la 0114 è idempotente ma non rigira: il preset va
+  ripristinato a mano con la stessa `update` della 0114). Settimane,
+  slittamenti e sistemazioni restano in DB e il server vecchio li ignora.
+  Un ritorno pieno allo stato di prima è solo il backup.
+- **«Integrazione area 2, fetta 3» (10 nov 2026)**: design
+  `docs/plans/2026-11-09-integrazione-area2-fetta3-design.md`, piano
+  `docs/plans/2026-11-09-integrazione-area2-fetta3-plan.md`. Home a blocchi
+  (di reparto e personale), ruoli di reparto (`department.home.manage`),
+  filtri salvati e fissati, richieste da trasformare, nell'app nuova.
+  Migrazioni **0116** (`task_filters` e `pinned_task_filters`, con i cinque
+  filtri pubblici di esempio del prototipo, di nessuno, creati UNA volta nella
+  migrazione con `seed_key`; `saved_views` del web vecchio intatta), **0117**
+  (`department_roles`, `department_homes` con la Home d'apertura di ogni
+  reparto esistente — decide, myWeek, myTasks, claudeForMe,
+  stalledInMyProjects —, `personal_homes`, `personal_home_seen`). Con questo
+  rilascio arrivano anche due correzioni della fetta 2: **0119** (il trigger
+  `tickets_reset_day_arrangements` confronta la settimana EFFETTIVA e
+  l'assegnatario, e scatta anche su `closed_at`) e **0120**
+  (`tickets_assignee_planned_week_idx` ricreato su tutte le task, non più
+  parziale). Env nuove: **nessuna**.
+  **PRIMA del deploy, backup del DB.**
+  **ORDINE**: (1) **backup**; (2) **`server`** — applica 0116–0120
+  all'avvio; aspetta healthy e verifica: `select count(*) from task_filters
+  where seed_key is not null;` = 5; `select (select count(*) from
+  department_homes) = (select count(*) from departments);` = true (i reparti
+  creati DOPO il rilascio non hanno una Home finché qualcuno non la imposta:
+  è voluto); `select to_regclass('pinned_task_filters'),
+  to_regclass('department_roles'), to_regclass('personal_home_seen');`
+  (nessun `null`); `select pg_get_functiondef('tickets_reset_day_arrangements'::regproc)
+  like '%stubwise_effective_week%';` = true; `select indexdef from
+  pg_indexes where indexname = 'tickets_assignee_planned_week_idx';` (senza
+  `WHERE`); (3) **`worker`**: nessun codice suo cambia, non serve
+  ribuildarlo; (4) **`caddy`** — il bundle `/app` con Home, filtri e
+  richieste.
+  **Dopo il rilascio**: prova a mano su `/app` e sul desktop — una Home
+  personalizzata (riordino, un filtro aggiunto, «Ripristina»), la Home di un
+  reparto da chi ha `department.home.manage` (dato dalla pagina Reparti,
+  senza riconferma), un filtro salvato e fissato, «Trasforma in task» da una
+  richiesta.
+  **Rollback** (verso il server della fetta 2): caddy scende **insieme** al
+  server (il bundle chiama `/api/filters`, `/api/me/home`,
+  `/api/departments/:id/home|roles`, `/api/requests/to-convert`). È
+  **sicuro**: 0116 e 0117 creano solo tabelle nuove, che il server vecchio
+  non nomina; `/api/auth/me` perde solo `departmentPermissions`, che ha un
+  default. Le tabelle restano: i cinque filtri di esempio e le Home
+  d'apertura NON si ricreano risalendo (le migrazioni non rigirano), e ciò
+  che le persone hanno salvato nel frattempo resta. 0119 e 0120 restano
+  anche col server vecchio, e vanno bene così: il trigger corretto e
+  l'indice completo non chiedono niente al codice. Un ritorno pieno allo
+  stato di prima è solo il backup.
+  **App mobile — fix del reader (`d33e0569`, in questo rilascio)**:
+  `readerSchema` leggeva un record con chiavi enum come record ESAUSTIVO,
+  così `milestoneCountsSchema.byStatus` non passava mai il parse e
+  `projects.milestones` (i traguardi del progetto nell'app) falliva su ogni
+  risposta con traguardi. Il fix è nel codice dell'app: l'app installata
+  lo riceve **solo con una build nuova** (`apps/mobile/README.md`, build e
+  distribuzione a mano); il server non c'entra.
+- **«Integrazione area 2, fetta 4» (10 nov 2026)**: design
+  `docs/plans/2026-11-09-integrazione-area2-fetta4-design.md`, piano
+  `docs/plans/2026-11-09-integrazione-area2-fetta4-plan.md`, invarianti in
+  `docs/invariants/requests.md`. Chiude l'area 2: Requests coi codici R<n>,
+  Overview (traguardi, decisioni, cronologia a pagine di 28 giorni, brief),
+  Tutti i progetti e Nuovo progetto con modello e moduli, nell'app nuova.
+  Migrazioni **0118** (`projects.client_name`, `template`, `modules`: i
+  progetti esistenti diventano Software coi quattro moduli, interni) e
+  **0121** (`projects.next_request_number` e `backlog_items.number`, il
+  numero di catalogo; backfill per `created_at` e `id`, fuse e archiviate
+  comprese — gli stessi numeri che `/api/requests/to-convert` mostrava già —,
+  `UNIQUE (project_id, number)` e il trigger `backlog_items_assign_number`
+  che lo dà a OGNI voce nuova, ignorando un numero passato) e **0122**
+  (`backlog_items.archived_from` e il trigger `backlog_items_archived_from`:
+  lo stato di prima dell'archiviazione, per il «Ripristina»; le archiviate di
+  prima restano `null` e si ripristinano a «nuova»). Env nuove: **nessuna**.
+  **Cambi di comportamento del web vecchio** (stesse rotte):
+  `POST /api/backlog/:id/merge` risponde **502 `merge_failed`** (prima 500)
+  se il modello non risponde o restituisce un documento vuoto, e in quel
+  caso non scrive niente; la fusione ora porta anche i RICHIEDENTI
+  dell'assorbita sulla destinazione (`services/backlog-merge.ts`, la stessa
+  logica di `/api/requests/:id/merge`), e risponde **409 `request_changed`**
+  se una delle due voci è cambiata mentre il modello lavorava (niente
+  scritto). Accettare e scartare le proposte
+  dell'intake passa dagli scrittori di `backlog-item-writes.ts`, con la
+  voce in lock: stessa risposta di prima.
+  **PRIMA del deploy, backup del DB.**
+  **ORDINE**: (1) **backup**; (2) **`server`** — applica 0118, 0121 e 0122
+  all'avvio; aspetta healthy e verifica: `select template, modules,
+  client_name from projects limit 5;` (`software`, i quattro moduli,
+  `null`); `select p.code, p.next_request_number, max(b.number) from
+  projects p left join backlog_items b on b.project_id = p.id group by
+  p.id;` (`next_request_number` = massimo + 1, o 1 senza voci); `select
+  count(*) from (select project_id, number from backlog_items group by 1, 2
+  having count(*) > 1) d;` = 0; (3) **`worker`** — il suo codice NON cambia
+  e non serve ribuildarlo: le voci che crea l'intake ricevono il numero dal
+  trigger (verificato dai test dell'intake del worker sul DB con la 0121).
+  Dopo il primo intake: `select number, created_at from backlog_items
+  order by created_at desc limit 1;` ha un numero; (4) **`caddy`** — il
+  bundle `/app` con Requests, Overview e Tutti i progetti.
+  **Dopo il rilascio**: prova a mano su `/app` e sul desktop — una richiesta
+  nuova (e una che l'intake fonde: l'app dice «Unita a R<n>»), «Fondi in…»,
+  «Trasforma in task», la cronologia con «Load older», un Nuovo progetto con
+  un modello diverso da Software.
+  **Rollback** (verso il server della fetta 3): caddy scende **insieme** al
+  server. Le migrazioni non si annullano, e il DB nuovo regge un server
+  vecchio: le colonne della 0118 hanno un default (un INSERT vecchio di
+  `projects` ottiene Software coi quattro moduli), e la 0121 dà il numero
+  anche alle voci che il server vecchio e il worker creano senza nominarlo
+  (il trigger lo mette prima del NOT NULL). `/api/requests/to-convert` della
+  fetta 3 ricava il codice dall'ordine di creazione, che per le voci di
+  prima coincide col numero; per una voce eliminata dopo il rilascio i due
+  possono divergere finché si resta sul server vecchio. La 0122 regge un
+  server vecchio: il trigger scrive una colonna che lui non nomina. Un ritorno pieno
+  allo stato di prima è solo il backup.
+- **«CLI claude 2.1.322» (10 nov 2026)**: il pin del CLI nel worker passa da
+  2.1.287 a **2.1.322** (`ARG CLAUDE_CODE_VERSION` in `apps/worker/Dockerfile`,
+  decisione del maintainer: il pin non resta fermo). Nessuna migrazione, nessuna
+  env nuova; il server, caddy e l'app non cambiano.
+  ⚠️ **Il pin si rilascia SOLO insieme alla correzione dei tool nativi**
+  (decisione del maintainer, 10 nov 2026; commit «fix(worker): elenco
+  esplicito dei tool nativi per ogni run del CLI»). Il 2.1.322 espone nei run
+  del worker tool nativi che in `-p` partono SENZA permesso — misurato col
+  profilo del refinement: `RemoteTrigger` (chiamata all'API remota con
+  l'account del CLI), `SendMessage`, `CronCreate`, `ListAgents`, `ToolSearch`
+  eseguiti, `Write` negato. La correzione dà a ogni run un elenco esplicito
+  (`--tools`, fail-closed a `""`), mette sempre `--strict-mcp-config` e fa
+  fermare al runner in streaming un run il cui init esponga altro
+  (`docs/invariants/agent-sessions.md`, «I tool NATIVI di ogni run»). Anche
+  il 2.1.287 in produzione li espone (init della traccia di
+  `streaming-cli.test`), eseguibilità non verificata: nessun hotfix, si chiude
+  con questo rilascio. **Golden con la correzione** (2.1.322, superpowers
+  7.0.0): plan-only, execute, correction, stop-pause 1/1; ask-user e no-ask
+  5/5; intervene, intervene-plan, refine, refine-read, cancel 3/3;
+  `refine-read-bash` 3/3 (nessun Bash tentato: senza grafo il refinement non
+  ha più Bash); `golden:nightly` 15/15 (al primo giro il probe dell'allowlist per file del golden non passava ancora l'elenco dei nativi e non poteva leggere: corretto, e il test sul sorgente ora guarda anche `scripts/golden/`). **Rollback**: il pin e la
+  correzione scendono insieme; la correzione da sola non dipende dalla
+  versione del CLI, ma `--tools` sul 2.1.287 non è stato provato.
+  **Golden** (`apps/worker/scripts/golden/`, `--claude` = la 2.1.322, plugin
+  superpowers 7.0.0): tutti verdi nelle ripetizioni del README — plan-only,
+  execute, correction, stop-pause 1/1; ask-user e no-ask 5/5; intervene,
+  intervene-plan, refine, refine-read 3/3; `refine-read-bash` (opt-in, la
+  prova dell'invariante della sola lettura) 3/3; `golden:nightly` 15/15
+  (allowlist per file compresa: il file fuori elenco è negato, il canarino non
+  trapela). Un primo giro del nightly si era interrotto perché Docker era
+  caduto a metà notte, ed era uscito 0 senza report: corretto a parte
+  (`fix(golden)`), il rilancio è quello verde.
+  **Cambio di comportamento che il pin porta con sé**: i testi del limite del
+  provider. La 2.1.322 scrive `You've hit your 5-hour limit` (e «weekly»,
+  «Opus», «Sonnet», «Fable», «usage credit», il generico «limit», lo spend di
+  org e il budget di team) al posto di «session limit»/«usage limit» della
+  2.1.287: senza l'aggiornamento di `apps/worker/src/providers/limit.ts`
+  (stesso commit, coi testi letti dal binario nei test) un limite vero faceva
+  fallire il job invece del failover. Il formato del reset (`resets 3pm
+  (UTC)`) non è stato confermato sul binario: se cambia, `limitResetAt` dà
+  `null` e si ripiega sullo snapshot o sull'attesa fissa, come già previsto.
+  **ORDINE**: solo **`worker`** (`docker compose up -d --build worker`), e solo
+  SENZA lavoro dell'agente in corso (vedi «Worker fail-on-restart» in
+  `CLAUDE.md`: nessun job `triaging`/`fixing`, nessuna generazione Docs
+  `running`/`paused`, giro notturno fermo). Dopo: `docker compose exec worker
+  claude --version` deve dire `2.1.322`.
+  **Rollback**: tornare all'`ARG` precedente (`2.1.287`) e ribuildare il
+  worker, con le stesse condizioni; `limit.ts` nuovo resta compatibile con i
+  testi della 2.1.287 (i marcatori di prima ci sono ancora).
+- **«Annulla il lavoro» (10 nov 2026, integrazione area 3, 3b.1 e
+  3b.1-bis)**: `POST /api/tasks/:id/cancel-run` chiude un job parcheggiato
+  dal server e, su un job in esecuzione, registra la richiesta e sveglia il
+  worker (`AI_JOB_CANCEL_CHANNEL`), che ferma il CLI e chiude `skipped` senza
+  commit, push né PR (`docs/invariants/agent-sessions.md`, «Annulla il
+  lavoro»). Migrazioni **0123** (`agent_questions.cancelled_at`) e **0124**
+  (`ai_jobs.cancel_requested_at`, `cancel_requested_by_user_id`), colonne
+  additive. Env nuove: **nessuna**. Nessun `notification_kind` nuovo
+  (`ticket.activity` col change `run_cancelled`).
+  **Golden** sulla CLI 2.1.322: lo scenario nuovo `cancel` 3/3 (annullato con
+  `AgentRunCancelledError` in 0,6–0,7 s, nessun `tool_result` dopo, nessun
+  commit/branch; un `tool_use` tardivo per giro, già scritto dal CLI e mai
+  eseguito: è nel dettaglio, non un cancello), `stop-pause` 1/1, `intervene`
+  3/3, `execute` 1/1, `correction` 1/1.
+  **ORDINE**: (1) **`server`** — applica 0123 e 0124; aspetta healthy; (2)
+  **`worker`** — solo SENZA lavoro dell'agente in corso (nessun job
+  `triaging`/`fixing`, nessuna generazione Docs `running`/`paused`, giro
+  notturno fermo: «Worker fail-on-restart» in `CLAUDE.md`); all'avvio il log
+  non deve dire «annullamenti: LISTEN fallito» (se lo dice, resta il controllo
+  ogni 10 s). (3) **`caddy`** quando il renderer della 3b lo usa.
+  **Rollback**: le colonne nuove sono inerti per un server o un worker
+  vecchio (nessuno le legge né le scrive). Con un worker vecchio e un server
+  nuovo, una richiesta di annullamento su un job in esecuzione resta
+  **ignorata**: il job finisce come avrebbe finito, e `cancel_requested_at`
+  resta scritto senza effetti (la storia non dice «annullato» perché il job
+  non è `skipped`). Un server vecchio risponde `run_in_progress`/404 come
+  prima. Le migrazioni non si annullano.
+  ⚠️ **Dopo la correzione della review** (una richiesta vale per un tentativo:
+  `CANCEL_REQUEST_CLEARED` in ogni ripartenza, il worker la onora solo dopo
+  `started_at`): un rollback a un server o un worker dell'area 3 di PRIMA di
+  quella correzione riporta il difetto — un job annullato una volta e poi
+  riciclato si annulla da sé al claim. Prima di un rollback così, ripulire le
+  richieste dei job non in esecuzione: `update ai_jobs set
+  cancel_requested_at = null, cancel_requested_by_user_id = null where status
+  not in ('triaging','fixing');` (perde solo la riga «annullato da» della
+  storia di quei job).
+- **«Claude assegnabile» (10 nov 2026, integrazione area 3, 3e.1)**:
+  migrazione **0125** (`users.is_agent`, l'indice `users_single_agent` e la riga
+  dell'utente di sistema «Claude», `claude@agent.stubwise.invalid`, preset
+  `User`). Env nuove: **nessuna**. Regole in `docs/invariants/permissions.md`
+  («L'utente di sistema Claude»).
+  **ORDINE**: (1) **backup**; (2) **`server`** — applica 0125; verifica `select
+  email, is_agent, role from users where is_agent;` = una riga, `member`; (3)
+  **`caddy`** quando il renderer della 3e lo usa. Il worker non cambia.
+  ⚠️ **L'impostazione iniziale** (`/api/auth/setup`) non conta l'agente: su
+  un'istanza nuova la 0125 crea la riga di Claude PRIMA del primo admin, e un
+  server vecchio con quella riga direbbe «setup già fatto». Quindi su
+  un'istanza ancora da impostare **non si scende** a un server di prima della 3e.
+  **Rollback** (server di prima): la riga resta. Un server vecchio la tratta
+  come un utente qualunque: compare nel Team, e un admin potrebbe
+  reimpostarne la password (e farla entrare). Prima di scendere: o
+  `update users set password_hash = '!agent-no-login' where is_agent;` resta
+  (non è un hash: nessun login la accetta) e si avvisano gli admin di non
+  reimpostarla, oppure si toglie l'assegnazione (`update tickets set
+  assignee_id = null where assignee_id = (select id from users where
+  is_agent);`) e si elimina la riga. Le task assegnate a Claude, con un server
+  vecchio, non avviano niente di nuovo.
+- **«Chat con Claude, fette 1 e 2» (10 nov 2026)**: design
+  `docs/plans/2026-11-10-integrazione-claude-chat-design.md`, parità in
+  `apps/desktop/docs/integration-claude-chat.md`. Conversazioni libere PRIVATE
+  (sessioni `free`, a turni) e turni di Claude a SOLA LETTURA: nessuna
+  proposta né azione. Migrazioni **0126** (`claude_conversations` e il kind
+  `free` nel CHECK di `agent_sessions`), **0127** (`claude_chat_tool_tokens`,
+  il token del turno: solo hash) e **0128** (l'operazione AI `claude_chat` nei
+  CHECK di `agent_runs` e `ai_model_settings`). Nessun `notification_kind`
+  nuovo. Env nuove sul **worker** (tutte con default, nel compose):
+  `CHAT_SERVER_URL` (default `http://server:${PORT}`, l'URL INTERNO su cui il
+  ponte dei tool chiama il server col token del turno), `CHAT_MAX_CONCURRENT`
+  (2), `CHAT_TURN_TIMEOUT_MS` (300000, e quindi la vita massima del token),
+  `CHAT_MAX_TURNS` (15). Invarianti: `docs/invariants/second-factor.md` («Il
+  token del turno della chat con Claude NON è una porta»).
+  **Golden** sulla CLI 2.1.322: `chat-read`, `chat-no-act`, `chat-no-leak`
+  3/3 ciascuno, coi turni a `--tools ""` (il primo giro senza era rosso:
+  `ToolSearch` eseguito).
+  **ORDINE**: (1) **backup**; (2) **`server`** — applica 0126–0128; aspetta
+  healthy; (3) **`worker`** — solo SENZA lavoro dell'agente in corso
+  («Worker fail-on-restart» in `CLAUDE.md`); all'avvio la riga di riepilogo
+  deve dire `chat max 2` (se dice «disabilitata (ponte non avviato)», il ponte
+  su loopback non è partito: la chat resta muta, i messaggi restano in
+  coda); (4) **`caddy`** (il renderer di `/app`); l'app desktop si rifà a mano.
+  Verifica: con un utente, da `/app/#/claude` una domanda su una task → la
+  risposta cita dati veri; nel log del worker nessuna riga `[chat]` con un
+  token (non devono essercene).
+  **Rollback**: ⚠️ **un server di prima della chat NON sa che le sessioni
+  `free` sono private** (filtra solo la posta): titoli ed eventi delle
+  conversazioni diventerebbero leggibili a chi vede le sessioni d'istanza.
+  Prima di scendere col server: `delete from agent_sessions where kind =
+  'free';` (porta via conversazioni, eventi, messaggi e token col CASCADE) —
+  e va detto agli utenti, perché le loro conversazioni spariscono. Un worker
+  vecchio con un server nuovo: i messaggi di una conversazione non trovano lo
+  scheduler e diventano `undelivered`/`session_not_live` (nessun turno parte);
+  le altre sessioni non cambiano. Il caddy scende insieme al server. Le
+  migrazioni non si annullano (tabelle e valori nuovi restano inerti).
+  **Correzioni della review (stesso rilascio)**: migrazione **0129**
+  (`claude_conversations.cli_session_started_at`, colonna additiva). La cwd del
+  CLI di una conversazione è ora `<tmp>/stubwise-chat/<sessionId>` (stabile:
+  `--resume` funziona) e le trascrizioni del CLI in
+  `$CLAUDE_CONFIG_DIR/projects/-tmp-stubwise-chat-<id>` si tolgono
+  all'eliminazione e nella potatura dello scheduler della chat (ogni 10′):
+  orfane, sessioni del CLI nate da più di 14 giorni, e le
+  `-tmp-stubwise-chat-XXXXXX` dei turni di prima (cwd casuale per turno, mai
+  riprese: nessun passo a mano). Rollback: la colonna resta inerte.
+- **«Elimina task» (10 nov 2026, chat con Claude, fetta 3.0)**: un'eliminazione
+  VERA delle task, come nel prototipo (`apps/desktop/.impeccable/shape/task-delete.md`).
+  `GET /api/tasks/:id/deletion` (l'anteprima: si può, perché no, cosa la
+  occupa, le figlie che restano) e `DELETE /api/tasks/:id`. Chi può lo decide
+  il server: l'autore con `tickets.edit`, o `tickets.moderate`. Una task con
+  lavoro di Claude non concluso, una PR aperta o una correzione aperta è
+  `busy` (409). Il codice non si riusa (`next_ticket_number` non scende).
+  Migrazione **0130**:
+  - la lapide `deleted_tickets` (codice, titolo, richiesta d'origine, chi,
+    quando; MAI descrizione, commenti, allegati, storia);
+  - `notifications.ticket_id`/`job_id` e `agent_runs.job_id` da CASCADE a SET
+    NULL: le notifiche restano, senza link e con `objectGone` derivato; i
+    consumi restano.
+  Le altre FK verso `tickets`, decise e scritte nel commento di
+  `deletedTickets` (schema.ts): le sessioni dell'agente della task se ne vanno
+  CON lei (la loro visibilità passa dal ticket), come job, commenti, storia,
+  allegati (e i file nello storage, tolti dopo il commit), collegamenti,
+  correzioni chiuse, gruppi d'errore. Nessun `notification_kind` nuovo: il
+  cambio `task_deleted` di `ticket.activity` (valore nuovo di un campo
+  dell'evento, che i client non validano come enum). Campi nuovi con default:
+  `objectGone` nelle card d'inbox, `deletedTaskCodes` nelle richieste. Env
+  nuove: nessuna.
+  **ORDINE**: (1) ⚠️ **BACKUP DEL DB, obbligatorio** (`pg_dump` prima di tutto:
+  da qui il server può cancellare righe in modo definitivo); (2) **`server`**
+  — applica 0130; aspetta healthy; verifica `select count(*) from
+  deleted_tickets;` = 0; (3) **`caddy`** (il renderer di `/app` con «Delete
+  task…»). Il worker non cambia.
+  **Rollback**: un server di prima ignora la lapide e i campi nuovi; le FK a
+  SET NULL restano (un server vecchio non elimina task, quindi non le
+  esercita). Le task già eliminate NON tornano: per riaverle serve il backup.
+  Con un server vecchio le card di una task eliminata tornano col link (un 404
+  aprendole). Le migrazioni non si annullano.
+- **«Chat con Claude, fetta 3: proposte e azioni» (10 nov 2026, server e
+  worker; il renderer è la F3.4)**: piano
+  `docs/plans/2026-11-10-integrazione-claude-chat-f3-plan.md`, parità in
+  `apps/desktop/docs/integration-claude-chat.md`. **Claude propone, il server
+  esegue**: il tool `propose_action` del worker scrive una PROPOSTA
+  (`POST /api/claude/conversations/:id/proposals`, la SOLA rotta di scrittura
+  del token del turno, `CHAT_TOOL_WRITE_ROUTES`); il server calcola la classe
+  con una prova a secco (esecuzione e ROLLBACK, `claude-actions/effects.ts`);
+  una A la esegue subito a nome della persona, una B aspetta la conferma
+  dell'autore (`POST /api/claude/proposals/:id/confirm|cancel`), «Annulla» è
+  `POST /api/claude/groups/:id/undo`. Il catalogo è chiuso
+  (`CLAUDE_ACTION_FNS`), coi servizi e l'accesso delle rotte. Migrazione
+  **0131**:
+  - tabelle `claude_proposals`, `claude_action_groups`, `claude_actions`;
+  - `via_claude_action_id` su `ticket_events`, `comments`, `notifications` e
+    `deleted_tickets`, con un DEFAULT che legge
+    `current_setting('stubwise.via_claude_action_id', true)`: lo imposta
+    SOLO l'esecutore, nella sua transazione; ogni altra scrittura (e un
+    server vecchio) ha `null`;
+  - i tipi d'evento `proposal` e `actions_executed` nel CHECK di
+    `agent_session_events`.
+  Nessun `notification_kind` nuovo. Env nuove: nessuna. Il token del turno
+  legge anche `GET /api/people` (tool `list_people`: il ponte toglie le
+  email). Le notifiche di un'azione (il piano da approvare di uno `startRun`)
+  portano il link pubblico come quelle delle rotte.
+  **Golden** sulla CLI 2.1.322: `chat-read`, `chat-no-leak`, `chat-resume`,
+  `chat-propose-not-execute`, `chat-confirm-executes`, `chat-undo`,
+  `chat-never-catalog`, 3/3 ciascuno. `chat-no-act` è ritirato (con
+  `createTask` nel catalogo la sua premessa non vale più).
+  **ORDINE**: (1) **backup** (un'azione A elimina davvero: «Annulla» di una
+  `createTask` elimina la task); (2) **`server`** — applica 0131; aspetta
+  healthy; verifica `select count(*) from claude_proposals;` = 0; (3)
+  **`worker`** — solo SENZA lavoro dell'agente in corso («Worker
+  fail-on-restart» in `CLAUDE.md`), e senza turni di chat in volo; (4)
+  **`caddy`** — solo quando la F3.4 (renderer: schede, conferma, «Annulla»,
+  «via Claude») è nel rilascio: senza, le proposte B restano aperte e
+  invisibili (scadono da sole dopo 20 messaggi o 24 h), le A si eseguono e il
+  modello le cita. Verifica: da `/app/#/claude`, «assegna AUD-n a <persona>»
+  → una scheda da confermare; confermata, la task cambia e la riga della
+  storia porta il segno «via Claude».
+  **Rollback**:
+  - ⚠️ **un server vecchio non conosce i tipi d'evento `proposal` e
+    `actions_executed`**: la risposta di `GET /api/agent-sessions/:id/events`
+    passa da uno `z.enum` chiuso, e una conversazione con una scheda andrebbe
+    in 500. Prima di scendere col server: `delete from agent_session_events
+    where type in ('proposal','actions_executed');` (le conversazioni restano,
+    senza le schede).
+  - Proposte, gruppi e azioni restano nelle loro tabelle, inerti: un server
+    vecchio non le legge, non le conferma e non le annulla. Le colonne
+    `via_claude_action_id` restano: un server vecchio non le nomina, e il
+    DEFAULT gli dà `null`.
+  - Ciò che un'azione A o una B confermata ha scritto resta scritto (è una
+    scrittura della persona); con un server vecchio non si annulla più da qui.
+  - Un worker nuovo con un server vecchio: il POST della proposta riceve 403
+    (`chat_tool_forbidden`) e `/api/people` pure; il ponte risponde al modello
+    «non può più proporre» e «non visibile». Nessuna scrittura parte. Un
+    worker vecchio con un server nuovo: la chat torna a sola lettura, col
+    contratto di prima.
+  - Il caddy scende insieme al server. Le migrazioni non si annullano.
+- **«Chat con Claude, fetta 5: conversazioni pubbliche e continuazione» (10
+  nov 2026)**: piano `docs/plans/2026-11-10-integrazione-claude-chat-f5-plan.md`
+  (decisioni del maintainer D1–D6), invariante in
+  `docs/invariants/agent-sessions.md`. L'autore rende pubblica una
+  conversazione con una conferma ESPLICITA dei progetti letti o toccati; la
+  LEGGE chi ha `claude.public.view`, gli eventi dei tool compresi (D1). Il
+  seguito privato (un turno in corso, o che ha toccato un progetto nuovo) non
+  arriva ai lettori finché non è rilasciato. Chi legge la CONTINUA in una
+  conversazione sua, e Claude agisce come lui. Rotte nuove: `POST
+  /api/claude/conversations/:id/visibility`, `POST …/:id/continue`, `?scope=public`.
+  Migrazioni:
+  - **0133**: `claude_conversations` riceve visibility, published_*,
+    private_from_event_id, visibility_changed_at e continues_from_session_id;
+    nuova tabella `claude_conversation_projects`; `claude.public.view` al
+    preset User (l'Admin lo ha per costruzione, perché è full admin);
+  - **0134**: `origin_transcript`; `continues_from_session_id` senza FK.
+
+  Nessun `notification_kind` nuovo. Env nuove: nessuna. Il worker smette di
+  potare le pubbliche (D5) e porta l'originale nel primo prompt di una
+  continuazione (D3). **Golden** sulla CLI 2.1.322: i sette `chat-*` e
+  `chat-continue`, 3/3.
+  **ORDINE**: (1) **backup**; (2) **`server`**: applica 0133–0134, aspetta
+  healthy; (3) **`worker`**: solo SENZA lavoro dell'agente in corso; (4)
+  **`caddy`**: solo con la F5.4 (renderer) nel rilascio; senza, nessuno vede
+  «Make public», e il server non pubblica niente da solo.
+  **Rollback**:
+  - Un server vecchio vede `free` = privata dell'autore (`visibleTo` di
+    prima): le pubbliche tornano private per costruzione, e i lettori
+    ricevono 404.
+  - Le continuazioni restano normali conversazioni private di chi le ha
+    fatte.
+  - Colonne e tabella restano inerti. Il permesso nuovo resta nei ruoli,
+    inerte: un server vecchio lo ignora a lettura (`effectiveInstancePermissions`
+    filtra i permessi sconosciuti).
+  - ⚠️ Un server vecchio però RIFIUTA `claude.public.view` in SCRITTURA:
+    salvare il preset User (o un ruolo che lo contiene) dall'interfaccia dei
+    ruoli dà 400, perché il permesso non è nel suo catalogo. Prima di
+    scendere, se serve poter modificare quei ruoli: `update roles set
+    permissions = array_remove(permissions, 'claude.public.view');`. Al
+    ritorno sul server nuovo la 0133 non lo rimette da sola: si riassegna a
+    mano, o si rilancia l'`UPDATE` della 0133.
+  - ⚠️ Un worker vecchio potrebbe POTARE le pubbliche inattive da 14 giorni
+    (D5). Per non perderle, prima di scendere col worker si rendono private o
+    se ne fa il backup.
+  - Il caddy scende insieme al server. Le migrazioni non si annullano.
+- **«Riconferma dal desktop» (10 nov 2026)**: decisione del maintainer
+  (opzione B di `docs/plans/2026-11-10-riconferma-desktop-design.md`). L'app
+  desktop impacchettata riconferma col codice dell'app di autenticazione (o
+  uno di riserva) scritto DENTRO l'app: `POST /api/auth/desktop-reauth`, solo
+  per un PAT `desktop`, passa da `attemptSecondFactor` (tetto e blocco di
+  sempre). Se riesce, quel PAT soddisfa `config.reauth` per 10 minuti.
+  `mobile` e `manual` mai. Invariante: `docs/invariants/second-factor.md` («La
+  riconferma si DICHIARA…»). Con la seconda decisione dello stesso giorno,
+  la stessa regola (`browserOrConfirmedDesktop`) apre al PAT desktop
+  riconfermato anche le rotte che rifiutavano un PAT nel loro handler: `POST
+  /api/pats`, `desktop-handoff`, il link di reset altrui e il cambio della
+  propria password. La cassaforte no: è `config.browserOnly`, bloccata dallo
+  sblocco PRF. Ogni azione fatta con la finestra lascia una riga
+  `reauth_desktop` con l'azione. Migrazione **0132**:
+  `personal_access_tokens.second_factor_at` e `security_events.detail`,
+  colonne additive; nella vista del registro `detail` è nullable con default
+  null. Valore nuovo
+  `reauth_desktop` di `security_events.kind` (testo, l'elenco chiuso è in
+  `securityEventKindSchema`). Nessun `notification_kind` nuovo. Env nuove:
+  nessuna.
+  **ORDINE**: (1) **backup**; (2) **`server`**: applica 0132, aspetta
+  healthy; (3) **`caddy`**: l'etichetta del registro di sicurezza sul web e
+  il renderer di `/app` (che non usa la rotta: ha il cookie). L'app desktop
+  si rifà a mano (`package:mac`). Il worker non cambia. Verifica: dal desktop,
+  un'azione sensibile apre «Confirm it's you» col solo codice; dopo il codice
+  l'azione passa, e Impostazioni → Sicurezza sul web mostra «Identity
+  confirmed in the desktop app».
+  **Rollback**:
+  - ⚠️ **un server vecchio non conosce `reauth_desktop`**: la lista del
+    registro di sicurezza (`GET /api/me/security` e la scheda dell'utente)
+    passa da uno `z.enum` chiuso e andrebbe in 500 per chi ha quella riga.
+    Prima di scendere col server: `delete from security_events where kind =
+    'reauth_desktop';`.
+  - Le colonne `second_factor_at` e `detail` restano inerti: un server vecchio non le
+    legge, e il desktop torna a ricevere `session_required` sulle azioni
+    sensibili, come prima.
+  - Il caddy scende insieme al server. Le migrazioni non si annullano.
+- **«Integrazione area 4, fetta 1: la Chat fra persone» (10 nov 2026)**:
+  design `docs/plans/2026-11-10-integrazione-area4-chat-design.md`, piano
+  `docs/plans/2026-11-10-integrazione-area4-fetta1-plan.md`, invariante
+  `docs/invariants/chat.md`. I canali di PROGETTO aperti: il «general» di
+  ogni progetto e quelli creati, thread a un livello, reazioni, letture, le
+  viste «Threads» e «Mentions», le menzioni `@Nome` con una card in inbox
+  (con push) e lo stream SSE per canale. Rotte nuove sotto `/api/chat`.
+  Migrazioni:
+  - **0135**: le tabelle `chat_*`. Il «general» viene creato per ogni
+    progetto esistente (backfill) e per ogni progetto NUOVO (trigger
+    `projects_chat_general` `AFTER INSERT ON projects`, funzione
+    `chat_project_general()`). I permessi `chat.channels.create` e
+    `chat.channels.manage` (di progetto) e `chat.general.create` e
+    `chat.general.manage` (d'istanza) vanno ai preset Developer, Project
+    Lead e User e ai ruoli che contenevano già un intero preset (la regola
+    di `docs/invariants/permissions.md`);
+  - **0136**: il valore `chat.mention` di `notification_kind`, in uno
+    statement a sé.
+
+  ⚠️ **`chat.mention` è un `notification_kind` nuovo** (vedi il rollback).
+  Env nuove: nessuna. Il bus della chat usa LISTEN/NOTIFY (`chat_channel`)
+  sulla connessione del server, senza servizi nuovi.
+  **ORDINE**: (1) **backup**; (2) **`server`**: applica 0135–0136, aspetta
+  healthy; (3) **`worker`**, solo SENZA lavoro dell'agente in corso: è lui a
+  mandare le push, e un worker vecchio non ha il titolo della push di
+  `chat.mention`; (4) **`caddy`**: il renderer di `/app` con la Chat (F1.3)
+  e le etichette web (inbox e permessi). Verifica: in `/app/#/chat` il
+  «general» di ogni progetto c'è. Un `@Nome` di un collega gli crea una card
+  «… ti ha nominato in #general», che apre il messaggio. Un progetto creato
+  dopo il deploy ha già il suo «general».
+  **Rollback**:
+  - ⚠️ **Un server vecchio non conosce `chat.mention`**: `/api/inbox` andrebbe
+    in 500 per chi ha quelle card. Prima di scendere col server: `delete from
+    notifications where kind = 'chat.mention';` (le card si perdono, i
+    messaggi no). Lo stesso vale per il worker, che altrimenti proverebbe a
+    mandarne le push.
+  - ⚠️ Un server vecchio RIFIUTA i permessi `chat.*` in SCRITTURA: salvare un
+    ruolo che li contiene dà 400. Se serve modificare i ruoli: `update roles
+    set permissions = array(select p from unnest(permissions) p where p not
+    like 'chat.%');`. Al ritorno la 0135 non li rimette da sola: si
+    riassegnano a mano, o si rilanciano i suoi `UPDATE "roles"`. A lettura
+    sono inerti (`effectiveInstancePermissions` filtra i permessi sconosciuti).
+  - Tabelle e trigger restano: un server vecchio non li legge, e il trigger
+    continua a creare il «general» dei progetti nuovi (innocuo, e pronto al
+    ritorno). Eliminare un progetto porta via i suoi canali in cascata.
+  - Il caddy scende insieme al server. Le migrazioni non si annullano.
+- **«Integrazione area 4, fetta 2: DM, privati, generali, domande, ricerca» (10
+  nov 2026)**: piano `docs/plans/2026-11-10-integrazione-area4-fetta2-plan.md`,
+  invariante `docs/invariants/chat.md`. Cosa entra:
+  - DM da 2 a 8 persone, che esistono solo per chi partecipa, nemmeno per il
+    full admin;
+  - canali privati con invito e rimozione (chi gestisce l'ambito li vede ma
+    non li legge);
+  - canali generali d'istanza;
+  - la ricerca;
+  - le domande (`chat.question`) in «Da decidere»;
+  - task e richieste nate da un messaggio;
+  - «anche nel canale»;
+  - i permessi del canale del prototipo (il creatore modifica e archivia).
+
+  Rotte nuove: `POST /api/chat/dm`, `POST/DELETE
+  /api/chat/channels/:id/members[/:userId]`, `GET /api/chat/questions`, `POST
+  /api/chat/questions/:id/dismiss`, `GET /api/chat/search`. `POST /api/tasks` e
+  `POST /api/requests` accettano `chatMessageId`, opzionale.
+  Migrazioni:
+  - **0137**: `chat_channels.dm_key` (con un CHECK: un DM ha la chiave, gli
+    altri no), indice unico del nome dei generali,
+    `chat_messages.also_in_channel` e `search_folded` (backfill con `lower()`),
+    `CREATE EXTENSION IF NOT EXISTS pg_trgm` con un indice GIN trigram, tabelle
+    `chat_dismissed_questions` e `chat_message_links`. `pg_trgm` è
+    un'estensione *trusted*: la crea il proprietario del database, senza
+    superuser;
+  - **0138**: il valore `chat.question` di `notification_kind`, in uno
+    statement a sé;
+  - **0139**: `chat_message_citations`, le citazioni dei messaggi (F2.7,
+    decisione del maintainer).
+
+  Nella 0137 ci sono anche `chat_messages.notified_ids` (chi è già stato
+  avvisato) e, con la review, i nomi unici solo fra i canali NON privati
+  (anche l'indice della 0135, corretto prima del rilascio).
+  ⚠️ **`chat.question` è un `notification_kind` nuovo** (vedi il rollback).
+  Permessi nuovi: nessuno (`chat.general.*` c'è dalla 0135). Env nuove:
+  nessuna.
+  **ORDINE**: (1) **backup**; (2) **`server`**: applica 0137–0139, aspetta
+  healthy; (3) **`worker`**, solo SENZA lavoro dell'agente in corso. Deve
+  arrivare PRIMA del caddy: il payload manuale dell'intake è `strict`, e un
+  worker vecchio rifiuterebbe un job col `chatMessageId` che manda il
+  renderer nuovo; in più è il worker a mandare le push di `chat.question`;
+  (4) **`caddy`**: il renderer di `/app` con la fetta 2 e le etichette web.
+  Se la fetta 1 esce nello stesso rilascio, valgono anche le sue voci, con
+  0135–0138 applicate in una volta.
+  Verifica:
+  - un DM con un collega non compare a un full admin;
+  - un `@Nome …?` a un membro del canale gli crea la card «… ti ha chiesto in
+    #…» e una voce in «Da decidere», che sparisce quando risponde;
+  - la ricerca trova «perché» cercando «perche».
+
+  **Rollback**:
+  - ⚠️ **Un server vecchio non conosce `chat.question`**: `/api/inbox`
+    andrebbe in 500 per chi ha quelle card. Prima di scendere col server:
+    `delete from notifications where kind = 'chat.question';` (le domande in
+    «Da decidere» si perdono con la fetta, i messaggi no). Lo stesso vale per
+    il worker.
+  - ⚠️ **Un server della fetta 1 non sa cosa sia un DM o un privato**: la sua
+    `channelVisibleSql` mostra solo i canali di progetto, quindi DM, privati
+    e generali spariscono e non trapelano. Attenzione però ai privati DI
+    PROGETTO: il server della fetta 1 li tratterebbe come aperti, cioè
+    visibili e leggibili da chiunque veda il progetto. Prima di scendere, o
+    si cancellano (`delete from chat_channels where visibility = 'private'
+    and kind = 'project';`) o si accetta che diventino leggibili: va deciso
+    PRIMA del rollback, e la decisione spetta al **maintainer** al momento
+    del rollback (orchestratrice, 10 nov 2026).
+  - Un worker vecchio rifiuta i job d'intake con `chatMessageId` (`strict`):
+    prima di scendere col worker, nessun job d'intake in coda deve portarlo,
+    oppure si scende insieme al caddy (che non lo manda più).
+  - ⚠️ **Dopo una discesa alla fetta 1 e una risalita**, `search_folded` resta
+    vecchio per i messaggi modificati nel frattempo (un server della fetta 1
+    non lo scrive) e vuoto per quelli scritti nel frattempo, che la ricerca
+    quindi non trova. Lo stesso per `notified_ids`, rimasto vuoto: una
+    modifica potrebbe riavvisare chi era già stato nominato. Alla risalita,
+    dopo il server:
+    `update chat_messages set search_folded = lower(body), notified_ids =
+    mentioned_ids where deleted_at is null;`. `lower()` non toglie gli
+    accenti: per quelle righe «perche» non trova più «perché», finché il
+    messaggio non viene modificato (il server ripiega con NFD).
+  - Colonne, tabelle ed estensione restano inerti. Il caddy scende insieme al
+    server. Le migrazioni non si annullano.
+- **«Integrazione area 4, fetta 3: @Claude nei canali» (10 nov 2026)**: piano
+  `docs/plans/2026-11-10-integrazione-area4-fetta3-plan.md`, invariante
+  `docs/invariants/chat.md` (sezione «@Claude nella Chat»). «@Claude» in un
+  messaggio fa nascere nel thread la risposta di Claude, «chiamato da» chi
+  scrive, con una sessione dell'agente per chiamata (kind `chat_mention`,
+  privata di chi chiama).
+  - Le modifiche sono proposte di classe B che conferma solo chi ha chiamato,
+    senza «Annulla».
+  - Claude può fare UNA domanda a chi ha chiamato (`ask_question`), che finisce
+    nel thread e in «Da decidere».
+  - Ci sono stop, «Try again» ed eliminazione della risposta.
+
+  Rotte nuove: `POST /api/chat/messages/:id/claude/stop|retry|answer`, `GET
+  /api/chat/claude-questions`. Le proposte si decidono con le rotte di sempre.
+  Migrazione **0140**:
+  - il CHECK `agent_sessions_kind_chk` con `chat_mention`;
+  - su `chat_messages`, `agent_session_id`, `call_message_id`,
+    `claude_state`, `claude_error` e `claude_retried`, con un CHECK;
+  - la tabella `chat_claude_questions`.
+
+  Nessun `notification_kind` nuovo. Env nuove: nessuna. Il worker espone
+  `ask_question` solo nei turni di una chiamata (env `CHAT_ASK_QUESTION` del
+  server MCP della chat, impostata dal turno). **Golden** sul CLI 2.1.322:
+  `chat-mention-read`, `chat-mention-propose` (3 volte) e `chat-mention-ask` (5
+  volte), più un giro dei `chat-*` di prima.
+  **ORDINE**: (1) **backup**; (2) **`server`**: applica 0140, aspetta healthy.
+  Da qui un «@Claude» crea la risposta e la sessione, che restano «working»
+  finché arriva il worker; (3) **`worker`**, solo SENZA lavoro dell'agente in
+  corso: dispatcha `chat_mention` allo scheduler della chat e scrive testo e
+  stato della risposta; (4) **`caddy`**: il renderer di `/app` con @Claude. Se
+  le fette 1–2 escono nello stesso rilascio, valgono anche le loro voci (0135–0140 in una volta).
+  **Rollback**:
+  - Un server vecchio non conosce `chat_mention`: le sessioni di quel kind le
+    tratterebbe come quelle di progetto, cioè VISIBILI ad altri. ⚠️ Prima di
+    scendere col server: `delete from agent_sessions where kind =
+    'chat_mention';`. La cascata porta via conversazioni ed eventi; le
+    risposte `claude` restano messaggi, con `agent_session_id` nullo.
+  - Le risposte `claude` restano nel thread come messaggi: un server della
+    fetta 2 le mostra col loro testo, senza stato né schede.
+  - Le proposte di quelle sessioni se ne vanno con le sessioni (cascata). Le
+    azioni già confermate restano fatte, come ogni azione di Claude.
+  - Un worker vecchio scarta i turni di `chat_mention` («senza scheduler»): le
+    risposte restano «working». Prima di scendere col worker, chiuderle a
+    mano: `update chat_messages set claude_state = 'failed', claude_error =
+    'other' where claude_state in ('working', 'waiting');`.
+  - Il caddy scende insieme al server. Le migrazioni non si annullano.
+- **«Integrazione area 4, fetta 4: eventi dei progetti e allegati» (11 nov
+  2026)**: piano `docs/plans/2026-11-11-integrazione-area4-fetta4-plan.md`,
+  invariante `docs/invariants/chat.md` (sezione «Eventi dei progetti e
+  allegati»).
+  - Gli eventi dei progetti sono messaggi di sistema nei canali di progetto che
+    li pubblicano: task chiusa, richiesta nuova, traguardo raggiunto, brief
+    pronto, PR aperta e PR mergiata. `release_page` resta acceso ma inerte fino
+    all'area 8.
+  - Li scrivono TRIGGER del DB (`chat_publish_event`), quindi ogni scrittore li
+    produce: rotte, pipeline del worker, intake, webhook. Non avvisano nessuno.
+  - Gli allegati dei messaggi: fino a 25 MB e 10 per messaggio, con l'elenco
+    dei tipi della Chat; il download passa da un URL firmato.
+
+  Rotte nuove, tutte sotto `/api/chat`:
+  - `PUT /channels/:id/events`;
+  - `POST /channels/:id/attachments`;
+  - `GET /attachments/:id/download` (302);
+  - `DELETE /attachments/:id`.
+
+  Migrazione **0141**:
+  - su `chat_messages`, `event_kind`, `event_ref_kind`, `event_ref_id` ed
+    `event_pr_id`, con un CHECK;
+  - la tabella `chat_message_attachments`;
+  - la funzione `chat_publish_event` e cinque trigger: `tickets_chat_task_closed`,
+    `backlog_items_chat_request_new`, `milestones_chat_reached`,
+    `project_briefs_chat_ready` e `ticket_repositories_chat_pr`.
+
+  Nessun `notification_kind` nuovo. Env nuove: nessuna. Lo storage è quello
+  degli allegati dei ticket (Impostazioni → Storage): senza storage il
+  caricamento risponde 400 `storage_not_configured`. Caddy non limita il body,
+  e i 25 MB passano. Eliminare un canale o un progetto toglie dallo storage
+  gli oggetti dei suoi allegati; per il progetto anche quelli degli allegati
+  dei TICKET (review della fetta 4: prima restavano per sempre).
+  La potatura dei sospesi oltre le 24 ore la fa il SERVER,
+  una volta l'ora e a ogni caricamento, perché il worker non ha lo storage.
+  Misura: 200 task chiuse in un UPDATE scrivono 200 messaggi in circa 170 ms,
+  dentro la transazione di chi scrive.
+  **ORDINE**: (1) **backup**; (2) **`server`**: applica 0141, aspetta healthy.
+  Da qui i trigger pubblicano; (3) **`caddy`**: il renderer di `/app` con le
+  schede e gli allegati. Il worker non cambia. Se le fette 1–3 escono nello
+  stesso rilascio, valgono anche le loro voci (0135–0141 in una volta).
+  **Rollback**:
+  - ⚠️ I trigger restano nel DB e continuano a scrivere messaggi di sistema
+    anche sotto un server della fetta 3, che li mostra VUOTI (il testo si
+    deriva a lettura). Prima di scendere col server:
+    `drop trigger tickets_chat_task_closed on tickets; drop trigger
+    backlog_items_chat_request_new on backlog_items; drop trigger
+    milestones_chat_reached on milestones; drop trigger project_briefs_chat_ready
+    on project_briefs; drop trigger ticket_repositories_chat_pr_insert on
+    ticket_repositories; drop trigger ticket_repositories_chat_pr_update on
+    ticket_repositories;`, e poi, se non si vogliono le righe vuote,
+    `delete from chat_messages where kind = 'system' and event_kind is not null;`.
+    Per risalire, i trigger si ricreano rilanciando le loro istruzioni dalla
+    0141 (la migrazione non si riapplica da sola).
+  - Gli allegati restano: righe e oggetti. Un server della fetta 3 non li
+    mostra, e un messaggio con soli allegati gli appare vuoto. Senza il timer
+    del server nuovo, i sospesi non si potano: si potano al ritorno.
+  - Un messaggio ELIMINATO sotto un server della fetta 3 tiene le righe dei
+    suoi allegati (quel server non le conosce). Al ritorno il download le
+    rifiuta, perché vuole il messaggio vivo (review della fetta 4); righe e
+    oggetti restano però finché non si tolgono. Le chiavi sono:
+    `select a.storage_key from chat_message_attachments a join chat_messages m
+    on m.id = a.message_id where m.deleted_at is not null;`. Prima si tolgono gli
+    oggetti dallo storage, poi le righe con la stessa condizione.
+  - Il caddy scende insieme al server. Le migrazioni non si annullano.
+- **«Integrazione area 5, fetta 1: Docs nel desktop» (11 nov 2026)**: design
+  `docs/plans/2026-11-11-integrazione-area5-docs-design.md`, piano
+  `docs/plans/2026-11-11-integrazione-area5-fetta1-plan.md`, invariante
+  `docs/invariants/docs.md`. I Docs «come oggi» nel desktop.
+  - Codici stabili `<PRJ>-D<n>` delle pagine.
+  - Citazioni `doc` della Chat che puntano al codice e portano il link.
+  - Embedding delle pagine manuali.
+  - Claude legge una pagina intera (`read_doc_page`).
+  - Lo stato della generazione dice il motivo, il rientro e l'avanzamento.
+  - L'api-client dei Docs e le forme del grafo in `@stubwise/shared`.
+
+  Rotta nuova: `GET /api/docs/codes/:code`. Campi nuovi, tutti additivi:
+  - `code` su albero, pagina, highlights, ricerche e fonti della chat RAG;
+  - `code` e `doc` sulle citazioni della Chat;
+  - `reasonCode`, `resumesAt` e `progress` sullo stato;
+  - `projectId` sugli spazi.
+
+  Migrazione **0142**:
+  - la tabella `doc_page_codes`;
+  - il trigger `doc_pages_code` su `doc_pages`;
+  - la funzione `stubwise_ensure_doc_page_codes(repository, slugs)`, che il
+    trigger chiama per ogni riga e che il worker chiama PRIMA delle sue
+    transazioni lunghe (finalize, creazione notturna), in un passo breve e
+    suo: così il lock per progetto non resta tenuto durante gli embedding;
+  - le funzioni `stubwise_backfill_doc_page_codes()` e
+    `stubwise_doc_citations_to_codes()`, chiamate una volta: i codici delle
+    pagine visibili e le citazioni `doc` portate al codice. Le citazioni di
+    una nota di rilascio (che non ha codice) se ne vanno.
+
+  Gli **embedding delle pagine manuali** scritte prima della 0142 li recupera
+  il server da solo: all'avvio e poi una volta l'ora, a lotti, fermandosi al
+  primo errore dell'embedder (`backfillManualPageEmbeddings`). Controllo
+  dopo il deploy, a ollama su: `select count(*) from doc_pages p where
+  p.is_manual and length(btrim(p.body)) > 0 and not exists (select 1 from
+  doc_chunks c where c.page_id = p.id);` arriva a 0 (al massimo un'ora dopo,
+  se all'avvio l'embedder era giù).
+
+
+  Il server dipende ora da `@stubwise/docs-engine` (il chunking delle pagine
+  manuali): il Dockerfile del server lo builda col filtro
+  `@stubwise/server...` e non ha bisogno del suo manifest nel layer di
+  install, perché il pacchetto non ha deps esterne (come per il worker).
+  Nessun `notification_kind` nuovo. Env nuove: nessuna. **Golden** sul CLI
+  2.1.322: `chat-read` e `chat-mention-read`, perché cambia l'elenco dei tool.
+  **ORDINE**:
+  1. **backup**;
+  2. **controllo d'inattività del worker, PRIMA del server**: la 0142 fa un
+     `CREATE TRIGGER` su `doc_pages`, che aspetta ogni transazione aperta
+     che vi scrive (una finalize o una pagina notturna con i suoi embedding,
+     minuti) e intanto tiene in fila chiunque tocchi la tabella, server
+     compreso. Su più campioni a qualche minuto di distanza: `select id from
+     doc_generations where status in ('running','paused');` vuoto (le
+     `paused` non tengono transazioni, ma una ripresa può partire mentre la
+     migrazione gira); `select count(*) from nightly_items where status =
+     'pending' and claimed_at > now() - interval '60 minutes';` = 0. Se il
+     giro notturno è in corso, si aspetta che finisca (si ferma da solo alla
+     quota) o si fa il deploy di giorno;
+  3. **`server`**: applica 0142, aspetta healthy. Da qui c'è la rotta della
+     pagina nell'allowlist del token del turno;
+  4. **`worker`**, solo SENZA lavoro dell'agente in corso: ha il tool
+     `read_doc_page` e la costante `DOCS_WORKER_RESTART_ERROR` (lo stesso testo
+     di prima), e chiama `stubwise_ensure_doc_page_codes`, che c'è solo dopo
+     la 0142;
+  5. **`caddy`**: il renderer di `/app` con i Docs.
+
+  Un worker nuovo davanti a un server vecchio troverebbe la rotta della pagina
+  fuori dall'allowlist (403 `chat_tool_forbidden`, che il tool rende come «non
+  visibile»): per questo il server va prima.
+  **Rollback**:
+  - Le citazioni `doc` della Chat puntano ai CODICI. Un server della fetta 4
+    dell'area 4 le cerca fra le pagine, non le trova e non le mostra. Prima di
+    scendere col server, per riportarle alle pagine di adesso:
+    `update chat_message_citations c set ref_id = p.id from doc_page_codes dc
+    join repositories r on r.id = dc.repository_id join doc_pages p on
+    p.repository_id = dc.repository_id and p.slug = dc.slug and (p.generation_id
+    = r.current_doc_generation_id or p.generation_id is null) where c.kind = 'doc'
+    and c.ref_id = dc.id;`. Se due pagine (una generata e una manuale) hanno lo
+    stesso slug, la query ne prende una; i duplicati per lo stesso messaggio li
+    rifiuta la chiave primaria, e vanno tolti prima. Senza la query, le
+    citazioni `doc` spariscono dalla vista finché non si risale.
+  - Le citazioni di una NOTA DI RILASCIO le ha tolte il backfill della 0142
+    (una nota non ha codice): né la query qui sopra né il rollback le
+    riportano. Erano poche (si citava col «#» del web, raramente una nota) e
+    il testo del messaggio resta.
+  - Il trigger `doc_pages_code` resta e un server vecchio non lo vede: i codici
+    continuano a nascere, ed è innocuo. Un worker vecchio non chiama
+    `stubwise_ensure_doc_page_codes`: i codici li dà il trigger dentro la sua
+    transazione, e una pagina manuale nuova dello stesso progetto aspetta la
+    fine di una finalize (lento, non rotto).
+  - Un server vecchio ignora `citable=true` su `GET /api/search`: nel «#» e
+    in ⌘K del desktop tornano le note di rilascio, senza codice.
+  - I chunk delle pagine manuali restano: un server vecchio li trova con la
+    ricerca semantica, ed è un miglioramento, non un problema.
+  - Il caddy scende insieme al server. Le migrazioni non si annullano.
+- **«Integrazione area 5, fetta 2: il Drive dei file caricati» (11 nov 2026)**:
+  piano `docs/plans/2026-11-11-integrazione-area5-fetta2-plan.md`, invariante
+  `docs/invariants/drive.md`. Decisioni: D1 = a (niente Google, arriva con
+  l'area 6), D3 = a (permessi come il prototipo), D4 = a (100 MB, i tipi della
+  Chat).
+  - Il Drive di ogni progetto: i file caricati, codici `<PRJ>-F<n>`, aperture,
+    anteprima e download firmati, eliminazione con lapide.
+  - «Save to Drive» da un allegato della Chat, come COPIA.
+  - Le citazioni `drive` nella Chat (il «#» e i codici F scritti a mano).
+  - `client.drive` nell'api-client.
+
+  Rotte nuove, tutte sotto `/api`: `GET`/`POST
+  /projects/:projectId/drive/files`, `GET /drive/files`, `GET`/`DELETE
+  /drive/files/:id`, `GET /drive/files/:id/download|preview` (302), `GET
+  /drive/codes/:code`, `POST /chat/attachments/:id/save-to-drive`. Campi
+  nuovi: `drive` sulle citazioni della Chat (additivo, default null).
+
+  Migrazione **0143**:
+  - le tabelle `drive_files` (lapide `deleted_at`, `storage_purged`) e
+    `drive_opens`;
+  - il CHECK di `chat_message_citations.kind` ricreato con `drive`;
+  - i permessi `drive.upload` (Project Lead, Developer, Contributor, Legacy
+    Member), `drive.manage` e `drive.history` (solo Project Lead) ai preset, e
+    ai ruoli di progetto che contenevano già tutti i permessi di un preset (la
+    regola della 0135).
+
+  Dipendenza nuova del server: `@aws-sdk/lib-storage` (il caricamento in
+  streaming a parti da 5 MB), allineata a `@aws-sdk/client-s3`; il
+  Dockerfile del server non cambia. Nessun `notification_kind` nuovo, nessuna
+  env nuova, nessun golden (non cambia niente del worker né dei prompt).
+
+  **L'anteprima inline** vale solo se lo storage ha un `endpoint` su un'origine
+  DIVERSA da `PUBLIC_URL` (un bucket S3/R2/MinIO col suo host). Con lo storage
+  sullo stesso host dell'istanza, o senza `endpoint` configurato, l'anteprima è
+  sempre un download: è voluto (`docs/invariants/drive.md`). Il desktop la
+  mostra comunque come «scarica».
+
+  **Il tetto del caricamento**: 100 MB per file, 30 caricamenti al minuto per
+  persona. Il proxy di caddy non ha un limite di corpo che lo tagli. Il main
+  del desktop legge il file dal disco e lo manda in streaming (stubwise-94).
+
+  **ORDINE**:
+  1. **backup**;
+  2. **`server`**: applica 0143, aspetta healthy. Da qui ci sono le rotte e i
+     permessi nuovi;
+  3. **`caddy`**: il renderer di `/app` col Drive.
+  Il worker non cambia.
+
+  Controllo dopo il deploy: `select preset_key, permissions @>
+  array['drive.upload'] from roles where preset_key in ('project_lead',
+  'developer', 'contributor', 'legacy_member', 'viewer');` vero per i primi
+  quattro, falso per `viewer`.
+
+  **Rollback**:
+  - Un server vecchio non conosce il `kind` `drive` delle citazioni: le
+    citazioni dei file spariscono dalla vista (il testo del messaggio resta,
+    col codice). Al ritorno si rivedono.
+  - Un server vecchio non conosce i permessi `drive.*`: restano nei ruoli, ed è
+    innocuo (nessuna rotta li legge).
+  - Le tabelle `drive_files` e `drive_opens` restano, e gli OGGETTI del Drive
+    restano nello storage sotto `drive/`. Nessun server vecchio li pota.
+    Tornando giù per sempre, si tolgono a mano: prima gli oggetti (`select
+    storage_key from drive_files where not storage_purged;`), poi le righe.
+  - Un file eliminato sotto un server vecchio non si può: la lapide la scrive
+    solo il server nuovo.
+  - Il caddy scende insieme al server. Le migrazioni non si annullano.
+
+  **Review della fetta 2 (stesso rilascio)**: migrazione **0144**, la tabella
+  `storage_orphans` (gli oggetti rimasti senza riga che lo storage non ha tolto
+  subito; la pulizia oraria li ritenta). Va col server, nello stesso passo
+  della 0143. Il multipart del Drive e degli allegati della Chat accetta UN
+  file e nessun campo (400 `invalid_multipart`); un caricamento interrotto è
+  400 `upload_incomplete`. In un rollback la tabella resta, innocua: le chiavi
+  che contiene si tolgono a mano dallo storage (`select storage_key from
+  storage_orphans;`), poi le righe.
+
+- **«Integrazione area 5, fetta 3: il contenuto dei file del Drive» (11 nov
+  2026)**: piano `docs/plans/2026-11-11-integrazione-area5-fetta3-plan.md`,
+  invarianti `docs/invariants/drive.md` («Il contenuto (fetta 3)») e
+  `docs/invariants/agent-sessions.md` («Dopo un contenuto NON fidato…»).
+  Decisioni: Office/ODF = a (solo i formati moderni, in JS), HEIC = b
+  (supportato, libheif), O = b (dopo una lettura non fidata ogni proposta è
+  almeno B), (a) per lo storage dal worker (sola lettura).
+  - Il worker estrae il testo dei file (poppler, tesseract ita+eng, libheif,
+    Office/ODF in JS), scrive un riassunto (Haiku, `drive_summary`, senza
+    tool) e gli embedding.
+  - La ricerca del Drive trova per contenuto, con lo snippet; «Riprova».
+  - Claude cerca e legge il Drive (`search_drive`, `read_drive_file`); dopo un
+    file del Drive o una pagina Docs ogni sua proposta è almeno B.
+
+  Rotte nuove sotto `/api`: `POST /drive/files/:id/retry`,
+  `GET /drive/files/by-code/:code/content` (anche nell'allowlist del token
+  del turno, con `GET /projects/:projectId/drive/files`). Campi nuovi, tutti
+  additivi con default: `contentStatus` (null = server senza la F3),
+  `contentReason`, `contentOcr`, `snippet`, `summaryLine` dal riassunto,
+  `summary` nel dettaglio.
+
+  Migrazioni:
+  - **0145**: il contenuto su `drive_files` (stato, motivo, OCR, testo, la
+    tsvector sul nome e sui primi 100.000 caratteri, riassunto),
+    `drive_file_chunks`, `drive_content_jobs`, l'operazione `drive_summary`
+    nei due CHECK;
+  - **0146**: `claude_conversations.untrusted_read_at`,
+    `claude_proposals.untrusted_input`.
+
+  **Il worker cambia di più**:
+  - immagine: `poppler-utils`, `tesseract-ocr` con `-ita` e `-eng`,
+    `libheif-examples`, a versioni FISSATE (`ARG` nel Dockerfile). Peso
+    misurato l'11 nov 2026: da 1.090.981.978 a 1.199.747.614 byte, **+108,8
+    MB** (accettato dall'orchestratrice: l'OCR l'ha voluto il maintainer);
+  - dipendenze nuove: `fflate` e `@aws-sdk/client-s3`. Il worker LEGGE lo
+    storage, solo gli oggetti `drive/` e solo in lettura (regola del codice,
+    con le credenziali dell'istanza: vedi l'invariante); scrivere e potare
+    restano del server;
+  - env nuova, facoltativa: `DRIVE_CONTENT_POLL_SECONDS` (default 10, 0 =
+    spento);
+  - tempi misurati nell'immagine con `prlimit` (arm64, Docker Desktop su
+    Apple Silicon): PDF col testo 24 ms, PDF scansionato di 3 pagine 3,0 s,
+    PNG 355 ms, HEIC 395 ms, docx 8 ms, xlsx 3 ms. **Da rimisurare sul VPS**
+    al deploy (stesso comando, sotto) e da scrivere qui.
+
+  **ORDINE**:
+  1. **backup**;
+  2. **`server`**: applica 0145 e 0146, aspetta healthy. Le rotte e i campi
+     nuovi ci sono; il contenuto resta `pending` finché non arriva il worker;
+  3. **`worker`**, SENZA lavoro dell'agente in corso (il controllo
+     d'inattività di «Quota degli account» e «Giro notturno»). Dopo il build:
+     `docker compose run --rm --entrypoint node worker
+     dist/drive/extract/selfcheck.js` deve uscire con **0** (sei casi col
+     testo atteso); i tempi che stampa vanno qui sopra;
+  4. **`caddy`**: il renderer di `/app` col contenuto (stubwise-94).
+
+  **Golden** (11 nov 2026, CLI 2.1.322, runner in streaming, sonnet):
+  `chat-drive-hostile` 5/5 (nessuna proposta, l'istruzione riportata come
+  contenuto del documento), `chat-drive-read` 5/5, `chat-drive-no-leak` 3/3;
+  rilanciati per l'elenco dei tool e la regola «almeno B»: `chat-read`,
+  `chat-propose-not-execute`, `chat-confirm-executes`, `chat-mention-read`,
+  3/3 ciascuno. Nessun golden del worker fuori dalla chat: il riassunto non
+  decide niente (coperto dai test col runner finto).
+
+  **Review della F3 (stesso rilascio)**: migrazioni **0147** (un indice per
+  i file in `pending`) e **0148** (`backlog_items.external_origin`). ⚠️ Il
+  payload dell'intake è `strict`: fra il passo del server e quello del worker
+  (l'ORDINE resta server, poi worker: il worker nomina le colonne della 0145),
+  un'email confermata accoda un intake con `externalOrigin` che il worker
+  VECCHIO rifiuta. Si fa il worker subito dopo il server; un intake rimasto
+  fallito nel mezzo si ritrova con `select id from backlog_jobs where kind =
+  'intake' and status = 'failed' and payload ? 'externalOrigin';` e si
+  riaccoda (`status = 'queued'`, `attempts = 0`).
+  L'estrazione Office gira in un worker_thread (timeout e tetto
+  di memoria), i figli hanno `prlimit --fsize`, e all'avvio il worker toglie
+  le tmp `stubwise-drive-*` rimaste.
+
+  **Dopo il deploy**: il worker semina da sé un job per ogni file già
+  caricato (`pending` senza job), uno alla volta: un riassunto Haiku per
+  file, che si vede in Consumi sotto «Riassunti dei file del Drive».
+  Controllo: `select content_status, count(*) from drive_files where
+  deleted_at is null group by 1;` scende verso `ready`/`no_text`/
+  `unsupported`; `select status, count(*) from drive_content_jobs group by
+  1;` senza `failed` che crescono.
+
+  **Rollback**:
+  - Un server vecchio non legge le colonne nuove: il contenuto sparisce dalla
+    vista, i client mostrano i file come prima (`contentStatus` null). **E la
+    regola «almeno B» sparisce con lui**: un server della F2 non conosce
+    `untrusted_input`, e Claude non ha i tool del Drive (il worker vecchio
+    non li espone), ma `read_doc_page` c'è già dalla F1: tornare indietro
+    riapre la classe A dopo una pagina Docs. Se si scende il server, si
+    scende anche il worker.
+  - Un worker vecchio non svuota la coda: i job aspettano, innocui.
+  - Il caddy scende insieme al server. Le migrazioni non si annullano; i dati
+    restano (testo, riassunti, chunk) e tornano visibili al ritorno.
+
+- **«Integrazione area 6, fetta 1: la lettura che c'è, il cassetto Google, il
+  riconsenso» (12 nov 2026)**: piano
+  `docs/plans/2026-11-12-integrazione-area6-fetta1-plan.md`, branch
+  `feat/area6-f1`. Migrazioni **0149** (`google_accounts.sync_requested_at`/
+  `sync_last_requested_at`, `email_messages.unread`) e **0150**
+  (`google_accounts.proposals_since`, indice `google_accounts_due_idx`
+  senza `proposals_enabled`). Ordine: **server, poi worker** (il worker nomina
+  le colonne nuove), poi caddy. Nessuna env nuova.
+
+  **Il riconsenso (D1 = a)**: la richiesta OAuth chiede ora `openid email
+  gmail.modify calendar.readonly calendar.events drive.readonly`
+  (`gmail.modify` al posto di `gmail.readonly`). ⚠️ **Prima del deploy**, su
+  un'app OAuth **External** gli scope nuovi (ristretti) vanno aggiunti alla
+  schermata di consenso in Google Cloud Console e passano dalla verifica di
+  Google; un'app **Internal** (solo l'organizzazione) no — il testo d'aiuto
+  di Impostazioni → Google lo dice. Senza, il consenso nuovo fallisce e
+  nessuno riesce a collegare o ricollegare una casella.
+  Chi ha già una casella collegata **non perde niente**: il callback accetta
+  `gmail.readonly` o `gmail.modify` (`REQUIRED_GOOGLE_SCOPES` a gruppi
+  «uno fra»), quindi la casella continua a leggere posta e calendario. Sulla
+  riga della casella `missingScopes` elenca ciò che le manca (le funzioni
+  nuove: letto/non letto su Gmail risponde 409 `google_scope_missing`), e
+  ricollegare dallo stesso Workspace aggiorna la STESSA riga.
+  Quante sono da ricollegare: `select count(*) from google_accounts where
+  disabled_at is null and not ('https://www.googleapis.com/auth/gmail.modify'
+  = any(scopes));`.
+
+  **«Aggiorna ora»** sveglia il worker con `pg_notify` sul canale
+  `google_sync_request` (ripiego ogni 15 s); con `GMAIL_POLL_MINUTES=0` una
+  richiesta non viene servita (è il rollback della funzione).
+  **Letto / non letto** scrive su Gmail (`threads.modify`) solo da un gesto
+  della persona; la history ora chiede anche i cambi di etichetta (una
+  chiamata `history.list` per giro come prima, pagine più fitte).
+
+  ⚠️ **Cambio di comportamento per le caselle ESISTENTI** (decisione del
+  maintainer, 12 nov 2026): una casella con le proposte SPENTE prima non si
+  sincronizzava affatto; da questo rilascio si LEGGE (posta e calendario si
+  aggiornano, «Aggiorna ora» funziona) e salta solo classificazione e
+  pubblicazione. Al primo giro dopo il deploy queste caselle riprendono a
+  ingerire (il resync per query, `newer_than:7d`, se il cursore è scaduto):
+  nessun run del modello e nessuna card, perché le proposte restano spente.
+  Riaccendendole, il server scrive `proposals_since = now()` e la posta
+  ingerita prima non si classifica mai. Quante sono:
+  `select count(*) from google_accounts where not proposals_enabled and
+  disabled_at is null;`.
+
+  **Rollback**: un worker vecchio torna a ignorare le caselle con le proposte
+  spente (la posta smette di aggiornarsi, nient'altro). Un server vecchio non
+  scrive `proposals_since`: una casella riaccesa con un server vecchio
+  classificherebbe la posta ingerita mentre erano spente, fino a 7 giorni
+  (`newer_than:7d`) — se si scende, prima `update email_messages set status =
+  'ignored' where status = 'new' and account_id in (select id from
+  google_accounts where not proposals_enabled);`. Il caddy scende insieme al
+  server. Le migrazioni non si annullano (colonne nullable, indice più largo:
+  innocui per un codice vecchio, che filtra `proposals_enabled` da sé).
+  Un server vecchio non ha le rotte `…/sync`, `…/read`, `…/events/:id` né
+  `q`: i client nuovi ricevono 404 (o ignorano `q`) e `unread`/`missingScopes`
+  /`syncRequestedAt` tornano ai default. Le caselle già ricollegate con
+  `gmail.modify` continuano a leggere con un worker vecchio (`gmail.modify`
+  copre la lettura); un server vecchio, a un consenso nuovo, torna a chiedere
+  i suoi scope di sola lettura.
+
+- **«Integrazione area 6, fetta 2: la classificazione nuova» (12 nov
+  2026)**: piano `docs/plans/2026-11-12-integrazione-area6-fetta2-plan.md`,
+  branch `feat/area6-f2`. Migrazioni **0151** (classificazione per email e
+  proposta condivisa, `email_proposal_recipients`) e **0152**
+  (`ticket_source` + `email`). Ordine: server, poi worker, poi caddy. Env
+  nuova sul worker: `MAIL_CLASSIFY_V2` (default `false`): spenta, tutto come
+  prima; si accende SOLO dopo la misura del costo scritta qui (la sezione 1
+  del piano) e il golden `mail-classify-v2`.
+
+  **Il costo** (D3): da sostituire con la misura su produzione (le tre query di
+  sola lettura di `cost.sql`, da lanciare dal maintainer: classificazioni dei
+  30 giorni coi token e `cost_usd`, email al giorno per casella, posta tenuta
+  fuori dall'ammissione). Stima dichiarata intanto: ≈ 0,008 $ per email con
+  Haiku a listino, ≈ 190 $ al mese con l'ipotesi di 800 email al giorno; una
+  classificazione per Message-ID, il cooldown, il tetto giornaliero
+  (`GMAIL_MAX_PER_DAY`) e il budget mensile la frenano.
+  ⚠️ **La misura resta da fare** prima di accendere `MAIL_CLASSIFY_V2`: la
+  funzione esce SPENTA col «Rilascio dell'integrazione: aree 2–11 e rimandi
+  (lotti 1–10)», che non la richiede. `cost.sql` era un file temporaneo di
+  una sessione passata e non è nel repository: le tre query vanno riscritte
+  quando si accende.
+
+  **Accendere la classificazione nuova** (dopo questo rilascio, non con lui):
+  1. la misura del costo scritta qui sopra, e il budget mensile d'istanza
+     impostato di conseguenza;
+  2. il golden `mail-classify-v2` (`--model haiku`, 3 volte) verde col CLI
+     pinnato (12 nov 2026, CLI 2.1.322: 3/3);
+  3. `MAIL_CLASSIFY_V2=true` nell'`.env`, poi `docker compose up -d server`
+     e `worker` (la leggono entrambi: il worker per classificare, il server
+     per dire alle superfici dell'ammissione che non contano più);
+  4. controllo: `select classification_state, count(*) from email_messages
+     where created_at > now() - interval '1 day' group by 1;` cresce in
+     `done` senza `failed` che crescono; `select status, count(*) from
+     email_proposals where audience = 'mail_recipients' group by 1;`.
+  Lo spegnimento è lo stesso passo con `false`: tornano l'ammissione e le
+  regole; le proposte condivise già nate restano decidibili.
+
+  **Rollback d'immagine**: un worker vecchio non conosce la classificazione
+  nuova (col flag acceso l'ammissione torna da sola); un server vecchio non ha
+  `/api/me/mail/proposals` né le card condivise decidibili dall'inbox
+  (risponderebbero `proposal_stale`): spegnere prima il flag, poi scendere. Il
+  caddy scende insieme al server. Le migrazioni non si annullano.
+
+  ⚠️ **Rollback e 0152**: una task nata da una proposta della posta ha
+  `tickets.source = 'email'`, che un server di PRIMA non conosce (lo schema
+  di risposta è un enum chiuso): finché esiste una di quelle righe, scendere
+  d'immagine sul server rompe le letture delle task. Prima di scendere:
+  `select count(*) from tickets where source = 'email';` deve essere 0, o le
+  righe vanno riportate a `manual` (perdendo il segno «da fuori» per la regola
+  «almeno B»). Col flag spento non ne nasce nessuna.
+
+- **«Integrazione area 6, fetta 3: scrivere» (12 nov 2026)**: piano
+  `docs/plans/2026-11-12-integrazione-area6-fetta3-plan.md`, branch
+  `feat/area6-f3` (sopra `feat/area6-f2`, che contiene: si rilasciano
+  insieme, o la F2 prima). Le bozze di Gmail, l'invio trattenuto 10 s, la
+  posta mandata nei thread, gli allegati (disco e Drive), i destinatari
+  suggeriti, la firma di Gmail, la bozza di Claude in streaming e l'azione
+  di Claude `fillMailBody`; più le correzioni della review della F2.
+  Migrazioni **0153** (`mail_drafts`, `mail_draft_attachments`,
+  `mail_outgoing`), **0154** (operazione AI `mail_draft` nei due CHECK),
+  **0155** (`google_accounts.signature_text`/`signature_fetched_at`),
+  **0156** (`claude_actions.effect_failure`), e dalla review della F3
+  (branch `feat/area6-f3-fix`) **0158** (trigger: gli allegati che se ne
+  vanno finiscono in `storage_orphans`), **0159** (il Message-ID nostro e la
+  copia di destinatari, oggetto e corpo su `mail_outgoing`), **0160**
+  (`agent_runs.requested_by_user_id`). Nessuna env nuova; nessuno
+  scope nuovo (la firma si legge con `gmail.modify`, già nel riconsenso della
+  F1). Ordine: **server** (healthy, migrazioni applicate), poi **worker** (il
+  mittente della posta legge `mail_outgoing`, l'ingestione la posta mandata),
+  poi **caddy**.
+
+  **Prima del rebuild del worker**: niente invii in volo. `select count(*)
+  from mail_outgoing where state in ('queued', 'sending');` deve essere 0: un
+  invio `sending` a un riavvio diventa `failed` con `interrupted` (MAI
+  rimandato da solo: non si sa se Gmail l'abbia mandato), e la persona lo
+  vede nel thread e decide.
+
+  ⚠️ **Cambio di comportamento: la chat entra nel budget mensile.** Dalla
+  review della F3 (punto 8) le chiamate dirette del server — la chat dei
+  Docs, l'unione del backlog, la bozza di Claude — registrano un `cost_usd`
+  STIMATO dai token (`@stubwise/shared/ai-pricing`); prima era `null` e il
+  budget mensile d'istanza (`instance_settings.monthly_budget_usd`) le
+  contava zero. Un'istanza vicina al budget può quindi fermarsi (lavoro
+  dell'agente, conversazioni con Claude, bozze) dopo il deploy. **Prima del
+  deploy**, quanto avrebbe pesato la chat negli ultimi 30 giorni con le
+  tariffe nuove (sola lettura):
+
+  ```sql
+  select operation, model, round(sum(
+    case model
+      when 'claude-fable-5-1'  then input_tokens * 10   + output_tokens * 50  + cache_read_tokens * 0.25 + cache_creation_tokens * 12.5
+      when 'claude-opus-5-5'   then input_tokens * 4    + output_tokens * 20  + cache_read_tokens * 0.20 + cache_creation_tokens * 5
+      when 'claude-sonnet-5-5' then input_tokens * 2    + output_tokens * 10  + cache_read_tokens * 0.20 + cache_creation_tokens * 2.5
+      when 'claude-haiku-5-5'  then input_tokens * 0.10 + output_tokens * 0.5 + cache_read_tokens * 0.01 + cache_creation_tokens * 0.125
+      when 'claude-opus-4-8'   then input_tokens * 5    + output_tokens * 25  + cache_read_tokens * 0.50 + cache_creation_tokens * 6.25
+    end) / 1000000.0, 2) as usd_stimati
+  from agent_runs
+  where cost_usd is null and created_at > now() - interval '30 days'
+  group by 1, 2 order by 3 desc nulls last;
+  ```
+
+  Confrontala col budget e con `select monthly_budget_usd from
+  instance_settings;`: se la somma del mese più questa stima lo supera,
+  alza il budget prima del deploy (o accetta che si fermi). Le righe vecchie
+  non si riscrivono: contano solo le chiamate dopo il deploy.
+
+  **La bozza di Claude** (`POST /api/me/mail/drafts/claude`) usa il provider
+  `api_key` della chat (senza, 503 `claude_unavailable`), l'operazione
+  `mail_draft` (Sonnet di default, Impostazioni → Modelli) e il budget
+  mensile d'istanza (409 `budget_exhausted`).
+
+  **Controlli dopo il deploy**: `select state, error, count(*) from
+  mail_outgoing group by 1, 2;` — nessun `failed` che cresce;
+  `select count(*) from mail_outgoing where error = 'sent_unrecorded';` —
+  ognuna è un'email che Gmail HA mandato ma che Stubwise non è riuscito a
+  registrare (Riprova ed Elimina sono rifiutati: niente doppioni);
+  `select count(*) from claude_actions where effect_failure is not null;` —
+  un `mail_not_saved` è un `fillMailBody` confermato che Gmail non ha
+  salvato (la scheda lo dice).
+
+  **Rollback d'immagine**: un server vecchio non ha le rotte delle bozze e
+  dell'invio (il compositore del desktop risponde 404) e non conosce
+  `fillMailBody` (una proposta aperta con quell'azione resta non
+  confermabile); un worker vecchio NON manda gli invii accodati — prima di
+  scendere sul worker: nessuna riga `queued` (aspettare i 10 s o annullare).
+  Il caddy scende insieme al server. Le migrazioni non si annullano (colonne
+  e tabelle nuove, ignorate dal codice di prima; i due CHECK della 0154 sono
+  più larghi).
+
+
+
+- **«Integrazione area 6, fetta 3b: il calendario con tutti gli eventi» (12
+  nov 2026)**: piano `docs/plans/2026-11-12-integrazione-area6-fetta3b-plan.md`,
+  branch `feat/area6-f3b` (sopra `feat/area6-f3-fix`). Migrazioni **0161**
+  (`calendar_events`: `proposal_candidate`, `event_type`, `transparency`,
+  `project_by`, l'indice per casella e inizio; `google_accounts.calendar_baseline_at`;
+  il **syncToken del calendario si azzera**) e **0162**
+  (`calendar_v2_baseline_at`), e dalla review della F3b **0163** (l'indice
+  della potatura su `coalesce(ends_at, starts_at)`). Ordine: server, poi
+  worker, poi caddy. La linea di base si chiude solo dopo un resync COMPLETO
+  della finestra (con un token, non interrotto): se il worker vecchio ha
+  già risincronizzato col token azzerato, il nuovo rifà comunque la finestra.
+  Nessuna env nuova.
+
+  **Cosa succede al primo giro**: ogni casella fa un resync della finestra
+  (−30/+60) e scrive CENTINAIA di righe (stima ~300–800 per casella, fino a
+  ~1.500; ~1–5 MB). È la linea di base: nessuna proposta, nessuna card,
+  nessuna azione automatica nasce da quel giro. Prima del deploy, sola
+  lettura: `select account_id, count(*) from calendar_events group by 1;` e
+  `select count(*) from calendar_series where auto;` (le serie automatiche
+  da guardare il primo giorno: ora ricevono tutte le loro occorrenze in
+  perimetro, come prima).
+
+  **Controlli dopo**: `select proposal_candidate, count(*) from
+  calendar_events group by 1;` (i candidati devono restare dell'ordine di
+  prima), `select count(*) from notifications where kind = 'google.proposal'
+  and created_at > now() - interval '1 hour';` (nessuna ondata), e
+  `pg_total_relation_size('calendar_events')` che si stabilizza dopo la
+  potatura.
+
+  **Accendere la dottrina nuova** (`MAIL_CLASSIFY_V2=true`, lo stesso flag
+  della posta) fa a sua volta una linea di base per casella al primo giro:
+  niente proposte sugli eventi già visti.
+
+  ⚠️ **Rollback d'immagine del worker: NON è sicuro così com'è** (review
+  F3b, punto 4). La query delle proposte del worker vecchio non filtra
+  `proposal_candidate`, e il suo ramo delle serie prende ogni occorrenza con
+  `calendar_series.project_id is not null`: le occorrenze PERSONALI ora sono
+  righe viste, e una serie vista si può configurare, quindi verrebbero
+  proposte (ed eseguite, se `auto`). **Prima di scendere sul worker**, a
+  worker fermo, si tolgono le righe solo viste:
+
+  ```sql
+  select count(*) from calendar_events where proposal_candidate = false;
+  delete from calendar_events where proposal_candidate = false;
+  ```
+
+  (il prossimo giro del worker nuovo, se si risale, le riscrive col resync
+  della linea di base: azzerare anche `calendar_baseline_at` e
+  `calendar_sync_token` delle caselle). Un server vecchio mostra in `range`
+  anche gli eventi personali senza i campi nuovi. Le migrazioni non si
+  annullano.
+
+- **«Integrazione area 6, fetta 4: scrivere sul calendario» (12 nov 2026)**:
+  piano `docs/plans/2026-11-12-integrazione-area6-fetta4-plan.md`, branch
+  `feat/area6-f4` (sopra `feat/area6-f3b-fix`). Migrazione **0164**, solo
+  additiva (`calendar_events`: `etag`, `ical_uid` con l'indice, `visibility`,
+  `organizer_self`; nel jsonb degli invitati `name`, `comment`, `self`).
+  Nessun enum nuovo, nessun `notification_kind` nuovo, nessuna env nuova.
+  Ordine: **server** (healthy, 0164 applicata), poi **worker** (scrive le
+  colonne nuove a ogni giro), poi **caddy** (il renderer). Le righe di prima
+  hanno `etag` null finché il worker non le ripassa: fino ad allora una
+  modifica parte senza `If-Match` (l'etag del client è null come quello della
+  riga) — la finestra è il primo giro dopo il deploy.
+
+  **Lo scope**: le scritture vogliono `calendar.events`, già nel riconsenso
+  unico della F1 (D1 = a). Una casella che non l'ha concesso risponde 409
+  `google_scope_missing` con `missing`, e il cassetto Google lo dice: niente
+  da fare al deploy. Controllo, sola lettura: `select count(*) from
+  google_accounts where disabled_at is null and not
+  ('https://www.googleapis.com/auth/calendar.events' = any(scopes));`.
+
+  **Le scritture partono solo da un gesto** (le rotte
+  `/api/me/calendar/events…`): il worker non scrive su Google; gli inviti li
+  manda Google (`sendUpdates=all`), anche agli esterni (Q6). Il
+  libero/occupato (`/freebusy`) legge solo le righe salvate.
+
+  **Rollback**: il server scende **insieme** al caddy (un renderer nuovo su un
+  server vecchio chiama rotte che non ci sono: 404 sulle scritture, le
+  letture restano). Il worker vecchio ignora le colonne nuove e non le
+  scrive più (restano col valore dell'ultimo giro: un etag vecchio dà
+  `changed_on_google` al primo gesto dopo una risalita, che rilegge — nessun
+  danno). Gli eventi creati o cambiati da Stubwise restano su Google: il
+  rollback non li tocca. La 0164 non si annulla.
+
+- **«Integrazione area 6, fetta 5a: le riunioni registrate» (13 nov 2026)**:
+  piano `docs/plans/2026-11-12-integrazione-area6-fetta5-plan.md` (con le
+  «Correzioni di 72»), branch `feat/area6-f5` (sopra `feat/area6-f4-fix`).
+  Migrazione **0165**: `email_messages.kind`, `calendar_events.attachments`,
+  la tabella `meeting_notes`, `email_proposals.meeting_note_id` e l'audience
+  `meeting_invitees`, l'operazione AI `meeting_summary` nei due CHECK.
+  Nessun `notification_kind` nuovo (le card sono le `google.proposal` delle
+  proposte condivise), nessuna env nuova. Ordine: **server** (healthy, 0165
+  applicata), poi **worker**, poi **caddy**.
+
+  **Cosa succede**: solo con `MAIL_CLASSIFY_V2=true` e le proposte accese
+  sulla casella il worker legge i Doc (al più 3 riunioni per casella e per
+  giro), con un run Sonnet per riunione. Le email di Gemini GIÀ ingerite
+  prima del deploy non diventano riunioni (il riconoscimento è
+  all'ingestione). Una casella senza `drive.readonly` mette la riunione in
+  `unreachable`/`scope_missing`; riconsentito, riparte da sola. Controlli,
+  sola lettura: `select doc_status, doc_reason, count(*) from meeting_notes
+  group by 1, 2;` e `select count(*) from agent_runs where operation =
+  'meeting_summary' and created_at > now() - interval '1 day';`.
+
+  **Rollback**: il server scende **insieme** al caddy. ⚠️ Un server vecchio
+  NON elenca le proposte `meeting_invitees` (la sua query vuole
+  `mail_recipients`): restano le card in inbox, ma «Da decidere» non le
+  mostra; scendendo, si chiudono a mano le aperte se serve: `select id
+  from email_proposals where audience = 'meeting_invitees' and status in
+  ('classified', 'proposed');`. Il worker vecchio non legge `kind` e
+  classificherebbe le email di Gemini come email normali (con l'una e con
+  l'altra classificazione): prima di scendere sul worker si chiudono
+  (`update email_messages set status = 'ignored', classification_state =
+  'off' where kind = 'transcript' and status = 'new';`). La 0165 non si
+  annulla.
+
+- **«Integrazione area 6, fetta 5a, review del server» (13 nov 2026)**:
+  branch `feat/area6-f5-fix` (sopra `feat/area6-f5`). Migrazione **0166**
+  (`meeting_notes.doc_candidates`, il motivo `not_verified`); la F5b prende
+  quindi la 0167. Si deploya INSIEME alla F5a (stesso ordine: server, worker,
+  caddy). Cosa cambia per chi la gestisce: due run `meeting_summary` per
+  riunione (riassunto e proposte), al più 20 run al giorno per casella
+  (`MEETING_MAX_RUNS_PER_DAY`), al più 2 tentativi; le riunioni di una
+  copia ingerita prima di `proposals_since` non si trattano. Controllo, sola
+  lettura: `select doc_reason, count(*) from meeting_notes where doc_status
+  = 'unreachable' group by 1;` (`not_verified` alto = l'email di Gemini ha
+  una forma che la verifica non riconosce: da guardare prima di allentarla).
+
+- **«Integrazione area 6, fetta 5b: Google Drive nel Drive dei progetti» (13
+  nov 2026)**: branch `feat/area6-f5b` (sopra `feat/area6-f5-fix`), le
+  scelte nel piano della F5 («F5b — le scelte di 72»). Migrazione **0167**:
+  `drive_folder_links` (col lease e la richiesta di sincronizzazione); su
+  `drive_files` `source` `google`, `google_file_id`, `google_owner`,
+  `google_account_id`, `folder_link_id`, `hidden`, `modified_at`,
+  `unavailable`, `storage_key`/`size_bytes` nullable coi CHECK, il nome unico
+  solo per i caricati; `drive_opens.via` `google`. Nessuna env nuova: la
+  sincronizzazione delle cartelle gira sull'intervallo del job del contenuto
+  (`DRIVE_CONTENT_POLL_SECONDS`). Ordine: **server** (healthy, 0167
+  applicata), poi **worker**, poi **caddy**.
+
+  **Lo scope**: `drive.readonly` è già nel riconsenso unico (D1/D9); senza,
+  il picker risponde `google_scope_missing` col `missing`.
+
+  **Rollback**: il server scende **insieme** al caddy. ⚠️ Un server vecchio
+  legge `storage_key` come obbligatorio: prima di scendere si tolgono i
+  riferimenti (`select count(*) from drive_files where source = 'google';`
+  poi, a server e worker fermi, `update drive_files set deleted_at = now()
+  where source = 'google' and deleted_at is null;` — restano come lapidi, il
+  download di una lapide è già 404) e la pulizia oraria ignora le chiavi
+  nulle solo da questa versione: scendendo, `purgeDeletedDriveObjects` vecchio
+  inciamperebbe su una `storage_key` nulla: le lapidi dei riferimenti nascono
+  già `storage_purged` (review del server), quindi basta UNO statement, a
+  server e worker fermi: `update drive_files set deleted_at = coalesce(deleted_at,
+  now()), storage_purged = true where source = 'google';`. Il worker vecchio
+  ignora `drive_folder_links`. La 0167 non si annulla.
+
+  **Fix della review del server (stesso rilascio, branch
+  `feat/area6-f5b-fix`)**: migrazione **0168** (`account_email` su
+  `drive_folder_links`, `google_account_email` su `drive_files`, riempite
+  dalle caselle esistenti, e due trigger `BEFORE INSERT OR UPDATE` che le
+  scrivono): riaggancia cartelle e riferimenti quando la stessa persona
+  ricollega lo stesso indirizzo. Ordine invariato (server, poi worker, poi
+  caddy). Rollback: le colonne e i trigger non danno fastidio a un server
+  vecchio (non li nomina); la 0168 non si annulla.
+
+- **«Integrazione area 7, fetta 1: le Automations di progetto» (13 nov
+  2026)**: branch `feat/area7-f1` (sopra `feat/area7-f1-engine`), piano
+  `docs/plans/2026-11-12-integrazione-area7-fetta1-plan.md`, regole in
+  `docs/invariants/automations.md`. Migrazione **0169** (dopo la 0167 della
+  F5b e la 0168 del suo fix: si deploya DOPO di loro): le tabelle
+  `automations` (con `active_since`), `automation_code_seqs`,
+  `automation_versions`, `automation_runs`, `automation_run_inputs` (la coda
+  degli input che il server scrive e il worker applica), `automation_run_log`,
+  `automation_effects`, `automation_events`; `automation_run_id` su `tickets`, `milestones`,
+  `backlog_items`; `ticket_source` `automation`; i `notification_kind`
+  `automation.approval`, `automation.failed`, `automation.notify`,
+  `automation.paused`; il permesso `automations.manage` al preset Project
+  Lead; i TRIGGER che scrivono gli eventi. Ordine: **server** (healthy, 0169
+  applicata), poi **worker**, poi **caddy**.
+
+  **Env nuova (worker)**: `AUTOMATIONS_POLL_SECONDS` (default 5; 0 = spento:
+  gli eventi restano in coda e le esecuzioni ferme, nessuna perdita). Il
+  poller gira fuori dal serializer per-progetto; un riavvio del worker NON
+  perde lavoro delle automazioni (lease di 5′ sulle esecuzioni, rinnovata a
+  ogni input, dalla review della F1; effetti idempotenti), quindi non serve
+  aspettare che siano ferme: dopo un riavvio un'esecuzione presa riparte al
+  più dopo 5′.
+
+  **Da sapere subito**: dai trigger in poi ogni task, richiesta, conversione
+  e traguardo chiuso lascia una riga in `automation_events`, anche senza
+  automazioni accese (il consumatore del worker le consuma). Un'operazione
+  di massa fatta a mano (un backfill, un import, un `update` di molte task)
+  va preceduta, nella stessa transazione, da `select
+  set_config('stubwise.automation_events', 'off', true);`. Controllo, sola
+  lettura: `select kind, count(*) from automation_events where consumed_at
+  is null group by 1;` (deve restare piccolo col worker acceso).
+
+  **Rollback**: il server scende **insieme** al caddy. ⚠️ Prima di
+  scendere:
+  1. **Spegnere i trigger**, perché un server e un worker vecchi
+     continuerebbero a scrivere eventi che nessuno consuma: `alter table
+     tickets disable trigger tickets_automation_task_created; alter table
+     tickets disable trigger tickets_automation_task_closed; alter table
+     backlog_items disable trigger backlog_items_automation_request_created;
+     alter table backlog_item_tickets disable trigger
+     backlog_item_tickets_automation_converted; alter table milestones
+     disable trigger milestones_automation_reached;` (risalendo, `enable
+     trigger` sugli stessi cinque, e `delete from automation_events where
+     consumed_at is null and created_at < now();` se non si vogliono far
+     partire le automazioni sugli eventi del periodo spento: il consumatore
+     ignora già quelli nati prima della pubblicazione, non quelli del buco).
+  2. **I `notification_kind` nuovi** rendono NON sicuro scendere sul server
+     finché ne esistono righe (500 su `/api/inbox`): `select kind, count(*)
+     from notifications where kind like 'automation.%' group by 1;`, e se ce
+     ne sono `delete from notifications where kind like 'automation.%';`
+     (le righe che le nominano se ne vanno in cascata o restano con l'id a NULL: le FK lo fanno da sole).
+  3. Una task con `source = 'automation'` rompe la lettura di un server
+     vecchio allo stesso modo: `update tickets set source = 'manual' where
+     source = 'automation';` prima di scendere.
+  Il worker vecchio ignora le tabelle nuove. La 0169 non si annulla.
+
+- **«Integrazione area 7, fetta 2: email e attese» (13 nov 2026)**: branch
+  `feat/area7-f2` (sopra la F1 e il suo fix), piano
+  `docs/plans/2026-11-13-integrazione-area7-fetta2-plan.md` (con le
+  «Correzioni di 72»), regole in `docs/invariants/automations.md` («L'email
+  di un passo», «L'inizio "email in arrivo"»). Migrazione **0170**: i valori
+  d'enum `waiting_event`, l'effetto `email`, la pausa `mailbox_lost`,
+  l'evento `mail_received`; `automations.mailbox_account_id`;
+  `mail_outgoing.automation_run_id` e `gmail_draft_id` nullable (CHECK: bozza
+  o esecuzione); `automation_runs.waiting_thread`/`waiting_ticket_id`;
+  `automation_schedule_fires`; `automation_events` con `account_id` e
+  `dedupe_key`. Nessuna env nuova, nessun `notification_kind` nuovo. Ordine:
+  **server** (healthy, 0170 applicata), poi **worker**, poi **caddy**.
+
+  **Da sapere subito**: un'automazione accesa con «Manda email» manda posta
+  DA SOLA dalla casella del proprietario (Q4 = b, l'eccezione dichiarata al
+  mittente): senza i 10 secondi per annullare (F2-2). «Email in arrivo»
+  legge TUTTE le email ricevute dalla casella dell'automazione, anche quelle
+  che l'ammissione rifiuta (F2-1 *(M)*), ma solo se un'automazione accesa
+  ascolta quella casella. Controlli, sola lettura: `select state,
+  count(*) from mail_outgoing where automation_run_id is not null group by
+  1;` e `select count(*) from automations where status = 'paused' and
+  paused_reason = 'mailbox_lost';` (caselle da ricollegare).
+
+  **Rollback**: il server scende **insieme** al caddy. ⚠️ Prima di
+  scendere:
+  1. **Fermare le email delle automazioni**, perché un mittente vecchio non
+     sa mandare una riga senza bozza (la segnerebbe fallita):
+     `update automations set status = 'paused', paused_reason = 'manual',
+     active_since = null where status = 'active' and mailbox_account_id is
+     not null;` e `update mail_outgoing set state = 'cancelled' where
+     automation_run_id is not null and state = 'queued';`.
+  2. Un worker vecchio non prende le esecuzioni in `waiting_event` né quelle
+     con un'email in volo: restano ferme (nessuna perdita) e ripartono
+     risalendo. Gli eventi `mail_received` non consumati restano in coda;
+     se non si vogliono far partire risalendo, `delete from
+     automation_events where kind = 'mail_received' and consumed_at is
+     null;`.
+  3. I valori d'enum restano (un server della F1 non li scrive e legge
+     `waiting_event` dalla forma condivisa, che lo ha già). La 0170 non si
+     annulla.
+
+  **Fix della review (stesso rilascio, migrazione 0172)**:
+  `automation_runs.mailbox_account_id` (la casella di ogni esecuzione; le
+  esecuzioni di prima prendono quella dell'automazione) e
+  `automations.listens_mail` (calcolato dalla pubblicazione e, per le
+  esistenti, dall'ultima versione pubblicata). Stesso ordine; il rollback non
+  cambia (le colonne non danno fastidio a un server vecchio). ⚠️ La 0172 ha
+  un numero più alto di quello che la fetta 3 aveva preso sul suo branch:
+  la migrazione della F3 si rinumera DOPO di questa (la trappola del `when`).
+
+- **«Integrazione area 7, fetta 3: i passi di Claude» (13 nov 2026)**: branch
+  `feat/area7-f3` (sopra la F2 e il suo fix), piano
+  `docs/plans/2026-11-13-integrazione-area7-fetta3-plan.md` (con le
+  «Correzioni di 72»), regole in `docs/invariants/automations.md` («I passi
+  di Claude e l'eccezione Q8»). Migrazione **0173** (DOPO la 0172 del fix
+  della F2): l'operazione AI `automation_step` nei CHECK di `agent_runs` e
+  `ai_model_settings`, e l'owner `agent_runs.automation_id` (+
+  `automation_run_id`, NULL per una prova). Nessuna env nuova. Ordine:
+  **server** (healthy, 0173 applicata), poi **worker**, poi **caddy**.
+
+  **Prima di accendere**: lo scenario golden `automation-step` col CLI
+  pinnato (`--model sonnet`, 3 volte, `apps/worker/scripts/golden/README.md`).
+  Rosso = non si accende.
+
+  **Da sapere subito**: un'automazione accesa con un passo di Claude fa
+  lavorare Claude senza un umano davanti (Q8, l'unica eccezione
+  all'invariante delle serie), col budget mensile dell'istanza controllato
+  prima di OGNI passo (D1; nessun tetto per esecuzione). Il modello è quello
+  di `automation_step` in Impostazioni → AI (Sonnet di default). Controlli,
+  sola lettura: `select count(*), sum(cost_usd) from agent_runs where
+  operation = 'automation_step' and created_at > now() - interval '1 day';`
+  e le esecuzioni ferme per il budget, `select count(*) from automation_runs
+  where status = 'running' and cursor->'aiWaiting' is not null;`.
+
+  **Rollback**: il server scende **insieme** al caddy. Prima di scendere,
+  le automazioni con un passo di Claude vanno in pausa (un worker della F2
+  non sa eseguirli e li farebbe fallire `not_available`): `update automations
+  a set status = 'paused', paused_reason = 'manual', active_since = null
+  where status = 'active' and exists (select 1 from automation_versions v
+  where v.automation_id = a.id and v.published_at is not null and
+  (v.flow::text like '%"kind": "claude"%' or v.flow::text like
+  '%"kind":"claude"%'));`. Le righe `agent_runs` con `automation_step`
+  restano (un server vecchio non le legge per operazione). La 0173 non si
+  annulla.
+- **«Integrazione area 7, fetta 4: le generali e il webhook in arrivo» (13
+  nov 2026)**: branch `feat/area7-f4` (sopra il fix della F3), piano
+  `docs/plans/2026-11-13-integrazione-area7-fetta4-plan.md` (con le
+  «Correzioni di 72»). Le automazioni GENERALI (senza progetto, `AUT-<n>`,
+  permesso d'istanza `automations.general.manage`, che nessun preset riceve:
+  il full admin l'ha già), il webhook in arrivo `POST /webhooks/in/:secret`,
+  la tabella cliente → progetto e «avvia un'altra automazione».
+  Migrazione **0174** (DOPO la 0173):
+  - `automations.project_id` nullable, la sequenza
+    `automation_general_code_seq`, `webhook_per_minute` e `webhook_per_day`;
+  - le tabelle `automation_sources` (il segreto come sha256),
+    `automation_source_events` (gli ultimi 100 per sorgente),
+    `automation_source_hits` (i contatori del tetto) e `client_project_links`;
+  - `automation_events.source_id` (il CHECK ora accetta anche la sola
+    sorgente) e `automation_runs.mail_origin_account_id` (R-J13 lungo la
+    catena);
+  - i valori d'enum `source_event` (`automation_event_kind`) e `run`
+    (`automation_effect_kind`), in statement a sé e mai usati nel batch.
+
+  Nessun `notification_kind` nuovo. **Caddy non cambia per la rotta**:
+  `/webhooks/*` è già inoltrato al server (matcher `@backend`); si ribuilda
+  solo per il renderer di `/app`. Env nuove, facoltative, sul **server**:
+  `AUTOMATION_WEBHOOK_MAX_PER_MINUTE` (default 600) e
+  `AUTOMATION_WEBHOOK_MAX_PER_DAY` (default 50 000): il massimo d'istanza del
+  tetto, che nessuna scelta per automazione supera.
+  **ORDINE**: (1) **backup**; (2) **`server`**: applica la 0174, aspetta
+  healthy; (3) **`worker`**, solo SENZA lavoro dell'agente in corso (è lui a
+  consumare `source_event`, a eseguire «avvia un'altra» e a risolvere il
+  progetto del cliente); (4) **`caddy`**: con la F4 del renderer nel
+  rilascio. Verifica, da chi ha `integrations.manage`: crea un webhook
+  (l'indirizzo esce una volta), incolla un esempio, e
+  `curl -X POST -H 'content-type: application/json' -d '{…}' <indirizzo>`
+  risponde 202; un tipo sbagliato 422, visibile negli eventi recenti.
+  Controlli, sola lettura: `select status, count(*) from
+  automation_source_events where received_at > now() - interval '1 day'
+  group by status;` e le generali accese, `select code, owner_id from
+  automations where project_id is null and status = 'active';`.
+
+  **Rollback** (il server scende **insieme** al caddy; la 0174 non si
+  annulla):
+  - **Le generali**: un server e un worker vecchi non le conoscono (codice
+    scritto per `project_id` non nullo). Prima di scendere si mettono in pausa
+    e si annullano le loro esecuzioni aperte: `update automations set status
+    = 'paused', paused_reason = 'manual', active_since = null where
+    project_id is null and status = 'active';` e `update automation_runs r set
+    status = 'cancelled', ended_at = now() from automations a where
+    a.id = r.automation_id and a.project_id is null and r.status in
+    ('running','waiting_approval','waiting_project','waiting_event','suspended');`.
+    ⚠️ Non verificato: l'elenco delle automazioni di un full admin, sul server
+    vecchio, potrebbe fallire con righe a progetto nullo; se succede, le
+    generali vanno esportate e tolte (`delete from automations where
+    project_id is null;`, a cascata versioni ed esecuzioni).
+  - **Il webhook**: un server vecchio non ha la rotta, chi chiama riceve 404 e
+    gli eventi non entrano. Le sorgenti restano inerti.
+  - **R-J13 lungo la catena**: un server vecchio non legge
+    `mail_origin_account_id`, quindi la posta di una FIGLIA partita da
+    un'email diventerebbe leggibile al proprietario della figlia. Prima di
+    scendere: `update automation_runs set event = '{"email":{"mittente":"","oggetto":"","testo":""}}'::jsonb,
+    title = '' where mail_origin_account_id is not null;` (si perde il
+    contenuto di quelle esecuzioni, non la posta, che resta nella casella).
+  - ⚠️ **Il permesso nuovo**: un server vecchio ignora
+    `automations.general.manage` a lettura, ma RIFIUTA in scrittura un ruolo
+    che lo contiene (400 salvando quel ruolo). Se serve modificarli: `update
+    roles set permissions = array_remove(permissions,
+    'automations.general.manage');`.
+  - Un worker vecchio consuma gli eventi `source_event` senza avviare niente
+    (non hanno progetto), e legge l'effetto `run` come un id: nessun errore.
+- **«Il socket Docker dell'agente non è "sola lettura"» (13 nov 2026)**:
+  decisione del maintainer (area 8, Q4 = a). Solo testo: il comando
+  d'installazione dell'agente monta `/var/run/docker.sock:ro`, ma `:ro` su un
+  socket Unix non limita le richieste (impedisce di modificare il file, non di
+  connettersi), quindi l'agente può raggiungere tutta l'API di Docker; oggi la
+  usa solo per leggere (elenco e statistiche dei container). Il testo della
+  pagina del server nel web (`monitor:servers.keyStepRunBody`, it ed en) e la
+  guida (`/guide`, «Install the agent») non dicono più che «tutti i mount sono
+  in sola lettura — l'agente si limita a osservare». Né il comando né l'agente
+  cambiano. **Nota per chi ha già installato l'agente**: nessuna azione
+  richiesta; l'agente si comporta come prima, cambia solo ciò che la pagina
+  promette. **ORDINE**: solo **`caddy`** (web e guida). Nessuna migrazione, nessuna
+  env. **Rollback**: il caddy di prima rimette il testo vecchio; nient'altro.
+- **«Integrazione area 8, fetta 1: i rilasci» (13 nov 2026)**: branch
+  `feat/area8-f1` (da `feat/integrazione-area7`, con `feat/integrazione-area8`
+  unito: il Task 0, l'invariante «Le PR dei colleghi» riscritta), piano
+  `docs/plans/2026-11-13-integrazione-area8-fetta1-plan.md`, regole in
+  `docs/invariants/pr-corrections.md` («Le PR dei colleghi»). Il merge resta
+  l'unica azione di rilascio: Stubwise LEGGE le run di CI e il commit in
+  produzione, non lancia pipeline né deploy.
+
+  Migrazione **0175**: le tabelle `releases` (un rilascio = il merge di una
+  PR sul ramo di rilascio, codice `<PRJ>-V<n>`), `release_code_seqs`,
+  `release_ci_runs`, `pr_release_notes`, `environment_servers` (il server
+  di un ambiente è PER REPOSITORY, R-L2: la migrazione ricopia i dati di oggi,
+  una riga per ogni repository del progetto di un ambiente con `server_id`);
+  su `repositories` `release_branch`, `release_pipeline`, `ci_provider`,
+  `colleague_prs` (default **`analyze_only`**, P-2 = a); su `pr_reviews`
+  `analysis_only` (e chi/quando); l'indice unico «una sola produzione per
+  progetto»; il `notification_kind` `release.failed`; il trigger della Chat
+  `releases_chat_release_page`. Più la **0176** (review della F1, nello stesso
+  rilascio, dopo la 0175): `releases.ci_unreadable_at` (l'ultima lettura delle
+  run è fallita: il server dice «non leggibile») e `releases.last_polled_at`
+  (il turno del poller). ⚠️ **Prima del deploy** (sola lettura):
+  `select project_id, count(*) from project_environments where kind =
+  'production' group by 1 having count(*) > 1;` deve essere vuota, altrimenti
+  la 0175 si FERMA con un errore che lo dice (e il server non parte): si
+  tiene una sola produzione per progetto (le altre diventano `staging`) e si
+  rideploya.
+
+  **ORDINE**: **server** (healthy, 0175 applicata), poi **worker**, poi
+  **caddy**. **Env nuova (worker)**: `RELEASE_POLL_SECONDS` (default 60; 0 =
+  spento: i rilasci nascono lo stesso dal merge, ma restano senza run di CI e
+  «non ancora in produzione» non si aggiorna). Un riavvio del worker non perde
+  lavoro dei rilasci (il giro rilegge dal DB).
+
+  **Da sapere subito**:
+  - **Le PR dei colleghi non si adottano più.** Alla fine della review di una
+    PR che Stubwise non ha aperto, il worker scrive da solo la riga
+    `ticket_repositories` del suo ticket `review` (`adopted_by_user_id`
+    null: l'ha scritta il sistema), se il ramo lo permette (verificato dal
+    provider: mai un fork, un protetto, il default, il ramo di rilascio, il
+    target, un `stubwise/…`). Se una correzione PARTE lo decide
+    `colleague_prs`: col default `analyze_only` nessuna correzione parte da
+    sola sui rami dei colleghi il giorno del deploy, e nemmeno dal «Request
+    changes» della piattaforma; solo «Chiedi modifiche» in Stubwise (chi ha
+    `prs.adopt`). Per accendere le correzioni automatiche su un repository:
+    «analisi e correzioni» nelle impostazioni (chi ha `repos.manage`).
+    Controllo, sola lettura: `select colleague_prs, count(*) from
+    repositories group by 1;`.
+  - **Le run di CI si leggono col token dell'account git del repository**
+    (S-2 = a): GitHub `check-runs` del commit (permesso «Checks: read»),
+    Bitbucket gli status del commit (`repository:read`); la bozza delle note
+    legge i commit della PR («Pull requests: read» / `pullrequest:read`). Un
+    token senza quei permessi dà run «non leggibili»: il rilascio non dice
+    MAI «riuscito», resta «stato non disponibile». «Validate» dell'account
+    git NON controlla ancora questi permessi (limite noto della F1).
+  - Il provider della CI va scelto per repository (`ci_provider`, null
+    all'inizio): senza, lo stato viene solo dal commit che l'agente di
+    monitoraggio riporta sul server di produzione della repository.
+  - Un ambiente creato o modificato dopo il deploy coi server per repository
+    scrive `environment_servers`; `project_environments.server_id` resta
+    scritto solo dalla forma di prima (`serverId`).
+
+  **Rollback** (il server scende **insieme** al caddy; la 0175 non si
+  annulla, un server vecchio ignora le tabelle e le colonne nuove):
+  1. ⚠️ **Le PR dei colleghi collegate dal sistema**: un server e un worker
+     vecchi le leggerebbero come ADOTTATE (correzioni automatiche senza il
+     cancello di `colleague_prs`). PRIMA di scendere, worker compreso:
+     `update ticket_repositories set adoption_released_at = now() where
+     adopted_at is not null and adopted_by_user_id is null and
+     adoption_released_at is null;` (le adozioni fatte da una persona
+     restano; risalendo, la review successiva di ciascuna PR non le
+     ricollega: un'adozione rilasciata non si riscrive, si riadotta a mano).
+     ⚠️ Il filtro prende anche le adozioni di una persona poi ELIMINATA
+     (`adopted_by_user_id` è `ON DELETE SET NULL`): anche quelle vengono
+     rilasciate, ed è il verso prudente.
+  2. **Il `notification_kind` nuovo** rende NON sicuro scendere sul server
+     finché ne esistono righe (500 su `/api/inbox`): `select count(*) from
+     notifications where kind = 'release.failed';`, e se ce ne sono `delete
+     from notifications where kind = 'release.failed';`.
+  3. **Gli ambienti per repository**: un server vecchio legge solo
+     `project_environments.server_id`. Se dopo il deploy qualcuno ha messo
+     server diversi per repository, il vecchio vede quello della forma di
+     prima (o nessuno): «già su staging?» può dire «non risulta» finché non
+     si risale. Nessuna azione obbligatoria.
+  4. Il trigger della Chat non dà fastidio a un server vecchio (scrive
+     eventi `release_page` che sa già leggere senza oggetto); i rilasci
+     restano nel DB e riappaiono risalendo.
+- **«Integrazione area 8, fetta 2: gli avvisi e le iscrizioni per progetto»
+  (14 nov 2026)**: branch `feat/area8-f2` (da `feat/area8-f1`: si deploya
+  DOPO la F1), piano `docs/plans/2026-11-13-integrazione-area8-fetta2-plan.md`.
+  Il catalogo dei tipi d'avviso è codice in `@stubwise/shared` (`alerts/`).
+
+  Migrazioni **0177** (i `notification_kind` del catalogo — `release.merged`,
+  `release.succeeded`, `pr.opened`, `pr.analysis_issues`, `pr.corrected`,
+  `docs.release_note` — ognuno in uno statement a sé; la tabella
+  `alert_subscriptions`, lo stato di ADESSO delle iscrizioni per persona,
+  progetto e tipo) e **0178** (`releases.succeeded_notified_at`). **ORDINE**:
+  **server** (healthy, 0177–0178 applicate), poi **worker**, poi **caddy**.
+  Nessuna env nuova.
+
+  **Da sapere subito**:
+  - I tipi del catalogo (sopra, più `release.failed` e i `monitor.*` con un
+    progetto) hanno i destinatari del CATALOGO: gli obbligatori, poi chi è
+    iscritto o, senza riga, il default dai permessi di adesso. **Nessuno
+    cambia destinatari il giorno del deploy** (S-4): `release.failed` resta a
+    chi ha `release.merge`, i `monitor.*` a chi ha `monitor.manage` (permesso
+    d'istanza, M-1 = a); i tipi nuovi partono SPENTI (si iscrive chi li vuole).
+  - **I `monitor.*` di un server con un solo progetto smettono di andare su
+    Slack** (DM e webhook), come ogni tipo del catalogo (M3): la nota di
+    rilascio lo deve dire. Quelli di un server senza un solo progetto restano
+    sul routing di oggi, Slack compreso.
+  - Il push dei tipi del catalogo segue il «Telefono» del tipo (M-2 = b);
+    senza una riga d'iscrizione vale anche l'interruttore `push` di oggi,
+    quindi chi l'ha spento non riceve un telefono nuovo.
+  - Una card arrivata da OBBLIGATORIO porta il motivo nell'evento
+    (`alertMandatory`); la revoca a lettura nasconde le card dei tipi che
+    vogliono un permesso per iscriversi a chi l'ha perso (non a chi l'ha
+    avuta da obbligatorio).
+  Controllo, sola lettura: `select alert_type, app, count(*) from
+  alert_subscriptions group by 1, 2 order by 1;`.
+
+  **Rollback** (il server scende **insieme** al caddy; 0177 e 0178 non si
+  annullano, un server vecchio ignora tabella e colonna):
+  1. ⚠️ **I `notification_kind` nuovi** rendono NON sicuro scendere sul
+     server finché ne esistono righe (500 su `/api/inbox`): `select kind,
+     count(*) from notifications where kind in ('release.merged',
+     'release.succeeded', 'pr.opened', 'pr.analysis_issues', 'pr.corrected',
+     'docs.release_note') group by 1;`, e se ce ne sono `delete from
+     notifications where kind in (…stessi…);` (le consegne se ne vanno in
+     cascata).
+  2. Le card di `release.failed` e dei `monitor.*` pubblicate dopo il deploy
+     possono avere `alertMandatory` nell'evento: un server vecchio ignora il
+     campo, nessuna azione.
+  3. Scendendo, i `monitor.*` con un progetto tornano su Slack e ai soli
+     `monitor.manage`: le iscrizioni scritte restano in tabella e tornano a
+     valere risalendo.
+
+- **«Integrazione area 8, fetta 3: Support»** *(14 nov 2026)*: branch
+  `feat/area8-f3` (da `feat/area8-f2`: si deploya DOPO la F2), piano
+  `docs/plans/2026-11-14-integrazione-area8-fetta3-plan.md`. Le conversazioni
+  coi clienti del widget (e del server MCP in modalità collaboratore) nella
+  app: gli stati derivati, il giudizio sul triage dopo il silenzio, «Non
+  conclusa», la richiesta da una conversazione, la conversazione CHIUSA e
+  la sua successiva, i siti ammessi del widget, l'avviso `support.request`.
+  **Premessa del maintainer**: il team non scrive MAI al cliente nel widget
+  (risponde solo ai collaboratori interni del canale `mcp`).
+
+  Migrazione **0179** (`notification_kind` `support.request`, in uno
+  statement a sé; il codice `<PRJ>-S<n>` delle conversazioni con il suo
+  contatore e il trigger, le conversazioni di prima numerate per data;
+  canale, giudizio, job d'intake e `continued_in_id` su
+  `widget_conversations`; `widgets.allowed_origins` (vuoto per tutti);
+  `author_id` e `client_id` su `widget_messages`;
+  `backlog_items.support_conversation_id`; l'operazione AI
+  `support_triage_check` nei CHECK; `support.manage` ai preset Project Lead,
+  Developer, Legacy Member e ai ruoli che ne contenevano uno). **ORDINE**:
+  **server** (healthy, 0179 applicata), poi **worker**, poi **caddy** (l'app
+  e il bundle del WIDGET, `/widget.js`, che impara l'id della successiva di
+  una conversazione chiusa). Nessuna env nuova.
+
+  **Da sapere subito**:
+  - **Il worker spende AI da solo** per il giudizio sul triage (S10, G-1 del
+    maintainer): una sessione breve del CLI con Haiku, una per conversazione
+    del widget rimasta 15 minuti in silenzio senza un esito, nel budget
+    mensile. Le conversazioni di prima che sono già in silenzio vengono
+    giudicate ai primi giri (dieci per giro, ogni minuto): con molte
+    conversazioni vecchie conviene guardare la spesa
+    (`select count(*) from agent_runs where operation = 'support_triage_check';`).
+  - **Le conversazioni chiuse** (S17): dal deploy del server, un messaggio
+    del cliente su una conversazione che ha già una richiesta o un ticket
+    apre la sua successiva (un `S<n>` nuovo). Un widget in cache dei siti
+    ospiti (bundle vecchio) continua a scrivere alla chiusa e il server lo
+    porta alla successiva, ma riaprendo il pannello mostra la storia della
+    chiusa finché la pagina non ricarica il bundle nuovo.
+  - **I siti ammessi** (S16): tutti i widget partono con l'elenco VUOTO
+    (= qualunque sito, come prima). Chi lo riempie limita le rotte
+    pubbliche a quelle origini (403 `origin_not_allowed`); l'origine
+    dell'istanza è sempre ammessa.
+  - **Il plugin di Claude Code**: il changeset
+    `.changeset/support-mcp-conversation.md` pubblica `@stubwise/mcp` e
+    `@stubwise/claude-plugin` all'unione su `main` (il giro di Release);
+    verificare `npm view @stubwise/mcp version` dopo.
+  Controllo, sola lettura: `select channel, count(*) from
+  widget_conversations group by 1;`, `select triage_outcome, count(*) from
+  widget_conversations group by 1;` e `select count(*) from
+  widget_conversations where continued_in_id is not null;`.
+
+  **Rollback** (il server scende **insieme** al caddy; la 0179 non si
+  annulla, un server vecchio ignora tabelle e colonne):
+  1. ⚠️ **Il `notification_kind` nuovo** rende NON sicuro scendere sul
+     server finché ne esistono righe (500 su `/api/inbox`): `select count(*)
+     from notifications where kind = 'support.request';`, e se ce ne sono
+     `delete from notifications where kind = 'support.request';`.
+  2. Un server vecchio ignora `allowed_origins` (ogni sito torna ammesso) e
+     `continued_in_id` (un messaggio su una chiusa resta nella chiusa, come
+     prima della F3). Le successive già create restano conversazioni normali.
+  3. Un worker vecchio non fa più il giudizio: le conversazioni restano «in
+     triage» nell'app nuova, nessun danno.
+
+- **«Integrazione area 8, fetta 4a: Servers, monitor e ambienti»** *(14 nov
+  2026)*: branch `feat/area8-f4a` (da `feat/area8-f3`: si deploya DOPO la
+  F3), piano `docs/plans/2026-11-14-integrazione-area8-fetta4a-plan.md`. Il
+  monitor nell'app, gli ambienti nell'app, e la visibilità dei server dagli
+  AMBIENTI. **Decisioni del maintainer**: `monitor.view` esce dal preset
+  `User` (F4a-1 = a); i server si vedono SOLO dagli ambienti dei progetti
+  visibili, `server_projects` non conta più (F4a-4 = b); codici `SRV-<n>`;
+  gli episodi.
+
+  **PRIMA del deploy, sola lettura** — i server collegati SOLO dal web
+  (`server_projects`, nessun ambiente), coi loro progetti: dopo il deploy li
+  vede solo chi ha `monitor.view`/`monitor.manage`, e i loro avvisi perdono
+  l'ancora di progetto. Vanno messi in un ambiente del progetto (o lasciati
+  al monitor):
+
+  ```sql
+  select s.name as server, p.name as progetto
+  from servers s
+  join server_projects sp on sp.server_id = s.id
+  join projects p on p.id = sp.project_id
+  where not exists (select 1 from environment_servers es where es.server_id = s.id)
+  order by s.name, p.name;
+  ```
+
+  Migrazione **0180** (`servers.number` da una sequenza d'istanza, i server
+  di prima numerati per data di creazione; `server_episodes`, un episodio
+  aperto per server; `monitor.view` tolto dal SOLO preset `User`).
+  **ORDINE**: **server** (healthy, 0180 applicata), poi **worker** (gli
+  avvisi prendono l'ancora dagli ambienti e scrivono gli episodi), poi
+  **caddy** (il web: le spunte dei progetti di un server spariscono, al loro
+  posto «i progetti sono quelli dei suoi ambienti»). Nessuna env nuova.
+
+  **DOPO il deploy, passo da fare** — i ruoli personalizzati d'istanza con
+  `monitor.view` ma senza `monitor.manage` vedono ancora OGNI server: la
+  migrazione non li tocca (toglierlo da un ruolo fatto a mano è una scelta
+  dell'admin). Controlla questi ruoli:
+
+  ```sql
+  select name, permissions from roles
+  where scope = 'instance' and preset_key is null
+    and 'monitor.view' = any(permissions) and not ('monitor.manage' = any(permissions));
+  ```
+
+  **Da sapere subito**:
+  - Un utente (preset `User`) che prima vedeva tutti i server ora vede quelli
+    dei SUOI progetti, dagli ambienti, anche sul web (pagina del monitor e
+    dettaglio di progetto).
+  - Collegare un server a un ambiente chiede di vederlo già (o
+    `monitor.manage`): 422 `server_not_visible` altrimenti.
+  - Il `PATCH /api/servers/:id` accetta ancora `projectIds` (un web in cache)
+    ma li IGNORA; la tabella `server_projects` resta inerte per il rollback.
+  - Le metriche oltre 7 giorni arrivano aggregate a 1 h (fino a 30) e 4 h.
+  Controllo, sola lettura: `select count(*) from server_episodes where
+  recovered_at is null;` e `select max(number) from servers;`.
+
+  **Rollback** (il server scende **insieme** al caddy; la 0180 non si
+  annulla): un server vecchio legge di nuovo `server_projects` (quello di
+  prima del deploy, il web nuovo non lo scrive più) e ignora numeri ed
+  episodi. Il preset `User` resta SENZA `monitor.view`: per tornare a prima,
+  `update roles set permissions = array_append(permissions, 'monitor.view')
+  where preset_key = 'user' and not ('monitor.view' = any(permissions));`.
+- **«Integrazione area 8, fetta 4b: le operazioni sui server»** *(14 nov
+  2026)*: branch `feat/area8-f4b` (da `feat/area8-f4a`: si deploya DOPO la
+  F4a), piano `docs/plans/2026-11-14-integrazione-area8-fetta4b-plan.md`,
+  regole `docs/invariants/server-operations.md`. L'UNICA azione
+  sull'ambiente: la correzione di un problema di un server, attraverso
+  l'AGENTE (mai SSH), solo azioni dell'insieme chiuso, firmate passo per
+  passo dopo l'approvazione di chi ha `plans.approve` nel progetto
+  ATTRIBUITO. L'analisi parte dal server all'allarme (sole letture, nei tetti
+  di Impostazioni, nel budget dell'istanza) e attribuisce il progetto; la task
+  passa dal triage come ogni bug (F4b-6 = b); la pulizia è ammessa su ogni
+  server con l'avviso (F4b-8 = c); SSH solo letture (`servers.ssh.manage`).
+
+  Migrazioni **0181** (kind `server.diagnosis_ready`; `servers.agent_capabilities`;
+  `environment_servers.containers`; `instance_signing_keys`, `server_analyses`,
+  `server_operation_approvals`, `server_commands`, `server_ssh_access`;
+  `instance_settings.server_analysis_limits`; kind e operazioni nuovi nei
+  CHECK) e **0182** (`server` in `ticket_source`; `server_fixes`). Nessuna
+  env nuova. Dipendenza nuova `ssh2` (server e worker).
+
+  **ORDINE**: **server** (healthy, 0181 e 0182 applicate), poi **worker** (il
+  giro delle analisi e della correzione, il ponte di `stubwise_server`,
+  la verifica SSH), poi **caddy** (il renderer dell'app, quando la sua
+  parte F4b è dentro). L'immagine dell'**agente** nuova la pubblica la CI
+  (`agent-image.yml`) col merge che tocca `packages/agent`: gli host NON si
+  aggiornano da soli, e un agente si aggiorna SOLO se si vogliono le
+  operazioni su quell'host (comando d'installazione con
+  `STUBWISE_OPERATIONS=1` e la chiave pubblica d'istanza, `GET
+  /api/servers/command-key`). Senza, l'agente nuovo si comporta come il
+  vecchio (non interroga i comandi).
+
+  **Da sapere subito**:
+  - Le analisi automatiche partono all'apertura di un episodio, accese di
+    default (10 min, 1 $, 30 + 30 letture): si spengono o si stringono in
+    Impostazioni (`/api/settings/server-analysis`). Un episodio già aperto
+    al deploy riceve la SUA analisi al primo giro.
+  - `servers.operate` non è in nessun preset: va dato a mano in un ruolo di
+    progetto. `servers.ssh.manage` è dell'Admin d'istanza.
+  - `server.diagnosis_ready` è un avviso del CATALOGO, vivo: lo ricevono gli
+    iscritti del progetto attribuito (di partenza chi ha `servers.operate` e
+    i full admin). Chi ha chiesto un'analisi a mano ne riceve SEMPRE l'esito
+    (decisione del maintainer, 15 nov 2026), da obbligatorio
+    (`analysis_requester`): sulla diagnosi del progetto attribuito se lo vede
+    (una card sola anche se è iscritto), altrimenti una card SOLO per lui nel
+    primo progetto del server in cui ha `servers.operate`. «Non determinata»
+    e «fallita» vanno ANCHE agli iscritti delle produzioni del server (lui
+    obbligatorio in quella del suo progetto, se è una di loro). Nessun kind
+    nuovo.
+  - Il comando d'installazione con le operazioni monta un volume
+    (`stubwise-agent-state` su `/var/lib/stubwise-agent`): lì stanno i nonce
+    dei comandi visti, che così sopravvivono a un container ricreato.
+  - ⚠️ Un riavvio del worker a metà di un'analisi la lascia `failed` dopo
+    durata+15'; a metà di una correzione il giro la porta da solo a `failed`
+    (`worker_restart`, approvazione revocata) dopo 30' ferma, ma un comando
+    già consegnato può essere partito: prima di riavviare, sola lettura,
+    `select id, status from server_fixes where status in ('proposing','running');`
+    e `select count(*) from server_analyses where status = 'running' and session_id is not null;`
+    devono essere vuoti/zero (come «Worker fail-on-restart»).
+  Controllo, sola lettura: `select count(*) from instance_signing_keys where
+  retired_at is null;` (al più 1, nasce al primo bisogno).
+
+  **Rollback** (il server scende **insieme** al caddy; 0181/0182 non si
+  annullano): un server vecchio ignora le tabelle nuove e non consegna
+  comandi; un agente nuovo senza un server nuovo riceve 404 su
+  `/monitor/commands` e continua a campionare. ⚠️ Il kind
+  `server.diagnosis_ready` rende NON sicuro scendere d'immagine sul server
+  finché ne esistono righe (500 su `/api/inbox`): prima `delete from
+  notifications where kind = 'server.diagnosis_ready';`. Le task di
+  sorgente `server` restano: un server vecchio che non conosce il valore le
+  mostra senza sorgente (il web fa un cast). Per fermare tutto senza
+  rollback: analisi spente in Impostazioni e `update server_fixes set
+  status = 'stopped' where status in ('proposing','approved','running');`.
+- **«Integrazione area 8: Clienti in attesa»** *(15 nov 2026)*: branch
+  `feat/area8-waiting` (da `feat/area8-f4b`: si deploya DOPO la F4b), piano
+  `docs/plans/2026-11-15-integrazione-area8-clienti-in-attesa-plan.md`. Il
+  blocco della Home «Clienti in attesa»: i thread delle MIE caselle in cui
+  un cliente aspetta da più di 24 ore. Il taglio è meccanico
+  (`waitingCandidates` in `@stubwise/notifications`, uno solo per la rotta e
+  per il worker), e Claude giudica se serve davvero una MIA risposta
+  (`email_messages.reply_judgment`, sull'ultimo messaggio del thread). Il
+  giudizio arriva per due strade: dentro la classificazione (J1, v1 e v2) e
+  in un run Haiku a parte (J2, `mail_reply_judgment`) sui thread che passano
+  il taglio senza giudizio.
+  Migrazione **0183** (`email_messages.reply_judgment jsonb`,
+  `reply_judgment_attempts smallint default 0`; `mail_reply_judgment` nei
+  CHECK di `agent_runs` e `ai_model_settings`). Nessuna env nuova. Rotta
+  nuova `GET /api/me/waiting-customers`.
+
+  **ORDINE**: **server** (healthy, 0183 applicata), poi **worker** (W1: la
+  posta mandata anche al primo giro e al resync, `newer_than:7d from:me`; J1
+  e J2), poi **caddy** (il blocco nel renderer, quando la parte di 94 è
+  dentro). Il worker vecchio contro il server nuovo: nessun giudizio, il
+  blocco mostra tutto «da valutare».
+
+  **Da sapere subito**:
+  - J2 gira a ogni tick della casella ANCHE con le proposte spente (W-3 = a):
+    al più 10 giudizi per tick e 2 tentativi per messaggio, nel budget
+    mensile dell'istanza. Dopo il deploy smaltisce i thread già in attesa,
+    10 per tick per casella: un picco di run Haiku nelle prime ore, poi solo
+    i messaggi nuovi. Si vede in
+    Amministrazione → AI, operazione «mail_reply_judgment».
+  - Un thread che passa il taglio e non ha ancora un giudizio COMPARE «da
+    valutare» (W-4 = b), e sparisce quando il giudizio dice no. Un giudizio
+    fallito due volte resta «da valutare» per sempre: è voluto. Controllo,
+    sola lettura: `select count(*) from email_messages where reply_judgment ? 'error';`.
+  - Il resync cattura ora anche gli inviati degli ultimi 7 giorni: senza,
+    una risposta mandata durante un buco del poller lasciava il cliente «in
+    attesa».
+  - Mai la casella di un collega, nemmeno a un full admin: la rotta legge
+    solo `google_accounts.user_id = me` (la regola `mailbox_owner`).
+
+  **Rollback** (il server scende **insieme** al caddy; 0183 non si annulla,
+  e le colonne in più sono innocue per il codice di prima): il worker di
+  prima ignora `reply_judgment` e non cattura gli inviati al resync (le
+  righe già catturate restano contesto); il server di prima non ha la rotta
+  (il blocco mostra l'errore come ogni blocco della Home). Nessun kind
+  nuovo, quindi la discesa d'immagine è sicura. Per fermare i giudizi senza
+  rollback: il budget mensile dell'istanza (J2 non parte oltre il tetto;
+  J1 vive dentro la classificazione e si ferma con lei).
+- **«Integrazione area 8: l'API per i siti»** *(16 nov 2026)*: branch
+  `feat/area8-site-api` (da `feat/area8-waiting`: si deploya DOPO «Clienti in
+  attesa»), piano `docs/plans/2026-11-15-integrazione-area8-api-siti-plan.md`.
+  Il cliente di un sito che ospita il widget segue sul sito le richieste e i
+  ticket che ha aperto dal widget. Il sito ne FIRMA l'identità (JWT HS256 col
+  segreto d'identità del widget, generato in Amministrazione del widget con
+  la riconferma); il widget passa il token (`identityToken`); il sito legge
+  `GET /widget/:slug/me/requests` e il dettaglio `/me/requests/:code`.
+  Migrazione **0184** (`widgets.identity_secret_encrypted`,
+  `identity_secret_rotated_at`, `identity_required` default false;
+  `widget_conversations.identity_verified` default false). Nessuna env
+  nuova; nessuna modifica al worker.
+
+  **ORDINE**: **server** (healthy, 0184 applicata), poi **caddy** (il bundle
+  del widget con `identityToken`, il renderer, la guida «Show customers their
+  requests»).
+
+  **Da sapere subito**:
+  - Niente cambia per i widget installati: senza segreto e senza token tutto
+    funziona come prima. Le conversazioni di prima restano «dichiarate» e
+    non entrano mai nella lettura del sito (D-1).
+  - Il segreto si vede UNA volta; rigenerarlo spegne il vecchio subito
+    (D-5): il sito va aggiornato nello stesso momento.
+  - «Solo clienti verificati» si accende solo con un segreto (422
+    `identity_secret_missing` altrimenti).
+  - Una conversazione VERIFICATA si legge e si scrive solo col token del suo
+    cliente: un widget installato SENZA token che riprende una conversazione
+    nata verificata riceve 404 e ne apre una nuova.
+  Controllo, sola lettura: `select count(*) from widgets where
+  identity_secret_encrypted is not null;` e `select count(*) from
+  widget_conversations where identity_verified;`.
+
+  **Rollback** (il server scende **insieme** al caddy; 0184 non si annulla, le
+  colonne con default sono innocue per il codice di prima): ⚠️ un server
+  vecchio IGNORA il token e «Solo clienti verificati»: la chat torna ad
+  accettare i clienti dichiarati, e le conversazioni verificate tornano
+  leggibili dichiarandone il cliente (com'era prima). Avvisare chi ha acceso
+  la protezione. La pagina del sito riceve 404 sulle letture e mostra il suo
+  errore. Nessun kind nuovo.
+- **«Integrazione area 9, F1: gli accessi»** *(16 nov 2026)*: branch
+  `feat/area9-f1` (da `feat/integrazione-area9`), piano
+  `docs/plans/2026-11-16-integrazione-area9-f1-plan.md`, design
+  `…-area9-design.md`. Permessi personali sui membri, disattivare e
+  riattivare, le mie sessioni, tentativi rimasti e scadenza della
+  riconferma, la foto del profilo, il cambio dell'email di login, «Chi può
+  farlo?», Inbox (ripristina, rimetti fra le nuove, non letta), `token` nel
+  link di reset. Migrazioni **0185** (additiva: `project_member_permissions`;
+  `users.deactivated_at`/`deactivated_by_user_id`; `sessions.user_agent`/
+  `last_seen_at`; `user_avatars`; `email_changes`) e **0186** (additiva:
+  `notifications.handled_action`, `archive` | `decision`, dalla review).
+  Nessuna modifica al worker (il pacchetto `notifications` cambia: i permessi
+  di un disattivato sono vuoti, ma il worker non va ribuildato per F1). Dipendenza nuova del server: `nodemailer` 10.3.1.
+
+  **ORDINE**: **server** (healthy, 0185 e 0186 applicate), poi **caddy** (il
+  renderer dell'app su `/app`). Il worker non va toccato.
+
+  **Env nuove, FACOLTATIVE** (E-1 = a): `SMTP_URL`
+  (`smtp://utente:password@host:587` o `smtps://…:465`) e `MAIL_FROM`. Servono
+  SOLO al cambio dell'email di login dalle Preferenze (link alla nuova, avviso
+  alla vecchia). Senza, quel cambio dice «non disponibile» e resta il cambio
+  fatto da un admin (`PATCH /api/users/:id/email`). Il compose le passa già
+  (vuote di default).
+
+  **Da sapere subito**:
+  - **`target_above` non esiste più** (D-2): chi ha `users.manage` agisce
+    anche su chi ha più permessi (azzerare il secondo fattore, il link di
+    reset, disattivare), con la riconferma, la traccia e l'avviso
+    all'interessato. Un client vecchio non se ne accorge: smette solo di
+    ricevere quel 403. Il web vecchio ha perso la chiave morta.
+  - Una persona **disattivata** non entra da nessuna porta (login, sessione,
+    PAT, desktop, chat tool): sessioni, PAT, passaggi del desktop e link di
+    reset si cancellano, i device si spengono, gli inviti che aveva mandato
+    si revocano. Riattivarla non le ridà nulla di tutto ciò. Claude non è
+    mai un destinatario della riassegnazione.
+  - `sessions.last_seen_at` si scrive al più ogni 5 minuti per sessione.
+  - «Chi può farlo?» non ha una riga per Claude: Claude agisce coi permessi
+    di chi lo assegna o conferma (`agent.actsFor`).
+  - Dalla review: una persona disattivata non agisce nemmeno da Slack, non
+    entra in un progetto né riceve task (422 `user_deactivated`), non riceve
+    un link di reset; non si disattiva l'ultimo gestore ATTIVO di un
+    progetto (409 `last_manager` col `projectId`).
+  - Collegare lo Slack o il Bitbucket di UN ALTRO chiede `users.manage` e la
+    riconferma, e lascia `slack_linked` / `bitbucket_linked` con l'avviso
+    all'interessato. Chi ha solo `integrations.manage` collega solo il suo.
+  - «Restore» nell'inbox vale solo sulle card ARCHIVIATE dopo il deploy: le
+    card chiuse prima (`handled_action` null) non si ripristinano (409).
+  - Le letture calcolate dell'amministrazione (`/api/admin/people`, `/roles`,
+    `/invites`, `/invite-choices`, `…/members/view`, `…/members/:userId/preview`):
+    nessuna scrittura. Una sola scrittura cambia: azzerare il secondo fattore
+    di chi non ne ha dà ora 409 `no_second_factor` (prima chiudeva comunque le
+    sue sessioni).
+  Controllo, sola lettura: `select count(*) from project_member_permissions;`,
+  `select count(*) from users where deactivated_at is not null;`,
+  `select count(*) from email_changes where confirmed_at is null and
+  cancelled_at is null and expires_at > now();`.
+
+  **Rollback** (il server scende **insieme** al caddy; 0185 non si annulla,
+  le colonne e le tabelle in più sono innocue per il codice di prima):
+  - ⚠️ un server vecchio **ignora i permessi personali**: chi li aveva li
+    PERDE finché non si torna avanti (le righe restano e tornano a valere).
+  - ⚠️ un server vecchio **non conosce la disattivazione**: una persona
+    disattivata non ha più sessioni né PAT (cancellati), ma con la sua
+    password **rientra**. Prima di scendere, cambiarle la password a mano o
+    accettarlo.
+  - Il registro di sicurezza di chi ha righe `deactivated`, `reactivated`,
+    `email_changed`, `slack_linked` o `bitbucket_linked` dà **500** sul
+    server vecchio (il tipo è un enum nella risposta): la pagina di quella
+    persona, non le altre. Sola lettura: `select count(*) from
+    security_events where kind in ('deactivated', 'reactivated',
+    'email_changed', 'slack_linked', 'bitbucket_linked');`.
+  - ⚠️ un server vecchio torna a permettere a chi ha solo
+    `integrations.manage` di collegare lo Slack di chiunque, senza traccia.
+    (Le rotte di «Restore» invece non ci sono proprio: nessun rischio.)
+  - Una card `security.alert` coi soggetti nuovi si degrada al suo
+    `kind` sul server vecchio (il recinto di chi rende la card la prende):
+    nessun 500 sull'inbox. Nessun `notification_kind` nuovo.
+  - Un cambio dell'email in attesa resta in `email_changes`: il server
+    vecchio non ha la rotta di conferma, quindi il link non funziona finché
+    non si torna avanti.
+- **«Integrazione area 9, F2: il registro delle modifiche»** *(18 nov 2026)*:
+  branch `feat/area9-f2` (da `feat/integrazione-area9`, con F1 unita), piano
+  `docs/plans/2026-11-16-integrazione-area9-f2-plan.md`, invariante
+  `docs/invariants/change-log.md`. Un registro tipizzato delle modifiche
+  d'amministrazione, scritto nella transazione di ogni modifica e tenuto PER
+  SEMPRE (D-3, D-4): persone, inviti e primo avvio, ruoli, reparti, membri dei
+  progetti. Migrazione **0187** (additiva: `change_log`, quattro indici, il
+  trigger solo-aggiunta). Permesso d'istanza nuovo `changelog.view`, senza
+  preset (il full admin l'ha implicito). Nessuna env nuova; il worker non
+  cambia.
+
+  **ORDINE**: **server** (healthy, 0187 applicata), poi **caddy** (le pagine
+  Change log del renderer).
+
+  **Da sapere subito**:
+  - Il registro parte dal deploy: le modifiche di prima non ci sono e non si
+    ricostruiscono.
+  - Non si modifica né si cancella: un trigger rifiuta UPDATE, DELETE e
+    TRUNCATE (passano solo le `SET NULL` quando si elimina un utente o un
+    progetto). Nessun job lo pota.
+  - Chi legge: chi ha `changelog.view` tutto ciò che vede; chi gestisce un
+    oggetto le voci di quel tipo (es. `users.manage` le persone,
+    `roles.manage` i ruoli); chi gestisce un progetto le voci del progetto.
+    Mai le voci su persone o progetti che chi guarda non vede.
+  - Mai un segreto in una voce (un test di sorgente lo verifica): degli
+    inviti l'id è opaco, il token non entra.
+  - Qualche scrittura prima senza transazione ora lo è: identità git e
+    Bitbucket, revoca degli inviti, creazione di un ruolo, la rimozione dei
+    Contributor quando la conferma di una proposta della posta non riesce.
+  Controllo, sola lettura: `select type, count(*) from change_log group by
+  type order by 2 desc;`.
+
+  **Rollback** (il server scende **insieme** al caddy; 0187 non si annulla, e
+  la tabella resta: D-4): un server vecchio non scrive voci, quindi il registro
+  ha un BUCO per il tempo del rollback — annotarne inizio e fine. Il trigger
+  resta e non disturba il codice di prima (che non tocca la tabella).
+  `changelog.view` dato a un ruolo resta nella riga del ruolo e il server
+  vecchio lo ignora. Nessun `notification_kind` nuovo.
+- **«Integrazione area 9, F3: integrazioni, segreti e registro della 9b»**
+  *(18 nov 2026)*: branch `feat/area9-f3` (da `feat/integrazione-area9`), piano
+  `docs/plans/2026-11-18-integrazione-area9-f3-plan.md`. Più webhook in uscita
+  (fino a 20), ognuno col suo formato, i suoi eventi e un segreto che firma gli
+  invii (`X-Stubwise-Signature: t=<unix>,v1=<HMAC-SHA256 di "<t>.<body>">`);
+  la riconferma sulle rotte che toccano un segreto; le voci del registro per
+  provider, modelli, automazione, budget, lingua, analisi dei server, account
+  git, plugin, app Google, archiviazione e webhook; la fonte del modello nella
+  pagina dei modelli. Migrazioni **0188** (`outgoing_webhooks`,
+  `notification_deliveries.webhook_id`, e il webhook di oggi migrato) e
+  **0189** (`instance_settings.worker_model_env_operations`) e **0190**
+  (`ai_providers.secret_last4`), tutte additive. Nessuna env nuova, nessun
+  `notification_kind` nuovo.
+
+  **ORDINE**: **server** (healthy, 0188, 0189 e 0190 applicate), poi **worker** (il
+  poller che manda una consegna per webhook, firmata, e la colonna dei
+  modelli), poi **caddy**. Il worker subito dopo il server: nel mezzo il worker
+  vecchio manda le consegne nuove all'URL di `notification_settings`, che alla
+  migrazione è lo stesso del webhook migrato (nessun doppione), ma senza
+  leggere le modifiche fatte nel frattempo dall'app nuova.
+
+  **Da sapere subito**:
+  - **Il webhook di oggi diventa il primo dei webhook** (nome «Webhook», stesso
+    URL, formato, acceso e gli eventi dei suoi interruttori), **senza
+    segreto**: gli invii partono SENZA firma finché non lo si rigenera.
+    **Rigeneralo per avere la firma** (Impostazioni → Webhook, chiede la
+    riconferma) e avvisa i destinatari JSON che verificano la firma: il
+    segreto si vede una volta sola. Il formato «generic» si chiama ora «JSON».
+  - ⚠️ **Il webhook non riceve più le proposte della posta.** La 0188 scarta
+    `notify_google_proposal`: il catalogo dei 21 eventi non ha la posta. Dove
+    era acceso, dopo il deploy smette di mandarle, in silenzio. Controllo,
+    PRIMA del deploy, sola lettura: `select webhook_url is not null as
+    configured, enabled, notify_google_proposal from notification_settings;`
+    — se `configured` e `notify_google_proposal` sono veri, avvisa chi ci
+    contava (registro dei rimandi: «Il webhook non riceve più le proposte
+    della posta»).
+  - **I webhook li gestisce chi ha `integrations.manage`** (H-1), anche dalla
+    pagina Notifiche del web vecchio, che prima chiedeva `settings.manage`: un
+    ruolo con `settings.manage` e senza `integrations.manage` non la vede più.
+    Controllo, sola lettura: `select name from roles where permissions @>
+    array['settings.manage'] and not permissions @> array['integrations.manage'];`.
+  - La pagina Notifiche del web vecchio lavora sul webhook PIÙ VECCHIO; un URL
+    svuotato lì lo SPEGNE, non lo elimina (eliminare chiede la riconferma).
+    ⚠️ Per chi la usa: dopo averlo svuotato l'URL RICOMPARE (spento), e
+    «Prova» continua a chiamarlo. Per toglierlo davvero, eliminalo dall'app
+    nuova (Impostazioni → Webhook).
+  - **Cambiare l'URL di un webhook chiede la riconferma** (decisione del
+    maintainer), dall'app nuova e dalla pagina Notifiche vecchia (anche
+    crearne uno da lì); nome, formato, eventi e interruttore no.
+  - **L'ultimo account AI acceso non si spegne né si elimina** (409
+    `last_enabled_provider`, decisione del maintainer), anche dal web vecchio:
+    senza un account acceso il worker non lavora. Per cambiarlo, accendine
+    prima un altro.
+  - Le ultime 4 cifre della credenziale di un provider (0190) compaiono solo
+    dopo averla creata o sostituita: le righe di prima restano senza.
+    La banda della quota (`ok`, `near` dall'80% usato, `limited`) la calcola
+    il server dall'ultimo campione e da `limited_until`.
+  - **Registrare un plugin dal web ora chiede la casella «Mi fido»**:
+    registrarlo ne esegue già il codice (lo smoke run).
+  - La riconferma recente (10′) serve ora per creare ed eliminare provider AI,
+    account git, app Google e webhook, per registrare un plugin o cambiarne il
+    ref, per rigenerare il segreto di un webhook, e per un `PATCH`/`PUT` che
+    sostituisce o azzera un segreto (provider, account git, app Google,
+    archiviazione, Slack).
+  - Un webhook può puntare alla rete interna (SSRF): limite accettato e
+    dichiarato nel registro dei rimandi, come col webhook unico di prima.
+  - La fonte del modello («env» o «default») la pubblica il worker
+    all'avvio: finché gira il worker vecchio, la pagina dei modelli dice
+    «default» anche dove c'è un'env. Innocuo; il riavvio del worker la sistema.
+  Controllo, sola lettura: `select name, format, enabled,
+  secret_encrypted is null as unsigned, cardinality(events) from
+  outgoing_webhooks;` e `select type, count(*) from change_log where type like
+  'webhook.%' or type like 'provider.%' group by type;`.
+
+  **Rollback** (il server scende **insieme** al caddy, il worker con loro; 0188
+  e 0189 non si annullano, le tabelle restano):
+  - un server o worker vecchio legge `notification_settings`, ferma all'ultimo
+    stato PRIMA del deploy: i webhook aggiunti e le modifiche fatte dopo non
+    valgono più (si perdono, finché non si torna avanti);
+  - le consegne con `webhook_id` il worker vecchio non le capisce: le
+    manderebbe tutte all'URL di `notification_settings`, una per webhook.
+    PRIMA di far scendere il worker, chiudi quelle in attesa:
+    `update notification_deliveries set status = 'skipped', error =
+    'rollback area 9 F3' where status = 'pending' and webhook_id is not null;`;
+  - il registro ha un buco per il tempo del rollback (come F2);
+  - le rotte con riconferma, il «Mi fido» e il blocco dell'ultimo account AI
+    acceso tornano come prima (la 0190 resta, il server vecchio la ignora).
+- **«Integrazione area 9, F4: lo Stato dell'istanza»** *(18 nov 2026)*:
+  branch `feat/area9-f4` (da `feat/integrazione-area9`, con F3 unita), piano
+  `docs/plans/2026-11-18-integrazione-area9-f4-plan.md` (D-7 = a, J-1…J-6 =
+  a). La pausa della coda di un progetto, lo Stato dell'istanza
+  (`GET /api/instance/status`), il rilancio di un lavoro fallito, il budget che
+  torna, l'heartbeat dei worker e AI → Usage per l'app
+  (`GET /api/ai-usage/summary`). Migrazione **0191** (additiva:
+  `projects.queue_paused_at` e `queue_paused_by_user_id`, la tabella
+  `worker_heartbeats`). Permesso d'istanza nuovo `instance.status.view`
+  (implicito nel full admin, nessun altro preset). Nessuna env nuova, nessun
+  `notification_kind` nuovo. In `PUT /api/settings/instance` anche lo speso del
+  mese (`spentUsd`, `budgetReached`, `budgetEffect`), tutto additivo.
+
+  **ORDINE**: **server** (healthy, 0191 applicata), poi **SUBITO il worker**,
+  poi **caddy**. ⚠️ Un worker vecchio IGNORA la pausa (le WHERE dei claim sono
+  nel worker nuovo): fra il deploy del server e quello del worker mettere in
+  pausa una coda non ferma niente. Non usare la pausa in quella finestra.
+
+  **Da sapere subito**:
+  - La pausa agisce SOLO sulla coda di Stubwise: in pausa, il lavoro NUOVO di
+    Claude del progetto non parte (job delle task, correzioni, review, intake e
+    stime, Docs, giro notturno, grafo, Drive, daily report, brief, giudizio
+    del support, passo di Claude delle automazioni di progetto, la proposta di
+    correzione di un server); il lavoro già partito finisce; niente si cancella.
+    Non si fermano chat, «Chiedi a Claude», le sessioni interattive, la posta,
+    le analisi dei server. Nessun riavvio né azione su un server, per
+    costruzione (un test di sorgente lo verifica).
+  - La mette e la toglie chi ha `project.settings.manage` nel progetto
+    (`POST /api/projects/:projectId/queue/pause` e `/resume`); la ripresa fa
+    ripartire subito le automazioni ferme per la pausa. Registro:
+    `queue.paused`, `queue.resumed`.
+  - Il rilancio (`POST /api/instance/jobs/:id/retry`) chiede
+    `project.settings.manage` e `runs.start`, solo su un job di una task
+    fallito negli ultimi 7 giorni, mai una correzione; riparte con `startRun`
+    (gate del piano compreso). Registro: `job.retried`, nella transazione di
+    `startRun`.
+  - Alzare il tetto mensile sopra lo speso fa ripartire subito i passi delle
+    automazioni fermi per il budget; il mese nuovo li trova al giro dei 15′.
+  - Gli heartbeat dei worker si potano da soli dopo un giorno.
+  Controlli, sola lettura: `select code, queue_paused_at from projects where
+  queue_paused_at is not null;` e `select worker_id, seen_at, concurrency,
+  jsonb_array_length(running) from worker_heartbeats order by seen_at desc;`.
+
+  **Rollback** (il server scende **insieme** al caddy, il worker con loro; la
+  0191 non si annulla, le colonne e la tabella restano):
+  - PRIMA di scendere, togli le pause (`select code from projects where
+    queue_paused_at is not null;` e riprendile dall'app): un worker vecchio le
+    ignora, quindi dopo il rollback quei progetti ripartirebbero comunque, ma
+    al ritorno in avanti ripartirebbero in pausa senza che nessuno se lo
+    ricordi;
+  - un worker vecchio non scrive l'heartbeat: lo Stato dell'istanza (che il
+    server vecchio non ha) non ne ha bisogno;
+  - `instance.status.view` dato a un ruolo resta nella riga e il server
+    vecchio lo ignora;
+  - il registro ha un buco per il tempo del rollback (come F2 e F3).
+
+- **«Integrazione area 9, F5: impostazioni del progetto»** *(18 nov 2026)*:
+  branch `feat/area9-f5` (da `feat/integrazione-area9`), piano
+  `docs/plans/2026-11-18-integrazione-area9-f5-plan.md` (K-1…K-5 = a). Il
+  registro della 9c (29 tipi di progetto più `repository.deleted` d'istanza,
+  senza scrittore sul server), la riconferma dei file d'ambiente, le
+  rigenerazioni della chiave d'ingestione e del segreto del webhook git, i
+  plugin del progetto con la versione e il registro, la regola del pulse, e
+  la chiave d'ingestione che non esce più da nessuna lettura (I2).
+  Migrazione **0192** (additiva: `projects.ingestion_key_created_at` e
+  `ingestion_key_created_by_user_id`, null per le chiavi di prima). Nessuna
+  env nuova, nessun `notification_kind` nuovo, nessun permesso nuovo.
+
+  **ORDINE**: **server** (healthy, 0192 applicata), poi **caddy** (il web
+  vecchio legge l'Integrazione dalla rotta nuova; col caddy vecchio il
+  pannello mostrerebbe una chiave vuota). Worker invariato.
+
+  **Da sapere subito**:
+  - **Rigenerazioni** (riconferma):
+    `POST /api/projects/:projectId/ingestion-key` (`project.settings.manage`)
+    e `POST /api/repositories/:slug/webhook-secret` (`repos.manage`). La
+    chiave o il segreto VECCHI smettono subito: chi li usa (l'SDK nei siti, il
+    webhook su un repository configurato a mano) va avvisato PRIMA. Il
+    segreto del webhook configurato da Stubwise va prima sulla piattaforma
+    (scope controllati prima: 422 `webhook_scope_missing`; rifiuto: 502
+    `platform_update_failed`, resta il vecchio), poi nel DB. Se la scrittura
+    nel DB fallisce, il vecchio torna sulla piattaforma (`rollback`, con
+    `platformRestored`).
+  - **File d'ambiente**: importare, impostare, togliere una variabile ed
+    eliminare un file chiedono la riconferma recente (403 `reauth_required`;
+    il web vecchio la gestisce col suo dialogo). Creare un file vuoto no (D-5).
+    **Eliminare un ambiente** (decisione B) la chiede solo se l'ambiente ha
+    file d'ambiente (`partialReauth`), e lascia una voce `env_file.deleted`
+    per ogni file che la cascata cancella, nella stessa transazione; un
+    ambiente senza file si elimina come prima.
+  - **Plugin del progetto (decisione A)**: un plugin resta **opt-in** per
+    progetto, come oggi (il worker prende solo `project_plugins.enabled`,
+    con stato `ready`); lo spegnimento «per sottrazione» di skill e hook vale
+    DENTRO un plugin acceso. Il prototipo si allinea con un interruttore per
+    plugin. GET e PUT rispondono `version`; il PUT con
+    `ifMatch` vecchio risponde 409 `stale` e non scrive. Il limite v1 «una
+    persona per volta» è chiuso per chi manda `ifMatch` (l'app); il web
+    vecchio non lo manda e per lui l'ultimo salvataggio vince ancora.
+  - **Chiave d'ingestione (I2)**: le LETTURE del progetto (lista, dettaglio)
+    mandano `ingestionKey: null`. La chiave intera esce una volta sola: dalla
+    **creazione** del progetto, a chi crea (decisione D), e dalla
+    rigenerazione; entrambe con `cache-control: no-store`.
+    `GET /api/projects/:projectId/integration` ne dà le ultime 4, quando e da
+    chi. **Cambio di prodotto**: prima ogni membro del progetto vedeva e
+    copiava la chiave dal web; ora la vede chi crea il progetto, al momento,
+    e poi chi ha `project.settings.manage` rigenerandola. Gli altri la
+    chiedono a loro. La chiave in uso non cambia col deploy.
+  - **Webhook git**: rigenerazione e «configura» bloccano la riga del
+    repository per tutta la sequenza piattaforma → DB (due operazioni insieme
+    si mettono in fila). **Il segreto intero non si legge più** (decisione
+    C): `GET /api/repositories/:slug/webhook` risponde `{ webhookPath,
+    secretLast4, configured }`, senza `webhookSecret`. Esce una volta dalla
+    creazione del repository (`webhookSecret` nella risposta 201, `no-store`)
+    e dalla rigenerazione. Chi configura a mano un webhook già esistente lo
+    rigenera dal pannello del web vecchio («Rigenera secret»), che lo
+    mostra una volta. ⚠️ Rigenerare un segreto configurato a mano rompe il
+    webhook finché non si incolla il nuovo sul provider: lo dice il pannello.
+    I webhook già configurati non cambiano col deploy.
+  - **Pulse**: `PATCH /api/projects/:projectId` rifiuta il pulse acceso senza
+    la discovery del backlog (400 `pulse_needs_backlog`), e spegnere la
+    discovery spegne il pulse nello stesso salvataggio. Il web vecchio
+    disabilita la casella quando la discovery è spenta, ma non la toglie: chi
+    accende il pulse e POI spegne la discovery nello stesso form manda
+    `{backlogEnabled: false, pulseEnabled: true}` e riceve il 400 (rifà il
+    salvataggio togliendo il pulse). I progetti che oggi hanno pulse acceso e
+    backlog spento restano così finché qualcuno non salva la discovery.
+  - **Registro**: ogni scrittura delle impostazioni del progetto (generali,
+    AI, interruttori, stati, soglie, plugin, repository, ambienti, widget,
+    file d'ambiente) lascia la sua voce nella sua transazione; mai un valore
+    di una variabile, una chiave o un segreto.
+  Controllo, sola lettura: `select type, count(*) from change_log where type
+  like 'project.%' or type like 'repository.%' or type like 'env_%' or type
+  like 'environment.%' or type like 'widget.%' group by type;`.
+
+  **Rollback** (il server scende **insieme** al caddy se il renderer è
+  salito con lui; nessuna migrazione da annullare):
+  - le rotte nuove spariscono; le chiavi e i segreti rigenerati nel
+    frattempo restano quelli VALIDI (sono nel DB), quindi non serve
+    riavvisare nessuno;
+  - ⚠️ il server vecchio torna a mandare la chiave d'ingestione INTERA nella
+    vista del progetto a ogni membro (l'esposizione che I2 chiude), e il
+    segreto del webhook intero a chi ha `repos.manage` (decisione C): il
+    rollback le riapre per il suo tempo;
+  - il server vecchio elimina un ambiente con file senza riconferma e senza
+    le voci `env_file.deleted` (come prima di F5);
+  - la 0192 non si annulla: le due colonne restano, il server vecchio le
+    ignora;
+  - il server vecchio non manda `version` dei plugin: l'app la legge `null` e
+    salva senza `ifMatch`;
+  - le voci della 9c già scritte restano; il server vecchio non le mostra
+    (legge solo i tipi che conosce, nella WHERE) e il registro ha un buco per
+    il tempo del rollback (come F2–F4).
+
+- **«Integrazione area 9, F6: archivio ed eliminazione»** *(19 nov 2026)*:
+  branch `feat/area9-f6` (da `feat/integrazione-area9`), piano
+  `docs/plans/2026-11-19-integrazione-area9-f6-plan.md` (L-1…L-7 = a, L-4
+  deciso dal maintainer). Si archivia e si riapre un progetto; si elimina
+  SOLO un archiviato, SOLO un full admin; i repository di un progetto
+  eliminato restano STACCATI. Migrazioni **0193** (`projects.archived_at` e
+  `archived_by_user_id`; `repositories.project_id` nullable con `ON DELETE
+  SET NULL`; `change_log.project_id` senza FK; la memoria del progetto
+  eliminato `deleted_projects` e `deleted_project_members`;
+  `repositories.detached_at` e `detached_from_project_id`) e **0194**
+  (`graph_jobs` senza FK sul repository, più `repo_url`: il job `prune`). Nessuna
+  env nuova, nessun `notification_kind` nuovo, nessun permesso nuovo.
+
+  **ORDINE**: **server** (healthy, 0193 e 0194 applicate), poi **worker** (legge
+  `projects.archived_at` nel frammento della coda e il job `prune` con
+  `graph_jobs.repo_url`), poi **caddy** (il web vecchio senza «Elimina»). Il
+  worker senza job dell'agente in corso, come sempre.
+
+  **Da sapere subito**:
+  - **Eliminare un progetto cambia regola**: prima bastava
+    `project.settings.manage`, senza archivio né riconferma, e i repository
+    se ne andavano in cascata. Ora:
+    - si elimina solo un archiviato, solo un full admin, con la riconferma e
+      il codice del progetto scritto esatto (`{ confirmCode }`);
+    - il web vecchio non ha più «Elimina»; lo fa l'app nuova;
+    - un client vecchio che prova riceve 400 (senza corpo) o 403.
+  - **L'archiviato sparisce ovunque** (elenchi, ricerca, ⌘K, Home, Stato
+    dell'istanza, `/api/auth/me`, automazioni, destinatari delle notifiche,
+    Slack), anche per i full admin. Restano tre eccezioni volute:
+    - i consumi d'istanza (`usage.view`) contano la sua spesa, senza il nome;
+    - il registro delle modifiche mostra le sue voci a chi lo vedrebbe;
+    - le approvazioni d'automazione senza progetto restano al full admin.
+    Lo leggono di proposito solo `GET /api/projects/archived` e
+    `…/:projectId/archived-view`, per i membri di allora e i full admin.
+    Scriverci risponde 409 `archived`. Le superfici PUBBLICHE (l'SDK su
+    `/ingest`, l'ingresso `/api/inbound`, il widget, il webhook git) lo
+    trattano come uno slug sconosciuto (401): ⚠️ archiviando un progetto
+    l'SDK nei suoi siti smette di creare ticket e il widget smette di
+    rispondere. Nessuna notifica nuova nasce per un archiviato, e le card già
+    in inbox si nascondono (e tornano riaprendo).
+  - **Archiviare** è bloccato (409 `busy`) solo dal lavoro in esecuzione:
+    job che triagia o corregge, review di PR, sessione dal vivo, generazione
+    Docs in corso o in pausa, rilascio con le run aperte. Annulla le
+    esecuzioni aperte delle automazioni del progetto (input di controllo,
+    ragione «Progetto archiviato.»).
+  - **Il worker** non prende lavoro di un archiviato: la coda lo tratta come
+    in pausa, nel frammento condiviso. Lo saltano anche il giro notturno, il
+    brief settimanale, il daily report, il polso e l'attribuzione della
+    posta. Riaprendo, tutto riparte da dov'era: niente è stato riscritto.
+  - **Un repository staccato** non è di nessun progetto:
+    - lo vede solo Amministrazione → Repositories (`GET
+      /api/repositories/detached`);
+    - si ricollega con `repos.manage` nel progetto di destinazione; il
+      segreto del webhook si rigenera, quindi il webhook va riconfigurato;
+    - lo elimina solo un full admin, con la riconferma.
+    Il webhook di uno staccato risponde 401. Eliminato, il worker (job
+    `prune` sulla coda dei grafi) toglie dal volume il suo grafo e il suo
+    mirror, il mirror solo se nessun altro repository usa lo stesso URL.
+  - **Il registro di un progetto eliminato**: le voci di progetto restano
+    col loro `project_id` e non le legge più nessuno. Restano solo codice,
+    nome e membri del progetto (`deleted_projects`), che servono a dire chi
+    lo conosceva: a quelle persone `project.deleted` mostra `CODICE · Nome`,
+    agli altri «un progetto che non vedi» (`hidden`).
+  Controllo, sola lettura: `select count(*) filter (where archived_at is not
+  null) as archiviati from projects; select count(*) from repositories where
+  project_id is null;` e `select kind, status, count(*) from graph_jobs where
+  kind = 'prune' group by 1, 2;`.
+
+  **Rollback** (il server scende **insieme** al caddy; le migrazioni non si
+  annullano):
+  - ⚠️ **PRIMA di scendere, nessun repository staccato**: il server vecchio va
+    in **500** su `GET /api/repositories` e sulla ricerca appena esiste una
+    riga con `repositories.project_id` null (verificato sul codice di
+    `feat/integrazione-area9` con la 0193 e la 0194 applicate a mano: le
+    altre letture principali rispondono 200). Quindi prima si ricollegano o
+    si eliminano, dall'app o dall'API. Si contano con `select id, name from
+    repositories where project_id is null;`;
+  - il server vecchio vede gli archiviati come APERTI: riappaiono a tutti i
+    loro membri e il worker vecchio ne riprende il lavoro (giro notturno,
+    brief, daily report, coda). Se non deve succedere, si riaprono o si
+    eliminano prima di scendere;
+  - i job `prune` ancora in coda il worker vecchio non li conosce: li chiude
+    `failed` («kind sconosciuto»), e mirror e grafo di quei repository restano
+    sul volume da togliere a mano (`/graphs/<repositoryId>`, il mirror per
+    URL);
+  - le voci `project.archived`, `project.reopened`, `project.deleted` e
+    `repository.linked` già scritte restano; il server vecchio non le mostra
+    (legge solo i tipi che conosce) e il registro ha un buco per il tempo del
+    rollback, come F2–F5.
+
+- **«Integrazione area 9, F7: le azioni di Claude dell'area 9»** *(19 nov
+  2026)*: branch `feat/area9-f7` (da `feat/integrazione-area9`), piano
+  `docs/plans/2026-11-19-integrazione-area9-f7-plan.md` (M-1…M-8 = a).
+  Claude propone 23 voci nuove: le C dei membri e dei plugin, le B del
+  progetto, le B dell'istanza senza segreti. Una C si conferma SOLO con la
+  riconferma di chi conferma. Il registro delle modifiche sa che una voce
+  l'ha scritta Claude («By Claude») e quale voce annulla un «Annulla».
+  Migrazione **0195** (`change_log.via_claude_action_id` e
+  `undo_of_action_id`, senza FK, di DEFAULT dalle variabili di transazione
+  dell'esecutore; le due colonne entrano nella tupla del trigger
+  append-only). Nessuna env nuova, nessun `notification_kind` nuovo, nessun
+  permesso nuovo. Nove rotte GET entrano nell'allowlist del token del turno
+  della chat (i tool `read_project_members` e `read_instance_settings`).
+
+  **ORDINE**: **server** (healthy, 0195 applicata), poi **worker**, poi
+  **caddy**. Il piano diceva «niente worker»: invece il worker cambia (la
+  copia delle voci proponibili del server MCP, il contratto del prompt, le
+  firme filtrate coi permessi d'istanza, i due tool di lettura), quindi va
+  ribuildato. Il worker si riavvia senza job dell'agente in corso, come
+  sempre. Un worker nuovo davanti a un server vecchio propone voci che il
+  server rifiuta (`invalid`) e legge rotte che il server rifiuta
+  (`chat_tool_forbidden`, che Claude legge «non visibile»): niente si rompe,
+  ma il server va per primo.
+
+  **Da sapere subito**:
+  - **Le C chiedono la riconferma alla CONFERMA** (`POST
+    /api/claude/proposals/:id/confirm`, `partialReauth`), con la finestra di
+    chi conferma. Sono `addMember`, `removeMember`, `setMemberRole`,
+    `registerPlugin`, `updatePluginRef`. Senza riconferma: 403
+    `reauth_required`, e la proposta resta aperta. Una C non scelta
+    («Conferma 2 di 3») non la chiede. Un «Annulla» il cui inverso è una C
+    passa sempre da una scheda con la riconferma.
+  - **I plugin**: `registerPlugin`/`updatePluginRef` vogliono `trust: true`
+    negli argomenti, come la rotta. Registrare un plugin ne ESEGUE il codice
+    (lo smoke run parte da solo, vedi «Plugin e skill dell'agente» in
+    CLAUDE.md): il contratto dice a Claude di proporlo solo se la persona ha
+    scritto che si fida di quel repository e di quel commit.
+  - **Nessun segreto passa da Claude** (M-4 = a): gli argomenti delle voci
+    d'istanza sono gli schemi delle rotte MENO i segreti, `strict`. Le
+    credenziali git, il secret Google e l'url di un webhook sono rifiutati
+    già alla proposta. La riconferma parziale di quelle rotte non
+    scatta mai da Claude. Le due letture nuove passano al modello solo campi
+    in allowlist: niente segreti, ultime cifre, url dei webhook o chiave
+    d'accesso S3.
+  - **Fuori, nel registro dei rimandi**: `saveStorage` (review di F7:
+    endpoint e bucket decidono dove vanno gli allegati, come l'url di un
+    webhook), `setAttachments` (sul server gli allegati non hanno un
+    interruttore) e `setDefaultReviewer` (il PUT verifica il token chiamando
+    il provider). Nell'app Claude dice che si
+    fanno dalla pagina.
+  - **«Annulla»** riporta lo stato di prima. Rifiuta (`changed_after`) se
+    dopo Claude qualcuno ha salvato a mano la STESSA impostazione: lo guarda
+    nel registro, per i tipi di voce di quella sezione. Non si annullano
+    `retryJob`, `rerunSmoke`, `removePlugin`, i plugin, il `removeMember` di
+    chi aveva permessi personali (Claude non li ridà) e un workspace git
+    messo dove non c'era.
+  - **Le firme che il modello vede**: le voci d'istanza compaiono solo a chi
+    ha il loro permesso d'istanza (`CLAUDE_INSTANCE_PERMISSION`); quelle di
+    progetto le giudica il server alla proposta.
+  - **Il registro**: le voci di prima di F7 restano senza `via` (non si sa
+    più chi le ha scritte). `undoOf` e `undoneEntry` ci sono solo se chi
+    guarda legge la voce annullata.
+  - **Refactor senza cambi di risposta**: le scritture di sette rotte sono
+    estratte in funzioni che chiamano anche le voci di Claude. Sono il PATCH
+    del progetto, modelli, automazioni, `PUT /api/settings/instance`,
+    provider (patch e riordino), account git, app Google.
+  Controllo, sola lettura: `select count(*) from change_log where
+  via_claude_action_id is not null;` e `select fn, count(*) from
+  claude_actions group by 1 order by 2 desc;`.
+
+  **Rollback** (il server scende **insieme** al caddy, il worker con loro;
+  la 0195 non si annulla):
+  - le colonne della 0195 restano, il server vecchio le ignora, e i DEFAULT
+    continuano a scrivere null fuori dall'esecutore;
+  - ⚠️ **le conversazioni con una voce nuova**: il server vecchio va in
+    **500** sugli elenchi delle proposte e dei gruppi di una conversazione
+    che ne contiene una. Le risposte validano la `fn` con l'enum
+    `claudeActionFnSchema`, che non la conosce, e il serializer
+    (`fastify-type-provider-zod`, `safeParse` della risposta) lancia
+    `ResponseSerializationError`. Lo dice il codice, non è stato provato su
+    un server vecchio. Una proposta
+    ancora aperta con una voce nuova, alla conferma, il server vecchio la
+    rifiuta (`invalid`). Prima di scendere si contano con `select
+    count(distinct g.session_id) from claude_actions a join
+    claude_action_groups g on g.id = a.group_id where a.fn in
+    ('addMember','removeMember','setMemberRole','registerPlugin','updatePluginRef','archiveProject','reopenProject','updateProjectGeneral','setProjectAi','saveProjectAutomations','pauseQueue','resumeQueue','retryJob','setModel','saveBudget','saveAutomation','setProviderEnabled','moveProvider','updateGitAccount','updateGoogleApp','rerunSmoke','removePlugin','updateWebhook');`
+    (e lo stesso su `claude_proposals.actions`). Se non è zero, quelle
+    conversazioni restano illeggibili per il tempo del rollback;
+  - il worker vecchio torna a elencare tutte le firme a tutti, senza le voci
+    nuove e senza i due tool di lettura.
+
+- **«Integrazione area 9, F8: i permessi di progetto dei reparti»** *(19 nov
+  2026)*: branch `feat/area9-f8` (da `feat/integrazione-area9`), piano
+  `docs/plans/2026-11-19-integrazione-area9-f8-plan.md`.
+  - Decisioni: F8-1 e F8-3 del maintainer; F8-2, F8-4 e F8-5 = a.
+  - Un reparto dà ai suoi membri UNA lista di permessi di progetto, valida
+    in ogni progetto di cui sono GIÀ membri. Un reparto non rende membri di
+    niente.
+  - Migrazione **0196** (`department_project_permissions`, PK
+    `(department_id, permission)`, cascade col reparto).
+  - Nessuna env nuova, nessun `notification_kind` nuovo, nessun permesso
+    nuovo.
+  - Una rotta nuova, `POST /api/departments/:id/preview`.
+  - `PATCH /api/departments/:id` prende `projectPermissions` e diventa a
+    riconferma PARZIALE.
+
+  **ORDINE**: **server** (healthy, 0196 applicata), poi **worker**, poi
+  **caddy**. Il worker va ribuildato: legge `memberPermissionsSql` dal
+  `@stubwise/db` della sua immagine, e senza rebuild il suo routing delle
+  notifiche (le consegne, i bottoni Slack) non conta i permessi dei reparti.
+  Chi ha un permesso dal reparto non riceverebbe le notifiche che il server
+  gli mostra. Il worker senza lavoro dell'agente in corso, come sempre.
+
+  **Da sapere subito**:
+  - **Il calcolo è UNO**: `memberPermissionsSql` unisce i permessi dei
+    reparti. Li seguono da soli gate, `/api/auth/me`, «Chi può farlo?», il
+    conteggio dei gestori (`last_manager`) e il routing. Le fonti mostrano
+    `department` accanto a `role` e `grant`.
+  - **La riconferma** (F8-3 = a) la chiede solo una scrittura che fa
+    arrivare permessi a qualcuno: un permesso aggiunto, o una persona
+    aggiunta a un reparto che ne dà. Nome, colore, la Home e togliere no.
+  - **L'escalation**: chi agisce deve avere ogni permesso che dà in OGNI
+    progetto dove arriva, archiviati compresi (403 `escalation` con
+    `missing`). Anche **aggiungere una persona a un progetto** ora passa da
+    lì: porta i permessi dei suoi reparti, e chi agisce li deve avere in
+    quel progetto (F8-4 = a). Vale anche per `addMember` di Claude.
+  - **`last_manager`** (F8-5 = a) anche per i reparti: togliere un permesso,
+    togliere una persona, eliminare il reparto. Il 409 porta `projectId` e
+    `projectCode` SOLO a chi vede il progetto: agli altri né l'uno né
+    l'altro (invisibile = 404).
+  - **Claude** non ENTRA in un reparto (400 `not_a_person`), ma in ogni
+    istanza esistente sta già nel reparto di ripiego: ce l'ha messo il trigger
+    della 0109 quando la 0125 l'ha creato. Lì resta, e il salvataggio del
+    ripiego non si blocca. Non riceve comunque nessun permesso
+    (`memberPermissionsSql` salta gli utenti di sistema).
+  - **Un invito accettato**: chi entra finisce nel reparto di ripiego, e ne
+    porta i permessi nei progetti dell'invito. Se l'invitante non li ha lì,
+    la concessione si scarta, col motivo `inviter_lacks_department_permissions`.
+  - **Due scritture in fila**: chi entra in un progetto blocca `FOR SHARE` le
+    righe dei suoi reparti, e il `PATCH` di un reparto le tiene `FOR UPDATE`.
+    Un'aggiunta al progetto e un permesso aggiunto al reparto non si
+    giudicano a vicenda su dati non ancora scritti.
+  - **Due persone sullo stesso reparto**: c'è la `version` nell'elenco, e
+    `ifMatch` sul `PATCH` dà 409 `stale`. Senza `ifMatch` (un client di
+    prima) vince l'ultima scrittura.
+  - `GET /api/departments` mostra `projectPermissions` solo a chi gestisce i
+    reparti.
+  Controllo, sola lettura: `select d.name, array_agg(p.permission) from
+  department_project_permissions p join departments d on d.id =
+  p.department_id group by 1;`.
+
+  **Rollback** (il server scende **insieme** al caddy, il worker con loro;
+  la 0196 non si annulla, e la tabella resta):
+  - il server vecchio ignora la tabella: chi aveva un permesso SOLO dal
+    reparto lo PERDE. È il verso sicuro (meno accessi), ma un progetto
+    gestito solo via reparto resta senza gestore fuori dai full admin. Prima
+    di scendere si cercano con:
+    `select p.code from projects p where exists (select 1 from
+    project_members pm join department_members dm on dm.user_id = pm.user_id
+    join department_project_permissions dp on dp.department_id =
+    dm.department_id and dp.permission = 'project.members.manage' where
+    pm.project_id = p.id) and not exists (select 1 from project_members pm
+    join roles r on r.id = pm.role_id where pm.project_id = p.id and
+    (r.permissions @> array['project.members.manage'] or exists (select 1
+    from project_member_permissions g where g.project_id = pm.project_id and
+    g.user_id = pm.user_id and g.permission = 'project.members.manage')));`.
+    A quei progetti si dà un gestore a mano prima (ruolo o permesso
+    personale);
+  - le voci `department.permissions_changed` già scritte restano, e il
+    server vecchio le mostra (il tipo era già nel catalogo da F2);
+  - il caddy vecchio non chiama l'anteprima né manda `projectPermissions`.
+
+- **«Integrazione area 10, F1: i chip e le letture»** *(19 nov 2026)*:
+  branch `feat/area10-f1` (da `feat/integrazione-area10`), piano
+  `docs/plans/2026-11-19-integrazione-area10-f1-plan.md`, design
+  `docs/plans/2026-11-19-integrazione-area10-design.md` (D-12 = a).
+  - Sei tool di lettura nuovi per Claude: `read_automation`, `read_server`,
+    `read_support_conversation`, `read_channel`, `read_mail_thread`,
+    `read_calendar_event`, sulle rotte che le pagine usano già.
+  - Migrazione **0197** (`claude_conversations.private_read_at`, dalla review
+    di F1). Nessuna env, nessun `notification_kind`, nessun permesso nuovo.
+    Nessuna rotta nuova: si allargano solo le liste del token del turno
+    (`CHAT_TOOL_READ_ROUTES` in `@stubwise/shared`, `CHAT_TOOL_UNTRUSTED_ROUTES`
+    e `CHAT_TOOL_PRIVATE_ROUTES` nel server).
+
+  **ORDINE**: **server** (healthy, 0197 applicata), poi **worker** (il server
+  MCP della chat e il ponte sono nel worker). Un worker nuovo davanti a un server vecchio riceve
+  403 dalle rotte non ancora ammesse, e il modello dice «non trovato o non
+  visibile»: non rompe niente, ma il server va prima. Il caddy non c'entra:
+  i chip del renderer arrivano a parte (94).
+
+  **Da sapere subito**:
+  - **Supporto, canali, posta e appuntamenti sono contenuto NON fidato**: una
+    lettura riuscita segna la conversazione (`untrusted_read_at`) e da lì ogni
+    proposta è almeno B. Il testo arriva al modello dentro `untrusted_content`
+    con una nota fissa.
+  - **Posta e calendario sono solo di chi chiede**: le rotte leggono con l'id
+    dell'utente, e un full admin che chiede quelli di un altro riceve 404
+    (`mailbox_owner`, test negativo in `chat-tool-token.test.ts`).
+  - **Il contenuto personale solo in una conversazione libera privata**
+    (review di F1): posta, calendario, canali privati e DM, automazioni
+    generali. In una pubblica o in un turno di @Claude nella Chat il token
+    riceve 403 `chat_tool_private_only`; letti, la conversazione non si
+    pubblica più (409 `private_content`). Ogni lettura per codice o id
+    registra il suo progetto, anche i rilasci, che prima non lo facevano.
+  - **Cosa non arriva al modello**: dei server il `target` dei check (per un
+    DSN è la stringa del database) e `lastError`; delle automazioni i
+    destinatari e il corpo delle email, il prompt di Claude, la casella e
+    l'evento delle esecuzioni; del supporto l'email del cliente; della posta
+    il link a Gmail; degli appuntamenti `url`, `eventUrl`, `hangoutLink` e i
+    punti d'accesso della riunione.
+  - **Golden** (manuali, CLI pinnato): `chat-automation-read`,
+    `chat-server-read`, `chat-support-hostile`, `chat-channel-hostile`,
+    `chat-mail-hostile` (README dei golden).
+
+  **Rollback**: server e worker insieme (o il worker prima). La 0197 non si
+  annulla, e la colonna resta. ⚠️ Un server vecchio la IGNORA: una
+  conversazione che ha già letto posta o calendario torna pubblicabile, e chi
+  la pubblica la mostra a chi ha `claude.public.view`. Prima di scendere si
+  contano: `select count(*) from claude_conversations where private_read_at is
+  not null;`. Se non sono zero, la discesa va decisa sapendolo. Dopo, la
+  query `… and visibility = 'public'` deve restare vuota.
+
+- **«Integrazione area 10, F2: un'automazione dal riquadro (S1)»** *(19 nov
+  2026)*: branch `feat/area10-f2` (da `feat/integrazione-area10`), piano
+  `docs/plans/2026-11-19-integrazione-area10-f2-plan.md`.
+  - Migrazione **0198** (era la 0197 nel piano, rinumerata dopo quella della
+    review di F1): il CHECK `agent_session_events_type_chk` con `question`,
+    la tabella `claude_conversation_questions`, e
+    `automation_versions.via_claude_action_id` (DEFAULT dalla variabile di
+    transazione, come la 0131 e la 0195).
+  - Rotte nuove: `GET /api/claude/conversations/:id/questions` e
+    `POST …/questions/:questionId/answer`. Nell'allowlist del token del turno,
+    `GET /api/departments` (tool `list_departments`).
+  - Nessuna env, nessun `notification_kind`, nessun permesso nuovo.
+
+  **ORDINE**: **server** (healthy, 0198 applicata), poi **worker** (il
+  gestore di `ask_question` della libera scrive in `claude_conversation_questions`
+  e gli eventi `question`: su un server senza la 0198 il CHECK li rifiuta),
+  poi **caddy**.
+
+  **Da sapere subito**:
+  - Claude scrive solo BOZZE di automazione (`docs/invariants/automations.md`):
+    pubblicare, accendere, mettere in pausa, avviare e decidere un'esecuzione
+    restano gesti delle persone (`claude-actions-never.test.ts`, nomi e rotte).
+  - Nella conversazione libera Claude può fare UNA domanda a scelta per
+    risposta; la risposta dell'autore entra come un suo messaggio, nella
+    stessa transazione che segna la domanda.
+  - Il contratto porta la guida ai flussi (`claudeAutomationGuide`): eventi e
+    campi dal motore.
+
+  **Rollback** (il server scende **insieme** al caddy, il worker con loro):
+  - ⚠️ **NON sicuro finché esistono eventi `question`**: il CHECK è del DB
+    e resta quello della 0198, ma lo schema di risposta degli eventi del
+    server vecchio non conosce `question`, e la pagina degli eventi di quella
+    conversazione va in 500. Prima di scendere: `select count(*) from agent_session_events where
+    type = 'question';`. Per toglierli (le domande spariscono dalle
+    conversazioni, le risposte restano come messaggi):
+    `delete from agent_session_events where type = 'question';`.
+  - La tabella e la colonna nuove restano, e un server vecchio le ignora.
+
+- **«Integrazione area 10, F3: rispondere sui dati (S2, S3)»** *(20 nov
+  2026)*: branch `feat/area10-f3` (da `feat/integrazione-area10`), piano
+  `docs/plans/2026-11-19-integrazione-area10-f3-plan.md`.
+  - Migrazione **0199**: il CHECK `agent_session_events_type_chk` con `aside`.
+  - Nessuna rotta nuova: nell'allowlist del token del turno
+    `GET /api/tasks/stalled` (la rotta della lista delle task),
+    `GET /api/ai-usage/summary` e `GET /api/access/who-can`. Il polso
+    (`/api/projects/pulse`) NON è fra le letture di Claude.
+  - Nessuna env, nessun `notification_kind`, nessun permesso nuovo.
+
+  **ORDINE**: **server** (healthy, 0199 applicata), poi **worker** (scrive
+  gli eventi `aside`: su un server senza la 0199 il CHECK li rifiuta, e il
+  ponte lo ingoia — fail-open), poi **caddy**.
+
+  **Da sapere subito**:
+  - «Cosa è fermo» per Claude segue le SOGLIE DEI PROGETTI
+    (`stall_active_days`, `stall_todo_days`), la stessa regola e la stessa
+    rotta della lista delle task (decisione del maintainer, 20 nov 2026).
+  - L'`aside` («Hypothesis», «Details») lo scrive il worker con solo id,
+    numeri, date e il tipo del motivo; il server lo arricchisce a lettura
+    (codici, `closed`, `thresholdDays`, solo i progetti che chi guarda vede).
+  - La spesa segue i permessi del server (D-13 = a): chi non può vederla non
+    riceve numeri, e Claude nomina chi può dirglielo.
+
+  **Rollback** (il server scende **insieme** al caddy, il worker con loro):
+  ⚠️ **NON sicuro finché esistono eventi `aside`** (lo schema di risposta del
+  server vecchio non conosce il tipo, e la pagina degli eventi di quella
+  conversazione va in 500). Contarli: `select count(*) from
+  agent_session_events where type = 'aside';`; toglierli (spariscono le righe
+  «Details», la risposta di Claude resta):
+  `delete from agent_session_events where type = 'aside';`.
+
+- **«Integrazione area 10, F4: archiviare in blocco (S4)»** *(20 nov 2026)*:
+  branch `feat/area10-f4` (da `feat/area10-f3`), piano
+  `docs/plans/2026-11-19-integrazione-area10-f4-plan.md`.
+  - Una rotta nuova, `GET /api/projects/archive-candidates?inactiveDays=<n>`
+    (`access: user`): i progetti fermi di chi chiede (l'ultima attività come il
+    prototipo), divisi in candidati, occupati (i motivi `busy` di F6) e non
+    gestibili. È nell'allowlist del token del turno (`read_archive_candidates`).
+  - Nessuna migrazione, nessuna env, nessun `notification_kind`.
+
+  **ORDINE**: **server**, poi **worker** (il tool). **Rollback**: sicuro in
+  discesa; un worker vecchio non ha il tool, un server vecchio risponde 403 al
+  token del turno sulla rotta che non ha.
+
+- **«Integrazione area 10, F5: chi entra in un progetto (S5)»** *(20 nov
+  2026)*: branch `feat/area10-f5` (da `feat/area10-f4`), piano
+  `docs/plans/2026-11-19-integrazione-area10-f5-plan.md`.
+  - Migrazione **0200** (`member_added`): un valore nuovo di
+    `notification_kind`, in uno statement a sé (il batch gira in UNA
+    transazione: nessun uso del valore nella stessa migrazione).
+  - Il server pubblica `member.added` a ogni ingresso in un progetto (a mano,
+    `addMember` di Claude, invito accettato), nella transazione della voce del
+    registro. `/api/inbox` ha un campo nuovo, `undoneBy` (additivo, null di
+    partenza).
+  - Nessuna env.
+
+  **ORDINE**: **server** (healthy, migrazione 0200 applicata), poi **worker**
+  e **caddy**.
+
+  **Rollback**: **NON sicuro sul server finché esistono righe `member.added`**
+  — un server vecchio non conosce il kind e `/api/inbox` risponde 500 (vedi
+  CLAUDE.md, «un `notification_kind` nuovo»). Prima della discesa, contale e
+  toglile (le card spariscono dall'inbox di chi le aveva):
+  ```sql
+  select count(*) from notifications where kind = 'member.added';
+  delete from notifications where kind = 'member.added';
+  ```
+  Il valore dell'enum resta (Postgres non lo toglie): è innocuo. Il caddy
+  scende insieme al server.
+
+- **«Integrazione area 10, F8: «/status» e «/today»»** *(20 nov 2026)*:
+  branch `feat/area10-f8` (da `feat/area10-f5`, con
+  `feat/integrazione-area10` dentro), piano
+  `docs/plans/2026-11-20-integrazione-area10-f8-plan.md`.
+  - `GET /api/tasks` accetta `assigneeIds=me` (additivo, il server lo
+    risolve su chi chiede); l'elenco delle decisioni porta `taskCode`
+    (additivo, `.optional()`).
+  - L'allowlist del token del turno si allarga a `/api/me/follows`,
+    `/api/projects/pulse` e `/api/decisions` (solo il GET dell'elenco: la
+    risposta a una decisione resta 403). Del polso il ponte non passa i
+    titoli né il `stalled` (decisione del maintainer, 20 nov 2026): il fermo
+    viene da `/api/tasks/stalled`, le soglie dei progetti.
+  - Due tool nuovi del worker: `read_followed_projects` («/status») e
+    `read_my_week` («/today»).
+  - Nessuna migrazione, nessuna env, nessun `notification_kind`.
+
+  **ORDINE**: **server**, poi **worker**, poi **caddy**. **Rollback**:
+  sicuro. Un worker vecchio non ha i tool; un server vecchio rifiuta
+  `assigneeIds=me` con 400 e il token sulle rotte nuove con 403, e il tool lo
+  dice; un client che non legge `taskCode` lo scarta.
+
+- **«Integrazione area 10, F6: le bozze nei campi»** *(20 nov 2026)*:
+  branch `feat/area10-f6` (da `feat/area10-f8`), piano
+  `docs/plans/2026-11-20-integrazione-area10-f6-plan.md`.
+  - Una voce nuova del catalogo condiviso, `fillField` (descrizione di una
+    task, note di rilascio di una PR): la esegue il RENDERER come
+    `pageAction`. Il server la valida e controlla che chi chiede possa
+    scrivere quel campo (le regole delle due rotte); non scrive mai.
+  - L'allowlist del token del turno si allarga al GET delle note di una PR
+    (`/api/repositories/:repositoryId/pulls/:prNumber/release-notes`), che è
+    contenuto NON fidato (segna la conversazione). Tool nuovo del worker:
+    `read_pull_request_notes`; `read_release` porta `repositoryId`.
+  - Nessuna migrazione, nessuna env, nessun `notification_kind`.
+
+  **ORDINE**: **server**, poi **worker**, poi **caddy**. **Rollback**:
+  sicuro. Un server vecchio rifiuta `fillField` come `fn` ignota (e il token
+  sulla rotta delle note con 403), un worker vecchio non la propone, un
+  renderer vecchio la legge come `UNKNOWN` e la mostra come azione non
+  disponibile.
+
+- **«Integrazione area 10, F7: S0 e i suggerimenti»** *(20 nov 2026)*:
+  branch `feat/area10-f7` (da `feat/area10-f6`), piano
+  `docs/plans/2026-11-20-integrazione-area10-f7-plan.md`.
+  - Migrazione **0201**: il CHECK `agent_session_events_type_chk` con
+    `capabilities`, e la tabella `claude_suggestion_dismissals` (i «Not now»,
+    per persona, tipo e oggetto, CASCADE sull'utente).
+  - Rotte nuove sotto `/api/claude`: `GET /capabilities` (anche col token del
+    turno: tool `show_capabilities`), `GET /suggestions` e
+    `POST /suggestions/dismiss`.
+  - Nessuna env, nessun `notification_kind`, nessun permesso nuovo.
+
+  **ORDINE**: **server** (healthy, 0201 applicata), poi **worker** (scrive
+  gli eventi `capabilities`: su un server senza la 0201 il CHECK li rifiuta),
+  poi **caddy**.
+
+  **Rollback** (il server scende **insieme** al caddy, il worker con loro):
+  ⚠️ **NON sicuro finché esistono eventi `capabilities`**, come per `aside`:
+  lo schema di risposta del server vecchio non conosce il tipo, e la pagina
+  degli eventi di quella conversazione va in 500. Contarli:
+  `select count(*) from agent_session_events where type = 'capabilities';`;
+  toglierli (sparisce l'elenco «cosa so fare», la risposta resta):
+  `delete from agent_session_events where type = 'capabilities';`. La tabella
+  dei «Not now» resta, e un server vecchio la ignora.
+
+- **«Integrazione area 10: l'area intera (F1–F8)»** *(20 nov 2026)*: la voce
+  per chi rilascia l'area in una volta sola (il design: «una voce per l'area,
+  scritta all'ultima fetta»). Le voci di fetta qui sopra restano quelle da
+  leggere per i dettagli.
+  - **Migrazioni, in ordine** (tutte nel batch del server, `when` crescente):
+    **0197** (F1, `claude_conversations.private_read_at`), **0198** (F2, il
+    CHECK con `question`, `claude_conversation_questions`,
+    `automation_versions.via_claude_action_id`), **0199** (F3, il CHECK con
+    `aside`), **0200** (F5, `notification_kind` `member.added`, in uno
+    statement a sé), **0201** (F7, il CHECK con `capabilities` e
+    `claude_suggestion_dismissals`). Nessuna env nuova.
+  - **ORDINE**: **server** (healthy, 0197–0201 applicate), poi **worker**
+    (niente lavoro dell'agente in corso: «Worker fail-on-restart»), poi
+    **caddy** (il renderer delle fette di 94). Il CLI del worker resta il
+    2.1.322 pinnato: tutti i golden dell'area sono passati con quello.
+  - **Rollback dell'area**: il server scende **insieme** al caddy, il worker
+    con loro. ⚠️ **NON sicuro** finché esistono:
+    - eventi `question`, `aside` o `capabilities` (la pagina degli eventi va
+      in 500): `select type, count(*) from agent_session_events where type in
+      ('question','aside','capabilities') group by type;` e, per toglierli,
+      `delete from agent_session_events where type in
+      ('question','aside','capabilities');`;
+    - card `member.added` (`/api/inbox` va in 500): `select count(*) from
+      notifications where kind = 'member.added';` e `delete from notifications
+      where kind = 'member.added';`;
+    - conversazioni che hanno letto posta o calendario (un server vecchio
+      ignora `private_read_at` e le rende pubblicabili): `select count(*) from
+      claude_conversations where private_read_at is not null;` — se non sono
+      zero, la discesa va decisa sapendolo.
+    Colonne, tabelle e valori d'enum restano: un server vecchio li ignora.
+
+- **«Integrazione area 11, F1: lo spazio Product e l'editor»** *(20 nov
+  2026)*: branch `feat/area11-f1` (da `feat/integrazione-area11`), piano
+  `docs/plans/2026-11-20-integrazione-area11-f1-plan.md`, design
+  `docs/plans/2026-11-20-integrazione-area11-design.md`.
+  - Migrazione **0202**: `product_pages` (corpo a blocchi in jsonb,
+    `rev_seq`), `product_page_revisions`, `product_page_block_ids`,
+    `product_page_follows`, `product_page_images`; `doc_page_codes` accetta
+    le pagine di prodotto (`repository_id` e `slug` nullable,
+    `product_page_id`, una CHECK), con un trigger che numera sotto lo stesso
+    lock della serie `-D` dei Docs (0142).
+  - Rotte nuove sotto `/api`: lo spazio (`/projects/:projectId/product`), la
+    pagina per codice, crea, rinomina e sposta, elimina, la scrittura a
+    operazioni (`…/ops`), la cronologia, Segui, le immagini (nello storage
+    d'istanza, prefisso `product/`).
+  - Nessuna env, nessun `notification_kind`, nessun permesso nuovo (`docs.view`
+    e `docs.edit` di progetto).
+
+  **ORDINE**: **server** (healthy, 0202 applicata), poi **caddy** (il
+  renderer di 94). Il worker non c'entra.
+
+  **Rollback**: la discesa d'immagine del server è possibile, con due cose da
+  sapere (review di F1, M13).
+  - La **0202 non si annulla**: tabelle e colonne restano, e un server
+    vecchio le ignora (le sue letture dei codici dei Docs passano dai
+    repository, le righe di prodotto di `doc_page_codes` non le vede).
+  - Un server vecchio che **elimina un progetto** porta via le righe delle
+    immagini di prodotto in cascata ma NON gli oggetti nello storage
+    (`storageKeysOfProject` non le conosce): restano orfani. Prima di
+    scendere si contano (`select count(*) from product_page_images;`); dopo
+    una discesa, le chiavi di un progetto eliminato non si ritrovano più.
+  - La pulizia oraria dello storage toglie le immagini che nessun blocco nomina
+    da 7 giorni (`purgeUnusedProductImages`); un server vecchio non lo fa.
+
+
+- **«Integrazione area 11, F2: commenti, menzioni e le notifiche nel
+  catalogo»** *(20 nov 2026)*: branch `feat/area11-f2` (da `feat/area11-f1`),
+  piano `docs/plans/2026-11-20-integrazione-area11-f2-plan.md`.
+  - Migrazione **0203** (`product_doc_notifications`): tre valori nuovi di
+    `notification_kind` (`product_doc.mention`, `product_doc.updated`,
+    `product_doc.question`), ognuno in uno statement a sé e mai usato nello
+    stesso batch. Solo `product_doc.mention` ha un produttore: gli altri due li
+    produce F5.
+  - Migrazione **0204** (`product_comments`): i commenti delle pagine di
+    prodotto, con la CHECK del testo eliminato (`deleted_at IS NULL OR body =
+    ''`).
+  - Migrazione **0205** (`product_comments_original_anchor`, review di F2):
+    la colonna `original_anchor_id`, per riportare i fili sul blocco che un
+    ⌘Z rimette dopo un `merge`.
+  - Rotte nuove sotto `/api`: i fili di una pagina (`GET`/`POST
+    /product-pages/:id/comments`), «Resolve»/«Reopen» (`POST
+    /product-comments/:id/resolve|reopen`), i candidati alle menzioni (`GET
+    /projects/:projectId/product/mention-candidates`). Sulle card d'inbox, il
+    campo additivo `productDoc` (derivato a lettura).
+  - Nessuna env, nessun permesso nuovo. Nel catalogo degli avvisi tre righe
+    nella famiglia Docs: la menzione è solo obbligatoria (nessun
+    interruttore), aggiornamento e domanda accesi di partenza per chi ha
+    `docs.edit`.
+
+  **ORDINE**: **server** (healthy, 0203–0205 applicate), poi **worker**, poi
+  **caddy** (il renderer di 94). Il worker c'entra (review di F2): le push
+  delle menzioni le consegna lui (`deliveries-poller.ts`, `buildPushPayload`),
+  e F2 cambia `packages/notifications` (i titoli push e le frasi dei tre kind).
+  Un worker vecchio con una `product_doc.mention` col Telefono acceso non ha il
+  titolo del kind, e la consegna finisce `failed` senza riprovare. Come per
+  `member.added`: niente lavoro dell'agente in corso al riavvio («Worker
+  fail-on-restart»).
+
+  **Rollback**: ⚠️ **NON sicuro sul server finché esistono righe di uno dei
+  tre kind** (`/api/inbox` va in 500: il server vecchio non conosce il
+  `kind`). Oggi può esisterne solo `product_doc.mention`, ma la query li
+  copre tutti e tre, così vale anche dopo F5:
+
+  ```sql
+  select kind, count(*) from notifications
+   where kind in ('product_doc.mention', 'product_doc.updated', 'product_doc.question')
+   group by kind;
+  delete from notifications
+   where kind in ('product_doc.mention', 'product_doc.updated', 'product_doc.question');
+  ```
+
+  Tolte quelle righe, la discesa è possibile. Il **worker** e il caddy
+  scendono **insieme** al server. Le migrazioni non si annullano: valori d'enum e `product_comments`
+  restano, e un server vecchio li ignora. I commenti scritti restano nella
+  tabella e tornano visibili quando si risale.
+
+- **«Integrazione area 11, F3: ricerca, citazioni, esportazione»** *(20 nov
+  2026)*: branch `feat/area11-f3` (da `feat/integrazione-area11`), piano
+  `docs/plans/2026-11-20-integrazione-area11-f3-plan.md`.
+  - Migrazione **0206** (`product_page_chunks`): i passaggi delle pagine di
+    prodotto con l'embedding (indice HNSW come `doc_chunks`), e
+    `product_pages.embedded_at`.
+  - Migrazione **0207** (`product_pages_search_text`): il testo cercabile di
+    una pagina, già piegato dal server (senza maiuscole né accenti).
+  - Migrazione **0208** (`doc_chat_product_sources`): le pagine di prodotto
+    usate come fonte da una risposta della chat dei Docs (solo gli id).
+  - **Env nuova, del server**: `PRODUCT_EMBED_POLL_SECONDS` (default 30, almeno
+    5). La stringa VUOTA spegne il poller degli embedding di prodotto, e la
+    ricerca resta per testo. Nel compose la sostituzione è con `-`, come
+    `GRAPHIFY_MCP_URL`. Il poller usa lo stesso embedder dei Docs
+    (`EMBEDDING_*`, ollama).
+  - Rotte nuove sotto `/api`: la ricerca dello spazio
+    (`/projects/:projectId/product/search`) e l'esportazione
+    (`/product-pages/:id/export`, `/projects/:projectId/product/export`). Il
+    gruppo `product` nella ricerca globale. Le citazioni della Chat portano
+    `product`, la chat dei Docs del progetto `productSources`. Tutto additivo.
+  - Nessun `notification_kind` e nessun permesso nuovo.
+
+  **ORDINE**: **server** (healthy, 0206–0208 applicate), poi **caddy**. Il
+  worker non c'entra: F3 non tocca `packages/notifications` e il worker non
+  legge le colonne nuove. All'avvio il server dà alle pagine di prima il testo
+  cercabile (`backfillAllProductSearchText`, in sottofondo, qualunque sia
+  `PRODUCT_EMBED_POLL_SECONDS`): la ricerca per testo le trova subito. Gli
+  embedding li fa poi il poller, 20 pagine per giro: con molte pagine la
+  ricerca per significato si completa in qualche minuto. Il poller si avvia
+  PRIMA di `listen` (review di F3, C1: un `addHook` dopo `listen` faceva
+  uscire il server all'avvio).
+
+  **Rollback**: sicuro, col **caddy** che scende **insieme** al server (il
+  renderer nuovo chiama le rotte di F3). Un server vecchio ignora tabella e
+  colonne, e un client vecchio legge la citazione senza destinazione. Una cosa da sapere
+  per quando si risale: un server vecchio che scrive pagine di prodotto non
+  aggiorna `search_text`, quindi il testo cercabile di quelle pagine resta
+  quello di prima della discesa. Gli embedding invece si rifanno da soli
+  (`embedded_at < updated_at`). Dopo la risalita, per rifare il testo
+  cercabile di tutte le pagine (lo ricostruisce il server al riavvio
+  successivo, e intanto il poller a ogni giro):
+
+  ```sql
+  update product_pages set search_text = '';
+  ```
+
+- **«Integrazione area 11, F4: la scrittura dal vivo»** *(20 nov 2026)*: branch
+  `feat/area11-f4` (da `feat/integrazione-area11`), piano
+  `docs/plans/2026-11-20-integrazione-area11-f4-plan.md`.
+  - Migrazione **0209** (`product_section_holds`): le sezioni prese di una
+    pagina di prodotto (chi scrive, fino a quando), con scadenza da sola. Sta
+    in tabella perché il worker deve vederle (F5).
+  - Nessuna env, nessun `notification_kind`, nessun permesso nuovo.
+  - Rotte nuove sotto `/api`: lo stream SSE della pagina
+    (`/product-pages/:id/live`) e il battito della presenza
+    (`/product-pages/:id/live/presence`). `POST …/ops` risponde anche 409
+    `section_busy` quando un'operazione tocca una sezione presa da un altro.
+  - Il canale dal vivo usa una LISTEN in più del server
+    (`product_page_events`), accanto a quelle delle sessioni e della Chat.
+
+  **ORDINE**: **server** (healthy, 0209 applicata), poi **caddy** (il
+  renderer). Il worker non c'entra (lo userà F5).
+
+  ⚠️ **Un solo processo server.** Presenza e cursori stanno nella memoria del
+  processo, quindi più processi server dietro caddy si vedrebbero a metà: chi
+  è collegato a uno non vede la presenza di chi è sull'altro. Oggi c'è un
+  processo solo. Chi ne aggiunge un secondo deve prima portare la presenza
+  fuori dalla memoria (o tenere le persone di una pagina sullo stesso
+  processo). Le revisioni e le prese passano dal database e reggono, ma a
+  metà: con due processi, `hold` e `release` di una presa fatta sull'altro
+  arrivano solo col giro a tempo (5 s), e le revisioni scritte sull'altro
+  arrivano senza operazioni (il client rilegge la pagina).
+
+  **Rollback**: sicuro, col caddy che scende insieme al server. Un server
+  vecchio non manda gli eventi né il 409 `section_busy`, e ignora la tabella
+  delle prese. Il renderer torna a «Saved» col 409 `stale` di F1. La 0209
+  non si annulla: la tabella resta, e le prese scadono da sole.
+
+- **«Integrazione area 11, F5: Claude dalle fonti e le domande»** *(21 nov
+  2026)*: branch `feat/area11-f5` (da `feat/area11-f4`), piano
+  `docs/plans/2026-11-20-integrazione-area11-f5-plan.md`.
+  - Migrazione **0210** (`product_doc_jobs`):
+    - la coda del lavoro di Claude sulla doc (`product_doc_jobs`);
+    - i cinque TRIGGER che la riempiono nella transazione di chi scrive: task
+      chiusa, decisione registrata, rilascio, riunione col documento pronto,
+      proposta della posta di un messaggio ammesso con un progetto. Solo per
+      i progetti che hanno almeno una pagina di prodotto, e una fonte una
+      volta per progetto;
+    - i segni di Claude (`product_claude_marks`);
+    - le colonne di Claude sulle revisioni (`source_kind`, `source_id`,
+      `via`, `on_behalf_of`; kind `claude`);
+    - `question` e `answer` sui commenti.
+  - Migrazione **0211** (`product_doc_operation`): l'operazione AI
+    `product_doc_update` nei CHECK di `agent_runs` e `ai_model_settings`
+    (modello di partenza `sonnet`), e la sosta `paused` della coda.
+  - Migrazione **0213** (`product_doc_jobs_review`, revisione di F5): la coda
+    ricorda il lavoro fatto. `facts` sono i fatti del modello, una volta sola;
+    `pages_done` le pagine già scritte; `not_before`, `answered_at` (il freno per
+    progetto) e `last_held_reason` (la riga «Claude riprende quando…»). Più
+    l'indice su `product_claude_marks(revision_id)`. Il trigger della posta
+    accoda anche al cambio di progetto della proposta e all'ammissione DOPO
+    del messaggio; una proposta scartata no.
+  - Migrazione **0212** (`alert_type_underscore`): il CHECK del tipo di
+    un'iscrizione (`alert_subscriptions_type_chk`, 0177) ammette il trattino
+    basso nel primo segmento. Prima nessuna iscrizione `product_doc.*` si
+    poteva scrivere: le Preferenze non accendevano né spegnevano quelle
+    righe. La regola nuova è più larga, quindi le righe esistenti passano.
+  - **Nessun `notification_kind` nuovo**: `product_doc.updated` e
+    `product_doc.question` esistono dalla 0203 (F2). Con F5 diventano VIVI e
+    nascono le prime righe: le pubblica il **worker** (lo scrittore di Claude,
+    nella sua transazione), a chi segue la pagina sempre (motivo
+    `follower`) e a chi ha la riga accesa (di partenza `docs.edit`); mai
+    Claude, mai il titolare della fonte.
+  - Rotte nuove sotto `/api`:
+    - i segni (`GET /product-pages/:id/marks`, `POST
+      /product-marks/:id/looks-good|undo`, `POST
+      /product-revisions/:id/undo-all`);
+    - la risposta a una domanda (`POST /product-comments/:id/answer`, solo
+      `apply` e `keep`);
+    - le domande aperte (`GET /me/product-questions`).
+    `POST /requests` accetta `origin` (`kind: "product_doc"`, la domanda):
+    «Open a request» chiude la domanda col job d'intake. Campi additivi:
+    `question` sui commenti, i campi di Claude sulle revisioni,
+    `claudeHeld` sullo spazio, `productDoc.claude` sulle card d'inbox.
+  - Nessuna env nuova. **Costo nuovo**: ogni fonte dei progetti con una doc
+    di prodotto è UNA run di testo `product_doc_update` (un turno, nessuno
+    strumento, `sonnet`). Entra nel budget AI e nella quota degli account
+    (sfondo); a budget finito o a quota piena il lavoro si ferma `held` e
+    riparte da solo.
+  - Golden `product-doc-email`, `-vague`, `-contradicts`, `-hostile`
+    (`apps/worker/scripts/golden/README.md`): vanno lanciati al rilascio e a
+    ogni aggiornamento del CLI o del prompt (`product-docs/prompt.ts`).
+
+  **ORDINE**: **server** (healthy, 0210–0212 applicate), poi **worker**
+  (fa il lavoro e scrive le card, e vuole le tabelle e il CHECK della 0211;
+  senza lavoro dell'agente in corso, «Worker fail-on-restart»), poi **caddy**
+  (il renderer di 94). I trigger accodano dal momento della migrazione: fra
+  il server e il worker i lavori restano `queued`, e li prende il worker
+  nuovo. Un lavoro `running` interrotto da un riavvio torna in coda da solo
+  dopo 15 minuti.
+
+  Prima del worker, un controllo d'inattività in più:
+
+  ```sql
+  select id, project_id, started_at from product_doc_jobs where status = 'running';
+  ```
+
+  **Rollback**:
+  - Il **worker scende INSIEME al server**: un worker F5 con un server più
+    vecchio continuerebbe a scrivere modifiche, segni e card che quel server
+    non sa né mostrare né annullare.
+  - Fino a F4 (stesso branch d'integrazione) la discesa del server è
+    sicura: i tre kind e il kind `claude` delle revisioni li conosce già.
+    Più indietro di F2 vale la query di pulizia della voce di F2, che copre
+    già `updated` e `question`.
+  - Le migrazioni non si annullano. I trigger restano e continuano ad
+    accodare: i lavori aspettano `queued` finché un worker F5 non torna. Per
+    fermarli senza risalire, con un worker VECCHIO (che non li legge):
+    `update product_doc_jobs set status = 'held', held_reason = 'paused' where status = 'queued';`
+    ⚠️ Con un worker F5 acceso questa query NON regge: il worker rimette in
+    coda un `paused` appena il progetto non è in pausa. Per fermare la doc di
+    un progetto con un worker F5 si mette in pausa la coda del progetto
+    (`projects.queue_paused_at`), che il claim salta.
+    Le domande di Claude restano commenti col corpo vuoto, che un server
+    vecchio mostra come fili vuoti.
+
+- **«Integrazione area 11, F6: prima versione, bozze di schermata, backlog,
+  il catalogo di Claude»** *(22 nov 2026)*: branch `feat/area11-f6` (da
+  `feat/area11-f5`), piano
+  `docs/plans/2026-11-20-integrazione-area11-f6-plan.md`.
+  - Migrazione **0214** (`product_first_versions`): la prima versione di
+    Claude in uno spazio vuoto, una viva per progetto. Il CHECK della coda
+    della doc ammette `first_version`, quello delle revisioni il kind
+    `first_version`.
+  - Migrazione **0215** (`product_wireframes`): le bozze di schermata (lo SVG
+    ripulito dal server prima di salvarlo). La coda ammette `wireframe`.
+  - Migrazione **0216** (`product_request_origins`): la pagina (e la frase)
+    da cui nasce una richiesta, una riga per lavoro d'intake. `productOrigin`
+    di richieste e task si DERIVA da qui a lettura.
+  - Migrazione **0217** (`product_page_updates`): «aggiorna <pagina> da
+    questa email», chiesto da una persona (la voce `updateProductPage`). La
+    coda ammette `page_update`.
+  - Migrazione **0218** (`product_comments.client_id`, i rimandi server
+    dell'area): la chiave del client di `POST /product-pages/:id/comments`.
+    Un «Retry» con la stessa chiave dallo stesso autore ridà lo STESSO
+    commento; la stessa chiave su un'altra pagina è 409 `client_id_reused`.
+    Indice unico parziale `(author_id, client_id)`.
+  - La card `product_doc.updated` dice `waited` (`budget`, `paused`), scritto
+    NELL'EVENTO alla pubblicazione dall'ultima sosta del lavoro
+    (`last_held_reason`, già della 0213), che tiene budget e pausa fino
+    alla fine del lavoro anche se dopo arriva un limite o una sezione presa.
+    Le card di prima restano senza (null), e non c'è niente da riscrivere.
+  - **Nessun `notification_kind` nuovo**, nessuna env, nessun permesso nuovo.
+  - Rotte nuove sotto `/api`:
+    - la prima versione (`/projects/:projectId/product/first-version`, con
+      `/sources`, `/undo`, `/stop`, e `POST /product-pages/:id/first-version/accept`);
+    - le bozze (`POST /product-pages/:id/wireframes`, e su
+      `/wireframes/:blockId` `redraw`, `pick`, `keep`, `replace-image`,
+      `undo-draw`);
+    - il backlog dalla pagina (`GET /product-pages/:id/backlog-candidates`,
+      `GET /product-pages/:id/requests`);
+    - `POST /product-pages/:id/update-from-source` e `GET /product-changes`.
+  - Il catalogo di Claude ha sei voci nuove, tutte B (`writeFirstVersion`,
+    `undoFirstVersion`, `updateProductPage`, `undoProductUpdate`,
+    `drawWireframe`, `deleteWireframe`). La chat ha due tool nuovi
+    (`read_product_page`, `read_product_changes`, contenuto NON fidato). Le
+    capacità `product*` sono accese, e lo Stato dell'istanza mostra i lavori
+    della doc (`product_doc_update`). Campi additivi: `productOrigin` su
+    richieste e task, `wireframes` sulla pagina, `wireframe` sulle
+    revisioni, il frame `wireframe` dello stream.
+  - **Costo nuovo**: la prima versione è una run per piano più una per
+    pagina, una bozza è una run, un aggiornamento chiesto a mano è una run.
+    Tutte `product_doc_update`, nel budget e nella quota (sfondo). Partono
+    solo dopo la conferma di una persona: da Claude con la scheda B
+    (`starts_work`), dalla pagina col bottone. Col budget finito non partono
+    (409 `ai_blocked`); una bozza a budget o quota finiti va `failed`
+    (`budget`, `limit`) e si riprova con «Redraw».
+  - Golden: `product-doc-first-version` e i quattro della chat sulla doc
+    (`chat-product-update`, `-backlog`, `-changes`, `-page-hostile`), da
+    lanciare al rilascio e a ogni aggiornamento del CLI o dei prompt
+    (`product-docs/first-version.ts`, `wireframe.ts`, i tool della chat). Le
+    bozze si provano a mano.
+
+  **ORDINE**: **server** (healthy, 0214–0218 applicate), poi **worker**
+  (legge le tabelle nuove e i tre `source_kind` nuovi; senza lavoro
+  dell'agente in corso, «Worker fail-on-restart», e senza lavori della doc
+  `running`, con la query di F5), poi **caddy** (il renderer di 94).
+
+  **Rollback**:
+  - Il **worker scende INSIEME al server**, come in F5.
+  - ⚠️ **NON sicuro sul server finché esistono revisioni `first_version`**:
+    la cronologia di quelle pagine va in 500 (il server F5 non conosce il
+    kind nella risposta). Prima di scendere:
+    `select count(*) from product_page_revisions where kind = 'first_version';`
+    — se non sono zero, la discesa va decisa sapendolo.
+  - Un server F5 non conosce il blocco `wireframe`: la pagina lo scarta in
+    lettura, e una scrittura della pagina da quel server lo perde. Prima di
+    scendere:
+    `select count(*) from product_pages where blocks @> '[{"type":"wireframe"}]';`
+  - I lavori `first_version`, `wireframe` e `page_update` in coda: un worker
+    F5 li chiude `done` senza fare niente (`source_unavailable`). Per non
+    perderli in silenzio, prima della discesa:
+    `select source_kind, count(*) from product_doc_jobs where source_kind in ('first_version','wireframe','page_update') and status in ('queued','running','held') group by source_kind;`
+  - Le voci nuove del catalogo un server vecchio le rifiuta (`invalid`): una
+    proposta aperta di quelle voci, confermata dopo la discesa, fallisce.
+  - `clientId` del commento (0218): il body è `strict`, e un server di prima
+    risponde **400** a un renderer che lo manda. Per questo il **caddy
+    scende insieme al server**, come sempre. `waited` nell'evento un server
+    di prima lo ignora.
+  - Le migrazioni non si annullano: tabelle, colonne e CHECK più larghi
+    restano, e un server vecchio li ignora.
+
+- **«Integrazione area 11: l'area intera (F1–F6)»** *(22 nov 2026)*: la voce
+  per chi rilascia l'area in una volta sola. Le voci di fetta qui sopra
+  restano quelle da leggere per i dettagli.
+  - **Migrazioni, in ordine** (tutte nel batch del server, `when` crescente):
+    **0202** (F1, `product_pages` e i codici `-D`), **0203** (F2, i tre
+    `notification_kind` `product_doc.mention`, `.updated`, `.question`),
+    **0204–0205** (F2, i commenti), **0206–0208** (F3, ricerca e chat dei
+    Docs), **0209** (F4, le sezioni prese), **0210–0213** (F5, la coda della
+    doc coi suoi trigger, i segni, l'operazione `product_doc_update`, il CHECK
+    delle iscrizioni), **0214–0218** (F6, e la chiave del client dei
+    commenti). Nessuna env nuova.
+  - **ORDINE**: **server** (healthy, 0202–0218 applicate), poi **worker**
+    (senza lavoro dell'agente in corso, «Worker fail-on-restart»), poi
+    **caddy**. Il CLI del worker resta il 2.1.322 pinnato.
+  - **Rollback dell'area**: il server scende **insieme** al caddy e al
+    worker. ⚠️ **NON sicuro** finché esistono:
+    - card dei tre kind (`/api/inbox` va in 500): la query e la pulizia
+      della voce di F2;
+    - revisioni `first_version` e blocchi `wireframe` (le query di F6);
+    - lavori della doc vivi (la query di F6, più `status = 'queued'` per le
+      fonti di F5, che un worker vecchio non legge).
+    Tabelle, colonne e CHECK restano: un server vecchio li ignora.
+- **«Rimandi: il modulo Docs spento chiude le rotte»** *(23 nov 2026)*: branch
+  `feat/rimandi-server`. Server e worker (revisione del lotto 1): nessuna
+  migrazione, nessuna env. Ordine: server, poi worker (senza lavoro
+  dell'agente in corso).
+  Col modulo `docs` spento (`projects.modules`) le rotte dei Docs dei
+  repository e dello spazio Product rispondono 404, anche a un full admin, e
+  gli elenchi d'istanza non nominano il progetto (registro dei rimandi, area
+  11). Fino a qui il server non leggeva i moduli: un progetto col modulo
+  spento ma con dei dati li mostrava ancora a chi apriva un link.
+  - ⚠️ **PRIMA del deploy**, sul DB di produzione (in lettura): i progetti
+    senza `docs` che hanno dati dei Docs o del Product, per esempio quelli
+    nati dai modelli `marketing` o `empty`. Dopo il rilascio i loro dati
+    restano nel DB ma non si vedono più:
+    ```sql
+    select p.id, p.code, p.name, p.modules,
+      (select count(*) from product_pages pp where pp.project_id = p.id) as product_pages,
+      (select count(*) from doc_pages dp join repositories r on r.id = dp.repository_id where r.project_id = p.id) as doc_pages
+    from projects p
+    where not ('docs' = any(p.modules))
+      and (exists (select 1 from product_pages pp where pp.project_id = p.id)
+        or exists (select 1 from doc_pages dp join repositories r on r.id = dp.repository_id where r.project_id = p.id));
+    ```
+    Se la query restituisce righe: accendere il modulo su quei progetti
+    (Impostazioni del progetto → Docs, o
+    `update projects set modules = array_append(modules, 'docs') where id = …`
+    nell'ordine di `MODULE_ORDER`, meglio dalla UI), oppure avvisare il
+    maintainer prima di rilasciare. Vuota: niente da fare.
+  - **Worker**: col modulo spento il giro notturno non scrive più pagine né
+    nota di rilascio (il report giornaliero sì) e gli elementi dei Docs
+    restano in coda; un lavoro della coda della doc si chiude senza modello
+    con `docs_module_off` (la prima versione interrotta, la bozza di schermata
+    `failed`). `doc_auto_update` non cambia: col modulo riacceso riprende da
+    solo. Anche lo /docs di Slack non elenca né risponde.
+  - **Rollback**: sicuro. Un server e un worker di prima ignorano di nuovo i
+    moduli.
+- **«Rimandi: una run rilanciata sostituisce solo quella del suo workflow»**
+  *(23 nov 2026)*: branch `feat/rimandi-server` (revisione del lotto 2, I6).
+  Migrazione **0219** (`release_ci_runs.run_group`, text, nullable,
+  additiva): chi ha prodotto una run di CI (la check suite di GitHub). Nessuna env. Ordine: server (healthy, 0219 applicata),
+  poi worker, che scrive la colonna. Le run salvate prima restano `null` e
+  fanno da jolly: una più nuova col nome uguale le sostituisce, qualunque
+  gruppo abbia (su Bitbucket il gruppo è sempre `null`). **Rollback**: sicuro; un server e un worker di prima
+  ignorano la colonna, che resta.
+- **«Rimandi: gli oggetti degli allegati di una bozza che se ne va»**
+  *(23 nov 2026)*: branch `feat/rimandi-server` (revisione del lotto 2, dopo
+  l'I5). Nessuna migrazione: si usa la coda `storage_orphans` della 0144.
+  Una bozza che se ne va (eliminata, mandata dal worker, unita dopo
+  «Annulla») mette in coda, nella stessa transazione, le chiavi dei suoi
+  allegati (mai quelle di un file del Drive); il server le prova subito e la
+  pulizia oraria (`purgeStorageOrphans`, 200 per giro) ritenta quelle che lo
+  storage ha rifiutato. Nessuna env. Ordine: **server**, poi **worker** (che
+  da qui scrive in `storage_orphans` mandando una bozza). **Rollback**:
+  sicuro, nell'ordine inverso; un worker di prima torna a lasciare gli
+  oggetti orfani, e le righe già in coda le toglie comunque il server.
+- **«Rimandi, lotto 4: la correzione scartata»** *(23 nov 2026)*: branch
+  `feat/rimandi-server` (A8, F1 S8). Migrazione **0220**
+  (`pr_corrections.outcome`, text nullable con CHECK `pushed | discarded |
+  stopped`, più un backfill: le correzioni chiuse per «push rifiutato:» di
+  prima diventano `discarded`). Il worker scrive l'esito nello stesso update
+  che chiude la correzione; `/pulls` mostra `discarded` (senza motivo) e una
+  scartata **non conta più nel tetto dei giri automatici**
+  (`autoRoundsInCurrentSeries`, decisione di 46: cambia il comportamento del
+  ciclo, una PR può avere un giro automatico in più dopo uno scarto). Nessuna
+  env. Ordine: **server** (healthy, 0220 applicata), poi **worker** (scrive la
+  colonna). **Rollback**: sicuro nell'ordine inverso; un server e un worker
+  di prima ignorano la colonna (le scartate tornano a leggersi `stopped` e a
+  contare nel tetto), che resta.
+- **«Rimandi, lotto 4: la card di chi decide una proposta passata»** *(23 nov
+  2026)*: branch `feat/rimandi-server` (A6, §2, D-2.0 del maintainer).
+  Nessuna migrazione, nessuna env, **nessun `notification_kind` nuovo**: al
+  «Passa al progetto» di una proposta CONDIVISA il server pubblica
+  `google.proposal_handed` (kind di prima) ai decisori, nella stessa
+  transazione. Il kind entra in `MANDATORY_KINDS`: push e Slack ignorano le
+  preferenze, anche per le passate di prima. Ordine: **server**, poi
+  **worker** (la mappa azione → opzione si sposta in `@stubwise/notifications`,
+  stesso risultato). **Rollback**: sicuro. Le card esistono già come kind;
+  un server di prima le instrada sull'esecutore delle passate di prima, che
+  su queste risponde `proposal_stale` senza eseguire niente
+  (`sourceOptionIndices` vuoto apposta, coperto da un test): restano
+  decidibili dalla Posta. Le card aperte di questo tipo prima della discesa:
+  `select count(*) from notifications n join email_proposals p on p.id::text = n.event->>'proposalId' where n.kind = 'google.proposal_handed' and n.status = 'open' and p.audience in ('mail_recipients','meeting_invitees');`
+- **«Rimandi, lotto 4: il ritorno OAuth della casella all'app»** *(23 nov
+  2026)*: branch `feat/rimandi-server` (A6, §6). Migrazione **0221**
+  (`oauth_states.client` e `return_state`, text nullable, CHECK sul client):
+  un collegamento avviato dall'app desktop (`client: "desktop"`) torna a
+  `/app/#/desktop-google` (la pagina del renderer, che apre
+  `stubwise://google`) invece della pagina Account del web. Nessuna env.
+  Ordine: **server** (healthy, 0221 applicata), poi **caddy** (la pagina
+  `desktop-google` del renderer). **Rollback**: sicuro; un server di prima
+  scarta `client`/`returnState` e risponde senza `returnTo` (l'app ripiega
+  sulla rilettura delle caselle), le colonne restano.
+- **«Rimandi, lotto 4: il budget mensile finito ferma gli avvii a mano»** *(23
+  nov 2026)*: branch `feat/rimandi-server` (D-7.1 del maintainer). **Cambio di
+  comportamento in produzione**: a budget AI del mese finito, chi non ha
+  `plans.approve` nel progetto riceve SUBITO 409 `budget_exhausted` su Start
+  della task (e le azioni di Claude, l'inbox, il pulse, i rilasci, lo Stato
+  dell'istanza che passano da `startRun`), su «Chiedi modifiche» e sulla
+  richiesta di un piano per la correzione di un server; prima la richiesta
+  passava e il worker la fermava `held`. Chi ha `plans.approve` scavalca come
+  prima. L'analisi a mano di un server (senza progetto) a budget finito si
+  ferma per TUTTI. `/work` dice `monthly_budget` solo a chi non lo scavalca.
+  Nessuna migrazione, nessuna env. Ordine: **server**, poi **caddy** (il
+  renderer che legge `blocked`). **Rollback**: sicuro; un server di prima torna
+  ad accettare le richieste e a lasciare il fermo al worker.
+  Due casi decisi apposta (46, sul prototipo): il «Procedi» di una proposta
+  del pulse si rifiuta con `budget_exhausted` PRIMA di creare la task, quindi
+  non fa niente e la card resta aperta; l'assegnazione a Claude riesce sempre,
+  senza errori, il lavoro non parte (`claudeRun: "refused:budget_exhausted"`)
+  e la task mostra il blocco in `/work.blocked`.
+- **«Rimandi, lotto 4: lo stato della PR di setup del grafo»** *(24 nov
+  2026)*: branch `feat/rimandi-server`. **Migrazione 0222**
+  (`repo_graphs.setup_pr_state`, nullable, con CHECK). Il worker la scrive
+  `open` quando apre la PR di setup; il webhook la porta a `merged`,
+  `closed_unmerged` o di nuovo `open` se riaperta. `GET
+  /api/repositories/:id/graph` la espone come `setupPrState`
+  (`.default(null)`). Le PR aperte prima restano `null` («non si sa») finché
+  non arriva un loro evento. Ordine: **server** prima (healthy e migrazione
+  applicata: il worker nomina la colonna), poi **worker** e **caddy**.
+  **Rollback**: sicuro scendere d'immagine (la colonna in più è ignorata);
+  per togliere la colonna, prima server e worker vecchi, poi `ALTER TABLE
+  repo_graphs DROP COLUMN setup_pr_state`.
+- **«Rimandi, lotto 4, review: il budget finito scavalcato davvero»** *(24
+  nov 2026)*: branch `feat/rimandi-server` (review del lotto 4, I-1).
+  **Migrazione 0223** (`product_doc_jobs.budget_bypass`, boolean default
+  false). Chi ha `plans.approve` nel progetto ora scavalca il budget finito
+  anche su:
+  - il «Riprova» dello Stato dell'istanza;
+  - la task di riparazione di un rilascio;
+  - la prima versione della doc, le bozze di schermata e «aggiorna da fonte».
+  Per questi ultimi tre il lavoro porta lo scavalco: col budget finito il
+  worker prende e fa girare SOLO quelli con `budget_bypass`. Per chi non lo
+  scavalca il codice è ovunque 409 `budget_exhausted` (prima `monthly_budget`
+  422 sul «Riprova» e `ai_blocked` 409 sulla doc di prodotto: il renderer
+  accetta entrambi). Ordine: **server** prima (healthy e migrazione: il
+  worker nomina la colonna), poi **worker**, poi **caddy**. **Rollback**:
+  sicuro scendere d'immagine (la colonna in più è ignorata, e un server
+  vecchio torna a fermare tutti); per togliere la colonna, prima server e
+  worker vecchi, poi `ALTER TABLE product_doc_jobs DROP COLUMN budget_bypass`.
+- **«Rimandi, lotto 5: l'ultima prova dei webhook in uscita»** *(24 nov
+  2026)*: branch `feat/rimandi-server`. **Migrazione 0224**
+  (`outgoing_webhooks.last_test_at` e `last_test_outcome`, nullable, con
+  CHECK). `POST /api/settings/webhooks/:id/test` la scrive; cambiare URL o
+  formato la toglie; la vista porta `lastTest` (`.default(null)`). Solo
+  **server** (poi **caddy** per il renderer). **Rollback**: sicuro scendere
+  d'immagine; per togliere le colonne, prima il server vecchio, poi
+  `ALTER TABLE outgoing_webhooks DROP COLUMN last_test_at, DROP COLUMN last_test_outcome`.
+- **«Rimandi, lotto 5: le ultime 4 dei segreti»** *(24 nov 2026)*: branch
+  `feat/rimandi-server`. **Migrazione 0225** (`instance_settings.s3_secret_key_last4`,
+  `git_accounts.token_last4`, `google_workspaces.client_secret_last4`, text
+  nullable). Si scrivono quando il segreto si crea o si sostituisce; i segreti
+  di prima restano senza («••••») finché non li si sostituisce: il server non
+  decifra per ricavarle. Viste: `s3SecretKeyLast4`, `tokenLast4`,
+  `clientSecretLast4` (`.default(null)`). Solo **server** (poi **caddy**).
+  **Rollback**: sicuro; per togliere le colonne, prima il server vecchio, poi
+  i tre `DROP COLUMN`.
+- **«Rimandi, lotto 5: chi ha registrato e aggiornato un plugin»** *(24 nov
+  2026)*: branch `feat/rimandi-server`. **Migrazione 0226**
+  (`plugins.registered_by_user_id`, `updated_by_user_id`, FK su `users` con
+  `ON DELETE SET NULL`). Le scrive il server (registrare scrive entrambe,
+  cambiare il ref la seconda); il worker non le nomina. Vista:
+  `registeredById`/`registeredByName`, `updatedById`/`updatedByName`
+  (`.default(null)`, mascherati per chi non conosce la persona). Solo
+  **server** (poi **caddy**). **Rollback**: sicuro; per togliere le colonne,
+  prima il server vecchio, poi i due `DROP COLUMN`.
+- **«Rimandi, lotto 5, review: il codice dell'ultima prova dei webhook»**
+  *(24 nov 2026)*: branch `feat/rimandi-server` (review M-5). **Migrazione
+  0227** (`outgoing_webhooks.last_test_status`, integer nullable; il CHECK di
+  `last_test_outcome` accetta anche `destination_error`). `invalid_credentials`
+  solo per 401/403, `destination_error` per ogni altro errore della
+  destinazione; la prova si scrive solo se URL e formato sono ancora quelli
+  provati. Solo **server**. **Rollback**: un server vecchio con righe
+  `destination_error` le serializza fuori enum: prima di scendere,
+  `UPDATE outgoing_webhooks SET last_test_outcome = 'invalid_credentials'
+  WHERE last_test_outcome = 'destination_error'`; poi, se serve,
+  `DROP COLUMN last_test_status` e il CHECK di prima.
+- **«Lotto 6: l'interruttore degli allegati»** *(24 nov 2026)*: branch
+  `feat/rimandi-server`. **Migrazione 0228** (`instance_settings.attachments_switch`,
+  boolean NOT NULL **default true**: sulle istanze esistenti non cambia
+  niente). `PUT /api/settings/instance/attachments { on }`
+  (`settings.manage`, senza riconferma): accenderlo chiede l'archiviazione
+  configurata (422 `not_set_up`). Spento, le scritture dello storage rifiutano
+  (409 `attachments_off`) e la lettura resta; `attachmentsEnabled` e
+  `GET /api/storage/uploads` lo dicono. Solo **server** (poi **caddy**).
+  **Rollback**: sicuro; ⚠️ un server vecchio ignora l'interruttore, quindi
+  con la colonna a `false` gli allegati tornano accesi. Per togliere la
+  colonna: server vecchio, poi `DROP COLUMN attachments_switch`.
+- **«Lotto 7: l'esito delle azioni della pagina»** *(24 nov 2026)*: branch
+  `feat/rimandi-server`. **Migrazione 0229** (`claude_page_outcomes`, tabella
+  nuova: chiave `(proposal_id, action_index)`, `ON DELETE CASCADE` sulla
+  proposta; nessun dato esistente toccato). `POST
+  /api/claude/proposals/:id/actions/:index/outcome { status }` (solo chi ha
+  chiesto la proposta, mosse del prototipo per fn; 409 `invalid_move` col
+  `current`, 422 `not_a_page_action`); la vista della proposta porta
+  `pageOutcomes` (default `[]`). Solo **server** (poi **caddy** quando il
+  renderer lo legge). **Rollback**: sicuro; un server vecchio non legge la
+  tabella e le azioni tornano «non applicate» dalla storia. Per toglierla:
+  server vecchio, poi `DROP TABLE claude_page_outcomes`.
+- **«Lotto 8: la conservazione delle esecuzioni delle automazioni»** *(24 nov
+  2026)*: branch `feat/rimandi-server`. **Migrazione 0230**
+  (`automation_runs.details_pruned_at`, nullable). Il **worker** (ogni 10′,
+  lotti da 200) COMPATTA le esecuzioni FINITE (`done`, `failed`,
+  `cancelled`) da più di 90 giorni: cancella il loro registro
+  (`automation_run_log`), gli effetti e gli input, svuota evento, variabili,
+  cursore, attesa ed errore, e **sostituisce il titolo col nome
+  dell'automazione** (decisione di 46: il titolo può contenere l'oggetto di
+  un'email). La riga ridotta resta (numerazione, «ultima esecuzione»,
+  origine di task e traguardi). Ordine: **server** (migrazione), poi
+  **worker**. ⚠️ **Il primo giro toglie lo storico vecchio, ed è
+  irreversibile**: prima del deploy, backup del DB e conta quante righe
+  toccherà (in lotti da 200 ogni 10′, ~1.200 l'ora):
+  `select count(*) from automation_runs where status in ('done','failed','cancelled') and ended_at < now() - interval '90 days';`
+  e i passi del registro che se ne andranno:
+  `select count(*) from automation_run_log l join automation_runs r on r.id = l.run_id where r.status in ('done','failed','cancelled') and r.ended_at < now() - interval '90 days';`
+  Dopo: lo stesso conteggio con `and details_pruned_at is null` scende a 0.
+  **Rollback**: un worker vecchio smette di compattare (ciò che è stato tolto
+  non torna, se non dal backup); un server vecchio ignora la colonna e
+  mostra le compattate come esecuzioni senza registro. Per togliere la
+  colonna: worker e server vecchi, poi `DROP COLUMN details_pruned_at`.
+- **«Lotto 8: rispondere da un alias di Gmail»** *(24 nov 2026)*: branch
+  `feat/rimandi-server`. **Nessun cambio di scope**: `sendAs.list` e l'invio
+  da un alias verificato bastano con `gmail.modify`; le caselle senza (in
+  sola lettura) dicono `sendAsStatus: scope_missing` e si ricollegano col
+  flusso di sempre, nessun riconsenso per le altre. **Migrazione 0231**
+  (`google_accounts.send_as` jsonb default `[]`, `send_as_fetched_at`;
+  `mail_drafts.from_address`). Ordine: **server** (migrazione), poi
+  **worker** (rilegge gli alias al più una volta al giorno a ogni casella, e
+  riverifica il «Da» all'invio), poi **caddy** quando il renderer lo usa.
+  Finché la copia è `[]` (prima rilettura) ogni casella manda solo dal suo
+  indirizzo, come prima. **Rollback**: sicuro; un server vecchio ignora
+  `from_address` e una bozza con un alias torna a partire dalla casella (la
+  bozza su Gmail ha già il From dell'alias finché non si risalva). Per
+  togliere le colonne: server e worker vecchi, poi i tre `DROP COLUMN`.
+- **«Lotto 8: più contesti per conversazione con Claude»** *(24 nov 2026)*:
+  branch `feat/rimandi-server`. **Migrazione 0232**
+  (`claude_conversations.context_refs` jsonb default `[]`, riempita da
+  `context_ref` per le conversazioni che ne hanno uno;
+  `agent_session_inputs.contexts`, nullable). Ordine: **server**
+  (migrazione), poi **worker** (il prompt con tutti i contesti), poi
+  **caddy**. **Rollback**: sicuro; il server tiene `context_ref` uguale
+  all'ultimo del gruppo, quindi un server vecchio legge il primario come
+  prima e ignora il resto. Per togliere le colonne: server e worker
+  vecchi, poi i due `DROP COLUMN`. ⚠️ *Revisione 8–9, M-5*: un server
+  vecchio scrive solo `context_ref`; tornati al nuovo, se `context_ref` non
+  coincide con l'ultimo del gruppo, la lettura lo ACCODA come primario
+  (`conversationContextGroup`), quindi il chip scelto durante il rollback
+  non si perde.
+- **«Lotto 9: le citazioni dei messaggi di Claude»** *(24 nov 2026)*: branch
+  `feat/rimandi-server`. **Migrazione 0233** (`claude_turn_citations`,
+  tabella nuova, cascata sulla sessione). Solo **server** (l'hook delle
+  letture del token del turno, gli eventi, `POST
+  /api/claude/citations/resolve`), poi **caddy** quando il renderer lo usa.
+  Le conversazioni di prima non hanno citazioni registrate: i loro turni
+  portano solo i codici della prosa. **Rollback**: sicuro; un server vecchio
+  non legge la tabella e i `turn_end` tornano senza `citations`. Per
+  toglierla: server vecchio, poi `DROP TABLE claude_turn_citations`.
+- **«Lotto 9: le proposte del calendario condivise fra gli invitati»** *(24
+  nov 2026)*: branch `feat/rimandi-server`. **Migrazione 0234**
+  (`calendar_proposals`, unique `(ical_uid, project_id)`;
+  `calendar_proposal_recipients`; `calendar_events.calendar_proposal_id`,
+  nullable). Un appuntamento SINGOLO diventa UNA proposta per appuntamento e
+  progetto, con una card per invitato membro esplicito che non ha rifiutato
+  (audience `event_invitees`, `docs/invariants/mail-calendar.md`); le serie
+  restano per casella. Ordine: **server** (migrazione, healthy), poi
+  **worker** (la pubblicazione condivisa, i rifiuti, la potatura), poi
+  **caddy** quando il renderer legge `sharedWith` del calendario. Nessun
+  `notification_kind` né valore di enum nuovo: le card sono `google.proposal`
+  con `mailbox_owner`, `event_invitees` è un testo con CHECK sulla tabella
+  nuova. Le proposte pubblicate per casella prima del rilascio restano com'erano.
+  **Rollback del server**: sicuro, nessun 500 (stesso kind, stessa
+  audience); un server vecchio non vede le condivise in `/proposals` e una
+  card condivisa risponde `proposal_stale` (non si decide). Scende INSIEME al
+  worker. ⚠️ **Rollback del worker: NON pulito senza un passo prima.** Un
+  worker vecchio non conosce `calendar_proposal_id` e ripubblicherebbe PER
+  CASELLA ogni evento singolo già condiviso e ancora aperto (una seconda
+  card, a ogni proprietario). Prima di scendere, a worker fermo:
+  `update calendar_events set outcome = '{"type":"baseline"}'::jsonb where calendar_proposal_id is not null and outcome is null and proposal_notification_id is null;`
+  e, se le card condivise aperte non devono restare: chiudere le
+  `calendar_proposals` `proposed` e le loro card. Per togliere lo schema:
+  server e worker vecchi, poi `ALTER TABLE calendar_events DROP COLUMN
+  calendar_proposal_id`, `DROP TABLE calendar_proposal_recipients`, `DROP
+  TABLE calendar_proposals`.
+- **«Lotto 9: il progetto di un appuntamento con più candidati e la «Quale
+  progetto?» del calendario»** *(24 nov 2026, lotto 9, voce 2 (a))*: branch
+  `feat/rimandi-server`. **Migrazione 0235** (`agent_run_phase` +
+  `calendar_classify`, statement a sé e mai usato nel batch;
+  `calendar_events.project_guess` jsonb nullable e `project_guess_attempts`
+  smallint default 0; `calendar_proposals.project_id` DROP NOT NULL,
+  `candidate_project_ids uuid[]`, CHECK `calendar_proposals_choose_chk`
+  `(project_id is null) = (candidate_project_ids is not null)`, indice unico
+  parziale `calendar_proposals_ical_uid_choose_unique` su `ical_uid` dove
+  `project_id is null`). Col flag `MAIL_CLASSIFY_V2` un evento SINGOLO con più
+  progetti candidati: il modello ne sceglie uno (operazione `mail_classify`,
+  phase `calendar_classify`, fuori dal tetto giornaliero della posta, una
+  volta per evento), sotto la soglia UNA «Quale progetto?» condivisa
+  (`docs/invariants/mail-calendar.md`). Nessuna env nuova (il tetto per giro
+  è `GMAIL_MAX_PER_TICK`, il modello quello di `mail_classify`/`GMAIL_MODEL`);
+  nessun `notification_kind` nuovo (le card sono `google.proposal`).
+  **Ordine**: **server** (migrazione applicata, healthy), poi **worker** (la
+  scelta, la pubblicazione della domanda), poi **caddy** (nessun cambio del
+  renderer necessario: la «Quale progetto?» del calendario ha la stessa forma
+  di quella della posta, `projectId` sempre valorizzato nella vista).
+  **Rollback del worker**: sicuro. Un worker vecchio non sceglie e non
+  pubblica domande; le righe con `project_guess` e progetto scelto le
+  pubblica come una proposta di progetto qualsiasi, quelle senza progetto le
+  ignora. ⚠️ **Rollback del server: NON pulito se esiste una «Quale
+  progetto?» del calendario** (una riga `calendar_proposals` con
+  `project_id` nullo). Un server vecchio la legge come una proposta con
+  `project_id` nullo: per un destinatario che è full admin costruisce una
+  vista con `projectId: null`, che lo schema di risposta rifiuta, e
+  `GET /api/me/mail/proposals` gli risponde **500**; e la card in inbox
+  passerebbe dall'esecutore di prima, che su un `choose_project` del
+  calendario fallisce e chiude la domanda `failed` per tutti. Prima di
+  scendere, a worker fermo (o già sceso):
+  `update notifications set status = 'handled', handled_at = now() where status = 'open' and id in (select r.notification_id from calendar_proposal_recipients r join calendar_proposals p on p.id = r.proposal_id where p.project_id is null);`
+  poi `delete from calendar_proposals where project_id is null;` (i
+  destinatari se ne vanno in cascata, le copie si slegano da sole). Se poi si
+  torna avanti, quelle domande rinascono al primo giro (le copie hanno ancora
+  `project_guess` senza progetto): per non riproporle,
+  `update calendar_events set outcome = '{"type":"baseline"}'::jsonb where project_guess is not null and project_guess ->> 'projectId' is null and outcome is null;`.
+  Il caddy scende insieme al server. Per togliere lo schema (server e worker
+  vecchi, dopo i passi sopra): `DROP INDEX calendar_proposals_ical_uid_choose_unique`,
+  `ALTER TABLE calendar_proposals DROP CONSTRAINT calendar_proposals_choose_chk, DROP COLUMN candidate_project_ids, ALTER COLUMN project_id SET NOT NULL`,
+  `ALTER TABLE calendar_events DROP COLUMN project_guess, DROP COLUMN project_guess_attempts`;
+  il valore `calendar_classify` dell'enum non si toglie (Postgres non lo
+  permette senza ricreare il tipo) ed è innocuo.
+- **«Lotto 10: la cassaforte dal desktop, il sigillo del Mac»** *(24 nov
+  2026, lotto 10, voce 2; design `docs/plans/2026-11-24-cassaforte-desktop-design.md`)*:
+  branch `feat/rimandi-server`. **Migrazione 0236** (tabelle
+  `vault_device_pairings` — l'associazione chiesta dal PAT desktop, solo
+  l'hash dello state, 10 minuti, uso singolo — e `vault_device_seals` — la
+  busta opaca, un vivo per PAT, `revoked_at` + `revoked_reason`;
+  `credential_access_log.via` text default `'browser'` NOT NULL con CHECK e
+  `device_seal_id` nullable; `vault_recovery_challenges.session_id` DROP NOT
+  NULL, `pat_id` nullable, CHECK `vault_recovery_challenges_holder_chk`).
+  Rotte nuove sotto `/api/vault` (`device-pairings`, `device-pairings/lookup`,
+  `device-seals`, `device-seals/mine`, `device-seals/:id`,
+  `users/:userId/device-seals[/:id]`), tipi del registro di sicurezza
+  `vault_device_sealed`/`vault_device_seal_revoked` e soggetti d'avviso
+  omonimi (nessun `notification_kind` nuovo: sono `security.alert`). **Env
+  nuova `VAULT_DESKTOP`** (server, SPENTA di default; decisione di 46 del 25
+  nov 2026): spenta, l'associazione di un Mac e le rotte aperte al Mac
+  rispondono 404 `vault_desktop_disabled` come se non ci fossero, quelle del browser restano. **Si
+  accende (`VAULT_DESKTOP=true` in `/opt/stubwise/.env`, poi `docker compose
+  up -d server`) SOLO quando l'app desktop distribuita è il build FIRMATO**,
+  con la chiave del Mac nel Secure Enclave; spegnerla è il rollback della
+  funzione senza scendere d'immagine. **Ordine**: **server** (migrazione applicata, healthy), poi
+  **caddy** (la pagina `vault-pair` e l'elenco dei Mac), poi l'app desktop
+  (`package:mac`). Il worker non c'entra (non nomina queste tabelle).
+  ⚠️ **Rollback del server: NON pulito se un Mac è stato associato o
+  tolto** (corretto il 25 nov 2026: era scritto «sicuro»). Le tabelle nuove,
+  le sfide (`session_id` sempre scritto dal vecchio) e il registro degli
+  accessi (colonne esplicite) non danno problemi; ma il registro di
+  sicurezza sì: un server vecchio non conosce `vault_device_sealed` né
+  `vault_device_seal_revoked`, e la lista del registro (Impostazioni →
+  Sicurezza e la scheda dell'utente) risponde **500** appena ne trova una
+  riga, come per `reauth_desktop` (0132). Prima di scendere col server:
+  `delete from security_events where kind in ('vault_device_sealed', 'vault_device_seal_revoked');`.
+  Le card `security.alert` con quei soggetti non rompono nulla: un soggetto
+  ignoto degrada al `kind` nel recinto di chi rende la card. Un Mac
+  associato smette di aprire la cassaforte (le rotte non ci sono più) finché
+  il server non risale. Il caddy scende insieme al
+  server. Per togliere lo schema (server vecchio): `ALTER TABLE
+  vault_recovery_challenges DROP CONSTRAINT vault_recovery_challenges_holder_chk, DROP COLUMN pat_id`,
+  poi `delete from vault_recovery_challenges where session_id is null;` e
+  `ALTER TABLE vault_recovery_challenges ALTER COLUMN session_id SET NOT NULL`;
+  `ALTER TABLE credential_access_log DROP CONSTRAINT credential_access_log_via_chk, DROP COLUMN device_seal_id, DROP COLUMN via`;
+  `DROP TABLE vault_device_seals`, `DROP TABLE vault_device_pairings`.
+- **«Rimandi dell'integrazione (lotti 1–10)»** *(25 nov 2026)*: la voce
+  OMBRELLO del ramo `feat/integrazione-rimandi` (server `feat/rimandi-server`,
+  renderer `feat/rimandi-renderer`). Non sostituisce le voci di lotto: dice in
+  che ORDINE leggerle e cosa fare prima, durante e dopo. Ogni dettaglio
+  (schema, rollback completo) sta nella voce richiamata per titolo.
+
+  **Le migrazioni, in ordine (0219–0236)** — girano in UN batch, in una sola
+  transazione, al primo avvio del server nuovo (la 0235 aggiunge un valore
+  d'enum in uno statement a sé e il batch non lo usa):
+  | Migrazione | Voce | Rollback |
+  |---|---|---|
+  | 0219 `release_ci_runs.run_group` | «Rimandi: una run rilanciata sostituisce solo quella del suo workflow» | sicuro |
+  | 0220 `pr_corrections.outcome` (+ backfill) | «Rimandi, lotto 4: la correzione scartata» | sicuro (le scartate tornano `stopped`) |
+  | 0221 `oauth_states.client`, `return_state` | «Rimandi, lotto 4: il ritorno OAuth della casella all'app» | sicuro |
+  | 0222 `repo_graphs.setup_pr_state` | «Rimandi, lotto 4: lo stato della PR di setup del grafo» | sicuro |
+  | 0223 `product_doc_jobs.budget_bypass` | «Rimandi, lotto 4, review: il budget finito scavalcato davvero» | sicuro |
+  | 0224 `outgoing_webhooks.last_test_*` | «Rimandi, lotto 5: l'ultima prova dei webhook in uscita» | sicuro |
+  | 0225 le ultime 4 dei segreti | «Rimandi, lotto 5: le ultime 4 dei segreti» | sicuro |
+  | 0226 `plugins.registered_by/updated_by` | «Rimandi, lotto 5: chi ha registrato e aggiornato un plugin» | sicuro |
+  | 0227 `outgoing_webhooks.last_test_status` | «Rimandi, lotto 5, review: il codice dell'ultima prova dei webhook» | ⚠️ SQL prima (sotto) |
+  | 0228 `instance_settings.attachments_switch` | «Lotto 6: l'interruttore degli allegati» | ⚠️ l'interruttore spento si riaccende |
+  | 0229 `claude_page_outcomes` | «Lotto 7: l'esito delle azioni della pagina» | sicuro |
+  | 0230 `automation_runs.details_pruned_at` | «Lotto 8: la conservazione delle esecuzioni delle automazioni» | ⚠️ irreversibile ciò che è compattato |
+  | 0231 `google_accounts.send_as`, `mail_drafts.from_address` | «Lotto 8: rispondere da un alias di Gmail» | sicuro |
+  | 0232 `claude_conversations.context_refs`, `agent_session_inputs.contexts` | «Lotto 8: più contesti per conversazione con Claude» | sicuro |
+  | 0233 `claude_turn_citations` | «Lotto 9: le citazioni dei messaggi di Claude» | sicuro |
+  | 0234 `calendar_proposals`, `calendar_proposal_recipients` | «Lotto 9: le proposte del calendario condivise fra gli invitati» | ⚠️ worker: SQL prima (sotto) |
+  | 0235 «Quale progetto?» del calendario | «Lotto 9: il progetto di un appuntamento con più candidati e la «Quale progetto?» del calendario» | ⚠️ server: SQL prima (sotto) |
+  | 0236 sigillo del Mac | «Lotto 10: la cassaforte dal desktop, il sigillo del Mac» | ⚠️ server: SQL prima (sotto) |
+  Le voci SENZA migrazione dello stesso ramo, da leggere comunque: «Rimandi:
+  il modulo Docs spento chiude le rotte», «Rimandi: gli oggetti degli
+  allegati di una bozza che se ne va», «Rimandi, lotto 4: la card di chi
+  decide una proposta passata», «Rimandi, lotto 4: il budget mensile finito
+  ferma gli avvii a mano» (un **cambio di comportamento**: a budget finito
+  chi non ha `plans.approve` riceve subito 409 `budget_exhausted`).
+
+  **Env nuove: UNA, `VAULT_DESKTOP`** (server, nel compose e in
+  `.env.example`; SPENTA di default: la si lascia spenta al deploy, sotto).
+  Nessun'altra (il flag `MAIL_CLASSIFY_V2` e `GMAIL_MAX_PER_TICK`, che la
+  0235 usa, c'erano già). Nessun `notification_kind` nuovo. Nessuno scope nuovo dei token
+  (gli alias di Gmail bastano con `gmail.modify`).
+
+  **PRIMA del deploy** (sul DB di produzione):
+  1. **Backup del DB** — obbligatorio: la compattazione delle esecuzioni
+     (0230) è irreversibile.
+  2. **Il modulo Docs spento** (voce «il modulo Docs spento chiude le
+     rotte»): la query dei progetti senza `docs` con dati dei Docs o del
+     Product; se torna righe, accendere il modulo o avvisare il maintainer.
+  3. **La prima compattazione** (voce di 0230): contare le esecuzioni finite
+     da più di 90 giorni e i loro passi di registro (le due `select
+     count(*)` della voce): è quanto il primo giro toglierà, ~1.200 righe
+     l'ora.
+  4. **I webhook**: nessun resync né scope nuovo. I webhook in uscita
+     partono senza «ultima prova» (`lastTest` nullo, 0224/0227) finché
+     qualcuno non li prova; la card «proposta passata» (lotto 4) cambia solo
+     le card nuove.
+  5. **Worker a riposo**: nessuna generazione Docs viva
+     (`select id from doc_generations where status in ('running','paused');`
+     vuota) e nessun elemento del giro notturno reclamato («Giro notturno»):
+     il worker si riavvia.
+
+  **ORDINE dei servizi**:
+  1. **server** (le 18 migrazioni; aspettare healthy e la 0236 applicata:
+     worker e renderer nominano colonne nuove);
+  2. **worker** (compattazione, alias, contesti, calendario condiviso e
+     «Quale progetto?», bozze e storage);
+  3. **caddy** (web, `/guide`, il renderer in `/app`, la pagina
+     `vault-pair` e la pagina `desktop-google`);
+  4. l'**app desktop**: SOLO il build firmato (sotto).
+  Il `push-relay` e `graphify` non cambiano.
+
+  **DOPO il deploy**:
+  - le migrazioni ci sono tutte: `select max(created_at) from
+    drizzle.__drizzle_migrations;` = `1804809600000` (il `when` della 0236);
+  - la compattazione avanza: il conteggio della voce 0230 con `and
+    details_pruned_at is null` scende a 0 (ore, non minuti);
+  - gli alias di Gmail compaiono entro un giorno per casella (la prima
+    rilettura); fino ad allora si manda dall'indirizzo della casella;
+  - il calendario condiviso vale per gli appuntamenti pubblicati da ora: le
+    proposte per casella di prima restano com'erano;
+  - il **plugin MCP**: il changeset del ramo (`.changeset/`) esce al merge su
+    `main` con la CI verde; dopo Release, `npm view @stubwise/mcp version`
+    deve dire la versione nuova.
+
+  **Le discese NON sicure, con il loro SQL** (il resto scende pulito, e il
+  caddy scende SEMPRE insieme al server):
+  - **0227, il server**: `UPDATE outgoing_webhooks SET last_test_outcome = 'invalid_credentials' WHERE last_test_outcome = 'destination_error';`
+  - **0228, il server**: un server vecchio ignora l'interruttore, quindi con
+    `attachments_switch = false` gli allegati tornano ACCESI. Se devono
+    restare spenti, spegnerli dall'archiviazione (togliere la configurazione
+    S3) prima di scendere.
+  - **0230, il worker**: ciò che è già compattato non torna se non dal
+    backup; un worker vecchio smette solo di compattare.
+  - **0234, il worker** (calendario condiviso), a worker fermo:
+    `update calendar_events set outcome = '{"type":"baseline"}'::jsonb where calendar_proposal_id is not null and outcome is null and proposal_notification_id is null;`
+  - **0235, il server** («Quale progetto?» senza progetto), a worker fermo:
+    `update notifications set status = 'handled', handled_at = now() where status = 'open' and id in (select r.notification_id from calendar_proposal_recipients r join calendar_proposals p on p.id = r.proposal_id where p.project_id is null);`
+    poi `delete from calendar_proposals where project_id is null;` (e, per
+    tornare avanti senza riproporle, l'`update` di `calendar_events` della
+    voce).
+  - **0236, il server** (il registro di sicurezza):
+    `delete from security_events where kind in ('vault_device_sealed', 'vault_device_seal_revoked');`
+  - Le card aperte di «proposta passata» (lotto 4) restano decidibili dalla
+    Posta; la query per contarle è nella voce.
+  Se scendono tutti e due, l'ordine è: worker (coi suoi passi), poi server
+  e caddy insieme (coi loro passi).
+
+  **La cassaforte dal desktop: cosa serve per accenderla**
+  (`docs/plans/2026-11-24-cassaforte-desktop-design.md`):
+  - **L'app FIRMATA** (Developer ID e i suoi entitlement): la chiave del Mac
+    sta nel Secure Enclave via l'helper Swift (review I1), e senza la firma
+    il Touch ID si aggira (un programma dello stesso utente legge la chiave
+    da `safeStorage`). Il build non firmato di oggi (`package:mac`, dmg
+    locale) NON va distribuito con la cassaforte accesa.
+  - **Il Team ID al build dell'app**: `STUBWISE_TEAM_ID` nell'ambiente di
+    `package:mac` (94). Dà l'access group del Keychain di data protection
+    dove sta la chiave del Mac (`<TeamID>.<bundle id>`, review I1): senza,
+    il pacchetto firmato non ha il gruppo giusto. È una variabile del BUILD
+    del Mac, non del server né del compose.
+  - **Accenderla solo col build firmato: l'interruttore `VAULT_DESKTOP`**
+    (decisione di 46, 25 nov 2026, difesa in profondità). Al deploy resta
+    SPENTO (default): l'associazione e le rotte aperte al Mac rispondono
+    404, le rotte del browser restano. Si accende con `VAULT_DESKTOP=true`
+    in `/opt/stubwise/.env` e `docker compose up -d server` SOLO quando
+    l'app distribuita è il build firmato; spegnerlo è il rollback della
+    funzione (i sigilli restano in DB, i Mac non li usano finché non si
+    riaccende). Anche acceso, un'associazione chiede la riconferma del
+    desktop e la passkey nel browser (review I2): un PAT da solo non basta.
+  - Il resto è nella voce di 0236: ordine server → caddy → app.
 
 - **«L'utilizzo degli account dal rate_limit_event» (19 nov 2026)**: design
   `docs/plans/2026-11-19-utilizzo-account-da-rate-limit-event-design.md`.
@@ -2841,3 +6655,513 @@ deploy o di un rollback che la tocca.
   NON è innocuo come prima, quindi un rollback va tenuto breve. Gli snapshot scritti nel frattempo sono
   righe valide nel formato di sempre: niente da ripulire, nessuna migrazione
   da invertire.
+- **«Rilascio dell'integrazione: aree 2–11 e rimandi (lotti 1–10)»** *(26 nov
+  2026)*: la voce CONSOLIDATA per portare in produzione, in un colpo solo,
+  il ramo `feat/integrazione-rimandi` (aree 2–11 dell'integrazione e rimandi,
+  lotti 1–10). Non sostituisce le voci di fetta e di lotto: dice cosa fare e
+  in che ordine, e per ogni passo nomina fra parentesi la voce da cui viene,
+  dove sta il dettaglio. Comprende le voci-ombrello «Integrazione area 10:
+  l'area intera», «Integrazione area 11: l'area intera» e «Rimandi
+  dell'integrazione (lotti 1–10)». I passi senza una voce sono segnati
+  *(nessuna voce)*.
+
+  **Punto di partenza.** In produzione gira `8feede7a1`, il branch della PR
+  #124 («L'utilizzo degli account dal rate_limit_event»): niente aree 2–11,
+  niente `/app`, migrazioni fino alla **0106**. Il ramo contiene `origin/main`,
+  PR #124 compresa: il rilascio non tocca l'utilizzo degli account dal
+  `rate_limit_event`, che resta com'è in produzione.
+
+  **Le migrazioni: dalla 0107 alla 0236** (128 file; la 0157 e la 0171 non
+  esistono, rinumerate prima del rilascio in 0161 e 0172). Girano TUTTE in UN
+  batch, in una sola transazione, al primo avvio del server nuovo. Gli `ADD
+  VALUE` d'enum stanno ognuno in uno statement a sé e il batch non li usa
+  (0110, 0115, 0136, 0138, 0152, 0169, 0170, 0174, 0175, 0177, 0179, 0181,
+  0182, 0200, 0203, 0235). Il `when` della 0236 è `1804809600000`.
+  - Per area: 0107–0122 (area 2), 0123–0134 (area 3 e chat con Claude),
+    0135–0141 (area 4), 0142–0148 (area 5), 0149–0168 (area 6), 0169–0174
+    (area 7), 0175–0184 (area 8), 0185–0196 (area 9), 0197–0201 (area 10),
+    0202–0218 (area 11), 0219–0236 (rimandi).
+  - ⚠️ **Migrazioni che rendono NON sicura una discesa d'immagine**, con la
+    voce che dice cosa ripulire (l'elenco operativo per la discesa verso
+    `8feede7a1` sta più sotto, in «Rollback»):
+    - **0110, 0115, 0136, 0138, 0169, 0175, 0177, 0179, 0181, 0200, 0203**:
+      `notification_kind` nuovi, 500 su `/api/inbox` finché ne esistono righe
+      («Integrazione area 2, fetta 1», «fetta 2», «area 4, fetta 1», «fetta
+      2», «area 7, fetta 1», «area 8, fetta 1», «fetta 2», «fetta 3», «fetta
+      4b», «area 10, F5», «area 11, F2»);
+    - **0115**: `ticket_event_kind` nuovi, 500 sull'attività del ticket nel
+      web vecchio («area 2, fetta 2»);
+    - **0112**: i PAT `desktop` («area 2, fetta 1»);
+    - **0114, 0133, 0135, 0143, 0169, 0174, 0179, 0180**: permessi nuovi nei
+      preset, che un server vecchio rifiuta salvando un ruolo, e
+      `monitor.view` tolto al preset `User` («area 2, fetta 2», «Chat con
+      Claude, fetta 5», «area 4, fetta 1», «area 5, fetta 2», «area 7, fetta
+      1», «fetta 4», «area 8, fetta 3», «fetta 4a»);
+    - **0125**: l'utente di sistema Claude («Claude assegnabile»);
+    - **0126, 0140**: le sessioni `free` e `chat_mention`, che un server
+      vecchio renderebbe VISIBILI («Chat con Claude, fette 1 e 2», «area 4,
+      fetta 3»);
+    - **0130**: l'eliminazione vera delle task, irreversibile senza backup
+      («Elimina task»);
+    - **0131, 0198, 0199, 0201**: tipi d'evento delle sessioni, 500 sulla
+      pagina degli eventi («Chat con Claude, fetta 3», «area 10, F2», «F3»,
+      «F7»);
+    - **0132, 0185, 0236**: tipi nuovi del registro di sicurezza, 500 sulla
+      pagina di chi ha quelle righe («Riconferma dal desktop», «area 9, F1»,
+      «Lotto 10: la cassaforte dal desktop»);
+    - **0141, 0169, 0210**: TRIGGER che continuano a scrivere sotto un codice
+      vecchio («area 4, fetta 4», «area 7, fetta 1», «area 11, F5»);
+    - **0142**: le citazioni delle note di rilascio tolte dal backfill, che
+      non tornano («area 5, fetta 1»);
+    - **0152, 0169, 0182**: `ticket_source` nuovi (`email`, `automation`,
+      `server`) («area 6, fetta 2», «area 7, fetta 1», «area 8, fetta 4b»);
+    - **0161, 0165**: il worker vecchio proporrebbe le occorrenze personali e
+      classificherebbe le email di Gemini («area 6, fetta 3b», «fetta 5a»);
+    - **0167**: i riferimenti Google del Drive, con `storage_key` nulla
+      («area 6, fetta 5b»);
+    - **0175**: le PR dei colleghi collegate dal sistema, lette come adottate
+      («area 8, fetta 1»);
+    - **0185**: i disattivati rientrano con la password, i permessi personali
+      si perdono («area 9, F1»);
+    - **0188**: i webhook multipli e le consegne con `webhook_id` («area 9,
+      F3»);
+    - **0193**: un repository staccato manda in 500 `GET /api/repositories`
+      («area 9, F6»);
+    - **0196**: i permessi dai reparti si perdono («area 9, F8»);
+    - **0228**: con l'interruttore spento gli allegati si riaccendono («Lotto
+      6»);
+    - **0230**: la compattazione è irreversibile («Lotto 8: la conservazione
+      delle esecuzioni»);
+    - **0234, 0235**: le proposte del calendario condivise e la «Quale
+      progetto?» senza progetto (le due voci del calendario del «Lotto 9»).
+    Molte discese «NON sicure» dei lotti (0227, i passi della 0234) valgono
+    per una discesa intermedia, non verso `8feede7a1`, che quelle funzioni
+    non le ha.
+
+  **Env nuove o cambiate, contate dalla produzione** (tutte nel compose,
+  nessuna obbligatoria: con tutte assenti il rilascio parte e valgono i
+  default):
+  - **server**:
+    - `VAULT_DESKTOP` (default `false`): spenta, l'associazione di un Mac e
+      le rotte aperte al Mac rispondono 404 `vault_desktop_disabled`, quelle
+      del browser restano. **In questo rilascio RESTA SPENTA** («Lotto 10: la
+      cassaforte dal desktop», «Rimandi dell'integrazione»);
+    - `MAIL_CLASSIFY_V2` (default `false`, la stessa del worker): spenta,
+      l'ammissione e le regole della posta di sempre. Resta spenta («area 6,
+      fetta 2»);
+    - `PRODUCT_EMBED_POLL_SECONDS` (default 30, almeno 5; sostituzione con
+      `-`: la stringa VUOTA spegne il poller, e la ricerca della doc di
+      prodotto resta per testo) («area 11, F3»);
+    - `SMTP_URL` e `MAIL_FROM` (facoltative, vuote di default): senza, il
+      cambio dell'email di login dalle Preferenze dice «non disponibile» e
+      resta quello fatto da un admin («area 9, F1»);
+    - `AUTOMATION_WEBHOOK_MAX_PER_MINUTE` (default 600) e
+      `AUTOMATION_WEBHOOK_MAX_PER_DAY` (default 50 000): il tetto d'istanza
+      del webhook in arrivo, che nessuna scelta per automazione supera
+      («area 7, fetta 4»).
+  - **worker**:
+    - `CHAT_SERVER_URL` (default `http://server:${PORT}`), `CHAT_MAX_CONCURRENT`
+      (2), `CHAT_TURN_TIMEOUT_MS` (300000, anche la vita del token del turno),
+      `CHAT_MAX_TURNS` (15). Con l'URL sbagliato il ponte dei tool non parte:
+      la chat resta muta e i messaggi restano in coda («Chat con Claude,
+      fette 1 e 2»);
+    - `MAIL_CLASSIFY_V2` (default `false`): vedi sopra («area 6, fetta 2»);
+    - `DRIVE_CONTENT_POLL_SECONDS` (default 10, 0 = spento: niente contenuto
+      dei file né sincronizzazione delle cartelle Google) («area 5, fetta 3»,
+      «area 6, fetta 5b»);
+    - `AUTOMATIONS_POLL_SECONDS` (default 5, 0 = spento: gli eventi restano in
+      coda e le esecuzioni ferme, nessuna perdita) («area 7, fetta 1»);
+    - `RELEASE_POLL_SECONDS` (default 60, 0 = spento: i rilasci nascono dal
+      merge, ma senza run di CI) («area 8, fetta 1»).
+  - **worker, immagine**: `ARG CLAUDE_CODE_VERSION` da 2.1.287 a **2.1.322**,
+    che si rilascia solo insieme alla correzione dei tool nativi (`--tools`)
+    («CLI claude 2.1.322»); `ARG` nuovi per poppler, tesseract (ita+eng) e
+    libheif, +108,8 MB d'immagine («area 5, fetta 3»).
+  - **caddy**: nessuna env. `Dockerfile.caddy` costruisce anche il renderer
+    in `/srv/app` (con `ELECTRON_SKIP_BINARY_DOWNLOAD=1` dentro l'immagine) e
+    ci lancia `check-no-seed`; il Caddyfile serve `/app` (308 su `/app/`)
+    prima del fallback della SPA («area 2, fetta 1»).
+
+  **PRIMA del deploy, in quest'ordine**:
+  1. **La prova del `rate_limit_event` sul CLI 2.1.322**, chiesta dal
+     maintainer: i golden della PR #124 erano passati col 2.1.287, e ora il
+     worker ha il 2.1.322. Il golden `plan-only` fallisce se il run non
+     produce nessun `rate_limit_event` (il riepilogo stampa «rate_limit_event:
+     N»). Esito: **PASSATO** il 26 nov 2026 (CLI 2.1.322, runner in
+     streaming, sonnet, `stubwise-base` + superpowers allo sha di produzione
+     `b9e16498`, sorgenti `2e54ad6f8`): exit 0, `rate_limit_event: 1`, tutti i
+     controlli del contratto verdi («L'utilizzo degli account dal
+     rate_limit_event», «CLI claude 2.1.322»).
+  2. **Golden col CLI 2.1.322**: per questo rilascio il maintainer ha
+     chiesto la prova del punto 1 (decisione del 26 nov 2026). Degli
+     scenari che le voci chiedono, elencati qui sotto, la maggior parte ha
+     l'esito sul 2.1.322 scritto nella voce della fetta. ⚠️ Quattro gruppi
+     invece le voci li dicono «da lanciare al rilascio» senza riportarne un
+     esito: `chat-automation-read`, `chat-mail-hostile`, i `product-doc-*`
+     (email, vague, contradicts, hostile) e `product-doc-first-version` con i
+     quattro della chat sulla doc. Se lanciarli prima del deploy lo decide il
+     maintainer.
+     Elenco:
+     plan-only, execute, correction, stop-pause, ask-user e no-ask (5
+     volte), intervene, intervene-plan, refine, refine-read, cancel (3),
+     refine-read-bash, `golden:nightly`, i `chat-*`, `chat-mention-*`,
+     `chat-drive-*`, i `chat-*-read`/`-hostile` dell'area 10, i
+     `product-doc-*` e i `chat-product-*` («CLI claude 2.1.322», «Annulla il
+     lavoro», «Chat con Claude, fetta 3», «area 4, fetta 3», «area 5, fetta
+     3», «area 10, F1», «area 11, F5», «F6»). `mail-classify-v2` e
+     `automation-step` servono prima di ACCENDERE le loro funzioni, non per il
+     deploy («area 6, fetta 2», «area 7, fetta 3»).
+  3. **Backup del DB** (`pg_dump`), obbligatorio: la 0130 abilita
+     eliminazioni definitive, la 0142 toglie citazioni, la 0188 scarta
+     `notify_google_proposal` («area 2, fetta 1», «Elimina task», «area 5,
+     fetta 1», «area 9, F3»).
+  4. **Il proprietario del database è l'utente dell'app**, in sola lettura:
+     la 0137 crea `pg_trgm` (estensione *trusted*) senza superuser, ma solo
+     se l'utente ha il permesso `CREATE` sul database; se non ce l'ha, fallisce
+     tutto il batch e il server non parte («area 4, fetta 2»). Con le
+     credenziali di `DATABASE_URL`:
+     ```sql
+     select current_user,
+            pg_get_userbyid(d.datdba) as proprietario,
+            pg_get_userbyid(d.datdba) = current_user as utente_app_proprietario,
+            has_database_privilege(current_user, current_database(), 'CREATE') as puo_creare,
+            (select count(*) from pg_available_extensions where name = 'pg_trgm') as pg_trgm_disponibile
+       from pg_database d
+      where d.datname = current_database();
+     ```
+     Atteso: `utente_app_proprietario`, `puo_creare` veri e
+     `pg_trgm_disponibile` = 1.
+  5. **Controlli in sola lettura sul DB di produzione**:
+     - ⚠️ **una sola produzione per progetto**, o la 0175 si ferma e il
+       server NON parte: `select project_id, count(*) from
+       project_environments where kind = 'production' group by 1 having
+       count(*) > 1;` deve essere vuota, altrimenti le altre diventano
+       `staging` («area 8, fetta 1»);
+     - i server collegati SOLO dal web (`server_projects`, nessun ambiente):
+       la query della voce. Dopo il deploy li vede solo chi ha
+       `monitor.view`/`monitor.manage` («area 8, fetta 4a»);
+     - il webhook d'istanza con le proposte della posta accese: `select
+       webhook_url is not null as configured, enabled, notify_google_proposal
+       from notification_settings;`. Se `configured` e
+       `notify_google_proposal` sono veri, avvisare chi ci contava: dopo il
+       deploy non le riceve più («area 9, F3»);
+     - i ruoli con `settings.manage` senza `integrations.manage`, che non
+       vedranno più la pagina Notifiche: `select name from roles where
+       permissions @> array['settings.manage'] and not permissions @>
+       array['integrations.manage'];` («area 9, F3»);
+     - quanto pesa la chat nel budget mensile: la query di stima della voce e
+       `select monthly_budget_usd from instance_settings;`. Se la somma
+       supera il budget, alzarlo prima o accettare che il lavoro si fermi
+       («area 6, fetta 3»). Da questo rilascio, inoltre, a budget finito chi
+       non ha `plans.approve` riceve SUBITO 409 `budget_exhausted` («Rimandi,
+       lotto 4: il budget mensile finito»);
+     - le caselle Google: `select count(*) from google_accounts where
+       disabled_at is null and not ('https://www.googleapis.com/auth/gmail.modify'
+       = any(scopes));` (da ricollegare), `select count(*) from
+       google_accounts where not proposals_enabled and disabled_at is null;`
+       (da ora si LEGGONO), `select account_id, count(*) from calendar_events
+       group by 1;` e `select count(*) from calendar_series where auto;` (la
+       linea di base del calendario) («area 6, fetta 1», «fetta 3b»).
+     Due controlli «prima» dell'ombrello dei rimandi NON si fanno qui, perché
+     nominano tabelle che in produzione nascono con questo rilascio: il
+     conteggio della compattazione (`automation_runs`, 0169: non esiste
+     un'esecuzione più vecchia di 90 giorni, e il primo giro non toglie
+     niente) e l'«ultima prova» dei webhook (`outgoing_webhooks`, 0188: tutti
+     partono senza prova). La query del modulo Docs spento si lancia DOPO il
+     server (sotto) («Rimandi dell'integrazione», «Lotto 8: la conservazione
+     delle esecuzioni», «Rimandi, lotto 5: l'ultima prova dei webhook»).
+  6. **Google Cloud Console** (app OAuth **External**): aggiungere alla
+     schermata di consenso gli scope `gmail.modify`, `calendar.events` e
+     `drive.readonly`, e farli passare dalla **verifica di Google**. Senza,
+     nessuno riesce a collegare o ricollegare una casella. Un'app
+     **Internal** non ne ha bisogno («area 6, fetta 1», «fetta 4», «fetta
+     5b»). Gli alias di Gmail non chiedono scope nuovi («Lotto 8: rispondere
+     da un alias di Gmail»).
+  7. **Avvisi da mandare prima**:
+     - il webhook d'istanza parte SENZA firma (sotto, «Dopo») («area 9, F3»);
+     - la chiave d'ingestione non si vede più dai membri: la vede chi crea il
+       progetto o chi la rigenera («area 9, F5»);
+     - un progetto si elimina solo da archiviato e solo da un full admin
+       («area 9, F6»);
+     - i `monitor.*` di un server con un solo progetto smettono di andare su
+       Slack («area 8, fetta 2»).
+  8. **Worker a riposo**, su più campioni a qualche minuto di distanza, tutti
+     vuoti o a 0. Oltre al riavvio, la 0142 fa un `CREATE TRIGGER` su
+     `doc_pages` che aspetta ogni transazione aperta che ci scrive («area 5,
+     fetta 1», «L'utilizzo degli account dal rate_limit_event», «Worker
+     fail-on-restart» in `CLAUDE.md`):
+     - `select id from doc_generations where status in ('running','paused');`
+     - nessun job `triaging`/`fixing` e nessun job di backlog attivo;
+     - `select count(*) from agent_sessions where cardinality(live_segment_ids) > 0 and heartbeat_at > now() - interval '90 seconds';`
+     - `select count(*) from activity_reports where status = 'running';`
+     - `select count(*) from nightly_items where status = 'pending' and claimed_at > now() - interval '60 minutes';`
+     Se il giro notturno è in corso si aspetta che finisca, o si fa il
+     deploy di giorno.
+
+  **ORDINE dei servizi** (decisione del maintainer: il worker si ferma PRIMA
+  del server, così non lavora contro le tabelle bloccate dal batch né contro
+  lo schema nuovo con un codice vecchio):
+  1. **Controlli d'inattività** (il punto 8 qui sopra).
+  2. **Immagini costruite**, senza avviarle: `docker compose build server
+     worker caddy`.
+  3. **`docker compose stop worker`.**
+  4. **`server`**: `docker compose up -d server`. Applica 0107–0236 in un
+     batch. Aspettare `docker inspect -f '{{.State.Health.Status}}'
+     stubwise-server-1` = `healthy` e le migrazioni applicate: `select
+     count(*), max(created_at) from drizzle.__drizzle_migrations;` = 235
+     righe e `1804809600000`. Worker e renderer nominano colonne nuove: non si
+     va avanti prima («Rimandi dell'integrazione», «area 10: l'area intera»,
+     «area 11: l'area intera»).
+  5. **Il modulo Docs spento**: ora che le tabelle esistono, la query della
+     voce (i progetti senza `docs` con dati dei Docs o del Product). Se
+     torna righe, accendere il modulo su quei progetti o avvisare il
+     maintainer: col server nuovo i loro dati non si vedono più («Rimandi: il
+     modulo Docs spento chiude le rotte»).
+  6. **`worker`**: `docker compose up -d worker`. Col worker fermo dal passo 3
+     non ci sono invii, analisi, correzioni di server né lavori della doc in
+     volo («area 6, fetta 3», «area 8, fetta 4b», «area 11, F5»).
+  7. **`caddy`**: `docker compose up -d caddy` (web, `/guide`, `/widget.js`
+     col token d'identità, il renderer in `/app` con `vault-pair` e
+     `desktop-google`) («area 8, fetta 3», «l'API per i siti», «Rimandi
+     dell'integrazione»).
+  - `graphify` e `push-relay` NON cambiano: nessun rebuild (il pin
+    `graphifyy` è invariato) («Rimandi dell'integrazione»).
+  - L'immagine dell'**agente di monitoraggio** la ripubblica la CI al merge
+    (`packages/agent` cambia); gli host NON si aggiornano da soli, e non serve
+    farlo, salvo volere le operazioni su un host («area 8, fetta 4b»).
+  - **Nessuna app per Mac** in questo rilascio (sotto, «Cosa NON si fa»).
+
+  **DOPO il deploy, verifiche**:
+  - **Servizi e bundle**:
+    - `/health` dall'interno (non passa da caddy): `docker compose exec
+      server node -e
+      "fetch('http://127.0.0.1:3000/health').then(r=>r.text()).then(console.log)"`
+      → `{"status":"ok"}` *(nessuna voce)*;
+    - `docker exec stubwise-caddy-1 sh -c 'ls /srv/app/index.html'` e `curl
+      -sI https://<istanza>/app` → 308 verso `/app/` («area 2, fetta 1»);
+    - `docker exec stubwise-caddy-1 sh -c 'grep -rl "day-arrangements"
+      /srv/app'` («area 2, fetta 2») e lo stesso con `desktop-google` per
+      l'ultimo lotto *(nessuna voce)*;
+    - `docker compose exec worker claude --version` = `2.1.322` («CLI claude
+      2.1.322»);
+    - nel log del worker: `chat max 2` (non «disabilitata (ponte non
+      avviato)»), nessun «annullamenti: LISTEN fallito», nessuna riga
+      `[chat]` con un token («Chat con Claude, fette 1 e 2», «Annulla il
+      lavoro»);
+    - **i tempi dell'estrazione sul VPS**: `docker compose run --rm
+      --entrypoint node worker dist/drive/extract/selfcheck.js` esce **0**
+      (sei casi col testo atteso); i tempi che stampa si scrivono nella voce
+      «Integrazione area 5, fetta 3», accanto a quelli misurati su Apple
+      Silicon («area 5, fetta 3»).
+  - **Dati delle migrazioni** (le query sono nelle voci):
+    - area 2: `tickets.status_id` mai null, un codice per progetto, 5 stati
+      per progetto, il reparto «General», i cinque valori d'enum della 0115,
+      `planning.others` nel preset `project_lead`, 5 filtri d'esempio, una
+      Home per reparto, il trigger e l'indice della 0119/0120, i numeri delle
+      richieste senza doppioni («area 2», fette 1–4);
+    - `select email, is_agent, role from users where is_agent;` = una riga
+      («Claude assegnabile»); `deleted_tickets` = 0 («Elimina task»);
+      `claude_proposals` = 0 («Chat con Claude, fetta 3»);
+    - `drive.upload` vero per Project Lead, Developer, Contributor, Legacy
+      Member e falso per `viewer` («area 5, fetta 2»).
+  - **Nelle prime ore** (sola lettura):
+    - gli embedding delle pagine manuali arrivano a 0 mancanti entro un'ora,
+      con ollama su («area 5, fetta 1»);
+    - il contenuto del Drive scende verso `ready`/`no_text`/`unsupported`,
+      senza `failed` che crescono, con un riassunto Haiku per file in
+      Consumi («area 5, fetta 3»);
+    - la linea di base del calendario: `proposal_candidate` dell'ordine di
+      prima, nessuna ondata di `google.proposal` nell'ultima ora, la
+      dimensione di `calendar_events` che si stabilizza («area 6, fetta 3b»);
+    - `mail_outgoing` senza `failed` che crescono, `sent_unrecorded`,
+      `claude_actions.effect_failure` («area 6, fetta 3»);
+    - `automation_events` non consumati che restano pochi («area 7, fetta
+      1»); `select colleague_prs, count(*) from repositories group by 1;`
+      tutti `analyze_only` («area 8, fetta 1»);
+    - il giudizio del supporto (`support_triage_check`) e quello dei clienti
+      in attesa (`mail_reply_judgment`): un picco di run Haiku nelle prime ore,
+      poi solo i messaggi nuovi («area 8, fetta 3», «Clienti in attesa»);
+    - le analisi dei server partono accese di default all'apertura di un
+      episodio (10 min, 1 $): spegnerle o stringerle in Impostazioni se non
+      servono; `instance_signing_keys` vive ≤ 1 («area 8, fetta 4b»);
+    - `worker_heartbeats` che si aggiornano («area 9, F4»);
+    - gli alias di Gmail entro un giorno per casella («Lotto 8: rispondere da
+      un alias di Gmail»);
+    - le proposte del calendario condivise valgono per gli appuntamenti
+      pubblicati da ora («Lotto 9: le proposte del calendario condivise»).
+  - **Plugin MCP**: i changeset del ramo (`mcp-get-by-code-prefix`,
+    `mcp-task-vocabulary`, `support-mcp-conversation`) escono al merge su
+    `main` con la CI verde. Dopo Release, `npm view @stubwise/mcp version`
+    dice la versione nuova, e su `main` c'è il commit di versione («area 8,
+    fetta 3», «Rimandi dell'integrazione», «Rilascio senza PR di
+    versioning»).
+
+  **DOPO il deploy, passi manuali**:
+  - **Il segreto del webhook in uscita**: il webhook di oggi diventa il primo
+    dei webhook, SENZA segreto, e gli invii partono non firmati. Rigenerarlo
+    (Impostazioni → Webhook, con la riconferma) e dare il segreto, che si vede
+    una volta sola, ai destinatari JSON che verificano la firma («area 9,
+    F3»).
+  - **Il segreto del webhook git** non si legge più: chi ha configurato a
+    mano un webhook su un provider lo rigenera solo se gli serve, e allora lo
+    incolla subito sul provider, o il webhook si rompe («area 9, F5»).
+  - **I ruoli personalizzati con `monitor.view` senza `monitor.manage`**
+    vedono ancora ogni server: la query della voce; la decisione è
+    dell'admin («area 8, fetta 4a»).
+  - **Le caselle Google**: a chi manca `gmail.modify`, `calendar.events` o
+    `drive.readonly` le ricollega dal cassetto Google (stessa riga). Fino ad
+    allora letto/non letto, scritture del calendario e Drive rispondono 409
+    `google_scope_missing` («area 6, fetta 1», «fetta 4», «fetta 5b»).
+  - **La prova sui Drive condivisi** *(nessuna voce: il comportamento viene
+    dalla review della F5b, commit `100e636f7`, `corpora=allDrives` in
+    `packages/google/src/drive.ts`)*: collegare dal Drive di un progetto una
+    cartella che sta in un Drive CONDIVISO di Google, e controllare che i suoi
+    file compaiano e che il contenuto arrivi a `ready`.
+  - **Prova a mano del maintainer su `/app`**: login completo, secondo
+    fattore e configurazione al primo accesso («area 2, fetta 1»); le prove
+    di fetta dell'area 2 (pianificazione, Home, filtri, richieste, nuovo
+    progetto), della chat con Claude (`/app/#/claude`), della Chat
+    (`/app/#/chat`, `@Nome`, un DM invisibile al full admin) e del webhook in
+    arrivo (202, 422) («area 2», fette 2–4, «Chat con Claude, fetta 3», «area
+    4, fetta 1», «fetta 2», «area 7, fetta 4»).
+  - **Il login del desktop**: vale solo per chi ha un dmg locale. Il token
+    del desktop è ora legato all'istanza dello scambio, quindi una sessione
+    salvata prima non vale più e si rifà il login una volta *(nessuna voce:
+    commit `2802fc7f0`)*.
+  - **L'app mobile**: il fix del reader (`d33e0569`) arriva solo con una
+    build nuova, a mano; il server non c'entra («area 2, fetta 3»).
+
+  **Cosa NON si fa in questo rilascio**:
+  - **Nessuna app per Mac** (decisione del maintainer): si rilascia solo
+    `/app`. Il dmg resta una build locale del maintainer (`package:mac`, non
+    firmata) e si distribuisce quando c'è la firma Apple (Developer ID,
+    `STUBWISE_TEAM_ID` al build), che accende anche la cassaforte dal desktop
+    («Rimandi dell'integrazione»).
+  - **`VAULT_DESKTOP` resta spenta.** Si accende (`VAULT_DESKTOP=true` in
+    `/opt/stubwise/.env`, poi `docker compose up -d server`) solo quando
+    l'app distribuita è il build FIRMATO; spegnerla è il rollback della
+    funzione («Lotto 10: la cassaforte dal desktop», «Rimandi
+    dell'integrazione»).
+  - **`MAIL_CLASSIFY_V2` resta spenta**, e con lei la misura del costo
+    (`cost.sql` non serve al deploy): si accende dopo la misura, col budget
+    impostato di conseguenza e il golden `mail-classify-v2`, con `docker
+    compose up -d server worker` («area 6, fetta 2»). Restano spente anche le
+    riunioni registrate e la «Quale progetto?» del calendario, che la vogliono
+    accesa («area 6, fetta 5a», «Lotto 9: il progetto di un appuntamento con
+    più candidati»).
+  - **La vecchia ammissione della posta NON si toglie** (le rotte
+    `email-routes`, `email-labels`, `mail-admission`, colonne e tabelle): si
+    toglie quando la classificazione nuova è accesa e stabile (registro dei
+    rimandi, «F2, dopo che la classificazione nuova è accesa e stabile»).
+  - Nessuna automazione con un passo di Claude si accende finché il golden
+    `automation-step` non è verde («area 7, fetta 3»).
+  - Nessun aggiornamento dell'agente sugli host, nessuna build mobile.
+
+  **Rollback dell'intero rilascio** (verso `8feede7a1`). Le migrazioni non si
+  annullano: un ritorno pieno è solo il backup. Il caddy scende SEMPRE
+  insieme al server, il worker con loro. L'ordine è: worker fermo coi suoi
+  passi, poi server e caddy coi loro («Rimandi dell'integrazione»). Il worker
+  vecchio torna al CLI 2.1.287 («CLI claude 2.1.322»).
+  **Prima di scendere, a worker fermo**:
+  - le **card dei 24 `notification_kind` nuovi** (500 su `/api/inbox`):
+    `delete from notifications where kind in ('decision.requested',
+    'decision.answered', 'ticket.activity', 'planning.changed',
+    'task.assigned', 'chat.mention', 'chat.question', 'automation.approval',
+    'automation.failed', 'automation.notify', 'automation.paused',
+    'release.failed', 'release.merged', 'release.succeeded', 'pr.opened',
+    'pr.analysis_issues', 'pr.corrected', 'docs.release_note',
+    'support.request', 'server.diagnosis_ready', 'member.added',
+    'product_doc.mention', 'product_doc.updated', 'product_doc.question');`
+    (le consegne cadono in cascata) (le voci delle migrazioni 0110–0203);
+  - gli eventi nuovi del feed: `delete from ticket_events where kind in
+    ('planned_week_changed', 'department_changed', 'effort_changed');`
+    («area 2, fetta 2»);
+  - i PAT del desktop: `delete from personal_access_tokens where kind =
+    'desktop';` («area 2, fetta 1»);
+  - le sessioni private che un server vecchio renderebbe visibili (va detto
+    agli utenti, le loro conversazioni spariscono): `delete from
+    agent_sessions where kind in ('free', 'chat_mention');` («Chat con
+    Claude, fette 1 e 2», «area 4, fetta 3»);
+  - i tipi d'evento delle sessioni rimasti: `delete from agent_session_events
+    where type in ('proposal', 'actions_executed', 'question', 'aside',
+    'capabilities');` («Chat con Claude, fetta 3», «area 10: l'area
+    intera»);
+  - il registro di sicurezza: `delete from security_events where kind in
+    ('reauth_desktop', 'deactivated', 'reactivated', 'email_changed',
+    'slack_linked', 'bitbucket_linked', 'vault_device_sealed',
+    'vault_device_seal_revoked');`, o si accetta il 500 sulla pagina di chi
+    le ha («Riconferma dal desktop», «area 9, F1», «Lotto 10»);
+  - le sorgenti nuove delle task: verso `8feede7a1` lo schema di risposta
+    delle task è a enum chiuso, quindi tutte e tre tornano a `manual`:
+    `update tickets set source = 'manual' where source in ('email',
+    'automation', 'server');` («area 6, fetta 2», «area 7, fetta 1», «area 8,
+    fetta 4b»);
+  - i permessi nuovi nei ruoli, che un server vecchio rifiuta salvando (400):
+    `update roles set permissions = array(select p from unnest(permissions) p
+    where p not like 'chat.%' and p not like 'drive.%' and p not in
+    ('planning.others', 'claude.public.view', 'automations.manage',
+    'automations.general.manage', 'support.manage', 'servers.operate',
+    'servers.ssh.manage', 'changelog.view', 'instance.status.view'));`, e il
+    ritorno di `monitor.view` al preset `User` con l'`update` della voce
+    («area 2, fetta 2», «Chat con Claude, fetta 5», «area 4, fetta 1», «area
+    7, fetta 4», «area 8, fetta 4a»). ⚠️ L'elenco è ricostruito dalle voci e
+    dalle migrazioni (0114, 0133, 0135, 0143, 0169, 0174, 0179, 0181, 0187,
+    0191) e non è stato provato: prima di lanciarlo, confrontarlo col
+    catalogo dei permessi di `8feede7a1`;
+  - l'utente Claude: lasciare `password_hash = '!agent-no-login'` e avvisare
+    gli admin di non reimpostarla, oppure togliere le assegnazioni ed
+    eliminare la riga («Claude assegnabile»);
+  - nessun repository staccato (500 su `GET /api/repositories`): `select id,
+    name from repositories where project_id is null;` vuota. Gli archiviati
+    riappaiono aperti («area 9, F6»);
+  - i riferimenti Google del Drive: `update drive_files set deleted_at =
+    coalesce(deleted_at, now()), storage_purged = true where source =
+    'google';` («area 6, fetta 5b»);
+  - i trigger: `drop trigger` dei cinque della 0141 (Chat) e `disable
+    trigger` dei cinque delle automazioni (0169), con gli statement delle
+    voci; la coda della doc: `update product_doc_jobs set status = 'held',
+    held_reason = 'paused' where status = 'queued';` («area 4, fetta 4»,
+    «area 7, fetta 1», «area 11, F5»);
+  - la posta: nessun `mail_outgoing` `queued`; le automazioni con casella in
+    pausa e le loro email annullate; le email di Gemini chiuse (`kind =
+    'transcript'`); `update email_messages set status = 'ignored' where
+    status = 'new' and account_id in (select id from google_accounts where
+    not proposals_enabled);` («area 6, fetta 1», «fetta 3», «fetta 5a»,
+    «area 7, fetta 2»);
+  - il calendario: `delete from calendar_events where proposal_candidate =
+    false;` (e azzerare `calendar_baseline_at` e `calendar_sync_token` delle
+    caselle), più i passi della 0234 e della 0235 («area 6, fetta 3b», le due
+    voci del calendario del «Lotto 9»);
+  - le PR dei colleghi collegate dal sistema: l'`update` di
+    `ticket_repositories` della voce («area 8, fetta 1»);
+  - le consegne con `webhook_id`: `update notification_deliveries set status
+    = 'skipped', error = 'rollback area 9 F3' where status = 'pending' and
+    webhook_id is not null;` («area 9, F3»);
+  - le pause delle code tolte; i disattivati con la password cambiata (o si
+    accetta che rientrino); i progetti gestiti solo via reparto con un
+    gestore dato a mano (le query delle voci) («area 9, F1», «F4», «F8»);
+  - con l'interruttore degli allegati spento: togliere la configurazione S3,
+    o gli allegati tornano accesi («Lotto 6»).
+  Restano persi comunque: le task eliminate, le citazioni delle note di
+  rilascio, il registro delle modifiche per il tempo del rollback (un buco da
+  annotare), le esecuzioni compattate («Elimina task», «area 5, fetta 1»,
+  «area 9, F2», «Lotto 8»).
+
+  **Ancora aperto al momento della voce**:
+  - la decisione del maintainer sui quattro gruppi di golden senza esito
+    (passo 2 di «PRIMA»);
+  - i tempi dell'estrazione sul VPS: da scrivere nella voce dell'area 5,
+    fetta 3 dopo il deploy.
+
+  **Env del compose** (`2e54ad6f8`): nessun cambio di comportamento. Le 27
+  env del worker e le 2 del server che mancavano dal `docker-compose.yml`
+  (con i default del codice, verificati da `config.test.ts` di worker e
+  server) ora sono regolabili da `/opt/stubwise/.env`; basta la ricreazione
+  dei container server e worker, già compresa nell'ordine sopra.
+
+  **Estrazione Office nel worker** (`a8956d9a9`): l'estrazione dei file
+  Office del Drive gira in un processo figlio (`node --max-old-space-size`),
+  non più in un worker_thread, che su Node 22 Linux, oltre il tetto di
+  memoria, abbatteva l'intero worker (con il fail-on-restart dei Docs).
+  Nessuna env né migrazione. E `claimRuns` delle automazioni prende anche le
+  righe dovute nello stesso millesimo (`dd9ca7be9`): prima un giro di ritardo.

@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { AiBlockLine } from "../../components/InstanceBlock";
 import { useExplainRelease, useFixRelease, useSendMessage } from "../../data/queries";
 import type { ReleaseView } from "../../data/releases";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
 import { primaryButton, secondaryButton } from "../tasks/controls";
@@ -39,7 +39,9 @@ export function FixDialog({ release, onClose }: { release: ReleaseView; onClose:
           // Una task già aperta (un altro clic, un'altra persona): lo si dice, e
           // si dice che fine ha fatto la nota.
           const key = !task.existing
-            ? "releases.fix.created"
+            ? task.started
+              ? "releases.fix.createdStarted"
+              : "releases.fix.created"
             : !note.trim()
               ? "releases.fix.existing"
               : task.noteAdded

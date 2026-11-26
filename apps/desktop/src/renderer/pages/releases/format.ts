@@ -21,9 +21,40 @@ export function platformOf(url: string | null | undefined): string {
   return url && /bitbucket/i.test(url) ? "Bitbucket" : "GitHub";
 }
 
-/** L'indirizzo di una PR sulla piattaforma. */
-export const prUrl = (pr: { repo: string; number: number }): string =>
-  `https://github.com/${pr.repo}/pull/${pr.number}`;
+/**
+ * L'indirizzo di una PR sulla piattaforma: quello del server quando c'è (la
+ * build app, GitHub o Bitbucket); il prototipo, che non lo porta, costruisce
+ * quello di GitHub. `null` se il server non l'ha (niente link inventato).
+ */
+export function prUrl(pr: { repo: string; number: number; url?: string }): string | null {
+  if (pr.url !== undefined) return pr.url || null;
+  return `https://github.com/${pr.repo}/pull/${pr.number}`;
+}
+
+/**
+ * Un link a un commit o a un file della PR: solo su github.com (Bitbucket ha
+ * un'altra forma, e un `owner/repo` di GitHub inventato potrebbe essere il
+ * repository di un altro), e mai con lo sha vuoto.
+ */
+export function githubLink(
+  pr: { repo: string; number: number; url?: string },
+  kind: "commit" | "blob",
+  sha: string,
+  file?: string,
+): string | null {
+  const url = prUrl(pr);
+  if (!sha || !url) return null;
+  let host: string;
+  try {
+    host = new URL(url).host;
+  } catch {
+    return null;
+  }
+  if (host !== "github.com") return null;
+  return kind === "commit"
+    ? `https://github.com/${pr.repo}/commit/${sha}`
+    : `https://github.com/${pr.repo}/blob/${sha}/${file ?? ""}`;
+}
 
 /** Lo sha corto, come lo scrive git. */
 export const shortSha = (sha: string): string => sha.slice(0, 7);
@@ -60,6 +91,23 @@ export function duration(run: RunView, t: TFunction): string {
     : t("releases.run.durationSeconds", { s });
 }
 
+/**
+ * Lotto 4, §1 (D-1.1 = a): chi ha spinto prima di una correzione scartata.
+ * Nella build app il server non sa il nome dell'autore (`authorName` "" sui
+ * colleghi, "Claude" sulle PR di Stubwise): la frase non inventa un nome e non
+ * dice «Claude pushed first». Nel prototipo il nome c'è.
+ */
+function discardedText(pr: Pick<OpenPrView, "origin" | "authorName">, t: TFunction, key: string): string {
+  if (pr.origin === "stubwise") return t(`${key}Branch`);
+  if (!pr.authorName) return t(`${key}Author`);
+  return t(key, { name: pr.authorName });
+}
+
+/** La riga «discarded» di una correzione nel pannello della PR. */
+export function discardedCorrectionText(pr: Pick<OpenPrView, "origin" | "authorName">, t: TFunction): string {
+  return discardedText(pr, t, "releases.panel.correction.discarded");
+}
+
 /** La parola di stato di una PR, in elenco e nei nomi accessibili. */
 export function prStateWord(pr: OpenPrView, t: TFunction): string {
   const kind = pr.prState.state;
@@ -70,7 +118,12 @@ export function prStateWord(pr: OpenPrView, t: TFunction): string {
 
 /** Il rischio in parola, se c'è un'analisi che si mostra. */
 export function riskWord(pr: OpenPrView, t: TFunction): string | null {
-  if (!pr.analysis || pr.prState.state === "analysis_off" || pr.prState.state === "analyzing") {
+  if (
+    !pr.analysis ||
+    pr.analysis.risk === null ||
+    pr.prState.state === "analysis_off" ||
+    pr.prState.state === "analyzing"
+  ) {
     return null;
   }
   return t(`releases.risk.${pr.analysis.risk}`);
@@ -84,7 +137,8 @@ export function notReadyReason(pr: OpenPrView, t: TFunction): string | null {
   if (pr.checks === "failing") return t("releases.reason.checksFailing");
   if (pr.checks === "pending") return t("releases.reason.checksRunning");
   if (pr.checks === "unreadable") return t("releases.reason.checksUnreadable");
-  if (!pr.mergeable) return t("releases.reason.conflicts", { branch: pr.baseBranch });
+  // `null` = non letto: non è un conflitto (lo dirà il merge).
+  if (pr.mergeable === false) return t("releases.reason.conflicts", { branch: pr.baseBranch });
   return null;
 }
 
@@ -106,13 +160,15 @@ export function prProse(pr: OpenPrView, t: TFunction): string | null {
         : t("releases.prLine.correctedNoSha");
     }
     case "discarded":
-      return t("releases.prLine.discarded", { name: pr.authorName });
+      return discardedText(pr, t, "releases.prLine.discarded");
     case "capped":
       return t("releases.prLine.capped", { cap });
     case "analysis_only":
       return t("releases.prLine.analysisOnly");
     case "analysis_off":
-      return t("releases.prLine.analysisOff", { repo: shortRepo(pr.repo) });
+      return pr.analysisOff === "instance"
+        ? t("releases.prLine.notAnalyzed")
+        : t("releases.prLine.analysisOff", { repo: shortRepo(pr.repo) });
     case "not_fixable":
       return t(`releases.notFixable.${s.notFixable ?? "fork"}`);
     case "clean":
@@ -162,6 +218,9 @@ export function nowSentence(r: ReleaseView, t: TFunction, language: string): str
       return t("releases.now.notInProduction");
     case "in_production":
       return t("releases.now.inProduction", { time: s.since ? clock(s.since, language) : "" });
+    case "unknown":
+      // Le run non si sono potute leggere (area 8, F1): nessuna affermazione.
+      return t("releases.now.unknown");
     case "unavailable":
       return t(`releases.now.unavailable.${s.reason ?? "no_production_env"}`, {
         code: r.projectCode,

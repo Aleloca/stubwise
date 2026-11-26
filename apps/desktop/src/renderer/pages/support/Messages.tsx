@@ -108,11 +108,8 @@ function Message({
             <p className="text-xs text-ink-muted">{t("support.message.sending")}</p>
           ) : (
             <p className="text-xs text-ink-faint">
-              {t(
-                conv.channel === "widget"
-                  ? "support.message.sentWidget"
-                  : "support.message.sentMcp",
-              )}
+              {/* Solo sul canale mcp (area 8, F3): al cliente del widget il team non scrive. */}
+              {t("support.message.sentMcp")}
             </p>
           ))}
       </div>

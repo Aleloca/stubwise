@@ -28,6 +28,8 @@ const give = (personId: string, perm: string) =>
   grantInstancePermission(personId, perm as LocalInstancePermission);
 
 const BITBUCKET_AUDIN = "git-bitbucket-audin";
+const SEED_WEBHOOK = "wh-seed";
+const OPS_URL = "https://ops.example.test/hooks/stubwise";
 const GITHUB_STUBWISE = "git-github-stubwise";
 const account = (id: string) => state.instance.gitAccounts.find((g) => g.id === id)!;
 
@@ -128,18 +130,24 @@ describe("permessi", () => {
     ["saveStorage", "settings.manage", storageWithKey],
     ["setAttachments", "settings.manage", () => instance.setAttachments(false)],
     ["testStorage", "settings.manage", () => instance.testStorage()],
+    // F3 (H-1): i webhook con `integrations.manage`.
     [
-      "saveWebhook",
-      "settings.manage",
-      () =>
-        instance.saveWebhook({
-          enabled: false,
-          format: "discord",
-          url: null,
-          events: {},
-        }),
+      "createWebhook",
+      "integrations.manage",
+      () => instance.createWebhook({ name: "Ops", url: OPS_URL, format: "generic", events: [] }),
     ],
-    ["testWebhook", "settings.manage", () => instance.testWebhook()],
+    [
+      "updateWebhook",
+      "integrations.manage",
+      () => instance.updateWebhook(SEED_WEBHOOK, { enabled: false }),
+    ],
+    [
+      "regenerateWebhookSecret",
+      "integrations.manage",
+      () => instance.regenerateWebhookSecret(SEED_WEBHOOK),
+    ],
+    ["deleteWebhook", "integrations.manage", () => instance.deleteWebhook(SEED_WEBHOOK)],
+    ["testWebhook", "integrations.manage", () => instance.testWebhook(SEED_WEBHOOK)],
   ];
 
   for (const [name, , call] of writes)
@@ -168,12 +176,14 @@ describe("permessi", () => {
     expect(await instance.listGitAccounts()).toHaveLength(3);
     await expect(instance.listGoogleApps()).rejects.toThrow("forbidden");
     await expect(instance.getStorage()).rejects.toThrow("forbidden");
-    await expect(instance.getWebhook()).rejects.toThrow("forbidden");
-    give(MARCO, "integrations.manage");
-    expect(await instance.listGoogleApps()).toHaveLength(1);
+    await expect(instance.listWebhooks()).rejects.toThrow("forbidden");
     give(MARCO, "settings.manage");
     expect((await instance.getStorage()).bucket).toBe("stubwise-files");
-    expect((await instance.getWebhook()).format).toBe("slack");
+    // F3 (H-1): `settings.manage` non basta più per i webhook.
+    await expect(instance.listWebhooks()).rejects.toThrow("forbidden");
+    give(MARCO, "integrations.manage");
+    expect(await instance.listGoogleApps()).toHaveLength(1);
+    expect((await instance.listWebhooks()).map((w) => w.format)).toEqual(["slack"]);
   });
 
   const plusR: [string, () => Promise<InstanceResult<object>>][] = [
@@ -182,6 +192,13 @@ describe("permessi", () => {
     ["createGoogleApp", newApp],
     ["replaceGoogleSecret", () => instance.replaceGoogleSecret("gw-example", "GOCSPX-new-1111")],
     ["saveStorage con la chiave", storageWithKey],
+    // F3: nasce o cambia un segreto, o si toglie un webhook.
+    [
+      "createWebhook",
+      () => instance.createWebhook({ name: "Ops", url: OPS_URL, format: "generic", events: [] }),
+    ],
+    ["regenerateWebhookSecret", () => instance.regenerateWebhookSecret(SEED_WEBHOOK)],
+    ["deleteWebhook", () => instance.deleteWebhook(SEED_WEBHOOK)],
   ];
   for (const [name, call] of plusR)
     it(`${name} senza riconferma → reauth_required; con → ok`, async () => {
@@ -224,7 +241,10 @@ describe("permessi", () => {
     ).toMatchObject({ ok: true });
     expect(await instance.setAttachments(false)).toMatchObject({ ok: true });
     expect(await instance.testStorage()).toMatchObject({ ok: true });
-    expect(await instance.testWebhook()).toMatchObject({ ok: true });
+    expect(await instance.updateWebhook(SEED_WEBHOOK, { name: "Slack #ops" })).toMatchObject({
+      ok: true,
+    });
+    expect(await instance.testWebhook(SEED_WEBHOOK)).toMatchObject({ ok: true });
   });
 });
 
@@ -265,7 +285,7 @@ describe("RF 1: token git, client secret e chiave S3 non ricompaiono", () => {
       git: await instance.listGitAccounts(),
       google: await instance.listGoogleApps(),
       storage: await instance.getStorage(),
-      webhook: await instance.getWebhook(),
+      webhooks: await instance.listWebhooks(),
       changes: await changelog.listChanges(),
       notifications: state.notifications,
       mailboxes: await meApi.listMyMailboxes(),
@@ -826,42 +846,92 @@ describe("webhook in uscita", () => {
     expect(ids.filter((id) => /mail|google|security/.test(id))).toEqual([]);
   });
 
-  it("l'URL si rilegge in chiaro; salvarne uno nuovo non chiede la riconferma", async () => {
+  it("il seme: il webhook di prima migrato, «Webhook», col segreto impostato ma mai mostrato", async () => {
+    const [w, ...rest] = await instance.listWebhooks();
+    expect(rest).toEqual([]);
+    expect(w).toMatchObject({
+      id: SEED_WEBHOOK,
+      name: "Webhook",
+      format: "slack",
+      enabled: true,
+      url: "https://hooks.slack.com/services/T01AUDIN/B07STUB/prototype",
+      events: ["ticket.created", "job.failed", "job.pr_opened", "monitor"],
+      secretSet: true,
+    });
+    expect(JSON.stringify(w)).not.toMatch(/secret"\s*:\s*"|whsec_/);
+  });
+
+  it("creare: con la riconferma, il segreto esce UNA volta e mai da una lettura; la voce senza valori", async () => {
+    reauth(ROBERTA);
+    const r = await instance.createWebhook({
+      name: "Ops",
+      url: OPS_URL,
+      format: "generic",
+      events: ["release.failed", "job.failed"],
+    });
+    if (!r.ok) throw new Error(r.error);
+    expect(r.secret).toMatch(/^whsec_/);
+    expect(r.webhook).toMatchObject({
+      name: "Ops",
+      enabled: true,
+      events: ["job.failed", "release.failed"],
+      secretSet: true,
+    });
+    const out = JSON.stringify({
+      list: await instance.listWebhooks(),
+      one: await instance.getWebhook(r.webhook.id),
+      changes: state.changelog,
+    });
+    expect(out).not.toContain(r.secret);
+    expect(last()).toMatchObject({
+      kind: "webhook.created",
+      object: { type: "webhook", id: r.webhook.id, label: "Ops" },
+      params: { format: "generic", events: "job.failed,release.failed" },
+    });
+  });
+
+  it("modificare: l'URL vuole la riconferma (maintainer, 18 nov 2026); nome, formato, eventi e stato no", async () => {
     expect(state.reauth.has(ROBERTA)).toBe(false);
     const url = "https://hooks.slack.com/services/T02NEW/B08NEW/another";
-    const view = await instance.getWebhook();
+    await refused(() => instance.updateWebhook(SEED_WEBHOOK, { url }), {
+      error: "reauth_required",
+    });
     expect(
-      await instance.saveWebhook({ enabled: true, format: "slack", url, events: view.events }),
+      await instance.updateWebhook(SEED_WEBHOOK, {
+        name: "Slack #ops",
+        format: "discord",
+        enabled: false,
+      }),
     ).toEqual({ ok: true });
-    expect((await instance.getWebhook()).url).toBe(url);
-    expect(last()).toMatchObject({ kind: "webhook.changed" });
+    // Lo stesso URL di adesso non è un cambio: niente riconferma.
+    expect(
+      await instance.updateWebhook(SEED_WEBHOOK, {
+        url: "https://hooks.slack.com/services/T01AUDIN/B07STUB/prototype",
+      }),
+    ).toEqual({ ok: true });
+    reauth(ROBERTA);
+    expect(await instance.updateWebhook(SEED_WEBHOOK, { url })).toEqual({ ok: true });
+    expect((await instance.getWebhook(SEED_WEBHOOK)).url).toBe(url);
+    expect(last()).toMatchObject({ kind: "webhook.updated" });
     expect(JSON.parse(last().before!)).toEqual({
       url: "https://hooks.slack.com/services/T01AUDIN/B07STUB/prototype",
     });
     expect(JSON.parse(last().after!)).toEqual({ url });
+    // Cambiare l'indirizzo rimette la prova a «non ancora provata».
+    expect((await instance.getWebhook(SEED_WEBHOOK)).lastTest).toBeNull();
   });
 
-  it("gli eventi: tutti nella lettura, un id sconosciuto rifiutato, il registro dice quali", async () => {
-    const view = await instance.getWebhook();
-    expect(Object.keys(view.events)).toHaveLength(21);
-    expect(
-      Object.entries(view.events)
-        .filter(([, on]) => on)
-        .map(([id]) => id)
-        .sort(),
-    ).toEqual(["job.failed", "job.pr_opened", "monitor", "ticket.created"].sort());
+  it("gli eventi: un id fuori catalogo rifiutato; il registro dice quali, nell'ordine dello shape", async () => {
     await refused(
       () =>
-        instance.saveWebhook({
-          ...view,
-          events: { ...view.events, "support.customer_replied": true },
+        instance.updateWebhook(SEED_WEBHOOK, {
+          events: ["ticket.created", "support.customer_replied"],
         }),
       { error: "invalid", reason: "events" },
     );
     expect(
-      await instance.saveWebhook({
-        ...view,
-        events: { ...view.events, "job.pr_opened": false, "release.failed": true },
+      await instance.updateWebhook(SEED_WEBHOOK, {
+        events: ["release.failed", "ticket.created", "job.failed", "monitor"],
       }),
     ).toEqual({ ok: true });
     expect(JSON.parse(last().before!)).toEqual({
@@ -872,41 +942,92 @@ describe("webhook in uscita", () => {
     });
   });
 
-  it("URL: https, e obbligatorio coi messaggi accesi", async () => {
-    const view = await instance.getWebhook();
-    for (const url of ["http://hooks.example.test/x", "not a url", "ftp://x.test/a"])
-      await refused(() => instance.saveWebhook({ ...view, url }), {
+  it("URL https e nome non vuoto, alla creazione e alla modifica", async () => {
+    reauth(ROBERTA);
+    for (const url of ["http://hooks.example.test/x", "not a url", "ftp://x.test/a", ""])
+      await refused(() => instance.updateWebhook(SEED_WEBHOOK, { url }), {
         error: "invalid",
         reason: "url",
       });
-    await refused(() => instance.saveWebhook({ ...view, enabled: true, url: null }), {
-      error: "invalid",
-      reason: "url",
-    });
-    expect(await instance.saveWebhook({ ...view, enabled: false, url: null })).toEqual({
-      ok: true,
-    });
-    await refused(() => instance.testWebhook(), { error: "invalid", reason: "url" });
+    await refused(
+      () => instance.createWebhook({ name: "  ", url: OPS_URL, format: "slack", events: [] }),
+      { error: "invalid", reason: "name" },
+    );
   });
 
-  it("la prova risponde con l'esito scelto", async () => {
+  it("al più 20 webhook: il ventunesimo è webhook_limit", async () => {
+    reauth(ROBERTA);
+    for (let i = state.instance.webhooks.length; i < instance.WEBHOOK_LIMIT; i++)
+      expect(
+        await instance.createWebhook({ name: `W${i}`, url: OPS_URL, format: "slack", events: [] }),
+      ).toMatchObject({ ok: true });
+    await refused(
+      () => instance.createWebhook({ name: "Extra", url: OPS_URL, format: "slack", events: [] }),
+      { error: "invalid", reason: "webhook_limit" },
+    );
+  });
+
+  it("rigenerare il segreto: con la riconferma, quello nuovo una volta, la voce senza valori", async () => {
+    reauth(ROBERTA);
+    const r = await instance.regenerateWebhookSecret(SEED_WEBHOOK);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.secret).toMatch(/^whsec_/);
+    expect(last()).toMatchObject({ kind: "webhook.secret_replaced", before: null, after: null });
+    expect(JSON.stringify(state.changelog)).not.toContain(r.secret);
+    expect((await instance.getWebhook(SEED_WEBHOOK)).secretRotatedAt).toBe(r.secretRotatedAt);
+  });
+
+  it("eliminare: con la riconferma; il webhook sparisce, la voce resta e non porta più a niente", async () => {
+    reauth(ROBERTA);
+    expect(await instance.deleteWebhook(SEED_WEBHOOK)).toEqual({ ok: true });
+    expect(await instance.listWebhooks()).toEqual([]);
+    await expect(instance.getWebhook(SEED_WEBHOOK)).rejects.toThrow("not_found");
+    expect(last()).toMatchObject({ kind: "webhook.deleted" });
+    const [entry] = await changelog.listChanges({ kind: "webhook.deleted" });
+    expect(entry).toMatchObject({ objectDeleted: true, objectLink: null });
+  });
+
+  it("la prova di UN webhook risponde con l'esito scelto, anche da spento", async () => {
+    expect(await instance.updateWebhook(SEED_WEBHOOK, { enabled: false })).toEqual({ ok: true });
     await instance.simulateNextTest("webhook", "unreachable");
-    expect(await instance.testWebhook()).toEqual({ ok: true, outcome: "unreachable" });
-    expect((await instance.getWebhook()).lastTest?.outcome).toBe("unreachable");
-    expect(await instance.testWebhook()).toEqual({ ok: true, outcome: "ok" });
+    expect(await instance.testWebhook(SEED_WEBHOOK)).toEqual({ ok: true, outcome: "unreachable" });
+    expect((await instance.getWebhook(SEED_WEBHOOK)).lastTest?.outcome).toBe("unreachable");
+    expect(await instance.testWebhook(SEED_WEBHOOK)).toEqual({ ok: true, outcome: "ok" });
+    // Revisione del lotto 5, M-5: credenziali rifiutate (401/403) e un errore
+    // della destinazione sono due esiti, col codice della risposta.
+    await instance.simulateNextTest("webhook", "destination_error");
+    expect(await instance.testWebhook(SEED_WEBHOOK)).toEqual({
+      ok: true,
+      outcome: "destination_error",
+    });
+    expect((await instance.getWebhook(SEED_WEBHOOK)).lastTest).toMatchObject({
+      outcome: "destination_error",
+      status: 500,
+    });
+    await instance.simulateNextTest("webhook", "invalid_credentials");
+    await instance.testWebhook(SEED_WEBHOOK);
+    expect((await instance.getWebhook(SEED_WEBHOOK)).lastTest).toMatchObject({
+      outcome: "invalid_credentials",
+      status: 401,
+    });
+    // Un errore della destinazione è solo dei webhook.
+    await refused(() => instance.simulateNextTest("storage", "destination_error"), {
+      error: "invalid",
+    });
+    await refused(() => instance.testWebhook("wh-nope"), { error: "not_found" });
   });
 
-  it("l'anteprima per Slack, Discord e JSON, nella lingua dei contenuti", () => {
-    const slack = instance.previewWebhook("ticket.created", "slack");
+  it("l'anteprima per Slack, Discord e JSON, nella lingua dei contenuti", async () => {
+    const slack = await instance.previewWebhook("ticket.created", "slack");
     expect(slack).toMatch(/New task in ACQ/);
     expect(slack).toMatch(/\*ACQ-\d+\*/);
     expect(slack).toMatch(/<https:\/\/[^|]+\|Open>/);
 
-    const discord = instance.previewWebhook("ticket.created", "discord");
+    const discord = await instance.previewWebhook("ticket.created", "discord");
     expect(discord).toMatch(/\*\*ACQ-\d+\*\*/);
     expect(discord).toMatch(/\[Open\]\(https:\/\/[^)]+\)/);
 
-    const json = JSON.parse(instance.previewWebhook("ticket.created", "generic")) as Record<
+    const json = JSON.parse(await instance.previewWebhook("ticket.created", "generic")) as Record<
       string,
       unknown
     >;
@@ -915,9 +1036,9 @@ describe("webhook in uscita", () => {
 
     for (const e of instance.WEBHOOK_EVENTS)
       for (const f of ["slack", "discord", "generic"] as const)
-        expect(instance.previewWebhook(e.id, f).length).toBeGreaterThan(10);
+        expect((await instance.previewWebhook(e.id, f)).length).toBeGreaterThan(10);
 
     state.instance.budget.contentLanguage = "it";
-    expect(instance.previewWebhook("ticket.created", "slack")).toMatch(/Nuova task in ACQ/);
+    expect(await instance.previewWebhook("ticket.created", "slack")).toMatch(/Nuova task in ACQ/);
   });
 });

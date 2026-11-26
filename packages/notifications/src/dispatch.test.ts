@@ -288,6 +288,11 @@ describe("shouldSendWebhook — privacy by construction per l'audience mailbox_o
     expect(shouldSendWebhook(null, "google.proposal")).toBe(false);
   });
 
+  it("pianificazione e assegnazione sono personali: mai sul webhook", () => {
+    expect(shouldSendWebhook(BASE_ROW, "planning.changed")).toBe(false);
+    expect(shouldSendWebhook(BASE_ROW, "task.assigned")).toBe(false);
+  });
+
   it("non tocca gli altri kind: ticket.created resta governato dal toggle come prima", () => {
     expect(shouldSendWebhook(BASE_ROW, "ticket.created")).toBe(true);
     expect(shouldSendWebhook({ ...BASE_ROW, notifyTicketCreated: false }, "ticket.created")).toBe(

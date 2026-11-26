@@ -1,3 +1,4 @@
+import { featureIntegrated } from "../data/integration";
 import { useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { SubscriptionState } from "../data/alerts";
@@ -30,7 +31,8 @@ export interface AlertOfNotification {
   label: string;
   /** `off`: già spento dopo l'avviso [A 17]; `undefined` se la riga non si legge (ancora). */
   state: SubscriptionState | undefined;
-  onMute: () => void;
+  /** Assente dove il server non lo offre ancora (build app senza `alerts-mute`). */
+  onMute?: () => void;
   onTurnBackOn: () => void;
   onOpenSettings: () => void;
 }
@@ -48,6 +50,8 @@ interface Props {
    * perché è il motivo dell'avviso. Apre la parte SSH e chiude il pannello.
    */
   onLinkAccess?: (() => void) | undefined;
+  /** Una card che apre nel web vecchio (`webHref`, build app): «Open in web». */
+  onOpenWeb?: (() => void) | undefined;
 }
 
 /**
@@ -66,6 +70,7 @@ export function NotificationItem({
   onOpen,
   onChange,
   onLinkAccess,
+  onOpenWeb,
 }: Props) {
   const { t, i18n } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -196,6 +201,17 @@ export function NotificationItem({
         </span>
         <DeptStrip departmentId={n.departmentId} />
       </Main>
+      {onOpenWeb && (
+        <div className="-mt-1 pr-4 pb-2.5 pl-9">
+          <button
+            type="button"
+            onClick={onOpenWeb}
+            className="inline-flex h-7 items-center rounded-md border border-rule-strong px-2.5 text-sm font-medium text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6"
+          >
+            {t("notifications.actions.openInWeb")}
+          </button>
+        </div>
+      )}
       {onLinkAccess && (
         <div className="-mt-1 pr-4 pb-2.5 pl-9">
           <button
@@ -263,11 +279,15 @@ export function NotificationItem({
             )}
           </div>
         )}
-        {tab !== "new" && (
+        {/* Area 9, R10: da archiviata il ritorno è «restore», da rinviata «move
+            to New» (sul server due rotte diverse): il cambio dice quale. */}
+        {tab !== "new" && featureIntegrated("notification-restore") && (
           <button
             type="button"
             className={actionClass}
-            onClick={() => onChange({ archived: false, snoozedUntil: null })}
+            onClick={() =>
+              onChange(tab === "archived" ? { archived: false } : { snoozedUntil: null })
+            }
           >
             {t(
               tab === "archived"
@@ -276,7 +296,9 @@ export function NotificationItem({
             )}
           </button>
         )}
-        {alert && (
+        {/* Il «⋯»: sugli avvisi le loro voci; su una card letta anche «Mark as
+            unread» (area 9, decisione del maintainer). */}
+        {(alert || n.read) && (
           <div className="relative">
             <button
               ref={moreButton}
@@ -301,8 +323,9 @@ export function NotificationItem({
               </svg>
             </button>
             {moreOpen && (
-              <AlertMenu
+              <MoreMenu
                 alert={alert}
+                onMarkUnread={n.read ? () => onChange({ read: false }) : undefined}
                 mandatory={why !== undefined}
                 // Sotto coprirebbe il perché dell'obbligo, scritto sotto il
                 // corpo: allora si apre sopra, se c'è posto.
@@ -327,7 +350,7 @@ export function NotificationItem({
 /**
  * Titolo e corpo di `task.assigned`, `planning.changed` e `member.added`
  * (area 10b) nella lingua di chi legge, dai valori stabili (`actorName`,
- * `viaClaude`, `plannedWeek`, `roleName`); `null` per gli altri tipi e per
+ * `viaClaude`, `plannedWeek`, `roleName`, `memberName`); `null` per gli altri tipi e per
  * le righe nate prima, che non li hanno.
  */
 function composedOf(
@@ -361,6 +384,18 @@ function composedOf(
       : t(`${words}.claude`, { count });
     return { title, body: `${lead}${source}` };
   }
+  // Lotto 4, D-2.0: una proposta della posta passata al progetto, a chi può
+  // confermarla; decisa da un altro, lo dice. Il nome di chi l'ha passata
+  // solo se chi legge lo conosce (R-G5).
+  if (n.kind === "google.proposal_handed") {
+    const words = "notifications.proposalHanded";
+    return {
+      title: t(`${words}.title`, { code: n.objectCode }),
+      body: n.proposalDecided
+        ? t(`${words}.decided`)
+        : t(`${words}.body`, { name: n.actorName ?? t("notifications.direct.someone") }),
+    };
+  }
   if (n.kind === "product_doc.mention") {
     if (n.objectGone)
       return {
@@ -386,6 +421,25 @@ function composedOf(
       role: n.roleName ?? t("notifications.memberAdded.noRole"),
       ...vowelContext(n.objectCode),
     };
+    // Per chi gestisce i membri (19 nov 2026): chi è entrato, per nome se lo
+    // vede (R-G5), altrimenti «Someone».
+    if (n.memberName !== undefined) {
+      const words = "notifications.memberAdded";
+      const name = n.viaClaude
+        ? (n.viaClaudeName ?? t("notifications.viaClaude.someone"))
+        : (n.actorName ?? t("notifications.direct.someone"));
+      return {
+        title: t(`${words}.joinedTitle`, {
+          ...params,
+          member: n.memberName ?? t(`${words}.someoneTitle`),
+        }),
+        body: t(n.viaClaude ? `${words}.joinedBodyVia` : `${words}.joinedBody`, {
+          ...params,
+          name,
+          member: n.memberName ?? t(`${words}.someoneBody`),
+        }),
+      };
+    }
     return {
       title: t("notifications.memberAdded.title", params),
       body: n.viaClaude
@@ -533,15 +587,45 @@ function UndoneGlyph() {
  * in AUD» (non sugli obbligatori [A 16]; da già spento diventa «Alerts like
  * this are off» + «Turn back on» [A 17]) e «Alert settings for AUD».
  */
-function AlertMenu({
+function MoreMenu({
   alert,
   mandatory,
   placement,
+  onMarkUnread,
+  onClose,
+}: {
+  alert: AlertOfNotification | null | undefined;
+  mandatory: boolean;
+  placement: "above" | "below";
+  /** Area 9: una card letta torna non letta (sul server `POST /api/inbox/:id/unread`). */
+  onMarkUnread?: () => void;
+  onClose: (restoreFocus: boolean) => void;
+}) {
+  const { t } = useTranslation();
+  const run = (action: () => void) => () => {
+    onClose(true);
+    action();
+  };
+  return (
+    <Menu label={t("alerts.panel.more")} onClose={onClose} align="right" placement={placement}>
+      {onMarkUnread && (
+        <button type="button" role="menuitem" className={itemClass} onClick={run(onMarkUnread)}>
+          {t("notifications.actions.markUnread")}
+        </button>
+      )}
+      {alert && <AlertItems alert={alert} mandatory={mandatory} onClose={onClose} />}
+    </Menu>
+  );
+}
+
+/** Le voci di un avviso nel «⋯»: spento o acceso, «Don't alert me», le impostazioni. */
+function AlertItems({
+  alert,
+  mandatory,
   onClose,
 }: {
   alert: AlertOfNotification;
   mandatory: boolean;
-  placement: "above" | "below";
   onClose: (restoreFocus: boolean) => void;
 }) {
   const { t } = useTranslation();
@@ -551,7 +635,7 @@ function AlertMenu({
     action();
   };
   return (
-    <Menu label={t("alerts.panel.more")} onClose={onClose} align="right" placement={placement}>
+    <>
       {!mandatory && alert.state === "off" && (
         <>
           <p
@@ -572,7 +656,7 @@ function AlertMenu({
           </button>
         </>
       )}
-      {!mandatory && alert.state === "on" && (
+      {!mandatory && alert.state === "on" && alert.onMute && (
         <button type="button" role="menuitem" className={itemClass} onClick={run(alert.onMute)}>
           {t("alerts.panel.mute", { code })}
         </button>
@@ -588,6 +672,6 @@ function AlertMenu({
       >
         {t("alerts.panel.settings", { code })}
       </button>
-    </Menu>
+    </>
   );
 }

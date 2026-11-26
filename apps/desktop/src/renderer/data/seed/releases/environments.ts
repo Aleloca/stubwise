@@ -101,6 +101,8 @@ export const ENVIRONMENTS: ProjectEnvironment[] = [
         serverCode: "SRV-1",
         reportedSha: "e9f8d7c6b5a4e3f2d1c0b9a8f7e6d5c4b3a2f1e0",
         reportedAt: at(0, "11:58"),
+        // R0-D: i container di ACQ su SRV-1 (caddy fa da ingresso, non è del progetto).
+        containers: ["portale-web", "portale-api", "portale-import", "postgres"],
       },
     ],
   },

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import * as api from "../api";
+import * as api from "@backend/api";
 import type { GoogleConnectOutcome } from "../me/types";
 import { GOOGLE_AREAS, queryKeys, useInvalidate, useSessionPersonId } from "../queries";
 
@@ -53,6 +53,25 @@ export function useUpdateProfile() {
     mutationFn: (input: api.me.ProfileInput) => api.me.updateProfile(input),
     onSettled: () => client.invalidateQueries({ queryKey: queryKeys.all(me) }),
   });
+}
+
+/**
+ * Area 9, R2: il cambio dell'email di login. La richiesta (con la
+ * riconferma), «Annulla» e, nel prototipo, il link simulato: tutto ricarica
+ * il profilo (l'email e la richiesta in attesa).
+ */
+export function useEmailChange() {
+  const client = useQueryClient();
+  const me = useSessionPersonId();
+  const onSettled = () => client.invalidateQueries({ queryKey: queryKeys.all(me) });
+  return {
+    request: useMutation({
+      mutationFn: (email: string) => api.me.requestEmailChange(email),
+      onSettled,
+    }),
+    cancel: useMutation({ mutationFn: () => api.me.cancelEmailChange(), onSettled }),
+    simulateLink: useMutation({ mutationFn: () => api.me.simulateEmailChangeLink(), onSettled }),
+  };
 }
 
 /** Cambia la password: chiude le altre sessioni (Security le rilegge). */

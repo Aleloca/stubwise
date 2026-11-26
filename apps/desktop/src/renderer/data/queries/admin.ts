@@ -1,11 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import * as api from "../api";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import * as api from "@backend/api";
 import type { MemberDraft, PeopleFilter } from "../admin/types";
 import type { ChangeFilter } from "../changelog/types";
 import { aiTabsFor, canSeeAdminSection } from "../adminSections";
 import { queryKeys, useSessionPersonId, useWrite } from "../queries";
 import type { AI_TABS, AdminSection } from "../routes";
-import { useViewer } from "../viewer";
+import { useViewer } from "../viewing";
 
 // Gli hook dell'amministrazione e della riconferma (area 9a); `data/queries`
 // li ri-esporta. L'import circolare con `../queries` è innocuo: gli helper si
@@ -31,7 +31,7 @@ export { ACTIONS, actionById, groupsFor, type AccessAction } from "../../domain/
 export type { SecondFactorInput, SecondFactorResult, TotpSetup } from "../auth/reauth";
 export type * from "../admin/types";
 /** Le otto tinte dei reparti, nell'ordine di `DESIGN.md`: il dialogo e il pannello del reparto. */
-export { DEPARTMENT_COLORS } from "../admin/departments";
+export { DEPARTMENT_COLORS } from "../admin/departmentColors";
 
 /**
  * Se chi guarda vede una voce dell'Amministrazione (`canSeeAdminSection`):
@@ -50,9 +50,12 @@ export function useCanSeeAiTab(tab: (typeof AI_TABS)[number]): boolean {
 /** Il registro delle modifiche in Amministrazione: le voci che chi guarda legge. */
 export function useChanges(filter: ChangeFilter = {}) {
   const me = useSessionPersonId();
-  return useQuery({
+  // «Load more» (decisione del maintainer): 50 voci per pagina, il cursore della pagina dopo.
+  return useInfiniteQuery({
     queryKey: queryKeys.changes(me, filter),
-    queryFn: () => api.changelog.listChanges(filter),
+    queryFn: ({ pageParam }) => api.changelog.listChangesPage(filter, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
 }
 
@@ -65,9 +68,11 @@ export function useProjectChanges(
   filter: Omit<ChangeFilter, "projectId"> = {},
 ) {
   const me = useSessionPersonId();
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: queryKeys.projectChanges(me, projectId ?? "", filter),
-    queryFn: () => api.changelog.listProjectChanges(projectId!, filter),
+    queryFn: ({ pageParam }) => api.changelog.listProjectChangesPage(projectId!, filter, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: !!projectId,
   });
 }
@@ -180,7 +185,13 @@ export function useAdminWrite<TVars, TData>(
   const client = useQueryClient();
   return useMutation({
     mutationFn,
-    onSettled: () => client.invalidateQueries({ queryKey: ["as"] }),
+    // Un'amministrazione può cambiare i permessi di chi guarda (ruoli, reparti):
+    // si rilegge anche il viewer, che altrimenti resterebbe quello dell'avvio.
+    onSettled: () =>
+      Promise.all([
+        client.invalidateQueries({ queryKey: ["as"] }),
+        client.invalidateQueries({ queryKey: ["viewer"] }),
+      ]),
     // Un link d'invito o di reset sta solo nella sezione che lo mostra (`SecretOnce`).
     ...(secret ? { gcTime: 0 } : {}),
   });
@@ -353,6 +364,8 @@ export const useCreatePasswordResetLink = adminWrite(api.admin.createPasswordRes
   secret: true,
 });
 export const useResetSecondFactor = adminWrite(api.admin.resetSecondFactor);
+/** Area 9, R2: l'email di login di un'altra persona, subito (+R). */
+export const useAdminChangeEmail = adminWrite(api.admin.changeEmail);
 export const useLinkGitIdentity = adminWrite(api.admin.linkGitIdentity);
 export const useUnlinkGitIdentity = adminWrite(api.admin.unlinkGitIdentity);
 export const useSetBitbucketUsername = adminWrite(api.admin.setBitbucketUsername);

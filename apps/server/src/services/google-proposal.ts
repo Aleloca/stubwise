@@ -82,6 +82,8 @@
  */
 import {
   calendarEvents,
+  calendarProposalRecipients,
+  calendarProposals,
   emailMessages,
   emailProposals,
   googleAccounts,
@@ -304,6 +306,14 @@ interface ProposalSource {
   /** Per `"email"`/`"email_triage"`: `google_accounts.email` della casella, idem. */
   mailboxEmail: string | null;
   googleEventId: string | null;
+  /**
+   * Lotto 9, voce 2 (d): la proposta del calendario CONDIVISA fra gli
+   * invitati (`calendar_proposals`, `rowId` è il suo id). `source` resta
+   * `"calendar"` — per le azioni è un appuntamento come gli altri — ma
+   * l'esito si scrive sulla proposta condivisa, mai su una riga
+   * `calendar_events`, e chi decide è chi ha la card (`deciderId`).
+   */
+  calendarShared?: { deciderId: string };
 }
 
 /**
@@ -368,6 +378,35 @@ async function findSourceRow(db: DbOrTx, notificationId: string): Promise<Propos
       threadId: triageRow.threadId,
       mailboxEmail: triageRow.mailboxEmail,
       googleEventId: null,
+    };
+  }
+
+  // Lotto 9, voce 2 (d): la card di un destinatario di una proposta del
+  // calendario CONDIVISA (una card per destinatario, scritta in
+  // `calendar_proposal_recipients`, mai in `proposal_notification_id`).
+  const [sharedRow] = await db
+    .select({ id: calendarProposals.id, googleEventId: calendarProposals.googleEventId, projectId: calendarProposals.projectId, userId: calendarProposalRecipients.userId })
+    .from(calendarProposalRecipients)
+    .innerJoin(calendarProposals, eq(calendarProposals.id, calendarProposalRecipients.proposalId))
+    .where(eq(calendarProposalRecipients.notificationId, notificationId));
+  if (sharedRow) {
+    // Lotto 9, voce 2 (a): la «Quale progetto?» del calendario (nessun
+    // progetto) non si esegue da qui — ha il suo servizio
+    // (`chooseCalendarProposalProject`, `mail-proposals-calendar.ts`). Senza
+    // riga d'origine il chiamante risponde `proposal_stale` PRIMA del claim:
+    // niente si chiude, e `dispatchAction` non vede mai un `choose_project`
+    // del calendario.
+    if (sharedRow.projectId === null) return null;
+    return {
+      source: "calendar",
+      rowId: sharedRow.id,
+      emailMessageId: null,
+      projectId: sharedRow.projectId,
+      gmailMessageId: null,
+      threadId: null,
+      mailboxEmail: null,
+      googleEventId: sharedRow.googleEventId,
+      calendarShared: { deciderId: sharedRow.userId },
     };
   }
 
@@ -550,7 +589,43 @@ async function markSourceOutcome(
       .where(eq(emailMessages.id, source.rowId));
     return;
   }
+  if (source.calendarShared) {
+    await closeSharedCalendarProposal(tx, source.rowId, source.calendarShared.deciderId, { status: outcome.status, outcome: detail, error: null });
+    return;
+  }
   await tx.update(calendarEvents).set({ outcome: detail }).where(eq(calendarEvents.id, source.rowId));
+}
+
+/**
+ * Lotto 9, voce 2 (d): chiude una proposta del calendario CONDIVISA, per
+ * tutti. La riga si blocca (`FOR UPDATE`) e lo stato si ricontrolla: la
+ * prima decisione vince (il claim delle card l'ha già fatto, questa è la
+ * difesa sulla riga), poi si chiudono le card di TUTTI i destinatari, come
+ * `closeCards` per le condivise della posta.
+ */
+async function closeSharedCalendarProposal(
+  tx: DbOrTx,
+  proposalId: string,
+  deciderId: string,
+  write: { status: "actioned" | "ignored" | "failed"; outcome: Record<string, unknown>; error: string | null },
+): Promise<void> {
+  const [locked] = await tx.select({ status: calendarProposals.status }).from(calendarProposals).where(eq(calendarProposals.id, proposalId)).for("update");
+  if (!locked || locked.status !== "proposed") return;
+  await tx
+    .update(calendarProposals)
+    .set({ status: write.status, outcome: write.outcome, error: write.error, decidedByUserId: deciderId, decidedAt: new Date() })
+    .where(and(eq(calendarProposals.id, proposalId), eq(calendarProposals.status, "proposed")));
+  const cards = await tx
+    .select({ id: calendarProposalRecipients.notificationId })
+    .from(calendarProposalRecipients)
+    .where(eq(calendarProposalRecipients.proposalId, proposalId));
+  const ids = cards.flatMap((c) => (c.id ? [c.id] : []));
+  if (ids.length > 0) {
+    await tx
+      .update(notifications)
+      .set({ status: "handled", handledAt: new Date() })
+      .where(and(inArray(notifications.id, ids), eq(notifications.status, "open")));
+  }
 }
 
 /** Il tetto di caratteri del messaggio scritto su `email_messages.error` / `outcome.error`. */
@@ -602,6 +677,11 @@ async function markSourceFailed(
       .update(emailMessages)
       .set({ status: "failed", error: truncated, outcome: tried })
       .where(eq(emailMessages.id, source.rowId));
+    return;
+  }
+  if (source.calendarShared) {
+    const deciderId = source.calendarShared.deciderId;
+    await db.transaction((tx) => closeSharedCalendarProposal(tx, source.rowId, deciderId, { status: "failed", outcome: tried, error: truncated }));
     return;
   }
   await db
@@ -657,6 +737,8 @@ async function applyModelAction(
         // sull'oggetto della email e, in ultima istanza, sull'etichetta
         // dell'opzione — mai una stringa fissa senza contesto.
         body: nonEmpty(args.action.body, args.subject, args.optionLabel),
+        // Il testo viene da un'email in entrata: contenuto non fidato per Claude (review della F3).
+        externalOrigin: "email",
       });
       if (!result.ok) return { ok: false, error: "target_gone" };
       return { ok: true, detail: { type: "backlog_item", jobId: result.jobId } };
@@ -1125,6 +1207,15 @@ async function handledByOf(
   notificationId: string,
   kind: ProposalCardKind = "google.proposal",
 ): Promise<{ handledBy?: HandledBy }> {
+  // Lotto 9, voce 2 (d): su una proposta del calendario CONDIVISA chi l'ha
+  // chiusa è chi l'ha DECISA (la riga), non chi ha la card.
+  const [shared] = await db
+    .select({ id: users.id, email: users.email })
+    .from(calendarProposalRecipients)
+    .innerJoin(calendarProposals, eq(calendarProposals.id, calendarProposalRecipients.proposalId))
+    .innerJoin(users, eq(users.id, calendarProposals.decidedByUserId))
+    .where(eq(calendarProposalRecipients.notificationId, notificationId));
+  if (shared) return { handledBy: { id: shared.id, email: shared.email } };
   const [row] = await db
     .select({ id: users.id, email: users.email })
     .from(notifications)

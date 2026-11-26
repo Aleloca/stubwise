@@ -1,14 +1,17 @@
+import { featureIntegrated } from "../data/integration";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  askPersonaChange,
   useDepartments,
   useLogout,
   usePeople,
   useResetPrototype,
   useResetToEmptyInstance,
 } from "../data/queries";
-import { VIEW_AS_PERSONAS, useViewer } from "../data/viewer";
+import { VIEW_AS_PERSONAS } from "@backend/viewer";
+import { useViewer } from "../data/viewing";
 import { administersSomething, canSeeAdmin } from "../data/adminSections";
 import { openGoogleAccount } from "../pages/drive/GoogleAccountCard";
 import { useToast } from "../tasks-ui/Toast";
@@ -174,38 +177,44 @@ export function ProfileMenu() {
           <div className="border-b border-rule">
             <LanguageChoice />
           </div>
-          <div className="border-b border-rule">
-            <RadioGroup
-              label={t("rail.viewAs")}
-              name={`${panelId}-persona`}
-              value={viewer.personId}
-              options={VIEW_AS_PERSONAS.map((p) => ({
-                value: p.personId,
-                label: (
-                  <>
-                    <span className="block">{p.name}</span>{" "}
-                    <span className="block text-xs text-ink-muted">{t(p.descriptionKey)}</span>
-                  </>
-                ),
-              }))}
-              onChange={setPersona}
-            />
-          </div>
+          {featureIntegrated("view-as") && (
+            <div className="border-b border-rule">
+              <RadioGroup
+                label={t("rail.viewAs")}
+                name={`${panelId}-persona`}
+                value={viewer.personId}
+                options={VIEW_AS_PERSONAS.map((p) => ({
+                  value: p.personId,
+                  label: (
+                    <>
+                      <span className="block">{p.name}</span>{" "}
+                      <span className="block text-xs text-ink-muted">{t(p.descriptionKey)}</span>
+                    </>
+                  ),
+                }))}
+                // Un editor con modifiche non salvate chiede prima (product-editor.md §3.12).
+                onChange={(id) => askPersonaChange(() => setPersona(id))}
+              />
+            </div>
+          )}
           <nav aria-label={t("rail.profileLinks")} className="flex flex-col gap-0.5 pt-1.5">
             <Link to="/preferences" className={linkClass} onClick={() => setOpen(false)}>
               {t("nav.preferences")}
             </Link>
-            {/* L'account Google personale (Drive, A1): un dialogo, finché non c'è Impostazioni → Account. */}
-            <button
-              type="button"
-              className={`${linkClass} text-left`}
-              onClick={() => {
-                setOpen(false);
-                openGoogleAccount();
-              }}
-            >
-              {t("drive.account.menu")}
-            </button>
+            {/* L'account Google personale (Drive, A1): un dialogo, finché non c'è Impostazioni → Account.
+                Nella build app dalla fetta 1 dell'area 6 (`google-account`), anche senza il Drive Google. */}
+            {(featureIntegrated("google") || featureIntegrated("google-account")) && (
+              <button
+                type="button"
+                className={`${linkClass} text-left`}
+                onClick={() => {
+                  setOpen(false);
+                  openGoogleAccount();
+                }}
+              >
+                {t("drive.account.menu")}
+              </button>
+            )}
             {/* «Administration» solo a chi amministra qualcosa; agli altri «People»,
                 le stesse voci in sola lettura (shape admin-people.md [PE 1]). */}
             {canSeeAdmin(viewer) && (
@@ -220,13 +229,17 @@ export function ProfileMenu() {
               className={`${linkClass} w-full text-left disabled:opacity-40`}
               disabled={logout.isPending}
               onClick={() =>
-                logout.mutate(undefined, {
-                  onSuccess: () => {
-                    setOpen(false);
-                    void navigate({ to: "/login", replace: true });
-                  },
-                  onError: () => toast.error(t("entry.menu.signOutFailed")),
-                })
+                // Come il cambio di persona: un editor con modifiche non
+                // salvate chiede prima (§3.12, revisione di R11-6, M2).
+                askPersonaChange(() =>
+                  logout.mutate(undefined, {
+                    onSuccess: () => {
+                      setOpen(false);
+                      void navigate({ to: "/login", replace: true });
+                    },
+                    onError: () => toast.error(t("entry.menu.signOutFailed")),
+                  }),
+                )
               }
             >
               {t("entry.menu.signOut")}

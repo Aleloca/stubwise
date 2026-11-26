@@ -11,7 +11,8 @@ import {
 import { recordChange } from "../changelog/index";
 import { currentVia, silencedByUndo } from "../claude/via";
 import { CLAUDE_ID } from "../seed/people";
-import { gate, newId, now, state, visibleProjectIds } from "../store";
+import { gate, newId, nextSeq, now, state, visibleProjectIds } from "../store";
+import type { MandatoryReason } from "../model";
 import { writer } from "../writer";
 import {
   avatarOf,
@@ -252,27 +253,36 @@ export function writeJoin(
   publishMemberAdded(actorId, projectId, personId, roleId);
 }
 
-/** Chi riceve `member.added`: la persona aggiunta, se non è chi agisce né Claude collega; `null` altrimenti. */
-export function memberAddedRecipientOf(me: string, personId: string): string | null {
-  if (personId === me || personId === CLAUDE_ID) return null;
-  return personId;
+// `member.added` è un tipo del catalogo degli avvisi (area 10, F5, D-11 = b
+// del maintainer): la riga sta in `@stubwise/shared` (gruppo `members`,
+// iscrizione e default per `project.members.manage`, motivo obbligatorio
+// `added` per la persona aggiunta), la stessa che legge il server.
+
+/** Chi riceve `member.added` senza iscrizione: la persona aggiunta, se non è chi agisce né Claude collega. */
+export function memberAddedMandatoryOf(
+  me: string,
+  personId: string,
+): { personId: string; reason: MandatoryReason }[] {
+  if (personId === me || personId === CLAUDE_ID) return [];
+  return [{ personId, reason: "added" }];
 }
 
 /**
  * `member.added` (maintainer, 2 nov 2026, D4): chi entra in un progetto lo
  * sa — da Members, da Claude per conto di qualcuno (col segno, come
- * `task.assigned`) e da una proposta della posta (P25). Titolo e corpo si
- * compongono a lettura dai valori stabili (progetto, ruolo, chi ha agito);
+ * `task.assigned`) e da una proposta della posta (P25); e chi ne gestisce i
+ * membri. Titolo e corpo si compongono a lettura dai valori stabili
+ * (progetto, ruolo, chi ha agito, chi è entrato: `memberId`);
  * quelli salvati sono la resa inglese per chi non li sa comporre. Dentro un
  * «Annulla» non si scrive: l'avviso c'era già.
  */
 function publishMemberAdded(me: string, projectId: string, personId: string, roleId: string) {
-  const recipientId = memberAddedRecipientOf(me, personId);
-  if (recipientId === null) return;
+  if (personId === CLAUDE_ID) return;
   const via = currentVia();
   if (silencedByUndo(via)) return;
   const code = projectLabel(projectId);
   const role = roleById(roleId)?.name ?? "";
+  const mandatory = memberAddedMandatoryOf(me, personId);
   state.notifications.push({
     id: newId("n"),
     kind: "member.added",
@@ -280,16 +290,20 @@ function publishMemberAdded(me: string, projectId: string, personId: string, rol
     // Non c'è un oggetto con un codice: il progetto stesso (shape §3.9).
     objectCode: code,
     departmentId: null,
-    recipientIds: [recipientId],
+    // I destinatari si calcolano a lettura dal catalogo (`whyFor`).
+    recipientIds: [],
+    ...(mandatory.length > 0 ? { mandatory } : {}),
     title: `You've been added to ${code} as ${role}`,
     body: `${nameOf(me) ?? ""} added you to ${code} as ${role}.`,
     createdAt: now(),
+    seq: nextSeq(),
     read: false,
     archived: false,
     snoozedUntil: null,
     link: `#/p/${code}/overview`,
     actorId: me,
     roleId,
+    memberId: personId,
     ...(via ? { viaClaude: { personId: me, actionId: via.actionId } } : {}),
   });
 }

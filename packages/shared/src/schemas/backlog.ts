@@ -61,6 +61,16 @@ export const backlogIntakeManualPayloadSchema = z
     // Chi ha chiesto la voce (collaboratore via MCP). Opzionale: i job già in
     // coda, scritti prima di questo campo, restano validi.
     requestedByUserId: z.uuid().optional(),
+    // «Create request» da un messaggio della Chat (area 4, fetta 2): a fine
+    // intake il worker lega la richiesta al messaggio. Opzionale e additivo.
+    // ⚠️ Lo schema è `strict`: un worker più vecchio rifiuta un job che lo
+    // porta, quindi il worker si aggiorna PRIMA che un client lo mandi.
+    chatMessageId: z.uuid().optional(),
+    // Nata da FUORI (review della F3 dell'area 5): un'email in entrata. Il
+    // worker lo scrive sulla voce (`backlog_items.external_origin`), e leggerla
+    // nella chat con Claude conta come contenuto non fidato. Stesso avviso
+    // dello `strict` qui sopra: il worker si aggiorna PRIMA del server.
+    externalOrigin: z.enum(["email"]).optional(),
   })
   .strict();
 export type BacklogIntakeManualPayload = z.infer<typeof backlogIntakeManualPayloadSchema>;
@@ -145,6 +155,16 @@ export const createBacklogItemSchema = z.object({
   projectId: z.uuid(),
   title: z.string().min(1).max(300),
   body: z.string().min(1).max(20_000),
+  /**
+   * Area 8, F3 (canale `mcp`): la conversazione che ha portato alla richiesta,
+   * dal server MCP in modalità collaboratore. Allegata alla richiesta e
+   * leggibile in Support; il team ci risponde e chi ha chiesto lo vede con
+   * `my_requests`. Facoltativa (additiva).
+   */
+  conversation: z
+    .array(z.object({ from: z.enum(["customer", "assistant"]), text: z.string().trim().min(1).max(4000) }))
+    .max(100)
+    .optional(),
 });
 export type CreateBacklogItemInput = z.infer<typeof createBacklogItemSchema>;
 
@@ -191,6 +211,12 @@ export const backlogItemSchema = z.object({
   updatedAt: z.iso.datetime(),
   similarTo: backlogSimilarRefSchema.nullable(),
   ticketCount: z.number().int(),
+  /**
+   * Area 8, F3 (canale `mcp`): le ultime risposte del team sulla conversazione
+   * della richiesta, senza autore. Solo con `mine=true` (chi l'ha chiesta);
+   * `[]` altrimenti; ASSENTE da un server più vecchio: chi la legge fa `?? []`.
+   */
+  teamReplies: z.array(z.object({ body: z.string(), at: z.iso.datetime() })).optional(),
 });
 export type BacklogItem = z.infer<typeof backlogItemSchema>;
 

@@ -1,0 +1,894 @@
+import { ApiError } from "@stubwise/api-client";
+import { RENDERER_FNS, type AgentSessionEvent, type ClaudeActionGroupView, type ClaudeProposalView, type Reader } from "@stubwise/shared";
+import i18n from "../../../i18n";
+import type { ClassReason, ExecutedFailure } from "../../claude/types";
+import type { ConversationEvent, FieldRef, ProposedAction, UndoView } from "../../types";
+import { appClient, session } from "./client";
+import { taskCodeOf } from "./claudeChat";
+import { knownTaskCode } from "./tasks";
+import { listPeople } from "./people";
+import { projectCodesById } from "./projects";
+import { alertTypeOf } from "../../../domain/alerts/catalog";
+import { ACTIONS } from "../../../domain/access/actions";
+import { lastReadProductPage } from "./productDocs";
+
+// Le proposte e le azioni di Claude nella chat della build app (chat, fetta 3,
+// F3.4; design `2026-11-10-integrazione-claude-chat-design.md`, «Proposte e
+// azioni»). Claude propone, il SERVER esegue: gli eventi `proposal` e
+// `actions_executed` della sessione portano solo gli id, e la scheda e la riga
+// del prototipo si DERIVANO dalle viste del server — classe e motivi calcolati
+// adesso, stato derivato (scadenza compresa), «Annulla» per chi guarda. Un
+// server senza le rotte (404) dà una conversazione senza schede.
+
+type ProposalView = Reader<ClaudeProposalView>;
+type GroupView = Reader<ClaudeActionGroupView>;
+
+/** Quanto il renderer sa delle azioni di una conversazione, letto in un colpo. */
+export interface ChatActions {
+  proposals: ProposalView[];
+  groups: GroupView[];
+  /** Il codice di ogni task citata negli argomenti (id → «AUD-12»), per i riassunti. */
+  codes: Map<string, string>;
+}
+
+export const NO_CHAT_ACTIONS: ChatActions = { proposals: [], groups: [], codes: new Map() };
+
+async function orEmpty<T>(read: () => Promise<T[]>): Promise<T[]> {
+  try {
+    return await read();
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return [];
+    throw error;
+  }
+}
+
+/** Gli id delle task citate dagli argomenti (task, commento, avvio, pianificazione, eliminazione). */
+export function taskIdsOf(fn: string, args: Record<string, unknown>): string[] {
+  const id = typeof args["id"] === "string" ? (args["id"] as string) : null;
+  const taskId = typeof args["taskId"] === "string" ? (args["taskId"] as string) : null;
+  if (fn === "updateTask" || fn === "planTask" || fn === "deleteTask") return id ? [id] : [];
+  if (fn === "addComment" || fn === "deleteComment" || fn === "startRun") return taskId ? [taskId] : [];
+  if (fn === "fillField" && args["field"] === "task.description") return taskId ? [taskId] : [];
+  return [];
+}
+
+/**
+ * Il progetto di un'azione il cui oggetto è un progetto (area 8, F2, R5):
+ * `setSubscription` non ha codici dal server (`codes: []`), e la riga dice
+ * il codice del progetto, come nel prototipo.
+ */
+const PROJECT_FNS = new Set([
+  "setSubscription",
+  "resetSubscription",
+  // Area 9, F7 (72, Task 2 e 3): le voci sul progetto.
+  "addMember",
+  "removeMember",
+  "setMemberRole",
+  "archiveProject",
+  "reopenProject",
+  "pauseQueue",
+  "resumeQueue",
+  "updateProjectGeneral",
+  "setProjectAi",
+  "saveProjectAutomations",
+  // Area 11, F6 (Task 4 di 72): la prima versione è dello spazio del progetto.
+  "writeFirstVersion",
+  "undoFirstVersion",
+]);
+const projectIdOf = (fn: string, args: Record<string, unknown>): string | null =>
+  PROJECT_FNS.has(fn) && typeof args["projectId"] === "string" ? (args["projectId"] as string) : null;
+
+/** Area 11, F6: le voci su una pagina di prodotto (il codice dal server, il titolo dall'ultima lettura). */
+const PAGE_FNS = new Set(["updateProductPage", "drawWireframe", "deleteWireframe"]);
+const pageIdOf = (fn: string, args: Record<string, unknown>): string | null =>
+  PAGE_FNS.has(fn) && typeof args["pageId"] === "string" ? (args["pageId"] as string) : null;
+
+/** Proposte, gruppi e codici delle task citate di una conversazione libera. */
+export async function readChatActions(conversationId: string): Promise<ChatActions> {
+  const client = appClient().claude.conversations;
+  const [proposals, groups] = await Promise.all([
+    orEmpty(() => client.proposals(conversationId)),
+    orEmpty(() => client.groups(conversationId)),
+  ]);
+  const codes = new Map<string, string>();
+  // Dai gruppi eseguiti, prima: i codici li dice il server, uno per oggetto.
+  for (const g of groups) {
+    for (const a of g.actions) {
+      const ids = taskIdsOf(a.fn, a.args);
+      if (ids[0] && a.codes[0]) codes.set(ids[0], a.codes[0]);
+      const pageId = pageIdOf(a.fn, a.args);
+      if (pageId && a.codes[0]) codes.set(pageId, a.codes[0]);
+    }
+  }
+  const missing = [
+    ...new Set(
+      [...proposals.flatMap((p) => p.actions), ...groups.flatMap((g) => g.actions)].flatMap((a) =>
+        taskIdsOf(a.fn, a.args),
+      ),
+    ),
+  ].filter((id) => !codes.has(id));
+  await Promise.all(
+    missing.map(async (id) => {
+      const known = knownTaskCode(id) ?? (await cachedTaskCode(id));
+      if (known) codes.set(id, known);
+    }),
+  );
+  // I progetti delle azioni sui progetti, solo se ce n'è una: un progetto che
+  // non si vede resta senza codice, e un elenco che non si legge non ferma la
+  // conversazione (la riga si scrive senza il codice).
+  const projectIds = [...proposals.flatMap((p) => p.actions), ...groups.flatMap((g) => g.actions)].flatMap(
+    (a) => projectIdOf(a.fn, a.args) ?? [],
+  );
+  if (projectIds.length > 0) {
+    const byId = await projectCodesById().catch(() => new Map<string, string>());
+    for (const id of projectIds) {
+      const code = byId.get(id);
+      if (code) codes.set(id, code);
+    }
+  }
+  return { proposals, groups, codes };
+}
+
+/**
+ * Il codice di una task letto per id, ricordato per persona: ogni rilettura
+ * della conversazione (lo stream ne fa una a ogni proposta) non rilegge le
+ * stesse task, né ripete il 404 di una eliminata (`null`, ricordato anche lui).
+ * Un errore diverso non si ricorda: alla prossima si riprova.
+ */
+const taskCodesByPerson = new Map<string, Map<string, Promise<string | null>>>();
+export function cachedTaskCode(id: string): Promise<string | null> {
+  const me = session.personId ?? "";
+  let cache = taskCodesByPerson.get(me);
+  if (!cache) taskCodesByPerson.set(me, (cache = new Map()));
+  let code = cache.get(id);
+  if (!code) {
+    code = taskCodeOf(id).then(
+      (found) => found?.code ?? null,
+      () => {
+        cache.delete(id);
+        return null;
+      },
+    );
+    cache.set(id, code);
+  }
+  return code;
+}
+
+// --- i riassunti ----------------------------------------------------------------
+
+/** Il riassunto di un'azione come frase (`summaryText`), dai suoi argomenti: mai scritto dal modello. */
+/** I nomi che il server deriva per chi guarda (F7, `labels`): persona e ruolo, null se non li vede. */
+export type ActionLabels = { person: string | null; role: string | null };
+
+export function summaryOf(
+  fn: string,
+  args: Record<string, unknown>,
+  code: string | null,
+  labels?: ActionLabels,
+): ProposedAction {
+  const params: Record<string, string | number> = { code: code ?? "" };
+  const text = (k: string) => (typeof args[k] === "string" ? (args[k] as string) : "");
+  switch (fn) {
+    // Area 9, F7: i membri coi nomi del server; chi non vede il progetto legge «a person».
+    case "addMember":
+    case "setMemberRole":
+    case "removeMember":
+      params["name"] = labels?.person ?? i18n.t("claude.chatActions.aPerson");
+      params["role"] = labels?.role ?? i18n.t("claude.chatActions.aRole");
+      break;
+    case "createTask":
+    case "createRequest":
+      params["title"] = text("title");
+      break;
+    case "updateTask": {
+      const patch = (args["patch"] ?? {}) as Record<string, unknown>;
+      // Le etichette dei campi nella lingua di chi legge; una chiave ignota resta com'è.
+      params["fields"] = Object.keys(patch)
+        .map((k) => (i18n.exists(`claude.chatActions.field.${k}`) ? i18n.t(`claude.chatActions.field.${k}`) : k))
+        .join(", ");
+      break;
+    }
+    case "planTask": {
+      const plan = (args["plan"] ?? {}) as Record<string, unknown>;
+      params["week"] = typeof plan["week"] === "string" ? (plan["week"] as string) : "";
+      break;
+    }
+    case "createMilestone":
+    case "saveFilter":
+      params["name"] = text("name");
+      break;
+    case "pageAction":
+      params["kind"] = text("kind");
+      break;
+    // Area 10, F6: la frase dice il campo (la task col codice, la PR col numero).
+    case "fillField":
+      if (typeof args["prNumber"] === "number") params["number"] = args["prNumber"];
+      break;
+    // Area 9, F7: i nomi degli argomenti del server (`sourceUrl`, non `url`).
+    case "registerPlugin":
+      params["url"] = text("sourceUrl");
+      break;
+    case "updatePluginRef":
+      params["ref"] = text("ref");
+      break;
+    // Area 11, F6: la pagina col codice (del server) e il titolo, se chi guarda
+    // l'ha letta (le frasi del prototipo, `catalogProduct.ts`); senza, «a page».
+    case "updateProductPage":
+    case "drawWireframe":
+    case "deleteWireframe":
+    case "undoProductUpdate": {
+      const page = typeof args["pageId"] === "string" ? lastReadProductPage(args["pageId"] as string) : undefined;
+      const pageCode = code ?? page?.code ?? null;
+      params["page"] =
+        pageCode === null
+          ? i18n.t("claude.chatActions.aPage")
+          : page && page.code === pageCode
+            ? `${pageCode} ${page.title}`
+            : pageCode;
+      break;
+    }
+    case "resetSubscription":
+    case "setSubscription": {
+      // L'etichetta del tipo dal catalogo condiviso; solo i canali presenti (un assente resta com'è).
+      const labelKey = alertTypeOf(text("type"))?.labelKey;
+      params["type"] = labelKey ? i18n.t(labelKey) : text("type");
+      params["channels"] = (["app", "phone"] as const)
+        .filter((k) => typeof args[k] === "boolean")
+        .map((k) => i18n.t(`claude.chatActions.channel.${k}.${args[k] ? "on" : "off"}`))
+        .join(", ");
+      break;
+    }
+  }
+  // `setSubscription` senza canali (il server ne vuole almeno uno, ma il client non lo dà per certo): la frase senza «: ».
+  // `setProviderEnabled`: acceso o spento dagli argomenti (F7).
+  const phrase =
+    fn === "setSubscription" && params["channels"] === ""
+      ? "setSubscriptionBare"
+      : fn === "fillField"
+        ? args["field"] === "release.notes"
+          ? "fillFieldNotes"
+          : "fillFieldDescription"
+      : fn === "setProviderEnabled"
+        ? args["enabled"] === true
+          ? "setProviderEnabledOn"
+          : "setProviderEnabledOff"
+        : fn === "updateProductPage"
+          ? (args["source"] as { kind?: unknown } | undefined)?.kind === "meeting"
+            ? "updateProductPageMeeting"
+            : "updateProductPageEmail"
+          : fn;
+  // `resetSubscription` (l'inverso, mai proposto): «back to the default», senza canali.
+  const own = `claude.chatActions.summary.${phrase}${code === null && params["code"] === "" && needsCode(fn) ? "NoCode" : ""}`;
+  // Un'azione che questa build non conosce (un server più nuovo: `fn` è `__unknown__`) ha la frase generica.
+  const key = i18n.exists(own) ? own : "claude.chatActions.summaryHidden.other";
+  // `summary` è la resa al momento, per chi non sa leggere la frase (`spoken` la preferisce).
+  return { fn: fn as ProposedAction["fn"], args, summary: i18n.t(key, params), summaryText: { key, params } };
+}
+
+const needsCode = (fn: string) =>
+  [
+    "fillField",
+    "updateTask",
+    "planTask",
+    "deleteTask",
+    "addComment",
+    "deleteComment",
+    "startRun",
+    "setSubscription",
+    "resetSubscription",
+    "archiveProject",
+    "reopenProject",
+    "pauseQueue",
+    "resumeQueue",
+    "updateProjectGeneral",
+    "setProjectAi",
+    "saveProjectAutomations",
+    "addMember",
+    "setMemberRole",
+    "removeMember",
+  ].includes(fn);
+
+// --- le schede e le righe ------------------------------------------------------------
+
+/**
+ * RIPIEGO per un server più vecchio, che non dice il permesso mancante
+ * (`failure.permission`): la voce di «Who can…?» dalla `fn`, come nel
+ * catalogo del prototipo (`data/claude/catalog.ts`, che qui non si importa:
+ * porta con sé lo stato finto). Col permesso del server vale quello (vedi
+ * `whoActionOf`); qui serve anche a scegliere fra due azioni dello stesso
+ * permesso (`tickets.moderate`: commenti o task).
+ */
+const WHO_ACTION: Partial<Record<string, string>> = {
+  createTask: "createTasks",
+  updateTask: "editTasks",
+  planTask: "editTasks",
+  addComment: "commentTasks",
+  deleteComment: "moderateComments",
+  createRequest: "addRequests",
+  convertRequest: "editBacklog",
+  archiveRequest: "editBacklog",
+  reopenRequest: "editBacklog",
+  startRun: "startRun",
+  createMilestone: "editTasks",
+  deleteMilestone: "editTasks",
+  deleteTask: "deleteTasks",
+  // Area 9, F7: come il catalogo del prototipo.
+  addMember: "manageMembers",
+  removeMember: "manageMembers",
+  setMemberRole: "manageMembers",
+  registerPlugin: "managePlugins",
+  updatePluginRef: "managePlugins",
+  archiveProject: "manageProjectSettings",
+  reopenProject: "manageProjectSettings",
+  pauseQueue: "manageProjectSettings",
+  resumeQueue: "manageProjectSettings",
+  updateProjectGeneral: "manageProjectSettings",
+  setProjectAi: "manageProjectSettings",
+  saveProjectAutomations: "manageProjectSettings",
+  retryJob: "manageProjectSettings",
+  // Area 9, F7, Task 4: le voci d'istanza.
+  setModel: "manageSettings",
+  saveBudget: "manageSettings",
+  saveStorage: "manageSettings",
+  saveAutomation: "manageSettings",
+  setProviderEnabled: "manageAiProviders",
+  moveProvider: "manageAiProviders",
+  updateGitAccount: "manageGitAccounts",
+  updateGoogleApp: "manageIntegrations",
+  updateWebhook: "manageIntegrations",
+  rerunSmoke: "managePlugins",
+  removePlugin: "managePlugins",
+  // Area 11, F6: come il catalogo del prototipo (`catalogProduct.ts`).
+  writeFirstVersion: "editDocs",
+  undoFirstVersion: "editDocs",
+  updateProductPage: "editDocs",
+  undoProductUpdate: "editDocs",
+  drawWireframe: "editDocs",
+  deleteWireframe: "editDocs",
+};
+
+const reasonsOf = (p: ProposalView): ClassReason[] => [
+  ...p.reasons.flatMap((r): ClassReason[] =>
+    r.kind === "notifies"
+      ? [{ kind: "notifies", personIds: [...r.personIds], more: r.more }]
+      : r.kind === "irreversible"
+        ? [{ kind: "irreversible" }]
+        : r.kind === "starts_work"
+          ? [{ kind: "startsWork" }]
+          : [],
+  ),
+  // F7: «chiede la riconferma» è un campo del server (M-3, il motivo non è
+  // apribile), nella scheda del prototipo un motivo, in fondo come lì.
+  ...(p.reauth ? [{ kind: "reauth" as const }] : []),
+];
+
+/** Il rifiuto del server nella forma del prototipo («Couldn't do it · Who?»). */
+function failureOf(p: ProposalView): ExecutedFailure | undefined {
+  const f = p.failure;
+  if (!f) return undefined;
+  const fn = p.actions[f.index]?.fn;
+  const code: ExecutedFailure["code"] =
+    f.code === "budget_exhausted" ? "other" : (f.code as ExecutedFailure["code"]);
+  return {
+    code,
+    index: f.index,
+    whoAction: code === "forbidden" ? whoActionOf(f.permission ?? null, fn) : null,
+    projectId: f.projectId,
+    projectCode: null,
+  };
+}
+
+/**
+ * Il «Who?» di un rifiuto per permesso: l'azione del catalogo `ACTIONS` col
+ * permesso che il SERVER dice mancare (`failure.permission`). Se più azioni
+ * hanno lo stesso permesso vale quella suggerita dalla `fn`, se coincide.
+ * Senza permesso (un server più vecchio) si ripiega su `WHO_ACTION`.
+ */
+function whoActionOf(permission: string | null, fn: string | undefined): string | null {
+  const hinted = fn ? WHO_ACTION[fn] : undefined;
+  if (permission === null) return hinted ?? null;
+  const matches = ACTIONS.filter((a) => a.permission === permission);
+  return (matches.find((a) => a.id === hinted) ?? matches[0])?.id ?? null;
+}
+
+const codeOfAction = (a: { fn: string; args: Record<string, unknown> }, codes: Map<string, string>) =>
+  codes.get(taskIdsOf(a.fn, a.args)[0] ?? projectIdOf(a.fn, a.args) ?? pageIdOf(a.fn, a.args) ?? "") ?? null;
+
+/**
+ * L'autore di ogni conversazione libera letta (fetta 5): il richiedente delle
+ * sue proposte, per nome. La vista della proposta non lo porta; lo stream lo
+ * trova qui, letto col dettaglio. Senza: chi guarda (una sua conversazione).
+ */
+const owners = new Map<string, string>();
+export function rememberConversationOwner(conversationId: string, ownerId: string): void {
+  if (ownerId) owners.set(conversationId, ownerId);
+}
+const ownerOf = (conversationId: string) => owners.get(conversationId) ?? session.personId ?? "";
+
+/** Chi guarda è l'autore della conversazione (sconosciuto = privata, quindi sua). */
+export const isConversationOwner = (conversationId: string): boolean =>
+  ownerOf(conversationId) === (session.personId ?? "");
+
+/**
+ * Il corpo di `fillMailBody` che Gmail non ha salvato (`effectFailure`), da
+ * copiare. Un server di prima non manda il campo: `?? null`, cioè riuscita
+ * (il web e l'app leggono senza parse, quindi la difesa sta qui).
+ */
+function mailNotSavedOf(
+  group: GroupView | undefined,
+): { text: string; retry?: { groupId: string; index: number } } | undefined {
+  const index =
+    group?.actions.findIndex(
+      (a) => a.fn === "fillMailBody" && ((a as { effectFailure?: string | null }).effectFailure ?? null) === "mail_not_saved",
+    ) ?? -1;
+  if (!group || index < 0) return undefined;
+  const failed = group.actions[index]!;
+  const text = typeof failed.args["text"] === "string" ? (failed.args["text"] as string) : "";
+  // Lotto 4, §5: «Retry» solo se il server lo permette (chi ha confermato); un server di prima non lo dice.
+  const canRetry = (failed as { canRetryEffect?: boolean }).canRetryEffect === true;
+  return canRetry ? { text, retry: { groupId: group.id, index } } : { text };
+}
+
+function proposalEvent(p: ProposalView, at: string, actions: ChatActions): ConversationEvent {
+  const group = p.groupId ? actions.groups.find((g) => g.id === p.groupId) : undefined;
+  const failure = failureOf(p);
+  const mailNotSaved = mailNotSavedOf(group);
+  return {
+    id: `proposal:${p.id}`,
+    at,
+    type: "proposal",
+    proposalId: p.id,
+    // Le proposte di una conversazione libera sono di chi l'ha aperta (l'autore,
+    // che da una pubblica non è chi guarda): chi decide lo dice il server.
+    requesterId: ownerOf(p.sessionId),
+    canDecide: p.canConfirm || p.canCancel,
+    actions: p.actions.map((a) =>
+      summaryOf(a.fn, a.args, codeOfAction(a, actions.codes), (a as { labels?: ActionLabels }).labels),
+    ),
+    status: p.status,
+    cls: p.cls,
+    reasons: reasonsOf(p),
+    ...(p.groupId ? { groupId: p.groupId } : {}),
+    ...(group ? { resultCodes: group.actions.flatMap((a) => a.codes), objectCodes: group.actions.map((a) => a.codes[0] ?? codeOfAction(a, actions.codes)) } : {}),
+    ...(failure ? { failure } : {}),
+    ...(mailNotSaved ? { mailNotSaved } : {}),
+    ...(p.undoOfGroupId ? { undoOf: p.undoOfGroupId } : {}),
+  } as ConversationEvent;
+}
+
+function executedEvent(g: GroupView, at: string, actions: ChatActions): ConversationEvent {
+  return {
+    id: `executed:${g.id}`,
+    at,
+    type: "executed",
+    groupId: g.id,
+    actions: g.actions.map((a) => summaryOf(a.fn, a.args, a.codes[0] ?? codeOfAction(a, actions.codes))),
+    status: "done",
+    resultCodes: g.actions.flatMap((a) => a.codes),
+    objectCodes: g.actions.map((a) => a.codes[0] ?? codeOfAction(a, actions.codes)),
+  } as ConversationEvent;
+}
+
+// --- le azioni della pagina (D3) ------------------------------------------------
+
+type Fake = typeof import("../../api");
+
+/**
+ * L'esito delle azioni della pagina, per persona: le esegue il RENDERER (D3,
+ * il server le valida e non esegue niente), quindi lo stato — eseguita, non
+ * partita, annullata — resta qui, in memoria per persona, come il loro
+ * «Undo» locale. Un'azione parte SOLO se arriva dal vivo in questa finestra
+ * (il runner, `layout/claudePanel/pageActions.ts`): letta dalla storia o dal
+ * dettaglio (un ricaricamento, un riavvio, un'altra scheda) resta «non
+ * applicata», e la riga offre il gesto per applicarla adesso.
+ */
+const pageStatusByPerson = new Map<string, Map<string, PageEventStatus>>();
+
+type PageEventStatus = Exclude<Parameters<Fake["settlePageEvent"]>[2], "not_run">;
+
+/**
+ * Revisione dei lotti 6–7, M-6: gli esiti locali che sono solo il ripiego di
+ * `not_run` (un'azione mai partita in questa finestra): cedono a quello che il
+ * server ha salvato, magari da un'altra finestra.
+ */
+const notRunByPerson = new Map<string, Set<string>>();
+
+function notRunHere(): Set<string> {
+  const me = session.personId ?? "";
+  let set = notRunByPerson.get(me);
+  if (!set) notRunByPerson.set(me, (set = new Set()));
+  return set;
+}
+
+function pageStatuses(): Map<string, PageEventStatus> {
+  const me = session.personId ?? "";
+  let map = pageStatusByPerson.get(me);
+  if (!map) pageStatusByPerson.set(me, (map = new Map()));
+  return map;
+}
+
+/**
+ * Il runner fissa l'esito di un'azione della pagina (eseguita, non partita,
+ * annullata). Lotto 7, §1 (72, ae0e9a35d): l'esito si salva sul server, per
+ * indice (`POST /api/claude/proposals/:id/actions/:index/outcome`), e la
+ * vista lo ridà (`pageOutcomes`). `not_run` (decisione 1.b) resta solo qui
+ * come `failed`: la riga offre «Apply», e il server non la dice fallita.
+ */
+export const settlePageEvent: Fake["settlePageEvent"] = async (conversationId, eventId, settled) => {
+  const status: PageEventStatus = settled === "not_run" ? "failed" : settled;
+  const at = /^page:([^:]+):(\d+)$/.exec(eventId);
+  if (settled !== "not_run" && at) {
+    await appClient().request("POST", `/api/claude/proposals/${encodeURIComponent(at[1]!)}/actions/${at[2]}/outcome`, {
+      status,
+    });
+  }
+  pageStatuses().set(eventId, status);
+  if (settled === "not_run") notRunHere().add(eventId);
+  else notRunHere().delete(eventId);
+  // Lo stream deriva le righe dalle sue viste: senza questo la riga dal vivo resterebbe `pending`.
+  for (const fn of [...pageListeners]) fn(conversationId);
+};
+
+const pageListeners = new Set<(conversationId: string) => void>();
+/** L'esito locale di un'azione della pagina è cambiato: chi deriva le righe (lo stream) le riemette. */
+export function onPageStatusChange(fn: (conversationId: string) => void): () => void {
+  pageListeners.add(fn);
+  return () => {
+    pageListeners.delete(fn);
+  };
+}
+
+/** Solo nei test: nessun esito ricordato. */
+export function forgetPageStatuses(): void {
+  pageStatusByPerson.clear();
+  notRunByPerson.clear();
+  owners.clear();
+  taskCodesByPerson.clear();
+}
+
+/**
+ * Una proposta di sole azioni della pagina che il renderer può eseguire: solo
+ * `confirmed`. Senza letture non fidate il server la scrive già chiusa (A);
+ * dopo un contenuto non fidato nasce scheda B aperta (fetta 3 dell'area 5,
+ * decisione O) e diventa eseguibile solo quando la persona la conferma.
+ * Aperta, annullata, scaduta o fallita resta una scheda: MAI un'azione da
+ * eseguire.
+ */
+const isRunnablePageProposal = (p: ProposalView) =>
+  p.status === "confirmed" && p.actions.length > 0 && p.actions.every((a) => RENDERER_FNS.has(a.fn as never));
+
+const DRAFT_STATUSES = new Set(["placed", "waiting", "undone", "changed_after"]);
+
+/**
+ * Area 10, F6: il campo di `fillField` come lo dichiara la pagina
+ * (`FieldRef`): la descrizione per id della task, le note per id della PR
+ * della build app (`<repository>#<numero>`, `releasePrs.ts`).
+ */
+function fieldRefOf(args: Record<string, unknown>): FieldRef | null {
+  if (args["field"] === "task.description" && typeof args["taskId"] === "string")
+    return { kind: "taskDescription", taskId: args["taskId"] };
+  if (args["field"] === "release.notes" && typeof args["repositoryId"] === "string" && typeof args["prNumber"] === "number")
+    return { kind: "releaseNotes", prId: `${args["repositoryId"]}#${args["prNumber"]}` };
+  return null;
+}
+
+/**
+ * Un'azione della pagina (o una bozza di `fillField`) per ogni azione della
+ * proposta, col suo esito locale. La bozza non scrive niente: il runner del
+ * riquadro la mette nel campo solo a pagina aperta, e la salva la persona.
+ */
+function pageEvents(p: ProposalView, at: string): ConversationEvent[] {
+  // Lotto 7, §1: l'esito salvato sul server; quello di questa finestra, se c'è, è più fresco.
+  const saved = new Map((p.pageOutcomes ?? []).map((o) => [o.index, o.status as PageEventStatus]));
+  return p.actions.map((a, i) => {
+    const id = `page:${p.id}:${i}`;
+    // Il locale vince (è il più fresco), salvo quando è solo il ripiego di `not_run` (M-6).
+    const local = pageStatuses().get(id);
+    const status = notRunHere().has(id) ? (saved.get(i) ?? local) : (local ?? saved.get(i));
+    if (a.fn === "fillField") {
+      return {
+        id,
+        at,
+        type: "draft",
+        field: fieldRefOf(a.args),
+        text: typeof a.args["text"] === "string" ? a.args["text"] : "",
+        status: status && DRAFT_STATUSES.has(status) ? status : "pending",
+      } as ConversationEvent;
+    }
+    return {
+      id,
+      at,
+      type: "pageAction",
+      action: a.args,
+      status: status === "done" || status === "undone" || status === "changed_after" || status === "failed" ? status : "pending",
+    } as ConversationEvent;
+  });
+}
+
+/**
+ * Le schede (`proposal`) e le righe (`executed`) dagli eventi grezzi, al loro
+ * posto nel tempo. Una proposta ha una scheda sola (anche quando la conferma o
+ * l'annullamento scrivono un altro evento); una A eseguita subito è una riga;
+ * un gruppo eseguito dalla conferma di una scheda NON è una riga in più (la
+ * scheda lo dice); un «Annulla» lo dice lo stato del gruppo annullato.
+ */
+export function chatActionEvents(
+  raw: readonly Reader<AgentSessionEvent>[],
+  actions: ChatActions,
+): ConversationEvent[] {
+  const out: ConversationEvent[] = [];
+  const carded = new Set(
+    raw.filter((e) => e.type === "proposal").map((e) => String((e.data as { proposalId?: unknown }).proposalId)),
+  );
+  const seen = new Set<string>();
+  for (const e of raw) {
+    const data = e.data as { proposalId?: unknown; groupId?: unknown; undoOf?: unknown };
+    if (e.type === "proposal") {
+      const p = actions.proposals.find((x) => x.id === data.proposalId);
+      if (!p || seen.has(p.id)) continue;
+      seen.add(p.id);
+      // Le azioni della pagina (D3) confermate non sono una scheda: le esegue il renderer.
+      out.push(...(isRunnablePageProposal(p) ? pageEvents(p, e.at) : [proposalEvent(p, e.at, actions)]));
+    } else if (e.type === "actions_executed") {
+      if (typeof data.undoOf === "string") continue;
+      if (typeof data.proposalId === "string" && carded.has(data.proposalId)) continue;
+      const g = actions.groups.find((x) => x.id === data.groupId);
+      if (!g || seen.has(g.id)) continue;
+      seen.add(g.id);
+      out.push(executedEvent(g, e.at, actions));
+    }
+  }
+  return out;
+}
+
+/** Inserisce le schede e le righe fra gli eventi della conversazione, in ordine di tempo. */
+export function withChatActionEvents(events: ConversationEvent[], extra: ConversationEvent[]): ConversationEvent[] {
+  if (extra.length === 0) return events;
+  const out = [...events];
+  for (const e of extra) {
+    let at = out.length;
+    while (at > 0 && out[at - 1]!.at > e.at) at -= 1;
+    out.splice(at, 0, e);
+  }
+  return out;
+}
+
+/** Lo stato di «Annulla» di ogni gruppo, per chi guarda (`ConversationDetail.undo`). */
+const MEMBER_FNS = new Set(["addMember", "setMemberRole", "removeMember"]);
+
+/** Le voci che hanno la loro frase all'infinito nel dialogo della riconferma. */
+const REAUTH_PHRASE_FNS = new Set(["addMember", "setMemberRole", "removeMember", "registerPlugin", "updatePluginRef"]);
+
+/**
+ * Le frasi della riconferma delle schede aperte con una C (F7, come
+ * `reauthPhrasesOf` del prototipo): una per azione, all'infinito («To add
+ * Marta Rossi to AUD as Developer»), coi nomi delle `labels`; null dove
+ * l'azione non la chiede o non ha la sua frase (il dialogo dice la generica).
+ */
+export function reauthPhrasesOf(
+  proposals: readonly ProposalView[],
+  codes: Map<string, string>,
+): Record<string, ({ key: string; params: Record<string, string> } | null)[]> {
+  const out: Record<string, ({ key: string; params: Record<string, string> } | null)[]> = {};
+  for (const p of proposals) {
+    if (p.status !== "open") continue;
+    const actions = p.actions as unknown as {
+      fn: string;
+      args: Record<string, unknown>;
+      reauth?: boolean;
+      labels?: ActionLabels;
+    }[];
+    if (!actions.some((a) => a.reauth)) continue;
+    out[p.id] = actions.map((a) => {
+      if (!a.reauth || !REAUTH_PHRASE_FNS.has(a.fn)) return null;
+      const s: Record<string, unknown> =
+        summaryOf(a.fn, a.args, codeOfAction(a, codes), a.labels).summaryText?.params ?? {};
+      const params: Record<string, string> = {};
+      for (const k of ["name", "role", "code", "url", "ref"])
+        if (s[k] !== undefined && s[k] !== "") params[k] = String(s[k]);
+      // Un membro senza il codice del progetto: la variante «a project» (review F7, M1).
+      const noCode = params["code"] === undefined && MEMBER_FNS.has(a.fn);
+      return { key: `claude.conversation.proposal.reauthAction.${a.fn}${noCode ? "NoCode" : ""}`, params };
+    });
+  }
+  return out;
+}
+
+export function undoViewsOf(
+  groups: readonly GroupView[],
+  nameOf: (personId: string) => string | null,
+): Record<string, UndoView> {
+  const out: Record<string, UndoView> = {};
+  for (const g of groups) {
+    switch (g.undo) {
+      case "available":
+        // L'inverso dichiarato C (i membri) lo dice il server (F7, `undoReauth`).
+        out[g.id] = { state: "available", needsReauth: (g as { undoReauth?: boolean }).undoReauth === true };
+        break;
+      case "undone":
+        out[g.id] = { state: "undone", byName: nameOf(session.personId ?? "") ?? "", at: g.undoneAt ?? g.executedAt };
+        break;
+      case "changed_after":
+        // Chi ha scritto dopo lo nomina solo se chi guarda lo vede (lo dice il server); l'oggetto no.
+        out[g.id] = { state: "changed_after", byName: g.changedBy ? nameOf(g.changedBy) : null, code: null };
+        break;
+      case "not_undoable":
+        out[g.id] = { state: "not_undoable" };
+        break;
+      default:
+        out[g.id] = { state: "not_yours" };
+    }
+  }
+  return out;
+}
+
+// --- le decisioni della persona ----------------------------------------------------
+
+/**
+ * «Confirm» / «Confirm selected» di una scheda: la conferma la fa il SERVER
+ * (permessi, classe e scadenza ricontrollati in quel momento). Un rifiuto
+ * (409 `expired`, `conflict`, `refused` col motivo) diventa l'esito
+ * `failed` del prototipo; la C (riconferma) è la fetta 4.
+ */
+/**
+ * Le viste delle azioni di una conversazione sono VECCHIE: un rifiuto del
+ * server (scaduta, rifiutata, in conflitto) non scrive eventi, quindi lo
+ * stream non le rileggerebbe da sé. Chi ascolta (lo stream) le rilegge.
+ */
+const staleListeners = new Set<(conversationId: string) => void>();
+export function onChatActionsStale(fn: (conversationId: string) => void): () => void {
+  staleListeners.add(fn);
+  return () => {
+    staleListeners.delete(fn);
+  };
+}
+function markStale(conversationId: string): void {
+  for (const fn of [...staleListeners]) fn(conversationId);
+}
+
+export const confirmProposal: Fake["confirmProposal"] = async (conversationId, proposalId, options = {}) => {
+  const result = await confirmOnServer(proposalId, options);
+  // Si rilegge anche su una conferma riuscita: un'azione della pagina confermata
+  // (dopo un contenuto non fidato) non scrive eventi sul server, e senza
+  // rileggere la scheda resterebbe aperta e l'azione non partirebbe mai.
+  if ("status" in result) markStale(conversationId);
+  return result;
+};
+
+export async function confirmOnServer(
+  proposalId: string,
+  options: Parameters<Fake["confirmProposal"]>[2] = {},
+): ReturnType<Fake["confirmProposal"]> {
+  try {
+    const view = await appClient().claude.proposals.confirm(proposalId, {
+      ...(options.actionIndexes ? { selected: options.actionIndexes } : {}),
+      ...(options.edited ? { edited: options.edited } : {}),
+    });
+    return view.status === "confirmed"
+      ? { status: "confirmed", resultCodes: [], runConversationIds: [] }
+      : { status: "failed", error: view.status };
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "reauth_required") return { ok: false, error: "reauth_required" };
+    if (error instanceof ApiError && error.status === 409) return { status: "failed", error: error.code ?? "conflict" };
+    throw error;
+  }
+}
+
+/**
+ * «Edit»: gli argomenti dell'azione dalla vista del server, per il dialogo.
+ * Salvare il dialogo CONFERMA la proposta con `edited` (la esegue il server,
+ * col segno «via Claude»): mai una scrittura a mano.
+ */
+export const editProposal: Fake["editProposal"] = async (conversationId, proposalId, actionIndex = 0) => {
+  const proposals = await appClient().claude.conversations.proposals(conversationId);
+  const action = proposals.find((p) => p.id === proposalId)?.actions[actionIndex];
+  if (!action) throw Object.assign(new Error("not_found"), { code: "not_found" });
+  return { fn: action.fn as Awaited<ReturnType<Fake["editProposal"]>>["fn"], args: action.args };
+};
+
+/** «Cancel» della scheda: niente si esegue. */
+export const cancelProposal: Fake["cancelProposal"] = async (_conversationId, proposalId) => {
+  await appClient().claude.proposals.cancel(proposalId);
+};
+
+/**
+ * «Undo» di un gruppo: subito, o una scheda da confermare quando gli inversi
+ * avviserebbero qualcuno (la scheda arriva come evento della conversazione).
+ * I rifiuti nella forma del prototipo.
+ */
+async function undoClaudeActions(
+  conversationId: string,
+  groupId: string,
+): ReturnType<Fake["claude"]["undoClaudeActions"]> {
+  try {
+    const out = await appClient().claude.groups.undo(groupId);
+    return out.kind === "needs_confirmation" && out.proposal ? { ok: true, proposalId: out.proposal.id } : { ok: true };
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    switch (error.code) {
+      case "changed_after":
+        // Il 409 non dice chi: lo dice la vista del gruppo (`changedBy`), riletta.
+        return { ok: false, error: "changed_after", byName: await changedByName(conversationId, groupId), code: null };
+      case "undone":
+      case "already_undone":
+        return { ok: false, error: "already_undone" };
+      case "not_undoable":
+        return { ok: false, error: "not_undoable" };
+      case "reauth_required":
+        return { ok: false, error: "reauth_required" };
+      case "refused":
+        return refusedUndo(error.details);
+      default:
+        if (error.status === 404) return { ok: false, error: "not_found" };
+        throw error;
+    }
+  }
+}
+
+/** Chi ha scritto dopo sugli oggetti del gruppo, per nome; `null` se non si sa o non si vede. */
+async function changedByName(conversationId: string, groupId: string): Promise<string | null> {
+  try {
+    const [groups, people] = await Promise.all([
+      appClient().claude.conversations.groups(conversationId),
+      listPeople(),
+    ]);
+    const by = groups.find((g) => g.id === groupId)?.changedBy ?? null;
+    return by ? (people.find((p) => p.id === by)?.name ?? null) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Un «Undo» rifiutato dal server (409 `refused` con `failure`): nella forma
+ * del prototipo — `forbidden` col «Who?» del permesso, `busy` occupato (la
+ * riga offre di riprovare con un clic); ogni altro motivo non si annulla da
+ * qui, senza un «Retry» che fallirebbe uguale.
+ */
+function refusedUndo(details: unknown): Awaited<ReturnType<Fake["claude"]["undoClaudeActions"]>> {
+  const failure = (details as { failure?: unknown } | undefined)?.failure as
+    | { code?: string; permission?: string | null; projectId?: string | null }
+    | undefined;
+  if (failure?.code === "forbidden") {
+    return {
+      ok: false,
+      error: "forbidden",
+      whoAction: whoActionOf(failure.permission ?? null, undefined),
+      projectId: failure.projectId ?? null,
+      projectCode: null,
+    };
+  }
+  if (failure?.code === "busy") {
+    // Il server non dice ancora PERCHÉ è occupato: la frase generica.
+    return { ok: false, error: "busy", reasons: [{ kind: "claude_session", code: null }] };
+  }
+  return { ok: false, error: "not_undoable" };
+}
+
+/**
+ * Lotto 4, §5 (72, f7859ebf3): «Retry» del salvataggio di un `fillMailBody`
+ * che Gmail non ha preso, col testo salvato dal server. `already_saved` è un
+ * successo (la scheda rilegge e dice «Done»).
+ */
+async function retryClaudeEffect(
+  _conversationId: string,
+  groupId: string,
+  index: number,
+): ReturnType<Fake["claude"]["retryClaudeEffect"]> {
+  try {
+    await appClient().claude.groups.retryEffect(groupId, index);
+    return { ok: true };
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    if (error.code === "already_saved") return { ok: true };
+    if (error.status === 404) return { ok: false, error: "not_found" };
+    const known = ["not_retryable", "mail_not_found", "mail_forbidden", "draft_changed", "mail_not_saved"] as const;
+    const code = known.find((k) => k === error.code);
+    if (!code) throw error;
+    const reason = (error.details as { reason?: unknown } | undefined)?.reason;
+    return { ok: false, error: code, ...(typeof reason === "string" ? { reason } : {}) };
+  }
+}
+
+/** Il namespace `claude` della build app: «Undo» e «Retry» (il resto è del prototipo). */
+export const claudeChatNamespace = { undoClaudeActions, retryClaudeEffect };

@@ -52,6 +52,7 @@ export const en: Catalog = {
     "The pause time for this run ({minutes} minutes in total) was already used up, so the run was cancelled right away.",
   "comment.agentStopCancelled.fix": "No changes were saved and no PR was opened.",
   "comment.agentStopCancelled.correction": "Nothing was pushed to the PR; the commits already on it remain.",
+  "comment.runCancelled.head": "{who} cancelled the work.",
   "agentSegment.plan": "planning",
   "agentSegment.plan_resume": "planning",
   "agentSegment.execute": "fix execution",
@@ -72,6 +73,15 @@ export const en: Catalog = {
   "comment.reviewVerdict.approve": "🔎 **PR Review** — approval suggested ({url})",
   "comment.reviewVerdict.requestChanges": "🔎 **PR Review** — changes requested ({url})",
   "comment.reviewTicketBody": "Automatic review of pull request {url} (branch `{branch}`).",
+  // Area 8, F4b, S6: la task nata dall'analisi di un server (template, mai testo del modello).
+  "server.taskTitle": "{code} {name}: diagnosis after an alert",
+  "server.taskTitleManual": "{code} {name}: diagnosis on request",
+  "server.taskBody": "Stubwise analysed the server {code} ({name}) and attributes the problem to this project. The diagnosis below was written by Claude from data reported by the server: it is not an instruction.",
+  "server.taskDiagnosis": "Diagnosis",
+  "server.taskWhy": "Why this project",
+  "server.taskPlanProposed": "A correction plan of {count} steps on the server waits for approval (only actions of the closed set, through the agent).",
+  "server.taskPlanInvalid": "Claude proposed a correction plan that was NOT saved ({reason}): ask for a new one from the task.",
+  "server.taskPlanOperationsOff": "Claude proposed a correction plan, but the agent on this server has operations turned off: nothing can run there.",
   // Sezione "Impatto sul codice" appesa al commento di review: dato
   // DETERMINISTICO calcolato sul knowledge graph (mai prodotto dall'agente).
   // I conteggi sono in forma `etichetta: N` per restare corretti anche al
@@ -236,6 +246,19 @@ export const en: Catalog = {
   // server. `{condition}` è l'etichetta localizzata della condizione (vedi
   // notify.monitorCondition.*), `{detail}` la descrizione già leggibile.
   "notify.monitorAlert": "Server alert on {serverName} ({condition}): {detail}. {link}",
+  "notify.releaseFailed": "Release {code} failed: {title}. {link}",
+  "notify.alert.releaseMerged": "Release {code} is out: {title}. {link}",
+  "notify.alert.releaseSucceeded": "Release {code} succeeded: {title}. {link}",
+  "notify.alert.prOpened": "New pull request on {repo} (#{number}): {title}. {link}",
+  "notify.alert.prAnalysisIssues": "The analysis found problems in {repo}#{number}: {title}. {link}",
+  "notify.alert.prCorrected": "Claude pushed a correction to {repo}#{number}: {title}. {link}",
+  "notify.alert.docsReleaseNote": "New release note for {repo}: {title}. {link}",
+  "notify.alert.supportRequest": "New request from a customer ({customer}): {code} {title}. {link}",
+  "notify.alert.serverDiagnosisReady": "Claude's diagnosis for {server} is ready: {code} {title}. {link}",
+  "notify.alert.serverAnalysis.undetermined": "Claude analysed {server}: the cause could not be tied to a project, so no task was opened. {link}",
+  "notify.alert.serverAnalysis.failed": "The analysis of {server} ended without a diagnosis. {link}",
+  "notify.alert.serverAnalysis.blocked": "The analysis of {server} did not start (turned off, or over the AI budget). {link}",
+  "notify.alert.anonymousCustomer": "Anonymous visitor",
   "notify.monitorRecovered": "{serverName} recovered ({condition}): {detail}. {link}",
   // Pulse proattivo: evento SENZA ticket ancorato al PROGETTO, il {link} porta
   // al suo backlog. I titoli delle proposte NON stanno nella frase — sono le
@@ -259,8 +282,47 @@ export const en: Catalog = {
   // Fase permessi: a mailbox proposal HANDED to the project by its owner.
   "notify.googleProposalHanded":
     "{handedBy} handed {project} an email from {from} — {subject}. {link}",
+  // Rimandi, lotto 4: a SHARED mail proposal handed to the project (no sender, no subject, no name).
+  "notify.googleProposalHandedShared": "A mail proposal was handed to {project}: it needs a decision. {link}",
   // Secondo fattore: security alert to the account owner, one sentence per
   // subject, with and without the actor (`{actor}` = their email).
+  // Integrazione area 2: decisions asked on a task and activity on a followed
+  // task. `{ref}` is the task code (e.g. AUD-12); `{summary}` is DATA (the new
+  // status name, the new assignee, the start of a comment), never prose.
+  "notify.decisionRequested": "{ref}: you are asked to decide — {question}",
+  "notify.decisionAnswered": "{ref}: your question has an answer — {question} → {answer}",
+  "notify.ticketActivity.status": "{ref}: status changed to {summary}",
+  "notify.ticketActivity.runCancelled": "{ref}: the work was cancelled",
+  "notify.ticketActivity.taskDeleted": "{ref}: the task was deleted",
+  "notify.ticketActivity.assignee": "{ref}: now assigned to {summary}",
+  "notify.ticketActivity.comment": "{ref}: new comment — {summary}",
+  "notify.ticketActivity.commentNoText": "New comment on {ref}",
+  "notify.ticketActivity.commentDeleted": "{ref}: comment deleted",
+  "notify.ticketActivity.decisionRequested": "{ref}: a decision was asked",
+  "notify.ticketActivity.decisionAnswered": "{ref}: a decision was answered",
+  // Fetta 2: someone else changed the plan of your task, or gave you a task.
+  // `{week}` is an ISO week (2026-W47), `{person}` a name.
+  "notify.planningChanged.moved": "{ref}: your task was moved to {week}",
+  "notify.planningChanged.unplanned": "{ref}: your task was taken out of the plan",
+  "notify.planningChanged.reassigned": "{ref}: your task is now planned for {person}",
+  "notify.planningChanged.unassigned": "{ref}: your task is no longer assigned to you",
+  "notify.taskAssigned": "{ref}: assigned to you",
+  "notify.memberAdded": "{person} joined {project} as {role}",
+  "notify.productDocMention": "{author} mentioned you in a comment on {code}",
+  "notify.productDocMention.anonymous": "You were mentioned in a comment on {code}",
+  "notify.productDocGone": "A product page you can no longer see",
+  "notify.productDocUpdated": "Claude updated {code}",
+  "notify.productDocQuestion": "Claude has a question about {code}",
+  "notify.chatMention": "{author} mentioned you in #{channel}",
+  "notify.chatQuestion": "{author} asked you in #{channel}",
+  "notify.chatMention.dm": "{author} mentioned you in a direct message",
+  "notify.chatMention.group": "{author} mentioned {group} in #{channel}",
+  "notify.chatMention.group.dm": "{author} mentioned {group} in a direct message",
+  "notify.chatQuestion.dm": "{author} asked you in a direct message",
+  "notify.automationApproval": "{automation} needs your approval on a step",
+  "notify.automationFailed": "A run of {automation} failed",
+  "notify.automationNotify": "{automation}: {message}",
+  "notify.automationPaused": "{automation} was paused: its owner can no longer run it",
   "notify.securityAlert.second_factor_reset":
     "Your second factor was reset: you will set it up again at your next sign-in.",
   "notify.securityAlert.second_factor_reset.actor":
@@ -269,6 +331,20 @@ export const en: Catalog = {
     "A password reset link was generated for your account. If you did not ask for it, tell an admin.",
   "notify.securityAlert.password_reset_link.actor":
     "A password reset link for your account was generated by {actor}.",
+  "notify.securityAlert.email_changed":
+    "The sign-in email of your account was changed. If it was not you, tell an admin.",
+  "notify.securityAlert.email_changed.actor": "The sign-in email of your account was changed by {actor}.",
+  "notify.securityAlert.slack_linked":
+    "A Slack account was linked to your account: its messages and clicks now count as yours. If it was not you, tell an admin.",
+  "notify.securityAlert.slack_linked.actor":
+    "A Slack account was linked to your account by {actor}: its messages and clicks now count as yours.",
+  "notify.securityAlert.bitbucket_linked": "A Bitbucket username was linked to your account. If it was not you, tell an admin.",
+  "notify.securityAlert.bitbucket_linked.actor": "A Bitbucket username was linked to your account by {actor}.",
+  "notify.securityAlert.vault_device_sealed":
+    "A Mac can now open your vault. If it was not you, remove it in Settings → Security and tell an admin.",
+  "notify.securityAlert.vault_device_sealed.actor": "A Mac can now open your vault ({actor}).",
+  "notify.securityAlert.vault_device_seal_revoked": "A Mac can no longer open your vault.",
+  "notify.securityAlert.vault_device_seal_revoked.actor": "A Mac can no longer open your vault: {actor} removed it.",
   "notify.securityAlert.passkey_added":
     "A passkey was added to your account. If it was not you, tell an admin.",
   "notify.securityAlert.passkey_added.actor": "A passkey was added to your account by {actor}.",
@@ -352,6 +428,7 @@ export const en: Catalog = {
   // corsa persa.
   "notify.inbox.errAlreadyAnswered": "Already answered by {actor}.",
   "notify.inbox.errAlreadyAnsweredUnknown": "Already answered by someone else.",
+  "notify.inbox.errBudgetExhausted": "The monthly AI budget is used up: new work waits until someone raises it.",
   "notify.inbox.errJobInFlight": "A job for this ticket is already running ({status}).",
   "notify.inbox.errPlanNotPending": "No plan is awaiting approval.",
   "notify.inbox.errInvalidAnswer": "That answer is not valid for this question.",
@@ -447,6 +524,15 @@ export const en: Catalog = {
   "push.title.docs.nightly_attention": "Nightly Docs need attention",
   "push.title.request.created": "New request from a collaborator",
   "push.title.monitor.alert": "Server alert",
+  "push.title.release.failed": "A release failed",
+  "push.title.release.merged": "A new release",
+  "push.title.release.succeeded": "A release succeeded",
+  "push.title.pr.opened": "A new pull request",
+  "push.title.pr.analysis_issues": "A pull request has problems",
+  "push.title.pr.corrected": "Claude corrected a pull request",
+  "push.title.docs.release_note": "A new release note",
+  "push.title.support.request": "A new request from a customer",
+  "push.title.server.diagnosis_ready": "A server diagnosis is ready",
   "push.title.monitor.recovered": "Server recovered",
   "push.title.job.awaiting_input": "A question is waiting for you",
   // L'unico titolo con un segnaposto: il pulse arriva a progetto fermo, e
@@ -455,6 +541,24 @@ export const en: Catalog = {
   "push.title.project.brief": "This week on {project}",
   "push.title.google.proposal": "A proposal from your mailbox",
   "push.title.google.proposal_handed": "An email handed to your project",
+  "push.title.decision.requested": "A decision is asked of you",
+  "push.title.decision.answered": "Your question has an answer",
+  "push.title.ticket.activity": "Activity on a task you follow",
+  "push.title.planning.changed": "Your plan changed",
+  "push.title.task.assigned": "A task was assigned to you",
+  "push.title.member.added": "Someone joined a project",
+  "push.title.product_doc.mention": "You were mentioned in the product docs",
+  "push.title.product_doc.updated": "A product page was updated",
+  "push.title.product_doc.question": "A question about a product page",
+  "push.title.chat.mention": "You were mentioned in the chat",
+  "push.title.chat.mention.group": "{group} was mentioned in the chat",
+  "push.title.chat.question": "A question for you in the chat",
+  "push.title.automation.approval": "An automation needs your approval",
+  "push.title.automation.failed": "An automation run failed",
+  "push.title.automation.notify": "Message from an automation",
+  "push.title.automation.paused": "An automation was paused",
+  "push.title.chat.mention.dm": "You were mentioned in a direct message",
+  "push.title.chat.question.dm": "A question for you in a direct message",
   "push.title.security.alert": "Security alert on your account",
 
   // --- report.* — header delle sezioni del report ---
@@ -568,12 +672,17 @@ export const en: Catalog = {
   // `{from}`/`{subject}` are NOT trusted.
   "google.proposal.question.handed":
     "{handedBy} can't act on this for {project}: {from} wrote about “{subject}”. How do we follow up?",
+  "google.proposal.question.handedShared": "A mail proposal handed to {project}. What do we do?",
   // Fase 6c (Task 5): the TRIAGE proposal's question — a real signal, but no
   // project was attributed. `{from}`/`{subject}` are NOT trusted (see above).
   "google.proposal.question.triage":
     "{from} wrote about “{subject}”: it looks like work, but it is not clear which project. Which one does this belong to?",
   "email.proposal.calendarQuestion":
     "“{subject}” is on the calendar for {date}. Do we track it as a milestone?",
+  // Lotto 9, voce 2 (a): the shared «Which project?» of a meeting whose
+  // invitees point to more than one project. `{subject}` is NOT trusted.
+  "email.proposal.calendarChooseQuestion":
+    "“{subject}” is on the calendar for {date}, and the invitees work on more than one project. Which one is it about?",
   // Fase 7b: the question for a SERIES occurrence configured with
   // `auto: true` — the action already happened, so this is a statement, not
   // a question, matching the single option that follows (see calendar.ts).
@@ -643,6 +752,12 @@ export const en: Catalog = {
   "decision.email.title": "Email decision: {subject}",
   "decision.email.decision": "Confirmed via email from {from}: {option}",
   "decision.email.reassigned": "Email from {from} moved from project {fromProject} to {toProject}",
+  // Area 6, review F5a (punto 4): una decisione nata dalle note di una
+  // riunione registrata. NESSUN titolo della riunione (lo sceglie
+  // l'organizzatore), nessun mittente, nessun testo del modello.
+  "decision.meeting.title": "Meeting decision",
+  "decision.meeting.decision": "Decided from the notes of a meeting.",
+  "meeting.execution.commentBody": "{body}\n\n— from the notes of a meeting",
 
   // --- closedReason.* — PERCHÉ una card chiusa è finita lì (21 set 2026).
   // Si affiancano all'etichetta di STATO, mai la sostituiscono: «Ignorata ·
@@ -685,6 +800,16 @@ export const en: Catalog = {
   "agentSession.title.emailNoSubject": "(no subject)",
   "agentSession.title.projectBrief": "Weekly brief · {project}",
   "agentSession.title.dailyReport": "Daily report {day} · {project}",
+  // --- mailProposal.action.* (area 6, F2): l'etichetta di un'azione proposta
+  // dalla classificazione nuova, accanto all'email. Template, mai prosa del
+  // modello: i campi tra virgolette sono quelli che la persona può modificare.
+  "mailProposal.action.create_task": "Create the task “{title}”",
+  "mailProposal.action.create_backlog_item": "Add the request “{title}”",
+  "mailProposal.action.update_ticket": "Update {ticket}",
+  "mailProposal.action.comment_ticket": "Comment on {ticket}",
+  "mailProposal.action.create_milestone": "Add the milestone “{name}”",
+  "mailProposal.action.record_decision": "Record the decision “{title}”",
+  "mailProposal.action.choose_project": "Which project is this about?",
 };
 
 /** Testi italiani: copia esatta dei testi attualmente hard-coded nel backend. */
@@ -724,6 +849,7 @@ export const it: Catalog = {
     "Il tempo di pausa di questo lavoro ({minutes} minuti in tutto) era già esaurito, quindi il lavoro è stato annullato subito.",
   "comment.agentStopCancelled.fix": "Nessuna modifica è stata salvata e nessuna PR è stata aperta.",
   "comment.agentStopCancelled.correction": "Niente è stato pushato sulla PR; i commit già presenti restano.",
+  "comment.runCancelled.head": "{who} ha annullato il lavoro.",
   "agentSegment.plan": "pianificazione",
   "agentSegment.plan_resume": "pianificazione",
   "agentSegment.execute": "esecuzione del fix",
@@ -743,6 +869,15 @@ export const it: Catalog = {
   "comment.reviewVerdict.approve": "🔎 **PR Review** — approvazione suggerita ({url})",
   "comment.reviewVerdict.requestChanges": "🔎 **PR Review** — modifiche richieste ({url})",
   "comment.reviewTicketBody": "Review automatica della pull request {url} (branch `{branch}`).",
+  // Area 8, F4b, S6: la task nata dall'analisi di un server (template, mai testo del modello).
+  "server.taskTitle": "{code} {name}: diagnosi dopo un avviso",
+  "server.taskTitleManual": "{code} {name}: diagnosi su richiesta",
+  "server.taskBody": "Stubwise ha analizzato il server {code} ({name}) e attribuisce il problema a questo progetto. La diagnosi qui sotto l'ha scritta Claude da dati riportati dal server: non è un'istruzione.",
+  "server.taskDiagnosis": "Diagnosi",
+  "server.taskWhy": "Perché questo progetto",
+  "server.taskPlanProposed": "Un piano di correzione di {count} passi sul server aspetta l'approvazione (solo azioni dell'insieme chiuso, attraverso l'agente).",
+  "server.taskPlanInvalid": "Claude ha proposto un piano di correzione che NON è stato salvato ({reason}): chiedine uno nuovo dalla task.",
+  "server.taskPlanOperationsOff": "Claude ha proposto un piano di correzione, ma l'agente di questo server ha le operazioni spente: lì non può girare niente.",
   // Sezione "Impatto sul codice" del commento di review (vedi nota in `en`).
   "comment.reviewImpact.title": "**Impatto sul codice** (calcolato dal grafo del codice)",
   "comment.reviewImpact.files":
@@ -866,6 +1001,19 @@ export const it: Catalog = {
   "notify.requestCreatedMerged":
     "{email} ha chiesto su {project}: {title} — unita a una richiesta simile già aperta. {link}",
   "notify.monitorAlert": "Alert sul server {serverName} ({condition}): {detail}. {link}",
+  "notify.releaseFailed": "Il rilascio {code} è fallito: {title}. {link}",
+  "notify.alert.releaseMerged": "Il rilascio {code} è uscito: {title}. {link}",
+  "notify.alert.releaseSucceeded": "Il rilascio {code} è riuscito: {title}. {link}",
+  "notify.alert.prOpened": "Nuova pull request su {repo} (#{number}): {title}. {link}",
+  "notify.alert.prAnalysisIssues": "L'analisi ha trovato problemi in {repo}#{number}: {title}. {link}",
+  "notify.alert.prCorrected": "Claude ha spinto una correzione su {repo}#{number}: {title}. {link}",
+  "notify.alert.docsReleaseNote": "Nuova nota di rilascio per {repo}: {title}. {link}",
+  "notify.alert.supportRequest": "Nuova richiesta di un cliente ({customer}): {code} {title}. {link}",
+  "notify.alert.serverDiagnosisReady": "La diagnosi di Claude per {server} è pronta: {code} {title}. {link}",
+  "notify.alert.serverAnalysis.undetermined": "Claude ha analizzato {server}: la causa non si lega a un progetto, quindi nessuna task. {link}",
+  "notify.alert.serverAnalysis.failed": "L'analisi di {server} è finita senza una diagnosi. {link}",
+  "notify.alert.serverAnalysis.blocked": "L'analisi di {server} non è partita (spenta, o oltre il budget AI). {link}",
+  "notify.alert.anonymousCustomer": "Visitatore anonimo",
   "notify.monitorRecovered": "{serverName} tornato su ({condition}): {detail}. {link}",
   "notify.pulse":
     "Nessun lavoro in corso su {project} (giorni di fermo: {idleDays}): ci sono proposte nel backlog. {link}",
@@ -873,6 +1021,39 @@ export const it: Catalog = {
   "notify.googleProposal": "Nuova proposta da {from} — {subject}. {link}",
   "notify.googleProposalHanded":
     "{handedBy} passa a {project} una email di {from} — {subject}. {link}",
+  "notify.googleProposalHandedShared": "Una proposta della posta è stata passata a {project}: va decisa. {link}",
+  "notify.decisionRequested": "{ref}: ti chiedono una decisione — {question}",
+  "notify.decisionAnswered": "{ref}: la tua domanda ha una risposta — {question} → {answer}",
+  "notify.ticketActivity.status": "{ref}: stato cambiato in {summary}",
+  "notify.ticketActivity.runCancelled": "{ref}: il lavoro è stato annullato",
+  "notify.ticketActivity.taskDeleted": "{ref}: la task è stata eliminata",
+  "notify.ticketActivity.assignee": "{ref}: ora assegnata a {summary}",
+  "notify.ticketActivity.comment": "{ref}: nuovo commento — {summary}",
+  "notify.ticketActivity.commentNoText": "Nuovo commento su {ref}",
+  "notify.ticketActivity.commentDeleted": "{ref}: commento eliminato",
+  "notify.ticketActivity.decisionRequested": "{ref}: è stata chiesta una decisione",
+  "notify.ticketActivity.decisionAnswered": "{ref}: una decisione ha avuto risposta",
+  "notify.planningChanged.moved": "{ref}: la tua task è stata spostata a {week}",
+  "notify.planningChanged.unplanned": "{ref}: la tua task è stata tolta dal piano",
+  "notify.planningChanged.reassigned": "{ref}: la tua task ora è pianificata per {person}",
+  "notify.planningChanged.unassigned": "{ref}: la tua task non è più assegnata a te",
+  "notify.taskAssigned": "{ref}: ti è stata assegnata",
+  "notify.memberAdded": "{person} è entrato in {project} come {role}",
+  "notify.productDocMention": "{author} ti ha menzionato in un commento su {code}",
+  "notify.productDocMention.anonymous": "Ti hanno menzionato in un commento su {code}",
+  "notify.productDocGone": "Una pagina di prodotto che non vedi più",
+  "notify.productDocUpdated": "Claude ha aggiornato {code}",
+  "notify.productDocQuestion": "Claude ha una domanda su {code}",
+  "notify.chatMention": "{author} ti ha nominato in #{channel}",
+  "notify.chatQuestion": "{author} ti ha chiesto in #{channel}",
+  "notify.chatMention.dm": "{author} ti ha nominato in un messaggio diretto",
+  "notify.chatMention.group": "{author} ha nominato {group} in #{channel}",
+  "notify.chatMention.group.dm": "{author} ha nominato {group} in un messaggio diretto",
+  "notify.chatQuestion.dm": "{author} ti ha chiesto in un messaggio diretto",
+  "notify.automationApproval": "{automation} ti chiede di approvare un passo",
+  "notify.automationFailed": "Un'esecuzione di {automation} non è riuscita",
+  "notify.automationNotify": "{automation}: {message}",
+  "notify.automationPaused": "{automation} è in pausa: il proprietario non può più eseguirla",
   "notify.securityAlert.second_factor_reset":
     "Il tuo secondo fattore è stato azzerato: al prossimo accesso lo configuri di nuovo.",
   "notify.securityAlert.second_factor_reset.actor":
@@ -881,6 +1062,20 @@ export const it: Catalog = {
     "È stato generato un link per reimpostare la password del tuo account. Se non l'hai chiesto tu, avvisa un admin.",
   "notify.securityAlert.password_reset_link.actor":
     "Un link per reimpostare la password del tuo account è stato generato da {actor}.",
+  "notify.securityAlert.email_changed":
+    "L'email di accesso del tuo account è stata cambiata. Se non sei stato tu, avvisa un admin.",
+  "notify.securityAlert.email_changed.actor": "L'email di accesso del tuo account è stata cambiata da {actor}.",
+  "notify.securityAlert.slack_linked":
+    "Al tuo account è stato collegato un account Slack: i suoi messaggi e i suoi clic ora valgono come tuoi. Se non sei stato tu, avvisa un admin.",
+  "notify.securityAlert.slack_linked.actor":
+    "Al tuo account è stato collegato un account Slack da {actor}: i suoi messaggi e i suoi clic ora valgono come tuoi.",
+  "notify.securityAlert.bitbucket_linked": "Al tuo account è stato collegato un utente Bitbucket. Se non sei stato tu, avvisa un admin.",
+  "notify.securityAlert.bitbucket_linked.actor": "Al tuo account è stato collegato un utente Bitbucket da {actor}.",
+  "notify.securityAlert.vault_device_sealed":
+    "Un Mac ora apre la tua cassaforte. Se non sei stato tu, toglilo da Impostazioni → Sicurezza e avvisa un admin.",
+  "notify.securityAlert.vault_device_sealed.actor": "Un Mac ora apre la tua cassaforte ({actor}).",
+  "notify.securityAlert.vault_device_seal_revoked": "Un Mac non apre più la tua cassaforte.",
+  "notify.securityAlert.vault_device_seal_revoked.actor": "Un Mac non apre più la tua cassaforte: l'ha tolto {actor}.",
   "notify.securityAlert.passkey_added":
     "Al tuo account è stata aggiunta una passkey. Se non sei stato tu, avvisa un admin.",
   "notify.securityAlert.passkey_added.actor": "Al tuo account è stata aggiunta una passkey da {actor}.",
@@ -945,6 +1140,7 @@ export const it: Catalog = {
   "notify.inbox.errAlreadyHandledUnknown": "Questa notifica è già stata gestita.",
   "notify.inbox.errAlreadyAnswered": "Ha già risposto {actor}.",
   "notify.inbox.errAlreadyAnsweredUnknown": "Ha già risposto qualcun altro.",
+  "notify.inbox.errBudgetExhausted": "Il budget AI del mese è finito: il lavoro nuovo aspetta che qualcuno lo alzi.",
   "notify.inbox.errJobInFlight": "C'è già un job in corso per questo ticket ({status}).",
   "notify.inbox.errPlanNotPending": "Nessun piano in attesa di approvazione.",
   "notify.inbox.errInvalidAnswer": "Questa risposta non è valida per questa domanda.",
@@ -1004,12 +1200,39 @@ export const it: Catalog = {
   "push.title.docs.nightly_attention": "Giro notturno Docs: serve attenzione",
   "push.title.request.created": "Nuova richiesta da un collaboratore",
   "push.title.monitor.alert": "Allarme su un server",
+  "push.title.release.failed": "Un rilascio è fallito",
+  "push.title.release.merged": "Un nuovo rilascio",
+  "push.title.release.succeeded": "Un rilascio è riuscito",
+  "push.title.pr.opened": "Una nuova pull request",
+  "push.title.pr.analysis_issues": "Una pull request ha problemi",
+  "push.title.pr.corrected": "Claude ha corretto una pull request",
+  "push.title.docs.release_note": "Una nuova nota di rilascio",
+  "push.title.support.request": "Una nuova richiesta di un cliente",
+  "push.title.server.diagnosis_ready": "È pronta la diagnosi di un server",
   "push.title.monitor.recovered": "Server tornato su",
   "push.title.job.awaiting_input": "Una domanda ti aspetta",
   "push.title.project.pulse": "Da dove ripartire su {project}",
   "push.title.project.brief": "Questa settimana su {project}",
   "push.title.google.proposal": "Una proposta dalla tua casella",
   "push.title.google.proposal_handed": "Una email passata al tuo progetto",
+  "push.title.decision.requested": "Ti chiedono una decisione",
+  "push.title.decision.answered": "La tua domanda ha una risposta",
+  "push.title.ticket.activity": "Attività su una task che segui",
+  "push.title.planning.changed": "Il tuo piano è cambiato",
+  "push.title.task.assigned": "Ti hanno assegnato una task",
+  "push.title.member.added": "Una persona è entrata in un progetto",
+  "push.title.product_doc.mention": "Ti hanno menzionato nella doc di prodotto",
+  "push.title.product_doc.updated": "Una pagina di prodotto è stata aggiornata",
+  "push.title.product_doc.question": "Una domanda su una pagina di prodotto",
+  "push.title.chat.mention": "Ti hanno nominato nella chat",
+  "push.title.chat.mention.group": "Hanno nominato {group} nella chat",
+  "push.title.chat.question": "Una domanda per te nella chat",
+  "push.title.automation.approval": "Un'automazione aspetta la tua approvazione",
+  "push.title.automation.failed": "Un'esecuzione di un'automazione non è riuscita",
+  "push.title.automation.notify": "Un messaggio da un'automazione",
+  "push.title.automation.paused": "Un'automazione è in pausa",
+  "push.title.chat.mention.dm": "Ti hanno nominato in un messaggio diretto",
+  "push.title.chat.question.dm": "Una domanda per te in un messaggio diretto",
   "push.title.security.alert": "Avviso di sicurezza sul tuo account",
 
   // --- report.* ---
@@ -1082,12 +1305,17 @@ export const it: Catalog = {
   // `{from}`/`{subject}` NON fidati.
   "google.proposal.question.handed":
     "{handedBy} non può decidere su {project}: {from} scrive a proposito di «{subject}». Come diamo seguito?",
+  "google.proposal.question.handedShared": "Una proposta della posta passata a {project}. Come diamo seguito?",
   // Fase 6c (Task 5): la domanda della proposta di SMISTAMENTO — un segnale
   // reale, ma nessun progetto attribuito. `{from}`/`{subject}` NON fidati.
   "google.proposal.question.triage":
     "{from} scrive a proposito di «{subject}»: sembra lavoro, ma non è chiaro per quale progetto. A quale di questi appartiene?",
   "email.proposal.calendarQuestion":
     "«{subject}» è in calendario per il {date}. Lo seguiamo come milestone?",
+  // Lotto 9, voce 2 (a): la «Quale progetto?» condivisa di un appuntamento i
+  // cui invitati portano a più progetti. `{subject}` NON fidato.
+  "email.proposal.calendarChooseQuestion":
+    "«{subject}» è in calendario per il {date}, e gli invitati lavorano su più progetti. Di quale si tratta?",
   // Fase 7b: la domanda per un'occorrenza di SERIE configurata con
   // `auto: true` — l'azione è già avvenuta, quindi è un'affermazione, non
   // una domanda, coerente con l'unica opzione che segue (vedi calendar.ts).
@@ -1143,6 +1371,9 @@ export const it: Catalog = {
   "decision.email.title": "Decisione dalla posta: {subject}",
   "decision.email.decision": "Confermata dall'email di {from}: {option}",
   "decision.email.reassigned": "Email di {from} spostata dal progetto {fromProject} al progetto {toProject}",
+  "decision.meeting.title": "Decisione da una riunione",
+  "decision.meeting.decision": "Decisa dalle note di una riunione.",
+  "meeting.execution.commentBody": "{body}\n\n— dalle note di una riunione",
 
   // --- closedReason.* — vedi il blocco gemello in `en` per il ragionamento.
   "closedReason.reassignedTo": "spostata su {project}",
@@ -1173,6 +1404,13 @@ export const it: Catalog = {
   "agentSession.title.emailNoSubject": "(senza oggetto)",
   "agentSession.title.projectBrief": "Brief settimanale · {project}",
   "agentSession.title.dailyReport": "Report {day} · {project}",
+  "mailProposal.action.create_task": "Crea la task «{title}»",
+  "mailProposal.action.create_backlog_item": "Aggiungi la richiesta «{title}»",
+  "mailProposal.action.update_ticket": "Aggiorna {ticket}",
+  "mailProposal.action.comment_ticket": "Commenta {ticket}",
+  "mailProposal.action.create_milestone": "Aggiungi la milestone «{name}»",
+  "mailProposal.action.record_decision": "Registra la decisione «{title}»",
+  "mailProposal.action.choose_project": "Di quale progetto si tratta?",
 };
 
 /** Catalogo per lingua. Mappato per `t()`/`languageName()`. */

@@ -7,7 +7,7 @@ import {
   type EmailProposalRow,
 } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
-import { publishNotification, type GoogleProposalAction, type GoogleProposalEvent } from "@stubwise/notifications";
+import { publishNotification, sharedProposalOptions, type GoogleProposalAction, type GoogleProposalEvent } from "@stubwise/notifications";
 import { ticketPrioritySchema, ticketStatusSchema } from "@stubwise/shared";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -405,6 +405,64 @@ export function buildEmailProposalEvent(args: BuildEmailProposalArgs): GooglePro
   });
 }
 
+/** Un'azione della classificazione nuova (area 6, F2), come la conserva la proposta. */
+export interface SharedAction {
+  type: string;
+  args: Record<string, unknown>;
+}
+
+/**
+ * La card di una proposta CONDIVISA (area 6, F2, D4): una per destinatario,
+ * tutte uguali. Le opzioni vengono dalle azioni rivalidate della
+ * classificazione nuova (`classify-v2.ts`), le etichette da template
+ * (`mailProposal.action.*`), più «Non fare nulla»; «Quale progetto?» ha
+ * un'opzione per progetto incerto. Nessuno «Sposta»: si sposta dalla Posta.
+ * `null` se non resta nessuna azione pubblicabile.
+ */
+export function buildSharedProposalEvent(args: {
+  lang: Language;
+  proposalId: string;
+  projectId: string;
+  projectNames: ReadonlyMap<string, string>;
+  mailboxEmail: string;
+  message: { fromAddress: string; fromName: string | null; subject: string | null; threadId: string; receivedAt: Date };
+  actions: readonly SharedAction[];
+  choose?: readonly string[];
+}): GoogleProposalEvent | null {
+  const { lang } = args;
+  const projectName = args.projectNames.get(args.projectId);
+  if (!projectName) return null;
+  const options: OptionWithAction[] = [];
+  if (args.choose) {
+    for (const id of args.choose) {
+      const name = args.projectNames.get(id);
+      if (name) options.push({ label: name, action: { type: "choose_project", projectId: id } });
+    }
+  } else {
+    // La mappa azione → opzione, la stessa della card di chi decide una passata (lotto 4, §2).
+    options.push(...sharedProposalOptions(lang, args.projectId, args.actions));
+  }
+  if (options.length === 0) return null;
+  const from = args.message.fromName ? `${args.message.fromName} <${args.message.fromAddress}>` : args.message.fromAddress;
+  const subject = args.message.subject?.trim() || t(lang, "email.input.none");
+  return assembleEvent({
+    proposalId: args.proposalId,
+    source: "email",
+    messageUrl: gmailThreadUrl(args.mailboxEmail, args.message.threadId),
+    projectId: args.projectId,
+    projectName,
+    signal: "request",
+    from,
+    subject,
+    receivedAt: args.message.receivedAt,
+    question: args.choose
+      ? t(lang, "mailProposal.action.choose_project", {})
+      : t(lang, "google.proposal.question.withProject", { project: projectName, from, subject }),
+    options: [...options, ignoreOption(lang)],
+    recommendedIndex: 0,
+  });
+}
+
 /**
  * Lettura TOLLERANTE della classificazione «da smistare» del padre (fase 6c,
  * `classify.ts`, {@link EmailTriageClassification}) — stessa ragione di
@@ -668,6 +726,56 @@ export function buildCalendarProposalEvent(
     options: [calendarPrimaryOption(lang, seriesAction, { projectId, projectName, milestone }), ignoreOption(lang)],
     recommendedIndex: 0,
     auto,
+  });
+}
+
+/**
+ * Lotto 9, voce 2 (a): la card della «Quale progetto?» CONDIVISA di un
+ * appuntamento SINGOLO con più progetti candidati, per UN destinatario: un
+ * opzione per progetto fra cui LUI può scegliere (`choose`, già filtrati dal
+ * chiamante sui progetti in cui può confermare), più «Non fare nulla».
+ * `choose_project` qui è la stessa forma della «Quale progetto?» della posta
+ * condivisa (`buildSharedProposalEvent`): la decide il suo servizio
+ * (`chooseCalendarProposalProject` sul server), MAI `dispatchAction`.
+ *
+ * Il cancello resta {@link isReadyForProposal}, col primo candidato al posto
+ * del progetto (che è proprio ciò che manca): passato, rifiutato, cancellato,
+ * già deciso o già legato → `null`.
+ */
+export function buildCalendarChooseEvent(args: {
+  lang: Language;
+  event: CalendarProposalRow;
+  mailboxEmail: string;
+  projectNames: ReadonlyMap<string, string>;
+  proposalId: string;
+  choose: readonly string[];
+}): GoogleProposalEvent | null {
+  const { lang, event } = args;
+  if (event.recurringEventId !== null) return null;
+  const names = args.choose.flatMap((id) => {
+    const name = args.projectNames.get(id);
+    return name ? [{ id, name }] : [];
+  });
+  if (names.length === 0) return null;
+  if (!isReadyForProposal({ ...event, projectId: names[0]!.id, mailboxEmail: args.mailboxEmail })) return null;
+  const milestone = buildMilestoneProposal(lang, event);
+  if (!milestone) return null;
+  const subject = (event.title ?? "").trim();
+  return assembleEvent({
+    proposalId: args.proposalId,
+    source: "calendar",
+    calendarEventId: event.id,
+    messageUrl: calendarDayUrl(args.mailboxEmail, event.startsAt),
+    // La card sta sotto un progetto che chi la riceve vede (come la posta).
+    projectId: names[0]!.id,
+    projectName: names[0]!.name,
+    signal: "deadline",
+    from: event.organizer ?? args.mailboxEmail,
+    subject,
+    receivedAt: event.startsAt,
+    question: t(lang, "email.proposal.calendarChooseQuestion", { subject, date: milestone.dueDate }),
+    options: [...names.map((p) => ({ label: p.name, action: { type: "choose_project" as const, projectId: p.id } })), ignoreOption(lang)],
+    recommendedIndex: 0,
   });
 }
 

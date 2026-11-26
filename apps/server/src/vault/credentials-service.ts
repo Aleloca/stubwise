@@ -215,6 +215,8 @@ async function selectItems(
       access,
       canEdit: permissions.has("credentials.edit") || row.createdByUserId === user.id,
       canShare: permissions.has("credentials.share") && access === "read",
+      // La stessa regola della rotta del registro: una sola funzione.
+      canSeeLog: managesCredentials(permissions),
     };
   });
 }
@@ -412,6 +414,8 @@ export async function revealCredential(
   user: Pick<SessionUser, "id" | "email">,
   id: string,
   action: "show" | "copy",
+  /** Da dove (D-8): il browser, o il Mac e il suo sigillo. */
+  caller: { via: "session" } | { via: "desktop"; sealId: string },
 ): Promise<CredentialRevealResponse | null> {
   return db.transaction(async (tx) => {
     const [credential] = await tx
@@ -453,6 +457,8 @@ export async function revealCredential(
       userId: user.id,
       userEmail: user.email,
       action,
+      via: caller.via === "desktop" ? "desktop" : "browser",
+      deviceSealId: caller.via === "desktop" ? caller.sealId : null,
     });
     return { passwordCiphertext: credential.passwordCiphertext, wrappedKey: copy.wrappedKey, personKeyId: key.id };
   });
@@ -463,6 +469,8 @@ export async function listAccessLog(
   db: Db,
   projectId: string,
   limit: number,
+  /** Solo le righe di UNA credenziale (25 nov 2026, il dettaglio del desktop). */
+  credentialId?: string,
 ): Promise<CredentialAccessLogEntry[]> {
   const rows = await db
     .select({
@@ -472,10 +480,16 @@ export async function listAccessLog(
       userId: credentialAccessLog.userId,
       userEmail: credentialAccessLog.userEmail,
       action: credentialAccessLog.action,
+      via: credentialAccessLog.via,
       createdAt: credentialAccessLog.createdAt,
     })
     .from(credentialAccessLog)
-    .where(eq(credentialAccessLog.projectId, projectId))
+    .where(
+      and(
+        eq(credentialAccessLog.projectId, projectId),
+        credentialId !== undefined ? eq(credentialAccessLog.credentialId, credentialId) : undefined,
+      ),
+    )
     .orderBy(desc(credentialAccessLog.createdAt), desc(credentialAccessLog.id))
     .limit(limit);
   return rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() }));

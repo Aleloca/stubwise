@@ -4,6 +4,7 @@ import {
   docGenerations,
   docNodes,
   gitAccounts,
+  isAttachedRepository,
   repositories,
   type Db,
 } from "@stubwise/db";
@@ -36,6 +37,7 @@ import { openGenerationWorktree, type GenerationWorktree } from "../generation-w
 import { completeDocJob, failDocJob, holdDocJob, touchDocJob, type DocJob } from "../queue.js";
 import { createWorktreeReader } from "../reader.js";
 import type { GenerationWorktreeRegistry } from "./registry.js";
+import { NATIVE_TOOLS, nativeToolsWith, type NativeTool } from "../../agent/native-tools.js";
 
 /**
  * ORIENTAMENTO — primo handler del motore documentazione ricorsivo (M5.2).
@@ -172,14 +174,16 @@ async function loadGenerationContext(
     .from(repositories)
     .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
     .where(eq(repositories.id, job.repositoryId));
-  if (!row) {
+  // Un repository staccato (F6) non ha Docs: come uno che non c'è.
+  if (!row || !isAttachedRepository(row.project)) {
     await failDocJob(db, job.id, {
-      log: `[docs] repository ${job.repositoryId} o account git collegato non trovato`,
+      log: `[docs] repository ${job.repositoryId}, il suo progetto o l'account git collegato non trovato`,
       error: "repository del job non trovato",
     });
     return null;
   }
-  const { project, account } = row;
+  const { account } = row;
+  const project = row.project;
 
   let credentials: z.infer<typeof credentialsSchema>;
   try {
@@ -339,8 +343,16 @@ async function loadGraphContext(
 }
 
 /** Opzione `allowedTools` dei run: i pattern read-only del CLI solo col grafo. */
-function graphAllowedTools(graph: DocsGraphContext | null): { allowedTools?: string[] } {
-  return graph !== null ? { allowedTools: GRAPHIFY_AGENT_ALLOWED_TOOLS } : {};
+function graphAllowedTools(graph: DocsGraphContext | null): {
+  allowedTools?: string[];
+  builtinTools: NativeTool[];
+} {
+  // Sola lettura (`native-tools.ts`); Bash solo coi comandi del grafo.
+  const allowedTools = graph !== null ? GRAPHIFY_AGENT_ALLOWED_TOOLS : undefined;
+  return {
+    ...(allowedTools !== undefined ? { allowedTools } : {}),
+    builtinTools: nativeToolsWith(NATIVE_TOOLS.readOnly, allowedTools),
+  };
 }
 
 /**

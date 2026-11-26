@@ -54,6 +54,8 @@ export interface IngestClientOptions {
   serverKey: string;
   hostname: string;
   agentVersion: string;
+  /** Area 8, F4b: declare the operations option in every ingest. */
+  operations?: boolean;
   /** Override for tests; defaults to the global (undici) fetch. */
   fetchImpl?: typeof fetch;
   /** Per-request timeout in ms (default 10s). */
@@ -78,6 +80,7 @@ export class IngestClient implements IngestTransport {
   private readonly serverKey: string;
   private readonly hostname: string;
   private readonly agentVersion: string;
+  private readonly operations: boolean;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
   private readonly log: Logger;
@@ -87,6 +90,7 @@ export class IngestClient implements IngestTransport {
     this.serverKey = options.serverKey;
     this.hostname = options.hostname;
     this.agentVersion = options.agentVersion;
+    this.operations = options.operations === true;
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.log = options.log ?? consoleLogger;
@@ -181,6 +185,7 @@ export class IngestClient implements IngestTransport {
           agentVersion: this.agentVersion,
           samples,
           checkResults,
+          capabilities: { operations: this.operations },
         }),
         signal: AbortSignal.timeout(this.timeoutMs),
       });

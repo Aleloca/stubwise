@@ -75,6 +75,9 @@ describe("endpoints calendar — l'intervallo della griglia", () => {
 
     await c.calendar.range({ from: "2026-08-31T00:00:00.000Z", to: "2026-10-05T00:00:00.000Z", account: ID });
     expect(fetchImpl.mock.calls.at(-1)![0]).toContain(`account=${ID}`);
+    // F3b: la lista leggera, su richiesta.
+    await c.calendar.range({ from: "2026-08-31T00:00:00.000Z", to: "2026-10-05T00:00:00.000Z", fields: "summary" });
+    expect(fetchImpl.mock.calls.at(-1)![0]).toContain("fields=summary");
   });
 
   it("range: 400 invalid_range — 'to' non è dopo 'from'", async () => {
@@ -203,5 +206,13 @@ describe("endpoints calendar — le serie", () => {
     const [url, init] = fetchImpl.mock.calls.at(-1)!;
     expect(url).toBe(`/api/me/calendar/series/${SERIES}?account=${ID}`);
     expect(init!.method).toBe("DELETE");
+  });
+
+  it("event(id) (area 6, F1.4): la riga di range per id; un 404 è un ApiError not_found", async () => {
+    const ok = clientReturning(200, EVENT);
+    expect(await ok.c.calendar.event(ID)).toMatchObject({ id: ID, title: "Riunione settimanale" });
+    expect(ok.fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/me/calendar/events/${ID}`);
+    const missing = clientReturning(404, { code: "not_found", message: "x" });
+    await expect(missing.c.calendar.event(ID)).rejects.toMatchObject({ status: 404, code: "not_found" });
   });
 });

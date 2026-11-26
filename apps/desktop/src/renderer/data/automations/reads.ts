@@ -1,9 +1,10 @@
-import { visitSteps } from "../../domain/automations/fields";
-import { projectOf } from "../../domain/automations/preview";
-import { validateFlow, type FlowIssue } from "../../domain/automations/validate";
+import { automationAvailability } from "../integration";
+import { AUTOMATION_RUN_DETAILS_DAYS, visitSteps } from "@stubwise/shared";
+import { projectOf } from "@stubwise/shared";
+import { validateFlow, type FlowIssue } from "@stubwise/shared";
 import { fold } from "../../domain/textSearch";
 import { automationHref, runHref } from "../routes";
-import { copy, gate, state, visibleProjectIds } from "../store";
+import { copy, gate, now, state, visibleProjectIds } from "../store";
 import { notFound } from "../writer";
 import type {
   Automation,
@@ -23,6 +24,7 @@ import { pendingEffectOf } from "./pendingEffect";
 // Usata solo dentro le funzioni: l'import circolare con `writes.ts` è innocuo.
 import { checkNewAutomation } from "./writes";
 import { viewRun } from "./runView";
+import { personMasker } from "../access/hidden";
 import { isOpen, publishedVersion, sweepApprovals } from "./runner";
 import {
   approversFor,
@@ -36,6 +38,7 @@ import {
   decidersOf,
   departmentRecipients,
   flowFor,
+  keepHiddenPeople,
   keepHiddenProjects,
   runById,
   runCode,
@@ -87,6 +90,8 @@ export function configErrorsOf(a: Automation, flow: AutomationFlow, ownerId: str
     // «Avvisa» un reparto (area 10b): almeno un membro vede il progetto del passo.
     departmentSees: (departmentId, projectId) =>
       departmentRecipients(departmentId, projectId).length > 0,
+    // Nella build app solo la fetta 1 (area 7): il resto è `not_available`.
+    available: automationAvailability(),
   });
   for (const { path, automationId } of startsOf(flow)) {
     if (!automationId) continue;
@@ -158,7 +163,9 @@ const WAITING: ReadonlySet<RunStatus> = new Set([
   "waiting_project",
 ]);
 
-export function automationRow(me: string, a: Automation): AutomationRow {
+type PersonMask = ReturnType<typeof personMasker>;
+
+export function automationRow(me: string, a: Automation, mask: PersonMask = personMasker(me)): AutomationRow {
   const live = publishedVersion(a);
   const runs = state.automationRuns.filter((r) => r.automationId === a.id);
   const last = runs.reduce<string | null>(
@@ -167,8 +174,12 @@ export function automationRow(me: string, a: Automation): AutomationRow {
   );
   return {
     ...copy(a),
+    // R.1414 (lotto 3): chi non si conosce, segnaposto.
+    ownerId: a.ownerId === null ? null : mask(a.ownerId),
+    createdById: mask(a.createdById),
+    pausedById: a.pausedById === null ? null : mask(a.pausedById),
     // R-G5: un progetto fisso che non vedo non ha id nemmeno nel flusso.
-    versions: a.versions.map((v) => ({ ...copy(v), flow: flowFor(me, v.flow) })),
+    versions: a.versions.map((v) => ({ ...copy(v), flow: flowFor(me, v.flow, mask) })),
     permissions: { manage: canManageAutomation(me, a) },
     openRuns: runs.filter(isOpen).length,
     waitingRuns: runs.filter((r) => WAITING.has(r.status)).length,
@@ -179,17 +190,30 @@ export function automationRow(me: string, a: Automation): AutomationRow {
   };
 }
 
-export function runRow(me: string, source: AutomationRun): AutomationRunRow {
-  const run = viewRun(me, source);
+export function runRow(me: string, source: AutomationRun, mask: PersonMask = personMasker(me)): AutomationRunRow {
+  const run = viewRun(me, source, mask);
   const a = automationById(run.automationId)!;
-  return {
+  const row = {
     ...run,
     code: runCode(run),
     automationCode: a.code,
     automationName: a.name,
     automationProjectId: a.projectId,
   };
+  return pruned(run) ? { ...row, ...pruning(), title: a.name, detailsPruned: true } : row;
 }
+
+/**
+ * Lotto 8, voce 3: un'esecuzione finita da più di
+ * {@link AUTOMATION_RUN_DETAILS_DAYS} giorni si legge compattata. Il server
+ * la compatta davvero; il prototipo applica la stessa regola alla lettura.
+ */
+const pruned = (run: AutomationRun) =>
+  run.endedAt !== null &&
+  Date.parse(now()) - Date.parse(run.endedAt) > AUTOMATION_RUN_DETAILS_DAYS * 86_400_000;
+
+/** Ciò che una compattata non ha più (come il server, 72, 0e0f96490): registro, evento, variabili, passo, attesa, errore. */
+const pruning = () => ({ log: [], event: {}, vars: {}, cursor: null, pending: null, error: null });
 
 /** In corso in alto (aperte), poi dalla più recente. */
 const byRecency = (x: AutomationRun, y: AutomationRun) =>
@@ -202,13 +226,14 @@ export async function listAutomations(
 ): Promise<AutomationRow[]> {
   const me = await gate("automations.listAutomations");
   sweepApprovals();
+  const mask = personMasker(me);
   return state.automations
     .filter((a) => canSeeAutomation(me, a))
     .filter((a) => filter.projectId === undefined || a.projectId === filter.projectId)
     .filter((a) => filter.status === undefined || a.status === filter.status)
     .filter((a) => filter.ownerId === undefined || a.ownerId === filter.ownerId)
     .sort((x, y) => x.name.localeCompare(y.name) || x.code.localeCompare(y.code))
-    .map((a) => automationRow(me, a));
+    .map((a) => automationRow(me, a, mask));
 }
 
 /** Un'automazione con versioni, errori di configurazione ed esecuzioni; `null` se non la vedo. */
@@ -219,15 +244,16 @@ export async function getAutomation(id: string): Promise<AutomationDetail | null
   if (!a || !canSeeAutomation(me, a)) return null;
   const owner = a.ownerId ?? me;
   const live = publishedVersion(a);
+  const mask = personMasker(me);
   return {
-    automation: automationRow(me, a),
+    automation: automationRow(me, a, mask),
     configErrors: configErrorsOf(a, latest(a).flow, owner),
     liveErrors: live ? configErrorsOf(a, live.flow, owner) : [],
     runs: state.automationRuns
       .filter((r) => r.automationId === a.id)
       .sort(byRecency)
       .slice(0, 20)
-      .map((r) => runRow(me, r)),
+      .map((r) => runRow(me, r, mask)),
   };
 }
 
@@ -243,7 +269,10 @@ export async function checkDraft(id: string, flow: AutomationFlow): Promise<Flow
   // Come al salvataggio: i progetti fissi che non vedo restano quelli della versione (R-G5).
   const next = copy(flow);
   keepHiddenProjects(me, latest(a).flow, next);
-  return configErrorsOf(a, next, a.ownerId ?? me);
+  keepHiddenPeople(me, latest(a).flow, next);
+  // Il proprietario che avrebbe: chi prova, perché pubblicando lo diventa
+  // (la regola del server, review F1 I3; decisione di 46), non `a.ownerId`.
+  return configErrorsOf(a, next, me);
 }
 
 /**
@@ -356,6 +385,15 @@ export async function listRuns(
     .map((r) => runRow(me, r));
 }
 
+/** L'id di un'esecuzione per codice e numero (`#/automations/<CODE>/runs/<n>`); `null` se non la vedo. */
+export async function findRun(automationCode: string, n: number): Promise<string | null> {
+  const me = await gate("automations.findRun");
+  const run = state.automationRuns.find(
+    (r) => r.n === n && automationById(r.automationId)?.code === automationCode,
+  );
+  return run && canSeeRun(me, run) ? run.id : null;
+}
+
 /** Un'esecuzione col suo registro e i permessi; `null` se non la vedo (R-G5). */
 export async function getRun(id: string): Promise<AutomationRunDetail | null> {
   const me = await gate("automations.getRun");
@@ -365,17 +403,21 @@ export async function getRun(id: string): Promise<AutomationRunDetail | null> {
   const a = automationById(run.automationId)!;
   const deciders = decidersOf(run);
   const parent = run.parentRunId ? runById(run.parentRunId) : undefined;
-  const row = runRow(me, run);
+  // R.1414 (lotto 3): un masker per la riga, chi decide e il titolare.
+  const mask = personMasker(me);
+  const row = runRow(me, run, mask);
   return {
     ...row,
     pendingEffect: pendingEffectOf(me, run, row),
-    flow: flowFor(me, a.versions.find((v) => v.n === run.version)!.flow),
-    deciders,
-    ownerId: a.ownerId,
+    flow: flowFor(me, a.versions.find((v) => v.n === run.version)!.flow, mask),
+    deciders: deciders.map(mask),
+    ownerId: a.ownerId === null ? null : mask(a.ownerId),
     permissions: {
       manage: canManageRun(me, run),
       approve: run.status === "waiting_approval" && deciders.includes(me),
       chooseProject: run.status === "waiting_project" && deciders.includes(me),
+      // «Remember for <client>» scrive la tabella: chi gestisce le integrazioni (come il server).
+      rememberClient: canManageIntegrations(me),
     },
     parent: parent && canSeeRun(me, parent) ? { id: parent.id, code: runCode(parent) } : null,
     children: state.automationRuns
@@ -418,6 +460,7 @@ export async function listMyApprovals(): Promise<AutomationDecision[]> {
         automationVisible: canSeeAutomation(me, a),
         clientName:
           typeof client === "string" ? client : typeof cliente === "string" ? cliente : "",
+        rememberClient: canManageIntegrations(me),
         effect: pendingEffectOf(me, source, run),
       };
     });

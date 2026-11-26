@@ -4,13 +4,12 @@ import {
   aiJobs,
   projectBriefs,
   projectDecisions,
-  projects,
   ticketEvents,
   tickets,
   users,
   type Db,
 } from "@stubwise/db";
-import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { afterEach, afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   BRIEF_INPUT_MAX_CHARS,
@@ -34,7 +33,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterEach(async () => {
-  await db.delete(projects);
+  await deleteAllProjects(db);
   await db.delete(users);
 });
 

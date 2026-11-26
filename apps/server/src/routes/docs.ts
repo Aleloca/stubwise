@@ -1,15 +1,19 @@
 import {
-  aiProviderKindSchema,
-  docGenerationStatusSchema,
   docPageLinkSchema,
   docPageSchema,
   type DocPageStaleCommit,
   docSpaceSchema,
   docTreeNodeSchema,
-  docGenerationTriggerSchema,
-  docJobStatusSchema,
   docPageKindSchema,
   docBriefResponseSchema,
+  docCodeResolutionSchema,
+  createManualDocPageSchema,
+  docGenerationJobSchema,
+  docGenerationViewSchema,
+  docStatusResponseSchema,
+  type DocGenerationReasonCode,
+  docPinnedProviderSchema,
+  updateManualDocPageSchema,
   productExclusionSchema,
   projectBriefSchema,
   repoHighlightsSchema,
@@ -20,19 +24,24 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { ProjectPermission } from "@stubwise/shared";
-import { projectIdsWithPermission, type RouteAccess } from "../auth/access.js";
+import { projectIdsWithPermission, type RouteAccess, isAllProjects, inProjectsStrict } from "../auth/access.js";
 import { repositoryAccess } from "../auth/project-resolvers.js";
 import {
   aiProviders,
+  docNodes,
   commitSummaries,
   docGenerationJobs,
   docGenerations,
   docPagePendingCommits,
   docPages,
+  projects,
   repositories,
 } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import { apiError } from "../errors.js";
+import { BACKGROUND_THRESHOLD_PAUSE_REASON, DOCS_WORKER_RESTART_ERROR, docsPauseReasonOf } from "@stubwise/notifications";
+import { resolveDocCode, withDocCodesIn } from "../services/doc-codes.js";
+import { embedManualPage } from "../services/doc-embed.js";
 import { buildDocsExportZip, safeFilenamePart } from "./docs-export-zip.js";
 import { emptyCountsByKind, HIGHLIGHT_LIMITS } from "./docs-highlights.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
@@ -46,16 +55,7 @@ function onRepository(permission: ProjectPermission): RouteAccess {
 const slugParamsSchema = z.object({ repositoryId: z.uuid(), slug: z.string().min(1) });
 const manualIdParamsSchema = z.object({ repositoryId: z.uuid(), id: z.uuid() });
 
-/** Job di generazione restituito dalle route di trigger/stato. */
-const jobSchema = z.object({
-  id: z.uuid(),
-  status: docJobStatusSchema,
-  trigger: docGenerationTriggerSchema,
-  error: z.string().nullable(),
-  createdAt: z.string(),
-  startedAt: z.string().nullable(),
-  finishedAt: z.string().nullable(),
-});
+const jobSchema = docGenerationJobSchema;
 
 type DocGenerationJobRow = typeof docGenerationJobs.$inferSelect;
 
@@ -71,29 +71,7 @@ function toJob(row: DocGenerationJobRow): z.infer<typeof jobSchema> {
   };
 }
 
-/**
- * Provider bloccato esposto dallo stato: l'identità minima per mostrarlo in UI.
- * `kind` riusa l'enum dei provider (account|api_key). null = nessun pin (o il
- * provider è stato eliminato nel frattempo).
- */
-const pinnedProviderSchema = z.object({
-  id: z.uuid(),
-  label: z.string(),
-  kind: aiProviderKindSchema,
-});
-
-/** Generazione corrente (puntata da projects.currentDocGenerationId). */
-const generationSchema = z.object({
-  id: z.uuid(),
-  status: docGenerationStatusSchema,
-  commitSha: z.string().nullable(),
-  model: z.string().nullable(),
-  cost: z.string().nullable(),
-  stats: z.unknown().nullable(),
-  startedAt: z.string().nullable(),
-  finishedAt: z.string().nullable(),
-  createdAt: z.string(),
-});
+const generationSchema = docGenerationViewSchema;
 
 type DocGenerationRow = typeof docGenerations.$inferSelect;
 
@@ -156,7 +134,73 @@ function toPage(
     viewCount: row.viewCount,
     significant: row.significant,
     staleSince,
+    // Il codice lo aggiungono le rotte (`withDocCodesIn`), in una query.
+    code: null,
   };
+}
+
+/**
+ * Il motivo di una generazione ferma, come codice (area 5, fetta 1): una pausa
+ * (limite degli account o soglia di sfondo) è `usage_limit`; un job fermo dice
+ * il suo `held_reason`; un job fallito per il fail-on-restart è
+ * `worker_restart`, ogni altro fallimento `other`. Null se niente è fermo.
+ */
+function docGenerationReasonCode(
+  paused: { pauseReason: string | null } | null,
+  job: { status: string; heldReason: string | null; error: string | null } | null,
+): DocGenerationReasonCode | null {
+  // Una pausa è sempre per il limite o per la soglia (`docsPauseReasonOf` legge
+  // anche le frasi storiche): per chi guarda, in entrambi i casi è la quota.
+  if (paused) return "usage_limit";
+  if (job?.status === "held") return job.heldReason === "limit" ? "usage_limit" : job.heldReason === "budget" ? "monthly_budget" : "other";
+  if (job?.status === "failed") return job.error === DOCS_WORKER_RESTART_ERROR ? "worker_restart" : "other";
+  return null;
+}
+
+/**
+ * Quando rientra il lavoro fermo al LIMITE degli account: il rientro più vicino
+ * (`limited_until` nel futuro) fra gli account che quel lavoro può usare,
+ * scelti come li sceglie il worker (`selectProviders`,
+ * `docs/invariants/providers.md`): il pin della generazione, o il provider del
+ * progetto con «solo questo», è l'unico; altrimenti il preferito più gli altri
+ * abilitati, e la chiave API solo se non c'è nessun abbonamento. Null se il
+ * server non lo sa.
+ */
+async function accountsBackAt(db: Db, scope: { projectId: string; pinnedProviderId: string | null }): Promise<string | null> {
+  const rows = await db
+    .select({ id: aiProviders.id, kind: aiProviders.kind, limitedUntil: aiProviders.limitedUntil })
+    .from(aiProviders)
+    .where(eq(aiProviders.enabled, true));
+  const [project] = scope.pinnedProviderId
+    ? [{ id: scope.pinnedProviderId as string | null, exclusive: true }]
+    : await db.select({ id: projects.aiProviderId, exclusive: projects.aiProviderExclusive }).from(projects).where(eq(projects.id, scope.projectId));
+  const exclusive = project?.exclusive === true && project.id != null;
+  const hasAccount = rows.some((r) => r.kind === "account");
+  const candidates = exclusive
+    ? rows.filter((r) => r.id === project!.id)
+    : rows.filter((r) => r.id === project?.id || r.kind === "account" || !hasAccount);
+  const now = Date.now();
+  const back = candidates
+    .map((r) => r.limitedUntil?.getTime() ?? null)
+    .filter((at): at is number => at !== null && at > now)
+    .sort((a, b) => a - b)[0];
+  return back !== undefined ? new Date(back).toISOString() : null;
+}
+
+/** Nodi fatti su totali della generazione più recente in corso o in pausa; null se non ce n'è una o non ha nodi. */
+async function generationProgress(db: Db, repositoryId: string): Promise<{ done: number; total: number } | null> {
+  const [active] = await db
+    .select({ id: docGenerations.id })
+    .from(docGenerations)
+    .where(and(eq(docGenerations.repositoryId, repositoryId), inArray(docGenerations.status, ["running", "paused"])))
+    .orderBy(desc(docGenerations.createdAt))
+    .limit(1);
+  if (!active) return null;
+  const [row] = await db
+    .select({ done: sql<number>`count(*) filter (where ${docNodes.status} = 'done')::int`, total: sql<number>`count(*)::int` })
+    .from(docNodes)
+    .where(eq(docNodes.generationId, active.id));
+  return row && row.total > 0 ? { done: row.done, total: row.total } : null;
 }
 
 /** Quanti commit al massimo porta l'avviso «il codice è cambiato dopo questa pagina». */
@@ -239,21 +283,8 @@ async function loadStaleSince(
   }));
 }
 
-const createManualSchema = z.object({
-  title: z.string().min(1).max(300),
-  // Slug opzionale: assente = derivato dal titolo. Unico per progetto (409).
-  slug: z.string().min(1).max(300).optional(),
-  parentId: z.uuid().nullable().optional(),
-  position: z.int().min(0).optional(),
-  body: z.string().default(""),
-});
-
-const updateManualSchema = z.object({
-  title: z.string().min(1).max(300).optional(),
-  parentId: z.uuid().nullable().optional(),
-  position: z.int().min(0).optional(),
-  body: z.string().optional(),
-});
+const createManualSchema = createManualDocPageSchema;
+const updateManualSchema = updateManualDocPageSchema;
 
 /**
  * Slug URL-safe dal titolo: minuscole, accenti rimossi, resto in trattini.
@@ -435,11 +466,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       schema: {
         params: repositoryIdParamsSchema,
         response: {
-          200: z.object({
-            generation: generationSchema.nullable(),
-            latestJob: jobSchema.nullable(),
-            pinnedProvider: pinnedProviderSchema.nullable(),
-          }),
+          200: docStatusResponseSchema,
           404: errorSchema,
           ...authErrorResponses,
         },
@@ -449,10 +476,11 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       const { repositoryId } = request.params;
 
       const [repository] = await app.db
-        .select({ id: repositories.id, currentDocGenerationId: repositories.currentDocGenerationId })
+        .select({ id: repositories.id, projectId: repositories.projectId, currentDocGenerationId: repositories.currentDocGenerationId })
         .from(repositories)
         .where(eq(repositories.id, repositoryId));
-      if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
+      // Un repository staccato (F6) non ha Docs: 404 come uno che non c'è.
+      if (!repository?.projectId) return apiError(reply, 404, "repository_not_found", "Repository not found");
 
       let generation: z.infer<typeof generationSchema> | null = null;
       // Pin esposto dalla generazione corrente (doc_generations.pinned_provider_id),
@@ -497,7 +525,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
 
       // Risolvi il provider bloccato: se l'id non esiste più (provider eliminato)
       // o non c'è alcun pin, esponi null.
-      let pinnedProvider: z.infer<typeof pinnedProviderSchema> | null = null;
+      let pinnedProvider: z.infer<typeof docPinnedProviderSchema> | null = null;
       if (pinnedProviderId) {
         const [provider] = await app.db
           .select({ id: aiProviders.id, label: aiProviders.label, kind: aiProviders.kind })
@@ -506,7 +534,21 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         pinnedProvider = provider ?? null;
       }
 
-      return { generation, latestJob: job ? toJob(job) : null, pinnedProvider };
+      // Area 5, fetta 1: perché è ferma, quando riprende, quanto è avanti. Solo
+      // ciò che il server SA: niente stime.
+      const reasonCode = docGenerationReasonCode(pausedGen ?? null, job ?? null);
+      // La SOGLIA settimanale dello sfondo non è il `limited_until` degli
+      // account: riprende al reset settimanale o, dopo
+      // `DOCS_BACKGROUND_PAUSE_MAX_HOURS` (env del WORKER, che il server non
+      // sa), come lavoro interattivo. Il server non sa quale delle due viene
+      // prima: null, invece di un'ora che può sbagliare di giorni.
+      const thresholdPause = pausedGen ? docsPauseReasonOf(pausedGen.pauseReason) === BACKGROUND_THRESHOLD_PAUSE_REASON : false;
+      const resumesAt =
+        reasonCode === "usage_limit" && !thresholdPause
+          ? await accountsBackAt(app.db, { projectId: repository.projectId, pinnedProviderId: pausedGen?.pinnedProviderId ?? null })
+          : null;
+      const progress = await generationProgress(app.db, repositoryId);
+      return { generation, latestJob: job ? toJob(job) : null, pinnedProvider, reasonCode, resumesAt, progress };
     },
   );
 
@@ -624,6 +666,28 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
   // --- M6.2: hub spazi + albero + pagina ---------------------------------
 
   /**
+   * Dove sta la pagina di un codice `<PRJ>-D<n>` (area 5, fetta 1): per i link
+   * delle citazioni e dei codici scritti a mano. Solo con `docs.view` nel
+   * progetto del codice; un progetto che non si legge e un codice che non c'è
+   * danno lo stesso 404 (R-G5).
+   */
+  app.get(
+    "/docs/codes/:code",
+    {
+      config: { access: { kind: "user" } },
+      schema: {
+        params: z.object({ code: z.string().min(1).max(40) }),
+        response: { 200: docCodeResolutionSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const found = await resolveDocCode(app.db, request.user!, request.params.code);
+      if (!found) return apiError(reply, 404, "not_found", "Not found");
+      return found;
+    },
+  );
+
+  /**
    * Hub degli spazi: i progetti che hanno documentazione, cioè almeno una
    * pagina (autogenerata o manuale). Per ognuno: conteggio pagine e data/commit
    * dell'ultima generazione (terminata con successo).
@@ -638,7 +702,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       // Solo i repository dei progetti in cui chi chiede ha `docs.view`: l'hub
       // è d'istanza, ma i suoi spazi sono dati di progetto.
       const readable = await projectIdsWithPermission(app.db, request.user!, "docs.view");
-      if (readable !== "all" && readable.length === 0) return [];
+      if (!isAllProjects(readable) && readable.length === 0) return [];
       // L'hub elenca TUTTI i repository visibili, ognuno come "spazio" doc: è anche
       // l'entry point per generare la prima volta. Left join su doc_pages, quindi
       // un repository senza documentazione compare con pageCount 0 e
@@ -650,6 +714,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       const rows = await app.db
         .select({
           repositoryId: repositories.id,
+          projectId: repositories.projectId,
           slug: repositories.slug,
           name: repositories.name,
           pageCount: sql<number>`count(${docPages.id})::int`,
@@ -674,7 +739,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
             eq(docGenerations.status, "succeeded"),
           ),
         )
-        .where(readable === "all" ? undefined : inArray(repositories.projectId, readable))
+        .where(inProjectsStrict(repositories.projectId, readable))
         .groupBy(
           repositories.id,
           repositories.slug,
@@ -686,6 +751,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
 
       return rows.map((r) => ({
         repositoryId: r.repositoryId,
+        projectId: r.projectId,
         slug: r.slug,
         name: r.name,
         pageCount: r.pageCount,
@@ -745,7 +811,11 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         .where(and(eq(docPages.repositoryId, repositoryId), genFilter))
         .orderBy(asc(docPages.kind), asc(docPages.position), asc(docPages.title));
 
-      return rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() }));
+      return withDocCodesIn(
+        app.db,
+        repositoryId,
+        rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() })),
+      );
     },
   );
 
@@ -829,8 +899,8 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
 
       return {
         countsByKind,
-        topViewed,
-        recentlyUpdated,
+        topViewed: await withDocCodesIn(app.db, repositoryId, topViewed),
+        recentlyUpdated: await withDocCodesIn(app.db, repositoryId, recentlyUpdated),
         latestReleases: releases.map((r) => ({
           ...r,
           createdAt: r.createdAt.toISOString(),
@@ -974,7 +1044,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         ? commitWebUrl(repository.provider, repository.repoUrl, commitSha)
         : null;
       const staleSince = await loadStaleSince(app.db, page, currentGen);
-      return toPage(page, commitSha, commitUrl, staleSince);
+      return (await withDocCodesIn(app.db, repositoryId, [toPage(page, commitSha, commitUrl, staleSince)]))[0]!;
     },
   );
 
@@ -1064,7 +1134,9 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
           })
           .returning();
         if (!created) throw new Error("insert della pagina manuale non ha restituito la riga");
-        return reply.code(201).send(toPage(created));
+        // Gli embedding della pagina manuale (area 5, fetta 1), fail-open.
+        await embedManualPage(app.db, app.embeddingClient, created, request.log);
+        return reply.code(201).send((await withDocCodesIn(app.db, repositoryId, [toPage(created)]))[0]!);
       } catch (error) {
         if (isUniqueViolation(error)) {
           return apiError(reply, 409, "doc_page_slug_conflict", "Slug already used in this project");
@@ -1135,7 +1207,8 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
               .returning();
       if (!row) return apiError(reply, 404, "doc_page_not_found", "Manual page not found");
 
-      return toPage(row);
+      await embedManualPage(app.db, app.embeddingClient, row, request.log);
+      return (await withDocCodesIn(app.db, row.repositoryId, [toPage(row)]))[0]!;
     },
   );
 

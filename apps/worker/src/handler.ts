@@ -1,4 +1,5 @@
 import { aiJobs, comments, projects, tickets, type Db } from "@stubwise/db";
+import { checkCancelNow, withCancelSignal, type CancelRegistry } from "./pipeline/cancel.js";
 import type { GitProvider } from "@stubwise/git";
 import { t } from "@stubwise/i18n";
 import { promotePendingForTicket } from "@stubwise/notifications";
@@ -16,8 +17,9 @@ import type { PublishFn } from "./pipeline/notify.js";
 import { runTriage, type TriageOutcome } from "./pipeline/triage.js";
 import type { ResolvedProvider } from "./providers/chain.js";
 import { isQuotaWait, runWithProviders, type SelectDeps } from "./providers/select.js";
-import { appendLog, failJob, holdJob, markFixing, setJobProvider, type AiJob } from "./queue.js";
+import { appendLog, failJob, holdJob, markFixing, setJobProvider, type AiJob, type ParkResult } from "./queue.js";
 import { getContentLanguage } from "./settings.js";
+import { recordRunCancelledSafely } from "./pipeline/job-outcomes.js";
 
 /**
  * Wiring della pipeline per runWorker: handler(job) = triage → (se "fixing")
@@ -37,6 +39,12 @@ import { getContentLanguage } from "./settings.js";
 export interface HandlerDeps {
   db: Db;
   runner: AgentRunner;
+  /**
+   * «Annulla il lavoro» in esecuzione (area 3, 3b.1-bis, `pipeline/cancel.ts`):
+   * il registro dei job in corso. Assente = nessun annullamento in corsa (i
+   * test di prima, un worker senza LISTEN).
+   */
+  cancels?: CancelRegistry;
   /** Modello per operazione scelto dall'admin (design
    * 2026-10-21-modelli-e-consumi): triage, fix e correzione lo risolvono UNA
    * volta per job, prima della riga di log, così log e run nominano lo stesso
@@ -144,7 +152,10 @@ async function runJobWithProvider(
   job: AiJob,
   notifyOpts: { publicUrl?: string; projectName: string; publish?: PublishFn },
   provider: ResolvedProvider | undefined,
+  cancelSignal?: AbortSignal,
 ): Promise<JobRun> {
+  // Il runner del job riceve il segnale dell'annullamento a ogni run.
+  const runner = cancelSignal ? withCancelSignal(deps.runner, cancelSignal) : deps.runner;
   // Registra la credenziale TENTATA su ai_jobs.provider_id (best-effort): se il
   // run fallisce per limite e si fa failover, sarà sovrascritta dal tentativo
   // successivo, così provider_id riflette sempre l'ultima credenziale usata.
@@ -155,7 +166,8 @@ async function runJobWithProvider(
   // credenziale del provider AI, stessi modelli/timeout/self-repair.
   const commonDeps = {
     db: deps.db,
-    runner: deps.runner,
+    runner,
+    ...(cancelSignal ? { cancelSignal } : {}),
     mirrors: deps.mirrors,
     encryptionKey: deps.encryptionKey,
     ...(deps.models !== undefined ? { models: deps.models } : {}),
@@ -231,7 +243,7 @@ async function runJobWithProvider(
     const triageOutcome: TriageOutcome = await runTriage(
       {
         db: deps.db,
-        runner: deps.runner,
+        runner,
         workDir,
         ...(deps.models !== undefined ? { models: deps.models } : {}),
         ...providerOpt,
@@ -263,11 +275,21 @@ async function holdJobWithReason(
   job: AiJob,
   log: string,
   heldReason: HeldReason,
-): Promise<void> {
+): Promise<ParkResult> {
   const held = await holdJob(deps.db, job.id, { log, heldReason });
-  if (!held) {
+  if (held === "cancelled") {
+    // «Annulla il lavoro» chiesto in questo tentativo (review dell'area 3,
+    // punto 2): chiuso skipped, non in pausa.
+    await recordRunCancelledSafely(deps.db, {
+      ticketId: job.ticketId,
+      jobId: job.id,
+      kind: job.correctionId !== null ? "correction" : "fix",
+      lang: await getContentLanguage(deps.db),
+    });
+  } else if (held === "lost") {
     await appendLog(deps.db, job.id, "[stubwise] ownership persa dopo il hold");
   }
+  return held;
 }
 
 /**
@@ -295,14 +317,7 @@ async function holdAllProvidersLimited(
     .from(projects)
     .where(eq(projects.id, projectId));
   const exclusive = project?.exclusive === true && project.id != null;
-  await deps.db.transaction(async (tx) => {
-    await tx.insert(comments).values({
-      ticketId,
-      authorType: "ai",
-      body: t(lang, exclusive ? "comment.providerExclusiveLimitHeld" : "comment.providersLimitHeld"),
-    });
-  });
-  await holdJobWithReason(
+  const held = await holdJobWithReason(
     deps,
     job,
     exclusive
@@ -310,6 +325,15 @@ async function holdAllProvidersLimited(
       : "[stubwise] tutti i provider AI al limite di rate/usage → job in pausa (held), ritenta dopo il reset",
     "limit",
   );
+  // Annullato in questo tentativo: c'è già il commento dell'annullamento, non quello del limite.
+  if (held === "cancelled") return;
+  await deps.db.transaction(async (tx) => {
+    await tx.insert(comments).values({
+      ticketId,
+      authorType: "ai",
+      body: t(lang, exclusive ? "comment.providerExclusiveLimitHeld" : "comment.providersLimitHeld"),
+    });
+  });
 }
 
 async function processJob(
@@ -327,6 +351,27 @@ async function processJob(
     ...(deps.publish !== undefined ? { publish: deps.publish } : {}),
   };
 
+  // «Annulla il lavoro»: il job entra nel registro per tutta la sua durata
+  // (failover compresi); una richiesta arrivata prima della registrazione si
+  // legge subito dalla colonna.
+  const cancel = deps.cancels?.register(job.id);
+  try {
+    if (deps.cancels) await checkCancelNow(deps.db, deps.cancels, job.id).catch(() => undefined);
+    await processJobRegistered(deps, job, ticketId, projectId, notifyOpts, cancel);
+  } finally {
+    cancel?.release();
+  }
+}
+
+async function processJobRegistered(
+  deps: HandlerDeps,
+  job: AiJob,
+  ticketId: string,
+  projectId: string,
+  notifyOpts: { publicUrl?: string; projectName: string; publish?: PublishFn },
+  cancel: { signal: AbortSignal } | undefined,
+): Promise<void> {
+
   // SCELTA DELL'ACCOUNT (providers/select.ts, la stessa di ogni run `claude`
   // del worker): il provider del progetto è PREFERITO (con «solo questo» è
   // l'unico), poi gli abbonamenti abilitati per position; la chiave API entra
@@ -340,7 +385,7 @@ async function processJob(
   const run = await runWithProviders(
     deps.select,
     { projectId, workClass: "interactive" },
-    (provider) => runJobWithProvider(deps, job, notifyOpts, provider),
+    (provider) => runJobWithProvider(deps, job, notifyOpts, provider, cancel?.signal),
     (r) => r.limitText,
     {
       // Una riga di log del job per ogni PASSAGGIO alla credenziale successiva

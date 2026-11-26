@@ -21,6 +21,7 @@ import type { Db } from "@stubwise/db";
 import { attachments, comments, projectDecisions, users } from "@stubwise/db";
 import { plainExcerpt, type CommentReplyTo, type ProjectPermission } from "@stubwise/shared";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { loadViaClaude, type ViaClaudeFields } from "./via-claude.js";
 
 /** `Db` o una transazione drizzle già aperta dal chiamante. */
 type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -242,7 +243,7 @@ export async function loadDecisionLogLinks(
  * `/activity`, che li prendono da qui e non li ricalcolano (tre copie della
  * stessa proiezione divergono al primo campo aggiunto da una parte sola).
  */
-export interface CommentDerived {
+export interface CommentDerived extends ViaClaudeFields {
   replyTo: CommentReplyTo | null;
   editedAt: string | null;
   deletedAt: string | null;
@@ -264,7 +265,7 @@ export async function loadCommentProjection(
   rows: CommentRow[],
   viewer: CommentViewer,
 ): Promise<(row: CommentRow) => CommentDerived> {
-  const [targets, deleters, inLog] = await Promise.all([
+  const [targets, deleters, inLog, via] = await Promise.all([
     loadReplyTargets(
       db,
       ticketId,
@@ -272,6 +273,10 @@ export async function loadCommentProjection(
     ),
     loadDeleterNames(db, rows),
     loadDecisionLogLinks(db, ticketId, rows),
+    loadViaClaude(
+      db,
+      rows.map((r) => r.viaClaudeActionId),
+    ),
   ]);
   return (row) => ({
     // Un padre non trovato (o di un altro ticket) è `null`.
@@ -286,6 +291,7 @@ export async function loadCommentProjection(
         : { name: row.deletedByUserId === null ? null : (deleters.get(row.deletedByUserId) ?? null) },
     ...commentPermissions(row, viewer),
     inDecisionLog: inLog.has(row.id),
+    ...via(row.viaClaudeActionId),
   });
 }
 

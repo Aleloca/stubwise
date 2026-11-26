@@ -32,13 +32,20 @@ function focusable(code: string): HTMLElement | null {
   return el ? (el.querySelector<HTMLElement>("[data-row-open]") ?? el) : null;
 }
 
-/** L'h1 della pagina (fuori dal pannello), raggiungibile dal fuoco. */
-function heading(): HTMLElement | null {
-  const h1 = [...document.querySelectorAll<HTMLElement>("h1")].find(
-    (h) => !h.closest("[data-detail-panel], [role='dialog']"),
+/** L'h1 della pagina (fuori dal pannello e dai dialoghi). */
+function pageHeading(): HTMLElement | null {
+  return (
+    [...document.querySelectorAll<HTMLElement>("h1")].find(
+      (h) => !h.closest("[data-detail-panel], [role='dialog']"),
+    ) ?? null
   );
+}
+
+/** L'h1 della pagina, raggiungibile dal fuoco. */
+function heading(): HTMLElement | null {
+  const h1 = pageHeading();
   if (h1 && !h1.hasAttribute("tabindex")) h1.setAttribute("tabindex", "-1");
-  return h1 ?? null;
+  return h1;
 }
 
 /** Quanti giri aspettare che la lista riletta tolga la riga (circa un secondo). */
@@ -47,10 +54,17 @@ const TRIES = 40;
 /**
  * Porta il fuoco su `next` (o sull'h1) appena la riga di `code` non c'è più.
  * Se la lista non la toglie in tempo, il fuoco va comunque: mai sul body.
+ *
+ * I giri non sopravvivono alla pagina (fine area 11): se nel frattempo la
+ * pagina si è smontata (il suo h1 non è più nel documento: si è andati
+ * altrove) o `document` non c'è più (la chiusura dell'ambiente dei test), ci
+ * si ferma senza toccare il fuoco e senza rimettere un timer.
  */
 export function focusAfterDelete(code: string, next: string | null): void {
   let tries = 0;
+  const page = pageHeading();
   const step = () => {
+    if (typeof document === "undefined" || (page && !page.isConnected)) return;
     // Aspetta anche che il pannello (col suo dialogo) sia smontato: il loro
     // ritorno del fuoco al «⋯» non deve venire dopo il nostro.
     const gone =

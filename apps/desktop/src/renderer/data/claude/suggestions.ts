@@ -1,4 +1,3 @@
-import { supportState } from "../../domain/support/state";
 import { holds, sees } from "../access";
 import { canSeeAutomation } from "../automations/visibility";
 import { aiBlockFor } from "../instance/blocks";
@@ -6,10 +5,11 @@ import { canEditReleaseNotes } from "../releases/visibility";
 import { eventsOf, openDecisions, openQuestion, pendingPlan, state } from "../store";
 import { can, viewerFor } from "../viewer";
 import { stalledProjectsFor } from "./answersData";
-import { vowelContext } from "../../i18n/vowel";
+
+export { suggestionKeyOf } from "./suggestionKey";
 
 // I suggerimenti discreti «Claude can help you…» (area 10b, Task 12; shape
-// `claude-suggestions.md`): una riga sotto la testata di cinque pagine di
+// `claude-suggestions.md`): una riga sotto la testata di quattro pagine di
 // partenza, che scrive una richiesta nella casella del riquadro e non fa
 // niente da sola. Qui si decide se la riga c'è e quale, per chi guarda:
 // la pagina non chiama `can()`. La riga c'è solo per chi può fare ciò che
@@ -20,37 +20,18 @@ import { vowelContext } from "../../i18n/vowel";
 // pagina, che chi guarda sta già vedendo (R-G5).
 
 export type SuggestionPlace =
-  | { kind: "support"; conversationId: string }
   | { kind: "pr"; prId: string }
   | { kind: "automations"; projectId: string }
   | { kind: "overview"; projectId: string }
   | { kind: "usage" };
 
 export interface ClaudeSuggestion {
-  id: "supportReply" | "releaseNotes" | "buildAutomation" | "whyStalled" | "monthSpend";
+  id: "releaseNotes" | "buildAutomation" | "whyStalled" | "monthSpend";
   /** La riga e la richiesta da scrivere nella casella, nella lingua di chi guarda. */
   lineKey: string;
   promptKey: string;
   /** Il codice dell'oggetto, e `context: "vowel"` per l'«ad» italiano davanti a una vocale. */
   params?: Record<string, string>;
-}
-
-/**
- * La chiave di «Not now»: l'oggetto, non il tipo di pagina ([SG 7], maintainer
- * 2 nov 2026). Nascosta su ACQ-S2, la riga resta sulle altre conversazioni.
- */
-export function suggestionKeyOf(place: SuggestionPlace): string {
-  switch (place.kind) {
-    case "support":
-      return `support:${place.conversationId}`;
-    case "pr":
-      return `pr:${place.prId}`;
-    case "automations":
-    case "overview":
-      return `${place.kind}:${place.projectId}`;
-    case "usage":
-      return "usage";
-  }
 }
 
 const K = "claude.suggestions";
@@ -64,9 +45,6 @@ const suggestion = (
   promptKey: `${K}.${id}.prompt`,
   ...(params ? { params } : {}),
 });
-
-/** Il codice, col «a»/«ad» italiano che sceglie la frase (`vowelContext`). */
-const withVowel = (code: string): Record<string, string> => ({ code, ...vowelContext(code) });
 
 /**
  * La task ha qualcosa che aspetta una persona: un piano di Claude in attesa,
@@ -96,16 +74,6 @@ const openPulseProposalIn = (projectId: string): boolean =>
 export function suggestionFor(me: string, place: SuggestionPlace): ClaudeSuggestion | null {
   if (aiBlockFor(null)?.reason === "monthly_budget") return null;
   switch (place.kind) {
-    case "support": {
-      const c = state.supportConversations.find((x) => x.id === place.conversationId);
-      if (!c || !sees(me, c.projectId)) return null;
-      if (supportState(c) !== "waiting_us" || !holds(me, "support.reply", c.projectId)) return null;
-      // Una bozza di Claude già pronta («Claude prepared a draft · Use draft»)
-      // è già la proposta per quella risposta: niente seconda offerta accanto
-      // (maintainer, 5 nov 2026; shape `claude-suggestions.md`, Impeccable 8).
-      if (c.claudeDraft) return null;
-      return suggestion("supportReply", withVowel(c.code));
-    }
     case "pr": {
       const pr = state.openPrs.find((x) => x.id === place.prId);
       if (!pr || pr.state !== "open" || !canEditReleaseNotes(me, pr)) return null;

@@ -19,7 +19,7 @@ export const SRV1_MEMORY_EPISODE: ServerEpisode = {
   analysisId: "an-srv-1-1",
 };
 
-/** SRV-2 adesso: disco al 93% e la replica che non risponde; nessun accesso, nessuna analisi. */
+/** SRV-2 adesso: disco al 93% e la replica che non risponde; nessun accesso SSH: l'analisi gira senza le letture SSH. */
 export const SRV2_DISK_EPISODE: ServerEpisode = {
   id: "ep-srv-2-1",
   serverCode: "SRV-2",
@@ -30,7 +30,7 @@ export const SRV2_DISK_EPISODE: ServerEpisode = {
   ],
   startedAt: at(0, "09:40"),
   recoveredAt: null,
-  analysisId: null,
+  analysisId: "an-srv-2-1",
 };
 
 /** SRV-3 sei giorni fa: l'agente tace per 22 minuti (riavvio del server); nessun accesso di lettura. */

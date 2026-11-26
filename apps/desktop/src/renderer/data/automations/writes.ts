@@ -1,5 +1,5 @@
-import { visitSteps } from "../../domain/automations/fields";
-import { projectOf } from "../../domain/automations/preview";
+import { visitSteps } from "@stubwise/shared";
+import { projectOf } from "@stubwise/shared";
 import { currentVia } from "../claude/via";
 import { copy, noteWrite, now, state, visibleProjectIds } from "../store";
 import type { Automation, AutomationFlow, AutomationMeta, Project } from "../types";
@@ -8,7 +8,7 @@ import { forbidden, invalid, notFound, writer } from "../writer";
 import { configErrorsOf } from "./reads";
 import { aiWaitingOf, hasQueued, publishedVersion, resume, suspend } from "./runner";
 import { templateFlow, type AutomationTemplateKind } from "./templates";
-import { keepHiddenProjects } from "./visibility";
+import { keepHiddenPeople, keepHiddenProjects } from "./visibility";
 import { managedAutomation } from "./writeGuards";
 
 // Le scritture delle Automations (area 7). Come le altre: `writer()` prima
@@ -57,7 +57,7 @@ export function checkNewAutomation(me: string, projectId: string | null): Projec
   if (projectId !== null && (!project || !visibleProjectIds(me).has(project.id))) throw notFound();
   const allowed = project
     ? can(viewerFor(me), "automations.manage", project.id)
-    : can(viewerFor(me), "automations.manage");
+    : can(viewerFor(me), "automations.general.manage");
   if (!allowed) throw forbidden();
   return project ?? null;
 }
@@ -211,6 +211,8 @@ export function saveDraftAs(
   const next = copy(flow);
   // Il flusso si legge senza i progetti che non vedo (R-G5): salvarlo non li perde.
   keepHiddenProjects(me, last.flow, next);
+  // E le persone che non conosco (r.1414): un segnaposto no, una omessa resta.
+  keepHiddenPeople(me, last.flow, next);
   if (isDraft) Object.assign(last, { flow: next }, saved);
   else
     a.versions.push({
@@ -241,6 +243,18 @@ export async function renameAutomation(id: string, meta: AutomationMeta): Promis
   wrote(a.id, me);
   return copy(a);
 }
+
+/**
+ * Il tetto del webhook in arrivo (F4-2 = c): solo del server, che lo applica
+ * all'indirizzo pubblico. Il prototipo non ha un tetto (la riga non compare:
+ * non c'è `webhookLimits`).
+ */
+export const setWebhookLimits: (
+  id: string,
+  limits: { perMinute: number | null; perDay: number | null },
+) => Promise<Automation> = async () => {
+  throw invalid("not_available");
+};
 
 /** Pubblica la bozza (e accende una mai accesa): chi pubblica diventa il proprietario. */
 /** Il permesso che serve per creare quello che un passo crea. */

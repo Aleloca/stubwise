@@ -18,6 +18,7 @@ import {
 } from "@stubwise/shared";
 import {
   formatNotificationText,
+  isDirectMessageEvent,
   isReviewFailedEvent,
   type NotificationEvent,
   type NotificationKind,
@@ -49,6 +50,19 @@ export const PUSH_TITLE_KEY: Record<NotificationKind, string> = {
   "docs.nightly_attention": "push.title.docs.nightly_attention",
   "request.created": "push.title.request.created",
   "monitor.alert": "push.title.monitor.alert",
+  "release.failed": "push.title.release.failed",
+  "release.merged": "push.title.release.merged",
+  "release.succeeded": "push.title.release.succeeded",
+  "pr.opened": "push.title.pr.opened",
+  "pr.analysis_issues": "push.title.pr.analysis_issues",
+  "pr.corrected": "push.title.pr.corrected",
+  "docs.release_note": "push.title.docs.release_note",
+  "support.request": "push.title.support.request",
+  "member.added": "push.title.member.added",
+  "product_doc.mention": "push.title.product_doc.mention",
+  "product_doc.updated": "push.title.product_doc.updated",
+  "product_doc.question": "push.title.product_doc.question",
+  "server.diagnosis_ready": "push.title.server.diagnosis_ready",
   "monitor.recovered": "push.title.monitor.recovered",
   "job.awaiting_input": "push.title.job.awaiting_input",
   "project.pulse": "push.title.project.pulse",
@@ -56,6 +70,17 @@ export const PUSH_TITLE_KEY: Record<NotificationKind, string> = {
   "google.proposal": "push.title.google.proposal",
   "google.proposal_handed": "push.title.google.proposal_handed",
   "security.alert": "push.title.security.alert",
+  "decision.requested": "push.title.decision.requested",
+  "decision.answered": "push.title.decision.answered",
+  "ticket.activity": "push.title.ticket.activity",
+  "planning.changed": "push.title.planning.changed",
+  "task.assigned": "push.title.task.assigned",
+  "chat.mention": "push.title.chat.mention",
+  "chat.question": "push.title.chat.question",
+  "automation.approval": "push.title.automation.approval",
+  "automation.failed": "push.title.automation.failed",
+  "automation.notify": "push.title.automation.notify",
+  "automation.paused": "push.title.automation.paused",
 };
 
 /**
@@ -172,6 +197,8 @@ export interface PushPayloadContext {
    * `PublishOpts`), ed è nullable — i kind senza progetto esistono davvero.
    */
   projectId?: string | null;
+  /** Registro, A4 r.169: il gruppo di una `chat.mention` di gruppo (dalla consegna), o assente. */
+  group?: string | null;
 }
 
 /**
@@ -187,6 +214,9 @@ export interface PushPayloadContext {
 export const PUSH_TITLE_REVIEW_STOPPED_KEY = "push.title.review.stopped";
 
 function pushTitleKey(event: NotificationEvent): string {
+  if (isDirectMessageEvent(event)) {
+    return event.kind === "chat.question" ? "push.title.chat.question.dm" : "push.title.chat.mention.dm";
+  }
   return isReviewFailedEvent(event) ? PUSH_TITLE_REVIEW_STOPPED_KEY : PUSH_TITLE_KEY[event.kind];
 }
 
@@ -214,9 +244,16 @@ export function buildPushPayload(
   lang: Language,
   ctx: PushPayloadContext,
 ): PushPayload {
+  // Una menzione di gruppo non dice «you» a chi non è nominato (registro, A4 r.169).
+  const group = event.kind === "chat.mention" && ctx.group ? ctx.group : null;
+  const title = group ? t(lang, "push.title.chat.mention.group", { group }) : t(lang, pushTitleKey(event), titleParams(event));
+  const body =
+    group && event.kind === "chat.mention"
+      ? t(lang, isDirectMessageEvent(event) ? "notify.chatMention.group.dm" : "notify.chatMention.group", { author: event.authorName, group, channel: event.channelName })
+      : formatNotificationText(event, lang);
   return {
-    title: truncate(t(lang, pushTitleKey(event), titleParams(event)), PUSH_TITLE_MAX_CHARS),
-    body: truncate(formatNotificationText(event, lang), PUSH_BODY_MAX_CHARS),
+    title: truncate(title, PUSH_TITLE_MAX_CHARS),
+    body: truncate(body, PUSH_BODY_MAX_CHARS),
     // Su iOS è la `UNNotificationCategory` (i bottoni d'azione rapida), su
     // Android il `channel_id`: in entrambi i casi è il kind.
     category: event.kind,

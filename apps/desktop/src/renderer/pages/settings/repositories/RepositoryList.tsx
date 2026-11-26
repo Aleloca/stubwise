@@ -11,6 +11,8 @@ import { SettingsFrame } from "../SettingsFrame";
 import { ViewOnlyLine } from "../ViewOnly";
 import { NewRepositoryWizard } from "./NewRepositoryWizard";
 import { RepositoryEditor } from "./RepositoryEditor";
+import { RepositoriesReleasesOnly } from "./RepositoriesReleasesOnly";
+import { isAppBuild } from "../../../data/build";
 import { WebhookState } from "./WebhookRow";
 
 // Progetto → Settings → Repositories (area 9c, Task 8, shape
@@ -35,6 +37,15 @@ export function RepositoriesSection({ project }: { project: Project }) {
       params: { code: project.code, section: "repositories" },
       search: ((prev: Record<string, unknown>) => ({ ...prev, ...patch })) as never,
     });
+  // Build app (area 8, F1, 46): la sezione ridotta al solo blocco «Releases».
+  if (isAppBuild())
+    return (
+      <RepositoriesReleasesOnly
+        project={project}
+        repositoryId={search.repo}
+        open={(repo) => setSearch({ repo })}
+      />
+    );
   if (search.repo)
     return (
       <RepositoryEditor

@@ -1,3 +1,4 @@
+import { DOCS_WORKER_RESTART_ERROR } from "@stubwise/notifications";
 import { docGenerations, projects, repositories, type Db } from "@stubwise/db";
 import type { DocsPauseReason } from "@stubwise/notifications";
 import { eq } from "drizzle-orm";
@@ -217,7 +218,8 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
     // ha perso l'handle in-memoria. NON riapro a HEAD (rischio di documentazione a
     // commit misti): faccio FALLIRE la generazione + i suoi nodi non-done + il trigger,
     // e LASCIO questo nodo (verrà marcato failed dal fail). L'utente ri-triggera.
-    const reason = "generazione interrotta da un riavvio del worker: ri-triggerare la generazione";
+    // Il testo è una costante condivisa: il server la riconosce (`worker_restart`).
+    const reason = DOCS_WORKER_RESTART_ERROR;
     try {
       const failed = await failGenerationOnRestart(db, node.generationId, reason);
       console.error(

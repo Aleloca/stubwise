@@ -3,9 +3,11 @@ import {
   calendarSeries as calendarSeriesTable,
   calendarSeriesRecurrence,
   emailMessages,
+  meetingNotes,
   emailProposals,
   emailRejections,
   googleAccounts,
+  mailOutgoing,
   googleWorkspaces,
   instanceSettings,
   notifications,
@@ -13,12 +15,16 @@ import {
   projects,
   type Db,
 } from "@stubwise/db";
+import { automationMailIn, isAutomatedMail } from "../automations/mail-in.js";
+import { recognizeGeminiNotes } from "./gemini.js";
+import { processMeetingNotes, type DriveReadClient } from "./meetings.js";
 import {
   extractText,
   getMessageFull,
   getEvent,
   getMessageMetadata,
   getThreadFull,
+  listSendAs,
   GoogleApiError,
   listEvents,
   listHistory,
@@ -32,7 +38,7 @@ import {
   type GoogleAccountCredentials,
 } from "@stubwise/google/credentials";
 import type { Language } from "@stubwise/i18n";
-import { hasDeclinedInvitation } from "@stubwise/shared";
+import { GOOGLE_SYNC_REQUEST_CHANNEL, hasDeclinedInvitation } from "@stubwise/shared";
 import {
   admit,
   matchRoutes,
@@ -46,11 +52,15 @@ import {
   asc,
   eq,
   inArray,
+  isNotNull,
   isNull,
   ne,
   notExists,
   notInArray,
+  or,
   sql,
+  type AnyColumn,
+  type SQL,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { AgentRunner } from "../agent/runner.js";
@@ -59,6 +69,7 @@ import { getContentLanguage } from "../settings.js";
 import {
   buildMilestoneProposal,
   CALENDAR_CANCELLED_OUTCOME,
+  CALENDAR_LOOKBACK_DAYS,
   CALENDAR_DECLINED_OUTCOME,
   CALENDAR_MAX_PAGES,
   CALENDAR_PAGE_SIZE,
@@ -74,6 +85,17 @@ import {
   type CalendarSeriesProposalContext,
 } from "./calendar.js";
 import { executeAutoCalendarAction } from "./calendar-auto.js";
+import { classifyNewMessagesV2 } from "./classify-v2.js";
+import { judgeWaitingThreads } from "./reply-judge.js";
+import { publishSharedProposals } from "./publish-shared.js";
+import {
+  closeCancelledSharedCalendarProposals,
+  closeDeclinedCalendarRecipients,
+  expireOldSharedCalendarProposals,
+  publishCalendarChooseProposals,
+  publishSharedCalendarProposals,
+} from "./calendar-shared.js";
+import { attendeeProjects, guessCalendarProjects } from "./calendar-guess.js";
 import {
   classifyNewMessages,
   needsReclassification,
@@ -94,8 +116,10 @@ import {
   disabledReasonFor,
   errText,
   GMAIL_MAX_SYNC_ATTEMPTS,
+  GMAIL_HISTORY_MAX_PAGES,
   GMAIL_RESYNC_MAX_MESSAGES,
   GMAIL_RESYNC_QUERY,
+  GMAIL_RESYNC_SENT_QUERY,
   isFromMailbox,
   isHistoryExpired,
   maxHistoryId,
@@ -208,6 +232,8 @@ export interface GmailClient {
   getMessageFull: typeof getMessageFull;
   /** «La posta si legge per conversazione» §2: il thread di un messaggio ammesso, intero. */
   getThreadFull: typeof getThreadFull;
+  /** Lotto 8, voce 2: gli alias della casella. Opzionale: senza, conta solo l'indirizzo della casella. */
+  listSendAs?: typeof listSendAs;
 }
 
 const realGmailClient: GmailClient = {
@@ -217,6 +243,7 @@ const realGmailClient: GmailClient = {
   getMessageMetadata,
   getMessageFull,
   getThreadFull,
+  listSendAs,
 };
 
 /** La parte Calendar del client Google, iniettabile come {@link GmailClient}. */
@@ -244,6 +271,10 @@ export interface GooglePollerDeps {
   gmail?: GmailClient;
   /** Client Calendar iniettabile nei test. Default: rete vera. */
   calendar?: CalendarClient;
+  /** Area 6, F5a: il client di Drive (sola lettura) per il Doc di Gemini. Default: rete vera. */
+  drive?: DriveReadClient;
+  /** Area 6, F5a: il modello del riassunto delle riunioni; omesso = quello risolto dal TrackingAgentRunner. */
+  meetingModel?: string;
   /**
    * Lingua dei contenuti dell'istanza: la fase 3 la usa per il nome della
    * milestone proposta. Assente = letta una volta per casella dalle
@@ -307,10 +338,21 @@ export interface GooglePollerDeps {
   signal?: AbortSignal;
   /** Orologio iniettabile: solo per il `received_at` di ripiego. */
   now?: () => Date;
+  /**
+   * Area 6, F2 (`MAIL_CLASSIFY_V2`, default spento): la classificazione
+   * nuova. Acceso, l'ingestione non chiama `admit` né `matchRoutes` (D3:
+   * ogni email ricevuta al modello, niente regole della posta) e non scrive
+   * scarti. Spento, tutto come prima: è il rollback, e la regola di rilascio
+   * di D3 (si accende dopo la misura del costo).
+   */
+  classifyV2?: boolean;
 }
 
 /** Riga di `google_accounts` come il claim la restituisce. */
 type ClaimedAccount = typeof googleAccounts.$inferSelect;
+
+/** Lotto 8, voce 2: quanto vale la copia degli alias (come `SEND_AS_MAX_AGE_MS` del server). */
+export const SEND_AS_MAX_AGE_MS = 24 * 3600_000;
 
 /** Cosa ha prodotto un tick: serve al log di riepilogo e ai test. */
 export interface GoogleTickStats {
@@ -396,9 +438,11 @@ function domainOf(address: string): string {
  * `next_sync_at` (vedi "Perché il claim pre-schedula" nel docblock del modulo).
  *
  * Il `WHERE` della subquery ricalca esattamente l'indice PARZIALE
- * `google_accounts_due_idx` (`disabled_at is null and proposals_enabled`,
- * ordinato per `next_sync_at`): una casella disabilitata o con le proposte
- * spente non viene mai pescata, e il claim resta un index scan.
+ * `google_accounts_due_idx` (`disabled_at is null`, ordinato per
+ * `next_sync_at`): una casella disabilitata non viene mai pescata, e il claim
+ * resta un index scan. Una con le proposte SPENTE sì (decisione del
+ * maintainer del 12 nov 2026, 0150): si legge, e solo le fasi che propongono
+ * la saltano (vedi {@link runAccountTick}).
  */
 export async function claimDueAccounts(
   db: Db,
@@ -419,8 +463,14 @@ export async function claimDueAccounts(
     .where(
       sql`${googleAccounts.id} IN (
         SELECT id FROM google_accounts
-        WHERE disabled_at IS NULL AND proposals_enabled AND next_sync_at <= now()
-        ORDER BY next_sync_at
+        WHERE disabled_at IS NULL AND next_sync_at <= now()
+        -- «Aggiorna ora» (area 6, F1.2): chi l'ha chiesto passa prima delle
+        -- altre dovute, anche a batch pieno (la sua next_sync_at è adesso).
+        -- Misurato (review F1, punto 7; EXPLAIN su Postgres di test, 5.000
+        -- caselle, metà dovute): quest'ordine non usa più l'indice parziale,
+        -- è seq scan + sort, 1,2 ms contro 0,02 ms. Accettato a questa scala;
+        -- se servisse, una UNION fra le richieste e le dovute riprende l'indice.
+        ORDER BY sync_requested_at IS NULL, next_sync_at
         LIMIT ${limit}
         FOR UPDATE SKIP LOCKED
       )`,
@@ -635,6 +685,12 @@ interface MessageBatch {
   /** Il giro è passato dal resync per query (primo giro o history scaduta). */
   resynced: boolean;
   /**
+   * Area 6, F1.3: i cambi di `UNREAD` letti dalla history, in ordine (vince
+   * l'ultimo). Vuoto dopo un resync per query: lì i messaggi nuovi portano la
+   * loro etichetta, quelli già ingeriti restano com'erano fino al cambio dopo.
+   */
+  unreadChanges: { messageId: string; unread: boolean }[];
+  /**
    * Il lotto NON copre tutta la history disponibile: `ids` è stato tagliato a
    * {@link GMAIL_RESYNC_MAX_MESSAGES}, o resta almeno una pagina non letta.
    * `historyId` (lo stato "adesso" della casella) non è quindi un cursore
@@ -667,25 +723,42 @@ async function collectMessageIds(
   if (account.gmailHistoryId) {
     try {
       const ids: string[] = [];
+      const unreadChanges: { messageId: string; unread: boolean }[] = [];
       let pageToken: string | null = null;
       let historyId: string | null = null;
+      let lastEntryId: string | null = null;
+      let pages = 0;
       do {
         const page = await gmail.listHistory({
           accessToken: ctx.accessToken,
           startHistoryId: account.gmailHistoryId,
           pageToken,
+          // Area 6, F1.3: anche i cambi di etichetta, per il letto/non letto.
+          historyTypes: GMAIL_HISTORY_TYPES,
         });
         ids.push(...page.addedMessageIds);
+        unreadChanges.push(...page.unreadChanges);
         historyId = page.historyId ?? historyId;
+        lastEntryId = page.lastEntryId ?? lastEntryId;
         pageToken = page.nextPageToken;
-      } while (pageToken && ids.length < GMAIL_RESYNC_MAX_MESSAGES);
+        pages += 1;
+      } while (pageToken && ids.length < GMAIL_RESYNC_MAX_MESSAGES && pages < GMAIL_HISTORY_MAX_PAGES);
+      // Fermi al tetto di PAGINE (non di messaggi): ogni voce letta è stata
+      // raccolta per intero (i messaggi in `ids`, tutti processati; i cambi di
+      // etichetta in `unreadChanges`), quindi il cursore sicuro è l'ultima
+      // voce letta — non lo stato attuale della casella, e non `seenHistoryId`,
+      // che su una history di soli cambi di etichetta è null e lascerebbe il
+      // cursore fermo per sempre sulle stesse pagine.
+      if (pageToken !== null && ids.length <= GMAIL_RESYNC_MAX_MESSAGES && lastEntryId !== null) {
+        return { ids, historyId: lastEntryId, resynced: false, truncated: false, unreadChanges };
+      }
       // Troncato quando resta almeno una pagina di history NON letta (il loop
       // si è fermato per il tetto, non perché la history fosse finita — in tal
       // caso `pageToken` è ancora valorizzato) o quando l'ultima pagina letta
       // ha da sola superato il tetto: in entrambi i casi `ids.slice(...)` sotto
       // lascia fuori messaggi che questo giro non vedrà.
       const truncated = pageToken !== null || ids.length > GMAIL_RESYNC_MAX_MESSAGES;
-      return { ids: ids.slice(0, GMAIL_RESYNC_MAX_MESSAGES), historyId, resynced: false, truncated };
+      return { ids: ids.slice(0, GMAIL_RESYNC_MAX_MESSAGES), historyId, resynced: false, truncated, unreadChanges };
     } catch (err) {
       if (!isHistoryExpired(err)) throw err;
       logger.info(
@@ -694,25 +767,95 @@ async function collectMessageIds(
     }
   }
 
-  const ids: string[] = [];
-  let pageToken: string | null = null;
-  do {
-    const page: Awaited<ReturnType<typeof listMessages>> = await gmail.listMessages({
-      accessToken: ctx.accessToken,
-      q: GMAIL_RESYNC_QUERY,
-      pageToken,
-      maxResults: GMAIL_RESYNC_MAX_MESSAGES,
-    });
-    ids.push(...page.messageIds);
-    pageToken = page.nextPageToken;
-  } while (pageToken && ids.length < GMAIL_RESYNC_MAX_MESSAGES);
+  const listAll = async (q: string) => {
+    const found: string[] = [];
+    let token: string | null = null;
+    do {
+      const page: Awaited<ReturnType<typeof listMessages>> = await gmail.listMessages({
+        accessToken: ctx.accessToken,
+        q,
+        pageToken: token,
+        maxResults: GMAIL_RESYNC_MAX_MESSAGES,
+      });
+      found.push(...page.messageIds);
+      token = page.nextPageToken;
+    } while (token && found.length < GMAIL_RESYNC_MAX_MESSAGES);
+    return { found, token };
+  };
+  const received = await listAll(GMAIL_RESYNC_QUERY);
+  const ids = received.found;
+  const pageToken = received.token;
+  // Area 8, «Clienti in attesa»: poi la posta MANDATA, DOPO i ricevuti (un
+  // thread diventato noto in questo giro prende anche le risposte). Ogni id
+  // passa dalla regola di sempre per la posta mandata (thread noto o inviata
+  // da Stubwise, come contesto): qui si cambia solo COSA si raccoglie. Stesso
+  // tetto, a parte.
+  const sent = await listAll(GMAIL_RESYNC_SENT_QUERY);
+  const sentIds = sent.found.slice(0, GMAIL_RESYNC_MAX_MESSAGES).filter((id) => !ids.includes(id));
   // `messages.list` non dà mai un `historyId` (vedi sopra): il cursore finale
   // sarà comunque `seenHistoryId`, calcolato dai messaggi letti in `syncGmail`
   // — `truncated` non cambia quella scelta qui. Lo si calcola comunque, per
   // non lasciare un campo silenziosamente falso quando in futuro qualcosa ne
   // dipendesse.
   const truncated = pageToken !== null || ids.length > GMAIL_RESYNC_MAX_MESSAGES;
-  return { ids: ids.slice(0, GMAIL_RESYNC_MAX_MESSAGES), historyId: null, resynced: true, truncated };
+  return { ids: [...ids.slice(0, GMAIL_RESYNC_MAX_MESSAGES), ...sentIds], historyId: null, resynced: true, truncated, unreadChanges: [] };
+}
+
+/** I tipi di history che il giro chiede: i messaggi nuovi e i cambi di etichetta. */
+const GMAIL_HISTORY_TYPES = ["messageAdded", "labelAdded", "labelRemoved"];
+
+/**
+ * Area 6, F1.3: applica i cambi di `UNREAD` della history ai messaggi di
+ * QUESTA casella che Stubwise ha (gli altri si ignorano: non si scarica
+ * niente per un cambio di etichetta). Vince l'ultimo cambio di ogni
+ * messaggio; un UPDATE per stato, non uno per messaggio.
+ */
+async function applyUnreadChanges(
+  db: Db,
+  accountId: string,
+  changes: { messageId: string; unread: boolean }[],
+): Promise<void> {
+  if (changes.length === 0) return;
+  const last = new Map<string, boolean>();
+  for (const change of changes) last.set(change.messageId, change.unread);
+  for (const unread of [true, false]) {
+    const ids = [...last].filter(([, value]) => value === unread).map(([id]) => id);
+    if (ids.length === 0) continue;
+    await db
+      .update(emailMessages)
+      .set({ unread })
+      .where(and(eq(emailMessages.accountId, accountId), inArray(emailMessages.gmailMessageId, ids)));
+  }
+}
+
+/** Il messaggio l'ha mandato Stubwise (un'email NUOVA crea così la sua conversazione)? */
+async function sentFromStubwise(db: Db, accountId: string, gmailMessageId: string, rfcMessageId: string | null): Promise<boolean> {
+  // Dal `gmail_message_id` (scritto dal mittente dopo l'invio) o dal NOSTRO
+  // Message-ID (review F3, punto 6): il poller può vedere l'email prima che il
+  // mittente abbia registrato l'invio, e saltarla sarebbe per sempre.
+  const [row] = await db
+    .select({ id: mailOutgoing.id })
+    .from(mailOutgoing)
+    .where(
+      and(
+        eq(mailOutgoing.accountId, accountId),
+        rfcMessageId
+          ? or(eq(mailOutgoing.gmailMessageId, gmailMessageId), eq(mailOutgoing.rfcMessageId, rfcMessageId))
+          : eq(mailOutgoing.gmailMessageId, gmailMessageId),
+      ),
+    )
+    .limit(1);
+  return Boolean(row);
+}
+
+/** Il thread è già in Stubwise, per questa casella? */
+async function threadKnown(db: Db, accountId: string, threadId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: emailMessages.id })
+    .from(emailMessages)
+    .where(and(eq(emailMessages.accountId, accountId), eq(emailMessages.threadId, threadId)))
+    .limit(1);
+  return Boolean(row);
 }
 
 /** Gli id che questa casella ha già in `email_messages`: non si riscaricano. */
@@ -903,7 +1046,22 @@ async function syncGmail(
   const logger = deps.logger ?? defaultLogger;
   const now = deps.now ?? (() => new Date());
 
+  // Lotto 8, voce 2: gli alias della casella, riletti al più una volta al giorno
+  // (la stessa regola del server), FAIL-OPEN: senza, conta la copia che c'è.
+  if (gmail.listSendAs && (!account.sendAsFetchedAt || now().getTime() - account.sendAsFetchedAt.getTime() > SEND_AS_MAX_AGE_MS)) {
+    try {
+      const list = await gmail.listSendAs({ accessToken: ctx.accessToken });
+      await deps.db.update(googleAccounts).set({ sendAs: list, sendAsFetchedAt: now() }).where(eq(googleAccounts.id, account.id));
+      account.sendAs = list;
+    } catch (err) {
+      logger.warn(`[google] alias della casella ${account.id} non riletti: ${String(err)}`);
+    }
+  }
+
   const batch = await collectMessageIds(deps, ctx, account);
+  // Prima dell'ingestione: un messaggio nuovo prende poi la sua etichetta di
+  // adesso dal `full`, che è comunque lo stato più recente.
+  await applyUnreadChanges(deps.db, account.id, batch.unreadChanges);
   const ids = await filterAlreadyIngested(deps.db, account.id, batch.ids);
 
   let ingested = 0;
@@ -939,22 +1097,75 @@ async function syncGmail(
     // l'unica difesa che vale per entrambi.
     seenHistoryId = maxHistoryId(seenHistoryId, metadata.historyId);
 
-    if (isFromMailbox(metadata, ctx.credentials.email)) continue;
-
-    const admission = admit(messageToRouting(metadata), ctx.admission, ctx.receivingDomain);
-    if (!admission.admitted) {
-      await recordRejection(deps, account, metadata, admission.reason);
+    if (isFromMailbox(metadata, ctx.credentials.email, account.sendAs.map((a) => a.email))) {
+      // Area 6, F3 *(O)*: la posta MANDATA dalla casella entra nel thread che
+      // Stubwise ha già (una risposta scritta da Stubwise o da Gmail), come
+      // CONTESTO (`admitted = false`, mai classificata: non è una richiesta
+      // ricevuta). Un thread che Stubwise non ha resta fuori, come prima.
+      if ((await threadKnown(deps.db, account.id, metadata.threadId)) || (await sentFromStubwise(deps.db, account.id, id, metadata.headers["message-id"]?.trim() || null))) {
+        const sentFull = await gmail.getMessageFull({ accessToken: ctx.accessToken, id });
+        const rows = await deps.db
+          .insert(emailMessages)
+          .values({
+            ...buildEmailMessageInsert({
+              accountId: account.id,
+              message: sentFull,
+              text: sentFull.payload ? extractText(sentFull.payload) : "",
+              projectId: null,
+              candidateProjectIds: [],
+              scopeProjectIds: [],
+              now: now(),
+              admitted: false,
+            }),
+            status: "ignored",
+          })
+          .onConflictDoNothing()
+          .returning({ id: emailMessages.id });
+        if (rows.length > 0) ingested += 1;
+      }
       continue;
+    }
+
+    // Area 7, F2 (S8, C-F2-0): OGNI messaggio ricevuto entra nelle automazioni
+    // della casella (F2-1 = tutte *(M)*), prima e a prescindere dall'ammissione.
+    // Senza automazioni né attese su questa casella non legge niente in più.
+    try {
+      await automationMailIn(
+        deps.db,
+        { accountId: account.id, gmailMessageId: id, threadId: metadata.threadId, from: normalizeAddress(metadata.headers["from"]), subject: metadata.headers["subject"] ?? "", automated: isAutomatedMail(metadata.headers) },
+        async () => {
+          const full = await gmail.getMessageFull({ accessToken: ctx.accessToken, id });
+          return full.payload ? extractText(full.payload) : "";
+        },
+      );
+    } catch (err) {
+      // Fail-open: un guasto delle automazioni non ferma la posta.
+      logger.warn(`google: automazioni per il messaggio ${id} non riuscite: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    if (!deps.classifyV2) {
+      const admission = admit(messageToRouting(metadata), ctx.admission, ctx.receivingDomain);
+      if (!admission.admitted) {
+        await recordRejection(deps, account, metadata, admission.reason);
+        continue;
+      }
     }
 
     const full = await gmail.getMessageFull({ accessToken: ctx.accessToken, id });
     const text = full.payload ? extractText(full.payload) : "";
-    const resolved = matchRoutes(messageToRouting(full, text), ctx.routes);
+    // Con la classificazione nuova i progetti li dice il classificatore (fra
+    // i candidati dei destinatari), non le regole della posta.
+    const resolved = deps.classifyV2
+      ? { projectId: null, candidateProjectIds: [], scopeProjectIds: [] }
+      : matchRoutes(messageToRouting(full, text), ctx.routes);
 
+    // F5a (C1): l'email degli appunti di Gemini, riconosciuta solo con
+    // mittente, esito di Gmail e link al Doc (`gemini.ts`).
+    const gemini = recognizeGeminiNotes(full);
     const inserted = await deps.db
       .insert(emailMessages)
-      .values(
-        buildEmailMessageInsert({
+      .values({
+        ...buildEmailMessageInsert({
           accountId: account.id,
           message: full,
           text,
@@ -963,12 +1174,30 @@ async function syncGmail(
           scopeProjectIds: resolved.scopeProjectIds,
           now: now(),
         }),
-      )
+        kind: gemini ? "transcript" : "email",
+      })
       // L'unique `(account_id, gmail_message_id)` è l'idempotenza del poller:
       // rileggere la stessa history due volte non duplica niente.
       .onConflictDoNothing()
-      .returning({ id: emailMessages.id });
+      .returning({ id: emailMessages.id, rfcMessageId: emailMessages.rfcMessageId });
     if (inserted.length > 0) ingested += 1;
+    if (gemini && inserted[0]) {
+      // Una riunione per email (la chiave è il Message-ID): la stessa email in
+      // un'altra casella non ne crea una seconda. ⚠️ Review F5a, punto 2: i
+      // link sono CANDIDATI, e `doc_file_id` resta un segnaposto finché il
+      // worker non ne VERIFICA uno su Drive (`meetings.ts`): un link ostile
+      // non può occupare l'id di un Doc vero.
+      const key = inserted[0].rfcMessageId ?? `gmail:${account.id}:${id}`;
+      const [already] = inserted[0].rfcMessageId
+        ? await deps.db.select({ id: meetingNotes.id }).from(meetingNotes).where(eq(meetingNotes.rfcMessageId, inserted[0].rfcMessageId)).limit(1)
+        : [];
+      if (!already) {
+        await deps.db
+          .insert(meetingNotes)
+          .values({ docFileId: `unverified:${key}`, docCandidates: gemini.docCandidates, sourceMessageId: inserted[0].id, rfcMessageId: inserted[0].rfcMessageId })
+          .onConflictDoNothing();
+      }
+    }
     await forgetRejections(deps, account, [id]);
 
     // IL THREAD INTERO («la posta si legge per conversazione» §2, Task 8).
@@ -1023,7 +1252,8 @@ async function runClassifyPhase(
   // Nessun runner = fase 2 spenta (vedi GooglePollerDeps.runner).
   if (!deps.runner) return empty;
   try {
-    return await classifyNewMessages(
+    // Area 6, F2: la classificazione nuova dietro MAIL_CLASSIFY_V2.
+    return await (deps.classifyV2 ? classifyNewMessagesV2 : classifyNewMessages)(
       {
         db: deps.db,
         runner: deps.runner,
@@ -1114,17 +1344,24 @@ async function collectCalendarEvents(
   deps: GooglePollerDeps,
   ctx: AccountContext,
   account: ClaimedAccount,
-): Promise<{ events: GoogleCalendarEvent[]; syncToken: string | null }> {
+): Promise<{ events: GoogleCalendarEvent[]; syncToken: string | null; full: boolean }> {
   const logger = deps.logger ?? defaultLogger;
   const now = deps.now ?? (() => new Date());
 
-  if (account.calendarSyncToken) {
+  // Con una LINEA DI BASE da fare (F3b: il primo giro dopo «tutti gli eventi»,
+  // o il primo col flag della dottrina nuova) il token NON vale: serve la
+  // finestra intera, o gli eventi già esistenti non entrerebbero mai (review
+  // F3b, punto 1 — un worker vecchio può aver salvato un token nuovo).
+  if (account.calendarSyncToken && !calendarBaselinePending(deps, account)) {
     try {
-      return await drainCalendarPages(deps, account, {
-        accessToken: ctx.accessToken,
-        syncToken: account.calendarSyncToken,
-        showDeleted: true,
-      });
+      return {
+        ...(await drainCalendarPages(deps, account, {
+          accessToken: ctx.accessToken,
+          syncToken: account.calendarSyncToken,
+          showDeleted: true,
+        })),
+        full: false,
+      };
     } catch (err) {
       if (!isSyncTokenExpired(err)) throw err;
       logger.info(
@@ -1138,12 +1375,20 @@ async function collectCalendarEvents(
   }
 
   const { timeMin, timeMax } = calendarWindow(now());
-  return drainCalendarPages(deps, account, {
-    accessToken: ctx.accessToken,
-    timeMin,
-    timeMax,
-    showDeleted: true,
-  });
+  return {
+    ...(await drainCalendarPages(deps, account, {
+      accessToken: ctx.accessToken,
+      timeMin,
+      timeMax,
+      showDeleted: true,
+    })),
+    full: true,
+  };
+}
+
+/** Una linea di base del calendario è ancora da fare (F3b)? */
+function calendarBaselinePending(deps: GooglePollerDeps, account: ClaimedAccount): boolean {
+  return account.calendarBaselineAt === null || (deps.classifyV2 === true && account.calendarV2BaselineAt === null);
 }
 
 /**
@@ -1161,20 +1406,35 @@ async function closeCancelledEvents(
   googleEventIds: string[],
 ): Promise<number> {
   if (googleEventIds.length === 0) return 0;
-  const closed = await db
-    .update(calendarEventsTable)
-    .set({
-      status: "cancelled",
-      outcome: sql`coalesce(${calendarEventsTable.outcome}, ${JSON.stringify(CALENDAR_CANCELLED_OUTCOME)}::jsonb)`,
-    })
-    .where(
-      and(
-        eq(calendarEventsTable.accountId, accountId),
-        inArray(calendarEventsTable.googleEventId, googleEventIds),
-      ),
-    )
-    .returning({ id: calendarEventsTable.id });
-  return closed.length;
+  // Riga e card nella STESSA transazione, come il ramo del rifiuto (review
+  // F3b, punto 2): una card rimasta aperta su un evento cancellato puntava a
+  // una riga che la potatura poi toglieva.
+  return db.transaction(async (tx) => {
+    const closed = await tx
+      .update(calendarEventsTable)
+      .set({
+        status: "cancelled",
+        outcome: sql`coalesce(${calendarEventsTable.outcome}, ${JSON.stringify(CALENDAR_CANCELLED_OUTCOME)}::jsonb)`,
+      })
+      .where(
+        and(
+          eq(calendarEventsTable.accountId, accountId),
+          inArray(calendarEventsTable.googleEventId, googleEventIds),
+        ),
+      )
+      .returning({ id: calendarEventsTable.id, notificationId: calendarEventsTable.proposalNotificationId, sharedId: calendarEventsTable.calendarProposalId });
+    const cards = closed.flatMap((r) => (r.notificationId ? [r.notificationId] : []));
+    if (cards.length > 0) {
+      await tx
+        .update(notifications)
+        .set({ status: "handled", handledAt: new Date() })
+        .where(and(inArray(notifications.id, cards), eq(notifications.status, "open")));
+    }
+    // Lotto 9, voce 2 (d): una copia di una proposta CONDIVISA cancellata.
+    const shared = [...new Set(closed.flatMap((r) => (r.sharedId ? [r.sharedId] : [])))];
+    if (shared.length > 0) await closeCancelledSharedCalendarProposals(tx, accountId, shared);
+    return closed.length;
+  });
 }
 
 /**
@@ -1209,14 +1469,31 @@ async function syncCalendar(
   account: ClaimedAccount,
 ): Promise<{ syncToken: string | null; stats: CalendarPhaseStats }> {
   const stats: CalendarPhaseStats = { events: 0, ready: 0, cancelled: 0 };
-  const { events, syncToken } = await collectCalendarEvents(deps, ctx, account);
-  if (events.length === 0) return { syncToken, stats };
+  const { events, syncToken, full } = await collectCalendarEvents(deps, ctx, account);
+  // La linea di base si chiude SOLO dopo un resync della finestra finito con
+  // un token e non interrotto (review F3b, punto 1).
+  const finish = async (aborted: boolean) => {
+    if (aborted) return { syncToken: null, stats };
+    if (full && syncToken !== null) await settleCalendarBaseline(deps.db, account, deps.classifyV2 === true);
+    return { syncToken, stats };
+  };
+  if (events.length === 0) return finish(false);
 
-  stats.cancelled = await closeCancelledEvents(
-    deps.db,
-    account.id,
-    events.filter(isCancelled).map((event) => event.id),
-  );
+  const cancelledIds = events.filter(isCancelled).map((event) => event.id);
+  // F3b: un evento VISTO (non candidato) cancellato su Google se ne va, e
+  // sparisce dal calendario; un candidato si chiude come prima (la sua storia).
+  if (cancelledIds.length > 0) {
+    await deps.db
+      .delete(calendarEventsTable)
+      .where(
+        and(
+          eq(calendarEventsTable.accountId, account.id),
+          inArray(calendarEventsTable.googleEventId, cancelledIds),
+          eq(calendarEventsTable.proposalCandidate, false),
+        ),
+      );
+  }
+  stats.cancelled = await closeCancelledEvents(deps.db, account.id, cancelledIds);
 
   const lang = deps.lang ?? (await getContentLanguage(deps.db));
 
@@ -1237,17 +1514,58 @@ async function syncCalendar(
   // Un evento può comparire più volte in un resync paginato: vince l'ultima
   // versione letta, che è anche la più recente. `startsAt` viaggia a parte
   // perché qui è garantito non nullo e il tipo di Google non lo sa.
-  const live = new Map<string, { event: GoogleCalendarEvent; startsAt: Date; fingerprint: string }>();
+  // F3b: TUTTI gli eventi della finestra diventano righe (il calendario è
+  // della persona), tranne quelli che non sono appuntamenti. Il CANDIDATO a
+  // una proposta è esattamente ciò che entrava prima: con un titolo e in
+  // perimetro per le regole (`proposal_candidate`). Le proposte non cambiano.
+  // Col flag acceso (F3b, task 7) la DOTTRINA NUOVA: candidato = un invitato
+  // membro esplicito di UN progetto (escluso il proprietario), calcolato per
+  // LOTTO; le regole non contano più. Col flag spento: le regole, come prima.
+  const v2 = deps.classifyV2 === true;
+  const v2Projects = v2 ? await attendeeProjects(deps.db, events, account.userId) : null;
+  const live = new Map<
+    string,
+    {
+      event: GoogleCalendarEvent;
+      startsAt: Date;
+      fingerprint: string;
+      candidate: boolean;
+      projectId: string | null;
+      projectBy: "rules" | "model" | null;
+      /** Lotto 9, voce 2 (a): candidato con più progetti, il progetto lo sceglie `calendar-guess.ts`. */
+      guessed: boolean;
+    }
+  >();
   for (const event of events) {
     if (isCancelled(event)) continue;
+    if (CALENDAR_EXCLUDED_EVENT_TYPES.has(event.eventType)) continue;
     const startsAt = event.startsAt;
     if (!startsAt) continue;
     if (startsAt < timeMin || startsAt > timeMax) continue;
-    if (!buildMilestoneProposal(lang, event)) continue;
-    if (!routeEvent(event, ctx.routes).inScope) continue;
-    live.set(event.id, { event, startsAt, fingerprint: computeFingerprint(event.title, startsAt) });
+    const titled = buildMilestoneProposal(lang, event) !== null;
+    let candidate: boolean;
+    let projectId: string | null;
+    let projectBy: "rules" | "model" | null;
+    let guessed = false;
+    if (v2Projects) {
+      const projects = v2Projects.get(event.id) ?? [];
+      // Lotto 9, voce 2 (a): un evento SINGOLO con PIÙ progetti è candidato
+      // senza progetto; lo sceglie il modello (`calendar-guess.ts`, una volta
+      // per evento) e sotto la soglia nasce la «Quale progetto?» condivisa.
+      // Le occorrenze delle serie con più progetti restano fuori, com'erano.
+      guessed = titled && projects.length > 1 && event.recurringEventId === null;
+      candidate = (titled && projects.length === 1) || guessed;
+      projectId = candidate && !guessed ? projects[0]! : null;
+      projectBy = projectId ? "model" : null;
+    } else {
+      const routed = routeEvent(event, ctx.routes);
+      candidate = titled && routed.inScope;
+      projectId = candidate ? routed.projectId : null;
+      projectBy = candidate && routed.projectId ? "rules" : null;
+    }
+    live.set(event.id, { event, startsAt, fingerprint: computeFingerprint(event.title, startsAt), candidate, projectId, projectBy, guessed });
   }
-  if (live.size === 0) return { syncToken, stats };
+  if (live.size === 0) return finish(false);
 
   // La regola di ricorrenza delle serie toccate da questo lotto: UNA
   // chiamata per SERIE, e solo per quelle che non conosciamo o che sono
@@ -1260,7 +1578,9 @@ async function syncCalendar(
   );
 
   const ids = [...live.keys()];
-  const fingerprints = [...live.values()].map((entry) => entry.fingerprint);
+  // L'impronta (il doppione «stesso giorno, stesso titolo») vale fra CANDIDATI,
+  // come prima: un evento solo visto non possiede né ruba un'impronta.
+  const fingerprints = [...live.values()].filter((entry) => entry.candidate).map((entry) => entry.fingerprint);
 
   // Due letture per tutto il lotto, non due per evento: quello che serve è
   // "questa riga esiste già?" e "questo appuntamento è già tracciato sotto un
@@ -1270,6 +1590,7 @@ async function syncCalendar(
       googleEventId: calendarEventsTable.googleEventId,
       proposalNotificationId: calendarEventsTable.proposalNotificationId,
       outcome: calendarEventsTable.outcome,
+      proposalCandidate: calendarEventsTable.proposalCandidate,
     })
     .from(calendarEventsTable)
     .where(
@@ -1280,7 +1601,7 @@ async function syncCalendar(
     );
   const byEventId = new Map(known.map((row) => [row.googleEventId, row]));
 
-  const sameFingerprint = await deps.db
+  const sameFingerprint = fingerprints.length === 0 ? [] : await deps.db
     .select({
       googleEventId: calendarEventsTable.googleEventId,
       fingerprint: calendarEventsTable.fingerprint,
@@ -1290,6 +1611,7 @@ async function syncCalendar(
       and(
         eq(calendarEventsTable.accountId, account.id),
         inArray(calendarEventsTable.fingerprint, fingerprints),
+        eq(calendarEventsTable.proposalCandidate, true),
       ),
     );
   const ownerOfFingerprint = new Map<string, string>();
@@ -1299,9 +1621,19 @@ async function syncCalendar(
     }
   }
 
-  for (const { event, startsAt, fingerprint } of live.values()) {
-    if (deps.signal?.aborted) break;
-    const resolved = routeEvent(event, ctx.routes);
+  // La linea di base: il primo giro completo dopo «tutti gli eventi», o il
+  // primo col flag della dottrina nuova acceso.
+  const v2Baseline = v2 && account.calendarV2BaselineAt === null;
+  const baseline = account.calendarBaselineAt === null || v2Baseline;
+  let aborted = false;
+  for (const { event, startsAt, fingerprint, candidate, projectId: candidateProjectId, projectBy, guessed } of live.values()) {
+    if (deps.signal?.aborted) {
+      // Interrotto a metà: niente token (il giro dopo riparte da qui) e
+      // nessuna linea di base chiusa (review F3b, punto 1).
+      aborted = true;
+      break;
+    }
+    const resolved = { projectId: candidateProjectId };
     const fresh = {
       title: event.title.trim(),
       startsAt,
@@ -1325,9 +1657,30 @@ async function syncCalendar(
       status: normalizeStatus(event.status),
       fingerprint,
       recurringEventId: event.recurringEventId,
+      eventType: event.eventType,
+      transparency: event.transparency,
+      // F4, task 0: i dati per scrivere.
+      etag: event.etag,
+      icalUid: event.iCalUID,
+      visibility: event.visibility,
+      organizerSelf: event.organizerSelf,
+      // F5a: gli allegati (dove Gemini attacca il Doc degli appunti).
+      attachments: event.attachments,
     };
 
     const existing = byEventId.get(event.id);
+    if (existing && !candidate) {
+      // Un evento che ORA non è candidato: prima non sarebbe stato nemmeno
+      // aggiornato. Si rinfrescano i dati visti, mai il progetto né lo stato
+      // di candidato (un candidato non torna indietro: le sue proposte restano
+      // quelle di prima).
+      await deps.db
+        .update(calendarEventsTable)
+        .set(fresh)
+        .where(and(eq(calendarEventsTable.accountId, account.id), eq(calendarEventsTable.googleEventId, event.id)));
+      stats.events += 1;
+      continue;
+    }
     if (existing) {
       const stillOpen = existing.proposalNotificationId === null && existing.outcome === null;
       // Una proposta GIÀ PUBBLICATA e non ancora decisa: è l'unico caso in
@@ -1372,7 +1725,20 @@ async function syncCalendar(
 
       await deps.db
         .update(calendarEventsTable)
-        .set(stillOpen ? { ...fresh, projectId: resolved.projectId } : fresh)
+        .set(
+          stillOpen
+            ? {
+                ...fresh,
+                proposalCandidate: true,
+                // Lotto 9, voce 2 (a): con più progetti il progetto è della
+                // SCELTA (`project_guess`), non del sync: non si riscrive.
+                ...(guessed ? {} : { projectId: resolved.projectId, projectBy }),
+                // Una riga che DIVENTA candidata nella linea di base della dottrina
+                // nuova nasce chiusa, come una nuova: accendere il flag non propone.
+                ...(v2Baseline && !existing.proposalCandidate ? { outcome: CALENDAR_BASELINE_OUTCOME } : {}),
+              }
+            : { ...fresh, proposalCandidate: true },
+        )
         .where(
           and(
             eq(calendarEventsTable.accountId, account.id),
@@ -1386,15 +1752,20 @@ async function syncCalendar(
     // Stesso giorno e stesso titolo sotto un altro id: è l'appuntamento che
     // stiamo già seguendo, ricreato. Si scrive la riga (tracciabilità) con un
     // esito che la esclude dalle candidate.
-    const owner = ownerOfFingerprint.get(fingerprint);
+    const owner = candidate ? ownerOfFingerprint.get(fingerprint) : undefined;
     const duplicate = owner !== undefined && owner !== event.id;
     const inserted = await deps.db
       .insert(calendarEventsTable)
       .values({
         accountId: account.id,
         googleEventId: event.id,
-        projectId: resolved.projectId,
-        outcome: duplicate ? duplicateOutcome(owner) : null,
+        // Un evento solo visto non ha progetto: nessuna regola l'ha riconosciuto.
+        projectId: candidate ? resolved.projectId : null,
+        projectBy: candidate ? projectBy : null,
+        proposalCandidate: candidate,
+        // La LINEA DI BASE: nel primo giro completo dopo «tutti gli eventi»
+        // un candidato nuovo nasce chiuso (niente proposta, card, auto).
+        outcome: duplicate ? duplicateOutcome(owner) : candidate && baseline ? CALENDAR_BASELINE_OUTCOME : null,
         ...fresh,
       })
       // L'unique `(account_id, google_event_id)` è l'idempotenza della fase 3.
@@ -1403,6 +1774,7 @@ async function syncCalendar(
     if (inserted.length === 0) continue;
 
     stats.events += 1;
+    if (!candidate) continue;
     // Fix di review (fase 9, Task 1): questo conteggio è ciò che il log e i
     // test leggono come «pronta a una proposta» — deve restare d'accordo con
     // `isReadyForProposal`, non solo con la query del propose phase. Per un
@@ -1423,7 +1795,35 @@ async function syncCalendar(
     if (!ownerOfFingerprint.has(fingerprint)) ownerOfFingerprint.set(fingerprint, event.id);
   }
 
-  return { syncToken, stats };
+  return finish(aborted);
+}
+
+/** I tipi di Google che non sono appuntamenti (F3b, decisione di 46): non entrano. */
+export const CALENDAR_EXCLUDED_EVENT_TYPES: ReadonlySet<string> = new Set(["workingLocation", "birthday"]);
+
+/** L'esito della linea di base (F3b): un candidato già esistente al primo giro completo non propone. */
+export const CALENDAR_BASELINE_OUTCOME = { type: "baseline" } as const;
+
+/** Fine del primo giro completo: da qui in poi un evento nuovo propone come sempre. */
+async function settleCalendarBaseline(db: Db, account: ClaimedAccount, v2 = false): Promise<void> {
+  if (account.calendarBaselineAt === null) {
+    // Le occorrenze già in tabella di una serie accesa col progetto SCELTO
+    // diverso da quello della riga: prima del fix a40c1a61 erano scartate in
+    // silenzio, e ora proporrebbero tutte insieme al primo giro (anche `auto`).
+    // Entrano nella linea di base del deploy (review F3b, minore).
+    await db.execute(sql`
+      update calendar_events e set outcome = ${JSON.stringify(CALENDAR_BASELINE_OUTCOME)}::jsonb
+      from calendar_series s
+      where e.account_id = ${account.id}
+        and s.account_id = e.account_id and s.recurring_event_id = e.recurring_event_id
+        and s.enabled and s.project_id is not null and s.project_id is distinct from e.project_id
+        and e.proposal_notification_id is null and e.outcome is null
+    `);
+    await db.update(googleAccounts).set({ calendarBaselineAt: new Date() }).where(and(eq(googleAccounts.id, account.id), isNull(googleAccounts.calendarBaselineAt)));
+  }
+  if (v2 && account.calendarV2BaselineAt === null) {
+    await db.update(googleAccounts).set({ calendarV2BaselineAt: new Date() }).where(and(eq(googleAccounts.id, account.id), isNull(googleAccounts.calendarV2BaselineAt)));
+  }
 }
 
 /**
@@ -1583,6 +1983,25 @@ function suggestedProjectIdsOf(classification: unknown): string[] {
 }
 
 /**
+ * Review della F1 (punti 1 e 4): le condizioni delle proposte valgono alla
+ * SELEZIONE delle righe, non al claim. La casella ha le proposte ACCESE
+ * adesso (spente a giro in corso, la fase non pesca niente)…
+ */
+export function accountProposingSql(accountId: SQL | AnyColumn): SQL {
+  return sql`exists (select 1 from ${googleAccounts} where ${googleAccounts.id} = ${accountId} and ${googleAccounts.proposalsEnabled})`;
+}
+
+/** …e la posta è stata ingerita dopo il taglio `proposals_since` (null = nessun taglio). */
+export function afterProposalsCutSql(accountId: SQL | AnyColumn, createdAt: SQL | AnyColumn): SQL {
+  return sql`not exists (
+    select 1 from ${googleAccounts}
+    where ${googleAccounts.id} = ${accountId}
+      and ${googleAccounts.proposalsSince} is not null
+      and ${createdAt} < ${googleAccounts.proposalsSince}
+  )`;
+}
+
+/**
  * FASE 4 del giro: le righe già trattate diventano PROPOSTE in inbox.
  *
  * È la fase che rende visibile tutto il resto: senza di lei un messaggio
@@ -1657,7 +2076,14 @@ async function runProposePhase(
         and(
           eq(emailMessages.accountId, account.id),
           eq(emailProposals.status, "classified"),
+          // Solo le proposte del proprietario della casella: quelle CONDIVISE
+          // (F2, `mail_recipients`) le pubblica `publishSharedProposals` più
+          // sotto. Senza questo filtro la fase le prendeva prima, non ne
+          // leggeva la classificazione v2 e le chiudeva `ignored` (review F2).
+          eq(emailProposals.audience, "mailbox_owner"),
           isNull(emailProposals.proposalNotificationId),
+          accountProposingSql(emailMessages.accountId),
+          afterProposalsCutSql(emailMessages.accountId, emailMessages.createdAt),
         ),
       )
       .orderBy(asc(emailMessages.receivedAt), asc(emailProposals.id))
@@ -1725,9 +2151,23 @@ async function runProposePhase(
       .where(
         and(
           eq(calendarEventsTable.accountId, account.id),
+          // Il calendario non ha taglio (regola dell'orchestratrice): solo le
+          // proposte accese ADESSO.
+          accountProposingSql(calendarEventsTable.accountId),
+          // F3b: un evento solo VISTO non diventa MAI una proposta, nemmeno
+          // un'occorrenza di una serie accesa (a flag spento le occorrenze
+          // proponibili restano quelle in perimetro, come prima).
+          eq(calendarEventsTable.proposalCandidate, true),
           sql`${calendarEventsTable.status} is distinct from 'cancelled'`,
           isNull(calendarEventsTable.proposalNotificationId),
           isNull(calendarEventsTable.outcome),
+          // Lotto 9, voce 2 (d): un evento SINGOLO non passa più da qui. È una
+          // proposta CONDIVISA fra gli invitati, una per appuntamento e
+          // progetto (`publishSharedCalendarProposals`, `calendar-shared.ts`);
+          // da qui passano solo le occorrenze delle serie, per casella come
+          // prima. I rami «evento singolo» qui sotto restano per quella
+          // funzione, che li ripete.
+          isNotNull(calendarEventsTable.recurringEventId),
           // Fix di review: il progetto CERTO è quello ri-dedotto dal routing
           // SOLO per un evento singolo (prima riga), quello FISSATO sulla
           // serie SOLO per un'occorrenza che ne appartiene una (seconda
@@ -1812,6 +2252,8 @@ async function runProposePhase(
           eq(emailMessages.accountId, account.id),
           eq(emailMessages.status, "classified"),
           isNull(emailMessages.proposalNotificationId),
+          accountProposingSql(emailMessages.accountId),
+          afterProposalsCutSql(emailMessages.accountId, emailMessages.createdAt),
           sql`${emailMessages.classification} ->> 'triage' = 'true'`,
           notExists(
             deps.db
@@ -1837,6 +2279,10 @@ async function runProposePhase(
     const projectNames = await projectNamesOf(deps.db, [
       ...proposalRows.map((row) => row.proposalProjectId),
       ...events.map((event) => event.projectId),
+      // Il progetto SCELTO sulla serie (F3b): senza il suo nome
+      // `buildCalendarProposalEvent` scartava in silenzio l'occorrenza di una
+      // serie col progetto diverso da quello delle regole.
+      ...events.map((event) => event.seriesProjectId),
       ...triageRows.flatMap((row) => suggestedProjectIdsOf(row.classification)),
     ]);
 
@@ -2158,18 +2604,152 @@ async function runAccountTick(
 
   // Fase 2 — classificazione dei messaggi `new` (compresi quelli rimasti
   // indietro dai giri precedenti, non solo quelli appena ingeriti).
-  const classify = await runClassifyPhase(deps, account);
+  // Proposte spente (decisione del maintainer del 12 nov 2026): la casella si
+  // legge (fasi 1 e 3), ma niente classificazione né pubblicazione — nessun
+  // run del modello, nessuna riga `email_proposals`, nessuna card, nessuna
+  // azione automatica del calendario. Riaccese, il taglio `proposals_since`
+  // tiene fuori la posta ingerita nel frattempo (`classify.ts`).
+  const classify = account.proposalsEnabled
+    ? await runClassifyPhase(deps, account)
+    : { classified: 0, ignored: 0, failed: 0 };
+
+  // Fase 2b — area 8, «Clienti in attesa» (J2): il giudizio «serve una mia
+  // risposta?» sui thread che passano il taglio (24 ore) e non ce l'hanno
+  // ancora. Anche con le proposte spente (W-3 = a): non è una proposta né una
+  // card. Fail-open: un guasto qui non tocca il resto del giro.
+  if (deps.runner && deps.select) {
+    try {
+      await judgeWaitingThreads(
+        {
+          db: deps.db,
+          runner: deps.runner,
+          select: deps.select,
+          ...(deps.lang ? { lang: deps.lang === "it" ? "it" : "en" } : {}),
+          ...(deps.now ? { now: deps.now } : {}),
+          ...(deps.gmailMaxPerDay !== undefined ? { maxPerDay: deps.gmailMaxPerDay } : {}),
+          log: (m) => (deps.logger ?? defaultLogger).warn(m),
+        },
+        account.id,
+      );
+    } catch (err) {
+      (deps.logger ?? defaultLogger).error(`google: giudizio dei clienti in attesa di ${account.email}: ${errText(err)}`);
+    }
+  }
 
   // Fase 3 — calendario `primary` → righe candidate a una proposta di
   // milestone. Se lancia, il chiamante mette la casella in backoff e il
   // cursore del calendario resta dov'era: la posta ha già il suo.
   const calendar = await syncCalendar(deps, ctx, account);
   await applyCalendarCursor(deps, account, calendar.syncToken);
+  // Lotto 9, voce 2 (d): un invitato che ha rifiutato DOPO la pubblicazione
+  // di una proposta condivisa si vede chiudere la sua card. Anche a proposte
+  // spente, come la chiusura per rifiuto di quelle per casella (`syncCalendar`).
+  try {
+    await closeDeclinedCalendarRecipients({ db: deps.db, ...(deps.logger ? { logger: deps.logger } : {}) }, account.id);
+  } catch (err) {
+    (deps.logger ?? defaultLogger).error(`google: rifiuti delle proposte condivise del calendario di ${account.email}: ${errText(err)}`);
+  }
 
   // Fase 4 — le righe pronte (di questo giro e di quelli prima) diventano
   // proposte in inbox. Dopo i cursori: non parla con Google, e un suo guasto
   // non deve poter costare una risincronizzazione.
-  const proposed = await runProposePhase(deps, account);
+  let proposed = account.proposalsEnabled ? await runProposePhase(deps, account) : 0;
+  // Lotto 9, voce 2 (d): gli eventi SINGOLI di questa casella, condivisi fra
+  // gli invitati (una proposta per appuntamento e progetto). Le serie sono
+  // passate da `runProposePhase`, per casella.
+  // Lotto 9, voce 2 (a): un evento singolo con PIÙ progetti candidati —
+  // il modello ne sceglie uno (una volta per evento, fuori dal tetto della
+  // posta); sotto la soglia nasce la «Quale progetto?» condivisa, subito dopo.
+  // Con la classificazione nuova e le proposte accese, come la posta.
+  // Fail-open: un guasto lascia le righe da indovinare al giro dopo.
+  if (account.proposalsEnabled && deps.classifyV2 && deps.runner) {
+    try {
+      await guessCalendarProjects(
+        {
+          db: deps.db,
+          runner: deps.runner,
+          select: deps.select,
+          maxPerTick: deps.classifyMaxPerTick ?? DEFAULT_CLASSIFY_MAX_PER_TICK,
+          ...(deps.gmailModel !== undefined ? { model: deps.gmailModel } : {}),
+          ...(deps.now ? { now: deps.now } : {}),
+          ...(deps.signal ? { signal: deps.signal } : {}),
+          ...(deps.logger ? { logger: deps.logger } : {}),
+        },
+        { id: account.id, userId: account.userId, email: account.email },
+      );
+    } catch (err) {
+      (deps.logger ?? defaultLogger).error(`google: progetto degli appuntamenti di ${account.email}: ${errText(err)}`);
+    }
+  }
+  if (account.proposalsEnabled) {
+    try {
+      proposed += await publishSharedCalendarProposals(
+        {
+          db: deps.db,
+          ...(deps.lang ? { lang: deps.lang } : {}),
+          ...(deps.publish ? { publish: deps.publish } : {}),
+          ...(deps.now ? { now: deps.now } : {}),
+          ...(deps.logger ? { logger: deps.logger } : {}),
+          limit: Math.max(0, Math.trunc(deps.proposeMaxPerTick ?? DEFAULT_PROPOSE_MAX_PER_TICK)),
+        },
+        { id: account.id, userId: account.userId, email: account.email },
+      );
+    } catch (err) {
+      (deps.logger ?? defaultLogger).error(`google: proposte condivise del calendario di ${account.email}: ${errText(err)}`);
+    }
+    try {
+      proposed += await publishCalendarChooseProposals(
+        {
+          db: deps.db,
+          ...(deps.lang ? { lang: deps.lang } : {}),
+          ...(deps.publish ? { publish: deps.publish } : {}),
+          ...(deps.now ? { now: deps.now } : {}),
+          ...(deps.logger ? { logger: deps.logger } : {}),
+          limit: Math.max(0, Math.trunc(deps.proposeMaxPerTick ?? DEFAULT_PROPOSE_MAX_PER_TICK)),
+        },
+        { id: account.id, userId: account.userId, email: account.email },
+      );
+    } catch (err) {
+      (deps.logger ?? defaultLogger).error(`google: «Quale progetto?» del calendario di ${account.email}: ${errText(err)}`);
+    }
+  }
+  // Area 6, F5a: le riunioni registrate di questa casella (il Doc di Gemini
+  // letto con QUESTA casella, il riassunto e le proposte della riunione).
+  // Dopo il calendario (gli allegati degli eventi sono freschi), prima della
+  // pubblicazione (le proposte nate qui escono nello stesso giro). Con la
+  // classificazione nuova e le proposte accese, come la classificazione.
+  if (account.proposalsEnabled && deps.classifyV2 && deps.runner) {
+    try {
+      await processMeetingNotes({
+        db: deps.db,
+        runner: deps.runner,
+        select: deps.select,
+        account: { id: account.id, email: account.email, scopes: account.scopes, proposalsSince: account.proposalsSince },
+        accessToken: ctx.accessToken,
+        ...(deps.drive ? { drive: deps.drive } : {}),
+        ...(deps.lang ? { lang: deps.lang } : {}),
+        ...(deps.meetingModel !== undefined ? { model: deps.meetingModel } : {}),
+        ...(deps.now ? { now: deps.now } : {}),
+        ...(deps.logger ? { logger: deps.logger } : {}),
+        ...(deps.signal ? { signal: deps.signal } : {}),
+      });
+    } catch (err) {
+      (deps.logger ?? defaultLogger).error(`google: riunioni registrate di ${account.email}: ${errText(err)}`);
+    }
+  }
+  // Area 6, F2: le proposte CONDIVISE nate dalla posta di questa casella, una
+  // card per destinatario membro (D4). Le crea solo la classificazione nuova,
+  // che ha già rispettato l'interruttore di questa casella.
+  if (account.proposalsEnabled) {
+    try {
+      proposed += await publishSharedProposals(
+        { db: deps.db, ...(deps.lang ? { lang: deps.lang } : {}), ...(deps.publish ? { publish: deps.publish } : {}) },
+        account.id,
+      );
+    } catch (err) {
+      (deps.logger ?? defaultLogger).error(`google: pubblicazione delle proposte condivise di ${account.email} fallita: ${errText(err)}`);
+    }
+  }
 
   return { ingested: gmailResult.ingested, classify, calendar: calendar.stats, proposed };
 }
@@ -2262,6 +2842,67 @@ async function runAccountTick(
  * candidata invece che ai fratelli.
  */
 const admittedAlias = alias(emailMessages, "admitted_sibling");
+
+/**
+ * Quanti giorni oltre l'inizio della finestra del calendario (−30) una riga
+ * resta, prima di potarla: uno, così il bordo non oscilla fra un giro e
+ * l'altro (F3b).
+ */
+export const CALENDAR_PRUNE_GRACE_DAYS = 1;
+
+/** L'esito di una proposta del calendario rimasta aperta su un evento uscito dalla finestra. */
+export const CALENDAR_EXPIRED_OUTCOME = { type: "expired" } as const;
+
+/**
+ * LA POTATURA DEL CALENDARIO (area 6, F3b). Con TUTTI gli eventi la tabella
+ * cresce di centinaia di righe per casella: a regime deve restare quella della
+ * finestra. Prima si tolgono le righe vecchie SENZA una proposta aperta;
+ * POI si chiudono come `expired` le proposte rimaste aperte su eventi vecchi
+ * (riga e card insieme), che se ne vanno al giro dopo — mai una card che
+ * punta a una riga sparita. Nessuna tabella punta a `calendar_events`, e il
+ * registro decisioni tiene i fatti per conto suo.
+ */
+export async function pruneOldCalendarEvents(db: Db, now: Date = new Date()): Promise<number> {
+  // L'orologio del GIRO (`deps.now`), non quello del database: la finestra
+  // del calendario si calcola con quello, e i due devono essere d'accordo.
+  const cutoff = new Date(now.getTime() - (CALENDAR_LOOKBACK_DAYS + CALENDAR_PRUNE_GRACE_DAYS) * 24 * 3600_000);
+  const removed = await db
+    .delete(calendarEventsTable)
+    .where(
+      and(
+        // La FINE dell'evento (review F3b): uno di più giorni ancora in corso resta.
+        sql`coalesce(${calendarEventsTable.endsAt}, ${calendarEventsTable.startsAt}) < ${cutoff.toISOString()}::timestamptz`,
+        sql`(${calendarEventsTable.proposalNotificationId} is null or ${calendarEventsTable.outcome} is not null)`,
+        // Mai una riga la cui card è ancora APERTA (review F3b, punto 2).
+        sql`not exists (select 1 from notifications n where n.id = ${calendarEventsTable.proposalNotificationId} and n.status = 'open')`,
+      ),
+    )
+    .returning({ id: calendarEventsTable.id });
+  await db.transaction(async (tx) => {
+    const expired = await tx
+      .update(calendarEventsTable)
+      .set({ outcome: CALENDAR_EXPIRED_OUTCOME })
+      .where(
+        and(
+          sql`coalesce(${calendarEventsTable.endsAt}, ${calendarEventsTable.startsAt}) < ${cutoff.toISOString()}::timestamptz`,
+          isNotNull(calendarEventsTable.proposalNotificationId),
+          isNull(calendarEventsTable.outcome),
+        ),
+      )
+      .returning({ notificationId: calendarEventsTable.proposalNotificationId });
+    const cards = expired.flatMap((r) => (r.notificationId ? [r.notificationId] : []));
+    if (cards.length > 0) {
+      await tx
+        .update(notifications)
+        .set({ status: "handled", handledAt: new Date() })
+        .where(and(inArray(notifications.id, cards), eq(notifications.status, "open")));
+    }
+  });
+  // Lotto 9, voce 2 (d): le proposte CONDIVISE non hanno la loro riga qui, e
+  // si chiudono `expired` per conto loro, con le card di tutti.
+  await expireOldSharedCalendarProposals(db, cutoff);
+  return removed.length;
+}
 
 export async function pruneOldEmails(db: Db, retentionDays: number): Promise<number> {
   if (retentionDays <= 0) return 0;
@@ -2403,6 +3044,11 @@ export async function pollGoogleOnce(deps: GooglePollerDeps): Promise<GoogleTick
     logger.error(`google: potatura dei messaggi fallita: ${errText(err)}`);
   }
   try {
+    stats.pruned += await pruneOldCalendarEvents(deps.db, (deps.now ?? (() => new Date()))());
+  } catch (err) {
+    logger.error(`google: potatura del calendario fallita: ${errText(err)}`);
+  }
+  try {
     await pruneOldRejections(deps.db, REJECTIONS_RETENTION_DAYS);
   } catch (err) {
     logger.error(`google: potatura delle mail tenute fuori fallita: ${errText(err)}`);
@@ -2438,40 +3084,141 @@ export async function pollGoogleOnce(deps: GooglePollerDeps): Promise<GoogleTick
     return stats;
   }
 
-  for (const account of accounts) {
-    if (deps.signal?.aborted) break;
+  for (const [index, account] of accounts.entries()) {
+    if (deps.signal?.aborted) {
+      // Review della F1 (punto 3): il claim ha spostato `next_sync_at` in
+      // avanti anche per le caselle che questo giro non servirà; quelle con
+      // una richiesta di «Aggiorna ora» tornano dovute subito.
+      await requeueSyncRequests(deps, accounts.slice(index).map((row) => row.id));
+      break;
+    }
     try {
-      const result = await runAccountTick(deps, account, routes, admission);
-      if (!result) continue;
-      stats.ingested += result.ingested;
-      stats.classified += result.classify.classified;
-      stats.ignoredMessages += result.classify.ignored;
-      stats.failedMessages += result.classify.failed;
-      stats.calendarEvents += result.calendar.events;
-      stats.calendarReady += result.calendar.ready;
-      stats.calendarCancelled += result.calendar.cancelled;
-      stats.proposed += result.proposed;
-      await applySuccess(deps, account);
-    } catch (err) {
-      try {
-        if (await applyFailure(deps, account, err)) stats.disabled += 1;
-      } catch (inner) {
-        // Difesa finale: se nemmeno registrare il fallimento riesce, il claim
-        // ha comunque già spostato `next_sync_at` e il tick prosegue.
-        logger.error(
-          `google: esito non registrato per ${account.email}: ${errText(inner)} (errore originale: ${errText(err)})`,
-        );
-      }
+      await serveAccount(deps, account, routes, admission, stats);
+    } finally {
+      // «Aggiorna ora»: il giro di questa casella è finito, riuscito o no.
+      await settleSyncRequest(deps, account);
     }
   }
 
   return stats;
 }
 
+/** Le caselle indicate con una richiesta in attesa tornano dovute adesso. Non lancia. */
+async function requeueSyncRequests(deps: GooglePollerDeps, accountIds: string[]): Promise<void> {
+  if (accountIds.length === 0) return;
+  try {
+    await deps.db
+      .update(googleAccounts)
+      .set({ nextSyncAt: sql`now()` })
+      .where(and(inArray(googleAccounts.id, accountIds), isNotNull(googleAccounts.syncRequestedAt)));
+  } catch (err) {
+    (deps.logger ?? defaultLogger).error(`google: richieste di «Aggiorna ora» non riaccodate: ${errText(err)}`);
+  }
+}
+
+/**
+ * All'avvio del poller (review della F1, punto 3): un giro morto con il
+ * processo (crash) lascia le caselle reclamate con `next_sync_at` in avanti.
+ * Il worker è UN processo, quindi all'avvio nessun giro è in corso: ogni
+ * richiesta di «Aggiorna ora» ancora in attesa rende la sua casella dovuta.
+ */
+export async function recoverSyncRequests(db: Db): Promise<void> {
+  await db
+    .update(googleAccounts)
+    .set({ nextSyncAt: sql`now()` })
+    .where(and(isNotNull(googleAccounts.syncRequestedAt), isNull(googleAccounts.disabledAt)));
+}
+
+/**
+ * A fine giro di una casella, la richiesta di «Aggiorna ora» (area 6, F1.2).
+ *
+ * - Quella VISTA al claim si azzera: il giro l'ha servita, riuscito o no.
+ * - Una scritta a giro IN CORSO (dopo il claim: un altro istante) resta, e la
+ *   casella torna dovuta adesso: l'esito del giro ha appena riportato
+ *   `next_sync_at` all'intervallo (o al backoff), e senza questo la richiesta
+ *   aspetterebbe il giro normale.
+ * - Una casella che il giro ha disabilitato non tiene richieste: il claim non
+ *   la vedrebbe più, e la riga resterebbe «in attesa» per sempre.
+ *
+ * Il confronto è al millisecondo perché `Date` non porta i µs di Postgres. Non
+ * lancia: un errore qui lascia la richiesta al giro dopo.
+ */
+async function settleSyncRequest(deps: GooglePollerDeps, account: ClaimedAccount): Promise<void> {
+  const seen = account.syncRequestedAt?.toISOString() ?? null;
+  const servedNow = sql`(${googleAccounts.disabledAt} is not null or date_trunc('milliseconds', ${googleAccounts.syncRequestedAt}) = ${seen}::timestamptz)`;
+  try {
+    await deps.db
+      .update(googleAccounts)
+      .set({
+        syncRequestedAt: sql`case when ${servedNow} then null else ${googleAccounts.syncRequestedAt} end`,
+        nextSyncAt: sql`case when ${servedNow} then ${googleAccounts.nextSyncAt} else now() end`,
+      })
+      .where(and(eq(googleAccounts.id, account.id), isNotNull(googleAccounts.syncRequestedAt)));
+  } catch (err) {
+    (deps.logger ?? defaultLogger).error(`google: richiesta di «Aggiorna ora» non sistemata per ${account.email}: ${errText(err)}`);
+  }
+}
+
+/** Il giro di UNA casella dentro il tick, col suo esito registrato. Non lancia. */
+async function serveAccount(
+  deps: GooglePollerDeps,
+  account: ClaimedAccount,
+  routes: EmailRoute[],
+  admission: AdmissionConfig,
+  stats: GoogleTickStats,
+): Promise<void> {
+  const logger = deps.logger ?? defaultLogger;
+  try {
+    const result = await runAccountTick(deps, account, routes, admission);
+    if (!result) return;
+    stats.ingested += result.ingested;
+    stats.classified += result.classify.classified;
+    stats.ignoredMessages += result.classify.ignored;
+    stats.failedMessages += result.classify.failed;
+    stats.calendarEvents += result.calendar.events;
+    stats.calendarReady += result.calendar.ready;
+    stats.calendarCancelled += result.calendar.cancelled;
+    stats.proposed += result.proposed;
+    await applySuccess(deps, account);
+  } catch (err) {
+    try {
+      if (await applyFailure(deps, account, err)) stats.disabled += 1;
+    } catch (inner) {
+      // Difesa finale: se nemmeno registrare il fallimento riesce, il claim
+      // ha comunque già spostato `next_sync_at` e il tick prosegue.
+      logger.error(
+        `google: esito non registrato per ${account.email}: ${errText(inner)} (errore originale: ${errText(err)})`,
+      );
+    }
+  }
+}
+
 export interface StartGooglePollerOptions extends Omit<GooglePollerDeps, "signal"> {
   /** Intervallo di poll in minuti. ≤ 0 = disabilitato (non avvia nulla). */
   intervalMinutes: number;
   signal: AbortSignal;
+  /**
+   * «Aggiorna ora» (area 6, F1.2): LISTEN sul canale della richiesta. Assente
+   * o fallito, resta il ripiego periodico.
+   */
+  listen?: (channel: string, cb: (payload: string) => void) => Promise<unknown>;
+  /** Ogni quanto il ripiego guarda se c'è una richiesta dovuta. Default 15 s. */
+  requestPollMs?: number;
+}
+
+/** Il ripiego di «Aggiorna ora» quando il NOTIFY non arriva. */
+export const DEFAULT_SYNC_REQUEST_POLL_MS = 15_000;
+
+/** C'è una richiesta di «Aggiorna ora» che il claim prenderebbe adesso? */
+async function hasDueSyncRequest(db: Db): Promise<boolean> {
+  const rows = await db
+    .select({ id: googleAccounts.id })
+    .from(googleAccounts)
+    .where(
+      sql`${googleAccounts.syncRequestedAt} is not null and ${googleAccounts.disabledAt} is null and ${googleAccounts.nextSyncAt} <= now()`,
+    )
+    .limit(1);
+  return rows.length > 0;
 }
 
 /**
@@ -2486,12 +3233,22 @@ export function startGooglePoller(opts: StartGooglePollerOptions): () => void {
   if (opts.intervalMinutes <= 0) {
     return () => {};
   }
-  const { signal, ...deps } = opts;
+  const { signal, listen, requestPollMs, ...deps } = opts;
   let running = false;
+  void recoverSyncRequests(opts.db).catch((err: unknown) =>
+    logger.error(`google: recupero delle richieste di «Aggiorna ora» fallito: ${errText(err)}`),
+  );
+  // Una sveglia arrivata a giro in corso: il giro dopo parte appena finisce
+  // questo, perché il claim di questo è già passato e non l'ha vista.
+  let again = false;
 
   const tick = async (): Promise<void> => {
-    if (running) return;
+    if (running) {
+      again = true;
+      return;
+    }
     running = true;
+    again = false;
     try {
       const stats = await pollGoogleOnce({ ...deps, signal });
       if (stats.accounts > 0 || stats.ingested > 0 || stats.pruned > 0) {
@@ -2509,6 +3266,7 @@ export function startGooglePoller(opts: StartGooglePollerOptions): () => void {
       logger.error(`google: tick fallito: ${errText(err)}`);
     } finally {
       running = false;
+      if (again && !signal.aborted) void tick();
     }
   };
 
@@ -2518,7 +3276,30 @@ export function startGooglePoller(opts: StartGooglePollerOptions): () => void {
   // Non tenere vivo il processo solo per il poller.
   if (typeof timer.unref === "function") timer.unref();
 
-  const stop = (): void => clearInterval(timer);
+  // «Aggiorna ora»: la sveglia dal server. Il payload non decide niente — il
+  // giro reclama le caselle DOVUTE come sempre, e la rotta ha reso dovuta
+  // quella chiesta — quindi un NOTIFY spurio costa al più un claim vuoto.
+  if (listen) {
+    listen(GOOGLE_SYNC_REQUEST_CHANNEL, () => {
+      if (!signal.aborted) void tick();
+    }).catch((err: unknown) => {
+      logger.warn(`google: LISTEN di «Aggiorna ora» fallito, resta il ripiego periodico: ${errText(err)}`);
+    });
+  }
+  const requestTimer = setInterval(() => {
+    if (running || signal.aborted) return;
+    void hasDueSyncRequest(opts.db)
+      .then((due) => {
+        if (due) void tick();
+      })
+      .catch((err: unknown) => logger.error(`google: controllo di «Aggiorna ora» fallito: ${errText(err)}`));
+  }, requestPollMs ?? DEFAULT_SYNC_REQUEST_POLL_MS);
+  if (typeof requestTimer.unref === "function") requestTimer.unref();
+
+  const stop = (): void => {
+    clearInterval(timer);
+    clearInterval(requestTimer);
+  };
   signal.addEventListener("abort", stop, { once: true });
   return stop;
 }

@@ -1,11 +1,9 @@
-import { useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { isAppBuild } from "../../data/build";
+import { featureIntegrated } from "../../data/integration";
 import {
-  useEmailDraftFor,
-  useFollowConversation,
-  useLoadMailDraft,
-  useSaveMailDraft,
   useSessionPersonId,
   useSimulateCustomerLeaves,
   useSimulateCustomerMessage,
@@ -13,17 +11,13 @@ import {
   useSupportConversation,
   type SupportConversationView,
 } from "../../data/queries";
-import { now } from "../../data/dates";
 import { useMediaQuery } from "../../layout/useMediaQuery";
-import { MenuGroup, MenuNote, itemClass } from "../../tasks-ui/Menu";
+import { MenuGroup, itemClass } from "../../tasks-ui/Menu";
 import { PageError, PageSkeleton } from "../../tasks-ui/PageStates";
 import { useToast } from "../../tasks-ui/Toast";
 import { quietButton, secondaryButton } from "../claude/conversation/parts";
-import { openGoogleAccount } from "../drive/GoogleAccountCard";
-import { requestCompose } from "../mail/composeRequest";
 import { MoreGlyph } from "../mail/glyphs";
 import { dayLabel } from "../mail/format";
-import { ago } from "../releases/format";
 import { MenuButton } from "../tasks/controls";
 import { typing } from "../tasks/useTaskKeys";
 import { CustomerPreview } from "./CustomerPreview";
@@ -33,59 +27,39 @@ import { ReplyComposer } from "./ReplyComposer";
 import { pendingFor, usePendingReplies } from "./replyStore";
 import { RequestBlock } from "./RequestBlock";
 import { WhoCanLink } from "../../components/WhoCanLink";
-import { ClaudeSuggestionRow } from "../../tasks-ui/ClaudeSuggestionRow";
 
 // Il dettaglio di una conversazione (shape support.md §3, §5, §6): in testa
 // cosa vuole il cliente (il blocco della richiesta), sotto la conversazione
-// che lo prova, in fondo la casella — solo per chi ha `support.reply` e mai
-// durante il triage (R-K15). «Anteprima del cliente» (P) mostra ciò che vede
-// lui; «Scrivigli anche per email» apre la Posta con una bozza nello slot
-// della conversazione (R-K14), che parte solo da «Invia» di una persona.
+// che lo prova. Area 8, F3 (decisione del maintainer): al cliente del widget
+// il team non scrive MAI — la conversazione si legge e basta; con un esito è
+// chiusa, e un messaggio nuovo del cliente apre la successiva («Continued in
+// …» / «Follow-up of …»). La casella c'è solo sul canale `mcp` (i
+// collaboratori interni), per chi ha `support.manage`. «Anteprima del
+// cliente» (P) mostra ciò che vede lui.
 
-/** Dopo quanti minuti senza il cliente si dice che non è più sul sito [A 12]. */
-const AWAY_MINUTES = 30;
-
-/** «Scrivigli anche per email»: la bozza nella Posta (la sua, se c'era già), poi la Posta. */
-function useWriteByEmail() {
+/** «Continued in ACQ-S9» / «Follow-up of ACQ-S3»: il legame fra una chiusa e la successiva. */
+function ContinuationLine({
+  conv,
+  which,
+}: {
+  conv: SupportConversationView;
+  which: "in" | "from";
+}) {
   const { t } = useTranslation();
-  const toast = useToast();
-  const navigate = useNavigate();
-  const emailDraft = useEmailDraftFor();
-  const load = useLoadMailDraft();
-  const save = useSaveMailDraft();
-  return async (code: string) => {
-    try {
-      const { slot, draft } = await emailDraft.mutateAsync(code);
-      // Una bozza già scritta per questo cliente non si sovrascrive.
-      const saved = await load(null, "new", slot);
-      if (!saved.to.length && !saved.subject.trim() && !saved.body.trim()) {
-        await save.mutateAsync({
-          threadId: null,
-          mode: "new",
-          replyToMessageId: null,
-          to: draft.to,
-          cc: [],
-          subject: draft.subject,
-          body: draft.body,
-          attachments: [],
-          slot,
-        });
-      }
-      requestCompose({ threadId: null, mode: "new", focus: "body", slot });
-      void navigate({ to: "/mail", search: { compose: slot } as never });
-    } catch {
-      toast.error(t("support.reply.emailError"));
-    }
-  };
-}
-
-/** Il cliente non è più sul sito: da quando, se è passato abbastanza. */
-function awaySince(conv: SupportConversationView, nowIso: string): string | null {
-  if (conv.channel !== "widget") return null;
-  const lastCustomer = [...conv.messages].reverse().find((m) => m.from === "customer")?.at;
-  const since = conv.leftAt ?? lastCustomer;
-  if (!since) return null;
-  return (Date.parse(nowIso) - Date.parse(since)) / 60_000 >= AWAY_MINUTES ? since : null;
+  const other = which === "in" ? conv.continuedIn : conv.continuedFrom;
+  if (!other) return null;
+  return (
+    <p className="text-sm text-ink-muted" data-support-continuation={which}>
+      {t(which === "in" ? "support.detail.continuedIn" : "support.detail.continuedFrom")}{" "}
+      <Link
+        to="/p/$code/support/$conversation"
+        params={{ code: conv.projectCode, conversation: other.code }}
+        className="num rounded-sm font-semibold text-ink underline-offset-4 hover:underline"
+      >
+        {other.code}
+      </Link>
+    </p>
+  );
 }
 
 function Header({
@@ -93,17 +67,14 @@ function Header({
   previewOpen,
   togglePreview,
   previewButton,
-  writeByEmail,
 }: {
   conv: SupportConversationView;
   previewOpen: boolean;
   togglePreview: () => void;
   previewButton: React.RefObject<HTMLButtonElement | null>;
-  writeByEmail: () => void;
 }) {
   const { t, i18n } = useTranslation();
   const toast = useToast();
-  const follow = useFollowConversation();
   const message = useSimulateCustomerMessage();
   const leaves = useSimulateCustomerLeaves();
   const triage = useSimulateTriageDone();
@@ -131,6 +102,12 @@ function Header({
                 ? t("support.detail.widgetChannel", { name: conv.widgetName })
                 : t("support.channel.widget")
               : t("support.channel.mcp"),
+            // API per i siti (S6): chi è il cliente lo dice un token firmato, o solo il sito.
+            conv.channel === "widget" && featureIntegrated("support-identity")
+              ? conv.identityVerified
+                ? t("support.detail.verified")
+                : t("support.detail.declared")
+              : null,
             conv.customer.email,
             started
               ? t("support.detail.started", { date: dayLabel(started, i18n.language) })
@@ -157,17 +134,6 @@ function Header({
         >
           {t("support.detail.preview")}
         </button>
-        <button
-          type="button"
-          aria-pressed={conv.following}
-          disabled={follow.isPending}
-          onClick={() =>
-            follow.mutate({ code: conv.code, on: !conv.following }, { onError: failed })
-          }
-          className={quietButton}
-        >
-          {conv.following ? t("support.detail.following") : t("support.detail.follow")}
-        </button>
         <MenuButton
           menuLabel={t("support.detail.more")}
           ariaLabel={t("support.detail.more")}
@@ -187,77 +153,49 @@ function Header({
                 >
                   {t("support.detail.copyLink")}
                 </button>
-                {conv.emailBlocked === null && (
+              </MenuGroup>
+              {/* Le simulazioni del cliente sono solo del prototipo (area 8, F3). */}
+              {!isAppBuild() && (
+                <MenuGroup label={t("support.detail.prototype")}>
                   <button
                     type="button"
                     role="menuitem"
                     tabIndex={-1}
                     className={itemClass}
-                    onClick={() => (close(), writeByEmail())}
+                    onClick={() => {
+                      close();
+                      message.mutate(
+                        { code: conv.code, body: t("support.detail.simulatedText") },
+                        { onError: failed },
+                      );
+                    }}
                   >
-                    {t("support.detail.writeEmail")}
+                    {t("support.detail.simulateMessage")}
                   </button>
-                )}
-                {conv.emailBlocked !== null && conv.emailBlocked !== "no_permission" && (
-                  <>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      tabIndex={-1}
-                      aria-disabled="true"
-                      className={`${itemClass} text-ink-faint hover:bg-transparent`}
-                    >
-                      {t("support.detail.writeEmail")}
-                    </button>
-                    <MenuNote>
-                      {conv.emailBlocked === "no_email"
-                        ? t("support.reply.noEmail")
-                        : conv.emailBlocked === "triage"
-                          ? t("support.reply.noEmailTriage")
-                          : t("support.reply.noMailbox")}
-                    </MenuNote>
-                  </>
-                )}
-              </MenuGroup>
-              <MenuGroup label={t("support.detail.prototype")}>
-                <button
-                  type="button"
-                  role="menuitem"
-                  tabIndex={-1}
-                  className={itemClass}
-                  onClick={() => {
-                    close();
-                    message.mutate(
-                      { code: conv.code, body: t("support.detail.simulatedText") },
-                      { onError: failed },
-                    );
-                  }}
-                >
-                  {t("support.detail.simulateMessage")}
-                </button>
-                {conv.state === "triage" && (
-                  <>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      tabIndex={-1}
-                      className={itemClass}
-                      onClick={() => (close(), leaves.mutate(conv.code, { onError: failed }))}
-                    >
-                      {t("support.detail.simulateLeaves")}
-                    </button>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      tabIndex={-1}
-                      className={itemClass}
-                      onClick={() => (close(), triage.mutate(conv.code, { onError: failed }))}
-                    >
-                      {t("support.detail.simulateTriage")}
-                    </button>
-                  </>
-                )}
-              </MenuGroup>
+                  {conv.state === "triage" && (
+                    <>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        tabIndex={-1}
+                        className={itemClass}
+                        onClick={() => (close(), leaves.mutate(conv.code, { onError: failed }))}
+                      >
+                        {t("support.detail.simulateLeaves")}
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        tabIndex={-1}
+                        className={itemClass}
+                        onClick={() => (close(), triage.mutate(conv.code, { onError: failed }))}
+                      >
+                        {t("support.detail.simulateTriage")}
+                      </button>
+                    </>
+                  )}
+                </MenuGroup>
+              )}
             </>
           )}
         </MenuButton>
@@ -276,7 +214,7 @@ export function ConversationDetail({
   back?: React.ReactNode;
   notFound: React.ReactNode;
 }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const me = useSessionPersonId();
   const q = useSupportConversation(code);
   const docked = useMediaQuery(PREVIEW_DOCKED_QUERY);
@@ -284,7 +222,6 @@ export function ConversationDetail({
   const previewButton = useRef<HTMLButtonElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const lastRef = useRef<HTMLLIElement>(null);
-  const writeByEmail = useWriteByEmail();
   usePendingReplies();
   const conv = q.data;
 
@@ -338,7 +275,6 @@ export function ConversationDetail({
 
   const name = firstName(conv, t);
   const pending = pendingFor(me, conv.code);
-  const away = awaySince(conv, now());
   const previewPanel = preview && (
     <CustomerPreview
       key={conv.code}
@@ -351,37 +287,7 @@ export function ConversationDetail({
   );
   if (preview && !docked) return <div className="flex min-h-0 flex-1">{previewPanel}</div>;
 
-  const footer =
-    conv.channel === "mcp" ? (
-      <p className="text-xs text-ink-muted">{t("support.reply.nextTime")}</p>
-    ) : (
-      <div className="flex flex-col gap-1 text-xs text-ink-muted">
-        {away && <p>{t("support.reply.lastSeen", { name, time: ago(away, t, i18n.language) })}</p>}
-        {conv.emailBlocked === null && (
-          <p>
-            <button
-              type="button"
-              onClick={() => void writeByEmail(conv.code)}
-              className="rounded-sm font-semibold text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
-            >
-              {t("support.detail.writeEmail")}
-            </button>
-          </p>
-        )}
-        {conv.emailBlocked === "no_mailbox" && (
-          <p>
-            {t("support.reply.noMailbox")} ·{" "}
-            <button
-              type="button"
-              onClick={() => openGoogleAccount()}
-              className="rounded-sm font-semibold text-ink underline decoration-ink/30 underline-offset-2"
-            >
-              {t("support.reply.connect")}
-            </button>
-          </p>
-        )}
-      </div>
-    );
+  const footer = <p className="text-xs text-ink-muted">{t("support.reply.nextTime")}</p>;
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1">
@@ -392,32 +298,25 @@ export function ConversationDetail({
       >
         <div className="mx-auto flex w-full max-w-[760px] flex-col gap-6 px-8 pt-6 pb-10">
           {back}
-          <div className="flex flex-col gap-1">
-            <Header
-              conv={conv}
-              previewOpen={preview}
-              togglePreview={() => (preview ? closePreview() : setPreview(true))}
-              previewButton={previewButton}
-              writeByEmail={() => void writeByEmail(conv.code)}
-            />
-            {/* Area 10b: «Claude can help you write the reply», sotto la riga meta. */}
-            <ClaudeSuggestionRow place={{ kind: "support", conversationId: conv.id }} />
-          </div>
+          <Header
+            conv={conv}
+            previewOpen={preview}
+            togglePreview={() => (preview ? closePreview() : setPreview(true))}
+            previewButton={previewButton}
+          />
+          <ContinuationLine conv={conv} which="from" />
           <RequestBlock conv={conv} />
           <Messages conv={conv} pending={pending} lastSentRef={lastRef} />
-          {!conv.canReply ? (
+          <ContinuationLine conv={conv} which="in" />
+          {conv.channel !== "mcp" ? null : !conv.canReplyToCollaborator ? (
             <p className="border-t border-rule pt-4 text-xs text-ink-muted">
               {t("support.reply.readOnly")}{" "}
-              <WhoCanLink action="replyCustomers" projectCode={conv.projectCode} />
-            </p>
-          ) : conv.replyClosed === "triage" ? (
-            <p className="border-t border-rule pt-4 text-xs text-ink-muted">
-              {t("support.reply.triage")}
+              <WhoCanLink action="manageSupport" projectCode={conv.projectCode} />
             </p>
           ) : (
             // Agganciata in fondo alla colonna (shape support §6, il momento
-            // focale): desiderio in alto, bozza e «Send to customer» si vedono
-            // insieme anche quando la conversazione è lunga.
+            // focale): la richiesta in alto, la casella si vede anche quando
+            // la conversazione è lunga.
             <div
               data-reply-dock
               className="sticky bottom-0 z-10 -mx-8 -mb-10 bg-ground px-8 pt-1 pb-6"

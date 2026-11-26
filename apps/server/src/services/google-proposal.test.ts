@@ -508,6 +508,8 @@ describe("answerGoogleProposal — create_backlog_item", () => {
     const jobs = await db.select().from(backlogJobs).where(eq(backlogJobs.projectId, projectId));
     expect(jobs).toHaveLength(1);
     expect(jobs[0]!.kind).toBe("intake");
+    // Nata da un'email in entrata (review della F3): la richiesta lo ricorderà.
+    expect(jobs[0]!.payload).toMatchObject({ externalOrigin: "email" });
 
     // Fase 6b: l'esito si scrive sul FIGLIO, non più sul messaggio padre.
     const proposal = await readEmailProposal(child.id);

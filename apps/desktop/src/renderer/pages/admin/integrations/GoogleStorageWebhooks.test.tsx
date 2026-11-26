@@ -289,23 +289,41 @@ describe("Storage", () => {
 // --- Outgoing webhooks -------------------------------------------------------------
 
 describe("Outgoing webhooks", () => {
-  it("formato e indirizzo: salvati senza riconferma, riaprendo la pagina l'indirizzo si rilegge in chiaro", async () => {
+  const SEED = "wh-seed";
+  const SEED_URL = "https://hooks.slack.com/services/T01AUDIN/B07STUB/prototype";
+
+  it("l'elenco: il webhook migrato con formato, indirizzo, eventi; il nome porta alla sua pagina", async () => {
     const user = userEvent.setup();
-    const router = renderRoute("/admin/webhooks", ROBERTA);
+    renderRoute("/admin/webhooks", ROBERTA);
     expect(await heading("Outgoing webhooks")).toBeVisible();
+    const rows = await screen.findAllByRole("listitem");
+    const row = rows.find((r) => r.hasAttribute("data-webhook-row"))!;
+    expect(row).toHaveTextContent("Webhook");
+    expect(row).toHaveTextContent("Slack");
+    expect(row).toHaveTextContent(SEED_URL);
+    expect(row).toHaveTextContent("4 of 21 events");
+    expect(screen.getByRole("link", { name: "New webhook" })).toBeVisible();
+    await user.click(within(row).getByRole("link", { name: "Webhook" }));
+    expect(await heading("Webhook")).toBeVisible();
+    expect(await screen.findByLabelText("Address")).toHaveValue(SEED_URL);
+  });
+
+  it("formato e indirizzo: l'indirizzo nuovo con la riconferma; riaprendo la pagina si rilegge in chiaro", async () => {
+    const user = userEvent.setup();
+    renderRoute(`/admin/webhooks/${SEED}`, ROBERTA);
     const address = await screen.findByLabelText("Address");
     expect(address).toHaveAttribute("type", "text");
     // Triage T11: un URL non è fra i casi del monospace; stesso corpo dei campi accanto.
     expect(address).not.toHaveClass("font-mono");
-    expect(address).toHaveValue("https://hooks.slack.com/services/T01AUDIN/B07STUB/prototype");
+    expect(address).toHaveValue(SEED_URL);
     expect(
-      screen.getByText("Anyone who can change the instance settings can read this address."),
+      screen.getByText("Anyone who can manage the integrations can read this address."),
     ).toBeVisible();
 
-    // Gli errori sotto il campo, dal livello dati.
+    // Gli errori sotto il campo.
     await user.clear(address);
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(await screen.findByText("Add the address, or turn messages off.")).toBeVisible();
+    expect(await screen.findByText("Add the address.")).toBeVisible();
     await user.type(address, "http://discord.example/hook");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText("Use an https address.")).toBeVisible();
@@ -315,18 +333,86 @@ describe("Outgoing webhooks", () => {
     await user.type(address, url);
     await user.click(screen.getByRole("radio", { name: "Discord" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
+    // Un indirizzo nuovo chiede la riconferma (maintainer, 18 nov 2026).
+    await confirmItsYou(user);
     expect(await screen.findByText("Saved.")).toBeVisible();
-    expect(screen.queryByRole("dialog", { name: "Confirm it's you" })).toBeNull();
-    expect(state.instance.webhook).toMatchObject({ url, format: "discord" });
+    expect(state.instance.webhooks[0]).toMatchObject({ url, format: "discord" });
 
-    await awayAndBack(router, "webhooks", "Outgoing webhooks");
+    cleanup();
+    renderRoute(`/admin/webhooks/${SEED}`, ROBERTA);
     expect(await screen.findByLabelText("Address")).toHaveValue(url);
     expect(screen.getByRole("radio", { name: "Discord" })).toHaveAttribute("aria-checked", "true");
   });
 
+  it("crearne uno: nome, indirizzo, eventi; la riconferma; il segreto si vede UNA volta, poi la sua pagina", async () => {
+    const user = userEvent.setup();
+    renderRoute("/admin/webhooks/new", ROBERTA);
+    expect(await heading("New webhook")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Create webhook" }));
+    expect(await screen.findByText("Give the webhook a name.")).toBeVisible();
+    await user.type(screen.getByLabelText("Name"), "Ops endpoint");
+    await user.type(screen.getByLabelText("Address"), "https://ops.example.test/hooks/stubwise");
+    await user.click(screen.getByRole("radio", { name: "JSON" }));
+    const events = screen.getByRole("region", { name: "Events" });
+    await user.click(within(events).getByRole("switch", { name: "Release failed" }));
+    await user.click(screen.getByRole("button", { name: "Create webhook" }));
+    await confirmItsYou(user);
+    const block = await screen.findByTestId("secret-once");
+    expect(within(block).getByText("Webhook created. Copy its signing secret:")).toBeVisible();
+    const secret = __secretValuesForTest()
+      .find((x) => x.kind === "outgoing_webhook_secret")!
+      .values.at(-1)!;
+    expect(block).toHaveTextContent(secret);
+    const created = state.instance.webhooks.at(-1)!;
+    expect(created).toMatchObject({ name: "Ops endpoint", format: "generic", events: ["release.failed"] });
+    await user.click(within(block).getByRole("button", { name: "Done" }));
+    expect(await heading("Ops endpoint")).toBeVisible();
+    expectNoSecretInDom(secret);
+  });
+
+  it("rigenerare il segreto: la riconferma, il nuovo una volta; «Done» lo dimentica", async () => {
+    const user = userEvent.setup();
+    renderRoute(`/admin/webhooks/${SEED}`, ROBERTA);
+    const section = await screen.findByRole("region", { name: "Signing secret" });
+    expect(within(section).getByText(/^Set · regenerated/)).toBeVisible();
+    await user.click(within(section).getByRole("button", { name: "Regenerate secret" }));
+    const dialog = await screen.findByRole("dialog", { name: "Regenerate the signing secret of Webhook?" });
+    await user.click(within(dialog).getByRole("button", { name: "Regenerate" }));
+    await confirmItsYou(user);
+    const block = await screen.findByTestId("secret-once");
+    const secret = __secretValuesForTest()
+      .find((x) => x.kind === "outgoing_webhook_secret")!
+      .values.at(-1)!;
+    expect(block).toHaveTextContent(secret);
+    await user.click(within(block).getByRole("button", { name: "Done" }));
+    await waitFor(() => expectNoSecretInDom(secret));
+  });
+
+  it("eliminarlo: la riconferma, poi l'elenco senza di lui", async () => {
+    const user = userEvent.setup();
+    renderRoute(`/admin/webhooks/${SEED}`, ROBERTA);
+    await user.click(await screen.findByRole("button", { name: "Delete webhook" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete Webhook?" });
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
+    await confirmItsYou(user);
+    expect(await heading("Outgoing webhooks")).toBeVisible();
+    expect(await screen.findByText("No webhooks yet.")).toBeVisible();
+    expect(state.instance.webhooks).toEqual([]);
+  });
+
+  it("la voce la vede chi gestisce le integrazioni, non più chi cambia le impostazioni (H-1)", async () => {
+    grantInstancePermission("p-marco", "settings.manage" as LocalInstancePermission);
+    renderRoute("/admin/webhooks", "p-marco");
+    expect(await screen.findByText(/not found|doesn't exist/i)).toBeVisible();
+    cleanup();
+    grantInstancePermission("p-marco", "integrations.manage" as LocalInstancePermission);
+    renderRoute("/admin/webhooks", "p-marco");
+    expect(await heading("Outgoing webhooks")).toBeVisible();
+  });
+
   it("un interruttore per ognuno dei 21 eventi, nei sei gruppi; nessuna riga per le risposte dei clienti", async () => {
     const user = userEvent.setup();
-    renderRoute("/admin/webhooks", ROBERTA);
+    renderRoute(`/admin/webhooks/${SEED}`, ROBERTA);
     const events = await screen.findByRole("region", { name: "Events" });
     const groups = within(events).getAllByRole("group");
     expect(groups.map((g) => g.getAttribute("aria-label"))).toEqual([
@@ -355,12 +441,12 @@ describe("Outgoing webhooks", () => {
     expect(within(events).getByText("5 of 21 on")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText("Saved.")).toBeVisible();
-    expect(state.instance.webhook.events["release.failed"]).toBe(true);
+    expect(state.instance.webhooks[0]!.events).toContain("release.failed");
   });
 
   it("l'anteprima segue il formato e l'evento", async () => {
     const user = userEvent.setup();
-    renderRoute("/admin/webhooks", ROBERTA);
+    renderRoute(`/admin/webhooks/${SEED}`, ROBERTA);
     const preview = await screen.findByRole("region", { name: "Preview" });
     expect(within(preview).getByText("Example data")).toBeVisible();
     // Slack, «New task in ACQ»: il codice in grassetto.
@@ -372,7 +458,7 @@ describe("Outgoing webhooks", () => {
     await user.click(within(events).getByRole("switch", { name: "Claude's work failed" }));
     expect(within(preview).getByText(/^Claude's work on/)).toBeVisible();
 
-    await user.click(screen.getByRole("radio", { name: "Generic JSON" }));
+    await user.click(screen.getByRole("radio", { name: "JSON" }));
     const code = within(preview).getByText(/"event": "job.failed"/);
     expect(code.tagName).toBe("CODE");
     expect(code.textContent).toContain('"code": "ACQ-42"');
@@ -384,7 +470,7 @@ describe("Outgoing webhooks", () => {
 
   it("manda una prova con l'esito scelto nel riquadro «Prototype only»", async () => {
     const user = userEvent.setup();
-    renderRoute("/admin/webhooks", ROBERTA);
+    renderRoute(`/admin/webhooks/${SEED}`, ROBERTA);
     await screen.findByLabelText("Address");
     const box = screen.getByRole("region", { name: "Prototype only" });
     expect(
@@ -393,12 +479,17 @@ describe("Outgoing webhooks", () => {
     await user.click(within(box).getByRole("radio", { name: "Unreachable" }));
     await user.click(screen.getByRole("button", { name: "Send a test" }));
     expect(await screen.findByText("Couldn't reach the address")).toBeVisible();
+    // Revisione del lotto 5, M-5: l'errore della destinazione col suo codice,
+    // e le credenziali rifiutate (401/403) a parte.
     await user.click(within(box).getByRole("radio", { name: "Error from the address" }));
     await user.click(screen.getByRole("button", { name: "Send a test" }));
-    expect(await screen.findByText("The address answered with an error")).toBeVisible();
+    expect(await screen.findByText("The address answered with an error (500)")).toBeVisible();
+    await user.click(within(box).getByRole("radio", { name: "Credentials refused" }));
+    await user.click(screen.getByRole("button", { name: "Send a test" }));
+    expect(await screen.findByText("The address refused the credentials (401)")).toBeVisible();
     await user.click(within(box).getByRole("radio", { name: "Delivered" }));
     await user.click(screen.getByRole("button", { name: "Send a test" }));
     expect(await screen.findByText("Sent · delivered")).toBeVisible();
-    expect(state.instance.webhook.lastTest?.outcome).toBe("ok");
+    expect(state.instance.webhooks[0]!.lastTest?.outcome).toBe("ok");
   });
 });

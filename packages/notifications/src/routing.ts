@@ -55,6 +55,20 @@ export interface RoutingContext {
    * `PublishOpts.accountUserId`.
    */
   accountOwner?: string;
+  /** `decision_requests.asked_of_user_id` (audience `decision_target`). */
+  decisionTarget?: string;
+  /** `decision_requests.asked_by_user_id` (audience `decision_asker`). */
+  decisionAsker?: string;
+  /** `ticket_followers` della task (audience `ticket_followers`). */
+  ticketFollowers?: string[];
+  /** Chi ha fatto il cambio: escluso dai `ticket_followers` e dai `task_people`. */
+  actor?: string;
+  /**
+   * Le persone a cui la pubblicazione rivolge l'evento (audience
+   * `task_people`, da `PublishOpts.recipientUserIds`), già ridotte a chi
+   * VEDE la task.
+   */
+  taskPeople?: string[];
 }
 
 /** I pubblici possibili di un kind (vedi {@link AUDIENCE_FOR_KIND}). */
@@ -64,7 +78,11 @@ export type Audience =
   | "requester"
   | "mailbox_owner"
   | "project_deciders"
-  | "account_owner";
+  | "account_owner"
+  | "decision_target"
+  | "decision_asker"
+  | "ticket_followers"
+  | "task_people";
 
 /**
  * Pubblico di un kind: `deciders` per gli eventi che richiedono una DECISIONE
@@ -95,6 +113,25 @@ const AUDIENCE_FOR_KIND: Record<NotificationKind, Audience> = {
   "request.created": "deciders",
   "monitor.alert": "deciders",
   "monitor.recovered": "deciders",
+  // Area 8, F1: chi può mergiare nel progetto deve sapere che un rilascio è fallito (la F2 lo porta nel catalogo).
+  "release.failed": "deciders",
+  // Area 8, F2 (S1): nessun produttore ancora; S2 li porta nel catalogo.
+  "release.merged": "deciders",
+  "release.succeeded": "deciders",
+  "pr.opened": "deciders",
+  "pr.analysis_issues": "deciders",
+  "pr.corrected": "deciders",
+  "docs.release_note": "deciders",
+  // Area 8, F3: nel catalogo (le iscrizioni e i seguaci); `deciders` non è mai consultato.
+  "support.request": "deciders",
+  // Area 10, F5: un avviso del catalogo (sempre con un progetto); il routing di oggi non serve.
+  "member.added": "deciders",
+  // Area 11, F2: avvisi del catalogo (sempre con un progetto); `deciders` non è mai consultato.
+  "product_doc.mention": "deciders",
+  "product_doc.updated": "deciders",
+  "product_doc.question": "deciders",
+  // Area 8, F4b: nel catalogo (le iscrizioni); `deciders` non è mai consultato.
+  "server.diagnosis_ready": "deciders",
   // La domanda dell'AI è rivolta a chi ha chiesto quel lavoro: chi segue il
   // progetto, l'assegnatario e il reporter non c'entrano — rispondere è una
   // decisione sul come procedere, non un aggiornamento da leggere.
@@ -129,6 +166,26 @@ const AUDIENCE_FOR_KIND: Record<NotificationKind, Audience> = {
   // subisce un'azione sul proprio account lo sa») e devono poter evolvere
   // separate. In comune hanno solo che nessun admin entra per ruolo.
   "security.alert": "account_owner",
+  // Integrazione area 2: la persona a cui si chiede di decidere, e quella che
+  // ha chiesto quando arriva la risposta. Nessun decider per ruolo.
+  "decision.requested": "decision_target",
+  "decision.answered": "decision_asker",
+  // I follower della TASK (non del progetto), meno chi ha fatto il cambio.
+  "ticket.activity": "ticket_followers",
+  // Fetta 2: le persone che la scrittura indica (chi aveva la task, chi la
+  // riceve), decise da `planRecipientsOf` di `@stubwise/shared`. Mai l'attore.
+  "planning.changed": "task_people",
+  "task.assigned": "task_people",
+  // Area 4, Chat: UNA persona per pubblicazione, quella nominata. La scrittura
+  // del messaggio ha già controllato che legga il canale; mai un webhook.
+  "chat.mention": "account_owner",
+  "chat.question": "account_owner",
+  // Area 7: UNA persona per pubblicazione, scelta dal motore (chi decide, il
+  // proprietario, i destinatari di `notify` che vedono il progetto).
+  "automation.approval": "account_owner",
+  "automation.failed": "account_owner",
+  "automation.notify": "account_owner",
+  "automation.paused": "account_owner",
 };
 
 /** Pubblico del kind. Unico punto in cui si legge {@link AUDIENCE_FOR_KIND}. */
@@ -166,6 +223,19 @@ export const PERMISSION_FOR_KIND: Record<NotificationKind, KindPermission> = {
   // Fatti d'istanza: chi gestisce il monitor, chi gestisce le impostazioni.
   "monitor.alert": "monitor.manage",
   "monitor.recovered": "monitor.manage",
+  "release.failed": "release.merge",
+  "release.merged": null,
+  "release.succeeded": null,
+  "pr.opened": null,
+  "pr.analysis_issues": null,
+  "pr.corrected": null,
+  "docs.release_note": null,
+  "support.request": null,
+  "member.added": null,
+  "product_doc.mention": null,
+  "product_doc.updated": null,
+  "product_doc.question": null,
+  "server.diagnosis_ready": null,
   "docs.limit_paused": "settings.manage",
   "docs.nightly_attention": "settings.manage",
   // Alla domanda dell'agente risponde, oltre al richiedente, chi può decidere
@@ -189,6 +259,18 @@ export const PERMISSION_FOR_KIND: Record<NotificationKind, KindPermission> = {
   "google.proposal_handed": null,
   // Nessun decider: un solo destinatario, il titolare (vedi `account_owner`).
   "security.alert": null,
+  // Nessun decider: destinatari per persona (vedi le tre audience).
+  "decision.requested": null,
+  "decision.answered": null,
+  "ticket.activity": null,
+  "planning.changed": null,
+  "task.assigned": null,
+  "chat.mention": null,
+  "chat.question": null,
+  "automation.approval": null,
+  "automation.failed": null,
+  "automation.notify": null,
+  "automation.paused": null,
 };
 
 /** Permesso pertinente del kind. Unico punto in cui si legge {@link PERMISSION_FOR_KIND}. */
@@ -255,6 +337,16 @@ export function recipientsFor(event: NotificationEvent, ctx: RoutingContext): st
       // casella: ha già la sua card, e questa esiste perché lui non poteva
       // decidere.
       return visible(ctx.deciders).filter((id) => id !== ctx.mailboxOwner);
+    case "decision_target":
+      // Una persona sola, e solo se vede ancora il progetto della task.
+      return visible([ctx.decisionTarget]);
+    case "decision_asker":
+      return visible([ctx.decisionAsker]);
+    case "ticket_followers":
+      // Chi ha fatto il cambio sa già cosa ha fatto.
+      return visible(ctx.ticketFollowers ?? []).filter((id) => id !== ctx.actor);
+    case "task_people":
+      return visible(ctx.taskPeople ?? []).filter((id) => id !== ctx.actor);
     case "broadcast":
       return visible([
         ...ctx.deciders,

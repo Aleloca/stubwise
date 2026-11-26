@@ -1,13 +1,24 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
 import {
+  aiJobs,
+  alertSubscriptions,
+  notifications,
+  projectMembers,
+  roles,
+  instanceSettings,
+  releaseCiRuns,
   encrypt,
+  environmentServers,
   gitAccounts,
+  prCorrections,
   prReviews,
+  projects,
   projectEnvironments,
+  releases,
   repositories,
   serverMetrics,
   servers,
@@ -15,7 +26,7 @@ import {
   tickets,
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedRepository, seedTicket, startTestDb } from "@stubwise/db/testing";
+import { seedRepository, seedRepositoryInProject, seedTicket, startTestDb } from "@stubwise/db/testing";
 import { addMember, createUserWithPat, seedUsers } from "../test/fixtures.js";
 
 /**
@@ -101,7 +112,7 @@ async function seedOpenPr(overrides: { testStatus?: "passed" | "failed" | "skipp
  * riassunto dalla PR review automatica ma nessun test interno né rischio.
  */
 async function seedExternalPr(
-  overrides: { prUrl?: string; prNumber?: number; verdict?: "approve" | "request_changes" | null } = {},
+  overrides: { prUrl?: string; prNumber?: number; verdict?: "approve" | "request_changes" | null; targetBranch?: string | null } = {},
 ) {
   const [account] = await testDb.db
     .insert(gitAccounts)
@@ -133,6 +144,9 @@ async function seedExternalPr(
     startedAt: new Date(),
     verdict: overrides.verdict === undefined ? "approve" : overrides.verdict,
     prSummary: "Cambia solo un typo.",
+    // Il ramo su cui la PR andrà (review della F1: senza, il merge non registra
+    // il rilascio). `main` è il ramo di default, quindi di rilascio.
+    targetBranch: overrides.targetBranch === undefined ? "main" : overrides.targetBranch,
   });
 
   return { ticketId, repositoryId, prNumber, prUrl };
@@ -286,6 +300,36 @@ describe("POST /api/tickets/:id/repositories/:repositoryId/release", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("review F1: la PR di un COLLEGA (riga del ticket review) si registra col SUO target e titolo; verso develop niente rilascio, verso main sì", async () => {
+    for (const [target, expected] of [["develop", null], ["main", /-V\d+$/]] as const) {
+      const { ticketId, repositoryId, trId } = await seedOpenPr();
+      await testDb.db.update(tickets).set({ type: "review", title: "PR Review: Feature X (#42)" }).where(eq(tickets.id, ticketId));
+      await testDb.db.update(ticketRepositories).set({ branch: "feature-x", adoptedAt: new Date() }).where(eq(ticketRepositories.id, trId));
+      await testDb.db.insert(prReviews).values({ repositoryId, ticketId, prNumber: 42, prUrl: PR_URL, prTitle: "Feature X", headSha: "headsha123", status: "completed", sourceBranch: "feature-x", targetBranch: target });
+      vi.stubGlobal("fetch", greenFetch());
+      const res = await release(ticketId, repositoryId, adminCookie);
+      expect(res.statusCode).toBe(200);
+      const rows = await testDb.db.select().from(releases).where(eq(releases.repositoryId, repositoryId));
+      if (expected === null) {
+        expect(res.json()).toMatchObject({ releaseCode: null });
+        expect(rows).toEqual([]);
+      } else {
+        expect((res.json() as { releaseCode: string }).releaseCode).toMatch(expected);
+        expect(rows).toEqual([expect.objectContaining({ title: "Feature X" })]);
+      }
+    }
+  });
+
+  it("area 8, F1: un merge che non è sul ramo di rilascio non fa un rilascio, e la risposta lo dice (releaseCode null)", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    await testDb.db.update(repositories).set({ releaseBranch: "production" }).where(eq(repositories.id, repositoryId));
+    vi.stubGlobal("fetch", greenFetch());
+
+    const res = await release(ticketId, repositoryId, adminCookie);
+
+    expect(res.json()).toEqual({ merged: true, sha: "deadbeef", releaseCode: null });
+  });
+
   it("l'admin rilascia: check verdi → 200 { merged: true, sha }", async () => {
     const { ticketId, repositoryId } = await seedOpenPr();
     const fetchMock = greenFetch();
@@ -294,11 +338,21 @@ describe("POST /api/tickets/:id/repositories/:repositoryId/release", () => {
     const res = await release(ticketId, repositoryId, adminCookie);
 
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ merged: true, sha: "deadbeef" });
+    // Area 8, F1: il merge sul ramo di rilascio (il default) fa nascere il rilascio, e la risposta lo dice.
+    expect(res.json()).toEqual({ merged: true, sha: "deadbeef", releaseCode: expect.stringMatching(/-V\d+$/) });
     // I check sono stati DAVVERO letti verdi (non degradati a no_checks):
     // altrimenti questo test passerebbe anche con un check-runs rotto.
     expect(fetchMock.mock.calls.some((c) => c[0] === CHECK_RUNS_URL)).toBe(true);
     expect(fetchMock.mock.calls.some((c) => c[0] === MERGE_URL)).toBe(true);
+  });
+
+  it("area 8, F1: il merge da Stubwise crea il rilascio, via Stubwise, col commit di merge (il webhook dopo non ne crea un secondo)", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    vi.stubGlobal("fetch", greenFetch());
+    expect((await release(ticketId, repositoryId, adminCookie)).statusCode).toBe(200);
+    const rows = await testDb.db.select().from(releases).where(eq(releases.repositoryId, repositoryId));
+    expect(rows).toEqual([expect.objectContaining({ viaStubwise: true, mergeSha: "deadbeef" })]);
+    expect(rows[0]!.mergedBy).not.toBeNull();
   });
 
   it("check rossi: 409 checks_failed, NESSUNA chiamata di merge", async () => {
@@ -473,7 +527,42 @@ describe("POST /api/tickets/:id/repositories/:repositoryId/release", () => {
     const res = await release(ticketId, repositoryId, adminCookie);
 
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ merged: true, sha: "extdeadbeef" });
+    expect(res.json()).toEqual({ merged: true, sha: "extdeadbeef", releaseCode: expect.stringMatching(/-V\d+$/) });
+  });
+
+  it("review F1: PR esterna col target IGNOTO (la review non lo sa): il merge c'è, ma nessun rilascio qui (lo registra il webhook)", async () => {
+    const { ticketId, repositoryId, prNumber } = await seedExternalPr({ targetBranch: null });
+    const detailUrl = `https://api.github.com/repos/acme/demo-shop/pulls/${prNumber}`;
+    const checksUrl = `https://api.github.com/repos/acme/demo-shop/commits/extheadsha/check-runs?per_page=100`;
+    const mergeUrl = `https://api.github.com/repos/acme/demo-shop/pulls/${prNumber}/merge`;
+    const fetchMock = vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url === detailUrl && method === "GET") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ state: "open", head: { sha: "extheadsha" } }), { status: 200 }),
+        );
+      }
+      if (url === checksUrl && method === "GET") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ check_runs: [{ name: "ci", status: "completed", conclusion: "success" }] }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url === mergeUrl && method === "PUT") {
+        return Promise.resolve(new Response(JSON.stringify({ merged: true, sha: "extdeadbeef" }), { status: 200 }));
+      }
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await release(ticketId, repositoryId, adminCookie);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ merged: true, sha: "extdeadbeef", releaseCode: null });
+    expect(await testDb.db.select().from(releases).where(eq(releases.repositoryId, repositoryId))).toEqual([]);
   });
 
   it("PR esterna già chiusa sul provider: 409 already_closed, nessuna chiamata di merge", async () => {
@@ -1147,7 +1236,10 @@ describe("GET /api/release-queue — deployedOn", () => {
       .values({ name: `vps-${randomBytes(3).toString("hex")}`, keyHash: `hash-${crypto.randomUUID()}` })
       .returning();
     const name = `staging-${randomBytes(3).toString("hex")}`;
-    await testDb.db.insert(projectEnvironments).values({ projectId, name, kind: "staging", serverId: server!.id });
+    const [env] = await testDb.db.insert(projectEnvironments).values({ projectId, name, kind: "staging", serverId: server!.id }).returning();
+    // Area 8, F1 (R-L2): il server è per repository; come la rotta, lo si scrive per tutte quelle del progetto.
+    const repos = await testDb.db.select({ id: repositories.id }).from(repositories).where(eq(repositories.projectId, projectId));
+    if (repos.length > 0) await testDb.db.insert(environmentServers).values(repos.map((r) => ({ environmentId: env!.id, repositoryId: r.id, serverId: server!.id })));
     await testDb.db.insert(serverMetrics).values({
       serverId: server!.id,
       ts: new Date(),
@@ -1192,6 +1284,12 @@ describe("GET /api/release-queue — deployedOn", () => {
     vi.stubGlobal("fetch", fetchWithHead(FULL_SHA.slice(0, 12)));
 
     expect(await deployedOnOf(ticketId, repositoryId)).toEqual([staging]);
+    // Area 8, F1: un ambiente STAGING lo riporta → «già su staging» in `/pulls`.
+    const pullsOf = async () =>
+      ((await app.inject({ method: "GET", url: `/api/projects/${projectId}/pulls`, headers: { cookie: adminCookie } })).json() as { items: { onStaging: boolean }[] }).items[0]!;
+    expect((await pullsOf()).onStaging).toBe(true);
+    await testDb.db.update(projectEnvironments).set({ kind: "production" }).where(and(eq(projectEnvironments.projectId, projectId), eq(projectEnvironments.name, staging)));
+    expect((await pullsOf()).onStaging).toBe(false);
   });
 
   it("commit diverso: deployedOn vuoto (il caso positivo qui sopra non è un vero-per-tutto)", async () => {
@@ -1214,4 +1312,349 @@ describe("GET /api/release-queue — deployedOn", () => {
       expect(await deployedOnOf(ticketId, repositoryId)).toEqual([]);
     });
   }
+
+  it("R-L2: il commit giusto sul server di UN'ALTRA repository dell'ambiente non conta", async () => {
+    const { ticketId, repositoryId, projectId } = await seedOpenPr();
+    const staging = await seedStaging(projectId, FULL_SHA);
+    const other = await seedRepositoryInProject(testDb.db, projectId);
+    // Il server dell'ambiente passa all'altra repository; quella della PR resta
+    // senza. Configurazione SOLO per repository: niente `server_id` di prima
+    // (che varrebbe da ripiego per la repository senza riga, review F1).
+    const [row] = await testDb.db.select().from(environmentServers).where(eq(environmentServers.repositoryId, repositoryId));
+    await testDb.db.update(projectEnvironments).set({ serverId: null }).where(eq(projectEnvironments.id, row!.environmentId));
+    await testDb.db.delete(environmentServers).where(eq(environmentServers.repositoryId, repositoryId));
+    await testDb.db.insert(environmentServers).values({ environmentId: row!.environmentId, repositoryId: other, serverId: row!.serverId });
+    vi.stubGlobal("fetch", fetchWithHead(FULL_SHA.slice(0, 12)));
+    expect(await deployedOnOf(ticketId, repositoryId)).toEqual([]);
+    // Rimesso sulla repository della PR, combacia di nuovo (il negativo qui sopra non è un falso-per-tutto).
+    await testDb.db.insert(environmentServers).values({ environmentId: row!.environmentId, repositoryId, serverId: row!.serverId });
+    expect(await deployedOnOf(ticketId, repositoryId)).toEqual([staging]);
+  });
+
+  it("review F1: una repository aggiunta DOPO la scrittura dell'ambiente (nessuna riga sua) usa il server dell'ambiente", async () => {
+    const { ticketId, repositoryId, projectId } = await seedOpenPr();
+    const staging = await seedStaging(projectId, FULL_SHA);
+    // Come una repository nata dopo: la sua riga non c'è, resta il `server_id` di prima.
+    await testDb.db.delete(environmentServers).where(eq(environmentServers.repositoryId, repositoryId));
+    vi.stubGlobal("fetch", fetchWithHead(FULL_SHA.slice(0, 12)));
+    expect(await deployedOnOf(ticketId, repositoryId)).toEqual([staging]);
+  });
+});
+
+describe("area 8, F1, S5b: le PR aperte del progetto, a chi lo vede", () => {
+  it("un Developer vede la PR (con head, controlli, analisi, tetto) e i suoi permessi; non c'è canMerge; chi non vede il progetto: 404", async () => {
+    const { projectId } = await seedOpenPr();
+    vi.stubGlobal("fetch", greenFetch());
+    const dev = await createUserWithPat(app, `dev-${randomUUID().slice(0, 6)}@acme.com`);
+    await addMember(app, projectId, dev.id, "developer");
+    const res = await app.inject({ method: "GET", url: `/api/projects/${projectId}/pulls`, headers: dev.headers });
+    expect(res.statusCode).toBe(200);
+    const [pull] = (res.json() as { items: Record<string, unknown>[] }).items;
+    expect(pull).toMatchObject({
+      origin: "stubwise",
+      headSha: "headsha123",
+      corrections: { count: 0, lastStatus: null },
+      cap: 3,
+      analysisOnly: null,
+      permissions: { analysisOnly: false, requestCorrection: true, editReleaseNotes: true },
+    });
+    expect(pull).not.toHaveProperty("canMerge");
+    // Area 8, F1, S8: il ramo `stubwise/ticket-<N>` è della PR stessa: mai «non correggibile».
+    expect((pull as { prState: Record<string, unknown> }).prState).not.toHaveProperty("notFixable");
+    const outsider = await createUserWithPat(app, `out-${randomUUID().slice(0, 6)}@acme.com`);
+    expect((await app.inject({ method: "GET", url: `/api/projects/${projectId}/pulls`, headers: outsider.headers })).statusCode).toBe(404);
+  });
+
+  describe("area 8, F1, S8: lo stato della PR del collega e «Solo analisi»", () => {
+    /** La riga che il worker scrive alla fine della review (S8): da lì la PR si può correggere. */
+    async function link(c: { repositoryId: string; prNumber: number; prUrl: string }) {
+      const [{ ticketId }] = (await testDb.db.select({ ticketId: prReviews.ticketId }).from(prReviews).where(eq(prReviews.repositoryId, c.repositoryId))) as [{ ticketId: string }];
+      await testDb.db.update(tickets).set({ type: "review" }).where(eq(tickets.id, ticketId));
+      await testDb.db.insert(ticketRepositories).values({ ticketId, repositoryId: c.repositoryId, branch: "feature/x", prUrl: c.prUrl, prNumber: c.prNumber, prState: "open", adoptedAt: new Date() });
+    }
+
+    async function colleaguePr(opts: { verdict?: "approve" | "request_changes"; fromFork?: boolean | null; mode?: "analyze_and_fix" | "analyze_only" | "off" } = {}) {
+      const pr = await seedExternalPr({ verdict: opts.verdict ?? "request_changes" });
+      await testDb.db
+        .update(prReviews)
+        .set({ headSha: "extheadsha", sourceBranch: "feature/x", targetBranch: "main", fromFork: opts.fromFork === undefined ? false : opts.fromFork })
+        .where(eq(prReviews.repositoryId, pr.repositoryId));
+      await testDb.db.update(repositories).set({ colleaguePrs: opts.mode ?? "analyze_and_fix" }).where(eq(repositories.id, pr.repositoryId));
+      const [{ projectId }] = await testDb.db.select({ projectId: repositories.projectId }).from(repositories).where(eq(repositories.id, pr.repositoryId)) as [{ projectId: string }];
+      vi.stubGlobal("fetch", externalFetch(pr.prNumber));
+      const lead = await createUserWithPat(app, `lead-${randomUUID().slice(0, 6)}@acme.com`);
+      await addMember(app, projectId, lead.id, "project_lead");
+      const pulls = async (headers = lead.headers) =>
+        ((await app.inject({ method: "GET", url: `/api/projects/${projectId}/pulls`, headers })).json() as { items: Record<string, unknown>[] }).items[0]!;
+      const flag = (method: "POST" | "DELETE", headers = lead.headers) =>
+        app.inject({ method, url: `/api/repositories/${pr.repositoryId}/pulls/${pr.prNumber}/analysis-only`, headers });
+      return { ...pr, projectId, lead, pulls, flag };
+    }
+
+    it("chiede modifiche, ramo correggibile, «analisi e correzioni»: «issues», non pronta, Claude la può correggere", async () => {
+      const c = await colleaguePr();
+      expect(await c.pulls()).toMatchObject({
+        prState: { state: "issues", canAutoCorrect: true },
+        ready: false,
+        fromFork: false,
+        mergeable: null,
+        colleaguePrs: "analyze_and_fix",
+        issues: [{ file: null }],
+        // Review del renderer: senza la riga della PR (ancora da collegare) la rotta risponderebbe 404.
+        permissions: { analysisOnly: true, requestCorrection: false },
+      });
+      await link(c);
+      expect(await c.pulls()).toMatchObject({ permissions: { requestCorrection: true } });
+    });
+
+    it("review del renderer: «Chiedi modifiche» su una PR di un collega vuole prs.adopt E corrections.request, come la rotta", async () => {
+      const c = await colleaguePr();
+      await link(c);
+      const [role] = await testDb.db.insert(roles).values({ name: `solo-adopt-${randomUUID().slice(0, 4)}`, scope: "project", permissions: ["prs.adopt", "tickets.view"] }).returning();
+      const u = await createUserWithPat(app, `ad-${randomUUID().slice(0, 6)}@acme.com`);
+      await testDb.db.insert(projectMembers).values({ projectId: c.projectId, userId: u.id, roleId: role!.id });
+      expect(await c.pulls(u.headers)).toMatchObject({ permissions: { requestCorrection: false } });
+    });
+
+    it("approvata sulla head, senza controlli: «clean» e pronta", async () => {
+      const c = await colleaguePr({ verdict: "approve" });
+      expect(await c.pulls()).toMatchObject({ prState: { state: "clean" }, ready: true, issues: [] });
+    });
+
+    it("fork non verificabile: «not_fixable» (fork), e «Chiedi modifiche» non c'è", async () => {
+      const c = await colleaguePr({ fromFork: null });
+      expect(await c.pulls()).toMatchObject({ prState: { state: "not_fixable", notFixable: "fork" }, fromFork: null, permissions: { requestCorrection: false } });
+    });
+
+    it("«Solo analisi»: chi ha prs.adopt lo mette (su tutte le righe, annulla le correzioni aperte) e lo toglie", async () => {
+      const c = await colleaguePr();
+      const [{ ticketId }] = (await testDb.db.select({ ticketId: prReviews.ticketId }).from(prReviews).where(eq(prReviews.repositoryId, c.repositoryId))) as [{ ticketId: string }];
+      // Il ticket della review di una PR di un collega, con la riga che le scrive il worker (S8).
+      await testDb.db.update(tickets).set({ type: "review" }).where(eq(tickets.id, ticketId));
+      await testDb.db.insert(ticketRepositories).values({ ticketId, repositoryId: c.repositoryId, branch: "feature/x", prUrl: c.prUrl, prNumber: c.prNumber, prState: "open", adoptedAt: new Date() });
+      const [corr] = await testDb.db.insert(prCorrections).values({ ticketId, repositoryId: c.repositoryId, prNumber: c.prNumber, trigger: "review", status: "pending" }).returning();
+      const on = await c.flag("POST");
+      expect(on.statusCode).toBe(200);
+      expect(on.json()).toMatchObject({ analysisOnly: { byId: c.lead.id } });
+      expect((await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, corr!.id)))[0]!.status).toBe("cancelled");
+      // Una review nuova nasce senza: il flag resta (vale su qualunque riga della PR).
+      await testDb.db.insert(prReviews).values({ repositoryId: c.repositoryId, prNumber: c.prNumber, prUrl: c.prUrl, prTitle: "t", headSha: "extheadsha", status: "running", createdAt: new Date(Date.now() + 60_000) });
+      expect(await c.pulls()).toMatchObject({ analysisOnly: { byId: c.lead.id }, prState: { state: "analyzing" }, permissions: { requestCorrection: false } });
+      const off = await c.flag("DELETE");
+      expect(off.statusCode).toBe(200);
+      expect(off.json()).toEqual({ analysisOnly: null });
+      expect(await c.pulls()).toMatchObject({ analysisOnly: null, permissions: { requestCorrection: true } });
+    });
+
+    it("«Solo analisi»: un Legacy Member (senza prs.adopt) 403, chi non vede il progetto 404, una PR di Stubwise 409, una PR mai analizzata 404", async () => {
+      const c = await colleaguePr();
+      const dev = await createUserWithPat(app, `lm-${randomUUID().slice(0, 6)}@acme.com`);
+      await addMember(app, c.projectId, dev.id, "legacy_member");
+      expect((await c.flag("POST", dev.headers)).statusCode).toBe(403);
+      const outsider = await createUserWithPat(app, `out-${randomUUID().slice(0, 6)}@acme.com`);
+      expect((await c.flag("POST", outsider.headers)).statusCode).toBe(404);
+      expect(await testDb.db.select().from(prReviews).where(and(eq(prReviews.repositoryId, c.repositoryId), eq(prReviews.analysisOnly, true)))).toEqual([]);
+      await testDb.db.insert(prReviews).values({ repositoryId: c.repositoryId, prNumber: 5, prUrl: "u5", prTitle: "t", headSha: "s", sourceBranch: "stubwise/ticket-3", status: "completed" });
+      expect((await app.inject({ method: "POST", url: `/api/repositories/${c.repositoryId}/pulls/5/analysis-only`, headers: c.lead.headers })).json()).toMatchObject({ code: "not_colleague_pr" });
+      expect((await app.inject({ method: "POST", url: `/api/repositories/${c.repositoryId}/pulls/999/analysis-only`, headers: c.lead.headers })).statusCode).toBe(404);
+    });
+  });
+
+  it("area 8, F1: la storia delle correzioni (dalla più vecchia, con l'esito del job) e owner/repo", async () => {
+    const { projectId, ticketId, repositoryId } = await seedOpenPr();
+    vi.stubGlobal("fetch", greenFetch());
+    const t0 = Date.now() - 3_600_000;
+    const add = async (trigger: "review" | "stubwise", status: "done" | "queued" | "cancelled", job: { status: "pr_opened" | "failed"; error?: string } | null, offset: number) => {
+      const [c] = await testDb.db.insert(prCorrections).values({ ticketId, repositoryId, prNumber: 42, trigger, status, createdAt: new Date(t0 + offset) }).returning();
+      if (job) await testDb.db.insert(aiJobs).values({ ticketId, correctionId: c!.id, status: job.status, error: job.error ?? null });
+      return c!.id;
+    };
+    const pushed = await add("review", "done", { status: "pr_opened" }, 0);
+    const stopped = await add("stubwise", "done", { status: "failed", error: "push rifiutato" }, 1000);
+    await add("review", "cancelled", null, 1500);
+    const running = await add("review", "queued", null, 2000);
+    const [pull] = ((await app.inject({ method: "GET", url: `/api/projects/${projectId}/pulls`, headers: { cookie: adminCookie } })).json() as { items: Record<string, unknown>[] }).items;
+    expect(pull).toMatchObject({
+      repositoryFullName: "acme/demo-shop",
+      correctionHistory: [
+        { id: pushed, trigger: "auto", state: "pushed", why: null, commitSha: null },
+        { id: stopped, trigger: "person", state: "stopped", why: "push rifiutato" },
+        { id: running, trigger: "auto", state: "running" },
+      ],
+    });
+    expect((pull as { correctionHistory: unknown[] }).correctionHistory).toHaveLength(3);
+  });
+
+  it("lotto 4 (A8): una correzione SCARTATA (push rifiutato, esito della 0220) esce `discarded` senza motivo; una di prima della 0220 resta `stopped`", async () => {
+    const { projectId, ticketId, repositoryId } = await seedOpenPr();
+    vi.stubGlobal("fetch", greenFetch());
+    const t0 = Date.now() - 3_600_000;
+    const [legacy] = await testDb.db.insert(prCorrections).values({ ticketId, repositoryId, prNumber: 42, trigger: "review", status: "done", createdAt: new Date(t0) }).returning();
+    await testDb.db.insert(aiJobs).values({ ticketId, correctionId: legacy!.id, status: "failed", error: "push rifiutato: qualcuno ha pushato sul branch x durante la correzione" });
+    const [discarded] = await testDb.db.insert(prCorrections).values({ ticketId, repositoryId, prNumber: 42, trigger: "review", status: "done", outcome: "discarded", createdAt: new Date(t0 + 1000) }).returning();
+    await testDb.db.insert(aiJobs).values({ ticketId, correctionId: discarded!.id, status: "failed", error: "push rifiutato: qualcuno ha pushato sul branch x durante la correzione" });
+    const [pull] = ((await app.inject({ method: "GET", url: `/api/projects/${projectId}/pulls`, headers: { cookie: adminCookie } })).json() as { items: Record<string, unknown>[] }).items;
+    expect(pull).toMatchObject({
+      correctionHistory: [
+        { id: legacy!.id, state: "stopped", why: "push rifiutato: qualcuno ha pushato sul branch x durante la correzione" },
+        { id: discarded!.id, state: "discarded", why: null, commitSha: null },
+      ],
+    });
+  });
+
+  it("un Viewer vede la PR ma nessun permesso", async () => {
+    const { projectId } = await seedOpenPr();
+    vi.stubGlobal("fetch", greenFetch());
+    const viewer = await createUserWithPat(app, `v-${randomUUID().slice(0, 6)}@acme.com`);
+    await addMember(app, projectId, viewer.id, "viewer");
+    const [pull] = ((await app.inject({ method: "GET", url: `/api/projects/${projectId}/pulls`, headers: viewer.headers })).json() as { items: Record<string, unknown>[] }).items;
+    expect(pull).toMatchObject({ permissions: { analysisOnly: false, requestCorrection: false, editReleaseNotes: false } });
+  });
+});
+
+describe("area 8, F1, S9: le note di rilascio di una PR", () => {
+  let n = 0;
+  async function setup() {
+    const pr = await seedOpenPr();
+    const code = `Q${String.fromCharCode(65 + (n % 26))}${String.fromCharCode(65 + Math.floor(n / 26) % 26)}`;
+    n++;
+    await testDb.db.update(projects).set({ code }).where(eq(projects.id, pr.projectId));
+    await testDb.db.update(ticketRepositories).set({ prNumber: 42 }).where(eq(ticketRepositories.id, pr.trId));
+    const [own] = await testDb.db.select({ number: tickets.number }).from(tickets).where(eq(tickets.id, pr.ticketId));
+    const { ticketId: otherId } = await seedTicket(testDb.db, { projectId: pr.projectId, repositoryId: pr.repositoryId, number: 2 });
+    const [other] = await testDb.db.update(tickets).set({ title: "Pagamenti" }).where(eq(tickets.id, otherId)).returning({ number: tickets.number });
+    await testDb.db.update(tickets).set({ title: "Checkout" }).where(eq(tickets.id, pr.ticketId));
+    const commits = [`${code}-${other!.number}: pagamenti`, "fix ZZZ-1 di un altro progetto", `${code}-9999 inesistente`];
+    const fetchCommits = (ok = true) =>
+      vi.fn((input: string | URL) =>
+        Promise.resolve(
+          String(input) === "https://api.github.com/repos/acme/demo-shop/pulls/42/commits?per_page=100" && ok
+            ? new Response(JSON.stringify(commits.map((message) => ({ commit: { message } }))), { status: 200 })
+            : new Response("", { status: 500 }),
+        ),
+      );
+    const url = `/api/repositories/${pr.repositoryId}/pulls/42/release-notes`;
+    return { ...pr, code, own: own!.number, other: other!.number, fetchCommits, url };
+  }
+  const user = async (projectId: string, preset: string) => {
+    const u = await createUserWithPat(app, `${preset}-${randomUUID().slice(0, 6)}@acme.com`);
+    await addMember(app, projectId, u.id, preset);
+    return u;
+  };
+
+  it("la bozza: la task della PR e quelle citate dai commit, SOLO del progetto e solo se esistono; nessun testo salvato", async () => {
+    const s = await setup();
+    vi.stubGlobal("fetch", s.fetchCommits());
+    const viewer = await user(s.projectId, "viewer");
+    const res = await app.inject({ method: "GET", url: s.url, headers: viewer.headers });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      body: null,
+      commitsRead: true,
+      canEdit: false,
+      draft: { text: `- ${s.code}-${s.own}: Checkout\n- ${s.code}-${s.other}: Pagamenti`, sources: [`${s.code}-${s.own}`, `${s.code}-${s.other}`] },
+    });
+  });
+
+  it("i commit illeggibili: la bozza dalla sola task della PR, e lo dice", async () => {
+    const s = await setup();
+    vi.stubGlobal("fetch", s.fetchCommits(false));
+    const viewer = await user(s.projectId, "viewer");
+    expect((await app.inject({ method: "GET", url: s.url, headers: viewer.headers })).json()).toMatchObject({ commitsRead: false, draft: { sources: [`${s.code}-${s.own}`] } });
+  });
+
+  it("scrivere: chi ha tickets.edit sì (e il testo si rilegge); un Viewer 403 e niente scritto; chi non vede il progetto 404; una PR ignota 404", async () => {
+    const s = await setup();
+    vi.stubGlobal("fetch", s.fetchCommits());
+    const dev = await user(s.projectId, "developer");
+    const put = await app.inject({ method: "PUT", url: s.url, headers: dev.headers, payload: { body: "Nuovo checkout." } });
+    expect(put.statusCode).toBe(200);
+    expect(put.json()).toMatchObject({ body: "Nuovo checkout.", updatedById: dev.id, canEdit: true });
+    // E l'elenco delle PR le porta già (niente GET per PR).
+    const pulls = (await app.inject({ method: "GET", url: `/api/projects/${s.projectId}/pulls`, headers: dev.headers })).json() as { items: { releaseNotes: string | null }[] };
+    expect(pulls.items[0]!.releaseNotes).toBe("Nuovo checkout.");
+    const viewer = await user(s.projectId, "viewer");
+    expect((await app.inject({ method: "PUT", url: s.url, headers: viewer.headers, payload: { body: "x" } })).statusCode).toBe(403);
+    expect((await app.inject({ method: "GET", url: s.url, headers: viewer.headers })).json()).toMatchObject({ body: "Nuovo checkout." });
+    const outsider = await createUserWithPat(app, `out-${randomUUID().slice(0, 6)}@acme.com`);
+    expect((await app.inject({ method: "GET", url: s.url, headers: outsider.headers })).statusCode).toBe(404);
+    expect((await app.inject({ method: "GET", url: `/api/repositories/${s.repositoryId}/pulls/999/release-notes`, headers: dev.headers })).json()).toMatchObject({ code: "pr_not_found" });
+  });
+});
+
+describe("area 8, F1, S10: la Home «Rilasci»", () => {
+  let seq = 0;
+  async function failedRelease(projectId: string, repositoryId: string, opts: { fixTicketId?: string } = {}) {
+    seq++;
+    const [rel] = await testDb.db
+      .insert(releases)
+      .values({ code: `R${randomUUID().slice(0, 5).toUpperCase()}-V${seq}`, seq, projectId, repositoryId, prNumber: 100 + seq, prUrl: "u", title: "Checkout", mergeSha: String(seq).padStart(40, "c"), mergedAt: new Date(Date.now() - 60_000), viaStubwise: true, fixTicketId: opts.fixTicketId ?? null })
+      .returning();
+    await testDb.db.insert(releaseCiRuns).values({ releaseId: rel!.id, providerRunId: "1", name: "test", status: "failed", startedAt: new Date(), endedAt: new Date() });
+    return rel!;
+  }
+  const meReleases = async (headers: Record<string, string>) => (await app.inject({ method: "GET", url: "/api/me/releases", headers })).json() as { failed: { code: string }[]; ready: { prUrl: string }[] };
+  const blocksOf = async (headers: Record<string, string>) => ((await app.inject({ method: "GET", url: "/api/me/home", headers })).json() as { blocks: { kind: string }[] }).blocks.map((b) => b.kind);
+
+  it("chi ha release.merge: il blocco nella Home, i falliti (finché la riparazione è aperta) e le PR pronte; un Developer no", async () => {
+    const { projectId, repositoryId } = await seedOpenPr();
+    vi.stubGlobal("fetch", greenFetch());
+    await testDb.db.update(repositories).set({ ciProvider: "github_actions" }).where(eq(repositories.id, repositoryId));
+    const lead = await createUserWithPat(app, `lead-${randomUUID().slice(0, 6)}@acme.com`);
+    await addMember(app, projectId, lead.id, "project_lead");
+    const dev = await createUserWithPat(app, `dev-${randomUUID().slice(0, 6)}@acme.com`);
+    await addMember(app, projectId, dev.id, "developer");
+
+    const open = await failedRelease(projectId, repositoryId);
+    const { ticketId: closedFix } = await seedTicket(testDb.db, { projectId, repositoryId, number: 50 });
+    await testDb.db.update(tickets).set({ status: "done" }).where(eq(tickets.id, closedFix));
+    const repaired = await failedRelease(projectId, repositoryId, { fixTicketId: closedFix });
+
+    expect(await blocksOf(lead.headers)).toContain("releases");
+    expect(await blocksOf(dev.headers)).not.toContain("releases");
+    const mine = await meReleases(lead.headers);
+    expect(mine.failed.map((r) => r.code)).toEqual([open.code]);
+    expect(mine.failed.map((r) => r.code)).not.toContain(repaired.code);
+    // La review automatica è spenta: la PR verde di Stubwise è pronta (niente analisi da aspettare),
+    // ma «non analizzata», mai «senza problemi» ((O) di 46).
+    expect(mine.ready.map((p) => p.prUrl)).toEqual([PR_URL]);
+    expect((mine.ready[0] as unknown as { prState: { state: string } }).prState.state).toBe("analysis_off");
+    expect(mine.ready[0]).toMatchObject({ projectId, projectCode: expect.any(String) });
+    expect(await meReleases(dev.headers)).toEqual({ failed: [], ready: [] });
+  });
+
+  it("con la review accesa e nessuna analisi, la PR non è ancora pronta", async () => {
+    const { projectId } = await seedOpenPr();
+    vi.stubGlobal("fetch", greenFetch());
+    await testDb.db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));
+    try {
+      const lead = await createUserWithPat(app, `lead-${randomUUID().slice(0, 6)}@acme.com`);
+      await addMember(app, projectId, lead.id, "project_lead");
+      expect((await meReleases(lead.headers)).ready).toEqual([]);
+    } finally {
+      await testDb.db.update(instanceSettings).set({ prReviewEnabled: false }).where(eq(instanceSettings.id, 1));
+    }
+  });
+});
+
+describe("area 8, F2, S4: `release.merged`, una volta per rilascio", () => {
+  it("il merge da Stubwise crea la card col link al rilascio; la stessa PR registrata di nuovo (il webhook) non ne crea una seconda", async () => {
+    const { ticketId, repositoryId, projectId } = await seedOpenPr();
+    // `release.merged` è spento di partenza (catalogo): un membro iscritto.
+    const sub = await createUserWithPat(app, `sub-${randomUUID().slice(0, 6)}@acme.com`);
+    await addMember(app, projectId, sub.id, "viewer");
+    await testDb.db.insert(alertSubscriptions).values({ userId: sub.id, projectId, alertType: "release.merged", app: true, phone: false });
+    vi.stubGlobal("fetch", greenFetch());
+    const res = await release(ticketId, repositoryId, adminCookie);
+    const code = (res.json() as { releaseCode: string }).releaseCode;
+    const cards = async () =>
+      (await testDb.db.select().from(notifications).where(eq(notifications.kind, "release.merged"))).filter((n) => (n.event as { releaseCode?: string }).releaseCode === code);
+    const first = await cards();
+    expect(first.map((n) => n.userId)).toEqual([sub.id]);
+    expect(first[0]!.event).toMatchObject({ releaseCode: code, url: expect.stringMatching(new RegExp(`/app/#/p/[A-Z0-9]+/releases/${code}$`)) });
+    const { recordRelease } = await import("../services/releases.js");
+    const [rel] = await testDb.db.select().from(releases).where(eq(releases.code, code));
+    await recordRelease(testDb.db, { repositoryId, targetBranch: "main", prNumber: rel!.prNumber, prUrl: rel!.prUrl, title: rel!.title, mergeSha: rel!.mergeSha, mergedAt: new Date(), mergedBy: null, mergedGitName: "marta", viaStubwise: false, publicUrl: "https://stubwise.example.com" });
+    expect(await cards()).toHaveLength(first.length);
+  });
 });

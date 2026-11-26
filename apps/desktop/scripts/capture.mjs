@@ -5441,8 +5441,9 @@ async function main() {
         await p.getByRole("region", { name: /^(Where it comes from|Da dove nasce)$/ }).scrollIntoViewIfNeeded();
         await p.waitForTimeout(300);
       } }],
-      // Il blocco non è nelle Home di default [A 17]: lo si aggiunge dal catalogo.
-      ["support-home", "/home", { persona: "Matteo", steps: async (p) => {
+      // «Clienti in attesa» (dalla posta, area 8): non è nelle Home di default
+      // [A 17], lo si aggiunge dal catalogo della propria Home.
+      ["home-waiting-customers", "/home", { persona: "Matteo", steps: async (p) => {
         await p.getByRole("button", { name: /^(Customize|Personalizza)$/ }).click();
         // Matteo cura anche la Home del reparto: dal menu, la sua.
         const mine = p.getByRole("menuitem", { name: /^(My Home|La mia Home)$/ });

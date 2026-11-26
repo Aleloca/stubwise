@@ -2,7 +2,7 @@ import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAskDecision } from "../../data/queries";
 import type { Task } from "../../data/types";
-import { useViewer } from "../../data/viewer";
+import { useViewer } from "../../data/viewing";
 import { Dialog, DialogField, inputClass, selectButtonClass } from "../../tasks-ui/Dialog";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
 import { Avatar } from "../../tasks-ui/PersonChip";

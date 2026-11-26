@@ -1,0 +1,98 @@
+import { agentSessionInputs, type claudeConversations, type Db } from "@stubwise/db";
+import { CLAUDE_CONTEXTS_MAX, visibleContexts, type ClaudeContextRef } from "@stubwise/notifications";
+import { inArray } from "drizzle-orm";
+import { scopeIncludes, visibleProjectIds, type ProjectScope } from "../auth/access.js";
+import type { SessionUser } from "../auth/session.js";
+import { citeablesFromCodes } from "../chat/citations.js";
+import { getSupportConversation } from "./support.js";
+
+/**
+ * Lotto 8, voce 3: i contesti di una conversazione con Claude come li vede CHI
+ * GUARDA (l'autore, o il lettore di una pubblica). Un contesto il cui progetto
+ * chi guarda non vede si TOGLIE, nel gruppo e sotto ogni messaggio: in una
+ * pubblica il codice di una task o l'id di un progetto altrui non deve uscire
+ * (r.1414 del registro; la fuga trovata da 94 nel prototipo). Vale anche per
+ * l'autore: un contesto che non vede più esce dal gruppo alla lettura.
+ */
+export async function contextsForViewer(
+  db: Db,
+  viewer: Pick<SessionUser, "id" | "instancePermissions">,
+  lists: readonly (readonly ClaudeContextRef[])[],
+  /** Chi guarda è l'autore della conversazione: i contesti senza progetto (posta, PR) restano a lui solo. */
+  isAuthor: boolean,
+  /** M-1: la visibilità già calcolata per un elenco (altrimenti si calcola qui). */
+  precomputed?: ProjectScope,
+): Promise<ClaudeContextRef[][]> {
+  if (lists.every((l) => l.length === 0)) return lists.map(() => []);
+  const scope = precomputed ?? (await visibleProjectIds(db, viewer));
+  const byProject = await Promise.all(lists.map((l) => visibleContexts(db, l, (projectId) => scopeIncludes(scope, projectId), { isAuthor })));
+  // Revisione 8–9 (I-2): il progetto non basta. Una task, una richiesta o una
+  // conversazione di supporto si vedono con la loro visibilità VERA (un
+  // membro senza `tickets.view_all` non vede le task degli altri): le stesse
+  // regole della Chat (`citeablesFromCodes`) e della pagina del supporto. Un
+  // giudizio per codice, una volta sola anche se il codice è in più gruppi.
+  const seen = new Map<string, Promise<boolean>>();
+  const objectVisible = (c: ClaudeContextRef): Promise<boolean> => {
+    const key = `${c.kind}:${c.id}`;
+    let v = seen.get(key);
+    if (!v) {
+      v = objectSeenBy(db, viewer, c);
+      seen.set(key, v);
+    }
+    return v;
+  };
+  return Promise.all(
+    byProject.map(async (list) => {
+      const keep = await Promise.all(list.map((c) => objectVisible(c)));
+      return list.filter((_, i) => keep[i]);
+    }),
+  );
+}
+
+/** Un contesto che è un OGGETTO (task, richiesta, supporto) visto da chi guarda; gli altri passano (il loro progetto è già stato filtrato). */
+async function objectSeenBy(db: Db, viewer: Pick<SessionUser, "id" | "instancePermissions">, c: ClaudeContextRef): Promise<boolean> {
+  if (c.kind === "task" || c.kind === "request") {
+    const found = await citeablesFromCodes(db, viewer, c.id.toUpperCase());
+    return found.some((x) => x.kind === c.kind);
+  }
+  if (c.kind === "support") {
+    try {
+      await getSupportConversation(db, viewer as SessionUser, c.id);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** I contesti dei messaggi (`agent_session_inputs.contexts`), per id dell'input, già filtrati per chi guarda. */
+export async function inputContextsForViewer(
+  db: Db,
+  viewer: Pick<SessionUser, "id" | "instancePermissions">,
+  inputIds: readonly string[],
+  isAuthor: boolean,
+): Promise<Map<string, ClaudeContextRef[]>> {
+  if (inputIds.length === 0) return new Map();
+  const rows = await db
+    .select({ id: agentSessionInputs.id, contexts: agentSessionInputs.contexts })
+    .from(agentSessionInputs)
+    .where(inArray(agentSessionInputs.id, [...inputIds]));
+  const filtered = await contextsForViewer(db, viewer, rows.map((r) => r.contexts ?? []), isAuthor);
+  return new Map(rows.map((r, i) => [r.id, filtered[i]!]));
+}
+
+/**
+ * Il gruppo dei contesti di una conversazione: `context_refs`, o il solo
+ * `context_ref` di una riga di prima. Revisione 8–9 (M-5): dopo un rollback
+ * a un server di prima, che scrive solo `context_ref`, il primario può non
+ * coincidere con l'ultimo del gruppo: allora si ACCODA (togliendo il doppione).
+ */
+export function conversationContextGroup(row: Pick<typeof claudeConversations.$inferSelect, "contextRefs" | "contextRef">): ClaudeContextRef[] {
+  const group = [...row.contextRefs];
+  const primary = row.contextRef;
+  if (!primary) return group;
+  const last = group.at(-1);
+  if (last && last.kind === primary.kind && last.id === primary.id) return group;
+  return [...group.filter((c) => !(c.kind === primary.kind && c.id === primary.id)), primary].slice(-CLAUDE_CONTEXTS_MAX);
+}

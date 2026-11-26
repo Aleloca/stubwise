@@ -1,4 +1,4 @@
-import type { PermissionSource } from "../../data/access/effective";
+import type { PermissionSource } from "../../data/access/effectiveCore";
 
 // La regola anti-escalation (area 9a): chi agisce DÀ soltanto permessi che
 // ha. Vale per ciò che si dà — un ruolo assegnato (coi permessi di quel ruolo

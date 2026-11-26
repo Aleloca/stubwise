@@ -1,3 +1,4 @@
+import { googleOauthScopes } from "@stubwise/shared";
 import { describe, expect, it } from "vitest";
 import { GoogleApiError, isFatalGoogleError } from "./errors.js";
 import {
@@ -32,8 +33,19 @@ describe("buildAuthorizeUrl", () => {
     expect(url.searchParams.get("include_granted_scopes")).toBe("true");
     expect(url.searchParams.get("hd")).toBe("acme.test");
     expect(url.searchParams.get("scope")).toBe(GOOGLE_SCOPES.join(" "));
-    expect(GOOGLE_SCOPES).toContain("https://www.googleapis.com/auth/gmail.readonly");
-    expect(GOOGLE_SCOPES).toContain("https://www.googleapis.com/auth/calendar.readonly");
+    // Una lista sola: quella che l'admin vede in Impostazioni → Google.
+    expect([...GOOGLE_SCOPES]).toEqual([...googleOauthScopes]);
+    // Area 6, F1 (D1 = a): gli scope dell'area intera in un riconsenso unico.
+    // `gmail.modify` copre lettura, letto/non letto, bozze e invio: niente
+    // `gmail.readonly` né `gmail.compose`.
+    expect([...GOOGLE_SCOPES]).toEqual([
+      "openid",
+      "email",
+      "https://www.googleapis.com/auth/gmail.modify",
+      "https://www.googleapis.com/auth/calendar.readonly",
+      "https://www.googleapis.com/auth/calendar.events",
+      "https://www.googleapis.com/auth/drive.readonly",
+    ]);
   });
 
   it("omette hd quando il Workspace non ha un dominio da suggerire", () => {

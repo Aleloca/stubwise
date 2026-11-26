@@ -1,3 +1,4 @@
+import { normalizeWidgetOrigin } from "@stubwise/shared";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -18,6 +19,8 @@ import {
   secondaryButton,
 } from "../claude/conversation/parts";
 import { inputClass } from "../../tasks-ui/Dialog";
+import { featureIntegrated } from "../../data/integration";
+import { WidgetIdentity } from "./WidgetIdentity";
 import { widgetGuide, widgetGuideFile, widgetSnippet } from "./widgetSnippet";
 
 // Il pannello di un widget (nuovo o in modifica), agganciato a destra nella
@@ -58,7 +61,7 @@ function Segmented<T extends string>({
   );
 }
 
-type Fields = Required<Omit<WidgetInput, "dailyMessageCap" | "dailyRequestCap">> & {
+type Fields = Required<Omit<WidgetInput, "dailyMessageCap" | "dailyRequestCap" | "origins">> & {
   dailyMessageCap: string;
   dailyRequestCap: string;
 };
@@ -67,7 +70,6 @@ const fieldsOf = (w: SupportWidgetView | null): Fields => ({
   name: w?.name ?? "",
   enabled: w?.enabled ?? false,
   sourceRepositoryIds: w?.sourceRepositoryIds ?? [],
-  origins: w?.origins ?? [],
   title: w?.title ?? "Help",
   welcomeMessage: w?.welcomeMessage ?? "Hi! How can we help?",
   instructions: w?.instructions ?? "",
@@ -75,6 +77,7 @@ const fieldsOf = (w: SupportWidgetView | null): Fields => ({
   language: w?.language ?? "it",
   dailyMessageCap: w?.dailyMessageCap?.toString() ?? "",
   dailyRequestCap: w?.dailyRequestCap?.toString() ?? "",
+  identityRequired: w?.identityRequired ?? false,
 });
 
 /** Un tetto scritto: vuoto = il default d'istanza; un testo non numerico lo ferma il livello dati. */
@@ -144,18 +147,37 @@ export function WidgetPanel({
   const repos = useRepositorySettings(projectId).data?.repositories ?? [];
   const [f, setF] = useState<Fields>(() => fieldsOf(widget));
   const [origins, setOrigins] = useState(() => (widget?.origins ?? []).join("\n"));
+  /** I siti com'erano all'apertura: si mandano solo se cambiano rispetto a questi. */
+  const [openedOrigins] = useState(() => [...(widget?.origins ?? [])]);
+  /** Il toggle com'era all'apertura: come i siti, parte solo se l'ho cambiato (review S6). */
+  const [openedIdentityRequired] = useState(() => widget?.identityRequired ?? false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const firstRef = useRef<HTMLInputElement>(null);
   useEffect(() => firstRef.current?.focus(), []);
   const set = (patch: Partial<Fields>) => setF((old) => ({ ...old, ...patch }));
+  const identity = featureIntegrated("support-identity");
 
-  const input = (): WidgetInput => ({
-    ...f,
-    origins: origins
+  // I siti si mandano solo se li ho cambiati (review F3, m2): un salvataggio
+  // d'altro non riscrive quelli che un collega ha messo nel frattempo.
+  const originList = () =>
+    origins
       .split("\n")
       .map((o) => o.trim())
-      .filter(Boolean),
+      .filter(Boolean);
+  const originsChanged = () => {
+    const list = originList().map((o) => normalizeWidgetOrigin(o) ?? o);
+    const before = openedOrigins;
+    return list.length !== before.length || list.some((o, i) => o !== before[i]);
+  };
+  const input = (): WidgetInput => ({
+    ...f,
+    // Spenta la funzione (build app prima di S6), il campo non parte.
+    identityRequired:
+      identity && (!widget || f.identityRequired !== openedIdentityRequired)
+        ? f.identityRequired
+        : undefined,
+    ...(!widget || originsChanged() ? { origins: originList() } : {}),
     dailyMessageCap: capOf(f.dailyMessageCap),
     dailyRequestCap: capOf(f.dailyRequestCap),
   });
@@ -280,6 +302,7 @@ export function WidgetPanel({
             })
           )}
         </fieldset>
+        {/* I siti ammessi (area 8, F3, S16): vuoto = qualunque sito, e lo si dice. */}
         <Field
           label={t("support.widgets.fields.origins")}
           htmlFor={`${id}-origins`}
@@ -292,7 +315,30 @@ export function WidgetPanel({
             onChange={(e) => setOrigins(e.target.value)}
             className={`${inputClass} resize-y`}
           />
+          {origins.trim() === "" && (
+            <p className="text-xs text-warning">{t("support.widgets.fields.anySite")}</p>
+          )}
         </Field>
+        {/* API per i siti (S6): si accende solo con un segreto (il livello dati lo rifiuta). */}
+        {identity && (
+          <div className="flex flex-col gap-1">
+            <label className="flex items-center gap-2 text-sm text-ink">
+              <input
+                type="checkbox"
+                checked={f.identityRequired}
+                disabled={!f.identityRequired && !widget?.identitySecretSet}
+                onChange={(e) => set({ identityRequired: e.target.checked })}
+                className="size-4 accent-ink"
+              />
+              {t("support.widgets.fields.identityRequired")}
+            </label>
+            <p className="text-xs text-ink-muted">
+              {widget?.identitySecretSet
+                ? t("support.widgets.fields.identityRequiredHint")
+                : t("support.widgets.fields.identityRequiredNoSecret")}
+            </p>
+          </div>
+        )}
         <Field label={t("support.widgets.fields.title")} htmlFor={`${id}-title-f`}>
           <input
             id={`${id}-title-f`}
@@ -413,6 +459,7 @@ export function WidgetPanel({
                 {t("support.widgets.copySnippet")}
               </button>
             </CopyBlock>
+            {identity && <WidgetIdentity widget={widget} />}
             <CopyBlock title={t("support.widgets.guide")}>
               <button type="button" className={secondaryButton} onClick={() => void copy(guide)}>
                 {t("support.widgets.copyGuide")}

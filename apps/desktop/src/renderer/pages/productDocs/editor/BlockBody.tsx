@@ -246,7 +246,7 @@ export function BlockBody({
     case "divider":
       return <hr className="border-rule" onMouseDown={onSelectObject} />;
     case "image":
-      return <ImageBlock block={block} onCaption={onCaption} onSelect={onSelectObject} />;
+      return <ImageBlock block={block} pageId={page.id} onCaption={onCaption} onSelect={onSelectObject} />;
     case "drive":
       return <DriveBlock block={block} onSelect={onSelectObject} />;
     case "decision":

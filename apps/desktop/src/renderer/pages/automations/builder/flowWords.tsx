@@ -1,6 +1,6 @@
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
-import { childLists } from "../../../domain/automations/fields";
+import { childLists } from "@stubwise/shared";
 import type { Approval, Step } from "../../../data/types";
 import { conditionWords, templateParts } from "../format";
 import { useBuilder, type BuilderState } from "./context";

@@ -1,16 +1,9 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
-import * as api from "../api";
-import { getSessionPersonId } from "../session";
-import { streamText } from "../stream";
+import * as api from "@backend/api";
+import { isAppBuild } from "../build";
+import { featureIntegrated } from "../integration";
 import { MIN_QUERY } from "../../pages/chat/search";
-import {
-  queryKeys,
-  REQUEST_AREAS,
-  useInvalidate,
-  useSessionPersonId,
-  useWrite,
-} from "../queries";
+import { queryKeys, REQUEST_AREAS, useInvalidate, useSessionPersonId, useWrite } from "../queries";
 
 // Gli hook di questa parte dell'area 8a; `data/queries` li ri-esporta.
 // L'import circolare con `../queries` è innocuo: gli helper si usano solo
@@ -29,6 +22,24 @@ const SUPPORT_AREAS = ["support", "notifications"] as const;
  */
 const supportRequestAreas = () => [...SUPPORT_AREAS, ...REQUEST_AREAS];
 
+/**
+ * Ogni quanto Support si rilegge da solo (area 8, F3, R6): nella build app
+ * non c'è uno stream. Il dettaglio aperto ogni 15 s finché la conversazione
+ * è senza esito (un messaggio del cliente può riportarla in triage); chiusa
+ * (`request_open`) ogni 30 s, perché la richiesta e «Continued in» cambiano
+ * ancora; l'elenco ogni 30 s. Il prototipo cambia solo da sé: mai.
+ */
+export function supportRefreshMs(
+  kind: "detail" | "list",
+  state?: api.support.SupportState,
+): number | false {
+  if (!isAppBuild()) return false;
+  if (kind === "list") return 30_000;
+  if (state === undefined) return false;
+  // Chiusa: la richiesta (lo stato per il cliente) e «Continued in» cambiano ancora, più piano.
+  return state === "request_open" ? 30_000 : 15_000;
+}
+
 /** Le conversazioni coi clienti del progetto, raggruppate per stato. */
 export function useSupportConversations(
   projectId: string | undefined,
@@ -39,6 +50,7 @@ export function useSupportConversations(
     queryKey: queryKeys.supportConversations(me, projectId ?? "", filter.state ?? ""),
     queryFn: () => api.support.listSupportConversations(projectId!, filter),
     enabled: !!projectId,
+    refetchInterval: supportRefreshMs("list"),
   });
 }
 
@@ -49,6 +61,7 @@ export function useSupportConversation(code: string | undefined) {
     queryKey: queryKeys.supportConversation(me, code ?? ""),
     queryFn: () => api.support.getSupportConversation(code!),
     enabled: !!code,
+    refetchInterval: (query) => supportRefreshMs("detail", query.state.data?.state),
   });
 }
 
@@ -62,21 +75,13 @@ export function useCustomerPreview(code: string | undefined) {
   });
 }
 
-/** Il blocco «Clienti in attesa» della Home. */
-export function useWaitingCustomers() {
-  const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.waitingCustomers(me),
-    queryFn: () => api.support.listWaitingCustomers(),
-  });
-}
-
 export function useSupportWidgets(projectId: string | undefined) {
   const me = useSessionPersonId();
   return useQuery({
     queryKey: queryKeys.supportWidgets(me, projectId ?? ""),
     queryFn: () => api.support.listWidgets(projectId!),
-    enabled: !!projectId,
+    // Build app: i widget hanno la loro funzione (area 8, F3, R1).
+    enabled: !!projectId && featureIntegrated("support-widgets"),
   });
 }
 
@@ -86,33 +91,12 @@ export function useSupportSearch(q: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.supportSearch(me, q),
     queryFn: () => api.support.searchSupport(q),
-    enabled: enabled && q.trim().length >= MIN_QUERY,
+    // Solo dove la ricerca è integrata (review area 8 F1, m5): non è nella F3
+    // (nessuna rotta), quindi ha la sua funzione, spenta anche con `support`.
+    enabled: enabled && q.trim().length >= MIN_QUERY && featureIntegrated("support-search"),
     placeholderData: (previous, previousQuery) =>
       previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
   });
-}
-
-/** Lo stato di una richiesta come lo dice `my_requests` al cliente. */
-export function useMyRequestStatus(requestId: string | undefined) {
-  const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.myRequestStatus(me, requestId ?? ""),
-    queryFn: () => api.support.myRequestStatus(requestId!),
-    enabled: !!requestId,
-  });
-}
-
-/** «Invia al cliente»: solo dal clic di chi ha `support.reply`, mai un'email. */
-export function useReplyToCustomer() {
-  return useWrite(
-    ({ code, body }: { code: string; body: string }) => api.support.replyToCustomer(code, body),
-    SUPPORT_AREAS,
-  );
-}
-
-/** «Bozza di Claude»: la rigenera, non la invia. */
-export function useDraftReply() {
-  return useWrite((code: string) => api.support.draftReply(code), SUPPORT_AREAS);
 }
 
 /** «Apri la richiesta» su una non conclusa (`backlog.create`). */
@@ -124,16 +108,9 @@ export function useOpenRequestFrom() {
   );
 }
 
-export function useFollowConversation() {
-  return useWrite(
-    ({ code, on }: { code: string; on: boolean }) => api.support.followConversation(code, on),
-    SUPPORT_AREAS,
-  );
-}
-
-/** «Scrivigli anche per email»: la bozza per il compositore della Posta. Non scrive nulla. */
-export function useEmailDraftFor() {
-  return useWrite((code: string) => api.support.emailDraftFor(code), []);
+/** «Not concluded» su una `answered` (`support.manage`): diventa non conclusa. */
+export function useMarkNotConcluded() {
+  return useWrite((code: string) => api.support.markNotConcluded(code), SUPPORT_AREAS);
 }
 
 export function useCreateWidget() {
@@ -152,6 +129,16 @@ export function useUpdateWidget() {
   );
 }
 
+/**
+ * API per i siti (S6): il segreto d'identità dei clienti, con la riconferma.
+ * `secret: true`: il valore non entra mai nella cache (I2).
+ */
+export function useRegenerateIdentitySecret() {
+  return useWrite((id: string) => api.support.regenerateIdentitySecret(id), SUPPORT_AREAS, {
+    secret: true,
+  });
+}
+
 export function useDeleteWidget() {
   return useWrite((id: string) => api.support.deleteWidget(id), SUPPORT_AREAS);
 }
@@ -162,78 +149,13 @@ export function useDeleteWidget() {
  * `writer` legge la sessione ora — a nome di chi ha cliccato «Invia». La
  * pagina della persona nuova si rilegge comunque da capo.
  */
-export function replyToCustomerNow(code: string, body: string) {
-  return api.support.replyToCustomer(code, body);
+export function replyToCollaboratorNow(code: string, body: string, clientId?: string) {
+  return api.support.replyToCollaborator(code, body, clientId);
 }
 
 /** Ricarica Support (elenco, dettaglio, Home) dopo un invio fatto fuori da React Query. */
 export function useInvalidateSupport() {
   return useInvalidate(SUPPORT_AREAS);
-}
-
-export type SupportClaudeDraftState =
-  | { status: "idle" }
-  | { status: "writing"; text: string }
-  | { status: "done" | "stopped"; text: string }
-  | { status: "failed" };
-
-/**
- * «Bozza di Claude» nella casella di Support (shape support.md §5): la
- * rigenera (`draftReply`) e la scrive a pezzi nel corpo, con lo stesso ritmo
- * delle risposte di Claude (`streamText`). Non invia NULLA: chi risponde la
- * rilegge e preme «Invia al cliente». Di chi l'ha chiesta: cambiando persona
- * si ferma e sparisce.
- */
-export function useSupportClaudeDraft() {
-  const me = useSessionPersonId();
-  const invalidate = useInvalidate(SUPPORT_AREAS);
-  const [state, setState] = useState<SupportClaudeDraftState>({ status: "idle" });
-  const run = useRef<{ stopped: boolean } | null>(null);
-
-  const stop = useCallback(() => {
-    if (run.current) run.current.stopped = true;
-  }, []);
-
-  const start = useCallback(
-    (code: string) => {
-      if (run.current) run.current.stopped = true;
-      const current = { stopped: false };
-      run.current = current;
-      setState({ status: "writing", text: "" });
-      void (async () => {
-        try {
-          const view = await api.support.draftReply(code);
-          void invalidate();
-          let written = "";
-          const complete = await streamText(
-            view.claudeDraft ?? "",
-            `${me}:${code}`,
-            (soFar) => {
-              written = soFar;
-              if (run.current === current) setState({ status: "writing", text: soFar });
-            },
-            () => !current.stopped && getSessionPersonId() === me,
-          );
-          if (run.current === current)
-            setState({ status: complete ? "done" : "stopped", text: written });
-        } catch {
-          if (run.current === current) setState({ status: "failed" });
-        }
-      })();
-    },
-    [me, invalidate],
-  );
-
-  const reset = useCallback(() => {
-    if (run.current) run.current.stopped = true;
-    run.current = null;
-    setState({ status: "idle" });
-  }, []);
-
-  // Un'altra persona, o la casella che si chiude: la bozza si ferma.
-  useEffect(() => reset, [me, reset]);
-
-  return { state, start, stop, reset };
 }
 
 /** Solo prototipo: «Simula un messaggio del cliente». */

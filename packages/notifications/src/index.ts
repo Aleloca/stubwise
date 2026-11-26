@@ -14,6 +14,7 @@ export {
 } from "./dispatch.js";
 
 export * from "./backlog-item-writes.js";
+export * from "./claude-contexts.js";
 // Il codice della reason di una pausa dei Docs (F2b): lo scrive e lo confronta
 // il worker, lo legge la resa di `docs.limit_paused` qui dentro.
 export * from "./docs-pause-reason.js";
@@ -77,15 +78,24 @@ export {
 export { unreadCount } from "./unread.js";
 export { notificationVisibleToRecipient } from "./inbox-visibility.js";
 export {
+  automationOwnerInScope,
   cardPermissions,
   cardPermissionsOf,
+  holdsPermission,
+  instancePermissionsOfUser,
   projectPermissionsByProject,
   projectPermissionsOfUser,
   projectViewerIds,
+  projectViewerIdsByProject,
   userIdsWithPermission,
   userIsFullAdmin,
   type CardAnchor,
 } from "./project-access.js";
+export { approversFor, loadPlanWorld, milestoneNameTaken, type WorldScope } from "./automation-world.js";
+export { aiBudgetState, monthlyBudgetLimitUsd, type AiBudgetState } from "./ai-budget.js";
+export { automationMailboxOf, MAIL_SEND_SCOPE, type AutomationMailbox } from "./automation-mailbox.js";
+export { automationEventFields, type AutomationEventRef } from "./automation-event-fields.js";
+export { DRIVE_READONLY_SCOPE, folderLinkExpiredSql } from "./drive-folder-link.js";
 
 // --- segnali di progetto condivisi (Fase 4) ---
 //
@@ -120,6 +130,7 @@ export {
 } from "./project-pulse-summary.js";
 
 export {
+  permissionForMailAction,
   permissionForProposalAction,
   permissionsForProposalActions,
 } from "./proposal-permissions.js";
@@ -202,6 +213,7 @@ export {
   eventSummary,
   formatNotification,
   formatNotificationText,
+  isProductDocEvent,
   isReviewFailedEvent,
   reviewOutcomeOf,
   sampleEvents,
@@ -225,6 +237,8 @@ export {
   type NotificationFormat,
   type NotificationKind,
   type PrOpenedEvent,
+  type ProductDocEvent,
+  type ProductDocMentionEvent,
   type ProjectBriefEvent,
   type ProjectPulseEvent,
   type PulseProposal,
@@ -232,6 +246,12 @@ export {
   type ReviewCompletedEvent,
   type SecurityAlertEvent,
   type SecurityAlertSubject,
+  type DecisionRequestedEvent,
+  type DecisionAnsweredEvent,
+  type TicketActivityEvent,
+  type PlanningChangedEvent,
+  type TaskAssignedEvent,
+  type TicketActivityChange,
   type TicketCreatedEvent,
 } from "./format.js";
 
@@ -243,6 +263,7 @@ export {
 // e `hasJobInFlight` sono l'UNICA definizione di «job che blocca»: si
 // riusano, non si ricopiano.
 export {
+  colleagueCorrectionPermitted,
   autoRoundsInCurrentSeries,
   cancelOpenCorrections,
   cancelPendingCorrection,
@@ -267,6 +288,7 @@ export {
   type ActorPermissions,
   type EnqueueCorrectionInput,
   type EnqueueCorrectionResult,
+  type PrCorrectionOutcome,
   type PrCycleFacts,
   type PrRef,
 } from "./pr-correction-cycle.js";
@@ -310,3 +332,41 @@ export {
   type ReviewAccountResolution,
   type ReviewAccountSource,
 } from "./review-account.js";
+export { resolveRecipientUserIds } from "./mail-recipients.js";
+export { canSeeMeeting, meetingAudienceEmails, meetingViewerIds } from "./meeting-visibility.js";
+export { productionForStatus, releaseProductionOf, type ReleaseProduction } from "./release-production.js";
+export { resolveCatalogRecipients } from "./publish.js";
+export { publishSupportRequestAlert } from "./support-alerts.js";
+export { catalogRecipients, type CatalogRecipients, type CatalogRecipientsContext } from "./alert-recipients.js";
+
+// Area 8, F4b: i comandi firmati verso l'agente (server e worker; UN posto che firma).
+export { commandPublicKey, signCommand } from "./server-ops/signing.js";
+export {
+  cancelServerCommands,
+  COMMAND_OUTPUT_MAX,
+  COMMAND_TTL_MS,
+  commandsByIds,
+  issueServerCommand,
+  ServerCommandError,
+  seenContainers,
+  type IssueServerCommandInput,
+} from "./server-ops/commands.js";
+export { attributionContext } from "./server-ops/context.js";
+export { waitingCandidates, waitingCandidatesPage, type WaitingCandidate, type WaitingCandidatesInput } from "./waiting-customers.js";
+// Area 9, F3: i webhook in uscita (firma, invio, chi riceve cosa, esempi).
+export {
+  contentLanguageOf,
+  sampleEventFor,
+  sendableWebhook,
+  sendToWebhook,
+  webhookBody,
+  webhookIdsForKind,
+  webhookWantsKind,
+  webhookSignature,
+  type SendableWebhook,
+  type WebhookFormat,
+  type WebhookSendOptions,
+} from "./webhooks.js";
+export { failFirstVersion, writeFirstVersionPage, type FirstVersionDraftPage, type FirstVersionStep } from "./product-first-version.js";
+export { agentUserId, freshIds, withAnchorText, writeClaudeFacts, type ClaudeFactOutcome, type ClaudeWriteInput, type ClaudeWriteResult, type ProductSourceKind } from "./product-docs-write.js";
+export { ignoreProposalOption, sharedProposalOptions } from "./shared-proposal-options.js";

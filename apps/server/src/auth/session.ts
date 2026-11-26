@@ -1,8 +1,17 @@
 import { randomBytes } from "node:crypto";
-import { and, eq, isNull, lt, or } from "drizzle-orm";
+import { and, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Db } from "@stubwise/db";
-import { personalAccessTokens, roles, sessions, users } from "@stubwise/db";
+import {
+  CHAT_TOOL_TOKEN_PREFIX,
+  claudeChatToolTokens,
+  claudeConversations,
+  hashChatToolToken,
+  personalAccessTokens,
+  roles,
+  sessions,
+  users,
+} from "@stubwise/db";
 import {
   effectiveInstancePermissions,
   type InstancePermission,
@@ -77,6 +86,8 @@ export interface SessionUser {
   avatarUrl: string | null;
   /** Slack user id linkato a questo utente, o null se non linkato. */
   slackUserId: string | null;
+  /** Nome visualizzato (0107); null = la parte locale dell'email. Assente nei doppi dei test. */
+  displayName?: string | null;
   /**
    * Id del PAT con cui QUESTA richiesta si è autenticata, assente quando ci si
    * è autenticati col cookie di sessione.
@@ -94,6 +105,24 @@ export interface SessionUser {
    * {@link findPatUser}, che è l'unico posto in cui la credenziale è nota.
    */
   patId?: string;
+  /** Il tipo del PAT della richiesta (`personal_access_tokens.kind`); assente senza PAT. */
+  patKind?: "manual" | "mobile" | "desktop";
+  /**
+   * Riconferma dal desktop (decisione del maintainer, 10 nov 2026): l'ultimo
+   * secondo fattore fatto CON questo PAT (`POST /api/auth/desktop-reauth`).
+   * Presente SOLO per un PAT `desktop`: `applyReauth` lo accetta per 10 minuti,
+   * come `secondFactorAt` di una sessione. Un PAT `mobile` o `manual` non lo
+   * porta mai, e quindi non soddisfa mai una riconferma.
+   */
+  patSecondFactorAt?: Date | null;
+  /**
+   * La conversazione libera del cui turno è il token (chat con Claude, fetta
+   * 1): presente SOLO per una richiesta col token del turno
+   * (`findChatToolUser`). Con lui l'accesso è ristretto all'allowlist chiusa di
+   * `chat-tool-routes.ts` (GET di lettura) e la riconferma non è mai
+   * soddisfatta (nessuna `sessionId`).
+   */
+  chatToolSessionId?: string;
   /**
    * Id della sessione con cui QUESTA richiesta si è autenticata (cookie),
    * assente per i PAT. Come `patId`, è un attributo della credenziale: serve
@@ -125,7 +154,7 @@ declare module "fastify" {
  */
 export type SessionUserColumns = Pick<
   typeof users.$inferSelect,
-  "id" | "email" | "role" | "language" | "slackAvatarUrl" | "slackUserId"
+  "id" | "email" | "role" | "language" | "slackAvatarUrl" | "slackUserId" | "displayName"
 > & {
   /** `roles.permissions` del ruolo d'istanza (`users.instance_role_id`). */
   instanceRolePermissions: string[];
@@ -143,6 +172,7 @@ export const sessionUserSelection = {
   language: users.language,
   slackAvatarUrl: users.slackAvatarUrl,
   slackUserId: users.slackUserId,
+  displayName: users.displayName,
   instanceRolePermissions: roles.permissions,
 } as const;
 
@@ -164,6 +194,7 @@ export function toSessionUser(row: SessionUserColumns): SessionUser {
     language: row.language,
     avatarUrl: row.slackAvatarUrl,
     slackUserId: row.slackUserId,
+    displayName: row.displayName,
   };
 }
 
@@ -214,7 +245,9 @@ export async function findSessionUser(db: Db, sessionId: string): Promise<Sessio
     .from(sessions)
     .innerJoin(users, eq(sessions.userId, users.id))
     .innerJoin(roles, eq(roles.id, users.instanceRoleId))
-    .where(eq(sessions.id, sessionId));
+    // L'utente di sistema «Claude» non ha sessioni valide, per costruzione (fetta 3e).
+    // Area 9, F1: una persona disattivata non entra (anche se una sessione sopravvivesse a una corsa).
+    .where(and(eq(sessions.id, sessionId), eq(users.isAgent, false), isNull(users.deactivatedAt)));
 
   if (!row) return null;
   if (row.expiresAt.getTime() <= Date.now()) {
@@ -270,13 +303,16 @@ export async function findPatUser(
   const [row] = await db
     .select({
       patId: personalAccessTokens.id,
+      patKind: personalAccessTokens.kind,
+      patSecondFactorAt: personalAccessTokens.secondFactorAt,
       expiresAt: personalAccessTokens.expiresAt,
       ...sessionUserSelection,
     })
     .from(personalAccessTokens)
     .innerJoin(users, eq(personalAccessTokens.userId, users.id))
     .innerJoin(roles, eq(roles.id, users.instanceRoleId))
-    .where(eq(personalAccessTokens.tokenHash, tokenHash));
+    // Né PAT: l'utente di sistema «Claude» non agisce mai via API (fetta 3e).
+    .where(and(eq(personalAccessTokens.tokenHash, tokenHash), eq(users.isAgent, false), isNull(users.deactivatedAt)));
   if (!row) return null;
   if (row.expiresAt && row.expiresAt.getTime() <= Date.now()) return null;
   await db
@@ -294,7 +330,55 @@ export async function findPatUser(
     .catch(() => undefined);
   // `patId` in più rispetto alla proiezione condivisa: qui, e solo qui, si sa
   // con QUALE credenziale è arrivata la richiesta.
-  return { ...toSessionUser(row), patId: row.patId };
+  return {
+    ...toSessionUser(row),
+    patId: row.patId,
+    patKind: row.patKind,
+    ...(row.patKind === "desktop" ? { patSecondFactorAt: row.patSecondFactorAt } : {}),
+  };
+}
+
+/**
+ * Risolve l'autore da `Authorization: Bearer stw_chat_...`, il token di UN
+ * turno di una conversazione libera con Claude (chat, fetta 1). Vale solo se:
+ * non revocato, non scaduto, la sua conversazione esiste, è DELL'utente del
+ * token e non è archiviata. Il token lo emette il worker, non una rotta: non è
+ * una porta che dà un token (`docs/invariants/second-factor.md`). L'utente
+ * prodotto porta `chatToolSessionId`, che `accessPreHandler` usa per
+ * restringerlo all'allowlist; nessuna `sessionId`, quindi mai la riconferma.
+ */
+export async function findChatToolUser(
+  db: Db,
+  authorization: string | undefined,
+): Promise<SessionUser | null> {
+  if (!authorization) return null;
+  const match = /^Bearer\s+(.+)$/i.exec(authorization);
+  const token = match?.[1];
+  if (!token || !token.startsWith(CHAT_TOOL_TOKEN_PREFIX)) return null;
+  const [row] = await db
+    .select({ chatToolSessionId: claudeChatToolTokens.sessionId, ...sessionUserSelection })
+    .from(claudeChatToolTokens)
+    .innerJoin(users, eq(claudeChatToolTokens.userId, users.id))
+    .innerJoin(roles, eq(roles.id, users.instanceRoleId))
+    .innerJoin(
+      claudeConversations,
+      and(
+        eq(claudeConversations.sessionId, claudeChatToolTokens.sessionId),
+        eq(claudeConversations.ownerId, claudeChatToolTokens.userId),
+        isNull(claudeConversations.archivedAt),
+      ),
+    )
+    .where(
+      and(
+        eq(claudeChatToolTokens.tokenHash, hashChatToolToken(token)),
+        isNull(claudeChatToolTokens.revokedAt),
+        gt(claudeChatToolTokens.expiresAt, sql`now()`),
+        eq(users.isAgent, false),
+        isNull(users.deactivatedAt),
+      ),
+    );
+  if (!row) return null;
+  return { ...toSessionUser(row), chatToolSessionId: row.chatToolSessionId };
 }
 
 /**
@@ -319,6 +403,17 @@ export async function requireAuth(
     request.user = patUser;
     return;
   }
+  // Il token del turno della chat: un Bearer col suo prefisso non ricade MAI sul
+  // cookie (un token caduto è 401, non la sessione del browser che lo porta).
+  if (request.headers.authorization?.match(/^Bearer\s+stw_chat_/i)) {
+    const chatUser = await findChatToolUser(request.server.db, request.headers.authorization);
+    if (!chatUser) {
+      await apiError(reply, 401, "unauthorized", "Authentication required");
+      return;
+    }
+    request.user = chatUser;
+    return;
+  }
   const sessionId = sessionIdFromRequest(request);
   const user = sessionId ? await findSessionUser(request.server.db, sessionId) : null;
   if (!user) {
@@ -329,5 +424,18 @@ export async function requireAuth(
     await apiError(reply, 401, "second_factor_required", "Second factor required");
     return;
   }
+  if (user.sessionStage === "full") await touchSession(request.server.db, user.sessionId!, request.headers["user-agent"]);
   request.user = user;
+}
+
+/**
+ * Area 9, F1 (D-9): l'ultimo uso e lo user agent di una sessione, per «le mie
+ * sessioni». Una UPDATE sola che scrive SOLO se l'ultimo uso è vecchio di più
+ * di 5 minuti: mai una scrittura per richiesta.
+ */
+async function touchSession(db: Db, sessionId: string, userAgent: string | undefined): Promise<void> {
+  await db
+    .update(sessions)
+    .set({ lastSeenAt: sql`now()`, userAgent: sql`coalesce(${userAgent?.slice(0, 300) ?? null}, ${sessions.userAgent})` })
+    .where(and(eq(sessions.id, sessionId), or(isNull(sessions.lastSeenAt), lt(sessions.lastSeenAt, sql`now() - interval '5 minutes'`))));
 }

@@ -3,8 +3,23 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { MenuItemConstructorOptions } from "electron";
 import { describe, expect, it, vi } from "vitest";
-import { buildMenuTemplate, MENU_ASK_CLAUDE, MENU_PREFERENCES, MENU_REDO, MENU_SEARCH, MENU_UNDO } from "./menu";
-import { groundFor, isResolvedTheme, overlayFor, PAPER, printOnPaper, themeFromDark, windowOptions } from "./window";
+import {
+  buildMenuTemplate,
+  MENU_ASK_CLAUDE,
+  MENU_PREFERENCES,
+  MENU_REDO,
+  MENU_SEARCH,
+  MENU_UNDO,
+} from "./menu";
+import {
+  groundFor,
+  isResolvedTheme,
+  overlayFor,
+  PAPER,
+  printOnPaper,
+  themeFromDark,
+  windowOptions,
+} from "./window";
 
 function flatten(items: MenuItemConstructorOptions[]): MenuItemConstructorOptions[] {
   return items.flatMap((i) => [i, ...(Array.isArray(i.submenu) ? flatten(i.submenu) : [])]);
@@ -44,6 +59,16 @@ describe("opzioni di finestra", () => {
 });
 
 describe("menu dell'applicazione", () => {
+  it("M6: «Toggle Developer Tools» solo in sviluppo", () => {
+    for (const platform of ["darwin", "win32"] as const) {
+      const roles = (devTools: boolean) =>
+        flatten(buildMenuTemplate(platform, "Stubwise", vi.fn(), { devTools })).map((i) => i.role);
+      expect(roles(false)).not.toContain("toggleDevTools");
+      expect(roles(true)).toContain("toggleDevTools");
+      expect(roles(false)).toContain("reload");
+    }
+  });
+
   const labels = (t: MenuItemConstructorOptions[]) => t.map((i) => i.label);
 
   it("macOS: App/File/Edit/View/Window/Help", () => {
@@ -116,27 +141,72 @@ describe("menu dell'applicazione", () => {
   );
 });
 
-// I canali IPC, letti dal sorgente: `theme:changed`, i `menu:*` e, dall'area
-// 11a, il solo `file:save` (decisione 8 della spec). Un canale in più (o
-// scelto dal renderer) fa fallire questo test. Il preload espone solo
-// `window.stubwise` con le sue quattro voci.
+// I canali IPC, letti dal sorgente: `theme:changed`, i `menu:*`, dall'area
+// 11a `file:save` (decisione 8 della spec) e, dall'integrazione area 2 (fetta
+// 1, Task 13), `api:request`, `instance:get|set`, `session:logout|status|start-browser-login|cancel-browser-login`
+// e `open:web`. Un canale in più (o scelto dal renderer) fa fallire questo
+// test. Dall'area 3 (fetta 3a) anche `api:stream-open` e `api:stream-port`;
+// dal lotto 10 i `vault:*` della cassaforte (`vaultIpc.ts`). Il preload
+// espone solo `window.stubwise` con le sue nove voci.
 describe("canali IPC", () => {
   const read = (rel: string) => readFileSync(resolve(__dirname, rel), "utf8");
   const main = read("./index.ts");
   const preload = read("../preload/index.ts");
   const EXPECTED = [
+    "api:download",
+    "api:request",
+    "api:stream-open",
+    "api:stream-port",
+    "api:upload",
     "file:save",
+    "files:cancel",
+    "files:progress",
+    "files:register",
+    "google:cancel-connect",
+    "google:prepare-connect",
+    "google:returned",
+    "instance:get",
+    "instance:set",
     "menu:ask-claude",
     "menu:preferences",
     "menu:redo",
     "menu:search",
     "menu:undo",
+    "open:web",
+    "session:cancel-browser-login",
+    "session:changed",
+    "session:logout",
+    "session:start-browser-login",
+    "session:status",
     "theme:changed",
+    "vault:changed",
+    "vault:confirm",
+    "vault:copy",
+    "vault:create",
+    "vault:forget",
+    "vault:lock",
+    "vault:macs",
+    "vault:mine",
+    "vault:pair-cancel",
+    "vault:pair-start",
+    "vault:paired",
+    "vault:pending",
+    "vault:reject",
+    "vault:remove-mac",
+    "vault:remove-reader",
+    "vault:server-status",
+    "vault:set-password",
+    "vault:share",
+    "vault:show",
+    "vault:status",
+    "vault:unlock",
   ];
 
   /** I nomi dei canali: ogni stringa `<parola>:<parola>` che non sia un import `node:`. */
   const channelsIn = (source: string) =>
-    [...source.matchAll(/["'`]([a-z]+:[a-z-]+)["'`]/g)].map((m) => m[1]!).filter((c) => !c.startsWith("node:"));
+    [...source.matchAll(/["'`]([a-z]+:[a-z-]+)["'`]/g)]
+      .map((m) => m[1]!)
+      .filter((c) => !c.startsWith("node:"));
 
   it("main e preload nominano solo i canali attesi, file:save compreso", () => {
     const all = new Set([
@@ -149,25 +219,175 @@ describe("canali IPC", () => {
     expect(preload).toMatch(/ipcRenderer\.invoke\("file:save",/);
   });
 
+  it("la cassaforte (lotto 10): i canali li registra `registerVaultIpc` col controllo del mittente; il main manda solo stato ed esiti", () => {
+    expect(main).toMatch(
+      /registerVaultIpc\(ipcMain, \{ lock: vault, pairing: vaultPairing, ops: vaultOps, fromApp \}\)/,
+    );
+    expect(main).toMatch(/broadcast\("vault:changed", status\)/);
+    expect(main).toMatch(/broadcast\("vault:paired", result\)/);
+    // M3: il sigillo sul server si toglie PRIMA che il token cambi (nuovo login, istanza, 401).
+    expect(main).toMatch(
+      /vault\.sessionChanged\(\);\s*vaultPairing\.cancel\(\);\s*void replaceToken\(/,
+    );
+    expect(main).toMatch(
+      /vault\.sessionChanged\(\);\s*vaultPairing\.cancel\(\);\s*clearToken\(\);\s*browserLogin\.cancel\(\);/,
+    );
+    expect(main).toMatch(
+      /if \(readToken\(\) !== used\) return;[\s\S]*?vault\.sessionChanged\(\);[\s\S]*?clearToken\(\);/,
+    );
+    // M4: all'uscita gli appunti si svuotano e la cassaforte si chiude.
+    expect(main).toMatch(
+      /app\.on\("before-quit", \(\) => \{\s*vault\.lock\(\);\s*void vaultOps\.clearClipboard\(\);/,
+    );
+    // Stop e schermo bloccato chiudono la cassaforte (D-2).
+    expect(main).toMatch(/powerMonitor\.on\("suspend", \(\) => vault\.lock\(\)\)/);
+    expect(main).toMatch(/powerMonitor\.on\("lock-screen", \(\) => vault\.lock\(\)\)/);
+  });
+
+  it("lo stream delle sessioni (area 3, fetta 3a): una porta di MessageChannelMain al preload, mai un MessagePort alla pagina", () => {
+    expect(main).toMatch(
+      /ipcMain\.on\("api:stream-open",[\s\S]*?fromApp\(event\)[\s\S]*?new MessageChannelMain\(\)/,
+    );
+    expect(main).toMatch(/postMessage\("api:stream-port",/);
+    expect(main).toMatch(/streams\.closeWindow\(/);
+    expect(preload).toMatch(/ipcRenderer\.send\("api:stream-open",/);
+    expect(preload).toMatch(/ipcRenderer\.on\("api:stream-port",/);
+    // La porta resta nel preload: alla pagina arrivano solo i messaggi.
+    expect(preload).not.toMatch(/window\.postMessage/);
+  });
+
+  it("api:download (fetta 4 della Chat): guarda il mittente, risolve col bearer e scarica solo i download avviati da lui, chiedendo dove salvare", () => {
+    expect(main).toMatch(
+      /ipcMain\.handle\("api:download",[\s\S]*?fromApp\(event\)[\s\S]*?resolveDownload\(/,
+    );
+    expect(main).toMatch(
+      /on\("will-download",[\s\S]*?downloadDecision\([\s\S]*?item\.cancel\(\)[\s\S]*?safeDownloadName\([\s\S]*?showSaveDialogSync\(/,
+    );
+    // Mai aprire il file scaricato.
+    expect(main).not.toMatch(/shell\.openPath/);
+    expect(preload).toMatch(/ipcRenderer\.invoke\("api:download", \{ path \}\)/);
+  });
+
+  it("il caricamento del Drive (fetta 2 dell'area 5): il preload dà solo File veri, il main dà un token, il progresso solo a chi chiede", () => {
+    expect(preload).toMatch(/webUtils\.getPathForFile\(file\)/);
+    expect(main).toMatch(
+      /ipcMain\.handle\("files:register",[\s\S]*?fromApp\(event\)[\s\S]*?uploadTokens\.register\(\s*event\.sender\.id/,
+    );
+    expect(main).toMatch(
+      /ipcMain\.handle\("api:upload",[\s\S]*?fromApp\(event\)[\s\S]*?const owner = event\.sender\.id;[\s\S]*?uploads\.begin\(owner, r\?\.uploadId\)[\s\S]*?uploadTokens\.take\(owner,/,
+    );
+    expect(main).toMatch(
+      /ipcMain\.handle\("files:cancel",[\s\S]*?uploads\.cancel\(event\.sender\.id,/,
+    );
+    expect(main).toMatch(/event\.sender\.send\("files:progress",/);
+    expect(main).toMatch(
+      /const dropUploads = \(\) => \{\s*void uploadTokens\.dropOwner\(owner\);\s*uploads\.dropOwner\(owner\);/,
+    );
+    expect(main).toMatch(/once\("destroyed", dropUploads\)/);
+    expect(main).toMatch(/on\("render-process-gone", dropUploads\)/);
+    expect(main).toMatch(
+      /on\("did-start-navigation", \(details\) => \{\s*if \(details\.isMainFrame && !details\.isSameDocument\) dropUploads\(\);/,
+    );
+    expect(main).toMatch(/uploadTokens\.startSweeper\(\);/);
+  });
+
   it("nessuna chiamata IPC con un canale che non sia letterale (tranne i menu della lista fissa)", () => {
-    const calls = [...`${main}\n${preload}`.matchAll(/ipc(?:Main|Renderer)\.(on|handle|send|invoke|once)\(\s*([^,)]+)/g)];
+    const calls = [
+      ...`${main}\n${preload}`.matchAll(
+        /ipc(?:Main|Renderer)\.(on|handle|send|invoke|once)\(\s*([^,)]+)/g,
+      ),
+    ];
     const dynamic = calls.map((m) => m[2]!.trim()).filter((arg) => !/^"[a-z]+:[a-z-]+"$/.test(arg));
     expect(dynamic).toEqual(["channel"]);
   });
 
+  it("il login col browser: protocollo stubwise://, una sola istanza, URL solo a handleAuthUrl", () => {
+    expect(main).toMatch(/setAsDefaultProtocolClient\("stubwise"/);
+    expect(main).toMatch(/requestSingleInstanceLock\(\)/);
+    // macOS consegna l'URL con `open-url`, Windows/Linux alla seconda istanza.
+    // Entrambi passano da `receiveAuthUrl`, che consegna l'URL al solo `handleAuthUrl`.
+    expect(main).toMatch(
+      /function receiveAuthUrl\([^)]*\)[\s\S]*?browserLogin\.handleAuthUrl\(url\)/,
+    );
+    expect(main).toMatch(/app\.on\("open-url",[\s\S]*?receiveAuthUrl\(url\)/);
+    expect(main).toMatch(
+      /app\.on\("second-instance",[\s\S]*?authUrlFromArgv\(argv\)[\s\S]*?receiveAuthUrl\(url\)/,
+    );
+    // Niente più login con password dal desktop: né la porta del telefono né il canale.
+    expect(main).not.toMatch(/mobile-login/);
+    expect(`${main}\n${preload}`).not.toMatch(/session:login/);
+    const builder = read("../../electron-builder.yml");
+    expect(builder).toMatch(/protocols:\s*\n\s*- name: Stubwise\s*\n\s*schemes:\s*\n\s*- stubwise/);
+  });
+
   it("file:save guarda il frame mittente PRIMA di leggere gli argomenti", () => {
     const handler = main.slice(main.indexOf('ipcMain.handle("file:save"'));
-    const sender = handler.indexOf("isNavigationAllowed(");
+    const sender = handler.indexOf("fromApp(event)");
     const parse = handler.indexOf("parseSaveFileRequest(");
     expect(sender).toBeGreaterThan(-1);
     expect(parse).toBeGreaterThan(-1);
     expect(sender).toBeLessThan(parse);
+    // `fromApp` è la regola della navigazione sul frame mittente.
+    expect(main).toMatch(
+      /function fromApp\([^)]*\)[^{]*\{\s*const sender = event\.senderFrame\?\.url \?\? "";\s*return isNavigationAllowed\(sender,/,
+    );
   });
 
-  it("il preload espone solo platform, setTheme, onMenu e saveFile", () => {
-    const exposed = preload.match(/exposeInMainWorld\("stubwise", \{([\s\S]*)\}\);/)?.[1] ?? "";
+  it("ogni ipcMain.handle guarda il mittente come prima cosa", () => {
+    const channels = [...main.matchAll(/ipcMain\.handle\("([a-z]+:[a-z-]+)",/g)].map((m) => m[1]!);
+    expect(channels.sort()).toEqual([
+      "api:download",
+      "api:request",
+      "api:upload",
+      "file:save",
+      "files:cancel",
+      "files:register",
+      "google:cancel-connect",
+      "google:prepare-connect",
+      "instance:get",
+      "instance:set",
+      "open:web",
+      "session:cancel-browser-login",
+      "session:logout",
+      "session:start-browser-login",
+      "session:status",
+    ]);
+    for (const channel of channels) {
+      // L'intestazione e le prime due righe del corpo: il controllo sta lì, prima di tutto.
+      const head = main
+        .slice(main.indexOf(`ipcMain.handle("${channel}",`))
+        .split("\n")
+        .slice(0, 3)
+        .join("\n");
+      expect(head, channel).toMatch(/fromApp\(event\)/);
+    }
+  });
+
+  it("il preload espone solo platform, setTheme, onMenu, saveFile, api, files, openStream, instance, session, openWeb, vault e google", () => {
+    const exposed = preload.match(/^const bridge = \{([\s\S]*?)^\};$/m)?.[1] ?? "";
+    // E solo alla pagina dell'app (protocollo app://): una pagina file:// non lo riceve.
+    expect(preload).toMatch(
+      /if \(bridgeAllowed\(href, devOrigin\)\) contextBridge\.exposeInMainWorld\("stubwise", bridge\);/,
+    );
+    expect(preload.match(/exposeInMainWorld/g)).toHaveLength(1);
     const keys = [...exposed.matchAll(/^ {2}([a-zA-Z]+):/gm)].map((m) => m[1]);
-    expect(keys).toEqual(["platform", "setTheme", "onMenu", "saveFile"]);
+    expect(keys).toEqual([
+      "platform",
+      "setTheme",
+      "onMenu",
+      "saveFile",
+      "api",
+      "files",
+      "openStream",
+      "instance",
+      "session",
+      "openWeb",
+      "vault",
+      "google",
+    ]);
+    // Mai il token né `ipcRenderer` verso il renderer.
+    expect(exposed).not.toMatch(/\btoken\s*[:(]/i);
+    expect(exposed).not.toMatch(/:\s*ipcRenderer\b/);
   });
 });
 
@@ -197,7 +417,9 @@ describe("PDF su carta bianca", () => {
 
   it("anche se la stampa fallisce il fondo torna quello del tema", async () => {
     const win = fakeWindow("#f7f8fa");
-    await expect(printOnPaper(win, () => Promise.reject(new Error("boom")))).rejects.toThrow("boom");
+    await expect(printOnPaper(win, () => Promise.reject(new Error("boom")))).rejects.toThrow(
+      "boom",
+    );
     expect(win.getBackgroundColor()).toBe("#f7f8fa");
   });
 });

@@ -1,5 +1,5 @@
 import { docChunks, type Db } from "@stubwise/db";
-import { chunkMarkdown, estimateTokens } from "@stubwise/docs-engine";
+import { chunkMarkdown, DOC_CHUNK_OVERLAP_WORDS, DOC_CHUNK_TARGET_TOKENS, estimateTokens } from "@stubwise/docs-engine";
 import type { EmbeddingClient } from "@stubwise/embeddings";
 
 /**
@@ -18,9 +18,9 @@ import type { EmbeddingClient } from "@stubwise/embeddings";
 /** Drizzle DB o una sua transazione (stessa interfaccia di query). */
 type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
 
-/** Target/overlap del chunking markdown per l'embedding (token stimati). */
-export const CHUNK_TARGET_TOKENS = 400;
-export const CHUNK_OVERLAP_WORDS = 40;
+/** Target/overlap del chunking markdown per l'embedding: da `@stubwise/docs-engine`, li usa anche il server. */
+export const CHUNK_TARGET_TOKENS = DOC_CHUNK_TARGET_TOKENS;
+export const CHUNK_OVERLAP_WORDS = DOC_CHUNK_OVERLAP_WORDS;
 
 /**
  * Tetto al numero di input per singola chiamata `embed()`: una pagina grande può

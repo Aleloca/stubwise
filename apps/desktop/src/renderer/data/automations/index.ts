@@ -9,6 +9,7 @@ import "./sources";
 export {
   canManageAutomations,
   checkDraft,
+  findRun,
   getAutomation,
   getRun,
   listAutomations,
@@ -29,6 +30,7 @@ export {
   publish,
   renameAutomation,
   saveDraft,
+  setWebhookLimits,
 } from "./writes";
 export {
   advanceTime,
@@ -52,6 +54,7 @@ export { listSimulationExamples } from "./examples";
 export {
   createWebhookSource,
   listClientSuggestions,
+  listSourceEvents,
   previewWebhookExample,
   regenerateWebhookAddress,
   renameSource,
@@ -59,6 +62,7 @@ export {
   updateWebhookField,
 } from "./webhooks";
 export {
+  confirmSimulationCost,
   endSimulation,
   getSimulation,
   SimulationConfigError,

@@ -11,6 +11,8 @@ import { itemClass } from "../../tasks-ui/Menu";
 import { relativeDay, whenLabel, whenWithTime } from "./format";
 import { AlertGlyph, MoreGlyph, VideoGlyph } from "./glyphs";
 import { UntrustedHtmlFrame } from "./UntrustedHtmlFrame";
+import { openInGmail, openOnGoogle } from "./mailFeatures";
+import { isAppBuild } from "../../data/build";
 
 // Un messaggio della conversazione (shape mail.md §3, §5): espanso — chi,
 // a chi, il testo pulito (l'originale HTML a richiesta, A9), il testo
@@ -166,7 +168,15 @@ function MeetingBlock({ message }: { message: MailMessageView }) {
           <span className="mt-0.5">
             <AlertGlyph size={14} />
           </span>
-          {t("mail.meeting.unreachable")}
+          {t(
+            note.docReason === "scope_missing"
+              ? "mail.meeting.scopeMissing"
+              : note.docReason === "deleted"
+                ? "mail.meeting.deleted"
+                : note.docReason === "not_verified"
+                  ? "mail.meeting.notVerified"
+                  : "mail.meeting.unreachable",
+          )}
         </p>
       ) : (
         <>
@@ -175,13 +185,22 @@ function MeetingBlock({ message }: { message: MailMessageView }) {
             <span className="text-xs text-ink-faint">{t("mail.meeting.generated")}</span>
           </p>
           {note.summary && <p className="text-md text-ink">{note.summary}</p>}
-          <button
-            type="button"
-            onClick={() => toast.show(t("mail.meeting.transcriptNotice"))}
-            className="self-start rounded-sm text-sm font-medium text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
-          >
-            {t("mail.meeting.open")}
-          </button>
+          {note.docReason === "too_long" && (
+            <p className="text-sm text-ink-muted">{t("mail.meeting.tooLong")}</p>
+          )}
+          {/* Nella build app solo col link del Doc (review F5a, 8): l'avviso è del prototipo. */}
+          {(!isAppBuild() || note.docUrl) && (
+            <button
+              type="button"
+              onClick={() =>
+                // Nella build app apre il Google Doc (F5a); nel prototipo lo dice.
+                note.docUrl ? openOnGoogle(note.docUrl) : toast.show(t("mail.meeting.transcriptNotice"))
+              }
+              className="self-start rounded-sm text-sm font-medium text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
+            >
+              {t("mail.meeting.open")}
+            </button>
+          )}
         </>
       )}
     </div>
@@ -278,6 +297,15 @@ function Delivery({
       <p role="status" className="flex items-center gap-2 text-xs text-ink-muted">
         <WorkingRing size={10} />
         {t("mail.compose.sending")}
+      </p>
+    );
+  }
+  // Gmail l'ha mandata ma Stubwise non ha potuto registrarlo (review F3, 12): non
+  // è un fallimento da riprovare né da eliminare (il server li rifiuta).
+  if (state === "failed" && message.delivery?.error === "sent_unrecorded") {
+    return (
+      <p role="status" className="flex items-center gap-1.5 text-sm text-ink-muted">
+        {t("mail.compose.sentUnrecorded")}
       </p>
     );
   }
@@ -474,7 +502,9 @@ export function MessageView({
               <li key={a.id} className="group flex h-8 max-w-64 items-center gap-1 rounded-md border border-rule-strong pr-1 pl-2">
                 <button
                   type="button"
-                  onClick={() => toast.show(t("mail.message.attachmentNotice"))}
+                  onClick={() =>
+                    message.gmailUrl ? openInGmail(message.gmailUrl) : toast.show(t("mail.message.attachmentNotice"))
+                  }
                   aria-label={t("mail.message.attachment", { name: a.name, size: formatSize(a.sizeBytes, i18n.language) })}
                   className="flex min-w-0 items-center gap-1.5 text-sm text-ink"
                 >

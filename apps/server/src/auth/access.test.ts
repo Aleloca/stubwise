@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { PRESET_ROLES } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -202,7 +203,8 @@ describe("permessi risolti dal server", () => {
     const perms = await projectPermissionsFor(testDb.db, admin, projectId);
     expect(perms).not.toBeNull();
     expect([...perms!].sort()).toEqual([...PROJECT_PERMISSIONS].sort());
-    expect(await visibleProjectIds(testDb.db, admin)).toBe("all");
+    // Tutti gli aperti (area 9, F6): nessun archiviato in questo database.
+    expect(await visibleProjectIds(testDb.db, admin)).toEqual({ all: true, archived: [] });
   });
 
   it("(b) un Developer ha runs.start e non plans.approve", async () => {
@@ -273,8 +275,10 @@ describe("hook globale: config.access", () => {
     expect((await manage(bearer("developer"))).statusCode).toBe(403);
     expect((await manage(bearer("admin"))).statusCode).toBe(200);
     const dev = await sessionUserOf("developer");
+    // I permessi d'istanza del preset User, quelli di ADESSO (fetta 5: anche
+    // `claude.public.view`).
     expect([...dev.instancePermissions].sort()).toEqual(
-      ["git_accounts.view", "mail_admission.view", "monitor.view", "users.view_all"].sort(),
+      [...PRESET_ROLES.find((r) => r.key === "user")!.permissions].sort(),
     );
   });
 

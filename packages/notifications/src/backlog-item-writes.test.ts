@@ -7,6 +7,7 @@ import {
   setBacklogItemDesign,
   setBacklogItemPlan,
   updateBacklogItemMetadata,
+  updateRequestFields,
 } from "./backlog-item-writes.js";
 
 let testDb: TestDb;
@@ -102,5 +103,30 @@ describe("metadati", () => {
     await updateBacklogItemMetadata(db, itemId, {}, { status: "archived", onArchive: async () => { called++; } });
     expect(called).toBe(1);
     expect((await itemOf(itemId)).status).toBe("archived");
+  });
+});
+
+describe("richiesta: titolo, descrizione e metadati in UNA scrittura (app nuova, fetta 4)", () => {
+  it("descrizione e metadati insieme, sotto lo stesso lock", async () => {
+    const { itemId } = await seedBacklogItem(db);
+    expect(await updateRequestFields(db, itemId, { description: "Nuovo testo", urgency: "high", title: "T" }, { readOnlyClosed: true })).toBe("ok");
+    expect(await itemOf(itemId)).toMatchObject({ document: "Nuovo testo", urgency: "high", title: "T" });
+  });
+
+  it("archiviata o trasformata: descrizione e metadati read_only e NIENTE scritto, neanche il titolo; il solo titolo sì", async () => {
+    for (const status of ["archived", "converted"] as const) {
+      const { itemId } = await seedBacklogItem(db);
+      await db.update(backlogItems).set({ status, document: "Prima" }).where(eq(backlogItems.id, itemId));
+      const before = await itemOf(itemId);
+      expect(await updateRequestFields(db, itemId, { title: "Nuovo", description: "Dopo", effort: 3 }, { readOnlyClosed: true })).toBe("read_only");
+      const after = await itemOf(itemId);
+      expect({ title: after.title, document: after.document, effort: after.effort }).toEqual({
+        title: before.title,
+        document: "Prima",
+        effort: before.effort,
+      });
+      expect(await updateRequestFields(db, itemId, { title: "Solo il titolo" }, { readOnlyClosed: true })).toBe("ok");
+      expect((await itemOf(itemId)).title).toBe("Solo il titolo");
+    }
   });
 });

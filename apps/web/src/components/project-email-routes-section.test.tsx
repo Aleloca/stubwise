@@ -77,6 +77,17 @@ async function addChipIn(groupLabel: RegExp, value: string) {
 }
 
 describe("ProjectEmailRoutesSection", () => {
+  it("area 6, F2: con la classificazione nuova accesa dice che le regole non si applicano, senza editor", async () => {
+    mockApi({
+      [`GET ${ROUTES_PATH}`]: () => jsonResponse(200, { routes: [] }),
+      ["GET /api/settings/mail-admission"]: () =>
+        jsonResponse(200, { admitWorkspaceDomains: true, denyLabels: [], denyAutomated: true, classifyV2: true }),
+    });
+    renderSection();
+    expect(await screen.findByText(/mail rules no longer apply/i)).toBeInTheDocument();
+    expect(screen.queryByText(/already admitted to the system/i)).not.toBeInTheDocument();
+  });
+
   it("avvisa che le regole attribuiscono, non ammettono (fase 6c)", async () => {
     mockApi({ [`GET ${ROUTES_PATH}`]: () => jsonResponse(200, { routes: [] }) });
     renderSection();

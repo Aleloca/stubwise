@@ -1,8 +1,8 @@
 import { useRouter } from "@tanstack/react-router";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useConversation, useSessionPersonId, useSettlePageEvent } from "../../data/queries";
-import { onStoreReset } from "../../data/store";
-import { getSessionPersonId } from "../../data/session";
+import { onStoreReset } from "@backend/runtime";
+import { isAppBuild } from "../../data/build";
 import type { ConversationEvent, FieldRef, PageAction } from "../../data/types";
 import { placeDraft } from "../../domain/claude/intents/mailDraft";
 import i18n, { setLanguage, type Language } from "../../i18n";
@@ -18,6 +18,14 @@ import { fillableFor, subscribeFillable, type FillableField } from "./fillable";
 // chiude con `settlePageEvent`. Il valore di prima sta solo qui, in memoria
 // per persona: «Undo» lo rimette solo se c'è ancora il valore di Claude, e
 // dopo un ricaricamento non c'è più. Nessun toast (maintainer).
+//
+// Nella build app (chat, fetta 3) l'esito vive solo in questa finestra (il
+// server non lo salva): un'azione parte SOLO se arriva dal vivo in questa
+// finestra, cioè dopo la prima occhiata alla conversazione — mai da una
+// lettura del dettaglio o della storia (un ricaricamento, un riavvio,
+// un'altra scheda del browser). Quelle già lette restano «non applicate» e la
+// riga offre il gesto per applicarle adesso («Apply»). Lo stesso per le bozze
+// di `fillField` (area 10, F6): lette, aspettano «Put it in the field».
 
 type PageEvent = Extract<ConversationEvent, { type: "pageAction" }>;
 
@@ -46,6 +54,13 @@ interface Page {
 
 /** Per persona: gli eventi già partiti (una volta sola) e il valore di prima. */
 const started = new Map<string, Set<string>>();
+/**
+ * Build app: per persona, le conversazioni già guardate in questa finestra
+ * con le azioni della pagina che c'erano alla prima occhiata (lette, non
+ * arrivate dal vivo), e per quelle il gesto che le applica adesso.
+ */
+const firstLook = new Map<string, Map<string, Set<string>>>();
+const appliers = new Map<string, Map<string, () => void>>();
 const memory = new Map<string, Map<string, Remembered>>();
 /**
  * I runner montati (il riquadro e la pagina intera della conversazione,
@@ -67,6 +82,8 @@ const subscribe = (l: () => void) => {
 
 const forget = () => {
   started.clear();
+  firstLook.clear();
+  appliers.clear();
   memory.clear();
   drafts.clear();
   changed();
@@ -76,6 +93,8 @@ onStoreReset(forget);
 /** Solo per i test: come un riquadro ricaricato, nessun evento è già partito. */
 export const __forgetStartedForTest = (): void => {
   started.clear();
+  firstLook.clear();
+  appliers.clear();
   changed();
 };
 
@@ -199,6 +218,19 @@ export function usePageEventRunner(
     if (!mine) started.set(me, (mine = new Set()));
     const live = observed.current.has(conversationId) || detail.state === "working";
     observed.current.add(conversationId);
+    // Build app: le azioni della pagina presenti alla PRIMA occhiata in questa
+    // finestra sono lette, non dal vivo (vedi il commento in cima).
+    let looks = firstLook.get(me);
+    if (!looks) firstLook.set(me, (looks = new Map()));
+    let readNotLive = looks.get(conversationId);
+    if (!readNotLive) {
+      readNotLive = new Set(
+        isAppBuild()
+          ? detail.events.filter((e) => e.type === "pageAction" || e.type === "draft").map((e) => e.id)
+          : [],
+      );
+      looks.set(conversationId, readNotLive);
+    }
     detail.events.forEach((event, index) => {
       if (event.type === "trial") {
         if (!onTrialRef.current || event.status !== "done" || !event.code) return;
@@ -213,13 +245,27 @@ export function usePageEventRunner(
         if (event.status !== "pending" || !event.field || mine.has(event.id)) return;
         mine.add(event.id);
         // Una bozza vecchia non entra in un campo da sola: aspetta «Put it in the field».
-        startDraft(me, conversationId, event, settle, isStale(detail.events, index));
+        // Build app (area 10, F6): nemmeno una letta alla prima occhiata in questa finestra.
+        startDraft(me, conversationId, event, settle, isStale(detail.events, index) || readNotLive.has(event.id));
         return;
       }
       if (event.type !== "pageAction" || event.status !== "pending" || mine.has(event.id)) return;
       mine.add(event.id);
+      if (readNotLive.has(event.id)) {
+        // Letta, non arrivata dal vivo: non parte da sola; la riga offre il gesto.
+        appliersOf(me).set(event.id, () => {
+          appliersOf(me).delete(event.id);
+          changed();
+          void run(event);
+        });
+        changed();
+        // Chiusa «non partita» solo in questa finestra: `not_run` non va al server (lotto 7, 1.b).
+        void settle({ id: conversationId, eventId: event.id, status: "not_run" }).catch(() => {});
+        return;
+      }
       if (isStale(detail.events, index)) {
-        void settle({ id: conversationId, eventId: event.id, status: "failed" }).catch(() => {});
+        // Vecchia: non è partita, e non è un fallimento da dire al server (1.b).
+        void settle({ id: conversationId, eventId: event.id, status: "not_run" }).catch(() => {});
       } else void run(event);
     });
 
@@ -304,6 +350,22 @@ export function undoPageEvent(eventId: string): "undone" | "changed_after" | "no
  * ha memoria: per gli altri è sempre `gone`.
  */
 export type PageUndoView = "available" | "undone" | "changed_after" | "gone";
+
+const appliersOf = (personId: string) => {
+  let m = appliers.get(personId);
+  if (!m) appliers.set(personId, (m = new Map()));
+  return m;
+};
+
+/**
+ * Build app: il gesto che applica adesso un'azione della pagina letta (non
+ * arrivata dal vivo), o `null` se non c'è (partita, chiusa, di un altro).
+ */
+export function usePageApply(eventId: string): (() => void) | null {
+  const me = useSessionPersonId();
+  useSyncExternalStore(subscribe, () => version);
+  return appliers.get(me)?.get(eventId) ?? null;
+}
 
 export function usePageUndoView(eventId: string): PageUndoView {
   const me = useSessionPersonId();
@@ -433,12 +495,13 @@ function startDraft(
 }
 
 /**
- * La scelta della riga che chiede: «Add below» o «Replace». Il campo deve
+ * La scelta della riga che chiede: «Add below» o «Replace», a nome di
+ * `personId` (chi guarda: le bozze sono per persona). Il campo deve
  * essere ancora dichiarato; se la pagina nel frattempo è cambiata la bozza
  * aspetta (`waiting`). Un secondo clic non scrive.
  */
-export function answerDraft(eventId: string, how: "replace" | "below"): void {
-  const entry = drafts.get(getSessionPersonId())?.get(eventId);
+export function answerDraft(personId: string, eventId: string, how: "replace" | "below"): void {
+  const entry = drafts.get(personId)?.get(eventId);
   if (!entry || entry.stage !== "asking") return;
   const field = fillableFor(entry.ref);
   if (field) {
@@ -454,9 +517,9 @@ export function answerDraft(eventId: string, how: "replace" | "below"): void {
  * «Put it in the field»: la bozza aspetta il suo campo; chi chiama porta
  * alla pagina. Se il campo c'è già la mette (o chiede) subito.
  */
-export function wantDraft(conversationId: string, event: DraftEvent, settle: Settle): void {
+export function wantDraft(personId: string, conversationId: string, event: DraftEvent, settle: Settle): void {
   if (!event.field) return;
-  const mine = draftsOf(getSessionPersonId());
+  const mine = draftsOf(personId);
   const entry: DraftEntry = mine.get(event.id) ?? {
     conversationId,
     ref: event.field,
@@ -479,8 +542,8 @@ export function wantDraft(conversationId: string, event: DraftEvent, settle: Set
  * (un ricaricamento, un clic già fatto) o senza la pagina del campo:
  * `not_undoable`, e niente cambia. Chiudere l'evento tocca a chi chiama.
  */
-export function undoDraft(eventId: string): "undone" | "changed_after" | "not_undoable" {
-  const entry = drafts.get(getSessionPersonId())?.get(eventId);
+export function undoDraft(personId: string, eventId: string): "undone" | "changed_after" | "not_undoable" {
+  const entry = drafts.get(personId)?.get(eventId);
   if (!entry || entry.stage !== "placed" || entry.outcome) return "not_undoable";
   const field = fillableFor(entry.ref);
   if (!field) return "not_undoable";
@@ -497,7 +560,10 @@ export function undoDraft(eventId: string): "undone" | "changed_after" | "not_un
  * cancella mai le modifiche della persona.
  */
 subscribeFillable(() => {
-  const mine = drafts.get(getSessionPersonId());
+  // La persona del runner montato (il riquadro o la pagina della
+  // conversazione), non la sessione del prototipo: nella build app è vuota.
+  const person = currentPage()?.personId;
+  const mine = person === undefined ? undefined : drafts.get(person);
   if (!mine) return;
   for (const [eventId, entry] of mine) {
     if (entry.stage === "wanted" || entry.stage === "busy") {

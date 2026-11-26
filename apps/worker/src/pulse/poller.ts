@@ -1,4 +1,4 @@
-import { notificationDeliveries, notifications, projects, users, type Db } from "@stubwise/db";
+import { notificationDeliveries, notifications, projects, users, type Db, projectNotArchived } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
 import {
   publishNotification,
@@ -6,7 +6,7 @@ import {
   type PulseProposal,
   type PulseUrgency,
 } from "@stubwise/notifications";
-import { and, eq, inArray, isNull, lt, ne, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { isProjectIdle, listCandidates, type PulseCandidate } from "./signals.js";
 
@@ -342,7 +342,8 @@ export async function pollPulseOnce(deps: PulsePollerDeps): Promise<number> {
         pulseLastSentAt: projects.pulseLastSentAt,
       })
       .from(projects)
-      .where(and(eq(projects.pulseEnabled, true), eq(projects.backlogEnabled, true)));
+      // Area 9, F6: un archiviato non ha polso; riaprendolo riparte.
+      .where(and(eq(projects.pulseEnabled, true), eq(projects.backlogEnabled, true), projectNotArchived(sql`${projects.id}`)));
   } catch (err) {
     logger.error(`pulse: selezione dei progetti abilitati fallita: ${errText(err)}`);
     return 0;

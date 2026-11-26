@@ -22,9 +22,12 @@ describe("sessionResponseSchema: permessi verso un server più vecchio", () => {
     const parsed = readerSchema(sessionResponseSchema).parse({ user: utente }) as {
       instancePermissions: string[];
       projectPermissions: Record<string, string[]>;
+      departmentPermissions: Record<string, string[]>;
     };
     expect(parsed.instancePermissions).toEqual([]);
     expect(parsed.projectPermissions).toEqual({});
+    // Fetta 3: i permessi di reparto, assenti da un server più vecchio.
+    expect(parsed.departmentPermissions).toEqual({});
   });
 
   it("quando ci sono, si leggono verbatim", () => {

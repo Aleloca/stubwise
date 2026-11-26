@@ -32,7 +32,26 @@ import { currentPersonKey } from "./readers.js";
 /** Quanto vale una sfida: 5 minuti. */
 export const RECOVERY_CHALLENGE_TTL_MS = 5 * 60 * 1000;
 
-type Asker = Pick<SessionUser, "id" | "sessionId">;
+type Asker = Pick<SessionUser, "id" | "sessionId" | "patId">;
+
+/**
+ * Di CHI è una sfida: la sessione del browser, o (lotto 10) il PAT desktop
+ * col suo sigillo — solo per la sfida della propria chiave. Una sfida chiesta
+ * da uno non vale per l'altro, né per un altro PAT della stessa persona.
+ * Chi può chiederla dal desktop lo decide la rotta (`vault/device-access.ts`).
+ */
+type Holder = { sessionId: string } | { patId: string };
+
+function holderOf(user: Asker): Holder | null {
+  if (user.patId !== undefined) return { patId: user.patId };
+  return user.sessionId !== undefined ? { sessionId: user.sessionId } : null;
+}
+
+function holderCondition(holder: Holder) {
+  return "patId" in holder
+    ? and(eq(vaultRecoveryChallenges.patId, holder.patId), isNull(vaultRecoveryChallenges.sessionId))
+    : and(eq(vaultRecoveryChallenges.sessionId, holder.sessionId), isNull(vaultRecoveryChallenges.patId));
+}
 
 function hashSecret(secret: Uint8Array): string {
   return createHash("sha256").update(secret).digest("hex");
@@ -41,7 +60,7 @@ function hashSecret(secret: Uint8Array): string {
 /** Salva una sfida (solo l'hash del segreto) e pota le scadute (niente job). */
 async function storeChallenge(
   db: Db,
-  values: { id: string; userId: string; sessionId: string; secret: Uint8Array; expiresAt: Date } & (
+  values: { id: string; userId: string; holder: Holder; secret: Uint8Array; expiresAt: Date } & (
     | { kind: "recovery" }
     | { kind: "actor"; personKeyId: string }
   ),
@@ -50,7 +69,8 @@ async function storeChallenge(
   await db.insert(vaultRecoveryChallenges).values({
     id: values.id,
     userId: values.userId,
-    sessionId: values.sessionId,
+    sessionId: "sessionId" in values.holder ? values.holder.sessionId : null,
+    patId: "patId" in values.holder ? values.holder.patId : null,
     secretHash: hashSecret(values.secret),
     expiresAt: values.expiresAt,
     kind: values.kind,
@@ -64,17 +84,18 @@ async function storeChallenge(
  */
 export async function createRecoveryChallenge(db: Db, user: Asker): Promise<VaultRecoveryChallengeResponse | null> {
   const [settings] = await db.select({ recoveryPublicKey: vaultSettings.recoveryPublicKey }).from(vaultSettings);
-  if (!settings || user.sessionId === undefined) return null;
+  if (!settings || user.patId !== undefined || user.sessionId === undefined) return null;
   const challengeId = randomUUID();
   const secret = randomBytes(32);
   const wrapped = await wrapRecoveryChallenge(secret, settings.recoveryPublicKey, challengeId);
   const expiresAt = new Date(Date.now() + RECOVERY_CHALLENGE_TTL_MS);
-  await storeChallenge(db, { id: challengeId, userId: user.id, sessionId: user.sessionId, secret, expiresAt, kind: "recovery" });
+  await storeChallenge(db, { id: challengeId, userId: user.id, holder: { sessionId: user.sessionId }, secret, expiresAt, kind: "recovery" });
   return { challengeId, wrapped, expiresAt: expiresAt.toISOString() };
 }
 
 /**
- * Crea una sfida per la chiave CONFERMATA di `user`, nella sua sessione.
+ * Crea una sfida per la chiave CONFERMATA di `user`, nella sua sessione (o,
+ * dal desktop col sigillo, legata al suo PAT: lo decide la rotta).
  * `vault_not_active` = cassaforte non attiva; `no_confirmed_key` = la persona
  * non ha una chiave confermata (in attesa, rifiutata o assente): non ha
  * niente da provare, e nessuna delle azioni che la prova sblocca le spetta.
@@ -87,7 +108,8 @@ export async function createActorChallenge(
   | { ok: false; error: "vault_not_active" | "no_confirmed_key" }
 > {
   const [settings] = await db.select({ id: vaultSettings.id }).from(vaultSettings);
-  if (!settings || user.sessionId === undefined) return { ok: false, error: "vault_not_active" };
+  const holder = holderOf(user);
+  if (!settings || !holder) return { ok: false, error: "vault_not_active" };
   const key = await currentPersonKey(db, user.id);
   if (!key || key.status !== "confirmed") return { ok: false, error: "no_confirmed_key" };
   const challengeId = randomUUID();
@@ -97,7 +119,7 @@ export async function createActorChallenge(
   await storeChallenge(db, {
     id: challengeId,
     userId: user.id,
-    sessionId: user.sessionId,
+    holder,
     secret,
     expiresAt,
     kind: "actor",
@@ -106,12 +128,12 @@ export async function createActorChallenge(
   return { ok: true, value: { challengeId, personKeyId: key.id, wrapped, expiresAt: expiresAt.toISOString() } };
 }
 
-/** Le condizioni comuni di una prova valida: chi, quale sessione, segreto, non usata, non scaduta. */
-function proofConditions(user: Asker & { sessionId: string }, proof: { challengeId: string }, secret: Buffer) {
+/** Le condizioni comuni di una prova valida: chi, di quale sessione o PAT, segreto, non usata, non scaduta. */
+function proofConditions(user: { id: string }, holder: Holder, proof: { challengeId: string }, secret: Buffer) {
   return [
     eq(vaultRecoveryChallenges.id, proof.challengeId),
     eq(vaultRecoveryChallenges.userId, user.id),
-    eq(vaultRecoveryChallenges.sessionId, user.sessionId),
+    holderCondition(holder),
     eq(vaultRecoveryChallenges.secretHash, hashSecret(secret)),
     isNull(vaultRecoveryChallenges.usedAt),
     gt(vaultRecoveryChallenges.expiresAt, sql`now()`),
@@ -135,11 +157,12 @@ export async function checkRecoveryProof(
   proof: VaultRecoveryProof,
   consume: boolean,
 ): Promise<boolean> {
-  if (user.sessionId === undefined) return false;
+  // Il kit resta del browser: mai da un PAT.
+  if (user.patId !== undefined || user.sessionId === undefined) return false;
   const secret = secretOf(proof);
   if (!secret) return false;
   const where = and(
-    ...proofConditions({ ...user, sessionId: user.sessionId }, proof, secret),
+    ...proofConditions(user, { sessionId: user.sessionId }, proof, secret),
     eq(vaultRecoveryChallenges.kind, "recovery"),
   );
   const rows = consume
@@ -159,7 +182,8 @@ export async function checkRecoveryProof(
  * confermata (una chiave ricreata o rifiutata nel frattempo non prova nulla).
  */
 export async function consumeActorProof(db: Db, user: Asker, proof: VaultActorProof): Promise<boolean> {
-  if (user.sessionId === undefined) return false;
+  const holder = holderOf(user);
+  if (!holder) return false;
   const secret = secretOf(proof);
   if (!secret) return false;
   const rows = await db
@@ -167,7 +191,7 @@ export async function consumeActorProof(db: Db, user: Asker, proof: VaultActorPr
     .set({ usedAt: sql`now()` })
     .where(
       and(
-        ...proofConditions({ ...user, sessionId: user.sessionId }, proof, secret),
+        ...proofConditions(user, holder, proof, secret),
         eq(vaultRecoveryChallenges.kind, "actor"),
         sql`exists (
           select 1 from ${vaultPersonKeys} ac_k

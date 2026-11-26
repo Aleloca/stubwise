@@ -5,20 +5,29 @@ import {
   emailProposals,
   emailRejections,
   googleAccounts,
+  mailDrafts,
+  mailOutgoing,
   notifications,
   projects,
   type Db,
+  meetingNotes,
 } from "@stubwise/db";
 import {
   extractRawBody,
   getMessageFull,
+  GMAIL_MODIFY_SCOPE,
+  GMAIL_UNREAD_LABEL,
   htmlToText,
   listAttachments,
+  missingGoogleScopes,
+  modifyThread,
   refreshAccessToken,
   sanitizeEmailHtml,
   GoogleApiError,
 } from "@stubwise/google";
 import { loadGoogleAccountCredentials } from "@stubwise/google/credentials";
+import { projectPermissionsOfUser } from "@stubwise/notifications";
+import { isAllProjects, scopeIncludes, visibleProjectIds, type ProjectScope } from "../auth/access.js";
 import { t } from "@stubwise/i18n";
 import {
   closedReason,
@@ -34,16 +43,21 @@ import {
   mailSummarySchema,
   mailThreadDetailSchema,
   mailThreadPageSchema,
+  mailThreadReadBodySchema,
   type MailItem,
   type MailItemStatus,
   type MailRejectionReason,
   type MailRejections,
   type MailSignal,
   type MailSource,
+  type MailThreadDetail,
   type MailThreadProposalOutcome,
   type MailThreadReproposal,
+  type MeetingNote,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
+import { openSharedProposalsByThread } from "../services/mail-proposals.js";
+import { meetingNoteView } from "../services/meetings.js";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -61,9 +75,11 @@ import { authErrorResponses, errorSchema } from "./shared.js";
 export interface MailOriginalClient {
   refreshAccessToken: typeof refreshAccessToken;
   getMessageFull: typeof getMessageFull;
+  /** Area 6, F1.3: letto / non letto su Gmail (una scrittura, da un gesto). */
+  modifyThread: typeof modifyThread;
 }
 
-const defaultGoogleClient: MailOriginalClient = { refreshAccessToken, getMessageFull };
+const defaultGoogleClient: MailOriginalClient = { refreshAccessToken, getMessageFull, modifyThread };
 
 export interface MeMailRoutesOptions {
   googleClient?: MailOriginalClient;
@@ -167,6 +183,118 @@ const mailDetailSourceSchema = z.enum(["email", "email_triage"]);
 const mailDetailParamsSchema = z.object({ source: mailDetailSourceSchema, id: z.uuid() });
 
 /** Quante righe per pagina se il chiamante non lo dice, e il tetto massimo — come `/api/inbox`. */
+/**
+ * Area 6, F2: l'importanza come numero, per prendere la più alta di un
+ * thread con un `max` (0 = nessun messaggio classificato).
+ */
+const IMPORTANCE_RANK_SQL = sql`case ${emailMessages.importance} when 'high' then 3 when 'normal' then 2 when 'low' then 1 else 0 end`;
+const IMPORTANCE_BY_RANK: Record<number, "high" | "normal" | "low"> = { 3: "high", 2: "normal", 1: "low" };
+const RANK_BY_IMPORTANCE = { high: 3, normal: 2, low: 1 } as const;
+
+/** La prima riga dell'ultimo messaggio, al più 160 caratteri. NON FIDATO. */
+function firstLine(text: string | null): string {
+  const line = (text ?? "").split(/\r?\n/).map((l) => l.trim()).find((l) => l !== "") ?? "";
+  return line.length > 160 ? `${line.slice(0, 159)}…` : line;
+}
+
+/**
+ * Area 6, F2: i filtri di `/threads` sulla classificazione nuova, nella
+ * HAVING (sul thread intero, non sul singolo messaggio). Il filtro di
+ * proprietà resta nella WHERE: questi lo restringono soltanto.
+ */
+/**
+ * Lo scope di un messaggio RISTRETTO ai progetti che chi guarda vede (review
+ * F2, punto 4): lo scope nasce dai candidati di TUTTI i destinatari, quindi
+ * può contenere progetti altrui — e un progetto invisibile è come uno che
+ * non esiste, anche nei filtri.
+ */
+function visibleScopeSql(visible: ProjectScope): SQL {
+  if (isAllProjects(visible)) {
+    // Un full admin: tutti tranne gli archiviati (F6).
+    if (visible.archived.length === 0) return sql`${emailMessages.scopeProjectIds}`;
+    const archived = sql`array[${sql.join(visible.archived.map((id) => sql`${id}::uuid`), sql`, `)}]`;
+    return sql`array(select x from unnest(${emailMessages.scopeProjectIds}) as x where not (x = any(${archived})))`;
+  }
+  const list = visible.length === 0 ? sql`'{}'::uuid[]` : sql`array[${sql.join(visible.map((id) => sql`${id}::uuid`), sql`, `)}]`;
+  return sql`array(select x from unnest(${emailMessages.scopeProjectIds}) as x where x = any(${list}))`;
+}
+
+function threadClassificationFilters(
+  query: {
+    importance?: "high" | "normal" | "low" | undefined;
+    project?: string | undefined;
+    noProject?: "true" | "false" | undefined;
+    important?: "true" | "false" | undefined;
+  },
+  visible: ProjectScope,
+): SQL[] {
+  const scope = visibleScopeSql(visible);
+  const done = sql`${emailMessages.classificationState} = 'done'`;
+  const out: SQL[] = [];
+  if (query.importance) {
+    out.push(sql`coalesce(max(${IMPORTANCE_RANK_SQL}) filter (where ${done}), 0) = ${RANK_BY_IMPORTANCE[query.importance]}`);
+  }
+  if (query.project) out.push(sql`coalesce(bool_or(${done} and ${query.project}::uuid = any(${scope})), false)`);
+  if (query.noProject === "true") {
+    out.push(sql`coalesce(bool_or(${done}), false) and not coalesce(bool_or(${done} and cardinality(${scope}) > 0), false)`);
+  }
+  if (query.important === "true") {
+    out.push(sql`coalesce(bool_or(${done} and ${emailMessages.importance} = 'high' and ${emailMessages.unread}), false)`);
+  }
+  return out;
+}
+
+/**
+ * Area 6, F3: gli invii di chi guarda in una conversazione, come messaggi con
+ * `delivery` (solo suoi: l'id di chi guarda nella WHERE). In coda e in invio
+ * sono `sending`; un fallito `failed` col codice; un mandato resta `sent`
+ * finché il poller non ingerisce il messaggio vero, poi se ne va (lo stesso
+ * `gmail_message_id`). Il testo è la copia dell'ultimo salvataggio della bozza.
+ */
+async function outgoingMessages(db: Db, userId: string, accountId: string, accountEmail: string, threadId: string, ingested: string[]) {
+  const rows = await db
+    .select({ outgoing: mailOutgoing, draft: mailDrafts })
+    .from(mailOutgoing)
+    .leftJoin(mailDrafts, eq(mailDrafts.id, mailOutgoing.draftId))
+    .where(
+      and(
+        eq(mailOutgoing.userId, userId),
+        eq(mailOutgoing.accountId, accountId),
+        sql`coalesce(${mailOutgoing.gmailThreadId}, ${mailOutgoing.threadId}) = ${threadId}`,
+        sql`${mailOutgoing.state} in ('queued', 'sending', 'failed', 'sent')`,
+      ),
+    )
+    .orderBy(asc(mailOutgoing.createdAt));
+  const seen = new Set(ingested);
+  return rows
+    .filter((r) => !(r.outgoing.state === "sent" && r.outgoing.gmailMessageId && seen.has(r.outgoing.gmailMessageId)))
+    .map(({ outgoing, draft }) => ({
+      id: outgoing.id,
+      from: accountEmail,
+      // La copia sull'invio (review F3, punto 10); la bozza solo per le righe di prima.
+      to: (outgoing.toAddresses.length > 0 ? outgoing.toAddresses : (draft?.toAddresses ?? [])).map((a) => a.email),
+      receivedAt: outgoing.createdAt.toISOString(),
+      textExcerpt: outgoing.body !== "" ? outgoing.body : (draft?.body ?? null),
+      admitted: true,
+      proposalIds: [],
+      reproposals: [],
+      proposalOutcomes: [],
+      unread: false,
+      delivery: {
+        state: outgoing.state === "sent" ? ("sent" as const) : outgoing.state === "failed" ? ("failed" as const) : ("sending" as const),
+        error: outgoing.error,
+        outgoingId: outgoing.id,
+      },
+      classification: { state: "off" as const, projectIds: [], importance: null, dueDate: null, uncertainProjectIds: [] },
+      kind: "email" as const,
+      meeting: null,
+    }));
+}
+
+/** I limiti di `q` su `GET /threads` (area 6, F1.4): sotto i 2, ogni riga combacia. */
+const THREAD_QUERY_MIN = 2;
+const THREAD_QUERY_MAX = 200;
+
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 
@@ -917,6 +1045,214 @@ export async function meMailRoutes(
    * `google_accounts`. Un thread di un altro utente non esiste — pagina
    * vuota o 404, mai 403.
    */
+  async function loadThreadDetail(input: {
+    userId: string;
+    threadId: string;
+    account?: string | undefined;
+    lang: Parameters<typeof t>[0];
+  }): Promise<MailThreadDetail | null> {
+    const { threadId, account } = input;
+
+    const conditions = [
+      eq(googleAccounts.userId, input.userId),
+      eq(emailMessages.threadId, threadId),
+    ];
+    if (account) conditions.push(eq(emailMessages.accountId, account));
+
+    const rows = await app.db
+      .select({
+        id: emailMessages.id,
+        accountId: emailMessages.accountId,
+        accountEmail: googleAccounts.email,
+        fromAddress: emailMessages.fromAddress,
+        fromName: emailMessages.fromName,
+        toAddresses: emailMessages.toAddresses,
+        subject: emailMessages.subject,
+        receivedAt: emailMessages.receivedAt,
+        textExcerpt: emailMessages.textExcerpt,
+        admitted: emailMessages.admitted,
+        unread: emailMessages.unread,
+        gmailMessageId: emailMessages.gmailMessageId,
+        // Area 6, F2: la classificazione nuova (null = un messaggio di prima).
+        classificationState: emailMessages.classificationState,
+        importance: emailMessages.importance,
+        dueDate: emailMessages.dueDate,
+        uncertainProjectIds: emailMessages.uncertainProjectIds,
+        scopeProjectIds: emailMessages.scopeProjectIds,
+        // Servono al solo ramo «smistamento» di `reproposals` più sotto.
+        status: emailMessages.status,
+        outcome: emailMessages.outcome,
+        // Area 6, F5a: l'email degli appunti di Gemini e la sua riunione.
+        kind: emailMessages.kind,
+        rfcMessageId: emailMessages.rfcMessageId,
+      })
+      .from(emailMessages)
+      .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
+      .where(and(...conditions))
+      .orderBy(asc(emailMessages.receivedAt), asc(emailMessages.id));
+
+    const first = rows[0];
+    if (!first) return null;
+    // Solo i progetti che chi guarda vede (review F2, punto 4).
+    const mentioned = [...new Set(rows.flatMap((r) => [...r.scopeProjectIds, ...r.uncertainProjectIds]))];
+    const seenProjects = new Set<string>();
+    for (const id of mentioned) if (await projectPermissionsOfUser(app.db, input.userId, id)) seenProjects.add(id);
+    const onlySeen = (ids: string[]) => ids.filter((id) => seenProjects.has(id));
+
+    const proposalRows = await app.db
+      .select({
+        id: emailProposals.id,
+        emailMessageId: emailProposals.emailMessageId,
+        status: emailProposals.status,
+        projectName: projects.name,
+        // 21 set 2026: il PERCHÉ una proposta chiusa è finita lì. Il server
+        // già leggeva questa tabella per `reproposals`: l'esito è una
+        // colonna in più sulla stessa query, non un giro nuovo.
+        outcome: emailProposals.outcome,
+      })
+      .from(emailProposals)
+      .innerJoin(projects, eq(projects.id, emailProposals.projectId))
+      .where(
+        inArray(
+          emailProposals.emailMessageId,
+          rows.map((row) => row.id),
+        ),
+      );
+    // ⚠️ Il nome del progetto di DESTINAZIONE di una riattribuzione lo
+    // risolve il SERVER, in una query sola per tutto il thread. Lasciarlo
+    // risolvere al client significherebbe, per un progetto cancellato, un
+    // UUID a schermo — che non dice niente a nessuno. Non risolto ⇒ si usa
+    // la forma dell'etichetta SENZA nome.
+    const destinationIds = [
+      ...new Set(
+        proposalRows
+          .map((row) => closedReasonProjectId(row.outcome))
+          .filter((id): id is string => id !== null),
+      ),
+    ];
+    const destinationNames = new Map<string, string>();
+    if (destinationIds.length > 0) {
+      const destinations = await app.db
+        .select({ id: projects.id, name: projects.name })
+        .from(projects)
+        .where(inArray(projects.id, destinationIds));
+      for (const row of destinations) destinationNames.set(row.id, row.name);
+    }
+    const lang = input.lang;
+
+    const proposalsByMessage = new Map<string, string[]>();
+    const reproposalsByMessage = new Map<string, MailThreadReproposal[]>();
+    const outcomesByMessage = new Map<string, MailThreadProposalOutcome[]>();
+    for (const row of proposalRows) {
+      const list = proposalsByMessage.get(row.emailMessageId) ?? [];
+      list.push(row.id);
+      proposalsByMessage.set(row.emailMessageId, list);
+      // Stessa condizione del cancello della rotta di repropose, ramo
+      // `"email"`: una copia che diverga qui darebbe un bottone da 409.
+      if (row.status === "failed" || row.status === "ignored") {
+        const actions = reproposalsByMessage.get(row.emailMessageId) ?? [];
+        actions.push({ source: "email", id: row.id, projectName: row.projectName });
+        reproposalsByMessage.set(row.emailMessageId, actions);
+      }
+
+      // L'esito, già in parole. `closedReason` torna `null` per un tipo che
+      // non sa spiegare (compresi quelli scritti a mano in produzione): la
+      // riga compare lo stesso, senza spiegazione.
+      const reason = closedReason(row.outcome);
+      const destination = closedReasonProjectId(row.outcome);
+      const destinationName = destination === null ? null : (destinationNames.get(destination) ?? null);
+      const outcomes = outcomesByMessage.get(row.emailMessageId) ?? [];
+      outcomes.push({
+        id: row.id,
+        projectName: row.projectName,
+        // ⚠️ Dal campo, non dal confronto con una chiave i18n: quelle si
+        // rinominano, e un rename spegnerebbe in silenzio l'unica
+        // distinzione che il client fa.
+        failed: reason?.failed === true,
+        label:
+          reason === null
+            ? null
+            : reason.needsProject && destinationName === null
+              ? // Mai l'UUID: la forma senza nome dice comunque cosa è
+                // successo, e non finge di sapere dove.
+                t(lang, "closedReason.reassignedToUnknown")
+              : t(lang, reason.key, destinationName === null ? {} : { project: destinationName }),
+      });
+      outcomesByMessage.set(row.emailMessageId, outcomes);
+    }
+
+    // Area 6, F5a: la riunione di ogni email di Gemini, come la vede CHI
+    // GUARDA (`meetingNoteView`: a chi non c'era, `visible` falso e niente
+    // contenuto — un'email inoltrata non apre la riunione).
+    const meetings = new Map<string, MeetingNote | null>();
+    for (const row of rows.filter((r) => r.kind === "transcript")) {
+      const [note] = await app.db
+        .select({ id: meetingNotes.id })
+        .from(meetingNotes)
+        .where(row.rfcMessageId ? or(eq(meetingNotes.rfcMessageId, row.rfcMessageId), eq(meetingNotes.sourceMessageId, row.id)) : eq(meetingNotes.sourceMessageId, row.id))
+        .limit(1);
+      meetings.set(row.id, note ? await meetingNoteView(app.db, input.userId, note.id) : null);
+    }
+
+    const last = rows[rows.length - 1]!;
+    // Area 6, F3: gli invii di chi guarda in questa conversazione, subito nel
+    // thread (solo suoi), finché il messaggio vero non è ingerito.
+    const outgoing = await outgoingMessages(app.db, input.userId, first.accountId, first.accountEmail, threadId, rows.map((r) => r.gmailMessageId));
+    return {
+      threadId,
+      accountId: first.accountId,
+      accountEmail: first.accountEmail,
+      // L'oggetto dell'ULTIMO messaggio: è quello che la lista mostra, e
+      // due intestazioni diverse per la stessa conversazione
+      // confonderebbero e basta.
+      subject: last.subject,
+      url: gmailThreadUrl(first.accountEmail, threadId),
+      messages: [...rows.map((row) => ({
+        id: row.id,
+        from: row.fromName ? `${row.fromName} <${row.fromAddress}>` : row.fromAddress,
+        to: row.toAddresses,
+        receivedAt: row.receivedAt.toISOString(),
+        textExcerpt: row.textExcerpt,
+        admitted: row.admitted,
+        proposalIds: proposalsByMessage.get(row.id) ?? [],
+        reproposals: reproposalsFor(row, reproposalsByMessage.get(row.id) ?? []),
+        proposalOutcomes: outcomesByMessage.get(row.id) ?? [],
+        unread: row.unread === true,
+        delivery: null,
+        classification: {
+          state: row.classificationState ?? "off",
+          // Solo a classificazione finita: prima i progetti sono quelli del
+          // routing di prima, che non sono una classificazione.
+          projectIds: row.classificationState === "done" ? onlySeen(row.scopeProjectIds) : [],
+          importance: row.classificationState === "done" ? row.importance : null,
+          dueDate: row.classificationState === "done" ? row.dueDate : null,
+          uncertainProjectIds: row.classificationState === "done" ? onlySeen(row.uncertainProjectIds) : [],
+        },
+        kind: row.kind,
+        meeting: meetings.get(row.id) ?? null,
+      })), ...outgoing],
+    };
+  }
+
+  /**
+   * La ricerca nella pagina Posta (area 6, F1.4): un thread passa se ALMENO UN
+   * suo messaggio combacia, e resta intero (conteggi e ultimo messaggio di
+   * tutti), perché il filtro sta nella HAVING e non nella WHERE. Cerca in
+   * oggetto, mittente (nome e indirizzo: ILIKE, perché un pezzo d'indirizzo è
+   * come si cerca la posta) ed estratto; MAI in `to`/`cc` («si mostrano, non si
+   * cercano», `docs/invariants/mail-calendar.md`). Il filtro di proprietà resta
+   * quello della WHERE: `q` non lo tocca. I metacaratteri LIKE sono letterali.
+   */
+  function threadMatchesSql(q: string) {
+    const pattern = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    return sql`bool_or(
+      ${emailMessages.subject} ilike ${pattern}
+      or ${emailMessages.fromName} ilike ${pattern}
+      or ${emailMessages.fromAddress} ilike ${pattern}
+      or ${emailMessages.textExcerpt} ilike ${pattern}
+    )`;
+  }
+
   app.get(
     "/threads",
     {
@@ -926,6 +1262,14 @@ export async function meMailRoutes(
           account: z.uuid().optional(),
           cursor: z.string().optional(),
           limit: z.coerce.number().int().min(1).max(MAX_LIMIT).default(DEFAULT_LIMIT),
+          // Area 6, F1.4: la ricerca nella pagina. Validata a mano per dare
+          // `invalid_query` (vedi THREAD_QUERY_MIN/MAX).
+          q: z.string().max(2000).optional(),
+          // Area 6, F2: i filtri della classificazione nuova.
+          importance: z.enum(["high", "normal", "low"]).optional(),
+          project: z.uuid().optional(),
+          noProject: z.enum(["true", "false"]).optional(),
+          important: z.enum(["true", "false"]).optional(),
         }),
         response: { 200: mailThreadPageSchema, 400: errorSchema, ...authErrorResponses },
       },
@@ -936,9 +1280,15 @@ export async function meMailRoutes(
       if (rawCursor !== undefined && cursor === undefined) {
         return apiError(reply, 400, "invalid_cursor", "Invalid pagination cursor");
       }
+      const q = request.query.q?.trim() ?? "";
+      if (q !== "" && (q.length < THREAD_QUERY_MIN || q.length > THREAD_QUERY_MAX)) {
+        return apiError(reply, 400, "invalid_query", `'q' must be ${THREAD_QUERY_MIN} to ${THREAD_QUERY_MAX} characters`);
+      }
 
       const conditions = [eq(googleAccounts.userId, request.user!.id)];
       if (account) conditions.push(eq(emailMessages.accountId, account));
+      const visible = await visibleProjectIds(app.db, request.user!);
+      const sees = (id: string) => scopeIncludes(visible, id);
 
       // Una riga per `(account_id, thread_id)`: il thread è l'unità, e due
       // caselle con lo stesso thread Gmail restano due conversazioni.
@@ -952,15 +1302,27 @@ export async function meMailRoutes(
           // Dell'ULTIMO messaggio: è quello a cui si risponde.
           subject: sql<string | null>`(array_agg(${emailMessages.subject} order by ${emailMessages.receivedAt} desc))[1]`,
           lastFrom: sql<string>`(array_agg(${emailMessages.fromAddress} order by ${emailMessages.receivedAt} desc))[1]`,
+          // Area 6, F1.3: un messaggio non letto basta; null (non saputo) = letto.
+          unread: sql<boolean>`coalesce(bool_or(${emailMessages.unread}), false)`,
+          // Area 6, F2: dai messaggi a classificazione nuova FINITA.
+          importanceRank: sql<number>`coalesce(max(${IMPORTANCE_RANK_SQL}) filter (where ${emailMessages.classificationState} = 'done'), 0)::int`,
+          dueDate: sql<string | null>`min(${emailMessages.dueDate}) filter (where ${emailMessages.classificationState} = 'done')`,
+          analysing: sql<boolean>`coalesce(bool_or(${emailMessages.classificationState} = 'pending'), false)`,
+          failed: sql<boolean>`coalesce(bool_or(${emailMessages.classificationState} = 'failed'), false)`,
+          snippet: sql<string | null>`(array_agg(${emailMessages.textExcerpt} order by ${emailMessages.receivedAt} desc))[1]`,
         })
         .from(emailMessages)
         .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
         .where(and(...conditions))
         .groupBy(emailMessages.threadId, emailMessages.accountId, googleAccounts.email)
         .having(
-          cursor
-            ? sql`(max(${emailMessages.receivedAt}), ${emailMessages.threadId}) < (${cursor.date}::timestamptz, ${cursor.threadId})`
-            : sql`true`,
+          and(
+            cursor
+              ? sql`(max(${emailMessages.receivedAt}), ${emailMessages.threadId}) < (${cursor.date}::timestamptz, ${cursor.threadId})`
+              : sql`true`,
+            q === "" ? sql`true` : threadMatchesSql(q),
+            ...threadClassificationFilters(request.query, visible),
+          ),
         )
         .orderBy(desc(sql`max(${emailMessages.receivedAt})`), desc(emailMessages.threadId))
         .limit(limit + 1);
@@ -972,11 +1334,49 @@ export async function meMailRoutes(
       // (non una per thread).
       const openByThread = new Map<string, number>();
       const projectsByThread = new Map<string, string[]>();
+      const projectIdsByThread = new Map<string, Set<string>>();
+      const addProject = (threadId: string, id: string | null, name: string | null) => {
+        if (id) projectIdsByThread.set(threadId, (projectIdsByThread.get(threadId) ?? new Set()).add(id));
+        if (name) {
+          const names = projectsByThread.get(threadId) ?? [];
+          if (!names.includes(name)) names.push(name);
+          projectsByThread.set(threadId, names);
+        }
+      };
       if (threadIds.length > 0) {
+        // Area 6, F2: i progetti della classificazione nuova (scope dei
+        // messaggi `done`) e le proposte CONDIVISE di cui chi guarda è
+        // destinatario, ritrovate per Message-ID dai SUOI messaggi.
+        const classified = await app.db
+          .select({ threadId: emailMessages.threadId, scope: emailMessages.scopeProjectIds })
+          .from(emailMessages)
+          .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
+          .where(
+            and(
+              eq(googleAccounts.userId, request.user!.id),
+              inArray(emailMessages.threadId, threadIds),
+              eq(emailMessages.classificationState, "done"),
+            ),
+          );
+        const classifiedIds = [...new Set(classified.flatMap((row) => row.scope))].filter(sees);
+        const names = new Map<string, string>();
+        if (classifiedIds.length > 0) {
+          for (const row of await app.db.select({ id: projects.id, name: projects.name }).from(projects).where(inArray(projects.id, classifiedIds))) {
+            names.set(row.id, row.name);
+          }
+        }
+        for (const row of classified) for (const id of row.scope.filter(sees)) addProject(row.threadId, id, names.get(id) ?? null);
+        // Rimandi, lotto 4 (§4): le condivise, comprese le riunioni, con la
+        // regola della conversazione aperta (`openSharedProposalsByThread`).
+        for (const [threadId, n] of await openSharedProposalsByThread(app.db, request.user!.id, threadIds)) {
+          openByThread.set(threadId, (openByThread.get(threadId) ?? 0) + n);
+        }
+
         const proposalRows = await app.db
           .select({
             threadId: emailMessages.threadId,
             status: emailProposals.status,
+            projectId: emailProposals.projectId,
             projectName: projects.name,
           })
           .from(emailProposals)
@@ -987,17 +1387,15 @@ export async function meMailRoutes(
             and(
               eq(googleAccounts.userId, request.user!.id),
               inArray(emailMessages.threadId, threadIds),
+              // Le proposte condivise si contano sopra, per destinatario.
+              eq(emailProposals.audience, "mailbox_owner"),
             ),
           );
         for (const row of proposalRows) {
           if (row.status === "classified" || row.status === "proposed") {
             openByThread.set(row.threadId, (openByThread.get(row.threadId) ?? 0) + 1);
           }
-          if (row.projectName) {
-            const names = projectsByThread.get(row.threadId) ?? [];
-            if (!names.includes(row.projectName)) names.push(row.projectName);
-            projectsByThread.set(row.threadId, names);
-          }
+          addProject(row.threadId, row.projectId, row.projectName);
         }
       }
 
@@ -1021,6 +1419,13 @@ export async function meMailRoutes(
           messageCount: row.messageCount,
           openProposals: openByThread.get(row.threadId) ?? 0,
           projectNames: projectsByThread.get(row.threadId) ?? [],
+          unread: row.unread,
+          importance: IMPORTANCE_BY_RANK[row.importanceRank] ?? null,
+          dueDate: row.dueDate,
+          analysing: row.analysing,
+          failed: row.failed,
+          projectIds: [...(projectIdsByThread.get(row.threadId) ?? [])],
+          snippet: firstLine(row.snippet),
         })),
         nextCursor,
       };
@@ -1046,143 +1451,118 @@ export async function meMailRoutes(
       },
     },
     async (request, reply) => {
+      const detail = await loadThreadDetail({
+        userId: request.user!.id,
+        threadId: request.params.threadId,
+        account: request.query.account,
+        lang: request.user!.language,
+      });
+      if (!detail) return apiError(reply, 404, "not_found", "Thread not found");
+      return detail;
+    },
+  );
+
+  /**
+   * Letto / non letto (area 6, F1.3, D5 = b): il gesto della persona, che
+   * scrive su GMAIL (`threads.modify`, togli o aggiungi `UNREAD` a tutto il
+   * thread) col token della casella, e lo stato locale SOLO dopo il sì di
+   * Google: un rifiuto lascia tutto com'era, e il giro dopo rilegge comunque
+   * dalla history. Idempotente (lo è `threads.modify`).
+   *
+   * La casella è di chi guarda (`user_id` nella WHERE, anche per un admin: un
+   * thread altrui è 404, senza chiamare Google). Senza `gmail.modify` (una
+   * casella di prima) 409 `google_scope_missing` con `missing`, prima di
+   * qualunque chiamata: è «Ricollega».
+   */
+  app.post(
+    "/threads/:threadId/read",
+    {
+      config: { access: { kind: "user" } },
+      schema: {
+        params: z.object({ threadId: z.string().min(1).max(200) }),
+        body: mailThreadReadBodySchema,
+        response: {
+          200: mailThreadDetailSchema,
+          404: errorSchema,
+          409: errorSchema.extend({ missing: z.array(z.string()).optional() }),
+          502: errorSchema,
+          503: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
       const { threadId } = request.params;
-      const { account } = request.query;
-
-      const conditions = [
-        eq(googleAccounts.userId, request.user!.id),
-        eq(emailMessages.threadId, threadId),
-      ];
-      if (account) conditions.push(eq(emailMessages.accountId, account));
-
-      const rows = await app.db
-        .select({
-          id: emailMessages.id,
-          accountId: emailMessages.accountId,
-          accountEmail: googleAccounts.email,
-          fromAddress: emailMessages.fromAddress,
-          fromName: emailMessages.fromName,
-          toAddresses: emailMessages.toAddresses,
-          subject: emailMessages.subject,
-          receivedAt: emailMessages.receivedAt,
-          textExcerpt: emailMessages.textExcerpt,
-          admitted: emailMessages.admitted,
-          // Servono al solo ramo «smistamento» di `reproposals` più sotto.
-          status: emailMessages.status,
-          outcome: emailMessages.outcome,
-        })
-        .from(emailMessages)
-        .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
-        .where(and(...conditions))
-        .orderBy(asc(emailMessages.receivedAt), asc(emailMessages.id));
-
-      const first = rows[0];
-      if (!first) return apiError(reply, 404, "not_found", "Thread not found");
-
-      const proposalRows = await app.db
-        .select({
-          id: emailProposals.id,
-          emailMessageId: emailProposals.emailMessageId,
-          status: emailProposals.status,
-          projectName: projects.name,
-          // 21 set 2026: il PERCHÉ una proposta chiusa è finita lì. Il server
-          // già leggeva questa tabella per `reproposals`: l'esito è una
-          // colonna in più sulla stessa query, non un giro nuovo.
-          outcome: emailProposals.outcome,
-        })
-        .from(emailProposals)
-        .innerJoin(projects, eq(projects.id, emailProposals.projectId))
+      const { account, read } = request.body;
+      const [mailbox] = await app.db
+        .select({ id: googleAccounts.id, scopes: googleAccounts.scopes, disabledAt: googleAccounts.disabledAt })
+        .from(googleAccounts)
+        .innerJoin(emailMessages, eq(emailMessages.accountId, googleAccounts.id))
         .where(
-          inArray(
-            emailProposals.emailMessageId,
-            rows.map((row) => row.id),
+          and(
+            eq(googleAccounts.id, account),
+            eq(googleAccounts.userId, request.user!.id),
+            eq(emailMessages.threadId, threadId),
           ),
-        );
-      // ⚠️ Il nome del progetto di DESTINAZIONE di una riattribuzione lo
-      // risolve il SERVER, in una query sola per tutto il thread. Lasciarlo
-      // risolvere al client significherebbe, per un progetto cancellato, un
-      // UUID a schermo — che non dice niente a nessuno. Non risolto ⇒ si usa
-      // la forma dell'etichetta SENZA nome.
-      const destinationIds = [
-        ...new Set(
-          proposalRows
-            .map((row) => closedReasonProjectId(row.outcome))
-            .filter((id): id is string => id !== null),
-        ),
-      ];
-      const destinationNames = new Map<string, string>();
-      if (destinationIds.length > 0) {
-        const destinations = await app.db
-          .select({ id: projects.id, name: projects.name })
-          .from(projects)
-          .where(inArray(projects.id, destinationIds));
-        for (const row of destinations) destinationNames.set(row.id, row.name);
-      }
-      const lang = request.user!.language;
-
-      const proposalsByMessage = new Map<string, string[]>();
-      const reproposalsByMessage = new Map<string, MailThreadReproposal[]>();
-      const outcomesByMessage = new Map<string, MailThreadProposalOutcome[]>();
-      for (const row of proposalRows) {
-        const list = proposalsByMessage.get(row.emailMessageId) ?? [];
-        list.push(row.id);
-        proposalsByMessage.set(row.emailMessageId, list);
-        // Stessa condizione del cancello della rotta di repropose, ramo
-        // `"email"`: una copia che diverga qui darebbe un bottone da 409.
-        if (row.status === "failed" || row.status === "ignored") {
-          const actions = reproposalsByMessage.get(row.emailMessageId) ?? [];
-          actions.push({ source: "email", id: row.id, projectName: row.projectName });
-          reproposalsByMessage.set(row.emailMessageId, actions);
-        }
-
-        // L'esito, già in parole. `closedReason` torna `null` per un tipo che
-        // non sa spiegare (compresi quelli scritti a mano in produzione): la
-        // riga compare lo stesso, senza spiegazione.
-        const reason = closedReason(row.outcome);
-        const destination = closedReasonProjectId(row.outcome);
-        const destinationName = destination === null ? null : (destinationNames.get(destination) ?? null);
-        const outcomes = outcomesByMessage.get(row.emailMessageId) ?? [];
-        outcomes.push({
-          id: row.id,
-          projectName: row.projectName,
-          // ⚠️ Dal campo, non dal confronto con una chiave i18n: quelle si
-          // rinominano, e un rename spegnerebbe in silenzio l'unica
-          // distinzione che il client fa.
-          failed: reason?.failed === true,
-          label:
-            reason === null
-              ? null
-              : reason.needsProject && destinationName === null
-                ? // Mai l'UUID: la forma senza nome dice comunque cosa è
-                  // successo, e non finge di sapere dove.
-                  t(lang, "closedReason.reassignedToUnknown")
-                : t(lang, reason.key, destinationName === null ? {} : { project: destinationName }),
+        )
+        .limit(1);
+      if (!mailbox) return apiError(reply, 404, "not_found", "Thread not found");
+      if (mailbox.disabledAt) return apiError(reply, 409, "account_disabled", "Google account is disabled: reconnect it");
+      if (!mailbox.scopes.includes(GMAIL_MODIFY_SCOPE)) {
+        return reply.code(409).send({
+          code: "google_scope_missing",
+          message: "This mailbox must be reconnected to change read state on Gmail",
+          missing: missingGoogleScopes(mailbox.scopes),
         });
-        outcomesByMessage.set(row.emailMessageId, outcomes);
       }
 
-      const last = rows[rows.length - 1]!;
-      return {
-        threadId,
-        accountId: first.accountId,
-        accountEmail: first.accountEmail,
-        // L'oggetto dell'ULTIMO messaggio: è quello che la lista mostra, e
-        // due intestazioni diverse per la stessa conversazione
-        // confonderebbero e basta.
-        subject: last.subject,
-        url: gmailThreadUrl(first.accountEmail, threadId),
-        messages: rows.map((row) => ({
-          id: row.id,
-          from: row.fromName ? `${row.fromName} <${row.fromAddress}>` : row.fromAddress,
-          to: row.toAddresses,
-          receivedAt: row.receivedAt.toISOString(),
-          textExcerpt: row.textExcerpt,
-          admitted: row.admitted,
-          proposalIds: proposalsByMessage.get(row.id) ?? [],
-          reproposals: reproposalsFor(row, reproposalsByMessage.get(row.id) ?? []),
-          proposalOutcomes: outcomesByMessage.get(row.id) ?? [],
-        })),
-      };
+      const credentials = await loadGoogleAccountCredentials(app.db, app.encryptionKey, mailbox.id);
+      if (!credentials) {
+        return apiError(reply, 409, "account_unavailable", "Google account credentials are not usable");
+      }
+      try {
+        const tokens = await googleClient.refreshAccessToken({
+          clientId: credentials.clientId,
+          clientSecret: credentials.clientSecret,
+          refreshToken: credentials.refreshToken,
+        });
+        await googleClient.modifyThread({
+          accessToken: tokens.accessToken,
+          id: threadId,
+          ...(read ? { removeLabelIds: [GMAIL_UNREAD_LABEL] } : { addLabelIds: [GMAIL_UNREAD_LABEL] }),
+        });
+      } catch (error) {
+        if (error instanceof GoogleApiError) {
+          if (error.status === 404) return apiError(reply, 409, "message_gone", "This thread no longer exists on Gmail");
+          if (error.code === "invalid_grant" || error.status === 401) {
+            return apiError(reply, 409, "token_expired", "The Google account needs to be reconnected");
+          }
+          // Review della F1 (punto 2): solo uno scope MANCANTE è «Ricollega».
+          // Un 403 nudo è spesso quota o un divieto temporaneo (`fetch.ts`,
+          // CODE_ALIASES), e la quota ha il suo codice: «riprova».
+          if (error.code === "insufficient_scope") {
+            return reply.code(409).send({
+              code: "google_scope_missing",
+              message: "Google refused the change: reconnect the mailbox",
+              missing: [GMAIL_MODIFY_SCOPE],
+            });
+          }
+          if (error.code === "rate_limited" || error.status === 429) {
+            return apiError(reply, 503, "google_rate_limited", "Gmail is busy: try again in a moment");
+          }
+        }
+        request.log.warn({ err: error, accountId: mailbox.id }, "letto/non letto su Gmail fallito");
+        return apiError(reply, 502, "google_unavailable", "Could not reach Google");
+      }
+
+      // Solo ora, dopo il sì di Google.
+      await app.db
+        .update(emailMessages)
+        .set({ unread: !read })
+        .where(and(eq(emailMessages.accountId, mailbox.id), eq(emailMessages.threadId, threadId)));
+      const detail = await loadThreadDetail({ userId: request.user!.id, threadId, account: mailbox.id, lang: request.user!.language });
+      if (!detail) return apiError(reply, 404, "not_found", "Thread not found");
+      return detail;
     },
   );
 

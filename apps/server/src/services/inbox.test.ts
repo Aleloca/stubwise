@@ -7,6 +7,7 @@ import {
   calendarEvents,
   comments,
   emailMessages,
+  emailProposalRecipients,
   emailProposals,
   googleAccounts,
   googleWorkspaces,
@@ -15,8 +16,11 @@ import {
   projectMembers,
   repositories,
   roles,
+  serverFixes,
+  servers,
   users,
   type Db,
+  projects,
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
@@ -1442,10 +1446,10 @@ describe("listInbox — riassunto in breve", () => {
 
     expect(items).toHaveLength(5);
     expect(items.every((item) => item.summary !== undefined)).toBe(true);
-    // Le query della pagina sono un numero FISSO (righe, job, utenti, review):
-    // non cresce con gli item, altrimenti una pagina da 50 card sarebbe 50
-    // round-trip.
-    expect(selectSpy.mock.calls.length).toBeLessThanOrEqual(5);
+    // Le query della pagina sono un numero FISSO (righe, job, utenti, review,
+    // codici delle task — integrazione area 2): non cresce con gli item,
+    // altrimenti una pagina da 50 card sarebbe 50 round-trip.
+    expect(selectSpy.mock.calls.length).toBeLessThanOrEqual(6);
     selectSpy.mockRestore();
   });
 });
@@ -1482,6 +1486,19 @@ describe("unreadCount", () => {
     expect(await unreadCount(db, user.id)).toBe(2);
     // Il conteggio non riapre nulla: la scrittura è compito di `listInbox`.
     expect((await readNotification(scaduta))?.status).toBe("snoozed");
+  });
+
+  it("area 9, F6: le card di un progetto ARCHIVIATO non si contano né si elencano, e tornano riaprendolo", async () => {
+    const user = await seedUser("admin");
+    const { projectId: other } = await seedRepository(db);
+    await seedNotification({ userId: user.id, kind: "job.plan_review", event: planReviewEvent(), projectId: other });
+    await seedNotification({ userId: user.id, kind: "job.plan_review", event: planReviewEvent(), projectId: other });
+    expect(await unreadCount(db, user.id)).toBe(2);
+    await db.update(projects).set({ archivedAt: new Date() }).where(eq(projects.id, other));
+    expect(await unreadCount(db, user.id)).toBe(0);
+    expect((await listInbox(db, { userId: user.id, lang: "it" })).items).toEqual([]);
+    await db.update(projects).set({ archivedAt: null }).where(eq(projects.id, other));
+    expect(await unreadCount(db, user.id)).toBe(2);
   });
 
   it("una notifica già letta resta nel conteggio (è 'da smaltire', non 'non letta')", async () => {
@@ -2141,6 +2158,9 @@ describe("google.proposal — contorno della proposta dalla posta", () => {
       // la proposta non è stata passata.
       blockedIndices: [],
       handed: false,
+      // Lotto 4 (§2): solo sulla card di chi decide una condivisa passata.
+      handedByUser: null,
+      proposalDecided: false,
     });
     // Del payload delle azioni esce SOLO il tipo: progetto e titolo restano
     // dentro, dove il server li rilegge quando l'utente conferma.
@@ -2372,6 +2392,24 @@ describe("google.proposal — la fonte, derivata a lettura", () => {
     // E NON è quello che diceva il jsonb: se coincidessero, questo test
     // passerebbe anche con il campo letto dall'evento.
     expect(google?.sourceProposalId).not.toBe(google?.proposalId);
+  });
+
+  it("area 6, F2: la card di una proposta CONDIVISA porta l'id della proposta, dalla riga del suo destinatario", async () => {
+    const user = await seedUser("member");
+    const accountId = await seedMailbox(user.id);
+    const notificationId = await seedRawNotification({ userId: user.id, kind: "google.proposal", event: event({ proposalId: randomUUID() }) });
+    const [message] = await db
+      .insert(emailMessages)
+      .values({ accountId, gmailMessageId: `m-${randomUUID()}`, threadId: "t", fromAddress: "a@x.it", receivedAt: new Date(), status: "classified" })
+      .returning({ id: emailMessages.id });
+    const [proposal] = await db
+      .insert(emailProposals)
+      .values({ emailMessageId: message!.id, projectId, status: "proposed", audience: "mail_recipients", rfcMessageId: `<${randomUUID()}@x>`, classification: { version: 2, actions: [] } })
+      .returning({ id: emailProposals.id });
+    await db.insert(emailProposalRecipients).values({ proposalId: proposal!.id, userId: user.id, notificationId });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    expect(items.find((i) => i.id === notificationId)?.google?.sourceProposalId).toBe(proposal!.id);
   });
 
   it("è `null` per il CALENDARIO: non c'è nessuna classificazione AI da mostrare", async () => {
@@ -3104,5 +3142,52 @@ describe("google.proposal — passata al progetto (fase permessi)", () => {
       (i) => i.id === ownerCardId,
     );
     expect(ownerAfter?.google?.decision).toEqual({ status: "actioned", chosen: ["Voce: export"], error: null });
+  });
+});
+
+// Area 8, F4a, S12: le card `monitor.*` portano il codice del server per i
+// link dell'app, DERIVATO a lettura (l'evento ha solo il link del web con
+// l'id): anche sulle card di prima; null per un server tolto e sugli altri kind.
+describe("area 8, F4a, S12: il codice del server sulle card monitor.*", () => {
+  it("SRV-n dall'id del server nel link dell'evento; server tolto → null; altri kind → null", async () => {
+    const user = await seedUser("member");
+    const [srv] = await db.insert(servers).values({ name: "web-1", keyHash: `h-${randomUUID()}` }).returning();
+    const [gone] = await db.insert(servers).values({ name: "via", keyHash: `h-${randomUUID()}` }).returning();
+    const monitorEvent = (serverId: string) => ({
+      kind: "monitor.alert",
+      serverName: "web-1",
+      condition: "offline",
+      detail: "Nessun heartbeat da 5 minuti",
+      url: `https://stub.example/monitor/servers/${serverId}`,
+    });
+    const card = await seedRawNotification({ userId: user.id, kind: "monitor.alert", event: monitorEvent(srv!.id) });
+    const goneCard = await seedRawNotification({ userId: user.id, kind: "monitor.recovered", event: { ...monitorEvent(gone!.id), kind: "monitor.recovered" } });
+    await db.delete(servers).where(eq(servers.id, gone!.id));
+    const other = await seedRawNotification({ userId: user.id, kind: "project.brief", event: { kind: "project.brief", projectId, projectName: "P", summary: "s", projectUrl: "https://x" } });
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    const byId = (id: string) => items.find((i) => i.id === id)!;
+    expect(byId(card).serverCode).toBe(`SRV-${srv!.number}`);
+    expect(byId(goneCard).serverCode).toBeNull();
+    expect(byId(other).serverCode).toBeNull();
+  });
+});
+
+// Area 8, F4b, S9: la card della diagnosi porta il codice del server, DERIVATO
+// a lettura dal DATABASE (ticket della card → server_fixes → server), non
+// dall'evento: vale anche per un evento senza `serverId`.
+describe("area 8, F4b, S9: il codice del server sulla card server.diagnosis_ready", () => {
+  it("dal ticket della card; un evento SENZA serverId lo ha lo stesso; una card senza correzione → null", async () => {
+    const user = await seedUser("member");
+    const [srv] = await db.insert(servers).values({ name: "web-prod-1", keyHash: `h-${randomUUID()}` }).returning();
+    const ticketId = await seedTicket();
+    await db.insert(serverFixes).values({ taskId: ticketId, serverId: srv!.id, projectId });
+    const orphan = await seedTicket();
+    const event = { kind: "server.diagnosis_ready", projectId, serverName: "web-prod-1", taskCode: "P-1", title: "t", url: "https://x" };
+    const card = await seedRawNotification({ userId: user.id, kind: "server.diagnosis_ready", event, ticketId });
+    const noFix = await seedRawNotification({ userId: user.id, kind: "server.diagnosis_ready", event, ticketId: orphan });
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    const byId = (id: string) => items.find((i) => i.id === id)!;
+    expect(byId(card).serverCode).toBe(`SRV-${srv!.number}`);
+    expect(byId(noFix).serverCode).toBeNull();
   });
 });

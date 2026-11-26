@@ -379,6 +379,19 @@ describe("GET/POST /api/auth/password-reset/:token (pubbliche)", () => {
     expect(relogin.statusCode).toBe(200);
   });
 
+  it("il reset revoca anche i token del desktop", async () => {
+    const member = await createUser("member");
+    const desktop = await createPatForUser(testDb.db, member.id, "Desktop · Mac", null, "desktop");
+    const token = await issueToken(member.id);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/auth/password-reset/${token}`,
+      payload: { password: "password-nuova-1" },
+    });
+    expect(res.statusCode).toBe(204);
+    expect((await meWithPat(desktop.token)).statusCode).toBe(401);
+  });
+
   it("il reset non tocca i token mobile di ALTRI utenti", async () => {
     const member = await createUser("member");
     const other = await createUser("member");
@@ -516,6 +529,18 @@ describe("POST /api/auth/me/password (cambio dal profilo)", () => {
     expect((await meWithPat(phone.token)).statusCode).toBe(401);
     expect((await meWithPat(tablet.token)).statusCode).toBe(401);
     expect((await meWithPat(manual.token)).statusCode).toBe(200);
+  });
+
+  it("ok → anche i token del desktop sono revocati", async () => {
+    const member = await createUser("member");
+    const cookie = await fullSessionCookie(app, member.id);
+    const desktop = await createPatForUser(testDb.db, member.id, "Desktop · Mac", null, "desktop");
+    const res = await changePassword(
+      { cookie },
+      { currentPassword: OLD_PASSWORD, newPassword: "password-nuova-1" },
+    );
+    expect(res.statusCode).toBe(204);
+    expect((await meWithPat(desktop.token)).statusCode).toBe(401);
   });
 
   it("con un token MOBILE → 403 e il token resta valido (il cambio è solo dal browser)", async () => {

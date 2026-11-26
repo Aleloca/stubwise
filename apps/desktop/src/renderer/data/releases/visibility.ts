@@ -1,4 +1,5 @@
 import { correctionsOf, prKey } from "../../domain/claude/taskWork";
+import { personMasker } from "../access/hidden";
 import {
   correctionsFromRecords,
   countedRound,
@@ -196,12 +197,29 @@ export type OpenPrView = OpenPullRequest & {
    * staging del progetto riporta il suo commit di testa.
    */
   onStaging: boolean;
+  /**
+   * Build app: con lo stato `analysis_off`, di chi è lo spegnimento — il
+   * repository (le PR dei colleghi `off`) o l'istanza (la review automatica
+   * spenta: la PR è «non analizzata», mai «senza problemi», 46). Assente nel
+   * prototipo: il repository.
+   */
+  analysisOff?: "repository" | "instance";
 };
 
-export function prView(me: string, pr: OpenPullRequest): OpenPrView {
+export function prView(
+  me: string,
+  pr: OpenPullRequest,
+  // R.1414 (lotto 3): il masker della risposta.
+  mask: ReturnType<typeof personMasker> = personMasker(me),
+): OpenPrView {
   const task = pr.taskId ? state.tasksById.get(pr.taskId) : undefined;
+  const author = pr.authorId === null ? null : mask(pr.authorId);
   return {
     ...structuredClone(pr),
+    // Un autore che chi guarda non conosce: né l'id né il nome git, che dice la stessa persona.
+    authorId: author,
+    authorName: author !== null && author !== pr.authorId ? "" : pr.authorName,
+    analysisOnly: pr.analysisOnly ? { ...pr.analysisOnly, byId: mask(pr.analysisOnly.byId) } : null,
     onStaging: state.environments.some(
       (e) =>
         e.projectId === pr.projectId &&
@@ -320,7 +338,11 @@ export function openFixTask(r: Release) {
   return task && task.closedAt === null ? task : undefined;
 }
 
-export function releaseView(me: string, r: Release): ReleaseView {
+export function releaseView(
+  me: string,
+  r: Release,
+  mask: ReturnType<typeof personMasker> = personMasker(me),
+): ReleaseView {
   const viewLog = holds(me, "repos.view", r.projectId);
   const task = r.fixTaskId ? state.tasksById.get(r.fixTaskId) : undefined;
   const { runs, ...rest } = structuredClone(r);
@@ -328,6 +350,8 @@ export function releaseView(me: string, r: Release): ReleaseView {
   const server = production ? environmentServerFor(production, r.repositoryId) : null;
   return {
     ...rest,
+    // R.1414 (lotto 3): chi ha mergiato, se chi guarda non lo conosce.
+    mergedById: rest.mergedById === null ? null : mask(rest.mergedById),
     productionServer: server
       ? { serverCode: server.serverCode, reportedSha: server.reportedSha }
       : null,
@@ -354,23 +378,23 @@ export function releaseView(me: string, r: Release): ReleaseView {
 /** Se Claude parte con la task di riparazione, e se no per il budget (la stessa regola di `fixRelease`). */
 function startFixOf(me: string, projectId: string): Pick<ReleaseView, "canStartFix" | "fixBlock"> {
   const starts = holds(me, "runs.start", projectId);
-  const fixBlock = starts && budgetReached() ? { reason: "monthly_budget" as const } : null;
+  // D-7.1: il budget lo scavalca chi ha `plans.approve` nel progetto.
+  const fixBlock =
+    starts && budgetReached() && !holds(me, "plans.approve", projectId)
+      ? { reason: "monthly_budget" as const }
+      : null;
   return { canStartFix: starts && fixBlock === null, fixBlock };
 }
 
-/** L'indirizzo di un rilascio (notifiche, ⌘K): il suo dettaglio. */
-export const releaseHref = (projectCode: string, code: string): string =>
-  `#/p/${projectCode}/releases/${code}`;
-
-/** L'indirizzo di una PR aperta (avvisi `pr.*`): la sezione col suo pannello. */
-export const prHref = (projectCode: string, prId: string): string =>
-  `#/p/${projectCode}/releases?pr=${prId}`;
+/** Gli indirizzi di un rilascio e di una PR aperta: stanno in `hrefs.ts` (senza import). */
+export { prHref, releaseHref } from "../hrefs";
 
 /** Le PR aperte di un progetto, viste da `me` (vuoto se non lo vede). */
 export function openPrViews(me: string, projectId: string): OpenPrView[] {
   if (!sees(me, projectId)) return [];
+  const mask = personMasker(me);
   return state.openPrs
     .filter((p) => p.projectId === projectId && p.state === "open")
     .sort((a, b) => b.openedAt.localeCompare(a.openedAt))
-    .map((p) => prView(me, p));
+    .map((p) => prView(me, p, mask));
 }

@@ -272,28 +272,51 @@ describe("classi B e C: la scheda", () => {
     expect(proposalsOf(cid)[0]!.status).toBe("open");
   });
 
-  it("C da `REAUTH_REQUIRED`, non dalla scrittura: saveStorage senza chiave nuova chiede lo stesso il codice", async () => {
+  it("updateWebhook: Claude non cambia l'URL (72, F7); il resto della patch è B e si esegue", async () => {
+    as(ROBERTA);
+    const w = structuredClone(state.instance.webhooks[0]!);
+    const cid = (await createConversation()).id;
+    await propose(cid, ROBERTA, [
+      {
+        fn: "updateWebhook",
+        args: { id: w.id, url: "https://hooks.example/new" },
+        summary: "Move it",
+      },
+    ]);
+    const refused = await confirmProposal(cid, "prop-test");
+    // `invalid` dalla voce: «non vale più», nessuna riconferma chiesta.
+    expect(refused).toMatchObject({ status: "failed" });
+    expect(state.instance.webhooks[0]!.url).toBe(w.url);
+    const cid2 = (await createConversation()).id;
+    await propose(cid2, ROBERTA, [
+      { fn: "updateWebhook", args: { id: w.id, enabled: !w.enabled }, summary: "Toggle it" },
+    ]);
+    expect(await confirmProposal(cid2, "prop-test")).not.toMatchObject({
+      error: "reauth_required",
+    });
+    expect(state.instance.webhooks[0]!.enabled).toBe(!w.enabled);
+  });
+
+  // Lotto 10 (72, 555e3ad15): la riconferma la chiede SOLO un endpoint o un
+  // bucket diversi da quelli salvati; la regione o l'id della chiave no.
+  it("saveStorage: un bucket nuovo chiede il codice; una regione nuova no (lotto 10)", async () => {
     as(ROBERTA);
     const cid = (await createConversation()).id;
     const s = state.instance.storage;
     const before = structuredClone(s);
     await propose(cid, ROBERTA, [
-      {
-        fn: "saveStorage",
-        args: {
-          endpoint: s.endpoint,
-          region: s.region,
-          bucket: "stubwise-files-2",
-          accessKeyId: s.accessKeyId,
-        },
-        summary: "Change the bucket",
-      },
+      { fn: "saveStorage", args: { bucket: "stubwise-files-2" }, summary: "Change the bucket" },
     ]);
-    expect(await confirmProposal(cid, "prop-test")).toEqual({
-      ok: false,
-      error: "reauth_required",
-    });
-    expect(state.instance.storage).toEqual(before);
+    expect(await confirmProposal(cid, "prop-test")).toMatchObject({ error: "reauth_required" });
+    expect(state.instance.storage.bucket).toBe(before.bucket);
+
+    const other = (await createConversation()).id;
+    await propose(other, ROBERTA, [
+      { fn: "saveStorage", args: { region: "eu-south-1" }, summary: "Change the region" },
+    ]);
+    expect(await confirmProposal(other, "prop-test")).not.toMatchObject({ error: "reauth_required" });
+    expect(state.instance.storage).toMatchObject({ region: "eu-south-1", bucket: before.bucket });
+    expect(state.instance.storage.secretId).toBe(before.secretId);
   });
 
   it("una proposta con una `fn` fuori dal catalogo (`recordDecision`) confermata nel riquadro: `failed` con `invalid`, nessuna decisione", async () => {

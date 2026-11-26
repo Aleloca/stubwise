@@ -4,8 +4,6 @@
  * `ViewerProvider`, nello stesso render in cui cambia la persona «vedi come».
  */
 
-export const DEFAULT_SESSION_PERSON_ID = "p-giulia";
-
 /**
  * «Nessuno» (area 9a): la sessione dopo «Reset to empty instance», quando la
  * persona di prima non esiste più. Non è una persona: ogni lettura risponde
@@ -14,7 +12,11 @@ export const DEFAULT_SESSION_PERSON_ID = "p-giulia";
  */
 export const NO_SESSION_PERSON_ID = "p-nobody";
 
-let currentPersonId = DEFAULT_SESSION_PERSON_ID;
+// Vuota finché qualcuno non la imposta: nel prototipo lo store (al
+// caricamento e a ogni `resetStore`) con la persona di default del seme
+// (`DEFAULT_SESSION_PERSON_ID`, in `seed/people.ts`); nella build app il seme
+// non c'è (integrazione area 2, fetta 1).
+let currentPersonId = "";
 
 export function getSessionPersonId(): string {
   return currentPersonId;
@@ -59,4 +61,29 @@ export function onBeforePersonaChange(fn: () => void): () => void {
 /** Da chiamare subito prima di cambiare persona (lo fa `ViewerProvider`). */
 export function runBeforePersonaChange(): void {
   for (const fn of beforeChange) fn();
+}
+
+const personaGuards = new Set<() => Promise<boolean>>();
+
+/**
+ * Chi può trattenere un cambio di persona chiedendo prima (l'editor di una
+ * pagina di prodotto con modifiche non salvate, product-editor.md §3.12):
+ * risponde `true` se si può cambiare. Restituisce la cancellazione.
+ */
+export function guardPersonaChange(fn: () => Promise<boolean>): () => void {
+  personaGuards.add(fn);
+  return () => personaGuards.delete(fn);
+}
+
+/**
+ * Il cambio di persona del «View as»: subito se nessuno lo trattiene,
+ * altrimenti quando tutti hanno detto sì (e mai, se uno dice di restare).
+ */
+export function askPersonaChange(proceed: () => void): void {
+  const guards = [...personaGuards];
+  if (guards.length === 0) return proceed();
+  void (async () => {
+    for (const guard of guards) if (!(await guard())) return;
+    proceed();
+  })();
 }

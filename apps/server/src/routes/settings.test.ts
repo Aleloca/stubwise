@@ -1,14 +1,15 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { mailAdmissionSchema } from "@stubwise/shared";
 import { buildApp } from "../app.js";
-import { automationRules, decrypt, instanceSettings, notificationSettings } from "@stubwise/db";
+import { agentRuns, aiJobs, automationRules, automationRuns, automations, changeLog, decrypt, instanceSettings, notificationSettings, outgoingWebhooks, roles, users as usersTable } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { startTestDb } from "@stubwise/db/testing";
+import { seedTicket, startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
-import { seedUsers } from "../test/fixtures.js";
+import { fullSessionCookie, seedUsers } from "../test/fixtures.js";
+import { createSession, SESSION_COOKIE } from "../auth/session.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32).toString("base64");
@@ -411,7 +412,9 @@ describe("PUT /api/settings/notifications", () => {
   it("il toggle del brief settimanale si spegne e resta spento", async () => {
     const res = await putNotifications(
       {
-        webhookUrl: "",
+        // Area 9, F3 (H-4): gli interruttori sono gli eventi del webhook più
+        // vecchio, quindi serve un webhook.
+        webhookUrl: "https://hooks.example.com/brief",
         format: "slack",
         enabled: true,
         notifyTicketCreated: true,
@@ -660,7 +663,13 @@ describe("PUT /api/settings/notifications", () => {
     expect((res.json() as NotificationSettings).notifyMonitor).toBe(true);
   });
 
-  it("webhookUrl vuoto è ammesso (disattiva il webhook) e salvato come null", async () => {
+  it("area 9, F3 (H-4): webhookUrl vuoto SPEGNE il webhook più vecchio (non lo elimina: eliminare chiede la riconferma); senza webhook resta null", async () => {
+    await app.db.delete(outgoingWebhooks);
+    const none = await putNotifications({ webhookUrl: "", format: "slack", enabled: true, notifyTicketCreated: true, notifyPrOpened: true, notifyJobHeld: true, notifyJobFailed: true }, users.adminCookie);
+    expect(none.statusCode).toBe(200);
+    expect((none.json() as NotificationSettings).webhookUrl).toBeNull();
+    expect(await app.db.select().from(outgoingWebhooks)).toHaveLength(0);
+    await putNotifications({ webhookUrl: "https://hooks.example.com/x", format: "slack", enabled: true, notifyTicketCreated: true, notifyPrOpened: true, notifyJobHeld: true, notifyJobFailed: true }, users.adminCookie);
     const res = await putNotifications(
       {
         webhookUrl: "",
@@ -674,7 +683,23 @@ describe("PUT /api/settings/notifications", () => {
       users.adminCookie,
     );
     expect(res.statusCode).toBe(200);
-    expect((res.json() as NotificationSettings).webhookUrl).toBeNull();
+    expect(res.json()).toMatchObject({ webhookUrl: "https://hooks.example.com/x", enabled: false });
+    const [kept] = await app.db.select().from(outgoingWebhooks);
+    expect(kept).toMatchObject({ enabled: false, secretEncrypted: null });
+  });
+
+  it("area 9, F3 (H-4): gli interruttori sono gli eventi del webhook più vecchio; gli eventi scelti dall'app nuova restano", async () => {
+    await app.db.delete(outgoingWebhooks);
+    await putNotifications({ webhookUrl: "https://hooks.example.com/a", format: "discord", enabled: true, notifyTicketCreated: true, notifyPrOpened: false, notifyJobHeld: false, notifyJobFailed: true }, users.adminCookie);
+    const [row] = await app.db.select().from(outgoingWebhooks);
+    expect(row!.events.sort()).toEqual(["docs.limit_paused", "job.awaiting_input", "job.budget_held", "job.failed", "job.plan_review", "job.pr_closed", "monitor", "project.brief", "project.pulse", "review.completed", "ticket.created"]);
+    expect(row!.format).toBe("discord");
+    await app.db.update(outgoingWebhooks).set({ events: [...row!.events, "release.failed"] });
+    await putNotifications({ webhookUrl: "https://hooks.example.com/a", format: "discord", enabled: true, notifyTicketCreated: false, notifyPrOpened: false, notifyJobHeld: false, notifyJobFailed: true }, users.adminCookie);
+    const [after] = await app.db.select().from(outgoingWebhooks);
+    expect(after!.events).toContain("release.failed");
+    expect(after!.events).not.toContain("ticket.created");
+    expect(((await getNotifications(users.adminCookie)).json() as NotificationSettings).notifyTicketCreated).toBe(false);
   });
 
   it("webhookUrl non-https → 400", async () => {
@@ -762,7 +787,83 @@ describe("POST /api/settings/notifications/test", () => {
     expect(body.detail).toContain("500");
   });
 
+  it("area 9, F3 (H-1): la pagina Notifiche del web vecchio chiede integrations.manage — settings.manage da solo non basta", async () => {
+    const [role] = await app.db.insert(roles).values({ name: `Solo impostazioni ${randomUUID().slice(0, 4)}`, scope: "instance", permissions: ["settings.manage"] }).returning({ id: roles.id });
+    const [u] = await app.db.insert(usersTable).values({ email: `imp-${randomUUID().slice(0, 6)}@acme.com`, passwordHash: "x", role: "member", instanceRoleId: role!.id }).returning({ id: usersTable.id });
+    const cookie = await fullSessionCookie(app, u!.id);
+    expect((await getNotifications(cookie)).statusCode).toBe(403);
+    expect((await putNotifications({ webhookUrl: "", format: "slack", enabled: true, notifyTicketCreated: true, notifyPrOpened: true, notifyJobHeld: true, notifyJobFailed: true }, cookie)).statusCode).toBe(403);
+    expect((await testNotification(cookie)).statusCode).toBe(403);
+  });
+
+  it("CRITICO (review F3): un PUT col solo storage NON tocca budget e lingua (assenti = invariati); null esplicito azzera il budget", async () => {
+    const put = (payload: object) => app.inject({ method: "PUT", url: "/api/settings/instance", headers: { cookie: users.adminCookie }, payload });
+    expect((await put({ contentLanguage: "it", monthlyBudgetUsd: 600 })).statusCode).toBe(200);
+    const onlyS3 = await put({ s3Bucket: "solo-storage" });
+    expect(onlyS3.statusCode).toBe(200);
+    expect(onlyS3.json()).toMatchObject({ contentLanguage: "it", monthlyBudgetUsd: 600, s3Bucket: "solo-storage" });
+    const budgetEntries = (await app.db.select().from(changeLog).where(eq(changeLog.type, "budget.changed"))).map((r) => (r.data as { after: string | null }).after);
+    expect(budgetEntries.at(-1)).toBe("600");
+    expect((await put({ monthlyBudgetUsd: null })).json()).toMatchObject({ contentLanguage: "it", monthlyBudgetUsd: null });
+    await put({ contentLanguage: "en", monthlyBudgetUsd: null, s3Bucket: "" });
+  });
+
+  it("area 9, F4 (Task 7): alzare il tetto sopra lo speso fa ripartire SUBITO i passi delle automazioni fermi per il budget; abbassarlo no; un job budget_held non cambia", async () => {
+    const [spent] = await app.db.insert(agentRuns).values({ phase: "triage", operation: "triage", model: "claude-sonnet-5-5", costUsd: "50" } as typeof agentRuns.$inferInsert).returning({ id: agentRuns.id });
+    const { projectId, ticketId } = await seedTicket(testDb.db);
+    const [a] = await app.db.insert(automations).values({ code: `B${Date.now() % 100000}-A1`, seq: 900 + (Date.now() % 1000), name: "Budget", projectId, ownerId: users.adminId, status: "active", activeSince: new Date() }).returning();
+    const later = new Date(Date.now() + 15 * 60_000);
+    const [run] = await app.db.insert(automationRuns).values({ automationId: a!.id, n: 1, version: 1, title: "Run", origin: "manual", event: {}, projectIds: [projectId], status: "running", cursor: { path: [0], aiWaiting: { reason: "monthly_budget" } }, dueAt: later }).returning();
+    const [held] = await app.db.insert(aiJobs).values({ ticketId, status: "held", heldReason: "budget" }).returning();
+    const put = (monthlyBudgetUsd: number | null) => app.inject({ method: "PUT", url: "/api/settings/instance", headers: { cookie: users.adminCookie }, payload: { monthlyBudgetUsd } });
+    const dueOf = async () => (await app.db.select().from(automationRuns).where(eq(automationRuns.id, run!.id)))[0]!.dueAt!.getTime();
+    try {
+      await put(10);
+      expect(await dueOf()).toBe(later.getTime());
+      await put(20); // ancora raggiunto
+      expect(await dueOf()).toBe(later.getTime());
+      expect((await put(1000)).json()).toMatchObject({ budgetEffect: "released" });
+      expect(await dueOf()).toBeLessThanOrEqual(Date.now());
+      expect((await app.db.select().from(aiJobs).where(eq(aiJobs.id, held!.id)))[0]).toMatchObject({ status: "held", heldReason: "budget" });
+    } finally {
+      await put(null);
+      await app.db.delete(agentRuns).where(eq(agentRuns.id, spent!.id));
+    }
+  });
+
+  it("94: lo speso del mese, «raggiunto» e l'effetto del salvataggio (released, now_reached, still_reached)", async () => {
+    const [spent] = await app.db.insert(agentRuns).values({ phase: "triage", operation: "triage", model: "claude-sonnet-5-5", costUsd: "412" } as typeof agentRuns.$inferInsert).returning({ id: agentRuns.id });
+    const put = (monthlyBudgetUsd: number | null) =>
+      app.inject({ method: "PUT", url: "/api/settings/instance", headers: { cookie: users.adminCookie }, payload: { contentLanguage: "en", monthlyBudgetUsd } });
+    expect((await put(null)).json()).toMatchObject({ budgetReached: false, budgetEffect: null });
+    const view = (await app.inject({ method: "GET", url: "/api/settings/instance", headers: { cookie: users.adminCookie } })).json() as { spentUsd: number; budgetEffect: unknown };
+    expect(view.spentUsd).toBeGreaterThanOrEqual(412);
+    expect(view.budgetEffect).toBeNull();
+    expect((await put(100)).json()).toMatchObject({ budgetReached: true, budgetEffect: "now_reached" });
+    expect((await put(200)).json()).toMatchObject({ budgetReached: true, budgetEffect: "still_reached" });
+    expect((await put(100_000)).json()).toMatchObject({ budgetReached: false, budgetEffect: "released" });
+    expect((await put(200_000)).json()).toMatchObject({ budgetEffect: null });
+    await put(null);
+    await app.db.delete(agentRuns).where(eq(agentRuns.id, spent!.id));
+  });
+
+  it("decisione del maintainer: dal web vecchio, un URL NUOVO (cambiato o un webhook creato) chiede la riconferma; lo stesso URL no", async () => {
+    await app.db.delete(outgoingWebhooks);
+    const old = await createSession(app.db, users.adminId, { stage: "full", secondFactorAt: new Date(Date.now() - 11 * 60_000) });
+    const stale = `${SESSION_COOKIE}=${encodeURIComponent(app.signCookie(old.id))}`;
+    const toggles = { format: "slack", enabled: true, notifyTicketCreated: true, notifyPrOpened: true, notifyJobHeld: true, notifyJobFailed: true };
+    expect((await putNotifications({ webhookUrl: "https://hooks.example.com/a", ...toggles }, stale)).statusCode).toBe(403);
+    expect(await app.db.select().from(outgoingWebhooks)).toHaveLength(0);
+    expect((await putNotifications({ webhookUrl: "https://hooks.example.com/a", ...toggles }, users.adminCookie)).statusCode).toBe(200);
+    expect((await putNotifications({ webhookUrl: "https://hooks.example.com/a", ...toggles, notifyJobFailed: false }, stale)).statusCode).toBe(200);
+    expect((await putNotifications({ webhookUrl: "https://altro.example.com/b", ...toggles }, stale)).statusCode).toBe(403);
+    expect((await putNotifications({ webhookUrl: "", ...toggles }, stale)).statusCode).toBe(200);
+    const [row] = await app.db.select().from(outgoingWebhooks);
+    expect(row).toMatchObject({ url: "https://hooks.example.com/a", enabled: false });
+  });
+
   it("admin: ok=false quando nessun webhook è configurato", async () => {
+    await app.db.delete(outgoingWebhooks);
     await putNotifications(
       {
         webhookUrl: "",
@@ -845,10 +946,15 @@ describe("PUT /api/settings/instance", () => {
       s3Bucket: null,
       s3AccessKey: null,
       s3SecretKeySet: false,
+      s3SecretKeyLast4: null,
       attachmentsEnabled: false,
+      attachmentsSwitch: true,
       slackSigningSecretSet: false,
       slackBotTokenSet: false,
       slackEnabled: false,
+      spentUsd: expect.any(Number),
+      budgetReached: false,
+      budgetEffect: null,
     });
 
     // Ripristina il default per non sporcare gli altri test.
@@ -938,6 +1044,7 @@ describe("GET /api/settings/instance — storage S3", () => {
     expect(body.s3Bucket).toBeNull();
     expect(body.s3AccessKey).toBeNull();
     expect(body.s3SecretKeySet).toBe(false);
+    expect((body as unknown as { s3SecretKeyLast4: string | null }).s3SecretKeyLast4).toBeNull();
     expect(body.attachmentsEnabled).toBe(false);
   });
 });
@@ -957,6 +1064,8 @@ describe("PUT /api/settings/instance — storage S3", () => {
     expect(body.s3Bucket).toBe("my-bucket");
     expect(body.s3AccessKey).toBe("AKIA");
     expect(body.s3SecretKeySet).toBe(true);
+    // Rimandi, lotto 5: le ultime 4 della chiave, mai la chiave.
+    expect((body as unknown as { s3SecretKeyLast4: string | null }).s3SecretKeyLast4).toBe("cret");
     expect(body.attachmentsEnabled).toBe(true);
     // La secret non deve MAI comparire in nessuna forma nel JSON.
     expect(JSON.stringify(body)).not.toContain("super-secret");
@@ -1273,6 +1382,20 @@ const DEFAULT_MAIL_ADMISSION = {
   denyAutomated: true,
 } satisfies MailAdmission;
 
+describe("area 6, F2: la classificazione nuova accesa si dice", () => {
+  it("con MAIL_CLASSIFY_V2 il server risponde classifyV2: true (e PATCH anche)", async () => {
+    const appV2 = buildApp({ db: testDb.db, sessionSecret: "segreto-di-test-lungo-almeno-32-caratteri!!", encryptionKey: Buffer.alloc(32, 9).toString("base64"), mailClassifyV2: true });
+    try {
+      const { fullSessionCookie } = await import("../test/fixtures.js");
+      const cookie = await fullSessionCookie(appV2, users.memberId);
+      const res = await appV2.inject({ method: "GET", url: "/api/settings/mail-admission", headers: { cookie } });
+      expect((res.json() as { classifyV2: boolean }).classifyV2).toBe(true);
+    } finally {
+      await appV2.close();
+    }
+  });
+});
+
 describe("GET /api/settings/mail-admission", () => {
   afterEach(async () => {
     // Ripristina il default per non sporcare gli altri test di questo file.
@@ -1286,13 +1409,13 @@ describe("GET /api/settings/mail-admission", () => {
   it("member: 200 — a differenza delle altre GET di questo file, la lettura non è admin-only", async () => {
     const res = await getMailAdmission(users.memberCookie);
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual(DEFAULT_MAIL_ADMISSION);
+    expect(res.json()).toEqual({ ...DEFAULT_MAIL_ADMISSION, classifyV2: false });
   });
 
   it("admin: restituisce i default seedati (allargano il perimetro, non lo restringono)", async () => {
     const res = await getMailAdmission(users.adminCookie);
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual(DEFAULT_MAIL_ADMISSION);
+    expect(res.json()).toEqual({ ...DEFAULT_MAIL_ADMISSION, classifyV2: false });
   });
 
   it("una risposta senza questi tre campi resta parsabile (invariante mobile, per uniformità)", () => {
@@ -1300,7 +1423,7 @@ describe("GET /api/settings/mail-admission", () => {
     // comunque costruito coi default di CLAUDE.md: un client che legge una
     // vecchia risposta senza questi campi li ricostruisce.
     const legacyResponse = {};
-    expect(mailAdmissionSchema.parse(legacyResponse)).toEqual(DEFAULT_MAIL_ADMISSION);
+    expect(mailAdmissionSchema.parse(legacyResponse)).toEqual({ ...DEFAULT_MAIL_ADMISSION, classifyV2: false });
   });
 });
 
@@ -1335,6 +1458,7 @@ describe("PATCH /api/settings/mail-admission", () => {
       admitWorkspaceDomains: false,
       denyLabels: ["SPAM"],
       denyAutomated: false,
+      classifyV2: false,
     });
 
     const getRes = await getMailAdmission(users.adminCookie);
@@ -1342,6 +1466,7 @@ describe("PATCH /api/settings/mail-admission", () => {
       admitWorkspaceDomains: false,
       denyLabels: ["SPAM"],
       denyAutomated: false,
+      classifyV2: false,
     });
   });
 
@@ -1353,6 +1478,7 @@ describe("PATCH /api/settings/mail-admission", () => {
       admitWorkspaceDomains: false,
       denyLabels: ["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "SPAM"],
       denyAutomated: true,
+      classifyV2: false,
     });
   });
 
@@ -1364,6 +1490,7 @@ describe("PATCH /api/settings/mail-admission", () => {
       admitWorkspaceDomains: false,
       denyLabels: ["SPAM", "CATEGORY_SOCIAL"],
       denyAutomated: false,
+      classifyV2: false,
     });
   });
 

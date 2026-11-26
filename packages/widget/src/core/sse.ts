@@ -37,6 +37,11 @@ export type WidgetSseEvent =
   | { type: "delta"; text: string }
   | { type: "ticket_proposal"; proposal: WidgetTicketProposal }
   | { type: "done"; conversationId: string; citations: WidgetCitation[] }
+  /**
+   * Area 8, F3, S17: la conversazione era chiusa (un esito) e il messaggio è
+   * andato nella successiva: da qui si scrive a lei.
+   */
+  | { type: "conversation"; conversationId: string }
   | { type: "error"; message?: string };
 
 /**
@@ -79,6 +84,10 @@ function toEvent(raw: unknown): WidgetSseEvent | null {
         conversationId: typeof obj["conversationId"] === "string" ? obj["conversationId"] : "",
         citations: Array.isArray(obj["citations"]) ? (obj["citations"] as WidgetCitation[]) : [],
       };
+    case "conversation":
+      return typeof obj["conversationId"] === "string" && obj["conversationId"] !== ""
+        ? { type: "conversation", conversationId: obj["conversationId"] }
+        : null;
     case "error":
       return {
         type: "error",

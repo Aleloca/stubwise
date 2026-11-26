@@ -124,6 +124,9 @@ function useDeferredDecision(runId: string, code: string) {
             return void raced();
           case "suspended":
             return toast.error(t("automations.decide.suspended", { code }));
+          // La propria decisione è già in coda sul worker (build app).
+          case "pending":
+            return void toast.show(t("automations.decide.applying"));
           default:
             return toast.error(t("automations.toast.decisionError", { code }));
         }
@@ -286,6 +289,7 @@ export function ChooseProject({
   cursor,
   code,
   client,
+  canRemember,
   label,
   onDone,
 }: {
@@ -294,6 +298,11 @@ export function ChooseProject({
   cursor: string;
   code: string;
   client: string;
+  /**
+   * «Remember for <client>»: lo calcola il server (chi decide ha
+   * `integrations.manage`); assente da un server più vecchio = no.
+   */
+  canRemember: boolean;
   /** L'etichetta del menu, se la domanda è già scritta sopra («Da decidere»). */
   label?: string;
   onDone?: () => void;
@@ -333,7 +342,7 @@ export function ChooseProject({
         className={`${primaryButton} disabled:opacity-40`}
         disabled={!projectId}
         onClick={() => {
-          const keep = perms.integrations && !!client && remember;
+          const keep = canRemember && !!client && remember;
           decide("automations.toast.projectChosen", (now) =>
             now.choose(runId, cursor, projectId, keep),
           );
@@ -343,7 +352,7 @@ export function ChooseProject({
         {t("automations.actions.choose")}
       </button>
       {/* Senza un cliente conosciuto non c'è niente da ricordare. */}
-      {perms.integrations && client && (
+      {canRemember && client && (
         <label className="flex h-8 items-center gap-2 text-sm text-ink">
           <input
             type="checkbox"

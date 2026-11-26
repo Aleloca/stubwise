@@ -1,3 +1,18 @@
+import {
+  createAiProviderEndpoints,
+  createAiUsageEndpoints,
+  createGitAccountEndpoints,
+  createGoogleAppEndpoints,
+  createInstanceSettingsEndpoints,
+  createInstanceStatusEndpoints,
+  createUsageEndpoints,
+  createPluginEndpoints,
+} from "./endpoints/instance.js";
+import { createSettingsEndpoints, createWebhookEndpoints } from "./endpoints/settings.js";
+import { createChangeLogEndpoints } from "./endpoints/change-log.js";
+import { createAdminEndpoints } from "./endpoints/admin.js";
+import { createAccessEndpoints } from "./endpoints/access.js";
+import { createServerOpsEndpoints } from "./endpoints/server-ops.js";
 import { readerSchema } from "@stubwise/shared";
 import type { Reader } from "@stubwise/shared";
 import type { ZodType } from "zod";
@@ -9,16 +24,37 @@ import { createBacklogEndpoints } from "./endpoints/backlog.js";
 import { createBacklogRefineEndpoints } from "./endpoints/backlog-refine.js";
 import { createCalendarEndpoints } from "./endpoints/calendar.js";
 import { createDocsEndpoints } from "./endpoints/docs.js";
+import { createGraphEndpoints } from "./endpoints/graph.js";
 import { createInboxEndpoints } from "./endpoints/inbox.js";
 import { createMailEndpoints } from "./endpoints/mail.js";
+import { createFiltersEndpoints } from "./endpoints/filters.js";
+import { createHomeEndpoints } from "./endpoints/home.js";
+import { createRequestsEndpoints } from "./endpoints/requests.js";
 import { createMeEndpoints } from "./endpoints/me.js";
+import { createChatEndpoints } from "./endpoints/chat.js";
+import { createDriveEndpoints } from "./endpoints/drive.js";
+import { createEnvironmentEndpoints, createReleaseEndpoints } from "./endpoints/releases.js";
+import { createAlertEndpoints } from "./endpoints/alerts.js";
+import { createSupportEndpoints } from "./endpoints/support.js";
+import { createWidgetEndpoints } from "./endpoints/widgets.js";
+import { createAutomationEndpoints, createAutomationSourceEndpoints, createClientLinkEndpoints } from "./endpoints/automations.js";
+import { createGoogleEndpoints } from "./endpoints/google.js";
+import { createClaudeEndpoints } from "./endpoints/claude.js";
+import { createMilestonesEndpoints } from "./endpoints/milestones.js";
 import { createPatsEndpoints } from "./endpoints/pats.js";
+import { createCredentialsEndpoints, createVaultEndpoints } from "./endpoints/vault.js";
 import { createProjectsEndpoints } from "./endpoints/projects.js";
 import { createRepositoriesEndpoints } from "./endpoints/repositories.js";
 import { createSearchEndpoints } from "./endpoints/search.js";
 import { createServersEndpoints } from "./endpoints/servers.js";
 import { createTicketsEndpoints } from "./endpoints/tickets.js";
 import { createUsersEndpoints } from "./endpoints/users.js";
+import { createDecisionsEndpoints } from "./endpoints/decisions.js";
+import { createProductDocsEndpoints } from "./endpoints/product-docs.js";
+import { createDepartmentsEndpoints } from "./endpoints/departments.js";
+import { createPeopleEndpoints } from "./endpoints/people.js";
+import { createProjectStatusesEndpoints } from "./endpoints/projectStatuses.js";
+import { createTasksEndpoints } from "./endpoints/tasks.js";
 
 /**
  * L'init di `fetch` DERIVATO dal `fetch` dell'ambiente, invece di nominare
@@ -113,7 +149,12 @@ export function createEndpoints(request: ApiRequest) {
     auth: createAuthEndpoints(request),
     inbox: createInboxEndpoints(request),
     me: createMeEndpoints(request),
+    // Chat con Claude, fetta 1: le conversazioni libere.
+    claude: createClaudeEndpoints(request),
     pats: createPatsEndpoints(request),
+    // 25 nov 2026: la cassaforte del desktop, solo letture e campi in chiaro.
+    vault: createVaultEndpoints(request),
+    credentials: createCredentialsEndpoints(request),
     projects: createProjectsEndpoints(request),
     repositories: createRepositoriesEndpoints(request),
     servers: createServersEndpoints(request),
@@ -121,12 +162,67 @@ export function createEndpoints(request: ApiRequest) {
     backlog: createBacklogEndpoints(request),
     backlogRefine: createBacklogRefineEndpoints(request),
     docs: createDocsEndpoints(request),
+    // Il grafo del codice di un repository (area 5, fetta 1 del desktop).
+    graph: createGraphEndpoints(request),
     search: createSearchEndpoints(request),
     activity: createActivityEndpoints(request),
     mail: createMailEndpoints(request),
     calendar: createCalendarEndpoints(request),
     users: createUsersEndpoints(request),
     agentSessions: createAgentSessionsEndpoints(request),
+    // Integrazione area 2 (fetta 1): l'app nuova.
+    tasks: createTasksEndpoints(request),
+    decisions: createDecisionsEndpoints(request),
+    // Area 11, F1: la documentazione di prodotto.
+    productDocs: createProductDocsEndpoints(request),
+    departments: createDepartmentsEndpoints(request),
+    people: createPeopleEndpoints(request),
+    projectStatuses: createProjectStatusesEndpoints(request),
+    // Fetta 3: filtri salvati.
+    filters: createFiltersEndpoints(request),
+    home: createHomeEndpoints(request),
+    requests: createRequestsEndpoints(request),
+    // Fetta 4: i traguardi (scritture; l'elenco è projects.milestones).
+    milestones: createMilestonesEndpoints(request),
+    // Area 4: la Chat fra persone.
+    chat: createChatEndpoints(request),
+    // Area 5: il Drive dei progetti.
+    drive: createDriveEndpoints(request),
+    automations: createAutomationEndpoints(request),
+    // Area 7, F4: le sorgenti (il webhook in arrivo) e la tabella cliente → progetto.
+    automationSources: createAutomationSourceEndpoints(request),
+    clientLinks: createClientLinkEndpoints(request),
+    google: createGoogleEndpoints(request),
+    // Area 8, F1: i rilasci, le PR aperte, la Home «Rilasci», gli ambienti per repository.
+    releases: createReleaseEndpoints(request),
+    environments: createEnvironmentEndpoints(request),
+    // Area 8, F2: le iscrizioni agli avvisi.
+    alerts: createAlertEndpoints(request),
+    // Area 8, F3: Support, le conversazioni coi clienti.
+    support: createSupportEndpoints(request),
+    widgets: createWidgetEndpoints(request),
+    // Area 8, F4b: analisi, correzione, registro e SSH di sola lettura dei server.
+    serverOps: createServerOpsEndpoints(request),
+    // Area 9, F1: «Chi può farlo?» e «Cosa può fare?».
+    access: createAccessEndpoints(request),
+    // Area 9, F1 (R7): le letture calcolate dell'amministrazione.
+    admin: createAdminEndpoints(request),
+    // Area 9, F2: il registro delle modifiche.
+    changeLog: createChangeLogEndpoints(request),
+    // Area 9, F3: i webhook in uscita e i modelli per operazione.
+    webhooks: createWebhookEndpoints(request),
+    settings: createSettingsEndpoints(request),
+    // Area 9, F3, Task 8b: le pagine d'istanza della 9b.
+    aiProviders: createAiProviderEndpoints(request),
+    gitAccounts: createGitAccountEndpoints(request),
+    plugins: createPluginEndpoints(request),
+    googleApps: createGoogleAppEndpoints(request),
+    instanceSettings: createInstanceSettingsEndpoints(request),
+    aiUsage: createAiUsageEndpoints(request),
+    // Area 9, F4: lo Stato dell'istanza.
+    instance: createInstanceStatusEndpoints(request),
+    // Area 9, F4: AI → Usage.
+    usage: createUsageEndpoints(request),
   };
 }
 
@@ -179,7 +275,20 @@ export function createStubwiseClient(options: StubwiseClientOptions): StubwiseCl
 
     const init: FetchInit = { method, headers };
     if (credentials !== undefined) init.credentials = credentials;
-    if (body !== undefined) {
+    if (typeof FormData !== "undefined" && body instanceof FormData) {
+      // Un multipart (gli allegati) passa così com'è: il content-type col
+      // boundary lo mette fetch.
+      init.body = body;
+    } else if (
+      (typeof Blob !== "undefined" && body instanceof Blob) ||
+      body instanceof ArrayBuffer ||
+      body instanceof Uint8Array
+    ) {
+      // Un corpo BINARIO (la foto del profilo, area 9): grezzo, come
+      // `octet-stream` — il server deduce il tipo dai byte, non dall'header.
+      headers["content-type"] = "application/octet-stream";
+      init.body = body as BodyInit;
+    } else if (body !== undefined) {
       headers["content-type"] = "application/json";
       init.body = JSON.stringify(body);
     }
@@ -202,6 +311,9 @@ export function createStubwiseClient(options: StubwiseClientOptions): StubwiseCl
     if (!response.ok) throw await errorFromResponse(response);
 
     if (response.status === 204) return undefined;
+    // Una risposta di testo (il resoconto del grafo, `text/markdown`): il testo,
+    // non un JSON da leggere.
+    if (!schema && /^text\//i.test(response.headers.get("content-type") ?? "")) return await response.text();
     const data: unknown = await response.json();
     if (!schema) return data;
     try {

@@ -1,4 +1,5 @@
 import fastifyCookie from "@fastify/cookie";
+import { uploadsOff } from "./services/storage-uploads-gate.js";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyRateLimit from "@fastify/rate-limit";
 import fastifySwagger from "@fastify/swagger";
@@ -15,6 +16,7 @@ import {
 } from "fastify-type-provider-zod";
 import { createRequire } from "node:module";
 import type { Db } from "@stubwise/db";
+import { instanceSettings } from "@stubwise/db";
 import { createEmbeddingClient, type EmbeddingClient } from "@stubwise/embeddings";
 import type { FetchImpl as GoogleFetchImpl } from "@stubwise/google";
 import { GOOGLE_OAUTH_CALLBACK_PATH } from "@stubwise/shared";
@@ -27,7 +29,9 @@ import {
   attachmentRoutes,
   ticketAttachmentRoutes,
 } from "./routes/attachments.js";
-import { accessPreHandler } from "./auth/access.js";
+import { accessPreHandler, recordDesktopReauthUseOnResponse } from "./auth/access.js";
+import { recordChatToolPrivateRead, recordChatToolReadProjects, recordChatToolUntrustedRead } from "./services/claude-public.js";
+import { recordChatToolCitations } from "./services/claude-citations.js";
 import { authRoutes } from "./routes/auth.js";
 import { commentRoutes } from "./routes/comments.js";
 import { createAnthropicChatLlm, type ChatLlm } from "./routes/chat-llm.js";
@@ -40,12 +44,32 @@ import { gitIdentityRoutes } from "./routes/git-identity-routes.js";
 import { googleWorkspaceRoutes } from "./routes/google-workspaces.js";
 import { meGoogleRoutes } from "./routes/me-google.js";
 import { meCalendarRoutes } from "./routes/me-calendar.js";
+import { meMeetingsRoutes } from "./routes/me-meetings.js";
+import { meSessionsRoutes } from "./routes/me-sessions.js";
+import { avatarRoutes } from "./routes/avatars.js";
+import { meEmailChangeRoutes } from "./routes/me-email-change.js";
+import { accessRoutes } from "./routes/access.js";
+import { adminViewRoutes } from "./routes/admin-views.js";
+import { changeLogRoutes } from "./routes/change-log.js";
+import { outgoingWebhookRoutes } from "./routes/outgoing-webhooks.js";
+import { instanceStatusRoutes } from "./routes/instance-status.js";
+import { projectArchiveRoutes } from "./routes/project-archive.js";
+import { detachedRepositoryRoutes } from "./routes/detached-repositories.js";
+import { projectQueueRoutes } from "./routes/project-queue.js";
+import { projectSecretRoutes } from "./routes/project-secrets.js";
+import { smtpTransport, type MailTransport } from "./mail/transport.js";
+import { meWaitingCustomersRoutes } from "./routes/me-waiting-customers.js";
+import { meMailDraftsRoutes, meMailOutgoingRoutes, meMailRecipientsRoutes } from "./routes/me-mail-drafts.js";
+import { meMailProposalsRoutes } from "./routes/me-mail-proposals.js";
+import { realMailComposeClient, type MailComposeClient } from "./services/mail-drafts.js";
+import type { CalendarWriteClient } from "./services/calendar-writes.js";
 import { meMailRoutes, type MailOriginalClient } from "./routes/me-mail.js";
 import { activityRoutes } from "./routes/activity-routes.js";
 import { backlogRoutes } from "./routes/backlog.js";
 import { inboundRoutes } from "./routes/inbound.js";
 import { inboxRoutes } from "./routes/inbox.js";
 import { mePrefsRoutes } from "./routes/me-prefs.js";
+import { meClaudeRoutes } from "./routes/me-claude.js";
 import { vaultRoutes } from "./routes/vault.js";
 import { credentialRoutes } from "./routes/credentials.js";
 import { meSecurityRoutes } from "./routes/me-security.js";
@@ -53,11 +77,39 @@ import { ingestRoutes } from "./routes/ingest.js";
 import { widgetRoutes } from "./routes/widget.js";
 import { monitorRoutes } from "./routes/monitor.js";
 import { milestoneRoutes } from "./routes/milestones.js";
+import { departmentRoutes } from "./routes/departments.js";
+import { peopleRoutes } from "./routes/people.js";
+import { projectStatusRoutes } from "./routes/project-statuses.js";
+import { taskRoutes } from "./routes/tasks.js";
+import { dayArrangementRoutes } from "./routes/day-arrangements.js";
+import { filterRoutes } from "./routes/filters.js";
+import { homeRoutes } from "./routes/home.js";
+import { alertSubscriptionRoutes } from "./routes/alert-subscriptions.js";
+import { supportRoutes } from "./routes/support.js";
+import { requestRoutes } from "./routes/requests.js";
+import { overviewRoutes } from "./routes/overview.js";
+import { projectRequestRoutes } from "./routes/project-requests.js";
+import { decisionRoutes } from "./routes/decisions.js";
 import { projectDocsRoutes } from "./routes/project-docs.js";
 import { projectEnvFileRoutes } from "./routes/project-env-files.js";
 import { projectEnvironmentRoutes } from "./routes/project-environments.js";
 import { releaseRoutes } from "./routes/release.js";
 import { agentSessionRoutes } from "./routes/agent-sessions.js";
+import { chatRoutes } from "./routes/chat.js";
+import { driveRoutes } from "./routes/drive.js";
+import { automationRoutes } from "./routes/automations.js";
+import { driveGoogleRoutes } from "./routes/drive-google.js";
+import type { DriveGoogleClient } from "./drive/google.js";
+import { purgeDeletedDriveObjects } from "./drive/service.js";
+import { runStorageHygiene } from "./storage/hygiene.js";
+import { purgeStorageOrphans } from "./storage/orphans.js";
+import { purgeUnusedProductImages } from "./services/product-images-purge.js";
+import { NOOP_CHAT_BUS, type ChatBus } from "./chat/bus.js";
+import { ProductLiveHub } from "./services/product-live.js";
+import { claudeConversationRoutes } from "./routes/claude-conversations.js";
+import { claudeActionRoutes } from "./routes/claude-actions.js";
+import { claudeHelpRoutes } from "./routes/claude-help.js";
+import { productDocsRoutes } from "./routes/product-docs.js";
 import { correctionRoutes } from "./routes/corrections.js";
 import { briefRoutes } from "./routes/briefs.js";
 import { projectRoutes } from "./routes/projects.js";
@@ -72,7 +124,11 @@ import { serverRoutes } from "./routes/servers.js";
 import { serverCheckRoutes } from "./routes/servers-checks.js";
 import { savedViewRoutes } from "./routes/saved-views.js";
 import { searchRoutes } from "./routes/search.js";
+import { serverAnalysisRoutes } from "./routes/server-analyses.js";
+import { serverSshRoutes } from "./routes/server-ssh.js";
+import { serverFixRoutes } from "./routes/server-fixes.js";
 import { settingsRoutes } from "./routes/settings.js";
+import { storageUploadsRoutes } from "./routes/storage-uploads.js";
 import { modelSettingsRoutes } from "./routes/model-settings.js";
 import type { RateLimitConfig } from "./routes/shared.js";
 import { slackRoutes } from "./slack/routes.js";
@@ -81,9 +137,12 @@ import type { SlackClientFactory } from "./slack/creds.js";
 import { ticketRoutes } from "./routes/tickets.js";
 import { userRoutes } from "./routes/users.js";
 import { webhookRoutes } from "./routes/webhooks.js";
+import { automationHookRoutes, automationSourceRoutes } from "./routes/automation-sources.js";
 import { widgetAdminRoutes } from "./routes/widget-admin.js";
 import { NOOP_BUS, type AgentSessionBus } from "./agent-session-bus.js";
 import { getActiveStorage, type ObjectStorage, type StorageFactory } from "./storage/index.js";
+import { pruneChatUploads } from "./chat/attachments.js";
+import { backfillManualPageEmbeddings } from "./services/doc-embed.js";
 
 // Versione letta dal package.json (accanto a src/ e a dist/, quindi il
 // percorso relativo vale sia in sviluppo che dopo la build).
@@ -94,6 +153,10 @@ declare module "fastify" {
     db: Db;
     /** Bus delle notifiche delle sessioni degli agenti (BuildAppOptions.sessionBus). */
     agentSessionBus: AgentSessionBus;
+    /** Bus delle NOTIFY della Chat (area 4), per gli stream dei canali (BuildAppOptions.chatBus). */
+    chatBus: ChatBus;
+    /** Area 11, F4: il canale dal vivo delle pagine di prodotto (presenza in memoria, prese, revisioni). */
+    productLive: ProductLiveHub;
     /** Chiave AES-256 (32 byte) per cifrare le credenziali git dei progetti. */
     encryptionKey: Buffer;
     /**
@@ -102,12 +165,18 @@ declare module "fastify" {
      * da registrare sul provider git.
      */
     publicUrl: string;
+    /** Lotto 10: la cassaforte dal desktop è accesa (`VAULT_DESKTOP`, BuildAppOptions.vaultDesktop). */
+    vaultDesktop: boolean;
     /**
      * Risolve l'ObjectStorage attivo a runtime dalle instance settings, o
      * `null` se lo storage non è configurato/valido. Iniettabile nei test via
      * BuildAppOptions.storageFactory (fake in-memory).
      */
     storage(): Promise<ObjectStorage | null>;
+    /** Il client delle bozze di Gmail (area 6, F3): reale, o il doppio dei test (`mailComposeClient`). */
+    mailComposeClient: MailComposeClient;
+    /** Area 9, F1: il trasporto email d'istanza (solo il cambio dell'email). */
+    mailTransport: MailTransport;
     /**
      * Client di embedding (OpenAI-compatibile) per la ricerca semantica e la
      * chat RAG sui Docs. Iniettabile nei test via BuildAppOptions.embeddingClient
@@ -169,11 +238,16 @@ export function redactGoogleOauthCallbackUrl(url: string): string {
 
 /**
  * Rotte che portano un segreto NEL PATH (21 ott 2026): il token del link di
- * reset della password (che vale l'account per 24 ore) e quello di un invito
- * (revoca). Il segmento dopo il prefisso diventa `[redacted]`; il resto
- * dell'URL, query compresa, resta com'è.
+ * reset della password (che vale l'account per 24 ore), quello di un invito
+ * (revoca) e (area 7, F4) il segreto del webhook in arrivo delle automazioni,
+ * che chiunque lo legga può usare per scrivere eventi. Il segmento dopo il
+ * prefisso diventa `[redacted]`; il resto dell'URL, query compresa, resta
+ * com'è.
  */
-const PATH_TOKEN_PREFIXES = ["/api/auth/password-reset/", "/api/auth/invites/"];
+// Area 9, F1 (review): anche il link del cambio dell'email (`GET
+// /api/auth/email-change/:token`); il letterale `confirm` si oscura con lui ed
+// è innocuo (lì il token sta nel corpo).
+const PATH_TOKEN_PREFIXES = ["/api/auth/password-reset/", "/api/auth/invites/", "/api/auth/email-change/", "/webhooks/in/"];
 
 /**
  * L'URL come finisce nel log della richiesta: token nel path oscurati e
@@ -261,6 +335,27 @@ export interface BuildAppOptions {
    * mano.
    */
   mailGoogleClient?: MailOriginalClient;
+  /** Area 6, F3: il client Gmail delle bozze, iniettabile nei test. */
+  mailComposeClient?: MailComposeClient;
+  /**
+   * Area 9, F1 (E-1 = a): il trasporto email d'istanza per il cambio
+   * dell'email di login. Iniettabile nei test; altrimenti da `smtpUrl` e
+   * `mailFrom`, e senza è «non configurato».
+   */
+  mailTransport?: MailTransport;
+  smtpUrl?: string;
+  mailFrom?: string;
+  /** Area 6, F4: il client delle scritture di Calendar, iniettabile nei test. */
+  calendarWriteClient?: CalendarWriteClient;
+  /** Area 6, F5b: il client di Drive (picker, cartelle), iniettabile nei test. */
+  driveGoogleClient?: DriveGoogleClient;
+  /** Area 6, F2: la classificazione nuova è accesa (`MAIL_CLASSIFY_V2`). Default false. */
+  mailClassifyV2?: boolean;
+  /**
+   * Lotto 10: la cassaforte dal desktop è accesa (`VAULT_DESKTOP`). Default
+   * false: l'associazione e le rotte aperte al Mac rispondono 404.
+   */
+  vaultDesktop?: boolean;
   /**
    * Fidarsi degli header X-Forwarded-* del reverse proxy (Caddy nel deploy
    * Docker). Va abilitato dietro un proxy affinché `secure: "auto"` sul cookie
@@ -369,6 +464,10 @@ export interface BuildAppOptions {
    * restano serviti dal solo poll.
    */
   sessionBus?: AgentSessionBus;
+  /** Il bus della Chat (`chat/bus.ts`); senza, gli stream dei canali vivono del solo poll. */
+  chatBus?: ChatBus;
+  /** Area 11, F4: i tempi del canale dal vivo (solo i test li accorciano). */
+  productLive?: { permsTtlMs?: number; presenceTtlMs?: number };
   /**
    * Osservatore di OGNI rotta registrata, collegato come primo hook `onRoute`
    * (prima di qualunque rotta, anche quelle sul root). Serve al test che
@@ -394,6 +493,20 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // globale: le rotte che non lo dichiarano ancora non sono toccate e usano i
   // loro preHandler (transizione). Vedi `auth/access.ts`.
   app.addHook("preHandler", accessPreHandler);
+  // La riga `reauth_desktop` con l'azione, solo a risposta riuscita (access.ts):
+  // `onSend`, atteso prima che la risposta parta.
+  app.addHook("onSend", async (request, reply, payload) => {
+    await recordDesktopReauthUseOnResponse(request, reply);
+    // I progetti letti dal token del turno della chat (fetta 5, D2).
+    await recordChatToolReadProjects(request, reply, payload);
+    // Lotto 9, voce 1: ciò che Claude ha letto, per le citazioni del turno. Fail-open.
+    await recordChatToolCitations(request, reply, payload);
+    // Il contenuto NON fidato letto dal token del turno (area 5, fetta 3): fail-closed.
+    await recordChatToolUntrustedRead(request, reply, payload);
+    // Il contenuto PERSONALE (area 10, F1, review I2): da lì non si pubblica. Fail-closed.
+    await recordChatToolPrivateRead(request, reply);
+    return payload;
+  });
 
   // Validazione e serializzazione via Zod su tutta l'app: gli schemi delle
   // route sono oggetti Zod e (Task 9) diventeranno la fonte dell'OpenAPI.
@@ -418,6 +531,18 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // route tocca il db quando l'app è stata costruita senza (es. unit test).
   const db = opts.db;
   app.decorate("agentSessionBus", opts.sessionBus ?? NOOP_BUS);
+  app.decorate("chatBus", opts.chatBus ?? NOOP_CHAT_BUS);
+  // Area 11, F4: il canale dal vivo, nato al primo uso (serve il db) e fermato alla chiusura.
+  let productLive: ProductLiveHub | undefined;
+  app.decorate("productLive", {
+    getter(this: FastifyInstance): ProductLiveHub {
+      productLive ??= new ProductLiveHub(this.db, Date.now, this.log, opts.productLive ?? {});
+      return productLive;
+    },
+  });
+  app.addHook("onClose", async () => {
+    productLive?.stop();
+  });
   app.decorate("db", {
     getter(): Db {
       if (!db) {
@@ -445,6 +570,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // URL pubblico, normalizzato senza slash finale. Getter come gli altri:
   // esplode solo chi compone l'URL del webhook senza averlo configurato.
   const publicUrl = opts.publicUrl?.replace(/\/+$/, "");
+  app.decorate("vaultDesktop", opts.vaultDesktop ?? false);
   app.decorate("publicUrl", {
     getter(): string {
       if (!publicUrl) {
@@ -457,8 +583,13 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Storage attivo risolto a runtime. La factory (reale o fake nei test) riceve
   // db ed encryptionKey già risolti dai getter, così le route non li ripassano.
   const storageFactory = opts.storageFactory ?? getActiveStorage;
-  app.decorate("storage", function storage(this: FastifyInstance) {
-    return storageFactory(this.db, this.encryptionKey);
+  app.decorate("storage", async function storage(this: FastifyInstance) {
+    const active = await storageFactory(this.db, this.encryptionKey);
+    if (!active) return null;
+    // Lotto 6, voce 2: con l'interruttore degli allegati spento le scritture
+    // rifiutano (409 `attachments_off`); leggere ed eliminare restano.
+    const [row] = await this.db.select({ on: instanceSettings.attachmentsSwitch }).from(instanceSettings).limit(1);
+    return row && !row.on ? uploadsOff(active) : active;
   });
 
   // Client di embedding per la ricerca semantica / chat RAG sui Docs. Nei test
@@ -501,6 +632,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     },
   };
   app.decorate("chatLlm", chatLlm);
+  app.decorate("mailComposeClient", opts.mailComposeClient ?? realMailComposeClient);
+  app.decorate("mailTransport", opts.mailTransport ?? smtpTransport(opts.smtpUrl, opts.mailFrom));
 
   // Retrieval dal knowledge graph nelle chat INTERNE (fase 2b). Il client MCP
   // nasce UNA volta per processo (la connessione dentro al client è pigra e
@@ -526,6 +659,51 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // file chiude la sua app): senza, il processo resterebbe appeso al transport.
   app.addHook("onClose", async () => {
     await graphMcpClient?.close();
+  });
+
+  // Gli allegati della Chat in sospeso da più di 24 ore ([DECIDE] 3 della
+  // fetta 4): li pota il SERVER, una volta l'ora. Lo storage lo SCRIVE e lo
+  // PULISCE solo il server; il worker dall'area 5, fetta 3 lo LEGGE soltanto
+  // (gli oggetti del Drive, per estrarne il contenuto) e non pota niente.
+  // Anche ogni caricamento pota. Fail-open: uno storage giù aspetta il giro dopo.
+  const chatPrune = setInterval(() => {
+    void (async () => {
+      try {
+        const storage = await app.storage();
+        // Ogni passo nel suo try (review della fetta 2): la Chat che fallisce non salta il Drive.
+        await runStorageHygiene(
+          [
+            { name: "chat", run: () => pruneChatUploads(app.db, storage, (m) => app.log.warn(m)) },
+            // Le lapidi del Drive (area 5, fetta 2).
+            { name: "drive", run: () => purgeDeletedDriveObjects(app.db, storage, (m) => app.log.warn(m)) },
+            // Gli oggetti rimasti senza riga che lo storage non aveva tolto (0144).
+            { name: "orphans", run: () => purgeStorageOrphans(app.db, storage, (m) => app.log.warn(m)) },
+            // Area 11, F1 (review I2): le immagini delle pagine di prodotto non più usate.
+            { name: "product-images", run: () => purgeUnusedProductImages(app.db, storage, (m) => app.log.warn(m)) },
+          ],
+          (error, name) => app.log.warn({ err: error }, `pulizia oraria dello storage non riuscita: ${name}`),
+        );
+      } catch (error) {
+        app.log.warn({ err: error }, "pulizia oraria dello storage: storage non disponibile");
+      }
+    })();
+  }, 60 * 60 * 1000);
+  chatPrune.unref();
+  app.addHook("onClose", async () => {
+    clearInterval(chatPrune);
+  });
+
+  // Gli embedding delle pagine manuali scritte prima della 0142 (review della
+  // fetta 1 dell'area 5): una volta l'ora, e all'avvio da `index.ts` (non qui,
+  // o girerebbe in ogni test). Idempotente e fail-open.
+  const manualEmbedBackfill = setInterval(() => {
+    void backfillManualPageEmbeddings(app.db, app.embeddingClient, app.log).catch((error: unknown) =>
+      app.log.warn({ err: error }, "backfill degli embedding delle pagine manuali non riuscito"),
+    );
+  }, 60 * 60 * 1000);
+  manualEmbedBackfill.unref();
+  app.addHook("onClose", async () => {
+    clearInterval(manualEmbedBackfill);
   });
 
   // Senza secret il plugin si registra comunque (parsing dei cookie), ma
@@ -590,6 +768,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(widgetAdminRoutes, { prefix: "/api/projects" });
   // Repository: il singolo repo git (ex "progetto") con setup git, branch,
   // webhook, ingestion, docs. Appartiene sempre a un progetto.
+  // Area 9, F6: i repository senza progetto, PRIMA di `/:slug`.
+  void app.register(detachedRepositoryRoutes, { prefix: "/api/repositories" });
   void app.register(repositoryRoutes, { prefix: "/api/repositories" });
   // File d'ambiente, materializzati nel worktree del repo: sono repository-level
   // (il parametro :id dell'URL è il repositoryId).
@@ -602,6 +782,22 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // `release.merge` ("una pagina sola, per il maintainer", design §4).
   void app.register(releaseRoutes, { prefix: "/api" });
   void app.register(agentSessionRoutes, { prefix: "/api/agent-sessions" });
+  // Area 4, Chat fra persone (fetta 1).
+  void app.register(chatRoutes, { prefix: "/api/chat" });
+  // Area 6, F5b: Google Drive nel Drive dei progetti (le parti letterali prima di `/drive/files/:id`).
+  void app.register(driveGoogleRoutes, { prefix: "/api", ...(opts.driveGoogleClient ? { client: opts.driveGoogleClient } : {}) });
+  void app.register(driveRoutes, { prefix: "/api" });
+  // Area 7: le Automations di progetto.
+  void app.register(automationRoutes, { prefix: "/api" });
+  // Area 7, F4: le sorgenti (il webhook in arrivo) e la tabella cliente → progetto.
+  void app.register(automationSourceRoutes, { prefix: "/api" });
+  // Chat con Claude, fetta 1: le conversazioni libere (private dell'autore).
+  void app.register(claudeConversationRoutes, { prefix: "/api/claude/conversations" });
+  void app.register(claudeActionRoutes, { prefix: "/api/claude" });
+  // Area 10, F7: le capacità di Claude e i suggerimenti delle pagine.
+  void app.register(claudeHelpRoutes, { prefix: "/api/claude" });
+  // Area 11, F1: lo spazio Product (la documentazione di prodotto).
+  void app.register(productDocsRoutes, { prefix: "/api" });
   // Correzioni post-PR (ciclo review → correzione, 30 set 2026): il bottone
   // "Chiedi modifiche" del ticket. `corrections.request`, vedi la rotta.
   void app.register(correctionRoutes, { prefix: "/api" });
@@ -619,6 +815,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Check di servizio e metriche time-series di un server: secondo plugin sullo
   // stesso prefix (i DSN dei check DB restano cifrati, mai in risposta).
   void app.register(serverCheckRoutes, { prefix: "/api/servers" });
+  // Area 8, F4b, S5: l'analisi a mano di un server.
+  void app.register(serverAnalysisRoutes, { prefix: "/api/servers" });
+  // Area 8, F4b, S7: l'accesso SSH di sola lettura.
+  void app.register(serverSshRoutes, { prefix: "/api/servers" });
   void app.register(ticketRoutes, { prefix: "/api/tickets" });
   // Documentazione (non-chat): trigger/stato generazione, hub spazi, albero,
   // pagina, CRUD pagine manuali. Path interni completi (es.
@@ -635,6 +835,25 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(projectDocsRoutes, { prefix: "/api" });
   // Milestone di progetto: pianificazione e avanzamento, per ogni utente.
   void app.register(milestoneRoutes, { prefix: "/api/milestones" });
+  // Integrazione area 2, fetta 1: reparti, persone, stati e soglie del progetto.
+  void app.register(departmentRoutes, { prefix: "/api/departments" });
+  void app.register(peopleRoutes, { prefix: "/api/people" });
+  void app.register(projectStatusRoutes, { prefix: "/api/projects" });
+  void app.register(taskRoutes, { prefix: "/api/tasks" });
+  // Area 8, F4b, S6: la correzione di una task di server.
+  void app.register(serverFixRoutes, { prefix: "/api/tasks" });
+  // Fetta 2: le sistemazioni per giorno (`/api/me/day-arrangements`, `/api/tasks/:id/day`).
+  void app.register(dayArrangementRoutes, { prefix: "/api" });
+  void app.register(filterRoutes, { prefix: "/api" });
+  void app.register(homeRoutes, { prefix: "/api" });
+  // Area 8, F2: le iscrizioni agli avvisi del catalogo.
+  void app.register(alertSubscriptionRoutes, { prefix: "/api" });
+  // Area 8, F3: Support, le conversazioni coi clienti.
+  void app.register(supportRoutes, { prefix: "/api" });
+  void app.register(requestRoutes, { prefix: "/api" });
+  void app.register(overviewRoutes, { prefix: "/api" });
+  void app.register(projectRequestRoutes, { prefix: "/api" });
+  void app.register(decisionRoutes, { prefix: "/api/decisions" });
   // Viste salvate dei filtri della lista ticket: private o condivise.
   void app.register(savedViewRoutes, { prefix: "/api/saved-views" });
   // Ricerca globale (spotlight Cmd/K): full-text federata cross-entità e
@@ -662,7 +881,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // propri token, con token in chiaro mostrato una sola volta alla creazione.
   void app.register(patRoutes, { prefix: "/api/pats" });
   // Impostazioni di automazione AI (regole per tipo): solo admin.
-  void app.register(settingsRoutes, { prefix: "/api/settings" });
+  void app.register(settingsRoutes, { prefix: "/api/settings", mailClassifyV2: opts.mailClassifyV2 ?? false });
+  // Registro, r.1121: se un caricamento passerebbe adesso, per chiunque sia autenticato.
+  void app.register(storageUploadsRoutes, { prefix: "/api/storage" });
   // Modello Anthropic per tipo di lavoro AI (solo admin): plugin a sé sotto /api/settings.
   void app.register(modelSettingsRoutes, { prefix: "/api/settings/models" });
   // Registro dei Google Workspace (fase 6): app OAuth interne con client secret
@@ -718,6 +939,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // dentro lo scope del plugin, quindi non tocca il parsing JSON di /api né di
   // /ingest.
   void app.register(webhookRoutes, { prefix: "/webhooks" });
+  // Area 7, F4: il webhook in arrivo delle automazioni (POST /webhooks/in/:secret), pubblico,
+  // col suo parser (il corpo com'è) in uno scope a sé.
+  void app.register(automationHookRoutes, { prefix: "/webhooks" });
 
   // Integrazione Slack: slash command + interactivity (modal Block Kit). Sotto
   // /api/slack ma autenticata SOLO dalla firma Slack (niente sessione). Il
@@ -769,9 +993,31 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Preferenze PERSONALI: progetti seguiti e canali di notifica. Sotto /api/me
   // perché il soggetto è sempre chi chiama, non un utente amministrato.
   void app.register(mePrefsRoutes, { prefix: "/api/me" });
+  void app.register(meClaudeRoutes, { prefix: "/api/me" });
   // Sicurezza del PROPRIO account: riconferma recente e configurazione
   // dell'app (secondo fattore). Prefisso a sé come le altre `/api/me/*`.
   void app.register(meSecurityRoutes, { prefix: "/api/me/security" });
+  // Area 9, F1 (D-9): le mie sessioni, del browser e dei token di desktop e telefono.
+  void app.register(meSessionsRoutes, { prefix: "/api/me" });
+  // Area 9, F1 (D-13): la foto del profilo (`/api/me/avatar`, `/api/users/:id/avatar`).
+  void app.register(avatarRoutes, { prefix: "/api" });
+  // Area 9, F1 (D-13): il cambio della propria email di login.
+  void app.register(meEmailChangeRoutes, { prefix: "/api/me" });
+  // Area 9, F1 (D-11): «Chi può farlo?» e «Cosa può fare?».
+  void app.register(accessRoutes, { prefix: "/api/access" });
+  // Area 9, F1 (R7, R8): le letture calcolate dell'amministrazione.
+  void app.register(adminViewRoutes, { prefix: "/api/admin" });
+  // Area 9, F2: il registro delle modifiche.
+  void app.register(changeLogRoutes, { prefix: "/api" });
+  // Area 9, F4: lo Stato dell'istanza.
+  void app.register(instanceStatusRoutes, { prefix: "/api/instance" });
+  void app.register(projectQueueRoutes, { prefix: "/api/projects" });
+  // Area 9, F6: archivia e riapri.
+  void app.register(projectArchiveRoutes, { prefix: "/api/projects" });
+  // Area 9, F5: le rigenerazioni.
+  void app.register(projectSecretRoutes, { prefix: "/api" });
+  // Area 9, F3: i webhook in uscita.
+  void app.register(outgoingWebhookRoutes, { prefix: "/api/settings/webhooks" });
   // Cassaforte delle credenziali: attivazione, chiavi delle persone, kit di recupero.
   void app.register(vaultRoutes, { prefix: "/api/vault" });
   // Credenziali della cassaforte: `/api/projects/:projectId/credentials...`,
@@ -796,11 +1042,21 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // per utente — sempre filtrati per `userId` via il JOIN su google_accounts
   // (vedi il docblock del modulo). Prefisso a sé come meGoogleRoutes, per
   // la stessa ragione di leggibilità (un file, un pezzo di superficie).
+  // Area 6, F2: le proposte condivise, PRIMA di `meMailRoutes` (la parte
+  // letterale `/proposals` sullo stesso prefisso di `/:source/:id`).
+  void app.register(meMailProposalsRoutes, { prefix: "/api/me/mail/proposals", mailClassifyV2: opts.mailClassifyV2 ?? false });
+  // Area 6, F3: le bozze, anch'esse prima di `meMailRoutes`.
+  void app.register(meMailDraftsRoutes, { prefix: "/api/me/mail/drafts", ...(opts.mailComposeClient ? { client: opts.mailComposeClient } : {}) });
+  void app.register(meMailOutgoingRoutes, { prefix: "/api/me/mail/outgoing", ...(opts.mailComposeClient ? { client: opts.mailComposeClient } : {}) });
+  void app.register(meMailRecipientsRoutes, { prefix: "/api/me/mail/recipients" });
   void app.register(meMailRoutes, {
     prefix: "/api/me/mail",
     ...(opts.mailGoogleClient ? { googleClient: opts.mailGoogleClient } : {}),
   });
-  void app.register(meCalendarRoutes, { prefix: "/api/me/calendar" });
+  void app.register(meMeetingsRoutes, { prefix: "/api/me/meetings" });
+  // Area 8, «Clienti in attesa»: i thread delle MIE caselle in cui un cliente aspetta.
+  void app.register(meWaitingCustomersRoutes, { prefix: "/api/me" });
+  void app.register(meCalendarRoutes, { prefix: "/api/me/calendar", ...(opts.calendarWriteClient ? { client: opts.calendarWriteClient } : {}) });
 
   app.get("/health", { config: { access: { kind: "public" } } }, async () => ({ status: "ok" }));
 

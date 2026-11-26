@@ -7,6 +7,7 @@ import { PageError } from "../../tasks-ui/PageStates";
 import { Highlighted } from "../chat/ChatSearch";
 import { searchWords } from "../chat/search";
 import { quietButton, secondaryButton } from "../tasks/controls";
+import { featureIntegrated } from "../../data/integration";
 import { GoogleConnectInvite } from "./DriveBanners";
 import { modifiedLabel } from "./format";
 import {
@@ -351,7 +352,8 @@ export function DriveSearchResults({
       )}
       {/* Vuoto (account collegato): niente filetto. */}
       <div className={`empty:hidden ${files.length > 0 || result.outside.length > 0 ? "mt-2 border-t border-rule" : ""}`}>
-        <GoogleConnectInvite />
+        {/* L'invito a collegare Google (area 6) solo dove Google c'è. */}
+        {featureIntegrated("google") && <GoogleConnectInvite />}
       </div>
     </div>
   );
@@ -462,7 +464,12 @@ function ResultRow({
                   <span className="line-clamp-2 @max-[1100px]:line-clamp-1">
                     <Highlighted text={passage} words={words} />
                   </span>
-                  {file.ocr && <span className="text-xs text-ink-faint"> {t("drive.search.scan")}</span>}
+                  {file.ocr && (
+                    <span className="text-xs text-ink-faint">
+                      {" "}
+                      {t(file.ocrPartial ? "drive.search.scanPartial" : "drive.search.scan")}
+                    </span>
+                  )}
                 </span>
               ) : (
                 <span className="text-sm text-ink-faint">{t("drive.search.matchedName")}</span>
@@ -539,7 +546,12 @@ function OutsideRow({
               <ExternalGlyph size={10} />
             </span>
             <span className="num min-w-0 flex-1 basis-0 truncate text-sm text-ink-faint">
-              {t("drive.search.owner", { owner: hit.owner })} · {modifiedLabel(hit.modifiedAt, t, i18n.language)}
+              {[
+                hit.owner ? t("drive.search.owner", { owner: hit.owner }) : "",
+                modifiedLabel(hit.modifiedAt, t, i18n.language),
+              ]
+                .filter((x) => x !== "")
+                .join(" · ")}
             </span>
           </span>
           <span className="line-clamp-2 max-w-[80ch] text-sm text-ink-muted">{hit.summary}</span>

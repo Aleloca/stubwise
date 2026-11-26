@@ -1,7 +1,10 @@
+import { isAppBuild } from "../../data/build";
+import { EnrollAtLoginStep } from "./EnrollAtLoginStep";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
   useLoginSecondFactor,
+  useLoginStage,
   useMySecondFactor,
   usePassMinutes,
   type SecondFactorInput,
@@ -36,7 +39,21 @@ type Failure =
  * solo), la passkey o un codice di backup. Il blocco spegne tutto e dice fino
  * a quando; la passkey e i codici di backup passano dallo stesso contatore.
  */
-export function SecondFactorStep({
+export function SecondFactorStep(props: {
+  email: string;
+  onBack: () => void;
+  onFinishing: (finishing: boolean) => void;
+  onDone: () => void;
+}) {
+  // Build app: chi non ha l'app di autenticazione la configura qui, prima di
+  // entrare (lo stadio lo dice il server). Nel prototipo lo stadio è sempre il codice.
+  const stage = useLoginStage(isAppBuild()).data;
+  if (isAppBuild() && stage === undefined) return null;
+  if (stage === "enrollment") return <EnrollAtLoginStep {...props} />;
+  return <CodeStep {...props} />;
+}
+
+function CodeStep({
   email,
   onBack,
   onFinishing,
@@ -224,6 +241,7 @@ export function SecondFactorStep({
           }}
         />
       </form>
+      {!isAppBuild() && (
       <div className="mt-10">
         <PrototypeBox>
           <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-3 text-sm">
@@ -270,6 +288,7 @@ export function SecondFactorStep({
           )}
         </PrototypeBox>
       </div>
+      )}
     </>
   );
 }

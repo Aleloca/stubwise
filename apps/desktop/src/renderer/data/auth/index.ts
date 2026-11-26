@@ -10,8 +10,11 @@ export {
   type TotpSetup,
 } from "./reauth";
 export {
+  confirmLoginEnrollment,
   getEntry,
   login,
+  loginStage,
+  startLoginEnrollment,
   loginSecondFactor,
   logout,
   passMinutes,
@@ -36,3 +39,4 @@ export {
 } from "./resetPassword";
 export { createFirstAdmin, isInstanceEmpty, type FirstAdminResult } from "./setup";
 export { resetToEmptyInstance } from "./emptyInstance";
+export { desktopHandoff, type DesktopHandoffResult } from "./desktop";

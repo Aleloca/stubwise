@@ -5,7 +5,8 @@ import type {
   ProjectDecision,
   ProjectPermission,
 } from "@stubwise/shared";
-import { and, desc, eq } from "drizzle-orm";
+import { wouldCycle } from "@stubwise/shared";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
 /**
@@ -169,26 +170,74 @@ export async function createManualDecision(
     consequences?: string;
     ticketId?: string;
     decidedAt?: string;
+    /** Fetta 4: la decisione che questa SUPERA (dello stesso progetto). */
+    supersedesId?: string;
+    /** Chi scrive, coi permessi nel progetto: superare una voce è MODIFICARLA ({@link canEditDecision}). */
+    actor: DecisionActor;
   },
-): Promise<ProjectDecision> {
-  const row = await recordDecision(db, {
-    projectId: input.projectId,
-    source: "manual",
-    sourceKey: `manual:${randomUUID()}`,
-    ...(input.ticketId ? { ticketId: input.ticketId } : {}),
-    title: input.title,
-    ...(input.context ? { context: input.context } : {}),
-    decision: input.decision,
-    ...(input.consequences ? { consequences: input.consequences } : {}),
-    decidedByUserId: input.authorId,
-    ...(input.decidedAt ? { decidedAt: new Date(input.decidedAt) } : {}),
+): Promise<
+  | { ok: true; decision: ProjectDecision }
+  | { ok: false; error: "invalid_supersede" | "forbidden" | "already_superseded" }
+> {
+  // Nella stessa transazione: la nuova voce e il «superata da» della vecchia
+  // (come nel prototipo, `recordDecision`). Una voce appena nata non ha
+  // successori, quindi il legame non può chiudere un giro. Segnare la vecchia
+  // come superata la modifica: serve `canEditDecision` su di LEI, e una voce
+  // già superata non si supera una seconda volta (si supera la successiva).
+  const result = await db.transaction(async (tx) => {
+    if (input.supersedesId) {
+      const [old] = await tx
+        .select({
+          id: projectDecisions.id,
+          decidedByUserId: projectDecisions.decidedByUserId,
+          supersededById: projectDecisions.supersededById,
+        })
+        .from(projectDecisions)
+        .where(
+          and(
+            eq(projectDecisions.id, input.supersedesId),
+            eq(projectDecisions.projectId, input.projectId),
+          ),
+        )
+        .for("update");
+      if (!old) return { error: "invalid_supersede" as const };
+      if (
+        !canEditDecision(
+          { decidedBy: old.decidedByUserId ? { id: old.decidedByUserId } : null },
+          input.actor,
+        )
+      ) {
+        return { error: "forbidden" as const };
+      }
+      if (old.supersededById) return { error: "already_superseded" as const };
+    }
+    const row = await recordDecision(tx, {
+      projectId: input.projectId,
+      source: "manual",
+      sourceKey: `manual:${randomUUID()}`,
+      ...(input.ticketId ? { ticketId: input.ticketId } : {}),
+      title: input.title,
+      ...(input.context ? { context: input.context } : {}),
+      decision: input.decision,
+      ...(input.consequences ? { consequences: input.consequences } : {}),
+      decidedByUserId: input.authorId,
+      ...(input.decidedAt ? { decidedAt: new Date(input.decidedAt) } : {}),
+    });
+    // `null` = conflitto sull'unique, impossibile con una sourceKey appena
+    // generata: se capita è un bug, e va detto invece di restituire una riga finta.
+    if (!row) throw new Error("insert della decisione manuale non ha restituito la riga");
+    if (input.supersedesId) {
+      await tx
+        .update(projectDecisions)
+        .set({ supersededById: row.id })
+        .where(eq(projectDecisions.id, input.supersedesId));
+    }
+    return { id: row.id };
   });
-  // `null` = conflitto sull'unique, impossibile con una sourceKey appena
-  // generata: se capita è un bug, e va detto invece di restituire una riga finta.
-  if (!row) throw new Error("insert della decisione manuale non ha restituito la riga");
-  const created = await getProjectDecision(db, input.projectId, row.id);
+  if (result.error) return { ok: false, error: result.error };
+  const created = await getProjectDecision(db, input.projectId, result.id);
   if (!created) throw new Error("decisione appena creata non rileggibile");
-  return created;
+  return { ok: true, decision: created };
 }
 
 /** Chi modifica una decisione: id e permessi nel progetto della decisione. */
@@ -206,7 +255,10 @@ export interface DecisionActor {
  * modificabile dai soli maintainer: non c'è nessuno a cui restituirla, e
  * lasciarla aperta a chiunque farebbe del registro un wiki.
  */
-export function canEditDecision(decision: ProjectDecision, actor: DecisionActor): boolean {
+export function canEditDecision(
+  decision: { decidedBy: { id: string } | null },
+  actor: DecisionActor,
+): boolean {
   return actor.permissions.has("project.settings.manage") || decision.decidedBy?.id === actor.id;
 }
 
@@ -215,6 +267,7 @@ export type PatchDecisionError =
   | "not_found"
   | "forbidden"
   | "invalid_supersede"
+  | "decision_cycle"
   | "decision_immutable";
 
 /** I campi di TESTO di una decisione: quelli che solo una voce `manual` espone. */
@@ -275,25 +328,36 @@ export async function patchDecision(
   if (current.source !== "manual" && TEXT_FIELDS.some((field) => patch[field] !== undefined)) {
     return { ok: false, error: "decision_immutable" };
   }
-  if (patch.supersededById !== undefined && patch.supersededById !== null) {
-    if (patch.supersededById === input.decisionId) {
-      return { ok: false, error: "invalid_supersede" };
+  // Controllo e scrittura nella STESSA transazione, sotto un lock del
+  // progetto: due «superata da» incrociati in parallelo (A da B, B da A)
+  // leggerebbero entrambi una catena senza giro e lo chiuderebbero insieme.
+  const refused = await db.transaction(async (tx): Promise<PatchDecisionError | null> => {
+    if (patch.supersededById !== undefined && patch.supersededById !== null) {
+      if (patch.supersededById === input.decisionId) return "invalid_supersede";
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${`decision-chain:${input.projectId}`}))`,
+      );
+      const chain = await tx
+        .select({ id: projectDecisions.id, supersededById: projectDecisions.supersededById })
+        .from(projectDecisions)
+        .where(eq(projectDecisions.projectId, input.projectId));
+      if (!chain.some((d) => d.id === patch.supersededById)) return "invalid_supersede";
+      // Una catena, mai un giro (`wouldCycle` di `@stubwise/shared`, fetta 4).
+      if (wouldCycle(chain, input.decisionId, patch.supersededById)) return "decision_cycle";
     }
-    if (!(await getProjectDecision(db, input.projectId, patch.supersededById))) {
-      return { ok: false, error: "invalid_supersede" };
-    }
-  }
-
-  await db
-    .update(projectDecisions)
-    .set({
-      ...(patch.title !== undefined ? { title: patch.title } : {}),
-      ...(patch.decision !== undefined ? { decision: patch.decision } : {}),
-      ...(patch.context !== undefined ? { context: patch.context } : {}),
-      ...(patch.consequences !== undefined ? { consequences: patch.consequences } : {}),
-      ...(patch.supersededById !== undefined ? { supersededById: patch.supersededById } : {}),
-    })
-    .where(eq(projectDecisions.id, input.decisionId));
+    await tx
+      .update(projectDecisions)
+      .set({
+        ...(patch.title !== undefined ? { title: patch.title } : {}),
+        ...(patch.decision !== undefined ? { decision: patch.decision } : {}),
+        ...(patch.context !== undefined ? { context: patch.context } : {}),
+        ...(patch.consequences !== undefined ? { consequences: patch.consequences } : {}),
+        ...(patch.supersededById !== undefined ? { supersededById: patch.supersededById } : {}),
+      })
+      .where(eq(projectDecisions.id, input.decisionId));
+    return null;
+  });
+  if (refused) return { ok: false, error: refused };
 
   const updated = await getProjectDecision(db, input.projectId, input.decisionId);
   if (!updated) return { ok: false, error: "not_found" };

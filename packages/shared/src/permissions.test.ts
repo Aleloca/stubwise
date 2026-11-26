@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
+  DEPARTMENT_PERMISSIONS,
   effectiveInstancePermissions,
   effectiveProjectPermissions,
   INSTANCE_PERMISSIONS,
@@ -33,7 +34,7 @@ function label(tree: unknown, key: string): unknown {
 
 describe("catalogo dei permessi", () => {
   it("non ha chiavi duplicate, né fra i livelli", () => {
-    const all = [...INSTANCE_PERMISSIONS, ...PROJECT_PERMISSIONS];
+    const all = [...INSTANCE_PERMISSIONS, ...PROJECT_PERMISSIONS, ...DEPARTMENT_PERMISSIONS];
     expect(new Set(all).size).toBe(all.length);
   });
 
@@ -92,7 +93,11 @@ describe("catalogo dei permessi", () => {
       ...CREDENTIAL_PERMISSIONS,
     ])
       expect(perms).not.toContain(p);
-    expect(perms).toHaveLength(PROJECT_PERMISSIONS.length - 7);
+    // Le sette di prima, planning.others (fetta 2), chat.channels.manage (area 4)
+    // drive.manage, drive.history (area 5) e automations.manage (area 7).
+    // E servers.operate (area 8, F4b): in nessun preset.
+    expect(perms).toHaveLength(PROJECT_PERMISSIONS.length - 13);
+    expect(perms).not.toContain("automations.manage");
     expect(perms).toContain("docs.generate");
     expect(perms).toContain("prs.adopt");
   });
@@ -106,9 +111,9 @@ describe("catalogo dei permessi", () => {
     }
   });
 
-  it("Contributor è esattamente docs.view, tickets.create, tickets.comment, backlog.create", () => {
+  it("Contributor è esattamente docs.view, tickets.create, tickets.comment, backlog.create, drive.upload", () => {
     expect([...preset("Contributor").permissions].sort()).toEqual(
-      ["backlog.create", "docs.view", "tickets.comment", "tickets.create"].sort(),
+      ["backlog.create", "docs.view", "drive.upload", "tickets.comment", "tickets.create"].sort(),
     );
   });
 
@@ -125,6 +130,8 @@ describe("catalogo dei permessi", () => {
     const missing = PROJECT_PERMISSIONS.filter((p) => !perms.includes(p)).sort();
     expect(missing).toEqual(
       [
+        // Area 8, F4b: in nessun preset (S-7).
+        "servers.operate",
         "plans.approve",
         "release.merge",
         "project.settings.manage",
@@ -141,6 +148,16 @@ describe("catalogo dei permessi", () => {
         "agent_sessions.intervene",
         // La cassaforte è nuova: nessun member di prima poteva già usarla.
         ...CREDENTIAL_PERMISSIONS,
+        // Pianificare le task altrui (fetta 2): decisione del maintainer.
+        "planning.others",
+        // Chat, area 4 (D3, i preset del prototipo): scrive, ma non crea né gestisce canali.
+        "chat.channels.create",
+        "chat.channels.manage",
+        // Drive, area 5 (D3): carica, ma non gestisce né vede la storia delle aperture.
+        "drive.manage",
+        "drive.history",
+        // Automations, area 7: solo il Project Lead fra i preset.
+        "automations.manage",
       ].sort(),
     );
   });
@@ -148,9 +165,43 @@ describe("catalogo dei permessi", () => {
   it("User ha le letture d'istanza di un member di oggi, e nessuna scrittura", () => {
     const perms = preset("User").permissions;
     expect([...perms].sort()).toEqual(
-      ["git_accounts.view", "mail_admission.view", "monitor.view", "users.view_all"].sort(),
+      // `claude.public.view`: leggere le pubbliche con Claude (fetta 5, D4 del maintainer).
+      // `chat.general.create`: creare un canale generale (area 4, D3).
+      // `monitor.view` non c'è più (area 8, F4a, 0180): i server si vedono dagli ambienti dei propri progetti.
+      ["chat.general.create", "claude.public.view", "git_accounts.view", "mail_admission.view", "users.view_all"].sort(),
     );
     expect(perms.some((p) => p.endsWith(".manage") || p === "instance.full_admin")).toBe(false);
+  });
+
+  it("claude.public.view (fetta 5, D4): User esplicito, Admin per costruzione (full admin = tutti)", () => {
+    expect(preset("User").permissions).toContain("claude.public.view");
+    expect(preset("Admin").permissions).toEqual(["instance.full_admin"]);
+    expect(effectiveInstancePermissions(["instance.full_admin"]).has("claude.public.view")).toBe(true);
+  });
+
+  it("Drive (area 5, D3): upload a tutti salvo il Viewer; manage e history al solo Lead", () => {
+    const has = (name: string, p: string) => (preset(name).permissions as readonly string[]).includes(p);
+    for (const name of ["Project Lead", "Developer", "Contributor", "Legacy Member"]) expect(has(name, "drive.upload"), name).toBe(true);
+    expect(has("Viewer", "drive.upload")).toBe(false);
+    expect(has("Project Lead", "drive.manage") && has("Project Lead", "drive.history")).toBe(true);
+    for (const name of ["Developer", "Contributor", "Legacy Member", "Viewer"]) {
+      expect(has(name, "drive.manage"), name).toBe(false);
+      expect(has(name, "drive.history"), name).toBe(false);
+    }
+  });
+
+  it("Chat (area 4, D3): create a Lead e Developer, manage al solo Lead; general.create a User", () => {
+    const has = (name: string, p: string) => (preset(name).permissions as readonly string[]).includes(p);
+    expect(has("Project Lead", "chat.channels.create") && has("Project Lead", "chat.channels.manage")).toBe(true);
+    expect(has("Developer", "chat.channels.create")).toBe(true);
+    expect(has("Developer", "chat.channels.manage")).toBe(false);
+    for (const name of ["Legacy Member", "Contributor", "Viewer"]) {
+      expect(has(name, "chat.channels.create"), name).toBe(false);
+      expect(has(name, "chat.channels.manage"), name).toBe(false);
+    }
+    expect(has("User", "chat.general.create")).toBe(true);
+    expect(has("User", "chat.general.manage")).toBe(false);
+    expect(effectiveInstancePermissions(["instance.full_admin"]).has("chat.general.manage")).toBe(true);
   });
 
   it("isSubsetOf", () => {
@@ -160,7 +211,7 @@ describe("catalogo dei permessi", () => {
   });
 
   it("ogni chiave ha un'etichetta in it e en", () => {
-    for (const key of [...INSTANCE_PERMISSIONS, ...PROJECT_PERMISSIONS]) {
+    for (const key of [...INSTANCE_PERMISSIONS, ...PROJECT_PERMISSIONS, ...DEPARTMENT_PERMISSIONS]) {
       for (const [lang, tree] of [
         ["en", en],
         ["it", it_],
@@ -170,5 +221,32 @@ describe("catalogo dei permessi", () => {
         expect((value as string).trim().length, `${lang}: ${key} vuota`).toBeGreaterThan(0);
       }
     }
+  });
+});
+
+describe("planning.others (integrazione area 2, fetta 2)", () => {
+  const preset = (key: string) => PRESET_ROLES.find((r) => r.key === key)!.permissions as readonly string[];
+  it("è nel registro e lo ha il Project Lead", () => {
+    expect(PROJECT_PERMISSIONS).toContain("planning.others");
+    expect(preset("project_lead")).toContain("planning.others");
+  });
+  it("Legacy Member e Developer non hanno planning.others (decisione del maintainer); Contributor e Viewer nemmeno", () => {
+    for (const key of ["developer", "legacy_member", "contributor", "viewer"]) {
+      expect(preset(key), key).not.toContain("planning.others");
+    }
+  });
+});
+
+describe("permessi di reparto (integrazione area 2, fetta 3)", () => {
+  it("un livello nuovo con department.home.manage, che nessun preset di ruolo contiene", () => {
+    expect(DEPARTMENT_PERMISSIONS).toEqual(["department.home.manage"]);
+    for (const role of PRESET_ROLES) expect(role.permissions, role.key).not.toContain("department.home.manage");
+  });
+});
+
+describe("area 8, F4b: servers.operate in NESSUN preset (S-7)", () => {
+  it("nessun preset di progetto lo contiene; il full admin sì", () => {
+    for (const r of PRESET_ROLES.filter((r) => r.scope === "project")) expect(r.permissions, r.key).not.toContain("servers.operate");
+    expect(effectiveProjectPermissions(effectiveInstancePermissions(["instance.full_admin"]), null)?.has("servers.operate")).toBe(true);
   });
 });

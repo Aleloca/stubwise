@@ -34,6 +34,11 @@ export function SecurityEventsList({ events }: { events: SecurityEventView[] }) 
                 {t("settings:security.events.by", { email: event.actorEmail })}
               </span>
             )}
+            {/* Solo `reauth_desktop`: l'azione fatta dal desktop. Il web fa un
+                cast delle risposte: da un server vecchio il campo non c'è. */}
+            {(event.detail ?? null) !== null && (
+              <span className="font-mono text-[11px] text-fg-muted"> · {event.detail}</span>
+            )}
           </span>
           <time dateTime={event.createdAt} className="font-mono text-[11px] text-fg-faint">
             {formatDateTime(event.createdAt)}

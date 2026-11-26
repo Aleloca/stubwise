@@ -1,4 +1,4 @@
-import { serverMetrics, serverProjects, servers, serviceChecks, type Db } from "@stubwise/db";
+import { environmentServers, projectEnvironments, serverEpisodes, serverMetrics, servers, serviceChecks, type Db } from "@stubwise/db";
 import {
   publishNotification,
   type MonitorCondition,
@@ -10,7 +10,7 @@ import {
   computeServerStatus,
   type AlertThresholds,
 } from "@stubwise/shared";
-import { and, eq, gte } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, isNull } from "drizzle-orm";
 
 /**
  * VALUTAZIONE ALERT del monitoraggio (isteresi + recovery).
@@ -41,9 +41,17 @@ import { and, eq, gte } from "drizzle-orm";
  * sono best-effort: una publish che lancia viene inghiottita.
  *
  * ANCORE degli eventi `monitor.*`: non c'è né ticket né job dietro un alert. Un
- * server può essere condiviso da più progetti (`server_projects` è N:M): si
- * passa `projectId` solo quando il legame è NON AMBIGUO (esattamente un
- * progetto), altrimenti nessuna ancora. Il pubblico non cambia comunque — i
+ * server può essere usato dagli ambienti di più progetti (area 8, F4a: i
+ * progetti di un server sono quelli dei suoi AMBIENTI, `server_projects` non
+ * conta più): si passa `projectId` solo quando il legame è NON AMBIGUO
+ * (esattamente un progetto), altrimenti nessuna ancora.
+ *
+ * EPISODI (area 8, F4a): a fine giro di un server lo stato degli allarmi
+ * (`activeAlerts` più i check notificati giù) si riflette in
+ * `server_episodes`: uno aperto finché c'è almeno un allarme, coi motivi e la
+ * gravità (`down` se offline), chiuso quando tutto è rientrato. Si DERIVA
+ * dallo stato a ogni giro: un giro ripetuto o un worker riavviato non lo
+ * duplicano (e l'indice unico sull'aperto lo garantisce). Il pubblico non cambia comunque — i
  * `monitor.*` sono admin-only — cambia solo il progetto a cui la notifica
  * risulta agganciata.
  */
@@ -93,9 +101,10 @@ async function safePublish(
 async function serverRefs(db: Db, serverId: string): Promise<PublishOpts> {
   try {
     const rows = await db
-      .select({ projectId: serverProjects.projectId })
-      .from(serverProjects)
-      .where(eq(serverProjects.serverId, serverId))
+      .selectDistinct({ projectId: projectEnvironments.projectId })
+      .from(environmentServers)
+      .innerJoin(projectEnvironments, eq(projectEnvironments.id, environmentServers.environmentId))
+      .where(eq(environmentServers.serverId, serverId))
       .limit(2);
     return rows.length === 1 ? { projectId: rows[0]!.projectId } : {};
   } catch {
@@ -171,6 +180,86 @@ export async function evaluateMonitorAlertsOnce(
         `[stubwise-worker] monitor-alerts: check del server ${server.id} falliti: ${errText(err)}`,
       );
     }
+    // Episodio (area 8, F4a): dallo stato degli allarmi DOPO questo giro.
+    try {
+      await syncEpisode(db, server.id, now);
+    } catch (err) {
+      console.error(`[stubwise-worker] monitor-alerts: episodio del server ${server.id} fallito: ${errText(err)}`);
+    }
+  }
+}
+
+type EpisodeReason = { kind: string; valuePct?: number; thresholdPct?: number; checkId?: string; since?: string };
+
+/**
+ * Riflette lo stato degli allarmi del server in `server_episodes` (vedi il
+ * docblock del modulo): apre, aggiorna (motivi e gravità) o chiude l'episodio.
+ */
+async function syncEpisode(db: Db, serverId: string, now: Date): Promise<void> {
+  const [server] = await db.select().from(servers).where(eq(servers.id, serverId));
+  if (!server) return;
+  const thresholds = parseThresholds(server.alertThresholds);
+  const reasons: EpisodeReason[] = [];
+  const active = server.activeAlerts ?? {};
+  if (active.offline) reasons.push({ kind: "agent_silent", since: server.lastSeenAt?.toISOString() ?? active.offline.since });
+  const metric: Record<ThresholdKey, ["cpu" | "memory" | "disk", number | null]> = {
+    cpu: ["cpu", thresholds.cpuPct],
+    mem: ["memory", thresholds.memPct],
+    disk: ["disk", thresholds.diskPct],
+  };
+  // Il valore dell'ultimo campione (review F4a: senza, l'app mostrava «CPU al NaN%»).
+  const [last] = await db.select().from(serverMetrics).where(eq(serverMetrics.serverId, serverId)).orderBy(desc(serverMetrics.ts)).limit(1);
+  const share = (used: number, total: number) => (total > 0 ? Math.round((used / total) * 1000) / 10 : undefined);
+  const lastValue: Record<ThresholdKey, number | undefined> = {
+    cpu: last ? Math.round(last.cpuPct * 10) / 10 : undefined,
+    mem: last ? share(last.memUsedBytes, last.memTotalBytes) : undefined,
+    disk: last ? share(last.diskUsedBytes, last.diskTotalBytes) : undefined,
+  };
+  for (const key of ["cpu", "mem", "disk"] as const) {
+    if (!active[key]) continue;
+    const [kind, threshold] = metric[key];
+    const value = lastValue[key];
+    reasons.push({ kind, ...(value !== undefined ? { valuePct: value } : {}), ...(threshold !== null ? { thresholdPct: threshold } : {}), since: active[key].since });
+  }
+  // I check notificati giù (lo scrive solo questo evaluator, `evaluateCheck`).
+  const notified = await db
+    .select({ id: serviceChecks.id, downSince: serviceChecks.downSince, downNotifiedAt: serviceChecks.downNotifiedAt })
+    .from(serviceChecks)
+    .where(and(eq(serviceChecks.serverId, serverId), eq(serviceChecks.enabled, true), isNotNull(serviceChecks.downNotifiedAt)));
+  for (const c of notified) reasons.push({ kind: "check", checkId: c.id, since: (c.downSince ?? c.downNotifiedAt!).toISOString() });
+
+  const [open] = await db
+    .select()
+    .from(serverEpisodes)
+    .where(and(eq(serverEpisodes.serverId, serverId), isNull(serverEpisodes.recoveredAt)));
+  if (reasons.length === 0) {
+    if (open) await db.update(serverEpisodes).set({ recoveredAt: now }).where(eq(serverEpisodes.id, open.id));
+    return;
+  }
+  // La gravità dice com'è ADESSO (review F4a): `down` finché l'agente tace,
+  // `trouble` quando risponde di nuovo ma qualcosa resta in allarme.
+  const severity = active.offline ? "down" : "trouble";
+  if (!open) {
+    // L'episodio parte da quando è cominciato il problema (l'ultimo segnale,
+    // il primo superamento, il controllo giù), non dall'ora del giro: al primo
+    // giro dopo un deploy un server in allarme da ore non «comincia adesso».
+    const starts = reasons.map((r) => r.since).filter((x): x is string => typeof x === "string" && !Number.isNaN(Date.parse(x)));
+    const startedAt = starts.length > 0 ? new Date(Math.min(...starts.map((x) => Date.parse(x)))) : now;
+    await db.insert(serverEpisodes).values({ serverId, severity, reasons, startedAt }).onConflictDoNothing();
+    return;
+  }
+  // Un allarme in più si AGGIUNGE ai motivi (quelli rientrati restano: è la
+  // storia dell'episodio).
+  const key = (r: EpisodeReason) => `${r.kind}:${r.checkId ?? ""}`;
+  // Un motivo ancora attivo prende l'ultimo valore letto (additivo: `since` resta il suo).
+  const merged = open.reasons.map((m) => {
+    const current = reasons.find((r) => key(r) === key(m));
+    return current?.valuePct !== undefined ? { ...m, valuePct: current.valuePct } : m;
+  });
+  for (const r of reasons) if (!merged.some((m) => key(m) === key(r))) merged.push(r);
+  const nextSeverity = severity;
+  if (JSON.stringify(merged) !== JSON.stringify(open.reasons) || nextSeverity !== open.severity) {
+    await db.update(serverEpisodes).set({ reasons: merged, severity: nextSeverity }).where(eq(serverEpisodes.id, open.id));
   }
 }
 

@@ -1,4 +1,5 @@
 import { addDays, startOfLocalDay } from "@stubwise/shared";
+import { knownPeopleFor } from "../access/whoCan";
 import { isProjectMember } from "../mail/visibility";
 import { copy, gate, now, state, visibleProjectIds } from "../store";
 import type {
@@ -18,6 +19,9 @@ import {
   isOrganizer,
   readableEvents,
 } from "./visibility";
+import { spanOf } from "./span";
+
+export { spanOf };
 
 // Le letture del Calendario (area 6). Chi vede che cosa lo decide
 // `visibility.ts`: solo gli eventi del mio calendario o a cui sono invitato,
@@ -29,30 +33,11 @@ import {
 /** Oltre questa distanza dall'ultimo allineamento un calendario è «vecchio». */
 export const CALENDAR_STALE_MS = 5 * 60_000;
 
-/** «Trova un orario» cerca fra queste ore (locali) della giornata. */
-export const FREE_SLOT_HOURS = { from: 8, to: 20 } as const;
-
-const STEP_MS = 15 * 60_000;
-
-/** Un istante nel formato del seme (`…T09:15:00Z`, senza millisecondi). */
-export const isoAt = (ms: number): string => new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
+import { firstFreeSlot } from "../../domain/calendar/freeSlot";
+// «Trova un orario»: la regola sta in `domain/calendar/freeSlot.ts` (una sola per le due build).
+export { FREE_SLOT_HOURS, isoAt } from "../../domain/calendar/freeSlot";
 const notFound = () => new Error("not_found");
 const invalid = (what: string) => new Error(`invalid: ${what}`);
-
-/** La mezzanotte LOCALE della data UTC di un istante: il giorno di un «tutto il giorno». */
-function localDateOf(iso: string): Date {
-  const d = new Date(iso);
-  return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-}
-
-/** L'intervallo (in ms) che l'evento occupa per chi guarda. */
-export function spanOf(e: Pick<CalendarEvent, "startsAt" | "endsAt" | "allDay">): {
-  from: number;
-  to: number;
-} {
-  if (!e.allDay) return { from: Date.parse(e.startsAt), to: Date.parse(e.endsAt) };
-  return { from: localDateOf(e.startsAt).getTime(), to: localDateOf(e.endsAt).getTime() };
-}
 
 const touches = (e: CalendarEvent, from: number, to: number) => {
   const s = spanOf(e);
@@ -200,9 +185,16 @@ function freeBusyOf(personId: string, from: number, to: number): FreeBusy {
  * finestra letta.
  */
 export async function freeBusy(personIds: string[], from: string, to: string): Promise<FreeBusy[]> {
-  await gate("calendar.freeBusy");
+  const me = await gate("calendar.freeBusy");
   const range = rangeOf(from, to);
-  return personIds.map((id) => freeBusyOf(id, range.from, range.to));
+  // R.1414 (lotto 3): una persona che chi guarda non conosce risponde come una
+  // che non esiste, altrimenti la risposta direbbe chi c'è (un «oracolo»).
+  const known = knownPeopleFor(me);
+  return personIds.map((id) =>
+    id === me || known.has(id)
+      ? freeBusyOf(id, range.from, range.to)
+      : { personId: id, availability: "not_connected" as const, busy: [] },
+  );
 }
 
 /**
@@ -216,27 +208,17 @@ export async function findFirstFreeSlot(
   durationMin: number,
   from: string,
 ): Promise<{ startsAt: string; endsAt: string } | null> {
-  await gate("calendar.findFirstFreeSlot");
+  const me = await gate("calendar.findFirstFreeSlot");
+  // R.1414: chi non si conosce non conta (non c'è il suo calendario, come per `freeBusy`).
+  const known = knownPeopleFor(me);
   if (!Number.isInteger(durationMin) || durationMin <= 0) throw invalid("duration");
   const start = new Date(from);
   if (Number.isNaN(start.getTime())) throw invalid("range");
   const dayStart = startOfLocalDay(start);
-  const open = new Date(dayStart);
-  open.setHours(FREE_SLOT_HOURS.from);
-  const close = new Date(dayStart);
-  close.setHours(FREE_SLOT_HOURS.to);
-  const busy = personIds.flatMap(
-    (id) => freeBusyOf(id, dayStart.getTime(), addDays(dayStart, 1).getTime()).busy,
-  );
-  const duration = durationMin * 60_000;
-  let at = Math.ceil(Math.max(start.getTime(), open.getTime()) / STEP_MS) * STEP_MS;
-  for (; at + duration <= close.getTime(); at += STEP_MS) {
-    const end = at + duration;
-    if (busy.every((b) => Date.parse(b.endsAt) <= at || Date.parse(b.startsAt) >= end)) {
-      return { startsAt: isoAt(at), endsAt: isoAt(end) };
-    }
-  }
-  return null;
+  const busy = personIds
+    .filter((id) => id === me || known.has(id))
+    .flatMap((id) => freeBusyOf(id, dayStart.getTime(), addDays(dayStart, 1).getTime()).busy);
+  return firstFreeSlot(busy, durationMin, start);
 }
 
 /**

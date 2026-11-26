@@ -312,7 +312,36 @@ blocchi scalano da h2 **[PE 3]**.
   `assertive` una volta. Retry rimanda **le stesse operazioni**; le
   modifiche successive restano in fila dietro. Uscire dalla pagina con
   scritture non salvate: dialogo «Some changes aren't saved yet» · Stay ·
-  Leave without saving *(scelta del costruttore)*.
+  Leave without saving *(scelta del costruttore; costruito il 21 nov 2026,
+  maintainer via orchestratrice)*:
+  - **Quando**: si va a un altro indirizzo (un'altra pagina, un'altra
+    sezione dell'app) o si cambia persona («View as», dal menu del profilo
+    o dalla palette), o si esce dall'account («Sign out»: chiede prima di
+    uscire, *scelta del costruttore coerente con questa sezione, decisa
+    dall'orchestratrice il 22 nov 2026*). Cambiare solo la ricerca della
+    pagina (un filo aperto) non è uscire.
+  - **Cosa conta come non salvato**: una scrittura ancora in fila o ferma
+    su un errore («Couldn't save · Retry»), i riquadri di «Mostra le due
+    versioni» e un'immagine che sta caricando al posto di una bozza di
+    schermata («Replace with an image», spento finché carica). All'uscita
+    le bozze partono, e così il titolo o la didascalia che hanno il fuoco;
+    la fila ha 1,5 s per svuotarsi: se ci riesce si esce senza chiedere,
+    così uscire subito dopo aver scritto non chiede niente. Il testo
+    scritto durante quell'attesa parte anche lui, e conta.
+  - **Il dialogo**: solo il titolo; «Leave without saving» (contorno) e
+    «Stay» (pieno, col fuoco). Esc e il clic fuori sono «Stay». «Stay»
+    lascia tutto com'era (anche i riquadri); «Leave without saving» va dove
+    si andava, e ciò che non era salvato si perde: la fila si svuota, e
+    l'esito della scrittura già in viaggio non conta più (nessuna dietro di
+    lei); un'immagine che caricava non prende più il posto della bozza. Se
+    poi l'uscita non avviene (un «Sign out» rifiutato) si scrive come prima.
+    Se la pagina se ne va mentre chiede (tolta da un altro), si va dove si
+    andava. Una pagina che si smonta senza chiedere (una rilettura in
+    errore): le bozze partono e la fila va avanti, ma un loro rifiuto o
+    errore a pagina smontata non si vede più *(limite accettato, nel
+    registro dei rimandi)*.
+  - Chiudere la finestra o ricaricare non chiede (nessun dialogo del
+    browser).
 
 ### 3.12b Annulla e rifà (⌘Z / ⇧⌘Z)
 
@@ -513,3 +542,72 @@ costruttore)*.
    §3.12b, §3.11.
 
 Le scelte marcate *(scelta del costruttore)* sono approvate col brief.
+
+## Emendamento: «Mostra le due versioni» (21 nov 2026, maintainer via orchestratrice)
+
+Una scrittura di chi scrive che il livello dati rifiuta perché la pagina è
+cambiata (`stale`, `invalid: …`) o perché la sezione la tiene un altro
+(`section_busy`) non si perde più in silenzio. Lo stesso vale per la bozza
+di un blocco che un altro ha tolto mentre lo si scriveva: prima la bozza
+spariva («non ha più dove andare»). Il paragrafo mostra la versione della
+pagina, quella dell'altro, e **sotto** la propria non salvata, da
+riprendere o da scartare.
+
+- **Quando**: la scrittura scartata cambiava il **testo** di un blocco
+  (paragrafo, titolo, citazione, codice, elemento d'elenco, cosa da fare):
+  la propria versione è quel blocco com'era nella scrittura. Vale per le
+  scritture di testo (le bozze dei blocchi, un `set` per blocco); i gesti
+  di struttura (dividere, unire, spostare, togliere, tabella, immagine,
+  Drive, decisione, bozza) non hanno una versione da mostrare: resta la
+  sola frase in barra, come prima. Se la
+  propria versione è uguale a quella della pagina non c'è niente da
+  mostrare.
+- **Il riquadro**, sotto il blocco, a filo della colonna del testo, 4px
+  sopra: bordo 1px `rule`, raggio 6, fondo `surface`, padding 8/12.
+  - Testata 12px `ink-muted`: «Your version, not saved» / «La tua
+    versione, non salvata». Se l'altro ha tolto il blocco: «Your version,
+    not saved · the paragraph was deleted» / «La tua versione, non
+    salvata · il paragrafo è stato eliminato», e il riquadro sta dove il
+    blocco era (dopo il blocco che lo precedeva, o in cima alla pagina).
+  - Il testo proprio con i suoi segni (grassetto, link, codici), 15px
+    `ink-muted`, in sola lettura, selezionabile (si può copiare).
+  - Sotto, i due bottoni testo 12px 600: **Use mine** / **Usa la mia** ·
+    **Discard** / **Scarta**.
+  - Gruppo (`role="group"`) col nome «Your version, not saved».
+- **Barra**: la frase del rifiuto dice anche dove guardare:
+  «Couldn't save a change: the page had changed. Your version is under the
+  paragraph.» / «Modifica non salvata: la pagina era cambiata. La tua
+  versione è sotto il paragrafo.»; con la sezione presa: «Couldn't save a
+  change: {{name}} is writing in this section. Your version is under the
+  paragraph.» / «Modifica non salvata: {{name}} sta scrivendo in questa
+  sezione. La tua versione è sotto il paragrafo.». Senza Retry, come prima.
+- **Use mine**: una scrittura **nuova** sulla pagina di adesso, con le
+  regole di sempre: un `set` del blocco con la propria versione (stesso
+  id), o, se il blocco è stato tolto, un paragrafo nuovo (id nuovo) al suo
+  posto. Il riquadro se ne va; il fuoco va nel blocco, alla fine del testo;
+  annuncio `polite` «Your version is back in the paragraph» / «La tua
+  versione è tornata nel paragrafo». Lascia la sua revisione ed entra in
+  ⌘Z come ogni scrittura. Se anche questa è rifiutata (la sezione ancora
+  presa, la pagina di nuovo cambiata) il riquadro torna, con la stessa
+  versione.
+- **Discard**: il riquadro se ne va, niente si scrive; il fuoco va al
+  blocco (o, se è stato tolto, al blocco prima); annuncio `polite`
+  «Discarded your version» / «Scartata la tua versione».
+- **Quanto resta**: finché la pagina è aperta in quell'editor, anche
+  uscendo dal blocco e scrivendo altrove. Un rifiuto nuovo sullo stesso
+  blocco sostituisce la versione con la più recente. Più blocchi rifiutati
+  insieme hanno ciascuno il suo riquadro.
+- **Uscendo dalla pagina** (o cambiando persona) con un riquadro aperto,
+  il dialogo «Some changes aren't saved yet» di §3.12 chiede prima;
+  «Leave without saving» lo perde. Se la pagina torna in sola lettura (il
+  permesso perso) i riquadri se ne vanno: la barra dice «you can no longer
+  edit this page».
+- **Tastiera**: Tab dal blocco arriva a «Use mine» e «Discard»; nessuna
+  scorciatoia, Esc non scarta (scartare è definitivo).
+- **Chi legge soltanto** non ha l'editor, quindi nessun riquadro.
+
+| Chiave | en | it |
+|---|---|---|
+| riquadro | Your version, not saved · the paragraph was deleted · Use mine · Discard | La tua versione, non salvata · il paragrafo è stato eliminato · Usa la mia · Scarta |
+| barra | …the page had changed. Your version is under the paragraph. · …{{name}} is writing in this section. Your version is under the paragraph. | …la pagina era cambiata. La tua versione è sotto il paragrafo. · …{{name}} sta scrivendo in questa sezione. La tua versione è sotto il paragrafo. |
+| annunci | Your version is back in the paragraph · Discarded your version | La tua versione è tornata nel paragrafo · Scartata la tua versione |

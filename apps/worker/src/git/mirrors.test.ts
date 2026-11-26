@@ -188,6 +188,16 @@ describe("MirrorManager.ensureMirror", () => {
     expect((await stat(mirrorsDir)).mode & 0o777).toBe(0o700);
   });
 
+  it("area 9, F6: removeMirror toglie il mirror dell'URL, ed è idempotente", async () => {
+    const { manager, upstream } = await makeFixture();
+    const project = projectFor(upstream);
+    const dir = await manager.ensureMirror(project);
+    expect(existsSync(dir)).toBe(true);
+    await manager.removeMirror(project.repoUrl);
+    expect(existsSync(dir)).toBe(false);
+    await manager.removeMirror(project.repoUrl);
+  });
+
   it("ai successivi fa fetch --prune e vede i nuovi commit upstream", async () => {
     const { manager, upstream } = await makeFixture();
     const project = projectFor(upstream);

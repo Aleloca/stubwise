@@ -5,6 +5,20 @@ export { createDb, runMigrations, type Db, type DbHandle } from "./client.js";
 // serve sia al server (encrypt alla creazione/validazione dell'account) sia al
 // worker (decrypt dell'account collegato al progetto nel fix).
 export { decrypt, encrypt } from "./secrets.js";
+export { s3ConfigFromSettings, type S3Config, type S3SettingsLike } from "./storage-config.js";
+export { ensureDocPageCodes } from "./doc-page-codes.js";
+export { liveSectionHolds, releaseSections, takeSection, type TakeSectionResult } from "./product-holds.js";
+// Area 9, F1: ruolo ∪ permessi personali di un membro, come SQL (una regola).
+export { memberPermissionsSql } from "./member-permissions.js";
+export { projectNotArchived, projectQueueRunnable, repositoryQueueRunnable } from "./queue-pause.js";
+export { isAttachedRepository } from "./repository-attached.js";
+export {
+  CHAT_TOOL_TOKEN_PREFIX,
+  hashChatToolToken,
+  issueChatToolToken,
+  purgeChatToolTokens,
+  revokeChatToolToken,
+} from "./chat-tool-tokens.js";
 // Helper di lettura costo (somma agent_runs.cost_usd per ticket / per mese
 // corrente): importati da worker e server per i gate di budget.
 export {
@@ -36,7 +50,20 @@ export { recordTicketStatusChange } from "./ticket-events.js";
 // brief. ⚠️ Non chiama e non deve mai chiamare un agente: il registro non è mai
 // scritto dall'AI (vedi il docblock di `recordDecision`).
 export { recordDecision, type DecisionSource, type RecordDecisionParams } from "./decisions.js";
+// Area 6, F5b: i riferimenti a Google Drive (server e worker).
+export { DriveFolderLinkGone, insertDriveReference, reattachDriveReferences, tombstoneDriveFiles, type DriveReferenceInput } from "./drive-references.js";
 // Digest del piano (fase 7, pre-approvazione): vive qui perché server (il
 // gate di avvio e la rotta di pre-approvazione) e worker devono confrontare
 // esattamente lo stesso digest per lo stesso testo.
 export { planDigest } from "./plan-digest.js";
+export { CANCEL_REQUEST_CLEARED } from "./ai-job-cancel.js";
+export { queueDraftAttachmentObjects } from "./storage-orphans.js";
+export { createTicket, ProjectNotFoundError, type CreateTicketInput, type Ticket } from "./ticket-create.js";
+export {
+  createMilestone,
+  type CreateMilestoneError,
+  type CreateMilestoneInput,
+  type CreateMilestoneResult,
+  type MilestoneRow,
+} from "./milestone-create.js";
+export { createRequestItem, type CreateRequestItemInput } from "./request-create.js";

@@ -1,7 +1,8 @@
-import { publicUserSchema } from "@stubwise/shared";
-import type { PublicUser, Reader } from "@stubwise/shared";
+import { emailChangedSchema, passwordResetLinkSchema, publicUserSchema } from "@stubwise/shared";
+import type { EmailChanged, PasswordResetLink, PublicUser, Reader } from "@stubwise/shared";
 import { z } from "zod";
 import type { ApiRequest } from "../client.js";
+import { seg } from "../query.js";
 
 /**
  * Parsato con la proiezione PUBBLICA (`publicUserSchema`: id, email, ruolo) e
@@ -27,6 +28,32 @@ export function createUsersEndpoints(request: ApiRequest) {
   return {
     list(): Promise<Reader<PublicUser>[]> {
       return request("GET", "/api/users", undefined, usersSchema);
+    },
+
+    /**
+     * Area 9, F1: disattiva (riconferma, `users.manage`), 204. `reassign`
+     * dice a chi va ogni task aperta (id task → id persona, o null per
+     * lasciarla); una riga non valida è 422 `invalid_reassignment` col
+     * `taskId`, e niente cambia. Mai sé stessi, l'ultimo full admin, Claude.
+     */
+    deactivate(userId: string, reassign?: Record<string, string | null>): Promise<void> {
+      return request("POST", `/api/users/${seg(userId)}/deactivate`, reassign ? { reassign } : {});
+    },
+    reactivate(userId: string): Promise<void> {
+      return request("POST", `/api/users/${seg(userId)}/reactivate`);
+    },
+
+    /**
+     * Il cambio dell'email di un altro, subito (riconferma, `users.manage`).
+     * Errori: 400 `cannot_change_own_email`, 404 `user_not_found`, 409 `email_taken`.
+     */
+    changeEmail(userId: string, email: string): Promise<Reader<EmailChanged>> {
+      return request("PATCH", `/api/users/${seg(userId)}/email`, { email }, emailChangedSchema);
+    },
+
+    /** Il link di reset della password: `token` per comporre il link della web «app». */
+    passwordReset(userId: string): Promise<Reader<PasswordResetLink>> {
+      return request("POST", `/api/users/${seg(userId)}/password-reset`, undefined, passwordResetLinkSchema);
     },
   };
 }

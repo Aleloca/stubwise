@@ -12,6 +12,7 @@ import type { ResolvedProvider } from "../../providers/chain.js";
 import { isLimitError } from "../../providers/limit.js";
 import { completeNode, touchNode, type DocNode } from "../nodes.js";
 import { loadBriefContext } from "./brief-context.js";
+import { NATIVE_TOOLS } from "../../agent/native-tools.js";
 
 /**
  * SYNTHESIZE HANDLER — esegue la FASE di sintesi di un nodo-ramo (M5.4).
@@ -131,6 +132,8 @@ async function runSynthesizeAgent(
       model: deps.model,
       usage: docsGenerationUsage(deps.projectId),
       permissionMode: "plan",
+      // Sola lettura (`native-tools.ts`).
+      builtinTools: NATIVE_TOOLS.readOnly,
       maxTurns: deps.maxTurns,
       timeoutMs: deps.agentTimeoutMs,
       ...providerOpt,

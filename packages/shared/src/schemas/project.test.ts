@@ -50,6 +50,14 @@ function progettoSenzaFase5(overrides: Record<string, unknown> = {}) {
   };
 }
 
+describe("projectSchema: `code` e soglie verso un server più vecchio (integrazione area 2)", () => {
+  it("la risposta senza code né stallThresholds parsa", () => {
+    const parsed = projectSchema.parse(progettoSenzaFase5());
+    expect(parsed.code).toBeUndefined();
+    expect(parsed.stallThresholds).toBeUndefined();
+  });
+});
+
 describe("projectSchema: `aiProviderExclusive` verso un server più vecchio", () => {
   it("parsa un progetto senza `aiProviderExclusive`, che diventa false", () => {
     expect(projectSchema.parse(progettoSenzaFase5()).aiProviderExclusive).toBe(false);
@@ -417,6 +425,15 @@ describe("repositorySchema.reviewGitAccountId verso un server più vecchio (30 s
     graphEnabled: false,
     createdAt: "2026-09-01T10:00:00.000Z",
   };
+
+  it("area 8, F1: senza le impostazioni dei rilasci si legge coi default (ramo null, tutte le run, nessuna CI, solo analisi)", () => {
+    expect(readerSchema(repositorySchema).parse(repositorySenzaRevisore)).toMatchObject({
+      releaseBranch: null,
+      releasePipeline: { mode: "auto" },
+      ciProvider: null,
+      colleaguePrs: "analyze_only",
+    });
+  });
 
   it("un repository senza account revisore si legge con null", () => {
     expect(readerSchema(repositorySchema).parse(repositorySenzaRevisore).reviewGitAccountId).toBeNull();

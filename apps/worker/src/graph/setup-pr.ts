@@ -388,7 +388,8 @@ function prBody(): string {
 async function saveSetupPrUrl(db: Db, repositoryId: string, url: string): Promise<void> {
   await db
     .update(repoGraphs)
-    .set({ setupPrUrl: url, updatedAt: sql`now()` })
+    // Appena aperta: `open` (rimandi, lotto 4); poi lo aggiorna il webhook.
+    .set({ setupPrUrl: url, setupPrState: "open", updatedAt: sql`now()` })
     .where(eq(repoGraphs.repositoryId, repositoryId));
 }
 

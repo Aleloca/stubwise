@@ -1,9 +1,9 @@
 import { prLines, type PrLine } from "../domain/claude/taskWork";
+import { SEED_REPLY_JUDGMENTS } from "./seed/mail/replyJudgments";
 import { stallOf, type Stall } from "../domain/stalled";
 import { currentWeek } from "../domain/weeks";
 import { matches, type FilterContext } from "../domain/filters";
 import { serverInProject } from "../domain/servers/projects";
-import { accessState, accessUsable } from "../domain/servers/sshAccess";
 import { ACTIVITY } from "./seed/activity";
 import { BRIEFS } from "./seed/briefs";
 import {
@@ -23,7 +23,13 @@ import { INITIAL_PINNED_FILTERS, SAVED_FILTERS } from "./seed/filters";
 import { DAY_ARRANGEMENTS, DEPARTMENT_HOMES, PERSONAL_HOMES } from "./seed/homes";
 import { MILESTONES } from "./seed/milestones";
 import { NOTIFICATIONS, SEED_SECURITY_CODES } from "./seed/notifications";
-import { CLAUDE_ID, PEOPLE, SEED_DEPARTMENT_IDS, restoreSeedPeople } from "./seed/people";
+import {
+  CLAUDE_ID,
+  DEFAULT_SESSION_PERSON_ID,
+  PEOPLE,
+  SEED_DEPARTMENT_IDS,
+  restoreSeedPeople,
+} from "./seed/people";
 import { INITIAL_PINNED_CODES, PROJECTS } from "./seed/projects";
 import { REQUESTS } from "./seed/requests";
 import { PROJECT_STATUSES } from "./seed/statuses";
@@ -85,7 +91,6 @@ import { SERVER_EPISODES } from "./seed/servers/episodes";
 import { CHECK_SAMPLES, SERVER_METRICS } from "./seed/servers/metrics";
 import { SERVERS, SERVER_CHECKS } from "./seed/servers/servers";
 import {
-  DEFAULT_SESSION_PERSON_ID,
   NO_SESSION_PERSON_ID,
   getSessionPersonId,
   setSessionCredential,
@@ -135,6 +140,7 @@ import type {
   ProductFollow,
   ProductPage,
   ProductFirstVersion,
+  ProductSketch,
   ProductMark,
   ProductPendingFact,
   ProductRevision,
@@ -193,7 +199,10 @@ import type { Invite, SecurityEvent } from "./admin/types";
 import { DEPARTMENTS } from "./seed/departments";
 import { INVITES, SECURITY_EVENTS } from "./seed/invites";
 import { seedGoogleWorkspaces, seedPasskeys, seedSessions, seedTokens } from "./seed/me";
+import { seedVault } from "./seed/vault";
+import type { VaultState } from "./vault/types";
 import type {
+  EmailChange,
   EntryState,
   GoogleWorkspace,
   Passkey,
@@ -223,6 +232,13 @@ let latencyOverride: number | null = null;
 let callCounter = 0;
 let chunkCounter = 0;
 export type ApiFnName =
+  | "countTasks"
+  | "getTaskWorkSummary"
+  | "auth.loginStage"
+  | "auth.startLoginEnrollment"
+  | "auth.confirmLoginEnrollment"
+  | "getSessionPerson"
+  | "getViewer"
   | "listDepartments"
   | "listPeople"
   | "listProjects"
@@ -265,6 +281,7 @@ export type ApiFnName =
   | "getTaskDeletion"
   // «Annulla» di un gruppo di azioni di Claude (area 10a, Task 5)
   | "claude.undo"
+  | "claude.retryEffect"
   | "updateTask"
   | "bulkUpdateTasks"
   | "planTask"
@@ -303,11 +320,13 @@ export type ApiFnName =
   | "getConversation"
   | "describeContext"
   | "getClaudeSuggestion"
+  | "dismissClaudeSuggestion"
   | "contextIdOf"
   | "openRoutes"
   | "canRecordDecisions"
   | "getRefineOf"
   | "getTaskWork"
+  | "cancelRun"
   | "listCommands"
   | "listPeopleActivity"
   | "listDailyReports"
@@ -339,6 +358,7 @@ export type ApiFnName =
   | "resolveCitations"
   | "searchMentions"
   | "setConversationContext"
+  | "setConversationContexts"
   | "completeEditedProposal"
   // Chat (area 4)
   | "chat.listChannels"
@@ -365,6 +385,7 @@ export type ApiFnName =
   | "chat.createChannel"
   | "chat.updateChannel"
   | "chat.setPublishedEvents"
+  | "chat.downloadAttachment"
   | "chat.archiveChannel"
   | "chat.deleteChannel"
   | "chat.inviteMembers"
@@ -414,6 +435,8 @@ export type ApiFnName =
   | "productDocs.deleteProductPage"
   | "productDocs.saveProductBlocks"
   | "productDocs.followProductPage"
+  | "productDocs.storeProductImage"
+  | "productDocs.productImageSrc"
   | "productDocs.unfollowProductPage"
   | "productDocs.listProductComments"
   | "productDocs.addProductComment"
@@ -433,6 +456,7 @@ export type ApiFnName =
   | "productDocs.getProductFirstVersion"
   | "productDocs.acceptFirstVersionPage"
   | "productDocs.undoFirstVersion"
+  | "productDocs.stopFirstVersion"
   | "productDocs.listOpenProductQuestions"
   | "productDocs.listProductRequestsPreparing"
   | "productDocs.proposeBacklogFromPage"
@@ -452,6 +476,7 @@ export type ApiFnName =
   | "drive.listMyFolderLinks"
   | "drive.countDriveReaders"
   | "drive.getGoogleAccount"
+  | "drive.listGoogleWorkspaces"
   | "drive.listGoogleOutside"
   | "drive.searchDrive"
   | "drive.listGoogleFolders"
@@ -476,6 +501,7 @@ export type ApiFnName =
   | "mail.threadOfMessage"
   | "mail.listMailboxes"
   | "mail.listImportantMail"
+  | "mail.listWaitingCustomers"
   | "mail.searchMail"
   | "mail.markRead"
   | "mail.markUnread"
@@ -504,6 +530,8 @@ export type ApiFnName =
   | "mail.draftReply"
   | "mail.getMeetingSummary"
   | "mail.tasksBornFrom"
+  | "mail.getMeetingByNote"
+  | "mail.tasksOfNote"
   /** Un passo dell'allineamento simulato di una casella (arriva la posta nuova). */
   | "mail.advanceSync"
   /** Un passo della classificazione simulata (in analisi → classificata o fallita). */
@@ -542,6 +570,9 @@ export type ApiFnName =
   | "automations.validateAutomationFlow"
   | "automations.listRuns"
   | "automations.getRun"
+  | "automations.listSourceEvents"
+  | "automations.confirmSimulationCost"
+  | "automations.findRun"
   | "automations.listSources"
   | "automations.listClientLinks"
   | "automations.listMyApprovals"
@@ -613,6 +644,9 @@ export type ApiFnName =
   | "releases.explainRelease"
   | "releases.createEnvironment"
   | "releases.updateEnvironment"
+  | "releases.setEnvironmentContainers"
+  | "instance.getServerAnalysisSettings"
+  | "instance.saveServerAnalysisSettings"
   | "releases.deleteEnvironment"
   /** Solo prototipo: l'esito di una run di CI, la comparsa sul server, il push dell'autore. */
   | "releases.simulateRunOutcome"
@@ -624,25 +658,55 @@ export type ApiFnName =
   | "support.listSupportConversations"
   | "support.getSupportConversation"
   | "support.customerPreview"
-  | "support.listWaitingCustomers"
   | "support.listWidgets"
   | "support.myRequestStatus"
   | "support.searchSupport"
-  | "support.replyToCustomer"
-  | "support.draftReply"
+  | "support.replyToCollaborator"
   | "support.openRequestFrom"
-  | "support.followConversation"
-  | "support.emailDraftFor"
+  | "support.markNotConcluded"
   | "support.createWidget"
   | "support.updateWidget"
   | "support.deleteWidget"
+  /** API per i siti (S6): il segreto d'identità dei clienti (+R). */
+  | "support.regenerateIdentitySecret"
   /** Solo prototipo: un messaggio del cliente, il cliente che se ne va, il triage concluso. */
   | "support.simulateCustomerMessage"
   | "support.simulateCustomerLeaves"
   | "support.simulateTriageDone"
   // Server (area 8b)
+  | "vault.getVaultStatus"
+  | "vault.unlock"
+  | "vault.lock"
+  | "vault.setVaultSimulation"
+  | "vault.getVaultSimulation"
+  | "vault.startPairing"
+  | "vault.finishPairing"
+  | "vault.cancelPairing"
+  | "vault.listMyMacs"
+  | "vault.forgetThisMac"
+  | "vault.removeMac"
+  | "vault.listMacsOf"
+  | "vault.removeMacOf"
+  | "vault.listCredentials"
+  | "vault.getCredential"
+  | "vault.getCredentialsEntry"
+  | "vault.show"
+  | "vault.copy"
+  | "vault.createCredential"
+  | "vault.updateCredential"
+  | "vault.deleteCredential"
+  | "vault.listReaders"
+  | "vault.listShareTargets"
+  | "vault.getVaultEntry"
+  | "vault.share"
+  | "vault.removeReader"
+  | "vault.listPending"
+  | "vault.confirm"
+  | "vault.reject"
+  | "vault.listAccessLog"
   | "servers.listProjectServers"
   | "servers.listAllServers"
+  | "servers.listLinkableServers"
   | "servers.getServer"
   | "servers.getServerMetrics"
   | "servers.searchServers"
@@ -665,11 +729,18 @@ export type ApiFnName =
   | "servers.simulateServerRecovery"
   | "servers.simulateSshUnreachable"
   | "startServerFix"
+  | "servers.startServerAnalysis"
+  | "servers.getCommandKey"
+  | "servers.approveServerFix"
+  | "servers.rejectServerFix"
+  | "servers.stopServerFix"
   | "servers.getServerTaskInfo"
   | "servers.simulateFixCheck"
   // Registro delle modifiche e riconferma (area 9a, Task 3)
   | "changelog.listChanges"
   | "changelog.listProjectChanges"
+  | "changelog.listChangesPage"
+  | "changelog.listProjectChangesPage"
   | "changelog.listChangeFilterChoices"
   // «Chi può farlo?» (area 9a, Task 11)
   | "access.whoCan"
@@ -683,6 +754,8 @@ export type ApiFnName =
   | "admin.setInstanceRole"
   | "admin.createPasswordResetLink"
   | "admin.resetSecondFactor"
+  /** Area 9, R2: un admin cambia l'email di login di un'altra persona (+R). */
+  | "admin.changeEmail"
   | "admin.listSecurityEvents"
   | "admin.listObservedAuthors"
   | "admin.linkGitIdentity"
@@ -740,6 +813,12 @@ export type ApiFnName =
   | "me.createToken"
   | "me.revokeToken"
   | "me.createClaudeCodeCommand"
+  /** Area 9, R2: il cambio dell'email di login (+R sulla richiesta). */
+  | "me.requestEmailChange"
+  | "me.cancelEmailChange"
+  | "me.simulateEmailChangeLink"
+  | "auth.confirmEmailChange"
+  | "auth.getEmailChangeLink"
   // Ingresso (area 9a, Task 5): login, invito, primo avvio, uscita
   | "auth.getEntry"
   | "auth.login"
@@ -760,6 +839,7 @@ export type ApiFnName =
   // AI (area 9b, Task 3): provider, modelli, automazione, budget e lingua
   | "instance.listProviders"
   | "instance.createProvider"
+  | "instance.renameProvider"
   | "instance.setProviderEnabled"
   | "instance.moveProvider"
   | "instance.testProvider"
@@ -789,6 +869,7 @@ export type ApiFnName =
   | "instance.rerunSmoke"
   | "instance.removePlugin"
   | "instance.simulateNextPluginOutcome"
+  | "instance.getGoogleRedirectUri"
   | "instance.listGoogleApps"
   | "instance.createGoogleApp"
   | "instance.updateGoogleApp"
@@ -798,8 +879,12 @@ export type ApiFnName =
   | "instance.saveStorage"
   | "instance.setAttachments"
   | "instance.testStorage"
+  | "instance.listWebhooks"
   | "instance.getWebhook"
-  | "instance.saveWebhook"
+  | "instance.createWebhook"
+  | "instance.updateWebhook"
+  | "instance.regenerateWebhookSecret"
+  | "instance.deleteWebhook"
   | "instance.testWebhook"
   // Coda e Stato dell'istanza (area 9b, Task 5)
   | "instance.getInstanceStatus"
@@ -882,7 +967,9 @@ export function streamDelay(): number {
 }
 
 /** Quanto resta «Riconnessione…» dopo una disconnessione (ms): la latenza fissata, altrimenti 800 ms. */
-export function reconnectDelay(): number {
+// `conversationId`: sul server vero il backoff è per sessione; qui uno solo.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function reconnectDelay(_conversationId?: string): number {
   return latencyOverride ?? 800;
 }
 
@@ -979,10 +1066,16 @@ interface State {
   sessions: PersonalSession[];
   /** Le passkey; `access.people[].secondFactor.passkeys` ne è il conteggio, scritto insieme. */
   passkeys: Passkey[];
+  /** La Cassaforte delle credenziali (lotto 10, `vault/`). */
+  vault: VaultState;
   /** Il segreto TOTP confermato di ciascuno (id in `secrets.ts`); il seme non ne ha. */
   confirmedTotp: Map<string, string>;
   /** I token personali, senza valore. */
   tokens: PersonalToken[];
+  /** Area 9, R2: le richieste di cambio dell'email di login in attesa (`me/emailChange.ts`). */
+  emailChanges: EmailChange[];
+  /** Area 9, R2 (SOLO PROTOTIPO): l'istanza ha un trasporto email (SMTP facoltativo). */
+  emailTransport: boolean;
   /**
    * Lo stato d'istanza dell'area 9b (`instance/state.ts`): provider dell'AI,
    * modelli, automazione, budget, account git, plugin, archiviazione,
@@ -1091,6 +1184,8 @@ interface State {
    * `projectId`, vanno via col progetto.
    */
   productFirstVersions: ProductFirstVersion[];
+  /** F6: le bozze di schermata che Claude sta disegnando, o che non è riuscito a disegnare. */
+  productSketches: ProductSketch[];
   /** Chi segue quale pagina: chi la crea e chi preme «Follow», mai da solo. */
   productFollows: ProductFollow[];
   /**
@@ -1143,6 +1238,12 @@ interface State {
   mailboxes: Mailbox[];
   /** Tutti i messaggi, una riga per Message-ID anche se è in più caselle. */
   mailMessages: MailMessage[];
+  /**
+   * Il giudizio di Claude «serve una mia risposta?» (area 8, «Clienti in
+   * attesa»), per `<email della casella>|<id dell'ultimo messaggio>`: vale
+   * solo finché quel messaggio è l'ultimo del thread. Assente = da valutare.
+   */
+  mailReplyJudgments: Map<string, { judgment: "yes" | "no"; reason: string | null }>;
   /** Le note delle riunioni registrate, per id del messaggio di Gemini. */
   meetingTranscripts: MeetingTranscript[];
   /** Le proposte della posta, condivise fra i destinatari membri del progetto. */
@@ -1308,8 +1409,11 @@ function freshState(): State {
     resetLinks: [],
     sessions: seedSessions(),
     passkeys: seedPasskeys(),
+    vault: seedVault(),
     confirmedTotp: new Map(),
     tokens: seedTokens(),
+    emailChanges: [],
+    emailTransport: true,
     instance: seedInstanceState(),
     googleWorkspaces: seedGoogleWorkspaces(),
     proposalsBeforeUnlink: new Map(),
@@ -1373,6 +1477,7 @@ function freshState(): State {
     productSourcesSeen: new Set(PRODUCT_SOURCES_SEEN_11B),
     // VRD resta vuoto: la prima versione la lancia chi prova l'app (maintainer, Q2).
     productFirstVersions: [],
+    productSketches: [],
     productFollows: PRODUCT_FOLLOWS.map(copy),
     productBlockIds: productSeedBlockIds(),
     productSessionDeletes: new Map(),
@@ -1391,6 +1496,7 @@ function freshState(): State {
     driveSeedWorkStarted: false,
     mailboxes: MAILBOXES.map(copy),
     mailMessages: MAIL_MESSAGES.map(copy),
+    mailReplyJudgments: new Map(SEED_REPLY_JUDGMENTS),
     meetingTranscripts: MEETING_TRANSCRIPTS.map(copy),
     mailProposals: [...MAIL_PROPOSALS, ...CALENDAR_PROPOSALS].map(copy),
     mailDrafts: MAIL_DRAFTS.map(copy),
@@ -1439,6 +1545,8 @@ function freshState(): State {
 }
 
 export const state: State = freshState();
+// La sessione parte dalla persona di default del seme (`session.ts` parte vuota).
+setSessionPersonId(DEFAULT_SESSION_PERSON_ID);
 
 /** Rifà le mappe per id dopo che un array è cambiato di struttura. */
 export function reindex(): void {
@@ -1584,6 +1692,8 @@ export function emptyStore(): void {
 export type AutomationSignal =
   | { kind: "task_created" | "task_closed"; taskId: string }
   | { kind: "request_created"; requestId: string }
+  /** Q5 = a: una richiesta convertita, con la task nata (che segnala anche `task_created`). */
+  | { kind: "request_converted"; requestId: string; taskId: string }
   | { kind: "milestone_reached"; milestoneId: string }
   | { kind: "mail_received"; messageIds: string[] };
 
@@ -1712,9 +1822,7 @@ export const now = (): string =>
   clockOffsetMs === 0
     ? CLOCK_START
     : // Lo stesso formato dell'orologio fermo, senza millisecondi.
-      new Date(Date.parse(CLOCK_START) + clockOffsetMs)
-        .toISOString()
-        .replace(/\.\d{3}Z$/, "Z");
+      new Date(Date.parse(CLOCK_START) + clockOffsetMs).toISOString().replace(/\.\d{3}Z$/, "Z");
 
 /**
  * SOLO PROTOTIPO: manda avanti l'orologio di `ms` (i test della finestra di
@@ -1812,7 +1920,8 @@ export function knownDeletedProject(
  * Chi vede una conversazione con Claude — l'unica regola, per le letture e
  * per lo stream. Libera privata: chi l'ha aperta; pubblica: anche chi ha
  * `claude.public.view`. Sessioni di lavoro: `repos.view` nel progetto (il
- * refine `backlog.edit`). Posta: solo il titolare, mai gli admin.
+ * refine `backlog.edit`; l'analisi di un server anche `monitor.manage`).
+ * Posta: solo il titolare, mai gli admin.
  */
 export function canSeeConversation(personId: string, c: Conversation): boolean {
   const viewer = viewerFor(personId);
@@ -1825,6 +1934,14 @@ export function canSeeConversation(personId: string, c: Conversation): boolean {
       return c.ownerId === personId;
     case "refine":
       return c.projectId !== null && can(viewer, "backlog.edit", c.projectId);
+    case "server_analysis":
+      // Del server, non di un progetto (area 8, F4b-4): chi gestisce il
+      // monitor; e, attribuita, chi legge il progetto attribuito (dove la
+      // sessione entra a fine analisi, `data/servers/analysis.ts`).
+      return (
+        can(viewer, "monitor.manage") ||
+        (c.projectId !== null && can(viewer, "repos.view", c.projectId))
+      );
     default:
       return c.projectId !== null && can(viewer, "repos.view", c.projectId);
   }
@@ -1942,22 +2059,21 @@ export function currentPhase(log: readonly ConversationEvent[]): string | null {
 }
 
 /**
- * Perché una correzione di server non può eseguire comandi adesso (`null`
+ * Perché una correzione di server non può eseguire azioni adesso (`null`
  * se può, o se `c` non è una correzione): il server non esiste più o non è
  * più in un ambiente del progetto della sessione (R-L2, R-G5), oppure
- * l'accesso di correzione non è usabile (mai il solo stato). Una regola
- * sola per l'approvazione (`conversationPermissions`, `decidePlan`) e per
- * l'esecuzione (`data/servers/fix.ts`, che in più chiede la chiave).
+ * l'agente non ha le operazioni accese (area 8, F4b: la correzione passa
+ * dall'agente, mai dall'SSH). Una regola sola per l'approvazione
+ * (`conversationPermissions`, `decidePlan`) e per l'esecuzione
+ * (`data/servers/fix.ts`).
  */
 export function serverFixBlock(c: Conversation): ServerFixBlock | null {
   if (!c.serverFix) return null;
   const code = c.serverFix.serverCode;
-  const exists = state.servers.some((s) => s.code === code);
-  if (!exists || c.projectId === null || !serverInProject(code, c.projectId, state.environments))
+  const server = state.servers.find((s) => s.code === code);
+  if (!server || c.projectId === null || !serverInProject(code, c.projectId, state.environments))
     return "server_gone";
-  const access = state.serverAccess.get(code);
-  if (accessUsable(access, "fix")) return null;
-  return accessState(access) === "revoked" ? "fix_access_revoked" : "fix_access_unverified";
+  return server.agentOperations ? null : "operations_off";
 }
 
 /**
@@ -2009,6 +2125,16 @@ export function conversationPermissions(
     }
   }
 
+  // La sessione di una correzione di server propone soltanto (decisione del
+  // maintainer, 15 nov 2026, review F4b I4): non ci si scrive, non si ferma
+  // da qui né «Ferma e scrivi»; piano e Stop stanno nella sezione Server
+  // della task (`fixDecide.ts`).
+  if (c.serverFix && live) {
+    canWrite = false;
+    canInterrupt = false;
+    readOnlyReason = "server_fix";
+  }
+
   const question = openQuestion(log);
   const plan = pendingPlan(log);
   const preApproved = state.preApprovedPlans.has(c.id);
@@ -2022,9 +2148,9 @@ export function conversationPermissions(
     ["new", "ready", "refining"].includes(request.status) &&
     request.mergedIntoId === null;
   const decidable = plan !== undefined && approver && c.state === "awaiting_approval";
-  // Correzione di un server (area 8b): il piano che aspetta non si approva
-  // se il server non è più del progetto o l'accesso di correzione non è
-  // usabile adesso (`serverFixBlock`). La ragione la riceve solo chi
+  // Correzione di un server (area 8, F4b): il piano che aspetta non si
+  // approva se il server non è più del progetto o l'agente non ha le
+  // operazioni accese adesso (`serverFixBlock`). La ragione la riceve solo chi
   // altrimenti potrebbe decidere: per lui il rifiuto resta (`canRejectPlan`).
   const planBlockedReason = decidable ? serverFixBlock(c) : null;
   // Niente approvazione in anticipo per una correzione di server.
@@ -2078,9 +2204,44 @@ export function activityOf(c: Conversation): ConversationActivity {
  * ridotti a quelli che vede (un progetto invisibile non si nomina, come un
  * oggetto che non esiste).
  */
-export function conversationRow(personId: string, c: Conversation): ConversationRow {
+/**
+ * Il segnaposto dei progetti per UNA risposta (registro, A11 r.1414): un
+ * progetto che `personId` non vede (né legge da archiviato) diventa
+ * `hidden-project-<n>`, numerato nell'ordine in cui compare, lo stesso per
+ * tutta la risposta; gli altri restano com'erano.
+ */
+export function projectMasker(personId: string): (id: string) => string {
+  const readable = new Set([...visibleProjectIds(personId), ...archivedProjectIdsFor(personId)]);
+  const hidden = new Map<string, string>();
+  return (id) => {
+    if (readable.has(id)) return id;
+    let placeholder = hidden.get(id);
+    if (!placeholder) {
+      placeholder = `hidden-project-${hidden.size + 1}`;
+      hidden.set(id, placeholder);
+    }
+    return placeholder;
+  };
+}
+
+export function conversationRow(
+  personId: string,
+  c: Conversation,
+  // R.1414 (lotto 3): il masker delle persone della risposta (lo passa `api.ts`:
+  // qui non si importa, `access/hidden` importa questo modulo).
+  maskPerson: (id: string) => string = (id) => id,
+  maskProject: (id: string) => string = projectMasker(personId),
+): ConversationRow {
   const visible = visibleProjectIds(personId);
   const row = copy(c);
+  row.ownerId = maskPerson(c.ownerId);
+  if (row.publishedById) row.publishedById = maskPerson(row.publishedById);
+  // R.1414: un progetto che chi guarda non vede (un'analisi di server letta
+  // con `monitor.manage`) non dice il suo id, né quello della sua task.
+  if (row.projectId !== null && maskProject(row.projectId) !== row.projectId) {
+    row.projectId = maskProject(row.projectId);
+    row.taskId = null;
+  }
   const privateTail = hasPrivateTail(personId, c);
   if (c.ownerId !== personId) {
     // Chi non è l'autore di una pubblica vede solo i progetti confermati

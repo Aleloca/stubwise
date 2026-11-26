@@ -35,7 +35,7 @@ export interface ModelRow {
   fallback: { model: AiModelChoice; source: Exclude<ModelSource, "setting"> };
 }
 
-const HAIKU_BY_DEFAULT: readonly AiOperation[] = ["daily_report", "commit_summary", "summary"];
+const HAIKU_BY_DEFAULT: readonly AiOperation[] = ["daily_report", "commit_summary", "summary", "drive_summary"];
 
 /** Il default di codice: Haiku per i riassunti e i report, Sonnet per il resto. */
 export const DEFAULT_MODELS: Record<AiOperation, AiModelChoice> = Object.fromEntries(

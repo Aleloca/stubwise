@@ -16,6 +16,7 @@ export {
   listSecurityEvents,
   reactivatePerson,
   resetSecondFactor,
+  changeEmail,
   setBitbucketUsername,
   setInstanceRole,
   unlinkGitIdentity,
@@ -26,6 +27,8 @@ export {
   listInvites,
   revokeInvite,
   type CreateInviteInput,
+  type CreatedInvite,
+  type InviteWarning,
 } from "./invites";
 export {
   createRole,

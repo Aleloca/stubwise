@@ -5,8 +5,10 @@ import { gate, newId, now, state } from "../store";
 import { forbidden, writer } from "../writer";
 import { isLimited } from "./blocks";
 import { canI, reauthRefusal, refuse } from "./common";
-import type { AiProvider, TestOutcome } from "./state";
+import type { AiProvider, TestOutcome, WebhookTestOutcome } from "./state";
 import type { InstanceRefusal, InstanceResult } from "./types";
+
+export { BACKGROUND_WEEKLY_THRESHOLD } from "./constants";
 
 // I provider dell'AI (area 9b, Task 3): la catena degli account con cui
 // Claude lavora. L'ordine dell'array `state.instance.providers` È la catena;
@@ -28,13 +30,6 @@ export { pickProvider } from "./blocks";
 const MANAGE = "ai_providers.manage";
 /** Da qui la quota di un abbonamento è «vicina al limite». */
 export const QUOTA_NEAR_PCT = 80;
-/**
- * Oltre questa percentuale della settimana il lavoro di sfondo (Docs
- * notturni, report) aspetta il reset settimanale (deploy-log, «Quota degli
- * account»). La pagina lo dice in una riga; il prototipo non lo simula.
- */
-export const BACKGROUND_WEEKLY_THRESHOLD = 90;
-
 export interface QuotaView {
   fiveHourPct: number;
   weeklyPct: number;
@@ -174,6 +169,42 @@ export function setProviderEnabledAs(me: string, id: string, enabled: boolean): 
   return { ok: true };
 }
 
+/**
+ * Rinomina un account (F3, come il server: senza riconferma, il nome non è
+ * un segreto). La voce è `provider.updated` coi nomi prima e dopo e
+ * `params.field: "name"`: la stessa del server, che la pagina legge come
+ * «nome: X → Y» (l'interruttore ha `on`/`off` e niente `field`).
+ */
+export async function renameProvider(id: string, name: string): Promise<InstanceResult> {
+  return renameProviderAs(await writer("instance.renameProvider"), id, name);
+}
+
+/** La forma sincrona di `renameProvider` per chi ha già passato il cancello. */
+export function renameProviderAs(me: string, id: string, name: string): InstanceResult {
+  const found = managed(me, id);
+  if ("refusal" in found) return found.refusal;
+  const { provider } = found;
+  const next = name.trim();
+  if (!next) return refuse.invalid("name");
+  if (next === provider.name) return { ok: true };
+  const taken = state.instance.providers.some(
+    (p) => p.id !== id && p.name.toLowerCase() === next.toLowerCase(),
+  );
+  if (taken) return refuse.invalid("name_taken");
+  const before = provider.name;
+  provider.name = next;
+  recordChange({
+    kind: "provider.updated",
+    actorId: me,
+    projectId: null,
+    object: objectOf(provider),
+    before,
+    after: next,
+    params: { field: "name" },
+  });
+  return { ok: true };
+}
+
 /** Sposta un account al posto `toIndex` della catena (da 0). */
 export async function moveProvider(id: string, toIndex: number): Promise<InstanceResult> {
   return moveProviderAs(await writer("instance.moveProvider"), id, toIndex);
@@ -275,7 +306,7 @@ export async function deleteProvider(id: string): Promise<InstanceResult> {
  */
 export async function simulateNextTest(
   target: string,
-  outcome: TestOutcome,
+  outcome: WebhookTestOutcome,
 ): Promise<InstanceResult> {
   const me = await writer("instance.simulateNextTest");
   const permission = providerOf(target)
@@ -287,6 +318,9 @@ export async function simulateNextTest(
         : null;
   if (permission === null) return refuse.notFound();
   if (!canI(me, permission)) return refuse.forbidden();
-  state.instance.simulate.nextTest[target] = outcome;
+  // L'errore della destinazione è solo della prova di un webhook (revisione del lotto 5, M-5).
+  if (target === "webhook") state.instance.simulate.nextWebhookTest = outcome;
+  else if (outcome === "destination_error") return refuse.invalid("outcome");
+  else state.instance.simulate.nextTest[target] = outcome;
   return { ok: true };
 }

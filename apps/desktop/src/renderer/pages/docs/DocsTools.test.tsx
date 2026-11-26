@@ -1,7 +1,7 @@
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { failNext, resetApi, setLatency } from "../../data/api";
+import { failNext, resetApi, setLatency, setStreamLatency } from "../../data/api";
 import { state } from "../../data/store";
 import type { DocGeneration } from "../../data/types";
 import { resetViewerGrants } from "../../data/viewer";
@@ -223,6 +223,29 @@ describe("Docs — grafo", () => {
     }
   });
 
+  // Lotto 4, pulizia 5: la PR di setup dice il suo stato solo se si sa; una
+  // chiusa senza merge non c'è più, e se ne apre un'altra.
+  it("la PR di setup: aperta, mergiata, sconosciuta, chiusa senza merge", async () => {
+    const url = "https://github.com/stubwise-demo/stubwise/pull/1";
+    for (const [state_, menu, toastText] of [
+      ["open", "View the setup PR", `Setup PR, open: ${url}`],
+      ["merged", "View the setup PR", `Setup PR, merged: ${url}`],
+      [null, "View the setup PR", `Setup PR: ${url}`],
+      ["closed_unmerged", "Open setup PR", null],
+    ] as const) {
+      const space = spaceOf("repo-stw");
+      space.graph = { ...space.graph, setupPr: { url, state: state_ } };
+      renderRoute("/p/STW/docs/stubwise/graph", "p-laura");
+      await userEvent.click(await screen.findByRole("button", { name: "Graph actions" }));
+      const item = await screen.findByRole("menuitem", { name: menu });
+      if (toastText) {
+        await userEvent.click(item);
+        expect(await screen.findByText(toastText)).toBeInTheDocument();
+      }
+      cleanup();
+    }
+  });
+
   it("spento, con repos.manage: «Enable it in the repository» lo accende e lo costruisce (R-H1)", async () => {
     renderRoute("/p/AUD/docs/audin-app/graph", "p-laura");
     await userEvent.click(
@@ -344,6 +367,31 @@ describe("Docs — chat", () => {
     await userEvent.click(within(chat).getByRole("button", { name: "New chat" }));
     expect(within(chat).queryByText("Used:")).toBeNull();
     expect(within(chat).getByRole("button", { name: /Scheduled callbacks/ })).toBeInTheDocument();
+  });
+
+  // Lotto 7, §2 (decisione del maintainer): il testo cresce mentre arriva,
+  // e «Used:» compare solo a risposta finita.
+  it("la risposta cresce mentre arriva, poi le fonti", async () => {
+    setStreamLatency(150);
+    try {
+      renderRoute("/p/AUD/docs", "p-laura");
+      const chat = await screen.findByRole("complementary", { name: "Ask the docs" });
+      await userEvent.click(await within(chat).findByRole("button", { name: /Scheduled callbacks/ }));
+      const growing = await waitFor(
+        () => {
+          const el = chat.querySelector("[data-docs-answer='streaming']");
+          expect(el?.textContent?.trim()).toBeTruthy();
+          return el!;
+        },
+        { timeout: 3000 },
+      );
+      expect(growing).toBeInTheDocument();
+      expect(within(chat).queryByText("Used:")).toBeNull();
+      expect(await within(chat).findByText("Used:", undefined, { timeout: 8000 })).toBeInTheDocument();
+      expect(chat.querySelector("[data-docs-answer='streaming']")).toBeNull();
+    } finally {
+      setStreamLatency(null);
+    }
   });
 
   it("chat del repository: si apre dalla barra, la fonte apre la pagina e la chat resta", async () => {

@@ -1,7 +1,8 @@
 import type { ComponentType } from "react";
 import { useAutomations } from "../../../data/queries";
 import type { HomeBlockKind, HomeBlockRef, Viewer } from "../../../data/types";
-import { can } from "../../../data/viewer";
+import { featureIntegrated } from "../../../data/integration";
+import { can } from "../../../data/viewing";
 import { MyWeekBlock } from "../../week/MyWeekBlock";
 import { AutomationsBlock } from "./AutomationsBlock";
 import { ClaudeForMeBlock } from "./ClaudeForMeBlock";
@@ -26,6 +27,13 @@ export interface BlockDef {
    * `useBlockContext`).
    */
   available(viewer: Viewer, ctx?: BlockContext): boolean;
+  /**
+   * Solo nella MIA Home (review M7): un blocco che legge ciò che è di chi
+   * guarda (la sua posta) non ha senso nella Home di un reparto.
+   */
+  personalOnly?: boolean;
+  /** L'area del blocco, se non è dell'area 2: finché non è integrata il blocco è nascosto (`isHiddenBlock`). */
+  area?: string;
 }
 
 /** Ciò che serve sapere dai dati per decidere se un blocco c'è; `undefined` = ancora in lettura. */
@@ -43,6 +51,29 @@ export function useBlockContext(): BlockContext {
 const always = () => true;
 
 /**
+ * Un blocco di un'area (`featureIntegrated(area)`): nella build app, finché
+ * l'area non è integrata, non è nel catalogo, non si mostra in nessuna Home e
+ * quindi non legge niente (integrazione area 2, fetta 3). Nel prototipo vale
+ * solo `available`.
+ */
+function ofArea(
+  area: string,
+  available: BlockDef["available"],
+): Pick<BlockDef, "available" | "area"> {
+  return { area, available: (viewer, ctx) => featureIntegrated(area) && available(viewer, ctx) };
+}
+
+/**
+ * Un blocco che questa build non mostra perché la sua area non è integrata:
+ * l'editor non lo elenca, ma salvando lo rimette al suo posto
+ * (`withHiddenBlocks`), così personalizzare dall'app non lo cancella.
+ */
+export function isHiddenBlock(block: HomeBlockRef): boolean {
+  const def = BLOCKS[block.kind] as BlockDef | undefined;
+  return !def || (def.area !== undefined && !featureIntegrated(def.area));
+}
+
+/**
  * Il catalogo dei blocchi della Home (spec §2), nell'ordine in cui il
  * catalogo li propone. I blocchi delle aree successive (canali, posta,
  * rilasci…) entrano qui con la loro area.
@@ -55,12 +86,13 @@ export const BLOCKS: Record<HomeBlockKind, BlockDef> = {
   upcomingEvents: {
     titleKey: "home.blocks.upcomingEvents",
     component: UpcomingEventsBlock,
-    available: always,
+    ...ofArea("calendar", always),
   },
   importantMail: {
     titleKey: "home.blocks.importantMail",
     component: ImportantMailBlock,
-    available: always,
+    // L'importanza è della F2 dell'area 6: la Posta in lettura (F1) non la dà.
+    ...ofArea("mail-importance", always),
   },
   myTasks: { titleKey: "home.blocks.myTasks", component: MyTasksBlock, available: always },
   claudeForMe: {
@@ -89,7 +121,7 @@ export const BLOCKS: Record<HomeBlockKind, BlockDef> = {
   automations: {
     titleKey: "home.blocks.automations",
     component: AutomationsBlock,
-    available: (_viewer, ctx) => ctx?.seesAutomations !== false,
+    ...ofArea("automations", (_viewer, ctx) => ctx?.seesAutomations !== false),
   },
   // Rilasci (area 8a, shape releases.md [R 22]): nel catalogo di chi può
   // rilasciare in almeno un progetto; nella Home non personalizzata di quelle
@@ -97,14 +129,16 @@ export const BLOCKS: Record<HomeBlockKind, BlockDef> = {
   releases: {
     titleKey: "home.blocks.releases",
     component: ReleasesBlock,
-    available: (viewer) => can(viewer, "release.merge"),
+    ...ofArea("releases", (viewer) => can(viewer, "release.merge")),
   },
-  // Clienti in attesa (area 8a, shape support.md [A 17]): nel catalogo di chi
-  // può rispondere ai clienti in almeno un progetto, mai nelle Home di default.
+  // Clienti in attesa (area 8, piano di 72, [A 17]): dalla posta delle MIE
+  // caselle (W-3 = a, W-4 = b), non più Support; nel catalogo di tutti, mai
+  // nelle Home di default. Nell'app finché la rotta non è cablata, spento.
   waitingCustomers: {
     titleKey: "home.blocks.waitingCustomers",
     component: WaitingCustomersBlock,
-    available: (viewer) => can(viewer, "support.reply"),
+    ...ofArea("mail-waiting", always),
+    personalOnly: true,
   },
   filter: { titleKey: "home.blocks.filter", component: FilterBlock, available: always },
 };

@@ -17,7 +17,7 @@ import {
 } from "../../data/queries";
 import type { Project, ProjectRequest, RequestLevel, RequestPatch, Task } from "../../data/types";
 import { requestFileName, requestToMarkdown } from "../../domain/export";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { isRequestOpen, relatedRequests } from "../../domain/requests";
 import {
   DETAIL_PANEL_MIN_WIDTH,
@@ -50,6 +50,7 @@ import { MergeDialog } from "./MergeDialog";
 import { RequestStatusLabel, RequestStatusSign, RiskMark, UrgencyMark } from "./marks";
 import { NextStepLine, SuggestionsSection } from "./RequestGuidance";
 import { WhoCanLink } from "../../components/WhoCanLink";
+import { featureIntegrated } from "../../data/integration";
 
 /** Le richieste di un progetto: l'unica route su cui si apre il pannello della richiesta. */
 const REQUESTS_PATH = /^\/p\/([^/]+)\/requests\/?$/;
@@ -77,7 +78,7 @@ export function RequestDetailHost() {
   }, [navigate]);
   const id = search.request;
   // Nel refine la richiesta è il lato della conversazione: lo monta la vista di refine.
-  if (!id || !routeCode || search.task || search.refine === "1") return null;
+  if (!id || !routeCode || search.task || (search.refine === "1" && featureIntegrated("refine"))) return null;
   return (
     <DetailPanel
       mode={docked ? "docked" : "overlay"}
@@ -345,9 +346,22 @@ function RequestBody({
     (request.status === "new" || request.status === "ready" || request.status === "refining")
   ) {
     actions.push(
-      <button key="refine" type="button" className={smallSecondary} disabled={busy} onClick={doRefine}>
-        {t("requests.detail.actions.refine")}
-      </button>,
+      featureIntegrated("refine") ? (
+        <button key="refine" type="button" className={smallSecondary} disabled={busy} onClick={doRefine}>
+          {t("requests.detail.actions.refine")}
+        </button>
+      ) : (
+        // Il refine con Claude è dell'area 3: nella build app resta «in arrivo».
+        <button
+          key="refine"
+          type="button"
+          className={smallSecondary}
+          disabled
+          title={t("placeholder.comingSoon.title")}
+        >
+          {t("requests.detail.actions.refine")}
+        </button>
+      ),
     );
   }
   // Una fusa non si riapre da qui: segue la richiesta in cui è confluita.
@@ -642,15 +656,17 @@ function Metadata({ request, canEdit }: { request: ProjectRequest; canEdit: bool
     <>
       {menuField(
         f("urgency"),
-        t(`requests.urgency.${request.urgency}`),
-        <UrgencyMark urgency={request.urgency} />,
+        // «Urgent» (dal server vero) sta sopra High: nel menu nessun livello è
+        // già scelto, e scegliere High la abbassa davvero.
+        request.urgent ? t("requests.urgency.urgent") : t(`requests.urgency.${request.urgency}`),
+        <UrgencyMark urgency={request.urgency} urgent={request.urgent} />,
         t("requests.detail.urgencyMenu"),
         (close) =>
           levelOptions(
-            request.urgency,
+            request.urgent ? null : request.urgency,
             (urgency) => {
               close();
-              if (urgency !== request.urgency) save({ urgency });
+              if (request.urgent || urgency !== request.urgency) save({ urgency });
             },
             (level) => <UrgencyMark urgency={level} />,
           ),

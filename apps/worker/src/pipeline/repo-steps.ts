@@ -537,6 +537,9 @@ async function takeReportFile(reportPath: string): Promise<string | null> {
   }
 }
 
+/** L'email dei commit di Stubwise: la scrive {@link commitAsStubwise}, la riconosce `commitAuthorEmail`. */
+export const STUBWISE_COMMIT_EMAIL = "ai@stubwise";
+
 /** Commit del worktree con l'identità di Stubwise (autore Stubwise AI), env
  * materializzati esclusi dal `git add` (SAFEGUARD anti-leak), report escluso
  * (`REPORT_EXCLUDE_PATHSPEC`) e lockfile non tracciati esclusi
@@ -551,7 +554,7 @@ export async function commitAsStubwise<R extends RepoStepsRepo>(
     "-c",
     "user.name=Stubwise AI",
     "-c",
-    "user.email=ai@stubwise",
+    `user.email=${STUBWISE_COMMIT_EMAIL}`,
     "commit",
     "-m",
     message,

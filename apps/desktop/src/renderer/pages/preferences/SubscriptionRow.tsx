@@ -2,6 +2,7 @@ import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { ProjectSubscriptions, SubscriptionRow as Row } from "../../data/alerts";
+import { isAppBuild } from "../../data/build";
 import { useSaveSwitch } from "./useAlertActions";
 
 // Una riga delle iscrizioni (shape alerts.md, «Riga di un tipo»): il nome e
@@ -23,6 +24,13 @@ export function rowLines(t: TFunction, row: Row, code: string): string[] {
   // Una riga solo obbligatoria ha già «Always for you» a destra.
   if (row.state !== "mandatory" && row.mandatory.length > 0) {
     lines.push(row.mandatory.map((m) => t(`alerts.mandatoryLine.${m}`)).join(" · "));
+    // Build app (review F2): spenta, l'obbligo arriva lo stesso nell'app, e sul
+    // telefono secondo il Telefono che dice il server (`phone`, non il disegno
+    // dell'interruttore, che spento segue App).
+    // Solo una riga spenta da te: di una sospesa (permesso perso) non si promette niente.
+    if (isAppBuild() && row.state === "off") {
+      lines.push(t(row.phone ? "alerts.mandatoryStill.appPhone" : "alerts.mandatoryStill.app"));
+    }
   }
   return lines;
 }

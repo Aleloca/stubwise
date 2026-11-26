@@ -4,7 +4,9 @@ import { plain } from "../../domain/productDocs/richText";
 import { listNotifications, productDocs, resetApi, setLatency } from "../api";
 import { docsAccess } from "../docs/reads";
 import type { ProductBlock, ProductPage } from "../model";
-import { CLAUDE_ID } from "../seed/people";
+import { writeAccess } from "../access/index";
+import { strangersTo, withoutChannels } from "../../test/strangers";
+import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { setSessionPersonId } from "../session";
 import { state } from "../store";
 import { revokeProjectPermission } from "../viewer";
@@ -34,6 +36,8 @@ const page = (title: string): ProductPage =>
 const block = (title: string, id: string) => page(title).blocks.find((b) => b.id === id)!;
 
 const SIGN_IN_PARA = "blk-acq-signin-2";
+/** Il commento salvato (con `seq`), dietro la vista che il livello dati restituisce. */
+const rawOf = (id: string) => state.productComments.find((c) => c.id === id)!;
 
 const snapshot = () =>
   JSON.stringify({
@@ -50,7 +54,9 @@ async function rejects(p: Promise<unknown>, message: string): Promise<void> {
 
 const mentionsOf = (personId: string) =>
   state.notifications.filter(
-    (n) => n.kind === "product_doc.mention" && n.recipientIds.includes(personId),
+    (n) =>
+      n.kind === "product_doc.mention" &&
+      (n.mandatory ?? []).some((m) => m.personId === personId && m.reason === "mentioned"),
   );
 
 beforeEach(() => {
@@ -114,7 +120,7 @@ describe("il seme dei commenti", () => {
       quote: "UTC",
       body: "Fine.",
     });
-    expect(c.seq).toBeGreaterThan(max);
+    expect(rawOf(c.id).seq).toBeGreaterThan(max);
   });
 });
 
@@ -144,7 +150,7 @@ describe("commentare, rispondere, «Risolto»", () => {
       replyToId: root.id,
     });
     expect(reply.replyToId).toBe(root.id);
-    expect(reply.seq).toBeGreaterThan(root.seq);
+    expect(rawOf(reply.id).seq).toBeGreaterThan(rawOf(root.id).seq);
     // La risposta sta sull'ancora e sulla frase della sua radice.
     expect(reply.anchorId).toBe(SIGN_IN_PARA);
     expect(reply.quote).toBe("Google account");
@@ -558,5 +564,129 @@ describe("le menzioni (Q1)", () => {
     const text = JSON.stringify(cards[0]).toLowerCase();
     expect(text).not.toContain("sign-in");
     expect(text).not.toContain(signIn.code.toLowerCase());
+  });
+});
+
+describe("la vista del commento come la dà il server (area 11, F2)", () => {
+  it("la frase è UNA riga (`cleanQuote` di shared); il commento è la vista: nome, niente `seq`; «Risolto» dice chi", async () => {
+    const signIn = page("Sign-in");
+    as(LAURA);
+    const root = await productDocs.addProductComment(signIn.id, {
+      anchorId: SIGN_IN_PARA,
+      quote: "  Google\n   account  ",
+      body: "Do we keep a fallback?",
+    });
+    expect(root.quote).toBe("Google account");
+    expect(root.authorName).toBe("Laura Costa");
+    expect(root).not.toHaveProperty("seq");
+    await productDocs.resolveProductComment(root.id);
+    const [thread] = (await productDocs.listProductComments(signIn.id)).resolved.filter((t) => t.root.id === root.id);
+    expect(thread!.root.resolved).toMatchObject({ byId: LAURA, byName: "Laura Costa" });
+    expect(thread!.root).not.toHaveProperty("seq");
+  });
+
+  it("chi guarda non vede chi ha scritto né chi ha risolto: i nomi sono `null` (R-G5)", async () => {
+    const signIn = page("Sign-in");
+    // Una persona che Marco non vede (nessun progetto in comune), autrice e
+    // risolutrice di un filo: il commento resta, il nome no.
+    // R.1414 (23 nov 2026): né il nome né l'id, che diventa un segnaposto,
+    // lo stesso per autore e risolutore (la stessa persona, la stessa risposta).
+    const hidden = PEOPLE.find((p) => p.id === strangersTo(MARCO)[0])!;
+    const seed = state.productComments.find((c) => c.pageId === signIn.id && c.replyToId === null)!;
+    state.productComments.push({
+      ...structuredClone(seed),
+      id: "pc-hidden-author",
+      authorId: hidden.id,
+      mentionIds: [],
+      resolved: { byId: hidden.id, at: seed.createdAt },
+    });
+    as(MARCO);
+    const listed = await productDocs.listProductComments(signIn.id);
+    const [thread] = listed.resolved.filter((t) => t.root.id === "pc-hidden-author");
+    expect(thread!.root.authorName).toBeNull();
+    expect(thread!.root.authorId).toMatch(/^hidden-\d+$/);
+    expect(thread!.root.resolved).toMatchObject({ byId: thread!.root.authorId, byName: null });
+    expect(JSON.stringify(listed)).not.toContain(hidden.id);
+  });
+
+  it("un membro disattivato di ACQ resta col suo nome e il suo id (r.1414)", async () => {
+    // Revisione del lotto 2 (I3): fuori dai canali leggibili, lo fa conoscere solo il progetto.
+    withoutChannels(MARCO, [LAURA]);
+    const signIn = page("Sign-in");
+    const seed = state.productComments.find((c) => c.pageId === signIn.id && c.replyToId === null)!;
+    state.productComments.push({ ...structuredClone(seed), id: "pc-deactivated", authorId: LAURA, mentionIds: [] });
+    writeAccess((s) => {
+      const row = s.people.find((p) => p.personId === LAURA)!;
+      row.status = "deactivated";
+      row.deactivatedAt = "2026-11-20T10:00:00Z";
+    });
+    as(MARCO);
+    const all = await productDocs.listProductComments(signIn.id);
+    const root = [...all.open, ...all.resolved].find((t) => t.root.id === "pc-deactivated")!.root;
+    expect(root.authorId).toBe(LAURA);
+    expect(root.authorName).toBe("Laura Costa");
+  });
+
+  it("le menzionate che chi guarda non vede non sono nella vista (come il server; review di R11-2, 4)", async () => {
+    const signIn = page("Sign-in");
+    const hidden = PEOPLE.find((p) => p.id === strangersTo(MARCO)[0])!;
+    const seed = state.productComments.find((c) => c.pageId === signIn.id && c.replyToId === null)!;
+    state.productComments.push({ ...structuredClone(seed), id: "pc-hidden-mention", mentionIds: [LAURA, hidden.id] });
+    as(MARCO);
+    const all = (await productDocs.listProductComments(signIn.id)).open;
+    const root = all.find((t) => t.root.id === "pc-hidden-mention")!.root;
+    expect(root.mentionIds).toEqual([LAURA]);
+  });
+});
+
+const KEY1 = "11111111-1111-4111-8111-111111111111";
+const KEY2 = "22222222-2222-4222-8222-222222222222";
+
+describe("la chiave del client (72, b3ef7fa53)", () => {
+  const signInId = () => state.productPages.find((p) => p.code === "ACQ-D5")!.id;
+  it("la stessa chiave dalla stessa persona: lo stesso commento, una riga sola, una menzione sola", async () => {
+    setSessionPersonId(LAURA);
+    const input = { anchorId: "blk-acq-signin-4", quote: "Google", body: "Hi @Marco Bellini", clientId: KEY1 };
+    const before = state.productComments.length;
+    const first = await productDocs.addProductComment(signInId(), input);
+    const again = await productDocs.addProductComment(signInId(), input);
+    expect(again.id).toBe(first.id);
+    expect(state.productComments.length).toBe(before + 1);
+    setSessionPersonId("p-marco");
+    const mentions = (await listNotifications()).filter((n) => n.link.endsWith(`?comment=${first.id}`));
+    expect(mentions).toHaveLength(1);
+  });
+
+  it("un'altra persona con la stessa chiave scrive il suo commento; senza chiave, due commenti", async () => {
+    setSessionPersonId(LAURA);
+    const input = { anchorId: "blk-acq-signin-4", quote: "Google", body: "Same", clientId: KEY2 };
+    const laura = await productDocs.addProductComment(signInId(), input);
+    setSessionPersonId("p-marco");
+    const marco = await productDocs.addProductComment(signInId(), input);
+    expect(marco.id).not.toBe(laura.id);
+    const plainInput = { anchorId: "blk-acq-signin-4", quote: "Google", body: "Twice" };
+    const a = await productDocs.addProductComment(signInId(), plainInput);
+    const b = await productDocs.addProductComment(signInId(), plainInput);
+    expect(b.id).not.toBe(a.id);
+  });
+
+  it("terza revisione, 5: la pagina prima della chiave; il commento tolto ridà la sua riga; una chiave non uuid è rifiutata", async () => {
+    setSessionPersonId(LAURA);
+    const input = { anchorId: "blk-acq-signin-4", quote: "Google", body: "Kept", clientId: KEY1 };
+    const first = await productDocs.addProductComment(signInId(), input);
+    // Il commento non c'è più: la stessa chiave ridà la riga di allora, non ne scrive un'altra.
+    state.productComments = state.productComments.filter((c) => c.id !== first.id);
+    const replay = await productDocs.addProductComment(signInId(), input);
+    expect(replay.id).toBe(first.id);
+    expect(state.productComments.some((c) => c.body === "Kept")).toBe(false);
+    // Laura perde «Edit docs»: la stessa chiave non ridà niente, il rifiuto della pagina viene prima.
+    revokeProjectPermission(LAURA, "prj-acq", "docs.edit" as never);
+    await expect(productDocs.addProductComment(signInId(), input)).rejects.toThrow("forbidden");
+    resetApi();
+    setLatency(0);
+    setSessionPersonId(LAURA);
+    await expect(
+      productDocs.addProductComment(signInId(), { ...input, clientId: "not-a-uuid" }),
+    ).rejects.toThrow("invalid: client_id");
   });
 });

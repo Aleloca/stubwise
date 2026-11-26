@@ -6,6 +6,7 @@ import { INTERACTIVE_SEGMENTS, type AgentSegmentLabel } from "@stubwise/shared";
 import { buildAgentEnv, type ClaudeCliRunnerOptions } from "./claude-cli.js";
 import { parseRateLimitEvent } from "./rate-limit-event.js";
 import { buildCliArgs, validateRunOptions, withMcpConfig } from "./cli-args.js";
+import { initToolsViolation } from "./native-tools.js";
 import { AGENT_PAUSE_BUDGET_MS, PauseBudgets } from "./pause-budget.js";
 import {
   AgentRunCancelledError,
@@ -140,6 +141,8 @@ export const SEGMENT_DELIVERABLE: Partial<Record<AgentSegmentLabel, "output" | "
   correction: "files",
   correction_self_repair: "files",
   refine: "conversation",
+  // La conversazione libera con Claude (chat, fetta 1): come il refinement.
+  chat: "conversation",
 };
 
 /** Variabili d'ambiente del figlio che portano una credenziale (vedi buildAgentEnv). */
@@ -525,9 +528,27 @@ export class StreamingClaudeRunner implements AgentRunner {
 
     const lines = createInterface({ input: child.stdout! });
     const linesClosed = new Promise<void>((resolve) => lines.once("close", resolve));
+    /**
+     * I tool dell'init fuori da quanto il run ha dichiarato (`builtinTools` e i
+     * server di `mcpConfig`, 10 nov 2026): il run si ferma QUI, al primo
+     * evento, prima che il modello possa chiamare qualcosa. È la rete per un
+     * CLI che ignorasse `--tools`, e il controllo degli scenari golden.
+     */
+    let toolsViolation: string[] | null = null;
+    const mcpServers = Object.keys(opts.mcpConfig?.servers ?? {});
     lines.on("line", (line) => {
       const ev = parseStreamLine(line);
       if (ev === null) return;
+      if (toolsViolation !== null) return;
+      if (ev.type === "system" && ev["subtype"] === "init" && Array.isArray(ev["tools"])) {
+        const tools = (ev["tools"] as unknown[]).filter((t): t is string => typeof t === "string");
+        toolsViolation = initToolsViolation(tools, { builtinTools: opts.builtinTools, mcpServers });
+        if (toolsViolation !== null) {
+          closeStdin();
+          child.kill();
+          return;
+        }
+      }
       if (continuesTurn(ev)) clearGrace();
       // ECO di un intervento: il CLI l'ha preso ADESSO. Un'eco senza uno dei
       // nostri uuid (il prompt iniziale) non produce niente.
@@ -669,6 +690,11 @@ export class StreamingClaudeRunner implements AgentRunner {
       await drainStdout();
       const timedOut = timedOutByRunner || failure?.timedOut === true;
       await sink.onEnd({ exitCode, timedOut });
+      if (toolsViolation !== null) {
+        throw new AgentRunError(
+          `Il CLI espone tool non ammessi per questo run (${(toolsViolation as string[]).join(", ")}): run fermato prima di iniziare`,
+        );
+      }
       if (abortedBySignal) throw new AgentRunCancelledError(null, fallbackOutput(), 0);
       // Prima del timeout: se la pausa è scaduta, la causa è quella.
       if (cancelledBy !== null) {

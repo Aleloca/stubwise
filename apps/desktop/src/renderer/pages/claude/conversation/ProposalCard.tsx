@@ -7,8 +7,10 @@ import {
   useEditProposal,
   usePeople,
   useProjects,
+  useRetryClaudeEffect,
   useRoles,
 } from "../../../data/queries";
+import type { RetryEffectResult } from "../../../data/claude";
 import type {
   ClassReason,
   NewTaskInput,
@@ -46,6 +48,7 @@ import {
   usePersonName,
 } from "./parts";
 import { UndoControl } from "./UndoControl";
+import { isAppBuild } from "../../../data/build";
 
 /** Le azioni che si possono rifare dal loro dialogo, precompilato («Edit»). */
 const EDITABLE: ReadonlySet<ProposedAction["fn"]> = new Set(["createTask", "createRequest"]);
@@ -96,6 +99,12 @@ export interface ProposalOps {
   cancel: () => Promise<unknown>;
   edit: () => Promise<NonNullable<EditState>>;
   complete: (code: string) => Promise<unknown>;
+  /**
+   * Build app (chat, fetta 3): salvare il dialogo di «Edit» CONFERMA la
+   * proposta coi valori cambiati (`edited`), e la esegue il server. Assente
+   * (prototipo e Chat): il dialogo crea a mano e `complete` chiude la scheda.
+   */
+  confirmEdited?: (index: number, args: Record<string, unknown>) => Promise<unknown>;
   busy: boolean;
 }
 
@@ -129,20 +138,15 @@ export function ProposalCard({
   // La frase del dialogo della riconferma: all'infinito, dal livello dati
   // («To add …» / «Per aggiungere …», M1); mai il riassunto, che è
   // all'imperativo e in it non si piega dentro «Per …».
-  const reauthAction = (indexes: number[] | undefined) => {
-    if (event.undoOf) return t("claude.conversation.undo.reauthAction");
-    const chosen = indexes ?? event.actions.map((_, i) => i);
-    if (chosen.length !== 1)
-      return t("claude.conversation.proposal.reauthMany", { count: chosen.length });
-    const phrase = reauthPhrases?.[chosen[0]!];
-    return phrase ? t(phrase.key, phrase.params) : t("claude.conversation.proposal.reauthOne");
-  };
+  const reauthAction = (indexes: number[] | undefined) =>
+    reauthActionText(t, event, indexes, reauthPhrases);
   const confirmedCount = event.confirmedActions?.length ?? event.actions.length;
   const codes = objectCodesOf(event);
   return (
     <ProposalCardView
       event={event}
       viewerId={viewerId}
+      conversationId={conversationId}
       after={
         event.status === "confirmed" && event.groupId ? (
           <UndoControl
@@ -166,9 +170,92 @@ export function ProposalCard({
         cancel: () => cancel.mutateAsync(target),
         edit: () => edit.mutateAsync(target),
         complete: (code) => complete.mutateAsync({ ...target, resultCodes: [code] }),
+        ...(isAppBuild()
+          ? {
+              // Come Confirm, una C passa dalla riconferma (F7, il rimando
+              // «confirmEdited salta reauth()»).
+              confirmEdited: (index, args) =>
+                confirmEditedVia(
+                  reauth,
+                  (edited) => confirm.mutateAsync({ ...target, edited }),
+                  reauthAction([index]),
+                )(index, args),
+            }
+          : {}),
         busy: confirm.isPending || cancel.isPending || edit.isPending || complete.isPending,
       }}
     />
+  );
+}
+
+/**
+ * La frase del dialogo della riconferma per le azioni scelte: all'infinito,
+ * dal livello dati (M1); senza frasi (la Chat), la generica. La usano il
+ * riquadro e la Chat (review F7, I1).
+ */
+export function reauthActionText(
+  t: (key: string, params?: Record<string, unknown>) => string,
+  event: Pick<Ev<"proposal">, "actions" | "undoOf">,
+  indexes: number[] | undefined,
+  phrases?: (Utterance | null)[],
+): string {
+  if (event.undoOf) return t("claude.conversation.undo.reauthAction");
+  const chosen = indexes ?? event.actions.map((_, i) => i);
+  if (chosen.length !== 1)
+    return t("claude.conversation.proposal.reauthMany", { count: chosen.length });
+  const phrase = phrases?.[chosen[0]!];
+  return phrase ? t(phrase.key, phrase.params) : t("claude.conversation.proposal.reauthOne");
+}
+
+/**
+ * La conferma di una proposta MODIFICATA (scheda «Edit»): passa dalla
+ * riconferma come Confirm (una C risponde `reauth_required`, il wrapper chiede
+ * il codice e la rimanda uguale). Una conferma che il server non esegue
+ * (`failed`) o una riconferma annullata non chiudono il dialogo in silenzio:
+ * rifiutano, e il dialogo dice l'errore.
+ */
+export function confirmEditedVia(
+  reauth: <T>(call: () => Promise<T>, opts: { action: string }) => Promise<unknown>,
+  send: (edited: { index: number; args: Record<string, unknown> }[]) => Promise<unknown>,
+  action: string,
+) {
+  return async (index: number, args: Record<string, unknown>): Promise<unknown> => {
+    const result = await reauth(() => send([{ index, args }]), { action });
+    const r = result as { status?: string; error?: string; ok?: boolean };
+    // Un rifiuto in forma di dato (la riconferma annullata, o un secondo
+    // `reauth_required`) non è un successo (review F7, M3).
+    if (r.ok === false) throw new Error(r.error ?? "failed");
+    if (r.status === "failed") throw new Error(r.error);
+    return result;
+  };
+}
+
+/** Le voci che registrano o spostano un plugin: lo smoke run ne esegue il codice subito. */
+const PLUGIN_FNS: ReadonlySet<string> = new Set(["registerPlugin", "updatePluginRef"]);
+
+/**
+ * Registrare un plugin ne ESEGUE già il codice (CLAUDE.md, «Plugin e skill»):
+ * la scheda lo dice prima di Confirm, e che chi chiede ha scritto di fidarsi
+ * (`trust`, decisione del maintainer in F7, M-6). La frase sta nel client,
+ * dalla `fn`: nessun motivo nuovo del server.
+ */
+function PluginRunsCode({ trusted, moves }: { trusted: boolean; moves: boolean }) {
+  const { t } = useTranslation();
+  const titleId = useId();
+  // Spostarlo a un commit nuovo ne esegue il codice nuovo (review F7, M4).
+  const k = moves ? "claude.conversation.proposal.plugin.moves" : "claude.conversation.proposal.plugin";
+  return (
+    <div
+      role="note"
+      aria-labelledby={titleId}
+      className="flex min-w-0 flex-col gap-1 border-t border-rule pt-2.5 text-sm text-pretty text-ink-muted"
+    >
+      <p id={titleId} className="font-semibold text-ink">
+        {t(`${k}.title`)}
+      </p>
+      <p>{t(`${k}.runsCode`)}</p>
+      {trusted && <p>{t("claude.conversation.proposal.plugin.trusted")}</p>}
+    </div>
   );
 }
 
@@ -188,11 +275,15 @@ export function ProposalCardView({
   renderCode,
   canAct = true,
   cantActNote,
+  refusalText,
   after,
+  conversationId,
 }: {
   event: Ev<"proposal">;
   viewerId: string;
   ops: ProposalOps;
+  /** Lotto 4, §5: la conversazione della scheda, per «Retry» di un seguito non riuscito. */
+  conversationId?: string;
   renderText?: (text: string) => ReactNode;
   renderCode?: (code: string) => ReactNode;
   /** Sotto l'esito di una scheda confermata («Undo» del gruppo, area 10a). */
@@ -201,6 +292,11 @@ export function ProposalCardView({
   canAct?: boolean;
   /** La riga per chi l'ha chiesta e non può più agire. */
   cantActNote?: string;
+  /**
+   * Un rifiuto che il posto della scheda sa dire meglio (nella Chat: il canale
+   * archiviato, chi non è più membro); `null` = la frase di sempre.
+   */
+  refusalText?: (error: Error) => string | null;
 }) {
   const { t, i18n } = useTranslation();
   const requester = usePersonName(event.requesterId);
@@ -212,9 +308,18 @@ export function ProposalCardView({
   const confirmWhyId = useId();
   const resolvedRef = useFocusWhenResolved<HTMLElement>(event.status !== "open");
 
-  const own = event.requesterId === viewerId;
-  const mine = own && canAct;
   const open = event.status === "open";
+
+  // Registrare o spostare un plugin ne esegue il codice (F7, M-6): la scheda lo dice.
+  const pluginAction = event.actions.find((a) => PLUGIN_FNS.has(a.fn));
+
+  // Build app: su una scheda aperta chi decide lo dice il server
+  // (`canDecide`), non chi guarda (fetta 5: una pubblica, una continuazione).
+  // Quando è il posto a non lasciar agire (`canAct` falso: nella Chat un
+  // canale archiviato o lasciato), chi l'ha chiesta resta lui: legge «Your
+  // proposal» con la nota, e il `canDecide` falso del server toglie solo i bottoni.
+  const own = event.requesterId === viewerId && (!canAct || !(open && event.canDecide === false));
+  const mine = own && canAct;
   // Un «Annulla» è tutto o niente: niente caselle (I1).
   const many = event.actions.length > 1 && !event.undoOf;
   const chosen = selected.flatMap((on, i) => (on ? [i] : []));
@@ -267,11 +372,12 @@ export function ProposalCardView({
 
   const fail = (e: Error) =>
     setError(
-      e.message === "expired"
+      refusalText?.(e) ??
+      (e.message === "expired"
         ? t("claude.conversation.proposal.expiredNow")
         : e.message === "forbidden"
           ? t("claude.conversation.proposal.notYours")
-          : t("claude.conversation.proposal.failedNow"),
+          : t("claude.conversation.proposal.failedNow")),
     );
 
   const doConfirm = () => {
@@ -281,9 +387,12 @@ export function ProposalCardView({
       .then((result) => {
         // Una C senza codice non resta muta (T5): se la riconferma non è
         // passata di qui, la scheda lo dice; chiuso il dialogo, il toast.
-        const refusal = result as { ok?: boolean; error?: string } | undefined;
+        const refusal = result as { ok?: boolean; status?: string; error?: string } | undefined;
         if (refusal?.ok === false && refusal.error === "reauth_required")
           setError(t("claude.conversation.proposal.needsCode"));
+        // Non eseguita (scaduta, rifiutata, in conflitto): la scheda lo dice
+        // subito, anche prima che la vista del server la rilegga.
+        else if (refusal?.status === "failed") fail(new Error(refusal.error ?? "failed"));
       })
       .catch(fail);
   };
@@ -303,6 +412,15 @@ export function ProposalCardView({
   const outcome = (() => {
     switch (event.status) {
       case "confirmed": {
+        // Build app: confermata, ma Gmail non ha salvato il corpo: mai «Done».
+        if (event.mailNotSaved)
+          return (
+            <MailNotSaved
+              text={event.mailNotSaved.text}
+              retry={conversationId ? event.mailNotSaved.retry : undefined}
+              conversationId={conversationId ?? ""}
+            />
+          );
         const codes = event.resultCodes ?? [];
         const partial = event.confirmedActions
           ? t("claude.conversation.proposal.partial", {
@@ -453,6 +571,10 @@ export function ProposalCardView({
               )}
         </button>
       )}
+      {open && pluginAction && <PluginRunsCode
+          trusted={pluginAction.args.trust === true}
+          moves={pluginAction.fn === "updatePluginRef"}
+        />}
       {open && event.reasons && event.reasons.length > 0 && (
         <ReasonRows
           reasons={blocked ? event.reasons.filter((r) => r.kind !== "reauth") : event.reasons}
@@ -516,6 +638,10 @@ export function ProposalCardView({
           initial={editing.args as Partial<NewTaskInput>}
           onCreated={(task) => edited(task.code)}
           onClose={() => setEditing(null)}
+          {...(ops.confirmEdited
+            ? { submit: (input: NewTaskInput) => ops.confirmEdited!(0, { ...editing.args, ...input }) }
+            : {})}
+          {...(refusalText ? { refusalText } : {})}
         />
       )}
       {editing?.fn === "createRequest" && (
@@ -527,6 +653,10 @@ export function ProposalCardView({
           }}
           onCreated={(request) => edited(request.code)}
           onClose={() => setEditing(null)}
+          {...(ops.confirmEdited
+            ? { submit: (input: { projectId: string; title: string; description: string }) => ops.confirmEdited!(0, { ...editing.args, ...input }) }
+            : {})}
+          {...(refusalText ? { refusalText } : {})}
         />
       )}
     </section>
@@ -842,6 +972,14 @@ function ReasonRows({ reasons }: { reasons: readonly ClassReason[] }) {
             text: t("claude.conversation.proposal.reasons.reauth"),
           },
         ];
+      case "startsWork":
+        return [
+          {
+            kind: "startsWork",
+            glyph: <IrreversibleGlyph />,
+            text: t("claude.conversation.proposal.reasons.startsWork"),
+          },
+        ];
     }
   });
   if (rows.length === 0) return null;
@@ -859,5 +997,85 @@ function ReasonRows({ reasons }: { reasons: readonly ClassReason[] }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+/** I motivi di un «Retry» non riuscito che vogliono una frase loro (lotto 4, §5). */
+const RECONNECT = new Set(["mail_forbidden", "token_expired", "google_scope_missing", "account_disabled"]);
+
+function retryFailureKey(r: Exclude<RetryEffectResult, { ok: true }>): string {
+  const words = "claude.conversation.proposal.retryFailed";
+  if (r.error === "mail_forbidden" || (r.error === "mail_not_saved" && r.reason && RECONNECT.has(r.reason)))
+    return `${words}.reconnect`;
+  if (r.error === "draft_changed") return `${words}.changed`;
+  if (r.error === "mail_not_found" || r.error === "not_found") return `${words}.gone`;
+  return `${words}.generic`;
+}
+
+/**
+ * `fillMailBody` confermata ma non salvata su Gmail (area 6, F3): lo dice, e
+ * dà il testo da copiare. Lotto 4, §5: «Retry» rilancia il salvataggio sul
+ * server, solo se il server lo permette (`retry`); un rifiuto dice perché, e
+ * il testo resta da copiare.
+ */
+function MailNotSaved({
+  text,
+  retry,
+  conversationId,
+}: {
+  text: string;
+  retry?: { groupId: string; index: number };
+  conversationId: string;
+}) {
+  const { t } = useTranslation();
+  const [copied, setCopied] = useState(false);
+  const retrying = useRetryClaudeEffect();
+  const [failed, setFailed] = useState<string | null>(null);
+  const doRetry = () => {
+    if (!retry || retrying.isPending) return;
+    setFailed(null);
+    retrying.mutate(
+      { id: conversationId, groupId: retry.groupId, index: retry.index },
+      {
+        onSuccess: (r) => {
+          if (!r.ok) setFailed(retryFailureKey(r));
+        },
+        onError: () => setFailed("claude.conversation.proposal.retryFailed.generic"),
+      },
+    );
+  };
+  return (
+    <p className="flex flex-wrap items-baseline gap-x-1 text-sm text-critical">
+      <span className="font-semibold">{t("claude.conversation.proposal.mailNotSaved")}</span>
+      {retry && (
+        <button
+          type="button"
+          className="rounded-sm font-medium text-ink underline underline-offset-2"
+          aria-busy={retrying.isPending}
+          disabled={retrying.isPending}
+          onClick={doRetry}
+        >
+          {t("claude.conversation.proposal.retrySave")}
+        </button>
+      )}
+      <button
+        type="button"
+        className="rounded-sm font-medium text-ink underline underline-offset-2"
+        onClick={() =>
+          void navigator.clipboard?.writeText(text).then(
+            () => setCopied(true),
+            () => setCopied(false),
+          )
+        }
+      >
+        {t("claude.conversation.proposal.copyText")}
+      </button>
+      {copied && <span role="status" className="text-ink-muted">{t("claude.conversation.proposal.copied")}</span>}
+      {failed && (
+        <span role="alert" className="basis-full text-ink-muted">
+          {t(failed)}
+        </span>
+      )}
+    </p>
   );
 }

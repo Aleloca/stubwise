@@ -26,6 +26,7 @@ import {
   pageLink,
   spaceLink,
   useSpace,
+  spaceKey,
 } from "./parts";
 
 // Una pagina dei Docs (shape docs.md §3, §5): sopra l'h1 il codice (clic
@@ -55,7 +56,7 @@ export function DocPageRoute({ slug }: { slug: string }) {
     return (
       <DocNotFound
         back={
-          <Link {...spaceLink(project.code, space.name)} className={backLinkClass}>
+          <Link {...spaceLink(project.code, spaceKey(space))} className={backLinkClass}>
             {t("docs.page.backToIndex")}
           </Link>
         }
@@ -83,7 +84,7 @@ function DocPageBody({ page }: { page: DocPage }) {
   }, [page.id, record]);
 
   const copyLink = () => {
-    copyText(pageHref(project.code, space.name, page.slug)).then(
+    copyText(pageHref(project.code, spaceKey(space), page.slug)).then(
       () => toast.show(t("docs.page.linkCopied", { code: page.code })),
       () => toast.error(t("docs.page.copyFailed")),
     );
@@ -336,7 +337,7 @@ function LinkedPages({ page }: { page: DocPage }) {
               {links.map(({ page: target }) => (
                 <li key={target.id}>
                   <Link
-                    {...pageLink(project.code, space.name, target.slug)}
+                    {...pageLink(project.code, spaceKey(space), target.slug)}
                     className="flex min-h-8 min-w-0 items-center gap-2 rounded-md px-1 text-md text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6"
                   >
                     <DocCode code={target.code} />
@@ -379,7 +380,7 @@ function DeleteDialog({ page, onClose }: { page: DocPage; onClose: () => void })
                 onSuccess: () => {
                   toast.show(t("docs.page.deleted", { title: page.title }));
                   onClose();
-                  void navigate({ ...spaceLink(project.code, space.name), replace: true });
+                  void navigate({ ...spaceLink(project.code, spaceKey(space)), replace: true });
                 },
                 onError: () => toast.error(t("docs.page.deleteFailed", { title: page.title })),
               })

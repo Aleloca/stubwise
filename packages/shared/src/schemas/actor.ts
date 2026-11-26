@@ -7,5 +7,21 @@ import { z } from "zod";
  * `notification.ts` importa già da `ticket.ts` (`ticketPrioritySchema`):
  * tenerlo lì avrebbe creato un import circolare fra i due moduli.
  */
-export const handledBySchema = z.object({ id: z.uuid(), email: z.string() });
+/** `id`: l'id, o `hidden-<n>` (con `email` vuota) per chi chi legge non conosce (registro, A11 r.1414). */
+export const handledBySchema = z.object({ id: z.string().min(1), email: z.string() });
 export type HandledBy = z.infer<typeof handledBySchema>;
+
+/**
+ * «via Claude» (chat, fetta 3): la riga l'ha scritta Claude per conto di una
+ * persona. Campi DERIVATI a lettura dal server (`via_claude_action_id` e il
+ * richiedente del gruppo dell'azione), comuni a commenti, card di inbox e
+ * registro della task. ADDITIVI con default: un server che non li manda dice
+ * «non via Claude». Qui, accanto a `handledBySchema`, perché `ticket.ts`,
+ * `notification.ts` e `task-view.ts` li usano tutti senza importarsi a vicenda.
+ */
+export const viaClaudeShape = {
+  viaClaude: z.boolean().default(false),
+  viaClaudeActionId: z.uuid().nullable().default(null),
+  /** L'id, o `hidden-<n>` per chi chi legge non conosce (registro, A11 r.1414). */
+  viaClaudeRequesterId: z.string().min(1).nullable().default(null),
+};

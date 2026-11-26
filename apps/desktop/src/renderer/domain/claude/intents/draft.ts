@@ -7,8 +7,8 @@ import { isRefused, refused, refusedTopicOf } from "./refused";
 // Le bozze (area 10b, Task 8: S6, S6b, Posta, descrizione — D1). «Scrivi la
 // risposta», «draft the release notes», «scrivi un'email a … per dire che
 // …», «write the description for ACQ-14»: Claude scrive un testo per uno dei
-// quattro campi (risposta di supporto, note di rilascio, corpo dell'email,
-// descrizione di una task) e non scrive MAI dati. Il testo diventa un evento
+// tre campi (note di rilascio, corpo dell'email, descrizione di una task;
+// la risposta di supporto è uscita con l'area 8, F3) e non scrive MAI dati. Il testo diventa un evento
 // `draft` che il riquadro mette nel campo della pagina (Task 10); inviare e
 // salvare restano gesti della persona — «scrivi e manda l'email» scrive la
 // bozza e poi la riga D `send`, nessun invio. Il campo lo dicono il
@@ -93,14 +93,7 @@ async function nowhere(text: string, ctx: IntentContext): Promise<Answer> {
     const code = `${support[1]!.toUpperCase()}-S${support[2]}`;
     const id = await ctx.read.supportConversationIdOf(code);
     if (!id) return notFound(ctx, code, lookupOf(ctx, code));
-    return {
-      ...say(sentence),
-      place: {
-        route: `#/p/${projectCodeOf(code)}/support/${code}`,
-        labelKey: `${K}.openCode`,
-        labelParams: { code },
-      },
-    };
+    return noSupportReply(ctx);
   }
   const task = findCodes(text).find((c) => c.kind === "task");
   if (task) {
@@ -208,12 +201,9 @@ async function draftOf(text: string, ctx: IntentContext): Promise<Answer> {
     const code = `${support[1]!.toUpperCase()}-S${support[2]}`;
     const id = await ctx.read.supportConversationIdOf(code);
     if (!id) return notFound(ctx, code, lookupOf(ctx, code));
-    return supportReply(id, code, sends, ctx);
+    return noSupportReply(ctx);
   }
-  if (context?.kind === "support") {
-    const seen = await ctx.read.describeContext(context);
-    if (seen?.code) return supportReply(context.conversationId, seen.code, sends, ctx);
-  }
+  if (context?.kind === "support") return noSupportReply(ctx);
   if (context?.kind === "mail") return mail(context, text, sends, ctx);
   if (want === "any" && context?.kind === "task") {
     const seen = await ctx.read.describeContext(context);
@@ -222,26 +212,12 @@ async function draftOf(text: string, ctx: IntentContext): Promise<Answer> {
   return nowhere(text, ctx);
 }
 
-/** S6: la risposta di supporto, o la riga col «Who?» senza `support.reply`. */
-async function supportReply(
-  conversationId: string,
-  code: string,
-  sends: boolean,
-  ctx: IntentContext,
-): Promise<Answer> {
-  const body = await ctx.read.supportReplyDraft(conversationId);
-  if (body === null) {
-    return say(`${ctx.t(`${K}.cantReply`)} ${who(ctx, "replyCustomers", projectCodeOf(code))}`);
-  }
-  const field: FieldRef = { kind: "supportReply", conversationId };
-  return withSend(
-    { ...say(""), draft: { field, text: body } },
-    sends,
-    ctx,
-    `#/p/${projectCodeOf(code)}/support/${code}`,
-    `${K}.openReply`,
-  );
-}
+/**
+ * S6, area 8 F3 (decisione del maintainer): in Support Claude non scrive
+ * risposte. Al cliente del widget risponde l'assistente del widget, e le sue
+ * richieste le segue sul sito che lo ospita.
+ */
+const noSupportReply = (ctx: IntentContext): Answer => say(ctx.t(`${K}.noSupportReply`));
 
 /** S6b: le note di rilascio della PR aperta. */
 async function releaseNotes(

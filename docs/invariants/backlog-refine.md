@@ -55,7 +55,13 @@
   unici `Bash(`) e i tre tool di `REFINE_TOOL_NAMES` (`set_design`,
   `set_plan`, `update_item`). Mai `Edit`, `Write`, `MultiEdit`, `Bash` nudo,
   `WebFetch`, `NotebookEdit`. **Chi aggiunge un tool all'elenco lo dichiara
-  qui**, con la ragione. Mai la plan mode: bloccherebbe i tool MCP di
+  qui**, con la ragione. **Anche i NATIVI sono un elenco chiuso** (10 nov 2026,
+  CLI 2.1.322): `builtinTools` = `Read`/`Grep`/`Glob`/`Skill` (`--tools`),
+  più `Bash` solo coi comandi del grafo. Senza, il CLI eseguiva in questo
+  turno `CronCreate`, `SendMessage` e `RemoteTrigger` senza chiedere: la
+  regola e la misura stanno in `agent-sessions.md` («I tool NATIVI di ogni
+  run»). Ne discende che senza grafo `Bash` non c'è proprio: la misura qui
+  sotto vale solo per i turni con un grafo. Mai la plan mode: bloccherebbe i tool MCP di
   scrittura. Che in `-p` con `default` un tool fuori elenco non resti appeso
   su una richiesta e non scriva lo verifica lo scenario golden `refine` (repo
   pulito, nessun timeout), insieme a `Skill` non negato (una chiamata in

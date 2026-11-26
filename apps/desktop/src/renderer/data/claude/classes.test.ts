@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { visiblePeopleFor } from "../access/whoCan";
 import { wouldNotify } from "../alerts/visibility";
+import { setSubscriptionAs } from "../alerts/writes";
 import { automations, resetApi, setLatency } from "../api";
 import { createTaskAs } from "../api-mutations";
 import { automationsStartingOn } from "../automations/sources";
@@ -190,7 +191,7 @@ describe("classOf: pianificare e modificare", () => {
 });
 
 describe("classOf: le altre voci", () => {
-  it("addMember è C: avvisa la persona aggiunta (D4), poi la riconferma; deleteTask è B e non si annulla", () => {
+  it("addMember è C: avvisa la persona aggiunta (D4) e chi gestisce i membri (19 nov 2026), poi la riconferma; deleteTask è B e non si annulla", () => {
     expect(
       classOf(ROBERTA, {
         fn: "addMember",
@@ -199,17 +200,20 @@ describe("classOf: le altre voci", () => {
     ).toEqual({
       cls: "C",
       reasons: [
-        { kind: "notifies", personIds: ["p-laura"], more: false },
+        { kind: "notifies", personIds: ["p-giulia", "p-laura"], more: false },
         { kind: "reauth" },
       ],
     });
-    // Chi aggiunge sé stesso non avvisa nessuno; un progetto invisibile non dice niente.
+    // Chi aggiunge sé stesso avvisa solo chi gestisce i membri; un progetto invisibile non dice niente.
     expect(
       classOf(ROBERTA, {
         fn: "addMember",
         args: { projectId: OLV, personId: ROBERTA, roleId: "role-developer" },
       }),
-    ).toEqual({ cls: "C", reasons: [{ kind: "reauth" }] });
+    ).toEqual({
+      cls: "C",
+      reasons: [{ kind: "notifies", personIds: ["p-giulia"], more: false }, { kind: "reauth" }],
+    });
     expect(
       classOf(GIULIA, {
         fn: "addMember",
@@ -223,15 +227,24 @@ describe("classOf: le altre voci", () => {
   });
 
   it("le righe d'istanza: B, o C con la riconferma; registerPlugin e retryJob non si annullano", () => {
-    for (const fn of ["setModel", "saveWebhook", "pauseQueue"] as const)
+    for (const fn of ["setModel", "pauseQueue"] as const)
       expect(classOf(ROBERTA, { fn, args: {} }), fn).toEqual({ cls: "B", reasons: [] });
     expect(classOf(ROBERTA, { fn: "updatePluginRef", args: {} })).toEqual({
       cls: "C",
       reasons: [{ kind: "irreversible" }, { kind: "reauth" }],
     });
-    expect(classOf(ROBERTA, { fn: "saveStorage", args: {} })).toEqual({
-      cls: "C",
-      reasons: [{ kind: "reauth" }],
+    // La classe segue la rotta (decisione del maintainer in F7): senza chiave, storage è B.
+    expect(classOf(ROBERTA, { fn: "saveStorage", args: {} })).toEqual({ cls: "B", reasons: [] });
+    // Anche con una chiave negli argomenti: la voce la rifiuta prima (invalid), non chiede il codice (review F7, M2).
+    expect(classOf(ROBERTA, { fn: "saveStorage", args: { secretAccessKey: "x" } })).toEqual({
+      cls: "B",
+      reasons: [],
+    });
+    // Un webhook: B. L'URL (che vorrebbe la riconferma) da Claude non arriva (72, F7).
+    const w = state.instance.webhooks[0]!;
+    expect(classOf(ROBERTA, { fn: "updateWebhook", args: { id: w.id, enabled: false } })).toEqual({
+      cls: "B",
+      reasons: [],
     });
     expect(classOf(ROBERTA, { fn: "registerPlugin", args: {} })).toEqual({
       cls: "C",
@@ -340,15 +353,16 @@ describe("la doc di prodotto (11b, Task 8; decisione 3)", () => {
   const people = (c: ReturnType<typeof classOf>) =>
     (c.reasons[0] as Extract<ClassReason, { kind: "notifies" }>).personIds;
 
-  it("«aggiorna la pagina» è B e dice chi segue la pagina, meno chi chiede", () => {
-    follows([LAURA, MARCO]);
-    expect(classOf(LAURA, update)).toEqual({
-      cls: "B",
-      reasons: [{ kind: "notifies", personIds: [MARCO], more: false }],
-    });
+  it("«aggiorna la pagina» è B e dice chi segue la pagina e chi ha la riga accesa, meno chi chiede", () => {
+    follows([LAURA, SARA]);
+    const cls = classOf(LAURA, update);
+    expect(cls.cls).toBe("B");
+    // Sara segue (solo docs.view): sempre; Marco ha docs.edit, riga accesa di partenza.
+    expect(people(cls)).toEqual(expect.arrayContaining([MARCO, SARA]));
+    expect(people(cls)).not.toContain(LAURA);
   });
 
-  it("senza seguaci avvisa chi ha `docs.edit` (il ripiego di `productDocRecipients`): B", () => {
+  it("senza seguaci avvisa chi ha la riga accesa (di partenza chi ha `docs.edit`): B", () => {
     follows([]);
     const cls = classOf(LAURA, update);
     expect(cls.cls).toBe("B");
@@ -359,6 +373,16 @@ describe("la doc di prodotto (11b, Task 8; decisione 3)", () => {
 
   it("chi chiede è l'unico destinatario: la ragione sparisce, la classe resta B (P39)", () => {
     follows([LAURA]);
+    // Tutti gli altri hanno spento la riga di ACQ: resta solo chi chiede.
+    for (const p of state.projectsById.get(ACQ)!.memberIds) {
+      if (p === LAURA) continue;
+      // Chi non può iscriversi (senza docs.view) non la riceve comunque.
+      try {
+        setSubscriptionAs(p, ACQ, "product_doc.updated", { app: false });
+      } catch {
+        /* non iscrivibile */
+      }
+    }
     expect(classOf(LAURA, update)).toEqual({ cls: "B", reasons: [] });
   });
 
@@ -368,9 +392,10 @@ describe("la doc di prodotto (11b, Task 8; decisione 3)", () => {
     expect(classOf(SARA, update)).toEqual({ cls: "B", reasons: [] });
   });
 
-  it("la prima versione e la bozza di schermata sono A; un gruppo con l'aggiornamento è B", () => {
-    expect(classOf(LAURA, { fn: "writeFirstVersion", args: { projectId: "prj-vrd", sources: [] } })).toEqual(A);
-    expect(classOf(LAURA, draw)).toEqual(A);
+  it("la prima versione e la bozza di schermata sono B: Claude si mette al lavoro, e chiede (area 11, F6-1 = a)", () => {
+    const startsWork = { cls: "B", reasons: [{ kind: "startsWork" }] };
+    expect(classOf(LAURA, { fn: "writeFirstVersion", args: { projectId: "prj-vrd", sources: [] } })).toEqual(startsWork);
+    expect(classOf(LAURA, draw)).toEqual(startsWork);
     expect(classOfGroup(LAURA, [draw, update]).cls).toBe("B");
     // Gli inversi non si annullano a loro volta: B (il riquadro li esegue da «Undo»).
     for (const fn of ["undoFirstVersion", "undoProductUpdate", "deleteWireframe"] as const) {

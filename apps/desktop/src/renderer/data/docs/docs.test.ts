@@ -305,7 +305,7 @@ describe("generazione e grafo", () => {
     await docs.whenDocsIdle();
     expect((await docs.getDocSpace("repo-stw"))!.graph.status).toBe("ready");
     const pr = await docs.graphAction("repo-aud", "setup_pr");
-    expect(pr.setupPr?.open).toBe(true);
+    expect(pr.setupPr?.state).toBe("open");
     as("p-roberta");
     await rejects(docs.graphAction("repo-cbv", "regenerate"), "invalid");
   });
@@ -406,6 +406,19 @@ describe("generazione, grafo e chat (Task 3)", () => {
       pageId: "doc-aud-callbacks",
       repositoryName: "audin-app",
     });
+  });
+
+  // Lotto 7, §2 (decisione del maintainer, 24 nov 2026): il testo della
+  // risposta CRESCE mentre arriva; le citazioni arrivano a risposta finita.
+  it("la risposta arriva a pezzi: ogni pezzo allunga il testo, l'ultimo è la risposta intera", async () => {
+    const seen: string[] = [];
+    const answer = await docs.askDocs(
+      { projectId: "prj-aud", question: "How do scheduled callbacks work?" },
+      (soFar) => seen.push(soFar),
+    );
+    expect(seen.length).toBeGreaterThan(1);
+    for (let i = 1; i < seen.length; i++) expect(seen[i]!.startsWith(seen[i - 1]!)).toBe(true);
+    expect(seen.at(-1)).toBe(answer.text);
   });
 
   it("la chat del repository cerca solo lì; un tema assente lo dice senza inventare", async () => {

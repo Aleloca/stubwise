@@ -11,6 +11,8 @@ import {
   openProductQuestions,
   productFirstVersionOf,
   startFirstVersionAs,
+  stopFirstVersionAs,
+  undoFirstVersionAs,
   whenFirstVersionIdle,
 } from "../../../data/productDocs/firstVersion";
 import { deleteProductPageAs, writeProductBlocksAs } from "../../../data/productDocs/writes";
@@ -124,6 +126,8 @@ describe("lo spazio vuoto: le due strade", () => {
   });
 
   it("col budget del mese finito: spenta, con la frase del budget e «Who?»", async () => {
+    // D-7.1: a chi non ha `plans.approve` nel progetto.
+    revokeProjectPermission(LAURA, VRD, "plans.approve");
     state.instance.simulate.budgetReached = true;
     await openIndex();
     const row = firstWay();
@@ -214,6 +218,8 @@ describe("la finestra delle fonti", () => {
     await user.click(firstWay());
     const dialog = await screen.findByRole("dialog");
     await user.type(within(dialog).getByRole("textbox", { name: "Pasted text" }), "notes");
+    // D-7.1: il budget ferma chi non ha `plans.approve` nel progetto.
+    revokeProjectPermission(LAURA, VRD, "plans.approve");
     state.instance.simulate.budgetReached = true;
     await user.click(within(dialog).getByRole("button", { name: "Write the first version" }));
     const alert = await within(dialog).findByRole("alert");
@@ -291,11 +297,29 @@ describe("l'avanzamento", () => {
   it("l'annuncio dice ogni pagina scritta, e la fine", async () => {
     setStreamLatency(20);
     await openIndex();
-    act(() => void startFirstVersionAs(LAURA, VRD, [TEXT]));
-    const live = () => document.querySelector("[data-first-version-announce]")!;
-    await waitFor(() => expect(live().textContent).toBe(`${VRD_FIRST_VERSION[0]!.title} written`));
-    await act(() => whenFirstVersionIdle());
-    await waitFor(() => expect(live().textContent).toBe("Claude wrote the first version"));
+    // Il tempo dello stream lo muove il test: con l'orologio vero, sotto
+    // carico, la seconda pagina arrivava prima che l'annuncio della prima si
+    // potesse leggere (e `waitFor` aspettava uno stato già passato).
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      act(() => void startFirstVersionAs(LAURA, VRD, [TEXT]));
+      const live = () => document.querySelector("[data-first-version-announce]")!;
+      while (productFirstVersionOf(LAURA, VRD)!.pagesDone < 1)
+        await act(() => vi.advanceTimersByTimeAsync(20));
+      // Mezza pausa: la pagina si rilegge (le query notificano con un
+      // timer a 0), la pagina dopo no.
+      await act(() => vi.advanceTimersByTimeAsync(10));
+      expect(productFirstVersionOf(LAURA, VRD)!.pagesDone).toBe(1);
+      expect(live().textContent).toBe(`${VRD_FIRST_VERSION[0]!.title} written`);
+      await act(async () => {
+        const idle = whenFirstVersionIdle();
+        await vi.runAllTimersAsync();
+        await idle;
+      });
+      expect(live().textContent).toBe("Claude wrote the first version");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("Sara vede l'avanzamento lanciato da Laura, senza la riga per lanciarla", async () => {
@@ -573,6 +597,8 @@ describe("fix round 1 — a 1024 la nota e i rifiuti restano a vista (I1)", () =
     const privacy = dialog.querySelector("[data-first-version-privacy]")!;
     expect(body.contains(privacy)).toBe(false);
     await user.type(within(dialog).getByRole("textbox", { name: "Pasted text" }), "notes");
+    // D-7.1: il budget ferma chi non ha `plans.approve` nel progetto.
+    revokeProjectPermission(LAURA, VRD, "plans.approve");
     state.instance.simulate.budgetReached = true;
     await user.click(within(dialog).getByRole("button", { name: "Write the first version" }));
     const alert = await within(dialog).findByRole("alert");
@@ -768,5 +794,116 @@ describe("fix round 1 — l'avanzamento che cambia sotto il fuoco (M2, M4)", () 
     await waitFor(() => expect(firstWay()).toHaveFocus());
     body.stop();
     expect(body.hits).toEqual([]);
+  });
+});
+
+describe("«Stop» accanto all'avanzamento (decisione del maintainer, 22 nov 2026)", () => {
+  const stopButton = () => screen.queryByRole("button", { name: /^(Stop|Ferma)$/ });
+
+  it("Laura: «Stop», senza conferma; «Stopping after this page…» col fuoco sul titolo, mai sul body; poi «Claude stopped the first version», le pagine scritte restano", async () => {
+    // Una pagina ogni 300 ms: la frase «Stopping…» resta il tempo di leggerla.
+    setStreamLatency(300);
+    const user = userEvent.setup();
+    await openIndex();
+    act(() => void startFirstVersionAs(LAURA, VRD, [TEXT]));
+    const title = await screen.findByRole("heading", { name: "Claude is writing the first version" });
+    // Dopo la prima pagina: Claude finisce quella in corso (prima della prima non comincia, M2).
+    await waitFor(() => expect(productFirstVersionOf(LAURA, VRD)!.pagesDone).toBeGreaterThan(0), { timeout: 3000 });
+    const stop = vi.spyOn(productDocs, "stopFirstVersion");
+    const body = watchBody();
+    await user.click(stopButton()!);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(stop).toHaveBeenCalledWith(VRD);
+    expect(await screen.findByText("Stopping after this page…")).toBeInTheDocument();
+    expect(stopButton()).toBeNull();
+    await waitFor(() => expect(title).toHaveFocus());
+    await act(() => whenFirstVersionIdle());
+    await screen.findByRole("heading", { name: "Claude stopped the first version" });
+    expect(screen.queryByText("Stopping after this page…")).toBeNull();
+    const view = productFirstVersionOf(LAURA, VRD)!;
+    expect(view.interrupted).toBe(true);
+    expect(view.pagesDone).toBeLessThan(VRD_FIRST_VERSION.length);
+    expect(vrdPages()).toHaveLength(view.pagesDone);
+    expect(screen.getByText(`${view.pagesDone} of ${VRD_FIRST_VERSION.length} pages written`)).toBeInTheDocument();
+    body.stop();
+    expect(body.hits).toEqual([]);
+  });
+
+  it("Sara (legge soltanto) non ha «Stop»; quando Laura la ferma legge «Stopping after this page…»", async () => {
+    setStreamLatency(300);
+    await openIndex(SARA);
+    act(() => void startFirstVersionAs(LAURA, VRD, [TEXT]));
+    await screen.findByRole("heading", { name: "Claude is writing the first version" });
+    expect(stopButton()).toBeNull();
+    act(() => stopFirstVersionAs(LAURA, VRD));
+    expect(await screen.findByText("Stopping after this page…")).toBeInTheDocument();
+  });
+
+  it("Marco (`docs.edit`, non l'ha chiesta) ha «Stop»; a fine stesura non c'è più", async () => {
+    setStreamLatency(25);
+    await openIndex(MARCO);
+    act(() => void startFirstVersionAs(LAURA, VRD, [TEXT]));
+    await screen.findByRole("heading", { name: "Claude is writing the first version" });
+    expect(stopButton()).toBeInTheDocument();
+    await act(() => whenFirstVersionIdle());
+    await screen.findByRole("heading", { name: "Claude wrote the first version" });
+    expect(stopButton()).toBeNull();
+  });
+
+  it("non riuscito: «Couldn't stop the first version. Try again.», e «Stop» resta", async () => {
+    setStreamLatency(25);
+    const user = userEvent.setup();
+    await openIndex();
+    act(() => void startFirstVersionAs(LAURA, VRD, [TEXT]));
+    await screen.findByRole("heading", { name: "Claude is writing the first version" });
+    failNext("productDocs.stopFirstVersion");
+    await user.click(stopButton()!);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't stop the first version. Try again.");
+    expect(stopButton()).toBeInTheDocument();
+    expect(productFirstVersionOf(LAURA, VRD)!.status).toBe("writing");
+  });
+
+  it("terza revisione, 4: fermata prima della prima pagina, lo spazio è di nuovo vuoto, con «Write the first version with Claude»", async () => {
+    setStreamLatency(300);
+    await openIndex();
+    act(() => {
+      startFirstVersionAs(LAURA, VRD, [TEXT]);
+      stopFirstVersionAs(LAURA, VRD);
+    });
+    await act(() => whenFirstVersionIdle());
+    expect(await screen.findByRole("button", { name: /^Write the first version with Claude/ })).not.toHaveAttribute(
+      "aria-disabled",
+    );
+    expect(screen.queryByRole("heading", { name: "Claude stopped the first version" })).toBeNull();
+    expect(screen.queryByRole("list", { name: "Pages of the first version" })).toBeNull();
+  });
+
+  it("seconda revisione, M1: una prima versione nuova senza smontare l'avanzamento ha di nuovo «Stop»", async () => {
+    setStreamLatency(300);
+    const user = userEvent.setup();
+    await openIndex();
+    act(() => void startFirstVersionAs(LAURA, VRD, [TEXT]));
+    await screen.findByRole("heading", { name: "Claude is writing the first version" });
+    await user.click(stopButton()!);
+    expect(await screen.findByText("Stopping after this page…")).toBeInTheDocument();
+    // Marco la annulla e ne lancia un'altra, nello stesso giro: l'avanzamento resta montato.
+    act(() => {
+      undoFirstVersionAs(MARCO, VRD);
+      startFirstVersionAs(MARCO, VRD, [TEXT]);
+    });
+    expect(await screen.findByRole("button", { name: "Stop" })).toBeInTheDocument();
+    expect(screen.queryByText("Stopping after this page…")).toBeNull();
+  });
+
+  it("in italiano: «Ferma», poi «Si ferma dopo questa pagina…»", async () => {
+    act(() => setLanguage("it"));
+    setStreamLatency(300);
+    const user = userEvent.setup();
+    await openIndex();
+    act(() => void startFirstVersionAs(LAURA, VRD, [TEXT]));
+    await screen.findByRole("heading", { name: "Claude sta scrivendo la prima versione" });
+    await user.click(screen.getByRole("button", { name: "Ferma" }));
+    expect(await screen.findByText("Si ferma dopo questa pagina…")).toBeInTheDocument();
   });
 });

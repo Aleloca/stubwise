@@ -1,7 +1,8 @@
 import type { AiModelChoice, AiOperation } from "@stubwise/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
-import * as api from "../api";
+import * as api from "@backend/api";
+import { featureIntegrated } from "../integration";
 import { RUN_AREAS, useSessionPersonId, useWrite } from "../queries";
 
 // Gli hook dell'istanza (area 9b); `data/queries` li ri-esporta. L'import
@@ -9,7 +10,7 @@ import { RUN_AREAS, useSessionPersonId, useWrite } from "../queries";
 // funzioni. I Task 3–7 ci aggiungono i loro.
 
 export type { UsageDimension, UsageRange, UsageRow, UsageView } from "../instance/usage";
-export { OTHER_PROJECTS_KEY } from "../instance/usage";
+export { OTHER_PROJECTS_KEY } from "../instance/constants";
 export type {
   AutomationRule,
   AutomationSettings,
@@ -26,6 +27,7 @@ export type {
   WebhookEventId,
   WebhookFormat,
   WebhookGroup,
+  WebhookInput,
   WebhookView,
   DetachedRepositoryRow,
   InstanceRepositoryGroup,
@@ -36,10 +38,11 @@ export type {
   ProviderView,
   QuotaView,
   TestOutcome,
+  WebhookTestOutcome,
 } from "../instance";
-export { BACKGROUND_WEEKLY_THRESHOLD } from "../instance/providers";
-export { GOOGLE_SETUP } from "../instance/google";
-export { WEBHOOK_EVENTS } from "../instance/webhook";
+export { BACKGROUND_WEEKLY_THRESHOLD } from "../instance/constants";
+export { GOOGLE_SETUP } from "../instance/constants";
+export { WEBHOOK_EVENTS, WEBHOOK_LIMIT } from "../instance/constants";
 
 /**
  * I repository dei progetti dove chi guarda ha `repos.view`, per progetto
@@ -120,16 +123,20 @@ const INSTANCE_EFFECT_AREAS: readonly string[] = [
  */
 export function useInstanceChanges(): void {
   const client = useQueryClient();
+  // Lo stato dell'istanza (area 9b) non è integrato nella build app.
+  const on = featureIntegrated("instance");
   useEffect(
     () =>
-      api.onInstanceChange(() => {
-        void client.invalidateQueries({
-          predicate: (query) =>
-            query.queryKey[0] === "as" &&
-            INSTANCE_EFFECT_AREAS.includes(query.queryKey[2] as string),
-        });
-      }),
-    [client],
+      on
+        ? api.onInstanceChange(() => {
+            void client.invalidateQueries({
+              predicate: (query) =>
+                query.queryKey[0] === "as" &&
+                INSTANCE_EFFECT_AREAS.includes(query.queryKey[2] as string),
+            });
+          })
+        : undefined,
+    [client, on],
   );
 }
 
@@ -144,6 +151,12 @@ export function useAiBlock(projectId: string | null) {
   return useQuery({
     queryKey: ["as", me, "instance", "ai-block", projectId] as const,
     queryFn: () => api.instance.getAiBlock(projectId),
+    // Il budget del mese lo legge anche la chat con Claude (che ha solo quello: `projectId` null).
+    // Area 9, F4: per un progetto anche con `queue-pause` (budget e coda dal server).
+    enabled:
+      featureIntegrated("instance") ||
+      featureIntegrated("queue-pause") ||
+      (projectId === null && featureIntegrated("claude-chat")),
   });
 }
 
@@ -158,6 +171,9 @@ export function useQueuePause(projectId: string) {
   return useQuery({
     queryKey: ["as", me, "instance", "queue-pause", projectId] as const,
     queryFn: () => api.instance.getQueuePause(projectId),
+    // Area 9, F4: la pausa arriva dalla vista del progetto (`queue-pause`),
+    // prima del resto dello stato dell'istanza.
+    enabled: featureIntegrated("instance") || featureIntegrated("queue-pause"),
   });
 }
 
@@ -168,6 +184,7 @@ export function useStorageAllowsUploads() {
   return useQuery({
     queryKey: ["as", me, "instance", "uploads-allowed"] as const,
     queryFn: () => api.instance.getUploadsAllowed(),
+    enabled: featureIntegrated("instance"),
   });
 }
 
@@ -197,6 +214,14 @@ export function useCreateProvider() {
     AI_WRITE_AREAS,
     // La chiave sta negli argomenti: la cache delle mutazioni non la tiene.
     { secret: true },
+  );
+}
+
+/** Rinomina un account, senza riconferma (F3, come il server). */
+export function useRenameProvider() {
+  return useWrite(
+    ([id, name]: [string, string]) => api.instance.renameProvider(id, name),
+    AI_WRITE_AREAS,
   );
 }
 
@@ -235,7 +260,7 @@ export function useDeleteProvider() {
 /** SOLO PROTOTIPO: l'esito della prossima prova (un provider, un account, "storage" o "webhook"). */
 export function useSimulateNextTest() {
   return useWrite(
-    ([target, outcome]: [string, api.instance.TestOutcome]) =>
+    ([target, outcome]: [string, api.instance.WebhookTestOutcome]) =>
       api.instance.simulateNextTest(target, outcome),
     ["instance"],
   );
@@ -288,6 +313,24 @@ export function useSaveBudget() {
   return useWrite(
     (input: Parameters<typeof api.instance.saveBudget>[0]) => api.instance.saveBudget(input),
     BUDGET_WRITE_AREAS,
+  );
+}
+
+/** I tetti dell'analisi dei server (area 8, F4b, R0-C), `settings.manage`. */
+export function useServerAnalysisSettings() {
+  const me = useSessionPersonId();
+  useInstanceChanges();
+  return useQuery({
+    queryKey: ["as", me, "instance", "serverAnalysis"] as const,
+    queryFn: () => api.instance.getServerAnalysisSettings(),
+  });
+}
+
+export function useSaveServerAnalysisSettings() {
+  return useWrite(
+    (input: Parameters<typeof api.instance.saveServerAnalysisSettings>[0]) =>
+      api.instance.saveServerAnalysisSettings(input),
+    ["instance", "changelog"] as const,
   );
 }
 
@@ -449,6 +492,15 @@ export function useGoogleApps() {
   });
 }
 
+/** L'indirizzo di ritorno OAuth da dare a Google (F3: nella build app è del server). */
+export function useGoogleRedirectUri() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "instance", "google-redirect-uri"] as const,
+    queryFn: () => api.instance.getGoogleRedirectUri(),
+  });
+}
+
 /** Aggiunge un'app (+R). Il client secret sta negli argomenti. */
 export function useCreateGoogleApp() {
   return useWrite(
@@ -509,25 +561,62 @@ export function useTestStorage() {
   return useWrite(() => api.instance.testStorage(), STORAGE_WRITE_AREAS);
 }
 
-/** Il webhook in uscita, con l'URL in chiaro e i 21 eventi. */
-export function useWebhook() {
+/** I webhook in uscita (F3: un elenco), con l'URL in chiaro; mai il segreto. */
+export function useWebhooks() {
   const me = useSessionPersonId();
   return useQuery({
-    queryKey: ["as", me, "instance", "webhook"] as const,
-    queryFn: () => api.instance.getWebhook(),
+    queryKey: ["as", me, "instance", "webhooks"] as const,
+    queryFn: () => api.instance.listWebhooks(),
   });
 }
 
-/** Salva tutto il modulo, senza riconferma. */
-export function useSaveWebhook() {
+/** Un webhook (la sua pagina); errore `not_found` se non c'è. */
+export function useWebhook(id: string | undefined) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "instance", "webhooks", id ?? ""] as const,
+    queryFn: () => api.instance.getWebhook(id!),
+    enabled: !!id,
+  });
+}
+
+/** Un webhook nuovo, con la riconferma: il risultato porta il segreto, una volta. */
+export function useCreateWebhook() {
   return useWrite(
-    (input: Parameters<typeof api.instance.saveWebhook>[0]) => api.instance.saveWebhook(input),
+    (input: api.instance.WebhookInput) => api.instance.createWebhook(input),
+    INTEGRATION_WRITE_AREAS,
+    // Il segreto nel risultato: la cache delle mutazioni non lo tiene (review F3, I1).
+    { secret: true },
+  );
+}
+
+/** Cambia un webhook, senza riconferma. */
+export function useUpdateWebhook() {
+  return useWrite(
+    ([id, patch]: [string, Partial<api.instance.WebhookInput>]) =>
+      api.instance.updateWebhook(id, patch),
     INTEGRATION_WRITE_AREAS,
   );
 }
 
+/** Un segreto nuovo, con la riconferma: il risultato lo porta, una volta. */
+export function useRegenerateOutgoingWebhookSecret() {
+  return useWrite(
+    (id: string) => api.instance.regenerateWebhookSecret(id),
+    INTEGRATION_WRITE_AREAS,
+    // Il segreto nel risultato: la cache delle mutazioni non lo tiene (review F3, I1).
+    { secret: true },
+  );
+}
+
+/** Elimina un webhook, con la riconferma. */
+export function useDeleteWebhook() {
+  return useWrite((id: string) => api.instance.deleteWebhook(id), INTEGRATION_WRITE_AREAS);
+}
+
+/** Una prova a un webhook, anche spento. */
 export function useTestWebhook() {
-  return useWrite(() => api.instance.testWebhook(), INTEGRATION_WRITE_AREAS);
+  return useWrite((id: string) => api.instance.testWebhook(id), INTEGRATION_WRITE_AREAS);
 }
 
 /**
@@ -541,7 +630,7 @@ export function useWebhookPreview(
   const me = useSessionPersonId();
   return useQuery({
     queryKey: ["as", me, "instance", "webhook-preview", eventId, format] as const,
-    queryFn: () => Promise.resolve(api.instance.previewWebhook(eventId, format)),
+    queryFn: () => api.instance.previewWebhook(eventId, format),
     // Passando da un evento all'altro l'anteprima non si svuota.
     placeholderData: (previous) => previous,
   });

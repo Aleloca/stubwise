@@ -14,13 +14,14 @@ import { canManageSsh, serverFor } from "./visibility";
 
 const VERIFY_OUTCOMES: readonly VerifyOutcome[] = [
   "ok",
-  "read_fails",
-  "fix_fails",
-  "read_writes",
+  "no_journal",
+  "denied",
+  "sudo",
+  "docker",
   "unreachable",
 ];
 
-/** «Simula: riesce / fallisce lettura / fallisce correzione / lettura scrive / irraggiungibile» per la prossima «Verifica». */
+/** «Simula: riesce / senza journal / chiave rifiutata / ha sudo / ha docker / irraggiungibile» per la prossima «Verifica». */
 export async function simulateSshVerifyOutcome(
   code: string,
   outcome: VerifyOutcome,

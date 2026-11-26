@@ -53,6 +53,13 @@ jobs:
       - name: Build
         run: pnpm -r build
 
+      # Il dist sotto l'ESM VERO di node (15 nov 2026): vitest tollera import
+      # con nome da pacchetti CommonJS che node rifiuta al link, e il server
+      # non partiva (`import { utils } from "ssh2"`). Il controllo degli import
+      # con nome su ogni dist node, il suo test, e lo smoke di avvio del server.
+      - name: Dist sotto node vero
+        run: node --test scripts/check-esm-named-imports.test.mjs && pnpm check:dist
+
       # Il plugin Claude Code «stubwise» (plugins/stubwise, marketplace in
       # .claude-plugin/): (1) sulle PR, una modifica al plugin chiede un
       # changeset che nomini plugin E @stubwise/mcp — senza versione nuova
@@ -77,6 +84,27 @@ jobs:
 
       - name: Typecheck
         run: pnpm -r typecheck
+
+      # La nuova app (integrazione area 2, fetta 1): il renderer dell'app
+      # desktop in modo «app» si builda, e nel bundle non c'è nessun dato del
+      # seed del prototipo (anti-obiettivo «dati finti davanti a un utente
+      # vero»). DUE bundle, con i comandi di `apps/desktop/package.json` (UNA
+      # regola sola: `check:seed:web` lo usa anche Dockerfile.caddy, e i
+      # pacchetti del Mac vanno sullo stesso `check:seed:app`):
+      # - `check:seed:web`: il bundle servito da caddy su /app (`dist-web`);
+      # - `check:seed:app`: quello dell'app Electron (`out/`, main, preload e
+      #   renderer), che prima si controllava SOLO a mano in `package:mac`
+      #   (25 nov 2026: il seme ci è entrato senza che nessun automatismo lo
+      #   vedesse). Due varianti, come i due pacchetti del Mac: quella di
+      #   default e quella firmata con la cassaforte (`STUBWISE_VAULT_DESKTOP=on`,
+      #   che `build:app` eredita dall'ambiente).
+      - name: Build web della nuova app, senza seed
+        run: pnpm --filter @stubwise/desktop check:seed:web
+
+      - name: Build dell'app desktop (Electron), senza seed
+        run: |
+          pnpm --filter @stubwise/desktop check:seed:app
+          STUBWISE_VAULT_DESKTOP=on pnpm --filter @stubwise/desktop check:seed:app
 
       # ⚠️ SULLE PR SI TESTANO SOLO I PACCHETTI TOCCATI E CHI NE DIPENDE (24 set
       # 2026), con due reti di sicurezza che non vanno tolte: un file fuori da

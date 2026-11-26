@@ -14,6 +14,7 @@ import { useTranslation } from "react-i18next";
 import { AiBlockLine, usePauserName, waitingText } from "../../../components/InstanceBlock";
 import { WhoCanLink } from "../../../components/WhoCanLink";
 import { aiTabsFor } from "../../../data/adminSections";
+import { isAppBuild } from "../../../data/build";
 import {
   useInstanceStatus,
   useRetryJob,
@@ -21,7 +22,7 @@ import {
   type InstanceStatusView,
 } from "../../../data/queries";
 import { WORK_KINDS, WORK_STATES } from "../../../data/routes";
-import { useViewer } from "../../../data/viewer";
+import { useViewer } from "../../../data/viewing";
 import { Dialog } from "../../../tasks-ui/Dialog";
 import { Chip } from "../../../tasks-ui/FilterBar";
 import { RadioItem } from "../../../tasks-ui/Menu";
@@ -499,14 +500,6 @@ function WorkSection({ view }: { view: View }) {
 
   return (
     <Part title={t("admin.status.work.heading")} headingRef={heading}>
-      {/* Senza settings.manage: la frase una volta sotto il titolo (Impeccable
-          8); la riga tiene solo il «Who?» accanto al bottone spento. */}
-      {view.jobs.some((j) => j.retryNeeds === "manageSettings") && (
-        <p className="pb-3 text-sm text-pretty text-ink-muted">
-          {t("admin.status.work.retryNeeds.manageSettings")}{" "}
-          <WhoCanLink action="manageSettings" projectId={null} />
-        </p>
-      )}
       <div
         role="group"
         aria-label={t("admin.status.work.filters")}
@@ -591,6 +584,7 @@ function WorkSection({ view }: { view: View }) {
               key={r.job.id}
               presence={r}
               reference={view.refreshedAt}
+              workers={view.workers}
               onRetry={() =>
                 setRetrying({
                   job: r.job,
@@ -624,16 +618,27 @@ function WorkSection({ view }: { view: View }) {
 }
 
 /** Lo stato in parole, seconda riga della riga di un lavoro. */
-function StateWords({ job, reference }: { job: Job; reference: string }) {
+function StateWords({
+  job,
+  reference,
+  workers,
+}: {
+  job: Job;
+  reference: string;
+  workers: { id: string }[];
+}) {
   const { t, i18n } = useTranslation();
+  // «Worker 2»: la posizione nell'elenco, come nella sezione Workers (F4: gli
+  // id sono gli slot del server, `<processo>:<n>`).
+  const workerNumber = (id: string) => workers.findIndex((w) => w.id === id) + 1;
   // «(deactivated)» come nella testata, nella coda e nella task (Review Focus 3).
   const pauser = usePauserName(job.waiting);
   if (job.state === "running") {
     return (
       <span className="inline-flex items-center gap-1.5 text-ink">
         <RunningGlyph />
-        {job.workerId
-          ? t("admin.status.work.state.running", { n: job.workerId.slice(-1) })
+        {job.workerId && workerNumber(job.workerId) > 0
+          ? t("admin.status.work.state.running", { n: workerNumber(job.workerId) })
           : t("admin.status.work.state.runningUnassigned")}
       </span>
     );
@@ -666,11 +671,14 @@ function StateWords({ job, reference }: { job: Job; reference: string }) {
 function JobRow({
   presence: { job, fresh, leaving },
   reference,
+  workers,
   onRetry,
   onLostFocus,
 }: {
   presence: Presence;
   reference: string;
+  /** Per il numero del worker: la sua posizione nell'elenco (gli id sono del server). */
+  workers: { id: string }[];
   onRetry: () => void;
   onLostFocus: () => void;
 }) {
@@ -715,7 +723,11 @@ function JobRow({
               {code}
             </span>
           )}
-          <span className="shrink-0 text-ink">{t(`admin.status.work.kinds.${job.kind}`)}</span>
+          <span className="shrink-0 text-ink">
+            {t(`admin.status.work.kinds.${job.kind}`, {
+              defaultValue: t("admin.status.work.kinds.other"),
+            })}
+          </span>
           <span title={job.title} className="min-w-0 truncate text-ink-muted">
             {job.title}
           </span>
@@ -727,7 +739,7 @@ function JobRow({
       <div className="flex min-w-0 flex-col gap-1.5 @min-[680px]:flex-row @min-[680px]:items-center @min-[680px]:gap-3">
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <p className="min-w-0 text-sm text-pretty">
-            <StateWords job={job} reference={reference} />
+            <StateWords job={job} reference={reference} workers={workers} />
             <span className="num float-right ml-3 text-xs text-ink-faint @min-[680px]:hidden">
               {age}
             </span>
@@ -737,16 +749,16 @@ function JobRow({
         </div>
         {job.state === "failed" && job.retry !== "unavailable" && (
           <span className="flex shrink-0 items-center gap-2 self-start">
-            {job.retryNeeds === "manageSettings" && (
-              <WhoCanLink action="manageSettings" projectId={null} />
-            )}
             <button
               type="button"
               disabled={job.retry !== "allowed"}
               aria-label={t("admin.status.work.retryOf", { code })}
               title={
                 job.retryNeeds
-                  ? t(`admin.status.work.retryNeeds.${job.retryNeeds}`, { code: job.projectCode })
+                  ? t(`admin.status.work.retryNeeds.${job.retryNeeds}`, {
+                      code: job.projectCode,
+                      defaultValue: t("admin.status.work.retryNeeds.other"),
+                    })
                   : undefined
               }
               onClick={onRetry}
@@ -757,6 +769,17 @@ function JobRow({
           </span>
         )}
       </div>
+      {/* Review F4, I1: chi gestisce QUESTO progetto, sulla riga. */}
+      {job.retryNeeds === "manageSettings" && job.projectId !== null && (
+        <p className="text-xs text-pretty text-ink-muted">
+          {t("admin.status.work.retryNeeds.manageSettings", { code: job.projectCode })}{" "}
+          <WhoCanLink
+            action="manageProjectSettings"
+            projectId={job.projectId}
+            projectCode={job.projectCode}
+          />
+        </p>
+      )}
       {job.retryNeeds === "startRun" && (
         <p className="text-xs text-pretty text-ink-muted">
           {t("admin.status.work.retryNeeds.startRun", { code: job.projectCode })}{" "}
@@ -860,6 +883,12 @@ function Workers({ view }: { view: View }) {
   const { t } = useTranslation();
   return (
     <Part title={t("admin.status.workers.heading")}>
+      {/* Review F4, M1: nessun worker in funzione (heartbeat negli ultimi 2′). */}
+      {view.workers.length === 0 && (
+        <p className="border-t border-rule py-3 text-sm text-ink-muted">
+          {t("admin.status.workers.empty")}
+        </p>
+      )}
       <ul className="border-t border-rule">
         {view.workers.map((w, i) => {
           const job = w.jobId ? view.jobs.find((j) => j.id === w.jobId) : undefined;
@@ -877,7 +906,9 @@ function Workers({ view }: { view: View }) {
                     <span className="num text-xs font-semibold tracking-[0.02em] text-ink">
                       {job.code ?? job.projectCode}
                     </span>{" "}
-                    {t(`admin.status.work.kinds.${job.kind}`)}
+                    {t(`admin.status.work.kinds.${job.kind}`, {
+                      defaultValue: t("admin.status.work.kinds.other"),
+                    })}
                     <span className="text-ink-faint"> · </span>
                     <span className="num">{ageWords(t, job.since, view.refreshedAt)}</span>
                   </>
@@ -891,7 +922,9 @@ function Workers({ view }: { view: View }) {
           );
         })}
       </ul>
-      <p className="mt-2 text-xs text-ink-faint">{t("admin.status.workers.prototype")}</p>
+      {!isAppBuild() && (
+        <p className="mt-2 text-xs text-ink-faint">{t("admin.status.workers.prototype")}</p>
+      )}
     </Part>
   );
 }
@@ -1023,7 +1056,9 @@ function Nightly({ view }: { view: View }) {
                 <span className="font-medium text-ink">{r.repositoryName}</span>
                 <span className="text-ink-faint">·</span>
                 <span className="text-ink-muted">
-                  {t(`admin.status.nightly.phases.${r.phase}`)}
+                  {t(`admin.status.nightly.phases.${r.phase}`, {
+                    defaultValue: t("admin.status.nightly.phases.other"),
+                  })}
                 </span>
                 <span className="text-ink-faint">·</span>
                 <span

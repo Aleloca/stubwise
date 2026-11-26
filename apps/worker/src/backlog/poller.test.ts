@@ -1,5 +1,5 @@
 import { backlogJobs, projects, type Db } from "@stubwise/db";
-import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { BacklogJobPayload } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
@@ -32,7 +32,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterEach(async () => {
-  await testDb.db.delete(projects); // backlog_jobs cascano dal progetto.
+  await deleteAllProjects(testDb.db); // backlog_jobs cascano dal progetto.
 });
 
 afterAll(async () => {
@@ -135,6 +135,20 @@ describe("claimNextBacklogJob", () => {
     expect(b?.id).not.toBe(first);
     const c = await claimNextBacklogJob(db);
     expect(c).toBeNull();
+  });
+
+  it("area 9, F4: la coda del progetto in pausa non dà intake né stime nuove; un altro progetto sì; alla ripresa sì", async () => {
+    const db = testDb.db;
+    const paused = await createProject(db);
+    const other = await createProject(db);
+    const p = await insertJob(db, { projectId: paused });
+    await new Promise((r) => setTimeout(r, 5));
+    const o = await insertJob(db, { projectId: other });
+    await db.update(projects).set({ queuePausedAt: new Date() }).where(eq(projects.id, paused));
+    expect((await claimNextBacklogJob(db))?.id).toBe(o);
+    expect(await claimNextBacklogJob(db)).toBeNull();
+    await db.update(projects).set({ queuePausedAt: null }).where(eq(projects.id, paused));
+    expect((await claimNextBacklogJob(db))?.id).toBe(p);
   });
 
   it("due claim concorrenti su due job prendono righe diverse (SKIP LOCKED)", async () => {

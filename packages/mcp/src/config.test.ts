@@ -3,6 +3,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// Nessun test legge il file personale VERO (`~/.config/stubwise/config.json`):
+// su una macchina col plugin configurato lo troverebbe e cambierebbe l'esito.
+// `homedir()` punta a una cartella che non esiste: il file personale è assente,
+// salvo i test che lo scrivono e lo passano con STUBWISE_CONFIG.
+const fakeHome = vi.hoisted(() => `/nonexistent-stubwise-home-${process.pid}`);
+vi.mock("node:os", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:os")>();
+  return { ...actual, homedir: () => fakeHome };
+});
+
 import { loadConfig, readProjectSlug, readUserConfigFile } from "./config.js";
 
 describe("loadConfig", () => {

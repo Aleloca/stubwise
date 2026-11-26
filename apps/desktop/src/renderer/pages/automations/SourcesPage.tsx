@@ -1,4 +1,5 @@
 import { useSearch } from "@tanstack/react-router";
+import { isAppBuild } from "../../data/build";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -128,7 +129,8 @@ function SourceRow({ source, open }: { source: AutomationSourceView; open: boole
                 : t("automations.sources.connect")}
             </button>
           </>
-        ) : (
+        ) : isAppBuild() ? null : (
+          // «Simulate» e «Disconnect» (il solo voce del «⋯»): solo nel prototipo (F4).
           <span className="flex items-center gap-1 opacity-0 transition-opacity duration-[var(--duration-fast)] ease-out group-focus-within:opacity-100 group-hover:opacity-100">
             <MenuButton
               menuLabel={t("automations.sources.simulate")}
@@ -277,7 +279,10 @@ export function SourcesPage() {
             <h2 id="connected-sources" className="text-xl font-semibold text-ink">
               {t("automations.sources.connected")}
             </h2>
-            <span className="ml-auto">{list.length > 0 && <ConnectMenu sources={list} />}</span>
+            <span className="ml-auto">
+              {/* Anche a elenco vuoto: nella build app il primo webhook nasce da qui. */}
+              {sources.data !== undefined && <ConnectMenu sources={list} />}
+            </span>
           </div>
           {sources.isError ? (
             <div role="alert" className="flex items-center gap-3 border-t border-rule py-3">

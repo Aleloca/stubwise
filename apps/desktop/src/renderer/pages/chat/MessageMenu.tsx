@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { featureIntegrated } from "../../data/integration";
 import { itemClass, MenuGroup } from "../../tasks-ui/Menu";
 import { MenuButton } from "../tasks/controls";
 import { Glyph } from "../claude/conversation/parts";
@@ -42,18 +43,17 @@ export function MessageMenu({
   actions,
   quick,
   canReact,
-  canWrite,
-  own,
+  canEdit,
+  canDelete,
   member,
 }: {
   actions: MessageActions;
   /** Le 3 reazioni rapide (le più usate da chi guarda). */
   quick: readonly string[];
   canReact: boolean;
-  /** Il canale si scrive (membro, non archiviato): rispondere, modificare, eliminare. */
-  canWrite: boolean;
-  /** Il messaggio è di chi guarda. */
-  own: boolean;
+  /** Chi guarda modifica / elimina il messaggio (il server nella build app). */
+  canEdit: boolean;
+  canDelete: boolean;
   /** Chi guarda è membro (ha una lettura da spostare). */
   member: boolean;
 }) {
@@ -137,14 +137,17 @@ export function MessageMenu({
                 {item(t("chat.actions.copyLink"), actions.onCopyLink)}
                 {member && item(t("chat.actions.markUnread"), actions.onMarkUnread)}
               </MenuGroup>
-              <MenuGroup>
-                {item(t("chat.actions.createTask"), actions.onCreateTask)}
-                {item(t("chat.actions.createRequest"), actions.onCreateRequest)}
-              </MenuGroup>
-              {own && canWrite && (
+              {/* Build app: task e richieste da un messaggio sono della fetta 2 (`chat-from-message`). */}
+              {featureIntegrated("chat-from-message") && (
                 <MenuGroup>
-                  {item(t("chat.actions.edit"), actions.onEdit)}
-                  {item(t("chat.actions.delete"), actions.onDelete, "text-critical")}
+                  {item(t("chat.actions.createTask"), actions.onCreateTask)}
+                  {item(t("chat.actions.createRequest"), actions.onCreateRequest)}
+                </MenuGroup>
+              )}
+              {(canEdit || canDelete) && (
+                <MenuGroup>
+                  {canEdit && item(t("chat.actions.edit"), actions.onEdit)}
+                  {canDelete && item(t("chat.actions.delete"), actions.onDelete, "text-critical")}
                 </MenuGroup>
               )}
             </>

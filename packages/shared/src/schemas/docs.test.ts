@@ -44,8 +44,12 @@ describe("repoHighlightsSchema", () => {
     ],
   };
 
-  it("parsa una risposta completa", () => {
-    expect(repoHighlightsSchema.parse(response)).toEqual(response);
+  it("parsa una risposta completa; senza `code` (un server di prima della fetta 1 dell'area 5) le pagine hanno `code: null`", () => {
+    expect(repoHighlightsSchema.parse(response)).toEqual({
+      ...response,
+      topViewed: response.topViewed.map((r) => ({ ...r, code: null })),
+      recentlyUpdated: response.recentlyUpdated.map((r) => ({ ...r, code: null })),
+    });
   });
 
   it("un kind nuovo arriva all'app come UNKNOWN, non fa fallire la risposta", () => {
@@ -78,7 +82,7 @@ describe("projectHighlightsSchema", () => {
   };
 
   it("latestDecisions è opzionale: un server più vecchio non la manda", () => {
-    expect(projectHighlightsSchema.parse(base)).toEqual(base);
+    expect(projectHighlightsSchema.parse(base)).toEqual({ ...base, topViewed: base.topViewed.map((r) => ({ ...r, code: null })) });
   });
 });
 
@@ -115,7 +119,8 @@ describe("projectDocsSearchResultSchema", () => {
       repositorySlug: "web",
       repositoryName: "Web",
     };
-    expect(projectDocsSearchResultSchema.parse(hit)).toEqual(hit);
+    expect(projectDocsSearchResultSchema.parse(hit)).toEqual({ ...hit, code: null });
+    expect(projectDocsSearchResultSchema.parse({ ...hit, code: "WEB-D4" }).code).toBe("WEB-D4");
   });
 });
 

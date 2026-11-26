@@ -160,10 +160,15 @@ function FilePicker({ project, onClose }: { project: Project; onClose: () => voi
               <span className="num max-w-[45%] shrink-0 truncate text-sm text-ink-faint">
                 {disabled
                   ? t("drive.add.already", { code: project.code })
-                  : t("drive.add.meta", {
-                      owner: f.owner,
-                      date: modifiedLabel(f.modifiedAt, t, i18n.language),
-                    })}
+                  : // Si salta la parte che il server non dà (review F5b, 6).
+                    [
+                      f.owner,
+                      f.modifiedAt
+                        ? t("drive.add.modified", { date: modifiedLabel(f.modifiedAt, t, i18n.language) })
+                        : "",
+                    ]
+                      .filter((x) => x !== "")
+                      .join(" · ")}
               </span>
             </div>
           );

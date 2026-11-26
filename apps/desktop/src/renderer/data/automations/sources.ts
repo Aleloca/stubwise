@@ -1,13 +1,19 @@
-import { lookup, evaluate } from "../../domain/automations/conditions";
+import { leavesOf, passesStartFilter, startFilterChecks } from "../../domain/automations/runRules";
+export { leavesOf, passesStartFilter, startFilterChecks };
+import { chainAllows as chainRule, scheduleDue as sharedScheduleDue } from "@stubwise/shared";
 import {
-  copy,
   onAutomationSignal,
   state,
   visibleProjectIds,
   type AutomationSignal,
 } from "../store";
-import type { Automation, AutomationTrigger, Condition, FilterCheck, Task } from "../types";
-import { ancestorsOf, CHAIN_MAX, currentOrigin } from "./effects";
+import type {
+  Automation,
+  AutomationTrigger,
+  ProjectRequest,
+  Task,
+} from "../types";
+import { ancestorsOf, currentOrigin } from "./effects";
 import { enqueue, publishedVersion, startRun } from "./runner";
 import { runById, stepOfRun } from "./visibility";
 
@@ -62,6 +68,19 @@ export function taskHappening(
   };
 }
 
+/** I dati di una richiesta che ne leggono le automazioni (creata o convertita). */
+function requestPayload(r: ProjectRequest): Record<string, unknown> {
+  return {
+    codice: r.code,
+    titolo: r.title,
+    descrizione: r.description,
+    progetto: projectCode(r.projectId),
+    richiedente: r.requesterIds[0] ?? "",
+    urgenza: r.urgency,
+    dal_supporto: r.origin?.kind === "support",
+  };
+}
+
 /** Gli eventi di un segnale, coi dati che ne leggono le automazioni (anche gli esempi della prova). */
 export function happenings(signal: AutomationSignal): Happening[] {
   switch (signal.kind) {
@@ -74,20 +93,20 @@ export function happenings(signal: AutomationSignal): Happening[] {
     case "request_created": {
       const r = state.requests.find((x) => x.id === signal.requestId);
       if (!r) return [];
+      return [{ event: "request_created", projectId: r.projectId, payload: { richiesta: requestPayload(r) } }];
+    }
+    case "request_converted": {
+      // Q5 = a: i dati della richiesta e della task nata dalla conversione.
+      const r = state.requests.find((x) => x.id === signal.requestId);
+      const t = state.tasksById.get(signal.taskId);
+      if (!r || !t) return [];
       return [
         {
-          event: "request_created",
+          event: "request_converted",
           projectId: r.projectId,
           payload: {
-            richiesta: {
-              codice: r.code,
-              titolo: r.title,
-              descrizione: r.description,
-              progetto: projectCode(r.projectId),
-              richiedente: r.requesterIds[0] ?? "",
-              urgenza: r.urgency,
-              dal_supporto: r.origin?.kind === "support",
-            },
+            richiesta: requestPayload(r),
+            ...taskHappening("task_created", t).payload,
           },
         },
       ];
@@ -119,34 +138,8 @@ export function happenings(signal: AutomationSignal): Happening[] {
   }
 }
 
-/**
- * Il filtro dell'inizio vale per l'evento? Una regola sola: la usano l'avvio
- * vero (`startsOn`) e la prova (D3, area 10b), così non possono divergere.
- */
-export function passesStartFilter(t: AutomationTrigger, payload: Record<string, unknown>): boolean {
-  return t.kind !== "stubwise" || !t.filter || evaluate(t.filter, (key) => lookup(payload, key));
-}
 
-/** I confronti di una condizione, anche dentro i gruppi. */
-export const leavesOf = (c: Condition): Condition[] =>
-  c.all || c.any ? [...(c.all ?? []), ...(c.any ?? [])].flatMap(leavesOf) : [c];
 
-/**
- * L'esito di ogni confronto del filtro dell'inizio sull'evento, col valore
- * letto (D3): la prova lo mostra, la pagina non lo ricalcola.
- */
-export function startFilterChecks(
-  t: AutomationTrigger,
-  payload: Record<string, unknown>,
-): FilterCheck[] {
-  if (t.kind !== "stubwise" || !t.filter) return [];
-  const read = (key: string) => lookup(payload, key);
-  return leavesOf(t.filter).map((condition) => ({
-    condition: copy(condition),
-    value: condition.left && "ref" in condition.left ? (read(condition.left.ref) ?? null) : null,
-    matches: evaluate(condition, read),
-  }));
-}
 
 /** L'automazione parte per questo evento? Proprietario, progetto, caselle, filtro. */
 function startsOn(a: Automation, h: Happening): boolean {
@@ -175,8 +168,8 @@ export function automationsStartingOn(h: Happening): string[] {
 function chainAllows(a: Automation, originRunId: string | null): boolean {
   const origin = originRunId ? runById(originRunId) : undefined;
   if (!origin) return true;
-  const chain = ancestorsOf(origin);
-  return !chain.some((r) => r.automationId === a.id) && chain.length < CHAIN_MAX;
+  // La regola è del motore condiviso (area 7, F1): la stessa del server.
+  return chainRule(ancestorsOf(origin), a.id);
 }
 
 /** Le attese che l'evento sblocca: la risposta a un'email, una task chiusa. */
@@ -239,24 +232,12 @@ onAutomationSignal((signal) => {
 
 // --- date e ricorrenze --------------------------------------------------------------
 
-const DAYS = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
-
 /**
- * Una RRULE semplice (`FREQ=DAILY|WEEKLY;BYDAY=MO,TH;BYHOUR=9`) cade
- * nell'«adesso» dato? Il giorno deve essere fra quelli della regola (ogni
- * giorno per `DAILY`), l'ora raggiunta.
+ * La regola del motore condiviso (`@stubwise/shared`, giornaliera,
+ * settimanale e mensile), letta in UTC: l'orologio del prototipo. Il worker
+ * la legge nel fuso Europe/Rome.
  */
-export function scheduleDue(rule: string, at: string): boolean {
-  const parts = Object.fromEntries(
-    rule.split(";").map((p) => p.split("=") as [string, string | undefined]),
-  );
-  const d = new Date(at);
-  const hour = Number(parts.BYHOUR ?? 0);
-  if (!Number.isFinite(hour) || d.getUTCHours() < hour) return false;
-  if (parts.FREQ === "DAILY") return true;
-  if (parts.FREQ !== "WEEKLY") return false;
-  return (parts.BYDAY ?? "").split(",").includes(DAYS[d.getUTCDay()]!);
-}
+export const scheduleDue = (rule: string, at: string): boolean => sharedScheduleDue(rule, at, "UTC");
 
 /** Le automazioni con una data o una ricorrenza che cade adesso e non sono ancora partite oggi. */
 export function dueSchedules(at: string): Automation[] {

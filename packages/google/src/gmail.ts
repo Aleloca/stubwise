@@ -93,12 +93,20 @@ const messageSchema = z.object({
   payload: payloadSchema.optional(),
 });
 
+/** Un cambio di etichetta nella history: il messaggio e le etichette toccate. */
+const labelChangeSchema = z.object({
+  message: z.object({ id: z.string() }),
+  labelIds: z.array(z.string()).optional(),
+});
+
 const historySchema = z.object({
   history: z
     .array(
       z.object({
         id: z.string().optional(),
         messagesAdded: z.array(z.object({ message: z.object({ id: z.string() }) })).optional(),
+        labelsAdded: z.array(labelChangeSchema).optional(),
+        labelsRemoved: z.array(labelChangeSchema).optional(),
       }),
     )
     .optional(),
@@ -156,6 +164,19 @@ export interface ListHistoryInput {
 export interface GmailHistoryPage {
   /** Id dei messaggi comparsi, nell'ordine di arrivo e senza duplicati. */
   addedMessageIds: string[];
+  /**
+   * Area 6, F1.3: i cambi dell'etichetta `UNREAD` (`labelAdded` →
+   * non letto, `labelRemoved` → letto), nell'ordine della history: vince
+   * l'ultimo. Vuoto se `historyTypes` non chiede i cambi di etichetta.
+   */
+  unreadChanges: { messageId: string; unread: boolean }[];
+  /**
+   * L'id dell'ULTIMA voce della pagina (il più alto), null se la pagina è
+   * vuota: il punto da cui ripartire quando ci si ferma prima della fine
+   * (review della F1, punto 6). `historyId` qui sotto è invece lo stato
+   * attuale della casella, sicuro solo dopo l'ultima pagina.
+   */
+  lastEntryId: string | null;
   /** Nuovo punto di ripartenza da salvare a fine ciclo. */
   historyId: string | null;
   nextPageToken: string | null;
@@ -199,11 +220,54 @@ export async function listHistory(
       addedMessageIds.push(id);
     }
   }
+  // Dentro una voce Gmail mette o aggiunte o tolte; fra voci, l'ordine è
+  // quello della history.
+  const unreadChanges: { messageId: string; unread: boolean }[] = [];
+  for (const entry of raw.history ?? []) {
+    for (const removed of entry.labelsRemoved ?? []) {
+      if (removed.labelIds?.includes(GMAIL_UNREAD_LABEL)) unreadChanges.push({ messageId: removed.message.id, unread: false });
+    }
+    for (const added of entry.labelsAdded ?? []) {
+      if (added.labelIds?.includes(GMAIL_UNREAD_LABEL)) unreadChanges.push({ messageId: added.message.id, unread: true });
+    }
+  }
+  let lastEntryId: string | null = null;
+  for (const entry of raw.history ?? []) {
+    if (entry.id && (lastEntryId === null || BigInt(entry.id) > BigInt(lastEntryId))) lastEntryId = entry.id;
+  }
   return {
     addedMessageIds,
+    unreadChanges,
+    lastEntryId,
     historyId: raw.historyId ?? null,
     nextPageToken: raw.nextPageToken ?? null,
   };
+}
+
+/** L'etichetta di sistema di Gmail per «non letto». */
+export const GMAIL_UNREAD_LABEL = "UNREAD";
+
+/**
+ * `threads.modify` (area 6, F1.3): aggiunge o toglie etichette a TUTTI i
+ * messaggi di un thread. È idempotente (togliere `UNREAD` da un thread già
+ * letto non è un errore). Vuole `gmail.modify`: con il solo `gmail.readonly`
+ * Google risponde 403. È una SCRITTURA verso Google: si chiama solo da un
+ * gesto della persona.
+ */
+export async function modifyThread(
+  input: { accessToken: string; id: string; addLabelIds?: string[]; removeLabelIds?: string[] },
+  options: GoogleClientOptions = {},
+): Promise<void> {
+  await requestGoogle(
+    {
+      api: "gmail.threads.modify",
+      url: `${GMAIL_API_BASE}/threads/${encodeURIComponent(input.id)}/modify`,
+      method: "POST",
+      accessToken: input.accessToken,
+      json: { addLabelIds: input.addLabelIds ?? [], removeLabelIds: input.removeLabelIds ?? [] },
+    },
+    options,
+  );
 }
 
 /** Argomenti di `messages.list`. */

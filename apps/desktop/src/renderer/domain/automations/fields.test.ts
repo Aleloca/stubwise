@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AutomationFlow } from "../../data/model";
 import { AUTOMATION_SOURCES, AUTOMATIONS } from "../../data/seed/automations";
-import { availableFields, listAt, stepAt } from "./fields";
+import { availableFields, listAt, stepAt } from "@stubwise/shared";
 
 const flowOf = (code: string): AutomationFlow =>
   AUTOMATIONS.find((a) => a.code === code)!.versions.at(-1)!.flow;

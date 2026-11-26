@@ -308,6 +308,18 @@ describe("POST …/adoption — quale PR NON si adotta (fail-closed, niente scri
     expect(comment).not.toHaveBeenCalled();
   });
 
+  it("area 8, F1, S8: il ramo di RILASCIO del repository → base_branch, niente scritto", async () => {
+    const t = await seedReviewTicket();
+    await testDb.db.update(repositories).set({ releaseBranch: "production" }).where(eq(repositories.id, t.repositoryId));
+    const { comment } = mockProvider(prInfo({ sourceBranch: "production", targetBranch: "main" }));
+
+    const res = await adopt(t, users.adminCookie);
+
+    expect(codeOf(res)).toBe("base_branch");
+    expect(await rowOf(t)).toBeUndefined();
+    expect(comment).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["nome esatto", "develop"],
     ["`*` finale", "release/1.2"],
@@ -336,6 +348,22 @@ describe("POST …/adoption — quale PR NON si adotta (fail-closed, niente scri
     expect(codeOf(res)).toBe("not_review_ticket");
     expect(getInfo).not.toHaveBeenCalled();
     expect(await rowOf(t)).toBeUndefined();
+  });
+});
+
+describe("area 8, F1, S8: l'adozione dei client vecchi vale «analisi e correzioni» su quella PR", () => {
+  it("toglie il «Solo analisi» della PR, e la prima correzione parte", async () => {
+    const t = await seedReviewTicket();
+    await testDb.db.update(prReviews).set({ analysisOnly: true, analysisOnlyAt: new Date() }).where(eq(prReviews.ticketId, t.ticketId));
+    mockProvider();
+
+    const res = await adopt(t, users.adminCookie);
+
+    expect(res.statusCode).toBe(202);
+    expect(await testDb.db.select().from(prReviews).where(and(eq(prReviews.ticketId, t.ticketId), eq(prReviews.analysisOnly, true)))).toEqual([]);
+    expect(await correctionsOf(t)).toHaveLength(1);
+    // Adottata da una PERSONA: vale «analisi e correzioni» anche col repository in «solo analisi».
+    expect((await rowOf(t))!.adoptedByUserId).not.toBeNull();
   });
 });
 

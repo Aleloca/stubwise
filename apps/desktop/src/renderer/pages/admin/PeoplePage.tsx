@@ -9,7 +9,7 @@ import {
   type PersonRow,
 } from "../../data/queries";
 import { PEOPLE_STATUSES } from "../../data/routes";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { Chip } from "../../tasks-ui/FilterBar";
 import { CheckItem } from "../../tasks-ui/Menu";

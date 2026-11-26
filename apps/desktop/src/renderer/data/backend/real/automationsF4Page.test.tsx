@@ -1,0 +1,664 @@
+import { screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AUTOMATION_F4_AVAILABILITY } from "@stubwise/shared";
+import { lastQueryClient, renderRoute } from "../../../test/renderRoute";
+import { forgetAutomationRefs } from "./automationsLive";
+import { setAppClientForTests } from "./client";
+import {
+  DEPT_ID,
+  installFakeServer,
+  me,
+  ME_ID,
+  PROJECT_ID,
+  serverProject,
+  type SeenRequest,
+} from "./fakeServer";
+
+// Le Automations della F4 nella build app (area 7): le generali
+// (`automations.general.manage`), le sorgenti, la tabella cliente → progetto,
+// «avvia un'altra». Qui `automations-f4` è acceso; nella build app resta
+// spento finché il suo server non c'è.
+vi.mock("@backend/api", async () => await import("./index"));
+vi.mock("../../integration", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../integration")>();
+  const on = (name: string) =>
+    name === "automations" ||
+    name === "automations-f2" ||
+    name === "automations-f3" ||
+    name === "automations-f4";
+  return {
+    ...actual,
+    isIntegrated: (t: Parameters<typeof actual.isIntegrated>[0]) =>
+      ((t.kind === "destination" || t.kind === "projectSection" || t.kind === "feature") &&
+        on(t.name)) ||
+      actual.isIntegrated(t),
+    featureIntegrated: (name: string) => on(name) || actual.featureIntegrated(name),
+    // Quelle che leggono `featureIntegrated` dentro il modulo: come con `automations-f4` acceso.
+    generalsAvailable: () => true,
+    automationAvailability: () => AUTOMATION_F4_AVAILABILITY,
+  };
+});
+
+/** I permessi d'istanza di chi guarda, per test. */
+const instance = { permissions: [] as string[] };
+
+const A_ID = "77777777-7777-4777-8777-777777777771";
+let seen: SeenRequest[] = [];
+
+const FLOW = {
+  trigger: { kind: "manual" },
+  steps: [
+    {
+      id: "c1",
+      kind: "claude",
+      instruction: "Il contratto è firmato?",
+      inputs: ["avvio.data"],
+      outcomes: ["si", "no"],
+      fields: [],
+      branches: { si: [], no: [] },
+    },
+  ],
+  titleTemplate: "Avvio",
+};
+const version = (n: number, rev: number, published: boolean) => ({
+  n,
+  flow: FLOW,
+  publishedAt: published ? "2026-11-10T09:00:00.000Z" : null,
+  publishedById: published ? ME_ID : null,
+  savedAt: "2026-11-12T09:00:00.000Z",
+  savedById: ME_ID,
+  rev,
+  testedRev: rev,
+});
+const row = () => ({
+  id: A_ID,
+  code: "AUD-A1",
+  name: "Avvio progetto",
+  description: "",
+  projectId: PROJECT_ID,
+  ownerId: ME_ID,
+  status: "active",
+  versions: [version(1, 3, true), version(2, 6, false)],
+  createdAt: "2026-11-01T09:00:00.000Z",
+  createdById: ME_ID,
+  permissions: { manage: true },
+  openRuns: 0,
+  waitingRuns: 0,
+  lastRunAt: null,
+  hasDraft: true,
+  configErrorCount: 0,
+  liveErrorCount: 0,
+});
+
+function install(routes: Record<string, unknown> = {}) {
+  seen = installFakeServer({
+    "GET /api/auth/me": {
+      body: me({
+        instancePermissions: ["users.view_all", ...instance.permissions],
+        projectPermissions: { [PROJECT_ID]: ["tickets.view_all", "automations.manage"] },
+      }),
+    },
+    "GET /api/projects": { body: [serverProject({ memberIds: [ME_ID] })] },
+    "GET /api/me/follows": { body: { projectIds: [PROJECT_ID] } },
+    "GET /api/decisions": { body: [] },
+    "GET /api/me/claude-decisions": { body: [] },
+    "GET /api/inbox": { body: { items: [], nextCursor: null } },
+    "GET /api/people": {
+      body: [
+        {
+          id: ME_ID,
+          name: "Ada",
+          initials: "AD",
+          departmentIds: [DEPT_ID],
+          email: "ada@example.com",
+        },
+      ],
+    },
+    "GET /api/departments": {
+      body: [{ id: DEPT_ID, name: "General", colorToken: "--dept-1", isDefault: true }],
+    },
+    "GET /api/agent-sessions": { body: { live: [], recent: [] } },
+    "GET /api/claude/conversations/status": { body: { budgetExhausted: false } },
+    "GET /api/me/automation-runs": { body: { items: [] } },
+    "GET /api/me/automation-approvals": { body: { items: [] } },
+    "GET /api/automations": { body: { items: [row()] } },
+    "GET /api/automation-runs": { body: { items: [], nextCursor: null } },
+    "GET /api/automations/AUD-A1": {
+      body: { automation: row(), configErrors: [], liveErrors: [], runs: [] },
+    },
+    ...routes,
+  } as Parameters<typeof installFakeServer>[0]).seen;
+}
+
+beforeEach(() => {
+  setAppClientForTests(null);
+  forgetAutomationRefs();
+  vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+  setAppClientForTests(null);
+});
+
+beforeEach(() => {
+  instance.permissions = [];
+});
+
+describe("le automazioni generali (F4, R3)", () => {
+  it("con automations.general.manage si crea una generale: POST con projectId null", async () => {
+    instance.permissions = ["automations.general.manage"];
+    install({
+      "POST /api/automations": {
+        body: {
+          ...row(),
+          id: "77777777-7777-4777-8777-77777777777a",
+          code: "AUT-1",
+          projectId: null,
+        },
+      },
+    });
+    renderRoute("/automations");
+    await userEvent.click(
+      (await screen.findAllByRole("button", { name: /New automation/ }, { timeout: 3000 }))[0]!,
+    );
+    const dialog = await screen.findByRole("dialog", { name: "New automation" });
+    await userEvent.type(within(dialog).getByRole("textbox", { name: "Name" }), "Contratti");
+    await userEvent.selectOptions(within(dialog).getByRole("combobox", { name: "Project" }), "");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+    await waitFor(() =>
+      expect(seen.find((r) => r.method === "POST" && r.path === "/api/automations")?.body).toEqual({
+        name: "Contratti",
+        projectId: null,
+      }),
+    );
+  });
+
+  it("senza il permesso delle generali né la voce né l'opzione", async () => {
+    install();
+    renderRoute("/automations");
+    await userEvent.click(
+      (await screen.findAllByRole("button", { name: /New automation/ }, { timeout: 3000 }))[0]!,
+    );
+    const dialog = await screen.findByRole("dialog", { name: "New automation" });
+    expect(within(dialog).queryByRole("option", { name: /Across projects/ })).toBeNull();
+  });
+});
+
+describe("le sorgenti nella build app (F4, R4)", () => {
+  const SOURCE_ID = "99999999-9999-4999-8999-999999999991";
+  const source = {
+    id: SOURCE_ID,
+    kind: "webhook",
+    name: "Ordini",
+    status: "connected",
+    connectedById: ME_ID,
+    connectedAt: "2026-11-13T09:00:00.000Z",
+    sampleEvents: [],
+    fields: [],
+    permissions: { manage: true },
+    usedBy: null,
+  };
+
+  it("l'indirizzo col segreto si vede alla creazione; riaperta la sorgente, non più", async () => {
+    instance.permissions = ["integrations.manage"];
+    let created = false;
+    install({
+      "GET /api/automation-sources": () => ({ body: { items: created ? [source] : [] } }),
+      "POST /api/automation-sources": () => {
+        created = true;
+        return { body: { source, address: "https://stubwise.test/webhooks/in/SEGRETO123" } };
+      },
+      "GET /api/client-links": { body: { items: [] } },
+      [`GET /api/automation-sources/${SOURCE_ID}/events`]: { body: { items: [] } },
+    });
+    renderRoute("/automations/sources");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Connect/ }, { timeout: 3000 }),
+    );
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Incoming webhook" }));
+    const dialog = await screen.findByRole("dialog", { name: "New incoming webhook" });
+    await userEvent.type(within(dialog).getByRole("textbox"), "Ordini");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+    await waitFor(() =>
+      expect(document.querySelector("[data-webhook-address]")?.getAttribute("title")).toBe(
+        "https://stubwise.test/webhooks/in/SEGRETO123",
+      ),
+    );
+    // Non resta nemmeno nella cache delle mutazioni (review F4, I2).
+    expect(
+      JSON.stringify(
+        lastQueryClient()
+          .getMutationCache()
+          .getAll()
+          .map((m) => m.state.data),
+      ),
+    ).not.toContain("SEGRETO123");
+    // Chiusa e riaperta (la riga fa da interruttore): il segreto non c'è più.
+    const sourceRow = () =>
+      document.querySelector<HTMLElement>(`[data-source-row="${SOURCE_ID}"]`)!;
+    await userEvent.click(sourceRow());
+    await waitFor(() => expect(document.querySelector("[data-webhook-address]")).toBeNull());
+    await userEvent.click(sourceRow());
+    await waitFor(() => expect(screen.getAllByText(/address is hidden/).length).toBeGreaterThan(0));
+    expect(document.body.textContent).not.toContain("SEGRETO123");
+  });
+
+  it("gli eventi recenti dicono i rifiutati col motivo e i doppioni (F4-5)", async () => {
+    instance.permissions = ["integrations.manage"];
+    const withFields = {
+      ...source,
+      fields: [
+        { key: "importo", label: "Amount", type: "number" },
+        // Un elenco: il motivo di un suo campo ha la chiave intera (review F4, m6).
+        {
+          key: "ordine.righe",
+          label: "Rows",
+          type: "list",
+          of: [{ key: "nome", label: "Name", type: "text" }],
+        },
+      ],
+    };
+    install({
+      "GET /api/automation-sources": { body: { items: [withFields] } },
+      "GET /api/client-links": { body: { items: [] } },
+      [`GET /api/automation-sources/${SOURCE_ID}/events`]: {
+        body: {
+          items: [
+            {
+              id: "e4",
+              receivedAt: "2026-11-13T10:30:00.000Z",
+              status: "rejected",
+              reason: "ordine.righe.nome: text",
+              payload: {},
+            },
+            {
+              id: "e3",
+              receivedAt: "2026-11-13T10:00:00.000Z",
+              status: "rejected",
+              reason: "importo: number",
+              payload: { importo: "tanti" },
+            },
+            {
+              id: "e2",
+              receivedAt: "2026-11-13T09:30:00.000Z",
+              status: "rejected",
+              reason: "json",
+              payload: null,
+            },
+            {
+              id: "e1",
+              receivedAt: "2026-11-13T09:00:00.000Z",
+              status: "duplicate",
+              reason: null,
+              payload: { importo: 3 },
+            },
+          ],
+        },
+      },
+    });
+    renderRoute(`/automations/sources?source=${SOURCE_ID}`);
+    const list = await screen.findByRole("list", { name: "Recent events" }, { timeout: 3000 });
+    await waitFor(() => expect(within(list).getAllByRole("listitem")).toHaveLength(4));
+    const rows = within(list)
+      .getAllByRole("listitem")
+      .map((li) => li.textContent);
+    expect(rows[0]).toContain("Rejected: Rows › Name — expected text");
+    expect(rows[1]).toContain("Rejected: Amount — expected number");
+    expect(rows[2]).toContain("Rejected: the body isn't a JSON object");
+    expect(rows[3]).toContain("Duplicate: already received, nothing started");
+  });
+});
+
+describe("«Remember for <client>» lo decide il server (F4, R4)", () => {
+  const waiting = (rememberClient: boolean | undefined) => ({
+    id: "77777777-7777-4777-8777-777777777779",
+    automationId: A_ID,
+    n: 9,
+    version: 2,
+    title: "Avvio",
+    status: "waiting_project",
+    cursor: "0",
+    event: { cliente: { nome: "Rossi Srl" } },
+    vars: {},
+    waitingUntil: null,
+    pending: null,
+    startedAt: "2026-11-13T09:00:00.000Z",
+    endedAt: null,
+    error: null,
+    projectIds: [],
+    code: "AUD-A1 #9",
+    automationCode: "AUD-A1",
+    automationName: "Avvio progetto",
+    automationProjectId: null,
+    flow: FLOW,
+    deciders: [ME_ID],
+    ownerId: ME_ID,
+    permissions: {
+      manage: true,
+      approve: false,
+      chooseProject: true,
+      ...(rememberClient === undefined ? {} : { rememberClient }),
+    },
+    parent: null,
+    children: [],
+    pendingEffect: null,
+    log: [],
+  });
+
+  it.each([
+    ["false", false, false],
+    ["assente (server più vecchio)", undefined, false],
+    ["true", true, true],
+  ])("con rememberClient %s la casella %s", async (_label, flag, shown) => {
+    // Chi guarda ha integrations.manage: non basta, decide il server.
+    instance.permissions = ["integrations.manage"];
+    install({ "GET /api/automations/AUD-A1/runs/9": { body: waiting(flag) } });
+    renderRoute("/automations/AUD-A1/runs/9");
+    await screen.findByRole("button", { name: "Choose" }, { timeout: 3000 });
+    expect(screen.queryByRole("checkbox", { name: "Remember for Rossi Srl" }) !== null).toBe(shown);
+  });
+});
+
+describe("il tetto del webhook nelle impostazioni dell'automazione (F4-2 = c, R4)", () => {
+  const HOOK_FLOW = {
+    ...FLOW,
+    trigger: { kind: "source", sourceId: "99999999-9999-4999-8999-999999999991", event: "webhook" },
+  };
+  const limits = (perMinute: number | null, effectivePerMinute: number) => ({
+    perMinute,
+    perDay: null,
+    defaultPerMinute: 60,
+    defaultPerDay: 5000,
+    maxPerMinute: 600,
+    maxPerDay: 50000,
+    effective: { perMinute: effectivePerMinute, perDay: 5000 },
+  });
+  const hooked = (l: ReturnType<typeof limits>, manage = true) => ({
+    ...row(),
+    versions: [{ ...version(1, 3, true), flow: HOOK_FLOW }],
+    hasDraft: false,
+    permissions: { manage },
+    webhookLimits: l,
+  });
+
+  it("dice il tetto che vale; chi la gestisce lo cambia (PATCH), e oltre il massimo vale il massimo", async () => {
+    let current = hooked(limits(null, 60));
+    install({
+      "GET /api/automations": () => ({ body: { items: [current] } }),
+      "GET /api/automations/AUD-A1": () => ({
+        body: { automation: current, configErrors: [], liveErrors: [], runs: [] },
+      }),
+      "PATCH /api/automations/AUD-A1": () => {
+        current = hooked(limits(900, 600));
+        return { body: current };
+      },
+    });
+    renderRoute("/automations/AUD-A1");
+    const about = await screen.findByRole("region", { name: "About" }, { timeout: 3000 });
+    await waitFor(() => expect(about.textContent).toContain("60 a minute · 5,000 a day (default)"));
+    await userEvent.click(within(about).getByRole("button", { name: "Change the webhook limit" }));
+    const perMinute = within(about).getByRole("spinbutton", { name: "A minute" });
+    expect(
+      within(about).getByText(/instance maximum is 600 a minute and 50,000 a day/),
+    ).toBeTruthy();
+    await userEvent.type(perMinute, "900");
+    await userEvent.click(within(about).getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(
+        seen.find((r) => r.method === "PATCH" && r.path === "/api/automations/AUD-A1")?.body,
+      ).toEqual({ webhookPerMinute: 900, webhookPerDay: null }),
+    );
+    await waitFor(() =>
+      expect(about.textContent).toContain(
+        "900 a minute is above the instance maximum: 600 a minute applies",
+      ),
+    );
+  });
+
+  it("chi non la gestisce lo legge e basta; un'automazione senza webhook non ne parla", async () => {
+    install({
+      "GET /api/automations/AUD-A1": {
+        body: {
+          automation: hooked(limits(null, 60), false),
+          configErrors: [],
+          liveErrors: [],
+          runs: [],
+        },
+      },
+    });
+    renderRoute("/automations/AUD-A1");
+    const about = await screen.findByRole("region", { name: "About" }, { timeout: 3000 });
+    await waitFor(() => expect(about.textContent).toContain("60 a minute"));
+    expect(within(about).queryByRole("button", { name: "Change the webhook limit" })).toBeNull();
+  });
+
+  it("oltre il limite che il server accetta (1 000 000 al minuto) non si salva, e la riga lo dice (review F4, m5)", async () => {
+    const current = hooked(limits(null, 60));
+    install({
+      "GET /api/automations": { body: { items: [current] } },
+      "GET /api/automations/AUD-A1": {
+        body: { automation: current, configErrors: [], liveErrors: [], runs: [] },
+      },
+    });
+    renderRoute("/automations/AUD-A1");
+    const about = await screen.findByRole("region", { name: "About" }, { timeout: 3000 });
+    await userEvent.click(
+      await within(about).findByRole("button", { name: "Change the webhook limit" }),
+    );
+    await userEvent.type(within(about).getByRole("spinbutton", { name: "A minute" }), "1000001");
+    expect(within(about).getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(within(about).getByText(/at most 1,000,000 a minute/i)).toBeTruthy();
+    expect(seen.some((r) => r.method === "PATCH")).toBe(false);
+  });
+
+  it("senza webhook all'inizio la riga non c'è", async () => {
+    install({
+      "GET /api/automations/AUD-A1": {
+        body: {
+          automation: { ...row(), webhookLimits: limits(null, 60) },
+          configErrors: [],
+          liveErrors: [],
+          runs: [],
+        },
+      },
+    });
+    renderRoute("/automations/AUD-A1");
+    const about = await screen.findByRole("region", { name: "About" }, { timeout: 3000 });
+    await waitFor(() => expect(about.textContent).toContain("Owner"));
+    expect(about.textContent).not.toContain("Webhook limit");
+  });
+});
+
+describe("un webhook per automazione (F4-1 = a, R6)", () => {
+  it("pubblicare su un webhook che un'altra usa: il server dice 409 source_in_use, la pagina lo dice", async () => {
+    const HOOK_FLOW = {
+      trigger: {
+        kind: "source",
+        sourceId: "99999999-9999-4999-8999-999999999991",
+        event: "webhook",
+      },
+      steps: [],
+      titleTemplate: "Avvio",
+    };
+    const withHook = () => ({
+      ...row(),
+      versions: [
+        { ...version(1, 3, true), flow: HOOK_FLOW },
+        { ...version(2, 6, false), flow: HOOK_FLOW },
+      ],
+    });
+    install({
+      "GET /api/automations": { body: { items: [withHook()] } },
+      "GET /api/automations/AUD-A1": {
+        body: { automation: withHook(), configErrors: [], liveErrors: [], runs: [] },
+      },
+      "POST /api/automations/AUD-A1/publish": {
+        status: 409,
+        body: { code: "source_in_use", message: "Another automation already uses this webhook" },
+      },
+    });
+    renderRoute("/automations/AUD-A1");
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Publish v2" }, { timeout: 3000 }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: "Publish version 2 of AUD-A1?" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Publish" }));
+    expect(
+      await screen.findByText(/another automation already uses this webhook/i),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("«avvia un'altra» nel dettaglio dell'esecuzione (F4, R6)", () => {
+  it("la figlia dice da quale esecuzione è partita, la madre quali ha avviato (i codici dal server)", async () => {
+    const detail = (over: Record<string, unknown>) => ({
+      id: "77777777-7777-4777-8777-77777777777b",
+      automationId: A_ID,
+      n: 4,
+      version: 1,
+      title: "Avvio",
+      status: "done",
+      cursor: null,
+      event: {},
+      vars: {},
+      waitingUntil: null,
+      pending: null,
+      startedAt: "2026-11-13T09:00:00.000Z",
+      endedAt: "2026-11-13T09:01:00.000Z",
+      error: null,
+      projectIds: [PROJECT_ID],
+      code: "AUD-A1 #4",
+      automationCode: "AUD-A1",
+      automationName: "Avvio progetto",
+      automationProjectId: PROJECT_ID,
+      flow: FLOW,
+      deciders: [],
+      ownerId: ME_ID,
+      permissions: { manage: true, approve: false, chooseProject: false },
+      parent: null,
+      children: [],
+      pendingEffect: null,
+      log: [],
+      ...over,
+    });
+    install({
+      "GET /api/automations/AUD-A1/runs/4": {
+        body: detail({
+          origin: "automation",
+          parentRunId: "77777777-7777-4777-8777-77777777777c",
+          parent: { id: "77777777-7777-4777-8777-77777777777c", code: "AUD-A0 #3" },
+          children: [
+            { id: "77777777-7777-4777-8777-77777777777d", code: "AUD-A2 #1", status: "running" },
+          ],
+        }),
+      },
+    });
+    renderRoute("/automations/AUD-A1/runs/4");
+    const parent = await screen.findByRole("link", { name: "AUD-A0 #3" }, { timeout: 3000 });
+    expect(parent.closest("p")?.textContent).toMatch(/by AUD-A0 #3/i);
+    const child = screen.getByRole("link", { name: "AUD-A2 #1" });
+    expect(child.closest("p")?.textContent).toMatch(/It started: AUD-A2 #1/);
+    expect(child.getAttribute("href")).toContain("/automations/AUD-A2/runs/1");
+  });
+});
+
+describe("«avvia un'altra» nel costruttore della build app (F4, R6)", () => {
+  const B_ID = "77777777-7777-4777-8777-77777777777e";
+  const other = () => ({
+    ...row(),
+    id: B_ID,
+    code: "AUD-A2",
+    name: "Fatturazione",
+    status: "active",
+  });
+  const withSteps = (steps: unknown[]) => {
+    const flow = { trigger: { kind: "manual" }, steps, titleTemplate: "Avvio" };
+    return {
+      ...row(),
+      status: "draft",
+      versions: [{ ...version(1, 6, false), flow }],
+    };
+  };
+  const open = async (a: ReturnType<typeof withSteps>, issues: unknown[] = []) => {
+    install({
+      "GET /api/automations": { body: { items: [a, other()] } },
+      "GET /api/automations/AUD-A1": {
+        body: { automation: a, configErrors: issues, liveErrors: [], runs: [] },
+      },
+      "POST /api/automations/AUD-A1/check": { body: { issues } },
+    });
+    renderRoute("/automations/AUD-A1/edit");
+  };
+  const treeRow = async (id: string) => {
+    await waitFor(() => expect(document.querySelector(`[data-tree-row="${id}"]`)).not.toBeNull(), {
+      timeout: 3000,
+    });
+    return document.querySelector<HTMLElement>(`[data-tree-row="${id}"]`)!;
+  };
+
+  it("il passo nomina l'altra automazione (il codice dall'elenco vero)", async () => {
+    await open(
+      withSteps([
+        { id: "go", kind: "startAutomation", automationId: B_ID, approval: { mode: "auto" } },
+      ]),
+    );
+    await waitFor(async () => expect((await treeRow("go")).textContent).toContain("Start AUD-A2"));
+  });
+
+  it("avviare sé stessa: il problema che dice il server (`limit` sul passo) in parole, come nel prototipo", async () => {
+    await open(
+      withSteps([
+        { id: "self", kind: "startAutomation", automationId: A_ID, approval: { mode: "auto" } },
+      ]),
+      [{ path: "0", code: "limit", message: "x" }],
+    );
+    await waitFor(async () =>
+      expect((await treeRow("self")).textContent).toContain("Would start itself again"),
+    );
+  });
+});
+
+describe("le azioni che la build app non ha (review F4, I1)", () => {
+  it("né «Disconnect» né «Simulate» per un webhook, nel pannello e sulla riga", async () => {
+    instance.permissions = ["integrations.manage"];
+    const SOURCE_ID = "99999999-9999-4999-8999-999999999991";
+    const source = {
+      id: SOURCE_ID,
+      kind: "webhook",
+      name: "Ordini",
+      status: "connected",
+      connectedById: ME_ID,
+      connectedAt: "2026-11-13T09:00:00.000Z",
+      sampleEvents: [{ importo: 3 }],
+      fields: [{ key: "importo", label: "Amount", type: "number" }],
+      permissions: { manage: true },
+      usedBy: null,
+    };
+    install({
+      "GET /api/automation-sources": { body: { items: [source] } },
+      "GET /api/client-links": { body: { items: [] } },
+      [`GET /api/automation-sources/${SOURCE_ID}/events`]: { body: { items: [] } },
+    });
+    renderRoute(`/automations/sources?source=${SOURCE_ID}`);
+    const panel = await waitFor(
+      () => {
+        const el = document.querySelector<HTMLElement>(`[data-source-panel="${SOURCE_ID}"]`);
+        expect(el).not.toBeNull();
+        return el!;
+      },
+      { timeout: 3000 },
+    );
+    await waitFor(() => expect(panel.textContent).toMatch(/address is hidden/));
+    expect(within(panel).queryByRole("button", { name: /Disconnect/ })).toBeNull();
+    expect(within(panel).queryByRole("button", { name: /Simulate/ })).toBeNull();
+    expect(panel.textContent).not.toMatch(/Prototype only/i);
+    const row = document
+      .querySelector<HTMLElement>(`[data-source-row="${SOURCE_ID}"]`)!
+      .closest("li")!;
+    expect(within(row).queryByRole("button", { name: /Simulate/ })).toBeNull();
+    // Il menu «⋯» della riga aveva solo «Disconnect»: non c'è.
+    expect(within(row).queryByRole("button", { name: "More actions for Ordini" })).toBeNull();
+  });
+});

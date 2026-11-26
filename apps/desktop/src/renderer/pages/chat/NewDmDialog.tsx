@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { DM_MAX_PEOPLE } from "../../data/chat";
+import { DM_MAX_PEOPLE } from "../../data/chat/constants";
 import {
   useChatChannels,
   useOpenDm,

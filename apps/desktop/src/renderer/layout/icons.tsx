@@ -58,6 +58,14 @@ export const DriveIcon = () => (
   </Icon>
 );
 
+/** La cassaforte (lotto 10): uno sportello con la manopola. */
+export const VaultIcon = () => (
+  <Icon>
+    <path d="M2.5 3h11v10h-11zM4 13v1.25M12 13v1.25" />
+    <path d="M9.5 8a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zM8 6.5V5.5M11 6v4" />
+  </Icon>
+);
+
 export const ClaudeIcon = () => (
   <Icon>
     <path d="M8 2v3.2M8 10.8V14M2 8h3.2M10.8 8H14M3.8 3.8l2.3 2.3M9.9 9.9l2.3 2.3M12.2 3.8 9.9 6.1M6.1 9.9l-2.3 2.3" />

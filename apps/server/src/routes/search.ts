@@ -4,14 +4,17 @@ import {
   searchHistoryItemSchema,
   searchResultsSchema,
 } from "@stubwise/shared";
-import { and, desc, eq, ilike, isNull, or, sql, type SQL } from "drizzle-orm";
+import { searchProductPages } from "../services/product-search.js";
+import { and, desc, eq, ilike, isNull, ne, or, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { Db } from "@stubwise/db";
-import { inProjects, projectIdsWithPermission, visibleProjectIds } from "../auth/access.js";
+import { inProjects, isAllProjects, projectIdsWithPermission, scopeProjectIds, visibleProjectIds, type ProjectScope, inProjectsStrict } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import {
+  automationRuns,
+  automations,
   comments,
   docPages,
   emailMessages,
@@ -22,6 +25,7 @@ import {
   tickets,
 } from "@stubwise/db";
 import { apiError } from "../errors.js";
+import { exactDocCode, resolveDocCode, withDocCodes } from "../services/doc-codes.js";
 import { retrieveChunks, retrieveChunksAll } from "./docs-retrieval.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -67,6 +71,10 @@ const searchQuerySchema = z.object({
   // Scope Docs: se presente, RISTRINGE SOLO il gruppo docs a questo repository.
   // Gli altri gruppi (ticket/progetti/repo) restano su tutti i progetti visibili.
   repositoryId: z.uuid().optional(),
+  // Il gruppo docs delle sole pagine CITABILI (area 5, fetta 1): senza le note
+  // di rilascio, che non hanno un codice e nel prototipo non sono pagine. Lo
+  // chiede il desktop per il «#» e ⌘K; il web non lo passa e le vede come prima.
+  citable: z.enum(["true", "false"]).optional(),
 });
 
 const docsSemanticQuerySchema = z.object({
@@ -102,9 +110,12 @@ async function historyVisibleSql(db: Db, user: SessionUser): Promise<SQL | undef
     projectIdsWithPermission(db, user, "docs.view"),
     projectIdsWithPermission(db, user, "repos.view"),
   ]);
-  if (visible === "all") return undefined;
-  const asList = (ids: "all" | string[]): string[] => (ids === "all" ? visible : ids);
-  const repoReadable = [...new Set([...asList(docsView), ...asList(reposView)])];
+  // Un full admin senza archiviati non ha niente da togliere; con, la stessa
+  // regola di tutti, sui progetti aperti (F6).
+  if (isAllProjects(visible) && visible.archived.length === 0) return undefined;
+  const asList = (ids: ProjectScope): ProjectScope => (isAllProjects(ids) ? visible : ids);
+  const repoReadable: ProjectScope =
+    isAllProjects(docsView) || isAllProjects(reposView) ? visible : [...new Set([...docsView, ...reposView])];
   return sql`(
     (${searchHistory.type} = 'project' and ${inProjects(searchHistory.entityId, visible)})
     or (${searchHistory.type} = 'ticket' and exists (
@@ -116,12 +127,12 @@ async function historyVisibleSql(db: Db, user: SessionUser): Promise<SQL | undef
     or (${searchHistory.type} = 'repository' and exists (
       select 1 from ${repositories} hr
       where hr.id::text = ${searchHistory.entityId}
-        and ${inProjects(sql`hr.project_id`, repoReadable)}
+        and ${inProjectsStrict(sql`hr.project_id`, repoReadable)}
     ))
     or (${searchHistory.type} = 'doc' and exists (
       select 1 from ${repositories} hd
       where hd.id = ${searchHistory.repositoryId}
-        and ${inProjects(sql`hd.project_id`, asList(docsView))}
+        and ${inProjectsStrict(sql`hd.project_id`, asList(docsView))}
     ))
   )`;
 }
@@ -180,10 +191,11 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
         inProjects(tickets.projectId, visible),
         ticketsViewAllSql ? or(ticketsViewAllSql, eq(tickets.requestedByUserId, user.id)) : undefined,
       );
-      const repositoryScope =
-        docsView === "all" || reposView === "all"
-          ? undefined
-          : inProjects(repositories.projectId, [...new Set([...docsView, ...reposView])]);
+      const repositoryScope = isAllProjects(docsView)
+        ? inProjectsStrict(repositories.projectId, docsView)
+        : isAllProjects(reposView)
+          ? inProjectsStrict(repositories.projectId, reposView)
+          : inProjectsStrict(repositories.projectId, [...new Set([...docsView, ...reposView])]);
 
       // Esecuzione in PARALLELO delle cinque gambe.
       const [ticketRows, projectRows, repositoryRows, docRows, mailRows] = await Promise.all([
@@ -245,10 +257,13 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
             id: repositories.id,
             name: repositories.name,
             slug: repositories.slug,
-            projectId: repositories.projectId,
+            // Dal progetto unito: un repository staccato (F6) non è di nessun
+            // progetto, e nemmeno il full admin lo trova qui.
+            projectId: projects.id,
             repoUrl: repositories.repoUrl,
           })
           .from(repositories)
+          .innerJoin(projects, eq(projects.id, repositories.projectId))
           .where(
             and(
               or(
@@ -281,6 +296,10 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
           .where(
             and(
               sql`${docPages.searchTsv} @@ ${tsq}`,
+              // Con `citable=true` le note di rilascio no (review della fetta 1
+              // dell'area 5): non hanno un codice, e nel prototipo non sono
+              // pagine, quindi non si citano col «#» né si aprono da ⌘K.
+              request.query.citable === "true" ? ne(docPages.kind, "releases") : undefined,
               // Solo la generazione corrente del repo (o le pagine manuali,
               // generation_id null): le generazioni stale non compaiono.
               or(
@@ -288,7 +307,7 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
                 isNull(docPages.generationId),
               ),
               scopeRepositoryId ? eq(repositories.id, scopeRepositoryId) : undefined,
-              inProjects(repositories.projectId, docsView),
+              inProjectsStrict(repositories.projectId, docsView),
             ),
           )
           .orderBy(sql`ts_rank_cd(${docPages.searchTsv}, ${tsq}, 32) DESC`)
@@ -383,7 +402,86 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
         (a, b) => b.rank - a.rank || b.receivedAt.getTime() - a.receivedAt.getTime(),
       );
 
+      // Un codice D esatto (area 5, fetta 1) va in cima ai Docs, anche se la
+      // pagina non contiene la parola: con `docs.view`, nello scope del gruppo.
+      let docHits = docRows.slice(0, PER_GROUP).map((r) => ({
+        slug: r.slug,
+        title: r.title,
+        kind: r.kind,
+        snippet: r.snippet,
+        repositoryId: r.repositoryId,
+        repositorySlug: r.repositorySlug,
+        repositoryName: r.repositoryName,
+      }));
+      const exact = exactDocCode(q);
+      const resolved = exact ? await resolveDocCode(app.db, user, exact) : null;
+      if (resolved?.available && (!scopeRepositoryId || scopeRepositoryId === resolved.repositoryId)) {
+        const [hit] = await app.db
+          .select({
+            slug: docPages.slug,
+            title: docPages.title,
+            kind: docPages.kind,
+            snippet: sql<string>`left(${docPages.body}, 200)`,
+            repositoryId: repositories.id,
+            repositorySlug: repositories.slug,
+            repositoryName: repositories.name,
+          })
+          .from(docPages)
+          .innerJoin(repositories, eq(docPages.repositoryId, repositories.id))
+          .where(
+            and(
+              eq(docPages.repositoryId, resolved.repositoryId),
+              eq(docPages.slug, resolved.slug),
+              or(eq(docPages.generationId, repositories.currentDocGenerationId), isNull(docPages.generationId)),
+            ),
+          )
+          .orderBy(sql`${docPages.generationId} DESC NULLS LAST`)
+          .limit(1);
+        if (hit) docHits = [hit, ...docHits.filter((d) => !(d.repositoryId === hit.repositoryId && d.slug === hit.slug))].slice(0, PER_GROUP);
+      }
+      const docItems = await withDocCodes(app.db, docHits);
+
+      // --- Area 7: le automazioni (codice o nome) e le esecuzioni (codice o titolo) dei progetti visibili.
+      // F4: le generali (senza progetto) solo a chi ha `automations.general.manage` (R-G5).
+      const projectAutomationScope = inProjects(automations.projectId, visible);
+      // Un full admin: tutto tranne gli archiviati, generali comprese (`inProjects` tiene le senza progetto).
+      const automationScope = isAllProjects(visible)
+        ? projectAutomationScope
+        : request.user!.instancePermissions.has("automations.general.manage")
+            ? or(projectAutomationScope, isNull(automations.projectId))
+            : projectAutomationScope;
+      const [automationRows, runRows] = await Promise.all([
+        app.db
+          .select({ id: automations.id, code: automations.code, name: automations.name, status: automations.status })
+          .from(automations)
+          .where(and(automationScope, or(ilike(automations.name, likePattern), ilike(automations.code, likePattern))))
+          .orderBy(sql`lower(${automations.name})`)
+          .limit(PER_GROUP + 1),
+        app.db
+          .select({ id: automationRuns.id, n: automationRuns.n, title: automationRuns.title, status: automationRuns.status, code: automations.code })
+          .from(automationRuns)
+          .innerJoin(automations, eq(automations.id, automationRuns.automationId))
+          .where(and(automationScope, or(ilike(automationRuns.title, likePattern), ilike(sql`${automations.code} || ' #' || ${automationRuns.n}`, likePattern))))
+          .orderBy(desc(automationRuns.startedAt))
+          .limit(PER_GROUP + 1),
+      ]);
+      const automationHits = [
+        ...automationRows.map((a) => ({ kind: "automation" as const, id: a.id, code: a.code, label: a.name, route: `#/automations/${a.code}`, status: a.status })),
+        ...runRows.map((r) => ({ kind: "run" as const, id: r.id, code: `${r.code} #${r.n}`, label: r.title, route: `#/automations/${r.code}/runs/${r.n}`, status: r.status })),
+      ];
+
+      // Area 11, F3: «In Product», per testo (la corsia veloce: niente embedder a ogni tasto),
+      // filtrato nella WHERE sui progetti in cui chi cerca ha `docs.view`.
+      // Review di F3 (M5): con lo scope Docs di un repository, solo le pagine del SUO progetto (come il gruppo docs).
+      const [scopeRepo] = scopeRepositoryId ? await app.db.select({ projectId: repositories.projectId }).from(repositories).where(eq(repositories.id, scopeRepositoryId)) : [];
+      const productFound =
+        scopeRepositoryId && !scopeRepo?.projectId
+          ? { items: [], hasMore: false }
+          : await searchProductPages(app.db, app.embeddingClient, user, q, { limit: PER_GROUP, semantic: false, ...(scopeRepo?.projectId ? { projectId: scopeRepo.projectId } : {}) });
+
       return {
+        product: { items: productFound.items, hasMore: productFound.hasMore },
+        automations: { items: automationHits.slice(0, PER_GROUP), hasMore: automationRows.length > PER_GROUP || runRows.length > PER_GROUP || automationHits.length > PER_GROUP },
         tickets: {
           items: ticketRows.slice(0, PER_GROUP).map((r) => ({
             id: r.id,
@@ -416,15 +514,7 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
           hasMore: repositoryRows.length > PER_GROUP,
         },
         docs: {
-          items: docRows.slice(0, PER_GROUP).map((r) => ({
-            slug: r.slug,
-            title: r.title,
-            kind: r.kind,
-            snippet: r.snippet,
-            repositoryId: r.repositoryId,
-            repositorySlug: r.repositorySlug,
-            repositoryName: r.repositoryName,
-          })),
+          items: docItems,
           hasMore: docRows.length > PER_GROUP,
         },
         mail: {
@@ -489,12 +579,12 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
       // `repositoryId` fuori da quelli dà un elenco vuoto, come un repository
       // senza Docs (non si conferma che esiste).
       const docsView = await projectIdsWithPermission(app.db, request.user!, "docs.view");
-      if (docsView !== "all" && docsView.length === 0) return [];
-      if (repositoryId && docsView !== "all") {
+      if (!isAllProjects(docsView) && docsView.length === 0) return [];
+      if (repositoryId) {
         const [repository] = await app.db
           .select({ id: repositories.id })
           .from(repositories)
-          .where(and(eq(repositories.id, repositoryId), inProjects(repositories.projectId, docsView)));
+          .where(and(eq(repositories.id, repositoryId), inProjectsStrict(repositories.projectId, docsView)));
         if (!repository) return [];
       }
 
@@ -504,7 +594,7 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
           })
         : await retrieveChunksAll(app.db, app.embeddingClient, q, {
             logger: request.log,
-            ...(docsView === "all" ? {} : { projectIds: docsView }),
+            ...(isAllProjects(docsView) && docsView.archived.length === 0 ? {} : { projectIds: await scopeProjectIds(app.db, docsView) }),
           });
 
       return chunks.map((c) => ({

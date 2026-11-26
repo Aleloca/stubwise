@@ -60,6 +60,9 @@ function question(over: Partial<Reader<AgentSessionQuestion>> = {}): Reader<Agen
     canAnswer: true,
     ticketId: null,
     answer: null,
+    cancelled: false,
+    answeredById: null,
+    answeredAt: null,
     ...over,
   };
 }

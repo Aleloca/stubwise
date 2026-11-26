@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  aiModelSourceOf,
+  isKnownModelChoice,
   AI_OPERATIONS,
   AI_OPERATION_GROUPS,
   CONFIGURABLE_AI_OPERATIONS,
@@ -15,12 +17,15 @@ describe("catalogo operazioni AI", () => {
     expect(new Set(all).size).toBe(all.length);
   });
 
-  it("le configurabili escludono le tre tecniche e contengono le altre 16", () => {
+  it("le configurabili escludono le tre tecniche e contengono le altre 25 (con `automation_step`, area 7 F3, quella di Support, area 8 F3, le due dei server, area 8 F4b, e il giudizio della posta, «Clienti in attesa», e la doc di prodotto dalle fonti, area 11 F5)", () => {
     for (const op of ["plugin_smoke", "credential_test", "usage_probe"] as const) {
       expect(CONFIGURABLE_AI_OPERATIONS).not.toContain(op);
       expect(isConfigurableAiOperation(op)).toBe(false);
     }
-    expect(CONFIGURABLE_AI_OPERATIONS).toHaveLength(16);
+    expect(CONFIGURABLE_AI_OPERATIONS).toHaveLength(26);
+    expect(isConfigurableAiOperation("product_doc_update")).toBe(true);
+    expect(isConfigurableAiOperation("mail_reply_judgment")).toBe(true);
+    expect(isConfigurableAiOperation("support_triage_check")).toBe(true);
     expect(isConfigurableAiOperation("triage")).toBe(true);
   });
 
@@ -41,11 +46,25 @@ describe("catalogo operazioni AI", () => {
       { group: "tickets", operations: ["triage", "fix_plan", "fix_execute", "pr_review", "summary"] },
       { group: "backlog", operations: ["backlog_intake", "backlog_refine"] },
       { group: "nightly", operations: ["commit_summary", "release_notes", "docs_nightly"] },
-      { group: "docs", operations: ["docs_generation"] },
+      { group: "docs", operations: ["docs_generation", "drive_summary", "product_doc_update"] },
       { group: "reports", operations: ["daily_report", "weekly_brief"] },
-      { group: "mail", operations: ["mail_classify"] },
-      { group: "chat", operations: ["chat", "backlog_merge"] },
+      { group: "mail", operations: ["mail_classify", "mail_draft", "meeting_summary", "mail_reply_judgment"] },
+      { group: "automations", operations: ["automation_step"] },
+      { group: "support", operations: ["support_triage_check"] },
+      { group: "servers", operations: ["server_analysis", "server_fix_plan"] },
+      { group: "chat", operations: ["chat", "claude_chat", "backlog_merge"] },
       { group: "technical", operations: ["plugin_smoke", "credential_test", "usage_probe"] },
     ]);
+  });
+});
+
+describe("aiModelSourceOf (area 9, F3: la fonte del modello)", () => {
+  it("un'impostazione vince solo se è nel catalogo; poi l'env; poi il default", () => {
+    expect(aiModelSourceOf("fix_plan", "opus", ["fix_plan"])).toBe("setting");
+    expect(aiModelSourceOf("fix_plan", "gpt-9", ["fix_plan"])).toBe("env");
+    expect(aiModelSourceOf("fix_plan", "gpt-9", null)).toBe("default");
+    expect(aiModelSourceOf("fix_plan", null, ["pr_review"])).toBe("default");
+    expect(isKnownModelChoice("sonnet")).toBe(true);
+    expect(isKnownModelChoice(undefined)).toBe(false);
   });
 });

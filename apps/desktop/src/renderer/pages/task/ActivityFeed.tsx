@@ -1,4 +1,5 @@
 import { useId, useState, type ReactNode } from "react";
+import { isHiddenId } from "../../data/access/hiddenId";
 import { useTranslation } from "react-i18next";
 import {
   useActivity,
@@ -9,7 +10,7 @@ import {
   usePeople,
 } from "../../data/queries";
 import type { ActivityEntry, DecisionRequest, Person, Task } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { shortWeekIn } from "../../domain/weeks";
 import { formatDateTime, relativeTime } from "../../notifications/time";
 import { inputClass } from "../../tasks-ui/Dialog";
@@ -176,6 +177,19 @@ function When({ at }: { at: string }) {
   );
 }
 
+/**
+ * Sul server vero persona, traguardo e reparto arrivano per nome; se non
+ * esistono più arriva l'id così com'è (fetta 2). Un id non va mai a schermo:
+ * diventa «someone», «a deleted milestone», «a deleted department». Il
+ * prototipo non ha id in forma di uuid, quindi lì non cambia niente.
+ */
+const GONE_FIELDS = new Set(["assignee", "milestone", "department"]);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isGoneRef(field: string, value: string): boolean {
+  // R.1414 (revisione del lotto 2-3): il segnaposto di chi chi guarda non conosce, come un id: «someone».
+  return GONE_FIELDS.has(field) && (UUID.test(value) || (field === "assignee" && isHiddenId(value)));
+}
+
 /** Il nome del campo come lo dice la cronologia (`status`, `due`…), tradotto se si conosce. */
 function fieldName(field: string, t: (key: string, opts?: Record<string, unknown>) => string): string {
   return t(`taskDetail.activity.fields.${field}`, { defaultValue: field });
@@ -195,7 +209,8 @@ function FieldChangeRow({ entry, person }: { entry: ActivityEntry; person: Perso
   );
   const field = entry.field ?? "";
   // La settimana si legge corta, con la convenzione dell'app (rifinitura 7).
-  const value = (v: string) => (field === "week" ? shortWeekIn(t, v) : v);
+  const value = (v: string) =>
+    field === "week" ? shortWeekIn(t, v) : isGoneRef(field, v) ? t(`taskDetail.activity.gone.${field}`) : v;
   let what: string;
   if (field === "description") what = t("taskDetail.activity.editedDescription");
   else if (field === "followerIds") what = t("taskDetail.activity.followers");

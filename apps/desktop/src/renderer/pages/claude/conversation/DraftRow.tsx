@@ -33,13 +33,7 @@ const K = "claude.drafts";
 
 /** Il campo come lo dice la frase: la chiave del luogo, i valori, dove porta «Put it in the field». */
 interface Where {
-  kind:
-    | "supportReply"
-    | "releaseNotes"
-    | "releaseNotesBare"
-    | "mailReply"
-    | "mailNew"
-    | "taskDescription";
+  kind: "releaseNotes" | "releaseNotesBare" | "mailReply" | "mailNew" | "taskDescription";
   /** Il gruppo per «Replace or add below?» e «com'era». */
   group: "reply" | "notes" | "email" | "description";
   values: { code?: string; number?: number; subject?: string };
@@ -49,8 +43,6 @@ interface Where {
 const contextOfField = (field: FieldRef | null): ContextRef | null => {
   if (!field) return null;
   switch (field.kind) {
-    case "supportReply":
-      return { kind: "support", conversationId: field.conversationId };
     case "releaseNotes":
       return { kind: "pr", prId: field.prId };
     case "taskDescription":
@@ -59,6 +51,13 @@ const contextOfField = (field: FieldRef | null): ContextRef | null => {
       return null;
   }
 };
+
+/**
+ * La pagina della PR di una bozza delle note. L'id va codificato: nella build
+ * app è `<repository>#<numero>` (area 10, F6), e il `#` sarebbe l'ancora.
+ */
+export const prDraftRoute = (code: string, prId: string): string =>
+  `/p/${code}/releases?pr=${encodeURIComponent(prId)}`;
 
 /** Il luogo della bozza, riletto per chi guarda; `null` finché non si sa (o non si vede). */
 function useWhere(field: FieldRef | null): Where | null {
@@ -82,22 +81,13 @@ function useWhere(field: FieldRef | null): Where | null {
   if (!described?.code) return null;
   const projectCode = projects?.find((p) => p.id === described.projectId)?.code;
   switch (field.kind) {
-    case "supportReply":
-      return projectCode
-        ? {
-            kind: "supportReply",
-            group: "reply",
-            values: { code: described.code },
-            route: `/p/${projectCode}/support/${described.code}`,
-          }
-        : null;
     case "releaseNotes": {
       const number = described.params?.number;
       return {
         kind: typeof number === "number" ? "releaseNotes" : "releaseNotesBare",
         group: "notes",
         values: { code: described.code, ...(typeof number === "number" ? { number } : {}) },
-        route: `/p/${described.code}/releases?pr=${field.prId}`,
+        route: prDraftRoute(described.code, field.prId),
       };
     }
     case "taskDescription":
@@ -269,11 +259,11 @@ export function DraftRow({
       : event.status;
   const answer = (how: "replace" | "below") => {
     wantFocus.current = true;
-    answerDraft(event.id, how);
+    answerDraft(viewerId, event.id, how);
   };
   const putInField = () => {
     wantFocus.current = true;
-    wantDraft(conversationId, event, settle.mutateAsync);
+    wantDraft(viewerId, conversationId, event, settle.mutateAsync);
     if (!view.fieldOpen) void router.navigate({ href: where.route });
   };
   const show = () => {
@@ -344,7 +334,7 @@ export function DraftRow({
 
   function undo() {
     wantFocus.current = true;
-    const result = undoDraft(event.id);
+    const result = undoDraft(viewerId, event.id);
     // Un secondo clic (o nessun testo di prima) non scrive niente.
     if (result === "not_undoable") return;
     settle.mutate({ id: conversationId, eventId: event.id, status: result });

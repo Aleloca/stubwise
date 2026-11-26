@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { commitSummaries, docGenerations, docPages, nightlyItems, repositories, type Db } from "@stubwise/db";
+import { commitSummaries, docGenerations, docPages, ensureDocPageCodes, nightlyItems, repositories, type Db } from "@stubwise/db";
 import {
   buildExplorePrompt,
   buildGrowOrientPrompt,
@@ -25,6 +25,7 @@ import { closeWithoutRun } from "./page-update.js";
 import { SUPERSEDED_BY_GENERATION } from "./plan.js";
 import type { NightlyItem } from "./queue.js";
 import type { NightlyDeps, NightlyRepo } from "./types.js";
+import { NATIVE_TOOLS } from "../agent/native-tools.js";
 
 /**
  * Fase 4 del giro notturno, pagine NUOVE (Piano B, Task B8, D12): un elemento
@@ -201,6 +202,8 @@ export async function runPageCreateItem(
             prompt,
             model: deps.config.docsNightlyModel,
             usage: { operation: "docs_nightly", projectId: repo.projectId },
+            // L'allowlist per file usa Read e Grep, nient'altro (`native-tools.ts`).
+            builtinTools: NATIVE_TOOLS.fileRead,
             permissionMode: "default",
             allowedTools,
             disallowedTools: sensitiveReadDenyRules(),
@@ -295,14 +298,26 @@ export async function runPageCreateItem(
   }
 
   // 3) UNA transazione: pagine, chunk, stats/costo della generazione, elemento done.
+  // Gli slug FUORI dalla transazione (il giro è serializzato per progetto: nessun
+  // altro scrive pagine di questa generazione nel frattempo), così i loro codici
+  // `<PRJ>-D<n>` (0142) si danno in un passo BREVE e suo: dati dal trigger nella
+  // transazione con gli embedding, il lock per progetto terrebbe in fila ogni
+  // pagina manuale nuova dello stesso progetto (review della fetta 1, area 5).
+  const used = new Set(
+    (await deps.db.select({ slug: docPages.slug }).from(docPages).where(eq(docPages.generationId, generationId))).map(
+      (r) => r.slug,
+    ),
+  );
+  const slugs = pages.map((page) => {
+    const slug = slugForNode(page.proposal.title, used);
+    used.add(slug);
+    return slug;
+  });
+  await ensureDocPageCodes(deps.db, repo.repositoryId, slugs);
+
   let created: { id: string; slug: string }[];
   try {
     created = await deps.db.transaction(async (tx) => {
-      const used = new Set(
-        (await tx.select({ slug: docPages.slug }).from(docPages).where(eq(docPages.generationId, generationId))).map(
-          (r) => r.slug,
-        ),
-      );
       const [maxRow] = await tx
         .select({ position: docPages.position })
         .from(docPages)
@@ -312,9 +327,8 @@ export async function runPageCreateItem(
       let position = (maxRow?.position ?? -1) + 1;
       const out: { id: string; slug: string }[] = [];
       let chunks = 0;
-      for (const page of pages) {
-        const slug = slugForNode(page.proposal.title, used);
-        used.add(slug);
+      for (const [i, page] of pages.entries()) {
+        const slug = slugs[i]!;
         const parentId =
           page.parentSlug !== null
             ? ((

@@ -19,6 +19,7 @@ import { setSessionPersonId } from "../../../data/session";
 import { state } from "../../../data/store";
 import {
   grantInstancePermission,
+  grantProjectPermission,
   resetViewerGrants,
   revokeProjectPermission,
   type LocalInstancePermission,
@@ -61,6 +62,11 @@ afterEach(() => {
 
 const give = (personId: string, perm: string) =>
   grantInstancePermission(personId, perm as LocalInstancePermission);
+/** D-7.1: Laura vede lo Stato e può rilanciare in ACQ, ma senza `plans.approve` il budget la ferma. */
+const lauraWithoutApproval = () => {
+  give("p-laura", "instance.status.view");
+  revokeProjectPermission("p-laura", "prj-acq", "plans.approve");
+};
 const heading = (name: string | RegExp) => screen.findByRole("heading", { level: 1, name });
 const queueRow = (code: string) =>
   document.querySelector<HTMLElement>(`[data-queue-row="${code}"]`)!;
@@ -233,27 +239,25 @@ describe("lo Stato dell'istanza del seme", () => {
       "Worker 2busy in a project you can't see",
     );
 
-    // Pause/Resume spenti: la frase UNA volta sotto QUEUES (Impeccable 8), il
-    // «Who?» (manageSettings) accanto a ogni bottone spento.
-    const queues = screen.getByRole("region", { name: "Queues" });
-    const pauseSentence = "Only people who can manage settings pause or resume a queue.";
-    expect(queues.textContent!.split(pauseSentence)).toHaveLength(2);
+    // Review F4, I1: Pause/Resume e Retry spenti dicono, SULLA RIGA, chi
+    // gestisce QUEL progetto, col «Who?» del progetto (manageProjectSettings).
     const pause = within(queueRow("ACQ")).getByRole("button", { name: "Pause ACQ's queue" });
     expect(pause).toBeDisabled();
-    expect(queueRow("ACQ")).not.toHaveTextContent(pauseSentence);
-    expect(queueRow("ACQ").querySelector("[data-who-can='manageSettings']")).not.toBeNull();
-    // Retry spento: la frase una volta sotto WORK, il «Who?» sulla riga.
-    const retrySentence = "Only people who can manage settings put work back in the queue.";
-    const work = screen.getByRole("region", { name: "Work" });
-    expect(work.textContent!.split(retrySentence)).toHaveLength(2);
+    expect(queueRow("ACQ")).toHaveTextContent(
+      "Only people who manage ACQ pause or resume its queue.",
+    );
+    expect(queueRow("ACQ").querySelector("[data-who-can='manageProjectSettings']")).not.toBeNull();
+    expect(queueRow("ACQ").querySelector("[data-who-can='manageSettings']")).toBeNull();
     const failed = jobRow("cv-run-acq-3")!;
     expect(within(failed).getByRole("button", { name: "Retry ACQ-3" })).toBeDisabled();
-    expect(failed).not.toHaveTextContent(retrySentence);
-    expect(failed.querySelector("[data-who-can='manageSettings']")).not.toBeNull();
+    expect(failed).toHaveTextContent("Only people who manage ACQ put its work back in the queue.");
+    expect(failed.querySelector("[data-who-can='manageProjectSettings']")).not.toBeNull();
+    expect(failed.querySelector("[data-who-can='manageSettings']")).toBeNull();
   });
 
-  it("con settings.manage ma senza runs.start nel progetto, Retry è spento col «Who?» di startRun", async () => {
-    give(MARCO, "settings.manage");
+  it("gestisce ACQ ma senza runs.start lì, Retry è spento col «Who?» di startRun", async () => {
+    give(MARCO, "instance.status.view");
+    grantProjectPermission(MARCO, ACQ, "project.settings.manage" as never);
     revokeProjectPermission(MARCO, ACQ, "runs.start" as never);
     await openStatus(MARCO);
     const failed = jobRow("cv-run-acq-3")!;
@@ -262,8 +266,8 @@ describe("lo Stato dell'istanza del seme", () => {
       "Only people who can start Claude in ACQ put work back in the queue.",
     );
     expect(failed.querySelector("[data-who-can='startRun']")).not.toBeNull();
-    expect(failed.querySelector("[data-who-can='manageSettings']")).toBeNull();
-    // Pause è acceso: settings.manage basta.
+    expect(failed.querySelector("[data-who-can='manageProjectSettings']")).toBeNull();
+    // Pause è acceso: gestisce ACQ (F4: project.settings.manage nel progetto).
     expect(
       within(queueRow("ACQ")).getByRole("button", { name: "Pause ACQ's queue" }),
     ).toBeEnabled();
@@ -454,8 +458,9 @@ describe("Rimetti in coda", () => {
     expect(screen.getByRole("button", { name: "Open task" })).toBeVisible();
   });
 
-  it("senza plans.approve il dialogo dice che si ferma al piano (ruling 2: Marco con settings.manage)", async () => {
-    give(MARCO, "settings.manage");
+  it("senza plans.approve il dialogo dice che si ferma al piano (ruling 2: Marco gestisce ACQ)", async () => {
+    give(MARCO, "instance.status.view");
+    grantProjectPermission(MARCO, ACQ, "project.settings.manage" as never);
     const user = userEvent.setup();
     await openStatus(MARCO);
     await user.click(within(jobRow("cv-run-acq-3")!).getByRole("button", { name: "Retry ACQ-3" }));
@@ -528,10 +533,12 @@ describe("Rimetti in coda", () => {
     expect(within(jobRow("cv-run-acq-3")!).queryByRole("button")).toBeNull();
   });
 
-  it("final I1: col budget raggiunto Retry è spento con la frase del budget sopra", async () => {
+  it("final I1: col budget raggiunto Retry è spento con la frase del budget sopra (a chi non ha plans.approve)", async () => {
     setSessionPersonId(ROBERTA);
     await instance.simulateBudgetReached(true);
-    await openStatus();
+    // D-7.1: Roberta (full admin) scavalca il budget; Laura senza `plans.approve` in ACQ no.
+    lauraWithoutApproval();
+    await openStatus("p-laura");
     const row = jobRow("cv-run-acq-3")!;
     expect(within(row).getByRole("button", { name: "Retry ACQ-3" })).toBeDisabled();
     const line = row.querySelector<HTMLElement>('[data-ai-block="monthly_budget"]')!;
@@ -545,12 +552,15 @@ describe("Rimetti in coda", () => {
 
   it("final I1: il budget finito col dialogo aperto: la frase del budget, non «prova di nuovo»", async () => {
     const user = userEvent.setup();
-    await openStatus();
+    lauraWithoutApproval();
+    await openStatus("p-laura");
     await user.click(within(jobRow("cv-run-acq-3")!).getByRole("button", { name: "Retry ACQ-3" }));
     const dialog = await screen.findByRole("dialog", {
       name: "Put ACQ-3's work back in the queue?",
     });
+    setSessionPersonId(ROBERTA);
     await instance.simulateBudgetReached(true);
+    setSessionPersonId("p-laura");
     await user.click(within(dialog).getByRole("button", { name: "Retry" }));
     expect(
       await within(dialog).findByText("Claude didn't start: the monthly AI budget is used up."),

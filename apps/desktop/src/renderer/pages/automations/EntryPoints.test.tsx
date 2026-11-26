@@ -31,6 +31,15 @@ const MATTEO = "p-matteo";
 const run = (id: string) => state.automationRuns.find((r) => r.id === id)!;
 const idle = () => act(() => automationsApi.whenAutomationsIdle());
 const decideBlock = () => screen.findByRole("region", { name: "Decide" });
+/**
+ * Apre «Show N more» se c'è: il blocco mostra le prime BLOCK_CAP voci dalla più
+ * vecchia (shape home.md §5), e dalle notifiche della doc con N-1 = a (5960535f3)
+ * le domande della doc arrivano anche a Matteo, quindi una voce nuova sta oltre.
+ */
+const expandDecide = async (decide: HTMLElement) => {
+  const more = within(decide).queryByRole("button", { name: /^Show \d+ more$/ });
+  if (more) await userEvent.click(more);
+};
 const approvalItem = async () => {
   const decide = await decideBlock();
   await waitFor(() =>
@@ -311,6 +320,8 @@ describe("R-J8 con l'«Undo»: due approvatori, il passo cambia nella finestra",
     setUndoWindow(300);
     renderRoute("/home", MATTEO);
     const decide = await decideBlock();
+    await approvalItem();
+    await expandDecide(decide);
     const item = await waitFor(() => {
       const el = decide.querySelector(`[data-automation-decision="${runId}"]`);
       expect(el).not.toBeNull();
@@ -546,6 +557,7 @@ describe("le scritture delle altre aree aggiornano le automazioni", () => {
     renderRoute("/home", MATTEO);
     const decide = await decideBlock();
     await approvalItem();
+    await expandDecide(decide);
     const mine = `[data-automation-decision="${runId}"]`;
     expect(decide.querySelector(mine)).toBeNull();
     const created = state.tasks.find((t) => t.automationRef?.runId === runId)!;

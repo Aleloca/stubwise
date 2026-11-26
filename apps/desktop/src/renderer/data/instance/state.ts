@@ -1,4 +1,4 @@
-import type { AiModelChoice, AiOperation } from "@stubwise/shared";
+import type { AiModelChoice, AiOperation, ServerAnalysisLimits } from "@stubwise/shared";
 import type { TaskType } from "../model";
 
 // Lo stato d'istanza dell'area 9b (Amministrazione → istanza): i provider
@@ -14,6 +14,12 @@ import type { TaskType } from "../model";
 // `admin/secrets.ts`) e le ultime 4 cifre.
 
 export type TestOutcome = "ok" | "invalid_credentials" | "unreachable";
+/**
+ * La prova di un webhook (revisione del lotto 5, M-5): `invalid_credentials`
+ * solo per 401/403, `destination_error` per un altro errore della
+ * destinazione; il codice della risposta sta in `status`.
+ */
+export type WebhookTestOutcome = TestOutcome | "destination_error";
 
 export interface AiProvider {
   id: string;
@@ -86,13 +92,22 @@ export interface StorageSettings {
   lastTest: { at: string; outcome: TestOutcome } | null;
 }
 
+/** Un webhook in uscita (integrazione area 9, F3, D-10 = b: uno di un elenco). */
 export interface OutgoingWebhook {
-  enabled: boolean;
-  format: "slack" | "discord" | "generic";
+  id: string;
+  name: string;
   /** In chiaro: non è un segreto (maintainer, 30 ott 2026). */
-  url: string | null;
-  events: Record<string, boolean>;
-  lastTest: { at: string; outcome: TestOutcome } | null;
+  url: string;
+  /** `generic` si chiama «JSON» nell'app (H-2). */
+  format: "slack" | "discord" | "generic";
+  enabled: boolean;
+  /** Gli id degli eventi scelti. */
+  events: string[];
+  /** Il segreto della firma, in `admin/secrets.ts`: qui solo l'id. */
+  secretId: string | null;
+  secretRotatedAt: string | null;
+  createdAt: string;
+  lastTest: { at: string; outcome: WebhookTestOutcome; status: number | null } | null;
 }
 
 export interface QueuePause {
@@ -136,10 +151,13 @@ export interface InstanceState {
     prReview: { enabled: boolean; maxCostUsd: number | null };
   };
   budget: { monthlyUsd: number | null; contentLanguage: "en" | "it" };
+  /** I tetti dell'analisi dei server (area 8, F4b, R0-C): la forma di `@stubwise/shared`. */
+  serverAnalysis: ServerAnalysisLimits;
   gitAccounts: GitAccount[];
   plugins: RegisteredPlugin[];
   storage: StorageSettings;
-  webhook: OutgoingWebhook;
+  /** Al più 20 (`WEBHOOK_LIMIT`). */
+  webhooks: OutgoingWebhook[];
   queuePauses: QueuePause[];
   /** Seme nel Task 2. */
   usage: UsageRecord[];
@@ -153,6 +171,8 @@ export interface InstanceState {
    */
   simulate: {
     nextTest: Record<string, TestOutcome>;
+    /** La prossima prova del webhook (ha un esito in più degli altri). */
+    nextWebhookTest?: WebhookTestOutcome;
     budgetReached: boolean;
     nextPluginOutcome: "ready" | "failed";
   };

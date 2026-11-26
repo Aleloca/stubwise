@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { getSessionPersonId } from "../../data/session";
 import { placeDraft } from "../../domain/claude/intents/mailDraft";
-import { onBeforePersonaChange, replyToCustomerNow } from "../../data/queries";
+import { onBeforePersonaChange, replyToCollaboratorNow } from "../../data/queries";
 
 // Ciò che la casella di Support tiene fra un montaggio e l'altro (shape
 // support.md §5), per persona e conversazione:
@@ -10,7 +10,7 @@ import { onBeforePersonaChange, replyToCustomerNow } from "../../data/queries";
 //   persona che lo scriveva anche cambiando persona o conversazione;
 // - l'invio in attesa: «Invia al cliente» parte dopo 5 s, la finestra
 //   dell'«Annulla» come nella Posta [A 11]. La finestra la tiene la UI: il
-//   livello dati riceve `replyToCustomer` solo alla fine, quindi «Annulla»
+//   livello dati riceve `replyToCollaborator` solo alla fine, quindi «Annulla»
 //   non lascia traccia. Cambiare persona nella finestra NON annulla: l'invio
 //   parte subito, a nome di chi ha cliccato (come la Posta, Review Focus 4).
 //   Un invio alla volta: finché uno è in attesa, «Invia» è fermo (I1).
@@ -26,6 +26,8 @@ export interface PendingReply {
   personId: string;
   code: string;
   body: string;
+  /** L'id dell'invio (area 8, F3): il server scrive lo stesso invio una volta sola. */
+  clientId: string;
   /** Partito: l'id del messaggio vero (finché la rilettura non lo porta, resta «in invio»). */
   deliveredId?: string;
 }
@@ -61,6 +63,7 @@ export function pendingFor(personId: string, code: string): PendingReply | null 
         personId: p.personId,
         code: p.code,
         body: p.body,
+        clientId: p.clientId,
         ...(p.deliveredId ? { deliveredId: p.deliveredId } : {}),
       }
     : null;
@@ -83,7 +86,7 @@ async function deliver(k: string, onSent: () => Promise<void> | void): Promise<v
   if (!p) return;
   p.timer = null;
   try {
-    const view = await replyToCustomerNow(p.code, p.body);
+    const view = await replyToCollaboratorNow(p.code, p.body, p.clientId);
     p.deliveredId = view.messages.at(-1)?.id;
   } catch {
     giveBack(k, p);
@@ -109,7 +112,13 @@ export function scheduleReply(
   const personId = getSessionPersonId();
   const k = key(personId, code);
   if (pending.has(k)) return false;
-  const entry: PendingReply & { timer: number | null } = { personId, code, body, timer: null };
+  const entry: PendingReply & { timer: number | null } = {
+    personId,
+    code,
+    body,
+    clientId: crypto.randomUUID(),
+    timer: null,
+  };
   entry.timer = window.setTimeout(() => void deliver(k, onSent), REPLY_UNDO_MS);
   pending.set(k, entry);
   failed.delete(k);
@@ -160,7 +169,7 @@ onBeforePersonaChange(() => {
     if (p.personId !== me || p.timer === null) continue;
     window.clearTimeout(p.timer);
     p.timer = null;
-    void replyToCustomerNow(p.code, p.body).then(
+    void replyToCollaboratorNow(p.code, p.body, p.clientId).then(
       () => {
         if (pending.get(k) === p) pending.delete(k);
         emit();

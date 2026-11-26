@@ -108,6 +108,13 @@ describe("MbxScreen — la lista per conversazione", () => {
       messageCount: 3,
       openProposals: 1,
       projectNames: ["negozio-web"],
+      unread: false,
+      importance: null,
+      dueDate: null,
+      analysing: false,
+      failed: false,
+      projectIds: [],
+      snippet: "",
       ...overrides,
     } as Reader<MailThreadItem>;
   }

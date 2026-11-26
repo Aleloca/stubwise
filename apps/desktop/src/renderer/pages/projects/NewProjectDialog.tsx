@@ -1,12 +1,14 @@
 import { useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useCreateProject, useProjects } from "../../data/queries";
+import type { CreatedProject } from "../../data/api-mutations";
 import type { ProjectTemplate } from "../../data/types";
 import { proposeProjectCode, validateProjectCode } from "../../domain/projectCode";
 import { TEMPLATE_STATUSES } from "../../domain/templates";
 import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
 import { RadioDot } from "../../tasks-ui/Menu";
 import { useToast } from "../../tasks-ui/Toast";
+import { SecretOnce } from "../preferences/SecretOnce";
 import { primaryButton, secondaryButton } from "../tasks/controls";
 
 const TEMPLATES: ProjectTemplate[] = ["software", "marketing", "client", "empty"];
@@ -20,7 +22,9 @@ const choiceClass =
  * scrive il nome (2–4 maiuscole, non già usato) e smette di seguirlo appena
  * lo si tocca; un codice già usato si dice in linea («AUD is already used»).
  * Il modello porta gli stati e i moduli iniziali: sotto ogni modello, i suoi
- * stati. Creato il progetto si atterra sulla sua Overview.
+ * stati. Creato il progetto si atterra sulla sua Overview; prima, se il
+ * livello dati la dà, la chiave d'ingestione intera, una volta sola (area 9,
+ * F5): vive solo nello stato di questo dialogo, e «Done» la butta.
  */
 export function NewProjectDialog({
   onClose,
@@ -47,6 +51,7 @@ export function NewProjectDialog({
   // I codici dei progetti che chi guarda non vede: li dice solo il «server».
   const [takenElsewhere, setTakenElsewhere] = useState<string[]>([]);
   const [failed, setFailed] = useState(false);
+  const [created, setCreated] = useState<CreatedProject | null>(null);
 
   const taken = useMemo(
     () => new Set([...(projects ?? []).map((p) => p.code), ...takenElsewhere]),
@@ -72,7 +77,8 @@ export function NewProjectDialog({
       {
         onSuccess: (project) => {
           toast.show(t("projects.newDialog.created", { code: project.code, name: project.name }));
-          onCreated(project.code);
+          if (project.ingestion) setCreated(project);
+          else onCreated(project.code);
         },
         onError: (error) => {
           if (error.message.includes("code_taken")) {
@@ -86,6 +92,33 @@ export function NewProjectDialog({
       },
     );
   };
+
+  if (created?.ingestion) {
+    const done = () => onCreated(created.code);
+    return (
+      <Dialog title={t("projects.newDialog.title")} onClose={done} width={560}>
+        <div className="flex flex-col gap-3">
+          <SecretOnce
+            title={t("projects.newDialog.keyTitle", { code: created.code })}
+            label={t("projects.newDialog.keyLabel")}
+            value={created.ingestion.key}
+            more={[
+              { label: t("settings.integration.key.dsn"), value: created.ingestion.dsn },
+              {
+                label: t("settings.integration.key.snippet"),
+                value: created.ingestion.snippet,
+                layout: "code",
+              },
+            ]}
+            onDone={done}
+          />
+          <p className="text-sm text-pretty text-ink-muted">
+            {t("projects.newDialog.keyLater", { code: created.code })}
+          </p>
+        </div>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog

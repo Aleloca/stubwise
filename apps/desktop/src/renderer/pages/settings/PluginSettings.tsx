@@ -8,7 +8,9 @@ import {
   pluginChangedKeys,
   pluginChoosable,
   pluginDisabledInput,
+  pluginEnabledInput,
   pluginHookKey,
+  pluginKey,
   pluginOffKeys,
   pluginPresetApplied,
   pluginSkillKey,
@@ -38,10 +40,13 @@ import {
 import { ViewOnlyLine } from "./ViewOnly";
 
 // Progetto → Settings → Plugins (area 9c, Task 10, shape project-plugins.md):
-// i plugin del registro con le loro skill e i gruppi di hook, accesi per
-// sottrazione; il plugin base in testa, senza caselle; i non pronti in fondo,
-// senza caselle e con la ragione. La bozza è un insieme di chiavi stabili
-// spente (`plugin:skill`, `plugin#Evento#i`); «Save» manda la `version` letta.
+// i plugin del registro con le loro skill e i gruppi di hook; il plugin base
+// in testa, senza caselle; i non pronti in fondo, senza caselle e con la
+// ragione. La casella del plugin lo accende sul progetto (area 9, F5,
+// decisione del maintainer: opt-in, come il server); dentro un plugin
+// acceso, skill e gruppi di hook per sottrazione. La bozza è un insieme di
+// chiavi stabili spente (`plugin` non acceso, `plugin:skill`,
+// `plugin#Evento#i`); «Save» manda la `version` letta.
 // Le regole (quali plugin si scelgono, il preset, la riconciliazione dopo un
 // `conflict`) le dice il livello dati: qui si leggono.
 // Il conflitto [PG 5] (confermato dal maintainer): la bozza resta, la pagina
@@ -54,7 +59,7 @@ interface Edits {
   /** Le chiavi spente della versione da cui la bozza è partita. */
   start: Set<string>;
   /** La `version` letta: quella che «Save» manda. */
-  version: number;
+  version: string;
   keys: Set<string>;
 }
 
@@ -194,6 +199,7 @@ function PluginsForm({
         save.mutateAsync({
           projectId: project.id,
           version: draft.version,
+          enabled: pluginEnabledInput(view, draft.keys),
           disabled: pluginDisabledInput(view, draft.keys),
         }),
       setInvalid,
@@ -230,9 +236,9 @@ function PluginsForm({
   /** Il nome di una riga dalla sua chiave stabile: la skill, o la chiave del gruppo di hook. */
   function rowName(key: string): string {
     for (const p of ready) {
-      const skill = p.skills.find((s) => pluginSkillKey(p.name, s.name) === key);
+      const skill = p.skills.find((s) => pluginSkillKey(p.slug, s.name) === key);
       if (skill) return skill.name;
-      const hook = p.hooks.find((h) => pluginHookKey(p.name, h.key) === key);
+      const hook = p.hooks.find((h) => pluginHookKey(p.slug, h.key) === key);
       if (hook) return hook.key;
     }
     return key;
@@ -260,7 +266,7 @@ function PluginsForm({
       </p>
 
       {base.map((p) => (
-        <BasePlugin key={p.name} plugin={p} />
+        <BasePlugin key={p.slug} plugin={p} />
       ))}
 
       {ready.length === 0 && notReady.length === 0 && (
@@ -271,7 +277,7 @@ function PluginsForm({
 
       {ready.map((p) => (
         <ReadyPlugin
-          key={p.name}
+          key={p.slug}
           plugin={p}
           code={code}
           projectId={project.id}
@@ -422,29 +428,22 @@ function BasePlugin({ plugin: p }: { plugin: PluginRow }) {
   );
 }
 
-/** Una casella nativa, col tratto d'inchiostro; `mixed` per la casella del plugin. */
+/** Una casella nativa, col tratto d'inchiostro. */
 function Check({
   checked,
-  mixed = false,
   label,
   disabled,
   describedBy,
   onChange,
 }: {
   checked: boolean;
-  mixed?: boolean;
   label: string;
   disabled: boolean;
   describedBy?: string;
   onChange: (on: boolean) => void;
 }) {
-  const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (ref.current) ref.current.indeterminate = mixed;
-  }, [mixed]);
   return (
     <input
-      ref={ref}
       type="checkbox"
       aria-label={label}
       checked={checked}
@@ -496,9 +495,13 @@ function ReadyPlugin({
   const id = useId();
   const header = useRef<HTMLHeadingElement>(null);
   const [open, setOpen] = useState(false);
-  const skillKeys = p.skills.map((s) => pluginSkillKey(p.name, s.name));
-  const hookKeys = p.hooks.map((h) => pluginHookKey(p.name, h.key));
-  const all = [...skillKeys, ...hookKeys];
+  const skillKeys = p.skills.map((s) => pluginSkillKey(p.slug, s.name));
+  const hookKeys = p.hooks.map((h) => pluginHookKey(p.slug, h.key));
+  const onKey = pluginKey(p.slug);
+  // Acceso sul progetto, nella bozza (F5): spento, le sue righe non si scelgono.
+  const on = !keys.has(onKey);
+  const rowsEditable = canEdit && on;
+  const countId = `${id}-count`;
   const skillsOn = skillKeys.filter((k) => !keys.has(k)).length;
   const hooksOn = hookKeys.filter((k) => !keys.has(k)).length;
   const onCount = skillsOn + hooksOn;
@@ -509,15 +512,18 @@ function ReadyPlugin({
   const parts = [t("settings.plugins.skillsOf", { on: skillsOn, count: p.skills.length })];
   if (p.hooks.length > 0)
     parts.push(t("settings.plugins.hooksOf", { on: hooksOn, count: p.hooks.length }));
-  const count =
-    onCount === 0
+  // Area 9, F5: un plugin pronto entra nei run solo se è acceso sul
+  // progetto; uno non acceso non dice «in runs».
+  const count = !on
+    ? t("settings.plugins.notTurnedOn")
+    : onCount === 0
       ? t("settings.plugins.nothingInRuns")
       : t("settings.plugins.inRuns", { parts: parts.join(" · ") });
 
   // [PG 6]: oltre 12 skill l'elenco si chiude, ma le spente restano sempre visibili.
   const closed = p.skills.length > SKILLS_OPEN_MAX && !open;
   const skills = closed
-    ? p.skills.filter((s) => keys.has(pluginSkillKey(p.name, s.name)))
+    ? p.skills.filter((s) => keys.has(pluginSkillKey(p.slug, s.name)))
     : p.skills;
 
   return (
@@ -528,14 +534,13 @@ function ReadyPlugin({
     >
       <div className="flex min-h-[52px] flex-wrap items-center gap-x-3 gap-y-1 border-b border-rule py-2">
         <span className="flex min-w-0 flex-1 items-center gap-3 @min-[760px]:flex-none">
-          <span aria-hidden="true" className="size-1.5 shrink-0" />
+          <ChangeMark changed={changed.has(onKey)} both={both.includes(onKey)} />
           <Check
-            checked={onCount === all.length}
-            mixed={onCount > 0 && onCount < all.length}
+            checked={on}
             label={t("settings.plugins.usePlugin", { name: p.name, code })}
             disabled={!canEdit}
             describedBy={readOnlyId}
-            onChange={(on) => onToggle(all, on)}
+            onChange={(next) => onToggle([onKey], next)}
           />
           <h2
             id={id}
@@ -549,14 +554,15 @@ function ReadyPlugin({
           <PluginStatusWords status={p.status} />
         </span>
         <span className="flex basis-full items-center justify-end gap-3 @min-[760px]:ml-auto @min-[760px]:basis-auto">
-          <span aria-live="polite" className="num text-sm text-ink-muted">
+          <span id={countId} aria-live="polite" className="num text-sm text-ink-muted">
             {count}
           </span>
           {p.preset && (
             <PresetButton
-              enabled={canEdit && !presetApplied}
+              // Review F5, M2: spento anche col plugin non acceso, con la sua ragione.
+              enabled={rowsEditable && !presetApplied}
               applied={presetApplied}
-              whyId={canEdit ? presetWhyId : readOnlyId}
+              whyId={canEdit ? (on ? presetWhyId : countId) : readOnlyId}
               projectId={projectId}
               code={code}
               editAction={editAction}
@@ -572,7 +578,7 @@ function ReadyPlugin({
           <GroupHeading label={t("settings.plugins.skills")} count={p.skills.length} />
           <ul aria-label={t("settings.plugins.skills")}>
             {skills.map((s) => {
-              const key = pluginSkillKey(p.name, s.name);
+              const key = pluginSkillKey(p.slug, s.name);
               const off = keys.has(key);
               const isBoth = both.includes(key);
               return (
@@ -585,8 +591,8 @@ function ReadyPlugin({
                   <Check
                     checked={!off}
                     label={t("settings.plugins.useSkill", { name: s.name })}
-                    disabled={!canEdit}
-                    describedBy={readOnlyId}
+                    disabled={!rowsEditable}
+                    describedBy={canEdit ? (on ? undefined : countId) : readOnlyId}
                     onChange={(on) => onToggle([key], on)}
                   />
                   <span
@@ -628,7 +634,7 @@ function ReadyPlugin({
           <GroupHeading label={t("settings.plugins.hooks")} count={p.hooks.length} />
           <ul aria-label={t("settings.plugins.hooks")}>
             {p.hooks.map((h) => {
-              const key = pluginHookKey(p.name, h.key);
+              const key = pluginHookKey(p.slug, h.key);
               const off = keys.has(key);
               const isBoth = both.includes(key);
               return (
@@ -641,8 +647,8 @@ function ReadyPlugin({
                   <Check
                     checked={!off}
                     label={t("settings.plugins.useHook", { key: h.key })}
-                    disabled={!canEdit}
-                    describedBy={readOnlyId}
+                    disabled={!rowsEditable}
+                    describedBy={canEdit ? (on ? undefined : countId) : readOnlyId}
                     onChange={(on) => onToggle([key], on)}
                   />
                   <span
@@ -770,7 +776,7 @@ function NotReady({ plugins }: { plugins: PluginRow[] }) {
         {t("settings.plugins.notInRuns")}
       </h2>
       {plugins.map((p) => (
-        <NotReadyPlugin key={p.name} plugin={p} />
+        <NotReadyPlugin key={p.slug} plugin={p} />
       ))}
     </section>
   );

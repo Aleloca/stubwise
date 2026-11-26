@@ -1,27 +1,33 @@
 import { describe, expect, it } from "vitest";
 import type { Conversation, ConversationEvent } from "../../data/model";
 import { makeTask } from "../fixtures";
-import { access, ev, hoursAgo, serverTask, STATES } from "./fixtures";
-import { fixCommandsBeforeApproval, fixStartBlock, serverTaskState } from "./fixGate";
+import { ev, hoursAgo, serverTask } from "./fixtures";
+import {
+  fixCommandsBeforeApproval,
+  fixStartBlock,
+  fixSteps,
+  serverFixStatus,
+  serverTaskState,
+} from "./fixGate";
 
 describe("fixStartBlock", () => {
   const base = {
     hasOperate: true,
     task: serverTask(),
     serverInProject: true,
-    access: access(),
+    operationsOn: true,
     liveRun: false,
     serverBusy: false,
   };
 
-  it("server tolto dal progetto → server_gone, prima della task chiusa e dell'accesso", () => {
+  it("server tolto dal progetto → server_gone, prima della task chiusa e delle operazioni", () => {
     expect(fixStartBlock({ ...base, serverInProject: false })).toBe("server_gone");
     expect(
       fixStartBlock({
         ...base,
         serverInProject: false,
         task: serverTask({ closedAt: hoursAgo(1) }),
-        access: undefined,
+        operationsOn: false,
       }),
     ).toBe("server_gone");
   });
@@ -31,7 +37,7 @@ describe("fixStartBlock", () => {
     expect(fixStartBlock({ ...base, serverBusy: true, liveRun: true })).toBe("run_live");
   });
 
-  it("nessun blocco con le due condizioni", () => {
+  it("nessun blocco con le due condizioni e le operazioni accese", () => {
     expect(fixStartBlock(base)).toBeNull();
   });
 
@@ -40,13 +46,8 @@ describe("fixStartBlock", () => {
     expect(fixStartBlock({ ...base, task: makeTask() })).toBe("not_server_task");
     expect(fixStartBlock({ ...base, task: serverTask({ closedAt: hoursAgo(1) }) })).toBe("closed");
     expect(fixStartBlock({ ...base, liveRun: true })).toBe("run_live");
-    expect(fixStartBlock({ ...base, access: undefined })).toBe("no_fix_access");
-    expect(fixStartBlock({ ...base, access: STATES.revoked })).toBe("no_fix_access");
-    expect(fixStartBlock({ ...base, access: STATES.awaiting_command })).toBe(
-      "fix_access_unverified",
-    );
-    expect(fixStartBlock({ ...base, access: STATES.verify_failed })).toBe("fix_access_unverified");
-    expect(fixStartBlock({ ...base, access: STATES.read_writes })).toBe("fix_access_unverified");
+    // La correzione passa dall'AGENTE (F4b): senza le operazioni non parte.
+    expect(fixStartBlock({ ...base, operationsOn: false })).toBe("operations_off");
   });
 
   it("il permesso viene prima di tutto", () => {
@@ -55,37 +56,67 @@ describe("fixStartBlock", () => {
         hasOperate: false,
         task: makeTask(),
         serverInProject: false,
-        access: undefined,
+        operationsOn: false,
         liveRun: true,
         serverBusy: true,
       }),
     ).toBe("no_permission");
   });
-
-  it("l'accesso di un altro server non vale", () => {
-    expect(fixStartBlock({ ...base, access: access({ serverCode: "SRV-1" }) })).toBe(
-      "no_fix_access",
-    );
-  });
-
-  it("rigenerazione: le vecchie chiavi verificate bastano", () => {
-    expect(fixStartBlock({ ...base, access: STATES.regenerating })).toBeNull();
-  });
 });
 
-const plan = (status: "pending" | "approved" | "rejected" | "pre_approved", extra: object = {}) =>
-  ev({ type: "plan", planText: "p", summary: "s", status, ...extra });
-const approved = () => plan("approved", { decidedById: "p-laura" });
-const fixCmd = () =>
+const STEPS = [
+  {
+    action: "container.restart",
+    params: { container: "api", timeoutSeconds: 30 },
+    why: "It is stuck.",
+  },
+  { action: "docker.prune", params: { what: "images_unused" }, why: "The disk is full." },
+] as const;
+const plan = (
+  status: "pending" | "approved" | "rejected" | "pre_approved",
+  extra: { id?: string; decidedById?: string; instructions?: string } = {},
+) =>
+  ({
+    ...ev({ type: "plan", planText: "p", summary: "s", status, serverPlan: { steps: [...STEPS] } }),
+    ...extra,
+  }) as Extract<ConversationEvent, { type: "plan" }>;
+const approved = (id = "plan-1") => plan("approved", { id, decidedById: "p-laura" });
+/** Un comando che CAMBIA, via agente, coperto (o no) dal piano `approvalId`. */
+const fixCmd = (
+  approvalId: string | null = "plan-1",
+  state: "done" | "running" | "failed" = "done",
+) =>
   ev({
     type: "action",
     tool: "server.fix",
     label: "fix",
-    input: "sudo docker restart x",
-    state: "done",
+    input: "container.restart container=api timeoutSeconds=30",
+    state,
+    serverCommand: {
+      action: "container.restart",
+      params: { container: "api", timeoutSeconds: 30 },
+      kind: "change",
+      via: "agent",
+      approvalId,
+      exitCode: state === "failed" ? 1 : 0,
+    },
   });
 const readCmd = () =>
-  ev({ type: "action", tool: "server.read", label: "read", input: "uptime", state: "done" });
+  ev({
+    type: "action",
+    tool: "server.read",
+    label: "read",
+    input: "uptime",
+    state: "done",
+    serverCommand: {
+      action: "uptime",
+      params: {},
+      kind: "read",
+      via: "ssh",
+      approvalId: null,
+      exitCode: 0,
+    },
+  });
 
 describe("fixCommandsBeforeApproval", () => {
   it("conta un server.fix dopo un pre_approved", () => {
@@ -119,6 +150,66 @@ describe("fixCommandsBeforeApproval", () => {
 
   it("le letture non contano", () => {
     expect(fixCommandsBeforeApproval([readCmd(), readCmd()])).toBe(0);
+  });
+
+  it("un comando che cambia conta anche fuori da `server.fix`, e vale solo il SUO piano", () => {
+    const sneaky = { ...fixCmd(), tool: "server.read" } as ConversationEvent;
+    expect(fixCommandsBeforeApproval([sneaky])).toBe(1);
+    // Coperto da un'approvazione che non è quella del piano davanti: non vale.
+    expect(fixCommandsBeforeApproval([approved("plan-1"), fixCmd("plan-0")])).toBe(1);
+    expect(fixCommandsBeforeApproval([approved("plan-1"), fixCmd(null)])).toBe(1);
+  });
+});
+
+describe("fixSteps e serverFixStatus (i concetti di `serverFixViewSchema`)", () => {
+  const t = serverTask();
+  const run = (c: Partial<Conversation>, events: ConversationEvent[]) => ({ c: conv(c), events });
+
+  it("i passi del piano con lo stato di ognuno", () => {
+    expect(fixSteps(null)).toEqual([]);
+    expect(fixSteps(run({}, [plan("pending", { id: "plan-1" })])).map((s) => s.status)).toEqual([
+      "waiting",
+      "waiting",
+    ]);
+    expect(
+      fixSteps(run({}, [approved(), fixCmd("plan-1", "running")])).map((s) => [s.index, s.status]),
+    ).toEqual([
+      [0, "running"],
+      [1, "waiting"],
+    ]);
+    expect(fixSteps(run(finished("stopped"), [approved(), fixCmd()])).map((s) => s.status)).toEqual(
+      ["done", "skipped"],
+    );
+    expect(
+      fixSteps(run(finished("failed"), [approved(), fixCmd("plan-1", "failed")])).map(
+        (s) => s.status,
+      ),
+    ).toEqual(["failed", "skipped"]);
+    expect(fixSteps(run({}, [approved()]))[0]).toMatchObject({
+      action: "container.restart",
+      params: { container: "api", timeoutSeconds: 30 },
+      why: "It is stuck.",
+    });
+  });
+
+  it("lo stato della correzione", () => {
+    expect(serverFixStatus(t, null)).toBe("none");
+    expect(serverFixStatus(t, run({}, [readCmd()]))).toBe("proposing");
+    expect(serverFixStatus(t, run({ state: "awaiting_approval" }, [plan("pending")]))).toBe(
+      "awaiting_approval",
+    );
+    expect(serverFixStatus(t, run({}, [approved()]))).toBe("approved");
+    expect(serverFixStatus(t, run({}, [approved(), fixCmd()]))).toBe("running");
+    expect(serverFixStatus(t, run(finished("ok"), [approved(), fixCmd(), check(true)]))).toBe(
+      "done",
+    );
+    expect(
+      serverFixStatus(t, run(finished("stopped"), [plan("rejected", { decidedById: "p-laura" })])),
+    ).toBe("rejected");
+    expect(serverFixStatus(t, run(finished("stopped"), [approved(), fixCmd()]))).toBe("stopped");
+    expect(serverFixStatus(t, run(finished("failed"), [approved(), fixCmd()]))).toBe("failed");
+    // Nessun piano possibile con le azioni ammesse: finita senza piano.
+    expect(serverFixStatus(t, run(finished("ok"), [readCmd()]))).toBe("failed");
   });
 });
 
@@ -179,6 +270,8 @@ describe("serverTaskState", () => {
     expect(serverTaskState(t, run(finished("ok"), [approved(), fixCmd(), check(false)]))).toBe(
       "not_resolved",
     );
+    // Nessuna azione dell'insieme chiuso serve: Claude chiude senza piano.
+    expect(serverTaskState(t, run(finished("ok"), [readCmd()]))).toBe("no_plan");
   });
 
   it("R-L3: decide il campo del controllo, non l'esito della sessione", () => {

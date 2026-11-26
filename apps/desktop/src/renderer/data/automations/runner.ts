@@ -1,12 +1,14 @@
+import { NO_APPROVER_REASON, NO_APPROVER_WHY } from "../../domain/automations/runRules";
+export { NO_APPROVER_REASON, NO_APPROVER_WHY };
 import {
   advance,
   initialState,
   type EngineInput,
   type EngineState,
   type EngineStep,
-} from "../../domain/automations/engine";
-import { render } from "../../domain/automations/preview";
-import { restoreState } from "../../domain/automations/restore";
+} from "@stubwise/shared";
+import { eventIsUntrusted, forceApprovalForUntrusted, render } from "@stubwise/shared";
+import { restoreState } from "@stubwise/shared";
 import { aiBlockFor } from "../instance/blocks";
 import { dropHeld, heldJobs, holdJob } from "../instance/queue";
 import { runHref } from "../routes";
@@ -15,6 +17,7 @@ import { copy, gate, newId, now, onStoreReset, state, storeGeneration } from "..
 import type {
   AiBlock,
   Automation,
+  AutomationFlow,
   AutomationRun,
   ReasonCode,
   RunLogEntry,
@@ -251,10 +254,6 @@ export function failIfNoApprover(run: AutomationRun): boolean {
   return true;
 }
 
-/** La motivazione di `no_approver` (R-J11), anche nella prova. */
-export const NO_APPROVER_WHY: ReasonCode = { code: "noApprover" };
-export const NO_APPROVER_REASON =
-  "Nessuno può approvare questo passo: chi è indicato non c'è, o non vede il progetto. Va cambiato chi approva, poi si può riprovare.";
 
 /** R-J11 su tutte le esecuzioni ferme su un'approvazione. */
 export function sweepApprovals(): void {
@@ -451,6 +450,17 @@ async function drive(runId: string, input: EngineInput, gen: number, prepare?: P
   }
 }
 
+/**
+ * Il flusso con cui gira l'esecuzione (review F4, come `effectiveFlow` del
+ * worker): per una figlia il cui evento viene da fuori, le destinazioni che
+ * Claude ricava dai campi dell'inizio chiedono l'approvazione. Il flusso
+ * salvato non cambia.
+ */
+function effectiveFlow(run: AutomationRun, flow: AutomationFlow | null): AutomationFlow | null {
+  if (!flow || !run.eventUntrusted) return flow;
+  return forceApprovalForUntrusted(flow, state.automationSources, { eventUntrusted: true });
+}
+
 async function step(
   run: AutomationRun,
   input: EngineInput,
@@ -458,7 +468,7 @@ async function step(
   prepare?: Prepare,
 ): Promise<void> {
   const a = automationById(run.automationId);
-  const flow = flowOf(run);
+  const flow = effectiveFlow(run, flowOf(run));
   if (!a || !flow) return;
   if (TERMINAL.has(run.status) || run.status === "suspended") return;
 
@@ -508,6 +518,12 @@ async function step(
 }
 
 // --- l'avvio ----------------------------------------------------------------------
+
+/** L'inizio della madre porta dati di fuori (sorgente, email, richiesta dal supporto). */
+function eventIsUntrustedOf(run: AutomationRun): boolean {
+  const flow = flowOf(run);
+  return flow !== null && eventIsUntrusted(flow);
+}
 
 /** L'ultima versione pubblicata (quella con cui partono le esecuzioni nuove). */
 export const publishedVersion = (a: Automation) =>
@@ -562,6 +578,10 @@ export function startRun(
     projectIds: a.projectId ? [a.projectId] : [],
     parentRunId,
     origin: opts.origin,
+    // L'evento della figlia è non fidato per intero se lo era quello della madre (come il worker).
+    ...(parent && (parent.eventUntrusted || eventIsUntrustedOf(parent))
+      ? { eventUntrusted: true }
+      : {}),
   };
   state.automationRuns.push(run);
   if (parent) state.automationClock.set(run.id, at);

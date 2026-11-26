@@ -791,6 +791,9 @@ describe("POST /api/projects/:projectId/docs/chat?stream=false (fase 4, mobile)"
     expect(body.sources.some((s) => s.slug === page.slug && s.repositoryId === repoA.id)).toBe(
       true,
     );
+    // Area 5, fetta 1: ogni fonte ha il codice D della sua pagina.
+    const source = (body.sources as { slug: string; code?: string | null }[]).find((s) => s.slug === page.slug)!;
+    expect(source.code).toMatch(/-D\d+$/);
 
     const [session] = await testDb.db
       .select()

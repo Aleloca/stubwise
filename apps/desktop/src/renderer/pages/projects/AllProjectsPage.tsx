@@ -20,7 +20,7 @@ import {
   useTasks,
 } from "../../data/queries";
 import type { Project, ProjectPulse } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
 import { PageEmpty, PageError } from "../../tasks-ui/PageStates";

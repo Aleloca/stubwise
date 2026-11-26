@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   automations,
   createMilestone,
+  convertRequest,
   createRequest,
   createTask,
   failNext,
@@ -12,6 +13,7 @@ import {
   updateTask,
 } from "../api";
 import { AUTOMATION_CASES } from "../seed/automations";
+import { resolveProject } from "./plans";
 import { automationsStartingOn, happenings } from "./sources";
 import { AUTOMATION_MAIL_IDS } from "../seed/automations/mail";
 import { MAIL_MESSAGES } from "../seed/mail";
@@ -107,6 +109,37 @@ afterEach(async () => {
   await idle();
 });
 
+// --- le esecuzioni vecchie, compattate (lotto 8, voce 3) ------------------------
+
+// Decisione del maintainer (24 nov 2026, via 46): un'esecuzione finita da più
+// di 90 giorni non si cancella, si COMPATTA: restano numero, stato, date e il
+// titolo (che diventa il nome dell'automazione); spariscono registro, effetti,
+// input ed evento. La vista lo dice (`detailsPruned: true`).
+describe("le esecuzioni finite da più di 90 giorni", () => {
+  it("si aprono ancora, compattate: numero, stato e date; il titolo è il nome dell'automazione", async () => {
+    as("p-roberta");
+    const old = run(R.done);
+    const days = (n: number) => new Date(Date.parse(now()) - n * 86_400_000).toISOString();
+    old.endedAt = days(91);
+    old.startedAt = days(92);
+    const view = (await automations.getRun(R.done))!;
+    expect(view).toMatchObject({
+      detailsPruned: true,
+      log: [],
+      event: {},
+      status: old.status,
+      n: old.n,
+      endedAt: old.endedAt,
+      title: view.automationName,
+    });
+    // Sotto i 90 giorni, intera.
+    old.endedAt = days(89);
+    const recent = (await automations.getRun(R.done))!;
+    expect(recent.detailsPruned).toBeUndefined();
+    expect(recent.log.length).toBeGreaterThan(0);
+  });
+});
+
 // --- visibilità, codici, R-G5 ----------------------------------------------------
 
 describe("Automations: chi vede e chi gestisce", () => {
@@ -191,7 +224,7 @@ describe("Automations: chi vede e chi gestisce", () => {
   it("sorgenti e tabella cliente → progetto: un progetto che non vedo resta senza id", async () => {
     as("p-sara");
     expect(await automations.listSources()).toEqual([]);
-    grantInstancePermission("p-sara", "automations.manage");
+    grantInstancePermission("p-sara", "automations.general.manage");
     const links = await automations.listClientLinks();
     const mix = links.find((l) => l.clientKey === "mixcucine.example")!;
     expect(mix).toMatchObject({ projectVisible: false, projectId: "" });
@@ -443,7 +476,7 @@ describe("Automations: proprietario e permessi (Review Focus 3)", () => {
   });
 
   it("cliente → progetto che il proprietario non vede: «scegli il progetto» per lui", async () => {
-    grantInstancePermission("p-sara", "automations.manage");
+    grantInstancePermission("p-sara", "automations.general.manage");
     as("p-roberta");
     await automations.pause(A.newContract);
     as("p-sara");
@@ -845,6 +878,26 @@ describe("Automations: inizi e catene", () => {
     expect(runsOf(id)).toHaveLength(1);
   });
 
+  it("la mensile scatta nel suo giorno, anche se il mese non ce l'ha (F2, R6)", async () => {
+    as("p-laura");
+    // Oggi è il 23 ottobre 2026, a mezzogiorno (UTC, l'orologio del prototipo).
+    const on23 = await make(AUD, {
+      trigger: { kind: "schedule", rule: "FREQ=MONTHLY;BYMONTHDAY=23;BYHOUR=9" },
+      steps: [task("t")],
+      titleTemplate: "Il 23",
+    });
+    const on24 = await make(AUD, {
+      trigger: { kind: "schedule", rule: "FREQ=MONTHLY;BYMONTHDAY=24;BYHOUR=9" },
+      steps: [task("t")],
+      titleTemplate: "Il 24",
+    });
+    expect(await automations.runDueSchedules()).toHaveLength(1);
+    expect(await automations.runDueSchedules()).toHaveLength(0);
+    await idle();
+    expect(runsOf(on23)).toHaveLength(1);
+    expect(runsOf(on24)).toHaveLength(0);
+  });
+
   it("una ricorrenza parte una volta sola al giorno, se cade adesso", async () => {
     as("p-laura");
     // Oggi (23 ottobre 2026) è venerdì, a mezzogiorno.
@@ -895,7 +948,7 @@ describe("Automations: inizi e catene", () => {
   it("R-J21: «Avvia un'altra automazione» vuole che il proprietario possa gestire quella da avviare, non solo vederla", async () => {
     as("p-laura");
     const target = await make(AUD, manual([task("t")]), "Bersaglio");
-    grantInstancePermission("p-laura", "automations.manage");
+    grantInstancePermission("p-laura", "automations.general.manage");
     const parent = await make(
       null,
       manual([{ id: "s", kind: "startAutomation", automationId: target, approval: AUTO }]),
@@ -1087,7 +1140,7 @@ describe("Automations: revisione del Task 3", () => {
   });
 
   it("R-J12: dentro un'esecuzione i progetti che non vedo non hanno né id né codice; filtrare per uno di essi è come per uno inesistente", async () => {
-    grantInstancePermission("p-laura", "automations.manage");
+    grantInstancePermission("p-laura", "automations.general.manage");
     as("p-laura");
     expect(visibleProjectIds("p-laura").has("prj-cbv")).toBe(false);
     const r = (await automations.getRun(R.done))!;
@@ -1122,7 +1175,7 @@ describe("Automations: revisione del Task 3", () => {
     );
     const r = await automations.startManual(id);
     await idle();
-    grantInstancePermission("p-laura", "automations.manage");
+    grantInstancePermission("p-laura", "automations.general.manage");
     as("p-laura");
     expect(visibleProjectIds("p-laura").has("prj-cbv")).toBe(false);
     const detail = (await automations.getAutomation(id))!;
@@ -1271,6 +1324,46 @@ describe("Automations: revisione del Task 3", () => {
     for (const text of leaks) expect(JSON.stringify(listed)).not.toContain(text);
   });
 
+  it("la tinta lungo la catena (review F4, I4): la figlia di una madre da email chiede l'approvazione per una destinazione decisa da Claude", async () => {
+    as("p-laura");
+    const child = await make(
+      AUD,
+      {
+        trigger: { kind: "stubwise", event: "task_created" },
+        steps: [
+          {
+            id: "c",
+            kind: "claude",
+            instruction: "Chi la segue?",
+            inputs: ["task.titolo"],
+            outcomes: [],
+            fields: [{ key: "claude.chi", label: "Chi", type: "person" }],
+            branches: {},
+          } as unknown as Step,
+          { id: "n", kind: "notify", who: { personRef: "claude.chi" }, text: "Seguila", approval: AUTO } as Step,
+        ],
+        titleTemplate: "Figlia",
+      },
+      "Figlia",
+    );
+    await make(AUD, {
+      trigger: { kind: "stubwise", event: "mail_received" },
+      steps: [{ id: "s", kind: "startAutomation", automationId: child, approval: AUTO }],
+      titleTemplate: "Email: {{email.oggetto}}",
+    });
+    const mine = state.mailMessages.find(
+      (m) => m.mailboxPersonIds.includes("p-laura") && m.subject.length > 8,
+    )!;
+    signalAutomations({ kind: "mail_received", messageIds: [mine.id] });
+    await idle();
+    const kid = lastRunOf(child);
+    expect(kid.parentRunId).toBeTruthy();
+    // Il flusso salvato dice «auto», ma l'evento viene da fuori: come il worker, si chiede.
+    // (Qui chi approva poi non c'è, e il passo fallisce `no_approver`: conta che abbia chiesto.)
+    expect(kid.eventUntrusted).toBe(true);
+    expect(kid.log.find((e) => e.path === "1")).toMatchObject({ kind: "notify", outcome: "waiting" });
+  });
+
   it("un errore inatteso nel runner: l'esecuzione fallisce `internal_error`, non resta in corso", async () => {
     as("p-matteo");
     // Un registro rovinato: la ripresa non trova il passo del cursore.
@@ -1384,6 +1477,62 @@ describe("Automations: revisione del Task 3", () => {
     expect(runsOf(onMilestone).map((r) => [r.title, r.status])).toEqual([
       ["Traguardo Rilascio 3", "done"],
     ]);
+  });
+
+  // Review I4 della F1 (O, 46): il worker rifiuta un traguardo col nome di uno
+  // che il progetto ha già; il prototipo, che è la specifica, allo stesso modo.
+  it("«Crea traguardo» col nome di uno che il progetto ha già: fallisce con `milestoneExists` (confronto esatto)", async () => {
+    as("p-laura");
+    await createMilestone(AUD, { name: "Doppio" });
+    const step = (name: string) => ({
+      id: "m",
+      kind: "createMilestone" as const,
+      name,
+      dueInDays: null,
+      project: { mode: "own" as const },
+      approval: { mode: "auto" as const },
+    });
+    const taken = await make(AUD, { trigger: { kind: "manual" }, titleTemplate: "x", steps: [step("Doppio")] });
+    await automations.startManual(taken);
+    await idle();
+    const r = lastRunOf(taken);
+    expect(r).toMatchObject({ status: "failed", error: "invalid_input" });
+    expect(r.log.find((e) => e.outcome === "failed")!.why).toEqual({
+      code: "milestoneExists",
+      params: { name: "Doppio" },
+    });
+    expect(state.milestones.filter((m) => m.projectId === AUD && m.name === "Doppio")).toHaveLength(1);
+    // Come `milestoneNameTaken` dell'esecutore: le maiuscole contano.
+    const other = await make(AUD, { trigger: { kind: "manual" }, titleTemplate: "x", steps: [step("doppio")] });
+    await automations.startManual(other);
+    await idle();
+    expect(lastRunOf(other).status).toBe("done");
+  });
+
+  // Q5 = a *(M, 12 nov 2026)* e R6 del piano della F1: convertire una richiesta
+  // fa partire «richiesta convertita» E «task creata» (la task convertita vale
+  // come creata). Prima il prototipo non segnalava né l'una né l'altra.
+  it("convertire una richiesta: «richiesta convertita» (coi dati della richiesta e della task) e «task creata»", async () => {
+    as("p-laura");
+    const onConverted = await make(AUD, {
+      trigger: { kind: "stubwise", event: "request_converted" },
+      steps: [task("c")],
+      titleTemplate: "Convertita {{richiesta.codice}} → {{task.codice}}",
+    });
+    const onTask = await make(AUD, {
+      trigger: { kind: "stubwise", event: "task_created" },
+      steps: [task("n")],
+      titleTemplate: "Nuova {{task.codice}}",
+    });
+    const request = await createRequest({ projectId: AUD, title: "Esportazione in CSV" });
+    await idle();
+    const before = runsOf(onTask).length;
+    const born = await convertRequest(request.id, { title: "Esportazione in CSV" });
+    await idle();
+    expect(runsOf(onConverted).map((r) => [r.title, r.status])).toEqual([
+      [`Convertita ${request.code} → ${born.code}`, "done"],
+    ]);
+    expect(runsOf(onTask).slice(before).map((r) => r.title)).toContain(`Nuova ${born.code}`);
   });
 
   it("permesso perso anche su «Crea richiesta» e «Crea traguardo»", async () => {
@@ -1564,3 +1713,30 @@ describe("Automations: urgenza, supporto e reparti (area 10b)", () => {
     expect(made.map((n) => n.recipientIds)).toEqual([["p-marco"]]);
   });
 });
+
+// F4 (C-F4-2 di 72): la chiave del cliente è `clientKeyOf` (trim + minuscole)
+// in scrittura, in ricerca e nei suggerimenti. Prima la scrittura metteva in
+// minuscolo, ma la ricerca confrontava esatto e i suggerimenti non
+// normalizzavano: un cliente «Rossi.IT» nella tabella non si trovava mai.
+describe("la chiave del cliente (F4)", () => {
+  it("scritta, cercata e suggerita con la stessa normalizzazione", async () => {
+    as("p-roberta");
+    await automations.setClientLink({ clientKey: "Rossi.IT ", clientName: "Rossi Srl", projectId: AUD });
+    expect(state.clientProjectLinks.find((l) => l.clientName === "Rossi Srl")?.clientKey).toBe("rossi.it");
+    const found = resolveProject(
+      { kind: "resolve_project", stepId: "m", path: "0", clientKey: "  ROSSI.it" } as never,
+      "p-roberta",
+    );
+    expect(found.input).toMatchObject({ kind: "project_chosen", projectId: AUD });
+    // Un evento col dominio scritto diverso non torna fra i suggerimenti.
+    state.automationSources[0]!.sampleEvents.push({ cliente: { nome: "Rossi Srl", dominio: "ROSSI.IT" } });
+    const suggestions = await automations.listClientSuggestions();
+    expect(suggestions.some((x) => x.clientKey.toLowerCase() === "rossi.it")).toBe(false);
+    // E un suggerimento nuovo arriva già normalizzato.
+    state.automationSources[0]!.sampleEvents.push({ cliente: { nome: "Verdi", dominio: " Verdi.COM" } });
+    expect((await automations.listClientSuggestions()).find((x) => x.clientName === "Verdi")?.clientKey).toBe(
+      "verdi.com",
+    );
+  });
+});
+

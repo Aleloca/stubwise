@@ -25,27 +25,20 @@ import {
 
 const en = i18n.getFixedT("en");
 const it_ = i18n.getFixedT("it");
-const DAVIDE = "p-davide";
 const SARA = "p-sara";
 const LAURA = "p-laura";
 const GIULIA = "p-giulia";
 const ROBERTA = "p-roberta";
 const ACQ = "prj-acq";
 const MKX = "prj-mkx";
-const ACQ_S2 = "sup-acq-2";
 const ACQ_PR = "opr-acq-77";
 
-const conv = (id: string) => state.supportConversations.find((c) => c.id === id)!;
 const pr = (id: string) => state.openPrs.find((p) => p.id === id)!;
 const taskId = (code: string) => state.tasks.find((t) => t.code === code)!.id;
 
 beforeEach(() => {
   api.setLatency(0);
   api.resetApi();
-  // ACQ-S2 aspetta il team, ma il seme ha già la bozza di Claude, e con la
-  // bozza la riga non c'è (maintainer, 5 nov 2026): i casi della riga la
-  // leggono senza; quello con la bozza è nel suo `describe`.
-  conv(ACQ_S2).claudeDraft = null;
 });
 
 /** Rende ferma a mano una task aperta del progetto. */
@@ -83,30 +76,7 @@ function openPulseProposal(projectId: string) {
 const textOf = (s: ClaudeSuggestion, t = en) =>
   `${t("claude.suggestions.lead")}${t(s.lineKey, s.params)}\n${t(s.promptKey, s.params)}`;
 
-describe("le cinque righe di partenza: c'è col permesso, non c'è senza", () => {
-  it("support: Davide su ACQ-S2 (aspetta il team) sì; Sara (senza support.reply) no", () => {
-    expect(suggestionFor(DAVIDE, { kind: "support", conversationId: ACQ_S2 })).toEqual({
-      id: "supportReply",
-      lineKey: "claude.suggestions.supportReply.line",
-      promptKey: "claude.suggestions.supportReply.prompt",
-      params: { code: "ACQ-S2", context: "vowel" },
-    });
-    expect(suggestionFor(SARA, { kind: "support", conversationId: ACQ_S2 })).toBeNull();
-  });
-
-  it("support: una conversazione che non aspetta il team non ha la riga; quando aspetta, sì", () => {
-    const place: SuggestionPlace = { kind: "support", conversationId: "sup-acq-4" };
-    expect(suggestionFor(DAVIDE, place)).toBeNull();
-    // Il cliente scrive ancora: ora aspetta il team.
-    const c = conv("sup-acq-4");
-    c.messages.push({
-      ...c.messages.find((m) => m.from === "customer")!,
-      id: "m-test",
-      at: "2026-10-23T11:00:00Z",
-    });
-    expect(suggestionFor(DAVIDE, place)?.params).toEqual({ code: "ACQ-S4", context: "vowel" });
-  });
-
+describe("le righe di partenza: c'è col permesso, non c'è senza (Support non ne ha più, area 8 F3)", () => {
   it("pr: Laura sulla PR di ACQ senza note sì; Sara (senza tickets.edit né release.merge) no; con le note no", () => {
     expect(suggestionFor(LAURA, { kind: "pr", prId: ACQ_PR })).toEqual({
       id: "releaseNotes",
@@ -159,21 +129,9 @@ describe("le cinque righe di partenza: c'è col permesso, non c'è senza", () =>
   });
 
   it("un oggetto che chi guarda non vede, o che non c'è, non ha la riga", () => {
-    expect(suggestionFor(GIULIA, { kind: "support", conversationId: ACQ_S2 })).toBeNull();
     expect(suggestionFor(GIULIA, { kind: "pr", prId: ACQ_PR })).toBeNull();
     expect(suggestionFor(GIULIA, { kind: "automations", projectId: ACQ })).toBeNull();
-    expect(suggestionFor(DAVIDE, { kind: "support", conversationId: "sup-none" })).toBeNull();
     expect(suggestionFor(LAURA, { kind: "pr", prId: "opr-none" })).toBeNull();
-  });
-});
-
-describe("il «mai se» del Supporto: una bozza di Claude già pronta (maintainer, 5 nov 2026)", () => {
-  it("ACQ-S2 col «Claude prepared a draft» del seme: nessuna riga; usata la bozza (risposta inviata) o rigenerata, la regola la rilegge", () => {
-    const place: SuggestionPlace = { kind: "support", conversationId: ACQ_S2 };
-    conv(ACQ_S2).claudeDraft = "Hi, thanks for writing…";
-    expect(suggestionFor(DAVIDE, place)).toBeNull();
-    conv(ACQ_S2).claudeDraft = null;
-    expect(suggestionFor(DAVIDE, place)).not.toBeNull();
   });
 });
 
@@ -204,10 +162,9 @@ describe("il «mai se»", () => {
 });
 
 describe("budget mensile esaurito (P16, [SG 5])", () => {
-  it("nessuna riga in nessuno dei cinque luoghi", () => {
+  it("nessuna riga in nessuno dei luoghi", () => {
     stallOne(ACQ);
     const cases: [string, SuggestionPlace][] = [
-      [DAVIDE, { kind: "support", conversationId: ACQ_S2 }],
       [LAURA, { kind: "pr", prId: ACQ_PR }],
       [LAURA, { kind: "automations", projectId: ACQ }],
       [LAURA, { kind: "overview", projectId: ACQ }],
@@ -220,8 +177,7 @@ describe("budget mensile esaurito (P16, [SG 5])", () => {
 });
 
 describe("la chiave del luogo è l'oggetto", () => {
-  it("support:<id>, pr:<id>, automations:<id>, overview:<id>, usage", () => {
-    expect(suggestionKeyOf({ kind: "support", conversationId: ACQ_S2 })).toBe("support:sup-acq-2");
+  it("pr:<id>, automations:<id>, overview:<id>, usage", () => {
     expect(suggestionKeyOf({ kind: "pr", prId: ACQ_PR })).toBe("pr:opr-acq-77");
     expect(suggestionKeyOf({ kind: "automations", projectId: ACQ })).toBe("automations:prj-acq");
     expect(suggestionKeyOf({ kind: "overview", projectId: ACQ })).toBe("overview:prj-acq");
@@ -230,38 +186,30 @@ describe("la chiave del luogo è l'oggetto", () => {
 });
 
 describe("i testi", () => {
-  it("le cinque righe e richieste dello shape, en e it, con «ad» davanti a una vocale", () => {
+  it("le quattro righe e richieste dello shape, en e it", () => {
     stallOne(ACQ);
     const rows = [
-      suggestionFor(DAVIDE, { kind: "support", conversationId: ACQ_S2 })!,
       suggestionFor(LAURA, { kind: "pr", prId: ACQ_PR })!,
       suggestionFor(LAURA, { kind: "automations", projectId: ACQ })!,
       suggestionFor(LAURA, { kind: "overview", projectId: ACQ })!,
       suggestionFor(ROBERTA, { kind: "usage" })!,
     ];
     expect(rows.map((s) => textOf(s, en))).toEqual([
-      "Claude can help you write the reply\nWrite the reply to ACQ-S2",
       "Claude can help you write the release notes\nWrite the release notes",
       "Claude can help you build an automation for ACQ\nBuild an automation in ACQ: when ",
       "Claude can help you understand why ACQ is stalled\nWhich tasks are stalled in ACQ, and why?",
       "Claude can help you summarize this month's spend\nHow much have we spent on AI this month?",
     ]);
     expect(rows.map((s) => textOf(s, it_))).toEqual([
-      "Claude può aiutarti a scrivere la risposta\nScrivi la risposta ad ACQ-S2",
       "Claude può aiutarti a scrivere le note di rilascio\nScrivi le note di rilascio",
       "Claude può aiutarti a costruire un'automazione per ACQ\nCostruisci un'automazione in ACQ: quando ",
       "Claude può aiutarti a capire perché ACQ è fermo\nQuali task sono ferme in ACQ, e perché?",
       "Claude può aiutarti a riassumere la spesa del mese\nQuanto abbiamo speso in AI questo mese?",
     ]);
-    // Un codice che comincia con una consonante: «a», non «ad».
-    expect(it_("claude.suggestions.supportReply.prompt", { code: "MKX-S1" })).toBe(
-      "Scrivi la risposta a MKX-S1",
-    );
   });
 
   it("R-G5: nessun codice o nome che chi guarda non vede, mai un «Who?» (in minuscolo)", () => {
     const cases: [string, SuggestionPlace][] = [
-      [DAVIDE, { kind: "support", conversationId: ACQ_S2 }],
       [LAURA, { kind: "pr", prId: ACQ_PR }],
       [LAURA, { kind: "automations", projectId: ACQ }],
       [GIULIA, { kind: "overview", projectId: MKX }],
@@ -315,14 +263,11 @@ describe("la richiesta dell'Overview è ristretta al progetto (P16, [SG 3])", ()
 });
 
 describe("ogni richiesta porta allo scenario giusto, en e it", () => {
-  it("risposta e note → bozza (S6/S6b), Overview → fermi (S2), Consumi → spesa (S3), automazioni completate → automazione", () => {
+  it("note → bozza (S6b), Overview → fermi (S2), Consumi → spesa (S3), automazioni completate → automazione", () => {
     const codes = new Set(["ACQ"]);
     for (const t of [en, it_]) {
       const prompt = (id: string, params?: Record<string, string>) =>
         t(`claude.suggestions.${id}.prompt`, params);
-      expect(recognize(prompt("supportReply", { code: "ACQ-S2", context: "vowel" }), codes)).toBe(
-        "draft",
-      );
       expect(recognize(prompt("releaseNotes"), codes)).toBe("draft");
       expect(recognize(prompt("whyStalled", { code: "ACQ" }), codes)).toBe("stalled");
       expect(recognize(prompt("monthSpend"), codes)).toBe("spend");

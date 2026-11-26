@@ -35,6 +35,7 @@ import {
 } from "../../providers/select.js";
 import type { DocNode } from "../nodes.js";
 import { summarizeBody } from "./synthesize-handler.js";
+import { NATIVE_TOOLS } from "../../agent/native-tools.js";
 
 /**
  * PRODUCT HANDLER — la FASE `product` del motore documentazione ricorsivo (Fase B).
@@ -362,6 +363,8 @@ async function runProductPage(
         prompt,
         model: deps.model,
         permissionMode: "plan",
+        // Sola lettura (`native-tools.ts`).
+        builtinTools: NATIVE_TOOLS.readOnly,
         maxTurns: deps.maxTurns,
         timeoutMs: deps.agentTimeoutMs,
         ...(deps.session !== undefined ? { session: deps.session } : {}),
@@ -402,6 +405,8 @@ async function runAgentOnce(deps: ProductRunDeps, prompt: string): Promise<Singl
       prompt,
       model: deps.model,
       permissionMode: "plan",
+      // Sola lettura (`native-tools.ts`).
+      builtinTools: NATIVE_TOOLS.readOnly,
       maxTurns: deps.maxTurns,
       timeoutMs: deps.agentTimeoutMs,
       ...(deps.session !== undefined ? { session: deps.session } : {}),

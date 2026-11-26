@@ -1,4 +1,4 @@
-import type { AiModelChoice, AiOperation } from "@stubwise/shared";
+import { serverAnalysisLimitsSchema, type AiModelChoice, type AiOperation } from "@stubwise/shared";
 import { TODAY, daysFromToday } from "../seed/dates";
 import { NIGHTLY_ROWS } from "../seed/nightly";
 import { seedUsage } from "../seed/usage";
@@ -89,6 +89,7 @@ export function seedInstanceState(): InstanceState {
       prReview: { enabled: true, maxCostUsd: 2 },
     },
     budget: { monthlyUsd: 600, contentLanguage: "en" },
+    serverAnalysis: serverAnalysisLimitsSchema.parse({}),
     gitAccounts: [
       {
         id: SEED_GIT_ACCOUNT_IDS.bitbucketAudin,
@@ -208,18 +209,22 @@ export function seedInstanceState(): InstanceState {
       attachmentsEnabled: true,
       lastTest: { at: at(-7, "12:00"), outcome: "ok" },
     },
-    webhook: {
-      enabled: true,
-      format: "slack",
-      url: "https://hooks.slack.com/services/T01AUDIN/B07STUB/prototype",
-      events: {
-        "ticket.created": true,
-        "job.pr_opened": true,
-        "job.failed": true,
-        monitor: true,
+    // Il webhook di prima, migrato come fa il server (F3): «Webhook», stessi
+    // formato, stato ed eventi, un segreto che nessuno ha ancora visto.
+    webhooks: [
+      {
+        id: "wh-seed",
+        name: "Webhook",
+        url: "https://hooks.slack.com/services/T01AUDIN/B07STUB/prototype",
+        format: "slack",
+        enabled: true,
+        events: ["ticket.created", "job.pr_opened", "job.failed", "monitor"],
+        secretId: "sec-seed-webhook",
+        secretRotatedAt: at(-10, "09:00"),
+        createdAt: at(-30, "09:00"),
+        lastTest: { at: at(-4, "17:45"), outcome: "ok", status: 200 },
       },
-      lastTest: { at: at(-4, "17:45"), outcome: "ok" },
-    },
+    ],
     // La coda di STW in pausa da Roberta, ieri alle 18:00.
     queuePauses: [{ projectId: "prj-stw", byId: "p-roberta", at: at(-1, "18:00") }],
     usage: seedUsage(),
@@ -240,6 +245,7 @@ export function emptyInstanceState(): InstanceState {
     models: {},
     automation: { rules: defaultRules(), prReview: { enabled: false, maxCostUsd: null } },
     budget: { monthlyUsd: null, contentLanguage: "en" },
+    serverAnalysis: serverAnalysisLimitsSchema.parse({}),
     gitAccounts: [],
     plugins: [],
     storage: {
@@ -252,7 +258,7 @@ export function emptyInstanceState(): InstanceState {
       attachmentsEnabled: false,
       lastTest: null,
     },
-    webhook: { enabled: false, format: "slack", url: null, events: {}, lastTest: null },
+    webhooks: [],
     queuePauses: [],
     usage: [],
     nightly: [],

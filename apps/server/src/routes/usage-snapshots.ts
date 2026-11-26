@@ -2,51 +2,11 @@ import { aiProviders, aiUsageSnapshots } from "@stubwise/db";
 import { desc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
-import { z } from "zod";
 import { authErrorResponses } from "./shared.js";
+import { aiUsageSnapshotsSchema } from "@stubwise/shared";
 
-/**
- * Finestra di consumo normalizzata: percentuale usata e residua (interi 0–100,
- * complementari), più `resetsLabel`, l'orario di reset come label testuale
- * della vecchia TUI `/usage` (non-ISO, es. "2:39pm (Europe/Rome)") — opzionale.
- * Gli snapshot nuovi nascono dal `rate_limit_event` del CLI e hanno SEMPRE
- * `resetsLabel` null: il reset sta nei `*ResetAt`, e il pannello li usa quando
- * la label manca. Nullable perché lo snapshot la conserva come jsonb libero e
- * una finestra può mancare (es. nessun limite di 5 ore per gli account Ultra).
- */
-const usageWindowSchema = z
-  .object({
-    percentUsed: z.number(),
-    percentRemaining: z.number(),
-    resetsLabel: z.string().nullable().optional(),
-  })
-  .nullable();
-
-/**
- * Ultimo snapshot di consumo di una credenziale `account`. Dal 19 nov 2026 lo
- * scrive il worker leggendo il `rate_limit_event` dello stream-json (a ogni run
- * di un account, più una sonda minima per quelli fermi): `source` è
- * `deterministic` = letto senza LLM, `parseOk` true, `rawText` null. `llm_fallback`
- * e `parseOk=false` esistono solo per le righe del vecchio lettore `/usage`
- * (ritirato). `rawText` è incluso SOLO per quelle ultime (admin-only, serve al
- * banner di diagnosi): resta assente/null per tutti gli snapshot nuovi.
- */
-const snapshotItemSchema = z.object({
-  providerId: z.uuid(),
-  providerLabel: z.string(),
-  capturedAt: z.iso.datetime(),
-  sessionRemaining: usageWindowSchema,
-  weeklyRemaining: usageWindowSchema,
-  sessionResetAt: z.iso.datetime().nullable(),
-  weeklyResetAt: z.iso.datetime().nullable(),
-  source: z.enum(["deterministic", "llm_fallback"]),
-  parseOk: z.boolean(),
-  rawText: z.string().nullable().optional(),
-});
-
-export const aiUsageSnapshotsSchema = z.array(snapshotItemSchema);
-
-export type AiUsageSnapshot = z.infer<typeof snapshotItemSchema>;
+// Area 9, F3, Task 8c: le forme stanno in `@stubwise/shared` (le legge il client).
+export { aiUsageSnapshotsSchema, type AiUsageSnapshot } from "@stubwise/shared";
 
 /**
  * Route dell'usage residuo dell'abbonamento (ultimo snapshot per credenziale

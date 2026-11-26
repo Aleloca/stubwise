@@ -157,6 +157,21 @@ describe("All projects → Archived", () => {
   });
 });
 
+describe("chi ha archiviato non c'è più", () => {
+  it("la riga e la fascia della pagina dicono la data, senza nome", async () => {
+    state.projectsById.get(RNC)!.archived!.byId = "p-gone";
+    await openArchived(GIULIA);
+    const row = within(await screen.findByRole("tabpanel")).getByRole("listitem");
+    expect(row).toHaveTextContent(`Archived ${archivedOn()}`);
+    expect(row).not.toHaveTextContent(/ by /);
+    cleanup();
+    await openPage(GIULIA);
+    expect(screen.getByRole("main")).toHaveTextContent(
+      `Archived on ${archivedOn()}. Read only: reopen it to work in it again.`,
+    );
+  });
+});
+
 describe("la pagina dell'archiviato", () => {
   it("Giulia legge RNC in sola lettura: sintesi, membri, conteggi, repository, alla riapertura", async () => {
     await openPage(GIULIA);

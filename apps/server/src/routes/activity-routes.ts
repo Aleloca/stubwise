@@ -11,7 +11,7 @@ import {
   projects,
   users,
 } from "@stubwise/db";
-import { inProjects, projectIdsWithPermission } from "../auth/access.js";
+import { inProjects, isAllProjects, projectIdsWithPermission } from "../auth/access.js";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -85,6 +85,8 @@ const projectViewSchema = z.object({
   // dopo la generazione), dal campo `stale_commit_count` del report. > 0 → il
   // report è potenzialmente incompleto: la UI lo segnala e offre "rigenera".
   staleCommitCount: z.number(),
+  // Rimandi, lotto 4 (§7.4): `finished_at` di un report `done`, altrimenti null.
+  generatedAt: z.iso.datetime().nullable(),
   commits: z.array(projectCommitSchema),
 });
 
@@ -173,6 +175,7 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
           status: activityReports.status,
           summary: activityReports.summary,
           staleCommitCount: activityReports.staleCommitCount,
+          finishedAt: activityReports.finishedAt,
           projectId: projects.id,
           projectName: projects.name,
           projectSlug: projects.slug,
@@ -262,7 +265,15 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
       // committato SOLO in progetti visibili. Gli autori con commit altrove
       // (email git, in minuscolo) vengono da una query sui report invisibili.
       const authorsElsewhere = new Set<string>();
-      if (visible !== "all") {
+      // Un full admin non vede gli archiviati (F6): i loro report contano come «altrove».
+      const hiddenScope = isAllProjects(visible)
+        ? visible.archived.length > 0
+          ? inArray(activityReports.projectId, [...visible.archived])
+          : null
+        : visible.length > 0
+          ? notInArray(activityReports.projectId, [...visible])
+          : undefined;
+      if (hiddenScope !== null) {
         const hidden = await app.db
           .select({ authorEmail: activityCommits.authorEmail })
           .from(activityCommits)
@@ -270,7 +281,7 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
           .where(
             and(
               eq(activityReports.date, date),
-              visible.length > 0 ? notInArray(activityReports.projectId, visible) : undefined,
+              hiddenScope,
             ),
           );
         for (const row of hidden) authorsElsewhere.add(row.authorEmail.toLowerCase());
@@ -324,6 +335,7 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
           },
           summary: report.summary ?? null,
           staleCommitCount: report.staleCommitCount,
+          generatedAt: report.status === "done" && report.finishedAt ? report.finishedAt.toISOString() : null,
           commits: commits.map((c) => ({
             sha: c.sha,
             authorEmail: c.authorEmail,

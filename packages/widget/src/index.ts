@@ -11,17 +11,25 @@
  */
 import { parseWidgetDsn } from "./core/dsn.js";
 import { fetchConfig, type WidgetUser } from "./core/api.js";
+import { createIdentitySource, type IdentityTokenOption } from "./core/identity.js";
 import { mountWidget } from "./ui/widget.js";
 
 export * from "./core/dsn.js";
 export * from "./core/api.js";
 export * from "./core/sse.js";
 export * from "./core/storage.js";
+export * from "./core/identity.js";
 
 /** Opzioni di init: DSN del progetto + identità DICHIARATA dell'utente. */
 export interface InitWidgetOptions {
   dsn: string;
   user: WidgetUser;
+  /**
+   * Area 8, «L'API per i siti»: il token d'identità che il BACKEND del sito
+   * firma per questo cliente (`sub` = `user.id`), o una funzione che lo
+   * procura e lo rinnova. Assente = cliente dichiarato, come prima.
+   */
+  identityToken?: IdentityTokenOption;
 }
 
 /**
@@ -73,7 +81,10 @@ export async function initWidget(options: InitWidgetOptions): Promise<void> {
     if (initStarted) return;
     initStarted = true;
 
-    const base = parseWidgetDsn(options.dsn);
+    const base = {
+      ...parseWidgetDsn(options.dsn),
+      ...(options.identityToken !== undefined ? { identity: createIdentitySource(options.identityToken) } : {}),
+    };
     const config = await fetchConfig(base);
     if (!config.enabled) return;
 

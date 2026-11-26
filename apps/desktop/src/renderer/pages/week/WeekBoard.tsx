@@ -28,18 +28,21 @@ import {
   useDayArrangements,
   useSessionPersonId,
   useSetDay,
+  tasksTruncated,
   useTasks,
 } from "../../data/queries";
 import type { DayArrangement, Task } from "../../data/types";
 import { load, usualWeekWeight } from "../../domain/load";
-import { currentWeek, weekDays, weekLabel } from "../../domain/weeks";
+import { weekDays, weekLabel } from "../../domain/weeks";
 import { DeptStrip, useDeptLabel } from "../../layout/DeptStrip";
 import { LoadBar } from "../../tasks-ui/LoadBar";
 import { SizeMark } from "../../tasks-ui/SizeMark";
 import { FamilySign } from "../../tasks-ui/StatusLabel";
 import { formatDue } from "../../tasks-ui/TaskRow";
 import { useToast } from "../../tasks-ui/Toast";
+import { planRefusalOf } from "../planning/planRefusal";
 import { shortWeek } from "../tasks/pickers";
+import { useCurrentWeek } from "../../data/clock";
 
 // La mia settimana (spec §2, shape home.md §6): le task assegnate a chi
 // guarda e pianificate per una settimana, sistemate nei giorni. Il giorno è
@@ -78,6 +81,8 @@ export interface MyWeek {
    * questa): la barra si confronta con quella. `null` senza storia.
    */
   usual: number | null;
+  /** La lista delle mie task è arrivata troncata: nel carico ne manca qualcuna. */
+  truncated: boolean;
 }
 
 /**
@@ -89,7 +94,9 @@ export interface MyWeek {
  */
 export function useMyWeek(week: string): MyWeek {
   const me = useSessionPersonId();
-  const tasks = useTasks({ assigneeIds: [me] });
+  const now = useCurrentWeek();
+  const criteria = useMemo(() => ({ assigneeIds: [me] }), [me]);
+  const tasks = useTasks(criteria);
   const arrangements = useDayArrangements(week);
   return useMemo(() => {
     const mine = (tasks.data ?? []).filter((t) => t.assigneeId === me);
@@ -103,9 +110,10 @@ export function useMyWeek(week: string): MyWeek {
       queries: [tasks, arrangements],
       tasks: inWeek,
       bySlot,
-      usual: usualWeekWeight(mine, currentWeek()),
+      usual: usualWeekWeight(mine, now),
+      truncated: tasksTruncated(criteria, tasks.data),
     };
-  }, [tasks, arrangements, me, week]);
+  }, [tasks, arrangements, me, week, criteria, now]);
 }
 
 /** «W43 · Oct 19 – Oct 23». */
@@ -435,7 +443,16 @@ export function WeekBoard({
     setAnnouncement(t("week.dropped", { code: task.code, column: spoken(slot) }));
     setDay.mutate(
       { taskId: task.id, week, day: toDay(slot) },
-      { onError: () => toast.error(t("week.moveFailed", { code: task.code })) },
+      {
+        onError: (error) => {
+          const refusal = planRefusalOf(error);
+          toast.error(
+            refusal
+              ? t(`planning.refused.${refusal}`, { code: task.code })
+              : t("week.moveFailed", { code: task.code }),
+          );
+        },
+      },
     );
   }
 

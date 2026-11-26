@@ -1,4 +1,4 @@
-import type { InstancePermission, ProjectPermission, RoleScope } from "@stubwise/shared";
+import type { DepartmentPermission, InstancePermission, ProjectPermission, RoleScope } from "@stubwise/shared";
 
 /**
  * Raggruppamento per area delle chiavi di permesso, per le caselle della
@@ -17,9 +17,24 @@ export interface PermissionGroup<P extends string> {
 }
 
 export const INSTANCE_PERMISSION_GROUPS: readonly PermissionGroup<InstancePermission>[] = [
-  { id: "administration", permissions: ["instance.full_admin", "roles.manage", "settings.manage"] },
-  { id: "people", permissions: ["users.view_all", "users.invite", "users.manage"] },
-  { id: "projects", permissions: ["projects.create"] },
+  { id: "administration", permissions: ["instance.full_admin", "roles.manage", "settings.manage", "changelog.view", "instance.status.view"] },
+  {
+    id: "people",
+    permissions: [
+      "users.view_all",
+      "users.invite",
+      "users.manage",
+      "departments.manage",
+      "people.activity.view",
+      // Fetta 5 della chat: leggere le conversazioni pubbliche con Claude.
+      "claude.public.view",
+      // Area 4, Chat: i canali generali.
+      "chat.general.create",
+      "chat.general.manage",
+    ],
+  },
+  // Area 7, F4: le automazioni generali.
+  { id: "projects", permissions: ["projects.create", "automations.general.manage"] },
   {
     id: "integrations",
     permissions: [
@@ -31,7 +46,7 @@ export const INSTANCE_PERMISSION_GROUPS: readonly PermissionGroup<InstancePermis
       "mail_admission.view",
     ],
   },
-  { id: "monitoring", permissions: ["monitor.view", "monitor.manage", "usage.view"] },
+  { id: "monitoring", permissions: ["monitor.view", "monitor.manage", "servers.ssh.manage", "usage.view"] },
 ];
 
 export const PROJECT_PERMISSION_GROUPS: readonly PermissionGroup<ProjectPermission>[] = [
@@ -47,6 +62,7 @@ export const PROJECT_PERMISSION_GROUPS: readonly PermissionGroup<ProjectPermissi
       "tickets.edit",
       "tickets.comment",
       "tickets.moderate",
+      "planning.others",
     ],
   },
   {
@@ -70,6 +86,21 @@ export const PROJECT_PERMISSION_GROUPS: readonly PermissionGroup<ProjectPermissi
     permissions: ["repos.view", "repos.manage", "environments.manage", "widget.manage"],
   },
   { id: "credentials", permissions: ["credentials.create", "credentials.edit", "credentials.share"] },
+  // Area 4, Chat: i canali del progetto.
+  { id: "chat", permissions: ["chat.channels.create", "chat.channels.manage"] },
+  // Area 5, il Drive dei progetti.
+  { id: "drive", permissions: ["drive.upload", "drive.manage", "drive.history"] },
+  // Area 7, le Automations del progetto.
+  { id: "automations", permissions: ["automations.manage"] },
+  // Area 8, F3: Support, le risposte ai clienti.
+  { id: "support", permissions: ["support.manage"] },
+  // Area 8, F4b: l'analisi e la richiesta di un piano di correzione dei server.
+  { id: "servers", permissions: ["servers.operate"] },
+];
+
+/** I permessi di reparto (fetta 3): si danno dalla pagina Reparti, non dai ruoli. */
+export const DEPARTMENT_PERMISSION_GROUPS: readonly PermissionGroup<DepartmentPermission>[] = [
+  { id: "departmentHome", permissions: ["department.home.manage"] },
 ];
 
 export function permissionGroupsFor(scope: RoleScope): readonly PermissionGroup<string>[] {

@@ -329,7 +329,7 @@ async function play(conversationId: string, steps: ScriptStep[], alive: () => bo
         if (step.labelText) draft.labelText = step.labelText;
         if (step.input !== undefined) draft.input = step.input;
         if (step.truncated !== undefined) draft.truncated = step.truncated;
-        if (step.access !== undefined) draft.access = step.access;
+        if (step.serverCommand !== undefined) draft.serverCommand = step.serverCommand;
         const event = append(conversationId, draft);
         await pause();
         if (!alive()) return;
@@ -671,11 +671,20 @@ interface ChatSubscriber {
   streamId: ChatStreamId;
   personId: string;
   onMessage: (m: ChatMessageView, mode: StreamMode) => void;
-  onConnection?: (connection: "closed") => void;
+  onConnection?: (connection: "closed" | "limit") => void;
 }
 
 const chatSubscribers = new Set<ChatSubscriber>();
-const chatChangeListeners = new Set<(channelId: string) => void>();
+/**
+ * Cosa cambia, quando lo si sa: `messages` = il flusso del canale va riletto
+ * per intero (la build app, dopo una ripresa dello stream senza cursore: ciò
+ * che è arrivato nel buco non lo porta lo stream).
+ */
+export interface ChatChange {
+  messages?: boolean;
+}
+
+const chatChangeListeners = new Set<(channelId: string, change?: ChatChange) => void>();
 
 /**
  * Avvisa che nella Chat qualcosa è cambiato in un canale (un messaggio
@@ -683,7 +692,7 @@ const chatChangeListeners = new Set<(channelId: string) => void>();
  * rilegge con le letture, che filtrano per persona. Restituisce la
  * disiscrizione.
  */
-export function onChatChange(fn: (channelId: string) => void): () => void {
+export function onChatChange(fn: (channelId: string, change?: ChatChange) => void): () => void {
   chatChangeListeners.add(fn);
   return () => {
     chatChangeListeners.delete(fn);
@@ -702,7 +711,8 @@ export function notifyChatChange(channelId: string): void {
 export function subscribeChat(
   streamId: ChatStreamId,
   onMessage: (m: ChatMessageView, mode: StreamMode) => void,
-  options: { onConnection?: (connection: "closed") => void } = {},
+  /** `closed`: non si legge più; `limit` (build app): troppi stream aperti in questa finestra. */
+  options: { onConnection?: (connection: "closed" | "limit") => void } = {},
 ): () => void {
   const personId = getSessionPersonId();
   const ch = streamId.startsWith(CLAUDE_PREFIX) ? undefined : channelOfStream(streamId);

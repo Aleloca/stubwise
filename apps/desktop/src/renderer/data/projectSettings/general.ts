@@ -4,6 +4,9 @@ import { MODULE_ORDER } from "../../domain/templates";
 import { writer } from "../writer";
 import { managedProject, projectObject, refuse } from "./common";
 import type { ProjectResult } from "./types";
+import { DESCRIPTION_MAX, NAME_MAX } from "./limits";
+
+export { DESCRIPTION_MAX, NAME_MAX } from "./limits";
 
 // Progetto → Settings → General (area 9c, Task 2): il nome e la
 // descrizione. Il codice non si cambia da qui (nessun campo). Si scrive con
@@ -12,10 +15,6 @@ import type { ProjectResult } from "./types";
 // prima e di dopo (un nome dato da una persona si salva com'è),
 // `project.description_changed` senza il testo (dice che è cambiata:
 // scelta del controller).
-
-/** Gli intervalli dello shape: nome 1–120 caratteri, descrizione 0–1000. */
-export const NAME_MAX = 120;
-export const DESCRIPTION_MAX = 1000;
 
 /** Cambia nome e descrizione; i campi assenti restano com'erano. */
 export async function updateProjectGeneral(

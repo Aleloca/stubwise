@@ -114,6 +114,11 @@ export function ObjectLink({ link, children }: { link: ChangeObjectLink; childre
         <Link to="/admin/plugins/$pluginId" params={{ pluginId: link.id }} className={linkClass}>
           {children}
         </Link>
+      ) : link.section === "webhooks" && link.id ? (
+        // F3: un webhook ha la sua pagina.
+        <Link to="/admin/webhooks/$webhookId" params={{ webhookId: link.id }} className={linkClass}>
+          {children}
+        </Link>
       ) : (
         <Link to="/admin/$section" params={{ section: link.section }} className={linkClass}>
           {children}
@@ -291,8 +296,6 @@ function useFieldsLine() {
   const word = (field: string, v: string | boolean | null | undefined): string => {
     if (v === null || v === undefined || v === "") return t("changelog.entry.none");
     if (typeof v === "boolean") return t(v ? "changelog.values.on" : "changelog.values.off");
-    // Il segnaposto di `changelog/reads.ts` (`HIDDEN_PROJECT`): una pagina non importa il livello dati.
-    if (field === "primaryProject" && v === "@hidden") return t("changelog.values.hiddenProject");
     // «Nome:famiglia» (`project.statuses_changed`): la famiglia si traduce qui.
     if (field === "statusFamilies") {
       const at = v.lastIndexOf(":");
@@ -397,10 +400,11 @@ function useSentenceValues() {
     // calcolate, che vincono sempre.
     return {
       ...entry.params,
+      // R.1414: chi non conosce la persona legge «Someone».
       actor:
         entry.via === "claude"
-          ? t("changelog.via.actor", { name: entry.actorName })
-          : entry.actorName,
+          ? t("changelog.via.actor", { name: entry.actorName ?? t("changelog.someone") })
+          : (entry.actorName ?? t("changelog.someone")),
       // Il nome di un oggetto che è una parola di Stubwise (l'operazione di
       // `model.changed`) si traduce; un nome dato da una persona resta com'è.
       object: entry.objectLabelKey ? t(entry.objectLabelKey) : entry.object.label,

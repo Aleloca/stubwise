@@ -1,4 +1,4 @@
-import type { FlowIssue } from "../automations/validate";
+import type { FlowIssue } from "@stubwise/shared";
 import type {
   ActionClass,
   ArchiveCandidates,
@@ -134,8 +134,6 @@ export interface ReadApi {
   ): Promise<{ code: string | null; projectId: string | null } | null>;
   /** Area 10b (S6): l'id della conversazione di supporto col codice (`ACQ-S2`), se chi chiede la vede. */
   supportConversationIdOf(code: string): Promise<string | null>;
-  /** Area 10b (S6): la bozza della risposta (`draftText`), se chi chiede ha `support.reply`; altrimenti `null`. */
-  supportReplyDraft(conversationId: string): Promise<string | null>;
   /** Area 10b (S6b): la bozza delle note di una PR, se chi chiede può modificarle; altrimenti `null`. */
   releaseNotesDraft(prId: string): Promise<{ text: string; sources: string[] } | null>;
   /** Area 10b (D1): la bozza del corpo di un'email (`threadId` `null` = l'email nuova). */

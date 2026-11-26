@@ -8,7 +8,7 @@ import {
   useSetPersonalHome,
 } from "../../data/queries";
 import type { HomeBlockRef } from "../../data/types";
-import { canInDepartment, useViewer } from "../../data/viewer";
+import { canInDepartment, useViewer } from "../../data/viewing";
 import { sameBlock } from "../../domain/home";
 import { DeptLegend } from "../../layout/DeptStrip";
 import { MenuGroup, itemClass } from "../../tasks-ui/Menu";
@@ -200,7 +200,8 @@ function ChangedLine({ onSee }: { onSee: (found: HomeBlockRef[]) => void }) {
           continue;
         found.push(b);
       }
-      markSeen.mutate(id);
+      // Vista è la Home che si è appena mostrata, non quella che il server ha ora.
+      markSeen.mutate({ departmentId: id, updatedAt: dept?.updatedAt });
     }
     onSee(found);
   };

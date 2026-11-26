@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { stepAt } from "../../../domain/automations/fields";
+import { stepAt } from "@stubwise/shared";
 import type { SimulationView } from "../../../data/types";
 import { primaryButton } from "../../tasks/controls";
 import { conditionWords, reasonWords } from "../format";

@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { currentWeek, weekDays } from "../../domain/weeks";
+import { weekDays } from "../../domain/weeks";
 import { TaskRow } from "../../tasks-ui/TaskRow";
 import { ghostButton } from "../task/parts";
 import { useStallsByCode } from "../home/blocks/MyTasksBlock";
@@ -12,6 +12,7 @@ import {
   useReportDepartments,
 } from "../home/blocks/BlockSection";
 import { SLOTS, WeekLoad, dayName, todaySlot, useMyWeek, useWeekRange } from "./WeekBoard";
+import { useCurrentWeek } from "../../data/clock";
 
 /**
  * «My week» nella Home: la versione compatta della pagina, solo per la
@@ -23,7 +24,7 @@ import { SLOTS, WeekLoad, dayName, todaySlot, useMyWeek, useWeekRange } from "./
  */
 export function MyWeekBlock() {
   const { t, i18n } = useTranslation();
-  const week = currentWeek();
+  const week = useCurrentWeek();
   const data = useMyWeek(week);
   const range = useWeekRange();
   const openTask = useOpenTask();

@@ -16,3 +16,57 @@ describe("data/queries.ts non importa dai suoi sotto-moduli", () => {
     expect(source).toMatch(/^export \* from "\.\/queries\/claude";$/m);
   });
 });
+
+// Il punto di scambio (integrazione area 2, fetta 1, Task 11): le query
+// leggono l'api SOLO da `@backend/api`, che la build risolve sul finto
+// (prototipo, test) o sul server vero (app). Un import diretto di `./api`
+// porterebbe il finto nella build app.
+const QUERY_SOURCES = import.meta.glob(["./queries.ts", "./queries/*.ts", "!**/*.test.ts"], {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
+
+describe("queries importa l'api solo da @backend/api", () => {
+  it("trova le query", () => {
+    expect(Object.keys(QUERY_SOURCES).length).toBeGreaterThan(5);
+  });
+
+  it("nessun import né ri-esportazione di valori da ./api, ../api, ./api-mutations o ../api-mutations", () => {
+    const offenders = Object.entries(QUERY_SOURCES)
+      .filter(([, source]) =>
+        /^\s*(?:import|export)\s+(?!type\b)[^;]*from\s+["'](\.\.?\/)api(-mutations)?["']/m.test(source),
+      )
+      .map(([path]) => path);
+    expect(offenders).toEqual([]);
+  });
+
+  it("queries.ts importa @backend/api", () => {
+    expect(QUERY_SOURCES["./queries.ts"]).toMatch(/import \* as api from "@backend\/api";/);
+  });
+});
+
+// Il verso opposto: il livello dati vero (`data/backend/real/`) non importa
+// valori dalle query. Le query importano `@backend/api`, che nella build app È
+// l'indice del livello vero: un import dalle query lì dentro chiude un ciclo
+// che blocca il caricamento dei moduli (successo il 21 nov 2026 con
+// `productLaterOn` in `claudeCapabilities.ts`: i test delle pagine della
+// build app restavano fermi senza eseguire niente).
+const REAL_SOURCES = import.meta.glob(["./backend/real/**/*.ts", "!**/*.test.{ts,tsx}"], {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
+
+describe("il livello dati vero non importa dalle query", () => {
+  it("trova i moduli del livello vero", () => {
+    expect(Object.keys(REAL_SOURCES).length).toBeGreaterThan(20);
+  });
+
+  it("nessun import di valori da data/queries (né dai suoi sotto-moduli)", () => {
+    const offenders = Object.entries(REAL_SOURCES)
+      .filter(([, source]) => /^\s*import\s+(?!type\b)[^;]*from\s+["'](\.\.\/)+queries(\/[^"']*)?["']/m.test(source))
+      .map(([path]) => path);
+    expect(offenders).toEqual([]);
+  });
+});

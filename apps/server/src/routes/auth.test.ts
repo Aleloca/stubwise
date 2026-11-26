@@ -2,7 +2,7 @@ import { unsign } from "@fastify/cookie";
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { buildApp } from "../app.js";
 import { hashPassword } from "../auth/password.js";
 import {
@@ -104,7 +104,8 @@ describe("setup concorrente", () => {
       }),
     ]);
 
-    const rows = await testDb.db.select().from(users);
+    // Le persone: l'utente di sistema «Claude» (0125) c'è da prima e non conta.
+    const rows = await testDb.db.select().from(users).where(eq(users.isAgent, false));
     // Pulizia prima delle assert: i test del flusso di primo setup qui sotto
     // ripartono da zero anche se questo test fallisce.
     await testDb.db.delete(users);
@@ -188,6 +189,7 @@ describe("login e sessioni", () => {
       language: "en",
       avatarUrl: null,
       slackUserId: null,
+      displayName: null,
     });
     expect(body.user).not.toHaveProperty("passwordHash");
   });
@@ -366,6 +368,7 @@ describe("mobile-login", () => {
       language: "en",
       avatarUrl: null,
       slackUserId: null,
+      displayName: null,
     });
     // Nessuna sessione a cookie: il mobile non ne ha bisogno e non deve
     // ritrovarsi una riga in `sessions` che nessuno chiuderà mai.
@@ -696,7 +699,7 @@ describe("preferenza lingua utente", () => {
       payload: { language: "it" },
     });
     expect(patch.statusCode).toBe(200);
-    expect(patch.json()).toEqual({ language: "it" });
+    expect(patch.json()).toEqual({ language: "it", displayName: null });
 
     const me = await app.inject({
       method: "GET",
@@ -980,18 +983,17 @@ describe("register concorrente", () => {
   it("due register concorrenti con lo stesso token: esattamente un 201 e un 410", async () => {
     const token = await createInvite("conteso@example.com");
 
+    // Dall'area 9 (F1) l'email è quella dell'invito: i due contendenti la
+    // mandano entrambi (uno con le maiuscole), e la gara resta sul consumo.
     const [a, b] = await Promise.all([
-      register(token, "conteso-uno@example.com"),
-      register(token, "conteso-due@example.com"),
+      register(token, "conteso@example.com"),
+      register(token, "CONTESO@example.com"),
     ]);
 
     expect([a.statusCode, b.statusCode].sort((x, y) => x - y)).toEqual([201, 410]);
 
     // Un solo account creato: l'invito è stato consumato esattamente una volta.
-    const created = await testDb.db
-      .select()
-      .from(users)
-      .where(inArray(users.email, ["conteso-uno@example.com", "conteso-due@example.com"]));
+    const created = await testDb.db.select().from(users).where(eq(users.email, "conteso@example.com"));
     expect(created).toHaveLength(1);
   });
 

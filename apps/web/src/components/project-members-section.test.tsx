@@ -70,6 +70,8 @@ const BEA: ProjectMember = {
   roleId: DEV.id,
   roleName: "Developer",
   createdAt: "2026-10-22T10:00:00.000Z",
+  // Area 9, F1: i permessi effettivi con le fonti (il web non li legge ancora).
+  permissions: [],
 };
 
 const USERS = [
@@ -171,7 +173,7 @@ describe("sezione Membri del progetto", () => {
     );
   });
 
-  it("l'errore del server (bersaglio con più permessi) si legge in chiaro sulla riga", async () => {
+  it("l'errore del server (un permesso che non si ha) si legge in chiaro sulla riga", async () => {
     const user = userEvent.setup();
     mockApi({
       [`GET ${membersPath}`]: () => jsonResponse(200, [BEA]),
@@ -179,7 +181,7 @@ describe("sezione Membri del progetto", () => {
       "GET /api/users": () => jsonResponse(200, USERS),
       [`PUT ${membersPath}/${BEA.userId}`]: () =>
         jsonResponse(403, {
-          code: "target_above",
+          code: "escalation",
           message: "nope",
           permission: "release.merge",
         }),
@@ -193,7 +195,7 @@ describe("sezione Membri del progetto", () => {
     const row = screen.getByRole("listitem", { name: "bea@example.com" });
     expect(
       await within(row).findByText(
-        "You cannot change someone with more permissions than you: «Merge pull requests».",
+        "You cannot grant a permission you don\'t have: «Merge pull requests».",
       ),
     ).toBeInTheDocument();
   });

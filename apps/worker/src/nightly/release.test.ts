@@ -17,6 +17,7 @@ import {
 import { isPlanSkip, planDocs, planPages, type DocsPlan } from "./plan.js";
 import { claimNext, enqueueItems, failItem, releaseItem } from "./queue.js";
 import { enqueueReleaseItem, runReleaseItem } from "./release.js";
+import type { NightlyDeps } from "./types.js";
 import { appendRelatedLinks } from "./release-page.js";
 
 let testDb: TestDb;
@@ -69,6 +70,7 @@ function makeDeps(
     run?: (opts: AgentRunOptions) => Promise<AgentRunResult>;
     select?: SelectDeps;
     list?: { commits: string[]; headSha: string; fallback?: boolean };
+    publish?: NightlyDeps["publish"];
   } = {},
 ) {
   const run = vi.fn(
@@ -80,6 +82,7 @@ function makeDeps(
     mirrors: { listDefaultBranchCommitsSince, listAncestorsSince: vi.fn(async () => []) } as never,
     select: o.select ?? fakeSelect(testDb.db, [PROVIDER]),
     now: () => NOW,
+    ...(o.publish ? { publish: o.publish } : {}),
   });
   return { deps, run, listDefaultBranchCommitsSince };
 }
@@ -231,6 +234,19 @@ describe("runReleaseItem", () => {
     const [closed] = await releaseItems();
     expect(closed).toMatchObject({ status: "done", claimedAt: null });
     expect(closed!.payload.pageId).toBe(out.pageId);
+  });
+
+  it("area 8, F2, S4: la nota scritta pubblica `docs.release_note` (una volta, col link ai Docs del progetto)", async () => {
+    const db = testDb.db;
+    const gen = await seedCurrentGeneration(db, repositoryId, BOOKMARK);
+    await seedTwoCommits(gen);
+    const publish = vi.fn(async () => ({ published: 1, notificationIds: [] }));
+    const { deps } = makeDeps({ publish: publish as never });
+    await enqueueReleaseItem(deps, repoFor(gen), planOf(gen, [sha("2"), sha("1")]), NIGHT1);
+    const item = (await claimNext(db, repositoryId, "release"))!;
+    expect((await runReleaseItem(deps, repoFor(gen), item)).status).toBe("done");
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect((publish.mock.calls[0] as unknown[])[1]).toMatchObject({ kind: "docs.release_note", projectId, title: "Login rifatto", url: expect.stringMatching(/\/app\/#\/p\/[A-Z0-9]+\/docs$/) });
   });
 
   it("output non valido → failed, nessuna pagina; planPages procede con la sola mappa", async () => {

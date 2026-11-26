@@ -57,6 +57,7 @@ function sessionDetail(overrides: Partial<AgentSessionDetail> = {}): AgentSessio
     aiJobId: null,
     backlogItemId: ITEM_ID,
     outcome: null,
+    waitsOnViewer: false,
     canWrite: true,
     canIntervene: true,
     canInterrupt: true,
@@ -64,6 +65,7 @@ function sessionDetail(overrides: Partial<AgentSessionDetail> = {}): AgentSessio
     paused: false,
     questions: [],
     inputs: [],
+    startedById: null,
     ...overrides,
   };
 }

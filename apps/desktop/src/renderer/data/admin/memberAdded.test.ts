@@ -13,13 +13,15 @@ import {
   setLatency,
   setStreamLatency,
 } from "../api";
+import { writeAccess } from "../access/state";
 import { markReauthenticated, REAUTH_GRACE_MINUTES } from "../auth/reauth";
 import type { ProposedAction } from "../model";
 import { CLAUDE_ID } from "../seed/people";
 import { setSessionPersonId } from "../session";
 import { advanceNow, state, visibleProjectIds } from "../store";
 import type { AppNotification, ConversationEvent } from "../types";
-import { memberAddedRecipientOf } from "./members";
+import { alerts } from "../api";
+import { memberAddedMandatoryOf } from "./members";
 
 // `member.added` (area 10b, Task 7, D4): chi viene aggiunto a un progetto lo
 // sa — a mano (Members), da Claude per conto di qualcuno (col segno) e da
@@ -27,10 +29,15 @@ import { memberAddedRecipientOf } from "./members";
 // stesso né per Claude collega (P8: provato sulla regola, non su scenari che
 // `judgeJoin` rifiuta prima), né per un cambio di ruolo. Il nome del ruolo si
 // legge a lettura; dopo un «Annulla» la notifica resta, con «Undone by».
+// Dal 19 nov 2026 (D-11 = b del maintainer, design dell'area 10, F5) è un
+// tipo del catalogo degli avvisi: la persona aggiunta la riceve per motivo
+// obbligatorio (`added`), chi gestisce i membri del progetto per iscrizione
+// (accesa di default, spegnibile). Mai chi agisce, mai Claude.
 
 const LAURA = "p-laura";
 const LUCA = "p-luca";
 const MARCO = "p-marco";
+const MATTEO = "p-matteo";
 const ROBERTA = "p-roberta";
 const ACQ = "prj-acq";
 const DEVELOPER = "role-developer";
@@ -45,16 +52,57 @@ beforeEach(() => {
   resetApi();
 });
 
-async function addedOf(personId: string): Promise<AppNotification[]> {
+async function addedOf(personId: string, projectId?: string): Promise<AppNotification[]> {
   as(personId);
-  return (await listNotifications()).filter((n) => n.kind === "member.added");
+  return (await listNotifications()).filter(
+    (n) => n.kind === "member.added" && (projectId === undefined || n.projectId === projectId),
+  );
 }
 
-describe("memberAddedRecipientOf", () => {
-  it("la persona aggiunta; mai chi agisce, mai Claude collega (P8)", () => {
-    expect(memberAddedRecipientOf(LAURA, LUCA)).toBe(LUCA);
-    expect(memberAddedRecipientOf(LAURA, LAURA)).toBeNull();
-    expect(memberAddedRecipientOf(LAURA, CLAUDE_ID)).toBeNull();
+describe("memberAddedMandatoryOf", () => {
+  it("la persona aggiunta, per motivo `added`; mai chi aggiunge sé stesso, mai Claude collega (P8)", () => {
+    expect(memberAddedMandatoryOf(LAURA, LUCA)).toEqual([{ personId: LUCA, reason: "added" }]);
+    expect(memberAddedMandatoryOf(LAURA, LAURA)).toEqual([]);
+    expect(memberAddedMandatoryOf(LAURA, CLAUDE_ID)).toEqual([]);
+  });
+});
+
+describe("member.added nel catalogo degli avvisi (F5)", () => {
+  const addLucaByHand = async () => {
+    as(LAURA);
+    markReauthenticated(LAURA);
+    expect(await admin.addMember(ACQ, LUCA, DEVELOPER)).toEqual({ ok: true });
+  };
+
+  it("nelle Preferenze di Matteo: una riga nel gruppo «members», accesa", async () => {
+    as(MATTEO);
+    const row = (await alerts.subscriptionRows())
+      .find((p) => p.projectId === ACQ)!
+      .rows.find((r) => r.type === "member.added");
+    expect(row).toMatchObject({ group: "members", state: "on", app: true, phone: false });
+  });
+
+  it("Matteo la spegne in ACQ: l'ingresso dopo non gli arriva", async () => {
+    as(MATTEO);
+    await alerts.setSubscription(ACQ, "member.added", { app: false });
+    await addLucaByHand();
+    expect(await addedOf(MATTEO, ACQ)).toEqual([]);
+    expect(await addedOf(LUCA)).toHaveLength(1);
+  });
+
+  it("Marco spegne tutto in ACQ, ne esce, e Laura lo rimette dentro: la riceve lo stesso, obbligatoria", async () => {
+    as(MARCO);
+    await alerts.muteProject(ACQ);
+    writeAccess((s) => {
+      s.memberships = s.memberships.filter((m) => !(m.personId === MARCO && m.projectId === ACQ));
+      s.grants = s.grants.filter((g) => !(g.personId === MARCO && g.projectId === ACQ));
+    });
+    as(LAURA);
+    markReauthenticated(LAURA);
+    expect(await admin.addMember(ACQ, MARCO, DEVELOPER)).toEqual({ ok: true });
+    const [n, ...rest] = await addedOf(MARCO, ACQ);
+    expect(rest).toEqual([]);
+    expect(n!.memberName).toBeUndefined();
   });
 });
 
@@ -82,6 +130,39 @@ describe("member.added a mano", () => {
     expect(await addedOf(LAURA)).toEqual([]);
   });
 
+  it("Matteo, che gestisce i membri di ACQ, la riceve con chi è entrato; Roberta (full admin, non membro) no", async () => {
+    as(LAURA);
+    markReauthenticated(LAURA);
+    expect(await admin.addMember(ACQ, LUCA, DEVELOPER)).toEqual({ ok: true });
+    const [n, ...rest] = await addedOf(MATTEO, ACQ);
+    expect(rest).toEqual([]);
+    expect(n).toMatchObject({
+      kind: "member.added",
+      projectId: ACQ,
+      roleName: "Developer",
+      actorName: "Laura Costa",
+      memberName: "Luca Bianchi",
+    });
+    // L'id resta nel livello dati, come quello di chi agisce.
+    expect(n!.memberId).toBeUndefined();
+    // Per chi è entrato la card resta «You've been added»: niente nome di sé.
+    expect((await addedOf(LUCA))[0]!.memberName).toBeUndefined();
+    expect(await addedOf("p-roberta")).toEqual([]);
+  });
+
+  it("un gestore che non vede più il progetto non la vede più: l'eccezione [SC 16] è solo di chi è entrato", async () => {
+    as(LAURA);
+    markReauthenticated(LAURA);
+    await admin.addMember(ACQ, LUCA, DEVELOPER);
+    expect(await addedOf(MATTEO, ACQ)).toHaveLength(1);
+    writeAccess((s) => {
+      s.memberships = s.memberships.filter((m) => !(m.personId === MATTEO && m.projectId === ACQ));
+      s.grants = s.grants.filter((g) => !(g.personId === MATTEO && g.projectId === ACQ));
+    });
+    expect(visibleProjectIds(MATTEO).has(ACQ)).toBe(false);
+    expect(await addedOf(MATTEO, ACQ)).toEqual([]);
+  });
+
   it("cambiare il ruolo non è un'aggiunta: nessuna notifica nuova", async () => {
     as(LAURA);
     markReauthenticated(LAURA);
@@ -104,9 +185,8 @@ describe("member.added a mano", () => {
 
   it("chi crea un progetto ne diventa Project Lead senza avvisare sé stesso", async () => {
     as(ROBERTA);
-    const before = state.notifications.length;
     await createProject({ code: "NEWP", name: "New project", template: "empty" });
-    expect(state.notifications).toHaveLength(before);
+    expect((await addedOf(ROBERTA)).filter((n) => n.objectCode === "NEWP")).toEqual([]);
   });
 });
 
@@ -122,7 +202,13 @@ describe("member.added dalla posta (P25)", () => {
     expect(rest).toEqual([]);
     expect(n).toMatchObject({ projectId: "prj-aud", objectCode: "AUD", roleName: "Contributor" });
     expect(n!.viaClaude).toBeUndefined();
-    expect(await addedOf("p-matteo")).toEqual([]);
+    // Matteo ha agito: dell'ingresso di Chiara non riceve niente (la riga del
+    // seme su Stefano, che gestisce, sì).
+    expect(
+      (await addedOf("p-matteo")).filter((m) => m.createdAt === n!.createdAt && m.id === n!.id),
+    ).toEqual([]);
+    // Laura gestisce i membri di AUD: la riceve, con Chiara.
+    expect((await addedOf(LAURA))[0]).toMatchObject({ memberName: "Chiara Lombardi" });
   });
 });
 
@@ -155,7 +241,7 @@ const addLuca: ProposedAction = {
 };
 
 describe("member.added da Claude per conto di Laura", () => {
-  it("col segno; «Annulla» a grazia scaduta chiede il codice; annullata, resta una sola notifica, «Undone by Laura Costa», e non si apre più", async () => {
+  it("col segno; «Annulla» (inverso C) è una scheda che chiede il codice alla conferma; annullata, resta una sola notifica, «Undone by Laura Costa», e non si apre più", async () => {
     const { cid, groupId } = await confirmed(LAURA, [addLuca]);
     expect(visibleProjectIds(LUCA).has(ACQ)).toBe(true);
     const [n] = await addedOf(LUCA);
@@ -169,13 +255,21 @@ describe("member.added da Claude per conto di Laura", () => {
       state: "available",
       needsReauth: true,
     });
-    expect(await claude.undoClaudeActions(cid, groupId)).toEqual({
+    // L'inverso (removeMember) è una C: «Annulla» è sempre una scheda (review F7, I3 b).
+    const undo = await claude.undoClaudeActions(cid, groupId);
+    expect(undo).toMatchObject({ ok: true, proposalId: expect.any(String) });
+    expect(visibleProjectIds(LUCA).has(ACQ)).toBe(true);
+    const card = eventsOf(cid).find(
+      (e): e is Proposal => e.type === "proposal" && e.undoOf === groupId,
+    )!;
+    // A grazia scaduta la sua conferma chiede il codice, e niente cambia.
+    expect(await confirmProposal(cid, card.proposalId)).toEqual({
       ok: false,
       error: "reauth_required",
     });
+    expect(visibleProjectIds(LUCA).has(ACQ)).toBe(true);
     markReauthenticated(LAURA);
-    // L'inverso (removeMember) non avvisa: «Annulla» parte subito.
-    expect(await claude.undoClaudeActions(cid, groupId)).toEqual({ ok: true });
+    expect(await confirmProposal(cid, card.proposalId)).toMatchObject({ status: "confirmed" });
     expect(visibleProjectIds(LUCA).has(ACQ)).toBe(false);
 
     // Luca non vede più ACQ, ma la notifica che parla di lui resta [SC 16]:
@@ -188,6 +282,10 @@ describe("member.added da Claude per conto di Laura", () => {
   });
 
   it("l'«Annulla» di un `removeMember` di Claude (inverso `addMember`) avvisa: apre una scheda (P7)", async () => {
+    // Senza permessi personali in ACQ (con, l'uscita non si annulla: I3 a di F7).
+    writeAccess((s) => {
+      s.grants = s.grants.filter((g) => !(g.personId === MARCO && g.projectId === ACQ));
+    });
     const { cid, groupId } = await confirmed(LAURA, [
       {
         fn: "removeMember",
@@ -203,7 +301,7 @@ describe("member.added da Claude per conto di Laura", () => {
       (e): e is Proposal => e.type === "proposal" && e.undoOf === groupId,
     )!;
     expect(card.reasons).toEqual([
-      { kind: "notifies", personIds: [MARCO], more: false },
+      { kind: "notifies", personIds: [MARCO, MATTEO], more: false },
       { kind: "reauth" },
     ]);
     // Niente prima della conferma.

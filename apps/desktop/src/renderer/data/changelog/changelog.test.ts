@@ -3,6 +3,7 @@ import { changelog, failNext, resetApi, setLatency } from "../api";
 import "../admin/changeTypes";
 import { accessState, isFullAdmin, roleIdOf, writeAccess } from "../access/index";
 import { visiblePeopleFor } from "../access/whoCan";
+import { strangersTo, withoutChannels } from "../../test/strangers";
 import { setSessionPersonId } from "../session";
 import { seedChangelog } from "../seed/changelog";
 import { PEOPLE } from "../seed/people";
@@ -319,6 +320,122 @@ describe("chi legge cosa", () => {
   });
 });
 
+// Registro, A11 r.1414 (decisione del maintainer, 23 nov 2026): il nome di
+// chi ha agito non esce a chi non lo vede. Restano visibili i disattivati e
+// gli ex membri di un progetto che chi guarda vede («Nome (deactivated)»).
+describe("il nome dell'autore della voce (r.1414)", () => {
+  /** Una persona che Laura non conosce (costruita dal seme). */
+  const outsider = () => PEOPLE.find((p) => p.id === strangersTo("p-laura")[0])!;
+
+  it("chi non vede l'autore legge la voce senza il suo nome", async () => {
+    const who = outsider();
+    expect(who).toBeDefined();
+    projectEntry(ACQ, who.id);
+    as("p-laura");
+    const [entry] = await changelog.listProjectChanges(ACQ);
+    expect(entry!.actorName).toBeNull();
+    expect(entry!.actorId).toMatch(/^hidden-\d+$/);
+    expect(JSON.stringify(entry)).not.toContain(who.name);
+    expect(JSON.stringify(entry)).not.toContain(who.id);
+  });
+
+  it("una voce su una persona che chi guarda non conosce: né id né nome dell'oggetto", async () => {
+    const who = outsider();
+    recordChange({
+      kind: "test.member.added",
+      actorId: "p-laura",
+      projectId: ACQ,
+      object: { type: "person", id: who.id, label: who.name },
+      before: null,
+      after: "member",
+    });
+    as("p-laura");
+    const [entry] = await changelog.listProjectChanges(ACQ);
+    expect(entry!.object.id).toMatch(/^hidden-\d+$/);
+    expect(entry!.objectLink).toBeNull();
+    expect(JSON.stringify(entry)).not.toContain(who.name);
+    expect(JSON.stringify(entry)).not.toContain(who.id);
+  });
+
+  // Revisione del lotto 2 (Critical 1): gli id dentro `params` (le liste
+  // `added`/`removed` dei reparti) passano dal masker come gli altri campi.
+  it("i `params` coi id delle persone: segnaposti, né id né nome di chi non si conosce", async () => {
+    const who = outsider();
+    grantInstancePermission("p-laura", "departments.manage");
+    recordChange({
+      kind: "department.members_changed",
+      actorId: "p-laura",
+      projectId: null,
+      object: { type: "department", id: "dep-x", label: "Design" },
+      before: null,
+      after: null,
+      params: { added: `p-marco,${who.id}`, removed: who.id },
+    });
+    as("p-laura");
+    const entry = (await changelog.listChanges()).find(
+      (e) => e.kind === "department.members_changed",
+    )!;
+    expect(entry.params.added).toBe("p-marco,hidden-1");
+    expect(entry.params.removed).toBe("hidden-1");
+    expect(JSON.stringify(entry)).not.toContain(who.id);
+    expect(JSON.stringify(entry)).not.toContain(who.name);
+  });
+
+  // Revisione del lotto 2 (minor): una voce su una persona nascosta non dice
+  // nel diff i valori che la identificano (lo username git, quello Bitbucket).
+  it("il diff di una persona nascosta: nessun valore che la identifica", async () => {
+    const who = outsider();
+    grantInstancePermission("p-laura", "users.manage");
+    for (const kind of ["person.git_identity_linked", "person.bitbucket_username_set"]) {
+      recordChange({
+        kind,
+        actorId: "p-laura",
+        projectId: null,
+        object: { type: "person", id: who.id, label: who.name },
+        before: null,
+        after: "kevin.secret",
+      });
+    }
+    as("p-laura");
+    const entries = (await changelog.listChanges()).filter((e) => e.kind.startsWith("person."));
+    expect(entries.length).toBeGreaterThanOrEqual(2);
+    expect(JSON.stringify(entries)).not.toContain("kevin.secret");
+  });
+
+  it("un ex membro del progetto resta col suo nome", async () => {
+    // Revisione del lotto 2 (I3): fuori dai canali leggibili, lo fa conoscere solo il progetto.
+    withoutChannels("p-laura", ["p-marco"]);
+    const marco = PEOPLE.find((p) => p.id === "p-marco")!;
+    expect(
+      accessState().memberships.some((m) => m.personId === marco.id && m.projectId === ACQ),
+    ).toBe(true);
+    projectEntry(ACQ, marco.id);
+    // Fuori da OGNI progetto: resta solo l'ex membro di ACQ (nient'altro lo fa conoscere).
+    writeAccess((s) => {
+      s.memberships = s.memberships.filter((m) => m.personId !== marco.id);
+    });
+    expect(isFullAdmin(marco.id)).toBe(false);
+    as("p-laura");
+    const [entry] = await changelog.listProjectChanges(ACQ);
+    expect(entry!.actorName).toBe(marco.name);
+  });
+
+  it("un membro disattivato resta col suo nome", async () => {
+    // Revisione del lotto 2 (I3): fuori dai canali leggibili, lo fa conoscere solo il progetto.
+    withoutChannels("p-laura", ["p-marco"]);
+    const marco = PEOPLE.find((p) => p.id === "p-marco")!;
+    projectEntry(ACQ, marco.id);
+    writeAccess((s) => {
+      const row = s.people.find((p) => p.personId === marco.id)!;
+      row.status = "deactivated";
+      row.deactivatedAt = "2026-11-20T10:00:00Z";
+    });
+    as("p-laura");
+    const [entry] = await changelog.listProjectChanges(ACQ);
+    expect(entry!.actorName).toBe(marco.name);
+  });
+});
+
 describe("registro di un progetto", () => {
   beforeEach(() => {
     instanceEntry();
@@ -395,11 +512,13 @@ describe("una voce non si tocca", () => {
     expect(
       names.filter((n) => /update|edit|delete|remove|clear|set|undo|forget|replace/i.test(n)),
     ).toEqual([]);
-    // Solo letture: le voci e le scelte dei filtri (Task 11).
+    // Solo letture: le voci (anche a pagine, «Load more») e le scelte dei filtri (Task 11).
     expect(Object.keys(changelog).sort()).toEqual([
       "listChangeFilterChoices",
       "listChanges",
+      "listChangesPage",
       "listProjectChanges",
+      "listProjectChangesPage",
     ]);
   });
 
@@ -419,17 +538,13 @@ describe("una voce non si tocca", () => {
 });
 
 const nameOf = (id: string) => PEOPLE.find((p) => p.id === id)!.name;
-const isActiveId = (id: string) =>
-  accessState().people.some((p) => p.personId === id && p.status === "active");
 
 describe("R-G5 nelle persone di una voce", () => {
   it("nel prima/dopo chi non si vede non c'è: né il nome né un conteggio", async () => {
-    // Un lettore che non è full admin, e una persona attiva che non vede.
-    const humans = PEOPLE.filter((p) => !p.isClaude).map((p) => p.id);
-    const unseenBy = (id: string) =>
-      humans.filter((x) => isActiveId(x) && !visiblePeopleFor(id).has(x));
-    const viewer = humans.find((id) => isActiveId(id) && !isFullAdmin(id) && unseenBy(id).length)!;
-    const hidden = unseenBy(viewer)[0]!;
+    // Un lettore che non è full admin e una persona che non conosce (r.1414:
+    // si costruisce, nel seme quasi tutti si conoscono), e una che conosce.
+    const viewer = "p-laura";
+    const hidden = strangersTo(viewer)[0]!;
     const seen = [...visiblePeopleFor(viewer)].find((x) => x !== viewer)!;
     grantInstancePermission(viewer, "changelog.view");
     recordChange({
@@ -443,5 +558,82 @@ describe("R-G5 nelle persone di una voce", () => {
     const [entry] = await changelog.listChanges({ kind: "department.members_changed" });
     expect(entry!.diff).toEqual({ kind: "people", added: [nameOf(seen)], removed: [] });
     expect(JSON.stringify(entry!.diff)).not.toContain(nameOf(hidden));
+  });
+});
+
+// Scelta di 46 (lotto 3, forme del registro): come sul server
+// (`adminVisiblePersonIds`, area 9), una voce `person.*` su una persona che chi
+// guarda non vede non esiste per lui; chi gestisce le persone le legge tutte.
+describe("le voci su una persona che non si vede (r.1414)", () => {
+  const personEntry = (id: string) =>
+    recordChange({
+      kind: "person.git_identity_linked",
+      actorId: "p-roberta",
+      projectId: null,
+      object: { type: "person", id, label: nameOf(id) },
+      before: null,
+      after: "someone.git",
+    });
+
+  it("con changelog.view ma senza users.manage: la voce su chi non si vede non c'è", async () => {
+    const viewer = "p-laura";
+    const hidden = strangersTo(viewer)[0]!;
+    const seen = [...visiblePeopleFor(viewer)].find((x) => x !== viewer && x !== "p-claude")!;
+    grantInstancePermission(viewer, "changelog.view");
+    expect(can(viewerFor(viewer), "users.manage")).toBe(false);
+    personEntry(hidden);
+    personEntry(seen);
+    as(viewer);
+    const entries = await changelog.listChanges({ kind: "person.git_identity_linked" });
+    const objects = entries.map((e) => e.object.id);
+    expect(objects).toContain(seen);
+    expect(entries.filter((e) => e.object.id.startsWith("hidden-"))).toEqual([]);
+    expect(entries.length).toBe(
+      state.changelog.filter(
+        (e) => e.kind === "person.git_identity_linked" && e.object.id !== hidden,
+      ).length,
+    );
+  });
+
+  it("chi gestisce le persone le legge tutte", async () => {
+    const viewer = "p-laura";
+    const hidden = strangersTo(viewer)[0]!;
+    grantInstancePermission(viewer, "users.manage");
+    personEntry(hidden);
+    as(viewer);
+    const entries = await changelog.listChanges({ kind: "person.git_identity_linked" });
+    expect(entries.some((e) => e.object.id.startsWith("hidden-"))).toBe(true);
+  });
+});
+
+describe("le pagine del registro (decisione del maintainer: «Load more»)", () => {
+  it("50 voci per volta, più recenti prima; il cursore porta alle successive; i filtri restano", async () => {
+    as("p-roberta");
+    for (let i = 0; i < 70; i++) {
+      advanceNow(60_000);
+      instanceEntry();
+    }
+    const all = await changelog.listChanges({ group: "test" });
+    expect(all.length).toBeGreaterThanOrEqual(70);
+    const first = await changelog.listChangesPage({ group: "test" });
+    expect(first.entries.map((e) => e.id)).toEqual(all.slice(0, 50).map((e) => e.id));
+    expect(first.nextCursor).not.toBeNull();
+    const second = await changelog.listChangesPage({ group: "test" }, first.nextCursor!);
+    expect(second.entries.map((e) => e.id)).toEqual(all.slice(50, 100).map((e) => e.id));
+    expect(second.nextCursor).toBeNull();
+  });
+
+  it("anche nel registro del progetto", async () => {
+    as("p-roberta");
+    for (let i = 0; i < 55; i++) {
+      advanceNow(60_000);
+      projectEntry(ACQ);
+    }
+    const all = await changelog.listProjectChanges(ACQ);
+    const first = await changelog.listProjectChangesPage(ACQ);
+    expect(first.entries).toHaveLength(50);
+    const second = await changelog.listProjectChangesPage(ACQ, {}, first.nextCursor!);
+    expect([...first.entries, ...second.entries].map((e) => e.id)).toEqual(all.map((e) => e.id));
+    expect(second.nextCursor).toBeNull();
   });
 });

@@ -1,4 +1,9 @@
-import { Link, useNavigate, useSearch } from "@tanstack/react-router";
+import { featureIntegrated } from "../../data/integration";
+import { Link, useLocation, useNavigate, useSearch } from "@tanstack/react-router";
+import { isAppBuild } from "../../data/build";
+import { useReauth } from "../../layout/useReauth";
+import { openInWeb } from "../../platform/openWeb";
+import { isDesktopApp } from "../../platform/desktopSession";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { TODAY } from "../../data/dates";
@@ -20,7 +25,7 @@ import type {
   PersonDayActivity,
   Project,
 } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { shortWeekIn } from "../../domain/weeks";
 import { DeptLegend, DeptStrip, useDeptLabel } from "../../layout/DeptStrip";
 import { inputClass } from "../../tasks-ui/Dialog";
@@ -307,6 +312,8 @@ export function PeopleActivity({
   const [generating, setGenerating] = useState<ReadonlySet<string>>(new Set());
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const listRef = useRef<HTMLDivElement>(null);
+  // Nella build app il server rigenera i report di TUTTI i progetti del giorno
+  // (`POST /api/activity/generate`): il bottone lo dice (`generateAll`).
   const canGenerate = can(viewer, "settings.manage");
 
   // `[` e `]` cambiano giorno, J/K passano fra le persone. Niente scrivendo,
@@ -357,6 +364,7 @@ export function PeopleActivity({
         if (generating.has(projectId)) return "generating";
         const report = byProject.get(projectId);
         if (!report) return "missing";
+        if (report.pending) return "generating";
         return report.summary === null ? "failed" : "ready";
       },
       newCommitsOf: (projectId) =>
@@ -691,6 +699,8 @@ function ReportCell({
     return s === "missing" || s === "failed" || s === "off";
   });
   const single = projectIds.length === 1 ? projects.get(projectIds[0]!) : undefined;
+  // Il prototipo genera il report di un progetto; il server quelli di tutti i progetti del giorno.
+  const perProject = featureIntegrated("daily-report-per-project");
   // Un report pronto ma scritto prima degli ultimi commit del giorno: lo dice, e si rigenera.
   const stale = projectIds.filter(
     (id) => reports.stateOf(id) === "ready" && reports.newCommitsOf(id) > 0,
@@ -731,9 +741,9 @@ function ReportCell({
           title={state === "off" ? t("projectEffects.report.generateTitle") : undefined}
           onClick={() => reports.generate(todo)}
         >
-          {t(
-            state === "failed" ? "projects.people.report.retry" : "projects.people.report.generate",
-          )}
+          {perProject
+            ? t(state === "failed" ? "projects.people.report.retry" : "projects.people.report.generate")
+            : t("projects.people.report.generateAll")}
         </button>
       )}
       {/* Per progetto: con più progetti il codice dice di quale report si parla. */}
@@ -749,12 +759,14 @@ function ReportCell({
             <button
               type="button"
               className={ghostButton}
-              aria-label={t("projects.people.report.regenerateOf", {
-                code: projects.get(id)?.code ?? "",
-              })}
+              aria-label={
+                perProject
+                  ? t("projects.people.report.regenerateOf", { code: projects.get(id)?.code ?? "" })
+                  : t("projects.people.report.generateAll")
+              }
               onClick={() => reports.generate([id])}
             >
-              {t("projects.people.report.regenerate")}
+              {perProject ? t("projects.people.report.regenerate") : t("projects.people.report.generateAll")}
             </button>
           )}
         </span>
@@ -1065,6 +1077,15 @@ function CommitGroups({
 }
 
 /**
+ * Sotto il nome di un autore non collegato (build app): la sua email (se non è
+ * già il nome) e lo username GitHub di una noreply. Vuota nel prototipo.
+ */
+function authorLine(p: PersonDayActivity): string {
+  const email = p.authorEmail && p.authorEmail !== p.name ? p.authorEmail : null;
+  return [email, p.authorUsername ? `@${p.authorUsername}` : null].filter(Boolean).join(" · ");
+}
+
+/**
  * In coda, gli autori git non collegati a nessuno: nome dell'autore, numero
  * di commit, «Link a person» (con `users.manage`, come sul web) che apre il
  * menu delle persone; collegato, i commit passano sotto la persona.
@@ -1090,8 +1111,28 @@ function UnlinkedGroup({
   const { viewer } = useViewer();
   const toast = useToast();
   const link = useLinkCommitAuthor();
-  const canLink = can(viewer, "users.manage");
+  const reauth = useReauth();
+  const location = useLocation();
+  const canLink = can(viewer, "users.manage") && featureIntegrated("commit-author-link");
+  // Nella build app si collega l'EMAIL dell'autore (area 3, 3e.2): una riga
+  // senza (un server più vecchio) non offre il gesto.
+  const linkable = (p: PersonDayActivity) => canLink && (!isAppBuild() || !!p.authorEmail);
+  // Sul desktop la riconferma vive nel browser: il gesto apre la stessa pagina sul web.
+  const onDesktop = isDesktopApp();
   const candidates = people.filter((p) => !p.isClaude);
+  const doLink = async (p: PersonDayActivity, person: Person) => {
+    try {
+      const result = await reauth(
+        () => link.mutateAsync({ authorName: p.name, personId: person.id, authorEmail: p.authorEmail ?? null }),
+        { action: t("projects.people.linkAction", { name: p.name, person: person.name }) },
+      );
+      if (result.ok) toast.show(t("projects.people.linked", { name: p.name, person: person.name }));
+      else if (result.error === "taken") toast.error(t("projects.people.linkTaken", { name: p.name }));
+      // `reauth_cancelled`: lo dice il dialogo; niente è cambiato.
+    } catch {
+      toast.error(t("projects.people.linkFailed", { name: p.name }));
+    }
+  };
   const title = t("projects.people.unlinked");
   return (
     <section aria-labelledby="people-unlinked" data-people-unlinked className="pt-2">
@@ -1117,12 +1158,29 @@ function UnlinkedGroup({
                 >
                   <Disclosure open={isOpen} />
                   <Avatar person={null} />
-                  <span className="min-w-0 truncate text-md font-medium text-ink">“{p.name}”</span>
+                  <span className="flex min-w-0 flex-col">
+                    <span className="min-w-0 truncate text-md font-medium text-ink">“{p.name}”</span>
+                    {authorLine(p) && (
+                      <span className="min-w-0 truncate text-xs text-ink-muted">{authorLine(p)}</span>
+                    )}
+                  </span>
                   <span className="num min-w-0 truncate text-sm text-ink-muted @max-[620px]:col-start-3">
                     {t("projects.people.unlinkedCommits", { count: p.commits.length })}
                   </span>
                 </button>
-                {canLink && (
+                {linkable(p) && onDesktop && (
+                  <span className="relative shrink-0">
+                    <button
+                      type="button"
+                      className={ghostButton}
+                      title={t("projects.people.linkOnWeb")}
+                      onClick={() => openInWeb(`/app/#${location.href}`)}
+                    >
+                      {t("projects.people.link")}
+                    </button>
+                  </span>
+                )}
+                {linkable(p) && !onDesktop && (
                   <span className="relative shrink-0">
                     <MenuButton
                       menuLabel={t("projects.people.linkTo", { name: p.name })}
@@ -1147,22 +1205,7 @@ function UnlinkedGroup({
                                 className={itemClass}
                                 onClick={() => {
                                   close();
-                                  link.mutate(
-                                    { authorName: p.name, personId: person.id },
-                                    {
-                                      onSuccess: () =>
-                                        toast.show(
-                                          t("projects.people.linked", {
-                                            name: p.name,
-                                            person: person.name,
-                                          }),
-                                        ),
-                                      onError: () =>
-                                        toast.error(
-                                          t("projects.people.linkFailed", { name: p.name }),
-                                        ),
-                                    },
-                                  );
+                                  void doLink(p, person);
                                 }}
                               >
                                 <Avatar person={person} />

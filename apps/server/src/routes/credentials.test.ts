@@ -368,7 +368,8 @@ describe("credenziali della cassaforte", () => {
   it("elenco: chi non legge e non gestisce non vede nulla; chi gestisce vede tutto senza cifrati", async () => {
     const devList = await req("GET", `/api/projects/${projectId}/credentials`, dev.session);
     expect(devList.statusCode).toBe(200);
-    expect(devList.json()).toEqual({ items: [] });
+    // `canSeeLog` (25 nov 2026): l'entrata del registro della sezione, calcolata dal server.
+    expect(devList.json()).toEqual({ items: [], canSeeLog: false });
 
     const leadList = await req("GET", `/api/projects/${projectId}/credentials`, lead.pat!);
     expect(leadList.statusCode).toBe(200);
@@ -409,6 +410,32 @@ describe("credenziali della cassaforte", () => {
       expect.objectContaining({ id: devReadable, access: "read", canEdit: false, canShare: false }),
       expect.objectContaining({ id: devPending, access: "pending", canEdit: true, canShare: false }),
     ]);
+  });
+
+  it("`canSeeLog` (25 nov 2026), stessi dati e due ruoli: il creatore SENZA permesso no, chi gestisce sì — sulla riga e sulla sezione", async () => {
+    // dev ha creato `devPending` (quindi `canEdit`), ma il registro resta di chi gestisce.
+    const asDev = (await req("GET", `/api/projects/${projectId}/credentials`, dev.session)).json() as {
+      items: { id: string; canEdit: boolean; canSeeLog: boolean }[];
+      canSeeLog: boolean;
+    };
+    expect(asDev.canSeeLog).toBe(false);
+    expect(asDev.items.find((i) => i.id === devPending)).toMatchObject({ canEdit: true, canSeeLog: false });
+    expect(asDev.items.every((i) => i.canSeeLog === false)).toBe(true);
+    // E il server è d'accordo con sé stesso: il registro gli dà 403.
+    expect((await req("GET", `/api/projects/${projectId}/credentials/log`, dev.pat!)).statusCode).toBe(403);
+
+    const asLead = (await req("GET", `/api/projects/${projectId}/credentials`, lead.pat!)).json() as {
+      items: { id: string; canSeeLog: boolean }[];
+      canSeeLog: boolean;
+    };
+    expect(asLead.canSeeLog).toBe(true);
+    expect(asLead.items.find((i) => i.id === devPending)).toMatchObject({ canSeeLog: true });
+    expect((await req("GET", `/api/projects/${projectId}/credentials/log`, lead.pat!)).statusCode).toBe(200);
+
+    // «Le mie» (più progetti): sulla riga, col permesso del progetto della riga; nessun campo di sezione.
+    const mine = (await req("GET", "/api/vault/credentials", dev.pat!)).json() as { items: { canSeeLog: boolean }[]; canSeeLog?: boolean };
+    expect(mine.items.every((i) => i.canSeeLog === false)).toBe(true);
+    expect(mine.canSeeLog).toBeUndefined();
   });
 
   it("«le mie»: lette o in attesa, su tutti i progetti visibili", async () => {
@@ -614,6 +641,23 @@ describe("credenziali della cassaforte", () => {
       expect((await req("GET", `/api/projects/${projectId}/credentials/log`, admin.session)).statusCode).toBe(200);
       expect((await req("GET", `/api/projects/${projectId}/credentials/log`, dev.pat!)).statusCode).toBe(403);
       expect((await req("GET", `/api/projects/${projectId}/credentials/log`, stranger.session)).statusCode).toBe(404);
+    });
+
+    it("registro di UNA credenziale (`?credentialId=`, 25 nov 2026): solo le sue righe; un id sconosciuto → vuoto; non un uuid → 400", async () => {
+      await testDb.db.insert(credentialAccessLog).values([
+        { credentialId: devReadable, projectId, credentialSnapshot: "Filtro A", userEmail: "dev@example.com", action: "show" },
+        { credentialId: devPending, projectId, credentialSnapshot: "Filtro B", userEmail: "dev@example.com", action: "copy" },
+      ]);
+      const all = (await req("GET", `/api/projects/${projectId}/credentials/log`, lead.pat!)).json() as { items: { credentialId: string }[] };
+      expect(all.items.map((i) => i.credentialId)).toEqual(expect.arrayContaining([devReadable, devPending]));
+      const one = await req("GET", `/api/projects/${projectId}/credentials/log?credentialId=${devPending}`, lead.pat!);
+      expect(one.statusCode, one.body).toBe(200);
+      expect((one.json() as { items: { credentialId: string }[] }).items.map((i) => i.credentialId)).toEqual([devPending]);
+      const none = await req("GET", `/api/projects/${projectId}/credentials/log?credentialId=${randomUUID()}`, lead.pat!);
+      expect(none.json()).toEqual({ items: [] });
+      expect((await req("GET", `/api/projects/${projectId}/credentials/log?credentialId=x`, lead.pat!)).statusCode).toBe(400);
+      // Il permesso resta quello del registro intero.
+      expect((await req("GET", `/api/projects/${projectId}/credentials/log?credentialId=${devPending}`, dev.pat!)).statusCode).toBe(403);
     });
 
     it("DELETE: un lettore qualsiasi no; credentials.edit sì, e il registro resta con la fotografia", async () => {

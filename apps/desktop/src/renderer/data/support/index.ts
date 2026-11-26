@@ -8,7 +8,6 @@ export {
   customerPreview,
   getSupportConversation,
   listSupportConversations,
-  listWaitingCustomers,
   listWidgets,
   myRequestStatus,
   searchSupport,
@@ -21,11 +20,10 @@ export {
 export {
   createWidget,
   deleteWidget,
-  draftReply,
-  emailDraftFor,
-  followConversation,
+  regenerateIdentitySecret,
   openRequestFrom,
-  replyToCustomer,
+  markNotConcluded,
+  replyToCollaborator,
   updateWidget,
   type WidgetInput,
 } from "./writes";

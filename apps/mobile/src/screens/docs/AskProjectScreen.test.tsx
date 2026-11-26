@@ -23,8 +23,11 @@ function answer(overrides: Partial<Reader<DocsChatAnswer>> = {}): Reader<DocsCha
         repositoryId: REPO_ID,
         repositorySlug: "portale-b2b",
         repositoryName: "Portale B2B",
+        code: null,
       },
     ],
+    // Area 11, F3: le fonti di prodotto (additivo; l'app ancora non le mostra).
+    productSources: [],
     sessionId: SESSION_ID,
     ...overrides,
   };

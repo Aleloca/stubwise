@@ -156,6 +156,12 @@ export function presentEventFor(
   if (event.type === "user" && event.context && !contextOf(me, event.context)) {
     delete event.context;
   }
+  // Lotto 8, §1: lo stesso per ognuno del gruppo; nemmeno l'id di uno che non vede.
+  if (event.type === "user" && event.contexts) {
+    const seen = event.contexts.filter((c) => contextOf(me, c));
+    if (seen.length > 0) event.contexts = seen;
+    else delete event.contexts;
+  }
   // Area 10b: una bozza la legge per intero solo chi vede l'oggetto del
   // campo; il corpo di un'email solo il proprietario della casella — chi ha
   // chiesto la bozza —, nemmeno chi vede la stessa conversazione.
@@ -182,8 +188,6 @@ function askerOf(log: readonly ConversationEvent[], index: number): string | nul
 /** `me` vede l'oggetto del campo (per il corpo di un'email: è sua la casella). */
 function seesField(me: string, field: FieldRef, asker: string | null): boolean {
   switch (field.kind) {
-    case "supportReply":
-      return contextOf(me, { kind: "support", conversationId: field.conversationId }) !== null;
     case "releaseNotes":
       return contextOf(me, { kind: "pr", prId: field.prId }) !== null;
     case "taskDescription":
@@ -194,11 +198,13 @@ function seesField(me: string, field: FieldRef, asker: string | null): boolean {
 }
 
 /** Lo stesso per il contesto con cui una libera è nata (righe e dettaglio). */
-export function withVisibleContext<T extends { context?: ContextRef | null }>(
+export function withVisibleContext<T extends { context?: ContextRef | null; contexts?: ContextRef[] }>(
   me: string,
   row: T,
 ): T {
   if (row.context && !contextOf(me, row.context)) row.context = null;
+  // Lotto 8, §1: un contesto del gruppo che chi guarda non vede più non c'è.
+  if (row.contexts) row.contexts = row.contexts.filter((c) => contextOf(me, c));
   return row;
 }
 

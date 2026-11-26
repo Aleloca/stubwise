@@ -1,15 +1,20 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { roleRuleErrorSchema, targetUserNotAbove } from "./roles.js";
-import { gitAuthorsSeen, gitIdentities, users } from "@stubwise/db";
+import { roleRuleErrorSchema } from "./roles.js";
+import { activityCommits, activityReports, gitAuthorsSeen, gitIdentities, projects, users } from "@stubwise/db";
+import { inProjectsStrict, isAllProjects, visibleProjectIds } from "../auth/access.js";
 import { apiError } from "../errors.js";
+import { publishSecurityAlert } from "../auth/second-factor/alerts.js";
+import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
+import { personObject, recordChange } from "../services/change-log.js";
 import {
   authErrorResponses,
   errorSchema,
   isForeignKeyViolation,
   isUniqueViolation,
+  rejectAgentUserParam,
 } from "./shared.js";
 
 /**
@@ -40,10 +45,20 @@ const observedAuthorSchema = z.object({
   lastSeenAt: z.iso.datetime(),
   /** Id del membro Stubwise linkato a questa email (via git_identities), o null. */
   linkedUserId: z.uuid().nullable(),
+  /**
+   * Rimandi, lotto 5 (il prototipo, «N commit in ACQ»): i commit di questa
+   * email nei report giornalieri (`activity_commits`), e i codici dei progetti
+   * in cui stanno — SOLO i progetti che chi guarda vede. `.default`: un
+   * server più vecchio non li manda.
+   */
+  commits: z.number().int().default(0),
+  projectCodes: z.array(z.string()).default([]),
 });
 
 export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+  // Niente identità git né Bitbucket per l'utente di sistema «Claude».
+  rejectAgentUserParam(instance);
 
   /** Elenco delle git identities di un membro (per il refresh dopo una mutation). */
   async function identitiesOf(userId: string) {
@@ -63,7 +78,6 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
     "/users/:id/git-identities",
     {
       config: { access: { kind: "instance", permission: "users.manage" }, reauth: true },
-      preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid() }),
         body: z.object({ email: z.string().trim().min(1), authorName: z.string().optional() }),
@@ -72,22 +86,25 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
           404: errorSchema,
           409: errorSchema,
           ...authErrorResponses,
-          // Bersaglio con più permessi (R31): porta `permission`.
+          // Gli errori di regola (`permission` incluso). Il bersaglio non è più
+          // protetto (area 9, D-2): resta lo schema, per i client.
           403: roleRuleErrorSchema,
         },
       },
     },
     async (request, reply) => {
       const { id } = request.params;
-      const [existing] = await app.db.select({ id: users.id }).from(users).where(eq(users.id, id));
+      const [existing] = await app.db.select({ id: users.id, email: users.email }).from(users).where(eq(users.id, id));
       if (!existing) {
         return apiError(reply, 404, "user_not_found", "User not found");
       }
       const email = request.body.email.trim().toLowerCase();
       try {
-        await app.db
-          .insert(gitIdentities)
-          .values({ userId: id, email, authorName: request.body.authorName ?? null });
+        // Area 9, F2: l'identità e la sua voce nascono insieme.
+        await app.db.transaction(async (tx) => {
+          await tx.insert(gitIdentities).values({ userId: id, email, authorName: request.body.authorName ?? null });
+          await recordChange(tx, { type: "person.git_identity_linked", actor: request.user!, projectId: null, data: { object: personObject(existing), params: { email } } });
+        });
       } catch (err) {
         // Email unique (case-sensitive nel DB, ma noi lowercasiamo): se è già
         // linkata a QUESTO o a un ALTRO membro, 409 anziché 500.
@@ -116,14 +133,14 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
     "/users/:id/git-identities/:email",
     {
       config: { access: { kind: "instance", permission: "users.manage" }, reauth: true },
-      preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid(), email: z.string() }),
         response: {
           204: z.null(),
           404: errorSchema,
           ...authErrorResponses,
-          // Bersaglio con più permessi (R31): porta `permission`.
+          // Gli errori di regola (`permission` incluso). Il bersaglio non è più
+          // protetto (area 9, D-2): resta lo schema, per i client.
           403: roleRuleErrorSchema,
         },
       },
@@ -137,10 +154,16 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
         // non è un'associazione esistente → 404, non un 500 grezzo.
         return apiError(reply, 404, "git_identity_not_found", "Git identity not found");
       }
-      const [deleted] = await app.db
-        .delete(gitIdentities)
-        .where(and(eq(gitIdentities.userId, request.params.id), eq(gitIdentities.email, email)))
-        .returning({ id: gitIdentities.id });
+      const deleted = await app.db.transaction(async (tx) => {
+        const [row] = await tx
+          .delete(gitIdentities)
+          .where(and(eq(gitIdentities.userId, request.params.id), eq(gitIdentities.email, email)))
+          .returning({ id: gitIdentities.id });
+        if (!row) return null;
+        const [owner] = await tx.select({ id: users.id, email: users.email }).from(users).where(eq(users.id, request.params.id));
+        await recordChange(tx, { type: "person.git_identity_unlinked", actor: request.user!, projectId: null, data: { object: personObject(owner!), params: { email } } });
+        return row;
+      });
       if (!deleted) {
         return apiError(reply, 404, "git_identity_not_found", "Git identity not found");
       }
@@ -152,8 +175,8 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
   app.put(
     "/users/:id/bitbucket",
     {
-      config: { access: { kind: "instance", permission: "users.manage" } },
-      preHandler: targetUserNotAbove(),
+      // Review di F1 (I2): con la riconferma, come le identità git.
+      config: { access: { kind: "instance", permission: "users.manage" }, reauth: true },
       schema: {
         params: z.object({ id: z.uuid() }),
         body: z.object({ username: z.string().trim().min(1) }),
@@ -162,7 +185,8 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
           404: errorSchema,
           409: errorSchema,
           ...authErrorResponses,
-          // Bersaglio con più permessi (R31): porta `permission`.
+          // Gli errori di regola (`permission` incluso). Il bersaglio non è più
+          // protetto (area 9, D-2): resta lo schema, per i client.
           403: roleRuleErrorSchema,
         },
       },
@@ -170,11 +194,18 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
     async (request, reply) => {
       let updated;
       try {
-        [updated] = await app.db
-          .update(users)
-          .set({ bitbucketUsername: request.body.username })
-          .where(eq(users.id, request.params.id))
-          .returning({ id: users.id, bitbucketUsername: users.bitbucketUsername });
+        updated = await app.db.transaction(async (tx) => {
+          const [before] = await tx.select({ bitbucketUsername: users.bitbucketUsername }).from(users).where(eq(users.id, request.params.id)).for("update");
+          const [row] = await tx
+            .update(users)
+            .set({ bitbucketUsername: request.body.username })
+            .where(eq(users.id, request.params.id))
+            .returning({ id: users.id, email: users.email, bitbucketUsername: users.bitbucketUsername });
+          if (row) {
+            await recordChange(tx, { type: "person.bitbucket_username_set", actor: request.user!, projectId: null, data: { object: personObject(row), before: before?.bitbucketUsername ?? null, after: row.bitbucketUsername } });
+          }
+          return row;
+        });
       } catch (err) {
         // bitbucketUsername è unique: se è già di un altro membro, 409 anziché 500.
         if (isUniqueViolation(err)) {
@@ -190,7 +221,11 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
       if (!updated) {
         return apiError(reply, 404, "user_not_found", "User not found");
       }
-      return reply.code(200).send(updated);
+      if (updated.id !== request.user!.id) {
+        await recordSecurityEvent(app.db, { kind: "bitbucket_linked", user: updated, actor: request.user! });
+        await publishSecurityAlert(app.db, updated.id, "bitbucket_linked", request.user!.email);
+      }
+      return reply.code(200).send({ id: updated.id, bitbucketUsername: updated.bitbucketUsername });
     },
   );
 
@@ -199,24 +234,28 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
     "/users/:id/bitbucket",
     {
       config: { access: { kind: "instance", permission: "users.manage" } },
-      preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid() }),
         response: {
           204: z.null(),
           404: errorSchema,
           ...authErrorResponses,
-          // Bersaglio con più permessi (R31): porta `permission`.
+          // Gli errori di regola (`permission` incluso). Il bersaglio non è più
+          // protetto (area 9, D-2): resta lo schema, per i client.
           403: roleRuleErrorSchema,
         },
       },
     },
     async (request, reply) => {
-      const [updated] = await app.db
-        .update(users)
-        .set({ bitbucketUsername: null })
-        .where(eq(users.id, request.params.id))
-        .returning({ id: users.id });
+      const updated = await app.db.transaction(async (tx) => {
+        const [before] = await tx.select({ bitbucketUsername: users.bitbucketUsername }).from(users).where(eq(users.id, request.params.id)).for("update");
+        const [row] = await tx.update(users).set({ bitbucketUsername: null }).where(eq(users.id, request.params.id)).returning({ id: users.id, email: users.email });
+        // Area 9, F2: azzerarlo è un «impostato a niente», con il prima.
+        if (row && before?.bitbucketUsername) {
+          await recordChange(tx, { type: "person.bitbucket_username_set", actor: request.user!, projectId: null, data: { object: personObject(row), before: before.bitbucketUsername, after: null } });
+        }
+        return row;
+      });
       if (!updated) {
         return apiError(reply, 404, "user_not_found", "User not found");
       }
@@ -233,7 +272,7 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
       config: { access: { kind: "instance", permission: "users.manage" } },
       schema: { response: { 200: z.array(observedAuthorSchema), ...authErrorResponses } },
     },
-    async () => {
+    async (request) => {
       const seen = await app.db
         .select()
         .from(gitAuthorsSeen)
@@ -242,11 +281,33 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
         .select({ email: gitIdentities.email, userId: gitIdentities.userId })
         .from(gitIdentities);
       const byEmail = new Map(linked.map((l) => [l.email, l.userId]));
+      // I commit per email e progetto, nei soli progetti visibili (nella WHERE). Una query.
+      const scope = await visibleProjectIds(app.db, request.user!);
+      const counts =
+        seen.length === 0 || (!isAllProjects(scope) && scope.length === 0)
+          ? []
+          : await app.db
+              .select({ email: sql<string>`lower(${activityCommits.authorEmail})`, code: projects.code, n: sql<number>`count(distinct ${activityCommits.sha})::int` })
+              .from(activityCommits)
+              // Il progetto del REPORT (review del lotto 5, M-8): un repository
+              // spostato o staccato non porta i suoi commit vecchi altrove.
+              .innerJoin(activityReports, eq(activityReports.id, activityCommits.reportId))
+              .innerJoin(projects, eq(projects.id, activityReports.projectId))
+              .where(and(inProjectsStrict(activityReports.projectId, scope), inArray(sql`lower(${activityCommits.authorEmail})`, seen.map((s) => s.email.toLowerCase()))))
+              .groupBy(sql`lower(${activityCommits.authorEmail})`, projects.code);
+      const commitsOf = new Map<string, { commits: number; projectCodes: string[] }>();
+      for (const c of [...counts].sort((a, b) => a.code.localeCompare(b.code))) {
+        const row = commitsOf.get(c.email) ?? { commits: 0, projectCodes: [] };
+        row.commits += c.n;
+        row.projectCodes.push(c.code);
+        commitsOf.set(c.email, row);
+      }
       return seen.map((s) => ({
         email: s.email,
         authorName: s.authorName,
         lastSeenAt: s.lastSeenAt.toISOString(),
         linkedUserId: byEmail.get(s.email) ?? null,
+        ...(commitsOf.get(s.email.toLowerCase()) ?? { commits: 0, projectCodes: [] }),
       }));
     },
   );

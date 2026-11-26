@@ -1,7 +1,8 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../../../data/api";
+import { setSessionPersonId } from "../../../data/session";
 import { state } from "../../../data/store";
 import { revokeProjectPermission } from "../../../data/viewer";
 import { CLAUDE_PANEL_ID } from "../../../layout/claudePanel/panelEvents";
@@ -33,6 +34,7 @@ beforeEach(() => {
   setUndoWindow(0);
 });
 afterEach(() => {
+  vi.unstubAllEnvs();
   clearPendingAnswers();
   clearToasts();
   setUndoWindow(null);
@@ -153,6 +155,20 @@ describe("Decide: le domande di Claude sulla doc", () => {
     await waitFor(() => expect(document.activeElement).toBe(panel.querySelector("[data-proposal]")));
     const decide = await decideBlock();
     expect(decide.querySelector(`[data-claude-decision="product:${BILLS_Q}"]`)).not.toBeNull();
+  });
+
+  it("nella build app «Open a request» porta al filo della domanda con la scheda aperta; nessun messaggio al riquadro", async () => {
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+    setSessionPersonId(LAURA);
+    const el = await item(BILLS_Q);
+    await userEvent.click(within(el).getByRole("button", { name: "Open a request" }));
+    await waitFor(() => expect(router.state.location.pathname).toMatch(/\/docs\/product\//));
+    expect(router.state.location.search).toMatchObject({ comment: BILLS_Q, requestCard: "1" });
+    await waitFor(() =>
+      expect(document.querySelector(`[data-thread="${BILLS_Q}"] [data-request-card]`)).not.toBeNull(),
+    );
+    expect(document.getElementById(CLAUDE_PANEL_ID)?.getAttribute("data-claude-panel")).not.toBe("open");
+    expect(question(BILLS_Q).answer).toBeNull();
   });
 
   it("fix round 1, I4: con una richiesta da proporre la frase la offre e c'è «Open a request»", async () => {

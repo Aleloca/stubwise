@@ -34,3 +34,18 @@ it("un'unione porta il segno sul blocco unito senza l'indice del modulo", () => 
   writeProductBlocksAs(MARCO, PAGE, [{ op: "merge", firstId: HEADING, secondId: STORES }], { sessionId: "s-m" });
   expect(listProductMarksAs(LAURA, PAGE).map((m) => m.anchorId)).toEqual([HEADING]);
 });
+
+// Revisione del lotto 2 (minor): il segno di Claude dice per chi ha agito
+// col segnaposto di chi guarda non conosce (r.1414).
+it("il segno di una revisione di uno sconosciuto: `actorId` e `onBehalfOfId` segnaposti", async () => {
+  resetStore();
+  const { strangersTo } = await import("../../test/strangers");
+  const [mark] = listProductMarksAs(LAURA, PAGE);
+  expect(mark).toBeDefined();
+  const [who] = strangersTo(LAURA);
+  state.productRevisions.find((r) => r.id === mark!.revisionId)!.actorId = who!;
+  const [out] = listProductMarksAs(LAURA, PAGE);
+  expect(out!.actorId).toMatch(/^hidden-\d+$/);
+  expect(out!.onBehalfOfId).toBe(out!.actorId);
+  expect(JSON.stringify(listProductMarksAs(LAURA, PAGE))).not.toContain(who!);
+});

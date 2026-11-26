@@ -49,6 +49,7 @@ describe("comandi di Claude (area 3)", () => {
       openLinkFolder: () => {},
       openNewAutomation: () => {},
       openClaudePanel: (detail?: unknown) => opened.push(detail),
+      vaultCommand: () => {},
     };
     cmd.run({ ...ctx, query: "  Explain AUD-3 " });
     // «Ask Claude…» senza testo apre il riquadro e basta.
@@ -80,6 +81,7 @@ describe("comandi degli avvisi (area 8a)", () => {
       openLinkFolder: () => {},
       openNewAutomation: () => {},
       openClaudePanel: () => {},
+      vaultCommand: () => {},
     });
     expect(paths).toEqual(["/preferences/notifications?project=AUD"]);
   });
@@ -109,12 +111,11 @@ describe("comandi dei server (area 8b)", () => {
       "not_linked",
       "awaiting_command",
       "verify_failed",
-      "read_writes",
+      "privileged",
       "revoked",
     ])
       expect(linkSsh(ssh, state), state).toBe(true);
     expect(linkSsh(ssh, "verified")).toBe(false);
-    expect(linkSsh(ssh, "regenerating")).toBe(false);
     expect(linkSsh(ssh, undefined)).toBe(false);
     expect(linkSsh(ssh, "not_linked", "")).toBe(false);
     expect(linkSsh(viewerWith([]), "not_linked")).toBe(false);
@@ -122,12 +123,12 @@ describe("comandi dei server (area 8b)", () => {
 });
 
 describe("comandi delle Automations (area 7)", () => {
-  it("«New automation» solo con automations.manage, in un progetto o d'istanza", () => {
+  it("«New automation» solo con automations.manage in un progetto o automations.general.manage", () => {
     expect(ids(viewerWith(["tickets.create"]))).not.toContain("automation.new");
     expect(ids(viewerWith(["automations.manage"]))).toContain("automation.new");
     const instance: Viewer = {
       ...viewerWith([]),
-      instancePermissions: ["automations.manage" as never],
+      instancePermissions: ["automations.general.manage"],
     };
     expect(ids(instance)).toContain("automation.new");
   });
@@ -149,6 +150,7 @@ describe("comandi delle Automations (area 7)", () => {
       openLinkFolder: () => {},
       openNewAutomation: (code) => opened.push(code),
       openClaudePanel: () => {},
+      vaultCommand: () => {},
     });
     expect(opened).toEqual(["AUD"]);
   });

@@ -280,6 +280,8 @@ describe("streamChatResponse — mode: json (fase 4, mobile, ?stream=false)", ()
         body: {
           answer: "ciao mondo",
           sources: CITATIONS,
+          // Area 11, F3: le fonti di prodotto (nessuna qui: chi chiama non ne passa).
+          productSources: [],
           sessionId: "22222222-2222-4222-8222-222222222222",
         },
       },
@@ -495,5 +497,46 @@ describe("streamChatResponse — mode: json (fase 4, mobile, ?stream=false)", ()
     }
     const usage = { operation: "chat", projectId: "33333333-3333-4333-8333-333333333333" };
     expect(seen).toEqual([usage, usage]);
+  });
+});
+
+describe("streamChatResponse — il ping SSE (lotto 7, voce 2)", () => {
+  it("mentre il modello tace scrive `: ping` a ogni intervallo, e dopo la fine più niente", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      let release = (): void => {};
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      const reply = fakeReply();
+      const write = (reply.raw as unknown as { write: ReturnType<typeof vi.fn> }).write;
+      const pings = () => write.mock.calls.filter(([chunk]) => chunk === ": ping\n\n").length;
+      const { db } = fakeDb();
+      const done = streamChatResponse({
+        db,
+        chatLlm: fakeChatLlm(async function* () {
+          await gate;
+          yield "fine";
+        }),
+        request: fakeRequest(),
+        reply,
+        sessionId: "22222222-2222-4222-8222-222222222222",
+        system: "system",
+        history: [{ role: "user", content: "domanda" }],
+        citations: CITATIONS,
+        logContext: { repositoryId: "r" },
+        projectId: null,
+        persistAssistantMessage: vi.fn().mockResolvedValue(undefined),
+        pingMs: 1000,
+      });
+      await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(0));
+      vi.advanceTimersByTime(2500);
+      expect(pings()).toBe(2);
+      release();
+      await done;
+      vi.advanceTimersByTime(5000);
+      expect(pings()).toBe(2);
+      expect(write.mock.calls.some(([chunk]) => String(chunk).includes('"type":"done"'))).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

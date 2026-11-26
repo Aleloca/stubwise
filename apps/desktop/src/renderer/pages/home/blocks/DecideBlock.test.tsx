@@ -458,14 +458,13 @@ describe("Decide: domande della Chat", () => {
 });
 
 describe("Decide: piano di correzione con l'approvazione spenta (area 8b, I1)", () => {
-  it("Marco avvia, Roberta revoca: per Laura il piano resta in Decide, col motivo e il solo rifiuto", async () => {
+  it("Marco avvia, poi l'agente perde le operazioni: per Laura il piano resta in Decide, col motivo e il solo rifiuto", async () => {
     await act(async () => {
       setSessionPersonId("p-marco");
       await api.servers.startServerFix("t-acq-srv-1");
       await whenFixesIdle();
-      setSessionPersonId("p-roberta");
-      await api.servers.revokeSshAccess("SRV-1");
-      await whenFixesIdle();
+      // Area 8, F4b: la correzione passa dall'agente; spente le sue operazioni, niente approvazione.
+      state.servers.find((s) => s.code === "SRV-1")!.agentOperations = false;
     });
     renderRoute("/home", "p-laura");
     const decide = await decideBlock();
@@ -475,7 +474,7 @@ describe("Decide: piano di correzione con l'approvazione spenta (area 8b, I1)", 
     const item = plan.closest("[data-claude-decision]") as HTMLElement;
     expect(
       within(item).getByText(
-        "Can't be approved: fix access to SRV-1 was revoked. Reject it to free SRV-1.",
+        "Can't be approved: the agent on SRV-1 doesn't have operations on. Reject it to free SRV-1.",
       ),
     ).toBeInTheDocument();
     expect(within(plan).queryByRole("button", { name: "Approve" })).toBeNull();

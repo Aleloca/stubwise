@@ -2,6 +2,7 @@ import { z } from "zod";
 import { handledBySchema } from "./notification.js";
 import { milestoneStatusSchema } from "./milestone.js";
 import { ticketPrioritySchema, ticketTypeSchema } from "./ticket.js";
+import { PROJECT_MODULES, PROJECT_TEMPLATES } from "../tasks/templates.js";
 
 // Spostato in `base-enums.ts` (import circolare con `ticket.ts`, vedi lì).
 import { gitProviderKindSchema, type GitProviderKind } from "./base-enums.js";
@@ -26,6 +27,16 @@ export const gitAccountSchema = z.object({
   // `.default(false)` per un client contro un server che non lo manda.
   isDefaultReviewer: z.boolean().default(false),
   createdAt: z.iso.datetime(),
+  /** Rimandi, lotto 5: le ultime 4 del token («•••• 9e2b»); null per un account salvato prima della 0225. */
+  tokenLast4: z.string().nullable().default(null),
+  /**
+   * Rimandi, lotto 5 (il prototipo, R-G5): i repository che usano l'account,
+   * per nome solo quelli dei progetti che chi guarda vede (e quelli staccati
+   * da un progetto, `projectCode: null`); gli altri contati in
+   * `hiddenRepositories`, senza nome.
+   */
+  repositories: z.array(z.object({ name: z.string(), projectCode: z.string().nullable() })).default([]),
+  hiddenRepositories: z.number().int().default(0),
 });
 export type GitAccount = z.infer<typeof gitAccountSchema>;
 
@@ -64,6 +75,23 @@ export type SkippedDefaultReviewAccount = z.infer<typeof skippedDefaultReviewAcc
  * numerazione ticket) NON ne fanno più parte: sono salite al progetto (Fase 3,
  * vedi projectSchema). Il webhook git delle PR resta invece per-repo.
  */
+/** Area 8, F1: quali run di CI fanno lo stato di un rilascio. */
+export const releasePipelineSchema = z.union([
+  z.object({ mode: z.literal("auto") }),
+  z.object({ mode: z.literal("named"), names: z.array(z.string().trim().min(1).max(200)).min(1).max(20) }),
+]);
+
+/**
+ * La stessa pipeline com'è nella RISPOSTA: una forma piatta (`mode` enum,
+ * `names` facoltativo), senza union né limiti. Una union di literal non si
+ * apre in `readerSchema` (chiuderebbe gli enum dell'app) e i limiti sono
+ * regole di scrittura, che vivono in {@link releasePipelineSchema}.
+ */
+export const releasePipelineViewSchema = z.object({
+  mode: z.enum(["auto", "named"]),
+  names: z.array(z.string()).optional(),
+});
+
 export const repositorySchema = z.object({
   // CONFIGURAZIONE (22 ott 2026, permessi di progetto): account git, revisore,
   // comandi, webhook, grafo e branch protetti arrivano SOLO a chi ha
@@ -113,6 +141,14 @@ export const repositorySchema = z.object({
   // Stubwise non pusha mai, nemmeno dopo un'adozione (`isProtectedBranch`).
   // `.default([])`: un server più vecchio non lo manda; sul web `?? []`.
   protectedBranches: z.array(z.string()).default([]),
+  // Area 8, F1 (i rilasci): il ramo di rilascio (null = il default), quali run
+  // di CI fanno lo stato del rilascio, il provider di CI (null = nessuna
+  // pipeline: lo stato lo dice la produzione), le PR dei colleghi. Facoltativi
+  // coi default di un server più vecchio (e assenti senza `repos.view`).
+  releaseBranch: z.string().nullable().default(null),
+  releasePipeline: releasePipelineViewSchema.default({ mode: "auto" }),
+  ciProvider: z.enum(["github_actions", "bitbucket_pipelines"]).nullable().default(null),
+  colleaguePrs: z.enum(["analyze_and_fix", "analyze_only", "off"]).default("analyze_only"),
   // Il segreto HMAC del webhook git NON fa parte della proiezione pubblica:
   // è un segreto che permetterebbe di forgiare webhook di merge e forzare i
   // ticket a "done". Si legge solo via l'endpoint admin GET /:slug/webhook.
@@ -122,6 +158,13 @@ export const repositorySchema = z.object({
    * `.default(true)`: un server più vecchio la mandava sempre.
    */
   config: z.boolean().default(true),
+  /**
+   * Rimandi, lotto 4: chi chiede ha `repos.manage` nel progetto (le
+   * impostazioni del repository si possono cambiare). Lo calcola il server, il
+   * client lo legge. `.default(false)`: un server più vecchio non lo manda, e
+   * il pulsante resta spento invece di promettere un salvataggio rifiutato.
+   */
+  canManage: z.boolean().default(false),
 });
 export type Repository = z.infer<typeof repositorySchema>;
 
@@ -166,6 +209,20 @@ export type RepositorySaveResponse = z.infer<typeof repositorySaveResponseSchema
  * numerazione ticket per-progetto (`nextTicketNumber`). `description` è opzionale
  * (null = assente).
  */
+/**
+ * Codice di progetto: `^[A-Z][A-Z0-9]{1,5}$`, unico (0107). È la regola LARGA,
+ * quella della VALIDAZIONE del server (creazione e PATCH): copre i codici dei
+ * progetti di prima, ricavati dagli slug. La regola stretta delle 2–4 lettere
+ * (`PROJECT_CODE_RE`, `tasks/project-code.ts`) è solo della proposta e del
+ * dialogo «Nuovo progetto».
+ */
+export const projectCodeSchema = z.string().regex(/^[A-Z][A-Z0-9]{1,5}$/);
+
+/** Fetta 4: il modello di un progetto e i suoi moduli (`tasks/templates.ts`). */
+export const projectTemplateSchema = z.enum(PROJECT_TEMPLATES);
+export const projectModuleSchema = z.enum(PROJECT_MODULES);
+const clientNameSchema = z.string().trim().min(1).max(120);
+
 export const projectSchema = z.object({
   id: z.uuid(),
   name: z.string().min(1),
@@ -225,11 +282,33 @@ export const projectSchema = z.object({
   // un tetto più alto non deve far fallire il parse della lista progetti.
   prCorrectionMaxRounds: z.number().int().default(3),
   // Chiave di ingestion del progetto: gli SDK la usano per inviare errori e
-  // feedback (l'ingestion è di prodotto, non di repo — Fase 3).
-  ingestionKey: z.string().min(1),
+  // feedback (l'ingestion è di prodotto, non di repo — Fase 3). Area 9, F5
+  // (I2): il server manda sempre `null` — la chiave si legge solo dalla
+  // rigenerazione, una volta, e l'Integrazione (`GET …/integration`) ne dà le
+  // ultime 4. Nullable col default, non tolta: i client la nominano ancora.
+  ingestionKey: z.string().nullable().default(null),
   // Prossimo numero ticket sequenziale del progetto (per-progetto, Fase 3).
   nextTicketNumber: z.number().int().min(1),
   createdAt: z.iso.datetime(),
+  // Integrazione area 2 (9 nov 2026): il codice del progetto (le task si
+  // mostrano `<CODICE>-<number>`) e le soglie «ferma». `.optional()`: un
+  // server più vecchio non li manda, e il web vecchio non li legge.
+  code: projectCodeSchema.optional(),
+  stallThresholds: z
+    .object({ activeDays: z.number().int(), todoDays: z.number().int() })
+    .optional(),
+  /**
+   * Area 9, F4 (J-6 = a): la coda del progetto è in pausa — chi l'ha messa
+   * (`byName` calcolato dal server) e da quando. null = la coda va. Additivo.
+   */
+  queuePause: z.object({ byId: z.string().nullable(), byName: z.string(), since: z.string() }).nullable().default(null),
+  // Fetta 4: modello, moduli accesi (nell'ordine di `MODULE_ORDER`), cliente
+  // e `kind` derivato («client» se c'è un cliente). `.optional()`: un server
+  // più vecchio non li manda.
+  template: projectTemplateSchema.optional(),
+  modules: z.array(projectModuleSchema).optional(),
+  clientName: z.string().nullable().optional(),
+  kind: z.enum(["internal", "client"]).optional(),
 });
 export type Project = z.infer<typeof projectSchema>;
 
@@ -249,6 +328,14 @@ export const createProjectSchema = z.object({
   pulseEnabled: z.boolean().optional(),
   pulseEveryDays: z.number().int().min(1).max(30).optional(),
   weeklyBriefEnabled: z.boolean().optional(),
+  // Fetta 4 (Nuovo progetto dell'app): tutti opzionali, così il web vecchio
+  // crea come prima. Senza `code` lo ricava il trigger dallo slug; senza
+  // `template` il progetto è software con gli stati di default; senza
+  // `modules` quelli del modello.
+  code: projectCodeSchema.optional(),
+  template: projectTemplateSchema.optional(),
+  clientName: clientNameSchema.nullable().optional(),
+  modules: z.array(projectModuleSchema).max(PROJECT_MODULES.length * 2).optional(),
 });
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;
 
@@ -271,6 +358,12 @@ export const updateProjectSchema = z.object({
   weeklyBriefEnabled: z.boolean().optional(),
   // Fuori da 0..10 il PATCH è un 400 di validazione.
   prCorrectionMaxRounds: z.number().int().min(0).max(10).optional(),
+  // Integrazione area 2: il codice si cambia da chi gestisce il progetto
+  // (409 `code_taken` se è di un altro).
+  code: projectCodeSchema.optional(),
+  // Fetta 4: null toglie il cliente (il progetto torna interno); `modules` è l'insieme intero.
+  clientName: clientNameSchema.nullable().optional(),
+  modules: z.array(projectModuleSchema).max(PROJECT_MODULES.length * 2).optional(),
 });
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 
@@ -291,6 +384,13 @@ export type RepositorySummary = z.infer<typeof repositorySummarySchema>;
 /** Progetto con il CONTEGGIO dei repository: la forma della lista. */
 export const projectListItemSchema = projectSchema.extend({
   repositoryCount: z.number().int(),
+  /**
+   * Chi vede il progetto: i membri PIÙ i full admin, che ne sono membri
+   * impliciti (`docs/invariants/permissions.md`). Derivato a lettura; serve
+   * agli assegnatari proposti dall'app nuova. `.optional()`: un server più
+   * vecchio non lo manda.
+   */
+  memberIds: z.array(z.uuid()).optional(),
 });
 export type ProjectListItem = z.infer<typeof projectListItemSchema>;
 
@@ -302,6 +402,8 @@ export const projectDetailSchema = projectSchema.extend({
    * da un server più vecchio arriva vuoto, cioè «nessun permesso».
    */
   myPermissions: z.array(z.string()).default([]),
+  /** Come in {@link projectListItemSchema}: membri più full admin impliciti. */
+  memberIds: z.array(z.uuid()).optional(),
 });
 export type ProjectDetail = z.infer<typeof projectDetailSchema>;
 
@@ -849,6 +951,8 @@ export const decisionDraftSchema = z.object({
   ticketId: z.uuid().optional(),
   /** Quando è stata presa davvero: una decisione si può registrare dopo. */
   decidedAt: z.iso.datetime().optional(),
+  /** Fetta 4: la decisione (dello stesso progetto) che questa SUPERA. */
+  supersedesId: z.uuid().optional(),
 });
 export type DecisionDraft = z.infer<typeof decisionDraftSchema>;
 

@@ -143,7 +143,7 @@ export function ChangeLogPage() {
         />
         <ChangeJournal
           state={journalState(choices, changes)}
-          entries={changes.data ?? []}
+          {...journalPages(changes)}
           onRetry={() => void (choices.isError ? choices.refetch() : changes.refetch())}
           filtered={hasFilters(search, choices.data)}
           onClear={() => set(CLEARED)}
@@ -462,9 +462,12 @@ export function ChangeJournal({
   onClear,
   empty,
   showProject,
+  more,
 }: {
   state: "loading" | "error" | "ready";
   entries: ChangeEntryView[];
+  /** «Load more» (decisione del maintainer): c'è finché il server ha altre voci. */
+  more?: { onMore: () => void; loading: boolean; failed?: boolean } | null;
   onRetry: () => void;
   filtered: boolean;
   onClear: () => void;
@@ -496,8 +499,35 @@ export function ChangeJournal({
     timer.current = window.setTimeout(() => setHighlight(null), 1500);
   }, [highlight]);
   useEffect(() => () => window.clearTimeout(timer.current), []);
+  // Registro, A9 r.1250: la voce annullata può stare in una pagina non ancora
+  // letta. Finché non c'è, si legge la pagina dopo; lette tutte, lo si dice.
+  // Dopo aver tolto i filtri si aspetta l'elenco nuovo (`staleEntries`).
+  const staleEntries = useRef<ChangeEntryView[] | null>(null);
+  const moreLoading = more?.loading ?? false;
+  const moreFailed = more?.failed ?? false;
+  const hasMore = more !== null && more !== undefined;
+  useEffect(() => {
+    if (pending === null || state !== "ready" || present) return;
+    if (staleEntries.current === entries) return;
+    staleEntries.current = null;
+    if (hasMore && moreFailed) {
+      // Revisione del lotto 2 (minor): la pagina dopo non si legge; ci si
+      // ferma e lo si dice, invece di rilanciare all'infinito.
+      setPending(null);
+      toast.error(t("changelog.via.undoneFailed"));
+      return;
+    }
+    if (hasMore) {
+      if (!moreLoading) more!.onMore();
+      return;
+    }
+    setPending(null);
+    toast.show(t("changelog.via.undoneGone"));
+    // `more` cambia identità a ogni render: contano se c'è e se carica.
+  }, [pending, present, state, entries, hasMore, moreLoading, moreFailed]);
   const reveal = (id: string) => {
-    if (!entries.some((e) => e.id === id)) {
+    if (!entries.some((e) => e.id === id) && filtered) {
+      staleEntries.current = entries;
       onClear();
       toast.show(t("changelog.via.filtersCleared"));
     }
@@ -545,8 +575,40 @@ export function ChangeJournal({
           ))}
         </DaySection>
       ))}
+      {more && (
+        <div className="py-4">
+          <button
+            type="button"
+            className={secondaryButton}
+            disabled={more.loading}
+            onClick={more.onMore}
+          >
+            {more.loading ? t("changelog.loadingMore") : t("changelog.loadMore")}
+          </button>
+        </div>
+      )}
     </div>
   );
+}
+
+/** Le voci di tutte le pagine lette, e il «Load more» se ce ne sono altre. */
+export function journalPages(changes: {
+  data?: { pages: { entries: ChangeEntryView[] }[] };
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
+  isFetchNextPageError?: boolean;
+  fetchNextPage: () => unknown;
+}) {
+  return {
+    entries: changes.data?.pages.flatMap((p) => p.entries) ?? [],
+    more: changes.hasNextPage
+      ? {
+          onMore: () => void changes.fetchNextPage(),
+          loading: changes.isFetchingNextPage,
+          failed: changes.isFetchNextPageError ?? false,
+        }
+      : null,
+  };
 }
 
 function DaySection({ label, day, children }: { label: string; day: string; children: ReactNode }) {

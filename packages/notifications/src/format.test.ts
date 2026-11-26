@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  isAutomationEvent,
+  isProductDocEvent,
   formatNotification,
   formatNotificationText,
   isReviewFailedEvent,
@@ -1260,6 +1262,72 @@ describe("security.alert", () => {
   });
 });
 
+describe("decisioni e attività della task", () => {
+  const byKind = (kind: string) => sampleEvents("https://x.test").find((e) => e.kind === kind)!;
+
+  it("nominano il codice della task e il dato, nelle due lingue", () => {
+    expect(formatNotificationText(byKind("decision.requested"), "en")).toBe(
+      "NEG-57: you are asked to decide — Teniamo il carrello per 30 o per 90 giorni?",
+    );
+    expect(formatNotificationText(byKind("decision.answered"), "it")).toBe(
+      "NEG-57: la tua domanda ha una risposta — Teniamo il carrello per 30 o per 90 giorni? → 90 giorni",
+    );
+    expect(formatNotificationText(byKind("ticket.activity"), "it")).toBe("NEG-57: stato cambiato in In review");
+  });
+
+  it("la frase dell'attività la sceglie il tipo di cambio", () => {
+    const base = byKind("ticket.activity") as Extract<NotificationEvent, { kind: "ticket.activity" }>;
+    expect(formatNotificationText({ ...base, change: "assignee", summary: "Laura" }, "en")).toBe(
+      "NEG-57: now assigned to Laura",
+    );
+    // Il commento: nel jsonb solo `commentId`; il testo è derivato a lettura dall'inbox.
+    expect(formatNotificationText({ ...base, change: "comment", summary: "", commentId: "c1" }, "en")).toBe(
+      "New comment on NEG-57",
+    );
+    expect(
+      formatNotificationText({ ...base, change: "comment", summary: "", commentId: "c1", commentText: "Fatto?" }, "en"),
+    ).toBe("NEG-57: new comment — Fatto?");
+    expect(
+      formatNotificationText({ ...base, change: "comment", summary: "", commentId: "c1", commentDeleted: true }, "it"),
+    ).toBe("NEG-57: commento eliminato");
+    // Una decisione: solo cosa è successo, mai la domanda.
+    expect(formatNotificationText({ ...base, change: "decision", summary: "requested" }, "en")).toBe(
+      "NEG-57: a decision was asked",
+    );
+    expect(formatNotificationText({ ...base, change: "decision", summary: "answered" }, "it")).toBe(
+      "NEG-57: una decisione ha avuto risposta",
+    );
+    // Un `summary` scritto per sbaglio su un commento non esce mai.
+    expect(formatNotificationText({ ...base, change: "comment", summary: "testo" }, "en")).toBe("New comment on NEG-57");
+  });
+});
+
+describe("pianificazione e assegnazione", () => {
+  const byKind = (kind: string) => sampleEvents("https://x.test").find((e) => e.kind === kind)!;
+
+  it("task.assigned dice che la task ora è tua", () => {
+    expect(formatNotificationText(byKind("task.assigned"), "en")).toBe("NEG-57: assigned to you");
+    expect(formatNotificationText(byKind("task.assigned"), "it")).toBe("NEG-57: ti è stata assegnata");
+  });
+
+  it("planning.changed: la frase la sceglie cosa è cambiato per chi l'aveva", () => {
+    const base = byKind("planning.changed") as Extract<NotificationEvent, { kind: "planning.changed" }>;
+    // Ancora tua, spostata di settimana.
+    expect(formatNotificationText(base, "en")).toBe("NEG-57: your task was moved to 2026-W47");
+    expect(formatNotificationText(base, "it")).toBe("NEG-57: la tua task è stata spostata a 2026-W47");
+    // Ancora tua, tolta dalla settimana.
+    expect(formatNotificationText({ ...base, toWeek: null }, "en")).toBe("NEG-57: your task was taken out of the plan");
+    // Data a un'altra persona.
+    expect(
+      formatNotificationText({ ...base, toAssigneeId: "u-2", toAssigneeName: "Laura" }, "it"),
+    ).toBe("NEG-57: la tua task ora è pianificata per Laura");
+    // Tolta a tutti.
+    expect(formatNotificationText({ ...base, toAssigneeId: null, toAssigneeName: null }, "en")).toBe(
+      "NEG-57: your task is no longer assigned to you",
+    );
+  });
+});
+
 describe("sampleEvents", () => {
   it("produce un esempio per ciascun kind, con link sotto baseUrl", () => {
     const events = sampleEvents("https://app.example.com/");
@@ -1277,6 +1345,15 @@ describe("sampleEvents", () => {
       "docs.nightly_attention",
       "monitor.alert",
       "monitor.recovered",
+      "release.failed",
+      "release.merged",
+      "release.succeeded",
+      "pr.opened",
+      "pr.analysis_issues",
+      "pr.corrected",
+      "docs.release_note",
+      "support.request",
+      "server.diagnosis_ready",
       "job.awaiting_input",
       "project.pulse",
       "project.brief",
@@ -1284,6 +1361,21 @@ describe("sampleEvents", () => {
       "google.proposal_handed",
       "request.created",
       "security.alert",
+      "decision.requested",
+      "decision.answered",
+      "ticket.activity",
+      "planning.changed",
+      "task.assigned",
+      "member.added",
+      "product_doc.mention",
+      "product_doc.updated",
+      "product_doc.question",
+      "chat.mention",
+      "chat.question",
+      "automation.approval",
+      "automation.failed",
+      "automation.notify",
+      "automation.paused",
     ]);
     for (const event of events) {
       // Eventi senza ticket: il link non è un ticketUrl ma la superficie propria.
@@ -1291,6 +1383,19 @@ describe("sampleEvents", () => {
         expect(event.docsUrl.startsWith("https://app.example.com/docs/")).toBe(true);
       } else if (event.kind === "monitor.alert" || event.kind === "monitor.recovered") {
         expect(event.url.startsWith("https://app.example.com/monitor/")).toBe(true);
+      } else if (
+        event.kind === "release.failed" ||
+        event.kind === "release.merged" ||
+        event.kind === "release.succeeded" ||
+        event.kind === "pr.opened" ||
+        event.kind === "pr.analysis_issues" ||
+        event.kind === "pr.corrected" ||
+        event.kind === "docs.release_note" ||
+        event.kind === "support.request" ||
+        event.kind === "server.diagnosis_ready"
+      ) {
+        // Area 8: la pagina nell'app (rilascio, pannello della PR, Docs, Support, la task del server).
+        expect(event.url.startsWith("https://app.example.com/app/")).toBe(true);
       } else if (
         event.kind === "project.pulse" ||
         event.kind === "project.brief" ||
@@ -1303,8 +1408,20 @@ describe("sampleEvents", () => {
         // Unico evento la cui superficie NON sta su Stubwise: la fonte è il
         // thread Gmail (o l'evento di calendario), fuori dal `baseUrl`.
         expect(event.messageUrl.startsWith("https://mail.google.com/")).toBe(true);
-      } else if (event.kind === "security.alert") {
-        // Nessun link: l'avviso di sicurezza si legge in inbox e basta.
+      } else if (
+        event.kind === "security.alert" ||
+        event.kind === "decision.requested" ||
+        event.kind === "decision.answered" ||
+        event.kind === "ticket.activity" ||
+        event.kind === "planning.changed" ||
+        event.kind === "task.assigned" ||
+        event.kind === "member.added" ||
+        isProductDocEvent(event) ||
+        event.kind === "chat.mention" ||
+        event.kind === "chat.question" ||
+        isAutomationEvent(event)
+      ) {
+        // Nessun link nell'evento: si legge in inbox (o «Apri» lo deriva).
         expect(Object.values(event).some((v) => typeof v === "string" && v.startsWith("http"))).toBe(false);
       } else {
         expect(event.ticketUrl.startsWith("https://app.example.com/tickets/")).toBe(true);
@@ -1503,5 +1620,45 @@ describe("review.completed: il ciclo di correzione", () => {
     expect(body.verdict).toBeNull();
     expect(body.cycle).toEqual({ round: 2, max: 3, stopped: true, stoppedReason: "review_failed" });
     expect(String(body.message)).toContain("Automatic PR corrections stopped");
+  });
+});
+
+describe("gli avvisi di Support (area 8, F3)", () => {
+  const P = "3d2a9c1b-7777-4888-8999-aaaabbbbcccc";
+  it("support.request: codice, titolo e cliente; senza nome «Anonymous visitor»", () => {
+    const named = formatNotificationText({ kind: "support.request", projectId: P, requestCode: "NEG-R14", title: "Export PDF", customerName: "Mario", url: "https://x/app/#/p/NEG/requests" }, "en");
+    expect(named).toContain("Mario");
+    expect(named).toContain("NEG-R14");
+    const anon = formatNotificationText({ kind: "support.request", projectId: P, requestCode: "NEG-R14", title: "Export PDF", customerName: null, url: "https://x/app/#/p/NEG/requests" }, "it");
+    expect(anon).toContain("Visitatore anonimo");
+  });
+});
+
+describe("area 11, F2: gli eventi della doc di prodotto", () => {
+  const mention = sampleEvents("https://app.example.com").find((e) => e.kind === "product_doc.mention")!;
+
+  it("la frase della menzione nomina chi ha scritto e il codice della pagina, nelle due lingue", () => {
+    expect(formatNotificationText(mention, "it")).toContain("Ada Lovelace ti ha menzionato in un commento su NEG-D12");
+    expect(formatNotificationText(mention, "en")).toContain("Ada Lovelace mentioned you in a comment on NEG-D12");
+  });
+
+  it("nel jsonb solo id, codici e il nome di chi ha scritto: mai il testo della pagina o del commento", () => {
+    expect(Object.keys(mention).sort()).toEqual(["authorName", "authorUserId", "commentId", "kind", "pageCode", "pageId", "projectCode", "projectId"]);
+    for (const kind of ["product_doc.updated", "product_doc.question"] as const) {
+      const e = sampleEvents("https://app.example.com").find((x) => x.kind === kind)!;
+      expect(Object.keys(e).filter((k) => /title|body|text|quote|excerpt/i.test(k)), kind).toEqual([]);
+    }
+  });
+
+  it("senza il nome di chi ha scritto (chi legge non lo vede) la frase non nomina nessuno", () => {
+    const event = { ...mention, authorName: "" } as NotificationEvent;
+    expect(formatNotificationText(event, "it")).toContain("Ti hanno menzionato in un commento su NEG-D12");
+    expect(formatNotificationText(event, "en")).toContain("You were mentioned in a comment on NEG-D12");
+  });
+
+  it("su Slack il nome di chi ha scritto è escapato (lo sceglie una persona)", () => {
+    const event = { ...mention, authorName: "A & <b>" } as NotificationEvent;
+    const { body } = formatNotification(event, "slack");
+    expect(JSON.stringify(body)).toContain("A &amp; &lt;b&gt;");
   });
 });

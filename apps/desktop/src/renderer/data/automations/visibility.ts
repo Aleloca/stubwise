@@ -1,6 +1,11 @@
-import type { ApprovalWho } from "../../domain/automations/preview";
-import { stepAt, visitSteps } from "../../domain/automations/fields";
+import { approvalProjectOf } from "../../domain/automations/runRules";
+export { approvalProjectOf };
+import type { ApprovalWho } from "@stubwise/shared";
+import { stepAt, visitSteps } from "@stubwise/shared";
 import { PEOPLE } from "../seed/people";
+import { isHiddenId, personMasker } from "../access/hidden";
+import { knownPeopleFor } from "../access/whoCan";
+import { invalid } from "../writer";
 import { copy, state, visibleProjectIds } from "../store";
 import type { Automation, AutomationFlow, AutomationRun, ProjectTarget, Step } from "../types";
 import { can, projectRoleOf, viewerFor } from "../viewer";
@@ -21,7 +26,7 @@ export const runById = (id: string): AutomationRun | undefined =>
 
 export function canSeeAutomation(me: string, a: Automation): boolean {
   if (a.projectId !== null) return visibleProjectIds(me).has(a.projectId);
-  return can(viewerFor(me), "automations.manage");
+  return can(viewerFor(me), "automations.general.manage");
 }
 
 export function canManageAutomation(me: string, a: Automation): boolean {
@@ -31,7 +36,7 @@ export function canManageAutomation(me: string, a: Automation): boolean {
       can(viewerFor(me), "automations.manage", a.projectId)
     );
   }
-  return can(viewerFor(me), "automations.manage");
+  return can(viewerFor(me), "automations.general.manage");
 }
 
 /** Il codice di un'esecuzione: «AUD-A1 #2». */
@@ -110,11 +115,6 @@ export function pendingProjectOf(run: AutomationRun, a: Automation): string | nu
   return approvalProjectOf(run.pending?.preview ?? {}, a);
 }
 
-/** Il progetto di un passo da approvare, dalla sua anteprima: quello risolto, o quello dell'automazione. */
-export function approvalProjectOf(preview: Record<string, unknown>, a: Automation): string | null {
-  return typeof preview.progetto === "string" ? preview.progetto : a.projectId;
-}
-
 /**
  * Chi decide adesso su un'esecuzione ferma: per un'approvazione chi può
  * approvare il passo (risolto ora, non quando si è fermata: un proprietario
@@ -151,7 +151,7 @@ export function canSeeSources(me: string): boolean {
   const viewer = viewerFor(me);
   return (
     canManageIntegrations(me) ||
-    can(viewer, "automations.manage") ||
+    can(viewer, "automations.general.manage") ||
     state.projects.some(
       (p) => visibleProjectIds(me).has(p.id) && can(viewer, "automations.manage", p.id),
     )
@@ -195,8 +195,19 @@ const seesAutomation = (me: string, id: string) => {
  * avvia, se non la vede (R-G5). Un passo mai scelto (`""` senza segno)
  * resta com'è.
  */
-export function flowFor(me: string, flow: AutomationFlow): AutomationFlow {
+export function flowFor(
+  me: string,
+  flow: AutomationFlow,
+  // R.1414 (revisione del lotto 2-3): il masker della risposta.
+  mask: ReturnType<typeof personMasker> = personMasker(me),
+): AutomationFlow {
   const out = copy(flow);
+  // Le persone dei passi (incaricato, chi avvisare, chi approva): segnaposti
+  // per chi chi guarda non conosce.
+  visitSteps(out.steps, (s) => {
+    for (const slot of Object.values(personSlots(s)))
+      if (typeof slot?.personId === "string") slot.personId = mask(slot.personId);
+  });
   const visible = visibleProjectIds(me);
   for (const s of fixedSteps(out)) {
     if (visible.has(s.project.projectId)) continue;
@@ -213,6 +224,54 @@ export function flowFor(me: string, flow: AutomationFlow): AutomationFlow {
  * e che torna senza id, lo riprende dalla versione di prima (per id del
  * passo).
  */
+type Slot = Record<string, unknown> | undefined;
+
+/** I posti di un passo che possono nominare una persona: incaricato, chi avvisare, chi approva. */
+function personSlots(step: Step): Record<"assignee" | "who" | "approver", Slot> {
+  const s = step as {
+    assignee?: unknown;
+    who?: unknown;
+    approval?: { mode: string; who?: unknown };
+  };
+  const obj = (v: unknown): Slot =>
+    v && typeof v === "object" ? (v as Record<string, unknown>) : undefined;
+  return {
+    assignee: obj(s.assignee),
+    who: obj(s.who),
+    approver: s.approval?.mode === "ask" ? obj(s.approval.who) : undefined,
+  };
+}
+
+/**
+ * Il rovescio di `flowFor` per le persone (r.1414, revisione del lotto 2-3):
+ * un segnaposto non si salva (`invalid: flow`); un posto che torna vuoto (la
+ * persona omessa, `{}`) riprende quella della versione di prima, per id del
+ * passo, se chi salva non la conosce (revisione M-7). Lo stesso contratto
+ * del server (72).
+ */
+export function keepHiddenPeople(me: string, prev: AutomationFlow, next: AutomationFlow): void {
+  // Revisione M-7, come il server: la persona di prima torna solo se chi salva
+  // non la conosce; una che conosce, svuotata apposta, resta svuotata.
+  const known = knownPeopleFor(me);
+  const before = new Map<string, ReturnType<typeof personSlots>>();
+  visitSteps(prev.steps, (s) => before.set(s.id, personSlots(s)));
+  visitSteps(next.steps, (s) => {
+    const slots = personSlots(s);
+    for (const [name, slot] of Object.entries(slots) as [keyof typeof slots, Slot][]) {
+      if (!slot) continue;
+      if (isHiddenId(slot.personId as string | undefined)) throw invalid("flow");
+      const old = before.get(s.id)?.[name];
+      if (
+        Object.keys(slot).length === 0 &&
+        old &&
+        typeof old.personId === "string" &&
+        !known.has(old.personId)
+      )
+        slot.personId = old.personId;
+    }
+  });
+}
+
 export function keepHiddenProjects(me: string, prev: AutomationFlow, next: AutomationFlow): void {
   const visible = visibleProjectIds(me);
   const before = new Map(fixedSteps(prev).map((s) => [s.id, s.project.projectId]));

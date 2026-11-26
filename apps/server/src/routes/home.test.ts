@@ -1,0 +1,400 @@
+import { randomBytes, randomUUID } from "node:crypto";
+import { departmentMembers, departmentRoles, departments, personalHomeSeen } from "@stubwise/db";
+import type { TestDb } from "@stubwise/db/testing";
+import { startTestDb } from "@stubwise/db/testing";
+import { departmentHomeViewSchema, meHomeViewSchema, sessionResponseSchema } from "@stubwise/shared";
+import { eq } from "drizzle-orm";
+import type { FastifyInstance } from "fastify";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { z } from "zod";
+import { buildApp } from "../app.js";
+import { createUserWithSession, seedUsers, type SeededUsers } from "../test/fixtures.js";
+
+/**
+ * La Home a blocchi e i ruoli di reparto (integrazione area 2, fetta 3): il
+ * server risponde con la Home già risolta per chi guarda (regole di
+ * `@stubwise/shared`), valida i blocchi in scrittura, e la Home di un reparto
+ * la cambia un full admin o chi ha `department.home.manage` in quel reparto.
+ */
+
+const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
+
+let testDb: TestDb;
+let app: FastifyInstance;
+let users: SeededUsers;
+let person: { id: string; headers: { cookie: string } };
+
+beforeAll(async () => {
+  testDb = await startTestDb();
+  app = buildApp({ db: testDb.db, sessionSecret: SESSION_SECRET, encryptionKey: randomBytes(32).toString("base64") });
+  users = await seedUsers(app);
+}, 120_000);
+
+afterAll(async () => {
+  await app.close();
+  await testDb.stop();
+});
+
+const call = (method: "GET" | "POST" | "PUT" | "DELETE", url: string, cookie: string, payload?: object) =>
+  app.inject({ method, url, headers: { cookie }, ...(payload ? { payload } : {}) });
+
+async function department(): Promise<string> {
+  const [d] = await testDb.db
+    .insert(departments)
+    .values({ name: `Reparto ${randomUUID().slice(0, 8)}`, colorToken: "--dept-3" })
+    .returning({ id: departments.id });
+  return d!.id;
+}
+
+/** Una persona nuova che sta SOLO nei reparti dati, in quell'ordine. */
+async function personIn(departmentIds: string[]) {
+  const p = await createUserWithSession(app, `${randomUUID()}@example.com`);
+  await testDb.db.delete(departmentMembers).where(eq(departmentMembers.userId, p.id));
+  if (departmentIds.length) {
+    await testDb.db
+      .insert(departmentMembers)
+      .values(departmentIds.map((departmentId, position) => ({ departmentId, userId: p.id, position })));
+  }
+  return p;
+}
+
+const setDepartmentHome = (id: string, blocks: object[], cookie = users.adminCookie) =>
+  call("PUT", `/api/departments/${id}/home`, cookie, { blocks });
+
+async function myHome(cookie: string) {
+  const res = await call("GET", "/api/me/home", cookie);
+  expect(res.statusCode, res.body).toBe(200);
+  return meHomeViewSchema.parse(res.json());
+}
+
+async function publicFilter(cookie: string, visibility: "public" | "private" = "public"): Promise<string> {
+  const res = await call("POST", "/api/filters", cookie, {
+    name: "F",
+    visibility,
+    criteria: {},
+    view: "list",
+    groupBy: "none",
+  });
+  expect(res.statusCode, res.body).toBe(201);
+  return (res.json() as { id: string }).id;
+}
+
+describe("GET /api/me/home", () => {
+  it("senza Home personale: l'unione delle Home dei reparti nell'ordine del primo, lo stesso blocco una volta", async () => {
+    const d1 = await department();
+    const d2 = await department();
+    const f = await publicFilter(users.adminCookie);
+    expect((await setDepartmentHome(d1, [{ kind: "myTasks" }, { kind: "filter", filterId: f }])).statusCode).toBe(200);
+    expect((await setDepartmentHome(d2, [{ kind: "newRequests" }, { kind: "myTasks" }, { kind: "filter", filterId: f }])).statusCode).toBe(200);
+    person = await personIn([d2, d1]);
+    const home = await myHome(person.headers.cookie);
+    expect(home.blocks).toEqual([
+      { kind: "decide" },
+      { kind: "myWeek" },
+      { kind: "newRequests" },
+      { kind: "myTasks" },
+      { kind: "filter", filterId: f },
+    ]);
+    expect(home.personal).toBeNull();
+    expect(home.departmentChanged).toEqual([]);
+    expect(home.departmentIds).toEqual([d2, d1]);
+    expect(home.departmentHomes.map((h) => h.departmentId).sort()).toEqual([d1, d2].sort());
+  });
+
+  it("chi sta in un reparto senza Home sua vede i fissi", async () => {
+    const empty = await department();
+    const p = await personIn([empty]);
+    expect((await myHome(p.headers.cookie)).blocks).toEqual([{ kind: "decide" }, { kind: "myWeek" }]);
+  });
+});
+
+describe("Home personale", () => {
+  it("si salva normalizzata, un kind ignoto passa, un filtro che non vedo → 400; ripristinare torna ai reparti", async () => {
+    const d = await department();
+    await setDepartmentHome(d, [{ kind: "myTasks" }]);
+    const p = await personIn([d]);
+    const othersPrivate = await publicFilter(users.adminCookie, "private");
+    const bad = await call("PUT", "/api/me/home", p.headers.cookie, {
+      blocks: [{ kind: "filter", filterId: othersPrivate }],
+    });
+    expect(bad.statusCode).toBe(400);
+    expect((bad.json() as { code: string }).code).toBe("filter_not_visible");
+    expect(
+      (await call("PUT", "/api/me/home", p.headers.cookie, { blocks: [{ kind: "filter", filterId: "non-un-uuid" }] }))
+        .statusCode,
+    ).toBe(400);
+    const res = await call("PUT", "/api/me/home", p.headers.cookie, {
+      blocks: [{ kind: "claudeForMe" }, { kind: "claudeForMe" }, { kind: "dashboardFuturo" }],
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const saved = meHomeViewSchema.parse(res.json());
+    expect(saved.blocks).toEqual([
+      { kind: "decide" },
+      { kind: "myWeek" },
+      { kind: "claudeForMe" },
+      { kind: "dashboardFuturo" },
+    ]);
+    expect(saved.personal!.blocks).toEqual(saved.blocks);
+    // Chi personalizza parte da ciò che vede: la Home del reparto è già «vista».
+    expect(saved.departmentChanged).toEqual([]);
+    expect((await call("DELETE", "/api/me/home", p.headers.cookie)).statusCode).toBe(204);
+    const back = await myHome(p.headers.cookie);
+    expect(back.personal).toBeNull();
+    expect(back.blocks).toEqual([{ kind: "decide" }, { kind: "myWeek" }, { kind: "myTasks" }]);
+  });
+
+  it("la Home del reparto cambia dopo: «è cambiata», con le novità; vista, la riga sparisce", async () => {
+    const d = await department();
+    await setDepartmentHome(d, [{ kind: "myTasks" }]);
+    const p = await personIn([d]);
+    await call("PUT", "/api/me/home", p.headers.cookie, { blocks: [{ kind: "myTasks" }] });
+    await new Promise((r) => setTimeout(r, 5));
+    await setDepartmentHome(d, [{ kind: "myTasks" }, { kind: "upcomingMilestones" }, { kind: "newRequests" }]);
+    const changed = await myHome(p.headers.cookie);
+    expect(changed.departmentChanged).toEqual([d]);
+    expect(changed.newBlocks).toEqual([{ kind: "upcomingMilestones" }, { kind: "newRequests" }]);
+    // La Home personale non cambia da sola.
+    expect(changed.blocks).toEqual([{ kind: "decide" }, { kind: "myWeek" }, { kind: "myTasks" }]);
+    const seenVersion = changed.departmentHomes.find((h) => h.departmentId === d)!.updatedAt!;
+    expect((await call("POST", `/api/me/home/seen/${d}`, p.headers.cookie, { updatedAt: seenVersion })).statusCode).toBe(204);
+    const seen = await myHome(p.headers.cookie);
+    expect(seen.departmentChanged).toEqual([]);
+    expect(seen.newBlocks).toEqual([]);
+  });
+
+  it("un filtro eliminato dopo resta nella Home come blocco (il client lo mostra «non disponibile»)", async () => {
+    const p = await personIn([]);
+    const f = await publicFilter(p.headers.cookie, "private");
+    await call("PUT", "/api/me/home", p.headers.cookie, { blocks: [{ kind: "filter", filterId: f }] });
+    expect((await call("DELETE", `/api/filters/${f}`, p.headers.cookie)).statusCode).toBe(204);
+    expect((await myHome(p.headers.cookie)).blocks).toContainEqual({ kind: "filter", filterId: f });
+  });
+});
+
+describe("Home di reparto", () => {
+  it("la cambia un full admin o chi ha department.home.manage nel reparto; gli altri → 403", async () => {
+    const d = await department();
+    const other = await department();
+    const manager = await personIn([d]);
+    expect((await setDepartmentHome(d, [{ kind: "myTasks" }], manager.headers.cookie)).statusCode).toBe(403);
+    await testDb.db
+      .insert(departmentRoles)
+      .values({ departmentId: d, userId: manager.id, permissions: ["department.home.manage"] });
+    const ok = await setDepartmentHome(d, [{ kind: "myTasks" }], manager.headers.cookie);
+    expect(ok.statusCode, ok.body).toBe(200);
+    expect(departmentHomeViewSchema.parse(ok.json())).toMatchObject({
+      departmentId: d,
+      blocks: [{ kind: "decide" }, { kind: "myWeek" }, { kind: "myTasks" }],
+      updatedById: manager.id,
+    });
+    // Il permesso vale nel SUO reparto.
+    expect((await setDepartmentHome(other, [{ kind: "myTasks" }], manager.headers.cookie)).statusCode).toBe(403);
+    expect((await setDepartmentHome(randomUUID(), [{ kind: "myTasks" }])).statusCode).toBe(404);
+    const read = await call("GET", `/api/departments/${d}/home`, users.memberCookie);
+    expect(read.statusCode).toBe(200);
+    expect(departmentHomeViewSchema.parse(read.json()).blocks.map((b) => b.kind)).toEqual(["decide", "myWeek", "myTasks"]);
+    const none = departmentHomeViewSchema.parse((await call("GET", `/api/departments/${other}/home`, users.memberCookie)).json());
+    expect(none).toMatchObject({ blocks: [{ kind: "decide" }, { kind: "myWeek" }], updatedAt: null });
+  });
+
+  it("nella Home di un reparto solo filtri pubblici: un privato (anche mio) → 400", async () => {
+    const d = await department();
+    const mine = await publicFilter(users.adminCookie, "private");
+    const res = await setDepartmentHome(d, [{ kind: "filter", filterId: mine }]);
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("filter_not_public");
+    const pub = await publicFilter(users.adminCookie);
+    expect((await setDepartmentHome(d, [{ kind: "filter", filterId: pub }])).statusCode).toBe(200);
+  });
+});
+
+describe("blocchi di filtri non più disponibili (fix fetta 3)", () => {
+  it("Home con un blocco di un filtro eliminato: riordino → 200 e il blocco resta", async () => {
+    const p = await personIn([]);
+    const f = await publicFilter(p.headers.cookie, "private");
+    await call("PUT", "/api/me/home", p.headers.cookie, { blocks: [{ kind: "myTasks" }, { kind: "filter", filterId: f }] });
+    expect((await call("DELETE", `/api/filters/${f}`, p.headers.cookie)).statusCode).toBe(204);
+    const res = await call("PUT", "/api/me/home", p.headers.cookie, {
+      blocks: [{ kind: "filter", filterId: f }, { kind: "myTasks" }],
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(meHomeViewSchema.parse(res.json()).blocks).toEqual([
+      { kind: "decide" },
+      { kind: "myWeek" },
+      { kind: "filter", filterId: f },
+      { kind: "myTasks" },
+    ]);
+  });
+
+  it("senza Home personale, un filtro della Home risolta (reparto) poi reso privato passa al primo salvataggio", async () => {
+    const d = await department();
+    const f = await publicFilter(users.adminCookie);
+    await setDepartmentHome(d, [{ kind: "filter", filterId: f }]);
+    const p = await personIn([d]);
+    await app.inject({
+      method: "PATCH",
+      url: `/api/filters/${f}`,
+      headers: { cookie: users.adminCookie },
+      payload: { visibility: "private" },
+    });
+    const res = await call("PUT", "/api/me/home", p.headers.cookie, {
+      blocks: [{ kind: "myTasks" }, { kind: "filter", filterId: f }],
+    });
+    expect(res.statusCode, res.body).toBe(200);
+  });
+
+  it("Home di reparto con un filtro reso privato: modifica di un altro blocco → 200", async () => {
+    const d = await department();
+    const f = await publicFilter(users.adminCookie);
+    expect((await setDepartmentHome(d, [{ kind: "filter", filterId: f }])).statusCode).toBe(200);
+    await app.inject({
+      method: "PATCH",
+      url: `/api/filters/${f}`,
+      headers: { cookie: users.adminCookie },
+      payload: { visibility: "private" },
+    });
+    const res = await setDepartmentHome(d, [{ kind: "newRequests" }, { kind: "filter", filterId: f }]);
+    expect(res.statusCode, res.body).toBe(200);
+  });
+
+  it("un filterId NUOVO non visibile → 400, anche accanto a uno già presente", async () => {
+    const p = await personIn([]);
+    const mine = await publicFilter(p.headers.cookie, "private");
+    await call("PUT", "/api/me/home", p.headers.cookie, { blocks: [{ kind: "filter", filterId: mine }] });
+    const othersPrivate = await publicFilter(users.adminCookie, "private");
+    const res = await call("PUT", "/api/me/home", p.headers.cookie, {
+      blocks: [{ kind: "filter", filterId: mine }, { kind: "filter", filterId: othersPrivate }],
+    });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("filter_not_visible");
+  });
+});
+
+describe("ruoli di reparto", () => {
+  it("li assegna chi ha departments.manage, senza riconferma; finiscono in /api/auth/me e nell'elenco", async () => {
+    const d = await department();
+    const p = await personIn([d]);
+    const body = { roles: [{ userId: p.id, permissions: ["department.home.manage"] }] };
+    expect((await call("PUT", `/api/departments/${d}/roles`, users.memberCookie, body)).statusCode).toBe(403);
+    const res = await call("PUT", `/api/departments/${d}/roles`, users.adminCookie, body);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toEqual([{ departmentId: d, userId: p.id, permissions: ["department.home.manage"] }]);
+    const me = sessionResponseSchema.parse((await call("GET", "/api/auth/me", p.headers.cookie)).json());
+    expect(me.departmentPermissions).toEqual({ [d]: ["department.home.manage"] });
+    const list = z
+      .array(z.object({ departmentId: z.string(), userId: z.string(), permissions: z.array(z.string()) }))
+      .parse((await call("GET", "/api/departments/roles", users.memberCookie)).json());
+    expect(list).toContainEqual({ departmentId: d, userId: p.id, permissions: ["department.home.manage"] });
+    // Un permesso che non è di reparto, una persona che non esiste: 400.
+    expect(
+      (await call("PUT", `/api/departments/${d}/roles`, users.adminCookie, { roles: [{ userId: p.id, permissions: ["tickets.edit"] }] }))
+        .statusCode,
+    ).toBe(400);
+    expect(
+      (await call("PUT", `/api/departments/${d}/roles`, users.adminCookie, {
+        roles: [{ userId: randomUUID(), permissions: ["department.home.manage"] }],
+      })).statusCode,
+    ).toBe(400);
+    // L'insieme si sostituisce: vuoto toglie tutto.
+    expect((await call("PUT", `/api/departments/${d}/roles`, users.adminCookie, { roles: [] })).json()).toEqual([]);
+    const after = sessionResponseSchema.parse((await call("GET", "/api/auth/me", p.headers.cookie)).json());
+    expect(after.departmentPermissions).toEqual({});
+  });
+});
+
+describe("rimandi, lotto 5: i reparti in /api/auth/me", () => {
+  it("nell'ordine della persona (il primo dà il colore delle iniziali), con nome e colore; senza reparti []", async () => {
+    const first = await department();
+    const second = await department();
+    await testDb.db.update(departments).set({ colorToken: "--dept-7" }).where(eq(departments.id, second));
+    const p = await personIn([second, first]);
+    const me = sessionResponseSchema.parse((await call("GET", "/api/auth/me", p.headers.cookie)).json());
+    expect(me.departments.map((d) => d.id)).toEqual([second, first]);
+    // L'ordine opposto su un'altra persona: l'ordine è della persona, non degli id.
+    const q = await personIn([first, second]);
+    expect(sessionResponseSchema.parse((await call("GET", "/api/auth/me", q.headers.cookie)).json()).departments.map((d) => d.id)).toEqual([first, second]);
+    expect(me.departments[0]).toMatchObject({ id: second, colorToken: "--dept-7", name: expect.stringContaining("Reparto") });
+    const none = await personIn([]);
+    expect(sessionResponseSchema.parse((await call("GET", "/api/auth/me", none.headers.cookie)).json()).departments).toEqual([]);
+  });
+});
+
+describe("ruoli di reparto solo ai membri (fix fetta 3)", () => {
+  it("una persona che non è nel reparto → 400 invalid_person, e niente scritto", async () => {
+    const d = await department();
+    const outsider = await personIn([]);
+    const res = await call("PUT", `/api/departments/${d}/roles`, users.adminCookie, {
+      roles: [{ userId: outsider.id, permissions: ["department.home.manage"] }],
+    });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("invalid_person");
+    expect(await testDb.db.select().from(departmentRoles).where(eq(departmentRoles.departmentId, d))).toHaveLength(0);
+  });
+
+  it("togliere una persona dal reparto (PATCH memberIds) le toglie anche i ruoli in quel reparto", async () => {
+    const d = await department();
+    const p = await personIn([d]);
+    const other = await personIn([d]);
+    expect(
+      (await call("PUT", `/api/departments/${d}/roles`, users.adminCookie, {
+        roles: [
+          { userId: p.id, permissions: ["department.home.manage"] },
+          { userId: other.id, permissions: ["department.home.manage"] },
+        ],
+      })).statusCode,
+    ).toBe(200);
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/departments/${d}`,
+      headers: { cookie: users.adminCookie },
+      payload: { memberIds: [other.id] },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const left = await testDb.db.select({ u: departmentRoles.userId }).from(departmentRoles).where(eq(departmentRoles.departmentId, d));
+    expect(left.map((r) => r.u)).toEqual([other.id]);
+  });
+});
+
+describe("«vedi le novità»: la versione vista (fix fetta 3)", () => {
+  it("si salva la versione che il client ha visto: una modifica arrivata dopo resta «cambiata»", async () => {
+    const d = await department();
+    await setDepartmentHome(d, [{ kind: "myTasks" }]);
+    const p = await personIn([d]);
+    await call("PUT", "/api/me/home", p.headers.cookie, { blocks: [{ kind: "myTasks" }] });
+    await new Promise((r) => setTimeout(r, 5));
+    await setDepartmentHome(d, [{ kind: "myTasks" }, { kind: "newRequests" }]);
+    const seen = (await myHome(p.headers.cookie)).departmentHomes.find((h) => h.departmentId === d)!.updatedAt!;
+    // Mentre il client guardava, la Home del reparto è cambiata ancora.
+    await new Promise((r) => setTimeout(r, 5));
+    await setDepartmentHome(d, [{ kind: "myTasks" }, { kind: "newRequests" }, { kind: "upcomingMilestones" }]);
+    expect((await call("POST", `/api/me/home/seen/${d}`, p.headers.cookie, { updatedAt: seen })).statusCode).toBe(204);
+    const after = await myHome(p.headers.cookie);
+    expect(after.departmentChanged).toEqual([d]);
+    expect(after.newBlocks).toEqual([{ kind: "newRequests" }, { kind: "upcomingMilestones" }]);
+  });
+
+  it("un reparto di cui non sono membro: 204 e niente salvato", async () => {
+    const d = await department();
+    await setDepartmentHome(d, [{ kind: "myTasks" }]);
+    const p = await personIn([]);
+    await call("PUT", "/api/me/home", p.headers.cookie, { blocks: [{ kind: "myTasks" }] });
+    const updatedAt = new Date().toISOString();
+    expect((await call("POST", `/api/me/home/seen/${d}`, p.headers.cookie, { updatedAt })).statusCode).toBe(204);
+    expect(await testDb.db.select().from(personalHomeSeen).where(eq(personalHomeSeen.userId, p.id))).toHaveLength(0);
+  });
+});
+
+describe("filterId solo sui blocchi filtro (fix fetta 3)", () => {
+  it("un filterId su un blocco che non è un filtro si scarta, nella personale e in quella di reparto", async () => {
+    const p = await personIn([]);
+    const res = await call("PUT", "/api/me/home", p.headers.cookie, { blocks: [{ kind: "myTasks", filterId: "qualcosa" }] });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(meHomeViewSchema.parse(res.json()).personal!.blocks).toContainEqual({ kind: "myTasks" });
+    expect(JSON.stringify(res.json())).not.toContain("qualcosa");
+    const d = await department();
+    const dept = await setDepartmentHome(d, [{ kind: "newRequests", filterId: "altro" }]);
+    expect(dept.statusCode).toBe(200);
+    expect(JSON.stringify(dept.json())).not.toContain("altro");
+  });
+});
+

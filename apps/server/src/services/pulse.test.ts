@@ -5,6 +5,7 @@ import {
   aiJobs,
   backlogItems,
   backlogItemTickets,
+  instanceSettings,
   notificationDeliveries,
   notifications,
   projectDecisions,
@@ -45,7 +46,7 @@ vi.mock("./jobs.js", async (importOriginal) => {
   };
 });
 
-import { executeAction } from "./inbox.js";
+import { executeAction, transitionNotification } from "./inbox.js";
 import { proceedWithProposal } from "./pulse.js";
 
 let testDb: TestDb;
@@ -244,6 +245,25 @@ describe("proceedWithProposal — guardie d'ingresso", () => {
     expect(after!.status).toBe("ready");
     // La riga resta aperta: una richiesta malformata non consuma il pulse.
     expect((await readNotifications(ids))[0]!.status).toBe("open");
+  });
+
+  it("rimandi, lotto 4 (D-7.1): budget del mese finito, chi non ha `plans.approve` riceve `budget_exhausted` e non succede NIENTE (voce, card e ticket); chi ce l'ha procede", async () => {
+    const item = await seedItem();
+    const { ids } = await seedPulse([operator, maintainer], [item]);
+    await db.insert(instanceSettings).values({ id: 1, monthlyBudgetUsd: "0" }).onConflictDoUpdate({ target: instanceSettings.id, set: { monthlyBudgetUsd: "0" } });
+    try {
+      const refused = await proceedWithProposal(db, { notificationId: ids[0]!, actor: operator, optionIndex: 0 });
+      expect(refused).toEqual({ ok: false, error: "budget_exhausted" });
+      const [after] = await db.select({ status: backlogItems.status }).from(backlogItems).where(eq(backlogItems.id, item.id));
+      expect(after!.status).toBe("ready");
+      expect((await readNotifications(ids)).map((n) => n.status)).toEqual(["open", "open"]);
+      expect(await db.select().from(backlogItemTickets).where(eq(backlogItemTickets.itemId, item.id))).toEqual([]);
+      // Chi scavalca il budget: la stessa card, la task e il run partono.
+      const proceeded = await proceedWithProposal(db, { notificationId: ids[1]!, actor: maintainer, optionIndex: 0 });
+      expect(proceeded.ok).toBe(true);
+    } finally {
+      await db.update(instanceSettings).set({ monthlyBudgetUsd: null }).where(eq(instanceSettings.id, 1));
+    }
   });
 
   it("indice assente (risposta a testo libero) → invalid_answer", async () => {
@@ -693,5 +713,36 @@ describe("proceedWithProposal — registro decisioni", () => {
     });
     expect(result).toMatchObject({ ok: false, error: "proposal_stale" });
     expect(await readPulseDecisions()).toHaveLength(before);
+  });
+});
+
+describe("«Restore» non riarma una decisione (review di F1, I3)", () => {
+  it("chi ha proceduto non ripristina la sua card, e un secondo Procedi non crea niente", async () => {
+    const item = await seedItem({ title: "Restore dopo Procedi" });
+    const { ids } = await seedPulse([maintainer], [item]);
+    const first = await proceedWithProposal(db, { notificationId: ids[0]!, actor: maintainer, optionIndex: 0 });
+    expect(first.ok).toBe(true);
+    const restore = await transitionNotification(db, { notificationId: ids[0]!, userId: maintainer.id, transition: "restore" });
+    expect(restore).toEqual({ ok: false, error: "invalid_state" });
+    const again = await proceedWithProposal(db, { notificationId: ids[0]!, actor: maintainer, optionIndex: 0 });
+    expect(again.ok).toBe(false);
+    const created = await db.select({ id: tickets.id }).from(tickets).where(eq(tickets.title, "Restore dopo Procedi"));
+    expect(created).toHaveLength(1);
+  });
+
+  it("una copia ARCHIVIATA, poi decisa da un altro, non si ripristina più; una solo archiviata sì", async () => {
+    const item = await seedItem({ title: "Archiviata poi decisa" });
+    const { ids } = await seedPulse([maintainer, operator], [item]);
+    const archived = await executeAction(db, { notificationId: ids[1]!, action: "handled", actor: operator });
+    expect(archived.ok).toBe(true);
+    expect((await proceedWithProposal(db, { notificationId: ids[0]!, actor: maintainer, optionIndex: 0 })).ok).toBe(true);
+    expect(await transitionNotification(db, { notificationId: ids[1]!, userId: operator.id, transition: "restore" })).toEqual({
+      ok: false,
+      error: "invalid_state",
+    });
+    const other = await seedItem({ title: "Solo archiviata" });
+    const only = await seedPulse([operator], [other]);
+    await executeAction(db, { notificationId: only.ids[0]!, action: "handled", actor: operator });
+    expect(await transitionNotification(db, { notificationId: only.ids[0]!, userId: operator.id, transition: "restore" })).toEqual({ ok: true });
   });
 });

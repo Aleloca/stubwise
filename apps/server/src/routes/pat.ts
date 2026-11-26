@@ -1,4 +1,4 @@
-import { deviceTokens, personalAccessTokens } from "@stubwise/db";
+import { desktopHandoffs, deviceTokens, personalAccessTokens } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import { createPatSchema, patViewSchema, patWithTokenSchema } from "@stubwise/shared";
 import type { PatView, PatWithToken } from "@stubwise/shared";
@@ -46,9 +46,10 @@ export async function createPatForUser(
   userId: string,
   name: string,
   expiresAt: Date | null,
-  // `mobile` solo da `/mobile-login`: è il marcatore con cui reset e cambio
-  // della password ritrovano i token dell'app (vedi revokeMobilePats).
-  kind: "manual" | "mobile" = "manual",
+  // `mobile` solo da `/mobile-login`, `desktop` solo da `/desktop-exchange`:
+  // sono i marcatori con cui reset e cambio della password ritrovano i token
+  // delle app (vedi revokeMobilePats).
+  kind: "manual" | "mobile" | "desktop" = "manual",
 ): Promise<PatWithToken> {
   const token = generatePat();
   const [created] = await db
@@ -79,9 +80,16 @@ export async function revokeMobilePats(
 ): Promise<void> {
   const where = and(
     eq(personalAccessTokens.userId, userId),
-    eq(personalAccessTokens.kind, "mobile"),
+    // Il token del desktop nasce anch'esso da password e secondo fattore (dal
+    // browser): si comporta come quello del telefono (decisione del 9 nov 2026).
+    inArray(personalAccessTokens.kind, ["mobile", "desktop"]),
     exceptPatId === undefined ? undefined : ne(personalAccessTokens.id, exceptPatId),
   );
+  // I codici del login del desktop ancora aperti: emessi con la password di
+  // prima, non devono diventare un token dopo il cambio o il reset.
+  await db
+    .delete(desktopHandoffs)
+    .where(and(eq(desktopHandoffs.userId, userId), isNull(desktopHandoffs.usedAt)));
   const mobile = await db
     .select({ id: personalAccessTokens.id })
     .from(personalAccessTokens)

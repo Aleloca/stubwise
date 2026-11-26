@@ -63,6 +63,8 @@ function makeEnvironment(overrides: Partial<ProjectEnvironment> = {}): ProjectEn
     serverId: null,
     createdAt: "2026-09-10T00:00:00.000Z",
     updatedAt: "2026-09-10T00:00:00.000Z",
+    // Area 8, F1 (R-L2): i server per repository (il web non li legge).
+    servers: [],
     ...overrides,
   };
 }

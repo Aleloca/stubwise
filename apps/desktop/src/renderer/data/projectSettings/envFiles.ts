@@ -19,7 +19,7 @@ import type { ProjectRefusal, ProjectResult } from "./types";
 //   `CLAUDE.md`): gli altri si conservano per essere sostituiti.
 // - Importare, impostare, rimuovere una variabile ed eliminare un file
 //   chiedono la riconferma (+R); creare un file vuoto no.
-// - Le voci dicono il nome della variabile (`params.key`), mai il valore;
+// - Le voci dicono il nome della variabile (`params.variable`, F5 K-3), mai il valore;
 //   `env_file.imported` dice quante (`params.count`). L'oggetto è il file,
 //   col percorso come etichetta (un nome dato da una persona).
 
@@ -258,7 +258,7 @@ export async function setEnvVar(
     actorId: me,
     projectId,
     object: fileObject(file),
-    params: { ...fileParams(file), key },
+    params: { ...fileParams(file), variable: key },
   });
   return { ok: true };
 }
@@ -281,7 +281,7 @@ export async function removeEnvVar(fileId: string, key: string): Promise<Project
     actorId: me,
     projectId,
     object: fileObject(file),
-    params: { ...fileParams(file), key },
+    params: { ...fileParams(file), variable: key },
   });
   return { ok: true };
 }
@@ -307,16 +307,34 @@ export async function deleteEnvFile(fileId: string): Promise<ProjectResult> {
   return { ok: true };
 }
 
+/** Vero se l'ambiente ha file d'ambiente: eliminarlo chiede la riconferma (F5). */
+export const environmentHasFiles = (environmentId: string): boolean =>
+  state.envFiles.some((f) => f.environmentId === environmentId);
+
 /**
  * I file di un ambiente eliminato (Releases → Environments, 8a): se ne vanno
  * con lui, e i loro valori escono prima dal caveau, come in `purgeProject`.
  * Senza l'ambiente nessuna pagina li mostrerebbe, e nessuna scrittura li
  * raggiungerebbe. Non è una scrittura a sé: la chiama `deleteEnvironment`,
- * che ha già deciso chi può.
+ * che ha già deciso chi può (e chiesto la riconferma). Ogni file lascia la
+ * sua voce `env_file.deleted` (area 9, F5, decisione del maintainer): va
+ * chiamata PRIMA di togliere l'ambiente, che dà il nome alla voce.
  */
-export function dropEnvironmentFiles(environmentId: string): void {
+export function dropEnvironmentFiles(
+  environmentId: string,
+  actorId: string,
+  projectId: string,
+): void {
   for (const f of state.envFiles)
-    if (f.environmentId === environmentId)
+    if (f.environmentId === environmentId) {
       for (const v of f.vars) if (v.secretId) forgetSecret(v.secretId);
+      recordChange({
+        kind: "env_file.deleted",
+        actorId,
+        projectId,
+        object: fileObject(f),
+        params: fileParams(f),
+      });
+    }
   state.envFiles = state.envFiles.filter((f) => f.environmentId !== environmentId);
 }

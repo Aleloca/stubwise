@@ -11,7 +11,7 @@
  * @see poller.ts per l'orchestrazione del tick.
  */
 import type { GmailMessage } from "@stubwise/google";
-import { GoogleApiError, isFatalGoogleError } from "@stubwise/google";
+import { GMAIL_UNREAD_LABEL, GoogleApiError, isFatalGoogleError } from "@stubwise/google";
 import { normalizeAddress, parseAddressList, type EmailForRouting } from "@stubwise/notifications";
 
 /**
@@ -44,9 +44,26 @@ export const SYNC_BACKOFF_MAX_EXPONENT = 6;
  * {@link isFromMailbox} rifà il controllo in codice per entrambi i percorsi.
  */
 export const GMAIL_RESYNC_QUERY = "newer_than:7d -from:me";
+/**
+ * Area 8, «Clienti in attesa»: al primo giro e al resync, DOPO la query di
+ * sempre, la posta MANDATA della casella negli stessi 7 giorni. Passa dalla
+ * STESSA regola del ramo History (si conserva solo su un thread noto, o se
+ * l'ha mandata Stubwise, come contesto): senza, una risposta mandata da Gmail
+ * mentre la history era scaduta non entrava mai, e il cliente risultava
+ * «in attesa» a torto.
+ */
+export const GMAIL_RESYNC_SENT_QUERY = "newer_than:7d from:me";
 
 /** Tetto di messaggi che un resync guarda: oltre, si aspetta il tick dopo. */
 export const GMAIL_RESYNC_MAX_MESSAGES = 200;
+
+/**
+ * Tetto di pagine di `history.list` per giro (review della F1, punto 6): da
+ * quando la history chiede anche i cambi di etichetta, una casella può avere
+ * pagine fatte SOLO di quelli (le caselle tornate a leggere dopo la 0150).
+ * Al tetto il giro si ferma, e il cursore va all'ultima voce letta.
+ */
+export const GMAIL_HISTORY_MAX_PAGES = 20;
 
 /**
  * Stati TERMINALI di `email_messages`.
@@ -190,9 +207,13 @@ export function displayNameOf(raw: string | undefined | null): string | null {
  * e una regola `sender_domain` sul proprio dominio la porterebbe dentro,
  * trasformando ogni risposta dell'operatore in una proposta per sé stesso.
  */
-export function isFromMailbox(message: GmailMessage, mailboxEmail: string): boolean {
+export function isFromMailbox(message: GmailMessage, mailboxEmail: string, aliases: readonly string[] = []): boolean {
   const from = normalizeAddress(message.headers["from"]);
-  return from !== "" && from === normalizeAddress(mailboxEmail);
+  if (from === "") return false;
+  // Lotto 8, voce 2 (W1 del registro): anche un alias verificato della casella è
+  // «io» — `from:me` del resync porta la posta mandata da un alias, e senza
+  // questo passava come ricevuta (e nel taglio sembrava il cliente in attesa).
+  return from === normalizeAddress(mailboxEmail) || aliases.some((a) => normalizeAddress(a) === from);
 }
 
 /**
@@ -232,6 +253,10 @@ export interface EmailMessageInsert {
   fromAddress: string;
   fromName: string | null;
   toAddresses: string[];
+  /** Area 6, F1.3: non letto su Gmail all'ingestione (etichetta `UNREAD`). */
+  unread: boolean;
+  /** Area 6, F2: il Message-ID RFC dell'header, null se l'email non ne ha uno. */
+  rfcMessageId: string | null;
   /**
    * Chi è in COPIA (16 set 2026). Mai `null` da qui: un messaggio senza
    * header `Cc` dà `[]`, cioè «guardato, nessuno in copia» — il `null` in
@@ -295,6 +320,11 @@ export function buildEmailMessageInsert(input: {
     subject: subject ? subject : null,
     receivedAt: message.internalDate ?? input.now,
     labels: message.labelIds,
+    // Area 6, F1.3: letto / non letto come lo dice Gmail adesso.
+    unread: message.labelIds.includes(GMAIL_UNREAD_LABEL),
+    // Area 6, F2: la chiave dell'email fra le caselle. Nessuna chiamata in
+    // più: `Message-Id` è in `DEFAULT_METADATA_HEADERS`.
+    rfcMessageId: message.headers["message-id"]?.trim() || null,
     textExcerpt: input.text.trim() === "" ? null : input.text,
     projectId: input.projectId,
     candidateProjectIds: input.candidateProjectIds,

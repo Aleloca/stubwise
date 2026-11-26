@@ -57,7 +57,7 @@ describe("checkEscalation", () => {
     expect(
       checkEscalation(marco, ["plans.approve", "runs.start", "release.merge", "plans.approve"]),
     ).toEqual({ ok: false, error: "escalation", missing: ["plans.approve", "release.merge"] });
-    expect(checkEscalation(marco, ["runs.start", "support.reply"])).toEqual({ ok: true });
+    expect(checkEscalation(marco, ["runs.start", "support.manage"])).toEqual({ ok: true });
   });
 
   it("Roberta (full admin) dà qualunque permesso, a ogni livello", () => {
@@ -88,9 +88,9 @@ describe("checkEscalation", () => {
   });
 
   it("al livello d'istanza: un admin non full non dà instance.full_admin", () => {
-    // Matteo ha automations.manage d'istanza da una concessione, non roles.manage.
+    // Matteo ha automations.general.manage da una concessione, non roles.manage.
     const matteo = effectivePermissions("p-matteo");
-    expect(checkEscalation(matteo, ["automations.manage"])).toEqual({ ok: true });
+    expect(checkEscalation(matteo, ["automations.general.manage"])).toEqual({ ok: true });
     expect(checkEscalation(matteo, ["instance.full_admin"])).toEqual({
       ok: false,
       error: "escalation",
@@ -313,13 +313,13 @@ describe("ACTIONS e gruppi", () => {
       "release.merge",
       "servers.operate",
       "project.members.manage",
-      "support.reply",
+      "support.manage",
       "planning.others",
       "automations.manage",
       "runs.start",
     ])
       expect(perms("project")).toContain(p);
-    for (const p of ["servers.ssh.manage", "automations.manage"])
+    for (const p of ["servers.ssh.manage", "automations.general.manage"])
       expect(perms("instance")).toContain(p);
   });
 
@@ -335,6 +335,23 @@ describe("ACTIONS e gruppi", () => {
     }
   });
 
+  it("un permesso locale del prototipo non è già nel registro condiviso (si toglie dai locali quando ci entra)", () => {
+    // I locali presi dagli elenchi COMPLETI: ciò che sta oltre il registro
+    // condiviso. `servers.operate` (area 8, F4b) ora è nel registro condiviso,
+    // quindi non è più un locale (né compare due volte).
+    const projectLocals = ALL_PROJECT_PERMISSIONS.slice(PROJECT_PERMISSIONS.length);
+    expect(ALL_PROJECT_PERMISSIONS.slice(0, PROJECT_PERMISSIONS.length)).toEqual([...PROJECT_PERMISSIONS]);
+    expect(projectLocals).not.toContain("servers.operate");
+    expect(PROJECT_PERMISSIONS as readonly string[]).toContain("servers.operate");
+    const instanceLocals = LOCAL_INSTANCE_PERMISSIONS;
+    expect([...INSTANCE_SET].filter((p) => !(INSTANCE_PERMISSIONS as readonly string[]).includes(p)).sort()).toEqual(
+      [...instanceLocals].sort(),
+    );
+    expect(projectLocals.filter((p) => (PROJECT_PERMISSIONS as readonly string[]).includes(p))).toEqual([]);
+    // Le generali hanno la loro chiave condivisa (`automations.general.manage`, F4).
+    expect(instanceLocals.filter((p) => (INSTANCE_PERMISSIONS as readonly string[]).includes(p))).toEqual([]);
+  });
+
   it("ogni permesso sta in un solo gruppo del suo livello, ogni gruppo ha un'etichetta", () => {
     const check = (groups: typeof INSTANCE_GROUPS, universe: readonly string[]) => {
       const all = groups.flatMap((g) => g.permissions);
@@ -347,8 +364,10 @@ describe("ACTIONS e gruppi", () => {
     };
     check(INSTANCE_GROUPS, [...INSTANCE_SET]);
     check(PROJECT_GROUPS, ALL_PROJECT_PERMISSIONS);
-    // I 12 gruppi del web (con «credentials» della cassaforte), più «prototype» a ogni livello.
-    expect(INSTANCE_GROUPS.length + PROJECT_GROUPS.length).toBe(14);
+    // I 14 gruppi del web (con «credentials» della cassaforte e, dall'area 4,
+    // «chat», dall'area 5 «drive», dall'area 7 «automations», dall'area 8 F3
+    // «support», dalla F4b «servers»), più «prototype» d'istanza.
+    expect(INSTANCE_GROUPS.length + PROJECT_GROUPS.length).toBe(18);
     expect(INSTANCE_GROUPS.at(-1)!.permissions).toEqual(LOCAL_INSTANCE_PERMISSIONS);
     for (const p of INSTANCE_PERMISSIONS) expect(groupOf("instance", p)).not.toBe("prototype");
     for (const p of PROJECT_PERMISSIONS) expect(groupOf("project", p)).not.toBe("prototype");

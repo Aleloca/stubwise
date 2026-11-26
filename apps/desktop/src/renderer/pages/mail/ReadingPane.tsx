@@ -10,6 +10,7 @@ import {
   useMarkMailUnread,
   usePeople,
   useProjects,
+  useSessionPersonId,
   useReproposeMessage,
   useRetryMailSend,
 } from "../../data/queries";
@@ -28,11 +29,13 @@ import { fold, searchWords } from "../chat/search";
 import { ArrowLeftGlyph, MoreGlyph } from "./glyphs";
 import { Composer, type MailFieldBridge } from "./Composer";
 import { closeComposer, onComposeRequest, takeCompose, type ComposeRequest } from "./composeRequest";
-import { useDiscardedNotice, useDroppedNotice, useUndoSendToast } from "./UndoSendToast";
+import { holdRestored, useDiscardedNotice, useDroppedNotice, useUndoSendToast } from "./UndoSendToast";
 import { MailProposalCard } from "./MailProposalCard";
 import { isLiveProposal } from "./proposalText";
 import { MessageView } from "./MessageView";
 import { DueLabel } from "./ThreadRow";
+import { mailWrites, openInGmail } from "./mailFeatures";
+import { useReadStateError } from "./readErrors";
 
 // Il pannello di lettura (shape mail.md §3, §5): la testata della
 // conversazione (oggetto per intero, A7), poi i messaggi — espansi i non
@@ -94,15 +97,18 @@ export function ReadingPane({
   const { t } = useTranslation();
   const toast = useToast();
   const thread = useMailThread(threadId);
-  const proposals = useMailProposals({});
+  // Le proposte dei messaggi di questa conversazione, non l'elenco intero.
+  const proposals = useMailProposals({ threadId });
   const peopleList = usePeople().data;
   const projects = useProjects().data;
   const markRead = useMarkMailRead();
   const markUnread = useMarkMailUnread();
   const repropose = useReproposeMessage();
-  const drafts = useMailDrafts();
+  // Le bozze sono della scrittura (F3): dove la build non scrive non si leggono.
+  const drafts = useMailDrafts({ enabled: mailWrites() });
   const retry = useRetryMailSend();
   const removeFailed = useDeleteFailedMailSend();
+  const me = useSessionPersonId();
   const showUndo = useUndoSendToast();
   const droppedNotice = useDroppedNotice();
   const discardedNotice = useDiscardedNotice();
@@ -122,6 +128,7 @@ export function ReadingPane({
       paneRef.current?.querySelector<HTMLElement>("[data-composer] textarea")?.focus(),
     );
   const openCompose = (mode: ReplyMode, focus: ComposeRequest["focus"] | "none") => {
+    if (!mailWrites()) return;
     opener.current = mode;
     if (compose) {
       setCompose({ mode, focus: compose.focus });
@@ -194,23 +201,36 @@ export function ReadingPane({
   // Letta dopo 1 s di permanenza; «Mark as unread» la lascia com'è finché non si riapre.
   const hasUnread = !!thread.data?.messages.some((m) => !m.read);
   const markReadMutate = markRead.mutate;
+  // Nel ref, così il timer della lettura automatica non ripartirà a ogni render.
+  const reportReadError = useReadStateError();
+  const readError = useRef(reportReadError);
+  readError.current = reportReadError;
   useEffect(() => {
     if (!hasUnread || keptUnread.current) return;
-    const timer = window.setTimeout(() => markReadMutate(threadId), READ_AFTER_MS);
+    const timer = window.setTimeout(
+      () => markReadMutate(threadId, { onError: (e) => readError.current(e, { auto: true, mailbox: thread.data?.mailbox }) }),
+      READ_AFTER_MS,
+    );
     return () => window.clearTimeout(timer);
+    // `thread.data` lo legge solo l'errore, al momento: non rilancia il timer.
   }, [hasUnread, threadId, markReadMutate]);
 
+  // Le proposte per messaggio d'origine: il Message-ID nel prototipo; nella
+  // build app le proposte del server che il messaggio elenca (`proposalIds`).
   const bySource = useMemo(() => {
     const map = new Map<string, MailProposalView[]>();
+    const ownerOf = new Map<string, string>();
+    for (const m of thread.data?.messages ?? []) for (const id of m.proposalIds ?? []) ownerOf.set(id, m.messageId);
     for (const v of proposals.data ?? []) {
       if (v.proposal.source === "calendar") continue;
-      const list = map.get(v.proposal.sourceId) ?? [];
+      const key = ownerOf.get(v.proposal.id) ?? v.proposal.sourceId;
+      const list = map.get(key) ?? [];
       list.push(v);
-      map.set(v.proposal.sourceId, list);
+      map.set(key, list);
     }
     for (const list of map.values()) list.sort((a, b) => a.proposal.createdAt.localeCompare(b.proposal.createdAt));
     return map;
-  }, [proposals.data]);
+  }, [proposals.data, thread.data]);
 
   // Dopo l'invio il fuoco va sul messaggio inviato, appena c'è.
   useEffect(() => {
@@ -334,7 +354,7 @@ export function ReadingPane({
 
   function unread() {
     keptUnread.current = true;
-    markUnread.mutate(threadId);
+    markUnread.mutate(threadId, { onError: (e) => readError.current(e, { auto: false }) });
   }
 
   const closeCompose = () => {
@@ -355,13 +375,16 @@ export function ReadingPane({
           onRetry: () =>
             void retry
               .mutateAsync(m.id)
-              .then((result) => showUndo(result, [...m.to, ...(m.cc ?? [])], false))
+              // Dopo un ricaricamento la casella dell'invio non si sa (`threadId` ""):
+              // è questa conversazione, e «Undo» deve chiuderne la casella.
+              .then((result) => showUndo({ ...result, threadId: result.threadId || threadId }, [...m.to, ...(m.cc ?? [])], false))
               .catch(() => toast.error(t("mail.compose.couldntSend", { reason: t("mail.compose.reason.other") }))),
           onEdit: () =>
             void closeComposer(threadId)
               .then(() => removeFailed.mutateAsync(m.id))
               .then((restored) => {
                 droppedNotice(restored);
+                holdRestored(restored, me);
                 if (restored.draft.mode !== "new") openCompose(restored.draft.mode, "body");
               })
               .catch(() => toast.error(t("mail.compose.actionFailed"))),
@@ -444,7 +467,7 @@ export function ReadingPane({
             {data.subject || t("mail.row.noSubject")}
           </h2>
           <div className="flex shrink-0 items-center gap-1">
-            {REPLY_MODES.map(({ mode, key }) => (
+            {mailWrites() && REPLY_MODES.map(({ mode, key }) => (
               <button
                 key={mode}
                 ref={(el) => {
@@ -472,7 +495,7 @@ export function ReadingPane({
           >
             {(close) => (
               <>
-                <button type="button" role="menuitem" tabIndex={-1} className={itemClass} onClick={() => (close(), toast.show(t("mail.gmailNotice")))}>
+                <button type="button" role="menuitem" tabIndex={-1} className={itemClass} onClick={() => (close(), data.gmailUrl ? openInGmail(data.gmailUrl) : toast.show(t("mail.gmailNotice")))}>
                   {t("mail.reading.openInGmail")}
                 </button>
                 <button type="button" role="menuitem" tabIndex={-1} className={itemClass} onClick={() => (close(), unread())}>

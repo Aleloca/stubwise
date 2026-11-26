@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { stepAt, visitSteps } from "../../../domain/automations/fields";
+import { stepAt, visitSteps } from "@stubwise/shared";
 import type { AutomationFlow, Step } from "../../../data/types";
 import {
   brokenBy,

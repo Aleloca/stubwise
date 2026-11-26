@@ -1,14 +1,14 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
-import { pluginJobs, plugins, projectPlugins, projects, type Db } from "@stubwise/db";
+import { pluginJobs, plugins, projectPlugins, roles, users, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedRepository, startTestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, seedRepository, startTestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { requestSmoke } from "../services/plugins.js";
-import { seedUsers } from "../test/fixtures.js";
+import { fullSessionCookie, seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -17,6 +17,7 @@ let testDb: TestDb;
 let app: FastifyInstance;
 let adminCookie: string;
 let memberCookie: string;
+let adminId: string;
 
 /** Registra un plugin via API e restituisce la risposta grezza. */
 async function post(payload: Record<string, unknown>) {
@@ -24,7 +25,8 @@ async function post(payload: Record<string, unknown>) {
     method: "POST",
     url: "/api/plugins",
     headers: { cookie: adminCookie },
-    payload,
+    // Area 9, F3: «Mi fido» (il suo caso negativo sta in instance-secrets-reauth.test.ts).
+    payload: { trust: true, ...payload },
   });
 }
 
@@ -68,7 +70,7 @@ beforeAll(async () => {
     publicUrl: "https://stubwise.example.com",
     embeddingClient: createFakeEmbeddingClient(),
   });
-  ({ adminCookie, memberCookie } = await seedUsers(app));
+  ({ adminCookie, memberCookie, adminId } = await seedUsers(app));
 }, 120_000);
 
 afterAll(async () => {
@@ -78,7 +80,7 @@ afterAll(async () => {
 
 afterEach(async () => {
   await testDb.db.delete(plugins);
-  await testDb.db.delete(projects);
+  await deleteAllProjects(testDb.db);
 });
 
 describe("autorizzazione", () => {
@@ -92,10 +94,10 @@ describe("autorizzazione", () => {
       {
         method: "POST" as const,
         url: "/api/plugins",
-        payload: { sourceUrl: "https://github.com/obra/superpowers", ref: "v1" },
+        payload: { sourceUrl: "https://github.com/obra/superpowers", ref: "v1", trust: true },
       },
       { method: "GET" as const, url: `/api/plugins/${id}`, payload: undefined },
-      { method: "POST" as const, url: `/api/plugins/${id}/update`, payload: { ref: "v1" } },
+      { method: "POST" as const, url: `/api/plugins/${id}/update`, payload: { ref: "v1", trust: true } },
       { method: "POST" as const, url: `/api/plugins/${id}/smoke`, payload: undefined },
       { method: "DELETE" as const, url: `/api/plugins/${id}`, payload: undefined },
     ];
@@ -119,9 +121,9 @@ describe("autorizzazione", () => {
     const withBody = [
       {
         url: "/api/plugins",
-        payload: { sourceUrl: "https://github.com/obra/superpowers", ref: "v4.0.3" },
+        payload: { sourceUrl: "https://github.com/obra/superpowers", ref: "v4.0.3", trust: true },
       },
-      { url: `/api/plugins/${id}/update`, payload: { ref: "v4.0.3" } },
+      { url: `/api/plugins/${id}/update`, payload: { ref: "v4.0.3", trust: true } },
       { url: `/api/plugins/${id}/smoke`, payload: undefined },
     ];
     for (const call of withBody) {
@@ -380,7 +382,7 @@ describe("pendingJobKind", () => {
       method: "POST",
       url: `/api/plugins/${id}/update`,
       headers: { cookie: adminCookie },
-      payload: { ref: "v2" },
+      payload: { ref: "v2", trust: true },
     });
     // `status` è ancora `ready` (il worker non ha claimato): è esattamente il
     // caso in cui pollare su `status` non funzionerebbe.
@@ -395,6 +397,24 @@ describe("pendingJobKind", () => {
   });
 });
 
+describe("rimandi, lotto 5: chi ha registrato e chi ha aggiornato un plugin", () => {
+  it("registrare scrive entrambi; cambiare il ref cambia solo «aggiornato da»; la lista dice id e nome", async () => {
+    const id = await createPlugin({ sourceUrl: "https://github.com/acme/chi-plugin", ref: "v1" });
+    await markReady(id);
+    const view = async () =>
+      ((await app.inject({ method: "GET", url: "/api/plugins", headers: { cookie: adminCookie } })).json() as {
+        plugins: { id: string; registeredById: string | null; registeredByName: string | null; updatedById: string | null; updatedByName: string | null }[];
+      }).plugins.find((p) => p.id === id)!;
+    expect(await view()).toMatchObject({ registeredById: adminId, updatedById: adminId, registeredByName: expect.any(String) });
+    // Un altro full admin cambia il ref.
+    const [adminRole] = await testDb.db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "admin"));
+    const [other] = await testDb.db.insert(users).values({ email: `admin2-${Date.now()}@example.com`, passwordHash: "x", role: "admin", instanceRoleId: adminRole!.id, displayName: "Seconda Admin" }).returning({ id: users.id });
+    const res = await app.inject({ method: "POST", url: `/api/plugins/${id}/update`, headers: { cookie: await fullSessionCookie(app, other!.id) }, payload: { ref: "v2", trust: true } });
+    expect(res.statusCode, res.body).toBe(202);
+    expect(await view()).toMatchObject({ registeredById: adminId, updatedById: other!.id, updatedByName: "Seconda Admin" });
+  });
+});
+
 describe("POST /api/plugins/:id/update", () => {
   it("cambia il ref, accoda la materializzazione e avanza updatedAt", async () => {
     const id = await createPlugin({ sourceUrl: "https://github.com/obra/superpowers", ref: "v1" });
@@ -405,7 +425,7 @@ describe("POST /api/plugins/:id/update", () => {
       method: "POST",
       url: `/api/plugins/${id}/update`,
       headers: { cookie: adminCookie },
-      payload: { ref: "v2" },
+      payload: { ref: "v2", trust: true },
     });
     expect(res.statusCode).toBe(202);
     expect(res.json()).toEqual({ queued: true });
@@ -428,7 +448,7 @@ describe("POST /api/plugins/:id/update", () => {
       method: "POST",
       url: `/api/plugins/${id}/update`,
       headers: { cookie: adminCookie },
-      payload: { ref: "v2" },
+      payload: { ref: "v2", trust: true },
     });
     expect(res.statusCode).toBe(409);
     expect((res.json() as { code: string }).code).toBe("plugin_job_pending");
@@ -443,7 +463,7 @@ describe("POST /api/plugins/:id/update", () => {
       method: "POST",
       url: `/api/plugins/${randomUUID()}/update`,
       headers: { cookie: adminCookie },
-      payload: { ref: "v2" },
+      payload: { ref: "v2", trust: true },
     });
     expect(missing.statusCode).toBe(404);
 

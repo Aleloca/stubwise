@@ -1,3 +1,4 @@
+import { personRefSchema } from "./person-ref.js";
 import { z } from "zod";
 
 /**
@@ -195,6 +196,16 @@ export const pluginSchema = z.object({
    * `status` e che, finendo, riaccoda lui stesso lo smoke.
    */
   pendingJobKind: pluginJobKindSchema.nullable(),
+  /**
+   * Rimandi, lotto 5: chi l'ha registrato e chi ne ha cambiato il ref per
+   * ultimo («updated … by» del prototipo), col nome. Un segnaposto e il nome
+   * null per chi non conosce quella persona (r.1414); null per i plugin di
+   * prima della 0226 o una persona eliminata.
+   */
+  registeredById: personRefSchema.nullable().default(null),
+  registeredByName: z.string().nullable().default(null),
+  updatedById: personRefSchema.nullable().default(null),
+  updatedByName: z.string().nullable().default(null),
   materializedAt: z.iso.datetime().nullable(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
@@ -309,3 +320,72 @@ export const putProjectPluginsSchema = z.object({
     ),
 });
 export type PutProjectPluginsInput = z.infer<typeof putProjectPluginsSchema>;
+
+/**
+ * Area 9, F5: GET e PUT delle abilitazioni di un progetto, con la versione
+ * (un'impronta dello stato) da rimandare come `ifMatch`. `version` è `null`
+ * da un server che non la manda ancora: in quel caso il client non manda
+ * `ifMatch`, e il salvataggio funziona come prima.
+ */
+/**
+ * Area 9, F5: una riga del registro vista da chi gestisce il PROGETTO (che
+ * non ha `plugins.manage` d'istanza): quanto serve a scegliere, niente di
+ * più (nessun URL né sha; i comandi degli hook solo a chi può salvare, vedi
+ * `hookCommands`). Tutti gli stati: un plugin non `ready` non entra nei run,
+ * e la pagina lo dice.
+ */
+export const projectPluginRegistryRowSchema = z.object({
+  pluginId: z.uuid(),
+  slug: z.string(),
+  name: z.string(),
+  status: pluginStatusSchema,
+  skills: z.array(z.string()).default([]),
+  hookGroups: z.array(z.string()).default([]),
+  /**
+   * Rimandi, lotto 5: nome della skill → descrizione (dal frontmatter, il
+   * testo che il CLI mostra); una skill senza descrizione non c'è.
+   */
+  skillDescriptions: z.record(z.string(), z.string()).default({}),
+  /**
+   * Rimandi, lotto 5 (decisione di 46, 24 nov 2026): gruppo di hook → i suoi
+   * comandi, SOLO a chi può salvare le abilitazioni (`canEdit`,
+   * `project.settings.manage`); a chi legge soltanto arriva vuoto. Perché: la
+   * vista la legge chiunque veda il progetto (review di F5), e il comando è il
+   * codice che l'hook ESEGUE nei run — serve a chi decide se tenerlo acceso,
+   * non a ogni membro. I nomi dei gruppi (`hookGroups`) restano a tutti.
+   */
+  hookCommands: z.record(z.string(), z.array(z.string())).default({}),
+  /** Il preset consigliato (`RECOMMENDED_DISABLED_SKILLS`, per nome del manifest), ristretto alle skill che ci sono. */
+  recommendedDisabledSkills: z.array(z.string()).default([]),
+});
+export type ProjectPluginRegistryRow = z.infer<typeof projectPluginRegistryRowSchema>;
+
+/**
+ * Area 9, F5: un'abilitazione come la LEGGE un client. È lo stesso oggetto di
+ * {@link projectPluginSchema} senza i tetti di lunghezza, che servono al body
+ * del PUT: una risposta non si rifiuta per un elenco lungo, e un array con
+ * controlli non è attraversabile da `readerSchema` (`reader.test.ts`).
+ */
+export const projectPluginReadSchema = z.object({
+  pluginId: z.uuid(),
+  enabled: z.boolean(),
+  disabledSkills: z.array(z.string()).default([]),
+  disabledHooks: z.array(z.string()).default([]),
+});
+
+export const projectPluginsViewSchema = z.object({
+  plugins: z.array(projectPluginReadSchema),
+  version: z.string().nullable().default(null),
+  /** Vuoto da un server che non lo manda ancora. */
+  registry: z.array(projectPluginRegistryRowSchema).default([]),
+  /**
+   * Chi legge può salvare (`project.settings.manage`), calcolato dal server
+   * (review di F5: la vista in sola lettura per chi vede il progetto). `false`
+   * da un server che non lo manda: il PUT risponderebbe comunque 403.
+   */
+  canEdit: z.boolean().default(false),
+});
+export type ProjectPluginsView = z.infer<typeof projectPluginsViewSchema>;
+
+/** Il 409 `stale` del PUT: in `ApiError.details`, la versione e lo stato di adesso. */
+export const projectPluginsStaleSchema = z.object({ version: z.string(), plugins: z.array(projectPluginReadSchema) });

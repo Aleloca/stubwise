@@ -153,3 +153,36 @@ export async function passMinutes(minutes: number): Promise<{ ok: true }> {
   advanceNow(minutes * 60_000);
   return { ok: true };
 }
+
+// --- configurazione al login (solo build app) -----------------------------------
+
+/**
+ * Lo stadio di un login a metà: il codice (`second_factor`) o, sul server
+ * vero, la configurazione obbligatoria dell'app per chi non ce l'ha
+ * (`enrollment`, integrazione area 2, fetta 1). Nel prototipo chi non ha un
+ * secondo fattore entra con la password: lo stadio è sempre il codice.
+ */
+export async function loginStage(): Promise<"second_factor" | "enrollment"> {
+  await gate("auth.loginStage");
+  return "second_factor";
+}
+
+/** Il segreto dell'app da configurare al login: solo sul server vero (build app). */
+export async function startLoginEnrollment(): Promise<{ secret: string; otpauthUrl: string }> {
+  await gate("auth.startLoginEnrollment");
+  throw new Error("not_in_prototype");
+}
+
+/**
+ * Il primo codice dell'app configurata al login: dentro, con i codici di
+ * riserva (una volta). Solo sul server vero (build app).
+ */
+export async function confirmLoginEnrollment(
+  code: string,
+): Promise<
+  | { ok: true; personId: string; backupCodes: string[] }
+  | { ok: false; error: "invalid_code" | "login_expired" }
+> {
+  await gate("auth.confirmLoginEnrollment");
+  throw new Error(`not_in_prototype: ${code.length} digits`);
+}

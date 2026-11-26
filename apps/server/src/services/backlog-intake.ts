@@ -35,6 +35,10 @@ export interface EnqueueBacklogIntakeInput {
   body: string;
   /** Chi ha chiesto la voce (utente autenticato): il worker lo aggiunge ai richiedenti. */
   requestedByUserId?: string;
+  /** «Create request» da un messaggio della Chat: il worker lo lega a fine intake. */
+  chatMessageId?: string;
+  /** Nata da fuori (un'email in entrata): la voce lo ricorda (review della F3). */
+  externalOrigin?: "email";
 }
 
 export type EnqueueBacklogIntakeResult =
@@ -65,6 +69,8 @@ export async function enqueueBacklogIntake(
         title: input.title,
         body: input.body,
         ...(input.requestedByUserId ? { requestedByUserId: input.requestedByUserId } : {}),
+        ...(input.chatMessageId ? { chatMessageId: input.chatMessageId } : {}),
+        ...(input.externalOrigin ? { externalOrigin: input.externalOrigin } : {}),
       },
     })
     .returning({ id: backlogJobs.id });

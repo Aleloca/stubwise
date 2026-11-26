@@ -58,6 +58,7 @@ import {
   foreignKey,
   index,
   integer,
+  smallint,
   jsonb,
   numeric,
   pgEnum,
@@ -66,6 +67,7 @@ import {
   real,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
@@ -76,6 +78,13 @@ import {
  * deve mai scriverlo (è GENERATED ALWAYS), serve solo a dichiararne il tipo
  * nello schema così che lo snapshot e l'indice GIN risultino coerenti.
  */
+/** `bytea` di Postgres come Buffer (area 9, F1: la foto del profilo). */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+});
+
 const tsvector = customType<{ data: string }>({
   dataType() {
     return "tsvector";
@@ -163,6 +172,12 @@ export const ticketEventKind = pgEnum("ticket_event_kind", [
   "relation_added",
   "relation_removed",
   "milestone_changed",
+  // Integrazione area 2, fetta 2 (0115, DA SOLI): settimana pianificata
+  // (`from`/`to` `YYYY-Www`), reparto (id), taglia (effort 1–5). Solo le
+  // scritture umane dell'app nuova (`services/task-writes.ts`).
+  "planned_week_changed",
+  "department_changed",
+  "effort_changed",
 ]);
 // Tipi di relazione tra ticket: "blocks" (il source blocca il target),
 // "relates_to" (relazione generica), "parent" (il source è genitore del target).
@@ -185,6 +200,9 @@ export const agentRunPhase = pgEnum("agent_run_phase", [
   "fix",
   "review",
   "email_classify",
+  // Lotto 9, voce 2 (a), 0235: il progetto di un appuntamento con più
+  // candidati (operazione `mail_classify`, fuori dal tetto della posta).
+  "calendar_classify",
 ]);
 
 // Motivo per cui un job è parcheggiato in "held": i valori derivano da
@@ -276,6 +294,21 @@ export const roles = pgTable(
   ],
 );
 
+/**
+ * Il DEFAULT delle colonne `via_claude_action_id` (chat, fetta 3): la variabile
+ * di transazione che SOLO l'esecutore delle azioni di Claude imposta
+ * (`set_config(..., true)`). Fuori da lì, null. Nessuna firma la accetta.
+ */
+export const VIA_CLAUDE_SETTING = "stubwise.via_claude_action_id";
+const VIA_CLAUDE_DEFAULT = sql`nullif(current_setting('stubwise.via_claude_action_id', true), '')::uuid`;
+/**
+ * Area 9, F7 (0195): l'azione di Claude che la scrittura in corso ANNULLA (un
+ * inverso di «Annulla»). La imposta solo l'esecutore; DEFAULT di
+ * `change_log.undo_of_action_id`.
+ */
+export const UNDO_OF_CLAUDE_SETTING = "stubwise.undo_of_claude_action_id";
+const UNDO_OF_CLAUDE_DEFAULT = sql`nullif(current_setting('stubwise.undo_of_claude_action_id', true), '')::uuid`;
+
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   email: text("email").notNull().unique(),
@@ -313,6 +346,13 @@ export const users = pgTable("users", {
   // mobili (fase 4). Default true; senza device attivi in `device_tokens` il
   // canale resta comunque muto.
   notifyPush: boolean("notify_push").notNull().default(true),
+  // Fetta 3e (0125): l'utente di SISTEMA «Claude», uno per istanza, senza
+  // accesso né notifiche. Vedi la migrazione e `docs/invariants/agent-sessions.md`.
+  isAgent: boolean("is_agent").notNull().default(false),
+  // Area 9, F1 (0185, D-6): una persona disattivata non entra da nessuna porta
+  // (docs/invariants/permissions.md); riattivarla non riporta i token di prima.
+  deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
+  deactivatedByUserId: uuid("deactivated_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   // Tetto per account del secondo fattore (0100): codici sbagliati DI FILA,
   // da qualunque IP (il bucket per IP non basta: chi prova da tanti indirizzi
   // non ne supera nessuno). Un codice giusto lo azzera; al tetto il passo del
@@ -323,6 +363,8 @@ export const users = pgTable("users", {
   // Ultima prenotazione di un tentativo (0102): riconosce una prenotazione
   // mai chiusa (processo morto a metà verifica), vedi `reserveAttempt`.
   secondFactorReservedAt: timestamp("second_factor_reserved_at", { withTimezone: true }),
+  // Nome visualizzato (0107); null = la parte locale dell'email.
+  displayName: text("display_name"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -374,6 +416,10 @@ export const sessions = pgTable(
     // monouso, la verifica la cancella sempre.
     webauthnChallenge: text("webauthn_challenge"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // Area 9, F1 (0185, D-9): «le mie sessioni». `last_seen_at` si aggiorna al
+    // più ogni 5 minuti, mai una scrittura per richiesta.
+    userAgent: text("user_agent"),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
   },
   (table) => [
     // Lookup delle sessioni di un utente (logout globale, pulizia in cascata).
@@ -399,10 +445,19 @@ export const personalAccessTokens = pgTable(
     tokenHash: text("token_hash").notNull().unique(),
     // Chi ha emesso il token (21 ott 2026): `mobile` = `/mobile-login`, uno per
     // device; `manual` = creato a mano (MCP, Claude Code, script). Reset e
-    // cambio della password revocano i soli `mobile`. Marcatore STRUTTURALE e
+    // cambio della password revocano `mobile` e `desktop`. Marcatore STRUTTURALE e
     // non il prefisso del nome: il nome lo sceglie chiunque crei un PAT a mano.
     // Testo + CHECK come `device_tokens.platform`, non un enum.
-    kind: text("kind").$type<"manual" | "mobile">().notNull().default("manual"),
+    // `desktop` (0112) = lo scambio del login dal browser
+    // (`/api/auth/desktop-exchange`); reset e cambio della password revocano
+    // `mobile` E `desktop`.
+    kind: text("kind").$type<"manual" | "mobile" | "desktop">().notNull().default("manual"),
+    // Riconferma dal desktop (0132, decisione del maintainer del 10 nov 2026):
+    // l'ultimo secondo fattore fatto CON questo token dentro l'app
+    // (`POST /api/auth/desktop-reauth`). La legge `applyReauth` SOLO per i PAT
+    // `desktop` (finestra di 10 minuti); `mobile` e `manual` non la usano mai.
+    // Cambio della password e azzeramento del 2FA la riportano a null.
+    secondFactorAt: timestamp("second_factor_at", { withTimezone: true }),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -410,7 +465,7 @@ export const personalAccessTokens = pgTable(
   (table) => [
     // Lookup dei token di un utente (lista/revoca in UI) + pulizia in cascata.
     index("personal_access_tokens_user_id_idx").on(table.userId),
-    check("personal_access_tokens_kind_chk", sql`${table.kind} in ('manual', 'mobile')`),
+    check("personal_access_tokens_kind_chk", sql`${table.kind} in ('manual', 'mobile', 'desktop')`),
   ],
 );
 
@@ -495,11 +550,53 @@ export const securityEvents = pgTable(
     actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
     actorEmail: text("actor_email"),
     kind: text("kind").notNull(),
+    // Solo `reauth_desktop` (0132): l'azione fatta dal desktop con la finestra
+    // di riconferma («POST /api/pats»); null per la riconferma stessa e per
+    // ogni altro tipo.
+    detail: text("detail"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index("security_events_user_id_created_at_idx").on(table.userId, table.createdAt),
     index("security_events_created_at_idx").on(table.createdAt),
+  ],
+);
+
+/**
+ * Area 9, F2 (0187; docs/invariants/change-log.md): il registro delle
+ * modifiche. Si scrive SOLO con `recordChange(tx, …)` nella transazione della
+ * modifica; un trigger rifiuta UPDATE, DELETE e TRUNCATE (lascia passare le
+ * sole `SET NULL` delle due FK), e nessun job lo pota (D-4: per sempre).
+ * `type` è testo, l'elenco chiuso è `CHANGE_LOG_TYPES` di `@stubwise/shared`;
+ * `data` è `{ object, before, after, params }`, coi nomi fissati al momento.
+ */
+export const changeLog = pgTable(
+  "change_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    actorEmail: text("actor_email").notNull(),
+    actorKind: text("actor_kind").$type<"user" | "agent" | "system">().notNull(),
+    type: text("type").notNull(),
+    // Senza FK dalla 0193 (area 9, F6, L-3): tiene l'id di un progetto
+    // eliminato, così le sue voci non diventano «senza progetto».
+    projectId: uuid("project_id"),
+    subjectKind: text("subject_kind").notNull(),
+    subjectId: text("subject_id").notNull(),
+    data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
+    // Area 9, F7 (0195): la voce l'ha scritta Claude (l'azione), e l'azione che
+    // annulla. DEFAULT dalle variabili di transazione dell'esecutore; senza FK.
+    viaClaudeActionId: uuid("via_claude_action_id").default(VIA_CLAUDE_DEFAULT),
+    undoOfActionId: uuid("undo_of_action_id").default(UNDO_OF_CLAUDE_DEFAULT),
+  },
+  (table) => [
+    index("change_log_via_claude_idx").on(table.viaClaudeActionId).where(sql`${table.viaClaudeActionId} is not null`),
+    check("change_log_actor_kind_chk", sql`${table.actorKind} in ('user', 'agent', 'system')`),
+    index("change_log_at_idx").on(table.at.desc(), table.id.desc()),
+    index("change_log_project_at_idx").on(table.projectId, table.at.desc()),
+    index("change_log_actor_at_idx").on(table.actorUserId, table.at.desc()),
+    index("change_log_type_at_idx").on(table.type, table.at.desc()),
   ],
 );
 
@@ -550,6 +647,8 @@ export const gitAccounts = pgTable("git_accounts", {
   // JSON { username?, email?, token } cifrato AES-256-GCM (vedi secrets.ts).
   // Non esce MAI dall'API: si legge solo per validare/decifrare lato server.
   encryptedCredentials: text("encrypted_credentials").notNull(),
+  /** Le ultime 4 del token (0225); null per le righe di prima o un token corto. */
+  tokenLast4: text("token_last4"),
   // Slug del workspace Bitbucket. Obbligatorio per usare le feature repo di un
   // account Bitbucket con API token: Bitbucket Cloud (CHANGE-2770) ha dismesso
   // gli endpoint account/globali (410 Gone), quindi i repo si elencano solo
@@ -597,6 +696,14 @@ export const projects = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     name: text("name").notNull(),
     slug: text("slug").notNull().unique(),
+    // Codice del progetto (0107): `^[A-Z][A-Z0-9]{1,5}$`, unico; le task si
+    // mostrano `<CODICE>-<number>`. NOT NULL nel DB ma opzionale all'insert:
+    // chi lo omette lo riceve dal trigger `projects_assign_code`
+    // (`stubwise_next_project_code(slug)`), come `instanceRoleId` sugli utenti.
+    code: text("code")
+      .notNull()
+      .unique()
+      .$defaultFn(() => sql`default`),
     // Descrizione libera del progetto, opzionale (mostrata nella UI di dettaglio).
     description: text("description"),
     // Provider AI generale del progetto, valido per Docs e fix di tutti i suoi
@@ -609,6 +716,19 @@ export const projects = pgTable(
     // true = il provider del progetto è esclusivo, niente passaggio ad altri
     // account; false = preferito.
     aiProviderExclusive: boolean("ai_provider_exclusive").notNull().default(false),
+    // Area 9, F4: la pausa della coda (0191). Nulla = la coda va. Solo la
+    // coda di Stubwise: il claim di ogni coda esclude un progetto in pausa.
+    queuePausedAt: timestamp("queue_paused_at", { withTimezone: true }),
+    queuePausedByUserId: uuid("queue_paused_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+    // Area 9, F5 (I2): quando e da chi è stata fatta la chiave d'ingestione
+    // (creazione del progetto o rigenerazione); null per le chiavi di prima.
+    ingestionKeyCreatedAt: timestamp("ingestion_key_created_at", { withTimezone: true }),
+    ingestionKeyCreatedByUserId: uuid("ingestion_key_created_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+    // Area 9, F6 (0193, D-8): l'archivio. Nullo = aperto. Un archiviato
+    // sparisce da ogni elenco e lettura (tranne quelle dedicate) e il worker
+    // non ne prende lavoro; si riapre o, solo allora, si elimina.
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    archivedByUserId: uuid("archived_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
     // Aggiornamento automatico della documentazione ai push (changelog/release):
     // false = disattivo (i push non innescano nulla). Toggle per-progetto, vale
     // per tutti i repository del progetto.
@@ -655,8 +775,27 @@ export const projects = pgTable(
     // funzionano). Il contatore NON si salva: lo deriva
     // `autoRoundsInCurrentSeries` (@stubwise/notifications).
     prCorrectionMaxRounds: integer("pr_correction_max_rounds").notNull().default(3),
+    // Soglie «ferma» (0109): giorni senza attività dopo cui una task active o
+    // todo (pianificata) è ferma. 1..90, default 7/14 come nel prototipo.
+    stallActiveDays: integer("stall_active_days").notNull().default(7),
+    stallTodoDays: integer("stall_todo_days").notNull().default(14),
+    // Fetta 4 (0121): il prossimo numero di catalogo delle richieste.
+    nextRequestNumber: integer("next_request_number").notNull().default(1),
+    /** Area 8, F3 (0179): il prossimo numero delle conversazioni di Support (`<PRJ>-S<n>`), dato dal trigger. */
+    nextSupportNumber: integer("next_support_number").notNull().default(1),
+    // Fetta 4 (0118): il cliente (con un cliente il progetto è una commessa,
+    // `kind` si deriva), il modello e i moduli accesi. Gli esistenti:
+    // Software con tutti i moduli, interni.
+    clientName: text("client_name"),
+    template: text("template", { enum: ["software", "marketing", "client", "empty"] })
+      .notNull()
+      .default("software"),
+    modules: text("modules", { enum: ["docs", "releases", "support", "servers"] })
+      .array()
+      .notNull()
+      .default(sql`'{docs,releases,support,servers}'::text[]`),
   },
-  () => [
+  (table) => [
     // Sotto 1 giorno il pulse diventerebbe un ping continuo, sopra 30 un
     // promemoria che non arriva mai.
     check("projects_pulse_every_days_chk", sql`pulse_every_days BETWEEN 1 AND 30`),
@@ -665,7 +804,75 @@ export const projects = pgTable(
       "projects_pr_correction_max_rounds_chk",
       sql`pr_correction_max_rounds BETWEEN 0 AND 10`,
     ),
+    check("projects_code_format_chk", sql`code ~ '^[A-Z][A-Z0-9]{1,5}$'`),
+    check("projects_stall_active_days_chk", sql`stall_active_days BETWEEN 1 AND 90`),
+    check("projects_stall_todo_days_chk", sql`stall_todo_days BETWEEN 1 AND 90`),
+    index("projects_archived_idx").on(table.id).where(sql`archived_at IS NOT NULL`),
   ],
+);
+
+/**
+ * Reparti (0107, integrazione area 2): nome e colore dalla palette del
+ * prototipo (`--dept-1`…`--dept-8`). Uno solo è il ripiego (`isDefault`,
+ * «General»): si rinomina ma non si elimina, ed è dove nasce una task senza
+ * creatore umano.
+ */
+export const departments = pgTable(
+  "departments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    colorToken: text("color_token").notNull(),
+    isDefault: boolean("is_default").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("departments_one_default_idx").on(table.isDefault).where(sql`is_default`),
+    check("departments_name_chk", sql`length(btrim(name)) BETWEEN 1 AND 80`),
+    check(
+      "departments_color_token_chk",
+      sql`color_token IN ('--dept-1', '--dept-2', '--dept-3', '--dept-4', '--dept-5', '--dept-6', '--dept-7', '--dept-8')`,
+    ),
+  ],
+);
+
+/**
+ * Appartenenza persona↔reparto (molti a molti). `position` ordina i reparti
+ * della persona: il suo «primo reparto» è quello con `position` minima.
+ */
+export const departmentMembers = pgTable(
+  "department_members",
+  {
+    departmentId: uuid("department_id")
+      .notNull()
+      .references(() => departments.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+  },
+  (table) => [
+    primaryKey({ name: "department_members_pk", columns: [table.departmentId, table.userId] }),
+    index("department_members_user_idx").on(table.userId, table.position),
+  ],
+);
+
+/**
+ * Area 9, F8 (0196, F8-1 = a): i permessi di PROGETTO che un reparto dà ai suoi
+ * membri, in ogni progetto di cui sono già membri. Li unisce
+ * `memberPermissionsSql`; la validazione e l'escalation sono del servizio.
+ */
+export const departmentProjectPermissions = pgTable(
+  "department_project_permissions",
+  {
+    departmentId: uuid("department_id")
+      .notNull()
+      .references(() => departments.id, { onDelete: "cascade" }),
+    permission: text("permission").notNull(),
+    grantedByUserId: uuid("granted_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    grantedAt: timestamp("granted_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ name: "department_project_permissions_pkey", columns: [table.departmentId, table.permission] })],
 );
 
 /**
@@ -676,12 +883,10 @@ export const projects = pgTable(
  */
 export const repositories = pgTable("repositories", {
   id: uuid("id").primaryKey().defaultRandom(),
-  // Progetto (gruppo) a cui il repository appartiene. NOT NULL: un repo sta
-  // sempre in un progetto. ON DELETE CASCADE: eliminare il progetto porta via i
-  // suoi repository.
-  projectId: uuid("project_id")
-    .notNull()
-    .references(() => projects.id, { onDelete: "cascade" }),
+  // Progetto (gruppo) a cui il repository appartiene. Nullo = STACCATO
+  // (area 9, F6, 0193): eliminare il progetto lascia il repository, senza
+  // progetto, e lo vede solo l'Amministrazione finché non si ricollega.
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   provider: gitProviderKind("provider").notNull(),
@@ -732,7 +937,25 @@ export const repositories = pgTable("repositories", {
   // `@stubwise/shared`.
   protectedBranches: text("protected_branches").array().notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Area 8, F1 (0175): il ramo su cui si rilascia (il merge); null = il ramo di default. */
+  releaseBranch: text("release_branch"),
+  /** Quali run di CI fanno lo stato del rilascio: tutte, o solo quelle coi nomi dati. */
+  releasePipeline: jsonb("release_pipeline").$type<{ mode: "auto" } | { mode: "named"; names: string[] }>().notNull().default({ mode: "auto" }),
+  /** Da dove si leggono le run; null = nessuna pipeline (lo stato lo dice l'ambiente di produzione). */
+  ciProvider: text("ci_provider").$type<"github_actions" | "bitbucket_pipelines">(),
+  /**
+   * Le PR dei colleghi (invariante «Le PR dei colleghi», 13 nov 2026):
+   * `analyze_and_fix` (la prima correzione parte da sola, salvo «Solo
+   * analisi»), `analyze_only`, `off`. Default `analyze_only` (P-2 = a).
+   */
+  colleaguePrs: text("colleague_prs").$type<"analyze_and_fix" | "analyze_only" | "off">().notNull().default("analyze_only"),
+  // Area 9, F6 (0193): un repository staccato, quando e da quale progetto
+  // eliminato. Si azzerano insieme a un nuovo collegamento.
+  detachedAt: timestamp("detached_at", { withTimezone: true }),
+  detachedFromProjectId: uuid("detached_from_project_id").references((): AnyPgColumn => deletedProjects.id, { onDelete: "set null" }),
 }, (table) => [
+  check("repositories_ci_provider_chk", sql`${table.ciProvider} IS NULL OR ${table.ciProvider} IN ('github_actions', 'bitbucket_pipelines')`),
+  check("repositories_colleague_prs_chk", sql`${table.colleaguePrs} IN ('analyze_and_fix', 'analyze_only', 'off')`),
   // Il revisore non è MAI l'account principale (ciclo di correzione): la rotta
   // lo controlla e riverifica nel WHERE del PATCH, il vincolo chiude ogni altra
   // strada (corse fra due admin, UPDATE fuori dalla rotta). NULL = nessun
@@ -752,6 +975,36 @@ export const repositories = pgTable("repositories", {
  * (project_id, name) impedisce milestone omonime nello stesso progetto, ma
  * ammette lo stesso nome in progetti diversi.
  */
+/**
+ * Area 9, F6 (0193, D-8): cosa resta di un progetto eliminato. Codice, nome e
+ * chi ne era membro, e NIENT'ALTRO: servono a dire «chi conosceva il
+ * progetto» (l'etichetta di `project.deleted`, la provenienza e il nome
+ * intero di un repository staccato). `id` è quello del progetto, senza FK
+ * (non c'è più): è lo stesso `project_id` delle sue voci del registro.
+ */
+export const deletedProjects = pgTable("deleted_projects", {
+  id: uuid("id").primaryKey(),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const deletedProjectMembers = pgTable(
+  "deleted_project_members",
+  {
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => deletedProjects.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    primaryKey({ name: "deleted_project_members_pk", columns: [table.projectId, table.userId] }),
+    index("deleted_project_members_user_idx").on(table.userId),
+  ],
+);
+
 export const milestones = pgTable(
   "milestones",
   {
@@ -778,6 +1031,8 @@ export const milestones = pgTable(
     // progetto non saprebbe dove collocare l'evento.
     closedAt: timestamp("closed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Area 7 (0169): l'esecuzione che l'ha creato. */
+    automationRunId: uuid("automation_run_id").references((): AnyPgColumn => automationRuns.id, { onDelete: "set null" }),
   },
   (table) => [
     // Le milestone si elencano sempre per progetto.
@@ -808,7 +1063,41 @@ export const tickets = pgTable(
     originContent: text("origin_content"),
     type: ticketType("type").notNull(),
     priority: ticketPriority("priority").notNull(),
+    // Compatibilità (0108): DERIVATO da `statusId` dal trigger
+    // `tickets_status_sync`, e viceversa quando uno scrittore vecchio scrive
+    // solo l'enum. Si toglie col ritiro del web vecchio
+    // (docs/invariants/tasks.md).
     status: ticketStatus("status").notNull().default("open"),
+    // Lo stato VERO (0108), uno degli stati del progetto. NOT NULL nel DB ma
+    // opzionale all'insert: senza, il trigger lo ricava dall'enum.
+    statusId: uuid("status_id")
+      .notNull()
+      .references((): AnyPgColumn => projectStatuses.id)
+      .$defaultFn(() => sql`default`),
+    // Quando la task è entrata nella famiglia `closed` (trigger); null se aperta.
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    // Reparto (0109). NOT NULL nel DB ma opzionale all'insert: senza, il
+    // trigger `tickets_default_department` mette il ripiego. RESTRICT: un
+    // reparto con task non si elimina senza spostarle.
+    departmentId: uuid("department_id")
+      .notNull()
+      .references((): AnyPgColumn => departments.id, { onDelete: "restrict" })
+      .$defaultFn(() => sql`default`),
+    // Scadenza (0111): una DATA (YYYY-MM-DD), non un istante.
+    dueDate: date("due_date", { mode: "string" }),
+    // Settimana pianificata (0113): il LUNEDÌ, scelto da una persona. Lo
+    // slittamento è DERIVATO a lettura (`stubwise_effective_week`,
+    // `stubwise_slip_weeks`), mai scritto da un job; `slipCount` tiene gli
+    // slittamenti già consolidati (trigger `tickets_consolidate_slip`).
+    plannedWeek: date("planned_week", { mode: "string" }),
+    slipCount: integer("slip_count").notNull().default(0),
+    // «Segna ferma» a mano (0109): motivo e data insieme o nessuno dei due.
+    manualStallReason: text("manual_stall_reason"),
+    manualStallNote: text("manual_stall_note"),
+    manualStallSince: timestamp("manual_stall_since", { withTimezone: true }),
+    manualStallByUserId: uuid("manual_stall_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     source: ticketSource("source").notNull(),
     // Stima di sforzo 1–5 prodotta dal triage AI (null finché non triagiato).
     // Alimenta il gate di automazione (auto-fix solo se effort <= maxEffort).
@@ -830,6 +1119,8 @@ export const tickets = pgTable(
     occurrences: integer("occurrences").notNull().default(1),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Area 7 (0169): l'esecuzione che l'ha creata; l'origine si DERIVA a lettura. */
+    automationRunId: uuid("automation_run_id").references((): AnyPgColumn => automationRuns.id, { onDelete: "set null" }),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow()
@@ -868,6 +1159,104 @@ export const tickets = pgTable(
     index("tickets_milestone_id_idx").on(table.milestoneId),
     // Ricerca full-text sul vettore generato.
     index("tickets_search_tsv_idx").using("gin", table.searchTsv),
+    index("tickets_status_id_idx").on(table.statusId),
+    index("tickets_department_id_idx").on(table.departmentId),
+    check(
+      "tickets_manual_stall_chk",
+      sql`(manual_stall_reason IS NULL) = (manual_stall_since IS NULL)`,
+    ),
+    // Fetta 2 (0113): la settimana pianificata è un lunedì, lo slittamento non negativo.
+    check("tickets_planned_week_monday_chk", sql`planned_week IS NULL OR extract(isodow from planned_week) = 1`),
+    check("tickets_slip_count_chk", sql`slip_count >= 0`),
+    // Le task di una persona in una settimana (0113, su tutte le task dalla 0120).
+    index("tickets_assignee_planned_week_idx").on(table.assigneeId, table.plannedWeek),
+  ],
+);
+
+/**
+ * Chi segue una task (0109): riceve le notifiche `ticket.activity`. Chi crea e
+ * chi è assegnato seguono in automatico dall'app nuova, da ora in avanti.
+ */
+export const ticketFollowers = pgTable(
+  "ticket_followers",
+  {
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "ticket_followers_pk", columns: [table.ticketId, table.userId] }),
+    index("ticket_followers_user_idx").on(table.userId),
+  ],
+);
+
+/**
+ * Richieste di decisione (0109): una persona chiede a un'altra di decidere su
+ * una task (domanda, opzioni facoltative, «Altro…»). Chiusa da una risposta
+ * (indice OPPURE testo) o da un ritiro, mai da entrambi. Non entra nel
+ * registro decisioni in automatico.
+ */
+export const decisionRequests = pgTable(
+  "decision_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    askedByUserId: uuid("asked_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    askedOfUserId: uuid("asked_of_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    question: text("question").notNull(),
+    options: text("options").array().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
+    answerOptionIndex: integer("answer_option_index"),
+    answerText: text("answer_text"),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    answeredByUserId: uuid("answered_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => [
+    index("decision_requests_ticket_idx").on(table.ticketId, table.createdAt),
+    index("decision_requests_open_target_idx")
+      .on(table.askedOfUserId)
+      .where(sql`answered_at IS NULL AND withdrawn_at IS NULL`),
+    check("decision_requests_question_chk", sql`length(question) BETWEEN 1 AND 2000`),
+    check("decision_requests_options_chk", sql`cardinality(options) <= 8`),
+    check("decision_requests_closed_once_chk", sql`answered_at IS NULL OR withdrawn_at IS NULL`),
+  ],
+);
+
+/**
+ * Stati per progetto (0108, integrazione area 2): nome, famiglia
+ * (`todo`/`active`/`closed`) e ordine. `legacyStatus` è il valore dell'enum
+ * `tickets.status` che il trigger scrive per una task in questo stato; lo
+ * calcola chi scrive gli stati («todo → open; active: il primo → in_progress,
+ * gli altri → in_review; closed: il primo → done, gli altri → closed»).
+ * L'unicità di (progetto, posizione) è DIFFERITA nel DB (riordini in più UPDATE).
+ */
+export const projectStatuses = pgTable(
+  "project_statuses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    family: text("family", { enum: ["todo", "active", "closed"] }).notNull(),
+    position: integer("position").notNull(),
+    legacyStatus: ticketStatus("legacy_status").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  () => [
+    check("project_statuses_family_chk", sql`family IN ('todo', 'active', 'closed')`),
+    check("project_statuses_name_chk", sql`length(btrim(name)) BETWEEN 1 AND 60`),
   ],
 );
 
@@ -1001,6 +1390,10 @@ export const comments = pgTable(
     // Nullo per i commenti dell'AI; nullato se l'autore viene eliminato.
     authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
     body: text("body").notNull(),
+    /** «via Claude» (chat, fetta 3): il commento l'ha scritto Claude per conto dell'autore. */
+    viaClaudeActionId: uuid("via_claude_action_id")
+      .references((): AnyPgColumn => claudeActions.id, { onDelete: "set null" })
+      .default(VIA_CLAUDE_DEFAULT),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     // Il commento a cui questo risponde (0083). Self-reference: la FK esiste in
     // migrazione (ON DELETE SET NULL: cancellare l'originale lascia la
@@ -1051,10 +1444,57 @@ export const ticketEvents = pgTable(
     actorId: uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
     kind: ticketEventKind("kind").notNull(),
     payload: jsonb("payload"),
+    /** «via Claude» (chat, fetta 3): l'azione di Claude per conto della persona; l'attore resta lei. */
+    viaClaudeActionId: uuid("via_claude_action_id")
+      .references((): AnyPgColumn => claudeActions.id, { onDelete: "set null" })
+      .default(VIA_CLAUDE_DEFAULT),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   // La timeline si carica sempre per ticket, ordinata cronologicamente.
   (table) => [index("ticket_events_ticket_id_created_at_idx").on(table.ticketId, table.createdAt)],
+);
+
+/**
+ * La LAPIDE di una task eliminata («Elimina task», 0130). Una task eliminata è
+ * INESISTENTE per ogni lettura (codice, elenchi, ricerca, mobile, MCP); la
+ * lapide serve solo a chi la NOMINAVA: la richiesta d'origine («La task
+ * MKX-31 è stata eliminata»), le notifiche rimaste (`objectGone`), lo standup
+ * (`tasksDeleted`). Tiene codice (progetto + numero: il numero non si riusa,
+ * `projects.next_ticket_number` non scende), titolo, richiesta d'origine, chi,
+ * quando e il segno «via Claude». Mai descrizione, commenti, allegati, storia.
+ *
+ * Le FK verso `tickets`, decise (0130): se ne vanno CON la task follower,
+ * richieste di decisione, gruppi d'errore (un errore che si ripresenta apre
+ * una task nuova), repository e PR, commenti, storia, collegamenti, job (i
+ * loro consumi restano: `agent_runs.job_id` SET NULL), allegati (e i loro file
+ * nello storage, tolti dal servizio), correzioni (solo chiuse: una aperta
+ * blocca), legame con la richiesta, domande, accordi della giornata e le
+ * SESSIONI DELL'AGENTE della task (la loro visibilità passa dal ticket, R26:
+ * senza, le vedrebbe chi prima non poteva). Restano, col riferimento nullo,
+ * notifiche, review delle PR, messaggi del widget e registro decisioni.
+ */
+export const deletedTickets = pgTable(
+  "deleted_tickets",
+  {
+    id: uuid("id").primaryKey(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    number: integer("number").notNull(),
+    title: text("title").notNull(),
+    originBacklogItemId: uuid("origin_backlog_item_id").references((): AnyPgColumn => backlogItems.id, {
+      onDelete: "set null",
+    }),
+    deletedBy: uuid("deleted_by").references(() => users.id, { onDelete: "set null" }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
+    viaClaudeActionId: uuid("via_claude_action_id")
+      .references((): AnyPgColumn => claudeActions.id, { onDelete: "set null" })
+      .default(VIA_CLAUDE_DEFAULT),
+  },
+  (table) => [
+    unique("deleted_tickets_project_number_unique").on(table.projectId, table.number),
+    index("deleted_tickets_origin_idx").on(table.originBacklogItemId),
+  ],
 );
 
 /**
@@ -1159,6 +1599,9 @@ export const aiJobs = pgTable(
     // (run non fallito, generazione fallita o riassunti spenti): la card
     // degrada al log tecnico come prima di questa fase.
     failureSummary: text("failure_summary"),
+    // Fetta 3b (0124): chi ha chiesto di annullare il lavoro, e quando.
+    cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
+    cancelRequestedByUserId: uuid("cancel_requested_by_user_id").references(() => users.id, { onDelete: "set null" }),
     // Correzione post-PR di cui questo job è l'esecuzione: valorizzata = il
     // worker salta triage e `resolveFixMode` e va in `runCorrection`. NON è un
     // valore di `resumeMode`, apposta: un valore dimenticato in
@@ -1196,7 +1639,8 @@ export const agentRuns = pgTable(
     // referenziano pr_review_id), per la posta e per i run senza owner. Al più
     // uno fra job, review e messaggio è valorizzato (dalla 0096: zero = run
     // senza owner, vedi `agent_runs_owner_check`).
-    jobId: uuid("job_id").references(() => aiJobs.id, { onDelete: "cascade" }),
+    // SET NULL (0130, «Elimina task»): il consumo resta quando il job se ne va.
+    jobId: uuid("job_id").references(() => aiJobs.id, { onDelete: "set null" }),
     // Run dell'automazione PR Review; null per triage/fix.
     prReviewId: uuid("pr_review_id").references(() => prReviews.id, { onDelete: "cascade" }),
     // Messaggio di posta classificato (fase 6); null per tutti gli altri run.
@@ -1235,6 +1679,19 @@ export const agentRuns = pgTable(
     // Costo in USD del modello per questo run. Nullable: il CLI può non
     // riportarlo (vecchie versioni, chiave senza usage nel JSON).
     costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
+    /**
+     * Chi ha chiesto la chiamata, quando il server lo sa (review F3, punto 8):
+     * la chat e la bozza di Claude. Serve al tetto giornaliero per persona
+     * delle bozze; null per i run del worker.
+     */
+    requestedByUserId: uuid("requested_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    /**
+     * Area 7, F3 (0173): l'owner di un passo di Claude di un'automazione o di
+     * una sua prova; `automationRunId` c'è solo per un passo di un'esecuzione
+     * (NULL = una prova). FK definite nella migrazione.
+     */
+    automationId: uuid("automation_id"),
+    automationRunId: uuid("automation_run_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -1245,6 +1702,7 @@ export const agentRuns = pgTable(
     // Aggregazione del costo per messaggio + cascade delete da email_messages.
     index("agent_runs_email_message_id_idx").on(table.emailMessageId),
     index("agent_runs_created_at_idx").on(table.createdAt),
+    index("agent_runs_requester_operation_idx").on(table.requestedByUserId, table.operation, table.createdAt),
     index("agent_runs_operation_created_at_idx").on(table.operation, table.createdAt),
     index("agent_runs_project_id_idx").on(table.projectId),
     // AL PIÙ uno tra job_id, pr_review_id ed email_message_id valorizzato
@@ -1252,8 +1710,9 @@ export const agentRuns = pgTable(
     // L'invariante è garantita dal DB, non solo dal codice.
     check(
       "agent_runs_owner_check",
-      sql`num_nonnulls(job_id, pr_review_id, email_message_id) <= 1`,
+      sql`num_nonnulls(job_id, pr_review_id, email_message_id, automation_id) <= 1`,
     ),
+    index("agent_runs_automation_idx").on(table.automationId).where(sql`${table.automationId} IS NOT NULL`),
     // I lettori per ticket si aspettano una fase sulle righe di un job.
     check("agent_runs_job_phase_check", sql`job_id is null or phase is not null`),
     check(
@@ -1321,6 +1780,8 @@ export const aiProviders = pgTable("ai_providers", {
   // Credenziale cifrata AES-256-GCM (chiave API o blob di login dell'account).
   // Non esce MAI dall'API: si legge solo per decifrare lato worker.
   secretEncrypted: text("secret_encrypted").notNull(),
+  // Area 9, F3: le ultime 4 cifre della credenziale, scritte con lei (0190).
+  secretLast4: text("secret_last4"),
   enabled: boolean("enabled").notNull().default(true),
   // Al limite fino a: nessun run lo sceglie prima di questo istante; lo azzera
   // uno snapshot fresco con margine.
@@ -1455,6 +1916,45 @@ export const notificationKind = pgEnum("notification_kind", [
   // admin per ruolo, e non spegnibile dalle preferenze. Valore aggiunto da
   // 0101, DA SOLO.
   "security.alert",
+  // Integrazione area 2 (0110, DA SOLI): decisione chiesta a una persona,
+  // decisione risposta (a chi l'ha chiesta), attività di una task seguita.
+  "decision.requested",
+  "decision.answered",
+  "ticket.activity",
+  // Integrazione area 2, fetta 2 (0115, DA SOLI): la pianificazione di una
+  // task cambiata da altri (a chi l'aveva), una task ricevuta da altri.
+  "planning.changed",
+  "task.assigned",
+  // Area 4, Chat, fetta 1 (0136, DA SOLO): una menzione diretta in un canale.
+  "chat.mention",
+  "chat.question",
+  // Area 7, fetta 1 (0169, DA SOLI): un passo che chiede un'approvazione,
+  // un'esecuzione fallita (al proprietario), il passo `notify`, un'automazione
+  // messa in pausa da sola (D5). Titolo e testo si DERIVANO dall'esecuzione.
+  "automation.approval",
+  "automation.failed",
+  "automation.notify",
+  "automation.paused",
+  // Area 8, fetta 1 (0175, DA SOLO): un rilascio fallito (le run di CI del
+  // commit di merge), a chi ha fatto il merge e a chi ha `release.merge`.
+  "release.failed",
+  // Area 8, fetta 2 (0177).
+  "release.merged",
+  "release.succeeded",
+  "pr.opened",
+  "pr.analysis_issues",
+  "pr.corrected",
+  "docs.release_note",
+  // Area 8, fetta 3 (0179): Support.
+  "support.request",
+  // Area 8, fetta 4b (0181): la diagnosi dell'analisi di un server.
+  "server.diagnosis_ready",
+  // Area 10, F5 (0200).
+  "member.added",
+  // Area 11, F2 (0203).
+  "product_doc.mention",
+  "product_doc.updated",
+  "product_doc.question",
 ]);
 
 // Stato di una notifica nell'inbox del destinatario: `open` (da smaltire),
@@ -1482,6 +1982,31 @@ export const deliveryChannel = pgEnum("delivery_channel", [
 // `nextAttemptAt`), `sent`, `failed` (tentativi esauriti, `error` valorizzato) o
 // `skipped` (canale non applicabile, es. destinatario senza identità Slack).
 export const deliveryStatus = pgEnum("delivery_status", ["pending", "sent", "failed", "skipped"]);
+
+/**
+ * Area 9, F3 (0188; D-10 = b): i webhook in uscita, ognuno coi suoi eventi
+ * (`OUTGOING_WEBHOOK_EVENTS` di `@stubwise/shared`, ricopiato nel CHECK), il suo
+ * formato e il suo segreto (cifrato, mai in una lettura). Le consegne sono una
+ * PER WEBHOOK (`notification_deliveries.webhook_id`). Prende il posto di
+ * `notification_settings`, che resta per il rollback.
+ */
+export const outgoingWebhooks = pgTable("outgoing_webhooks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  url: text("url").notNull(),
+  format: notificationFormat("format").notNull().default("slack"),
+  enabled: boolean("enabled").notNull().default(true),
+  events: text("events").array().notNull().default(sql`'{}'::text[]`),
+  secretEncrypted: text("secret_encrypted"),
+  secretRotatedAt: timestamp("secret_rotated_at", { withTimezone: true }),
+  /** L'ultima prova (0224, rimandi lotto 5): quando e com'è andata; null = mai provato (o URL/formato cambiati). */
+  lastTestAt: timestamp("last_test_at", { withTimezone: true }),
+  lastTestOutcome: text("last_test_outcome", { enum: ["ok", "invalid_credentials", "unreachable", "destination_error"] }),
+  /** Il codice con cui la destinazione ha risposto all'ultima prova (0227); null senza risposta. */
+  lastTestStatus: integer("last_test_status"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+});
 
 /**
  * Configurazione (riga singola) del webhook di notifica in uscita: Stubwise
@@ -1549,10 +2074,14 @@ export const instanceSettings = pgTable("instance_settings", {
   // Budget di costo mensile complessivo in USD per l'intera istanza. Stesso
   // tipo di agentRuns.costUsd. null = nessun limite (default).
   monthlyBudgetUsd: numeric("monthly_budget_usd", { precision: 12, scale: 6 }),
+  // Area 8, F4b (0181): i tetti dell'analisi dei server (F4b-2 = b); null = i default del codice.
+  serverAnalysisLimits: jsonb("server_analysis_limits").$type<Record<string, unknown>>(),
   // Modelli di default EFFETTIVI del worker per operazione
   // (`Record<AiOperation, string>`), scritti dal worker all'avvio: il server
   // non li conosce altrimenti e la UI li mostra come «predefinito».
   workerModelDefaults: jsonb("worker_model_defaults").$type<Record<string, string>>(),
+  // Area 9, F3: le operazioni il cui modello viene da un'env del worker (la fonte `env`).
+  workerModelEnvOperations: text("worker_model_env_operations").array(),
   // Automazione PR Review: interruttore globale (default spento) e tetto di
   // costo USD per singola review (null = nessun limite). Il gate vive nel
   // webhook (accodamento) e nel worker (claim + verifica post-run del cap).
@@ -1567,6 +2096,10 @@ export const instanceSettings = pgTable("instance_settings", {
   s3Bucket: text("s3_bucket"),
   s3AccessKey: text("s3_access_key"),
   s3SecretKeyEncrypted: text("s3_secret_key_encrypted"),
+  /** Le ultime 4 della chiave S3 (0225); null senza chiave, o per le righe di prima. */
+  s3SecretKeyLast4: text("s3_secret_key_last4"),
+  /** L'interruttore degli allegati (0228, lotto 6): spento, niente caricamenti nuovi; la lettura resta. */
+  attachmentsSwitch: boolean("attachments_switch").notNull().default(true),
   // Credenziali Slack per l'ingestion (slash command / interazioni) e per la
   // verifica delle richieste in arrivo. Entrambe nullable: l'integrazione Slack
   // è opzionale; con queste colonne a null la feature è disattivata. Cifrate a
@@ -1734,6 +2267,8 @@ export const projectEnvironments = pgTable(
       "project_environments_kind_chk",
       sql`kind in ('test', 'staging', 'production')`,
     ),
+    // Area 8, F1 (0175), [R 12]: una sola produzione per progetto.
+    uniqueIndex("project_environments_one_production_idx").on(table.projectId).where(sql`${table.kind} = 'production'`),
   ],
 );
 
@@ -1985,6 +2520,10 @@ export const prReviews = pgTable(
     /** Copiato da `pr_review_jobs.from_fork` al claim (0085); null = non si sa. */
     fromFork: boolean("from_fork"),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
+    /** Area 8, F1 (0175): «Solo analisi» su questa PR (chi ha `prs.adopt`): nessuna correzione parte da sola. */
+    analysisOnly: boolean("analysis_only").notNull().default(false),
+    analysisOnlyBy: uuid("analysis_only_by").references(() => users.id, { onDelete: "set null" }),
+    analysisOnlyAt: timestamp("analysis_only_at", { withTimezone: true }),
   },
   (table) => [
     // Lookup del ticket riusabile per le re-review della stessa PR.
@@ -2040,6 +2579,14 @@ export const prCorrections = pgTable(
     providerFeedback: jsonb("provider_feedback").$type<PrComment[]>(),
     /** Emendamento E1: true solo se `providerFeedback` è stata letta davvero dal provider. */
     feedbackComplete: boolean("feedback_complete").notNull().default(false),
+    /**
+     * Lotto 4 dei rimandi (0220): COME si è chiusa una correzione `done`.
+     * `pushed` (il push c'è), `discarded` (il push è stato rifiutato: qualcuno
+     * ha pushato sul branch nel frattempo; non conta nel tetto), `stopped`
+     * (fermata prima del push). Null per le `cancelled` e per le righe di
+     * prima della 0220 (la lettura ricade sulla derivazione dal job).
+     */
+    outcome: text("outcome").$type<"pushed" | "discarded" | "stopped">(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
@@ -2060,6 +2607,7 @@ export const prCorrections = pgTable(
       .where(sql`status = 'queued'`),
     check("pr_corrections_trigger_chk", sql`"trigger" in ('review', 'stubwise', 'provider')`),
     check("pr_corrections_status_chk", sql`status in ('pending', 'queued', 'done', 'cancelled')`),
+    check("pr_corrections_outcome_chk", sql`outcome is null or outcome in ('pushed', 'discarded', 'stopped')`),
   ],
 );
 
@@ -2139,6 +2687,455 @@ export const docPages = pgTable(
       .where(sql`generation_id IS NULL`),
     // Ricerca full-text sul vettore generato.
     index("doc_pages_search_tsv_idx").using("gin", table.searchTsv),
+  ],
+);
+
+/**
+ * I codici `<PRJ>-D<n>` delle pagine Docs (0142, area 5 fetta 1): uno per
+ * (repository, slug), numerato per progetto e mai riusato, stabile alle
+ * rigenerazioni. Li dà il trigger `doc_pages_code` a ogni pagina nuova (non
+ * alle note di rilascio). Le citazioni `doc` della Chat puntano a questa riga.
+ */
+export const docPageCodes = pgTable(
+  "doc_page_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    number: integer("number").notNull(),
+    // Area 11, F1 (D-9 = a, 0202): una riga è di un repository (repository e
+    // slug insieme) o di una pagina di prodotto (né repository né slug). Il
+    // riferimento alla pagina si azzera quando la pagina se ne va: il numero
+    // resta preso.
+    repositoryId: uuid("repository_id").references(() => repositories.id, { onDelete: "cascade" }),
+    slug: text("slug"),
+    productPageId: uuid("product_page_id").references((): AnyPgColumn => productPages.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("doc_page_codes_project_number_idx").on(table.projectId, table.number),
+    uniqueIndex("doc_page_codes_repository_slug_idx").on(table.repositoryId, table.slug),
+    uniqueIndex("doc_page_codes_product_page_idx").on(table.productPageId).where(sql`product_page_id IS NOT NULL`),
+    check(
+      "doc_page_codes_owner_chk",
+      sql`(repository_id IS NULL) = (slug IS NULL) AND NOT (repository_id IS NOT NULL AND product_page_id IS NOT NULL)`,
+    ),
+  ],
+);
+
+/**
+ * Area 11, F1 — la documentazione di prodotto (0202). Una pagina dello spazio
+ * Product di un progetto: il corpo è un documento a blocchi (`blocks`, D-11 =
+ * a) che si scrive SOLO a operazioni (`applyBlockOps` di `@stubwise/shared`,
+ * sotto un `FOR UPDATE` della riga); gli id dei blocchi già dati stanno in
+ * `product_page_block_ids` e non si riusano mai. Il codice `-D` sta in `doc_page_codes` (trigger
+ * `product_pages_code`).
+ */
+export const productPages = pgTable(
+  "product_pages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    // NO ACTION, non RESTRICT: una pagina con figlie non si elimina, ma un progetto che se ne va porta via tutte le sue pagine in cascata (il controllo a fine istruzione).
+    parentId: uuid("parent_id").references((): AnyPgColumn => productPages.id),
+    order: integer("order").notNull().default(0),
+    title: text("title").notNull(),
+    blocks: jsonb("blocks").$type<unknown[]>().notNull().default([]),
+    /** La sequenza delle revisioni della pagina (`seq`/`last_seq`, il `baseSeq` del client). */
+    revSeq: integer("rev_seq").notNull().default(0),
+    /** Area 11, F3 (0207): titolo e testo semplice già piegati da `productSearchText`, per la ricerca per testo. */
+    searchText: text("search_text").notNull().default(""),
+    /** Area 11, F3: l'`updated_at` della versione che ha i chunk di adesso (`product_page_chunks`); null = mai fatti. */
+    embeddedAt: timestamp("embedded_at", { withTimezone: true }),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("product_pages_tree_idx").on(table.projectId, table.parentId, table.order),
+    check("product_pages_not_own_parent_chk", sql`parent_id IS NULL OR parent_id <> id`),
+  ],
+);
+
+/**
+ * Le revisioni di una pagina di prodotto (F1, la regola del prototipo
+ * `recordRevision`): una scrittura dell'editor si UNISCE all'ultima revisione
+ * della pagina se è della stessa persona e della stessa sessione
+ * (`last_seq` cresce), altrimenti ne apre una nuova. `seq` e `last_seq`
+ * vengono da `product_pages.rev_seq`: il client manda l'ultimo che ha visto
+ * (`baseSeq`). `title` e `parent` (prima e dopo) per `rename` e `move`.
+ * `kind` si allarga in F5 (le modifiche di Claude, «Undo»).
+ */
+export const productPageRevisions = pgTable(
+  "product_page_revisions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => productPages.id, { onDelete: "cascade" }),
+    sessionId: text("session_id"),
+    seq: integer("seq").notNull(),
+    lastSeq: integer("last_seq").notNull(),
+    actorId: uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
+    kind: text("kind").$type<"create" | "edit" | "rename" | "move" | "undo" | "claude" | "first_version">().notNull().default("edit"),
+    undoOf: uuid("undo_of").references((): AnyPgColumn => productPageRevisions.id, { onDelete: "set null" }),
+    changes: jsonb("changes").$type<unknown[]>().notNull().default([]),
+    title: jsonb("title").$type<{ before: string; after: string } | null>(),
+    parent: jsonb("parent").$type<{ beforeId: string | null; afterId: string | null } | null>(),
+    /** F5 (0210): la fonte di una revisione di Claude. */
+    sourceKind: text("source_kind").$type<"email" | "meeting" | "decision" | "task" | "release">(),
+    sourceId: uuid("source_id"),
+    /** F5: `claude` = scritta da Claude, per conto di `on_behalf_of` (il titolare della fonte). */
+    via: text("via").$type<"claude">(),
+    onBehalfOf: uuid("on_behalf_of").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("product_page_revisions_page_seq_idx").on(table.pageId, table.lastSeq),
+    check("product_page_revisions_kind_chk", sql`kind in ('create', 'edit', 'rename', 'move', 'undo', 'claude', 'first_version')`),
+    check("product_page_revisions_via_chk", sql`via IS NULL OR via = 'claude'`),
+    check("product_page_revisions_claude_source_chk", sql`kind <> 'claude' OR (source_kind IS NOT NULL AND source_id IS NOT NULL AND via = 'claude')`),
+  ],
+);
+
+/**
+ * Gli id (blocco, riga, cella) già dati in una pagina di prodotto (F1): li
+ * genera il client (`blk-<uuid>`, il prototipo), e un id non torna per un
+ * blocco diverso, salvo ⌘Z della revisione che l'ha tolto (review di F1, I4).
+ */
+export const productPageBlockIds = pgTable(
+  "product_page_block_ids",
+  {
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => productPages.id, { onDelete: "cascade" }),
+    blockId: text("block_id").notNull(),
+  },
+  (table) => [primaryKey({ name: "product_page_block_ids_pk", columns: [table.pageId, table.blockId] })],
+);
+
+/** Chi segue una pagina di prodotto (F1; i destinatari delle card della doc da F2/F5). */
+export const productPageFollows = pgTable(
+  "product_page_follows",
+  {
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => productPages.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ name: "product_page_follows_pk", columns: [table.pageId, table.userId] })],
+);
+
+/**
+ * Le immagini caricate in una pagina di prodotto (F1, D-3 = a): l'oggetto
+ * sta nell'archiviazione d'istanza; il blocco tiene `product-image:<id>`.
+ * L'eliminazione di un progetto ne toglie le chiavi (`storageKeysOfProject`).
+ */
+export const productPageImages = pgTable("product_page_images", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  pageId: uuid("page_id")
+    .notNull()
+    .references(() => productPages.id, { onDelete: "cascade" }),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  storageKey: text("storage_key").notNull().unique(),
+  mime: text("mime").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  uploadedBy: uuid("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Area 11, F5 (0210): la coda del lavoro di Claude sulla doc di prodotto. La
+ * riempiono i trigger delle fonti (una task chiusa, una decisione, un
+ * rilascio, una riunione col documento pronto, una proposta della posta di un
+ * messaggio ammesso), solo per i progetti che hanno una pagina di prodotto, e
+ * una fonte una volta sola per progetto (`product_doc_jobs_source_unique`). La
+ * prende il worker sotto il serializer per progetto.
+ */
+export const productDocJobs = pgTable(
+  "product_doc_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    /** F6 (0214): anche `first_version`, la prima versione di uno spazio (`source_id` = la sua riga). */
+    sourceKind: text("source_kind").$type<"email" | "meeting" | "decision" | "task" | "release" | "first_version" | "wireframe" | "page_update">().notNull(),
+    /**
+     * Chiesto a mano da chi ha `plans.approve` (0223, D-7.1): scavalca il
+     * budget del mese finito, come `ai_jobs.manual_trigger`.
+     */
+    budgetBypass: boolean("budget_bypass").notNull().default(false),
+    sourceId: uuid("source_id").notNull(),
+    status: text("status").$type<"queued" | "running" | "held" | "done" | "failed">().notNull().default("queued"),
+    heldReason: text("held_reason").$type<"limit" | "budget" | "section_busy" | "paused">(),
+    attempts: integer("attempts").notNull().default(0),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    /** 0213 (revisione di F5): i fatti del modello, una volta sola; un lavoro ripreso non lo richiama. */
+    facts: jsonb("facts").$type<unknown[]>(),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    /** 0213: le pagine già scritte, nella transazione dello scrittore. */
+    pagesDone: uuid("pages_done").array().notNull().default(sql`'{}'::uuid[]`),
+    /** 0213: un lavoro rimesso in coda aspetta fino a qui. */
+    notBefore: timestamp("not_before", { withTimezone: true }),
+    /** 0213: l'ultima sosta, che resta finché il lavoro non finisce (la riga «Claude riprende quando…»). */
+    lastHeldReason: text("last_held_reason").$type<"limit" | "budget" | "section_busy" | "paused">(),
+  },
+  (table) => [
+    uniqueIndex("product_doc_jobs_source_unique").on(table.projectId, table.sourceKind, table.sourceId),
+    index("product_doc_jobs_queued_idx").on(table.createdAt).where(sql`status = 'queued'`),
+    check("product_doc_jobs_source_kind_chk", sql`source_kind in ('email', 'meeting', 'decision', 'task', 'release', 'first_version', 'wireframe', 'page_update')`),
+    check("product_doc_jobs_status_chk", sql`status in ('queued', 'running', 'held', 'done', 'failed')`),
+    check("product_doc_jobs_held_chk", sql`(status = 'held') = (held_reason IS NOT NULL)`),
+    check("product_doc_jobs_held_reason_chk", sql`held_reason IS NULL OR held_reason in ('limit', 'budget', 'section_busy', 'paused')`),
+    check("product_doc_jobs_last_held_reason_chk", sql`last_held_reason IS NULL OR last_held_reason in ('limit', 'budget', 'section_busy', 'paused')`),
+  ],
+);
+
+/**
+ * Area 11, F6 (0214): la prima versione di Claude in uno spazio Product vuoto,
+ * una viva (`writing`) per progetto. Le fonti sono riferimenti, lette con la
+ * visibilità di chi l'ha chiesta; il testo incollato sta in `pasted_text` solo
+ * finché il lavoro non l'ha letto. `plan` = le pagine (titolo, profondità),
+ * `draft` = i blocchi del modello, `written` = le pagine create con la loro
+ * revisione `first_version`, nell'ordine di `plan`.
+ */
+export const productFirstVersions = pgTable(
+  "product_first_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    startedBy: uuid("started_by").references(() => users.id, { onDelete: "set null" }),
+    sources: jsonb("sources").$type<unknown[]>().notNull(),
+    pastedText: text("pasted_text"),
+    status: text("status").$type<"writing" | "done" | "undone">().notNull().default("writing"),
+    interrupted: boolean("interrupted").notNull().default(false),
+    stopRequested: boolean("stop_requested").notNull().default(false),
+    plan: jsonb("plan").$type<{ title: string; depth: number }[]>().notNull().default(sql`'[]'::jsonb`),
+    draft: jsonb("draft").$type<unknown[]>(),
+    written: jsonb("written").$type<{ pageId: string; revisionId: string }[]>().notNull().default(sql`'[]'::jsonb`),
+    acceptedPageIds: uuid("accepted_page_ids").array().notNull().default(sql`'{}'::uuid[]`),
+    undoneBy: uuid("undone_by").references(() => users.id, { onDelete: "set null" }),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("product_first_versions_project_idx").on(table.projectId, table.createdAt),
+    uniqueIndex("product_first_versions_writing_unique").on(table.projectId).where(sql`status = 'writing'`),
+    check("product_first_versions_status_chk", sql`status in ('writing', 'done', 'undone')`),
+  ],
+);
+
+/**
+ * Area 11, F6 (0215): una bozza di schermata. Il blocco `wireframe` della
+ * pagina la nomina (`wireframeId`) e sceglie una variante (`variant`, indice
+ * in `variants`). Lo SVG è già RIPULITO (`sanitizeWireframeSvg`). `drawing` =
+ * il modello sta disegnando (la prima volta, o una variante nuova).
+ */
+export const productWireframes = pgTable(
+  "product_wireframes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => productPages.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    blockId: text("block_id").notNull(),
+    requestedBy: uuid("requested_by").references(() => users.id, { onDelete: "set null" }),
+    status: text("status").$type<"drawing" | "ready" | "failed">().notNull().default("drawing"),
+    variants: jsonb("variants").$type<{ svg: string }[]>().notNull().default(sql`'[]'::jsonb`),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("product_wireframes_page_idx").on(table.pageId), check("product_wireframes_status_chk", sql`status in ('drawing', 'ready', 'failed')`)],
+);
+
+/**
+ * Area 11, F6 (0216): la pagina (e la frase) da cui nasce una richiesta, una
+ * riga per lavoro d'intake (la richiesta è `backlog_jobs.result_item_id`).
+ * `anchorId` null = la frase non c'era più: l'origine resta sulla pagina.
+ */
+export const productRequestOrigins = pgTable(
+  "product_request_origins",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => productPages.id, { onDelete: "cascade" }),
+    anchorId: text("anchor_id"),
+    questionId: uuid("question_id").references((): AnyPgColumn => productComments.id, { onDelete: "set null" }),
+    intakeJobId: uuid("intake_job_id")
+      .notNull()
+      .references((): AnyPgColumn => backlogJobs.id, { onDelete: "cascade" }),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [unique("product_request_origins_job_key").on(table.intakeJobId), index("product_request_origins_page_anchor_idx").on(table.pageId, table.anchorId)],
+);
+
+/**
+ * Area 11, F6, Task 4 (0217): «aggiorna <pagina> da questa email», chiesto da
+ * una persona (la voce `updateProductPage`). Il lavoro della coda della doc è
+ * `page_update` con `source_id` = questa riga; una viva per pagina e fonte.
+ */
+export const productPageUpdates = pgTable(
+  "product_page_updates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => productPages.id, { onDelete: "cascade" }),
+    sourceKind: text("source_kind").$type<"email" | "meeting">().notNull(),
+    sourceId: uuid("source_id").notNull(),
+    requestedBy: uuid("requested_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("product_page_updates_live_key").on(table.pageId, table.sourceKind, table.sourceId).where(sql`finished_at IS NULL`),
+    check("product_page_updates_source_kind_chk", sql`source_kind in ('email', 'meeting')`),
+  ],
+);
+
+/** Area 11, F5 (0210): i segni di Claude, uno per ancora di una revisione `claude`. */
+export const productClaudeMarks = pgTable(
+  "product_claude_marks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    revisionId: uuid("revision_id")
+      .notNull()
+      .references(() => productPageRevisions.id, { onDelete: "cascade" }),
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => productPages.id, { onDelete: "cascade" }),
+    anchorId: text("anchor_id").notNull(),
+    sourceKind: text("source_kind").$type<"email" | "meeting" | "decision" | "task" | "release">().notNull(),
+    sourceId: uuid("source_id").notNull(),
+    status: text("status").$type<"open" | "looks_good" | "undone">().notNull().default("open"),
+    decidedBy: uuid("decided_by").references(() => users.id, { onDelete: "set null" }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("product_claude_marks_page_idx").on(table.pageId), index("product_claude_marks_revision_idx").on(table.revisionId), check("product_claude_marks_status_chk", sql`status in ('open', 'looks_good', 'undone')`)],
+);
+
+/**
+ * Le sezioni prese di una pagina di prodotto (area 11, F4): chi ci sta
+ * scrivendo, fino a quando. In tabella e non in memoria perché la deve vedere
+ * anche il worker (F5: Claude aspetta chi scrive nella stessa sezione). La
+ * rinnova il battito di chi scrive e scade da sola (`expires_at`). La sezione
+ * è `sectionKeyOf` di shared (`top` = in cima). Presenza e cursori invece
+ * stanno nella memoria del server, mai qui.
+ */
+export const productSectionHolds = pgTable(
+  "product_section_holds",
+  {
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => productPages.id, { onDelete: "cascade" }),
+    sectionId: text("section_id").notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [primaryKey({ name: "product_section_holds_pk", columns: [table.pageId, table.sectionId] })],
+);
+
+/**
+ * I passaggi di una pagina di prodotto con l'embedding (area 11, F3), con lo
+ * stesso chunking e lo stesso embedder dei Docs (bge-m3, 1024). Una tabella a
+ * parte da `doc_chunks`, che è legata ai repository: la ricerca e la chat dei
+ * Docs le uniscono. Li scrive il poller del server (`product-embed.ts`).
+ */
+export const productPageChunks = pgTable(
+  "product_page_chunks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => productPages.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    heading: text("heading"),
+    content: text("content").notNull(),
+    embedding: vector(1024),
+    tokenCount: integer("token_count"),
+  },
+  (table) => [
+    index("product_page_chunks_page_idx").on(table.pageId),
+    index("product_page_chunks_project_idx").on(table.projectId),
+    index("product_page_chunks_embedding_idx").using("hnsw", table.embedding.op("vector_cosine_ops")),
+  ],
+);
+
+/**
+ * I commenti di una pagina di prodotto (area 11, F2): ancorati a un blocco o a
+ * una cella (`anchor_id`), con la frase che si guardava (`quote`, una riga,
+ * ≤ 200, mai riscritta). Una risposta sta sotto una radice (`reply_to_id`),
+ * mai sotto un'altra risposta. «Frase eliminata» NON è una colonna: si deriva
+ * dai blocchi di adesso. Un commento eliminato non ha più testo (CHECK, come
+ * `comments` dei ticket). La lunghezza della frase la tiene `cleanQuote`
+ * (server), non una CHECK: in un database SQL_ASCII `char_length` conta i byte.
+ */
+export const productComments = pgTable(
+  "product_comments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => productPages.id, { onDelete: "cascade" }),
+    anchorId: text("anchor_id").notNull(),
+    /** Review di F2 (M4, 0205): l'ancora di prima di un `merge`, per rimetterci il filo col ⌘Z; null = dov'è nato. */
+    originalAnchorId: text("original_anchor_id"),
+    quote: text("quote").notNull(),
+    replyToId: uuid("reply_to_id").references((): AnyPgColumn => productComments.id, { onDelete: "cascade" }),
+    body: text("body").notNull(),
+    authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
+    /** Chi il testo menzionava e leggeva i Docs del progetto quando è stato scritto; mai chi scrive. */
+    mentions: uuid("mentions").array().notNull().default(sql`'{}'::uuid[]`),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedBy: uuid("resolved_by").references(() => users.id, { onDelete: "set null" }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    /** F5 (0210): la parte di domanda di un commento di Claude (`productQuestionSchema`), e la sua risposta, una sola. */
+    question: jsonb("question").$type<Record<string, unknown>>(),
+    answer: jsonb("answer").$type<Record<string, unknown>>(),
+    /** 0218: la chiave del client (un «Retry» dopo una risposta persa dà lo stesso commento); una per autore. */
+    clientId: uuid("client_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("product_comments_page_idx").on(table.pageId, table.createdAt),
+    uniqueIndex("product_comments_client_id_idx").on(table.authorId, table.clientId).where(sql`${table.clientId} IS NOT NULL`),
+    check("product_comments_answer_chk", sql`answer IS NULL OR question IS NOT NULL`),
+    check("product_comments_deleted_body_empty_chk", sql`deleted_at IS NULL OR body = ''`),
   ],
 );
 
@@ -2325,6 +3322,12 @@ export const docChatMessages = pgTable(
     role: text("role").notNull(),
     content: text("content").notNull(),
     citations: jsonb("citations"),
+    /**
+     * Area 11, F3 (0208, 46): le pagine di prodotto date al modello per questa
+     * risposta, SOLO gli id: titolo e codice si rileggono a ogni riapertura con
+     * la visibilità di adesso (una pagina che chi guarda non vede più non esce).
+     */
+    productSources: jsonb("product_sources").$type<{ pageId: string }[]>().notNull().default(sql`'[]'::jsonb`),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   // I messaggi si caricano sempre per sessione, in ordine cronologico.
@@ -2426,6 +3429,19 @@ export const widgets = pgTable(
       .$type<Record<string, { paths: string[]; slugs: string[]; kinds?: string[] }>>()
       .notNull()
       .default({}),
+    /**
+     * Area 8, F3 (0179, S16): i siti ammessi (`https://host[:porta]`). Vuoto =
+     * qualunque sito (i widget installati prima); pieno = le rotte pubbliche
+     * rifiutano un'`Origin` assente o fuori elenco.
+     */
+    allowedOrigins: text("allowed_origins").array().notNull().default(sql`'{}'::text[]`),
+    // Area 8, «L'API per i siti» (0184): il segreto con cui il sito firma
+    // l'identità dei suoi clienti (JWT HS256), cifrato con la chiave
+    // d'istanza; null = nessun segreto. Non esce MAI da una lettura.
+    identitySecretEncrypted: text("identity_secret_encrypted"),
+    identitySecretRotatedAt: timestamp("identity_secret_rotated_at", { withTimezone: true }),
+    /** Solo clienti verificati: la chat senza un token valido è rifiutata. */
+    identityRequired: boolean("identity_required").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   // Elenco dei widget di un progetto.
@@ -2453,9 +3469,41 @@ export const widgetConversations = pgTable(
     widgetId: uuid("widget_id").references(() => widgets.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     lastMessageAt: timestamp("last_message_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * Area 8, F3 (0179): il numero per progetto del codice `<PRJ>-S<n>`, dato
+     * dal trigger all'insert (un valore passato è ignorato).
+     */
+    number: integer("number").notNull().default(sql`NULL`),
+    /** Il canale: il widget, o il server MCP in modalità collaboratore. */
+    channel: text("channel").$type<"widget" | "mcp">().notNull().default("widget"),
+    /** Il canale `mcp`: il job d'intake della richiesta con cui la conversazione è arrivata. */
+    intakeJobId: uuid("intake_job_id").references((): AnyPgColumn => backlogJobs.id, { onDelete: "set null" }),
+    /**
+     * Il giudizio sul triage senza esito: il controllo del worker dopo il
+     * silenzio (`triageOutcomeByUserId` null) o una persona con «Non
+     * conclusa». Vale finché non arriva un messaggio del cliente più recente.
+     */
+    triageOutcome: text("triage_outcome").$type<"concluded" | "not_concluded">(),
+    triageOutcomeAt: timestamp("triage_outcome_at", { withTimezone: true }),
+    triageOutcomeByUserId: uuid("triage_outcome_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    /** L'ultimo controllo del worker: uno per silenzio. */
+    triageCheckedAt: timestamp("triage_checked_at", { withTimezone: true }),
+    /**
+     * La conversazione che ha preso il posto di questa dopo la chiusura (un
+     * esito): un messaggio del cliente su una chiusa va lì (F3, S17).
+     */
+    continuedInId: uuid("continued_in_id").references((): AnyPgColumn => widgetConversations.id, { onDelete: "set null" }),
+    /** Area 8, «L'API per i siti» (0184): aperta con un token d'identità valido del sito. */
+    identityVerified: boolean("identity_verified").notNull().default(false),
   },
-  // Elenco delle conversazioni di un progetto, le più recenti prima.
-  (table) => [index("widget_conversations_project_idx").on(table.projectId, table.lastMessageAt)],
+  (table) => [
+    // Elenco delle conversazioni di un progetto, le più recenti prima.
+    index("widget_conversations_project_idx").on(table.projectId, table.lastMessageAt),
+    unique("widget_conversations_project_number_unique").on(table.projectId, table.number),
+    index("widget_conversations_intake_job_idx").on(table.intakeJobId).where(sql`${table.intakeJobId} IS NOT NULL`),
+    check("widget_conversations_channel_chk", sql`${table.channel} in ('widget', 'mcp')`),
+    check("widget_conversations_triage_outcome_chk", sql`${table.triageOutcome} in ('concluded', 'not_concluded')`),
+  ],
 );
 
 /**
@@ -2472,15 +3520,23 @@ export const widgetMessages = pgTable(
     conversationId: uuid("conversation_id")
       .notNull()
       .references(() => widgetConversations.id, { onDelete: "cascade" }),
-    // "user" | "assistant": registro libero (non enum) per estensibilità futura.
+    // "user" | "assistant" | "team" (area 8, F3: la risposta di una persona
+    // a un collaboratore, SOLO sul canale `mcp`): registro libero (non enum).
     role: text("role").notNull(),
     content: text("content").notNull(),
     citations: jsonb("citations"),
     ticketId: uuid("ticket_id").references(() => tickets.id, { onDelete: "set null" }),
+    /** Area 8, F3 (0179): chi del team ha scritto (`role: "team"`, canale `mcp`). */
+    authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
+    /** L'id che il client dà a una risposta: un doppio invio non manda due messaggi. */
+    clientId: uuid("client_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  // I messaggi si caricano sempre per conversazione, in ordine cronologico.
-  (table) => [index("widget_messages_conversation_idx").on(table.conversationId)],
+  (table) => [
+    // I messaggi si caricano sempre per conversazione, in ordine cronologico.
+    index("widget_messages_conversation_idx").on(table.conversationId),
+    uniqueIndex("widget_messages_client_id_idx").on(table.conversationId, table.clientId).where(sql`${table.clientId} IS NOT NULL`),
+  ],
 );
 
 // ---------------------------------------------------------------------------
@@ -2515,9 +3571,44 @@ export const servers = pgTable("servers", {
     .notNull()
     .default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Area 8, F4b (0181): ciò che l'agente dichiara nell'ingest (versione, operazioni accese). Una dichiarazione, non un permesso. */
+  agentCapabilities: jsonb("agent_capabilities").$type<{ version?: string; operations?: boolean }>().notNull().default({}),
+  /** Area 8, F4a (0180): il numero d'istanza del codice `SRV-<n>`, da una sequenza, mai riusato. */
+  number: integer("number").notNull().default(sql`nextval('servers_number_seq')`).unique("servers_number_unique"),
 });
 
 /**
+ * Area 8, F4a (0180): un episodio di un server, dall'allarme al rientro (uno
+ * aperto per server: un secondo allarme si aggiunge ai motivi). Lo scrive il
+ * worker degli avvisi; la F4b ci attacca l'analisi.
+ */
+export const serverEpisodes = pgTable(
+  "server_episodes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+    severity: text("severity").$type<"trouble" | "down">().notNull(),
+    reasons: jsonb("reasons")
+      .$type<{ kind: string; valuePct?: number; thresholdPct?: number; checkId?: string; since?: string }[]>()
+      .notNull()
+      .default([]),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    recoveredAt: timestamp("recovered_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("server_episodes_server_idx").on(table.serverId, table.startedAt),
+    uniqueIndex("server_episodes_open_idx").on(table.serverId).where(sql`${table.recoveredAt} IS NULL`),
+    check("server_episodes_severity_chk", sql`${table.severity} in ('trouble', 'down')`),
+  ],
+);
+
+/**
+ * ⚠️ Area 8, F4a (F4a-4 = b): NON conta più per la visibilità né per gli
+ * avvisi — un server si vede dagli ambienti (`environment_servers`). Il web
+ * vecchio può ancora scriverla; resta inerte per il rollback.
+ *
  * Legame N:M server↔progetto: un server può essere condiviso tra più progetti,
  * un progetto può avere più server. Cascata da entrambi i lati.
  */
@@ -2865,6 +3956,10 @@ export const backlogItems = pgTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
+    // Fetta 4 (0121): il numero di catalogo, `<PROGETTO>-R<n>`. Lo dà il
+    // trigger `backlog_items_assign_number` (contatore del progetto, mai
+    // riusato): chi inserisce non lo manda.
+    number: integer("number").notNull().default(sql`NULL`),
     document: text("document").notNull().default(""),
     // Piano di implementazione dedicato (null finché non prodotto) e corpo
     // originale preservato quando un design doc ne sostituisce il corpo. Il
@@ -2872,6 +3967,9 @@ export const backlogItems = pgTable(
     implementationPlan: text("implementation_plan"),
     originContent: text("origin_content"),
     status: backlogItemStatus("status").notNull().default("new"),
+    // Fetta 4 (0122): lo stato di prima dell'archiviazione, per il «Ripristina».
+    // Lo scrive e lo azzera il trigger `backlog_items_archived_from`.
+    archivedFrom: backlogItemStatus("archived_from"),
     effort: integer("effort"),
     risk: backlogRisk("risk"),
     riskNote: text("risk_note"),
@@ -2892,13 +3990,23 @@ export const backlogItems = pgTable(
     // ~decine di migliaia di voci per progetto.
     embedding: vector(1024),
     source: backlogItemSource("source").notNull(),
+    // Nata da FUORI (0148): un'email in entrata. Leggerla nella chat con Claude è contenuto non fidato.
+    externalOrigin: text("external_origin").$type<"email">(),
+    /** Area 8, F3 (0179): la conversazione di Support da cui è nata. */
+    supportConversationId: uuid("support_conversation_id").references((): AnyPgColumn => widgetConversations.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Area 7 (0169): l'esecuzione che l'ha creata. */
+    automationRunId: uuid("automation_run_id").references((): AnyPgColumn => automationRuns.id, { onDelete: "set null" }),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow()
       .$onUpdate(() => new Date()),
   },
-  (table) => [index("backlog_items_project_status_idx").on(table.projectId, table.status)],
+  (table) => [
+    index("backlog_items_project_status_idx").on(table.projectId, table.status),
+    unique("backlog_items_project_number_unique").on(table.projectId, table.number),
+    index("backlog_items_support_conversation_idx").on(table.supportConversationId).where(sql`${table.supportConversationId} IS NOT NULL`),
+  ],
 );
 
 /**
@@ -3024,6 +4132,270 @@ export const backlogRefineSessions = pgTable(
 );
 
 /**
+ * La conversazione libera con Claude (integrazione «Chat con Claude», fetta 1,
+ * 0126): ciò che la sessione dell'agente di kind `free` non ha. PRIVATA
+ * dell'autore (`owner_id`): la visibilità delle sessioni la legge da qui
+ * (`visibleTo`), senza ramo per ruolo — nemmeno un full admin la vede. CASCADE
+ * dalla sessione (la potatura dei 14 giorni la porta via) e dall'utente.
+ * `cli_session_id` è l'id della conversazione del CLI per `--resume` (lo scrive
+ * il worker al primo turno). Il titolo nasce dalla prima domanda con un
+ * template (`conversationTitleFrom`), mai dal modello.
+ */
+/** La trascrizione leggibile dell'originale di una continuazione (F5.3). */
+export interface ClaudeOriginTranscript {
+  title: string;
+  authorName: string;
+  messages: { role: "user" | "agent"; text: string }[];
+}
+
+/**
+ * Lotto 9, voce 1 (0233): gli oggetti che Claude ha LETTO col token del turno
+ * in una conversazione (task, richieste, pagine Docs, file del Drive,
+ * progetti). Un FATTO del server (l'hook `onSend` della lettura riuscita), mai
+ * scritto dal modello. `after_event_id` = l'ultimo evento della sessione al
+ * momento della lettura: a lettura la citazione va al primo `turn_end` dopo.
+ * `code` solo per un file del Drive (R-H5: l'autore ne ricorda il codice).
+ */
+export const claudeTurnCitations = pgTable(
+  "claude_turn_citations",
+  {
+    sessionId: uuid("session_id")
+      .notNull()
+      .references((): AnyPgColumn => agentSessions.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<"task" | "request" | "project" | "doc" | "drive">().notNull(),
+    refId: uuid("ref_id").notNull(),
+    afterEventId: bigint("after_event_id", { mode: "bigint" }).notNull(),
+    code: text("code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sessionId, table.afterEventId, table.kind, table.refId] }),
+    check("claude_turn_citations_kind_chk", sql`kind in ('task','request','project','doc','drive')`),
+  ],
+);
+
+export const claudeConversations = pgTable(
+  "claude_conversations",
+  {
+    sessionId: uuid("session_id").primaryKey()
+      .references((): AnyPgColumn => agentSessions.id, { onDelete: "cascade" }),
+    ownerId: uuid("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull().default(""),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    contextRef: jsonb("context_ref").$type<{ kind: string; id: string }>(),
+    /**
+     * Lotto 8, voce 3 (0232): i contesti ACCUMULATI della conversazione, dal più
+     * vecchio al più nuovo (al più 5); l'ultimo è il primario. `context_ref`
+     * resta scritto, uguale all'ultimo, per un server di prima (rollback).
+     */
+    contextRefs: jsonb("context_refs").$type<{ kind: string; id: string }[]>().notNull().default([]),
+    cliSessionId: text("cli_session_id"),
+    /** Quando è nata la sessione del CLI: oltre la potatura (14 giorni) si scarta con le sue trascrizioni. */
+    cliSessionStartedAt: timestamp("cli_session_started_at", { withTimezone: true }),
+    // La prima lettura di contenuto NON fidato (0146, area 5, fetta 3): da lì ogni proposta è almeno B.
+    untrustedReadAt: timestamp("untrusted_read_at", { withTimezone: true }),
+    // Area 10, F1 (0197, review I2): la prima lettura di contenuto PERSONALE
+    // (posta, calendario, canale privato o DM, automazione generale): da lì la
+    // conversazione non si pubblica.
+    privateReadAt: timestamp("private_read_at", { withTimezone: true }),
+    // Fetta 5 (0133): le pubbliche e la continuazione. La visibilità la decide
+    // il server (`canSeeConversation`); i lettori ricevono la proiezione
+    // (`claude-conversations/public-view.ts`).
+    visibility: text("visibility").$type<"private" | "public">().notNull().default("private"),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    publishedBy: uuid("published_by").references(() => users.id, { onDelete: "set null" }),
+    /** I progetti confermati dall'autore pubblicando (o riconfermando). */
+    publishedProjectIds: uuid("published_project_ids").array().notNull().default(sql`'{}'`),
+    /** Il primo evento che i lettori non ricevono (il seguito privato); null = tutto rilasciato. */
+    privateFromEventId: bigint("private_from_event_id", { mode: "bigint" }),
+    /** «Make private»: da qui riparte la finestra della potatura (una pubblica non si pota). */
+    visibilityChangedAt: timestamp("visibility_changed_at", { withTimezone: true }),
+    /** L'originale di una continuazione: un uuid senza FK (0134), così un originale eliminato si legge «non più disponibile». */
+    continuesFromSessionId: uuid("continues_from_session_id"),
+    /**
+     * F5.3 (0134, D3): la trascrizione LEGGIBILE dell'originale per chi
+     * continua, solo prosa, calcolata dal server alla continuazione. Il worker
+     * la mette nel primo prompt come contesto non fidato.
+     */
+    originTranscript: jsonb("origin_transcript").$type<ClaudeOriginTranscript>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("claude_conversations_owner_idx").on(table.ownerId, table.updatedAt),
+    index("claude_conversations_public_idx").on(table.visibility, table.updatedAt),
+    check("claude_conversations_visibility_chk", sql`${table.visibility} in ('private', 'public')`),
+  ],
+);
+
+/**
+ * Fetta 5 (0133): i progetti LETTI O TOCCATI da Claude in una conversazione
+ * (D2 del maintainer: li ricava il server da ciò che sa — letture per codice o
+ * per id del token del turno, codici citati, azioni, contesto). Mai un dato
+ * letto: solo il progetto e il primo evento in cui è comparso.
+ */
+export const claudeConversationProjects = pgTable(
+  "claude_conversation_projects",
+  {
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => claudeConversations.sessionId, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    firstEventId: bigint("first_event_id", { mode: "bigint" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ name: "claude_conversation_projects_pk", columns: [table.sessionId, table.projectId] })],
+);
+
+/**
+ * Chat con Claude, fetta 3: le PROPOSTE di Claude (tool `propose_action`,
+ * scritte solo dalla rotta di scrittura del token del turno). Claude propone,
+ * il SERVER esegue: una proposta non esegue niente da sé. `actions` sono le
+ * azioni del catalogo chiuso (`claudeActionFnSchema`), `declared_cls` la classe
+ * del catalogo; la classe VERA si calcola sui dati al momento (lettura e
+ * conferma). Scaduta non si salva: si deriva (`PROPOSAL_EXPIRY`). `event_id`:
+ * l'evento `proposal` della sessione, da cui si contano i messaggi dopo.
+ */
+export const claudeProposals = pgTable(
+  "claude_proposals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references((): AnyPgColumn => agentSessions.id, { onDelete: "cascade" }),
+    requesterId: uuid("requester_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    toolUseId: text("tool_use_id"),
+    actions: jsonb("actions").$type<{ fn: string; args: Record<string, unknown> }[]>().notNull(),
+    summary: text("summary").notNull().default(""),
+    declaredCls: text("declared_cls").$type<"A" | "B" | "C">().notNull(),
+    // Nata in un turno che aveva letto contenuto NON fidato (0146): almeno B, anche ricalcolata.
+    untrustedInput: boolean("untrusted_input").notNull().default(false),
+    status: text("status").$type<"open" | "confirmed" | "cancelled" | "failed">().notNull().default("open"),
+    failure: jsonb("failure").$type<Record<string, unknown>>(),
+    groupId: uuid("group_id").references((): AnyPgColumn => claudeActionGroups.id, { onDelete: "set null" }),
+    eventId: bigint("event_id", { mode: "bigint" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decidedBy: uuid("decided_by").references(() => users.id, { onDelete: "set null" }),
+    undoOfGroupId: uuid("undo_of_group_id").references((): AnyPgColumn => claudeActionGroups.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => [
+    unique("claude_proposals_tool_use_unique").on(table.sessionId, table.toolUseId),
+    index("claude_proposals_session_idx").on(table.sessionId, table.createdAt),
+    check("claude_proposals_status_chk", sql`status in ('open','confirmed','cancelled','failed')`),
+    check("claude_proposals_cls_chk", sql`declared_cls in ('A','B','C')`),
+  ],
+);
+
+/**
+ * Lotto 7, voce 1: l'esito di un'azione del renderer (`pageAction`,
+ * `fillField`) di una proposta, per indice. Lo scrive solo chi ha chiesto la
+ * proposta (`POST /api/claude/proposals/:id/actions/:index/outcome`), con le
+ * mosse di `CLAUDE_PAGE_OUTCOME_MOVES`; nessuna riga = `pending`. Niente
+ * persona: l'esito è del proprietario, l'unico che lo scrive.
+ */
+export const claudePageOutcomes = pgTable(
+  "claude_page_outcomes",
+  {
+    proposalId: uuid("proposal_id")
+      .notNull()
+      .references((): AnyPgColumn => claudeProposals.id, { onDelete: "cascade" }),
+    actionIndex: integer("action_index").notNull(),
+    status: text("status").$type<"done" | "failed" | "placed" | "waiting" | "undone" | "changed_after">().notNull(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.proposalId, table.actionIndex] }),
+    check("claude_page_outcomes_status_chk", sql`status in ('done','failed','placed','waiting','undone','changed_after')`),
+    check("claude_page_outcomes_index_chk", sql`action_index >= 0`),
+  ],
+);
+
+/**
+ * Un gruppo di azioni ESEGUITO dal server per una persona (subito per una A,
+ * alla conferma per una B), tutto o niente. `session_id` SET NULL: le sessioni
+ * si potano a 14 giorni, il segno «via Claude» sulle scritture no.
+ */
+export const claudeActionGroups = pgTable(
+  "claude_action_groups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id").references((): AnyPgColumn => agentSessions.id, { onDelete: "set null" }),
+    requesterId: uuid("requester_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    proposalId: uuid("proposal_id").references((): AnyPgColumn => claudeProposals.id, { onDelete: "set null" }),
+    executedAt: timestamp("executed_at", { withTimezone: true }).notNull().defaultNow(),
+    undoneAt: timestamp("undone_at", { withTimezone: true }),
+    undoneBy: uuid("undone_by").references(() => users.id, { onDelete: "set null" }),
+    undoOfGroupId: uuid("undo_of_group_id").references((): AnyPgColumn => claudeActionGroups.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => [index("claude_action_groups_session_idx").on(table.sessionId, table.executedAt)],
+);
+
+/** Un'azione di un gruppo: l'inverso (per «Annulla») e gli oggetti toccati (per `changed_after`). */
+export const claudeActions = pgTable(
+  "claude_actions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => claudeActionGroups.id, { onDelete: "cascade" }),
+    seq: integer("seq").notNull(),
+    fn: text("fn").notNull(),
+    args: jsonb("args").$type<Record<string, unknown>>().notNull(),
+    cls: text("cls").$type<"A" | "B" | "C">().notNull(),
+    inverse: jsonb("inverse").$type<{ fn: string; args: Record<string, unknown> } | null>(),
+    objects: jsonb("objects").$type<{ kind: string; id: string }[]>().notNull().default([]),
+    executedAt: timestamp("executed_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * Il seguito fuori dalla transazione NON è riuscito (area 6, F3): oggi
+     * solo `fillMailBody`, `mail_not_saved` = il testo non è nella bozza di
+     * Gmail. Lo scrive il seguito dopo il commit; la scheda lo dice, invece
+     * di un «fatto» che non è vero. `null` = riuscito, o nessun seguito.
+     */
+    effectFailure: text("effect_failure"),
+  },
+  (table) => [
+    index("claude_actions_group_idx").on(table.groupId, table.seq),
+    check("claude_actions_cls_chk", sql`cls in ('A','B','C')`),
+  ],
+);
+
+/**
+ * Il token di UN turno di una conversazione libera (chat, fetta 1, 0127): con
+ * lui i tool di lettura di Claude chiamano il server COME l'autore, sulle
+ * stesse rotte e con la stessa visibilità delle pagine. Lo emette il WORKER a
+ * inizio turno (mai una rotta HTTP: non è una porta che dà un token, vedi
+ * `docs/invariants/second-factor.md`), lo revoca nel `finally`; scade comunque
+ * al più alla durata massima di un turno. Solo l'hash a riposo. Il server lo
+ * accetta solo in GET su un'allowlist chiusa (`auth/chat-tool-routes.ts`), mai
+ * per la riconferma, e solo finché la sua conversazione è dell'autore e non
+ * archiviata.
+ */
+export const claudeChatToolTokens = pgTable(
+  "claude_chat_tool_tokens",
+  {
+    tokenHash: text("token_hash").primaryKey(),
+    sessionId: uuid("session_id").notNull()
+      .references((): AnyPgColumn => agentSessions.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("claude_chat_tool_tokens_expires_idx").on(table.expiresAt)],
+);
+
+/**
  * Valore PRECEDENTE di un campo di una voce sovrascritto dall'agente in una
  * sessione di refinement (design 2026-10-14 §4.3): rete di sicurezza
  * recuperabile a mano. `previous`: `{ document, originContent }` per il design,
@@ -3072,6 +4444,10 @@ export const repoGraphs = pgTable("repo_graphs", {
   labeled: boolean("labeled").notNull().default(false),
   // PR di setup aperta sul repository (config graphify); null se mai aperta.
   setupPrUrl: text("setup_pr_url"),
+  // Stato della PR di setup (0222, rimandi lotto 4): `open` quando il worker
+  // la apre, poi dal webhook (merged/closed_unmerged, di nuovo open se
+  // riaperta). null = non si sa (aperta prima della colonna, o nessuna PR).
+  setupPrState: text("setup_pr_state", { enum: ["open", "merged", "closed_unmerged"] }),
   // Errore dell'ultima build fallita, mostrato in UI. Null quando status != failed.
   error: text("error"),
   generatedAt: timestamp("generated_at", { withTimezone: true }),
@@ -3089,12 +4465,15 @@ export const graphJobs = pgTable(
   "graph_jobs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    repositoryId: uuid("repository_id")
-      .notNull()
-      .references(() => repositories.id, { onDelete: "cascade" }),
+    // Senza FK dalla 0194 (area 9, F6): il job `prune` sopravvive al
+    // repository che pota. Gli altri job di un repository eliminato li toglie
+    // il DELETE (`deleteDetachedRepository`).
+    repositoryId: uuid("repository_id").notNull(),
     // Colonne `text` con enum compile-time (come `backlog_chat_messages.role`):
     // nessun enum Postgres né CHECK, il worker rivalida al dequeue.
-    kind: text("kind", { enum: ["build", "setup_pr"] }).notNull(),
+    kind: text("kind", { enum: ["build", "setup_pr", "prune"] }).notNull(),
+    /** Solo `prune`: l'URL del repository eliminato, per trovarne il mirror. */
+    repoUrl: text("repo_url"),
     status: text("status", { enum: ["queued", "running", "done", "failed"] })
       .notNull()
       .default("queued"),
@@ -3145,8 +4524,14 @@ export const notifications = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
-    ticketId: uuid("ticket_id").references(() => tickets.id, { onDelete: "cascade" }),
-    jobId: uuid("job_id").references(() => aiJobs.id, { onDelete: "cascade" }),
+    // SET NULL (0130, «Elimina task»): la notifica è di chi la riceve e resta;
+    // «task eliminata» si deriva a lettura.
+    ticketId: uuid("ticket_id").references(() => tickets.id, { onDelete: "set null" }),
+    jobId: uuid("job_id").references(() => aiJobs.id, { onDelete: "set null" }),
+    /** «via Claude» (chat, fetta 3): l'azione di Claude per conto della persona; l'attore resta lei. */
+    viaClaudeActionId: uuid("via_claude_action_id")
+      .references((): AnyPgColumn => claudeActions.id, { onDelete: "set null" })
+      .default(VIA_CLAUDE_DEFAULT),
     kind: notificationKind("kind").notNull(),
     // Payload dell'evento, già completo di tutto ciò che serve a renderlo
     // (titolo del ticket, url, dettaglio). Il tipo forte è `NotificationEvent`
@@ -3167,6 +4552,9 @@ export const notifications = pgTable(
     handledByUserId: uuid("handled_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
+    // Area 9, F1 (0186): `archive` = archiviata dal destinatario (la sola che
+    // si ripristina), `decision` = chiusa da una decisione; NULL = altro.
+    handledAction: text("handled_action").$type<"archive" | "decision">(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -3224,6 +4612,9 @@ export const notificationDeliveries = pgTable(
     // Stesso tipo forte (`NotificationEvent`) e stesso cast lato consumatore.
     event: jsonb("event").$type<Record<string, unknown>>(),
     channel: deliveryChannel("channel").notNull(),
+    // Area 9, F3 (0188): il webhook di QUESTA consegna (una per webhook); null
+    // per gli altri canali e per le consegne di prima.
+    webhookId: uuid("webhook_id").references((): AnyPgColumn => outgoingWebhooks.id, { onDelete: "cascade" }),
     status: deliveryStatus("status").notNull().default("pending"),
     attempts: integer("attempts").notNull().default(0),
     // Non prima di questo istante: il backoff dei ritentativi lo sposta in
@@ -3309,6 +4700,79 @@ export const projectMembers = pgTable(
     primaryKey({ columns: [table.projectId, table.userId] }),
     // Progetti di UN utente: la PK (project_id, user_id) non la serve.
     index("project_members_user_id_idx").on(table.userId),
+  ],
+);
+
+/**
+ * Area 9, F1 (0185): i permessi PERSONALI di un membro, oltre al suo ruolo.
+ * Cadono col membro (FK composta, cascade). I permessi effettivi sono UNA
+ * funzione (docs/invariants/permissions.md): ruolo ∪ questi (∪ reparto, F8).
+ * Il permesso si valida nel codice, come `roles.permissions`.
+ */
+export const projectMemberPermissions = pgTable(
+  "project_member_permissions",
+  {
+    projectId: uuid("project_id").notNull(),
+    userId: uuid("user_id").notNull(),
+    permission: text("permission").notNull(),
+    grantedByUserId: uuid("granted_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    grantedAt: timestamp("granted_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "project_member_permissions_pkey", columns: [table.projectId, table.userId, table.permission] }),
+    foreignKey({
+      name: "project_member_permissions_member_fk",
+      columns: [table.projectId, table.userId],
+      foreignColumns: [projectMembers.projectId, projectMembers.userId],
+    }).onDelete("cascade"),
+    index("project_member_permissions_user_idx").on(table.userId),
+  ],
+);
+
+/**
+ * Area 9, F1 (0185, D-13): la foto del profilo, nel DB (lo storage può essere
+ * spento). PNG, JPEG o WebP, al più 512 KB (CHECK); il tipo lo DEDUCE il
+ * server dai magic bytes (docs/invariants/identity.md).
+ */
+export const userAvatars = pgTable(
+  "user_avatars",
+  {
+    userId: uuid("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    contentType: text("content_type").$type<"image/png" | "image/jpeg" | "image/webp">().notNull(),
+    bytes: bytea("bytes").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("user_avatars_type_chk", sql`${table.contentType} in ('image/png', 'image/jpeg', 'image/webp')`),
+    check("user_avatars_size_chk", sql`octet_length(${table.bytes}) <= 524288`),
+  ],
+);
+
+/**
+ * Area 9, F1 (0185, D-13): il cambio dell'email di login, con la verifica del
+ * nuovo indirizzo. Al più UNA richiesta pendente per persona; il token si
+ * salva come hash (docs/invariants/identity.md).
+ */
+export const emailChanges = pgTable(
+  "email_changes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    newEmail: text("new_email").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("email_changes_one_pending_idx")
+      .on(table.userId)
+      .where(sql`${table.confirmedAt} IS NULL AND ${table.cancelledAt} IS NULL`),
   ],
 );
 
@@ -3473,6 +4937,8 @@ export const agentQuestions = pgTable(
     answeredByUserId: uuid("answered_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
+    // Fetta 3b (0123): chiusa senza risposta perché il lavoro è stato annullato.
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
   },
   (table) => [
     // Una sola domanda APERTA per job. Indice unico PARZIALE: le domande già
@@ -3539,6 +5005,9 @@ export const plugins = pgTable("plugins", {
     .notNull()
     .default("idle"),
   smokeError: text("smoke_error"),
+  /** Chi l'ha registrato e chi ne ha cambiato il ref per ultimo (0226, rimandi lotto 5). */
+  registeredByUserId: uuid("registered_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  updatedByUserId: uuid("updated_by_user_id").references(() => users.id, { onDelete: "set null" }),
   materializedAt: timestamp("materialized_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -3775,6 +5244,8 @@ export const googleWorkspaces = pgTable("google_workspaces", {
   domains: text("domains").array().notNull(),
   clientId: text("client_id").notNull(),
   clientSecretEncrypted: text("client_secret_encrypted").notNull(),
+  /** Le ultime 4 del client secret (0225); null senza segreto, o per le righe di prima. */
+  clientSecretLast4: text("client_secret_last4"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -3810,12 +5281,40 @@ export const googleAccounts = pgTable(
     googleSub: text("google_sub").notNull(),
     refreshTokenEncrypted: text("refresh_token_encrypted").notNull(),
     scopes: text("scopes").array().notNull().default([]),
-    /** Toggle dell'utente: spenta, la casella non viene più sincronizzata. */
+    /**
+     * Toggle dell'utente: spente, la casella si LEGGE comunque (posta e
+     * calendario si aggiornano) ma non produce proposte (area 6, decisione
+     * del maintainer del 12 nov 2026, 0150; prima la casella si fermava).
+     */
     proposalsEnabled: boolean("proposals_enabled").notNull().default(true),
+    /**
+     * Quando le proposte sono state RIACCESE (0150): la posta ingerita prima
+     * (`email_messages.created_at`) non si classifica mai, così riaccenderle
+     * non sforna proposte sulla posta già letta. Null = nessun taglio.
+     */
+    proposalsSince: timestamp("proposals_since", { withTimezone: true }),
     /** Cursore della History API di Gmail. Null = primo giro (o history scaduta). */
     gmailHistoryId: text("gmail_history_id"),
     /** Cursore incrementale del calendario `primary`. Null = primo giro. */
     calendarSyncToken: text("calendar_sync_token"),
+    /**
+     * Area 6, F3b: la LINEA DI BASE del calendario. `null` = il prossimo giro
+     * completo è il primo dopo «tutti gli eventi»: ogni riga NUOVA che risulta
+     * candidata nasce con `outcome = { type: "baseline" }` (chiusa: niente
+     * proposta, card, né azione automatica), e a fine giro qui si scrive
+     * `now()`. Così il deploy non sforna proposte sugli eventi già esistenti.
+     * Una casella collegata dopo nasce con `now()` (default): propone come oggi.
+     */
+    calendarBaselineAt: timestamp("calendar_baseline_at", { withTimezone: true }).defaultNow(),
+    /**
+     * F3b: la linea di base della DOTTRINA NUOVA del calendario (flag
+     * `MAIL_CLASSIFY_V2`). `null` = il primo giro col flag acceso: ogni riga
+     * che DIVENTA candidata (nuova, o che prima non lo era) nasce chiusa
+     * (`baseline`), così accendere il flag non sforna proposte sugli eventi
+     * già visti. Null per tutte, anche le caselle nuove: è il flag a decidere
+     * quando arriva il primo giro.
+     */
+    calendarV2BaselineAt: timestamp("calendar_v2_baseline_at", { withTimezone: true }),
     connectedAt: timestamp("connected_at", { withTimezone: true }).notNull().defaultNow(),
     lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
     nextSyncAt: timestamp("next_sync_at", { withTimezone: true }).notNull().defaultNow(),
@@ -3824,16 +5323,47 @@ export const googleAccounts = pgTable(
     disabledReason: text("disabled_reason").$type<
       "revoked" | "invalid_grant" | "insufficient_scope" | "workspace_removed" | "sync_failed"
     >(),
+    /**
+     * «Aggiorna ora» (area 6, F1, 0149): la richiesta IN ATTESA. La scrive la
+     * rotta (con `next_sync_at = now()` e un `pg_notify`), la azzera il worker
+     * a fine giro di questa casella, riuscito o no. Null = nessuna richiesta.
+     */
+    syncRequestedAt: timestamp("sync_requested_at", { withTimezone: true }),
+    /** L'ultima richiesta fatta, che resta dopo il giro: il tetto dei 60 s. */
+    syncLastRequestedAt: timestamp("sync_last_requested_at", { withTimezone: true }),
+    /**
+     * La firma di Gmail dell'indirizzo della casella, in testo (area 6, F3,
+     * decisione M del maintainer: «la firma di Gmail»), letta con
+     * `gmail.modify` da `users.settings.sendAs`. Una COPIA per mostrarla nel
+     * compositore senza chiamare Google a ogni apertura: la riscrive ogni
+     * salvataggio di una bozza (che a Gmail parla già), e il compositore la
+     * rilegge da Google solo se manca o ha più di un giorno. `null` con
+     * `signature_fetched_at` valorizzato = la casella non ha firma.
+     */
+    signatureText: text("signature_text"),
+    signatureFetchedAt: timestamp("signature_fetched_at", { withTimezone: true }),
+    /**
+     * Lotto 8, voce 2 (0231): gli indirizzi da cui la casella può mandare
+     * (`users.settings.sendAs`, solo i VERIFICATI), con la firma di ciascuno.
+     * Una COPIA come la firma: si rilegge da Google se manca o ha più di un
+     * giorno (`send_as_fetched_at`). `[]` = mai letti (o casella senza
+     * `gmail.modify`): vale solo l'indirizzo della casella.
+     */
+    sendAs: jsonb("send_as")
+      .$type<{ email: string; displayName: string | null; isPrimary: boolean; isDefault: boolean; signature: string | null }[]>()
+      .notNull()
+      .default([]),
+    sendAsFetchedAt: timestamp("send_as_fetched_at", { withTimezone: true }),
   },
   (table) => [
     uniqueIndex("google_accounts_email_unique").on(table.email),
     // Le caselle di un utente si leggono insieme (pagina Account, pagina Posta).
     index("google_accounts_user_id_idx").on(table.userId),
     // Claim del poller: la prossima casella dovuta. Indice PARZIALE sulle sole
-    // caselle vive e con le proposte accese — le altre non vengono mai pescate.
+    // caselle vive (dalla 0150 anche con le proposte spente: si leggono).
     index("google_accounts_due_idx")
       .on(table.nextSyncAt)
-      .where(sql`disabled_at is null and proposals_enabled`),
+      .where(sql`disabled_at is null`),
     check(
       "google_accounts_disabled_reason_chk",
       sql`disabled_reason is null or disabled_reason in ('revoked', 'invalid_grant', 'insufficient_scope', 'workspace_removed', 'sync_failed')`,
@@ -3864,6 +5394,14 @@ export const oauthStates = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     /** Valorizzato alla prima verifica riuscita: un secondo callback è rifiutato. */
     consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    /**
+     * Rimandi, lotto 4 (§6, 0221): dove torna il callback. `desktop` = la pagina
+     * `/app/#/desktop-google` con `returnState` (lo state dell'app, non quello
+     * firmato); null = il web di sempre. Li decide `beginConnect`, MAI la query
+     * del callback.
+     */
+    client: text("client").$type<"web" | "desktop">(),
+    returnState: text("return_state"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -3968,6 +5506,39 @@ export const emailMessages = pgTable(
     receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
     /** Etichette Gmail del messaggio: le usa il routing (`gmail_label`). */
     labels: text("labels").array().notNull().default([]),
+    /**
+     * Letto / non letto, sincronizzato con Gmail (area 6, F1, D5 = b; 0149):
+     * dall'etichetta `UNREAD` all'ingestione, poi dai cambi della history a
+     * ogni giro e dalla rotta «segna come letto» (scritto SOLO dopo il sì di
+     * Google). Null = non ancora saputo (righe di prima), letto come `false`.
+     * `labels` qui sopra non si rilegge dalla history: non è questa la fonte.
+     */
+    unread: boolean("unread"),
+    /**
+     * Area 6, F2 (0151): il Message-ID RFC dell'header, la chiave dell'email
+     * fra le caselle (la stessa email in due caselle si classifica una volta
+     * e ha UNA proposta per progetto, D4). Null nelle righe di prima.
+     */
+    rfcMessageId: text("rfc_message_id"),
+    /**
+     * Lo stato della classificazione NUOVA (D3): `off` (nessuna casella che
+     * la contiene ha le proposte accese), `pending`, `failed`, `done`. Null =
+     * righe di prima (il percorso di `status`).
+     */
+    classificationState: text("classification_state").$type<"off" | "pending" | "failed" | "done">(),
+    /**
+     * Area 6, F5a (0165): `transcript` per l'email degli appunti di Gemini,
+     * riconosciuta dal worker SOLO con mittente, DKIM di google.com e link al
+     * Doc (fail-closed: in dubbio è un'email). La classificazione nuova la
+     * salta: le sue proposte sono quelle della riunione (`meeting_notes`).
+     */
+    kind: text("kind").$type<"email" | "transcript">().notNull().default("email"),
+    /** Importanza (D3, tre livelli del prototipo), solo con `done`. */
+    importance: text("importance").$type<"high" | "normal" | "low">(),
+    /** Scadenza estratta dal modello: una DATA (`YYYY-MM-DD`), non un istante. */
+    dueDate: date("due_date", { mode: "string" }),
+    /** I progetti candidati fra cui il modello è incerto («Quale progetto?»). */
+    uncertainProjectIds: uuid("uncertain_project_ids").array().notNull().default([]),
     textExcerpt: text("text_excerpt"),
     /**
      * AMMESSO dal cancello dell'ammissione (fase 6c, `admit()`), oppure
@@ -3986,6 +5557,13 @@ export const emailMessages = pgTable(
      * condizione della fase 6b e sarebbe il PRIMO a sparire, lasciando una
      * conversazione coi buchi (`pruneOldEmails`, Task 9).
      */
+    /**
+     * Area 8, «Clienti in attesa» (0183): il giudizio di Claude «serve una MIA
+     * risposta?» su questo messaggio come ULTIMO del thread, per questa
+     * casella. Null = non giudicato; vale solo finché il messaggio è l'ultimo.
+     */
+    replyJudgment: jsonb("reply_judgment").$type<{ needsMyReply: boolean; reason: string; model?: string; at: string } | { error: string; at: string }>(),
+    replyJudgmentAttempts: smallint("reply_judgment_attempts").notNull().default(0),
     admitted: boolean("admitted").notNull().default(true),
     projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
     candidateProjectIds: uuid("candidate_project_ids").array().notNull().default([]),
@@ -4037,6 +5615,7 @@ export const emailMessages = pgTable(
       "email_messages_signal_chk",
       sql`signal is null or signal in ('decision', 'request', 'deadline', 'blocker', 'none')`,
     ),
+    check("email_messages_kind_chk", sql`kind in ('email', 'transcript')`),
   ],
 );
 
@@ -4133,6 +5712,25 @@ export const emailRejections = pgTable(
 );
 
 /**
+ * Lotto 9, voce 2 (a): la scelta del progetto di un evento singolo con più
+ * progetti candidati (`calendar_events.project_guess`). `projectId` è uno dei
+ * `candidates` o `null` (il modello non è sicuro, o i tentativi sono finiti:
+ * nasce la «Quale progetto?»). `reason` è il motivo breve del modello (testo
+ * GENERATO: non si mostra e non entra mai nel registro decisioni). `by`:
+ * `model` (il run), `reused` (copiato da un'altra copia dello stesso
+ * `ical_uid`), `exhausted` (tentativi finiti), `person` (scelto da una
+ * persona sulla «Quale progetto?»), `single` (gli invitati portano ormai a
+ * meno di due progetti: niente da scegliere, nessun run).
+ */
+export interface CalendarProjectGuess {
+  projectId: string | null;
+  reason: string;
+  at: string;
+  by: "model" | "reused" | "exhausted" | "person" | "single";
+  candidates: string[];
+}
+
+/**
  * EVENTO del calendario `primary` di una casella, in perimetro come la posta
  * (Fase 6).
  *
@@ -4144,6 +5742,8 @@ export const emailRejections = pgTable(
  *
  * Per il calendario NON c'è nessun run del modello: la proposta di milestone è
  * deterministica (titolo + data), quindi qui non esiste una `classification`.
+ * L'unica eccezione (lotto 9, voce 2 (a)) è la scelta del PROGETTO fra più
+ * candidati, in `project_guess` ({@link CalendarProjectGuess}).
  */
 export const calendarEvents = pgTable(
   "calendar_events",
@@ -4215,6 +5815,52 @@ export const calendarEvents = pgTable(
      * serie, insieme ad `accountId`.
      */
     recurringEventId: text("recurring_event_id"),
+    /**
+     * Area 6, F3b: il calendario salva TUTTI gli eventi della finestra.
+     * `proposal_candidate` separa l'evento VISTO dal candidato a una proposta:
+     * solo un candidato può diventarlo (a flag spento: le regole di oggi,
+     * `routeEvent(...).inScope`). Default true: le righe di prima erano tutte
+     * in perimetro.
+     */
+    proposalCandidate: boolean("proposal_candidate").notNull().default(true),
+    /** Il tipo di Google (`default`, `outOfOffice`, `focusTime`, `fromGmail`…), aperto. */
+    eventType: text("event_type"),
+    /** `opaque` | `transparent`: un evento «libero» non occupa (F4). */
+    transparency: text("transparency"),
+    /** Chi ha deciso il progetto: le regole, la dottrina nuova, una persona. */
+    projectBy: text("project_by").$type<"rules" | "model" | "manual">(),
+    /** F4: la versione di Google (If-Match: una scrittura su un evento cambiato è `changed_on_google`). */
+    etag: text("etag"),
+    /** F4: lo stesso evento in tutti i calendari che lo vedono (il progetto a mano vale per tutti, Q1). */
+    icalUid: text("ical_uid"),
+    /** F4: `default` | `public` | `private` | `confidential`. Un `private` occupa, senza dettagli. */
+    visibility: text("visibility"),
+    /** F4: l'organizzatore è la casella (canEdit). */
+    organizerSelf: boolean("organizer_self").notNull().default(false),
+    /**
+     * F5a (0165): gli allegati dell'evento (`fileId`, titolo, tipo, link):
+     * Gemini ci attacca il Doc degli appunti, ed è il collegamento più sicuro
+     * fra la sua email e la riunione. Testo NON fidato.
+     */
+    attachments: jsonb("attachments").$type<{ fileId: string | null; title: string | null; mimeType: string | null; fileUrl: string | null }[]>().notNull().default([]),
+    /**
+     * Lotto 9, voce 2 (d), 0234: la proposta CONDIVISA fra gli invitati a cui
+     * questa copia dell'evento è stata legata ({@link calendarProposals}). È
+     * il marcatore del percorso condiviso: una riga legata non passa più dal
+     * percorso per casella. `null` per le occorrenze delle serie (sempre per
+     * casella) e per le righe di prima.
+     */
+    calendarProposalId: uuid("calendar_proposal_id").references((): AnyPgColumn => calendarProposals.id, { onDelete: "set null" }),
+    /**
+     * Lotto 9, voce 2 (a), 0235: il progetto INDOVINATO per un evento singolo
+     * con più progetti candidati (dottrina nuova). `null` = da indovinare;
+     * `projectId: null` = il modello non è sicuro (o i tentativi sono finiti)
+     * e l'evento diventa una «Quale progetto?» condivisa fra i `candidates`.
+     * Le copie dello stesso `ical_uid` lo riusano (`calendar-guess.ts`).
+     */
+    projectGuess: jsonb("project_guess").$type<CalendarProjectGuess>(),
+    /** I tentativi FALLITI della scelta (errore del modello), con un tetto. */
+    projectGuessAttempts: smallint("project_guess_attempts").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
@@ -4223,12 +5869,19 @@ export const calendarEvents = pgTable(
   },
   (table) => [
     uniqueIndex("calendar_events_account_event_unique").on(table.accountId, table.googleEventId),
+    index("calendar_events_calendar_proposal_id_idx").on(table.calendarProposalId),
     // "Questo appuntamento l'abbiamo già trattato?": la lettura per fingerprint
     // dentro la casella, fatta per ogni evento di ogni ciclo.
     index("calendar_events_account_fingerprint_idx").on(table.accountId, table.fingerprint),
     // "Le occorrenze di questa serie": la fase D ("gli appuntamenti visti" per
     // serie) e il propose phase (isReadyForProposal consapevole della serie).
     index("calendar_events_account_recurring_idx").on(table.accountId, table.recurringEventId),
+    // F3b: `range` per casella e finestra, e la potatura (`starts_at` vecchio).
+    index("calendar_events_account_starts_idx").on(table.accountId, table.startsAt),
+    // F4: tutte le righe dello stesso evento (il progetto a mano, Q1).
+    index("calendar_events_ical_uid_idx").on(table.icalUid),
+    // La potatura: un DELETE su tutta la tabella per la fine dell'evento (review F3b).
+    index("calendar_events_ends_idx").using("btree", sql`coalesce(${table.endsAt}, ${table.startsAt})`),
     check(
       "calendar_events_status_chk",
       sql`status is null or status in ('confirmed', 'tentative', 'cancelled')`,
@@ -4333,6 +5986,64 @@ export const calendarSeries = pgTable(
 );
 
 /**
+ * UNA RIUNIONE REGISTRATA (area 6, F5a, 0165): gli appunti di Gemini, uno per
+ * Doc (`doc_file_id` unico: la stessa email arriva a più caselle). Il Doc si
+ * legge SOLO con la casella che ha ricevuto la prima copia
+ * (`source_message_id`), con `drive.readonly`; il testo NON si salva — resta
+ * su Google, e serve solo al run. `summary` è NARRATIVA generata (mai nel
+ * registro decisioni).
+ *
+ * ⚠️ Chi la vede NON è scritto qui: si deriva a lettura
+ * (`meeting-visibility.ts` in `@stubwise/notifications`) dagli invitati
+ * ATTUALI dell'evento collegato (`ical_uid`, le righe di `calendar_events`)
+ * — `attendee_emails` è solo il ripiego quando non ne resta nessuna — o,
+ * senza evento, dai destinatari dell'email. È l'eccezione dichiarata a
+ * «Posta e Calendario personali» (`docs/invariants/mail-calendar.md`).
+ */
+export const meetingNotes = pgTable(
+  "meeting_notes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    docFileId: text("doc_file_id").notNull(),
+    rfcMessageId: text("rfc_message_id"),
+    sourceMessageId: uuid("source_message_id")
+      .notNull()
+      .references(() => emailMessages.id, { onDelete: "cascade" }),
+    /** L'evento collegato (C3 del piano), se c'è. */
+    icalUid: text("ical_uid"),
+    eventStartsAt: timestamp("event_starts_at", { withTimezone: true }),
+    eventTitle: text("event_title"),
+    docTitle: text("doc_title"),
+    docStatus: text("doc_status").$type<"reading" | "ready" | "unreachable">().notNull().default("reading"),
+    docReason: text("doc_reason").$type<"scope_missing" | "not_shared" | "deleted" | "too_long" | "not_verified">(),
+    /**
+     * Review F5a, punto 2 (0166): TUTTI i link a un Google Doc dell'email, in
+     * ordine. Il primo può venire dal titolo della riunione (lo sceglie
+     * l'organizzatore): il worker legge solo il candidato che VERIFICA su Drive
+     * (`doc_file_id` diventa quello), altrimenti `not_verified`.
+     */
+    docCandidates: text("doc_candidates").array().notNull().default([]),
+    summary: text("summary"),
+    attendeeEmails: text("attendee_emails").array().notNull().default([]),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("meeting_notes_doc_file_id_unique").on(table.docFileId),
+    index("meeting_notes_ical_uid_idx").on(table.icalUid),
+    index("meeting_notes_reading_idx").on(table.nextAttemptAt).where(sql`doc_status = 'reading'`),
+    check("meeting_notes_doc_status_chk", sql`doc_status in ('reading', 'ready', 'unreachable')`),
+    check("meeting_notes_doc_reason_chk", sql`doc_reason is null or doc_reason in ('scope_missing', 'not_shared', 'deleted', 'too_long', 'not_verified')`),
+  ],
+);
+
+/**
  * PROPOSTA per-progetto di un messaggio email (fase 6b — multi-progetto).
  * `email_messages` resta il messaggio grezzo con un solo esito legacy; questa
  * tabella è la riga FIGLIA, una per ogni progetto nello `scopeProjectIds` del
@@ -4371,6 +6082,31 @@ export const emailProposals = pgTable(
     }),
     outcome: jsonb("outcome").$type<Record<string, unknown>>(),
     error: text("error"),
+    /**
+     * Area 6, F2 (0151, D4): la chiave della proposta CONDIVISA (unica con
+     * `project_id`); null nelle righe di prima, che restano per casella.
+     */
+    rfcMessageId: text("rfc_message_id"),
+    /**
+     * Chi la riceve: `mailbox_owner` (le righe di prima, una casella) o
+     * `mail_recipients` (i destinatari in Stubwise membri del progetto, in
+     * `email_proposal_recipients`; MAI gli admin non destinatari).
+     */
+    audience: text("audience").$type<"mailbox_owner" | "mail_recipients" | "meeting_invitees">().notNull().default("mailbox_owner"),
+    /**
+     * F5a (0165): la riunione da cui nasce una proposta con `audience =
+     * meeting_invitees` (gli invitati di Stubwise, vedi `meeting_notes`).
+     */
+    meetingNoteId: uuid("meeting_note_id").references(() => meetingNotes.id, { onDelete: "cascade" }),
+    /** La decisione, una per tutti: chi e quando. */
+    decidedByUserId: uuid("decided_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    /** La conferma PARZIALE: gli indici delle azioni eseguite (null = tutte o nessuna). */
+    confirmedIndices: integer("confirmed_indices").array(),
+    /** Cosa è nato: `[{ kind, id, code }]` (i codici, «AUD-12»). */
+    results: jsonb("results").$type<{ kind: string; id: string; code: string | null }[]>(),
+    handedAt: timestamp("handed_at", { withTimezone: true }),
+    handedByUserId: uuid("handed_by_user_id").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
@@ -4378,6 +6114,9 @@ export const emailProposals = pgTable(
       .$onUpdate(() => new Date()),
   },
   (table) => [
+    uniqueIndex("email_proposals_rfc_message_id_project_id_unique")
+      .on(table.rfcMessageId, table.projectId)
+      .where(sql`rfc_message_id is not null`),
     uniqueIndex("email_proposals_email_message_id_project_id_unique").on(
       table.emailMessageId,
       table.projectId,
@@ -4394,6 +6133,115 @@ export const emailProposals = pgTable(
       "email_proposals_status_chk",
       sql`status in ('classified', 'proposed', 'actioned', 'ignored', 'failed')`,
     ),
+    check("email_proposals_audience_chk", sql`audience in ('mailbox_owner', 'mail_recipients', 'meeting_invitees')`),
+  ],
+);
+
+/**
+ * I destinatari di una proposta CONDIVISA (area 6, F2, 0151, D4): i
+ * destinatari dell'email (mittente, to, cc) che sono utenti di Stubwise e
+ * membri del progetto, uno per persona, con la notifica della loro inbox.
+ * Una persona che non è qui non vede la proposta.
+ */
+export const emailProposalRecipients = pgTable(
+  "email_proposal_recipients",
+  {
+    proposalId: uuid("proposal_id")
+      .notNull()
+      .references(() => emailProposals.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    notificationId: uuid("notification_id").references(() => notifications.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "email_proposal_recipients_pk", columns: [table.proposalId, table.userId] }),
+    index("email_proposal_recipients_user_id_idx").on(table.userId),
+    index("email_proposal_recipients_notification_id_idx").on(table.notificationId),
+  ],
+);
+
+/**
+ * LE PROPOSTE DEL CALENDARIO CONDIVISE fra gli invitati (lotto 9, voce 2 (d),
+ * 0234). Una per appuntamento e progetto: `ical_uid` riconosce lo stesso
+ * evento fra le caselle (le copie sono un evento solo), l'unique
+ * `(ical_uid, project_id)` è l'idempotenza di chi la crea — la prima casella
+ * che la trova la crea, le altre ci si legano. Audience `event_invitees`: gli
+ * invitati di Stubwise che non hanno rifiutato e sono membri ESPLICITI del
+ * progetto, scritti in {@link calendarProposalRecipients}. Solo gli eventi
+ * SINGOLI: le occorrenze delle serie restano per casella
+ * (`calendar_events.proposal_notification_id`).
+ *
+ * `title`/`starts_at`/`all_day` sono una copia dell'evento al momento della
+ * proposta: l'estratto «titolo · data» lo vede ogni destinatario, anche chi
+ * non ha l'evento nel suo calendario. Lo stato e l'esito sono qui, mai sulle
+ * righe `calendar_events`.
+ */
+export const calendarProposals = pgTable(
+  "calendar_proposals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    icalUid: text("ical_uid").notNull(),
+    /**
+     * Il progetto della proposta. `null` (lotto 9, voce 2 (a), 0235) = una
+     * «Quale progetto?»: la domanda fra `candidateProjectIds`, UNA per
+     * appuntamento (indice unico parziale); decisa, chi l'ha decisa sceglie il
+     * progetto e l'evento torna al percorso di progetto.
+     */
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    /** Solo per la «Quale progetto?» (`projectId` nullo): i progetti fra cui scegliere. */
+    candidateProjectIds: uuid("candidate_project_ids").array(),
+    audience: text("audience").$type<"event_invitees">().notNull().default("event_invitees"),
+    /** La copia dell'evento da cui è nata (la casella che l'ha trovata per prima). */
+    calendarEventId: uuid("calendar_event_id").references((): AnyPgColumn => calendarEvents.id, { onDelete: "set null" }),
+    googleEventId: text("google_event_id").notNull(),
+    title: text("title"),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    allDay: boolean("all_day").notNull().default(false),
+    status: text("status").$type<"proposed" | "actioned" | "ignored" | "failed">().notNull().default("proposed"),
+    outcome: jsonb("outcome").$type<Record<string, unknown>>(),
+    error: text("error"),
+    decidedByUserId: uuid("decided_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("calendar_proposals_ical_uid_project_id_unique").on(table.icalUid, table.projectId),
+    uniqueIndex("calendar_proposals_ical_uid_choose_unique").on(table.icalUid).where(sql`project_id is null`),
+    check("calendar_proposals_choose_chk", sql`(project_id is null) = (candidate_project_ids is not null)`),
+    check("calendar_proposals_status_chk", sql`status in ('proposed', 'actioned', 'ignored', 'failed')`),
+    check("calendar_proposals_audience_chk", sql`audience in ('event_invitees')`),
+  ],
+);
+
+/**
+ * I destinatari di una proposta del calendario condivisa (0234): uno per
+ * persona, con la card della sua inbox. `declined_at`: ha rifiutato l'invito
+ * DOPO la pubblicazione — la sua card è chiusa, e la proposta per lui non
+ * c'è più. Una persona che non è qui non la vede.
+ */
+export const calendarProposalRecipients = pgTable(
+  "calendar_proposal_recipients",
+  {
+    proposalId: uuid("proposal_id")
+      .notNull()
+      .references(() => calendarProposals.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    notificationId: uuid("notification_id").references(() => notifications.id, { onDelete: "set null" }),
+    declinedAt: timestamp("declined_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "calendar_proposal_recipients_pk", columns: [table.proposalId, table.userId] }),
+    index("calendar_proposal_recipients_user_id_idx").on(table.userId),
+    index("calendar_proposal_recipients_notification_id_idx").on(table.notificationId),
   ],
 );
 
@@ -4472,7 +6320,7 @@ export const agentSessions = pgTable(
     index("agent_sessions_email_message_id_idx").on(table.emailMessageId),
     check(
       "agent_sessions_kind_chk",
-      sql`kind in ('ai_job','pr_review','backlog_item','backlog_job','doc_generation','email_message','project_brief','daily_report','backlog_refine')`,
+      sql`kind in ('ai_job','pr_review','backlog_item','backlog_job','doc_generation','email_message','project_brief','daily_report','backlog_refine','free','chat_mention')`,
     ),
     check(
       "agent_sessions_email_owner_chk",
@@ -4510,7 +6358,7 @@ export const agentSessionEvents = pgTable(
       .where(sql`type in ('tool_use','assistant_text')`),
     check(
       "agent_session_events_type_chk",
-      sql`type in ('segment_start','assistant_text','tool_use','tool_result','input','turn_end','segment_end')`,
+      sql`type in ('segment_start','assistant_text','tool_use','tool_result','input','turn_end','segment_end','proposal','actions_executed','question','aside','capabilities')`,
     ),
   ],
 );
@@ -4525,6 +6373,12 @@ export const agentSessionInputs = pgTable(
     authorUserId: uuid("author_user_id").references(() => users.id, { onDelete: "set null" }),
     text: text("text").notNull(),
     interrupt: boolean("interrupt").notNull().default(false),
+    /**
+     * Lotto 8, voce 3 (0232): i contesti della conversazione com'erano quando il
+     * messaggio è partito (null fuori dalle conversazioni con Claude, o prima).
+     * Li scrive il server all'invio; l'evento `input` li riceve a lettura.
+     */
+    contexts: jsonb("contexts").$type<{ kind: string; id: string }[]>(),
     status: text("status").$type<AgentInputStatus>().notNull().default("pending"),
     reason: text("reason").$type<AgentInputReason>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -4739,9 +6593,10 @@ export const vaultRecoveryChallenges = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    sessionId: text("session_id")
-      .notNull()
-      .references(() => sessions.id, { onDelete: "cascade" }),
+    // Della sessione del browser, o (0236, la cassaforte dal desktop) del PAT
+    // desktop col suo sigillo: una delle due, e il PAT solo per `actor`.
+    sessionId: text("session_id").references(() => sessions.id, { onDelete: "cascade" }),
+    patId: uuid("pat_id").references(() => personalAccessTokens.id, { onDelete: "cascade" }),
     secretHash: text("secret_hash").notNull(),
     kind: text("kind").$type<"recovery" | "actor">().notNull().default("recovery"),
     personKeyId: uuid("person_key_id").references(() => vaultPersonKeys.id, { onDelete: "cascade" }),
@@ -4752,9 +6607,80 @@ export const vaultRecoveryChallenges = pgTable(
   (table) => [
     index("vault_recovery_challenges_expires_at_idx").on(table.expiresAt),
     check(
+      "vault_recovery_challenges_holder_chk",
+      sql`(${table.sessionId} is null) <> (${table.patId} is null) and (${table.patId} is null or ${table.kind} = 'actor')`,
+    ),
+    check(
       "vault_recovery_challenges_kind_chk",
       sql`(${table.kind} = 'recovery' and ${table.personKeyId} is null) or (${table.kind} = 'actor' and ${table.personKeyId} is not null)`,
     ),
+  ],
+);
+
+/**
+ * L'associazione di un Mac alla cassaforte (0236,
+ * `docs/plans/2026-11-24-cassaforte-desktop-design.md` §6.2): la chiede il
+ * main col suo PAT desktop, la completa il browser con la passkey. Solo
+ * l'hash dello `state`; 10 minuti; `used_at` la consuma una volta. `id` è il
+ * `deviceId` dell'AAD del sigillo e diventa l'id del sigillo.
+ */
+export const vaultDevicePairings = pgTable(
+  "vault_device_pairings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    patId: uuid("pat_id")
+      .notNull()
+      .references(() => personalAccessTokens.id, { onDelete: "cascade" }),
+    stateHash: text("state_hash").notNull().unique(),
+    devicePublicKey: text("device_public_key").notNull(),
+    deviceName: text("device_name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+  },
+  (table) => [index("vault_device_pairings_pat_id_idx").on(table.patId)],
+);
+
+export type VaultDeviceSealRevokedReason = "forgotten" | "removed" | "admin_removed" | "replaced";
+
+/**
+ * Il sigillo del dispositivo (0236): la privata di persona avvolta per la
+ * pubblica di un Mac. Busta opaca: il server non la apre. Uno vivo per PAT
+ * desktop; la revoca è `revoked_at` e vale anche a LETTURA
+ * (`apps/server/src/vault/device-access.ts`).
+ */
+export const vaultDeviceSeals = pgTable(
+  "vault_device_seals",
+  {
+    id: uuid("id").primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    personKeyId: uuid("person_key_id")
+      .notNull()
+      .references(() => vaultPersonKeys.id, { onDelete: "cascade" }),
+    patId: uuid("pat_id")
+      .notNull()
+      .references(() => personalAccessTokens.id, { onDelete: "cascade" }),
+    devicePublicKey: text("device_public_key").notNull(),
+    seal: text("seal").notNull(),
+    deviceName: text("device_name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedReason: text("revoked_reason").$type<VaultDeviceSealRevokedReason>(),
+  },
+  (table) => [
+    check("vault_device_seals_revoked_chk", sql`(${table.revokedAt} is null) = (${table.revokedReason} is null)`),
+    check(
+      "vault_device_seals_reason_chk",
+      sql`${table.revokedReason} is null or ${table.revokedReason} in ('forgotten', 'removed', 'admin_removed', 'replaced')`,
+    ),
+    uniqueIndex("vault_device_seals_one_live_per_pat_idx").on(table.patId).where(sql`${table.revokedAt} is null`),
+    index("vault_device_seals_user_id_idx").on(table.userId),
   ],
 );
 
@@ -4852,10 +6778,1537 @@ export const credentialAccessLog = pgTable(
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
     userEmail: text("user_email").notNull(),
     action: text("action").$type<"show" | "copy">().notNull(),
+    // 0236 (D-8): da dove si è letta, e da quale Mac.
+    via: text("via").$type<"browser" | "desktop">().notNull().default("browser"),
+    deviceSealId: uuid("device_seal_id").references(() => vaultDeviceSeals.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     check("credential_access_log_action_chk", sql`${table.action} in ('show', 'copy')`),
+    check("credential_access_log_via_chk", sql`${table.via} in ('browser', 'desktop')`),
     index("credential_access_log_project_id_created_at_idx").on(table.projectId, table.createdAt),
   ],
 );
+
+/**
+ * Passaggio del login dal browser al desktop (0112): un codice monouso che il
+ * browser chiede con una sessione completa, legato al challenge PKCE del
+ * desktop. Solo l'hash del codice; 2 minuti; `used_at` lo consuma una volta.
+ */
+export const desktopHandoffs = pgTable(
+  "desktop_handoffs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    codeHash: text("code_hash").notNull().unique(),
+    codeChallenge: text("code_challenge").notNull(),
+    deviceName: text("device_name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+  },
+  (table) => [index("desktop_handoffs_user_idx").on(table.userId)],
+);
+
+/**
+ * Il giorno (1 = lunedì … 5 = venerdì, null = «in settimana») in cui
+ * l'assegnatario si mette una task (0113): personale, per quella settimana e
+ * quell'assegnatario. Il trigger `tickets_reset_day_arrangements` la cancella
+ * quando cambiano davvero settimana o assegnatario.
+ */
+export const taskDayArrangements = pgTable(
+  "task_day_arrangements",
+  {
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    week: date("week", { mode: "string" }).notNull(),
+    // `smallint` come nella 0113: 1–5 (lunedì–venerdì), null = senza giorno.
+    day: smallint("day"),
+  },
+  (table) => [
+    primaryKey({ name: "task_day_arrangements_pk", columns: [table.ticketId, table.userId, table.week] }),
+    index("task_day_arrangements_user_week_idx").on(table.userId, table.week),
+    check("task_day_arrangements_week_monday_chk", sql`extract(isodow from week) = 1`),
+    check("task_day_arrangements_day_chk", sql`day IS NULL OR day BETWEEN 1 AND 5`),
+  ],
+);
+
+/**
+ * Filtri salvati dell'app nuova (0116, integrazione area 2, fetta 3). Tabella
+ * nuova: `saved_views` del web vecchio resta intatta. `owner_id` null = un
+ * filtro di esempio (`seed_key`) o di una persona eliminata. I criteri li
+ * valida `filterCriteriaSchema` di `@stubwise/shared` in scrittura.
+ */
+export const taskFilters = pgTable(
+  "task_filters",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerId: uuid("owner_id").references(() => users.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    visibility: text("visibility", { enum: ["private", "public"] }).notNull(),
+    criteria: jsonb("criteria").$type<Record<string, unknown>>().notNull().default({}),
+    view: text("view", { enum: ["list", "board", "timeline"] }).notNull(),
+    groupBy: text("group_by", {
+      enum: ["none", "status", "assignee", "department", "milestone", "week", "project"],
+    }).notNull(),
+    seedKey: text("seed_key").unique("task_filters_seed_key_unique"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("task_filters_owner_idx").on(table.ownerId)],
+);
+
+/** I filtri fissati nella colonna, per persona e in ordine (0116). */
+export const pinnedTaskFilters = pgTable(
+  "pinned_task_filters",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    filterId: uuid("filter_id")
+      .notNull()
+      .references(() => taskFilters.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+  },
+  (table) => [
+    primaryKey({ name: "pinned_task_filters_pk", columns: [table.userId, table.filterId] }),
+    index("pinned_task_filters_filter_idx").on(table.filterId),
+  ],
+);
+
+/**
+ * Ruoli di reparto (0117, integrazione area 2, fetta 3): i permessi di
+ * REPARTO di una persona su un reparto (`DEPARTMENT_PERMISSIONS` di
+ * `@stubwise/shared`). Decidono la disposizione della Home, non l'accesso.
+ */
+export const departmentRoles = pgTable(
+  "department_roles",
+  {
+    departmentId: uuid("department_id")
+      .notNull()
+      .references(() => departments.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    permissions: text("permissions").array().notNull().default(sql`'{}'::text[]`),
+  },
+  (table) => [
+    primaryKey({ name: "department_roles_pk", columns: [table.departmentId, table.userId] }),
+    index("department_roles_user_idx").on(table.userId),
+  ],
+);
+
+/** Un blocco della Home come si salva: `{ kind, filterId? }` (`homeBlockSchema`). */
+export type StoredHomeBlock = { kind: string; filterId?: string };
+
+/** La Home predefinita di un reparto (0117). */
+export const departmentHomes = pgTable("department_homes", {
+  departmentId: uuid("department_id")
+    .primaryKey()
+    .references(() => departments.id, { onDelete: "cascade" }),
+  blocks: jsonb("blocks").$type<StoredHomeBlock[]>().notNull().default([]),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedById: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+});
+
+/** La Home personalizzata (0117): senza riga si usa l'unione dei reparti. */
+export const personalHomes = pgTable("personal_homes", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  blocks: jsonb("blocks").$type<StoredHomeBlock[]>().notNull().default([]),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** L'ultima Home di reparto vista da chi ha la Home personale (0117). */
+export const personalHomeSeen = pgTable(
+  "personal_home_seen",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    departmentId: uuid("department_id")
+      .notNull()
+      .references(() => departments.id, { onDelete: "cascade" }),
+    seenAt: timestamp("seen_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [primaryKey({ name: "personal_home_seen_pk", columns: [table.userId, table.departmentId] })],
+);
+
+
+/**
+ * Area 4, Chat (0135; design `docs/plans/2026-11-10-integrazione-area4-chat-design.md`).
+ * I canali: di progetto (fetta 1: il «general» e i canali aperti), generali e
+ * DM (fetta 2). Chi vede e chi scrive lo decide `apps/server/src/chat/access.ts`.
+ * Il «general» è UNO per progetto (indice unico parziale), non si archivia né
+ * si elimina, e i suoi membri sono quelli del progetto (derivati, non qui).
+ */
+export const chatChannels = pgTable(
+  "chat_channels",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<"project" | "general" | "dm">().notNull(),
+    visibility: text("visibility").$type<"open" | "private">().notNull().default("open"),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    topic: text("topic").notNull().default(""),
+    isGeneral: boolean("is_general").notNull().default(false),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    archivedBy: uuid("archived_by").references(() => users.id, { onDelete: "set null" }),
+    publishedEvents: text("published_events").array().notNull().default(sql`'{}'`),
+    /** Solo un DM: gli id delle sue persone, ordinati e separati da virgole (0137). */
+    dmKey: text("dm_key"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("chat_channels_project_idx").on(table.projectId),
+    index("chat_channels_dm_key_idx").on(table.dmKey).where(sql`${table.kind} = 'dm'`),
+    // Nomi unici solo fra i canali NON privati: un 409 non deve rivelare un privato (D2).
+    uniqueIndex("chat_channels_general_name_idx")
+      .on(table.name)
+      .where(sql`${table.kind} = 'general' and ${table.visibility} <> 'private'`),
+    check("chat_channels_dm_key_chk", sql`(${table.kind} = 'dm') = (${table.dmKey} is not null)`),
+    uniqueIndex("chat_channels_one_general_idx").on(table.projectId).where(sql`${table.isGeneral}`),
+    uniqueIndex("chat_channels_project_name_idx")
+      .on(table.projectId, table.name)
+      .where(sql`${table.projectId} is not null and ${table.visibility} <> 'private'`),
+    check("chat_channels_kind_chk", sql`${table.kind} in ('project', 'general', 'dm')`),
+    check("chat_channels_visibility_chk", sql`${table.visibility} in ('open', 'private')`),
+    // Un canale di progetto ha il progetto; il «general» è un canale di progetto.
+    check("chat_channels_project_chk", sql`(${table.kind} = 'project') = (${table.projectId} is not null)`),
+  ],
+);
+
+/** I membri di un canale (non del «general», che ha quelli del progetto). */
+export const chatChannelMembers = pgTable(
+  "chat_channel_members",
+  {
+    channelId: uuid("channel_id")
+      .notNull()
+      .references(() => chatChannels.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    joinedAt: timestamp("joined_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "chat_channel_members_pk", columns: [table.channelId, table.userId] }),
+    index("chat_channel_members_user_idx").on(table.userId),
+  ],
+);
+
+/**
+ * I messaggi. Un thread ha UN livello (`thread_root_id` punta a una radice).
+ * Eliminato: niente testo, garantito dal CHECK (come i commenti). Le menzioni
+ * le ricava il server dal testo (`mentioned_ids`, alla scrittura).
+ */
+export const chatMessages = pgTable(
+  "chat_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    channelId: uuid("channel_id")
+      .notNull()
+      .references(() => chatChannels.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
+    kind: text("kind").$type<"person" | "system" | "claude">().notNull().default("person"),
+    calledById: uuid("called_by_id").references(() => users.id, { onDelete: "set null" }),
+    threadRootId: uuid("thread_root_id").references((): AnyPgColumn => chatMessages.id, { onDelete: "cascade" }),
+    body: text("body").notNull(),
+    mentionedIds: uuid("mentioned_ids").array().notNull().default(sql`'{}'`),
+    asksReplyOf: uuid("asks_reply_of").array().notNull().default(sql`'{}'`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Ogni cambio lo porta avanti (modifica, eliminazione, reazione, risposta sulla radice): lo stream lo segue. */
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    editedAt: timestamp("edited_at", { withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedBy: uuid("deleted_by").references(() => users.id, { onDelete: "set null" }),
+    viaClaudeActionId: uuid("via_claude_action_id"),
+    /** Chi è già stato avvisato (menzione o domanda): una menzione rimessa non riparte (0137). */
+    notifiedIds: uuid("notified_ids").array().notNull().default(sql`'{}'`),
+    /** Una risposta mandata «anche nel canale» (0137). */
+    alsoInChannel: boolean("also_in_channel").notNull().default(false),
+    /** Il testo senza maiuscole né accenti, per la ricerca (`foldChatText`, 0137). */
+    searchFolded: text("search_folded").notNull().default(""),
+    /** Solo una risposta di @Claude (0140): la sua sessione (`chat_mention`, privata di chi chiama). */
+    agentSessionId: uuid("agent_session_id").references(() => agentSessions.id, { onDelete: "set null" }),
+    /** Solo una risposta di @Claude: il messaggio che l'ha chiamata. */
+    callMessageId: uuid("call_message_id").references((): AnyPgColumn => chatMessages.id, { onDelete: "set null" }),
+    claudeState: text("claude_state").$type<"working" | "waiting" | "done" | "failed" | "stopped">(),
+    claudeError: text("claude_error").$type<"forbidden" | "not_found" | "budget" | "other">(),
+    claudeRetried: boolean("claude_retried").notNull().default(false),
+    /**
+     * Solo un messaggio di SISTEMA (0141, fetta 4): l'evento del progetto e il
+     * suo oggetto. Li scrivono i trigger (`chat_publish_event`); il testo della
+     * scheda si deriva a lettura, il corpo resta vuoto.
+     */
+    eventKind: text("event_kind").$type<
+      "release_page" | "pr_opened" | "pr_merged" | "milestone_reached" | "brief_ready" | "request_new" | "task_closed"
+    >(),
+    eventRefKind: text("event_ref_kind").$type<"task" | "request" | "milestone" | "brief" | "release">(),
+    eventRefId: uuid("event_ref_id"),
+    /** `pr_opened`/`pr_merged`: la riga della PR (numero e repository a lettura). */
+    eventPrId: uuid("event_pr_id").references(() => ticketRepositories.id, { onDelete: "set null" }),
+    /** Numero e URL della PR al momento dell'evento: la riga della PR è mutabile. */
+    eventPrNumber: integer("event_pr_number"),
+    eventPrUrl: text("event_pr_url"),
+  },
+  (table) => [
+    index("chat_messages_channel_idx").on(table.channelId, table.createdAt),
+    index("chat_messages_search_idx").using("gin", sql`${table.searchFolded} gin_trgm_ops`),
+    index("chat_messages_thread_idx").on(table.threadRootId, table.createdAt),
+    index("chat_messages_updated_idx").on(table.channelId, table.updatedAt),
+    check("chat_messages_kind_chk", sql`${table.kind} in ('person', 'system', 'claude')`),
+    check("chat_messages_deleted_chk", sql`${table.deletedAt} is null or ${table.body} = ''`),
+    index("chat_messages_agent_session_idx").on(table.agentSessionId).where(sql`${table.agentSessionId} IS NOT NULL`),
+    check(
+      "chat_messages_event_chk",
+      sql`(${table.eventKind} is null and ${table.eventRefKind} is null and ${table.eventRefId} is null and ${table.eventPrId} is null and ${table.eventPrNumber} is null and ${table.eventPrUrl} is null) or (${table.kind} = 'system' and ${table.eventKind} in ('release_page', 'pr_opened', 'pr_merged', 'milestone_reached', 'brief_ready', 'request_new', 'task_closed') and ${table.eventRefKind} in ('task', 'request', 'milestone', 'brief', 'release') and ${table.eventRefId} is not null)`,
+    ),
+  ],
+);
+
+export const chatReactions = pgTable(
+  "chat_reactions",
+  {
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => chatMessages.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    emoji: text("emoji").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ name: "chat_reactions_pk", columns: [table.messageId, table.userId, table.emoji] })],
+);
+
+/** Fin dove chi guarda ha letto: il canale (`thread_root_id` null) o un thread. */
+export const chatReads = pgTable(
+  "chat_reads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    channelId: uuid("channel_id")
+      .notNull()
+      .references(() => chatChannels.id, { onDelete: "cascade" }),
+    threadRootId: uuid("thread_root_id").references(() => chatMessages.id, { onDelete: "cascade" }),
+    lastReadAt: timestamp("last_read_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("chat_reads_channel_idx").on(table.userId, table.channelId).where(sql`${table.threadRootId} is null`),
+    uniqueIndex("chat_reads_thread_idx").on(table.userId, table.threadRootId).where(sql`${table.threadRootId} is not null`),
+  ],
+);
+
+/** Il livello degli avvisi di un canale per una persona (assente = `all`). */
+export const chatChannelPrefs = pgTable(
+  "chat_channel_prefs",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    channelId: uuid("channel_id")
+      .notNull()
+      .references(() => chatChannels.id, { onDelete: "cascade" }),
+    level: text("level").$type<"all" | "mentions" | "muted">().notNull(),
+  },
+  (table) => [
+    primaryKey({ name: "chat_channel_prefs_pk", columns: [table.userId, table.channelId] }),
+    check("chat_channel_prefs_level_chk", sql`${table.level} in ('all', 'mentions', 'muted')`),
+  ],
+);
+
+/** Chi segue un thread: l'autore della radice, chi risponde, chi è nominato; `following` false = ha smesso. */
+export const chatThreadFollows = pgTable(
+  "chat_thread_follows",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    rootMessageId: uuid("root_message_id")
+      .notNull()
+      .references(() => chatMessages.id, { onDelete: "cascade" }),
+    following: boolean("following").notNull().default(true),
+  },
+  (table) => [primaryKey({ name: "chat_thread_follows_pk", columns: [table.userId, table.rootMessageId] })],
+);
+
+/**
+ * Le citazioni di un messaggio (0139): task, richieste, progetti, persone e
+ * pagine Docs. Nessuna FK verso l'oggetto (tabelle diverse): a lettura si
+ * filtrano su ciò che chi legge vede, e un oggetto che non c'è più non esce.
+ */
+export const chatMessageCitations = pgTable(
+  "chat_message_citations",
+  {
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => chatMessages.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<"task" | "request" | "project" | "person" | "doc" | "drive">().notNull(),
+    refId: uuid("ref_id").notNull(),
+    position: integer("position").notNull().default(0),
+  },
+  (table) => [
+    primaryKey({ name: "chat_message_citations_pk", columns: [table.messageId, table.kind, table.refId] }),
+    check("chat_message_citations_kind_chk", sql`${table.kind} in ('task', 'request', 'project', 'person', 'doc', 'drive')`),
+  ],
+);
+
+/**
+ * Gli allegati dei messaggi (0141, fetta 4). Nascono in sospeso
+ * (`messageId` null), caricati nel canale; un messaggio di chi li ha caricati,
+ * nello stesso canale, li lega. Il binario sta nello storage, mai nell'API: si
+ * scarica con un URL firmato, solo da chi legge il canale.
+ */
+export const chatMessageAttachments = pgTable(
+  "chat_message_attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    channelId: uuid("channel_id")
+      .notNull()
+      .references(() => chatChannels.id, { onDelete: "cascade" }),
+    messageId: uuid("message_id").references(() => chatMessages.id, { onDelete: "cascade" }),
+    uploaderId: uuid("uploader_id").references(() => users.id, { onDelete: "set null" }),
+    filename: text("filename").notNull(),
+    mimeType: text("mime_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    storageKey: text("storage_key").notNull(),
+    /** L'ordine nel messaggio (quello di `attachmentIds`). */
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("chat_message_attachments_storage_key_idx").on(table.storageKey),
+    index("chat_message_attachments_message_idx").on(table.messageId),
+    index("chat_message_attachments_pending_idx").on(table.createdAt).where(sql`${table.messageId} IS NULL`),
+  ],
+);
+
+/** La domanda che @Claude fa a chi l'ha chiamato (0140, R-G4): una per risposta. */
+export const chatClaudeQuestions = pgTable(
+  "chat_claude_questions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    replyMessageId: uuid("reply_message_id")
+      .notNull()
+      .references(() => chatMessages.id, { onDelete: "cascade" }),
+    text: text("text").notNull(),
+    options: jsonb("options").$type<{ label: string; description?: string }[]>().notNull(),
+    answerOptionIndex: integer("answer_option_index"),
+    answerText: text("answer_text"),
+    answeredBy: uuid("answered_by").references(() => users.id, { onDelete: "set null" }),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("chat_claude_questions_reply_idx").on(table.replyMessageId),
+    check("chat_claude_questions_answer_chk", sql`(${table.answeredAt} is null) = (${table.answeredBy} is null)`),
+  ],
+);
+
+/**
+ * Area 10, F7 (D-5 = a): i «Not now» delle righe «Claude can help you…», per
+ * persona, per tipo di suggerimento e per oggetto (`object_id` vuoto = la
+ * pagina senza oggetto). Togliere la persona toglie le sue righe.
+ */
+export const claudeSuggestionDismissals = pgTable(
+  "claude_suggestion_dismissals",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    objectId: text("object_id").notNull().default(""),
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ name: "claude_suggestion_dismissals_pk", columns: [table.userId, table.kind, table.objectId] })],
+);
+
+/**
+ * Area 10, F2 (0198): le domande a scelta di Claude nella conversazione
+ * libera, UNA per turno (`input_id`, l'input che lo apre). La gemella di
+ * `chat_claude_questions`, che sta sui messaggi di un canale.
+ */
+export const claudeConversationQuestions = pgTable(
+  "claude_conversation_questions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references((): AnyPgColumn => agentSessions.id, { onDelete: "cascade" }),
+    inputId: uuid("input_id").notNull(),
+    text: text("text").notNull(),
+    options: jsonb("options").$type<{ label: string; description?: string }[]>().notNull(),
+    answerOptionIndex: integer("answer_option_index"),
+    answerText: text("answer_text"),
+    answeredBy: uuid("answered_by").references(() => users.id, { onDelete: "set null" }),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    /** L'evento `question`: il filtro di chi legge una pubblica, come `claude_proposals.event_id`. */
+    eventId: bigint("event_id", { mode: "bigint" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("claude_conversation_questions_turn_idx").on(table.sessionId, table.inputId),
+    check(
+      "claude_conversation_questions_answer_chk",
+      sql`num_nonnulls(${table.answerOptionIndex}, ${table.answerText}) = (CASE WHEN ${table.answeredAt} IS NULL THEN 0 ELSE 1 END)`,
+    ),
+  ],
+);
+
+/** «Da decidere»: le domande della Chat che chi guarda ha ignorato (0137). */
+export const chatDismissedQuestions = pgTable(
+  "chat_dismissed_questions",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => chatMessages.id, { onDelete: "cascade" }),
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ name: "chat_dismissed_questions_pk", columns: [table.userId, table.messageId] })],
+);
+
+/**
+ * Le task e le richieste nate da un messaggio («→ AUD-14», 0137): il codice
+ * si DERIVA a lettura, filtrato per chi guarda. Una task o una richiesta
+ * eliminata porta via il legame.
+ */
+export const chatMessageLinks = pgTable(
+  "chat_message_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => chatMessages.id, { onDelete: "cascade" }),
+    ticketId: uuid("ticket_id").references(() => tickets.id, { onDelete: "cascade" }),
+    backlogItemId: uuid("backlog_item_id").references(() => backlogItems.id, { onDelete: "cascade" }),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("chat_message_links_message_idx").on(table.messageId),
+    uniqueIndex("chat_message_links_ticket_idx").on(table.messageId, table.ticketId).where(sql`${table.ticketId} IS NOT NULL`),
+    uniqueIndex("chat_message_links_backlog_idx")
+      .on(table.messageId, table.backlogItemId)
+      .where(sql`${table.backlogItemId} IS NOT NULL`),
+    check("chat_message_links_one_chk", sql`(${table.ticketId} is null) <> (${table.backlogItemId} is null)`),
+  ],
+);
+
+/**
+ * UNA CARTELLA GOOGLE COLLEGATA A UN PROGETTO (area 6, F5b, 0166): i suoi
+ * file entrano come riferimenti (`drive_files.folder_link_id`), letti SOLO
+ * con l'account di chi l'ha collegata (`account_id`). «Scaduta» si DERIVA:
+ * quell'account non c'è più, è disattivato o non ha `drive.readonly`.
+ */
+export const driveFolderLinks = pgTable(
+  "drive_folder_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    googleFolderId: text("google_folder_id").notNull(),
+    name: text("name").notNull(),
+    linkedBy: uuid("linked_by").references(() => users.id, { onDelete: "set null" }),
+    accountId: uuid("account_id").references(() => googleAccounts.id, { onDelete: "set null" }),
+    /**
+     * L'indirizzo di quella casella (0168): lo scrive un trigger a ogni
+     * scrittura di `account_id`, e resta quando la FK lo mette a NULL. Serve a
+     * riagganciare la cartella quando la stessa persona ricollega lo stesso
+     * indirizzo (`reattachDriveReferences`).
+     */
+    accountEmail: text("account_email"),
+    linkedAt: timestamp("linked_at", { withTimezone: true }).notNull().defaultNow(),
+    /** L'ultima sincronizzazione RIUSCITA (al collegamento, «Sincronizza ora» o quella del giorno: QB1 = b). */
+    syncedAt: timestamp("synced_at", { withTimezone: true }),
+    /** Una sincronizzazione chiesta (collegamento, «Sincronizza ora»): il worker la serve al prossimo giro. */
+    syncRequestedAt: timestamp("sync_requested_at", { withTimezone: true }),
+    /** Il lease del worker: due giri non sincronizzano la stessa cartella insieme. */
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    /** Il motivo dell'ultima sincronizzazione fallita (per i log; non esce verso i client). */
+    syncError: text("sync_error"),
+  },
+  (table) => [uniqueIndex("drive_folder_links_project_folder_idx").on(table.projectId, table.googleFolderId)],
+);
+
+/**
+ * Un file del Drive di un progetto (0143, area 5 fetta 2): oggi solo CARICATO
+ * (`source` upload; i riferimenti Google arrivano con l'area 6). Il codice è
+ * `<PRJ>-F<number>`, mai riusato: eliminare lascia una lapide (`deletedAt`) e
+ * la riga sparisce da ogni lettura; l'oggetto si toglie dopo il commit
+ * (`storagePurged`, ritentato dal timer del server). Il nome è unico fra i
+ * file vivi del progetto, senza maiuscole.
+ */
+export const driveFiles = pgTable(
+  "drive_files",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    number: integer("number").notNull(),
+    source: text("source").$type<"upload" | "google">().notNull().default("upload"),
+    name: text("name").notNull(),
+    mime: text("mime").notNull(),
+    type: text("type").$type<"document" | "sheet" | "slides" | "pdf" | "image" | "other">().notNull(),
+    /** Null per un riferimento Google nativo (un Doc non ha byte) — area 6, F5b. */
+    sizeBytes: bigint("size_bytes", { mode: "number" }),
+    /** Solo per un caricato: un riferimento Google NON ha una copia in archiviazione (F5b, 0166). */
+    storageKey: text("storage_key"),
+    addedBy: uuid("added_by").references(() => users.id, { onDelete: "set null" }),
+    /**
+     * Area 6, F5b (0166): il RIFERIMENTO a un file di Google Drive. Il file
+     * resta su Google (i permessi li applica Google a chi apre); Stubwise ne
+     * tiene il testo come per un caricato, letto con l'account di chi l'ha
+     * aggiunto o di chi ha collegato la sua cartella — mai con un altro.
+     */
+    googleFileId: text("google_file_id"),
+    googleOwner: text("google_owner"),
+    /**
+     * La casella Google con cui Stubwise LEGGE il riferimento (B3): quella di
+     * chi l'ha aggiunto, o di chi ha collegato la sua cartella. Mai un'altra.
+     */
+    googleAccountId: uuid("google_account_id").references(() => googleAccounts.id, { onDelete: "set null" }),
+    /** L'indirizzo di quella casella (0168, trigger): come `drive_folder_links.account_email`. */
+    googleAccountEmail: text("google_account_email"),
+    folderLinkId: uuid("folder_link_id").references(() => driveFolderLinks.id, { onDelete: "set null" }),
+    /** Un file di cartella nascosto (`drive.manage`): la sincronizzazione non lo rimette. */
+    hidden: boolean("hidden").notNull().default(false),
+    hiddenBy: uuid("hidden_by").references(() => users.id, { onDelete: "set null" }),
+    hiddenAt: timestamp("hidden_at", { withTimezone: true }),
+    /** L'ultima modifica su Google (un riferimento) o il caricamento. */
+    modifiedAt: timestamp("modified_at", { withTimezone: true }),
+    /**
+     * `deleted`: sparito da Google, lo scrive la sincronizzazione. ⚠️ «Accesso
+     * perso» NON si scrive: si deriva a lettura dall'account di chi ha
+     * collegato la cartella (ricollegato, torna da solo).
+     */
+    unavailable: text("unavailable").$type<"deleted">(),
+    addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedBy: uuid("deleted_by").references(() => users.id, { onDelete: "set null" }),
+    storagePurged: boolean("storage_purged").notNull().default(false),
+    // Il contenuto (0145, fetta 3): lo scrive il worker; `no_text` ha sempre il motivo.
+    contentStatus: text("content_status").$type<"pending" | "processing" | "ready" | "no_text" | "unsupported" | "error">().notNull().default("pending"),
+    contentReason: text("content_reason").$type<"no_text_found" | "ocr_timeout" | "ocr_unavailable" | "unreadable" | "too_large" | "limits">(),
+    contentOcr: text("content_ocr").$type<"none" | "full" | "partial">(),
+    contentText: text("content_text"),
+    contentTruncated: boolean("content_truncated").notNull().default(false),
+    summary: text("summary"),
+    contentUpdatedAt: timestamp("content_updated_at", { withTimezone: true }),
+    // Nome + i primi 100.000 caratteri del testo (una tsvector regge al più 1 MB). Sola lettura.
+    contentTsv: tsvector("content_tsv").generatedAlwaysAs(
+      (): SQL => sql`to_tsvector('simple', regexp_replace(coalesce(${driveFiles.name}, ''), '[._-]+', ' ', 'g') || ' ' || left(coalesce(${driveFiles.contentText}, ''), 100000))`,
+    ),
+  },
+  (table) => [
+    uniqueIndex("drive_files_project_number_idx").on(table.projectId, table.number),
+    uniqueIndex("drive_files_storage_key_idx").on(table.storageKey),
+    // Il nome unico vale per i CARICATI (lo sceglie Stubwise, `uniqueName`): un riferimento porta il nome che ha su Google.
+    uniqueIndex("drive_files_live_name_idx").on(table.projectId, sql`lower(${table.name})`).where(sql`${table.deletedAt} IS NULL AND ${table.source} = 'upload'`),
+    // F5b: lo stesso file Google una volta per progetto (vivo): `already_in_project`.
+    uniqueIndex("drive_files_live_google_idx").on(table.projectId, table.googleFileId).where(sql`${table.deletedAt} IS NULL AND ${table.source} = 'google'`),
+    index("drive_files_folder_link_idx").on(table.folderLinkId),
+    check("drive_files_upload_storage_chk", sql`${table.source} <> 'upload' OR (${table.storageKey} IS NOT NULL AND ${table.sizeBytes} IS NOT NULL)`),
+    check("drive_files_google_id_chk", sql`${table.source} <> 'google' OR ${table.googleFileId} IS NOT NULL`),
+    check("drive_files_unavailable_chk", sql`${table.unavailable} IS NULL OR ${table.unavailable} = 'deleted'`),
+    index("drive_files_unpurged_idx").on(table.deletedAt).where(sql`${table.deletedAt} IS NOT NULL AND NOT ${table.storagePurged}`),
+    check("drive_files_source_chk", sql`${table.source} in ('upload', 'google')`),
+    check("drive_files_type_chk", sql`${table.type} in ('document', 'sheet', 'slides', 'pdf', 'image', 'other')`),
+    index("drive_files_content_tsv_idx").using("gin", table.contentTsv),
+    index("drive_files_content_pending_idx").on(table.addedAt).where(sql`${table.contentStatus} = 'pending' AND ${table.deletedAt} IS NULL`),
+    check("drive_files_content_status_chk", sql`${table.contentStatus} in ('pending', 'processing', 'ready', 'no_text', 'unsupported', 'error')`),
+    check("drive_files_content_reason_chk", sql`${table.contentReason} in ('no_text_found', 'ocr_timeout', 'ocr_unavailable', 'unreadable', 'too_large', 'limits')`),
+    check("drive_files_content_reason_status_chk", sql`(${table.contentStatus} = 'no_text') = (${table.contentReason} IS NOT NULL)`),
+    check("drive_files_content_ocr_chk", sql`${table.contentOcr} in ('none', 'full', 'partial')`),
+    check("drive_files_summary_len_chk", sql`char_length(${table.summary}) <= 600`),
+  ],
+);
+
+/** I passaggi del testo di un file del Drive con l'embedding (0145), come `doc_chunks`. La lapide li toglie. */
+export const driveFileChunks = pgTable(
+  "drive_file_chunks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    fileId: uuid("file_id")
+      .notNull()
+      .references(() => driveFiles.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    content: text("content").notNull(),
+    embedding: vector(1024),
+  },
+  (table) => [index("drive_file_chunks_file_idx").on(table.fileId), index("drive_file_chunks_embedding_idx").using("hnsw", table.embedding.op("vector_cosine_ops"))],
+);
+
+/** La coda del contenuto dei file del Drive (0145): al più un job vivo per file, `FOR UPDATE SKIP LOCKED`. */
+export const driveContentJobs = pgTable(
+  "drive_content_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    fileId: uuid("file_id")
+      .notNull()
+      .references(() => driveFiles.id, { onDelete: "cascade" }),
+    status: text("status").$type<"queued" | "running" | "done" | "failed">().notNull().default("queued"),
+    attempts: integer("attempts").notNull().default(0),
+    error: text("error"),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("drive_content_jobs_active_unique").on(table.fileId).where(sql`status IN ('queued', 'running')`),
+    check("drive_content_jobs_status_chk", sql`${table.status} in ('queued', 'running', 'done', 'failed')`),
+  ],
+);
+
+/**
+ * Un oggetto dello storage rimasto senza riga (0144, review della fetta 2): un
+ * caricamento interrotto, un insert fallito, che lo storage non ha tolto
+ * subito. La pulizia oraria del server lo ritenta e toglie la riga.
+ */
+export const storageOrphans = pgTable(
+  "storage_orphans",
+  {
+    storageKey: text("storage_key").primaryKey(),
+    reason: text("reason").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("storage_orphans_created_at_idx").on(table.createdAt), check("storage_orphans_reason_chk", sql`${table.reason} <> ''`)],
+);
+
+/** Un'apertura di un file del Drive (0143): anteprima o download, per «Più usati» e la storia. */
+export const driveOpens = pgTable(
+  "drive_opens",
+  {
+    fileId: uuid("file_id")
+      .notNull()
+      .references(() => driveFiles.id, { onDelete: "cascade" }),
+    personId: uuid("person_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+    via: text("via").$type<"preview" | "download" | "google">().notNull(),
+  },
+  (table) => [index("drive_opens_file_at_idx").on(table.fileId, table.at), check("drive_opens_via_chk", sql`${table.via} in ('preview', 'download', 'google')`)],
+);
+
+/**
+ * Le bozze della posta (area 6, F3, 0153). Le bozze sono di GMAIL (D7 = b):
+ * testo e destinatari stanno su Gmail; qui solo ciò che Gmail non sa (modalità,
+ * citazione, il messaggio a cui si risponde) e `gmail_message_id`, la versione
+ * vista all'ultimo salvataggio (una bozza cambiata da Gmail: `draft_changed`).
+ * Una bozza ATTIVA per persona, casella, conversazione e modalità; `sending` =
+ * un invio in corso la sta portando via, e lo slot torna libero.
+ */
+export const mailDrafts = pgTable(
+  "mail_drafts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    accountId: uuid("account_id").notNull().references(() => googleAccounts.id, { onDelete: "cascade" }),
+    gmailDraftId: text("gmail_draft_id").notNull(),
+    gmailMessageId: text("gmail_message_id"),
+    /** Il thread Gmail; null = un'email nuova. */
+    threadId: text("thread_id"),
+    mode: text("mode").$type<"new" | "reply" | "replyAll" | "forward">().notNull(),
+    replyToMessageId: uuid("reply_to_message_id").references(() => emailMessages.id, { onDelete: "set null" }),
+    quote: boolean("quote").notNull().default(true),
+    /** Lotto 8, voce 2 (0231): l'indirizzo da cui parte (uno degli alias verificati); null = l'indirizzo predefinito. */
+    fromAddress: text("from_address"),
+    /**
+     * La COPIA dell'ultimo salvataggio (destinatari, oggetto, testo): la fonte
+     * resta la bozza di Gmail, ma leggerla da lì costerebbe una chiamata per
+     * bozza *(O)*. Una modifica fatta da Gmail si scopre al salvataggio dopo
+     * (`gmail_message_id` diverso: `draft_changed`).
+     */
+    toAddresses: jsonb("to_addresses").$type<{ email: string; name: string | null }[]>().notNull().default([]),
+    ccAddresses: jsonb("cc_addresses").$type<{ email: string; name: string | null }[]>().notNull().default([]),
+    subject: text("subject").notNull().default(""),
+    body: text("body").notNull().default(""),
+    /**
+     * Il Message-ID che mettiamo noi nel MIME (review F3, punto 6), stabile
+     * per la bozza: il poller riconosce così l'email mandata da Stubwise anche
+     * prima che il mittente ne scriva il `gmail_message_id`.
+     */
+    rfcMessageId: text("rfc_message_id"),
+    state: text("state").$type<"active" | "sending">().notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("mail_drafts_slot_unique")
+      .on(table.userId, table.accountId, sql`coalesce(${table.threadId}, '')`, table.mode)
+      .where(sql`state = 'active'`),
+    index("mail_drafts_user_id_idx").on(table.userId),
+    check("mail_drafts_mode_chk", sql`${table.mode} in ('new', 'reply', 'replyAll', 'forward')`),
+    check("mail_drafts_state_chk", sql`${table.state} in ('active', 'sending')`),
+  ],
+);
+
+/** Gli allegati di una bozza: un file caricato (storage) o del Drive del progetto. */
+export const mailDraftAttachments = pgTable(
+  "mail_draft_attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    draftId: uuid("draft_id").notNull().references(() => mailDrafts.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    mimeType: text("mime_type").notNull(),
+    storageKey: text("storage_key"),
+    driveFileId: uuid("drive_file_id").references(() => driveFiles.id, { onDelete: "set null" }),
+    as: text("as").$type<"copy" | "link">().notNull().default("copy"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("mail_draft_attachments_draft_id_idx").on(table.draftId),
+    check("mail_draft_attachments_as_chk", sql`${table.as} in ('copy', 'link')`),
+  ],
+);
+
+/**
+ * Gli invii trattenuti dal server (area 6, F3, D6: 10 s). Una riga per Invia,
+ * con chi l'ha chiesto; il worker la manda allo scadere di `send_at` e non
+ * ritenta MAI da solo un fallimento (Riprova è un gesto della persona).
+ */
+export const mailOutgoing = pgTable(
+  "mail_outgoing",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    accountId: uuid("account_id").notNull().references(() => googleAccounts.id, { onDelete: "cascade" }),
+    draftId: uuid("draft_id").references(() => mailDrafts.id, { onDelete: "set null" }),
+    /** Null per un'email d'automazione (0170, C-F2-1): la manda senza bozza. */
+    gmailDraftId: text("gmail_draft_id"),
+    threadId: text("thread_id"),
+    sendAt: timestamp("send_at", { withTimezone: true }).notNull(),
+    state: text("state").$type<"queued" | "sending" | "sent" | "failed" | "cancelled">().notNull().default("queued"),
+    error: text("error"),
+    gmailMessageId: text("gmail_message_id"),
+    /** Copiati da Invia (review F3, punti 6 e 10): servono dopo che la bozza se n'è andata. */
+    rfcMessageId: text("rfc_message_id"),
+    toAddresses: jsonb("to_addresses").$type<{ email: string; name: string | null }[]>().notNull().default([]),
+    ccAddresses: jsonb("cc_addresses").$type<{ email: string; name: string | null }[]>().notNull().default([]),
+    subject: text("subject").notNull().default(""),
+    body: text("body").notNull().default(""),
+    gmailThreadId: text("gmail_thread_id"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** L'esecuzione che l'ha chiesta (area 7, F2): null = una persona con Invia. FK in 0170. */
+    automationRunId: uuid("automation_run_id"),
+  },
+  (table) => [
+    index("mail_outgoing_automation_thread_idx").on(table.accountId, table.gmailThreadId).where(sql`${table.automationRunId} IS NOT NULL`),
+    check("mail_outgoing_draft_or_run_chk", sql`${table.gmailDraftId} IS NOT NULL OR ${table.automationRunId} IS NOT NULL`),
+    index("mail_outgoing_due_idx").on(table.sendAt).where(sql`state = 'queued'`),
+    index("mail_outgoing_user_id_idx").on(table.userId),
+    index("mail_outgoing_rfc_message_id_idx").on(table.accountId, table.rfcMessageId),
+    check("mail_outgoing_state_chk", sql`${table.state} in ('queued', 'sending', 'sent', 'failed', 'cancelled')`),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// Area 7, fetta 1 (0169): le Automations di progetto. Il piano è
+// `docs/plans/2026-11-12-integrazione-area7-fetta1-plan.md`; le regole in
+// `docs/invariants/automations.md`.
+// ---------------------------------------------------------------------------
+
+export const automationStatus = pgEnum("automation_status", ["draft", "active", "paused"]);
+/** `mailbox_lost` (0170, F2): la casella del proprietario non è più utilizzabile a metà esecuzione (F2-4). */
+export const automationPausedReason = pgEnum("automation_paused_reason", ["manual", "owner_lost_permission", "mailbox_lost"]);
+/** `waiting_event` (0170, F2): un `wait` (tempo, risposta, task chiusa). */
+export const automationRunStatus = pgEnum("automation_run_status", ["running", "waiting_approval", "waiting_project", "suspended", "done", "failed", "cancelled", "waiting_event"]);
+/** Da dove è partita (`AutomationRun.origin` di `@stubwise/shared`): un evento di Stubwise, a mano, o un'altra esecuzione. */
+export const automationRunOrigin = pgEnum("automation_run_origin", ["manual", "source", "stubwise", "schedule", "automation"]);
+/** `mail_received` (0170, F2): lo scrive il poller Google, non un trigger (C-F2-0). */
+export const automationEventKind = pgEnum("automation_event_kind", ["task_created", "task_closed", "request_created", "request_converted", "milestone_reached", "mail_received", "source_event"]);
+/** `email` (0170, F2): `object_id` è la riga `mail_outgoing`. `run` (0174, F4): l'esecuzione figlia di «avvia un'altra». */
+export const automationEffectKind = pgEnum("automation_effect_kind", ["task", "milestone", "request", "notification", "email", "run"]);
+
+/**
+ * Un'automazione: di progetto (codice `<PRJ>-A<seq>`) o GENERALE (`project_id`
+ * null, codice `AUT-<n>` dalla sequenza `automation_general_code_seq`, 0174),
+ * la versione pubblicata e (al più) una bozza.
+ */
+export const automations = pgTable(
+  "automations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    code: text("code").notNull(),
+    seq: integer("seq").notNull(),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    /** Null per una generale (0174, F4): agisce nel progetto che il passo dice. */
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    /** Chi ne risponde: i suoi permessi valgono a ogni effetto. Null finché una bozza non si accende. */
+    ownerId: uuid("owner_id").references(() => users.id, { onDelete: "set null" }),
+    status: automationStatus("status").notNull().default("draft"),
+    pausedBy: uuid("paused_by").references(() => users.id, { onDelete: "set null" }),
+    pausedAt: timestamp("paused_at", { withTimezone: true }),
+    pausedReason: automationPausedReason("paused_reason"),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdVia: text("created_via").$type<"claude">(),
+    /** Da quando è accesa: il consumatore ignora gli eventi nati prima (niente recupero retroattivo). */
+    activeSince: timestamp("active_since", { withTimezone: true }),
+    /** La casella scelta all'accensione, del proprietario di adesso (R-J15, 0170). */
+    mailboxAccountId: uuid("mailbox_account_id").references(() => googleAccounts.id, { onDelete: "set null" }),
+    /** Ascolta la posta della sua casella («email in arrivo»), scritto alla pubblicazione (0172, review F2 I2). */
+    listensMail: boolean("listens_mail").notNull().default(false),
+    /** Il tetto del webhook in arrivo, scelto da chi gestisce l'automazione (0174, F4-2 = c): null = il default. */
+    webhookPerMinute: integer("webhook_per_minute"),
+    webhookPerDay: integer("webhook_per_day"),
+  },
+  (table) => [
+    check("automations_webhook_caps_chk", sql`(${table.webhookPerMinute} IS NULL OR ${table.webhookPerMinute} > 0) AND (${table.webhookPerDay} IS NULL OR ${table.webhookPerDay} > 0)`),
+    index("automations_listens_mail_idx").on(table.mailboxAccountId).where(sql`${table.listensMail} AND ${table.status} = 'active'`),
+    uniqueIndex("automations_code_idx").on(table.code),
+    uniqueIndex("automations_project_seq_idx").on(table.projectId, table.seq),
+    check("automations_created_via_chk", sql`${table.createdVia} IS NULL OR ${table.createdVia} = 'claude'`),
+  ],
+);
+
+/** La sequenza dei codici per progetto: un codice non torna mai. */
+export const automationCodeSeqs = pgTable("automation_code_seqs", {
+  projectId: uuid("project_id")
+    .primaryKey()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  next: integer("next").notNull().default(1),
+});
+
+/** Le versioni: pubblicate (`publishedAt`) e al più una bozza. */
+export const automationVersions = pgTable(
+  "automation_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    automationId: uuid("automation_id")
+      .notNull()
+      .references(() => automations.id, { onDelete: "cascade" }),
+    n: integer("n").notNull(),
+    /** Il documento del flusso (`AutomationFlow` di `@stubwise/shared/automations`). */
+    flow: jsonb("flow").notNull(),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    publishedBy: uuid("published_by").references(() => users.id, { onDelete: "set null" }),
+    savedAt: timestamp("saved_at", { withTimezone: true }).notNull().defaultNow(),
+    savedBy: uuid("saved_by").references(() => users.id, { onDelete: "set null" }),
+    rev: integer("rev").notNull().default(1),
+    /** La revisione provata per ultima (R-J19: «non l'hai ancora provata»). */
+    testedRev: integer("tested_rev"),
+    /** Area 10, F2 (0198): la versione l'ha salvata Claude per conto di `saved_by`. */
+    viaClaudeActionId: uuid("via_claude_action_id").default(VIA_CLAUDE_DEFAULT),
+  },
+  (table) => [
+    uniqueIndex("automation_versions_n_idx").on(table.automationId, table.n),
+    uniqueIndex("automation_versions_one_draft_idx").on(table.automationId).where(sql`${table.publishedAt} IS NULL`),
+  ],
+);
+
+/** Un'esecuzione: lo stato del motore (`cursor`), l'approvazione pendente, la coda (lease). */
+export const automationRuns = pgTable(
+  "automation_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    automationId: uuid("automation_id")
+      .notNull()
+      .references(() => automations.id, { onDelete: "cascade" }),
+    n: integer("n").notNull(),
+    version: integer("version").notNull(),
+    title: text("title").notNull(),
+    status: automationRunStatus("status").notNull().default("running"),
+    event: jsonb("event"),
+    vars: jsonb("vars").notNull().default({}),
+    cursor: jsonb("cursor"),
+    pending: jsonb("pending"),
+    projectIds: uuid("project_ids").array().notNull().default(sql`'{}'::uuid[]`),
+    parentRunId: uuid("parent_run_id").references((): AnyPgColumn => automationRuns.id, { onDelete: "set null" }),
+    origin: automationRunOrigin("origin").notNull(),
+    startedBy: uuid("started_by").references(() => users.id, { onDelete: "set null" }),
+    error: text("error"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    /**
+     * Lotto 8, voce 1 (0230): i dettagli di un'esecuzione FINITA da più di 90
+     * giorni sono stati tolti (registro, effetti, input, evento, variabili; il
+     * titolo è diventato il nome dell'automazione). La riga resta, ridotta:
+     * numero, stato e date, per la numerazione, `lastRunAt` e l'origine.
+     */
+    detailsPrunedAt: timestamp("details_pruned_at", { withTimezone: true }),
+    dueAt: timestamp("due_at", { withTimezone: true }).defaultNow(),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    claimedBy: text("claimed_by"),
+    /** Un `wait` della risposta: `<accountId>:<gmailThreadId>` della conversazione (0170, C-F2-4). */
+    waitingThread: text("waiting_thread"),
+    /** Un `wait` della task chiusa: la task del flusso (0170, C-F2-4). */
+    waitingTicketId: uuid("waiting_ticket_id").references(() => tickets.id, { onDelete: "set null" }),
+    /**
+     * La casella di QUESTA esecuzione (0172, review F2 C1): da quella manda, su
+     * quella si sveglia, e solo il proprietario di quella casella ne legge la
+     * posta. Ripubblicare con un'altra casella non sposta le esecuzioni partite.
+     */
+    mailboxAccountId: uuid("mailbox_account_id").references(() => googleAccounts.id, { onDelete: "set null" }),
+    /**
+     * R-J13 lungo la catena (0174, F4): la casella della posta che l'EVENTO di
+     * questa esecuzione porta — per una figlia di «avvia un'altra», quella
+     * d'origine della catena. Se c'è, la posta la legge solo il proprietario di
+     * QUELLA casella, anche se la figlia è di un altro. Da `mailbox_account_id`
+     * invece l'esecuzione manda.
+     */
+    mailOriginAccountId: uuid("mail_origin_account_id").references(() => googleAccounts.id, { onDelete: "set null" }),
+    /**
+     * Review F4: l'EVENTO di questa esecuzione viene da fuori per intero,
+     * qualunque sia l'inizio del suo flusso — la figlia di «avvia un'altra»
+     * di una madre partita da una sorgente, da un'email o da una richiesta
+     * dal supporto (o che lo era a sua volta). La tinta (`taint.ts`,
+     * `eventUntrusted`) tratta ogni campo dell'inizio come non fidato, e
+     * l'esecutore forza l'approvazione sulle destinazioni che ne derivano.
+     */
+    eventUntrusted: boolean("event_untrusted").notNull().default(false),
+  },
+  (table) => [
+    uniqueIndex("automation_runs_n_idx").on(table.automationId, table.n),
+    // Pieno dalla 0170: serve anche alle attese a tempo (`waiting_event`).
+    index("automation_runs_due_idx").on(table.dueAt),
+    index("automation_runs_waiting_thread_idx").on(table.waitingThread).where(sql`${table.waitingThread} IS NOT NULL`),
+    index("automation_runs_waiting_ticket_idx").on(table.waitingTicketId).where(sql`${table.waitingTicketId} IS NOT NULL`),
+    index("automation_runs_parent_idx").on(table.parentRunId).where(sql`${table.parentRunId} IS NOT NULL`),
+  ],
+);
+
+/**
+ * La coda degli input di un'esecuzione: li scrive il server (approvazioni,
+ * progetto scelto, «Riprova», «Salta», riaccensione), li consuma l'esecutore
+ * del worker in ordine, sotto il lease dell'esecuzione.
+ */
+export const automationRunInputs = pgTable(
+  "automation_run_inputs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => automationRuns.id, { onDelete: "cascade" }),
+    input: jsonb("input").notNull(),
+    byId: uuid("by_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  },
+  (table) => [index("automation_run_inputs_pending_idx").on(table.runId, table.createdAt).where(sql`${table.consumedAt} IS NULL`)],
+);
+
+/** Il registro di un'esecuzione: append-only (un trigger rifiuta l'UPDATE). */
+export const automationRunLog = pgTable(
+  "automation_run_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => automationRuns.id, { onDelete: "cascade" }),
+    seq: integer("seq").notNull(),
+    /** L'id del passo (`RunLogEntry.stepId`); "trigger" per l'inizio. */
+    stepId: text("step_id").notNull(),
+    path: text("path").notNull(),
+    round: integer("round").notNull().default(0),
+    kind: text("kind").notNull(),
+    outcome: text("outcome").notNull(),
+    input: jsonb("input"),
+    output: jsonb("output"),
+    reason: text("reason"),
+    why: jsonb("why"),
+    byId: uuid("by_id").references(() => users.id, { onDelete: "set null" }),
+    effects: jsonb("effects"),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("automation_run_log_seq_idx").on(table.runId, table.seq)],
+);
+
+/** Gli effetti: uno per passo e giro (`<run>:<path>:<round>`), così un passo rifatto non duplica. */
+export const automationEffects = pgTable(
+  "automation_effects",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => automationRuns.id, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    round: integer("round").notNull().default(0),
+    idempotencyKey: text("idempotency_key").notNull(),
+    kind: automationEffectKind("kind").notNull(),
+    objectId: uuid("object_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("automation_effects_key_idx").on(table.idempotencyKey)],
+);
+
+/** L'idempotenza degli inizi a orario (area 7, F2, 0170): una riga per automazione e giorno locale (Europe/Rome). */
+export const automationScheduleFires = pgTable(
+  "automation_schedule_fires",
+  {
+    automationId: uuid("automation_id")
+      .notNull()
+      .references(() => automations.id, { onDelete: "cascade" }),
+    localDate: date("local_date", { mode: "string" }).notNull(),
+    runId: uuid("run_id").references(() => automationRuns.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ name: "automation_schedule_fires_pk", columns: [table.automationId, table.localDate] })],
+);
+
+/**
+ * L'outbox degli eventi (Q6, C1): la scrivono SOLO i trigger della 0169,
+ * nella transazione della scrittura. `txid` ordina gli eventi di una stessa
+ * transazione; `originRunId` è l'esecuzione che stava scrivendo (la catena).
+ */
+export const automationEvents = pgTable(
+  "automation_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: automationEventKind("kind").notNull(),
+    /** Null per un evento della posta (0170): ascoltano le automazioni della casella. */
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    /** La casella di un evento della posta (`mail_received`, 0170, C-F2-0). */
+    accountId: uuid("account_id").references(() => googleAccounts.id, { onDelete: "cascade" }),
+    /** Null per un evento della posta: un messaggio rifiutato dall'ammissione non ha una riga. */
+    objectId: uuid("object_id"),
+    /** La sorgente di un evento `source_event` (0174, F4): né progetto né casella. */
+    sourceId: uuid("source_id").references((): AnyPgColumn => automationSources.id, { onDelete: "cascade" }),
+    /** La deduplica di un evento senza riga (`mail:<accountId>:<gmailMessageId>`, `src:<sourceId>:<chiave>`). */
+    dedupeKey: text("dedupe_key"),
+    payload: jsonb("payload").notNull().default({}),
+    originRunId: uuid("origin_run_id"),
+    txid: bigint("txid", { mode: "number" }).notNull().default(sql`txid_current()`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("automation_events_pending_idx").on(table.createdAt).where(sql`${table.consumedAt} IS NULL`),
+    uniqueIndex("automation_events_dedupe_idx").on(table.dedupeKey).where(sql`${table.dedupeKey} IS NOT NULL`),
+    check("automation_events_project_or_account_chk", sql`${table.projectId} IS NOT NULL OR ${table.accountId} IS NOT NULL OR ${table.sourceId} IS NOT NULL`),
+  ],
+);
+
+/**
+ * Le sorgenti delle automazioni (0174, F4): per ora solo il webhook in arrivo.
+ * Il segreto dell'indirizzo è salvato come hash (sha256 esadecimale): esce in
+ * chiaro solo dalla creazione e dalla rigenerazione. `fields` sono i
+ * `DataField` derivati dall'esempio (`deriveFields` di shared), con etichetta
+ * e tipo modificabili.
+ */
+export const automationSources = pgTable(
+  "automation_sources",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: text("kind").$type<"webhook">().notNull(),
+    name: text("name").notNull(),
+    secretHash: text("secret_hash").notNull(),
+    example: jsonb("example"),
+    fields: jsonb("fields").notNull().default([]),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    regeneratedBy: uuid("regenerated_by").references(() => users.id, { onDelete: "set null" }),
+    regeneratedAt: timestamp("regenerated_at", { withTimezone: true }),
+  },
+  (table) => [uniqueIndex("automation_sources_secret_idx").on(table.secretHash), check("automation_sources_kind_chk", sql`${table.kind} = 'webhook'`)],
+);
+
+/** Gli eventi recenti di una sorgente (0174, F4-5/F4-6): li legge solo `integrations.manage`; gli ultimi 100. */
+export const automationSourceEvents = pgTable(
+  "automation_source_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sourceId: uuid("source_id")
+      .notNull()
+      .references(() => automationSources.id, { onDelete: "cascade" }),
+    status: text("status").$type<"accepted" | "duplicate" | "rejected">().notNull(),
+    reason: text("reason"),
+    payload: jsonb("payload"),
+    /** L'evento dell'outbox (per un accettato). */
+    eventId: uuid("event_id"),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  },
+  (table) => [
+    index("automation_source_events_source_idx").on(table.sourceId, table.receivedAt.desc()),
+    check("automation_source_events_status_chk", sql`${table.status} IN ('accepted', 'duplicate', 'rejected')`),
+  ],
+);
+
+/** Il tetto del webhook per finestra (0174, D3): contatori atomici (`INSERT … ON CONFLICT … RETURNING`). */
+export const automationSourceHits = pgTable(
+  "automation_source_hits",
+  {
+    sourceId: uuid("source_id")
+      .notNull()
+      .references(() => automationSources.id, { onDelete: "cascade" }),
+    window: text("window").$type<"minute" | "day">().notNull(),
+    windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+    count: integer("count").notNull().default(0),
+  },
+  (table) => [
+    primaryKey({ name: "automation_source_hits_pk", columns: [table.sourceId, table.window, table.windowStart] }),
+    check("automation_source_hits_window_chk", sql`${table.window} IN ('minute', 'day')`),
+  ],
+);
+
+/** La tabella cliente → progetto (0174, F4): la chiave è `clientKeyOf` di shared (trim + lower, un CHECK lo tiene). */
+export const clientProjectLinks = pgTable(
+  "client_project_links",
+  {
+    clientKey: text("client_key").primaryKey(),
+    clientName: text("client_name").notNull(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    addedBy: uuid("added_by").references(() => users.id, { onDelete: "set null" }),
+    addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [check("client_project_links_key_chk", sql`${table.clientKey} <> '' AND ${table.clientKey} = lower(btrim(${table.clientKey}))`)],
+);
+
+/**
+ * I RILASCI (area 8, fetta 1, 0175): un rilascio = un merge di una PR sul
+ * ramo di rilascio del repository, da Stubwise (`via_stubwise`) o da fuori
+ * (S-3 = a). Codice `<PRJ>-V<n>` (`release_code_seqs`, mai riusato). Lo STATO
+ * non si salva: si deriva dalle run di CI (`release_ci_runs`) o, senza
+ * pipeline, dal commit che l'agente riporta in produzione
+ * (`seen_in_production_at`). Un `(repository_id, merge_sha)` = un rilascio
+ * (riconsegne del webhook, corsa col merge da Stubwise).
+ */
+export const releases = pgTable(
+  "releases",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    code: text("code").notNull(),
+    seq: integer("seq").notNull(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    prNumber: integer("pr_number"),
+    prUrl: text("pr_url").notNull(),
+    title: text("title").notNull(),
+    mergeSha: text("merge_sha").notNull(),
+    mergedAt: timestamp("merged_at", { withTimezone: true }).notNull(),
+    /** La persona che ha fatto il merge, se collegata; null = fuori da Stubwise e non collegata. */
+    mergedBy: uuid("merged_by").references(() => users.id, { onDelete: "set null" }),
+    mergedGitName: text("merged_git_name"),
+    viaStubwise: boolean("via_stubwise").notNull(),
+    /** Le note della PR fermate al merge. */
+    releaseNotes: text("release_notes"),
+    seenInProductionAt: timestamp("seen_in_production_at", { withTimezone: true }),
+    /** Le run sono tutte concluse (o il poller ha smesso): il poller non lo rilegge più. */
+    runsSettledAt: timestamp("runs_settled_at", { withTimezone: true }),
+    /** La task di «Fai sistemare a Claude», se c'è. */
+    fixTicketId: uuid("fix_ticket_id").references(() => tickets.id, { onDelete: "set null" }),
+    /** L'avviso `release.failed` è partito (una volta sola). */
+    failedNotifiedAt: timestamp("failed_notified_at", { withTimezone: true }),
+    /** Area 8, F2 (0178): `release.succeeded` già avvisato (una volta sola). */
+    succeededNotifiedAt: timestamp("succeeded_notified_at", { withTimezone: true }),
+    /** Review F1 (0176): l'ultima lettura delle run di CI è fallita (null = letta, o mai provata). */
+    ciUnreadableAt: timestamp("ci_unreadable_at", { withTimezone: true }),
+    /** Review F1 (0176): quando il poller l'ha guardato l'ultima volta (il turno: i meno recenti prima). */
+    lastPolledAt: timestamp("last_polled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("releases_code_idx").on(table.code),
+    uniqueIndex("releases_project_seq_idx").on(table.projectId, table.seq),
+    uniqueIndex("releases_repository_merge_idx").on(table.repositoryId, table.mergeSha),
+    uniqueIndex("releases_repository_pr_idx").on(table.repositoryId, table.prNumber).where(sql`${table.prNumber} IS NOT NULL`),
+    index("releases_project_merged_idx").on(table.projectId, table.mergedAt.desc()),
+  ],
+);
+
+/** La sequenza dei codici dei rilasci per progetto: un codice non torna mai. */
+export const releaseCodeSeqs = pgTable("release_code_seqs", {
+  projectId: uuid("project_id")
+    .primaryKey()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  next: integer("next").notNull().default(1),
+});
+
+/** Le run di CI del commit di merge, lette dal provider (S-2 = a). */
+export const releaseCiRuns = pgTable(
+  "release_ci_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    releaseId: uuid("release_id")
+      .notNull()
+      .references(() => releases.id, { onDelete: "cascade" }),
+    providerRunId: text("provider_run_id").notNull(),
+    name: text("name").notNull(),
+    status: text("status").$type<"running" | "success" | "failed">().notNull(),
+    url: text("url"),
+    failedStep: text("failed_step"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    /** Revisione del lotto 2, I6 (0219): chi ha prodotto la run (`CommitRun.group`); null per quelle salvate prima. */
+    runGroup: text("run_group"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("release_ci_runs_release_run_idx").on(table.releaseId, table.providerRunId),
+    check("release_ci_runs_status_chk", sql`${table.status} IN ('running', 'success', 'failed')`),
+  ],
+);
+
+/**
+ * Area 8, F2 (0177): le iscrizioni agli avvisi del catalogo, per persona,
+ * progetto e tipo. Lo stato di ADESSO (upsert); nessuna riga = il default del
+ * catalogo (`@stubwise/shared`) dai permessi di adesso. `app` = la card in
+ * inbox, `phone` = il push (M-2 = b: per i tipi del catalogo sostituisce
+ * `users.notify_push`).
+ */
+export const alertSubscriptions = pgTable(
+  "alert_subscriptions",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    alertType: text("alert_type").notNull(),
+    app: boolean("app").notNull(),
+    phone: boolean("phone").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "alert_subscriptions_pk", columns: [table.userId, table.projectId, table.alertType] }),
+    index("alert_subscriptions_project_type_idx").on(table.projectId, table.alertType),
+    // 0212: il trattino basso anche nel primo segmento (`product_doc.*`).
+    check("alert_subscriptions_type_chk", sql`${table.alertType} ~ '^[a-z][a-z_]*(\\.[a-z_]+)+$'`),
+  ],
+);
+
+/** Le note di rilascio di una PR (fermate in `releases.release_notes` al merge). */
+export const prReleaseNotes = pgTable(
+  "pr_release_notes",
+  {
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    prNumber: integer("pr_number").notNull(),
+    body: text("body").notNull(),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ name: "pr_release_notes_pk", columns: [table.repositoryId, table.prNumber] })],
+);
+
+/**
+ * R-L2 (area 8, F1, 0175): su quale server gira una repository in un
+ * ambiente — repository diverse dello stesso progetto su server diversi. Al
+ * posto di `project_environments.server_id`, che resta inerte per il rollback.
+ */
+export const environmentServers = pgTable(
+  "environment_servers",
+  {
+    environmentId: uuid("environment_id")
+      .notNull()
+      .references(() => projectEnvironments.id, { onDelete: "cascade" }),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+    /** Area 8, F4b (0181): i container di quell'ambiente su QUEL server (l'attribuzione); vuoto = il container col nome dell'ambiente. */
+    containers: text("containers").array().notNull().default(sql`'{}'::text[]`),
+  },
+  (table) => [primaryKey({ name: "environment_servers_pk", columns: [table.environmentId, table.repositoryId] }), index("environment_servers_server_idx").on(table.serverId)],
+);
+
+// ---------------------------------------------------------------------------
+// Area 8, F4b (0181): le operazioni sui server. Le regole stanno in CLAUDE.md
+// («Stubwise non fa deploy») e in docs/invariants/server-operations.md.
+// ---------------------------------------------------------------------------
+
+/** La chiave Ed25519 d'istanza che firma i comandi; la privata cifrata a riposo, decifrata solo per firmare. */
+export const instanceSigningKeys = pgTable(
+  "instance_signing_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    publicKey: text("public_key").notNull(),
+    privateKeyEncrypted: text("private_key_encrypted").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    retiredAt: timestamp("retired_at", { withTimezone: true }),
+  },
+  (table) => [uniqueIndex("instance_signing_keys_active_idx").on(sql`(true)`).where(sql`${table.retiredAt} IS NULL`)],
+);
+
+/** Un'analisi per SERVER (F4b-4) e la sua attribuzione validata. */
+export const serverAnalyses = pgTable(
+  "server_analyses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+    episodeId: uuid("episode_id").references(() => serverEpisodes.id, { onDelete: "set null" }),
+    sessionId: uuid("session_id").references((): AnyPgColumn => agentSessions.id, { onDelete: "set null" }),
+    startedByUserId: uuid("started_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    status: text("status").$type<"running" | "done" | "failed" | "blocked">().notNull().default("running"),
+    blockedBy: text("blocked_by").$type<"monthly_budget" | "cap" | "disabled">(),
+    diagnosis: text("diagnosis"),
+    attributedProjectId: uuid("attributed_project_id").references(() => projects.id, { onDelete: "set null" }),
+    attribution: jsonb("attribution").$type<Record<string, unknown>>(),
+    taskId: uuid("task_id").references(() => tickets.id, { onDelete: "set null" }),
+    costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("server_analyses_episode_idx").on(table.episodeId).where(sql`${table.episodeId} IS NOT NULL`),
+    uniqueIndex("server_analyses_running_manual_idx").on(table.serverId).where(sql`${table.episodeId} IS NULL AND ${table.status} = 'running'`),
+    check("server_analyses_status_chk", sql`${table.status} in ('running', 'done', 'failed', 'blocked')`),
+    check("server_analyses_blocked_chk", sql`${table.blockedBy} is null or ${table.blockedBy} in ('monthly_budget', 'cap', 'disabled')`),
+  ],
+);
+
+/** Il piano approvato (copia ESATTA dei passi), chi e quando; un `change` si firma solo per un passo di uno non revocato. */
+export const serverOperationApprovals = pgTable("server_operation_approvals", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  serverId: uuid("server_id")
+    .notNull()
+    .references(() => servers.id, { onDelete: "cascade" }),
+  /** Null quando la task è sparita: l'approvazione resta, il registro la cita (review F4b, I5). */
+  taskId: uuid("task_id").references(() => tickets.id, { onDelete: "set null" }),
+  sessionId: uuid("session_id").references((): AnyPgColumn => agentSessions.id, { onDelete: "set null" }),
+  steps: jsonb("steps").$type<{ action: string; params: Record<string, unknown>; why: string }[]>().notNull(),
+  approvedByUserId: uuid("approved_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  approvedAt: timestamp("approved_at", { withTimezone: true }).notNull().defaultNow(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+});
+
+/**
+ * Area 8, F4b, S6 (0182): la correzione di un server, UNA per task, nel
+ * progetto ATTRIBUITO. Il piano (validato) sta qui, MAI nel piano del ticket
+ * (F4b-7): la pipeline del codice non lo vede.
+ */
+export const serverFixes = pgTable(
+  "server_fixes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    analysisId: uuid("analysis_id").references(() => serverAnalyses.id, { onDelete: "set null" }),
+    status: text("status")
+      .$type<"none" | "proposing" | "awaiting_approval" | "approved" | "running" | "done" | "failed" | "stopped" | "rejected">()
+      .notNull()
+      .default("none"),
+    steps: jsonb("steps").$type<{ action: string; params: Record<string, unknown>; why: string }[]>().notNull().default([]),
+    planError: text("plan_error"),
+    sessionId: uuid("session_id").references((): AnyPgColumn => agentSessions.id, { onDelete: "set null" }),
+    approvalId: uuid("approval_id").references(() => serverOperationApprovals.id, { onDelete: "set null" }),
+    currentStep: integer("current_step"),
+    stepCommands: jsonb("step_commands").$type<Record<string, string>>().notNull().default({}),
+    requestedByUserId: uuid("requested_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    rejectedByUserId: uuid("rejected_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    rejectedAt: timestamp("rejected_at", { withTimezone: true }),
+    rejectionNote: text("rejection_note"),
+    stoppedByUserId: uuid("stopped_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("server_fixes_task_idx").on(table.taskId),
+    index("server_fixes_server_idx").on(table.serverId),
+    check(
+      "server_fixes_status_chk",
+      sql`${table.status} in ('none', 'proposing', 'awaiting_approval', 'approved', 'running', 'done', 'failed', 'stopped', 'rejected')`,
+    ),
+    check("server_fixes_awaiting_has_steps_chk", sql`${table.status} <> 'awaiting_approval' or jsonb_array_length(${table.steps}) between 1 and 10`),
+    check("server_fixes_approved_chk", sql`${table.status} not in ('approved', 'running') or ${table.approvalId} is not null`),
+  ],
+);
+
+/** Il registro: ogni comando dell'agente e ogni lettura SSH. `id` è il nonce. */
+export const serverCommands = pgTable(
+  "server_commands",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+    sessionId: uuid("session_id").references((): AnyPgColumn => agentSessions.id, { onDelete: "set null" }),
+    analysisId: uuid("analysis_id").references(() => serverAnalyses.id, { onDelete: "set null" }),
+    approvalId: uuid("approval_id").references(() => serverOperationApprovals.id, { onDelete: "no action" }),
+    stepIndex: integer("step_index"),
+    via: text("via").$type<"agent" | "ssh">().notNull().default("agent"),
+    action: text("action").notNull(),
+    params: jsonb("params").$type<Record<string, unknown>>().notNull().default({}),
+    kind: text("kind").$type<"change" | "read">().notNull(),
+    requestedByUserId: uuid("requested_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    signature: text("signature"),
+    status: text("status").$type<"pending" | "delivered" | "done" | "failed" | "expired" | "cancelled">().notNull().default("pending"),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    output: text("output"),
+    exitCode: integer("exit_code"),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("server_commands_pending_idx").on(table.serverId, table.issuedAt).where(sql`${table.status} = 'pending'`),
+    index("server_commands_server_idx").on(table.serverId, table.issuedAt),
+    check("server_commands_kind_chk", sql`${table.kind} in ('change', 'read')`),
+    check("server_commands_via_chk", sql`${table.via} in ('agent', 'ssh')`),
+    check("server_commands_status_chk", sql`${table.status} in ('pending', 'delivered', 'done', 'failed', 'expired', 'cancelled')`),
+  ],
+);
+
+/** L'accesso SSH di SOLA lettura (Q3 = b): la privata cifrata, mai in una risposta. */
+export const serverSshAccess = pgTable("server_ssh_access", {
+  serverId: uuid("server_id")
+    .primaryKey()
+    .references(() => servers.id, { onDelete: "cascade" }),
+  kind: text("kind").$type<"read">().notNull().default("read"),
+  username: text("username").notNull().default("stubwise-read"),
+  host: text("host").notNull(),
+  port: integer("port").notNull().default(22),
+  hostKey: text("host_key"),
+  publicKey: text("public_key").notNull(),
+  privateKeyEncrypted: text("private_key_encrypted").notNull(),
+  status: text("status").$type<"pending" | "verified" | "failed" | "revoked">().notNull().default("pending"),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
+  verifyResult: jsonb("verify_result").$type<{ groups: string[]; sudo: boolean; docker: boolean; journal: boolean; ok: boolean }>(),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Area 9, F4 (0191): l'heartbeat dei worker, una riga per processo, riscritta
+ * a ogni giro del loop. «Attivo» = `seen_at` negli ultimi 2′. `running`: i
+ * lavori in mano (J-2 = a), `{ kind, id }`.
+ */
+export const workerHeartbeats = pgTable("worker_heartbeats", {
+  workerId: text("worker_id").primaryKey(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  seenAt: timestamp("seen_at", { withTimezone: true }).notNull().defaultNow(),
+  concurrency: integer("concurrency").notNull(),
+  running: jsonb("running").$type<{ kind: string; id: string }[]>().notNull().default([]),
+});
+export type WorkerHeartbeat = typeof workerHeartbeats.$inferSelect;

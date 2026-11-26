@@ -1,7 +1,7 @@
 import type { TFunction } from "i18next";
 import { useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { childLists, triggerFields } from "../../domain/automations/fields";
+import { childLists, triggerFields } from "@stubwise/shared";
 import type {
   Approval,
   AutomationFlow,

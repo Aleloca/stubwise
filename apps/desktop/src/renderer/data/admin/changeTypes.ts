@@ -1,4 +1,5 @@
-import { registerChangeTypes, type ChangeType } from "../changelog/index";
+import { registerChangeTypes } from "../changelog/registry";
+import type { ChangeType } from "../changelog/types";
 
 // I tipi di voce del registro dell'area 9a: persone, inviti, ruoli, reparti
 // (d'istanza) e membri (di progetto). Il `readPermission` è il permesso che
@@ -32,6 +33,8 @@ export const ADMIN_CHANGE_TYPES: readonly ChangeType[] = [
   instance("person.bitbucket_username_set", "users.manage", "people"),
   instance("person.deactivated", "users.manage", "people"),
   instance("person.reactivated", "users.manage", "people"),
+  // Area 9, R2: l'email di login cambiata da un admin (quella della persona è nel suo registro di sicurezza).
+  instance("person.email_changed", "users.manage", "security"),
   instance("invite.created", "users.invite", "invites"),
   instance("invite.revoked", "users.invite", "invites"),
   // L'ingresso (Task 5): chi accetta un invito, chi crea l'istanza al primo avvio.

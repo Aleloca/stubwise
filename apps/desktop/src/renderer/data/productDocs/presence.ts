@@ -1,5 +1,6 @@
 import { anchorIdsOf, anchorText, isTextBlock } from "../../domain/productDocs/blocks";
 import { insertText } from "../../domain/productDocs/richText";
+import { presenceColor } from "../../domain/productDocs/presence";
 import { sectionOf, sectionRange } from "../../domain/productDocs/sections";
 import { visiblePeopleFor } from "../access/whoCan";
 import { docsAccess } from "../docs/reads";
@@ -87,13 +88,6 @@ function readablePage(me: string, pageId: string): ProductPage {
   return page;
 }
 
-/** Il colore della presenza di una persona: lo stesso ovunque e a ogni ripristino. */
-function presenceColor(personId: string): ProductPresenceView["color"] {
-  let h = 0;
-  for (const ch of personId) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return ((h % 6) + 1) as ProductPresenceView["color"];
-}
-
 // --- chi guarda ---------------------------------------------------------------
 
 /** Entra nella pagina (senza scrivere) e, la prima volta nella generazione, avvia il copione. */
@@ -116,7 +110,13 @@ export function leaveProductPageAs(me: string, pageId: string): void {
  */
 export async function setProductPresence(
   pageId: string,
-  at: { anchorId: string; offset: number; selection?: [number, number] | null } | null,
+  /** `sectionId`: la sezione dell'ancora nella vista dell'editor (la usa la build app per la presa). */
+  at: {
+    anchorId: string;
+    offset: number;
+    selection?: [number, number] | null;
+    sectionId?: string;
+  } | null,
 ): Promise<void> {
   const me = await writer("productDocs.setProductPresence");
   const page = readablePage(me, pageId);

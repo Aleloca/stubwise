@@ -284,6 +284,11 @@ export class PushRejectedError extends GitCommandError {
  * `LC_ALL=C` perché il testo resti in inglese. "Updates were rejected" resta
  * nell'alternanza solo come rete, se gli hint tornassero.
  */
+// ⚠️ Lo legge anche il TETTO delle correzioni (rimandi, lotto 4): un rifiuto
+// riconosciuto qui diventa `PushRejectedError`, cioè una correzione SCARTATA
+// (`outcome: "discarded"`, correction.ts) che non consuma un giro del tetto.
+// Un rifiuto che questa regex non riconosce cade fra gli errori generici e
+// CONTA come un giro fallito.
 const PUSH_REJECTED_RE = /\[rejected\]|non-fast-forward|fetch first|Updates were rejected/i;
 
 /**
@@ -530,6 +535,15 @@ export class MirrorManager {
   /** Path (deterministico) della directory del mirror per il progetto. */
   mirrorDirFor(project: MirrorProject): string {
     return join(this.mirrorsDir, mirrorSlug(project.repoUrl));
+  }
+
+  /**
+   * Area 9, F6: toglie il mirror di un URL (un repository eliminato). Idempotente:
+   * una cartella che non c'è non è un errore. Chi chiama controlla prima che
+   * nessun altro repository usi lo stesso URL (il mirror è per URL).
+   */
+  async removeMirror(repoUrl: string): Promise<void> {
+    await rm(join(this.mirrorsDir, mirrorSlug(repoUrl)), { recursive: true, force: true });
   }
 
   /**

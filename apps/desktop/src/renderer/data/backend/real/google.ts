@@ -1,0 +1,297 @@
+import { ApiError } from "@stubwise/api-client";
+import type { GoogleAccount as ServerGoogleAccount } from "@stubwise/shared";
+import type * as Fake from "../../api";
+import type { GoogleAccount, GoogleFeature, GoogleWorkspaceChoice } from "../../types";
+import { featureIntegrated } from "../../integration";
+import { appClient, session } from "./client";
+
+// Il cassetto Google nella build app (area 6, fetta 1): le caselle di
+// `/api/me/google`, comuni a Drive, Posta e Calendario. Il prototipo ha UN
+// account Google per persona; il server una casella per Workspace. Il
+// cassetto mostra quella da ricollegare, se c'è, altrimenti la prima
+// (decisione B(a) dell'orchestratrice; più account nel cassetto: registro);
+// la Posta le mostra tutte (`mail.ts`).
+
+type Drive = typeof Fake.drive;
+
+/** Una casella da ricollegare: disattivata (token revocato) o senza gli scope del riconsenso unico. */
+export const needsReconnect = (a: ServerGoogleAccount) =>
+  a.disabledAt !== null || a.missingScopes.length > 0;
+
+/** Le mie caselle; 404/403 (Google non configurato sull'istanza) è nessuna. */
+export async function myAccounts(): Promise<ServerGoogleAccount[]> {
+  try {
+    return (await appClient().google.accounts()) as ServerGoogleAccount[];
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 404 || error.status === 403)) return [];
+    throw error;
+  }
+}
+
+/** La casella del cassetto: quella da ricollegare, se c'è, altrimenti la prima. */
+const drawerAccount = (accounts: readonly ServerGoogleAccount[]) =>
+  accounts.find(needsReconnect) ?? accounts[0] ?? null;
+
+/**
+ * Le funzioni di OGGI che ogni scope apre, per dire cosa manca a una casella
+ * da ricollegare. Solo quelle che esistono già: `drive.readonly` (F5) entra
+ * con la sua fetta; l'invio (F3) è anch'esso di `gmail.modify`.
+ */
+const FEATURES_OF_SCOPE: Readonly<Record<string, readonly GoogleFeature[]>> = {
+  "https://www.googleapis.com/auth/gmail.modify": ["markRead"],
+  // F4: creare, modificare, spostare, eliminare le riunioni e rispondere.
+  "https://www.googleapis.com/auth/calendar.events": ["calendarWrite"],
+};
+
+/**
+ * F5 (D9): `drive.readonly` apre i file di Google Drive nei progetti e gli
+ * appunti delle riunioni di Gemini. Si dice fra le funzioni che mancano solo
+ * quando quelle funzioni ci sono (`google` acceso): prima sarebbe una funzione
+ * promessa che l'app non ha.
+ */
+const featuresOf = (scope: string): readonly GoogleFeature[] =>
+  scope === "https://www.googleapis.com/auth/drive.readonly"
+    ? featureIntegrated("google")
+      ? ["drive"]
+      : []
+    : (FEATURES_OF_SCOPE[scope] ?? []);
+
+function accountOf(a: ServerGoogleAccount): GoogleAccount {
+  const base = { personId: session.personId ?? "", email: a.email, workspaceId: a.workspaceId };
+  if (a.disabledAt !== null)
+    return { ...base, status: "expired", reconnect: "expired", since: a.disabledAt };
+  if (a.missingScopes.length > 0) {
+    const missing = [...new Set(a.missingScopes.flatMap(featuresOf))];
+    return { ...base, status: "expired", reconnect: "scopes", missing, since: a.connectedAt };
+  }
+  return { ...base, status: "connected", since: a.connectedAt };
+}
+
+const getGoogleAccount: Drive["getGoogleAccount"] = async () => {
+  const account = drawerAccount(await myAccounts());
+  return account ? accountOf(account) : null;
+};
+
+/** I Workspace utilizzabili (con il segreto del client): fra cui scegliere se sono più d'uno. */
+const listGoogleWorkspaces: Drive["listGoogleWorkspaces"] = async () => {
+  const all = await appClient().google.workspaces();
+  return all
+    .filter((w) => w.clientSecretSet)
+    .map<GoogleWorkspaceChoice>((w) => ({ id: w.id, name: w.name, domains: [...w.domains] }));
+};
+
+/** Ogni quanto si rileggono le caselle mentre «Collega» aspetta il consenso nel browser. */
+const CONNECT_POLL_MS = 3_000;
+/** Dopo quanto «Collega» smette di aspettare e dice l'errore («Try again»). */
+const CONNECT_TIMEOUT_MS = 10 * 60_000;
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Il ponte del preload per il ritorno dal consenso (lotto 4, §6); assente sul web. */
+interface DesktopGoogle {
+  prepareConnect: () => Promise<{ ok: true; state: string } | { ok: false }>;
+  cancelConnect: () => Promise<{ ok: boolean }>;
+  onReturned: (cb: (ret: { state: string; outcome: string }) => void) => () => void;
+}
+const desktopGoogle = (): DesktopGoogle | null =>
+  (globalThis as { stubwise?: { google?: DesktopGoogle } }).stubwise?.google ?? null;
+
+/**
+ * Gli esiti del callback del server (`googleCallbackOutcomes`) nelle parole
+ * del prototipo (`GoogleConnectOutcome`): `invalid: <motivo>` per i tre che
+ * il dialogo dice; gli altri, e un esito ignoto, `failed`.
+ */
+const OUTCOME_ERRORS: Readonly<Record<string, string>> = {
+  domain_mismatch: "invalid: wrong_domain",
+  insufficient_scope: "invalid: scopes_missing",
+  mailbox_owned_by_other: "invalid: owned_by_other",
+};
+
+/**
+ * «Collega» (o «Ricollega»): l'URL di consenso di Google si apre FUORI
+ * dall'app (sul desktop i link http(s) vanno al browser di sistema), e qui si
+ * rileggono le caselle ogni 3 s finché non c'è quella nuova o ricollegata.
+ * Con più Workspace utilizzabili serve la scelta (`invalid: workspace`); con
+ * nessuno, `invalid: google_not_configured`. Dopo 10 minuti senza esito,
+ * `failed`.
+ *
+ * Lotto 4, §6: sul desktop il ritorno si lega all'app (`client: "desktop"`
+ * e il `returnState` del main). Se il server lo conferma (`returnTo:
+ * "desktop"`), l'esito di `stubwise://google` chiude l'attesa: uno negativo
+ * col suo motivo, `ok` con una rilettura delle caselle (l'esito non è
+ * un'autorità). Un server di prima e il web: solo il polling.
+ */
+const connectGoogle: Drive["connectGoogle"] = async (options = {}) => {
+  const { tab } = options;
+  const bridge = desktopGoogle();
+  let before: Map<string, ServerGoogleAccount>;
+  let authorizeUrl: string;
+  let returnState: string | null = null;
+  let desktop = false;
+  try {
+    const usable = await listGoogleWorkspaces();
+    if (usable.length === 0) throw new Error("invalid: google_not_configured");
+    const workspaceId = options.workspaceId ?? (usable.length === 1 ? usable[0]!.id : null);
+    if (!workspaceId || !usable.some((w) => w.id === workspaceId))
+      throw new Error("invalid: workspace");
+    before = new Map((await myAccounts()).map((a) => [a.id, a]));
+    const prepared = bridge ? await bridge.prepareConnect() : null;
+    returnState = prepared?.ok ? prepared.state : null;
+    // Lotto 4, §6 (72, c75ad9138): `returnTo` è `web` da un server di prima.
+    const res = await appClient().google.connect(
+      workspaceId,
+      returnState ? { client: "desktop", returnState } : {},
+    );
+    authorizeUrl = res.authorizeUrl;
+    desktop = returnState !== null && res.returnTo === "desktop";
+  } catch (error) {
+    // La scheda aperta nel clic resterebbe vuota.
+    tab?.close();
+    // Revisione del lotto 5, Minor 10: `connect` rifiutato dopo aver preparato
+    // lo state: il main lo dimentica anche qui, non solo a fine attesa.
+    if (returnState && bridge) void bridge.cancelConnect().catch(() => undefined);
+    throw error;
+  }
+  if (tab && !tab.closed) {
+    // Web: la scheda aperta nel clic; prima di navigare perde l'accesso a questa pagina.
+    tab.opener = null;
+    tab.location.href = authorizeUrl;
+  } else {
+    // Desktop (il link va al browser di sistema). Con `noopener` `window.open`
+    // dà sempre null: non dice se s'è aperta.
+    window.open(authorizeUrl, "_blank", "noopener");
+  }
+  // Il ritorno dal browser: sveglia l'attesa, solo col proprio state.
+  let back: string | null = null;
+  let wake: (() => void) | null = null;
+  const stop =
+    desktop && bridge
+      ? bridge.onReturned((ret) => {
+          if (ret.state !== returnState) return;
+          back = ret.outcome;
+          wake?.();
+        })
+      : () => {};
+  const nap = () =>
+    Promise.race([pause(CONNECT_POLL_MS), new Promise<void>((resolve) => (wake = resolve))]);
+  try {
+    const deadline = Date.now() + CONNECT_TIMEOUT_MS;
+    for (;;) {
+      await nap();
+      const outcome: string | null = back;
+      if (outcome !== null && outcome !== "ok") throw new Error(OUTCOME_ERRORS[outcome] ?? "failed");
+      const accounts = await myAccounts();
+      // Collegata: una casella sana che prima non c'era, o era da ricollegare, o è stata ricollegata adesso.
+      const done = accounts.find((a) => {
+        if (needsReconnect(a)) return false;
+        const was = before.get(a.id);
+        return !was || needsReconnect(was) || was.connectedAt !== a.connectedAt;
+      });
+      if (done) return accountOf(done);
+      if (Date.now() >= deadline) throw new Error("failed");
+    }
+  } finally {
+    stop();
+    // Revisione del lotto 4, M-1: lo state pendente del main non resta valido dopo l'attesa.
+    if (returnState && bridge) void bridge.cancelConnect().catch(() => undefined);
+  }
+};
+
+/** Scollega la casella del cassetto: revoca su Google e toglie la sua posta. */
+const disconnectGoogle: Drive["disconnectGoogle"] = async () => {
+  const account = drawerAccount(await myAccounts());
+  if (!account) return;
+  await appClient().google.disconnect(account.id);
+};
+
+// --- «Aggiorna ora» (F1.2) -------------------------------------------------------
+
+/** Ogni quanto si rilegge la casella mentre il suo giro è in coda o in corso. */
+const SYNC_POLL_MS = 2_000;
+/** Dopo quanto si smette di aspettare: la casella dice da sé com'è andata. */
+const SYNC_WAIT_MS = 2 * 60_000;
+
+/**
+ * Per client: le caselle di cui ho chiesto il giro, con il `lastSyncAt` di
+ * quel momento (un giro finito senza che avanzi non è riuscito), e le attese
+ * in corso (`whenSynced`).
+ */
+const syncs = new WeakMap<
+  object,
+  { asked: Map<string, string | null>; waits: Set<Promise<void>> }
+>();
+function syncsOf() {
+  const client = appClient();
+  let entry = syncs.get(client);
+  if (!entry) {
+    entry = { asked: new Map(), waits: new Set() };
+    syncs.set(client, entry);
+  }
+  return entry;
+}
+
+/**
+ * L'allineamento di una casella: «in allineamento» finché il server ha una
+ * richiesta in attesa; dopo una richiesta mia, «non riuscito» se `lastSyncAt`
+ * non è avanzato.
+ */
+export function syncStateOf(a: ServerGoogleAccount): "ok" | "syncing" | "failed" {
+  // Una richiesta che il server non chiude in 2 minuti non è più «in corso»:
+  // la casella smette di rileggersi e dice «non riuscita» («Riprova»).
+  if (a.syncRequestedAt !== null) {
+    return Date.now() - Date.parse(a.syncRequestedAt) > SYNC_WAIT_MS ? "failed" : "syncing";
+  }
+  const { asked } = syncsOf();
+  if (!asked.has(a.id)) return "ok";
+  if (asked.get(a.id) === a.lastSyncAt) return "failed";
+  asked.delete(a.id);
+  return "ok";
+}
+
+/**
+ * La casella si allinea con «Aggiorna ora»: ogni casella collegata, anche
+ * con le proposte spente (decisione del maintainer, come il prototipo).
+ */
+export const syncable = (a: ServerGoogleAccount) => a.disabledAt === null;
+
+/**
+ * «Aggiorna ora» di una casella. Una richiesta già in attesa o di meno di un
+ * minuto fa (429) non è un errore: il giro c'è già. Scaduta →
+ * `google_not_connected` («Ricollega»).
+ */
+export async function requestSync(a: ServerGoogleAccount): Promise<void> {
+  try {
+    await appClient().google.sync(a.id);
+  } catch (error) {
+    if (error instanceof ApiError) {
+      if (error.status === 429) return;
+      if (error.code === "account_disabled") throw new Error("google_not_connected");
+      if (error.status === 404) throw new Error("not_found");
+    }
+    throw error;
+  }
+  const { asked, waits } = syncsOf();
+  asked.set(a.id, a.lastSyncAt);
+  const wait = (async () => {
+    const deadline = Date.now() + SYNC_WAIT_MS;
+    while (Date.now() < deadline) {
+      await pause(SYNC_POLL_MS);
+      const now = (await myAccounts()).find((x) => x.id === a.id);
+      if (!now || now.syncRequestedAt === null) return;
+    }
+  })().catch(() => undefined);
+  waits.add(wait);
+  void wait.finally(() => waits.delete(wait));
+}
+
+/** Finiscono i giri chiesti da qui (o si smette di aspettarli). */
+export async function whenSynced(): Promise<void> {
+  await Promise.all([...syncsOf().waits]);
+}
+
+export const googleDriveFunctions: Partial<Drive> = {
+  getGoogleAccount,
+  listGoogleWorkspaces,
+  connectGoogle,
+  disconnectGoogle,
+};

@@ -8,7 +8,7 @@ import { CLAUDE_ID } from "../seed/people";
 import { done, ext, mail, person } from "../seed/mail/helpers";
 import { VRD_FIRST_VERSION, VRD_IDS } from "../seed/productDocs/vrdFirstVersion";
 import { now, state } from "../store";
-import { revokeProjectPermission } from "../viewer";
+import { resetViewerGrants, revokeProjectPermission } from "../viewer";
 import {
   acceptFirstVersionPageAs,
   FIRST_VERSION_CITATION_PREFIX,
@@ -17,6 +17,7 @@ import {
   openProductQuestions,
   productFirstVersionOf,
   startFirstVersionAs,
+  stopFirstVersionAs,
   undoFirstVersionAs,
   whenFirstVersionIdle,
 } from "./firstVersion";
@@ -508,7 +509,7 @@ describe("«Annulla la prima versione»", () => {
   it("chi legge soltanto: nessun permesso, e `forbidden`", async () => {
     await written();
     const sara = productFirstVersionOf(SARA, VRD)!;
-    expect(sara.permissions).toEqual({ edit: false });
+    expect(sara.permissions).toEqual({ edit: false, stop: false });
     expect(sara.undo).toEqual({ enabled: false, reason: "no_permission", byId: null });
     expect(() => undoFirstVersionAs(SARA, VRD)).toThrow("forbidden");
     expect(pagesOf()).toHaveLength(VRD_FIRST_VERSION.length);
@@ -537,14 +538,23 @@ describe("i rifiuti", () => {
     expect(state.productFirstVersions).toEqual([]);
   });
 
-  it("budget finito: `ai_blocked`, niente scritto; la coda in pausa non blocca il gesto (P48)", async () => {
+  it("budget finito: `ai_blocked` a chi non ha `plans.approve`, niente scritto; la coda in pausa non blocca il gesto (P48)", async () => {
     state.instance.simulate.budgetReached = true;
+    // D-7.1: Laura (Project Lead) lo scavalca; senza `plans.approve` no.
+    revokeProjectPermission(LAURA, VRD, "plans.approve");
     expect(() => startFirstVersionAs(LAURA, VRD, [TEXT])).toThrow("ai_blocked");
     expect(state.productFirstVersions).toEqual([]);
     expect(pagesOf()).toEqual([]);
+    resetViewerGrants();
 
     state.instance.simulate.budgetReached = false;
     state.instance.queuePauses.push({ projectId: VRD, byId: "p-roberta", at: now() });
+    await written([TEXT]);
+    expect(pagesOf()).toHaveLength(VRD_FIRST_VERSION.length);
+  });
+
+  it("budget finito: chi ha `plans.approve` nel progetto (D-7.1) la avvia lo stesso", async () => {
+    state.instance.simulate.budgetReached = true;
     await written([TEXT]);
     expect(pagesOf()).toHaveLength(VRD_FIRST_VERSION.length);
   });
@@ -709,5 +719,85 @@ describe("il copione interrotto", () => {
     await whenFirstVersionIdle();
     expect(pagesOf()).toEqual([]);
     expect(state.productFirstVersions).toEqual([]);
+  });
+});
+
+describe("«Stop» (decisione del maintainer, 22 nov 2026)", () => {
+  it("Claude finisce la pagina in corso e si ferma: le pagine scritte restano, `interrupted`, e «Undo» resta", async () => {
+    let asked = false;
+    const off = productDocs.onProductFirstVersion(() => {
+      const view = productFirstVersionOf(LAURA, VRD)!;
+      if (view.pagesDone === 2 && view.status === "writing" && !asked) {
+        asked = true;
+        expect(view.permissions.stop).toBe(true);
+        stopFirstVersionAs(LAURA, VRD);
+      }
+    });
+    startFirstVersionAs(LAURA, VRD, [TEXT]);
+    await whenFirstVersionIdle();
+    off();
+    const view = productFirstVersionOf(LAURA, VRD)!;
+    expect(view).toMatchObject({ status: "done", pagesDone: 3, interrupted: true });
+    expect(pagesOf()).toHaveLength(3);
+    expect(view.pages.map((p) => p.state)).toEqual(
+      VRD_FIRST_VERSION.map((_, i) => (i < 3 ? "written" : "waiting")),
+    );
+    expect(view.bannerPageIds).toHaveLength(3);
+    expect(view.undo).toEqual({ enabled: true });
+    expect(view.permissions.stop).toBe(false);
+  });
+
+  it("chiesto sull'ultima pagina: la prima versione finisce, non è interrotta", async () => {
+    const off = productDocs.onProductFirstVersion(() => {
+      const view = productFirstVersionOf(LAURA, VRD)!;
+      if (view.status === "writing" && view.pagesDone === view.pagesTotal - 1)
+        stopFirstVersionAs(LAURA, VRD);
+    });
+    startFirstVersionAs(LAURA, VRD, [TEXT]);
+    await whenFirstVersionIdle();
+    off();
+    const view = productFirstVersionOf(LAURA, VRD)!;
+    expect(view).toMatchObject({ status: "done", interrupted: false });
+    expect(view.pagesDone).toBe(view.pagesTotal);
+  });
+
+  it("fra il clic e l'arresto: `stopping` per tutti, e «Stop» non c'è più per nessuno (la forma del server, a7f558344)", async () => {
+    startFirstVersionAs(LAURA, VRD, [TEXT]);
+    let seen = 0;
+    const off = productDocs.onProductFirstVersion(() => void seen++);
+    stopFirstVersionAs(LAURA, VRD);
+    expect(seen).toBe(1);
+    for (const who of [LAURA, MARCO, SARA])
+      expect(productFirstVersionOf(who, VRD)!).toMatchObject({
+        status: "writing",
+        stopping: true,
+        permissions: { stop: false },
+      });
+    stopFirstVersionAs(MARCO, VRD);
+    expect(seen).toBe(1);
+    off();
+    await whenFirstVersionIdle();
+    expect(productFirstVersionOf(LAURA, VRD)!).toMatchObject({ status: "done", stopping: false, interrupted: true });
+  });
+
+  it("Marco (`docs.edit`, non l'ha chiesta) la ferma; Sara no: `forbidden`, e non vede il permesso", async () => {
+    startFirstVersionAs(LAURA, VRD, [TEXT]);
+    expect(productFirstVersionOf(SARA, VRD)!.permissions.stop).toBe(false);
+    expect(() => stopFirstVersionAs(SARA, VRD)).toThrow("forbidden");
+    expect(productFirstVersionOf(MARCO, VRD)!.permissions.stop).toBe(true);
+    // Prima della prima pagina: Claude non comincia (seconda revisione, M2).
+    stopFirstVersionAs(MARCO, VRD);
+    await whenFirstVersionIdle();
+    expect(productFirstVersionOf(LAURA, VRD)!).toMatchObject({ status: "done", pagesDone: 0, interrupted: true });
+    expect(pagesOf()).toEqual([]);
+  });
+
+  it("chi non legge i Docs del progetto: `not_found`; senza una prima versione che scrive non fa niente", async () => {
+    expect(() => stopFirstVersionAs("p-giulia", VRD)).toThrow("not_found");
+    stopFirstVersionAs(LAURA, VRD);
+    expect(state.productFirstVersions).toEqual([]);
+    await written([TEXT]);
+    stopFirstVersionAs(LAURA, VRD);
+    expect(productFirstVersionOf(LAURA, VRD)!).toMatchObject({ status: "done", interrupted: false });
   });
 });

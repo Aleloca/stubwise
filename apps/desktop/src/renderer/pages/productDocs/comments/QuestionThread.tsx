@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { forwardRef, useEffect, useId, useRef, useState, type KeyboardEvent , type ReactNode } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { CodeLink } from "../../../components/CodeLink";
 import { SentenceWithWho } from "../../../components/WhoCanLink";
@@ -177,8 +177,10 @@ export const QuestionThread = forwardRef<
     onAlreadyAnswered: (first: FirstAnswer) => void;
     /** `changed_after` fra lettura e clic: si rilegge (il bottone si spegne con la sua frase). */
     onStale: () => void;
-    onReply?: (body: string) => Promise<unknown>;
+    onReply?: (body: string, clientId: string) => Promise<unknown>;
     onActive?: () => void;
+    /** Build app: la scheda «Open a request» nel filo, sotto la domanda (decisione del maintainer). */
+    requestCard?: ReactNode;
   }
 >(function QuestionThread(
   {
@@ -196,6 +198,7 @@ export const QuestionThread = forwardRef<
     onStale,
     onReply,
     onActive,
+    requestCard,
   },
   ref,
 ) {
@@ -295,7 +298,7 @@ export const QuestionThread = forwardRef<
       </p>
       <p className="flex min-w-0 items-center gap-1.5">
         <Avatar person={claude} />
-        <span className="min-w-0 truncate text-sm font-semibold text-ink">{root.authorName}</span>
+        <span className="min-w-0 truncate text-sm font-semibold text-ink">{root.authorName ?? t("productDocs.comments.someone")}</span>
         <time dateTime={root.createdAt} className="num shrink-0 text-xs text-ink-faint">
           {commentTime(root.createdAt, i18n.language)}
         </time>
@@ -341,6 +344,7 @@ export const QuestionThread = forwardRef<
             </p>
           )}
           {preparing && <p className="text-xs leading-4 text-ink-muted">{t("productDocs.question.preparing")}</p>}
+          {requestCard}
           {refusal?.kind === "forbidden" && (
             <p className="text-xs leading-4 text-ink-muted">
               <SentenceWithWho

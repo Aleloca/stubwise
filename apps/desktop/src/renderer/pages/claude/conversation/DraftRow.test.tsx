@@ -21,7 +21,8 @@ import type { Ev } from "./flow";
 // ricaricamento una bozza messa «non si annulla più».
 
 const DAVIDE = "p-davide";
-const SUPPORT: FieldRef = { kind: "supportReply", conversationId: "sup-acq-2" };
+// La risposta di Support non è più un campo (area 8, F3): la descrizione di una task.
+const FIELD: FieldRef = { kind: "taskDescription", taskId: "t-acq-7" };
 
 beforeEach(() => {
   api.setLatency(0);
@@ -71,39 +72,39 @@ describe("La riga `draft`", () => {
 
   it("`waiting`: «… is ready · Put it in the field» e il testo, chiuso a 4 righe con «Show all»", async () => {
     const long = Array.from({ length: 8 }, (_, i) => `Line ${i + 1}.`).join("\n");
-    const row = await show(draft(SUPPORT, "waiting", long));
-    expect(row).toHaveTextContent("The draft for the reply to ACQ-S2 is ready");
+    const row = await show(draft(FIELD, "waiting", long));
+    expect(row).toHaveTextContent("The draft for the description of ACQ-7 is ready");
     expect(within(row).getByRole("button", { name: "Put it in the field" })).toBeInTheDocument();
     expect(within(row).getByLabelText("The draft's text")).toHaveClass("line-clamp-4");
     expect(within(row).getByRole("button", { name: "Show all" })).toBeInTheDocument();
   });
 
   it("`placed` dopo un ricaricamento: «Can't be undone anymore», nessun «Undo»", async () => {
-    const row = await show(draft(SUPPORT, "placed"));
-    expect(row).toHaveTextContent("Put a draft in the reply to ACQ-S2");
+    const row = await show(draft(FIELD, "placed"));
+    expect(row).toHaveTextContent("Put a draft in the description of ACQ-7");
     expect(row).toHaveTextContent("Can't be undone anymore");
     expect(within(row).queryByRole("button", { name: "Undo" })).toBeNull();
   });
 
   it("`undone` e `changed_after` dicono com'è andata", async () => {
-    const undone = await show(draft(SUPPORT, "undone"));
-    expect(undone).toHaveTextContent("Undone · the reply is as it was");
+    const undone = await show(draft(FIELD, "undone"));
+    expect(undone).toHaveTextContent("Undone · the description is as it was");
     document.body.replaceChildren();
-    const changed = await show(draft(SUPPORT, "changed_after"));
+    const changed = await show(draft(FIELD, "changed_after"));
     expect(changed).toHaveTextContent("The field changed afterwards · can't undo from here");
   });
 
   it("un altro lettore che vede il campo: la frase, senza stato né bottoni", async () => {
-    const row = await show(draft(SUPPORT, "placed"), "p-matteo", DAVIDE);
-    expect(row).toHaveTextContent("Put a draft in the reply to ACQ-S2");
+    const row = await show(draft(FIELD, "placed"), "p-matteo", DAVIDE);
+    expect(row).toHaveTextContent("Put a draft in the description of ACQ-7");
     expect(row).not.toHaveTextContent("Can't be undone anymore");
     expect(within(row).queryByRole("button")).toBeNull();
   });
 
-  it("in italiano: «ad» davanti a una vocale, la nuova email, le note con la PR", async () => {
+  it("in italiano: la descrizione, la nuova email, le note con la PR", async () => {
     act(() => setLanguage("it"));
-    const reply = await show(draft(SUPPORT, "placed"));
-    expect(reply).toHaveTextContent("Messa una bozza nella risposta ad ACQ-S2");
+    const reply = await show(draft(FIELD, "placed"));
+    expect(reply).toHaveTextContent("Messa una bozza nella descrizione di ACQ-7");
     document.body.replaceChildren();
     const mail = await show(
       draft({ kind: "mailBody", threadId: null }, "placed"),

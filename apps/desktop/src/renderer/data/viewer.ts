@@ -1,15 +1,12 @@
-import type { InstancePermission, ProjectPermission } from "@stubwise/shared";
+import type { InstancePermission } from "@stubwise/shared";
 import {
-  createContext,
   createElement,
-  useContext,
   useMemo,
   useState,
   useSyncExternalStore,
   type ReactNode,
 } from "react";
 import {
-  BOTH_LEVELS,
   INSTANCE_SET,
   accessState,
   accessVersion,
@@ -23,10 +20,16 @@ import {
   subscribeAccess,
   writeAccess,
 } from "./access/index";
-import { CLAUDE_ID, PEOPLE } from "./seed/people";
+import { CLAUDE_ID, DEFAULT_SESSION_PERSON_ID, PEOPLE } from "./seed/people";
+import "./seed/personaDescriptions";
+import {
+  CLAUDE_INSTANCE_PERMISSIONS,
+  ViewerContext,
+  type AnyProjectPermission,
+  type ViewerContextValue,
+} from "./viewing";
 import { clearToasts } from "../tasks-ui/Toast";
 import {
-  DEFAULT_SESSION_PERSON_ID,
   NO_SESSION_PERSON_ID,
   runBeforePersonaChange,
   setSessionPersonId,
@@ -37,103 +40,28 @@ import { now } from "./store";
 import type {
   DepartmentPermission,
   LocalInstancePermission,
-  LocalProjectPermission,
   Viewer,
 } from "./types";
 
 export type { LocalInstancePermission, LocalProjectPermission } from "./types";
+// Le domande sui permessi e il contesto stanno in `viewing.ts` (puro, anche
+// nella build app); qui restano il `Viewer` del prototipo, il «vedi come» e
+// le concessioni. Le ri-esportazioni tengono fermi gli import del finto.
+export {
+  CLAUDE_INSTANCE_PERMISSIONS,
+  CLAUDE_PROJECT_PERMISSIONS,
+  ViewerProvider,
+  can,
+  canInDepartment,
+  useViewer,
+  type Permission,
+  type ViewerContextValue,
+} from "./viewing";
 export { LOCAL_INSTANCE_PERMISSIONS, LOCAL_PROJECT_PERMISSIONS } from "./access/index";
-
-export type Permission =
-  | InstancePermission
-  | LocalInstancePermission
-  | ProjectPermission
-  | LocalProjectPermission
-  | DepartmentPermission;
-
-type AnyProjectPermission = ProjectPermission | LocalProjectPermission;
 
 // I permessi vivono nello stato `access` del livello dati (area 9a, vedi
 // `data/access/`): ruoli, appartenenze, concessioni e reparti. Qui si
 // costruisce il `Viewer` da `effectivePermissions` e si risponde a `can()`.
-
-/**
- * Quello che Claude non ha MAI (R-L9, R-L11): le decisioni — approvare un
- * piano, fare merge, operare sui server, registrare una decisione (il
- * registro non lo scrive mai l'AI), adottare una PR — e la gestione, di
- * progetto (impostazioni, membri, repository, ambienti, widget, moderazione)
- * e d'istanza (full admin, inviti, ogni `*.manage`: accessi SSH, monitor,
- * automazioni, canali generali, reparti…), più lo stato dell'istanza e il
- * registro delle modifiche (area 9a). Vince su ogni concessione, ruolo e
- * full admin: `claudeCan` non legge né il `Viewer` né lo stato.
- */
-const CLAUDE_NEVER: ReadonlySet<string> = new Set([
-  "plans.approve",
-  "release.merge",
-  "servers.operate",
-  "decisions.record",
-  "prs.adopt",
-  "tickets.moderate",
-  "instance.full_admin",
-  "users.invite",
-  "departments.manage",
-  "instance.status.view",
-  "changelog.view",
-]);
-
-const claudeForbidden = (perm: string): boolean =>
-  CLAUDE_NEVER.has(perm) || perm.endsWith(".manage");
-
-/**
- * I permessi di Claude in ogni progetto, membro o no (R-L9, maintainer:
- * «Claude ha sempre accesso a TUTTI i progetti»): quelli di lavoro —
- * vedere, aprire task, avviare i run, leggere i repository — senza nessuno
- * dei vietati. Un insieme FISSO (area 9a): fino all'8b derivava dal preset
- * Developer, ma i preset ora si modificano, e cambiare Developer avrebbe
- * cambiato Claude in silenzio. Il contenuto è quello di allora: un test lo
- * confronta col fixture di parità. Gli avvisi non gli arrivano comunque (R-K5).
- */
-export const CLAUDE_PROJECT_PERMISSIONS: ReadonlySet<string> = new Set([
-  "tickets.view_all",
-  "tickets.create",
-  "tickets.edit",
-  "tickets.comment",
-  "runs.start",
-  "corrections.request",
-  "backlog.view_all",
-  "backlog.create",
-  "backlog.edit",
-  "docs.view",
-  "docs.edit",
-  "repos.view",
-  "agent_sessions.intervene",
-  "project.usage.view",
-  "docs.generate",
-  "chat.channels.create",
-  "drive.upload",
-  "support.reply",
-]);
-
-/** D'istanza: quelli del preset User di allora, senza i vietati (nessuna concessione si aggiunge). */
-export const CLAUDE_INSTANCE_PERMISSIONS: ReadonlySet<string> = new Set([
-  "monitor.view",
-  "users.view_all",
-  "git_accounts.view",
-  "mail_admission.view",
-  "claude.public.view",
-  "chat.general.create",
-]);
-
-/**
- * Se Claude ha `perm`, in qualunque progetto: dai due insiemi qui sopra e
- * basta. Un permesso a due livelli (`automations.manage`) è vietato a
- * entrambi; i permessi di reparto non li ha.
- */
-function claudeCan(perm: Permission): boolean {
-  if (claudeForbidden(perm)) return false;
-  if (INSTANCE_SET.has(perm)) return CLAUDE_INSTANCE_PERMISSIONS.has(perm);
-  return CLAUDE_PROJECT_PERMISSIONS.has(perm);
-}
 
 // --- il Viewer, costruito dallo stato ----------------------------------------
 
@@ -272,7 +200,7 @@ function syncPersonas(): void {
 syncPersonas();
 subscribeAccess(syncPersonas);
 
-export const DEFAULT_PERSONA_ID = DEFAULT_SESSION_PERSON_ID;
+export const DEFAULT_PERSONA_ID: string = DEFAULT_SESSION_PERSON_ID;
 
 /**
  * Il `Viewer` di una persona, letto dallo stato degli accessi; per un id
@@ -352,35 +280,42 @@ function revoke(personId: string, perm: string, projectId: string | null): void 
 }
 
 /**
- * Concede un permesso di progetto del prototipo (assegnabile a qualunque
- * ruolo) su un progetto di cui la persona è membro.
+ * Concede un permesso di progetto (assegnabile a qualunque ruolo) su un
+ * progetto di cui la persona è membro: uno del prototipo, o uno del registro
+ * condiviso (i canali della Chat, dall'area 4).
  */
 export function grantProjectPermission(
   personId: string,
   projectId: string,
-  perm: LocalProjectPermission,
+  perm: AnyProjectPermission,
 ): void {
   if (!isMember(personId, projectId)) return;
   grant(personId, perm, projectId);
 }
 
-/** Toglie un permesso di progetto del prototipo su un progetto, anche uno di base. */
+/** Toglie un permesso di progetto su un progetto, anche uno di base. */
 export function revokeProjectPermission(
   personId: string,
   projectId: string,
-  perm: LocalProjectPermission,
+  perm: AnyProjectPermission,
 ): void {
   if (!isMember(personId, projectId)) return;
   revoke(personId, perm, projectId);
 }
 
 /** Concede un permesso d'istanza del prototipo (assegnabile a qualunque ruolo). */
-export function grantInstancePermission(personId: string, perm: LocalInstancePermission): void {
+export function grantInstancePermission(
+  personId: string,
+  perm: InstancePermission | LocalInstancePermission,
+): void {
   grant(personId, perm, null);
 }
 
 /** Toglie un permesso d'istanza del prototipo, anche uno di base. */
-export function revokeInstancePermission(personId: string, perm: LocalInstancePermission): void {
+export function revokeInstancePermission(
+  personId: string,
+  perm: InstancePermission | LocalInstancePermission,
+): void {
   revoke(personId, perm, null);
 }
 
@@ -391,64 +326,16 @@ export function resetViewerGrants(): void {
 
 // --- le domande ----------------------------------------------------------------
 
-const isFullAdmin = (viewer: Viewer) => viewer.instancePermissions.includes("instance.full_admin");
-
-/**
- * Stessa semantica di `hasPermission` in `apps/web/src/lib/permissions.ts`.
- * Per un permesso a due livelli (`BOTH_LEVELS`) il progetto sceglie quale:
- * con `projectId` quello di progetto, senza quello d'istanza.
- */
-export function can(viewer: Viewer, perm: Permission, projectId?: string): boolean {
-  // R-L9: Claude PRIMA di tutto, e senza leggere il suo `Viewer`: nessuna
-  // concessione, ruolo di progetto o full admin gli dà ciò che è vietato.
-  if (viewer.personId === CLAUDE_ID) return claudeCan(perm);
-  if (isFullAdmin(viewer)) return true;
-  if (INSTANCE_SET.has(perm) && !(BOTH_LEVELS.has(perm) && projectId !== undefined))
-    return viewer.instancePermissions.includes(
-      perm as InstancePermission | LocalInstancePermission,
-    );
-  if (perm === "department.home.manage") {
-    return Object.values(viewer.departmentPermissions).some((perms) => perms.includes(perm));
-  }
-  const byProject = viewer.projectPermissions;
-  const wanted = perm as AnyProjectPermission;
-  if (projectId !== undefined) return (byProject[projectId] ?? []).includes(wanted);
-  return Object.values(byProject).some((perms) => perms.includes(wanted));
-}
-
-/** Un permesso di reparto, su quel reparto (il full admin li ha tutti). */
-export function canInDepartment(
-  viewer: Viewer,
-  perm: DepartmentPermission,
-  departmentId: string,
-): boolean {
-  // R-L9: i permessi di reparto sono di gestione, a Claude mai.
-  if (viewer.personId === CLAUDE_ID) return false;
-  if (isFullAdmin(viewer)) return true;
-  return (viewer.departmentPermissions[departmentId] ?? []).includes(perm);
-}
-
 // Chi vede l'Amministrazione, e quali voci: `data/adminSections.ts` (area 9a).
 
 // --- stato condiviso dell'app -----------------------------------------------
 
-interface ViewerContextValue {
-  viewer: Viewer;
-  setPersona(personId: string): void;
-}
-
-const ViewerContext = createContext<ViewerContextValue>({
-  viewer: viewerFor(DEFAULT_PERSONA_ID),
-  setPersona: () => {},
-});
-
 /**
- * Da montare una volta nell'`App`: tiene la persona «vedi come» attiva e la
- * sessione del livello dati. La sessione si allinea DURANTE il render del
- * provider — prima che i figli rendano con la persona nuova — così nessuna
- * query parte (né si mostra) a nome della persona precedente.
+ * Il prototipo: la sessione si allinea DURANTE il render del provider — prima
+ * che i figli rendano con la persona nuova — così nessuna query parte (né si
+ * mostra) a nome della persona precedente.
  */
-export function ViewerProvider({
+export function PrototypeViewerProvider({
   children,
   initialPersonId = DEFAULT_PERSONA_ID,
 }: {
@@ -484,6 +371,12 @@ export function ViewerProvider({
   return createElement(ViewerContext.Provider, { value }, children);
 }
 
-export function useViewer(): ViewerContextValue {
-  return useContext(ViewerContext);
+/**
+ * Il contesto quando nessun `ViewerProvider` è montato (alcuni test): la
+ * persona di default del prototipo, sempre lo stesso oggetto.
+ */
+let fallback: ViewerContextValue | null = null;
+export function defaultViewerContext(): ViewerContextValue {
+  fallback ??= { viewer: viewerFor(DEFAULT_PERSONA_ID), setPersona: () => {} };
+  return fallback;
 }

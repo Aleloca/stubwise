@@ -1,3 +1,4 @@
+import { isIntegrated } from "../data/integration";
 import { useRouter, useRouterState } from "@tanstack/react-router";
 import {
   useCallback,
@@ -29,6 +30,8 @@ import {
   useReachChatMessage,
   useSavedFilters,
   useSearch,
+  useVaultEntry,
+  useVaultStatus,
 } from "../data/queries";
 import { rowLabel } from "../pages/chat/ChatPage";
 import { Highlighted } from "../pages/chat/ChatSearch";
@@ -36,7 +39,8 @@ import { fold, MIN_QUERY, plainText, searchWords } from "../pages/chat/search";
 import { formatDate } from "../notifications/time";
 import { useToast } from "../tasks-ui/Toast";
 import type { SearchResult } from "../data/types";
-import { VIEW_AS_PERSONAS, useViewer } from "../data/viewer";
+import { VIEW_AS_PERSONAS } from "@backend/viewer";
+import { useViewer } from "../data/viewing";
 import { DeptLegend, DeptStrip, useDepartmentName } from "../layout/DeptStrip";
 import { SearchIcon } from "../layout/icons";
 import { useRestoreFocus } from "../layout/useRestoreFocus";
@@ -48,10 +52,11 @@ import { openNewAutomation } from "../pages/automations/NewAutomationHost";
 import { openGoogleOutsideFile } from "../pages/drive/WhichProjectDialog";
 import { PALETTE_EVENT, type PaletteEventDetail } from "../layout/useShortcuts";
 import { openClaudePanel } from "../layout/claudePanel/panelEvents";
+import { runVaultCommand } from "../pages/vault/VaultCommandHost";
 import { shortcutLabel } from "../platform/platform";
 import { useTheme } from "../theme/ThemeProvider";
 import { canSeeAdminSection } from "../data/adminSections";
-import { ACTIONS, type AccessAction } from "../data/queries";
+import { ACTIONS, askPersonaChange, type AccessAction } from "../data/queries";
 import {
   matchCommands,
   matchWhoCanActions,
@@ -59,6 +64,7 @@ import {
   type Command,
   type CommandContext,
 } from "./commands";
+import { useDebounced } from "../lib/useDebounced";
 
 /** Quanti risultati per gruppo: la palette si scorre a colpo d'occhio, non si sfoglia. */
 export const GROUP_LIMIT = 5;
@@ -157,15 +163,6 @@ const KIND_GROUP: Record<SearchResult["kind"], GroupId> = {
   request: "requests",
   person: "people",
 };
-
-function useDebounced<T>(value: T, ms: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const id = window.setTimeout(() => setDebounced(value), ms);
-    return () => window.clearTimeout(id);
-  }, [value, ms]);
-  return debounced;
-}
 
 const EnterIcon = () => (
   <svg
@@ -285,6 +282,9 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   const serverCode = /^\/p\/[^/]+\/servers\/(SRV-\d+)/i.exec(pathname)?.[1]?.toUpperCase();
   // Il suo accesso SSH: «Link SSH access» solo se non è già verificato.
   const serverAccessState = useServer(serverCode).data?.access.state;
+  // La cassaforte (lotto 10): i suoi comandi dipendono dallo stato della barra.
+  const vaultStatus = useVaultStatus().data;
+  const vaultEntry = useVaultEntry().data;
   const docsRepoName = docsRepo ? decodeURIComponent(docsRepo) : null;
   const scopeProject = projectList?.find((p) => p.code === projectCode);
   const scopeSpaces = useDocSpaces(scopeProject?.id ?? "", {
@@ -307,7 +307,10 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   // Con l'ambito si cerca da un carattere; senza, le pagine arrivano da due (come i messaggi).
   const trimmed = step === "root" ? debounced.trim() : "";
   const pagesQuery = !productScoped && (scoped || trimmed.length >= MIN_QUERY) ? trimmed : "";
-  const pageSearch = useDocSearch(pagesQuery, scoped && scopeSpace ? scopeSpace.repositoryId : null);
+  const pageSearch = useDocSearch(
+    pagesQuery,
+    scoped && scopeSpace ? scopeSpace.repositoryId : null,
+  );
   // Le pagine di prodotto: con l'ambito del Prodotto da un carattere, senza
   // ambito da due accanto alle altre pagine; mai dentro lo spazio di un repository.
   const productQuery = productScoped || (!scoped && trimmed.length >= MIN_QUERY) ? trimmed : "";
@@ -333,8 +336,10 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
           detail: t(p.descriptionKey),
           current: p.personId === viewer.personId,
           select: () => {
-            setPersona(p.personId);
+            // Prima si chiude la palette: un editor con modifiche non salvate
+            // può chiedere con un dialogo (product-editor.md §3.12).
             onClose();
+            askPersonaChange(() => setPersona(p.personId));
           },
         };
       });
@@ -376,9 +381,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
             key: `channel-${c.id}`,
             ...(c.kind === "project" && name.code ? { code: name.code } : {}),
             label: c.kind === "project" ? c.name : name.label,
-            ...(c.mentions > 0
-              ? { detail: t("chat.column.mentions", { count: c.mentions }) }
-              : {}),
+            ...(c.mentions > 0 ? { detail: t("chat.column.mentions", { count: c.mentions }) } : {}),
             select: () => {
               router.history.push(`/chat/${c.id}`);
               onClose();
@@ -413,6 +416,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       openLinkFolder,
       openNewAutomation,
       openClaudePanel,
+      vaultCommand: runVaultCommand,
     };
     // Il testo arriva al comando solo quando l'etichetta lo cita: «ask
     // claude» scritto per trovare il comando non è la domanda.
@@ -447,7 +451,11 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     // Invio apre «Who can?» con la domanda scritta. Senza progetto, «…in a
     // project» apre la pagina col menu dei progetti aperto.
     const whoCan = whoCanRest(query);
-    if (whoCan !== null && canSeeAdminSection(viewer, "who-can")) {
+    if (
+      whoCan !== null &&
+      canSeeAdminSection(viewer, "who-can") &&
+      isIntegrated({ kind: "admin", name: "who-can" })
+    ) {
       const what = (a: AccessAction) => t(`permissions.${a.permission}.label`);
       byGroup.whoCan = matchWhoCanActions(whoCan, ACTIONS, (a) => [t(a.labelKey), what(a)]).map(
         (a): Item => {
@@ -535,34 +543,40 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         found.outside.length,
         found.files.length >= GROUP_LIMIT - 1 ? 1 : GROUP_LIMIT - found.files.length,
       );
-      const fileRows = found.files.slice(0, GROUP_LIMIT - outsideRows).map(({ file, passage }): Item => {
-        const detailsPath = `/p/${file.projectCode}/drive?file=${file.code}`;
-        return {
-          key: `file-${file.id}`,
-          code: file.code,
-          label: `${file.code} ${file.name}`,
-          file: {
+      const fileRows = found.files
+        .slice(0, GROUP_LIMIT - outsideRows)
+        .map(({ file, passage }): Item => {
+          const detailsPath = `/p/${file.projectCode}/drive?file=${file.code}`;
+          return {
+            key: `file-${file.id}`,
             code: file.code,
-            name: file.name,
-            project: file.projectCode,
-            google: file.source === "google",
-            line: fileStateLine(file, t) ?? passage ?? file.summary?.replace(/\s+/g, " ").trim() ?? "",
-            words,
-          },
-          fromSearch: true,
-          // Enter apre il file (e conta): su Google, l'anteprima, o il dettaglio
-          // se non ne ha. Si decide sul file riletto, non sulla riga della
-          // ricerca: sparito o diventato non disponibile nel frattempo, l'avviso.
-          select: () => {
-            onClose();
-            openDriveFile(file.id);
-          },
-          details: () => {
-            onClose();
-            router.history.push(detailsPath);
-          },
-        };
-      });
+            label: `${file.code} ${file.name}`,
+            file: {
+              code: file.code,
+              name: file.name,
+              project: file.projectCode,
+              google: file.source === "google",
+              line:
+                fileStateLine(file, t) ??
+                passage ??
+                file.summary?.replace(/\s+/g, " ").trim() ??
+                "",
+              words,
+            },
+            fromSearch: true,
+            // Enter apre il file (e conta): su Google, l'anteprima, o il dettaglio
+            // se non ne ha. Si decide sul file riletto, non sulla riga della
+            // ricerca: sparito o diventato non disponibile nel frattempo, l'avviso.
+            select: () => {
+              onClose();
+              openDriveFile(file.id);
+            },
+            details: () => {
+              onClose();
+              router.history.push(detailsPath);
+            },
+          };
+        });
       const outsideItems = found.outside.slice(0, outsideRows).map(
         (o): Item => ({
           key: `file-outside-${o.googleFileId}`,
@@ -702,10 +716,13 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
           key: `server-${s.code}`,
           code: s.code,
           label: s.name,
-          detail: s.projectCode,
+          detail: s.projectCode ?? undefined,
           fromSearch: true,
           select: () => {
-            router.history.push(`/p/${s.projectCode}/servers/${s.code}`);
+            // Senza ambiente visibile (revisione del lotto 5, M-7): la pagina d'istanza.
+            router.history.push(
+              s.projectCode ? `/p/${s.projectCode}/servers/${s.code}` : `/admin/servers/${s.code}`,
+            );
             onClose();
           },
         }),
@@ -719,19 +736,24 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         .filter((c) => c.canRead && c.kind !== "dm")
         .map((c) => ({ c, name: rowLabel(c, viewer.personId, projectList, people) }))
         .filter(({ name }) => fold(name.label).includes(needle))
-        .sort((a, b) => Number(a.c.archived) - Number(b.c.archived) || a.name.label.localeCompare(b.name.label))
+        .sort(
+          (a, b) =>
+            Number(a.c.archived) - Number(b.c.archived) || a.name.label.localeCompare(b.name.label),
+        )
         .slice(0, GROUP_LIMIT)
-        .map(({ c, name }): Item => ({
-          key: `chat-channel-${c.id}`,
-          ...(name.code ? { code: name.code } : {}),
-          label: c.kind === "project" ? c.name : name.name,
-          detail: c.archived ? t("chat.search.archived") : t("palette.goToChannel"),
-          fromSearch: true,
-          select: () => {
-            router.history.push(`/chat/${c.id}`);
-            onClose();
-          },
-        }));
+        .map(
+          ({ c, name }): Item => ({
+            key: `chat-channel-${c.id}`,
+            ...(name.code ? { code: name.code } : {}),
+            label: c.kind === "project" ? c.name : name.name,
+            detail: c.archived ? t("chat.search.archived") : t("palette.goToChannel"),
+            fromSearch: true,
+            select: () => {
+              router.history.push(`/chat/${c.id}`);
+              onClose();
+            },
+          }),
+        );
       const words = searchWords(chatQuery);
       const rows = channels.data;
       byGroup.messages = (chatSearch.data ?? []).slice(0, GROUP_LIMIT).map((hit): Item => {
@@ -780,13 +802,16 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     // il testo non è il suo nome: prima ciò che il testo ha davvero trovato.
     const needle = fold(query.trim());
     // Le etichette possono nominare il progetto in cui si è («Link a Google folder to AUD»).
-    const labelOf = (cmd: Command) =>
-      t(cmd.labelKey, { code: projectCode, server: serverCode });
+    const labelOf = (cmd: Command) => t(cmd.labelKey, { code: projectCode, server: serverCode });
     const matched = matchCommands(query, viewer, labelOf, {
       projectId: scopeProject?.id,
       projectCode,
       serverCode,
       serverAccessState,
+      vault:
+        vaultStatus && vaultEntry && vaultStatus.state !== "inactive"
+          ? { state: vaultStatus.state, touchId: vaultStatus.touchId, show: vaultEntry.show }
+          : undefined,
     });
     const quoting = (cmd: Command) =>
       !!needle && !!cmd.queryLabelKey && !fold(labelOf(cmd)).includes(needle);
@@ -796,14 +821,12 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     // righe che citano il testo («Search all messages for “…”», «Ask Claude:
     // “…”») ci sono per ogni testo e vanno in fondo, in More.
     const toItem = (cmd: Command): Item => ({
-        key: `cmd-${cmd.id}`,
-        fallback: quoting(cmd),
-        label: quoting(cmd)
-          ? t(cmd.queryLabelKey!, { query: query.trim() })
-          : labelOf(cmd),
-        shortcut: cmd.shortcut && shortcutLabel(cmd.shortcut),
-        select: run(cmd, quoting(cmd) ? query.trim() : undefined),
-      });
+      key: `cmd-${cmd.id}`,
+      fallback: quoting(cmd),
+      label: quoting(cmd) ? t(cmd.queryLabelKey!, { query: query.trim() }) : labelOf(cmd),
+      shortcut: cmd.shortcut && shortcutLabel(cmd.shortcut),
+      select: run(cmd, quoting(cmd) ? query.trim() : undefined),
+    });
     byGroup.actions = matched
       .filter((cmd) => !quoting(cmd))
       .slice(0, needle ? GROUP_LIMIT : undefined)
@@ -855,6 +878,8 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     projectCode,
     pathname,
     serverAccessState,
+    vaultStatus,
+    vaultEntry,
     savedFilters.data,
     channels.data,
     projectList,
@@ -907,8 +932,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     const first = objects?.items[0] ?? groups.find((g) => g.id === "actions")?.items[0];
     return first ? items.indexOf(first) : 0;
   }, [groups, items, step, stale]);
-  const activeIndex =
-    items.length === 0 ? -1 : Math.min(active ?? preferred, items.length - 1);
+  const activeIndex = items.length === 0 ? -1 : Math.min(active ?? preferred, items.length - 1);
   const activeItem = activeIndex >= 0 ? items[activeIndex] : undefined;
 
   // Il risultato selezionato resta visibile quando la lista scorre.
@@ -935,9 +959,9 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     : productScoped
       ? query === debounced && productSettled
       : query === debounced &&
-      search.isSuccess &&
-      !search.isPlaceholderData &&
-      !search.isFetching &&
+        search.isSuccess &&
+        !search.isPlaceholderData &&
+        !search.isFetching &&
         chatSettled &&
         pagesSettled &&
         productSettled &&
@@ -1175,7 +1199,9 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                       >
                         <span
                           className={`num w-16 shrink-0 ${file.line ? "self-start pt-[9px]" : ""} ${
-                            file.code ? "text-sm font-semibold text-ink-muted" : "text-xs leading-4 text-ink-faint"
+                            file.code
+                              ? "text-sm font-semibold text-ink-muted"
+                              : "text-xs leading-4 text-ink-faint"
                           }`}
                         >
                           {file.code ?? t("palette.notInProject")}
@@ -1192,7 +1218,9 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                               </span>
                             )}
                             {file.project && (
-                              <span className="num shrink-0 text-xs text-ink-muted">{file.project}</span>
+                              <span className="num shrink-0 text-xs text-ink-muted">
+                                {file.project}
+                              </span>
                             )}
                           </span>
                           {/* Senza seconda riga (un file senza riassunto né passaggio)
@@ -1232,7 +1260,9 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                         }`}
                       >
                         <span className="flex min-w-0 flex-1 flex-col">
-                          <span className="truncate text-xs text-ink-muted">{item.message.meta}</span>
+                          <span className="truncate text-xs text-ink-muted">
+                            {item.message.meta}
+                          </span>
                           <span className="truncate text-md">
                             <Highlighted text={item.message.text} words={item.message.words} />
                           </span>
@@ -1272,12 +1302,12 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                         group.id !== "viewAs" &&
                         group.id !== "filters" &&
                         (group.id !== "channels" || item.code) && (
-                        <span
-                          className={`num shrink-0 text-sm font-semibold whitespace-nowrap text-ink-muted ${group.id === "automations" ? "w-24" : "w-16"}`}
-                        >
-                          {item.code}
-                        </span>
-                      )}
+                          <span
+                            className={`num shrink-0 text-sm font-semibold whitespace-nowrap text-ink-muted ${group.id === "automations" ? "w-24" : "w-16"}`}
+                          >
+                            {item.code}
+                          </span>
+                        )}
                       <span className="min-w-0 flex-1 truncate">
                         <span className={selected ? "font-medium" : undefined}>{item.label}</span>
                         {item.detail && (

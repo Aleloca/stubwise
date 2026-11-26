@@ -5,7 +5,6 @@ import { maskedSecret } from "../../components/SecretField";
 import { WhoCanLink } from "../../components/WhoCanLink";
 import {
   useProjectIntegration,
-  useProjectRepositories,
   useProjectSettingsAccess,
   useRegenerateIngestionKey,
   useRegenerateWebhookSecret,
@@ -264,20 +263,26 @@ function KeyPart({
   const { t, i18n } = useTranslation();
   const [copied, flash] = useFlash();
   const { ingestion } = view;
-  const date = formatDate(ingestion.createdAt, i18n.language);
+  const date = ingestion.createdAt ? formatDate(ingestion.createdAt, i18n.language) : null;
   return (
     <Part title={t("settings.integration.key.title")}>
       <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
         <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 pt-1.5 text-md text-ink">
           <span className="num font-code">{maskedSecret(ingestion.last4)}</span>
-          <span aria-hidden="true" className="text-ink-faint">
-            ·
-          </span>
-          <span className="num text-sm text-ink-muted">
-            {ingestion.createdBy
-              ? t("settings.integration.key.madeBy", { date, name: ingestion.createdBy.name })
-              : t("settings.integration.key.made", { date })}
-          </span>
+          {/* F5: una chiave senza data (fatta prima che il server la
+              registrasse) non ne dice una. */}
+          {date && (
+            <>
+              <span aria-hidden="true" className="text-ink-faint">
+                ·
+              </span>
+              <span className="num text-sm text-ink-muted">
+                {ingestion.createdBy
+                  ? t("settings.integration.key.madeBy", { date, name: ingestion.createdBy.name })
+                  : t("settings.integration.key.made", { date })}
+              </span>
+            </>
+          )}
         </p>
         <GuardedButton
           label={t("settings.integration.key.regenerate")}
@@ -354,13 +359,6 @@ function GitPart({
   onRegenerate: (repositoryId: string, name: string) => void;
 }) {
   const { t } = useTranslation();
-  // Lo stato del webhook di ogni repository, letto dove lo legge Repositories.
-  const states = new Map(
-    (useProjectRepositories(project.id).data?.repositories ?? []).map((r) => [
-      r.id,
-      r.webhook.state,
-    ]),
-  );
   return (
     <Part title={t("settings.integration.git.title")}>
       <p className="max-w-[72ch] text-sm text-pretty text-ink-muted">
@@ -384,7 +382,7 @@ function GitPart({
               key={w.repositoryId}
               project={project}
               webhook={w}
-              state={states.get(w.repositoryId) ?? null}
+              state={w.state}
               onRegenerate={() => onRegenerate(w.repositoryId, w.name)}
             />
           ))}
@@ -604,6 +602,15 @@ function RegenerateKeyDialog({
   );
 }
 
+/** I rifiuti della rigenerazione che il dialogo sa dire (area 9, F5). */
+const REFUSALS = new Set([
+  "webhook_scope_missing",
+  "platform_update_failed",
+  "webhook_rollback",
+  "webhook_split",
+  "webhook_unknown",
+]);
+
 function RegenerateSecretDialog({
   project,
   repositoryId,
@@ -622,23 +629,31 @@ function RegenerateSecretDialog({
   const regenerate = useRegenerateWebhookSecret();
   const write = useSettingsWrite(project.code, onReload);
   // La piattaforma del repository, per la frase («Bitbucket's pushes…»).
-  const provider = useProjectRepositories(project.id).data?.repositories.find(
-    (r) => r.id === repositoryId,
+  // Area 9, F5: la piattaforma dalla vista di Integration (una fonte sola).
+  const provider = useProjectIntegration(project.id).data?.gitWebhooks.find(
+    (w) => w.repositoryId === repositoryId,
   )?.provider;
   const [busy, setBusy] = useState(false);
   const [secret, setSecret] = useState<string | null>(null);
+  const [mode, setMode] = useState<"manual" | "platform">("manual");
+  // F5: i rifiuti che solo il server dà (scope, piattaforma, rollback).
+  const [refused, setRefused] = useState<string | null>(null);
 
   async function submit() {
     if (busy) return;
     setBusy(true);
+    setRefused(null);
     await write.run(
       () =>
         reauth(() => regenerate.mutateAsync(repositoryId), {
           action: t("settings.integration.regenerateSecret.reauthAction", { name }),
         }),
-      () => undefined,
+      (reason) => setRefused(REFUSALS.has(reason) ? reason : "webhook_unknown"),
       (r) => {
-        if (r.ok) setSecret(r.secret);
+        if (r.ok) {
+          setSecret(r.secret);
+          setMode(r.mode ?? "manual");
+        }
       },
     );
     setBusy(false);
@@ -675,7 +690,16 @@ function RegenerateSecretDialog({
           label={t("settings.integration.regenerateSecret.secretLabel")}
           value={secret}
           onDone={onClose}
-        />
+        >
+          {/* F5: già sulla piattaforma, o da copiare a mano. */}
+          <p className="text-sm text-pretty text-ink-muted">
+            {t(`settings.integration.regenerateSecret.${mode}`, {
+              platform: provider
+                ? t(`settings.repos.platforms.${provider}`)
+                : t("settings.integration.regenerateSecret.platformFallback"),
+            })}
+          </p>
+        </SecretOnce>
       ) : (
         <>
           <p className="text-sm text-pretty text-ink">
@@ -685,6 +709,11 @@ function RegenerateSecretDialog({
                 : t("settings.integration.regenerateSecret.platformFallback"),
             })}
           </p>
+          {refused && (
+            <p role="alert" className="text-sm text-pretty text-critical">
+              {t(`settings.integration.regenerateSecret.refused.${refused}`)}
+            </p>
+          )}
           {write.message}
         </>
       )}

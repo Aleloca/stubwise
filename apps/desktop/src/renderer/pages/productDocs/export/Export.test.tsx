@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetApi, setLatency } from "../../../data/api";
+import { productDocs, resetApi, setLatency } from "../../../data/api";
 import { state } from "../../../data/store";
 import { setLanguage } from "../../../i18n";
 import { DOCKED_PANEL_QUERY } from "../../../layout/useDetailPanel";
@@ -129,6 +129,27 @@ describe("con la finestra di salvataggio (window.stubwise.saveFile)", () => {
     // Le domande di Claude (seme 11b) hanno il corpo vuoto: il testo si compone a lettura.
     const comments = state.productComments.filter((c) => c.body !== "").map((c) => c.body.toLowerCase());
     for (const c of comments) expect(html.toLowerCase()).not.toContain(c);
+  });
+
+  it("un'immagine non letta nel PDF: «lasciata fuori», niente <img> rotta (review di R11-3, 2)", async () => {
+    let image: Element | null = null;
+    let text = "";
+    withBridge(async () => {
+      image = printRoot()!.querySelector("img");
+      text = printRoot()!.textContent ?? "";
+      return { saved: true };
+    });
+    await openPage("Sign-in");
+    const signIn = state.productPages.find((p) => p.title === "Sign-in")!;
+    const view = structuredClone(await productDocs.getProductExport(signIn.projectId, { pageId: signIn.id }))!;
+    view.pages[0]!.page.blocks = [
+      { id: "b-ref", type: "image", src: "product-image:dddddddd-0000-4000-8000-000000000001", caption: "Flow", alt: "" },
+    ];
+    vi.spyOn(productDocs, "getProductExport").mockResolvedValueOnce(view);
+    await choose("This page", "PDF");
+    await screen.findByText("Saved the PDF");
+    expect(image).toBeNull();
+    expect(text).toContain("Image left out: Flow");
   });
 
   it("le voci numerate rientrate ripartono a ogni livello nel PDF, come nel Word: <ol> annidati", async () => {
@@ -304,6 +325,68 @@ describe("con la finestra di salvataggio (window.stubwise.saveFile)", () => {
     expect(alert.textContent!.toLowerCase()).toContain("pdf");
     expect(within(alert).queryByRole("button", { name: /retry/i })).toBeNull();
     expect(saveFile).not.toHaveBeenCalled();
+  });
+
+  it("lo spazio oltre il tetto dell'esportazione (413 del server, piano F3): il numero, la via della pagina, nessun Retry", async () => {
+    withBridge();
+    vi.spyOn(productDocs, "getProductExport").mockRejectedValueOnce(
+      Object.assign(new Error("too_large"), { pageCount: 240, max: 200 }),
+    );
+    await openPage("Sign-in");
+    await choose("Whole space", "PDF");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("The space has 240 pages, more than the 200 that can be exported. Export a single page instead.");
+    expect(within(alert).queryByRole("button", { name: /retry/i })).toBeNull();
+    expect(saveFile).not.toHaveBeenCalled();
+  });
+
+  it("le immagini da sole oltre il tetto: l'avviso prima di costruire il Word (I1 della revisione di R11-3)", async () => {
+    withBridge();
+    await openPage("Sign-in");
+    const signIn = state.productPages.find((p) => p.title === "Sign-in")!;
+    const real = await productDocs.getProductExport(signIn.projectId, { pageId: signIn.id });
+    const big = `data:image/png;base64,${"A".repeat(Math.ceil((MAX_SAVE_BYTES * 4) / 3) + 8)}`;
+    const view = structuredClone(real)!;
+    view.pages[0]!.page.blocks = [{ id: "b-big", type: "image", src: big, caption: "", alt: "" }];
+    vi.spyOn(productDocs, "getProductExport").mockResolvedValueOnce(view);
+    const build = vi.mocked(docx.buildDocx);
+    build.mockClear();
+    await choose("This page", "Word (.docx)");
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent!.toLowerCase()).toContain("over 25 mb");
+    expect(build).not.toHaveBeenCalled();
+    expect(saveFile).not.toHaveBeenCalled();
+  });
+
+  it("lo spazio che il menu sa già oltre il tetto: l'avviso PRIMA di chiedere l'export (review di R11-3, 8)", async () => {
+    withBridge();
+    const seed = state.productPages.find((p) => p.title === "Sign-in")!;
+    const have = state.productPages.filter((p) => p.projectId === seed.projectId).length;
+    for (let i = 0; i < 201 - have; i++)
+      state.productPages.push({ ...structuredClone(seed), id: `pp-extra-${i}`, code: `ACQ-D${900 + i}`, parentId: null, order: 100 + i });
+    const read = vi.spyOn(productDocs, "getProductExport");
+    await openPage("Sign-in");
+    await choose("Whole space", "PDF");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("The space has 201 pages, more than the 200 that can be exported. Export a single page instead.");
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it("una decisione che chi esporta non vede: nel Word «Decision: not available», mai il titolo (review di R11-3, 10)", async () => {
+    withBridge();
+    await openPage("Sign-in");
+    const signIn = state.productPages.find((p) => p.title === "Sign-in")!;
+    const view = structuredClone(await productDocs.getProductExport(signIn.projectId, { pageId: signIn.id }))!;
+    const hidden = "dddddddd-1111-4111-8111-000000000009";
+    view.pages[0]!.page.blocks = [{ id: "b-dec", type: "decision", decisionId: hidden }];
+    view.decisions = { [hidden]: null };
+    vi.spyOn(productDocs, "getProductExport").mockResolvedValueOnce(view);
+    const build = vi.mocked(docx.buildDocx);
+    build.mockClear();
+    await choose("This page", "Word (.docx)");
+    await vi.waitFor(() => expect(build).toHaveBeenCalled());
+    const doc = build.mock.calls[0]![0];
+    expect(JSON.stringify(doc)).toContain("Decision: not available");
   });
 
   it("in italiano: «supera i 25 MB»", async () => {

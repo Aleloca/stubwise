@@ -1,13 +1,13 @@
-import { memberAddedRecipientOf } from "../admin/members";
+import { memberAddedMandatoryOf } from "../admin/members";
 import { splitByVisibility, wouldNotify } from "../alerts/visibility";
 import { assignedRecipientOf, nextTaskNumber, planRecipientsOf } from "../api-mutations";
 import { automationsStartingOn, taskHappening } from "../automations/sources";
 import { docsAccess } from "../docs/reads";
 import type { NewTaskInput, ProposedAction, Task, TaskPatch } from "../model";
-import { productDocRecipients } from "../productDocs/follows";
+import { followerMandatory } from "../productDocs/follows";
 import { productPageById } from "../productDocs/reads";
 import { familyOf, state, visibleProjectIds } from "../store";
-import { CLAUDE_CATALOG, declaredClassOf, isCatalogFn } from "./catalog";
+import { CLAUDE_CATALOG, declaredClassOf, isCatalogFn, reauthOf } from "./catalog";
 import type { ActionClass, ClassReason } from "./types";
 
 // La classe calcolata di un'azione di Claude (area 10a, Task 4). Un'azione è
@@ -41,6 +41,7 @@ function normalize(reasons: readonly ClassReason[]): ClassReason[] {
   // Una riga per progetto ed evento («…when a task is created / closed»).
   const automations = new Map<string, Extract<ClassReason, { kind: "automation" }>>();
   let irreversible = false;
+  let startsWork = false;
   let reauth = false;
   for (const r of reasons) {
     if (r.kind === "notifies") {
@@ -51,6 +52,7 @@ function normalize(reasons: readonly ClassReason[]): ClassReason[] {
       const key = `${r.projectId}|${r.event ?? ""}`;
       if (!automations.has(key)) automations.set(key, r);
     } else if (r.kind === "irreversible") irreversible = true;
+    else if (r.kind === "startsWork") startsWork = true;
     else reauth = true;
   }
   const [only] = moreIn.size === 1 ? [...moreIn] : [];
@@ -67,6 +69,7 @@ function normalize(reasons: readonly ClassReason[]): ClassReason[] {
       : []),
     ...automations.values(),
     ...(irreversible ? [{ kind: "irreversible" as const }] : []),
+    ...(startsWork ? [{ kind: "startsWork" as const }] : []),
     ...(reauth ? [{ kind: "reauth" as const }] : []),
   ];
 }
@@ -162,25 +165,42 @@ function dataReasons(me: string, action: Action): ClassReason[] {
       return [notifiesOf(me, [assigned, ...planningChanged], task.projectId)];
     }
     case "addMember": {
-      // `member.added` alla persona aggiunta (maintainer, 2 nov 2026, D4): la
-      // stessa regola della scrittura (`memberAddedRecipientOf`). Di un
-      // progetto che chi chiede non vede non si dice niente (R-G5).
+      // `member.added` alla persona aggiunta (maintainer, 2 nov 2026, D4) e,
+      // per iscrizione, a chi gestisce i membri (D-11 = b, 19 nov 2026): la
+      // regola del catalogo, come la scrittura. Di un progetto che chi chiede
+      // non vede non si dice niente (R-G5).
       const projectId = args.projectId as string | undefined;
       if (!projectId || !visibleProjectIds(me).has(projectId)) return [];
       const personId = typeof args.personId === "string" ? args.personId : null;
       return [
-        notifiesOf(me, [personId && memberAddedRecipientOf(me, personId)], projectId),
+        {
+          kind: "notifies",
+          ...wouldNotify(me, {
+            kind: "member.added",
+            projectId,
+            mandatory: personId ? memberAddedMandatoryOf(me, personId) : [],
+          }),
+        },
       ];
     }
     case "updateProductPage": {
       // 11b (decisione 3): l'aggiornamento chiesto nel riquadro avvisa chi
-      // segue la pagina (`product_doc.updated` a `productDocRecipients`,
-      // anche quando sono i `docs.edit` del ripiego). Di una pagina che chi
+      // segue la pagina, sempre, e chi ha la riga accesa (area 11, N-1 = a:
+      // `product_doc.updated` nel catalogo). Di una pagina che chi
       // chiede non legge non si dice niente (R-G5). La voce è dichiarata B:
       // senza altri destinatari la ragione sparisce, la classe no (P39).
       const page = typeof args.pageId === "string" ? productPageById(args.pageId) : undefined;
       if (!page || docsAccess(me, page.projectId) !== "read") return [];
-      return [notifiesOf(me, productDocRecipients(page.id), page.projectId)];
+      return [
+        {
+          kind: "notifies",
+          ...wouldNotify(me, {
+            kind: "product_doc.updated",
+            projectId: page.projectId,
+            mandatory: followerMandatory(page.id),
+          }),
+        },
+      ];
     }
     default:
       return [];
@@ -192,11 +212,14 @@ export function classOf(me: string, action: Action): ActionClass {
   // Fuori dal catalogo non si esegue dal riquadro: mai A.
   if (!isCatalogFn(action.fn)) return { cls: "B", reasons: [] };
   const fn = action.fn;
-  const declared = declaredClassOf(fn);
+  // La classe segue la rotta (F7): una parziale è C solo con gli argomenti che la chiedono.
+  const reauth = reauthOf(fn, action.args);
+  const declared = reauth ? "C" : declaredClassOf(fn);
   const reasons = normalize([
     ...dataReasons(me, action),
     ...(CLAUDE_CATALOG[fn].undoable ? [] : [{ kind: "irreversible" as const }]),
-    ...(declared === "C" ? [{ kind: "reauth" as const }] : []),
+    ...(CLAUDE_CATALOG[fn].startsWork ? [{ kind: "startsWork" as const }] : []),
+    ...(reauth ? [{ kind: "reauth" as const }] : []),
   ]);
   return { cls: higher(declared, reasons.length > 0 ? "B" : "A"), reasons };
 }

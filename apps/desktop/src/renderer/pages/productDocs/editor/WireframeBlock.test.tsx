@@ -4,8 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../../../data/api";
 import { resetApi, setLatency } from "../../../data/api";
 import { emitProductPage } from "../../../data/productDocs/events";
-import { drawWireframeAs } from "../../../data/productDocs/wireframes";
-import { failNext, state } from "../../../data/store";
+import {
+  drawWireframeAs,
+  failNextSketch,
+  holdSketches,
+  keepWireframeAs,
+  redrawWireframeAs,
+  whenSketchesIdle,
+} from "../../../data/productDocs/wireframes";
+import { failNext, setStreamLatency, state } from "../../../data/store";
 import type { ProductBlock } from "../../../data/types";
 import { getSessionPersonId, setSessionPersonId } from "../../../data/session";
 import { revokeProjectPermission } from "../../../data/viewer";
@@ -59,6 +66,8 @@ async function budgetUsedUp() {
   } finally {
     setSessionPersonId(before);
   }
+  // D-7.1: il budget ferma chi non ha `plans.approve` nel progetto (Laura, Project Lead in ACQ, no).
+  revokeProjectPermission("p-laura", "prj-acq", "plans.approve");
 }
 
 /** Una bozza disegnata da Claude per Laura dopo il primo blocco di Bills. */
@@ -267,6 +276,103 @@ describe("«Replace with an image»", () => {
     });
     expect(await screen.findByRole("alert")).toHaveTextContent("Only PNG, JPEG, GIF and WebP images");
     expect(blockOf(BILLS, id)).toMatchObject({ type: "wireframe" });
+  });
+
+  it("il file passa da `storeProductImage`, come gli altri blocchi immagine (nella build app: `product-image:<id>`)", async () => {
+    vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
+    const store = vi.spyOn(api.productDocs, "storeProductImage").mockResolvedValue("data:image/png;base64,c3RvcmVk");
+    const id = drawnOnBills();
+    await open(BILLS);
+    const user = userEvent.setup();
+    await user.click(within(shellOf(id)).getByRole("button", { name: "Replace with an image" }));
+    const chooser = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    const file = new File([new Uint8Array(1024)], "bills.png", { type: "image/png" });
+    act(() => {
+      fireEvent.change(chooser, { target: { files: [file] } });
+    });
+    await waitFor(() =>
+      expect(blockOf(BILLS, id)).toMatchObject({ id, type: "image", src: "data:image/png;base64,c3RvcmVk", alt: "bills" }),
+    );
+    expect(store).toHaveBeenCalledWith(BILLS, file);
+  });
+
+  it("un caricamento rifiutato dal livello dati: la frase sotto il blocco, e la bozza resta", async () => {
+    vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
+    vi.spyOn(api.productDocs, "storeProductImage").mockRejectedValue(new Error("invalid: file_too_large"));
+    const id = drawnOnBills();
+    await open(BILLS);
+    const user = userEvent.setup();
+    await user.click(within(shellOf(id)).getByRole("button", { name: "Replace with an image" }));
+    const chooser = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    act(() => {
+      fireEvent.change(chooser, {
+        target: { files: [new File([new Uint8Array(1024)], "bills.png", { type: "image/png" })] },
+      });
+    });
+    expect(await screen.findByRole("alert")).toHaveTextContent(/5 MB/);
+    expect(blockOf(BILLS, id)).toMatchObject({ type: "wireframe" });
+  });
+});
+
+describe("«Replace with an image» mentre carica (revisione di R11-6, M6)", () => {
+  /** Un caricamento che finisce quando lo dice il test. */
+  function heldUpload() {
+    let finish: () => void = () => undefined;
+    const store = vi.spyOn(api.productDocs, "storeProductImage").mockImplementation(
+      () =>
+        new Promise<string>((done) => {
+          finish = () => done("data:image/png;base64,c3RvcmVk");
+        }),
+    );
+    return { store, finish: () => finish() };
+  }
+  const pick = () => {
+    const chooser = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    act(() => {
+      fireEvent.change(chooser, {
+        target: { files: [new File([new Uint8Array(1024)], "bills.png", { type: "image/png" })] },
+      });
+    });
+  };
+
+  it("mentre carica il bottone è spento: un secondo caricamento non parte", async () => {
+    const clicks = vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
+    const { store, finish } = heldUpload();
+    const id = drawnOnBills();
+    await open(BILLS);
+    const user = userEvent.setup();
+    const replace = () => within(shellOf(id)).getByRole("button", { name: "Replace with an image" });
+    await user.click(replace());
+    pick();
+    await waitFor(() => expect(store).toHaveBeenCalledTimes(1));
+    expect(replace()).toHaveAttribute("aria-disabled", "true");
+    await user.click(replace());
+    expect(clicks).toHaveBeenCalledTimes(1);
+    pick();
+    expect(store).toHaveBeenCalledTimes(1);
+    await act(async () => finish());
+    await waitFor(() => expect(blockOf(BILLS, id)).toMatchObject({ type: "image" }));
+  });
+
+  it("la bozza tolta da un altro mentre carica: niente prende il suo posto", async () => {
+    vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
+    const { finish } = heldUpload();
+    const replaceSketch = vi.spyOn(api.productDocs, "replaceWireframeWithImage");
+    const id = drawnOnBills();
+    await open(BILLS);
+    await userEvent.click(within(shellOf(id)).getByRole("button", { name: "Replace with an image" }));
+    pick();
+    act(() => {
+      api.productDocs.writeProductBlocksAs("p-marco", BILLS, [{ op: "delete", blockId: id }], {
+        sessionId: "script-marco",
+      });
+    });
+    // L'editor l'ha vista andare via; poi il caricamento finisce.
+    await waitFor(() => expect(body().querySelector(`[data-block-id="${id}"]`)).toBeNull());
+    await act(async () => finish());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(replaceSketch).not.toHaveBeenCalled();
+    expect(blockOf(BILLS, id)).toBeUndefined();
   });
 });
 
@@ -588,5 +694,150 @@ describe("fix round 1, M1: una scrittura fallita non blocca il disegno", () => {
     await user.click(within(menu).getByRole("menuitem", { name: "Draw this screen" }));
     await waitFor(() => expect(page(BILLS).blocks.some((b) => b.type === "wireframe")).toBe(true));
     await waitFor(() => expect(document.querySelector("[data-sketching]")).toBeNull());
+  });
+});
+
+// F6 (21 nov 2026, maintainer via orchestratrice; shape
+// product-claude-backlog.md, «Emendamento F6»): il disegno è asincrono. In
+// disegno: la testata col segno di Claude e «Claude is drawing this
+// screen…», Keep e Redraw spenti, Replace acceso. Non riuscita: una frase
+// per motivo, Redraw acceso.
+describe("F6: in disegno e non riuscita", () => {
+  // Una pausa vera (8 × 30 ms), e il fermo (`holdSketches`) dove serve vedere
+  // il disegno in corso: sotto carico la pausa finirebbe prima della pagina.
+  beforeEach(() => setStreamLatency(30));
+  afterEach(() => setStreamLatency(null));
+
+  const actionsOf = (id: string) => within(shellOf(id)).getByRole("group", { name: "Sketch actions" });
+
+  it("in disegno: «Claude is drawing this screen…» al posto dello schizzo, Keep e Redraw spenti, Replace acceso; poi lo schizzo", async () => {
+    const release = holdSketches();
+    const id = drawnOnBills();
+    await open(BILLS);
+    const shell = shellOf(id);
+    expect(within(shell).getByRole("status")).toHaveTextContent("Claude is drawing this screen…");
+    expect(within(shell).queryByRole("img")).toBeNull();
+    expect(flat(shell)).toContain("Claude's draft · Screen sketch");
+    expect(within(shell).getByRole("button", { name: "Keep" })).toHaveAttribute("aria-disabled", "true");
+    expect(within(shell).getByRole("button", { name: "Redraw" })).toHaveAttribute("aria-disabled", "true");
+    expect(within(shell).getByRole("button", { name: "Replace with an image" })).not.toHaveAttribute("aria-disabled");
+    // I bottoni si vedono finché dura, non solo al passaggio.
+    expect(actionsOf(id).className).not.toContain("opacity-0");
+    release();
+    await act(() => whenSketchesIdle());
+    expect(await within(shellOf(id)).findByRole("img", { name: "Claude's draft: sketch of the bills screen" })).toBeInTheDocument();
+    expect(within(shellOf(id)).queryByText("Claude is drawing this screen…")).toBeNull();
+  });
+
+  it("«Redraw» di una bozza tenuta: la testata torna mentre disegna, il fuoco resta su «Redraw»; «New sketch» solo alla fine", async () => {
+    const id = drawnOnBills();
+    await whenSketchesIdle();
+    keepWireframeAs(LAURA, BILLS, id);
+    await open(BILLS);
+    expect(within(shellOf(id)).queryByText("Claude's draft")).toBeNull();
+    const release = holdSketches();
+    const redraw = within(shellOf(id)).getByRole("button", { name: "Redraw" });
+    act(() => redraw.focus());
+    act(() => fireEvent.click(redraw));
+    await waitFor(() => expect(within(shellOf(id)).getByRole("status")).toHaveTextContent("Claude is drawing this screen…"));
+    expect(within(shellOf(id)).getByText("Claude's draft")).toBeInTheDocument();
+    const disabled = within(shellOf(id)).getByRole("button", { name: "Redraw" });
+    expect(disabled).toHaveAttribute("aria-disabled", "true");
+    expect(disabled).toHaveFocus();
+    expect(announced()).not.toBe("New sketch");
+    release();
+    await act(() => whenSketchesIdle());
+    await waitFor(() => expect(announced()).toBe("New sketch"));
+    expect((blockOf(BILLS, id) as Wireframe).variant).toBe(1);
+    expect(within(shellOf(id)).getByRole("button", { name: "Redraw" })).toHaveFocus();
+  });
+
+  it("il primo disegno non riesce: «Claude couldn't draw this screen» col motivo al posto dello schizzo; Redraw acceso, niente Keep", async () => {
+    failNextSketch("invalid_svg");
+    const id = drawnOnBills();
+    await whenSketchesIdle();
+    await open(BILLS);
+    const shell = shellOf(id);
+    const status = within(shell).getByRole("status");
+    expect(flat(status)).toBe("Claude couldn't draw this screen What came back wasn't a usable sketch. Try Redraw.");
+    expect(within(shell).queryByRole("img")).toBeNull();
+    expect(within(shell).getByRole("button", { name: "Redraw" })).not.toHaveAttribute("aria-disabled");
+    expect(within(shell).queryByRole("button", { name: "Keep" })).toBeNull();
+    expect(within(shell).getByRole("button", { name: "Replace with an image" })).toBeInTheDocument();
+    expect(actionsOf(id).className).not.toContain("opacity-0");
+  });
+
+  it("un «Redraw» che non riesce: lo schizzo di prima resta, e sotto «Claude couldn't redraw this screen» col motivo; Keep c'è", async () => {
+    const id = drawnOnBills();
+    await whenSketchesIdle();
+    failNextSketch("no_answer");
+    redrawWireframeAs(LAURA, BILLS, id);
+    await whenSketchesIdle();
+    await open(BILLS);
+    const shell = shellOf(id);
+    expect(within(shell).getByRole("img", { name: "Claude's draft: sketch of the bills screen" })).toBeInTheDocument();
+    expect(flat(within(shell).getByRole("status"))).toBe("Claude couldn't redraw this screen No answer came back. Try Redraw.");
+    expect(within(shell).getByRole("button", { name: "Keep" })).not.toHaveAttribute("aria-disabled");
+  });
+
+  it.each([
+    ["limit", "Claude reached its usage limit. Try Redraw later."],
+    ["no_answer", "No answer came back. Try Redraw."],
+  ] as const)("motivo `%s`: «%s»", async (reason, sentence) => {
+    failNextSketch(reason);
+    const id = drawnOnBills();
+    await whenSketchesIdle();
+    await open(BILLS);
+    expect(flat(within(shellOf(id)).getByRole("status"))).toContain(sentence);
+  });
+
+  it("budget finito mentre disegnava: la frase del budget col «Who?», una volta sola; Redraw spento", async () => {
+    const id = drawnOnBills();
+    // D-7.1: il budget ferma chi non ha `plans.approve` nel progetto (Laura, che l'ha chiesto, qui no).
+    revokeProjectPermission(LAURA, "prj-acq", "plans.approve");
+    await budgetUsedUp();
+    await whenSketchesIdle();
+    await open(BILLS);
+    const shell = shellOf(id);
+    const status = within(shell).getByRole("status");
+    expect(flat(status)).toContain("Claude couldn't draw this screen");
+    expect(flat(status)).toContain("The monthly AI budget is used up");
+    expect(within(status).getAllByRole("button").some((b) => /Who\?/.test(b.textContent ?? ""))).toBe(true);
+    expect(within(shell).getByRole("button", { name: "Redraw" })).toHaveAccessibleDescription(/The monthly AI budget is used up/);
+    expect(flat(shell).split("The monthly AI budget is used up")).toHaveLength(2);
+    expect(within(shell).getByRole("button", { name: "Redraw" })).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("in italiano: «Claude sta disegnando questa schermata…» e le frasi del motivo", async () => {
+    const release = holdSketches();
+    const drawing = drawnOnBills();
+    failNextSketch("limit");
+    const failed = drawWireframeAs(LAURA, BILLS, { afterId: null }).blockId;
+    await open(BILLS);
+    act(() => setLanguage("it"));
+    await act(() => new Promise((r) => setTimeout(r, 0)));
+    expect(within(shellOf(drawing)).getByRole("status")).toHaveTextContent("Claude sta disegnando questa schermata…");
+    release();
+    await act(() => whenSketchesIdle());
+    await waitFor(() =>
+      expect(flat(within(shellOf(failed)).getByRole("status"))).toBe(
+        "Claude non è riuscito a disegnare questa schermata Claude ha raggiunto il limite d'uso. Riprova più tardi con Rifai.",
+      ),
+    );
+  });
+
+  it("Sara legge soltanto: gli stessi riquadri e le stesse frasi, nessun bottone e nessun «Who?»", async () => {
+    failNextSketch("budget");
+    const failed = drawnOnBills();
+    await whenSketchesIdle();
+    const release = holdSketches();
+    const drawing = drawWireframeAs(LAURA, BILLS, { afterId: null }).blockId;
+    await open(BILLS, SARA);
+    const block = (id: string) => document.querySelector<HTMLElement>(`[data-block-id="${id}"]`)!;
+    expect(within(block(drawing)).getByRole("status")).toHaveTextContent("Claude is drawing this screen…");
+    expect(flat(within(block(failed)).getByRole("status"))).toBe("Claude couldn't draw this screen The monthly AI budget is used up");
+    expect(within(block(drawing)).queryAllByRole("button")).toHaveLength(0);
+    expect(within(block(failed)).queryAllByRole("button")).toHaveLength(0);
+    release();
   });
 });

@@ -6,6 +6,7 @@ import {
   googleAccounts,
   googleWorkspaces,
   projects,
+  users,
   type Db,
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
@@ -14,7 +15,7 @@ import { startTestDb } from "@stubwise/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { seedUsers } from "../test/fixtures.js";
+import { addMember, seedUsers } from "../test/fixtures.js";
 
 /**
  * SEZIONE CALENDARIO (fase 7b): `GET /api/me/calendar` (appuntamenti visti),
@@ -538,5 +539,136 @@ describe("DELETE /api/me/calendar/series/:recurringEventId", () => {
     expect(res.statusCode).toBe(404);
     const rows = await db.select().from(calendarSeries);
     expect(rows).toHaveLength(1);
+  });
+});
+
+describe("GET /api/me/calendar/events/:id (area 6, F1.4)", () => {
+  function getEvent(cookie: string, id: string) {
+    return app.inject({ method: "GET", url: `/api/me/calendar/events/${id}`, headers: { cookie } });
+  }
+
+  it("il proprio evento: la STESSA forma della riga di /range", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const id = await seedCalendarEvent(accountId, {
+      title: "Con dettagli",
+      startsAt: new Date("2026-09-15T09:00:00.000Z"),
+      endsAt: new Date("2026-09-15T10:00:00.000Z"),
+      attendees: [{ email: "cliente@acme.test", responseStatus: "accepted" }],
+      description: "<p>Ciao</p><script>x()</script>",
+    });
+    const res = await getEvent(memberCookie, id);
+    expect(res.statusCode).toBe(200);
+    const range = await app.inject({
+      method: "GET",
+      url: `/api/me/calendar/range?from=${encodeURIComponent("2026-09-01T00:00:00.000Z")}&to=${encodeURIComponent("2026-09-30T00:00:00.000Z")}`,
+      headers: { cookie: memberCookie },
+    });
+    // La stessa forma, tranne ciò che SOLO il dettaglio aggiunge agli invitati (F4).
+    const detail = res.json() as { attendees: Record<string, unknown>[] };
+    const stripped = {
+      ...detail,
+      attendees: detail.attendees.map((a) => Object.fromEntries(Object.entries(a).filter(([k]) => k !== "personId" && k !== "organizer"))),
+    };
+    expect(stripped).toEqual(range.json().items[0]);
+    expect(detail.attendees[0]).toMatchObject({ personId: null, organizer: false });
+    expect(JSON.stringify(res.json())).not.toContain("<script>");
+  });
+
+  it("l'evento di un altro (anche per un admin) e uno che non esiste: lo STESSO 404", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const id = await seedCalendarEvent(accountId);
+    const foreign = await getEvent(adminCookie, id);
+    const missing = await getEvent(adminCookie, randomUUID());
+    expect(foreign.statusCode).toBe(404);
+    expect(missing.statusCode).toBe(404);
+    expect(foreign.json()).toEqual(missing.json());
+    expect((foreign.json() as { code: string }).code).toBe("not_found");
+  });
+
+  it("un id non uuid: 400; senza sessione: 401", async () => {
+    expect((await getEvent(memberCookie, "boh")).statusCode).toBe(400);
+    expect((await getEvent("", randomUUID())).statusCode).toBe(401);
+  });
+});
+
+describe("F3b, task 6: range leggero, i campi nuovi, le cancellate fuori", () => {
+  const range = (cookie: string) =>
+    app.inject({ method: "GET", url: `/api/me/calendar/range?from=${encodeURIComponent("2026-09-01T00:00:00.000Z")}&to=${encodeURIComponent("2026-09-30T00:00:00.000Z")}&fields=summary`, headers: { cookie } });
+
+  it("ogni riga dice se è lavoro, chi ha deciso il progetto, tipo, trasparenza e la MIA risposta; i campi pesanti solo nel dettaglio", async () => {
+    const { accountId, email } = await seedAccount(memberId);
+    const projectId = await seedProject("Audin");
+    // Membro: un progetto che chi guarda non vede esce null (review F4, punto 2).
+    await addMember(app, projectId, memberId);
+    const work = await seedCalendarEvent(accountId, {
+      title: "Revisione",
+      startsAt: new Date("2026-09-15T09:00:00.000Z"),
+      projectId,
+      projectBy: "rules",
+      proposalCandidate: true,
+      description: "<p>Ordine del giorno lungo</p>",
+      attendees: [{ email, responseStatus: "tentative" }, { email: "cliente@x.it", responseStatus: "accepted" }],
+    });
+    await seedCalendarEvent(accountId, { title: "Ferie", startsAt: new Date("2026-09-16T00:00:00.000Z"), allDay: true, proposalCandidate: false, eventType: "outOfOffice", transparency: "transparent" });
+    const items = (await range(memberCookie)).json().items as Record<string, unknown>[];
+    expect(items.find((i) => i.title === "Revisione")).toMatchObject({ recognized: true, projectBy: "rules", myResponse: "tentative", descriptionHtml: null, attendees: [], attendeeCount: 2 });
+    expect(items.find((i) => i.title === "Ferie")).toMatchObject({ recognized: false, projectBy: null, eventType: "outOfOffice", transparency: "transparent", reproposable: false });
+    const detail = (await app.inject({ method: "GET", url: `/api/me/calendar/events/${work}`, headers: { cookie: memberCookie } })).json() as Record<string, unknown>;
+    expect(detail).toMatchObject({ myResponse: "tentative", recognized: true });
+    expect(detail.descriptionHtml).toContain("Ordine del giorno");
+    expect((detail.attendees as unknown[]).length).toBe(2);
+  });
+
+  it("myResponse: null SOLO se la mia casella non è fra gli invitati; fra gli invitati senza risposta = needsAction (come il dettaglio)", async () => {
+    const { accountId, email } = await seedAccount(memberId);
+    await seedCalendarEvent(accountId, { title: "Senza risposta", startsAt: new Date("2026-09-15T09:00:00.000Z"), attendees: [{ email, responseStatus: null }] });
+    await seedCalendarEvent(accountId, { title: "Mio, senza invitati", startsAt: new Date("2026-09-15T10:00:00.000Z"), attendees: [] });
+    const items = (await range(memberCookie)).json().items as { title: string; myResponse: string | null }[];
+    expect(items.find((i) => i.title === "Senza risposta")!.myResponse).toBe("needsAction");
+    expect(items.find((i) => i.title === "Mio, senza invitati")!.myResponse).toBeNull();
+  });
+
+  it("un evento cancellato su Google non compare nel calendario", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedCalendarEvent(accountId, { title: "Annullato", startsAt: new Date("2026-09-15T09:00:00.000Z"), status: "cancelled" });
+    await seedCalendarEvent(accountId, { title: "Vivo", startsAt: new Date("2026-09-15T10:00:00.000Z") });
+    expect(((await range(memberCookie)).json().items as { title: string }[]).map((i) => i.title)).toEqual(["Vivo"]);
+  });
+
+  it("una serie dice se è lavoro (almeno un'occorrenza riconosciuta)", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedCalendarEvent(accountId, { title: "Yoga", startsAt: new Date(Date.now() + 86_400_000), recurringEventId: "s-yoga", proposalCandidate: false });
+    await seedCalendarEvent(accountId, { title: "SAL", startsAt: new Date(Date.now() + 86_400_000), recurringEventId: "s-sal", proposalCandidate: true });
+    const items = (await getSeries(memberCookie)).json().items as { recurringEventId: string; recognized: boolean }[];
+    expect(items.find((i) => i.recurringEventId === "s-yoga")!.recognized).toBe(false);
+    expect(items.find((i) => i.recurringEventId === "s-sal")!.recognized).toBe(true);
+  });
+});
+
+describe("F4, task 1: le letture per scrivere", () => {
+  const range = (cookie: string) =>
+    app.inject({ method: "GET", url: `/api/me/calendar/range?from=${encodeURIComponent("2026-09-01T00:00:00.000Z")}&to=${encodeURIComponent("2026-09-30T00:00:00.000Z")}&fields=summary`, headers: { cookie } });
+
+  it("organizzatore: canEdit e non canRespond; invitato: il contrario, con la mia nota; mio senza invitati: canEdit; una riga di prima: etag null", async () => {
+    const { accountId, email } = await seedAccount(memberId);
+    await seedCalendarEvent(accountId, { title: "Organizzo io", startsAt: new Date("2026-09-15T09:00:00.000Z"), organizerSelf: true, organizer: email, etag: '"1"', attendees: [{ email, responseStatus: "accepted", self: true }, { email: "x@y.it", responseStatus: null }] });
+    await seedCalendarEvent(accountId, { title: "Mi invitano", startsAt: new Date("2026-09-15T10:00:00.000Z"), organizer: "capo@y.it", etag: '"2"', attendees: [{ email: "capo@y.it", responseStatus: "accepted" }, { email, responseStatus: "tentative", comment: "forse tardi", self: true }] });
+    await seedCalendarEvent(accountId, { title: "Mio da solo", startsAt: new Date("2026-09-15T11:00:00.000Z"), organizer: email, attendees: [] });
+    await seedCalendarEvent(accountId, { title: "Di prima", startsAt: new Date("2026-09-15T12:00:00.000Z"), organizer: "capo@y.it", attendees: [{ email, responseStatus: "accepted" }] });
+    const items = (await range(memberCookie)).json().items as Record<string, unknown>[];
+    const by = (t: string) => items.find((i) => i.title === t)!;
+    expect(by("Organizzo io")).toMatchObject({ canEdit: true, canRespond: false, etag: '"1"' });
+    expect(by("Mi invitano")).toMatchObject({ canEdit: false, canRespond: true, myNote: "forse tardi", etag: '"2"' });
+    expect(by("Mio da solo")).toMatchObject({ canEdit: true, canRespond: false });
+    expect(by("Di prima")).toMatchObject({ canEdit: false, canRespond: true, etag: null, myNote: null });
+  });
+
+  it("nel dettaglio gli invitati hanno nome, la persona di Stubwise e chi organizza", async () => {
+    const { accountId, email } = await seedAccount(memberId);
+    const [colleague] = await db.select().from(users).where(eq(users.id, memberId));
+    const id = await seedCalendarEvent(accountId, { title: "Con nomi", startsAt: new Date("2026-09-15T09:00:00.000Z"), organizer: "capo@y.it", attendees: [{ email: "capo@y.it", responseStatus: "accepted", name: "Il Capo" }, { email: colleague!.email.toUpperCase(), responseStatus: null }, { email, responseStatus: null, self: true }] });
+    const detail = (await app.inject({ method: "GET", url: `/api/me/calendar/events/${id}`, headers: { cookie: memberCookie } })).json() as { attendees: { email: string; name?: string | null; personId?: string | null; organizer?: boolean }[] };
+    expect(detail.attendees[0]).toMatchObject({ name: "Il Capo", organizer: true, personId: null });
+    expect(detail.attendees[1]).toMatchObject({ personId: memberId, organizer: false });
   });
 });

@@ -169,22 +169,70 @@ describe("Plugins: la pagina", () => {
     ]);
   });
 
-  it("la casella del plugin spegne tutte le sue righe, e il conteggio lo dice", async () => {
+  it("la casella del plugin lo spegne sul progetto (F5, opt-in): le scelte dentro restano", async () => {
     const user = userEvent.setup();
     await open(LAURA);
     const superpowers = await block("superpowers");
-    const all = within(superpowers).getByRole("checkbox", {
+    const plugin = within(superpowers).getByRole("checkbox", {
       name: "Use superpowers in STW's runs",
     });
+    expect(plugin).toBeChecked();
     await user.click(skill("brainstorming"));
-    expect((all as HTMLInputElement).indeterminate).toBe(true);
-    // In parte → tutto acceso; tutto acceso → tutto spento.
-    await user.click(all);
-    expect(skill("brainstorming")).toBeChecked();
-    expect(saveBar()).toBeNull();
-    await user.click(all);
-    expect(superpowers).toHaveTextContent("Not in runs: everything is off");
-    expect(saveBar()).toHaveTextContent("10 changes");
+    await user.click(plugin);
+    expect(plugin).not.toBeChecked();
+    expect(superpowers).toHaveTextContent("Not turned on for this project: it doesn't enter runs.");
+    expect(superpowers).not.toHaveTextContent("in runs");
+    // Spento, le sue righe non si scelgono; la bozza le tiene.
+    expect(skill("brainstorming")).toBeDisabled();
+    expect(skill("brainstorming")).not.toBeChecked();
+    // Review F5, M2: anche il preset, spento, con la ragione del plugin non acceso.
+    const apply = within(superpowers).getByRole("button", { name: "Apply recommended preset" });
+    expect(apply).toHaveAttribute("aria-disabled", "true");
+    expect(apply).toHaveAccessibleDescription(
+      "Not turned on for this project: it doesn't enter runs.",
+    );
+    await user.click(apply);
+    // Il preset non ha toccato niente: la scelta salvata resta.
+    expect(skill("using-git-worktrees")).toBeChecked();
+    expect(saveBar()).toHaveTextContent("2 changes");
+    await user.click(within(saveBar()!).getByRole("button", { name: "Save" }));
+    await screen.findByText(/^Saved\./);
+    expect(choicesOf(STW)).toMatchObject({
+      enabled: [],
+      disabled: [{ plugin: "superpowers", skills: ["brainstorming"], hookGroups: [] }],
+    });
+    expect(projectSettings.skillsForRun(STW).some((s) => s.plugin === "superpowers")).toBe(false);
+  });
+});
+
+// Area 9, F5 (decisione del maintainer: opt-in, come il server): un plugin
+// pronto entra nei run solo se è acceso sul progetto. Uno non acceso lo dice,
+// e la sua casella lo accende.
+describe("Plugins: un plugin pronto ma non acceso sul progetto", () => {
+  it("dice che non entra nei run; acceso e salvato, entra con tutte le sue righe", async () => {
+    choicesOf(STW).enabled = [];
+    const user = userEvent.setup();
+    await open(LAURA);
+    const superpowers = await block("superpowers");
+    // Review F5, M1: l'introduzione dice la regola opt-in.
+    expect(
+      screen.getByText(
+        "The Claude Code plugins Claude can use when it works on STW. A plugin enters runs only if you turn it on here; inside it, everything is on unless you turn it off.",
+      ),
+    ).toBeInTheDocument();
+    expect(superpowers).toHaveTextContent("Not turned on for this project: it doesn't enter runs.");
+    expect(superpowers).not.toHaveTextContent("in runs");
+    const plugin = within(superpowers).getByRole("checkbox", {
+      name: "Use superpowers in STW's runs",
+    });
+    expect(plugin).not.toBeChecked();
+    await user.click(plugin);
+    expect(superpowers).toHaveTextContent("9 of 9 skills · 1 of 1 hooks in runs");
+    expect(saveBar()).toHaveTextContent("1 change");
+    await user.click(within(saveBar()!).getByRole("button", { name: "Save" }));
+    await screen.findByText(/^Saved\./);
+    expect(choicesOf(STW).enabled).toEqual(["superpowers"]);
+    expect(projectSettings.skillsForRun(STW).map((s) => s.skill)).toContain("brainstorming");
   });
 });
 

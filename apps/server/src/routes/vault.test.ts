@@ -245,7 +245,8 @@ describe("cassaforte: attivazione e chiavi delle persone", () => {
     const status = await req("GET", "/api/vault/status", member.headers);
     expect(status.json()).toEqual({
       activated: true,
-      myKey: { id: body.id, status: "pending", createdAt: expect.any(String) },
+      // 25 nov 2026: anche la pubblica (il desktop ne mostra l'impronta).
+      myKey: { id: body.id, status: "pending", createdAt: expect.any(String), publicKey: expect.any(String) },
       seals: [{ passkeyId: memberPasskeyId, credentialIdB64url: memberCredentialId }],
       passkeys: expect.arrayContaining([
         { passkeyId: memberPasskeyId, credentialIdB64url: memberCredentialId },

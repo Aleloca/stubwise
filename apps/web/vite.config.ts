@@ -8,6 +8,17 @@ import { defineConfig } from "vitest/config";
 // sovrascrivibile via env: la suite Playwright punta il vite dev al server
 // effimero dello stack e2e (vedi e2e/start-stack.mjs).
 const target = process.env.STUBWISE_API_TARGET ?? "http://localhost:3000";
+
+// Lingua fissa per i test: la SPA formatta giorni e mesi con la lingua del
+// browser (`Intl.DateTimeFormat(undefined, …)`), e in Node quella lingua
+// viene da LANG/LC_ALL della macchina. Su una macchina in italiano «Sep 7 –
+// Sep 13» diventava «7 set – 13 set» e i test del calendario fallivano: si
+// fissa qui, prima che vitest avvii i processi dei test (che la ereditano),
+// come il desktop fissa il fuso. Solo sotto vitest: il dev server non c'entra.
+if (process.env.VITEST) {
+  process.env.LANG = "en_US.UTF-8";
+  process.env.LC_ALL = "en_US.UTF-8";
+}
 const proxy = {
   "/api": target,
   "/ingest": target,

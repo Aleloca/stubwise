@@ -1,5 +1,5 @@
 import { onBeforePersonaChange } from "../../../data/session";
-import { onStoreReset } from "../../../data/store";
+import { onStoreReset } from "@backend/runtime";
 import type { Attachment, ContextRef } from "../../../data/types";
 
 // Il primo messaggio di una conversazione appena nata (l'atterraggio, una

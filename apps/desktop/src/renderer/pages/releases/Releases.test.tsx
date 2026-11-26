@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failNext, resetApi, setLatency } from "../../data/api";
 import { state } from "../../data/store";
 import { grantProjectRole, resetViewerGrants } from "../../data/viewer";
+import { serversVisibleTo } from "../../data/servers/visibility";
 import { setLanguage } from "../../i18n";
 import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
 import { expectNoDeploy } from "../../test/noDeploy";
@@ -31,6 +32,8 @@ afterEach(() => {
 const pr = (id: string) => state.openPrs.find((p) => p.id === id)!;
 const group = (name: string) => screen.getByRole("list", { name });
 const rowOf = (id: string) => document.querySelector<HTMLElement>(`[data-pr-row="${id}"]`)!;
+
+const byNumber = (a: string, b: string) => Number(a.slice(4)) - Number(b.slice(4));
 
 async function openSection(person = "p-laura", path = "/p/AUD/releases") {
   const router = renderRoute(path, person);
@@ -358,8 +361,8 @@ describe("Releases — ambienti", () => {
     await userEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
     const dialog = await screen.findByRole("dialog", { name: "Edit environment" });
     const group = within(dialog).getByRole("group", { name: "By repository" });
-    expect(within(group).getByRole("textbox", { name: "audin-admin" })).toHaveValue("SRV-4");
-    const scripts = within(group).getByRole("textbox", { name: "audin-scripts" });
+    expect(within(group).getByRole("combobox", { name: "audin-admin" })).toHaveValue("SRV-4");
+    const scripts = within(group).getByRole("combobox", { name: "audin-scripts" });
     expect(scripts).toHaveValue("");
     await userEvent.type(scripts, "srv-4");
     await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
@@ -372,6 +375,38 @@ describe("Releases — ambienti", () => {
     ]);
     // Le righe che non cambiano tengono il commit riportato dall'agente.
     expect(prod.servers[0]!.reportedSha).not.toBeNull();
+  });
+
+  it("il server si sceglie fra quelli che chi scrive vede (area 8, F4a): i suggerimenti del campo", async () => {
+    await openSection();
+    const part = screen.getByRole("region", { name: /^Environments/ });
+    await userEvent.click(within(part).getByRole("button", { name: "Add environment" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add environment" });
+    const field = within(dialog).getByRole("combobox", { name: "Server" });
+    const list = document.getElementById(field.getAttribute("list")!)!;
+    const offered = [...list.querySelectorAll("option")].map((o) => o.value);
+    expect(offered).toEqual([...serversVisibleTo("p-laura")].sort(byNumber));
+    expect(offered).toContain("SRV-3");
+  });
+
+  it("F5: eliminare un ambiente con file d'ambiente chiede la riconferma, poi se ne vanno insieme", async () => {
+    const user = userEvent.setup();
+    state.reauth.clear();
+    renderRoute("/p/STW/releases", "p-laura");
+    const part = await screen.findByRole("region", { name: /^Environments/ });
+    await user.click(within(part).getByRole("button", { name: "More for Production" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete Production?" });
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
+    const confirm = await screen.findByRole("dialog", { name: "Confirm it's you" });
+    expect(confirm).toHaveTextContent("delete Production and its environment files");
+    expect(state.environments.some((e) => e.id === "env-stw-prod")).toBe(true);
+    await user.type(within(confirm).getByLabelText("Code"), "123456");
+    await waitFor(() =>
+      expect(state.environments.some((e) => e.id === "env-stw-prod")).toBe(false),
+    );
+    expect(state.envFiles.some((f) => f.environmentId === "env-stw-prod")).toBe(false);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   it("senza environments.manage (Elena, Legacy Member): sola lettura", async () => {

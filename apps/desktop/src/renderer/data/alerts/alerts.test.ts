@@ -72,11 +72,6 @@ describe("avvisi: prima nessuno li vedeva, ora arrivano alle persone giuste", ()
     // Nuova PR: solo chi l'ha accesa (Matteo).
     expect(await has("p-matteo", prOpened.id)).toBe(true);
     expect(await has("p-laura", prOpened.id)).toBe(false);
-    // Il cliente ha risposto (ACQ-S2): chi risponde ai clienti, non Sara.
-    const replied = seedAlert("support.customer_replied");
-    expect(await has("p-laura", replied.id)).toBe(true);
-    expect(await has("p-matteo", replied.id)).toBe(true);
-    expect(await has("p-sara", replied.id)).toBe(false);
   });
 });
 
@@ -544,7 +539,7 @@ describe("iscrizioni: righe e scritture", () => {
         group: "monitor",
         labelKey: "alerts.types.test_server_struggling",
         subscribe: { perm: "member" },
-        defaultOn: () => true,
+        defaultOn: "members",
         defaultPhone: true,
         mandatory: [],
       },

@@ -1,12 +1,13 @@
 import { useState, type Ref } from "react";
 import { useTranslation } from "react-i18next";
+import { isAppBuild } from "../../data/build";
 import { useInstallCommand, useRemovalCommand } from "../../data/queries";
 import type { SshAccessView } from "../../data/servers";
 import { useToast } from "../../tasks-ui/Toast";
 import { secondaryButton } from "../tasks/controls";
 import { ghostButton, smallSecondary } from "../task/parts";
 import { clockLocal, dayLocal } from "./format";
-import { CopyGlyph, TroubleGlyph } from "./glyphs";
+import { CopyGlyph } from "./glyphs";
 
 // Un comando da incollare sul server (shape server-access.md §3, passo 2 e
 // Revoca): l'unico testo monospace della parte, nello stile del log delle
@@ -114,7 +115,7 @@ function Fingerprint({ value }: { value: string }) {
   );
 }
 
-/** I due utenti che il comando crea: cosa può fare ciascuno, PRIMA del comando. */
+/** L'utente che il comando crea e cosa può fare, PRIMA del comando: uno, di sola lettura (F4b). */
 export function UsersTable({ notes }: { notes: boolean }) {
   const { t } = useTranslation();
   const row =
@@ -138,26 +139,7 @@ export function UsersTable({ notes }: { notes: boolean }) {
               {t("servers.ssh.users.read")}
             </span>
             {notes && (
-              <span className="text-xs text-ink-faint">{t("servers.ssh.users.readNote")}</span>
-            )}
-          </span>
-        </div>
-        <div role="row" className={row}>
-          <span role="rowheader" className={name}>
-            stubwise-fix
-          </span>
-          <span role="cell" className="flex flex-col gap-0.5">
-            <span className="flex items-start gap-1.5 text-[13px] leading-[18px] text-ink">
-              <TroubleGlyph />
-              <span>
-                <strong className="font-semibold">{t("servers.ssh.users.fix")}</strong>{" "}
-                {t("servers.ssh.users.fixSudo")}
-              </span>
-            </span>
-            {notes && (
-              <span className="pl-[22px] text-xs text-ink-muted">
-                {t("servers.ssh.users.fixNote")}
-              </span>
+              <span className="text-xs text-ink-muted">{t("servers.ssh.users.readNote")}</span>
             )}
           </span>
         </div>
@@ -170,8 +152,7 @@ export function UsersTable({ notes }: { notes: boolean }) {
 export function InstallStep({ code, access }: { code: string; access: Access }) {
   const { t } = useTranslation();
   const q = useInstallCommand(code, access.canManage);
-  const keys =
-    access.pending ?? (access.read && access.fix ? { read: access.read, fix: access.fix } : null);
+  const key = access.pending ?? access.key;
   return (
     <>
       <p className="text-sm text-ink-muted">{t("servers.ssh.step2.creates")}</p>
@@ -193,23 +174,22 @@ export function InstallStep({ code, access }: { code: string; access: Access }) 
       )}
       <div className="flex flex-col gap-1">
         <p className="text-sm text-ink">{t("servers.ssh.step2.runAs", { code })}</p>
-        {keys && (
+        {key && (
           <p className="text-xs text-ink-muted">
-            {t("servers.ssh.step2.fpRead")} <Fingerprint value={keys.read.fingerprint} />
-            <span aria-hidden="true" className="px-1.5 text-ink-faint">
-              ·
-            </span>
-            {t("servers.ssh.step2.fpFix")} <Fingerprint value={keys.fix.fingerprint} />
+            {t("servers.ssh.step2.fingerprint")} <Fingerprint value={key.fingerprint} />
           </p>
         )}
-        <p className="text-xs text-ink-faint">{t("servers.ssh.step2.prototype")}</p>
+        {/* Solo nel prototipo le chiavi sono finte (review F4b). */}
+        {!isAppBuild() && (
+          <p className="text-xs text-ink-faint">{t("servers.ssh.step2.prototype")}</p>
+        )}
       </div>
     </>
   );
 }
 
 /**
- * Dopo una revoca (o dal «⋯»): il comando che toglie i due utenti, letto
+ * Dopo una revoca (o dal «⋯»): il comando che toglie l'utente, letto
  * dal livello dati (`getRemovalCommand`, la stessa fonte del risultato
  * della revoca), fino a «Done». Il titolo prende il fuoco.
  */

@@ -1,0 +1,382 @@
+import { existsSync } from "node:fs";
+import { mkdtemp, readdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { eq } from "drizzle-orm";
+import {
+  agentSessionEvents,
+  agentSessionInputs,
+  agentSessions,
+  claudeChatToolTokens,
+  claudeConversations,
+  hashChatToolToken,
+  instanceSettings,
+  users,
+} from "@stubwise/db";
+import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { CHAT_FREE_TOOL_NAMES, CHAT_MCP_SERVER_NAME } from "@stubwise/shared";
+import type { AgentRunOptions, AgentRunResult, AgentRunner } from "../agent/runner.js";
+import { fakeSelect } from "../providers/select-fake.js";
+import { startChatBridge, type ChatBridge } from "./bridge.js";
+import { chatCwd } from "./cli-dir.js";
+import { CHAT_DENIED_BUILTIN_TOOLS, runChatTurn, type ChatTurnDeps } from "./turn.js";
+
+// Un turno della conversazione libera (chat, fetta 1): solo i tool di lettura
+// di `stubwise_chat`, cwd vuota, nessuna sorgente di settings; il token del
+// turno vive SOLO per il turno e non esce dal ponte.
+
+let t: TestDb;
+let bridge: ChatBridge;
+let ownerId: string;
+let otherId: string;
+let serverPath: string;
+let cliTmp: string;
+/** Le GET che il ponte farebbe al server: col token del turno. */
+const serverCalls: { url: string; auth: string | null }[] = [];
+
+beforeAll(async () => {
+  t = await startTestDb();
+  bridge = await startChatBridge({
+    serverUrl: "http://server.test",
+    fetchImpl: (async (url: RequestInfo | URL, init?: RequestInit) => {
+      serverCalls.push({ url: String(url), auth: new Headers(init?.headers).get("authorization") });
+      return Response.json([{ code: "AUD", name: "Audin" }]);
+    }) as typeof fetch,
+    log: () => undefined,
+  });
+  const [o] = await t.db.insert(users).values({ email: "ada@x.test", passwordHash: "x", role: "member", displayName: "Ada" }).returning();
+  const [x] = await t.db.insert(users).values({ email: "bob@x.test", passwordHash: "x", role: "admin" }).returning();
+  ownerId = o!.id;
+  otherId = x!.id;
+  // L'entry del server MCP deve esistere perché il turno lo configuri.
+  const dir = await mkdtemp(join(tmpdir(), "chat-mcp-"));
+  serverPath = join(dir, "index.js");
+  cliTmp = await mkdtemp(join(tmpdir(), "chat-turn-cli-"));
+  await writeFile(serverPath, "");
+}, 120_000);
+afterAll(async () => {
+  await bridge.close();
+  await t.stop();
+});
+
+const OK: AgentRunResult = { exitCode: 0, output: "fatto", sessionId: "cli-1" };
+
+function fakeRunner(script: Array<(o: AgentRunOptions) => Promise<AgentRunResult>>) {
+  const calls: AgentRunOptions[] = [];
+  const runner: AgentRunner = {
+    recordsSessions: true,
+    run: vi.fn(async (o: AgentRunOptions) => {
+      calls.push(o);
+      return (script[calls.length - 1] ?? script.at(-1)!)(o);
+    }),
+  };
+  return { runner, calls };
+}
+
+async function echo(o: AgentRunOptions) {
+  await t.db.insert(agentSessionEvents).values({
+    sessionId: o.session!.sessionId,
+    segmentId: "seg",
+    type: "input",
+    data: { inputId: o.openingInput!.inputId, text: o.openingInput!.text },
+  });
+}
+
+async function seeded(opts: { cliSessionId?: string; archived?: boolean; author?: string; mention?: boolean } = {}) {
+  const kind = opts.mention ? "chat_mention" : "free";
+  const [s] = await t.db
+    .insert(agentSessions)
+    .values({ ownerKey: `${kind}:${crypto.randomUUID()}`, kind, title: "t" })
+    .returning();
+  await t.db.insert(claudeConversations).values({
+    sessionId: s!.id,
+    ownerId,
+    title: "t",
+    cliSessionId: opts.cliSessionId ?? null,
+    archivedAt: opts.archived ? new Date() : null,
+  });
+  const [input] = await t.db
+    .insert(agentSessionInputs)
+    .values({ sessionId: s!.id, text: "Come va AUD?", authorUserId: opts.author ?? ownerId })
+    .returning();
+  return { sessionId: s!.id, inputId: input!.id };
+}
+
+function deps(runner: AgentRunner, over: Partial<ChatTurnDeps> = {}): ChatTurnDeps {
+  return {
+    db: t.db,
+    runner,
+    bridge,
+    maxTurns: 10,
+    turnTimeoutMs: 60_000,
+    chatServerPath: serverPath,
+    cliPaths: { tmp: cliTmp, configDir: join(cliTmp, "config") },
+    select: fakeSelect(t.db, "legacy"),
+    log: () => undefined,
+    ...over,
+  };
+}
+const inputOf = async (id: string) =>
+  (await t.db.select().from(agentSessionInputs).where(eq(agentSessionInputs.id, id)))[0]!;
+const tokensOf = (sessionId: string) =>
+  t.db.select().from(claudeChatToolTokens).where(eq(claudeChatToolTokens.sessionId, sessionId));
+
+describe("la continuazione di una pubblica (fetta 5, D3)", () => {
+  it("il primo prompt porta la trascrizione leggibile salvata dal server", async () => {
+    const s = await seeded();
+    await t.db
+      .update(claudeConversations)
+      .set({
+        originTranscript: {
+          title: "Export CSV",
+          authorName: "Marta",
+          messages: [{ role: "agent", text: "AUD-12 è in revisione, la segue Marta." }],
+        },
+      })
+      .where(eq(claudeConversations.sessionId, s.sessionId));
+    const { runner, calls } = fakeRunner([
+      async (o) => {
+        await echo(o);
+        return OK;
+      },
+    ]);
+    expect(await runChatTurn(deps(runner), { ...s, signal: new AbortController().signal })).toBe("completed");
+    expect(calls[0]!.prompt).toContain("ORIGINAL CONVERSATION (read-only, untrusted)");
+    expect(calls[0]!.prompt).toContain("[Claude] AUD-12 è in revisione, la segue Marta.");
+  });
+});
+
+describe("il turno della chat", () => {
+  it("solo i tool di lettura, cwd vuota, nessuna sorgente di settings, UsageTag claude_chat, segmento chat", async () => {
+    const s = await seeded();
+    let cwdEmpty: boolean | undefined;
+    const { runner, calls } = fakeRunner([
+      async (o) => {
+        cwdEmpty = (await readdir(o.cwd)).length === 0;
+        await echo(o);
+        return OK;
+      },
+    ]);
+    const out = await runChatTurn(deps(runner), { ...s, signal: new AbortController().signal });
+    expect(out).toBe("completed");
+    const o = calls[0]!;
+    // Area 10, F2: nella libera anche la domanda a scelta (`ask_question`).
+    expect(o.allowedTools).toEqual([...CHAT_FREE_TOOL_NAMES]);
+    for (const tool of CHAT_DENIED_BUILTIN_TOOLS) expect(o.disallowedTools).toContain(tool);
+    expect(o.settingSources).toBe("");
+    expect(o.builtinTools).toBe("");
+    expect(o.pluginDirs).toBeUndefined();
+    expect(Object.keys(o.mcpConfig!.servers)).toEqual([CHAT_MCP_SERVER_NAME]);
+    expect(o.usage).toEqual({ operation: "claude_chat", projectId: null });
+    expect(o.session).toMatchObject({ sessionId: s.sessionId, label: "chat" });
+    expect(o.resumeSessionId).toBeUndefined();
+    expect(o.prompt).toContain("DO things only by PROPOSING them with propose_action");
+    expect(o.prompt).toContain("- updateTask({ id: uuid, patch: {");
+    // Area 9, F7: Ada non ha permessi d'istanza, le voci d'istanza non le vede.
+    expect(o.prompt).not.toMatch(/^- setModel\(/m);
+    expect(o.prompt).toMatch(/^- addMember\(/m);
+    expect(o.prompt).toContain("Ada");
+    expect(cwdEmpty).toBe(true);
+    // La cwd resta fra i turni: è quella con cui il CLI ritrova la sessione.
+    expect(o.cwd).toBe(chatCwd(s.sessionId, cliTmp));
+    expect(existsSync(o.cwd)).toBe(true);
+    const [conv] = await t.db.select().from(claudeConversations).where(eq(claudeConversations.sessionId, s.sessionId));
+    expect(conv!.cliSessionId).toBe("cli-1");
+    expect((await inputOf(s.inputId)).status).toBe("delivered");
+  });
+
+  it("il token del turno: valido durante il run, dell'autore, mai nel prompt né nell'env MCP; revocato a fine turno", async () => {
+    const s = await seeded();
+    let during: (typeof claudeChatToolTokens.$inferSelect)[] = [];
+    let mcpEnv = "";
+    const { runner, calls } = fakeRunner([
+      async (o) => {
+        during = await tokensOf(s.sessionId);
+        mcpEnv = JSON.stringify(o.mcpConfig);
+        // Il server MCP chiama il ponte col segreto del turno: il ponte usa il token.
+        const env = o.mcpConfig!.servers[CHAT_MCP_SERVER_NAME]!.env!;
+        await fetch(`${env["CHAT_BRIDGE_URL"]}/tools/list_projects`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${env["CHAT_BRIDGE_SECRET"]}` },
+          body: "{}",
+        });
+        await echo(o);
+        return OK;
+      },
+    ]);
+    await runChatTurn(deps(runner), { ...s, signal: new AbortController().signal });
+    expect(during).toHaveLength(1);
+    expect(during[0]).toMatchObject({ userId: ownerId, revokedAt: null });
+    expect(during[0]!.expiresAt.getTime()).toBeLessThanOrEqual(Date.now() + 60_000 + 60_000);
+    const used = serverCalls.at(-1)!.auth!.replace("Bearer ", "");
+    expect(hashChatToolToken(used)).toBe(during[0]!.tokenHash);
+    expect(calls[0]!.prompt).not.toContain(used);
+    expect(mcpEnv).not.toContain(used);
+    expect(mcpEnv).not.toContain("stw_chat_");
+    const after = await tokensOf(s.sessionId);
+    expect(after[0]!.revokedAt).not.toBeNull();
+    // Il ponte non accetta più il segreto del turno.
+    const env = calls[0]!.mcpConfig!.servers[CHAT_MCP_SERVER_NAME]!.env!;
+    const late = await fetch(`${env["CHAT_BRIDGE_URL"]}/tools/list_projects`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${env["CHAT_BRIDGE_SECRET"]}` },
+      body: "{}",
+    });
+    expect(late.status).toBe(401);
+  });
+
+  it("due turni: la STESSA cwd, e il secondo riprende la sessione del CLI del primo", async () => {
+    const s1 = await seeded();
+    const first = fakeRunner([async (o) => (await echo(o), { ...OK, sessionId: "cli-due-turni" })]);
+    await runChatTurn(deps(first.runner), { ...s1, signal: new AbortController().signal });
+    const [after] = await t.db.select().from(claudeConversations).where(eq(claudeConversations.sessionId, s1.sessionId));
+    expect(after!.cliSessionStartedAt).not.toBeNull();
+    const [input2] = await t.db
+      .insert(agentSessionInputs)
+      .values({ sessionId: s1.sessionId, text: "E poi?", authorUserId: ownerId })
+      .returning();
+    const second = fakeRunner([async (o) => (await echo(o), { ...OK, sessionId: "cli-due-turni" })]);
+    await runChatTurn(deps(second.runner), { sessionId: s1.sessionId, inputId: input2!.id, signal: new AbortController().signal });
+    expect(second.calls[0]!.cwd).toBe(first.calls[0]!.cwd);
+    expect(second.calls[0]!.resumeSessionId).toBe("cli-due-turni");
+    const [still] = await t.db.select().from(claudeConversations).where(eq(claudeConversations.sessionId, s1.sessionId));
+    // La stessa sessione del CLI: la sua data non si sposta.
+    expect(still!.cliSessionStartedAt!.getTime()).toBe(after!.cliSessionStartedAt!.getTime());
+  });
+
+  it("senza l'entry MCP compilata: nessun turno (fail-closed), turn_failed, nessun token", async () => {
+    const s = await seeded();
+    const { runner } = fakeRunner([async () => OK]);
+    expect(await runChatTurn(deps(runner, { chatServerPath: "/non/esiste/index.js" }), { ...s, signal: new AbortController().signal })).toBe("failed");
+    expect(runner.run).not.toHaveBeenCalled();
+    expect(await inputOf(s.inputId)).toMatchObject({ status: "undelivered", reason: "turn_failed" });
+    expect(await tokensOf(s.sessionId)).toEqual([]);
+  });
+
+  it("un token per TENTATIVO: --resume rifiutato → due token, ciascuno revocato a fine tentativo", async () => {
+    const s = await seeded({ cliSessionId: "cli-perso" });
+    const live: number[] = [];
+    const { runner } = fakeRunner([
+      async () => {
+        live.push((await tokensOf(s.sessionId)).filter((r) => r.revokedAt === null).length);
+        return { exitCode: 1, output: "No conversation found", sessionId: undefined };
+      },
+      async (o) => {
+        live.push((await tokensOf(s.sessionId)).filter((r) => r.revokedAt === null).length);
+        await echo(o);
+        return OK;
+      },
+    ]);
+    await runChatTurn(deps(runner), { ...s, signal: new AbortController().signal });
+    expect(live).toEqual([1, 1]);
+    const all = await tokensOf(s.sessionId);
+    expect(all).toHaveLength(2);
+    expect(all.every((r) => r.revokedAt !== null)).toBe(true);
+  });
+
+  it("riprende con --resume quando la conversazione CLI c'è", async () => {
+    const s = await seeded({ cliSessionId: "cli-old" });
+    const { runner, calls } = fakeRunner([async (o) => (await echo(o), { ...OK, sessionId: "cli-old" })]);
+    await runChatTurn(deps(runner), { ...s, signal: new AbortController().signal });
+    expect(calls[0]!.resumeSessionId).toBe("cli-old");
+    expect(calls[0]!.prompt).toBe("Come va AUD?");
+  });
+
+  it("ripreso con un contesto di pagina: il prompt lo ripete come tipo: id", async () => {
+    const s = await seeded({ cliSessionId: "cli-old" });
+    await t.db
+      .update(claudeConversations)
+      .set({ contextRef: { kind: "task", id: "AUD-12" } })
+      .where(eq(claudeConversations.sessionId, s.sessionId));
+    const { runner, calls } = fakeRunner([async (o) => (await echo(o), { ...OK, sessionId: "cli-old" })]);
+    await runChatTurn(deps(runner), { ...s, signal: new AbortController().signal });
+    expect(calls[0]!.prompt).toContain("task: AUD-12");
+    expect(calls[0]!.prompt).toMatch(/--- MESSAGE ---\nCome va AUD\?$/);
+  });
+
+  it("conversazione archiviata, o messaggio di un altro: nessun run, session_not_live, nessun token", async () => {
+    for (const s of [await seeded({ archived: true }), await seeded({ author: otherId })]) {
+      const { runner } = fakeRunner([async () => OK]);
+      expect(await runChatTurn(deps(runner), { ...s, signal: new AbortController().signal })).toBe("skipped");
+      expect(runner.run).not.toHaveBeenCalled();
+      expect(await inputOf(s.inputId)).toMatchObject({ status: "undelivered", reason: "session_not_live" });
+      expect(await tokensOf(s.sessionId)).toEqual([]);
+    }
+  });
+
+  it("budget del mese finito: budget_exceeded, nessun run", async () => {
+    const s = await seeded();
+    await t.db.insert(instanceSettings).values({ id: 1, monthlyBudgetUsd: "1" }).onConflictDoUpdate({
+      target: instanceSettings.id,
+      set: { monthlyBudgetUsd: "1" },
+    });
+    try {
+      const { runner } = fakeRunner([async () => OK]);
+      const out = await runChatTurn(deps(runner, { monthlyCostUsdFn: async () => 5 }), {
+        ...s,
+        signal: new AbortController().signal,
+      });
+      expect(out).toBe("skipped");
+      expect(runner.run).not.toHaveBeenCalled();
+      expect(await inputOf(s.inputId)).toMatchObject({ status: "undelivered", reason: "budget_exceeded" });
+    } finally {
+      await t.db.update(instanceSettings).set({ monthlyBudgetUsd: null });
+    }
+  });
+
+  it("run fallito senza eco: turn_failed, e il token è revocato comunque", async () => {
+    const s = await seeded();
+    const { runner } = fakeRunner([async () => ({ exitCode: 1, output: "boom", sessionId: undefined })]);
+    expect(await runChatTurn(deps(runner), { ...s, signal: new AbortController().signal })).toBe("failed");
+    expect(await inputOf(s.inputId)).toMatchObject({ status: "undelivered", reason: "turn_failed" });
+    const tokens = await tokensOf(s.sessionId);
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]!.revokedAt).not.toBeNull();
+  });
+});
+
+describe("le voci d'istanza nel prompt della MENZIONE (area 9, F7)", () => {
+  it("chi chiama @Claude nella Chat senza permessi d'istanza non vede setModel fra le firme; le voci di progetto sì", async () => {
+    const s = await seeded({ mention: true });
+    const { runner, calls } = fakeRunner([
+      async (o) => {
+        await echo(o);
+        return OK;
+      },
+    ]);
+    await runChatTurn(deps(runner), { ...s, signal: new AbortController().signal });
+    const o = calls[0]!;
+    // È davvero il contratto della Chat (non quello della conversazione).
+    expect(o.prompt).toContain("called you in a chat thread");
+    expect(o.prompt).not.toMatch(/^- setModel\(/m);
+    expect(o.prompt).toMatch(/^- addMember\(/m);
+  });
+});
+
+describe("revisione 8–9, M-3: il prompt porta i contesti del MESSAGGIO, con la visibilità del server", () => {
+  it("i contesti con cui è partito il messaggio, non il gruppo di adesso; un progetto archiviato non entra", async () => {
+    const { projectMembers, projects, roles } = await import("@stubwise/db");
+    const { seedRepository } = await import("@stubwise/db/testing");
+    const [role] = await t.db.select({ id: roles.id }).from(roles).where(eq(roles.scope, "project")).limit(1);
+    const live = (await seedRepository(t.db)).projectId;
+    const archived = (await seedRepository(t.db)).projectId;
+    const now = (await seedRepository(t.db)).projectId;
+    for (const projectId of [live, archived, now]) await t.db.insert(projectMembers).values({ projectId, userId: ownerId, roleId: role!.id });
+    await t.db.update(projects).set({ archivedAt: new Date() }).where(eq(projects.id, archived));
+    const s = await seeded();
+    // Il gruppo di ADESSO è un altro: il messaggio era partito con `live` e `archived`.
+    await t.db.update(claudeConversations).set({ contextRefs: [{ kind: "project", id: now }], contextRef: { kind: "project", id: now } }).where(eq(claudeConversations.sessionId, s.sessionId));
+    await t.db.update(agentSessionInputs).set({ contexts: [{ kind: "project", id: live }, { kind: "project", id: archived }] }).where(eq(agentSessionInputs.id, s.inputId));
+    const { runner, calls } = fakeRunner([
+      async (o) => {
+        await echo(o);
+        return OK;
+      },
+    ]);
+    expect(await runChatTurn(deps(runner), { ...s, signal: new AbortController().signal })).toBe("completed");
+    expect(calls[0]!.prompt).toContain(`project: ${live}`);
+    expect(calls[0]!.prompt).not.toContain(archived);
+    expect(calls[0]!.prompt).not.toContain(now);
+  });
+});

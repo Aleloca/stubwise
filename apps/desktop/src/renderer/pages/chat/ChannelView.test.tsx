@@ -666,3 +666,62 @@ describe("ChannelView: Review Focus 5 — contenuti estremi", () => {
     expect(el.querySelector('[data-message="x-299"]')).not.toBeNull();
   });
 });
+
+// Registro, A11 r.1414: «chi scrive in un canale che vedo è conosciuto»
+// (decisione del maintainer, 23 nov 2026), anche senza progetti in comune; un
+// autore che arriva come segnaposto (`hidden-<n>`) si legge «Someone».
+describe("ChannelView: chi scrive (r.1414)", () => {
+  it("un canale di tutta l'azienda: l'autore senza progetti in comune ha il suo nome", async () => {
+    setSessionPersonId("p-enrico");
+    const sent = await api.chat.sendMessage("ch-announcements", { text: "Hello from far away" });
+    renderWithData(<Harness id="ch-announcements" />, { personId: "p-laura" });
+    const item = await waitFor(() => {
+      const el = flow().querySelector(`[data-message="${sent.id}"]`);
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    expect(item.textContent).toContain(PEOPLE.find((p) => p.id === "p-enrico")!.name);
+  });
+
+  it("un autore come segnaposto: «Someone», senza nome", async () => {
+    const m = put({ id: "m-hidden", channelId: "ch-announcements", createdAt: "2026-11-21T09:00:00Z", authorId: "hidden-1", text: "From nowhere" });
+    renderWithData(<Harness id="ch-announcements" />, { personId: "p-laura" });
+    const item = await waitFor(() => {
+      const el = flow().querySelector(`[data-message="${m.id}"]`);
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    expect(within(item).getByText("Someone")).toBeInTheDocument();
+  });
+});
+
+// Revisione del lotto 2 (minor, r.1414): «Someone» dove la Chat nomina una
+// persona (reazioni, chi deve rispondere), e un segnaposto non si fonde mai col
+// messaggio prima (masker diversi fra pagine: due `hidden-1` possono essere
+// due persone diverse).
+describe("ChannelView: i segnaposti oltre l'autore (r.1414)", () => {
+  it("due messaggi di fila di `hidden-1`: ognuno col suo «Someone»; reazione e domanda dicono «Someone»", async () => {
+    const a = put({ id: "m-h1", channelId: "ch-announcements", createdAt: "2026-11-21T09:00:00Z", authorId: "hidden-1", text: "First" });
+    const b = put({
+      id: "m-h2",
+      channelId: "ch-announcements",
+      createdAt: "2026-11-21T09:01:00Z",
+      authorId: "hidden-1",
+      text: "Second?",
+      reactions: [{ emoji: "👍", personIds: ["hidden-2"] }],
+      asksReplyOf: ["hidden-2"],
+    });
+    renderWithData(<Harness id="ch-announcements" />, { personId: "p-laura" });
+    const itemOf = (id: string) =>
+      waitFor(() => {
+        const el = flow().querySelector(`[data-message="${id}"]`);
+        expect(el).not.toBeNull();
+        return el as HTMLElement;
+      });
+    expect(within(await itemOf(a.id)).getByText("Someone")).toBeInTheDocument();
+    const second = await itemOf(b.id);
+    expect(within(second).getAllByText("Someone").length).toBeGreaterThan(0);
+    expect(second.textContent).toContain("Asks Someone for a reply");
+    expect(second.innerHTML).toContain("Someone reacted with 👍");
+  });
+});

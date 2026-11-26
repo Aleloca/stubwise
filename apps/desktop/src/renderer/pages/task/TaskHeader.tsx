@@ -1,3 +1,5 @@
+import { Link } from "@tanstack/react-router";
+import { featureIntegrated } from "../../data/integration";
 import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { TODAY } from "../../data/dates";
@@ -9,7 +11,7 @@ import {
   useProjectStatuses,
 } from "../../data/queries";
 import type { Task } from "../../data/types";
-import { useViewer } from "../../data/viewer";
+import { useViewer } from "../../data/viewing";
 import { weekLabel } from "../../domain/weeks";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
 import { PersonChip, personName } from "../../tasks-ui/PersonChip";
@@ -27,10 +29,12 @@ import {
   WeekOptions,
   shortWeek,
   useInlineUpdate,
+  useInlineWrite,
   useProjectMembers,
 } from "../tasks/pickers";
 import { CloseIcon, PlusIcon, ghostButton } from "./parts";
 import { TaskMoreMenu } from "./TaskMoreMenu";
+import { useToday } from "../../data/clock";
 
 /** Il bottone-valore di un campo modificabile: il valore com'è, tinta e freccia al passaggio. */
 export const fieldButton =
@@ -227,6 +231,8 @@ function LabelsField({ task, canEdit }: { task: Task; canEdit: boolean }) {
 
 /** La scadenza: il calendario del sistema, con il tema dell'app (`color-scheme`). */
 function DueField({ task, canEdit }: { task: Task; canEdit: boolean }) {
+  // «Oggi» avanza nella build app: a mezzanotte si ridisegna.
+  useToday();
   const { t, i18n } = useTranslation();
   const input = useRef<HTMLInputElement>(null);
   const change = useInlineUpdate();
@@ -341,17 +347,22 @@ export function TaskHeader({
   // Da tutte le persone, non dai membri: un assegnatario disattivato non è più fra chi si assegna.
   const assignee = usePeople().data?.find((p) => p.id === task.assigneeId);
   const following = task.followerIds.includes(me);
+  const write = useInlineWrite();
 
   const copyCode = () => {
     void navigator.clipboard?.writeText(task.code).catch(() => {});
     toast.show(t("taskDetail.copied", { code: task.code }));
   };
   const toggleFollow = () =>
-    change(task, {
-      followerIds: following
-        ? task.followerIds.filter((id) => id !== me)
-        : [...task.followerIds, me],
-    });
+    write(
+      task,
+      { kind: "follow", follow: !following },
+      {
+        followerIds: following
+          ? task.followerIds.filter((id) => id !== me)
+          : [...task.followerIds, me],
+      },
+    );
 
   const none = (key: string) => muted(t(key));
 
@@ -517,36 +528,39 @@ export function TaskHeader({
 
         <DueField task={task} canEdit={canEdit} />
 
-        <MenuField
-          label={t("taskDetail.fields.week")}
-          name={task.plannedWeek ? weekLabel(task.plannedWeek, i18n.language) : t("tasks.bulk.noWeek")}
-          value={
-            task.plannedWeek ? (
-              <span className="num flex min-w-0 items-baseline gap-1.5">
-                <span className="font-semibold">{shortWeek(task.plannedWeek)}</span>
-                <span className="truncate text-ink-muted">
-                  {weekLabel(task.plannedWeek, i18n.language)}
+        {/* La settimana arriva con la fetta 2: nella build app non c'è. */}
+        {featureIntegrated("planning-week") && (
+          <MenuField
+            label={t("taskDetail.fields.week")}
+            name={task.plannedWeek ? weekLabel(task.plannedWeek, i18n.language) : t("tasks.bulk.noWeek")}
+            value={
+              task.plannedWeek ? (
+                <span className="num flex min-w-0 items-baseline gap-1.5">
+                  <span className="font-semibold">{shortWeek(task.plannedWeek)}</span>
+                  <span className="truncate text-ink-muted">
+                    {weekLabel(task.plannedWeek, i18n.language)}
+                  </span>
                 </span>
-              </span>
-            ) : (
-              none("tasks.bulk.noWeek")
-            )
-          }
-          canEdit={canEdit}
-          menuLabel={t("taskDetail.fields.weekMenu", { code: task.code })}
-        >
-          {(close) => (
-            <MenuGroup>
-              <WeekOptions
-                current={task.plannedWeek}
-                onPick={(plannedWeek) => {
-                  close();
-                  if (plannedWeek !== task.plannedWeek) change(task, { plannedWeek });
-                }}
-              />
-            </MenuGroup>
-          )}
-        </MenuField>
+              ) : (
+                none("tasks.bulk.noWeek")
+              )
+            }
+            canEdit={canEdit}
+            menuLabel={t("taskDetail.fields.weekMenu", { code: task.code })}
+          >
+            {(close) => (
+              <MenuGroup>
+                <WeekOptions
+                  current={task.plannedWeek}
+                  onPick={(plannedWeek) => {
+                    close();
+                    if (plannedWeek !== task.plannedWeek) change(task, { plannedWeek });
+                  }}
+                />
+              </MenuGroup>
+            )}
+          </MenuField>
+        )}
 
         <MenuField
           label={t("taskDetail.fields.milestone")}
@@ -636,6 +650,19 @@ export function TaskHeader({
               occurrences={task.occurrences}
               serverCode={task.serverRef?.serverCode}
             />
+            {/* Aperta dal widget (area 8, F3, S-9): la conversazione da cui è nata. */}
+            {task.supportConversationCode && featureIntegrated("support") && (
+              <Link
+                to="/p/$code/support/$conversation"
+                params={{
+                  code: task.supportConversationCode.split("-")[0]!,
+                  conversation: task.supportConversationCode,
+                }}
+                className="ml-2 rounded-sm text-sm font-medium text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
+              >
+                {t("taskDetail.source.viewConversation")}
+              </Link>
+            )}
           </Field>
         ) : null}
       </dl>

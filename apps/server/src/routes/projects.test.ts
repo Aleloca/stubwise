@@ -16,6 +16,7 @@ import {
   projectEmailRoutes,
   projectFollows,
   projects,
+  repositories,
   ticketRepositories,
   tickets,
 } from "@stubwise/db";
@@ -74,6 +75,7 @@ describe("POST /api/projects", () => {
     expect(res.statusCode).toBe(201);
     expect(res.json()).toEqual({
       id: expect.any(String),
+      queuePause: null,
       name: "Prodotto Acme",
       slug: "prodotto-acme",
       description: null,
@@ -91,9 +93,18 @@ describe("POST /api/projects", () => {
       prCorrectionMaxRounds: 3,
       // Fase 3: il progetto nasce con la chiave di ingestion (32 hex) e il
       // contatore ticket per-progetto a 1.
+      // Area 9, F5 (I2 e decisione D): la chiave non esce da nessuna LETTURA;
+      // la creazione la dà intera, una volta, a chi crea.
       ingestionKey: expect.stringMatching(/^[0-9a-f]{32}$/),
       nextTicketNumber: 1,
       createdAt: expect.any(String),
+      code: expect.stringMatching(/^[A-Z][A-Z0-9]{1,5}$/),
+      stallThresholds: { activeDays: 7, todoDays: 14 },
+      // Fetta 4: senza modello, software con tutti i moduli, interno.
+      template: "software",
+      modules: ["docs", "releases", "support", "servers"],
+      clientName: null,
+      kind: "internal",
     });
   });
 
@@ -112,11 +123,16 @@ describe("POST /api/projects", () => {
     expect(environments[0]).toMatchObject({ name: "test", kind: "test" });
   });
 
-  it("due progetti ricevono ingestionKey diverse (uniche)", async () => {
+  it("due progetti ricevono ingestionKey diverse (uniche): intera UNA volta, nella creazione; mai nelle letture (decisione D)", async () => {
     const a = await createProject({ name: "Ingest A" });
     const b = await createProject({ name: "Ingest B" });
-    const keyA = (a.json() as { ingestionKey: string }).ingestionKey;
-    const keyB = (b.json() as { ingestionKey: string }).ingestionKey;
+    expect(a.headers["cache-control"]).toBe("no-store");
+    const keyOf = async (res: typeof a) => (await testDb.db.select({ k: projects.ingestionKey }).from(projects).where(eq(projects.id, (res.json() as { id: string }).id)))[0]!.k;
+    const keyA = await keyOf(a);
+    const keyB = await keyOf(b);
+    expect((a.json() as { ingestionKey: unknown }).ingestionKey).toBe(keyA);
+    const read = await app.inject({ method: "GET", url: `/api/projects/${(a.json() as { id: string }).id}`, headers: { cookie: adminCookie } });
+    expect((read.json() as { ingestionKey: unknown }).ingestionKey).toBeNull();
     expect(keyA).toMatch(/^[0-9a-f]{32}$/);
     expect(keyB).toMatch(/^[0-9a-f]{32}$/);
     expect(keyA).not.toBe(keyB);
@@ -354,7 +370,7 @@ describe("PATCH /api/projects/:projectId", () => {
       method: "PATCH",
       url: `/api/projects/${id}`,
       headers: { cookie: adminCookie },
-      payload: { pulseEnabled: true, pulseEveryDays: 7 },
+      payload: { backlogEnabled: true, pulseEnabled: true, pulseEveryDays: 7 },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ pulseEnabled: true, pulseEveryDays: 7 });
@@ -451,32 +467,40 @@ describe("PATCH /api/projects/:projectId", () => {
   });
 });
 
-describe("DELETE /api/projects/:projectId", () => {
-  it("l'admin elimina un progetto: 204 (cascade sui repository)", async () => {
-    const { projectId } = await seedRepository(testDb.db);
+describe("DELETE /api/projects/:projectId (area 9, F6: solo un archiviato, solo un full admin)", () => {
+  it("l'admin elimina un archiviato col codice: 204, e i repository restano staccati; un secondo delete è 404", async () => {
+    const { projectId, repositoryId } = await seedRepository(testDb.db);
+    const [p] = await testDb.db.update(projects).set({ archivedAt: new Date() }).where(eq(projects.id, projectId)).returning({ code: projects.code });
     const res = await app.inject({
       method: "DELETE",
       url: `/api/projects/${projectId}`,
       headers: { cookie: adminCookie },
+      payload: { confirmCode: p!.code },
     });
     expect(res.statusCode).toBe(204);
+    const [repo] = await testDb.db.select().from(repositories).where(eq(repositories.id, repositoryId));
+    expect(repo!.projectId).toBeNull();
 
-    // Idempotenza inversa: un secondo delete è 404.
     const again = await app.inject({
       method: "DELETE",
       url: `/api/projects/${projectId}`,
       headers: { cookie: adminCookie },
+      payload: { confirmCode: p!.code },
     });
     expect(again.statusCode).toBe(404);
   });
 
-  it("un member (Legacy Member: senza project.settings.manage) non può eliminare: 403", async () => {
+  it("un progetto aperto non si elimina (409 not_archived); un member senza essere full admin: 403", async () => {
     const { projectId } = await seedRepository(testDb.db);
+    const [p] = await testDb.db.select({ code: projects.code }).from(projects).where(eq(projects.id, projectId));
+    const open = await app.inject({ method: "DELETE", url: `/api/projects/${projectId}`, headers: { cookie: adminCookie }, payload: { confirmCode: p!.code } });
+    expect(open.statusCode).toBe(409);
     await addMember(app, projectId, memberId);
     const res = await app.inject({
       method: "DELETE",
       url: `/api/projects/${projectId}`,
       headers: { cookie: memberCookie },
+      payload: { confirmCode: p!.code },
     });
     expect(res.statusCode).toBe(403);
   });

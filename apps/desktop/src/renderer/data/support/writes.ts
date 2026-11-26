@@ -1,30 +1,30 @@
+import { normalizeWidgetOrigin, WIDGET_MAX_ORIGINS } from "@stubwise/shared";
 // Le scritture usano `createRequestAs` solo dentro le funzioni: l'import
 // circolare con `api-mutations` è innocuo.
 import { createRequestAs } from "../api-mutations";
+import { rotateWidgetIdentitySecret } from "../projectSettings/widgetIdentity";
+import { requireReauth } from "../auth/reauth";
 import { recordChange } from "../changelog/index";
 import { changedFields } from "../changelog/settingValues";
 // Per effetto: registra i tipi di voce di progetto (`recordChange` lancia su uno ignoto).
 import "../projectSettings/changeTypes";
-import { mailboxOf } from "../mail/compose";
 import { copy, newId, now, state } from "../store";
-import type { MailDraft, SupportWidget } from "../types";
+import type { SupportWidget } from "../types";
 import { forbidden, invalid, notFound, writer } from "../writer";
-import { supportMailSlot, supportState } from "../../domain/support/state";
+import { supportState } from "../../domain/support/state";
 import {
   conversationFor,
   conversationView,
-  draftText,
   holds,
   publishSupportRequest,
-  requestOf,
   sees,
   type SupportConversationView,
 } from "./visibility";
 
-// Le scritture di Support. NESSUNA risposta parte da sola e NESSUNA email
-// automatica al cliente: Claude prepara solo bozze (`draftReply`,
-// `emailDraftFor`), ogni risposta parte dal clic di chi ha `support.reply`
-// (`replyToCustomer`), e nessuna di queste funzioni scrive nella Posta.
+// Le scritture di Support. Il team non scrive MAI al cliente del widget (area
+// 8, F3, decisione del maintainer): risponde solo ai collaboratori interni del
+// canale `mcp`, dal clic di chi ha `support.manage` (`replyToCollaborator`).
+// Nessuna di queste funzioni scrive nella Posta.
 // Una richiesta nasce solo da una conversazione (mai da un'email). Gli
 // errori: `not_found` per ciò che chi agisce non vede (R-G5), `forbidden`
 // per ciò che vede ma non può fare, `invalid: <cosa>` per un input sbagliato.
@@ -34,51 +34,34 @@ const widgetObject = (w: SupportWidget) => ({ type: "widget", id: w.id, label: w
 
 function replierFor(me: string, code: string) {
   const c = conversationFor(me, code);
-  if (!holds(me, "support.reply", c.projectId)) throw forbidden();
+  if (!holds(me, "support.manage", c.projectId)) throw forbidden();
   return c;
 }
 
 /**
- * Durante il triage le domande al cliente le fa Claude: né la risposta né
- * la sua bozza (R-K15, `invalid: state`). Su una «non conclusa» si risponde.
+ * La risposta al collaboratore (canale `mcp`): un messaggio del team, che gli
+ * arriva con `my_requests`. Su una conversazione del widget `invalid:
+ * channel`, qualunque sia lo stato, e nessun messaggio (il 409
+ * `support_widget_no_reply` del server). Nessun avviso, nessuna email.
  */
-function openReplyFor(me: string, code: string) {
-  const c = replierFor(me, code);
-  if (supportState(c) === "triage") throw invalid("state");
-  return c;
-}
-
-/**
- * «Invia al cliente»: un messaggio del team, che arriva al cliente nel canale
- * da cui ha scritto (widget o Claude Code). Chi risponde segue la
- * conversazione da sé (shape [A 14]); la bozza di Claude, scritta per il
- * messaggio a cui si è appena risposto, non serve più. Nessun avviso, nessuna
- * email.
- */
-export async function replyToCustomer(
+export async function replyToCollaborator(
   code: string,
   body: string,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- l'id dell'invio è per il server (un doppio invio è uno solo): il prototipo non ne ha bisogno
+  _clientId?: string,
 ): Promise<SupportConversationView> {
-  const me = await writer("support.replyToCustomer");
-  const c = openReplyFor(me, code);
+  const me = await writer("support.replyToCollaborator");
+  const c = replierFor(me, code);
+  if (c.channel !== "mcp") throw invalid("channel");
   const text = body.trim();
   if (!text) throw invalid("body");
   c.messages.push({ id: newId("sup-m"), from: "team", authorId: me, body: text, at: now() });
-  if (!c.followerIds.includes(me)) c.followerIds.push(me);
-  c.claudeDraft = null;
-  return conversationView(me, c);
-}
-
-/** «Bozza di Claude»: la rigenera (nel prototipo, un testo deterministico). Non la invia. */
-export async function draftReply(code: string): Promise<SupportConversationView> {
-  const me = await writer("support.draftReply");
-  const c = openReplyFor(me, code);
-  c.claudeDraft = draftText(c);
   return conversationView(me, c);
 }
 
 /**
- * «Apri la richiesta» su una conversazione non conclusa (`backlog.create`):
+ * «Apri la richiesta» su una conversazione non conclusa (`support.manage` e
+ * `backlog.create`):
  * la richiesta nasce con la conversazione allegata. Un secondo clic (o due
  * chiamate sovrapposte) restituisce la stessa.
  */
@@ -87,7 +70,7 @@ export async function openRequestFrom(
   input: { title: string; description: string },
 ): Promise<SupportConversationView> {
   const me = await writer("support.openRequestFrom");
-  const c = conversationFor(me, code);
+  const c = replierFor(me, code);
   if (!holds(me, "backlog.create", c.projectId)) throw forbidden();
   if (c.requestId !== null) return conversationView(me, c);
   if (supportState(c) !== "not_concluded") throw invalid("state");
@@ -103,62 +86,30 @@ export async function openRequestFrom(
 }
 
 /**
- * «Segui»: l'avviso obbligatorio `support.customer_replied` a ogni messaggio
- * nuovo del cliente. Segue chiunque veda la conversazione, cioè ogni membro
- * del progetto (R-K12); rispondere resta a chi ha `support.reply`.
+ * «Not concluded» su una conversazione `answered` (area 8, F3, decisione del
+ * maintainer): chi ha `support.manage` non è d'accordo col giudizio dopo il
+ * silenzio, e la rimette fra quelle che aspettano il team (non conclusa: si
+ * può aprire la richiesta). Il giudizio porta il suo nome; un messaggio nuovo
+ * del cliente lo rende vecchio come ogni giudizio. Su una già non conclusa
+ * restituisce la stessa vista.
  */
-export async function followConversation(
-  code: string,
-  on: boolean,
-): Promise<SupportConversationView> {
-  const me = await writer("support.followConversation");
-  const c = conversationFor(me, code);
-  c.followerIds = c.followerIds.filter((id) => id !== me);
-  if (on) c.followerIds.push(me);
+export async function markNotConcluded(code: string): Promise<SupportConversationView> {
+  const me = await writer("support.markNotConcluded");
+  const c = replierFor(me, code);
+  const st = supportState(c);
+  if (st === "not_concluded") return conversationView(me, c);
+  if (st !== "answered") throw invalid("state");
+  c.triage = { outcome: "not_concluded", at: now(), byUserId: me };
   return conversationView(me, c);
-}
-
-/**
- * «Scrivigli anche per email»: la bozza da aprire nel compositore della
- * Posta (area 6), dalla casella di chi scrive, col testo di Claude. NON la
- * salva e NON la invia: la manda una persona, dalla Posta. È sempre
- * un'email nuova, nello slot della conversazione (`support-<codice>`,
- * R-K14): accanto alla «nuova email» di chi scrive, mai al suo posto, e mai
- * dentro una conversazione della Posta (la cui bozza sovrascriverebbe).
- */
-export async function emailDraftFor(
-  code: string,
-): Promise<{ slot: string; draft: MailDraft }> {
-  const me = await writer("support.emailDraftFor");
-  // Nemmeno l'email durante il triage: Claude sta facendo le domande (R-K18).
-  const c = openReplyFor(me, code);
-  const email = c.customer.email;
-  if (!email) throw invalid("no_email");
-  mailboxOf(me);
-  const req = requestOf(c);
-  const slot = supportMailSlot(c.code);
-  const draft: MailDraft = {
-    id: `md-${me}-${slot}`,
-    personId: me,
-    threadId: null,
-    mode: "new",
-    slot,
-    replyToMessageId: null,
-    to: [{ name: c.customer.name, email, personId: null }],
-    cc: [],
-    subject: req ? `About your request ${req.code}` : "About your message",
-    body: draftText(c),
-    attachments: [],
-    updatedAt: now(),
-  };
-  // Sempre un'email nuova nel suo slot: nessuna conversazione della Posta.
-  return { slot, draft };
 }
 
 // --- widget -------------------------------------------------------------------
 
 /** I campi che si scrivono (R-K13): quelli del web. Nuovo: solo il nome è obbligatorio. */
-export type WidgetFields = Omit<SupportWidget, "id" | "projectId" | "createdAt">;
+export type WidgetFields = Omit<
+  SupportWidget,
+  "id" | "projectId" | "createdAt" | "identitySecretSet" | "identitySecretRotatedAt"
+>;
 export type WidgetInput = Pick<WidgetFields, "name"> & Partial<WidgetFields>;
 
 /** I default del web (`widgetSettingsSchema`), coi testi in inglese del prototipo. */
@@ -173,9 +124,9 @@ const WIDGET_DEFAULTS: Omit<WidgetFields, "name"> = {
   language: "it",
   dailyMessageCap: null,
   dailyRequestCap: null,
+  identityRequired: false,
 };
 
-const ORIGIN = /^https?:\/\/[^\s/]+$/;
 const COLOR = /^#[0-9a-fA-F]{6}$/;
 /** Il tetto massimo di un limite giornaliero, come sul web. */
 const MAX_DAILY_CAP = 100_000;
@@ -199,7 +150,11 @@ function cap(value: number | null, field: string): number | null {
  * (`widgetUpsertBodySchema`). Gli errori sono codici: `invalid: <campo>`.
  * Le fonti della documentazione sono repository dello stesso progetto.
  */
-function cleanWidget(projectId: string, patch: Partial<WidgetFields>): Partial<WidgetFields> {
+function cleanWidget(
+  projectId: string,
+  patch: Partial<WidgetFields>,
+  secretSet: boolean,
+): Partial<WidgetFields> {
   const out: Partial<WidgetFields> = {};
   if (patch.name !== undefined) out.name = text(patch.name, "name", 80);
   if (patch.enabled !== undefined) {
@@ -216,10 +171,16 @@ function cleanWidget(projectId: string, patch: Partial<WidgetFields>): Partial<W
     out.sourceRepositoryIds = [...new Set(ids)];
   }
   if (patch.origins !== undefined) {
+    // Una regola sola col server (area 8, F3, S16): `https://host[:porta]`, `http`
+    // solo per localhost, niente percorso, al più 20; una voce cattiva rifiuta tutto.
     const list = patch.origins;
-    if (!Array.isArray(list) || list.some((o) => typeof o !== "string" || !ORIGIN.test(o.trim())))
-      throw invalid("origins");
-    out.origins = [...new Set(list.map((o) => o.trim()))];
+    const normal = Array.isArray(list)
+      ? list.map((o) => (typeof o === "string" ? normalizeWidgetOrigin(o) : null))
+      : null;
+    if (!normal || normal.some((o) => o === null)) throw invalid("origins");
+    const unique = [...new Set(normal as string[])];
+    if (unique.length > WIDGET_MAX_ORIGINS) throw invalid("origins");
+    out.origins = unique;
   }
   if (patch.title !== undefined) out.title = text(patch.title, "title", 80);
   if (patch.welcomeMessage !== undefined)
@@ -239,6 +200,13 @@ function cleanWidget(projectId: string, patch: Partial<WidgetFields>): Partial<W
     out.dailyMessageCap = cap(patch.dailyMessageCap, "dailyMessageCap");
   if (patch.dailyRequestCap !== undefined)
     out.dailyRequestCap = cap(patch.dailyRequestCap, "dailyRequestCap");
+  if (patch.identityRequired !== undefined) {
+    // Senza un segreto nessun sito può firmare un token: acceso, il widget
+    // non accetterebbe più nessuno.
+    if (typeof patch.identityRequired !== "boolean" || (patch.identityRequired && !secretSet))
+      throw invalid("identityRequired");
+    out.identityRequired = patch.identityRequired;
+  }
   return out;
 }
 
@@ -253,13 +221,15 @@ export async function createWidget(projectId: string, input: WidgetInput): Promi
   const me = await writer("support.createWidget");
   if (!sees(me, projectId)) throw notFound();
   if (!holds(me, "widget.manage", projectId)) throw forbidden();
-  const fields = cleanWidget(projectId, { ...input, name: input.name ?? "" });
+  const fields = cleanWidget(projectId, { ...input, name: input.name ?? "" }, false);
   const w: SupportWidget = {
     id: newId("wdg"),
     projectId,
     ...WIDGET_DEFAULTS,
     ...fields,
     name: fields.name!,
+    identitySecretSet: false,
+    identitySecretRotatedAt: null,
     createdAt: now(),
   };
   state.supportWidgets.push(w);
@@ -274,7 +244,7 @@ export async function updateWidget(
 ): Promise<SupportWidget> {
   const me = await writer("support.updateWidget");
   const w = widgetFor(me, id);
-  const fields = cleanWidget(w.projectId, patch);
+  const fields = cleanWidget(w.projectId, patch, w.identitySecretSet);
   const before = { name: w.name };
   Object.assign(w, fields);
   // Del widget il registro dice il nome; gli altri campi hanno la frase.
@@ -287,6 +257,27 @@ export async function updateWidget(
     ...(diff ? { before: diff.before, after: diff.after } : {}),
   });
   return copy(w);
+}
+
+/**
+ * API per i siti (S6): un segreto d'identità dei clienti nuovo (+R,
+ * `widget.manage`). Il valore esce qui e mai più; quello di prima smette di
+ * valere SUBITO (D-5). La traccia è la data, mai il segreto.
+ */
+export async function regenerateIdentitySecret(
+  id: string,
+): Promise<
+  { ok: true; secret: string; rotatedAt: string } | { ok: false; error: "reauth_required" }
+> {
+  const me = await writer("support.regenerateIdentitySecret");
+  const w = widgetFor(me, id);
+  if (requireReauth(me, "support.regenerateIdentitySecret")) {
+    return { ok: false, error: "reauth_required" };
+  }
+  const secret = rotateWidgetIdentitySecret(w.id);
+  w.identitySecretSet = true;
+  w.identitySecretRotatedAt = now();
+  return { ok: true, secret, rotatedAt: w.identitySecretRotatedAt };
 }
 
 /** Elimina il widget; le sue conversazioni restano in Support. */

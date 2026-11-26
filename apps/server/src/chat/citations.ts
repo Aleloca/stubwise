@@ -1,0 +1,395 @@
+import { backlogItems, chatMessageCitations, docPageCodes, docPages, driveFiles, driveOpens, productPages, projects, repositories, tickets, users, type Db } from "@stubwise/db";
+import type { ChatCitationKind, ChatCitationRef, ChatCitationView } from "@stubwise/shared";
+import { and, eq, inArray, isNull, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import { projectIdsWithPermission, visibleProjectIds, isAllProjects, inProjects, inProjectsStrict } from "../auth/access.js";
+import { personName } from "../services/people.js";
+import { requestVisibility } from "../services/project-requests.js";
+import { visibleTasksCondition } from "../services/task-view.js";
+import type { ChatViewer } from "./access.js";
+
+/**
+ * Le citazioni di un messaggio della Chat (area 4, fetta 2, F2.7; decisione
+ * del maintainer del 10 nov 2026): task, richieste, progetti, persone,
+ * pagine Docs e file del Drive (area 5). Le regole sono di `writes.ts` del prototipo (`canCite`,
+ * `stillNamed`, `citationsOf`):
+ * - alla SCRITTURA il server tiene solo ciò che chi scrive vede e che il testo
+ *   nomina ancora, più i codici di task e richieste scritti a mano che vede (un
+ *   codice diventa link da sé); alla modifica le ricalcola dal testo nuovo;
+ * - alla LETTURA le filtra su ciò che chi legge vede, con le regole di sempre
+ *   (task: `tickets.view_all` o richiedente; richieste: `backlog.view_all` o
+ *   richiedente; progetti: chi li vede; pagine: `docs.view`; file: i membri
+ *   del progetto; persone: chi esiste). Un oggetto che non c'è più non esce.
+ */
+
+/** Ciò che chi guarda vede di un oggetto citabile: l'etichetta e come il testo lo nomina. */
+export interface Citeable {
+  kind: ChatCitationKind;
+  id: string;
+  label: string;
+  projectId: string | null;
+  /** Solo una pagina Docs: il suo codice e dove aprirla (area 5, fetta 1). */
+  code?: string | null;
+  doc?: { repositoryId: string; repositorySlug: string; slug: string } | null;
+  /** Area 11, F3: solo una pagina di prodotto (una citazione `doc` col codice `-D`). */
+  product?: { pageId: string } | null;
+  /** Solo un file del Drive (area 5, fetta 2): la sua scheda. */
+  drive?: ChatCitationView["drive"];
+}
+
+const keyOf = (kind: string, id: string) => `${kind}:${id}`;
+
+/** `@Nome` finisce dove finisce il nome (come `mentions.ts` del prototipo). */
+function mentions(text: string, name: string): boolean {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`@${escaped}(?![\\p{L}\\p{N}_])`, "u").test(text);
+}
+
+/**
+ * Il testo nomina ancora l'oggetto, col suo confine (review della fetta 2):
+ * - il codice di una task o di una richiesta come lo trova `codesIn`
+ *   («AUD-1» non vive dentro «AUD-12» né dentro «XAUD-1»);
+ * - il codice di un progetto da solo, non come prefisso di un codice
+ *   («AUD» non è citato da «AUD-12» né da «AUDIT»);
+ * - il titolo di una pagina col confine di parola;
+ * - «@Nome» della persona come le menzioni.
+ */
+export function stillNamed(c: Citeable, text: string): boolean {
+  if (c.kind === "person") return mentions(text, c.label);
+  if (c.kind === "task" || c.kind === "request") return codesIn(text).some((found) => found.code === c.label);
+  // Una pagina Docs scelta col «#» resta se il testo ne nomina il titolo (sotto);
+  // se ne scrive il CODICE, la ritrova `citeablesFromCodes` come ogni codice.
+  const escaped = c.label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const tail = c.kind === "project" ? "(?![\\p{L}\\p{N}_]|-R?\\d)" : "(?![\\p{L}\\p{N}_])";
+  return new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}${tail}`, "u").test(text);
+}
+
+/**
+ * I codici di task e richieste scritti nel testo (`findCodes` del prototipo):
+ * maiuscoli, come li scrive il Catalogo, così «utf-8» non diventa un codice.
+ */
+type CodeKind = "task" | "request" | "doc" | "drive";
+const CODE_KIND: Record<string, CodeKind> = { "": "task", R: "request", D: "doc", F: "drive" };
+
+export function codesIn(text: string): { projectCode: string; number: number; kind: CodeKind; code: string }[] {
+  const out: { projectCode: string; number: number; kind: CodeKind; code: string }[] = [];
+  // `-R` una richiesta, `-D` una pagina Docs (area 5, fetta 1), `-F` un file del
+  // Drive (fetta 2), niente una task.
+  for (const m of text.matchAll(/\b([A-Z][A-Z0-9]{1,5})-([RDF]?)(\d{1,9})\b/g)) {
+    const code = m[0];
+    if (out.some((c) => c.code === code)) continue;
+    out.push({ projectCode: m[1]!, number: Number(m[3]), kind: CODE_KIND[m[2]!]!, code });
+  }
+  return out;
+}
+
+/** Gli oggetti fra `refs` che chi guarda VEDE, con l'etichetta (una query per tipo). */
+export async function citeablesFor(
+  db: Db,
+  viewer: ChatViewer,
+  refs: readonly { kind: ChatCitationKind; id: string }[],
+): Promise<Map<string, Citeable>> {
+  const out = new Map<string, Citeable>();
+  const ids = (kind: ChatCitationKind) => [...new Set(refs.filter((r) => r.kind === kind).map((r) => r.id))];
+  const put = (c: Citeable) => out.set(keyOf(c.kind, c.id), c);
+
+  const taskIds = ids("task");
+  if (taskIds.length > 0) {
+    const rows = await db
+      .select({ id: tickets.id, projectId: tickets.projectId, code: sql<string>`${projects.code} || '-' || ${tickets.number}` })
+      .from(tickets)
+      .innerJoin(projects, eq(projects.id, tickets.projectId))
+      .where(and(inArray(tickets.id, taskIds), await visibleTasksCondition(db, viewer)));
+    for (const r of rows) put({ kind: "task", id: r.id, label: r.code, projectId: r.projectId });
+  }
+
+  // I progetti visibili solo se servono (richieste, progetti, file): niente query per una lista senza.
+  const visible =
+    ids("request").length > 0 || ids("project").length > 0 || ids("drive").length > 0 ? await visibleProjectIds(db, viewer) : [];
+  const inVisible = (column: typeof backlogItems.projectId | typeof projects.id | typeof driveFiles.projectId): SQL | undefined =>
+    inProjects(column, visible);
+
+  const requestIds = ids("request");
+  if (requestIds.length > 0) {
+    const rows = await db
+      .select({ id: backlogItems.id, projectId: backlogItems.projectId, code: sql<string>`${projects.code} || '-R' || ${backlogItems.number}` })
+      .from(backlogItems)
+      .innerJoin(projects, eq(projects.id, backlogItems.projectId))
+      .where(and(inArray(backlogItems.id, requestIds), inVisible(backlogItems.projectId), await requestVisibility(db, viewer)));
+    for (const r of rows) put({ kind: "request", id: r.id, label: r.code, projectId: r.projectId });
+  }
+
+  const projectIds = ids("project");
+  if (projectIds.length > 0) {
+    const rows = await db
+      .select({ id: projects.id, code: projects.code })
+      .from(projects)
+      .where(and(inArray(projects.id, projectIds), inVisible(projects.id)));
+    for (const r of rows) put({ kind: "project", id: r.id, label: r.code, projectId: r.id });
+  }
+
+  const personIds = ids("person");
+  if (personIds.length > 0) {
+    const rows = await db
+      .select({ id: users.id, email: users.email, displayName: users.displayName })
+      .from(users)
+      .where(and(inArray(users.id, personIds), eq(users.isAgent, false)));
+    for (const r of rows) put({ kind: "person", id: r.id, label: personName(r), projectId: null });
+  }
+
+  // I file del Drive (area 5, fetta 2): solo i VIVI dei progetti di cui chi
+  // guarda è membro (le regole del Drive, `drive/service.ts`). Un file
+  // eliminato o di un progetto invisibile non esce: il renderer disegna il
+  // codice del testo come tenue (R-H5).
+  const driveIds = ids("drive");
+  if (driveIds.length > 0) {
+    const rows = await db
+      .select({
+        id: driveFiles.id,
+        name: driveFiles.name,
+        type: driveFiles.type,
+        number: driveFiles.number,
+        projectId: driveFiles.projectId,
+        projectCode: projects.code,
+        projectName: projects.name,
+        opens90d: sql<number>`(select count(*)::int from ${driveOpens} o where o.file_id = ${driveFiles.id} and o.at > now() - interval '90 days')`,
+      })
+      .from(driveFiles)
+      .innerJoin(projects, eq(projects.id, driveFiles.projectId))
+      .where(and(inArray(driveFiles.id, driveIds), isNull(driveFiles.deletedAt), inVisible(driveFiles.projectId)));
+    for (const r of rows) {
+      put({
+        kind: "drive",
+        id: r.id,
+        label: r.name,
+        projectId: r.projectId,
+        code: `${r.projectCode}-F${r.number}`,
+        drive: { type: r.type, projectCode: r.projectCode, projectName: r.projectName, opens90d: r.opens90d, summary: null },
+      });
+    }
+  }
+
+  // Le pagine Docs (area 5, fetta 1): il riferimento è il CODICE della pagina,
+  // stabile alle rigenerazioni. Un id di pagina (un client vecchio, o una riga
+  // di prima della 0142) si converte al suo codice. Si vede con `docs.view` nel
+  // progetto, e solo se la pagina c'è ancora (generazione corrente o manuale).
+  const docIds = ids("doc");
+  if (docIds.length > 0) {
+    const readable = await projectIdsWithPermission(db, viewer, "docs.view");
+    if (isAllProjects(readable) || readable.length > 0) {
+      const byPage = await db
+        .select({ pageId: docPages.id, codeId: docPageCodes.id })
+        .from(docPages)
+        .innerJoin(docPageCodes, and(eq(docPageCodes.repositoryId, docPages.repositoryId), eq(docPageCodes.slug, docPages.slug)))
+        .where(inArray(docPages.id, docIds));
+      const codeOfInput = new Map<string, string>(docIds.map((id) => [id, id]));
+      for (const r of byPage) codeOfInput.set(r.pageId, r.codeId);
+      const codeIds = [...new Set(codeOfInput.values())];
+      const rows = await db
+        .select({
+          codeId: docPageCodes.id,
+          number: docPageCodes.number,
+          projectId: docPageCodes.projectId,
+          projectCode: projects.code,
+          repositoryId: repositories.id,
+          repositorySlug: repositories.slug,
+          // Il join sui repository esclude le pagine di prodotto (area 11, F1): qui lo slug c'è sempre.
+          slug: sql<string>`${docPageCodes.slug}`,
+          title: docPages.title,
+          generated: sql<boolean>`${docPages.generationId} is not null`,
+        })
+        .from(docPageCodes)
+        .innerJoin(projects, eq(projects.id, docPageCodes.projectId))
+        .innerJoin(repositories, eq(repositories.id, docPageCodes.repositoryId))
+        .innerJoin(
+          docPages,
+          and(
+            eq(docPages.repositoryId, docPageCodes.repositoryId),
+            eq(docPages.slug, docPageCodes.slug),
+            or(eq(docPages.generationId, repositories.currentDocGenerationId), isNull(docPages.generationId)),
+          ),
+        )
+        .where(and(inArray(docPageCodes.id, codeIds), inProjects(docPageCodes.projectId, readable)));
+      // Una coppia con una generata e una manuale: vince la generata, come la rotta della pagina.
+      const best = new Map<string, (typeof rows)[number]>();
+      for (const r of rows) if (!best.has(r.codeId) || r.generated) best.set(r.codeId, r);
+      // Area 11, F3: un codice `-D` di una pagina di PRODOTTO (la stessa serie, D-9), con `docs.view`.
+      const products = await db
+        .select({ codeId: docPageCodes.id, number: docPageCodes.number, projectId: docPageCodes.projectId, projectCode: projects.code, pageId: productPages.id, title: productPages.title })
+        .from(docPageCodes)
+        .innerJoin(projects, eq(projects.id, docPageCodes.projectId))
+        .innerJoin(productPages, eq(productPages.id, docPageCodes.productPageId))
+        .where(and(inArray(docPageCodes.id, codeIds), inProjects(docPageCodes.projectId, readable)));
+      for (const [input, codeId] of codeOfInput) {
+        const p = products.find((x) => x.codeId === codeId);
+        if (p) {
+          out.set(keyOf("doc", input), { kind: "doc", id: p.codeId, label: p.title, projectId: p.projectId, code: `${p.projectCode}-D${p.number}`, doc: null, product: { pageId: p.pageId } });
+          continue;
+        }
+        const r = best.get(codeId);
+        if (!r) continue;
+        out.set(keyOf("doc", input), {
+          kind: "doc",
+          id: r.codeId,
+          label: r.title,
+          projectId: r.projectId,
+          code: `${r.projectCode}-D${r.number}`,
+          doc: { repositoryId: r.repositoryId, repositorySlug: r.repositorySlug, slug: r.slug },
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Il messaggio `messageId` ha almeno una citazione che chi guarda VEDE, in SQL
+ * (review della fetta 2): il filtro «con citazioni» sta nella WHERE, prima del
+ * limite, con le stesse regole di `citeablesFor`. Una citazione di un oggetto
+ * nascosto non conta, così il filtro non conferma che esiste.
+ */
+export async function hasVisibleCitationSql(db: Db, viewer: ChatViewer, messageId: AnyColumn): Promise<SQL> {
+  const visible = await visibleProjectIds(db, viewer);
+  const inVisible = (column: AnyColumn): SQL =>
+    (inProjects(column, visible) ?? sql`true`);
+  const readable = await projectIdsWithPermission(db, viewer, "docs.view");
+  const inReadable: SQL =
+    inProjectsStrict(repositories.projectId, readable);
+  const tasks = (await visibleTasksCondition(db, viewer)) ?? sql`true`;
+  const requests = (await requestVisibility(db, viewer)) ?? sql`true`;
+  return sql`exists (
+    select 1 from ${chatMessageCitations} c
+    where c.message_id = ${messageId}
+      and (
+        (c.kind = 'task' and exists (select 1 from ${tickets} where ${tickets.id} = c.ref_id and ${tasks}))
+        or (c.kind = 'request' and exists (
+          select 1 from ${backlogItems} where ${backlogItems.id} = c.ref_id and ${inVisible(backlogItems.projectId)} and ${requests}
+        ))
+        or (c.kind = 'project' and exists (select 1 from ${projects} where ${projects.id} = c.ref_id and ${inVisible(projects.id)}))
+        or (c.kind = 'person' and exists (select 1 from ${users} where ${users.id} = c.ref_id and ${users.isAgent} = false))
+        or (c.kind = 'drive' and exists (
+          select 1 from ${driveFiles} where ${driveFiles.id} = c.ref_id and ${driveFiles.deletedAt} is null and ${inVisible(driveFiles.projectId)}
+        ))
+        or (c.kind = 'doc' and exists (
+          select 1 from ${docPageCodes} dc
+          inner join ${repositories} on ${repositories.id} = dc.repository_id
+          inner join ${docPages} on ${docPages.repositoryId} = dc.repository_id and ${docPages.slug} = dc.slug
+            and (${docPages.generationId} = ${repositories.currentDocGenerationId} or ${docPages.generationId} is null)
+          where dc.id = c.ref_id and ${inReadable}
+        ))
+        or (c.kind = 'doc' and exists (
+          select 1 from ${docPageCodes} dc
+          inner join ${productPages} on ${productPages.id} = dc.product_page_id
+          where dc.id = c.ref_id and ${inProjectsStrict(productPages.projectId, readable)}
+        ))
+      )
+  )`;
+}
+
+/** Le task e le richieste che chi guarda vede, dai codici scritti nel testo. */
+export async function citeablesFromCodes(db: Db, viewer: ChatViewer, text: string): Promise<Citeable[]> {
+  const byCode = await citeablesByCode(db, viewer, text);
+  const out: Citeable[] = [];
+  for (const c of byCode.values()) if (!out.some((x) => x.kind === c.kind && x.id === c.id)) out.push(c);
+  return out;
+}
+
+/**
+ * I codici di `text` (task, richieste, pagine Docs, file del Drive) che chi
+ * guarda VEDE, per codice: quattro query al più, qualunque sia la lunghezza
+ * del testo. Revisione 8–9 (I-3): le citazioni dei turni di una pagina si
+ * risolvono con UNA chiamata e si distribuiscono per turno col codice.
+ */
+export async function citeablesByCode(db: Db, viewer: ChatViewer, text: string): Promise<Map<string, Citeable>> {
+  const codes = codesIn(text);
+  if (codes.length === 0) return new Map();
+  const codeOf = (projectCode: string, kind: CodeKind, number: number) => codes.find((c) => c.projectCode === projectCode && c.kind === kind && c.number === number)?.code;
+  const byCode = (kind: "task" | "request") =>
+    codes.filter((c) => c.kind === kind).map((c) => and(eq(projects.code, c.projectCode), eq(kind === "task" ? tickets.number : backlogItems.number, c.number))!);
+  const found: { kind: CodeKind; id: string; code: string }[] = [];
+  const push = (kind: CodeKind, rows: { id: string; projectCode: string; number: number }[]) => {
+    for (const r of rows) {
+      const code = codeOf(r.projectCode, kind, r.number);
+      if (code) found.push({ kind, id: r.id, code });
+    }
+  };
+  const tasks = byCode("task");
+  if (tasks.length > 0) {
+    push("task", await db.select({ id: tickets.id, projectCode: projects.code, number: tickets.number }).from(tickets).innerJoin(projects, eq(projects.id, tickets.projectId)).where(or(...tasks)));
+  }
+  const requests = byCode("request");
+  if (requests.length > 0) {
+    push("request", await db.select({ id: backlogItems.id, projectCode: projects.code, number: backlogItems.number }).from(backlogItems).innerJoin(projects, eq(projects.id, backlogItems.projectId)).where(or(...requests)));
+  }
+  const docs = codes.filter((c) => c.kind === "doc");
+  if (docs.length > 0) {
+    push(
+      "doc",
+      await db
+        .select({ id: docPageCodes.id, projectCode: projects.code, number: docPageCodes.number })
+        .from(docPageCodes)
+        .innerJoin(projects, eq(projects.id, docPageCodes.projectId))
+        .where(or(...docs.map((c) => and(eq(projects.code, c.projectCode), eq(docPageCodes.number, c.number))!))),
+    );
+  }
+  const files = codes.filter((c) => c.kind === "drive");
+  if (files.length > 0) {
+    push(
+      "drive",
+      await db
+        .select({ id: driveFiles.id, projectCode: projects.code, number: driveFiles.number })
+        .from(driveFiles)
+        .innerJoin(projects, eq(projects.id, driveFiles.projectId))
+        .where(or(...files.map((c) => and(eq(projects.code, c.projectCode), eq(driveFiles.number, c.number))!))),
+    );
+  }
+  // La visibilità la decide `citeablesFor`, la stessa della lettura.
+  const visible = await citeablesFor(db, viewer, found);
+  const out = new Map<string, Citeable>();
+  for (const f of found) {
+    const c = visible.get(keyOf(f.kind, f.id));
+    if (c) out.set(f.code, c);
+  }
+  return out;
+}
+
+/**
+ * Le citazioni da salvare per un messaggio (`citationsOf` del prototipo):
+ * quelle scelte che chi scrive vede e che il testo nomina ancora, poi i codici
+ * scritti a mano che vede. Lo stesso oggetto una volta sola, nell'ordine.
+ */
+export async function citationsToStore(
+  db: Db,
+  viewer: ChatViewer,
+  text: string,
+  picked: readonly ChatCitationRef[],
+): Promise<{ kind: ChatCitationKind; id: string; label: string }[]> {
+  const seen = await citeablesFor(db, viewer, picked);
+  const out: Citeable[] = [];
+  const has = (kind: string, id: string) => out.some((c) => c.kind === kind && c.id === id);
+  for (const ref of picked) {
+    const c = seen.get(keyOf(ref.kind, ref.id));
+    if (!c || has(c.kind, c.id) || !stillNamed(c, text)) continue;
+    out.push(c);
+  }
+  for (const c of await citeablesFromCodes(db, viewer, text)) if (!has(c.kind, c.id)) out.push(c);
+  return out.map(({ kind, id, label }) => ({ kind, id, label }));
+}
+
+/** Le citazioni di più messaggi come le legge chi guarda: solo ciò che vede, in ordine. */
+export async function citationViews(
+  db: Db,
+  viewer: ChatViewer,
+  rows: readonly { messageId: string; kind: ChatCitationKind; refId: string }[],
+): Promise<Map<string, ChatCitationView[]>> {
+  const visible = await citeablesFor(db, viewer, rows.map((r) => ({ kind: r.kind, id: r.refId })));
+  const out = new Map<string, ChatCitationView[]>();
+  for (const r of rows) {
+    const c = visible.get(keyOf(r.kind, r.refId));
+    if (!c) continue;
+    out.set(r.messageId, [
+      ...(out.get(r.messageId) ?? []),
+      { kind: c.kind, id: c.id, label: c.label, projectId: c.projectId, code: c.code ?? null, doc: c.doc ?? null, drive: c.drive ?? null, product: c.product ?? null },
+    ]);
+  }
+  return out;
+}

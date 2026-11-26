@@ -47,6 +47,15 @@ export const INBOX_KIND_LABEL_KEYS: Record<InboxItem["kind"], string> = {
   "docs.nightly_attention": "inbox:kinds.docsNightlyAttention",
   "request.created": "inbox:kinds.requestCreated",
   "monitor.alert": "inbox:kinds.monitorAlert",
+  "release.failed": "inbox:kinds.releaseFailed",
+  "release.merged": "inbox:kinds.releaseMerged",
+  "release.succeeded": "inbox:kinds.releaseSucceeded",
+  "pr.opened": "inbox:kinds.prAlertOpened",
+  "pr.analysis_issues": "inbox:kinds.prAnalysisIssues",
+  "pr.corrected": "inbox:kinds.prCorrected",
+  "docs.release_note": "inbox:kinds.docsReleaseNote",
+  "support.request": "inbox:kinds.supportRequest",
+  "server.diagnosis_ready": "inbox:kinds.serverDiagnosisReady",
   "monitor.recovered": "inbox:kinds.monitorRecovered",
   "job.awaiting_input": "inbox:kinds.awaitingInput",
   "project.pulse": "inbox:kinds.pulse",
@@ -54,6 +63,27 @@ export const INBOX_KIND_LABEL_KEYS: Record<InboxItem["kind"], string> = {
   "google.proposal": "inbox:kinds.googleProposal",
   "google.proposal_handed": "inbox:kinds.googleProposalHanded",
   "security.alert": "inbox:kinds.securityAlert",
+  // Integrazione area 2: card informative con «Apri» (la decisione si prende
+  // dal pannello della task nell'app nuova).
+  "decision.requested": "inbox:kinds.decisionRequested",
+  "decision.answered": "inbox:kinds.decisionAnswered",
+  "ticket.activity": "inbox:kinds.ticketActivity",
+  // Fetta 2: pianificazione cambiata da altri, task ricevuta da altri.
+  "planning.changed": "inbox:kinds.planningChanged",
+  "task.assigned": "inbox:kinds.taskAssigned",
+  // Area 10, F5: una persona entrata in un progetto (la card vera è dell'app nuova).
+  "member.added": "inbox:kinds.memberAdded",
+  // Area 11, F2: la doc di prodotto (la card vera è dell'app nuova).
+  "product_doc.mention": "inbox:kinds.productDocMention",
+  "product_doc.updated": "inbox:kinds.productDocUpdated",
+  "product_doc.question": "inbox:kinds.productDocQuestion",
+  "chat.mention": "inbox:kinds.chatMention",
+  "chat.question": "inbox:kinds.chatQuestion",
+  // Area 7: le card delle Automations (si aprono nell'app nuova).
+  "automation.approval": "inbox:kinds.automationApproval",
+  "automation.failed": "inbox:kinds.automationFailed",
+  "automation.notify": "inbox:kinds.automationNotify",
+  "automation.paused": "inbox:kinds.automationPaused",
 };
 
 /**

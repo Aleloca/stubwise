@@ -33,6 +33,11 @@ export const secondFactorStatusSchema = z.object({
   passkeys: z.boolean(),
   backupCodesRemaining: z.number().int().nonnegative(),
   lockedUntil: z.iso.datetime().nullable(),
+  /**
+   * Area 9, F1 (additivo): i codici che restano prima del blocco, per
+   * l'account; null da un server di prima (il client non mostra il contatore).
+   */
+  attemptsLeft: z.number().int().nonnegative().nullable().default(null),
 });
 export type SecondFactorStatus = z.infer<typeof secondFactorStatusSchema>;
 
@@ -152,6 +157,21 @@ export const securityEventKindSchema = z.enum([
   "vault_activated",
   "vault_seal_replaced",
   "vault_recovery_key_rotated",
+  // Riconferma dal desktop (10 nov 2026): un secondo fattore fatto dentro
+  // l'app desktop col suo PAT (`POST /api/auth/desktop-reauth`).
+  "reauth_desktop",
+  // Area 9, F1: disattivata e riattivata da chi ha `users.manage`; il cambio
+  // dell'email di login (`docs/invariants/identity.md`).
+  "deactivated",
+  "reactivated",
+  "email_changed",
+  // Review di F1 (I2): lo Slack o il Bitbucket di UN ALTRO collegato da chi
+  // ha `users.manage` (il proprio non lascia traccia).
+  "slack_linked",
+  "bitbucket_linked",
+  // Lotto 10: la cassaforte dal desktop (un Mac associato o tolto).
+  "vault_device_sealed",
+  "vault_device_seal_revoked",
 ]);
 export type SecurityEventKind = z.infer<typeof securityEventKindSchema>;
 
@@ -165,6 +185,8 @@ export const securityEventViewSchema = z.object({
   id: z.uuid(),
   kind: securityEventKindSchema,
   actorEmail: z.string().nullable(),
+  /** Solo `reauth_desktop`: l'azione fatta dal desktop («POST /api/pats»). Additivo. */
+  detail: z.string().nullable().default(null),
   createdAt: z.iso.datetime(),
 });
 export type SecurityEventView = z.infer<typeof securityEventViewSchema>;
@@ -191,6 +213,13 @@ export const accountSecurityResponseSchema = z.object({
   passkeys: z.array(passkeyViewSchema),
   backupCodesRemaining: z.number().int().nonnegative(),
   events: z.array(securityEventViewSchema),
+  /**
+   * Area 9, F1 (additivi): fino a quando vale la riconferma di QUESTA sessione
+   * (o del token desktop), null se è scaduta o non c'è; i codici del secondo
+   * fattore che restano prima del blocco.
+   */
+  reauthUntil: z.iso.datetime().nullable().default(null),
+  attemptsLeft: z.number().int().nonnegative().nullable().default(null),
 });
 export type AccountSecurityResponse = z.infer<typeof accountSecurityResponseSchema>;
 

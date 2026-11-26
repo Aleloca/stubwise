@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PRODUCT_IMAGE_MAX_BYTES, PRODUCT_IMAGE_TYPES, pastedImages, readImageFile } from "./images";
+import { PRODUCT_IMAGE_MAX_BYTES, PRODUCT_IMAGE_TYPES, checkImageFile, pastedImages, readImageFile, uploadRefusalOf } from "./images";
 
 // Un file in un blocco immagine (shape product-editor.md §3.6, [PE 9]):
 // sempre un `data:` URL, al più 5 MB, solo PNG, JPEG, GIF e WebP.
@@ -61,5 +61,23 @@ describe("pastedImages", () => {
   });
   it("nessun file: nessuna immagine", () => {
     expect(pastedImages({ html: null, text: "" })).toEqual([]);
+  });
+});
+
+describe("uploadRefusalOf", () => {
+  it("i rifiuti del server: troppo grande, non un'immagine; ogni altro errore si riprova", () => {
+    expect(uploadRefusalOf(new Error("invalid: file_too_large"))).toBe("too_large");
+    expect(uploadRefusalOf(new Error("invalid: invalid_image"))).toBe("unsupported");
+    expect(uploadRefusalOf(new Error("forbidden"))).toBe("failed");
+    expect(uploadRefusalOf("boom")).toBe("failed");
+  });
+});
+
+describe("checkImageFile (M4 della revisione di R11-1)", () => {
+  it("tipo, poi misura, senza leggere il file; `alt` dal nome", () => {
+    const png = (size: number, name = "flow.png") => new File([new Uint8Array(size)], name, { type: "image/png" });
+    expect(checkImageFile(png(10))).toEqual({ ok: true, alt: "flow" });
+    expect(checkImageFile(png(PRODUCT_IMAGE_MAX_BYTES + 1))).toEqual({ ok: false, reason: "too_large" });
+    expect(checkImageFile(new File(["x"], "a.svg", { type: "image/svg+xml" }))).toEqual({ ok: false, reason: "unsupported" });
   });
 });

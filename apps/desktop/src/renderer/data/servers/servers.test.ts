@@ -1,14 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { METRIC_POINTS_MAX } from "../../domain/servers/limits";
-import {
-  changelog,
-  failNext,
-  listNotifications,
-  releases,
-  resetApi,
-  servers,
-  setLatency,
-} from "../api";
+import { failNext, listNotifications, releases, resetApi, servers, setLatency } from "../api";
 import { setSessionPersonId } from "../session";
 import { state, storeGeneration } from "../store";
 import type { ServerService } from "../types";
@@ -74,7 +66,7 @@ describe("visibilità dei server (R-L2, R-G5)", () => {
 });
 
 describe("letture dei server", () => {
-  it("la riga di SRV-1: salute, lavoro, accesso, ambienti, principale, CPU recente", async () => {
+  it("la riga di SRV-1: salute, lavoro, accesso, ambienti, avvisi, CPU recente", async () => {
     as("p-marco");
     const [row] = await servers.listProjectServers("prj-acq");
     expect(row).toMatchObject({
@@ -87,8 +79,11 @@ describe("letture dei server", () => {
       work: "diagnosis_ready",
       access: "verified",
       environments: [{ projectCode: "ACQ", name: "Production", kind: "production" }],
-      primaryProjectCode: "ACQ",
+      alerting: true,
     });
+    // F4b-4: nessun progetto principale, nessun progetto dell'analisi prima dell'analisi.
+    expect(row).not.toHaveProperty("primaryProjectCode");
+    expect(row).not.toHaveProperty("analysisProject");
     expect(row!.recentCpu.length).toBeGreaterThan(0);
     expect(row!.recentCpu.length).toBeLessThanOrEqual(servers.RECENT_CPU_POINTS);
   });
@@ -140,10 +135,12 @@ describe("letture dei server", () => {
     expect((await servers.getServer("SRV-1")).canManage).toBe(true);
   });
 
-  it("analisi e task di un progetto invisibile non escono dal dettaglio", async () => {
-    // SRV-1 anche nella produzione di AUD (Sara non la vede); l'analisi resta di ACQ.
-    state.serverAnalyses[0]!.projectId = "prj-aud";
-    state.tasksById.get(state.serverAnalyses[0]!.taskId!)!.projectId = "prj-aud";
+  it("progetto attribuito, sessione e task di un progetto invisibile non escono dal dettaglio", async () => {
+    // L'analisi attribuita ad AUD (Sara non lo vede), con la sua task e la sua sessione lì.
+    const a = state.serverAnalyses[0]!;
+    a.attribution = { kind: "attributed", projectId: "prj-aud", projectCode: "AUD" };
+    state.conversations.find((c) => c.id === a.conversationId)!.projectId = "prj-aud";
+    state.tasksById.get(a.taskId!)!.projectId = "prj-aud";
     env("env-aud-staging").servers.push({
       repositoryId: null,
       serverCode: "SRV-1",
@@ -152,8 +149,16 @@ describe("letture dei server", () => {
     });
     as("p-sara");
     const d = await servers.getServer("SRV-1");
-    expect(d.episodes[0]!.analysis).toBeNull();
+    // L'analisi è del server: Sara, che lo vede, sa che c'è; non dove sta.
+    expect(d.episodes[0]!.analysis).toMatchObject({
+      outcome: "diagnosed",
+      attribution: { kind: "attributed", projectCode: null },
+      sessionId: null,
+      canViewDiagnosis: false,
+      taskCode: null,
+    });
     expect(d.episodes[0]!.taskCode).toBeNull();
+    expect(JSON.stringify(d)).not.toMatch(/AUD|prj-aud/);
   });
 
   it("RF 5: 200 servizi restituiti tutti", async () => {
@@ -188,7 +193,12 @@ describe("letture dei server", () => {
     const hour = await servers.getServerMetrics("SRV-1", "1h", "chk-srv-1-api");
     const stored = state.serverMetrics.get("SRV-1")!.at(-1)!;
     const sample = state.serverCheckSamples.get("chk-srv-1-api")!.at(-1)!;
-    expect(hour.points.at(-1)).toEqual(stored);
+    // La rete in byte al secondo (review F4a, M2): 30 s di campionamento.
+    expect(hour.points.at(-1)).toEqual({
+      ...stored,
+      netRxBytes: stored.netRxBytes / 30,
+      netTxBytes: stored.netTxBytes / 30,
+    });
     expect(hour.points.at(-1)).not.toBe(stored);
     expect(hour.check!.samples.at(-1)).not.toBe(sample);
     hour.points.at(-1)!.cpuPct = -1;
@@ -262,7 +272,7 @@ describe("monitor: creare, modificare, togliere (monitor.manage)", () => {
       health: { health: "never_connected" },
       access: "not_linked",
       environments: [{ projectCode: "AUD", name: "Staging", kind: "staging" }],
-      primaryProjectCode: null,
+      alerting: false,
     });
     expect(agentKey).toMatch(/^sk_[0-9a-f]{40}$/);
     expect(env("env-aud-staging").servers).toEqual([
@@ -285,6 +295,26 @@ describe("monitor: creare, modificare, togliere (monitor.manage)", () => {
       expect(text).not.toContain(again.agentKey);
       expect(text).not.toMatch(AGENT_KEY_RE);
     }
+  });
+
+  it("review F4a, I1: nato in un ambiente con sole eccezioni per repository, le eccezioni restano", async () => {
+    as("p-roberta");
+    const before = env("env-aud-prod").servers.map((s) => [s.repositoryId, s.serverCode]);
+    expect(before.every(([repo]) => repo !== null)).toBe(true);
+    const { server: row } = await servers.createServer({
+      name: "aud-edge",
+      environmentId: "env-aud-prod",
+    });
+    const after = env("env-aud-prod").servers.map((s) => [s.repositoryId, s.serverCode]);
+    expect(after).toEqual([...before, [null, row.code]]);
+  });
+
+  it("review F4a, M2: la rete in byte al secondo (la scala non cambia con l'intervallo)", async () => {
+    as("p-marco");
+    const stored = state.serverMetrics.get("SRV-1")!.at(-1)!;
+    const m = await servers.getServerMetrics("SRV-1", "1h");
+    expect(m.points.at(-1)!.netRxBytes).toBeCloseTo(stored.netRxBytes / 30);
+    expect(m.points.at(-1)!.netTxBytes).toBeCloseTo(stored.netTxBytes / 30);
   });
 
   it("con monitor.manage ma senza environments.manage nel progetto: forbidden", async () => {
@@ -347,18 +377,6 @@ describe("monitor: creare, modificare, togliere (monitor.manage)", () => {
       "invalid: sampleIntervalSeconds",
     );
     await expect(servers.updateServer("SRV-1", { name: "" })).rejects.toThrow("invalid: name");
-    // AUD non usa SRV-1 in produzione: non può esserne il principale.
-    await expect(servers.updateServer("SRV-1", { primaryProjectId: "prj-aud" })).rejects.toThrow(
-      "invalid: primaryProjectId",
-    );
-    env("env-aud-prod").servers.push({
-      repositoryId: "repo-aud-scripts",
-      serverCode: "SRV-1",
-      reportedSha: null,
-      reportedAt: null,
-    });
-    await servers.updateServer("SRV-1", { primaryProjectId: "prj-aud" });
-    expect(server("SRV-1")!.primaryProjectId).toBe("prj-aud");
     // Uno scarto lascia il server com'era: niente scritture a metà.
     await expect(
       servers.updateServer("SRV-1", { name: "half", sampleIntervalSeconds: 5 }),
@@ -569,21 +587,6 @@ describe("R-L7: un server orfano lo vede chi ha monitor.manage", () => {
     await servers.deleteServer("SRV-1");
     expect(server("SRV-1")).toBeUndefined();
   });
-
-  it("tolto l'ambiente di produzione, il principale che non usa più il server si azzera", async () => {
-    expect(server("SRV-1")!.primaryProjectId).toBe("prj-acq");
-    as("p-roberta");
-    await releases.deleteEnvironment("env-acq-prod");
-    expect(server("SRV-1")!.primaryProjectId).toBeNull();
-    // Gli altri server restano col loro principale.
-    expect(server("SRV-2")!.primaryProjectId).toBe("prj-stw");
-  });
-
-  it("tolta la riga dalla produzione con updateEnvironment, lo stesso", async () => {
-    as("p-roberta");
-    await releases.updateEnvironment("env-acq-prod", { servers: [] });
-    expect(server("SRV-1")!.primaryProjectId).toBeNull();
-  });
 });
 
 describe("simulatore", () => {
@@ -640,28 +643,57 @@ describe("Task 7: ciò che la UI legge senza dedurlo", () => {
     reportedAt: null,
   });
 
-  it("la riga dice la task del lavoro (se visibile) e dove si apre la diagnosi", async () => {
+  it("la riga dice la task del lavoro (se visibile) e se un allarme avvisa e si analizza", async () => {
     as("p-marco");
     const [srv1] = await servers.listProjectServers("prj-acq");
     expect(srv1!.work).toBe("diagnosis_ready");
     expect(srv1!.workTaskCode).toBe("ACQ-6");
-    expect(srv1!.analysisProject).toEqual({ code: "ACQ" });
-    // Usato anche dallo staging di STW: la diagnosi resta in AUD, la sua produzione.
+    expect(srv1!.alerting).toBe(true);
+    // Usato anche dallo staging di STW: la produzione di AUD lo fa avvisare,
+    // anche per chi lo guarda da STW (e anche per chi AUD non lo vede).
     env("env-stw-staging").servers.push(stagingRow("SRV-3"));
-    as("p-roberta");
-    const stw = await servers.listProjectServers("prj-stw");
-    expect(stw.find((s) => s.code === "SRV-3")!.analysisProject).toEqual({ code: "AUD" });
-    // Chi non vede il progetto della diagnosi sa solo che è «un altro progetto».
     as("p-sara");
     const seen = (await servers.listProjectServers("prj-stw")).find((s) => s.code === "SRV-3")!;
-    expect(seen.analysisProject).toEqual({ code: null });
-    // Nessuna produzione: nessuna diagnosi.
+    expect(seen.alerting).toBe(true);
+    // Nessuna produzione: niente avvisi né analisi.
     env("env-aud-prod").servers = env("env-aud-prod").servers.filter(
       (s) => s.serverCode !== "SRV-3",
     );
     as("p-roberta");
     const staging = (await servers.listProjectServers("prj-stw")).find((s) => s.code === "SRV-3")!;
-    expect(staging.analysisProject).toBeNull();
+    expect(staging.alerting).toBe(false);
+  });
+
+  it("F4b-4: l'analisi dell'episodio: attribuita la dice col progetto; non determinata, diagnosi e sessione solo a chi gestisce il monitor", async () => {
+    // L'analisi del seme (SRV-1, attribuita ad ACQ).
+    as("p-marco");
+    const fromAcq = (await servers.getServer("SRV-1")).episodes.find((e) => e.analysis)!;
+    expect(fromAcq.analysis).toMatchObject({
+      outcome: "diagnosed",
+      attribution: { kind: "attributed", projectCode: "ACQ" },
+      sessionId: "cv-srv-1-analysis",
+      canViewDiagnosis: true,
+      diagnosis: null,
+      taskCode: "ACQ-6",
+    });
+    expect(fromAcq.taskCode).toBe("ACQ-6");
+    // Chi non vede il progetto attribuito: il test «progetto attribuito, sessione e task …» qui sopra.
+
+    // Non determinata: la diagnosi resta sull'analisi, solo per chi gestisce il monitor.
+    const a = state.serverAnalyses.find((x) => x.id === fromAcq.analysisId)!;
+    a.attribution = { kind: "undetermined", reason: "no_container_of_project" };
+    a.taskId = null;
+    a.diagnosis = "**Diagnosis** — the import keeps every row in memory.";
+    as("p-marco");
+    const marco = (await servers.getServer("SRV-1")).episodes.find((e) => e.analysis)!.analysis!;
+    expect(marco.attribution).toEqual({ kind: "undetermined", reason: "no_container_of_project" });
+    expect(marco.diagnosis).toBeNull();
+    // Senza un progetto attribuito la sessione è solo di chi gestisce il monitor.
+    expect(marco.sessionId).toBeNull();
+    as("p-roberta");
+    const roberta = (await servers.getServer("SRV-1")).episodes.find((e) => e.analysis)!.analysis!;
+    expect(roberta.diagnosis).toMatch(/keeps every row in memory/);
+    expect(roberta.sessionId).toBe("cv-srv-1-analysis");
   });
 
   it("le metriche portano quanti campioni c'erano prima della riduzione", async () => {
@@ -680,12 +712,14 @@ describe("Task 7: ciò che la UI legge senza dedurlo", () => {
     expect((await servers.getServer("SRV-1")).sshReachable).toBe(false);
   });
 
-  it("⌘K trova un server orfano per chi ha monitor.manage, nel suo primo progetto", async () => {
+  // Revisione del lotto 5, M-7 (72, a9999a437): senza un ambiente visibile
+  // nessun progetto (prima «il primo progetto visibile»): si apre dalla pagina
+  // d'istanza del server.
+  it("⌘K trova un server orfano per chi ha monitor.manage, senza progetto", async () => {
     as("p-roberta");
     await releases.deleteEnvironment("env-acq-prod");
-    server("SRV-1")!.primaryProjectId = null;
     expect(await servers.searchServers("SRV-1")).toEqual([
-      { code: "SRV-1", name: "acq-prod-01", projectCode: "ACQ" },
+      { code: "SRV-1", name: "acq-prod-01", projectCode: null },
     ]);
     as("p-marco");
     expect(await servers.searchServers("SRV-1")).toEqual([]);
@@ -746,12 +780,11 @@ describe("area 9b, Task 7: i server di tutta l'istanza", () => {
       name: "orfano-01",
       status: "never_connected",
       environments: [],
-      primaryProjectCode: null,
+      alerting: false,
     });
     expect(state.environments.some((e) => e.servers.some((s) => s.serverCode === "SRV-6"))).toBe(
       false,
     );
-    expect(server("SRV-6")!.primaryProjectId).toBeNull();
     const all = await servers.listAllServers();
     expect(orphanOf(all, "SRV-6")).toBe(true);
     expect((await servers.getServer("SRV-6")).orphan).toBe(true);
@@ -849,34 +882,20 @@ describe("area 9b, Task 7 (giro 1): oggetto d'istanza e registro", () => {
     const srv3 = await servers.getServer("SRV-3");
     expect(srv3.environments).toEqual([]);
     expect(srv3.productionProjects).toEqual([]);
-    expect(srv3.primaryProjectCode).toBeNull();
+    // La produzione di AUD lo fa avvisare anche se Sara non la vede.
+    expect(srv3.alerting).toBe(true);
     expect(srv3.orphan).toBe(false);
     await servers.updateServer("SRV-3", { name: "aud-prod-renamed" });
     expect(server("SRV-3")!.name).toBe("aud-prod-renamed");
   });
 
-  it("I1: il registro non rivela il progetto principale a chi non lo vede", async () => {
-    grantMonitor("p-sara");
+  it("F4b-4: il registro di una modifica del server non ha più il progetto principale", async () => {
     as("p-roberta");
-    // Nel seme AUD è già il principale di SRV-3: prima lo si toglie, poi lo si rimette.
-    await servers.updateServer("SRV-3", { primaryProjectId: null });
-    await servers.updateServer("SRV-3", { primaryProjectId: "prj-aud" });
+    await servers.updateServer("SRV-3", { name: "aud-app-02" });
     const written = state.changelog.filter((c) => c.kind === "server.updated").at(-1)!;
-    expect(JSON.parse(written.after!)).toEqual({ primaryProject: "prj-aud" });
-    as("p-sara");
-    const mine = (await changelog.listChanges()).filter((e) => e.kind === "server.updated");
-    expect(mine).toHaveLength(2);
-    const text = JSON.stringify(mine);
-    expect(text).not.toContain("AUD");
-    expect(text).not.toContain("prj-aud");
-    expect(mine[0]!.diff).toMatchObject({
-      kind: "setting",
-      after: { type: "fields", fields: { primaryProject: "@hidden" } },
-    });
-    // Roberta lo vede col codice.
-    as("p-roberta");
-    const seen = (await changelog.listChanges()).find((e) => e.kind === "server.updated")!;
-    expect(seen.diff).toMatchObject({ after: { fields: { primaryProject: "AUD" } } });
+    expect(JSON.parse(written.before!)).toEqual({ name: "aud-app-01" });
+    expect(JSON.parse(written.after!)).toEqual({ name: "aud-app-02" });
+    expect(server("SRV-3")).not.toHaveProperty("primaryProjectId");
   });
 });
 

@@ -9,7 +9,6 @@ import { MAIL_CASES } from "../../data/seed/mail";
 import { PEOPLE } from "../../data/seed/people";
 import { setSessionPersonId } from "../../data/session";
 import { setStreamLatency, state } from "../../data/store";
-import { draftText } from "../../data/support/visibility";
 import type { ContextRef, ConversationEvent, ScriptStep } from "../../data/types";
 import { recognize, respond, type IntentContext } from "./intents";
 
@@ -122,46 +121,24 @@ describe("recognize: la bozza", () => {
   });
 });
 
-describe("S6: la risposta di supporto", () => {
-  it("Davide su ACQ-S2: un `draft` `supportReply` col testo di `draftText`; nessun messaggio nuovo", async () => {
+describe("S6: Claude non scrive risposte in Support (area 8, F3)", () => {
+  const NO_REPLY_EN = "I don't write replies in Support.";
+  it("Davide su ACQ-S2: la riga che lo dice, nessun `draft`, nessun messaggio", async () => {
     const c = state.supportConversations.find((x) => x.id === SUP_ACQ_2)!;
     const before = c.messages.length;
     const steps = await respond(
       "write the reply",
       as(DAVIDE, en, { kind: "support", conversationId: SUP_ACQ_2 }),
     );
-    const [draft, ...rest] = drafts(steps);
-    expect(rest).toEqual([]);
-    expect(draft).toEqual({
-      type: "draft",
-      field: { kind: "supportReply", conversationId: SUP_ACQ_2 },
-      text: draftText(c),
-      status: "pending",
-    });
-    for (const name of teamNames()) expect(draft!.text.toLowerCase()).not.toContain(name);
-    expect(c.messages).toHaveLength(before);
-    // Nessuna scheda, nessuna esecuzione: la bozza non è un'azione.
-    expect(steps.some((s) => s.step === "event" && s.event.type !== "draft")).toBe(false);
-  });
-
-  it("il codice nella frase vale come il contesto (da Tasks)", async () => {
-    const steps = await respond("scrivi la risposta ad ACQ-S2", as(DAVIDE, it_));
-    expect(drafts(steps)[0]!.field).toEqual({ kind: "supportReply", conversationId: SUP_ACQ_2 });
-  });
-
-  it("Sara, senza `support.reply`: la riga col «Who?», nessun `draft`", async () => {
-    const steps = await respond(
-      "write the reply",
-      as(SARA, en, { kind: "support", conversationId: SUP_ACQ_2 }),
-    );
-    expect(said(steps)).toBe(
-      "You can't reply to this conversation · [Who?](who:replyCustomers/ACQ)",
-    );
+    expect(said(steps)).toBe(NO_REPLY_EN);
     expect(drafts(steps)).toEqual([]);
-    const it = await respond("scrivi la risposta ad ACQ-S2", as(SARA, it_));
-    expect(said(it)).toBe(
-      "Non puoi rispondere a questa conversazione · [Chi?](who:replyCustomers/ACQ)",
-    );
+    expect(c.messages).toHaveLength(before);
+  });
+
+  it("il codice nella frase vale come il contesto, per chiunque la veda", async () => {
+    const steps = await respond("scrivi la risposta ad ACQ-S2", as(SARA, it_));
+    expect(said(steps)).toBe("In Support non scrivo risposte.");
+    expect(drafts(steps)).toEqual([]);
   });
 
   it("R-G5: un codice di conversazione che chi chiede non vede è come uno che non c'è", async () => {
@@ -169,20 +146,6 @@ describe("S6: la risposta di supporto", () => {
     const missing = await respond("write the reply to ACQ-S99", as(GIULIA));
     expect(said(hidden)).toBe(said(missing).replace("ACQ-S99", "ACQ-S2"));
     expect(drafts(hidden)).toEqual([]);
-  });
-
-  it("«scrivi e manda la risposta»: la bozza e la riga D `send`, nessun messaggio", async () => {
-    const c = state.supportConversations.find((x) => x.id === SUP_ACQ_2)!;
-    const before = c.messages.length;
-    const steps = await respond(
-      "write and send the reply",
-      as(DAVIDE, en, { kind: "support", conversationId: SUP_ACQ_2 }),
-    );
-    expect(drafts(steps)).toHaveLength(1);
-    expect(said(steps)).toBe(
-      "Sending is yours to do: I don't send emails or replies. [Open the reply →](#/p/ACQ/support/ACQ-S2)",
-    );
-    expect(c.messages).toHaveLength(before);
   });
 });
 
@@ -354,7 +317,7 @@ describe("Posta (D1)", () => {
       field: { kind: "mailBody", threadId: BILLING() },
     });
     const touched = state.conversations.find((x) => x.id === c.id)!.touchedProjectIds;
-    await api.setVisibility(c.id, "public", { confirmedProjectIds: touched });
+    await publishedBeforeTheRule(c.id, touched);
 
     setSessionPersonId(ROBERTA);
     const read = (await api.getConversation(c.id))!;
@@ -491,3 +454,21 @@ describe("Dove la bozza non ha un campo", () => {
     );
   });
 });
+
+/**
+ * Area 10 (review di F1): con la posta letta, «Make public» ora rifiuta
+ * (`private_content`). La difesa a lettura resta per le conversazioni rese
+ * pubbliche PRIMA della regola: qui la si scrive nello stato, come allora.
+ */
+async function publishedBeforeTheRule(id: string, projectIds: string[]): Promise<void> {
+  expect(await api.setVisibility(id, "public", { confirmedProjectIds: projectIds })).toEqual({
+    status: "private_content",
+  });
+  const c = state.conversations.find((x) => x.id === id)!;
+  Object.assign(c, {
+    visibility: "public",
+    publishedAt: c.createdAt,
+    publishedById: c.ownerId,
+    publishedProjectIds: [...projectIds],
+  });
+}

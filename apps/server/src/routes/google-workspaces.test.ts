@@ -89,6 +89,7 @@ describe("POST /api/settings/google-workspaces", () => {
       domains: ["acme.com", "sub.acme.com"],
       clientId: "123.apps.googleusercontent.com",
       clientSecretSet: true,
+      clientSecretLast4: PLAINTEXT_SECRET.slice(-4),
       accountCount: 0,
       redirectUri: `${PUBLIC_URL}/api/me/google/callback`,
       createdAt: expect.any(String),
@@ -188,7 +189,7 @@ describe("PATCH /api/settings/google-workspaces/:id", () => {
 
     const res = await patch(id, { clientSecret: "" });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ clientSecretSet: false });
+    expect(res.json()).toMatchObject({ clientSecretSet: false, clientSecretLast4: null });
     expect(await storedSecret(id)).toBe("");
   });
 
@@ -202,6 +203,8 @@ describe("PATCH /api/settings/google-workspaces/:id", () => {
     expect(after).not.toBe(before);
     expect(decrypt(after, ENCRYPTION_KEY)).toBe("GOCSPX-nuovo");
     expect(res.body).not.toContain("GOCSPX-nuovo");
+    // Rimandi, lotto 5: le ultime 4 seguono il segreto nuovo.
+    expect(res.json()).toMatchObject({ clientSecretLast4: "uovo" });
   });
 
   it("normalizza i domini anche in modifica", async () => {

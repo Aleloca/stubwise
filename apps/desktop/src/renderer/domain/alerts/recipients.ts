@@ -1,6 +1,6 @@
 import type { AlertSubscription, AppNotification, MandatoryReason } from "../../data/model";
-import type { Permission } from "../../data/viewer";
-import { alertTypeOf, type AlertType } from "./catalog";
+import type { Permission } from "../../data/viewing";
+import { alertTypeOf, ruleApplies, type AlertType } from "./catalog";
 
 // Chi riceve un avviso del catalogo, calcolato a lettura (spec, scelta F):
 // - gli obbligatori sempre, anche con l'iscrizione spenta;
@@ -65,7 +65,7 @@ export function subscriptionAt(
     if (precedes(entry, at)) found = { app: entry.app, phone: entry.phone };
   }
   if (found) return found;
-  const on = member && def.defaultOn(perms);
+  const on = member && ruleApplies(def.defaultOn, perms);
   return { app: on, phone: on && def.defaultPhone };
 }
 
@@ -133,8 +133,15 @@ export function whyFor(
 ): Recipient["why"] | null {
   const def = alertTypeOf(n.kind);
   if (!def) return null;
+  // Chi ha fatto la scrittura non è avvisato di ciò che ha fatto (area 10,
+  // F5: `member.added`, che porta `actorId`; gli altri tipi non lo scrivono).
+  if (n.actorId === personId) return null;
   const perms = ctx.permsOf(personId);
   const mandatory = n.mandatory?.find((m) => m.personId === personId);
+  // La persona aggiunta a un progetto lo sa sempre, anche se l'ingresso è
+  // stato annullato e il progetto non lo vede più ([SC 16]): dice solo ciò
+  // che sapeva già.
+  if (mandatory?.reason === "added") return mandatory.reason;
   // L'assegnatario vede la task che deve fare anche senza il permesso per
   // iscriversi (un Contributor): basta che veda il progetto.
   if (mandatory && OWN_TASK_REASONS.has(mandatory.reason) && ctx.seesProject(personId)) {
@@ -142,7 +149,7 @@ export function whyFor(
   }
   if (!allowedNow(def, perms, ctx.seesProject(personId))) return null;
   if (mandatory) return mandatory.reason;
-  if (def.mandatoryOnly) return null;
+  if (def.mandatoryOnly || n.mandatoryOnly) return null;
   const member = defaultApplies(def, personId, ctx);
   const sub = ctx.subs.find((s) => s.personId === personId && s.type === n.kind);
   if (!member && !sub) return null;

@@ -1,8 +1,8 @@
 import { useSearch } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useAutomationRuns, useAutomations } from "../../data/queries";
-import { useViewer } from "../../data/viewer";
+import { useAutomationRunByCode, useAutomationRuns, useAutomations } from "../../data/queries";
+import { useViewer } from "../../data/viewing";
 import { MenuGroup, itemClass } from "../../tasks-ui/Menu";
 import { PageError } from "../../tasks-ui/PageStates";
 import { Chevron, MenuButton, primaryButton } from "../tasks/controls";
@@ -26,56 +26,64 @@ type Search = ListSearch & { view?: string; automation?: string; mine?: string; 
 /** «New automation ▾»: vuota, o da uno dei due modelli. */
 export function NewAutomationButton({ projectId }: { projectId?: string } = {}) {
   const { t } = useTranslation();
+  const perms = useAutomationPerms();
   const [open, setOpen] = useState<AutomationTemplate | "blank" | null>(null);
   return (
     <>
-      <MenuButton
-        menuLabel={t("automations.actions.new")}
-        align="right"
-        className={primaryButton}
-        label={
-          <>
-            {t("automations.actions.new")}
-            <Chevron />
-          </>
-        }
-      >
-        {(close) => (
-          <>
-            <MenuGroup>
-              <button
-                type="button"
-                role="menuitem"
-                tabIndex={-1}
-                className={itemClass}
-                onClick={() => {
-                  close();
-                  setOpen("blank");
-                }}
-              >
-                {t("automations.create.blank")}
-              </button>
-            </MenuGroup>
-            <MenuGroup label={t("automations.templates.menu")}>
-              {(["newContract", "askClient"] as const).map((k) => (
+      {/* Senza modelli (fetta 1 nella build app) è un bottone solo. */}
+      {!perms.templates ? (
+        <button type="button" className={primaryButton} onClick={() => setOpen("blank")}>
+          {t("automations.actions.new")}
+        </button>
+      ) : (
+        <MenuButton
+          menuLabel={t("automations.actions.new")}
+          align="right"
+          className={primaryButton}
+          label={
+            <>
+              {t("automations.actions.new")}
+              <Chevron />
+            </>
+          }
+        >
+          {(close) => (
+            <>
+              <MenuGroup>
                 <button
-                  key={k}
                   type="button"
                   role="menuitem"
                   tabIndex={-1}
                   className={itemClass}
                   onClick={() => {
                     close();
-                    setOpen(k);
+                    setOpen("blank");
                   }}
                 >
-                  {t(`automations.templates.${k}.title`)}
+                  {t("automations.create.blank")}
                 </button>
-              ))}
-            </MenuGroup>
-          </>
-        )}
-      </MenuButton>
+              </MenuGroup>
+              <MenuGroup label={t("automations.templates.menu")}>
+                {(["newContract", "askClient"] as const).map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    role="menuitem"
+                    tabIndex={-1}
+                    className={itemClass}
+                    onClick={() => {
+                      close();
+                      setOpen(k);
+                    }}
+                  >
+                    {t(`automations.templates.${k}.title`)}
+                  </button>
+                ))}
+              </MenuGroup>
+            </>
+          )}
+        </MenuButton>
+      )}
       {open && (
         <CreateAutomationDialog
           template={open === "blank" ? undefined : open}
@@ -155,16 +163,16 @@ export function AutomationRoutePage({ code }: { code: string }) {
 
 function RunByCode({ code, n, entry }: { code: string; n: string; entry?: string }) {
   const { t } = useTranslation();
-  // Le esecuzioni che vedo (anche quelle che devo decidere senza vedere l'automazione).
-  const runs = useAutomationRuns();
-  if (runs.isError)
+  // Per codice e numero, anche un'esecuzione vecchia (fuori dalla prima pagina
+  // degli elenchi) e una da decidere senza vedere l'automazione.
+  const found = useAutomationRunByCode(code, Number(n));
+  if (found.isError)
     return (
-      <PageError message={t("automations.errors.loadRun")} onRetry={() => void runs.refetch()} />
+      <PageError message={t("automations.errors.loadRun")} onRetry={() => void found.refetch()} />
     );
-  if (runs.data === undefined) return <DetailSkeleton />;
-  const run = runs.data.find((r) => r.automationCode === code && String(r.n) === n);
-  if (!run) return <NotVisible what="run" />;
-  return <RunDetail key={run.id} runId={run.id} entry={entry} />;
+  if (found.data === undefined) return <DetailSkeleton />;
+  if (found.data === null) return <NotVisible what="run" />;
+  return <RunDetail key={found.data} runId={found.data} entry={entry} />;
 }
 
 /** `#/automations/<CODE>/runs/<n>` */

@@ -5,9 +5,9 @@ import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
-import { graphJobs, projects, repoGraphs, repositories } from "@stubwise/db";
+import { graphJobs, repoGraphs, repositories } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedRepository, startTestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, seedRepository, startTestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { buildApp } from "../app.js";
 import { addMember, seedUsers } from "../test/fixtures.js";
@@ -83,7 +83,7 @@ afterEach(async () => {
   await rm(join(graphsDir, repositoryId), { recursive: true, force: true });
   await testDb.db.delete(graphJobs);
   await testDb.db.delete(repoGraphs);
-  await testDb.db.delete(projects);
+  await deleteAllProjects(testDb.db);
 });
 
 describe("GET /api/repositories/:id/graph — metadati", () => {
@@ -118,6 +118,7 @@ describe("GET /api/repositories/:id/graph — metadati", () => {
       labeled: false,
       generatedAt: null,
       setupPrUrl: null,
+      setupPrState: null,
       error: null,
       jobPending: false,
       setupPrJobPending: false,
@@ -155,6 +156,8 @@ describe("GET /api/repositories/:id/graph — metadati", () => {
       communityCount: 263,
       labeled: true,
       setupPrUrl: "https://github.com/acme/repo/pull/7",
+      // Una PR aperta prima della 0222: lo stato non si sa, e non si dice «aperta».
+      setupPrState: null,
       generatedAt: generatedAt.toISOString(),
       jobPending: false,
     });

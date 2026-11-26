@@ -131,6 +131,12 @@ export const ingestBodySchema = z.object({
   agentVersion: z.string().min(1).max(50),
   samples: z.array(metricSampleSchema).min(1).max(300), // buffer 2h @30s ≈ 240
   checkResults: z.array(checkResultSchema).max(2000).default([]),
+  /**
+   * Area 8, F4b: ciò che l'agente dichiara (le operazioni accese). Facoltativo:
+   * un agente vecchio non lo manda, e vale «spente». Una dichiarazione, non un
+   * permesso: senza la firma del server l'agente non esegue niente comunque.
+   */
+  capabilities: z.object({ operations: z.boolean().default(false) }).optional(),
 });
 export type IngestBody = z.infer<typeof ingestBodySchema>;
 
@@ -154,6 +160,12 @@ export type AgentCheckConfig = z.infer<typeof agentCheckConfigSchema>;
 export const agentConfigSchema = z.object({
   sampleIntervalSeconds: sampleIntervalSecondsSchema,
   checks: z.array(agentCheckConfigSchema),
+  /**
+   * Area 8, F4b: l'id del server, che l'agente fissa alla prima config e
+   * confronta con quello di ogni comando firmato. Facoltativo: un server
+   * vecchio non lo manda (e allora l'agente non esegue comandi).
+   */
+  serverId: z.uuid().optional(),
 });
 export type AgentConfig = z.infer<typeof agentConfigSchema>;
 
@@ -200,12 +212,71 @@ export const serverProjectSummarySchema = z.object({ id: z.uuid(), name: z.strin
 export type ServerProjectSummary = z.infer<typeof serverProjectSummarySchema>;
 
 /**
+ * Area 8, F4a: perché un server è in difficoltà. `kind` è testo (cpu, memory,
+ * disk, check, agent_silent…) e gli altri campi sono facoltativi: un motivo
+ * nuovo di un server più nuovo non fa crollare il parse.
+ */
+export const serverEpisodeReasonSchema = z.object({
+  kind: z.string(),
+  valuePct: z.number().optional(),
+  thresholdPct: z.number().optional(),
+  checkId: z.string().optional(),
+  since: z.string().optional(),
+});
+
+/** Area 8, F4a: un episodio, dall'allarme al rientro; un secondo allarme durante si aggiunge ai motivi. */
+export const serverEpisodeSchema = z.object({
+  id: z.uuid(),
+  severity: z.enum(["trouble", "down"]),
+  reasons: z.array(serverEpisodeReasonSchema),
+  startedAt: z.string(),
+  /** null = ancora aperto. */
+  recoveredAt: z.string().nullable(),
+});
+export type ServerEpisodeView = z.infer<typeof serverEpisodeSchema>;
+
+/** Area 8, F4a: la salute in una parola (`serverHealth` di shared, calcolata dal server). */
+export const serverHealthSchema = z.object({
+  health: z.enum(["healthy", "trouble", "down", "recovered", "never_connected"]),
+  since: z.string().nullable(),
+  reasons: z.array(serverEpisodeReasonSchema),
+});
+
+/** Area 8, F4a: un ambiente che usa il server (per repository), solo dei progetti che chi guarda vede. */
+export const serverEnvironmentRefSchema = z.object({
+  projectId: z.uuid(),
+  projectCode: z.string(),
+  environmentId: z.uuid(),
+  name: z.string(),
+  kind: z.enum(["test", "staging", "production"]),
+  repositoryId: z.uuid(),
+  repositoryName: z.string(),
+});
+export type ServerEnvironmentRef = z.infer<typeof serverEnvironmentRefSchema>;
+
+/**
  * Proiezione pubblica di un server: dati anagrafici, stato calcolato,
  * progetti associati, conteggi check e la coda di CPU recente per la
  * sparkline. NON contiene MAI `keyHash` né la chiave in chiaro (quella si
  * mostra solo alla creazione e alla rigenerazione, in uno schema dedicato che
  * resta nella rotta: nessun client che parsa la legge).
  */
+/**
+ * ⌘K (rimandi, lotto 5): un server trovato per codice (`SRV-2`), nome o
+ * hostname, fra quelli che chi cerca vede — la forma del prototipo
+ * (`ServerSearchResult` di `data/servers/reads.ts`). `projectCode` è il
+ * progetto da cui aprirlo: il primo visibile (per codice) fra i suoi
+ * ambienti; null senza un ambiente visibile (un server visto con
+ * `monitor.view`): il client apre la pagina d'istanza del server (review del
+ * lotto 5, M-7).
+ */
+export const serverSearchResultSchema = z.object({
+  code: z.string(),
+  name: z.string(),
+  projectCode: z.string().nullable(),
+});
+export type ServerSearchResult = z.infer<typeof serverSearchResultSchema>;
+
 export const serverViewSchema = z.object({
   id: z.uuid(),
   name: z.string(),
@@ -224,6 +295,21 @@ export const serverViewSchema = z.object({
   checksDown: z.number().int(),
   /** Ultimi valori di CPU dai campioni fini, dal più vecchio al più recente. */
   recentCpu: z.array(z.number()),
+  // --- Area 8, F4a: campi additivi (default per un server più vecchio). ---
+  /** `SRV-<n>`, d'istanza, mai riusato. */
+  code: z.string().nullable().default(null),
+  health: serverHealthSchema.nullable().default(null),
+  /** Gli ambienti che lo usano (la visibilità passa da qui). */
+  environments: z.array(serverEnvironmentRefSchema).default([]),
+  /** Il lavoro di Claude sul server: nella F4a sempre `none` (analisi e correzione sono F4b). */
+  work: z.enum(["none", "analyzing", "diagnosis_ready", "fixing"]).default("none"),
+  /** Nessun ambiente di nessun progetto lo usa (vale anche per chi non vede quei progetti). */
+  orphan: z.boolean().default(false),
+  /** Lo usano solo ambienti di progetti archiviati. */
+  inArchivedOnly: z.boolean().default(false),
+  // --- Area 8, F4b: additivi. ---
+  /** L'agente dichiara le operazioni accese (una dichiarazione, non un permesso). */
+  agentOperations: z.boolean().default(false),
 });
 export type ServerView = z.infer<typeof serverViewSchema>;
 
@@ -234,6 +320,25 @@ export const serverDiskSchema = z.object({
   totalBytes: z.number(),
 });
 export type ServerDisk = z.infer<typeof serverDiskSchema>;
+
+/** Un controllo come lo vede chi legge il server: mai il DSN (solo `hasDsn`). */
+export const serverCheckViewSchema = z.object({
+  id: z.uuid(),
+  serverId: z.uuid(),
+  type: checkTypeSchema,
+  name: z.string(),
+  target: z.string(),
+  hasDsn: z.boolean(),
+  intervalSeconds: z.number().int(),
+  enabled: z.boolean(),
+  lastStatus: checkStatusSchema,
+  lastCheckedAt: z.string().nullable(),
+  lastLatencyMs: z.number().int().nullable(),
+  lastError: z.string().nullable(),
+  downSince: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type ServerCheckView = z.infer<typeof serverCheckViewSchema>;
 
 /**
  * Dettaglio (solo GET /:id, non la lista): aggiunge lo snapshot corrente
@@ -264,6 +369,29 @@ export const serverDetailSchema = serverViewSchema.extend({
    */
   memUsedBytes: z.number().nullable().default(null),
   memTotalBytes: z.number().nullable().default(null),
+  // --- Area 8, F4a: campi additivi. ---
+  // Senza `z.lazy` (readerSchema non lo attraversa): lo schema è definito sopra.
+  checks: z.array(serverCheckViewSchema).default([]),
+  /** Dal più recente, al più 20. */
+  episodes: z.array(serverEpisodeSchema).default([]),
+  /** Le produzioni che lo usano, dei progetti visibili. */
+  productionProjects: z.array(z.object({ id: z.uuid(), code: z.string(), name: z.string() })).default([]),
+  /** `monitor.manage`, calcolato dal server. */
+  canManage: z.boolean().default(false),
+  /**
+   * Area 8, F4b: chi guarda può chiedere un'analisi a mano (`servers.operate`
+   * in un progetto il cui ambiente usa il server) e nessuna è in corso.
+   * Calcolato dal server. Additivo.
+   */
+  canStartAnalysis: z.boolean().default(false),
+  /**
+   * Area 8, F4b: lo STATO dell'accesso SSH di sola lettura, per chi vede il
+   * server (senza chiavi, comandi né esito della verifica: quelli restano a
+   * `servers.ssh.manage`, `GET /api/servers/:id/ssh`). Additivo.
+   */
+  ssh: z
+    .object({ status: z.enum(["none", "pending", "verified", "failed", "revoked"]), usable: z.boolean() })
+    .default({ status: "none", usable: false }),
 });
 export type ServerDetail = z.infer<typeof serverDetailSchema>;
 
@@ -271,9 +399,16 @@ export type ServerDetail = z.infer<typeof serverDetailSchema>;
 // Schemi admin (superficie interna /api/servers)
 // ---------------------------------------------------------------------------
 
-/** Registrazione di un nuovo server: l'utente fornisce solo il nome. */
+/**
+ * Registrazione di un nuovo server: il nome e, facoltativo (area 8, F4a), un
+ * ambiente a cui collegarlo per le repository date, nella stessa transazione
+ * (`environments.manage` in quel progetto).
+ */
 export const createServerSchema = z.object({
   name: z.string().min(1).max(255),
+  // `repositoryIds` assente = TUTTE le repository del progetto e l'ambiente
+  // intero (`serverId`), come il form degli ambienti.
+  environment: z.object({ environmentId: z.uuid(), repositoryIds: z.array(z.uuid()).min(1).optional() }).optional(),
 });
 export type CreateServerInput = z.infer<typeof createServerSchema>;
 
@@ -315,3 +450,86 @@ export const updateCheckSchema = z.object({
   enabled: z.boolean().optional(),
 });
 export type UpdateCheckInput = z.infer<typeof updateCheckSchema>;
+
+/**
+ * Area 8, F4a: la risposta di creazione e di rigenerazione — la vista più la
+ * chiave in chiaro (UNA volta) e l'URL dell'istanza per il comando
+ * d'installazione (`agentInstallCommand`). Mai in un elenco.
+ */
+export const serverWithKeySchema = serverViewSchema.extend({
+  key: z.string(),
+  ingestUrl: z.string().nullable().default(null),
+});
+export type ServerWithKey = z.infer<typeof serverWithKeySchema>;
+
+
+// --- Le metriche (`GET /api/servers/:id/metrics`) -----------------------------
+
+export const serverRawPointSchema = z.object({
+  ts: z.string(),
+  cpuPct: z.number(),
+  load1m: z.number(),
+  memUsedBytes: z.number(),
+  memTotalBytes: z.number(),
+  swapUsedBytes: z.number(),
+  diskUsedBytes: z.number(),
+  diskTotalBytes: z.number(),
+  netRxBytes: z.number(),
+  netTxBytes: z.number(),
+});
+
+/** Un punto aggregato (5 min, e dalla F4a 1 h e 4 h): coppie avg/max più le somme di rete. */
+export const serverRollupPointSchema = z.object({
+  ts: z.string(),
+  cpuPctAvg: z.number(),
+  cpuPctMax: z.number(),
+  load1mAvg: z.number(),
+  load1mMax: z.number(),
+  memUsedBytesAvg: z.number(),
+  memUsedBytesMax: z.number(),
+  memTotalBytes: z.number(),
+  diskUsedBytesAvg: z.number(),
+  diskUsedBytesMax: z.number(),
+  diskTotalBytes: z.number(),
+  netRxBytesSum: z.number(),
+  netTxBytesSum: z.number(),
+});
+
+export const serverRawCheckPointSchema = z.object({
+  ts: z.string(),
+  /**
+   * Testo, non l'enum (review F4a): sta in una union (raw | aggregato), e
+   * readerSchema non apre un enum dentro una union — uno stato nuovo farebbe
+   * fallire il parse delle metriche intere. Chi legge confronta coi valori di
+   * `checkStatusSchema`; uno sconosciuto non è né su né giù.
+   */
+  status: z.string(),
+  latencyMs: z.number().int().nullable(),
+});
+
+export const serverRollupCheckPointSchema = z.object({
+  ts: z.string(),
+  upCount: z.number().int(),
+  downCount: z.number().int(),
+  latencyMsAvg: z.number().nullable(),
+  latencyMsMax: z.number().int().nullable(),
+});
+
+export const serverMetricsQuerySchema = z.object({
+  from: z.iso.datetime(),
+  to: z.iso.datetime(),
+  checkId: z.uuid().optional(),
+});
+
+/**
+ * `resolution`: `raw` fino a 48 h, `5m` fino a 7 giorni, `1h` fino a 30, `4h`
+ * oltre (area 8, F4a: i passi larghi sono valori NUOVI, i client passano dal
+ * `readerSchema`). `truncated`: una serie ha saturato il tetto di punti.
+ */
+export const serverMetricsResponseSchema = z.object({
+  resolution: z.enum(["raw", "5m", "1h", "4h"]),
+  truncated: z.boolean(),
+  points: z.array(z.union([serverRawPointSchema, serverRollupPointSchema])),
+  checkPoints: z.array(z.union([serverRawCheckPointSchema, serverRollupCheckPointSchema])).optional(),
+});
+export type ServerMetricsResponse = z.infer<typeof serverMetricsResponseSchema>;

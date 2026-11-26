@@ -24,7 +24,7 @@ type Touched = { id: string; code: string; name: string };
  */
 export function PublishDialog({
   detail,
-  reconfirm = false,
+  reconfirm: asked = false,
   onClose,
   onDone,
 }: {
@@ -36,7 +36,16 @@ export function PublishDialog({
   const { t } = useTranslation();
   const setVisibility = useSetVisibility();
   const [touched, setTouched] = useState<Touched[] | null>(null);
+  // Build app (fetta 5, D1): la conversazione ha letture dei tool, che chi
+  // legge vedrà; il dialogo lo dice.
+  const [toolReads, setToolReads] = useState(false);
+  // Build app: se è una riconferma lo dice il server (`reconfirm` del 409);
+  // senza, vale da dove si è aperto il dialogo (il prototipo).
+  const [serverReconfirm, setServerReconfirm] = useState<boolean | undefined>(undefined);
+  const reconfirm = serverReconfirm ?? asked;
   const [failed, setFailed] = useState(false);
+  // Build app (review di F1): Claude ha letto contenuti privati; non si pubblica.
+  const [privateContent, setPrivateContent] = useState(false);
   const listId = useId();
   const { mutate } = setVisibility;
 
@@ -46,7 +55,11 @@ export function PublishDialog({
       { id: detail.id, visibility: "public" },
       {
         onSuccess: (result) => {
-          if (result.status === "needs_confirmation") setTouched(result.touchedProjects);
+          if (result.status === "needs_confirmation") {
+            setTouched(result.touchedProjects);
+            setToolReads(result.includesToolReads === true);
+            setServerReconfirm(result.reconfirm);
+          } else if (result.status === "private_content") setPrivateContent(true);
           // Nulla da confermare (non succede: la prima chiamata chiede sempre).
           else onDone();
         },
@@ -66,13 +79,35 @@ export function PublishDialog({
       { id: detail.id, visibility: "public", confirmedProjectIds: touched.map((p) => p.id) },
       {
         onSuccess: (result) => {
-          if (result.status === "needs_confirmation") setTouched(result.touchedProjects);
+          if (result.status === "needs_confirmation") {
+            setTouched(result.touchedProjects);
+            setToolReads(result.includesToolReads === true);
+            setServerReconfirm(result.reconfirm);
+          } else if (result.status === "private_content") setPrivateContent(true);
           else onDone();
         },
         onError: () => setFailed(true),
       },
     );
   };
+
+  if (privateContent) {
+    return (
+      <Dialog
+        title={t("claude.destination.publish.privateTitle")}
+        description={t("claude.destination.publish.privateBody")}
+        width={480}
+        onClose={onClose}
+        footer={
+          <button type="button" data-autofocus className={secondaryButton} onClick={onClose}>
+            {t("claude.destination.publish.close")}
+          </button>
+        }
+      >
+        {null}
+      </Dialog>
+    );
+  }
 
   const published = new Set(detail.publishedProjectIds);
   const shown = reconfirm ? (touched ?? []).filter((p) => !published.has(p.id)) : (touched ?? []);
@@ -155,6 +190,11 @@ export function PublishDialog({
       </div>
       {touched !== null && shown.length > 0 && (
         <p className="text-sm text-ink-muted">{t("claude.destination.publish.note")}</p>
+      )}
+      {touched !== null && toolReads && (
+        <p className="text-sm text-ink-muted" data-tool-reads>
+          {t("claude.destination.publish.toolReads")}
+        </p>
       )}
       {failed && touched !== null && (
         <p role="alert" className="text-sm text-critical">

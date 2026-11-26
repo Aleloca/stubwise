@@ -1,6 +1,6 @@
 import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { admin, resetApi, setLatency } from "../../data/api";
 import { accessState, roleIdOf, writeAccess } from "../../data/access/index";
 import { setSessionPersonId } from "../../data/session";
@@ -17,7 +17,8 @@ import en from "../../i18n/locales/en.json";
 import it_ from "../../i18n/locales/it.json";
 import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
 import { resetReauthForTest } from "../../layout/useReauth";
-import { renderRoute } from "../../test/renderRoute";
+import { lastQueryClient, renderRoute } from "../../test/renderRoute";
+import { departmentInvalid } from "./DepartmentsPage";
 import { setMatchMedia } from "../../test/setup";
 
 // Departments e Roles in Amministrazione (area 9a, Task 9, shape
@@ -117,7 +118,7 @@ describe("Departments", () => {
     expect(await within(screen.getByRole("list", { name: "Departments" })).findByText("Legal and compliance")).toBeVisible();
   });
 
-  it("le persone e la Home si salvano insieme, con una riconferma; Claude non è fra chi si aggiunge", async () => {
+  it("le persone e la Home si salvano insieme; Sales non dà permessi, quindi niente codice (F8-3); Claude non è fra chi si aggiunge", async () => {
     const user = userEvent.setup();
     renderRoute("/admin/departments?department=dep-sales", ROBERTA);
     const panel = await screen.findByRole("region", { name: "Department Sales" });
@@ -130,8 +131,8 @@ describe("Departments", () => {
     // Niente è scritto prima del salvataggio.
     expect(dept("dep-sales").memberIds).not.toContain("p-sara");
     await user.click(within(panel).getByRole("button", { name: "Save" }));
-    await confirmItsYou(user);
     await waitFor(() => expect(dept("dep-sales").memberIds).toContain("p-sara"));
+    expect(screen.queryByRole("dialog", { name: "Confirm it's you" })).toBeNull();
     expect(dept("dep-sales").homeManagerIds).toContain("p-sara");
     expect(await screen.findByText("Saved")).toBeVisible();
     expect(within(panel).queryByRole("button", { name: "Save" })).toBeNull();
@@ -181,6 +182,87 @@ describe("Departments", () => {
     expect(state.changelog.length).toBe(entries);
   });
 
+  it("review F8 I1: un altro cambia il reparto mentre il pannello è aperto — senza modifiche la bozza si rilegge, con modifiche lo dice", async () => {
+    const user = userEvent.setup();
+    renderRoute("/admin/departments?department=dep-development", ROBERTA);
+    const panel = await screen.findByRole("region", { name: "Department Development" });
+    // Un altro amministratore dà «Approve plans» a Development.
+    writeAccess((s) => {
+      s.departments.find((d) => d.departmentId === "dep-development")!.projectPermissions.push("plans.approve");
+    });
+    await lastQueryClient().invalidateQueries();
+    // Senza modifiche: la bozza è quella nuova.
+    await waitFor(() =>
+      expect(within(panel).getByRole("checkbox", { name: /^Approve plans/ })).toBeChecked(),
+    );
+    // Con una modifica in corso, un altro cambio non la sovrascrive: lo dice.
+    await user.click(within(panel).getByRole("button", { name: "Add people" }));
+    await user.click(
+      within(within(panel).getByRole("list", { name: "People you can add" })).getByText("Sara Montanari"),
+    );
+    writeAccess((s) => {
+      s.departments.find((d) => d.departmentId === "dep-development")!.projectPermissions.push("drive.upload");
+    });
+    await lastQueryClient().invalidateQueries();
+    // Salvare sopra non riesce (la versione è vecchia: «Nothing was saved»),
+    // quindi la frase non lo promette: dice solo come vedere le sue.
+    expect(
+      await within(panel).findByText(
+        "Someone else changed this department while you were editing it. Discard your changes to see theirs.",
+      ),
+    ).toBeVisible();
+  });
+
+  it("la frase della bozza superata non promette di salvare sopra, nemmeno in it", () => {
+    expect(i18n.t("admin.department.staleDraft", { lng: "it" })).toBe(
+      "Qualcun altro ha cambiato questo reparto mentre lo modificavi. Annulla le tue modifiche per vedere le sue.",
+    );
+  });
+
+  it("review F8 M1: l'anteprima che non si legge lo dice, con «Try again»", async () => {
+    const spy = vi.spyOn(admin, "previewDepartment").mockRejectedValue(new Error("boom"));
+    try {
+      renderRoute("/admin/departments?department=dep-development", ROBERTA);
+      const panel = await screen.findByRole("region", { name: "Department Development" });
+      const alerts = await within(panel).findAllByText("Couldn't check what you can give.");
+      expect(alerts.length).toBeGreaterThan(0);
+      expect(within(panel).getAllByRole("button", { name: "Try again" }).length).toBeGreaterThan(0);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("review F8 M2: i rifiuti invalid_permission e not_a_person hanno la loro frase", () => {
+    const t = i18n.getFixedT("en");
+    expect(departmentInvalid(t as never, "permission")).toBe(
+      "That permission can't be given by a department: only project permissions can.",
+    );
+    expect(departmentInvalid(t as never, "person")).toBe("Only people can be in a department: Claude can't.");
+  });
+
+  it("F8-4: un reparto che non arriva a nessun progetto resta modificabile, e il motivo lo dice", async () => {
+    const user = userEvent.setup();
+    give(MARCO, "departments.manage");
+    setSessionPersonId(ROBERTA);
+    // «Legal» senza persone: i suoi permessi non arrivano ancora da nessuna parte.
+    const legal = (await admin.createDepartment({ name: "Legal", colorToken: "--dept-6" })) as {
+      departmentId: string;
+    };
+    renderRoute(`/admin/departments?department=${legal.departmentId}`, MARCO);
+    const panel = await screen.findByRole("region", { name: "Department Legal" });
+    // Ciò che Marco ha in almeno un progetto si può dare.
+    const create = within(panel).getByRole("checkbox", { name: /^Create tasks/ });
+    expect(create).toBeEnabled();
+    await user.click(create);
+    expect(create).toBeChecked();
+    // Ciò che non ha in nessun progetto è spento, col motivo del reparto vuoto.
+    const approve = within(panel).getByRole("checkbox", { name: /^Approve plans/ });
+    expect(approve).toBeDisabled();
+    expect(approve).toHaveAccessibleDescription(
+      "This department's people aren't in any project yet: you can give only what you have in at least one project.",
+    );
+  });
+
   it("giro 1: le caselle si spengono sulla BOZZA — Marco aggiunge Sara a «Legal», e «Create tasks» si spegne", async () => {
     const user = userEvent.setup();
     give(MARCO, "departments.manage");
@@ -217,7 +299,19 @@ describe("Departments", () => {
     ).toBeVisible();
   });
 
-  it("giro 2 (N-1): Marco toglie Laura dalla bozza e la rimette; il salvataggio passa", async () => {
+  it("F8-3: aggiungere una persona a un reparto che dà permessi chiede il codice", async () => {
+    const user = userEvent.setup();
+    renderRoute("/admin/departments?department=dep-development", ROBERTA);
+    const panel = await screen.findByRole("region", { name: "Department Development" });
+    await user.click(within(panel).getByRole("button", { name: "Add people" }));
+    const candidates = within(panel).getByRole("list", { name: "People you can add" });
+    await user.click(within(candidates).getByText("Sara Montanari"));
+    await user.click(within(panel).getByRole("button", { name: "Save" }));
+    await confirmItsYou(user);
+    await waitFor(() => expect(dept("dep-development").memberIds).toContain("p-sara"));
+  });
+
+  it("giro 2 (N-1): Marco toglie Laura dalla bozza e la rimette; il salvataggio passa, senza codice (non entra nessuno, F8-3)", async () => {
     const user = userEvent.setup();
     give(MARCO, "departments.manage");
     renderRoute("/admin/departments?department=dep-development", MARCO);
@@ -234,8 +328,8 @@ describe("Departments", () => {
     // Un'altra modifica: Stefano gestisce la Home.
     await user.click(within(panel).getByRole("checkbox", { name: "Stefano Amato manages the Home" }));
     await user.click(within(panel).getByRole("button", { name: "Save" }));
-    await confirmItsYou(user);
     expect(await screen.findByText("Saved")).toBeVisible();
+    expect(screen.queryByRole("dialog", { name: "Confirm it's you" })).toBeNull();
     expect(dept("dep-development").memberIds).toContain("p-laura");
     expect(dept("dep-development").homeManagerIds).toContain("p-stefano");
   });
@@ -252,7 +346,7 @@ describe("Departments", () => {
   it("aggiungere a un reparto chi riceverebbe permessi che chi agisce non ha: spento, col motivo", async () => {
     const user = userEvent.setup();
     give(MARCO, "departments.manage");
-    // Sara sta in progetti dove Marco non è: lì Marco non ha «reply to customers».
+    // Sara sta in progetti dove Marco non è: lì Marco non ha «manage Support conversations».
     renderRoute("/admin/departments?department=dep-development", MARCO);
     const panel = await screen.findByRole("region", { name: "Department Development" });
     await user.click(within(panel).getByRole("button", { name: "Add people" }));
@@ -261,7 +355,7 @@ describe("Departments", () => {
     expect(sara).toHaveAttribute("aria-disabled", "true");
     expect(
       within(sara).getByText(
-        "Development gives reply to customers, which you don't have in their projects.",
+        "Development gives manage Support conversations, which you don't have in their projects.",
       ),
     ).toBeVisible();
     await user.click(sara);

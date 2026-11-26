@@ -1,0 +1,831 @@
+import { ApiError } from "@stubwise/api-client";
+import type { ClaudeConversationContext } from "@stubwise/shared";
+import { asideEventsOf } from "./claudeAsides";
+import { capabilitiesEventsOf } from "./claudeCapabilities";
+import { hasQuestionEvents, questionEventsOf, readQuestions } from "./claudeQuestions";
+import { withSettledTrialEvents } from "./claudeTrial";
+import {
+  REFINE_TOOL_NAMES,
+  sizeFromEffort,
+  toConversationEvents,
+  type AgentSessionDetail,
+  type AgentSessionEvent,
+  type AgentSessionKind,
+  type AgentSessionState,
+  type AgentSessionSummary,
+  type Reader,
+  type SessionPlan,
+  type TaskWorkView,
+} from "@stubwise/shared";
+import type * as Fake from "../../api";
+import type {
+  AiBlock,
+  ConversationActivity,
+  ConversationDetail,
+  CitationRef,
+  ConversationEvent,
+  ConversationKind,
+  ConversationRow,
+  ConversationState,
+  Outcome,
+} from "../../types";
+import { clientContextsOf, freeDetailOf, listMine, listPublic, warmContextCodes } from "./claudeChat";
+import {
+  chatActionEvents,
+  forgetPageStatuses,
+  isConversationOwner,
+  rememberConversationOwner,
+  readChatActions,
+  reauthPhrasesOf,
+  undoViewsOf,
+  withChatActionEvents,
+} from "./claudeChatActions";
+import { listPeople } from "./people";
+import { appClient } from "./client";
+import { listProjects } from "./projects";
+
+// Le sessioni di lavoro di Claude nella build app (integrazione area 3, fetta
+// 3a «Guardare»): la pagina Claude, il riquadro (una sessione seguita) e la
+// sezione Claude della task le leggono da `/api/agent-sessions`, in LETTURA.
+// La chat libera (`free`, «mine») la legge `claudeChat.ts` (fetta 2 della chat);
+// le pubbliche restano «in arrivo». Chi vede una sessione e cosa può farci lo decide il server
+// (`docs/invariants/agent-sessions.md`); nella 3a nessuna azione: i permessi
+// del dettaglio sono tutti spenti, con `readOnlyReason: "not_interactive"`.
+
+type Summary = Reader<AgentSessionSummary>;
+
+/**
+ * Il ticket di ogni sessione (o voce di «Da decidere») letta: le azioni su
+ * piano e domande passano dal ticket (`/api/tickets/:id/…`).
+ */
+export const ticketOfConversation = new Map<string, string>();
+type Detail = Reader<AgentSessionDetail>;
+
+/** Il tipo di sessione del server in quello del prototipo; `null` se questa app non lo conosce. */
+const KIND_OF: Partial<Record<AgentSessionKind, ConversationKind>> = {
+  ai_job: "task_run",
+  pr_review: "pr_review",
+  backlog_refine: "refine",
+  backlog_item: "intake",
+  backlog_job: "intake",
+  doc_generation: "docs",
+  project_brief: "brief",
+  daily_report: "daily_report",
+  email_message: "mail_classify",
+};
+
+/** Il filtro per tipo del prototipo sul server; l'intake ha due tipi e si filtra qui. */
+const SERVER_KIND_OF: Partial<Record<ConversationKind, AgentSessionKind>> = {
+  task_run: "ai_job",
+  pr_review: "pr_review",
+  refine: "backlog_refine",
+  docs: "doc_generation",
+  brief: "project_brief",
+  daily_report: "daily_report",
+  mail_classify: "email_message",
+};
+
+/**
+ * Lo stato derivato del server in quello del prototipo: `queued` (in coda) si
+ * legge al lavoro, `held` (parcheggiata: limite, budget, gate) ferma, come fa
+ * `/api/tasks/:id/work`; «In pausa» per uno «Ferma» lo dice `paused`.
+ */
+function stateOf(state: AgentSessionState | "__unknown__", paused = false): ConversationState {
+  if (paused) return "paused";
+  switch (state) {
+    case "working":
+    case "queued":
+      return "working";
+    case "waiting_input":
+      return "awaiting_answer";
+    case "awaiting_approval":
+      return "awaiting_approval";
+    case "held":
+    case "idle":
+      return "idle";
+    case "ended":
+      return "finished";
+    default:
+      return "working";
+  }
+}
+
+function outcomeOf(s: Summary): Outcome | null {
+  if (s.state !== "ended") return null;
+  switch (s.outcome) {
+    case "completed":
+      return "ok";
+    case "failed":
+      return "failed";
+    case "skipped":
+      return "stopped";
+    default:
+      return null;
+  }
+}
+
+function activityOf(s: Summary, state: ConversationState): ConversationActivity {
+  if (state === "awaiting_answer") return { kind: "question" };
+  if (state === "awaiting_approval") return { kind: "plan" };
+  if (state !== "working" || !s.lastActivity) return null;
+  return { kind: "action", label: s.lastActivity.target ?? s.lastActivity.kind };
+}
+
+/** I codici dei progetti visibili, per il codice della task di una sessione («AUD-12»). */
+export async function projectCodes(): Promise<Map<string, string>> {
+  return new Map((await listProjects()).map((p) => [p.id, p.code] as const));
+}
+
+export function toRow(s: Summary, codes: Map<string, string>, paused = false): ConversationRow | null {
+  const kind = KIND_OF[s.kind as AgentSessionKind];
+  if (!kind) return null;
+  if (s.ticketId) ticketOfConversation.set(s.id, s.ticketId);
+  const state = stateOf(s.state, paused);
+  const code = s.projectId ? codes.get(s.projectId) : undefined;
+  return {
+    id: s.id,
+    kind,
+    title: s.title,
+    // Il server non dice chi ha chiesto la sessione: chi l'ha avviata lo dice il lavoro della task.
+    ownerId: "",
+    projectId: s.projectId,
+    contextProjectId: null,
+    taskId: s.ticketId,
+    requestId: s.backlogItemId,
+    state,
+    outcome: outcomeOf(s),
+    visibility: "project",
+    publishedAt: null,
+    publishedById: null,
+    touchedProjectIds: [],
+    privateFromIndex: null,
+    publishedProjectIds: [],
+    continuesFromId: null,
+    createdAt: s.startedAt,
+    updatedAt: s.lastEventAt ?? s.startedAt,
+    archived: false,
+    objectCode: code && s.ticketNumber !== null ? `${code}-${s.ticketNumber}` : null,
+    activity: activityOf(s, state),
+    privateTail: false,
+    waitsOnViewer: s.waitsOnViewer,
+  };
+}
+
+/**
+ * Le sessioni di lavoro per la pagina Claude: `live` le non concluse,
+ * `finished` le concluse (quelle che il server tiene fra le recenti: il suo
+ * tetto vale anche con `includeOlder`). La chat libera non è integrata.
+ */
+export const listConversations: typeof Fake.listConversations = async (filter) => {
+  // Le proprie conversazioni libere (chat, fetta 2) e le pubbliche di altri (fetta 5).
+  if (filter.scope === "mine") return listMine(filter.archived === true);
+  if (filter.scope === "public") return listPublic();
+  const serverKind = filter.kind ? SERVER_KIND_OF[filter.kind] : undefined;
+  if (filter.kind === "free") return [];
+  const [list, codes] = await Promise.all([
+    appClient().agentSessions.list({
+      ...(filter.projectId ? { projectId: filter.projectId } : {}),
+      ...(filter.taskId ? { ticketId: filter.taskId } : {}),
+      ...(serverKind ? { kind: serverKind } : {}),
+    }),
+    projectCodes(),
+  ]);
+  const source = filter.scope === "live" ? list.live : list.recent.filter((s) => s.state === "ended");
+  return source
+    .flatMap((s) => toRow(s, codes) ?? [])
+    .filter(
+      (r) =>
+        (!filter.kind || r.kind === filter.kind) &&
+        (!filter.outcome || r.outcome === filter.outcome) &&
+        (!filter.requestId || r.requestId === filter.requestId),
+    )
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
+};
+
+// --- dettaglio ---------------------------------------------------------------------
+
+/** Quanti eventi per pagina si leggono (il massimo del server). */
+const EVENTS_PAGE = 500;
+
+/**
+ * Tutti gli eventi di una sessione dopo `after` (dall'inizio senza), in
+ * ordine: si legge IN AVANTI da `"0"`, perché senza cursore il server dà gli
+ * ultimi N e oltre la prima pagina i primi si perdevano.
+ */
+export async function readEvents(id: string, after?: string): Promise<Reader<AgentSessionEvent>[]> {
+  const out: Reader<AgentSessionEvent>[] = [];
+  let cursor = after ?? "0";
+  for (;;) {
+    const page = await appClient().agentSessions.events(id, { after: cursor, limit: EVENTS_PAGE });
+    out.push(...page.events);
+    if (page.events.length < EVENTS_PAGE) return out;
+    cursor = page.events.at(-1)!.id;
+  }
+}
+
+/**
+ * Il piano di un job: col suo id, che fa stabile l'id dell'evento
+ * (`plan:<job>`), e il digest del piano LETTO, che approvare o rifiutare
+ * rimanda (il server risponde 409 `plan_changed` se nel frattempo è stato
+ * riscritto).
+ */
+export type RunPlan = SessionPlan & { jobId: string; digest: string | null };
+
+/**
+ * Ciò che di una sessione fa cambiare le letture e il piano: stato, esito,
+ * pausa, attesa, domande risposte. Il piano si rilegge solo quando cambia.
+ */
+export function signatureOf(d: Summary): string {
+  const detail = d as Partial<Detail>;
+  return JSON.stringify([
+    d.state,
+    d.outcome,
+    d.waitsOnViewer,
+    detail.paused ?? false,
+    (detail.questions ?? []).map((q) => [q.answered, q.cancelled]),
+  ]);
+}
+
+/** Il piano letto di ogni sessione, valido finché la sua firma non cambia (review della 3a). */
+const planCache = new Map<string, { signature: string; plan: Promise<RunPlan | null> }>();
+const PLAN_CACHE_MAX = 50;
+
+export function forgetPlans(): void {
+  forgetClaudeCaches();
+}
+
+/** Il piano del job della sessione, dal lavoro della sua task (il server non lo mette fra gli eventi). */
+export function planOf(detail: Summary): Promise<RunPlan | null> {
+  if (detail.kind !== "ai_job" || !detail.ticketId) return Promise.resolve(null);
+  const signature = signatureOf(detail);
+  const hit = planCache.get(detail.id);
+  if (hit && hit.signature === signature) return hit.plan;
+  const plan = readPlan(detail, detail.ticketId);
+  planCache.delete(detail.id);
+  planCache.set(detail.id, { signature, plan });
+  if (planCache.size > PLAN_CACHE_MAX) planCache.delete(planCache.keys().next().value!);
+  return plan;
+}
+
+async function readPlan(detail: Summary, ticketId: string): Promise<RunPlan | null> {
+  let work: Reader<TaskWorkView>;
+  try {
+    work = await appClient().tasks.work(ticketId);
+  } catch {
+    // Senza il lavoro della task il flusso si legge comunque, senza la scheda del piano.
+    planCache.delete(detail.id);
+    return null;
+  }
+  const run = work.runs.find((r) => r.sessionId === detail.id || r.id === detail.aiJobId);
+  return run ? sessionPlanOf(run) : null;
+}
+
+/** Il flusso del prototipo dagli eventi del server, con domande, interventi e piano. */
+export function eventsOf(
+  detail: Detail,
+  events: readonly Reader<AgentSessionEvent>[],
+  partials: Record<string, string>,
+  plan: RunPlan | null,
+): ConversationEvent[] {
+  const out = withStablePlanId(
+    toConversationEvents({
+      events,
+      partials,
+      inputs: detail.inputs,
+      // Una domanda annullata (lavoro annullato) non si risponde: si legge chiusa.
+      questions: detail.questions.map((q) => (q.cancelled ? { ...q, answered: true } : q)),
+      live: detail.state !== "ended",
+      plan,
+    }) as ConversationEvent[],
+    plan,
+  );
+  const visible = withoutWithheldContent(out, events);
+  return detail.kind === "backlog_refine" ? withRefineResults(visible) : visible;
+}
+
+/**
+ * Area 10, review I2a (72): chi legge la conversazione di un altro (una
+ * pubblica) riceve `tool_use` e `tool_result` SENZA contenuto (`withheld`,
+ * `input: {}`, `content: ""`), per ogni tool. La riga dice solo il nome del
+ * tool e com'è andata: niente ingresso né risultato da aprire, e `input` e
+ * `content` non si leggono. All'autore arriva tutto.
+ */
+function withoutWithheldContent(
+  out: ConversationEvent[],
+  events: readonly Reader<AgentSessionEvent>[],
+): ConversationEvent[] {
+  const withheld = new Set(
+    events
+      .filter((e) => e.type === "tool_use" && (e.data as { withheld?: unknown }).withheld === true)
+      .map((e) => e.id),
+  );
+  if (withheld.size === 0) return out;
+  return out.map((e) => {
+    if (e.type !== "action" || !withheld.has(e.id)) return e;
+    const { input: _i, result: _r, resultText: _t, truncated: _x, ...rest } = e;
+    void [_i, _r, _t, _x];
+    return rest;
+  });
+}
+
+/** I tool del refinement (`mcp__stubwise_refine__*`) e l'esito che diventano nel prototipo. */
+const REFINE_RESULT: Record<string, "design_updated" | "plan_updated" | "estimate_updated"> = {
+  [REFINE_TOOL_NAMES[0]!]: "design_updated",
+  [REFINE_TOOL_NAMES[1]!]: "plan_updated",
+  [REFINE_TOOL_NAMES[2]!]: "estimate_updated",
+};
+
+function parseInput(input: string | undefined): Record<string, unknown> {
+  if (!input) return {};
+  try {
+    const value: unknown = JSON.parse(input);
+    return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** La patch della richiesta che una scrittura di Claude ha salvato, nei campi del prototipo. */
+function refinePatchOf(kind: "design_updated" | "plan_updated" | "estimate_updated", input: Record<string, unknown>) {
+  if (kind === "design_updated") return typeof input.markdown === "string" ? { design: input.markdown } : {};
+  if (kind === "plan_updated") return typeof input.markdown === "string" ? { plan: input.markdown } : {};
+  const patch: Record<string, unknown> = {};
+  if (typeof input.title === "string") patch.title = input.title;
+  if (input.effort !== undefined) patch.size = sizeFromEffort(typeof input.effort === "number" ? input.effort : null);
+  if (input.urgency !== undefined) patch.urgency = input.urgency === "urgent" ? "high" : input.urgency;
+  if (input.risk !== undefined) patch.risk = input.risk;
+  if (input.riskNote !== undefined) patch.riskNote = input.riskNote;
+  return patch;
+}
+
+/**
+ * Il refinement (fetta 3c): Claude scrive design, piano e metadati della
+ * richiesta coi tool del refinement; il prototipo li legge come esiti
+ * (`work_result`) con la patch della richiesta, che il lato aggiorna subito.
+ * Solo una scrittura riuscita è un esito, e prende il posto della sua azione:
+ * in corso o fallita resta l'azione.
+ */
+function withRefineResults(events: ConversationEvent[]): ConversationEvent[] {
+  return events.flatMap((e) => {
+    if (e.type !== "action" || e.state !== "done") return [e];
+    const kind = REFINE_RESULT[e.tool];
+    if (!kind) return [e];
+    const result: ConversationEvent = {
+      id: `${e.id}:result`,
+      at: e.at,
+      type: "work_result",
+      kind,
+      text: e.result ?? "",
+      requestPatch: refinePatchOf(kind, parseInput(e.input)),
+    };
+    // Riuscita, la scrittura si legge come il suo esito (il nome del tool non dice niente a chi guarda).
+    return [result];
+  });
+}
+
+/**
+ * L'evento del piano ha l'id del JOB (`plan:<job>`), non del suo istante: un
+ * piano deciso e riletto resta la stessa scheda, mai due.
+ */
+function withStablePlanId(events: ConversationEvent[], plan: RunPlan | null): ConversationEvent[] {
+  if (!plan) return events;
+  return events.map((e) => (e.type === "plan" ? { ...e, id: `plan:${plan.jobId}` } : e));
+}
+
+// --- permessi del dettaglio ----------------------------------------------------------
+
+/** Ciò che nessuna sessione di lavoro ha: la chat libera (gestire, continuare, refine). */
+const NEVER = {
+  isOwner: false,
+  canContinue: false,
+  canManage: false,
+  canClose: false,
+  canStartNew: false,
+  planBlockedReason: null,
+} as const;
+
+/** Quanto vale la lettura dei permessi di chi guarda (`/api/auth/me`) per il piano. */
+const ME_TTL_MS = 30_000;
+let meCache: { at: number; read: Promise<Awaited<ReturnType<ReturnType<typeof appClient>["auth"]["me"]>>> } | null = null;
+
+/**
+ * Chi guarda ha `plans.approve` nel progetto: lo calcola il server
+ * (`projectPermissions` di `/api/auth/me`), il client lo legge.
+ */
+async function canApprovePlans(projectId: string): Promise<boolean> {
+  return hasProjectPermission(projectId, "plans.approve");
+}
+
+/** Un permesso di progetto di chi guarda, calcolato dal server (`/api/auth/me`); il full admin li ha tutti. */
+async function hasProjectPermission(projectId: string, permission: string): Promise<boolean> {
+  if (!meCache || Date.now() - meCache.at > ME_TTL_MS) {
+    meCache = { at: Date.now(), read: appClient().auth.me() };
+    meCache.read.catch(() => {
+      meCache = null;
+    });
+  }
+  const viewer = await meCache.read;
+  return (
+    viewer.instancePermissions.includes("instance.full_admin") ||
+    (viewer.projectPermissions[projectId] ?? []).includes(permission as never)
+  );
+}
+
+/** La richiesta di un refinement si può ancora rifinire (non trasformata, archiviata o fusa), per firma. */
+const refinableCache = new Map<string, { signature: string; read: Promise<boolean> }>();
+
+function refinableOf(detail: Detail, requestId: string): Promise<boolean> {
+  const signature = signatureOf(detail);
+  const hit = refinableCache.get(detail.id);
+  if (hit && hit.signature === signature) return hit.read;
+  const read = appClient()
+    .requests.get(requestId)
+    .then((r) => ["new", "ready", "refining"].includes(r.status) && !r.mergedIntoId)
+    .catch(() => false);
+  refinableCache.delete(detail.id);
+  refinableCache.set(detail.id, { signature, read });
+  if (refinableCache.size > PLAN_CACHE_MAX) refinableCache.delete(refinableCache.keys().next().value!);
+  return read;
+}
+
+/** Il piano SALVATO sul ticket e la sua pre-approvazione (valida sul digest), per firma del dettaglio. */
+const ticketPlanCache = new Map<string, { signature: string; read: Promise<{ saved: boolean; preApproved: boolean }> }>();
+
+function ticketPlanOf(detail: Detail, ticketId: string): Promise<{ saved: boolean; preApproved: boolean }> {
+  const signature = signatureOf(detail);
+  const hit = ticketPlanCache.get(detail.id);
+  if (hit && hit.signature === signature) return hit.read;
+  const read = appClient()
+    .tickets.get(ticketId)
+    .then((t) => ({
+      saved: !!t.implementationPlan,
+      preApproved: !!t.planApprovedAt && t.planApprovalStale !== true,
+    }));
+  read.catch(() => ticketPlanCache.delete(detail.id));
+  ticketPlanCache.delete(detail.id);
+  ticketPlanCache.set(detail.id, { signature, read });
+  if (ticketPlanCache.size > PLAN_CACHE_MAX) ticketPlanCache.delete(ticketPlanCache.keys().next().value!);
+  return read;
+}
+
+/** Svuota le letture tenute (cambio di persona, test). */
+export function forgetClaudeCaches(): void {
+  planCache.clear();
+  ticketPlanCache.clear();
+  refinableCache.clear();
+  meCache = null;
+  // Gli esiti locali delle azioni della pagina (chat, fetta 3, D3).
+  forgetPageStatuses();
+}
+
+/**
+ * Cosa può fare chi guarda in una sessione, tutto da quello che dice il
+ * server: scrivere e fermare (`canWrite`, `canInterrupt`), rispondere
+ * (`canAnswer` della domanda aperta), decidere il piano (in attesa E
+ * `waitsOnViewer`: il piano aspetta lui), pre-approvare e revocare
+ * (`plans.approve` calcolato dal server, sul piano SALVATO del ticket: il
+ * prototipo lo permetteva mentre il piano si scriveva, il server no).
+ */
+async function permissionsOf(detail: Detail, row: ConversationRow) {
+  const live = detail.state !== "ended";
+  const open = detail.questions.find((q) => !q.answered && !q.cancelled);
+  const deciding = live && detail.state === "awaiting_approval" && detail.waitsOnViewer;
+  let canPreApprovePlan = false;
+  let canRevokePlanApproval = false;
+  let planPreApproved = false;
+  if (row.kind === "task_run" && detail.ticketId && detail.projectId && live) {
+    const [approve, plan] = await Promise.all([
+      canApprovePlans(detail.projectId).catch(() => false),
+      ticketPlanOf(detail, detail.ticketId).catch(() => ({ saved: false, preApproved: false })),
+    ]);
+    planPreApproved = plan.preApproved;
+    canPreApprovePlan = approve && plan.saved && !plan.preApproved && detail.state !== "awaiting_approval";
+    canRevokePlanApproval = approve && plan.preApproved;
+  }
+  // Refinement (fetta 3c): chiudere lo dice il server; ripartire («Start new»)
+  // una sessione chiusa, con `backlog.edit`, se la richiesta si può ancora rifinire.
+  let canStartNew = false;
+  if (row.kind === "refine" && !live && detail.backlogItemId && detail.projectId) {
+    const [edit, refinable] = await Promise.all([
+      hasProjectPermission(detail.projectId, "backlog.edit").catch(() => false),
+      refinableOf(detail, detail.backlogItemId),
+    ]);
+    canStartNew = edit && refinable;
+  }
+  const readOnlyReason = detail.canWrite
+    ? null
+    : !live
+      ? ("finished" as const)
+      : row.kind !== "task_run" && row.kind !== "refine"
+        ? ("automatic" as const)
+        : detail.canIntervene
+          ? ("not_interactive" as const)
+          : ("no_permission" as const);
+  return {
+    ...NEVER,
+    canClose: row.kind === "refine" && live && detail.canClose,
+    canStartNew,
+    canWrite: detail.canWrite,
+    canInterrupt: detail.canInterrupt,
+    canAnswer: live && !!open?.canAnswer,
+    canDecidePlan: deciding,
+    canRejectPlan: deciding,
+    canPreApprovePlan,
+    canRevokePlanApproval,
+    planPreApproved,
+    readOnlyReason,
+  };
+}
+
+export async function toDetail(
+  detail: Detail,
+  codes: Map<string, string>,
+  events: ConversationEvent[],
+): Promise<ConversationDetail | null> {
+  const row = toRow(detail, codes, detail.paused);
+  if (!row) return null;
+  return { ...row, ...(await permissionsOf(detail, row)), events, continuesFrom: null };
+}
+
+/** Una sessione invisibile, o inesistente, risponde 404: `null`. */
+export const getConversation: typeof Fake.getConversation = (id) => readConversation(id, true);
+
+/**
+ * Il dettaglio di una sessione o di una conversazione libera. `withOrigin`:
+ * di una continuazione si legge anche l'originale (una volta: l'origine
+ * dell'origine non serve). Solo un 404 dice «non c'è»; ogni altro errore si
+ * propaga, e la lettura si riprova.
+ */
+async function readConversation(
+  id: string,
+  withOrigin: boolean,
+): ReturnType<typeof Fake.getConversation> {
+  // Il riquadro senza conversazione la chiede con l'id vuoto: nessuna.
+  if (!id) return null;
+  let detail: Detail;
+  try {
+    detail = await appClient().agentSessions.get(id);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
+  if (detail.kind === "free") {
+    // La conversazione libera: titolo, archivio e contesto dalla sua riga (solo dell'autore).
+    let conversation: Awaited<ReturnType<ReturnType<typeof appClient>["claude"]["conversations"]["get"]>>;
+    try {
+      conversation = await appClient().claude.conversations.get(id);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return null;
+      throw error;
+    }
+    // L'autore prima delle viste delle proposte: è il loro richiedente (fetta 5).
+    rememberConversationOwner(id, conversation.author?.id ?? "");
+    const [events, actions, people] = await Promise.all([readEvents(id), readChatActions(id), listPeople()]);
+    const questions = hasQuestionEvents(events) ? await readQuestions(id) : [];
+    const nameOf = (personId: string) => people.find((p) => p.id === personId)?.name ?? null;
+    // Le schede e le righe delle azioni di Claude (fetta 3): derivate dalle viste del server.
+    // Area 10, F2: dopo un'automazione creata, la riga della prova (fatta qui, per l'autore).
+    // Area 10, F2: le domande a scelta, nel punto dei loro eventi.
+    const extra = await withSettledTrialEvents(
+      // Area 10, F3: «Hypothesis» e «Details» sotto la risposta di S2.
+      // Area 10, F7: «cosa sai fare» (S0), l'evento `capabilities` del ponte.
+      [
+        ...chatActionEvents(events, actions),
+        ...questionEventsOf(events, questions),
+        ...asideEventsOf(events),
+        ...capabilitiesEventsOf(events),
+      ],
+      actions.groups,
+      isConversationOwner(id),
+    );
+    // Lotto 8, §1: i codici dei contesti (del gruppo e dei messaggi) si imparano prima.
+    const inputContexts = events.flatMap((e) =>
+      e.type === "input" ? ((e.data as { contexts?: ClaudeConversationContext[] }).contexts ?? []) : [],
+    );
+    await warmContextCodes([...((conversation as { contexts?: ClaudeConversationContext[] }).contexts ?? []), ...inputContexts]);
+    const flow = withMessageContexts(
+      withChatActionEvents(eventsOf(conversation.session, events, {}, null), [...extra, ...citationEventsOf(events)]),
+      events,
+    );
+    return {
+      ...freeDetailOf(conversation, flow),
+      continuesFrom: withOrigin ? await originOf(conversation.continuesFrom) : null,
+      undo: undoViewsOf(actions.groups, nameOf),
+      // F7: le frasi della riconferma delle schede C aperte (coi nomi del server).
+      reauthPhrases: reauthPhrasesOf(actions.proposals, actions.codes),
+    };
+  }
+  const [events, plan, codes] = await Promise.all([readEvents(id), planOf(detail), projectCodes()]);
+  return toDetail(detail, codes, eventsOf(detail, events, {}, plan));
+};
+
+/**
+ * Lotto 9, voce 1 (72, 2fe8b9989): le citazioni di un turno di Claude
+ * (`turn_end.data.citations`, già filtrate dal server per chi guarda)
+ * nell'evento `citation` del prototipo, all'istante della fine del turno:
+ * dopo l'ultimo testo di quel turno. Un file del Drive che l'autore non vede
+ * più porta il suo codice (R-H5).
+ */
+export function citationEventsOf(events: readonly Reader<AgentSessionEvent>[]): ConversationEvent[] {
+  return events.flatMap((e): ConversationEvent[] => {
+    if (e.type !== "turn_end") return [];
+    const cited = (e.data as { citations?: { kind: string; id: string; code?: string }[] }).citations ?? [];
+    const refs = cited.flatMap((c): CitationRef[] => {
+      if (!CITED_KINDS.has(c.kind)) return [];
+      const kind = c.kind as CitationRef["kind"];
+      return [kind === "drive" && c.code ? { kind, id: c.id, code: c.code } : { kind, id: c.id }];
+    });
+    return refs.length > 0 ? [{ id: `citation:${e.id}`, at: e.at, type: "citation", refs }] : [];
+  });
+}
+const CITED_KINDS = new Set(["task", "request", "project", "doc", "drive"]);
+
+/**
+ * Lotto 8, §1 (72, a5fdd0c23): ogni messaggio porta il gruppo dei contesti
+ * com'era quando è partito (`input.data.contexts`, già filtrato dal server
+ * per chi guarda), nella forma del prototipo.
+ */
+function withMessageContexts(
+  flow: ConversationEvent[],
+  events: readonly Reader<AgentSessionEvent>[],
+): ConversationEvent[] {
+  const byInput = new Map(
+    events.flatMap((e) => {
+      if (e.type !== "input") return [];
+      const contexts = clientContextsOf((e.data as { contexts?: ClaudeConversationContext[] }).contexts);
+      return contexts.length > 0 ? [[e.id, contexts] as const] : [];
+    }),
+  );
+  return flow.map((e) => (e.type === "user" && byInput.has(e.id) ? { ...e, contexts: byInput.get(e.id)! } : e));
+}
+
+/**
+ * La pubblica da cui continua una conversazione (fetta 5), letta DAL VIVO e
+ * come la vede chi continua (la proiezione del server): mai copiata. Non più
+ * visibile, o eliminata (404): `available: false`, senza titolo né eventi.
+ */
+async function originOf(
+  from: { id: string; available: boolean } | null,
+): Promise<NonNullable<Awaited<ReturnType<typeof Fake.getConversation>>>["continuesFrom"]> {
+  if (!from) return null;
+  const gone = { id: from.id, available: false as const, title: null, ownerId: null, events: [] as [] };
+  if (!from.available) return gone;
+  // Un 404 (privata nel frattempo, eliminata) dà `null`: non più disponibile.
+  // Un errore di rete NO: si propaga, e la lettura si riprova.
+  const origin = await readConversation(from.id, false);
+  if (!origin) return gone;
+  return {
+    id: from.id,
+    available: true,
+    title: origin.title,
+    ownerId: origin.ownerId,
+    ownerName: origin.ownerName ?? null,
+    events: origin.events,
+  };
+}
+
+// --- il lavoro di una task ------------------------------------------------------------
+
+type WorkView = Reader<TaskWorkView>;
+type RunView = WorkView["runs"][number];
+
+const known = <T extends string>(v: T | "__unknown__"): v is T => v !== "__unknown__";
+
+function sessionPlanOf(run: RunView): RunPlan | null {
+  const plan = run.plan;
+  if (!plan || !known(plan.status)) return null;
+  return {
+    jobId: run.id,
+    digest: plan.digest,
+    text: plan.text,
+    summary: plan.summary,
+    // `undecided`: nessun esito verificabile, si legge «non deciso» (mai «approvato»).
+    status: plan.status,
+    at: plan.at,
+  };
+}
+
+/** Gli eventi di una sessione di lavoro, letti dalla sessione (non da `/work`); una che non si vede: vuoti. */
+async function runEvents(run: RunView): Promise<{ events: ConversationEvent[]; paused: boolean }> {
+  const plan = sessionPlanOf(run);
+  if (!run.sessionId) {
+    const events = toConversationEvents({ events: [], partials: {}, inputs: [], questions: [], live: true, plan });
+    return { events: withStablePlanId(events as ConversationEvent[], plan), paused: false };
+  }
+  try {
+    const [detail, raw] = await Promise.all([
+      appClient().agentSessions.get(run.sessionId),
+      readEvents(run.sessionId),
+    ]);
+    return { events: eventsOf(detail, raw, {}, plan), paused: detail.paused };
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return { events: [], paused: false };
+    throw error;
+  }
+}
+
+/**
+ * Il lavoro di Claude su una task, nella forma del prototipo: le sessioni di
+ * lavoro e le PR da `GET /api/tasks/:id/work` (le azioni le calcola il
+ * server), gli eventi di ogni sessione dalla sessione stessa. Un server più
+ * vecchio senza i campi della 3a dà un lavoro vuoto (i default dello schema):
+ * la sezione degrada, non si rompe. Una task invisibile: `null`.
+ */
+export const getTaskWork: typeof Fake.getTaskWork = async (taskId) => {
+  let work: WorkView;
+  try {
+    work = await appClient().tasks.work(taskId);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
+  const runs = await Promise.all(
+    work.runs.map(async (run) => {
+      const { events, paused } = await runEvents(run);
+      ticketOfConversation.set(run.sessionId ?? run.id, taskId);
+      return {
+        id: run.sessionId ?? run.id,
+        // Il sistema o un utente eliminato: nessuno (la sezione dice «someone»).
+        ownerId: run.ownerId ?? "",
+        createdAt: run.createdAt,
+        state: paused ? ("paused" as const) : known(run.state) ? run.state : ("working" as const),
+        outcome: run.outcome && known(run.outcome) ? run.outcome : null,
+        events,
+        provider: run.provider && known(run.provider.kind) ? { kind: run.provider.kind, name: run.provider.name } : null,
+        failureSummary: run.failureSummary,
+        ...(run.cancelRequested ? { cancelRequested: true } : {}),
+        model: null,
+        // Lotto 4, §7.3: l'attesa di QUESTO run in coda (oggi la coda in pausa).
+        waiting: blockedOf((run as { waiting?: ServerBlock | null }).waiting ?? null),
+        queued: null,
+        executionModel: null,
+        requiredProvider: null,
+        skills: null,
+      };
+    }),
+  );
+  const availability = (v: string) =>
+    v === "allowed" || v === "forbidden" ? (v as "allowed" | "forbidden") : ("unavailable" as const);
+  return {
+    runs,
+    pullRequests: work.prEvents.flatMap((e) =>
+      known(e.kind) ? [{ id: e.id, projectId: "", taskId, kind: e.kind, at: e.at, number: e.number, repo: e.repo }] : [],
+    ),
+    software: work.software,
+    openPr: work.openPr,
+    planDecisions: work.planDecisions.flatMap((d) =>
+      known(d.status)
+        ? [{ decidedById: d.decidedById, decidedAt: d.decidedAt, decision: d.decision, status: d.status }]
+        : [],
+    ),
+    waitsOnViewer: work.waitsOnViewer,
+    hiddenRuns: work.hiddenRuns,
+    actions: {
+      start: availability(work.actions.start),
+      relaunch: availability(work.actions.relaunch),
+      resume: availability(work.actions.resume),
+      requestChanges: availability(work.actions.requestChanges),
+      // Lo calcola il server (review dell'area 3, punto 14).
+      cancel: availability(work.actions.cancel),
+    },
+    prFacts: work.prFacts.map((f) => ({
+      repo: f.repo,
+      number: f.number,
+      review:
+        f.review && known(f.review.verdict)
+          ? {
+              verdict: f.review.verdict,
+              at: f.review.at,
+              byId: f.review.byId,
+              on: f.review.on && known(f.review.on) ? f.review.on : null,
+            }
+          : null,
+      branchProtected: f.branchProtected,
+      queued: f.queued,
+    })),
+    correctionCap: work.correctionCap,
+    // Lotto 4, §7.3 (D-7.2 = a): i consumi della task per modello; un costo assente (un CLI vecchio) conta zero.
+    usage: ((work as { usage?: ServerUsage[] }).usage ?? []).map((u) => ({
+      model: u.model,
+      inputTokens: u.inputTokens,
+      outputTokens: u.outputTokens,
+      cacheReadTokens: u.cacheReadTokens,
+      costUsd: u.costUsd ?? 0,
+    })),
+    // D-7.1: perché un avvio a mano non partirebbe adesso per chi guarda; il
+    // server manda `monthly_budget` solo a chi non può scavalcarlo
+    // (`plans.approve` nel progetto). Chi ha messo la pausa, se mascherato,
+    // senza nome.
+    blocked: blockedOf((work as { blocked?: ServerBlock | null }).blocked ?? null),
+  };
+};
+
+type ServerBlock = { reason: string; byId?: string; byName?: string | null; since?: string };
+type ServerUsage = { model: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; costUsd: number | null };
+
+function blockedOf(b: ServerBlock | null): AiBlock | null {
+  if (b?.reason === "monthly_budget") return { reason: "monthly_budget" };
+  if (b?.reason === "queue_paused")
+    return { reason: "queue_paused", byId: b.byId ?? "", byName: b.byName ?? "", since: b.since ?? "" };
+  return null;
+}

@@ -1,6 +1,6 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { failNext, me, resetApi, setLatency } from "../../data/api";
 import { markReauthenticated } from "../../data/auth/reauth";
 import { state } from "../../data/store";
@@ -82,6 +82,8 @@ describe("Account", () => {
     await user.type(screen.getByLabelText("New password"), "a-new-password");
     await user.type(screen.getByLabelText("Confirm new password"), "a-new-password");
     await user.click(screen.getByRole("button", { name: "Change password" }));
+    // Area 9: la riconferma, come sul server.
+    await confirmItsYou(user);
     expect(await screen.findByText("The current password is wrong.")).toBeVisible();
     expect(state.sessions.filter((s) => s.personId === GIULIA)).toHaveLength(3);
 
@@ -94,6 +96,94 @@ describe("Account", () => {
     expect(state.sessions.filter((s) => s.personId === GIULIA)).toHaveLength(1);
     // Il modulo si svuota: la password non resta nei campi.
     expect(screen.getByLabelText("Current password")).toHaveValue("");
+  });
+
+  it("la foto (area 9, R1): un SVG o un GIF si rifiutano in parole, un PNG oltre 512 KB pure, un PNG entra", async () => {
+    renderRoute("/preferences/account", GIULIA);
+    await heading("Account");
+    const input = (await screen.findByRole("button", { name: "Change photo" }))
+      .parentElement!.querySelector<HTMLInputElement>('input[type="file"]')!;
+    expect(input.accept).toBe("image/png,image/jpeg,image/webp");
+    const pick = (name: string, type: string, bytes: Uint8Array) =>
+      fireEvent.change(input, { target: { files: [new File([bytes as BlobPart], name, { type })] } });
+    const text = (t: string) => new TextEncoder().encode(t);
+    const png = (n: number) => {
+      const b = new Uint8Array(n);
+      b.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+      return b;
+    };
+
+    pick("logo.png", "image/png", text("<svg xmlns='http://www.w3.org/2000/svg'/>"));
+    expect(await screen.findByText("Pick a PNG, JPEG or WebP image.")).toBeVisible();
+    pick("anim.gif", "image/gif", text("GIF89a"));
+    expect(await screen.findByText("Pick a PNG, JPEG or WebP image.")).toBeVisible();
+    pick("big.png", "image/png", png(512 * 1024 + 1));
+    expect(await screen.findByText("The photo is larger than 512 KB.")).toBeVisible();
+    expect(document.querySelector("img[src^='data:']")).toBeNull();
+    pick("me.png", "image/png", png(64));
+    await waitFor(() => expect(document.querySelector("img[src^='data:image/png']")).not.toBeNull());
+    expect(screen.queryByText("The photo is larger than 512 KB.")).toBeNull();
+  });
+
+  it("l'email di login (area 9, R2): si legge, «Change email…» chiede la riconferma e la lascia in attesa; «Cancel change» la spegne", async () => {
+    const user = userEvent.setup();
+    renderRoute("/preferences/account", GIULIA);
+    await heading("Account");
+    const email = await screen.findByTestId("login-email");
+    const before = email.textContent!;
+    expect(screen.queryByRole("textbox", { name: "Email" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Change email…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Change your sign-in email" });
+    await user.type(within(dialog).getByLabelText("New email"), "giulia@new.example.com");
+    await user.click(within(dialog).getByRole("button", { name: "Send the link" }));
+    await confirmItsYou(user);
+    expect(
+      await screen.findByText(
+        `Waiting for confirmation at giulia@new.example.com. Until then you sign in with ${before}.`,
+      ),
+    ).toBeVisible();
+    expect(screen.getByTestId("login-email")).toHaveTextContent(before);
+    await user.click(screen.getByRole("button", { name: "Cancel change" }));
+    await waitFor(() => expect(screen.queryByText(/Waiting for confirmation/)).toBeNull());
+  });
+
+  it("l'email di login (area 9, R2): il link simulato la cambia; un indirizzo preso si dice nel dialogo", async () => {
+    const user = userEvent.setup();
+    markReauthenticated(GIULIA);
+    renderRoute("/preferences/account", GIULIA);
+    await heading("Account");
+    await user.click(await screen.findByRole("button", { name: "Change email…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Change your sign-in email" });
+    await user.type(within(dialog).getByLabelText("New email"), "nope");
+    await user.click(within(dialog).getByRole("button", { name: "Send the link" }));
+    expect(await within(dialog).findByText("Enter a full email address.")).toBeVisible();
+    await user.clear(within(dialog).getByLabelText("New email"));
+    await user.type(within(dialog).getByLabelText("New email"), "laura.costa@example.com");
+    await user.click(within(dialog).getByRole("button", { name: "Send the link" }));
+    expect(
+      await within(dialog).findByText("That email already belongs to someone else in Stubwise."),
+    ).toBeVisible();
+    await user.clear(within(dialog).getByLabelText("New email"));
+    await user.type(within(dialog).getByLabelText("New email"), "giulia@new.example.com");
+    await user.click(within(dialog).getByRole("button", { name: "Send the link" }));
+    await screen.findByText(/Waiting for confirmation at giulia@new.example.com/);
+    await user.click(screen.getByRole("button", { name: "Open the confirmation link" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("login-email")).toHaveTextContent("giulia@new.example.com"),
+    );
+    expect(screen.queryByText(/Waiting for confirmation/)).toBeNull();
+  });
+
+  it("l'email di login (area 9, R2): senza trasporto la persona non la cambia, e lo si dice", async () => {
+    me.setEmailTransportForPrototype(false);
+    renderRoute("/preferences/account", GIULIA);
+    await heading("Account");
+    expect(
+      await screen.findByText(
+        "Changing your sign-in email isn't available on this instance: ask an administrator.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Change email…" })).toBeNull();
   });
 
   it("le password diverse o corte non partono", async () => {
@@ -111,7 +201,7 @@ describe("Account", () => {
     expect(state.passwords.has(GIULIA)).toBe(false);
   });
 
-  it("nome: Save compare con una modifica e il nome cambia; email non valida si dice sotto il campo", async () => {
+  it("nome: Save compare con una modifica e il nome cambia", async () => {
     const user = userEvent.setup();
     renderRoute("/preferences/account", GIULIA);
     const name = await screen.findByLabelText("Name");
@@ -121,12 +211,6 @@ describe("Account", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText("Saved")).toBeVisible();
     expect((await me.getMyProfile()).name).toBe("Giulia Ferri Neri");
-
-    const email = screen.getByLabelText("Email");
-    await user.clear(email);
-    await user.type(email, "nope");
-    await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(await screen.findByText("Enter a full email address.")).toBeVisible();
   });
 
   it("Proposals che non si cambia: ✕, la frase e Retry, che rifà il cambio", async () => {
@@ -148,6 +232,8 @@ describe("Account", () => {
     renderRoute("/preferences/account", GIULIA);
     const proposals = await screen.findByRole("switch", { name: "Proposals" });
     expect(proposals).toHaveAttribute("aria-checked", "true");
+    // Spegne solo la classificazione della propria posta (decisione B della F2).
+    expect(screen.getByText(/Proposals that others share with you still reach you\./)).toBeVisible();
     await user.click(proposals);
     await waitFor(() =>
       expect(state.mailboxes.find((b) => b.personId === GIULIA)!.proposalsEnabled).toBe(false),
@@ -169,6 +255,10 @@ describe("Account", () => {
 
     await user.click(screen.getByRole("button", { name: "Connect a mailbox" }));
     const dialog = await screen.findByRole("dialog", { name: "Connect a mailbox" });
+    // Il consenso vale con la classificazione vecchia e con la nuova: niente «ammessa».
+    expect(dialog).toHaveTextContent(
+      "Stubwise will read the subject and body of the emails in this mailbox and send them to the AI analysis provider configured on this instance, to suggest tasks and requests.",
+    );
     // Il consenso del web resta, in un paragrafo a sé.
     expect(within(dialog).getByText(/send them to the AI analysis provider/)).toBeVisible();
     await user.click(within(dialog).getByRole("radio", { name: "Wrong domain" }));
@@ -195,6 +285,27 @@ describe("Account", () => {
     const dialog = await screen.findByRole("dialog", { name: /^Reconnect / });
     await user.click(within(dialog).getByRole("button", { name: "Continue on Google" }));
     await waitFor(() => expect(screen.queryByText(/Needs reconnecting/)).toBeNull());
+  });
+
+  // Registro, A9 r.1200 (decisione del 23 nov 2026, «Anche in Preferenze»):
+  // nella build app le caselle ci sono, e l'esito del consenso lo dice Google
+  // nel browser: il dialogo non ha il riquadro «Prototype only».
+  it("build app: le caselle ci sono, e il dialogo di Reconnect non ha il riquadro del prototipo", async () => {
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+    try {
+      // Nella build app la persona è quella della sessione (Giulia): la sua casella da ricollegare.
+      const account = state.googleAccounts.find((a) => a.personId === GIULIA)!;
+      account.status = "expired";
+      const user = userEvent.setup();
+      renderRoute("/preferences/account", GIULIA);
+      await user.click(await screen.findByRole("button", { name: "Reconnect" }));
+      const dialog = await screen.findByRole("dialog", { name: /^Reconnect / });
+      expect(within(dialog).getByRole("button", { name: "Continue on Google" })).toBeVisible();
+      expect(dialog.querySelector("[data-prototype-only]")).toBeNull();
+      expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 

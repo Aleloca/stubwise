@@ -13,10 +13,13 @@
  * esclusione dei job, plugin in uso, coerenza degli spegnimenti con
  * l'inventario.
  */
+import { createHash } from "node:crypto";
+import { changedFields, recordChange } from "./change-log.js";
 import {
   pluginJobs,
   plugins,
   projectPlugins,
+  projects,
   type Db,
   type PluginRow,
   type ProjectPluginRow,
@@ -24,6 +27,8 @@ import {
 import {
   pluginInventorySchema,
   pluginSlugSchema,
+  RECOMMENDED_DISABLED_SKILLS,
+  type ProjectPluginRegistryRow,
   type CreatePluginInput,
   type PluginJobKind,
   type ProjectPlugin,
@@ -194,7 +199,14 @@ export type CreatePluginResult =
  * dall'URL creerebbe una seconda verità destinata a divergere da quella del
  * manifest.
  */
-export async function createPlugin(db: Db, input: CreatePluginInput): Promise<CreatePluginResult> {
+/**
+ * Area 9, F3: chi fa il gesto, per la voce del registro scritta nella stessa
+ * transazione. Assente (un chiamante interno, un test vecchio) = nessuna voce.
+ */
+type ChangeActor = { id: string; email: string } | undefined;
+const pluginObject = (row: { id: string; name: string }) => ({ type: "plugin", id: row.id, label: row.name });
+
+export async function createPlugin(db: Db, input: CreatePluginInput, actor?: ChangeActor): Promise<CreatePluginResult> {
   const slug = derivePluginSlug(input.sourceUrl, input.sourceSubdir);
   if (slug === null) return { ok: false, error: "invalid_slug" };
 
@@ -208,10 +220,14 @@ export async function createPlugin(db: Db, input: CreatePluginInput): Promise<Cr
           sourceUrl: input.sourceUrl,
           ref: input.ref,
           sourceSubdir: input.sourceSubdir ?? null,
+          // Rimandi, lotto 5: chi registra è anche l'ultimo ad averlo aggiornato (come il prototipo).
+          registeredByUserId: actor?.id ?? null,
+          updatedByUserId: actor?.id ?? null,
         })
         .returning();
       if (!created) throw new Error("insert del plugin non ha restituito la riga");
       await tx.insert(pluginJobs).values({ pluginId: created.id, kind: "materialize" });
+      if (actor) await recordChange(tx, { type: "plugin.registered", actor, projectId: null, data: { object: pluginObject(created), params: { ref: created.ref } } });
       // `pendingJobKind` senza rileggere: il job lo abbiamo appena inserito in
       // questa stessa transazione, è un fatto, non una stima.
       return { ok: true as const, plugin: { ...created, pendingJobKind: "materialize" as const } };
@@ -240,19 +256,21 @@ export type RequestUpdateResult =
  * `plugin_jobs_active_unique`, NON da una select preventiva: fra una select e
  * l'insert ci starebbe comodamente la richiesta di un altro admin.
  */
-export async function requestUpdate(db: Db, id: string, ref: string): Promise<RequestUpdateResult> {
+export async function requestUpdate(db: Db, id: string, ref: string, actor?: ChangeActor): Promise<RequestUpdateResult> {
   try {
     return await db.transaction(async (tx) => {
+      const [before] = await tx.select({ ref: plugins.ref }).from(plugins).where(eq(plugins.id, id)).for("update");
       // `updatedAt` esplicito: la colonna non ha `$onUpdate` (scelta coerente
       // con `repo_graphs`), quindi ogni scrittura se lo porta dietro.
       const [updated] = await tx
         .update(plugins)
-        .set({ ref, updatedAt: new Date() })
+        .set({ ref, updatedAt: new Date(), ...(actor ? { updatedByUserId: actor.id } : {}) })
         .where(eq(plugins.id, id))
-        .returning({ id: plugins.id });
+        .returning({ id: plugins.id, name: plugins.name });
       // Nessuna riga toccata: niente da annullare, si esce prima dell'insert.
       if (!updated) return { ok: false as const, error: "not_found" as const };
       await tx.insert(pluginJobs).values({ pluginId: id, kind: "materialize" });
+      if (actor) await recordChange(tx, { type: "plugin.ref_updated", actor, projectId: null, data: { object: pluginObject(updated), before: before?.ref ?? null, after: ref } });
       return { ok: true as const };
     });
   } catch (error) {
@@ -273,7 +291,7 @@ export type RequestSmokeResult =
  * `resolvedSha` il job fallirebbe con certezza sul worker (che compone
  * `<slug>/<sha>`), e un fallimento annunciato è meglio darlo subito all'admin.
  */
-export async function requestSmoke(db: Db, id: string): Promise<RequestSmokeResult> {
+export async function requestSmoke(db: Db, id: string, actor?: ChangeActor): Promise<RequestSmokeResult> {
   const plugin = await getPlugin(db, id);
   if (!plugin) return { ok: false, error: "not_found" };
   if (plugin.status !== "ready" || !plugin.resolvedSha) return { ok: false, error: "not_ready" };
@@ -287,6 +305,7 @@ export async function requestSmoke(db: Db, id: string): Promise<RequestSmokeResu
         .update(plugins)
         .set({ smokeStatus: "pending", smokeError: null, updatedAt: new Date() })
         .where(eq(plugins.id, id));
+      if (actor) await recordChange(tx, { type: "plugin.smoke_rerun", actor, projectId: null, data: { object: pluginObject(plugin) } });
       return { ok: true as const };
     });
   } catch (error) {
@@ -316,16 +335,20 @@ export type DeletePluginResult =
  * nulla si guarda dopo il perché — a quel punto è solo per scegliere il
  * messaggio, non per decidere.
  */
-export async function deletePlugin(db: Db, id: string): Promise<DeletePluginResult> {
-  const deleted = await db
-    .delete(plugins)
-    .where(
-      and(
-        eq(plugins.id, id),
-        sql`NOT EXISTS (SELECT 1 FROM ${projectPlugins} WHERE ${projectPlugins.pluginId} = ${plugins.id} AND ${projectPlugins.enabled})`,
-      ),
-    )
-    .returning({ id: plugins.id });
+export async function deletePlugin(db: Db, id: string, actor?: ChangeActor): Promise<DeletePluginResult> {
+  const deleted = await db.transaction(async (tx) => {
+    const gone = await tx
+      .delete(plugins)
+      .where(
+        and(
+          eq(plugins.id, id),
+          sql`NOT EXISTS (SELECT 1 FROM ${projectPlugins} WHERE ${projectPlugins.pluginId} = ${plugins.id} AND ${projectPlugins.enabled})`,
+        ),
+      )
+      .returning({ id: plugins.id, name: plugins.name });
+    if (actor) for (const g of gone) await recordChange(tx, { type: "plugin.removed", actor, projectId: null, data: { object: pluginObject(g) } });
+    return gone;
+  });
   if (deleted.length > 0) return { ok: true };
   return (await getPlugin(db, id))
     ? { ok: false, error: "plugin_in_use" }
@@ -346,6 +369,73 @@ function toProjectPlugin(row: ProjectPluginRow): ProjectPlugin {
   };
 }
 
+/**
+ * Area 9, F5: la versione delle abilitazioni di un progetto, per il PUT con
+ * `ifMatch`. Un'impronta dello stato (non un contatore: nessuna colonna
+ * nuova), indipendente dall'ordine delle righe e delle liste.
+ */
+export function projectPluginsVersion(list: ProjectPlugin[]): string {
+  const canonical = [...list]
+    .sort((a, b) => a.pluginId.localeCompare(b.pluginId))
+    .map((p) => [p.pluginId, p.enabled, [...p.disabledSkills].sort(), [...p.disabledHooks].sort()]);
+  return createHash("sha256").update(JSON.stringify(canonical)).digest("hex").slice(0, 16);
+}
+
+/**
+ * Le chiavi stabili della voce `project.plugins_changed`, come il prototipo
+ * (`<plugin>:<skill>`, `<plugin>#<gruppo>`, col nome del plugin), più i plugin
+ * accesi: sul server un plugin si accende e si spegne, e quel cambio deve
+ * lasciare traccia anche lui.
+ */
+function pluginEntryFields(list: (ProjectPlugin & { slug: string })[]) {
+  return {
+    enabledPlugins: list.filter((p) => p.enabled).map((p) => p.slug).sort(),
+    disabledSkills: list.flatMap((p) => p.disabledSkills.map((s) => `${p.slug}:${s}`)).sort(),
+    disabledHooks: list.flatMap((p) => p.disabledHooks.map((h) => `${p.slug}#${h}`)).sort(),
+  };
+}
+
+/** La riga senza lo slug (che serve solo alla voce). */
+const plain = (p: ProjectPlugin & { slug: string }): ProjectPlugin => ({ pluginId: p.pluginId, enabled: p.enabled, disabledSkills: p.disabledSkills, disabledHooks: p.disabledHooks });
+
+/** I comandi di ogni gruppo di hook (`<Evento>#<indice>`), nell'ordine dell'inventario. */
+function groupCommands(hooks: readonly { key: string; command: string }[]): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const h of hooks) (out[h.key] ??= []).push(h.command);
+  return out;
+}
+
+/**
+ * Area 9, F5: il registro per chi gestisce il progetto (vedi
+ * `projectPluginRegistryRowSchema`): skill e gruppi di hook dall'inventario
+ * (letto in modo difensivo), il preset consigliato per nome del manifest.
+ */
+export async function projectPluginRegistry(db: Db, opts: { withHookCommands?: boolean } = {}): Promise<ProjectPluginRegistryRow[]> {
+  const rows = await db.select().from(plugins).orderBy(asc(plugins.slug));
+  return rows.map((row) => {
+    const parsed = pluginInventorySchema.safeParse(row.inventory);
+    const skills = parsed.success ? parsed.data.skills.map((s) => s.name) : [];
+    const hookGroups = parsed.success ? [...new Set(parsed.data.hooks.map((h) => h.key))] : [];
+    const recommended = parsed.success ? (RECOMMENDED_DISABLED_SKILLS[parsed.data.name] ?? []) : [];
+    // Rimandi, lotto 5: la descrizione di ogni skill (il testo che il CLI mostra), se c'è.
+    const skillDescriptions = parsed.success
+      ? Object.fromEntries(parsed.data.skills.filter((sk) => sk.description).map((sk) => [sk.name, sk.description!]))
+      : {};
+    return {
+      pluginId: row.id,
+      slug: row.slug,
+      name: row.name,
+      status: row.status,
+      skills,
+      hookGroups,
+      skillDescriptions,
+      // Solo a chi può salvare (46, lotto 5): vedi `projectPluginRegistryRowSchema.hookCommands`.
+      hookCommands: opts.withHookCommands && parsed.success ? groupCommands(parsed.data.hooks) : {},
+      recommendedDisabledSkills: recommended.filter((s) => skills.includes(s)),
+    };
+  });
+}
+
 /** Abilitazioni correnti del progetto. Un plugin assente = non abilitato. */
 export async function getProjectPlugins(db: Db, projectId: string): Promise<ProjectPlugin[]> {
   const rows = await db
@@ -358,6 +448,8 @@ export async function getProjectPlugins(db: Db, projectId: string): Promise<Proj
 
 export type PutProjectPluginsResult =
   | { ok: true; plugins: ProjectPlugin[] }
+  /** `ifMatch` non è più la versione corrente: niente scritto, ecco lo stato di adesso. */
+  | { ok: false; error: "stale"; version: string; plugins: ProjectPlugin[] }
   /** Un `pluginId` che non è nel registro. */
   | { ok: false; error: "unknown_plugin"; detail: string }
   /** Uno spegnimento che cita una skill assente dall'inventario del plugin. */
@@ -382,6 +474,7 @@ export async function putProjectPlugins(
   db: Db,
   projectId: string,
   desired: ProjectPlugin[],
+  opts: { actor: { id: string; email: string }; ifMatch?: string },
 ): Promise<PutProjectPluginsResult> {
   const ids = desired.map((p) => p.pluginId);
   const registry = new Map<string, PluginRow>();
@@ -418,7 +511,7 @@ export async function putProjectPlugins(
   // FK di `project_plugins` la intercetta e diventa lo stesso 400 di un id
   // sconosciuto (per la UI la reazione è identica: ricaricare il registro).
   try {
-    return await writeProjectPlugins(db, projectId, desired, ids);
+    return await writeProjectPlugins(db, projectId, desired, ids, opts);
   } catch (error) {
     if (isForeignKeyViolation(error)) {
       return {
@@ -437,8 +530,25 @@ async function writeProjectPlugins(
   projectId: string,
   desired: ProjectPlugin[],
   ids: string[],
+  opts: { actor: { id: string; email: string }; ifMatch?: string },
 ): Promise<PutProjectPluginsResult> {
-  const rows = await db.transaction(async (tx) => {
+  return db.transaction(async (tx): Promise<PutProjectPluginsResult> => {
+    // Il progetto bloccato: due salvataggi con la stessa `ifMatch` non passano
+    // entrambi, il secondo legge lo stato del primo e risponde `stale`.
+    const [project] = await tx.select({ id: projects.id, code: projects.code }).from(projects).where(eq(projects.id, projectId)).for("no key update");
+    const current = () =>
+      tx
+        .select({ row: projectPlugins, slug: plugins.slug })
+        .from(projectPlugins)
+        .innerJoin(plugins, eq(plugins.id, projectPlugins.pluginId))
+        .where(eq(projectPlugins.projectId, projectId))
+        .orderBy(asc(projectPlugins.pluginId));
+    const before = (await current()).map((r) => ({ ...toProjectPlugin(r.row), slug: r.slug }));
+    const beforePlain = before.map(plain);
+    if (opts.ifMatch !== undefined && opts.ifMatch !== projectPluginsVersion(beforePlain)) {
+      return { ok: false, error: "stale", version: projectPluginsVersion(beforePlain), plugins: beforePlain };
+    }
+
     // Semantica di sostituzione completa: ciò che non è nel body sparisce.
     await tx
       .delete(projectPlugins)
@@ -470,12 +580,11 @@ async function writeProjectPlugins(
         });
     }
 
-    return tx
-      .select()
-      .from(projectPlugins)
-      .where(eq(projectPlugins.projectId, projectId))
-      .orderBy(asc(projectPlugins.pluginId));
+    const after = (await current()).map((r) => ({ ...toProjectPlugin(r.row), slug: r.slug }));
+    const diff = changedFields(pluginEntryFields(before), pluginEntryFields(after));
+    if (diff && project) {
+      await recordChange(tx, { type: "project.plugins_changed", actor: opts.actor, projectId, data: { object: { type: "project", id: project.id, label: project.code }, ...diff } });
+    }
+    return { ok: true, plugins: after.map(plain) };
   });
-
-  return { ok: true, plugins: rows.map(toProjectPlugin) };
 }

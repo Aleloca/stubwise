@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { Step } from "../../../data/types";
+import { automationAvailability } from "../../../data/integration";
 import { StepGlyph } from "../glyphs";
 import { isBlock, MAX_DEPTH } from "./tree";
 
@@ -58,7 +59,10 @@ export function AddStepMenu({
             .includes(needle)),
     ),
   })).filter((g) => g.kinds.length > 0);
-  const flat = groups.flatMap((g) => g.kinds);
+  // Nella build app i passi delle fette dopo ci sono, «Coming soon», e non si scelgono (area 7, F1).
+  const available = automationAvailability();
+  const offered = (k: Step["kind"]) => !available || available.steps.includes(k);
+  const flat = groups.flatMap((g) => g.kinds).filter(offered);
 
   useLayoutEffect(() => {
     const r = anchor?.getBoundingClientRect();
@@ -135,6 +139,28 @@ export function AddStepMenu({
               {t(`automations.builder.add.group.${g.key}`)}
             </p>
             {g.kinds.map((k) => {
+              if (!offered(k))
+                return (
+                  <div
+                    key={k}
+                    id={`${listId}-${k}`}
+                    role="option"
+                    aria-selected={false}
+                    aria-disabled="true"
+                    onMouseDown={(e) => e.preventDefault()}
+                    className="flex cursor-default items-start gap-2.5 rounded-md px-2 py-1.5 opacity-60"
+                  >
+                    <span className="pt-0.5">
+                      <StepGlyph kind={k} />
+                    </span>
+                    <span className="flex min-w-0 flex-col">
+                      <span className="text-md text-ink">{t(`automations.builder.kind.${k}`)}</span>
+                      <span className="text-sm text-ink-muted">
+                        {t("placeholder.comingSoon.title")}
+                      </span>
+                    </span>
+                  </div>
+                );
               i += 1;
               const me = i;
               return (

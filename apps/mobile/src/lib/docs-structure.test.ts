@@ -97,6 +97,7 @@ describe("mergeDocSearchHits", () => {
     repositoryId,
     repositorySlug: repositoryId,
     repositoryName: repositoryId,
+    code: null,
   });
 
   test("semantica PRIMA, poi il full-text non già presente; dedup per (repository, slug)", () => {

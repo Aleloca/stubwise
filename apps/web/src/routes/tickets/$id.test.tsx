@@ -1067,6 +1067,19 @@ describe("dettaglio ticket", () => {
     expect(screen.queryByText("Assignee without access")).toBeNull();
   });
 
+  it("assegnato a Claude (assigneeIsAgent): l'assegnatario si legge «Claude», anche se non è fra gli utenti", async () => {
+    const CLAUDE_ID = "c1a0de00-0000-4000-8000-0000000000c1";
+    mockDetailApi({ ticket: { ...ticketFixture, assigneeId: CLAUDE_ID, assigneeIsAgent: true } });
+    renderDetail();
+
+    await screen.findByRole("heading", { name: "TypeError al checkout" });
+    const select = screen.getByLabelText("Assignee") as HTMLSelectElement;
+    expect(select.value).toBe(CLAUDE_ID);
+    expect(select.selectedOptions[0]?.textContent).toBe("Claude");
+    // Un dettaglio senza il campo (server vecchio) non inventa Claude.
+    expect("assigneeIsAgent" in ticketFixture).toBe(false);
+  });
+
   it("senza planSummary la sezione del piano resta quella di prima", async () => {
     mockDetailApi({
       ticket: { ...ticketFixture, implementationPlan: "1. Aggiungi endpoint **/retry**." },

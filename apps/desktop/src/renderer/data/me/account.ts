@@ -1,4 +1,4 @@
-import { isHumanId, refuse } from "../admin/common";
+import { isHumanId, reauthRefusal, refuse } from "../admin/common";
 import { person as addressOf } from "../seed/mail/helpers";
 import { PEOPLE, initials } from "../seed/people";
 import { gate, state } from "../store";
@@ -6,6 +6,11 @@ import { writer } from "../writer";
 import { forgetResetLinksOf } from "../auth/resetPassword";
 import { logSecurity } from "./securityLog";
 import type { MeResult } from "./types";
+import { MIN_PASSWORD_LENGTH, avatarRefusal } from "./accountRules";
+export { AVATAR_MAX_BYTES, avatarRefusal } from "./accountRules";
+import { emailChangeAvailable, pendingEmailOf, type PendingEmail } from "./emailChange";
+
+export { EMAIL_RE, MIN_PASSWORD_LENGTH } from "./accountRules";
 
 // Account (area 9a, Preferenze personali): nome, email e foto; il cambio
 // della password, che chiude le ALTRE sessioni (questa resta, i token
@@ -16,9 +21,6 @@ import type { MeResult } from "./types";
 // `state.passwords`, in chiaro, e nessuna lettura la restituisce.
 
 export const SEED_PASSWORD = "stubwise";
-export const MIN_PASSWORD_LENGTH = 8;
-export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 /** La password di una persona: quella cambiata, o quella del seme. */
 export const passwordOf = (personId: string): string =>
   state.passwords.get(personId) ?? SEED_PASSWORD;
@@ -40,6 +42,10 @@ export interface MyProfile {
   /** Un data URL, o `null` = le iniziali sul colore del reparto. */
   photo: string | null;
   departmentId: string | null;
+  /** Area 9, R2: la richiesta di cambio in attesa di conferma, o `null`. */
+  pendingEmail: PendingEmail | null;
+  /** Area 9, R2: l'istanza può mandare il link (senza, cambia un admin). */
+  emailChangeAvailable: boolean;
 }
 
 export async function getMyProfile(): Promise<MyProfile> {
@@ -51,20 +57,21 @@ export async function getMyProfile(): Promise<MyProfile> {
     email: loginEmailOf(me),
     photo: person.photo ?? null,
     departmentId: person.departmentIds[0] ?? null,
+    pendingEmail: pendingEmailOf(me),
+    emailChangeAvailable: emailChangeAvailable(),
   };
 }
 
 export interface ProfileInput {
   name?: string;
-  email?: string;
   /** Un data URL (scelto da un file locale, mai caricato); `null` toglie la foto. */
   avatar?: string | null;
 }
 
 /**
- * Cambia nome, email o foto. Un campo assente resta com'è. L'email nuova
- * dev'essere valida e di nessun altro; diventa quella d'accesso. Il nome si
- * vede subito ovunque (task, registro, «vedi come»).
+ * Cambia nome o foto. Un campo assente resta com'è. Il nome si vede subito
+ * ovunque (task, registro, «vedi come»). L'email d'accesso NON cambia da qui
+ * (area 9, R2): passa dalla richiesta col link (`emailChange.ts`).
  */
 export async function updateProfile(input: ProfileInput): Promise<MeResult> {
   const me = await writer("me.updateProfile");
@@ -72,16 +79,13 @@ export async function updateProfile(input: ProfileInput): Promise<MeResult> {
   const person = PEOPLE.find((p) => p.id === me)!;
   const name = input.name?.trim();
   if (input.name !== undefined && !name) return refuse.invalid("name");
-  const email = input.email?.trim().toLowerCase();
-  if (input.email !== undefined) {
-    if (!email || !EMAIL_RE.test(email)) return refuse.invalid("email");
-    const owner = personByEmail(email);
-    if (owner && owner !== me) return refuse.invalid("email_taken");
+  if (typeof input.avatar === "string") {
+    const bad = avatarRefusal(input.avatar);
+    if (bad) return refuse.invalid(bad);
   }
   // L'email del seme può derivare dal nome: si fissa prima di cambiarlo.
   person.email ??= addressOf(me).email;
   if (name) Object.assign(person, { name, initials: initials(name) });
-  if (email) person.email = email;
   if (input.avatar === null) delete person.photo;
   else if (input.avatar !== undefined) person.photo = input.avatar;
   return { ok: true };
@@ -98,6 +102,9 @@ export async function changePassword(input: {
 }): Promise<MeResult<{ signedOut: number }>> {
   const me = await writer("me.changePassword");
   if (!isHumanId(me)) return refuse.forbidden();
+  // Area 9: la riconferma, come `config.reauth` di `POST /api/auth/me/password`.
+  const reauth = reauthRefusal(me, "me.changePassword");
+  if (reauth) return reauth;
   if (input.current !== passwordOf(me)) return refuse.invalid("wrong_password");
   if (input.next.length < MIN_PASSWORD_LENGTH) return refuse.invalid("too_short");
   state.passwords.set(me, input.next);

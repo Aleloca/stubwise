@@ -43,6 +43,28 @@ const entries = () => [...document.querySelectorAll<HTMLElement>("[data-change-e
 const sentences = () => entries().map((e) => e.querySelector("p")!.textContent ?? "");
 const nameOf = (id: string) => PEOPLE.find((p) => p.id === id)!.name;
 
+describe("«Load more» (decisione del maintainer)", () => {
+  it("le prime 50; il bottone porta le successive; finite, il bottone sparisce", async () => {
+    const user = userEvent.setup();
+    for (let i = 0; i < 30; i++)
+      recordChange({
+        kind: "role.updated",
+        actorId: ROBERTA,
+        projectId: null,
+        object: { type: "role", id: "r-x", label: `Role ${i}` },
+        before: null,
+        after: null,
+        params: {},
+      });
+    renderRoute("/admin/changelog", ROBERTA);
+    await heading("Change log");
+    await waitFor(() => expect(entries()).toHaveLength(50));
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+    await waitFor(() => expect(entries()).toHaveLength(state.changelog.length));
+    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+  });
+});
+
 describe("i template del registro", () => {
   it("ogni tipo registrato ha la sua frase e il suo gruppo in inglese e in italiano", () => {
     const types = changeTypes();
@@ -366,9 +388,12 @@ describe("Who can?", () => {
     expect(roberta).toHaveTextContent("Full admin");
     // L'ordine: da un ruolo prima, full admin in fondo.
     expect(rows.at(-1)!.dataset.whoRow).toBe(ROBERTA);
+    // Area 9 (decisione (a)): Claude non ha permessi suoi, una frase fissa.
     const claude = document.querySelector("[data-claude-row]")!;
-    expect(claude).toHaveTextContent("Claude — can work, doesn't decide.");
-    expect(claude).toHaveTextContent("Claude can't approve a plan.");
+    expect(claude).toHaveTextContent(
+      "Claude has no permissions of its own: it acts with those of whoever assigns it or confirms its action.",
+    );
+    expect(claude).not.toHaveTextContent(/Claude can/);
   });
 
   it("si sceglie l'azione dal menu in linea; un'azione d'istanza toglie il progetto", async () => {
@@ -382,12 +407,11 @@ describe("Who can?", () => {
     await waitFor(() =>
       expect(router.state.location.search).toMatchObject({ action: "startRun", project: "ACQ" }),
     );
-    expect(await screen.findByText("Claude can start Claude.")).toBeInTheDocument();
+    expect(await screen.findByRole("list", { name: "Who can start Claude" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /^Action: start Claude/ }));
     await user.type(screen.getByRole("combobox", { name: "Find an action" }), "manage roles{Enter}");
     expect(await screen.findByRole("list", { name: "Who can manage roles" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Project:/ })).toBeNull();
-    expect(screen.getByText("Claude can't manage roles.")).toBeInTheDocument();
   });
 
   it("da una persona: i permessi che ha con la fonte, e a richiesta quelli che non ha", async () => {
@@ -420,7 +444,7 @@ describe("Who can?", () => {
       s.grants.push({
         personId: "p-marco",
         projectId: ACQ,
-        permission: "support.reply",
+        permission: "support.manage",
         grantedById: giver,
         at: "2026-10-20T10:00:00Z",
       });
@@ -428,7 +452,7 @@ describe("Who can?", () => {
     renderRoute("/admin/who-can?view=what&person=p-marco&project=ACQ", LAURA);
     await heading("Who can?");
     const row = await waitFor(() => {
-      const r = document.querySelector<HTMLElement>("[data-permission='support.reply']");
+      const r = document.querySelector<HTMLElement>("[data-permission='support.manage']");
       expect(r).not.toBeNull();
       return r!;
     });
@@ -436,16 +460,13 @@ describe("Who can?", () => {
     expect(row).not.toHaveTextContent("given by hand");
   });
 
-  it("Claude: la frase fissa, CAN e NEVER, nessuna fonte", async () => {
+  it("area 9 (decisione (a)): Claude non è fra le persone di «What can…»; nell'indirizzo, «Pick a person.»", async () => {
+    const user = userEvent.setup();
     renderRoute("/admin/who-can?view=what&person=p-claude&project=ACQ", ROBERTA);
     await heading("Who can?");
-    expect(await screen.findByText("Claude can work but doesn't decide.")).toBeInTheDocument();
-    const can_ = screen.getByRole("heading", { level: 2, name: "Can" }).parentElement!;
-    const never = screen.getByRole("heading", { level: 2, name: "Never" }).parentElement!;
-    expect(can_).toHaveTextContent("Start Claude");
-    expect(never).toHaveTextContent("Approve plans");
-    expect(never).toHaveTextContent("Merge pull requests");
-    expect(can_).not.toHaveTextContent("role");
+    expect(await screen.findByText("Pick a person.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^Person:/ }));
+    expect(screen.queryByRole("option", { name: "Claude" })).toBeNull();
   });
 
   it("R-G5: un progetto che Sara non vede è come uno che non esiste", async () => {

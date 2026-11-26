@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   credentialKeyCopies,
   credentials,
+  users,
   RECOVERY_RECIPIENT_ID,
   userPasskeys,
   vaultPersonKeySeals,
@@ -30,7 +31,17 @@ import {
   vaultRecoveryPendingBodySchema,
   vaultStatusResponseSchema,
   type VaultConfirmCopy,
+  vaultActorProofSchema,
+  vaultDevicePairingBodySchema,
+  vaultDevicePairingLookupBodySchema,
+  vaultDevicePairingLookupResponseSchema,
+  vaultDevicePairingResponseSchema,
+  vaultDeviceSealBodySchema,
+  vaultDeviceSealCreatedSchema,
+  vaultDeviceSealListSchema,
+  vaultDeviceSealMineSchema,
 } from "@stubwise/shared";
+import { isDesktopPat } from "../auth/access.js";
 import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
 import type { SessionUser } from "../auth/session.js";
 import { apiError } from "../errors.js";
@@ -43,6 +54,8 @@ import {
   type ConfirmError,
   type VaultActor,
 } from "../vault/pending.js";
+import { requireVaultCaller, vaultDesktopDisabled } from "../vault/device-access.js";
+import { createPairing, createSeal, listSeals, lookupPairing, mineSeal, ownLiveSeal, revokeSeal } from "../vault/device-seals.js";
 import { currentPersonKey } from "../vault/readers.js";
 import {
   checkRecoveryProof,
@@ -71,10 +84,13 @@ const LIVE = ["pending", "confirmed"] as const;
  * riceve solo chiavi pubbliche e buste cifrate: nessuna chiave privata né
  * password in chiaro passa di qui.
  *
- * Tutte le rotte sono SOLO da sessione: un PAT riceve 403
- * `session_required` — dal gate della riconferma per le scritture
- * (`config.reauth`), esplicitamente per le altre. Un token non scarica mai
- * la propria chiave sigillata né attiva o rigenera nulla.
+ * Le rotte sono da sessione: un PAT riceve 403 `session_required` — dal
+ * gate della riconferma per le scritture (`config.reauth`), esplicitamente
+ * per le altre. Un token non scarica mai la propria chiave sigillata né
+ * attiva o rigenera nulla. Eccezioni (lotto 10, D-7): le rotte che
+ * dichiarano `config.desktopVault` passano anche dal PAT desktop col suo
+ * sigillo vivo (`vault/device-access.ts`), e quelle del sigillo del Mac
+ * (`/device-pairings`, `/device-seals/mine`) sono SOLO del PAT desktop.
  *
  * Le azioni che passano o tolgono l'accesso (conferma, rifiuto, rotazione
  * del kit; condivisione e revoca in `credentials.ts`) vogliono in più la
@@ -83,6 +99,29 @@ const LIVE = ["pending", "confirmed"] as const;
  * basta (403 `vault_proof_invalid`, nulla cambia).
  */
 export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
+  // La cassaforte è solo-browser anche per il PAT desktop riconfermato (10
+  // nov 2026): la riconferma non sblocca la chiave (passkey con PRF).
+  // Dal lotto 10 (24 nov 2026, D-7) le rotte che dichiarano
+  // `config.desktopVault` sono aperte anche al PAT desktop col suo sigillo
+  // vivo (`vault/device-access.ts`, elenco chiuso in `route-access.test.ts`);
+  // tutte le altre restano solo del browser.
+  // Review M9: un DELETE con `content-type: application/json` e corpo VUOTO
+  // (il browser, togliendo un Mac) è un corpo assente, non un 400. Solo in
+  // questo scope; per il resto è il parser di Fastify (con le sue difese
+  // contro proto/constructor poisoning).
+  const defaultJson = instance.getDefaultJsonParser("error", "error");
+  instance.removeContentTypeParser("application/json");
+  instance.addContentTypeParser("application/json", { parseAs: "string" }, (request, body, done) => {
+    if (body === "") {
+      done(null, null);
+      return;
+    }
+    defaultJson(request, body as string, done);
+  });
+  instance.addHook("onRoute", (route) => {
+    if (route.config?.desktopVault === true || route.config?.desktopOnly === true || route.config?.desktopRead === true) return;
+    route.config = { ...(route.config ?? {}), browserOnly: true };
+  });
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
   function isPat(user: SessionUser): boolean {
@@ -149,27 +188,41 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
    * l'id WebAuthn delle passkey che la aprono — per scegliere il sigillo
    * della passkey appena usata — e di tutte le sue passkey (per sigillare
    * una chiave nuova). Mai la privata sigillata: quella la dà `/keys/mine`.
+   *
+   * Dal 25 nov 2026 (`desktopRead`) la legge anche il PAT desktop, SENZA
+   * sigillo: il Mac deve poter dire «nessuna chiave» o «la tua chiave aspetta
+   * conferma» prima di essere associato. A lui la risposta ridotta: stato e
+   * chiave (con la pubblica, per l'impronta), sigilli e passkey vuoti. Con
+   * `VAULT_DESKTOP` spento 404 `vault_desktop_disabled`; ogni altro PAT resta
+   * `session_required`.
    */
   app.get(
     "/status",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, desktopRead: true },
       schema: { response: { 200: vaultStatusResponseSchema, ...errorResponses } },
     },
     async (request, reply) => {
       const user = request.user!;
-      if (isPat(user)) return sessionRequired(reply);
+      const fromMac = isDesktopPat(user);
+      if (isPat(user) && !fromMac) return sessionRequired(reply);
+      if (fromMac && !app.vaultDesktop) return vaultDesktopDisabled(reply);
       const [settings] = await app.db.select({ id: vaultSettings.id }).from(vaultSettings);
       const [key] = await app.db
         .select({
           id: vaultPersonKeys.id,
           status: vaultPersonKeys.status,
           createdAt: vaultPersonKeys.createdAt,
+          publicKey: vaultPersonKeys.publicKey,
         })
         .from(vaultPersonKeys)
         .where(eq(vaultPersonKeys.userId, user.id))
         .orderBy(desc(vaultPersonKeys.createdAt))
         .limit(1);
+      const myKey = key
+        ? { id: key.id, status: key.status, createdAt: key.createdAt.toISOString(), publicKey: key.publicKey }
+        : null;
+      if (fromMac) return reply.code(200).send({ activated: settings !== undefined, myKey, seals: [], passkeys: [] });
       // Una chiave rifiutata non si apre più: nessun sigillo da proporre.
       const seals = key && key.status !== "rejected" ? await sealsOf(key.id) : [];
       const passkeys = await app.db
@@ -179,9 +232,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
         .orderBy(userPasskeys.createdAt);
       return reply.code(200).send({
         activated: settings !== undefined,
-        myKey: key
-          ? { id: key.id, status: key.status, createdAt: key.createdAt.toISOString() }
-          : null,
+        myKey,
         seals: seals.map(({ passkeyId, credentialIdB64url }) => ({ passkeyId, credentialIdB64url })),
         passkeys,
       });
@@ -398,12 +449,12 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/actor-challenge",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, desktopVault: true },
       schema: { response: { 201: vaultActorChallengeResponseSchema, ...errorResponses } },
     },
     async (request, reply) => {
       const user = request.user!;
-      if (isPat(user)) return sessionRequired(reply);
+      if (!(await requireVaultCaller(app.db, request, reply))) return reply;
       const outcome = await createActorChallenge(app.db, user);
       if (outcome.ok) return reply.code(201).send(outcome.value);
       return outcome.error === "vault_not_active" ? vaultNotActive(reply) : keyNotConfirmed(reply);
@@ -560,12 +611,12 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/pending",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, desktopVault: true },
       schema: { response: { 200: vaultPendingResponseSchema, ...errorResponses } },
     },
     async (request, reply) => {
       const user = request.user!;
-      if (isPat(user)) return sessionRequired(reply);
+      if (!(await requireVaultCaller(app.db, request, reply))) return reply;
       return reply.code(200).send({ items: await listPending(app.db, user.id) });
     },
   );
@@ -579,7 +630,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/pending/:personKeyId/confirm",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, desktopVault: true },
       schema: {
         params: personKeyParams,
         body: vaultConfirmBodySchema,
@@ -588,7 +639,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const user = request.user!;
-      if (isPat(user)) return sessionRequired(reply);
+      if (!(await requireVaultCaller(app.db, request, reply))) return reply;
       if (!(await actorProofOk(reply, user, request.body.actorProof))) return reply;
       return confirm(reply, user, request.params.personKeyId, request.body.copies, false);
     },
@@ -598,12 +649,12 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/pending/:personKeyId/reject",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, desktopVault: true },
       schema: { params: personKeyParams, body: vaultRejectBodySchema, response: { 204: z.null(), ...errorResponses } },
     },
     async (request, reply) => {
       const user = request.user!;
-      if (isPat(user)) return sessionRequired(reply);
+      if (!(await requireVaultCaller(app.db, request, reply))) return reply;
       if (!(await actorProofOk(reply, user, request.body.actorProof))) return reply;
       const outcome = await rejectPersonKey(app.db, actorOf(user), request.params.personKeyId);
       if (outcome.ok) return reply.code(204).send(null);
@@ -686,6 +737,245 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => {
       if (!(await checkRecoveryProof(app.db, request.user!, request.body, true))) return proofInvalid(reply);
       return confirm(reply, request.user!, request.params.personKeyId, request.body.copies, true);
+    },
+  );
+
+  /* ── La cassaforte dal desktop: il sigillo del Mac (lotto 10, design
+   *    `2026-11-24-cassaforte-desktop-design.md` §6 e §8). Le rotte con parte
+   *    letterale (`/mine`) PRIMA di quelle parametriche (CLAUDE.md). ── */
+
+  /**
+   * SOLO il PAT desktop: `false` se la risposta è già partita. Con
+   * l'interruttore `VAULT_DESKTOP` spento (il default) queste rotte non ci
+   * sono per nessuno: 404.
+   */
+  function desktopOnly(reply: FastifyReply, user: SessionUser): user is SessionUser & { patId: string } {
+    if (!app.vaultDesktop) {
+      void vaultDesktopDisabled(reply);
+      return false;
+    }
+    if (isDesktopPat(user)) return true;
+    if (isPat(user)) void sessionRequired(reply);
+    else void apiError(reply, 403, "desktop_required", "This action is for the desktop app");
+    return false;
+  }
+
+  function pairingInvalid(reply: FastifyReply, code: 404 | 409): FastifyReply {
+    return apiError(reply, code, "pairing_invalid", "This pairing is not valid any more");
+  }
+
+  function sealNotFound(reply: FastifyReply): FastifyReply {
+    return apiError(reply, 404, "device_seal_not_found", "No vault seal for this device");
+  }
+
+  /** Il main, col suo PAT desktop, chiede di associare il Mac. */
+  app.post(
+    "/device-pairings",
+    {
+      // Review 2, M4: la riconferma del desktop DICHIARATA (il gate la
+      // applica prima dell'handler e scrive la riga `reauth_desktop`).
+      config: { access: { kind: "user" }, reauth: true, desktopOnly: true },
+      schema: {
+        body: vaultDevicePairingBodySchema,
+        response: { 201: vaultDevicePairingResponseSchema, ...errorResponses },
+      },
+    },
+    async (request, reply) => {
+      const user = request.user!;
+      // Review I2: un PAT desktop da solo non associa un Mac (rubato, più un
+      // link mandato alla vittima, farebbe sigillare la chiave di persona per
+      // un attaccante): la finestra di riconferma del desktop la chiede il
+      // gate (`config.reauth`), prima di qui.
+      if (!desktopOnly(reply, user)) return reply;
+      const outcome = await createPairing(app.db, user, request.body);
+      if (!outcome.ok) return vaultNotActive(reply);
+      return reply.code(201).send(outcome.value);
+    },
+  );
+
+  /** Il browser legge l'associazione (lo `state` nel corpo: non finisce nei log delle richieste). */
+  app.post(
+    "/device-pairings/lookup",
+    {
+      config: { access: { kind: "user" } },
+      schema: {
+        body: vaultDevicePairingLookupBodySchema,
+        response: { 200: vaultDevicePairingLookupResponseSchema, ...errorResponses },
+      },
+    },
+    async (request, reply) => {
+      const user = request.user!;
+      if (isPat(user)) return sessionRequired(reply);
+      const found = await lookupPairing(app.db, user.id, request.body.state);
+      if (!found) return pairingInvalid(reply, 404);
+      return reply.code(200).send(found);
+    },
+  );
+
+  /**
+   * Il browser sigilla la propria chiave per il Mac: sessione con riconferma
+   * recente (un PAT, anche desktop, mai: un Mac non si associa da sé) e la
+   * prova della propria chiave confermata.
+   */
+  app.post(
+    "/device-seals",
+    {
+      config: { access: { kind: "user" }, reauth: true },
+      schema: {
+        body: vaultDeviceSealBodySchema,
+        response: { 201: vaultDeviceSealCreatedSchema, ...errorResponses },
+      },
+    },
+    async (request, reply) => {
+      const outcome = await createSeal(app.db, request.user!, request.body);
+      if (outcome.ok) return reply.code(201).send(outcome.value);
+      if (outcome.error === "vault_key_not_confirmed") return keyNotConfirmed(reply);
+      if (outcome.error === "vault_proof_invalid") {
+        return apiError(reply, 403, "vault_proof_invalid", "Vault key proof missing, wrong, expired or already used");
+      }
+      return pairingInvalid(reply, 409);
+    },
+  );
+
+  /** Il main scarica il SUO sigillo (quello legato al PAT che chiede), per aprirlo. */
+  app.get(
+    "/device-seals/mine",
+    {
+      config: { access: { kind: "user" }, desktopOnly: true },
+      schema: { response: { 200: vaultDeviceSealMineSchema, ...errorResponses } },
+    },
+    async (request, reply) => {
+      const user = request.user!;
+      if (!desktopOnly(reply, user)) return reply;
+      const mine = await mineSeal(app.db, user);
+      if (!mine) return sealNotFound(reply);
+      return reply.code(200).send(mine);
+    },
+  );
+
+  /** «Dimentica questo Mac», logout, login di un altro: il main toglie il SUO sigillo. Idempotente. */
+  app.delete(
+    "/device-seals/mine",
+    {
+      config: { access: { kind: "user" }, desktopOnly: true },
+      schema: { response: { 204: z.null(), ...errorResponses } },
+    },
+    async (request, reply) => {
+      const user = request.user!;
+      if (!desktopOnly(reply, user)) return reply;
+      await revokeSeal(app.db, user, { patId: user.patId }, "forgotten", null);
+      return reply.code(204).send(null);
+    },
+  );
+
+  /**
+   * I propri Mac (Impostazioni → Sicurezza): dal browser, o dal Mac col suo
+   * sigillo vivo (decisione del maintainer, 25 nov 2026), che vede `current`
+   * vero sul proprio.
+   */
+  app.get(
+    "/device-seals",
+    {
+      config: { access: { kind: "user" }, desktopVault: true },
+      schema: { response: { 200: vaultDeviceSealListSchema, ...errorResponses } },
+    },
+    async (request, reply) => {
+      const caller = await requireVaultCaller(app.db, request, reply);
+      if (!caller) return reply;
+      const current = caller.via === "desktop" ? caller.sealId : null;
+      return reply.code(200).send({ items: await listSeals(app.db, request.user!.id, current) });
+    },
+  );
+
+  /**
+   * Togliere un proprio Mac: il SOLO sigillo, il Mac resta collegato (D-5).
+   * Dal browser, o (decisione del maintainer, 25 nov 2026) da un ALTRO Mac
+   * della persona col suo sigillo vivo, la riconferma del desktop E la prova
+   * della propria chiave (`actorProof`, decisione di 46 del 25 nov 2026: la
+   * cassaforte è aperta, quindi il Touch ID è passato; la riconferma dice che
+   * è la persona). Il proprio sigillo il Mac lo toglie con `DELETE .../mine`
+   * (409 `use_mine`). Un Mac di un'altra persona → 404.
+   */
+  app.delete(
+    "/device-seals/:id",
+    {
+      config: { access: { kind: "user" }, reauth: true, desktopVault: true },
+      schema: {
+        params: z.object({ id: z.uuid() }),
+        // Dal browser il corpo non serve; dal Mac `actorProof` è obbligatorio (sotto).
+        body: z.object({ actorProof: vaultActorProofSchema.optional() }).nullish(),
+        response: { 204: z.null(), ...errorResponses },
+      },
+    },
+    async (request, reply) => {
+      const user = request.user!;
+      const caller = await requireVaultCaller(app.db, request, reply);
+      if (!caller) return reply;
+      if (caller.via === "desktop" && caller.sealId === request.params.id) {
+        return apiError(reply, 409, "use_mine", "To forget this Mac use DELETE /api/vault/device-seals/mine");
+      }
+      if (caller.via === "desktop") {
+        // Review M9: prima il sigillo (della persona, vivo), POI la prova: un
+        // id sbagliato non brucia la sfida.
+        if (!(await ownLiveSeal(app.db, user.id, request.params.id))) return sealNotFound(reply);
+        const proof = request.body?.actorProof;
+        if (!proof || !(await consumeActorProof(app.db, user, proof))) {
+          return apiError(reply, 403, "vault_proof_invalid", "Vault key proof missing, wrong, expired or already used");
+        }
+      }
+      const from = caller.via === "desktop" ? { sealId: caller.sealId } : null;
+      if (!(await revokeSeal(app.db, user, { id: request.params.id }, "removed", null, from))) return sealNotFound(reply);
+      return reply.code(204).send(null);
+    },
+  );
+
+  async function personOr404(reply: FastifyReply, userId: string): Promise<{ id: string; email: string } | null> {
+    const [person] = await app.db.select({ id: users.id, email: users.email }).from(users).where(eq(users.id, userId));
+    if (!person) {
+      void apiError(reply, 404, "not_found", "Not found");
+      return null;
+    }
+    return person;
+  }
+
+  /** I Mac di un'altra persona, per un full admin (D-6). */
+  app.get(
+    "/users/:userId/device-seals",
+    {
+      config: { access: { kind: "instance", permission: "instance.full_admin" } },
+      schema: { params: z.object({ userId: z.uuid() }), response: { 200: vaultDeviceSealListSchema, ...errorResponses } },
+    },
+    async (request, reply) => {
+      if (isPat(request.user!)) return sessionRequired(reply);
+      const person = await personOr404(reply, request.params.userId);
+      if (!person) return reply;
+      return reply.code(200).send({ items: await listSeals(app.db, person.id) });
+    },
+  );
+
+  /** Un full admin toglie il Mac di un'altra persona (Mac perso): il solo sigillo, registro e avviso (D-6). */
+  app.delete(
+    "/users/:userId/device-seals/:id",
+    {
+      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
+      schema: {
+        params: z.object({ userId: z.uuid(), id: z.uuid() }),
+        response: { 204: z.null(), ...errorResponses },
+      },
+    },
+    async (request, reply) => {
+      const person = await personOr404(reply, request.params.userId);
+      if (!person) return reply;
+      const actor = request.user!;
+      const done = await revokeSeal(
+        app.db,
+        person,
+        { id: request.params.id },
+        "admin_removed",
+        actor.id === person.id ? null : { id: actor.id, email: actor.email },
+      );
+      if (!done) return sealNotFound(reply);
+      return reply.code(204).send(null);
     },
   );
 }

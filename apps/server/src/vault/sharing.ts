@@ -79,6 +79,16 @@ export async function readersView(db: DbOrTx, credentialId: string): Promise<Cre
             email: users.email,
             fullAdmin: sql<boolean>`${userIsFullAdmin(users.id)}`,
             keyStatus: vaultPersonKeys.status,
+            // Il ruolo invitato che la persona ha NEL progetto della credenziale (uno per progetto).
+            roleName: sql<string | null>`(
+              select rv_role.name from ${credentialReaders} rv_r
+              inner join ${credentials} rv_cr on rv_cr.id = rv_r.credential_id
+              inner join project_members rv_pm
+                on rv_pm.project_id = rv_cr.project_id and rv_pm.user_id = ${users.id} and rv_pm.role_id = rv_r.role_id
+              inner join ${roles} rv_role on rv_role.id = rv_r.role_id
+              where rv_r.credential_id = ${credentialId}::uuid
+              limit 1
+            )`,
             hasCopy: sql<boolean>`exists (
               select 1 from ${credentialKeyCopies} rv_c
               where rv_c.credential_id = ${credentialId}::uuid and rv_c.recipient_id = ${vaultPersonKeys.id}::text
@@ -94,10 +104,11 @@ export async function readersView(db: DbOrTx, credentialId: string): Promise<Cre
 
   return {
     readers: direct.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() })),
-    people: people.map(({ userId, email, fullAdmin, keyStatus, hasCopy }) => ({
+    people: people.map(({ userId, email, fullAdmin, keyStatus, roleName, hasCopy }) => ({
       userId,
       email,
       fullAdmin,
+      roleName,
       keyStatus: keyStatus === "pending" || keyStatus === "confirmed" ? keyStatus : "none",
       status: keyStatus === "confirmed" && hasCopy ? "can_read" : "pending",
     })),

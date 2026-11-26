@@ -6,6 +6,7 @@ import { resetApi, setLatency } from "../../../data/api";
 import { PHASE_HEADINGS } from "../../../data/seed/productDocs/acq";
 import { getSessionPersonId, setSessionPersonId } from "../../../data/session";
 import { failNext, state } from "../../../data/store";
+import { revokeProjectPermission } from "../../../data/viewer";
 import { setLanguage } from "../../../i18n";
 import { CLAUDE_PANEL_ID } from "../../../layout/claudePanel/panelEvents";
 import { DOCKED_PANEL_QUERY } from "../../../layout/useDetailPanel";
@@ -64,6 +65,8 @@ async function budgetUsedUp() {
   } finally {
     setSessionPersonId(before);
   }
+  // D-7.1: il budget ferma chi non ha `plans.approve` nel progetto (Laura, Project Lead in ACQ, no).
+  revokeProjectPermission("p-laura", "prj-acq", "plans.approve");
 }
 
 describe("«⋯» → «Propose backlog items»", () => {

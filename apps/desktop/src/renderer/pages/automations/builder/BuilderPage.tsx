@@ -1,8 +1,8 @@
 import { useBlocker, useNavigate, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { stepAt } from "../../../domain/automations/fields";
-import type { FlowIssue } from "../../../domain/automations/validate";
+import { forceApprovalForUntrusted, stepAt } from "@stubwise/shared";
+import type { FlowIssue } from "@stubwise/shared";
 import {
   useAutomation,
   useAutomationDraftIssues,
@@ -11,7 +11,7 @@ import {
   useSaveAutomationDraft,
 } from "../../../data/queries";
 import type { AutomationDetail, AutomationFlow } from "../../../data/types";
-import { useViewer } from "../../../data/viewer";
+import { useViewer } from "../../../data/viewing";
 import { DOCKED_PANEL_QUERY, DetailPanel } from "../../../layout/useDetailPanel";
 import { useMediaQuery } from "../../../layout/useMediaQuery";
 import { PageError } from "../../../tasks-ui/PageStates";
@@ -254,11 +254,16 @@ function Builder({
     }
   }, [issues.total, t]);
 
+  const sourcesRef = useRef(sources);
+  sourcesRef.current = sources;
   const update = useCallback(
     (next: (f: AutomationFlow) => AutomationFlow) => {
       if (readOnly) return;
       setFlow((f) => {
-        const out = next(f);
+        // F3-1 = a: un passo che sceglie a chi va con un campo di Claude nato
+        // da un dato di fuori chiede sempre l'approvazione (lo ricontrolla
+        // `validateFlow` con `untrusted_target`).
+        const out = forceApprovalForUntrusted(next(f), sourcesRef.current);
         if (out !== f) autosave.schedule(out);
         return out;
       });

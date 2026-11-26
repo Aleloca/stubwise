@@ -51,7 +51,8 @@ export function AssistantMessage({
       return parts.map((part, i) => {
         if (i % 2 === 1 && hidden.has(part)) return <HiddenCode key={`${key}-${i}`} code={part} />;
         const view = i % 2 === 1 ? index.byCode.get(part) : undefined;
-        if (view && !view.visible) return <HiddenCode key={`${key}-${i}`} code={part} />;
+        // Lotto 9 (decisione di 46): un oggetto che chi guarda non vede, nel testo, è testo.
+        if (view && !view.visible) return <Fragment key={`${key}-${i}`}>{part}</Fragment>;
         if (!view?.route) return <Fragment key={`${key}-${i}`}>{part}</Fragment>;
         const linkClass =
           "num font-semibold text-ink underline decoration-ink/25 underline-offset-2 hover:decoration-ink/70";

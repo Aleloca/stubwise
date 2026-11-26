@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { effectiveModelDefaults, loadWorkerConfig } from "./config.js";
+import { effectiveModelDefaults, loadWorkerConfig, MODEL_ENV_OPERATIONS, modelEnvOperations, WORKER_ENV_NAMES } from "./config.js";
 import { DEFAULT_AGENT_QUESTION_MAX_ROUNDS } from "./pipeline/ask-user.js";
 
 const VALID = {
@@ -77,6 +77,7 @@ describe("loadWorkerConfig", () => {
     expect(config.graphifyBin).toBe("graphify");
     expect(config.graphBuildTimeoutMs).toBe(1_200_000);
     expect(config.graphPollSeconds).toBe(20);
+    expect(config.driveContentPollSeconds).toBe(10);
     // Outbox delle notifiche: default 5".
     expect(config.notifyPollSeconds).toBe(5);
     // Pulse proattivo: poller ogni 15', finestra alle 9 UTC, solo feriali.
@@ -128,8 +129,10 @@ describe("loadWorkerConfig", () => {
       GRAPHIFY_BIN: "/opt/graphify/bin/graphify",
       GRAPH_BUILD_TIMEOUT_MINUTES: "45",
       GRAPH_POLL_SECONDS: "45",
+      DRIVE_CONTENT_POLL_SECONDS: "0",
     });
     expect(config.graphPollSeconds).toBe(45);
+    expect(config.driveContentPollSeconds).toBe(0);
     expect(config.graphsDir).toBe("/srv/graphs");
     expect(config.graphLabelEnabled).toBe(false);
     expect(config.graphifyBin).toBe("/opt/graphify/bin/graphify");
@@ -885,6 +888,50 @@ describe("sessioni di refinement del backlog", () => {
   });
 });
 
+describe("chat con Claude", () => {
+  it("default e limiti", () => {
+    const d = loadWorkerConfig({ ...VALID });
+    expect([d.chatServerUrl, d.chatMaxConcurrent, d.chatTurnTimeoutMs, d.chatMaxTurns]).toEqual([
+      "http://server:3000",
+      2,
+      300_000,
+      15,
+    ]);
+    const o = loadWorkerConfig({
+      ...VALID,
+      CHAT_SERVER_URL: "http://api.internal:8080",
+      CHAT_MAX_CONCURRENT: "3",
+      CHAT_TURN_TIMEOUT_MS: "120000",
+      CHAT_MAX_TURNS: "8",
+    });
+    expect([o.chatServerUrl, o.chatMaxConcurrent, o.chatTurnTimeoutMs, o.chatMaxTurns]).toEqual([
+      "http://api.internal:8080",
+      3,
+      120_000,
+      8,
+    ]);
+    expect(() => loadWorkerConfig({ ...VALID, CHAT_SERVER_URL: "non un url" })).toThrow(/CHAT_SERVER_URL/);
+    expect(() => loadWorkerConfig({ ...VALID, CHAT_TURN_TIMEOUT_MS: "1000" })).toThrow(/CHAT_TURN_TIMEOUT_MS/);
+  });
+});
+
+describe("modelEnvOperations (area 9, F3: la fonte `env` dei modelli)", () => {
+  it("per ogni variabile, le operazioni che dichiara sono ESATTAMENTE quelle che cambiano in effectiveModelDefaults", () => {
+    const base = effectiveModelDefaults(loadWorkerConfig({ ...VALID }));
+    for (const name of Object.keys(MODEL_ENV_OPERATIONS)) {
+      const probe = effectiveModelDefaults(loadWorkerConfig({ ...VALID, [name]: "probe-model" }));
+      const moved = Object.keys(probe).filter((op) => probe[op as keyof typeof probe] !== base[op as keyof typeof base]).sort();
+      expect(modelEnvOperations({ [name]: "probe-model" }), name).toEqual(moved);
+    }
+  });
+
+  it("nessuna env (o vuota): nessuna operazione; SUMMARY_MODEL impostato non si porta dietro la PR review", () => {
+    expect(modelEnvOperations({})).toEqual([]);
+    expect(modelEnvOperations({ FIX_PLAN_MODEL: "  " })).toEqual([]);
+    expect(modelEnvOperations({ SUMMARY_MODEL: "haiku" })).toEqual(["summary", "weekly_brief"]);
+  });
+});
+
 describe("effectiveModelDefaults", () => {
   it("mappa ogni operazione sul modello di env o sul default nel codice", () => {
     const config = loadWorkerConfig({ ...VALID, PR_REVIEW_MODEL: "claude-sonnet-5-5", GMAIL_MODEL: "sonnet" });
@@ -902,14 +949,149 @@ describe("effectiveModelDefaults", () => {
       release_notes: config.releaseNotesModel,
       docs_nightly: config.docsNightlyModel,
       docs_generation: config.docGenerationModel,
+      // Il riassunto di un file del Drive (fetta 3): Haiku, nessuna env.
+      drive_summary: "haiku",
       daily_report: config.dailyReportModel,
       weekly_brief: "claude-sonnet-5-5",
       mail_classify: "sonnet",
+      // La bozza di Claude nella Posta (area 6, F3): Sonnet, nessuna env.
+      mail_draft: "sonnet",
+      meeting_summary: "sonnet",
+      automation_step: "sonnet",
+      // Support (area 8, F3): il giudizio con Haiku (G-1), la bozza con Sonnet.
+      support_triage_check: "haiku",
+      server_analysis: "sonnet",
+      server_fix_plan: "sonnet",
+      mail_reply_judgment: "haiku",
+      product_doc_update: "sonnet",
       chat: "claude-opus-4-8",
+      claude_chat: config.backlogModel,
       backlog_merge: "claude-opus-4-8",
       plugin_smoke: "haiku",
       credential_test: "haiku",
       usage_probe: "haiku",
     });
+  });
+});
+
+describe("classificazione nuova della posta (area 6, F2)", () => {
+  it("MAIL_CLASSIFY_V2: spenta di default e con la stringa vuota, accesa solo con true", () => {
+    expect(loadWorkerConfig({ ...VALID }).mailClassifyV2).toBe(false);
+    expect(loadWorkerConfig({ ...VALID, MAIL_CLASSIFY_V2: "" }).mailClassifyV2).toBe(false);
+    expect(loadWorkerConfig({ ...VALID, MAIL_CLASSIFY_V2: "true" }).mailClassifyV2).toBe(true);
+    expect(() => loadWorkerConfig({ ...VALID, MAIL_CLASSIFY_V2: "si" })).toThrow(/MAIL_CLASSIFY_V2/);
+  });
+});
+
+/*
+ * Il compose NON usa `env_file`: una env che manca dall'`environment` del
+ * servizio non arriva al container, e regolarla in `/opt/stubwise/.env` non ha
+ * effetto (26 nov 2026: ne mancavano 27 al worker, fra cui le cinque nuove
+ * dei poller e della sonda d'uso). Questi test leggono il compose vero.
+ */
+
+/** Le voci dell'`environment` di un servizio del compose, nome → valore grezzo. */
+function composeEnvironment(service: string): Map<string, string> {
+  const text = readFileSync(fileURLToPath(new URL("../../../docker-compose.yml", import.meta.url)), "utf8");
+  const out = new Map<string, string>();
+  let inService = false;
+  let inEnv = false;
+  for (const line of text.split("\n")) {
+    if (/^ {2}[a-z][\w-]*:\s*$/.test(line)) {
+      inService = line.trim() === `${service}:`;
+      inEnv = false;
+      continue;
+    }
+    if (!inService) continue;
+    if (/^ {4}environment:\s*$/.test(line)) {
+      inEnv = true;
+      continue;
+    }
+    if (/^ {4}\S/.test(line)) inEnv = false;
+    if (!inEnv) continue;
+    const m = /^\s+-\s*([A-Z][A-Z0-9_]*)=(.*)$/.exec(line) ?? /^\s+([A-Z][A-Z0-9_]*):\s*(.*)$/.exec(line);
+    if (m) out.set(m[1]!, m[2]!.trim().replace(/^"(.*)"$/, "$1"));
+  }
+  return out;
+}
+
+/**
+ * Ciò che il container riceve quando `.env` NON nomina la variabile (né le
+ * altre a cui il default rimanda): la sostituzione di compose con un ambiente
+ * vuoto. `${A:-x}` e `${A-x}` → x, `${A}` → stringa vuota.
+ */
+function composeDefault(raw: string): string {
+  let out = "";
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i] !== "$" || raw[i + 1] !== "{") {
+      out += raw[i];
+      continue;
+    }
+    let depth = 0;
+    let j = i + 1;
+    for (; j < raw.length; j++) {
+      if (raw[j] === "{") depth++;
+      else if (raw[j] === "}" && --depth === 0) break;
+    }
+    const inner = raw.slice(i + 2, j);
+    const m = /^[A-Z][A-Z0-9_]*(:?-)([\s\S]*)$/.exec(inner);
+    out += m ? composeDefault(m[2]!) : "";
+    i = j;
+  }
+  return out;
+}
+
+/** La forma `${NOME:-…}`/`${NOME-…}` di una voce che rimanda a sé stessa, o null (valore fisso). */
+function selfReference(name: string, raw: string): ":-" | "-" | "" | null {
+  const m = new RegExp(`^\\$\\{${name}(:?-)?`).exec(raw);
+  if (!m) return null;
+  return (m[1] ?? "") as ":-" | "-" | "";
+}
+
+/**
+ * Come una env regolabile deve stare in `.env.example`: `NOME=` una volta
+ * sola; ma con `${NOME-…}` (la stringa vuota ha un significato suo, di solito
+ * «spento») COMMENTATA, `#NOME=`: una riga vuota copiata in `.env` spegnerebbe
+ * la funzione. Restituisce il problema, o null.
+ */
+function exampleProblem(example: string[], name: string, form: ":-" | "-" | ""): string | null {
+  const plain = example.filter((line) => line.startsWith(`${name}=`)).length;
+  const commented = example.filter((line) => line.startsWith(`#${name}=`)).length;
+  if (form === "-") return plain === 0 && commented === 1 ? null : `${name}: serve una sola riga #${name}= e nessuna ${name}=`;
+  return plain === 1 ? null : `${name}: serve una sola riga ${name}= (ne ha ${plain})`;
+}
+
+describe("docker-compose: le env del worker", () => {
+  const env = composeEnvironment("worker");
+  const example = readFileSync(fileURLToPath(new URL("../../../.env.example", import.meta.url)), "utf8").split("\n");
+
+  it("(a) ogni env dello schema arriva al worker dal compose", () => {
+    expect(env.size).toBeGreaterThan(50);
+    expect(WORKER_ENV_NAMES.filter((name) => !env.has(name))).toEqual([]);
+  });
+
+  it("(b) il default del compose dà la config del default del codice; `:-` solo dove vuota = assente", () => {
+    const base = loadWorkerConfig(VALID);
+    let checked = 0;
+    for (const [name, raw] of env) {
+      if (!WORKER_ENV_NAMES.includes(name) || name in VALID) continue;
+      const form = selfReference(name, raw);
+      // Un valore fisso (un percorso dell'immagine) non è regolabile da `.env`.
+      if (form === null) continue;
+      checked++;
+      expect(loadWorkerConfig({ ...VALID, [name]: composeDefault(raw) }), `${name} = ${raw}`).toEqual(base);
+      // `${NOME:-…}` passa il default anche per una riga VUOTA in `.env`: va
+      // bene solo se lo schema tratta la vuota come assente. Se no, `${NOME-…}`.
+      if (form === ":-") expect(loadWorkerConfig({ ...VALID, [name]: "" }), `${name}: vuota ≠ assente, serve \${${name}-…}`).toEqual(base);
+    }
+    expect(checked).toBeGreaterThan(50);
+  });
+
+  it("(c) ogni env regolabile dello schema compare in .env.example, nella forma giusta", () => {
+    const problems = WORKER_ENV_NAMES.flatMap((name) => {
+      const form = selfReference(name, env.get(name) ?? "");
+      return form === null ? [] : [exampleProblem(example, name, form)].filter((p) => p !== null);
+    });
+    expect(problems).toEqual([]);
   });
 });

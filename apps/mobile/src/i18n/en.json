@@ -101,7 +101,14 @@
         "unknown": "Update",
         "googleProposal": "Mailbox proposal",
         "googleProposalHanded": "Email handed to the project",
-        "securityAlert": "Security alert"
+        "securityAlert": "Security alert",
+        "decisionRequested": "A decision is asked of you",
+        "decisionAnswered": "Your question has an answer",
+        "ticketActivity": "Activity on a followed task",
+        "planningChanged": "Your plan changed",
+        "taskAssigned": "Assigned to you",
+        "chatMention": "Mentioned in the chat",
+        "chatQuestion": "A question for you in the chat"
       },
       "actions": {
         "respond": "Respond",
@@ -677,6 +684,8 @@
         "prCorrection": "PR #{{number}} · correction {{round}}",
         "kinds": {
           "run_started": "Run started",
+          "run_cancelled": "Work cancelled",
+          "task_deleted": "Task deleted",
           "question_asked": "The agent asked a question",
           "question_answered": "Question answered",
           "plan_approved": "Plan approved",

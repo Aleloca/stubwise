@@ -32,7 +32,7 @@ import { can, viewerFor } from "../viewer";
 import { notFound } from "../writer";
 import { cleanQuote, threadLink } from "./comments";
 import { emitProductPage, emitProductQuestionsChanged, onProductBlocks, onProductPresence } from "./events";
-import { productDocRecipients } from "./follows";
+import { followerMandatory, productDocRecipients } from "./follows";
 import { writersNear } from "./presence";
 import { productPageHref } from "./claudeReads";
 import { productPageById } from "./reads";
@@ -63,7 +63,7 @@ import { writeProductBlocksAs } from "./writes";
 //   niente, e non lancia (Review Focus 5);
 // - la stessa fonte una seconda volta non scrive (`productSourcesSeen`, P46);
 // - una card `product_doc.updated` per fonte e pagina, ai destinatari di
-//   `productDocRecipients` (mai Claude); titolo e corpo si compongono a
+//   `productDocRecipients` (chi segue, più chi ha la riga accesa; mai Claude); titolo e corpo si compongono a
 //   lettura (`presentProductUpdate`). Una domanda è un commento di
 //   `CLAUDE_ID` con la card `product_doc.question`;
 // - Claude non scrive mai nel registro decisioni (`neverWritesDecisions.test.ts`).
@@ -222,10 +222,10 @@ export function askProductQuestion(
     },
   };
   state.productComments.push(comment);
-  const recipientIds = opts.notify === false ? [] : productDocRecipients(page.id);
-  if (recipientIds.length > 0)
+  // N-1 = a: i destinatari si calcolano a lettura (chi segue, sempre; chi ha la riga accesa).
+  if (opts.notify !== false && productDocRecipients(page.id, "product_doc.question").length > 0)
     state.notifications.push({
-      ...cardBase(page, recipientIds),
+      ...cardBase(page),
       kind: "product_doc.question",
       link: threadLink(page, comment.id),
       productQuestion: { pageId: page.id, commentId: comment.id },
@@ -409,16 +409,25 @@ function writeFacts(
 
 // --- le card ------------------------------------------------------------------
 
-function cardBase(page: ProductPage, recipientIds: string[]): Omit<AppNotification, "kind" | "link"> {
+/**
+ * La card di una pagina, nel catalogo (D-6 = b, N-1 = a): nessun destinatario
+ * scritto, chi segue la pagina come obbligo (`follower`), gli iscritti a
+ * lettura.
+ */
+function cardBase(page: ProductPage): Omit<AppNotification, "kind" | "link"> {
+  const mandatory = followerMandatory(page.id);
   return {
     id: newId("n"),
     projectId: page.projectId,
     objectCode: page.code,
     departmentId: null,
-    recipientIds,
+    recipientIds: [],
+    ...(mandatory.length > 0 ? { mandatory } : {}),
     title: "",
     body: "",
     createdAt: now(),
+    // Nel catalogo (area 11, D-6 = b): l'ordine con le iscrizioni (R-K19).
+    seq: nextSeq(),
     read: false,
     archived: false,
     snoozedUntil: null,
@@ -432,10 +441,9 @@ function publishUpdate(
   sources: ProductSourceRef[],
   waited: AiBlock["reason"] | null,
 ): void {
-  const recipientIds = productDocRecipients(page.id);
-  if (recipientIds.length === 0) return;
+  if (productDocRecipients(page.id, "product_doc.updated").length === 0) return;
   state.notifications.push({
-    ...cardBase(page, recipientIds),
+    ...cardBase(page),
     kind: "product_doc.updated",
     link: productPageHref(page),
     productUpdate: {

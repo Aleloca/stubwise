@@ -2,8 +2,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { z } from "zod";
-import type { AgentRunner, AgentRunResult, AgentRunSession, UsageTag } from "./runner.js";
+import type { AgentRunner, AgentRunOptions, AgentRunResult, AgentRunSession, UsageTag } from "./runner.js";
 import type { ResolvedProvider } from "../providers/chain.js";
+import { NATIVE_TOOLS } from "./native-tools.js";
 
 /**
  * Helper CONDIVISI dei run "di solo testo" dell'agente.
@@ -49,6 +50,11 @@ export interface RunAgentTextOptions {
    * backlog usano storicamente "default" e restano tali.
    */
   permissionMode?: "default" | "acceptEdits" | "plan";
+  /**
+   * I tool nativi del run (`native-tools.ts`). Default: nessuno
+   * (`NATIVE_TOOLS.text`), il materiale di un run di testo sta nel prompt.
+   */
+  builtinTools?: AgentRunOptions["builtinTools"];
   /** Sessione a cui appartiene il run (vedi AgentRunSession). */
   session?: AgentRunSession;
   /** Etichetta del run (operazione, progetto, owner), inoltrata tale e quale. */
@@ -86,6 +92,7 @@ export async function runAgentTextRaw(
       ...(opts.model !== undefined ? { model: opts.model } : {}),
       ...(opts.provider !== undefined ? { provider: opts.provider } : {}),
       permissionMode: opts.permissionMode ?? "plan",
+      builtinTools: opts.builtinTools ?? NATIVE_TOOLS.text,
       maxTurns: opts.maxTurns ?? DEFAULT_MAX_TURNS,
       timeoutMs: opts.timeoutMs,
       ...(opts.session !== undefined ? { session: opts.session } : {}),

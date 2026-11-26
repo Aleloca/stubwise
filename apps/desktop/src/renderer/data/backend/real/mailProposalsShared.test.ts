@@ -1,0 +1,395 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { session, setAppClientForTests } from "./client";
+import { installFakeServer, ME_ID, PROJECT_ID } from "./fakeServer";
+import { mail } from "./mail";
+
+// Le proposte della Posta dalla rotta della F2 (`/api/me/mail/proposals`):
+// una per email e progetto, condivisa fra i destinatari membri. Leggere,
+// confermare (anche in parte, coi campi cambiati, aggiungendo i Contributor),
+// ignorare, passare, spostare e scegliere il progetto passano da lì.
+
+const ACC = "aaaaaaaa-1111-4111-8111-111111111111";
+const M1 = "dddddddd-1111-4111-8111-111111111111";
+const P1 = "cccccccc-1111-4111-8111-111111111111";
+const P2 = "cccccccc-2222-4222-8222-222222222222";
+const CARLA = "88888888-2222-4222-8222-222222222222";
+const OTHER = "22222222-3333-4333-8333-333333333333";
+
+const proposal = (over: Record<string, unknown> = {}) => ({
+  id: P1,
+  messageId: M1,
+  projectId: PROJECT_ID,
+  status: "open",
+  createdAt: "2026-11-12T08:05:00.000Z",
+  excerpt: "Ecco il preventivo.",
+  actions: [
+    { type: "create_task", args: { title: "Export CSV", description: "", assigneeId: null, dueDate: null }, label: "Crea la task «Export CSV»" },
+    { type: "create_milestone", args: { name: "Consegna", dueDate: "2026-11-30" }, label: "Traguardo «Consegna»" },
+  ],
+  canConfirm: true,
+  canHand: false,
+  canReassign: true,
+  blockedIndices: [],
+  outsiders: [],
+  decidedBy: null,
+  decidedAt: null,
+  confirmedIndices: [],
+  results: [],
+  error: null,
+  handedAt: null,
+  handedBy: null,
+  sharedWith: [{ userId: CARLA, name: "Carla" }],
+  origin: { threadId: "t-1", accountId: ACC, from: "Bob <bob@client.test>", subject: "Preventivo" },
+  ...over,
+});
+
+const query = (path: string) => new URLSearchParams(path.split("?")[1] ?? "");
+const list = (items: unknown[]) => ({ body: { items } });
+
+beforeEach(() => {
+  setAppClientForTests(null);
+  vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+  session.personId = ME_ID;
+});
+afterEach(() => {
+  session.personId = null;
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+  setAppClientForTests(null);
+});
+
+describe("le proposte condivise: lettura", () => {
+  it("dalla rotta della F2, coi filtri del messaggio d'origine e dello stato", async () => {
+    const { seen } = installFakeServer({ "GET /api/me/mail/proposals": list([proposal()]) });
+    const [v] = await mail.listMailProposals({ sourceId: M1, status: "open" });
+    expect(v!.proposal).toMatchObject({ id: P1, sourceId: M1, status: "open" });
+    expect(v!.sharedWith).toEqual([{ personId: CARLA, name: "Carla" }]);
+    const q = query(seen[0]!.path);
+    expect(q.get("message")).toBe(M1);
+    expect(q.get("status")).toBe("open");
+  });
+
+  it("le proposte di una conversazione: il thread Gmail e la sua casella", async () => {
+    const { seen } = installFakeServer({ "GET /api/me/mail/proposals": list([proposal()]) });
+    await mail.listMailProposals({ threadId: `${ACC}_t-1` });
+    const q = query(seen[0]!.path);
+    expect([q.get("thread"), q.get("account"), q.get("message")]).toEqual(["t-1", ACC, null]);
+  });
+
+  it("una proposta per id; non mia o inesistente è `not_found`", async () => {
+    installFakeServer({
+      [`GET /api/me/mail/proposals/${P1}`]: { body: proposal() },
+      [`GET /api/me/mail/proposals/${P2}`]: { status: 404, body: { code: "not_found", message: "x" } },
+    });
+    expect((await mail.getMailProposal(P1)).proposal.id).toBe(P1);
+    await expect(mail.getMailProposal(P2)).rejects.toThrow("not_found");
+  });
+
+  it("«Da decidere»: le aperte che posso confermare o passare, le PASSATE che posso confermare, «Quale progetto?»; con l'origine", async () => {
+    const P3 = "cccccccc-3333-4333-8333-333333333333";
+    const P4 = "cccccccc-4444-4444-8444-444444444444";
+    const { seen } = installFakeServer({
+      "GET /api/me/mail/proposals": (req: { path: string }) => {
+        const status = query(req.path).get("status");
+        if (status === "handed") return list([proposal({ id: P2, status: "handed", canConfirm: true, canHand: false, origin: null })]);
+        return list([
+          proposal(),
+          proposal({
+            id: P3,
+            actions: [{ type: "choose_project", args: { projectIds: [PROJECT_ID] }, label: "Which project?" }],
+            canConfirm: false,
+            canHand: false,
+            canReassign: false,
+          }),
+          proposal({ id: P4, canConfirm: false, canHand: false }),
+        ]);
+      },
+    });
+    const items = await mail.listMailDecisions();
+    expect(items.map((v) => v.proposal.id).sort()).toEqual([P1, P2, P3].sort());
+    expect(items.find((v) => v.proposal.id === P1)!.origin).toMatchObject({ kind: "email", threadId: `${ACC}_t-1` });
+    expect(seen.map((r) => query(r.path).get("status")).sort()).toEqual(["handed", "open"]);
+  });
+});
+
+describe("F3b: le proposte del calendario nella stessa lista (dal server, task 7)", () => {
+  it("una proposta del calendario arriva in «Da decidere» con l'evento come origine, accanto a quelle della posta", async () => {
+    const EVENT = "eeeeeeee-1111-4111-8111-111111111111";
+    installFakeServer({
+      "GET /api/me/mail/proposals": (req) =>
+        query(req.path).get("status") === "open"
+          ? list([
+              proposal(),
+              proposal({
+                id: P2,
+                kind: "calendar",
+                messageId: null,
+                origin: null,
+                canHand: false,
+                canReassign: false,
+                calendarOrigin: { eventId: EVENT, title: "Board", startsAt: "2026-11-20T09:00:00.000Z", allDay: false },
+                actions: [{ type: "acknowledge_reminder", args: {}, label: "Visto" }],
+              }),
+            ])
+          : list([]),
+    });
+    const items = await mail.listMailDecisions();
+    const cal = items.find((v) => v.proposal.id === P2)!;
+    expect(cal.proposal).toMatchObject({ source: "calendar", sourceId: EVENT });
+    expect(cal.origin).toMatchObject({ kind: "calendar", eventId: EVENT, title: "Board" });
+    expect(cal.proposal.actions.map((a) => a.fn)).toEqual(["acknowledgeReminder"]);
+    expect(items.find((v) => v.proposal.id === P1)!.proposal.source).toBe("email");
+  });
+});
+
+// Lotto 9, voce 2 (d) (72, b0ddfadae): una proposta del calendario è UNA per
+// appuntamento e progetto, condivisa fra gli invitati membri; la decide il
+// primo. `calendarOrigin` lo ha solo chi ha l'evento nel suo calendario.
+describe("lotto 9: le proposte del calendario condivise fra gli invitati", () => {
+  const EVENT = "eeeeeeee-2222-4222-8222-222222222222";
+  const calendar = (over: Record<string, unknown> = {}) =>
+    proposal({
+      id: P2,
+      kind: "calendar",
+      messageId: null,
+      origin: null,
+      canHand: false,
+      canReassign: false,
+      excerpt: "Board · 20 nov",
+      calendarOrigin: { eventId: EVENT, title: "Board", startsAt: "2026-11-20T09:00:00.000Z", allDay: false },
+      actions: [{ type: "acknowledge_reminder", args: {}, label: "Visto" }],
+      ...over,
+    });
+  const serve = (item: unknown) =>
+    installFakeServer({
+      "GET /api/me/mail/proposals": (req) => (query(req.path).get("status") === "open" ? list([item]) : list([])),
+    });
+
+  it("gli altri invitati in `sharedWith`, come per la posta («Also for …»)", async () => {
+    serve(calendar({ sharedWith: [{ userId: CARLA, name: "Carla" }] }));
+    const [cal] = await mail.listMailDecisions();
+    expect(cal!.sharedWith).toEqual([{ personId: CARLA, name: "Carla" }]);
+    expect(cal!.origin).toMatchObject({ kind: "calendar", eventId: EVENT });
+  });
+
+  it("un invitato senza l'evento nel suo calendario: nessuna origine, ma la proposta c'è, con l'estratto", async () => {
+    serve(calendar({ calendarOrigin: null, sharedWith: [{ userId: CARLA, name: "Carla" }] }));
+    const [cal] = await mail.listMailDecisions();
+    expect(cal!.origin).toBeNull();
+    expect(cal!.proposal).toMatchObject({ source: "calendar", excerpt: "Board · 20 nov" });
+    expect(cal!.sharedWith.map((p) => p.personId)).toEqual([CARLA]);
+  });
+
+  it("decisa da un altro invitato: `already_handled` con chi", async () => {
+    installFakeServer({
+      [`POST /api/me/mail/proposals/${P2}/confirm`]: {
+        status: 409,
+        body: { code: "already_handled", message: "x", decidedBy: { userId: CARLA, name: "Carla" } },
+      },
+    });
+    await expect(mail.confirmMailProposal(P2, {})).rejects.toMatchObject({ message: "already_handled", byId: CARLA });
+  });
+
+  it("la «Quale progetto?» condivisa (0b754a95c): in «Da decidere» coi candidati del server; la scelta va a `choose-project`, la seconda è `already_handled`", async () => {
+    serve(
+      calendar({
+        projectId: PROJECT_ID,
+        calendarOrigin: null,
+        sharedWith: [{ userId: CARLA, name: "Carla" }],
+        actions: [{ type: "choose_project", args: { projectIds: [PROJECT_ID, OTHER] }, label: "Which project?" }],
+      }),
+    );
+    const [cal] = await mail.listMailDecisions();
+    expect(cal!.proposal.source).toBe("calendar");
+    expect(cal!.proposal.actions[0]).toMatchObject({ fn: "chooseProject", args: { projectIds: [PROJECT_ID, OTHER] } });
+    const { seen } = installFakeServer({
+      [`POST /api/me/mail/proposals/${P2}/choose-project`]: { body: { status: "moved", projectId: OTHER } },
+    });
+    await mail.chooseProjectFor(P2, OTHER);
+    expect(seen.find((r) => r.method === "POST")!.body).toEqual({ projectId: OTHER });
+    installFakeServer({
+      [`POST /api/me/mail/proposals/${P2}/choose-project`]: {
+        status: 409,
+        body: { code: "already_handled", message: "x", decidedBy: { userId: CARLA, name: "Carla" } },
+      },
+    });
+    await expect(mail.chooseProjectFor(P2, PROJECT_ID)).rejects.toMatchObject({ message: "already_handled", byId: CARLA });
+  });
+
+  it("un server di prima (per casella): niente `sharedWith`, nessun «Also for»", async () => {
+    const old = calendar() as Record<string, unknown>;
+    delete old.sharedWith;
+    serve(old);
+    const [cal] = await mail.listMailDecisions();
+    expect(cal!.sharedWith).toEqual([]);
+  });
+});
+
+describe("le proposte condivise: confermare e ignorare", () => {
+  const confirm = (body: unknown = { status: "confirmed", results: [{ kind: "task", id: "x", code: "AUD-12" }] }) => ({
+    [`POST /api/me/mail/proposals/${P1}/confirm`]: { body },
+  });
+
+  it("tutta: nessun indice; il codice nato", async () => {
+    const { seen } = installFakeServer(confirm());
+    expect(await mail.confirmMailProposal(P1, {})).toEqual({ status: "confirmed", resultCodes: ["AUD-12"] });
+    expect(seen[0]!.body).toEqual({});
+  });
+
+  it("la decisione è un oggetto (review F3 di 72): fallita senza motivo → «other»; col motivo, quello; i default di results e projectId", async () => {
+    installFakeServer(confirm({ status: "failed", results: [], error: null, projectId: null }));
+    expect(await mail.confirmMailProposal(P1, {})).toEqual({ status: "failed", error: "other" });
+    installFakeServer(confirm({ status: "failed", error: "already_handled" }));
+    expect(await mail.confirmMailProposal(P1, {})).toEqual({ status: "failed", error: "already_handled" });
+    // Un server che non manda `results`: il default è vuoto, nessun codice.
+    installFakeServer(confirm({ status: "confirmed" }));
+    expect(await mail.confirmMailProposal(P1, {})).toEqual({ status: "confirmed", resultCodes: [] });
+  });
+
+  it("in parte e coi campi cambiati: gli indici e le modifiche per indice", async () => {
+    const { seen } = installFakeServer(confirm());
+    await mail.confirmMailProposal(P1, { actionIndexes: [0], edits: { 0: { title: "Export XLSX" } } });
+    expect(seen[0]!.body).toEqual({ indices: [0], edits: { 0: { title: "Export XLSX" } } });
+  });
+
+  it("le modifiche d'una scadenza o d'un commento coi nomi del server", async () => {
+    const { seen } = installFakeServer(confirm());
+    await mail.confirmMailProposal(P1, { edits: { 1: { patch: { dueDate: "2026-11-22" } }, 2: { body: "Ok" } } });
+    expect(seen[0]!.body).toEqual({ edits: { 1: { patch: { dueDate: "2026-11-22" } }, 2: { body: "Ok" } } });
+  });
+
+  it("un'azione che fallisce: non riuscita, col motivo (tutto o niente)", async () => {
+    installFakeServer(confirm({ status: "failed", error: "ticket_gone" }));
+    expect(await mail.confirmMailProposal(P1, {})).toEqual({ status: "failed", error: "ticket_gone" });
+  });
+
+  it("già decisa da altri: `already_handled` con chi", async () => {
+    installFakeServer({
+      [`POST /api/me/mail/proposals/${P1}/confirm`]: {
+        status: 409,
+        body: { code: "already_handled", message: "x", decidedBy: { userId: CARLA, name: "Carla" } },
+      },
+    });
+    await expect(mail.confirmMailProposal(P1, {})).rejects.toMatchObject({ message: "already_handled", byId: CARLA });
+  });
+
+  it("i rifiuti del server: permesso, incaricato fuori dal progetto, campi, selezione, bersaglio", async () => {
+    const cases: [number, string, string][] = [
+      [403, "forbidden", "forbidden"],
+      [400, "invalid_assignee", "invalid: assignee"],
+      [400, "invalid_edits", "invalid: edits"],
+      [400, "invalid_selection", "invalid: selection"],
+      [400, "invalid_target", "invalid: target"],
+    ];
+    for (const [status, code, error] of cases) {
+      installFakeServer({ [`POST /api/me/mail/proposals/${P1}/confirm`]: { status, body: { code, message: "x" } } });
+      await expect(mail.confirmMailProposal(P1, {})).rejects.toThrow(error);
+    }
+  });
+
+  it("«Ignora»", async () => {
+    const { seen } = installFakeServer({ [`POST /api/me/mail/proposals/${P1}/ignore`]: { body: { status: "ignored" } } });
+    await mail.ignoreMailProposal(P1);
+    expect(seen.map((r) => r.path)).toEqual([`/api/me/mail/proposals/${P1}/ignore`]);
+  });
+});
+
+describe("passare, spostare, scegliere il progetto, aggiungere i Contributor", () => {
+  it("«Passa al progetto»", async () => {
+    const { seen } = installFakeServer({ [`POST /api/me/mail/proposals/${P1}/hand`]: { body: { status: "handed" } } });
+    await mail.handMailProposal(P1);
+    expect(seen.map((r) => r.path)).toEqual([`/api/me/mail/proposals/${P1}/hand`]);
+  });
+
+  it("«Sposta su un altro progetto», col progetto", async () => {
+    const { seen } = installFakeServer({
+      [`POST /api/me/mail/proposals/${P1}/reassign`]: { body: { status: "moved", projectId: OTHER } },
+    });
+    await mail.reassignMailProposal(P1, OTHER);
+    expect(seen[0]!.body).toEqual({ projectId: OTHER });
+  });
+
+  it("«Quale progetto?»: la scelta va al server", async () => {
+    const { seen } = installFakeServer({
+      [`POST /api/me/mail/proposals/${P1}/choose-project`]: { body: { status: "moved", projectId: OTHER } },
+    });
+    await mail.chooseProjectFor(P1, OTHER);
+    expect(seen[0]!.body).toEqual({ projectId: OTHER });
+  });
+
+  it("già decisa da altri, anche per «Passa»: `already_handled` con chi", async () => {
+    installFakeServer({
+      [`POST /api/me/mail/proposals/${P1}/hand`]: { status: 409, body: { code: "already_handled", message: "x", decidedBy: { userId: CARLA, name: "Carla" } } },
+    });
+    await expect(mail.handMailProposal(P1)).rejects.toMatchObject({ message: "already_handled", byId: CARLA });
+  });
+
+  it("con gli incaricati fuori dal progetto: la rotta che li aggiunge come Contributor", async () => {
+    const { seen } = installFakeServer({
+      [`POST /api/me/mail/proposals/${P1}/confirm-with-members`]: { body: { status: "confirmed", results: [] } },
+    });
+    expect(await mail.confirmMailProposal(P1, { actionIndexes: [0], addOutsiders: [OTHER] })).toEqual({ status: "confirmed", resultCodes: [] });
+    expect(seen[0]!.body).toEqual({ indices: [0], addOutsiders: [OTHER] });
+  });
+
+  it("aggiungere i Contributor chiede la riconferma: il rifiuto che `useReauth` riconosce", async () => {
+    installFakeServer({
+      [`POST /api/me/mail/proposals/${P1}/confirm-with-members`]: { status: 403, body: { code: "reauth_required", message: "x" } },
+    });
+    expect(await mail.confirmMailProposal(P1, { addOutsiders: [OTHER] })).toEqual({ status: "refused", ok: false, error: "reauth_required" });
+  });
+
+  // Lotto 4, pulizia 3 (72, a65a09c73): il 403 `escalation` porta sempre `missing`, tutto ciò che manca.
+  it("escalation con `missing`: tutti i permessi che mancano, come il prototipo", async () => {
+    installFakeServer({
+      [`POST /api/me/mail/proposals/${P1}/confirm-with-members`]: {
+        status: 403,
+        body: { code: "escalation", message: "x", permission: "tickets.edit", missing: ["tickets.edit", "release.merge"] },
+      },
+    });
+    expect(await mail.confirmMailProposal(P1, { addOutsiders: [OTHER] })).toEqual({
+      status: "refused",
+      ok: false,
+      error: "escalation",
+      missing: ["tickets.edit", "release.merge"],
+    });
+  });
+
+  it("le regole di Membri (escalation, sopra di me): rifiutata, niente cambia", async () => {
+    installFakeServer({
+      [`POST /api/me/mail/proposals/${P1}/confirm-with-members`]: { status: 403, body: { code: "escalation", message: "x", permission: "project.members.manage" } },
+    });
+    expect(await mail.confirmMailProposal(P1, { addOutsiders: [OTHER] })).toEqual({ status: "refused", ok: false, error: "escalation", missing: ["project.members.manage"] });
+  });
+});
+
+// Review F5a (4): una risposta VERA di `proposals()` con una proposta di
+// riunione passa dal parse dell'api-client (kind meeting, meetingOrigin).
+describe("F5a: la proposta di una riunione dalla risposta vera", () => {
+  it("all'invitato senza copia: l'origine è la riunione, senza conversazione", async () => {
+    const NOTE = "99999999-6666-4666-8666-666666666666";
+    installFakeServer({
+      "GET /api/me/mail/proposals": (req) =>
+        query(req.path).get("status") === "open"
+          ? list([
+              proposal({
+                kind: "meeting",
+                messageId: null,
+                origin: null,
+                meetingOrigin: { noteId: NOTE, eventId: null, threadId: null, accountId: null, title: "Weekly review", at: "2026-11-11T16:00:00.000Z" },
+              }),
+            ])
+          : list([]),
+    });
+    const [v] = await mail.listMailDecisions();
+    expect(v!.proposal.source).toBe("transcript");
+    expect(v!.origin).toEqual({
+      kind: "meeting",
+      noteId: NOTE,
+      eventId: null,
+      threadId: null,
+      title: "Weekly review",
+      at: "2026-11-11T16:00:00.000Z",
+    });
+  });
+});

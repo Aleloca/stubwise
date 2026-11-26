@@ -2,6 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useDeleteServer, useRegenerateAgentKey, useUpdateServer } from "../../data/queries";
+import { takeAgentKey } from "../../data/revealedAgentKey";
 import type { ServerDetail } from "../../data/servers";
 import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
@@ -20,14 +21,15 @@ import { Part, SavedNote, shortInput } from "./Part";
 function RegenerateDialog({ server, onClose }: { server: ServerDetail; onClose: () => void }) {
   const { t } = useTranslation();
   const regenerate = useRegenerateAgentKey();
-  const [key, setKey] = useState<string | null>(null);
+  const [key, setKey] = useState<{ key: string; instanceUrl?: string } | null>(null);
   const [failed, setFailed] = useState(false);
   if (key) {
     return (
       <AgentKeyDialog
         title={t("servers.key.regeneratedTitle", { code: server.code })}
         code={server.code}
-        agentKey={key}
+        agentKey={key.key}
+        instanceUrl={key.instanceUrl}
         onDone={onClose}
       />
     );
@@ -49,7 +51,13 @@ function RegenerateDialog({ server, onClose }: { server: ServerDetail; onClose: 
             className={`${smallPrimary} h-8 px-3`}
             onClick={() =>
               regenerate.mutate(server.code, {
-                onSuccess: (r) => setKey(r.agentKey),
+                // La chiave si PRENDE dal suo posto (I2): da qui vive solo in questo stato.
+                // Senza la chiave (non c'è più): l'errore, non un pannello vuoto (review F4a, M3).
+                onSuccess: () => {
+                  const k = takeAgentKey(server.code);
+                  if (k) setKey(k);
+                  else setFailed(true);
+                },
                 onError: () => setFailed(true),
               })
             }
@@ -151,14 +159,10 @@ export function ServerSettings({
 }) {
   const { t } = useTranslation();
   const update = useUpdateServer();
-  const ids = { name: useId(), interval: useId(), primary: useId() };
-  const current = {
-    name: server.name,
-    interval: String(server.sampleIntervalSeconds),
-    primary: server.productionProjects.some((p) => p.code === server.primaryProjectCode)
-      ? (server.productionProjects.find((p) => p.code === server.primaryProjectCode)?.id ?? "")
-      : (server.productionProjects[0]?.id ?? ""),
-  };
+  const ids = { name: useId(), interval: useId() };
+  // Nessun progetto principale (area 8, F4b-4): l'analisi parte dal server
+  // e dice lei quale progetto è la causa.
+  const current = { name: server.name, interval: String(server.sampleIntervalSeconds) };
   const [draft, setDraft] = useState(current);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -175,17 +179,7 @@ export function ServerSettings({
     update.mutate(
       {
         code: server.code,
-        patch: {
-          name: draft.name,
-          sampleIntervalSeconds: interval,
-          // Solo se cambiato: il valore di partenza può essere la ricaduta sulla
-          // prima produzione (principale non impostato, o invisibile a chi guarda).
-          ...(server.productionProjects.length > 1 &&
-          draft.primary &&
-          draft.primary !== current.primary
-            ? { primaryProjectId: draft.primary }
-            : {}),
-        },
+        patch: { name: draft.name, sampleIntervalSeconds: interval },
       },
       {
         onSuccess: () => setSaved(true),
@@ -237,37 +231,6 @@ export function ServerSettings({
             <span className="text-sm text-critical">
               {t("servers.settings.errors.sampleIntervalSeconds")}
             </span>
-          )}
-        </DialogField>
-        <DialogField
-          label={t("servers.settings.primary")}
-          htmlFor={server.productionProjects.length > 1 ? ids.primary : undefined}
-          hint={
-            server.productionProjects.length > 0 ? t("servers.settings.primaryHint") : undefined
-          }
-        >
-          {server.productionProjects.length > 1 ? (
-            <select
-              id={ids.primary}
-              value={draft.primary}
-              onChange={(e) => edit({ primary: e.target.value })}
-              className={`${inputClass} h-8`}
-            >
-              {server.productionProjects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.code} · {p.name}
-                </option>
-              ))}
-            </select>
-          ) : server.productionProjects.length === 1 ? (
-            <p className="text-md text-ink">
-              {t("servers.settings.primaryOnly", { code: server.productionProjects[0]!.code })}
-            </p>
-          ) : server.analysisProject !== null ? (
-            // Le produzioni ci sono, ma in progetti che chi guarda non vede (area 9b, R-G5).
-            <p className="text-md text-ink-muted">{t("servers.settings.primaryHidden")}</p>
-          ) : (
-            <p className="text-md text-ink-muted">{t("servers.settings.primaryNone")}</p>
           )}
         </DialogField>
         <div className="flex items-center gap-3">

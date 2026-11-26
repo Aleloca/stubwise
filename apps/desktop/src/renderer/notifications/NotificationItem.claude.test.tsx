@@ -12,13 +12,13 @@ import {
 } from "../data/api";
 import { applyActions, createTaskAs } from "../data/api-mutations";
 import { runAsClaude } from "../data/claude/via";
-import { visiblePeopleFor } from "../data/access/whoCan";
 import { CLAUDE_SEED_IDS, HANDOVER_TASK } from "../data/seed/claudeActions";
 import { PEOPLE } from "../data/seed/people";
 import { setSessionPersonId } from "../data/session";
 import { now, state } from "../data/store";
 import type { AppNotification, ChatMessage } from "../data/types";
 import i18n, { setLanguage } from "../i18n";
+import { strangersTo } from "../test/strangers";
 import { renderRoute } from "../test/renderRoute";
 import { renderWithData } from "../test/renderWithData";
 import { NotificationItem } from "./NotificationItem";
@@ -142,7 +142,8 @@ describe("righe di prima e R-G5", () => {
   });
 
   it("chi agisce e chi annulla, se chi riceve non li vede, non si nominano", async () => {
-    const hidden = PEOPLE.find((p) => !p.isClaude && !visiblePeopleFor(MARCO).has(p.id))!;
+    // R.1414: lo sconosciuto si costruisce (nel seme quasi tutti si conoscono).
+    const hidden = PEOPLE.find((p) => p.id === strangersTo(MARCO)[0])!;
     expect(hidden).toBeDefined();
     state.claudeActions.push({
       ...state.claudeActions.find((r) => r.id === CLAUDE_SEED_IDS.brief.plan)!,
@@ -281,7 +282,8 @@ describe("I2: `task.assigned` e `planning.changed` fatte a mano, nella lingua di
   });
 
   it("chi ha scritto e chi riceve non si vedono: «Qualcuno», mai il nome (R-G5), e l'id non esce", async () => {
-    const hidden = PEOPLE.find((p) => !p.isClaude && !visiblePeopleFor(MARCO).has(p.id))!;
+    // R.1414: lo sconosciuto si costruisce (nel seme quasi tutti si conoscono).
+    const hidden = PEOPLE.find((p) => p.id === strangersTo(MARCO)[0])!;
     state.notifications.push({
       ...state.notifications.find((x) => x.id === CLAUDE_SEED_IDS.notification)!,
       id: "n-hidden-hand",

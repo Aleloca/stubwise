@@ -1,8 +1,10 @@
+import { personRefSchema } from "./person-ref.js";
 import { z } from "zod";
 // Vive in `actor.ts` (per evitare un import circolare con `ticket.ts`, che ne
 // ha bisogno per `planApprovedBy` della fase 7); ri-esportato più sotto perché
 // questo file continua a usarlo anche internamente.
-import { handledBySchema, type HandledBy } from "./actor.js";
+import { handledBySchema, viaClaudeShape, type HandledBy } from "./actor.js";
+import { productDocClaudeCardSchema } from "./product-docs.js";
 import { ticketPrioritySchema } from "./ticket.js";
 
 /**
@@ -47,6 +49,49 @@ export const notificationKindSchema = z.enum([
   "request.created",
   "google.proposal_handed",
   "security.alert",
+  "decision.requested",
+  "decision.answered",
+  "ticket.activity",
+  "planning.changed",
+  "task.assigned",
+  // Area 4, Chat (fetta 1): una menzione diretta `@Nome` in un canale che chi
+  // la riceve legge. Titolo, testo e link si DERIVANO a lettura.
+  "chat.mention",
+  // Area 4, Chat (fetta 2): un messaggio chiede una risposta a un membro del
+  // canale (`asks_reply_of`). Come `chat.mention`, derivata a lettura.
+  "chat.question",
+  // Area 7, fetta 1 (0169): un passo che chiede un'approvazione (a chi decide),
+  // un'esecuzione fallita (al proprietario), il passo `notify`, un'automazione
+  // messa in pausa da sola (D5). Stato, testo e link si DERIVANO
+  // dall'esecuzione a lettura, mai dal jsonb dell'evento.
+  "automation.approval",
+  "automation.failed",
+  "automation.notify",
+  "automation.paused",
+  // Area 8, fetta 1 (0175): un rilascio fallito (le run di CI del commit di
+  // merge), a chi ha `release.merge` nel progetto. Il link porta al rilascio.
+  "release.failed",
+  // Area 8, fetta 2 (0177): i tipi del catalogo degli avvisi (iscrizioni per
+  // progetto). I destinatari li decide il catalogo, mai Slack (M3).
+  "release.merged",
+  "release.succeeded",
+  "pr.opened",
+  "pr.analysis_issues",
+  "pr.corrected",
+  "docs.release_note",
+  // Area 8, fetta 3 (0179): Support. Una richiesta nata da una conversazione,
+  // nel catalogo degli avvisi.
+  "support.request",
+  // Area 8, fetta 4b (0181): la diagnosi dell'analisi di un server, nel catalogo degli avvisi.
+  "server.diagnosis_ready",
+  // Area 10, F5 (0200, D-11 = b): una persona entra in un progetto. Alla persona
+  // (obbligatorio) e a chi gestisce i membri (iscrizione), mai a chi ha agito.
+  "member.added",
+  // Area 11, F2 (0203, N-1 = a): la doc di prodotto nel catalogo degli avvisi. La
+  // menzione è solo obbligatoria; `updated` e `question` le produce F5.
+  "product_doc.mention",
+  "product_doc.updated",
+  "product_doc.question",
 ]);
 
 /**
@@ -213,6 +258,8 @@ export type InboxPulse = z.infer<typeof inboxPulseSchema>;
  * `@stubwise/shared` finisce nel bundle browser e dipende dal solo `zod`.
  */
 export const inboxGoogleActionTypeSchema = z.enum([
+  /** Area 6, F2: una task, dalle proposte condivise della classificazione nuova. */
+  "create_task",
   "create_backlog_item",
   "create_milestone",
   "update_ticket",
@@ -490,6 +537,21 @@ export const inboxGoogleSchema = z.object({
    * `decision` come per ogni proposta. Derivato a lettura, `.default(false)`.
    */
   handed: z.boolean().default(false),
+  /**
+   * Rimandi, lotto 4 (§2): sulla card di chi DECIDE una proposta condivisa
+   * passata, chi l'ha passata. Derivato a lettura da `email_proposals`
+   * (`handed_by_user_id`), mai dall'evento; uno sconosciuto (r.1414) arriva
+   * `{ id: "hidden-<n>", name: null }`. null sulle altre card. Additivo.
+   * (Non `handedBy`: quel nome è già dell'evento delle passate di prima,
+   * l'email di chi passa.)
+   */
+  handedByUser: z.object({ id: personRefSchema, name: z.string().nullable() }).nullable().default(null),
+  /**
+   * Rimandi, lotto 4 (§2, il prototipo `proposalDecided`): sulla card di chi
+   * decide una passata, la proposta l'ha già decisa qualcuno (non è più
+   * aperta). Derivato a lettura. Additivo, `.default(false)`.
+   */
+  proposalDecided: z.boolean().default(false),
 });
 export type InboxGoogle = z.infer<typeof inboxGoogleSchema>;
 export type InboxGoogleDecision = NonNullable<InboxGoogle["decision"]>;
@@ -705,14 +767,141 @@ export const inboxItemSchema = z.object({
    * cambi additivi).
    */
   reviewOutcome: inboxReviewOutcomeSchema.nullable().default(null),
-  projectId: z.uuid().nullable(),
+  /** L'id, o `hidden-project-<n>` per un progetto che chi legge non vede più (registro, A11 r.1414). */
+  projectId: z.string().min(1).nullable(),
   ticketId: z.uuid().nullable(),
+  /**
+   * Il codice della task della card (`<CODICE>-<number>`, integrazione area
+   * 2): DERIVATO a lettura dal ticket, mai scritto nell'evento, quindi c'è
+   * anche sulle card di prima e segue un codice di progetto cambiato. `null`
+   * senza ticket. `.optional()`: un server più vecchio non lo manda.
+   */
+  taskCode: z.string().nullable().optional(),
+  /**
+   * La task della card è stata ELIMINATA («Elimina task», fetta 3.0 della
+   * chat): derivato a lettura dalla lapide, mai scritto nell'evento. La card
+   * resta com'era, senza link (`url` assente) e con «Task eliminata».
+   */
+  objectGone: z.boolean().default(false),
+  /**
+   * Area 8, F2: un avviso del catalogo arrivato a chi legge da OBBLIGATORIO,
+   * col motivo (`merged`, `pr_author`, `task_author`…): «ti arriva perché…» e
+   * niente «Non avvisarmi più» (il server lo rifiuta). Letto dalla SUA card:
+   * è un fatto scritto alla pubblicazione, per destinatario, non derivabile
+   * dopo. `null` per gli altri. Additivo.
+   */
+  alertMandatory: z.string().nullable().default(null),
+  /**
+   * Area 8, F4a: solo sulle card `monitor.*`, il codice del server
+   * (`SRV-<n>`) per il link dell'app, DERIVATO a lettura dall'id nel link
+   * dell'evento (vale anche per le card di prima). `null` per gli altri kind e
+   * per un server tolto. Additivo.
+   */
+  serverCode: z.string().nullable().default(null),
+  /**
+   * Area 10, F5 (D-11 = b): sulle card `member.added`, chi ha ANNULLATO quell'ingresso
+   * con «Annulla» di Claude («Undone by …»). DERIVATO a lettura dal registro
+   * delle modifiche (la voce d'ingresso, la sua azione, la voce che la annulla),
+   * mai dal jsonb: vale per le card vecchie e scavalca un jsonb che dicesse
+   * altro. Una rimozione a mano NON è un annullamento. Additivo.
+   */
+  undoneBy: z.object({ id: personRefSchema, name: z.string() }).nullable().default(null),
+  /**
+   * Area 10, F5 (richiesta di 94): sulle card `member.added`, i pezzi delle due
+   * frasi del prototipo, che il renderer compone nella lingua di chi guarda.
+   * DERIVATI a lettura: `addedName` e `actorName` null se chi guarda non vede
+   * quella persona (R-G5, `visiblePersonIds`) o non c'è più; `roleName` il
+   * nome di ADESSO del ruolo, null se il ruolo non c'è più. Additivo.
+   */
+  memberAdded: z
+    .object({ addedUserId: personRefSchema, addedName: z.string().nullable(), roleName: z.string().nullable(), actorName: z.string().nullable() })
+    .nullable()
+    .default(null),
+  /**
+   * Area 4, Chat (fetta 1): solo sulle card `chat.mention` e (fetta 2)
+   * `chat.question`, il messaggio che
+   * nomina chi legge, DERIVATO a lettura (canale, thread, chi scrive, un
+   * estratto). `null` per gli altri kind, un messaggio eliminato o un canale
+   * che chi legge non vede più (allora `objectGone`). Additivo.
+   */
+  chat: z
+    .object({
+      channelId: z.uuid(),
+      channelName: z.string(),
+      messageId: z.uuid(),
+      threadRootId: z.uuid().nullable(),
+      authorId: z.uuid().nullable(),
+      authorName: z.string(),
+      excerpt: z.string(),
+      /**
+       * Registro, A4 r.169: il gruppo che ha avvisato chi legge («@channel»,
+       * «@<Reparto>»), derivato a lettura dal messaggio di adesso; null se chi
+       * legge è nominato a nome. Additivo.
+       */
+      group: z.string().nullable().default(null),
+    })
+    .nullable()
+    .default(null),
+  /**
+   * Area 11, F2: sulle card `product_doc.*`, la pagina (e per una menzione il
+   * commento) DERIVATI a lettura: codice e titolo di ADESSO, la radice del
+   * filo, chi ha scritto (`authorName` null se chi guarda non lo vede, R-G5).
+   * Su `updated` e `question` i campi del commento sono null.
+   * `null` per gli altri kind, o se la pagina o il commento non ci sono più o
+   * chi guarda non legge più i Docs del progetto (allora `objectGone`, e la
+   * frase non dice né codice né chi). Additivo.
+   */
+  productDoc: z
+    .object({
+      pageId: z.uuid(),
+      pageCode: z.string(),
+      pageTitle: z.string(),
+      projectCode: z.string(),
+      commentId: z.uuid().nullable(),
+      threadRootId: z.uuid().nullable(),
+      authorId: z.string().nullable(), // l'id, o `hidden-<n>` per chi chi guarda non conosce (r.1414)
+      authorName: z.string().nullable(),
+      /**
+       * Solo per una menzione: il testo del commento di ADESSO, al più 200
+       * caratteri, derivato dalla riga del commento (mai dal jsonb). Additivo.
+       */
+      excerpt: z.string().nullable().default(null),
+      /** Area 11, F5: solo `updated` e `question`, quello che dice la card (`productDocClaudeCardSchema`). Additivo. */
+      claude: productDocClaudeCardSchema.nullable().default(null),
+    })
+    .nullable()
+    .default(null),
+  /**
+   * Area 7 (fetta 1): solo sulle card `automation.*`, lo stato dell'esecuzione
+   * DERIVATO a lettura: se aspetta ancora chi legge (`waitingOnYou`) e, per
+   * un'approvazione, se nel frattempo qualcuno ha deciso (`decided`: la card
+   * degli altri lo dice). `null` per gli altri kind, o se l'automazione non
+   * c'è più o chi legge non la vede (allora `objectGone`). Additivo.
+   */
+  automation: z
+    .object({
+      automationCode: z.string(),
+      automationName: z.string(),
+      runCode: z.string().nullable(),
+      runStatus: z.string().nullable(),
+      waitingOnYou: z.boolean(),
+      decided: z.boolean(),
+    })
+    .nullable()
+    .default(null),
   jobId: z.uuid().nullable(),
   createdAt: z.iso.datetime(),
   readAt: z.iso.datetime().nullable(),
   snoozedUntil: z.iso.datetime().nullable(),
   handledAt: z.iso.datetime().nullable(),
   handledBy: handledBySchema.nullable(),
+  /**
+   * «via Claude» (chat, fetta 3): la notifica nasce da un'azione di Claude
+   * per conto di `viaClaudeRequesterId` («Claude per conto di X»). DERIVATI a
+   * lettura da `notifications.via_claude_action_id`, mai scritti nel jsonb:
+   * valgono anche per le card pubblicate prima.
+   */
+  ...viaClaudeShape,
 });
 export type InboxItem = z.infer<typeof inboxItemSchema>;
 

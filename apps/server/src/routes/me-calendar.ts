@@ -1,3 +1,4 @@
+import { hiddenFor } from "../services/people-known.js";
 import {
   calendarEvents,
   calendarSeries,
@@ -5,13 +6,26 @@ import {
   googleAccounts,
   projects,
   type Db,
+  users,
 } from "@stubwise/db";
 import { htmlToText, sanitizeEmailHtml } from "@stubwise/google";
+import { projectPermissionsByProject } from "@stubwise/notifications";
 import {
+  calendarEventItemSchema,
   calendarEventPageSchema,
   calendarSeriesListSchema,
   calendarSeriesPatchSchema,
   calendarSeriesWriteResultSchema,
+  calendarEventCreateSchema,
+  calendarEventEditSchema,
+  calendarEventMoveSchema,
+  calendarEventRespondSchema,
+  calendarWriteResultSchema,
+  calendarWriteScopeSchema,
+  calendarEventProjectSchema,
+  calendarFreeBusySchema,
+  meetingSummarySchema,
+  meetingTasksSchema,
   mailItemStatusSchema,
   type CalendarAttendee,
   type CalendarConferenceEntryPoint,
@@ -19,13 +33,30 @@ import {
   type CalendarReminder,
   type MailItemStatus,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, isNotNull, sql } from "drizzle-orm";
-import type { FastifyInstance } from "fastify";
+import { and, asc, desc, eq, inArray, isNotNull, sql, type SQL } from "drizzle-orm";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { apiError } from "../errors.js";
 import { calendarDayUrl, calendarReproposableSql, calendarStatusCaseSql } from "./calendar-status.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
+import {
+  createCalendarEvent,
+  deleteCalendarEventRow,
+  editCalendarEvent,
+  isOrganizerRow,
+  myAttendee,
+  moveCalendarEvent,
+  realCalendarWriteClient,
+  respondCalendarEvent,
+  type CalendarWriteClient,
+  type CalendarWriteDeps,
+  type CalendarWriteError,
+  type CalendarWriteOutcome,
+} from "../services/calendar-writes.js";
+import { setCalendarEventProject } from "../services/calendar-project.js";
+import { meetingSummaryFor, meetingTasksFor, noteForEventRow } from "../services/meetings.js";
+import { FREEBUSY_MAX_DAYS, FREEBUSY_MAX_PEOPLE, freeBusyOf } from "../services/calendar-freebusy.js";
 
 /**
  * SEZIONE CALENDARIO (fase 7b), sotto `/api/me/calendar`: la superficie che
@@ -84,8 +115,169 @@ function decodeCursor(raw: string): CalendarCursor | null {
   return { date, id };
 }
 
-export async function meCalendarRoutes(instance: FastifyInstance): Promise<void> {
+export async function meCalendarRoutes(instance: FastifyInstance, opts: { client?: CalendarWriteClient } = {}): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+  const writeDeps = (): CalendarWriteDeps => ({ db: app.db, encryptionKey: app.encryptionKey, client: opts.client ?? realCalendarWriteClient });
+  const writeErrors = {
+    400: errorSchema,
+    404: errorSchema,
+    409: errorSchema.extend({ missing: z.array(z.string()).optional() }),
+    422: errorSchema.extend({ reason: z.string().optional() }),
+    502: errorSchema,
+    ...authErrorResponses,
+  };
+
+  /** Gli errori delle scritture, nelle parole che il renderer mappa (piano F4, «Errori»). */
+  function sendWriteError(reply: FastifyReply, err: CalendarWriteError) {
+    switch (err.error) {
+      case "not_found":
+        return apiError(reply, 404, "not_found", "Calendar event not found");
+      case "invalid_range":
+      case "outside_window":
+      case "all_day_series":
+      case "organizer":
+      case "not_invited":
+        return apiError(reply, 400, err.error, "Cannot write this event");
+      case "not_organizer":
+        return apiError(reply, 403, err.error, "Only the organizer can change this event");
+      case "google_scope_missing":
+        return reply.code(409).send({ code: err.error, message: "Reconnect the mailbox to write the calendar from Stubwise", missing: err.missing });
+      case "google_rejected":
+        return reply.code(422).send({ code: err.error, message: "Google refused the change", reason: err.reason });
+      case "google_unavailable":
+        return apiError(reply, 502, err.error, "Could not reach Google");
+      default:
+        return apiError(reply, 409, err.error, "Cannot write this event");
+    }
+  }
+
+  async function sendWritten(reply: FastifyReply, userId: string, out: CalendarWriteOutcome) {
+    if (!("ok" in out)) return sendWriteError(reply, out);
+    const items = out.rowIds.length === 0 ? [] : await queryCalendarEventRows(app.db, userId, [inArray(calendarEvents.id, out.rowIds)]);
+    return { items };
+  }
+
+  /**
+   * Il libero/occupato dei colleghi (F4, task 5): ECCEZIONE DICHIARATA a
+   * «Posta e Calendario personali», solo intervalli — regole e perimetro in
+   * `services/calendar-freebusy.ts`. Chiunque nell'istanza lo legge *(O)*.
+   */
+  app.get(
+    "/freebusy",
+    {
+      config: { access: { kind: "user" } },
+      schema: {
+        querystring: z.object({
+          personIds: z
+            .string()
+            .transform((v) => v.split(",").map((s) => s.trim()).filter((s) => s !== ""))
+            .pipe(z.array(z.uuid()).min(1).max(FREEBUSY_MAX_PEOPLE)),
+          from: z.iso.datetime(),
+          to: z.iso.datetime(),
+        }),
+        response: { 200: calendarFreeBusySchema, 400: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const from = new Date(request.query.from);
+      const to = new Date(request.query.to);
+      if (to <= from) return apiError(reply, 400, "invalid_range", "'to' must be after 'from'");
+      if (to.getTime() - from.getTime() > FREEBUSY_MAX_DAYS * 24 * 3600_000) return apiError(reply, 400, "range_too_wide", "Range too wide");
+      // Registro, A11 r.1414: di chi guarda non conosce non si dice nemmeno se ha il calendario collegato.
+      const hidden = await hiddenFor(app.db, request.user!, request.query.personIds);
+      const known = request.query.personIds.filter((id) => hidden.knows(id));
+      const byId = new Map((await freeBusyOf(app.db, known, from, to)).map((p) => [p.personId, p]));
+      return {
+        items: [...new Set(request.query.personIds)].map((personId) => byId.get(personId) ?? { personId, availability: "not_connected" as const, busy: [] }),
+      };
+    },
+  );
+
+  // --- Area 6, F4: scrivere sul calendario (sempre un gesto della persona) ---
+  // Le regole stanno in `services/calendar-writes.ts`.
+
+  app.post(
+    "/events",
+    { config: { access: { kind: "user" } }, schema: { body: calendarEventCreateSchema, response: { 200: calendarWriteResultSchema, ...writeErrors } } },
+    async (request, reply) => sendWritten(reply, request.user!.id, await createCalendarEvent(writeDeps(), request.user!.id, request.body)),
+  );
+
+  app.patch(
+    "/events/:id",
+    { config: { access: { kind: "user" } }, schema: { params: z.object({ id: z.uuid() }), body: calendarEventEditSchema, response: { 200: calendarWriteResultSchema, ...writeErrors } } },
+    async (request, reply) => sendWritten(reply, request.user!.id, await editCalendarEvent(writeDeps(), request.user!.id, request.params.id, request.body)),
+  );
+
+  app.post(
+    "/events/:id/move",
+    { config: { access: { kind: "user" } }, schema: { params: z.object({ id: z.uuid() }), body: calendarEventMoveSchema, response: { 200: calendarWriteResultSchema, ...writeErrors } } },
+    async (request, reply) => sendWritten(reply, request.user!.id, await moveCalendarEvent(writeDeps(), request.user!.id, request.params.id, request.body)),
+  );
+
+  app.post(
+    "/events/:id/respond",
+    { config: { access: { kind: "user" } }, schema: { params: z.object({ id: z.uuid() }), body: calendarEventRespondSchema, response: { 200: calendarWriteResultSchema, ...writeErrors } } },
+    async (request, reply) => sendWritten(reply, request.user!.id, await respondCalendarEvent(writeDeps(), request.user!.id, request.params.id, request.body)),
+  );
+
+  /**
+   * F5a: il riassunto della riunione registrata di questo evento (stesso
+   * iCalUID e stessa data). 404 a chi non è nel calcolo di `canSeeMeeting` —
+   * un membro che non c'era, un admin non invitato — come a un evento che non
+   * esiste, e a un evento senza riunione registrata.
+   */
+  app.get(
+    "/events/:id/summary",
+    { config: { access: { kind: "user" } }, schema: { params: z.object({ id: z.uuid() }), response: { 200: meetingSummarySchema, 404: errorSchema, ...authErrorResponses } } },
+    async (request, reply) => {
+      const found = await noteForEventRow(app.db, request.user!.id, request.params.id);
+      const summary = found?.noteId ? await meetingSummaryFor(app.db, request.user!.id, found.noteId) : null;
+      return summary ?? apiError(reply, 404, "not_found", "Meeting summary not found");
+    },
+  );
+
+  /** F5a: «Task da questa riunione», solo ai membri del progetto dell'evento (`null` agli altri). */
+  app.get(
+    "/events/:id/tasks",
+    { config: { access: { kind: "user" } }, schema: { params: z.object({ id: z.uuid() }), response: { 200: meetingTasksSchema, 404: errorSchema, ...authErrorResponses } } },
+    async (request, reply) => {
+      const out = await meetingTasksFor(app.db, request.user!, request.params.id, new Date().toISOString().slice(0, 10));
+      return out === undefined ? apiError(reply, 404, "not_found", "Calendar event not found") : out;
+    },
+  );
+
+  /** Il progetto dell'evento, a mano (task 4): nessuna chiamata a Google. Regole in `services/calendar-project.ts`. */
+  app.put(
+    "/events/:id/project",
+    { config: { access: { kind: "user" } }, schema: { params: z.object({ id: z.uuid() }), body: calendarEventProjectSchema, response: { 200: calendarWriteResultSchema, 404: errorSchema, ...authErrorResponses } } },
+    async (request, reply) => {
+      const out = await setCalendarEventProject(app.db, request.user!.id, request.params.id, request.body.projectId);
+      if ("error" in out) {
+        return out.error === "project_hidden"
+          ? apiError(reply, 403, out.error, "The current project is not one you can see")
+          : apiError(reply, 404, "not_found", "Calendar event not found");
+      }
+      return { items: await queryCalendarEventRows(app.db, request.user!.id, [eq(calendarEvents.id, out.rowId)]) };
+    },
+  );
+
+  app.delete(
+    "/events/:id",
+    {
+      config: { access: { kind: "user" } },
+      schema: {
+        params: z.object({ id: z.uuid() }),
+        // `etag` assente = la riga non ne aveva (una riga di prima della F4).
+        querystring: z.object({ scope: calendarWriteScopeSchema.default("one"), etag: z.string().optional() }),
+        response: { 204: z.null(), ...writeErrors },
+      },
+    },
+    async (request, reply) => {
+      const out = await deleteCalendarEventRow(writeDeps(), request.user!.id, request.params.id, { scope: request.query.scope, etag: request.query.etag ?? null });
+      if (!("ok" in out)) return sendWriteError(reply, out);
+      return reply.code(204).send(null);
+    },
+  );
 
   /**
    * "Gli appuntamenti visti" (design §4): una riga per occorrenza, stesso
@@ -147,12 +339,19 @@ export async function meCalendarRoutes(instance: FastifyInstance): Promise<void>
           from: z.iso.datetime(),
           to: z.iso.datetime(),
           account: z.uuid().optional(),
+          /**
+           * F3b: `summary` = la lista LEGGERA (senza descrizione, invitati,
+           * conferenza, promemoria: li rilegge `/events/:id`) e senza le
+           * cancellate. Assente = come prima: il web e l'app leggono ancora
+           * i campi pesanti da qui.
+           */
+          fields: z.enum(["summary"]).optional(),
         }),
         response: { 200: calendarEventPageSchema, 400: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
-      const { from, to, account } = request.query;
+      const { from, to, account, fields } = request.query;
       const fromDate = new Date(from);
       const toDate = new Date(to);
       if (toDate <= fromDate) {
@@ -173,8 +372,42 @@ export async function meCalendarRoutes(instance: FastifyInstance): Promise<void>
         from: fromDate,
         to: toDate,
         ...(account ? { account } : {}),
+        light: fields === "summary",
       });
       return { items, nextCursor: null };
+    },
+  );
+
+  /**
+   * Un evento per id (area 6, F1.4): la stessa riga di `/range`, dalla stessa
+   * select. Un evento di un altro — anche per un admin — e uno che non esiste
+   * rispondono lo STESSO 404: non si conferma che l'id esiste.
+   */
+  app.get(
+    "/events/:id",
+    {
+      config: { access: { kind: "user" } },
+      schema: {
+        params: z.object({ id: z.uuid() }),
+        response: { 200: calendarEventItemSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const [item] = await queryCalendarEventRows(app.db, request.user!.id, [eq(calendarEvents.id, request.params.id)]);
+      if (!item) return apiError(reply, 404, "not_found", "Calendar event not found");
+      // F4: gli invitati del dettaglio con la persona di Stubwise (una query
+      // per tutti, `lower()`) e chi organizza.
+      const emails = [...new Set(item.attendees.map((a) => a.email.toLowerCase()))];
+      const people = new Map<string, string>();
+      if (emails.length > 0) {
+        const list = sql`array[${sql.join(emails.map((e) => sql`${e}`), sql`, `)}]::text[]`;
+        for (const row of await app.db.select({ id: users.id, email: users.email }).from(users).where(and(eq(users.isAgent, false), sql`lower(${users.email}) = any(${list})`))) people.set(row.email.toLowerCase(), row.id);
+      }
+      const organizer = item.organizer?.toLowerCase() ?? null;
+      return {
+        ...item,
+        attendees: item.attendees.map((a) => ({ ...a, personId: people.get(a.email.toLowerCase()) ?? null, organizer: organizer !== null && a.email.toLowerCase() === organizer })),
+      };
     },
   );
 
@@ -215,6 +448,7 @@ export async function meCalendarRoutes(instance: FastifyInstance): Promise<void>
           // un'espressione SQL grezza) — vedi la normalizzazione sotto.
           nextOccurrenceAt: sql<string | null>`min(${calendarEvents.startsAt}) filter (where ${calendarEvents.startsAt} >= now() and ${calendarEvents.status} is distinct from 'cancelled')`,
           enabled: sql<boolean>`coalesce(bool_or(${calendarSeries.enabled}), false)`,
+          recognized: sql<boolean>`coalesce(bool_or(${calendarEvents.proposalCandidate}), false)`,
           projectId: sql<string | null>`min(${calendarSeries.projectId}::text)`,
           action: sql<string>`coalesce(min(${calendarSeries.action}), 'milestone')`,
           leadDays: sql<number>`coalesce(min(${calendarSeries.leadDays}), 2)`,
@@ -264,6 +498,7 @@ export async function meCalendarRoutes(instance: FastifyInstance): Promise<void>
           action: row.action as "backlog_item" | "milestone" | "reminder",
           leadDays: row.leadDays,
           auto: row.auto,
+          recognized: row.recognized,
         })),
       };
     },
@@ -410,6 +645,12 @@ async function queryCalendarEvents(db: Db, input: ListCalendarInput): Promise<Ca
       reminders: calendarEvents.reminders,
       remindersUseDefault: calendarEvents.remindersUseDefault,
       recurrence: calendarSeriesRecurrence.recurrence,
+      proposalCandidate: calendarEvents.proposalCandidate,
+      projectBy: calendarEvents.projectBy,
+      eventType: calendarEvents.eventType,
+      transparency: calendarEvents.transparency,
+      etag: calendarEvents.etag,
+      organizerSelf: calendarEvents.organizerSelf,
     })
     .from(calendarEvents)
     .innerJoin(googleAccounts, eq(googleAccounts.id, calendarEvents.accountId))
@@ -429,7 +670,7 @@ async function queryCalendarEvents(db: Db, input: ListCalendarInput): Promise<Ca
     .orderBy(desc(calendarEvents.startsAt), desc(calendarEvents.id))
     .limit(input.limit + 1);
 
-  return rows.map(toCalendarItem);
+  return hideUnseenProjects(db, input.userId, rows.map((row) => toCalendarItem(row)));
 }
 
 /**
@@ -455,8 +696,30 @@ async function queryCalendarEvents(db: Db, input: ListCalendarInput): Promise<Ca
  * che non rende HTML e lo mostra con `LinkedText`. Non è una seconda fonte
  * di verità, è la stessa letta in un altro modo.
  */
-function toCalendarItem(row: CalendarItemRow): CalendarEventItem {
-  const description = row.description !== null && row.description.trim() !== "" ? row.description : null;
+/**
+ * Un progetto che chi guarda non vede non esce dal suo calendario (review F4,
+ * punto 2: «invisibile = 404»). Vale per ogni fonte del progetto di una
+ * riga — a mano (Q1 lo propaga agli altri invitati), regole, modello: si
+ * azzera a lettura, una query per pagina.
+ */
+async function hideUnseenProjects(db: Db, viewerId: string, items: CalendarEventItem[]): Promise<CalendarEventItem[]> {
+  const ids = [...new Set(items.map((i) => i.projectId).filter((id): id is string => id !== null))];
+  if (ids.length === 0) return items.map((item) => ({ ...item, hasPrep: false }));
+  const seen = await projectPermissionsByProject(db, viewerId, ids);
+  // F5a: la scheda di preparazione c'è se l'evento è futuro e ha un progetto che chi guarda vede (stesso passaggio).
+  const now = Date.now();
+  return items.map((item) =>
+    item.projectId !== null && !seen.get(item.projectId)
+      ? { ...item, projectId: null, projectName: null, projectBy: null, hasPrep: false }
+      : { ...item, hasPrep: item.projectId !== null && Date.parse(item.startsAt) > now },
+  );
+}
+
+function toCalendarItem(row: CalendarItemRow, options: { light?: boolean } = {}): CalendarEventItem {
+  const light = options.light === true;
+  const description = !light && row.description !== null && row.description.trim() !== "" ? row.description : null;
+  // `self` prima dell'indirizzo, come le scritture (review F4, punto 7: con un alias, la stessa risposta).
+  const mine = myAttendee(row.attendees, row.accountEmail);
   return {
     id: row.id,
     accountId: row.accountId,
@@ -466,7 +729,7 @@ function toCalendarItem(row: CalendarItemRow): CalendarEventItem {
     projectName: row.projectName,
     title: row.title,
     organizer: row.organizer,
-    attendees: row.attendees,
+    attendees: light ? [] : row.attendees,
     startsAt: row.startsAt.toISOString(),
     endsAt: row.endsAt ? row.endsAt.toISOString() : null,
     allDay: row.allDay,
@@ -475,22 +738,50 @@ function toCalendarItem(row: CalendarItemRow): CalendarEventItem {
     error: extractError(row.outcome),
     url: calendarDayUrl(row.accountEmail, row.startsAt),
     eventUrl: row.htmlLink,
-    reproposable: row.reproposable,
+    // Un evento solo VISTO non si ripropone: non è mai stato un candidato.
+    reproposable: row.proposalCandidate ? row.reproposable : false,
     descriptionHtml: description === null ? null : sanitizeEmailHtml(description),
     descriptionText: description === null ? null : htmlToText(description),
     location: row.location,
     hangoutLink: row.hangoutLink,
-    conferenceEntryPoints: row.conferenceEntryPoints,
-    reminders: row.reminders,
+    conferenceEntryPoints: light ? [] : row.conferenceEntryPoints,
+    reminders: light ? [] : row.reminders,
     remindersUseDefault: row.remindersUseDefault,
     // `null` dal LEFT JOIN quando l'evento non è di una serie, o quando del
     // suo padre non abbiamo ancora letto la regola.
     recurrence: row.recurrence ?? [],
+    recognized: row.proposalCandidate,
+    projectBy: row.projectBy,
+    eventType: row.eventType,
+    transparency: row.transparency === "transparent" || row.transparency === "opaque" ? row.transparency : null,
+    // null SOLO se la casella non è fra gli invitati; fra gli invitati senza
+    // una risposta da Google = needsAction, come il dettaglio (richiesta di 94).
+    myResponse: mine ? (mine.responseStatus ?? "needsAction") : null,
+    attendeeCount: row.attendees.length,
+    ...writeAbilities(row, mine),
+    hasPrep: false,
   };
+}
+
+/**
+ * Chi può fare cosa su un evento (area 6, F4): UN posto, letto dai client.
+ * Organizza la casella se Google lo dice (`organizer.self`) o se
+ * l'organizzatore è il suo indirizzo (un evento suo senza invitati);
+ * risponde chi è fra gli invitati e non organizza.
+ */
+function writeAbilities(row: CalendarItemRow, mine: CalendarAttendee | undefined) {
+  const canEdit = isOrganizerRow(row);
+  return { canEdit, canRespond: Boolean(mine) && !canEdit, etag: row.etag, myNote: mine?.comment ?? null };
 }
 
 /** La riga che le due query proiettano — una sola forma, come il mapper. */
 interface CalendarItemRow {
+  etag: string | null;
+  organizerSelf: boolean;
+  proposalCandidate: boolean;
+  projectBy: "rules" | "model" | "manual" | null;
+  eventType: string | null;
+  transparency: string | null;
   id: string;
   accountId: string;
   accountEmail: string;
@@ -528,6 +819,7 @@ interface RangeCalendarInput {
   from: Date;
   to: Date;
   account?: string;
+  light?: boolean;
 }
 
 /**
@@ -540,11 +832,23 @@ interface RangeCalendarInput {
  */
 async function queryCalendarEventsInRange(db: Db, input: RangeCalendarInput): Promise<CalendarEventItem[]> {
   const conditions = [
-    eq(googleAccounts.userId, input.userId),
     sql`${calendarEvents.startsAt} < ${input.to.toISOString()}::timestamptz`,
     sql`coalesce(${calendarEvents.endsAt}, ${calendarEvents.startsAt}) >= ${input.from.toISOString()}::timestamptz`,
   ];
   if (input.account) conditions.push(eq(calendarEvents.accountId, input.account));
+  // F3b, con `fields=summary`: un evento cancellato su Google sparisce, e la
+  // lista è LEGGERA (i campi pesanti li rilegge il dettaglio, `/events/:id`).
+  if (input.light) conditions.push(sql`${calendarEvents.status} is distinct from 'cancelled'`);
+  return queryCalendarEventRows(db, input.userId, conditions, { light: input.light === true });
+}
+
+/**
+ * Le righe di `/range` e di `/events/:id` (area 6, F1.4): UNA select, quindi
+ * la stessa forma e lo stesso filtro di proprietà — `google_accounts.user_id`
+ * di chi guarda nella WHERE, sempre, prima delle condizioni del chiamante.
+ */
+async function queryCalendarEventRows(db: Db, userId: string, extra: SQL[], options: { light?: boolean } = {}): Promise<CalendarEventItem[]> {
+  const conditions = [eq(googleAccounts.userId, userId), ...extra];
 
   const rows = await db
     .select({
@@ -573,6 +877,12 @@ async function queryCalendarEventsInRange(db: Db, input: RangeCalendarInput): Pr
       reminders: calendarEvents.reminders,
       remindersUseDefault: calendarEvents.remindersUseDefault,
       recurrence: calendarSeriesRecurrence.recurrence,
+      proposalCandidate: calendarEvents.proposalCandidate,
+      projectBy: calendarEvents.projectBy,
+      eventType: calendarEvents.eventType,
+      transparency: calendarEvents.transparency,
+      etag: calendarEvents.etag,
+      organizerSelf: calendarEvents.organizerSelf,
     })
     .from(calendarEvents)
     .innerJoin(googleAccounts, eq(googleAccounts.id, calendarEvents.accountId))
@@ -591,5 +901,5 @@ async function queryCalendarEventsInRange(db: Db, input: RangeCalendarInput): Pr
     .where(and(...conditions))
     .orderBy(asc(calendarEvents.startsAt), asc(calendarEvents.id));
 
-  return rows.map(toCalendarItem);
+  return hideUnseenProjects(db, userId, rows.map((row) => toCalendarItem(row, options)));
 }

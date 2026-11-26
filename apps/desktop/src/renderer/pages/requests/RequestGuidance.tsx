@@ -142,7 +142,12 @@ export function SuggestionsSection({
       { id: request.id, patch },
       {
         onSuccess: () => done && toast.show(done),
-        onError: () => toast.error(t("requests.suggestions.failed")),
+        onError: (error: unknown) =>
+          toast.error(
+            (error as { code?: unknown } | null)?.code === "suggestions_kept"
+              ? t("requests.suggestions.savedNotDismissed")
+              : t("requests.suggestions.failed"),
+          ),
       },
     );
   const accept = () => {

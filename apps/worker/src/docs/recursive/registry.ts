@@ -88,6 +88,8 @@ export interface GenerationWorktreeRegistry {
    * progetto, incluso quello con la generazione attiva).
    */
   activeProjectIds(): Set<string>;
+  /** Area 9, F4: le generazioni in corso in questo processo (l'heartbeat le dichiara). */
+  activeGenerationIds(): string[];
 }
 
 /**
@@ -124,6 +126,9 @@ export function createGenerationWorktreeRegistry(): GenerationWorktreeRegistry {
       return ids;
     },
 
+    activeGenerationIds(): string[] {
+      return [...entries.keys()];
+    },
     activeProjectIds(): Set<string> {
       const ids = new Set<string>();
       for (const entry of entries.values()) ids.add(entry.projectId);

@@ -8,7 +8,7 @@ import {
 import { allowedNow, latest, subscriptionAt, type Channels } from "../../domain/alerts/recipients";
 import { chatKey, gate, now, state, visibleProjectIds } from "../store";
 import type { AppNotification, MandatoryReason } from "../types";
-import type { Permission } from "../viewer";
+import type { Permission } from "../viewing";
 import { canReceive, defaultAppliesTo, permsIn, whyReceives } from "./visibility";
 
 // Le letture degli avvisi: le iscrizioni di chi guarda (Preferenze →

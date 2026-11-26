@@ -339,6 +339,47 @@ describe("il registro decisioni non è mai scritto dall'AI — sul sorgente", ()
     // mai dal testo che il classificatore ha suggerito — vedi il docblock del
     // modulo.
     "./google-proposal.ts",
+    // Chat con Claude, fetta 3: l'esecutore delle azioni di Claude e le sue
+    // proposte NON scrivono nel registro decisioni (confermare non è una
+    // decisione registrata) e non nominano esecutori di agenti: eseguono
+    // servizi delle rotte, mai un run. Il divieto di toccare il registro sta
+    // in `claude-actions-never.test.ts` (`projectDecisions`, `recordDecision`).
+    "../claude-actions/catalog.ts",
+    "../claude-actions/execute.ts",
+    "../claude-actions/proposals.ts",
+    "../claude-actions/undo.ts",
+    // Area 4, fetta 3: @Claude nella Chat. La chiamata, le risposte, le domande
+    // e le loro proposte non scrivono nel registro decisioni (una domanda della
+    // Chat non è una decisione del progetto) e il server non esegue agenti:
+    // il turno è del worker.
+    "../chat/claude.ts",
+    "../chat/service.ts",
+    // Area 6, F5a: le riunioni registrate in lettura. Il riassunto è
+    // NARRATIVA (lo genera il worker, `apps/worker/src/google/meetings.ts`,
+    // che a sua volta non tocca il registro: lo verifica `meetings.test.ts`).
+    "./meetings.ts",
+    // Review F5a, punto 4: chi conferma una proposta (anche di una riunione)
+    // scrive nel registro da TEMPLATE (`decision.meeting.*`), mai un run.
+    "./mail-proposals-decide.ts",
+    // Area 11, F5: lo scrittore delle modifiche di Claude alla doc di prodotto
+    // (worker e risposte del server): applica FATTI già validati, non esegue
+    // run e non scrive nel registro (`product-docs/job.test.ts` lo verifica
+    // anche sui nomi delle tabelle).
+    "../../../../packages/notifications/src/product-docs-write.ts",
+    // Area 11, F5, Task 4: i segni e le domande di Claude. «Undo», «Update it»,
+    // «Keep it» e «Open a request» sono gesti di una PERSONA, non decisioni del
+    // registro, e non eseguono run.
+    "./product-claude.ts",
+    "./product-questions.ts",
+    // Revisione di F5: l'origine della richiesta da una domanda e le card di Claude. Il lavoro del
+    // worker (`product-docs/job.ts`) NON sta qui: esegue il modello per costruzione; che non scriva nel
+    // registro lo controlla sul sorgente `product-docs/job.test.ts` («non scrive nel registro»).
+    "./product-question-origin.ts",
+    "./product-claude-cards.ts",
+    // Area 11, F6: la prima versione (il server la accoda e la legge; la scrittura delle pagine è del package).
+    "./product-first-version.ts",
+    "./product-wireframes.ts",
+    "../../../../packages/notifications/src/product-first-version.ts",
   ];
 
   it.each(MODULES)("%s non nomina nessun esecutore di agenti", async (relative) => {

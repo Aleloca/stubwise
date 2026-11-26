@@ -5,6 +5,7 @@ import {
   googleAccounts,
   googleWorkspaces,
   oauthStates,
+  reattachDriveReferences,
   type Db,
 } from "@stubwise/db";
 import {
@@ -56,12 +57,15 @@ export const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 /**
  * Gli scope SENZA i quali la casella è inutile: leggere la posta e leggere il
  * calendario. `openid`/`email` non sono qui perché senza di essi non avremmo
- * nemmeno l'identità — la `userinfo` fallirebbe prima.
+ * nemmeno l'identità — la `userinfo` fallirebbe prima. La posta si legge con
+ * `gmail.modify` (chiesto dall'area 6) o con `gmail.readonly` (le caselle di
+ * prima): basta UNO dei due. Gli altri scope dell'area, se mancano, non
+ * impediscono di collegarsi: li dice `missingScopes`.
  */
-export const REQUIRED_GOOGLE_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.readonly",
-  "https://www.googleapis.com/auth/calendar.readonly",
-] as const;
+export const REQUIRED_GOOGLE_SCOPES: readonly (readonly string[])[] = [
+  ["https://www.googleapis.com/auth/gmail.modify", "https://www.googleapis.com/auth/gmail.readonly"],
+  ["https://www.googleapis.com/auth/calendar.readonly"],
+];
 
 /** Il contenuto firmato dello `state`. */
 export interface OauthStatePayload {
@@ -173,7 +177,7 @@ export type BeginConnectResult =
  */
 export async function beginConnect(
   deps: GoogleOauthDeps,
-  input: { userId: string; workspaceId: string },
+  input: { userId: string; workspaceId: string; client?: "web" | "desktop"; returnState?: string },
 ): Promise<BeginConnectResult> {
   const nowMs = (deps.now ?? Date.now)();
   const [workspace] = await deps.db
@@ -201,6 +205,9 @@ export async function beginConnect(
     userId: input.userId,
     workspaceId: workspace.id,
     expiresAt: new Date(exp),
+    // Lotto 4 (§6): dove torna il callback, deciso QUI.
+    client: input.client === "desktop" ? "desktop" : null,
+    returnState: input.client === "desktop" ? (input.returnState ?? null) : null,
   });
 
   const state = signState(
@@ -219,6 +226,20 @@ export async function beginConnect(
       hd: workspace.domains[0] ?? null,
     }),
   };
+}
+
+/**
+ * Rimandi, lotto 4 (§6): dove torna il callback di questo `state`. Solo da uno
+ * state VERIFICATO (firma e scadenza) e dalla sua riga: la query del callback
+ * non decide mai il ritorno. null = il web di sempre (state non verificabile,
+ * riga assente, collegamento avviato dal web).
+ */
+export async function connectReturnOf(deps: Pick<GoogleOauthDeps, "db" | "encryptionKey" | "now">, state: string | undefined): Promise<{ returnState: string } | null> {
+  if (!state) return null;
+  const payload = verifyState(state, deps.encryptionKey, (deps.now ?? Date.now)());
+  if (!payload) return null;
+  const [row] = await deps.db.select({ client: oauthStates.client, returnState: oauthStates.returnState }).from(oauthStates).where(eq(oauthStates.nonce, payload.nonce));
+  return row?.client === "desktop" && row.returnState ? { returnState: row.returnState } : null;
 }
 
 /**
@@ -365,7 +386,7 @@ export async function completeCallback(
   }
 
   const granted = new Set(tokens.scopes);
-  if (!REQUIRED_GOOGLE_SCOPES.every((scope) => granted.has(scope))) {
+  if (!REQUIRED_GOOGLE_SCOPES.every((anyOf) => anyOf.some((scope) => granted.has(scope)))) {
     return { status: "insufficient_scope", detail: `concessi: ${tokens.scopes.join(" ")}` };
   }
 
@@ -430,5 +451,9 @@ export async function completeCallback(
     })
     .returning({ id: googleAccounts.id });
   if (!account) throw new Error("upsert della casella Google non ha restituito la riga");
+  // Area 6, F5b (review del server, punto 5): se la stessa persona aveva
+  // scollegato questo indirizzo, le sue cartelle e i suoi riferimenti Drive
+  // tornano alla riga nuova. Idempotente: un collegamento rifatto lo rifà.
+  await reattachDriveReferences(deps.db, { id: account.id, userId: payload.userId, email: userinfo.email });
   return { status: "ok", accountId: account.id };
 }

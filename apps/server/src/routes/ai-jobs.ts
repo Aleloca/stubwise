@@ -1,11 +1,12 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
+import { ticketUsageByModel } from "../services/ticket-usage.js";
 import type { RouteAccess } from "../auth/access.js";
 import { fromTicket, ticketVisible } from "../auth/project-resolvers.js";
 import type { Db } from "@stubwise/db";
-import { agentRuns, aiJobs, aiProviders, tickets } from "@stubwise/db";
+import { aiJobs, aiProviders, tickets } from "@stubwise/db";
 import { aiJobSchema } from "@stubwise/shared";
 import { authErrorResponses, errorSchema } from "./shared.js";
 import { apiError } from "../errors.js";
@@ -86,28 +87,8 @@ async function ticketExists(db: Db, ticketId: string): Promise<boolean> {
  * tipi prevedibili a prescindere dal driver.
  */
 async function aggregateUsage(db: Db, ticketId: string): Promise<z.infer<typeof ticketUsageSchema>> {
-  const rows = await db
-    .select({
-      model: agentRuns.model,
-      inputTokens: sql<number>`sum(${agentRuns.inputTokens})::int`,
-      outputTokens: sql<number>`sum(${agentRuns.outputTokens})::int`,
-      cacheReadTokens: sql<number>`sum(${agentRuns.cacheReadTokens})::int`,
-      // numeric → stringa lato driver; null se tutti i costi sono null.
-      costUsd: sql<string | null>`sum(${agentRuns.costUsd})`,
-    })
-    .from(agentRuns)
-    .innerJoin(aiJobs, eq(agentRuns.jobId, aiJobs.id))
-    .where(eq(aiJobs.ticketId, ticketId))
-    .groupBy(agentRuns.model)
-    .orderBy(agentRuns.model);
-
-  const byModel = rows.map((row) => ({
-    model: row.model,
-    inputTokens: row.inputTokens,
-    outputTokens: row.outputTokens,
-    cacheReadTokens: row.cacheReadTokens,
-    costUsd: row.costUsd !== null ? Number(row.costUsd) : null,
-  }));
+  // Lotto 4 (§7.3): lo stesso conto di `/work` (`ticketUsageByModel`).
+  const byModel = await ticketUsageByModel(db, ticketId);
 
   const totalTokens = byModel.reduce((sum, m) => sum + m.inputTokens + m.outputTokens, 0);
   // Costo totale: null se NESSUN modello riporta un costo; altrimenti la somma

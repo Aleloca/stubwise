@@ -133,6 +133,48 @@ describe("la voce del seme", () => {
   });
 });
 
+// Registro, A9 r.1250: la voce annullata può stare in una pagina non ancora
+// letta (50 voci a pagina): la data carica le pagine dopo finché la trova; se
+// non c'è più, lo dice.
+describe("«Undid:» oltre le pagine lette (r.1250)", () => {
+  function between(n: number) {
+    for (let i = 0; i < n; i++) {
+      const at = `${daysFromToday(-1)}T${String(10 + Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}:00Z`;
+      state.changelog.push(change(`chg-fill-${i}`, at, i % 2 ? "on" : "off", i % 2 ? "off" : "on"));
+    }
+  }
+
+  it("la voce annullata è oltre la prima pagina: la data la carica e la evidenzia", async () => {
+    const old = `${daysFromToday(-2)}T08:00:00Z`;
+    state.changelog.push(change("chg-old", old, "on", "off"));
+    between(70);
+    state.changelog.push({ ...change("chg-new", `${daysFromToday(0)}T08:30:00Z`, "off", "on"), undoOf: "chg-old" });
+    const user = userEvent.setup();
+    await openAdminLog(ROBERTA);
+    await waitFor(() => expect(entryById("chg-new")).not.toBeNull());
+    expect(entryById("chg-old")).toBeNull();
+    await user.click(within(entryById("chg-new")!).getByRole("button", { name: dayTime(old, "en") }));
+    await waitFor(() => expect(entryById("chg-old")).toHaveAttribute("data-highlighted", "true"));
+    expect(entryById("chg-old")).toHaveFocus();
+    expect(screen.queryByText("Filters cleared to show the change.")).toBeNull();
+  });
+
+  it("la voce annullata non c'è più in nessuna pagina: lo dice, e non carica all'infinito", async () => {
+    const old = `${daysFromToday(-2)}T08:00:00Z`;
+    state.changelog.push(change("chg-old", old, "on", "off"));
+    between(70);
+    state.changelog.push({ ...change("chg-new", `${daysFromToday(0)}T08:30:00Z`, "off", "on"), undoOf: "chg-old" });
+    const user = userEvent.setup();
+    await openAdminLog(ROBERTA);
+    await waitFor(() => expect(entryById("chg-new")).not.toBeNull());
+    // Tolta dopo la lettura: la riga «Undid:» la nomina ancora.
+    state.changelog = state.changelog.filter((e) => e.id !== "chg-old");
+    await user.click(within(entryById("chg-new")!).getByRole("button", { name: dayTime(old, "en") }));
+    expect(await screen.findByText("That change isn't in the log anymore.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+  });
+});
+
 /** Una voce dell'interruttore del brief di ACQ scritta da Claude per Laura. */
 function change(id: string, at: string, before: string, after: string): StoredChange {
   return {

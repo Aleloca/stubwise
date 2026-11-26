@@ -1,35 +1,80 @@
 // L'import circolare con `api-mutations` è innocuo: `insertRequest` si usa
 // solo dentro le funzioni.
 import { insertRequest } from "../api-mutations";
-import { publishAlert } from "../alerts/publish";
 import { supportState, wishTitle } from "../../domain/support/state";
-import { CLAUDE_ID } from "../seed/people";
 import { newId, now, state } from "../store";
 import type { SupportConversation, SupportMessage } from "../types";
 import { invalid, writer } from "../writer";
 import {
   conversationFor,
   conversationView,
-  draftText,
   publishSupportRequest,
-  supportHref,
   type SupportConversationView,
 } from "./visibility";
 
 // SOLO PROTOTIPO: ciò che nel motore arriva dal canale (il widget, il server
 // MCP) e che qui si simula coi «Simula …» della UI: un messaggio del
-// cliente, il cliente che se ne va, il triage che finisce. Gli avvisi
-// passano tutti da `publishAlert`. Nessuna di queste funzioni scrive al
+// cliente, il cliente che se ne va, il triage che finisce. L'avviso della
+// richiesta passa da `publishSupportRequest`. Nessuna di queste funzioni scrive al
 // cliente né nella Posta.
 
 const push = (c: SupportConversation, from: SupportMessage["from"], body: string) =>
   c.messages.push({ id: newId("sup-m"), from, authorId: null, body, at: now() });
 
+const hasOutcome = (c: SupportConversation) => c.requestId !== null || c.taskId !== null;
+
+/** Il prossimo `<PRJ>-S<n>` del progetto, dal contatore: mai riusato. */
+function nextCode(projectId: string): string {
+  const n = (state.supportCodeSeq.get(projectId) ?? 0) + 1;
+  state.supportCodeSeq.set(projectId, n);
+  return `${state.projectsById.get(projectId)!.code}-S${n}`;
+}
+
+/**
+ * Dove va un messaggio del cliente (area 8, F3, S17): una conversazione con
+ * un esito è CHIUSA, e il messaggio va alla sua successiva — si segue la
+ * catena fino alla prima senza esito; se non c'è, se ne apre una (stesso
+ * canale, widget e cliente) e la si lega. Senza esito, la stessa.
+ */
+function receiverOf(c: SupportConversation): SupportConversation {
+  let cur = c;
+  while (hasOutcome(cur)) {
+    const next = cur.continuedInId
+      ? state.supportConversations.find((x) => x.id === cur.continuedInId)
+      : undefined;
+    if (next) {
+      cur = next;
+      continue;
+    }
+    const fresh: SupportConversation = {
+      id: newId("sup"),
+      code: nextCode(cur.projectId),
+      projectId: cur.projectId,
+      channel: cur.channel,
+      widgetId: cur.widgetId,
+      customer: { ...cur.customer },
+      messages: [],
+      rewrittenWish: null,
+      requestId: null,
+      taskId: null,
+      triage: null,
+      confirmedAt: null,
+      // API per i siti (S6, 72): la catena non promuove. La successiva è
+      // verificata solo se nasce con un token valido, e il messaggio simulato
+      // non ne porta.
+      identityVerified: false,
+    };
+    state.supportConversations.push(fresh);
+    cur.continuedInId = fresh.id;
+    return fresh;
+  }
+  return cur;
+}
+
 /**
  * «Simula un messaggio del cliente». Su una «non conclusa» il triage
- * riprende (shape [A 2]); su una conversazione con richiesta Claude prepara
- * la bozza della risposta (che non parte da sola). Avviso obbligatorio a chi
- * la segue.
+ * riprende (shape [A 2]); su una conversazione con un esito apre (o
+ * raggiunge) la successiva, e restituisce quella. Nessun avviso.
  */
 export async function simulateCustomerMessage(
   code: string,
@@ -39,21 +84,10 @@ export async function simulateCustomerMessage(
   const c = conversationFor(me, code);
   const text = body.trim();
   if (!text) throw invalid("body");
-  push(c, "customer", text);
-  if (c.requestId === null) c.leftAt = null;
-  if (supportState(c) === "waiting_us") c.claudeDraft = draftText(c);
-  publishAlert({
-    kind: "support.customer_replied",
-    projectId: c.projectId,
-    objectCode: c.code,
-    title: "The customer replied",
-    body: `${c.customer.name}: ${text}`,
-    link: supportHref(c.projectId, c.code),
-    mandatory: c.followerIds
-      .filter((id) => id !== CLAUDE_ID)
-      .map((personId) => ({ personId, reason: "follows_conversation" as const })),
-  });
-  return conversationView(me, c);
+  const target = receiverOf(c);
+  // Un messaggio nuovo rende vecchio il giudizio dopo il silenzio (lo stato lo deriva da sé).
+  push(target, "customer", text);
+  return conversationView(me, target);
 }
 
 /** «Simula: il cliente se ne va» durante il triage: non conclusa, nessuna richiesta. */
@@ -61,7 +95,8 @@ export async function simulateCustomerLeaves(code: string): Promise<SupportConve
   const me = await writer("support.simulateCustomerLeaves");
   const c = conversationFor(me, code);
   if (supportState(c) !== "triage") throw invalid("state");
-  c.leftAt = now();
+  // Area 8, F3: il controllo dopo il silenzio la giudica non conclusa.
+  c.triage = { outcome: "not_concluded", at: now(), byUserId: null };
   return conversationView(me, c);
 }
 
@@ -81,7 +116,7 @@ export async function simulateTriageDone(code: string): Promise<SupportConversat
     c.rewrittenWish ?? c.messages.find((m) => m.from === "customer")?.body ?? c.customer.name;
   push(c, "triage", `Is this what you need? “${wish}”`);
   push(c, "customer", "Yes, that's it.");
-  push(c, "triage", "Thanks: I passed your request to the team. You'll find the answer here.");
+  push(c, "triage", "Thanks: I passed your request to the team.");
   c.rewrittenWish = wish;
   c.confirmedAt = now();
   const project = state.projectsById.get(c.projectId)!;

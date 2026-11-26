@@ -37,11 +37,12 @@ describe("la lettura dei plugin del progetto", () => {
     as(LAURA);
     const view = (await projectSettings.getProjectPlugins(ACQ))!;
     expect(view.canEdit).toBe(true);
-    expect(view.version).toBe(1);
-    expect(view.plugins.map((p) => [p.name, p.base, p.status, p.inRuns])).toEqual([
-      ["stubwise", true, "ready", true],
-      ["superpowers", false, "ready", true],
-      ["lint-helpers", false, "failed", false],
+    // F5: la versione è opaca, come quella del server (una stringa).
+    expect(view.version).toBe("1");
+    expect(view.plugins.map((p) => [p.name, p.base, p.status, p.on, p.inRuns])).toEqual([
+      ["stubwise", true, "ready", true, true],
+      ["superpowers", false, "ready", true, true],
+      ["lint-helpers", false, "failed", false, false],
     ]);
     const superpowers = view.plugins.find((p) => p.name === "superpowers")!;
     expect(superpowers.skills).toHaveLength(9);
@@ -65,18 +66,28 @@ describe("la lettura dei plugin del progetto", () => {
 
   it("Sara legge senza poter modificare; un progetto invisibile o archiviato è null", async () => {
     as(SARA);
-    expect((await projectSettings.getProjectPlugins(ACQ))!.canEdit).toBe(false);
+    const view = (await projectSettings.getProjectPlugins(ACQ))!;
+    expect(view.canEdit).toBe(false);
+    // Decisione di 46 con 72 (24 nov 2026): i comandi degli hook solo a chi
+    // può salvare; chi legge vede il gruppo, non il comando. Le descrizioni
+    // delle skill restano a tutti.
+    const superpowers = view.plugins.find((p) => p.name === "superpowers")!;
+    expect(superpowers.hooks).toEqual([
+      { key: "SessionStart#0", event: "SessionStart", command: "", enabled: true },
+    ]);
+    expect(superpowers.skills.some((s) => s.description !== "")).toBe(true);
     expect(await projectSettings.getProjectPlugins(AUD)).toBeNull();
     as(ROBERTA);
     expect(await projectSettings.getProjectPlugins(RNC)).toBeNull();
   });
 
-  it("il seme: ZNC ha superpowers tutto spento, AUD solo test-driven-development", async () => {
+  it("il seme: in ZNC superpowers non è acceso (dentro, tutto acceso), AUD solo test-driven-development", async () => {
     as(ROBERTA);
     const znc = (await projectSettings.getProjectPlugins(ZNC))!;
     const sp = znc.plugins.find((p) => p.name === "superpowers")!;
-    expect(sp.skills.every((s) => !s.enabled)).toBe(true);
-    expect(sp.hooks.every((h) => !h.enabled)).toBe(true);
+    expect([sp.on, sp.inRuns]).toEqual([false, false]);
+    expect(sp.skills.every((s) => s.enabled)).toBe(true);
+    expect(sp.hooks.every((h) => h.enabled)).toBe(true);
     const aud = (await projectSettings.getProjectPlugins(AUD))!;
     expect(
       aud.plugins
@@ -122,6 +133,9 @@ describe("skillsForRun e «/»", () => {
     lint.inventory = { skills: [{ name: "fix-lint", description: "Fixes lint." }], hooks: [] };
     expect(runSkills(ACQ).some((s) => s.startsWith("lint-helpers:"))).toBe(false);
     lint.status = "ready";
+    // F5, opt-in: pronto non basta, va acceso sul progetto.
+    expect(runSkills(ACQ).some((s) => s.startsWith("lint-helpers:"))).toBe(false);
+    choicesOf(ACQ).enabled.push("lint-helpers");
     expect(runSkills(ACQ)).toContain("lint-helpers:fix-lint");
   });
 
@@ -130,10 +144,10 @@ describe("skillsForRun e «/»", () => {
     expect((await listCommands(ACQ)).map((c) => c.label)).toContain("/superpowers:brainstorming");
     expect(
       await projectSettings.saveProjectPlugins(ACQ, {
-        version: 1,
+        version: "1",
         disabled: [{ plugin: "superpowers", skills: ["brainstorming"], hookGroups: [] }],
       }),
-    ).toEqual({ ok: true, version: 2 });
+    ).toEqual({ ok: true, version: "2" });
     expect(runSkills(ACQ)).not.toContain("superpowers:brainstorming");
     const labels = (await listCommands(ACQ)).map((c) => c.label);
     expect(labels).not.toContain("/superpowers:brainstorming");
@@ -159,14 +173,14 @@ describe("il salvataggio dei plugin", () => {
         version: view.version,
         disabled: projectSettings.pluginDisabledInput(view, keys),
       }),
-    ).toEqual({ ok: true, version: view.version + 1 });
+    ).toEqual({ ok: true, version: String(Number(view.version) + 1) });
     expect(choicesOf(ACQ).disabled).toEqual([
       { plugin: "superpowers", skills: ["brainstorming"], hookGroups: [] },
     ]);
     // Un nome inventato, che non era fra le scelte salvate, resta un invalid.
     expect(
       await projectSettings.saveProjectPlugins(ACQ, {
-        version: view.version + 1,
+        version: String(Number(view.version) + 1),
         disabled: [{ plugin: "superpowers", skills: ["nope"], hookGroups: [] }],
       }),
     ).toMatchObject({ error: "invalid", reason: "skill" });
@@ -177,13 +191,13 @@ describe("il salvataggio dei plugin", () => {
     as(LAURA);
     const first = (await projectSettings.getProjectPlugins(ACQ))!;
     const second = (await projectSettings.getProjectPlugins(ACQ))!;
-    expect([first.version, second.version]).toEqual([3, 3]);
+    expect([first.version, second.version]).toEqual(["3", "3"]);
     expect(
       await projectSettings.saveProjectPlugins(ACQ, {
         version: first.version,
         disabled: [{ plugin: "superpowers", skills: ["writing-plans"], hookGroups: [] }],
       }),
-    ).toEqual({ ok: true, version: 4 });
+    ).toEqual({ ok: true, version: "4" });
     const after = JSON.stringify(choicesOf(ACQ));
     const written = entries().length;
     expect(
@@ -202,7 +216,7 @@ describe("il salvataggio dei plugin", () => {
   it("una voce sola, con le skill e i gruppi di hook spenti prima e dopo, chiavi stabili", async () => {
     as(LAURA);
     await projectSettings.saveProjectPlugins(ACQ, {
-      version: 1,
+      version: "1",
       disabled: [
         {
           plugin: "superpowers",
@@ -226,7 +240,7 @@ describe("il salvataggio dei plugin", () => {
     as(LAURA);
     const preset = projectSettings.RECOMMENDED_PRESETS.superpowers!;
     await projectSettings.saveProjectPlugins(ACQ, {
-      version: 1,
+      version: "1",
       disabled: [{ plugin: "superpowers", skills: [...preset], hookGroups: [] }],
     });
     const sp = (await projectSettings.getProjectPlugins(ACQ))!.plugins.find(
@@ -243,10 +257,10 @@ describe("il salvataggio dei plugin", () => {
     // valgono quando sarà pronto.
     expect(
       await projectSettings.saveProjectPlugins(ACQ, {
-        version: 1,
+        version: "1",
         disabled: [{ plugin: "lint-helpers", skills: ["fix-lint"], hookGroups: ["Stop#0"] }],
       }),
-    ).toEqual({ ok: true, version: 2 });
+    ).toEqual({ ok: true, version: "2" });
     const lint = () =>
       projectSettings
         .getProjectPlugins(ACQ)
@@ -260,10 +274,10 @@ describe("il salvataggio dei plugin", () => {
     // Una pagina che non le rimanda (salva solo superpowers) non le cancella.
     expect(
       await projectSettings.saveProjectPlugins(ACQ, {
-        version: 2,
+        version: "2",
         disabled: [{ plugin: "superpowers", skills: ["brainstorming"], hookGroups: [] }],
       }),
-    ).toEqual({ ok: true, version: 3 });
+    ).toEqual({ ok: true, version: "3" });
     expect(choicesOf(ACQ).disabled).toEqual([
       { plugin: "lint-helpers", skills: ["fix-lint"], hookGroups: ["Stop#0"] },
       { plugin: "superpowers", skills: ["brainstorming"], hookGroups: [] },
@@ -275,21 +289,21 @@ describe("il salvataggio dei plugin", () => {
     // Nominarlo con le liste vuote lo riaccende, quello sì.
     expect(
       await projectSettings.saveProjectPlugins(ACQ, {
-        version: 3,
+        version: "3",
         disabled: [
           { plugin: "lint-helpers", skills: [], hookGroups: [] },
           { plugin: "superpowers", skills: ["brainstorming"], hookGroups: [] },
         ],
       }),
-    ).toEqual({ ok: true, version: 4 });
+    ).toEqual({ ok: true, version: "4" });
     expect(choicesOf(ACQ).disabled.map((d) => d.plugin)).toEqual(["superpowers"]);
   });
 
   it("salvare senza cambiare niente non scrive voci né cambia versione", async () => {
     as(LAURA);
-    expect(await projectSettings.saveProjectPlugins(ACQ, { version: 1, disabled: [] })).toEqual({
+    expect(await projectSettings.saveProjectPlugins(ACQ, { version: "1", disabled: [] })).toEqual({
       ok: true,
-      version: 1,
+      version: "1",
     });
     expect(entries()).toHaveLength(0);
   });
@@ -297,7 +311,7 @@ describe("il salvataggio dei plugin", () => {
   it("i rifiuti: base_plugin, plugin/skill/hook sconosciuti, forbidden, not_found", async () => {
     as(LAURA);
     const save = (disabled: Parameters<typeof projectSettings.saveProjectPlugins>[1]["disabled"]) =>
-      projectSettings.saveProjectPlugins(ACQ, { version: 1, disabled });
+      projectSettings.saveProjectPlugins(ACQ, { version: "1", disabled });
     expect(await save([{ plugin: "stubwise", skills: ["init"], hookGroups: [] }])).toEqual({
       ok: false,
       error: "invalid",
@@ -316,12 +330,129 @@ describe("il salvataggio dei plugin", () => {
     as(SARA);
     expect(await save([])).toEqual({ ok: false, error: "forbidden" });
     as(ROBERTA);
-    expect(await projectSettings.saveProjectPlugins(RNC, { version: 1, disabled: [] })).toEqual({
+    expect(await projectSettings.saveProjectPlugins(RNC, { version: "1", disabled: [] })).toEqual({
       ok: false,
       error: "not_found",
     });
-    expect(choicesOf(ACQ)).toEqual({ version: 1, disabled: [] });
+    expect(choicesOf(ACQ)).toEqual({ version: 1, enabled: ["superpowers"], disabled: [] });
     expect(entries()).toHaveLength(0);
+  });
+});
+
+describe("l'accensione per progetto (area 9, F5: opt-in)", () => {
+  it("accendere superpowers in ZNC: entra nei run e in «/», una voce con i plugin accesi", async () => {
+    as(ROBERTA);
+    expect(runSkills(ZNC)).not.toContain("superpowers:brainstorming");
+    expect(
+      await projectSettings.saveProjectPlugins(ZNC, {
+        version: "1",
+        enabled: ["superpowers"],
+        disabled: [{ plugin: "superpowers", skills: ["brainstorming"], hookGroups: [] }],
+      }),
+    ).toEqual({ ok: true, version: "2" });
+    expect(runSkills(ZNC)).toContain("superpowers:writing-plans");
+    expect(runSkills(ZNC)).not.toContain("superpowers:brainstorming");
+    const voice = entries("project.plugins_changed")[0]!;
+    expect(JSON.parse(voice.before!)).toEqual({ enabledPlugins: [], disabledSkills: [] });
+    expect(JSON.parse(voice.after!)).toEqual({
+      enabledPlugins: ["superpowers"],
+      disabledSkills: ["superpowers:brainstorming"],
+    });
+    const sp = (await projectSettings.getProjectPlugins(ZNC))!.plugins.find(
+      (p) => p.name === "superpowers",
+    )!;
+    expect([sp.on, sp.inRuns]).toEqual([true, true]);
+  });
+
+  it("review F5, M3/M4: il plugin si nomina per SLUG (come il server); il namespace di «/» resta il nome del manifest", async () => {
+    as(ROBERTA);
+    state.instance.plugins.find((p) => p.name === "superpowers")!.slug = "sp-gh";
+    const view = (await projectSettings.getProjectPlugins(ZNC))!;
+    const keys = projectSettings.pluginOffKeys(view);
+    keys.delete("sp-gh");
+    keys.add("sp-gh:brainstorming");
+    expect(projectSettings.pluginEnabledInput(view, keys)).toEqual(["sp-gh"]);
+    expect(
+      await projectSettings.saveProjectPlugins(ZNC, {
+        version: view.version,
+        enabled: projectSettings.pluginEnabledInput(view, keys),
+        disabled: projectSettings.pluginDisabledInput(view, keys),
+      }),
+    ).toEqual({ ok: true, version: "2" });
+    expect(choicesOf(ZNC)).toMatchObject({
+      enabled: ["sp-gh"],
+      disabled: [{ plugin: "sp-gh", skills: ["brainstorming"], hookGroups: [] }],
+    });
+    expect(runSkills(ZNC)).toContain("superpowers:writing-plans");
+    expect(runSkills(ZNC)).not.toContain("superpowers:brainstorming");
+    expect(JSON.parse(entries("project.plugins_changed")[0]!.after!)).toEqual({
+      enabledPlugins: ["sp-gh"],
+      disabledSkills: ["sp-gh:brainstorming"],
+    });
+    // Il nome del manifest non è più un identificatore.
+    expect(
+      await projectSettings.saveProjectPlugins(ZNC, {
+        version: "2",
+        enabled: ["superpowers"],
+        disabled: [],
+      }),
+    ).toMatchObject({ ok: false, error: "invalid", reason: "plugin" });
+  });
+
+  it("spegnere superpowers in ACQ lo toglie dai run; le scelte dentro restano", async () => {
+    as(LAURA);
+    expect(
+      await projectSettings.saveProjectPlugins(ACQ, {
+        version: "1",
+        enabled: [],
+        disabled: [{ plugin: "superpowers", skills: ["brainstorming"], hookGroups: [] }],
+      }),
+    ).toEqual({ ok: true, version: "2" });
+    expect(runSkills(ACQ).some((s) => s.startsWith("superpowers:"))).toBe(false);
+    expect(choicesOf(ACQ)).toMatchObject({
+      enabled: [],
+      disabled: [{ plugin: "superpowers", skills: ["brainstorming"], hookGroups: [] }],
+    });
+  });
+
+  it("senza `enabled` l'accensione resta com'era; un plugin non pronto non si spegne tacendolo", async () => {
+    as(LAURA);
+    choicesOf(ACQ).enabled.push("lint-helpers");
+    await projectSettings.saveProjectPlugins(ACQ, { version: "1", disabled: [] });
+    expect(choicesOf(ACQ).enabled).toEqual(["superpowers", "lint-helpers"]);
+    await projectSettings.saveProjectPlugins(ACQ, {
+      version: "1",
+      enabled: ["superpowers"],
+      disabled: [],
+    });
+    expect(choicesOf(ACQ).enabled.sort()).toEqual(["lint-helpers", "superpowers"]);
+    expect(entries()).toHaveLength(0);
+  });
+
+  it("i rifiuti dell'accensione: il plugin base e un plugin sconosciuto", async () => {
+    as(LAURA);
+    const save = (enabled: string[]) =>
+      projectSettings.saveProjectPlugins(ACQ, { version: "1", enabled, disabled: [] });
+    expect(await save(["stubwise"])).toEqual({
+      ok: false,
+      error: "invalid",
+      reason: "base_plugin",
+    });
+    expect(await save(["nope"])).toMatchObject({ error: "invalid", reason: "plugin" });
+    expect(choicesOf(ACQ).enabled).toEqual(["superpowers"]);
+  });
+
+  it("la bozza: un plugin non acceso è la chiave col suo nome; l'input dice quali si accendono", async () => {
+    as(ROBERTA);
+    const view = (await projectSettings.getProjectPlugins(ZNC))!;
+    const keys = projectSettings.pluginOffKeys(view);
+    expect([...keys]).toEqual([projectSettings.pluginKey("superpowers")]);
+    expect(projectSettings.pluginEnabledInput(view, keys)).toEqual([]);
+    expect(projectSettings.pluginEnabledInput(view, new Set())).toEqual(["superpowers"]);
+    // La chiave del plugin non è una skill né un gruppo di hook.
+    expect(projectSettings.pluginDisabledInput(view, keys)).toEqual([
+      { plugin: "superpowers", skills: [], hookGroups: [] },
+    ]);
   });
 });
 

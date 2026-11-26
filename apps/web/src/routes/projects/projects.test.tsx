@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectDetail, ProjectListItem } from "../../lib/api";
@@ -221,7 +221,8 @@ describe("dettaglio progetto: permessi di progetto", () => {
     renderApp(`/projects/${PROJECT_ID}`);
 
     expect(await screen.findByLabelText("Name")).toHaveValue("Acme Platform");
-    expect(screen.getByRole("button", { name: "Delete project" })).toBeInTheDocument();
+    // Area 9, F6 (L-6): il web vecchio non elimina più un progetto.
+    expect(screen.queryByRole("button", { name: "Delete project" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /add repository/i })).toBeInTheDocument();
   });
 
@@ -295,8 +296,8 @@ describe("dettaglio progetto (gruppo)", () => {
     // Elenco repository con link al dettaglio del repo.
     const repoLink = screen.getByRole("link", { name: /acme-api/ });
     expect(repoLink).toHaveAttribute("href", "/repositories/acme-api");
-    // Azione di eliminazione del progetto.
-    expect(screen.getByRole("button", { name: "Delete project" })).toBeInTheDocument();
+    // Area 9, F6 (L-6): niente più eliminazione dal web vecchio (solo un archiviato, dall'app nuova).
+    expect(screen.queryByRole("button", { name: "Delete project" })).not.toBeInTheDocument();
     // Link per aggiungere un repository.
     expect(screen.getByRole("link", { name: /add repository/i })).toHaveAttribute(
       "href",
@@ -304,33 +305,40 @@ describe("dettaglio progetto (gruppo)", () => {
     );
   });
 
-  it("mostra la sezione Integrazione col la chiave di ingestion del progetto e lo snippet", async () => {
+  // Area 9, F5 (I2): la chiave intera non arriva più dalla vista del progetto
+  // né da nessuna lettura; l'Integrazione (`/integration`) ne dà le ultime 4.
+  const integrationOf = (canRegenerateKey: boolean) => () =>
+    jsonResponse(200, { ingestion: { last4: "cdef", dsnBase: "https://s.example.com/p/acme-platform" }, inbound: { url: "https://s.example.com/api/inbound/acme-platform/ticket" }, canRegenerateKey, canRegenerateWebhookSecret: canRegenerateKey });
+
+  it("admin: l'Integrazione mostra la chiave MASCHERATA (le ultime 4) e il bottone per rigenerarla; DSN con lo slug di progetto", async () => {
     mockApi({
       "GET /api/auth/me": meHandler("admin"),
       [`GET /api/projects/${PROJECT_ID}`]: () => jsonResponse(200, detail()),
+      [`GET /api/projects/${PROJECT_ID}/integration`]: integrationOf(true),
       "GET /api/milestones": () => jsonResponse(200, []),
     });
 
     renderApp(`/projects/${PROJECT_ID}`);
 
-    // La chiave di ingestion, salita dal repo al progetto (Fase 3), è mostrata qui.
-    expect(await screen.findByText("0123456789abcdef0123456789abcdef")).toBeInTheDocument();
-    const snippet = screen.getByTestId("init-snippet");
-    expect(snippet.textContent).toContain('from "@stubwise/sdk/browser"');
-    // Il DSN usa lo slug di PROGETTO (…/p/<projectSlug>).
-    expect(snippet.textContent).toContain("/p/acme-platform");
+    expect(await screen.findByText("••••••••cdef")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Regenerate key" })).toBeInTheDocument();
+    expect(screen.getByText((text) => text.includes("/p/acme-platform") && text.includes("••••••••cdef@"))).toBeInTheDocument();
+    expect(screen.queryByText("0123456789abcdef0123456789abcdef")).not.toBeInTheDocument();
   });
 
-  it("member: vede comunque la chiave di ingestion del progetto (integrare non richiede admin)", async () => {
+  it("member: vede le ultime 4 e il rimando a chi gestisce il progetto, mai la chiave intera né la rigenerazione", async () => {
     mockApi({
       "GET /api/auth/me": meHandler("member"),
       [`GET /api/projects/${PROJECT_ID}`]: () => jsonResponse(200, detail()),
+      [`GET /api/projects/${PROJECT_ID}/integration`]: integrationOf(false),
       "GET /api/milestones": () => jsonResponse(200, []),
     });
 
     renderApp(`/projects/${PROJECT_ID}`);
 
-    expect(await screen.findByText("0123456789abcdef0123456789abcdef")).toBeInTheDocument();
+    expect(await screen.findByText("••••••••cdef")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Regenerate key" })).not.toBeInTheDocument();
+    expect(screen.queryByText("0123456789abcdef0123456789abcdef")).not.toBeInTheDocument();
   });
 
   it("admin: salvataggio del provider invia il PATCH al gruppo", async () => {
@@ -365,7 +373,11 @@ describe("dettaglio progetto (gruppo)", () => {
     renderApp(`/projects/${PROJECT_ID}`);
 
     await screen.findByLabelText("Name");
-    await user.selectOptions(screen.getByLabelText("Preferred account"), "p-claude");
+    // Le opzioni arrivano da `/api/ai-providers`, che parte dopo il form:
+    // si aspetta l'opzione, non solo il campo (era rosso 2 volte su 3).
+    const account = screen.getByLabelText("Preferred account");
+    await within(account).findByRole("option", { name: /Claude API/ });
+    await user.selectOptions(account, "p-claude");
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     expect(await screen.findByText("Changes saved.")).toBeInTheDocument();
@@ -438,26 +450,24 @@ describe("dettaglio progetto (gruppo)", () => {
     expect(screen.getByLabelText("Use only this account")).not.toBeChecked();
   });
 
-  it("admin: conferma ed elimina il progetto, poi torna alla lista", async () => {
-    const user = userEvent.setup();
-    let deleted = false;
+  it("area 9, F6 (L-6): nemmeno l'admin trova Elimina nel web vecchio, e nessun DELETE parte", async () => {
+    const calls: string[] = [];
     mockApi({
       "GET /api/auth/me": meHandler("admin"),
       [`GET /api/projects/${PROJECT_ID}`]: () => jsonResponse(200, detail()),
       "GET /api/milestones": () => jsonResponse(200, []),
-      "GET /api/projects": () => jsonResponse(200, deleted ? [] : [listItem()]),
       [`DELETE /api/projects/${PROJECT_ID}`]: () => {
-        deleted = true;
+        calls.push("DELETE");
         return jsonResponse(204, null);
       },
     });
 
-    const router = renderApp(`/projects/${PROJECT_ID}`);
+    renderApp(`/projects/${PROJECT_ID}`);
 
-    await user.click(await screen.findByRole("button", { name: "Delete project" }));
-    await user.click(screen.getByRole("button", { name: "Yes, delete" }));
-
-    await waitFor(() => expect(router.state.location.pathname).toBe("/projects"));
+    await screen.findByLabelText("Name");
+    expect(screen.queryByRole("button", { name: "Delete project" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Yes, delete" })).not.toBeInTheDocument();
+    expect(calls).toEqual([]);
   });
 
   it("bottone Segui: dallo stato non seguito manda l'insieme con questo progetto", async () => {

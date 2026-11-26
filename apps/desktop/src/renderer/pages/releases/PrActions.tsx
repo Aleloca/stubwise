@@ -1,4 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
+import { isAppBuild } from "../../data/build";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -8,7 +9,7 @@ import {
   useSimulateAuthorPush,
 } from "../../data/queries";
 import type { OpenPrView } from "../../data/releases";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
 import { PrototypeBox } from "../automations/shared";
@@ -181,7 +182,13 @@ export function PrActions({
   );
 }
 
+/** I «Simula» della PR: solo nel prototipo (area 8, R-2); nella build app niente. */
 export function PrSimulate({ pr }: { pr: OpenPrView }) {
+  if (isAppBuild()) return null;
+  return <PrSimulateBox pr={pr} />;
+}
+
+function PrSimulateBox({ pr }: { pr: OpenPrView }) {
   const { t } = useTranslation();
   const advance = useAdvancePrWork();
   const push = useSimulateAuthorPush();

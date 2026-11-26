@@ -5,6 +5,7 @@
     "mail": "Posta",
     "calendar": "Calendario",
     "drive": "Drive",
+    "vault": "Cassaforte",
     "claude": "Claude",
     "automations": "Automazioni",
     "projects": "Tutti i progetti",
@@ -42,19 +43,12 @@
     "more_other": "Altri {{count}} progetti",
     "moreWaiting_one": "{{count}} ti aspetta",
     "moreWaiting_other": "{{count}} ti aspettano",
-    "personas": {
-      "p-giulia": "Marketing · Project Lead su alcuni progetti",
-      "p-marco": "Sviluppo · Developer",
-      "p-laura": "Sviluppo · Project Lead",
-      "p-sara": "Assistenza · Contributor",
-      "p-matteo": "Vendite · Project Lead, ha un'automazione",
-      "p-roberta": "Amministrazione · amministratore completo"
-    },
     "chatNews": "Menzioni o risposte per te",
     "mailWaiting_one": "{{count}} proposta da decidere",
     "mailWaiting_other": "{{count}} proposte da decidere",
     "automationsWaiting_one": "{{count}} decisione aspetta te",
-    "automationsWaiting_other": "{{count}} decisioni aspettano te"
+    "automationsWaiting_other": "{{count}} decisioni aspettano te",
+    "vaultWaiting": "Accessi da confermare"
   },
   "column": {
     "projectSections": "Sezioni del progetto",
@@ -94,7 +88,8 @@
       "support": "Supporto",
       "servers": "Server",
       "settings": "Impostazioni",
-      "automations": "Automazioni"
+      "automations": "Automazioni",
+      "credentials": "Credenziali"
     },
     "notFound": "Progetto non trovato",
     "notFoundBody": "Questo progetto non esiste o non puoi vederlo.",
@@ -173,7 +168,11 @@
       "inviteSomeone": "Invita qualcuno",
       "whoCanIn": "Chi può {{what}} in {{code}}",
       "whoCanAnywhere": "Chi può {{what}} in un progetto",
-      "whoCanInstance": "Chi può {{what}}"
+      "whoCanInstance": "Chi può {{what}}",
+      "vaultOpen": "Apri la cassaforte",
+      "vaultLock": "Chiudi la cassaforte",
+      "vaultPair": "Associa questo Mac",
+      "vaultFind": "Trova una credenziale"
     },
     "filterPlaceholder": "Scegli un filtro",
     "channelPlaceholder": "Vai a un canale o a un messaggio diretto…",
@@ -214,7 +213,9 @@
       "snooze": "Rimanda",
       "restore": "Ripristina",
       "unsnooze": "Sposta in Nuove",
-      "linkAccess": "Collega l'accesso SSH"
+      "linkAccess": "Collega l'accesso SSH",
+      "openInWeb": "Apri nel web",
+      "markUnread": "Segna come non letta"
     },
     "snooze": {
       "hour": "1 ora",
@@ -272,7 +273,20 @@
       "body_vowel": "{{name}} ti ha aggiunto ad {{code}} come {{role}}.",
       "bodyVia": "Claude per conto di {{name}} ti ha aggiunto a {{code}} come {{role}}.",
       "bodyVia_vowel": "Claude per conto di {{name}} ti ha aggiunto ad {{code}} come {{role}}.",
-      "noRole": "un ruolo che non esiste più"
+      "noRole": "un ruolo che non esiste più",
+      "joinedTitle": "{{member}} è entrato a {{code}} come {{role}}",
+      "joinedTitle_vowel": "{{member}} è entrato ad {{code}} come {{role}}",
+      "joinedBody": "{{name}} ha aggiunto {{member}} a {{code}} come {{role}}.",
+      "joinedBody_vowel": "{{name}} ha aggiunto {{member}} ad {{code}} come {{role}}.",
+      "joinedBodyVia": "Claude per conto di {{name}} ha aggiunto {{member}} a {{code}} come {{role}}.",
+      "joinedBodyVia_vowel": "Claude per conto di {{name}} ha aggiunto {{member}} ad {{code}} come {{role}}.",
+      "someoneTitle": "Qualcuno",
+      "someoneBody": "qualcuno"
+    },
+    "proposalHanded": {
+      "title": "Una proposta della posta passata a {{code}}",
+      "body": "{{name}} l'ha passata al progetto. Decidila in Home.",
+      "decided": "Già decisa: non resta niente da fare."
     },
     "productDocMention": {
       "title": "{{name}} ti ha menzionato in {{code}} · {{title}}",
@@ -304,6 +318,10 @@
     }
   },
   "placeholder": {
+    "comingSoon": {
+      "title": "In arrivo",
+      "body": "Questa parte di Stubwise non è ancora disponibile in questa app."
+    },
     "pages": {
       "chat": "Qui vivranno i canali dei progetti, quelli generali e i messaggi diretti.",
       "mail": "Qui si leggerà la tua posta collegata, con le task che propone.",
@@ -372,13 +390,14 @@
         "title": "Profilo",
         "changePhoto": "Cambia foto",
         "removePhoto": "Togli la foto",
-        "notImage": "Quel file non è un'immagine. Scegli un PNG, un JPEG o un GIF.",
+        "notImage": "Scegli un'immagine PNG, JPEG o WebP.",
         "name": "Nome",
         "email": "Email",
         "nameEmpty": "Scrivi il tuo nome.",
         "invalidEmail": "Scrivi un indirizzo email completo.",
         "emailTaken": "Quell'email è già di un'altra persona in Stubwise.",
-        "saveFailed": "Non è stato possibile salvare il profilo. Riprova."
+        "saveFailed": "Non è stato possibile salvare il profilo. Riprova.",
+        "tooLarge": "La foto supera i 512 KB."
       },
       "password": {
         "title": "Password",
@@ -395,7 +414,8 @@
         "done_other": "Password cambiata. Sono state chiuse {{count}} altre sessioni.",
         "doneNone": "Password cambiata. Non c'erano altre sessioni da chiudere.",
         "seeSessions": "Vedi le sessioni",
-        "failed": "Non è stato possibile cambiare la password. Riprova."
+        "failed": "Non è stato possibile cambiare la password. Riprova.",
+        "reauthAction": "cambiare la password"
       },
       "follows": {
         "title": "Progetti seguiti",
@@ -403,18 +423,34 @@
         "body_other": "Segui {{count}} progetti: sono fissati nel binario.",
         "none": "Non segui ancora nessun progetto. Fissane uno in Tutti i progetti per tenerlo nel binario.",
         "manage": "Gestisci in Tutti i progetti"
+      },
+      "email": {
+        "label": "Email di accesso",
+        "change": "Cambia email…",
+        "unavailable": "Su questa istanza non puoi cambiare l'email di accesso: chiedi a un amministratore.",
+        "pending": "In attesa di conferma su {{next}}. Fino ad allora entri con {{current}}.",
+        "cancel": "Annulla il cambio",
+        "openLink": "Apri il link di conferma",
+        "failed": "Non è stato possibile cambiare l'email di accesso. Riprova.",
+        "dialogTitle": "Cambia l'email di accesso",
+        "dialogAbout": "Mandiamo un link al nuovo indirizzo. L'email cambia solo quando lo apri, entro 24 ore.",
+        "newLabel": "Nuova email",
+        "send": "Manda il link",
+        "sending": "Invio…",
+        "reauthAction": "cambiare l'email di accesso",
+        "sendFailed": "Non è stato possibile mandare il link. Riprova."
       }
     },
     "google": {
       "title": "Caselle Google",
-      "intro": "Stubwise legge Gmail e Calendar da queste caselle, in sola lettura, e trasforma in proposte quello che c'è da fare.",
+      "intro": "Stubwise legge Gmail e Calendar da queste caselle, tiene letto e non letto allineati con Gmail e trasforma in proposte quello che c'è da fare. Non invia né cambia altro senza di te.",
       "loadError": "Non è stato possibile caricare le tue caselle.",
       "connected": "Collegata · sincronizzata {{when}}",
       "syncing": "Collegata · sincronizzazione in corso…",
       "syncFailed": "Collegata · l'ultima sincronizzazione non è riuscita",
       "needsReconnect": "Da ricollegare: l'accesso è stato revocato su Google",
       "proposals": "Proposte",
-      "proposalsHint": "Trasforma in proposte le email e gli eventi di questa casella.",
+      "proposalsHint": "Trasforma in proposte le email e gli eventi di questa casella. Le proposte che altri condividono con te ti arrivano comunque.",
       "proposalsFailed": "Non è stato possibile cambiare le Proposte. Riprova.",
       "reconnect": "Ricollega",
       "more": "Altro per {{email}}",
@@ -432,7 +468,7 @@
         "title": "Collega una casella",
         "reconnectTitle": "Ricollega {{email}}",
         "workspace": "Workspace",
-        "consent": "Collegando una casella, Stubwise leggerà oggetto e corpo di ogni email ammessa e li invierà al provider di analisi AI configurato su questa istanza, per proporre azioni.",
+        "consent": "Collegando una casella, Stubwise leggerà oggetto e testo delle email di questa casella e li invierà al provider di analisi AI configurato su questa istanza, per proporti task e richieste.",
         "continue": "Continua su Google",
         "continuing": "In attesa di Google…",
         "tryAgain": "Riprova",
@@ -514,7 +550,8 @@
         "removed": "Passkey «{{name}}» tolta.",
         "removeFailed": "Non è stato possibile togliere la passkey. Riprova.",
         "lastNeedsApp": "Configura prima l'app di autenticazione: la verifica in due passaggi non si può spegnere.",
-        "empty": "Ancora nessuna passkey. Una passkey ti fa entrare con l'impronta, il volto o una chiave di sicurezza."
+        "empty": "Ancora nessuna passkey. Una passkey ti fa entrare con l'impronta, il volto o una chiave di sicurezza.",
+        "desktopNote": "Le passkey stanno nel browser: aggiungile o toglile da Stubwise nel browser."
       },
       "backup": {
         "title": "Codici di backup",
@@ -566,7 +603,17 @@
           "second_factor_locked": "Bloccato dopo troppi codici sbagliati",
           "token_created": "Token di accesso creato",
           "token_revoked": "Token di accesso revocato",
-          "registered": "Account creato"
+          "registered": "Account creato",
+          "email_changed": "Email di accesso cambiata",
+          "vault_key_created": "Chiave della cassaforte creata",
+          "vault_recovery_used": "Kit di recupero della cassaforte usato",
+          "vault_activated": "Cassaforte attivata",
+          "vault_seal_replaced": "Sigillo della cassaforte sostituito",
+          "vault_recovery_key_rotated": "Chiave di recupero della cassaforte cambiata",
+          "vault_device_sealed": "Mac associato alla cassaforte",
+          "vault_device_seal_revoked": "Mac tolto dalla cassaforte",
+          "reauth_desktop": "Identità confermata nell'app desktop",
+          "other": "Altro evento di sicurezza"
         }
       }
     },
@@ -744,7 +791,8 @@
       "resize": "Ridimensiona il pannello"
     },
     "selected": "Selezionata",
-    "deactivatedName": "{{name}} (disattivato)"
+    "deactivatedName": "{{name}} (disattivato)",
+    "someone": "Qualcuno"
   },
   "filter": {
     "notFound": "Filtro non trovato",
@@ -809,10 +857,19 @@
       "update": "Salva",
       "saved": "{{name}} salvato.",
       "open": "Apri",
-      "failed": "Non è stato possibile salvare il filtro. Riprova."
+      "failed": "Non è stato possibile salvare il filtro. Riprova.",
+      "tooMany": "Hai già 200 filtri salvati. Eliminane uno per salvarne un altro.",
+      "someone": "Questo filtro nomina qualcuno che non vedi, quindi non si può salvare così. Togli «{{someone}}» dagli assegnatari e riprova."
     }
   },
   "tasks": {
+    "claudeRun": {
+      "job_in_flight": "{{code}} è assegnata a Claude, ma non è partito un lavoro nuovo: Claude ci sta già lavorando.",
+      "budget_exhausted": "{{code}} è assegnata a Claude, ma il lavoro non è partito: il budget AI del mese è esaurito.",
+      "other": "{{code}} è assegnata a Claude, ma il lavoro non è partito. Avvialo dalla sezione Claude della task.",
+      "bulk_one": "{{count}} task è assegnata a Claude, ma il suo lavoro non è partito. Avvialo dalla sezione Claude della task.",
+      "bulk_other": "{{count}} task sono assegnate a Claude, ma il loro lavoro non è partito. Avvialo dalla sezione Claude di ciascuna."
+    },
     "count_one": "{{count}} task",
     "count_other": "{{count}} task",
     "commands": "Comandi delle task",
@@ -889,7 +946,9 @@
       "done_one": "{{count}} task modificata.",
       "done_other": "{{count}} task modificate.",
       "failed_one": "Impossibile modificare {{count}} task. È tornata com'era.",
-      "failed_other": "Impossibile modificare {{count}} task. Sono tornate com'erano."
+      "failed_other": "Impossibile modificare {{count}} task. Sono tornate com'erano.",
+      "claudeForbidden_one": "Non puoi dare {{count}} task a Claude: può farlo solo chi nel suo progetto avvia il lavoro di Claude. È tornata com'era.",
+      "claudeForbidden_other": "Non puoi dare queste {{count}} task a Claude: può farlo solo chi nel loro progetto avvia il lavoro di Claude. Sono tornate com'erano."
     },
     "board": {
       "label": "Board",
@@ -1037,6 +1096,15 @@
       "hint": "Markdown. ⌘/Ctrl+Invio salva."
     },
     "claude": {
+      "web": {
+        "open": "Apri nel web",
+        "hint": "Piano, approvazioni, domande di Claude e sessione dal vivo sono nell'app web.",
+        "pr": {
+          "open": "Aperta",
+          "merged": "Mergiata",
+          "closed": "Chiusa"
+        }
+      },
       "title": "Claude",
       "assign": "Assegna a Claude",
       "notMember": "Claude non è membro di questo progetto.",
@@ -1136,6 +1204,7 @@
         "plan_written": "Piano scritto",
         "plan_written_approved": "Piano scritto · approvato da {{name}}",
         "plan_written_rejected": "Piano scritto · rifiutato da {{name}}",
+        "plan_written_undecided": "Piano scritto · non deciso",
         "plan_writtenRejectedWith": "Piano scritto · rifiutato da {{name}}: «{{instructions}}»",
         "run_startedVia": "Lavoro avviato da {{name}} · {{provider}}",
         "waitingForQueue": "in attesa della coda",
@@ -1180,6 +1249,35 @@
         "correction_failed": "L'ultima correzione non è riuscita",
         "queued": "Correzione in coda · parte quando finisce il lavoro in corso sulla task",
         "blocked": "Bloccata: il branch è protetto, Stubwise non ci scrive."
+      },
+      "cancelRun": {
+        "action": "Annulla il lavoro",
+        "title": "Annullare il lavoro di Claude su questa task?",
+        "description": "Il lavoro si chiude come fermato: subito se Claude è in attesa, in pochi secondi se sta lavorando. Pull request e branch restano come sono.",
+        "keep": "Lascialo",
+        "confirm": "Annulla il lavoro",
+        "stop": "Ferma Claude",
+        "done": "Il lavoro di Claude è stato annullato.",
+        "requested": "Richiesta inviata: Claude si ferma e il lavoro si chiude a breve.",
+        "stopped": "Claude si sta fermando. Annulla il lavoro quando si è fermato.",
+        "refusal": {
+          "run_in_progress": "Claude sta lavorando adesso: prima fermalo, poi annulla.",
+          "nothing_to_cancel": "Non c'è più nessun lavoro da annullare.",
+          "failed": "Non è andato a buon fine. Riprova."
+        },
+        "cancelling": "Annullamento in corso…"
+      },
+      "errors": {
+        "job_in_flight": "Claude sta già lavorando su questa task.",
+        "needs_maintainer": "Solo chi può approvare i piani può riprendere questa correzione.",
+        "correction_not_held": "Questa correzione non è più ferma: ricarica per vedere dov'è.",
+        "adopted_branch_protected": "Il branch di questa pull request è protetto: Stubwise non può scriverci.",
+        "review_ticket_not_runnable": "Questa è una task di revisione: Claude non ci lavora direttamente.",
+        "no_plan": "Non c'è ancora un piano salvato da approvare in anticipo.",
+        "question_not_pending": "A questa domanda è già stata data una risposta, o è cambiata.",
+        "forbidden": "Non hai il permesso per farlo.",
+        "not_found": "Questa task o sessione non è più disponibile.",
+        "pr_not_open": "Non c'è una pull request aperta da correggere."
       }
     },
     "links": {
@@ -1206,6 +1304,7 @@
       "originAutomation": "Origine"
     },
     "attachments": {
+      "off": "Gli allegati sono spenti su questa istanza.",
       "title": "Allegati",
       "none": "Nessun allegato",
       "fake": "Aggiunge un file di esempio",
@@ -1236,6 +1335,11 @@
       "decided": "{{name}} ha deciso",
       "set": "{{field}} impostato a {{value}}",
       "cleared": "{{field}} tolto",
+      "gone": {
+        "assignee": "qualcuno",
+        "milestone": "un traguardo eliminato",
+        "department": "un reparto eliminato"
+      },
       "editedDescription": "ha modificato la descrizione",
       "followers": "ha cambiato chi la segue",
       "markedStalled": "l'ha segnata ferma: {{reason}}",
@@ -1273,7 +1377,8 @@
         "automation": "Automazione",
         "server": "Server"
       },
-      "serverTitle": "Aperta da Claude dopo un avviso su {{code}}"
+      "serverTitle": "Aperta da Claude dopo un avviso su {{code}}",
+      "viewConversation": "Vedi la conversazione"
     },
     "technical": {
       "title": "Dettagli tecnici",
@@ -1311,14 +1416,14 @@
         "stoppedBy": "Correzione fermata da {{name}}",
         "resolved": "Risolto: il controllo dopo la correzione è passato",
         "not_resolved": "Non risolto: il controllo dopo la correzione non è passato",
-        "closed": "Chiusa"
+        "closed": "Chiusa",
+        "no_plan": "Nessuna correzione con le azioni ammesse"
       },
       "stoppedReasons": {
-        "fix_access_revoked": "Correzione fermata: l'accesso di correzione è stato revocato",
-        "fix_access_unusable": "Correzione fermata: l'accesso di correzione ha smesso di funzionare",
         "server_gone": "Correzione fermata: il server non è più in questo progetto",
         "failed": "Correzione fermata: non è riuscita",
-        "timed_out": "Correzione fermata: è finito il tempo"
+        "timed_out": "Correzione fermata: è finito il tempo",
+        "operations_off": "Correzione fermata: le operazioni dell'agente sono state spente"
       },
       "suggested": "Correzione proposta:",
       "more": "Altro",
@@ -1327,20 +1432,18 @@
       "start": "Avvia la correzione sul server",
       "startAgain": "Avvia di nuovo la correzione",
       "conditionOne": "1. Può avviarla solo chi può operare sui server di {{project}}.",
-      "conditionTwo": "2. Claude scrive prima un piano. Su {{code}} non gira nulla finché chi può approvare i piani in {{project}} non lo approva, anche se l'hai avviata tu.",
+      "conditionTwo": "2. Claude scrive prima un piano di azioni ammesse. Su {{code}} non gira nulla finché chi può approvare i piani in {{project}} non lo approva, anche se l'hai avviata tu.",
       "blocks": {
         "no_permission": "La correzione la avvia chi può operare sui server di {{project}}.",
-        "no_fix_access": "{{code}} non ha un accesso di correzione.",
-        "fix_access_unverified": "L'accesso di correzione di {{code}} non è verificato.",
         "server_gone": "{{code}} non è più negli ambienti di {{project}}: la correzione non può partire da qui.",
-        "server_busy": "Su {{code}} c'è già un'altra correzione in corso."
+        "server_busy": "Su {{code}} c'è già un'altra correzione in corso.",
+        "operations_off": "L'agente di {{code}} non ha le operazioni accese: rifai il suo comando d'installazione con le operazioni accese per correggerlo da qui."
       },
-      "linkAccess": "Collega l'accesso SSH",
       "dialog": {
         "title": "Avviare una correzione su {{code}}?",
-        "before": "Claude legge il server, poi scrive un piano. Esegue i comandi come ",
-        "strong": "stubwise-fix, che su {{code}} può fare tutto",
-        "after": ", solo dopo che il piano è stato approvato.",
+        "before": "Claude guarda i container attraverso l'agente di monitoraggio, poi scrive un piano. L'agente esegue ",
+        "strong": "solo le azioni ammesse, una alla volta",
+        "after": " (riavviare, fermare o avviare un container, liberare spazio) e solo dopo che il piano è stato approvato.",
         "notes": "Note per Claude",
         "notesPlaceholder": "Facoltative. Cosa deve sapere Claude prima di leggere {{code}}.",
         "confirm": "Avvia la correzione",
@@ -1353,22 +1456,41 @@
       "loading": "Caricamento del server",
       "planCard": {
         "planTitle": "Piano di correzione di {{code}}",
-        "commands": "Comandi da eseguire su {{code}}",
-        "runsAs": "Gira come stubwise-fix: su {{code}} può fare tutto.",
+        "commands": "Azioni su {{code}}",
+        "steps": {
+          "container_restart": "Riavvia {{container}} (per fermarlo aspetta fino a {{timeoutSeconds}} s)",
+          "container_stop": "Ferma {{container}} (aspetta fino a {{timeoutSeconds}} s)",
+          "container_start": "Avvia {{container}}",
+          "docker_prune": {
+            "images_unused": "Libera spazio: togli le immagini che nessun container usa",
+            "build_cache": "Libera spazio: togli la cache di build di Docker",
+            "stopped_containers": "Libera spazio: togli i container fermi",
+            "other": "Libera spazio"
+          }
+        },
+        "shared": {
+          "title": "{{code}} è condiviso",
+          "projects": "Liberare spazio tocca tutto il server: {{code}} è usato anche da {{projects}}.",
+          "hidden_one": "Liberare spazio tocca tutto il server: {{code}} è usato anche da un altro progetto.",
+          "hidden_other": "Liberare spazio tocca tutto il server: {{code}} è usato anche da altri {{count}} progetti.",
+          "both": "Liberare spazio tocca tutto il server: {{code}} è usato anche da {{projects}} e da altri {{count}}."
+        },
+        "runsAs": "L'agente di monitoraggio di {{code}} esegue queste azioni, una alla volta. Nient'altro può girare.",
         "releaseRule": "Un piano che rilascia (pull, aggiornamento d'immagine, deploy) va rifiutato. I rilasci passano da Rilasci.",
         "approve": "Approva il piano",
         "rejectBlocked": "Rifiuta il piano",
-        "youStarted": "Hai avviato tu questa correzione. Approvando, i comandi girano su {{code}}.",
+        "youStarted": "Hai avviato tu questa correzione. Approvando, le azioni girano su {{code}}.",
         "waitingFor": "Aspetta chi può approvare i piani in {{project}}.",
         "waitingForAny": "Aspetta chi può approvare i piani.",
         "blocked": {
-          "fix_access_revoked": "L'accesso di correzione a {{code}} è stato revocato. Collegalo di nuovo per approvare questo piano.",
-          "fix_access_unverified": "L'accesso di correzione di {{code}} non è verificato. Verificalo per approvare questo piano.",
-          "server_gone": "{{code}} non è più negli ambienti di questo progetto: questo piano non si può approvare."
+          "server_gone": "{{code}} non è più negli ambienti di questo progetto: questo piano non si può approvare.",
+          "operations_off": "L'agente di {{code}} non ha le operazioni accese. Rifai il suo comando d'installazione con le operazioni accese per approvare questo piano."
         },
         "statusAwaiting": "Correzione su {{code}} · da approvare",
         "statusAwaitingYou": "Correzione su {{code}} · aspetta la tua approvazione",
-        "codeOnly": "Questa esecuzione lavora sul codice, mai su {{code}}. Per correggere il server usa «Avvia la correzione» nella sezione Server qui sopra."
+        "codeOnly": "Questa esecuzione lavora sul codice, mai su {{code}}. Per correggere il server usa «Avvia la correzione» nella sezione Server qui sopra.",
+        "decideInServer": "Questo piano si decide nella sezione Server della task, dove vedi cosa esegue su {{code}}.",
+        "stale": "Il piano non è più adatto al server: chiedine uno nuovo a Claude."
       },
       "check": {
         "resolved": "Controllo dopo la correzione: risolto",
@@ -1378,9 +1500,7 @@
         "title": "Comandi su {{code}}",
         "count": "Comandi su {{code}} · {{count}}",
         "read": "lettura",
-        "fix": "correzione",
-        "readLabel": "Comando di lettura",
-        "fixLabel": "Comando di correzione, eseguito con l'accesso che può fare tutto",
+        "readLabel": "Lettura, non cambia nulla",
         "ok": "OK",
         "failed": "Non riuscito",
         "running": "In corso",
@@ -1390,15 +1510,40 @@
         "lines_other": "{{total}} righe",
         "lastLines": "Ultime {{n}} di {{total}} righe",
         "allLines": "Tutte le {{total}} righe",
-        "stoppedBy": "Fermata da {{name}} · {{time}}. Nessun comando dopo questo punto.",
+        "stoppedBy": "Fermata da {{name}} · {{time}}. Nessuna azione dopo questo punto.",
         "stoppedReasons": {
-          "fix_access_revoked": "Fermata: l'accesso di correzione è stato revocato.",
-          "fix_access_unusable": "Fermata: l'accesso di correzione ha smesso di funzionare.",
           "server_gone": "Fermata: il server non è più in questo progetto.",
           "failed": "Fermata: la correzione non è riuscita.",
-          "timed_out": "Fermata: la correzione ha finito il tempo."
-        }
-      }
+          "timed_out": "Fermata: la correzione ha finito il tempo.",
+          "operations_off": "Fermata: le operazioni dell'agente sono state spente."
+        },
+        "change": "modifica",
+        "changeLabel": "Azione che cambia il server, eseguita dall'agente dopo il piano approvato",
+        "agent": "agente",
+        "ssh": "SSH",
+        "viaAgent": "Attraverso l'agente di monitoraggio",
+        "viaSsh": "Attraverso l'accesso SSH di sola lettura",
+        "actions": {
+          "container_restart": "Riavviato {{container}}",
+          "container_stop": "Fermato {{container}}",
+          "container_start": "Avviato {{container}}",
+          "docker_prune": "Liberato spazio",
+          "container_logs": "Letti i log di {{container}}",
+          "container_state": "Letto lo stato di {{container}}",
+          "processes": "Letti i processi più pesanti",
+          "disk": "Letto l'uso del disco",
+          "memory": "Letto l'uso della memoria",
+          "load": "Letto il carico",
+          "uptime": "Letto da quanto è acceso",
+          "listening": "Lette le porte in ascolto",
+          "failed_units": "Letti i servizi falliti",
+          "journal_errors": "Letti gli errori del journal di sistema"
+        },
+        "cancelled": "Annullato",
+        "expired": "Scaduto"
+      },
+      "stop": "Ferma la correzione",
+      "stopFailed": "Non è stato possibile fermare la correzione. Riprova."
     }
   },
   "newTask": {
@@ -1427,7 +1572,9 @@
       "size": "Taglia",
       "week": "Settimana",
       "milestone": "Traguardo"
-    }
+    },
+    "requestGone": "Questa richiesta non è più disponibile: forse è stata trasformata, archiviata o nascosta.",
+    "requestNotConvertible": "Questa richiesta è già stata trasformata o archiviata."
   },
   "home": {
     "customize": "Personalizza",
@@ -1482,6 +1629,7 @@
       "turnIntoTaskLabel": "Trasforma in task: {{title}}",
       "created": "{{code}} creata dalla richiesta.",
       "openRequest": "Apri la richiesta {{title}}",
+      "openRequestInWeb": "Apri {{title}} nel web",
       "claude": {
         "asks": "Claude chiede",
         "plan": "Il piano di Claude aspetta la tua approvazione",
@@ -1490,9 +1638,8 @@
         "openTask": "Apri la task",
         "rejectNow": "Rifiuta",
         "blocked": {
-          "fix_access_revoked": "Non si può approvare: l'accesso di correzione a {{code}} è stato revocato. Rifiutalo per liberare {{code}}.",
-          "fix_access_unverified": "Non si può approvare: l'accesso di correzione di {{code}} non è verificato. Rifiutalo per liberare {{code}}.",
-          "server_gone": "Non si può approvare: {{code}} non è più in questo progetto. Rifiutalo per liberare {{code}}."
+          "server_gone": "Non si può approvare: {{code}} non è più in questo progetto. Rifiutalo per liberare {{code}}.",
+          "operations_off": "Non si può approvare: l'agente di {{code}} non ha le operazioni accese. Rifiutalo per liberare {{code}}."
         },
         "recommended": "Consigliata",
         "planOptions": "Decidi sul piano di {{code}}",
@@ -1508,7 +1655,8 @@
         "rejected": "Piano di {{code}} rifiutato",
         "planFailed": "Impossibile inviare la decisione su {{code}}. È tornata in Da decidere.",
         "alreadyAnswered": "Ha già risposto {{name}}.",
-        "alreadyDecided": "Ha già deciso {{name}}."
+        "alreadyDecided": "Ha già deciso {{name}}.",
+        "planChanged": "Il piano di {{code}} è cambiato dopo che l'hai letto: rileggilo prima di decidere."
       },
       "chat": {
         "asksYou": "{{name}} ti chiede",
@@ -1528,6 +1676,7 @@
         "fromCalendar": "Dal tuo calendario · {{title}}",
         "openEmail": "Apri l'email",
         "openEvent": "Apri l'evento",
+        "openMeeting": "Apri la riunione",
         "confirmed": "Confermata per {{code}}",
         "ignored": "Proposta per {{code}} ignorata",
         "handed": "Passata a {{code}}",
@@ -1658,11 +1807,20 @@
       "empty": "Niente da rilasciare e nessun rilascio fallito."
     },
     "waitingCustomers": {
-      "empty": "Nessun cliente in attesa"
+      "empty": "Nessun cliente in attesa",
+      "pending": "Da valutare: Claude non ha ancora detto se serve una tua risposta",
+      "yesNoReason": "Claude dice che serve una tua risposta.",
+      "signals": {
+        "decision": "Decisione",
+        "request": "Richiesta",
+        "deadline": "Scadenza",
+        "blocker": "Bloccante"
+      }
     }
   },
   "week": {
     "title": "La mia settimana",
+    "loadTruncated": "Alcune task mancano dal carico.",
     "range": "{{week}} · {{range}}",
     "nav": {
       "label": "Settimana",
@@ -1712,7 +1870,10 @@
     "short": "S{{n}}"
   },
   "planning": {
+    "someone": "Qualcuno",
     "title": "Pianificazione",
+    "loadTruncated": "Alcune task mancano dal carico.",
+    "poolTruncated": "Alcune task mancano da «Da pianificare».",
     "range": "{{week}} · {{range}}",
     "department": "Reparto",
     "person": "Persona",
@@ -1761,6 +1922,7 @@
     "loadOthers": "Altri progetti",
     "loadAll": "Tutti i progetti",
     "readOnlyRow": "Qui puoi pianificare solo le tue task",
+    "claudeReadOnly": "Solo chi può avviare il lavoro di Claude lo pianifica",
     "readOnlyProject": "Non puoi pianificare le task di {{project}}",
     "notMember": "Non è membro del progetto di questa task",
     "closed": "Le task chiuse non si pianificano",
@@ -1791,7 +1953,14 @@
     "emptyMembers": "Nessuno nel progetto, per ora",
     "emptyMembersBody": "Le persone compaiono qui quando sono membri del progetto.",
     "emptyDepartment": "Nessuno in questo reparto",
-    "emptyDepartmentBody": "Scegli un altro reparto, o chiedi a un amministratore di aggiungere persone a questo."
+    "emptyDepartmentBody": "Scegli un altro reparto, o chiedi a un amministratore di aggiungere persone a questo.",
+    "refused": {
+      "forbidden": "Non puoi spostare {{code}}: può farlo solo chi ce l'ha o chi pianifica per gli altri.",
+      "invalid_assignee": "{{code}} può andare solo a un membro del suo progetto.",
+      "past_week": "{{code}} non si può pianificare in una settimana già finita.",
+      "not_in_week": "{{code}} non è più in questa settimana.",
+      "claude_assign_forbidden": "Non puoi dare {{code}} a Claude: può farlo solo chi in questo progetto avvia il lavoro di Claude."
+    }
   },
   "requests": {
     "intro": "Idee e bisogni per {{project}}. Chiunque nel progetto può mandarne una; il team decide cosa diventa una task.",
@@ -1827,7 +1996,8 @@
       "aria": "Urgenza: {{name}}",
       "low": "Bassa",
       "medium": "Media",
-      "high": "Alta"
+      "high": "Alta",
+      "urgent": "Urgente"
     },
     "requestedBy": "Chiesta da {{names}}",
     "requestedTimes_one": "Chiesta una volta",
@@ -1861,7 +2031,10 @@
       "submit": "Manda la richiesta",
       "failed": "Non è stato possibile mandare la richiesta. Non è partito nulla: riprova.",
       "sent": "Richiesta mandata a {{project}}.",
-      "sentSimilar": "Richiesta mandata a {{project}}. Somiglia a un'altra richiesta: il team potrebbe fonderle."
+      "sentSimilar": "Richiesta mandata a {{project}}. Somiglia a un'altra richiesta: il team potrebbe fonderle.",
+      "sentMerged": "Unita a {{code}}: qualcuno l'aveva già chiesta, e ora la segui anche tu.",
+      "sending": "Invio… controllo se qualcuno l'ha già chiesta.",
+      "pending": "Ricevuta: la stiamo ancora registrando, la troverai fra le Requests."
     },
     "merge": {
       "title": "Fondi in un'altra richiesta",
@@ -1873,7 +2046,10 @@
       "noMatch": "Nessuna richiesta corrisponde.",
       "choose": "Scegli la richiesta in cui fonderla.",
       "submit": "Fondi",
-      "failed": "Non è stato possibile fondere le richieste. Non è cambiato nulla."
+      "failed": "Non è stato possibile fondere le richieste. Non è cambiato nulla.",
+      "changed": "Una delle due richieste è cambiata nel frattempo. Non è cambiato niente: riprova.",
+      "rewriting": "Unione in {{code}}: Claude la sta riscrivendo. Può volerci un momento.",
+      "retry": "Riprova"
     },
     "detail": {
       "label": "Richiesta",
@@ -2002,7 +2178,8 @@
       "listLabel": "Modifiche proposte",
       "reason": "Perché",
       "accepted": "Proposte accettate.",
-      "failed": "Non è andato a buon fine. Riprova."
+      "failed": "Non è andato a buon fine. Riprova.",
+      "savedNotDismissed": "Le modifiche sono salvate, ma i suggerimenti sono ancora aperti. Scartali di nuovo."
     },
     "nextStep": {
       "label": "Prossimo passo",
@@ -2030,9 +2207,11 @@
       "claudeWorking": "Claude al lavoro",
       "stalled_one": "{{count}} ferma",
       "stalled_other": "{{count}} ferme",
+      "stalledAtLeast": "{{count}}+ ferme",
       "nextDated": "prossimo: {{name}} · {{date}}",
       "next": "prossimo: {{name}}",
       "quiet": "Niente in attesa, niente di fermo",
+      "quietTruncated": "Niente in attesa · troppe task aperte per contare le ferme",
       "error": "Impossibile caricare il polso del progetto."
     },
     "stalled": {
@@ -2158,12 +2337,16 @@
       "weekOf": "Settimana del {{date}}",
       "showEarlier": "Mostra prima",
       "prNumber": "#{{number}}",
+      "taskUnavailable": "Una task che non è in questo elenco",
+      "milestoneUnavailable": "un traguardo eliminato",
       "noSummary": "Nessuna sintesi per questo giorno",
       "empty": "Ancora non è successo nulla in questo progetto",
-      "emptyType": "Ancora niente di questo tipo"
+      "emptyType": "Ancora niente di questo tipo",
+      "nothingInWeeks": "Niente di questo tipo in queste settimane"
     },
     "decisions": {
       "title": "Registro decisioni",
+      "truncated": "Queste sono le ultime {{count}} decisioni: le più vecchie qui non si vedono.",
       "record": "Registra una decisione",
       "empty": "Ancora nessuna decisione registrata",
       "whoCan": "Le registrano qui i project lead e chi ha il permesso di farlo.",
@@ -2193,6 +2376,8 @@
       "submit": "Registra",
       "recorded": "Decisione registrata",
       "failed": "Impossibile registrare la decisione. Non è stato salvato nulla; riprova.",
+      "alreadySuperseded": "Quella decisione è già superata da un'altra. Non è stato salvato niente.",
+      "forbidden": "Non puoi registrare decisioni in questo progetto.",
       "actions": "Azioni per «{{title}}»",
       "supersededByGroup": "Superata da",
       "supersededNone": "Nessuna, è ancora valida",
@@ -2295,7 +2480,10 @@
       "template": "Modello",
       "templateHint": "Il modello decide gli stati e i moduli di partenza. Gli stati si cambiano poi nelle impostazioni del progetto.",
       "failed": "Non è stato possibile creare il progetto. Non è stato creato nulla; riprova.",
-      "created": "{{code}} {{name}} creato."
+      "created": "{{code}} {{name}} creato.",
+      "keyTitle": "La chiave d'ingestione di {{code}} si vede solo ora.",
+      "keyLabel": "Chiave d'ingestione",
+      "keyLater": "Le app e i sistemi la usano per mandare a {{code}} errori ed eventi. Dopo, Impostazioni → Integrazione ne mostra solo gli ultimi 4 caratteri."
     },
     "people": {
       "views": "Vista dell'attività",
@@ -2354,6 +2542,9 @@
       "link": "Collega una persona",
       "linkTo": "Collega «{{name}}» a",
       "linkFailed": "Non è stato possibile collegare «{{name}}». Non è cambiato nulla.",
+      "linkTaken": "«{{name}}» è già collegato a qualcuno. Non è cambiato nulla.",
+      "linkAction": "collegare «{{name}}» a {{person}}",
+      "linkOnWeb": "Apre questa pagina sul web, dove confermi che sei tu",
       "linked": "«{{name}}» ora è {{person}}: i commit sono passati sotto di lei o di lui.",
       "report": {
         "label": "Report giornaliero",
@@ -2371,7 +2562,8 @@
         "stale_one": "{{count}} commit nuovo non incluso",
         "stale_other": "{{count}} commit nuovi non inclusi",
         "regenerate": "Rigenera",
-        "regenerateOf": "Rigenera il report giornaliero di {{code}}"
+        "regenerateOf": "Rigenera il report giornaliero di {{code}}",
+        "generateAll": "Rigenera i report di tutti i progetti di quel giorno"
       },
       "states": {
         "loading": "Caricamento della rassegna",
@@ -2391,6 +2583,7 @@
       "loadError": "Impossibile caricare i progetti archiviati.",
       "list": "Progetti archiviati",
       "archivedBy": "Archiviato il {{date}} da {{name}}",
+      "archivedOn": "Archiviato il {{date}}",
       "reopen": "Riapri",
       "reopenWhy": "Per riaprire {{code}} serve poterne gestire le impostazioni.",
       "more": "Altro per {{code}}",
@@ -2401,6 +2594,7 @@
       "page": {
         "back": "← Archiviati",
         "band": "Archiviato il {{date}} da {{name}}. Sola lettura: riaprilo per lavorarci di nuovo.",
+        "bandNoName": "Archiviato il {{date}}. Sola lettura: riaprilo per lavorarci di nuovo.",
         "loadError": "Impossibile caricare {{code}}.",
         "summary": "Sintesi",
         "noDescription": "Nessuna descrizione.",
@@ -3103,11 +3297,20 @@
         "platformFallback": "la piattaforma git",
         "secretTitle": "Questo secret si vede solo adesso.",
         "secretLabel": "Secret",
-        "reauthAction": "creare un nuovo secret del webhook per {{name}}"
+        "reauthAction": "creare un nuovo secret del webhook per {{name}}",
+        "platform": "Già aggiornato su {{platform}}: non c'è niente da copiare.",
+        "manual": "Incollalo nelle impostazioni del webhook su {{platform}}: quello vecchio ha smesso di valere.",
+        "refused": {
+          "webhook_scope_missing": "Il token dell'account git non può gestire i webhook. Non è cambiato niente.",
+          "platform_update_failed": "La piattaforma git ha rifiutato il segreto nuovo. Quello vecchio vale ancora.",
+          "webhook_rollback": "Non è stato possibile salvare il segreto nuovo. Quello vecchio vale ancora, anche sulla piattaforma.",
+          "webhook_split": "Non è stato possibile salvare il segreto nuovo, e la piattaforma ha tenuto quello nuovo. Riprova per riallinearli.",
+          "webhook_unknown": "Non è stato possibile creare un segreto nuovo. Riprova."
+        }
       }
     },
     "plugins": {
-      "intro": "I plugin di Claude Code che Claude può usare quando lavora su {{code}}. Tutto è acceso, a meno che non lo spegni qui.",
+      "intro": "I plugin di Claude Code che Claude può usare quando lavora su {{code}}. Un plugin entra nei run solo se lo accendi qui; dentro, tutto è acceso a meno che non lo spegni.",
       "registered": "I plugin si registrano per tutta l'istanza in <link>Amministrazione → Plugin</link>.",
       "mcpNote": "I server MCP propri di un plugin (.mcp.json) non vengono mai caricati.",
       "loadError": "Impossibile caricare i plugin di {{code}}.",
@@ -3170,7 +3373,8 @@
         "Stop": "Quando Claude si ferma",
         "SubagentStop": "Quando un subagente si ferma",
         "PreCompact": "Prima di compattare"
-      }
+      },
+      "notTurnedOn": "Non acceso per questo progetto: non entra nei run."
     },
     "archive": {
       "intro": "Archivia {{code}} quando il lavoro è finito. Si può riaprire in ogni momento; solo un full admin può eliminarlo per sempre, e solo dopo averlo archiviato.",
@@ -3187,6 +3391,12 @@
         "readable": "I suoi membri e i full admin possono ancora leggerlo, in Archiviati.",
         "automations": "Le sue automazioni si fermano e non parte nuovo lavoro di Claude.",
         "nothingDeleted": "Non si cancella niente: Riapri lo riporta com'era.",
+        "surfaces": {
+          "sdk": "L'SDK dei suoi siti smette di funzionare.",
+          "widget": "Il suo widget di Support smette di funzionare.",
+          "inbound": "La sua API in ingresso smette di accettare task.",
+          "gitWebhook": "I webhook git dei suoi repository smettono di funzionare."
+        },
         "openRuns_one": "{{count}} esecuzione delle automazioni ancora aperta verrà annullata.",
         "openRuns_other": "{{count}} esecuzioni delle automazioni ancora aperte verranno annullate.",
         "archive": "Archivia",
@@ -3202,6 +3412,8 @@
         "waitingTitle": "“{{title}}” aspetta la ripresa della coda.",
         "waitingHidden": "Una conversazione che non vedi aspetta la ripresa della coda.",
         "release": "Il rilascio <code>{{code}}</code> è in corso.",
+        "docs": "Si stanno generando i Docs di <repo>{{repository}}</repo>.",
+        "docsPaused": "I Docs di <repo>{{repository}}</repo> sono in pausa sul limite d'uso e riprenderanno da soli.",
         "wait_one": "Aspetta che finisca, o fermalo dalla sua pagina, poi archivia di nuovo.",
         "wait_other": "Aspetta che finiscano, o fermali dalle loro pagine, poi archivia di nuovo.",
         "again": "Archivia di nuovo",
@@ -3402,7 +3614,8 @@
         "notifiesOthers": "avvisa chi segue queste attività",
         "automation": "fa partire un'automazione in {{code}}",
         "irreversible": "non si annulla",
-        "reauth": "chiede il tuo codice"
+        "reauth": "chiede il tuo codice",
+        "startsWork": "avvia il lavoro di Claude, che non si annulla"
       },
       "remove": {
         "noCode": "Quale task elimino? Dammi il codice, per esempio AUD-4.",
@@ -3429,6 +3642,8 @@
         "secretTokens": "Apri Preferenze → Token →",
         "secretInvite": "Apri Amministrazione → Persone → Invita →",
         "secretIntegration": "Apri Impostazioni → Integrazione di **{{code}}** →",
+        "webhookUrl": "Cambiare dove un webhook manda i messaggi chiede il tuo codice: lo fai tu, dalla sua pagina.",
+        "webhookUrlLink": "Apri Amministrazione → Webhook in uscita →",
         "server": "Non agisco sui server.",
         "serverLink": "Apri **{{code}}** →",
         "serverProject": "Apri i server di **{{code}}** →",
@@ -3538,7 +3753,6 @@
           "spend": "Dirti quanto si è speso in AI questo mese",
           "archive": "Archiviare i progetti senza attività",
           "addMember": "Aggiungere qualcuno a un progetto",
-          "supportReply": "Scrivere la risposta a una conversazione di supporto",
           "releaseNotes": "Scrivere le note di rilascio di una pull request",
           "mailBody": "Scrivere un'email o una risposta nella Posta",
           "taskDescription": "Scrivere la descrizione di una task",
@@ -3554,7 +3768,6 @@
           "spend": "Quanto abbiamo speso in AI questo mese?",
           "archive": "Archivia i progetti senza attività da 3 mesi",
           "addMember": "Aggiungi [persona] a [progetto] come [ruolo]",
-          "supportReply": "Scrivi la risposta",
           "releaseNotes": "Scrivi le note di rilascio",
           "mailBody": "Scrivi un'email a [persona] per dire che [cosa]",
           "taskDescription": "Scrivi la descrizione di [task]",
@@ -3635,7 +3848,10 @@
           "open_pr": "**{{code}}** ha una pull request aperta ({{pr}}): si archivia quando si chiude",
           "open_prNoCode": "**{{code}}** ha una pull request aperta: si archivia quando si chiude",
           "server_fix": "**{{code}}** ha una correzione aperta su **{{server}}**: si archivia quando finisce",
-          "release": "**{{code}}** ha il rilascio **{{release}}** in corso: si archivia quando finisce"
+          "release": "**{{code}}** ha il rilascio **{{release}}** in corso: si archivia quando finisce",
+          "open_correction": "**{{code}}** ha una correzione di una pull request ancora aperta: si archivia quando finisce",
+          "doc_generation": "**{{code}}** sta generando i Docs di **{{repository}}**: si archivia quando finisce",
+          "doc_generationPaused": "**{{code}}** ha i Docs di **{{repository}}** in pausa sul limite d'uso: si archivia quando finiscono"
         }
       },
       "member": {
@@ -3664,7 +3880,7 @@
         "openInviteBare": "Apri l'invito →"
       },
       "draft": {
-        "cantReply": "Non puoi rispondere a questa conversazione ·",
+        "noSupportReply": "In Support non scrivo risposte.",
         "cantEditNotes": "Non puoi modificare le note di rilascio di questa pull request ·",
         "cantEditTask": "Non puoi modificare **{{code}}** ·",
         "noSource": "Non ho da dove scrivere la descrizione di **{{code}}**: dimmi cosa deve dire.",
@@ -3672,7 +3888,6 @@
         "askHint": "Cosa deve dire l'email?",
         "openField": "Apri la conversazione, l'email, la pull request o la task e chiedimelo di nuovo.",
         "openCode": "Apri **{{code}}** →",
-        "openReply": "Apri la risposta →",
         "chat": "In un canale le bozze le scrive @Claude nel thread: menzionalo lì.",
         "inPanel": "Le bozze le scrivo dal riquadro di Claude, accanto al campo: chiedimelo lì."
       },
@@ -3913,9 +4128,8 @@
         "closedBy": "chiusa da {{name}}",
         "itemClosed": "chiusa · la richiesta è diventata una task o è stata archiviata",
         "reasons": {
-          "fix_access_revoked": "fermata · l'accesso di correzione è stato revocato",
-          "fix_access_unusable": "fermata · l'accesso di correzione ha smesso di funzionare",
-          "server_gone": "fermata · il server ha lasciato il progetto"
+          "server_gone": "fermata · il server ha lasciato il progetto",
+          "operations_off": "fermata · le operazioni dell'agente sono state spente"
         }
       },
       "question": {
@@ -3950,7 +4164,9 @@
         "whoCanApprove": "Decide chi può approvare i piani in {{code}}",
         "whoCanApproveAny": "Decide chi può approvare i piani",
         "alreadyDecided": "Ha già deciso {{name}}",
-        "failed": "La decisione non è passata: il piano potrebbe essere cambiato. Riprova."
+        "failed": "La decisione non è passata: il piano potrebbe essere cambiato. Riprova.",
+        "undecided": "Non deciso",
+        "changed": "Il piano è cambiato dopo che l'hai letto: rileggilo prima di decidere."
       },
       "proposal": {
         "title_one": "Claude propone · {{count}} modifica",
@@ -3964,6 +4180,16 @@
         "confirmSelected_other": "Conferma le {{count}} scelte",
         "done": "Fatto",
         "doneEdited": "Fatto (modificata)",
+        "mailNotSaved": "Non salvato su Gmail: il testo non è nella tua bozza.",
+        "retrySave": "Riprova",
+        "retryFailed": {
+          "reconnect": "Gmail non l'ha salvata: ricollega la casella nelle Preferenze, poi riprova.",
+          "changed": "La bozza è cambiata dopo che Claude l'ha scritta: copia il testo.",
+          "gone": "La casella o la conversazione non ci sono più: copia il testo.",
+          "generic": "Ancora non salvata su Gmail. Riprova più tardi, o copia il testo."
+        },
+        "copyText": "Copia il testo",
+        "copied": "Copiato",
         "partial_one": "{{done}} di {{count}} modifica",
         "partial_other": "{{done}} di {{count}} modifiche",
         "cancelled": "Annullata",
@@ -3987,7 +4213,8 @@
           "automation": "In {{code}} parte un'automazione",
           "irreversible": "Non si annulla",
           "reauth": "Chiede il codice della verifica in due passaggi",
-          "label": "Cosa succede"
+          "label": "Cosa succede",
+          "startsWork": "Avvia il lavoro di Claude: non si annulla"
         },
         "delete": "Elimina",
         "needsCode": "Prima serve il tuo codice della verifica in due passaggi. Non è cambiato nulla.",
@@ -3995,10 +4222,22 @@
         "failedForbidden": "Non è stato possibile: non puoi più {{action}} in {{code}}. Non è cambiato nulla.",
         "failedForbiddenNoProject": "Non è stato possibile: non puoi più {{action}}. Non è cambiato nulla.",
         "reauthOne": "eseguire questa modifica",
+        "plugin": {
+          "title": "Registrarlo ne esegue il codice",
+          "runsCode": "Appena registrato, Stubwise lo installa e fa una prova con tutto acceso: i suoi hook girano con gli accessi del worker ai tuoi repository e alle credenziali di Claude.",
+          "trusted": "Hai detto che ti fidi di questo repository e di questo commit.",
+          "moves": {
+            "title": "Spostarlo ne esegue il codice",
+            "runsCode": "Appena passa al commit nuovo, Stubwise lo installa e fa una prova con tutto acceso: i suoi hook girano con gli accessi del worker ai tuoi repository e alle credenziali di Claude."
+          }
+        },
         "reauthAction": {
           "addMember": "aggiungere {{name}} a {{code}} come {{role}}",
           "setMemberRole": "rendere {{name}} {{role}} in {{code}}",
           "removeMember": "togliere {{name}} da {{code}}",
+          "addMemberNoCode": "aggiungere {{name}} a un progetto come {{role}}",
+          "setMemberRoleNoCode": "rendere {{name}} {{role}} in un progetto",
+          "removeMemberNoCode": "togliere {{name}} da un progetto",
           "registerPlugin": "registrare il plugin {{url}}",
           "updatePluginRef": "portare un plugin a {{ref}}",
           "saveStorage": "cambiare dove si salvano i file"
@@ -4092,7 +4331,9 @@
         "stopAndSendNoFiles": "Togli gli allegati per fermare e scrivere",
         "absorb": "Il messaggio arriva a Claude quando finisce l'azione in corso.",
         "absorbFree": "Claude risponde dopo la risposta in corso.",
-        "sendSuspended": "Riconnessione: puoi continuare a scrivere, l'invio riprende quando torna la connessione."
+        "sendSuspended": "Riconnessione: puoi continuare a scrivere, l'invio riprende quando torna la connessione.",
+        "retention_one": "Le conversazioni inattive da {{count}} giorno si cancellano.",
+        "retention_other": "Le conversazioni inattive da {{count}} giorni si cancellano."
       },
       "context": {
         "menu": "Progetto di contesto",
@@ -4125,7 +4366,8 @@
         },
         "refineClosed": "Questa rifinitura è chiusa.",
         "refineItemClosed": "La richiesta è diventata una task o è stata archiviata: questa rifinitura è chiusa.",
-        "automaticServer": "Questa sessione va da sola con l'accesso in sola lettura a {{code}}: si può solo guardare."
+        "automaticServer": "Questa sessione va da sola con l'accesso in sola lettura a {{code}}: si può solo guardare.",
+        "serverFix": "Questa sessione propone soltanto la correzione su {{code}}: il piano si decide, e la correzione si ferma, dalla sezione Server della task."
       },
       "executed": {
         "verb": {
@@ -4166,7 +4408,8 @@
         "openPrNoNumberOn": "c'è una pull request aperta su {{code}}",
         "serverFix": "è in corso una correzione su {{code}}",
         "release": "il rilascio {{code}} è in corso",
-        "and": " e "
+        "and": " e ",
+        "openCorrection": "una correzione della sua pull request è ancora aperta"
       },
       "undo": {
         "undo": "Annulla l'azione",
@@ -4224,10 +4467,13 @@
         "failedReason": "la pagina non è stata cambiata",
         "savedFilter": "Salvato il filtro «{{name}}»",
         "onlyYou": "lo vedi solo tu",
-        "private": "privato"
+        "private": "privato",
+        "notApplied": "Non applicata in questa finestra",
+        "apply": "Applica"
       },
       "trial": {
         "label": "La prova di Claude",
+        "noExamples": "Ancora niente su cui provarla: nessun evento recente va bene per l'inizio",
         "head_one": "Provata su {{count}} esempio · non è nato niente",
         "head_other": "Provata su {{count}} esempi · non è nato niente",
         "testing_one": "La provo su {{count}} esempio…",
@@ -4281,6 +4527,16 @@
       "capabilities": {
         "label": "Cosa so fare",
         "write": "Scrivila"
+      },
+      "commands": {
+        "status": "A che punto sono i progetti: il polso di quelli che segui",
+        "today": "Cosa devi fare oggi: decisioni, task in ritardo, la tua settimana",
+        "explain": "Spiega una task o una richiesta, dal suo codice",
+        "docs": "Come funziona qualcosa in un progetto, dai suoi Docs",
+        "plan": "Pianifica la prossima settimana dalle task aperte",
+        "new-task": "Crea una task, con una proposta da confermare",
+        "new-request": "Apri una richiesta in un progetto",
+        "run": "Avvia il lavoro di Claude su una task o una richiesta"
       }
     },
     "destination": {
@@ -4382,6 +4638,7 @@
       "landing": {
         "title": "Nuova conversazione",
         "intro": "Chiedi di ciò che stai guardando, o chiedi a Claude di farlo per te. Ciò che tocca solo te parte subito e si annulla; ciò che tocca altri ti chiede prima.",
+        "introRead": "Chiedi del tuo lavoro, di una task o di un progetto: Claude legge Stubwise come lo vedi tu, e risponde. In questa versione non cambia niente: ti dice dove farlo.",
         "label": "La tua domanda per Claude",
         "placeholder": "Chiedi a Claude del tuo lavoro, di una task o di un progetto…",
         "send": "Inizia la conversazione",
@@ -4444,6 +4701,9 @@
         "automaticServer": "Automatica · accesso in sola lettura a {{code}}"
       },
       "publish": {
+        "privateTitle": "Questa conversazione non si può rendere pubblica",
+        "privateBody": "In questa conversazione Claude ha letto la tua posta o il tuo calendario, un canale privato o un messaggio diretto, o un'automazione generale: ciò che ha letto resta tuo, quindi la conversazione resta privata.",
+        "close": "Chiudi",
         "title": "Rendere pubblica questa conversazione?",
         "body": "Chiunque possa vedere le conversazioni pubbliche la leggerà, compreso ciò che Claude ha trovato.",
         "projects": "Progetti che Claude ha letto o modificato",
@@ -4457,7 +4717,8 @@
         "checking": "Controllo dei progetti usati da Claude…",
         "loadFailed": "Impossibile controllare quali progetti ha usato Claude.",
         "retry": "Riprova",
-        "nothingNew": "Claude non ha usato progetti che non hai già condiviso: i nuovi messaggi si possono condividere così come sono."
+        "nothingNew": "Claude non ha usato progetti che non hai già condiviso: i nuovi messaggi si possono condividere così come sono.",
+        "toolReads": "Claude ha letto dati per te con i suoi strumenti: chi legge vedrà anche ciò che Claude ha letto per te."
       },
       "continue": {
         "banner": "Ciò che scrivi apre una tua conversazione privata. Claude agirà come te.",
@@ -4467,6 +4728,9 @@
         "gone": "La conversazione originale non è più disponibile.",
         "originLabel": "La conversazione da cui questa continua",
         "yoursStarts": "Qui comincia la tua conversazione"
+      },
+      "row": {
+        "by": "di {{name}}"
       }
     },
     "decisionLog": {
@@ -4496,27 +4760,27 @@
       "reads": {
         "uptime": "Letti uptime e carico",
         "memory": "Letta la memoria",
-        "containers": "Letto l'uso dei container",
-        "processesCpu": "Letti i processi per CPU",
-        "processesMem": "Letti i processi per memoria",
+        "processes": "Letti i processi",
         "logs": "Letto il log di {{service}}",
+        "containerState": "Letto lo stato di {{service}}",
         "disk": "Letto l'uso del disco",
-        "containerSizes": "Lette le dimensioni dei container",
-        "journal": "Letto il journal di sistema",
-        "containerList": "Letti i container",
+        "journal": "Letti gli errori nel journal di sistema",
         "ports": "Lette le porte in ascolto",
-        "agent": "Letto lo stato dell'agente",
-        "bootJournal": "Letto il journal dell'ultimo avvio",
+        "load": "Letto il carico",
+        "failedUnits": "Letti i servizi non riusciti",
         "attempt": "Tentata la connessione ({{n}}° tentativo)"
       }
     },
     "serverFix": {
-      "commands": {
-        "restart": "Riavviato {{service}}",
-        "limitMemory": "Limitata la memoria di {{service}}",
-        "pruneImages": "Tolte le immagini non usate",
-        "vacuumJournal": "Ridotto il journal di sistema",
-        "restartAgent": "Riavviato l'agente di monitoraggio"
+      "actions": {
+        "container_restart": "Riavviato {{container}}",
+        "container_stop": "Fermato {{container}}",
+        "container_start": "Avviato {{container}}",
+        "docker_prune": {
+          "images_unused": "Tolte le immagini non usate",
+          "build_cache": "Tolta la cache di build",
+          "stopped_containers": "Tolti i container fermi"
+        }
       }
     },
     "executed": {
@@ -4561,6 +4825,7 @@
       "chipTitle": "Claude legge {{label}} con i tuoi permessi quando invii.",
       "removeContext": "Non usare questa pagina",
       "on": "su {{label}}",
+      "onMany": "su",
       "archived": "La tua ultima conversazione è stata archiviata.",
       "nowShowing": "Ora vedi le conversazioni di {{name}}.",
       "chip": {
@@ -4606,8 +4871,6 @@
         "sr": "Bozza di Claude, non ancora modificata."
       },
       "pending": {
-        "supportReply": "Scrivo una bozza per la risposta a <obj>{{code}}</obj>…",
-        "supportReply_vowel": "Scrivo una bozza per la risposta ad <obj>{{code}}</obj>…",
         "releaseNotes": "Scrivo una bozza per le note di rilascio di <obj>{{code}}</obj> · pull request #{{number}}…",
         "releaseNotesBare": "Scrivo una bozza per le note di rilascio di <obj>{{code}}</obj>…",
         "mailReply": "Scrivo una bozza per la risposta a «{{subject}}»…",
@@ -4615,8 +4878,6 @@
         "taskDescription": "Scrivo una bozza per la descrizione di <obj>{{code}}</obj>…"
       },
       "placed": {
-        "supportReply": "Messa una bozza nella risposta a <obj>{{code}}</obj>",
-        "supportReply_vowel": "Messa una bozza nella risposta ad <obj>{{code}}</obj>",
         "releaseNotes": "Messa una bozza nelle note di rilascio di <obj>{{code}}</obj> · pull request #{{number}}",
         "releaseNotesBare": "Messa una bozza nelle note di rilascio di <obj>{{code}}</obj>",
         "mailReply": "Messa una bozza nella risposta a «{{subject}}»",
@@ -4624,8 +4885,6 @@
         "taskDescription": "Messa una bozza nella descrizione di <obj>{{code}}</obj>"
       },
       "waiting": {
-        "supportReply": "La bozza per la risposta a <obj>{{code}}</obj> è pronta",
-        "supportReply_vowel": "La bozza per la risposta ad <obj>{{code}}</obj> è pronta",
         "releaseNotes": "La bozza per le note di rilascio di <obj>{{code}}</obj> · pull request #{{number}} è pronta",
         "releaseNotesBare": "La bozza per le note di rilascio di <obj>{{code}}</obj> è pronta",
         "mailReply": "La bozza per la risposta a «{{subject}}» è pronta",
@@ -4661,11 +4920,6 @@
       "hint": "Apre Claude con la richiesta scritta, non inviata.",
       "notNow": "Non ora",
       "hidden": "Suggerimento nascosto.",
-      "supportReply": {
-        "line": "scrivere la risposta",
-        "prompt": "Scrivi la risposta a {{code}}",
-        "prompt_vowel": "Scrivi la risposta ad {{code}}"
-      },
       "releaseNotes": {
         "line": "scrivere le note di rilascio",
         "prompt": "Scrivi le note di rilascio"
@@ -4682,7 +4936,124 @@
         "line": "riassumere la spesa del mese",
         "prompt": "Quanto abbiamo speso in AI questo mese?"
       }
-    }
+    },
+    "chatActions": {
+      "aPerson": "una persona",
+      "aRole": "un ruolo",
+      "summary": {
+        "createTask": "Crea la task «{{title}}»",
+        "updateTask": "Modifica {{code}} ({{fields}})",
+        "updateTaskNoCode": "Modifica una task ({{fields}})",
+        "planTask": "Pianifica {{code}}",
+        "planTaskNoCode": "Pianifica una task",
+        "addComment": "Commenta {{code}}",
+        "addCommentNoCode": "Commenta una task",
+        "deleteComment": "Elimina un commento di {{code}}",
+        "deleteCommentNoCode": "Elimina un commento",
+        "createRequest": "Invia la richiesta «{{title}}»",
+        "convertRequest": "Trasforma una richiesta in task",
+        "archiveRequest": "Archivia una richiesta",
+        "reopenRequest": "Riapri una richiesta",
+        "startRun": "Avvia il lavoro di Claude su {{code}}",
+        "startRunNoCode": "Avvia il lavoro di Claude su una task",
+        "createMilestone": "Crea il traguardo «{{name}}»",
+        "deleteMilestone": "Elimina un traguardo",
+        "saveFilter": "Salva il filtro «{{name}}»",
+        "deleteFilter": "Elimina un filtro salvato",
+        "fillFieldDescription": "Scrivere una bozza della descrizione di {{code}}",
+        "fillFieldDescriptionNoCode": "Scrivere una bozza della descrizione di una task",
+        "fillFieldNotes": "Scrivere una bozza delle note di rilascio della pull request #{{number}}",
+        "fillFieldNotesNoCode": "Scrivere una bozza delle note di rilascio della pull request #{{number}}",
+        "fillMailBody": "Scrivere il corpo dell'email nella tua bozza di Gmail",
+        "pageAction": "Cambia questa pagina ({{kind}})",
+        "deleteTask": "Elimina {{code}}",
+        "deleteTaskNoCode": "Elimina una task",
+        "setSubscription": "Cambia i tuoi avvisi «{{type}}» in {{code}}: {{channels}}",
+        "setSubscriptionNoCode": "Cambia i tuoi avvisi «{{type}}» in un progetto: {{channels}}",
+        "setSubscriptionBare": "Cambia i tuoi avvisi «{{type}}» in {{code}}",
+        "setSubscriptionBareNoCode": "Cambia i tuoi avvisi «{{type}}» in un progetto",
+        "resetSubscription": "Riporta al default i tuoi avvisi «{{type}}» in {{code}}",
+        "resetSubscriptionNoCode": "Riporta al default i tuoi avvisi «{{type}}» in un progetto",
+        "archiveProject": "Archivia {{code}}",
+        "archiveProjectNoCode": "Archivia un progetto",
+        "reopenProject": "Riapri {{code}}",
+        "reopenProjectNoCode": "Riapri un progetto",
+        "pauseQueue": "Metti in pausa la coda di Claude in {{code}}",
+        "pauseQueueNoCode": "Metti in pausa la coda di Claude in un progetto",
+        "resumeQueue": "Fai ripartire la coda di Claude in {{code}}",
+        "resumeQueueNoCode": "Fai ripartire la coda di Claude in un progetto",
+        "updateProjectGeneral": "Cambia nome o descrizione di {{code}}",
+        "updateProjectGeneralNoCode": "Cambia nome o descrizione di un progetto",
+        "setProjectAi": "Cambia l'account AI di {{code}}",
+        "setProjectAiNoCode": "Cambia l'account AI di un progetto",
+        "saveProjectAutomations": "Cambia le automazioni di {{code}}",
+        "saveProjectAutomationsNoCode": "Cambia le automazioni di un progetto",
+        "retryJob": "Fai ripartire un lavoro fermo",
+        "setModel": "Cambia un modello AI",
+        "saveBudget": "Cambia il budget AI e la lingua",
+        "saveStorage": "Cambia dove si salvano i file",
+        "saveAutomation": "Cambia le regole delle automazioni",
+        "setProviderEnabledOn": "Accendi un account AI",
+        "setProviderEnabledOff": "Spegni un account AI",
+        "moveProvider": "Cambia l'ordine degli account AI",
+        "updateGitAccount": "Cambia un account git",
+        "updateGoogleApp": "Cambia un Google Workspace",
+        "updateWebhook": "Cambia un webhook in uscita",
+        "rerunSmoke": "Rifai la prova di un plugin",
+        "removePlugin": "Togli un plugin",
+        "addMember": "Aggiungi {{name}} a {{code}} come {{role}}",
+        "addMemberNoCode": "Aggiungi {{name}} a un progetto come {{role}}",
+        "setMemberRole": "Rendi {{name}} {{role}} in {{code}}",
+        "setMemberRoleNoCode": "Rendi {{name}} {{role}} in un progetto",
+        "removeMember": "Togli {{name}} da {{code}}",
+        "removeMemberNoCode": "Togli {{name}} da un progetto",
+        "registerPlugin": "Registra il plugin {{url}}",
+        "updatePluginRef": "Porta un plugin a {{ref}}",
+        "writeFirstVersion": "Scrivere la prima versione della doc di {{code}}",
+        "undoFirstVersion": "Annullare la prima versione della doc di {{code}}",
+        "updateProductPageEmail": "Aggiornare {{page}} dall'email",
+        "updateProductPageMeeting": "Aggiornare {{page}} dalla riunione",
+        "undoProductUpdate": "Annullare l'aggiornamento di Claude di {{page}}",
+        "drawWireframe": "Disegnare una bozza di schermata in {{page}}",
+        "deleteWireframe": "Togliere la bozza di schermata da {{page}}"
+      },
+      "summaryHidden": {
+        "createTask": "Crea una task",
+        "createRequest": "Invia una richiesta",
+        "createMilestone": "Crea un traguardo",
+        "saveFilter": "Salva un filtro",
+        "updateTask": "Modifica una task",
+        "pageAction": "Cambia questa pagina",
+        "other": "Una modifica"
+      },
+      "field": {
+        "title": "titolo",
+        "description": "descrizione",
+        "statusId": "stato",
+        "departmentId": "reparto",
+        "assigneeId": "assegnatario",
+        "size": "taglia",
+        "dueDate": "scadenza",
+        "milestoneId": "traguardo",
+        "plannedWeek": "settimana",
+        "labels": "etichette",
+        "type": "tipo",
+        "priority": "priorità",
+        "projectId": "progetto"
+      },
+      "channel": {
+        "app": {
+          "on": "App accesa",
+          "off": "App spenta"
+        },
+        "phone": {
+          "on": "Telefono acceso",
+          "off": "Telefono spento"
+        }
+      },
+      "aPage": "una pagina"
+    },
+    "someone": "Qualcuno"
   },
   "chat": {
     "channel": {
@@ -4717,7 +5088,8 @@
       "settings": "Impostazioni",
       "membersOpen_one": "{{count}} membro · impostazioni",
       "membersOpen_other": "{{count}} membri · impostazioni",
-      "openSettings": "Apre le impostazioni del canale"
+      "openSettings": "Apre le impostazioni del canale",
+      "streamLimit": "Troppe viste dal vivo aperte in questa finestra: i messaggi nuovi qui compaiono riaprendo il canale."
     },
     "flow": {
       "today": "Oggi",
@@ -4731,6 +5103,7 @@
       "arrived_other": "{{count}} messaggi nuovi"
     },
     "message": {
+      "someone": "Qualcuno",
       "edited": "(modificato)",
       "editedAt": "Modificato alle {{time}}",
       "deleted": "Messaggio eliminato",
@@ -4881,6 +5254,7 @@
       "reasons": {
         "forbidden": "chi l'ha chiamato non legge più questo canale",
         "not_found": "qualcosa che gli serviva non c'è più",
+        "budget": "il budget mensile di Claude è finito",
         "other": "qualcosa è andato storto"
       },
       "tryAgain": "Riprova",
@@ -4892,7 +5266,9 @@
       "asks": "Claude chiede a {{name}}",
       "waitingFor": "In attesa di {{name}}",
       "questionClosed": "Senza risposta: la risposta è stata fermata.",
-      "cantAct": "Qui non puoi più agire: non sei nel canale o è archiviato."
+      "cantAct": "Qui non puoi più agire: non sei nel canale o è archiviato.",
+      "proposalArchived": "Il canale è archiviato: non è cambiato nulla.",
+      "proposalNotMember": "Non sei più nel canale: non è cambiato nulla."
     },
     "column": {
       "newMessage": "Nuovo messaggio",
@@ -5150,6 +5526,22 @@
       "saved": "Salvato nel Drive di {{project}} come {{code}}",
       "tooLarge": "{{name}} supera i 100 MB, quindi non può andare nel Drive.",
       "failed": "Non è stato possibile salvare nel Drive. Riprova."
+    },
+    "attachments": {
+      "typeNotAllowed": "{{name}} non si può allegare: questo tipo di file non è ammesso.",
+      "download": "Scarica {{name}}",
+      "downloadFailed": "Non è stato possibile scaricare {{name}}.",
+      "downloadGone": "{{name}} non è più disponibile.",
+      "notSent": {
+        "type": "un file di questo tipo non è ammesso",
+        "size": "un file è troppo grande (fino a 25 MB)",
+        "off": "gli allegati sono spenti su questa istanza",
+        "gone": "un allegato era scaduto: «Rimanda» lo carica di nuovo",
+        "quota": "hai troppi file in attesa di invio (fino a 200 MB): riprova più tardi",
+        "name": "il nome di un file è troppo lungo (fino a 255 caratteri)",
+        "rate": "troppi caricamenti in un minuto: aspetta un attimo, poi «Rimanda»",
+        "failed": "un file non si è caricato per intero: «Rimanda» ci riprova"
+      }
     }
   },
   "docs": {
@@ -5319,7 +5711,8 @@
         "slugConflict": "Un'altra pagina usa già questo slug",
         "slugInvalid": "Usa lettere minuscole, numeri e trattini.",
         "generic": "Non è stato possibile salvare la pagina. Riprova.",
-        "slugReserved": "«{{slug}}» è riservato a una vista dello spazio: scegli un altro slug"
+        "slugReserved": "«{{slug}}» è riservato a una vista dello spazio: scegli un altro slug",
+        "slugFixed": "L'indirizzo di una pagina non cambia dopo la creazione: lascia lo slug com'è."
       }
     },
     "off": {
@@ -5419,7 +5812,9 @@
       "setupPrOpened": "PR di setup aperta",
       "actionFailed": "Non è stato possibile avviarlo. Riprova.",
       "askBuild": "Chiedi a un maintainer di costruirlo.",
-      "setupPrIs": "PR di setup: {{url}}"
+      "setupPrIs": "PR di setup: {{url}}",
+      "setupPrIs_open": "PR di setup, aperta: {{url}}",
+      "setupPrIs_merged": "PR di setup, mergiata: {{url}}"
     },
     "chat": {
       "title": "Chiedi ai documenti",
@@ -5520,6 +5915,9 @@
       "folderOpened": "«{{name}}» aperta in Google Drive. Nel prototipo non si apre nessun browser.",
       "unlink": "Scollega la cartella…",
       "notUpdating": "Non si aggiorna dal {{date}}",
+      "lastSynced": "sincronizzata {{when}}",
+      "syncing": "in sincronizzazione…",
+      "syncRequested": "Sincronizzo «{{name}}»…",
       "failed": "Non è riuscito. Non è cambiato nulla."
     },
     "content": {
@@ -5529,6 +5927,7 @@
       "error": "Non è stato possibile leggere il contenuto",
       "noSummary": "Nessun riassunto per questo file",
       "ocr": "Testo letto da una scansione",
+      "ocrPartial": "Testo letto da una scansione, solo le prime 30 pagine",
       "retry": "Riprova"
     },
     "unavailable": {
@@ -5695,6 +6094,8 @@
       "warning_one": "Tutti i membri di {{code}} ({{count}} persona) potranno leggere ogni file di «{{folder}}» e delle sue sottocartelle, anche chi su Google non può aprirla. Stubwise la legge con il tuo account, {{email}}.",
       "warning_other": "Tutti i membri di {{code}} ({{count}} persone) potranno leggere ogni file di «{{folder}}» e delle sue sottocartelle, anche chi su Google non può aprirla. Stubwise la legge con il tuo account, {{email}}.",
       "pick": "Scegli una cartella. Prima di collegarla, qui leggi chi potrà vederne il contenuto.",
+      "daily": "Stubwise ricontrolla la cartella ogni giorno; Sincronizza ora la aggiorna subito.",
+      "requested": "Collegata «{{name}}»: i suoi file arrivano fra poco.",
       "keys": "↑↓ per spostarti · Invio apre una cartella · ⌫ torna su",
       "cancel": "Annulla",
       "confirm": "Collega la cartella",
@@ -5715,7 +6116,8 @@
       "cancel": "Annulla",
       "added_one": "{{count}} file aggiunto a {{code}}",
       "added_other": "{{count}} file aggiunti a {{code}}",
-      "meta": "{{owner}} · Modificato {{date}}"
+      "meta": "{{owner}} · Modificato {{date}}",
+      "modified": "Modificato {{date}}"
     },
     "connect": {
       "first": "Prima collega il tuo account Google",
@@ -5723,7 +6125,8 @@
       "button": "Collega l'account Google",
       "connecting": "Collegamento a Google…",
       "error": "Non è stato possibile collegarsi a Google",
-      "tryAgain": "Riprova"
+      "tryAgain": "Riprova",
+      "workspace": "Google Workspace"
     },
     "account": {
       "menu": "Account Google",
@@ -5743,7 +6146,16 @@
       "disconnectMailCalendar": "Anche Posta e Calendario smetteranno di mostrare {{email}}. La posta già arrivata e le proposte già fatte restano.",
       "disconnectConfirm": "Scollega l'account",
       "cancel": "Annulla",
-      "close": "Chiudi"
+      "close": "Chiudi",
+      "introMail": "Collega il tuo account Google: Stubwise mostra qui Gmail e Calendar e trasforma in proposte quello che c'è da fare.",
+      "expiredBodyMail": "Posta e Calendario non si aggiornano finché non ricolleghi.",
+      "scopes": "Ricollega per dare a Stubwise i nuovi permessi",
+      "scopesMissing": "Finché non ricolleghi, Stubwise non può {{what}}.",
+      "feature": {
+        "markRead": "segnare la posta come letta o non letta",
+        "calendarWrite": "creare o cambiare le tue riunioni",
+        "drive": "usare i file del tuo Google Drive e gli appunti delle riunioni"
+      }
     },
     "expired": {
       "region": "Collegamento della cartella scaduto",
@@ -5802,6 +6214,7 @@
       "sorted": "Ordinati per pertinenza",
       "matchedName": "Corrisponde il nome",
       "scan": "da una scansione",
+      "scanPartial": "da una scansione, solo le prime 30 pagine",
       "reading": "Lettura del contenuto… trovato per nome",
       "unavailable": "Non disponibile · trovato per nome",
       "labelSummary": "Riassunto: {{summary}}",
@@ -5953,7 +6366,11 @@
       "transcriptNotice": "Nell'app si apre la trascrizione in Google Documenti.",
       "reading": "Lettura della trascrizione…",
       "unreachable": "Stubwise non è riuscito ad aprire la trascrizione. Potrebbe essere stata spostata o non condivisa con te.",
-      "notVisible": "Riassunto e trascrizione li vede solo chi ha partecipato alla riunione."
+      "notVisible": "Riassunto e trascrizione li vede solo chi ha partecipato alla riunione.",
+      "scopeMissing": "Stubwise non ha ancora il permesso di leggere Google Drive: ricollega il tuo account Google per aprire la trascrizione.",
+      "deleted": "La trascrizione è stata eliminata da Google Drive.",
+      "notVerified": "Stubwise non ha potuto verificare che sia il documento di questa riunione, quindi non l'ha letto.",
+      "tooLong": "La trascrizione è lunga: il riassunto ne copre solo la prima parte."
     },
     "proposal": {
       "proposes_one": "Stubwise propone · {{count}} modifica",
@@ -5987,6 +6404,7 @@
       "outcomeTitle": "Proposta per {{code}}",
       "error": "Non è stato possibile farlo. Riprova.",
       "errorForbidden": "In questo progetto non puoi più farlo.",
+      "errorEdits": "Questa proposta non si può modificare: confermala così com'è.",
       "ability": {
         "createTasks": "creare task",
         "editTasks": "modificare task",
@@ -6072,6 +6490,13 @@
       "replyToAll": "Rispondi a tutti ({{count}})",
       "modeMenu": "Tipo di risposta",
       "to": "A",
+      "from": {
+        "label": "Da",
+        "menu": "Invia da",
+        "default": "predefinito",
+        "reconnect": "Ricollega la casella per usare i tuoi alias.",
+        "reconnectAction": "Ricollega"
+      },
       "cc": "Cc",
       "subject": "Oggetto",
       "message": "Messaggio",
@@ -6085,6 +6510,9 @@
       "andOthers_one": "{{names}} e un altro",
       "andOthers_other": "{{names}} e altri {{count}}",
       "undoFailed": "Non è stato possibile annullare: l'email potrebbe essere già in partenza. Controlla la conversazione.",
+      "unsaved": "Non salvata: in questa conversazione c'è già un'altra bozza. Salvarla la sostituisce.",
+      "unsavedAttachments": "Gli allegati sono rimasti nella bozza su Gmail: {{names}}.",
+      "save": "Salva",
       "restoreFailed": "Non è stato possibile recuperare la bozza.",
       "actionFailed": "Non ha funzionato. Il tuo testo non è cambiato; riprova.",
       "team": "Team",
@@ -6128,6 +6556,7 @@
       "aboutNone": "Nessun progetto",
       "late": "in ritardo",
       "claudeFailed": "Claude non è riuscito a scrivere una bozza. Il tuo testo non è cambiato.",
+      "claudeDailyLimit": "Claude ha scritto abbastanza bozze per oggi: riprova domani. Il tuo testo non è cambiato.",
       "tryAgain": "Riprova",
       "undo": "Annulla",
       "ready": "La bozza di Claude è pronta",
@@ -6151,6 +6580,8 @@
       "sendingTo": "Invio a {{names}}",
       "sent": "Inviata",
       "notSent": "Non inviata: {{reason}}",
+      "sentUnrecorded": "Inviata, stato da verificare: Gmail l'ha mandata, ma Stubwise non è riuscito a registrarlo.",
+      "alreadyFailed": "Questa email non era partita: usa Riprova o modificala.",
       "edit": "Modifica",
       "delete": "Elimina",
       "tooLate": "Troppo tardi per annullare: l'email è partita.",
@@ -6166,8 +6597,21 @@
         "address": "uno degli indirizzi non è valido",
         "recipients": "aggiungi almeno un destinatario",
         "other": "qualcosa non ha funzionato"
-      }
-    }
+      },
+      "changedInGmail": "Questa bozza è stata modificata su Gmail.",
+      "keepMine": "Tieni la mia",
+      "openGmail": "Apri su Gmail",
+      "signature": "La tua firma di Gmail",
+      "noSignature": "Questa email parte senza la tua firma di Gmail: ricollega l'account Google per aggiungerla.",
+      "gmailOutdated": "Unita alla bozza che c'era già. Su Gmail c'è ancora quella vecchia: salvando si aggiorna.",
+      "gmailCopyKept": "La versione annullata è ancora fra le bozze di Gmail."
+    },
+    "readState": {
+      "reconnect": "Ricollega l'account Google per tenere letto e non letto allineati con Gmail.",
+      "busy": "Gmail è occupato. Riprova fra poco.",
+      "failed": "Non è stato possibile cambiare letto e non letto su Gmail."
+    },
+    "someone": "Qualcuno"
   },
   "calendar": {
     "today": "Oggi",
@@ -6217,6 +6661,9 @@
       "zone": "Gli orari sono nel tuo fuso orario"
     },
     "block": {
+      "outOfOffice": "Fuori ufficio",
+      "focusTime": "Concentrazione",
+      "free": "Libero",
       "continues": "continua",
       "from": "dalle {{day}} {{time}}",
       "more_one": "+{{count}} altro",
@@ -6248,7 +6695,9 @@
       "retry": "Riprova",
       "undo": "Annulla la modifica",
       "rejected": "Google non ha accettato la modifica.",
-      "unreachable": "Google non è raggiungibile. La modifica non è ancora salvata."
+      "unreachable": "Google non è raggiungibile. La modifica non è ancora salvata.",
+      "changed": "La riunione è cambiata su Google Calendar. Ricaricala e riprova.",
+      "reload": "Ricarica"
     },
     "sync": {
       "justNow": "Aggiornato adesso",
@@ -6699,6 +7148,7 @@
         "task_created": "Quando si crea una task",
         "task_closed": "Quando si chiude una task",
         "request_created": "Quando arriva una richiesta",
+        "request_converted": "Quando una richiesta diventa una task",
         "milestone_reached": "Quando si raggiunge un traguardo",
         "mail_received": "Quando arriva un'email nella casella del proprietario"
       },
@@ -6826,6 +7276,13 @@
       "nextDraft_one": "Nella bozza della v{{n}}: {{count}} problema — non si pubblica finché non è risolto",
       "nextDraft_other": "Nella bozza della v{{n}}: {{count}} problemi — non si pubblica finché non sono risolti"
     },
+    "providerCodes": {
+      "limited": "il servizio AI sta limitando le richieste",
+      "quota_wait": "la quota dell'account AI per ora è finita",
+      "unavailable": "il servizio AI non è disponibile",
+      "no_answer": "il servizio AI non ha dato risposta",
+      "error": "il servizio AI ha avuto un errore"
+    },
     "issue": {
       "incomplete": "Manca qualcosa che serve a questo passo",
       "unknown_ref": "Usa un dato o un'automazione che non c'è più",
@@ -6833,7 +7290,9 @@
       "approver_cant_see": "Chi deve approvare non vede un progetto in cui il passo agisce",
       "source_disconnected": "La sorgente da cui parte non è collegata",
       "limit": "Supera uno dei limiti di sicurezza",
-      "department_cant_see": "Nessuno del reparto che avvisa vede il progetto"
+      "department_cant_see": "Nessuno del reparto che avvisa vede il progetto",
+      "not_available": "Non è ancora disponibile in questa app",
+      "untrusted_target": "Claude sceglie a chi va con un dato arrivato da fuori: deve chiedere l'approvazione"
     },
     "detail": {
       "more": "Altro",
@@ -6860,7 +7319,11 @@
       "statusDraftBy": "mai accesa · creata da {{who}} il {{date}}",
       "duplicateVersion": "Duplica questa versione",
       "statusPausedBy_zero": "messa in pausa da {{who}} il {{date}}",
-      "statusPaused_zero": "proprietario {{owner}}"
+      "statusPaused_zero": "proprietario {{owner}}",
+      "pausedReason": {
+        "mailbox_lost": "la casella del proprietario non è più utilizzabile",
+        "owner_lost_permission": "il proprietario ha perso un permesso che serve"
+      }
     },
     "version": {
       "short": "v{{n}}",
@@ -6876,6 +7339,20 @@
       "noOwner": "Nessuno per ora: chi la accende ne diventa il proprietario.",
       "project": "Progetto",
       "created": "Creata",
+      "webhookLimit": "Tetto del webhook",
+      "webhookLimitValue": "{{perMinute}} al minuto · {{perDay}} al giorno",
+      "webhookLimitDefault": "(predefinito)",
+      "webhookLimitChange": "Cambia il tetto del webhook",
+      "change": "Cambia",
+      "save": "Salva",
+      "perMinute": "Al minuto",
+      "perDay": "Al giorno",
+      "perMinuteValue": "{{n}} al minuto",
+      "perDayValue": "{{n}} al giorno",
+      "webhookLimitCapped": "{{chosen}} supera il massimo dell'istanza: vale {{applies}}.",
+      "webhookLimitHint": "Vuoto = il predefinito ({{defaultPerMinute}} al minuto, {{defaultPerDay}} al giorno). Il massimo dell'istanza è {{maxPerMinute}} al minuto e {{maxPerDay}} al giorno.",
+      "webhookLimitTooHigh": "Usa numeri interi da 1: al massimo {{perMinute}} al minuto e {{perDay}} al giorno.",
+      "webhookLimitError": "Il tetto non è stato salvato. Riprova.",
       "limits": "Al massimo {{emails}} email per esecuzione · {{rounds}} giri per «Per ogni» · {{runs}} esecuzioni alla volta."
     },
     "dialogs": {
@@ -6974,8 +7451,14 @@
       "onMailboxMissing_publish": "Non è stato possibile pubblicare {{code}}: prima collega una casella nella Posta.",
       "onMailboxExpired": "Non è stato possibile accendere {{code}}: il collegamento della tua casella è scaduto. Ricollegala nella Posta.",
       "onMailboxExpired_publish": "Non è stato possibile pubblicare {{code}}: il collegamento della tua casella è scaduto. Ricollegala nella Posta.",
+      "onMailboxScope": "Non è stato possibile accendere {{code}}: la tua casella non ha il permesso d'invio. Ricollegala nella Posta.",
+      "onMailboxScope_publish": "Non è stato possibile pubblicare {{code}}: la tua casella non ha il permesso d'invio. Ricollegala nella Posta.",
+      "onMailboxReadScope": "Non è stato possibile accendere {{code}}: la tua casella non dà a Stubwise il permesso di leggere la posta. Ricollegala nella Posta.",
+      "onMailboxReadScope_publish": "Non è stato possibile pubblicare {{code}}: la tua casella non dà a Stubwise il permesso di leggere la posta. Ricollegala nella Posta.",
       "onConfig": "Non è stato possibile accendere {{code}}: prima vanno risolti i suoi problemi.",
       "onConfig_publish": "Non è stato possibile pubblicare {{code}}: prima vanno risolti i suoi problemi.",
+      "onSourceInUse": "Non è stato possibile accendere {{code}}: un'altra automazione usa già questo webhook. Dagliene uno suo.",
+      "onSourceInUse_publish": "Non è stato possibile pubblicare {{code}}: un'altra automazione usa già questo webhook. Dagliene uno suo.",
       "publishedPaused": "Versione {{n}} di {{code}} pubblicata · resta in pausa",
       "approvedChanges": "Approvato con le modifiche · {{code}} prosegue"
     },
@@ -6989,6 +7472,14 @@
       "other": "qualcosa è andato storto",
       "permission_lost": "permesso perso",
       "mailbox_expired": "il collegamento della casella è scaduto",
+      "provider_error": "Claude non ha risposto",
+      "claude_invalid": "la risposta di Claude non si è potuta leggere",
+      "mailbox_scope": "la casella non ha il permesso d'invio",
+      "token_expired": "il collegamento della casella è scaduto",
+      "google_scope_missing": "la casella va ricollegata",
+      "quota": "è stato raggiunto il limite d'invio di Gmail",
+      "invalid_message": "Gmail ha rifiutato il messaggio",
+      "interrupted": "l'invio è stato interrotto",
       "mailbox_missing": "nessuna casella collegata",
       "no_approver": "nessuno può approvarlo",
       "address_not_found": "l'indirizzo non esiste",
@@ -7014,6 +7505,15 @@
       "project_unavailable": "il progetto non è più disponibile"
     },
     "reasons": {
+      "notAvailable": "Questo passo non è ancora disponibile: non è stato eseguito.",
+      "notAvailable_would": "Questo passo non è ancora disponibile: non verrebbe eseguito.",
+      "generalLost": "Permesso perso: il proprietario non gestisce più le automazioni generali.",
+      "generalLost_would": "Il proprietario non gestisce le automazioni generali: il passo fallirebbe.",
+      "cancelledBy": "Esecuzione annullata.",
+      "suspended": "Sospesa: l'automazione è in pausa. Riprende da qui quando si riaccende.",
+      "emailAlreadySent": "L'email era già partita: non si può più annullare.",
+      "emailGone": "L'invio dell'email non si trova più.",
+      "emailCancelled": "L'invio dell'email è stato annullato prima che partisse.",
       "other": "Qualcosa è andato storto.",
       "permissionLost": "Permesso perso: il proprietario ({{owner}}) non vede più il progetto del passo.",
       "permissionLost_would": "Il proprietario ({{owner}}) non vede il progetto del passo: il passo fallirebbe.",
@@ -7024,6 +7524,8 @@
       "cantManage": "Permesso perso: il proprietario ({{owner}}) non può gestire «{{name}}».",
       "cantManage_would": "Il proprietario ({{owner}}) non può gestire «{{name}}»: non partirebbe.",
       "invalidInput": "Dati non validi per il passo ({{message}}).",
+      "milestoneExists": "Un traguardo «{{name}}» esiste già nel progetto.",
+      "milestoneExists_would": "Un traguardo «{{name}}» esiste già nel progetto: il passo fallirebbe.",
       "emailLimitChain": "Limite raggiunto: al massimo {{max}} email per esecuzione, contando le automazioni avviate da questa.",
       "emailLimitChain_would": "Limite raggiunto: al massimo {{max}} email per esecuzione, contando le automazioni avviate da questa. L'email non partirebbe.",
       "mailboxGone": "La casella scelta per l'automazione ({{mailbox}}) non è più collegata a {{owner}}: l'email non è partita.",
@@ -7032,6 +7534,14 @@
       "noMailbox_would": "Il proprietario ({{owner}}) non ha una casella collegata: l'email non partirebbe.",
       "mailboxExpired": "La casella del proprietario ({{owner}}) è scaduta: va ricollegata prima di riprovare.",
       "mailboxExpired_would": "La casella del proprietario ({{owner}}) è scaduta: l'email non partirebbe finché non si ricollega.",
+      "mailboxScope": "La casella del proprietario ({{owner}}) non ha il permesso d'invio: va ricollegata prima di riprovare.",
+      "mailboxScope_would": "La casella del proprietario ({{owner}}) non ha il permesso d'invio: l'email non partirebbe finché non viene ricollegata.",
+      "providerError": "Claude non ha risposto ({{code}}), tentativo {{attempt}}: riprova da solo.",
+      "providerFailed": "Claude non ha risposto dopo {{attempts}} tentativi: {{code}}. Il passo è fallito; riprovalo quando il servizio torna.",
+      "monthlyBudget": "In attesa: il budget AI mensile è finito. Riparte da solo quando il budget torna disponibile.",
+      "claudeInvalid": "La risposta di Claude non si è potuta leggere: il passo è fallito. Riprovalo per chiedere di nuovo.",
+      "claudeInvalid_would": "La risposta di Claude non si è potuta leggere: il passo fallirebbe.",
+      "emailFailed": "L'email non è partita: {{error}}.",
       "invalidAddress": "«{{to}}» non è un indirizzo email.",
       "addressNotFound": "L'indirizzo «{{to}}» non esiste: l'email è tornata indietro.",
       "addressNotFound_would": "L'indirizzo «{{to}}» non esiste: l'email tornerebbe indietro.",
@@ -7074,7 +7584,8 @@
       "aiQueueBackStillBudget": "Coda ripresa · ancora in attesa: budget AI del mese raggiunto",
       "projectUnavailable": "Il progetto non è più disponibile.",
       "projectUnavailable_would": "Il progetto non è più disponibile: il passo fallirebbe.",
-      "noDepartmentRecipient": "Nessuno del reparto vede il progetto: non c'è nessuno da avvisare."
+      "noDepartmentRecipient": "Nessuno del reparto vede il progetto: non c'è nessuno da avvisare.",
+      "queuePaused": "In attesa: la coda del progetto è in pausa. Riparte da sola alla ripresa."
     },
     "created": {
       "task_one": "{{count}} task",
@@ -7171,6 +7682,7 @@
     },
     "run": {
       "started": "Partita il {{date}} alle {{time}}",
+      "detailsPruned": "I dettagli di questa esecuzione non ci sono più: si tengono {{days}} giorni.",
       "byRun": "da",
       "ownersAutomation": "automazione di {{owner}}",
       "startedRuns": "Ha avviato:",
@@ -7272,6 +7784,7 @@
       "replyFrom": "Risposta da {{sender}} ricevuta il {{date}}",
       "replyReceivedOn": "Risposta ricevuta il {{date}}",
       "replyInMailbox": "La risposta è nella casella di {{owner}}",
+      "reasonHidden": "La motivazione di Claude cita un'email che non vedi: resta al proprietario della casella.",
       "hiddenRun": "Ha avviato un'automazione che non vedi"
     },
     "notVisible": {
@@ -7318,6 +7831,11 @@
       "fields": "Campi",
       "fieldsHint": "I campi sono ciò che le automazioni possono usare di questo webhook.",
       "address": "Indirizzo",
+      "addressHidden": "L'indirizzo è nascosto: si vede solo quando nasce. Generane uno nuovo per vederlo di nuovo.",
+      "eventDuplicate": "Doppione: già ricevuto, non è partito niente",
+      "eventRejectedJson": "Rifiutato: il corpo non è un oggetto JSON",
+      "eventRejectedType": "Rifiutato: {{field}} — atteso {{type}}",
+      "eventRejectedOther": "Rifiutato: {{reason}}",
       "postHint": "Manda una POST con un corpo JSON a questo indirizzo.",
       "example": "Esempio",
       "recent": "Eventi recenti",
@@ -7412,6 +7930,7 @@
         "task_created": "da una task nuova",
         "task_closed": "da una task chiusa",
         "request_created": "da una richiesta nuova",
+        "request_converted": "da una richiesta convertita",
         "milestone_reached": "da un traguardo raggiunto",
         "mail_received": "da un'email nella casella del proprietario"
       },
@@ -7669,7 +8188,9 @@
         "limit": "Oltre un limite",
         "selfStart": "Avvierebbe di nuovo sé stessa",
         "department_cant_see": "Nessuno del reparto vede il progetto",
-        "departmentCantSee": "Nessuno di {{name}} vede {{code}}"
+        "departmentCantSee": "Nessuno di {{name}} vede {{code}}",
+        "not_available": "In arrivo",
+        "untrusted_target": "Chiede prima: sceglie Claude a chi"
       },
       "problem": {
         "unavailable": "{{label}} non è disponibile qui",
@@ -7782,7 +8303,8 @@
         "person": "Una persona",
         "role": "Un ruolo nel progetto",
         "owner": "Il proprietario (chi l'ha accesa)",
-        "clientCheck": "Per il progetto del cliente, se lo vede si controlla quando l'esecuzione arriva qui."
+        "clientCheck": "Per il progetto del cliente, se lo vede si controlla quando l'esecuzione arriva qui.",
+        "untrusted": "Claude sceglie a chi va con un dato arrivato da fuori: per questo qualcuno lo approva prima."
       },
       "claude": {
         "rule": "Claude sceglie solo una di queste uscite e compila questi campi. Non agisce mai da solo: le azioni sono i passi che aggiungi tu.",
@@ -7870,6 +8392,7 @@
           "task_created": "Si crea una task",
           "task_closed": "Si chiude una task",
           "request_created": "Si crea una richiesta",
+          "request_converted": "Una richiesta diventa una task",
           "milestone_reached": "Si raggiunge un traguardo",
           "mail_received": "Arriva un'email nella tua casella"
         },
@@ -7917,6 +8440,16 @@
       }
     },
     "test": {
+      "cost": {
+        "title": "Claude in questa prova",
+        "body_one": "Questa prova chiede a Claude una volta: circa {{usd}} dal budget AI mensile dell'istanza.",
+        "body_other": "Questa prova chiede a Claude {{count}} volte: circa {{usd}} dal budget AI mensile dell'istanza.",
+        "bodyUpTo_one": "Questa prova chiede a Claude al più una volta: al massimo {{usd}} dal budget AI mensile dell'istanza.",
+        "bodyUpTo_other": "Questa prova chiede a Claude fino a {{count}} volte: al massimo {{usd}} dal budget AI mensile dell'istanza.",
+        "bodyUnknown_one": "Questa prova chiede a Claude una volta, dal budget AI mensile dell'istanza: per questo modello il costo non si può stimare.",
+        "bodyUnknown_other": "Questa prova chiede a Claude {{count}} volte, dal budget AI mensile dell'istanza: per questo modello il costo non si può stimare.",
+        "confirm": "Prova con Claude"
+      },
       "title": "Prova: {{name}}",
       "back": "Torna a modificare",
       "band": {
@@ -8156,6 +8689,15 @@
         "pickProjectNone": "Scegli un progetto",
         "useProject": "Usa questo progetto nella prova",
         "error": "La prova non è potuta andare avanti. Riprova.",
+        "errors": {
+          "budget": "Il budget AI mensile è finito: Claude non può rispondere in questa prova finché non viene alzato o finisce il mese.",
+          "claude_invalid": "La risposta di Claude non si è potuta leggere: riprova la prova.",
+          "not_available": "I passi di Claude non sono ancora disponibili su questo server.",
+          "not_found": "Questa automazione non c'è più, o non la vedi.",
+          "stale": "La bozza è cambiata mentre provavi: ricomincia la prova.",
+          "test_busy": "È in corso un altro passo di una prova di questa automazione: riprova fra poco.",
+          "client_too_long": "Il nome del cliente di questo esempio è troppo lungo (oltre 200 caratteri): la prova non può dire in che progetto andrebbe."
+        },
         "noProjects": "Non vedi nessun progetto che il proprietario potrebbe scegliere, quindi la prova non può andare avanti da qui. Un'esecuzione vera aspetterebbe che il proprietario ne scelga uno.",
         "connectMailbox": "Collega una casella prima di accenderla",
         "seeWhereItStops": "Vedi dove si ferma"
@@ -8252,6 +8794,7 @@
       "whichProjectNoClient": "In quale progetto deve lavorare questa esecuzione?",
       "alreadyDecided": "Ha già deciso {{name}}",
       "alreadyDecidedSomeone": "Qualcuno ha già deciso questo passo",
+      "applying": "La decisione è in corso…",
       "answering": "La tua risposta parte fra pochi secondi. Puoi annullarla dal messaggio qui sotto.",
       "attachmentsReadOnly": "Gli allegati restano così: {{names}}",
       "suspended": "{{code}} è in pausa: non è stato deciso niente. Si potrà decidere quando verrà riaccesa."
@@ -8281,6 +8824,7 @@
     "app": "App",
     "phone": "Telefono",
     "prototypePhone": "Prototipo: gli avvisi sul telefono si salvano, ma non parte nulla.",
+    "appPhone": "Arriva come notifica push nell'app Stubwise sul telefono.",
     "pinned": "Fissati",
     "others": "Altri progetti",
     "projects": "Progetti",
@@ -8306,6 +8850,7 @@
       "releases": "Rilasci",
       "docs": "Docs",
       "tasks": "Task",
+      "members": "Membri",
       "support": "Support",
       "monitor": "Server",
       "claude": "Claude"
@@ -8318,12 +8863,15 @@
       "release_succeeded": "Rilascio riuscito",
       "release_failed": "Rilascio fallito",
       "docs_release_note": "Nota di rilascio pronta",
+      "product_doc_mention": "Menzione nella doc di prodotto",
+      "product_doc_updated": "Claude ha aggiornato una pagina di prodotto",
+      "product_doc_question": "Claude chiede di una pagina di prodotto",
       "task_created": "Nuova task",
       "task_created_by_automation": "Nuova task da un'automazione",
       "support_request": "Nuova richiesta",
-      "support_customer_replied": "Il cliente ha risposto",
       "job_pr_opened": "Claude ha aperto una PR",
       "review_completed": "Revisione della PR conclusa",
+      "member_added": "Una persona entra nel progetto",
       "ticket_created": "Nuova task",
       "request_created": "Nuova richiesta",
       "docs_nightly_attention": "Docs da guardare",
@@ -8344,12 +8892,15 @@
       "release_succeeded": "Quando un rilascio di {{code}} arriva in produzione",
       "release_failed": "Quando un rilascio di {{code}} fallisce dopo il merge",
       "docs_release_note": "Quando il giro notturno scrive una nota di rilascio di {{code}}",
+      "product_doc_mention": "Quando qualcuno ti menziona in un commento della doc di prodotto di {{code}}",
+      "product_doc_updated": "Quando Claude aggiorna una pagina di prodotto di {{code}}",
+      "product_doc_question": "Quando Claude chiede qualcosa su una pagina di prodotto di {{code}}",
       "task_created": "Quando si crea una task in {{code}}",
       "task_created_by_automation": "Quando un'automazione crea una task in {{code}}",
       "support_request": "Quando si apre una richiesta in {{code}}, da un cliente o da un collega",
-      "support_customer_replied": "Quando un cliente riscrive in una conversazione di {{code}}",
       "job_pr_opened": "Quando Claude apre una PR per una task di {{code}}",
       "review_completed": "Quando Claude finisce di rivedere una PR di {{code}}",
+      "member_added": "Quando qualcuno entra in {{code}}",
       "ticket_created": "Quando si crea una task in {{code}}",
       "request_created": "Quando si apre una richiesta in {{code}}",
       "docs_nightly_attention": "Quando il giro notturno non riesce ad aggiornare una pagina dei docs di {{code}}",
@@ -8359,11 +8910,18 @@
       "project_brief": "Quando il brief settimanale di {{code}} è pronto"
     },
     "mandatoryLine": {
+      "added": "Sempre per chi è stato aggiunto",
       "merged": "Sempre se il merge l'hai fatto tu",
       "pr_author": "Sempre per chi ha aperto la PR",
-      "follows_conversation": "Sempre se segui la conversazione",
       "task_author": "Sempre per l'autore della task, se il merge è arrivato da fuori Stubwise",
-      "assignee": "Sempre per chi ha la task assegnata"
+      "assignee": "Sempre per chi ha la task assegnata",
+      "analysis_requester": "Sempre per chi ha chiesto a Claude di guardare il server",
+      "mentioned": "Sempre per chi è menzionato",
+      "follower": "Sempre per chi segue la pagina"
+    },
+    "mandatoryStill": {
+      "app": "Quando ti riguarda ti arriva lo stesso nell'app",
+      "appPhone": "Quando ti riguarda ti arriva lo stesso nell'app e sul telefono"
     },
     "always": "Sempre per te",
     "alwaysPhone": "App e telefono",
@@ -8373,7 +8931,6 @@
       "docs_view": "Sospeso · non vedi più i docs di {{code}}",
       "tickets_view_all": "Sospeso · non vedi più tutte le task di {{code}}",
       "backlog_view_all": "Sospeso · non vedi più le richieste di {{code}}",
-      "support_reply": "Sospeso · non puoi più rispondere ai clienti di {{code}}",
       "other": "Sospeso · non lo vedi più in {{code}}"
     },
     "suspendedBack": "Torna da solo se riavrai l'accesso.",
@@ -8435,9 +8992,11 @@
       "why": {
         "merged": "Lo ricevi perché il merge l'hai fatto tu",
         "pr_author": "Lo ricevi perché questa PR l'hai aperta tu",
-        "follows_conversation": "Lo ricevi perché segui questa conversazione",
         "task_author": "Lo ricevi perché la PR viene da una tua task",
-        "assignee": "Lo ricevi perché la task è assegnata a te"
+        "assignee": "Lo ricevi perché la task è assegnata a te",
+        "analysis_requester": "Ti arriva perché hai chiesto a Claude di guardare questo server",
+        "mentioned": "Ti arriva perché sei stato menzionato",
+        "follower": "Ti arriva perché segui questa pagina"
       }
     },
     "pausedShort": "Sospeso",
@@ -8525,7 +9084,10 @@
       "corrected": "Claude ha spinto {{sha}} · di nuovo in analisi",
       "correctedNoSha": "Claude ha spinto una correzione · di nuovo in analisi",
       "discarded": "{{name}} ha spinto prima nuovi commit · in analisi la nuova testa",
+      "discardedAuthor": "L'autore ha spinto prima nuovi commit · in analisi la nuova testa",
+      "discardedBranch": "Qualcuno ha spinto prima sul branch · in analisi la nuova testa",
       "capped": "Claude si è fermato dopo {{cap}} correzioni",
+      "notAnalyzed": "Non analizzata: la review automatica è spenta",
       "analysisOff": "L'analisi è spenta per {{repo}}",
       "onStaging": "su staging"
     },
@@ -8557,6 +9119,7 @@
         "merge_forbidden": "L'account git salvato per {{code}} non può mergiare questa PR.",
         "not_found": "Questa PR non è stata trovata.",
         "forbidden": "Non puoi più rilasciare in {{code}}.",
+        "merge_failed": "Il merge non è riuscito sul provider: non è stato unito niente. Riprova tra poco.",
         "generic": "Non è stato possibile mergiare. Riprova fra poco."
       }
     },
@@ -8566,7 +9129,8 @@
       "failed": "Fallito",
       "not_in_production": "Non ancora in produzione",
       "in_production": "In produzione",
-      "unavailable": "Stato non disponibile"
+      "unavailable": "Stato non disponibile",
+      "unknown": "Stato sconosciuto"
     },
     "list": {
       "outsideBy": "{{name}} fuori da Stubwise",
@@ -8601,6 +9165,7 @@
         "no_server": "L'ambiente di produzione non ha un server collegato",
         "no_server_for_repository": "{{repo}} non ha un server nell'ambiente di produzione"
       },
+      "unknown": "Le run della CI non si sono potute leggere: per ora lo stato non si sa.",
       "noPipeline": "Nessuna run della pipeline è partita entro 30 minuti dal merge, quindi Stubwise segue invece il server di produzione.",
       "fixingIn": "Claude lo sta sistemando in {{task}}",
       "openTask": "Apri {{task}}",
@@ -8627,6 +9192,7 @@
       "waits": "La task aspetterà qualcuno che può avviare Claude in {{code}}.",
       "planGate": "Claude scriverà prima un piano; lo approva chi può approvare i piani in {{code}}.",
       "created": "{{task}} creata",
+      "createdStarted": "{{task}} creata: Claude ci sta lavorando",
       "error": "Non è stato possibile creare la task per {{code}}.",
       "noPermission": "Chi può creare task in {{code}} può chiedere a Claude di sistemarlo.",
       "discard": "Buttare la nota?",
@@ -8675,6 +9241,7 @@
       "copied": "Log copiato",
       "copyError": "Non è stato possibile copiare il log.",
       "hidden": "Il log lo vede chi può vedere il codice di {{code}}.",
+      "onProvider": "Il log intero è su {{platform}}: apri la run lì.",
       "none": "Questa run non ha un log."
     },
     "environments": {
@@ -8707,6 +9274,8 @@
       "deleteTitle": "Eliminare {{name}}?",
       "deleteProduction": "I rilasci senza pipeline mostreranno «Stato non disponibile» finché un altro ambiente di produzione non avrà un server per la loro repository.",
       "deleteError": "Non è stato possibile eliminare {{name}}.",
+      "deleteReauthAction": "eliminare {{name}} e i suoi file d'ambiente",
+      "deleteReauthCancelled": "Non è stato eliminato niente.",
       "errors": {
         "name": "Dai un nome all'ambiente.",
         "url": "L'URL deve cominciare con http:// o https://.",
@@ -8716,7 +9285,24 @@
         "generic": "Non è stato possibile salvare l'ambiente."
       },
       "orphanWarning_one": "{{codes}} non sarà più in nessun ambiente. Solo chi gestisce il monitoraggio potrà ricollegarlo.",
-      "orphanWarning_other": "{{codes}} non saranno più in nessun ambiente. Solo chi gestisce il monitoraggio potrà ricollegarli."
+      "orphanWarning_other": "{{codes}} non saranno più in nessun ambiente. Solo chi gestisce il monitoraggio potrà ricollegarli.",
+      "kindLocked": "Il tipo non cambia: per un altro tipo, aggiungi un ambiente nuovo.",
+      "containers": {
+        "line": "Container su {{code}}: {{list}}",
+        "menu": "Container su {{code}}",
+        "title": "Container di {{name}} su {{code}}",
+        "body": "Scegli i container su {{code}} che appartengono a {{name}}. Claude li usa per capire da quale progetto viene un problema sul server, e una correzione tocca solo loro. Senza nessuno scelto vale il container col nome dell'ambiente.",
+        "loading": "Carico i container che l'agente riporta…",
+        "none": "L'agente non riporta nessun container su {{code}}.",
+        "unseen": "Non vedi {{code}}, quindi qui non si possono elencare i suoi container. Può sceglierli chi gestisce il monitoraggio.",
+        "save": "Salva",
+        "errors": {
+          "container_of_other_project": "Un container che hai scelto appartiene a un altro progetto su questo server.",
+          "unknown_container": "L'agente non riporta più uno di questi container. Riapri l'elenco e riprova.",
+          "server_not_in_environment": "Questo ambiente non usa più {{code}}.",
+          "generic": "Non è stato possibile salvare i container. Riprova."
+        }
+      }
     },
     "panel": {
       "label": "Pull request {{pr}}",
@@ -8739,6 +9325,8 @@
         "running": "in corso",
         "pushed": "spinta",
         "discarded": "scartata: {{name}} ha spinto prima · non conta",
+        "discardedAuthor": "scartata: l'autore ha spinto prima · non conta",
+        "discardedBranch": "scartata: qualcuno ha spinto prima sul branch · non conta",
         "stopped": "fermata prima del push · non conta"
       },
       "automatic": "automatica",
@@ -8762,7 +9350,11 @@
         "in_flight": "Claude sta già lavorando a una correzione.",
         "not_fixable": "Claude non può spingere su questo ramo.",
         "analysis_only": "Questa PR è su solo analisi.",
-        "monthly_budget": "Claude non è partito: il budget AI del mese è esaurito."
+        "monthly_budget": "Claude non è partito: il budget AI del mese è esaurito.",
+        "pr_not_found": "Stubwise sta ancora analizzando questa pull request: riprova tra poco.",
+        "adopted_pr_admin_only": "Solo un admin può chiedere modifiche su questa pull request.",
+        "not_stubwise_pr": "Stubwise non può correggere questa pull request.",
+        "adopted_branch_protected": "Il ramo di questa pull request è protetto: Claude non può spingerci."
       },
       "stubwiseCorrections": "Claude fa la modifica in una nuova sessione di {{task}}.",
       "openSession": "Apri",
@@ -8819,11 +9411,10 @@
       "mcp": "Claude Code"
     },
     "state": {
-      "waiting_us": "Aspetta noi",
       "triage": "In triage",
       "not_concluded": "Non conclusa",
       "request_open": "Richiesta aperta",
-      "reply_sent": "Risposta inviata"
+      "answered": "Risposta bastata"
     },
     "customerStatus": {
       "received": "Ricevuta",
@@ -8858,19 +9449,20 @@
       "widgetChannel": "Widget · {{name}}",
       "started": "iniziata il {{date}}",
       "preview": "Anteprima del cliente",
-      "follow": "Segui",
-      "following": "Segui già",
       "more": "Altre azioni",
       "copyLink": "Copia il link",
       "linkCopied": "Link copiato",
       "linkError": "Non è stato possibile copiare il link.",
-      "writeEmail": "Scrivigli anche per email",
       "prototype": "Solo nel prototipo",
       "simulateMessage": "Simula un messaggio del cliente",
       "simulateLeaves": "Simula: il cliente se ne va",
       "simulateTriage": "Simula: triage concluso",
       "simulatedText": "Buongiorno, ci sono novità?",
-      "actionFailed": "Qualcosa non è andato. Non è cambiato nulla."
+      "actionFailed": "Qualcosa non è andato. Non è cambiato nulla.",
+      "continuedIn": "Continua in",
+      "continuedFrom": "Seguito di",
+      "verified": "Cliente verificato",
+      "declared": "Dichiarato dal sito"
     },
     "request": {
       "label": "Richiesta",
@@ -8879,9 +9471,17 @@
       "showAll": "Mostra tutto",
       "showLess": "Mostra meno",
       "triage": "Ancora nessuna richiesta · l'assistente sta facendo domande",
-      "left": "Nessuna richiesta · il cliente se n'è andato prima di confermare",
+      "left": "Nessuna richiesta · al cliente serve ancora qualcosa",
+      "answered": "Nessuna richiesta · la risposta del widget è bastata",
+      "answeredWhy": "Il cliente non scrive da {{minutes}} minuti.",
+      "answeredMark": "Se non è risolta, segnala che non è conclusa: torna al team.",
+      "notConcluded": "Non conclusa",
+      "notConcludedError": "Non è stato possibile segnare la conversazione come non conclusa.",
       "open": "Apri la richiesta",
-      "cannotOpen": "Può aprirla chi ha il permesso di creare richieste."
+      "cannotOpen": "Può aprirla chi gestisce le conversazioni di Support e può creare richieste."
+    },
+    "task": {
+      "label": "Task"
     },
     "openDialog": {
       "title": "Apri la richiesta",
@@ -8900,8 +9500,7 @@
       "label": "Conversazione",
       "assistant": "Assistente (triage)",
       "team": "Team",
-      "sentWidget": "Inviata al cliente nel widget",
-      "sentMcp": "Inviata al cliente in Claude Code",
+      "sentMcp": "Inviata al collaboratore in Claude Code",
       "earlier_one": "{{count}} messaggio precedente",
       "earlier_other": "{{count}} messaggi precedenti",
       "sending": "Invio…",
@@ -8909,39 +9508,19 @@
     },
     "reply": {
       "to": "Rispondi a {{name}}",
-      "inWidget": "nel widget",
       "inMcp": "in Claude Code",
       "message": "Messaggio",
       "placeholder": "Scrivi a {{name}}…",
-      "prepared": "Claude ha preparato una bozza",
-      "useDraft": "Usa la bozza",
-      "show": "Mostra",
-      "hide": "Nascondi",
-      "stop": "Ferma",
       "saved": "Salvata",
       "discard": "Elimina",
-      "send": "Invia al cliente",
+      "send": "Invia",
       "emptyReason": "Scrivi prima una risposta",
-      "replaceAsk": "Sostituire il tuo testo o aggiungere la bozza di Claude sotto?",
-      "replace": "Sostituisci",
-      "addBelow": "Aggiungi sotto",
-      "cancel": "Annulla",
-      "draftFailed": "Claude non è riuscito a scrivere una bozza. Il tuo testo è com'era.",
-      "tryAgain": "Riprova",
       "sentTo": "Inviata a {{name}}",
       "undo": "Annulla",
-      "readOnly": "Qui scrive solo chi può rispondere ai clienti.",
-      "triage": "L'assistente sta ancora facendo domande al cliente: potrai rispondere quando il triage è concluso.",
-      "lastSeen": "{{name}} ha visto la conversazione l'ultima volta {{time}}. Vedrà la risposta quando torna.",
+      "readOnly": "Rispondono qui solo le persone che possono gestire le conversazioni di Support.",
       "nextTime": "La vedrà la prossima volta che chiede delle sue richieste.",
-      "noEmail": "Il cliente non ha lasciato un indirizzo email",
-      "noMailbox": "Collega il tuo account Google per scrivere da Stubwise",
-      "connect": "Collega",
-      "emailError": "Non è stato possibile preparare l'email.",
       "waitPrevious": "Aspetta: la risposta di prima è ancora nella finestra dell'Annulla",
-      "notSentBack": "Non inviata. La risposta è tornata nella casella: inviala di nuovo quando vuoi.",
-      "noEmailTriage": "L'assistente sta ancora facendo domande al cliente",
-      "askClaude": "Chiedi a Claude"
+      "notSentBack": "Non inviata. La risposta è tornata nella casella: inviala di nuovo quando vuoi."
     },
     "preview": {
       "title": "Cosa vede {{name}}",
@@ -8980,10 +9559,11 @@
         "instructions": "Le istruzioni possono avere al massimo 4000 caratteri.",
         "accentColor": "Il colore deve essere come #22c55e.",
         "language": "Scegli italiano o inglese.",
-        "origins": "Ogni sito deve essere come https://example.com.",
+        "origins": "Ogni sito deve essere come https://example.com (http solo per localhost, senza percorso), al massimo 20.",
         "sourceRepositoryIds": "Scegli repository di questo progetto.",
         "dailyMessageCap": "Messaggi al giorno: un numero intero da 1 a 100000, o vuoto.",
-        "dailyRequestCap": "Richieste al giorno: un numero intero da 1 a 100000, o vuoto."
+        "dailyRequestCap": "Richieste al giorno: un numero intero da 1 a 100000, o vuoto.",
+        "identityRequired": "Crea prima un segreto."
       },
       "fields": {
         "name": "Nome",
@@ -8991,7 +9571,8 @@
         "sources": "Fonti della documentazione",
         "noSources": "Questo progetto non ha repository.",
         "origins": "Siti",
-        "originsHint": "Uno per riga, come https://example.com",
+        "originsHint": "Uno per riga, come https://example.com (http solo per localhost). Vuoto: qualunque sito.",
+        "anySite": "Qualunque sito può caricare questo widget.",
         "title": "Titolo",
         "welcome": "Messaggio di benvenuto",
         "instructions": "Istruzioni per l'assistente",
@@ -9002,7 +9583,10 @@
         "languageEn": "Inglese",
         "messageCap": "Messaggi al giorno",
         "requestCap": "Richieste al giorno",
-        "capHint": "Vuoto: il default dell'istanza"
+        "capHint": "Vuoto: il default dell'istanza",
+        "identityRequired": "Solo clienti verificati",
+        "identityRequiredHint": "Senza un token d'identità valido dal tuo sito, il widget non accetta il cliente.",
+        "identityRequiredNoSecret": "Prima crea un segreto."
       },
       "snippet": "Snippet",
       "copySnippet": "Copia lo snippet",
@@ -9015,7 +9599,30 @@
       "deleteAsk": "Eliminare {{name}}? Le sue conversazioni restano.",
       "deleteConfirm": "Elimina",
       "deleted": "{{name}} eliminato",
-      "deleteError": "Non è stato possibile eliminare il widget."
+      "deleteError": "Non è stato possibile eliminare il widget.",
+      "anySiteShort": "Qualunque sito",
+      "identity": {
+        "title": "Identità dei clienti",
+        "about": "Il backend del tuo sito firma con questo segreto un token per ogni cliente che ha fatto l'accesso: così il widget sa chi è davvero.",
+        "madeOn": "Segreto creato il {{date}}.",
+        "none": "Nessun segreto, per ora.",
+        "make": "Crea un segreto…",
+        "regenerate": "Rigenera il segreto…",
+        "dialogMake": "Creare un segreto d'identità per {{name}}?",
+        "dialogReplace": "Creare un nuovo segreto d'identità per {{name}}?",
+        "stops": "Il segreto di adesso smette di valere subito: i token firmati con lui vengono rifiutati.",
+        "backendOnly": "Mettilo nel backend del tuo sito, mai nella pagina.",
+        "once": "Il segreto nuovo si vede una volta sola.",
+        "confirmMake": "Crea il segreto",
+        "confirmReplace": "Rigenera",
+        "secretTitle": "Questo segreto si vede solo adesso.",
+        "secretLabel": "Segreto d'identità",
+        "reauthAction": "creare un segreto d'identità per {{name}}",
+        "error": "Non è stato possibile creare il segreto. Riprova.",
+        "widgetId": "Id del widget (l'aud del token)",
+        "copyWidgetId": "Copia l'id del widget",
+        "copy": "Copia"
+      }
     },
     "origin": {
       "title": "Da dove nasce",
@@ -9038,10 +9645,7 @@
     "notFound": "Questo server non esiste, o non puoi vederlo.",
     "noEnvironments": "In nessun ambiente",
     "envLine": "{{kind}} · {{code}}",
-    "envPrimary": "{{env}} (principale)",
     "stagingOnly": "Solo staging: niente avvisi, niente analisi",
-    "diagnosesGoTo": "Le diagnosi vanno in {{code}}",
-    "diagnosesGoElsewhere": "Le diagnosi vanno in un altro progetto",
     "errors": {
       "list": "Non è stato possibile caricare i server di {{code}}",
       "detail": "Non è stato possibile caricare questo server",
@@ -9082,11 +9686,10 @@
       "not_linked": "Nessun accesso SSH",
       "awaiting_command": "Accesso SSH in attesa del comando",
       "verify_failed": "Verifica dell'accesso SSH non riuscita",
-      "read_writes": "Accesso SSH spento: l'accesso di lettura può scrivere",
+      "privileged": "Accesso SSH spento: stubwise-read può fare più che leggere",
       "revoked": "Accesso SSH revocato",
       "verified": "Accesso SSH verificato",
-      "regenerating": "Nuove chiavi SSH in attesa del comando",
-      "cantLook": "{{access}}: Claude non può guardarci"
+      "regenerating": "Nuove chiavi SSH in attesa del comando"
     },
     "duration": {
       "lessThanMinute": "meno di un minuto",
@@ -9103,7 +9706,13 @@
       "checkError": "Il controllo «{{name}}» è giù: {{error}}",
       "checkGone": "Era giù un controllo che non esiste più",
       "silentOpen": "L'agente non riporta dalle {{time}}",
-      "silentClosed": "L'agente ha smesso di riportare alle {{time}}"
+      "silentClosed": "L'agente ha smesso di riportare alle {{time}}",
+      "cpuAbove": "CPU sopra la soglia",
+      "memoryAbove": "Memoria sopra la soglia",
+      "diskAbove": "Disco sopra la soglia",
+      "cpuAt": "CPU al {{value}}%",
+      "memoryAt": "Memoria al {{value}}%",
+      "diskAt": "Disco al {{value}}%"
     },
     "reasonShort": {
       "cpu": "CPU",
@@ -9135,10 +9744,8 @@
       "recovered": "Rientrato alle {{time}} · dopo {{duration}}",
       "recoveredOn": "Rientrato il {{date}} alle {{time}} · dopo {{duration}}",
       "openSession": "Apri la sessione",
-      "noAccess": "Claude non può guardarci: nessun accesso SSH.",
       "noBudget": "Claude non può guardarci: il budget AI del mese è esaurito.",
       "linkAccess": "Collega l'accesso SSH",
-      "primary": "La diagnosi si apre in {{code}}, il progetto principale.",
       "work": {
         "analyzing": "Claude ci sta guardando con l'accesso in sola lettura",
         "diagnosed": "Diagnosi pronta",
@@ -9146,11 +9753,24 @@
         "unreachable": "Claude non è riuscito a raggiungere il server",
         "stopped": "Claude si è fermato prima di una diagnosi",
         "failed": "L'analisi di Claude non è riuscita: la task non si è potuta aprire",
+        "undetermined": "Claude non è riuscito a dire quale progetto causa il problema: {{reason}} Nessuna task aperta.",
         "fixing": "Correzione in corso",
         "hiddenTask": "La diagnosi è in un progetto che non vedi."
       },
       "downDay": "Non risponde dal {{when}}",
-      "troubleDay": "In difficoltà dal {{when}}"
+      "troubleDay": "In difficoltà dal {{when}}",
+      "analysisOff": "Claude non guarda gli avvisi: l'analisi dei server è spenta in Amministrazione → AI.",
+      "noSshReads": "La diagnosi di Claude non avrà letture SSH: manca l'accesso SSH.",
+      "noSshReadsUnusable": "La diagnosi di Claude non avrà letture SSH: l'accesso SSH in sola lettura non è usabile."
+    },
+    "attribution": {
+      "no_project": "l'analisi non ha indicato un progetto.",
+      "project_not_on_server": "il progetto indicato non usa questo server.",
+      "no_containers": "non ha indicato un container, e questo server lo usano più progetti.",
+      "unknown_container": "ha indicato un container che l'agente non riporta su questo server.",
+      "no_container_of_project": "nessuno dei container indicati appartiene agli ambienti di quel progetto.",
+      "containers_of_other_project": "ha indicato un container che appartiene a un altro progetto.",
+      "other": "questa app non conosce ancora il motivo."
     },
     "charts": {
       "rangeLabel": "Intervallo",
@@ -9184,7 +9804,8 @@
       "summaryAveraged_one": "Media {{avg}} · media di {{count}} ora più alta {{peak}} il {{day}}",
       "summaryAveraged_other": "Media {{avg}} · media di {{count}} ore più alta {{peak}} il {{day}}",
       "summaryDay": "Media {{avg}} · picco {{peak}} il {{day}}",
-      "summaryLatencyDay": "Media {{avg}} · più lento {{peak}} il {{day}}"
+      "summaryLatencyDay": "Media {{avg}} · più lento {{peak}} il {{day}}",
+      "perSecond": "{{value}}/s"
     },
     "services": {
       "filter": "Filtra i servizi",
@@ -9302,14 +9923,9 @@
       "name": "Nome",
       "interval": "Riporta ogni (secondi)",
       "intervalHint": "Da 10 a 300 secondi.",
-      "primary": "Progetto principale",
-      "primaryOnly": "{{code}}: l'unica produzione che usa questo server",
-      "primaryNone": "Nessuna produzione usa questo server: niente avvisi, niente analisi.",
-      "primaryHint": "Le diagnosi di Claude si aprono qui come task.",
       "errors": {
         "name": "Dai un nome al server.",
         "sampleIntervalSeconds": "Usa un numero intero di secondi da 10 a 300.",
-        "primaryProjectId": "Scegli un progetto la cui produzione usa questo server.",
         "generic": "Non è stato possibile salvare le impostazioni. Riprova."
       },
       "key": {
@@ -9331,8 +9947,7 @@
         "busy": "Claude sta lavorando su {{code}} in questo momento. Eliminalo quando l'analisi o la correzione è finita.",
         "error": "Non è stato possibile eliminare {{code}}. Riprova.",
         "done": "{{code}} eliminato"
-      },
-      "primaryHidden": "Le produzioni che usano questo server sono in progetti che non vedi."
+      }
     },
     "create": {
       "title": "Nuovo server in {{code}}",
@@ -9351,7 +9966,8 @@
         "name": "Dai un nome al server.",
         "environment": "Questo ambiente ha già un server.",
         "generic": "Non è stato possibile creare il server. Riprova."
-      }
+      },
+      "keyLost": "Il server è stato creato, ma la sua chiave non si può più mostrare: rigenerala dalle impostazioni di {{code}}."
     },
     "key": {
       "readyTitle": "{{code}} è pronto per il suo agente",
@@ -9368,7 +9984,11 @@
       "done": "Fatto",
       "closeWithout": "Chiudere senza aver copiato la chiave? Puoi rigenerarla più tardi dalle Impostazioni.",
       "keepOpen": "Tienilo aperto",
-      "closeAnyway": "Chiudi"
+      "closeAnyway": "Chiudi",
+      "operations": "Lascia che l'agente esegua le correzioni",
+      "operationsHint": "Riavviare, fermare o avviare un container, liberare spazio: solo i passi di un piano approvato da una persona, firmati da questo Stubwise. Spente, Claude legge e propone, ma nessun piano si esegue.",
+      "commandKeyLoading": "Carico la chiave dei comandi…",
+      "commandKeyError": "Non è stato possibile caricare la chiave che firma le azioni dell'agente. Togli l'opzione, o riprova."
     },
     "simulate": {
       "label": "Solo prototipo: segnali del server",
@@ -9391,25 +10011,22 @@
       "trouble_other": "{{count}} server in difficoltà"
     },
     "ssh": {
-      "intro": "Due accessi permettono a Claude di guardare dentro {{code}}, e di correggerlo da una task.",
+      "intro": "Un accesso di sola lettura permette a Claude di guardare dentro {{code}}. Le correzioni non usano l'SSH: passano dall'agente di monitoraggio.",
       "more": "Altre azioni sull'accesso SSH di {{code}}",
       "menu": {
         "showCommand": "Mostra di nuovo il comando",
         "hideCommand": "Nascondi il comando",
         "verifyAgain": "Verifica di nuovo",
-        "regenerate": "Rigenera le chiavi…",
+        "regenerate": "Rigenera la chiave…",
         "revoke": "Revoca l'accesso…",
         "removal": "Mostra il comando di rimozione"
       },
       "users": {
-        "label": "I due utenti che il comando crea",
+        "label": "L'utente che il comando crea",
         "user": "Utente",
         "does": "Cosa può fare",
-        "read": "Legge log, processi, disco e memoria. Non può cambiare nulla.",
-        "readNote": "Non è nel gruppo docker; docker inspect non è ammesso (mostra i segreti).",
-        "fix": "Può fare tutto sul server",
-        "fixSudo": "(sudo senza password).",
-        "fixNote": "Lo usa solo una correzione che una persona autorizzata ha avviato da una task, dopo che il suo piano è stato approvato."
+        "read": "Legge processi, disco, memoria, carico, porte in ascolto e servizi non riusciti. Non può cambiare nulla.",
+        "readNote": "Niente sudo, non è nel gruppo docker. Il suo unico gruppo è systemd-journal, per leggere gli errori nel journal di sistema."
       },
       "steps": {
         "label": "Passi per collegare l'accesso SSH a {{code}}",
@@ -9419,22 +10036,21 @@
       },
       "step1": {
         "title": "Collega l'accesso SSH",
-        "body": "Stubwise crea due coppie di chiavi. Le chiavi private sono cifrate e non si vedono mai.",
-        "done": "Chiavi create il {{date}}, {{time}}",
+        "body": "Stubwise crea una coppia di chiavi. La chiave privata è cifrata e non si vede mai.",
+        "done": "Chiave creata il {{date}}, {{time}}",
         "action": "Collega l'accesso SSH",
         "linking": "Collegamento…"
       },
       "step2": {
         "title": "Esegui questo comando su {{code}}",
-        "creates": "Crea due utenti:",
-        "runAs": "Eseguilo come root su {{code}}. Leggilo prima: contiene solo chiavi pubbliche.",
-        "prototype": "Prototipo: queste chiavi le ha inventate il prototipo.",
-        "fpRead": "lettura",
-        "fpFix": "correzione"
+        "creates": "Crea un utente:",
+        "runAs": "Eseguilo come root su {{code}}. Leggilo prima: contiene solo una chiave pubblica.",
+        "prototype": "Prototipo: questa chiave l'ha inventata il prototipo.",
+        "fingerprint": "Impronta"
       },
       "step3": {
         "title": "Verifica",
-        "hint": "Stubwise entra con ciascuna chiave e controlla che l'accesso di lettura non possa scrivere.",
+        "hint": "Stubwise entra con la chiave e controlla cosa può fare l'utente: niente sudo, non nel gruppo docker, e se può leggere il journal di sistema.",
         "action": "Verifica",
         "again": "Verifica di nuovo",
         "verifying": "Verifica in corso…"
@@ -9448,24 +10064,27 @@
         "copyError": "Non è stato possibile copiare. Seleziona il testo e copialo a mano.",
         "showAll": "Mostra tutte le {{n}} righe",
         "showLess": "Mostra meno righe",
-        "publicOnly": "Il comando contiene solo chiavi pubbliche. Le chiavi private sono cifrate e non si vedono mai.",
+        "publicOnly": "Il comando contiene solo la chiave pubblica. La chiave privata è cifrata e non si vede mai.",
         "loadError": "Non è stato possibile caricare il comando.",
         "lines": "{{n}} righe"
       },
       "outcome": {
         "label": "Esito della verifica",
-        "readOk": "L'accesso di lettura funziona, e non può scrivere.",
-        "fixOk": "L'accesso di correzione funziona.",
-        "readFailed": "Accesso di lettura non riuscito: il server ha rifiutato la chiave. Il comando è stato eseguito su {{code}}?",
-        "fixFailed": "Accesso di correzione non riuscito: il server ha rifiutato la chiave. Il comando è stato eseguito su {{code}}?",
-        "unreachable": "Non è stato possibile raggiungere {{code}} via SSH (porta 22). Nessuno dei due accessi è stato controllato.",
-        "readWrites": "L'accesso di lettura può scrivere. È un errore: entrambi gli accessi sono spenti finché una verifica non riesce.",
-        "readWritesHint": "Controlla che stubwise-read non sia nel gruppo sudo o docker, poi verifica di nuovo.",
-        "newInUse": "Le nuove chiavi sono in uso. Stubwise ha dimenticato quelle vecchie.",
-        "newFailedKept": "Le nuove chiavi non hanno passato la verifica. Quelle attuali restano in uso.",
-        "newFailedNone": "Le nuove chiavi non hanno passato la verifica, e nemmeno quelle attuali funzionano.",
-        "newFailedKeptRead": "Le nuove chiavi non hanno passato la verifica. La chiave di lettura attuale resta in uso; quella di correzione non funziona.",
-        "newFailedKeptFix": "Le nuove chiavi non hanno passato la verifica. La chiave di correzione attuale resta in uso; quella di lettura non funziona."
+        "unreachable": "Non è stato possibile raggiungere {{code}} via SSH (porta 22). Non è stato controllato nulla.",
+        "newInUse": "La nuova chiave è in uso. Stubwise ha dimenticato quella vecchia.",
+        "newFailedKept": "La nuova chiave non ha passato la verifica. Quella attuale resta in uso.",
+        "newFailedNone": "La nuova chiave non ha passato la verifica, e nemmeno quella attuale funziona.",
+        "login": "Entra come stubwise-read.",
+        "denied": "Il server ha rifiutato la chiave. Il comando è stato eseguito su {{code}}?",
+        "noSudo": "Niente sudo.",
+        "sudo": "Può usare sudo.",
+        "noDocker": "Non è nel gruppo docker.",
+        "docker": "È nel gruppo docker: può comandare ogni container.",
+        "journal": "Legge il journal di sistema (gruppo {{group}}).",
+        "noJournal": "Non legge il journal di sistema, quindi Claude non lo leggerà. Aggiungi stubwise-read a systemd-journal o adm per permetterlo.",
+        "groups": "Gruppi: {{groups}}",
+        "privileged": "stubwise-read può fare più che leggere. È un errore: l'accesso è spento finché una verifica non riesce.",
+        "privilegedHint": "Togli stubwise-read dai gruppi sudo e docker (rieseguire il comando lo fa), poi verifica di nuovo."
       },
       "errors": {
         "verify": "Non è stato possibile verificare. Riprova.",
@@ -9475,16 +10094,13 @@
       },
       "rows": {
         "label": "Accesso SSH di {{code}}",
-        "read": "Accesso di lettura",
-        "fix": "Accesso di correzione",
-        "fixWarning": "Può fare tutto sul server.",
+        "read": "Accesso di sola lettura",
         "state": {
           "verified": "Verificato il {{date}}",
           "inUse": "In uso",
           "failed": "Verifica non riuscita: {{why}}",
           "waiting": "In attesa del comando",
-          "passed": "Riuscito, in attesa dell'altro accesso",
-          "off": "Spento: l'accesso di lettura può scrivere",
+          "off": "Spento: stubwise-read può fare più che leggere",
           "revoked": "Revocato il {{date}}",
           "notLinked": "Non collegato",
           "failedPlain": "Verifica non riuscita"
@@ -9493,14 +10109,16 @@
           "refused": "il server ha rifiutato la chiave",
           "unreachable": "server non raggiungibile"
         },
-        "newKeys": "Nuove chiavi in preparazione.",
+        "newKeys": "Nuova chiave in preparazione.",
         "used": {
           "never": "Mai usato",
           "analysis": "Usato {{when}} dall'analisi di {{code}}",
           "task": "Usato {{when}} da",
-          "hiddenTask": "Usato {{when}} da una task che non puoi vedere"
+          "hiddenTask": "Usato {{when}} da una task che non puoi vedere",
+          "plain": "Usato {{when}}"
         },
-        "openSession": "Apri la sessione"
+        "openSession": "Apri la sessione",
+        "journalOff": "Non legge il journal di sistema (non è in systemd-journal né in adm)."
       },
       "when": {
         "now": "adesso",
@@ -9511,32 +10129,20 @@
         "title": "Non collegato. Claude non può guardare i problemi di questo server.",
         "hint": "Può collegarlo un admin che gestisce gli accessi SSH."
       },
-      "regenerating": {
-        "title": "Nuove chiavi — non ancora in uso",
-        "keep": "Finché non passano, Stubwise continua a usare le chiavi attuali.",
-        "keepNone": "Le chiavi attuali non funzionano: le nuove subentrano appena passano.",
-        "command": "Il comando autorizza sia le chiavi attuali sia le nuove. Quando le nuove passano, Stubwise dimentica le vecchie, e il comando successivo porta solo le nuove.",
-        "keepRead": "Finché non passano, Stubwise continua a usare la chiave di lettura attuale. Quella di correzione attuale non funziona.",
-        "keepFix": "Finché non passano, Stubwise continua a usare la chiave di correzione attuale. Quella di lettura attuale non funziona."
-      },
       "regenerate": {
-        "title": "Rigenerare le chiavi di {{code}}?",
-        "body": "Ricevi chiavi nuove e un comando nuovo. Le chiavi attuali continuano a funzionare finché le nuove non passano la verifica.",
-        "bodyNone": "Ricevi chiavi nuove e un comando nuovo. Le chiavi attuali ora non funzionano: le nuove subentrano appena passano la verifica.",
-        "confirm": "Rigenera",
-        "bodyRead": "Ricevi chiavi nuove e un comando nuovo. La chiave di lettura attuale continua a funzionare finché le nuove non passano la verifica; quella di correzione attuale ora non funziona.",
-        "bodyFix": "Ricevi chiavi nuove e un comando nuovo. La chiave di correzione attuale continua a funzionare finché le nuove non passano la verifica; quella di lettura attuale ora non funziona."
+        "title": "Rigenerare la chiave di {{code}}?",
+        "body": "Ricevi una chiave nuova e un comando nuovo. La chiave attuale smette subito di funzionare: finché la nuova non passa la verifica, Claude guarda i problemi senza letture SSH.",
+        "confirm": "Rigenera"
       },
       "revoke": {
         "title": "Revocare l'accesso SSH a {{code}}?",
         "noLook": "Claude non potrà più guardare i problemi di {{code}}.",
-        "fixStops": "Una correzione in corso su {{code}} si ferma.",
-        "planBlocked": "Un piano di correzione in attesa di approvazione non potrà essere approvato.",
-        "forget": "Stubwise dimentica le chiavi. Gli utenti restano sul server finché non li togli.",
+        "fixUnaffected": "Una correzione su {{code}} non cambia: passa dall'agente di monitoraggio.",
+        "forget": "Stubwise dimentica la chiave. L'utente resta sul server finché non lo togli.",
         "confirm": "Revoca l'accesso"
       },
       "removal": {
-        "title": "Accesso revocato il {{date}}, {{time}}. Per togliere i due utenti da {{code}}, esegui:",
+        "title": "Accesso revocato il {{date}}, {{time}}. Per togliere stubwise-read da {{code}}, esegui:",
         "done": "Fatto"
       },
       "linkAgain": "Collega di nuovo",
@@ -9546,10 +10152,11 @@
         "next": "Prossima verifica:",
         "hint": "Decide cosa risponde la prossima «Verifica». Nessuna connessione a un server.",
         "outcomes": {
-          "ok": "Riesce",
-          "read_fails": "Fallisce la lettura",
-          "fix_fails": "Fallisce la correzione",
-          "read_writes": "La lettura può scrivere",
+          "ok": "Riesce (legge il journal)",
+          "no_journal": "Riesce, senza il gruppo del journal",
+          "denied": "Chiave rifiutata",
+          "sudo": "stubwise-read ha sudo",
+          "docker": "stubwise-read è nel gruppo docker",
           "unreachable": "Server irraggiungibile"
         },
         "error": "La simulazione non è andata a buon fine."
@@ -9559,7 +10166,32 @@
     "hiddenProjects": "In progetti che non vedi",
     "projectsLabel": "Progetti: {{codes}}",
     "projectsMore": "+{{count}}",
-    "orphanNoClaude": "Collega prima il server a un progetto: Claude lavora dentro un progetto."
+    "orphanNoClaude": "Collega prima il server a un progetto: Claude lavora dentro un progetto.",
+    "manual": {
+      "label": "Claude su questo server",
+      "start": "Chiedi a Claude di guardarci",
+      "hint": "Claude guarda il server con l'accesso in sola lettura e scrive cosa trova, come dopo un avviso.",
+      "running": "{{name}} ha chiesto a Claude di guardarci: Claude sta guardando in sola lettura",
+      "diagnosed": "Diagnosi pronta, chiesta da {{name}}",
+      "timed_out": "Diagnosi parziale, chiesta da {{name}}: Claude ha finito il tempo",
+      "unreachable": "Claude non è riuscito a raggiungere il server (chiesto da {{name}})",
+      "stopped": "Claude si è fermato prima di una diagnosi (chiesto da {{name}})",
+      "failed": "L'analisi di Claude non è riuscita (chiesta da {{name}}): la task non si è aperta",
+      "undetermined": "Claude non è riuscito a capire quale progetto ne è la causa: {{reason}} Nessuna task aperta.",
+      "hiddenTask": "La diagnosi è in un progetto che non vedi.",
+      "errors": {
+        "analysis_running": "Claude sta già guardando questo server.",
+        "access": "Claude non può guardarci: l'accesso SSH in sola lettura non è usabile.",
+        "monthly_budget": "Claude non può guardarci: il budget AI del mese è esaurito.",
+        "forbidden": "Non puoi chiedere a Claude di guardare questo server.",
+        "generic": "Non è stato possibile chiederlo a Claude. Riprova."
+      },
+      "blocked": {
+        "monthly_budget": "Claude non ci ha guardato (chiesto da {{name}}): il budget AI del mese è esaurito.",
+        "disabled": "Claude non ci ha guardato (chiesto da {{name}}): l'analisi dei server è spenta in Amministrazione → AI.",
+        "cap": "Claude non ci ha guardato (chiesto da {{name}}): non c'è abbastanza budget AI per un'analisi."
+      }
+    }
   },
   "whoCan": {
     "actions": {
@@ -9588,7 +10220,7 @@
       "manageChannels": "gestire i canali",
       "manageDrive": "gestire il drive",
       "manageProjectAutomations": "gestire le automazioni del progetto",
-      "replyCustomers": "rispondere ai clienti",
+      "manageSupport": "gestire le conversazioni di Support",
       "fixServer": "avviare la correzione di un server",
       "manageRoles": "gestire i ruoli",
       "manageSettings": "cambiare le impostazioni dell'istanza",
@@ -9622,7 +10254,12 @@
       "docs": "Documenti",
       "code": "Codice",
       "credentials": "Credenziali",
-      "prototype": "Prototipo"
+      "prototype": "Prototipo",
+      "chat": "Chat",
+      "drive": "Drive",
+      "automations": "Automazioni",
+      "support": "Supporto",
+      "servers": "Server"
     },
     "page": {
       "intro": "Scopri chi può fare una cosa in un progetto, o cosa può fare una persona — e perché. Vedi solo i progetti e le persone che vedi già.",
@@ -9652,10 +10289,7 @@
       "none": "Nessuna delle persone che vedi può {{action}} in {{code}}.",
       "noneInstance": "Nessuna delle persone che vedi può {{action}}.",
       "answers": "Chi può {{action}}",
-      "claudeLine": "lavora, non decide.",
-      "claudeCan": "Claude può {{action}}.",
-      "claudeCant": "Claude non può {{action}}.",
-      "claudeWhat": "Claude lavora ma non decide.",
+      "claudeLine": "non ha permessi suoi: agisce con quelli di chi lo assegna o conferma la sua azione.",
       "can": "Può",
       "never": "Mai",
       "notMember": "{{name}} non è membro di {{code}}.",
@@ -9688,6 +10322,15 @@
     }
   },
   "entry": {
+    "unreachable": {
+      "title": "Stubwise non risponde",
+      "body": "Controlla la connessione, o riprova fra un momento.",
+      "retry": "Riprova"
+    },
+    "enrollAtLogin": {
+      "title": "Configura la verifica in due passaggi",
+      "lead": "Ogni accesso a Stubwise chiede un codice da un'app di autenticazione. Configurala adesso: ci vuole un minuto, e subito dopo sei dentro."
+    },
     "login": {
       "title": "Accedi a Stubwise",
       "lead": "Inserisci l'email e la password del tuo account.",
@@ -9771,16 +10414,18 @@
       "welcome": "Benvenuto, {{name}}. Sei in {{projects}}.",
       "welcomeNoProjects": "Benvenuto, {{name}}.",
       "expiredTitle": "Questo invito è scaduto",
-      "expiredBody": "{{name}} ti ha invitato il {{invited}}. L'invito è scaduto il {{expired}}. Chiedine uno nuovo a {{first}}.",
+      "expiredBody": "Chiedine uno nuovo a chi ti ha invitato.",
       "revokedTitle": "Questo invito non è più valido",
-      "revokedBody": "{{name}} lo ha ritirato. Se ti serve ancora l'accesso, chiediglielo.",
+      "revokedBody": "Se ti serve ancora l'accesso, chiedilo a chi ti ha invitato.",
       "invalidBody": "Questo link d'invito non è valido. Chiedine uno nuovo a chi te l'ha mandato.",
       "goToSignIn": "Vai all'accesso",
       "loadFailed": "Non è stato possibile caricare l'invito.",
       "usedTitle": "Questo invito è già stato usato",
       "usedBody": "Questo invito è già stato usato. Accedi invece.",
       "emailTaken": "Esiste già un account con questa email. Accedi invece.",
-      "createdSignIn": "Il tuo account è pronto. Accedi con la nuova password."
+      "createdSignIn": "Il tuo account è pronto. Accedi con la nuova password.",
+      "signedInAs": "Sei dentro come {{name}}. Esci prima di creare un account nuovo.",
+      "signOutFirst": "Esci prima"
     },
     "setup": {
       "title": "Configura Stubwise",
@@ -9861,6 +10506,87 @@
       "spentBody": "Un link di reset vale una volta, entro un'ora. Chiedine uno nuovo all'amministratore.",
       "invalidTitle": "Questo link non è valido",
       "invalidBody": "Controlla di averlo copiato intero, o chiedine uno nuovo all'amministratore."
+    },
+    "desktop": {
+      "address": {
+        "title": "Collegati a Stubwise",
+        "lead": "Inserisci l'indirizzo dello Stubwise del tuo team: è quello che vedi nella barra del browser quando lo usi sul web.",
+        "label": "Indirizzo",
+        "submit": "Continua",
+        "saving": "Controllo…",
+        "invalid": "Non sembra l'indirizzo di uno Stubwise. Scrivilo intero, a partire da https://."
+      },
+      "start": {
+        "title": "Accedi a Stubwise",
+        "lead": "Accedi nel browser, con la password e la verifica in due passaggi, passkey compresa. Poi torni qui.",
+        "instance": "Stubwise su",
+        "change": "Cambia",
+        "submit": "Accedi col browser",
+        "opening": "Apertura del browser…"
+      },
+      "waiting": {
+        "title": "Finisci l'accesso nel browser",
+        "lead": "Abbiamo aperto {{host}} nel browser. Accedi lì e scegli «Consenti»: l'app si riapre da sola.",
+        "openAgain": "Apri di nuovo",
+        "cancel": "Annulla"
+      },
+      "errors": {
+        "noInstance": "Prima inserisci l'indirizzo del tuo Stubwise.",
+        "network": "Non è stato possibile raggiungere il tuo Stubwise. Controlla l'indirizzo e la connessione, poi riprova.",
+        "notFinished": "L'accesso non è andato a buon fine. Ricomincia da qui.",
+        "expired": "Quell'accesso è durato troppo, o ne è partito uno più recente. Ricomincia da qui.",
+        "sessionEnded": "La sessione è finita. Accedi di nuovo.",
+        "generic": "Non è stato possibile accedere. Riprova."
+      }
+    },
+    "desktopGoogle": {
+      "backToApp": "Torna all'app per vedere l'esito",
+      "notConnected": "La casella non è stata collegata",
+      "open": "Apri Stubwise",
+      "invalid": {
+        "title": "Questo link non è valido",
+        "lead": "Ricomincia a collegare la casella dall'app Stubwise."
+      }
+    },
+    "desktopLogin": {
+      "signInFirst": "Accedi per permettere a Stubwise su «{{device}}» di usare il tuo account.",
+      "consent": {
+        "title": "Consentire a Stubwise su «{{device}}» di accedere come {{name}}?",
+        "titleNoName": "Consentire a Stubwise su «{{device}}» di accedere con il tuo account?",
+        "lead": "L'app su quel Mac agirà con il tuo account finché non esci lì. Consenti solo se hai appena iniziato ad accedere da lì.",
+        "allow": "Consenti",
+        "allowing": "Consenso in corso…",
+        "cancel": "Annulla",
+        "failed": "Non è stato possibile consentire l'accesso all'app. Ricomincia dall'app sul Mac.",
+        "nothingChanged": "Non è stato condiviso niente con l'app. Scegli «Consenti» per riprovare."
+      },
+      "reauthAction": "permettere a Stubwise su «{{device}}» di accedere con il tuo account",
+      "opened": {
+        "title": "Stubwise si sta aprendo sul Mac",
+        "lead": "Puoi chiudere questa scheda."
+      },
+      "cancelled": {
+        "title": "Accesso annullato",
+        "lead": "Non è stato condiviso niente con l'app. Puoi chiudere questa scheda."
+      },
+      "invalid": {
+        "title": "Questo link di accesso non funziona",
+        "lead": "Ricomincia dall'app Stubwise sul Mac: apre un link nuovo."
+      }
+    },
+    "emailChange": {
+      "title": "Email di accesso cambiata",
+      "confirming": "Lettura del link…",
+      "done": "Da ora entri con {{email}}.",
+      "failed": "Non è stato possibile confermare la nuova email. Riapri il link.",
+      "invalidTitle": "Questo link non vale",
+      "invalidBody": "Può essere scaduto, già usato o annullato. Chiedine uno nuovo dalle tue preferenze.",
+      "takenTitle": "Quell'email è già presa",
+      "takenBody": "Ora la usa un'altra persona in Stubwise. La tua email di accesso non è cambiata.",
+      "confirmTitle": "Conferma la nuova email di accesso",
+      "confirmBody": "La tua email di accesso diventerà {{email}}.",
+      "confirm": "Conferma il cambio dell'email",
+      "confirmingButton": "Conferma…"
     }
   },
   "admin": {
@@ -9998,7 +10724,8 @@
         "cancel": "Annulla"
       },
       "securityLog": "Registro di sicurezza",
-      "securityLogError": "Non è stato possibile caricare il registro di sicurezza."
+      "securityLogError": "Non è stato possibile caricare il registro di sicurezza.",
+      "changeEmail": "Cambia email…"
     },
     "resetPassword": {
       "title": "Creare un link per reimpostare la password di {{name}}?",
@@ -10039,7 +10766,8 @@
       "doneOne_one": "{{name}} è stata disattivata. {{count}} task riassegnata a {{to}}.",
       "doneOne_other": "{{name}} è stata disattivata. {{count}} task riassegnate a {{to}}.",
       "doneMany": "{{name}} è stata disattivata. {{count}} task riassegnate.",
-      "reauthAction": "disattivare {{name}}"
+      "reauthAction": "disattivare {{name}}",
+      "rowChanged": "{{code}} non si può più riassegnare: nel frattempo è cambiata. L'elenco è aggiornato."
     },
     "invite": {
       "title": "Invita qualcuno",
@@ -10058,6 +10786,7 @@
       "secretTitle": "Link d'invito per {{email}}",
       "sendYourself": "Mandalo tu: Stubwise non manda email.",
       "expiresIn": "Scade fra 7 giorni ({{date}}).",
+      "departmentDropped": "In {{code}} i permessi del reparto non varranno per questa persona: lì non puoi dare {{missing}}.",
       "cancel": "Annulla",
       "reauthAction": "invitare {{email}}",
       "errors": {
@@ -10083,6 +10812,7 @@
     "refusal": {
       "escalation": "Non puoi dare «{{what}}»: contiene {{missing}}, che non hai.",
       "escalationPlain": "Non puoi farlo: darebbe {{missing}}, che non hai.",
+      "conflict": "Qualcun altro l'ha cambiato mentre lo modificavi. Non è stato salvato niente.",
       "more_one": "altro {{count}}",
       "more_other": "altri {{count}}",
       "lastFullAdmin": "{{name}} è l'unico amministratore completo. Rendi prima qualcun altro amministratore completo.",
@@ -10109,7 +10839,8 @@
         "instance": "Non hai questo permesso, quindi non puoi darlo.",
         "projects_role": "Non hai questo permesso in tutti i progetti dove il ruolo è usato, quindi non puoi darlo.",
         "projects_department": "Non hai questo permesso in tutti i progetti delle persone del reparto, quindi non puoi darlo.",
-        "anywhere": "Non hai questo permesso in nessun progetto, quindi non puoi darlo."
+        "anywhere": "Non hai questo permesso in nessun progetto, quindi non puoi darlo.",
+        "anywhere_department": "Le persone del reparto non sono ancora in nessun progetto: puoi dare solo ciò che hai in almeno un progetto."
       },
       "included": "Incluso nell'amministrazione completa"
     },
@@ -10238,7 +10969,12 @@
       },
       "errors": {
         "name": "Dai un nome al reparto.",
-        "nameTaken": "C'è già un reparto con questo nome."
+        "nameTaken": "C'è già un reparto con questo nome.",
+        "defaultDepartment": "È il reparto di ripiego: ci finiscono le task senza reparto, quindi si rinomina ma non si elimina.",
+        "rolesNotSaved": "Membri salvati, ma chi gestisce la Home no. Riprova per salvarlo.",
+        "invalidPerson": "Solo chi è nel reparto può gestirne la Home.",
+        "invalidPermission": "Un reparto non può dare questo permesso: solo i permessi di progetto.",
+        "notAPerson": "In un reparto stanno solo le persone: Claude no."
       }
     },
     "department": {
@@ -10273,6 +11009,10 @@
       "discardAsk_one": "Lasciar perdere {{count}} modifica?",
       "discardAsk_other": "Lasciar perdere {{count}} modifiche?",
       "saved": "Salvato",
+      "staleDraft": "Qualcun altro ha cambiato questo reparto mentre lo modificavi. Annulla le tue modifiche per vedere le sue.",
+      "previewLoading": "Controllo cosa puoi dare…",
+      "previewError": "Non riesco a controllare cosa puoi dare.",
+      "previewRetry": "Riprova",
       "saveAction": "modificare {{name}}",
       "saveFailed": "Non è stato possibile salvare. Riprova.",
       "refusal": {
@@ -10282,6 +11022,9 @@
       "deleteTitle": "Eliminare {{name}}?",
       "deleteBody": "Le persone restano; solo, non sono più in {{name}}.",
       "deleteConfirm": "Elimina",
+      "counting": "Conto le task…",
+      "countFailed": "Non sono riuscito a contare le task del reparto.",
+      "tasksMoveMany": "Più di {{count}} task hanno {{name}} come reparto. Spostale in:",
       "tasksMove_one": "{{count}} task ha {{name}} come reparto. Spostala in:",
       "tasksMove_other": "{{count}} task hanno {{name}} come reparto. Spostale in:",
       "moveTo": "Sposta le task in",
@@ -10371,7 +11114,10 @@
         "otherProjectsHint": "Progetti che non vedi, sommati.",
         "tokensTitle": "{{tokens}} token",
         "empty": "Nessun consumo AI in questo periodo.",
-        "loadError": "Impossibile caricare i consumi."
+        "loadError": "Impossibile caricare i consumi.",
+        "noProvider": "Nessun account, o un account rimosso",
+        "rangeTooLong": "Scegli al più un anno.",
+        "invalidRange": "La data d'inizio viene dopo quella di fine."
       },
       "prototype": {
         "label": "Solo prototipo"
@@ -10474,7 +11220,19 @@
           "submit": "Elimina",
           "done": "{{name}} eliminato.",
           "action": "eliminare l'account AI {{name}}"
-        }
+        },
+        "rename": "Rinomina…",
+        "renameDialog": {
+          "title": "Rinomina {{name}}",
+          "name": "Nome",
+          "submit": "Rinomina",
+          "done": "Rinominato in {{name}}.",
+          "errors": {
+            "name": "Dai un nome all'account.",
+            "taken": "Un altro account AI ha già questo nome."
+          }
+        },
+        "testPending": "La prova è ancora in corso. Ricontrolla fra un minuto."
       },
       "models": {
         "intro": "Quale modello fa ogni tipo di lavoro. Un cambio vale dalla prossima esecuzione: il lavoro in corso finisce col modello con cui è partito.",
@@ -10485,6 +11243,9 @@
           "docs": "Docs",
           "reports": "Report",
           "mail": "Posta",
+          "automations": "Automazioni",
+          "support": "Supporto",
+          "servers": "Server",
           "chat": "Chat"
         },
         "source": {
@@ -10574,6 +11335,23 @@
         "replace": "Sostituisci",
         "replaceOf": "Sostituisci {{label}}",
         "saved": "{{label}}: finisce con {{last4}}"
+      },
+      "serverAnalysis": {
+        "title": "Analisi dei server",
+        "intro": "Quando un server monitorato manda un avviso, Claude ci guarda con l'accesso in sola lettura e scrive una diagnosi. Questi limiti valgono per ogni analisi, automatica o chiesta a mano, e contano nel budget del mese.",
+        "enabled": "Claude guarda gli avvisi dei server",
+        "off": "Spenta: gli avvisi arrivano comunque, ma Claude non ci guarda, e nessuno glielo può chiedere.",
+        "maxMinutes": "Minuti al massimo",
+        "maxCostUsd": "Costo massimo ($)",
+        "maxSshReads": "Letture SSH al massimo",
+        "maxAgentReads": "Letture via agente al massimo",
+        "errors": {
+          "maxMinutes": "Da 1 a 60 minuti.",
+          "maxCostUsd": "Da 0,10 $ a 20 $.",
+          "maxSshReads": "Da 0 a 200 letture.",
+          "maxAgentReads": "Da 0 a 200 letture."
+        },
+        "save": "Salva i limiti"
       }
     },
     "integrations": {
@@ -10892,18 +11670,18 @@
     },
     "webhooks": {
       "title": "Webhook in uscita",
-      "intro": "Manda un messaggio a un canale di chat o a un endpoint quando succede qualcosa in un progetto.",
-      "loadError": "Impossibile caricare il webhook.",
+      "intro": "Manda messaggi a canali di chat o a endpoint quando succede qualcosa in un progetto. Ogni webhook ha il suo indirizzo, formato ed eventi.",
+      "loadError": "Impossibile caricare i webhook.",
       "send": "Manda i messaggi",
       "off": "I messaggi sono spenti.",
       "format": "Formato",
       "formats": {
         "slack": "Slack",
         "discord": "Discord",
-        "generic": "JSON generico"
+        "generic": "JSON"
       },
       "address": "Indirizzo",
-      "addressNote": "Chi può cambiare le impostazioni dell'istanza può leggere questo indirizzo.",
+      "addressNote": "Chi può gestire le integrazioni può leggere questo indirizzo.",
       "howTo": "Come ottenere l'indirizzo",
       "steps": {
         "slack": {
@@ -10964,15 +11742,21 @@
       "sending": "Invio in corso…",
       "testsSaved": "La prova va all'indirizzo salvato.",
       "result": {
+        "invalid_credentials_status": "L'indirizzo ha rifiutato le credenziali ({{status}})",
+        "destination_error": "L'indirizzo ha risposto con un errore",
+        "destination_error_status": "L'indirizzo ha risposto con un errore ({{status}})",
         "ok": "Inviata · consegnata",
-        "invalid_credentials": "L'indirizzo ha risposto con un errore",
+        "invalid_credentials": "L'indirizzo ha rifiutato le credenziali",
         "unreachable": "Impossibile raggiungere l'indirizzo",
         "never": "Nessuna prova inviata"
       },
       "errors": {
         "https": "Usa un indirizzo https.",
-        "missing": "Aggiungi l'indirizzo, o spegni i messaggi.",
-        "testNeedsAddress": "Prima salva un indirizzo."
+        "missing": "Aggiungi l'indirizzo.",
+        "testNeedsAddress": "Prima salva un indirizzo.",
+        "name": "Dai un nome al webhook.",
+        "webhook_limit": "Puoi avere al più 20 webhook.",
+        "events": "Uno degli eventi non è più disponibile."
       },
       "preview": "Anteprima",
       "example": "Dati d'esempio",
@@ -10982,9 +11766,47 @@
         "intro": "Non si contatta niente di vero. Scegli cosa risponde la prossima prova.",
         "outcome": "Prossima prova",
         "ok": "Consegnata",
-        "invalid_credentials": "Errore dall'indirizzo",
+        "invalid_credentials": "Credenziali rifiutate",
+        "destination_error": "Errore dall'indirizzo",
         "unreachable": "Non raggiungibile"
-      }
+      },
+      "new": "Nuovo webhook",
+      "limit": "Puoi avere al più {{count}} webhook.",
+      "empty": "Nessun webhook per ora.",
+      "eventCount": "{{count}} eventi su {{total}}",
+      "offBadge": "Spento",
+      "back": "Webhook in uscita",
+      "newTitle": "Nuovo webhook",
+      "name": "Nome",
+      "create": "Crea il webhook",
+      "creating": "Creazione…",
+      "notFound": "Questo webhook non c'è più.",
+      "loadOneError": "Impossibile caricare il webhook.",
+      "createAction": "creare il webhook {{name}}",
+      "createdTitle": "Webhook creato. Copia il suo segreto di firma:",
+      "secret": {
+        "title": "Segreto di firma",
+        "set": "Impostato · rigenerato il {{date}}",
+        "none": "Non ancora impostato. Rigeneralo per firmare i messaggi.",
+        "note": "Ogni messaggio porta un'intestazione X-Stubwise-Signature firmata con questo segreto. Slack e Discord la ignorano.",
+        "regenerate": "Rigenera il segreto",
+        "action": "rigenerare il segreto di firma di {{name}}",
+        "dialogTitle": "Rigenerare il segreto di firma di {{name}}?",
+        "dialogBody": "Il segreto di adesso smette subito di valere. Aggiorna chi riceve con quello nuovo.",
+        "submit": "Rigenera",
+        "shownTitle": "Il nuovo segreto di firma"
+      },
+      "delete": {
+        "button": "Elimina il webhook",
+        "title": "Eliminare {{name}}?",
+        "body": "Smette subito di ricevere messaggi. Il registro delle modifiche ne tiene la storia.",
+        "submit": "Elimina",
+        "action": "eliminare il webhook {{name}}",
+        "done": "{{name}} eliminato."
+      },
+      "urlAction": "cambiare l'indirizzo di {{name}}",
+      "unknownEvents": "Questo webhook ha anche eventi che questa app non conosce ancora: cambiane gli eventi dal web.",
+      "unknownFormat": "Questo webhook usa un formato che questa app non conosce ancora: cambialo dal web."
     },
     "servers": {
       "title": "Server",
@@ -11012,7 +11834,9 @@
       "detached": {
         "group": "In nessun progetto",
         "from": "Da <b>{{code}}</b> · {{name}}, eliminato il {{date}}",
+        "fromNoDate": "Da <b>{{code}}</b> · {{name}}",
         "since": "Senza progetto dal {{date}}",
+        "sinceNoDate": "Senza progetto",
         "link": "Collega a un progetto…",
         "noTargets": "Nessuno dei tuoi progetti può prenderlo: serve poter gestire i repository in un progetto attivo.",
         "more": "Altro per {{name}}",
@@ -11030,6 +11854,7 @@
           "open": "Apri",
           "nameTaken": "{{code}} ha già un repository che si chiama {{name}}. Scegli un altro progetto.",
           "forbidden": "Non puoi più gestire i repository di {{code}}.",
+          "targetGone": "{{code}} non è più disponibile. Scegli un altro progetto.",
           "gone": "Quel progetto non è più disponibile, o qualcuno ha già collegato questo repository. Non è cambiato niente."
         },
         "deleteDialog": {
@@ -11090,7 +11915,7 @@
         "resume": "Riprendi",
         "pauseOf": "Metti in pausa la coda di {{code}}",
         "resumeOf": "Riprendi la coda di {{code}}",
-        "forbidden": "Solo chi gestisce le impostazioni mette in pausa o riprende una coda.",
+        "forbidden": "Solo le persone che gestiscono {{code}} mettono in pausa o riprendono la sua coda.",
         "announce": "{{code}}: {{counts}}",
         "pauseDialog": {
           "title": "Mettere in pausa la coda di {{code}}?",
@@ -11137,7 +11962,8 @@
           "server_fix": "Correzione del server",
           "automation": "Automazione",
           "product_doc_update": "Aggiornamento della doc di prodotto",
-          "nightly": "Giro notturno"
+          "nightly": "Giro notturno",
+          "other": "Lavoro"
         },
         "state": {
           "running": "In corso · worker {{n}}",
@@ -11148,8 +11974,9 @@
         "retry": "Rimetti in coda",
         "retryOf": "Rimetti in coda {{code}}",
         "retryNeeds": {
-          "manageSettings": "Solo chi gestisce le impostazioni rimette in coda un lavoro.",
-          "startRun": "Solo chi può avviare Claude in {{code}} rimette in coda un lavoro."
+          "manageSettings": "Solo le persone che gestiscono {{code}} rimettono in coda il suo lavoro.",
+          "startRun": "Solo chi può avviare Claude in {{code}} rimette in coda un lavoro.",
+          "other": "Non puoi rimettere in coda questo lavoro."
         },
         "correctionNote": "Le correzioni si riprendono dalla task.",
         "superseded": "Su {{code}} c'è un lavoro più recente: non c'è niente da rimettere in coda.",
@@ -11179,7 +12006,8 @@
         "name": "Worker {{n}}",
         "idle": "libero",
         "hidden": "occupato in un progetto che non vedi",
-        "prototype": "Prototipo: due worker simulati."
+        "prototype": "Prototipo: due worker simulati.",
+        "empty": "Nessun worker in funzione."
       },
       "accounts": {
         "heading": "Account AI",
@@ -11200,7 +12028,8 @@
         "phases": {
           "commit_summary": "Riassunti dei commit",
           "release_note": "Nota di rilascio",
-          "docs": "Docs"
+          "docs": "Docs",
+          "other": "Passo"
         },
         "states": {
           "done": "fatto",
@@ -11211,6 +12040,16 @@
         "note": "Solo da leggere: il giro notturno riprende da dove si è fermato.",
         "empty": "Stanotte non è girato niente nei progetti che vedi."
       }
+    },
+    "changeEmail": {
+      "title": "Cambiare l'email di accesso di {{name}}?",
+      "now": "Cambia subito, senza link di conferma.",
+      "keeps": "{{name}} tiene le sessioni e la verifica in due passaggi.",
+      "alert": "{{name}} riceve un avviso di sicurezza.",
+      "newLabel": "Nuova email",
+      "change": "Cambia email",
+      "done": "Ora {{name}} entra con {{email}}.",
+      "reauthAction": "cambiare l'email di accesso di {{name}}"
     }
   },
   "permissions": {
@@ -11350,6 +12189,12 @@
       "manage": {
         "label": "gestire le automazioni",
         "hint": "Creare, modificare e mettere in pausa le automazioni a questo livello."
+      },
+      "general": {
+        "manage": {
+          "label": "gestire le automazioni generali",
+          "hint": "Creare, modificare e mettere in pausa le automazioni generali (senza progetto) e decidere le loro esecuzioni."
+        }
       }
     },
     "servers": {
@@ -11545,9 +12390,9 @@
       }
     },
     "support": {
-      "reply": {
-        "label": "rispondere ai clienti",
-        "hint": "Rispondere alle conversazioni dei clienti in Support."
+      "manage": {
+        "label": "gestire le conversazioni di Support",
+        "hint": "Aprire la richiesta, segnarle non concluse, rispondere ai collaboratori."
       }
     },
     "department": {
@@ -11560,6 +12405,7 @@
     }
   },
   "changelog": {
+    "someone": "Qualcuno",
     "kinds": {
       "person": {
         "instance_role_changed": "<actor>{{actor}}</actor> ha cambiato il ruolo d'istanza di <object>{{object}}</object>.",
@@ -11569,7 +12415,8 @@
         "git_identity_unlinked": "<actor>{{actor}}</actor> ha scollegato un'identità git da <object>{{object}}</object>.",
         "bitbucket_username_set": "<actor>{{actor}}</actor> ha cambiato lo username Bitbucket di <object>{{object}}</object>.",
         "deactivated": "<actor>{{actor}}</actor> ha disattivato <object>{{object}}</object>.",
-        "reactivated": "<actor>{{actor}}</actor> ha riattivato <object>{{object}}</object>."
+        "reactivated": "<actor>{{actor}}</actor> ha riattivato <object>{{object}}</object>.",
+        "email_changed": "<actor>{{actor}}</actor> ha cambiato l'email di accesso di <object>{{object}}</object>."
       },
       "invite": {
         "created": "<actor>{{actor}}</actor> ha invitato <object>{{object}}</object> come {{role}}.",
@@ -11642,7 +12489,10 @@
         "secret_replaced": "<actor>{{actor}}</actor> ha sostituito la chiave segreta dell'archiviazione."
       },
       "webhook": {
-        "changed": "<actor>{{actor}}</actor> ha cambiato il webhook in uscita."
+        "created": "<actor>{{actor}}</actor> ha aggiunto il webhook in uscita <object>{{object}}</object>.",
+        "updated": "<actor>{{actor}}</actor> ha cambiato il webhook in uscita <object>{{object}}</object>.",
+        "secret_replaced": "<actor>{{actor}}</actor> ha rigenerato il segreto di firma del webhook in uscita <object>{{object}}</object>.",
+        "deleted": "<actor>{{actor}}</actor> ha eliminato il webhook in uscita <object>{{object}}</object>."
       },
       "server": {
         "created": "<actor>{{actor}}</actor> ha creato il server <object>{{object}}</object>$t(changelog.params.serverScope.{{scope}}).",
@@ -11707,8 +12557,8 @@
         "imported_other": "<actor>{{actor}}</actor> ha importato {{count}} variabili in <object>{{object}}</object> (<strong>{{environment}}</strong>)."
       },
       "env_var": {
-        "set": "<actor>{{actor}}</actor> ha impostato <strong>{{key}}</strong> in <object>{{object}}</object> (<strong>{{environment}}</strong>).",
-        "removed": "<actor>{{actor}}</actor> ha rimosso <strong>{{key}}</strong> da <object>{{object}}</object> (<strong>{{environment}}</strong>)."
+        "set": "<actor>{{actor}}</actor> ha impostato <strong>{{variable}}</strong> in <object>{{object}}</object> (<strong>{{environment}}</strong>).",
+        "removed": "<actor>{{actor}}</actor> ha rimosso <strong>{{variable}}</strong> da <object>{{object}}</object> (<strong>{{environment}}</strong>)."
       },
       "environment": {
         "created": "<actor>{{actor}}</actor> ha creato l'ambiente <object>{{object}}</object> in {{project}}.",
@@ -11722,6 +12572,9 @@
       },
       "task": {
         "deleted": "<actor>{{actor}}</actor> ha eliminato la task <strong>{{object}}</strong> «{{title}}»."
+      },
+      "server_analysis": {
+        "changed": "<actor>{{actor}}</actor> ha cambiato i limiti dell'analisi dei server."
       }
     },
     "groups": {
@@ -11798,6 +12651,8 @@
     },
     "noMatch": "Nessuna modifica corrisponde a questi filtri.",
     "nothing": "Ancora nessuna modifica registrata.",
+    "loadMore": "Carica altre",
+    "loadingMore": "Caricamento…",
     "projectEmpty": "Ancora nessuna modifica a {{code}}.",
     "error": "Non è stato possibile caricare il registro delle modifiche.",
     "loading": "Caricamento del registro…",
@@ -11856,7 +12711,7 @@
       "webhookFormat": {
         "slack": "Slack",
         "discord": "Discord",
-        "generic": "JSON generico"
+        "generic": "JSON"
       },
       "webhookEvents": {
         "ticket_created": "Nuova task dall'SDK o dal widget",
@@ -11908,7 +12763,6 @@
       "url": "Indirizzo",
       "events": "Eventi",
       "sampleInterval": "Campione ogni (s)",
-      "primaryProject": "Progetto principale",
       "cpu": "CPU %",
       "mem": "Memoria %",
       "disk": "Disco %",
@@ -11920,6 +12774,7 @@
       "activeDays": "Ferma se attiva, dopo (giorni)",
       "todoDays": "Ferma se da fare, dopo (giorni)",
       "statuses": "Stati",
+      "enabledPlugins": "Plugin accesi",
       "disabledSkills": "Skill spente",
       "disabledHooks": "Hook spenti",
       "installCommand": "Comando di install",
@@ -11932,14 +12787,21 @@
       "pipeline": "Pipeline dei rilasci",
       "branch": "Ramo di rilascio",
       "statusFamilies": "Famiglia degli stati",
-      "kind": "Tipo"
+      "kind": "Tipo",
+      "analysisEnabled": "Analisi accesa",
+      "maxMinutes": "Minuti al massimo",
+      "maxCostUsd": "Costo massimo ($)",
+      "maxAgentReads": "Letture via agente al massimo",
+      "maxSshReads": "Letture SSH al massimo"
     },
     "via": {
       "actor": "Claude per conto di {{name}}",
       "mark": "Fatta con Claude",
       "filter": "Fatte con Claude",
       "undid": "Ha annullato: {{sentence}}",
-      "filtersCleared": "Filtri tolti per mostrare la modifica."
+      "filtersCleared": "Filtri tolti per mostrare la modifica.",
+      "undoneGone": "Quella modifica non è più nel registro.",
+      "undoneFailed": "Non è stato possibile leggere le modifiche più vecchie. Riprova più tardi."
     }
   },
   "usage": {
@@ -11955,14 +12817,24 @@
       "release_notes": "Note di rilascio",
       "docs_nightly": "Docs notturni",
       "docs_generation": "Generazione dei Docs",
+      "drive_summary": "Riassunti dei file del Drive",
       "daily_report": "Report giornaliero",
       "weekly_brief": "Brief settimanale",
       "mail_classify": "Classificazione della posta",
+      "mail_draft": "Bozze delle email di Claude",
+      "meeting_summary": "Riassunti delle riunioni registrate",
+      "automation_step": "Passi delle automazioni",
       "chat": "Conversazioni con Claude",
+      "claude_chat": "Conversazioni private con Claude",
       "backlog_merge": "Unione dei documenti del backlog",
       "plugin_smoke": "Smoke test dei plugin",
       "credential_test": "Prove degli account",
-      "usage_probe": "Letture della quota"
+      "usage_probe": "Letture della quota",
+      "support_triage_check": "Supporto: giudizio sul triage",
+      "server_analysis": "Server: analisi",
+      "server_fix_plan": "Server: piano di correzione",
+      "mail_reply_judgment": "Posta: serve una mia risposta?",
+      "product_doc_update": "Doc di prodotto: aggiornamenti dalle fonti"
     }
   },
   "instanceEffects": {
@@ -12076,7 +12948,8 @@
         "forbidden": "Non puoi più eliminare {{code}}. Non è stato eliminato niente.",
         "failed": "Impossibile eliminare {{code}}. Riprova.",
         "retry": "Riprova",
-        "quoted": "«{{title}}»"
+        "quoted": "«{{title}}»",
+        "goesClaude": "Anche il lavoro di Claude su questa task (sessioni, piano, domande) viene eliminato; restano i consumi e il registro decisioni."
       },
       "busy": {
         "title": "{{code}} non si può ancora eliminare",
@@ -12087,7 +12960,8 @@
         "server": "È la correzione del server <b>{{code}}</b>, ancora aperta.",
         "release": "È la correzione del rilascio <b>{{code}}</b>, ancora aperta.",
         "wait_one": "Aspetta che finisca, o chiudilo dalla sua pagina, poi riprova.",
-        "wait_other": "Aspetta che finiscano, o chiudili dalla loro pagina, poi riprova."
+        "wait_other": "Aspetta che finiscano, o chiudili dalla loro pagina, poi riprova.",
+        "correction": "Una correzione della sua pull request è ancora aperta."
       },
       "done": "{{code}} è stata eliminata.",
       "gone": "Non trovo {{code}}.",
@@ -12102,7 +12976,8 @@
   "activity": {
     "viaClaude": "con Claude",
     "onBehalf": "Claude per conto di {{name}}",
-    "deletedTask": "{{name}} ha eliminato <code>{{code}}</code> «{{title}}»"
+    "deletedTask": "{{name}} ha eliminato <code>{{code}}</code> «{{title}}»",
+    "deletedTaskConcealed": "Una task è stata eliminata"
   },
   "productDocs": {
     "source": {
@@ -12110,6 +12985,8 @@
       "emailOf": "Da un'email di {{owner}} · {{date, datetime(month: short; day: numeric; timeZone: UTC)}}",
       "meeting": "Dalla riunione “{{title}}”",
       "meetingOf": "Da una riunione di {{owner}} · {{date, datetime(month: short; day: numeric; timeZone: UTC)}}",
+      "emailOfNoDate": "Da un'email di {{owner}}",
+      "meetingOfNoDate": "Da una riunione di {{owner}}",
       "decision": "Dalla decisione “{{title}}”",
       "decisionHidden": "Da una decisione che non puoi vedere",
       "task": "Dalla task “{{title}}”",
@@ -12140,6 +13017,9 @@
       "undoing": "Annullo…",
       "changedAfter": "<b>{{name}}</b> l'ha modificata dopo",
       "changedAfterNobody": "È stata modificata dopo",
+      "sectionBusy": "<b>{{name}}</b> sta scrivendo in questa sezione. Riprova quando ha finito.",
+      "sectionBusyNobody": "Qualcuno sta scrivendo in questa sezione. Riprova quando ha finito.",
+      "gone": "Questa modifica non è più nella pagina.",
       "alreadyUndone": "Già annullata da {{name}}",
       "alreadyUndoneNobody": "Già annullata",
       "readOnly": "Accettarla o annullarla è di chi ha Modifica Docs in {{code}}",
@@ -12239,6 +13119,7 @@
         "drop": "Rilascia per aggiungere l'immagine",
         "too_large": "Questa immagine supera i 5 MB",
         "unsupported": "Solo immagini PNG, JPEG, GIF e WebP",
+        "failed": "Non è stato possibile caricare l'immagine. Riprova.",
         "dismiss": "Chiudi",
         "choose": "Scegli un'immagine"
       },
@@ -12360,7 +13241,20 @@
         "failed": "Salvataggio non riuscito",
         "retry": "Riprova",
         "notUndone": "Cambiato da altri, non annullato",
-        "dropped": "Modifica non salvata: la pagina era cambiata"
+        "dropped": "Modifica non salvata: la pagina era cambiata",
+        "droppedForbidden": "Modifica non salvata: non puoi più modificare questa pagina",
+        "droppedGone": "Modifica non salvata: la pagina è stata eliminata",
+        "droppedBusy": "Modifica non salvata: {{name}} sta scrivendo in questa sezione",
+        "droppedKept": "Modifica non salvata: la pagina era cambiata. La tua versione è sotto il paragrafo.",
+        "droppedBusyKept": "Modifica non salvata: {{name}} sta scrivendo in questa sezione. La tua versione è sotto il paragrafo."
+      },
+      "own": {
+        "label": "La tua versione, non salvata",
+        "deleted": "il paragrafo è stato eliminato",
+        "useMine": "Usa la mia",
+        "discard": "Scarta",
+        "back": "La tua versione è tornata nel paragrafo",
+        "discarded": "Scartata la tua versione"
       },
       "title": {
         "field": "Titolo della pagina",
@@ -12370,9 +13264,15 @@
       "code": {
         "language": "Linguaggio del codice",
         "plain": "Testo semplice"
+      },
+      "leave": {
+        "title": "Alcune modifiche non sono ancora salvate",
+        "stay": "Resta",
+        "leave": "Esci senza salvare"
       }
     },
     "comments": {
+      "someone": "Qualcuno",
       "title": "Commenti",
       "close": "Chiudi i commenti",
       "resolvedCount_one": "{{count}} risolto",
@@ -12408,7 +13308,9 @@
       "resolved": "Risolto",
       "reopened": "Riaperto",
       "resolveFailed": "Impossibile risolvere il filo.",
+      "resolveFailedFinal": "Impossibile risolvere il filo: è cambiato o non c'è più.",
       "reopenFailed": "Impossibile riaprire il filo.",
+      "reopenFailedFinal": "Impossibile riaprire il filo: è cambiato o non c'è più.",
       "send": "Rispondi",
       "behindTask": "{{code}} ha del testo non salvato. I commenti si aprono quando lo chiudi."
     },
@@ -12447,6 +13349,7 @@
       "undonePart": "{{done}} di {{count}} annullate · {{name}}",
       "undonePartNobody": "{{done}} di {{count}} annullate",
       "undoneAnchor": "Annullata",
+      "someone": "Qualcuno",
       "answerFrom": "{{name}}, dalla domanda di Claude",
       "seeQuestion": "Vedi la domanda",
       "firstVersion": "Ha scritto la prima versione",
@@ -12507,12 +13410,14 @@
       "failed": "Esportazione non riuscita",
       "retry": "Riprova",
       "tooLarge": "Il file Word supera i 25 MB. Esporta in PDF.",
+      "spaceTooLarge": "Lo spazio ha {{count}} pagine, più delle {{max}} che si possono esportare. Esporta una pagina sola.",
       "fileLine": "File: {{name}} ({{code}})",
       "fileGone": "File: {{code}} (non disponibile)",
       "decisionLine": "Decisione: {{title}}",
       "decisionHidden": "Decisione: non disponibile",
       "printLabel": "Vista di stampa",
-      "notDataImage": "non immagini data:"
+      "notDataImage": "non immagini data:",
+      "imageLeftOut": "Immagine lasciata fuori: {{caption}}"
     },
     "question": {
       "reason": {
@@ -12530,7 +13435,8 @@
       "option": {
         "apply": "Aggiorna così",
         "keep": "Lascia com'è",
-        "request": "Apri una richiesta"
+        "request": "Apri una richiesta",
+        "other": "un'altra risposta"
       },
       "recommended": "Consigliata",
       "threadLabel": "Domanda di Claude su «{{quote}}»",
@@ -12551,6 +13457,12 @@
       "retry": "Riprova",
       "readOnly": "Rispondere è di chi ha Modifica Docs in {{code}}",
       "preparing": "Una richiesta è in preparazione nel riquadro di Claude",
+      "requestCard": {
+        "label": "Apri una richiesta in {{code}}",
+        "create": "Crea la richiesta",
+        "cancel": "Annulla",
+        "failed": "Impossibile creare la richiesta."
+      },
       "announceApply": "Risposto · la frase è aggiornata",
       "announceKeep": "Risposto"
     },
@@ -12595,6 +13507,9 @@
         "doneTitle": "Claude ha scritto la prima versione",
         "stoppedTitle": "Claude ha interrotto la prima versione",
         "stoppedCount": "{{done}} di {{total}} pagine scritte",
+        "stop": "Ferma",
+        "stopping": "Si ferma dopo questa pagina…",
+        "stopFailed": "Impossibile fermare la prima versione. Riprova.",
         "pages_one": "{{count}} pagina",
         "pages_other": "{{count}} pagine",
         "questions_one": "{{count}} domanda da chiudere",
@@ -12639,7 +13554,9 @@
     },
     "waiting": {
       "budget": "Claude riprenderà ad aggiornare la doc quando torna il budget",
-      "queue": "Claude riprenderà ad aggiornare la doc quando {{name}} riprende la coda",
+      "paused": "Claude riprenderà ad aggiornare la doc quando riprende la coda",
+      "limit": "Claude aggiorna la doc quando si azzera la quota dell'account",
+      "sectionBusy": "Claude aspetta che qualcuno finisca di scrivere in una sezione",
       "count_one": "{{count}} aggiornamento in attesa",
       "count_other": "{{count}} aggiornamenti in attesa"
     },
@@ -12674,7 +13591,15 @@
       "gone": "Questo schizzo non è più disponibile",
       "exportLabel": "Bozza di Claude · Bozza di schermata",
       "budget": "Il budget mensile per l'AI è esaurito",
-      "exportMissing": "Bozza di schermata: non è stato possibile disegnarla nel file Word. Il PDF la contiene."
+      "exportMissing": "Bozza di schermata: non è stato possibile disegnarla nel file Word. Il PDF la contiene.",
+      "drawing": "Claude sta disegnando questa schermata…",
+      "failedDraw": "Claude non è riuscito a disegnare questa schermata",
+      "failedRedraw": "Claude non è riuscito a ridisegnare questa schermata",
+      "failedReason": {
+        "limit": "Claude ha raggiunto il limite d'uso. Riprova più tardi con Rifai.",
+        "invalid_svg": "Quello che è arrivato non era uno schizzo utilizzabile. Prova con Rifai.",
+        "no_answer": "Non è arrivata nessuna risposta. Prova con Rifai."
+      }
     },
     "backlog": {
       "group": "Claude",
@@ -12695,6 +13620,274 @@
         "archived": "Archiviata",
         "moreTasks": "+{{count}}"
       }
+    }
+  },
+  "vault": {
+    "title": "Credenziali",
+    "subtitle": "Le password dei servizi del progetto. Le vede solo chi ne legge una.",
+    "new": "Nuova credenziale",
+    "empty": "Ancora nessuna credenziale in questo progetto.",
+    "errors": {
+      "list": "Non è stato possibile caricare le credenziali",
+      "status": "Non è stato possibile controllare la cassaforte"
+    },
+    "bar": {
+      "checking": "Controllo la cassaforte…",
+      "open": "Aperta · si chiude dopo 15 minuti senza usarla",
+      "recorded": "Ogni «Mostra» e «Copia» viene registrato.",
+      "lock": "Chiudi",
+      "locked": "Chiusa.",
+      "openTouch": "Apri con Touch ID",
+      "opening": "Apro…",
+      "noTouchId": "Chiusa. Questo Mac non ha Touch ID: apri la cassaforte nel browser con la tua passkey.",
+      "openBrowser": "Apri nel browser",
+      "openedBrowser": "Aperta nel browser.",
+      "unpaired": "Questo Mac non apre ancora la cassaforte. Associalo una volta, con la tua passkey nel browser.",
+      "pair": "Associa questo Mac",
+      "revoked": "Questo Mac non apre più la cassaforte. Il login resta.",
+      "pairAgain": "Associa di nuovo",
+      "unreachable": "Non è stato possibile raggiungere Stubwise per aprire la cassaforte.",
+      "retry": "Riprova",
+      "noKey": "Non hai ancora una chiave della cassaforte. Creala nel browser con una passkey: le credenziali condivise con te ti arrivano dopo che un lettore la conferma.",
+      "keyPending": "La tua chiave della cassaforte aspetta la conferma. La conferma un lettore che può condividere, quando ti passa una credenziale.",
+      "ownFingerprint": "L'impronta della tua chiave:",
+      "inactive": "La cassaforte non è ancora stata attivata su questa istanza.",
+      "openFailed": "Questo Mac non è riuscito ad aprire la cassaforte.",
+      "disabled": "Questa istanza apre la cassaforte solo dal browser.",
+      "unsupported": "Questo Mac non può aprire la cassaforte (manca il Secure Enclave, o la build non lo prevede). Aprila dal browser.",
+      "inactiveAdmin": "Attivala nel browser.",
+      "unsupportedWeb": "Nel browser la cassaforte si apre dalle pagine web di Stubwise, con la tua passkey.",
+      "openWebPage": "Apri la pagina della cassaforte"
+    },
+    "row": {
+      "show": "Mostra",
+      "hide": "Nascondi",
+      "copy": "Copia",
+      "showAria": "Mostra la password di {{name}}",
+      "hideAria": "Nascondi la password di {{name}}",
+      "copyAria": "Copia la password di {{name}}",
+      "passwordOf": "Password di {{name}}",
+      "hidden": "Password nascosta",
+      "waiting": "In attesa di conferma",
+      "manages": "Questa non la leggi",
+      "shownLive": "Password mostrata",
+      "openFirst": "Prima apri la cassaforte"
+    },
+    "copied": "Copiata. Gli appunti si svuotano fra 30 secondi.",
+    "revealFailed": "Non è stato possibile aprire la password.",
+    "column": {
+      "waiting": "Qualcuno aspetta che tu confermi il suo accesso"
+    },
+    "detail": {
+      "label": "Credenziale {{name}}",
+      "url": "URL",
+      "username": "Utente",
+      "password": "Password",
+      "notes": "Note",
+      "notesHint": "Le note non sono cifrate.",
+      "copyUsername": "Copia l'utente di {{name}}",
+      "usernameCopied": "Utente copiato.",
+      "openUrl": "Apri {{url}} nel browser",
+      "log": "Registro degli accessi",
+      "logEmpty": "Nessuno ha ancora mostrato o copiato una password.",
+      "shown": "mostrata",
+      "copied": "copiata",
+      "fromMac": "dal Mac",
+      "fromBrowser": "dal browser",
+      "close": "Chiudi",
+      "logError": "Non è stato possibile caricare il registro degli accessi."
+    },
+    "form": {
+      "edit": "Modifica",
+      "newTitle": "Nuova credenziale",
+      "editTitle": "Modifica {{name}}",
+      "service": "Servizio",
+      "label": "Etichetta",
+      "url": "URL",
+      "username": "Utente",
+      "password": "Password",
+      "notes": "Note",
+      "passwordHint": "Cifrata su questo Mac: il server non la vede mai.",
+      "keepPassword": "Lascia vuoto per tenere la password di adesso.",
+      "notesHint": "Le note non sono cifrate: non scriverci segreti.",
+      "save": "Salva",
+      "saving": "Salvataggio…",
+      "cancel": "Annulla",
+      "created": "Credenziale salvata.",
+      "saved": "Modifiche salvate.",
+      "failed": "Non è stato possibile salvare la credenziale.",
+      "locked": "Apri la cassaforte per cambiare la password.",
+      "project": "Progetto",
+      "resaved": "L'accesso di qualcuno è cambiato mentre salvavi. Salvata di nuovo per chi la legge adesso."
+    },
+    "readers": {
+      "title": "Lettori",
+      "who": "Chi la legge",
+      "direct": "Aggiunti direttamente",
+      "none": "Nessuno aggiunto direttamente.",
+      "source": {
+        "full_admin": "full admin",
+        "created": "l'ha creata",
+        "direct": "aggiunta direttamente",
+        "role": "ruolo {{role}}",
+        "roleUnknown": "tramite un ruolo"
+      },
+      "state": {
+        "no_key": "in attesa: ancora senza chiave della cassaforte",
+        "key_pending": "in attesa: la sua chiave va confermata",
+        "waiting_copy": "in attesa di una copia della chiave"
+      },
+      "rolePrefix": "ruolo {{name}}",
+      "remove": "Togli",
+      "confirmRemove": "Conferma",
+      "cancel": "Annulla",
+      "removedPerson": "{{name}} non legge più questa credenziale. Se ha visto la password, cambiala sul servizio e qui.",
+      "removedRole": "Il ruolo {{name}} non legge più questa credenziale. Se qualcuno ha visto la password, cambiala sul servizio e qui.",
+      "changePassword": "Cambia la password",
+      "shareWith": "Condividi con",
+      "choose": "Scegli una persona o un ruolo",
+      "people": "Persone",
+      "roles": "Ruoli",
+      "share": "Condividi",
+      "shared": "Condivisa con {{name}}.",
+      "waiting": "In attesa di conferma: {{emails}}.",
+      "failed": "Non è stato possibile cambiare chi la legge.",
+      "shareNeedsRead": "Potrai condividerla quando la leggerai anche tu: chiedi a chi la legge."
+    },
+    "pending": {
+      "waiting_one": "{{count}} persona aspetta l'accesso",
+      "waiting_other": "{{count}} persone aspettano l'accesso",
+      "review": "Rivedi",
+      "title": "In attesa di accesso",
+      "created": "Chiave creata il {{date}}",
+      "device": "Dispositivo: {{device}}",
+      "credentials_one": "{{count}} credenziale",
+      "credentials_other": "{{count}} credenziali",
+      "confirm": "Conferma",
+      "reject": "Rifiuta",
+      "cancel": "Annulla",
+      "confirmQuestion": "Hai verificato con {{name}}, di persona o al telefono, che questa chiave è sua (data, dispositivo, impronta)?",
+      "confirmYes": "Sì, ho verificato: conferma",
+      "rejectQuestion": "Rifiutare la chiave di {{name}}? Non riceve niente, e {{name}} dovrà crearne una nuova.",
+      "rejectYes": "Sì, rifiuta la chiave",
+      "now_one": "{{name}} ora legge {{count}} credenziale.",
+      "now_other": "{{name}} ora legge {{count}} credenziali.",
+      "nothing": "A {{name}} non è arrivato niente di nuovo.",
+      "changed_one": "{{count}} credenziale è cambiata nel frattempo: conferma di nuovo.",
+      "changed_other": "{{count}} credenziali sono cambiate nel frattempo: conferma di nuovo.",
+      "notAllowed_one": "{{count}} credenziale che non puoi passare aspetta un altro lettore.",
+      "notAllowed_other": "{{count}} credenziali che non puoi passare aspettano un altro lettore.",
+      "unopenable_one": "{{count}} credenziale non si è aperta su questo Mac: aspetta un altro lettore.",
+      "unopenable_other": "{{count}} credenziali non si sono aperte su questo Mac: aspettano un altro lettore.",
+      "rejected": "La chiave di {{name}} è stata rifiutata.",
+      "failed": "Non è stato possibile completare. Riprova.",
+      "empty": "Nessuno aspetta l'accesso."
+    },
+    "page": {
+      "title": "Cassaforte",
+      "subtitle": "Tutte le credenziali che puoi leggere, in tutti i tuoi progetti.",
+      "search": "Cerca credenziali",
+      "projects": "Progetti",
+      "none": "Non puoi ancora leggere nessuna credenziale.",
+      "noneProjects": "Nessuna credenziale in questi progetti.",
+      "noMatch": "Nessuna credenziale corrisponde alla ricerca."
+    },
+    "pairing": {
+      "title": "Associa questo Mac",
+      "intro": "Questo Mac aprirà la tua cassaforte con Touch ID. Lo confermi una volta, nel browser, con la tua passkey.",
+      "key": "La chiave di questo Mac",
+      "step1": "Il browser apre Stubwise.",
+      "step2": "Scrivi lì gli ultimi 4 caratteri di questa chiave ({{last4}}).",
+      "step3": "Scegli «Associa questo Mac» lì.",
+      "waiting": "In attesa del browser… scade fra 10 minuti",
+      "cancel": "Annulla",
+      "done": "Fatto",
+      "retry": "Riprova",
+      "starting": "Chiedo a Stubwise…",
+      "success": "Questo Mac apre la tua cassaforte.",
+      "errors": {
+        "expired": "L'associazione è scaduta. Ricomincia.",
+        "open_failed": "La risposta del browser non corrisponde a questo Mac. Non è stato salvato niente. Ricomincia.",
+        "no_secure_storage": "Questo Mac non può tenere la chiave al sicuro (manca il portachiavi di sistema). Apri la cassaforte nel browser.",
+        "session_changed": "Nel frattempo hai rifatto l'accesso. Ricomincia.",
+        "vault_key_not_confirmed": "La tua chiave della cassaforte non è ancora confermata: la conferma un lettore quando ti passa una credenziale.",
+        "other": "Non è stato possibile associare questo Mac. Riprova."
+      }
+    },
+    "macs": {
+      "title": "I Mac che aprono la cassaforte",
+      "intro": "Questi Mac aprono la tua cassaforte con Touch ID. Toglierne uno non lo disconnette.",
+      "thisMac": "questo Mac",
+      "paired": "Associato il {{paired}} · usato il {{used}}",
+      "pairedNever": "Associato il {{paired}} · mai usato",
+      "forget": "Dimentica questo Mac",
+      "forgetQuestion": "Questo Mac smette di aprire la cassaforte. Resti connesso.",
+      "forgetYes": "Dimentica",
+      "forgotten": "Questo Mac non apre più la cassaforte.",
+      "forgottenLocal": "Dimenticato su questo Mac. Il server non ha risposto: toglilo anche dal browser.",
+      "remove": "Togli",
+      "removeQuestion": "Quel Mac smette di aprire la cassaforte. Resta connesso.",
+      "removeYes": "Togli {{name}}",
+      "cancel": "Annulla",
+      "removed": "Tolto. Riceverai un avviso di sicurezza.",
+      "failed": "Non è stato possibile togliere quel Mac. Riprova.",
+      "reauth": "togliere un Mac dalla cassaforte",
+      "empty": "Nessun Mac apre ancora la tua cassaforte.",
+      "pair": "Associa questo Mac"
+    },
+    "admin": {
+      "title": "Cassaforte",
+      "intro": "I Mac di {{name}} che aprono la cassaforte",
+      "empty": "Nessun Mac apre la cassaforte di {{name}}.",
+      "removeAria": "Togli {{mac}}…",
+      "remove": "Togli…",
+      "dialogTitle": "Togliere {{mac}} di {{name}} dalla cassaforte?",
+      "stops": "Quel Mac smette di aprire la cassaforte.",
+      "staysSignedIn": "Su quel Mac {{name}} mantiene l'accesso.",
+      "alerted": "{{name}} riceve un avviso di sicurezza, e resta nel registro delle modifiche.",
+      "confirm": "Togli",
+      "cancel": "Annulla",
+      "removed": "Tolto. L'avviso è arrivato a {{name}}.",
+      "failed": "Non è stato possibile togliere quel Mac. Riprova.",
+      "reauth": "togliere un Mac dalla cassaforte di un'altra persona",
+      "browserNote": "I Mac che aprono la cassaforte di {{name}} si gestiscono dal browser.",
+      "manageInBrowser": "Gestisci i Mac di {{name}} nel browser"
+    },
+    "prototype": {
+      "barLabel": "Solo prototipo: la cassaforte",
+      "pairingLabel": "Solo prototipo: l'associazione",
+      "note": "Decide cosa succede dopo. Nel prototipo non si cifra niente.",
+      "touch": "Prossimo Touch ID:",
+      "touchWorks": "Funziona",
+      "touchCancelled": "Annullato",
+      "touchUnavailable": "Questo Mac non ha Touch ID",
+      "opening": "Prossima apertura:",
+      "openingWorks": "Funziona",
+      "openingRevoked": "Sigillo revocato",
+      "openingUnreachable": "Stubwise non raggiungibile",
+      "pairing": "Associazione:",
+      "pairingOk": "Ritorno dal browser",
+      "pairingExpired": "Scade",
+      "pairingMismatch": "Il sigillo non corrisponde"
+    },
+    "rowMenu": {
+      "more": "Altro per {{name}}",
+      "menu": "Azioni per {{name}}",
+      "edit": "Modifica",
+      "readers": "Lettori",
+      "log": "Registro degli accessi",
+      "delete": "Elimina…",
+      "deleteQuestion": "Eliminare {{name}}? Chi la legge la perde.",
+      "deleteYes": "Elimina {{name}}",
+      "cancel": "Annulla",
+      "deleted": "{{name}}: eliminata.",
+      "deleteFailed": "Non è stato possibile eliminare {{name}}."
+    },
+    "sectionMenu": {
+      "more": "Altro per Credenziali",
+      "menu": "Azioni delle credenziali",
+      "log": "Registro degli accessi",
+      "panel": "Registro degli accessi di {{code}}"
     }
   }
 }

@@ -3,6 +3,7 @@ import { asc, eq, sql } from "drizzle-orm";
 import type { ResolvedProvider } from "../providers/chain.js";
 import type { AgentRunner } from "./runner.js";
 import { trackedClaudeCliRunner } from "./tracking-runner.js";
+import { NATIVE_TOOLS } from "./native-tools.js";
 
 /**
  * Tester delle credenziali dei provider AI: il SERVER non può lanciare `claude`
@@ -122,6 +123,8 @@ async function testOne(
       // Nessun progetto: la credenziale è d'istanza. Operazione tecnica, il
       // modello resta haiku fisso (non configurabile).
       usage: { operation: "credential_test", projectId: null },
+      // Solo testo: nessun tool nativo (`native-tools.ts`).
+      builtinTools: NATIVE_TOOLS.text,
       permissionMode: "default",
       maxTurns: TEST_MAX_TURNS,
       timeoutMs: TEST_TIMEOUT_MS,

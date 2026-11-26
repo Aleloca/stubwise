@@ -7,8 +7,9 @@ import { isHowToQuestion, normalize, QUESTION, stripCourtesy } from "../parse";
 // candidati li calcola il livello dati (`listArchiveCandidates`, con le
 // letture di chi chiede); qui solo la forma: la prima riga col numero, una
 // scheda B con un `archiveProject` per progetto e il suo perché in un fatto
-// (`why`), le righe a parte per i progetti occupati e per quelli che chi
-// chiede vede ma non gestisce. L'invisibile non esiste: nessuna frase lo
+// (`why`). I progetti occupati e quelli che chi chiede vede ma non gestisce
+// li nomina la prosa sopra la scheda, col motivo e il «Who?» (area 10, D-9 =
+// a: niente righe spente nella scheda). L'invisibile non esiste: nessuna frase lo
 // nomina o lo conta. Confermare è tutto o niente (`executeGroup`).
 
 const ARCHIVE = /^(archive|archivia)\b/;
@@ -76,18 +77,23 @@ export async function archive(text: string, ctx: IntentContext): Promise<Answer>
     ...view.busy.map((b) => ({ kind: "busy" as const, code: b.code, reasons: b.reasons })),
   ];
 
+  // Le righe a parte le dice il testo, con o senza scheda (area 10, D-9 = a:
+  // la scheda ha solo le righe fattibili, le altre le nomina la prosa col
+  // motivo e il «Who?»); i codici che nominano sono riferimenti apribili.
+  const lines = notes.map((n) => noteLine(t, n));
+  const named = new Set([...view.notManageableCodes, ...view.busy.map((b) => b.code)]);
+  const namedRefs =
+    named.size === 0
+      ? []
+      : (await read.listProjects())
+          .filter((p) => named.has(p.code))
+          .map((p) => ({ kind: "project" as const, id: p.id }));
+
   if (view.candidates.length === 0) {
-    // Senza scheda le righe a parte le dice il testo (ruling del controller,
-    // Q1), e i codici che nominano sono riferimenti apribili (fix round 1).
-    const lines = notes.map((n) => noteLine(t, n));
-    const named = new Set([...view.notManageableCodes, ...view.busy.map((b) => b.code)]);
-    const refs = (await read.listProjects())
-      .filter((p) => named.has(p.code))
-      .map((p) => ({ kind: "project" as const, id: p.id }));
     return {
       actions,
       text: [t("claude.answers.archive.none", { period: said }), ...lines].join("\n\n"),
-      ...(refs.length > 0 ? { refs } : {}),
+      ...(namedRefs.length > 0 ? { refs: namedRefs } : {}),
     };
   }
 
@@ -102,16 +108,16 @@ export async function archive(text: string, ctx: IntentContext): Promise<Answer>
     view.candidates.length === 1
       ? t("claude.answers.archive.one", { code: view.candidates[0]!.code, period: said })
       : t("claude.answers.archive.many", { count: view.candidates.length, period: said });
+  // La riga col numero per ultima: i suoi «:» annunciano la scheda sotto.
   return {
     actions,
-    text: first,
+    text: [...lines, first].join("\n\n"),
     proposal,
-    ...(notes.length > 0 ? { notes } : {}),
-    refs: view.candidates.map((c) => ({ kind: "project" as const, id: c.projectId })),
+    refs: [...view.candidates.map((c) => ({ kind: "project" as const, id: c.projectId })), ...namedRefs],
   };
 }
 
-/** Una riga a parte come testo di Claude (solo senza scheda): il «Who?» per progetto, le ragioni di `busy`. */
+/** Una riga a parte come testo di Claude: il «Who?» per progetto, le ragioni di `busy`. */
 export function noteLine(t: T, note: ProposalNote): string {
   if (note.kind === "already_proposed") {
     // 11b (P35): i codici che chi chiede vede; gli altri contati, mai nominati.
@@ -151,5 +157,12 @@ export function busyLine(t: T, code: string, r: ClaudeBusyReason): string {
       return t(`${K}.release`, { code, release: r.releaseCode });
     case "release":
       return t(`${K}.release`, { code, release: r.code });
+    case "open_correction":
+      return t(`${K}.open_correction`, { code });
+    case "doc_generation":
+      return t(`${K}.${r.paused ? "doc_generationPaused" : "doc_generation"}`, {
+        code,
+        repository: r.repository,
+      });
   }
 }

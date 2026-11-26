@@ -108,13 +108,13 @@ describe("l'elenco", () => {
     const p = await openPanel(user, "Marco");
     const row = (name: string) => box(p, name).closest("li")!;
     expect(row("start a server fix")).toHaveTextContent(/Given by Roberta Fontana on Oct \d+/);
-    expect(row("reply to customers")).toHaveTextContent(
+    expect(row("manage Support conversations")).toHaveTextContent(
       "From the Developer role · From the Development department",
     );
     expect(row("approve plans")).not.toHaveTextContent("From the");
     // Ciò che viene dal ruolo è spuntato e fisso.
-    expect(box(p, "reply to customers")).toBeChecked();
-    expect(box(p, "reply to customers")).toBeDisabled();
+    expect(box(p, "manage Support conversations")).toBeChecked();
+    expect(box(p, "manage Support conversations")).toBeDisabled();
   });
 });
 

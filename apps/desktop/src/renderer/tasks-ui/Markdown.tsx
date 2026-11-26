@@ -1,3 +1,4 @@
+import { isSafeWebUrl } from "@stubwise/shared";
 import { Fragment, type ReactNode } from "react";
 
 // Markdown in sola lettura per descrizioni, commenti e i messaggi di Claude:
@@ -112,8 +113,13 @@ function blocks(source: string, streaming = false): Block[] {
 const INLINE =
   /(\*\*[^*]+\*\*|__[^_]+__|\*[^*\s][^*]*\*|_[^_\s][^_]*_|`[^`]+`|\[[^\]]+\]\([^)\s]+\))/g;
 
+/**
+ * Un link del testo si apre solo con http(s): la regola di sicurezza sta in
+ * UN posto (`isSafeWebUrl` di `@stubwise/shared`, area 11 F1); un `mailto:`
+ * o uno schema qualsiasi resta testo.
+ */
 function safeHref(href: string): string | null {
-  return /^(https?:|mailto:)/i.test(href) ? href : null;
+  return isSafeWebUrl(href) ? href : null;
 }
 
 /** Cambia il testo semplice di un messaggio (es. i codici citati che diventano link). */

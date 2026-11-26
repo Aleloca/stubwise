@@ -5,6 +5,7 @@
     "mail": "Mail",
     "calendar": "Calendar",
     "drive": "Drive",
+    "vault": "Vault",
     "claude": "Claude",
     "automations": "Automations",
     "projects": "All projects",
@@ -42,19 +43,12 @@
     "more_other": "{{count}} more projects",
     "moreWaiting_one": "{{count}} waiting on you",
     "moreWaiting_other": "{{count}} waiting on you",
-    "personas": {
-      "p-giulia": "Marketing · Project Lead on some projects",
-      "p-marco": "Development · Developer",
-      "p-laura": "Development · Project Lead",
-      "p-sara": "Support · Contributor",
-      "p-matteo": "Sales · Project Lead, owns an automation",
-      "p-roberta": "Administration · Full admin"
-    },
     "chatNews": "Mentions or replies for you",
     "mailWaiting_one": "{{count}} proposal to decide",
     "mailWaiting_other": "{{count}} proposals to decide",
     "automationsWaiting_one": "{{count}} decision waiting for you",
-    "automationsWaiting_other": "{{count}} decisions waiting for you"
+    "automationsWaiting_other": "{{count}} decisions waiting for you",
+    "vaultWaiting": "Access to confirm"
   },
   "column": {
     "projectSections": "Project sections",
@@ -94,7 +88,8 @@
       "support": "Support",
       "servers": "Servers",
       "settings": "Settings",
-      "automations": "Automations"
+      "automations": "Automations",
+      "credentials": "Credentials"
     },
     "notFound": "Project not found",
     "notFoundBody": "This project doesn't exist or you can't see it.",
@@ -173,7 +168,11 @@
       "inviteSomeone": "Invite someone",
       "whoCanIn": "Who can {{what}} in {{code}}",
       "whoCanAnywhere": "Who can {{what}} in a project",
-      "whoCanInstance": "Who can {{what}}"
+      "whoCanInstance": "Who can {{what}}",
+      "vaultOpen": "Open the vault",
+      "vaultLock": "Lock the vault",
+      "vaultPair": "Pair this Mac",
+      "vaultFind": "Find a credential"
     },
     "filterPlaceholder": "Choose a filter",
     "channelPlaceholder": "Go to a channel or direct message…",
@@ -214,7 +213,9 @@
       "snooze": "Snooze",
       "restore": "Restore",
       "unsnooze": "Move to New",
-      "linkAccess": "Link SSH access"
+      "linkAccess": "Link SSH access",
+      "openInWeb": "Open in web",
+      "markUnread": "Mark as unread"
     },
     "snooze": {
       "hour": "1 hour",
@@ -272,7 +273,20 @@
       "body_vowel": "{{name}} added you to {{code}} as {{role}}.",
       "bodyVia": "Claude on behalf of {{name}} added you to {{code}} as {{role}}.",
       "bodyVia_vowel": "Claude on behalf of {{name}} added you to {{code}} as {{role}}.",
-      "noRole": "a role that no longer exists"
+      "noRole": "a role that no longer exists",
+      "joinedTitle": "{{member}} joined {{code}} as {{role}}",
+      "joinedTitle_vowel": "{{member}} joined {{code}} as {{role}}",
+      "joinedBody": "{{name}} added {{member}} to {{code}} as {{role}}.",
+      "joinedBody_vowel": "{{name}} added {{member}} to {{code}} as {{role}}.",
+      "joinedBodyVia": "Claude on behalf of {{name}} added {{member}} to {{code}} as {{role}}.",
+      "joinedBodyVia_vowel": "Claude on behalf of {{name}} added {{member}} to {{code}} as {{role}}.",
+      "someoneTitle": "Someone",
+      "someoneBody": "someone"
+    },
+    "proposalHanded": {
+      "title": "A mail proposal handed to {{code}}",
+      "body": "{{name}} handed it to the project. Decide it in Home.",
+      "decided": "Already decided: nothing left to do."
     },
     "productDocMention": {
       "title": "{{name}} mentioned you in {{code}} · {{title}}",
@@ -304,6 +318,10 @@
     }
   },
   "placeholder": {
+    "comingSoon": {
+      "title": "Coming soon",
+      "body": "This part of Stubwise isn't available in this app yet."
+    },
     "pages": {
       "chat": "Project channels, general channels and direct messages will live here.",
       "mail": "Your connected mailbox will be read here, with the tasks it proposes.",
@@ -372,13 +390,14 @@
         "title": "Profile",
         "changePhoto": "Change photo",
         "removePhoto": "Remove photo",
-        "notImage": "That file isn't an image. Pick a PNG, JPEG or GIF.",
+        "notImage": "Pick a PNG, JPEG or WebP image.",
         "name": "Name",
         "email": "Email",
         "nameEmpty": "Enter your name.",
         "invalidEmail": "Enter a full email address.",
         "emailTaken": "That email already belongs to someone else in Stubwise.",
-        "saveFailed": "Couldn't save your profile. Try again."
+        "saveFailed": "Couldn't save your profile. Try again.",
+        "tooLarge": "The photo is larger than 512 KB."
       },
       "password": {
         "title": "Password",
@@ -395,7 +414,8 @@
         "done_other": "Password changed. {{count}} other sessions were signed out.",
         "doneNone": "Password changed. There were no other sessions to sign out.",
         "seeSessions": "See sessions",
-        "failed": "Couldn't change the password. Try again."
+        "failed": "Couldn't change the password. Try again.",
+        "reauthAction": "change your password"
       },
       "follows": {
         "title": "Followed projects",
@@ -403,18 +423,34 @@
         "body_other": "You follow {{count}} projects: they're pinned in the rail.",
         "none": "You don't follow any project yet. Pin one in All projects to keep it in the rail.",
         "manage": "Manage in All projects"
+      },
+      "email": {
+        "label": "Sign-in email",
+        "change": "Change email…",
+        "unavailable": "Changing your sign-in email isn't available on this instance: ask an administrator.",
+        "pending": "Waiting for confirmation at {{next}}. Until then you sign in with {{current}}.",
+        "cancel": "Cancel change",
+        "openLink": "Open the confirmation link",
+        "failed": "Couldn't change your sign-in email. Try again.",
+        "dialogTitle": "Change your sign-in email",
+        "dialogAbout": "We send a link to the new address. Your email changes only when you open it, within 24 hours.",
+        "newLabel": "New email",
+        "send": "Send the link",
+        "sending": "Sending…",
+        "reauthAction": "change your sign-in email",
+        "sendFailed": "Couldn't send the link. Try again."
       }
     },
     "google": {
       "title": "Google mailboxes",
-      "intro": "Stubwise reads Gmail and Calendar from these mailboxes, read-only, and turns what needs doing into proposals.",
+      "intro": "Stubwise reads Gmail and Calendar from these mailboxes, keeps read and unread in step with Gmail, and turns what needs doing into proposals. It never sends or changes anything else without you.",
       "loadError": "Couldn't load your mailboxes.",
       "connected": "Connected · synced {{when}}",
       "syncing": "Connected · syncing…",
       "syncFailed": "Connected · the last sync failed",
       "needsReconnect": "Needs reconnecting: access was revoked on Google",
       "proposals": "Proposals",
-      "proposalsHint": "Turns emails and events from this mailbox into proposals.",
+      "proposalsHint": "Turns emails and events from this mailbox into proposals. Proposals that others share with you still reach you.",
       "proposalsFailed": "Couldn't change Proposals. Try again.",
       "reconnect": "Reconnect",
       "more": "More for {{email}}",
@@ -432,7 +468,7 @@
         "title": "Connect a mailbox",
         "reconnectTitle": "Reconnect {{email}}",
         "workspace": "Workspace",
-        "consent": "By connecting a mailbox, Stubwise will read the subject and body of every admitted email and send them to the AI analysis provider configured on this instance, to propose actions.",
+        "consent": "By connecting a mailbox, Stubwise will read the subject and body of the emails in this mailbox and send them to the AI analysis provider configured on this instance, to suggest tasks and requests.",
         "continue": "Continue on Google",
         "continuing": "Waiting for Google…",
         "tryAgain": "Try again",
@@ -514,7 +550,8 @@
         "removed": "Passkey “{{name}}” removed.",
         "removeFailed": "Couldn't remove the passkey. Try again.",
         "lastNeedsApp": "Set up the authenticator app first: two-step verification can't be turned off.",
-        "empty": "No passkeys yet. A passkey signs you in with your fingerprint, face or a security key."
+        "empty": "No passkeys yet. A passkey signs you in with your fingerprint, face or a security key.",
+        "desktopNote": "Passkeys live in your browser: add or remove them from Stubwise in the browser."
       },
       "backup": {
         "title": "Backup codes",
@@ -566,7 +603,17 @@
           "second_factor_locked": "Locked after too many wrong codes",
           "token_created": "Access token created",
           "token_revoked": "Access token revoked",
-          "registered": "Account created"
+          "registered": "Account created",
+          "email_changed": "Sign-in email changed",
+          "vault_key_created": "Vault key created",
+          "vault_recovery_used": "Vault recovery kit used",
+          "vault_activated": "Vault activated",
+          "vault_seal_replaced": "Vault seal replaced",
+          "vault_recovery_key_rotated": "Vault recovery key changed",
+          "vault_device_sealed": "Mac paired with the vault",
+          "vault_device_seal_revoked": "Mac removed from the vault",
+          "reauth_desktop": "Confirmed it's you in the desktop app",
+          "other": "Other security event"
         }
       }
     },
@@ -744,7 +791,8 @@
       "resize": "Resize panel"
     },
     "selected": "Selected",
-    "deactivatedName": "{{name}} (deactivated)"
+    "deactivatedName": "{{name}} (deactivated)",
+    "someone": "Someone"
   },
   "filter": {
     "notFound": "Filter not found",
@@ -809,10 +857,19 @@
       "update": "Save",
       "saved": "Saved {{name}}.",
       "open": "Open",
-      "failed": "Couldn't save the filter. Try again."
+      "failed": "Couldn't save the filter. Try again.",
+      "tooMany": "You already have 200 saved filters. Delete one to save another.",
+      "someone": "This filter names someone you can't see, so it can't be saved as it is. Take “{{someone}}” out of the assignees and try again."
     }
   },
   "tasks": {
+    "claudeRun": {
+      "job_in_flight": "{{code}} is assigned to Claude, but no new work started: Claude is already working on it.",
+      "budget_exhausted": "{{code}} is assigned to Claude, but the work didn't start: the monthly AI budget is used up.",
+      "other": "{{code}} is assigned to Claude, but the work didn't start. Start it from the task's Claude section.",
+      "bulk_one": "{{count}} task is assigned to Claude, but its work didn't start. Start it from the task's Claude section.",
+      "bulk_other": "{{count}} tasks are assigned to Claude, but their work didn't start. Start it from each task's Claude section."
+    },
     "count_one": "{{count}} task",
     "count_other": "{{count}} tasks",
     "commands": "Tasks commands",
@@ -889,7 +946,9 @@
       "done_one": "Changed {{count}} task.",
       "done_other": "Changed {{count}} tasks.",
       "failed_one": "Couldn't change {{count}} task. It's back as it was.",
-      "failed_other": "Couldn't change {{count}} tasks. They're back as they were."
+      "failed_other": "Couldn't change {{count}} tasks. They're back as they were.",
+      "claudeForbidden_one": "You can't give {{count}} task to Claude: only someone who can start Claude's work in its project can. It's back as it was.",
+      "claudeForbidden_other": "You can't give these {{count}} tasks to Claude: only someone who can start Claude's work in their project can. They're back as they were."
     },
     "board": {
       "label": "Board",
@@ -1037,6 +1096,15 @@
       "hint": "Markdown. ⌘/Ctrl+Enter saves."
     },
     "claude": {
+      "web": {
+        "open": "Open in web",
+        "hint": "The plan, approvals, Claude's questions and the live session are in the web app.",
+        "pr": {
+          "open": "Open",
+          "merged": "Merged",
+          "closed": "Closed"
+        }
+      },
       "title": "Claude",
       "assign": "Assign to Claude",
       "notMember": "Claude isn't a member of this project.",
@@ -1136,6 +1204,7 @@
         "plan_written": "Plan written",
         "plan_written_approved": "Plan written · approved by {{name}}",
         "plan_written_rejected": "Plan written · rejected by {{name}}",
+        "plan_written_undecided": "Plan written · not decided",
         "plan_writtenRejectedWith": "Plan written · rejected by {{name}}: “{{instructions}}”",
         "run_startedVia": "Run started by {{name}} · {{provider}}",
         "waitingForQueue": "waiting for the queue",
@@ -1180,6 +1249,35 @@
         "correction_failed": "The last correction failed",
         "queued": "Correction queued · it starts when the current work on the task finishes",
         "blocked": "Blocked: this branch is protected, Stubwise doesn't push to it."
+      },
+      "cancelRun": {
+        "action": "Cancel the work",
+        "title": "Cancel Claude's work on this task?",
+        "description": "The work closes as stopped: right away if Claude is waiting, within a few seconds if it's working. Pull requests and branches stay as they are.",
+        "keep": "Keep it",
+        "confirm": "Cancel the work",
+        "stop": "Stop Claude",
+        "done": "Claude's work was cancelled.",
+        "requested": "Request sent: Claude stops and the work closes in a moment.",
+        "stopped": "Claude is stopping. Cancel the work once it has stopped.",
+        "refusal": {
+          "run_in_progress": "Claude is working right now: stop it first, then cancel.",
+          "nothing_to_cancel": "There's no work to cancel any more.",
+          "failed": "That didn't go through. Try again."
+        },
+        "cancelling": "Cancelling…"
+      },
+      "errors": {
+        "job_in_flight": "Claude is already working on this task.",
+        "needs_maintainer": "Only someone who can approve plans can resume this correction.",
+        "correction_not_held": "This correction isn't on hold any more: reload to see where it is.",
+        "adopted_branch_protected": "The branch of this pull request is protected: Stubwise can't push to it.",
+        "review_ticket_not_runnable": "This is a review task: Claude doesn't work on it directly.",
+        "no_plan": "There's no saved plan to approve in advance yet.",
+        "question_not_pending": "This question was already answered or has changed.",
+        "forbidden": "You don't have permission to do this.",
+        "not_found": "This task or session is no longer available.",
+        "pr_not_open": "There's no open pull request to correct."
       }
     },
     "links": {
@@ -1206,6 +1304,7 @@
       "originAutomation": "Origin"
     },
     "attachments": {
+      "off": "Attachments are off on this instance.",
       "title": "Attachments",
       "none": "No attachments",
       "fake": "Adds a sample file",
@@ -1236,6 +1335,11 @@
       "decided": "{{name}} decided",
       "set": "{{field}} set to {{value}}",
       "cleared": "{{field}} cleared",
+      "gone": {
+        "assignee": "someone",
+        "milestone": "a deleted milestone",
+        "department": "a deleted department"
+      },
       "editedDescription": "edited the description",
       "followers": "changed who follows",
       "markedStalled": "marked it stalled: {{reason}}",
@@ -1273,7 +1377,8 @@
         "automation": "Automation",
         "server": "Server"
       },
-      "serverTitle": "Opened by Claude after an alert on {{code}}"
+      "serverTitle": "Opened by Claude after an alert on {{code}}",
+      "viewConversation": "View conversation"
     },
     "technical": {
       "title": "Technical details",
@@ -1311,14 +1416,14 @@
         "stoppedBy": "Fix stopped by {{name}}",
         "resolved": "Fixed — the check after the fix passed",
         "not_resolved": "Not fixed — the check after the fix failed",
-        "closed": "Closed"
+        "closed": "Closed",
+        "no_plan": "No fix with the allowed actions"
       },
       "stoppedReasons": {
-        "fix_access_revoked": "Fix stopped: fix access was revoked",
-        "fix_access_unusable": "Fix stopped: fix access stopped working",
         "server_gone": "Fix stopped: the server is no longer in this project",
         "failed": "Fix stopped: it failed",
-        "timed_out": "Fix stopped: it ran out of time"
+        "timed_out": "Fix stopped: it ran out of time",
+        "operations_off": "Fix stopped: the agent's operations were turned off"
       },
       "suggested": "Suggested fix:",
       "more": "More",
@@ -1327,20 +1432,18 @@
       "start": "Start fix on the server",
       "startAgain": "Start fix again",
       "conditionOne": "1. Only people allowed to operate {{project}}'s servers can start it.",
-      "conditionTwo": "2. Claude writes a plan first. Nothing runs on {{code}} until someone who can approve plans in {{project}} approves it — even you.",
+      "conditionTwo": "2. Claude writes a plan of allowed actions first. Nothing runs on {{code}} until someone who can approve plans in {{project}} approves it — even you.",
       "blocks": {
         "no_permission": "Someone allowed to operate {{project}}'s servers can start the fix.",
-        "no_fix_access": "{{code}} has no fix access.",
-        "fix_access_unverified": "{{code}}'s fix access isn't verified.",
         "server_gone": "{{code}} is no longer in {{project}}'s environments: the fix can't start from here.",
-        "server_busy": "Another fix is running on {{code}}."
+        "server_busy": "Another fix is running on {{code}}.",
+        "operations_off": "The agent on {{code}} doesn't have operations on: re-run its install command with operations on to fix it from here."
       },
-      "linkAccess": "Link SSH access",
       "dialog": {
         "title": "Start a fix on {{code}}?",
-        "before": "Claude reads the server, then writes a plan. It runs commands as ",
-        "strong": "stubwise-fix, which can do anything on {{code}}",
-        "after": ", only after the plan is approved.",
+        "before": "Claude looks at the containers through the monitoring agent, then writes a plan. The agent runs ",
+        "strong": "only the allowed actions, one at a time",
+        "after": " — restart, stop or start a container, free up space — and only after the plan is approved.",
         "notes": "Notes for Claude",
         "notesPlaceholder": "Optional. What Claude should know before reading {{code}}.",
         "confirm": "Start fix",
@@ -1353,22 +1456,41 @@
       "loading": "Loading the server",
       "planCard": {
         "planTitle": "Fix plan for {{code}}",
-        "commands": "Commands to run on {{code}}",
-        "runsAs": "Runs as stubwise-fix: it can do anything on {{code}}.",
+        "commands": "Actions on {{code}}",
+        "steps": {
+          "container_restart": "Restart {{container}} (stopping it waits up to {{timeoutSeconds}} s)",
+          "container_stop": "Stop {{container}} (waits up to {{timeoutSeconds}} s)",
+          "container_start": "Start {{container}}",
+          "docker_prune": {
+            "images_unused": "Free up space: remove the images no container uses",
+            "build_cache": "Free up space: remove Docker's build cache",
+            "stopped_containers": "Free up space: remove the stopped containers",
+            "other": "Free up space"
+          }
+        },
+        "shared": {
+          "title": "{{code}} is shared",
+          "projects": "Freeing up space touches the whole server: {{code}} is also used by {{projects}}.",
+          "hidden_one": "Freeing up space touches the whole server: {{code}} is also used by {{count}} other project.",
+          "hidden_other": "Freeing up space touches the whole server: {{code}} is also used by {{count}} other projects.",
+          "both": "Freeing up space touches the whole server: {{code}} is also used by {{projects}} and {{count}} more."
+        },
+        "runsAs": "The monitoring agent on {{code}} runs these actions, one at a time. Nothing else can run.",
         "releaseRule": "A plan that releases — pull, image update, deploy — must be rejected. Releases go through Releases.",
         "approve": "Approve the plan",
         "rejectBlocked": "Reject the plan",
-        "youStarted": "You started this fix. Approving runs the commands on {{code}}.",
+        "youStarted": "You started this fix. Approving runs the actions on {{code}}.",
         "waitingFor": "Waiting for someone who can approve plans in {{project}}.",
         "waitingForAny": "Waiting for someone who can approve plans.",
         "blocked": {
-          "fix_access_revoked": "Fix access to {{code}} was revoked. Link it again to approve this plan.",
-          "fix_access_unverified": "{{code}}'s fix access isn't verified. Verify it to approve this plan.",
-          "server_gone": "{{code}} is no longer in this project's environments: this plan can't be approved."
+          "server_gone": "{{code}} is no longer in this project's environments: this plan can't be approved.",
+          "operations_off": "The agent on {{code}} doesn't have operations on. Re-run its install command with operations on to approve this plan."
         },
         "statusAwaiting": "Fix on {{code}} · waiting for approval",
         "statusAwaitingYou": "Fix on {{code}} · waiting for your approval",
-        "codeOnly": "This run works on the code, never on {{code}}. To fix the server, use Start fix in Server above."
+        "codeOnly": "This run works on the code, never on {{code}}. To fix the server, use Start fix in Server above.",
+        "decideInServer": "You decide this plan in the task's Server section, where you see what it runs on {{code}}.",
+        "stale": "The plan no longer fits the server: ask Claude for a new plan."
       },
       "check": {
         "resolved": "Check after the fix: resolved",
@@ -1378,9 +1500,7 @@
         "title": "Commands on {{code}}",
         "count": "Commands on {{code}} · {{count}}",
         "read": "read",
-        "fix": "fix",
-        "readLabel": "Read command",
-        "fixLabel": "Fix command, run with the access that can do anything",
+        "readLabel": "Read, changes nothing",
         "ok": "OK",
         "failed": "Failed",
         "running": "Running",
@@ -1390,15 +1510,40 @@
         "lines_other": "{{total}} lines",
         "lastLines": "Showing the last {{n}} of {{total}} lines",
         "allLines": "All {{total}} lines",
-        "stoppedBy": "Stopped by {{name}} · {{time}}. No commands after this.",
+        "stoppedBy": "Stopped by {{name}} · {{time}}. No actions after this.",
         "stoppedReasons": {
-          "fix_access_revoked": "Stopped: fix access was revoked.",
-          "fix_access_unusable": "Stopped: fix access stopped working.",
           "server_gone": "Stopped: the server is no longer in this project.",
           "failed": "Stopped: the fix failed.",
-          "timed_out": "Stopped: the fix ran out of time."
-        }
-      }
+          "timed_out": "Stopped: the fix ran out of time.",
+          "operations_off": "Stopped: the agent's operations were turned off."
+        },
+        "change": "change",
+        "changeLabel": "Action that changes the server, run by the agent after the approved plan",
+        "agent": "agent",
+        "ssh": "SSH",
+        "viaAgent": "Through the monitoring agent",
+        "viaSsh": "Through the read-only SSH access",
+        "actions": {
+          "container_restart": "Restarted {{container}}",
+          "container_stop": "Stopped {{container}}",
+          "container_start": "Started {{container}}",
+          "docker_prune": "Freed up space",
+          "container_logs": "Read the logs of {{container}}",
+          "container_state": "Read the state of {{container}}",
+          "processes": "Read the busiest processes",
+          "disk": "Read disk usage",
+          "memory": "Read memory use",
+          "load": "Read the load",
+          "uptime": "Read the uptime",
+          "listening": "Read the listening ports",
+          "failed_units": "Read the failed services",
+          "journal_errors": "Read the system journal's errors"
+        },
+        "cancelled": "Cancelled",
+        "expired": "Expired"
+      },
+      "stop": "Stop the fix",
+      "stopFailed": "Couldn't stop the fix. Try again."
     }
   },
   "newTask": {
@@ -1427,7 +1572,9 @@
       "size": "Size",
       "week": "Week",
       "milestone": "Milestone"
-    }
+    },
+    "requestGone": "This request is no longer available: it may have been converted, archived or hidden.",
+    "requestNotConvertible": "This request has already been converted or archived."
   },
   "home": {
     "customize": "Customize",
@@ -1482,6 +1629,7 @@
       "turnIntoTaskLabel": "Turn into task: {{title}}",
       "created": "{{code}} created from the request.",
       "openRequest": "Open request {{title}}",
+      "openRequestInWeb": "Open {{title}} in the web",
       "claude": {
         "asks": "Claude asks",
         "plan": "Claude's plan waits for your approval",
@@ -1490,9 +1638,8 @@
         "openTask": "Open the task",
         "rejectNow": "Reject",
         "blocked": {
-          "fix_access_revoked": "Can't be approved: fix access to {{code}} was revoked. Reject it to free {{code}}.",
-          "fix_access_unverified": "Can't be approved: {{code}}'s fix access isn't verified. Reject it to free {{code}}.",
-          "server_gone": "Can't be approved: {{code}} is no longer in this project. Reject it to free {{code}}."
+          "server_gone": "Can't be approved: {{code}} is no longer in this project. Reject it to free {{code}}.",
+          "operations_off": "Can't be approved: the agent on {{code}} doesn't have operations on. Reject it to free {{code}}."
         },
         "recommended": "Recommended",
         "planOptions": "Decide on the plan for {{code}}",
@@ -1508,7 +1655,8 @@
         "rejected": "Plan for {{code}} rejected",
         "planFailed": "Couldn't send your decision on {{code}}. It's back in Decide.",
         "alreadyAnswered": "Already answered by {{name}}.",
-        "alreadyDecided": "Already decided by {{name}}."
+        "alreadyDecided": "Already decided by {{name}}.",
+        "planChanged": "The plan of {{code}} changed after you read it: read it again before deciding."
       },
       "chat": {
         "asksYou": "{{name}} asks you",
@@ -1528,6 +1676,7 @@
         "fromCalendar": "From your calendar · {{title}}",
         "openEmail": "Open email",
         "openEvent": "Open event",
+        "openMeeting": "Open the meeting",
         "confirmed": "Confirmed for {{code}}",
         "ignored": "Proposal for {{code}} ignored",
         "handed": "Passed to {{code}}",
@@ -1658,11 +1807,20 @@
       "empty": "Nothing to release and no failed releases."
     },
     "waitingCustomers": {
-      "empty": "No customer is waiting"
+      "empty": "No customer is waiting",
+      "pending": "To review: Claude hasn't said yet whether it needs your reply",
+      "yesNoReason": "Claude says it needs your reply.",
+      "signals": {
+        "decision": "Decision",
+        "request": "Request",
+        "deadline": "Deadline",
+        "blocker": "Blocker"
+      }
     }
   },
   "week": {
     "title": "My week",
+    "loadTruncated": "Some tasks are missing from the load.",
     "range": "{{week}} · {{range}}",
     "nav": {
       "label": "Week",
@@ -1712,7 +1870,10 @@
     "short": "W{{n}}"
   },
   "planning": {
+    "someone": "Someone",
     "title": "Planning",
+    "loadTruncated": "Some tasks are missing from the load.",
+    "poolTruncated": "Some tasks are missing from To plan.",
     "range": "{{week}} · {{range}}",
     "department": "Department",
     "person": "Person",
@@ -1761,6 +1922,7 @@
     "loadOthers": "Other projects",
     "loadAll": "All projects",
     "readOnlyRow": "You can only plan your own tasks here",
+    "claudeReadOnly": "Only someone who can start Claude's work plans for Claude",
     "readOnlyProject": "You can't plan tasks in {{project}}",
     "notMember": "Not a member of this task's project",
     "closed": "Closed tasks aren't planned",
@@ -1791,7 +1953,14 @@
     "emptyMembers": "No one in this project yet",
     "emptyMembersBody": "People appear here once they're members of the project.",
     "emptyDepartment": "No one in this department",
-    "emptyDepartmentBody": "Pick another department, or ask an administrator to add people to this one."
+    "emptyDepartmentBody": "Pick another department, or ask an administrator to add people to this one.",
+    "refused": {
+      "forbidden": "You can't move {{code}}: only its assignee or someone who plans for others can.",
+      "invalid_assignee": "{{code}} can only go to a member of its project.",
+      "past_week": "{{code}} can't be planned in a week that's over.",
+      "not_in_week": "{{code}} isn't in this week any more.",
+      "claude_assign_forbidden": "You can't give {{code}} to Claude: only someone who can start Claude's work in this project can."
+    }
   },
   "requests": {
     "intro": "Ideas and needs for {{project}}. Anyone on the project can send one; the team decides what becomes a task.",
@@ -1827,7 +1996,8 @@
       "aria": "Urgency: {{name}}",
       "low": "Low",
       "medium": "Medium",
-      "high": "High"
+      "high": "High",
+      "urgent": "Urgent"
     },
     "requestedBy": "Requested by {{names}}",
     "requestedTimes_one": "Requested once",
@@ -1861,7 +2031,10 @@
       "submit": "Send request",
       "failed": "Couldn't send the request. Nothing was sent; try again.",
       "sent": "Request sent to {{project}}.",
-      "sentSimilar": "Request sent to {{project}}. It looks similar to another request: the team may merge them."
+      "sentSimilar": "Request sent to {{project}}. It looks similar to another request: the team may merge them.",
+      "sentMerged": "Merged into {{code}}: someone had already asked for this, and now you follow it.",
+      "sending": "Sending… checking whether someone already asked for this.",
+      "pending": "Received: we're still registering it. You'll find it in Requests."
     },
     "merge": {
       "title": "Merge into another request",
@@ -1873,7 +2046,10 @@
       "noMatch": "No requests match.",
       "choose": "Choose the request to merge into.",
       "submit": "Merge",
-      "failed": "Couldn't merge the requests. Nothing changed."
+      "failed": "Couldn't merge the requests. Nothing changed.",
+      "changed": "One of the two requests changed in the meantime. Nothing changed: try again.",
+      "rewriting": "Merging into {{code}}: Claude is rewriting it. This can take a moment.",
+      "retry": "Try again"
     },
     "detail": {
       "label": "Request",
@@ -2002,7 +2178,8 @@
       "listLabel": "Suggested changes",
       "reason": "Why",
       "accepted": "Suggestions accepted.",
-      "failed": "That didn't go through. Try again."
+      "failed": "That didn't go through. Try again.",
+      "savedNotDismissed": "Your changes were saved, but the suggestions are still open. Dismiss them again."
     },
     "nextStep": {
       "label": "Next step",
@@ -2030,9 +2207,11 @@
       "claudeWorking": "Claude working",
       "stalled_one": "{{count}} stalled",
       "stalled_other": "{{count}} stalled",
+      "stalledAtLeast": "{{count}}+ stalled",
       "nextDated": "next: {{name}} · {{date}}",
       "next": "next: {{name}}",
       "quiet": "Nothing waiting, nothing stalled",
+      "quietTruncated": "Nothing waiting · too many open tasks to count the stalled ones",
       "error": "Couldn't load the project's pulse."
     },
     "stalled": {
@@ -2158,11 +2337,15 @@
       "weekOf": "Week of {{date}}",
       "showEarlier": "Show earlier",
       "prNumber": "#{{number}}",
+      "taskUnavailable": "A task that isn't in this list",
+      "milestoneUnavailable": "a deleted milestone",
       "noSummary": "No summary for this day",
       "empty": "Nothing has happened in this project yet",
-      "emptyType": "Nothing of this type yet"
+      "emptyType": "Nothing of this type yet",
+      "nothingInWeeks": "Nothing of this type in these weeks"
     },
     "decisions": {
+      "truncated": "These are the latest {{count}} decisions: older ones aren't shown here.",
       "title": "Decision log",
       "record": "Record a decision",
       "empty": "No decisions recorded yet",
@@ -2193,6 +2376,8 @@
       "submit": "Record",
       "recorded": "Decision recorded",
       "failed": "Couldn't record the decision. Nothing was saved; try again.",
+      "alreadySuperseded": "That decision has already been superseded by another one. Nothing was saved.",
+      "forbidden": "You can't record decisions in this project.",
       "actions": "Actions for “{{title}}”",
       "supersededByGroup": "Superseded by",
       "supersededNone": "None, still valid",
@@ -2295,7 +2480,10 @@
       "template": "Template",
       "templateHint": "The template sets the starting statuses and modules. You can change the statuses later in the project's settings.",
       "failed": "Couldn't create the project. Nothing was created; try again.",
-      "created": "{{code}} {{name}} created."
+      "created": "{{code}} {{name}} created.",
+      "keyTitle": "{{code}}'s ingestion key is shown only now.",
+      "keyLabel": "Ingestion key",
+      "keyLater": "Apps and systems send errors and events to {{code}} with it. Later, Settings → Integration shows only its last 4 characters."
     },
     "people": {
       "views": "Activity view",
@@ -2354,6 +2542,9 @@
       "link": "Link a person",
       "linkTo": "Link “{{name}}” to",
       "linkFailed": "Couldn't link “{{name}}”. Nothing changed.",
+      "linkTaken": "“{{name}}” is already linked to someone. Nothing changed.",
+      "linkAction": "link “{{name}}” to {{person}}",
+      "linkOnWeb": "Opens this page on the web, where you confirm it's you",
       "linked": "“{{name}}” is now {{person}}: the commits moved under them.",
       "report": {
         "label": "Daily report",
@@ -2371,7 +2562,8 @@
         "stale_one": "{{count}} new commit not included",
         "stale_other": "{{count}} new commits not included",
         "regenerate": "Regenerate",
-        "regenerateOf": "Regenerate the daily report of {{code}}"
+        "regenerateOf": "Regenerate the daily report of {{code}}",
+        "generateAll": "Regenerate the reports of all projects for that day"
       },
       "states": {
         "loading": "Loading the review",
@@ -2391,6 +2583,7 @@
       "loadError": "Couldn't load the archived projects.",
       "list": "Archived projects",
       "archivedBy": "Archived {{date}} by {{name}}",
+      "archivedOn": "Archived {{date}}",
       "reopen": "Reopen",
       "reopenWhy": "Reopening {{code}} needs managing its settings.",
       "more": "More for {{code}}",
@@ -2401,6 +2594,7 @@
       "page": {
         "back": "← Archived",
         "band": "Archived on {{date}} by {{name}}. Read only: reopen it to work in it again.",
+        "bandNoName": "Archived on {{date}}. Read only: reopen it to work in it again.",
         "loadError": "Couldn't load {{code}}.",
         "summary": "Summary",
         "noDescription": "No description.",
@@ -3103,11 +3297,20 @@
         "platformFallback": "The git platform",
         "secretTitle": "This secret is shown only now.",
         "secretLabel": "Secret",
-        "reauthAction": "make a new webhook secret for {{name}}"
+        "reauthAction": "make a new webhook secret for {{name}}",
+        "platform": "Already updated on {{platform}}: nothing to copy.",
+        "manual": "Paste it in the webhook settings on {{platform}}: the old one stopped working.",
+        "refused": {
+          "webhook_scope_missing": "The git account's token can't manage webhooks. Nothing changed.",
+          "platform_update_failed": "The git platform refused the new secret. The old one still works.",
+          "webhook_rollback": "Couldn't save the new secret. The old one still works, on the platform too.",
+          "webhook_split": "Couldn't save the new secret, and the platform kept the new one. Try again to line them up.",
+          "webhook_unknown": "Couldn't make a new secret. Try again."
+        }
       }
     },
     "plugins": {
-      "intro": "The Claude Code plugins Claude can use when it works on {{code}}. Everything is on unless you turn it off here.",
+      "intro": "The Claude Code plugins Claude can use when it works on {{code}}. A plugin enters runs only if you turn it on here; inside it, everything is on unless you turn it off.",
       "registered": "Plugins are registered for the whole instance in <link>Administration → Plugins</link>.",
       "mcpNote": "A plugin's own MCP servers (.mcp.json) are never loaded.",
       "loadError": "Couldn't load {{code}}'s plugins.",
@@ -3170,7 +3373,8 @@
         "Stop": "When Claude stops",
         "SubagentStop": "When a subagent stops",
         "PreCompact": "Before compacting"
-      }
+      },
+      "notTurnedOn": "Not turned on for this project: it doesn't enter runs."
     },
     "archive": {
       "intro": "Archive {{code}} when the work is over. It can be reopened at any time; only a full admin can delete it for good, and only once it's archived.",
@@ -3187,6 +3391,12 @@
         "readable": "Its members and full admins can still read it, in Archived.",
         "automations": "Its automations stop and no new Claude work starts.",
         "nothingDeleted": "Nothing is deleted: Reopen brings it back as it was.",
+        "surfaces": {
+          "sdk": "The SDK on its sites stops working.",
+          "widget": "Its Support widget stops working.",
+          "inbound": "Its inbound API stops accepting tasks.",
+          "gitWebhook": "Its git webhooks stop working."
+        },
         "openRuns_one": "{{count}} automation run still open will be cancelled.",
         "openRuns_other": "{{count}} automation runs still open will be cancelled.",
         "archive": "Archive",
@@ -3202,6 +3412,8 @@
         "waitingTitle": "“{{title}}” is waiting for the queue to resume.",
         "waitingHidden": "A conversation you can't see is waiting for the queue to resume.",
         "release": "The release <code>{{code}}</code> is running.",
+        "docs": "The Docs of <repo>{{repository}}</repo> are being generated.",
+        "docsPaused": "The Docs of <repo>{{repository}}</repo> are paused on the usage limit and will resume on their own.",
         "wait_one": "Wait for it to finish, or stop it from its page, then archive again.",
         "wait_other": "Wait for them to finish, or stop them from their pages, then archive again.",
         "again": "Archive again",
@@ -3402,7 +3614,8 @@
         "notifiesOthers": "it notifies people who follow this",
         "automation": "it starts an automation in {{code}}",
         "irreversible": "it can't be undone",
-        "reauth": "it asks for your code"
+        "reauth": "it asks for your code",
+        "startsWork": "it starts Claude's work, which can't be undone"
       },
       "remove": {
         "noCode": "Which task should I delete? Give me its code, like AUD-4.",
@@ -3429,6 +3642,8 @@
         "secretTokens": "Open Preferences → Tokens →",
         "secretInvite": "Open Administration → People → Invite →",
         "secretIntegration": "Open Settings → Integration of **{{code}}** →",
+        "webhookUrl": "Changing where a webhook sends its messages asks for your code: it's yours to do, from its page.",
+        "webhookUrlLink": "Open Administration → Outgoing webhooks →",
         "server": "I don't act on servers.",
         "serverLink": "Open **{{code}}** →",
         "serverProject": "Open the servers of **{{code}}** →",
@@ -3538,7 +3753,6 @@
           "spend": "Tell you this month's AI spend",
           "archive": "Archive projects with no activity",
           "addMember": "Add someone to a project",
-          "supportReply": "Write the reply to a support conversation",
           "releaseNotes": "Write a pull request's release notes",
           "mailBody": "Write an email or a reply in Mail",
           "taskDescription": "Write a task's description",
@@ -3554,7 +3768,6 @@
           "spend": "How much have we spent on AI this month?",
           "archive": "Archive the projects with no activity for 3 months",
           "addMember": "Add [person] to [project] as [role]",
-          "supportReply": "Write the reply",
           "releaseNotes": "Write the release notes",
           "mailBody": "Write an email to [person] saying [what]",
           "taskDescription": "Write the description of [task]",
@@ -3635,7 +3848,10 @@
           "open_pr": "**{{code}}** has an open pull request ({{pr}}): it can be archived when it's closed",
           "open_prNoCode": "**{{code}}** has an open pull request: it can be archived when it's closed",
           "server_fix": "**{{code}}** has a fix open on **{{server}}**: it can be archived when that ends",
-          "release": "**{{code}}** has release **{{release}}** in progress: it can be archived when that ends"
+          "release": "**{{code}}** has release **{{release}}** in progress: it can be archived when that ends",
+          "open_correction": "**{{code}}** has a pull request correction still open: it can be archived when it ends",
+          "doc_generation": "**{{code}}** is generating the Docs of **{{repository}}**: it can be archived when that ends",
+          "doc_generationPaused": "**{{code}}** has the Docs of **{{repository}}** paused on the usage limit: it can be archived when they finish"
         }
       },
       "member": {
@@ -3664,7 +3880,7 @@
         "openInviteBare": "Open the invite →"
       },
       "draft": {
-        "cantReply": "You can't reply to this conversation ·",
+        "noSupportReply": "I don't write replies in Support.",
         "cantEditNotes": "You can't edit the release notes of this pull request ·",
         "cantEditTask": "You can't edit **{{code}}** ·",
         "noSource": "I have nothing to write **{{code}}**'s description from: tell me what it should say.",
@@ -3672,7 +3888,6 @@
         "askHint": "What should the email say?",
         "openField": "Open the conversation, the email, the pull request or the task and ask me again.",
         "openCode": "Open **{{code}}** →",
-        "openReply": "Open the reply →",
         "chat": "In a channel, drafts are written by @Claude in the thread: mention @Claude there.",
         "inPanel": "I write drafts from the Claude panel, next to the field: ask me there."
       },
@@ -3913,9 +4128,8 @@
         "closedBy": "closed by {{name}}",
         "itemClosed": "closed · the request was turned into a task or archived",
         "reasons": {
-          "fix_access_revoked": "stopped · fix access was revoked",
-          "fix_access_unusable": "stopped · fix access stopped working",
-          "server_gone": "stopped · the server left the project"
+          "server_gone": "stopped · the server left the project",
+          "operations_off": "stopped · the agent's operations were turned off"
         }
       },
       "question": {
@@ -3950,7 +4164,9 @@
         "whoCanApprove": "Someone who can approve plans in {{code}} decides",
         "whoCanApproveAny": "Someone who can approve plans decides",
         "alreadyDecided": "Already decided by {{name}}",
-        "failed": "The decision didn't go through: the plan may have changed. Try again."
+        "failed": "The decision didn't go through: the plan may have changed. Try again.",
+        "undecided": "Not decided",
+        "changed": "The plan changed after you read it: read it again before deciding."
       },
       "proposal": {
         "title_one": "Claude proposes · {{count}} change",
@@ -3964,6 +4180,16 @@
         "confirmSelected_other": "Confirm {{count}} selected",
         "done": "Done",
         "doneEdited": "Done (edited)",
+        "mailNotSaved": "Not saved to Gmail: the text isn't in your draft.",
+        "retrySave": "Retry",
+        "retryFailed": {
+          "reconnect": "Gmail didn't save it: reconnect the mailbox in Preferences, then retry.",
+          "changed": "The draft changed after Claude wrote it: copy the text instead.",
+          "gone": "The mailbox or the conversation is no longer there: copy the text instead.",
+          "generic": "Still not saved to Gmail. Try again later, or copy the text."
+        },
+        "copyText": "Copy the text",
+        "copied": "Copied",
         "partial_one": "{{done}} of {{count}} change",
         "partial_other": "{{done}} of {{count}} changes",
         "cancelled": "Cancelled",
@@ -3987,7 +4213,8 @@
           "automation": "An automation in {{code}} starts",
           "irreversible": "Can't be undone",
           "reauth": "Asks for your two-step code",
-          "label": "What happens"
+          "label": "What happens",
+          "startsWork": "Starts Claude's work: it can't be undone"
         },
         "delete": "Delete",
         "needsCode": "This needs your two-step code first. Nothing was changed.",
@@ -3995,10 +4222,22 @@
         "failedForbidden": "Couldn't do it: you can no longer {{action}} in {{code}}. Nothing was changed.",
         "failedForbiddenNoProject": "Couldn't do it: you can no longer {{action}}. Nothing was changed.",
         "reauthOne": "carry out this change",
+        "plugin": {
+          "title": "Registering runs its code",
+          "runsCode": "Right after it's registered, Stubwise installs it and runs a test with all of it turned on: its hooks run with the worker's access to your repositories and to Claude's credentials.",
+          "trusted": "You said you trust this repository and this commit.",
+          "moves": {
+            "title": "Moving it runs its code",
+            "runsCode": "Right after it moves to the new commit, Stubwise installs it and runs a test with all of it turned on: its hooks run with the worker's access to your repositories and to Claude's credentials."
+          }
+        },
         "reauthAction": {
           "addMember": "add {{name}} to {{code}} as {{role}}",
           "setMemberRole": "make {{name}} {{role}} in {{code}}",
           "removeMember": "remove {{name}} from {{code}}",
+          "addMemberNoCode": "add {{name}} to a project as {{role}}",
+          "setMemberRoleNoCode": "make {{name}} {{role}} in a project",
+          "removeMemberNoCode": "remove {{name}} from a project",
           "registerPlugin": "register the plugin {{url}}",
           "updatePluginRef": "move a plugin to {{ref}}",
           "saveStorage": "change where files are stored"
@@ -4092,7 +4331,9 @@
         "stopAndSendNoFiles": "Remove the attachments to stop and send",
         "absorb": "The message reaches Claude when the current action finishes.",
         "absorbFree": "Claude answers this after the current reply.",
-        "sendSuspended": "Reconnecting: you can keep writing, sending resumes when the connection is back."
+        "sendSuspended": "Reconnecting: you can keep writing, sending resumes when the connection is back.",
+        "retention_one": "Conversations inactive for {{count}} day are deleted.",
+        "retention_other": "Conversations inactive for {{count}} days are deleted."
       },
       "context": {
         "menu": "Project context",
@@ -4125,7 +4366,8 @@
         },
         "refineClosed": "This refinement is closed.",
         "refineItemClosed": "The request was turned into a task or archived: this refinement is closed.",
-        "automaticServer": "This session runs on its own with read-only access to {{code}}: it can only be watched."
+        "automaticServer": "This session runs on its own with read-only access to {{code}}: it can only be watched.",
+        "serverFix": "This session only proposes the fix on {{code}}: you decide the plan, and stop the fix, from the task's Server section."
       },
       "executed": {
         "verb": {
@@ -4166,7 +4408,8 @@
         "openPrNoNumberOn": "a pull request is open on {{code}}",
         "serverFix": "a fix is running on {{code}}",
         "release": "release {{code}} is in progress",
-        "and": " and "
+        "and": " and ",
+        "openCorrection": "a correction of its pull request is still open"
       },
       "undo": {
         "undo": "Undo",
@@ -4224,10 +4467,13 @@
         "failedReason": "the page wasn't changed",
         "savedFilter": "Saved the filter “{{name}}”",
         "onlyYou": "only you see it",
-        "private": "private"
+        "private": "private",
+        "notApplied": "Not applied in this window",
+        "apply": "Apply"
       },
       "trial": {
         "label": "Claude's test",
+        "noExamples": "Nothing to try it on yet: no recent event fits the start",
         "head_one": "Tested on {{count}} example · nothing was created",
         "head_other": "Tested on {{count}} examples · nothing was created",
         "testing_one": "Testing on {{count}} example…",
@@ -4281,6 +4527,16 @@
       "capabilities": {
         "label": "What I can do",
         "write": "Write it"
+      },
+      "commands": {
+        "status": "Where the projects stand: pulse of the projects you follow",
+        "today": "What you have to do today: decisions, late tasks, your week",
+        "explain": "Explain a task or a request, by its code",
+        "docs": "How something works in a project, from its Docs",
+        "plan": "Plan your next week from the open tasks",
+        "new-task": "Create a task, with a proposal to confirm",
+        "new-request": "Open a request in a project",
+        "run": "Start Claude's work on a task or a request"
       }
     },
     "destination": {
@@ -4382,6 +4638,7 @@
       "landing": {
         "title": "New conversation",
         "intro": "Ask about what you're looking at, or ask Claude to do it for you. What only touches you happens right away and can be undone; anything that touches others asks you first.",
+        "introRead": "Ask about your work, a task or a project: Claude reads Stubwise as you see it, and answers. In this version it doesn't change anything: it tells you where to do it.",
         "label": "Your question for Claude",
         "placeholder": "Ask Claude about your work, a task or a project…",
         "send": "Start conversation",
@@ -4444,6 +4701,9 @@
         "automaticServer": "Automatic · read-only access to {{code}}"
       },
       "publish": {
+        "privateTitle": "This conversation can't be made public",
+        "privateBody": "In this conversation Claude read your email or calendar, a private channel or direct message, or a general automation: what it read stays yours, so the conversation stays private.",
+        "close": "Close",
         "title": "Make this conversation public?",
         "body": "Anyone who can see public conversations will read it, including what Claude found.",
         "projects": "Projects Claude read or changed",
@@ -4457,7 +4717,8 @@
         "checking": "Checking which projects Claude used…",
         "loadFailed": "Couldn't check which projects Claude used.",
         "retry": "Retry",
-        "nothingNew": "Claude didn't use any project you haven't shared already: the new messages can be shared as they are."
+        "nothingNew": "Claude didn't use any project you haven't shared already: the new messages can be shared as they are.",
+        "toolReads": "Claude read data for you with its tools: whoever reads this will also see what Claude read for you."
       },
       "continue": {
         "banner": "What you write starts your own private conversation. Claude will act as you.",
@@ -4467,6 +4728,9 @@
         "gone": "The original conversation is no longer available.",
         "originLabel": "The conversation this one continues",
         "yoursStarts": "Your conversation starts here"
+      },
+      "row": {
+        "by": "by {{name}}"
       }
     },
     "decisionLog": {
@@ -4496,27 +4760,27 @@
       "reads": {
         "uptime": "Read the uptime and load",
         "memory": "Read the memory",
-        "containers": "Read the container usage",
-        "processesCpu": "Read the processes by CPU",
-        "processesMem": "Read the processes by memory",
+        "processes": "Read the processes",
         "logs": "Read the log of {{service}}",
+        "containerState": "Read the state of {{service}}",
         "disk": "Read the disk usage",
-        "containerSizes": "Read the container sizes",
-        "journal": "Read the system journal",
-        "containerList": "Read the containers",
+        "journal": "Read the errors in the system journal",
         "ports": "Read the listening ports",
-        "agent": "Read the agent status",
-        "bootJournal": "Read the journal of the last boot",
+        "load": "Read the load",
+        "failedUnits": "Read the failed services",
         "attempt": "Tried to connect (attempt {{n}})"
       }
     },
     "serverFix": {
-      "commands": {
-        "restart": "Restarted {{service}}",
-        "limitMemory": "Capped the memory of {{service}}",
-        "pruneImages": "Removed the unused images",
-        "vacuumJournal": "Trimmed the system journal",
-        "restartAgent": "Restarted the monitoring agent"
+      "actions": {
+        "container_restart": "Restarted {{container}}",
+        "container_stop": "Stopped {{container}}",
+        "container_start": "Started {{container}}",
+        "docker_prune": {
+          "images_unused": "Removed the unused images",
+          "build_cache": "Removed the build cache",
+          "stopped_containers": "Removed the stopped containers"
+        }
       }
     },
     "executed": {
@@ -4561,6 +4825,7 @@
       "chipTitle": "Claude reads {{label}} with your permissions when you send.",
       "removeContext": "Don't use this page",
       "on": "on {{label}}",
+      "onMany": "on",
       "archived": "Your last conversation was archived.",
       "nowShowing": "Now showing {{name}}'s conversations.",
       "chip": {
@@ -4606,8 +4871,6 @@
         "sr": "Claude's draft, not edited yet."
       },
       "pending": {
-        "supportReply": "Writing a draft for the reply to <obj>{{code}}</obj>…",
-        "supportReply_vowel": "Writing a draft for the reply to <obj>{{code}}</obj>…",
         "releaseNotes": "Writing a draft for the release notes of <obj>{{code}}</obj> · pull request #{{number}}…",
         "releaseNotesBare": "Writing a draft for the release notes of <obj>{{code}}</obj>…",
         "mailReply": "Writing a draft for the reply to “{{subject}}”…",
@@ -4615,8 +4878,6 @@
         "taskDescription": "Writing a draft for the description of <obj>{{code}}</obj>…"
       },
       "placed": {
-        "supportReply": "Put a draft in the reply to <obj>{{code}}</obj>",
-        "supportReply_vowel": "Put a draft in the reply to <obj>{{code}}</obj>",
         "releaseNotes": "Put a draft in the release notes of <obj>{{code}}</obj> · pull request #{{number}}",
         "releaseNotesBare": "Put a draft in the release notes of <obj>{{code}}</obj>",
         "mailReply": "Put a draft in the reply to “{{subject}}”",
@@ -4624,8 +4885,6 @@
         "taskDescription": "Put a draft in the description of <obj>{{code}}</obj>"
       },
       "waiting": {
-        "supportReply": "The draft for the reply to <obj>{{code}}</obj> is ready",
-        "supportReply_vowel": "The draft for the reply to <obj>{{code}}</obj> is ready",
         "releaseNotes": "The draft for the release notes of <obj>{{code}}</obj> · pull request #{{number}} is ready",
         "releaseNotesBare": "The draft for the release notes of <obj>{{code}}</obj> is ready",
         "mailReply": "The draft for the reply to “{{subject}}” is ready",
@@ -4661,11 +4920,6 @@
       "hint": "Opens Claude with the request written, not sent.",
       "notNow": "Not now",
       "hidden": "Suggestion hidden.",
-      "supportReply": {
-        "line": "write the reply",
-        "prompt": "Write the reply to {{code}}",
-        "prompt_vowel": "Write the reply to {{code}}"
-      },
       "releaseNotes": {
         "line": "write the release notes",
         "prompt": "Write the release notes"
@@ -4682,7 +4936,124 @@
         "line": "summarize this month's spend",
         "prompt": "How much have we spent on AI this month?"
       }
-    }
+    },
+    "chatActions": {
+      "aPerson": "a person",
+      "aRole": "a role",
+      "summary": {
+        "createTask": "Create the task “{{title}}”",
+        "updateTask": "Change {{code}} ({{fields}})",
+        "updateTaskNoCode": "Change a task ({{fields}})",
+        "planTask": "Plan {{code}}",
+        "planTaskNoCode": "Plan a task",
+        "addComment": "Comment on {{code}}",
+        "addCommentNoCode": "Comment on a task",
+        "deleteComment": "Delete a comment on {{code}}",
+        "deleteCommentNoCode": "Delete a comment",
+        "createRequest": "Send the request “{{title}}”",
+        "convertRequest": "Turn a request into a task",
+        "archiveRequest": "Archive a request",
+        "reopenRequest": "Reopen a request",
+        "startRun": "Start Claude's work on {{code}}",
+        "startRunNoCode": "Start Claude's work on a task",
+        "createMilestone": "Create the milestone “{{name}}”",
+        "deleteMilestone": "Delete a milestone",
+        "saveFilter": "Save the filter “{{name}}”",
+        "deleteFilter": "Delete a saved filter",
+        "fillFieldDescription": "Draft the description of {{code}}",
+        "fillFieldDescriptionNoCode": "Draft a task's description",
+        "fillFieldNotes": "Draft the release notes of pull request #{{number}}",
+        "fillFieldNotesNoCode": "Draft the release notes of pull request #{{number}}",
+        "fillMailBody": "Write the email body in your Gmail draft",
+        "pageAction": "Change this page ({{kind}})",
+        "deleteTask": "Delete {{code}}",
+        "deleteTaskNoCode": "Delete a task",
+        "setSubscription": "Change your “{{type}}” alerts in {{code}}: {{channels}}",
+        "setSubscriptionNoCode": "Change your “{{type}}” alerts in a project: {{channels}}",
+        "setSubscriptionBare": "Change your “{{type}}” alerts in {{code}}",
+        "setSubscriptionBareNoCode": "Change your “{{type}}” alerts in a project",
+        "resetSubscription": "Put your “{{type}}” alerts in {{code}} back to the default",
+        "resetSubscriptionNoCode": "Put your “{{type}}” alerts in a project back to the default",
+        "archiveProject": "Archive {{code}}",
+        "archiveProjectNoCode": "Archive a project",
+        "reopenProject": "Reopen {{code}}",
+        "reopenProjectNoCode": "Reopen a project",
+        "pauseQueue": "Pause Claude's queue in {{code}}",
+        "pauseQueueNoCode": "Pause Claude's queue in a project",
+        "resumeQueue": "Resume Claude's queue in {{code}}",
+        "resumeQueueNoCode": "Resume Claude's queue in a project",
+        "updateProjectGeneral": "Change the name or description of {{code}}",
+        "updateProjectGeneralNoCode": "Change the name or description of a project",
+        "setProjectAi": "Change the AI account of {{code}}",
+        "setProjectAiNoCode": "Change the AI account of a project",
+        "saveProjectAutomations": "Change the automations of {{code}}",
+        "saveProjectAutomationsNoCode": "Change the automations of a project",
+        "retryJob": "Run a stopped job again",
+        "setModel": "Change an AI model",
+        "saveBudget": "Change the AI budget and language",
+        "saveStorage": "Change where files are stored",
+        "saveAutomation": "Change the automation rules",
+        "setProviderEnabledOn": "Turn an AI account on",
+        "setProviderEnabledOff": "Turn an AI account off",
+        "moveProvider": "Change the order of the AI accounts",
+        "updateGitAccount": "Change a git account",
+        "updateGoogleApp": "Change a Google Workspace",
+        "updateWebhook": "Change an outgoing webhook",
+        "rerunSmoke": "Test a plugin again",
+        "removePlugin": "Remove a plugin",
+        "addMember": "Add {{name}} to {{code}} as {{role}}",
+        "addMemberNoCode": "Add {{name}} to a project as {{role}}",
+        "setMemberRole": "Make {{name}} {{role}} in {{code}}",
+        "setMemberRoleNoCode": "Make {{name}} {{role}} in a project",
+        "removeMember": "Remove {{name}} from {{code}}",
+        "removeMemberNoCode": "Remove {{name}} from a project",
+        "registerPlugin": "Register the plugin {{url}}",
+        "updatePluginRef": "Move a plugin to {{ref}}",
+        "writeFirstVersion": "Write the first version of {{code}}'s docs",
+        "undoFirstVersion": "Undo the first version of {{code}}'s docs",
+        "updateProductPageEmail": "Update {{page}} from the email",
+        "updateProductPageMeeting": "Update {{page}} from the meeting",
+        "undoProductUpdate": "Undo Claude's update of {{page}}",
+        "drawWireframe": "Draw a screen sketch in {{page}}",
+        "deleteWireframe": "Remove the screen sketch from {{page}}"
+      },
+      "summaryHidden": {
+        "createTask": "Create a task",
+        "createRequest": "Send a request",
+        "createMilestone": "Create a milestone",
+        "saveFilter": "Save a filter",
+        "updateTask": "Change a task",
+        "pageAction": "Change this page",
+        "other": "A change"
+      },
+      "field": {
+        "title": "title",
+        "description": "description",
+        "statusId": "status",
+        "departmentId": "department",
+        "assigneeId": "assignee",
+        "size": "size",
+        "dueDate": "due date",
+        "milestoneId": "milestone",
+        "plannedWeek": "week",
+        "labels": "labels",
+        "type": "type",
+        "priority": "priority",
+        "projectId": "project"
+      },
+      "channel": {
+        "app": {
+          "on": "App on",
+          "off": "App off"
+        },
+        "phone": {
+          "on": "Phone on",
+          "off": "Phone off"
+        }
+      },
+      "aPage": "a page"
+    },
+    "someone": "Someone"
   },
   "chat": {
     "channel": {
@@ -4717,7 +5088,8 @@
       "settings": "Settings",
       "membersOpen_one": "{{count}} member · settings",
       "membersOpen_other": "{{count}} members · settings",
-      "openSettings": "Opens the channel settings"
+      "openSettings": "Opens the channel settings",
+      "streamLimit": "Too many live views are open in this window: new messages here appear when you reopen the channel."
     },
     "flow": {
       "today": "Today",
@@ -4731,6 +5103,7 @@
       "arrived_other": "{{count}} new messages"
     },
     "message": {
+      "someone": "Someone",
       "edited": "(edited)",
       "editedAt": "Edited at {{time}}",
       "deleted": "Message deleted",
@@ -4881,6 +5254,7 @@
       "reasons": {
         "forbidden": "the person who called it can no longer read this channel",
         "not_found": "something it needed no longer exists",
+        "budget": "the monthly Claude budget is used up",
         "other": "something went wrong"
       },
       "tryAgain": "Try again",
@@ -4892,7 +5266,9 @@
       "asks": "Claude asks {{name}}",
       "waitingFor": "Waiting for {{name}}",
       "questionClosed": "Not answered: the reply was stopped.",
-      "cantAct": "You can no longer act on this here: you're not in the channel or it's archived."
+      "cantAct": "You can no longer act on this here: you're not in the channel or it's archived.",
+      "proposalArchived": "This channel is archived: nothing was changed.",
+      "proposalNotMember": "You're no longer in this channel: nothing was changed."
     },
     "column": {
       "newMessage": "New message",
@@ -5150,6 +5526,22 @@
       "saved": "Saved to the {{project}} Drive as {{code}}",
       "tooLarge": "{{name}} is over 100 MB, so it can't go in the Drive.",
       "failed": "Couldn't save to the Drive. Try again."
+    },
+    "attachments": {
+      "typeNotAllowed": "{{name}} can't be attached: this type of file isn't allowed.",
+      "download": "Download {{name}}",
+      "downloadFailed": "Couldn't download {{name}}.",
+      "downloadGone": "{{name}} is no longer available.",
+      "notSent": {
+        "type": "a file of this type isn't allowed",
+        "size": "a file is too big (up to 25 MB)",
+        "off": "attachments are off on this instance",
+        "gone": "an attachment had expired: Resend uploads it again",
+        "quota": "too many of your files are waiting to be sent (up to 200 MB): try again later",
+        "name": "a file name is too long (up to 255 characters)",
+        "rate": "too many uploads in a minute: wait a moment, then Resend",
+        "failed": "a file didn't upload completely: Resend tries again"
+      }
     }
   },
   "docs": {
@@ -5319,7 +5711,8 @@
         "slugConflict": "Another page already uses this slug",
         "slugInvalid": "Use lowercase letters, numbers and dashes.",
         "generic": "Couldn't save the page. Try again.",
-        "slugReserved": "“{{slug}}” is reserved for a view of the space: choose another slug"
+        "slugReserved": "“{{slug}}” is reserved for a view of the space: choose another slug",
+        "slugFixed": "A page's address can't change after it's created: keep the slug as it is."
       }
     },
     "off": {
@@ -5419,7 +5812,9 @@
       "setupPrOpened": "Setup PR opened",
       "actionFailed": "Couldn't start it. Try again.",
       "askBuild": "Ask a maintainer to build it.",
-      "setupPrIs": "Setup PR: {{url}}"
+      "setupPrIs": "Setup PR: {{url}}",
+      "setupPrIs_open": "Setup PR, open: {{url}}",
+      "setupPrIs_merged": "Setup PR, merged: {{url}}"
     },
     "chat": {
       "title": "Ask the docs",
@@ -5520,6 +5915,9 @@
       "folderOpened": "Opened “{{name}}” in Google Drive. In the prototype no browser opens.",
       "unlink": "Unlink folder…",
       "notUpdating": "Not updating since {{date}}",
+      "lastSynced": "synced {{when}}",
+      "syncing": "syncing…",
+      "syncRequested": "Syncing “{{name}}”…",
       "failed": "Couldn't do that. Nothing changed."
     },
     "content": {
@@ -5529,6 +5927,7 @@
       "error": "Couldn't read the content",
       "noSummary": "No summary for this file",
       "ocr": "Text read from a scan",
+      "ocrPartial": "Text read from a scan, first 30 pages only",
       "retry": "Retry"
     },
     "unavailable": {
@@ -5695,6 +6094,8 @@
       "warning_one": "Everyone in {{code}} ({{count}} person) will be able to read every file in “{{folder}}” and its subfolders, even people who can't open it on Google. Stubwise reads it with your account, {{email}}.",
       "warning_other": "Everyone in {{code}} ({{count}} people) will be able to read every file in “{{folder}}” and its subfolders, even people who can't open it on Google. Stubwise reads it with your account, {{email}}.",
       "pick": "Choose a folder. Before linking, this says who will be able to read it.",
+      "daily": "Stubwise checks the folder every day; Sync now updates it right away.",
+      "requested": "Linked “{{name}}”: its files will appear in a moment.",
       "keys": "↑↓ to move · Enter opens a folder · ⌫ goes up",
       "cancel": "Cancel",
       "confirm": "Link folder",
@@ -5715,7 +6116,8 @@
       "cancel": "Cancel",
       "added_one": "Added {{count}} file to {{code}}",
       "added_other": "Added {{count}} files to {{code}}",
-      "meta": "{{owner}} · Modified {{date}}"
+      "meta": "{{owner}} · Modified {{date}}",
+      "modified": "Modified {{date}}"
     },
     "connect": {
       "first": "Connect your Google account first",
@@ -5723,7 +6125,8 @@
       "button": "Connect Google account",
       "connecting": "Connecting to Google…",
       "error": "Couldn't connect to Google",
-      "tryAgain": "Try again"
+      "tryAgain": "Try again",
+      "workspace": "Google Workspace"
     },
     "account": {
       "menu": "Google account",
@@ -5743,7 +6146,16 @@
       "disconnectMailCalendar": "Mail and Calendar will stop showing {{email}} too. Mail already received and proposals already made stay.",
       "disconnectConfirm": "Disconnect account",
       "cancel": "Cancel",
-      "close": "Close"
+      "close": "Close",
+      "introMail": "Connect your Google account so Stubwise can show your Gmail and Calendar here and turn what needs doing into proposals.",
+      "expiredBodyMail": "Mail and Calendar don't update until you reconnect.",
+      "scopes": "Reconnect to give Stubwise the new permissions",
+      "scopesMissing": "Until you reconnect, Stubwise can't {{what}}.",
+      "feature": {
+        "markRead": "mark mail as read or unread",
+        "calendarWrite": "create or change your meetings",
+        "drive": "use your Google Drive files and meeting notes"
+      }
     },
     "expired": {
       "region": "Folder link expired",
@@ -5802,6 +6214,7 @@
       "sorted": "Sorted by relevance",
       "matchedName": "Matched the name",
       "scan": "from a scan",
+      "scanPartial": "from a scan, first 30 pages only",
       "reading": "Reading the content… found by name",
       "unavailable": "Not available · found by name",
       "labelSummary": "Summary: {{summary}}",
@@ -5953,7 +6366,11 @@
       "transcriptNotice": "In the app this opens the transcript in Google Docs.",
       "reading": "Reading the transcript…",
       "unreachable": "Stubwise couldn't open the transcript. It may have been moved or not shared with you.",
-      "notVisible": "The summary and the transcript are visible only to the people who were in the meeting."
+      "notVisible": "The summary and the transcript are visible only to the people who were in the meeting.",
+      "scopeMissing": "Stubwise isn't allowed to read Google Drive yet: reconnect your Google account to open the transcript.",
+      "deleted": "The transcript was deleted from Google Drive.",
+      "notVerified": "Stubwise couldn't verify this is the document of this meeting, so it didn't read it.",
+      "tooLong": "The transcript is long: the summary covers only its first part."
     },
     "proposal": {
       "proposes_one": "Stubwise proposes · {{count}} change",
@@ -5987,6 +6404,7 @@
       "outcomeTitle": "Proposal for {{code}}",
       "error": "Couldn't do that. Try again.",
       "errorForbidden": "You can't do this any more in this project.",
+      "errorEdits": "This proposal can't be edited. Confirm it as it is.",
       "ability": {
         "createTasks": "create tasks",
         "editTasks": "edit tasks",
@@ -6072,6 +6490,13 @@
       "replyToAll": "Reply to all ({{count}})",
       "modeMenu": "Reply type",
       "to": "To",
+      "from": {
+        "label": "From",
+        "menu": "Send from",
+        "default": "default",
+        "reconnect": "Reconnect the mailbox to use your aliases.",
+        "reconnectAction": "Reconnect"
+      },
       "cc": "Cc",
       "subject": "Subject",
       "message": "Message",
@@ -6085,6 +6510,9 @@
       "andOthers_one": "{{names}} and {{count}} other",
       "andOthers_other": "{{names}} and {{count}} others",
       "undoFailed": "Couldn't undo: the email may still be on its way. Check the conversation.",
+      "unsaved": "Not saved: this conversation already has another draft. Saving replaces it.",
+      "unsavedAttachments": "The attachments stayed in the draft in Gmail: {{names}}.",
+      "save": "Save",
       "restoreFailed": "Couldn't bring the draft back.",
       "actionFailed": "That didn't work. Your text is unchanged; try again.",
       "team": "Team",
@@ -6128,6 +6556,7 @@
       "aboutNone": "No project",
       "late": "late",
       "claudeFailed": "Claude couldn't write a draft. Your text is unchanged.",
+      "claudeDailyLimit": "Claude has written enough drafts for today: try again tomorrow. Your text is unchanged.",
       "tryAgain": "Try again",
       "undo": "Undo",
       "ready": "Claude's draft is ready",
@@ -6151,6 +6580,8 @@
       "sendingTo": "Sending to {{names}}",
       "sent": "Sent",
       "notSent": "Not sent: {{reason}}",
+      "sentUnrecorded": "Sent, status to verify: Gmail sent it, but Stubwise couldn't record it.",
+      "alreadyFailed": "This email hadn't gone out: use Retry or edit it.",
       "edit": "Edit",
       "delete": "Delete",
       "tooLate": "Too late to undo: the email was sent.",
@@ -6166,8 +6597,21 @@
         "address": "one of the addresses isn't valid",
         "recipients": "add at least one recipient",
         "other": "something went wrong"
-      }
-    }
+      },
+      "changedInGmail": "This draft was changed in Gmail.",
+      "keepMine": "Keep mine",
+      "openGmail": "Open in Gmail",
+      "signature": "Your Gmail signature",
+      "noSignature": "This email goes without your Gmail signature: reconnect your Google account to add it.",
+      "gmailOutdated": "Merged with the draft that was already there. Gmail still has the old one: saving updates it.",
+      "gmailCopyKept": "The undone version is still in your Gmail drafts."
+    },
+    "readState": {
+      "reconnect": "Reconnect your Google account to keep read and unread in step with Gmail.",
+      "busy": "Gmail is busy. Try again in a moment.",
+      "failed": "Couldn't change read and unread on Gmail."
+    },
+    "someone": "Someone"
   },
   "calendar": {
     "today": "Today",
@@ -6217,6 +6661,9 @@
       "zone": "Times are in your time zone"
     },
     "block": {
+      "outOfOffice": "Out of office",
+      "focusTime": "Focus time",
+      "free": "Free",
       "continues": "continues",
       "from": "from {{day}} {{time}}",
       "more_one": "+{{count}} more",
@@ -6248,7 +6695,9 @@
       "retry": "Retry",
       "undo": "Undo change",
       "rejected": "Google didn't accept the change.",
-      "unreachable": "Google couldn't be reached. The change isn't saved yet."
+      "unreachable": "Google couldn't be reached. The change isn't saved yet.",
+      "changed": "This meeting changed in Google Calendar. Reload it and try again.",
+      "reload": "Reload"
     },
     "sync": {
       "justNow": "Updated just now",
@@ -6699,6 +7148,7 @@
         "task_created": "When a task is created",
         "task_closed": "When a task is closed",
         "request_created": "When a request arrives",
+        "request_converted": "When a request is converted",
         "milestone_reached": "When a milestone is reached",
         "mail_received": "When an email arrives in the owner's mailbox"
       },
@@ -6826,6 +7276,13 @@
       "nextDraft_one": "In the draft of v{{n}}: {{count}} problem — it can't be published until it's fixed",
       "nextDraft_other": "In the draft of v{{n}}: {{count}} problems — it can't be published until they're fixed"
     },
+    "providerCodes": {
+      "limited": "the AI service is limiting requests",
+      "quota_wait": "the AI account's quota is used up for now",
+      "unavailable": "the AI service is unavailable",
+      "no_answer": "the AI service gave no answer",
+      "error": "the AI service had an error"
+    },
     "issue": {
       "incomplete": "Something this step needs is missing",
       "unknown_ref": "It uses a field or an automation that isn't available any more",
@@ -6833,7 +7290,9 @@
       "approver_cant_see": "Whoever must approve can't see a project this step acts in",
       "source_disconnected": "The source it starts from isn't connected",
       "limit": "It goes over one of the safety limits",
-      "department_cant_see": "Nobody in the department it notifies can see the project"
+      "department_cant_see": "Nobody in the department it notifies can see the project",
+      "not_available": "This isn't available in this app yet",
+      "untrusted_target": "Claude picks who this goes to from something that came from outside: it must ask for approval"
     },
     "detail": {
       "more": "More",
@@ -6860,7 +7319,11 @@
       "statusDraftBy": "never turned on · created by {{who}} on {{date}}",
       "duplicateVersion": "Duplicate this version",
       "statusPausedBy_zero": "paused by {{who}} on {{date}}",
-      "statusPaused_zero": "owner {{owner}}"
+      "statusPaused_zero": "owner {{owner}}",
+      "pausedReason": {
+        "mailbox_lost": "the owner's mailbox can't be used any more",
+        "owner_lost_permission": "the owner lost a permission it needs"
+      }
     },
     "version": {
       "short": "v{{n}}",
@@ -6876,6 +7339,20 @@
       "noOwner": "Nobody yet: whoever turns it on becomes the owner.",
       "project": "Project",
       "created": "Created",
+      "webhookLimit": "Webhook limit",
+      "webhookLimitValue": "{{perMinute}} a minute · {{perDay}} a day",
+      "webhookLimitDefault": "(default)",
+      "webhookLimitChange": "Change the webhook limit",
+      "change": "Change",
+      "save": "Save",
+      "perMinute": "A minute",
+      "perDay": "A day",
+      "perMinuteValue": "{{n}} a minute",
+      "perDayValue": "{{n}} a day",
+      "webhookLimitCapped": "{{chosen}} is above the instance maximum: {{applies}} applies.",
+      "webhookLimitHint": "Empty = the default ({{defaultPerMinute}} a minute, {{defaultPerDay}} a day). The instance maximum is {{maxPerMinute}} a minute and {{maxPerDay}} a day.",
+      "webhookLimitTooHigh": "Use whole numbers from 1: at most {{perMinute}} a minute and {{perDay}} a day.",
+      "webhookLimitError": "The limit wasn't saved. Try again.",
       "limits": "At most {{emails}} emails per run · {{rounds}} rounds per “For each” · {{runs}} runs at a time."
     },
     "dialogs": {
@@ -6974,8 +7451,14 @@
       "onMailboxMissing_publish": "Couldn't publish {{code}}: connect a mailbox in Mail first.",
       "onMailboxExpired": "Couldn't turn on {{code}}: your mailbox connection expired. Reconnect it in Mail.",
       "onMailboxExpired_publish": "Couldn't publish {{code}}: your mailbox connection expired. Reconnect it in Mail.",
+      "onMailboxScope": "Couldn't turn on {{code}}: your mailbox can't send email. Reconnect it in Mail.",
+      "onMailboxScope_publish": "Couldn't publish {{code}}: your mailbox can't send email. Reconnect it in Mail.",
+      "onMailboxReadScope": "Couldn't turn on {{code}}: your mailbox doesn't give Stubwise permission to read your mail. Reconnect it in Mail.",
+      "onMailboxReadScope_publish": "Couldn't publish {{code}}: your mailbox doesn't give Stubwise permission to read your mail. Reconnect it in Mail.",
       "onConfig": "Couldn't turn on {{code}}: it has problems to fix first.",
       "onConfig_publish": "Couldn't publish {{code}}: it has problems to fix first.",
+      "onSourceInUse": "Couldn't turn on {{code}}: another automation already uses this webhook. Give it a webhook of its own.",
+      "onSourceInUse_publish": "Couldn't publish {{code}}: another automation already uses this webhook. Give it a webhook of its own.",
       "publishedPaused": "Version {{n}} of {{code}} published · it stays paused",
       "approvedChanges": "Approved with changes · {{code}} goes on"
     },
@@ -6989,6 +7472,14 @@
       "other": "something went wrong",
       "permission_lost": "permission lost",
       "mailbox_expired": "the mailbox connection expired",
+      "provider_error": "Claude didn't answer",
+      "claude_invalid": "Claude's answer couldn't be read",
+      "mailbox_scope": "the mailbox can't send email",
+      "token_expired": "the mailbox connection expired",
+      "google_scope_missing": "the mailbox needs to be reconnected",
+      "quota": "Gmail's sending limit was reached",
+      "invalid_message": "Gmail refused the message",
+      "interrupted": "sending was interrupted",
       "mailbox_missing": "no mailbox connected",
       "no_approver": "nobody can approve it",
       "address_not_found": "the address doesn't exist",
@@ -7014,6 +7505,15 @@
       "project_unavailable": "the project isn't available anymore"
     },
     "reasons": {
+      "notAvailable": "This step isn't available yet: it wasn't run.",
+      "notAvailable_would": "This step isn't available yet: it wouldn't run.",
+      "generalLost": "Permission lost: the owner no longer manages general automations.",
+      "generalLost_would": "The owner doesn't manage general automations: the step would fail.",
+      "cancelledBy": "Run cancelled.",
+      "suspended": "Suspended: the automation is paused. It goes on from here when it's turned back on.",
+      "emailAlreadySent": "The email had already left: it can't be cancelled any more.",
+      "emailGone": "The email being sent can't be found any more.",
+      "emailCancelled": "The email was cancelled before it left.",
       "other": "Something went wrong.",
       "permissionLost": "Permission lost: the owner ({{owner}}) no longer sees the step's project.",
       "permissionLost_would": "The owner ({{owner}}) doesn't see the step's project: the step would fail.",
@@ -7024,6 +7524,8 @@
       "cantManage": "Permission lost: the owner ({{owner}}) can't manage “{{name}}”.",
       "cantManage_would": "The owner ({{owner}}) can't manage “{{name}}”: it wouldn't start.",
       "invalidInput": "The step's data isn't valid ({{message}}).",
+      "milestoneExists": "A milestone “{{name}}” already exists in the project.",
+      "milestoneExists_would": "A milestone “{{name}}” already exists in the project: the step would fail.",
       "emailLimitChain": "Limit reached: at most {{max}} emails per run, counting the automations this one started.",
       "emailLimitChain_would": "Limit reached: at most {{max}} emails per run, counting the automations this one starts. The email wouldn't be sent.",
       "mailboxGone": "The mailbox chosen for the automation ({{mailbox}}) is no longer connected to {{owner}}: the email wasn't sent.",
@@ -7032,6 +7534,14 @@
       "noMailbox_would": "The owner ({{owner}}) has no connected mailbox: the email wouldn't be sent.",
       "mailboxExpired": "The owner's mailbox ({{owner}}) has expired: reconnect it before retrying.",
       "mailboxExpired_would": "The owner's mailbox ({{owner}}) has expired: the email wouldn't be sent until it's reconnected.",
+      "mailboxScope": "The owner's mailbox ({{owner}}) can't send email: reconnect it before retrying.",
+      "mailboxScope_would": "The owner's mailbox ({{owner}}) can't send email: the email wouldn't be sent until it's reconnected.",
+      "providerError": "Claude didn't answer ({{code}}), attempt {{attempt}}: it tries again on its own.",
+      "providerFailed": "Claude didn't answer after {{attempts}} attempts: {{code}}. The step failed; retry it when the service is back.",
+      "monthlyBudget": "Waiting: the monthly AI budget is used up. It starts again on its own when the budget is available.",
+      "claudeInvalid": "Claude's answer couldn't be read: the step failed. Retry it to ask again.",
+      "claudeInvalid_would": "Claude's answer couldn't be read: the step would fail.",
+      "emailFailed": "The email wasn't sent: {{error}}.",
       "invalidAddress": "“{{to}}” isn't an email address.",
       "addressNotFound": "The address “{{to}}” doesn't exist: the email bounced.",
       "addressNotFound_would": "The address “{{to}}” doesn't exist: the email would bounce.",
@@ -7074,7 +7584,8 @@
       "aiQueueBackStillBudget": "Queue resumed · still waiting: monthly AI budget reached",
       "projectUnavailable": "The project isn't available anymore.",
       "projectUnavailable_would": "The project isn't available anymore: the step would fail.",
-      "noDepartmentRecipient": "Nobody in the department sees the project: there's nobody to notify."
+      "noDepartmentRecipient": "Nobody in the department sees the project: there's nobody to notify.",
+      "queuePaused": "Waiting: the project's queue is paused. It starts again on its own when the queue is resumed."
     },
     "created": {
       "task_one": "{{count}} task",
@@ -7171,6 +7682,7 @@
     },
     "run": {
       "started": "Started {{date}} at {{time}}",
+      "detailsPruned": "This run's details are gone: they're kept for {{days}} days.",
       "byRun": "by",
       "ownersAutomation": "{{owner}}'s automation",
       "startedRuns": "It started:",
@@ -7272,6 +7784,7 @@
       "replyFrom": "Reply from {{sender}} received on {{date}}",
       "replyReceivedOn": "Reply received on {{date}}",
       "replyInMailbox": "The reply is in {{owner}}'s mailbox",
+      "reasonHidden": "Claude's reasoning quotes an email you can't see: it stays with the mailbox owner.",
       "hiddenRun": "Started an automation you can't see"
     },
     "notVisible": {
@@ -7318,6 +7831,11 @@
       "fields": "Fields",
       "fieldsHint": "Fields are what automations can use from this webhook.",
       "address": "Address",
+      "addressHidden": "The address is hidden: it's shown only when it's created. Generate a new one to see it again.",
+      "eventDuplicate": "Duplicate: already received, nothing started",
+      "eventRejectedJson": "Rejected: the body isn't a JSON object",
+      "eventRejectedType": "Rejected: {{field}} — expected {{type}}",
+      "eventRejectedOther": "Rejected: {{reason}}",
       "postHint": "Send a POST with a JSON body to this address.",
       "example": "Example",
       "recent": "Recent events",
@@ -7412,6 +7930,7 @@
         "task_created": "by a new task",
         "task_closed": "by a closed task",
         "request_created": "by a new request",
+        "request_converted": "by a converted request",
         "milestone_reached": "by a milestone reached",
         "mail_received": "by an email in the owner's mailbox"
       },
@@ -7669,7 +8188,9 @@
         "limit": "Over a limit",
         "selfStart": "Would start itself again",
         "department_cant_see": "Nobody in the department sees the project",
-        "departmentCantSee": "Nobody in {{name}} sees {{code}}"
+        "departmentCantSee": "Nobody in {{name}} sees {{code}}",
+        "not_available": "Coming soon",
+        "untrusted_target": "Asks first: Claude picks who"
       },
       "problem": {
         "unavailable": "{{label}} isn't available here",
@@ -7782,7 +8303,8 @@
         "person": "A person",
         "role": "A role in the project",
         "owner": "The owner (whoever turned it on)",
-        "clientCheck": "For the client's project, whether they can see it is checked when the run gets here."
+        "clientCheck": "For the client's project, whether they can see it is checked when the run gets here.",
+        "untrusted": "Claude picks who this goes to from something that came from outside, so someone approves it first."
       },
       "claude": {
         "rule": "Claude only picks one of these outcomes and fills these fields. It never acts on its own: actions are the steps you add.",
@@ -7870,6 +8392,7 @@
           "task_created": "A task is created",
           "task_closed": "A task is closed",
           "request_created": "A request is created",
+          "request_converted": "A request is converted",
           "milestone_reached": "A milestone is reached",
           "mail_received": "An email arrives in your mailbox"
         },
@@ -7917,6 +8440,16 @@
       }
     },
     "test": {
+      "cost": {
+        "title": "Claude in this test",
+        "body_one": "This test asks Claude once: about {{usd}} from the instance's monthly AI budget.",
+        "body_other": "This test asks Claude {{count}} times: about {{usd}} from the instance's monthly AI budget.",
+        "bodyUpTo_one": "This test asks Claude up to once: at most {{usd}} from the instance's monthly AI budget.",
+        "bodyUpTo_other": "This test asks Claude up to {{count}} times: at most {{usd}} from the instance's monthly AI budget.",
+        "bodyUnknown_one": "This test asks Claude once, from the instance's monthly AI budget: the cost can't be estimated for this model.",
+        "bodyUnknown_other": "This test asks Claude {{count}} times, from the instance's monthly AI budget: the cost can't be estimated for this model.",
+        "confirm": "Test with Claude"
+      },
       "title": "Test: {{name}}",
       "back": "Back to editing",
       "band": {
@@ -8156,6 +8689,15 @@
         "pickProjectNone": "Choose a project",
         "useProject": "Use this project in the test",
         "error": "The test couldn't go on. Try again.",
+        "errors": {
+          "budget": "The monthly AI budget is used up: Claude can't answer in this test until it's raised or the month ends.",
+          "claude_invalid": "Claude's answer couldn't be read: try the test again.",
+          "not_available": "Claude steps aren't available on this server yet.",
+          "not_found": "This automation isn't there any more, or you can't see it.",
+          "stale": "The draft changed while testing: start the test again.",
+          "test_busy": "Another step of a test of this automation is running: try again in a moment.",
+          "client_too_long": "This example's client name is too long (over 200 characters): the test can't tell which project it would go to."
+        },
         "noProjects": "You can't see any project the owner could choose, so the test can't go on from here. A real run would wait for the owner to choose one.",
         "connectMailbox": "Connect a mailbox before you turn it on",
         "seeWhereItStops": "See where it stops"
@@ -8252,6 +8794,7 @@
       "whichProjectNoClient": "Which project should this run work in?",
       "alreadyDecided": "Already decided by {{name}}",
       "alreadyDecidedSomeone": "Someone already decided this step",
+      "applying": "Your decision is being applied…",
       "answering": "Your answer goes out in a few seconds. You can undo it from the message below.",
       "attachmentsReadOnly": "Attachments stay as they are: {{names}}",
       "suspended": "{{code}} is paused: nothing was decided. It can be decided once it's turned on again."
@@ -8281,6 +8824,7 @@
     "app": "App",
     "phone": "Phone",
     "prototypePhone": "Prototype: phone alerts are saved, but nothing is sent.",
+    "appPhone": "Sent as a push notification to the Stubwise app on your phone.",
     "pinned": "Pinned",
     "others": "Other projects",
     "projects": "Projects",
@@ -8306,6 +8850,7 @@
       "releases": "Releases",
       "docs": "Docs",
       "tasks": "Tasks",
+      "members": "Members",
       "support": "Support",
       "monitor": "Servers",
       "claude": "Claude"
@@ -8318,12 +8863,15 @@
       "release_succeeded": "Release succeeded",
       "release_failed": "Release failed",
       "docs_release_note": "Release note ready",
+      "product_doc_mention": "Mentioned in the product doc",
+      "product_doc_updated": "Claude updated a product page",
+      "product_doc_question": "Claude asks about a product page",
       "task_created": "New task",
       "task_created_by_automation": "New task from an automation",
       "support_request": "New request",
-      "support_customer_replied": "Customer replied",
       "job_pr_opened": "Claude opened a PR",
       "review_completed": "PR review done",
+      "member_added": "Someone joined the project",
       "ticket_created": "New task",
       "request_created": "New request",
       "docs_nightly_attention": "Docs need attention",
@@ -8344,12 +8892,15 @@
       "release_succeeded": "When a release of {{code}} reaches production",
       "release_failed": "When a release of {{code}} fails after the merge",
       "docs_release_note": "When the night run writes a release note for {{code}}",
+      "product_doc_mention": "When someone mentions you in a comment on {{code}}'s product doc",
+      "product_doc_updated": "When Claude updates a product page of {{code}}",
+      "product_doc_question": "When Claude asks something about a product page of {{code}}",
       "task_created": "When a task is created in {{code}}",
       "task_created_by_automation": "When an automation creates a task in {{code}}",
       "support_request": "When a request is opened in {{code}}, by a customer or a colleague",
-      "support_customer_replied": "When a customer writes again in a conversation of {{code}}",
       "job_pr_opened": "When Claude opens a PR for a task of {{code}}",
       "review_completed": "When Claude finishes reviewing a PR of {{code}}",
+      "member_added": "When someone is added to {{code}}",
       "ticket_created": "When a task is created in {{code}}",
       "request_created": "When a request is opened in {{code}}",
       "docs_nightly_attention": "When the night run can't update a page of {{code}}'s docs",
@@ -8359,11 +8910,18 @@
       "project_brief": "When the weekly brief of {{code}} is ready"
     },
     "mandatoryLine": {
+      "added": "Always for whoever was added",
       "merged": "Always when you did the merge",
       "pr_author": "Always for the PR's author",
-      "follows_conversation": "Always if you follow the conversation",
       "task_author": "Always for the task's author, if the merge came from outside Stubwise",
-      "assignee": "Always for whoever the task is assigned to"
+      "assignee": "Always for whoever the task is assigned to",
+      "analysis_requester": "Always for whoever asked Claude to look into the server",
+      "mentioned": "Always for whoever is mentioned",
+      "follower": "Always for whoever follows the page"
+    },
+    "mandatoryStill": {
+      "app": "When it applies to you, it still reaches you in the app",
+      "appPhone": "When it applies to you, it still reaches you in the app and on your phone"
     },
     "always": "Always for you",
     "alwaysPhone": "App and phone",
@@ -8373,7 +8931,6 @@
       "docs_view": "Paused · you can no longer see {{code}}'s docs",
       "tickets_view_all": "Paused · you can no longer see all of {{code}}'s tasks",
       "backlog_view_all": "Paused · you can no longer see {{code}}'s requests",
-      "support_reply": "Paused · you can no longer reply to {{code}}'s customers",
       "other": "Paused · you can no longer see this in {{code}}"
     },
     "suspendedBack": "It comes back if you get access again.",
@@ -8435,9 +8992,11 @@
       "why": {
         "merged": "You get this because you did the merge",
         "pr_author": "You get this because you opened this PR",
-        "follows_conversation": "You get this because you follow this conversation",
         "task_author": "You get this because the PR comes from your task",
-        "assignee": "You get this because the task is assigned to you"
+        "assignee": "You get this because the task is assigned to you",
+        "analysis_requester": "You get this because you asked Claude to look into this server",
+        "mentioned": "You get this because you were mentioned",
+        "follower": "You get this because you follow this page"
       }
     },
     "pausedShort": "Paused",
@@ -8525,7 +9084,10 @@
       "corrected": "Claude pushed {{sha}} · analysing again",
       "correctedNoSha": "Claude pushed a fix · analysing again",
       "discarded": "{{name}} pushed new commits first · analysing the new head",
+      "discardedAuthor": "The author pushed new commits first · analysing the new head",
+      "discardedBranch": "Someone pushed to the branch first · analysing the new head",
       "capped": "Claude stopped after {{cap}} corrections",
+      "notAnalyzed": "Not analyzed: automatic review is off",
       "analysisOff": "Analysis is off for {{repo}}",
       "onStaging": "on staging"
     },
@@ -8557,6 +9119,7 @@
         "merge_forbidden": "The git account saved for {{code}} can't merge this pull request.",
         "not_found": "This pull request wasn't found.",
         "forbidden": "You can't release in {{code}} any more.",
+        "merge_failed": "The merge failed on the provider: nothing was merged. Try again in a moment.",
         "generic": "Couldn't merge. Try again in a moment."
       }
     },
@@ -8566,7 +9129,8 @@
       "failed": "Failed",
       "not_in_production": "Not in production yet",
       "in_production": "In production",
-      "unavailable": "Status unavailable"
+      "unavailable": "Status unavailable",
+      "unknown": "Status unknown"
     },
     "list": {
       "outsideBy": "{{name}} outside Stubwise",
@@ -8601,6 +9165,7 @@
         "no_server": "The production environment has no server linked",
         "no_server_for_repository": "{{repo}} has no server in the production environment"
       },
+      "unknown": "The CI runs couldn't be read: the status isn't known for now.",
       "noPipeline": "No pipeline run started within 30 minutes of the merge, so Stubwise follows the production server instead.",
       "fixingIn": "Claude is fixing it in {{task}}",
       "openTask": "Open {{task}}",
@@ -8627,6 +9192,7 @@
       "waits": "The task will wait for someone who can start Claude in {{code}}.",
       "planGate": "Claude will write a plan first; someone who can approve plans in {{code}} approves it.",
       "created": "{{task}} created",
+      "createdStarted": "{{task}} created: Claude started on it",
       "error": "Couldn't create the task for {{code}}.",
       "noPermission": "Someone who can create tasks in {{code}} can ask Claude to fix it.",
       "discard": "Discard your note?",
@@ -8675,6 +9241,7 @@
       "copied": "Log copied",
       "copyError": "Couldn't copy the log.",
       "hidden": "The log is visible to people who can see {{code}}'s code.",
+      "onProvider": "The full log is on {{platform}}: open the run there.",
       "none": "This run has no log."
     },
     "environments": {
@@ -8707,6 +9274,8 @@
       "deleteTitle": "Delete {{name}}?",
       "deleteProduction": "Releases without a pipeline will show “Status unavailable” until another production environment has a server for their repository.",
       "deleteError": "Couldn't delete {{name}}.",
+      "deleteReauthAction": "delete {{name}} and its environment files",
+      "deleteReauthCancelled": "Nothing was deleted.",
       "errors": {
         "name": "Give the environment a name.",
         "url": "The URL must start with http:// or https://.",
@@ -8716,7 +9285,24 @@
         "generic": "Couldn't save the environment."
       },
       "orphanWarning_one": "{{codes}} won't be in any environment anymore. Only someone who manages monitoring can link it again.",
-      "orphanWarning_other": "{{codes}} won't be in any environment anymore. Only someone who manages monitoring can link them again."
+      "orphanWarning_other": "{{codes}} won't be in any environment anymore. Only someone who manages monitoring can link them again.",
+      "kindLocked": "The type can't change: for another type, add a new environment.",
+      "containers": {
+        "line": "Containers on {{code}}: {{list}}",
+        "menu": "Containers on {{code}}",
+        "title": "Containers of {{name}} on {{code}}",
+        "body": "Pick the containers on {{code}} that belong to {{name}}. Claude uses them to tell which project a problem on the server comes from, and a fix only touches them. With none picked, the container named like the environment counts.",
+        "loading": "Loading the containers the agent reports…",
+        "none": "The agent doesn't report any container on {{code}}.",
+        "unseen": "You can't see {{code}}, so its containers can't be listed here. Someone who manages the monitoring can pick them.",
+        "save": "Save",
+        "errors": {
+          "container_of_other_project": "A container you picked belongs to another project on this server.",
+          "unknown_container": "The agent doesn't report one of these containers any more. Reopen the list and try again.",
+          "server_not_in_environment": "This environment doesn't use {{code}} any more.",
+          "generic": "Couldn't save the containers. Try again."
+        }
+      }
     },
     "panel": {
       "label": "Pull request {{pr}}",
@@ -8739,6 +9325,8 @@
         "running": "in progress",
         "pushed": "pushed",
         "discarded": "discarded: {{name}} pushed first · doesn't count",
+        "discardedAuthor": "discarded: the author pushed first · doesn't count",
+        "discardedBranch": "discarded: someone pushed to the branch first · doesn't count",
         "stopped": "stopped before pushing · doesn't count"
       },
       "automatic": "automatic",
@@ -8762,7 +9350,11 @@
         "in_flight": "Claude is already working on a correction.",
         "not_fixable": "Claude can't push to this branch.",
         "analysis_only": "This pull request is set to analysis only.",
-        "monthly_budget": "Claude didn't start: the monthly AI budget is used up."
+        "monthly_budget": "Claude didn't start: the monthly AI budget is used up.",
+        "pr_not_found": "Stubwise is still analyzing this pull request: try again in a moment.",
+        "adopted_pr_admin_only": "Only an admin can ask for changes on this pull request.",
+        "not_stubwise_pr": "Stubwise can't correct this pull request.",
+        "adopted_branch_protected": "This pull request's branch is protected: Claude can't push to it."
       },
       "stubwiseCorrections": "Claude makes the change in a new session of {{task}}.",
       "openSession": "Open",
@@ -8819,11 +9411,10 @@
       "mcp": "Claude Code"
     },
     "state": {
-      "waiting_us": "Waiting on us",
       "triage": "In triage",
       "not_concluded": "Not concluded",
       "request_open": "Request open",
-      "reply_sent": "Replied"
+      "answered": "Answered"
     },
     "customerStatus": {
       "received": "Received",
@@ -8858,19 +9449,20 @@
       "widgetChannel": "Widget · {{name}}",
       "started": "started {{date}}",
       "preview": "Customer preview",
-      "follow": "Follow",
-      "following": "Following",
       "more": "More actions",
       "copyLink": "Copy link",
       "linkCopied": "Link copied",
       "linkError": "Couldn't copy the link.",
-      "writeEmail": "Write to them by email",
       "prototype": "Prototype only",
       "simulateMessage": "Simulate a customer message",
       "simulateLeaves": "Simulate: customer leaves",
       "simulateTriage": "Simulate: triage done",
       "simulatedText": "Hello, is there any news?",
-      "actionFailed": "Something went wrong. Nothing changed."
+      "actionFailed": "Something went wrong. Nothing changed.",
+      "continuedIn": "Continued in",
+      "continuedFrom": "Follow-up of",
+      "verified": "Verified customer",
+      "declared": "Declared by the site"
     },
     "request": {
       "label": "Request",
@@ -8879,9 +9471,17 @@
       "showAll": "Show all",
       "showLess": "Show less",
       "triage": "No request yet · the assistant is still asking",
-      "left": "No request · the customer left before confirming",
+      "left": "No request · the customer still needs something",
+      "answered": "No request · the widget's answer was enough",
+      "answeredWhy": "No reply from the customer for {{minutes}} minutes.",
+      "answeredMark": "If it isn't settled, mark it not concluded: it goes back to the team.",
+      "notConcluded": "Not concluded",
+      "notConcludedError": "Couldn't mark the conversation as not concluded.",
       "open": "Open the request",
-      "cannotOpen": "Someone with permission to create requests can open it."
+      "cannotOpen": "Someone who can manage Support conversations and create requests can open it."
+    },
+    "task": {
+      "label": "Task"
     },
     "openDialog": {
       "title": "Open the request",
@@ -8900,8 +9500,7 @@
       "label": "Conversation",
       "assistant": "Assistant (triage)",
       "team": "Team",
-      "sentWidget": "Sent to the customer in the widget",
-      "sentMcp": "Sent to the customer in Claude Code",
+      "sentMcp": "Sent to the collaborator in Claude Code",
       "earlier_one": "{{count}} earlier message",
       "earlier_other": "{{count}} earlier messages",
       "sending": "Sending…",
@@ -8909,39 +9508,19 @@
     },
     "reply": {
       "to": "Reply to {{name}}",
-      "inWidget": "in the widget",
       "inMcp": "in Claude Code",
       "message": "Message",
       "placeholder": "Write to {{name}}…",
-      "prepared": "Claude prepared a draft",
-      "useDraft": "Use draft",
-      "show": "Show",
-      "hide": "Hide",
-      "stop": "Stop",
       "saved": "Saved",
       "discard": "Discard",
-      "send": "Send to customer",
+      "send": "Send",
       "emptyReason": "Write a reply first",
-      "replaceAsk": "Replace your text or add Claude's draft below it?",
-      "replace": "Replace",
-      "addBelow": "Add below",
-      "cancel": "Cancel",
-      "draftFailed": "Claude couldn't write a draft. Your text is unchanged.",
-      "tryAgain": "Try again",
       "sentTo": "Sent to {{name}}",
       "undo": "Undo",
-      "readOnly": "Only people who can reply to customers write here.",
-      "triage": "The assistant is still asking the customer questions: you can reply once the triage ends.",
-      "lastSeen": "{{name}} last saw the conversation {{time}}. They'll see your reply when they come back.",
+      "readOnly": "Only people who can manage Support conversations reply here.",
       "nextTime": "They'll see it the next time they ask about their requests.",
-      "noEmail": "The customer didn't leave an email address",
-      "noMailbox": "Connect your Google account to write from Stubwise",
-      "connect": "Connect",
-      "emailError": "Couldn't prepare the email.",
       "waitPrevious": "Wait: your previous reply is still in its Undo window",
-      "notSentBack": "Not sent. Your reply is back in the box: send it again when you're ready.",
-      "noEmailTriage": "The assistant is still asking the customer questions",
-      "askClaude": "Ask Claude"
+      "notSentBack": "Not sent. Your reply is back in the box: send it again when you're ready."
     },
     "preview": {
       "title": "What {{name}} sees",
@@ -8980,10 +9559,11 @@
         "instructions": "The instructions can be at most 4000 characters.",
         "accentColor": "The colour must be like #22c55e.",
         "language": "Choose Italian or English.",
-        "origins": "Each site must be like https://example.com.",
+        "origins": "Each site must be like https://example.com (http only for localhost, no path), at most 20.",
         "sourceRepositoryIds": "Choose repositories of this project.",
         "dailyMessageCap": "Messages per day: a whole number from 1 to 100000, or empty.",
-        "dailyRequestCap": "Requests per day: a whole number from 1 to 100000, or empty."
+        "dailyRequestCap": "Requests per day: a whole number from 1 to 100000, or empty.",
+        "identityRequired": "Make a secret first."
       },
       "fields": {
         "name": "Name",
@@ -8991,7 +9571,8 @@
         "sources": "Documentation sources",
         "noSources": "This project has no repositories.",
         "origins": "Sites",
-        "originsHint": "One per line, like https://example.com",
+        "originsHint": "One per line, like https://example.com (http only for localhost). Empty: any site.",
+        "anySite": "Any site can load this widget.",
         "title": "Title",
         "welcome": "Welcome message",
         "instructions": "Instructions for the assistant",
@@ -9002,7 +9583,10 @@
         "languageEn": "English",
         "messageCap": "Messages per day",
         "requestCap": "Requests per day",
-        "capHint": "Empty: the instance default"
+        "capHint": "Empty: the instance default",
+        "identityRequired": "Only verified customers",
+        "identityRequiredHint": "Without a valid identity token from your site, the widget refuses the customer.",
+        "identityRequiredNoSecret": "Make a secret first."
       },
       "snippet": "Snippet",
       "copySnippet": "Copy snippet",
@@ -9015,7 +9599,30 @@
       "deleteAsk": "Delete {{name}}? Its conversations stay.",
       "deleteConfirm": "Delete",
       "deleted": "{{name}} deleted",
-      "deleteError": "Couldn't delete the widget."
+      "deleteError": "Couldn't delete the widget.",
+      "anySiteShort": "Any site",
+      "identity": {
+        "title": "Customer identity",
+        "about": "Your site's backend signs a token for each signed-in customer with this secret: then the widget knows who they really are.",
+        "madeOn": "Secret made on {{date}}.",
+        "none": "No secret yet.",
+        "make": "Make a secret…",
+        "regenerate": "Regenerate secret…",
+        "dialogMake": "Make an identity secret for {{name}}?",
+        "dialogReplace": "Make a new identity secret for {{name}}?",
+        "stops": "The current secret stops working now: tokens signed with it are refused.",
+        "backendOnly": "Put it in your site's backend, never in the page.",
+        "once": "The new secret is shown only once.",
+        "confirmMake": "Make secret",
+        "confirmReplace": "Regenerate",
+        "secretTitle": "This secret is shown only now.",
+        "secretLabel": "Identity secret",
+        "reauthAction": "make an identity secret for {{name}}",
+        "error": "The secret couldn't be made. Try again.",
+        "widgetId": "Widget id (the token's aud)",
+        "copyWidgetId": "Copy widget id",
+        "copy": "Copy"
+      }
     },
     "origin": {
       "title": "Where it comes from",
@@ -9038,10 +9645,7 @@
     "notFound": "This server doesn't exist, or you can't see it.",
     "noEnvironments": "In no environment",
     "envLine": "{{kind}} · {{code}}",
-    "envPrimary": "{{env}} (primary)",
     "stagingOnly": "Staging only: no alerts, no analysis",
-    "diagnosesGoTo": "Diagnoses go to {{code}}",
-    "diagnosesGoElsewhere": "Diagnoses go to another project",
     "errors": {
       "list": "Couldn't load the servers of {{code}}",
       "detail": "Couldn't load this server",
@@ -9082,11 +9686,10 @@
       "not_linked": "No SSH access",
       "awaiting_command": "SSH access waiting for the command",
       "verify_failed": "SSH access check failed",
-      "read_writes": "SSH access turned off: the read access can write",
+      "privileged": "SSH access turned off: stubwise-read can do more than read",
       "revoked": "SSH access revoked",
       "verified": "SSH access verified",
-      "regenerating": "New SSH keys waiting for the command",
-      "cantLook": "{{access}}: Claude can't look into it"
+      "regenerating": "New SSH keys waiting for the command"
     },
     "duration": {
       "lessThanMinute": "less than a minute",
@@ -9103,7 +9706,13 @@
       "checkError": "Check “{{name}}” is down: {{error}}",
       "checkGone": "A check that no longer exists was down",
       "silentOpen": "The agent hasn't reported since {{time}}",
-      "silentClosed": "The agent stopped reporting at {{time}}"
+      "silentClosed": "The agent stopped reporting at {{time}}",
+      "cpuAbove": "CPU above the threshold",
+      "memoryAbove": "Memory above the threshold",
+      "diskAbove": "Disk above the threshold",
+      "cpuAt": "CPU at {{value}}%",
+      "memoryAt": "Memory at {{value}}%",
+      "diskAt": "Disk at {{value}}%"
     },
     "reasonShort": {
       "cpu": "CPU",
@@ -9135,10 +9744,8 @@
       "recovered": "Back to normal at {{time}} · after {{duration}}",
       "recoveredOn": "Back to normal on {{date}} at {{time}} · after {{duration}}",
       "openSession": "Open session",
-      "noAccess": "Claude can't look into it: no SSH access.",
       "noBudget": "Claude can't look into it: the monthly AI budget is used up.",
       "linkAccess": "Link SSH access",
-      "primary": "The diagnosis opens in {{code}}, the primary project.",
       "work": {
         "analyzing": "Claude is looking into it with read-only access",
         "diagnosed": "Diagnosis ready",
@@ -9146,11 +9753,24 @@
         "unreachable": "Claude couldn't reach the server",
         "stopped": "Claude stopped before a diagnosis",
         "failed": "Claude's analysis failed: the task couldn't be opened",
+        "undetermined": "Claude couldn't tell which project is causing it: {{reason}} No task was opened.",
         "fixing": "Fix running",
         "hiddenTask": "The diagnosis is in a project you can't see."
       },
       "downDay": "Not responding since {{when}}",
-      "troubleDay": "In trouble since {{when}}"
+      "troubleDay": "In trouble since {{when}}",
+      "analysisOff": "Claude doesn't look into alerts: the server analysis is turned off in Administration → AI.",
+      "noSshReads": "Claude's diagnosis won't include SSH reads: no SSH access.",
+      "noSshReadsUnusable": "Claude's diagnosis won't include SSH reads: the read-only SSH access isn't usable."
+    },
+    "attribution": {
+      "no_project": "the analysis didn't name a project.",
+      "project_not_on_server": "the project it named doesn't use this server.",
+      "no_containers": "it didn't name a container, and more than one project uses this server.",
+      "unknown_container": "it named a container the agent doesn't report on this server.",
+      "no_container_of_project": "none of the containers it named belongs to that project's environments.",
+      "containers_of_other_project": "it named a container that belongs to another project.",
+      "other": "this app doesn't know the reason yet."
     },
     "charts": {
       "rangeLabel": "Time range",
@@ -9184,7 +9804,8 @@
       "summaryAveraged_one": "Average {{avg}} · highest {{count}}-hour average {{peak}} on {{day}}",
       "summaryAveraged_other": "Average {{avg}} · highest {{count}}-hour average {{peak}} on {{day}}",
       "summaryDay": "Average {{avg}} · peak {{peak}} on {{day}}",
-      "summaryLatencyDay": "Average {{avg}} · slowest {{peak}} on {{day}}"
+      "summaryLatencyDay": "Average {{avg}} · slowest {{peak}} on {{day}}",
+      "perSecond": "{{value}}/s"
     },
     "services": {
       "filter": "Filter services",
@@ -9302,14 +9923,9 @@
       "name": "Name",
       "interval": "Report every (seconds)",
       "intervalHint": "From 10 to 300 seconds.",
-      "primary": "Primary project",
-      "primaryOnly": "{{code}} — the only production using this server",
-      "primaryNone": "No production uses this server: no alerts, no analysis.",
-      "primaryHint": "Claude's diagnoses open as tasks here.",
       "errors": {
         "name": "Give the server a name.",
         "sampleIntervalSeconds": "Use a whole number of seconds from 10 to 300.",
-        "primaryProjectId": "Choose a project whose production uses this server.",
         "generic": "Couldn't save the settings. Try again."
       },
       "key": {
@@ -9331,8 +9947,7 @@
         "busy": "Claude is working on {{code}} right now. Delete it when the analysis or the fix is over.",
         "error": "Couldn't delete {{code}}. Try again.",
         "done": "{{code}} deleted"
-      },
-      "primaryHidden": "The productions using this server are in projects you can't see."
+      }
     },
     "create": {
       "title": "New server in {{code}}",
@@ -9351,7 +9966,8 @@
         "name": "Give the server a name.",
         "environment": "This environment already has a server.",
         "generic": "Couldn't create the server. Try again."
-      }
+      },
+      "keyLost": "The server was created, but its key can't be shown anymore: regenerate it from the settings of {{code}}."
     },
     "key": {
       "readyTitle": "{{code}} is ready for its agent",
@@ -9368,7 +9984,11 @@
       "done": "Done",
       "closeWithout": "Close without copying the key? You can regenerate it later from Settings.",
       "keepOpen": "Keep it open",
-      "closeAnyway": "Close"
+      "closeAnyway": "Close",
+      "operations": "Let the agent run fix actions",
+      "operationsHint": "Restart, stop or start a container, or free up space — only the steps of a plan a person approved, signed by this Stubwise. Off, Claude can still read and propose, but no plan runs.",
+      "commandKeyLoading": "Loading the command key…",
+      "commandKeyError": "Couldn't load the key that signs the agent's actions. Untick the option, or try again."
     },
     "simulate": {
       "label": "Prototype only: server signals",
@@ -9391,25 +10011,22 @@
       "trouble_other": "{{count}} servers in trouble"
     },
     "ssh": {
-      "intro": "Two accesses let Claude look into {{code}}, and fix it from a task.",
+      "intro": "One read-only access lets Claude look into {{code}}. Fixes don't use SSH: they go through the monitoring agent.",
       "more": "More SSH access actions for {{code}}",
       "menu": {
         "showCommand": "Show command again",
         "hideCommand": "Hide command",
         "verifyAgain": "Verify again",
-        "regenerate": "Regenerate keys…",
+        "regenerate": "Regenerate key…",
         "revoke": "Revoke access…",
         "removal": "Show removal command"
       },
       "users": {
-        "label": "The two users the command creates",
+        "label": "The user the command creates",
         "user": "User",
         "does": "What it can do",
-        "read": "Reads logs, processes, disk and memory. Can't change anything.",
-        "readNote": "Not in the docker group; docker inspect isn't allowed (it shows secrets).",
-        "fix": "Can do anything on the server",
-        "fixSudo": "(passwordless sudo).",
-        "fixNote": "Used only by a fix that someone allowed started from a task, after its plan was approved."
+        "read": "Reads processes, disk, memory, load, listening ports and failed services. Can't change anything.",
+        "readNote": "No sudo, not in the docker group. Its only group is systemd-journal, to read the errors in the system journal."
       },
       "steps": {
         "label": "Steps to link SSH access to {{code}}",
@@ -9419,22 +10036,21 @@
       },
       "step1": {
         "title": "Link SSH access",
-        "body": "Stubwise creates two key pairs. Private keys are encrypted and never shown.",
-        "done": "Keys created {{date}}, {{time}}",
+        "body": "Stubwise creates a key pair. The private key is encrypted and never shown.",
+        "done": "Key created {{date}}, {{time}}",
         "action": "Link SSH access",
         "linking": "Linking…"
       },
       "step2": {
         "title": "Run this command on {{code}}",
-        "creates": "It creates two users:",
-        "runAs": "Run it as root on {{code}}. Read it first: it contains only public keys.",
-        "prototype": "Prototype: these keys are made up by the prototype.",
-        "fpRead": "read",
-        "fpFix": "fix"
+        "creates": "It creates one user:",
+        "runAs": "Run it as root on {{code}}. Read it first: it contains only a public key.",
+        "prototype": "Prototype: this key is made up by the prototype.",
+        "fingerprint": "Fingerprint"
       },
       "step3": {
         "title": "Verify",
-        "hint": "Stubwise signs in with each key, and checks that read access can't write.",
+        "hint": "Stubwise signs in with the key and checks what the user can do: no sudo, not in the docker group, and whether it can read the system journal.",
         "action": "Verify",
         "again": "Verify again",
         "verifying": "Verifying…"
@@ -9448,24 +10064,27 @@
         "copyError": "Couldn't copy. Select the text and copy it by hand.",
         "showAll": "Show all {{n}} lines",
         "showLess": "Show fewer lines",
-        "publicOnly": "The command contains only public keys. Private keys are encrypted and never shown.",
+        "publicOnly": "The command contains only the public key. The private key is encrypted and never shown.",
         "loadError": "Couldn't load the command.",
         "lines": "{{n}} lines"
       },
       "outcome": {
         "label": "Verification result",
-        "readOk": "Read access works, and it can't write.",
-        "fixOk": "Fix access works.",
-        "readFailed": "Read access failed: the server refused the key. Was the command run on {{code}}?",
-        "fixFailed": "Fix access failed: the server refused the key. Was the command run on {{code}}?",
-        "unreachable": "Couldn't reach {{code}} over SSH (port 22). Neither access could be checked.",
-        "readWrites": "Read access can write. That's an error: both accesses are off until a verification passes.",
-        "readWritesHint": "Check that stubwise-read isn't in the sudo or docker group, then verify again.",
-        "newInUse": "The new keys are in use. Stubwise forgot the old ones.",
-        "newFailedKept": "The new keys didn't pass. The current ones are still in use.",
-        "newFailedNone": "The new keys didn't pass, and the current ones aren't working either.",
-        "newFailedKeptRead": "The new keys didn't pass. The current read key is still in use; the fix key isn't working.",
-        "newFailedKeptFix": "The new keys didn't pass. The current fix key is still in use; the read key isn't working."
+        "unreachable": "Couldn't reach {{code}} over SSH (port 22). Nothing was checked.",
+        "newInUse": "The new key is in use. Stubwise forgot the old one.",
+        "newFailedKept": "The new key didn't pass. The current one is still in use.",
+        "newFailedNone": "The new key didn't pass, and the current one isn't working either.",
+        "login": "Signs in as stubwise-read.",
+        "denied": "The server refused the key. Was the command run on {{code}}?",
+        "noSudo": "No sudo.",
+        "sudo": "It can run sudo.",
+        "noDocker": "Not in the docker group.",
+        "docker": "It's in the docker group: it can control every container.",
+        "journal": "Reads the system journal (group {{group}}).",
+        "noJournal": "Can't read the system journal, so Claude won't read it. Add stubwise-read to systemd-journal or adm to let it.",
+        "groups": "Groups: {{groups}}",
+        "privileged": "stubwise-read can do more than read. That's an error: the access is off until a verification passes.",
+        "privilegedHint": "Take stubwise-read out of the sudo and docker groups (running the command again does it), then verify again."
       },
       "errors": {
         "verify": "Couldn't verify. Try again.",
@@ -9475,16 +10094,13 @@
       },
       "rows": {
         "label": "SSH access of {{code}}",
-        "read": "Read access",
-        "fix": "Fix access",
-        "fixWarning": "Can do anything on the server.",
+        "read": "Read-only access",
         "state": {
           "verified": "Verified {{date}}",
           "inUse": "In use",
           "failed": "Check failed: {{why}}",
           "waiting": "Waiting for the command",
-          "passed": "Passed, waiting for the other access",
-          "off": "Off: read access can write",
+          "off": "Off: stubwise-read can do more than read",
           "revoked": "Revoked {{date}}",
           "notLinked": "Not linked",
           "failedPlain": "Check failed"
@@ -9493,14 +10109,16 @@
           "refused": "the server refused the key",
           "unreachable": "couldn't reach the server"
         },
-        "newKeys": "New keys being set up.",
+        "newKeys": "New key being set up.",
         "used": {
           "never": "Not used yet",
           "analysis": "Used {{when}} by the analysis of {{code}}",
           "task": "Used {{when}} by",
-          "hiddenTask": "Used {{when}} by a task you can't see"
+          "hiddenTask": "Used {{when}} by a task you can't see",
+          "plain": "Used {{when}}"
         },
-        "openSession": "Open session"
+        "openSession": "Open session",
+        "journalOff": "Doesn't read the system journal (not in systemd-journal or adm)."
       },
       "when": {
         "now": "just now",
@@ -9511,32 +10129,20 @@
         "title": "Not linked. Claude can't look into this server's problems.",
         "hint": "An admin who manages SSH access can link it."
       },
-      "regenerating": {
-        "title": "New keys — not in use yet",
-        "keep": "Until they pass, Stubwise keeps using the current keys.",
-        "keepNone": "The current keys aren't working: the new ones take over once they pass.",
-        "command": "The command authorizes the current keys and the new ones. When the new ones pass, Stubwise forgets the old ones, and the next command carries only the new keys.",
-        "keepRead": "Until they pass, Stubwise keeps using the current read key. The current fix key isn't working.",
-        "keepFix": "Until they pass, Stubwise keeps using the current fix key. The current read key isn't working."
-      },
       "regenerate": {
-        "title": "Regenerate {{code}}'s keys?",
-        "body": "You get new keys and a new command. The current keys keep working until the new ones pass verification.",
-        "bodyNone": "You get new keys and a new command. The current keys aren't working now: the new ones take over once they pass verification.",
-        "confirm": "Regenerate",
-        "bodyRead": "You get new keys and a new command. The current read key keeps working until the new ones pass verification; the current fix key isn't working now.",
-        "bodyFix": "You get new keys and a new command. The current fix key keeps working until the new ones pass verification; the current read key isn't working now."
+        "title": "Regenerate {{code}}'s key?",
+        "body": "You get a new key and a new command. The current key stops working now: until the new one passes verification, Claude looks into problems without SSH reads.",
+        "confirm": "Regenerate"
       },
       "revoke": {
         "title": "Revoke SSH access to {{code}}?",
         "noLook": "Claude can't look into {{code}}'s problems any more.",
-        "fixStops": "A fix running on {{code}} stops.",
-        "planBlocked": "A fix plan waiting for approval can't be approved.",
-        "forget": "Stubwise forgets the keys. The users stay on the server until you remove them.",
+        "fixUnaffected": "A fix on {{code}} isn't affected: it goes through the monitoring agent.",
+        "forget": "Stubwise forgets the key. The user stays on the server until you remove it.",
         "confirm": "Revoke access"
       },
       "removal": {
-        "title": "Access revoked {{date}}, {{time}}. To remove the two users from {{code}}, run:",
+        "title": "Access revoked {{date}}, {{time}}. To remove stubwise-read from {{code}}, run:",
         "done": "Done"
       },
       "linkAgain": "Link again",
@@ -9546,10 +10152,11 @@
         "next": "Next verification:",
         "hint": "This decides what the next Verify answers. Nothing connects to a server.",
         "outcomes": {
-          "ok": "Works",
-          "read_fails": "Read access fails",
-          "fix_fails": "Fix access fails",
-          "read_writes": "Read access can write",
+          "ok": "Works (reads the journal)",
+          "no_journal": "Works, without the journal group",
+          "denied": "Key refused",
+          "sudo": "stubwise-read has sudo",
+          "docker": "stubwise-read is in the docker group",
           "unreachable": "Server unreachable"
         },
         "error": "The simulation didn't go through."
@@ -9559,7 +10166,32 @@
     "hiddenProjects": "In projects you can't see",
     "projectsLabel": "Projects: {{codes}}",
     "projectsMore": "+{{count}}",
-    "orphanNoClaude": "Link this server to a project first: Claude works inside a project."
+    "orphanNoClaude": "Link this server to a project first: Claude works inside a project.",
+    "manual": {
+      "label": "Claude on this server",
+      "start": "Ask Claude to look into it",
+      "hint": "Claude looks at the server with the read-only access and writes what it finds, like after an alert.",
+      "running": "{{name}} asked Claude to look into it: Claude is looking with read-only access",
+      "diagnosed": "Diagnosis ready, asked by {{name}}",
+      "timed_out": "Partial diagnosis, asked by {{name}}: Claude ran out of time",
+      "unreachable": "Claude couldn't reach the server (asked by {{name}})",
+      "stopped": "Claude stopped before a diagnosis (asked by {{name}})",
+      "failed": "Claude's analysis failed (asked by {{name}}): the task couldn't be opened",
+      "undetermined": "Claude couldn't tell which project is causing it: {{reason}} No task was opened.",
+      "hiddenTask": "The diagnosis is in a project you can't see.",
+      "errors": {
+        "analysis_running": "Claude is already looking into this server.",
+        "access": "Claude can't look into it: the read-only SSH access isn't usable.",
+        "monthly_budget": "Claude can't look into it: the monthly AI budget is used up.",
+        "forbidden": "You can't ask Claude to look into this server.",
+        "generic": "Couldn't ask Claude to look into it. Try again."
+      },
+      "blocked": {
+        "monthly_budget": "Claude didn't look into it (asked by {{name}}): the monthly AI budget is used up.",
+        "disabled": "Claude didn't look into it (asked by {{name}}): the server analysis is turned off in Administration → AI.",
+        "cap": "Claude didn't look into it (asked by {{name}}): there isn't enough AI budget left for an analysis."
+      }
+    }
   },
   "whoCan": {
     "actions": {
@@ -9588,7 +10220,7 @@
       "manageChannels": "manage channels",
       "manageDrive": "manage the drive",
       "manageProjectAutomations": "manage the project's automations",
-      "replyCustomers": "reply to customers",
+      "manageSupport": "manage Support conversations",
       "fixServer": "start a server fix",
       "manageRoles": "manage roles",
       "manageSettings": "change the instance settings",
@@ -9622,7 +10254,12 @@
       "docs": "Docs",
       "code": "Code",
       "credentials": "Credentials",
-      "prototype": "Prototype"
+      "prototype": "Prototype",
+      "chat": "Chat",
+      "drive": "Drive",
+      "automations": "Automations",
+      "support": "Support",
+      "servers": "Servers"
     },
     "page": {
       "intro": "Find out who can do something in a project, or what someone can do — and why. You only see the projects and people you can see.",
@@ -9652,10 +10289,7 @@
       "none": "No one you can see can {{action}} in {{code}}.",
       "noneInstance": "No one you can see can {{action}}.",
       "answers": "Who can {{action}}",
-      "claudeLine": "can work, doesn't decide.",
-      "claudeCan": "Claude can {{action}}.",
-      "claudeCant": "Claude can't {{action}}.",
-      "claudeWhat": "Claude can work but doesn't decide.",
+      "claudeLine": "has no permissions of its own: it acts with those of whoever assigns it or confirms its action.",
       "can": "Can",
       "never": "Never",
       "notMember": "{{name}} isn't a member of {{code}}.",
@@ -9688,6 +10322,15 @@
     }
   },
   "entry": {
+    "unreachable": {
+      "title": "Couldn't reach Stubwise",
+      "body": "Check your connection, or try again in a moment.",
+      "retry": "Retry"
+    },
+    "enrollAtLogin": {
+      "title": "Set up two-step verification",
+      "lead": "Every sign-in to Stubwise asks for a code from an authenticator app. Set it up now: it takes a minute, and you're in right after."
+    },
     "login": {
       "title": "Sign in to Stubwise",
       "lead": "Enter the email and password of your account.",
@@ -9771,16 +10414,18 @@
       "welcome": "Welcome, {{name}}. You're in {{projects}}.",
       "welcomeNoProjects": "Welcome, {{name}}.",
       "expiredTitle": "This invite has expired",
-      "expiredBody": "{{name}} invited you on {{invited}}. The invite expired on {{expired}}. Ask {{first}} for a new one.",
+      "expiredBody": "Ask whoever invited you for a new one.",
       "revokedTitle": "This invite is no longer valid",
-      "revokedBody": "{{name}} withdrew it. If you still need access, ask them.",
+      "revokedBody": "If you still need access, ask whoever invited you.",
       "invalidBody": "This invite link isn't valid. Ask whoever sent it for a new one.",
       "goToSignIn": "Go to sign in",
       "loadFailed": "Couldn't load the invite.",
       "usedTitle": "This invite was already used",
       "usedBody": "This invite was already used. Sign in instead.",
       "emailTaken": "There's already an account with this email. Sign in instead.",
-      "createdSignIn": "Your account is ready. Sign in with your new password."
+      "createdSignIn": "Your account is ready. Sign in with your new password.",
+      "signedInAs": "You're signed in as {{name}}. Sign out first to create a new account.",
+      "signOutFirst": "Sign out first"
     },
     "setup": {
       "title": "Set up Stubwise",
@@ -9861,6 +10506,87 @@
       "spentBody": "A reset link works once, within an hour. Ask your administrator for a new one.",
       "invalidTitle": "This link isn't valid",
       "invalidBody": "Check that you copied it whole, or ask your administrator for a new one."
+    },
+    "desktop": {
+      "address": {
+        "title": "Connect to Stubwise",
+        "lead": "Enter the address of your team's Stubwise. You'll find it in the browser bar when you use it on the web.",
+        "label": "Address",
+        "submit": "Continue",
+        "saving": "Checking…",
+        "invalid": "That doesn't look like a Stubwise address. Use the full address, starting with https://."
+      },
+      "start": {
+        "title": "Sign in to Stubwise",
+        "lead": "You sign in in your browser, with your password and your two-step verification, passkey included. Then you come back here.",
+        "instance": "Stubwise at",
+        "change": "Change",
+        "submit": "Sign in with your browser",
+        "opening": "Opening your browser…"
+      },
+      "waiting": {
+        "title": "Finish signing in in your browser",
+        "lead": "We opened {{host}} in your browser. Sign in there and choose “Allow”: the app opens again on its own.",
+        "openAgain": "Open again",
+        "cancel": "Cancel"
+      },
+      "errors": {
+        "noInstance": "Enter the address of your Stubwise first.",
+        "network": "Couldn't reach your Stubwise. Check the address and your connection, then try again.",
+        "notFinished": "Signing in didn't finish. Start again from here.",
+        "expired": "That sign-in took too long or was replaced by a newer one. Start again from here.",
+        "sessionEnded": "Your session ended. Sign in again.",
+        "generic": "Couldn't sign in. Try again."
+      }
+    },
+    "desktopGoogle": {
+      "backToApp": "Go back to the app to see the result",
+      "notConnected": "The mailbox wasn't connected",
+      "open": "Open Stubwise",
+      "invalid": {
+        "title": "This link isn't valid",
+        "lead": "Start connecting the mailbox again from the Stubwise app."
+      }
+    },
+    "desktopLogin": {
+      "signInFirst": "Sign in to let Stubwise on “{{device}}” use your account.",
+      "consent": {
+        "title": "Allow Stubwise on “{{device}}” to sign in as {{name}}?",
+        "titleNoName": "Allow Stubwise on “{{device}}” to sign in as you?",
+        "lead": "The app on that Mac will act with your account until you sign out there. Allow it only if you just started signing in from it.",
+        "allow": "Allow",
+        "allowing": "Allowing…",
+        "cancel": "Cancel",
+        "failed": "Couldn't allow the app. Start again from the app on your Mac.",
+        "nothingChanged": "Nothing was shared with the app. Choose “Allow” to try again."
+      },
+      "reauthAction": "let Stubwise on “{{device}}” sign in as you",
+      "opened": {
+        "title": "Stubwise is opening on your Mac",
+        "lead": "You can close this tab."
+      },
+      "cancelled": {
+        "title": "Sign-in cancelled",
+        "lead": "Nothing was shared with the app. You can close this tab."
+      },
+      "invalid": {
+        "title": "This sign-in link doesn't work",
+        "lead": "Start again from the Stubwise app on your Mac: it opens a new link."
+      }
+    },
+    "emailChange": {
+      "title": "Sign-in email changed",
+      "confirming": "Reading the link…",
+      "done": "From now on you sign in with {{email}}.",
+      "failed": "Couldn't confirm the new email. Open the link again.",
+      "invalidTitle": "This link isn't valid",
+      "invalidBody": "It may have expired, been used already or been cancelled. Ask for a new one from your preferences.",
+      "takenTitle": "That email is taken",
+      "takenBody": "Someone else in Stubwise uses it now. Your sign-in email hasn't changed.",
+      "confirmTitle": "Confirm your new sign-in email",
+      "confirmBody": "Your sign-in email will become {{email}}.",
+      "confirm": "Confirm email change",
+      "confirmingButton": "Confirming…"
     }
   },
   "admin": {
@@ -9998,7 +10724,8 @@
         "cancel": "Cancel"
       },
       "securityLog": "Security log",
-      "securityLogError": "Couldn't load the security log."
+      "securityLogError": "Couldn't load the security log.",
+      "changeEmail": "Change email…"
     },
     "resetPassword": {
       "title": "Create a password reset link for {{name}}?",
@@ -10039,7 +10766,8 @@
       "doneOne_one": "{{name}} was deactivated. {{count}} task reassigned to {{to}}.",
       "doneOne_other": "{{name}} was deactivated. {{count}} tasks reassigned to {{to}}.",
       "doneMany": "{{name}} was deactivated. {{count}} tasks reassigned.",
-      "reauthAction": "deactivate {{name}}"
+      "reauthAction": "deactivate {{name}}",
+      "rowChanged": "{{code}} can't be reassigned any more: it changed meanwhile. The list is up to date."
     },
     "invite": {
       "title": "Invite someone",
@@ -10058,6 +10786,7 @@
       "secretTitle": "Invite link for {{email}}",
       "sendYourself": "Send it yourself: Stubwise doesn't send emails.",
       "expiresIn": "Expires in 7 days ({{date}}).",
+      "departmentDropped": "In {{code}} the department's permissions won't apply to them: you can't grant {{missing}} there.",
       "cancel": "Cancel",
       "reauthAction": "invite {{email}}",
       "errors": {
@@ -10083,6 +10812,7 @@
     "refusal": {
       "escalation": "You can't give “{{what}}”: it includes {{missing}}, which you don't have.",
       "escalationPlain": "You can't do this: it gives {{missing}}, which you don't have.",
+      "conflict": "Someone else changed this while you were editing it. Nothing was saved.",
       "more_one": "{{count}} more",
       "more_other": "{{count}} more",
       "lastFullAdmin": "{{name}} is the only full admin. Make someone else full admin first.",
@@ -10109,7 +10839,8 @@
         "instance": "You don't have this permission, so you can't give it.",
         "projects_role": "You don't have this in every project where this role is used, so you can't give it.",
         "projects_department": "You don't have this in every project of this department's people, so you can't give it.",
-        "anywhere": "You don't have this in any project, so you can't give it."
+        "anywhere": "You don't have this in any project, so you can't give it.",
+        "anywhere_department": "This department's people aren't in any project yet: you can give only what you have in at least one project."
       },
       "included": "Included in full administration"
     },
@@ -10238,7 +10969,12 @@
       },
       "errors": {
         "name": "Give the department a name.",
-        "nameTaken": "Another department already has this name."
+        "nameTaken": "Another department already has this name.",
+        "defaultDepartment": "This is the default department: tasks without one land here, so it can be renamed but not deleted.",
+        "rolesNotSaved": "Members saved, but who manages the Home wasn't. Try again to save it.",
+        "invalidPerson": "Only people in the department can manage its Home.",
+        "invalidPermission": "That permission can't be given by a department: only project permissions can.",
+        "notAPerson": "Only people can be in a department: Claude can't."
       }
     },
     "department": {
@@ -10273,6 +11009,10 @@
       "discardAsk_one": "Discard {{count}} change?",
       "discardAsk_other": "Discard {{count}} changes?",
       "saved": "Saved",
+      "staleDraft": "Someone else changed this department while you were editing it. Discard your changes to see theirs.",
+      "previewLoading": "Checking what you can give…",
+      "previewError": "Couldn't check what you can give.",
+      "previewRetry": "Try again",
       "saveAction": "change {{name}}",
       "saveFailed": "Couldn't save. Try again.",
       "refusal": {
@@ -10282,6 +11022,9 @@
       "deleteTitle": "Delete {{name}}?",
       "deleteBody": "People stay; they just aren't in {{name}} any more.",
       "deleteConfirm": "Delete",
+      "counting": "Counting the tasks…",
+      "countFailed": "Couldn't count the tasks of this department.",
+      "tasksMoveMany": "More than {{count}} tasks have {{name}} as their department. Move them to:",
       "tasksMove_one": "{{count}} task has {{name}} as its department. Move it to:",
       "tasksMove_other": "{{count}} tasks have {{name}} as their department. Move them to:",
       "moveTo": "Move the tasks to",
@@ -10371,7 +11114,10 @@
         "otherProjectsHint": "Projects you can't see, added together.",
         "tokensTitle": "{{tokens}} tokens",
         "empty": "No AI usage in this period.",
-        "loadError": "Couldn't load the usage."
+        "loadError": "Couldn't load the usage.",
+        "noProvider": "No account, or an account that was removed",
+        "rangeTooLong": "Choose at most a year.",
+        "invalidRange": "The start date comes after the end date."
       },
       "prototype": {
         "label": "Prototype only"
@@ -10474,7 +11220,19 @@
           "submit": "Delete",
           "done": "{{name}} deleted.",
           "action": "delete the AI account {{name}}"
-        }
+        },
+        "rename": "Rename…",
+        "renameDialog": {
+          "title": "Rename {{name}}",
+          "name": "Name",
+          "submit": "Rename",
+          "done": "Renamed to {{name}}.",
+          "errors": {
+            "name": "Give the account a name.",
+            "taken": "Another AI account already has this name."
+          }
+        },
+        "testPending": "The test is still running. Check back in a minute."
       },
       "models": {
         "intro": "Which model does each kind of work. A change applies from the next run: work in progress finishes with the model it started with.",
@@ -10485,6 +11243,9 @@
           "docs": "Docs",
           "reports": "Reports",
           "mail": "Mail",
+          "automations": "Automations",
+          "support": "Support",
+          "servers": "Servers",
           "chat": "Chat"
         },
         "source": {
@@ -10574,6 +11335,23 @@
         "replace": "Replace",
         "replaceOf": "Replace {{label}}",
         "saved": "{{label}}: ending in {{last4}}"
+      },
+      "serverAnalysis": {
+        "title": "Server analysis",
+        "intro": "When a monitored server raises an alert, Claude looks into it with read-only access and writes a diagnosis. These limits apply to every analysis, automatic or asked for by hand, and count towards the monthly budget.",
+        "enabled": "Claude looks into server alerts",
+        "off": "Off: alerts still arrive, but Claude doesn't look into them, and nobody can ask it to.",
+        "maxMinutes": "Minutes at most",
+        "maxCostUsd": "Cost at most ($)",
+        "maxSshReads": "SSH reads at most",
+        "maxAgentReads": "Agent reads at most",
+        "errors": {
+          "maxMinutes": "From 1 to 60 minutes.",
+          "maxCostUsd": "From $0.10 to $20.",
+          "maxSshReads": "From 0 to 200 reads.",
+          "maxAgentReads": "From 0 to 200 reads."
+        },
+        "save": "Save limits"
       }
     },
     "integrations": {
@@ -10892,18 +11670,18 @@
     },
     "webhooks": {
       "title": "Outgoing webhooks",
-      "intro": "Send a message to one chat channel or endpoint when something happens in any project.",
-      "loadError": "Couldn't load the webhook.",
+      "intro": "Send messages to chat channels or endpoints when something happens in any project. Each webhook has its own address, format and events.",
+      "loadError": "Couldn't load the webhooks.",
       "send": "Send messages",
       "off": "Messages are off.",
       "format": "Format",
       "formats": {
         "slack": "Slack",
         "discord": "Discord",
-        "generic": "Generic JSON"
+        "generic": "JSON"
       },
       "address": "Address",
-      "addressNote": "Anyone who can change the instance settings can read this address.",
+      "addressNote": "Anyone who can manage the integrations can read this address.",
       "howTo": "How to get the address",
       "steps": {
         "slack": {
@@ -10964,15 +11742,21 @@
       "sending": "Sending…",
       "testsSaved": "The test goes to the saved address.",
       "result": {
+        "invalid_credentials_status": "The address refused the credentials ({{status}})",
+        "destination_error": "The address answered with an error",
+        "destination_error_status": "The address answered with an error ({{status}})",
         "ok": "Sent · delivered",
-        "invalid_credentials": "The address answered with an error",
+        "invalid_credentials": "The address refused the credentials",
         "unreachable": "Couldn't reach the address",
         "never": "No test sent yet"
       },
       "errors": {
         "https": "Use an https address.",
-        "missing": "Add the address, or turn messages off.",
-        "testNeedsAddress": "Save an address first."
+        "missing": "Add the address.",
+        "testNeedsAddress": "Save an address first.",
+        "name": "Give the webhook a name.",
+        "webhook_limit": "You can have up to 20 webhooks.",
+        "events": "One of the events isn't available any more."
       },
       "preview": "Preview",
       "example": "Example data",
@@ -10982,9 +11766,47 @@
         "intro": "Nothing real is contacted. Choose what the next test answers.",
         "outcome": "Next test",
         "ok": "Delivered",
-        "invalid_credentials": "Error from the address",
+        "invalid_credentials": "Credentials refused",
+        "destination_error": "Error from the address",
         "unreachable": "Unreachable"
-      }
+      },
+      "new": "New webhook",
+      "limit": "You can have up to {{count}} webhooks.",
+      "empty": "No webhooks yet.",
+      "eventCount": "{{count}} of {{total}} events",
+      "offBadge": "Off",
+      "back": "Outgoing webhooks",
+      "newTitle": "New webhook",
+      "name": "Name",
+      "create": "Create webhook",
+      "creating": "Creating…",
+      "notFound": "This webhook doesn't exist any more.",
+      "loadOneError": "Couldn't load the webhook.",
+      "createAction": "create the webhook {{name}}",
+      "createdTitle": "Webhook created. Copy its signing secret:",
+      "secret": {
+        "title": "Signing secret",
+        "set": "Set · regenerated {{date}}",
+        "none": "Not set yet. Regenerate it to sign the messages.",
+        "note": "Every message carries an X-Stubwise-Signature header signed with this secret. Slack and Discord ignore it.",
+        "regenerate": "Regenerate secret",
+        "action": "regenerate the signing secret of {{name}}",
+        "dialogTitle": "Regenerate the signing secret of {{name}}?",
+        "dialogBody": "The current secret stops working right away. Update the receiving end with the new one.",
+        "submit": "Regenerate",
+        "shownTitle": "The new signing secret"
+      },
+      "delete": {
+        "button": "Delete webhook",
+        "title": "Delete {{name}}?",
+        "body": "It stops receiving messages right away. The change log keeps its history.",
+        "submit": "Delete",
+        "action": "delete the webhook {{name}}",
+        "done": "{{name}} deleted."
+      },
+      "urlAction": "change the address of {{name}}",
+      "unknownEvents": "This webhook also has events this app doesn't know yet: change its events from the web.",
+      "unknownFormat": "This webhook uses a format this app doesn't know yet: change it from the web."
     },
     "servers": {
       "title": "Servers",
@@ -11012,7 +11834,9 @@
       "detached": {
         "group": "Not in any project",
         "from": "From <b>{{code}}</b> · {{name}}, deleted {{date}}",
+        "fromNoDate": "From <b>{{code}}</b> · {{name}}",
         "since": "Without a project since {{date}}",
+        "sinceNoDate": "Without a project",
         "link": "Link to a project…",
         "noTargets": "None of your projects can take it: you need to manage repositories in an active project.",
         "more": "More for {{name}}",
@@ -11030,6 +11854,7 @@
           "open": "Open",
           "nameTaken": "{{code}} already has a repository called {{name}}. Choose another project.",
           "forbidden": "You can't manage {{code}}'s repositories anymore.",
+          "targetGone": "{{code}} isn't available anymore. Choose another project.",
           "gone": "That project is no longer available, or someone already linked this repository. Nothing changed."
         },
         "deleteDialog": {
@@ -11090,7 +11915,7 @@
         "resume": "Resume",
         "pauseOf": "Pause {{code}}'s queue",
         "resumeOf": "Resume {{code}}'s queue",
-        "forbidden": "Only people who can manage settings pause or resume a queue.",
+        "forbidden": "Only people who manage {{code}} pause or resume its queue.",
         "announce": "{{code}}: {{counts}}",
         "pauseDialog": {
           "title": "Pause {{code}}'s queue?",
@@ -11137,7 +11962,8 @@
           "server_fix": "Server fix",
           "automation": "Automation",
           "product_doc_update": "Product doc update",
-          "nightly": "Nightly run"
+          "nightly": "Nightly run",
+          "other": "Work"
         },
         "state": {
           "running": "Running · worker {{n}}",
@@ -11148,8 +11974,9 @@
         "retry": "Retry",
         "retryOf": "Retry {{code}}",
         "retryNeeds": {
-          "manageSettings": "Only people who can manage settings put work back in the queue.",
-          "startRun": "Only people who can start Claude in {{code}} put work back in the queue."
+          "manageSettings": "Only people who manage {{code}} put its work back in the queue.",
+          "startRun": "Only people who can start Claude in {{code}} put work back in the queue.",
+          "other": "You can't put this work back in the queue."
         },
         "correctionNote": "Corrections are resumed from the task.",
         "superseded": "A newer run of {{code}} has taken its place: nothing to put back.",
@@ -11179,7 +12006,8 @@
         "name": "Worker {{n}}",
         "idle": "idle",
         "hidden": "busy in a project you can't see",
-        "prototype": "Prototype: two simulated workers."
+        "prototype": "Prototype: two simulated workers.",
+        "empty": "No worker running."
       },
       "accounts": {
         "heading": "AI accounts",
@@ -11200,7 +12028,8 @@
         "phases": {
           "commit_summary": "Commit summaries",
           "release_note": "Release note",
-          "docs": "Docs"
+          "docs": "Docs",
+          "other": "Step"
         },
         "states": {
           "done": "done",
@@ -11211,6 +12040,16 @@
         "note": "Read only: the nightly run picks up where it stopped.",
         "empty": "Nothing ran last night in the projects you can see."
       }
+    },
+    "changeEmail": {
+      "title": "Change {{name}}'s sign-in email?",
+      "now": "It changes now, without a confirmation link.",
+      "keeps": "{{name}} keeps their sessions and two-step verification.",
+      "alert": "{{name}} gets a security alert.",
+      "newLabel": "New email",
+      "change": "Change email",
+      "done": "{{name}} now signs in with {{email}}.",
+      "reauthAction": "change {{name}}'s sign-in email"
     }
   },
   "permissions": {
@@ -11350,6 +12189,12 @@
       "manage": {
         "label": "manage automations",
         "hint": "Create, change and pause automations at this level."
+      },
+      "general": {
+        "manage": {
+          "label": "manage general automations",
+          "hint": "Create, change and pause the general automations (without a project), and decide their runs."
+        }
       }
     },
     "servers": {
@@ -11545,9 +12390,9 @@
       }
     },
     "support": {
-      "reply": {
-        "label": "reply to customers",
-        "hint": "Answer customers' conversations in Support."
+      "manage": {
+        "label": "manage Support conversations",
+        "hint": "Open the request, mark them not concluded, reply to collaborators."
       }
     },
     "department": {
@@ -11560,6 +12405,7 @@
     }
   },
   "changelog": {
+    "someone": "Someone",
     "kinds": {
       "person": {
         "instance_role_changed": "<actor>{{actor}}</actor> changed <object>{{object}}</object>'s instance role.",
@@ -11569,7 +12415,8 @@
         "git_identity_unlinked": "<actor>{{actor}}</actor> unlinked a git identity from <object>{{object}}</object>.",
         "bitbucket_username_set": "<actor>{{actor}}</actor> changed <object>{{object}}</object>'s Bitbucket username.",
         "deactivated": "<actor>{{actor}}</actor> deactivated <object>{{object}}</object>.",
-        "reactivated": "<actor>{{actor}}</actor> reactivated <object>{{object}}</object>."
+        "reactivated": "<actor>{{actor}}</actor> reactivated <object>{{object}}</object>.",
+        "email_changed": "<actor>{{actor}}</actor> changed <object>{{object}}</object>'s sign-in email."
       },
       "invite": {
         "created": "<actor>{{actor}}</actor> invited <object>{{object}}</object> as {{role}}.",
@@ -11642,7 +12489,10 @@
         "secret_replaced": "<actor>{{actor}}</actor> replaced the storage secret key."
       },
       "webhook": {
-        "changed": "<actor>{{actor}}</actor> changed the outgoing webhook."
+        "created": "<actor>{{actor}}</actor> added the outgoing webhook <object>{{object}}</object>.",
+        "updated": "<actor>{{actor}}</actor> changed the outgoing webhook <object>{{object}}</object>.",
+        "secret_replaced": "<actor>{{actor}}</actor> regenerated the signing secret of the outgoing webhook <object>{{object}}</object>.",
+        "deleted": "<actor>{{actor}}</actor> deleted the outgoing webhook <object>{{object}}</object>."
       },
       "server": {
         "created": "<actor>{{actor}}</actor> created the server <object>{{object}}</object>$t(changelog.params.serverScope.{{scope}}).",
@@ -11707,8 +12557,8 @@
         "imported_other": "<actor>{{actor}}</actor> imported {{count}} variables into <object>{{object}}</object> (<strong>{{environment}}</strong>)."
       },
       "env_var": {
-        "set": "<actor>{{actor}}</actor> set <strong>{{key}}</strong> in <object>{{object}}</object> (<strong>{{environment}}</strong>).",
-        "removed": "<actor>{{actor}}</actor> removed <strong>{{key}}</strong> from <object>{{object}}</object> (<strong>{{environment}}</strong>)."
+        "set": "<actor>{{actor}}</actor> set <strong>{{variable}}</strong> in <object>{{object}}</object> (<strong>{{environment}}</strong>).",
+        "removed": "<actor>{{actor}}</actor> removed <strong>{{variable}}</strong> from <object>{{object}}</object> (<strong>{{environment}}</strong>)."
       },
       "environment": {
         "created": "<actor>{{actor}}</actor> created the environment <object>{{object}}</object> in {{project}}.",
@@ -11722,6 +12572,9 @@
       },
       "task": {
         "deleted": "<actor>{{actor}}</actor> deleted the task <strong>{{object}}</strong> “{{title}}”."
+      },
+      "server_analysis": {
+        "changed": "<actor>{{actor}}</actor> changed the limits of the server analysis."
       }
     },
     "groups": {
@@ -11798,6 +12651,8 @@
     },
     "noMatch": "No changes match these filters.",
     "nothing": "Nothing recorded yet.",
+    "loadMore": "Load more",
+    "loadingMore": "Loading…",
     "projectEmpty": "No changes to {{code}} yet.",
     "error": "Couldn't load the change log.",
     "loading": "Loading the change log…",
@@ -11856,7 +12711,7 @@
       "webhookFormat": {
         "slack": "Slack",
         "discord": "Discord",
-        "generic": "Generic JSON"
+        "generic": "JSON"
       },
       "webhookEvents": {
         "ticket_created": "New task from the SDK or the widget",
@@ -11908,7 +12763,6 @@
       "url": "Address",
       "events": "Events",
       "sampleInterval": "Sample every (s)",
-      "primaryProject": "Main project",
       "cpu": "CPU %",
       "mem": "Memory %",
       "disk": "Disk %",
@@ -11920,6 +12774,7 @@
       "activeDays": "Stalled when active, after (days)",
       "todoDays": "Stalled when to do, after (days)",
       "statuses": "Statuses",
+      "enabledPlugins": "Plugins on",
       "disabledSkills": "Skills off",
       "disabledHooks": "Hooks off",
       "installCommand": "Install command",
@@ -11932,14 +12787,21 @@
       "pipeline": "Release pipelines",
       "branch": "Release branch",
       "statusFamilies": "Statuses by family",
-      "kind": "Kind"
+      "kind": "Kind",
+      "analysisEnabled": "Analysis on",
+      "maxMinutes": "Max minutes",
+      "maxCostUsd": "Max cost ($)",
+      "maxAgentReads": "Max agent reads",
+      "maxSshReads": "Max SSH reads"
     },
     "via": {
       "actor": "Claude on behalf of {{name}}",
       "mark": "Made with Claude",
       "filter": "Made with Claude",
       "undid": "Undid: {{sentence}}",
-      "filtersCleared": "Filters cleared to show the change."
+      "filtersCleared": "Filters cleared to show the change.",
+      "undoneGone": "That change isn't in the log anymore.",
+      "undoneFailed": "Older changes couldn't be loaded. Try again later."
     }
   },
   "usage": {
@@ -11955,14 +12817,24 @@
       "release_notes": "Release notes",
       "docs_nightly": "Nightly Docs",
       "docs_generation": "Docs generation",
+      "drive_summary": "Drive file summaries",
       "daily_report": "Daily report",
       "weekly_brief": "Weekly brief",
       "mail_classify": "Mail classification",
+      "mail_draft": "Email drafts by Claude",
+      "meeting_summary": "Recorded meeting summaries",
+      "automation_step": "Automation steps",
       "chat": "Chats with Claude",
+      "claude_chat": "Private conversations with Claude",
       "backlog_merge": "Backlog document merge",
       "plugin_smoke": "Plugin smoke tests",
       "credential_test": "Account tests",
-      "usage_probe": "Quota readings"
+      "usage_probe": "Quota readings",
+      "support_triage_check": "Support: triage check",
+      "server_analysis": "Servers: analysis",
+      "server_fix_plan": "Servers: fix plan",
+      "mail_reply_judgment": "Mail: does it need my reply?",
+      "product_doc_update": "Product docs: updates from sources"
     }
   },
   "instanceEffects": {
@@ -12076,7 +12948,8 @@
         "forbidden": "You can no longer delete {{code}}. Nothing was deleted.",
         "failed": "Couldn't delete {{code}}. Try again.",
         "retry": "Retry",
-        "quoted": "“{{title}}”"
+        "quoted": "“{{title}}”",
+        "goesClaude": "Claude's work on this task (sessions, plan, questions) is deleted too; the AI usage and the decision log stay."
       },
       "busy": {
         "title": "{{code}} can't be deleted yet",
@@ -12087,7 +12960,8 @@
         "server": "It's the fix for server <b>{{code}}</b>, still open.",
         "release": "It's the fix for release <b>{{code}}</b>, still open.",
         "wait_one": "Wait for it to finish, or close it from its page, then try again.",
-        "wait_other": "Wait for them to finish, or close them from their page, then try again."
+        "wait_other": "Wait for them to finish, or close them from their page, then try again.",
+        "correction": "A correction of its pull request is still open."
       },
       "done": "{{code}} was deleted.",
       "gone": "Can't find {{code}}.",
@@ -12102,7 +12976,8 @@
   "activity": {
     "viaClaude": "with Claude",
     "onBehalf": "Claude on behalf of {{name}}",
-    "deletedTask": "{{name}} deleted <code>{{code}}</code> “{{title}}”"
+    "deletedTask": "{{name}} deleted <code>{{code}}</code> “{{title}}”",
+    "deletedTaskConcealed": "A task was deleted"
   },
   "productDocs": {
     "source": {
@@ -12110,6 +12985,8 @@
       "emailOf": "From an email of {{owner}} · {{date, datetime(month: short; day: numeric; timeZone: UTC)}}",
       "meeting": "From the meeting “{{title}}”",
       "meetingOf": "From a meeting of {{owner}} · {{date, datetime(month: short; day: numeric; timeZone: UTC)}}",
+      "emailOfNoDate": "From an email of {{owner}}",
+      "meetingOfNoDate": "From a meeting of {{owner}}",
       "decision": "From the decision “{{title}}”",
       "decisionHidden": "From a decision you can't see",
       "task": "From the task “{{title}}”",
@@ -12140,6 +13017,9 @@
       "undoing": "Undoing…",
       "changedAfter": "<b>{{name}}</b> edited it afterwards",
       "changedAfterNobody": "It was edited afterwards",
+      "sectionBusy": "<b>{{name}}</b> is writing in this section. Try again when they're done.",
+      "sectionBusyNobody": "Someone is writing in this section. Try again when they're done.",
+      "gone": "This change is no longer on the page.",
       "alreadyUndone": "Already undone by {{name}}",
       "alreadyUndoneNobody": "Already undone",
       "readOnly": "Accepting or undoing it is for people with Edit docs in {{code}}",
@@ -12239,6 +13119,7 @@
         "drop": "Drop to add the image",
         "too_large": "This image is larger than 5 MB",
         "unsupported": "Only PNG, JPEG, GIF and WebP images",
+        "failed": "Couldn't upload the image. Try again.",
         "dismiss": "Dismiss",
         "choose": "Choose an image"
       },
@@ -12360,7 +13241,20 @@
         "failed": "Couldn't save",
         "retry": "Retry",
         "notUndone": "Changed by someone else, not undone",
-        "dropped": "Couldn't save a change: the page had changed"
+        "dropped": "Couldn't save a change: the page had changed",
+        "droppedForbidden": "Couldn't save a change: you can no longer edit this page",
+        "droppedGone": "Couldn't save a change: the page was deleted",
+        "droppedBusy": "Couldn't save a change: {{name}} is writing in this section",
+        "droppedKept": "Couldn't save a change: the page had changed. Your version is under the paragraph.",
+        "droppedBusyKept": "Couldn't save a change: {{name}} is writing in this section. Your version is under the paragraph."
+      },
+      "own": {
+        "label": "Your version, not saved",
+        "deleted": "the paragraph was deleted",
+        "useMine": "Use mine",
+        "discard": "Discard",
+        "back": "Your version is back in the paragraph",
+        "discarded": "Discarded your version"
       },
       "title": {
         "field": "Page title",
@@ -12370,9 +13264,15 @@
       "code": {
         "language": "Code language",
         "plain": "Plain text"
+      },
+      "leave": {
+        "title": "Some changes aren't saved yet",
+        "stay": "Stay",
+        "leave": "Leave without saving"
       }
     },
     "comments": {
+      "someone": "Someone",
       "title": "Comments",
       "close": "Close comments",
       "resolvedCount_one": "{{count}} resolved",
@@ -12408,7 +13308,9 @@
       "resolved": "Resolved",
       "reopened": "Reopened",
       "resolveFailed": "Couldn't resolve the thread.",
+      "resolveFailedFinal": "Couldn't resolve the thread: it changed or is no longer there.",
       "reopenFailed": "Couldn't reopen the thread.",
+      "reopenFailedFinal": "Couldn't reopen the thread: it changed or is no longer there.",
       "send": "Reply",
       "behindTask": "{{code}} has text you haven't saved. The comments open when you close it."
     },
@@ -12447,6 +13349,7 @@
       "undonePart": "{{done}} of {{count}} undone · {{name}}",
       "undonePartNobody": "{{done}} of {{count}} undone",
       "undoneAnchor": "Undone",
+      "someone": "Someone",
       "answerFrom": "{{name}}, from Claude's question",
       "seeQuestion": "See the question",
       "firstVersion": "Wrote the first version",
@@ -12507,12 +13410,14 @@
       "failed": "Couldn't export",
       "retry": "Retry",
       "tooLarge": "The Word file is over 25 MB. Export as PDF instead.",
+      "spaceTooLarge": "The space has {{count}} pages, more than the {{max}} that can be exported. Export a single page instead.",
       "fileLine": "File: {{name}} ({{code}})",
       "fileGone": "File: {{code}} (not available)",
       "decisionLine": "Decision: {{title}}",
       "decisionHidden": "Decision: not available",
       "printLabel": "Print view",
-      "notDataImage": "not data: images"
+      "notDataImage": "not data: images",
+      "imageLeftOut": "Image left out: {{caption}}"
     },
     "question": {
       "reason": {
@@ -12530,7 +13435,8 @@
       "option": {
         "apply": "Update it",
         "keep": "Leave it as is",
-        "request": "Open a request"
+        "request": "Open a request",
+        "other": "another answer"
       },
       "recommended": "Recommended",
       "threadLabel": "Claude's question on “{{quote}}”",
@@ -12551,6 +13457,12 @@
       "retry": "Retry",
       "readOnly": "Answering is for people with Edit docs in {{code}}",
       "preparing": "A request is being prepared in Claude's panel",
+      "requestCard": {
+        "label": "Open a request in {{code}}",
+        "create": "Create request",
+        "cancel": "Cancel",
+        "failed": "Couldn't create the request."
+      },
       "announceApply": "Answered · the sentence is updated",
       "announceKeep": "Answered"
     },
@@ -12595,6 +13507,9 @@
         "doneTitle": "Claude wrote the first version",
         "stoppedTitle": "Claude stopped the first version",
         "stoppedCount": "{{done}} of {{total}} pages written",
+        "stop": "Stop",
+        "stopping": "Stopping after this page…",
+        "stopFailed": "Couldn't stop the first version. Try again.",
         "pages_one": "{{count}} page",
         "pages_other": "{{count}} pages",
         "questions_one": "{{count}} question to close",
@@ -12639,7 +13554,9 @@
     },
     "waiting": {
       "budget": "Claude will resume updating the doc when the budget is back",
-      "queue": "Claude will resume updating the doc when {{name}} resumes the queue",
+      "paused": "Claude will resume updating the doc when the queue resumes",
+      "limit": "Claude will update the docs when the account quota resets",
+      "sectionBusy": "Claude is waiting for someone to finish writing in a section",
       "count_one": "{{count}} update waiting",
       "count_other": "{{count}} updates waiting"
     },
@@ -12674,7 +13591,15 @@
       "gone": "This sketch is no longer available",
       "exportLabel": "Claude's draft · Screen sketch",
       "budget": "The monthly AI budget is used up",
-      "exportMissing": "Screen sketch: it couldn't be drawn in the Word file. The PDF has it."
+      "exportMissing": "Screen sketch: it couldn't be drawn in the Word file. The PDF has it.",
+      "drawing": "Claude is drawing this screen…",
+      "failedDraw": "Claude couldn't draw this screen",
+      "failedRedraw": "Claude couldn't redraw this screen",
+      "failedReason": {
+        "limit": "Claude reached its usage limit. Try Redraw later.",
+        "invalid_svg": "What came back wasn't a usable sketch. Try Redraw.",
+        "no_answer": "No answer came back. Try Redraw."
+      }
     },
     "backlog": {
       "group": "Claude",
@@ -12695,6 +13620,274 @@
         "archived": "Archived",
         "moreTasks": "+{{count}}"
       }
+    }
+  },
+  "vault": {
+    "title": "Credentials",
+    "subtitle": "Passwords for the project's services. Only the people who read one see it.",
+    "new": "New credential",
+    "empty": "No credentials in this project yet.",
+    "errors": {
+      "list": "Couldn't load credentials",
+      "status": "Couldn't check the vault"
+    },
+    "bar": {
+      "checking": "Checking the vault…",
+      "open": "Open · locks after 15 minutes without use",
+      "recorded": "Every Show and Copy is recorded.",
+      "lock": "Lock",
+      "locked": "Locked.",
+      "openTouch": "Open with Touch ID",
+      "opening": "Opening…",
+      "noTouchId": "Locked. This Mac has no Touch ID: open the vault in the browser with your passkey.",
+      "openBrowser": "Open in the browser",
+      "openedBrowser": "Opened in the browser.",
+      "unpaired": "This Mac doesn't open the vault yet. Pair it once with your passkey in the browser.",
+      "pair": "Pair this Mac",
+      "revoked": "This Mac no longer opens the vault. You're still signed in.",
+      "pairAgain": "Pair again",
+      "unreachable": "Couldn't reach Stubwise to open the vault.",
+      "retry": "Try again",
+      "noKey": "You don't have a vault key yet. Create it in the browser with a passkey: credentials shared with you reach you after a reader confirms it.",
+      "keyPending": "Your vault key is waiting for confirmation. A reader who can share confirms it when they pass you a credential.",
+      "ownFingerprint": "Your key fingerprint:",
+      "inactive": "The vault hasn't been activated on this instance yet.",
+      "openFailed": "This Mac couldn't open the vault.",
+      "disabled": "This instance opens the vault only in the browser.",
+      "unsupported": "This Mac can't open the vault (no Secure Enclave, or a build without it). Open it in the browser.",
+      "inactiveAdmin": "Activate it in the browser.",
+      "unsupportedWeb": "In the browser, the vault opens on Stubwise's web pages, with your passkey.",
+      "openWebPage": "Open the vault page"
+    },
+    "row": {
+      "show": "Show",
+      "hide": "Hide",
+      "copy": "Copy",
+      "showAria": "Show the password of {{name}}",
+      "hideAria": "Hide the password of {{name}}",
+      "copyAria": "Copy the password of {{name}}",
+      "passwordOf": "Password of {{name}}",
+      "hidden": "Hidden password",
+      "waiting": "Waiting for confirmation",
+      "manages": "You don't read this one",
+      "shownLive": "Password shown",
+      "openFirst": "Open the vault first"
+    },
+    "copied": "Copied. The clipboard is cleared in 30 seconds.",
+    "revealFailed": "The password couldn't be opened.",
+    "column": {
+      "waiting": "Someone is waiting for you to confirm their access"
+    },
+    "detail": {
+      "label": "Credential {{name}}",
+      "url": "URL",
+      "username": "Username",
+      "password": "Password",
+      "notes": "Notes",
+      "notesHint": "Notes aren't encrypted.",
+      "copyUsername": "Copy the username of {{name}}",
+      "usernameCopied": "Username copied.",
+      "openUrl": "Open {{url}} in the browser",
+      "log": "Access log",
+      "logEmpty": "Nobody has shown or copied a password yet.",
+      "shown": "shown",
+      "copied": "copied",
+      "fromMac": "from the Mac",
+      "fromBrowser": "from the browser",
+      "close": "Close",
+      "logError": "Couldn't load the access log."
+    },
+    "form": {
+      "edit": "Edit",
+      "newTitle": "New credential",
+      "editTitle": "Edit {{name}}",
+      "service": "Service",
+      "label": "Label",
+      "url": "URL",
+      "username": "Username",
+      "password": "Password",
+      "notes": "Notes",
+      "passwordHint": "Encrypted on this Mac: the server never sees it.",
+      "keepPassword": "Leave empty to keep the current password.",
+      "notesHint": "Notes aren't encrypted: don't write secrets here.",
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel",
+      "created": "Credential saved.",
+      "saved": "Changes saved.",
+      "failed": "Couldn't save the credential.",
+      "locked": "Open the vault to change the password.",
+      "project": "Project",
+      "resaved": "Someone's access changed while you were saving. Saved again for the current readers."
+    },
+    "readers": {
+      "title": "Readers",
+      "who": "Who reads it",
+      "direct": "Added directly",
+      "none": "Nobody added directly.",
+      "source": {
+        "full_admin": "full admin",
+        "created": "created it",
+        "direct": "added directly",
+        "role": "role {{role}}",
+        "roleUnknown": "via a role"
+      },
+      "state": {
+        "no_key": "waiting: no vault key yet",
+        "key_pending": "waiting: their key needs confirmation",
+        "waiting_copy": "waiting for a copy of the key"
+      },
+      "rolePrefix": "role {{name}}",
+      "remove": "Remove",
+      "confirmRemove": "Confirm remove",
+      "cancel": "Cancel",
+      "removedPerson": "{{name}} no longer reads this credential. If they saw the password, change it on the service and here.",
+      "removedRole": "Role {{name}} no longer reads this credential. If someone saw the password, change it on the service and here.",
+      "changePassword": "Change the password",
+      "shareWith": "Share with",
+      "choose": "Choose a person or a role",
+      "people": "People",
+      "roles": "Roles",
+      "share": "Share",
+      "shared": "Shared with {{name}}.",
+      "waiting": "Waiting for confirmation: {{emails}}.",
+      "failed": "Couldn't change who reads it.",
+      "shareNeedsRead": "You can share it once you read it yourself: ask someone who reads it."
+    },
+    "pending": {
+      "waiting_one": "{{count}} person is waiting for access",
+      "waiting_other": "{{count}} people are waiting for access",
+      "review": "Review",
+      "title": "Waiting for access",
+      "created": "Key created on {{date}}",
+      "device": "Device: {{device}}",
+      "credentials_one": "{{count}} credential",
+      "credentials_other": "{{count}} credentials",
+      "confirm": "Confirm",
+      "reject": "Reject",
+      "cancel": "Cancel",
+      "confirmQuestion": "Did you check with {{name}}, in person or on the phone, that this key is theirs (date, device, fingerprint)?",
+      "confirmYes": "Yes, I checked: confirm",
+      "rejectQuestion": "Reject {{name}}'s key? It receives nothing, and {{name}} will have to create a new one.",
+      "rejectYes": "Yes, reject the key",
+      "now_one": "{{name}} now reads {{count}} credential.",
+      "now_other": "{{name}} now reads {{count}} credentials.",
+      "nothing": "Nothing new reached {{name}}.",
+      "changed_one": "{{count}} credential changed in the meantime: confirm again.",
+      "changed_other": "{{count}} credentials changed in the meantime: confirm again.",
+      "notAllowed_one": "{{count}} credential you can't pass on waits for another reader.",
+      "notAllowed_other": "{{count}} credentials you can't pass on wait for another reader.",
+      "unopenable_one": "{{count}} credential couldn't be opened on this Mac: it waits for another reader.",
+      "unopenable_other": "{{count}} credentials couldn't be opened on this Mac: they wait for another reader.",
+      "rejected": "{{name}}'s key was rejected.",
+      "failed": "Couldn't complete it. Try again.",
+      "empty": "Nobody is waiting for access."
+    },
+    "page": {
+      "title": "Vault",
+      "subtitle": "Every credential you can read, in all your projects.",
+      "search": "Search credentials",
+      "projects": "Projects",
+      "none": "You can't read any credential yet.",
+      "noneProjects": "No credentials in these projects.",
+      "noMatch": "No credentials match your search."
+    },
+    "pairing": {
+      "title": "Pair this Mac",
+      "intro": "This Mac will open your vault with Touch ID. You confirm it once, in the browser, with your passkey.",
+      "key": "This Mac's key",
+      "step1": "The browser opens Stubwise.",
+      "step2": "Type the last 4 characters of this key there ({{last4}}).",
+      "step3": "Choose \"Pair this Mac\" there.",
+      "waiting": "Waiting for the browser… expires in 10 minutes",
+      "cancel": "Cancel",
+      "done": "Done",
+      "retry": "Try again",
+      "starting": "Asking Stubwise…",
+      "success": "This Mac opens your vault.",
+      "errors": {
+        "expired": "The pairing expired. Start again.",
+        "open_failed": "The browser's answer didn't match this Mac. Nothing was saved. Start again.",
+        "no_secure_storage": "This Mac can't keep the key safely (no system keychain). Open the vault in the browser.",
+        "session_changed": "You signed in again meanwhile. Start again.",
+        "vault_key_not_confirmed": "Your vault key isn't confirmed yet: a reader confirms it when they pass you a credential.",
+        "other": "Couldn't pair this Mac. Try again."
+      }
+    },
+    "macs": {
+      "title": "Macs that open the vault",
+      "intro": "These Macs open your vault with Touch ID. Removing one doesn't sign it out.",
+      "thisMac": "this Mac",
+      "paired": "Paired {{paired}} · used {{used}}",
+      "pairedNever": "Paired {{paired}} · never used",
+      "forget": "Forget this Mac",
+      "forgetQuestion": "This Mac stops opening the vault. You stay signed in.",
+      "forgetYes": "Forget",
+      "forgotten": "This Mac no longer opens the vault.",
+      "forgottenLocal": "Forgotten on this Mac. The server didn't answer: remove it from the browser too.",
+      "remove": "Remove",
+      "removeQuestion": "That Mac stops opening the vault. It stays signed in.",
+      "removeYes": "Remove {{name}}",
+      "cancel": "Cancel",
+      "removed": "Removed. You'll get a security alert.",
+      "failed": "Couldn't remove that Mac. Try again.",
+      "reauth": "remove a Mac from the vault",
+      "empty": "No Mac opens your vault yet.",
+      "pair": "Pair this Mac"
+    },
+    "admin": {
+      "title": "Vault",
+      "intro": "{{name}}'s Macs that open the vault",
+      "empty": "No Mac opens {{name}}'s vault.",
+      "removeAria": "Remove {{mac}}…",
+      "remove": "Remove…",
+      "dialogTitle": "Remove {{name}}'s {{mac}} from the vault?",
+      "stops": "That Mac stops opening the vault.",
+      "staysSignedIn": "{{name}} stays signed in on it.",
+      "alerted": "{{name}} gets a security alert, and it's recorded in the change log.",
+      "confirm": "Remove",
+      "cancel": "Cancel",
+      "removed": "Removed. {{name}} was told.",
+      "failed": "Couldn't remove that Mac. Try again.",
+      "reauth": "remove a Mac from someone's vault",
+      "browserNote": "The Macs that open {{name}}'s vault are managed in the browser.",
+      "manageInBrowser": "Manage {{name}}'s Macs in the browser"
+    },
+    "prototype": {
+      "barLabel": "Prototype only: the vault",
+      "pairingLabel": "Prototype only: pairing",
+      "note": "This decides what happens next. Nothing is encrypted in the prototype.",
+      "touch": "Next Touch ID:",
+      "touchWorks": "Works",
+      "touchCancelled": "Cancelled",
+      "touchUnavailable": "This Mac has no Touch ID",
+      "opening": "Next opening:",
+      "openingWorks": "Works",
+      "openingRevoked": "Seal revoked",
+      "openingUnreachable": "Stubwise unreachable",
+      "pairing": "Pairing:",
+      "pairingOk": "Return from the browser",
+      "pairingExpired": "Expire",
+      "pairingMismatch": "Seal doesn't match"
+    },
+    "rowMenu": {
+      "more": "More for {{name}}",
+      "menu": "Actions for {{name}}",
+      "edit": "Edit",
+      "readers": "Readers",
+      "log": "Access log",
+      "delete": "Delete…",
+      "deleteQuestion": "Delete {{name}}? Everyone who reads it loses it.",
+      "deleteYes": "Delete {{name}}",
+      "cancel": "Cancel",
+      "deleted": "{{name}} deleted.",
+      "deleteFailed": "Couldn't delete {{name}}."
+    },
+    "sectionMenu": {
+      "more": "More for Credentials",
+      "menu": "Credentials actions",
+      "log": "Access log",
+      "panel": "Access log of {{code}}"
     }
   }
 }

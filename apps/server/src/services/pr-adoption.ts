@@ -16,6 +16,7 @@ import {
   enqueueCorrection,
 } from "@stubwise/notifications";
 import {
+  colleaguePrBlock,
   isProtectedBranch,
   type GitProviderKind,
   type PrAdoption,
@@ -208,6 +209,7 @@ export async function adoptPullRequest(
       provider: repositories.provider,
       repoUrl: repositories.repoUrl,
       defaultBranch: repositories.defaultBranch,
+      releaseBranch: repositories.releaseBranch,
       protectedBranches: repositories.protectedBranches,
       encryptedCredentials: gitAccounts.encryptedCredentials,
     })
@@ -235,15 +237,25 @@ export async function adoptPullRequest(
   if (info.state !== "open") return { ok: false, error: "pr_not_open" };
   if (info.fromFork === true) return { ok: false, error: "pr_from_fork" };
   if (info.fromFork === null) return { ok: false, error: "pr_fork_unverifiable" };
-  if (isStubwiseBranch(info.sourceBranch)) return { ok: false, error: "stubwise_pr" };
-  if (isBaseBranch(info.sourceBranch, repo.defaultBranch, info.targetBranch)) {
-    return { ok: false, error: "base_branch" };
-  }
-  // Un branch condiviso (`develop`, `release/*`…) che un admin ha protetto
-  // sulla repository: mai adottabile (`isProtectedBranch`, @stubwise/shared).
-  if (isProtectedBranch(info.sourceBranch, repo.protectedBranches)) {
-    return { ok: false, error: "protected_branch" };
-  }
+  // Le regole del ramo in UN posto (area 8, F1, S8: `colleaguePrBlock`, lo
+  // stesso controllo della review e del worker): un branch di Stubwise, la
+  // base (il default, il target della PR, dall'area 8 anche il ramo di
+  // rilascio del repository) o un branch protetto (`develop`, `release/*`…).
+  // Gli errori restano quelli di prima per i client vecchi: il ramo di
+  // rilascio è una «base».
+  const block = colleaguePrBlock({
+    branch: info.sourceBranch,
+    baseBranch: info.targetBranch,
+    defaultBranch: repo.defaultBranch,
+    releaseBranch: repo.releaseBranch ?? repo.defaultBranch,
+    fromFork: false,
+    branchProtected: false,
+    protectedPatterns: repo.protectedBranches,
+    ownTaskCode: null,
+  });
+  if (block === "other_task_branch") return { ok: false, error: "stubwise_pr" };
+  if (block === "protected") return { ok: false, error: "protected_branch" };
+  if (block !== null) return { ok: false, error: "base_branch" };
 
   const lang = await getContentLanguage(db);
   const who = await emailOf(db, actor.id);
@@ -272,6 +284,12 @@ export async function adoptPullRequest(
         target: [ticketRepositories.ticketId, ticketRepositories.repositoryId],
         set: adoption,
       });
+    // Area 8, F1, S8: l'adozione dei client vecchi vale «analisi e correzioni»
+    // su questa PR: toglie il «Solo analisi».
+    await tx
+      .update(prReviews)
+      .set({ analysisOnly: false, analysisOnlyBy: null, analysisOnlyAt: null })
+      .where(and(eq(prReviews.repositoryId, repositoryId), eq(prReviews.prNumber, review.prNumber)));
     await tx.insert(comments).values({
       ticketId,
       authorType: "system",

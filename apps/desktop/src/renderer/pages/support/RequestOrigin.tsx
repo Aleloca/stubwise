@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useSupportConversations } from "../../data/queries";
+import { useSupportConversation } from "../../data/queries";
 import type { ProjectRequest } from "../../data/types";
 import { ProductOriginLine } from "../productDocs/claude/ProductOriginLine";
 import { Section } from "../task/parts";
@@ -19,11 +19,12 @@ export function RequestOrigin({ request }: { request: ProjectRequest }) {
   const { t } = useTranslation();
   // Solo Support: un'origine della doc di prodotto (11b) la mostra la sua riga.
   const origin = request.origin?.kind === "support" ? request.origin : undefined;
-  const list = useSupportConversations(origin ? request.projectId : undefined);
+  // Per codice, in entrambe le build: il dettaglio ha i messaggi (l'elenco della build app no).
+  const detail = useSupportConversation(origin?.conversationCode);
   const [open, setOpen] = useState(false);
   const bodyId = useId();
   const lastRef = useRef<HTMLLIElement>(null);
-  const conv = origin ? list.data?.find((c) => c.id === origin.conversationId) : undefined;
+  const conv = origin ? (detail.data ?? undefined) : undefined;
   // 11b ([PB 5]): nata da una pagina di prodotto che chi guarda vede (la lettura lo deriva, P38).
   if (!conv && request.productOrigin) {
     return (

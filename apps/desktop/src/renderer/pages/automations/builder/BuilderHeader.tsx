@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import type { RefObject } from "react";
 import { useTranslation } from "react-i18next";
-import { visitSteps } from "../../../domain/automations/fields";
+import { visitSteps } from "@stubwise/shared";
 import type { AutomationVersion } from "../../../data/types";
 import { MenuGroup, itemClass } from "../../../tasks-ui/Menu";
 import { useToast } from "../../../tasks-ui/Toast";

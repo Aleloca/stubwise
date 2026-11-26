@@ -9,6 +9,7 @@ import { PersonChip } from "./PersonChip";
 import { SizeMark } from "./SizeMark";
 import { StallMark } from "./StallMark";
 import { StatusLabel } from "./StatusLabel";
+import { useToday } from "../data/clock";
 
 /** «Oct 24» / «24 ott», sempre in UTC: le scadenze sono date, non istanti. */
 export function formatDue(date: string, language: string): string {
@@ -108,6 +109,8 @@ export function TaskRow({
   statusCell?: ReactNode;
   assigneeCell?: ReactNode;
 }) {
+  // «Oggi» avanza nella build app: a mezzanotte si ridisegna.
+  useToday();
   const { t } = useTranslation();
   const statuses = useProjectStatuses(task.projectId).data;
   const status = statuses?.find((s) => s.id === task.statusId);

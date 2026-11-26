@@ -421,6 +421,12 @@ function ConversationListRow({
               </span>
             )}
             <span className="min-w-0 truncate text-md text-ink">{title}</span>
+            {/* D6 (maintainer): una conversazione d'altri dice di chi è. */}
+            {row.ownerName && (
+              <span data-row-author className="min-w-0 shrink truncate text-sm text-ink-muted">
+                {t("claude.destination.row.by", { name: row.ownerName })}
+              </span>
+            )}
           </span>
           <span
             data-row-project

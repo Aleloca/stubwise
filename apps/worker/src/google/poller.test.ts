@@ -1,6 +1,9 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   aiJobs,
+  automationEvents,
+  automations,
+  automationVersions,
   backlogItems,
   backlogJobs,
   calendarEvents,
@@ -18,7 +21,7 @@ import {
   users,
   type Db,
 } from "@stubwise/db";
-import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, startTestDb, type TestDb } from "@stubwise/db/testing";
 import {
   GoogleApiError,
   MAX_TEXT_LENGTH,
@@ -36,12 +39,13 @@ import {
   pruneOldEmails,
   pruneOldRejections,
   senderDomain,
+  recoverSyncRequests,
   startGooglePoller,
   type CalendarClient,
   type GmailClient,
   type GooglePollerDeps,
 } from "./poller.js";
-import { GMAIL_MAX_SYNC_ATTEMPTS, GMAIL_RESYNC_MAX_MESSAGES, GMAIL_RESYNC_QUERY } from "./sync.js";
+import { GMAIL_HISTORY_MAX_PAGES, GMAIL_MAX_SYNC_ATTEMPTS, GMAIL_RESYNC_MAX_MESSAGES, GMAIL_RESYNC_QUERY, GMAIL_RESYNC_SENT_QUERY } from "./sync.js";
 
 /**
  * POLLER GMAIL (fase 6, Task 7).
@@ -88,7 +92,7 @@ afterEach(async () => {
   await db.delete(googleAccounts);
   await db.delete(googleWorkspaces);
   await db.delete(projectEmailRoutes);
-  await db.delete(projects);
+  await deleteAllProjects(db);
   await db.delete(users);
   // Singleton (id=1): senza questa riga un test che tocca l'ammissione
   // lascerebbe la configurazione sporca per quelli dopo.
@@ -205,9 +209,13 @@ function message(input: {
 
 /** Client Google finto: registra ogni chiamata e risponde da una mappa. */
 function fakeGmail(setup: {
-  history?: { addedMessageIds: string[]; historyId: string | null } | (() => never);
+  history?:
+    | { addedMessageIds: string[]; historyId: string | null; unreadChanges?: { messageId: string; unread: boolean }[] }
+    | (() => never);
   historyError?: unknown;
   listed?: string[];
+  /** Area 8: gli id della query della posta MANDATA del resync (default nessuno). */
+  listedSent?: string[];
   messages?: Record<string, ReturnType<typeof message>>;
   refreshError?: unknown;
   metadataError?: unknown;
@@ -219,12 +227,14 @@ function fakeGmail(setup: {
    */
   threads?: Record<string, ReturnType<typeof message>[]>;
   threadError?: unknown;
-}): GmailClient & { calls: string[]; listQueries: string[] } {
+}): GmailClient & { calls: string[]; listQueries: string[]; historyTypes: (string[] | undefined)[] } {
   const calls: string[] = [];
   const listQueries: string[] = [];
+  const historyTypes: (string[] | undefined)[] = [];
   const client = {
     calls,
     listQueries,
+    historyTypes,
     refreshAccessToken: async () => {
       calls.push("refresh");
       if (setup.refreshError) throw setup.refreshError;
@@ -237,16 +247,18 @@ function fakeGmail(setup: {
         idToken: null,
       };
     },
-    listHistory: async () => {
+    listHistory: async (input: { historyTypes?: string[] }) => {
       calls.push("history");
+      historyTypes.push(input.historyTypes);
       if (setup.historyError) throw setup.historyError;
       const page = setup.history ?? { addedMessageIds: [], historyId: null };
       if (typeof page === "function") return page();
-      return { ...page, nextPageToken: null };
+      return { unreadChanges: [], ...page, nextPageToken: null };
     },
     listMessages: async (input: { q?: string }) => {
       calls.push("list");
       listQueries.push(input.q ?? "");
+      if (input.q === GMAIL_RESYNC_SENT_QUERY) return { messageIds: setup.listedSent ?? [], nextPageToken: null };
       return { messageIds: setup.listed ?? [], nextPageToken: null };
     },
     getMessageMetadata: async (input: { id: string }) => {
@@ -277,7 +289,7 @@ function fakeGmail(setup: {
       return { id: input.id, messages: only };
     },
   };
-  return client as unknown as GmailClient & { calls: string[]; listQueries: string[] };
+  return client as unknown as GmailClient & { calls: string[]; listQueries: string[]; historyTypes: (string[] | undefined)[] };
 }
 
 /**
@@ -319,6 +331,12 @@ async function reload(id: string): Promise<typeof googleAccounts.$inferSelect> {
 // Claim
 // ---------------------------------------------------------------------------
 
+/** `now()` del DB: il riferimento per confrontare con un `created_at` scritto dal DB (non dall'orologio del test). */
+async function dbNow(): Promise<Date> {
+  const rows = (await db.execute(sql`select now() as now`)) as unknown as { now: Date | string }[];
+  return new Date(rows[0]!.now);
+}
+
 describe("claim delle caselle", () => {
   it("reclama solo le caselle dovute e sposta subito next_sync_at", async () => {
     const due = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
@@ -350,8 +368,8 @@ describe("claim delle caselle", () => {
     expect(next).toBeGreaterThan(Date.now() + 15 * 60_000);
   });
 
-  it("salta le caselle con le proposte spente e quelle disabilitate", async () => {
-    await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), proposalsEnabled: false });
+  it("salta le caselle disabilitate, NON quelle con le proposte spente (si leggono, decisione del 12 nov 2026)", async () => {
+    const quiet = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), proposalsEnabled: false });
     await seedAccount({
       email: `spenta-${randomUUID()}@acme.com`,
       nextSyncAt: new Date(Date.now() - 60_000),
@@ -359,7 +377,7 @@ describe("claim delle caselle", () => {
       disabledReason: "revoked",
     });
 
-    expect(await claimDueAccounts(db, 10, 5)).toEqual([]);
+    expect((await claimDueAccounts(db, 10, 5)).map((row) => row.id)).toEqual([quiet.id]);
   });
 });
 
@@ -368,28 +386,15 @@ describe("claim delle caselle", () => {
 // ---------------------------------------------------------------------------
 
 describe("sincronizzazione Gmail", () => {
-  it("non tocca una casella con proposals_enabled = false", async () => {
-    const account = await seedAccount({
-      nextSyncAt: new Date(Date.now() - 60_000),
-      proposalsEnabled: false,
-    });
-    const gmail = fakeGmail({});
 
-    const stats = await pollGoogleOnce(deps(account, gmail));
-
-    expect(stats.accounts).toBe(0);
-    expect(gmail.calls).toEqual([]);
-    expect((await reload(account.id)).lastSyncAt).toBeNull();
-  });
-
-  it("al primo giro (nessun cursore) fa il resync con newer_than:7d -from:me", async () => {
+  it("al primo giro (nessun cursore) fa il resync con newer_than:7d -from:me, POI la posta mandata (area 8)", async () => {
     const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
     const gmail = fakeGmail({ listed: [], messages: {} });
 
     await pollGoogleOnce(deps(account, gmail));
 
-    expect(gmail.calls).toEqual(["refresh", "list"]);
-    expect(gmail.listQueries).toEqual([GMAIL_RESYNC_QUERY]);
+    expect(gmail.calls).toEqual(["refresh", "list", "list"]);
+    expect(gmail.listQueries).toEqual([GMAIL_RESYNC_QUERY, GMAIL_RESYNC_SENT_QUERY]);
   });
 
   it("history scaduta (404) → ricade sul resync per query, senza contare un errore", async () => {
@@ -409,8 +414,8 @@ describe("sincronizzazione Gmail", () => {
 
     await pollGoogleOnce(deps(account, gmail));
 
-    expect(gmail.calls).toEqual(["refresh", "history", "list"]);
-    expect(gmail.listQueries).toEqual([GMAIL_RESYNC_QUERY]);
+    expect(gmail.calls).toEqual(["refresh", "history", "list", "list"]);
+    expect(gmail.listQueries).toEqual([GMAIL_RESYNC_QUERY, GMAIL_RESYNC_SENT_QUERY]);
     const reloaded = await reload(account.id);
     expect(reloaded.syncAttempts).toBe(0);
     expect(reloaded.disabledAt).toBeNull();
@@ -497,6 +502,35 @@ describe("sincronizzazione Gmail", () => {
     // Nessun `full:m1`: è il pre-filtro che ha risparmiato la chiamata.
     expect(gmail.calls).toEqual(["refresh", "history", "metadata:m1"]);
     expect(await db.select().from(emailMessages)).toEqual([]);
+  });
+
+  it("area 7, F2 (F2-1 = tutte): un messaggio RIFIUTATO dall'ammissione entra nelle automazioni della casella; uno mandato dalla casella no; senza automazioni nessun download in più", async () => {
+    const projectId = await seedProject("Acme");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    // Prima, nessuna automazione: il pre-filtro risparmia il download come sempre.
+    const quiet = fakeGmail({ history: { addedMessageIds: ["m0"], historyId: "1005" }, messages: { m0: message({ id: "m0", from: "news@spam.example" }) } });
+    await pollGoogleOnce(deps(account, quiet));
+    expect(quiet.calls).toEqual(["refresh", "history", "metadata:m0"]);
+    // Poi un'automazione del proprietario che ascolta la casella.
+    const [a] = await db
+      .insert(automations)
+      .values({ code: "ACM-A1", seq: 1, name: "In", projectId, ownerId: account.userId, status: "active", activeSince: new Date(Date.now() - 60_000), mailboxAccountId: account.id, listensMail: true })
+      .returning();
+    await db.insert(automationVersions).values({ automationId: a!.id, n: 1, flow: { trigger: { kind: "stubwise", event: "mail_received" }, steps: [], titleTemplate: "t" }, publishedAt: new Date(), publishedBy: account.userId });
+    await db.update(googleAccounts).set({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1005" }).where(eq(googleAccounts.id, account.id));
+    const [fresh] = await db.select().from(googleAccounts).where(eq(googleAccounts.id, account.id));
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1", "m2"], historyId: "1010" },
+      messages: { m1: message({ id: "m1", from: "news@spam.example", subject: "Offerta" }), m2: message({ id: "m2", from: `Operatore <${MAILBOX}>`, to: "cliente@acme.com" }) },
+    });
+    await pollGoogleOnce(deps(fresh!, gmail));
+    // m1 è fuori perimetro (nessuna riga), ma la sua email arriva all'automazione.
+    expect(await db.select().from(emailMessages)).toEqual([]);
+    const events = await db.select().from(automationEvents).where(eq(automationEvents.accountId, account.id));
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ kind: "mail_received", dedupeKey: `mail:${account.id}:m1`, payload: { email: { mittente: "news@spam.example", oggetto: "Offerta" } } });
+    expect(gmail.calls).toContain("full:m1");
+    expect(gmail.calls).not.toContain("full:m2");
   });
 
   it("in perimetro: scrive la riga col progetto risolto e il testo capato", async () => {
@@ -766,6 +800,31 @@ describe("sincronizzazione Gmail", () => {
 // ---------------------------------------------------------------------------
 // Ammissione (fase 6c) — Task 3: il pre-filtro AMMETTE, non attribuisce più.
 // ---------------------------------------------------------------------------
+
+describe("lotto 8, voce 2: gli alias della casella sono «io» (W1)", () => {
+  it("un messaggio mandato da un ALIAS su un thread sconosciuto non entra come ricevuto; gli alias si rileggono da Gmail se la copia è vecchia", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1"], historyId: "1010" },
+      messages: { m1: message({ id: "m1", from: "Supporto <supporto@acme.com>" }) },
+    });
+    const listed: string[] = [];
+    const withAliases = {
+      ...gmail,
+      listSendAs: async (input: { accessToken: string }) => {
+        listed.push(input.accessToken);
+        return [{ email: "supporto@acme.com", displayName: "Supporto", isPrimary: false, isDefault: false, signature: null }];
+      },
+    };
+    const stats = await pollGoogleOnce(deps(account, withAliases as typeof gmail));
+    expect(listed).toHaveLength(1);
+    expect(stats.ingested).toBe(0);
+    expect(gmail.calls).not.toContain("full:m1");
+    const [row] = await db.select({ sendAs: googleAccounts.sendAs, at: googleAccounts.sendAsFetchedAt }).from(googleAccounts).where(eq(googleAccounts.id, account.id));
+    expect(row!.sendAs.map((a) => a.email)).toEqual(["supporto@acme.com"]);
+    expect(row!.at).not.toBeNull();
+  });
+});
 
 describe("ammissione (fase 6c)", () => {
   it("dominio Workspace REGISTRATO, senza nessuna regola di progetto: ingerito con scope_project_ids vuoto", async () => {
@@ -1964,12 +2023,20 @@ describe("più caselle nello stesso tick", () => {
 // ---------------------------------------------------------------------------
 
 /** Runner finto: il contenuto del run è affare di classify.test.ts, qui conta
- * solo che il tick lo chiami (e quante volte). */
-function fakeRunner(reply: string | Error): AgentRunner & { calls: AgentRunOptions[] } {
+ * solo che il tick lo chiami (e quante volte). `calls` sono le
+ * CLASSIFICAZIONI; il giudizio di «Clienti in attesa» (J2, che gira anche
+ * con le proposte spente) finisce in `judgeCalls`, contato a parte. */
+function fakeRunner(reply: string | Error): AgentRunner & { calls: AgentRunOptions[]; judgeCalls: AgentRunOptions[] } {
   const calls: AgentRunOptions[] = [];
+  const judgeCalls: AgentRunOptions[] = [];
   return {
     calls,
+    judgeCalls,
     async run(opts: AgentRunOptions): Promise<AgentRunResult> {
+      if (opts.usage?.operation === "mail_reply_judgment") {
+        judgeCalls.push(opts);
+        return { output: JSON.stringify({ needsMyReply: true, reason: "Aspetta una risposta." }), exitCode: 0 };
+      }
       calls.push(opts);
       if (reply instanceof Error) throw reply;
       return { output: reply, exitCode: 0 };
@@ -2896,9 +2963,17 @@ function calendarEvent(input: Partial<GoogleCalendarEvent> & { id: string }): Go
     attendees: [att("cliente@cliente.com"), att(MAILBOX)],
     organizer: MAILBOX,
     htmlLink: null,
+    eventType: "default",
+    transparency: "opaque",
+    etag: null,
+    iCalUID: null,
+    visibility: "default",
+    organizerSelf: false,
     updatedAt: null,
     recurringEventId: null,
     originalStartTime: null,
+    timeZone: null,
+    attachments: [],
     location: null,
     hangoutLink: null,
     conferenceEntryPoints: [],
@@ -2950,6 +3025,13 @@ async function calendarRows(): Promise<(typeof calendarEvents.$inferSelect)[]> {
   return db.select().from(calendarEvents).orderBy(calendarEvents.googleEventId);
 }
 
+/** La card del proprietario su una proposta condivisa del calendario (la sua riga fra i destinatari). */
+async function sharedCardOf(userId: string): Promise<string | null> {
+  const { calendarProposalRecipients } = await import("@stubwise/db");
+  const [row] = await db.select().from(calendarProposalRecipients).where(eq(calendarProposalRecipients.userId, userId));
+  return row?.notificationId ?? null;
+}
+
 describe("il resync del calendario dopo un 410 vede anche le cancellazioni", () => {
   it("un evento proposto, cancellato prima del prossimo sync, poi un 410: la riga risulta cancelled", async () => {
     const projectId = await seedProject("Acme");
@@ -2971,7 +3053,10 @@ describe("il resync del calendario dopo un 410 vede anche le cancellazioni", () 
 
     const proposed = (await calendarRows())[0]!;
     expect(proposed.status).toBe("confirmed");
-    expect(proposed.proposalNotificationId).not.toBeNull();
+    // Lotto 9, voce 2 (d): un evento singolo è una proposta CONDIVISA.
+    expect(proposed.calendarProposalId).not.toBeNull();
+    const card = await sharedCardOf(account.userId);
+    expect(card).not.toBeNull();
 
     // Secondo giro: il token "tok-1" è scaduto (410). Il resync che segue —
     // SUBITO, nello stesso tick — deve vedere l'evento con `showDeleted: true`
@@ -3009,8 +3094,11 @@ describe("il resync del calendario dopo un 410 vede anche le cancellazioni", () 
     const [row] = await calendarRows();
     expect(row!.status).toBe("cancelled");
     expect(row!.outcome).toEqual({ type: "cancelled" });
-    // Non è più candidata a una proposta: il proprietario non la rivedrà.
-    expect(row!.proposalNotificationId).not.toBeNull();
+    // Non è più candidata a una proposta: il proprietario non la rivedrà. E la
+    // proposta condivisa, senza più copie vive, si chiude con la sua card.
+    expect(row!.calendarProposalId).not.toBeNull();
+    const [closed] = await db.select().from(notifications).where(eq(notifications.id, card!));
+    expect(closed!.status).toBe("handled");
     expect((await reload(account.id)).calendarSyncToken).toBe("tok-2");
   });
 });
@@ -3490,5 +3578,1033 @@ describe("fase 7b — voce di backlog, milestone o promemoria, proposte o automa
 
     expect(await db.select().from(aiJobs)).toHaveLength(0);
     expect(await db.select().from(backlogJobs)).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// «Aggiorna ora» (area 6, F1.2): la richiesta, il claim e la sveglia
+// ---------------------------------------------------------------------------
+
+describe("«Aggiorna ora»", () => {
+  const transient = () => new GoogleApiError({ api: "gmail.history.list", status: 503, code: "backendError", reason: "backendError" });
+
+  it("una casella con la richiesta in attesa passa PRIMA delle altre dovute, anche con un batch pieno", async () => {
+    await seedAccount({ email: `a-${randomUUID()}@acme.com`, nextSyncAt: new Date(Date.now() - 3_600_000) });
+    // Un secondo nel passato: l'orologio del container può essere indietro rispetto all'host.
+    const asked = await seedAccount({ nextSyncAt: new Date(Date.now() - 1000), syncRequestedAt: new Date() });
+    const claimed = await claimDueAccounts(db, 1, 5);
+    expect(claimed.map((row) => row.id)).toEqual([asked.id]);
+  });
+
+  it("un giro riuscito azzera la richiesta e fa avanzare lastSyncAt", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 1000), syncRequestedAt: new Date(Date.now() - 1000) });
+    await pollGoogleOnce(deps(account, fakeGmail({})));
+    const row = await reload(account.id);
+    expect(row.syncRequestedAt).toBeNull();
+    expect(row.lastSyncAt).not.toBeNull();
+  });
+
+  it("un giro FALLITO la azzera lo stesso (la fine si vede), e lastSyncAt non avanza", async () => {
+    const account = await seedAccount({
+      nextSyncAt: new Date(Date.now() - 1000),
+      syncRequestedAt: new Date(Date.now() - 1000),
+      gmailHistoryId: "100",
+    });
+    await pollGoogleOnce(deps(account, fakeGmail({ historyError: transient() })));
+    const row = await reload(account.id);
+    expect(row.syncAttempts).toBe(1);
+    expect(row.syncRequestedAt).toBeNull();
+    expect(row.lastSyncAt).toBeNull();
+  });
+
+  it("una casella che il giro disabilita: la richiesta si azzera", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 1000), syncRequestedAt: new Date(Date.now() - 1000) });
+    const gmail = fakeGmail({
+      refreshError: new GoogleApiError({ api: "oauth.token.refresh_token", status: 400, code: "invalid_grant", reason: "invalid_grant" }),
+    });
+    await pollGoogleOnce(deps(account, gmail));
+    const row = await reload(account.id);
+    expect(row.disabledReason).toBe("invalid_grant");
+    expect(row.syncRequestedAt).toBeNull();
+  });
+
+  it("una richiesta arrivata DURANTE il giro non si azzera: la serve il giro dopo", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 1000), syncRequestedAt: new Date(Date.now() - 5000) });
+    const gmail = fakeGmail({});
+    const refresh = gmail.refreshAccessToken.bind(gmail);
+    gmail.refreshAccessToken = (async (...args: Parameters<typeof refresh>) => {
+      // La rotta, a giro in corso (dopo il claim).
+      await db.update(googleAccounts).set({ syncRequestedAt: sql`now()`, nextSyncAt: sql`now()` }).where(eq(googleAccounts.id, account.id));
+      return refresh(...args);
+    }) as typeof gmail.refreshAccessToken;
+    await pollGoogleOnce(deps(account, gmail));
+    const row = await reload(account.id);
+    expect(row.syncRequestedAt).not.toBeNull();
+    // E resta DOVUTA: l'esito del giro non la rimanda all'intervallo.
+    expect(row.nextSyncAt.getTime()).toBeLessThanOrEqual(Date.now() + 60_000);
+    expect(await claimDueAccounts(db, 10, 5)).toHaveLength(1);
+  });
+
+  it("una richiesta a giro in corso su una casella che il giro disabilita: azzerata anche lei", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 1000) });
+    const gmail = fakeGmail({});
+    gmail.refreshAccessToken = (async () => {
+      await db.update(googleAccounts).set({ syncRequestedAt: sql`now()`, nextSyncAt: sql`now()` }).where(eq(googleAccounts.id, account.id));
+      throw new GoogleApiError({ api: "oauth.token.refresh_token", status: 400, code: "invalid_grant", reason: "invalid_grant" });
+    }) as typeof gmail.refreshAccessToken;
+    await pollGoogleOnce(deps(account, gmail));
+    const row = await reload(account.id);
+    expect(row.disabledReason).toBe("invalid_grant");
+    expect(row.syncRequestedAt).toBeNull();
+  });
+
+  it("il NOTIFY sveglia il poller: il giro parte subito, non all'intervallo", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() + 3_600_000) });
+    const controller = new AbortController();
+    let wake: ((payload: string) => void) | undefined;
+    const stop = startGooglePoller({
+      ...deps(account, fakeGmail({})),
+      intervalMinutes: 60,
+      // Il ripiego lontano: qui deve bastare la sveglia.
+      requestPollMs: 3_600_000,
+      listen: async (_channel, cb) => {
+        wake = cb;
+      },
+      signal: controller.signal,
+    });
+    try {
+      await vi.waitFor(() => expect(wake).toBeDefined());
+      await db.update(googleAccounts).set({ syncRequestedAt: sql`now()`, nextSyncAt: sql`now()` }).where(eq(googleAccounts.id, account.id));
+      wake!(JSON.stringify({ accountId: account.id }));
+      await vi.waitFor(async () => expect((await reload(account.id)).syncRequestedAt).toBeNull(), { timeout: 5000 });
+      expect((await reload(account.id)).lastSyncAt).not.toBeNull();
+    } finally {
+      stop();
+      controller.abort();
+    }
+  });
+
+  it("senza NOTIFY (LISTEN caduto) ci pensa il ripiego periodico", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 1000), syncRequestedAt: new Date() });
+    const controller = new AbortController();
+    const stop = startGooglePoller({
+      ...deps(account, fakeGmail({})),
+      intervalMinutes: 60,
+      requestPollMs: 50,
+      listen: async () => {
+        throw new Error("LISTEN giù");
+      },
+      signal: controller.signal,
+    });
+    try {
+      await vi.waitFor(async () => expect((await reload(account.id)).syncRequestedAt).toBeNull(), { timeout: 5000 });
+    } finally {
+      stop();
+      controller.abort();
+    }
+  });
+
+  it("una sveglia a giro in corso non si perde: il giro dopo parte appena finisce quello", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() + 3_600_000) });
+    const controller = new AbortController();
+    let wake: ((payload: string) => void) | undefined;
+    let release: (() => void) | undefined;
+    let refreshes = 0;
+    const gmail = fakeGmail({});
+    const refresh = gmail.refreshAccessToken.bind(gmail);
+    gmail.refreshAccessToken = (async (...args: Parameters<typeof refresh>) => {
+      refreshes += 1;
+      if (refreshes === 1) {
+        // Il primo giro resta aperto finché il test non lo lascia andare; nel
+        // frattempo arriva una richiesta nuova.
+        await new Promise<void>((resolve) => (release = resolve));
+      }
+      return refresh(...args);
+    }) as typeof gmail.refreshAccessToken;
+    const stop = startGooglePoller({
+      ...deps(account, gmail),
+      intervalMinutes: 60,
+      requestPollMs: 3_600_000,
+      listen: async (_channel, cb) => {
+        wake = cb;
+      },
+      signal: controller.signal,
+    });
+    try {
+      await vi.waitFor(() => expect(wake).toBeDefined());
+      await db.update(googleAccounts).set({ syncRequestedAt: sql`now()`, nextSyncAt: sql`now()` }).where(eq(googleAccounts.id, account.id));
+      wake!("{}");
+      await vi.waitFor(() => expect(release).toBeDefined());
+      await db.update(googleAccounts).set({ syncRequestedAt: sql`now()`, nextSyncAt: sql`now()` }).where(eq(googleAccounts.id, account.id));
+      wake!("{}");
+      release!();
+      await vi.waitFor(() => expect(refreshes).toBe(2), { timeout: 5000 });
+      await vi.waitFor(async () => expect((await reload(account.id)).syncRequestedAt).toBeNull(), { timeout: 5000 });
+    } finally {
+      stop();
+      controller.abort();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Letto / non letto (area 6, F1.3)
+// ---------------------------------------------------------------------------
+
+describe("letto / non letto da Gmail", () => {
+  async function admittedSetup() {
+    const projectId = await seedProject("Acme");
+    await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_address", value: "cliente@cliente.com" });
+  }
+
+  it("all'ingestione `unread` viene dall'etichetta UNREAD (anche per il contesto del thread)", async () => {
+    await admittedSetup();
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1", "m2"], historyId: "1010" },
+      messages: {
+        m1: message({ id: "m1", labels: ["INBOX", "UNREAD"] }),
+        m2: message({ id: "m2", labels: ["INBOX"] }),
+      },
+      threads: {
+        "thread-m1": [message({ id: "m1", labels: ["INBOX", "UNREAD"] }), message({ id: "c1", threadId: "thread-m1", labels: ["UNREAD"] })],
+      },
+    });
+    await pollGoogleOnce(deps(account, gmail));
+    const rows = await db.select({ id: emailMessages.gmailMessageId, unread: emailMessages.unread }).from(emailMessages);
+    expect(Object.fromEntries(rows.map((r) => [r.id, r.unread]))).toEqual({ m1: true, m2: false, c1: true });
+  });
+
+  it("la history chiede anche i cambi di etichetta, e li applica ai messaggi che Stubwise ha", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    await db.insert(emailMessages).values([
+      { accountId: account.id, gmailMessageId: "a", threadId: "t", fromAddress: "x@cliente.com", receivedAt: new Date(), unread: true },
+      { accountId: account.id, gmailMessageId: "b", threadId: "t", fromAddress: "x@cliente.com", receivedAt: new Date(), unread: null },
+      { accountId: account.id, gmailMessageId: "c", threadId: "t", fromAddress: "x@cliente.com", receivedAt: new Date(), unread: false },
+    ]);
+    const gmail = fakeGmail({
+      history: {
+        addedMessageIds: [],
+        historyId: "1010",
+        unreadChanges: [
+          { messageId: "a", unread: false },
+          { messageId: "b", unread: true },
+          { messageId: "c", unread: true },
+          { messageId: "c", unread: false },
+          { messageId: "sconosciuto", unread: true },
+        ],
+      },
+    });
+    await pollGoogleOnce(deps(account, gmail));
+    expect(gmail.historyTypes[0]).toEqual(["messageAdded", "labelAdded", "labelRemoved"]);
+    const rows = await db.select({ id: emailMessages.gmailMessageId, unread: emailMessages.unread }).from(emailMessages);
+    expect(Object.fromEntries(rows.map((r) => [r.id, r.unread]))).toEqual({ a: false, b: true, c: false });
+    expect(rows).toHaveLength(3);
+  });
+
+  it("i cambi di una casella non toccano la stessa id di messaggio in un'altra casella", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    const other = await seedAccount({ email: `altra-${randomUUID()}@acme.com`, nextSyncAt: new Date(Date.now() + 3_600_000) });
+    await db.insert(emailMessages).values([
+      { accountId: account.id, gmailMessageId: "a", threadId: "t", fromAddress: "x@cliente.com", receivedAt: new Date(), unread: true },
+      { accountId: other.id, gmailMessageId: "a", threadId: "t", fromAddress: "x@cliente.com", receivedAt: new Date(), unread: true },
+    ]);
+    const gmail = fakeGmail({ history: { addedMessageIds: [], historyId: "1010", unreadChanges: [{ messageId: "a", unread: false }] } });
+    await pollGoogleOnce(deps(account, gmail));
+    const [mine] = await db.select().from(emailMessages).where(eq(emailMessages.accountId, account.id));
+    const [theirs] = await db.select().from(emailMessages).where(eq(emailMessages.accountId, other.id));
+    expect(mine!.unread).toBe(false);
+    expect(theirs!.unread).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Proposte spente: la casella si legge (decisione del maintainer, 12 nov 2026)
+// ---------------------------------------------------------------------------
+
+describe("proposte spente: si legge, non si propone", () => {
+  async function routed(): Promise<string> {
+    const projectId = await seedProject("Acme");
+    await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    return projectId;
+  }
+
+  it("NEGATIVO: posta ed eventi ingeriti, ma zero classificazioni, zero email_proposals, zero notifiche", async () => {
+    await routed();
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000", proposalsEnabled: false });
+    const gmail = fakeGmail({ history: { addedMessageIds: ["m1"], historyId: "1010" }, messages: { m1: message({ id: "m1" }) } });
+    const runner = fakeRunner(IGNORED_OUTPUT);
+    const calendar = fakeCalendarSequence([{ events: [calendarEvent({ id: "e1" })], nextSyncToken: "s1" }]);
+
+    const stats = await pollGoogleOnce({ ...deps(account, gmail), runner, calendar });
+
+    expect(stats.ingested).toBe(1);
+    expect(await db.select().from(emailMessages)).toHaveLength(1);
+    expect(await calendarRows()).toHaveLength(1);
+    expect(runner.calls).toEqual([]);
+    expect(await db.select().from(emailProposals)).toEqual([]);
+    expect(await db.select().from(notifications)).toEqual([]);
+    expect(stats.proposed).toBe(0);
+    expect((await reload(account.id)).lastSyncAt).not.toBeNull();
+  });
+
+  it("«Clienti in attesa» (W-3 = a): con le proposte spente il giudizio sul thread in attesa gira lo stesso, e nessuna classificazione", async () => {
+    const projectId = await routed();
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), proposalsEnabled: false });
+    const [waiting] = await db
+      .insert(emailMessages)
+      .values({ accountId: account.id, gmailMessageId: "m-attesa", threadId: "t-attesa", fromAddress: "a@cliente.com", receivedAt: new Date(Date.now() - 2 * 86_400_000), projectId, admitted: true })
+      .returning({ id: emailMessages.id });
+    const runner = fakeRunner(IGNORED_OUTPUT);
+    await pollGoogleOnce({ ...deps(account, fakeGmail({ listed: [] })), runner });
+    expect(runner.calls).toEqual([]);
+    expect(runner.judgeCalls).toHaveLength(1);
+    const [row] = await db.select().from(emailMessages).where(eq(emailMessages.id, waiting!.id));
+    expect(row!.replyJudgment).toMatchObject({ needsMyReply: true });
+  });
+
+  it("NEGATIVO: un figlio già classificato prima di spegnerle non viene pubblicato", async () => {
+    const projectId = await routed();
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), proposalsEnabled: false });
+    const [parent] = await db
+      .insert(emailMessages)
+      .values({ accountId: account.id, gmailMessageId: "m-x", threadId: "t-x", fromAddress: "a@cliente.com", receivedAt: new Date(), projectId, status: "classified" })
+      .returning({ id: emailMessages.id });
+    await db.insert(emailProposals).values({
+      emailMessageId: parent!.id,
+      projectId,
+      status: "classified",
+      classification: { signal: "request", recommendedIndex: 0, proposals: [{ type: "create_backlog_item", projectId, title: "X", consequence: "Y" }] },
+    });
+    await pollGoogleOnce(deps(account, fakeGmail({ listed: [] })));
+    expect(await db.select().from(notifications)).toEqual([]);
+  });
+
+  it("riaccese: la posta ingerita PRIMA di `proposals_since` non si classifica mai, quella dopo sì", async () => {
+    await routed();
+    // L'orologio del DB, non quello del test (lotto 6, voce 4): `created_at` lo
+    // scrive `now()` del DB, e sotto carico l'orologio del container può stare
+    // dietro a quello dell'host — la posta «dopo» finiva «prima» del taglio.
+    const since = await dbNow();
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000", proposalsSince: since });
+    // Ingerita a proposte spente (prima del taglio), ancora `new`.
+    await db.insert(emailMessages).values({
+      accountId: account.id,
+      gmailMessageId: "vecchia",
+      threadId: "t-vecchia",
+      fromAddress: "a@cliente.com",
+      receivedAt: new Date(Date.now() - 3_600_000),
+      createdAt: new Date(since.getTime() - 60_000),
+    });
+    const gmail = fakeGmail({ history: { addedMessageIds: ["m1"], historyId: "1010" }, messages: { m1: message({ id: "m1" }) } });
+    const runner = fakeRunner(IGNORED_OUTPUT);
+
+    await pollGoogleOnce({ ...deps(account, gmail), runner });
+
+    expect(runner.calls).toHaveLength(1);
+    const rows = await db.select({ id: emailMessages.gmailMessageId, status: emailMessages.status }).from(emailMessages);
+    expect(Object.fromEntries(rows.map((r) => [r.id, r.status]))).toEqual({ vecchia: "new", m1: "ignored" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Review della F1 (punti 1 e 4): il controllo vale alla SELEZIONE delle righe
+// ---------------------------------------------------------------------------
+
+describe("proposte spente o tagliate: il controllo è nella WHERE", () => {
+  async function seedChild(accountId: string, projectId: string, createdAt?: Date) {
+    const [parent] = await db
+      .insert(emailMessages)
+      .values({
+        accountId,
+        gmailMessageId: `m-${randomUUID()}`,
+        threadId: `t-${randomUUID()}`,
+        fromAddress: "a@cliente.com",
+        receivedAt: new Date(),
+        projectId,
+        status: "classified",
+        ...(createdAt ? { createdAt } : {}),
+      })
+      .returning({ id: emailMessages.id });
+    await db.insert(emailProposals).values({
+      emailMessageId: parent!.id,
+      projectId,
+      status: "classified",
+      classification: { signal: "request", recommendedIndex: 0, proposals: [{ type: "create_backlog_item", projectId, title: "X", consequence: "Y" }] },
+    });
+  }
+  async function seedTriageRow(accountId: string, projectId: string, createdAt?: Date) {
+    await db.insert(emailMessages).values({
+      accountId,
+      gmailMessageId: `m-${randomUUID()}`,
+      threadId: `t-${randomUUID()}`,
+      fromAddress: "a@cliente.com",
+      receivedAt: new Date(),
+      status: "classified",
+      signal: "request",
+      classification: { triage: true, signal: "request", summary: "s", suggestedProjectIds: [projectId] },
+      ...(createdAt ? { createdAt } : {}),
+    });
+  }
+
+  it("spente FRA il claim e le fasi: niente classificazione e niente pubblicazione", async () => {
+    const projectId = await seedProject("Acme");
+    await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    await seedChild(account.id, projectId);
+    await seedTriageRow(account.id, projectId);
+    const gmail = fakeGmail({ history: { addedMessageIds: ["m1"], historyId: "1010" }, messages: { m1: message({ id: "m1" }) } });
+    const refresh = gmail.refreshAccessToken.bind(gmail);
+    gmail.refreshAccessToken = (async (...args: Parameters<typeof refresh>) => {
+      // La persona le spegne a giro in corso, dopo il claim.
+      await db.update(googleAccounts).set({ proposalsEnabled: false }).where(eq(googleAccounts.id, account.id));
+      return refresh(...args);
+    }) as typeof gmail.refreshAccessToken;
+    const runner = fakeRunner(IGNORED_OUTPUT);
+    const calendar = fakeCalendarSequence([{ events: [calendarEvent({ id: "e1" })], nextSyncToken: "s1" }]);
+
+    await pollGoogleOnce({ ...deps(account, gmail), runner, calendar });
+
+    expect(runner.calls).toEqual([]);
+    expect(await db.select().from(notifications)).toEqual([]);
+    // La lettura invece c'è stata.
+    expect((await db.select().from(emailMessages).where(eq(emailMessages.gmailMessageId, "m1"))).length).toBe(1);
+  });
+
+  it("riaccese: un figlio già classificato e una riga da smistare di posta VECCHIA non si pubblicano; quelle nuove sì", async () => {
+    const projectId = await seedProject("Acme");
+    const since = await dbNow(); // l'orologio del DB (lotto 6, voce 4)
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), proposalsSince: since });
+    const before = new Date(since.getTime() - 60_000);
+    await seedChild(account.id, projectId, before);
+    await seedTriageRow(account.id, projectId, before);
+    expect((await pollGoogleOnce(deps(account, fakeGmail({ listed: [] })))).proposed).toBe(0);
+    expect(await db.select().from(notifications)).toEqual([]);
+
+    await seedChild(account.id, projectId);
+    await db.update(googleAccounts).set({ nextSyncAt: sql`now() - interval '1 minute'` }).where(eq(googleAccounts.id, account.id));
+    expect((await pollGoogleOnce(deps(account, fakeGmail({ listed: [] })))).proposed).toBe(1);
+  });
+});
+
+describe("«Aggiorna ora» dopo un giro interrotto (review F1, punto 3)", () => {
+  it("abort a metà: le caselle reclamate e non servite con una richiesta tornano dovute subito", async () => {
+    const first = await seedAccount({ nextSyncAt: new Date(Date.now() - 2000), syncRequestedAt: new Date(Date.now() - 2000) });
+    const second = await seedAccount({ email: `b-${randomUUID()}@acme.com`, nextSyncAt: new Date(Date.now() - 1000), syncRequestedAt: new Date(Date.now() - 1000) });
+    const controller = new AbortController();
+    const gmail = fakeGmail({});
+    const refresh = gmail.refreshAccessToken.bind(gmail);
+    gmail.refreshAccessToken = (async (...args: Parameters<typeof refresh>) => {
+      controller.abort(); // durante la prima casella
+      return refresh(...args);
+    }) as typeof gmail.refreshAccessToken;
+    await pollGoogleOnce({ ...deps(first, gmail), signal: controller.signal });
+    // L'ordine del RETURNING del claim non è garantito: una delle due è stata
+    // servita (richiesta azzerata), l'altra no — ed è quella che torna dovuta.
+    const rows = [await reload(first.id), await reload(second.id)];
+    const unserved = rows.filter((row) => row.syncRequestedAt !== null);
+    expect(unserved).toHaveLength(1);
+    expect(unserved[0]!.nextSyncAt.getTime()).toBeLessThanOrEqual(Date.now() + 60_000);
+  });
+
+  it("all'avvio (dopo un crash) una richiesta in attesa rende la casella dovuta", async () => {
+    const asked = await seedAccount({ nextSyncAt: new Date(Date.now() + 3_600_000), syncRequestedAt: new Date() });
+    const quiet = await seedAccount({ email: `q-${randomUUID()}@acme.com`, nextSyncAt: new Date(Date.now() + 3_600_000) });
+    await recoverSyncRequests(db);
+    expect((await reload(asked.id)).nextSyncAt.getTime()).toBeLessThanOrEqual(Date.now() + 60_000);
+    expect((await reload(quiet.id)).nextSyncAt.getTime()).toBeGreaterThan(Date.now() + 3_000_000);
+  });
+
+  it("review F1, punto 5: una richiesta scritta con now() (µs) prima del claim si azzera a fine giro", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 1000) });
+    await db.update(googleAccounts).set({ syncRequestedAt: sql`now()` }).where(eq(googleAccounts.id, account.id));
+    const [raw] = await db.execute<{ us: string }>(sql`select extract(microseconds from sync_requested_at)::text as us from google_accounts where id = ${account.id}`);
+    // Il caso che conta: il valore ha i µs che `Date` non porta.
+    expect(Number(raw!.us) % 1000).not.toBe(0);
+    await pollGoogleOnce(deps(account, fakeGmail({})));
+    expect((await reload(account.id)).syncRequestedAt).toBeNull();
+  });
+});
+
+describe("history fatta solo di cambi di etichetta (review F1, punto 6)", () => {
+  it("si ferma al tetto di pagine e salva come cursore l'ultima voce letta: il giro dopo riparte da lì", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    await db.insert(emailMessages).values({ accountId: account.id, gmailMessageId: "a", threadId: "t", fromAddress: "x@cliente.com", receivedAt: new Date(), unread: true });
+    const gmail = fakeGmail({});
+    const starts: string[] = [];
+    let page = 0;
+    gmail.listHistory = (async (input: { startHistoryId: string }) => {
+      starts.push(input.startHistoryId);
+      page += 1;
+      // Pagine infinite, una voce ciascuna, solo cambi di etichetta.
+      return { addedMessageIds: [], unreadChanges: page === 1 ? [{ messageId: "a", unread: false }] : [], lastEntryId: String(1000 + page), historyId: "999999", nextPageToken: `p${page}` };
+    }) as typeof gmail.listHistory;
+
+    await pollGoogleOnce(deps(account, gmail));
+
+    expect(page).toBe(GMAIL_HISTORY_MAX_PAGES);
+    const row = await reload(account.id);
+    expect(row.gmailHistoryId).toBe(String(1000 + GMAIL_HISTORY_MAX_PAGES));
+    const [message] = await db.select().from(emailMessages).where(eq(emailMessages.gmailMessageId, "a"));
+    expect(message!.unread).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Area 6, F2 (task 2): l'ingestione senza ammissione, dietro MAIL_CLASSIFY_V2
+// ---------------------------------------------------------------------------
+
+describe("ingestione della classificazione nuova (F2)", () => {
+  function newsletter(id: string) {
+    const m = message({ id, from: "Novità <news@negozio-qualunque.it>", subject: "Le offerte della settimana" });
+    m.headers["list-unsubscribe"] = "<mailto:off@negozio-qualunque.it>";
+    m.headers["message-id"] = `<${id}@negozio-qualunque.it>`;
+    return m;
+  }
+
+  it("con il flag acceso entra TUTTA la posta ricevuta: nessuna ammissione, nessuno scarto, il Message-ID salvato", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    const gmail = fakeGmail({ history: { addedMessageIds: ["n1"], historyId: "1010" }, messages: { n1: newsletter("n1") } });
+
+    const stats = await pollGoogleOnce({ ...deps(account, gmail), classifyV2: true });
+
+    expect(stats.ingested).toBe(1);
+    const [row] = await db.select().from(emailMessages);
+    expect(row).toMatchObject({ gmailMessageId: "n1", admitted: true, rfcMessageId: "<n1@negozio-qualunque.it>", projectId: null, scopeProjectIds: [] });
+    expect(await db.select().from(emailRejections)).toEqual([]);
+  });
+
+  it("con il flag acceso la posta MANDATA dalla casella resta fuori (non è una richiesta ricevuta)", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    const gmail = fakeGmail({ history: { addedMessageIds: ["s1"], historyId: "1010" }, messages: { s1: message({ id: "s1", from: `Io <${MAILBOX}>` }) } });
+    await pollGoogleOnce({ ...deps(account, gmail), classifyV2: true });
+    expect(await db.select().from(emailMessages)).toEqual([]);
+  });
+
+  it("con il flag spento resta l'ammissione di oggi: la newsletter è tenuta fuori", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    const gmail = fakeGmail({ history: { addedMessageIds: ["n1"], historyId: "1010" }, messages: { n1: newsletter("n1") } });
+    await pollGoogleOnce(deps(account, gmail));
+    expect(await db.select().from(emailMessages)).toEqual([]);
+    expect(await db.select().from(emailRejections)).toHaveLength(1);
+  });
+
+  it("il Message-ID si salva anche col flag spento", async () => {
+    const projectId = await seedProject("Acme");
+    await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    const m1 = message({ id: "m1" });
+    m1.headers["message-id"] = "<m1@cliente.com>";
+    await pollGoogleOnce(deps(account, fakeGmail({ history: { addedMessageIds: ["m1"], historyId: "1010" }, messages: { m1 } })));
+    const [row] = await db.select().from(emailMessages);
+    expect(row!.rfcMessageId).toBe("<m1@cliente.com>");
+  });
+});
+
+describe("il giro col flag della classificazione nuova (F2, task 3)", () => {
+  it("con MAIL_CLASSIFY_V2 la fase 2 usa la classificazione nuova (importanza e stato), col flag spento quella di prima", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    const gmail = fakeGmail({ history: { addedMessageIds: ["m1"], historyId: "1010" }, messages: { m1: message({ id: "m1" }) } });
+    const runner = fakeRunner(JSON.stringify({ importance: "low", summary: "", projects: [] }));
+    await pollGoogleOnce({ ...deps(account, gmail), runner, classifyV2: true });
+    const [row] = await db.select().from(emailMessages);
+    expect(row).toMatchObject({ classificationState: "done", importance: "low" });
+  });
+});
+
+describe("la posta MANDATA nei thread che Stubwise ha (area 6, F3)", () => {
+  it("una risposta mandata dalla casella in un thread già noto entra come CONTESTO, mai classificata; in un thread ignoto resta fuori", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    // La ricevuta è già classificata: il runner deve restare a zero per la mandata.
+    await db.insert(emailMessages).values({ accountId: account.id, gmailMessageId: "ricevuta", threadId: "thread-noto", fromAddress: "c@cliente.com", receivedAt: new Date(), status: "ignored", classificationState: "done" });
+    const mine = message({ id: "mandata", threadId: "thread-noto", from: `Io <${MAILBOX}>`, body: "Ecco l'export." });
+    const stray = message({ id: "altra", threadId: "thread-ignoto", from: `Io <${MAILBOX}>` });
+    const runner = fakeRunner(IGNORED_OUTPUT);
+    const gmail = fakeGmail({ history: { addedMessageIds: ["mandata", "altra"], historyId: "1010" }, messages: { mandata: mine, altra: stray } });
+
+    await pollGoogleOnce({ ...deps(account, gmail), runner, classifyV2: true });
+
+    const rows = await db.select().from(emailMessages).where(eq(emailMessages.accountId, account.id));
+    const sent = rows.find((r) => r.gmailMessageId === "mandata");
+    expect(sent).toMatchObject({ admitted: false, status: "ignored", threadId: "thread-noto" });
+    expect(sent!.textExcerpt).toContain("Ecco l'export.");
+    expect(rows.find((r) => r.gmailMessageId === "altra")).toBeUndefined();
+    expect(runner.calls).toEqual([]);
+  });
+
+  it("area 8, «Clienti in attesa»: al RESYNC (history scaduta) la risposta mandata da Gmail su un thread noto entra come contesto; su un thread ignoto no; mai classificata", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    await db.insert(emailMessages).values({ accountId: account.id, gmailMessageId: "ricevuta", threadId: "thread-noto", fromAddress: "c@cliente.com", receivedAt: new Date(), status: "ignored", classificationState: "done" });
+    const runner = fakeRunner(IGNORED_OUTPUT);
+    const gmail = fakeGmail({
+      historyError: new GoogleApiError({ api: "gmail.history.list", status: 404, code: "history_expired", reason: "notFound" }),
+      listed: [],
+      listedSent: ["risposta", "altrove"],
+      messages: {
+        risposta: message({ id: "risposta", threadId: "thread-noto", from: `Io <${MAILBOX}>`, body: "Fatto, ecco il file." }),
+        altrove: message({ id: "altrove", threadId: "thread-ignoto", from: `Io <${MAILBOX}>` }),
+      },
+    });
+
+    await pollGoogleOnce({ ...deps(account, gmail), runner, classifyV2: true });
+
+    const rows = await db.select().from(emailMessages).where(eq(emailMessages.accountId, account.id));
+    expect(rows.find((r) => r.gmailMessageId === "risposta")).toMatchObject({ admitted: false, status: "ignored", threadId: "thread-noto" });
+    expect(rows.find((r) => r.gmailMessageId === "altrove")).toBeUndefined();
+    expect(runner.calls).toEqual([]);
+  });
+
+  it("area 8: al primo giro i ricevuti PRIMA dei mandati — un thread che diventa noto nel giro prende anche la risposta", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    const runner = fakeRunner(IGNORED_OUTPUT);
+    const gmail = fakeGmail({
+      listed: ["domanda"],
+      listedSent: ["risposta"],
+      messages: {
+        domanda: message({ id: "domanda", threadId: "thread-x", from: "Cliente <c@cliente.com>", body: "Mi mandate il preventivo?" }),
+        risposta: message({ id: "risposta", threadId: "thread-x", from: `Io <${MAILBOX}>`, body: "Eccolo." }),
+      },
+      // Il thread come lo vede Gmail al momento dell'ammissione: senza la
+      // risposta (mandata dopo), così è SOLO la lista dei mandati a portarla.
+      threads: { "thread-x": [message({ id: "domanda", threadId: "thread-x", from: "Cliente <c@cliente.com>", body: "Mi mandate il preventivo?" })] },
+    });
+
+    await pollGoogleOnce({ ...deps(account, gmail), runner, classifyV2: true });
+
+    const rows = await db.select().from(emailMessages).where(eq(emailMessages.accountId, account.id));
+    expect(rows.find((r) => r.gmailMessageId === "risposta")).toMatchObject({ admitted: false, threadId: "thread-x" });
+  });
+
+  it("un'email NUOVA mandata da Stubwise entra anche senza un thread noto (crea la sua conversazione)", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    const { mailOutgoing } = await import("@stubwise/db");
+    await db.insert(mailOutgoing).values({ userId: account.userId, accountId: account.id, gmailDraftId: "d", sendAt: new Date(), state: "sent", gmailMessageId: "nuova" });
+    const gmail = fakeGmail({ history: { addedMessageIds: ["nuova"], historyId: "1010" }, messages: { nuova: message({ id: "nuova", threadId: "thread-nuovo", from: `Io <${MAILBOX}>` }) } });
+    await pollGoogleOnce({ ...deps(account, gmail), classifyV2: true });
+    const [row] = await db.select().from(emailMessages).where(eq(emailMessages.gmailMessageId, "nuova"));
+    expect(row).toMatchObject({ admitted: false, threadId: "thread-nuovo" });
+    await db.delete(mailOutgoing);
+  });
+
+  it("review F3, punto 6: vista PRIMA che il mittente ne scriva il gmail_message_id, la si riconosce dal NOSTRO Message-ID", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    const { mailOutgoing } = await import("@stubwise/db");
+    await db.insert(mailOutgoing).values({ userId: account.userId, accountId: account.id, gmailDraftId: "d", sendAt: new Date(), state: "sending", rfcMessageId: "<stubwise.abc@acme.com>" });
+    const m = message({ id: "presto", threadId: "thread-presto", from: `Io <${MAILBOX}>` });
+    m.headers["message-id"] = "<stubwise.abc@acme.com>";
+    const gmail = fakeGmail({ history: { addedMessageIds: ["presto"], historyId: "1010" }, messages: { presto: m } });
+    await pollGoogleOnce({ ...deps(account, gmail), classifyV2: true });
+    const [row] = await db.select().from(emailMessages).where(eq(emailMessages.gmailMessageId, "presto"));
+    expect(row).toMatchObject({ admitted: false, threadId: "thread-presto" });
+    await db.delete(mailOutgoing);
+  });
+});
+
+describe("review F2, punto 1 (critico): col flag acceso le proposte CONDIVISE arrivano dal giro intero", () => {
+  it("una proposta v2 (audience mail_recipients) classificata diventa una card per il destinatario membro, non `ignored`", async () => {
+    const { projectMembers, roles, emailProposalRecipients } = await import("@stubwise/db");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    const [owner] = await db.select().from(users).where(eq(users.id, account.userId));
+    const projectId = await seedProject("Audin");
+    const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.scope, "project")).limit(1);
+    await db.insert(projectMembers).values({ projectId, userId: owner!.id, roleId: role!.id });
+    const [message] = await db
+      .insert(emailMessages)
+      .values({ accountId: account.id, gmailMessageId: "v2", threadId: "t-v2", fromAddress: "c@cliente.com", toAddresses: [owner!.email], subject: "Export", receivedAt: new Date(), rfcMessageId: "<v2@cliente.com>", classificationState: "done" })
+      .returning();
+    const [proposal] = await db
+      .insert(emailProposals)
+      .values({
+        emailMessageId: message!.id,
+        projectId,
+        rfcMessageId: "<v2@cliente.com>",
+        audience: "mail_recipients",
+        status: "classified",
+        classification: { version: 2, summary: "s", actions: [{ type: "create_task", args: { title: "Export CSV", description: "", assigneeId: null, dueDate: null } }] },
+      })
+      .returning();
+
+    await pollGoogleOnce({ ...deps(account, fakeGmail({})), runner: fakeRunner(IGNORED_OUTPUT), classifyV2: true });
+
+    const [row] = await db.select().from(emailProposals).where(eq(emailProposals.id, proposal!.id));
+    expect(row!.status).toBe("proposed");
+    expect((await db.select().from(notifications)).map((n) => n.userId)).toEqual([owner!.id]);
+    expect((await db.select().from(emailProposalRecipients)).map((r) => r.userId)).toEqual([owner!.id]);
+    await db.delete(emailProposalRecipients);
+    await db.delete(projectMembers);
+  });
+});
+
+describe("F3b: il calendario con TUTTI gli eventi", () => {
+  async function tick(account: typeof googleAccounts.$inferSelect, events: GoogleCalendarEvent[]) {
+    await db.update(googleAccounts).set({ nextSyncAt: new Date(Date.now() - 60_000) }).where(eq(googleAccounts.id, account.id));
+    await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { calendar: fakeCalendarSequence([{ events, nextSyncToken: "tok" }]) }));
+  }
+  /** L'insieme misto: ciò che entrava prima (candidato) e ciò che prima restava fuori. */
+  const mixed = () => [
+    calendarEvent({ id: "lavoro" }),
+    calendarEvent({ id: "lavoro-senza-titolo", title: "" }),
+    calendarEvent({ id: "personale", title: "Dentista", attendees: [att(MAILBOX)] }),
+    calendarEvent({ id: "ferie", title: "Ferie", attendees: [att(MAILBOX)], eventType: "outOfOffice", transparency: "transparent" }),
+    calendarEvent({ id: "dove", title: "In ufficio", attendees: [att(MAILBOX)], eventType: "workingLocation" }),
+    calendarEvent({ id: "compleanno", title: "Compleanno di Ada", attendees: [att(MAILBOX)], eventType: "birthday" }),
+  ];
+
+  it("flag spento: entrano tutti (tranne posizione e compleanni), ma i CANDIDATI e le PROPOSTE sono esattamente quelli di prima", async () => {
+    const projectId = await seedProject("Acme");
+    await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await tick(account, mixed());
+
+    const rows = await calendarRows();
+    expect(rows.map((r) => r.googleEventId)).toEqual(["ferie", "lavoro", "lavoro-senza-titolo", "personale"]);
+    // Prima entrava SOLO «lavoro»: è l'unico candidato, e l'unico proposto
+    // (lotto 9, voce 2 (d): come proposta condivisa, legata alla riga).
+    expect(rows.filter((r) => r.proposalCandidate).map((r) => r.googleEventId)).toEqual(["lavoro"]);
+    expect(rows.filter((r) => r.calendarProposalId !== null).map((r) => r.googleEventId)).toEqual(["lavoro"]);
+    expect(rows.find((r) => r.googleEventId === "lavoro")).toMatchObject({ projectId, projectBy: "rules" });
+    expect(rows.find((r) => r.googleEventId === "personale")).toMatchObject({ projectId: null, projectBy: null, outcome: null });
+    expect(rows.find((r) => r.googleEventId === "ferie")).toMatchObject({ eventType: "outOfOffice", transparency: "transparent" });
+    expect((await db.select().from(notifications)).length).toBe(1);
+  });
+
+  it("un evento solo visto, cancellato su Google, se ne va; un candidato cancellato si chiude come prima", async () => {
+    const projectId = await seedProject("Acme");
+    await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await tick(account, mixed());
+    await tick(account, [
+      calendarEvent({ id: "personale", status: "cancelled", title: "", attendees: [] }),
+      calendarEvent({ id: "lavoro", status: "cancelled", title: "", attendees: [] }),
+    ]);
+    const rows = await calendarRows();
+    expect(rows.find((r) => r.googleEventId === "personale")).toBeUndefined();
+    expect(rows.find((r) => r.googleEventId === "lavoro")).toMatchObject({ status: "cancelled" });
+  });
+
+  it("la LINEA DI BASE: una casella di prima, al primo giro completo, non propone sugli eventi già esistenti — nemmeno uno in perimetro; dal giro dopo sì", async () => {
+    const projectId = await seedProject("Acme");
+    await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarBaselineAt: null });
+    await tick(account, mixed());
+    const first = await calendarRows();
+    expect(first.find((r) => r.googleEventId === "lavoro")).toMatchObject({ proposalCandidate: true, outcome: { type: "baseline" }, proposalNotificationId: null });
+    expect(await db.select().from(notifications)).toEqual([]);
+    const [after] = await db.select().from(googleAccounts).where(eq(googleAccounts.id, account.id));
+    expect(after!.calendarBaselineAt).toBeInstanceOf(Date);
+    // Un appuntamento NUOVO dopo la linea di base propone come sempre.
+    await tick(after!, [calendarEvent({ id: "nuovo", title: "Revisione contratto" })]);
+    expect((await calendarRows()).find((r) => r.googleEventId === "nuovo")!.calendarProposalId).not.toBeNull();
+  });
+
+  it("un'occorrenza PERSONALE di una serie accesa con un progetto non diventa una proposta (solo i candidati, anche per le serie)", async () => {
+    const projectId = await seedProject("Acme");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    const { calendarSeries } = await import("@stubwise/db");
+    await db.insert(calendarSeries).values({ accountId: account.id, recurringEventId: "serie-yoga", enabled: true, projectId, leadDays: 30 });
+    await tick(account, [calendarEvent({ id: "yoga-1", title: "Yoga", attendees: [att(MAILBOX)], recurringEventId: "serie-yoga" })]);
+    const [row] = await calendarRows();
+    expect(row).toMatchObject({ proposalCandidate: false, proposalNotificationId: null });
+    expect(await db.select().from(notifications)).toEqual([]);
+  });
+
+  it("un'occorrenza di serie col progetto scelto sulla serie (DIVERSO da quello delle regole) propone su quello — prima spariva in silenzio", async () => {
+    const routed = await seedProject("Acme");
+    const chosen = await seedProject("Scelto");
+    await db.insert(projectEmailRoutes).values({ projectId: routed, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    const { calendarSeries } = await import("@stubwise/db");
+    await db.insert(calendarSeries).values({ accountId: account.id, recurringEventId: "serie-sal", enabled: true, projectId: chosen, leadDays: 30 });
+    await tick(account, [calendarEvent({ id: "sal-1", title: "SAL mensile", recurringEventId: "serie-sal" })]);
+    const [row] = await calendarRows();
+    expect(row!.proposalNotificationId).not.toBeNull();
+    const [card] = await db.select().from(notifications).where(eq(notifications.id, row!.proposalNotificationId!));
+    expect(card!.projectId).toBe(chosen);
+  });
+
+  it("un candidato SENZA proposta (proposte spente) uscito dalle regole tiene il suo progetto", async () => {
+    const projectId = await seedProject("Acme");
+    await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), proposalsEnabled: false });
+    await tick(account, [calendarEvent({ id: "lavoro" })]);
+    await tick(account, [calendarEvent({ id: "lavoro", title: "Revisione (spostata)", attendees: [att(MAILBOX)] })]);
+    const [row] = await calendarRows();
+    expect(row).toMatchObject({ title: "Revisione (spostata)", proposalCandidate: true, projectId, proposalNotificationId: null });
+  });
+
+  it("un candidato non torna indietro: uscito dalle regole, la riga si aggiorna ma resta candidata col suo progetto", async () => {
+    const projectId = await seedProject("Acme");
+    await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await tick(account, [calendarEvent({ id: "lavoro" })]);
+    await tick(account, [calendarEvent({ id: "lavoro", title: "Revisione (spostata)", attendees: [att(MAILBOX)] })]);
+    const [row] = await calendarRows();
+    expect(row).toMatchObject({ title: "Revisione (spostata)", proposalCandidate: true, projectId });
+  });
+});
+
+describe("F3b, task 5: la potatura del calendario", () => {
+  const OLD = () => new Date(Date.now() - 40 * 24 * 3600_000);
+  async function card(userId: string) {
+    const [n] = await db.insert(notifications).values({ userId, kind: "google.proposal", status: "open", event: {} } as typeof notifications.$inferInsert).returning();
+    return n!;
+  }
+  it("via le righe vecchie senza proposta aperta; una proposta aperta su un evento vecchio si chiude (expired, card chiusa) e se ne va al giro dopo; le recenti restano", async () => {
+    const { pruneOldCalendarEvents } = await import("./poller.js");
+    const account = await seedAccount({});
+    const open = await card(account.userId);
+    await db.insert(calendarEvents).values([
+      { accountId: account.id, googleEventId: "vecchio", startsAt: OLD(), fingerprint: "a", proposalCandidate: false },
+      { accountId: account.id, googleEventId: "vecchio-deciso", startsAt: OLD(), fingerprint: "b", outcome: { type: "ignored" } },
+      { accountId: account.id, googleEventId: "vecchio-aperto", startsAt: OLD(), fingerprint: "c", proposalNotificationId: open.id },
+      { accountId: account.id, googleEventId: "recente", startsAt: new Date(Date.now() - 5 * 24 * 3600_000), fingerprint: "d", proposalCandidate: false },
+    ]);
+    await pruneOldCalendarEvents(db);
+    let ids = (await calendarRows()).map((r) => r.googleEventId);
+    expect(ids).toEqual(["recente", "vecchio-aperto"]);
+    expect((await calendarRows()).find((r) => r.googleEventId === "vecchio-aperto")!.outcome).toEqual({ type: "expired" });
+    const [n] = await db.select().from(notifications).where(eq(notifications.id, open.id));
+    expect(n!.status).toBe("handled");
+    await pruneOldCalendarEvents(db);
+    ids = (await calendarRows()).map((r) => r.googleEventId);
+    expect(ids).toEqual(["recente"]);
+  });
+});
+
+describe("F3b, task 7: la dottrina nuova sul calendario (flag acceso)", () => {
+  async function tickV2(account: typeof googleAccounts.$inferSelect, events: GoogleCalendarEvent[]) {
+    await db.update(googleAccounts).set({ nextSyncAt: new Date(Date.now() - 60_000) }).where(eq(googleAccounts.id, account.id));
+    await pollGoogleOnce({ ...deps(account, fakeGmail({ listed: [] }), { calendar: fakeCalendarSequence([{ events, nextSyncToken: "tok" }]) }), classifyV2: true });
+  }
+  async function ownerSees(account: typeof googleAccounts.$inferSelect, projectId: string) {
+    const { projectMembers, roles } = await import("@stubwise/db");
+    const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.scope, "project")).limit(1);
+    await db.insert(projectMembers).values({ projectId, userId: account.userId, roleId: role!.id });
+  }
+  async function member(projectId: string, email: string) {
+    const { projectMembers, roles } = await import("@stubwise/db");
+    const [u] = await db.insert(users).values({ email, passwordHash: "x", role: "member" }).returning();
+    const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.scope, "project")).limit(1);
+    await db.insert(projectMembers).values({ projectId, userId: u!.id, roleId: role!.id });
+    return u!.id;
+  }
+
+  it("candidato = un invitato membro di UN progetto (le regole non contano più); projectBy model; la prima volta è la linea di base, poi propone", async () => {
+    const projectId = await seedProject("Audin");
+    const other = await seedProject("Altro");
+    await db.insert(projectEmailRoutes).values({ projectId: other, kind: "sender_domain", value: "cliente.com" });
+    await member(projectId, `marta-${crypto.randomUUID()}@acme.com`);
+    const mate = (await db.select().from(users).where(eq(users.role, "member")).orderBy(users.createdAt)).at(-1)!;
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarV2BaselineAt: null });
+    await ownerSees(account, projectId);
+    await tickV2(account, [
+      calendarEvent({ id: "con-marta", title: "Revisione", attendees: [att(MAILBOX), att(mate.email)] }),
+      // In perimetro per le REGOLE, ma nessun invitato membro: col flag acceso non è lavoro.
+      calendarEvent({ id: "solo-regole", title: "Demo", attendees: [att(MAILBOX), att("cliente@cliente.com")] }),
+    ]);
+    let rows = await calendarRows();
+    expect(rows.find((r) => r.googleEventId === "con-marta")).toMatchObject({ proposalCandidate: true, projectId, projectBy: "model", outcome: { type: "baseline" } });
+    expect(rows.find((r) => r.googleEventId === "solo-regole")).toMatchObject({ proposalCandidate: false, projectId: null });
+    expect(await db.select().from(notifications)).toEqual([]);
+    const [after] = await db.select().from(googleAccounts).where(eq(googleAccounts.id, account.id));
+    expect(after!.calendarV2BaselineAt).toBeInstanceOf(Date);
+    await tickV2(after!, [calendarEvent({ id: "nuovo", title: "Kickoff", attendees: [att(MAILBOX), att(mate.email)] })]);
+    rows = await calendarRows();
+    // Lotto 9, voce 2 (d): una proposta condivisa, a Marta (invitata e membro) e al proprietario.
+    expect(rows.find((r) => r.googleEventId === "nuovo")!.calendarProposalId).not.toBeNull();
+    expect((await db.select().from(notifications)).map((n) => n.userId).sort()).toEqual([account.userId, mate.id].sort());
+  });
+
+  it("un evento visto col flag SPENTO che diventa candidato al primo giro col flag acceso: chiuso dalla linea di base, nessuna proposta", async () => {
+    const projectId = await seedProject("Audin");
+    const marta = `marta-${crypto.randomUUID()}@acme.com`;
+    await member(projectId, marta);
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarV2BaselineAt: null });
+    await ownerSees(account, projectId);
+    const ev = calendarEvent({ id: "gia-visto", title: "Revisione", attendees: [att(MAILBOX), att(marta)] });
+    // Flag spento: nessuna regola, quindi solo visto.
+    await db.update(googleAccounts).set({ nextSyncAt: new Date(Date.now() - 60_000) }).where(eq(googleAccounts.id, account.id));
+    await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { calendar: fakeCalendarSequence([{ events: [ev], nextSyncToken: "tok" }]) }));
+    expect((await calendarRows())[0]).toMatchObject({ proposalCandidate: false });
+    const [fresh] = await db.select().from(googleAccounts).where(eq(googleAccounts.id, account.id));
+    await tickV2(fresh!, [ev]);
+    expect((await calendarRows())[0]).toMatchObject({ proposalCandidate: true, projectId, outcome: { type: "baseline" }, proposalNotificationId: null });
+    expect(await db.select().from(notifications)).toEqual([]);
+  });
+
+  it("review F3b, punto 3 — NEGATIVO: il progetto di un invitato che il PROPRIETARIO non vede non arriva sulla sua card", async () => {
+    const hidden = await seedProject("Riservato");
+    const marta = `marta-${crypto.randomUUID()}@acme.com`;
+    await member(hidden, marta);
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarV2BaselineAt: new Date() });
+    await tickV2(account, [calendarEvent({ id: "con-marta", title: "Revisione", attendees: [att(MAILBOX), att(marta)] })]);
+    expect((await calendarRows())[0]).toMatchObject({ proposalCandidate: false, projectId: null });
+    expect(await db.select().from(notifications)).toEqual([]);
+  });
+
+  it("l'indirizzo di un invitato con le MAIUSCOLE riconosce la persona (lower)", async () => {
+    const projectId = await seedProject("Audin");
+    const id = crypto.randomUUID().slice(0, 6);
+    await member(projectId, `Marta.${id}@Acme.com`);
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarV2BaselineAt: new Date() });
+    const { projectMembers, roles } = await import("@stubwise/db");
+    const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.scope, "project")).limit(1);
+    await db.insert(projectMembers).values({ projectId, userId: account.userId, roleId: role!.id });
+    await tickV2(account, [calendarEvent({ id: "m", title: "Revisione", attendees: [att(MAILBOX), att(`marta.${id}@acme.com`)] })]);
+    expect((await calendarRows())[0]).toMatchObject({ proposalCandidate: true, projectId });
+  });
+
+  // Lotto 9, voce 2 (a): con due progetti l'evento è CANDIDATO senza progetto
+  // (lo sceglie `calendar-guess.ts`, test in `calendar-guess.test.ts`); senza
+  // runner nessuna scelta e nessuna proposta.
+  it("invitati membri di DUE progetti: candidato SENZA progetto e nessuna proposta senza il modello, e il solo proprietario non conta", async () => {
+    const a = await seedProject("A");
+    const b = await seedProject("B");
+    const ada = `ada-${crypto.randomUUID()}@acme.com`;
+    await member(a, ada);
+    await member(b, `bob-${crypto.randomUUID()}@acme.com`);
+    const bob = (await db.select().from(users).orderBy(users.createdAt)).at(-1)!;
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarV2BaselineAt: new Date() });
+    // Il proprietario è membro di A: da solo non fa di un evento suo un lavoro.
+    const { projectMembers, roles } = await import("@stubwise/db");
+    const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.scope, "project")).limit(1);
+    await db.insert(projectMembers).values({ projectId: a, userId: account.userId, roleId: role!.id });
+    // …e vede anche B: entrambi i progetti degli invitati sono suoi da vedere.
+    await db.insert(projectMembers).values({ projectId: b, userId: account.userId, roleId: role!.id });
+    await tickV2(account, [
+      calendarEvent({ id: "due", title: "Riunione", attendees: [att(MAILBOX), att(ada), att(bob.email)] }),
+      calendarEvent({ id: "solo-io", title: "Promemoria mio", attendees: [att(MAILBOX)] }),
+    ]);
+    const rows = await calendarRows();
+    expect(rows.find((r) => r.googleEventId === "due")).toMatchObject({ proposalCandidate: true, projectId: null, projectGuess: null });
+    expect(rows.find((r) => r.googleEventId === "solo-io")).toMatchObject({ proposalCandidate: false });
+    expect(await db.select().from(notifications)).toEqual([]);
+  });
+});
+
+describe("review F3b, punto 1: la linea di base si chiude SOLO dopo un resync completo della finestra", () => {
+  async function runWith(account: typeof googleAccounts.$inferSelect, calendar: ReturnType<typeof fakeCalendarSequence>, extra: Partial<GooglePollerDeps> = {}) {
+    await db.update(googleAccounts).set({ nextSyncAt: new Date(Date.now() - 60_000) }).where(eq(googleAccounts.id, account.id));
+    await pollGoogleOnce({ ...deps(account, fakeGmail({ listed: [] }), { calendar }), ...extra });
+    return (await db.select().from(googleAccounts).where(eq(googleAccounts.id, account.id)))[0]!;
+  }
+
+  it("linea di base null ma col token (il worker vecchio ha già risincronizzato): si ignora il token e si rifà la finestra", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarBaselineAt: null, calendarSyncToken: "vecchio" });
+    const calendar = fakeCalendarSequence([{ events: [calendarEvent({ id: "personale", title: "Dentista", attendees: [att(MAILBOX)] })], nextSyncToken: "nuovo" }]);
+    const after = await runWith(account, calendar);
+    expect(calendar.calls[0]!.syncToken ?? null).toBeNull();
+    expect(calendar.calls[0]!.timeMin).toBeInstanceOf(Date);
+    expect(after).toMatchObject({ calendarSyncToken: "nuovo" });
+    expect(after.calendarBaselineAt).toBeInstanceOf(Date);
+    expect((await calendarRows()).map((r) => r.googleEventId)).toEqual(["personale"]);
+  });
+
+  it("flag acceso col token e la linea di base v2 null: anche qui la finestra intera, non l'incrementale", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarV2BaselineAt: null, calendarSyncToken: "tok" });
+    const calendar = fakeCalendarSequence([{ events: [], nextSyncToken: "tok-2" }]);
+    const after = await runWith(account, calendar, { classifyV2: true });
+    expect(calendar.calls[0]!.syncToken ?? null).toBeNull();
+    expect(after.calendarV2BaselineAt).toBeInstanceOf(Date);
+  });
+
+  it("un resync senza nextSyncToken (troncato) non chiude la linea di base", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarBaselineAt: null });
+    const after = await runWith(account, fakeCalendarSequence([{ events: [calendarEvent({ id: "a" })], nextSyncToken: null }]));
+    expect(after.calendarBaselineAt).toBeNull();
+  });
+
+  it("un giro INTERROTTO a metà non chiude la linea di base e non salva il token: il giro dopo riparte", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarBaselineAt: null });
+    const controller = new AbortController();
+    const calendar = fakeCalendarSequence([{ events: [calendarEvent({ id: "a" }), calendarEvent({ id: "b" })], nextSyncToken: "tok" }]);
+    const original = calendar.listEvents;
+    calendar.listEvents = (async (input: Parameters<typeof original>[0]) => {
+      const page = await original(input);
+      controller.abort();
+      return page;
+    }) as typeof original;
+    const after = await runWith(account, calendar, { signal: controller.signal });
+    expect(after.calendarBaselineAt).toBeNull();
+    expect(after.calendarSyncToken).toBeNull();
+  });
+});
+
+describe("review F3b, punto 2: un evento cancellato chiude la sua card, e la potatura non toglie una riga con la card aperta", () => {
+  it("cancellato su Google: outcome cancelled E card chiusa, nella stessa transazione", async () => {
+    const projectId = await seedProject("Acme");
+    await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { calendar: fakeCalendarSequence([{ events: [calendarEvent({ id: "e1" })], nextSyncToken: "t1" }]) }));
+    // Lotto 9, voce 2 (d): la card è quella del destinatario della proposta condivisa.
+    const cardId = await sharedCardOf(account.userId);
+    expect(cardId).not.toBeNull();
+    await db.update(googleAccounts).set({ nextSyncAt: new Date(Date.now() - 60_000) }).where(eq(googleAccounts.id, account.id));
+    const [fresh] = await db.select().from(googleAccounts).where(eq(googleAccounts.id, account.id));
+    await pollGoogleOnce(deps(fresh!, fakeGmail({ listed: [] }), { calendar: fakeCalendarSequence([{ events: [calendarEvent({ id: "e1", status: "cancelled", title: "", attendees: [] })], nextSyncToken: "t2" }]) }));
+    const [card] = await db.select().from(notifications).where(eq(notifications.id, cardId!));
+    expect(card!.status).toBe("handled");
+  });
+
+  it("la potatura non toglie una riga vecchia la cui card è ancora aperta (anche con un esito scritto)", async () => {
+    const { pruneOldCalendarEvents } = await import("./poller.js");
+    const account = await seedAccount({});
+    const [n] = await db.insert(notifications).values({ userId: account.userId, kind: "google.proposal", status: "open", event: {} } as typeof notifications.$inferInsert).returning();
+    await db.insert(calendarEvents).values({ accountId: account.id, googleEventId: "vecchio", startsAt: new Date(Date.now() - 40 * 86_400_000), fingerprint: "x", outcome: { type: "cancelled" }, proposalNotificationId: n!.id });
+    await pruneOldCalendarEvents(db);
+    expect((await calendarRows()).map((r) => r.googleEventId)).toEqual(["vecchio"]);
+  });
+});
+
+describe("review F3b, minore: le serie col progetto scelto diverso, prima scartate, entrano nella linea di base del deploy", () => {
+  it("un'occorrenza già in tabella di una serie col progetto scelto diverso, alla linea di base del deploy, si chiude invece di proporre", async () => {
+    const routed = await seedProject("Acme");
+    const chosen = await seedProject("Scelto");
+    await db.insert(projectEmailRoutes).values({ projectId: routed, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarBaselineAt: null });
+    const { calendarSeries } = await import("@stubwise/db");
+    await db.insert(calendarSeries).values({ accountId: account.id, recurringEventId: "serie-sal", enabled: true, projectId: chosen, leadDays: 30 });
+    // Riga di PRIMA del deploy: candidata col progetto delle regole, mai proposta (era scartata).
+    await db.insert(calendarEvents).values({ accountId: account.id, googleEventId: "sal-1", title: "SAL mensile", startsAt: new Date(Date.now() + 7 * 86_400_000), fingerprint: "sal", recurringEventId: "serie-sal", projectId: routed, proposalCandidate: true });
+    await db.update(googleAccounts).set({ nextSyncAt: new Date(Date.now() - 60_000) }).where(eq(googleAccounts.id, account.id));
+    await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { calendar: fakeCalendarSequence([{ events: [calendarEvent({ id: "sal-1", title: "SAL mensile", recurringEventId: "serie-sal" })], nextSyncToken: "t" }]) }));
+    const [row] = await calendarRows();
+    expect(row).toMatchObject({ outcome: { type: "baseline" }, proposalNotificationId: null });
+    expect(await db.select().from(notifications)).toEqual([]);
+  });
+});
+
+describe("review F3b, minore: la potatura guarda la FINE dell'evento", () => {
+  it("un evento di più giorni iniziato 40 giorni fa e ancora in corso non si pota", async () => {
+    const { pruneOldCalendarEvents } = await import("./poller.js");
+    const account = await seedAccount({});
+    await db.insert(calendarEvents).values([
+      { accountId: account.id, googleEventId: "in-corso", startsAt: new Date(Date.now() - 40 * 86_400_000), endsAt: new Date(Date.now() + 2 * 86_400_000), fingerprint: "a", proposalCandidate: false },
+      { accountId: account.id, googleEventId: "finito", startsAt: new Date(Date.now() - 40 * 86_400_000), endsAt: new Date(Date.now() - 39 * 86_400_000), fingerprint: "b", proposalCandidate: false },
+    ]);
+    await pruneOldCalendarEvents(db);
+    expect((await calendarRows()).map((r) => r.googleEventId)).toEqual(["in-corso"]);
+  });
+});
+
+describe("F4, task 0: il worker scrive i dati per scrivere", () => {
+  it("etag, iCalUID, visibilità, organizzatore e gli invitati con nome, nota e self finiscono sulla riga", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    const ev = calendarEvent({
+      id: "e1",
+      title: "Revisione",
+      etag: '"77"',
+      iCalUID: "uid-1@google.com",
+      visibility: "private",
+      organizerSelf: true,
+      attendees: [
+        { email: MAILBOX, responseStatus: "accepted", name: null, comment: null, self: true },
+        { email: "bob@x.it", responseStatus: "tentative", name: "Bob", comment: "arrivo tardi", self: false },
+      ],
+    });
+    await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { calendar: fakeCalendarSequence([{ events: [ev], nextSyncToken: "t" }]) }));
+    const [row] = await calendarRows();
+    expect(row).toMatchObject({ etag: '"77"', icalUid: "uid-1@google.com", visibility: "private", organizerSelf: true });
+    expect(row!.attendees[1]).toMatchObject({ name: "Bob", comment: "arrivo tardi", self: false });
   });
 });

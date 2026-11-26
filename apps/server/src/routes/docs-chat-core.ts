@@ -77,7 +77,16 @@ export async function loadHistory(
     .map((r) => ({ role: r.role as "user" | "assistant", content: r.content }));
 }
 
+/**
+ * Lotto 7, voce 2: un commento SSE `: ping` mentre il modello tace, così né il
+ * client (il ping di 60 s del main del desktop) né undici chiudono uno stream
+ * lento. 25 s come gli altri stream del server (`agent-sessions`, `chat`).
+ */
+export const DOCS_CHAT_PING_MS = 25_000;
+
 interface StreamChatResponseArgs {
+  /** Solo per i test: l'intervallo del ping (default {@link DOCS_CHAT_PING_MS}). */
+  pingMs?: number;
   db: Db;
   chatLlm: ChatLlm;
   request: FastifyRequest;
@@ -90,6 +99,13 @@ interface StreamChatResponseArgs {
   history: { role: "user" | "assistant"; content: string }[];
   /** Citazioni delle fonti recuperate, allegate al `done`/`sources` e al messaggio assistant. */
   citations: Citation[];
+  /**
+   * Area 11, F3: le pagine di prodotto date al modello, allegate al `done` e alla
+   * risposta JSON come `productSources` (additivo). Il messaggio salvato ne tiene
+   * solo gli id (`doc_chat_messages.product_sources`, 0208): titolo e codice si
+   * rileggono alla riapertura con la visibilità di adesso (`productSourcesNow`).
+   */
+  productSources?: { pageId: string; code: string; title: string }[];
   /** Contesto per il log degli errori LLM (repositoryId, projectId o backlogItemId). */
   logContext: Record<string, string>;
   /** Progetto a cui attribuire i consumi della risposta (operazione `chat`). */
@@ -225,6 +241,9 @@ async function respondSse(args: StreamChatResponseArgs): Promise<void> {
     clientGone = true;
     controller.abort();
   });
+  const ping = setInterval(() => {
+    if (!clientGone) reply.raw.write(": ping\n\n");
+  }, args.pingMs ?? DOCS_CHAT_PING_MS);
 
   // La persistenza è fallita: il `done` va soppresso (vedi sotto).
   let persistFailed = false;
@@ -274,6 +293,7 @@ async function respondSse(args: StreamChatResponseArgs): Promise<void> {
           role: "assistant",
           content: full,
           citations,
+          productSources: (args.productSources ?? []).map((p) => ({ pageId: p.pageId })),
         });
       } else if (full.length > 0) {
         await db.insert(docChatMessages).values({
@@ -290,6 +310,7 @@ async function respondSse(args: StreamChatResponseArgs): Promise<void> {
       request.log.error({ err: error, ...logContext, sessionId }, "chat persist error");
     }
   } finally {
+    clearInterval(ping);
     // Lo stream HTTP grezzo va SEMPRE chiuso, anche su throw inatteso dopo
     // hijack(): senza questo il socket resterebbe appeso. Su disconnessione del
     // client la connessione è già chiusa, quindi non scriviamo/chiudiamo.
@@ -298,7 +319,7 @@ async function respondSse(args: StreamChatResponseArgs): Promise<void> {
         // Risposta completa e persistita: evento finale con le citazioni e il
         // sessionId, così il client può persistere la sessione (nuova al primo
         // turno) e riusarla nei turni successivi (multi-turn).
-        writeSseEvent(reply, { type: "done", sessionId, citations });
+        writeSseEvent(reply, { type: "done", sessionId, citations, productSources: args.productSources ?? [] });
       }
       reply.raw.end();
     }
@@ -379,6 +400,7 @@ async function respondJson(args: StreamChatResponseArgs): Promise<void> {
         role: "assistant",
         content: full,
         citations,
+        productSources: (args.productSources ?? []).map((p) => ({ pageId: p.pageId })),
       });
     }
   } catch (error) {
@@ -390,7 +412,7 @@ async function respondJson(args: StreamChatResponseArgs): Promise<void> {
     return;
   }
 
-  reply.send({ answer: full, sources: citations, sessionId });
+  reply.send({ answer: full, sources: citations, productSources: args.productSources ?? [], sessionId });
 }
 
 /**

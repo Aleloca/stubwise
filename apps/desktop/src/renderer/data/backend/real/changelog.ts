@@ -1,0 +1,302 @@
+import { ApiError } from "@stubwise/api-client";
+import type {
+  ChangeDiff,
+  ChangeEntryView,
+  ChangeFilter,
+  ChangeFilterChoices,
+  ChangeObjectLink,
+  ChangePage,
+} from "../../changelog/types";
+import { canSeeAdminSection, projectSettingsAccess } from "../../adminSections";
+import { isIntegrated } from "../../integration";
+import { SETTING_KINDS, decodeSetting } from "../../changelog/settingValues";
+import { CLAUDE_ID } from "../../ids";
+import { SECTION_OF_KIND } from "../../projectSettings/changeTypes";
+import type { Viewer } from "../../types";
+import { can } from "../../viewing";
+import { appClient } from "./client";
+
+// Il registro delle modifiche nella build app (area 9, F2) sulla lettura del
+// server (72: `GET /api/change-log`, `…/projects/:id/change-log`,
+// `…/change-log/filters`). Il server decide chi legge cosa (G-3) e toglie le
+// persone che chi guarda non vede; qui si compone la voce come la legge la
+// pagina: la frase dal tipo, il link all'oggetto (solo se c'è ancora e chi
+// guarda lo apre, coi permessi calcolati dal server), il prima/dopo.
+//
+// Limiti dichiarati (registro dei rimandi):
+// - F7 (0195): `via: "claude"`, `undoOf` e `undoneEntry` li deriva il
+//   server, la voce annullata solo a chi la legge; «By Claude» è `?via=claude`;
+// - un invito non ha link: il server cancella gli inviti usati e revocati;
+// - le pagine sono quelle del server (50 voci, `nextCursor`): «Load more».
+
+/* eslint-disable @typescript-eslint/no-explicit-any -- forme del server lette dai Reader */
+type Any = any;
+
+export interface ChangelogQuery {
+  person?: string;
+  project?: string;
+  type?: string;
+  group?: string;
+  from?: string;
+  to?: string;
+  withinDays?: number;
+  /** F7: solo le voci scritte da Claude («By Claude»). */
+  via?: "claude";
+  cursor?: string;
+}
+
+/** Le rotte (sul client vero: `client.changeLog`), più chi guarda. */
+export interface ChangelogApi {
+  list(query: ChangelogQuery): Promise<{ entries: Any[]; nextCursor: string | null }>;
+  listProject(
+    projectId: string,
+    query: Omit<ChangelogQuery, "project">,
+  ): Promise<{ entries: Any[]; nextCursor: string | null }>;
+  filters(projectId?: string): Promise<Any>;
+  viewer(): Promise<Viewer>;
+}
+
+const list = (v: unknown): string[] =>
+  Array.isArray(v) ? v.map(String) : typeof v === "string" && v ? v.split(",") : [];
+
+/** I `params` del server (stringhe o liste) nella forma del prototipo (liste con la virgola). */
+function paramsOf(params: Record<string, unknown> | undefined): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(params ?? {}).map(([k, v]) => [k, Array.isArray(v) ? v.join(",") : String(v)]),
+  );
+}
+
+/** Il prima e dopo, per i tipi del server (area 9); gli altri non ne hanno. */
+function diffOf(e: Any): ChangeDiff | null {
+  const { before, after } = e.data;
+  const p = e.data.params ?? {};
+  // F5: le impostazioni (9b, 9c) salvano valori stabili, decodificati come
+  // nel prototipo (`settingValues.ts`); le parole le mette la pagina.
+  if (SETTING_KINDS[e.type]) {
+    const b = decodeSetting(e.type, before ?? null);
+    const a = decodeSetting(e.type, after ?? null);
+    if (b || a) return { kind: "setting", before: b, after: a };
+  }
+  switch (e.type) {
+    case "person.instance_role_changed":
+    case "member.role_changed":
+    case "person.git_identity_linked":
+    case "person.git_identity_unlinked":
+    case "person.bitbucket_username_set":
+    case "person.email_changed":
+      return before === null && after === null ? null : { kind: "values", before, after };
+    case "department.updated": {
+      const name = (v: string | null) => (v === null ? null : v.replace(/\s+--[\w-]+$/, ""));
+      return name(before) === name(after)
+        ? null
+        : { kind: "values", before: name(before), after: name(after) };
+    }
+    case "role.updated":
+    case "department.permissions_changed": {
+      const added = list(p.added);
+      const removed = list(p.removed);
+      if (added.length === 0 && removed.length === 0)
+        return before !== after ? { kind: "values", before, after } : null;
+      const full = p.before !== undefined && p.after !== undefined;
+      return {
+        kind: "permissions",
+        added,
+        removed,
+        role: null,
+        before: full ? list(p.before) : null,
+        after: full ? list(p.after) : null,
+      };
+    }
+    case "member.permission_granted":
+    case "member.permission_revoked": {
+      const granted = e.type === "member.permission_granted";
+      const permission = String(p.permission ?? (granted ? after : before) ?? "");
+      return {
+        kind: "permissions",
+        added: granted ? [permission] : [],
+        removed: granted ? [] : [permission],
+        role: typeof p.role === "string" ? p.role : null,
+        before: null,
+        after: null,
+      };
+    }
+    case "department.members_changed":
+    case "department.home_managers_changed":
+      // I nomi di allora, già senza le persone che chi guarda non vede (server).
+      return { kind: "people", added: list(p.addedNames), removed: list(p.removedNames) };
+    default:
+      return null;
+  }
+}
+
+/** Dove porta l'oggetto: solo se c'è ancora e chi guarda lo apre. */
+function linkOf(e: Any, viewer: Viewer): ChangeObjectLink | null {
+  // F6: un progetto eliminato che ha lasciato repository senza progetto porta
+  // ad Amministrazione → Repositories, se chi guarda la apre (e se c'è). Anche
+  // da una voce `hidden` (come `deletedProjectLinkOf` del prototipo, review
+  // F6 M1): il link non nomina il progetto.
+  if (e.type === "project.deleted")
+    return Number(e.data.params?.detachedRepositories ?? 0) > 0 &&
+      canSeeAdminSection(viewer, "repositories") &&
+      isIntegrated({ kind: "admin", name: "repositories" })
+      ? { to: "admin", section: "repositories" }
+      : null;
+  if (e.hidden) return null;
+  if (e.objectDeleted) return null;
+  // F5: una voce della 9c porta alla sezione di Settings del progetto, se chi
+  // guarda la vede (permessi dal server, `projectSettingsAccess`).
+  const section = SECTION_OF_KIND[e.type];
+  // F6: un archiviato non ha Settings da aprire (`projectArchived`, derivato
+  // dal server a lettura): la voce sul progetto porta alla sua pagina, le
+  // altre di Settings non portano da nessuna parte.
+  if (section && e.projectArchived && e.projectCode)
+    return e.data.object.type === "project" ? { to: "archived", code: e.projectCode } : null;
+  if (section && e.projectId && e.projectCode) {
+    if (!projectSettingsAccess(viewer, e.projectId)[section]?.visible) return null;
+    const repo = section === "repositories" && e.data.object.type === "repository";
+    return repo
+      ? { to: "projectSettings", code: e.projectCode, section, repo: e.data.object.id }
+      : { to: "projectSettings", code: e.projectCode, section };
+  }
+  const { type, id } = e.data.object;
+  switch (type) {
+    case "person":
+      // Una voce di membro si apre nel pannello del membro, se ne è ancora membro.
+      // Non in un archiviato: non ha Members da aprire (come il prototipo).
+      if (
+        e.projectCode &&
+        !e.projectArchived &&
+        String(e.type).startsWith("member.") &&
+        e.type !== "member.removed"
+      )
+        return { to: "member", projectCode: e.projectCode, personId: id };
+      return { to: "person", personId: id };
+    case "role":
+      return can(viewer, "roles.manage") ? { to: "role", roleId: id } : null;
+    case "department":
+      return can(viewer, "departments.manage") ? { to: "department", departmentId: id } : null;
+    default:
+      return null;
+  }
+}
+
+function viewOf(e: Any, viewer: Viewer): ChangeEntryView {
+  // La voce annullata (un livello solo, come il prototipo).
+  const undone = e.undoneEntry ? viewOf({ ...e.undoneEntry, undoneEntry: null }, viewer) : null;
+  return {
+    ...(e.via === "claude" ? { via: "claude" as const } : {}),
+    ...(undone ? { undoneEntry: undone } : {}),
+    id: e.id,
+    kind: e.type,
+    at: e.at,
+    actorId: e.actor.id ?? (e.actor.kind === "agent" ? CLAUDE_ID : ""),
+    projectId: e.projectId ?? null,
+    before: e.data.before ?? null,
+    after: e.data.after ?? null,
+    undoOf: e.undoOf ?? null,
+    // F6: una voce che chi guarda non deve leggere (un progetto eliminato che
+    // non conosceva) arriva `hidden`: niente id (il server ci mette un
+    // segnaposto), la chiave «un progetto che non vedi».
+    object: e.hidden ? { type: e.data.object.type, id: "", label: "" } : { ...e.data.object },
+    params: paramsOf(e.data.params),
+    templateKey: `changelog.kinds.${e.type}`,
+    scope: e.scope,
+    group: e.group,
+    actorName: e.actor.name,
+    projectCode: e.projectCode ?? null,
+    objectDeleted: !!e.objectDeleted,
+    objectLink: linkOf(e, viewer),
+    objectLabelKey: e.hidden ? "changelog.values.hiddenProject" : null,
+    diff: diffOf(e),
+  } as ChangeEntryView;
+}
+
+/** I filtri del prototipo nella query del server. */
+function queryOf(filter: ChangeFilter): ChangelogQuery {
+  const q: ChangelogQuery = {};
+  if (filter.personId) q.person = filter.personId;
+  if (filter.projectId !== undefined) q.project = filter.projectId ?? "instance";
+  if (filter.kind) q.type = filter.kind;
+  if (filter.group) q.group = filter.group;
+  if (filter.withinDays !== undefined) q.withinDays = filter.withinDays;
+  if (filter.from) q.from = filter.from;
+  if (filter.to) q.to = filter.to;
+  if (filter.via === "claude") q.via = "claude";
+  return q;
+}
+
+export function createRealChangelog(api: ChangelogApi) {
+  const withCursor = <T extends object>(q: T, cursor?: string) => (cursor ? { ...q, cursor } : q);
+
+  return {
+    /** Una pagina (50 voci) e il cursore della dopo: «Load more» (decisione del maintainer). */
+    async listChangesPage(filter: ChangeFilter = {}, cursor?: string): Promise<ChangePage> {
+      const [page, viewer] = await Promise.all([
+        api.list(withCursor(queryOf(filter), cursor)),
+        api.viewer(),
+      ]);
+      return { entries: page.entries.map((e) => viewOf(e, viewer)), nextCursor: page.nextCursor };
+    },
+
+    async listProjectChangesPage(
+      projectId: string,
+      filter: Omit<ChangeFilter, "projectId"> = {},
+      cursor?: string,
+    ): Promise<ChangePage> {
+      try {
+        const [page, viewer] = await Promise.all([
+          api.listProject(projectId, withCursor(queryOf(filter), cursor)),
+          api.viewer(),
+        ]);
+        return {
+          entries: page.entries.map((e) => viewOf(e, viewer)),
+          nextCursor: page.nextCursor,
+        };
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) throw new Error("not_found");
+        if (error instanceof ApiError && error.status === 403) throw new Error("forbidden");
+        throw error;
+      }
+    },
+
+    async listChangeFilterChoices(projectId?: string): Promise<ChangeFilterChoices> {
+      let f: Any;
+      try {
+        f = await api.filters(projectId);
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) throw new Error("not_found");
+        throw error;
+      }
+      return {
+        everything: !!f.everything,
+        people: f.people ?? [],
+        projects: f.projects ?? [],
+        groups: f.groups ?? [],
+        // F7: «By Claude» se chi guarda legge almeno una voce di Claude (lo dice il server).
+        claude: f.claude === true,
+      };
+    },
+  };
+}
+
+/** Sul client vero (il client si legge a ogni chiamata). */
+const liveApi: ChangelogApi = {
+  list: (query) => appClient().changeLog.list(query) as Promise<Any>,
+  listProject: (projectId, query) =>
+    appClient().changeLog.listProject(projectId, query) as Promise<Any>,
+  filters: (projectId) => appClient().changeLog.filters(projectId),
+  viewer: async () => {
+    const me = await appClient().auth.me();
+    return {
+      personId: me.user.id,
+      instancePermissions: me.instancePermissions,
+      projectPermissions: me.projectPermissions,
+      departmentPermissions: me.departmentPermissions ?? {},
+    } as Viewer;
+  },
+};
+
+/** SOLO TEST: le rotte vere. */
+export const liveChangelogApiForTest = liveApi;
+
+export const liveChangelog = createRealChangelog(liveApi);

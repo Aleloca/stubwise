@@ -4,7 +4,7 @@
  * rollout del giro notturno, e ogni volta che si aggiorna il CLI pinnato o si
  * cambiano i prompt e le allowlist di `src/nightly/`.
  *
- *   pnpm --filter @stubwise/worker golden:nightly -- --claude <path del CLI 2.1.287>
+ *   pnpm --filter @stubwise/worker golden:nightly -- --claude <path del CLI pinnato>
  *
  * Entry SEPARATA da `run.ts`: quello richiede `--plugin` e non ha database,
  * il giro notturno vuole Postgres (la sua coda È il database). Qui lo script
@@ -130,7 +130,7 @@ function fakeEmbed(text: string): number[] {
 /** Import dinamici: con i workspace non buildati il fallimento è un exit 2 leggibile. */
 async function loadRuntime() {
   try {
-    const [dbTesting, db, drizzle, cli, streaming, mirrors, handler, orchestrator, readScope] = await Promise.all([
+    const [dbTesting, db, drizzle, cli, streaming, mirrors, handler, orchestrator, readScope, nativeTools] = await Promise.all([
       import("@stubwise/db/testing"),
       import("@stubwise/db"),
       import("drizzle-orm"),
@@ -140,8 +140,9 @@ async function loadRuntime() {
       import("../../src/handler.js"),
       import("../../src/nightly/orchestrator.js"),
       import("../../src/agent/read-scope.js"),
+      import("../../src/agent/native-tools.js"),
     ]);
-    return { dbTesting, db, drizzle, cli, streaming, mirrors, handler, orchestrator, readScope };
+    return { dbTesting, db, drizzle, cli, streaming, mirrors, handler, orchestrator, readScope, nativeTools };
   } catch (error) {
     fail(
       `Moduli non caricabili (${error instanceof Error ? error.message : String(error)}): ` +
@@ -221,6 +222,8 @@ async function allowlistProbe(
       // Solo per il tipo: il runner del golden non scrive in `agent_runs`.
       usage: { operation: "docs_nightly", projectId: null },
       permissionMode: "default",
+      // I nativi delle pagine notturne, gli STESSI della produzione (`native-tools.ts`).
+      builtinTools: rt.nativeTools.NATIVE_TOOLS.fileRead,
       allowedTools: rt.readScope.scopedFileReadTools(worktreeDir, [canaries.listed.file]),
       disallowedTools: rt.readScope.sensitiveReadDenyRules(),
       maxTurns: 10,
@@ -247,8 +250,23 @@ async function allowlistProbe(
   };
 }
 
+/**
+ * Il report è stato scritto: solo allora l'uscita può essere 0. Un giro che non
+ * arriva al report — il Postgres effimero morto con Docker a metà notte (10 nov
+ * 2026), un processo che termina per una strada che non passa da `main().then`
+ * — esce 1: un golden che non ha girato non è un golden verde (README).
+ */
+let reportWritten = false;
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
+  // Dopo `parseArgs`: `--help` esce 0 senza report, ed è giusto così.
+  process.on("exit", (code) => {
+    if (code === 0 && !reportWritten) {
+      console.error("[golden:nightly] il giro non è arrivato al report: esito 1, non verde");
+      process.exitCode = 1;
+    }
+  });
   const pinned = pinnedCliVersion();
   let claudeVersion: string;
   try {
@@ -432,6 +450,7 @@ async function main(): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       process.stdout.write(json, (error) => (error ? reject(error) : resolve()));
     });
+    reportWritten = true;
     process.exitCode = report.passed ? 0 : 1;
   } finally {
     await testDb.stop();

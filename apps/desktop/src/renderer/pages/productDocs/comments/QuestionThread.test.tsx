@@ -1,7 +1,8 @@
 import * as React from "react";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as api from "../../../data/api";
 import { failNext, productDocs, resetApi, setLatency } from "../../../data/api";
 import { state } from "../../../data/store";
 import { revokeProjectPermission } from "../../../data/viewer";
@@ -44,6 +45,8 @@ beforeEach(() => {
   setMatchMedia(DOCKED_PANEL_QUERY, true);
 });
 afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
   act(() => setLanguage("en"));
 });
 
@@ -297,6 +300,82 @@ describe("«Open a request» confermata", () => {
     await waitFor(() => expect(thread(BILLS_Q)).toBeNull());
     await user.click(within(col).getByRole("button", { name: /resolved/ }));
     await waitFor(() => expect(flat(col)).toMatch(/Answered by Laura Costa: Open a request · ACQ-R\d+/));
+  });
+});
+
+describe("«Open a request» nella build app: la scheda B nel filo (decisione del maintainer)", () => {
+  const card = () => document.querySelector<HTMLElement>(`[data-thread="${BILLS_Q}"] [data-request-card]`);
+
+  it("la scheda sotto la domanda con titolo e descrizione; il riquadro non si apre; annullata, la domanda resta aperta", async () => {
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+    // Nella build app la persona è quella della sessione.
+    setSessionPersonId(LAURA);
+    const th = await questionThread(BILLS, BILLS_Q);
+    const user = userEvent.setup();
+    await user.click(within(th).getByRole("button", { name: "Open a request" }));
+    await waitFor(() => expect(card()).not.toBeNull());
+    const request = state.productComments.find((c) => c.id === BILLS_Q)!.question!.request!;
+    expect(flat(card()!)).toContain(request.title);
+    expect(panel().getAttribute("data-claude-panel")).not.toBe("open");
+    expect(flat(thread(BILLS_Q)!)).toContain("A request is being prepared");
+    await user.click(within(card()!).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(card()).toBeNull());
+    expect(flat(thread(BILLS_Q)!)).not.toContain("A request is being prepared");
+    expect(state.productComments.find((c) => c.id === BILLS_Q)!.question!.answer).toBeNull();
+  });
+
+  it("«Create request» crea la richiesta con l'origine della domanda, e la domanda si chiude", async () => {
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+    setSessionPersonId(LAURA);
+    const create = vi.spyOn(api, "createRequestFromQuestion");
+    const th = await questionThread(BILLS, BILLS_Q);
+    const user = userEvent.setup();
+    await user.click(within(th).getByRole("button", { name: "Open a request" }));
+    await waitFor(() => expect(card()).not.toBeNull());
+    await user.click(within(card()!).getByRole("button", { name: "Create request" }));
+    await waitFor(() => expect(create).toHaveBeenCalled());
+    const root = state.productComments.find((c) => c.id === BILLS_Q)!;
+    expect(create.mock.calls[0]![0]).toMatchObject({
+      origin: { kind: "product_doc", pageId: root.pageId, anchorId: root.anchorId, questionId: BILLS_Q },
+    });
+    await waitFor(() => expect(root.question!.answer?.option).toBe("request"));
+    // Chiusa alla risposta, la domanda si rilegge: il filo è fra le risolte.
+    await waitFor(() => expect(card()).toBeNull());
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("un doppio clic su «Create request» crea una richiesta sola", async () => {
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+    setSessionPersonId(LAURA);
+    setLatency(50);
+    const create = vi.spyOn(api, "createRequestFromQuestion");
+    const th = await questionThread(BILLS, BILLS_Q);
+    const user = userEvent.setup();
+    await user.click(within(th).getByRole("button", { name: "Open a request" }));
+    await waitFor(() => expect(card()).not.toBeNull());
+    const button = within(card()!).getByRole("button", { name: "Create request" });
+    // Due clic nello stesso giro, prima che il bottone si spenga.
+    act(() => {
+      fireEvent.click(button);
+      fireEvent.click(button);
+    });
+    await waitFor(() => expect(card()).toBeNull());
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("arrivata seconda: la scheda si chiude e il filo dice chi ha risposto prima", async () => {
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+    setSessionPersonId(LAURA);
+    const th = await questionThread(BILLS, BILLS_Q);
+    const user = userEvent.setup();
+    await user.click(within(th).getByRole("button", { name: "Open a request" }));
+    await waitFor(() => expect(card()).not.toBeNull());
+    vi.spyOn(api, "createRequestFromQuestion").mockRejectedValueOnce(
+      Object.assign(new Error("already_answered"), { byId: MARCO, option: "keep" }),
+    );
+    await user.click(within(card()!).getByRole("button", { name: "Create request" }));
+    await waitFor(() => expect(card()).toBeNull());
+    await waitFor(() => expect(flat(document.body)).toContain("Marco Bellini"));
   });
 });
 

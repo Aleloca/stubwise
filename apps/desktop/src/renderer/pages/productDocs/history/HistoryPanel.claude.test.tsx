@@ -131,6 +131,17 @@ describe("la riga di una modifica di Claude", () => {
     expect(all).not.toHaveAttribute("aria-disabled");
   });
 
+  it("revisione di R11-5, 3: «Undo all» rifiutato (`section_busy`) dice chi tiene la sezione, senza «Retry»", async () => {
+    threeChanges();
+    const { region, user } = await openHistory("/p/ACQ/docs/product/ACQ-D5", "Sign-in");
+    vi.spyOn(api.productDocs, "undoProductChange").mockRejectedValueOnce(
+      Object.assign(new Error("section_busy"), { byId: "p-marco" }),
+    );
+    await user.click(within(claudeItem(region)).getByRole("button", { name: /^Undo all$/ }));
+    await waitFor(() => expect(flat(claudeItem(region))).toContain("Marco Bellini is writing in this section"));
+    expect(within(claudeItem(region)).queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+
   it("«Undo all»: tutte le frasi tornano, «Undone by Laura Costa» sulla riga, «Undid Claude's change» in cima; il fuoco resta sulla riga", async () => {
     threeChanges();
     const { region, user } = await openHistory("/p/ACQ/docs/product/ACQ-D5", "Sign-in");

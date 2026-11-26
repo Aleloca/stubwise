@@ -47,8 +47,9 @@
 //   - `project.stall_thresholds_changed`: `activeDays`, `todoDays` (numeri
 //     in stringa);
 //   - `project.statuses_changed`: `statuses`, l'elenco dei nomi com'è;
-//   - `project.plugins_changed`: `disabledSkills` e `disabledHooks`, le
-//     liste di ciò che è spento (`<plugin>:<skill>`, `<plugin>#<Evento>#<i>`);
+//   - `project.plugins_changed`: `enabledPlugins`, i plugin accesi sul
+//     progetto (F5), poi `disabledSkills` e `disabledHooks`, le liste di ciò
+//     che è spento (`<plugin>:<skill>`, `<plugin>#<Evento>#<i>`);
 //   - `repository.updated`: la chiave del campo (`name`, `url`,
 //     `installCommand`, `testCommand`, `graphEnabled`, `protectedBranches`,
 //     `gitAccount` e `reviewGitAccount` col NOME dell'account, `null` = il
@@ -115,13 +116,17 @@ export const SETTING_KINDS: Readonly<Record<string, SettingValue["type"]>> = {
   "model.changed": "model",
   "budget.changed": "budget",
   "content_language.changed": "language",
+  // R0-C: i tetti dell'analisi dei server (`analysisEnabled`, `maxMinutes`,
+  // `maxCostUsd`, `maxAgentReads`, `maxSshReads`).
+  "server_analysis.changed": "fields",
   "automation.changed": "automation",
   "git_account.updated": "fields",
   "google_app.updated": "fields",
   "storage.changed": "fields",
-  "webhook.changed": "fields",
-  // Task 7: i server. Chiavi dei campi: `name`, `sampleInterval`,
-  // `primaryProject` (il codice del progetto); `cpu`/`mem`/`disk` (la soglia
+  // F3: i campi cambiati di UN webhook (`name`, `url`, `format`, `enabled`, `events`).
+  "webhook.updated": "fields",
+  // Task 7: i server. Chiavi dei campi: `name`, `sampleInterval` (il
+  // progetto principale non c'è più, F4b-4); `cpu`/`mem`/`disk` (la soglia
   // come numero, `null` = spenta) e `sustained` (minuti); `name`,
   // `checkType`, `target`, `interval` (secondi) e `checkEnabled`.
   "server.updated": "fields",

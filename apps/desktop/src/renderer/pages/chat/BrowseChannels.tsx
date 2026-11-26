@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { featureIntegrated } from "../../data/integration";
 import {
   useChatChannels,
   useJoinChannel,
@@ -25,6 +26,8 @@ import { HashGlyph, LockGlyph } from "./glyphs";
 // mostra attività: solo nome, descrizione e membri.
 
 const FILTERS = ["all", "project", "company", "archived"] as const;
+/** Build app: i canali generali sono della fetta 2 (`chat-general`). */
+const shownFilters = () => FILTERS.filter((f) => f !== "company" || featureIntegrated("chat-general"));
 type Filter = (typeof FILTERS)[number];
 
 const fold = (s: string) =>
@@ -74,7 +77,7 @@ export function BrowseChannels() {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <div role="radiogroup" aria-label={t("chat.browse.filter")} className="flex gap-1">
-            {FILTERS.map((f) => (
+            {shownFilters().map((f) => (
               <button
                 key={f}
                 type="button"

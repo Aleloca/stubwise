@@ -1,4 +1,4 @@
-import { activityReports, commitSummaries, decrypt, docGenerations, gitAccounts, nightlyItems, projects, repositories } from "@stubwise/db";
+import { activityReports, commitSummaries, decrypt, docGenerations, gitAccounts, nightlyItems, projects, repositories, projectQueueRunnable } from "@stubwise/db";
 import type { ReleaseNotes } from "@stubwise/docs-engine";
 import { publishDocsNightlyAttention } from "@stubwise/notifications";
 import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
@@ -103,6 +103,13 @@ interface LoadedRepo {
   exclusive: boolean;
 }
 
+/**
+ * I Docs ogni notte: `doc_auto_update` E il modulo Docs acceso (revisione del
+ * lotto 1). Col modulo spento niente pagine né nota di rilascio, il report sì;
+ * `doc_auto_update` resta com'è, così col modulo riacceso il giro riprende da solo.
+ */
+const docsNightlyOn = sql<boolean>`(${projects.docAutoUpdate} AND 'docs' = any(${projects.modules}))`;
+
 async function loadRepos(deps: NightlyDeps, repositoryId: string | undefined): Promise<LoadedRepo[]> {
   const rows = await deps.db
     .select({
@@ -115,7 +122,7 @@ async function loadRepos(deps: NightlyDeps, repositoryId: string | undefined): P
       projectId: projects.id,
       projectName: projects.name,
       dailyReport: projects.dailyReportEnabled,
-      docsNightly: projects.docAutoUpdate,
+      docsNightly: docsNightlyOn,
       exclusive: sql<boolean>`(${projects.aiProviderExclusive} AND ${projects.aiProviderId} IS NOT NULL)`,
       encryptedCredentials: gitAccounts.encryptedCredentials,
     })
@@ -124,7 +131,13 @@ async function loadRepos(deps: NightlyDeps, repositoryId: string | undefined): P
     .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
     .where(
       and(
-        or(eq(projects.dailyReportEnabled, true), eq(projects.docAutoUpdate, true)),
+        or(eq(projects.dailyReportEnabled, true), docsNightlyOn),
+        // Area 9, F4 (review I1): un progetto con la coda in pausa resta FUORI
+        // dal giro intero — niente mirror, niente worktree, niente pagine
+        // pianificate su riassunti a metà (un claim nullo per la pausa non è
+        // una fase finita). I suoi elementi restano in coda per la notte dopo.
+        // La pausa di F4 e l'archivio di F6, dal frammento condiviso.
+        projectQueueRunnable(sql`${projects.id}`),
         repositoryId === undefined ? undefined : eq(repositories.id, repositoryId),
       ),
     )
@@ -737,7 +750,12 @@ export async function hasPendingNightWork(deps: Pick<NightlyDeps, "db">, night: 
         eq(nightlyItems.status, "pending"),
         sql`(${nightlyItems.claimedAt} IS NULL OR ${nightlyItems.claimedAt} < now() - ${NIGHTLY_ITEM_LEASE_MS} * interval '1 millisecond')`,
         sql`(${nightlyItems.lastFailedNight} IS NULL OR ${nightlyItems.lastFailedNight} <> ${night}::date)`,
-        or(eq(projects.dailyReportEnabled, true), eq(projects.docAutoUpdate, true)),
+        or(eq(projects.dailyReportEnabled, true), docsNightlyOn),
+        // Gli elementi dei Docs di un progetto col modulo spento aspettano in coda: non fanno ripartire il giro.
+        or(inArray(nightlyItems.phase, ["summary", "daily_report"]), sql`'docs' = any(${projects.modules})`),
+        // Gli elementi di un progetto in pausa non fanno ripartire il giro (review M4).
+        // La pausa di F4 e l'archivio di F6, dal frammento condiviso.
+        projectQueueRunnable(sql`${projects.id}`),
       ),
     )
     .limit(1);

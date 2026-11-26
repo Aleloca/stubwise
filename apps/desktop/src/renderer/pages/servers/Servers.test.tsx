@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { failNext, resetApi, servers, setLatency } from "../../data/api";
+import { failNext, releases, resetApi, servers, setLatency } from "../../data/api";
 import { setSessionPersonId } from "../../data/session";
 import { state } from "../../data/store";
 import { resetViewerGrants } from "../../data/viewer";
@@ -38,7 +38,7 @@ async function openSection(person: string, code: string) {
 }
 
 describe("Servers — l'elenco", () => {
-  it("ACQ (Marco): SRV-1 in «Running fine», in salute, con la diagnosi pronta e il progetto principale", async () => {
+  it("ACQ (Marco): SRV-1 in «Running fine», in salute, con la diagnosi pronta e il suo ambiente", async () => {
     await openSection("p-marco", "ACQ");
     expect(
       screen.getByText(
@@ -49,7 +49,9 @@ describe("Servers — l'elenco", () => {
     expect(within(fine).getAllByRole("listitem")).toHaveLength(1);
     expect(row("SRV-1")).toHaveTextContent("acq-prod-01");
     expect(row("SRV-1")).toHaveTextContent("Healthy");
-    expect(row("SRV-1")).toHaveTextContent("Production · ACQ (primary)");
+    expect(row("SRV-1")).toHaveTextContent("Production · ACQ");
+    // F4b-4: nessun progetto principale.
+    expect(row("SRV-1")).not.toHaveTextContent("primary");
     expect(row("SRV-1")).toHaveTextContent("Diagnosis ready · ACQ-6");
     expect(screen.queryByRole("list", { name: "Needs attention" })).toBeNull();
     // Il mini-grafico è decorativo: la salute è già in parole.
@@ -81,10 +83,13 @@ describe("Servers — l'elenco", () => {
     ).toBeInTheDocument();
     // Il nome della riga dice anche la seconda riga: accesso, ambienti (T7 m1).
     expect(within(attention).getByRole("link", { name: /^SRV-2 / })).toHaveAccessibleName(
-      /No SSH access: Claude can't look into it\. .*STW/,
+      /No SSH access\. .*STW/,
     );
     expect(row("SRV-2")).toHaveTextContent("In trouble");
-    expect(row("SRV-2")).toHaveTextContent("No SSH access: Claude can't look into it");
+    // Senza SSH l'analisi parte lo stesso (decisione del 15 nov 2026): la riga
+    // dice l'accesso, non che Claude non può guardarci.
+    expect(row("SRV-2")).toHaveTextContent("No SSH access");
+    expect(row("SRV-2")).not.toHaveTextContent("can't look into it");
     // Il glifo colorato non parla da solo.
     for (const svg of row("SRV-2").querySelectorAll("svg")) {
       expect(svg).toHaveAttribute("aria-hidden", "true");
@@ -288,6 +293,22 @@ describe("La colonna e ⌘K", () => {
     expect(option).toHaveTextContent("ACQ");
     await user.click(option);
     await waitFor(() => expect(router.state.location.pathname).toBe("/p/ACQ/servers/SRV-1"));
+  });
+
+  // Revisione del lotto 5, M-7: un server senza ambiente visibile si apre
+  // dalla pagina d'istanza, non da un progetto.
+  it("⌘K: un server senza ambiente visibile apre la pagina d'istanza", async () => {
+    setSessionPersonId("p-roberta");
+    await releases.deleteEnvironment("env-acq-prod");
+    const user = userEvent.setup();
+    const router = renderRoute("/home", "p-roberta");
+    await screen.findByRole("heading", { name: "Home", level: 1 });
+    await user.keyboard("{Control>}k{/Control}");
+    const dialog = await screen.findByRole("dialog", { name: "Search and commands" });
+    await user.type(within(dialog).getByRole("combobox"), "SRV-1");
+    const group = await within(dialog).findByRole("group", { name: "Servers" });
+    await user.click(within(group).getByRole("option", { name: /SRV-1/ }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/admin/servers/SRV-1"));
   });
 
   it("⌘K: chi non vede il server non lo trova (R-G5)", async () => {

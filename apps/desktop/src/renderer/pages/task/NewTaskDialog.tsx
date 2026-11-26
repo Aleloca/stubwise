@@ -1,3 +1,4 @@
+import { featureIntegrated } from "../../data/integration";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useId, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -13,7 +14,7 @@ import {
   useRequest,
 } from "../../data/queries";
 import type { NewTaskInput, Project, Task, TaskSize } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { weekLabel } from "../../domain/weeks";
 import { Dialog, DialogField, inputClass, selectButtonClass } from "../../tasks-ui/Dialog";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
@@ -29,6 +30,8 @@ import {
   shortWeek,
   useProjectMembers,
 } from "../tasks/pickers";
+import { claudeRunText } from "../../tasks-ui/claudeRun";
+import { useToast } from "../../tasks-ui/Toast";
 
 /** I progetti dove chi guarda può creare task (`tickets.create`), per codice. */
 function useCreatableProjects(): Project[] | undefined {
@@ -101,6 +104,8 @@ export function NewTaskDialog({
   initial,
   onCreated,
   onClose,
+  submit: deliver,
+  refusalText,
 }: {
   projectId?: string;
   fromRequestId?: string;
@@ -122,8 +127,17 @@ export function NewTaskDialog({
   >;
   onCreated: (task: Task) => void;
   onClose: () => void;
+  /**
+   * Al posto della creazione: consegna i valori a chi apre il dialogo (la
+   * scheda di Claude nella build app li conferma con `edited`, chat fetta 3).
+   * Riuscita: il dialogo si chiude; un errore lo dice come una creazione.
+   */
+  submit?: (input: NewTaskInput) => Promise<unknown>;
+  /** Un rifiuto di `submit` che chi apre il dialogo sa dire meglio (la Chat: archiviato, non membro). */
+  refusalText?: (error: Error) => string | null;
 }) {
   const { t, i18n } = useTranslation();
+  const toast = useToast();
   const { viewer } = useViewer();
   const projects = useCreatableProjects();
   const departments = useDepartments().data;
@@ -147,7 +161,15 @@ export function NewTaskDialog({
   const [week, setWeek] = useState<string | null>(initial?.plannedWeek ?? null);
   const [milestoneId, setMilestone] = useState<string | null>(initial?.milestoneId ?? null);
   const [tried, setTried] = useState(false);
+  /** La frase di `refusalText` per l'ultimo rifiuto di `submit`, se ce n'è una. */
+  const [refusal, setRefusal] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  /**
+   * Perché la richiesta da trasformare non si trasforma: non c'è più per chi
+   * guarda (`request_not_found`), o è già trasformata o archiviata (409
+   * `request_not_convertible`).
+   */
+  const [requestRefusal, setRequestRefusal] = useState<"gone" | "notConvertible" | null>(null);
   // La richiesta arriva dopo il primo disegno: i campi si riempiono una volta.
   const [seeded, setSeeded] = useState(false);
   if (request && !seeded) {
@@ -157,7 +179,9 @@ export function NewTaskDialog({
     setSize(request.size ?? null);
     if (can(viewer, "tickets.create", request.projectId)) setProject(request.projectId);
   }
-  const pending = create.isPending || convert.isPending || fromMessage.isPending;
+  // «Edit» di una proposta di Claude: la conferma è in volo (niente doppio invio).
+  const [delivering, setDelivering] = useState(false);
+  const pending = create.isPending || convert.isPending || fromMessage.isPending || delivering;
 
   const project = projects?.find((p) => p.id === chosenProject);
   const statuses = useProjectStatuses(project?.id ?? "").data;
@@ -192,8 +216,30 @@ export function NewTaskDialog({
       plannedWeek: week,
       milestoneId,
     };
-    const callbacks = { onSuccess: onCreated, onError: () => setFailed(true) };
-    if (fromRequestId) {
+    const callbacks = {
+      onSuccess: (created: Parameters<typeof onCreated>[0]) => {
+        // Nata assegnata a Claude ma il lavoro non è partito: la frase del codice.
+        const text = claudeRunText(t, created);
+        if (text) toast.error(text);
+        onCreated(created);
+      },
+      onError: (error: unknown) => {
+        const code = (error as { code?: unknown } | null)?.code;
+        setRequestRefusal(
+          code === "request_not_found" ? "gone" : code === "request_not_convertible" ? "notConvertible" : null,
+        );
+        setFailed(true);
+      },
+    };
+    if (deliver) {
+      // Niente `requestId: null`: lo schema del server (`newTaskBodySchema`) vuole un uuid o niente.
+      setDelivering(true);
+      deliver({ ...input, projectId: project.id }).then(onClose, (error: unknown) => {
+        setDelivering(false);
+        setRefusal(error instanceof Error ? (refusalText?.(error) ?? null) : null);
+        setFailed(true);
+      });
+    } else if (fromRequestId) {
       convert.mutate({ id: fromRequestId, input }, callbacks);
     } else if (fromMessageId) {
       fromMessage.mutate(
@@ -421,31 +467,34 @@ export function NewTaskDialog({
             )}
           </SelectField>
 
-          <SelectField
-            label={t("newTask.fields.week")}
-            valueText={week ? weekLabel(week, i18n.language) : undefined}
-            value={
-              week ? (
-                <span className="num flex min-w-0 items-baseline gap-1.5">
-                  <span className="font-semibold">{shortWeek(week)}</span>
-                  <span className="truncate text-ink-muted">{weekLabel(week, i18n.language)}</span>
-                </span>
-              ) : null
-            }
-            placeholder={t("tasks.bulk.noWeek")}
-          >
-            {(close) => (
-              <MenuGroup>
-                <WeekOptions
-                  current={week}
-                  onPick={(w) => {
-                    close();
-                    setWeek(w);
-                  }}
-                />
-              </MenuGroup>
-            )}
-          </SelectField>
+          {/* La settimana arriva con la fetta 2: nella build app non c'è. */}
+          {featureIntegrated("planning-week") && (
+            <SelectField
+              label={t("newTask.fields.week")}
+              valueText={week ? weekLabel(week, i18n.language) : undefined}
+              value={
+                week ? (
+                  <span className="num flex min-w-0 items-baseline gap-1.5">
+                    <span className="font-semibold">{shortWeek(week)}</span>
+                    <span className="truncate text-ink-muted">{weekLabel(week, i18n.language)}</span>
+                  </span>
+                ) : null
+              }
+              placeholder={t("tasks.bulk.noWeek")}
+            >
+              {(close) => (
+                <MenuGroup>
+                  <WeekOptions
+                    current={week}
+                    onPick={(w) => {
+                      close();
+                      setWeek(w);
+                    }}
+                  />
+                </MenuGroup>
+              )}
+            </SelectField>
+          )}
 
           <SelectField
             label={t("newTask.fields.milestone")}
@@ -471,7 +520,13 @@ export function NewTaskDialog({
 
         {failed && (
           <p role="alert" className="rounded-md bg-critical/10 px-3 py-2 text-sm text-ink">
-            {t("newTask.failed")}
+            {refusal ?? t(
+              requestRefusal === "gone"
+                ? "newTask.requestGone"
+                : requestRefusal === "notConvertible"
+                  ? "newTask.requestNotConvertible"
+                  : "newTask.failed",
+            )}
           </p>
         )}
       </form>

@@ -15,6 +15,9 @@ import {
   whenIdle,
 } from "../api";
 import { queryKeys } from "../queries";
+import { resolveCitations } from "../api";
+import { strangersTo, viewerWithStrangers } from "../../test/strangers";
+import { PEOPLE } from "../seed/people";
 import { setSessionPersonId } from "../session";
 import { familyOf, state, visibleProjectIds } from "../store";
 import type { ChannelRow, ChatMessageView } from "../types";
@@ -25,7 +28,7 @@ import {
   revokeInstancePermission,
   viewerFor,
 } from "../viewer";
-import { canReadChannel, canSeeChannel } from "./visibility";
+import { canReadChannel, canSeeChannel, notifyLevelOf } from "./visibility";
 
 const as = (personId: string) => setSessionPersonId(personId);
 const channel = (id: string) => state.channels.find((c) => c.id === id)!;
@@ -183,6 +186,19 @@ describe("chat: Review Focus 1 — privato e DM per Roberta (full admin)", () =>
     expect(state.chatMessages.some((m) => m.channelId === "ch-aud-pricing")).toBe(false);
     as("p-laura");
     expect(await chat.getChannel("ch-aud-pricing")).toBeNull();
+  });
+});
+
+describe("chat: gli allegati mandati non tengono il file della casella (review della fetta 4)", () => {
+  it("il Blob della bozza non resta nel messaggio, né nello stato né nella vista", async () => {
+    as("p-giulia");
+    const sent = await chat.sendMessage("ch-stw-desktop", {
+      text: "the mock",
+      attachments: [{ id: "att-x", name: "mock.png", sizeBytes: 4, kind: "image", file: new Blob(["png!"]) }],
+    });
+    expect(sent.attachments).toEqual([{ id: "att-x", name: "mock.png", sizeBytes: 4, kind: "image" }]);
+    const stored = state.chatMessages.find((m) => m.id === sent.id)!;
+    expect(stored.attachments[0]).not.toHaveProperty("file");
   });
 });
 
@@ -1034,6 +1050,165 @@ describe("chat: revisione finale dell'area", () => {
     expect((await chat.getChannel("ch-aud-pricing"))?.topic).toBe(
       "Resellers keep 15% until March",
     );
+  });
+
+  // Registro, A11 r.1414 (decisioni del maintainer, 23 nov 2026): chi non
+  // conosce una persona non ne riceve l'id (al suo posto `hidden-<n>`, stabile
+  // nella stessa risposta); e «chi scrive in un canale che vedo è
+  // conosciuto», anche senza progetti in comune. In un canale leggibile
+  // autori e membri sono quindi conosciuti: resta nascosto chi c'è senza
+  // essere né membro né autore (una reazione di chi poi è uscito).
+  describe("gli id di chi non si conosce (r.1414)", () => {
+    /** La reazione 👍 di `who` sul messaggio, scritta nello stato (chi è uscito non può più reagire). */
+    const reactAs = (messageId: string, who: string) => {
+      const m = state.chatMessages.find((x) => x.id === messageId)!;
+      const r = m.reactions.find((x) => x.emoji === "👍");
+      if (r) r.personIds.push(who);
+      else m.reactions.push({ emoji: "👍", personIds: [who] });
+    };
+
+    it("un canale di tutta l'azienda: l'autore senza progetti in comune si vede col suo id", async () => {
+      const enrico = "p-enrico";
+      as(enrico);
+      const sent = await chat.sendMessage("ch-announcements", { text: "Hello all" });
+      as("p-laura");
+      const page = (await chat.listMessages("ch-announcements"))!;
+      expect(page.messages.find((m) => m.id === sent.id)!.authorId).toBe(enrico);
+      expect((await chat.getChannel("ch-announcements"))!.memberIds).toContain(enrico);
+    });
+
+    it("chi c'è senza essere né membro né autore: hidden-<n>, e il proprio id resta", async () => {
+      as("p-laura");
+      const sent = await chat.sendMessage("ch-announcements", { text: "Lunch?" });
+      await chat.toggleReaction(sent.id, "👍");
+      const [stranger] = strangersTo("p-laura");
+      reactAs(sent.id, stranger!);
+      const page = (await chat.listMessages("ch-announcements"))!;
+      const mine = page.messages.find((m) => m.id === sent.id)!;
+      expect(mine.reactions[0]!.personIds).toEqual(["p-laura", "hidden-1"]);
+      expect(JSON.stringify(page)).not.toContain(stranger!);
+    });
+
+    // Revisione del lotto 2, I5: le citazioni di tipo persona passano dal
+    // masker della risposta, e `resolveCitations` segue «chi si conosce».
+    it("una citazione di una persona che non si conosce: segnaposto, e la scheda è nascosta", async () => {
+      as("p-laura");
+      const sent = await chat.sendMessage("ch-announcements", { text: "Ask her" });
+      const [who] = strangersTo("p-laura");
+      state.chatMessages.find((m) => m.id === sent.id)!.citations = [{ kind: "person", id: who! }];
+      const page = (await chat.listMessages("ch-announcements"))!;
+      const mine = page.messages.find((m) => m.id === sent.id)!;
+      expect(mine.citations).toEqual([{ kind: "person", id: "hidden-1" }]);
+      expect(JSON.stringify(page)).not.toContain(who!);
+      const [view] = await resolveCitations([{ kind: "person", id: who! }]);
+      expect(view).toMatchObject({ visible: false, name: null, personId: null });
+    });
+
+    it("un segnaposto per persona, lo stesso in tutta la risposta (pagina e thread)", async () => {
+      const viewer = viewerWithStrangers(2);
+      as(viewer);
+      const root = await chat.sendMessage("ch-announcements", { text: "Ideas?" });
+      const one = await chat.sendMessage("ch-announcements", { text: "One", threadOf: root.id });
+      const two = await chat.sendMessage("ch-announcements", { text: "Two", threadOf: root.id });
+      const [a, b] = strangersTo(viewer, 2);
+      reactAs(one.id, a!);
+      reactAs(one.id, b!);
+      reactAs(two.id, a!);
+      const thread = (await chat.listThread(root.id))!;
+      const [r1, r2] = thread.replies.map((r) => r.reactions[0]!.personIds);
+      expect(r1).toEqual(["hidden-1", "hidden-2"]);
+      expect(r2).toEqual(["hidden-1"]);
+      expect(JSON.stringify(thread)).not.toContain(a!);
+    });
+  });
+
+  // Registro, A4 r.169 (decisione del maintainer, 23 nov 2026): @channel e
+  // @reparto AVVISANO. Ogni membro del canale (per @reparto, chi del reparto
+  // è nel canale), con le sue preferenze: la card arriva solo a chi ha il
+  // canale su «all» (la stessa regola per cui il gruppo conta fra le menzioni);
+  // «solo menzioni» e «silenziato» la spengono. L'autore mai, una card sola
+  // per persona e messaggio. Il motivo si legge dal messaggio: «mentioned
+  // @channel», «mentioned @Marketing».
+  describe("@channel e @reparto avvisano (r.169)", () => {
+    const cards = async (messageId: string) =>
+      (await listNotifications()).filter((n) => n.chatMessageId === messageId);
+
+    it("@channel: ogni membro su «all», non l'autore, col titolo del gruppo", async () => {
+      const ch = channel("ch-stw-desktop");
+      as("p-laura");
+      const sent = await chat.sendMessage("ch-stw-desktop", { text: "@channel demo moved" });
+      const others = ch.memberIds.filter((id) => id !== "p-laura" && notifyLevelOf(id, ch.id) === "all");
+      expect(others.length).toBeGreaterThan(0);
+      for (const id of others) {
+        as(id);
+        const mine = await cards(sent.id);
+        expect(mine, id).toHaveLength(1);
+        expect(mine[0]!.kind).toBe("chat.mention");
+        expect(mine[0]!.title).toMatch(/ mentioned @channel in /);
+      }
+      as("p-laura");
+      expect(await cards(sent.id)).toEqual([]);
+    });
+
+    it("@reparto: solo chi di quel reparto è nel canale", async () => {
+      const ch = channel("ch-stw-desktop");
+      const deptsOf = (id: string) => PEOPLE.find((p) => p.id === id)!.departmentIds;
+      const others = ch.memberIds.filter((id) => id !== "p-laura");
+      // Un reparto che alcuni membri hanno e altri no.
+      const dept = state.departments.find(
+        (d) => others.some((id) => deptsOf(id).includes(d.id)) && others.some((id) => !deptsOf(id).includes(d.id)),
+      )!;
+      expect(dept).toBeDefined();
+      as("p-laura");
+      const sent = await chat.sendMessage("ch-stw-desktop", { text: `@${dept.name} please look` });
+      let notified = 0;
+      for (const id of others) {
+        as(id);
+        const mine = await cards(sent.id);
+        if (deptsOf(id).includes(dept.id) && notifyLevelOf(id, ch.id) === "all") {
+          notified++;
+          expect(mine, id).toHaveLength(1);
+          expect(mine[0]!.title).toContain(` mentioned @${dept.name} in `);
+        } else {
+          expect(mine, id).toEqual([]);
+        }
+      }
+      expect(notified).toBeGreaterThan(0);
+    });
+
+    it("«silenziato» e «solo menzioni» spengono la card del gruppo, non quella a nome", async () => {
+      as("p-giulia");
+      await chat.setNotifyLevel("ch-chit-chat", "muted");
+      as("p-federico");
+      const group = await chat.sendMessage("ch-chit-chat", { text: "@channel pizza at one" });
+      const direct = await chat.sendMessage("ch-chit-chat", { text: "@Giulia Ferri you coming?" });
+      as("p-giulia");
+      expect(await cards(group.id)).toEqual([]);
+      expect(await cards(direct.id)).toHaveLength(1);
+    });
+
+    // Revisione del lotto 2 (minor): una modifica che toglie @channel non fa
+    // dire alla card «mentioned you»: resta il gruppo che c'era alla
+    // creazione, salvato nella card (vero solo in quel momento).
+    it("una modifica che toglie @channel: la card dice ancora il gruppo", async () => {
+      as("p-giulia");
+      await chat.setNotifyLevel("ch-mkx-grafica", "all");
+      as("p-chiara");
+      const sent = await chat.sendMessage("ch-mkx-grafica", { text: "@channel new palette" });
+      await chat.editMessage(sent.id, "new palette");
+      as("p-giulia");
+      const [card] = await cards(sent.id);
+      expect(card!.title).toMatch(/ mentioned @channel in /);
+    });
+
+    it("nominata a nome E col gruppo: una card sola, quella a nome", async () => {
+      as("p-chiara");
+      const sent = await chat.sendMessage("ch-mkx-grafica", { text: "@channel and @Giulia Ferri look" });
+      as("p-giulia");
+      const mine = await cards(sent.id);
+      expect(mine).toHaveLength(1);
+      expect(mine[0]!.title).toMatch(/ mentioned you in /);
+    });
   });
 
   it("una menzione diretta avvisa chi legge il canale anche se non ne è membro; @channel no (R-G6)", async () => {

@@ -1,20 +1,27 @@
 import { serverHealth, serverWork, type ServerWork } from "../../domain/servers/health";
+import { personMasker } from "../access/hidden";
 import { downsample } from "../../domain/servers/metrics";
 import { fixStartBlock, type FixStartBlock } from "../../domain/servers/fixGate";
-import { alertProjectsOf, analysisProjectOf, serverInProject } from "../../domain/servers/projects";
+import { alertProjectsOf, serverInProject } from "../../domain/servers/projects";
 import { installScript, type ScriptLang } from "../../domain/servers/installScript";
-import { accessState, accessUsable, type AccessState } from "../../domain/servers/sshAccess";
+import {
+  accessState,
+  accessUsable,
+  journalReadable,
+  SSH_READ_USER,
+  type AccessState,
+} from "../../domain/servers/sshAccess";
 import { holds, sees } from "../access";
+import { PEOPLE } from "../seed/people";
 import { latestRunOf, now, state, visibleProjectIds } from "../store";
 import type {
-  AiBlock,
-  ServerSshAccess,
-  SshAccessKind,
   SshPublicKey,
   SshUse,
+  SshVerification,
   MonitoredServer,
   ProjectEnvironment,
   ServerAnalysis,
+  ServerAttribution,
   ServerCheck,
   ServerDisk,
   ServerEpisode,
@@ -41,20 +48,22 @@ export { holds, sees };
  * può): la regola pura `fixStartBlock` coi fatti di adesso — il server di
  * `serverRef` ancora in un ambiente del progetto della task (R-L2: chi vede
  * la task lo vede, R-G5), una sessione viva sulla task, un'altra
- * correzione viva sullo stesso server. Una sola regola per l'avvio e per
- * il blocco «Server» della task.
+ * correzione viva sullo stesso server, le operazioni dell'agente (F4b: la
+ * correzione passa dall'agente, mai dall'SSH). Una sola regola per l'avvio
+ * e per il blocco «Server» della task.
  */
 export function serverFixStartBlock(me: string, task: Task): FixStartBlock | null {
   const code = task.serverRef?.serverCode;
   const live = latestRunOf(task.id);
+  const server = state.servers.find((s) => s.code === code);
   return fixStartBlock({
     hasOperate: can(viewerFor(me), "servers.operate", task.projectId),
     task,
     serverInProject:
       code !== undefined &&
-      state.servers.some((s) => s.code === code) &&
+      server !== undefined &&
       serverInProject(code, task.projectId, state.environments),
-    access: code ? state.serverAccess.get(code) : undefined,
+    operationsOn: server?.agentOperations ?? false,
     liveRun: live !== undefined && live.state !== "finished",
     serverBusy: state.conversations.some(
       (c) => c.serverFix !== undefined && c.serverFix.serverCode === code && c.state !== "finished",
@@ -62,7 +71,7 @@ export function serverFixStartBlock(me: string, task: Task): FixStartBlock | nul
   });
 }
 
-/** `monitor.manage` (d'istanza): server, chiave dell'agente, soglie, controlli e principale. */
+/** `monitor.manage` (d'istanza): server, chiave dell'agente, soglie, controlli; le diagnosi senza progetto. */
 export const canMonitor = (me: string): boolean => can(viewerFor(me), "monitor.manage");
 
 /** Gli ambienti che usano `code`, nell'ordine dello stato. */
@@ -88,7 +97,7 @@ export function serversVisibleTo(personId: string): Set<string> {
   // Area 9b (ruling T7 I2): con `monitor.manage` il server è un oggetto
   // d'istanza e si vede TUTTO — l'elenco di Amministrazione li mostra, e uno
   // elencato deve potersi aprire (R-G5 vieta «elencato e inesistente»).
-  // Ambienti, principale, analisi e task dei progetti invisibili restano
+  // Ambienti, progetti attribuiti e task dei progetti invisibili restano
   // filtrati dalle righe e dal dettaglio.
   if (canMonitor(personId)) return new Set(state.servers.map((s) => s.code));
   const visible = visibleProjectIds(personId);
@@ -164,14 +173,13 @@ export interface ServerRow {
   access: AccessState;
   /** Gli ambienti che lo usano, solo nei progetti che chi guarda vede. */
   environments: { projectCode: string; name: string; kind: ProjectEnvironment["kind"] }[];
-  /** Il progetto principale, se chi guarda lo vede. */
-  primaryProjectCode: string | null;
   /**
-   * Dove si apre la diagnosi (`analysisProjectOf`): il codice, o `null` se
-   * chi guarda non vede quel progetto; `null` (tutto) senza produzioni, cioè
-   * niente avvisi né analisi.
+   * Una produzione (di un progetto non archiviato) lo usa: un allarme avvisa
+   * e fa partire l'analisi del server. `false`: solo staging, nessun avviso
+   * né analisi. Non c'è un progetto «dell'analisi» prima dell'analisi
+   * (F4b-4): il progetto lo dice l'attribuzione, a fine analisi.
    */
-  analysisProject: { code: string | null } | null;
+  alerting: boolean;
   /** La CPU dell'ultima ora, al più `RECENT_CPU_POINTS` valori, dal più vecchio. */
   recentCpu: number[];
 }
@@ -183,6 +191,33 @@ export interface ServerRow {
  */
 export const liveEnvironments = () =>
   state.environments.filter((e) => !state.projectsById.get(e.projectId)?.archived);
+
+/**
+ * L'avviso prima di approvare «libera spazio» (area 8, F4b-8 = c; la forma
+ * di `pruneWarning` del server): gli ALTRI progetti che usano il server,
+ * oltre a `projectId` — per nome solo quelli che chi guarda vede (R-G5),
+ * gli altri contati. `null` se nessun altro progetto lo usa.
+ */
+export interface PruneWarning {
+  projects: string[];
+  hiddenCount: number;
+}
+
+export function pruneWarningOf(me: string, code: string, projectId: string): PruneWarning | null {
+  const others = [
+    ...new Set(
+      liveEnvironments()
+        .filter((e) => e.projectId !== projectId && e.servers.some((x) => x.serverCode === code))
+        .map((e) => e.projectId),
+    ),
+  ];
+  if (others.length === 0) return null;
+  const seen = others.filter((id) => sees(me, id));
+  return {
+    projects: seen.map((id) => state.projectsById.get(id)!.name).sort((a, b) => a.localeCompare(b)),
+    hiddenCount: others.length - seen.length,
+  };
+}
 
 /** I punti di `code` dopo `fromMs` (escluso), in ordine. */
 export function metricsSince(code: string, fromMs: number) {
@@ -219,7 +254,6 @@ export function serverRow(me: string, s: MonitoredServer): ServerRow {
   const visible = visibleProjectIds(me);
   const recent = downsample(metricsSince(s.code, Date.parse(now()) - HOUR_MS), RECENT_CPU_POINTS);
   const { work, taskCode } = workOf(me, s.code);
-  const analysisId = analysisProjectOf(s.code, liveEnvironments(), s.primaryProjectId);
   return {
     code: s.code,
     name: s.name,
@@ -232,30 +266,71 @@ export function serverRow(me: string, s: MonitoredServer): ServerRow {
     environments: environmentsOf(s.code)
       .filter((e) => visible.has(e.projectId))
       .map((e) => ({ projectCode: projectCodeOf(e.projectId), name: e.name, kind: e.kind })),
-    primaryProjectCode:
-      s.primaryProjectId && visible.has(s.primaryProjectId)
-        ? projectCodeOf(s.primaryProjectId)
-        : null,
-    analysisProject:
-      analysisId === null
-        ? null
-        : { code: visible.has(analysisId) ? projectCodeOf(analysisId) : null },
+    alerting: alertProjectsOf(s.code, liveEnvironments()).length > 0,
     recentCpu: recent.points.map((p) => p.cpuPct),
   };
 }
 
 // --- il dettaglio -----------------------------------------------------------
 
-export interface ServerEpisodeView extends ServerEpisode {
-  /** L'analisi automatica, se il suo progetto si vede. */
-  analysis: ServerAnalysis | null;
-  /** La task nata dall'analisi, se chi guarda la vede. */
+/**
+ * L'attribuzione come la legge chi guarda: il codice del progetto solo se
+ * lo vede (R-G5). La forma di `serverAnalysisViewSchema.attribution` di
+ * `@stubwise/shared` (kind, projectCode, reason).
+ */
+export type ServerAttributionView =
+  | { kind: "attributed"; projectCode: string | null }
+  | {
+      kind: "undetermined";
+      reason: Extract<ServerAttribution, { kind: "undetermined" }>["reason"];
+    };
+
+/**
+ * L'analisi automatica di un episodio, come la legge chi vede il server: è
+ * del server (F4b-4), quindi la vede chiunque veda il server; la sessione,
+ * il progetto attribuito e la diagnosi senza task solo a chi può. I concetti
+ * di `serverAnalysisViewSchema` (`status` = `outcome`, `attribution`,
+ * `diagnosis`, `taskCode` sull'episodio, `blockedBy` = l'`analysisBlocked`
+ * dell'episodio, che col budget raggiunto non ha un'analisi).
+ */
+export interface ServerAnalysisView {
+  id: string;
+  serverCode: string;
+  /** `null` per un'analisi a mano (R0-A2). */
+  episodeId: string | null;
+  outcome: ServerAnalysis["outcome"];
+  /** Chi l'ha chiesta a mano; `null` = all'allarme. Lo vede chiunque veda il server. */
+  startedBy: { id: string; name: string } | null;
+  startedAt: string;
+  endedAt: string | null;
+  /**
+   * Diagnosi e sessione per chi guarda (regola del server, `canViewDiagnosis`
+   * della vista): chi gestisce il monitor sempre; dopo l'attribuzione anche
+   * chi legge il progetto attribuito. Prima, o non determinata, solo il monitor.
+   */
+  canViewDiagnosis: boolean;
+  /** La sessione, con `canViewDiagnosis` (e se la sessione c'è ancora). */
+  sessionId: string | null;
+  /** Quale progetto è la causa; `null` mentre gira (o fermata prima di concludere). */
+  attribution: ServerAttributionView | null;
+  /** La diagnosi rimasta senza task (causa non determinata), con `canViewDiagnosis`. */
+  diagnosis: string | null;
+  /** La task nata nel progetto attribuito, se chi guarda la vede. */
   taskCode: string | null;
   /**
-   * Area 9b: l'analisi è nata ma aspetta (la coda del suo progetto in pausa):
-   * il riquadro dice «Waiting: …» al posto di «Claude is looking into it».
+   * Bloccata prima di partire (build app: il cancello del worker): il
+   * budget del mese, l'analisi spenta, o `cap` (il budget che resta è sotto
+   * il tetto di costo di UNA analisi). Il prototipo rifiuta prima, quindi
+   * non lo scrive mai.
    */
-  analysisWaiting?: AiBlock | null;
+  blockedBy?: "monthly_budget" | "disabled" | "cap";
+}
+
+export interface ServerEpisodeView extends ServerEpisode {
+  /** L'analisi automatica, se c'è. */
+  analysis: ServerAnalysisView | null;
+  /** La task nata dall'analisi, se chi guarda la vede. */
+  taskCode: string | null;
 }
 
 export interface ServerDetail extends Omit<ServerRow, "access"> {
@@ -271,12 +346,17 @@ export interface ServerDetail extends Omit<ServerRow, "access"> {
   checks: ServerCheck[];
   /** Dal più recente. */
   episodes: ServerEpisodeView[];
-  /** Le produzioni che lo usano (avvisi e analisi; il principale si sceglie fra queste), visibili. */
+  /** Le produzioni che lo usano (ricevono gli avvisi), visibili. */
   productionProjects: { id: string; code: string; name: string }[];
   /** `monitor.manage`: modificare, togliere, soglie, controlli, chiave dell'agente. */
   canManage: boolean;
   /** Solo prototipo: se l'SSH risponde (il «Simula server irraggiungibile»). */
   sshReachable: boolean;
+  /**
+   * L'agente ha le operazioni accese (area 8, F4b, `agentOperations` della
+   * vista): senza, nessun piano di correzione si esegue.
+   */
+  agentOperations: boolean;
   /**
    * Nessun ambiente di nessun progetto lo usa (R-L7, area 9b): un server nato
    * da Amministrazione. Vale anche per chi non vede i progetti che lo usano:
@@ -285,22 +365,75 @@ export interface ServerDetail extends Omit<ServerRow, "access"> {
   orphan: boolean;
   /** Lo usano solo ambienti di progetti archiviati (Task 5): «Only in archived projects», senza nomi. */
   inArchivedOnly: boolean;
+  /**
+   * «Ask Claude to look into it» (R0-A2): `servers.operate` in un progetto il
+   * cui ambiente usa il server (staging compreso) e nessuna analisi in corso.
+   * L'accesso di lettura non serve (senza, niente letture SSH).
+   */
+  canStartAnalysis: boolean;
+  /** L'ultima analisi chiesta a mano, se c'è. */
+  manualAnalysis: ServerAnalysisView | null;
+}
+
+/**
+ * La sessione di un'analisi per chi guarda: chi gestisce il monitor sempre;
+ * gli altri solo se vedono il progetto attribuito (prima dell'attribuzione,
+ * o non determinata, la sessione non è di un progetto: F4b-4). La stessa
+ * regola di prima con il progetto attribuito al posto di quello scelto.
+ */
+function canViewDiagnosisOf(me: string, a: ServerAnalysis): boolean {
+  const at = a.attribution;
+  return canMonitor(me) || (at?.kind === "attributed" && sees(me, at.projectId));
+}
+
+function analysisSessionOf(me: string, a: ServerAnalysis): string | null {
+  return canViewDiagnosisOf(me, a) && state.conversations.some((c) => c.id === a.conversationId)
+    ? a.conversationId
+    : null;
+}
+
+export function analysisView(
+  me: string,
+  a: ServerAnalysis,
+  mask: ReturnType<typeof personMasker> = personMasker(me),
+): ServerAnalysisView {
+  const at = a.attribution;
+  const who = a.startedBy ? PEOPLE.find((p) => p.id === a.startedBy) : undefined;
+  // R.1414 (lotto 3): chi l'ha avviata, se chi guarda non lo conosce: segnaposto, senza nome.
+  const hiddenWho = who && mask(who.id) !== who.id ? mask(who.id) : null;
+  return {
+    id: a.id,
+    serverCode: a.serverCode,
+    episodeId: a.episodeId,
+    outcome: a.outcome,
+    startedBy: hiddenWho ? { id: hiddenWho, name: "" } : who ? { id: who.id, name: who.name } : null,
+    startedAt: a.startedAt,
+    endedAt: a.endedAt,
+    canViewDiagnosis: canViewDiagnosisOf(me, a),
+    sessionId: analysisSessionOf(me, a),
+    attribution:
+      at === null
+        ? null
+        : at.kind === "attributed"
+          ? { kind: "attributed", projectCode: sees(me, at.projectId) ? at.projectCode : null }
+          : { kind: "undetermined", reason: at.reason },
+    diagnosis: canViewDiagnosisOf(me, a) ? (a.diagnosis ?? null) : null,
+    taskCode: (() => {
+      const task = a.taskId ? state.tasksById.get(a.taskId) : undefined;
+      return task && sees(me, task.projectId) ? task.code : null;
+    })(),
+  };
 }
 
 function episodeView(me: string, e: ServerEpisode): ServerEpisodeView {
   const analysis = e.analysisId
     ? state.serverAnalyses.find((a) => a.id === e.analysisId)
     : undefined;
-  const shown = analysis && sees(me, analysis.projectId) ? analysis : undefined;
-  const task = shown?.taskId ? state.tasksById.get(shown.taskId) : undefined;
-  const waiting = shown
-    ? state.conversations.find((c) => c.id === shown.conversationId)?.waiting
-    : null;
+  const task = analysis?.taskId ? state.tasksById.get(analysis.taskId) : undefined;
   return {
     ...structuredClone(e),
-    analysis: shown ? structuredClone(shown) : null,
+    analysis: analysis ? analysisView(me, analysis) : null,
     taskCode: task && sees(me, task.projectId) ? task.code : null,
-    ...(waiting ? { analysisWaiting: structuredClone(waiting) } : {}),
   };
 }
 
@@ -330,27 +463,43 @@ export function serverDetail(me: string, s: MonitoredServer): ServerDetail {
       }),
     canManage: canMonitor(me),
     sshReachable: s.sshReachable,
+    agentOperations: s.agentOperations,
     orphan: environmentsOf(s.code).length === 0,
     inArchivedOnly: inArchivedOnlyOf(s.code),
+    canStartAnalysis:
+      canOperateServer(me, s.code) &&
+      !state.serverAnalyses.some((a) => a.serverCode === s.code && a.outcome === "running"),
+    manualAnalysis: (() => {
+      const last = state.serverAnalyses
+        .filter((a) => a.serverCode === s.code && a.startedBy)
+        .sort((x, y) => y.startedAt.localeCompare(x.startedAt))[0];
+      return last ? analysisView(me, last) : null;
+    })(),
   };
+}
+
+/**
+ * `servers.operate` in un progetto (visibile, non archiviato) il cui
+ * ambiente usa il server, di qualunque tipo (R0-A2: staging compreso).
+ */
+export function canOperateServer(me: string, code: string): boolean {
+  const viewer = viewerFor(me);
+  return liveEnvironments().some(
+    (e) =>
+      e.servers.some((x) => x.serverCode === code) &&
+      sees(me, e.projectId) &&
+      can(viewer, "servers.operate", e.projectId),
+  );
 }
 
 /** L'indirizzo del dettaglio di un server (avvisi, ⌘K): `#/p/STW/servers/SRV-2`. */
 export const serverHref = (projectCode: string, code: string): string =>
   `#/p/${projectCode}/servers/${code}`;
 
-/**
- * Il progetto da cui si apre un server per chi guarda: il principale se lo
- * vede, altrimenti il primo progetto visibile fra i suoi ambienti.
- */
+/** Il progetto da cui si apre un server per chi guarda: il primo visibile fra i suoi ambienti. */
 export function homeProjectCode(me: string, s: MonitoredServer): string | null {
   const visible = visibleProjectIds(me);
-  const envs = environmentsOf(s.code);
-  // Il principale solo se lo usa ancora: il dettaglio esiste solo lì.
-  const primary = s.primaryProjectId;
-  if (primary && visible.has(primary) && envs.some((e) => e.projectId === primary))
-    return projectCodeOf(primary);
-  const env = envs.find((e) => visible.has(e.projectId));
+  const env = environmentsOf(s.code).find((e) => visible.has(e.projectId));
   return env ? projectCodeOf(env.projectId) : null;
 }
 
@@ -362,35 +511,44 @@ export function homeProjectCode(me: string, s: MonitoredServer): string | null {
 /** `servers.ssh.manage` (d'istanza): collegare, verificare, rigenerare, revocare. */
 export const canManageSsh = (me: string): boolean => can(viewerFor(me), "servers.ssh.manage");
 
-/** L'ultimo uso di un accesso: quando, e da quale analisi o task (il codice della task solo se chi guarda la vede). */
+/** L'ultimo uso dell'accesso: quando, e da quale analisi o task (il codice della task solo se chi guarda la vede). */
 export interface SshUseView {
   at: string;
-  label: { kind: "analysis" | "task"; code: string | null };
-  /** La sessione dell'analisi («Open session», Task 8), solo se chi guarda ne vede il progetto. */
+  /** Da quale analisi o task; `null` nella build app (il server dice solo quando). */
+  label: { kind: "analysis" | "task"; code: string | null } | null;
+  /** La sessione dell'analisi («Open session», Task 8), con la regola di `analysisSessionOf`. */
   sessionId: string | null;
 }
 
+/**
+ * L'accesso SSH di un server per chi guarda (area 8, F4b; i concetti di
+ * `serverSshAccessViewSchema`): UNO, di sola lettura. Mai la privata.
+ */
 export interface SshAccessView {
   state: AccessState;
-  /** Le chiavi pubbliche in uso. */
-  read: SshPublicKey | null;
-  fix: SshPublicKey | null;
-  /** Le chiavi generate e non ancora verificate (collegamento o rigenerazione). */
-  pending: { read: SshPublicKey; fix: SshPublicKey } | null;
-  verification: ServerSshAccess["verification"];
+  /** L'utente sul server: sempre `stubwise-read`. */
+  username: string;
+  /** La chiave pubblica in uso. */
+  key: SshPublicKey | null;
+  /** La chiave generata e non ancora verificata (collegamento o rigenerazione). */
+  pending: SshPublicKey | null;
+  /** L'ultima verifica: i gruppi, `sudo`, `docker`, il journal, `ok`. */
+  verification: SshVerification | null;
   /**
-   * Se ciascun accesso si può usare adesso (`accessUsable`): durante una
-   * rigenerazione dipende anche dall'esito delle vecchie chiavi, che la
+   * Se l'accesso si può usare adesso (`accessUsable`): durante una
+   * rigenerazione dipende anche dall'esito della vecchia chiave, che la
    * vista non porta, quindi la UI non lo può ricavare da sé.
    */
-  usable: Record<SshAccessKind, boolean>;
-  lastUse: { read: SshUseView | null; fix: SshUseView | null };
+  usable: boolean;
+  /** Se Claude legge il journal di sistema adesso (`journalReadable`, F4b-3). */
+  journal: boolean;
+  lastUse: SshUseView | null;
   /** Quando è stato revocato («Revoked Oct 29», il comando di rimozione); `null` se non lo è. */
   revokedAt: string | null;
   canManage: boolean;
 }
 
-function useView(me: string, use: SshUse | undefined): SshUseView | null {
+function useView(me: string, use: SshUse | null | undefined): SshUseView | null {
   if (!use) return null;
   const ref = use.ref;
   const analysis =
@@ -400,7 +558,7 @@ function useView(me: string, use: SshUse | undefined): SshUseView | null {
   return {
     at: use.at,
     label: { kind: ref.kind, code: task && sees(me, task.projectId) ? task.code : null },
-    sessionId: analysis && sees(me, analysis.projectId) ? analysis.conversationId : null,
+    sessionId: analysis ? analysisSessionOf(me, analysis) : null,
   };
 }
 
@@ -409,34 +567,34 @@ export function sshAccessView(me: string, code: string): SshAccessView {
   const a = state.serverAccess.get(code);
   return structuredClone({
     state: accessState(a),
-    read: a?.keys?.read ?? null,
-    fix: a?.keys?.fix ?? null,
+    username: SSH_READ_USER,
+    key: a?.key ?? null,
     pending: a?.pending ?? null,
     verification: a?.verification ?? null,
-    usable: { read: accessUsable(a, "read"), fix: accessUsable(a, "fix") },
-    lastUse: { read: useView(me, a?.lastUse.read), fix: useView(me, a?.lastUse.fix) },
+    usable: accessUsable(a),
+    journal: journalReadable(a),
+    lastUse: useView(me, a?.lastUse),
     revokedAt: a?.revokedAt ?? null,
     canManage: canManageSsh(me),
   });
 }
 
 /**
- * Il comando da incollare sul server: lo script coi due accessi e le sole
- * chiavi PUBBLICHE — quelle in attesa se ce ne sono (collegamento o
- * rigenerazione), altrimenti quelle in uso. In rigenerazione (R-L8) ogni
- * utente riceve anche la chiave in uso, che resta valida finché la verifica
- * delle nuove non riesce. `null` senza chiavi. L'indirizzo dell'istanza nel
- * prototipo non è noto: niente `from=`.
+ * Il comando da incollare sul server: lo script dell'utente di sola lettura
+ * con la sola chiave PUBBLICA — quella in attesa se c'è (collegamento o
+ * rigenerazione), altrimenti quella in uso. In rigenerazione (R-L8) riceve
+ * anche la chiave in uso, che resta valida finché la verifica della nuova
+ * non riesce. `null` senza chiavi. L'indirizzo dell'istanza nel prototipo
+ * non è noto: niente `from=`.
  */
 export function installCommandOf(code: string, lang: ScriptLang = "en"): string | null {
   const a = state.serverAccess.get(code);
-  const keys = a?.pending ?? a?.keys;
-  if (!a || !keys) return null;
+  const key = a?.pending ?? a?.key;
+  if (!a || !key) return null;
   return installScript({
     serverCode: code,
-    read: keys.read,
-    fix: keys.fix,
-    previous: a.pending ? a.keys : null,
+    key,
+    previous: a.pending ? a.key : null,
     instanceAddress: null,
     lang,
   });
@@ -456,7 +614,7 @@ export function linkAccessHrefOf(
 ): string | null {
   if (n.kind !== "server.trouble" && n.kind !== "server.down") return null;
   if (!canManageSsh(me) || !serversVisibleTo(me).has(n.objectCode)) return null;
-  if (accessUsable(state.serverAccess.get(n.objectCode), "read")) return null;
+  if (accessUsable(state.serverAccess.get(n.objectCode))) return null;
   const server = state.servers.find((s) => s.code === n.objectCode);
   if (!server) return null;
   // Il progetto dell'avviso solo se il server ci sta ancora: altrimenti il

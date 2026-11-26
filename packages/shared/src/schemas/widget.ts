@@ -72,14 +72,131 @@ export const widgetRepositoryFiltersSchema = z
   .default({});
 export type WidgetRepositoryFilters = z.infer<typeof widgetRepositoryFiltersSchema>;
 
+/**
+ * Lo STESSO filtro come lo legge un client (area 8, F3, review): senza i
+ * tetti della scrittura. I limiti sono una regola di chi SCRIVE (il body);
+ * nella risposta `readerSchema` non sa attraversare un array coi tetti
+ * (`array(checks)`), e un client non deve rifiutare una risposta perché il
+ * server ha alzato un limite.
+ */
+const widgetRepositoryFilterViewSchema = z.object({
+  paths: z.array(z.string()).default([]),
+  slugs: z.array(z.string()).default([]),
+  kinds: z.array(docPageKindSchema).default([]),
+});
+const widgetRepositoryFiltersViewSchema = z.record(z.uuid(), widgetRepositoryFilterViewSchema).default({});
+
 /** Body di create/update di un widget (API interna). Estende la config con identità e cap. */
+/**
+ * Un sito ammesso (area 8, F3, S16): l'origine come la manda il browser
+ * nell'header `Origin`, `https://host[:porta]` (`http` solo per `localhost` e
+ * `127.0.0.1`), niente percorso, query, frammento o credenziali. Si
+ * normalizza (host minuscolo, porta di default tolta, `/` finale tolta).
+ * `null` se non è un'origine valida.
+ */
+export function normalizeWidgetOrigin(value: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    return null;
+  }
+  const local = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && local)) return null;
+  if (url.username || url.password || url.search || url.hash || (url.pathname !== "/" && url.pathname !== "")) return null;
+  return url.origin;
+}
+
+export const WIDGET_MAX_ORIGINS = 20;
+
+/** L'elenco dei siti ammessi: normalizzato e senza doppioni; vuoto = qualunque sito. */
+export const widgetOriginsSchema = z
+  .array(z.string().max(300))
+  .max(WIDGET_MAX_ORIGINS)
+  .transform((list, ctx) => {
+    const out: string[] = [];
+    for (const raw of list) {
+      const origin = normalizeWidgetOrigin(raw);
+      if (origin === null) {
+        ctx.addIssue({ code: "custom", message: `not an origin: ${raw}` });
+        return z.NEVER;
+      }
+      if (!out.includes(origin)) out.push(origin);
+    }
+    return out;
+  });
+
 export const widgetUpsertBodySchema = widgetSettingsSchema.extend({
   name: z.string().min(1).max(80),
   dailyMessageCap: dailyCapSchema,
   dailyTicketCap: dailyCapSchema,
   repositoryFilters: widgetRepositoryFiltersSchema,
+  /**
+   * I siti ammessi (S16). FACOLTATIVO (un client più vecchio non lo manda):
+   * assente nella modifica = l'elenco resta com'è; nella creazione = vuoto.
+   */
+  origins: widgetOriginsSchema.optional(),
+  /**
+   * Area 8, «L'API per i siti»: «Solo clienti verificati». FACOLTATIVO come
+   * `origins`: assente nella modifica = resta com'è; nella creazione = spento.
+   * Acceso senza un segreto d'identità: 422 `identity_secret_missing`.
+   */
+  identityRequired: z.boolean().optional(),
 });
 export type WidgetUpsertBody = z.infer<typeof widgetUpsertBodySchema>;
+export type WidgetUpsertInput = z.input<typeof widgetUpsertBodySchema>;
+
+/**
+ * Un widget come lo vede l'amministrazione (`/api/projects/:projectId/widgets`,
+ * la web e, dall'area 8 F3, l'app): i campi del corpo più chiave, data e il
+ * numero di conversazioni. La chiave è pubblica (sta nello snippet del sito).
+ */
+export const widgetAdminSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  key: z.string(),
+  enabled: z.boolean(),
+  enabledRepositoryIds: z.array(z.uuid()),
+  // Filtro FINE per-repo: chiavi ⊆ enabledRepositoryIds (garantito in scrittura).
+  repositoryFilters: widgetRepositoryFiltersViewSchema,
+  title: z.string(),
+  welcomeMessage: z.string(),
+  // Istruzioni per il system prompt: interne, mai sulla superficie pubblica del widget.
+  instructions: z.string(),
+  accentColor: z.string(),
+  language: z.string(),
+  dailyMessageCap: z.number().int().nullable(),
+  dailyTicketCap: z.number().int().nullable(),
+  createdAt: z.iso.datetime(),
+  conversationCount: z.number().int(),
+  /** I siti ammessi (area 8, F3, S16, additivo): vuoto = qualunque sito. */
+  origins: z.array(z.string()).default([]),
+  /**
+   * Area 8, «L'API per i siti» (additivi): se il widget ha un segreto
+   * d'identità (il segreto non esce MAI da una lettura), quando è stato
+   * generato l'ultima volta, e «Solo clienti verificati».
+   */
+  identitySecretSet: z.boolean().default(false),
+  identitySecretRotatedAt: z.iso.datetime().nullable().default(null),
+  identityRequired: z.boolean().default(false),
+});
+export type WidgetAdmin = z.infer<typeof widgetAdminSchema>;
+
+/**
+ * L'elenco: lo legge chi vede il progetto (come la web); `canManage` (area 8,
+ * F3, additivo) dice se chi guarda ha `widget.manage` — l'app nasconde la
+ * sezione senza. Default `false` per un server più vecchio.
+ */
+export const widgetListSchema = z.object({ widgets: z.array(widgetAdminSchema), canManage: z.boolean().default(false) });
+export const widgetResultSchema = z.object({ widget: widgetAdminSchema });
+
+/**
+ * `POST /api/projects/:projectId/widgets/:widgetId/identity-secret` (area 8,
+ * «L'API per i siti»): il segreto NUOVO, mostrato questa volta sola. Il
+ * vecchio smette subito (D-5).
+ */
+export const widgetIdentitySecretResultSchema = z.object({ secret: z.string(), rotatedAt: z.iso.datetime() });
+export type WidgetIdentitySecretResult = z.infer<typeof widgetIdentitySecretResultSchema>;
 
 export const widgetConversationCreateBodySchema = z.object({
   user: z.object({

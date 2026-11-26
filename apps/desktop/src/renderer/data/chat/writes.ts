@@ -1,5 +1,6 @@
 // Le scritture usano `createTaskAs`/`createRequestAs` solo dentro le
 // funzioni: l'import circolare con `api-mutations` è innocuo.
+import { isHiddenId } from "../access/hidden";
 import { createRequestAs, createTaskAs, type NewRequestInput } from "../api-mutations";
 import { findCodes } from "../../domain/claude/parse";
 import { canReadDocPage, docPageById } from "../docs/reads";
@@ -28,6 +29,7 @@ import type {
   CitationRef,
   ChannelPatch,
   ChannelView,
+  ChatDownloadResult,
   ChatEventKind,
   ChatMessage,
   ChatMessageInput,
@@ -49,6 +51,7 @@ import {
   channelFlow,
   channelView,
   chatQuestionsOf,
+  groupNamed,
   liveReplies,
   presentMessage,
   readStateOf,
@@ -57,7 +60,10 @@ import {
   scrubDeleted,
   seenChannel,
 } from "./reads";
-import { canReadChannel, channelPermissions, isHuman, membersOf } from "./visibility";
+import { canReadChannel, channelPermissions, isHuman, membersOf, notifyLevelOf } from "./visibility";
+import { CHAT_EVENT_KINDS, DM_MAX_PEOPLE } from "./constants";
+
+export { CHAT_EVENT_KINDS, DM_MAX_PEOPLE } from "./constants";
 
 // Le scritture della Chat, come le altre del «server» finto: ognuna passa da
 // `gate()` (quindi `failNext` la fa fallire), legge chi agisce dalla
@@ -70,20 +76,6 @@ import { canReadChannel, channelPermissions, isHuman, membersOf } from "./visibi
 const forbidden = () => new Error("forbidden");
 const notFound = () => new Error("not_found");
 const invalid = (what: string) => new Error(`invalid: ${what}`);
-
-/** Tutti gli eventi di progetto, nell'ordine delle impostazioni del canale. */
-export const CHAT_EVENT_KINDS: readonly ChatEventKind[] = [
-  "release_page",
-  "milestone_reached",
-  "brief_ready",
-  "pr_opened",
-  "pr_merged",
-  "request_new",
-  "task_closed",
-];
-
-/** Le persone di un DM, compreso chi lo apre. */
-export const DM_MAX_PEOPLE = 8;
 
 /** Il nome di un canale: minuscole, numeri e trattini, al più 40 caratteri. */
 const NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -164,16 +156,20 @@ const view = (me: string, ch: Channel): ChannelView => channelView(me, ch);
  * direttamente (`@Nome Cognome`, o una domanda rivolta a lui) e legge il
  * canale, membro o no, a qualunque livello di notifica; un membro nominato
  * in un thread lo segue (con la sola risposta di adesso da leggere).
- * `@channel` e `@reparto` non avvisano mai nessuno, a nessun livello
- * (R-G6): contano solo nel conteggio delle menzioni del canale
- * (`channelCounts`).
+ * `@channel` e `@reparto` avvisano (registro, A4 r.169, decisione del
+ * maintainer del 23 nov 2026): ogni membro del canale (per `@reparto`, chi
+ * del reparto è nel canale) che ha il canale su «all», la stessa regola per
+ * cui il gruppo conta fra le menzioni (`channelCounts`); «solo menzioni» e
+ * «silenziato» la spengono. Chi è nominato anche a nome ha la card a nome,
+ * una sola. Il membro avvisato dal gruppo non segue il thread.
  */
 function deliverMentions(m: ChatMessage, ch: Channel): void {
   const members = membersOf(ch);
-  const candidates = new Set([...directMentionIds(m.text), ...m.asksReplyOf]);
+  const candidates = new Set([...directMentionIds(m.text), ...m.asksReplyOf, ...members]);
   for (const personId of candidates) {
     const kind = mentionKindFor(m, personId, members);
-    if (kind !== "direct" || !canReadChannel(personId, ch)) continue;
+    if (kind === null || !canReadChannel(personId, ch)) continue;
+    if (kind === "group" && notifyLevelOf(personId, ch.id) !== "all") continue;
     state.notifications.push({
       id: newId("n-chat"),
       // Una domanda solo a un membro: è lui che la trova in «Da decidere» e può
@@ -195,8 +191,9 @@ function deliverMentions(m: ChatMessage, ch: Channel): void {
       snoozedUntil: null,
       link: "",
       chatMessageId: m.id,
+      ...(kind === "group" ? { chatGroup: groupNamed(m, personId) ?? undefined } : {}),
     });
-    if (m.threadOf !== null && members.includes(personId)) follow(personId, ch, m);
+    if (kind === "direct" && m.threadOf !== null && members.includes(personId)) follow(personId, ch, m);
   }
 }
 
@@ -363,7 +360,8 @@ export async function sendMessage(
     authorId: me,
     kind: "person",
     text,
-    attachments: structuredClone(attachments),
+    // Solo nome, peso e tipo: il file della bozza (`file`) non resta nel messaggio.
+    attachments: attachments.map(({ id, name, sizeBytes, kind }) => ({ id, name, sizeBytes, kind })),
     citations: citationsOf(me, text, input.citations ?? []),
     reactions: [],
     asksReplyOf: questionTargets(text, me, input.asksReply === true),
@@ -711,6 +709,7 @@ export async function deleteChannel(channelId: string): Promise<void> {
  */
 export async function inviteMembers(channelId: string, personIds: string[]): Promise<ChannelView> {
   const me = await gate("chat.inviteMembers");
+  if (personIds.some(isHiddenId)) throw invalid("members");
   const ch = seen(me, channelId);
   if (!channelPermissions(me, ch).canInvite) throw forbidden();
   const fresh = [...new Set(personIds)].filter((id) => !ch.memberIds.includes(id));
@@ -728,8 +727,15 @@ export async function inviteMembers(channelId: string, personIds: string[]): Pro
  * Toglie una persona: il creatore o chi gestisce (mai nel «general» né in
  * un DM); un privato non resta senza membri.
  */
-export async function removeMember(channelId: string, personId: string): Promise<ChannelView> {
+/**
+ * Toglie una persona dal canale. Il canale come lo legge chi toglie; `null`
+ * quando non lo vede più (la build app: si è tolto da un privato, 204). Qui
+ * non succede: chi toglie sé stesso da un privato resta chi lo gestisce.
+ */
+export async function removeMember(channelId: string, personId: string): Promise<ChannelView | null> {
   const me = await gate("chat.removeMember");
+  // R.1414: un segnaposto non si scrive mai (revisione del lotto 2, I4).
+  if (isHiddenId(personId)) throw invalid("member");
   const ch = seen(me, channelId);
   if (!channelPermissions(me, ch).canRemove) throw forbidden();
   if (!ch.memberIds.includes(personId)) throw notFound();
@@ -747,6 +753,7 @@ export async function removeMember(channelId: string, personId: string): Promise
  */
 export async function openDm(personIds: string[]): Promise<ChannelView> {
   const me = await gate("chat.openDm");
+  if (personIds.some(isHiddenId)) throw invalid("members");
   const others = [...new Set(personIds)].filter((id) => id !== me);
   if (others.length === 0 || others.length > DM_MAX_PEOPLE - 1) throw invalid("members");
   if (others.some((id) => !isHuman(id))) throw invalid("members");
@@ -805,6 +812,9 @@ export async function createTaskFromMessage(messageId: string, input: NewTaskInp
 export async function createRequestFromMessage(
   messageId: string,
   input: NewRequestInput,
+  // Sul server vero ferma l'attesa dell'intake (il dialogo si chiude); qui non serve.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _options?: { signal?: AbortSignal },
 ): Promise<ProjectRequest> {
   const me = await gate("chat.createRequestFromMessage");
   const { m } = message(me, messageId);
@@ -812,4 +822,15 @@ export async function createRequestFromMessage(
   const request = createRequestAs(me, input);
   link(m, request.code);
   return structuredClone(request);
+}
+
+/**
+ * Il download di un allegato (fetta 4). Nel prototipo gli allegati non hanno
+ * un file (solo nome e peso): non c'è niente da scaricare. La build app lo
+ * chiede al server (sul desktop dal main, che chiede dove salvarlo).
+ */
+export async function downloadAttachment(attachmentId: string): Promise<ChatDownloadResult> {
+  await gate("chat.downloadAttachment");
+  void attachmentId;
+  return { ok: false, reason: "invalid" };
 }

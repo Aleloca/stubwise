@@ -551,6 +551,16 @@ describe("WorkScreen — ruolo e gate di approvazione", () => {
     expect(screen.queryByTestId("ticket-assignee-without-access")).toBeNull();
   });
 
+  test("assegnato a Claude (assigneeIsAgent): il campo dice «Claude», anche se non è fra gli utenti", async () => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(ticket({ assigneeId: "c1a0de00-0000-4000-8000-0000000000c1", assigneeIsAgent: true })),
+    });
+    await renderScreen(client, "member");
+    await openTab("details");
+    const field = await screen.findByTestId("ticket-field-assignee");
+    expect(field).toHaveTextContent(/Claude/);
+  });
+
   test("admin: 'Livello tecnico' mostra i rami delle repository", async () => {
     const client = makeClient({
       get: jest.fn().mockResolvedValue(

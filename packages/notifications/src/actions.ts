@@ -146,6 +146,19 @@ const CATALOG_FOR_KIND: Record<
   // e nasconderebbero «Apri» proprio a chi lo riceve.
   "request.created": { decisions: [], permission: null, archivable: true },
   "monitor.alert": { decisions: [], permission: null, archivable: true },
+  "release.failed": { decisions: [], permission: null, archivable: true },
+  "release.merged": { decisions: [], permission: null, archivable: true },
+  "release.succeeded": { decisions: [], permission: null, archivable: true },
+  "pr.opened": { decisions: [], permission: null, archivable: true },
+  "pr.analysis_issues": { decisions: [], permission: null, archivable: true },
+  "pr.corrected": { decisions: [], permission: null, archivable: true },
+  "docs.release_note": { decisions: [], permission: null, archivable: true },
+  "support.request": { decisions: [], permission: null, archivable: true },
+  "member.added": { decisions: [], permission: null, archivable: true },
+  "product_doc.mention": { decisions: [], permission: null, archivable: true },
+  "product_doc.updated": { decisions: [], permission: null, archivable: true },
+  "product_doc.question": { decisions: [], permission: null, archivable: true },
+  "server.diagnosis_ready": { decisions: [], permission: null, archivable: true },
   "monitor.recovered": { decisions: [], permission: null, archivable: true },
   // NON archiviabile di proposito: la domanda dell'agente si chiude solo
   // rispondendo. Archiviarla lascerebbe il job parcheggiato in `awaiting_input`
@@ -209,6 +222,24 @@ const CATALOG_FOR_KIND: Record<
   "google.proposal_handed": { decisions: ["answer"], permission: null, archivable: true },
   // L'avviso di sicurezza si legge e si archivia: nessuna decisione.
   "security.alert": { decisions: [], permission: null, archivable: true },
+  // Integrazione area 2: la decisione si prende dal pannello della task
+  // (app nuova), non dalla card — qui solo «Apri». Così anche web vecchio e
+  // mobile la mostrano, senza un bottone che non saprebbero servire.
+  "decision.requested": { decisions: [], permission: null, archivable: true },
+  "decision.answered": { decisions: [], permission: null, archivable: true },
+  "ticket.activity": { decisions: [], permission: null, archivable: true },
+  // Fetta 2: si legge e si apre la task; si ripianifica dal Planning.
+  "planning.changed": { decisions: [], permission: null, archivable: true },
+  "task.assigned": { decisions: [], permission: null, archivable: true },
+  // Area 4, Chat: si legge e si apre il messaggio; si risponde nella Chat.
+  "chat.mention": { decisions: [], permission: null, archivable: true },
+  "chat.question": { decisions: [], permission: null, archivable: true },
+  // Area 7: le decisioni di un'approvazione si prendono dalla pagina
+  // dell'esecuzione (o dalla card, che le DERIVA a lettura), non dal catalogo.
+  "automation.approval": { decisions: [], permission: null, archivable: true },
+  "automation.failed": { decisions: [], permission: null, archivable: true },
+  "automation.notify": { decisions: [], permission: null, archivable: true },
+  "automation.paused": { decisions: [], permission: null, archivable: true },
 };
 
 /**
@@ -431,6 +462,15 @@ export function openUrl(event: NotificationEvent, publicUrl?: string): string {
     case "request.created":
     case "monitor.alert":
     case "monitor.recovered":
+    case "release.failed":
+    case "release.merged":
+    case "release.succeeded":
+    case "pr.opened":
+    case "pr.analysis_issues":
+    case "pr.corrected":
+    case "docs.release_note":
+    case "support.request":
+    case "server.diagnosis_ready":
       return event.url;
     // Il pulse è ancorato al progetto, non a un ticket: "Apri" porta dove si
     // vedono TUTTE le proposte, cioè il backlog del progetto.
@@ -452,6 +492,36 @@ export function openUrl(event: NotificationEvent, publicUrl?: string): string {
     // PUBLIC_URL la stringa vuota è il «nessun link» che inbox e DM scartano.
     case "security.alert":
       return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/settings/security` : "";
+    // Integrazione area 2: la pagina del ticket nel web, DERIVATA (come
+    // `security.alert`) — nessun URL nel jsonb.
+    case "decision.requested":
+    case "decision.answered":
+    case "ticket.activity":
+    case "planning.changed":
+    case "task.assigned":
+      return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/tickets/${event.ticketId}` : "";
+    // Area 4, Chat: il messaggio nell'app nuova (la Chat vive solo lì, D9).
+    // Il link nasce dagli id del jsonb (canale e messaggio non cambiano mai);
+    // l'inbox non lo riscrive, lo TOGLIE quando la card è `objectGone`
+    // (messaggio eliminato, canale che chi legge non legge più).
+    case "chat.mention":
+    case "chat.question":
+      return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/app/#/chat/${event.channelId}?message=${event.chatMessageId}` : "";
+    // Area 10, F5: i membri del progetto nell'app nuova (DERIVATO, nessun URL nel jsonb).
+    case "member.added":
+      return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/app/#/projects/${event.projectId}/members` : "";
+    // Area 11, F2: la pagina di prodotto nell'app nuova (la doc di prodotto vive
+    // solo lì). Dai codici del jsonb: una pagina non cambia progetto né codice.
+    case "product_doc.mention":
+    case "product_doc.updated":
+    case "product_doc.question":
+      return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/app/#/p/${event.projectCode}/docs/product/${event.pageCode}` : "";
+    // Area 7: l'automazione (o l'esecuzione) nell'app nuova.
+    case "automation.approval":
+    case "automation.failed":
+    case "automation.notify":
+    case "automation.paused":
+      return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/app/#/automations/${event.automationCode}${event.runNumber !== null ? `/runs/${event.runNumber}` : ""}` : "";
     case "ticket.created":
     case "job.pr_closed":
     case "job.held":

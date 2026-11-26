@@ -12,3 +12,7 @@
 **/playwright-report
 **/test-results
 **/.astro
+# Output locali dell'app desktop (electron-vite, build web, pacchetti).
+apps/desktop/out
+apps/desktop/dist-web
+apps/desktop/release

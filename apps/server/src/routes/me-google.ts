@@ -1,22 +1,26 @@
 import { googleAccounts, googleWorkspaces } from "@stubwise/db";
-import { revokeToken, type FetchImpl } from "@stubwise/google";
+import { GMAIL_MODIFY_SCOPE, missingGoogleScopes, revokeToken, type FetchImpl } from "@stubwise/google";
 import { loadGoogleAccountCredentials } from "@stubwise/google/credentials";
 import {
   GOOGLE_ACCOUNT_SETTINGS_PATH,
   GOOGLE_OAUTH_CALLBACK_PATH,
+  GOOGLE_SYNC_REQUEST_CHANNEL,
+  GOOGLE_SYNC_REQUEST_MIN_SECONDS,
   googleAccountPatchSchema,
   googleAccountSchema,
   googleConnectBodySchema,
   googleConnectResponseSchema,
+  googleSyncResponseSchema,
   googleWorkspaceOptionSchema,
   type GoogleCallbackOutcome,
 } from "@stubwise/shared";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { apiError } from "../errors.js";
-import { beginConnect, completeCallback, type GoogleOauthDeps } from "../services/google-oauth.js";
+import { beginConnect, completeCallback, connectReturnOf, type GoogleOauthDeps } from "../services/google-oauth.js";
+import { sendAsAddressesOf } from "../services/mail-send-as.js";
 import { authErrorResponses, errorSchema, type RateLimitConfig } from "./shared.js";
 
 /**
@@ -77,6 +81,8 @@ const accountColumns = {
   lastSyncAt: googleAccounts.lastSyncAt,
   disabledAt: googleAccounts.disabledAt,
   disabledReason: googleAccounts.disabledReason,
+  syncRequestedAt: googleAccounts.syncRequestedAt,
+  sendAs: googleAccounts.sendAs,
 };
 
 /** La riga che la select qui sopra produce (nullability delle colonne inclusa). */
@@ -91,6 +97,8 @@ interface AccountRow {
   lastSyncAt: Date | null;
   disabledAt: Date | null;
   disabledReason: string | null;
+  syncRequestedAt: Date | null;
+  sendAs: { email: string; displayName: string | null; isPrimary: boolean; isDefault: boolean; signature: string | null }[];
 }
 
 /**
@@ -99,6 +107,12 @@ interface AccountRow {
  * spread farebbe uscire `refresh_token_encrypted` il giorno in cui qualcuno
  * cambiasse la select in un `select()` nudo.
  */
+/** Lotto 8, voce 2: gli indirizzi da cui mandare, come li legge il client (la firma resta qui). */
+function sendAsViewOf(row: Pick<AccountRow, "email" | "scopes" | "sendAs">) {
+  if (!row.scopes.includes(GMAIL_MODIFY_SCOPE)) return { sendAs: [], sendAsStatus: "scope_missing" as const };
+  return { sendAs: sendAsAddressesOf(row).map(({ email, displayName, isPrimary, isDefault }) => ({ email, displayName, isPrimary, isDefault })), sendAsStatus: "present" as const };
+}
+
 function toPublicAccount(row: AccountRow): z.infer<typeof googleAccountSchema> {
   return {
     id: row.id,
@@ -111,6 +125,10 @@ function toPublicAccount(row: AccountRow): z.infer<typeof googleAccountSchema> {
     lastSyncAt: row.lastSyncAt?.toISOString() ?? null,
     disabledAt: row.disabledAt?.toISOString() ?? null,
     disabledReason: row.disabledReason,
+    missingScopes: missingGoogleScopes(row.scopes),
+    syncRequestedAt: row.syncRequestedAt?.toISOString() ?? null,
+    // Lotto 8, voce 2: gli alias senza la firma; senza `gmail.modify` non si può mandare da nessuno.
+    ...sendAsViewOf(row),
   };
 }
 
@@ -131,6 +149,17 @@ export async function meGoogleRoutes(
     redirectUri: `${app.publicUrl}${GOOGLE_OAUTH_CALLBACK_PATH}`,
     ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
   });
+
+  /**
+   * Rimandi, lotto 4 (§6, D-6.1 = a): un collegamento avviato dall'app torna
+   * alla pagina dell'istanza `/app/#/desktop-google`, che dice l'esito e apre
+   * `stubwise://google`. SOLO l'esito e lo state dell'app: niente code, token,
+   * state firmato, email o id.
+   */
+  function redirectToDesktop(reply: FastifyReply, outcome: GoogleCallbackOutcome, returnState: string) {
+    const query = new URLSearchParams({ outcome, state: returnState });
+    return reply.redirect(`/app/#/desktop-google?${query.toString()}`, 302);
+  }
 
   /** Redirect alla pagina Account con l'esito nel query param. */
   function redirectWithOutcome(reply: FastifyReply, outcome: GoogleCallbackOutcome) {
@@ -190,6 +219,7 @@ export async function meGoogleRoutes(
         body: googleConnectBodySchema,
         response: {
           200: googleConnectResponseSchema,
+          400: errorSchema,
           404: errorSchema,
           409: errorSchema,
           ...authErrorResponses,
@@ -197,9 +227,13 @@ export async function meGoogleRoutes(
       },
     },
     async (request, reply) => {
+      // Lotto 4 (§6): il ritorno all'app vuole lo state dell'app.
+      const desktop = request.body.client === "desktop";
+      if (desktop && !request.body.returnState) return apiError(reply, 400, "invalid_request", "returnState is required with client desktop");
       const result = await beginConnect(deps(), {
         userId: request.user!.id,
         workspaceId: request.body.workspaceId,
+        ...(desktop ? { client: "desktop" as const, returnState: request.body.returnState! } : {}),
       });
       if (result.status === "workspace_not_found") {
         return apiError(reply, 404, "google_workspace_not_found", "Google Workspace not found");
@@ -212,7 +246,7 @@ export async function meGoogleRoutes(
           "Google Workspace has no client secret configured",
         );
       }
-      return { authorizeUrl: result.authorizeUrl };
+      return { authorizeUrl: result.authorizeUrl, returnTo: desktop ? ("desktop" as const) : ("web" as const) };
     },
   );
 
@@ -231,11 +265,14 @@ export async function meGoogleRoutes(
     },
     async (request, reply) => {
       const { code, state, error } = request.query;
+      // Lotto 4 (§6): dove torna lo dice la riga dello state (verificato), mai la query.
+      const back = await connectReturnOf(deps(), state);
+      const finish = (outcome: GoogleCallbackOutcome) => (back ? redirectToDesktop(reply, outcome, back.returnState) : redirectWithOutcome(reply, outcome));
       // L'utente ha premuto "Annulla" sulla schermata di consenso: non è un
-      // errore nostro, ma non c'è nulla da collegare.
+      // errore nostro, ma non c'è nulla da collegare (D-6.2 = a: resta `error`).
       if (error) {
         request.log.info({ error }, "consenso Google rifiutato dall'utente");
-        return redirectWithOutcome(reply, "error");
+        return finish("error");
       }
       if (!code || !state) {
         return apiError(reply, 400, "invalid_callback", "Missing code or state");
@@ -254,7 +291,7 @@ export async function meGoogleRoutes(
           "collegamento della casella Google rifiutato",
         );
       }
-      return redirectWithOutcome(reply, result.status);
+      return finish(result.status);
     },
   );
 
@@ -293,7 +330,18 @@ export async function meGoogleRoutes(
     async (request, reply) => {
       const [updated] = await app.db
         .update(googleAccounts)
-        .set({ proposalsEnabled: request.body.proposalsEnabled })
+        // Spente, la casella si LEGGE comunque (decisione del maintainer del
+        // 12 nov 2026): niente da togliere. RIACCESE (da spente), si scrive il
+        // taglio `proposals_since`: la posta ingerita nel frattempo non
+        // diventa una proposta. Riscrivere «accese» su accese non lo sposta.
+        .set(
+          request.body.proposalsEnabled
+            ? {
+                proposalsEnabled: true,
+                proposalsSince: sql`case when ${googleAccounts.proposalsEnabled} then ${googleAccounts.proposalsSince} else now() end`,
+              }
+            : { proposalsEnabled: false },
+        )
         // `userId` nel WHERE: senza, chiunque potrebbe spegnere le proposte di
         // una casella altrui conoscendone l'id.
         .where(
@@ -312,6 +360,77 @@ export async function meGoogleRoutes(
         return apiError(reply, 404, "google_account_not_found", "Google account not found");
       }
       return toPublicAccount(row);
+    },
+  );
+
+  /**
+   * «Aggiorna ora» (area 6, F1.2): chiede al worker il giro di QUESTA casella
+   * adesso, invece che al prossimo `GMAIL_POLL_MINUTES`.
+   *
+   * Non chiama Google e non fa il giro: scrive la richiesta, porta
+   * `next_sync_at` a adesso (la casella diventa DOVUTA, e il claim del poller
+   * la prende come ogni altra: nessun percorso a parte, nessun giro doppio,
+   * `SKIP LOCKED` come sempre) e la annuncia sul canale. Il worker non legge
+   * il payload per decidere CHI sincronizzare: si sveglia e reclama le dovute.
+   * La fine si legge sulla riga: `syncRequestedAt` torna null.
+   *
+   * Un UPDATE solo, con tutte le condizioni nella WHERE: di chi è, viva, senza
+   * una richiesta in attesa, fuori dal tetto dei 60 s. Le proposte spente non
+   * contano: la casella si legge comunque (decisione del 12 nov 2026).
+   * Se non tocca niente, una SELECT dice perché.
+   */
+  app.post(
+    "/accounts/:id/sync",
+    {
+      config: { access: { kind: "user" } },
+      schema: {
+        params: idParamsSchema,
+        response: {
+          202: googleSyncResponseSchema,
+          404: errorSchema,
+          409: errorSchema,
+          429: errorSchema.extend({ retryAfterSeconds: z.number().int() }),
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const mine = and(eq(googleAccounts.id, request.params.id), eq(googleAccounts.userId, request.user!.id));
+      const queued = await app.db.transaction(async (tx) => {
+        const [row] = await tx
+          .update(googleAccounts)
+          .set({ syncRequestedAt: sql`now()`, syncLastRequestedAt: sql`now()`, nextSyncAt: sql`now()` })
+          .where(
+            and(
+              mine,
+              sql`${googleAccounts.disabledAt} is null`,
+              sql`${googleAccounts.syncRequestedAt} is null`,
+              sql`(${googleAccounts.syncLastRequestedAt} is null or ${googleAccounts.syncLastRequestedAt} <= now() - make_interval(secs => ${GOOGLE_SYNC_REQUEST_MIN_SECONDS}))`,
+            ),
+          )
+          .returning({ id: googleAccounts.id });
+        // Nella transazione: il NOTIFY parte solo se la richiesta è scritta.
+        if (row) await tx.execute(sql`select pg_notify(${GOOGLE_SYNC_REQUEST_CHANNEL}, ${JSON.stringify({ accountId: row.id })})`);
+        return Boolean(row);
+      });
+      if (queued) return reply.code(202).send({ status: "queued" });
+
+      const [row] = await app.db
+        .select({
+          disabledAt: googleAccounts.disabledAt,
+          syncRequestedAt: googleAccounts.syncRequestedAt,
+          retryAfterSeconds: sql<number>`greatest(1, ceil(extract(epoch from (${googleAccounts.syncLastRequestedAt} + make_interval(secs => ${GOOGLE_SYNC_REQUEST_MIN_SECONDS}) - now()))))::int`,
+        })
+        .from(googleAccounts)
+        .where(mine);
+      if (!row) return apiError(reply, 404, "google_account_not_found", "Google account not found");
+      if (row.disabledAt) return apiError(reply, 409, "account_disabled", "Google account is disabled: reconnect it");
+      if (row.syncRequestedAt) return reply.code(202).send({ status: "already_queued" });
+      return reply.code(429).send({
+        code: "sync_too_soon",
+        message: "A sync was requested less than a minute ago",
+        retryAfterSeconds: row.retryAfterSeconds,
+      });
     },
   );
 

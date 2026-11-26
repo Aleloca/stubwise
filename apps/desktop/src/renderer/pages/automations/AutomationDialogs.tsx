@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
-import { triggerFields, visitSteps } from "../../domain/automations/fields";
+import { triggerFields, visitSteps } from "@stubwise/shared";
 import { now } from "../../data/dates";
 import {
   useActivateAutomation,
@@ -59,7 +59,12 @@ const ON_ERRORS: Record<string, string> = {
   "invalid: permission": "automations.toast.onPermission",
   "invalid: mailbox_missing": "automations.toast.onMailboxMissing",
   "invalid: mailbox_expired": "automations.toast.onMailboxExpired",
+  "invalid: mailbox_scope": "automations.toast.onMailboxScope",
+  // Un flusso che ascolta soltanto: la casella non dà nemmeno la lettura (72, F2-fix).
+  "invalid: mailbox_read_scope": "automations.toast.onMailboxReadScope",
   "invalid: config": "automations.toast.onConfig",
+  // F4-1 = a: un webhook per automazione; quale altra la usa non si dice (R-G5).
+  "invalid: source_in_use": "automations.toast.onSourceInUse",
 };
 
 export function TurnOnDialog({
@@ -105,10 +110,19 @@ export function TurnOnDialog({
   const errors = resuming ? detail.liveErrors : detail.configErrors;
   const { fixed, fromClient } = fixedProjects(flow, a.projectId);
   const blocked = fixed.filter((f) => !perms.canCreate(f.kind, f.projectId));
-  const needsMailbox = sendsEmail(flow);
+  // La casella serve per mandare e per ascoltare: «email in arrivo» la vuole
+  // anche senza email da mandare (è quella che ascolta; il server lo chiede).
+  const needsMailbox =
+    sendsEmail(flow) || (flow.trigger.kind === "stubwise" && flow.trigger.event === "mail_received");
   // Solo le caselle collegate: una scaduta non spedisce.
   const boxes = (mailboxes ?? []).filter((b) => !b.expired);
-  const chosen = from ?? boxes[0]?.email ?? null;
+  // La casella che il proprietario aveva scelto, se il proprietario sono io ed
+  // è ancora fra le mie; altrimenti la prima.
+  const kept =
+    a.ownerId === me && a.mailbox
+      ? boxes.find((b) => b.email.toLowerCase() === a.mailbox!.toLowerCase())?.email
+      : undefined;
+  const chosen = from ?? kept ?? boxes[0]?.email ?? null;
   const suspended = detail.runs.filter((r) => r.status === "suspended").length;
   const ok = errors.length === 0 && blocked.length === 0 && (!needsMailbox || boxes.length > 0);
   const title = publishing

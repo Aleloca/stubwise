@@ -1,12 +1,25 @@
-import { notificationPrefsViewSchema, projectFollowsSchema } from "@stubwise/shared";
+import {
+  claudeDecisionViewSchema,
+  dayArrangementSchema,
+  emailChangeStatusSchema,
+  meSessionSchema,
+  notificationPrefsViewSchema,
+  projectFollowsSchema,
+} from "@stubwise/shared";
 import type {
+  ClaudeDecisionView,
+  DayArrangement,
   DeviceRegistration,
+  EmailChangeStatus,
+  MeSession,
   NotificationPrefsUpdate,
   NotificationPrefsView,
   ProjectFollows,
   Reader,
 } from "@stubwise/shared";
+import { z } from "zod";
 import type { ApiRequest } from "../client.js";
+import { seg, toQuery } from "../query.js";
 
 /**
  * Preferenze personali dell'utente corrente.
@@ -31,6 +44,22 @@ import type { ApiRequest } from "../client.js";
  */
 export function createMeEndpoints(request: ApiRequest) {
   return {
+    /**
+     * «Da decidere» di Claude (area 3, fetta 3b): piani e domande che
+     * aspettano chi guarda, coi suoi permessi. Si decide con le rotte di
+     * sempre (`tickets.approvePlan`/`rejectPlan`, `tickets.answerQuestion`).
+     */
+    claudeDecisions(): Promise<Reader<ClaudeDecisionView>[]> {
+      return request("GET", "/api/me/claude-decisions", undefined, z.array(claudeDecisionViewSchema));
+    },
+    /**
+     * Le mie sistemazioni per giorno in una settimana (`YYYY-Www`, fetta 2):
+     * solo delle task ancora mie e ancora in quella settimana.
+     */
+    dayArrangements(week: string): Promise<Reader<DayArrangement>[]> {
+      return request("GET", `/api/me/day-arrangements${toQuery({ week })}`, undefined, z.array(dayArrangementSchema));
+    },
+
     /** Progetti seguiti: l'insieme COMPLETO. */
     follows(): Promise<Reader<ProjectFollows>> {
       return request("GET", "/api/me/follows", undefined, projectFollowsSchema);
@@ -98,6 +127,45 @@ export function createMeEndpoints(request: ApiRequest) {
      */
     deleteDevice(token: string): Promise<void> {
       return request("POST", "/api/me/devices/delete", { token });
+    },
+
+    /**
+     * Area 9, F1: le mie sessioni (browser, desktop, telefono), con la
+     * corrente segnata. `endSession` la chiude: 204; 409 `current_session`
+     * sulla corrente, 404 su un id non mio.
+     */
+    sessions(): Promise<Reader<MeSession>[]> {
+      return request("GET", "/api/me/sessions", undefined, z.array(meSessionSchema));
+    },
+    endSession(id: string): Promise<void> {
+      return request("DELETE", `/api/me/sessions/${seg(id)}`);
+    },
+
+    /**
+     * La foto: il corpo è l'immagine grezza (PNG, JPEG o WebP, al più 512 KB;
+     * il tipo lo dicono i byte). 204; 415 `unsupported_image`, 413 oltre il
+     * tetto. Passa dal trasporto `request` come corpo binario.
+     */
+    putAvatar(image: Blob | ArrayBuffer | Uint8Array): Promise<void> {
+      return request("PUT", "/api/me/avatar", image);
+    },
+    deleteAvatar(): Promise<void> {
+      return request("DELETE", "/api/me/avatar");
+    },
+
+    /**
+     * Il cambio della MIA email di login. `available: false` = nessun SMTP
+     * sull'istanza. `startEmailChange` (riconferma) manda il link alla nuova:
+     * 409 `email_taken` / `email_transport_unavailable`, 502 `email_send_failed`.
+     */
+    emailChange(): Promise<Reader<EmailChangeStatus>> {
+      return request("GET", "/api/me/email-change", undefined, emailChangeStatusSchema);
+    },
+    startEmailChange(newEmail: string): Promise<Reader<EmailChangeStatus>> {
+      return request("POST", "/api/me/email-change", { newEmail }, emailChangeStatusSchema);
+    },
+    cancelEmailChange(): Promise<void> {
+      return request("DELETE", "/api/me/email-change");
     },
   };
 }

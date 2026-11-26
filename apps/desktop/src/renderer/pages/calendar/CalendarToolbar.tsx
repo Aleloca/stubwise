@@ -58,7 +58,8 @@ export function CalendarToolbar({
   onToday: () => void;
   onStep: (dir: 1 | -1) => void;
   onView: (view: CalendarView) => void;
-  onNew: () => void;
+  /** «Nuova riunione»: assente dove la build non scrive sul calendario. */
+  onNew?: () => void;
 }) {
   const { t } = useTranslation();
   const keyOf: Record<CalendarView, string> = { day: "D", week: "W", month: "M" };
@@ -130,15 +131,17 @@ export function CalendarToolbar({
             </button>
           ))}
         </div>
-        <button
-          type="button"
-          onClick={onNew}
-          aria-label={t("calendar.newMeeting")}
-          title={`${t("calendar.newMeeting")} (${shortcutLabel(["mod", "N"])})`}
-          className={primaryButton}
-        >
-          {compact ? t("calendar.new") : t("calendar.newMeeting")}
-        </button>
+        {onNew && (
+          <button
+            type="button"
+            onClick={onNew}
+            aria-label={t("calendar.newMeeting")}
+            title={`${t("calendar.newMeeting")} (${shortcutLabel(["mod", "N"])})`}
+            className={primaryButton}
+          >
+            {compact ? t("calendar.new") : t("calendar.newMeeting")}
+          </button>
+        )}
       </div>
     </header>
   );

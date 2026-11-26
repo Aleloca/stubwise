@@ -93,7 +93,8 @@ export interface DetachedRepositoryRow {
   gitAccountName: string | null;
   /** La piattaforma dell'account git («The repository on GitHub isn't touched»); `null` senza account. */
   gitAccountProvider: GitAccount["provider"] | null;
-  detachedAt: string;
+  /** `null` se il server non la sa (F6: nullable). */
+  detachedAt: string | null;
   /** Da quale progetto eliminato viene: solo a chi ne era membro e al full admin, altrimenti null (R-G5). */
   formerProject: { code: string; name: string } | null;
   /** Dove chi guarda può collegarlo: progetti visibili, non archiviati, con `repos.manage` (tutti per il full admin). */
@@ -161,7 +162,10 @@ export async function linkRepository(
   const me = await writer("instance.linkRepository");
   const detached = detachedById(repositoryId);
   const project = openProject(me, projectId);
-  if (!detached || !project) return refuse.notFound();
+  if (!detached) return refuse.notFound();
+  // La destinazione archiviata, eliminata o invisibile: non è lo staccato che
+  // manca (review F6, M2; come il server, Task 7 di 72).
+  if (!project) return refuse.invalid("target_not_found");
   if (!canI(me, MANAGE_REPOS, project.id)) return refuse.forbidden();
   if (nameTaken(project.id, detached.repository.name, null)) return refuse.invalid("name_taken");
 

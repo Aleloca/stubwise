@@ -88,12 +88,14 @@ function WorkOrAccess({ row }: { row: Row }) {
 
 type T = ReturnType<typeof useTranslation>["t"];
 
-/** L'accesso SSH in parole, se non è a posto (nessun lavoro di Claude in corso). */
+/**
+ * L'accesso SSH in parole, se non è a posto (nessun lavoro di Claude in
+ * corso). Senza accesso l'analisi di un allarme parte lo stesso, solo senza
+ * le letture SSH (decisione del maintainer, 15 nov 2026, riconfermata il 23
+ * nov): la riga dice l'accesso, non che Claude non può guardarci.
+ */
 function accessText(row: Row, t: T): string | null {
-  const problem = accessProblem(row, t);
-  if (!problem) return null;
-  const inTrouble = row.health.health === "down" || row.health.health === "trouble";
-  return inTrouble ? t("servers.access.cantLook", { access: problem }) : problem;
+  return accessProblem(row, t);
 }
 
 /** I progetti in parole, per il nome accessibile: i codici, o «In projects you can't see». */
@@ -159,7 +161,7 @@ function ServerRowItem({ row, projectCode }: { row: Row; projectCode: string | n
   const { t, i18n } = useTranslation();
   const { word, when } = healthParts(row.health, t, i18n.language);
   const where = whereLine(row, t);
-  const diagnoses = diagnosesLine(row, projectCode, t);
+  const diagnoses = diagnosesLine(row, t);
   // Dall'Amministrazione: la colonna dei progetti (non per gli orfani, vuota
   // per un server dei soli progetti archiviati: la seconda riga lo dice).
   const projects = row.projects && !row.orphan && !row.inArchivedOnly ? row.projects : null;

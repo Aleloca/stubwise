@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { PRESET_ROLES } from "@stubwise/shared";
 import { and, count, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -284,12 +285,12 @@ async function usersManager(): Promise<{ id: string; cookie: string }> {
   extraUserIds.add(id);
   const [role] = await testDb.db
     .insert(roles)
+    // Il preset User di ADESSO più `users.manage`: chi sta sopra un User (un
+    // ruolo fatto oggi contiene i permessi nuovi del preset; quelli di prima
+    // li riceve dalla migrazione, `docs/invariants/permissions.md`).
     .values({ name: `Gestore ${email}`, scope: "instance", permissions: [
         "users.manage",
-        "monitor.view",
-        "users.view_all",
-        "git_accounts.view",
-        "mail_admission.view",
+        ...PRESET_ROLES.find((r) => r.key === "user")!.permissions,
       ],
     })
     .returning({ id: roles.id });
@@ -364,18 +365,22 @@ describe("DELETE /api/users/:id/second-factor", () => {
     expect(await secondFactorRows(adminId)).toEqual(before);
   });
 
-  it("su chi sta sopra → 403 target_above, niente toccato (Review Focus 5)", async () => {
+  it("area 9 (D-2): niente più bersaglio protetto, users.manage azzera anche un full admin → 204, e l'avviso arriva (il rischio accettato)", async () => {
     const manager = await usersManager();
-    const before = await secondFactorRows(adminId);
+    // Un SECONDO full admin, non quello del file: l'azzeramento chiude le sue sessioni.
+    const target = await targetWithSecondFactor();
+    const [adminRole] = await testDb.db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "admin"));
+    await testDb.db.update(users).set({ instanceRoleId: adminRole!.id }).where(eq(users.id, target.id));
+    const before = await secondFactorRows(target.id);
     const res = await app.inject({
       method: "DELETE",
-      url: `/api/users/${adminId}/second-factor`,
+      url: `/api/users/${target.id}/second-factor`,
       headers: { cookie: manager.cookie },
     });
-    expect(res.statusCode).toBe(403);
-    expect(res.json()).toMatchObject({ code: "target_above" });
-    expect(await secondFactorRows(adminId)).toEqual(before);
-    expect(await alertsOf(adminId)).toEqual([]);
+    expect(res.statusCode).toBe(204);
+    expect(await secondFactorRows(target.id)).not.toEqual(before);
+    // La difesa è la traccia: l'interessato riceve `security.alert`.
+    expect((await alertsOf(target.id)).length).toBeGreaterThan(0);
   });
 
   it("chi ha users.manage azzera chi non gli sta sopra → 204", async () => {
@@ -430,6 +435,8 @@ describe("GET /api/users/:id/security-events", () => {
           id: expect.any(String),
           kind: "second_factor_reset",
           actorEmail: "admin@example.com",
+          // Solo `reauth_desktop` lo valorizza (10 nov 2026, additivo).
+          detail: null,
           createdAt: expect.any(String),
         },
       ],
@@ -466,5 +473,15 @@ describe("POST /api/users/:id/password-reset", () => {
     expect(await alertsOf(target.id)).toEqual([
       expect.objectContaining({ subject: "password_reset_link", actorEmail: "admin@example.com" }),
     ]);
+  });
+
+  it("area 9, F1: la risposta porta anche il `token`, lo stesso dell'url, e funziona sulla rotta di reset", async () => {
+    const target = await targetWithSecondFactor();
+    const res = await app.inject({ method: "POST", url: `/api/users/${target.id}/password-reset`, headers: { cookie: adminCookie } });
+    const body = res.json() as { url: string; token: string };
+    expect(body.token.length).toBeGreaterThan(20);
+    expect(body.url.endsWith(`/reset-password/${body.token}`)).toBe(true);
+    const reset = await app.inject({ method: "POST", url: `/api/auth/password-reset/${body.token}`, payload: { password: "una-password-nuova-lunga" } });
+    expect(reset.statusCode).toBe(204);
   });
 });

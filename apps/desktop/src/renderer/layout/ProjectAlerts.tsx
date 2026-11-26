@@ -11,6 +11,7 @@ import {
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { SubscriptionRow as Row } from "../data/alerts";
+import { featureIntegrated } from "../data/integration";
 import { useAlertSubscriptions } from "../data/queries";
 import { useMuteProject } from "../pages/preferences/useAlertActions";
 import { FamilyList, SWITCH_COL, summaryText } from "../pages/preferences/SubscriptionRow";
@@ -59,6 +60,12 @@ function BellGlyph({ off }: { off: boolean }) {
  * popover non modale: Esc o un clic fuori lo chiudono e il fuoco torna qui.
  */
 export function ProjectAlerts({ projectId, code }: { projectId: string; code: string }) {
+  // Nella build app solo con le iscrizioni accese (area 8, F2): senza, nessuna campanella.
+  if (!featureIntegrated("alerts")) return null;
+  return <ProjectAlertsBell projectId={projectId} code={code} />;
+}
+
+function ProjectAlertsBell({ projectId, code }: { projectId: string; code: string }) {
   const { t } = useTranslation();
   const subs = useAlertSubscriptions();
   const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);

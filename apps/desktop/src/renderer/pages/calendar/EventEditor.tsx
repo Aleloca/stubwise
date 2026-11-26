@@ -36,6 +36,7 @@ import {
   timeLabel,
 } from "./calendarFormat";
 import type { WindowDays } from "./calendarParams";
+import { announcesSaved, applyEdits, EditFailed, guestsPatch } from "./applyEdits";
 import { SeriesScopeDialog } from "./SeriesScopeDialog";
 
 // «New meeting» / «Edit meeting» (shape calendar.md §6, dialogo 560 px):
@@ -131,6 +132,8 @@ export function EventEditor({
 
   const s = new Date(start.startsAt);
   const e = new Date(start.endsAt);
+  // F4: l'id della riunione nuova, uno per bozza: «Save» dopo un errore manda lo stesso.
+  const [draftId] = useState(() => crypto.randomUUID().replace(/-/g, ""));
   const [title, setTitle] = useState(event?.title ?? "");
   const [allDay, setAllDay] = useState(start.allDay);
   const [date, setDate] = useState(start.allDay ? start.startsAt.slice(0, 10) : localDayKey(s));
@@ -203,8 +206,10 @@ export function EventEditor({
     return Object.keys(next).length === 0;
   };
 
-  const guestInput = guests.map((g) =>
-    g.personId ? { personId: g.personId } : { email: g.email, name: g.name },
+  // Gli ospiti come si mandano: in modifica solo se l'insieme è cambiato.
+  const guestInput = guestsPatch(
+    (event?.attendees ?? []).filter((a) => a.personId !== me),
+    guests,
   );
   const reminders = reminder === "default" ? ("default" as const) : REMINDERS[reminder];
 
@@ -215,61 +220,52 @@ export function EventEditor({
       // `mutate`, che a editor chiuso (smontato) non scatterebbero.
       await create
         .mutateAsync({
+          draftId,
           title: title.trim(),
           startsAt: iso(startMs),
           endsAt: iso(endMs),
           allDay,
-          guests: guestInput,
+          guests: guestInput ?? [],
           addMeet: meet,
           description: description.trim() || null,
           projectId,
           reminders,
         })
         .then(
-          (e) => onSaved(t("calendar.editor.created", { title: e.title })),
+          (e) => {
+            if (announcesSaved(e)) onSaved(t("calendar.editor.created", { title: e.title }));
+          },
           () => toast.error(t("calendar.editor.failed")),
         );
       return;
     }
     // Fin dove è arrivato il salvataggio: un rifiuto dopo lo spostamento non
     // può dire «non è cambiato nulla», e uno dopo i dettagli dice cosa manca.
-    let saved: "nothing" | "time" | "details" = "nothing";
     try {
-      // Prima gli orari (e «tutto il giorno»): sono la parte che il livello
-      // dati può rifiutare, e un rifiuto non deve lasciare salvato a metà il
-      // resto (titolo, invitati).
-      if (
-        iso(startMs) !== event.startsAt ||
-        iso(endMs) !== event.endsAt ||
-        allDay !== event.allDay
-      ) {
-        await move.mutateAsync({
-          id: event.id,
+      await applyEdits(
+        { move: move.mutateAsync, update: update.mutateAsync, setProject: setProject.mutateAsync },
+        event,
+        {
           startsAt: iso(startMs),
           endsAt: iso(endMs),
-          scope,
-          ...(allDay !== event.allDay ? { allDay } : {}),
-        });
-        saved = "time";
-      }
-      await update.mutateAsync({
-        id: event.id,
-        patch: {
-          title: title.trim(),
-          guests: guestInput,
-          addMeet: meet,
-          description: description.trim() || null,
-          reminders,
+          allDay,
+          patch: {
+            title: title.trim(),
+            ...(guestInput === undefined ? {} : { guests: guestInput }),
+            addMeet: meet,
+            description: description.trim() || null,
+            reminders,
+          },
+          projectId,
         },
         scope,
-      });
-      saved = "details";
-      if (projectId !== event.projectId) await setProject.mutateAsync({ id: event.id, projectId });
+      );
       onSaved(t("calendar.editor.updated", { title: title.trim() }));
-    } catch {
+    } catch (error) {
       // Un rifiuto del livello dati (non un salvataggio fallito verso Google,
       // che l'evento dice da sé con «Riprova»): si dice a vista, e senza
       // annuncio di salvataggio.
+      const saved = error instanceof EditFailed ? error.saved : "nothing";
       toast.error(
         saved === "details"
           ? t("calendar.editor.projectFailed", { title: title.trim() })
@@ -516,8 +512,14 @@ export function EventEditor({
               value={reminder}
               options={[
                 { value: "default" as const, text: t("calendar.editor.reminderDefault") },
-                { value: "popup10" as const, text: t("calendar.detail.reminder.popup", { count: 10 }) },
-                { value: "email30" as const, text: t("calendar.detail.reminder.email", { count: 30 }) },
+                {
+                  value: "popup10" as const,
+                  text: t("calendar.detail.reminder.popup", { count: 10 }),
+                },
+                {
+                  value: "email30" as const,
+                  text: t("calendar.detail.reminder.email", { count: 30 }),
+                },
                 {
                   value: "email1440" as const,
                   text: t("calendar.detail.reminder.email", { count: 1440 }),
@@ -539,7 +541,9 @@ export function EventEditor({
         </DialogField>
 
         {fromCalendar && (
-          <p className="text-xs text-ink-muted">{t("calendar.editor.from", { email: fromCalendar })}</p>
+          <p className="text-xs text-ink-muted">
+            {t("calendar.editor.from", { email: fromCalendar })}
+          </p>
         )}
       </form>
     </Dialog>
@@ -575,8 +579,21 @@ function SelectMenu<T extends string | number | null>({
       label={
         <>
           <span className="min-w-0 truncate">{current}</span>
-          <svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16" fill="none" className="shrink-0 text-ink-muted">
-            <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          <svg
+            aria-hidden="true"
+            width="12"
+            height="12"
+            viewBox="0 0 16 16"
+            fill="none"
+            className="shrink-0 text-ink-muted"
+          >
+            <path
+              d="M4 6l4 4 4-4"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         </>
       }

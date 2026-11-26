@@ -1,4 +1,3 @@
-import { alertProjectsOf } from "../../domain/servers/projects";
 import { DEFAULT_THRESHOLDS } from "../seed/servers/servers";
 import { changedFields } from "../changelog/settingValues";
 import { copy, newId, now, state } from "../store";
@@ -79,7 +78,7 @@ export interface CreateServerInput {
  */
 export async function createServer(
   input: CreateServerInput,
-): Promise<{ server: ServerRow; agentKey: string }> {
+): Promise<{ server: ServerRow; agentKey: string; instanceUrl?: string }> {
   const me = await writer("servers.createServer");
   // Senza ambiente non c'è un progetto da guardare: l'ordine resta not_found
   // (l'ambiente), forbidden, invalid.
@@ -101,9 +100,10 @@ export async function createServer(
     thresholds: { ...DEFAULT_THRESHOLDS },
     services: [],
     disks: [],
-    primaryProjectId: env?.kind === "production" ? env.projectId : null,
     createdAt: now(),
     sshReachable: true,
+    // L'opzione «operazioni» dell'installazione è spenta di default (F4b).
+    agentOperations: false,
   };
   state.servers.push(server);
   env?.servers.push({ repositoryId: null, serverCode: code, reportedSha: null, reportedAt: null });
@@ -112,7 +112,9 @@ export async function createServer(
 }
 
 /** Una chiave nuova per l'agente; la vecchia smette di valere (sul web: l'hash si sostituisce). */
-export async function regenerateAgentKey(code: string): Promise<{ agentKey: string }> {
+export async function regenerateAgentKey(
+  code: string,
+): Promise<{ agentKey: string; instanceUrl?: string }> {
   const me = await writer("servers.regenerateAgentKey");
   const server = managed(me, code);
   const agentKey = newAgentKey(server.code);
@@ -124,11 +126,6 @@ export async function regenerateAgentKey(code: string): Promise<{ agentKey: stri
 export interface UpdateServerInput {
   name?: string;
   sampleIntervalSeconds?: number;
-  /**
-   * Il progetto principale: uno di quelli la cui produzione usa il server
-   * (`alertProjectsOf`); `null` = nessuna preferenza (vale il primo).
-   */
-  primaryProjectId?: string | null;
 }
 
 export async function updateServer(code: string, patch: UpdateServerInput): Promise<ServerRow> {
@@ -137,30 +134,19 @@ export async function updateServer(code: string, patch: UpdateServerInput): Prom
   const name = patch.name === undefined ? server.name : nameOf(patch.name, NAME_MAX);
   if (patch.sampleIntervalSeconds !== undefined && !isInt(patch.sampleIntervalSeconds, 10, 300))
     throw invalid("sampleIntervalSeconds");
-  if (
-    patch.primaryProjectId != null &&
-    !alertProjectsOf(server.code, state.environments).includes(patch.primaryProjectId)
-  )
-    throw invalid("primaryProjectId");
-  const fieldsOf = (n: string, interval: number, primary: string | null) => ({
+  // Nessun progetto principale (area 8, F4b-4): l'analisi parte dal server
+  // e dice lei quale progetto è la causa.
+  const fieldsOf = (n: string, interval: number) => ({
     name: n,
     sampleInterval: String(interval),
-    // L'ID, non il codice: chi legge il registro vede forse un progetto che
-    // non vede, e lo risolve a lettura (`changelog/reads.ts`, R-G5).
-    primaryProject: primary,
   });
   const diff = changedFields(
-    fieldsOf(server.name, server.sampleIntervalSeconds, server.primaryProjectId),
-    fieldsOf(
-      name,
-      patch.sampleIntervalSeconds ?? server.sampleIntervalSeconds,
-      patch.primaryProjectId === undefined ? server.primaryProjectId : patch.primaryProjectId,
-    ),
+    fieldsOf(server.name, server.sampleIntervalSeconds),
+    fieldsOf(name, patch.sampleIntervalSeconds ?? server.sampleIntervalSeconds),
   );
   server.name = name;
   if (patch.sampleIntervalSeconds !== undefined)
     server.sampleIntervalSeconds = patch.sampleIntervalSeconds;
-  if (patch.primaryProjectId !== undefined) server.primaryProjectId = patch.primaryProjectId;
   recordServerChange(me, "server.updated", server, undefined, diff);
   return serverRow(me, server);
 }

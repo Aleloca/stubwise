@@ -13,7 +13,7 @@ import { randomUUID } from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import { agentRuns, aiModelSettings, aiProviders, decrypt } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
-import { aiModelChoiceSchema, resolveApiModelId } from "@stubwise/shared";
+import { aiModelChoiceSchema, estimateCostUsd, resolveApiModelId } from "@stubwise/shared";
 import { asc, eq } from "drizzle-orm";
 
 /** Messaggio della conversazione passato all'LLM (senza il system, separato). */
@@ -41,12 +41,40 @@ export interface ChatLlmInput {
    * non compila, invece di finire in Usage con un'operazione sbagliata.
    */
   usage: ChatUsage;
+  /**
+   * Rimandi, lotto 5: i consumi della generazione a fine stream (gli stessi
+   * della riga di `agent_runs`, col costo STIMATO dai token; null se il
+   * modello non ha un prezzo). Chiamata al più una volta, solo se la
+   * richiesta è partita davvero; serve a chi deve dire il costo di UNA
+   * generazione (il passo di Claude della prova di un'automazione).
+   */
+  onUsage?: (usage: ChatStreamUsage) => void;
+}
+
+/** I consumi di una generazione, come li riceve {@link ChatLlmInput.onUsage}. */
+export interface ChatStreamUsage {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  costUsd: number | null;
 }
 
 /** Operazione e progetto di una generazione della chat (vedi {@link ChatLlmInput.usage}). */
 export interface ChatUsage {
-  operation: "chat" | "backlog_merge";
+  operation: "chat" | "backlog_merge" | "mail_draft" | "automation_step";
   projectId: string | null;
+  /** Area 7, F3: la prova di un passo di Claude, attribuita all'automazione (owner `automation_id`, senza run). */
+  automationId?: string;
+  /**
+   * Il modello quando `ai_model_settings` non ha una riga per l'operazione;
+   * assente = il default della chat. La bozza di Claude nella Posta usa
+   * Sonnet (area 6, F3).
+   */
+  defaultModel?: string;
+  /** Chi ha chiesto (la riga dei consumi lo registra: il tetto per persona delle bozze). */
+  userId?: string | null;
 }
 
 /**
@@ -162,7 +190,7 @@ async function resolveApiKey(
  * prossima risposta, senza riavvii. Un valore fuori catalogo (riga vecchia,
  * catalogo cambiato in un deploy successivo) si ignora con una riga di log.
  */
-async function resolveChatModel(
+export async function resolveChatModel(
   db: Db,
   operation: ChatUsage["operation"],
   fallback: string,
@@ -221,7 +249,14 @@ export function createAnthropicChatLlm(options: CreateAnthropicChatLlmOptions): 
         outputTokens: args.tokens.outputTokens,
         cacheReadTokens: args.tokens.cacheReadTokens,
         cacheCreationTokens: args.tokens.cacheCreationTokens,
-        costUsd: null,
+        // L'API non dà il costo: si STIMA dai token (review F3, punto 8),
+        // altrimenti il budget mensile d'istanza conterebbe zero.
+        costUsd: (() => {
+          const cost = estimateCostUsd(args.model, args.tokens);
+          return cost === null ? null : cost.toFixed(6);
+        })(),
+        requestedByUserId: args.usage.userId ?? null,
+        ...(args.usage.automationId ? { automationId: args.usage.automationId } : {}),
       });
     } catch (err) {
       logger?.warn({ err, operation: args.usage.operation }, "chat: consumi non registrati");
@@ -246,7 +281,7 @@ export function createAnthropicChatLlm(options: CreateAnthropicChatLlmOptions): 
             "La chat richiede una API key Anthropic (i provider 'account'/oauth non sono supportati dall'SDK HTTP).",
         );
       }
-      const model = await resolveChatModel(db, input.usage.operation, fallbackModel, logger);
+      const model = await resolveChatModel(db, input.usage.operation, input.usage.defaultModel ?? fallbackModel, logger);
 
       const client = createClient(resolved.apiKey);
       // Il signal è inoltrato come request option dell'SDK (secondo argomento):
@@ -294,6 +329,11 @@ export function createAnthropicChatLlm(options: CreateAnthropicChatLlmOptions): 
         // della risposta al client. recordUsage non lancia mai.
         if (tokens) {
           void recordUsage({ usage: input.usage, providerId: resolved.providerId, model, tokens });
+          try {
+            input.onUsage?.({ model, ...tokens, costUsd: estimateCostUsd(model, tokens) });
+          } catch (err) {
+            logger?.warn({ err }, "chat: onUsage ha lanciato");
+          }
         }
       }
     },

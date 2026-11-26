@@ -290,6 +290,16 @@ describe("autoRoundsInCurrentSeries", () => {
     expect(await autoRoundsInCurrentSeries(db, pr)).toBe(3);
   });
 
+  it("lotto 4, D-1.2: una SCARTATA (qualcuno ha pushato prima) non conta nel tetto; una fermata sì", async () => {
+    const pr = await seedPr();
+    const discarded = await seedCorrection(pr, { trigger: "review", createdAt: at(1) });
+    await db.update(prCorrections).set({ outcome: "discarded" }).where(eq(prCorrections.id, discarded));
+    const stopped = await seedCorrection(pr, { trigger: "review", createdAt: at(2) });
+    await db.update(prCorrections).set({ outcome: "stopped" }).where(eq(prCorrections.id, stopped));
+    await seedCorrection(pr, { trigger: "review", createdAt: at(3) });
+    expect(await autoRoundsInCurrentSeries(db, pr)).toBe(2);
+  });
+
   it("l'umana annullata non azzera", async () => {
     const pr = await seedPr();
     await seedCorrection(pr, { trigger: "review", createdAt: at(1) });
@@ -1616,6 +1626,17 @@ describe("D4b — canResume: chi guarda può riprendere la correzione ferma (col
     expect(prCycleSchema.parse(admin)).toEqual(admin);
   });
 
+  it("revisione del lotto 1: su una PR di un collega «Riprendi» segue l'impostazione, come «Chiedi modifiche»", async () => {
+    const pr = await seedPr({ branch: "feature/login", adopted: true });
+    const id = await seedCorrection(pr, { trigger: "stubwise", status: "queued", jobStatus: "queued" });
+    await db.update(aiJobs).set({ status: "held", heldReason: "limit" }).where(eq(aiJobs.correctionId, id));
+    const can = async () => (await derivePrCycle(db, { ...pr, viewerPermissions: LEAD }))?.canResume;
+    await db.update(repositories).set({ colleaguePrs: "analyze_only" }).where(eq(repositories.id, pr.repositoryId));
+    expect(await can()).toBe(true);
+    await db.update(repositories).set({ colleaguePrs: "off" }).where(eq(repositories.id, pr.repositoryId));
+    expect(await can()).toBe(false);
+  });
+
   it("stessi dati, due ruoli: ferma per LIMITE → entrambi la riprendono", async () => {
     const pr = await heldCorrection("limit");
     expect((await derivePrCycle(db, { ...pr, viewerPermissions: LEAD }))?.canResume).toBe(true);
@@ -1909,6 +1930,85 @@ describe("adozione di una PR aperta da altri (6 ott 2026) — la regola unica ne
   });
 });
 
+describe("area 8, F1, S8: le PR dei colleghi senza adozione — il cancello dell'impostazione", () => {
+  const colleague = async (mode: "analyze_and_fix" | "analyze_only" | "off", opts: { analysisOnly?: boolean; explicit?: boolean } = {}) => {
+    const pr = await seedPr({ branch: "feature/login", adopted: true });
+    await db.update(repositories).set({ colleaguePrs: mode }).where(eq(repositories.id, pr.repositoryId));
+    if (opts.explicit) {
+      const by = await seedUser();
+      await db.update(ticketRepositories).set({ adoptedByUserId: by }).where(eq(ticketRepositories.ticketId, pr.ticketId));
+    }
+    if (opts.analysisOnly) {
+      await db.insert(prReviews).values({ repositoryId: pr.repositoryId, prNumber: pr.prNumber, prUrl: "u", prTitle: "t", headSha: "a".repeat(40), sourceBranch: "feature/login", status: "completed", analysisOnly: true } as never);
+    }
+    return pr;
+  };
+  const refused = async (pr: SeededPr, trigger: "stubwise" | "provider" | "review") => {
+    expect(await enqueueCorrection(db, { ...pr, trigger, actorPermissions: LEAD })).toEqual({ ok: false, error: "colleague_analysis_only" });
+    expect(await correctionsOf(pr)).toEqual([]);
+    expect(await jobsOf(pr)).toEqual([]);
+  };
+
+  it("«solo analisi» sul repository: il giro automatico NON parte", async () => {
+    await refused(await colleague("analyze_only"), "review");
+  });
+
+  it("«solo analisi» sul repository: il «Request changes» della piattaforma NON fa partire nulla ((O) di 46)", async () => {
+    await refused(await colleague("analyze_only"), "provider");
+  });
+
+  it("«solo analisi» sul repository: «Chiedi modifiche» in Stubwise parte", async () => {
+    const pr = await colleague("analyze_only");
+    expect(await enqueueCorrection(db, { ...pr, trigger: "stubwise", actorPermissions: LEAD })).toMatchObject({ ok: true, status: "queued" });
+  });
+
+  it("«analisi e correzioni»: il giro automatico e la piattaforma partono", async () => {
+    for (const trigger of ["review", "provider"] as const) {
+      const pr = await colleague("analyze_and_fix");
+      expect(await enqueueCorrection(db, { ...pr, trigger, actorPermissions: LEAD })).toMatchObject({ ok: true });
+    }
+  });
+
+  it("«Solo analisi» sulla PR ferma tutto, anche «Chiedi modifiche» e l'adozione esplicita", async () => {
+    for (const trigger of ["stubwise", "provider", "review"] as const) {
+      await refused(await colleague("analyze_and_fix", { analysisOnly: true, explicit: true }), trigger);
+    }
+  });
+
+  it("«spento»: niente, nemmeno chiesta", async () => {
+    await refused(await colleague("off"), "stubwise");
+  });
+
+  it("l'adozione esplicita (client vecchi) vale «analisi e correzioni»: il giro automatico parte anche con «solo analisi» sul repository", async () => {
+    const pr = await colleague("analyze_only", { explicit: true });
+    expect(await enqueueCorrection(db, { ...pr, trigger: "review" })).toMatchObject({ ok: true });
+  });
+
+  it("review F1 ((O) di 46): adottata da una PERSONA + «solo analisi» sul repository: anche il «Request changes» della piattaforma parte; senza adozione esplicita no", async () => {
+    expect(await enqueueCorrection(db, { ...(await colleague("analyze_only", { explicit: true })), trigger: "provider" })).toMatchObject({ ok: true });
+    await refused(await colleague("analyze_only"), "provider");
+  });
+
+  it("le PR di Stubwise non guardano l'impostazione dei colleghi", async () => {
+    const pr = await seedPr();
+    await db.update(repositories).set({ colleaguePrs: "off" }).where(eq(repositories.id, pr.repositoryId));
+    expect(await enqueueCorrection(db, { ...pr, trigger: "review" })).toMatchObject({ ok: true });
+  });
+
+  it("registro, area 8 (a): `canRequestCorrection` del ciclo dice lo stesso di `enqueueCorrection` per «Chiedi modifiche»", async () => {
+    const can = async (pr: SeededPr) => (await derivePrCycle(db, { ticketId: pr.ticketId, repositoryId: pr.repositoryId, viewerPermissions: LEAD }))?.canRequestCorrection;
+    // «solo analisi» sul repository: «Chiedi modifiche» parte, il bottone c'è.
+    expect(await can(await colleague("analyze_only"))).toBe(true);
+    // «Solo analisi» sulla PR e repository «spento»: 409 `colleague_analysis_only`, il bottone no.
+    expect(await can(await colleague("analyze_and_fix", { analysisOnly: true, explicit: true }))).toBe(false);
+    expect(await can(await colleague("off"))).toBe(false);
+    // Una PR di Stubwise non guarda l'impostazione.
+    const own = await seedPr();
+    await db.update(repositories).set({ colleaguePrs: "off" }).where(eq(repositories.id, own.repositoryId));
+    expect(await can(own)).toBe(true);
+  });
+});
+
 describe("adozione e chiusura della PR (6 ott 2026, fix di review)", () => {
   it("releaseAdoptionsOnPrClose rilascia la riga adottata della PR, e solo quella", async () => {
     const pr = await seedPr({ branch: "feature/login", adopted: true });
@@ -1964,7 +2064,10 @@ describe("PR ADOTTATA: «Chiedi modifiche» e la ripresa sono di un admin (7 ott
     });
     expect(await correctionsOf(pr)).toEqual([]);
     expect(await jobsOf(pr)).toEqual([]);
-    // Il ciclo automatico e la piattaforma non hanno un ruolo: invariati.
+    // Il ciclo automatico e la piattaforma non hanno un ruolo: invariati (con
+    // «analisi e correzioni» sul repository: dall'area 8 il default è «solo
+    // analisi», che il giro automatico non lo fa partire — test S8 sopra).
+    await db.update(repositories).set({ colleaguePrs: "analyze_and_fix" }).where(eq(repositories.id, pr.repositoryId));
     expect(await enqueueCorrection(db, { ...pr, trigger: "review" })).toMatchObject({ ok: true });
   });
 });

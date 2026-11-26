@@ -1,7 +1,7 @@
+import { recipientsNow } from "../alerts/visibility";
 import { docsAccess } from "../docs/reads";
 import { PEOPLE } from "../seed/people";
 import { now, state } from "../store";
-import { can, viewerFor } from "../viewer";
 import { forbidden, notFound, writer } from "../writer";
 import { productPageById } from "./reads";
 
@@ -49,21 +49,27 @@ export function followersOf(pageId: string): string[] {
     .map((f) => f.personId);
 }
 
+/** Gli obblighi di un avviso della pagina (N-1 = a): chi la segue lo riceve sempre. Mai Claude. */
+export function followerMandatory(pageId: string): { personId: string; reason: "follower" }[] {
+  return followersOf(pageId)
+    .filter((id) => !isClaude(id))
+    .map((personId) => ({ personId, reason: "follower" as const }));
+}
+
 /**
- * Chi riceve gli avvisi della pagina (11b): chi la segue; se nessuno, chi ha
- * `docs.edit` nel progetto e la legge. Mai Claude.
+ * Chi riceve ADESSO un aggiornamento o una domanda della pagina (area 11,
+ * D-6 = b, N-1 = a): chi la segue, sempre; poi chi ha la riga del progetto
+ * accesa in Preferenze → Notifiche (iscrizione con `docs.view`, accesa di
+ * partenza per chi ha `docs.edit`). La regola del catalogo, non una copia.
+ * Mai Claude.
  */
-export function productDocRecipients(pageId: string): string[] {
+export function productDocRecipients(
+  pageId: string,
+  kind: "product_doc.updated" | "product_doc.question" = "product_doc.updated",
+): string[] {
   const page = productPageById(pageId);
   if (!page) return [];
-  const followers = followersOf(pageId).filter((id) => !isClaude(id));
-  if (followers.length > 0) return followers;
-  return PEOPLE.filter(
-    (p) =>
-      !p.isClaude &&
-      docsAccess(p.id, page.projectId) === "read" &&
-      can(viewerFor(p.id), "docs.edit", page.projectId),
-  ).map((p) => p.id);
+  return recipientsNow({ kind, projectId: page.projectId, mandatory: followerMandatory(pageId) });
 }
 
 const isClaude = (personId: string) => PEOPLE.some((p) => p.id === personId && p.isClaude);

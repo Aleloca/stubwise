@@ -2,10 +2,12 @@ import i18n from "../../i18n";
 import { applyActions } from "../api-mutations";
 import { noteMailSource } from "../productDocs/sourceEvents";
 import { PEOPLE } from "../seed/people";
-import { copy, gate, now, state } from "../store";
+import { isHiddenId, personMasker } from "../access/hidden";
+import { copy, gate, newId, now, state } from "../store";
 import { forbidden, invalid, notFound, writer } from "../writer";
 import { canReadEvent } from "../calendar/visibility";
 import type {
+  MailMessage,
   MailProposal,
   MailProposalFilters,
   MailProposalOrigin,
@@ -21,7 +23,9 @@ import {
   calendarParticipants,
   canDoActions,
   canSeeMessage,
+  calendarChoices,
   canSeeMailProposal,
+  canSeeTranscript,
   isProjectMember,
   isProposalRecipient,
 } from "./visibility";
@@ -44,8 +48,20 @@ import {
 
 const invalidAction = () => new Error("invalid_action");
 
-function alreadyHandled(p: MailProposal): Error {
-  return Object.assign(new Error("already_handled"), { byId: p.decidedById });
+/**
+ * Una persona di una proposta come la legge chi guarda (r.1414): vera se la
+ * conosce o se sta nelle intestazioni dell'email o fra gli invitati
+ * dell'evento (scelta di 46), altrimenti il segnaposto di `mask`.
+ */
+function personOfProposal(me: string, p: MailProposal, mask = personMasker(me)) {
+  const headers = new Set(sharersOf(p));
+  return <T extends string | null | undefined>(id: T): T =>
+    typeof id === "string" && headers.has(id) ? id : mask(id);
+}
+
+/** Già decisa: `byId` è chi l'ha decisa, col segnaposto se chi guarda non lo conosce. */
+function alreadyHandled(me: string, p: MailProposal, byId = p.decidedById): Error {
+  return Object.assign(new Error("already_handled"), { byId: personOfProposal(me, p)(byId) });
 }
 
 /** Le funzioni che una proposta della posta può eseguire. */
@@ -128,13 +144,31 @@ function canConfirmNow(me: string, p: MailProposal): boolean {
  * La proposta come la vede chi guarda. Di una `chooseProject` restano solo
  * i progetti di cui è membro (e le loro azioni): gli altri non li nomina.
  */
-function viewOf(me: string, p: MailProposal): MailProposalView {
+function viewOf(
+  me: string,
+  p: MailProposal,
+  mask: ReturnType<typeof personMasker> = personMasker(me),
+): MailProposalView {
   const proposal = copy(p);
+  // R.1414, scelta di 46 (lotto 3): chi sta nelle intestazioni dell'email (o
+  // fra gli invitati dell'evento) è conosciuto per QUESTA proposta; chi l'ha
+  // decisa, passata o ha scelto il progetto, se chi guarda non lo conosce, è
+  // il segnaposto della risposta, senza nome. Gli incaricati delle azioni e
+  // `outsiders` restano veri, come sul server (72): li chiede il gesto
+  // «Aggiungere come Contributor?», e vengono dall'email.
+  const hide = personOfProposal(me, p, mask);
+  const nameFor = (id: string) => (isHiddenId(hide(id)) ? "" : personName(id));
+  proposal.decidedById = hide(proposal.decidedById);
+  proposal.handedById = hide(proposal.handedById);
+  if (proposal.projectChosenById !== undefined)
+    proposal.projectChosenById = hide(proposal.projectChosenById);
   for (const a of proposal.actions) {
     if (a.fn !== "chooseProject") continue;
-    const ids = ((a.args.projectIds as string[] | undefined) ?? []).filter((id) =>
-      isProjectMember(me, id),
-    );
+    // Del calendario (lotto 9, voce 2 (a)): solo i candidati in cui chi guarda può confermare.
+    const ids =
+      p.source === "calendar"
+        ? calendarChoices(me, p)
+        : ((a.args.projectIds as string[] | undefined) ?? []).filter((id) => isProjectMember(me, id));
     const byProject = (a.args.actionsByProject ?? {}) as Record<string, ProposedAction[]>;
     a.args = {
       ...a.args,
@@ -145,7 +179,13 @@ function viewOf(me: string, p: MailProposal): MailProposalView {
   // Di una riunione l'estratto è il riassunto: a chi non c'era (una
   // proposta passata) restano solo le azioni (R-I24).
   const recipient = isProposalRecipient(me, p);
-  if (p.source === "transcript" && !recipient) proposal.excerpt = "";
+  // E, come il server della F5a (fix di review di 72), l'estratto lo legge solo
+  // chi ha una SUA copia dell'email di Gemini: un invitato senza l'email decide
+  // la proposta (decisione M, Q1) ma non legge l'estratto.
+  const ownCopy = state.mailMessages.some(
+    (m) => m.messageId === p.sourceId && canSeeMessage(me, m),
+  );
+  if (p.source === "transcript" && (!recipient || !ownCopy)) proposal.excerpt = "";
   const canConfirm = canConfirmNow(me, p);
   const shared = recipient || p.source === "calendar" ? sharersOf(p) : [];
   return {
@@ -159,7 +199,7 @@ function viewOf(me: string, p: MailProposal): MailProposalView {
       personId,
       name: personName(personId),
     })),
-    decidedBy: p.decidedById ? { personId: p.decidedById, name: personName(p.decidedById) } : null,
+    decidedBy: p.decidedById ? { personId: hide(p.decidedById), name: nameFor(p.decidedById) } : null,
     sharedWith: shared
       .filter((id) => id !== me && canSeeMailProposal(id, p))
       .map((personId) => ({ personId, name: personName(personId) })),
@@ -202,15 +242,22 @@ export async function listMailProposals(
   filters: MailProposalFilters = {},
 ): Promise<MailProposalView[]> {
   const me = await gate("mail.listMailProposals");
+  const mask = personMasker(me);
+  // Una conversazione: i Message-ID dei suoi messaggi.
+  const inThread =
+    filters.threadId === undefined
+      ? null
+      : new Set(state.mailMessages.filter((m) => m.threadId === filters.threadId).map((m) => m.messageId));
   return state.mailProposals
     .filter(
       (p) =>
         (filters.sourceId === undefined || p.sourceId === filters.sourceId) &&
+        (inThread === null || inThread.has(p.sourceId)) &&
         (filters.status === undefined || p.status === filters.status) &&
         canSeeMailProposal(me, p),
     )
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .map((p) => viewOf(me, p));
+    .map((p) => viewOf(me, p, mask));
 }
 
 /** Una proposta. Invisibile o inesistente → `not_found`. */
@@ -225,6 +272,7 @@ export async function getMailProposal(id: string): Promise<MailProposalView> {
  */
 export async function listMailDecisions(): Promise<MailProposalView[]> {
   const me = await gate("mail.listMailDecisions");
+  const mask = personMasker(me);
   return state.mailProposals
     .filter(
       (p) =>
@@ -232,7 +280,7 @@ export async function listMailDecisions(): Promise<MailProposalView[]> {
         (p.status === "open" || (p.status === "handed" && canConfirmNow(me, p))),
     )
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-    .map((p) => ({ ...viewOf(me, p), origin: originFor(me, p) }));
+    .map((p) => ({ ...viewOf(me, p, mask), origin: originFor(me, p) }));
 }
 
 /**
@@ -250,21 +298,35 @@ function originFor(me: string, p: MailProposal): MailProposalOrigin | null {
   const m = state.mailMessages
     .filter((x) => x.messageId === p.sourceId && canSeeMessage(me, x))
     .sort((a, b) => a.at.localeCompare(b.at))[0];
+  if (p.source === "transcript") return meetingOriginFor(me, p, m);
   if (!m) return null;
-  if (p.source === "email") {
-    return { kind: "email", threadId: m.threadId, from: m.from.name || m.from.email, subject: m.subject };
-  }
-  const transcript = state.meetingTranscripts.find((t) => t.messageId === m.id);
+  return { kind: "email", threadId: m.threadId, from: m.from.name || m.from.email, subject: m.subject };
+}
+
+/**
+ * L'origine di una proposta di riunione: la riunione (`noteId`) per ogni
+ * invitato che la vede; la conversazione solo se ha l'email (Q-A = a).
+ */
+function meetingOriginFor(
+  me: string,
+  p: MailProposal,
+  mine: MailMessage | undefined,
+): MailProposalOrigin | null {
+  const copies = state.mailMessages.filter((x) => x.messageId === p.sourceId);
+  const transcript = state.meetingTranscripts.find((t) => copies.some((x) => x.id === t.messageId));
+  if (!mine && !(transcript && canSeeTranscript(me, transcript))) return null;
   const e = transcript?.eventId
     ? state.calendarEvents.find((x) => x.id === transcript.eventId)
     : undefined;
   const event = e && canReadEvent(me, e) ? e : undefined;
+  const first = copies.sort((a, b) => a.at.localeCompare(b.at))[0];
   return {
     kind: "meeting",
     eventId: event?.id ?? null,
-    threadId: m.threadId,
-    title: event?.title ?? m.subject,
-    at: event?.startsAt ?? m.at,
+    threadId: mine?.threadId ?? null,
+    ...(transcript ? { noteId: transcript.messageId } : {}),
+    title: event?.title ?? mine?.subject ?? first?.subject ?? "",
+    at: event?.startsAt ?? mine?.at ?? first?.at ?? "",
   };
 }
 
@@ -384,7 +446,7 @@ export async function confirmMailProposal(
 ): Promise<MailProposalOutcome> {
   const me = await writer("mail.confirmProposal");
   const p = proposalFor(me, id);
-  if (!isPending(p)) throw alreadyHandled(p);
+  if (!isPending(p)) throw alreadyHandled(me, p);
   if (p.actions.some((a) => !MAIL_FNS.has(a.fn))) throw invalidAction();
   const { actions, indexes } = chosenActions(p, input);
   if (!canDo(me, p, actions)) throw forbidden();
@@ -427,7 +489,7 @@ export async function confirmMailProposal(
 export async function ignoreMailProposal(id: string): Promise<void> {
   const me = await writer("mail.ignoreProposal");
   const p = proposalFor(me, id);
-  if (!isPending(p)) throw alreadyHandled(p);
+  if (!isPending(p)) throw alreadyHandled(me, p);
   if (p.status === "handed" && !canConfirmNow(me, p)) throw forbidden();
   decide(p, me, "ignored");
 }
@@ -441,11 +503,49 @@ export async function handMailProposal(id: string): Promise<void> {
   const me = await writer("mail.handProposal");
   const p = proposalFor(me, id);
   if (p.source === "calendar" || isChoosing(p)) throw invalidAction();
-  if (p.status !== "open") throw alreadyHandled(p);
+  if (p.status !== "open") throw alreadyHandled(me, p);
   if (canConfirmNow(me, p)) throw invalidAction();
   decide(p, me, "handed");
   p.handedAt = p.decidedAt;
   p.handedById = me;
+  publishHandedNotice(me, p);
+}
+
+/**
+ * Lotto 4, D-2.0 (decisione del maintainer, 23 nov 2026): chi riceve una
+ * proposta passata lo sa da una notifica, che apre la Home (in «Da decidere»
+ * la proposta resta). Destinatari fissi, calcolati adesso: i membri del
+ * progetto che possono confermarla, tranne chi l'ha passata e chi ne è già
+ * destinatario (la vede già). Nessuno da avvisare, nessuna notifica.
+ */
+function publishHandedNotice(me: string, p: MailProposal): void {
+  const recipientIds = PEOPLE.filter(
+    (person) =>
+      !person.isClaude &&
+      person.id !== me &&
+      isProjectMember(person.id, p.projectId) &&
+      canDo(person.id, p, p.actions) &&
+      !isProposalRecipient(person.id, p),
+  ).map((person) => person.id);
+  if (recipientIds.length === 0) return;
+  state.notifications.push({
+    id: newId("n-handed"),
+    kind: "google.proposal_handed",
+    projectId: p.projectId,
+    objectCode: state.projectsById.get(p.projectId)?.code ?? "",
+    departmentId: null,
+    recipientIds,
+    // Il testo lo compone la card nella lingua di chi legge (`actorName`).
+    title: "",
+    body: "",
+    createdAt: now(),
+    read: false,
+    archived: false,
+    snoozedUntil: null,
+    link: "#/home",
+    actorId: me,
+    proposalId: p.id,
+  });
 }
 
 /** Una proposta per email e progetto: un'altra sullo stesso progetto non nasce. */
@@ -484,14 +584,16 @@ function labelMessage(p: MailProposal, projectId: string, drop: string | null): 
 export async function chooseProjectFor(id: string, projectId: string): Promise<void> {
   const me = await writer("mail.chooseProject");
   const p = proposalFor(me, id);
-  if (p.status !== "open") throw alreadyHandled(p);
+  if (p.status !== "open") throw alreadyHandled(me, p);
   const choose = p.actions.find((a) => a.fn === "chooseProject");
   if (!choose) {
-    throw Object.assign(new Error("already_handled"), { byId: p.projectChosenById ?? null });
+    throw alreadyHandled(me, p, p.projectChosenById ?? null);
   }
   if (!isProjectMember(me, projectId)) throw notFound();
   const candidates = (choose.args.projectIds as string[] | undefined) ?? [];
   if (!candidates.includes(projectId)) throw invalid("project");
+  // Del calendario: serve il permesso di confermare lì (il server: `forbidden`).
+  if (p.source === "calendar" && !calendarChoices(me, p).includes(projectId)) throw forbidden();
   const byProject = (choose.args.actionsByProject ?? {}) as Record<string, ProposedAction[]>;
   const actions = byProject[projectId] ?? [];
   if (actions.length === 0) throw invalid("project");
@@ -499,6 +601,15 @@ export async function chooseProjectFor(id: string, projectId: string): Promise<v
   p.projectId = projectId;
   p.actions = copy(actions);
   p.projectChosenById = me;
+  if (p.source === "calendar") {
+    // L'appuntamento prende il progetto scelto, per tutti (come le copie sul server).
+    const e = state.calendarEvents.find((x) => x.id === p.sourceId);
+    if (e) {
+      e.projectId = projectId;
+      e.projectBy = "manual";
+    }
+    return;
+  }
   labelMessage(p, projectId, null);
 }
 
@@ -512,7 +623,7 @@ export async function reassignMailProposal(id: string, projectId: string): Promi
   const me = await writer("mail.reassignProposal");
   const p = proposalFor(me, id);
   if (p.source === "calendar" || isChoosing(p)) throw invalidAction();
-  if (p.status !== "open") throw alreadyHandled(p);
+  if (p.status !== "open") throw alreadyHandled(me, p);
   if (!isProposalRecipient(me, p)) throw forbidden();
   if (!isProjectMember(me, projectId)) throw notFound();
   if (projectId === p.projectId) throw invalid("project");

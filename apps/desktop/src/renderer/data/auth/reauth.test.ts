@@ -21,10 +21,14 @@ import {
  * commit in cui entra in `REAUTH_REQUIRED` e in `ApiFnName`.
  */
 const EXPECTED_REAUTH: readonly ApiFnName[] = [
+  // Lotto 10 (VA-Q4, maintainer): togliere un altro proprio Mac; l'admin per un'altra persona.
+  "vault.removeMac",
+  "vault.removeMacOf",
   // Task 4: People, inviti, Roles, Departments, Members
   "admin.setInstanceRole",
   "admin.createPasswordResetLink",
   "admin.resetSecondFactor",
+  "admin.changeEmail",
   "admin.unlinkGitIdentity",
   "admin.deactivatePerson",
   "admin.reactivatePerson",
@@ -34,7 +38,6 @@ const EXPECTED_REAUTH: readonly ApiFnName[] = [
   "admin.duplicateRole",
   "admin.deleteRole",
   "admin.setDepartmentMembers",
-  "admin.setHomeManagers",
   "admin.setDepartmentPermissions",
   "admin.saveDepartment",
   "admin.addMember",
@@ -50,9 +53,14 @@ const EXPECTED_REAUTH: readonly ApiFnName[] = [
   "me.regenerateBackupCodes",
   "me.createToken",
   "me.createClaudeCodeCommand",
+  // Area 9, R2: l'email di login è l'identità (design integrazione area 9, 1.6).
+  "me.requestEmailChange",
+  // Area 9: come `POST /api/me/password` del server (config.reauth).
+  "me.changePassword",
   // Area 9b: chi crea, sostituisce o cancella un segreto scritto da chi
   // amministra, più registrare e aggiornare un plugin (eseguono codice).
-  // `saveStorage` lo chiede solo con una chiave nuova; `saveWebhook` mai
+  // `saveStorage` lo chiede solo con una chiave nuova. Dei webhook in uscita
+  // (F3) creare, rigenerare il segreto ed eliminare; `updateWebhook` mai
   // (l'URL non è un segreto, maintainer 30 ott 2026).
   "instance.createProvider",
   "instance.replaceProviderCredential",
@@ -66,6 +74,10 @@ const EXPECTED_REAUTH: readonly ApiFnName[] = [
   "instance.replaceGoogleSecret",
   "instance.deleteGoogleApp",
   "instance.saveStorage",
+  "instance.createWebhook",
+  "instance.updateWebhook",
+  "instance.regenerateWebhookSecret",
+  "instance.deleteWebhook",
   // Area 9c: chi crea, sostituisce o cancella un segreto di un progetto
   // (chiave d'ingestione, secret del webhook git, file e valori
   // d'ambiente), più eliminare un progetto e un repository senza progetto
@@ -79,6 +91,11 @@ const EXPECTED_REAUTH: readonly ApiFnName[] = [
   "projectSettings.deleteEnvFile",
   "projectSettings.deleteProject",
   "instance.deleteDetachedRepository",
+  // Area 9, F5: solo per un ambiente con file d'ambiente.
+  "releases.deleteEnvironment",
+  // API per i siti (S6): il segreto d'identità dei clienti di un widget, una
+  // credenziale (piano 2026-11-15, S1: `config.reauth` sul server).
+  "support.regenerateIdentitySecret",
 ];
 
 const as = (personId: string) => setSessionPersonId(personId);

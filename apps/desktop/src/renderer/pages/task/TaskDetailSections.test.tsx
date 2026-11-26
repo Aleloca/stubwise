@@ -433,6 +433,13 @@ describe("origine e dati tecnici", () => {
     expect(within(technical).getByText("release")).toBeInTheDocument();
   });
 
+  it("una task aperta dal widget dice «View conversation» e apre la conversazione (area 8, F3, S-9)", async () => {
+    renderRoute("/home?task=AUD-6", "p-matteo");
+    const panel = await panelOf("AUD-6");
+    const link = await within(panel).findByRole("link", { name: "View conversation" });
+    expect(link).toHaveAttribute("href", expect.stringContaining("/p/AUD/support/AUD-S1"));
+  });
+
   it("una task fatta a mano non ha né origine né dati tecnici", async () => {
     renderRoute("/home?task=MKX-2", "p-giulia");
     const panel = await panelOf("MKX-2");

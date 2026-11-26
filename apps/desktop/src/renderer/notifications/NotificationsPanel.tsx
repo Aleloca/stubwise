@@ -1,3 +1,4 @@
+import { openInWeb } from "../platform/openWeb";
 import { useRouter } from "@tanstack/react-router";
 import {
   useCallback,
@@ -19,6 +20,7 @@ import {
   useSetAlertSubscription,
 } from "../data/queries";
 import { isCatalogKind, rowTypeOf } from "../domain/alerts/catalog";
+import { featureIntegrated } from "../data/integration";
 import type { AppNotification } from "../data/types";
 import { useToast } from "../tasks-ui/Toast";
 import { useRestoreFocus } from "../layout/useRestoreFocus";
@@ -102,7 +104,9 @@ function Panel({ onClose }: { onClose: () => void }) {
   const muteFrom = useMuteFromNotification();
   const setSub = useSetAlertSubscription();
   function alertOf(n: AppNotification): AlertOfNotification | undefined {
-    if (!n.projectId || !isCatalogKind(n.kind)) return undefined;
+    // Nella build app il menu degli avvisi c'è con le iscrizioni (`alerts`), e
+    // «Don't alert me» solo con la rotta del server (`alerts-mute`, S6).
+    if (!n.projectId || !isCatalogKind(n.kind) || !featureIntegrated("alerts")) return undefined;
     const project = subs.data?.find((p) => p.projectId === n.projectId);
     const code = project?.code ?? projectsById.get(n.projectId)?.code;
     if (!code) return undefined;
@@ -114,20 +118,22 @@ function Panel({ onClose }: { onClose: () => void }) {
       code,
       label,
       state: row?.state,
-      onMute: () =>
-        void muteFrom.mutateAsync(n.id).then(
-          (done) =>
-            toast.show(t("alerts.panel.muted", { label, code }), {
-              action: {
-                label: t("alerts.undo"),
-                // Un annullamento che fallisce lo dice, senza promise rifiutate in giro.
-                run: () => {
-                  done.undo().catch(() => toast.error(t("alerts.undoError", { code })));
-                },
-              },
-            }),
-          () => toast.error(t("alerts.panel.muteError")),
-        ),
+      onMute: !featureIntegrated("alerts-mute")
+        ? undefined
+        : () =>
+            void muteFrom.mutateAsync(n.id).then(
+              (done) =>
+                toast.show(t("alerts.panel.muted", { label, code }), {
+                  action: {
+                    label: t("alerts.undo"),
+                    // Un annullamento che fallisce lo dice, senza promise rifiutate in giro.
+                    run: () => {
+                      done.undo().catch(() => toast.error(t("alerts.undoError", { code })));
+                    },
+                  },
+                }),
+              () => toast.error(t("alerts.panel.muteError")),
+            ),
       onTurnBackOn: () =>
         setSub.mutate(
           { projectId, type: rowType, change: { app: true } },
@@ -154,7 +160,9 @@ function Panel({ onClose }: { onClose: () => void }) {
       return;
     }
     mark.mutate({ id: n.id, change: { read: true } });
-    router.history.push(n.link.replace(/^#/, ""));
+    // Build app: una card di un'area non integrata apre il web vecchio.
+    if (n.webHref) openInWeb(n.webHref);
+    else router.history.push(n.link.replace(/^#/, ""));
     onClose();
   }
 
@@ -292,6 +300,7 @@ function Panel({ onClose }: { onClose: () => void }) {
                 alert={alertOf(n)}
                 onOpen={() => void openLink(n)}
                 onChange={(change: Change) => mark.mutate({ id: n.id, change })}
+                onOpenWeb={n.webHref ? () => void openLink(n) : undefined}
                 onLinkAccess={
                   n.linkAccessHref
                     ? () => {

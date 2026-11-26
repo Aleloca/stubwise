@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { nameOrSomeone } from "./someone";
 import { useTranslation } from "react-i18next";
 import { usePeople } from "../../data/queries";
 import type { ChatMessageView, Person } from "../../data/types";
@@ -27,6 +28,9 @@ import { requestReplyFocus } from "./drafts";
 import { MessageMenu, type MessageActions } from "./MessageMenu";
 import { ReactionPicker, Reactions } from "./Reactions";
 import { SaveToDriveButton } from "./SaveToDrive";
+import { DownloadAttachmentButton } from "./DownloadAttachment";
+import { isAppBuild } from "../../data/build";
+import { featureIntegrated } from "../../data/integration";
 
 // Un messaggio del canale: nessuna bolla, nessun colore per autore. Il primo
 // di un gruppo ha l'avatar 32px e «Nome · 16:02»; i successivi l'ora nel
@@ -194,6 +198,9 @@ export function MessageItem(props: MessageItemProps) {
   const [deleteFailed, setDeleteFailed] = useState(false);
   const own = m.kind === "person" && m.authorId === viewerId;
   const deleted = m.deletedAt !== null;
+  // Build app: i flag del server; nel prototipo i propri messaggi in un canale che si scrive.
+  const canEditMessage = m.canEdit ?? (own && canWrite);
+  const canDeleteMessage = m.canDelete ?? (own && canWrite);
   const canReact = canWrite && !deleted;
 
   const actions: MessageActions = {
@@ -270,7 +277,10 @@ export function MessageItem(props: MessageItemProps) {
         )}
         {head && !deleted && (
           <p className="flex min-w-0 items-baseline gap-1.5 text-sm">
-            <span className="truncate font-semibold text-ink">{author?.name ?? ""}</span>
+            {/* R.1414: un autore che chi guarda non conosce arriva come segnaposto. */}
+            <span className="truncate font-semibold text-ink">
+              {author?.name ?? (m.authorId ? t("chat.message.someone") : "")}
+            </span>
             <span aria-hidden="true" className="text-ink-faint">
               ·
             </span>
@@ -311,9 +321,15 @@ export function MessageItem(props: MessageItemProps) {
                 <AttachmentChip
                   attachment={a}
                   action={
-                    props.driveProjectId !== undefined && (
-                      <SaveToDriveButton attachment={a} projectId={props.driveProjectId} />
-                    )
+                    <>
+                      {/* Build app (fetta 4): il file vero, dal server. Il prototipo non ne ha. */}
+                      {isAppBuild() && featureIntegrated("chat-attachments") && (
+                        <DownloadAttachmentButton attachment={a} />
+                      )}
+                      {props.driveProjectId !== undefined && (
+                        <SaveToDriveButton attachment={a} projectId={props.driveProjectId} />
+                      )}
+                    </>
                   }
                 />
               </li>
@@ -377,8 +393,8 @@ export function MessageItem(props: MessageItemProps) {
           actions={actions}
           quick={props.quick}
           canReact={canReact}
-          canWrite={canWrite}
-          own={own}
+          canEdit={canEditMessage}
+          canDelete={canDeleteMessage}
           member={member}
         />
       )}
@@ -417,7 +433,7 @@ function AsksLine({
   if (waiting.length === 1 && waiting[0] === viewerId) {
     return <p className="pt-0.5 text-xs font-semibold text-ink">{t("chat.message.asksYou")}</p>;
   }
-  const names = waiting.map((id) => people?.find((p) => p.id === id)?.name ?? "").join(", ");
+  const names = waiting.map((id) => nameOrSomeone(people, id, t("chat.message.someone"))).join(", ");
   return <p className="pt-0.5 text-xs text-ink-muted">{t("chat.message.asks", { names })}</p>;
 }
 
@@ -462,7 +478,7 @@ function ThreadLine({
       ) : (
         <span className="min-w-0 truncate text-ink-muted">
           {t("chat.message.lastReply", {
-            name: last?.name ?? "",
+            name: last?.name ?? nameOrSomeone(people, thread.lastReplyById, t("chat.message.someone")),
             time: relativeTime(thread.lastReplyAt, t, i18n.language),
           })}
         </span>

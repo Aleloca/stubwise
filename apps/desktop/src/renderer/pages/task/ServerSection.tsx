@@ -1,21 +1,25 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { AiBlockLine } from "../../components/InstanceBlock";
+import { isAppBuild } from "../../data/build";
 import {
   useAiBlock,
   useConversation,
   usePeople,
   useProjects,
+  useApproveServerFix,
+  useRejectServerFix,
   useServerTaskInfo,
   useStartServerFix,
+  useStopServerFix,
 } from "../../data/queries";
+import { PlanCard } from "../claude/conversation/PlanCard";
+import { ServerCommandLog } from "./ServerCommandLog";
 import type { ServerTaskInfo } from "../../data/servers";
 import type { EpisodeReason, ServerEpisode, Task } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
 import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
-import { Markdown } from "../../tasks-ui/Markdown";
 import { useToast } from "../../tasks-ui/Toast";
 import { CheckGlyph, CrossGlyph, WorkingRing } from "../claude/conversation/parts";
 import { clockLocal, dayLocal, isToday, sinceWhen } from "../servers/format";
@@ -29,7 +33,9 @@ import { WhoCanLink } from "../../components/WhoCanLink";
 // in testa al pannello, prima della descrizione. Il server è il contesto,
 // Claude è il lavoro: qui stanno server, episodio, a che punto è la
 // correzione, la proposta e l'avvio con le DUE CONDIZIONI sempre scritte
-// sotto (anche a chi non può avviare). Piano, comandi e controllo finale
+// sotto (anche a chi non può avviare). La correzione passa dall'agente (area
+// 8, F4b): senza le sue operazioni accese l'avvio lo dice, e non c'è niente
+// da collegare via SSH. Piano, comandi e controllo finale
 // vivono nella sezione Claude. Chi può avviare lo dice il livello dati
 // (`startBlock`), mai la UI; l'ora dell'episodio è nel fuso di chi guarda.
 
@@ -38,14 +44,9 @@ const linkClass =
   "font-medium text-ink underline decoration-ink/30 underline-offset-4 hover:decoration-ink";
 
 /** Gli stati dopo cui l'avvio dice «Start fix again». */
-const AGAIN = new Set(["plan_rejected", "stopped", "not_resolved"]);
+const AGAIN = new Set(["plan_rejected", "stopped", "not_resolved", "no_plan"]);
 /** I blocchi d'avvio sotto cui le due condizioni restano scritte. */
-const CONDITIONS_UNDER = new Set([
-  "no_permission",
-  "no_fix_access",
-  "fix_access_unverified",
-  "server_busy",
-]);
+const CONDITIONS_UNDER = new Set(["no_permission", "operations_off", "server_busy"]);
 
 export function ServerSection({ task }: { task: Task }) {
   const { t } = useTranslation();
@@ -296,7 +297,8 @@ function Proposal({ text }: { text: string }) {
     <div className="flex min-w-0 flex-col gap-0.5 text-sm">
       <div ref={box} className={`min-w-0 text-ink ${!all ? "line-clamp-4" : ""}`}>
         <span className="font-semibold">{t(`${K}.suggested`)}</span>{" "}
-        <Markdown source={text} className="inline [&>*]:inline" />
+        {/* Testo del modello: si mostra come testo, mai come markup né link (review F4b). */}
+        <span className="[overflow-wrap:anywhere] whitespace-pre-wrap">{text}</span>
       </div>
       {long && (
         <button
@@ -312,16 +314,78 @@ function Proposal({ text }: { text: string }) {
   );
 }
 
+/**
+ * La scheda del piano della correzione, nella sezione Server (decisione del
+ * maintainer, 15 nov 2026): costruita dalla VISTA della correzione — i passi
+ * dell'insieme chiuso, l'avviso della pulizia, chi può decidere — e decisa
+ * con le azioni della correzione (Approva col digest della vista, Rifiuta
+ * con la nota). «Read the full plan» apre la sessione, dove si legge come
+ * Claude ci è arrivato.
+ */
+function FixPlan({
+  task,
+  info,
+  code,
+  project,
+}: {
+  task: Task;
+  info: ServerTaskInfo;
+  code: string;
+  project: string;
+}) {
+  const approve = useApproveServerFix();
+  const reject = useRejectServerFix();
+  const navigate = useNavigate();
+  const fix = info.fix!;
+  const digest = fix.planDigest!;
+  const event = {
+    id: `fix-plan-${digest}`,
+    at: "",
+    type: "plan" as const,
+    planText: "",
+    summary: "",
+    status: "pending" as const,
+    digest,
+    serverPlan: {
+      steps: fix.steps.map((s) => ({ action: s.action, params: s.params, why: s.why })),
+    } as never,
+  };
+  const sessionId = fix.sessionId;
+  return (
+    <PlanCard
+      conversationId={sessionId ?? ""}
+      event={event as never}
+      canDecidePlan={fix.canApprove}
+      projectCode={project || null}
+      statusShown
+      {...(sessionId
+        ? { onReadFull: () => void navigate({ to: "/claude/$id", params: { id: sessionId } }) }
+        : {})}
+      serverFix={{
+        code,
+        canReject: fix.canReject,
+        blockedReason: fix.operationsOn ? null : "operations_off",
+        startedByViewer: fix.startedByViewer,
+        pruneWarning: fix.pruneWarning,
+      }}
+      onDecide={(decision, instructions) =>
+        decision === "approve"
+          ? approve.mutateAsync({ taskId: task.id, planDigest: digest })
+          : reject.mutateAsync({ taskId: task.id, note: instructions ?? "" })
+      }
+    />
+  );
+}
+
 function ServerBody({ task, info }: { task: Task; info: ServerTaskInfo }) {
   const { t } = useTranslation();
-  const { viewer } = useViewer();
   const project = useProjects().data?.find((p) => p.id === task.projectId)?.code ?? "";
-  const code = info.server?.code ?? task.serverRef?.serverCode ?? "";
-  const manageSsh = can(viewer, "servers.ssh.manage");
+  const code = info.server?.code ?? info.goneCode ?? task.serverRef?.serverCode ?? "";
   const [confirming, setConfirming] = useState(false);
   const [notes, setNotes] = useState("");
   const notesId = useId();
   const start = useStartServerFix();
+  const stopFix = useStopServerFix();
   const toast = useToast();
   const aiBlock = useAiBlock(task.projectId).data ?? null;
 
@@ -349,18 +413,6 @@ function ServerBody({ task, info }: { task: Task; info: ServerTaskInfo }) {
 
   const block = info.startBlock;
   const showConditions = info.server !== null && (block === null || CONDITIONS_UNDER.has(block));
-  // Il dettaglio del server si apre dove il server è (lo dice il livello dati).
-  const home = info.server?.projectCode ?? null;
-  const accessLink = manageSsh && info.server && home && (
-    <Link
-      to="/p/$code/servers/$server"
-      params={{ code: home, server: code }}
-      search={{ section: "access" } as never}
-      className={linkClass}
-    >
-      {t(`${K}.linkAccess`)}
-    </Link>
-  );
 
   let start_: ReactNode = null;
   if (info.server && block === null) {
@@ -390,7 +442,6 @@ function ServerBody({ task, info }: { task: Task; info: ServerTaskInfo }) {
     start_ = (
       <p className="flex flex-wrap items-baseline gap-x-2 text-sm text-ink-muted">
         <span>{t(`${K}.blocks.${block}`, { code, project })}</span>
-        {(block === "no_fix_access" || block === "fix_access_unverified") && accessLink}
         {block === "no_permission" && (
           <WhoCanLink action="fixServer" projectId={task.projectId} projectCode={project} />
         )}
@@ -422,6 +473,29 @@ function ServerBody({ task, info }: { task: Task; info: ServerTaskInfo }) {
       )}
       {info.episode && <EpisodeLine episode={info.episode} info={info} />}
       <StateLine info={info} code={code} />
+      {info.state === "plan_awaiting" && info.fix?.planDigest && (
+        <FixPlan task={task} info={info} code={code} project={project} />
+      )}
+      {info.fix && info.fix.commands.length > 0 && (
+        <ServerCommandLog
+          commands={info.fix.commands}
+          serverCode={code}
+          live={info.state === "fixing" || info.state === "fix_planning"}
+        />
+      )}
+      {info.fix?.canStop && (
+        <button
+          type="button"
+          data-stop-fix
+          className={`${secondaryButton} self-start`}
+          disabled={stopFix.isPending}
+          onClick={() =>
+            stopFix.mutate(task.id, { onError: () => toast.error(t(`${K}.stopFailed`)) })
+          }
+        >
+          {t(`${K}.stop`)}
+        </button>
+      )}
 
       {outcomeKey && <p className="text-sm text-ink">{t(`servers.now.work.${outcomeKey}`)}</p>}
       {analysis?.proposal && <Proposal text={analysis.proposal} />}
@@ -479,16 +553,19 @@ function ServerBody({ task, info }: { task: Task; info: ServerTaskInfo }) {
             <strong className="font-semibold">{t(`${K}.dialog.strong`, { code })}</strong>
             {t(`${K}.dialog.after`)}
           </p>
-          <DialogField label={t(`${K}.dialog.notes`)} htmlFor={notesId}>
-            <textarea
-              id={notesId}
-              rows={3}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder={t(`${K}.dialog.notesPlaceholder`, { code })}
-              className={`${inputClass} resize-y`}
-            />
-          </DialogField>
+          {/* Le note per Claude il server non le prende ancora: solo nel prototipo. */}
+          {!isAppBuild() && (
+            <DialogField label={t(`${K}.dialog.notes`)} htmlFor={notesId}>
+              <textarea
+                id={notesId}
+                rows={3}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder={t(`${K}.dialog.notesPlaceholder`, { code })}
+                className={`${inputClass} resize-y`}
+              />
+            </DialogField>
+          )}
         </Dialog>
       )}
     </Section>

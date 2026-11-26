@@ -18,10 +18,13 @@ import { t } from "@stubwise/i18n";
 import {
   cancelPendingCorrection,
   completeCorrection,
+  type PrCorrectionOutcome,
   decryptGitCredentials,
   prHasOpenCorrection,
   promotePendingForTicket,
   providerFeedbackCutoff,
+  colleagueCorrectionPermitted,
+  publishNotification,
   resolveProviderUserId,
   resolveReviewAccountWithCredentials,
   selectProviderFeedback,
@@ -32,6 +35,7 @@ import {
   type FetchPlatformIdentity,
 } from "@stubwise/notifications";
 import {
+  colleaguePrBlock,
   isCorrectablePr,
   isProtectedBranch,
   prCommentSchema,
@@ -41,6 +45,7 @@ import {
 } from "@stubwise/shared";
 import { and, count, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
+import { commitAuthorEmail, prAuthorMandatory } from "../review/pr-author.js";
 import {
   AgentRunCancelledError,
   AgentRunError,
@@ -82,10 +87,13 @@ import {
   holdForBudget,
   notifyJobFailed,
   recordAgentStopExpired,
+  recordRunCancelled,
   type JobOutcomeContext,
 } from "./job-outcomes.js";
 import { commitStatusTargetUrl } from "../review/cycle.js";
 import { ticketUrl, type NotifyDeps } from "./notify.js";
+import { assertNotCancelled, RunCancelRequestedError } from "./cancel.js";
+import { NATIVE_TOOLS, nativeToolsWith } from "../agent/native-tools.js";
 import { buildCorrectionPrompt, buildCorrectionRepairPrompt, REPORT_FILENAME, toSingleLine } from "./prompts.js";
 import { computeReleaseRisk } from "./release-risk.js";
 import { aiJobSession, envSecretsOf, sessionOption } from "../sessions/owners.js";
@@ -215,6 +223,32 @@ class AdoptedBranchMismatchError extends Error {
  * falso. Un messaggio suo, con le due strade per uscirne. Gestito come il
  * mismatch (niente push, pending della stessa PR annullata).
  */
+/**
+ * La PR adottata o di un collega che il provider NON ha potuto verificare
+ * (review della F1): fail-closed, come vuole l'invariante «Le PR dei
+ * colleghi» — senza la prova di DOVE sta il branch non si lavora né si
+ * pusha. Gestita come un branch che non combacia (niente push, la pending
+ * della stessa PR si annulla).
+ */
+class AdoptedPrUnverifiableError extends Error {
+  constructor(when: "prima del worktree" | "prima del push", detail: string) {
+    super(`la PR non è verificabile dal provider ${when} (${detail}): niente push`);
+    this.name = "AdoptedPrUnverifiableError";
+  }
+}
+
+/**
+ * La PR di un collega che l'impostazione non lascia più correggere (area 8,
+ * F1, S8): «Solo analisi» sulla PR, il repository «spento» o «solo analisi»
+ * per un giro automatico — magari scelto a correzione in corso. Niente push.
+ */
+class ColleagueAnalysisOnlyError extends Error {
+  constructor() {
+    super("la PR del collega è in «solo analisi» (o il repository è spento): niente push");
+    this.name = "ColleagueAnalysisOnlyError";
+  }
+}
+
 class AdoptedBranchProtectedError extends Error {
   constructor(branch: string) {
     super(
@@ -534,7 +568,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
 
   const [ticket] = await db.select().from(tickets).where(eq(tickets.id, job.ticketId));
   const [row] = await db
-    .select({ repository: repositories, account: gitAccounts, projectName: projects.name })
+    .select({ repository: repositories, account: gitAccounts, projectId: projects.id, projectName: projects.name })
     .from(repositories)
     .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
     .innerJoin(projects, eq(projects.id, repositories.projectId))
@@ -569,7 +603,10 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
   let correctionDone = false;
   type Closure = "closed" | "cancelled" | "lost";
   const closeJobAndCorrection = async (
-    close: { kind: "complete"; input: CompleteJobInput; keepIfCancelled?: boolean } | { kind: "fail"; input: FailJobInput },
+    close: ({ kind: "complete"; input: CompleteJobInput; keepIfCancelled?: boolean } | { kind: "fail"; input: FailJobInput }) & {
+      /** Lotto 4: l'esito scritto sulla correzione; senza, `pushed` per un job `pr_opened`, `stopped` per ogni altra chiusura. */
+      outcome?: PrCorrectionOutcome;
+    },
   ): Promise<Closure> => {
     const closure = await db.transaction(async (tx): Promise<Closure> => {
       const [current] = await tx
@@ -594,7 +631,8 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
       if (!ok) return "lost";
       // Sotto il FOR UPDATE la riga è ancora `queued`: `false` qui sarebbe
       // un'anomalia, e la si tratta come un annullamento (niente seguito).
-      return (await completeCorrection(tx, correction.id)) ? "closed" : "cancelled";
+      const outcome = close.outcome ?? (close.kind === "complete" && close.input.status === "pr_opened" ? "pushed" : "stopped");
+      return (await completeCorrection(tx, correction.id, outcome)) ? "closed" : "cancelled";
     });
     correctionDone = closure === "closed";
     if (closure === "lost") {
@@ -723,8 +761,9 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     monthlyCostUsdFn: deps.monthlyCostUsdFn ?? monthlyCostUsd,
   });
   if (budget.kind === "held") {
-    await holdForBudget(outcomeCtx, budget.scope, budget.limitUsd, budget.spentUsd, "comment.correctionBudgetHeld");
-    return "held";
+    const held = await holdForBudget(outcomeCtx, budget.scope, budget.limitUsd, budget.spentUsd, "comment.correctionBudgetHeld");
+    // Annullato in questo tentativo: chiuso skipped (con la correzione), non in pausa.
+    return held === "cancelled" ? "skipped" : "held";
   }
   const { maxCostUsd, ticketCostBaseline } = budget;
 
@@ -995,6 +1034,9 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
   // `as`: TS non vede l'assegnazione dentro la callback e lo restringerebbe a
   // `null` nel catch.
   let pushed = null as Pushed | null;
+  // Area 8, F2 (S4): l'autore dell'ultimo commit del collega PRIMA della
+  // correzione (`startSha`), per l'obbligatorio `pr_author` di `pr.corrected`.
+  let prAuthorEmail = null as string | null;
   // Nessun commit dell'agente: la head del worktree dev'essere ancora quella di
   // partenza prima di ogni stage/commit di Stubwise (e dopo ogni run). Un
   // commit dell'agente sfuggirebbe altrimenti al rilevamento delle modifiche
@@ -1022,7 +1064,47 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     if (info.state === "open" && info.sourceBranch !== branch) {
       throw new AdoptedBranchMismatchError(branch, `ora è su ${info.sourceBranch}`);
     }
+    // Il target della PR lo sa solo il provider (area 8, F1, S8).
+    if (info.state === "open" && info.targetBranch === branch) {
+      throw new AdoptedBranchMismatchError(branch, "ramo vietato: target_branch");
+    }
     return info.state;
+  };
+  // Le regole del ramo che vivono nel DB (area 8, F1, review): il default e il
+  // ramo di rilascio del repository, e mai un `stubwise/…`. Girano SEMPRE,
+  // qualunque cosa dica (o non dica) il provider, prima del worktree e prima
+  // del push. I protetti li dice `assertNotProtected`.
+  const assertBranchAllowedByRepo = async (): Promise<void> => {
+    const [repo] = await db
+      .select({ defaultBranch: repositories.defaultBranch, releaseBranch: repositories.releaseBranch })
+      .from(repositories)
+      .where(eq(repositories.id, correction.repositoryId));
+    const defaultBranch = repo?.defaultBranch ?? mirrorProject.defaultBranch;
+    const block = colleaguePrBlock({
+      branch,
+      // Il target lo controlla `checkAdoptedPr`: qui nessun ramo base.
+      baseBranch: "",
+      defaultBranch,
+      releaseBranch: repo?.releaseBranch ?? defaultBranch,
+      fromFork: false,
+      branchProtected: false,
+      ownTaskCode: null,
+    });
+    if (block) throw new AdoptedBranchMismatchError(branch, `ramo vietato: ${block}`);
+  };
+  // L'impostazione delle PR dei colleghi (area 8, F1, S8), riletta prima del
+  // worktree e prima del push: «Solo analisi» acceso a correzione in corso la
+  // ferma qui. Dal DATABASE, fail-closed (un errore di lettura risale).
+  const assertColleagueAllowed = async (): Promise<void> => {
+    const permitted = await colleagueCorrectionPermitted(db, {
+      repositoryId: correction.repositoryId,
+      prNumber: correction.prNumber,
+      ticketNumber: ticket.number,
+      branch,
+      adoptedByUserId: link.adoptedByUserId,
+      trigger: correction.trigger,
+    });
+    if (!permitted) throw new ColleagueAnalysisOnlyError();
   };
   // BRANCH PROTETTO (7 ott 2026): un branch che un admin ha protetto sulla
   // repository (`develop`, `release/*`…) non riceve MAI un push di Stubwise,
@@ -1042,14 +1124,15 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
   try {
     if (adopted) {
       await assertNotProtected();
-      let state: "open" | "closed" | "unknown" = "unknown";
+      await assertBranchAllowedByRepo();
+      await assertColleagueAllowed();
+      let state: "open" | "closed";
       try {
         state = await checkAdoptedPr();
       } catch (err) {
         if (err instanceof AdoptedBranchMismatchError || err instanceof AdoptedBranchProtectedError) throw err;
-        await logLine(
-          `PR adottata non verificabile prima del worktree (${err instanceof Error ? err.message : String(err)}): proseguo, il push la ricontrolla`,
-        );
+        // Fail-closed (review F1): senza la prova del provider non si lavora.
+        throw new AdoptedPrUnverifiableError("prima del worktree", err instanceof Error ? err.message : String(err));
       }
       if (state === "closed") throw new PrNoLongerOpenError();
     }
@@ -1096,6 +1179,8 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
             maxTurns,
             timeoutMs,
             allowedTools,
+            // I nativi della correzione sono quelli dell'esecuzione (`native-tools.ts`).
+            builtinTools: nativeToolsWith(NATIVE_TOOLS.fixExecute, allowedTools),
             ...providerOpt,
             ...pluginOpt,
             ...(await sessionOpt("correction")),
@@ -1132,6 +1217,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
                 maxTurns,
                 timeoutMs,
                 allowedTools: baseAllowedTools,
+                builtinTools: nativeToolsWith(NATIVE_TOOLS.fixExecute, baseAllowedTools),
                 ...providerOpt,
                 ...pluginOpt,
                 ...(await sessionOpt("correction_self_repair")),
@@ -1165,7 +1251,11 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
           // si prosegue (fail-open, come il gate della review): il push è in
           // avanti, sul NOSTRO branch, e un commit su una PR appena chiusa non
           // fa danni; un errore transitorio che buttasse via il lavoro sì.
-          if (adopted) await assertNotProtected();
+          if (adopted) {
+            await assertNotProtected();
+            await assertBranchAllowedByRepo();
+            await assertColleagueAllowed();
+          }
           let prState: "open" | "closed" | "unknown" = "unknown";
           try {
             prState = adopted
@@ -1173,6 +1263,10 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
               : await provider.getPullRequestState(mirrorProject, correction.prNumber);
           } catch (err) {
             if (err instanceof AdoptedBranchMismatchError || err instanceof AdoptedBranchProtectedError) throw err;
+            // Sul branch di una PERSONA (adottata o di un collega) è fail-closed
+            // (review F1): niente push senza la prova del provider. Sul NOSTRO
+            // branch resta fail-open: il push è in avanti e non fa danni.
+            if (adopted) throw new AdoptedPrUnverifiableError("prima del push", err instanceof Error ? err.message : String(err));
             await logLine(
               `stato della PR non verificabile (${err instanceof Error ? err.message : String(err)}): pusho comunque`,
             );
@@ -1187,6 +1281,9 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
             .split("\n")
             .filter((line) => line.length > 0);
           const testStatus = loop.testStatusByRepo.get(state.prepared.repositoryId) ?? "skipped";
+          // «Annulla il lavoro» arrivato a CLI già uscito: niente push sulla PR.
+          assertNotCancelled(deps.cancelSignal);
+          if (adopted) prAuthorEmail = await commitAuthorEmail(state.dir, startSha ?? "HEAD");
           // MAI --force: un rifiuto è PushRejectedError, gestito sotto.
           await mirrors.pushBranch(mirrorProject, branch, adoptedOpt);
           pushed = { report, agentOutput: loop.output, testStatus, headSha, prFiles };
@@ -1237,9 +1334,9 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     const fail = async (
       log: string,
       error: string,
-      opts: { promote?: boolean; reviewHead?: boolean; afterClose?: () => Promise<void> } = {},
+      opts: { promote?: boolean; reviewHead?: boolean; afterClose?: () => Promise<void>; outcome?: PrCorrectionOutcome } = {},
     ): Promise<CorrectionOutcome> => {
-      const closure = await closeJobAndCorrection({ kind: "fail", input: { log, error } });
+      const closure = await closeJobAndCorrection({ kind: "fail", input: { log, error }, ...(opts.outcome ? { outcome: opts.outcome } : {}) });
       if (closure === "lost") return "lost";
       if (closure === "cancelled") return "skipped";
       await restoreStatus();
@@ -1260,8 +1357,28 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
       // Status rimesso SOLO se il hold è avvenuto: a ownership persa il job è
       // di chi l'ha ripreso, e lo status lo scrive lui.
       const held = await holdForBudget(outcomeCtx, err.scope, err.limitUsd, err.spentUsd, "comment.correctionBudgetHeld");
-      if (held) await restoreStatus();
-      return held ? "held" : "lost";
+      if (held === "parked") await restoreStatus();
+      return held === "parked" ? "held" : held === "cancelled" ? "skipped" : "lost";
+    }
+    if (err instanceof RunCancelRequestedError) {
+      // «Annulla il lavoro» (area 3, 3b.1-bis): la stessa chiusura dello
+      // «Ferma» scaduto qui sotto, con il commento di chi l'ha chiesto.
+      const closure = await closeJobAndCorrection({
+        kind: "complete",
+        input: {
+          status: "skipped",
+          log: `[correction] output prima dell'annullamento:\n${truncateForLog(err.partialOutput)}\n[correction] lavoro annullato da una persona: niente push`,
+        },
+      });
+      if (closure === "lost") return "lost";
+      if (closure === "cancelled") return "skipped";
+      await restoreStatus();
+      await recordRunCancelled(db, { ticketId: ticket!.id, jobId: job.id, kind: "correction", lang }).catch(async (e: unknown) => {
+        await logLine(`commento dell'annullamento non scritto: ${e instanceof Error ? e.message : String(e)}`);
+      });
+      await promotePending();
+      await reviewCurrentHead();
+      return "skipped";
     }
     if (err instanceof AgentRunCancelledError) {
       // ANNULLAMENTO da un maintainer («Ferma» e pausa scaduta), come nel fix:
@@ -1331,7 +1448,12 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     if (err instanceof AgentCommittedError) {
       return fail(`[correction] ${err.message}`, err.message);
     }
-    if (err instanceof AdoptedBranchMismatchError || err instanceof AdoptedBranchProtectedError) {
+    if (
+      err instanceof AdoptedBranchMismatchError ||
+      err instanceof AdoptedBranchProtectedError ||
+      err instanceof AdoptedPrUnverifiableError ||
+      err instanceof ColleagueAnalysisOnlyError
+    ) {
       // Nessuna review della head attuale: il branch non è più quello giusto.
       // E come per un branch sparito, la pending della STESSA PR si annulla:
       // il tick la ripromuoverebbe a ogni giro, e ogni giro finirebbe qui.
@@ -1352,7 +1474,13 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     if (err instanceof PushRejectedError) {
       return fail(
         `[correction] ${err.message}\n[correction] mai --force: la prossima richiesta ripartirà dal branch aggiornato`,
+        // ⚠️ Questa frase è la chiave del backfill della 0220 (`error LIKE
+        // 'push rifiutato:%'` → `outcome = 'discarded'`): le righe di prima si
+        // riconoscono da qui. Cambiarne l'inizio non tocca le righe nuove (hanno
+        // `outcome`), ma va saputo rileggendo la migrazione.
         `push rifiutato: qualcuno ha pushato sul branch ${branch} durante la correzione`,
+        // Lotto 4: una correzione SCARTATA (qualcuno ha pushato prima), non fermata.
+        { outcome: "discarded" },
       );
     }
     if (err instanceof BranchNotFoundError) {
@@ -1457,6 +1585,41 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     // controllo pre-push: il push c'è stato, ma la PR non si corregge più — né
     // promozione né review (la riga di log l'ha scritta closeJobAndCorrection).
     if (!correctionDone) return "pushed";
+
+    // Area 8, F2 (S4): `pr.corrected` — Claude ha spinto una correzione sul
+    // ramo di una PR di un COLLEGA (o adottata), una volta per correzione.
+    // Solo obbligatorio (`mandatoryOnly`): l'autore collegato della PR.
+    // Best-effort, prima dell'accodamento della review (l'ultimo passo).
+    if (adopted) {
+      try {
+        const [rev] = await db
+          .select({ title: prReviews.prTitle })
+          .from(prReviews)
+          .where(and(eq(prReviews.repositoryId, correction!.repositoryId), eq(prReviews.prNumber, correction!.prNumber)))
+          .orderBy(desc(prReviews.createdAt))
+          .limit(1);
+        const [proj] = await db.select({ code: projects.code }).from(projects).where(eq(projects.id, row!.projectId));
+        const base = (deps.publicUrl ?? "").replace(/\/+$/, "");
+        await (deps.publish ?? publishNotification)(
+          db,
+          {
+            kind: "pr.corrected",
+            projectId: row!.projectId,
+            repositoryName: row!.repository.name,
+            prNumber: correction!.prNumber,
+            prUrl,
+            title: rev?.title ?? ticket!.title,
+            url: `${base}/app/#/p/${proj?.code ?? ""}/releases?pr=${correction!.repositoryId}%23${correction!.prNumber}`,
+          },
+          {
+            projectId: row!.projectId,
+            mandatory: await prAuthorMandatory(db, { projectId: row!.projectId, ticketNumber: ticket!.number, branch, headAuthorEmail: prAuthorEmail }),
+          },
+        );
+      } catch (err) {
+        await logLine(`avviso pr.corrected non pubblicato (${err instanceof Error ? err.message : String(err)})`);
+      }
+    }
 
     // Dopo il push: prima le richieste umane in attesa del ticket; poi la review
     // di QUESTA PR, se non ha una correzione aperta. Sulla head ATTUALE del

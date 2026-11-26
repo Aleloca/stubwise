@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { ticketTypeSchema, type ProjectPermission, type TicketType } from "@stubwise/shared";
 import { docPages, projects, repositories, users } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
+import { readsDocs } from "../auth/access.js";
 import type { EmbeddingClient } from "@stubwise/embeddings";
 import { t, type Language } from "@stubwise/i18n";
 import {
@@ -158,6 +159,24 @@ function header(request: FastifyRequest, name: string): string | undefined {
  * `/stubwise:docs`, `/qualcosa-docs`): il campo `command` arriva col nome esatto
  * configurato e non possiamo imporlo. Ogni altro comando cade nel ramo ticket.
  */
+/**
+ * Il lavoro lanciato DOPO l'ack (la risposta dai Docs, le azioni dell'inbox):
+ * Slack vuole l'ack entro 3 secondi, quindi nessuno lo aspetta. Lo si tiene
+ * qui solo perché i test possano aspettarlo prima del caso dopo
+ * ({@link settleSlackBackground}): altrimenti un post in ritardo finisce
+ * nelle spie del test successivo.
+ */
+const background = new Set<Promise<unknown>>();
+function inBackground(work: Promise<unknown>): void {
+  background.add(work);
+  void work.finally(() => background.delete(work));
+}
+
+/** Per i test: aspetta che il lavoro lanciato dopo l'ack sia finito. */
+export async function settleSlackBackground(): Promise<void> {
+  while (background.size > 0) await Promise.allSettled([...background]);
+}
+
 function isDocsCommand(command: string | undefined): boolean {
   if (!command) return false;
   return command === "/docs" || command.endsWith(":docs") || command.endsWith("-docs");
@@ -233,6 +252,8 @@ async function listProjectsWithDocs(
         ),
       ),
     )
+    // Col modulo Docs spento il progetto non c'è (revisione del lotto 1).
+    .where(sql`'docs' = any(${projects.modules})`)
     .groupBy(projects.id, projects.name, projects.slug)
     .orderBy(asc(projects.name));
   // Solo i progetti di cui l'utente collegato legge i Docs (`docs.view`).
@@ -762,7 +783,8 @@ export async function slackRoutes(
         // (R21, come le chat Docs della SPA). Un progetto che non vede ha la
         // stessa risposta di uno che non esiste: nessuna generazione.
         const docsPermissions = await projectPermissionsOfUser(instance.db, linked.id, docsProjectId!);
-        if (!docsPermissions?.has("docs.view")) {
+        // Col modulo Docs spento come un progetto che non vede (revisione del lotto 1).
+        if (!(await readsDocs(instance.db, docsProjectId!, docsPermissions))) {
           await postResponse(meta.responseUrl, {
             response_type: "ephemeral",
             text: "Progetto non disponibile.",
@@ -775,7 +797,7 @@ export async function slackRoutes(
         // L'ack NON deve aspettare il RAG.
         const ackReply = ack(reply);
         const responseUrl = meta.responseUrl;
-        void answerAndPostToSlack(
+        inBackground(answerAndPostToSlack(
           {
             db: instance.db,
             embeddingClient,
@@ -785,14 +807,14 @@ export async function slackRoutes(
             // Stesso runtime del grafo delle chat interne (fase 2b): il logger
             // è quello della richiesta — la generazione prosegue dopo l'ack, ma
             // il log resta correlato alla view_submission.
-            ...(docsPermissions.has("repos.view")
+            ...(docsPermissions?.has("repos.view")
               ? { graph: { ...instance.graphChat, logger: request.log } }
               : {}),
           },
           { projectId: docsProjectId!, question: question!, responseUrl },
         ).catch((err) => {
           request.log.warn({ err }, "[slack] docs answer failed");
-        });
+        }));
         return ackReply;
       }
 
@@ -1003,7 +1025,7 @@ export async function slackRoutes(
       const answerAll = press?.kind === "all";
       const ackReply = ack(reply);
       const publicUrl = publicUrlOrUndefined(instance);
-      setImmediate(() => {
+      inBackground(new Promise<void>((settled) => setImmediate(() => {
         // Lingua di chi ha premuto, appena la si conosce: serve anche al
         // messaggio d'errore del catch qui sotto.
         let actorLang: Language | undefined;
@@ -1047,8 +1069,8 @@ export async function slackRoutes(
           } catch (postErr) {
             request.log.warn({ err: postErr }, "[slack] effimero d'errore non inviato");
           }
-        });
-      });
+        }).finally(settled);
+      })));
       return ackReply;
     }
 

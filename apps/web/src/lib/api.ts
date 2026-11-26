@@ -103,6 +103,9 @@ import type {
   ProjectDecision,
   ProjectEnvironment,
   ProjectFollows,
+  ProjectIntegration,
+  IngestionKeyResult,
+  WebhookSecretResult,
   ProjectPlugin,
   ProjectPulseSummary,
   ProjectTimeline,
@@ -146,6 +149,8 @@ import type {
   WidgetRepositoryFilters,
   WidgetSettings,
   WidgetUpsertBody,
+  VaultDevicePairingLookupResponse,
+  VaultDeviceSealBody,
 } from "@stubwise/shared";
 
 // Import RUNTIME (non di solo tipo).
@@ -495,6 +500,20 @@ export function getVaultStatus(): Promise<VaultStatusResponse> {
   return api.get("/api/vault/status");
 }
 
+/**
+ * Lotto 10, la chiave del Mac: l'associazione che il Mac ha chiesto, letta
+ * dallo `state` (nel CORPO, non nell'indirizzo: non finisce nei log). 404
+ * `pairing_invalid` se è sconosciuta, scaduta, usata o d'altri.
+ */
+export function postVaultDevicePairingLookup(state: string): Promise<VaultDevicePairingLookupResponse> {
+  return api.post("/api/vault/device-pairings/lookup", { state });
+}
+
+/** Il sigillo della propria chiave per il Mac (riconferma, prova della propria chiave). */
+export function postVaultDeviceSeal(body: VaultDeviceSealBody): Promise<{ id: string; deviceName: string; createdAt: string }> {
+  return api.post("/api/vault/device-seals", body);
+}
+
 /** Attivazione (full admin): la sola chiave PUBBLICA di recupero (409 `vault_already_active`). */
 export function postVaultActivate(recoveryPublicKey: string): Promise<void> {
   return api.post("/api/vault/activate", { recoveryPublicKey });
@@ -711,7 +730,7 @@ export function postTotpSetupConfirm(code: string): Promise<TotpSetupConfirmResp
 
 /**
  * Azzera il secondo fattore di un altro utente (`users.manage`, riconferma):
- * 204. Errori attesi: 400 `cannot_reset_own_second_factor`, 403 `target_above`.
+ * 204. Errori attesi: 400 `cannot_reset_own_second_factor`.
  */
 export function deleteUserSecondFactor(userId: string): Promise<void> {
   return api.delete(`/api/users/${encodeURIComponent(userId)}/second-factor`);
@@ -1518,7 +1537,10 @@ export type TicketEventKind =
   | "body_changed"
   | "milestone_changed"
   | "relation_added"
-  | "relation_removed";
+  | "relation_removed"
+  | "planned_week_changed"
+  | "department_changed"
+  | "effort_changed";
 
 /** Commento nel feed unificato. */
 export interface ActivityComment {
@@ -1963,6 +1985,8 @@ export interface Repository {
  */
 export interface RepositorySaveResponse extends Repository {
   warnings?: RepositoryWarning[];
+  /** Solo dalla creazione (area 9, F5, decisione C): il segreto del webhook intero, una volta. */
+  webhookSecret?: string;
 }
 
 /**
@@ -2029,18 +2053,31 @@ export function getRepository(slug: string): Promise<Repository> {
 }
 
 /**
- * Config del webhook git di un repository: segreto HMAC + path su cui il
- * provider consegna gli eventi di merge. Endpoint solo admin: i member
- * ricevono 403. Il segreto permette di forgiare webhook, quindi non compare
- * mai nella proiezione pubblica del repository.
+ * Config del webhook git di un repository: il path su cui il provider
+ * consegna gli eventi di merge e le ultime 4 del segreto HMAC. Endpoint
+ * `repos.manage`: gli altri ricevono 403. Area 9, F5 (decisione C): il
+ * segreto INTERO non esce da qui; lo dà una volta la creazione del
+ * repository o la rigenerazione ({@link regenerateWebhookSecret}).
  */
 export interface RepositoryWebhook {
-  webhookSecret: string;
   webhookPath: string;
+  /** Assente da un server di prima di F5, che mandava il segreto intero. */
+  secretLast4?: string;
+  configured?: boolean;
 }
 
 export function getRepositoryWebhook(slug: string): Promise<RepositoryWebhook> {
   return api.get(`/api/repositories/${encodeURIComponent(slug)}/webhook`);
+}
+
+/**
+ * Area 9, F5: un segreto del webhook git nuovo (`repos.manage`, riconferma:
+ * un 403 `reauth_required` apre il dialogo e la richiesta riparte). Il
+ * segreto si legge solo qui, una volta (`manual` e `platform`); con
+ * `rollback` resta il vecchio.
+ */
+export function regenerateWebhookSecret(slug: string): Promise<WebhookSecretResult> {
+  return api.post(`/api/repositories/${encodeURIComponent(slug)}/webhook-secret`);
 }
 
 export function postRepository(draft: RepositoryDraft): Promise<RepositorySaveResponse> {
@@ -2231,8 +2268,11 @@ export interface Project {
    * Chiave di ingestion del progetto (Fase 3): gli SDK e i webhook inbound la
    * usano per autenticare l'invio di errori/ticket. Salita dal repository al
    * progetto; tutti i repo del gruppo condividono questa chiave.
+   *
+   * Area 9, F5 (I2): `null` da ogni lettura; intera solo dalla creazione
+   * (decisione D), una volta.
    */
-  ingestionKey: string;
+  ingestionKey: string | null;
   /** Prossimo numero di ticket del progetto (numerazione per-progetto). */
   nextTicketNumber: number;
   createdAt: string;
@@ -2305,6 +2345,23 @@ export function getProjects(): Promise<ProjectListItem[]> {
 
 export function getProject(projectId: string): Promise<ProjectDetail> {
   return api.get(`/api/projects/${encodeURIComponent(projectId)}`);
+}
+
+/**
+ * Area 9, F5 (I2): l'Integrazione del progetto, SENZA la chiave intera (le
+ * ultime 4, quando, da chi) e coi permessi calcolati dal server.
+ */
+export function getProjectIntegration(projectId: string): Promise<ProjectIntegration> {
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/integration`);
+}
+
+/**
+ * Una chiave d'ingestione nuova: si legge solo qui, una volta; la vecchia
+ * smette subito. Chiede la riconferma: un 403 `reauth_required` apre il
+ * dialogo e la richiesta riparte.
+ */
+export function regenerateIngestionKey(projectId: string): Promise<IngestionKeyResult> {
+  return api.post(`/api/projects/${encodeURIComponent(projectId)}/ingestion-key`);
 }
 
 export function postProject(draft: ProjectDraft): Promise<Project> {
@@ -2390,10 +2447,6 @@ export function getProjectReviews(
 
 export function patchProject(projectId: string, patch: ProjectPatch): Promise<Project> {
   return api.patch(`/api/projects/${encodeURIComponent(projectId)}`, patch);
-}
-
-export function deleteProject(projectId: string): Promise<void> {
-  return request("DELETE", `/api/projects/${encodeURIComponent(projectId)}`);
 }
 
 // --- Repository env files ---
@@ -2811,7 +2864,9 @@ export function getPlugins(): Promise<PluginRegistry> {
  * Registra un plugin: 201 con la riga appena creata, ancora `status: "none"` —
  * la materializzazione la fa il worker quando claima il job accodato qui.
  */
-export function createPlugin(input: CreatePluginInput): Promise<Plugin> {
+export function createPlugin(input: CreatePluginInput & { trust: boolean }): Promise<Plugin> {
+  // Area 9, F3: «Mi fido» lo dice la persona nel modulo (registrare ne esegue
+  // il codice); senza, il server risponde 422 `trust_required`.
   return api.post("/api/plugins", input);
 }
 
@@ -2819,8 +2874,8 @@ export function createPlugin(input: CreatePluginInput): Promise<Plugin> {
  * Cambia il ref pinnato e riaccoda la materializzazione: 202, il lavoro lo fa
  * il worker. 409 `plugin_job_pending` se ce n'è già uno in volo.
  */
-export function updatePluginRef(id: string, ref: string): Promise<{ queued: true }> {
-  return api.post(`/api/plugins/${encodeURIComponent(id)}/update`, { ref });
+export function updatePluginRef(id: string, ref: string, trust: boolean): Promise<{ queued: true }> {
+  return api.post(`/api/plugins/${encodeURIComponent(id)}/update`, { ref, trust });
 }
 
 /**
@@ -3889,8 +3944,20 @@ export type {
  * `.default()` dello schema qui non gira mai. Un campo nuovo che questo bundle
  * legga va difeso nel punto di lettura (`?? null`, `?? []`).
  */
-export type { ServerDisk, ServerProjectSummary, ServerView } from "@stubwise/shared";
-import type { ServerDetail as SharedServerDetail, ServerView } from "@stubwise/shared";
+export type { ServerDisk, ServerProjectSummary } from "@stubwise/shared";
+import type { ServerDetail as SharedServerDetail, ServerView as SharedServerView } from "@stubwise/shared";
+
+/** I campi della F4a dell'area 8 (code, salute, ambienti…): additivi, il web non li legge. */
+type F4aViewFields = "code" | "health" | "environments" | "work" | "orphan" | "inArchivedOnly" | "agentOperations";
+/** Più `canStartAnalysis` (area 8, F4b): additivo, il web non lo legge. */
+type F4aDetailFields = F4aViewFields | "checks" | "episodes" | "productionProjects" | "canManage" | "canStartAnalysis" | "ssh";
+
+/**
+ * La vista di un server COME LA VEDE IL WEB (cast, nessun parse): i campi
+ * nuovi dell'area 8, F4a, sono OPZIONALI qui, perché il `.default()` dello
+ * schema non gira e un server più vecchio non li manda.
+ */
+export type ServerView = Omit<SharedServerView, F4aViewFields> & Partial<Pick<SharedServerView, F4aViewFields>>;
 
 /**
  * Il dettaglio di un server COME LO VEDE IL WEB, che fa un cast e non un
@@ -3900,10 +3967,11 @@ import type { ServerDetail as SharedServerDetail, ServerView } from "@stubwise/s
  * li manda. Il tipo lo dice, così chi un giorno li leggesse da qui è
  * costretto dal compilatore al `?? null` nel punto di lettura.
  */
-export type ServerDetail = Omit<SharedServerDetail, "memUsedBytes" | "memTotalBytes"> & {
-  memUsedBytes?: number | null;
-  memTotalBytes?: number | null;
-};
+export type ServerDetail = Omit<SharedServerDetail, "memUsedBytes" | "memTotalBytes" | F4aDetailFields> &
+  Partial<Pick<SharedServerDetail, F4aDetailFields>> & {
+    memUsedBytes?: number | null;
+    memTotalBytes?: number | null;
+  };
 
 /**
  * Server con la chiave dell'agente (`sk_…`) in chiaro: restituito SOLO da

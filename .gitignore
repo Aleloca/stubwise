@@ -35,3 +35,14 @@ caddy.d/*.caddy
 
 # Materiali di design (mockup, sorgenti grafiche): restano in locale
 designs/
+
+# App desktop: build web della nuova app (/app) e pacchetti locali.
+apps/desktop/dist-web/
+apps/desktop/release/
+
+# Le chiavi API di App Store Connect (notarizzazione, I1): mai nella repo.
+*.p8
+# Il profilo di provisioning dell'helper della cassaforte (I1): da env, mai nella repo.
+*.provisionprofile
+# L'helper del Secure Enclave compilato (apps/desktop, scripts/build-keyhelper.mjs).
+apps/desktop/build/bin/

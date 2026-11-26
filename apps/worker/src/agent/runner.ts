@@ -18,6 +18,7 @@
 
 import type { AgentSegmentLabel, AiOperation } from "@stubwise/shared";
 import type { ResolvedProvider } from "../providers/chain.js";
+import type { NativeTool } from "./native-tools.js";
 import type { RateLimitInfo } from "./rate-limit-event.js";
 
 /**
@@ -97,11 +98,15 @@ export interface UsageTag {
   jobId?: string;
   prReviewId?: string;
   emailMessageId?: string;
+  /** Area 7, F3: l'automazione di un passo di Claude (o di una sua prova). */
+  automationId?: string;
+  /** …e la sua esecuzione: solo con `automationId`; assente = una prova. */
+  automationRunId?: string;
   /**
    * Solo con jobId: fase per i lettori per-ticket (il CHECK
    * `agent_runs_job_phase_check` la pretende quando c'è un job).
    */
-  phase?: "triage" | "fix" | "review" | "email_classify";
+  phase?: "triage" | "fix" | "review" | "email_classify" | "calendar_classify";
   /**
    * false = il chiamante scrive da sé le righe (writer storici: triage, fix,
    * correzione, review, posta — che usano `AgentRunResult.runId`). Default
@@ -184,6 +189,17 @@ export interface AgentRunOptions {
    * aggiunge un'unione con una lista NON vuota.
    */
   settingSources?: "";
+  /**
+   * I tool NATIVI del CLI per questo run (`--tools <lista>`, vedi
+   * `native-tools.ts`): un elenco di `NATIVE_TOOLS`, oppure `""`/`[]` per
+   * nessuno. ASSENTE = nessun nativo (`--tools ""`): fail-closed, perché dal CLI
+   * 2.1.322 i nativi nuovi (CronCreate, RemoteTrigger, SendMessage,
+   * PushNotification, ToolSearch…) partono in `-p` senza chiedere permesso, e
+   * un elenco dei negati resterebbe indietro. I tool MCP di `mcpConfig` non ne
+   * dipendono. Il runner in streaming confronta l'init del CLI con questo
+   * elenco e ferma il run se il CLI espone altro.
+   */
+  builtinTools?: "" | readonly NativeTool[];
   /**
    * Permission mode del CLI claude, mappato su `--permission-mode <mode>`:
    * - "acceptEdits" (default): consente le modifiche ai file ma NEGA Bash in
@@ -302,6 +318,13 @@ export interface AgentRunResult {
    * (`record: false`) scrivono sulle proprie. Assente coi runner nudi.
    */
   runId?: string;
+  /**
+   * Il modello con cui il run è partito, come l'ha risolto `TrackingAgentRunner`
+   * (`ai_model_settings` → `opts.model`). Assente coi runner nudi o senza un
+   * modello esplicito. Serve a chi registra il modello accanto al risultato
+   * (il giudizio J2 sulla risposta, rimandi lotto 4).
+   */
+  model?: string;
 }
 
 export interface AgentRunner {

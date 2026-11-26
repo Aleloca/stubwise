@@ -109,6 +109,17 @@ function event(overrides: Partial<CalendarEventItem> & Pick<CalendarEventItem, "
     reminders: [],
     remindersUseDefault: false,
     recurrence: [],
+    recognized: true,
+    projectBy: null,
+    eventType: null,
+    transparency: null,
+    myResponse: null,
+    attendeeCount: null,
+    canEdit: false,
+    canRespond: false,
+    etag: null,
+    myNote: null,
+    hasPrep: false,
     ...overrides,
   };
 }

@@ -25,6 +25,6 @@ export {
   syncCalendar,
   updateEvent,
 } from "./writes";
-export { whenCalendarIdle } from "./save";
+export { onSaving, whenCalendarIdle } from "./save";
 export { calendarWindow } from "./visibility";
 export { getMeetingPrep } from "./prep";

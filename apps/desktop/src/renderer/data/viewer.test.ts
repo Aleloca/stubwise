@@ -1,4 +1,4 @@
-import { INSTANCE_PERMISSIONS, PROJECT_PERMISSIONS } from "@stubwise/shared";
+import { INSTANCE_PERMISSIONS, PRESET_ROLES, PROJECT_PERMISSIONS } from "@stubwise/shared";
 import { describe, expect, it } from "vitest";
 import { GIULIA_LEAD_CODES, PROJECTS } from "./seed/projects";
 import en from "../i18n/locales/en.json";
@@ -42,9 +42,9 @@ describe("viewer", () => {
     ]);
   });
 
-  it("Matteo, proprietario di AUT-1: Project Lead dove è membro, `automations.manage` d'istanza", () => {
+  it("Matteo, proprietario di AUT-1: Project Lead dove è membro, `automations.general.manage` (le generali)", () => {
     const matteo = VIEW_AS_PERSONAS.find((p) => p.personId === "p-matteo")!.viewer;
-    expect(matteo.instancePermissions).toContain("automations.manage");
+    expect(matteo.instancePermissions).toContain("automations.general.manage");
     expect(matteo.instancePermissions).not.toContain("instance.full_admin");
     for (const project of PROJECTS) {
       expect(can(matteo, "plans.approve", project.id), project.code).toBe(
@@ -308,18 +308,18 @@ describe("permessi delle Automations (area 7)", () => {
     expect(can(byPerson("p-laura"), "automations.manage", MKX)).toBe(false);
   });
 
-  it("automations.manage d'istanza (le generali): del preset admin, più la concessione personale del seme a Matteo (R-J10)", () => {
-    expect(can(byPerson("p-roberta"), "automations.manage")).toBe(true);
-    expect(byPerson("p-roberta").instancePermissions).toContain("automations.manage");
+  it("automations.general.manage (le generali): del preset admin, più la concessione personale del seme a Matteo (R-J10)", () => {
+    expect(can(byPerson("p-roberta"), "automations.general.manage")).toBe(true);
+    expect(byPerson("p-roberta").instancePermissions).toContain("automations.general.manage");
     for (const id of ["p-giulia", "p-marco", "p-laura", "p-sara"]) {
-      expect(can(byPerson(id), "automations.manage")).toBe(false);
+      expect(can(byPerson(id), "automations.general.manage")).toBe(false);
     }
     // Una concessione personale, non del preset: si toglie e il reset la ridà.
-    expect(can(viewerFor("p-matteo"), "automations.manage")).toBe(true);
-    revokeInstancePermission("p-matteo", "automations.manage");
-    expect(can(viewerFor("p-matteo"), "automations.manage")).toBe(false);
+    expect(can(viewerFor("p-matteo"), "automations.general.manage")).toBe(true);
+    revokeInstancePermission("p-matteo", "automations.general.manage");
+    expect(can(viewerFor("p-matteo"), "automations.general.manage")).toBe(false);
     resetViewerGrants();
-    expect(can(viewerFor("p-matteo"), "automations.manage")).toBe(true);
+    expect(can(viewerFor("p-matteo"), "automations.general.manage")).toBe(true);
   });
 
   it("integrations.manage (sorgenti e tabella cliente → progetto): solo all'admin", () => {
@@ -333,17 +333,17 @@ describe("permessi delle Automations (area 7)", () => {
     grantProjectPermission("p-marco", AUD, "automations.manage");
     expect(can(byPerson("p-marco"), "automations.manage", AUD)).toBe(true);
     // Il permesso di progetto non dà quello d'istanza…
-    expect(can(byPerson("p-marco"), "automations.manage")).toBe(false);
+    expect(can(byPerson("p-marco"), "automations.general.manage")).toBe(false);
     revokeProjectPermission("p-laura", AUD, "automations.manage");
     expect(can(byPerson("p-laura"), "automations.manage", AUD)).toBe(false);
-    grantInstancePermission("p-laura", "automations.manage");
-    expect(can(byPerson("p-laura"), "automations.manage")).toBe(true);
+    grantInstancePermission("p-laura", "automations.general.manage");
+    expect(can(byPerson("p-laura"), "automations.general.manage")).toBe(true);
     // …e quello d'istanza non dà quello di progetto.
     expect(can(byPerson("p-laura"), "automations.manage", AUD)).toBe(false);
     resetViewerGrants();
     expect(can(byPerson("p-marco"), "automations.manage", AUD)).toBe(false);
     expect(can(byPerson("p-laura"), "automations.manage", AUD)).toBe(true);
-    expect(can(byPerson("p-laura"), "automations.manage")).toBe(false);
+    expect(can(byPerson("p-laura"), "automations.general.manage")).toBe(false);
   });
 });
 
@@ -351,19 +351,19 @@ describe("permessi del Support (area 8a)", () => {
   const AUD = "prj-aud";
   const ACQ = "prj-acq";
 
-  it("support.reply: Project Lead, Developer e Legacy Member sì; Contributor e Viewer no", () => {
-    expect(can(byPerson("p-laura"), "support.reply", AUD)).toBe(true);
-    expect(can(byPerson("p-marco"), "support.reply", AUD)).toBe(true);
+  it("support.manage: Project Lead, Developer e Legacy Member sì; Contributor e Viewer no", () => {
+    expect(can(byPerson("p-laura"), "support.manage", AUD)).toBe(true);
+    expect(can(byPerson("p-marco"), "support.manage", AUD)).toBe(true);
     // Elena è Legacy Member in AUD.
-    expect(can(byPerson("p-elena"), "support.reply", AUD)).toBe(true);
-    expect(can(byPerson("p-matteo"), "support.reply", ACQ)).toBe(true);
+    expect(can(byPerson("p-elena"), "support.manage", AUD)).toBe(true);
+    expect(can(byPerson("p-matteo"), "support.manage", ACQ)).toBe(true);
     // Sara (Contributor) e Silvia (Viewer) sono membri di ACQ ma non rispondono ai clienti.
     expect(byPerson("p-sara").projectPermissions[ACQ]).toBeDefined();
-    expect(can(byPerson("p-sara"), "support.reply", ACQ)).toBe(false);
+    expect(can(byPerson("p-sara"), "support.manage", ACQ)).toBe(false);
     expect(byPerson("p-silvia").projectPermissions[ACQ]).toBeDefined();
-    expect(can(byPerson("p-silvia"), "support.reply", ACQ)).toBe(false);
+    expect(can(byPerson("p-silvia"), "support.manage", ACQ)).toBe(false);
     // Il full admin ce l'ha ovunque, come ogni permesso di progetto.
-    expect(can(byPerson("p-roberta"), "support.reply", ACQ)).toBe(true);
+    expect(can(byPerson("p-roberta"), "support.manage", ACQ)).toBe(true);
   });
 });
 
@@ -372,7 +372,10 @@ describe("permessi dei server (area 8b)", () => {
   const AUD = "prj-aud";
 
   it("servers.operate: nessun preset di progetto lo contiene", () => {
-    const presets = Object.entries(LOCAL_PROJECT_PERMISSIONS);
+    // I preset di progetto come li ha il prototipo: quelli del registro più i locali.
+    const presets = PRESET_ROLES.filter((r) => r.scope === "project").map(
+      (r) => [r.key, [...r.permissions, ...(LOCAL_PROJECT_PERMISSIONS[r.key] ?? [])]] as const,
+    );
     expect(presets.length).toBeGreaterThan(0);
     for (const [preset, perms] of presets) expect(perms, preset).not.toContain("servers.operate");
   });
@@ -398,13 +401,14 @@ describe("permessi dei server (area 8b)", () => {
   });
 
   it("servers.ssh.manage: d'istanza, del solo preset Admin", () => {
-    expect(LOCAL_INSTANCE_PERMISSIONS).toContain("servers.ssh.manage");
+    // Dall'area 8, F4b è nel registro condiviso: non più un permesso locale.
+    expect(LOCAL_INSTANCE_PERMISSIONS).not.toContain("servers.ssh.manage");
     expect(byPerson("p-roberta").instancePermissions).toContain("servers.ssh.manage");
     for (const id of ["p-giulia", "p-marco", "p-laura", "p-sara", "p-matteo", "p-elena"]) {
       expect(can(byPerson(id), "servers.ssh.manage"), id).toBe(false);
     }
-    // Locale al prototipo, separato da monitor.manage.
-    expect(INSTANCE_PERMISSIONS as readonly string[]).not.toContain("servers.ssh.manage");
+    // Separato da monitor.manage; dall'area 8, F4b (0181) è anche nel registro condiviso.
+    expect(INSTANCE_PERMISSIONS as readonly string[]).toContain("servers.ssh.manage");
   });
 
   it("le concessioni del seme si tolgono, e resetViewerGrants (resetApi) le rimette", () => {
@@ -467,11 +471,11 @@ describe("R-L9: Claude, membro implicito di ogni progetto coi soli permessi di l
   });
 
   it("I3: nessuna strada ridà il vietato — concessione d'istanza, ruolo, riga del seme, full admin", () => {
-    // Concessioni d'istanza (anche `automations.manage`, che vale a due livelli).
+    // Concessioni d'istanza (anche quella delle generali).
     grantInstancePermission("p-claude", "servers.ssh.manage");
-    grantInstancePermission("p-claude", "automations.manage");
+    grantInstancePermission("p-claude", "automations.general.manage");
     expect(can(claude(), "servers.ssh.manage")).toBe(false);
-    expect(can(claude(), "automations.manage")).toBe(false);
+    expect(can(claude(), "automations.general.manage")).toBe(false);
     expect(can(claude(), "automations.manage", ACQ)).toBe(false);
     // Un ruolo di progetto che dà tutto.
     grantProjectRole("p-claude", ACQ, "project_lead");

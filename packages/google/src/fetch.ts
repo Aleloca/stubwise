@@ -94,11 +94,15 @@ export interface GoogleRequestSpec {
   /** Endpoint logico, per messaggi e log: `oauth.token`, `gmail.history.list`, … */
   api: string;
   url: string;
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  /** `If-Match` (area 6, F4: le scritture di Calendar sull'etag dell'evento). */
+  ifMatch?: string;
   /** Bearer token da mettere in `Authorization`. */
   accessToken?: string;
   /** Corpo `application/x-www-form-urlencoded` (gli endpoint OAuth vogliono questo, non JSON). */
   form?: Record<string, string>;
+  /** Corpo JSON (le scritture di Gmail, area 6: `threads.modify`). */
+  json?: unknown;
   /**
    * Rimappa il `code` di certi status HTTP. È il modo in cui Gmail dichiara che
    * un 404 su `history.list` è `history_expired` e Calendar che un 410 su
@@ -108,16 +112,22 @@ export interface GoogleRequestSpec {
   statusCodes?: Record<number, string>;
   /** True se la risposta non ha corpo JSON (es. `revoke`). */
   expectEmpty?: boolean;
+  /** True se la risposta è TESTO, non JSON (l'export di un Google Doc, area 6 F5): torna la stringa. */
+  expectText?: boolean;
 }
 
 /** Esegue la richiesta e restituisce il JSON grezzo (o `null` se `expectEmpty`). */
 export async function requestGoogle(spec: GoogleRequestSpec, options: GoogleClientOptions = {}): Promise<unknown> {
   const headers: Record<string, string> = { accept: "application/json" };
   if (spec.accessToken) headers.authorization = `Bearer ${spec.accessToken}`;
+  if (spec.ifMatch) headers["if-match"] = spec.ifMatch;
   const init: RequestInit = { method: spec.method ?? "GET", headers };
   if (spec.form) {
     headers["content-type"] = "application/x-www-form-urlencoded";
     init.body = new URLSearchParams(spec.form).toString();
+  } else if (spec.json !== undefined) {
+    headers["content-type"] = "application/json";
+    init.body = JSON.stringify(spec.json);
   }
 
   let response: Response;
@@ -135,6 +145,7 @@ export async function requestGoogle(spec: GoogleRequestSpec, options: GoogleClie
   if (spec.expectEmpty) return null;
 
   const text = await response.text();
+  if (spec.expectText) return text;
   if (!text.trim()) return null;
   try {
     return JSON.parse(text) as unknown;
@@ -215,7 +226,7 @@ function reasonFromBody(body: unknown, status: number): string {
 }
 
 /** Costruisce l'errore da una risposta HTTP non ok, leggendo `Retry-After` se c'è. */
-async function errorFromResponse(response: Response, spec: GoogleRequestSpec): Promise<GoogleApiError> {
+export async function errorFromResponse(response: Response, spec: GoogleRequestSpec): Promise<GoogleApiError> {
   let body: unknown = null;
   try {
     const text = await response.text();

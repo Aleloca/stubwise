@@ -189,6 +189,9 @@ describe("runRefineTurn", () => {
     const parent = refineParentDir(s.agentSessionId);
     for (const tool of ["Read", "Grep", "Glob"]) expect(o.allowedTools).toContain(`${tool}(/${parent}/**)`);
     expect(o.allowedTools).toEqual([...scopedReadTools(parent), "Skill"]);
+    // I nativi del turno (CLI 2.1.322): letture e skill, nient'altro; senza
+    // grafo niente Bash. Né cron, né trigger remoti, né messaggi.
+    expect(o.builtinTools).toEqual(["Read", "Grep", "Glob", "Skill"]);
     expect(o.allowedTools!.every((tool) => !/^(Write|Edit|MultiEdit|NotebookEdit|WebFetch|Bash)\b/.test(tool))).toBe(true);
     // Deny rule sui percorsi sensibili, difesa in profondità sopra l'allowlist.
     for (const tool of ["Read", "Grep", "Glob"]) {

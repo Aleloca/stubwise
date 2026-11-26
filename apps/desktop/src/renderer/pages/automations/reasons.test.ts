@@ -11,20 +11,39 @@ import { reasonWords } from "./format";
 
 const ROOT = join(__dirname, "../..");
 const SOURCES = ["data/automations", "domain/automations", "data/seed/automations"];
+/** I piani e le regole delle esecuzioni, spostati in shared perché li usi anche il worker. */
+const SHARED_FILES = ["plans.ts", "runRules.ts"].map((f) =>
+  join(ROOT, "../../../../packages/shared/src/automations", f),
+);
+/**
+ * L'esecutore vero (area 7, build app): le motivazioni che scrive il worker
+ * le mostra lo stesso renderer. `claude-step.ts` dà codici del PROVIDER
+ * (`providerCodes`, un'altra famiglia di parole), non motivazioni.
+ */
+const WORKER_DIR = join(ROOT, "../../../worker/src/automations");
+const WORKER_FILES = readdirSync(WORKER_DIR)
+  .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && f !== "claude-step.ts")
+  .map((f) => join(WORKER_DIR, f));
 
 /** I codici delle motivazioni scritti dal livello dati e dal motore. */
 function emittedCodes(): Set<string> {
   const codes = new Set<string>();
-  for (const dir of SOURCES) {
-    for (const f of readdirSync(join(ROOT, dir))) {
-      if (!f.endsWith(".ts") || f.endsWith(".test.ts")) continue;
-      const src = readFileSync(join(ROOT, dir, f), "utf8");
-      // `{ code: "…" }` e `code: x ? "…" : "…"`; `limit` è un codice dei problemi del flusso.
-      for (const m of src.matchAll(
-        /code: (?:[\w.]+ \? )?"([a-z][a-zA-Z]+)"(?: : "([a-z][a-zA-Z]+)")?/g,
-      )) {
-        for (const c of [m[1], m[2]]) if (c && c !== "limit") codes.add(c);
-      }
+  const files = [
+    ...SOURCES.flatMap((dir) =>
+      readdirSync(join(ROOT, dir))
+        .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
+        .map((f) => join(ROOT, dir, f)),
+    ),
+    ...SHARED_FILES,
+    ...WORKER_FILES,
+  ];
+  for (const file of files) {
+    const src = readFileSync(file, "utf8");
+    // `{ code: "…" }` e `code: x ? "…" : "…"`; `limit` è un codice dei problemi del flusso.
+    for (const m of src.matchAll(
+      /code: (?:[\w.]+ \? )?"([a-z][a-zA-Z]+)"(?: : "([a-z][a-zA-Z]+)")?/g,
+    )) {
+      for (const c of [m[1], m[2]]) if (c && c !== "limit") codes.add(c);
     }
   }
   return codes;
@@ -63,5 +82,29 @@ describe("motivazioni (B1)", () => {
     expect(reasonWords(why, i18n.getFixedT("it"), { would: true })).toBe(
       "Il proprietario (Matteo Conti) non ha una casella collegata: l'email non partirebbe.",
     );
+  });
+});
+
+// R.1414 (revisione del lotto 2-3): il livello dati lascia vuoto il nome di
+// chi chi guarda non conosce; la frase dice «Someone», mai «the owner ()».
+describe("una persona che chi guarda non conosce, nei motivi", () => {
+  it("il proprietario vuoto è «Someone»", () => {
+    const text = reasonWords({ code: "cantManage", params: { owner: "", name: "Weekly" } }, i18n.t);
+    expect(text).toBe("Permission lost: the owner (Someone) can't manage “Weekly”.");
+  });
+
+  // Il server (72) non manda proprio `owner` a chi non conosce il proprietario.
+  it("il proprietario assente è «Someone», non «{{owner}}»", () => {
+    const text = reasonWords({ code: "cantManage", params: { name: "Weekly" } }, i18n.t);
+    expect(text).toBe("Permission lost: the owner (Someone) can't manage “Weekly”.");
+  });
+
+  it("un incaricato disattivato vuoto è «Someone»; il nome di un'automazione no", () => {
+    expect(reasonWords({ code: "assigneeDeactivated", params: { name: "" } }, i18n.t)).toContain(
+      "Someone",
+    );
+    expect(
+      reasonWords({ code: "cantManage", params: { owner: "Ada", name: "" } }, i18n.t),
+    ).not.toContain("Someone");
   });
 });

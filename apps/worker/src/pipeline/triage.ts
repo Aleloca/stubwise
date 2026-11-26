@@ -32,10 +32,13 @@ import {
 import type { ResolvedProvider } from "../providers/chain.js";
 import { isLimitError, ProviderLimitError } from "../providers/limit.js";
 import { getContentLanguage } from "../settings.js";
+import { RunCancelRequestedError } from "./cancel.js";
+import { recordRunCancelled, recordRunCancelledSafely } from "./job-outcomes.js";
 import { notify, ticketUrl, type NotifyDeps } from "./notify.js";
 import { generateFailureSummary } from "../summaries/failure-summary.js";
 import { aiJobSession, sessionOption } from "../sessions/owners.js";
 import { buildTriagePrompt, parseTriageDecision, type TriageDecision } from "./prompts.js";
+import { NATIVE_TOOLS } from "../agent/native-tools.js";
 
 /**
  * Default difensivo del gate quando manca la riga automation_rules del tipo
@@ -292,6 +295,8 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
         model,
         maxTurns,
         timeoutMs,
+        // Solo testo (cwd vuota): nessun tool nativo (`native-tools.ts`).
+        builtinTools: NATIVE_TOOLS.text,
         ...(deps.provider !== undefined ? { provider: deps.provider } : {}),
         ...(await sessionOpt("triage")),
       });
@@ -307,6 +312,19 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
       output = result.output;
       exitCode = result.exitCode;
     } catch (err) {
+      if (err instanceof RunCancelRequestedError) {
+        // «Annulla il lavoro» durante il triage (area 3, 3b.1-bis): skipped,
+        // non failed; nessun repo toccato. Lo stesso commento del fix.
+        await recordTriageUsage();
+        const closed = await completeJob(db, job.id, {
+          status: "skipped",
+          log: `${invalidOutputsPrefix()}[triage] lavoro annullato da una persona`,
+        });
+        if (closed) {
+          await recordRunCancelled(db, { ticketId: job.ticketId, jobId: job.id, kind: "fix", lang }).catch(() => undefined);
+        }
+        return "skipped";
+      }
       if (err instanceof ProviderLimitError) {
         // Best-effort i consumi del run-limite prima di propagare: l'agente può
         // aver speso qualcosa prima di sbattere sul limite.
@@ -495,7 +513,13 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
         // serve un avvio umano — non è né un limite né un budget.
         heldReason: "other",
       });
-      if (!held) {
+      if (held === "cancelled") {
+        // «Annulla il lavoro» durante il triage (review dell'area 3, punto 2):
+        // chiuso skipped invece di fermarsi sul gate dell'automazione.
+        await recordRunCancelledSafely(db, { ticketId: job.ticketId, jobId: job.id, kind: "fix", lang });
+        return "skipped";
+      }
+      if (held === "lost") {
         await appendLog(db, job.id, "[triage] ownership persa dopo il hold");
       }
       // Notifica job.held best-effort, DOPO holdJob (stato committato). Il tipo

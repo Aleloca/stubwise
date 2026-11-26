@@ -28,6 +28,43 @@ const CTX: RoutingContext = {
 };
 
 describe("recipientsFor", () => {
+  it("decision.requested va alla sola persona a cui si chiede, se vede il progetto", () => {
+    const event = eventOfKind("decision.requested");
+    const ctx: RoutingContext = { ...CTX, decisionTarget: "member-x", decisionAsker: "member-y" };
+    expect(recipientsFor(event, ctx)).toEqual(["member-x"]);
+    expect(recipientsFor(event, { ...ctx, members: ["member-y"] })).toEqual([]);
+  });
+
+  it("decision.answered va alla sola persona che aveva chiesto", () => {
+    const event = eventOfKind("decision.answered");
+    const ctx: RoutingContext = { ...CTX, decisionTarget: "member-x", decisionAsker: "member-y" };
+    expect(recipientsFor(event, ctx)).toEqual(["member-y"]);
+  });
+
+  it("ticket.activity va ai follower della task che vedono il progetto, tranne l'attore", () => {
+    const event = eventOfKind("ticket.activity");
+    const ctx: RoutingContext = {
+      ...CTX,
+      members: ["f-1", "f-2", "actor"],
+      ticketFollowers: ["f-1", "f-2", "actor", "outsider"],
+      actor: "actor",
+    };
+    expect(recipientsFor(event, ctx)).toEqual(["f-1", "f-2"]);
+  });
+
+  it("planning.changed e task.assigned vanno alle sole persone indicate che vedono il progetto, mai all'attore", () => {
+    for (const kind of ["planning.changed", "task.assigned"] as const) {
+      const ctx: RoutingContext = {
+        ...CTX,
+        members: ["p-1", "actor"],
+        taskPeople: ["p-1", "actor", "outsider"],
+        actor: "actor",
+      };
+      expect(recipientsFor(eventOfKind(kind), ctx)).toEqual(["p-1"]);
+      expect(recipientsFor(eventOfKind(kind), { ...ctx, taskPeople: undefined })).toEqual([]);
+    }
+  });
+
   it("manda i kind decisionali ai soli deciders", () => {
     for (const kind of ["job.plan_review", "job.held", "job.budget_held"] as const) {
       expect(recipientsFor(eventOfKind(kind), CTX)).toEqual(["admin-1", "admin-2"]);

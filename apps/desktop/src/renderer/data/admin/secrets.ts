@@ -1,6 +1,9 @@
 import { seedAccessState } from "../access/index";
 import { hashOf, seededRandom } from "../seed/servers/metrics";
 import { onInstanceEmptied, onStoreReset } from "../store";
+import { INSTANCE_ORIGIN } from "../instance/constants";
+
+export { INSTANCE_ORIGIN } from "../instance/constants";
 
 // I segreti mostrati una volta (area 9a): token personali, link di reset
 // della password e d'invito, segreto TOTP, codici di backup. Stanno SOLO
@@ -35,7 +38,13 @@ type GeneratedSecretKind =
   // Area 9c: la chiave d'ingestione di un progetto e il secret del webhook
   // git di un repository, generati da Stubwise e mostrati una volta.
   | "ingestion_key"
-  | "git_webhook_secret";
+  | "git_webhook_secret"
+  // API per i siti (S6): il segreto d'identità dei clienti di un widget.
+  | "widget_identity_secret"
+  // Area 9, R2: il link di conferma del cambio dell'email di login.
+  | "email_change_link"
+  // Area 9, F3: il segreto della firma di un webhook in uscita.
+  | "outgoing_webhook_secret";
 
 /**
  * I segreti scritti da chi amministra (area 9b). Un tipo a parte: `valueOf`
@@ -65,6 +74,7 @@ let counter = 0;
 const ALNUM = "abcdefghijkmnpqrstuvwxyz23456789";
 const HEX = "0123456789abcdef";
 const BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+const BASE64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
 function chars(seed: string, alphabet: string, n: number): string {
   const rnd = seededRandom(hashOf(seed));
@@ -73,8 +83,6 @@ function chars(seed: string, alphabet: string, n: number): string {
   return out;
 }
 
-/** L'origine finta dell'istanza: i link e il comando di Claude Code la usano. */
-export const INSTANCE_ORIGIN = "https://stubwise.example.test";
 const INVITE_PREFIX = `${INSTANCE_ORIGIN}/register?invite=`;
 
 /**
@@ -121,6 +129,14 @@ function valueOf(kind: GeneratedSecretKind, ownerId: string, n: number): string 
       return chars(seed, HEX, 32);
     case "git_webhook_secret":
       return chars(seed, HEX, 40);
+    // Come sul server: 32 byte casuali in base64url (43 caratteri, senza `=`).
+    case "widget_identity_secret":
+      return chars(seed, BASE64URL, 43);
+    case "email_change_link":
+      return chars(seed, BASE64URL, 43);
+    // Come sul server: 32 byte casuali in base64url.
+    case "outgoing_webhook_secret":
+      return `whsec_${chars(seed, BASE64URL, 43)}`;
   }
 }
 

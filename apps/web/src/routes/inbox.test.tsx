@@ -71,6 +71,17 @@ const PROJECTS = [{ id: PROJECT_ID, name: "Apollo", slug: "apollo" }];
 
 function item(overrides: Partial<InboxItem> & Pick<InboxItem, "id">): InboxItem {
   return {
+    objectGone: false,
+    // Area 8, F2: il web non lo legge; c'è perché il tipo lo vuole.
+    alertMandatory: null,
+    // Area 8, F4a: idem (il codice del server, per i link dell'app).
+    serverCode: null,
+    undoneBy: null,
+    memberAdded: null,
+    // Area 11, F2: idem (la menzione nella doc di prodotto è dell'app nuova).
+    productDoc: null,
+    chat: null,
+    automation: null,
     kind: "job.plan_review",
     status: "open",
     text: "Plan awaiting approval",
@@ -83,6 +94,9 @@ function item(overrides: Partial<InboxItem> & Pick<InboxItem, "id">): InboxItem 
     snoozedUntil: null,
     handledAt: null,
     handledBy: null,
+    viaClaude: false,
+    viaClaudeActionId: null,
+    viaClaudeRequesterId: null,
     ...overrides,
   };
 }

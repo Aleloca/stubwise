@@ -35,6 +35,9 @@ export function useSpace(): SpaceContextValue {
 }
 
 /** Il link a una pagina: `#/p/<CODE>/docs/<repository>/<slug>`. */
+/** La chiave dello spazio negli indirizzi: lo slug del repository, o il nome (prototipo e link vecchi). */
+export const spaceKey = (space: { slug?: string; name: string }): string => space.slug ?? space.name;
+
 export const pageLink = (code: string, repo: string, slug: string) =>
   ({ to: "/p/$code/docs/$repo/$slug", params: { code, repo, slug } }) as const;
 

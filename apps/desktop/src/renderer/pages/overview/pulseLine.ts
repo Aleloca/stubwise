@@ -37,8 +37,14 @@ export function pulseParts(
       ),
     });
   }
+  // Oltre il tetto delle task aperte (build app) il numero è «almeno»: «3+ stalled».
   if (pulse.stalled > 0) {
-    parts.push({ kind: "stalled", text: t("overview.pulse.stalled", { count: pulse.stalled }) });
+    parts.push({
+      kind: "stalled",
+      text: pulse.truncated
+        ? t("overview.pulse.stalledAtLeast", { count: pulse.stalled })
+        : t("overview.pulse.stalled", { count: pulse.stalled }),
+    });
   }
   const next = pulse.nextMilestone;
   if (next) {
@@ -53,7 +59,8 @@ export function pulseParts(
     });
   }
   if (parts.length === 0) {
-    parts.push({ kind: "quiet", text: t("overview.pulse.quiet") });
+    // Troncata, «niente di fermo» non si può affermare.
+    parts.push({ kind: "quiet", text: t(pulse.truncated ? "overview.pulse.quietTruncated" : "overview.pulse.quiet") });
     if (proposalsOff) parts.push({ kind: "pulseOff", text: t("projectEffects.pulse.proposalsOff") });
   }
   return parts;

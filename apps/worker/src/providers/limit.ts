@@ -46,9 +46,21 @@ const LIMIT_MARKERS: readonly string[] = [
   "overloaded_error",
 ];
 
+/**
+ * La frase del limite del CLI 2.1.322 (10 nov 2026, letta dal binario): una
+ * sola forma composta, `You've hit your ${nome}${coda}`, coi nomi «5-hour
+ * limit», «weekly limit», «Opus limit», «Sonnet limit», «Fable limit», «usage
+ * credit limit», il generico «limit», lo spend di org («monthly spend
+ * limit») e il budget di team («team's shared budget»). Sostituisce i nomi
+ * della 2.1.287 («session limit», «usage limit»), che restano fra i
+ * marcatori per i testi già scritti. Stretta: «hit your» e, entro poche
+ * parole, «limit» o «budget» — «you hit your target coverage» no.
+ */
+const HIT_YOUR_LIMIT = /you(?:'|\u2019)ve hit your (?:[\w'\u2019-]+ ){0,4}(?:limit|budget)\b/i;
+
 function textHasLimitMarker(text: string): boolean {
   const lower = text.toLowerCase();
-  return LIMIT_MARKERS.some((marker) => lower.includes(marker));
+  return HIT_YOUR_LIMIT.test(text) || LIMIT_MARKERS.some((marker) => lower.includes(marker));
 }
 
 /**

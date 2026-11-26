@@ -92,6 +92,11 @@ describe("redactRequestUrl", () => {
     );
   });
 
+  it("oscura il token del link del cambio dell'email (area 9, F1), ma non la rotta di conferma", () => {
+    expect(redactRequestUrl("/api/auth/email-change/SEGRETO-xyz")).toBe("/api/auth/email-change/[redacted]");
+    expect(redactRequestUrl("/api/auth/email-change/confirm")).toBe("/api/auth/email-change/[redacted]");
+  });
+
   it("oscura il token di un invito, conservando la query", () => {
     expect(redactRequestUrl("/api/auth/invites/SEGRETO?x=1")).toBe(
       "/api/auth/invites/[redacted]?x=1",
@@ -102,6 +107,13 @@ describe("redactRequestUrl", () => {
     expect(redactRequestUrl("/api/auth/invites")).toBe("/api/auth/invites");
     expect(redactRequestUrl("/api/users/u1/password-reset")).toBe("/api/users/u1/password-reset");
     expect(redactRequestUrl("/health?foo=bar")).toBe("/health?foo=bar");
+  });
+
+  it("oscura il segreto del webhook in arrivo delle automazioni (area 7, F4, review CRITICO 1)", () => {
+    expect(redactRequestUrl("/webhooks/in/whk_SEGRETO-abc_123")).toBe("/webhooks/in/[redacted]");
+    expect(redactRequestUrl("/webhooks/in/whk_SEGRETO?x=1")).toBe("/webhooks/in/[redacted]?x=1");
+    // Quella dei provider git porta lo slug del progetto, non un segreto.
+    expect(redactRequestUrl("/webhooks/git/sito")).toBe("/webhooks/git/sito");
   });
 
   it("continua a redigere il callback OAuth Google", () => {
@@ -132,6 +144,25 @@ describe("buildApp — log della richiesta al callback OAuth Google", () => {
     expect(logged).not.toContain("SEGRETO");
     expect(logged).not.toContain("code=");
     expect(logged).not.toContain("state=");
+  });
+
+  it("una consegna al webhook in arrivo non scrive MAI il segreto nel log, nemmeno sulla riga di un errore", async () => {
+    const { app, lines } = capturingApp();
+    // Senza DB il servizio fallisce: copre la riga «incoming request» e quella del 500.
+    const res = await app.inject({ method: "POST", url: "/webhooks/in/whk_SEGRETOWEBHOOK1234567890", headers: { "content-type": "application/json" }, payload: "{}" });
+    expect(res.statusCode).toBeGreaterThanOrEqual(400);
+    const logged = lines.join("\n");
+    expect(logged).toContain("/webhooks/in/[redacted]");
+    expect(logged).not.toContain("SEGRETOWEBHOOK");
+  });
+
+  it("area 8, «L'API per i siti»: il token d'identità del cliente (header Authorization) non finisce MAI nel log", async () => {
+    const { app, lines } = capturingApp();
+    // Senza DB la rotta fallisce: copre la riga «incoming request» e quella dell'errore.
+    await app.inject({ method: "GET", url: "/widget/sito/me/requests", headers: { "x-stubwise-key": "k", authorization: "Bearer eyJTOKENSEGRETO.abc.def" } });
+    const logged = lines.join("\n");
+    expect(logged).toContain("/widget/sito/me/requests");
+    expect(logged).not.toContain("TOKENSEGRETO");
   });
 
   it("una richiesta su un'altra rotta continua a loggare la query per intero", async () => {

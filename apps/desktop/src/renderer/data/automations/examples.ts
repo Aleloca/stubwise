@@ -1,12 +1,11 @@
-import { evaluate, lookup } from "../../domain/automations/conditions";
-import { triggerFields } from "../../domain/automations/fields";
-import { show } from "../../domain/automations/preview";
+import { evaluate, lookup } from "@stubwise/shared";
+import { triggerFields, writtenTrialEvent } from "@stubwise/shared";
+import { show } from "@stubwise/shared";
 import { gate, now, state, visibleProjectIds, type AutomationSignal } from "../store";
-import type { AutomationFlow, Condition, SimulationExample, Utterance } from "../types";
+import type { AutomationFlow, SimulationExample, Utterance } from "../types";
 import { forbidden, invalid, notFound } from "../writer";
-import { happenings, leavesOf, passesStartFilter } from "./sources";
+import { happenings } from "./sources";
 import { automationById, canManageAutomation, canSeeAutomation, canSeeRun } from "./visibility";
-import { REQUEST_LEVELS } from "../model";
 
 // Gli eventi d'esempio della prova (area 7, shape «Choose an example»): per
 // un inizio da sorgente gli eventi d'esempio della sorgente collegata; per
@@ -85,6 +84,20 @@ function stubwiseSignals(me: string, flow: AutomationFlow) {
         code: r.code,
         at: r.createdAt,
       }));
+    case "request_converted":
+      // Le richieste convertite, con la loro prima task.
+      return state.requests
+        .filter((r) => r.status === "converted" && r.taskIds.length > 0)
+        .map((r) => ({
+          signal: {
+            kind: "request_converted",
+            requestId: r.id,
+            taskId: r.taskIds[0]!,
+          } as AutomationSignal,
+          label: r.title,
+          code: r.code,
+          at: r.createdAt,
+        }));
     case "milestone_reached":
       return state.milestones
         .filter((m) => m.closed)
@@ -186,78 +199,11 @@ export interface TrialExample {
   written: boolean;
 }
 
-/** I valori noti di un dato che è un elenco chiuso: il «diverso» di un esempio che non passa. */
-const CLOSED_VALUES: Record<string, readonly string[]> = {
-  "richiesta.urgenza": REQUEST_LEVELS,
-};
-
-/** Scrive `value` in `event` al percorso puntato di `key` («richiesta.urgenza»). */
-function setAt(event: Record<string, unknown>, key: string, value: unknown): void {
-  const parts = key.split(".");
-  let cur = event;
-  for (const part of parts.slice(0, -1)) {
-    const next = cur[part];
-    if (next === null || typeof next !== "object" || Array.isArray(next)) cur[part] = {};
-    cur = cur[part] as Record<string, unknown>;
-  }
-  cur[parts.at(-1)!] = value;
-}
-
-/** Un valore diverso da `value` per il dato `key`: un altro dell'elenco chiuso, il contrario, o vuoto. */
-function otherThan(key: string, value: unknown): unknown {
-  if (typeof value === "boolean") return !value;
-  const closed = CLOSED_VALUES[key];
-  if (closed) return closed.find((v) => v !== value) ?? "";
-  if (typeof value === "number") return value + 1;
-  return "";
-}
-
-/**
- * Un evento scritto da Claude coi dati dell'inizio: ogni campo con un valore
- * neutro (il nome del campo per un testo, chi prova per una persona, il
- * progetto dell'automazione, la data di oggi), poi i confronti `is` e
- * `contains` del filtro soddisfatti; per un esempio che non deve passare, il
- * primo confronto rotto. Non si legge da niente che chi prova non veda.
- */
-function writtenEvent(
-  me: string,
-  flow: AutomationFlow,
-  projectCode: string | null,
-  passes: boolean,
-): Record<string, unknown> {
-  const event: Record<string, unknown> = {};
-  for (const f of triggerFields(flow, state.automationSources)) {
-    const value =
-      f.key.endsWith(".progetto") && projectCode !== null
-        ? projectCode
-        : f.type === "boolean"
-          ? false
-          : f.type === "number"
-            ? 0
-            : f.type === "person"
-              ? me
-              : f.type === "date"
-                ? now().slice(0, 10)
-                : f.key.endsWith(".codice") || f.type === "email"
-                  ? ""
-                  : f.label;
-    setAt(event, f.key, value);
-  }
-  const t = flow.trigger;
-  if (t.kind !== "stubwise" || !t.filter) return event;
-  const leaves = leavesOf(t.filter).filter(
-    (c): c is Condition & { left: { ref: string }; right: { value: unknown } } =>
-      (c.op === "is" || c.op === "contains") &&
-      c.left !== undefined &&
-      "ref" in c.left &&
-      c.right !== undefined &&
-      "value" in c.right,
-  );
-  for (const c of leaves) setAt(event, c.left.ref, c.right.value);
-  const first = leaves[0];
-  if (!passes && first) setAt(event, first.left.ref, otherThan(first.left.ref, first.right.value));
-  return event;
-}
+// L'evento scritto da Claude è la regola di `@stubwise/shared`
+// (`writtenTrialEvent`, lotto 6, voce 5), la stessa che usa il server: ogni
+// campo dell'inizio con un valore neutro, poi i confronti `is`/`contains` del
+// filtro soddisfatti, il primo rotto per un esempio che non passa; `null` se
+// l'evento non sta dalla parte giusta del filtro. Nessun modello lo scrive.
 
 /**
  * Per ogni `want`, l'evento più recente della sorgente che chi chiede vede e
@@ -297,8 +243,13 @@ export function pickTrialExamples(
         written: false,
       };
     }
-    const event = writtenEvent(me, flow, project?.code ?? null, passes);
-    if (passesStartFilter(flow.trigger, event) !== passes) return null;
+    const event = writtenTrialEvent(
+      flow,
+      triggerFields(flow, state.automationSources),
+      { viewerId: me, projectCode: project?.code ?? null, today: now().slice(0, 10) },
+      passes,
+    );
+    if (!event) return null;
     return { event, label: { key: "claude.trial.exampleWritten" }, written: true };
   });
 }

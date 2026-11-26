@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import type Anthropic from "@anthropic-ai/sdk";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { agentRuns, aiModelSettings, aiProviders, encrypt, type Db } from "@stubwise/db";
+import { agentRuns, aiModelSettings, aiProviders, encrypt, users, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
@@ -136,11 +136,33 @@ describe("createAnthropicChatLlm", () => {
       outputTokens: 50,
       cacheReadTokens: 10,
       cacheCreationTokens: 5,
-      costUsd: null,
       phase: null,
       jobId: null,
     });
     expect(row!.runId).toEqual(expect.any(String));
+    // Review F3, punto 8: il costo STIMATO dai token (Opus 4.8: 5 $ / 25 $, lettura 0,5 $, scrittura 6,25 $ per milione),
+    // così il budget mensile conta anche la chat.
+    expect(Number(row!.costUsd)).toBeCloseTo((100 * 5 + 50 * 25 + 10 * 0.5 + 5 * 6.25) / 1_000_000, 5);
+  });
+
+  it("rimandi, lotto 5: `onUsage` riceve a fine stream modello, token e costo STIMATO (lo stesso della riga)", async () => {
+    const { createClient } = fakeClient([MESSAGE_START, TEXT_DELTA, MESSAGE_DELTA]);
+    const llm = createAnthropicChatLlm({ db, encryptionKey, createClient });
+    const seen: unknown[] = [];
+    expect(await drain(llm.stream({ ...input(), onUsage: (u) => seen.push(u) }))).toBe("ciao");
+    expect(seen).toEqual([
+      { model: DEFAULT_CHAT_MODEL, inputTokens: 100, outputTokens: 50, cacheReadTokens: 10, cacheCreationTokens: 5, costUsd: expect.closeTo((100 * 5 + 50 * 25 + 10 * 0.5 + 5 * 6.25) / 1_000_000, 8) },
+    ]);
+    await waitForRuns(1);
+  });
+
+  it("chi ha chiesto finisce sulla riga (il tetto giornaliero per persona lo legge)", async () => {
+    const { createClient } = fakeClient([MESSAGE_START, MESSAGE_DELTA]);
+    const llm = createAnthropicChatLlm({ db, encryptionKey, createClient });
+    const [user] = await db.insert(users).values({ email: `u-${crypto.randomUUID()}@x.it`, passwordHash: "x", role: "member" }).returning();
+    await drain(llm.stream(input({ userId: user!.id })));
+    const [row] = await waitForRuns(1);
+    expect(row!.requestedByUserId).toBe(user!.id);
   });
 
   it("operazione backlog_merge e progetto nullo finiscono nella riga così come sono", async () => {
@@ -195,6 +217,17 @@ describe("createAnthropicChatLlm", () => {
 
     expect(calls[0]!.model).toBe("claude-x");
     await waitForRuns(1);
+  });
+
+  it("mail_draft: senza riga vale il defaultModel della chiamata (Sonnet), con la riga vale la riga", async () => {
+    const { calls, createClient } = fakeClient([MESSAGE_START, MESSAGE_DELTA]);
+    const llm = createAnthropicChatLlm({ db, encryptionKey, createClient });
+    await drain(llm.stream(input({ operation: "mail_draft", defaultModel: "claude-sonnet-5-5" })));
+    expect(calls[0]!.model).toBe("claude-sonnet-5-5");
+    await db.insert(aiModelSettings).values({ operation: "mail_draft", model: "haiku" });
+    await drain(llm.stream(input({ operation: "mail_draft", defaultModel: "claude-sonnet-5-5" })));
+    expect(calls[1]!.model).toBe("claude-haiku-5-5");
+    await waitForRuns(2);
   });
 
   it("stream interrotto dal consumatore dopo message_start → riga con output_tokens=0", async () => {

@@ -28,12 +28,46 @@ export const INSTANCE_PERMISSIONS = [
   "integrations.manage",
   "monitor.view",
   "monitor.manage",
+  /**
+   * Area 8, F4b (0181, Q3 = b): collegare, verificare, rigenerare, revocare
+   * l'accesso SSH di SOLA lettura di un server. All'Admin (implicito per il
+   * full admin); nessun altro preset.
+   */
+  "servers.ssh.manage",
   "usage.view",
   "users.view_all",
   // Letture d'istanza aperte oggi a ogni utente autenticato, aggiunte con
   // l'audit del ruling R1 (vedi il commento sopra `PRESET_ROLES`).
   "git_accounts.view",
   "mail_admission.view",
+  // Integrazione area 2 (9 nov 2026): la pagina Reparti dell'amministrazione.
+  "departments.manage",
+  // Area 9, F2: leggere TUTTO il registro delle modifiche dell'istanza (chi
+  // gestisce un oggetto ne legge già le voci col `readPermission` del tipo).
+  // Nessun preset: il full admin l'ha implicito.
+  "changelog.view",
+  // Area 9, F4: lo Stato dell'istanza (code, worker, errori). Nessun preset
+  // oltre l'Admin, che l'ha implicito col full admin.
+  "instance.status.view",
+  // Integrazione area 3 (10 nov 2026, decisione del maintainer): l'attività del
+  // giorno per persona (lo standup). Nessun preset la riceve: il full admin
+  // l'ha implicita, agli altri si assegna con un ruolo.
+  "people.activity.view",
+  // Chat con Claude, fetta 5 (10 nov 2026, D4 del maintainer): LEGGERE le
+  // conversazioni pubbliche con Claude (mai scriverci: si continuano). Al
+  // preset User (0133); il full admin l'ha implicita.
+  "claude.public.view",
+  // Chat, area 4 (D3): creare un canale generale (preset User) e gestirli
+  // (solo il full admin, per costruzione). Si usano dalla fetta 2.
+  "chat.general.create",
+  "chat.general.manage",
+  // Automations, area 7, fetta 4 (Q7 = a): le automazioni GENERALI (senza
+  // progetto). Nessun preset la riceve: il full admin l'ha implicita (la
+  // verifica del 13 nov), agli altri si assegna con un ruolo. Il design la
+  // chiamava «`automations.manage` d'istanza», ma una chiave sta in UN
+  // livello solo (test del catalogo): quella di progetto resta
+  // `automations.manage`.
+  "automations.general.manage",
 ] as const;
 
 /**
@@ -75,6 +109,14 @@ export const PROJECT_PERMISSIONS = [
   /** Adottare una PR aperta da altri. */
   "prs.adopt",
   /**
+   * Pianificare le task ALTRUI (integrazione area 2, fetta 2: settimana e
+   * persona dal Planning). Senza, si pianificano solo le proprie, o una non
+   * assegnata che si prende con `tickets.edit`. Del Project Lead (e dei full
+   * admin): escluso da Developer e Legacy Member (decisione del maintainer,
+   * 9 nov 2026), assente da Contributor e Viewer.
+   */
+  "planning.others",
+  /**
    * Cassaforte delle credenziali (23 ott 2026, migrazione 0103): creare una
    * credenziale, modificarla (metadati e sostituzione della password) e
    * condividerla con altri lettori. Li ha solo `project_lead` (e i full
@@ -83,7 +125,58 @@ export const PROJECT_PERMISSIONS = [
   "credentials.create",
   "credentials.edit",
   "credentials.share",
+  /**
+   * Chat, area 4 (10 nov 2026, D3 del maintainer, i preset del prototipo):
+   * creare un canale di progetto (Project Lead e Developer) e gestirlo
+   * (rinominare, archiviare, eliminare: solo il Project Lead). Leggere e
+   * scrivere in un canale non vogliono un permesso: basta vedere il progetto
+   * ed esserne membri. Il «general» non lo gestisce nessuno.
+   */
+  "chat.channels.create",
+  "chat.channels.manage",
+  /**
+   * Drive dei progetti, area 5 (11 nov 2026, D3 del maintainer, i preset del
+   * prototipo): caricare un file (tutti salvo il Viewer), gestire il Drive
+   * (togliere i file degli altri: solo il Project Lead) e vedere la storia
+   * delle aperture (solo il Project Lead). VEDERE il Drive non vuole un
+   * permesso: basta essere membri del progetto, Viewer compreso.
+   */
+  "drive.upload",
+  "drive.manage",
+  "drive.history",
+  /**
+   * Automations, area 7 (fetta 1, 0169): creare, modificare, pubblicare,
+   * mettere in pausa le automazioni del progetto e decidere le loro
+   * esecuzioni. Solo il Project Lead fra i preset (e i full admin); i ruoli
+   * personalizzati nascono senza.
+   */
+  "automations.manage",
+  /**
+   * Support, area 8 (fetta 3, 0179, S-7): gestire le conversazioni — aprire
+   * la richiesta da una conversazione (con `backlog.create`), segnarla non
+   * conclusa, rispondere ai collaboratori del canale `mcp` (al cliente del
+   * widget il team non scrive mai). Ai preset Project Lead, Developer e
+   * Legacy Member (la regola dei preset); Contributor e Viewer leggono.
+   */
+  "support.manage",
+  /**
+   * Area 8, F4b (0181): avviare l'analisi di un server a mano e chiedere un
+   * piano di correzione da una task di server (nessun preset: persona per
+   * persona; implicito per il full admin). Il piano lo APPROVA sempre chi ha
+   * `plans.approve` nel progetto (CLAUDE.md «Stubwise non fa deploy»).
+   */
+  "servers.operate",
 ] as const;
+
+/**
+ * Permessi di REPARTO (integrazione area 2, fetta 3): un livello accanto a
+ * istanza e progetto, assegnato persona per persona su un reparto
+ * (`department_roles`). Non danno accesso a dati: `department.home.manage`
+ * decide solo la disposizione della Home del reparto. Nessun preset di ruolo
+ * li contiene; un full admin li ha su ogni reparto; Claude mai.
+ */
+export const DEPARTMENT_PERMISSIONS = ["department.home.manage"] as const;
+export type DepartmentPermission = (typeof DEPARTMENT_PERMISSIONS)[number];
 
 export type InstancePermission = (typeof INSTANCE_PERMISSIONS)[number];
 export type ProjectPermission = (typeof PROJECT_PERMISSIONS)[number];
@@ -152,6 +245,14 @@ const LEGACY_MEMBER_EXCLUDED: readonly ProjectPermission[] = [
   "credentials.create",
   "credentials.edit",
   "credentials.share",
+  "planning.others",
+  "automations.manage",
+  // Chat (D3): il Legacy Member scrive nei canali ma non li crea né li gestisce.
+  "chat.channels.create",
+  "chat.channels.manage",
+  // Drive (area 5, D3): carica, ma non gestisce il Drive né ne vede la storia.
+  "drive.manage",
+  "drive.history",
 ];
 
 /**
@@ -175,15 +276,26 @@ const LEGACY_MEMBER_EXCLUDED: readonly ProjectPermission[] = [
  * `/api/milestones`, `/api/briefs`, `/api/search`.
  */
 const USER_INSTANCE_PERMISSIONS: readonly InstancePermission[] = [
-  "monitor.view",
+  // Area 8, F4a (0180): `monitor.view` non c'è più. Un utente vede i server
+  // dei suoi progetti, dagli ambienti (F4a-1 = a, il modello del prototipo).
   "users.view_all",
   "git_accounts.view",
   "mail_admission.view",
+  "claude.public.view",
+  "chat.general.create",
 ];
 
 const VIEW_PROJECT_PERMISSIONS = PROJECT_PERMISSIONS.filter(
   (p) => p.endsWith(".view") || p.endsWith(".view_all"),
 );
+
+/**
+ * I permessi di progetto che NESSUN preset contiene: si danno persona per
+ * persona (area 8, F4b, S-7: `servers.operate`). Un full admin li ha
+ * comunque, per costruzione.
+ */
+export const PRESETLESS_PROJECT_PERMISSIONS: readonly ProjectPermission[] = ["servers.operate"];
+const inPresets = (p: ProjectPermission) => !PRESETLESS_PROJECT_PERMISSIONS.includes(p);
 
 /** I sette ruoli già pronti. I nomi sono in inglese e non si traducono. */
 export const PRESET_ROLES: readonly PresetRole[] = [
@@ -193,7 +305,7 @@ export const PRESET_ROLES: readonly PresetRole[] = [
     key: "project_lead",
     name: "Project Lead",
     scope: "project",
-    permissions: PROJECT_PERMISSIONS,
+    permissions: PROJECT_PERMISSIONS.filter(inPresets),
   },
   {
     key: "developer",
@@ -201,27 +313,34 @@ export const PRESET_ROLES: readonly PresetRole[] = [
     scope: "project",
     permissions: PROJECT_PERMISSIONS.filter(
       (p) =>
+        inPresets(p) &&
         p !== "plans.approve" &&
         p !== "release.merge" &&
         p !== "project.members.manage" &&
         p !== "project.settings.manage" &&
         p !== "credentials.create" &&
         p !== "credentials.edit" &&
-        p !== "credentials.share",
+        p !== "credentials.share" &&
+        p !== "planning.others" &&
+        p !== "chat.channels.manage" &&
+        p !== "drive.manage" &&
+        p !== "drive.history" &&
+        p !== "automations.manage",
     ),
   },
   {
     key: "contributor",
     name: "Contributor",
     scope: "project",
-    permissions: ["docs.view", "tickets.create", "tickets.comment", "backlog.create"],
+    // `drive.upload` (area 5, D3): il prototipo dà il caricamento anche al Contributor.
+    permissions: ["docs.view", "tickets.create", "tickets.comment", "backlog.create", "drive.upload"],
   },
   { key: "viewer", name: "Viewer", scope: "project", permissions: VIEW_PROJECT_PERMISSIONS },
   {
     key: "legacy_member",
     name: "Legacy Member",
     scope: "project",
-    permissions: PROJECT_PERMISSIONS.filter((p) => !LEGACY_MEMBER_EXCLUDED.includes(p)),
+    permissions: PROJECT_PERMISSIONS.filter((p) => inPresets(p) && !LEGACY_MEMBER_EXCLUDED.includes(p)),
   },
 ];
 

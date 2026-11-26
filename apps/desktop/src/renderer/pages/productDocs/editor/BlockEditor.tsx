@@ -22,9 +22,16 @@ import {
   type Ref,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { useAiBlock, useDrawWireframe, useReplaceWireframeWithImage } from "../../../data/queries";
+import {
+  productLaterOn,
+  useAiBlock,
+  useDrawWireframe,
+  useReplaceWireframeWithImage,
+  useStoreProductImage,
+} from "../../../data/queries";
 import type { ProductBlock, ProductBlockOp, ProductPageView, ProductPresenceView } from "../../../data/types";
 import { useToast } from "../../../tasks-ui/Toast";
+import { sectionKeyOf } from "@stubwise/shared";
 import { anchorIdsOf, anchorText, isTextBlock, makeBlockId } from "../../../domain/productDocs/blocks";
 import { setLink, toggleMark } from "../../../domain/productDocs/richText";
 import { BlockBody, ReadOnlyBody, blockLabel, layoutOf, numbersOf, textClassOf } from "./BlockBody";
@@ -36,11 +43,19 @@ import { RemoteCursors } from "../live/RemoteCursor";
 import { useSendPresence } from "../live/useSendPresence";
 import { BlockHandle } from "./BlockHandle";
 import { FLOATING_MAX, SLASH_MAX, dropAfter, floatingPlacement, insertCode } from "./blockOps";
+import { OwnVersionBox } from "./OwnVersion";
+import type { OwnVersion } from "./useEditorSession";
 import { BlockShell } from "./BlockShell";
 import { DecisionPicker } from "./DecisionPicker";
 import { DrivePicker } from "./DrivePicker";
 import { ImageRefusalRow } from "./ImageBlock";
-import { PRODUCT_IMAGE_TYPES, filesOf, readImageFile, type ImageRefusal } from "./images";
+import {
+  PRODUCT_IMAGE_TYPES,
+  checkImageFile,
+  filesOf,
+  uploadRefusalOf,
+  type ImageRefusal,
+} from "./images";
 import { LinkPicker } from "./LinkPicker";
 import { makeGestures, type Focus, type Slash } from "./gestures";
 import { RichBlockEdit, RichBlockRead } from "./RichBlock";
@@ -77,6 +92,8 @@ import { SectionProposeItem } from "../claude/ClaudePageGestures";
 // `useSendPresence`. Le persone sono quelle di `getProductPresence`.
 
 const SAVE_AFTER_MS = 800;
+/** Quanto si aspetta la fila uscendo dalla pagina, prima di chiedere. */
+export const LEAVE_WAIT_MS = 1500;
 /** Il rifiuto di un'immagine resta 6 s, o fino a «Dismiss» (§3.6). */
 const REFUSAL_MS = 6000;
 
@@ -106,6 +123,14 @@ export interface BlockEditorHandle {
    * gesto mentre disegna non fa niente.
    */
   drawScreen(): void;
+  /**
+   * Uscendo dalla pagina (product-editor.md §3.12): le bozze partono, si
+   * aspetta la fila al più `LEAVE_WAIT_MS`, poi dice se resta qualcosa di non
+   * salvato (una scrittura in fila o ferma su un errore, una versione propria).
+   */
+  unsaved(): Promise<boolean>;
+  /** «Leave without saving»: le bozze e la fila si scartano (revisione di R11-6, I2). */
+  discard(): void;
 }
 
 export function BlockEditor({
@@ -126,9 +151,17 @@ export function BlockEditor({
   return <WritableBody page={page} session={session} handle={handle} others={others} />;
 }
 
-/** Chi scrive (ha un'ancora) nel blocco `id`. */
-export const writersIn = (others: readonly ProductPresenceView[], id: string): ProductPresenceView[] =>
-  others.filter((p) => p.anchorId === id);
+/**
+ * Chi scrive (ha un'ancora) nel blocco `id`; col fuoco, anche chi tiene la
+ * sua sezione (`sectionId`, la presa della build app): la sezione mostra chi
+ * la tiene, come il prototipo con chi le sta scrivendo dentro.
+ */
+export const writersIn = (
+  others: readonly ProductPresenceView[],
+  id: string,
+  section: string | null = null,
+): ProductPresenceView[] =>
+  others.filter((p) => p.anchorId === id || (section !== null && p.sectionId === section));
 
 // --- chi scrive --------------------------------------------------------------
 
@@ -182,6 +215,7 @@ function WritableBody({
   budgetOutRef.current = budgetOut;
   /** «Comment» (Task 10): solo per chi può commentare. */
   const comment = useCommentGesture();
+  const storeImage = useStoreProductImage();
   /** Un selettore aperto al blocco `id`; `at` è il cursore a cui torna il fuoco. */
   const [picker, setPickerState] = useState<{ kind: PickerKind; id: string; at: number } | null>(null);
   const pickerRef = useRef(picker);
@@ -223,6 +257,8 @@ function WritableBody({
   /** Un gesto che sposta il blocco col fuoco: il blur del DOM non è un'uscita. */
   const relocating = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Per ogni bozza, il blocco che la precedeva quando è stata scritta. */
+  const draftAfter = useRef(new Map<string, string | null>());
 
   const view = session.shown.map((b) => drafts.get(b.id) ?? b);
   const viewRef = useRef(view);
@@ -245,12 +281,20 @@ function WritableBody({
     setDraftsState(draftsRef.current);
     const live = new Map(sessionRef.current.blocks.map((b) => [b.id, b]));
     const ops: ProductBlockOp[] = [];
+    const orphans: OwnVersion[] = [];
     for (const [id, block] of pending) {
       const now = live.get(id);
-      // Un blocco tolto da altri nel frattempo: la bozza non ha più dove andare.
-      if (!now || JSON.stringify(now) === JSON.stringify(block)) continue;
+      // Un blocco tolto da altri nel frattempo: la bozza non ha più dove andare,
+      // ma non si perde in silenzio («Mostra le due versioni»): resta da riprendere.
+      if (!now) {
+        if (isTextBlock(block)) orphans.push({ blockId: id, own: block, afterId: draftAfter.current.get(id) ?? null });
+        continue;
+      }
+      if (JSON.stringify(now) === JSON.stringify(block)) continue;
       ops.push({ op: "set", block });
     }
+    draftAfter.current.clear();
+    if (orphans.length > 0) sessionRef.current.keepUnsaved(orphans);
     if (ops.length > 0) sessionRef.current.save(ops);
   }, []);
 
@@ -259,6 +303,50 @@ function WritableBody({
     flush();
     sessionRef.current.save(ops);
   };
+
+  // «Mostra le due versioni»: le versioni proprie da mostrare, cioè diverse
+  // dalla pagina. Un blocco che non c'è più ha la sua sotto il blocco prima
+  // (o in cima, se anche quello non c'è).
+  const liveIds = new Set(view.map((b) => b.id));
+  const owns = session.owns.filter((o) => {
+    const now = view.find((b) => b.id === o.blockId);
+    return !now || JSON.stringify(now) !== JSON.stringify(o.own);
+  });
+  const ownUnder = (id: string) => owns.filter((o) => o.blockId === id);
+  const ownWhereWas = (id: string | null) =>
+    owns.filter((o) => !liveIds.has(o.blockId) && (o.afterId !== null && liveIds.has(o.afterId) ? o.afterId : null) === id);
+  const textLength = (b: ProductBlock) => (isTextBlock(b) ? b.content.text.length : 0);
+  /** «Use mine»: una scrittura nuova sulla pagina di adesso, con le regole di sempre. */
+  const useOwn = (o: OwnVersion) => {
+    session.resolveOwn(o.blockId);
+    if (liveIds.has(o.blockId)) {
+      structure([{ op: "set", block: o.own }]);
+      caret(o.blockId, textLength(o.own));
+    } else {
+      const block = { ...o.own, id: makeBlockId() };
+      const afterId = o.afterId !== null && liveIds.has(o.afterId) ? o.afterId : null;
+      structure([{ op: "insert", afterId, block }]);
+      caret(block.id, textLength(block));
+    }
+    announce(t("productDocs.editor.own.back"));
+  };
+  /** «Discard»: niente si scrive; il fuoco al blocco (o a quello prima). */
+  const discardOwn = (o: OwnVersion) => {
+    session.resolveOwn(o.blockId);
+    const target = liveIds.has(o.blockId) ? o.blockId : o.afterId;
+    if (target) shells.current.get(target)?.focus();
+    announce(t("productDocs.editor.own.discarded"));
+  };
+  const ownBoxes = (list: readonly OwnVersion[]) =>
+    list.map((o) => (
+      <OwnVersionBox
+        key={`own-${o.blockId}`}
+        own={o.own}
+        deleted={!liveIds.has(o.blockId)}
+        onUse={() => useOwn(o)}
+        onDiscard={() => discardOwn(o)}
+      />
+    ));
 
   /** Il blocco intero al posto del suo id: la sua bozza se ne va (è dentro), le altre si salvano prima. */
   const replaceBlock = (block: ProductBlock) => {
@@ -271,6 +359,9 @@ function WritableBody({
   };
 
   const setDraft = (block: ProductBlock) => {
+    // Il blocco prima di questo: dove rimettere la bozza se un altro lo toglie intanto.
+    const at = indexOf(block.id);
+    draftAfter.current.set(block.id, at > 0 ? viewRef.current[at - 1]!.id : null);
     const next = new Map(draftsRef.current);
     next.set(block.id, block);
     setDrafts(next);
@@ -297,6 +388,8 @@ function WritableBody({
     here
       ? {
           anchorId: here.id,
+          // La sezione dalla vista con la fila: un blocco appena creato c'è già (revisione di R11-4, 4).
+          sectionId: sectionKeyOf(session.blocks, here.id),
           offset: Math.min(here.end, savedLength),
           selection:
             here.start !== here.end ? [Math.min(here.start, savedLength), Math.min(here.end, savedLength)] : null,
@@ -418,30 +511,98 @@ function WritableBody({
     selectShell(id);
     drawSketchAt({ replaceId: id });
   };
+  /**
+   * Le bozze con un'immagine che sta caricando al loro posto (revisione di
+   * R11-6, M6): il bottone è spento, un secondo caricamento non parte, e
+   * uscire dalla pagina chiede.
+   */
+  const uploadingRef = useRef(new Set<string>());
+  // «Leave without saving» la cambia: un caricamento partito prima non scrive più.
+  const uploadGeneration = useRef(0);
+  const [uploading, setUploading] = useState<ReadonlySet<string>>(uploadingRef.current);
+  const markUploading = (id: string, on: boolean) => {
+    const next = new Set(uploadingRef.current);
+    if (on) next.add(id);
+    else next.delete(id);
+    uploadingRef.current = next;
+    setUploading(next);
+  };
   /** «Replace with an image»: la scelta del file del sistema, per la bozza `id`. */
   const chooseSketchImage = (id: string) => {
+    if (uploadingRef.current.has(id)) return;
     imageTarget.current = { id, sketch: true };
     fileInput.current?.click();
   };
   const placeSketchImage = (id: string, file: File) => {
-    void readImageFile(file).then((r) => {
+    if (uploadingRef.current.has(id)) return;
+    markUploading(id, true);
+    const at = uploadGeneration.current;
+    // Come gli altri blocchi immagine: controllata, poi salvata dal livello
+    // dati (nella build app caricata sul server, `product-image:<id>`).
+    const stored = async (): Promise<{ ok: true; src: string; alt: string } | { ok: false; reason: ImageRefusal }> => {
+      const r = checkImageFile(file);
+      if (!r.ok) return r;
+      try {
+        return { ...r, src: await storeImage(page.id, file) };
+      } catch (error) {
+        return { ok: false, reason: uploadRefusalOf(error) };
+      }
+    };
+    void stored().then((r) => {
+      if (at !== uploadGeneration.current) return;
       if (!r.ok) {
+        markUploading(id, false);
         // Rifiutata: la frase sotto il blocco, la bozza resta.
         setRefusal({ anchorId: id, reason: r.reason, n: Date.now() });
         return;
       }
       setRefusal(null);
+      // La bozza tolta (o cambiata) mentre caricava: l'immagine non ha più un posto.
+      if (blockOf(id)?.type !== "wireframe") {
+        markUploading(id, false);
+        return;
+      }
       // Il bottone se ne va con la bozza: prima il fuoco sul blocco, poi sulla didascalia.
       selectShell(id);
       pendingCaption.current = id;
-      replaceSketch.mutateAsync({ pageId: page.id, blockId: id, image: { src: r.src, alt: r.alt } }).catch(() => {
-        pendingCaption.current = null;
-        toast.error(t("productDocs.wireframe.replaceFailed"));
-      });
+      replaceSketch
+        .mutateAsync({ pageId: page.id, blockId: id, image: { src: r.src, alt: r.alt } })
+        .catch(() => {
+          pendingCaption.current = null;
+          toast.error(t("productDocs.wireframe.replaceFailed"));
+        })
+        .finally(() => markUploading(id, false));
     });
   };
 
   useImperativeHandle(handle, () => ({
+    unsaved: async () => {
+      flush();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        sessionRef.current.settled(),
+        new Promise<void>((done) => {
+          timer = setTimeout(done, LEAVE_WAIT_MS);
+        }),
+      ]);
+      clearTimeout(timer);
+      // Il testo scritto durante l'attesa parte anche lui, e conta (revisione di R11-6, I1).
+      flush();
+      return sessionRef.current.unsaved() || uploadingRef.current.size > 0;
+    },
+    /** «Leave without saving»: le bozze e la fila si scartano, niente parte più (I2). */
+    discard: () => {
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = null;
+      draftsRef.current = new Map();
+      setDraftsState(draftsRef.current);
+      draftAfter.current.clear();
+      // Un'immagine che sta caricando al posto di una bozza non arriva più (seconda revisione, I3).
+      uploadGeneration.current += 1;
+      uploadingRef.current = new Set();
+      setUploading(uploadingRef.current);
+      sessionRef.current.reset();
+    },
     focusFirst: () => {
       const first = viewRef.current[0];
       if (first) focusBlock(first, "start");
@@ -511,7 +672,21 @@ function WritableBody({
    */
   const addImages = (files: File[], at: { afterId: string } | { replaceId: string }) => {
     if (files.length === 0) return;
-    void Promise.all(files.map(readImageFile)).then((results) => {
+    // Letta e controllata, l'immagine si salva (nella build app: si carica sul
+    // server e il blocco porta il riferimento); un caricamento rifiutato è un
+    // rifiuto come gli altri.
+    const stored = async (
+      file: File,
+    ): Promise<{ ok: true; src: string; alt: string } | { ok: false; reason: ImageRefusal }> => {
+      const r = checkImageFile(file);
+      if (!r.ok) return r;
+      try {
+        return { ...r, src: await storeImage(page.id, file) };
+      } catch (error) {
+        return { ok: false, reason: uploadRefusalOf(error) };
+      }
+    };
+    void Promise.all(files.map(stored)).then((results) => {
       const anchorId = "afterId" in at ? at.afterId : at.replaceId;
       const refused = results.find((r) => !r.ok);
       setRefusal(refused && !refused.ok ? { anchorId, reason: refused.reason, n: Date.now() } : null);
@@ -854,6 +1029,7 @@ function WritableBody({
             const drawingAfter = !!sketching && "afterId" in sketching && sketching.afterId === block.id;
             return (
               <Fragment key={block.id}>
+                {i === 0 && ownBoxes(ownWhereWas(null))}
                 {i === 0 && sketching && "afterId" in sketching && sketching.afterId === null && (
                   <div className="py-3">
                     <SketchingPlaceholder focus={sketchFocus.current} />
@@ -861,11 +1037,14 @@ function WritableBody({
                 )}
                 <BlockShell
                   after={
-                    refusal?.anchorId === block.id ? (
-                      <div ref={refusalRow} key={refusal.n}>
-                        <ImageRefusalRow reason={refusal.reason} onDismiss={dismissRefusal} />
-                      </div>
-                    ) : null
+                    <>
+                      {refusal?.anchorId === block.id ? (
+                        <div ref={refusalRow} key={refusal.n}>
+                          <ImageRefusalRow reason={refusal.reason} onDismiss={dismissRefusal} />
+                        </div>
+                      ) : null}
+                      {ownBoxes([...ownUnder(block.id), ...ownWhereWas(block.id)])}
+                    </>
                   }
                   dropNote={fileDrop === block.id ? t("productDocs.blocks.image.drop") : null}
                   id={block.id}
@@ -906,7 +1085,7 @@ function WritableBody({
                         }
                         onClaudeChange={marks?.byBlock.has(block.id) ? () => marks.setOpen(block.id) : undefined}
                         claudeItem={
-                          block.type === "heading"
+                          block.type === "heading" && productLaterOn("actions")
                             ? (close) => (
                                 <SectionProposeItem
                                   page={page}
@@ -922,7 +1101,7 @@ function WritableBody({
                       <CommentMark anchorIds={anchorIdsOf(block)} below={block.type === "table"} />
                       {isTextBlock(block) &&
                         (editing ? (
-                          <RemoteBlockNote people={writersIn(others, block.id)} />
+                          <RemoteBlockNote people={writersIn(others, block.id, sectionKeyOf(session.blocks, block.id))} />
                         ) : (
                           <RemoteCursors people={writersIn(others, block.id)} contentKey={JSON.stringify(block.content)} />
                         ))}
@@ -950,7 +1129,11 @@ function WritableBody({
                           table={block.type === "table" ? tableEditing(block.id) : undefined}
                           sketch={
                             block.type === "wireframe"
-                              ? { replace: () => chooseSketchImage(block.id), announce: (text) => announce(text) }
+                              ? {
+                                  replace: () => chooseSketchImage(block.id),
+                                  announce: (text) => announce(text),
+                                  uploading: uploading.has(block.id),
+                                }
                               : undefined
                           }
                         >
@@ -1037,7 +1220,7 @@ function WritableBody({
           else addImages(files.slice(0, 1), { replaceId: target.id });
         }}
       />
-      <LiveNoteRegion people={focus ? writersIn(others, focus.id) : []} />
+      <LiveNoteRegion people={focus ? writersIn(others, focus.id, sectionKeyOf(session.blocks, focus.id)) : []} />
       {showBar && focusedText && (
         <SelectionBar
           ref={barRef}

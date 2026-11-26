@@ -27,7 +27,7 @@ export function AutomationOriginLine({
   className?: string;
 }) {
   const { t } = useTranslation();
-  const origin = useAutomationOrigin(automationRef, createdCode).data;
+  const origin = useAutomationOrigin(automationRef, createdCode, kind).data;
   if (!origin) return null;
   if (!origin.visible) {
     return (

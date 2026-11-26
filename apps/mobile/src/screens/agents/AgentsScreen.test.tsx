@@ -28,6 +28,8 @@ function session(overrides: Partial<AgentSessionSummary> = {}): AgentSessionSumm
     aiJobId: "j1",
     backlogItemId: null,
     outcome: null,
+    waitsOnViewer: false,
+    startedById: null,
     ...overrides,
   };
 }

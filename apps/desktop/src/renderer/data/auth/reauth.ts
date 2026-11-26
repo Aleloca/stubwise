@@ -5,6 +5,9 @@ import { getSessionCredential } from "../session";
 import { gate, now, state, type ApiFnName } from "../store";
 import { forbidden, invalid } from "../writer";
 import { fakeQrSvg } from "./qr";
+import { SECOND_FACTOR_MAX_FAILURES } from "./constants";
+
+export { SECOND_FACTOR_MAX_FAILURES } from "./constants";
 
 // La riconferma col secondo fattore (area 9a, `second-factor.md`). Ogni
 // funzione delicata dell'API si DICHIARA in `REAUTH_REQUIRED`, e la sua
@@ -24,8 +27,6 @@ import { fakeQrSvg } from "./qr";
 // ha una; niente anti-replay del passo TOTP.
 
 export const REAUTH_GRACE_MINUTES = 10;
-/** Codici sbagliati di fila prima del blocco, e quanto dura (`second-factor.md`). */
-export const SECOND_FACTOR_MAX_FAILURES = 5;
 export const SECOND_FACTOR_LOCK_MINUTES = 15;
 /** Il codice dell'app di autenticazione per tutti, nel prototipo. */
 export const PROTOTYPE_TOTP_CODE = "123456";
@@ -39,10 +40,14 @@ export const PROTOTYPE_TOTP_CODE = "123456";
  * decisione visibile nel diff.
  */
 export const REAUTH_REQUIRED: ReadonlySet<ApiFnName> = new Set<ApiFnName>([
+  // Lotto 10 (VA-Q4, maintainer): togliere un altro proprio Mac, e quelli di un altro (l'admin).
+  "vault.removeMac",
+  "vault.removeMacOf",
   // Task 4: l'Amministrazione
   "admin.setInstanceRole",
   "admin.createPasswordResetLink",
   "admin.resetSecondFactor",
+  "admin.changeEmail",
   "admin.unlinkGitIdentity",
   "admin.deactivatePerson",
   // Riattivare rende l'account intero (I2 della revisione finale, 30 ott).
@@ -52,8 +57,10 @@ export const REAUTH_REQUIRED: ReadonlySet<ApiFnName> = new Set<ApiFnName>([
   "admin.updateRole",
   "admin.duplicateRole",
   "admin.deleteRole",
+  // F8-3 (maintainer): sui reparti solo dove si danno accessi (permessi
+  // aggiunti, una persona aggiunta a un reparto che ne dà): la riconferma è
+  // parziale, la chiede la scrittura. Chi gestisce la Home no.
   "admin.setDepartmentMembers",
-  "admin.setHomeManagers",
   "admin.setDepartmentPermissions",
   // Task 9, giro 1: persone, Home e permessi del reparto in un colpo.
   "admin.saveDepartment",
@@ -72,12 +79,19 @@ export const REAUTH_REQUIRED: ReadonlySet<ApiFnName> = new Set<ApiFnName>([
   "me.createToken",
   // Crea un token, quindi come `createToken` (maintainer, 29 ott 2026).
   "me.createClaudeCodeCommand",
+  // Area 9, R2: l'email di login è l'identità (design integrazione area 9, 1.6).
+  "me.requestEmailChange",
+  // Area 9: come `POST /api/me/password` del server (config.reauth).
+  "me.changePassword",
   // Area 9b, Task 1: chi crea, sostituisce o cancella un segreto scritto da
   // chi amministra (chiave o setup-token, token git, client secret, chiave
   // S3), più registrare e aggiornare un plugin, che ne esegue il codice
   // (scelta del controller). `saveStorage` chiede la riconferma solo quando
   // porta una chiave nuova (`secretAccessKey`): lo decide la funzione.
-  // `saveWebhook` non c'è: l'URL non è un segreto (maintainer, 30 ott 2026).
+  // Dei webhook in uscita (F3) la chiedono creare e rigenerare il segreto
+  // (nasce un segreto) ed eliminare; `updateWebhook` solo quando cambia
+  // l'URL (maintainer, 18 nov 2026: nome, formato, eventi e stato restano
+  // liberi): lo decide la funzione, come `saveStorage`.
   "instance.createProvider",
   "instance.replaceProviderCredential",
   "instance.deleteProvider",
@@ -90,6 +104,10 @@ export const REAUTH_REQUIRED: ReadonlySet<ApiFnName> = new Set<ApiFnName>([
   "instance.replaceGoogleSecret",
   "instance.deleteGoogleApp",
   "instance.saveStorage",
+  "instance.createWebhook",
+  "instance.updateWebhook",
+  "instance.regenerateWebhookSecret",
+  "instance.deleteWebhook",
   // Area 9c: chi crea, sostituisce o cancella un segreto di un progetto
   // (chiave d'ingestione, secret del webhook git, file e valori
   // d'ambiente), più eliminare un progetto e un repository senza progetto
@@ -103,6 +121,13 @@ export const REAUTH_REQUIRED: ReadonlySet<ApiFnName> = new Set<ApiFnName>([
   "projectSettings.deleteEnvFile",
   "projectSettings.deleteProject",
   "instance.deleteDetachedRepository",
+  // Area 9, F5 (decisione del maintainer): eliminare un ambiente che ha
+  // file d'ambiente li cancella, segreti compresi. Lo chiede solo allora
+  // (`deleteEnvironment`): un ambiente senza file si elimina senza.
+  "releases.deleteEnvironment",
+  // API per i siti (S6): il segreto d'identità dei clienti di un widget, una
+  // credenziale (piano 2026-11-15, S1: `config.reauth` sul server).
+  "support.regenerateIdentitySecret",
 ]);
 
 const MINUTE = 60_000;

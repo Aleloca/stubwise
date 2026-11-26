@@ -395,6 +395,20 @@ describe("dettaglio di un'automazione", () => {
 });
 
 describe("dettaglio di un'esecuzione", () => {
+  // Lotto 8, voce 3: un'esecuzione finita da più di 90 giorni si apre ancora;
+  // al posto del registro la pagina dice che i dettagli non ci sono più.
+  it("compattata: si apre, e al posto del registro la frase dei 90 giorni", async () => {
+    const done = state.automationRuns.find((r) => r.endedAt !== null && r.log.length > 0)!;
+    const automation = state.automations.find((a) => a.id === done.automationId)!;
+    done.endedAt = new Date(Date.parse(TODAY) - 120 * 86_400_000).toISOString();
+    done.startedAt = new Date(Date.parse(TODAY) - 121 * 86_400_000).toISOString();
+    await open(`/automations/${automation.code}/runs/${done.n}`);
+    expect(
+      await screen.findByText("This run's details are gone: they're kept for 90 days."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(automation.name);
+  });
+
   it("approvazione che aspetta me: anteprima intera, Reject · Edit · Approve; il tempo non la sblocca", async () => {
     await open("/automations/AUD-A1/runs/1", MATTEO);
     const now = await screen.findByRole("region", { name: "Now" });

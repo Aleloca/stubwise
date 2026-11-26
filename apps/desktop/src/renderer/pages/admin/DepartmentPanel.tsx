@@ -1,3 +1,5 @@
+import { isAppBuild } from "../../data/build";
+import { featureIntegrated } from "../../data/integration";
 import { useBlocker, useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -6,6 +8,7 @@ import {
   useAdminDepartments,
   useAdminPeople,
   useDeleteDepartment,
+  useTaskCount,
   useDepartmentPreview,
   useSaveDepartment,
   useSessionPersonId,
@@ -14,7 +17,7 @@ import {
   type DepartmentView,
   type PersonRow,
 } from "../../data/queries";
-import { useViewer } from "../../data/viewer";
+import { useViewer } from "../../data/viewing";
 import { DOCKED_PANEL_QUERY, DetailPanel } from "../../layout/useDetailPanel";
 import { useMediaQuery } from "../../layout/useMediaQuery";
 import { useReauth } from "../../layout/useReauth";
@@ -103,6 +106,27 @@ export function DepartmentPanelHost() {
 
 const diff = (a: readonly string[], b: readonly string[]) => a.filter((x) => !b.includes(x));
 
+/** Ciò che il pannello salva, come lo era quando la bozza è nata (la sua base, review F8 I1). */
+type Base = {
+  memberIds: string[];
+  homeManagerIds: string[];
+  projectPermissions: string[];
+  /** La `version` del server (F8, `ifMatch`); `""` nel prototipo o da un server di prima. */
+  version: string;
+};
+const baseOf = (d: DepartmentView): Base => ({
+  version: d.version ?? "",
+  memberIds: [...d.memberIds],
+  homeManagerIds: [...d.homeManagerIds],
+  projectPermissions: [...d.projectPermissions],
+});
+const sameSet = (a: readonly string[], b: readonly string[]) =>
+  a.length === b.length && a.every((x) => b.includes(x));
+const sameBase = (a: Base, b: Base) =>
+  sameSet(a.memberIds, b.memberIds) &&
+  sameSet(a.homeManagerIds, b.homeManagerIds) &&
+  sameSet(a.projectPermissions, b.projectPermissions);
+
 export function DepartmentPanel({
   department: d,
   all,
@@ -120,6 +144,10 @@ export function DepartmentPanel({
   const giveBlock = useGiveBlock();
   const saveDepartment = useSaveDepartment();
   const people = useAdminPeople({ statuses: ["active", "deactivated"] }).data ?? [];
+  // La base della bozza: il reparto quando il pannello l'ha letto. Le modifiche
+  // si contano e si salvano rispetto a lei, non all'ultimo elenco riletto.
+  const [base, setBase] = useState<Base>(() => baseOf(d));
+  const [stale, setStale] = useState(false);
   const [members, setMembersDraft] = useState<string[]>(d.memberIds);
   const [home, setHomeDraft] = useState<string[]>(d.homeManagerIds);
   const [perms, setPermsDraft] = useState<Set<string>>(() => new Set(d.projectPermissions));
@@ -130,13 +158,35 @@ export function DepartmentPanel({
 
   const permList = [...perms];
   const changes =
-    diff(members, d.memberIds).length +
-    diff(d.memberIds, members).length +
-    diff(home, d.homeManagerIds).length +
-    diff(d.homeManagerIds, home).length +
-    diff(permList, d.projectPermissions).length +
-    diff(d.projectPermissions, permList).length;
+    diff(members, base.memberIds).length +
+    diff(base.memberIds, members).length +
+    diff(home, base.homeManagerIds).length +
+    diff(base.homeManagerIds, home).length +
+    diff(permList, base.projectPermissions).length +
+    diff(base.projectPermissions, permList).length;
   const dirty = changes > 0;
+
+  // Un altro ha cambiato il reparto (review F8, I1): senza modifiche la bozza
+  // si rilegge; con modifiche resta, e il pannello lo dice.
+  const latest = baseOf(d);
+  const latestKey = JSON.stringify(latest);
+  useEffect(() => {
+    const next = JSON.parse(latestKey) as Base;
+    if (sameBase(next, base)) {
+      // Cambiato altro (il nome, il colore, salvati da qui): la bozza vale ancora, si aggiorna la versione.
+      if (next.version !== base.version) setBase((b) => ({ ...b, version: next.version }));
+      return;
+    }
+    if (dirtyRef.current) {
+      setStale(true);
+      return;
+    }
+    setBase(next);
+    setMembersDraft(next.memberIds);
+    setHomeDraft(next.homeManagerIds);
+    setPermsDraft(new Set(next.projectPermissions));
+    // `base` non è fra le dipendenze apposta: si guarda solo quando cambia il reparto.
+  }, [latestKey]);
 
   // Chiudere, aprire un altro reparto o lasciare la pagina con modifiche chiede prima.
   const dirtyRef = useRef(dirty);
@@ -168,36 +218,60 @@ export function DepartmentPanel({
       return next;
     });
   const discard = () => {
+    setBase(baseOf(d));
     setMembersDraft(d.memberIds);
     setHomeDraft(d.homeManagerIds);
     setPermsDraft(new Set(d.projectPermissions));
+    setStale(false);
     setError(null);
   };
 
   // La bozza letta dal livello dati: finché arriva, quella del reparto salvato.
-  const preview: DepartmentPreview =
-    useDepartmentPreview(d.id, { memberIds: members, projectPermissions: permList }).data ?? {
-      ...d,
-      missing: [],
-    };
+  const previewQuery = useDepartmentPreview(d.id, { memberIds: members, projectPermissions: permList });
+  const preview: DepartmentPreview = previewQuery.data ?? { ...d, missing: [] };
+  // Finché l'anteprima non c'è (o non si legge), le caselle e «Add people» non
+  // dicono ancora cosa si può dare: lo si scrive (review F8, M1).
+  const previewNote = previewQuery.isError ? (
+    <p role="alert" className="text-sm text-ink-muted">
+      {t("admin.department.previewError")}{" "}
+      <button type="button" className="underline underline-offset-2" onClick={() => void previewQuery.refetch()}>
+        {t("admin.department.previewRetry")}
+      </button>
+    </p>
+  ) : previewQuery.isPending ? (
+    <p role="status" className="text-sm text-ink-muted">
+      {t("admin.department.previewLoading")}
+    </p>
+  ) : null;
 
   /** Una scrittura sola, con la riconferma: il livello dati giudica la bozza intera. */
   async function save() {
     setError(null);
     setSaving(true);
-    const result = await reauth(
-      () =>
-        saveDepartment.mutateAsync([
-          d.id,
-          { memberIds: members, homeManagerIds: home, projectPermissions: permList },
-        ]),
-      { action: t("admin.department.saveAction", { name: d.name }) },
+    const write = () =>
+      saveDepartment.mutateAsync([
+        d.id,
+        {
+          memberIds: members,
+          homeManagerIds: home,
+          projectPermissions: permList,
+          baseProjectPermissions: base.projectPermissions,
+          baseVersion: base.version,
+        },
+      ]);
+    // Il server chiede la riconferma quando la bozza dà accessi (F8-3): il
+    // dialogo, come nel prototipo; `department-reauth` acceso da F8.
+    const result = await (featureIntegrated("department-reauth")
+      ? reauth(write, { action: t("admin.department.saveAction", { name: d.name }) })
+      : write()
     ).catch(() => null);
     setSaving(false);
     if (result === null) return setError(t("admin.department.saveFailed"));
     const refusal = refusalOf(result) as UiRefusal | null;
     if (refusal) {
       if (refusal.error === "reauth_cancelled") return;
+      // F8: un altro l'ha cambiato da quando la bozza è nata (409 `stale`): niente è scritto.
+      if (refusal.error === "conflict") return setStale(true);
       if (refusal.error === "escalation")
         return setError(
           t("admin.department.refusal.escalation", {
@@ -209,11 +283,14 @@ export function DepartmentPanel({
       return setError(refusalWords(refusal));
     }
     dirtyRef.current = false;
+    // La bozza salvata è la base nuova: la rilettura dopo il salvataggio non è «un altro».
+    setBase((b) => ({ ...b, memberIds: [...members], homeManagerIds: [...home], projectPermissions: permList }));
+    setStale(false);
     toast.show(t("admin.department.saved"));
   }
 
   const notGivable = new Set(preview.notGivable);
-  const savedPerms = new Set(d.projectPermissions);
+  const savedPerms = new Set(base.projectPermissions);
 
   return (
     <div className="flex min-h-full flex-col">
@@ -253,7 +330,9 @@ export function DepartmentPanel({
                         <span className={`truncate text-md ${off ? "text-ink-muted" : "text-ink"}`}>
                           {off ? t("taskUi.deactivatedName", { name: nameOf(id) }) : nameOf(id)}
                         </span>
-                        {/* Un disattivato non riceve la Home; se l'aveva, si può solo togliere. */}
+                        {/* Un disattivato non riceve la Home; se l'aveva, si può solo togliere.
+                            La Home dei reparti arriva con la fetta 3: nella build app non c'è. */}
+                        {featureIntegrated("department-home") && (
                         <label
                           className={`relative flex w-fit items-center gap-1.5 rounded-sm text-xs text-ink-muted has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-focus ${off && !home.includes(id) ? "opacity-50" : ""}`}
                         >
@@ -270,6 +349,7 @@ export function DepartmentPanel({
                           <CheckBox checked={home.includes(id)} />
                           <span aria-hidden="true">{t("admin.department.people.managesHome")}</span>
                         </label>
+                        )}
                       </span>
                       <button
                         type="button"
@@ -284,6 +364,7 @@ export function DepartmentPanel({
                 })}
             </ul>
           )}
+          {previewNote}
           <AddPeople
             department={d}
             missingToAdd={preview.missingToAdd}
@@ -293,10 +374,13 @@ export function DepartmentPanel({
           />
         </PanelPart>
 
+        {/* Accesa con l'area 9, F8: i permessi e i motivi dall'anteprima del server. */}
+        {featureIntegrated("department-permissions") && (
         <PanelPart title={t("admin.department.permissions.title")}>
           <p className="mb-3 text-sm text-pretty text-ink-muted">
             {t("admin.department.permissions.intro")}
           </p>
+          {previewNote}
           <PermissionTable
             scope="project"
             label={t("admin.department.permissions.tableLabel", { name: d.name })}
@@ -307,6 +391,7 @@ export function DepartmentPanel({
             }
           />
         </PanelPart>
+        )}
 
         <div className="border-t border-rule pt-4">
           <button
@@ -333,6 +418,11 @@ export function DepartmentPanel({
           ) : (
             <>
               {error && <WriteError message={error} onRetry={() => void save()} />}
+              {stale && (
+                <p role="status" className="text-sm text-pretty text-ink">
+                  {t("admin.department.staleDraft")}
+                </p>
+              )}
               <div className="flex flex-wrap items-center gap-2">
                 <p className="num min-w-0 flex-1 text-sm text-ink">
                   {t("admin.department.changes", { count: changes })}
@@ -605,7 +695,15 @@ function DeleteDepartmentDialog({
   const others = all.filter((x) => x.id !== d.id);
   const [target, setTarget] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const withTasks = d.taskCount > 0;
+  // Build app: le task del reparto si contano adesso, filtrate (l'elenco dei
+  // reparti non le scarica). Nel prototipo il conteggio è già nella vista.
+  const app = isAppBuild();
+  const counted = useTaskCount({ departmentIds: [d.id] }, app);
+  const taskCount = app ? (counted.data?.count ?? 0) : d.taskCount;
+  const truncated = app && counted.data?.truncated === true;
+  const counting = app && counted.isPending;
+  const countFailed = app && counted.isError;
+  const withTasks = taskCount > 0;
   const targetDept = others.find((x) => x.id === target);
 
   async function onDelete() {
@@ -639,7 +737,7 @@ function DeleteDepartmentDialog({
           <button
             type="button"
             className={dangerSolidButton}
-            disabled={(withTasks && !target) || del.isPending}
+            disabled={(withTasks && !target) || del.isPending || counting || countFailed}
             onClick={() => void onDelete()}
           >
             {withTasks ? t("admin.department.moveAndDelete") : t("admin.department.deleteConfirm")}
@@ -647,10 +745,18 @@ function DeleteDepartmentDialog({
         </>
       }
     >
-      {withTasks ? (
+      {counting ? (
+        <p role="status" className="text-md text-ink-muted">
+          {t("admin.department.counting")}
+        </p>
+      ) : countFailed ? (
+        <WriteError message={t("admin.department.countFailed")} onRetry={() => void counted.refetch()} />
+      ) : withTasks ? (
         <div className="flex flex-col gap-2">
           <p className="text-md text-ink">
-            {t("admin.department.tasksMove", { count: d.taskCount, name: d.name })}
+            {truncated
+              ? t("admin.department.tasksMoveMany", { count: taskCount, name: d.name })
+              : t("admin.department.tasksMove", { count: taskCount, name: d.name })}
           </p>
           <MenuButton
             menuLabel={t("admin.department.moveTo")}

@@ -36,7 +36,7 @@ import { moveProviderAs, setProviderEnabledAs } from "../instance/providers";
 import { pauseQueueAs, resumeQueueAs } from "../instance/queue";
 import { retryJobAs } from "../instance/retry";
 import { saveStorageAs, setAttachmentsAs } from "../instance/storage";
-import { saveWebhookAs, type WebhookFormat } from "../instance/webhook";
+import { updateWebhookAs, type WebhookFormat } from "../instance/webhook";
 import type { MilestoneInput, NewTaskInput, Task, TaskPatch } from "../model";
 import { setProjectAiAs } from "../projectSettings/ai";
 import { archiveProjectAs, reopenProjectAs } from "../projectSettings/archive";
@@ -78,6 +78,18 @@ export interface CatalogEntry {
   baseClass: "A" | "B";
   /** Se la voce ha un inverso (il valore vero lo dà `run`). */
   undoable: boolean;
+  /**
+   * Una riconferma PARZIALE (decisione del maintainer in F7: la classe segue
+   * la rotta): la funzione sta in `REAUTH_REQUIRED`, ma la scrittura la chiede
+   * solo con certi argomenti, e la voce è C solo allora.
+   */
+  reauthIf?: (args: Record<string, unknown>) => boolean;
+  /**
+   * Fa partire lavoro del modello (area 11, F6-1 = a, maintainer): costa
+   * budget, e un «Undo» non lo restituisce. La voce è B col motivo
+   * `startsWork`, e parte alla conferma; «Undo» resta dopo.
+   */
+  startsWork?: boolean;
   /**
    * L'azione di `ACTIONS` per il «Who?» di un rifiuto; `null` solo per ciò
    * che è solo tuo: `setSubscription` (P19) e i filtri salvati (P4).
@@ -399,11 +411,17 @@ const ENTRIES: Record<Exclude<ClaudeActionFn, MoreCatalogFn>, Declaration> = {
       const projectId = args.projectId as string;
       const personId = args.personId as string;
       const roleId = roleOf(projectId, personId);
+      // I permessi personali nel progetto non tornerebbero con addMember: come
+      // sul server (72, F7), un'uscita così non si annulla (review F7, I3 a).
+      const personal = accessState().grants.some(
+        (g) => g.personId === personId && g.projectId === projectId,
+      );
       done(removeMemberAs(me, projectId, personId));
-      return onMember(projectId, personId, {
-        fn: "addMember",
-        args: { projectId, personId, roleId },
-      });
+      return onMember(
+        projectId,
+        personId,
+        personal ? null : { fn: "addMember", args: { projectId, personId, roleId } },
+      );
     },
   },
   setMemberRole: {
@@ -657,7 +675,8 @@ const ENTRIES: Record<Exclude<ClaudeActionFn, MoreCatalogFn>, Declaration> = {
           url: args.url as string,
           ref: args.ref as string,
           subdir: (args.subdir as string | null | undefined) ?? null,
-          trusted: args.trusted as true,
+          // `trust`, come la rotta del server (72, F7): «Mi fido» lo scrive la persona.
+          trusted: args.trust as true,
         }),
       );
       return onSetting(`plugin:${pluginId}`, null);
@@ -670,7 +689,7 @@ const ENTRIES: Record<Exclude<ClaudeActionFn, MoreCatalogFn>, Declaration> = {
     whoAction: "managePlugins",
     run(me, args) {
       const id = args.id as string;
-      done(updatePluginRefAs(me, id, { ref: args.ref as string, trusted: args.trusted as true }));
+      done(updatePluginRefAs(me, id, { ref: args.ref as string, trusted: args.trust as true }));
       return onSetting(`plugin:${id}`, null);
     },
   },
@@ -700,7 +719,7 @@ const ENTRIES: Record<Exclude<ClaudeActionFn, MoreCatalogFn>, Declaration> = {
     apiFn: "instance.pauseQueue",
     baseClass: "B",
     undoable: true,
-    whoAction: "manageSettings",
+    whoAction: "manageProjectSettings",
     run(me, args) {
       const projectId = args.projectId as string;
       done(pauseQueueAs(me, projectId));
@@ -713,7 +732,7 @@ const ENTRIES: Record<Exclude<ClaudeActionFn, MoreCatalogFn>, Declaration> = {
     apiFn: "instance.resumeQueue",
     baseClass: "B",
     undoable: true,
-    whoAction: "manageSettings",
+    whoAction: "manageProjectSettings",
     run(me, args) {
       const projectId = args.projectId as string;
       done(resumeQueueAs(me, projectId));
@@ -724,11 +743,11 @@ const ENTRIES: Record<Exclude<ClaudeActionFn, MoreCatalogFn>, Declaration> = {
   },
   retryJob: {
     apiFn: "instance.retryJob",
-    // La funzione chiede `settings.manage` E `runs.start` nel progetto: il
-    // «Who?» nomina il primo, il rifiuto vale per entrambi.
+    // La funzione chiede `project.settings.manage` E `runs.start` nel progetto
+    // (F4): il «Who?» nomina il primo, il rifiuto vale per entrambi.
     baseClass: "B",
     undoable: false,
-    whoAction: "manageSettings",
+    whoAction: "manageProjectSettings",
     run(me, args) {
       // Il budget si controlla qui (`openRunAs`, rifiuto sincrono dentro il
       // gruppo, ruling (T4)); la sessione aperta parte solo a gruppo riuscito.
@@ -747,6 +766,16 @@ const ENTRIES: Record<Exclude<ClaudeActionFn, MoreCatalogFn>, Declaration> = {
     apiFn: "instance.saveStorage",
     baseClass: "B",
     undoable: true,
+    // Lotto 10 (72, 555e3ad15): la riconferma SOLO se cambiano l'endpoint o il
+    // bucket rispetto a quelli salvati ADESSO (vale anche per «Undo», che
+    // riporta quelli di prima). La chiave da qui non entra mai (`run` la
+    // rifiuta come `invalid`, review F7, M2).
+    reauthIf: (args) => {
+      const s = state.instance.storage;
+      const differs = (value: unknown, now: string) =>
+        typeof value === "string" && value.trim() !== now;
+      return differs(args.endpoint, s.endpoint) || differs(args.bucket, s.bucket);
+    },
     whoAction: "manageSettings",
     run(me, args) {
       // Nessun segreto entra da qui: la chiave si scrive solo nel dialogo vero.
@@ -758,12 +787,17 @@ const ENTRIES: Record<Exclude<ClaudeActionFn, MoreCatalogFn>, Declaration> = {
         bucket: s.bucket,
         accessKeyId: s.accessKeyId,
       };
+      // Una PATCH (come sul server): un campo assente resta com'è, almeno uno.
+      const fields = ["endpoint", "region", "bucket", "accessKeyId"] as const;
+      if (!fields.some((k) => typeof args[k] === "string")) throw invalid("storage");
+      const field = (k: (typeof fields)[number]) =>
+        typeof args[k] === "string" ? (args[k] as string) : was[k];
       done(
         saveStorageAs(me, {
-          endpoint: args.endpoint as string,
-          region: args.region as string,
-          bucket: args.bucket as string,
-          accessKeyId: args.accessKeyId as string,
+          endpoint: field("endpoint"),
+          region: field("region"),
+          bucket: field("bucket"),
+          accessKeyId: field("accessKeyId"),
         }),
       );
       return onSetting("storage", { fn: "saveStorage", args: was });
@@ -780,23 +814,43 @@ const ENTRIES: Record<Exclude<ClaudeActionFn, MoreCatalogFn>, Declaration> = {
       return onSetting("attachments", { fn: "setAttachments", args: { on: was } });
     },
   },
-  saveWebhook: {
-    apiFn: "instance.saveWebhook",
+  // F3 (design §F7, «webhook (senza segreto)»): solo la modifica di un
+  // webhook che c'è. Crearlo, rigenerarne il segreto o eliminarlo vogliono
+  // la riconferma e toccano un segreto: non passano da Claude.
+  updateWebhook: {
+    apiFn: "instance.updateWebhook",
     baseClass: "B",
     undoable: true,
-    whoAction: "manageSettings",
+    // La rotta chiede il codice solo per un URL nuovo, che da qui non entra mai
+    // (`run` lo rifiuta come `invalid`): la voce è sempre B.
+    reauthIf: () => false,
+    whoAction: "manageIntegrations",
     run(me, args) {
-      const w = state.instance.webhook;
-      const was = { enabled: w.enabled, format: w.format, url: w.url, events: { ...w.events } };
+      // L'indirizzo non entra da qui (come sul server, 72 in F7): un URL nuovo
+      // vorrebbe la riconferma (maintainer, 18 nov 2026), e la voce resta B.
+      if ("url" in args) throw invalid("url");
+      const id = args.id as string;
+      const w = state.instance.webhooks.find((x) => x.id === id);
+      const was = {
+        id,
+        name: w?.name,
+        format: w?.format,
+        enabled: w?.enabled,
+        events: [...(w?.events ?? [])],
+      };
       done(
-        saveWebhookAs(me, {
-          enabled: args.enabled === true,
-          format: args.format as WebhookFormat,
-          url: (args.url as string | null | undefined) ?? null,
-          events: (args.events ?? {}) as Record<string, boolean>,
-        }),
+        updateWebhookAs(
+          me,
+          id,
+          present(args, ["name", "format", "enabled", "events"] as const) as {
+            name?: string;
+            format?: WebhookFormat;
+            enabled?: boolean;
+            events?: string[];
+          },
+        ),
       );
-      return onSetting("webhook", { fn: "saveWebhook", args: was });
+      return onSetting(`webhook:${id}`, { fn: "updateWebhook", args: was });
     },
   },
 
@@ -843,5 +897,12 @@ export const isCatalogFn = (fn: string): fn is ClaudeActionFn => Object.hasOwn(C
 /** La classe dichiarata alzata dalla riconferma: C se `apiFn` è in `REAUTH_REQUIRED`. */
 export function declaredClassOf(fn: ClaudeActionFn): "A" | "B" | "C" {
   const entry = CLAUDE_CATALOG[fn];
-  return REAUTH_REQUIRED.has(entry.apiFn) ? "C" : entry.baseClass;
+  return REAUTH_REQUIRED.has(entry.apiFn) && !entry.reauthIf ? "C" : entry.baseClass;
+}
+
+/** Se l'azione, con QUESTI argomenti, chiede la riconferma: la rotta intera o la parziale. */
+export function reauthOf(fn: ClaudeActionFn, args: Record<string, unknown>): boolean {
+  const entry = CLAUDE_CATALOG[fn];
+  if (!REAUTH_REQUIRED.has(entry.apiFn)) return false;
+  return entry.reauthIf ? entry.reauthIf(args) : true;
 }

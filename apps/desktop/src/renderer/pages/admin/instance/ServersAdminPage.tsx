@@ -1,3 +1,4 @@
+import { featureIntegrated } from "../../../data/integration";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAllServers } from "../../../data/queries";
@@ -21,12 +22,13 @@ export function ServersAdminPage() {
   const servers = useAllServers();
   const [creating, setCreating] = useState(false);
 
-  // Chi vede la voce ha `monitor.manage`: il bottone non è mai spento.
-  const newButton = (
+  // Chi vede la voce ha `monitor.manage`: il bottone non è mai spento. Nella
+  // build app creare non è ancora acceso (`servers-write`, area 8 F4a, I1).
+  const newButton = featureIntegrated("servers-write") ? (
     <button type="button" className={secondaryButton} onClick={() => setCreating(true)}>
       {t("admin.servers.new")}
     </button>
-  );
+  ) : null;
 
   return (
     <IntegrationPage

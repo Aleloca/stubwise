@@ -9,8 +9,8 @@ import {
   type EffectRequest,
   type EngineInput,
   type EngineState,
-} from "./engine";
-import { restoreState } from "./restore";
+} from "@stubwise/shared";
+import { restoreState } from "@stubwise/shared";
 
 const NOW = "2026-10-23T12:00:00Z";
 const DAY = 86_400_000;

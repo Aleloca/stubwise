@@ -1,9 +1,12 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect } from "react";
-import * as api from "../api";
-import { PROJECT_AREAS, useInvalidate, useSessionPersonId, useWrite } from "../queries";
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef } from "react";
+import * as api from "@backend/api";
+import { PRODUCT_IMAGE_REF_PREFIX } from "@stubwise/shared";
+import { isAppBuild } from "../build";
+import { featureIntegrated } from "../integration";
+import { PROJECT_AREAS, REQUEST_AREAS, useInvalidate, useSessionPersonId, useWrite } from "../queries";
 import { useInstanceChanges } from "./instance";
-import type { FirstVersionSource, ProductBlockOp } from "../types";
+import type { FirstVersionSource, ProductBlockOp, ProductRevisionView } from "../types";
 
 // Gli hook dello spazio Prodotto (area 11a); `data/queries` li ri-esporta.
 // Le letture stanno nell'area «productDocs». Una scrittura di prodotto
@@ -31,6 +34,27 @@ const docsModuleAreas = (): readonly string[] => [
   "search",
 ];
 
+/**
+ * Le fette dell'integrazione dopo F1 (area 11): nella build app ogni pezzo
+ * legge e ascolta solo con la sua funzione accesa (R11-1). I commenti e le
+ * menzioni con F2, la ricerca e l'esportazione con F3, la presenza e la
+ * scrittura dal vivo con F4, Claude con F5 (segni, domande, attese) e i
+ * suoi gesti con F6 (prima versione, dalla doc al backlog, richieste nate
+ * dalla pagina, bozze di schermata). Nel prototipo è tutto acceso.
+ */
+export const PRODUCT_LATER = {
+  comments: "product-comments",
+  search: "product-search",
+  export: "product-export",
+  live: "product-live",
+  claude: "product-docs",
+  actions: "product-claude-actions",
+} as const;
+
+/** Una fetta dopo F1 è accesa? (vedi `PRODUCT_LATER`). */
+export const productLaterOn = (slice: keyof typeof PRODUCT_LATER): boolean =>
+  featureIntegrated(PRODUCT_LATER[slice]);
+
 /** Lo spazio Prodotto di un progetto; `null` dove non esiste per chi guarda. */
 export function useProductSpace(projectId: string, { enabled = true }: { enabled?: boolean } = {}) {
   const me = useSessionPersonId();
@@ -47,7 +71,8 @@ export function useProductSearch(q: string, projectId: string | null, enabled = 
   return useQuery({
     queryKey: ["as", me, "productDocs", "search", q, projectId] as const,
     queryFn: () => api.productDocs.searchProductPages(q, projectId ? { projectId } : {}),
-    enabled: enabled && q.trim().length > 0,
+    // Solo dove la doc di prodotto è integrata (area 11; review area 8 F1, m5).
+    enabled: enabled && q.trim().length > 0 && productLaterOn("search"),
     placeholderData: (previous, previousQuery) =>
       previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
   });
@@ -77,18 +102,71 @@ export function useReadProductExport() {
         queryKey: ["as", me, "productDocs", "export", projectId, pageId ?? null] as const,
         queryFn: () => api.productDocs.getProductExport(projectId, pageId === undefined ? {} : { pageId }),
         staleTime: 0,
+        // La vista porta tutte le immagini come data URL: non resta in cache (I1 della revisione di R11-3).
+        gcTime: 0,
         retry: false,
       }),
     [client, me],
   );
 }
 
-/** La cronologia di una pagina, dalla più recente. */
-export function useProductRevisions(pageId: string) {
+/**
+ * Il `src` di un blocco immagine da salvare: nel prototipo il `data:` URL
+ * letto, nella build app il riferimento del file caricato (R11-1).
+ */
+export function useStoreProductImage() {
+  return useCallback(
+    (pageId: string, file: File) => api.productDocs.storeProductImage(pageId, file),
+    [],
+  );
+}
+
+/**
+ * Un'immagine del server (`product-image:<id>`) da mostrare, come data URL;
+ * `null` se non si apre. Un `data:` URL del prototipo non si legge: si
+ * mostra così com'è. L'immagine di un id non cambia: la lettura resta.
+ */
+export function useProductImageSrc(pageId: string, src: string) {
   const me = useSessionPersonId();
   return useQuery({
+    // Fuori dall'area «productDocs»: l'immagine di un id non cambia, e un
+    // salvataggio non la riscarica (I2 della revisione).
+    queryKey: ["as", me, "productImage", pageId, src] as const,
+    queryFn: () => api.productDocs.productImageSrc(pageId, src),
+    enabled: src.startsWith(PRODUCT_IMAGE_REF_PREFIX),
+    staleTime: Infinity,
+  });
+}
+
+/** Una pagina della cronologia (il server, e il prototipo come lui): una più corta è l'ultima. */
+const REVISION_PAGE = 100;
+/** I tipi di revisione che il pannello sa dire; un tipo futuro (F5, F6) non si mostra come un altro (M6). */
+const REVISION_KINDS = new Set<string>([
+  "create",
+  "edit",
+  "rename",
+  "move",
+  "undo",
+  "first_version",
+  "answer",
+] satisfies ProductRevisionView["kind"][]);
+
+/**
+ * La cronologia di una pagina, dalla più recente, una pagina di 100 alla
+ * volta (`fetchNextPage`): un salvataggio rilegge le pagine già lette, non
+ * tutta la cronologia (I2 della revisione di R11-1).
+ */
+export function useProductRevisions(pageId: string) {
+  const me = useSessionPersonId();
+  return useInfiniteQuery({
     queryKey: ["as", me, "productDocs", "revisions", pageId] as const,
-    queryFn: () => api.productDocs.listProductRevisions(pageId),
+    queryFn: ({ pageParam }) =>
+      api.productDocs.listProductRevisions(pageId, pageParam === undefined ? {} : { before: pageParam }),
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (last) =>
+      last.length < REVISION_PAGE ? undefined : Math.min(...last.map((r) => r.lastSeq)),
+    // Dopo aver contato la pagina: scartare prima la farebbe sembrare l'ultima.
+    select: (data) => ({ ...data, pages: data.pages.map((page) => page.filter((r) => REVISION_KINDS.has(r.kind))) }),
   });
 }
 
@@ -135,12 +213,20 @@ export function useSaveProductBlocks() {
       ops,
       sessionId,
       undoOf,
+      baseSeq,
     }: {
       pageId: string;
       ops: ProductBlockOp[];
       sessionId: string;
       undoOf?: string;
-    }) => api.productDocs.saveProductBlocks(pageId, ops, undoOf ? { sessionId, undoOf } : { sessionId }),
+      /** La revisione della base su cui le operazioni sono calcolate (build app). */
+      baseSeq?: number;
+    }) =>
+      api.productDocs.saveProductBlocks(pageId, ops, {
+        sessionId,
+        ...(undoOf ? { undoOf } : {}),
+        ...(baseSeq !== undefined ? { baseSeq } : {}),
+      }),
     PRODUCT_AREAS,
   );
 }
@@ -169,6 +255,8 @@ export function useSetDocsModule() {
  * è menzionato; non cambia citazioni né Docs.
  */
 const COMMENT_AREAS: readonly string[] = ["productDocs", "notifications"];
+/** «Resolve» e «Reopen» cambiano solo i fili della pagina: nessuna card (review di R11-2, 6). */
+const RESOLVE_AREAS: readonly string[] = ["productDocs"];
 
 /** I fili di una pagina, aperti e risolti. */
 export function useProductComments(pageId: string, { enabled = true }: { enabled?: boolean } = {}) {
@@ -176,14 +264,16 @@ export function useProductComments(pageId: string, { enabled = true }: { enabled
   return useQuery({
     queryKey: ["as", me, "productDocs", "comments", pageId] as const,
     queryFn: () => api.productDocs.listProductComments(pageId),
-    enabled,
+    enabled: enabled && productLaterOn("comments"),
   });
 }
 
 /**
- * Commenta o risponde. Un doppio clic riceve la stessa scrittura
- * (`addProductComment` tiene quelle in volo); la pagina spegne comunque
- * «Comment» con `isPending`.
+ * Commenta o risponde. La pagina spegne «Comment» con `isPending`; nel
+ * prototipo anche il livello dati dà a un doppio clic la stessa scrittura
+ * (`addProductComment` tiene quelle in volo). `clientId` è la chiave del
+ * commento (72, b3ef7fa53): un «Retry» dopo un errore di rete col commento
+ * già salvato riceve lo stesso commento, non ne scrive un secondo.
  */
 export function useAddProductComment() {
   return useWrite(
@@ -196,17 +286,18 @@ export function useAddProductComment() {
       quote: string;
       body: string;
       replyToId?: string;
+      clientId?: string;
     }) => api.productDocs.addProductComment(pageId, input),
     COMMENT_AREAS,
   );
 }
 
 export function useResolveProductComment() {
-  return useWrite((rootId: string) => api.productDocs.resolveProductComment(rootId), COMMENT_AREAS);
+  return useWrite((rootId: string) => api.productDocs.resolveProductComment(rootId), RESOLVE_AREAS);
 }
 
 export function useReopenProductComment() {
-  return useWrite((rootId: string) => api.productDocs.reopenProductComment(rootId), COMMENT_AREAS);
+  return useWrite((rootId: string) => api.productDocs.reopenProductComment(rootId), RESOLVE_AREAS);
 }
 
 /** Chi si può menzionare nel progetto (chi ne legge i Docs), per «@». */
@@ -215,6 +306,7 @@ export function useProductMentionCandidates(projectId: string, q: string) {
   return useQuery({
     queryKey: ["as", me, "productDocs", "mentionCandidates", projectId, q] as const,
     queryFn: () => api.productDocs.productMentionCandidates(projectId, q),
+    enabled: productLaterOn("comments"),
   });
 }
 
@@ -231,7 +323,9 @@ export function useProductMentionCandidates(projectId: string, q: string) {
 export function useProductPageEvents(pageId: string) {
   const me = useSessionPersonId();
   const client = useQueryClient();
+  const live = productLaterOn("live");
   useEffect(() => {
+    if (!live) return;
     const area = ["as", me, "productDocs"] as const;
     return api.productDocs.subscribeProductPage(pageId, (event) => {
       if (event === "presence") {
@@ -243,11 +337,13 @@ export function useProductPageEvents(pageId: string) {
         return;
       }
       void client.invalidateQueries({ queryKey: [...area, "page"] });
+      // Una rinomina o uno spostamento altrui cambiano l'albero e le briciole (revisione di R11-4, 12).
+      void client.invalidateQueries({ queryKey: [...area, "space"] });
       void client.invalidateQueries({ queryKey: [...area, "comments", pageId] });
       void client.invalidateQueries({ queryKey: [...area, "revisions", pageId] });
       void client.invalidateQueries({ queryKey: [...area, "marks", pageId] });
     });
-  }, [client, me, pageId]);
+  }, [client, live, me, pageId]);
 }
 
 /** Gli altri presenti nella pagina (non chi guarda); dal vivo con `useProductPageEvents` montato. */
@@ -256,7 +352,7 @@ export function useProductPresence(pageId: string, { enabled = true }: { enabled
   return useQuery({
     queryKey: ["as", me, "productDocs", "presence", pageId] as const,
     queryFn: () => api.productDocs.getProductPresence(pageId),
-    enabled,
+    enabled: enabled && productLaterOn("live"),
   });
 }
 
@@ -269,8 +365,9 @@ export function useProductPresence(pageId: string, { enabled = true }: { enabled
  */
 export function useJoinProductPage(pageId: string | null) {
   const me = useSessionPersonId();
+  const live = productLaterOn("live");
   useEffect(() => {
-    if (!pageId) return;
+    if (!pageId || !live) return;
     let left = false;
     api.productDocs.joinProductPage(pageId).then(
       () => {
@@ -283,7 +380,7 @@ export function useJoinProductPage(pageId: string | null) {
       left = true;
       api.productDocs.leaveProductPageAs(me, pageId);
     };
-  }, [me, pageId]);
+  }, [live, me, pageId]);
 }
 
 /**
@@ -297,8 +394,10 @@ export function useSetProductPresence() {
       at,
     }: {
       pageId: string;
-      at: { anchorId: string; offset: number; selection?: [number, number] | null } | null;
-    }) => api.productDocs.setProductPresence(pageId, at),
+      at: { anchorId: string; offset: number; selection?: [number, number] | null; sectionId?: string } | null;
+    }) =>
+      // La presenza arriva con F4: spenta, non si manda (I3 della revisione di R11-1).
+      productLaterOn("live") ? api.productDocs.setProductPresence(pageId, at) : Promise.resolve(),
   });
 }
 
@@ -313,6 +412,10 @@ export function useProductUpdatesWaiting(projectId: string) {
   return useQuery({
     queryKey: ["as", me, "instance", "product-updates-waiting", projectId] as const,
     queryFn: () => api.productDocs.productUpdatesWaiting(projectId),
+    enabled: productLaterOn("claude"),
+    // Build app: nessun evento la rinfresca (una sezione che si libera, un
+    // lavoro che riparte), quindi si rilegge ogni 30 s. Il prototipo ha gli eventi.
+    refetchInterval: isAppBuild() ? 30_000 : false,
   });
 }
 
@@ -324,7 +427,7 @@ export function useProductMarks(pageId: string, { enabled = true }: { enabled?: 
   return useQuery({
     queryKey: ["as", me, "productDocs", "marks", pageId] as const,
     queryFn: () => api.productDocs.listProductMarks(pageId),
-    enabled,
+    enabled: enabled && productLaterOn("claude"),
   });
 }
 
@@ -365,7 +468,7 @@ export function useFirstVersionSources(projectId: string, { enabled = true }: { 
   return useQuery({
     queryKey: ["as", me, "productDocs", "firstVersionSources", projectId] as const,
     queryFn: () => api.productDocs.listFirstVersionSources(projectId),
-    enabled,
+    enabled: enabled && productLaterOn("actions"),
   });
 }
 
@@ -377,19 +480,39 @@ export function useFirstVersionSources(projectId: string, { enabled = true }: { 
 export function useProductFirstVersion(projectId: string, { enabled = true }: { enabled?: boolean } = {}) {
   const me = useSessionPersonId();
   const client = useQueryClient();
+  const on = productLaterOn("actions");
   useEffect(
     () =>
-      api.productDocs.onProductFirstVersion((changed) => {
-        if (changed === projectId)
-          void client.invalidateQueries({ queryKey: ["as", me, "productDocs"] });
-      }),
-    [client, me, projectId],
+      on
+        ? api.productDocs.onProductFirstVersion((changed) => {
+            if (changed === projectId)
+              void client.invalidateQueries({ queryKey: ["as", me, "productDocs"] });
+          })
+        : undefined,
+    [client, me, on, projectId],
   );
-  return useQuery({
+  const query = useQuery({
     queryKey: ["as", me, "productDocs", "firstVersion", projectId] as const,
     queryFn: () => api.productDocs.getProductFirstVersion(projectId),
-    enabled,
+    enabled: enabled && on,
+    // Build app (R11-6): nessun evento, quindi mentre scrive si rilegge ogni 2 s.
+    refetchInterval: (q) => (isAppBuild() && q.state.data?.status === "writing" ? 2_000 : false),
   });
+  // Build app: una pagina scritta, la fine o un «Undo» rileggono lo spazio di
+  // chi guarda (albero, riga in cima, domande), non la prima versione stessa.
+  const progress = query.data ? `${query.data.status}:${query.data.pagesDone}` : null;
+  const seen = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isAppBuild() || progress === null) return;
+    const before = seen.current;
+    seen.current = progress;
+    if (before === null || before === progress) return;
+    void client.invalidateQueries({
+      queryKey: ["as", me, "productDocs"],
+      predicate: (q) => q.queryKey[3] !== "firstVersion",
+    });
+  }, [client, me, progress]);
+  return query;
 }
 
 /** Le domande di Claude da chiudere nello spazio; si rilegge a ogni domanda nuova o risposta. */
@@ -397,17 +520,20 @@ export function useOpenProductQuestions(projectId: string, { enabled = true }: {
   const me = useSessionPersonId();
   const client = useQueryClient();
   const queryKey = ["as", me, "productDocs", "openQuestions", projectId] as const;
+  const on = productLaterOn("claude");
   useEffect(
     () =>
-      api.productDocs.onProductQuestionsChanged(() => {
-        void client.invalidateQueries({ queryKey: ["as", me, "productDocs", "openQuestions"] });
-      }),
-    [client, me],
+      on
+        ? api.productDocs.onProductQuestionsChanged(() => {
+            void client.invalidateQueries({ queryKey: ["as", me, "productDocs", "openQuestions"] });
+          })
+        : undefined,
+    [client, me, on],
   );
   return useQuery({
     queryKey,
     queryFn: () => api.productDocs.listOpenProductQuestions(projectId),
-    enabled,
+    enabled: enabled && on,
   });
 }
 
@@ -425,12 +551,28 @@ export function useAcceptFirstVersionPage() {
   return useWrite((pageId: string) => api.productDocs.acceptFirstVersionPage(pageId), FOLLOW_AREAS);
 }
 
+/** «Stop» accanto all'avanzamento: Claude finisce la pagina in corso e si ferma. */
+export function useStopFirstVersion() {
+  return useWrite((projectId: string) => api.productDocs.stopFirstVersion(projectId), PRODUCT_AREAS);
+}
+
 /** «Undo the first version»: toglie tutte le sue pagine. */
 export function useUndoFirstVersion() {
   return useWrite((projectId: string) => api.productDocs.undoFirstVersion(projectId), PRODUCT_AREAS);
 }
 
 /** Risponde a una domanda di Claude, dal filo o da «Decide»: `apply` o `keep`. */
+/**
+ * «Create request» dalla scheda nel filo (build app, F5): l'esito è la
+ * risposta della POST; rilegge domande, «Decide», riquadro, card e richieste.
+ */
+export function useCreateRequestFromQuestion() {
+  return useWrite(
+    (input: Parameters<typeof api.createRequestFromQuestion>[0]) => api.createRequestFromQuestion(input),
+    [...ANSWER_AREAS, ...REQUEST_AREAS],
+  );
+}
+
 export function useAnswerProductQuestion() {
   return useWrite(
     ({ commentId, option }: { commentId: string; option: "apply" | "keep" }) =>
@@ -465,7 +607,9 @@ export function useProductRequestsPreparing(pageId: string, { enabled = true }: 
   const me = useSessionPersonId();
   const client = useQueryClient();
   const queryKey = ["as", me, "productDocs", "requestsPreparing", pageId] as const;
+  const on = productLaterOn("actions");
   useEffect(() => {
+    if (!on) return;
     const again = () => void client.invalidateQueries({ queryKey: ["as", me, "productDocs", "requestsPreparing"] });
     const offConversation = api.onConversationChange(again);
     const offQuestions = api.productDocs.onProductQuestionsChanged(again);
@@ -473,11 +617,11 @@ export function useProductRequestsPreparing(pageId: string, { enabled = true }: 
       offConversation();
       offQuestions();
     };
-  }, [client, me]);
+  }, [client, me, on]);
   return useQuery({
     queryKey,
     queryFn: () => api.productDocs.listProductRequestsPreparing(pageId),
-    enabled,
+    enabled: enabled && on,
   });
 }
 
@@ -499,7 +643,7 @@ export function useBacklogProposal(
   return useQuery({
     queryKey: ["as", me, "requests", "productBacklogProposal", pageId, fromAnchorId] as const,
     queryFn: () => api.productDocs.proposeBacklogFromPage(pageId, fromAnchorId ?? undefined),
-    enabled,
+    enabled: enabled && productLaterOn("actions"),
     refetchOnMount: "always",
   });
 }
@@ -510,7 +654,7 @@ export function useProductLinkedRequests(pageId: string, { enabled = true }: { e
   return useQuery({
     queryKey: ["as", me, "requests", "productLinked", pageId] as const,
     queryFn: () => api.productDocs.listProductLinkedRequests(pageId),
-    enabled,
+    enabled: enabled && productLaterOn("actions"),
   });
 }
 

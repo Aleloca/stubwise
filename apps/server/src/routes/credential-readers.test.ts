@@ -277,6 +277,45 @@ describe("lettori di una credenziale", () => {
     expect(body.readers).toContainEqual(expect.objectContaining({ userId: lead.id, creator: false }));
   });
 
+  it("GET readers: chi legge VIA RUOLO porta il nome del ruolo (`roleName`, 25 nov 2026); diretto o full admin → null", async () => {
+    const { roles } = await import("@stubwise/db");
+    const [developer] = await testDb.db.select({ name: roles.name }).from(roles).where(eq(roles.id, developerRoleId));
+    // Un progetto suo: il ruolo invitato non deve toccare le attese degli altri test.
+    const [own] = await testDb.db
+      .insert(projects)
+      .values({ name: "ruoli", slug: "ruoli-lettori", ingestionKey: "ruoli-lettori-key" })
+      .returning({ id: projects.id });
+    const leader = await person("role-lead", "project_lead", own!.id);
+    // …che in UN ALTRO progetto è developer: qui il ruolo invitato non è il suo.
+    await addMember(app, otherProjectId, leader.id, "developer");
+    const dev = await person("role-dev", "developer", own!.id);
+    // Developer, ma in UN ALTRO progetto: qui non legge.
+    const elsewhere = await person("role-elsewhere", "developer", otherProjectId);
+    const id = await seedCredential({
+      project: own!.id,
+      readers: [leader.id],
+      roleReaders: [developerRoleId],
+      copiesFor: [await confirmedKeyOf(leader), await confirmedKeyOf(dev)],
+    });
+    const body = (await req("GET", `/api/credentials/${id}/readers`, leader.session)).json() as {
+      people: { userId: string; roleName: string | null }[];
+    };
+    const byUser = new Map(body.people.map((p) => [p.userId, p.roleName]));
+    expect(byUser.get(dev.id)).toBe(developer!.name);
+    expect(byUser.get(leader.id)).toBeNull();
+    expect(byUser.get(admin.id)).toBeNull();
+    expect(byUser.has(elsewhere.id)).toBe(false);
+    // Invitato ANCHE di persona: il ruolo resta detto.
+    const both = await seedCredential({
+      project: own!.id,
+      readers: [leader.id, dev.id],
+      roleReaders: [developerRoleId],
+      copiesFor: [await confirmedKeyOf(leader), await confirmedKeyOf(dev)],
+    });
+    const again = (await req("GET", `/api/credentials/${both}/readers`, leader.session)).json() as { people: { userId: string; roleName: string | null }[] };
+    expect(again.people.find((p) => p.userId === dev.id)!.roleName).toBe(developer!.name);
+  });
+
   it("condividere senza poterla aprire → 403 anche con credentials.share, nulla scritto", async () => {
     const target = await person("target", "developer");
     const targetKey = await confirmedKeyOf(target);
@@ -599,6 +638,35 @@ describe("accessi in attesa: elenco, conferma, rifiuto", () => {
     expect((await pendingOf(who)).find((i) => i.personKey.id === pendingKey)).toBeUndefined();
     // PAT → 403 session_required.
     expect((await req("GET", "/api/vault/pending", lead.pat)).json()).toMatchObject({ code: "session_required" });
+  });
+
+  it("una credenziale di un progetto che chi guarda NON vede non compare, nemmeno con invito e copia rimasti", async () => {
+    // `who` è in attesa in due progetti; lead è membro solo di `projectId`.
+    const who = await person("due-progetti", "developer");
+    await addMember(app, otherProjectId, who.id, "developer");
+    const pendingKey = await key(who.id, "pending");
+    const leadKey = await confirmedKeyOf(lead);
+    const visible = await seedCredential({ readers: [lead.id, who.id], copiesFor: [leadKey] });
+    // Nell'altro progetto lead ha ancora l'invito diretto e la copia (per
+    // esempio è uscito dal progetto): resta fuori lo stesso.
+    const hidden = await seedCredential({ project: otherProjectId, readers: [lead.id, who.id], copiesFor: [leadKey] });
+    const items = await pendingOf(lead);
+    const entry = items.find((i) => i.personKey.id === pendingKey);
+    expect(entry!.credentials.map((c) => c.id)).toEqual([visible]);
+    expect(entry!.credentials[0]!.projectId).toBe(projectId);
+    expect(items.flatMap((i) => i.credentials).some((c) => c.id === hidden || c.projectId === otherProjectId)).toBe(false);
+  });
+
+  it("nel proprio progetto, con share, una credenziale da cui chi guarda è stato TOLTO non compare (la copia rimasta non basta)", async () => {
+    const who = await person("tolto", "developer");
+    const pendingKey = await key(who.id, "pending");
+    const leadKey = await confirmedKeyOf(lead);
+    const visible = await seedCredential({ readers: [lead.id, who.id], copiesFor: [leadKey] });
+    // La revoca si applica a lettura: lead non è più lettore ma la sua copia resta.
+    const revoked = await seedCredential({ readers: [who.id], copiesFor: [leadKey] });
+    const entry = (await pendingOf(lead)).find((i) => i.personKey.id === pendingKey);
+    expect(entry!.credentials.map((c) => c.id)).toEqual([visible]);
+    expect(entry!.credentials.some((c) => c.id === revoked)).toBe(false);
   });
 
   it("conferma: la chiave diventa confirmed (con confirmedAt/By), si salvano solo le copie che chi conferma poteva dare", async () => {

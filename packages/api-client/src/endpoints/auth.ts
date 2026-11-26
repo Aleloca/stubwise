@@ -1,11 +1,21 @@
 import {
   authUserResponseSchema,
   languageResponseSchema,
+  desktopExchangeResponseSchema,
+  desktopHandoffResponseSchema,
+  emailChangedSchema,
+  emailChangeLinkSchema,
+  inviteLinkSchema,
   mobileLoginResponseSchema,
   sessionResponseSchema,
   setupStatusSchema,
 } from "@stubwise/shared";
 import type {
+  DesktopExchangeInput,
+  DesktopHandoffInput,
+  EmailChanged,
+  EmailChangeLink,
+  InviteLink,
   Reader,
   AuthUserResponse,
   Language,
@@ -16,6 +26,7 @@ import type {
   SetupStatus,
 } from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
+import { seg } from "../query.js";
 
 export interface Credentials {
   email: string;
@@ -59,6 +70,20 @@ export function createAuthEndpoints(request: ApiRequest) {
       return request("POST", "/api/auth/mobile-login", credentials, mobileLoginResponseSchema);
     },
 
+    /**
+     * Login del desktop dal browser, passo 2: dalla pagina `/app` con una
+     * sessione COMPLETA, dopo il clic di conferma, il codice monouso da
+     * passare all'app (`stubwise://auth?code=…`). Mai in automatico.
+     */
+    desktopHandoff(body: DesktopHandoffInput): Promise<Reader<{ code: string }>> {
+      return request("POST", "/api/auth/desktop-handoff", body, desktopHandoffResponseSchema);
+    },
+
+    /** Passo 3, dal desktop: codice + verifier PKCE → il token `kind = 'desktop'`. */
+    desktopExchange(body: DesktopExchangeInput): Promise<Reader<MobileLoginResponse>> {
+      return request("POST", "/api/auth/desktop-exchange", body, desktopExchangeResponseSchema);
+    },
+
     logout(): Promise<void> {
       return request("POST", "/api/auth/logout");
     },
@@ -70,6 +95,37 @@ export function createAuthEndpoints(request: ApiRequest) {
     /** L'id lo ricava il server dalla sessione: si manda solo la lingua. */
     setLanguage(language: Language): Promise<Reader<LanguageResponse>> {
       return request("PATCH", "/api/auth/me", { language }, languageResponseSchema);
+    },
+
+    /**
+     * Area 9, F1: la pagina del link del cambio dell'email. `emailChangeLink`
+     * LEGGE e non conferma (gli scanner della posta aprono i link); conferma
+     * solo `confirmEmailChange`, dal bottone: 400 `invalid_token`, 409 `email_taken`.
+     */
+    emailChangeLink(token: string): Promise<Reader<EmailChangeLink>> {
+      return request("GET", `/api/auth/email-change/${seg(token)}`, undefined, emailChangeLinkSchema);
+    },
+    confirmEmailChange(token: string): Promise<Reader<EmailChanged>> {
+      return request("POST", "/api/auth/email-change/confirm", { token }, emailChangedSchema);
+    },
+
+    /**
+     * Area 9, F1: la pagina dell'invito LEGGE l'invito prima di registrarsi.
+     * I dettagli solo su `valid`; scaduto, usato, revocato o sbagliato danno
+     * solo lo stato (usato e revocato il server li dice `invalid`).
+     */
+    inviteLink(token: string): Promise<Reader<InviteLink>> {
+      return request("GET", `/api/auth/invites/${seg(token)}`, undefined, inviteLinkSchema);
+    },
+
+    /**
+     * Registrazione da un invito: apre la sessione. `email` facoltativa (vale
+     * quella dell'invito; se mandata deve coincidere, 400
+     * `invite_email_mismatch`). 410 `invite_invalid`/`invite_expired`, 409
+     * `email_already_exists`. Il nome si mette dopo, con `PATCH /api/auth/me`.
+     */
+    register(body: { token: string; password: string; email?: string }): Promise<Reader<AuthUserResponse>> {
+      return request("POST", "/api/auth/register", body, authUserResponseSchema);
     },
   };
 }

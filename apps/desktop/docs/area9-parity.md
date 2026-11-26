@@ -23,6 +23,118 @@ controller che le fanno divergere dal web sono scritte nella riga e, per
 esteso, in `ossatura-follow-ups.md` («Area 9b — minori aperti», «Area 9c —
 minori aperti»).
 
+## Integrazione, F1: nella build app (area 9, 16 nov 2026)
+
+Le voci A e B nella build app, sulle rotte del server (piano
+`docs/plans/2026-11-16-integrazione-area9-f1-renderer-plan.md`). Ogni
+adattatore ha i suoi test (`data/backend/real/<nome>.test.ts`), quelli dei
+percorsi veri (`<nome>Live.test.ts`) e la sua riga in `pages/ComingSoon.test.tsx`
+(la pagina legge solo chiamate integrate). Il prototipo resta la specifica: le
+modifiche fatte PRIMA del collegamento sono in fondo alla tabella.
+
+| Voci | Adattatore | Funzione accesa | Differenze dichiarate |
+|---|---|---|---|
+| Account: nome, foto, email di login, password | `meAccount.ts` | `prefs-account` | La foto si legge con l'autenticazione (`authedDataUrl`): sul desktop un `<img src>` non porta il token. Le caselle Google restano nel cassetto Google (`prefs-mailboxes` spenta). Il colore delle iniziali è neutro (manca il reparto nel profilo). |
+| Security: TOTP, codici, passkey, sessioni, registro | `meSecurity.ts` | `prefs-security` | Sul desktop le passkey sono del browser: la sezione lo dice, senza «Add passkey». I tentativi rimasti si rileggono dopo un codice sbagliato (non sono nel 401). Tipi del registro del server tradotti, con frasi nuove per cassaforte e riconferma dal desktop. |
+| Tokens e Claude Code | `meTokens.ts` | `prefs-tokens`, `prefs-claude-code` | L'elenco ha anche i token del desktop e del mobile, come sul web. |
+| Language & theme | (i controlli del menu del profilo) | `prefs-look` | — |
+| Ingresso nella web «app»: invito, reset, primo avvio | `entry.ts` (+ il login di `session.ts`) | (rotte d'ingresso) | Il 410 unico del reset è «spent». Un invito usato o revocato è «invalid» (il server lo cancella); i dettagli solo sull'invito valido. |
+| «Chi può farlo?» | `whoCan.ts` | `admin:who-can` | Claude non ha permessi suoi (decisione (a)): una frase fissa. |
+| People, persona, inviti, Roles | `adminPeople.ts` | `admin:people`, `admin:roles` | Azioni, `missing`, portata e blocchi sono calcolati dal server. L'id dell'invito è opaco (`i_` + sha256 del token). Gli autori git osservati arrivano senza commit né progetti. |
+| Members del progetto | `adminMembers.ts` | `projectSettings:members` | `department` fra le fonti arriva con F8. |
+| Inbox: «Restore», «Move to New», «Mark as unread» | `notifications.ts` | `notification-restore` | Un 409 `invalid_state` non si scrive: il pannello rilegge. |
+| Registro delle modifiche (Amministrazione e Progetto → Settings) — F2 | `changelog.ts` | `admin:changelog`, `projectSettings:changelog` | Solo i tipi dell'area 9 finché F3 (9b) e la 9c non scrivono i loro. Le prime 50 voci e «Load more» col cursore del server (decisione del maintainer, 18 nov 2026; anche nel prototipo). «By Claude» e «Undid…» dal server da F7 (0195: `via`, `undoOf`, `undoneEntry`). Nessun link alle voci d'invito. `person.email_changed` nel gruppo «security», come sul server (test di parità del catalogo). |
+| Prototipo cambiato prima del collegamento | — | — | Foto (tipi dai primi byte, 512 KB); cambio d'email con l'attesa e il ramo admin; pagina del link che conferma solo al clic; password con la riconferma; disattivazione con `invalid_reassignment` per task e senza Claude; «Chi può farlo?» con Claude senza permessi; invito non valido senza nomi né date; «Mark as unread». |
+
+## Integrazione, F4: Stato dell'istanza, budget e consumi nella build app (area 9, 18 nov 2026)
+
+Sulle rotte di 72 (`feat/area9-f4`). Prima del collegamento il prototipo è
+cambiato: pausa e ripresa della coda chiedono `project.settings.manage` NEL
+progetto, il rilancio quello più `runs.start` nel progetto del lavoro (design
+§F4).
+
+| Voci | Adattatore | Funzione accesa | Differenze dichiarate |
+|---|---|---|---|
+| Instance status (code, lavori, worker, errori, quota, notte) | `instanceStatus.ts` | `admin:status` | I link li compone il client da tipo, progetto e codice; i worker sono gli slot dell'heartbeat, numerati dalla posizione. |
+| Pausa, ripresa, rilancio | `instanceStatus.ts` | (con lo Stato) | — |
+| AI → Budget & language | `budget.ts` | `ai-budget` | Niente simulazione del budget raggiunto. |
+| AI → Usage | `usage.ts` | `ai-usage` | Le righe `none` del server sono `key: null`; c'è «nessun account» per le corse senza provider. |
+| Automazioni: la coda in pausa | (frase `queuePaused`) | — | — |
+| La pausa nella colonna del progetto e in Tutti i progetti | — | (spenta) | Il server non la espone nelle letture di progetto (chiesta a 72). |
+
+## Integrazione, F3: l'istanza nella build app (area 9, 18 nov 2026)
+
+La 9b nella build app, sulle rotte di 72 (`feat/area9-f3`). Piano:
+`docs/plans/2026-11-18-integrazione-area9-f3-renderer-plan.md`. Prima del
+collegamento il prototipo è cambiato: i webhook in uscita sono un elenco
+(D-10 = b) con `integrations.manage` (H-1), i tipi `webhook.*` (H-3), «JSON»
+(H-2); la rinomina di un provider; cambiare l'URL di un webhook chiede la
+riconferma (maintainer); la voce AI si accende scheda per scheda.
+
+| Voci | Adattatore | Funzione accesa | Differenze dichiarate |
+|---|---|---|---|
+| Outgoing webhooks | `webhooks.ts` | `admin:webhooks` | Il server non ricorda l'ultima prova: la tiene la sessione. Niente riquadro «Prototype only». |
+| AI → Providers | `aiProviders.ts` | `ai-providers` | La prova la fa il worker (si rilegge finché è `pending`); `failed` non distingue credenziale e rete; senza ultime 4 per le credenziali di prima della 0190; la quota la vede chi ha `usage.view`. |
+| AI → Models | `aiModels.ts` | `ai-models` | `workerDefault` com'è (un id intero non si traduce); «—» se il worker non ha mai pubblicato i default. |
+| AI → Automation | `automation.ts` | `ai-automation` | Tre righe (le task); le regole di `feedback` e `review` restano com'erano. |
+| AI → Budget, Usage | — | (spente) | Budget arriva con F4 (`spentUsd`, `budgetReached`, `budgetEffect`); Usage non ha ancora una lettura nel client. |
+| Google Workspace | `googleApps.ts` | `admin:google` | Senza ultime 4 del secret; le caselle collegate solo contate. L'indirizzo di ritorno OAuth è quello del server. |
+| Git accounts | `gitAccounts.ts` | `admin:git-accounts` | Senza ultime 4; validazione ricordata dalla sessione; nessun elenco dei repository che usano un account; il revisore sostituito si sa dopo. |
+| Plugins | `plugins.ts` | `admin:plugins` | Chi ha registrato o aggiornato non arriva. |
+| Storage | `storage.ts` | `admin:storage` | Né prova né interruttore degli allegati (il server li deriva). |
+| Registro: tipi della 9b | `catalogParity.test.ts` | — | Server, coda e `job.retried` sono un elenco dichiarato di tipi solo del prototipo. |
+
+## Integrazione, F6: archiviare, eliminare, Repositories nella build app (area 9, 19 nov 2026)
+
+Sulle rotte di 72 (`feat/area9-f6`, Task 3–6). Archive e Amministrazione →
+Repositories si accendono insieme: il toast di Delete porta a Repositories.
+
+| Voci | Adattatore | Funzione accesa | Differenze dichiarate |
+|---|---|---|---|
+| Archive: anteprima e archiviazione, `busy` in parole | `projectArchive.ts` | `projectSettings:archive`, `archive` | Errori piatti: le ragioni del 409 `busy` dal body. Una ragione di tipo ignoto si dice come lavoro che non vedi. `waiting` per ora è sempre falso (L-5 = a). |
+| All projects → Archived, la pagina dell'archiviato, Reopen | `projectArchive.ts` | `archive` | La pagina si apre per codice: il codice si cerca fra gli archiviati, la vista si chiede per id. Chi ha archiviato può non esserci più: solo la data (anche nel prototipo). |
+| Delete: anteprima, codice esatto, riconferma | `projectArchive.ts` | `archive` | `second_factor_setup_required` è un `forbidden`, come in F5. |
+| Registro: `project.deleted` e `repository.deleted` | `changelog.ts` | — | La voce `hidden` del server perde il segnaposto dell'id. Il link a Repositories c'è solo se la sezione è accesa. |
+| Amministrazione → Repositories: collegati, senza progetto, collega, elimina | `instanceRepositories.ts` | `admin:repositories` | I collegati si compongono da `repositories.list()` (righe con `config`, cioè `repos.view`) e `projects.list()`; `owner/nome` dall'URL con la regola del server. `not_detached` si legge come «non c'è più». La data di distacco può mancare: la riga dice la provenienza e basta (anche nel prototipo). |
+| Le voci del registro di un archiviato portano a `/archived/<CODE>` | `changelog.ts` | — | Da `projectArchived`, che il server deriva a lettura (Task 7). |
+| Collegare uno staccato a un progetto sparito nel frattempo | `instanceRepositories.ts` | — | `target_not_found` (Task 7): il dialogo lo dice e resta aperto (anche nel prototipo). |
+
+## Integrazione, F7: le azioni di Claude dell'area 9 nella build app (area 9, 19 nov 2026)
+
+Sulle rotte di 72 (`feat/area9-f7`, Task 1–6). Prima del collegamento il
+prototipo è cambiato con le decisioni del maintainer e di 46: la classe
+segue la rotta (una riconferma parziale è C solo con gli argomenti che la
+chiedono, e da Claude non entrano: `saveStorage` e `updateWebhook` sono B,
+`updateWebhook` senza `url`); «Mi fido» dei plugin è `trust`; un
+`removeMember` di chi ha permessi personali non si annulla; un «Annulla» con
+l'inverso C è sempre una scheda con la riconferma, e «Asks for your code»
+c'è da subito.
+
+| Voci | Adattatore | Funzione accesa | Differenze dichiarate |
+|---|---|---|---|
+| Le schede delle 23 voci (membri, plugin, progetto, istanza) | `claudeChatActions.ts` | (le funzioni di Claude, già accese) | La frase dagli argomenti del server e dalle `labels` (persona e ruolo per chi guarda, R-G5); il «Who?» come il catalogo del prototipo. |
+| La classe C e la riconferma | `claudeChatActions.ts`, `ProposalCard.tsx`, `ClaudeReply.tsx` | — | `reauth` del server è il motivo «Asks for your two-step code»; le frasi della riconferma per azione; riquadro e Chat, anche con «Edit». |
+| «Annulla» con l'inverso C | `claudeChatActions.ts` | — | «Asks for your code» da `undoReauth` del gruppo. |
+| Registro: «By Claude», «Undid…» | `changelog.ts` | — | Da `via`, `undoOf`, `undoneEntry` (0195); «By Claude» è `?via=claude`. |
+| `setAttachments`, `setDefaultReviewer`, `saveStorage` | — | (no) | Il server non le esegue (registro di 72; `saveStorage` dalla review di F7: endpoint e bucket decidono dove vanno gli allegati): nel prototipo restano, nell'app Claude dice che si fanno dalla pagina. |
+
+## Integrazione, F8: i permessi di progetto dei reparti nella build app (area 9, 19 nov 2026)
+
+Sulle rotte di 72 (`feat/area9-f8`). Prima del collegamento il prototipo è
+cambiato con le decisioni del maintainer: la riconferma sui reparti solo
+quando si danno accessi (un permesso aggiunto, una persona aggiunta a un
+reparto che ne dà; chi gestisce la Home, rinominare e togliere no, F8-3 = a),
+e un reparto che non arriva a nessun progetto ha il suo motivo (F8-4 = a).
+
+| Voci | Adattatore | Funzione accesa | Differenze dichiarate |
+|---|---|---|---|
+| La riga «gives…» e la tabella dei permessi del reparto | `departments.ts` | `department-permissions` | I permessi pieni solo a chi gestisce i reparti. Il salvataggio manda `projectPermissions` solo se la bozza li cambia rispetto all'elenco letto (un reparto mai letto non li manda). |
+| L'anteprima: permessi spenti, «Add people» | `departments.ts` | — | `POST …/preview` (F8-2 = a): il server calcola `reach`, `notGivable`, `missingToAdd`, `missing`. |
+| La riconferma | `departments.ts`, `DepartmentPanel.tsx` | `department-reauth` | `reauth_required` dal server, il dialogo come nel prototipo. |
+| La fonte di un permesso: «From the <reparto> department» in Members e nella persona, «<reparto> department» in «Chi può farlo?» | `adminPeople.ts` (`sourceOf`), `whoCan.ts` | — | Il nome del reparto dal server (`departmentName`). Solo «Chi può farlo?» ripiega sull'elenco dei reparti se il nome manca (un server di prima). |
+| Il reparto cambiato da un altro col pannello aperto | `DepartmentPanel.tsx`, `departments.ts` | — | La bozza ha la sua base (review F8, I1): senza modifiche si rilegge, con modifiche lo dice; `projectPermissions` va nel PATCH solo se la bozza lo cambia rispetto alla base. La precondizione di versione (`ifMatch`) arriva da 72. |
+| L'ultimo gestore via reparto | `departments.ts` | — | `last_manager` del server si legge come `last_members_manager`, anche sul DELETE. |
+
 ## A. Personale → Preferenze
 
 | Voce | Dove vive ora | Test |
@@ -135,7 +247,7 @@ e lascia una voce del registro con valori stabili tradotti a lettura.
 | Integrazione, visibile ai membri: chiave d'ingestione mascherata (con chi l'ha creata), DSN, snippet, webhook in arrivo e git, guida SDK con «Save as file…» (ruling del controller); la chiave si rigenera con `project.settings.manage` **o** `repos.manage` (ruling `access.integration.canEdit`), il secret di un webhook git con `repos.manage`; i valori nuovi una volta, in `SecretOnce` (REAUTH) | `pages/settings/IntegrationSettings.tsx`; `data/projectSettings/integration.ts` | `EnvIntegration.test.tsx` («Sara: DSN e snippet mascherati, Copy copia il testo mascherato e lo dice; Regenerate spento con «Who?»», «Laura rigenera la chiave con la riconferma: SecretOnce con chiave, DSN e snippet; chiuso e riaperto, solo le ultime 4», «un errore, poi Retry: la chiave rigenerata compare in SecretOnce», «il secret del webhook di un repository: Laura lo rigenera; Marco lo vede spento con «Who?»», «la guida SDK: Copy guide copia il testo con la chiave mascherata; Save as file… dà un .md con lo stesso testo»), `data/projectSettings/integration.test.ts` («RF 2: il valore è nel risultato e nel caveau, in nessuna lettura dopo…», «la chiave sa chi l'ha creata (I2)…», «con repos.manage senza project.settings.manage si rigenera il secret, non la chiave») |
 | Widget e conversazioni | fatto (area 8a) | — |
 | Server del progetto, ambienti | fatti (aree 8a, 8b) | — |
-| Plugin del progetto, per sottrazione: il plugin base `stubwise` sempre acceso (ruling del controller, per tutti i progetti); skill e gruppi di hook spenti per riga; il preset consigliato chiavato sul `name` del manifest; le scelte di un plugin non pronto restano ([PG 4]); una scelta salvata fuori inventario si scarta salvando (ruling T10); «/» e le sessioni nuove seguono le scelte. **Decisione del maintainer** sul conflitto ([PG 5] (a)): la bozza resta, con «Keep my changes on theirs» e «Use theirs» | `pages/settings/PluginSettings.tsx`; `data/projectSettings/plugins.ts` | `pages/settings/PluginSettings.test.tsx` («il plugin base si legge acceso, senza caselle…», «Laura spegne una skill e un gruppo di hook → «Saved»; «/» con STW come contesto non elenca la skill», ««Apply recommended preset» spegne le quattro skill di superpowers e nient'altro», «una versione vecchia → la frase del conflitto; la bozza resta…», ««Use theirs» scarta la bozza…», «[PG 4]: un salvataggio non tocca le scelte di un plugin non pronto», «I2: lasciare la sezione durante il conflitto chiede «Discard 1 change?»», «Sara: la riga ○ con «Who?»…»), `data/projectSettings/plugins.test.ts` («RF 5: due letture con version 3, la prima salva (4), la seconda → conflict senza scrivere», «ruling (T10): una scelta salvata fuori dall'inventario…», «spegnere superpowers:brainstorming lo toglie da skillsForRun e da listCommands del progetto»), `effects.test.ts` («brainstorming spenta su STW: la sessione nuova non la elenca, quella di prima sì»), `ClaudeSection.test.tsx` (««Skills in this run»: chiusa, l'elenco della nascita…») |
+| Plugin del progetto, opt-in (decisione del maintainer in F5: un plugin entra nei run solo se acceso sul progetto) e dentro per sottrazione; i plugin si nominano per **slug** come sul server (review F5, M3/M4): scelte salvate, bozza, salvataggio e registro delle modifiche; il plugin base `stubwise` sempre acceso (ruling del controller, per tutti i progetti); skill e gruppi di hook spenti per riga; il preset consigliato chiavato sul `name` del manifest; le scelte di un plugin non pronto restano ([PG 4]); una scelta salvata fuori inventario si scarta salvando (ruling T10); «/» e le sessioni nuove seguono le scelte. **Decisione del maintainer** sul conflitto ([PG 5] (a)): la bozza resta, con «Keep my changes on theirs» e «Use theirs» | `pages/settings/PluginSettings.tsx`; `data/projectSettings/plugins.ts` | `pages/settings/PluginSettings.test.tsx` («il plugin base si legge acceso, senza caselle…», «Laura spegne una skill e un gruppo di hook → «Saved»; «/» con STW come contesto non elenca la skill», ««Apply recommended preset» spegne le quattro skill di superpowers e nient'altro», «una versione vecchia → la frase del conflitto; la bozza resta…», ««Use theirs» scarta la bozza…», «[PG 4]: un salvataggio non tocca le scelte di un plugin non pronto», «I2: lasciare la sezione durante il conflitto chiede «Discard 1 change?»», «Sara: la riga ○ con «Who?»…»), `data/projectSettings/plugins.test.ts` («RF 5: due letture con version 3, la prima salva (4), la seconda → conflict senza scrivere», «ruling (T10): una scelta salvata fuori dall'inventario…», «spegnere superpowers:brainstorming lo toglie da skillsForRun e da listCommands del progetto»), `effects.test.ts` («brainstorming spenta su STW: la sessione nuova non la elenca, quella di prima sì»), `ClaudeSection.test.tsx` (««Skills in this run»: chiusa, l'elenco della nascita…») |
 | Traguardi | fatto (area 2) | — |
 | Elimina il progetto → **archivia + elimina**. Archive (`project.settings.manage`) con l'anteprima: un lavoro vivo lo rende `busy` in parole; le esecuzioni d'automazione aperte si annullano con «Project archived» e non lo rendono `busy` (**decisione del maintainer**, domanda 4 (a)). Un archiviato è invisibile come uno inesistente, tranne ai suoi membri e ai full admin, che lo ritrovano in All projects → Archived e nella sua pagina in sola lettura con sintesi, membri, conteggi, Reopen e Delete (**decisione del maintainer**, domanda 1 (a)). Delete solo dal full admin, solo da archiviato, col codice esatto e REAUTH; i repository restano senza progetto (**decisione del maintainer**, domanda 2 (b); vedi la riga «Tutti i repository» della sezione E). Un'automazione generale che agisce su un archiviato finisce non riuscita, in «Needs attention» ([PX 5] (a)) | `pages/settings/ArchiveSettings.tsx`; `pages/projects/ArchivedProjects.tsx`, `ArchivedProjectPage.tsx`, `DeleteProjectDialog.tsx`, `AllProjectsPage.tsx`; `data/projectSettings/archive.ts`, `purge.ts` | `pages/settings/Archive.test.tsx` («dice cosa succede, e dove si elimina; nessun bottone di Delete», «Laura con una sessione viva → busy in parole; finita la sessione, archivia e va ad All projects», ««2 automation runs still open will be cancelled.» dall'anteprima…»), `pages/projects/Archived.test.tsx` («Giulia: la scheda col numero, RNC con Reopen acceso e Delete spento con «Who?»», «Giulia legge RNC in sola lettura: sintesi, membri, conteggi, repository, alla riapertura», «Sara: /archived/RNC è «not found» come un codice inesistente (RF 3)», «conteggi, ciò che resta, il codice esatto, la riconferma, il toast, il ritorno e la voce del registro», «riconferma annullata: «Nothing was deleted.»…», «Laura, che non ne era membro, non trova RNC da nessuna parte nella scheda»), `data/projectSettings/archive.test.ts` («una sessione task_run viva di ACQ → busy col suo codice…», «P23: chi non vede la sessione legge title e code null», «RF 1: liste, ⌘K, notifiche, Who can?, Stato dell'istanza e Usage non nominano ACQ», «un'automazione generale che agisce su ACQ archiviato finisce non riuscita (Needs attention)», «due esecuzioni aperte → openAutomationRuns: 2…», «not_archived, forbidden, code_mismatch, reauth_required; niente cambia», «anteprima, poi nessuna riga dello stato nomina prj-rnc; SRV-5 orfano; nessun segreto resta»), `layout/ArchivedHidden.test.tsx` («binario, ⌘K, Home e notifiche di Laura: ACQ c'è, poi archiviato non c'è più»), `pages/automations/ProjectUnavailable.test.tsx` («ACQ archiviato: «✕ Step 2 not done: the project isn't available anymore.»») |
 | Consumi del progetto (`project.usage.view`): periodo e gruppo nell'indirizzo, senza la dimensione Project; un invisibile è `null` | `pages/settings/UsageSettings.tsx` (`ProjectUsage` di `pages/admin/ai/UsagePanel.tsx`); `data/projectSettings/usage.ts` | `GeneralAiAutomations.test.tsx` («Laura legge i consumi di ACQ: periodo e gruppo nell'indirizzo, nessuna dimensione Project»), `general.test.ts` («i totali di ACQ sono la riga di ACQ di getUsage (Roberta, per progetto)», «Sara senza project.usage.view → forbidden; un progetto invisibile → null», «RNC archiviato non ha una riga sua nell'Usage d'istanza di Roberta (P12)») |

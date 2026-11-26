@@ -15,10 +15,35 @@ export interface PermissionGroup {
 export const INSTANCE_GROUPS: readonly PermissionGroup[] = [
   {
     key: "administration",
-    permissions: ["instance.full_admin", "roles.manage", "settings.manage"],
+    // `changelog.view` è nel registro condiviso dalla F2 dell'area 9 (come il web).
+    // `instance.status.view` dalla F4 (nel registro condiviso, come `changelog.view`).
+    permissions: [
+      "instance.full_admin",
+      "roles.manage",
+      "settings.manage",
+      "changelog.view",
+      "instance.status.view",
+    ],
   },
-  { key: "people", permissions: ["users.view_all", "users.invite", "users.manage"] },
-  { key: "projects", permissions: ["projects.create"] },
+  {
+    key: "people",
+    // `people.activity.view` (lo standup) è nel registro vero dall'area 3;
+    // `claude.public.view` dalla fetta 5 della chat (come il web).
+    permissions: [
+      "users.view_all",
+      "users.invite",
+      "users.manage",
+      "departments.manage",
+      "people.activity.view",
+      "claude.public.view",
+      // Area 4 della Chat: i canali generali (come il web).
+      "chat.general.create",
+      "chat.general.manage",
+    ],
+  },
+  // Area 7, F4: la chiave delle generali (come il web); `automations.manage`
+  // resta solo di progetto.
+  { key: "projects", permissions: ["projects.create", "automations.general.manage"] },
   {
     key: "integrations",
     permissions: [
@@ -30,20 +55,14 @@ export const INSTANCE_GROUPS: readonly PermissionGroup[] = [
       "mail_admission.view",
     ],
   },
-  { key: "monitoring", permissions: ["monitor.view", "monitor.manage", "usage.view"] },
+  // `servers.ssh.manage` (area 8, F4b) è nel registro condiviso: nel gruppo del monitor, come il web.
+  {
+    key: "monitoring",
+    permissions: ["monitor.view", "monitor.manage", "servers.ssh.manage", "usage.view"],
+  },
   {
     key: "prototype",
-    permissions: [
-      "claude.public.view",
-      "people.activity.view",
-      "chat.general.create",
-      "chat.general.manage",
-      "automations.manage",
-      "servers.ssh.manage",
-      "departments.manage",
-      "instance.status.view",
-      "changelog.view",
-    ],
+    permissions: [],
   },
 ];
 
@@ -60,6 +79,7 @@ export const PROJECT_GROUPS: readonly PermissionGroup[] = [
       "tickets.edit",
       "tickets.comment",
       "tickets.moderate",
+      "planning.others",
     ],
   },
   {
@@ -82,22 +102,18 @@ export const PROJECT_GROUPS: readonly PermissionGroup[] = [
     key: "code",
     permissions: ["repos.view", "repos.manage", "environments.manage", "widget.manage"],
   },
-  {
-    key: "prototype",
-    permissions: [
-      "planning.others",
-      "chat.channels.create",
-      "chat.channels.manage",
-      "drive.upload",
-      "drive.manage",
-      "drive.history",
-      "automations.manage",
-      "support.reply",
-      "servers.operate",
-    ],
-  },
+  // Area 8, F4b: `servers.operate` è nel registro condiviso, nel gruppo «servers» come il web.
+  { key: "servers", permissions: ["servers.operate"] },
   // La cassaforte delle credenziali (main, 23 ott 2026): lo stesso gruppo del web.
   { key: "credentials", permissions: ["credentials.create", "credentials.edit", "credentials.share"] },
+  // Area 4, Chat: i canali del progetto (registro condiviso, come il web).
+  { key: "chat", permissions: ["chat.channels.create", "chat.channels.manage"] },
+  // Area 5, il Drive dei progetti (registro condiviso dalla fetta 2, come il web).
+  { key: "drive", permissions: ["drive.upload", "drive.manage", "drive.history"] },
+  // Area 7, le automazioni del progetto (registro condiviso dalla fetta 1, come il web).
+  { key: "automations", permissions: ["automations.manage"] },
+  // Area 8, F3: Support, gestire le conversazioni (registro condiviso dalla fetta 3, come il web).
+  { key: "support", permissions: ["support.manage"] },
 ];
 
 export const groupsFor = (scope: AccessScope): readonly PermissionGroup[] =>
@@ -150,9 +166,9 @@ const instance = (id: string, permission: string): AccessAction => ({
 });
 
 /**
- * Le azioni in parole. Le automazioni sono due azioni distinte, perché
- * `automations.manage` vale a due livelli (area 7): quelle del progetto e
- * quelle generali.
+ * Le azioni in parole. Le automazioni sono due azioni distinte (area 7):
+ * quelle del progetto (`automations.manage`) e quelle generali
+ * (`automations.general.manage`, d'istanza).
  */
 export const ACTIONS: readonly AccessAction[] = [
   // progetto
@@ -189,7 +205,7 @@ export const ACTIONS: readonly AccessAction[] = [
   project("manageChannels", "chat.channels.manage"),
   project("manageDrive", "drive.manage"),
   project("manageProjectAutomations", "automations.manage"),
-  project("replyCustomers", "support.reply"),
+  project("manageSupport", "support.manage"),
   project("fixServer", "servers.operate"),
   // istanza
   instance("manageRoles", "roles.manage"),
@@ -200,7 +216,7 @@ export const ACTIONS: readonly AccessAction[] = [
   instance("manageMonitor", "monitor.manage"),
   instance("manageIntegrations", "integrations.manage"),
   instance("seeUsage", "usage.view"),
-  instance("manageGeneralAutomations", "automations.manage"),
+  instance("manageGeneralAutomations", "automations.general.manage"),
   instance("manageSshAccess", "servers.ssh.manage"),
   instance("manageDepartments", "departments.manage"),
   instance("readChangeLog", "changelog.view"),

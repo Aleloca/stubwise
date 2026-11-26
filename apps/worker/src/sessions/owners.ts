@@ -327,3 +327,8 @@ export async function dailyReportSession(
     return undefined;
   }
 }
+
+/** Un turno di una conversazione libera con Claude (chat, fetta 1): segmento `chat`. */
+export function claudeChatSession(agentSessionId: string, turnId: string): AgentRunSession {
+  return { sessionId: agentSessionId, label: "chat", pauseKey: `claude_chat:${agentSessionId}:${turnId}` };
+}

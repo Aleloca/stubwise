@@ -33,7 +33,7 @@
 import type { GoogleCalendarEvent } from "@stubwise/google";
 import { GoogleApiError } from "@stubwise/google";
 import { t, type Language } from "@stubwise/i18n";
-import { CALENDAR_LOOKBACK_DAYS, CALENDAR_WINDOW_DAYS, hasDeclinedInvitation } from "@stubwise/shared";
+import { CALENDAR_CANCELLED_OUTCOME as SHARED_CANCELLED_OUTCOME, CALENDAR_LOOKBACK_DAYS, CALENDAR_WINDOW_DAYS, computeCalendarFingerprint, hasDeclinedInvitation } from "@stubwise/shared";
 import {
   matchRoutes,
   type EmailForRouting,
@@ -85,7 +85,7 @@ export const CALENDAR_MAX_PAGES = 20;
  * niente altrove — nessuna milestone, nessuna decisione — e chiudere la riga è
  * l'intera reazione.
  */
-export const CALENDAR_CANCELLED_OUTCOME = { type: "cancelled" } as const;
+export const CALENDAR_CANCELLED_OUTCOME = SHARED_CANCELLED_OUTCOME;
 
 /** Il tipo di `outcome` scritto su una riga duplicata (vedi {@link duplicateOutcome}). */
 export const CALENDAR_DUPLICATE_OUTCOME_TYPE = "duplicate";
@@ -203,7 +203,8 @@ export function normalizeTitle(title: string | null | undefined): string {
  * cancellato e ricreato.
  */
 export function computeFingerprint(title: string | null | undefined, startsAt: Date): string {
-  return `${isoDay(startsAt)} ${normalizeTitle(title)}`;
+  // F4: la formula vive in `@stubwise/shared`, perché anche il server scrive righe.
+  return computeCalendarFingerprint(title, startsAt);
 }
 
 /**
@@ -424,11 +425,21 @@ export function isReadyForProposal(
      */
     attendees: readonly { email: string; responseStatus: string | null }[];
     mailboxEmail: string;
+    /**
+     * Lotto 9, voce 2 (d): la copia è già legata a una proposta CONDIVISA fra
+     * gli invitati (`calendar_events.calendar_proposal_id`): è già stata
+     * proposta, come una con la sua card per casella. Assente = non legata
+     * (le righe lette da chi non seleziona la colonna).
+     */
+    calendarProposalId?: string | null;
   },
   seriesContext?: CalendarSeriesProposalContext,
 ): boolean {
   const baseReady =
-    row.status !== "cancelled" && row.proposalNotificationId === null && row.outcome === null;
+    row.status !== "cancelled" &&
+    row.proposalNotificationId === null &&
+    row.outcome === null &&
+    (row.calendarProposalId ?? null) === null;
   if (!baseReady) return false;
 
   // Il rifiuto (15 set 2026, §1): un appuntamento a cui hai detto di no non

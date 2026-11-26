@@ -413,6 +413,21 @@ describe("openUrl", () => {
     expect(isAdminOnlyKind("request.created")).toBe(false);
   });
 
+  it("decisioni, attività, pianificazione e assegnazione portano alla pagina del ticket nel web, derivata da PUBLIC_URL", () => {
+    for (const event of sampleEvents("https://x.test").filter((e) =>
+      ["decision.requested", "decision.answered", "ticket.activity", "planning.changed", "task.assigned"].includes(e.kind),
+    )) {
+      const ticketId = (event as { ticketId: string }).ticketId;
+      expect(openUrl(event, "https://stubwise.test/")).toBe(`https://stubwise.test/tickets/${ticketId}`);
+      expect(openUrl(event)).toBe("");
+      expect(actionsFor({ kind: event.kind, requestedByUserId: null }, null, maintainer)).toEqual([
+        "open",
+        "snooze",
+        "handled",
+      ]);
+    }
+  });
+
   it("security.alert porta a Impostazioni → Sicurezza, con l'URL ASSOLUTO di PUBLIC_URL", () => {
     const event = { kind: "security.alert" as const, subject: "locked" as const, actorEmail: null };
     // Assoluto: lo stesso link va nel bottone del DM Slack, fuori dalla SPA.
@@ -513,5 +528,13 @@ describe("isAdminOnlyKind", () => {
     for (const kind of nonAdminKinds) {
       expect(isAdminOnlyKind(kind)).toBe(false);
     }
+  });
+});
+
+describe("openUrl, area 11 F2: la doc di prodotto", () => {
+  it("apre la pagina nell'app nuova dai codici; senza PUBLIC_URL niente link", () => {
+    const mention = sampleEvents("https://app.example.com").find((e) => e.kind === "product_doc.mention")!;
+    expect(openUrl(mention, "https://app.example.com/")).toBe("https://app.example.com/app/#/p/NEG/docs/product/NEG-D12");
+    expect(openUrl(mention)).toBe("");
   });
 });

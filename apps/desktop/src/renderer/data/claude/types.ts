@@ -45,7 +45,7 @@ export type ClaudeActionFn =
   | "retryJob"
   | "saveStorage"
   | "setAttachments"
-  | "saveWebhook"
+  | "updateWebhook"
   | "setSubscription"
   // Le bozze di automazione (area 10b): mai accenderle né pubblicarle (maintainer).
   | "createAutomation"
@@ -80,7 +80,7 @@ export type ObjectRef =
    * Un'impostazione d'istanza: "budget", "model:<operation>", "automation",
    * "providers" (abilitazione e ordine), "gitAccount:<id>", "reviewer",
    * "googleApp:<id>", "plugin:<id>", "queue:<projectId>", "storage",
-   * "attachments", "webhook". Il «com'era» la confronta con le voci del
+   * "attachments", "webhook:<id>". Il «com'era» la confronta con le voci del
    * registro sullo stesso oggetto.
    */
   | { kind: "instanceSetting"; key: string }
@@ -109,7 +109,9 @@ export type ClassReason =
   /** `event` (Task 9): quando parte, per la riga della scheda («…when a task is created»). */
   | { kind: "automation"; projectId: string; event?: "task_created" | "task_closed" }
   | { kind: "irreversible" }
-  | { kind: "reauth" };
+  | { kind: "reauth" }
+  /** Build app (chat, fetta 3): l'azione avvia il lavoro di Claude, e quello non si annulla. */
+  | { kind: "startsWork" };
 
 /** La classe calcolata di un'azione, o di un gruppo, coi motivi. */
 export interface ActionClass {
@@ -145,7 +147,10 @@ export type ClaudeBusyReason =
   | { kind: "open_pr"; repo: string | null; number: number | null }
   | { kind: "server_fix"; serverCode: string }
   | { kind: "release_fix"; releaseCode: string }
-  | { kind: "release"; code: string };
+  | { kind: "release"; code: string }
+  | { kind: "doc_generation"; repository: string; paused: boolean }
+  /** Una correzione della PR ancora aperta (il server vero, «Elimina task»). */
+  | { kind: "open_correction" };
 
 /**
  * Perché una riga `executed` non è partita («Didn't run», Task 9), scritto

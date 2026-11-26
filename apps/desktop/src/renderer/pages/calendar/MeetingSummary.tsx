@@ -1,13 +1,21 @@
 import { Link } from "@tanstack/react-router";
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
-import { useMailProposals, useMeetingSummary, useTasksBornFrom } from "../../data/queries";
+import {
+  useMailProposals,
+  useMeetingByNote,
+  useMeetingSummary,
+  useTasksBornFrom,
+  useTasksOfNote,
+} from "../../data/queries";
 import type { MeetingSummary as Summary } from "../../data/types";
 import { smallSecondary } from "../task/parts";
 import { useToast } from "../../tasks-ui/Toast";
 import { queryState } from "../home/blocks/BlockSection";
 import { dayLabel } from "../mail/format";
 import { MailProposalCard } from "../mail/MailProposalCard";
+import { openOnGoogle } from "../mail/mailFeatures";
+import { isAppBuild } from "../../data/build";
 import { GeneratedTag } from "../overview/BriefCard";
 import { MeetingTaskList, SheetSection } from "./meetingParts";
 import { TranscriptUnreachable } from "./MeetingPrep";
@@ -25,15 +33,27 @@ const heading = "heading-group";
 
 export function MeetingSummary({
   eventId,
+  noteId,
   projectCode,
+  onOpenTask,
 }: {
-  eventId: string;
+  /** L'evento (il dettaglio del Calendario)… */
+  eventId?: string;
+  /** …o la riunione per nota (F5a, Q-A = a: l'invitato senza l'evento). */
+  noteId?: string;
   /** Il codice del progetto dell'evento, se chi guarda lo vede (link delle richieste). */
   projectCode: string | null;
+  /** Prima di aprire una task nata (il pannello per nota si chiude). */
+  onOpenTask?: () => void;
 }) {
   const { t } = useTranslation();
-  const summary = useMeetingSummary(eventId);
-  const born = useTasksBornFrom(eventId);
+  const byNote = noteId !== undefined;
+  const summaryOfEvent = useMeetingSummary(byNote ? null : (eventId ?? null));
+  const summaryOfNote = useMeetingByNote(byNote ? noteId : null);
+  const bornOfEvent = useTasksBornFrom(byNote ? null : (eventId ?? null));
+  const bornOfNote = useTasksOfNote(byNote ? noteId : null);
+  const summary = byNote ? summaryOfNote : summaryOfEvent;
+  const born = byNote ? bornOfNote : bornOfEvent;
 
   // Mentre legge, niente scheletro: per molti eventi passati qui non c'è
   // nulla, e uno scheletro che appare e sparisce lampeggerebbe. Resta solo
@@ -55,7 +75,7 @@ export function MeetingSummary({
   if (!summary.isError && !s && !born.isError && tasks.length === 0) return null;
 
   return (
-    <div data-meeting-summary={eventId} className="mt-1 flex flex-col border-t border-rule pb-1">
+    <div data-meeting-summary={eventId ?? noteId} className="mt-1 flex flex-col border-t border-rule pb-1">
       {summary.isError && (
         // Un avviso neutro: dire «riassunto» a chi non c'era rivelerebbe che esiste.
         <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 pt-4">
@@ -77,7 +97,8 @@ export function MeetingSummary({
           <MeetingTaskList
             tasks={tasks}
             projectCode={projectCode}
-            eventId={eventId}
+            eventId={eventId ?? ""}
+            onOpen={onOpenTask}
             label={t("calendar.summary.tasksTitle")}
             empty={
               s?.doc === "unreachable" ? t("calendar.prep.noTasksYet") : t("calendar.prep.noTasks")
@@ -115,6 +136,9 @@ function SummaryBody({ summary: s }: { summary: Summary }) {
       {s.doc === "ready" && s.summary && (
         <p className="max-w-[65ch] text-sm whitespace-pre-line text-ink">{s.summary}</p>
       )}
+      {s.doc === "ready" && s.docReason === "too_long" && (
+        <p className="text-sm text-ink-muted">{t("mail.meeting.tooLong")}</p>
+      )}
       {s.doc === "reading" && (
         <p role="status" className="text-sm text-ink-muted">
           {t("calendar.summary.reading")}
@@ -122,20 +146,24 @@ function SummaryBody({ summary: s }: { summary: Summary }) {
       )}
       {s.doc === "unreachable" && (
         <div className="-mx-4">
-          <TranscriptUnreachable />
+          <TranscriptUnreachable reason={s.docReason ?? null} docUrl={s.docUrl ?? null} />
         </div>
       )}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-        {s.doc === "ready" && (
+        {/* Nella build app solo col link del Doc (review F5a, 8): l'avviso è del prototipo. */}
+        {s.doc === "ready" && (!isAppBuild() || s.docUrl) && (
           <button
             type="button"
-            onClick={() => toast.show(t("calendar.summary.docsNotice"))}
+            onClick={() =>
+              // Nella build app apre il Google Doc (F5a); nel prototipo lo dice.
+              s.docUrl ? openOnGoogle(s.docUrl) : toast.show(t("calendar.summary.docsNotice"))
+            }
             className="rounded-sm font-medium text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
           >
             {t("calendar.summary.openTranscript")}
           </button>
         )}
-        {s.email && (
+        {s.email?.threadId && (
           <Link
             to="/mail/$threadId"
             params={{ threadId: s.email.threadId }}

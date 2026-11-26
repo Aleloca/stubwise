@@ -1,0 +1,292 @@
+// Il livello dati della build «app» (integrazione area 2, fetta 1): lo stesso
+// insieme di nomi di `data/api.ts`, risolto da `@backend/api` quando
+// `STUBWISE_BUILD=app` (`vite.backend.ts`). Parte dagli stub «non integrati»
+// generati; un'esportazione locale qui sotto prevale sulla stella, ed è
+// tipata `typeof Fake.<nome>` con un `import type`, così il finto non entra
+// mai nel bundle.
+import type * as Fake from "../../api";
+import * as liveVaultDesktop from "./vaultDesktop";
+import * as liveVaultReads from "./vaultReads";
+import { liveAlerts } from "./alerts";
+import { liveSupport } from "./support";
+import { liveWidgets } from "./supportWidgets";
+import { liveServers } from "./servers";
+import { liveServerTask } from "./serverTask";
+import { liveAutomations } from "./automationsLive";
+import { liveReleases } from "./releasesLive";
+import { adminDepartments } from "./departments";
+import { liveWhoCan } from "./whoCan";
+import { liveAdminPeople } from "./adminPeople";
+import { liveMembers } from "./adminMembers";
+import { liveChangelog } from "./changelog";
+import { partialNamespace } from "./notIntegrated";
+import { liveProductDocs } from "./productDocs";
+import { liveProductBacklog } from "./productBacklog";
+import { liveProductFirstVersion } from "./productFirstVersion";
+import { liveProductWireframes } from "./productWireframes";
+import { liveProductClaude } from "./productClaude";
+import { liveProductPresence } from "./productLive";
+import { liveIntegration } from "./projectIntegration";
+import { liveProjectArchive } from "./projectArchive";
+import { liveProjectAutomations } from "./projectAutomations";
+import { liveProjectPlugins } from "./projectPlugins";
+import { chatFunctions } from "./chat";
+import { channelStream, onChatChange, subscribeChat, threadStream } from "./chatStream";
+
+export * from "./stubs.generated";
+
+// Task 16: sessione, persone, progetti, notifiche, ricerca, reparti.
+export { auth, getSessionPerson, getViewer, me } from "./session";
+export { listDepartments, listPeople } from "./people";
+export {
+  getProjectByCode,
+  listPinnedProjectIds,
+  listProjects,
+  listWaitingOnMeProjectIds,
+  setPinned,
+} from "./projects";
+export { listNotifications, markNotification } from "./notifications";
+export { search } from "./search";
+
+/** Amministrazione: solo Reparti (e le persone che la pagina legge) nella fetta 1. */
+export const admin: typeof Fake.admin = partialNamespace<typeof Fake.admin>("admin", {
+  ...adminDepartments,
+  // Area 9, F1, R7: People, inviti e Roles.
+  ...liveAdminPeople,
+  // Area 9, F1, R8: Members del progetto.
+  ...liveMembers,
+});
+// Area 9, F1, R9: «Chi può farlo?» (prevale sullo stub generato).
+export const access: typeof Fake.access = partialNamespace<typeof Fake.access>("access", liveWhoCan);
+
+// Area 9, F5: Progetto → Settings → Integration e Plugins (le altre sezioni restano «in arrivo»).
+// Area 9, F6: Archive (anteprima, archiviazione, riapertura), la scheda
+// Archived, la pagina dell'archiviato e Delete, dal server.
+export const projectSettings: typeof Fake.projectSettings = partialNamespace<
+  typeof Fake.projectSettings
+>("projectSettings", {
+  ...liveIntegration,
+  ...liveProjectPlugins,
+  ...liveProjectArchive,
+  // Registro, area 9 r.1121: Settings → Automations e gli interruttori.
+  ...liveProjectAutomations,
+});
+
+// Area 9, F2: il registro delle modifiche sulla lettura del server.
+export const changelog: typeof Fake.changelog = partialNamespace<typeof Fake.changelog>(
+  "changelog",
+  liveChangelog,
+);
+// Chat, fetta 3: le decisioni sulle proposte di Claude e «Undo» dei suoi gruppi.
+export { cancelProposal, confirmProposal, editProposal, settlePageEvent } from "./claudeChatActions";
+import { claudeChatNamespace } from "./claudeChatActions";
+export const claude: typeof Fake.claude = partialNamespace<typeof Fake.claude>("claude", claudeChatNamespace);
+// Dell'istanza la chat legge solo il budget del mese (la casella si spegne con la sua frase).
+export { instance } from "./instanceChat";
+export { onInstanceChange } from "./instanceUploads";
+// Area 4, fetta 1: la Chat fra persone (canali di progetto, messaggi, menzioni,
+// lo stream); DM, privati, ricerca, domande, @Claude ed eventi restano «non integrati».
+// I Docs (area 5, fetta 1): le letture, poi le scritture e il grafo (`docs.ts`).
+export { docs } from "./docs";
+// Il Drive (area 5, fetta 2): i caricati, senza Google né contenuto (`drive.ts`).
+export { drive } from "./drive";
+// La Posta (area 6, fetta 1): le caselle del cassetto Google, per ora (`mail.ts`).
+export { mail } from "./mail";
+// Il Calendario (area 6, fetta 1): in lettura, e le serie (`calendar.ts`).
+export { calendar } from "./calendar";
+/** Le Automations di progetto (area 7, F1): `automationsLive.ts`; la destinazione è accesa nella build app (R8). */
+export const automations: typeof Fake.automations = partialNamespace<typeof Fake.automations>(
+  "automations",
+  liveAutomations,
+);
+/** I rilasci e le PR (area 8, F1): `releasesLive.ts`; le parti accese le dicono le funzioni `releases-prs` e `releases`. */
+export const releases: typeof Fake.releases = partialNamespace<typeof Fake.releases>(
+  "releases",
+  liveReleases,
+);
+/**
+ * Le iscrizioni agli avvisi (area 8, F2): `alerts.ts`. Preferenze → Notifiche
+ * le legge solo con la funzione `alerts` accesa (R6).
+ */
+export const alerts: typeof Fake.alerts = partialNamespace<typeof Fake.alerts>("alerts", liveAlerts);
+
+/**
+ * Support (area 8, F3): `support.ts`, sulle rotte di 72. La sezione e le sue
+ * scritture si accendono con le rotte (I1); finché sono spente nessuna
+ * pagina chiama questo namespace.
+ */
+export const support: typeof Fake.support = partialNamespace<typeof Fake.support>("support", {
+  ...liveSupport,
+  // I widget (R1/R2) sulle rotte di oggi, `supportWidgets.ts`.
+  ...liveWidgets,
+});
+/**
+ * I Server (area 8, F4a): `servers.ts`, sulle rotte di 72, in sola lettura
+ * (elenchi, dettaglio, metriche, episodi). Scritture, SSH, analisi e
+ * correzione restano «non integrati».
+ */
+/**
+ * La Cassaforte (lotto 10): il main la tiene già (`window.stubwise.vault`,
+ * rotte del PAT desktop di 72); le pagine la raggiungono quando la shape
+ * `vault.md` è costruita nel prototipo.
+ */
+export const vault: typeof Fake.vault = partialNamespace<typeof Fake.vault>("vault", {
+  // Fetta 1: stato, aprire e chiudere, associazione, i propri Mac (dal main).
+  ...liveVaultDesktop,
+  // Fetta 2b: elenchi, dettaglio ed entrate, dalle rotte.
+  ...liveVaultReads,
+});
+
+export const servers: typeof Fake.servers = partialNamespace<typeof Fake.servers>("servers", {
+  ...liveServers,
+  // Area 8, F4b: la sezione Server della task (`GET /api/tasks/:id/server`) e la correzione.
+  ...liveServerTask,
+});
+export const chat: typeof Fake.chat = partialNamespace<typeof Fake.chat>("chat", {
+  ...chatFunctions,
+  channelStream,
+  threadStream,
+  subscribeChat,
+  onChatChange,
+});
+
+// Task 17: Tasks, dettaglio, nuova task, stati, allegati.
+export {
+  bulkUpdateTasks,
+  clearManualStall,
+  countTasks,
+  createTask,
+  followTask,
+  getTaskByCode,
+  listStalled,
+  listTasks,
+  tasksTruncated,
+  setManualStall,
+  updateTask,
+} from "./tasks";
+export {
+  addComment,
+  addLink,
+  answerDecision,
+  askDecision,
+  deleteComment,
+  editComment,
+  getTaskWorkSummary,
+  listActivity,
+  listDecisionRequests,
+  removeLink,
+  withdrawDecision,
+} from "./taskDetail";
+export { listMilestones, listProjectStatuses, setProjectStatuses, setStallThresholds } from "./statuses";
+export { addAttachment, downloadTaskAttachment, removeAttachment } from "./attachments";
+export { listDayArrangements, planTask, setDay } from "./planning";
+export {
+  archiveRequest,
+  convertRequest,
+  createRequest,
+  createRequestFromQuestion,
+  getRequest,
+  getRequestByCode,
+  listRequests,
+  listRequestsToConvert,
+  mergeRequest,
+  reopenRequest,
+  restoreRequest,
+  updateRequest,
+} from "./requests";
+export { createMilestone, deleteMilestone, updateMilestone } from "./milestones";
+export { createProject } from "./projects";
+export {
+  getLatestBrief,
+  decisionLogTruncated,
+  listDecisionLog,
+  listPortfolioActivityPage,
+  listProjectPulses,
+  listTimelinePage,
+  projectPulse,
+  recordDecision,
+  setDecisionSuperseded,
+} from "./overview";
+export {
+  getPersonalHome,
+  listDepartmentHomes,
+  listDepartmentRoles,
+  markDepartmentHomeSeen,
+  resetPersonalHome,
+  setDepartmentHome,
+  setPersonalHome,
+} from "./home";
+export {
+  deleteFilter,
+  getSavedFilter,
+  listPinnedFilterIds,
+  listSavedFilters,
+  saveFilter,
+  setFilterPinned,
+  updateFilter,
+} from "./filters";
+
+// Integrazione area 3, fetta 3a «Guardare»: le sessioni di lavoro di Claude in
+// lettura, lo stream dal vivo e il lavoro della task.
+export { getConversation, getTaskWork, listConversations } from "./claude";
+export { mergeStreamEvent, onConversationChange, reconnectDelay, subscribe } from "./claudeStream";
+// Fetta 3b «Agire»: le azioni (i permessi li decide il server) e «Da decidere» di Claude.
+export {
+  answerQuestion,
+  cancelRun,
+  decidePlan,
+  listClaudeDecisions,
+  preApprovePlan,
+  relaunchWithInstructions,
+  requestChanges,
+  resumeCorrection,
+  revokePlanApproval,
+  sendMessage,
+  startRun,
+  stop,
+  stopAndSend,
+} from "./claudeActions";
+// Fetta 3d: «By person» di Activity (lo standup aggregato dal server) e i report del giorno.
+export { generateDailyReport, linkCommitAuthor, listDailyReports, listPeopleActivity } from "./peopleActivity";
+// Fetta 3c: il refinement delle richieste.
+export { closeRefine, getRefineOf, startRefineConversation } from "./claudeRefine";
+// La chat con Claude, fetta 2: le conversazioni libere private (solo «Mine»).
+export {
+  archiveConversation,
+  contextIdOf,
+  continueConversation,
+  createConversation,
+  deleteConversation,
+  describeContext,
+  listCommands,
+  renameConversation,
+  resolveCitations,
+  resolveCodes,
+  searchMentions,
+  setConversationContext,
+  setConversationContexts,
+  // Fetta 5: le pubbliche e la continuazione.
+  setVisibility,
+} from "./claudeChat";
+// Area 11: lo spazio Product, la pagina, la scrittura a operazioni, la
+// cronologia e Segui (F1), i commenti (F2), ricerca ed esportazione (F3), la
+// presenza dal vivo (F4) e Claude (F5, dietro `product-docs`).
+const { rememberBlocks: _rememberBlocks, rememberSession: _rememberSession, ...livePresence } = liveProductPresence;
+void [_rememberBlocks, _rememberSession];
+export const productDocs: typeof Fake.productDocs = partialNamespace<typeof Fake.productDocs>("productDocs", {
+  ...liveProductDocs,
+  ...livePresence,
+  // F5 (dietro `product-docs`): i segni, «Undo», le risposte alle domande.
+  ...liveProductClaude,
+  // F6 (dietro `product-claude-actions`): la prima versione, le bozze di
+  // schermata e dalla doc al backlog.
+  ...liveProductFirstVersion,
+  ...liveProductWireframes,
+  ...liveProductBacklog,
+});
+// Area 10, F7: la riga «Claude can help you…» e il suo «Not now», dal server.
+export { dismissClaudeSuggestion, getClaudeSuggestion } from "./claudeSuggestions";
+// La chiave della riga per persona e oggetto: pura, la stessa del prototipo.
+export { suggestionKeyOf } from "../../claude/suggestionKey";
+// Fetta 3.0 della chat: «Elimina task» (anteprima ed eliminazione dal server).
+export { deleteTask, getTaskDeletion } from "./taskDelete";

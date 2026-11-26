@@ -7,6 +7,7 @@ import {
   pluginSchema,
   pluginSlugSchema,
   projectPluginSchema,
+  projectPluginsViewSchema,
   putProjectPluginsSchema,
   RECOMMENDED_DISABLED_SKILLS,
   updatePluginRefSchema,
@@ -478,5 +479,12 @@ describe("RECOMMENDED_DISABLED_SKILLS", () => {
     expect(pluginRecommendationsSchema.parse(RECOMMENDED_DISABLED_SKILLS)).toEqual(
       RECOMMENDED_DISABLED_SKILLS,
     );
+  });
+});
+
+describe("projectPluginsViewSchema (review di F5)", () => {
+  it("`canEdit` da un server che non lo manda vale false; quando c'è, si legge", () => {
+    expect(projectPluginsViewSchema.parse({ plugins: [], version: "v" }).canEdit).toBe(false);
+    expect(projectPluginsViewSchema.parse({ plugins: [], version: "v", canEdit: true }).canEdit).toBe(true);
   });
 });

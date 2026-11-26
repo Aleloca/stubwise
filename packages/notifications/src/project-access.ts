@@ -11,7 +11,7 @@
  * modifica. Il server ri-usa queste funzioni (`projectPermissionsOfUser` in
  * `access.ts` le delega).
  */
-import { projectMembers, roles, tickets, users } from "@stubwise/db";
+import { memberPermissionsSql, projectMembers, projects, roles, tickets, users } from "@stubwise/db";
 import {
   effectiveInstancePermissions,
   effectiveProjectPermissions,
@@ -20,7 +20,7 @@ import {
   type InstancePermission,
   type ProjectPermission,
 } from "@stubwise/shared";
-import { and, eq, inArray, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { DbOrTx } from "./dispatch.js";
 
@@ -58,11 +58,38 @@ export async function projectPermissionsOfUser(
 }
 
 /**
+ * I permessi d'istanza effettivi di `userId` (un full admin li ha tutti);
+ * vuoti per un utente inesistente. Area 7, F4: servono a chi agisce per conto
+ * di un id senza sessione (le generali: `automations.general.manage`).
+ */
+export async function instancePermissionsOfUser(db: DbOrTx, userId: string): Promise<ReadonlySet<InstancePermission>> {
+  const [row] = await db
+    .select({ permissions: roles.permissions })
+    .from(users)
+    .innerJoin(roles, eq(roles.id, users.instanceRoleId))
+    .where(and(eq(users.id, userId), isNull(users.deactivatedAt)));
+  return effectiveInstancePermissions(row?.permissions ?? []);
+}
+
+/**
+ * Il proprietario può far agire l'automazione nel suo perimetro? Una di
+ * progetto: vede il progetto. Una GENERALE (F4, `projectId` null): ha ancora
+ * `automations.general.manage` d'istanza. La stessa domanda per il
+ * consumatore e per l'esecutore.
+ */
+export async function automationOwnerInScope(db: DbOrTx, ownerId: string, projectId: string | null): Promise<boolean> {
+  if (projectId === null) return (await instancePermissionsOfUser(db, ownerId)).has("automations.general.manage");
+  return (await projectPermissionsOfUser(db, ownerId, projectId)) !== null;
+}
+
+/**
  * Come {@link projectPermissionsOfUser}, per più progetti in UNA query (una
  * pagina d'inbox non ne fa una per card). Ogni progetto chiesto è nella mappa;
  * quelli che l'utente non vede valgono `null`. Un progetto inesistente per un
  * full admin vale l'insieme completo: chi chiede un id lo ha letto da una riga
- * che lo referenzia (FK), quindi il caso non si presenta.
+ * che lo referenzia (FK), quindi il caso non si presenta. Un progetto
+ * ARCHIVIATO vale `null` per tutti (area 9, F6, D-8): ogni destinatario del
+ * routing, di Slack e delle automazioni lo perde, come uno che non c'è.
  */
 export async function projectPermissionsByProject(
   db: DbOrTx,
@@ -78,7 +105,10 @@ export async function projectPermissionsByProject(
     .select({
       instancePermissions: roles.permissions,
       projectId: projectMembers.projectId,
-      memberPermissions: memberRoles.permissions,
+      // Ruolo ∪ permessi personali (area 9, F1): la regola di `memberPermissionsSql`.
+      memberPermissions: memberPermissionsSql(memberRoles.permissions, projectMembers.projectId, projectMembers.userId),
+      // Area 9, F6: gli archiviati fra quelli chiesti, nella STESSA query (una pagina d'inbox ne fa una).
+      archived: sql<string[]>`array(select ${projects.id}::text from ${projects} where ${inArray(projects.id, unique)} and ${projects.archivedAt} is not null)`,
     })
     .from(users)
     .innerJoin(roles, eq(roles.id, users.instanceRoleId))
@@ -87,18 +117,21 @@ export async function projectPermissionsByProject(
       and(eq(projectMembers.userId, users.id), inArray(projectMembers.projectId, unique)),
     )
     .leftJoin(memberRoles, eq(memberRoles.id, projectMembers.roleId))
-    .where(eq(users.id, userId));
+    // Una persona disattivata non ha permessi (area 9, F1): chi agisce per
+    // conto di un id (Slack, inbox, automazioni) la trova come inesistente.
+    .where(and(eq(users.id, userId), isNull(users.deactivatedAt)));
   if (rows.length === 0) {
     for (const id of unique) result.set(id, null);
     return result;
   }
+  const archived = new Set(rows[0]!.archived);
   const instance = effectiveInstancePermissions(rows[0]!.instancePermissions);
   const memberPerms = new Map<string, string[]>();
   for (const row of rows) {
     if (row.projectId && row.memberPermissions) memberPerms.set(row.projectId, row.memberPermissions);
   }
   for (const id of unique) {
-    result.set(id, effectiveProjectPermissions(instance, memberPerms.get(id) ?? null));
+    result.set(id, archived.has(id) ? null : effectiveProjectPermissions(instance, memberPerms.get(id) ?? null));
   }
   return result;
 }
@@ -199,7 +232,45 @@ export async function projectViewerIds(db: DbOrTx, projectId: string): Promise<s
   return [...new Set([...members.map((row) => row.id), ...(await fullAdminIds(db))])];
 }
 
+/**
+ * {@link projectViewerIds} per più progetti in DUE query (i membri di tutti e
+ * i full admin una volta), per le liste che altrimenti la chiamerebbero un
+ * progetto alla volta (review della fetta 2 della Chat).
+ */
+export async function projectViewerIdsByProject(db: DbOrTx, projectIds: readonly string[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  const ids = [...new Set(projectIds)];
+  if (ids.length === 0) return out;
+  const admins = await fullAdminIds(db);
+  const members = await db
+    .select({ projectId: projectMembers.projectId, id: projectMembers.userId })
+    .from(projectMembers)
+    .where(inArray(projectMembers.projectId, ids));
+  // Lo stesso ordine di `projectViewerIds`: i membri, poi i full admin.
+  for (const projectId of ids) {
+    const own = members.filter((m) => m.projectId === projectId).map((m) => m.id);
+    out.set(projectId, [...new Set([...own, ...admins])]);
+  }
+  return out;
+}
+
 const INSTANCE_PERMISSION_SET: ReadonlySet<string> = new Set(INSTANCE_PERMISSIONS);
+
+/**
+ * Se una persona HA `permission`, dai suoi permessi effettivi (un full admin
+ * li ha tutti in entrambi gli insiemi): un permesso d'ISTANZA dal ruolo
+ * d'istanza, uno di PROGETTO dal ruolo nel progetto. La stessa regola di
+ * {@link userIdsWithPermission} per una persona sola: la usano le Preferenze
+ * degli avvisi (review F2, 46: `monitor.manage` è d'istanza), e il test di
+ * parità le tiene d'accordo con la pubblicazione.
+ */
+export function holdsPermission(
+  permission: string,
+  perms: { instance: ReadonlySet<string>; project: ReadonlySet<string> | null },
+): boolean {
+  if (INSTANCE_PERMISSION_SET.has(permission)) return perms.instance.has(permission);
+  return perms.project?.has(permission) ?? false;
+}
 
 /**
  * Chi ha `permission`: i full admin sempre, più
@@ -232,7 +303,7 @@ export async function userIdsWithPermission(
     .where(
       and(
         eq(projectMembers.projectId, projectId),
-        sql`${roles.permissions} @> array[${permission}]::text[]`,
+        sql`${memberPermissionsSql(roles.permissions, projectMembers.projectId, projectMembers.userId)} @> array[${permission}]::text[]`,
       ),
     );
   return [...new Set([...ids, ...rows.map((row) => row.id)])];

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { handledBySchema } from "./actor.js";
+import { handledBySchema, viaClaudeShape } from "./actor.js";
 import { prAdoptionSchema, prCycleSchema } from "./pr-correction.js";
 
 export const ticketStatusSchema = z.enum([
@@ -26,6 +26,12 @@ export const ticketSourceSchema = z.enum([
   "slack",
   "webhook",
   "widget",
+  /** Area 6, F2: una task nata da una proposta della posta (contenuto esterno). */
+  "email",
+  /** Area 7, F1 (0169): una task creata da un passo `createTask` di un'automazione. */
+  "automation",
+  /** Area 8, F4b (0182): una task nata dall'analisi di un server (testo non fidato, delimitato). */
+  "server",
 ]);
 export type TicketSource = z.infer<typeof ticketSourceSchema>;
 
@@ -111,6 +117,10 @@ export const ticketSchema = z.object({
   technicalPayload: z.unknown().nullable(),
   occurrences: z.number().int(),
   lastSeenAt: z.iso.datetime(),
+  // L'assegnatario è Claude, l'utente di sistema (integrazione area 3, review
+  // punto 6): fuori da `/api/users` (il Team), quindi il web vecchio e l'app
+  // non ne troverebbero il nome. Additivo e facoltativo: assente = non è Claude.
+  assigneeIsAgent: z.boolean().optional(),
   // Chi ha chiesto il ticket (additivo: i server più vecchi non lo mandano).
   requestedBy: z.object({ id: z.uuid(), email: z.string() }).nullable().optional(),
   createdAt: z.iso.datetime(),
@@ -397,6 +407,13 @@ export const ticketCommentSchema = z.object({
   canEdit: z.boolean().default(false),
   canDelete: z.boolean().default(false),
   inDecisionLog: z.boolean().default(false),
+  /**
+   * «via Claude» (chat, fetta 3): il commento l'ha scritto Claude per conto
+   * dell'autore. DERIVATO a lettura dalla colonna `via_claude_action_id`; il
+   * richiedente viene dal gruppo dell'azione. ADDITIVI: un server vecchio non
+   * li manda, e allora nessun commento è «via Claude».
+   */
+  ...viaClaudeShape,
 });
 export type TicketComment = z.infer<typeof ticketCommentSchema>;
 

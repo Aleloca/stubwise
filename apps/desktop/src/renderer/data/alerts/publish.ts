@@ -18,6 +18,8 @@ export interface AlertInput {
   body: string;
   link: string;
   mandatory?: { personId: string; reason: MandatoryReason }[];
+  /** Solo per gli obbligatori: gli iscritti non la ricevono (`AppNotification.mandatoryOnly`). */
+  mandatoryOnly?: boolean;
   /**
    * Chi ha fatto la scrittura che avvisa: serve al segno «per conto di»
    * (area 10a). Dentro `runAsClaude` è obbligatorio.
@@ -54,6 +56,7 @@ export function publishAlert(input: AlertInput): void {
     link: input.link,
   };
   if (input.mandatory?.length) n.mandatory = input.mandatory.map((m) => ({ ...m }));
+  if (input.mandatoryOnly) n.mandatoryOnly = true;
   if (via && input.actorId !== undefined)
     n.viaClaude = { personId: input.actorId, actionId: via.actionId };
   state.notifications.push(n);

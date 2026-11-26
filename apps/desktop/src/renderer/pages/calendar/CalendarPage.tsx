@@ -47,6 +47,7 @@ import {
   type CalendarSearch,
 } from "./calendarParams";
 import { CalendarToolbar } from "./CalendarToolbar";
+import { calendarWrites } from "./calendarWrites";
 import { EventDetail } from "./EventDetail";
 import { EventEditor, type EditorStart } from "./EventEditor";
 import { mailboxMarks } from "./gridLayout";
@@ -187,6 +188,8 @@ export function CalendarPage() {
 
   const newMeeting = useCallback(
     (start?: EditorStart) => {
+      // Dove la build non scrive sul calendario non si crea nulla (bottone, ⌘N, ⌘K, griglia).
+      if (!calendarWrites()) return;
       if (start) {
         setEditing({ start });
         return;
@@ -294,7 +297,7 @@ export function CalendarPage() {
           onToday={() => go({ view, date: today })}
           onStep={step}
           onView={(v) => go({ view: v, date })}
-          onNew={() => newMeeting()}
+          onNew={calendarWrites() ? () => newMeeting() : undefined}
         />
         {(problem || expired) && (
           <div className="flex shrink-0 flex-col gap-0.5 px-6 pb-2">

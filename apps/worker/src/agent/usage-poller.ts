@@ -7,6 +7,7 @@ import { loadProviderChain, type ResolvedProvider } from "../providers/chain.js"
 import { latestSnapshots, parseWindow, type LatestSnapshot } from "../providers/usage-window.js";
 import { createModelResolver } from "./model-settings.js";
 import type { AgentRunner } from "./runner.js";
+import { NATIVE_TOOLS } from "./native-tools.js";
 import { StreamingClaudeRunner } from "./streaming-cli.js";
 import { TrackingAgentRunner } from "./tracking-runner.js";
 
@@ -165,6 +166,8 @@ async function probeOne(
       prompt: PROBE_PROMPT,
       model: PROBE_MODEL,
       usage: { operation: "usage_probe", projectId: null },
+      // Solo testo: nessun tool nativo (`native-tools.ts`).
+      builtinTools: NATIVE_TOOLS.text,
       permissionMode: "default",
       maxTurns: PROBE_MAX_TURNS,
       timeoutMs: PROBE_TIMEOUT_MS,

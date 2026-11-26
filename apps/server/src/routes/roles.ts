@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import {
@@ -8,9 +8,8 @@ import {
   roleScopeSchema,
   updateRoleSchema,
 } from "@stubwise/shared";
-import { projectIdsWithPermission } from "../auth/access.js";
+import { projectIdsWithPermission, isAllProjects } from "../auth/access.js";
 import {
-  assertCanActOnUser,
   createRole,
   deleteRole,
   duplicateRole,
@@ -20,17 +19,20 @@ import {
   type RoleRow,
 } from "../services/roles.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
+import { viewerLosesIf } from "../services/access-query.js";
 import { apiError } from "../errors.js";
 
 /**
  * Errore di regola con i campi in più: `count` di `role_in_use`, e
- * `permission` — la chiave che manca a chi agisce — dei 403 `escalation`
- * (dare permessi che non si hanno) e `target_above` (toccare utente, membro o
- * ruolo con più permessi dei propri), ruling R44.
+ * `permission` — la chiave che manca a chi agisce — del 403 `escalation`
+ * (dare permessi che non si hanno), ruling R44. Il bersaglio non è più
+ * protetto (area 9, D-2): `target_above` non esiste più.
  */
 export const roleRuleErrorSchema = errorSchema.extend({
   count: z.number().int().optional(),
   permission: z.string().optional(),
+  /** `escalation`: tutto ciò che a chi agisce manca (rimandi, lotto 4). */
+  missing: z.array(z.string()).optional(),
 });
 
 /** Traduce un {@link RoleRuleError} in risposta; rilancia il resto. */
@@ -39,22 +41,6 @@ export function sendRoleRuleError(reply: FastifyReply, error: unknown): FastifyR
   return reply
     .code(error.status)
     .send({ code: error.code, message: error.message, ...error.extra });
-}
-
-/**
- * `preHandler` delle rotte di `users.manage` che agiscono su un altro utente
- * (`:id` del path): applica {@link assertCanActOnUser} (ruling R31). Gira dopo
- * l'hook globale di `config.access`, quindi `request.user` c'è.
- */
-export function targetUserNotAbove(param = "id") {
-  return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
-    const userId = (request.params as Record<string, string>)[param]!;
-    try {
-      await assertCanActOnUser(request.server.db, request.user!, userId);
-    } catch (error) {
-      await sendRoleRuleError(reply, error);
-    }
-  };
 }
 
 export function toRoleView(row: RoleRow): z.infer<typeof roleSchema> {
@@ -95,7 +81,7 @@ export async function roleRoutes(instance: FastifyInstance): Promise<void> {
       const perms = user.instancePermissions;
       if (!perms.has("roles.manage") && !perms.has("users.manage") && !perms.has("users.invite")) {
         const managed = await projectIdsWithPermission(app.db, user, "project.members.manage");
-        if (managed !== "all" && managed.length === 0) {
+        if (!isAllProjects(managed) && managed.length === 0) {
           return apiError(reply, 403, "forbidden", "Missing permission");
         }
       }
@@ -116,6 +102,28 @@ export async function roleRoutes(instance: FastifyInstance): Promise<void> {
       try {
         const role = await createRole(app.db, request.user!, request.body);
         return reply.code(201).send(toRoleView(role));
+      } catch (error) {
+        return sendRoleRuleError(reply, error);
+      }
+    },
+  );
+
+  // «You'd lose» (rimandi, lotto 5): cosa perderebbe chi guarda salvando il
+  // ruolo con questi permessi. Lettura calcolata (POST per il corpo), nessuna
+  // scrittura: niente riconferma.
+  app.post(
+    "/:id/viewer-loses",
+    {
+      config: { access: { kind: "instance", permission: "roles.manage" } },
+      schema: {
+        params: idParamsSchema,
+        body: z.object({ permissions: z.array(z.string().max(100)).max(200) }),
+        response: { 200: z.object({ lost: z.array(z.string()) }), ...authErrorResponses, ...ruleErrors },
+      },
+    },
+    async (request, reply) => {
+      try {
+        return { lost: await viewerLosesIf(app.db, request.user!, request.params.id, request.body.permissions) };
       } catch (error) {
         return sendRoleRuleError(reply, error);
       }

@@ -1,7 +1,7 @@
 import { useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
-import { stepAt } from "../../../domain/automations/fields";
-import { show } from "../../../domain/automations/preview";
+import { stepAt } from "@stubwise/shared";
+import { show } from "@stubwise/shared";
 import type { SimulationEffectPreview, SimulationView, Step } from "../../../data/types";
 import { quietButton } from "../../tasks/controls";
 import { conditionWords, reasonWords, shortDate, stepSentence, templatePlain } from "../format";

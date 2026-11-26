@@ -38,6 +38,8 @@ interface Turn {
   /** `unavailable`: il provider è sparito a metà conversazione (non un errore da riprovare). */
   status: "pending" | "done" | "error" | "unavailable";
   answer?: DocsAnswer;
+  /** Lotto 7, §2: il testo della risposta fin lì, mentre arriva. */
+  partial?: string;
 }
 
 export interface DocsChatState {
@@ -70,10 +72,15 @@ export function useDocsChat({
   );
   const run = useCallback(
     (id: string, question: string) => {
-      patch(id, { status: "pending" });
+      patch(id, { status: "pending", partial: undefined });
       // Dopo «New chat» il turno non c'è più: `patch` non trova nulla e basta.
-      mutateAsync({ projectId, ...(repositoryId ? { repositoryId } : {}), question }).then(
-        (answer) => patch(id, { status: "done", answer }),
+      mutateAsync({
+        projectId,
+        ...(repositoryId ? { repositoryId } : {}),
+        question,
+        onText: (soFar) => patch(id, { partial: soFar }),
+      }).then(
+        (answer) => patch(id, { status: "done", answer, partial: undefined }),
         (error: unknown) => {
           const lost = error instanceof Error && error.message === "chat_unavailable";
           // Il provider non torna con «New chat»: l'avviso resta finché vive la chat.
@@ -271,6 +278,23 @@ function Turns({ chat }: { chat: DocsChatState }) {
 
 function Answer({ turn, onRetry }: { turn: Turn; onRetry: () => void }) {
   const { t } = useTranslation();
+  if (turn.status === "pending" && turn.partial) {
+    // Il testo che cresce (lotto 7, §2); le fonti arrivano a risposta finita.
+    return (
+      <div data-docs-answer="streaming" className="flex flex-col gap-1.5">
+        <AssistantMessage
+          item={{
+            kind: "assistant",
+            key: turn.id,
+            event: { id: turn.id, at: "", type: "assistant", text: turn.partial, done: false },
+            refs: [],
+          }}
+          streaming
+          showUsed={false}
+        />
+      </div>
+    );
+  }
   if (turn.status === "pending") {
     return (
       <p role="status" className="flex items-center gap-2 pt-1 text-sm text-ink-muted">

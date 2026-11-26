@@ -1,0 +1,616 @@
+import { instanceSettings, tickets, VIA_CLAUDE_SETTING, type Db } from "@stubwise/db";
+import {
+  CLAUDE_ACTION_ARGS,
+  CLAUDE_DECLARED_CLASS,
+  type ClaudeActionFn,
+  type NewTaskBody,
+  type ProjectPermission,
+  type TaskPatch,
+} from "@stubwise/shared";
+import { eq, sql } from "drizzle-orm";
+import type { FastifyRequest } from "fastify";
+import type { RouteAccess } from "../auth/access.js";
+import { backlogItemAccess, fromBody, fromMilestone, fromTicket, ticketVisible } from "../auth/project-resolvers.js";
+import type { SessionUser } from "../auth/session.js";
+import { backlogItems, taskFilters } from "@stubwise/db";
+import type { MilestoneDraft, NewFilterBody, NewRequestBody } from "@stubwise/shared";
+import { enqueueBacklogIntake } from "../services/backlog-intake.js";
+import { ProductDocsError } from "../services/product-docs.js";
+import { ProductQuestionConflictError, checkProductDocOrigin, closeQuestionWithRequest } from "../services/product-question-origin.js";
+import { postUserComment } from "../services/comment-post.js";
+import { deleteComment } from "../services/comments.js";
+import { startRun } from "../services/jobs.js";
+import { createMilestone, deleteMilestone } from "../services/milestones.js";
+import { archiveRequest, reopenRequest } from "../services/project-request-writes.js";
+import { deleteTask } from "../services/task-delete.js";
+import { createTaskFilter, criteriaCarryPlaceholder, deleteTaskFilter } from "../services/task-filters.js";
+import { deleteStoredObjects, saveMailBody } from "./effects.js";
+import { mailBodyTarget } from "../services/mail-body-target.js";
+import {
+  AlertSubscriptionError,
+  alertSubscriptionStamp,
+  readAlertSubscription,
+  resetAlertSubscription,
+  setAlertSubscription,
+} from "../services/alert-subscriptions.js";
+import { loadTaskViews } from "../services/task-view.js";
+import { createTask, planTask, updateTask } from "../services/task-writes.js";
+import { AREA9_ENTRIES } from "./catalog-area9.js";
+import { INSTANCE_ENTRIES } from "./catalog-instance.js";
+import { AUTOMATION_ENTRIES } from "./catalog-automations.js";
+import { PRODUCT_ENTRIES } from "./catalog-product.js";
+
+/**
+ * Il catalogo delle azioni di Claude sul SERVER (chat, fetta 3): per ogni `fn`
+ * dell'elenco chiuso di `@stubwise/shared` (`CLAUDE_ACTION_FNS`), la rotta di
+ * riferimento, il suo `RouteAccess` (lo STESSO della rotta: lo verifica il
+ * test del registro) e `run`, che chiama IL SERVIZIO della rotta — nessuna
+ * scrittura sua, quindi permessi, rifiuti, notifiche e registro sono quelli
+ * di sempre. `run` legge «com'era» prima di scrivere e dà l'inverso per
+ * «Annulla» (`null` = non si annulla) e gli oggetti toccati.
+ *
+ * MAI qui (test sul sorgente, `claude-actions-never.test.ts`): approvare o
+ * rifiutare piani, rispondere alle domande dell'agente, mergiare o
+ * rilasciare, il registro decisioni, segreti, invii fuori, PAT e inviti.
+ */
+
+/**
+ * Un oggetto toccato. `stamp`: il suo `updated_at` subito dopo la scrittura
+ * (richieste, filtri): «Annulla» lo confronta per sapere se qualcuno ha
+ * scritto dopo. Le task usano la loro storia (`ticket_events`, commenti).
+ */
+export type ActionObject = {
+  /**
+   * Area 9, F7: `member` (e le altre dell'area 9) hanno `stamp` = l'istante
+   * della scrittura; «Annulla» guarda le voci del registro arrivate DOPO sullo
+   * stesso soggetto (`changed_after`), solo dei tipi in `changeTypes` se c'è.
+   */
+  kind: "task" | "request" | "milestone" | "filter" | "comment" | "subscription" | "member" | "project" | "setting" | "automation" | "product_page";
+  /**
+   * Area 9, F7, Task 4: per `setting`, il `subject_kind` delle sue voci del
+   * registro (`ai_settings`, `provider`, `webhook`…); `id` vuoto = qualunque
+   * soggetto di quel tipo.
+   */
+  subjectKind?: string;
+  /** Area 9, F7: i tipi di voce che contano per `changed_after` (assente: tutti). */
+  changeTypes?: readonly string[];
+  id: string;
+  code?: string;
+  stamp?: string;
+  /** Una iscrizione (S7): la riga `type` di chi chiede in `projectId`; `id` = `<projectId>:<type>`. */
+  projectId?: string;
+  type?: string;
+};
+
+export interface CatalogRunResult {
+  inverse: { fn: ClaudeActionFn; args: Record<string, unknown> } | null;
+  objects: ActionObject[];
+  /** I codici degli oggetti toccati (AUD-12), per la riga «fatto» e il modello. */
+  codes: string[];
+  /**
+   * La scrittura ha fatto partire il lavoro di Claude (Claude assegnato: il
+   * servizio lo avvia con `startClaudeRuns`, come le rotte). Alza la classe a
+   * B, come `startRun`, e l'azione non si annulla: togliere Claude non ferma il
+   * lavoro partito («Annulla il lavoro» resta il gesto vero).
+   */
+  startsWork?: boolean;
+}
+
+/** Il lavoro di Claude è partito da questa scrittura (`claudeRun` della vista). */
+const startedWork = (task: { claudeRun?: string | null }) => task.claudeRun === "started";
+
+export type CatalogRefusal = {
+  code: "forbidden" | "not_found" | "invalid" | "conflict" | "busy" | "budget_exhausted" | "other";
+  message: string;
+};
+
+export type CatalogRun = (
+  tx: Db,
+  user: SessionUser,
+  args: Record<string, unknown>,
+  permissions: ReadonlySet<ProjectPermission>,
+  /**
+   * Le opzioni dei servizi che avviano il lavoro di Claude: il link pubblico
+   * delle notifiche. `prepared` (lotto 6): ciò che il preflight della voce ha
+   * letto al run vero (`preflight.ts`); assente nella prova a secco.
+   */
+  start: { publicUrl?: string; prepared?: unknown; encryptionKey?: Buffer },
+) => Promise<{ ok: true; result: CatalogRunResult } | { ok: false; refusal: CatalogRefusal }>;
+
+export interface CatalogEntry {
+  fn: ClaudeActionFn;
+  /** La rotta di riferimento: `METODO /percorso` come la registra Fastify. */
+  route: string;
+  /**
+   * Lo stesso `config.access` della rotta: di progetto (il permesso si valuta
+   * come lì), `user` (cose personali) o `instance` (area 9, F7: le
+   * impostazioni d'istanza, col permesso d'istanza di chi chiede).
+   */
+  access: Extract<RouteAccess, { kind: "project" } | { kind: "user" } | { kind: "instance" }>;
+  /** Parametri e corpo della richiesta sintetica su cui si valuta `access` (può leggere il DB). */
+  request: (
+    args: Record<string, unknown>,
+    db: Db,
+  ) => { params?: Record<string, unknown>; body?: unknown } | Promise<{ params?: Record<string, unknown>; body?: unknown }>;
+  run: CatalogRun;
+  /**
+   * Area 9, F7: lo stesso `config.archived` della rotta (archivia e riapri
+   * passano su un archiviato; il test d'accordo lo confronta con la rotta).
+   */
+  archived?: "read" | "write";
+}
+
+const onTicket = (
+  permission: ProjectPermission | "member" = "member",
+  param = "ticketId",
+): Extract<RouteAccess, { kind: "project" }> => ({
+  kind: "project",
+  permission,
+  project: fromTicket(param),
+  resource: ticketVisible(param),
+});
+
+/** `updated_at` di una richiesta o di un filtro, dopo la scrittura (per `changed_after`). */
+async function stampOf(tx: Db, kind: "request" | "filter", id: string): Promise<string | undefined> {
+  const table = kind === "request" ? backlogItems : taskFilters;
+  const [row] = await tx.select({ at: table.updatedAt }).from(table).where(eq(table.id, id));
+  return row?.at.toISOString();
+}
+
+const requestObject = async (tx: Db, id: string): Promise<ActionObject> => {
+  const stamp = await stampOf(tx, "request", id);
+  return { kind: "request", id, ...(stamp ? { stamp } : {}) };
+};
+
+const refused = (code: CatalogRefusal["code"], message: string) => ({ ok: false as const, refusal: { code, message } });
+
+/** Gli errori dei servizi delle task nei codici del catalogo. */
+function taskRefusal(error: string): { ok: false; refusal: CatalogRefusal } {
+  switch (error) {
+    case "forbidden":
+    case "claude_assign_forbidden":
+      return refused("forbidden", error);
+    case "not_found":
+      return refused("not_found", error);
+    case "request_not_convertible":
+      return refused("conflict", error);
+    default:
+      return refused("invalid", error);
+  }
+}
+
+async function taskBefore(tx: Db, user: SessionUser, id: string) {
+  const [loaded] = await loadTaskViews(tx, user, [eq(tickets.id, id)], 1);
+  return loaded?.view ?? null;
+}
+
+const ENTRIES: CatalogEntry[] = [
+  {
+    fn: "createTask",
+    route: "POST /api/tasks",
+    access: { kind: "project", permission: "tickets.create", project: fromBody("projectId") },
+    request: (args) => ({ body: args }),
+    async run(tx, user, args, _permissions, start) {
+      const result = await createTask(tx, user, args as unknown as NewTaskBody, start);
+      if (!result.ok) return taskRefusal(result.error);
+      // «Annulla» = eliminazione (F3.0), solo se nessuno ci ha scritto dopo
+      // (e se Claude non ci sta già lavorando: allora la task è occupata).
+      const startsWork = startedWork(result.task);
+      return {
+        ok: true,
+        result: {
+          inverse: startsWork ? null : { fn: "deleteTask", args: { id: result.task.id } },
+          objects: [{ kind: "task", id: result.task.id }],
+          codes: [result.task.code],
+          ...(startsWork ? { startsWork } : {}),
+        },
+      };
+    },
+  },
+  {
+    fn: "updateTask",
+    route: "PATCH /api/tasks/:ticketId",
+    access: onTicket("tickets.edit"),
+    request: (args) => ({ params: { ticketId: args["id"] } }),
+    async run(tx, user, args, _permissions, start) {
+      const id = args["id"] as string;
+      const patch = (args["patch"] ?? {}) as TaskPatch;
+      const before = await taskBefore(tx, user, id);
+      if (!before) return refused("not_found", "not_found");
+      const was = Object.fromEntries(
+        Object.keys(patch).map((k) => [k, (before as unknown as Record<string, unknown>)[k] ?? null]),
+      );
+      const result = await updateTask(tx, user, id, patch, start);
+      if (!result.ok) return taskRefusal(result.error);
+      const startsWork = startedWork(result.task);
+      return {
+        ok: true,
+        result: {
+          inverse: startsWork ? null : { fn: "updateTask", args: { id, patch: was } },
+          objects: [{ kind: "task", id }],
+          codes: [result.task.code],
+          ...(startsWork ? { startsWork } : {}),
+        },
+      };
+    },
+  },
+  {
+    fn: "planTask",
+    route: "POST /api/tasks/:ticketId/plan",
+    access: onTicket(),
+    request: (args) => ({ params: { ticketId: args["id"] } }),
+    async run(tx, user, args, _permissions, start) {
+      const id = args["id"] as string;
+      const plan = args["plan"] as { assigneeId: string | null; week: string | null };
+      const before = await taskBefore(tx, user, id);
+      if (!before) return refused("not_found", "not_found");
+      const was = { assigneeId: before.assigneeId ?? null, week: before.plannedWeek ?? null };
+      const result = await planTask(tx, user, id, plan, start);
+      if (!result.ok) return taskRefusal(result.error);
+      const startsWork = startedWork(result.task);
+      return {
+        ok: true,
+        result: {
+          inverse: startsWork ? null : { fn: "planTask", args: { id, plan: was } },
+          objects: [{ kind: "task", id }],
+          codes: [result.task.code],
+          ...(startsWork ? { startsWork } : {}),
+        },
+      };
+    },
+  },
+  {
+    // Solo INVERSO di `createTask` (Claude non lo propone): le regole sono quelle di «Elimina task».
+    fn: "deleteTask",
+    route: "DELETE /api/tasks/:ticketId",
+    access: onTicket("member"),
+    request: (args) => ({ params: { ticketId: args["id"] } }),
+    async run(tx, user, args, permissions) {
+      const id = args["id"] as string;
+      const result = await deleteTask(tx, { ...user, permissions }, id);
+      if (!result.ok) return refused(result.error === "busy" ? "busy" : result.error, result.error);
+      // I file degli allegati: DOPO il commit, e mai in una prova a secco (`effects.ts`).
+      deleteStoredObjects(result.storageKeys);
+      return { ok: true, result: { inverse: null, objects: [{ kind: "task", id }], codes: [] } };
+    },
+  },
+  {
+    fn: "addComment",
+    route: "POST /api/tickets/:ticketId/comments",
+    access: onTicket("tickets.comment"),
+    request: (args) => ({ params: { ticketId: args["taskId"] } }),
+    async run(tx, user, args) {
+      const taskId = args["taskId"] as string;
+      const posted = await postUserComment(tx, {
+        ticketId: taskId,
+        authorId: user.id,
+        body: args["body"] as string,
+        replyToCommentId: (args["replyToId"] as string | undefined) ?? null,
+      });
+      if (!posted.ok) return refused(posted.error === "ticket_not_found" ? "not_found" : "invalid", posted.error);
+      return {
+        ok: true,
+        result: {
+          inverse: { fn: "deleteComment", args: { id: posted.comment.id, taskId } },
+          objects: [{ kind: "task", id: taskId }],
+          codes: [],
+        },
+      };
+    },
+  },
+  {
+    fn: "deleteComment",
+    route: "DELETE /api/tickets/:ticketId/comments/:commentId",
+    access: onTicket("member"),
+    request: (args) => ({ params: { ticketId: args["taskId"], commentId: args["id"] } }),
+    async run(tx, user, args, permissions) {
+      const result = await deleteComment(tx, {
+        ticketId: args["taskId"] as string,
+        commentId: args["id"] as string,
+        actor: { id: user.id, permissions },
+      });
+      if (!result.ok) return refused(result.error === "forbidden" ? "forbidden" : "not_found", result.error);
+      // I file degli allegati del commento: DOPO il commit, mai a secco.
+      deleteStoredObjects(result.storageKeys);
+      return { ok: true, result: { inverse: null, objects: [{ kind: "task", id: args["taskId"] as string }], codes: [] } };
+    },
+  },
+  {
+    fn: "createRequest",
+    route: "POST /api/requests",
+    access: { kind: "project", permission: "backlog.create", project: fromBody("projectId") },
+    request: (args) => ({ body: args }),
+    async run(tx, user, args) {
+      const body = args as unknown as NewRequestBody;
+      // Area 11, F5: da una domanda di Claude sulla doc (la scheda B): l'origine si controlla PRIMA, la domanda si chiude col job.
+      if (body.origin) {
+        try {
+          await checkProductDocOrigin(tx, user, body.projectId, body.origin);
+        } catch (error) {
+          if (error instanceof ProductQuestionConflictError) return refused("conflict", error.code);
+          if (error instanceof ProductDocsError) return refused(error.status === 403 ? "forbidden" : error.status === 409 ? "conflict" : "invalid", error.code);
+          throw error;
+        }
+      }
+      // Passa dall'intake (può fonderla in una che c'è già): non si annulla.
+      const result = await enqueueBacklogIntake(tx, {
+        projectId: body.projectId,
+        title: body.title,
+        body: body.description,
+        requestedByUserId: user.id,
+      });
+      if (!result.ok) return refused("not_found", result.error);
+      if (body.origin) await closeQuestionWithRequest(tx, user, body.origin, result.jobId);
+      return { ok: true, result: { inverse: null, objects: [], codes: [] } };
+    },
+  },
+  {
+    // Trasformare una richiesta in task: la rotta è la creazione della task con `requestId`.
+    fn: "convertRequest",
+    route: "POST /api/tasks",
+    access: { kind: "project", permission: "tickets.create", project: fromBody("projectId") },
+    async request(args, db) {
+      const [item] = await db
+        .select({ projectId: backlogItems.projectId })
+        .from(backlogItems)
+        .where(eq(backlogItems.id, args["id"] as string));
+      return { body: { projectId: item?.projectId ?? null } };
+    },
+    async run(tx, user, args, _permissions, start) {
+      const [item] = await tx
+        .select({ projectId: backlogItems.projectId })
+        .from(backlogItems)
+        .where(eq(backlogItems.id, args["id"] as string));
+      if (!item) return refused("not_found", "not_found");
+      const input = args["input"] as Omit<NewTaskBody, "projectId" | "requestId">;
+      const result = await createTask(tx, user, { ...input, projectId: item.projectId, requestId: args["id"] as string }, start);
+      if (!result.ok) return taskRefusal(result.error);
+      return {
+        ok: true,
+        result: {
+          inverse: null,
+          objects: [{ kind: "task", id: result.task.id }, await requestObject(tx, args["id"] as string)],
+          codes: [result.task.code],
+        },
+      };
+    },
+  },
+  {
+    fn: "archiveRequest",
+    route: "POST /api/requests/:id/archive",
+    access: backlogItemAccess("id", "backlog.edit") as Extract<RouteAccess, { kind: "project" }>,
+    request: (args) => ({ params: { id: args["id"] } }),
+    async run(tx, _user, args) {
+      const id = args["id"] as string;
+      if (!(await archiveRequest(tx, id))) return refused("conflict", "invalid_status");
+      return { ok: true, result: { inverse: { fn: "reopenRequest", args: { id } }, objects: [await requestObject(tx, id)], codes: [] } };
+    },
+  },
+  {
+    fn: "reopenRequest",
+    route: "POST /api/requests/:id/reopen",
+    access: backlogItemAccess("id", "backlog.edit") as Extract<RouteAccess, { kind: "project" }>,
+    request: (args) => ({ params: { id: args["id"] } }),
+    async run(tx, _user, args) {
+      const id = args["id"] as string;
+      if (!(await reopenRequest(tx, id))) return refused("conflict", "invalid_status");
+      return { ok: true, result: { inverse: { fn: "archiveRequest", args: { id } }, objects: [await requestObject(tx, id)], codes: [] } };
+    },
+  },
+  {
+    // Avviare il lavoro di Claude: lo stesso `startRun` di `run-ai`, col gate
+    // del piano invariato (senza `plans.approve` nasce in attesa
+    // d'approvazione). Non approva mai niente; non si annulla da qui.
+    fn: "startRun",
+    route: "POST /api/tickets/:id/run-ai",
+    access: onTicket("runs.start", "id"),
+    request: (args) => ({ params: { id: args["taskId"] } }),
+    async run(tx, user, args, permissions, start) {
+      const taskId = args["taskId"] as string;
+      const result = await startRun(tx, {
+        ticketId: taskId,
+        actor: { id: user.id, permissions },
+        ...(start.publicUrl !== undefined ? { publicUrl: start.publicUrl } : {}),
+      });
+      if (!result.ok) {
+        return refused(
+          result.error === "ticket_not_found"
+            ? "not_found"
+            : result.error === "forbidden" || result.error === "needs_maintainer"
+              ? "forbidden"
+              : result.error === "budget_exhausted"
+                ? "budget_exhausted"
+                : "busy",
+          result.error,
+        );
+      }
+      return { ok: true, result: { inverse: null, objects: [{ kind: "task", id: taskId }], codes: [] } };
+    },
+  },
+  {
+    fn: "createMilestone",
+    route: "POST /api/milestones",
+    access: { kind: "project", permission: "tickets.edit", project: fromBody("projectId") },
+    request: (args) => ({ body: args }),
+    async run(tx, _user, args) {
+      const result = await createMilestone(tx, args as unknown as MilestoneDraft & { projectId: string });
+      if (!result.ok) return refused(result.error === "project_not_found" ? "not_found" : "conflict", result.error);
+      return {
+        ok: true,
+        result: {
+          inverse: { fn: "deleteMilestone", args: { id: result.milestone.id } },
+          objects: [{ kind: "milestone", id: result.milestone.id }],
+          codes: [],
+        },
+      };
+    },
+  },
+  {
+    fn: "deleteMilestone",
+    route: "DELETE /api/milestones/:id",
+    access: { kind: "project", permission: "tickets.edit", project: fromMilestone("id") },
+    request: (args) => ({ params: { id: args["id"] } }),
+    async run(tx, _user, args) {
+      const id = args["id"] as string;
+      if (!(await deleteMilestone(tx, id))) return refused("not_found", "milestone_not_found");
+      return { ok: true, result: { inverse: null, objects: [{ kind: "milestone", id }], codes: [] } };
+    },
+  },
+  {
+    fn: "saveFilter",
+    route: "POST /api/filters",
+    access: { kind: "user" },
+    request: (args) => ({ body: args }),
+    async run(tx, user, args) {
+      // Solo PERSONALE: un filtro di Claude non diventa mai pubblico (lo vedrebbero altri).
+      // Registro, A11 r.1414: un segnaposto `hidden-<n>` non si salva nei criteri.
+      if (criteriaCarryPlaceholder((args as unknown as NewFilterBody).criteria)) return refused("invalid", "criteria: a placeholder is not a person id");
+      const row = await createTaskFilter(tx, user, { ...(args as unknown as NewFilterBody), visibility: "private" });
+      if (!row) return refused("invalid", "too_many_filters");
+      const stamp = await stampOf(tx, "filter", row.id);
+      return {
+        ok: true,
+        result: {
+          inverse: { fn: "deleteFilter", args: { id: row.id } },
+          objects: [{ kind: "filter", id: row.id, ...(stamp ? { stamp } : {}) }],
+          codes: [],
+        },
+      };
+    },
+  },
+  {
+    // Area 6, F3: il corpo di un'email nella bozza Gmail di chi conferma.
+    // Nella transazione (e a secco) SOLO il controllo del bersaglio; la
+    // scrittura su Gmail è un seguito dopo il commit. Non si annulla (Gmail
+    // ha già la bozza: la si cambia dal compositore), e non manda MAI.
+    fn: "fillMailBody",
+    route: "PUT /api/me/mail/drafts",
+    access: { kind: "user" },
+    request: (args) => ({ body: args }),
+    async run(tx, user, args) {
+      const input = args as { accountId: string; threadId: string | null; mode: "new" | "reply" | "replyAll" | "forward"; text: string };
+      const target = await mailBodyTarget(tx, user.id, input);
+      if (target !== "ok") return refused(target, `mail_${target}`);
+      // L'id di QUESTA azione (l'esecutore lo mette nella transazione prima di `run`):
+      // il seguito ci scrive l'esito se Gmail non risponde.
+      const [current] = await tx.execute<{ id: string | null }>(sql`select nullif(current_setting(${VIA_CLAUDE_SETTING}, true), '') as id`);
+      saveMailBody(user.id, input, current?.id ?? null);
+      return { ok: true, result: { inverse: null, objects: [], codes: [] } };
+    },
+  },
+  {
+    // Area 8, F2, S7: l'iscrizione di CHI CHIEDE a un tipo d'avviso, col
+    // servizio delle Preferenze (obbligatori e sospesi rifiutati, i partner
+    // della riga scritti insieme). «Annulla» riscrive i valori di prima.
+    fn: "setSubscription",
+    route: "PUT /api/me/alert-subscriptions/:projectId/:type",
+    access: { kind: "user" },
+    request: (args) => ({ params: { projectId: args["projectId"], type: args["type"] } }),
+    async run(tx, user, args) {
+      const input = args as { projectId: string; type: string; app?: boolean; phone?: boolean };
+      try {
+        const before = await readAlertSubscription(tx, user, input.projectId, input.type);
+        await setAlertSubscription(tx, user, {
+          projectId: input.projectId,
+          type: input.type,
+          patch: { ...(input.app !== undefined ? { app: input.app } : {}), ...(input.phone !== undefined ? { phone: input.phone } : {}) },
+        });
+        const stamp = await alertSubscriptionStamp(tx, user.id, input.projectId, input.type);
+        return {
+          ok: true,
+          result: {
+            // Senza una scelta salvata prima, «Annulla» torna al DEFAULT (che
+            // segue permessi e `push`), non a un valore fissato (review F2, 46).
+            inverse: before.saved
+              ? { fn: "setSubscription", args: { projectId: input.projectId, type: input.type, app: before.app, phone: before.phone } }
+              : { fn: "resetSubscription", args: { projectId: input.projectId, type: input.type } },
+            objects: [
+              { kind: "subscription", id: `${input.projectId}:${input.type}`, projectId: input.projectId, type: input.type, ...(stamp ? { stamp } : {}) },
+            ],
+            codes: [],
+          },
+        };
+      } catch (error) {
+        if (!(error instanceof AlertSubscriptionError)) throw error;
+        return refused(error.status === 403 ? "forbidden" : "not_found", error.code);
+      }
+    },
+  },
+  {
+    // Solo INVERSO di `setSubscription` (Claude non lo propone): la riga torna al default.
+    fn: "resetSubscription",
+    route: "DELETE /api/me/alert-subscriptions/:projectId/:type",
+    access: { kind: "user" },
+    request: (args) => ({ params: { projectId: args["projectId"], type: args["type"] } }),
+    async run(tx, user, args) {
+      const input = args as { projectId: string; type: string };
+      try {
+        await resetAlertSubscription(tx, user, input);
+        return { ok: true, result: { inverse: null, objects: [], codes: [] } };
+      } catch (error) {
+        if (!(error instanceof AlertSubscriptionError)) throw error;
+        return refused(error.status === 403 ? "forbidden" : "not_found", error.code);
+      }
+    },
+  },
+  {
+    fn: "deleteFilter",
+    route: "DELETE /api/filters/:id",
+    access: { kind: "user" },
+    request: (args) => ({ params: { id: args["id"] } }),
+    async run(tx, user, args) {
+      const result = await deleteTaskFilter(tx, user, args["id"] as string);
+      if (result !== "ok") return refused(result, result);
+      return { ok: true, result: { inverse: null, objects: [{ kind: "filter", id: args["id"] as string }], codes: [] } };
+    },
+  },
+];
+
+/** Le voci per `fn`. Una `fn` dell'elenco condiviso senza voce qui non si esegue (ancora). */
+export const SERVER_CATALOG: ReadonlyMap<ClaudeActionFn, CatalogEntry> = new Map([...ENTRIES, ...AREA9_ENTRIES, ...INSTANCE_ENTRIES, ...AUTOMATION_ENTRIES, ...PRODUCT_ENTRIES].map((e) => [e.fn, e]));
+
+export function declaredClassOf(fn: ClaudeActionFn): "A" | "B" | "C" {
+  return CLAUDE_DECLARED_CLASS[fn];
+}
+
+/**
+ * Lotto 10, voce 1: la riconferma decisa PER CAMPO (come `reauthIf` del
+ * prototipo). Una voce dichiarata C la chiede sempre; `saveStorage` (B) la
+ * chiede solo se, con QUESTI argomenti, cambiano l'endpoint o il bucket
+ * rispetto a quelli salvati ADESSO (decisione del maintainer: decidono dove
+ * vanno gli allegati). Per prefisso, regione e chiave d'accesso basta la
+ * conferma normale. Lo stesso giudizio per la vista e per la conferma.
+ */
+export async function reauthOf(db: Pick<Db, "select">, fn: ClaudeActionFn, args: Record<string, unknown>): Promise<boolean> {
+  if (declaredClassOf(fn) === "C") return true;
+  if (fn !== "saveStorage") return false;
+  const [row] = await db.select({ endpoint: instanceSettings.s3Endpoint, bucket: instanceSettings.s3Bucket }).from(instanceSettings).limit(1);
+  const norm = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  // Una PATCH: un campo assente non cambia, quindi non conta.
+  const changes = (field: "endpoint" | "bucket") => args[field] !== undefined && norm(args[field]) !== norm(row?.[field]);
+  return changes("endpoint") || changes("bucket");
+}
+
+/** Gli argomenti validati con lo schema della rotta; `null` se non sono validi. */
+export function parseArgs(fn: ClaudeActionFn, args: unknown): Record<string, unknown> | null {
+  const parsed = CLAUDE_ACTION_ARGS[fn].safeParse(args);
+  return parsed.success ? (parsed.data as Record<string, unknown>) : null;
+}
+
+/** La richiesta sintetica su cui il `RouteAccess` della voce si valuta come nella rotta. */
+export function syntheticRequest(
+  db: Db,
+  user: SessionUser,
+  parts: { params?: Record<string, unknown>; body?: unknown },
+  archived?: "read" | "write",
+): FastifyRequest {
+  return {
+    // Solo `config.archived`: l'eccezione dichiarata della rotta all'archivio (F6).
+    routeOptions: { config: archived ? { archived } : {} },
+    params: parts.params ?? {},
+    body: parts.body ?? {},
+    query: {},
+    user,
+    server: { db },
+  } as unknown as FastifyRequest;
+}

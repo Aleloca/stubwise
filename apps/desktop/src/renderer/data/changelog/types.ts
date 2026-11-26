@@ -148,7 +148,7 @@ export interface ChangeEntryView extends Omit<ChangeEntry, "undoOf" | "claudeAct
   templateKey: string;
   scope: "instance" | "project";
   group: string;
-  actorName: string;
+  actorName: string | null;
   /** Il codice del progetto (`ACQ`), `null` per le voci d'istanza. */
   projectCode: string | null;
   /** L'oggetto non c'è più (un ruolo o un reparto eliminato): il nome resta, «(deleted)». */
@@ -197,4 +197,10 @@ export interface ChangeFilter {
   to?: string;
   /** Area 10a: solo le voci scritte da Claude per qualcuno. */
   via?: "claude";
+}
+
+/** Una pagina del registro: le voci e il cursore della pagina dopo (`null` = finite). */
+export interface ChangePage {
+  entries: ChangeEntryView[];
+  nextCursor: string | null;
 }

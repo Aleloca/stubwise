@@ -37,6 +37,8 @@ export type SecurityEventKind =
   | "backup_codes_regenerated"
   | "backup_code_used"
   | "second_factor_locked"
+  // Area 9, R2: l'email di login cambiata (dalla persona col link, o da un admin).
+  | "email_changed"
   | "token_created"
   | "token_revoked"
   | "registered";
@@ -65,6 +67,8 @@ export type AdminRefusal =
   | { ok: false; error: "not_found" }
   | { ok: false; error: "forbidden" }
   | { ok: false; error: "reauth_required" }
+  /** Area 9, F8: il reparto è cambiato da quando la bozza l'ha letto (409 `stale`). */
+  | { ok: false; error: "conflict" }
   | { ok: false; error: "escalation"; missing: string[] }
   | {
       ok: false;
@@ -72,6 +76,8 @@ export type AdminRefusal =
       reason: string;
       /** Solo `in_use`: chi ha il ruolo, fra le persone e i progetti che chi guarda vede. */
       usedBy?: { personId: string; projectId: string | null }[];
+      /** Area 9, R6: solo `invalid_reassignment`, la task della riga che non vale. */
+      taskId?: string;
     };
 
 export type AdminResult<T extends object = object> = ({ ok: true } & T) | AdminRefusal;
@@ -109,6 +115,12 @@ export interface RoleChoice {
   name: string;
   permissionCount: number;
   missing: string[];
+  /**
+   * Area 9, review F1: il blocco di QUESTA scelta, calcolato dal server
+   * (`last_full_admin` sui ruoli senza full admin per l'ultimo full admin
+   * attivo). Assente nel prototipo, che blocca l'azione intera.
+   */
+  block?: ActionBlock;
 }
 
 export interface MemberRow {
@@ -228,7 +240,8 @@ export interface PersonDetail {
   deactivatedAt: string | null;
   isSelf: boolean;
   isFullAdmin: boolean;
-  hasSecondFactor: boolean;
+  /** `null` sul server per chi non gestisce le persone e non è la persona stessa. */
+  hasSecondFactor: boolean | null;
   /** Chi guarda e la persona sono entrambi full admin: il reset del secondo fattore lo dice. */
   peer: boolean;
   instanceRole: { id: string; name: string } | null;
@@ -246,6 +259,8 @@ export interface PersonDetail {
   actions: {
     setInstanceRole: ActionBlock;
     resetPassword: ActionBlock;
+    /** Area 9, R2: cambiare l'email di login (non su sé stessi, non a un disattivato). */
+    changeEmail: ActionBlock;
     resetSecondFactor: ActionBlock;
     deactivate: ActionBlock;
     reactivate: ActionBlock;
@@ -260,6 +275,12 @@ export interface PersonDetail {
     title: string;
     projectId: string;
     reassignTo: string[];
+    /**
+     * Il nome di ognuno di `reassignTo` (revisione del lotto 2, I8): la
+     * directory è fuori dalla regola di r.1414, l'elenco delle persone no.
+     * Facoltativo: cambio additivo (la build app lo legge da `usePeople`).
+     */
+    reassignNames?: Record<string, string>;
   }[];
 }
 
@@ -332,6 +353,8 @@ export type GiveReach = "instance" | "projects" | "anywhere";
 
 export interface DepartmentView {
   id: string;
+  /** Area 9, F8: la versione opaca del server (`ifMatch`); assente nel prototipo. */
+  version?: string;
   name: string;
   colorToken: string;
   memberIds: string[];

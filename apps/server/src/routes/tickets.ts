@@ -28,6 +28,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import {
   inProjects,
+  isAllProjects,
   projectIdsWithPermission,
   routePermissions,
   visibleProjectIds,
@@ -72,13 +73,14 @@ import {
 } from "../services/jobs.js";
 import { loadPrAdoption } from "../services/pr-adoption.js";
 import { answerQuestion, type AnswerQuestionResult } from "../services/questions.js";
-import { diffTicketEvents, patchTicket, userExists } from "../services/tickets.js";
+import { assigneeState, diffTicketEvents, patchTicket } from "../services/tickets.js";
 import {
   authErrorResponses,
   errorSchema,
   isForeignKeyViolation,
   isUniqueViolation,
 } from "./shared.js";
+import { agentUserId, claudeAssignGuard, claudeStart, startClaudeRuns } from "../services/claude-assign.js";
 
 // Le forme pubbliche di ticket (base, dettaglio, item di lista) vivono in
 // `@stubwise/shared`: le condividono server, SPA e app mobile, e restano
@@ -314,10 +316,13 @@ function sendAnswerError(
 /** Proiezione pubblica della riga ticket: date serializzate in ISO. */
 function toPublicTicket(
   row: Ticket,
-  requestedBy: { id: string; email: string } | null = null,
+  requestedBy: { id: string; email: string } | null,
+  /** L'id dell'utente di sistema Claude (`agentUserId`), per `assigneeIsAgent`. */
+  agentId: string | null,
 ): z.infer<typeof ticketSchema> {
   return {
     requestedBy,
+    assigneeIsAgent: agentId !== null && row.assigneeId === agentId,
     id: row.id,
     projectId: row.projectId,
     number: row.number,
@@ -508,11 +513,15 @@ async function ticketDetailResponse(
   const requestedBy = (await requestedByForTickets(db, [row])).get(row.requestedByUserId ?? "") ?? null;
   // «Assegnatario senza accesso»: né membro del progetto né full admin. La
   // revoca dell'accesso non riscrive i ticket, quindi si deriva a ogni lettura.
+  // Claude non è membro di nessun progetto e non è un caso di accesso revocato
+  // (review dell'area 3, punto 6).
+  const agentId = await agentUserId(db);
   const assigneeWithoutAccess =
     row.assigneeId !== null &&
+    row.assigneeId !== agentId &&
     (await projectPermissionsOfUser(db, row.assigneeId, row.projectId)) === null;
   return {
-    ...toPublicTicket(row, requestedBy),
+    ...toPublicTicket(row, requestedBy, agentId),
     implementationPlan: row.implementationPlan,
     originContent: row.originContent,
     planSummary: latestJob?.planSummary ?? null,
@@ -546,9 +555,20 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const { projectId, title, body, type, priority, assigneeId, labels } = request.body;
-      if (assigneeId !== undefined && !(await userExists(app.db, assigneeId))) {
-        return apiError(reply, 400, "assignee_not_found", "Assignee not found");
+      if (assigneeId !== undefined) {
+        const state = await assigneeState(app.db, assigneeId);
+        if (state === "missing") return apiError(reply, 400, "assignee_not_found", "Assignee not found");
+        if (state === "deactivated") return apiError(reply, 422, "user_deactivated", "This person is deactivated");
       }
+      // Claude come assegnatario: la regola delle rotte nuove (review dell'area
+      // 3, punto 3). Assegnarlo avvia il lavoro, quindi chiede `runs.start`.
+      if ((await claudeAssignGuard(app.db, request.user!, projectId, assigneeId)) !== null) {
+        return apiError(reply, 403, "claude_assign_forbidden", "Assigning Claude requires runs.start in the project");
+      }
+      // Letto PRIMA della transazione: dopo il commit la risposta non deve
+      // dipendere da altre letture (un 201 mancato farebbe nascere un doppione).
+      const agentId = await agentUserId(app.db);
+      const claudeAssigned = assigneeId !== undefined && assigneeId === agentId;
       try {
         // Il ticket nasce a livello di PROGETTO (Fase 3): niente repository
         // bersaglio, il numero è per-progetto (row-lock su projects dentro
@@ -609,9 +629,13 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
             request.log.warn({ err: error }, "avviso request.created non pubblicato");
           }
         }
+        // Nato già assegnato a Claude: parte il lavoro, dopo il commit, come run-ai.
+        if (claudeAssigned) {
+          await startClaudeRuns(app.db, request.user!, [{ ticketId: ticket.id, projectId: ticket.projectId }], claudeStart(app, request));
+        }
         return await reply
           .code(201)
-          .send(toPublicTicket(ticket, { id: request.user!.id, email: request.user!.email }));
+          .send(toPublicTicket(ticket, { id: request.user!.id, email: request.user!.email }, agentId));
       } catch (error) {
         if (error instanceof ProjectNotFoundError) {
           return apiError(reply, 404, "project_not_found", "Project not found");
@@ -671,9 +695,10 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       // chi guarda. Nella WHERE, prima del conteggio: anche `total` lo
       // rispetta.
       const viewAll = await projectIdsWithPermission(app.db, request.user!, "tickets.view_all");
-      if (viewAll !== "all") {
+      // Un full admin: ovunque (gli archiviati li toglie già la visibilità sopra).
+      if (!isAllProjects(viewAll)) {
         const own = eq(tickets.requestedByUserId, request.user!.id);
-        conditions.push(viewAll.length > 0 ? or(inArray(tickets.projectId, viewAll), own)! : own);
+        conditions.push(viewAll.length > 0 ? or(inArray(tickets.projectId, [...viewAll]), own)! : own);
       }
       // Ricerca full-text: matcha titolo+body (colonna generata searchTsv) OPPURE
       // il corpo di un commento del ticket. websearch_to_tsquery tollera input
@@ -760,9 +785,10 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         app.db,
         page.map((row) => row.ticket),
       );
+      const agentId = await agentUserId(app.db);
       return {
         items: page.map((row) => ({
-          ...toPublicTicket(row.ticket, requesters.get(row.ticket.requestedByUserId ?? "") ?? null),
+          ...toPublicTicket(row.ticket, requesters.get(row.ticket.requestedByUserId ?? "") ?? null, agentId),
           repositoryCount: countByTicket.get(row.ticket.id) ?? 0,
         })),
         nextCursor,
@@ -1322,6 +1348,16 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const id = request.params.id;
+      // Claude come assegnatario: la regola delle rotte nuove (review dell'area
+      // 3, punto 3). Su un ticket che non c'è decide il servizio (404).
+      const agent = request.body.assigneeId !== undefined ? await agentUserId(app.db) : null;
+      const [before] =
+        agent !== null && request.body.assigneeId === agent
+          ? await app.db.select({ projectId: tickets.projectId, assigneeId: tickets.assigneeId }).from(tickets).where(eq(tickets.id, id))
+          : [];
+      if (before && (await claudeAssignGuard(app.db, request.user!, before.projectId, request.body.assigneeId)) !== null) {
+        return apiError(reply, 403, "claude_assign_forbidden", "Assigning Claude requires runs.start in the project");
+      }
       try {
         // La mutazione vive in `services/tickets.ts`: qui restano la
         // transazione (SELECT della riga corrente, validazione della milestone,
@@ -1334,6 +1370,9 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
           if (result.error === "assignee_not_found") {
             return apiError(reply, 400, "assignee_not_found", "Assignee not found");
           }
+          if (result.error === "user_deactivated") {
+            return apiError(reply, 422, "user_deactivated", "This person is deactivated");
+          }
           if (result.error === "ticket_not_found") {
             return apiError(reply, 404, "ticket_not_found", "Ticket not found");
           }
@@ -1344,10 +1383,15 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
             "Milestone belongs to a different project",
           );
         }
+        // Appena assegnato a Claude: parte il lavoro, dopo il commit, come run-ai.
+        if (before && before.assigneeId !== agent) {
+          await startClaudeRuns(app.db, request.user!, [{ ticketId: id, projectId: before.projectId }], claudeStart(app, request));
+        }
         const requesters = await requestedByForTickets(app.db, [result.ticket]);
         return toPublicTicket(
           result.ticket,
           requesters.get(result.ticket.requestedByUserId ?? "") ?? null,
+          await agentUserId(app.db),
         );
       } catch (error) {
         // Finestra TOCTOU: l'utente verificato dal servizio può sparire prima
@@ -1603,6 +1647,9 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
             "This PR's branch is protected on this repository: Stubwise does not push to it",
           );
         }
+        if (result.error === "colleague_analysis_only") {
+          return apiError(reply, 409, "colleague_analysis_only", "This colleague's PR is set to analysis only: Stubwise does not correct it");
+        }
         if (result.error === "review_ticket_not_runnable") {
           return apiError(
             reply,
@@ -1611,6 +1658,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
             "A review ticket does not run a fix: corrections go on its pull request",
           );
         }
+        if (result.error === "budget_exhausted") return apiError(reply, 409, "budget_exhausted", "The monthly AI budget is used up");
         return apiError(
           reply,
           409,
@@ -1632,6 +1680,8 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       config: { access: onTicket("plans.approve") },
       schema: {
         params: idParamsSchema,
+        // Area 3: il digest del piano letto, facoltativo (senza, come prima).
+        body: z.object({ planDigest: z.string().max(128).optional() }).nullish(),
         response: {
           202: planDecisionResultSchema,
           404: errorSchema,
@@ -1645,6 +1695,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         ticketId: request.params.id,
         actor: { id: request.user!.id, permissions: routePermissions(request) },
         mode: "execute",
+        ...(request.body?.planDigest ? { expectedPlanDigest: request.body.planDigest } : {}),
       });
       return sendResolvePlan(reply, result);
     },
@@ -1662,7 +1713,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       schema: {
         params: idParamsSchema,
         // nullish come run-ai: il client può non mandare corpo affatto.
-        body: z.object({ instructions: z.string().max(4000).optional() }).nullish(),
+        body: z.object({ instructions: z.string().max(4000).optional(), planDigest: z.string().max(128).optional() }).nullish(),
         response: {
           202: planDecisionResultSchema,
           404: errorSchema,
@@ -1677,6 +1728,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         actor: { id: request.user!.id, permissions: routePermissions(request) },
         mode: "fix",
         instructions: request.body?.instructions,
+        ...(request.body?.planDigest ? { expectedPlanDigest: request.body.planDigest } : {}),
       });
       return sendResolvePlan(reply, result);
     },
@@ -1764,6 +1816,8 @@ function sendResolvePlan(reply: FastifyReply, result: ResolvePlanResult): Fastif
       return apiError(reply, 403, "forbidden", "Missing permission");
     case "plan_not_pending":
       return apiError(reply, 409, "plan_not_pending", "No plan pending approval");
+    case "plan_changed":
+      return apiError(reply, 409, "plan_changed", "The plan changed after you read it: read it again");
   }
 }
 

@@ -732,6 +732,18 @@ function describeEvent(
       return t("tickets:activity.events.title_changed", { actor });
     case "body_changed":
       return t("tickets:activity.events.body_changed", { actor });
+    // Fetta 2 (scritture dell'app nuova): la settimana è `YYYY-Www`; reparto e
+    // taglia il web vecchio non li mostra, dice solo che sono cambiati.
+    case "planned_week_changed":
+      return t("tickets:activity.events.planned_week_changed", {
+        actor,
+        from: typeof from === "string" ? from : "—",
+        to: typeof to === "string" ? to : "—",
+      });
+    case "department_changed":
+      return t("tickets:activity.events.department_changed", { actor });
+    case "effort_changed":
+      return t("tickets:activity.events.effort_changed", { actor });
     // milestone_changed: from/to sono id (o null). Si risolve l'id al nome
     // (fallback "—" se la milestone è stata cancellata) e si sceglie la
     // variante: set (null→x), removed (x→null), changed (x→y).

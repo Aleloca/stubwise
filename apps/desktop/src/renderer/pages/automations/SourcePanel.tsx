@@ -1,14 +1,18 @@
 import { Link, useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
+import { isAppBuild } from "../../data/build";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   useAutomationRuns,
+  useSourceEvents,
   useAutomations,
   useAutomationSources,
   usePeople,
   useSessionPersonId,
 } from "../../data/queries";
-import type { AutomationSourceView, DataField } from "../../data/types";
+import type { TFunction } from "i18next";
+import type { AutomationSourceEvent } from "@stubwise/shared";
+import type { AutomationRunRow, AutomationSourceView, DataField } from "../../data/types";
 import {
   DetailPanel,
   DOCKED_PANEL_QUERY,
@@ -95,6 +99,42 @@ export function PanelSection({ title, children }: { title: string; children: Rea
   );
 }
 
+type RecentItem =
+  | { at: string; run: AutomationRunRow }
+  | { at: string; event: AutomationSourceEvent };
+
+/**
+ * L'etichetta di un campo per la sua chiave intera, anche dentro un elenco
+ * (`ordine.righe.nome` → «Rows › Name», review F4, m6): le chiavi di `of`
+ * sono relative all'elemento.
+ */
+function fieldLabelOf(fields: readonly DataField[], key: string): string | null {
+  for (const f of fields) {
+    if (f.key === key) return f.label;
+    if (f.of && key.startsWith(`${f.key}.`)) {
+      const inner = fieldLabelOf(f.of, key.slice(f.key.length + 1));
+      if (inner) return `${f.label} › ${inner}`;
+    }
+  }
+  return null;
+}
+
+/** Un evento che non ha fatto partire niente, in parole: il motivo del rifiuto col nome del campo. */
+function eventWords(e: AutomationSourceEvent, source: AutomationSourceView, t: TFunction): string {
+  if (e.status === "duplicate") return t("automations.sources.eventDuplicate");
+  if (e.reason === "json") return t("automations.sources.eventRejectedJson");
+  // `<campo>: <tipo atteso>`: il campo con l'etichetta della sorgente, il tipo in parole.
+  const m = e.reason ? /^(.+): ([a-z]+)$/.exec(e.reason) : null;
+  if (m) {
+    const [, key = "", type = ""] = m;
+    return t("automations.sources.eventRejectedType", {
+      field: fieldLabelOf(source.fields, key) ?? key,
+      type: t(`automations.fieldType.${type}`, { defaultValue: type }),
+    });
+  }
+  return t("automations.sources.eventRejectedOther", { reason: e.reason ?? "—" });
+}
+
 export function SourcePanel({ source }: { source: AutomationSourceView }) {
   const { t, i18n } = useTranslation();
   const people = usePeople().data;
@@ -102,15 +142,27 @@ export function SourcePanel({ source }: { source: AutomationSourceView }) {
   const runs = useAutomationRuns().data ?? [];
   const simulate = useSimulate(source);
   const [dialog, setDialog] = useState<"connect" | "disconnect" | null>(null);
+  // Nella build app (F4) un webhook non si scollega (il server non ha la
+  // rotta) e «Simulate» è del prototipo: nessuna delle due si offre.
+  const appBuild = isAppBuild();
+  const canDisconnect = !appBuild && source.status !== "disconnected";
   const [renaming, setRenaming] = useState(false);
   const users = usersOf(source, automations);
   const connector = people?.find((p) => p.id === source.connectedById);
   const reconnector = people?.find((p) => p.id === source.reconnectedById);
   const manage = source.permissions.manage;
-  const recent = runs
-    .filter((r) => r.origin === "source" && users.some((a) => a.id === r.automationId))
-    .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
-    .slice(0, 5);
+  // Le esecuzioni partite dalla sorgente, più gli eventi che non ne hanno fatta
+  // partire nessuna: i rifiutati col motivo e i doppioni (F4-5, dal server; il
+  // prototipo non rifiuta niente). Gli accettati ci sono già come esecuzioni.
+  const unstarted = (useSourceEvents(source.id).data ?? []).filter((e) => e.status !== "accepted");
+  const recent: RecentItem[] = [
+    ...runs
+      .filter((r) => r.origin === "source" && users.some((a) => a.id === r.automationId))
+      .map((run) => ({ at: run.startedAt, run })),
+    ...unstarted.map((event) => ({ at: event.receivedAt, event })),
+  ]
+    .sort((a, b) => b.at.localeCompare(a.at))
+    .slice(0, 8);
   const expiredUsers = users.filter((a) => a.status === "active");
   return (
     <div data-source-panel={source.id} className="flex flex-col">
@@ -145,7 +197,7 @@ export function SourcePanel({ source }: { source: AutomationSourceView }) {
                     >
                       {t("automations.sources.rename")}
                     </button>
-                    {source.status !== "disconnected" && (
+                    {canDisconnect && (
                       <button
                         type="button"
                         role="menuitem"
@@ -268,54 +320,71 @@ export function SourcePanel({ source }: { source: AutomationSourceView }) {
         {recent.length === 0 ? (
           <p className="text-sm text-ink-muted">—</p>
         ) : (
-          <ul>
-            {recent.map((r) => (
-              <li key={r.id} className="flex min-h-8 items-center gap-2 text-sm">
-                <span className="num text-ink-muted">{shortDate(r.startedAt, i18n.language)}</span>
-                <span className="min-w-0 truncate text-ink">{clientOf(r.event) ?? runTitle(r, t)}</span>
-                <Link
-                  to="/automations/$code/runs/$n"
-                  params={{ code: r.automationCode, n: String(r.n) }}
-                  className={`${textLink} num ml-auto shrink-0 font-semibold`}
+          <ul aria-label={t("automations.sources.recent")}>
+            {recent.map((item) =>
+              "run" in item ? (
+                <li key={item.run.id} className="flex min-h-8 items-center gap-2 text-sm">
+                  <span className="num text-ink-muted">{shortDate(item.at, i18n.language)}</span>
+                  <span className="min-w-0 truncate text-ink">
+                    {clientOf(item.run.event) ?? runTitle(item.run, t)}
+                  </span>
+                  <Link
+                    to="/automations/$code/runs/$n"
+                    params={{ code: item.run.automationCode, n: String(item.run.n) }}
+                    className={`${textLink} num ml-auto shrink-0 font-semibold`}
+                  >
+                    {item.run.code}
+                  </Link>
+                </li>
+              ) : (
+                <li
+                  key={item.event.id}
+                  data-source-event={item.event.status}
+                  className="flex min-h-8 items-center gap-2 text-sm"
                 >
-                  {r.code}
-                </Link>
-              </li>
-            ))}
+                  <span className="num text-ink-muted">{shortDate(item.at, i18n.language)}</span>
+                  <span className="min-w-0 truncate text-ink-muted">
+                    {eventWords(item.event, source, t)}
+                  </span>
+                </li>
+              ),
+            )}
           </ul>
         )}
       </PanelSection>
-      <div className="px-4 py-3">
-        {source.kind === "webhook" ? (
-          <SimulateWebhook source={source} />
-        ) : (
-          <PrototypeBox label={t("automations.sources.simulate")}>
-            {source.status !== "connected" ? (
-              <p className="text-sm text-ink-muted">
-                {t("automations.sources.simulateOff", { name: source.name })}
-              </p>
-            ) : (
-              <ul className="flex flex-col">
-                {source.sampleEvents.map((e, i) => (
-                  <li key={i} className="flex min-h-8 items-center gap-2">
-                    <span className="min-w-0 flex-1 truncate text-sm text-ink">
-                      {sampleWords(source, e, t)}
-                    </span>
-                    <button
-                      type="button"
-                      className={`${secondaryButton} h-7`}
-                      onClick={() => simulate(i)}
-                    >
-                      {t("automations.sources.send")}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </PrototypeBox>
-        )}
-      </div>
-      {source.status !== "disconnected" && (
+      {!appBuild && (
+        <div className="px-4 py-3">
+          {source.kind === "webhook" ? (
+            <SimulateWebhook source={source} />
+          ) : (
+            <PrototypeBox label={t("automations.sources.simulate")}>
+              {source.status !== "connected" ? (
+                <p className="text-sm text-ink-muted">
+                  {t("automations.sources.simulateOff", { name: source.name })}
+                </p>
+              ) : (
+                <ul className="flex flex-col">
+                  {source.sampleEvents.map((e, i) => (
+                    <li key={i} className="flex min-h-8 items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate text-sm text-ink">
+                        {sampleWords(source, e, t)}
+                      </span>
+                      <button
+                        type="button"
+                        className={`${secondaryButton} h-7`}
+                        onClick={() => simulate(i)}
+                      >
+                        {t("automations.sources.send")}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </PrototypeBox>
+          )}
+        </div>
+      )}
+      {canDisconnect && (
         <div className="px-4 pb-4">
           <button
             type="button"

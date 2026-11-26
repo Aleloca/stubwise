@@ -6,6 +6,7 @@ import { LabelsEditor } from "./labels-editor";
 import { putProjectEmailRoutes, type EmailRoute, type EmailRouteKind } from "../lib/api";
 import {
   projectEmailLabelsQueryOptions,
+  mailAdmissionQueryOptions,
   projectEmailRoutesQueryOptions,
 } from "../lib/queries";
 import { translateApiError } from "../lib/translate-api-error";
@@ -46,6 +47,8 @@ export function ProjectEmailRoutesSection({
   const queryClient = useQueryClient();
   const routesKey = projectEmailRoutesQueryOptions(projectId).queryKey;
   const routes = useQuery(projectEmailRoutesQueryOptions(projectId));
+  // Area 6, F2: con la classificazione nuova le regole non decidono più.
+  const admission = useQuery(mailAdmissionQueryOptions);
   const [error, setError] = useState<string | null>(null);
 
   const save = useMutation({
@@ -67,6 +70,15 @@ export function ProjectEmailRoutesSection({
     // chiude la finestra.
     onSettled: () => void queryClient.invalidateQueries({ queryKey: routesKey }),
   });
+
+  // `?? false`: un server di prima non manda il campo (sul web, solo un cast).
+  if (admission.data?.classifyV2 ?? false) {
+    return (
+      <section className="rounded-sm border border-line bg-ink-900 px-4 py-4">
+        <p className="font-mono text-[11px] leading-relaxed text-fg-muted">{t("projects:email.classifyV2Notice")}</p>
+      </section>
+    );
+  }
 
   if (routes.isPending) {
     return (

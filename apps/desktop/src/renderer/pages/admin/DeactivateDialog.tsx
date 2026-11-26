@@ -39,9 +39,20 @@ export function DeactivateDialog({
   const refusalWords = useRefusalWords();
   const [choice, setChoice] = useState<Choice>({});
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Area 9, R6: il codice della task la cui riga non vale più
+   * (`invalid_reassignment`). La lista si rilegge e la riga può sparire,
+   * quindi il messaggio la nomina.
+   */
+  const [badTask, setBadTask] = useState<string | null>(null);
   const name = person.name;
+  // Revisione del lotto 2, I8: i nomi li dà il livello dati (la directory è
+  // fuori dalla regola di r.1414, `usePeople` no); `usePeople` per la build app.
+  const names = Object.assign({}, ...person.openTasks.map((task) => task.reassignNames ?? {})) as Record<string, string>;
   const nameOf = (id: string | null) =>
-    id === null ? t("admin.deactivate.leaveWith", { name }) : (people.find((p) => p.id === id)?.name ?? id);
+    id === null
+      ? t("admin.deactivate.leaveWith", { name })
+      : (names[id] ?? people.find((p) => p.id === id)?.name ?? id);
   // «Reassign all to…»: chi può prendere almeno una task, nell'ordine in cui compare.
   const everyone = [...new Set(person.openTasks.flatMap((task) => task.reassignTo))];
   const blocked =
@@ -54,11 +65,18 @@ export function DeactivateDialog({
 
   async function submit() {
     setError(null);
+    setBadTask(null);
     const result = await reauth(() => deactivate.mutateAsync([person.personId, choice]), {
       action: t("admin.deactivate.reauthAction", { name }),
     }).catch(() => null);
     if (result === null) return setError(t("admin.refusal.failed"));
     const refusal = refusalOf(result) as UiRefusal | null;
+    const bad = refusal as { reason?: string; taskId?: string } | null;
+    if (bad?.reason === "invalid_reassignment" && bad.taskId) {
+      const code = person.openTasks.find((x) => x.taskId === bad.taskId)?.code ?? bad.taskId;
+      setChoice((c) => Object.fromEntries(Object.entries(c).filter(([id]) => id !== bad.taskId)));
+      return setBadTask(code);
+    }
     if (refusal)
       return setError(
         refusalWords(refusal, { name, self: t("admin.refusal.selfDeactivate") }),
@@ -216,6 +234,7 @@ export function DeactivateDialog({
           </ul>
         )}
       </section>
+      {badTask && <ErrorLine>{t("admin.deactivate.rowChanged", { code: badTask })}</ErrorLine>}
       {error && <ErrorLine>{error}</ErrorLine>}
     </Dialog>
   );

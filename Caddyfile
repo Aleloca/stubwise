@@ -11,6 +11,10 @@
 #   - /widget/*                       -> reverse proxy al server (API pubblica
 #                                        del widget customer service).
 #   - /widget.js                      -> bundle IIFE embeddabile (da /srv/widget).
+#   - /app/*                          -> la nuova app (il renderer dell'app desktop
+#                                        in modo «app», da /srv/app), con fallback
+#                                        a index.html. Il web vecchio resta alla
+#                                        radice (integrazione area 2, fetta 1).
 #   - /guide/*                        -> statici della documentazione utente
 #                                        (sito Starlight). NB: NON /docs/*, che è
 #                                        una sezione della SPA (documentazione
@@ -74,6 +78,18 @@
 	handle_path /guide/* {
 		root * /srv/docs
 		try_files {path} {path}/ /index.html
+		file_server
+	}
+
+	# La nuova app (integrazione area 2, fetta 1): lo stesso renderer dell'app
+	# desktop, buildato in modo «app» con `base: "/app/"` (in /srv/app), sulla
+	# stessa origine del web vecchio: le sue chiamate `/api/…` usano il cookie
+	# di sessione del web. Il router è a hash (`#/p/…`), quindi il fallback
+	# serve solo per `/app/` e i suoi asset. PRIMA del `handle` della SPA.
+	redir /app /app/ 308
+	handle_path /app/* {
+		root * /srv/app
+		try_files {path} /index.html
 		file_server
 	}
 

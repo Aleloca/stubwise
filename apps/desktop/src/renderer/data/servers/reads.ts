@@ -1,16 +1,40 @@
+import { serverCommandsOf, type ServerCommandRow } from "../../domain/servers/commands";
+import { personMasker } from "../access/hidden";
+import { planDigest, prunes } from "../../domain/servers/fixPlan";
+import { canStopServerFix } from "./fixPermissions";
 import {
+  fixSteps,
+  serverFixStatus,
   serverTaskState,
   type FixStartBlock,
+  type FixStep,
+  type ServerFixStatus,
   type ServerTaskState,
 } from "../../domain/servers/fixGate";
 import { serverHealth, type ServerHealth } from "../../domain/servers/health";
 import { downsample, downsampleByTime, downsampleSamples } from "../../domain/servers/metrics";
 import { removalScript, type ScriptLang } from "../../domain/servers/installScript";
 import { serverInProject } from "../../domain/servers/projects";
-import { accessState, type AccessState } from "../../domain/servers/sshAccess";
+import { accessState } from "../../domain/servers/sshAccess";
 import { fold } from "../../domain/textSearch";
-import { canSeeConversation, copy, eventsOf, gate, now, state, visibleProjectIds } from "../store";
-import type { CheckSample, MetricPoint, ServerAnalysis, ServerEpisode } from "../types";
+import {
+  canSeeConversation,
+  conversationPermissions,
+  copy,
+  eventsOf,
+  gate,
+  now,
+  state,
+  visibleProjectIds,
+} from "../store";
+import type {
+  CheckSample,
+  Conversation,
+  MetricPoint,
+  ServerAnalysis,
+  ServerEpisode,
+  Task,
+} from "../types";
 import { forbidden, invalid, notFound } from "../writer";
 import {
   canManageSsh,
@@ -27,6 +51,8 @@ import {
   serverFor,
   serverRow,
   serversVisibleTo,
+  pruneWarningOf,
+  type PruneWarning,
   type ServerDetail,
   type ServerRow,
 } from "./visibility";
@@ -90,6 +116,20 @@ export async function listAllServers(): Promise<InstanceServerRow[]> {
     });
 }
 
+/**
+ * I server che chi guarda può collegare a un ambiente (area 8, F4a, S3): quelli
+ * che vede, in ordine di numero. Un collegamento non allarga la visibilità
+ * oltre ciò che vede chi scrive; il form degli ambienti li suggerisce.
+ */
+export async function listLinkableServers(): Promise<{ code: string; name: string }[]> {
+  const me = await gate("servers.listLinkableServers");
+  const visible = serversVisibleTo(me);
+  return state.servers
+    .filter((s) => visible.has(s.code))
+    .sort((a, b) => codeNumber(a.code) - codeNumber(b.code))
+    .map((s) => ({ code: s.code, name: s.name }));
+}
+
 /** Il dettaglio di un server (`SRV-1`); `not_found` se invisibile o inesistente. */
 export async function getServer(code: string): Promise<ServerDetail> {
   const me = await gate("servers.getServer");
@@ -143,7 +183,17 @@ export async function getServerMetrics(
     );
     check = { ...downsampleSamples(samples), sampleCount: samples.length };
   }
-  const all = metricsSince(server.code, fromMs);
+  // La rete in byte al SECONDO (review F4a, M2): ogni punto porta i byte del
+  // suo intervallo (30 s di recente, un passo largo più indietro); divisi per
+  // la sua durata, la scala non cambia con l'intervallo scelto.
+  const all = metricsSince(server.code, fromMs).map((p, i, list) => {
+    const prev = list[i - 1];
+    const seconds = Math.max(
+      server.sampleIntervalSeconds,
+      prev ? (Date.parse(p.ts) - Date.parse(prev.ts)) / 1000 : server.sampleIntervalSeconds,
+    );
+    return { ...p, netRxBytes: p.netRxBytes / seconds, netTxBytes: p.netTxBytes / seconds };
+  });
   // Copie: i punti del seme sono condivisi (congelati), mai riferimenti allo stato.
   // Oltre i 7 giorni la serie ha due passi: si ricampiona per durata, non per indice.
   if (range === "30d" || range === "90d") {
@@ -155,14 +205,35 @@ export async function getServerMetrics(
       check,
     });
   }
+  // Fino a 7 giorni la nota è quella dei punti ridotti («Showing 300 averaged
+  // points of N samples», da `sampleCount`), non la finestra.
   return copy({ ...downsample(all), sampleCount: all.length, averagedSeconds: null, check });
 }
 
 export interface ServerSearchResult {
   code: string;
   name: string;
-  /** Il progetto da cui si apre (`serverHref`): il principale, o il primo visibile. */
-  projectCode: string;
+  /**
+   * Il progetto da cui si apre (`serverHref`): il primo visibile fra i suoi
+   * ambienti; `null` se non ne ha uno visibile (revisione del lotto 5, M-7):
+   * allora si apre dalla pagina d'istanza (`#/admin/servers/SRV-n`).
+   */
+  projectCode: string | null;
+}
+
+/** La chiave pubblica d'istanza del prototipo: finta, stabile (il server la genera una volta). */
+const PROTOTYPE_COMMAND_KEY =
+  "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPr0t0typeC0mmandKeyN0tReal0000000000000 stubwise-commands";
+
+/**
+ * La chiave pubblica d'istanza che verifica i comandi dell'agente (area 8,
+ * F4b, R3; `GET /api/servers/command-key`): va nel comando d'installazione
+ * con le operazioni accese, e l'agente la fissa. `monitor.manage`.
+ */
+export async function getCommandKey(): Promise<{ publicKey: string }> {
+  const me = await gate("servers.getCommandKey");
+  if (!canMonitor(me)) throw forbidden();
+  return { publicKey: PROTOTYPE_COMMAND_KEY };
 }
 
 /**
@@ -184,7 +255,7 @@ export async function getInstallCommand(
 }
 
 /**
- * Il comando che toglie i due utenti dal server, da rivedere dopo una
+ * Il comando che toglie l'utente di lettura dal server, da rivedere dopo una
  * revoca (il «⋯» della parte, Task 8): la stessa fonte del risultato di
  * `revokeSshAccess`. `servers.ssh.manage`; `invalid: state` se l'accesso
  * non è revocato.
@@ -220,8 +291,12 @@ export interface ServerTaskInfo {
   state: ServerTaskState;
   /** Perché chi guarda non può avviare la correzione adesso; `null` se può. */
   startBlock: FixStartBlock | null;
-  /** Lo stato dell'accesso di correzione; `null` con `server` nullo (R-G5). */
-  fixAccess: AccessState | null;
+  /**
+   * La correzione come la dice `serverFixViewSchema` (area 8, F4b): il
+   * piano coi passi, l'approvazione, cosa può fare chi guarda, il registro
+   * dei comandi. `null` con `server` nullo (R-G5).
+   */
+  fix: ServerFixInfo | null;
   /** L'ultima sessione di correzione della task (la scheda del piano, i comandi). */
   fixConversationId: string | null;
   /** La salute del server adesso (la riga del server); `null` con `server` nullo. */
@@ -238,6 +313,11 @@ export interface ServerTaskInfo {
   } | null;
   /** I nomi dei controlli nominati dai motivi dell'episodio (id → nome). */
   checkNames: Record<string, string>;
+  /**
+   * Build app: il codice del server sparito (o tolto dal progetto), per
+   * «SRV-n · deleted» quando la task non lo porta.
+   */
+  goneCode?: string;
   /** Quando la correzione è arrivata allo stato di adesso (l'ultimo cambio della sessione). */
   stateAt: string | null;
   /**
@@ -247,9 +327,116 @@ export interface ServerTaskInfo {
    */
   stop: {
     byId: string | null;
-    reason: "fix_access_revoked" | "fix_access_unusable" | "server_gone" | null;
+    reason: "operations_off" | "server_gone" | null;
     outcome: "stopped" | "failed" | "timed_out" | "ok";
   } | null;
+}
+
+/**
+ * La correzione di una task di server per chi guarda (area 8, F4b): i
+ * concetti di `serverFixViewSchema` e, per il registro, di
+ * `serverCommandViewSchema`, così l'adattatore dell'app li mappa.
+ */
+export interface ServerFixInfo {
+  status: ServerFixStatus;
+  /**
+   * Perché non c'è un piano, o perché si è fermata: un CODICE come quello
+   * del server (`no_plan`, `schema`, `container_of_other_project`,
+   * `operations_off`, `step_failed:<n>`), mai testo del modello.
+   */
+  planError: string | null;
+  /** I passi dell'ultimo piano (azioni dell'insieme chiuso), con lo stato. */
+  steps: FixStep[];
+  approval: { byId: string; at: string } | null;
+  rejection: { byId: string; at: string; note: string } | null;
+  /** L'agente ha le operazioni accese: senza, nessun piano si esegue. */
+  operationsOn: boolean;
+  canRequestPlan: boolean;
+  canApprove: boolean;
+  /** Rifiutare: anche con l'approvazione spenta (operazioni dell'agente spente). */
+  canReject: boolean;
+  canStop: boolean;
+  /** L'ha chiesta chi guarda (la scheda dice che approvando partono i comandi). */
+  startedByViewer: boolean;
+  /** I comandi della correzione, in ordine (letture e azioni; uscite NON fidate). */
+  commands: ServerCommandRow[];
+  /** Con un piano che libera spazio, gli altri progetti del server: l'avviso prima di approvare. */
+  pruneWarning: PruneWarning | null;
+  /**
+   * L'impronta del piano che aspetta l'approvazione (decisione 3): Approva
+   * la rimanda così com'è (`approveServerFix`); `null` senza un piano che aspetta.
+   */
+  planDigest: string | null;
+  /** La sessione di Claude della correzione, da leggere (come ha ragionato). */
+  sessionId: string | null;
+}
+
+type PlanEvent = Extract<ReturnType<typeof eventsOf>[number], { type: "plan" }>;
+
+/** La correzione di `task` per chi guarda, dall'ultima sessione (`run`). */
+function fixInfo(
+  me: string,
+  task: Task,
+  code: string,
+  run: Conversation | null,
+  // R.1414 (lotto 3): il masker della risposta (chi ha approvato, rifiutato, fermato).
+  mask: ReturnType<typeof personMasker> = personMasker(me),
+): ServerFixInfo {
+  const events = run ? eventsOf(run.id) : [];
+  const fixRun = run ? { c: run, events } : null;
+  const plan = events.filter((e): e is PlanEvent => e.type === "plan").at(-1);
+  // Quando: dal registro decisioni (stessa scrittura della decisione).
+  const decidedAt = (outcome: "approved" | "rejected") =>
+    state.decisionLog
+      .filter(
+        (d) =>
+          d.taskId === task.id &&
+          d.source === "plan_review" &&
+          d.planOutcome === outcome &&
+          d.decidedById === plan?.decidedById,
+      )
+      .at(-1)?.decidedAt ?? run?.updatedAt ?? now();
+  const perms = run ? conversationPermissions(me, run) : null;
+  const live = run !== null && run.state !== "finished";
+  const steps = fixSteps(fixRun);
+  const lastPhase = events.filter((e) => e.type === "phase").at(-1);
+  const failedStep = steps.find((x) => x.status === "failed");
+  const planError =
+    lastPhase?.type === "phase" && lastPhase.planError
+      ? lastPhase.planError
+      : lastPhase?.type === "phase" && lastPhase.reason === "operations_off"
+        ? "operations_off"
+        : failedStep
+          ? `step_failed:${failedStep.index}`
+          : null;
+  return {
+    status: serverFixStatus(task, fixRun),
+    planError,
+    steps,
+    approval:
+      plan?.status === "approved" && plan.decidedById
+        ? { byId: mask(plan.decidedById), at: decidedAt("approved") }
+        : null,
+    rejection:
+      plan?.status === "rejected" && plan.decidedById
+        ? { byId: mask(plan.decidedById), at: decidedAt("rejected"), note: plan.instructions ?? "" }
+        : null,
+    operationsOn: state.servers.find((x) => x.code === code)?.agentOperations ?? false,
+    canRequestPlan: serverFixStartBlock(me, task) === null,
+    canApprove: perms?.canDecidePlan ?? false,
+    canReject: perms?.canRejectPlan ?? false,
+    startedByViewer: run?.ownerId === me,
+    canStop: live && canStopServerFix(me, task.projectId),
+    commands: run ? serverCommandsOf(events, run.ownerId) : [],
+    planDigest: plan?.status === "pending" && plan.serverPlan ? planDigest(plan.serverPlan) : null,
+    sessionId: run?.id ?? null,
+    pruneWarning:
+      plan?.serverPlan &&
+      prunes(plan.serverPlan) &&
+      serverInProject(code, task.projectId, state.environments)
+        ? pruneWarningOf(me, code, task.projectId)
+        : null,
+  };
 }
 
 /**
@@ -260,6 +447,7 @@ export interface ServerTaskInfo {
  */
 export async function getServerTaskInfo(taskId: string): Promise<ServerTaskInfo | null> {
   const me = await gate("servers.getServerTaskInfo");
+  const mask = personMasker(me);
   const task = state.tasksById.get(taskId);
   if (!task || !visibleProjectIds(me).has(task.projectId)) throw notFound();
   if (!task.serverRef) return null;
@@ -271,7 +459,6 @@ export async function getServerTaskInfo(taskId: string): Promise<ServerTaskInfo 
   const run = state.conversations
     .filter((c) => c.kind === "task_run" && c.taskId === task.id && c.serverFix)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))[0];
-  const access = state.serverAccess.get(code);
   // Solo col server visibile: l'analisi e i controlli dicono del server.
   const analysis = s ? state.serverAnalyses.find((a) => a.taskId === task.id) : undefined;
   const session = analysis
@@ -292,11 +479,13 @@ export async function getServerTaskInfo(taskId: string): Promise<ServerTaskInfo 
   const stop =
     taskState === "stopped" && run
       ? {
-          byId: lastPhase?.type === "phase" ? (lastPhase.stoppedById ?? null) : null,
+          byId: lastPhase?.type === "phase" ? mask(lastPhase.stoppedById ?? null) : null,
           reason:
-            lastPhase?.type === "phase" && lastPhase.reason && lastPhase.reason !== "item_closed"
-              ? lastPhase.reason
-              : null,
+            lastPhase?.type !== "phase"
+              ? null
+              : lastPhase.reason === "operations_off" || lastPhase.reason === "server_gone"
+                ? lastPhase.reason
+                : null,
           outcome: run.outcome ?? "stopped",
         }
       : null;
@@ -320,7 +509,7 @@ export async function getServerTaskInfo(taskId: string): Promise<ServerTaskInfo 
     episode,
     state: taskState,
     startBlock: serverFixStartBlock(me, task),
-    fixAccess: s ? accessState(access) : null,
+    fix: s ? fixInfo(me, task, s.code, run ?? null, mask) : null,
     fixConversationId: run?.id ?? null,
     health: s ? serverHealth(s, state.serverEpisodes, now()) : null,
     analysis: analysis
@@ -347,16 +536,8 @@ export async function searchServers(q: string): Promise<ServerSearchResult[]> {
   const needle = fold(q.trim());
   if (!needle) return [];
   const visible = serversVisibleTo(me);
-  const projects = visibleProjectIds(me);
-  const firstProject = state.projects
-    .filter((p) => projects.has(p.id))
-    .map((p) => p.code)
-    .sort()[0];
   return state.servers
     .filter((s) => visible.has(s.code))
     .filter((s) => [s.code, s.name, s.hostname ?? ""].some((x) => fold(x).includes(needle)))
-    .flatMap((s) => {
-      const projectCode = homeProjectCode(me, s) ?? firstProject;
-      return projectCode ? [{ code: s.code, name: s.name, projectCode }] : [];
-    });
+    .map((s) => ({ code: s.code, name: s.name, projectCode: homeProjectCode(me, s) }));
 }

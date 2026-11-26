@@ -43,6 +43,26 @@ const envSchema = z.object({
   // non vede l'HTTPS terminato dal proxy e non imposta il flag Secure.
   // Default false (sviluppo diretto, niente proxy davanti); il compose lo
   // imposta a true. Accetta booleani e le stringhe true/false/1/0 da .env.
+  // Area 6, F2: la classificazione nuova della posta (la stessa variabile del
+  // worker): il server la dice alle superfici dell'ammissione.
+  MAIL_CLASSIFY_V2: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .union([z.boolean(), z.enum(["true", "false"])])
+      .transform((value) => value === true || value === "true")
+      .default(false),
+  ),
+  // Lotto 10 (decisione di 46, 25 nov 2026): la cassaforte dal desktop.
+  // SPENTA di default: si accende SOLO quando l'app desktop distribuita è il
+  // build FIRMATO (chiave del Mac nel Secure Enclave). Spenta, l'associazione
+  // e le rotte aperte al Mac rispondono 404; quelle del browser restano.
+  VAULT_DESKTOP: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .union([z.boolean(), z.enum(["true", "false", "1", "0", "on", "off"])])
+      .transform((value) => value === true || value === "true" || value === "1" || value === "on")
+      .default(false),
+  ),
   TRUST_PROXY: z.preprocess(
     (value) => (value === "" ? undefined : value),
     z
@@ -113,6 +133,19 @@ const envSchema = z.object({
   // "feature spenta" → è il ROLLBACK SWITCH del retrieval dal grafo: basta
   // `GRAPHIFY_MCP_URL=` nel .env e le chat tornano al solo retrieval pgvector,
   // senza ridistribuire nulla.
+  // Area 9, F1 (E-1 = a): il trasporto SMTP d'istanza, FACOLTATIVO, solo per
+  // il link del cambio dell'email di login e l'avviso alla vecchia
+  // (docs/invariants/identity.md). Assente o vuoto: il cambio dalle
+  // Preferenze dice «non disponibile», e resta il cambio fatto da un admin.
+  // `smtp://utente:password@host:587` (STARTTLS) o `smtps://…:465`.
+  SMTP_URL: z
+    .string()
+    .optional()
+    .transform((value) => (value === undefined || value.trim() === "" ? undefined : value.trim())),
+  MAIL_FROM: z
+    .string()
+    .optional()
+    .transform((value) => (value === undefined || value.trim() === "" ? undefined : value.trim())),
   GRAPHIFY_MCP_URL: z
     .string({ error: "deve essere l'URL del server MCP graphify (vuota per disattivare)" })
     .default("http://graphify:8080/mcp")
@@ -137,6 +170,21 @@ const envSchema = z.object({
       .min(1, "deve essere un numero intero positivo (es. 6000)")
       .default(6000),
   ),
+  // Area 11, F3: ogni quanti secondi il server rifà gli embedding delle pagine
+  // di prodotto ferme e cambiate (`product-embed.ts`). Come GRAPHIFY_MCP_URL, la
+  // stringa VUOTA spegne il poller (la ricerca resta per testo); assente, 30.
+  PRODUCT_EMBED_POLL_SECONDS: z
+    .string()
+    .default("30")
+    .transform((value, ctx) => {
+      if (value.trim() === "") return undefined;
+      const n = Number(value);
+      if (!Number.isInteger(n) || n < 5) {
+        ctx.addIssue({ code: "custom", message: "deve essere un numero intero di secondi, almeno 5 (vuota per spegnere)" });
+        return z.NEVER;
+      }
+      return n;
+    }),
   // Quanti nodi del sottografo, al massimo, diventano uno snippet di codice.
   GRAPH_CHAT_SNIPPET_NODES: z.preprocess(
     (value) => (value === "" ? undefined : value),
@@ -166,6 +214,10 @@ export interface Config {
   encryptionKey: string;
   port: number;
   publicUrl: string;
+  /** Area 6, F2: la classificazione nuova della posta (MAIL_CLASSIFY_V2, default false). */
+  mailClassifyV2: boolean;
+  /** Lotto 10: la cassaforte dal desktop (VAULT_DESKTOP, default false). */
+  vaultDesktop: boolean;
   /** Fidarsi degli header X-Forwarded-* (dietro reverse proxy). */
   trustProxy: boolean;
   /** Base URL OpenAI-compatibile per gli embedding (ricerca/chat Docs). */
@@ -185,12 +237,17 @@ export interface Config {
    * `undefined` = feature spenta (variabile impostata a stringa vuota).
    */
   graphifyMcpUrl?: string;
+  /** Area 9, F1 (E-1 = a): SMTP facoltativo per il cambio dell'email. */
+  smtpUrl?: string;
+  mailFrom?: string;
   /** Budget di token del sottografo chiesto a `query_graph` (default 1200). */
   graphChatTokenBudget: number;
   /** Tetto dei caratteri di codice allegati a una risposta (default 6000). */
   graphChatSnippetMaxChars: number;
   /** Massimo numero di nodi del sottografo da cui estrarre snippet (default 6). */
   graphChatSnippetNodes: number;
+  /** Area 11, F3: il periodo del poller degli embedding di prodotto; `undefined` = spento. */
+  productEmbedPollSeconds?: number;
   /** Radice del volume dei mirror git bare, montato read-only (default /var/stubwise/mirrors). */
   mirrorsDir: string;
 }
@@ -200,6 +257,13 @@ export interface Config {
  * Lancia un errore con un messaggio leggibile che elenca ogni variabile
  * mancante o non valida (esperienza self-hosting).
  */
+/**
+ * I nomi delle env dello schema: il test li confronta con l'`environment`
+ * del server in `docker-compose.yml` (niente `env_file`: ciò che manca lì
+ * non arriva al container).
+ */
+export const SERVER_ENV_NAMES: readonly string[] = Object.keys(envSchema.shape);
+
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
   const result = envSchema.safeParse(env);
   if (!result.success) {
@@ -221,6 +285,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     encryptionKey: parsed.ENCRYPTION_KEY,
     port: parsed.PORT,
     publicUrl: parsed.PUBLIC_URL,
+    mailClassifyV2: parsed.MAIL_CLASSIFY_V2,
+    vaultDesktop: parsed.VAULT_DESKTOP,
     trustProxy: parsed.TRUST_PROXY,
     embeddingBaseUrl: parsed.EMBEDDING_BASE_URL,
     embeddingModel: parsed.EMBEDDING_MODEL,
@@ -229,9 +295,12 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     widgetDailyTicketCap: parsed.WIDGET_DAILY_TICKET_CAP,
     graphsDir: parsed.GRAPHS_DIR,
     graphifyMcpUrl: parsed.GRAPHIFY_MCP_URL,
+    ...(parsed.SMTP_URL !== undefined ? { smtpUrl: parsed.SMTP_URL } : {}),
+    ...(parsed.MAIL_FROM !== undefined ? { mailFrom: parsed.MAIL_FROM } : {}),
     graphChatTokenBudget: parsed.GRAPH_CHAT_TOKEN_BUDGET,
     graphChatSnippetMaxChars: parsed.GRAPH_CHAT_SNIPPET_MAX_CHARS,
     graphChatSnippetNodes: parsed.GRAPH_CHAT_SNIPPET_NODES,
+    ...(parsed.PRODUCT_EMBED_POLL_SECONDS !== undefined ? { productEmbedPollSeconds: parsed.PRODUCT_EMBED_POLL_SECONDS } : {}),
     mirrorsDir: parsed.MIRRORS_DIR,
   };
 }

@@ -2,7 +2,9 @@ import { matches } from "../domain/filters";
 import { DEFAULT_CORRECTION_CAP } from "../domain/releases/prState";
 import type { Stall } from "../domain/stalled";
 import { accessState } from "./access/index";
-import { visiblePeopleFor } from "./access/whoCan";
+import { isHiddenId, maskedStalled, maskedTask, personMasker } from "./access/hidden";
+import { invalid } from "./writer";
+import { knownPeopleFor, visiblePeopleFor } from "./access/whoCan";
 import { pluginSkillCommand, STUBWISE_COMMANDS } from "./seed/commands";
 import { skillsForRun } from "./projectSettings/plugins";
 import { COMMITS } from "./seed/commits";
@@ -16,13 +18,15 @@ import {
 import { driveRow } from "./drive/reads";
 import { canSeeDriveFile } from "./drive/visibility";
 import { daysFromToday, TODAY } from "./seed/dates";
-import { PEOPLE } from "./seed/people";
+import { CLAUDE_ID, PEOPLE } from "./seed/people";
 import { projectOfRepo, REPO_FILES } from "./seed/repoFiles";
+import { NO_SESSION_PERSON_ID } from "./session";
 import { can, viewerFor } from "./viewer";
 import { presentChatNotification } from "./chat/reads";
 import { deliveredTo } from "./alerts/reads";
 import { whyReceives } from "./alerts/visibility";
-import { linkAccessHrefOf } from "./servers/visibility";
+import { prunes } from "../domain/servers/fixPlan";
+import { linkAccessHrefOf, pruneWarningOf } from "./servers/visibility";
 import { presentProductQuestion, presentProductUpdate } from "./productDocs/claudeReads";
 import { productOriginOf } from "./productDocs/backlog";
 import { presentProductMention } from "./productDocs/comments";
@@ -32,7 +36,7 @@ import {
   productPageById,
   readableProductPages,
 } from "./productDocs/reads";
-import { aiBlockFor } from "./instance/blocks";
+import { manualStartBlockFor } from "./instance/blocks";
 import { waitingBlockIn } from "./instance/queue";
 import { assigneeStatusOf } from "./admin/people";
 import {
@@ -40,6 +44,7 @@ import {
   chatKey,
   conversationPermissions,
   conversationRow,
+  projectMasker,
   copy,
   eventsOf,
   filterContext,
@@ -63,6 +68,7 @@ import {
 import type {
   ActivityEntry,
   AppNotification,
+  Viewer,
   CitationRef,
   CitationView,
   ClaudeDecision,
@@ -96,10 +102,13 @@ import type {
   ProjectStatus,
   SavedFilter,
   SearchResult,
+  PullRequestEvent,
   TaskWork,
+  TaskWorkSummary,
   SlashCommand,
   Task,
   TimelineEvent,
+  TimelinePage,
   UndoView,
   Utterance,
   WeeklyBrief,
@@ -163,7 +172,7 @@ export * as automations from "./automations";
 export * as alerts from "./alerts";
 /** Rilasci, PR e ambienti (area 8a): `api.releases.listOpenPrs(…)`, `api.releases.mergePr(…)`… */
 export * as releases from "./releases";
-/** Support (area 8a): `api.support.listSupportConversations(…)`, `api.support.replyToCustomer(…)`… */
+/** Support (area 8a): `api.support.listSupportConversations(…)`, `api.support.replyToCollaborator(…)`… */
 export * as support from "./support";
 /** I Server (area 8b): `api.servers.listProjectServers(…)`, `api.servers.createServer(…)`… */
 export * as servers from "./servers";
@@ -177,6 +186,8 @@ export * as auth from "./auth";
 export * as admin from "./admin";
 /** Le Preferenze personali (area 9a): `api.me.getMySecurity()`, `api.me.createToken(…)`… */
 export * as me from "./me";
+// Lotto 10: la Cassaforte delle credenziali e la chiave del Mac (shape `vault.md`).
+export * as vault from "./vault";
 /** L'istanza (area 9b): `api.instance.listProviders()`, `api.instance.getUsage(…)`… */
 export * as instance from "./instance";
 /** Progetto → Settings (area 9c): `api.projectSettings.getProjectSettings(…)`… */
@@ -192,16 +203,39 @@ export function resetApi(): void {
 
 // --- letture ----------------------------------------------------------------
 
+/**
+ * Chi è la sessione (integrazione area 2, fetta 1): nel prototipo la persona
+ * «vedi come»; `null` per «nessuno» (dopo l'istanza vuota). Nella build app
+ * la dà il server.
+ */
+export async function getSessionPerson(): Promise<string | null> {
+  const me = await gate("getSessionPerson");
+  return me === NO_SESSION_PERSON_ID ? null : me;
+}
+
+/** I permessi di chi guarda: nel prototipo dallo stato degli accessi, nella build app dal server. */
+export async function getViewer(): Promise<Viewer> {
+  const me = await gate("getViewer");
+  return viewerFor(me);
+}
+
 export async function listDepartments(): Promise<Department[]> {
   await gate("listDepartments");
   return state.departments.map(copy);
 }
 
 export async function listPeople(): Promise<Person[]> {
-  await gate("listPeople");
+  const me = await gate("listPeople");
   // `deactivated` è calcolato dallo stato degli accessi (area 9a): la persona
   // resta nell'elenco (le sue task la nominano) ma non si assegna.
-  return PEOPLE.map((p) => ({ ...copy(p), deactivated: assigneeStatusOf(p.id) === "deactivated" }));
+  // Registro, A11 r.1414: solo chi guarda CONOSCE (`knownPeopleFor`: anche
+  // disattivati ed ex membri dei progetti visibili), come l'elenco del
+  // server. Claude resta: non è una persona da nascondere.
+  const known = knownPeopleFor(me);
+  return PEOPLE.filter((p) => p.id === CLAUDE_ID || known.has(p.id)).map((p) => ({
+    ...copy(p),
+    deactivated: assigneeStatusOf(p.id) === "deactivated",
+  }));
 }
 
 export async function listProjects(): Promise<Project[]> {
@@ -276,27 +310,91 @@ export async function listMilestones(projectId?: string): Promise<Milestone[]> {
     .map(copy);
 }
 
+/**
+ * Se l'ultima `listTasks` con questi criteri è arrivata troncata (integrazione
+ * area 2, fetta 2: il server ne dà al più 2000). Il carico di Planning e La mia
+ * settimana lo dice. Nel prototipo la lista è sempre intera.
+ */
+export function tasksTruncated(criteria?: FilterCriteria): boolean {
+  void criteria;
+  return false;
+}
+
+/**
+ * Una task come la legge chi guarda (registro, A11 r.1414): gli id delle
+ * persone che non conosce (assegnatario, chi l'ha creata, chi la segue, chi
+ * l'ha fermata a mano) sono segnaposti del `mask` della risposta.
+ */
+const taskView = maskedTask;
+
 /** Le task visibili, filtrate con i criteri (la visibilità viene prima di tutto). */
 export async function listTasks(criteria?: FilterCriteria): Promise<Task[]> {
   const me = await gate("listTasks");
   const tasks = visibleTasks(me);
-  if (!criteria) return tasks.map(copy);
+  const mask = personMasker(me);
+  if (!criteria) return tasks.map((t) => taskView(t, mask));
   const ctx = filterContext(me);
-  return tasks.filter((t) => matches(t, criteria, ctx)).map(copy);
+  const real = realCriteria(me, criteria);
+  return tasks.filter((t) => matches(t, real, ctx)).map((t) => taskView(t, mask));
+}
+
+/**
+ * Quante task rispondono ai criteri, e se l'elenco si ferma prima (la build
+ * app: oltre le 2000 righe). Nel prototipo l'elenco è intero.
+ */
+export async function countTasks(criteria?: FilterCriteria): Promise<{ count: number; truncated: boolean }> {
+  await gate("countTasks");
+  return { count: (await listTasks(criteria)).length, truncated: false };
 }
 
 export async function getTaskByCode(code: string): Promise<Task | null> {
   const me = await gate("getTaskByCode");
   const task = state.tasks.find((t) => t.code === code.toUpperCase());
   if (!task || !visibleProjectIds(me).has(task.projectId)) return null;
-  return { ...copy(task), assigneeStatus: assigneeStatusOf(task.assigneeId) };
+  // Aperta dal widget (area 8, F3, S-9): la conversazione da cui è nata, derivata a lettura.
+  const conversation = state.supportConversations.find((c) => c.taskId === task.id);
+  return {
+    ...taskView(task, personMasker(me)),
+    assigneeStatus: assigneeStatusOf(task.assigneeId),
+    supportConversationCode: conversation?.code ?? null,
+  };
+}
+
+/** Un nome di persona salvato in una voce: il segnaposto, se è di chi chi guarda non conosce. */
+function maskedName<T extends string | null | undefined>(name: T, mask: ReturnType<typeof personMasker>): T | string {
+  if (!name) return name;
+  const person = PEOPLE.find((p) => p.name === name);
+  if (!person) return name;
+  const masked = mask(person.id);
+  return masked === person.id ? name : masked;
 }
 
 export async function listActivity(taskId: string): Promise<ActivityEntry[]> {
   const me = await gate("listActivity");
   const task = state.tasksById.get(taskId);
   if (!task || !visibleProjectIds(me).has(task.projectId)) return [];
-  return state.activity.filter((a) => a.taskId === taskId).map(copy);
+  // R.1414: chi ha scritto o eliminato, se chi guarda non lo conosce, segnaposto.
+  const mask = personMasker(me);
+  return state.activity
+    .filter((a) => a.taskId === taskId)
+    .map((a) => {
+      const out = copy(a);
+      out.authorId = mask(a.authorId);
+      if (out.deletedById !== undefined) out.deletedById = mask(out.deletedById);
+      // Revisione del lotto 2-3 (46): l'assegnatario cambiato è salvato per
+      // NOME; uno sconosciuto diventa il suo segnaposto (la pagina: «someone»).
+      if (a.field === "assignee") {
+        out.from = maskedName(a.from, mask);
+        out.to = maskedName(a.to, mask);
+      }
+      // I follower sono id separati da virgole.
+      if (a.field === "followerIds") {
+        const ids = (v: string | null | undefined) => (v ? v.split(", ").map(mask).join(", ") : v);
+        out.from = ids(a.from);
+        out.to = ids(a.to);
+      }
+      return out;
+    });
 }
 
 /**
@@ -310,6 +408,8 @@ export async function listActivity(taskId: string): Promise<ActivityEntry[]> {
  */
 export async function listClaudeDecisions(): Promise<ClaudeDecision[]> {
   const me = await gate("listClaudeDecisions");
+  // R.1414 (lotto 3): il titolare che chi guarda non conosce, segnaposto.
+  const mask = personMasker(me);
   const fromConversations = waitingClaudeEvents(me).map(
     ({ conversation: c, event }): ClaudeDecision => {
       const base = {
@@ -317,7 +417,7 @@ export async function listClaudeDecisions(): Promise<ClaudeDecision[]> {
         conversationId: c.id,
         conversationKind: c.kind,
         title: c.title,
-        ownerId: c.ownerId,
+        ownerId: mask(c.ownerId),
         projectId: c.projectId,
         taskId: c.taskId,
         requestId: c.requestId,
@@ -355,6 +455,7 @@ export async function listDecisionRequests(filter: {
 }): Promise<DecisionRequest[]> {
   const me = await gate("listDecisionRequests");
   const visible = visibleProjectIds(me);
+  const mask = personMasker(me);
   return state.decisions
     .filter((d) => {
       if (!visible.has(state.tasksById.get(d.taskId)!.projectId)) return false;
@@ -366,13 +467,21 @@ export async function listDecisionRequests(filter: {
       }
       return true;
     })
-    .map(copy);
+    .map((d) => {
+      // R.1414 (lotto 3): chi ha chiesto, a chi, chi ha risposto.
+      const out = copy(d);
+      out.askedById = mask(d.askedById);
+      out.askedOfId = mask(d.askedOfId);
+      if (out.answer) out.answer = { ...out.answer, byId: mask(out.answer.byId) };
+      return out;
+    });
 }
 
 export async function listRequests(projectId: string): Promise<ProjectRequest[]> {
   const me = await gate("listRequests");
   if (!visibleProjectIds(me).has(projectId)) return [];
-  return state.requests.filter((r) => r.projectId === projectId).map((r) => requestView(me, r));
+  const mask = personMasker(me);
+  return state.requests.filter((r) => r.projectId === projectId).map((r) => requestView(me, r, mask));
 }
 
 /**
@@ -380,8 +489,14 @@ export async function listRequests(projectId: string): Promise<ProjectRequest[]>
  * eliminate (area 10a), derivati da `state.deletedTasks` e mai salvati.
  * Senza task eliminate il campo non c'è.
  */
-function requestView(me: string, request: ProjectRequest): ProjectRequest {
+function requestView(
+  me: string,
+  request: ProjectRequest,
+  // R.1414 (lotto 3): il masker della risposta (un elenco ne ha uno solo).
+  mask: ReturnType<typeof personMasker> = personMasker(me),
+): ProjectRequest {
   const out = copy(request);
+  out.requesterIds = request.requesterIds.map(mask);
   // 11b (P38): «Dalla doc: <pagina>», solo se chi guarda legge la pagina;
   // altrimenti nemmeno l'origine grezza (l'id della pagina dice di cosa parla, R-G5).
   const origin = productOriginOf(me, request);
@@ -402,6 +517,7 @@ function requestView(me: string, request: ProjectRequest): ProjectRequest {
 export async function listRequestsToConvert(): Promise<ProjectRequest[]> {
   const me = await gate("listRequestsToConvert");
   const viewer = viewerFor(me);
+  const mask = personMasker(me);
   const visible = visibleProjectIds(me);
   return state.requests
     .filter(
@@ -412,7 +528,7 @@ export async function listRequestsToConvert(): Promise<ProjectRequest[]> {
         can(viewer, "tickets.create", r.projectId),
     )
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .map((r) => requestView(me, r));
+    .map((r) => requestView(me, r, mask));
 }
 
 export async function getRequest(id: string): Promise<ProjectRequest | null> {
@@ -444,14 +560,44 @@ const canSeeFilter = (f: SavedFilter, me: string) => f.visibility === "public" |
 /** I miei filtri e i pubblici. */
 export async function listSavedFilters(): Promise<SavedFilter[]> {
   const me = await gate("listSavedFilters");
-  return state.filters.filter((f) => canSeeFilter(f, me)).map(copy);
+  // R.1414 (lotto 3): il titolare di un filtro pubblico che chi guarda non conosce, segnaposto.
+  const mask = personMasker(me);
+  return state.filters.filter((f) => canSeeFilter(f, me)).map((f) => filterView(f, mask));
 }
 
 /** Un filtro privato di un altro risponde come uno che non esiste: `null`. */
 export async function getSavedFilter(id: string): Promise<SavedFilter | null> {
   const me = await gate("getSavedFilter");
   const filter = state.filters.find((f) => f.id === id);
-  return filter && canSeeFilter(filter, me) ? copy(filter) : null;
+  return filter && canSeeFilter(filter, me) ? filterView(filter, personMasker(me)) : null;
+}
+
+/**
+ * Un filtro come lo legge chi guarda (r.1414): il titolare e, scelta A di 46,
+ * le persone dei criteri che non conosce sono il segnaposto della risposta.
+ * Si esegue con `savedFilterId` (`listTasks`), che rimette gli id veri.
+ */
+function filterView(f: SavedFilter, mask: ReturnType<typeof personMasker>): SavedFilter {
+  const out = { ...copy(f), ownerId: mask(f.ownerId) };
+  if (f.criteria.assigneeIds)
+    out.criteria = { ...out.criteria, assigneeIds: f.criteria.assigneeIds.map((id) => (id === "none" ? id : mask(id))) };
+  return out;
+}
+
+/**
+ * I criteri con gli id veri (r.1414, scelta A di 46): i segnaposto di
+ * `assigneeIds` vengono da un filtro salvato, e con `savedFilterId` diventano
+ * le persone di quel filtro che chi guarda non conosce (i chip «Someone» non
+ * si toccano: sono tutte). Senza un filtro che chi guarda vede, `invalid`.
+ */
+function realCriteria(me: string, criteria: FilterCriteria): FilterCriteria {
+  const ids = criteria.assigneeIds;
+  if (!ids?.some(isHiddenId)) return criteria;
+  const saved = state.filters.find((f) => f.id === criteria.savedFilterId);
+  if (!saved || !canSeeFilter(saved, me)) throw invalid("criteria");
+  const mask = personMasker(me);
+  const hidden = (saved.criteria.assigneeIds ?? []).filter((id) => id !== "none" && mask(id) !== id);
+  return { ...criteria, assigneeIds: [...ids.filter((id) => !isHiddenId(id)), ...hidden] };
 }
 
 /** I filtri che chi guarda ha fissato (solo quelli che può ancora vedere), nell'ordine in cui li ha fissati. */
@@ -511,7 +657,9 @@ export async function listStalled(
   criteria?: FilterCriteria,
 ): Promise<{ task: Task; stall: Stall }[]> {
   const me = await gate("listStalled");
-  return stalledTasks(me, criteria);
+  // Revisione del lotto 2-3 (46): la task e «ferma su chi», col masker della risposta.
+  const mask = personMasker(me);
+  return stalledTasks(me, criteria && realCriteria(me, criteria)).map((r) => maskedStalled(r, mask));
 }
 
 /** Il polso di un progetto per chi guarda; `null` se il progetto non è visibile. */
@@ -544,20 +692,26 @@ export async function listProjectPulses(): Promise<ProjectPulse[]> {
 export async function listTimeline(projectId: string): Promise<TimelineEvent[]> {
   const me = await gate("listTimeline");
   if (!visibleProjectIds(me).has(projectId)) return [];
-  return withNames(me, timelineOf(projectId));
+  return withNames(me, timelineOf(projectId), projectId);
 }
 
-/** Chi ha eliminato una task, per nome, solo se chi guarda lo vede (R-G5). */
-function withNames<T extends TimelineEvent>(me: string, events: T[]): T[] {
+/**
+ * Chi ha eliminato una task, per nome, solo se chi guarda lo vede (R-G5). E
+ * (lotto 4, regola di 46 del 24 nov 2026) codice e titolo solo a chi ha
+ * `tickets.view_all` nel progetto o l'ha eliminata: agli altri l'evento c'è,
+ * senza dire quale task.
+ */
+function withNames<T extends TimelineEvent>(me: string, events: T[], projectId: string): T[] {
   const people = visiblePeopleFor(me);
-  return events.map((e) =>
-    e.kind === "task_deleted"
-      ? {
-          ...e,
-          byName: people.has(e.byId) ? (PEOPLE.find((p) => p.id === e.byId)?.name ?? null) : null,
-        }
-      : e,
-  );
+  const viewsAll = can(viewerFor(me), "tickets.view_all", projectId);
+  return events.map((e) => {
+    if (e.kind !== "task_deleted") return e;
+    const named = {
+      ...e,
+      byName: people.has(e.byId) ? (PEOPLE.find((p) => p.id === e.byId)?.name ?? null) : null,
+    };
+    return viewsAll || e.byId === me ? named : { ...named, code: "", title: "", concealed: true as const };
+  });
 }
 
 /**
@@ -571,9 +725,29 @@ export async function listPortfolioActivity(): Promise<PortfolioEvent[]> {
   const visible = visibleProjectIds(me);
   return state.projects
     .filter((p) => visible.has(p.id))
-    .flatMap((p) => withNames(me, timelineOf(p.id)).map((e) => ({ ...e, projectId: p.id })))
+    .flatMap((p) => withNames(me, timelineOf(p.id), p.id).map((e) => ({ ...e, projectId: p.id })))
     .filter((e) => e.at.slice(0, 10) <= TODAY)
     .sort((a, b) => b.at.localeCompare(a.at));
+}
+
+/**
+ * Una pagina di cronologia (fetta 4, decisione del maintainer: «Load older»).
+ * Sul server vero una pagina copre 28 giorni e `nextBefore` dice dove parte la
+ * successiva; il prototipo ha tutta la storia in memoria, quindi una pagina
+ * sola, con `nextBefore` null: lì non cambia nulla.
+ */
+export async function listTimelinePage(
+  projectId: string,
+  before?: string,
+): Promise<TimelinePage<TimelineEvent>> {
+  void before;
+  return { events: await listTimeline(projectId), nextBefore: null };
+}
+
+/** L'attività del portafoglio a pagine: come `listTimelinePage`, una pagina sola nel prototipo. */
+export async function listPortfolioActivityPage(before?: string): Promise<TimelinePage<PortfolioEvent>> {
+  void before;
+  return { events: await listPortfolioActivity(), nextBefore: null };
 }
 
 function timelineOf(projectId: string): TimelineEvent[] {
@@ -636,6 +810,12 @@ export async function listDecisionLog(projectId: string): Promise<DecisionLogEnt
     .map(copy);
 }
 
+/** Se il registro letto è arrivato al tetto del server (build app); nel prototipo mai. */
+export function decisionLogTruncated(projectId: string): boolean {
+  void projectId;
+  return false;
+}
+
 /** L'ultimo brief settimanale del progetto; `null` se non ce n'è ancora uno. */
 export async function getLatestBrief(projectId: string): Promise<WeeklyBrief | null> {
   const me = await gate("getLatestBrief");
@@ -655,6 +835,11 @@ export async function getLatestBrief(projectId: string): Promise<WeeklyBrief | n
  */
 export async function listNotifications(): Promise<AppNotification[]> {
   const me = await gate("listNotifications");
+  // Registro, A11 r.1414: i nomi seguono «chi si conosce», gli id di chi non
+  // si conosce diventano segnaposti, uno per la risposta intera.
+  const known = knownPeopleFor(me);
+  const mask = personMasker(me, known);
+  const nameIfKnown = (id: string) => (known.has(id) ? (PEOPLE.find((p) => p.id === id)?.name ?? null) : null);
   return state.notifications.flatMap((n) => {
     const delivered = deliveredTo(me, n);
     if (!delivered) return [];
@@ -669,36 +854,50 @@ export async function listNotifications(): Promise<AppNotification[]> {
       // Area 10a (I2): chi ha scritto, come nome per chi guarda (R-G5);
       // l'id resta nel livello dati.
       if (n.actorId !== undefined) {
-        out.actorName = visiblePeopleFor(me).has(n.actorId)
-          ? (PEOPLE.find((p) => p.id === n.actorId)?.name ?? null)
-          : null;
+        out.actorName = nameIfKnown(n.actorId);
         delete out.actorId;
+        // Revisione del lotto 2, I6: il testo salvato porta il nome di chi ha
+        // agito; a chi non lo conosce non esce (la pagina lo compone da
+        // `actorName`, «Someone»). Gli avvisi `security.*` non hanno
+        // `actorId`: il loro testo resta, per scelta (permissions.md).
+        if (out.actorName === null) out.body = "";
       }
       // Area 10a: per chi l'ha fatta partire Claude, e chi l'ha annullata;
       // i nomi solo se chi guarda vede quelle persone (R-G5).
       if (n.viaClaude) {
-        const people = visiblePeopleFor(me);
-        out.viaClaudeName = people.has(n.viaClaude.personId)
-          ? (PEOPLE.find((p) => p.id === n.viaClaude!.personId)?.name ?? null)
-          : null;
-        out.undoneByName = undoneByNameOf(n.viaClaude.actionId, people);
+        out.viaClaudeName = nameIfKnown(n.viaClaude.personId);
+        out.undoneByName = undoneByNameOf(n.viaClaude.actionId, known);
+        out.viaClaude = { ...out.viaClaude!, personId: mask(n.viaClaude.personId) };
       }
       // Area 10b (D4): il nome di adesso del ruolo dato ([SC 15]: eliminato,
       // `null`), e il progetto che chi la riceve non vede più non si apre
       // ([SC 16]).
       if (n.roleId !== undefined)
         out.roleName = accessState().roles.find((r) => r.id === n.roleId)?.name ?? null;
+      // `member.added` a chi gestisce i membri (19 nov 2026): chi è entrato,
+      // per nome se chi guarda lo vede (R-G5); a chi è entrato niente.
+      if (n.memberId !== undefined) {
+        if (n.memberId !== me) out.memberName = nameIfKnown(n.memberId);
+        delete out.memberId;
+      }
       if (n.projectId && !visibleProjectIds(me).has(n.projectId)) out.notOpenable = true;
+      // Lotto 4, D-2.0: una proposta passata già decisa (da chi legge o da un altro).
+      if (n.proposalId !== undefined) {
+        const decided = state.mailProposals.find((p) => p.id === n.proposalId)?.status !== "handed";
+        if (decided) out.proposalDecided = true;
+        delete out.proposalId;
+      }
       // Area 11a (Q1, P19): una menzione in un commento di prodotto, letta
       // dalla pagina e dal filo di adesso (`objectGone` se non ci sono più).
       presentProductMention(me, out);
       // Area 11b: le card di Claude sulla doc di prodotto, lette per chi riceve.
       presentProductUpdate(me, out);
       presentProductQuestion(me, out);
+      out.recipientIds = out.recipientIds.map(mask);
       return [out];
     }
     const shown = presentChatNotification(me, delivered);
-    return shown ? [shown] : [];
+    return shown ? [{ ...shown, recipientIds: shown.recipientIds.map(mask) }] : [];
   });
 }
 
@@ -740,6 +939,8 @@ const FINISHED_WINDOW_DAYS = 14;
  */
 export async function listConversations(filter: ConversationFilter): Promise<ConversationRow[]> {
   const me = await gate("listConversations");
+  const mask = personMasker(me);
+  const maskProject = projectMasker(me);
   const since = daysFromToday(-FINISHED_WINDOW_DAYS);
   // Il filtro per progetto vale solo per un progetto che chi guarda vede: uno
   // invisibile non trova nulla, come uno che non esiste — altrimenti direbbe
@@ -778,7 +979,7 @@ export async function listConversations(filter: ConversationFilter): Promise<Con
         if (filter.requestId && c.requestId !== filter.requestId) return false;
         return true;
       })
-      .map((c) => withVisibleContext(me, conversationRow(me, c)))
+      .map((c) => withVisibleContext(me, conversationRow(me, c, mask, maskProject)))
       // Sulla data della riga come la vede chi guarda: il seguito privato di
       // una pubblica non la fa salire per gli altri.
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))
@@ -793,12 +994,23 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
   const me = await gate("getConversation");
   const c = state.conversations.find((x) => x.id === id);
   if (!c || !canSeeConversation(me, c)) return null;
-  const events = readableEvents(me, c);
+  // R.1414 (lotto 3): un masker per la riga e il flusso.
+  const mask = personMasker(me);
+  const events = readableEvents(me, c).map((e) => (e.type === "user" ? { ...e, authorId: mask(e.authorId) } : e));
   return {
-    ...withVisibleContext(me, conversationRow(me, c)),
+    ...withVisibleContext(me, conversationRow(me, c, mask)),
     ...conversationPermissions(me, c),
     events,
     planPreApproved: state.preApprovedPlans.has(id),
+    serverFixPruneWarning: (() => {
+      // Solo per un piano che libera spazio (F4b-8 = c).
+      const plan = events.filter((e) => e.type === "plan").at(-1);
+      return c.serverFix && c.projectId !== null && plan?.type === "plan" && plan.serverPlan
+        ? prunes(plan.serverPlan)
+          ? pruneWarningOf(me, c.serverFix.serverCode, c.projectId)
+          : null
+        : null;
+    })(),
     continuesFrom: originOf(me, c),
     undo: undoOfEvents(me, events),
     reauthPhrases: reauthPhrasesOf(me, events),
@@ -839,6 +1051,19 @@ export async function getClaudeSuggestion(
 ): Promise<ClaudeSuggestion | null> {
   const me = await gate("getClaudeSuggestion");
   return suggestionFor(me, place);
+}
+
+/**
+ * «Not now» della riga (area 10, F7): nel prototipo lo ricorda la riga in
+ * `localStorage`, per persona e per oggetto ([SG 7]); nella build app il
+ * server (`POST /api/claude/suggestions/dismiss`). Qui non scrive niente.
+ */
+export async function dismissClaudeSuggestion(
+  place: SuggestionPlace,
+  kind: ClaudeSuggestion["id"],
+): Promise<void> {
+  void [place, kind];
+  await gate("dismissClaudeSuggestion");
 }
 
 /**
@@ -943,6 +1168,33 @@ export async function getRefineOf(requestId: string): Promise<ConversationRow | 
  * sessioni di lavoro che chi guarda vede, dalla più vecchia, con il flusso
  * leggibile; le PR della task dalla piattaforma. Task invisibile: `null`.
  */
+/**
+ * Il lavoro di Claude in breve (build app: `GET /api/tasks/:id/work`). Nel
+ * prototipo si ricava dalla task e dalle sue PR; `null` per una task che chi
+ * guarda non vede.
+ */
+export async function getTaskWorkSummary(taskId: string): Promise<TaskWorkSummary | null> {
+  const me = await gate("getTaskWorkSummary");
+  const task = state.tasksById.get(taskId);
+  if (!task || !visibleProjectIds(me).has(task.projectId)) return null;
+  const latest = new Map<string, PullRequestEvent>();
+  for (const e of state.pullRequests.filter((p) => p.taskId === taskId)) {
+    const key = `${e.repo}#${e.number}`;
+    const prev = latest.get(key);
+    if (!prev || prev.at <= e.at) latest.set(key, e);
+  }
+  return {
+    claude: task.claude,
+    pullRequests: [...latest.values()].map((e) => ({
+      repo: e.repo,
+      number: e.number,
+      url: `https://github.com/${e.repo}/pull/${e.number}`,
+      state: e.kind === "pr_merged" ? "merged" : e.kind === "pr_closed" ? "closed" : "open",
+    })),
+    webHref: null,
+  };
+}
+
 export async function getTaskWork(taskId: string): Promise<TaskWork | null> {
   const me = await gate("getTaskWork");
   const task = state.tasksById.get(taskId);
@@ -1006,6 +1258,8 @@ export async function getTaskWork(taskId: string): Promise<TaskWork | null> {
       relaunch: availability(ready.relaunch, "runs.start"),
       resume: availability(ready.resume, "corrections.request"),
       requestChanges: availability(ready.requestChanges, "corrections.request"),
+      // «Annulla il lavoro»: un lavoro non concluso (le regole di `cancelRun`).
+      cancel: availability(!!latest && latest.state !== "finished", "runs.start"),
     },
     prFacts: software
       ? state.prFacts
@@ -1022,8 +1276,9 @@ export async function getTaskWork(taskId: string): Promise<TaskWork | null> {
       : [],
     correctionCap: state.projectsById.get(task.projectId)?.correctionCap ?? DEFAULT_CORRECTION_CAP,
     usage: usageOfTask(taskId),
-    // Il progetto della task si vede (sopra): budget e pausa si leggono per intero.
-    blocked: aiBlockFor(task.projectId),
+    // Il progetto della task si vede (sopra): budget e pausa si leggono per
+    // intero, per chi guarda (D-7.1: chi ha `plans.approve` scavalca il budget).
+    blocked: manualStartBlockFor(me, task.projectId),
   };
 }
 
@@ -1366,6 +1621,10 @@ export async function resolveCitations(refs: CitationRef[]): Promise<CitationVie
   const me = await gate("resolveCitations");
   const visible = visibleProjectIds(me);
   const viewer = viewerFor(me);
+  // Revisione del lotto 2, I5 (r.1414): una persona che non si conosce è
+  // nascosta; l'assegnatario di una task citata passa dal masker.
+  const known = knownPeopleFor(me);
+  const mask = personMasker(me, known);
   const hidden = (ref: CitationRef): CitationView => ({
     kind: ref.kind,
     id: ref.id,
@@ -1392,7 +1651,7 @@ export async function resolveCitations(refs: CitationRef[]): Promise<CitationVie
           name: t.title,
           projectCode: project,
           status: state.statusById.get(t.statusId)?.name ?? null,
-          personId: t.assigneeId,
+          personId: mask(t.assigneeId),
           route: `#/p/${project}/tasks?task=${t.code}`,
         };
       }
@@ -1496,7 +1755,7 @@ export async function resolveCitations(refs: CitationRef[]): Promise<CitationVie
       }
       case "person": {
         const p = PEOPLE.find((x) => x.id === ref.id);
-        if (!p) return hidden(ref);
+        if (!p || (p.id !== me && p.id !== CLAUDE_ID && !known.has(p.id))) return hidden(ref);
         return { ...hidden(ref), visible: true, name: p.name, personId: p.id };
       }
       // Le schede degli eventi della Chat (area 4): visibili a chi vede il progetto.

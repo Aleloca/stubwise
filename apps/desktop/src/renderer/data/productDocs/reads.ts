@@ -1,3 +1,4 @@
+import { PRODUCT_EXPORT_PAGES_MAX } from "@stubwise/shared";
 import { excerptOfBlocks } from "../../domain/productDocs/blocks";
 import { buildProductTree, flattenTree } from "../../domain/productDocs/tree";
 import { visiblePeopleFor } from "../access/whoCan";
@@ -106,6 +107,17 @@ function decisionFor(me: string, decisionId: string): ProductPageView["decisions
  * progetto visibile senza `docs.view` è `forbidden` anche un codice che non
  * esiste: la risposta non dice se la pagina c'è.
  */
+/**
+ * L'SVG delle bozze della pagina, senza quelle mai disegnate (F6: il primo
+ * disegno in corso o non riuscito non ha schizzo, come sul server).
+ */
+function drawnWireframesOf(page: ProductPage): Record<string, string | null> {
+  const neverDrawn = new Set(
+    state.productSketches.filter((s) => s.pageId === page.id && s.kind === "draw").map((s) => s.blockId),
+  );
+  return wireframesOf(page.blocks.filter((b) => !neverDrawn.has(b.id)));
+}
+
 export async function getProductPage(code: string): Promise<ProductPageView | null> {
   const me = await gate("productDocs.getProductPage");
   const project = projectOfCode(code);
@@ -145,7 +157,14 @@ export async function getProductPage(code: string): Promise<ProductPageView | nu
     followers: followersVisibleTo(me, page),
     lastRevision: lastRevisionOf(page.id),
     // 11b: l'SVG delle bozze di schermata (le pagine non leggono il seme).
-    wireframes: wireframesOf(page.blocks),
+    // F6: una bozza mai disegnata (in disegno o non riuscita) non ha schizzo, come sul server.
+    wireframes: drawnWireframesOf(page),
+    // F6: le bozze che Claude sta disegnando, o che non è riuscito a disegnare.
+    wireframeStates: Object.fromEntries(
+      state.productSketches
+        .filter((s) => s.pageId === page.id && page.blocks.some((b) => b.id === s.blockId && b.type === "wireframe"))
+        .map((s) => [s.blockId, s.state] as const),
+    ),
   };
 }
 
@@ -157,7 +176,9 @@ export async function getProductPage(code: string): Promise<ProductPageView | nu
  * pagina (`decisionFor`); una bozza di schermata col suo SVG del seme (11b,
  * P36). Commenti, presenza e chi segue non ci sono.
  * `null` dove lo spazio (o la pagina) non c'è per chi guarda; `forbidden`
- * in un progetto visibile senza `docs.view`.
+ * in un progetto visibile senza `docs.view`. Lo spazio oltre
+ * `PRODUCT_EXPORT_PAGES_MAX` pagine si rifiuta col numero, come il 413 del
+ * server (F3 di 72).
  */
 export async function getProductExport(
   projectId: string,
@@ -168,6 +189,11 @@ export async function getProductExport(
   if (access === "forbidden") throw forbidden();
   if (access === "none") return null;
   const all = productPagesOf(projectId);
+  if (pageId === undefined && all.length > PRODUCT_EXPORT_PAGES_MAX)
+    throw Object.assign(new Error("too_large"), {
+      pageCount: all.length,
+      max: PRODUCT_EXPORT_PAGES_MAX,
+    });
   let pages: { page: ProductPage; depth: number }[];
   if (pageId !== undefined) {
     const page = all.find((p) => p.id === pageId);
@@ -184,7 +210,7 @@ export async function getProductExport(
   const decisions: ProductExportView["decisions"] = {};
   const wireframes: NonNullable<ProductExportView["wireframes"]> = {};
   for (const { page } of pages) {
-    Object.assign(wireframes, wireframesOf(page.blocks));
+    Object.assign(wireframes, drawnWireframesOf(page));
     for (const block of page.blocks) {
       if (block.type === "drive") {
         const file = driveFileFor(me, block.fileId);

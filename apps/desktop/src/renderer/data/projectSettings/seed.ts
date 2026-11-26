@@ -42,27 +42,24 @@ function switchesOf(code: string, software: boolean): Record<ProjectSwitch, bool
   };
 }
 
-/** Le scelte dei plugin del seme, dal registro (P3). */
-function pluginChoicesOf(projectId: string): ProjectSettings["plugins"] {
-  const superpowers = seedInstanceState().plugins.find((p) => p.name === "superpowers")!;
-  const inventory = superpowers.inventory!;
+type SeedPlugin = ReturnType<typeof seedInstanceState>["plugins"][number];
+
+/**
+ * Le scelte dei plugin del seme, dal registro (P3). `superpowers` si legge
+ * UNA volta per seme (`seedProjectSettings`): rifare lo stato d'istanza per
+ * ogni progetto rigenerava anche i consumi di 90 giorni, ~170 ms a ogni
+ * `resetApi`, cioè a ogni test.
+ */
+function pluginChoicesOf(projectId: string, superpowers: SeedPlugin): ProjectSettings["plugins"] {
   const chosen = (PROJECT_PLUGINS[projectId] ?? []).find((e) => e.pluginId === superpowers.id);
-  if (!chosen)
-    return {
-      version: 1,
-      disabled: [
-        {
-          plugin: superpowers.name,
-          skills: inventory.skills.map((s) => s.name),
-          hookGroups: inventory.hooks.map((h) => h.key),
-        },
-      ],
-    };
+  // F5, opt-in: un progetto che il seme non nomina non ha superpowers acceso.
+  if (!chosen) return { version: 1, enabled: [], disabled: [] };
   return {
     version: 1,
+    enabled: [superpowers.slug],
     disabled:
       chosen.disabledSkills.length > 0
-        ? [{ plugin: superpowers.name, skills: [...chosen.disabledSkills], hookGroups: [] }]
+        ? [{ plugin: superpowers.slug, skills: [...chosen.disabledSkills], hookGroups: [] }]
         : [],
   };
 }
@@ -70,7 +67,7 @@ function pluginChoicesOf(projectId: string): ProjectSettings["plugins"] {
 /**
  * Le impostazioni di un progetto nato dall'app (`createProject`), che il seme
  * non conosce: gli interruttori di un progetto del seme dello stesso
- * modello, «Automatic», nessun plugin spento (per sottrazione). Le scrive
+ * modello, «Automatic», nessun plugin acceso (opt-in, F5). Le scrive
  * chi le legge per primo (`reads.ts`, `settingsOf`).
  */
 export function defaultProjectSettings(p: { id: string; template: string }): ProjectSettings {
@@ -86,12 +83,13 @@ export function defaultProjectSettings(p: { id: string; template: string }): Pro
       createdAt: at(0, "00:00"),
       createdById: null,
     },
-    plugins: { version: 1, disabled: [] },
+    plugins: { version: 1, enabled: [], disabled: [] },
   };
 }
 
 /** Le impostazioni di ogni progetto del seme, nuove a ogni chiamata. */
 export function seedProjectSettings(): Map<string, ProjectSettings> {
+  const superpowers = seedInstanceState().plugins.find((p) => p.name === "superpowers")!;
   return new Map(
     PROJECTS.map((p): [string, ProjectSettings] => {
       const aud = p.code === "AUD";
@@ -109,7 +107,7 @@ export function seedProjectSettings(): Map<string, ProjectSettings> {
             createdAt: at(-90, "10:00"),
             createdById: null,
           },
-          plugins: pluginChoicesOf(p.id),
+          plugins: pluginChoicesOf(p.id, superpowers),
         },
       ];
     }),

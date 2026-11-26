@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { readerSchema, UNKNOWN } from "../reader.js";
 import {
+  calendarEventCreateSchema,
   calendarEventItemSchema,
+  calendarEventMoveSchema,
   calendarSeriesItemSchema,
   calendarSeriesPatchSchema,
   emailLabelsSchema,
@@ -135,12 +137,14 @@ describe("googleWorkspaceSchema", () => {
 });
 
 describe("googleOauthScopes", () => {
-  it("è la lista minima di sola lettura mostrata all'admin e usata dal consenso", () => {
+  it("area 6, F1 (D1 = a): gli scope dell'area intera, mostrati all'admin e chiesti dal consenso", () => {
     expect(googleOauthScopes).toEqual([
       "openid",
       "email",
-      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/gmail.modify",
       "https://www.googleapis.com/auth/calendar.readonly",
+      "https://www.googleapis.com/auth/calendar.events",
+      "https://www.googleapis.com/auth/drive.readonly",
     ]);
   });
 });
@@ -258,11 +262,12 @@ describe("emailRoutesSchema / emailLabelsSchema", () => {
 });
 
 describe("mailAdmissionSchema (fase 6c)", () => {
-  it("una risposta senza nessuno dei tre campi resta parsabile con i default", () => {
+  it("una risposta senza nessuno dei campi resta parsabile con i default (anche `classifyV2`, F2: spento)", () => {
     expect(mailAdmissionSchema.parse({})).toEqual({
       admitWorkspaceDomains: true,
       denyLabels: ["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "SPAM"],
       denyAutomated: true,
+      classifyV2: false,
     });
   });
 
@@ -271,6 +276,7 @@ describe("mailAdmissionSchema (fase 6c)", () => {
       admitWorkspaceDomains: false,
       denyLabels: ["SPAM"],
       denyAutomated: false,
+      classifyV2: true,
     };
     expect(mailAdmissionSchema.parse(body)).toEqual(body);
   });
@@ -530,5 +536,28 @@ describe("mailRejectionsSchema («le mail tenute fuori»)", () => {
     const parsed = readerSchema(mailRejectionsSchema).parse(conMotivoNuovo);
     expect(parsed.accounts[0]?.reasons[0]?.reason).toBe(UNKNOWN);
     expect(parsed.accounts[0]?.reasons[0]?.count).toBe(3);
+  });
+});
+
+describe("calendarEventItemSchema, F3b e F4: una risposta SENZA i campi nuovi resta parsabile coi default", () => {
+  it("un server di prima: recognized vero, i permessi di scrittura spenti, niente etag né nota", () => {
+    const old = { id: "11111111-1111-4111-8111-111111111111", accountId: "22222222-2222-4222-8222-222222222222", accountEmail: "a@x.it", projectId: null, startsAt: "2026-09-15T09:00:00.000Z", status: "new" };
+    expect(calendarEventItemSchema.parse(old)).toMatchObject({ recognized: true, myResponse: null, attendeeCount: null, canEdit: false, canRespond: false, etag: null, myNote: null, hasPrep: false });
+  });
+});
+
+describe("F4, review punto 12: il contratto degli orari di una scrittura", () => {
+  const base = { accountId: "11111111-1111-4111-8111-111111111111", eventId: "abcde01234", title: "R" };
+  it("tutto il giorno: date YYYY-MM-DD (fine esclusiva); un istante è rifiutato", () => {
+    expect(calendarEventCreateSchema.safeParse({ ...base, allDay: true, startsAt: "2026-11-15", endsAt: "2026-11-16" }).success).toBe(true);
+    expect(calendarEventCreateSchema.safeParse({ ...base, allDay: true, startsAt: "2026-11-14T23:00:00.000Z", endsAt: "2026-11-15T23:00:00.000Z" }).success).toBe(false);
+  });
+  it("con orario: istanti ISO; una data è rifiutata", () => {
+    expect(calendarEventCreateSchema.safeParse({ ...base, startsAt: "2026-11-15T09:00:00.000Z", endsAt: "2026-11-15T10:00:00.000Z" }).success).toBe(true);
+    expect(calendarEventCreateSchema.safeParse({ ...base, startsAt: "2026-11-15", endsAt: "2026-11-16" }).success).toBe(false);
+  });
+  it("spostare: con `allDay` dichiarato vale la stessa regola; senza, decide il server sulla riga", () => {
+    expect(calendarEventMoveSchema.safeParse({ etag: null, allDay: true, startsAt: "2026-11-15T00:00:00.000Z", endsAt: "2026-11-16T00:00:00.000Z" }).success).toBe(false);
+    expect(calendarEventMoveSchema.safeParse({ etag: null, startsAt: "2026-11-15", endsAt: "2026-11-16" }).success).toBe(true);
   });
 });

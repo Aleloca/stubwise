@@ -14,8 +14,10 @@ import {
   type TotpSetup,
 } from "../../data/queries";
 import { useReauth } from "../../layout/useReauth";
+import { MacsPart } from "../vault/MacsPart";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
+import { isAppBuild, isDesktopApp } from "../../data/build";
 import { PrototypeBox } from "../automations/shared";
 import { BusyLabel, EntryField, LockedBlock, TotpInput, wrongCodeMessage } from "../entry/parts";
 import { formatDateTime } from "../../notifications/time";
@@ -103,6 +105,8 @@ export function SecuritySection() {
             <BackupCodes codes={codes} onDone={() => setCodes(null)} />
           </Part>
         )}
+        {/* La cassaforte (lotto 10): sotto «Passkeys», sopra «Open sessions». */}
+        <MacsPart />
         <SessionsPart sessions={s.sessions} />
         <LogPart events={s.events} />
       </>
@@ -392,12 +396,14 @@ function AppPart({
                   </form>
                 </div>
                 <SecretOnce title={t("prefs.security.app.cantScan")} value={setup.secret} />
-                <PrototypeBox>
-                  <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-3 text-sm">
-                    <dt className="text-ink-muted">{t("entry.prototype.code")}</dt>
-                    <dd className="font-code text-ink">123456</dd>
-                  </dl>
-                </PrototypeBox>
+                {!isAppBuild() && (
+                  <PrototypeBox>
+                    <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-3 text-sm">
+                      <dt className="text-ink-muted">{t("entry.prototype.code")}</dt>
+                      <dd className="font-code text-ink">123456</dd>
+                    </dl>
+                  </PrototypeBox>
+                )}
               </>
             )}
           </div>
@@ -413,6 +419,14 @@ function PasskeysPart({ security: s }: { security: MySecurity }) {
   const { t } = useTranslation();
   const [adding, setAdding] = useState(false);
   const addButton = useRef<HTMLButtonElement>(null);
+  // Area 9, R4b: nell'app desktop le passkey sono del browser (decisione del
+  // maintainer, 10 nov 2026); qui solo la frase.
+  if (isDesktopApp())
+    return (
+      <Part title={t("prefs.security.passkeys.title")}>
+        <p className="text-md text-ink-muted">{t("prefs.security.passkeys.desktopNote")}</p>
+      </Part>
+    );
   return (
     <Part
       title={t("prefs.security.passkeys.title")}
@@ -467,6 +481,8 @@ function AddPasskey({ onClose }: { onClose: () => void }) {
     if (!name.trim()) return setError(t("prefs.security.passkeys.nameEmpty"));
     setError(null);
     setStep("browser");
+    // Nella build app il browser chiede da sé: niente riquadro da simulare.
+    if (isAppBuild()) void answer("ok");
   }
 
   // Il browser risponde (nel prototipo, dal riquadro); prima la riconferma, se serve.
@@ -527,27 +543,34 @@ function AddPasskey({ onClose }: { onClose: () => void }) {
       ) : (
         <>
           <p className="text-md text-ink">{t("prefs.security.passkeys.browserAsks")}</p>
-          {failed && <WriteError message={t("prefs.security.passkeys.failed")} />}
-          <PrototypeBox>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                className={secondaryButton}
-                disabled={add.isPending}
-                onClick={() => void answer("ok")}
-              >
-                {t("prefs.security.passkeys.simulate")}
-              </button>
-              <button
-                type="button"
-                className={secondaryButton}
-                disabled={add.isPending}
-                onClick={() => void answer("fail")}
-              >
-                {t("prefs.security.passkeys.simulateFail")}
-              </button>
-            </div>
-          </PrototypeBox>
+          {failed && (
+            <WriteError
+              message={t("prefs.security.passkeys.failed")}
+              {...(isAppBuild() ? { onRetry: () => void answer("ok") } : {})}
+            />
+          )}
+          {!isAppBuild() && (
+            <PrototypeBox>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className={secondaryButton}
+                  disabled={add.isPending}
+                  onClick={() => void answer("ok")}
+                >
+                  {t("prefs.security.passkeys.simulate")}
+                </button>
+                <button
+                  type="button"
+                  className={secondaryButton}
+                  disabled={add.isPending}
+                  onClick={() => void answer("fail")}
+                >
+                  {t("prefs.security.passkeys.simulateFail")}
+                </button>
+              </div>
+            </PrototypeBox>
+          )}
           <div>
             <button type="button" className={secondaryButton} onClick={onClose}>
               {t("prefs.security.passkeys.cancel")}

@@ -13,6 +13,7 @@ import {
   useOpenTask,
   useReportDepartments,
 } from "./BlockSection";
+import { useToday } from "../../../data/clock";
 
 const OPEN: FilterCriteria = { families: ["todo", "active"] };
 const TABS = ["assigned", "delegated", "following"] as const;
@@ -73,6 +74,8 @@ export function MyTasksBlock() {
   }, [tasks.data, me]);
   const list = byTab[tab];
   useReportDepartments("myTasks", list);
+  // «This week» arriva fino alla domenica della settimana corrente, che cambia col giorno.
+  useToday();
   const sunday = endOfWeek();
   const groups = GROUPS.map((g) => ({
     key: g,

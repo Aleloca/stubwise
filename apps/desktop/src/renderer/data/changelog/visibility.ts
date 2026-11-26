@@ -1,6 +1,6 @@
 import type { Viewer } from "../types";
-import { can, type Permission } from "../viewer";
-import { changeTypes } from "./record";
+import { can, type Permission } from "../viewing";
+import { changeTypes } from "./registry";
 import type { ChangeType } from "./types";
 
 // Chi legge il registro senza guardare le voci: lo usano la colonna

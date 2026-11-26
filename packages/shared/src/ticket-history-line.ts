@@ -38,6 +38,7 @@ export type HistoryTone = "ok" | "signal" | "sky" | "danger" | "faint";
 /** I kind che diventano un titolo fisso, senza parametri. */
 export type HistorySimpleTitleKey =
   | "run_started"
+  | "run_cancelled"
   | "question_asked"
   | "question_answered"
   | "plan_approved"
@@ -127,6 +128,7 @@ export function historyTitleFor(
   const detail = event.detail;
   switch (event.kind) {
     case "run_started":
+    case "run_cancelled":
     case "question_asked":
     case "question_answered":
     case "plan_rejected":

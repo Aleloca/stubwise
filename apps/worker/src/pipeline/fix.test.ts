@@ -43,6 +43,8 @@ beforeAll(async () => {
 
 afterEach(async () => {
   await testDb.db.delete(projects);
+  // F6 (0193): eliminare il progetto STACCA i repository, che tengono l'account.
+  await testDb.db.delete(repositories);
   await testDb.db.delete(gitAccounts);
   // Le righe di automation_rules sono seedate dalla migrazione e condivise tra
   // test: i test plan-only le mutano (planApprovalMinEffort) ma non sono
@@ -795,6 +797,8 @@ describe("runFix", () => {
     expect(plan?.model).toBe("opus");
     expect(plan?.permissionMode).toBe("plan");
     expect(plan?.allowedTools).toBeUndefined();
+    // I nativi (CLI 2.1.322): il piano legge, usa skill e sottoagenti, non scrive né lancia comandi.
+    expect(plan?.builtinTools).toEqual(["Read", "Grep", "Glob", "Skill", "Task"]);
     expect(plan?.prompt).toContain(ticket.title);
     expect(plan?.prompt).toMatch(/Do NOT write STUBWISE_REPORT/); // il plan non scrive il report
 
@@ -803,6 +807,7 @@ describe("runFix", () => {
     expect(execute?.maxTurns).toBe(80);
     expect(execute?.timeoutMs).toBe(1_800_000);
     expect(execute?.allowedTools).toEqual(DEFAULT_FIX_ALLOWED_TOOLS);
+    expect(execute?.builtinTools).toEqual(["Read", "Write", "Edit", "Glob", "Grep", "Bash", "NotebookEdit", "Skill", "Task"]);
     expect(execute?.prompt).toContain("STUBWISE_REPORT.md");
     expect(execute?.prompt).toContain(ticket.title);
     // Il prompt di esecuzione chiede il report nella lingua d'istanza (default 'en').
@@ -1356,6 +1361,57 @@ describe("runFix", () => {
     expect(branches).toBe("");
   });
 
+  it("«Annulla il lavoro» in esecuzione (3b.1-bis): richiesto mentre il CLI lavora → skipped, niente commit/push/PR, commento con chi ha annullato", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture, { status: "triaged" });
+    const job = await createFixingJob(db, ticket.id);
+    const [canceller] = await db
+      .insert(users)
+      .values({ email: `cancel-${randomUUID()}@x.test`, passwordHash: "x", role: "admin" })
+      .returning();
+    const controller = new AbortController();
+    const runner = new FakeAgentRunner({
+      fileChanges: fixChanges(fixture),
+      script: async () => {
+        // La richiesta arriva mentre l'agente lavora; il CLI finisce comunque il suo turno.
+        await db
+          .update(aiJobs)
+          .set({ cancelRequestedAt: new Date(), cancelRequestedByUserId: canceller!.id })
+          .where(eq(aiJobs.id, job.id));
+        controller.abort();
+        return { output: "ho corretto il bug", exitCode: 0 };
+      },
+    });
+    const provider = makeProvider();
+    const published: string[] = [];
+
+    const outcome = await runFix(
+      {
+        ...makeDeps(fixture, runner, provider, {
+          publish: async (_db, event) => {
+            published.push((event as unknown as { kind: string }).kind);
+            return { published: 1, notificationIds: [randomUUID()] };
+          },
+        }),
+        cancelSignal: controller.signal,
+      },
+      job,
+    );
+
+    expect(outcome).toBe("skipped");
+    expect((await getJob(db, job.id)).status).toBe("skipped");
+    expect(provider.openPullRequest).not.toHaveBeenCalled();
+    expect(await git(["branch", "--list", `stubwise/ticket-${ticket.number}`], fixture.upstreamDir)).toBe("");
+    const lang = await getContentLanguage(db);
+    const notes = await db.select().from(comments).where(eq(comments.ticketId, ticket.id));
+    expect(notes.map((c) => [c.authorType, c.body])).toContainEqual([
+      "system",
+      [tr(lang, "comment.runCancelled.head", { who: canceller!.email }), tr(lang, "comment.agentStopCancelled.fix")].join(" "),
+    ]);
+    expect(published).not.toContain("job.failed");
+  });
+
   it("apertura PR fallita dopo il push → job failed con log azionabile (branch + upstream + recupero)", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
@@ -1400,31 +1456,38 @@ describe("runFix", () => {
       startedAt: new Date(Date.now() - 30 * 60_000),
       lastActivityAt: new Date(Date.now() - 30 * 60_000),
     });
-    // Runner lento: tiene il run aperto abbastanza da far scattare ≥1 battito
-    // dell'heartbeat (intervallo accelerato a 50ms via deps).
+    // Deterministico (lotto 6, voce 4): il run resta APERTO finché il test non
+    // lo libera (un cancello, non 250 ms veri), e il battito lo si ASPETTA
+    // (vi.waitFor) invece di dormire 120 ms — sotto carico il fix non arrivava
+    // al run in tempo e il controllo partiva prima di qualunque battito.
+    let release = (): void => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let started = false;
     const runner = new FakeAgentRunner({
       script: async () => {
-        await new Promise((resolve) => setTimeout(resolve, 250));
+        started = true;
+        await gate;
         return { output: "ho corretto il bug", exitCode: 0 };
       },
       fileChanges: fixChanges(fixture),
     });
     const provider = makeProvider();
 
-    // Mentre il fix gira, controlliamo che requeueStale (soglia 10') NON tocchi
-    // il job: l'heartbeat lo tiene vivo.
-    const fixPromise = runFix(
-      makeDeps(fixture, runner, provider, { heartbeatIntervalMs: 50 }),
-      job,
-    );
-    // Attendiamo che almeno un battito sia passato.
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    const requeuedDuringRun = await requeueStale(db, { olderThanMinutes: 10 });
-    expect(requeuedDuringRun).toBe(0);
-    const midRun = await getJob(db, job.id);
-    expect(midRun.status).toBe("fixing");
-    expect(midRun.lastActivityAt.getTime()).toBeGreaterThan(Date.now() - 60_000);
-
+    // Mentre il fix gira, requeueStale (soglia 10') NON deve toccare il job: l'heartbeat lo tiene vivo.
+    const fixPromise = runFix(makeDeps(fixture, runner, provider, { heartbeatIntervalMs: 50 }), job);
+    try {
+      await vi.waitFor(() => expect(started).toBe(true), { timeout: 60_000, interval: 20 });
+      // Il run è aperto e fermo al cancello: da qui in poi `lastActivityAt` lo
+      // muove SOLO l'heartbeat (prima lo toccano anche le scritture del log). Lo si
+      // riporta a 30' fa, e si aspetta che un battito lo rinfreschi.
+      await db.update(aiJobs).set({ lastActivityAt: new Date(Date.now() - 30 * 60_000) }).where(eq(aiJobs.id, job.id));
+      await vi.waitFor(async () => expect((await getJob(db, job.id)).lastActivityAt.getTime()).toBeGreaterThan(Date.now() - 60_000), { timeout: 20_000, interval: 20 });
+      const requeuedDuringRun = await requeueStale(db, { olderThanMinutes: 10 });
+      expect(requeuedDuringRun).toBe(0);
+      expect((await getJob(db, job.id)).status).toBe("fixing");
+    } finally {
+      release();
+    }
     const outcome = await fixPromise;
     expect(outcome).toBe("pr_opened");
   });
@@ -1953,6 +2016,7 @@ describe("runFix — self-repair (Task 5)", () => {
     expect(repair?.permissionMode).toBe("acceptEdits");
     expect(repair?.model).toBe("sonnet");
     expect(repair?.allowedTools).toEqual(DEFAULT_FIX_ALLOWED_TOOLS);
+    expect(repair?.builtinTools).toEqual(["Read", "Write", "Edit", "Glob", "Grep", "Bash", "NotebookEdit", "Skill", "Task"]);
     // Il prompt di riparazione contiene il blocco <test_failure> con l'output.
     expect(repair?.prompt).toContain("<test_failure>");
     expect(repair?.prompt).toContain("FAIL app.test.js: expected 5 got -1");

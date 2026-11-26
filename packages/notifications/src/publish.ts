@@ -1,14 +1,21 @@
 import {
+  alertSubscriptions,
   aiJobs,
+  decisionRequests,
   deviceTokens,
   notificationDeliveries,
   notifications,
   projectFollows,
+  projects,
+  ticketFollowers,
   tickets,
   users,
 } from "@stubwise/db";
+import { alertTypeOf, isLiveAlertType, type AlertType, type MandatoryReason } from "@stubwise/shared";
 import { and, eq, exists, inArray, isNotNull, isNull } from "drizzle-orm";
-import { loadSettings, shouldSendWebhook, type DbOrTx } from "./dispatch.js";
+import { catalogRecipients } from "./alert-recipients.js";
+import { isPersonalWebhookAudience, type DbOrTx } from "./dispatch.js";
+import { webhookIdsForKind } from "./webhooks.js";
 import type { NotificationEvent } from "./format.js";
 import { projectViewerIds, userIdsWithPermission } from "./project-access.js";
 import {
@@ -36,8 +43,37 @@ import {
 
 /** Ancore verso l'entità di origine, note al chiamante. */
 export interface PublishOpts {
+  /**
+   * Area 8, F2: i destinatari OBBLIGATORI di un avviso del catalogo, risolti
+   * dal produttore (chi ha fatto il merge, l'autore della PR o della task…),
+   * coi loro motivi. Contano solo i motivi che il tipo prevede.
+   */
+  mandatory?: { userId: string; reason: MandatoryReason }[];
+  /**
+   * Area 8, F4b: l'avviso va SOLO agli obbligatori, non agli iscritti del
+   * progetto (l'esito di un'analisi a mano per chi l'ha chiesta, quando non è
+   * la diagnosi del progetto attribuito).
+   */
+  mandatoryOnly?: boolean;
+  /** Area 10, F5: chi non riceve MAI questo avviso del catalogo (chi ha agito). */
+  exclude?: string[];
+  /**
+   * Rimandi, lotto 4 (§2): RESTRINGE i destinatari dell'audience a questi
+   * (mai li allarga: chi non è già fra i destinatari resta fuori). Per una
+   * regola di consegna che il produttore conosce meglio dell'audience, come i
+   * decisori di una proposta condivisa passata (il permesso di OGNI azione,
+   * non di almeno una).
+   */
+  onlyUserIds?: readonly string[];
   /** Progetto dell'evento: instrada verso chi lo segue. */
   projectId?: string;
+  /**
+   * Registro, A4 r.169: il gruppo con cui una `chat.mention` avvisa
+   * («@channel», «@<Reparto>»), per il testo della PUSH. Vero all'invio, e la
+   * push nasce una volta sola: sta nella consegna push (`event`), non
+   * nell'evento della notifica (la card lo deriva a lettura).
+   */
+  pushGroup?: string;
   /** Ticket dell'evento: instrada verso l'assegnatario. */
   ticketId?: string;
   /** Job dell'evento: instrada verso l'operatore che l'ha lanciato. */
@@ -56,17 +92,35 @@ export interface PublishOpts {
    * destinatari — mai un ripiego sugli admin.
    */
   accountUserId?: string;
+  /**
+   * Chi NON deve ricevere l'evento oltre all'attore (audience
+   * `ticket_followers`): chi ha già una card più precisa per la stessa azione
+   * (la persona a cui si chiede una decisione, chi l'aveva chiesta). Non sta
+   * nel jsonb.
+   */
+  excludeUserIds?: string[];
+  /**
+   * Le persone a cui l'evento è rivolto (audience `task_people`: fetta 2,
+   * `planning.changed` e `task.assigned`). Chi riceve lo decide la scrittura
+   * (`planRecipientsOf`); qui restano solo quelle che vedono la task. Non sta
+   * nel jsonb.
+   */
+  recipientUserIds?: string[];
 }
 
 /**
  * I kind OBBLIGATORI: le loro consegne push e DM Slack ignorano le preferenze
  * dell'utente (`notifyPush`, `notifySlackDm`). Restano necessari i requisiti
  * del canale — un'identità Slack, un device attivo — perché senza quelli non
- * c'è dove consegnare. Oggi il solo avviso di sicurezza: chi ha spento tutto
- * deve comunque sapere che qualcuno ha azzerato il suo secondo fattore.
+ * c'è dove consegnare. L'avviso di sicurezza (chi ha spento tutto deve
+ * comunque sapere che qualcuno ha azzerato il suo secondo fattore) e la
+ * proposta passata al progetto.
  */
 export const MANDATORY_KINDS: ReadonlySet<NotificationEvent["kind"]> = new Set<NotificationEvent["kind"]>([
   "security.alert",
+  // Rimandi, lotto 4 (§2, D-2.0 del maintainer, come il prototipo): una
+  // proposta passata va decisa da chi la riceve, che altrimenti non lo sa.
+  "google.proposal_handed",
 ]);
 
 /**
@@ -94,8 +148,9 @@ export const MANDATORY_KINDS: ReadonlySet<NotificationEvent["kind"]> = new Set<N
  *    successiva, cioè esattamente la rottura che l'inghiottimento vorrebbe
  *    evitare).
  *
- * @returns quante righe di inbox sono state scritte (destinatari raggiunti) e
- * i loro id.
+ * @returns quante righe di inbox sono state scritte (destinatari raggiunti),
+ * i loro id, e `failed`: vero SOLO se la pubblicazione è fallita (non per
+ * «nessun destinatario»).
  *
  * ⚠️ **`notificationIds` esiste per non far ritrovare a nessuno le righe
  * appena scritte cercandole** (18 set 2026). `publishProposal`
@@ -107,11 +162,16 @@ export const MANDATORY_KINDS: ReadonlySet<NotificationEvent["kind"]> = new Set<N
  * non confermabile. Chi scrive le righe sa già quali sono: restituirle chiude
  * la classe, mentre un `order by` l'avrebbe solo resa meno probabile.
  */
+async function agentUserIds(db: DbOrTx): Promise<ReadonlySet<string>> {
+  const rows = await db.select({ id: users.id }).from(users).where(eq(users.isAgent, true));
+  return new Set(rows.map((r) => r.id));
+}
+
 export async function publishNotification(
   db: DbOrTx,
   event: NotificationEvent,
   opts: PublishOpts,
-): Promise<{ published: number; notificationIds: string[] }> {
+): Promise<{ published: number; notificationIds: string[]; failed?: true }> {
   try {
     return await db.transaction(async (inner) => {
       // Il PROGETTO dell'evento: quello dichiarato, o in mancanza quello del
@@ -119,17 +179,35 @@ export async function publishNotification(
       // `projectId` sfuggirebbe sia al filtro dei membri qui sia a quello a
       // lettura (`inbox-visibility.ts`, che legge la colonna).
       const projectId = opts.projectId ?? (await projectOfTicket(inner, opts.ticketId)) ?? null;
-      const ctx = await resolveRoutingContext(inner, event, opts, projectId);
-      const recipients = recipientsFor(event, ctx);
+      // Area 9, F6 (D-8): un progetto ARCHIVIATO non manda niente a nessuno —
+      // inbox, push, Slack, webhook. È come uno che non c'è; riaprendolo, gli
+      // eventi nuovi ripartono (quelli del frattempo non si recuperano).
+      if (projectId !== null && (await isArchivedProject(inner, projectId))) return { published: 0, notificationIds: [] };
+      // L'utente di sistema «Claude» (area 3, fetta 3e) non riceve MAI una
+      // notifica, da nessuna audience (né inbox, né push, né Slack): un punto
+      // solo, qui, invece di una regola in ogni audience.
+      const agentIds = await agentUserIds(inner);
+      // Area 8, F2 (S2): un avviso del CATALOGO, vivo e con un progetto, ha i
+      // destinatari del catalogo (iscrizioni, obbligatori, default); niente
+      // Slack (M3); il webhook SOLO dove l'evento è scelto (E-2, area 9 F3,
+      // più sotto); il push segue il Telefono del tipo, non
+      // l'interruttore `push` della persona (M-2 = b). Tutto il resto (anche un
+      // `monitor.*` senza progetto) resta sul routing di oggi (S-4).
+      const alertType = projectId !== null && isLiveAlertType(event.kind) ? alertTypeOf(event.kind) : undefined;
+      const catalog = alertType && projectId !== null ? await resolveCatalogRecipients(inner, alertType, projectId, opts) : null;
+      const only = opts.onlyUserIds ? new Set(opts.onlyUserIds) : null;
+      const recipients = (catalog ? catalog.app : recipientsFor(event, await resolveRoutingContext(inner, event, opts, projectId))).filter(
+        (id) => !agentIds.has(id) && (only === null || only.has(id)),
+      );
 
-      const settings = await loadSettings(inner);
-      // `shouldSendWebhook` è l'UNICO punto in cui vive il gating del webhook,
-      // guardia sull'audience `mailbox_owner` inclusa (privacy by
-      // construction, fase 6 — vedi il docblock in `dispatch.ts`): per un
-      // kind come `google.proposal` questo è sempre `false`, qualunque sia il
-      // toggle o la config del webhook d'istanza, quindi il push in
-      // `deliveries` più sotto non scatta mai per quel kind.
-      const withWebhook = shouldSendWebhook(settings, event.kind);
+      // Area 9, F3 (D-10 = b, E-2 = a): una consegna PER WEBHOOK acceso che ha
+      // scelto un evento coperto da questo kind (`webhookIdsForKind`). Un kind
+      // d'audience personale non va MAI in un webhook (`isPersonalWebhookAudience`:
+      // la guardia `mailbox_owner` della fase 6 compresa); gli avvisi del
+      // catalogo ci vanno solo dove scelti (la regola M3 dell'area 8, che li
+      // teneva sempre fuori, è riscritta da E-2).
+      const webhookIds = isPersonalWebhookAudience(event.kind) ? [] : await webhookIdsForKind(inner, event.kind);
+      const withWebhook = webhookIds.length > 0;
       if (recipients.length === 0 && !withWebhook) return { published: 0, notificationIds: [] };
 
       // Le colonne jsonb sono tipizzate `Record<string, unknown>` perché `db`
@@ -150,7 +228,10 @@ export async function publishNotification(
                   ticketId: opts.ticketId ?? null,
                   jobId: opts.jobId ?? null,
                   kind: event.kind,
-                  event: payload,
+                  // Area 8, F2: chi la riceve da OBBLIGATORIO lo porta scritto
+                  // sulla SUA card (un fatto vero solo adesso): la lettura non
+                  // gliela nasconde se non può iscriversi, e il «mute» la rifiuta.
+                  event: catalog?.mandatory.has(userId) ? { ...payload, alertMandatory: catalog.mandatory.get(userId) } : payload,
                   status: "open" as const,
                 })),
               )
@@ -163,8 +244,13 @@ export async function publishNotification(
       // `skipped` resta del poller, per ciò che si scopre solo al momento
       // dell'invio (il bot Slack non configurato).
       const mandatory = MANDATORY_KINDS.has(event.kind);
-      const slackReady = await slackRecipients(inner, recipients, mandatory);
-      const pushReady = await pushRecipients(inner, recipients, mandatory);
+      const slackReady = catalog ? new Set<string>() : await slackRecipients(inner, recipients, mandatory);
+      // Catalogo: il push a chi ha il Telefono acceso (e un device attivo), a
+      // prescindere da `notify_push` — `pushRecipients(…, true)` salta la
+      // preferenza e tiene il device.
+      const pushReady = catalog
+        ? await pushRecipients(inner, recipients.filter((id) => catalog.phone.has(id)), true)
+        : await pushRecipients(inner, recipients, mandatory);
       /**
        * Una riga per destinatario raggiungibile, sul canale dato.
        *
@@ -184,12 +270,13 @@ export async function publishNotification(
           .map((row) => ({ notificationId: row.id, channel }));
       const deliveries: (typeof notificationDeliveries.$inferInsert)[] = [
         ...perRecipient(slackReady, "slack_dm"),
-        ...perRecipient(pushReady, "push"),
+        ...perRecipient(pushReady, "push").map((d) => (opts.pushGroup ? { ...d, event: { pushGroup: opts.pushGroup } } : d)),
       ];
-      if (withWebhook) {
+      for (const webhookId of webhookIds) {
         deliveries.push({
           channel: "webhook" as const,
           event: payload,
+          webhookId,
         });
       }
       if (deliveries.length > 0) {
@@ -212,8 +299,60 @@ export async function publishNotification(
     // riceve nulla. `console` e non un logger perché il package non ne ha uno
     // fra le mani (stessa scelta di `slack-client.ts`).
     console.warn(`[notify] publish di ${event.kind} fallita, nessuna riga scritta:`, error);
-    return { published: 0, notificationIds: [] };
+    // `failed` distingue questo caso da «nessun destinatario» (anche quello è
+    // `published: 0`): chi deve riprovare riprova solo qui (review F2, 46).
+    return { published: 0, notificationIds: [], failed: true };
   }
+}
+
+/**
+ * Il contesto di un avviso del catalogo (area 8, F2, S2), letto ADESSO: chi
+ * vede il progetto, i permessi che il tipo guarda, le iscrizioni scritte.
+ */
+/**
+ * I destinatari di un avviso del catalogo, coi dati di ADESSO. Esportata per
+ * il test di parità con le Preferenze (review F2, 46): ciò che le Preferenze
+ * mostrano acceso senza una riga deve essere ciò che riceve la card.
+ */
+export async function resolveCatalogRecipients(
+  db: DbOrTx,
+  type: AlertType,
+  projectId: string,
+  opts: PublishOpts,
+): Promise<{ app: string[]; phone: Set<string>; mandatory: Map<string, MandatoryReason> }> {
+  const members = await projectViewerIds(db, projectId);
+  const fullAdmins = new Set(await userIdsWithPermission(db, null, projectId));
+  const rule = type.appDefaultOn ?? type.defaultOn;
+  const perms = [
+    ...(type.subscribe.perm !== "member" ? [type.subscribe.perm] : []),
+    ...(typeof rule === "object" ? [rule.perm] : []),
+    // Area 11, F2: chi vede l'oggetto (`seePerm`), che vale anche per gli obbligatori.
+    ...(type.seePerm !== undefined ? [type.seePerm] : []),
+  ];
+  const holders = new Map<string, Set<string>>();
+  for (const perm of new Set(perms)) {
+    holders.set(perm, new Set(await userIdsWithPermission(db, perm as Parameters<typeof userIdsWithPermission>[1], projectId)));
+  }
+  // L'interruttore `push` di oggi: decide il Telefono di partenza di chi non ha una riga (46).
+  const pushOn = new Set(
+    members.length > 0
+      ? (await db.select({ id: users.id }).from(users).where(and(inArray(users.id, members), eq(users.notifyPush, true)))).map((r) => r.id)
+      : [],
+  );
+  const rows = await db
+    .select({ userId: alertSubscriptions.userId, app: alertSubscriptions.app, phone: alertSubscriptions.phone })
+    .from(alertSubscriptions)
+    .where(and(eq(alertSubscriptions.projectId, projectId), eq(alertSubscriptions.alertType, type.type)));
+  return catalogRecipients(type, {
+    members,
+    fullAdmins,
+    holds: (userId, perm) => fullAdmins.has(userId) || (holders.get(perm)?.has(userId) ?? false),
+    subscriptions: new Map(rows.map((r) => [r.userId, { app: r.app, phone: r.phone }])),
+    mandatory: opts.mandatory ?? [],
+    pushPreference: (userId) => pushOn.has(userId),
+    mandatoryOnly: opts.mandatoryOnly === true,
+    exclude: opts.exclude ?? [],
+  });
 }
 
 /**
@@ -241,6 +380,76 @@ async function resolveRoutingContext(
   // dell'account, e nessuna lettura di deciders o membri avviene.
   if (audience === "account_owner") {
     return { deciders: [], members: null, followers: [], accountOwner: opts.accountUserId };
+  }
+
+  // Integrazione area 2: destinatari PER PERSONA, letti dal DB (non dall'evento:
+  // chi riceve è chi c'è nella riga al momento della pubblicazione). Nessun
+  // decider; il filtro dei membri resta, così chi non vede più il progetto non
+  // riceve card.
+  if (audience === "decision_target" || audience === "decision_asker") {
+    const members = projectId ? await projectViewerIds(db, projectId) : null;
+    const decisionId =
+      event.kind === "decision.requested" || event.kind === "decision.answered" ? event.decisionId : null;
+    const [row] = decisionId
+      ? await db
+          .select({ of: decisionRequests.askedOfUserId, by: decisionRequests.askedByUserId })
+          .from(decisionRequests)
+          .where(eq(decisionRequests.id, decisionId))
+      : [];
+    return {
+      deciders: [],
+      members,
+      followers: [],
+      decisionTarget: row?.of ?? undefined,
+      decisionAsker: row?.by ?? undefined,
+    };
+  }
+  if (audience === "ticket_followers") {
+    const members = projectId ? await projectViewerIds(db, projectId) : null;
+    const followerIds = opts.ticketId
+      ? await db
+          .select({ userId: ticketFollowers.userId })
+          .from(ticketFollowers)
+          .where(eq(ticketFollowers.ticketId, opts.ticketId))
+          .then((rows) => rows.map((r) => r.userId))
+      : [];
+    // Un follower riceve solo ciò che VEDE: la regola di `canSeeTicket` del
+    // server — `tickets.view_all` nel progetto (full admin compresi), oppure
+    // è lui ad averla chiesta. Un follow scritto quando la vedeva non basta.
+    const [ticket] = opts.ticketId
+      ? await db
+          .select({ requestedBy: tickets.requestedByUserId })
+          .from(tickets)
+          .where(eq(tickets.id, opts.ticketId))
+      : [];
+    const viewAll = new Set(
+      followerIds.length > 0 ? await userIdsWithPermission(db, "tickets.view_all", projectId) : [],
+    );
+    const excluded = new Set(opts.excludeUserIds ?? []);
+    const ticketFollowerIds = followerIds.filter(
+      (id) => !excluded.has(id) && (viewAll.has(id) || id === ticket?.requestedBy),
+    );
+    const actor = event.kind === "ticket.activity" ? (event.actorUserId ?? undefined) : undefined;
+    return { deciders: [], members, followers: [], ticketFollowers: ticketFollowerIds, actor };
+  }
+  if (audience === "task_people") {
+    const members = projectId ? await projectViewerIds(db, projectId) : null;
+    const people = [...new Set(opts.recipientUserIds ?? [])];
+    // Come per i follower: la regola di `canSeeTicket` — `tickets.view_all`
+    // nel progetto, oppure è lui ad averla chiesta.
+    const [ticket] = opts.ticketId
+      ? await db
+          .select({ requestedBy: tickets.requestedByUserId })
+          .from(tickets)
+          .where(eq(tickets.id, opts.ticketId))
+      : [];
+    const viewAll = new Set(people.length > 0 ? await userIdsWithPermission(db, "tickets.view_all", projectId) : []);
+    const taskPeople = people.filter((id) => viewAll.has(id) || id === ticket?.requestedBy);
+    const actor =
+      event.kind === "planning.changed" || event.kind === "task.assigned"
+        ? (event.actorUserId ?? undefined)
+        : undefined;
+    return { deciders: [], members, followers: [], taskPeople, actor };
   }
 
   const members = projectId ? await projectViewerIds(db, projectId) : null;
@@ -420,4 +629,10 @@ async function pushRecipients(db: DbOrTx, recipients: string[], mandatory: boole
       ),
     );
   return new Set(rows.map((row) => row.id));
+}
+
+/** Area 9, F6: il progetto è archiviato (una riga che manca non lo è: la decide il resto della publish). */
+async function isArchivedProject(db: DbOrTx, projectId: string): Promise<boolean> {
+  const [row] = await db.select({ archivedAt: projects.archivedAt }).from(projects).where(eq(projects.id, projectId));
+  return row?.archivedAt != null;
 }

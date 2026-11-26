@@ -1,5 +1,7 @@
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { useLayoutEffect } from "react";
+import { integrationTargetOf, isIntegrated } from "../data/integration";
+import { ComingSoon } from "../pages/Placeholder";
 import { NotificationsPanel } from "../notifications/NotificationsPanel";
 import { BriefPanelHost } from "../pages/overview/BriefCard";
 import { NewRequestHost } from "../pages/requests/NewRequestDialog";
@@ -16,6 +18,10 @@ import { WhichProjectHost } from "../pages/drive/WhichProjectDialog";
 import { NewAutomationHost } from "../pages/automations/NewAutomationHost";
 import { SourceDetailHost } from "../pages/automations/SourcePanel";
 import { PrPanelHost } from "../pages/releases/PrPanel";
+import { CredentialPanelHost } from "../pages/vault/CredentialPanel";
+import { PendingPanelHost } from "../pages/vault/PendingAccess";
+import { ProjectAccessLogHost } from "../pages/vault/ProjectAccessLog";
+import { VaultCommandHost } from "../pages/vault/VaultCommandHost";
 import { DepartmentPanelHost } from "../pages/admin/DepartmentPanel";
 import { MemberPanelHost } from "../pages/settings/MembersSettings";
 import { useAutomationsLiveRefresh } from "../data/queries";
@@ -30,6 +36,7 @@ import { ReauthHost } from "./ReauthDialog";
 import { DOCKED_PANEL_QUERY } from "./useDetailPanel";
 import { useMediaQuery } from "./useMediaQuery";
 import { useMenuEvents } from "./useMenuEvents";
+import { useClockRefresh } from "../data/clock";
 
 /**
  * Tre zone: binario | colonna | area di lavoro. Nella terza, accanto alla
@@ -42,6 +49,8 @@ import { useMenuEvents } from "./useMenuEvents";
  */
 export function AppLayout() {
   useMenuEvents();
+  // Al cambio di settimana (orologio della build app) task e pianificazione si rileggono.
+  useClockRefresh();
   useAutomationsLiveRefresh();
   // Prima del primo disegno: le testate su Windows riservano i controlli finestra.
   useLayoutEffect(applyPlatformAttribute, []);
@@ -64,7 +73,7 @@ export function AppLayout() {
       {!noColumn && <Column />}
       <div data-zone="work-row" className="relative flex min-h-0 min-w-0">
         <main data-zone="work" className="min-w-0 flex-1 overflow-auto">
-          <Outlet />
+          <IntegrationGate />
         </main>
         <TaskDetailHost />
         <RequestDetailHost />
@@ -74,6 +83,10 @@ export function AppLayout() {
         <DriveDetailHost />
         <SourceDetailHost />
         <PrPanelHost />
+        <CredentialPanelHost />
+        <PendingPanelHost />
+        <ProjectAccessLogHost />
+        <VaultCommandHost />
         <DepartmentPanelHost />
         <MemberPanelHost />
         {/* L'anteprima intera di un file del Drive copre l'area di lavoro (binario e colonna restano). */}
@@ -94,4 +107,17 @@ export function AppLayout() {
       <ToastRegion />
     </div>
   );
+}
+
+/**
+ * L'area di lavoro: la pagina dell'indirizzo, o «Coming soon» quando la
+ * build app non l'ha ancora integrata (nel prototipo sempre la pagina). La
+ * pagina non integrata non si monta proprio: nessuna sua lettura parte.
+ */
+function IntegrationGate() {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const view = useRouterState({ select: (s) => (s.location.search as { view?: unknown }).view });
+  const gate = integrationTargetOf(pathname, { view });
+  if (gate && !isIntegrated(gate.target)) return <ComingSoon titleKey={gate.titleKey} />;
+  return <Outlet />;
 }

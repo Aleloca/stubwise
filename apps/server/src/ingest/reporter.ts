@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Db } from "@stubwise/db";
 import { users } from "@stubwise/db";
 
@@ -16,7 +16,10 @@ export async function resolveReporter(db: Db, email?: string | null): Promise<st
   const [user] = await db
     .select({ id: users.id })
     .from(users)
-    .where(sql`lower(${users.email}) = lower(${email})`)
+    // Mai l'utente di sistema «Claude» (fetta 3e): non è un autore.
+    // Né una persona disattivata (area 9, F1): da Slack non agisce e non
+    // riceve ticket esterni, come da ogni altra porta.
+    .where(and(sql`lower(${users.email}) = lower(${email})`, eq(users.isAgent, false), isNull(users.deactivatedAt)))
     .limit(1);
   return user?.id ?? null;
 }
@@ -35,7 +38,7 @@ export async function resolveReporterBySlackId(
   const [user] = await db
     .select({ id: users.id })
     .from(users)
-    .where(eq(users.slackUserId, slackUserId))
+    .where(and(eq(users.slackUserId, slackUserId), eq(users.isAgent, false), isNull(users.deactivatedAt)))
     .limit(1);
   return user?.id ?? null;
 }

@@ -7,12 +7,22 @@ import type { SupportWidget } from "../../data/types";
 
 const ORIGIN = "https://stubwise.example.com";
 
-const dsnOf = (w: Pick<SupportWidget, "id" | "projectId">) =>
-  `${ORIGIN}/widget/${w.projectId}?key=${w.id}`;
+/**
+ * Nella build app (area 8, F3) il widget porta la sua chiave pubblica e
+ * l'indirizzo vero dell'istanza; il prototipo no (l'istanza finta, l'id).
+ */
+type SnippetWidget = Pick<SupportWidget, "id" | "projectId"> & {
+  key?: string;
+  snippetOrigin?: string;
+};
 
-export function widgetSnippet(w: Pick<SupportWidget, "id" | "projectId">): string {
+const originOf = (w: SnippetWidget) => w.snippetOrigin ?? ORIGIN;
+
+const dsnOf = (w: SnippetWidget) => `${originOf(w)}/widget/${w.projectId}?key=${w.key ?? w.id}`;
+
+export function widgetSnippet(w: SnippetWidget): string {
   return [
-    `<script src="${ORIGIN}/widget.js" defer></script>`,
+    `<script src="${originOf(w)}/widget.js" defer></script>`,
     "<script>",
     '  window.addEventListener("stubwise:ready", function () {',
     "    Stubwise.initWidget({",
@@ -38,7 +48,7 @@ export function widgetGuideFile(w: Pick<SupportWidget, "name">): string {
  * La guida autocontenuta, in inglese come sul web: è un documento tecnico da
  * incollare a chi installa (o a un agente), non testo dell'interfaccia.
  */
-export function widgetGuide(w: SupportWidget): string {
+export function widgetGuide(w: SupportWidget & Omit<SnippetWidget, "id" | "projectId">): string {
   const name = w.name.replace(/\s*\n+\s*/g, " ");
   return [
     `# Install the Stubwise widget "${name}"`,
@@ -54,7 +64,8 @@ export function widgetGuide(w: SupportWidget): string {
     "## Key facts",
     "",
     `- DSN: \`${dsnOf(w)}\``,
-    `- Allowed sites: ${w.origins.length ? w.origins.map((o) => `\`${o}\``).join(", ") : "none yet"}`,
+    // Elenco vuoto: qualunque sito lo carica (area 8, F3, decisione del maintainer).
+    `- Allowed sites: ${w.origins.length ? w.origins.map((o) => `\`${o}\``).join(", ") : "any site (the list is empty)"}`,
     `- Language: ${w.language === "it" ? "Italian" : "English"}`,
     `- Status: ${w.enabled ? "on" : "off (it accepts no new conversations)"}`,
     "",

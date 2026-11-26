@@ -153,12 +153,8 @@ async function seedFixture(
   );
   if (created.statusCode !== 201) throw new Error(`repository: ${created.statusCode} ${created.body}`);
   const repo = created.json() as { id: string; slug: string };
-  const hook = await app.inject({
-    method: "GET",
-    url: `/api/repositories/${repo.slug}/webhook`,
-    headers: { cookie: adminCookie },
-  });
-  const { webhookSecret } = hook.json() as { webhookSecret: string };
+  // Il segreto intero esce solo dalla creazione (area 9, F5, decisione C).
+  const { webhookSecret } = created.json() as { webhookSecret: string };
 
   await testDb.db
     .update(repositories)
@@ -2036,6 +2032,8 @@ describe("apertura/aggiornamento della PR con una correzione aperta", () => {
 describe("webhook \"Request changes\" su una PR ADOTTATA (6 ott 2026)", () => {
   it("adottata: una persona chiede modifiche sul branch del collega → correzione `provider` in coda", async () => {
     const fx = await seedFixture({ branch: "feature/login", adoption: "adopted" });
+    // Area 8, F1, S8: il «Request changes» della piattaforma vale con «analisi e correzioni».
+    await testDb.db.update(repositories).set({ colleaguePrs: "analyze_and_fix" }).where(eq(repositories.id, fx.repositoryId));
     identityMustNotBeCalled(GitHubProvider);
 
     await postGithub(fx, githubReview({ branch: "feature/login" }));
@@ -2044,6 +2042,17 @@ describe("webhook \"Request changes\" su una PR ADOTTATA (6 ott 2026)", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ ticketId: fx.ticketId, trigger: "provider", status: "queued" });
     expect(await correctionJobsOf(fx.ticketId)).toHaveLength(1);
+  });
+
+  it("area 8, F1, S8 ((O) di 46): «solo analisi» sul repository, «Request changes» dalla piattaforma sulla PR del collega → nessuna correzione", async () => {
+    const fx = await seedFixture({ branch: "feature/login", adoption: "adopted" });
+    await testDb.db.update(repositories).set({ colleaguePrs: "analyze_only" }).where(eq(repositories.id, fx.repositoryId));
+    identityMustNotBeCalled(GitHubProvider);
+
+    await postGithub(fx, githubReview({ branch: "feature/login" }));
+
+    expect(await correctionsOf(fx.repositoryId)).toHaveLength(0);
+    expect(await correctionJobsOf(fx.ticketId)).toHaveLength(0);
   });
 
   it("rilasciata: nessuna riga", async () => {

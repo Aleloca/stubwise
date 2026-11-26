@@ -1,0 +1,171 @@
+import { personRefSchema } from "./person-ref.js";
+import { z } from "zod";
+import { backlogItemStatusSchema, backlogJobStatusSchema, backlogUrgencySchema } from "./backlog.js";
+import { productOriginSchema } from "./product-docs.js";
+import { taskSizeSchema } from "./task-view.js";
+
+/**
+ * Una richiesta da trasformare in task (integrazione area 2, fetta 3): la
+ * forma minima di `ProjectRequest` del prototipo che servono a «Da decidere»
+ * e al blocco «Richieste nuove» della Home. La sezione Requests arriva con la
+ * fetta 4: fino ad allora la voce si apre nel web vecchio (`webHref`).
+ */
+export const requestToConvertViewSchema = z.object({
+  id: z.uuid(),
+  /** `<PROGETTO>-R<n>`: il numero di catalogo della voce (contatore del progetto, mai riusato). */
+  code: z.string(),
+  projectId: z.uuid(),
+  title: z.string(),
+  status: backlogItemStatusSchema,
+  /** La scala dei ticket (low/medium/high/urgent); null se non stimata. */
+  urgency: backlogUrgencySchema.nullable(),
+  requesterIds: z.array(personRefSchema).default([]),
+  requestCount: z.number().int().default(1),
+  createdAt: z.iso.datetime(),
+  /** La voce nel web vecchio. */
+  webHref: z.string(),
+});
+export type RequestToConvertView = z.infer<typeof requestToConvertViewSchema>;
+
+/** Il livello del prototipo (urgenza, rischio): tre gradi. `urgent` del server si legge `high` + `urgent: true`. */
+export const requestLevelSchema = z.enum(["low", "medium", "high"]);
+
+/**
+ * Una richiesta come la mostra l'app nuova (integrazione area 2, fetta 4): la
+ * forma di `ProjectRequest` del prototipo sopra una voce di backlog. Il codice
+ * è il numero di catalogo vero (`<PROGETTO>-R<n>`, 0121); `description` è il
+ * testo della richiesta e `design` il design scritto dopo (quando il design ha
+ * sostituito il corpo, il corpo originale è `description`).
+ */
+export const projectRequestViewSchema = z.object({
+  id: z.uuid(),
+  code: z.string(),
+  projectId: z.uuid(),
+  title: z.string(),
+  description: z.string(),
+  requesterIds: z.array(personRefSchema).default([]),
+  status: backlogItemStatusSchema,
+  /** null: non stimata (il prototipo la mostra «medium»). */
+  urgency: requestLevelSchema.nullable(),
+  /** L'urgenza del server è `urgent` (la più alta, oltre `high`): l'app la segna senza perderla. */
+  urgent: z.boolean().default(false),
+  size: taskSizeSchema.nullable().default(null),
+  risk: requestLevelSchema.nullable().default(null),
+  riskNote: z.string().nullable().default(null),
+  design: z.string().nullable().default(null),
+  plan: z.string().nullable().default(null),
+  similarToId: z.uuid().nullable().default(null),
+  mergedIntoId: z.uuid().nullable().default(null),
+  mergedIntoCode: z.string().nullable().default(null),
+  taskIds: z.array(z.uuid()).default([]),
+  /**
+   * I codici delle task nate da questa richiesta e poi ELIMINATE («Elimina
+   * task»): la richiesta dice «La task MKX-31 è stata eliminata». Derivato
+   * dalla lapide a lettura; default per un server più vecchio.
+   */
+  deletedTaskCodes: z.array(z.string()).default([]),
+  /**
+   * Area 8, F3: da dove viene — una conversazione di Support (widget o Claude
+   * Code); la conversazione si legge per codice. Derivata a lettura; null per
+   * le altre e da un server più vecchio.
+   */
+  origin: z
+    .object({
+      kind: z.literal("support"),
+      conversationCode: z.string(),
+      channel: z.enum(["widget", "mcp"]),
+      customerName: z.string().nullable().default(null),
+      messageCount: z.number().int().nonnegative(),
+    })
+    .nullable()
+    .default(null),
+  /** Area 11, F6: la pagina da cui nasce (`productOriginSchema`), derivata a lettura; null a chi non la legge. Additivo. */
+  productOrigin: productOriginSchema.nullable().default(null),
+  createdAt: z.iso.datetime(),
+  /** Le proposte dell'intake ancora da decidere (testo dell'AI), o null. */
+  suggestions: z
+    .object({
+      urgency: requestLevelSchema.optional(),
+      size: taskSizeSchema.optional(),
+      risk: requestLevelSchema.optional(),
+      riskNote: z.string().optional(),
+      reason: z.string().default(""),
+    })
+    .nullable()
+    .default(null),
+  webHref: z.string(),
+});
+export type ProjectRequestView = z.infer<typeof projectRequestViewSchema>;
+
+/** Quanti caratteri della descrizione porta l'elenco. */
+export const REQUEST_EXCERPT_LENGTH = 300;
+
+/**
+ * Una richiesta nell'ELENCO (`GET /api/requests`): la vista senza i testi
+ * interi — descrizione, design e piano li porta solo il dettaglio. Al loro
+ * posto i primi {@link REQUEST_EXCERPT_LENGTH} caratteri della descrizione e
+ * se design e piano ci sono.
+ */
+export const projectRequestSummarySchema = projectRequestViewSchema
+  .omit({ description: true, design: true, plan: true })
+  .extend({
+    excerpt: z.string().default(""),
+    hasDesign: z.boolean().default(false),
+    hasPlan: z.boolean().default(false),
+  });
+export type ProjectRequestSummary = z.infer<typeof projectRequestSummarySchema>;
+
+/**
+ * Area 11, F5: la richiesta nasce da una domanda di Claude sulla doc di
+ * prodotto («Open a request», la scheda B del riquadro di Claude). Il server
+ * la controlla PRIMA che la richiesta nasca (la pagina è del progetto, chi
+ * chiede legge i Docs, la domanda è aperta, è di quella pagina, ha una
+ * richiesta da proporre, e chi chiede può rispondere) e chiude la domanda
+ * nella stessa scrittura. F6: senza `questionId` è una voce proposta dalla
+ * pagina («Turn into backlog items», la scheda B di `backlog-candidates`): la
+ * pagina è del progetto e chi chiede la legge; una frase già proposta (pagina
+ * e ancora) è 409 `already_proposed`; un'ancora che non c'è più lascia
+ * l'origine sulla pagina.
+ */
+export const productDocOriginSchema = z
+  .object({ kind: z.literal("product_doc"), pageId: z.uuid(), anchorId: z.string().min(1).max(100), questionId: z.uuid().optional() })
+  .strict();
+export type ProductDocOrigin = z.infer<typeof productDocOriginSchema>;
+
+/** Corpo di `POST /api/requests`: come oggi passa dall'intake, che può fonderla in una esistente. */
+export const newRequestBodySchema = z.object({
+  projectId: z.uuid(),
+  title: z.string().trim().min(1).max(300),
+  description: z.string().max(100_000).default(""),
+  /**
+   * «Create request» da un messaggio della Chat (area 4, fetta 2): a fine
+   * intake il messaggio mostra il codice della richiesta. Chi la crea lo deve
+   * leggere.
+   */
+  chatMessageId: z.uuid().optional(),
+  /** Area 11, F5: da una domanda di Claude sulla doc (`productDocOriginSchema`). */
+  origin: productDocOriginSchema.optional(),
+});
+export type NewRequestBody = z.infer<typeof newRequestBodySchema>;
+
+/** L'esito dell'intake di una richiesta creata dall'app: nuova, o fusa in una esistente. */
+export const requestJobViewSchema = z.object({
+  /** Lo stato del job di intake: lo stesso enum dei job di backlog, non una copia. */
+  status: backlogJobStatusSchema,
+  /** null finché il job non è finito (o se è fallito). */
+  outcome: z.enum(["created", "merged"]).nullable(),
+  request: projectRequestViewSchema.nullable(),
+});
+export type RequestJobView = z.infer<typeof requestJobViewSchema>;
+
+/** Corpo di `PATCH /api/requests/:id`: titolo, descrizione e metadati; gli assenti restano. */
+export const requestPatchBodySchema = z.object({
+  title: z.string().trim().min(1).max(300).optional(),
+  /** Il testo della richiesta (non il design). */
+  description: z.string().max(100_000).optional(),
+  urgency: requestLevelSchema.optional(),
+  size: taskSizeSchema.nullable().optional(),
+  risk: requestLevelSchema.nullable().optional(),
+  riskNote: z.string().trim().max(2000).nullable().optional(),
+});
+export type RequestPatchBody = z.infer<typeof requestPatchBodySchema>;

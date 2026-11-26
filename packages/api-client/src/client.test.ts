@@ -219,3 +219,412 @@ describe("createStubwiseClient", () => {
     await expect(client.request("GET", "/api/x")).resolves.toEqual({ qualsiasi: "cosa" });
   });
 });
+
+describe("gruppi dell'integrazione area 2 (task, decisioni, reparti, persone, stati)", () => {
+  const VIEW = {
+    id: "0b1e6f3a-1111-4222-8333-444455556666",
+    ticketId: "0b1e6f3a-1111-4222-8333-444455556666",
+    number: 1,
+    code: "AUD-1",
+    projectId: "1c2d3e4f-1111-4222-8333-444455556666",
+    title: "t",
+    description: "",
+    statusId: "2d3e4f5a-1111-4222-8333-444455556666",
+    departmentId: "3e4f5a6b-1111-4222-8333-444455556666",
+    assigneeId: null,
+    createdById: null,
+    size: null,
+    milestoneId: null,
+    type: "bug",
+    priority: "medium",
+    createdAt: "2026-11-01T00:00:00.000Z",
+    closedAt: null,
+    lastActivityAt: "2026-11-01T00:00:00.000Z",
+  };
+
+  it("tasks.list: path, query con gli array separati da virgola e il periodo appiattito", async () => {
+    const fetchImpl = mockFetch(async () => jsonResponse(200, { items: [VIEW], truncated: false }));
+    const client = clientWith(fetchImpl);
+    const page = await client.tasks.list({
+      families: ["todo"],
+      sizes: ["XS", "none"],
+      stalled: true,
+      period: { field: "due", kind: "relative", preset: "thisWeek" },
+    });
+    expect(page.items[0]!.code).toBe("AUD-1");
+    // I default dello schema condiviso girano: slipCount e plannedWeek arrivano anche se il server non li manda.
+    expect(page.items[0]!.slipCount).toBe(0);
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    const parsed = new URL(url as string);
+    expect(parsed.pathname).toBe("/api/tasks");
+    expect(Object.fromEntries(parsed.searchParams)).toEqual({
+      families: "todo",
+      sizes: "XS,none",
+      stalled: "true",
+      periodField: "due",
+      periodPreset: "thisWeek",
+    });
+    expect(init!.method).toBe("GET");
+  });
+
+  it("tasks.list: `savedFilterId` va nella query accanto ai segnaposto (registro, A11 r.1414)", async () => {
+    const fetchImpl = mockFetch(async () => jsonResponse(200, { items: [], truncated: false }));
+    await clientWith(fetchImpl).tasks.list({ assigneeIds: ["hidden-1", "none"], savedFilterId: "f1" });
+    const parsed = new URL(fetchImpl.mock.calls[0]![0] as string);
+    expect(Object.fromEntries(parsed.searchParams)).toEqual({ assigneeIds: "hidden-1,none", savedFilterId: "f1" });
+  });
+
+  it("tasks.bulkUpdate: PATCH /api/tasks/bulk con ids e patch nel corpo", async () => {
+    const fetchImpl = mockFetch(async () => jsonResponse(200, [VIEW]));
+    const client = clientWith(fetchImpl);
+    await client.tasks.bulkUpdate(["a", "b"], { size: "S" });
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(url).toBe("https://stubwise.example/api/tasks/bulk");
+    expect(init!.method).toBe("PATCH");
+    expect(JSON.parse(init!.body as string)).toEqual({ ids: ["a", "b"], patch: { size: "S" } });
+  });
+
+  it("pianificazione: tasks.plan, tasks.setDay, me.dayArrangements e plannedWeek in bulk e nei filtri", async () => {
+    const calls: [string, string, unknown][] = [];
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async (url, init) => {
+      calls.push([init!.method!, url as string, init!.body ? JSON.parse(init!.body as string) : undefined]);
+      const path = new URL(url as string).pathname;
+      if (path.endsWith("/plan")) return jsonResponse(200, { ...VIEW, plannedWeek: "2026-W47", canPlan: true });
+      if (path.endsWith("/day")) return jsonResponse(200, { taskId: VIEW.id, week: "2026-W47", day: 2 });
+      if (path === "/api/me/day-arrangements") return jsonResponse(200, [{ taskId: VIEW.id, week: "2026-W47", day: null }]);
+      if (path === "/api/tasks") return jsonResponse(200, { items: [VIEW], truncated: false });
+      return jsonResponse(200, [VIEW]);
+    });
+    const c = clientWith(fetchImpl);
+    const base = "https://stubwise.example";
+    const planned = await c.tasks.plan("t1", { assigneeId: "u1", week: "2026-W47" });
+    expect(planned.plannedWeek).toBe("2026-W47");
+    expect(planned.canPlan).toBe(true);
+    expect(await c.tasks.setDay("t1", { week: "2026-W47", day: 2 })).toEqual({ taskId: VIEW.id, week: "2026-W47", day: 2 });
+    expect(await c.me.dayArrangements("2026-W47")).toEqual([{ taskId: VIEW.id, week: "2026-W47", day: null }]);
+    await c.tasks.bulkUpdate(["a"], { plannedWeek: "2026-W48" });
+    await c.tasks.list({ period: { field: "plannedWeek", kind: "relative", preset: "nextWeek" } });
+    expect(calls).toEqual([
+      ["POST", `${base}/api/tasks/t1/plan`, { assigneeId: "u1", week: "2026-W47" }],
+      ["PUT", `${base}/api/tasks/t1/day`, { week: "2026-W47", day: 2 }],
+      ["GET", `${base}/api/me/day-arrangements?week=2026-W47`, undefined],
+      ["PATCH", `${base}/api/tasks/bulk`, { ids: ["a"], patch: { plannedWeek: "2026-W48" } }],
+      ["GET", `${base}/api/tasks?periodField=plannedWeek&periodPreset=nextWeek`, undefined],
+    ]);
+  });
+
+  it("filtri salvati: filters.* e i fissati", async () => {
+    const FILTER = {
+      id: "00000000-0000-4000-8000-000000000001",
+      name: "Open",
+      ownerId: null,
+      visibility: "public",
+      criteria: { families: ["todo", "active"] },
+      view: "list",
+      groupBy: "status",
+      createdAt: "2026-11-09T00:00:00.000Z",
+      updatedAt: "2026-11-09T00:00:00.000Z",
+    };
+    const calls: [string, string, unknown][] = [];
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async (url, init) => {
+      calls.push([init!.method!, url as string, init!.body ? JSON.parse(init!.body as string) : undefined]);
+      const path = new URL(url as string).pathname;
+      if (init!.method === "DELETE" || init!.method === "PUT") return new Response(null, { status: 204 });
+      if (path === "/api/me/pinned-filters") return jsonResponse(200, [FILTER.id]);
+      if (path === "/api/filters" && init!.method === "GET") return jsonResponse(200, [FILTER]);
+      return jsonResponse(init!.method === "POST" ? 201 : 200, FILTER);
+    });
+    const c = clientWith(fetchImpl);
+    const base = "https://stubwise.example";
+    const [listed] = await c.filters.list();
+    // canEdit assente da un server più vecchio: false, non undefined.
+    expect(listed!.canEdit).toBe(false);
+    expect((await c.filters.get(FILTER.id)).name).toBe("Open");
+    const body = { name: "Mie", visibility: "private" as const, criteria: { stalled: true }, view: "board" as const, groupBy: "none" as const };
+    await c.filters.create(body);
+    await c.filters.update(FILTER.id, { name: "Rinominato" });
+    await c.filters.remove(FILTER.id);
+    expect(await c.filters.pinned()).toEqual([FILTER.id]);
+    await c.filters.pin(FILTER.id);
+    await c.filters.unpin(FILTER.id);
+    expect(calls).toEqual([
+      ["GET", `${base}/api/filters`, undefined],
+      ["GET", `${base}/api/filters/${FILTER.id}`, undefined],
+      ["POST", `${base}/api/filters`, body],
+      ["PATCH", `${base}/api/filters/${FILTER.id}`, { name: "Rinominato" }],
+      ["DELETE", `${base}/api/filters/${FILTER.id}`, undefined],
+      ["GET", `${base}/api/me/pinned-filters`, undefined],
+      ["PUT", `${base}/api/me/pinned-filters/${FILTER.id}`, undefined],
+      ["DELETE", `${base}/api/me/pinned-filters/${FILTER.id}`, undefined],
+    ]);
+  });
+
+  it("Home e ruoli di reparto: home.*, departments.home/setHome/roles/setRoles", async () => {
+    const D = "00000000-0000-4000-8000-0000000000d1";
+    const U = "00000000-0000-4000-8000-0000000000a1";
+    const HOME = { blocks: [{ kind: "decide" }, { kind: "myWeek" }], personal: null };
+    const DEPT_HOME = { departmentId: D, blocks: [{ kind: "decide" }], updatedAt: null };
+    const ROLES = [{ departmentId: D, userId: U, permissions: ["department.home.manage"] }];
+    const calls: [string, string, unknown][] = [];
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async (url, init) => {
+      calls.push([init!.method!, url as string, init!.body ? JSON.parse(init!.body as string) : undefined]);
+      const path = new URL(url as string).pathname;
+      if (init!.method === "DELETE" || init!.method === "POST") return new Response(null, { status: 204 });
+      if (path === "/api/me/home") return jsonResponse(200, HOME);
+      if (path.endsWith("/home")) return jsonResponse(200, DEPT_HOME);
+      return jsonResponse(200, ROLES);
+    });
+    const c = clientWith(fetchImpl);
+    const base = "https://stubwise.example";
+    const home = await c.home.get();
+    // Campi assenti da un server più vecchio: i default, non undefined.
+    expect(home.departmentChanged).toEqual([]);
+    expect(home.newBlocks).toEqual([]);
+    expect(home.departmentHomes).toEqual([]);
+    await c.home.set([{ kind: "myTasks" }]);
+    await c.home.reset();
+    await c.home.markSeen(D, "2026-11-09T08:00:00.000Z");
+    expect((await c.departments.home(D)).updatedById).toBeNull();
+    await c.departments.setHome(D, [{ kind: "filter", filterId: "f" }]);
+    expect(await c.departments.roles()).toEqual(ROLES);
+    await c.departments.setRoles(D, [{ userId: U, permissions: ["department.home.manage"] }]);
+    expect(calls).toEqual([
+      ["GET", `${base}/api/me/home`, undefined],
+      ["PUT", `${base}/api/me/home`, { blocks: [{ kind: "myTasks" }] }],
+      ["DELETE", `${base}/api/me/home`, undefined],
+      ["POST", `${base}/api/me/home/seen/${D}`, { updatedAt: "2026-11-09T08:00:00.000Z" }],
+      ["GET", `${base}/api/departments/${D}/home`, undefined],
+      ["PUT", `${base}/api/departments/${D}/home`, { blocks: [{ kind: "filter", filterId: "f" }] }],
+      ["GET", `${base}/api/departments/roles`, undefined],
+      ["PUT", `${base}/api/departments/${D}/roles`, { roles: [{ userId: U, permissions: ["department.home.manage"] }] }],
+    ]);
+  });
+
+  it("richieste da trasformare: requests.toConvert", async () => {
+    const ROW = {
+      id: "00000000-0000-4000-8000-0000000000e1",
+      code: "STW-R4",
+      projectId: "00000000-0000-4000-8000-0000000000e2",
+      title: "Esportare in CSV",
+      status: "ready",
+      urgency: null,
+      createdAt: "2026-11-09T10:00:00.000Z",
+      webHref: "/backlog/00000000-0000-4000-8000-0000000000e1",
+    };
+    const fetchImpl = mockFetch(async () => jsonResponse(200, [ROW]));
+    const [row] = await clientWith(fetchImpl).requests.toConvert();
+    // Campi assenti da un server più vecchio: i default.
+    expect(row).toMatchObject({ code: "STW-R4", requesterIds: [], requestCount: 1 });
+    expect(fetchImpl.mock.calls[0]![0]).toBe("https://stubwise.example/api/requests/to-convert");
+  });
+
+  it("Nuovo progetto: projects.create con codice, modello, cliente e moduli; i campi nuovi della risposta", async () => {
+    const PROJECT = {
+      id: "00000000-0000-4000-8000-0000000000f1",
+      name: "Lancio",
+      slug: "lancio",
+      description: null,
+      aiProviderId: null,
+      docAutoUpdate: false,
+      dailyReportEnabled: false,
+      backlogEnabled: false,
+      pulseEnabled: false,
+      pulseEveryDays: 7,
+      ingestionKey: "k",
+      nextTicketNumber: 1,
+      createdAt: "2026-11-09T10:00:00.000Z",
+      code: "LAN",
+      template: "marketing",
+      modules: [],
+      clientName: "Acme",
+      kind: "client",
+    };
+    const calls: [string, string, unknown][] = [];
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async (url, init) => {
+      calls.push([init!.method!, url as string, JSON.parse(init!.body as string)]);
+      return jsonResponse(init!.method === "POST" ? 201 : 200, PROJECT);
+    });
+    const c = clientWith(fetchImpl);
+    const body = { name: "Lancio", code: "LAN", template: "marketing" as const, clientName: "Acme", modules: [] };
+    const created = await c.projects.create(body);
+    expect(created).toMatchObject({ template: "marketing", modules: [], kind: "client", clientName: "Acme" });
+    await c.projects.patch(PROJECT.id, { clientName: null, modules: ["docs"] });
+    expect(calls).toEqual([
+      ["POST", "https://stubwise.example/api/projects", body],
+      ["PATCH", `https://stubwise.example/api/projects/${PROJECT.id}`, { clientName: null, modules: ["docs"] }],
+    ]);
+  });
+
+  it("traguardi: milestones.get/create/update/remove sulle rotte /api/milestones", async () => {
+    const M = {
+      id: "00000000-0000-4000-8000-0000000000c1",
+      projectId: "00000000-0000-4000-8000-0000000000c2",
+      name: "Rilascio",
+      description: null,
+      dueDate: null,
+      status: "open",
+      closedAt: null,
+      createdAt: "2026-11-09T10:00:00.000Z",
+    };
+    // `byStatus` PARZIALE (è un partialRecord): il reader lo deve accettare.
+    const byStatus = { open: 0 };
+    const WITH = { ...M, counts: { total: 0, completed: 0, byStatus } };
+    const calls: [string, string, unknown][] = [];
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async (url, init) => {
+      calls.push([init!.method!, url as string, init!.body ? JSON.parse(init!.body as string) : undefined]);
+      if (init!.method === "DELETE") return new Response(null, { status: 204 });
+      return jsonResponse(init!.method === "POST" ? 201 : 200, init!.method === "POST" ? M : WITH);
+    });
+    const c = clientWith(fetchImpl);
+    const base = "https://stubwise.example/api/milestones";
+    expect((await c.milestones.get(M.id)).counts.total).toBe(0);
+    expect((await c.milestones.create({ projectId: M.projectId, name: "Rilascio" })).status).toBe("open");
+    await c.milestones.update(M.id, { status: "closed" });
+    await c.milestones.remove(M.id);
+    expect(calls).toEqual([
+      ["GET", `${base}/${M.id}`, undefined],
+      ["POST", base, { projectId: M.projectId, name: "Rilascio" }],
+      ["PATCH", `${base}/${M.id}`, { status: "closed" }],
+      ["DELETE", `${base}/${M.id}`, undefined],
+    ]);
+  });
+
+  it("Overview: projects.chronology e activity.portfolio a pagine (before), projects.latestBrief", async () => {
+    const P = "00000000-0000-4000-8000-0000000000b1";
+    const PAGE = {
+      events: [{ kind: "task_opened", at: "2026-11-09T10:00:00.000Z", taskId: "00000000-0000-4000-8000-0000000000b2" }],
+      nextBefore: "2026-10-12T10:00:00.000Z",
+    };
+    const calls: string[] = [];
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async (url) => {
+      calls.push(url as string);
+      if ((url as string).includes("/briefs/latest")) return jsonResponse(200, null);
+      return jsonResponse(200, PAGE);
+    });
+    const c = clientWith(fetchImpl);
+    const first = await c.projects.chronology(P);
+    expect(first.nextBefore).toBe(PAGE.nextBefore);
+    await c.projects.chronology(P, first.nextBefore!);
+    await c.activity.portfolio();
+    await c.activity.portfolio("2026-10-12T10:00:00.000Z");
+    expect(await c.projects.latestBrief(P)).toBeNull();
+    const base = "https://stubwise.example";
+    expect(calls).toEqual([
+      `${base}/api/projects/${P}/chronology`,
+      `${base}/api/projects/${P}/chronology?before=2026-10-12T10%3A00%3A00.000Z`,
+      `${base}/api/activity/portfolio`,
+      `${base}/api/activity/portfolio?before=2026-10-12T10%3A00%3A00.000Z`,
+      `${base}/api/projects/${P}/briefs/latest`,
+    ]);
+  });
+
+  it("Requests: requests.list/get/byCode/create/job/update/archive/reopen/restore/merge", async () => {
+    const R = "00000000-0000-4000-8000-0000000000a9";
+    const P = "00000000-0000-4000-8000-0000000000a8";
+    const VIEW = {
+      id: R,
+      code: "STW-R4",
+      projectId: P,
+      title: "Esportare",
+      description: "",
+      status: "new",
+      urgency: null,
+      createdAt: "2026-11-09T10:00:00.000Z",
+      webHref: `/backlog/${R}`,
+    };
+    const calls: [string, string, unknown][] = [];
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async (url, init) => {
+      calls.push([init!.method!, url as string, init!.body ? JSON.parse(init!.body as string) : undefined]);
+      const path = new URL(url as string).pathname;
+      if (path === "/api/requests" && init!.method === "GET") return jsonResponse(200, [VIEW]);
+      if (path === "/api/requests" && init!.method === "POST") return jsonResponse(202, { jobId: R });
+      if (path.startsWith("/api/requests/jobs/")) return jsonResponse(200, { status: "done", outcome: "merged", request: VIEW });
+      return jsonResponse(200, VIEW);
+    });
+    const c = clientWith(fetchImpl);
+    const [listed] = await c.requests.list(P);
+    // Campi assenti da un server più vecchio: i default. L'elenco è leggero: niente testi interi.
+    expect(listed).toMatchObject({ requesterIds: [], taskIds: [], urgent: false, size: null, mergedIntoCode: null, suggestions: null });
+    expect(listed).toMatchObject({ excerpt: "", hasDesign: false, hasPlan: false });
+    expect(listed).not.toHaveProperty("description");
+    await c.requests.get(R);
+    await c.requests.byCode("STW-R4");
+    expect(await c.requests.create({ projectId: P, title: "Esportare", description: "" })).toEqual({ jobId: R });
+    expect((await c.requests.job(R)).outcome).toBe("merged");
+    await c.requests.update(R, { size: "M" });
+    await c.requests.archive(R);
+    await c.requests.reopen(R);
+    await c.requests.restore(R, "ready");
+    await c.requests.merge(R, P);
+    await c.requests.update(R, { description: "Testo nuovo" });
+    await c.requests.acceptSuggestions(R);
+    await c.requests.dismissSuggestions(R);
+    const base = "https://stubwise.example/api/requests";
+    expect(calls).toEqual([
+      ["GET", `${base}?projectId=${P}`, undefined],
+      ["GET", `${base}/${R}`, undefined],
+      ["GET", `${base}/by-code/STW-R4`, undefined],
+      ["POST", base, { projectId: P, title: "Esportare", description: "" }],
+      ["GET", `${base}/jobs/${R}`, undefined],
+      ["PATCH", `${base}/${R}`, { size: "M" }],
+      ["POST", `${base}/${R}/archive`, undefined],
+      ["POST", `${base}/${R}/reopen`, undefined],
+      ["POST", `${base}/${R}/restore`, { status: "ready" }],
+      ["POST", `${base}/${R}/merge`, { intoId: P }],
+      ["PATCH", `${base}/${R}`, { description: "Testo nuovo" }],
+      ["POST", `${base}/${R}/suggestions/accept`, undefined],
+      ["POST", `${base}/${R}/suggestions/dismiss`, undefined],
+    ]);
+  });
+
+  it("departments.remove: DELETE con moveTasksTo in query", async () => {
+    const fetchImpl = mockFetch(async () => new Response(null, { status: 204 }));
+    const client = clientWith(fetchImpl);
+    await client.departments.remove("d-1", "x");
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(url).toBe("https://stubwise.example/api/departments/d-1?moveTasksTo=x");
+    expect(init!.method).toBe("DELETE");
+  });
+
+  it("i path degli altri gruppi", async () => {
+    const calls: [string, string][] = [];
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async (url, init) => {
+      calls.push([init!.method!, url as string]);
+      return new Response(null, { status: 204 });
+    });
+    const c = clientWith(fetchImpl);
+    const base = "https://stubwise.example";
+    // Le risposte 204 non hanno corpo: per questi bastano metodo e path.
+    await c.tasks.follow("t1");
+    await c.tasks.unfollow("t1");
+    expect(calls).toEqual([
+      ["PUT", `${base}/api/tasks/t1/follow`],
+      ["DELETE", `${base}/api/tasks/t1/follow`],
+    ]);
+  });
+});
+
+describe("login del desktop dal browser", () => {
+  it("desktopHandoff e desktopExchange: path, metodo e corpo", async () => {
+    const calls: [string, string, unknown][] = [];
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async (url, init) => {
+      calls.push([init!.method!, url as string, JSON.parse(init!.body as string)]);
+      return (url as string).endsWith("desktop-handoff")
+        ? jsonResponse(200, { code: "c" })
+        : jsonResponse(200, {
+            token: "stw_pat_x",
+            patId: "0b1e6f3a-1111-4222-8333-444455556666",
+            user: { id: "0b1e6f3a-1111-4222-8333-444455556666", email: "a@b.it", role: "member", language: "it", avatarUrl: null, slackUserId: null },
+          });
+    });
+    const c = clientWith(fetchImpl);
+    expect(await c.auth.desktopHandoff({ codeChallenge: "x".repeat(43), deviceName: "Mac" })).toEqual({ code: "c" });
+    const exchanged = await c.auth.desktopExchange({ code: "c", codeVerifier: "v".repeat(43), deviceName: "Mac" });
+    expect(exchanged.token).toBe("stw_pat_x");
+    expect(calls.map(([m, u]) => [m, u])).toEqual([
+      ["POST", "https://stubwise.example/api/auth/desktop-handoff"],
+      ["POST", "https://stubwise.example/api/auth/desktop-exchange"],
+    ]);
+    expect(calls[1]![2]).toEqual({ code: "c", codeVerifier: "v".repeat(43), deviceName: "Mac" });
+  });
+});

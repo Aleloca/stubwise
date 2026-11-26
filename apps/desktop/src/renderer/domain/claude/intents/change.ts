@@ -61,6 +61,8 @@ async function reasonWords(ctx: IntentContext, reason: ClassReason): Promise<str
       return t("claude.answers.classReason.irreversible");
     case "reauth":
       return t("claude.answers.classReason.reauth");
+    case "startsWork":
+      return t("claude.answers.classReason.startsWork");
   }
 }
 

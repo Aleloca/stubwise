@@ -51,6 +51,15 @@ describe("endpoints agentSessions", () => {
     expect(list.live[0]!.aiJobId).toBeNull();
     expect(list.live[0]!.outcome).toBeNull();
     expect(list.live[0]!.activeSegment).toBeNull();
+    expect(list.live[0]!.waitsOnViewer).toBe(false);
+  });
+
+  it("list passa i filtri dell'area 3 (kind, stato, «aspetta me») nella query", async () => {
+    const { client, fetchImpl } = clientReturning({ live: [], recent: [] });
+    await client.agentSessions.list({ projectId: ID, kind: "ai_job", state: "awaiting_approval", waitingOnMe: "true" });
+    const url = new URL(String(fetchImpl.mock.calls[0]![0]), "http://x");
+    expect(url.pathname).toBe("/api/agent-sessions");
+    expect(Object.fromEntries(url.searchParams)).toEqual({ projectId: ID, kind: "ai_job", state: "awaiting_approval", waitingOnMe: "true" });
   });
 
   it("un intervento senza authorName (server più vecchio) si legge null", async () => {

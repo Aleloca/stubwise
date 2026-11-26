@@ -31,7 +31,7 @@ export async function today(_text: string, ctx: IntentContext): Promise<Answer> 
     return [
       t("claude.answers.today.decisionLine", {
         task: cite(task),
-        person: names.get(d.askedById) ?? "",
+        person: (d.askedById && names.get(d.askedById)) || "",
         question: d.question,
       }),
     ];

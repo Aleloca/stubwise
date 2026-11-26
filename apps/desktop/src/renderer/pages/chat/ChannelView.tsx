@@ -8,8 +8,9 @@ import {
   type DragEvent,
   type ReactNode,
 } from "react";
+import { nameOrSomeone } from "./someone";
 import { useNavigate, useRouter } from "@tanstack/react-router";
-import { getSessionPersonId } from "../../data/session";
+import { featureIntegrated } from "../../data/integration";
 import { useTranslation } from "react-i18next";
 import {
   useArchiveChannel,
@@ -58,6 +59,7 @@ import { MessageList } from "./MessageList";
 import { PrivateChannelPage } from "./PrivateChannelPage";
 import { BackToResults } from "./ChatSearch";
 import { SystemCard } from "./SystemCard";
+import { attachmentLimits, attachmentRefusal, sendRefusalKey } from "./attachments";
 import { channelName, type ChannelName } from "../../domain/chatLabel";
 
 // Il canale: testata (nome, aperto/privato, membri, argomento, «People
@@ -69,9 +71,9 @@ import { channelName, type ChannelName } from "../../domain/chatLabel";
 // riga «New», bozza, invii a metà).
 
 const PAGE = 50;
+/** Il passo verso un messaggio da raggiungere (`?message=`): la pagina più grande del server. */
+const SEEK_PAGE = 200;
 const CODE_RE = new RegExp(CODE_IN_TEXT.source, "g");
-const MAX_ATTACHMENTS = 10;
-const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 /** Dopo quanto un invio che non ha ancora risposto dice «Sending…». */
 const SLOW_SEND_MS = 1000;
 /** Gli arrivi entro questo tempo si annunciano insieme (ms). */
@@ -86,11 +88,14 @@ export type ChannelHref = (params: { thread?: string; message?: string }) => str
  */
 function useOpenHref(): (href: string, as: { personId: string; from: string }) => void {
   const router = useRouter({ warn: false });
+  // Chi guarda ADESSO (anche nella build app, dove la sessione del prototipo è vuota).
+  const viewer = useRef("");
+  viewer.current = useSessionPersonId();
   return useCallback(
     (href: string, as: { personId: string; from: string }) => {
       // Solo se chi guarda e la pagina sono ancora quelli dell'invio: una
       // risposta arrivata dopo un cambio di persona o di pagina non porta via.
-      if (getSessionPersonId() !== as.personId) return;
+      if (viewer.current !== as.personId) return;
       const here = router
         ? router.state.location.pathname
         : window.location.hash.replace(/^#/, "").split("?")[0];
@@ -118,6 +123,8 @@ interface LocalSend {
   input: ChatSendInput;
   state: "sending" | "failed";
   slow: boolean;
+  /** Build app: un invio rifiutato per un allegato, il perché (chiave i18n). */
+  reason?: string | null;
 }
 
 /** Un istante subito prima di `iso` («Mark unread from here»). */
@@ -231,8 +238,7 @@ function ChannelBody({
   const people = usePeople().data;
   const departments = useDepartments().data;
   const name = useChannelName(channel, me);
-  const [limit, setLimit] = useState(PAGE);
-  const query = useChannelMessages(channel.id, limit);
+  const query = useChannelMessages(channel.id);
   const stream = useChannelStream(channel.id);
   // Caricando i più vecchi la pagina precedente resta a schermo.
   const lastPage = useRef<ChannelMessagesPage | null>(null);
@@ -287,11 +293,15 @@ function ChannelBody({
   }, [threadOnlyRoot, openThreadId, navigate]);
   const inFlow = !!openThreadId || (!!focused && threadOnlyRoot === null);
   const fetching = query.isFetching;
+  const failed = query.isError;
   useEffect(() => {
-    if (!reachId || !inFlow || !page?.hasMore || fetching) return;
+    // Su un errore ci si ferma (la pagina lo dice, con «Retry»): niente giri a vuoto.
+    if (!reachId || !inFlow || !page?.hasMore || fetching || failed) return;
     if (page.messages.some((m) => m.id === reachId)) return;
-    setLimit((n) => n + PAGE);
-  }, [reachId, inFlow, page, fetching]);
+    // Verso un messaggio lontano si sale di una pagina intera del server,
+    // dal cursore dell'ultima letta (le più nuove non si rileggono).
+    query.older(SEEK_PAGE);
+  }, [reachId, inFlow, page, fetching, failed]);
 
   const messages = useMemo(
     () => (page ? mergeFlow(page.messages, stream.messages, page.hasMore) : []),
@@ -393,13 +403,19 @@ function ChannelBody({
       setDrafts((current) => {
         const next = [...current];
         let error: string | null = null;
+        const limits = attachmentLimits();
         for (const file of files) {
-          if (next.length >= MAX_ATTACHMENTS) {
-            error = t("claude.conversation.attachments.tooMany", { count: MAX_ATTACHMENTS });
+          if (next.length >= limits.count) {
+            error = t("claude.conversation.attachments.tooMany", { count: limits.count });
             break;
           }
-          if (file.size > MAX_ATTACHMENT_BYTES) {
-            error = t("claude.conversation.attachments.tooBig", { name: file.name, mb: 20 });
+          const refusal = attachmentRefusal(file);
+          if (refusal === "tooBig") {
+            error = t("claude.conversation.attachments.tooBig", { name: file.name, mb: limits.mb });
+            continue;
+          }
+          if (refusal === "type") {
+            error = t("chat.attachments.typeNotAllowed", { name: file.name });
             continue;
           }
           const image = file.type.startsWith("image/");
@@ -410,6 +426,8 @@ function ChannelBody({
               name: file.name || t("claude.conversation.attachments.pasted"),
               sizeBytes: file.size,
               kind: image ? "image" : "file",
+              // La build app lo carica nel canale all'invio (fetta 4).
+              file,
             },
             ...(image && typeof URL.createObjectURL === "function"
               ? { previewUrl: URL.createObjectURL(file) }
@@ -453,13 +471,16 @@ function ChannelBody({
           setLocal((list) => list.filter((l) => l.key !== key));
           // «@Claude» nel canale: la risposta nasce nel thread, e per chi
           // l'ha chiamato il pannello si apre da solo su quel thread.
-          if (callsClaude(sent.text)) {
+          // Build app: @Claude nei canali è della fetta 3 (`chat-claude`).
+          if (featureIntegrated("chat-claude") && callsClaude(sent.text)) {
             openHref(hrefFor({ thread: sent.id }), { personId: me, from: hrefFor({}) });
           }
         },
-        () =>
+        (error: unknown) =>
           setLocal((list) =>
-            list.map((l) => (l.key === key ? { ...l, state: "failed", slow: false } : l)),
+            list.map((l) =>
+              l.key === key ? { ...l, state: "failed", slow: false, reason: sendRefusalKey(error) } : l,
+            ),
           ),
       )
       .finally(() => clearTimeout(timer));
@@ -482,7 +503,8 @@ function ChannelBody({
   const editLast = () => {
     const mine = [...messages]
       .reverse()
-      .find((m) => m.kind === "person" && m.authorId === me && m.deletedAt === null);
+      // Build app: solo un messaggio che il server lascia modificare.
+      .find((m) => m.kind === "person" && m.authorId === me && m.deletedAt === null && m.canEdit !== false);
     if (!mine) return false;
     setEditingId(mine.id);
     return true;
@@ -584,6 +606,7 @@ function ChannelBody({
               {l.state === "failed" ? (
                 <p className="text-xs">
                   <span className="font-semibold text-critical">{t("chat.message.notSent")}</span>
+                  {l.reason && <span className="text-ink-muted"> · {t(l.reason)}</span>}
                   {" · "}
                   <button
                     type="button"
@@ -684,6 +707,11 @@ function ChannelBody({
           }
         />
         <BackToResults messageId={focusMessageId} />
+        {stream.error === "limit" && (
+          <p role="status" className="px-4 py-1 text-sm text-ink-muted" data-stream-limit>
+            {t("chat.channel.streamLimit")}
+          </p>
+        )}
         {query.isError && !page ? (
           <div className="px-4">
             <PageError message={t("chat.channel.error")} onRetry={() => void query.refetch()} />
@@ -691,11 +719,18 @@ function ChannelBody({
         ) : !page ? (
           <ChannelSkeleton />
         ) : (
+          <>
+          {/* Caricando i più vecchi: la pagina di prima resta, l'errore si vede sopra. */}
+          {query.isError && (
+            <div className="px-4">
+              <PageError message={t("chat.channel.error")} onRetry={() => void query.refetch()} />
+            </div>
+          )}
           <MessageList
             days={days}
             hasMore={page.hasMore}
             loadingEarlier={query.isFetching && !query.data}
-            onLoadEarlier={() => setLimit((n) => n + PAGE)}
+            onLoadEarlier={() => query.older(PAGE)}
             renderRow={renderRow}
             onAtBottom={onAtBottom}
             focusId={reachId}
@@ -705,6 +740,7 @@ function ChannelBody({
             label={t("chat.flow.label", { name: name.label })}
             announce={announce}
           />
+          </>
         )}
         {channel.canRead && (
           <>
@@ -713,7 +749,7 @@ function ChannelBody({
                 <span>
                   {channel.archivedById && channel.archivedAt
                     ? t("chat.channel.archivedBandBy", {
-                        name: people?.find((p) => p.id === channel.archivedById)?.name ?? "",
+                        name: nameOrSomeone(people, channel.archivedById, t("chat.message.someone")),
                         date: formatDate(channel.archivedAt, i18n.language),
                       })
                     : t("chat.channel.archivedBand")}

@@ -1,4 +1,6 @@
 import { accessState } from "../access/index";
+import { personMasker } from "../access/hidden";
+import { knownPeopleFor } from "../access/whoCan";
 import { recordChange } from "../changelog/index";
 import { gate, newId, now, state, visibleProjectIds } from "../store";
 import { writer } from "../writer";
@@ -36,6 +38,9 @@ export async function listInvites(): Promise<InviteView[]> {
   const me = await gate("admin.listInvites");
   if (!canI(me, USERS_INVITE)) throw new Error("forbidden");
   const visible = visibleProjectIds(me);
+  // R.1414 (lotto 3): chi ha invitato e chi guarda non conosce: segnaposto, senza nome.
+  const known = knownPeopleFor(me);
+  const mask = personMasker(me, known);
   return pendingInvites()
     .map((inv) => ({
       id: inv.id,
@@ -51,8 +56,8 @@ export async function listInvites(): Promise<InviteView[]> {
           roleId: p.roleId,
           roleName: roleById(p.roleId)?.name ?? "",
         })),
-      invitedById: inv.invitedById,
-      invitedByName: nameOf(inv.invitedById) ?? "",
+      invitedById: mask(inv.invitedById),
+      invitedByName: inv.invitedById === me || known.has(inv.invitedById) ? (nameOf(inv.invitedById) ?? "") : "",
       createdAt: inv.createdAt,
       expiresAt: inv.expiresAt,
       expired: isExpired(inv.expiresAt),
@@ -96,6 +101,23 @@ export async function getInviteChoices(): Promise<InviteChoices> {
   };
 }
 
+/**
+ * Un progetto dell'invito dove i permessi del reparto di ripiego non varranno
+ * per chi accetta (rimandi, lotto 4): chi invita lì non li ha.
+ */
+export interface InviteWarning {
+  projectId: string;
+  missing: string[];
+}
+
+/** L'invito creato: il link (una volta) e gli avvisi per progetto. */
+export interface CreatedInvite {
+  inviteId: string;
+  link: string;
+  expiresAt: string;
+  warnings: InviteWarning[];
+}
+
 export interface CreateInviteInput {
   email: string;
   instanceRoleId: string;
@@ -109,7 +131,7 @@ export interface CreateInviteInput {
  */
 export async function createInvite(
   input: CreateInviteInput,
-): Promise<AdminResult<{ inviteId: string; link: string; expiresAt: string }>> {
+): Promise<AdminResult<CreatedInvite>> {
   const me = await writer("admin.createInvite");
   if (!canI(me, USERS_INVITE)) return refuse.forbidden();
   const visible = visibleProjectIds(me);
@@ -168,7 +190,10 @@ export async function createInvite(
     after: instanceRole.name,
     params: { projects: String(input.projects.length) },
   });
-  return { ok: true, inviteId: id, link: value, expiresAt };
+  // Nessun avviso: il prototipo non ha il reparto di ripiego in cui entra chi
+  // accetta (il server sì, `departments.isDefault`): divergenza nel registro
+  // dei rimandi. La riga la provano gli avvisi del server.
+  return { ok: true, inviteId: id, link: value, expiresAt, warnings: [] };
 }
 
 /** Revoca un invito (`users.invite`): il link smette di valere. */

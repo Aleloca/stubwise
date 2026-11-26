@@ -1,3 +1,5 @@
+import { ComingSoon } from "../Placeholder";
+import { featureIntegrated } from "../../data/integration";
 import { Navigate, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
@@ -17,7 +19,7 @@ import {
 } from "../../data/queries";
 import { CLAUDE_SCOPES, type ClaudeScope } from "../../data/routes";
 import type { Attachment, ContextRef, ConversationDetail } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { useMediaQuery } from "../../layout/useMediaQuery";
 import { hasModKey } from "../../platform/platform";
 import { formatDate } from "../../notifications/time";
@@ -62,9 +64,10 @@ const overlayOpen = () => document.querySelector('[aria-modal="true"], [role="me
  * N (o ⌘N) nella destinazione «Claude»: una conversazione nuova. Niente
  * scrivendo, né con un dialogo o un menu aperti.
  */
-function useNewConversationKey() {
+function useNewConversationKey(on = true) {
   const navigate = useNavigate();
   useEffect(() => {
+    if (!on) return;
     function onKeyDown(e: globalThis.KeyboardEvent) {
       if (e.defaultPrevented || e.altKey || e.shiftKey || e.key.toLowerCase() !== "n") return;
       const mod = hasModKey(e);
@@ -78,7 +81,7 @@ function useNewConversationKey() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [navigate]);
+  }, [navigate, on]);
 }
 
 /**
@@ -89,10 +92,23 @@ function useNewConversationKey() {
 export function ClaudePage() {
   const { viewer } = useViewer();
   const search = useSearch({ strict: false }) as { scope?: string; ask?: string };
-  useNewConversationKey();
+  // La chat libera è «in arrivo» nella build app (fetta 3a): niente «N», niente
+  // atterraggio con la casella; si atterra sulle sessioni dal vivo.
+  const chat = featureIntegrated("claude-chat");
+  useNewConversationKey(chat);
   const scope = (CLAUDE_SCOPES as readonly string[]).includes(search.scope ?? "")
     ? (search.scope as ClaudeScope)
     : null;
+  if (!chat) {
+    if (scope === "mine" || scope === "public") {
+      return <ComingSoon titleKey={`claude.destination.column.${scope}`} />;
+    }
+    if (!scope) return <Navigate to="/claude" search={{ scope: "live" }} replace />;
+  }
+  // Le pubbliche sono una fetta a sé: nella build app «in arrivo».
+  if (scope === "public" && !featureIntegrated("claude-public")) {
+    return <ComingSoon titleKey="claude.destination.column.public" />;
+  }
   if (scope === "public" && !can(viewer, "claude.public.view")) {
     return <Navigate to="/claude" search={{}} replace />;
   }
@@ -146,7 +162,8 @@ function NewConversation({ initial }: { initial: string }) {
             {t("claude.destination.landing.title")}
           </h1>
           <p className="max-w-[72ch] text-sm text-ink-muted">
-            {t("claude.destination.landing.intro")}
+            {/* Senza le azioni di Claude in chat (build app, chat fetta 2): la promessa di sola lettura. */}
+            {t(featureIntegrated("claude-chat-actions") ? "claude.destination.landing.intro" : "claude.destination.landing.introRead")}
           </p>
         </div>
         <NewConversationComposer
@@ -493,7 +510,9 @@ function PageHeader({
 
   const title = detail.title || t("claude.destination.page.untitled");
   const projectCode = (id: string | null) => projects?.find((p) => p.id === id)?.code ?? null;
-  const nameOf = (id: string | null) => people?.find((p) => p.id === id)?.name ?? "";
+  // R.1414: un id che l'elenco delle persone non ha è di chi guarda non conosce: «Someone».
+  const nameOf = (id: string | null) =>
+    id ? (people?.find((p) => p.id === id)?.name ?? t("claude.someone")) : "";
   const free = detail.kind === "free";
   const isPublic = free && detail.visibility === "public";
   const state = rowStateOf(detail);
@@ -604,7 +623,7 @@ function PageHeader({
                 : t("claude.destination.page.objectRequest", { code: detail.objectCode ?? "" })}
             </button>
           )}
-          {free && detail.canManage && !detail.archived && (
+          {free && (detail.canPublish ?? detail.canManage) && !detail.archived && featureIntegrated("claude-public") && (
             <button
               type="button"
               className={secondaryButton}
@@ -677,7 +696,7 @@ function PageHeader({
           isPublic ? (
             <span data-public-line>
               {t("claude.destination.page.publicBy", {
-                name: nameOf(detail.publishedById),
+                name: detail.publishedByName || nameOf(detail.publishedById),
                 date: detail.publishedAt ? formatDate(detail.publishedAt, i18n.language) : "",
               })}
             </span>

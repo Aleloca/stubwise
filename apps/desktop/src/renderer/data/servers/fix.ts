@@ -1,4 +1,5 @@
-import { accessUsable } from "../../domain/servers/sshAccess";
+import { validateServerPlan, type AttributionInput, type ServerPlan } from "@stubwise/shared";
+import { serverProjectsOf } from "../../domain/servers/projects";
 import i18n from "../../i18n";
 import {
   aiStartBlock,
@@ -20,45 +21,47 @@ import { interruptScripts, notifyConversationChange, runScript } from "../stream
 import type { Conversation, EpisodeReason, ScriptStep, Task } from "../types";
 import { can, viewerFor } from "../viewer";
 import { forbidden, invalid, notFound, writer } from "../writer";
-import { markUsed, onAccessRevoked } from "./access";
-import { hasKey } from "./secrets";
-import { fixCheck, fixExecution, fixPlan, type FixCommand } from "./fixScripts";
+import { fixCheck, fixPlan, fixStepAction } from "./fixScripts";
+import { docker } from "./scripts";
 import { readSteps } from "./scripts";
-import { serverFixStartBlock } from "./visibility";
+import { liveEnvironments, serverFixStartBlock } from "./visibility";
 
-// La correzione di un server, avviata da una task (area 8b, anti-obiettivo
-// 2). Due condizioni, sempre:
+// La correzione di un server, avviata da una task (area 8, F4b;
+// anti-obiettivo 2). Due condizioni, sempre:
 // 1. parte solo da una task legata a QUEL server (`serverRef`), avviata da
 //    chi ha `servers.operate` nel progetto della task — Claude non l'ha mai
 //    (R-L9), quindi la avvia sempre una persona;
-// 2. nessun comando di correzione (`tool: "server.fix"`) precede un piano
-//    approvato da una persona con `plans.approve` (R-L11: mai Claude) —
-//    anche se chi avvia può approvare: il piano arriva SEMPRE da approvare
-//    (`planGateFor`), niente approvazione in anticipo né «parte subito».
+// 2. nessun comando che CAMBIA il server precede un piano approvato da una
+//    persona con `plans.approve` nel progetto della task, cioè quello che
+//    l'analisi ha attribuito (R-L11: mai Claude) — anche se chi avvia può
+//    approvare: il piano arriva SEMPRE da approvare (`planGateFor`), niente
+//    approvazione in anticipo né «parte subito».
 //
-// Il resto sta qui: il piano scritto dopo aver letto il server con
-// l'accesso di LETTURA, l'esecuzione dopo l'approvazione (un comando alla
-// volta, ricontrollando prima di ognuno che il server sia ancora in un
-// ambiente del progetto della task — R-L2, R-G5 —, che l'accesso di
-// correzione sia usabile e che nessuno l'abbia fermata), il controllo
-// finale in sola lettura (`resolved` esplicito, R-L3), e i modi di
-// fermarsi — ognuno col suo segno nel flusso: lo Stop di una persona
-// (`stoppedById`), la revoca (`reason: "fix_access_revoked"`), l'accesso
-// non più usabile (`fix_access_unusable`), il server tolto dal progetto
-// (`server_gone`), un errore (`outcome: "failed"`).
+// Il piano è una sequenza di 1–10 azioni dell'insieme CHIUSO di
+// `@stubwise/shared` (`SERVER_ACTIONS`), validata con `serverPlanSchema`:
+// niente comandi liberi, niente script, niente deploy. La esegue l'AGENTE di
+// monitoraggio, mai l'SSH, e solo con le sue operazioni accese
+// (`agentOperations`): un'azione alla volta, ricontrollando prima di ognuna
+// che il server sia ancora in un ambiente del progetto della task (R-L2,
+// R-G5), che le operazioni siano accese e che nessuno l'abbia fermata. Poi
+// il controllo finale (`resolved` esplicito, R-L3) e i modi di fermarsi —
+// ognuno col suo segno nel flusso: lo Stop di una persona (`stoppedById`),
+// le operazioni spente (`reason: "operations_off"`), il server tolto dal
+// progetto (`server_gone`), un errore (`outcome: "failed"`). La revoca
+// dell'accesso SSH NON la tocca: l'SSH è solo dell'analisi.
 //
-// Dopo il controllo finale la sessione si chiude SEMPRE (stesso script):
-// il controllo è l'ultima cosa che fa. La task resta aperta: la chiude una
+// Dopo il controllo finale la sessione si chiude SEMPRE (stesso script): il
+// controllo è l'ultima cosa che fa. La task resta aperta: la chiude una
 // persona.
 
 /**
  * Per sessione: il turno di chi la guida. Ogni guida (piano, esecuzione)
- * prende un turno; uno Stop o una revoca lo cambiano SUBITO, così la guida
- * di prima non accoda più niente — nemmeno un comando già deciso.
+ * prende un turno; uno Stop lo cambia SUBITO, così la guida di prima non
+ * accoda più niente — nemmeno un'azione già decisa.
  */
 const turns = new Map<string, number>();
-/** Per sessione: i comandi dell'ultimo piano scritto, cioè quelli che si approvano. */
-const planned = new Map<string, FixCommand[]>();
+/** Per sessione: il piano scritto per ultimo, cioè quello che si approva. */
+const planned = new Map<string, ServerPlan>();
 /** Per sessione: le note di chi ha avviato la correzione («Notes for Claude»). */
 const notesOf = new Map<string, string>();
 /** Le guide in corso (per i test: `whenFixesIdle`). */
@@ -99,30 +102,43 @@ function reasonsOf(task: Task): EpisodeReason[] {
 }
 
 /**
- * Perché la correzione non può eseguire il prossimo comando (`null` se può):
- * la regola dell'approvazione (`serverFixBlock`: server ancora del
- * progetto, accesso usabile) e in più la chiave, che qui c'è da usare.
+ * I progetti che usano il server ADESSO, coi container dei loro ambienti
+ * (R0-D): il piano si valida contro di loro (`validateServerPlan`), così un
+ * passo tocca solo un container del progetto della task e di nessun altro.
  */
-function execBlock(c: Conversation): StopReason | null {
-  const block = serverFixBlock(c);
-  if (block === "server_gone") return "server_gone";
-  if (block === "fix_access_revoked") return "fix_access_revoked";
-  if (block !== null || !hasKey(c.serverFix!.serverCode, "fix")) return "fix_access_unusable";
-  return null;
+function serverProjectsNow(code: string): AttributionInput["serverProjects"] {
+  const codeOf = (id: string) => state.projectsById.get(id)?.code ?? id;
+  return serverProjectsOf(code, liveEnvironments(), codeOf);
 }
 
-const readUsable = (code: string): boolean => accessUsable(state.serverAccess.get(code), "read");
-
 const isLive = (c: Conversation | undefined): boolean => c !== undefined && c.state !== "finished";
+
+/**
+ * Il piano che aspetta l'approvazione sta ancora nelle regole di adesso
+ * (F4b: il piano si rivalida all'approvazione, `plan_stale`): ogni
+ * container ancora riportato dall'agente e non legato a un altro progetto.
+ */
+export function serverPlanStillFits(c: Conversation): boolean {
+  const plan = planned.get(c.id);
+  const server = c.serverFix ? serverOf(c.serverFix.serverCode) : undefined;
+  if (!plan || !server || c.projectId === null) return false;
+  return validateServerPlan({
+    plan,
+    projectId: c.projectId,
+    serverProjects: serverProjectsNow(server.code),
+    seenContainers: docker(server).map((x) => x.name),
+  }).ok;
+}
 
 // --- l'avvio ------------------------------------------------------------------
 
 /**
  * «Avvia la correzione sul server»: prima di tutto `servers.operate` nel
- * progetto della task (`forbidden`, nessuna sessione); poi la task e
- * l'accesso (`fixStartBlock` → `invalid: <motivo>`). Apre una sessione
- * `task_run` con `serverFix`; Claude legge il server in sola lettura,
- * scrive il piano e si ferma: `awaiting_approval`, sempre.
+ * progetto della task (`forbidden`, nessuna sessione); poi la task, il
+ * server e le operazioni dell'agente (`fixStartBlock` → `invalid: <motivo>`).
+ * Apre una sessione `task_run` con `serverFix`; Claude guarda i container
+ * con le letture dell'agente, scrive il piano e si ferma:
+ * `awaiting_approval`, sempre.
  */
 export async function startServerFix(
   taskId: string,
@@ -133,13 +149,15 @@ export async function startServerFix(
   const task = state.tasksById.get(taskId);
   if (!task || !visibleProjectIds(me).has(task.projectId)) throw notFound();
   if (!can(viewerFor(me), "servers.operate", task.projectId)) throw forbidden();
-  // La task, il server ancora del suo progetto (R-L2, R-G5), il lavoro vivo, l'accesso.
+  // La task, il server ancora del suo progetto (R-L2, R-G5), il lavoro vivo, le operazioni.
   const block = serverFixStartBlock(me, task);
-  if (block) throw invalid(block);
+  // Le parole del server (F4b): una correzione già viva sulla task o sul
+  // server è `fix_busy`; il resto col suo motivo.
+  if (block) throw invalid(block === "run_live" || block === "server_busy" ? "fix_busy" : block);
   const server = serverOf(task.serverRef!.serverCode);
   if (!server) throw invalid("server_gone");
   // Area 9b: col budget esaurito è rifiutata, con la coda in pausa aspetta.
-  const aiBlock = aiStartBlock(task.projectId);
+  const aiBlock = aiStartBlock(me, task.projectId);
   const c = openWorkConversationAs(me, {
     kind: "task_run",
     ...runIdentity("fix_plan", task.projectId),
@@ -168,10 +186,11 @@ export async function startServerFix(
 }
 
 /**
- * Claude rilegge il server (accesso di LETTURA, una lettura alla volta,
- * ricontrollato prima di ognuna) e scrive il piano coi comandi previsti,
- * poi aspetta: il piano arriva `pending`, sempre. `instructions`: quelle di
- * chi ha rifiutato il piano di prima (o di «Ferma e scrivi»).
+ * Claude rilegge i container (letture dell'AGENTE, una alla volta,
+ * ricontrollate prima di ognuna) e scrive il piano di azioni dell'insieme
+ * chiuso, poi aspetta: il piano arriva `pending`, sempre. Se nessuna azione
+ * ammessa serve, lo dice e chiude senza piano. `instructions`: quelle di chi
+ * ha rifiutato il piano di prima (o di «Ferma e scrivi»).
  */
 async function writePlan(
   c: Conversation,
@@ -184,7 +203,14 @@ async function writePlan(
   const code = c.serverFix!.serverCode;
   const server = serverOf(code);
   if (!server) throw new Error("server not found");
-  const plan = fixPlan(server, reasonsOf(task), task.description, instructions, notesOf.get(c.id));
+  const proposal = fixPlan(
+    server,
+    reasonsOf(task),
+    task.description,
+    { projectId: task.projectId, serverProjects: serverProjectsNow(code) },
+    instructions,
+    notesOf.get(c.id),
+  );
   await runScript(
     c.id,
     [
@@ -192,51 +218,62 @@ async function writePlan(
       {
         step: "say",
         text: instructions
-          ? `Understood. I am reading ${server.code} again and rewriting the plan with your instructions.`
-          : `I am reading ${server.code} with the read-only access before writing the plan.`,
+          ? `Understood. I am looking at ${server.code} again and rewriting the plan with your instructions.`
+          : `I am looking at the containers on ${server.code} through the monitoring agent before writing the plan.`,
       },
     ],
     gen,
   );
   // R1: tolto il server dal progetto della task, Claude non lo legge più
   // per conto di quel progetto e non scrive il piano: si ferma col motivo.
-  const gone = () => serverFixBlock(c) === "server_gone";
-  let reads = 0;
-  for (const r of plan.reads) {
+  const block = () => serverFixBlock(c);
+  for (const r of proposal.reads) {
     if (!go()) break;
-    if (gone()) return stopFix(c, gen, "server_gone");
-    if (!readUsable(code)) break;
-    if (reads === 0) markUsed(code, "read", { kind: "task", taskId: task.id });
-    reads++;
-    await runScript(c.id, () => (go() && !gone() ? readSteps([r]) : []), gen);
+    const b = block();
+    if (b) return stopFix(c, gen, b);
+    await runScript(c.id, () => (go() && !block() ? readSteps([r]) : []), gen);
   }
-  if (go() && gone()) return stopFix(c, gen, "server_gone");
+  if (go()) {
+    const b = block();
+    if (b) return stopFix(c, gen, b);
+  }
   const project = state.projectsById.get(task.projectId)!.code;
-  let goneAtPlan = false;
+  let blockedAtPlan: ReturnType<typeof block> = null;
   await runScript(
     c.id,
     () => {
       if (!go()) return [];
-      if (gone()) {
-        goneAtPlan = true;
-        return [];
+      blockedAtPlan = block();
+      if (blockedAtPlan) return [];
+      if (!proposal.plan) {
+        planned.delete(c.id);
+        return [
+          {
+            step: "say",
+            text: `None of the actions Stubwise allows (restart, stop or start a container, free up space) fixes this on ${server.code}, so there is no plan. ${task.code} stays open: the fix, if any, is in the code.`,
+          },
+          {
+            step: "event",
+            event: {
+              type: "phase",
+              phase: "plan",
+              outcome: "ok",
+              ...(proposal.error ? { planError: proposal.error } : {}),
+            },
+          },
+          { step: "state", state: "finished", outcome: "ok" },
+        ];
       }
-      planned.set(c.id, plan.commands);
+      planned.set(c.id, proposal.plan);
       return [
-        {
-          step: "say",
-          text:
-            reads > 0
-              ? `I have read ${server.code}. Here is the plan.`
-              : `I couldn't read ${server.code} with the read-only access: the plan comes from the diagnosis in ${task.code}.`,
-        },
+        { step: "say", text: `I have looked at ${server.code}. Here is the plan.` },
         {
           step: "event",
           event: {
             type: "plan",
-            planText: plan.planText,
-            summary: plan.summary,
-            commands: plan.commands.map(({ input, why }) => ({ input, why })),
+            planText: proposal.planText,
+            summary: proposal.summary,
+            serverPlan: proposal.plan,
             status: "pending",
           },
         },
@@ -249,7 +286,7 @@ async function writePlan(
     },
     gen,
   );
-  if (goneAtPlan && go()) await stopFix(c, gen, "server_gone");
+  if (blockedAtPlan && go()) await stopFix(c, gen, blockedAtPlan);
 }
 
 /** Il piano rifiutato con indicazioni (o un «Ferma e scrivi»): Claude lo riscrive, di nuovo da approvare. */
@@ -264,11 +301,13 @@ export function replanServerFix(
 
 // --- l'esecuzione ---------------------------------------------------------------
 
+type PlanEvent = Extract<ReturnType<typeof eventsOf>[number], { type: "plan" }>;
+
 /**
- * Il piano è approvato da una persona (`decidePlan`): Claude esegue i
- * comandi di QUEL piano con l'accesso di correzione, uno alla volta, poi
- * controlla in sola lettura e chiude la sessione. Prima di ogni comando:
- * nessuno l'ha fermata, l'accesso di correzione è usabile.
+ * Il piano è approvato da una persona (`decidePlan`): l'agente esegue le
+ * azioni di QUEL piano, una alla volta, poi Claude controlla e chiude la
+ * sessione. Prima di ogni azione: nessuno l'ha fermata, il server è ancora
+ * del progetto, le operazioni sono accese.
  */
 export function executeServerFix(c: Conversation, task: Task, gen: number): void {
   track(c, gen, execute(c, task, gen));
@@ -280,6 +319,12 @@ async function execute(c: Conversation, task: Task, gen: number): Promise<void> 
   const code = c.serverFix!.serverCode;
   const server = serverOf(code);
   if (!server) throw new Error("server not found");
+  const plan = planned.get(c.id);
+  // L'approvazione che copre i comandi: l'evento del piano approvato.
+  const approval = eventsOf(c.id)
+    .filter((e): e is PlanEvent => e.type === "plan")
+    .at(-1);
+  if (!plan || approval?.status !== "approved") throw new Error("no approved plan");
   await runScript(
     c.id,
     [
@@ -288,64 +333,49 @@ async function execute(c: Conversation, task: Task, gen: number): Promise<void> 
       { step: "state", state: "working" },
       {
         step: "say",
-        text: `Plan approved. Running the commands on ${server.code} as stubwise-fix.`,
+        text: `Plan approved. The monitoring agent on ${server.code} runs the actions, one at a time.`,
       },
     ],
     gen,
   );
-  let ran = 0;
-  for (const step of fixExecution(planned.get(c.id) ?? [])) {
+  for (const step of plan.steps) {
     if (!go()) return;
-    const blocked = execBlock(c);
+    const blocked = serverFixBlock(c);
     if (blocked) return stopFix(c, gen, blocked);
-    // Il comando entra solo se, al suo turno nella coda, nessuno ha fermato
-    // la sessione, il server è ancora del progetto e l'accesso è usabile.
+    // L'azione entra solo se, al suo turno nella coda, nessuno ha fermato la
+    // sessione, il server è ancora del progetto e le operazioni sono accese.
     await runScript(
       c.id,
-      () => {
-        if (!go() || execBlock(c)) return [];
-        if (ran === 0) markUsed(code, "fix", { kind: "task", taskId: task.id });
-        ran++;
-        return [step];
-      },
+      () => (!go() || serverFixBlock(c) ? [] : [fixStepAction(step, approval.id)]),
       gen,
     );
   }
   if (!go()) return;
+  // Il controllo legge via agente: anche lui vuole il server del progetto e
+  // le operazioni accese.
+  const blockedAtCheck = serverFixBlock(c);
+  if (blockedAtCheck) return stopFix(c, gen, blockedAtCheck);
   const resolved = (state.fixCheckNext.get(code) ?? "resolved") === "resolved";
   state.fixCheckNext.delete(code);
-  const readable = readUsable(code);
   await runScript(
     c.id,
     () => {
-      if (!go()) return [];
-      if (readable) markUsed(code, "read", { kind: "task", taskId: task.id });
+      if (!go() || serverFixBlock(c)) return [];
       return [
         {
           step: "say",
-          text: `The commands are done. Checking ${server.code} with the read-only access.`,
+          text: `The actions are done. Checking ${server.code} through the agent.`,
         },
-        ...(readable
-          ? fixCheck(reasonsOf(task), resolved)
-          : ([
-              {
-                step: "say",
-                text: `I can't check ${server.code}: the read-only access isn't usable.`,
-              },
-            ] as ScriptStep[])),
-        ...(readable
-          ? ([
-              {
-                step: "say",
-                text: resolved
-                  ? `The problem is gone. ${task.code} stays open: close it when you have seen it.`
-                  : `The problem is still there. ${task.code} stays open.`,
-              },
-            ] as ScriptStep[])
-          : []),
+        ...fixCheck(server, plan, reasonsOf(task), resolved),
+        {
+          step: "say",
+          text: resolved
+            ? `The problem is gone. ${task.code} stays open: close it when you have seen it.`
+            : `The problem is still there. ${task.code} stays open.`,
+        },
         { step: "event", event: { type: "phase", phase: "execution", outcome: "ok" } },
         { step: "state", state: "finished", outcome: "ok" },
-      ];
+      ] as ScriptStep[];
     },
     gen,
   );
@@ -355,15 +385,14 @@ async function execute(c: Conversation, task: Task, gen: number): Promise<void> 
 
 const phaseNow = (c: Conversation) => currentPhase(eventsOf(c.id)) ?? "execution";
 
-type StopReason = "fix_access_revoked" | "fix_access_unusable" | "server_gone";
+type StopReason = "operations_off" | "server_gone";
 
 const STOP_WHY: Record<StopReason, string> = {
-  fix_access_revoked: "the fix access was revoked",
-  fix_access_unusable: "the fix access isn't usable any more",
+  operations_off: "the agent's operations were turned off",
   server_gone: "the server isn't in this project any more",
 };
 
-/** Ferma la sessione senza una persona: revoca, accesso non più usabile, server tolto dal progetto. */
+/** Ferma la sessione senza una persona: operazioni spente, server tolto dal progetto. */
 function stopFix(c: Conversation, gen: number, reason: StopReason): Promise<void> {
   halt(c.id);
   interruptScripts(c.id, i18n.t("claude.conversation.delivery.stoppedBeforeTurn"));
@@ -372,29 +401,26 @@ function stopFix(c: Conversation, gen: number, reason: StopReason): Promise<void
     c.id,
     () => [
       { step: "finish_action", outcome: "failed", result: "Stopped" },
-      { step: "say", text: `I stopped: ${why}. No commands after this.` },
-      { step: "event", event: { type: "phase", phase: phaseNow(c), outcome: "stopped", reason } },
+      { step: "say", text: `I stopped: ${why}. No actions after this.` },
+      {
+        step: "event",
+        event: {
+          type: "phase",
+          phase: phaseNow(c),
+          outcome: "stopped",
+          reason: reason === "server_gone" ? reason : "operations_off",
+        },
+      },
       { step: "state", state: "finished", outcome: "stopped" },
     ],
     gen,
   );
 }
 
-// Una revoca ferma subito la correzione viva su quel server, mentre legge
-// o esegue. Quella che aspetta l'approvazione resta ferma lì: l'approvazione
-// si spegne (`planBlockedReason`) e il rifiuto resta possibile. Il gancio
-// resta iscritto anche dopo `resetApi` (vedi `onAccessRevoked`).
-onAccessRevoked((code) => {
-  const gen = storeGeneration();
-  for (const c of state.conversations) {
-    if (c.serverFix?.serverCode !== code || !isLive(c) || c.state === "awaiting_approval") continue;
-    track(c, gen, stopFix(c, gen, "fix_access_revoked"));
-  }
-});
-
 /**
  * Lo «Stop» di una persona (`canInterrupt`): la sessione si chiude fermata
- * da lei («Fix stopped by …»), nessun comando dopo. Non va in pausa: una
+ * da lei («Fix stopped by …»), nessuna azione dopo (le non partite non si
+ * consegnano all'agente). Non va in pausa: una
  * correzione non riprende da sola, si riavvia (e il piano si riapprova).
  */
 export function stopServerFixAs(me: string, c: Conversation, gen: number): Promise<void> {
@@ -415,8 +441,8 @@ export function stopServerFixAs(me: string, c: Conversation, gen: number): Promi
 }
 
 /**
- * «Ferma e scrivi» su una correzione: si ferma come uno Stop (nessun
- * comando dopo) e Claude riscrive il piano dal messaggio — di nuovo da
+ * «Ferma e scrivi» su una correzione: si ferma come uno Stop (nessuna
+ * azione dopo) e Claude riscrive il piano dal messaggio — di nuovo da
  * approvare, mai un'esecuzione che riparte da sola.
  */
 export async function stopAndReplanServerFixAs(
@@ -458,7 +484,7 @@ async function failFix(c: Conversation, gen: number, e: unknown): Promise<void> 
     c.id,
     () => [
       { step: "finish_action", outcome: "failed" },
-      { step: "say", text: `I stopped on an error (${reason}). No commands after this.` },
+      { step: "say", text: `I stopped on an error (${reason}). No actions after this.` },
       { step: "event", event: { type: "phase", phase: phaseNow(c), outcome: "failed" } },
       { step: "state", state: "finished", outcome: "failed" },
     ],

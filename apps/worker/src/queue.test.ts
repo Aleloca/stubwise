@@ -1,4 +1,4 @@
-import { aiJobs, prCorrections, type Db } from "@stubwise/db";
+import { aiJobs, prCorrections, projects, type Db } from "@stubwise/db";
 import { seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -18,6 +18,7 @@ import {
   writeFailureSummary,
   type AiJob,
 } from "./queue.js";
+import { checkCancelNow, createCancelRegistry } from "./pipeline/cancel.js";
 
 // Un container Postgres per file di test: l'avvio costa secondi. I test si
 // isolano svuotando la tabella ai_jobs in afterEach (claimNextJob è globale:
@@ -56,6 +57,7 @@ interface EnqueueOptions {
   status?: AiJob["status"];
   startedAt?: Date;
   lastActivityAt?: Date;
+  cancelRequestedAt?: Date;
 }
 
 async function enqueueJob(db: Db, opts: EnqueueOptions = {}): Promise<AiJob> {
@@ -145,6 +147,36 @@ describe("claimNextJob", () => {
     await db.update(aiJobs).set({ status: "queued", startedAt: null }).where(eq(aiJobs.id, otherJob.id));
     const claimed2 = await claimNextJob(db, []);
     expect(claimed2?.id).toBe(excludedJob.id);
+  });
+
+  it("area 9, F4: un progetto con la coda in pausa non dà lavoro nuovo; un altro sì; alla ripresa riparte; un job partito non cambia", async () => {
+    const { db } = testDb;
+    const other = await seedTicket(db);
+    const running = await enqueueJob(db, { createdAt: minutesAgo(9) });
+    await db.update(aiJobs).set({ status: "fixing" }).where(eq(aiJobs.id, running.id));
+    const paused = await enqueueJob(db, { createdAt: minutesAgo(5) });
+    const [otherJob] = await db.insert(aiJobs).values({ ticketId: other.ticketId, createdAt: minutesAgo(1) }).returning();
+    await db.update(projects).set({ queuePausedAt: new Date() }).where(eq(projects.id, seededProjectId));
+    expect((await claimNextJob(db))?.id).toBe(otherJob!.id);
+    expect(await claimNextJob(db)).toBeNull();
+    expect((await db.select().from(aiJobs).where(eq(aiJobs.id, running.id)))[0]!.status).toBe("fixing");
+    await db.update(projects).set({ queuePausedAt: null }).where(eq(projects.id, seededProjectId));
+    expect((await claimNextJob(db))?.id).toBe(paused.id);
+  });
+
+  it("area 9, F6: un progetto ARCHIVIATO non dà lavoro nuovo (la stessa regola della pausa); un job partito non cambia; riaperto riparte", async () => {
+    const { db } = testDb;
+    const other = await seedTicket(db);
+    const running = await enqueueJob(db, { createdAt: minutesAgo(9) });
+    await db.update(aiJobs).set({ status: "fixing" }).where(eq(aiJobs.id, running.id));
+    const waiting = await enqueueJob(db, { createdAt: minutesAgo(5) });
+    const [otherJob] = await db.insert(aiJobs).values({ ticketId: other.ticketId, createdAt: minutesAgo(1) }).returning();
+    await db.update(projects).set({ archivedAt: new Date() }).where(eq(projects.id, seededProjectId));
+    expect((await claimNextJob(db))?.id).toBe(otherJob!.id);
+    expect(await claimNextJob(db)).toBeNull();
+    expect((await db.select().from(aiJobs).where(eq(aiJobs.id, running.id)))[0]!.status).toBe("fixing");
+    await db.update(projects).set({ archivedAt: null }).where(eq(projects.id, seededProjectId));
+    expect((await claimNextJob(db))?.id).toBe(waiting.id);
   });
 });
 
@@ -258,9 +290,7 @@ describe("transizioni di stato", () => {
     const job = await enqueueJob(db);
     await claimNextJob(db);
 
-    expect(await holdJob(db, job.id, { log: "[triage] in attesa", heldReason: "other" })).toBe(
-      true,
-    );
+    expect(await holdJob(db, job.id, { log: "[triage] in attesa", heldReason: "other" })).toBe("parked");
 
     const persisted = await getJob(db, job.id);
     expect(persisted.status).toBe("held");
@@ -276,7 +306,7 @@ describe("transizioni di stato", () => {
 
     expect(
       await holdJob(db, job.id, { log: "[stubwise] provider al limite", heldReason: "limit" }),
-    ).toBe(true);
+    ).toBe("parked");
 
     const persisted = await getJob(db, job.id);
     expect(persisted.status).toBe("held");
@@ -289,7 +319,7 @@ describe("transizioni di stato", () => {
 
     expect(
       await parkForPlanApproval(db, job.id, { planText: "1. fix A\n2. fix B", log: "[fix] piano pronto" }),
-    ).toBe(true);
+    ).toBe("parked");
 
     const persisted = await getJob(db, job.id);
     expect(persisted.status).toBe("awaiting_plan_approval");
@@ -315,7 +345,7 @@ describe("transizioni di stato", () => {
         planSummary: "Il piano corregge la somma.",
         log: "[fix] piano pronto",
       }),
-    ).toBe(true);
+    ).toBe("parked");
 
     expect(updateSpy).toHaveBeenCalledTimes(1);
     const persisted = await getJob(db, job.id);
@@ -330,7 +360,7 @@ describe("transizioni di stato", () => {
 
     expect(
       await parkForPlanApproval(db, job.id, { planText: "1. fix A", log: "[fix] piano pronto" }),
-    ).toBe(true);
+    ).toBe("parked");
 
     const persisted = await getJob(db, job.id);
     expect(persisted.status).toBe("awaiting_plan_approval");
@@ -344,7 +374,7 @@ describe("transizioni di stato", () => {
 
     expect(
       await parkForPlanApproval(db, job.id, { planText: "tardivo", log: "tardivo" }),
-    ).toBe(false);
+    ).toBe("lost");
 
     const persisted = await getJob(db, job.id);
     expect(persisted.status).toBe("queued");
@@ -362,7 +392,7 @@ describe("transizioni di stato", () => {
         cliSessionId: "sess-abc",
         log: "[fix] domanda registrata, in attesa di risposta",
       }),
-    ).toBe(true);
+    ).toBe("parked");
 
     const persisted = await getJob(db, job.id);
     expect(persisted.status).toBe("awaiting_input");
@@ -377,7 +407,7 @@ describe("transizioni di stato", () => {
     const { db } = testDb;
     const job = await enqueueJob(db, { status: "fixing", startedAt: minutesAgo(1) });
 
-    expect(await parkForInput(db, job.id, { log: "[fix] domanda registrata" })).toBe(true);
+    expect(await parkForInput(db, job.id, { log: "[fix] domanda registrata" })).toBe("parked");
 
     const persisted = await getJob(db, job.id);
     expect(persisted.status).toBe("awaiting_input");
@@ -388,7 +418,7 @@ describe("transizioni di stato", () => {
     const { db } = testDb;
     const job = await enqueueJob(db); // ancora `queued`: nessuno lo possiede
 
-    expect(await parkForInput(db, job.id, { cliSessionId: "sess-x", log: "tardivo" })).toBe(false);
+    expect(await parkForInput(db, job.id, { cliSessionId: "sess-x", log: "tardivo" })).toBe("lost");
 
     const persisted = await getJob(db, job.id);
     expect(persisted.status).toBe("queued");
@@ -420,7 +450,7 @@ describe("transizioni di stato", () => {
     expect(await completeJob(db, job.id, { status: "skipped", log: "tardivo" })).toBe(false);
     expect(await failJob(db, job.id, { log: "tardivo", error: "boom" })).toBe(false);
     expect(await markFixing(db, job.id)).toBe(false);
-    expect(await holdJob(db, job.id, { log: "tardivo", heldReason: "other" })).toBe(false);
+    expect(await holdJob(db, job.id, { log: "tardivo", heldReason: "other" })).toBe("lost");
 
     const persisted = await getJob(db, job.id);
     expect(persisted.status).toBe("queued");
@@ -1018,5 +1048,108 @@ describe("runWorker", () => {
       await worker;
     }
     expect(requeues).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * «Annulla il lavoro» vale per UN tentativo (review dell'area 3, punti 1 e
+ * 10): un job stantio con la richiesta si chiude `skipped` invece di tornare
+ * in coda; uno che torna in coda non porta una richiesta del tentativo di
+ * prima; il worker onora la colonna solo se successiva a `started_at`.
+ */
+describe("annullamento e ripartenza del job", () => {
+  it("requeueStale: lo stantio con la richiesta si chiude skipped (non torna in coda), gli altri tornano in coda senza richiesta", async () => {
+    const { db } = testDb;
+    const cancelled = await enqueueJob(db, {
+      status: "fixing",
+      startedAt: minutesAgo(60),
+      lastActivityAt: minutesAgo(60),
+      cancelRequestedAt: minutesAgo(50),
+    });
+    const oldRequest = await enqueueJob(db, {
+      status: "fixing",
+      startedAt: minutesAgo(60),
+      lastActivityAt: minutesAgo(60),
+      // Una richiesta di un tentativo PRIMA di questo: non vale.
+      cancelRequestedAt: minutesAgo(90),
+    });
+    const plain = await enqueueJob(db, { status: "triaging", startedAt: minutesAgo(60), lastActivityAt: minutesAgo(60) });
+
+    expect(await requeueStale(db, { olderThanMinutes: 10 })).toBe(2);
+    const c = await getJob(db, cancelled.id);
+    expect(c.status).toBe("skipped");
+    expect(c.finishedAt).not.toBeNull();
+    for (const id of [oldRequest.id, plain.id]) {
+      const j = await getJob(db, id);
+      expect(j.status).toBe("queued");
+      expect(j.cancelRequestedAt).toBeNull();
+      expect(j.cancelRequestedByUserId).toBeNull();
+    }
+  });
+
+  it("checkCancelNow onora la richiesta solo se è di QUESTO tentativo (dopo started_at)", async () => {
+    const { db } = testDb;
+    const stale = await enqueueJob(db, { status: "fixing", startedAt: minutesAgo(5), cancelRequestedAt: minutesAgo(30) });
+    const current = await enqueueJob(db, { status: "fixing", startedAt: minutesAgo(30), cancelRequestedAt: minutesAgo(5) });
+    const registry = createCancelRegistry();
+    const a = registry.register(stale.id);
+    const b = registry.register(current.id);
+    await checkCancelNow(db, registry, stale.id);
+    await checkCancelNow(db, registry, current.id);
+    expect(a.signal.aborted).toBe(false);
+    expect(b.signal.aborted).toBe(true);
+  });
+});
+
+/**
+ * «Annulla il lavoro» chiesto mentre il job lavorava, ma prima dell'abort il
+ * job prova a parcheggiarsi (review dell'area 3, punto 2): il parcheggio non
+ * avviene, il job si chiude skipped (con la sua correzione) e il chiamante sa
+ * che è `cancelled`. Una richiesta di un tentativo precedente non lo ferma.
+ */
+describe("parcheggi e annullamento", () => {
+  const running = (cancelMinutesAgo: number | null) =>
+    enqueueJob(testDb.db, {
+      status: "fixing",
+      startedAt: minutesAgo(10),
+      lastActivityAt: minutesAgo(1),
+      ...(cancelMinutesAgo !== null ? { cancelRequestedAt: minutesAgo(cancelMinutesAgo) } : {}),
+    });
+
+  it("piano, domanda e held con la richiesta di questo tentativo: cancelled, skipped, finito", async () => {
+    const { db } = testDb;
+    const parks = [
+      (id: string) => parkForPlanApproval(db, id, { planText: "P", log: "piano" }),
+      (id: string) => parkForInput(db, id, { log: "domanda" }),
+      (id: string) => holdJob(db, id, { log: "gate", heldReason: "other" }),
+    ];
+    for (const park of parks) {
+      const job = await running(2);
+      expect(await park(job.id)).toBe("cancelled");
+      const after = await getJob(db, job.id);
+      expect(after.status).toBe("skipped");
+      expect(after.finishedAt).not.toBeNull();
+      expect(after.planText).toBeNull();
+    }
+  });
+
+  it("la correzione del job annullato si chiude insieme", async () => {
+    const { db } = testDb;
+    const [correction] = await db
+      .insert(prCorrections)
+      .values({ ticketId, repositoryId: (await seedTicket(db)).repositoryId, prNumber: 41, trigger: "review", status: "queued" })
+      .returning();
+    const job = await enqueueJob(db, { status: "fixing", startedAt: minutesAgo(10), cancelRequestedAt: minutesAgo(2) });
+    await db.update(aiJobs).set({ correctionId: correction!.id }).where(eq(aiJobs.id, job.id));
+    expect(await holdJob(db, job.id, { log: "budget", heldReason: "budget" })).toBe("cancelled");
+    const [c] = await db.select({ status: prCorrections.status }).from(prCorrections).where(eq(prCorrections.id, correction!.id));
+    expect(c!.status).toBe("done");
+  });
+
+  it("una richiesta di un tentativo precedente non ferma il parcheggio", async () => {
+    const { db } = testDb;
+    const job = await running(30);
+    expect(await parkForPlanApproval(db, job.id, { planText: "P", log: "piano" })).toBe("parked");
+    expect((await getJob(db, job.id)).status).toBe("awaiting_plan_approval");
   });
 });

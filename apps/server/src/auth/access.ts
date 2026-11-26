@@ -14,18 +14,21 @@
  * widget). Lo pretende `route-access.test.ts`, senza elenco di eccezioni, e
  * l'hook rifiuta comunque (500) una rotta senza dichiarazione.
  */
-import { and, eq, inArray, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import { CHAT_TOOL_READ_ROUTES, CHAT_TOOL_WRITE_ROUTES, isPrivateChatToolRead, isPrivateConversation } from "./chat-tool-routes.js";
+import { and, eq, inArray, isNotNull, isNull, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Db } from "@stubwise/db";
-import { projectMembers, projects, roles } from "@stubwise/db";
+import { memberPermissionsSql, projectMembers, projects, roles } from "@stubwise/db";
 import {
   effectiveProjectPermissions,
   INSTANCE_PERMISSIONS,
   type InstancePermission,
+  type ProjectModule,
   type ProjectPermission,
 } from "@stubwise/shared";
 import { projectPermissionsOfUser as notificationsProjectPermissionsOfUser } from "@stubwise/notifications";
 import { apiError } from "../errors.js";
+import { recordSecurityEvent } from "./second-factor/security-events.js";
 import { hasConfirmedTotp } from "./second-factor/totp.js";
 import { requireAuth, type SessionStage, type SessionUser } from "./session.js";
 
@@ -107,6 +110,57 @@ declare module "fastify" {
     access?: RouteAccess;
     /** Riconferma recente richiesta dalla rotta (vedi {@link RouteReauth}). */
     reauth?: RouteReauth;
+    /**
+     * La rotta è una PORTA: si entra con le credenziali e si esce con una
+     * sessione o un token. Ogni porta passa dal secondo fattore
+     * (`docs/invariants/second-factor.md`); l'elenco è chiuso in
+     * `route-access.test.ts`.
+     */
+    credentialDoor?: true;
+    /**
+     * Solo dal browser: nemmeno il PAT desktop riconfermato (10 nov 2026). La
+     * dichiara la cassaforte, che dal desktop non si sblocca (lo sblocco è una
+     * passkey con PRF, `docs/invariants/vault.md`). La legge
+     * {@link browserOrConfirmedDesktop}.
+     */
+    browserOnly?: true;
+    /**
+     * Lotto 10 (D-7): la rotta della cassaforte è aperta anche al PAT
+     * desktop col suo sigillo VIVO (`vault/device-access.ts`). Elenco chiuso
+     * in `route-access.test.ts`; non va insieme a `reauth`.
+     */
+    desktopVault?: true;
+    /**
+     * Lotto 10: la rotta è SOLO del PAT desktop (l'associazione di un Mac, il
+     * proprio sigillo). Non è `browserOnly`, così una sua `reauth` dichiarata
+     * passa dalla finestra del desktop (review 2, M4). Elenco chiuso in
+     * `route-access.test.ts`; chi chiama lo controlla `desktopOnly` in
+     * `routes/vault.ts`.
+     */
+    desktopOnly?: true;
+    /**
+     * 25 nov 2026: una LETTURA della cassaforte aperta al PAT desktop anche
+     * SENZA sigillo (lo stato: serve proprio prima dell'associazione). Sola
+     * lettura, nessuna busta, nessuna riconferma; rispetta `VAULT_DESKTOP`.
+     * Elenco chiuso in `route-access.test.ts`; chi chiama lo controlla la
+     * rotta in `routes/vault.ts`.
+     */
+    desktopRead?: true;
+    /**
+     * Area 9, F3: la rotta chiede la riconferma solo per UNA PARTE del corpo
+     * (un segreto nuovo): la verifica l'handler con {@link requireReauth}. È
+     * una dichiarazione, così il test del registro ne tiene l'elenco chiuso.
+     */
+    partialReauth?: true;
+    /**
+     * Area 9, F6 (D-8): la rotta di progetto passa anche su un progetto
+     * ARCHIVIATO, per chi ne era membro e per i full admin. `"read"` le
+     * letture dedicate agli archiviati, `"write"` solo riapri ed elimina.
+     * Senza, un archiviato è come uno che non c'è (lettura 404, scrittura
+     * 409 `archived` a chi lo vedrebbe). L'elenco è chiuso in
+     * `route-access.test.ts`.
+     */
+    archived?: "read" | "write";
   }
   interface FastifyRequest {
     /** Impostato dall'hook globale sulle rotte `project`. */
@@ -116,23 +170,28 @@ declare module "fastify" {
 
 /**
  * Permessi effettivi di `user` sul progetto, in UNA query (progetto +
- * appartenenza + ruolo). `null` = invisibile: progetto inesistente, oppure
- * utente non membro e non full admin. Un full admin li ha tutti, membro o no.
+ * appartenenza + ruolo). `null` = invisibile: progetto inesistente,
+ * ARCHIVIATO (area 9, F6, D-8: come uno che non c'è), oppure utente non
+ * membro e non full admin. Un full admin li ha tutti, membro o no.
+ *
+ * `includeArchived` è SOLO per le eccezioni dichiarate (`config.archived`
+ * delle rotte, la regola del 409 `archived`): chi lo legge di proposito.
  */
 export async function projectPermissionsFor(
   db: Pick<Db, "select">,
   user: Pick<SessionUser, "id" | "instancePermissions">,
   projectId: string,
+  opts: { includeArchived?: boolean } = {},
 ): Promise<ReadonlySet<ProjectPermission> | null> {
   const [row] = await db
-    .select({ memberRolePermissions: roles.permissions })
+    .select({ memberRolePermissions: memberPermissionsSql(roles.permissions, projectMembers.projectId, projectMembers.userId) })
     .from(projects)
     .leftJoin(
       projectMembers,
       and(eq(projectMembers.projectId, projects.id), eq(projectMembers.userId, user.id)),
     )
     .leftJoin(roles, eq(roles.id, projectMembers.roleId))
-    .where(eq(projects.id, projectId));
+    .where(and(eq(projects.id, projectId), opts.includeArchived ? undefined : isNull(projects.archivedAt)));
   if (!row) return null;
   return effectiveProjectPermissions(new Set(user.instancePermissions), row.memberRolePermissions);
 }
@@ -151,7 +210,101 @@ export const projectPermissionsOfUser: (
 ) => Promise<ReadonlySet<ProjectPermission> | null> = notificationsProjectPermissionsOfUser;
 
 /**
- * I progetti in cui `user` ha `permission`: `"all"` per un full admin,
+ * Area 9, F6 (D-8, L-1 = a): l'insieme dei progetti di un elenco. Un full
+ * admin non riceve più `"all"` (che non filtrava niente) ma `{ all: true,
+ * archived }`: tutti TRANNE gli archiviati. Il tipo diverso è voluto: ogni
+ * chiamante che controllava `"all"` ha dovuto decidere cosa fare degli
+ * archiviati. Si traduce in SQL con {@link inProjects} e in JS con
+ * {@link scopeIncludes}.
+ */
+export interface AllOpenProjects {
+  readonly all: true;
+  readonly archived: readonly string[];
+}
+export type ProjectScope = AllOpenProjects | readonly string[];
+
+/** `scope` è «tutti i progetti aperti» (un full admin). */
+export function isAllProjects(scope: ProjectScope): scope is AllOpenProjects {
+  return !Array.isArray(scope);
+}
+
+/** `projectId` è nell'insieme (mai un archiviato). */
+export function scopeIncludes(scope: ProjectScope, projectId: string): boolean {
+  return isAllProjects(scope) ? !scope.archived.includes(projectId) : scope.includes(projectId);
+}
+
+/**
+ * L'insieme come elenco di id: per un full admin tutti i progetti APERTI
+ * (letti adesso), altrimenti i suoi. Per chi deve scorrerli uno per uno.
+ */
+export async function scopeProjectIds(db: Pick<Db, "select">, scope: ProjectScope, opts: { orderByName?: boolean } = {}): Promise<string[]> {
+  if (!isAllProjects(scope)) return [...scope];
+  const q = db.select({ id: projects.id }).from(projects).where(isNull(projects.archivedAt));
+  return (await (opts.orderByName ? q.orderBy(projects.name) : q)).map((r) => r.id);
+}
+
+/**
+ * Per le funzioni che accettano ancora `"all" | string[]` (in un pacchetto
+ * condiviso col worker, o un'API interna larga): `"all"` SOLO se non c'è
+ * nessun archiviato da togliere, altrimenti l'elenco dei progetti aperti.
+ */
+export async function legacyScope(db: Pick<Db, "select">, scope: ProjectScope): Promise<"all" | string[]> {
+  if (isAllProjects(scope) && scope.archived.length === 0) return "all";
+  return scopeProjectIds(db, scope);
+}
+
+/**
+ * Il modulo di progetto che un permesso richiede (registro dei rimandi, area 11):
+ * i Docs dei repository e lo spazio Product stanno sotto `docs`. Col modulo
+ * spento (`projects.modules` senza) la sezione sparisce dall'interfaccia E le
+ * rotte rispondono 404 come un progetto invisibile; gli elenchi d'istanza non
+ * lo nominano ({@link projectIdsWithPermission}). `null` = nessun modulo.
+ */
+export function moduleOfPermission(permission: ProjectPermission | "member"): ProjectModule | null {
+  return permission.startsWith("docs.") ? "docs" : null;
+}
+
+/** Il progetto ha il modulo acceso? Un progetto che non c'è no. */
+export async function projectHasModule(db: Pick<Db, "select">, projectId: string, module: ProjectModule): Promise<boolean> {
+  const [row] = await db.select({ on: sql<boolean>`${module} = any(${projects.modules})` }).from(projects).where(eq(projects.id, projectId));
+  return row?.on === true;
+}
+
+/**
+ * Chi ha questi permessi LEGGE i Docs del progetto: `docs.view` E il modulo
+ * `docs` acceso. LA regola per chi decide fuori da `config.access` (Slack, le
+ * card dell'inbox, il dal vivo, gli elenchi derivati): revisione del lotto 1.
+ */
+export async function readsDocs(
+  db: Pick<Db, "select">,
+  projectId: string,
+  permissions: ReadonlySet<string> | readonly string[] | null | undefined,
+  /** I progetti col modulo acceso, già letti per un lotto ({@link docsModuleOn}). */
+  docsOn?: ReadonlySet<string>,
+): Promise<boolean> {
+  const has = Array.isArray(permissions) ? permissions.includes("docs.view") : ((permissions as ReadonlySet<string> | null | undefined)?.has("docs.view") ?? false);
+  if (!has) return false;
+  return docsOn ? docsOn.has(projectId) : projectHasModule(db, projectId, "docs");
+}
+
+/** Di `projectIds`, quelli col modulo Docs acceso: UNA query per un lotto di {@link readsDocs}. */
+export async function docsModuleOn(db: Pick<Db, "select">, projectIds: readonly string[]): Promise<ReadonlySet<string>> {
+  if (projectIds.length === 0) return new Set();
+  const rows = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(and(inArray(projects.id, [...new Set(projectIds)]), sql`'docs' = any(${projects.modules})`));
+  return new Set(rows.map((r) => r.id));
+}
+
+/** Gli archiviati, per l'insieme di un full admin. */
+async function allOpenProjects(db: Pick<Db, "select">): Promise<AllOpenProjects> {
+  const rows = await db.select({ id: projects.id }).from(projects).where(isNotNull(projects.archivedAt));
+  return { all: true, archived: rows.map((r) => r.id) };
+}
+
+/**
+ * I progetti in cui `user` ha `permission`: tutti gli aperti per un full admin,
  * altrimenti quelli in cui il ruolo della sua appartenenza lo contiene. Da
  * usare come filtro degli elenchi che dipendono da un permesso (es. i ticket
  * altrui con `tickets.view_all`).
@@ -160,14 +313,25 @@ export async function projectIdsWithPermission(
   db: Db,
   user: Pick<SessionUser, "id" | "instancePermissions">,
   permission: ProjectPermission,
-): Promise<"all" | string[]> {
-  if (user.instancePermissions.has("instance.full_admin")) return "all";
+): Promise<ProjectScope> {
+  // Un permesso di un modulo spento non vale in quel progetto (registro, area 11): anche il full admin riceve l'elenco esplicito.
+  const module = moduleOfPermission(permission);
+  const moduleOn = module ? sql`${module} = any(${projects.modules})` : undefined;
+  if (user.instancePermissions.has("instance.full_admin")) {
+    if (!moduleOn) return allOpenProjects(db);
+    return (await db.select({ id: projects.id }).from(projects).where(and(isNull(projects.archivedAt), moduleOn))).map((r) => r.id);
+  }
   const rows = await db
     .select({ projectId: projectMembers.projectId })
     .from(projectMembers)
     .innerJoin(roles, eq(roles.id, projectMembers.roleId))
+    .innerJoin(projects, and(eq(projects.id, projectMembers.projectId), isNull(projects.archivedAt)))
     .where(
-      and(eq(projectMembers.userId, user.id), sql`${roles.permissions} @> array[${permission}]::text[]`),
+      and(
+        eq(projectMembers.userId, user.id),
+        sql`${memberPermissionsSql(roles.permissions, projectMembers.projectId, projectMembers.userId)} @> array[${permission}]::text[]`,
+        moduleOn,
+      ),
     );
   return rows.map((r) => r.projectId);
 }
@@ -213,18 +377,20 @@ export async function can(
 }
 
 /**
- * I progetti che `user` vede: `"all"` per un full admin (che vede anche i
- * progetti creati dopo, senza esserne membro), altrimenti quelli di cui è
- * membro. Da usare come filtro degli elenchi.
+ * I progetti che `user` vede: tutti gli aperti per un full admin (che vede
+ * anche i progetti creati dopo, senza esserne membro), altrimenti quelli
+ * aperti di cui è membro. Mai un archiviato (F6). Da usare come filtro degli
+ * elenchi.
  */
 export async function visibleProjectIds(
   db: Db,
   user: Pick<SessionUser, "id" | "instancePermissions">,
-): Promise<"all" | string[]> {
-  if (user.instancePermissions.has("instance.full_admin")) return "all";
+): Promise<ProjectScope> {
+  if (user.instancePermissions.has("instance.full_admin")) return allOpenProjects(db);
   const rows = await db
     .select({ projectId: projectMembers.projectId })
     .from(projectMembers)
+    .innerJoin(projects, and(eq(projects.id, projectMembers.projectId), isNull(projects.archivedAt)))
     .where(eq(projectMembers.userId, user.id));
   return rows.map((r) => r.projectId);
 }
@@ -237,17 +403,25 @@ export async function visibleProjectIds(
 export async function projectPermissionsMap(
   db: Db,
   user: Pick<SessionUser, "id" | "instancePermissions">,
+  opts: { includeArchived?: boolean } = {},
 ): Promise<Record<string, ProjectPermission[]>> {
   const instance = new Set(user.instancePermissions);
+  // Mai un archiviato (F6): `/api/auth/me` non lo nomina. `includeArchived`
+  // solo per chi lo legge di proposito (il registro delle modifiche).
+  const open = opts.includeArchived ? undefined : isNull(projects.archivedAt);
   const rows = instance.has("instance.full_admin")
-    ? (await db.select({ projectId: projects.id }).from(projects)).map((r) => ({
+    ? (await db.select({ projectId: projects.id }).from(projects).where(open)).map((r) => ({
         projectId: r.projectId,
         permissions: [] as string[],
       }))
     : await db
-        .select({ projectId: projectMembers.projectId, permissions: roles.permissions })
+        .select({
+          projectId: projectMembers.projectId,
+          permissions: sql<string[]>`${memberPermissionsSql(roles.permissions, projectMembers.projectId, projectMembers.userId)}`,
+        })
         .from(projectMembers)
         .innerJoin(roles, eq(roles.id, projectMembers.roleId))
+        .innerJoin(projects, and(eq(projects.id, projectMembers.projectId), open))
         .where(eq(projectMembers.userId, user.id));
   const map: Record<string, ProjectPermission[]> = {};
   for (const row of rows) {
@@ -260,17 +434,33 @@ export async function projectPermissionsMap(
 /**
  * Il filtro di un elenco su un insieme di progetti, come condizione SQL da
  * mettere nella WHERE (mai a valle in JS su una pagina già tagliata):
- * `undefined` per `"all"` (nessun filtro), `false` per un insieme vuoto (non si
- * vede niente). `ids` è quello di {@link visibleProjectIds} o di
+ * per tutti gli aperti (un full admin) solo gli archiviati fuori (`undefined`
+ * se non ce ne sono), `false` per un insieme vuoto (non si vede niente).
+ * `ids` è quello di {@link visibleProjectIds} o di
  * {@link projectIdsWithPermission}.
  */
 export function inProjects(
   column: AnyColumn | SQL,
-  ids: "all" | readonly string[],
+  ids: ProjectScope,
 ): SQL | undefined {
-  if (ids === "all") return undefined;
+  // Tutti gli aperti (un full admin): fuori gli archiviati, e restano le
+  // righe senza progetto (voci d'istanza, automazioni generali), come prima.
+  if (isAllProjects(ids)) {
+    if (ids.archived.length === 0) return undefined;
+    return sql`(${column} IS NULL OR ${column} NOT IN (${sql.join(ids.archived.map((id) => sql`${id}`), sql`, `)}))`;
+  }
   if (ids.length === 0) return sql`false`;
   return inArray(sql`${column}`, [...ids]);
+}
+
+/**
+ * Come {@link inProjects}, ma una riga SENZA progetto non passa mai, nemmeno
+ * per un full admin. Per le colonne dove il null vuol dire «di nessun
+ * progetto» e non «d'istanza»: il progetto di un repository (null = STACCATO,
+ * area 9, F6), che nessuna lettura di progetto deve trovare.
+ */
+export function inProjectsStrict(column: AnyColumn | SQL, ids: ProjectScope): SQL {
+  return and(sql`${column} IS NOT NULL`, inProjects(column, ids))!;
 }
 
 /**
@@ -307,6 +497,25 @@ export async function accessPreHandler(
   await requireAuth(request, reply, { allowPartial: access.kind === "second_factor" });
   if (reply.sent) return;
   const user = request.user!;
+  // Il token del turno della chat con Claude: SOLO GET e solo l'allowlist chiusa
+  // delle rotte di lettura, più UNA rotta di scrittura (creare una proposta),
+  // prima di ogni altro controllo (riconferma compresa).
+  if (user.chatToolSessionId !== undefined) {
+    const url = request.routeOptions.url ?? "";
+    const read = request.method === "GET" && CHAT_TOOL_READ_ROUTES.has(url);
+    const write = CHAT_TOOL_WRITE_ROUTES.has(`${request.method} ${url}`);
+    if (!read && !write) {
+      await apiError(reply, 403, "chat_tool_forbidden", "Not available to Claude's read tools");
+      return;
+    }
+    // Area 10, F1 (review I2, I3): posta, calendario, canali privati e DM,
+    // automazioni generali solo in una conversazione libera PRIVATA.
+    const params = (request.params ?? {}) as Record<string, unknown>;
+    if (read && (await isPrivateChatToolRead(request.server.db, url, params)) && !(await isPrivateConversation(request.server.db, user.chatToolSessionId))) {
+      await apiError(reply, 403, "chat_tool_private_only", "Personal content can be read only in a private conversation");
+      return;
+    }
+  }
 
   const reauth = request.routeOptions.config.reauth;
   if (reauth) {
@@ -347,8 +556,12 @@ export async function accessPreHandler(
 /**
  * Il controllo di `config.reauth`, prima del permesso della rotta.
  *
- * - Un PAT non riconferma mai (403 `session_required`): un token rubato non
- *   deve poter creare altri token o cambiare ruoli.
+ * - Un PAT non riconferma mai da solo (403 `session_required`): un token
+ *   rubato non deve poter cambiare ruoli. L'eccezione è UNA: un PAT `desktop`
+ *   con un secondo fattore fatto con lui dentro l'app negli ultimi 10 minuti
+ *   (`POST /api/auth/desktop-reauth`, decisione del maintainer del 10 nov
+ *   2026); `mobile` e `manual` mai. Le rotte che non coniano token da un
+ *   token lo rifiutano comunque nel loro handler.
  * - Senza un'app configurata (sessione di prima del rilascio) non c'è un
  *   fattore con cui riconfermare: 403 `second_factor_setup_required`, e la
  *   web apre la configurazione (le rotte `"setup_allowed"`), che conta come
@@ -356,25 +569,187 @@ export async function accessPreHandler(
  * - Secondo fattore mai usato in questa sessione, o più vecchio della
  *   finestra: 403 `reauth_required`.
  */
+/**
+ * Area 9, F1: fino a quando vale la riconferma di chi chiede, con la STESSA
+ * regola di {@link applyReauth} (sessione del browser: il suo secondo fattore;
+ * PAT `desktop`: il suo; ogni altro PAT: mai). `null` se non c'è o è scaduta.
+ */
+export function reauthUntilOf(user: SessionUser): string | null {
+  const at = isDesktopPat(user) ? user.patSecondFactorAt : user.patId === undefined && user.sessionId !== undefined ? user.secondFactorAt : null;
+  if (!at) return null;
+  const until = at.getTime() + REAUTH_WINDOW_MS;
+  return until > Date.now() ? new Date(until).toISOString() : null;
+}
+
 async function applyReauth(
   request: FastifyRequest,
   reply: FastifyReply,
   user: SessionUser,
   reauth: RouteReauth,
 ): Promise<void> {
-  if (user.patId !== undefined || user.sessionId === undefined) {
+  // Un PAT non soddisfa la riconferma, salvo UNO: il PAT `desktop`, con un
+  // secondo fattore fatto con lui dentro l'app (`POST /api/auth/desktop-reauth`)
+  // negli ultimi 10 minuti (decisione del maintainer, 10 nov 2026). `mobile` e
+  // `manual` restano `session_required`, sempre.
+  const browserOnly = request.routeOptions.config?.browserOnly === true;
+  const desktopPat = isDesktopPat(user) && !browserOnly;
+  if (!desktopPat && (user.patId !== undefined || user.sessionId === undefined)) {
     await apiError(reply, 403, "session_required", "This action requires a browser session");
     return;
   }
   if (!(await hasConfirmedTotp(request.server.db, user.id))) {
-    if (reauth === "setup_allowed") return;
+    // Dal desktop l'app si configura nel browser: niente scorciatoia.
+    if (reauth === "setup_allowed" && !desktopPat) return;
     await apiError(reply, 403, "second_factor_setup_required", "Second factor setup required");
     return;
   }
-  const at = user.secondFactorAt;
+  const at = desktopPat ? user.patSecondFactorAt : user.secondFactorAt;
   if (!at || Date.now() - at.getTime() > REAUTH_WINDOW_MS) {
     await apiError(reply, 403, "reauth_required", "Recent second factor confirmation required");
+    return;
   }
+  if (desktopPat) markDesktopReauthUse(request);
+}
+
+/**
+ * Area 9, F3: la riconferma chiesta da un handler per una PARTE del corpo
+ * (`config.partialReauth`): la STESSA regola del gate ({@link applyReauth}),
+ * mai una copia. `false` se ha già risposto (403), e l'handler esce.
+ */
+export async function requireReauth(request: FastifyRequest, reply: FastifyReply): Promise<boolean> {
+  await applyReauth(request, reply, request.user!, true);
+  return !reply.sent;
+}
+
+/** Il PAT dell'app desktop (`kind = 'desktop'`, dal login nel browser). */
+export function isDesktopPat(user: SessionUser): boolean {
+  return user.patId !== undefined && user.patKind === "desktop";
+}
+
+/**
+ * LA regola delle azioni che vogliono il browser (decisione del maintainer,
+ * 10 nov 2026: «dal desktop si deve poter fare tutto quello che si fa dal
+ * browser»). Passa una sessione del browser, o il PAT `desktop` dentro la sua
+ * finestra di riconferma (`POST /api/auth/desktop-reauth`, 10 minuti). Il PAT
+ * `mobile` e quello `manual` mai, e nemmeno il token del turno della chat.
+ * Senza finestra il desktop riceve `reauth_required`, così l'app apre
+ * «Confirm it's you»; gli altri `session_required`.
+ *
+ * La usano il gate `config.reauth` (`applyReauth`, con in più il controllo
+ * dell'app configurata) e le rotte che rifiutano un PAT nel loro handler
+ * (`requireBrowserOrConfirmedDesktop`). Una rotta che dichiara
+ * `config.browserOnly` (la cassaforte: dal desktop la chiave non si sblocca,
+ * `docs/invariants/vault.md`) resta solo-browser anche per il desktop.
+ */
+export function browserOrConfirmedDesktop(
+  user: SessionUser,
+  opts: { browserOnly?: boolean; now?: number } = {},
+): { ok: true; via: "session" | "desktop" } | { ok: false; code: "session_required" | "reauth_required" } {
+  const now = opts.now ?? Date.now();
+  if (user.patId === undefined) {
+    return user.sessionId !== undefined ? { ok: true, via: "session" } : { ok: false, code: "session_required" };
+  }
+  if (!isDesktopPat(user) || opts.browserOnly === true) return { ok: false, code: "session_required" };
+  const at = user.patSecondFactorAt;
+  return at && now - at.getTime() <= REAUTH_WINDOW_MS
+    ? { ok: true, via: "desktop" }
+    : { ok: false, code: "reauth_required" };
+}
+
+/**
+ * {@link browserOrConfirmedDesktop} con la risposta: `false` = la 403 è già
+ * partita. Una rotta che dichiara anche `config.reauth` ha già registrato
+ * l'uso della finestra nel gate; le altre lo registrano qui.
+ */
+export async function requireBrowserOrConfirmedDesktop(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  message = "This action requires a browser session",
+): Promise<boolean> {
+  const user = request.user!;
+  const verdict = browserOrConfirmedDesktop(user, { browserOnly: request.routeOptions.config?.browserOnly === true });
+  if (!verdict.ok) {
+    await apiError(
+      reply,
+      403,
+      verdict.code,
+      verdict.code === "reauth_required" ? "Recent second factor confirmation required" : message,
+    );
+    return false;
+  }
+  const declared = (request.routeOptions.config as { reauth?: RouteReauth } | undefined)?.reauth;
+  if (verdict.via === "desktop" && declared === undefined) markDesktopReauthUse(request);
+  return true;
+}
+
+const DESKTOP_REAUTH_USE = Symbol("desktopReauthUse");
+
+/**
+ * Segna che la richiesta usa la finestra di riconferma del PAT desktop. La
+ * riga `reauth_desktop` con l'azione si scrive SOLO a risposta riuscita
+ * (`recordDesktopReauthUseOnResponse`, review della fetta 3): una richiesta che
+ * poi il permesso o il servizio rifiuta non è un'azione fatta.
+ */
+function markDesktopReauthUse(request: FastifyRequest): void {
+  (request as unknown as Record<symbol, true>)[DESKTOP_REAUTH_USE] = true;
+}
+
+/** Hook `onResponse` dell'app: la riga `reauth_desktop` con l'azione, se la richiesta è passata. */
+export async function recordDesktopReauthUseOnResponse(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  if ((request as unknown as Record<symbol, true | undefined>)[DESKTOP_REAUTH_USE] !== true) return;
+  if (reply.statusCode >= 400 || !request.user) return;
+  await recordSecurityEvent(request.server.db, {
+    kind: "reauth_desktop",
+    user: request.user,
+    detail: `${request.method} ${request.routeOptions.url ?? request.url.split("?")[0]}`,
+  }).catch((error: unknown) => request.log.warn({ err: error }, "reauth_desktop non registrato"));
+}
+
+export type ProjectAccessResult =
+  | { ok: true; projectId: string; permissions: ReadonlySet<ProjectPermission>; archived: boolean }
+  | { ok: false; error: "not_found" | "forbidden" | "archived" };
+
+/**
+ * La regola di un `RouteAccess` di progetto, senza risposta HTTP: progetto
+ * invisibile o risorsa invisibile → `not_found`, permesso mancante →
+ * `forbidden`. La usano il `preHandler` delle rotte e l'esecutore delle azioni
+ * di Claude (chat, fetta 3), che la valuta sulla STESSA dichiarazione della
+ * rotta con una richiesta sintetica (parametri e corpo): un'azione di Claude
+ * ha esattamente i permessi della rotta che la persona userebbe.
+ */
+export async function evaluateProjectAccess(
+  request: FastifyRequest,
+  db: Db,
+  user: SessionUser,
+  access: Extract<RouteAccess, { kind: "project" }>,
+): Promise<ProjectAccessResult> {
+  const projectId = await access.project(request, db);
+  if (!projectId) return { ok: false, error: "not_found" };
+  let permissions = await projectPermissionsFor(db, user, projectId);
+  let archived = false;
+  if (!permissions) {
+    // Area 9, F6 (D-8): invisibile perché ARCHIVIATO? Lo si chiede solo qui,
+    // e chi non lo vedrebbe nemmeno aperto resta a 404.
+    const asArchived = await projectPermissionsFor(db, user, projectId, { includeArchived: true });
+    if (!asArchived) return { ok: false, error: "not_found" };
+    if (!request.routeOptions?.config?.archived) {
+      // Una lettura non dichiarata: come uno che non c'è. Una scrittura:
+      // chi lo vedrebbe sa perché non si può (409), e niente cambia.
+      return request.method === "GET" || request.method === "HEAD" ? { ok: false, error: "not_found" } : { ok: false, error: "archived" };
+    }
+    permissions = asArchived;
+    archived = true;
+  }
+  // Il modulo del permesso spento: come un progetto invisibile (registro, area 11).
+  const module = moduleOfPermission(access.permission);
+  if (module && !(await projectHasModule(db, projectId, module))) return { ok: false, error: "not_found" };
+  if (access.resource && !(await access.resource(request, db, user, permissions))) {
+    return { ok: false, error: "not_found" };
+  }
+  if (access.permission !== "member" && !permissions.has(access.permission)) {
+    return { ok: false, error: "forbidden" };
+  }
+  return { ok: true, projectId, permissions, archived };
 }
 
 async function applyProjectAccess(
@@ -383,20 +758,14 @@ async function applyProjectAccess(
   user: SessionUser,
   access: Extract<RouteAccess, { kind: "project" }>,
 ): Promise<void> {
-  const db = request.server.db;
-  const projectId = await access.project(request, db);
-  const permissions = projectId ? await projectPermissionsFor(db, user, projectId) : null;
-  if (!projectId || !permissions) {
-    await apiError(reply, 404, "not_found", "Not found");
+  const result = await evaluateProjectAccess(request, request.server.db, user, access);
+  if (!result.ok) {
+    await (result.error === "not_found"
+      ? apiError(reply, 404, "not_found", "Not found")
+      : result.error === "archived"
+        ? apiError(reply, 409, "archived", "The project is archived: reopen it first")
+        : apiError(reply, 403, "forbidden", "Missing permission"));
     return;
   }
-  if (access.resource && !(await access.resource(request, db, user, permissions))) {
-    await apiError(reply, 404, "not_found", "Not found");
-    return;
-  }
-  if (access.permission !== "member" && !permissions.has(access.permission)) {
-    await apiError(reply, 403, "forbidden", "Missing permission");
-    return;
-  }
-  request.access = { projectId, permissions };
+  request.access = { projectId: result.projectId, permissions: result.permissions };
 }

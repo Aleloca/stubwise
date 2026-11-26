@@ -437,7 +437,7 @@ describe("GET /api/servers/:id/checks", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${id}/checks`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(200);
     const list = res.json() as Array<Record<string, unknown>>;
@@ -462,7 +462,7 @@ describe("GET /api/servers/:id/checks", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${NIL_UUID}/checks`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(404);
   });
@@ -606,7 +606,7 @@ describe("GET /api/servers/:id/metrics", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${id}/metrics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as {
@@ -627,18 +627,18 @@ describe("GET /api/servers/:id/metrics", () => {
     expect(p).not.toHaveProperty("cpuPctAvg");
   });
 
-  it("range > 48h: legge il rollup con resolution 5m", async () => {
+  it("range > 48h (fino a 7 giorni): legge il rollup con resolution 5m", async () => {
     const { id } = await createServerReturning("metrics-rollup");
     const rawTs = new Date(Date.now() - 30 * 60_000);
-    const rollupTs = new Date(Date.now() - 7 * 24 * 3600_000);
+    const rollupTs = new Date(Date.now() - 5 * 24 * 3600_000);
     await seedMetrics(id, rawTs, rollupTs);
 
-    const from = new Date(Date.now() - 8 * 24 * 3600_000).toISOString(); // 8 giorni fa
+    const from = new Date(Date.now() - 6 * 24 * 3600_000).toISOString(); // 6 giorni fa
     const to = new Date().toISOString();
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${id}/metrics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as {
@@ -656,6 +656,52 @@ describe("GET /api/servers/:id/metrics", () => {
     expect(p).not.toHaveProperty("cpuPct");
   });
 
+  // Area 8, F4a, S6: oltre 7 giorni il rollup si aggrega a un passo largo
+  // (1 h fino a 30 giorni, 4 h oltre), così 90 giorni stanno sotto il tetto.
+  it("area 8, F4a, S6: oltre 7 giorni passi da 1 h, oltre 30 da 4 h; medie delle medie, massimi dei massimi, somme della rete", async () => {
+    const { id } = await createServerReturning("metrics-larghe");
+    // Due passi di 4 h: tre righe nel primo (00:00, 01:00, 02:00), una nel secondo (05:00), di 40 giorni fa.
+    const day = new Date(Date.now() - 40 * 24 * 3600_000);
+    day.setUTCHours(0, 0, 0, 0);
+    const at = (h: number) => new Date(day.getTime() + h * 3600_000);
+    const row = (ts: Date, cpuAvg: number, cpuMax: number, rx: number) => ({
+      serverId: id,
+      ts,
+      cpuPctAvg: cpuAvg,
+      cpuPctMax: cpuMax,
+      load1mAvg: 1,
+      load1mMax: 2,
+      memUsedBytesAvg: 100,
+      memUsedBytesMax: 200,
+      memTotalBytes: 1000,
+      diskUsedBytesAvg: 10,
+      diskUsedBytesMax: 20,
+      diskTotalBytes: 100,
+      netRxBytesSum: rx,
+      netTxBytesSum: 1,
+    });
+    await testDb.db.insert(serverMetricsRollup).values([row(at(0), 10, 50, 1), row(at(1), 20, 70, 2), row(at(2), 30, 60, 3), row(at(5), 90, 95, 7)]);
+    const get = async (fromDays: number) => {
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/servers/${id}/metrics?from=${encodeURIComponent(new Date(Date.now() - fromDays * 24 * 3600_000).toISOString())}&to=${encodeURIComponent(new Date().toISOString())}`,
+        headers: { cookie: adminCookie },
+      });
+      expect(res.statusCode).toBe(200);
+      return res.json() as { resolution: string; truncated: boolean; points: Array<Record<string, number | string>> };
+    };
+    const wide = await get(90);
+    expect(wide.resolution).toBe("4h");
+    expect(wide.truncated).toBe(false);
+    expect(wide.points.map((p) => p.ts)).toEqual([at(0).toISOString(), at(4).toISOString()]);
+    expect(wide.points[0]).toMatchObject({ cpuPctAvg: 20, cpuPctMax: 70, netRxBytesSum: 6, memTotalBytes: 1000 });
+    expect(wide.points[1]).toMatchObject({ cpuPctAvg: 90, cpuPctMax: 95, netRxBytesSum: 7 });
+    const hourly = await get(30);
+    // 40 giorni fa è fuori da 30: nessun punto, ma il passo è 1 h.
+    expect(hourly.resolution).toBe("1h");
+    expect(hourly.points).toEqual([]);
+  });
+
   it("boundary esatto 48h: raw (<=)", async () => {
     const { id } = await createServerReturning("metrics-boundary");
     const to = new Date();
@@ -663,7 +709,7 @@ describe("GET /api/servers/:id/metrics", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${id}/metrics?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(200);
     expect((res.json() as { resolution: string }).resolution).toBe("raw");
@@ -687,7 +733,7 @@ describe("GET /api/servers/:id/metrics", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${id}/metrics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as {
@@ -726,7 +772,7 @@ describe("GET /api/servers/:id/metrics", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${id}/metrics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&checkId=${checkId}`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as {
@@ -749,7 +795,7 @@ describe("GET /api/servers/:id/metrics", () => {
       enabled: true,
     });
     const checkId = (created.json() as { id: string }).id;
-    const rollupTs = new Date(Date.now() - 7 * 24 * 3600_000);
+    const rollupTs = new Date(Date.now() - 5 * 24 * 3600_000);
     await testDb.db.insert(checkSamplesRollup).values({
       checkId,
       ts: rollupTs,
@@ -759,12 +805,12 @@ describe("GET /api/servers/:id/metrics", () => {
       latencyMsMax: 120,
     });
 
-    const from = new Date(Date.now() - 8 * 24 * 3600_000).toISOString();
+    const from = new Date(Date.now() - 6 * 24 * 3600_000).toISOString();
     const to = new Date().toISOString();
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${id}/metrics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&checkId=${checkId}`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as {
@@ -795,7 +841,7 @@ describe("GET /api/servers/:id/metrics", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${serverB}/metrics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&checkId=${checkId}`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(404);
   });
@@ -806,7 +852,7 @@ describe("GET /api/servers/:id/metrics", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${NIL_UUID}/metrics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(404);
   });
@@ -818,7 +864,7 @@ describe("GET /api/servers/:id/metrics", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${id}/metrics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -828,7 +874,7 @@ describe("GET /api/servers/:id/metrics", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${id}/metrics`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(400);
   });

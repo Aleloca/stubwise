@@ -1,6 +1,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   calendarEvents,
+  calendarProposalRecipients,
+  calendarProposals,
   calendarSeriesRecurrence,
   googleAccounts,
   googleWorkspaces,
@@ -10,7 +12,7 @@ import {
   users,
   type Db,
 } from "@stubwise/db";
-import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { GoogleApiError, type GoogleCalendarEvent } from "@stubwise/google";
 import type { GoogleAccountCredentials } from "@stubwise/google/credentials";
 import { eq } from "drizzle-orm";
@@ -115,7 +117,7 @@ afterEach(async () => {
   await db.delete(googleAccounts);
   await db.delete(googleWorkspaces);
   await db.delete(projectEmailRoutes);
-  await db.delete(projects);
+  await deleteAllProjects(db);
   await db.delete(users);
   vi.restoreAllMocks();
 });
@@ -202,9 +204,17 @@ function event(input: Partial<GoogleCalendarEvent> & { id: string }): GoogleCale
     attendees: [att("cliente@cliente.com"), att(MAILBOX)],
     organizer: MAILBOX,
     htmlLink: null,
+    eventType: "default",
+    transparency: "opaque",
+    etag: null,
+    iCalUID: null,
+    visibility: "default",
+    organizerSelf: false,
     updatedAt: null,
     recurringEventId: null,
     originalStartTime: null,
+    timeZone: null,
+    attachments: [],
     location: null,
     hangoutLink: null,
     conferenceEntryPoints: [],
@@ -233,7 +243,7 @@ function quietGmail(setup: { historyError?: unknown } = {}): GmailClient & { cal
     listHistory: async () => {
       calls.push("history");
       if (setup.historyError) throw setup.historyError;
-      return { addedMessageIds: [], historyId: "2000", nextPageToken: null };
+      return { addedMessageIds: [], unreadChanges: [], lastEntryId: null, historyId: "2000", nextPageToken: null };
     },
     listMessages: async () => {
       calls.push("list");
@@ -764,17 +774,17 @@ describe("pre-filtro degli eventi", () => {
     expect(readyForProposal(futureRow)).toBe(true);
   });
 
-  it("un evento che nessuna regola riconosce non produce nessuna riga", async () => {
+  it("F3b: un evento che nessuna regola riconosce diventa una riga VISTA, non candidata, senza progetto né proposta", async () => {
     await seedProject("Acme");
     const account = await seedAccount();
     const calendar = fakeCalendar([
       { events: [event({ id: "e1", title: "Dentista", attendees: [], organizer: null })] },
     ]);
 
-    const stats = await pollGoogleOnce(deps(account, calendar));
+    await pollGoogleOnce(deps(account, calendar));
 
-    expect(stats.calendarEvents).toBe(0);
-    expect(await rows()).toEqual([]);
+    const [row] = await rows();
+    expect(row).toMatchObject({ googleEventId: "e1", proposalCandidate: false, projectId: null, proposalNotificationId: null });
   });
 
   it("in parità fra due progetti la riga esiste ma NON è candidata", async () => {
@@ -1285,7 +1295,13 @@ describe("dalla riga candidata alla proposta in inbox", () => {
     expect(cards[0]?.kind).toBe("google.proposal");
     // ⚠️ Audience `mailbox_owner`: la vede solo chi ha collegato la casella.
     expect(cards[0]?.userId).toBe(account.userId);
-    expect(row!.proposalNotificationId).toBe(cards[0]?.id);
+    // Lotto 9, voce 2 (d): un evento singolo è una proposta CONDIVISA; la
+    // card del proprietario sta fra i suoi destinatari, non sulla riga.
+    expect(row!.proposalNotificationId).toBeNull();
+    const [proposal] = await db.select().from(calendarProposals);
+    expect(row!.calendarProposalId).toBe(proposal!.id);
+    const [recipient] = await db.select().from(calendarProposalRecipients);
+    expect(recipient).toMatchObject({ userId: account.userId, notificationId: cards[0]?.id });
   });
 
   it("un appuntamento RIFIUTATO non diventa mai una proposta, e non è contato pronto (15 set 2026, §1)", async () => {
@@ -1389,9 +1405,13 @@ describe("dalla riga candidata alla proposta in inbox", () => {
     ]);
     await pollGoogleOnce(deps(await reload(account.id), second, { proposeMaxPerTick: 20 }));
 
-    // (a) L'esito dice DA COSA è stata chiusa — non un `ignored` qualunque.
+    // (a) Lotto 9, voce 2 (d): un evento singolo è una proposta CONDIVISA. Il
+    // rifiuto chiude la card di chi ha rifiutato e lo toglie dai destinatari
+    // (`declined_at`); la riga non porta l'esito, che è della proposta.
     const [row] = await rows();
-    expect(row!.outcome).toEqual({ type: "declined" });
+    expect(row!.outcome).toBeNull();
+    const [recipient] = await db.select().from(calendarProposalRecipients);
+    expect(recipient!.declinedAt).not.toBeNull();
     // (b) La card è chiusa, non sparita: resta leggibile fra le gestite.
     const [closed] = await db.select().from(notifications);
     expect(closed!.id).toBe(card!.id);

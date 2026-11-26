@@ -5,12 +5,12 @@ import {
   docPagePendingCommits,
   docGenerations,
   docNodes,
+  docPageCodes,
   docPages,
-  projects,
   repositories,
   type Db,
 } from "@stubwise/db";
-import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { createFakeEmbeddingClient, FAKE_EMBEDDING_DIMENSION } from "@stubwise/embeddings";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -48,7 +48,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterEach(async () => {
-  await testDb.db.delete(projects);
+  await deleteAllProjects(testDb.db);
 });
 
 afterAll(async () => {
@@ -309,6 +309,27 @@ describe("finalizeGeneration", () => {
     const [job] = await db.select().from(docGenerationJobs).where(eq(docGenerationJobs.id, triggerId));
     expect(job?.status).toBe("succeeded");
     expect(job?.generationId).toBe(generationId);
+  });
+
+  it("i codici delle pagine sono dati PRIMA della transazione lunga: durante gli embedding sono già committati (review F1, il lock per progetto)", async () => {
+    const { db } = testDb;
+    const repositoryId = await createRepository(db);
+    const generationId = await newGeneration(db, repositoryId);
+    await seedCompleteDag(db, generationId, repositoryId);
+    await insertTrigger(db, repositoryId, generationId);
+    const fake = createFakeEmbeddingClient();
+    const seen: number[] = [];
+    const embeddingClient = {
+      ...fake,
+      embed: async (inputs: string[]) => {
+        // Da un'altra connessione: vede solo ciò che è committato.
+        seen.push((await db.select({ id: docPageCodes.id }).from(docPageCodes).where(eq(docPageCodes.repositoryId, repositoryId))).length);
+        return fake.embed(inputs);
+      },
+    };
+    expect(await finalizeGeneration({ db, embeddingClient }, generationId)).toBe("succeeded");
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen[0]).toBe(5);
   });
 
   it("allRootsDone è true solo quando ENTRAMBE le radici sono done", async () => {

@@ -1,5 +1,9 @@
 import { createHash, randomBytes } from "node:crypto";
+import { users } from "@stubwise/db";
+import { eq } from "drizzle-orm";
+import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { apiError } from "../errors.js";
 
 /**
  * Genera una chiave di ingestion per gli SDK: 32 caratteri esadecimali (16
@@ -151,4 +155,21 @@ function hasPostgresCode(error: unknown, code: string): boolean {
     current = current.cause;
   }
   return false;
+}
+
+/**
+ * L'utente di sistema «Claude» (area 3, fetta 3e) non è una persona da
+ * gestire: nessuna rotta `/users/:id…` lo tocca — ruolo, password, secondo
+ * fattore, registro di sicurezza (`routes/users.ts`), né le identità git,
+ * Bitbucket e Slack (review dell'area 3, punto 8). Risponde come un utente
+ * che non c'è. Un hook del plugin, così vale per ogni rotta che il plugin
+ * registra, anche quelle aggiunte dopo.
+ */
+export function rejectAgentUserParam(app: FastifyInstance): void {
+  app.addHook("preHandler", async (request, reply) => {
+    const id = (request.params as { id?: unknown } | undefined)?.id;
+    if (typeof id !== "string" || !/^[0-9a-f-]{36}$/i.test(id)) return;
+    const [row] = await app.db.select({ isAgent: users.isAgent }).from(users).where(eq(users.id, id));
+    if (row?.isAgent) return apiError(reply, 404, "user_not_found", "User not found");
+  });
 }

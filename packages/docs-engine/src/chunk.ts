@@ -138,3 +138,13 @@ export function chunkMarkdown(
   }
   return chunks;
 }
+
+/**
+ * Target e sovrapposizione del chunking per gli embedding dei Docs (token
+ * stimati, parole). In UN posto: li usano il worker (generazione, giro
+ * notturno) e il server (pagine manuali, area 5 fetta 1), e chunk diversi per
+ * le stesse pagine farebbero risultati di ricerca diversi.
+ */
+export const DOC_CHUNK_TARGET_TOKENS = 400;
+export const DOC_CHUNK_OVERLAP_WORDS = 40;
+

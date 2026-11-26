@@ -1,3 +1,5 @@
+import { REPLY_FIELD_SHAPE, replyContext, replyInstruction, storedJudgmentFrom } from "./reply-judgment.js";
+import { monthlyBudgetLimitUsd } from "@stubwise/notifications";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,12 +9,12 @@ import {
   emailMessages,
   emailProposals,
   googleAccounts,
-  instanceSettings,
   monthlyCostUsd,
   notifications,
   projects,
   tickets,
   type Db,
+  projectNotArchived,
 } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
 import {
@@ -21,7 +23,7 @@ import {
   type TicketPriority,
   type TicketStatus,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, inArray, lte, ne, notInArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lte, ne, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AgentRunner, AgentRunResult, UsageTag } from "../agent/runner.js";
 import { capText, parseAgentJson, textFromRun } from "../agent/text.js";
@@ -37,6 +39,7 @@ import {
 import { recordUsage } from "../queue.js";
 import { getContentLanguage } from "../settings.js";
 import { emailMessageSession, sessionOption } from "../sessions/owners.js";
+import { NATIVE_TOOLS } from "../agent/native-tools.js";
 
 /**
  * FASE 2 del tick delle caselle Google (fase 6, Task 8): da un messaggio
@@ -247,6 +250,12 @@ export const emailSignalsSchema = z.object({
    * fallire il parse dell'intera classificazione.
    */
   threadRelation: z.enum(THREAD_RELATIONS).catch(DEFAULT_THREAD_RELATION).default(DEFAULT_THREAD_RELATION),
+  /**
+   * Area 8, «Clienti in attesa» (J1): il giudizio «serve una mia risposta?»,
+   * nello STESSO run. Tollerato assente o malformato: non fa MAI fallire la
+   * classificazione (lo si valida a parte, `storedJudgmentFrom`).
+   */
+  reply: z.unknown().optional(),
 });
 
 export type EmailSignalsOutput = z.infer<typeof emailSignalsSchema>;
@@ -370,6 +379,12 @@ export interface EmailSignalsInput {
    */
   threadMessages?: { fromAddress: string; receivedAt: Date; text: string }[];
   /**
+   * Area 8, «Clienti in attesa» (J1): la casella giudicata e quelle dei
+   * colleghi dell'istanza, per il giudizio «serve una mia risposta?». Assente
+   * = nessuna istruzione del giudizio (il campo resta tollerato).
+   */
+  reply?: { mailbox: string; colleagues: readonly string[] };
+  /**
    * Le proposte GIÀ APERTE su questo thread (design §3, Task 11): il
    * modello deve dire che rapporto ha il messaggio nuovo con esse. Assente o
    * vuoto = non si chiede niente, e il prompt è quello di sempre.
@@ -395,7 +410,7 @@ export interface ClassifyLogger {
  *   esclusivo sparito, segreti non decifrabili): un fallimento del lavoro,
  *   col testo che dice perché — mai «exit N» per un limite.
  */
-type MailRun =
+export type MailRun =
   | { kind: "ran"; result: AgentRunResult }
   | { kind: "deferred"; reason: EmptyReason | "all_limited_now" }
   | { kind: "failed"; reason: string };
@@ -421,11 +436,18 @@ type MailRun =
  * Nessun provider abilitato NON è un errore: un tentativo con l'auth
  * dell'ambiente del container, come prima (istanza self-hosted senza catena).
  */
-async function runMailAgent(
+export async function runMailAgent(
   deps: { db: Db; select: SelectDeps },
-  messageId: string,
+  /** Il messaggio (owner `email_message_id`); `null` solo per `calendar_classify`, che non ha un messaggio. */
+  messageId: string | null,
   projectId: string | null,
   run: (provider: ResolvedProvider | undefined, usage: UsageTag) => Promise<AgentRunResult>,
+  /**
+   * Area 6, F5a: il riassunto di una riunione registrata passa da qui con la
+   * SUA operazione (`meeting_summary`) e senza la phase `email_classify`, che
+   * è ciò che conta il tetto giornaliero della classificazione.
+   */
+  kind: "classify" | "meeting_summary" | "calendar_classify" = "classify",
 ): Promise<MailRun> {
   // Writer storico (design 2026-10-21-modelli-e-consumi): la riga la scrive
   // QUI, non il TrackingAgentRunner (`record: false`), perché l'owner
@@ -435,13 +457,19 @@ async function runMailAgent(
   // `projectId`: quello già attribuito al messaggio (`email_messages.project_id`,
   // null se non risolto: può toccarne più d'uno, e l'attribuzione la decide
   // proprio questo run); quello scelto dalla persona per una riattribuzione.
-  const usage: UsageTag = {
-    operation: "mail_classify",
-    projectId,
-    emailMessageId: messageId,
-    phase: "email_classify",
-    record: false,
-  };
+  //
+  // Lotto 9, voce 2 (a): il progetto di un appuntamento con più candidati
+  // (`calendar-guess.ts`) usa la STESSA operazione `mail_classify` (stesso
+  // modello, stessi consumi) ma la SUA phase, `calendar_classify`, e nessun
+  // owner: il tetto giornaliero della posta conta `email_classify` legata a un
+  // messaggio, e questo run non deve consumarlo.
+  const owner = messageId !== null ? { emailMessageId: messageId } : {};
+  const usage: UsageTag =
+    kind === "meeting_summary"
+      ? { operation: "meeting_summary", projectId, ...owner, record: false }
+      : kind === "calendar_classify"
+        ? { operation: "mail_classify", projectId, phase: "calendar_classify", record: false }
+        : { operation: "mail_classify", projectId, ...owner, phase: "email_classify", record: false };
   const outcome = await runWithProviders(
     deps.select,
     { projectId: null, workClass: "interactive" },
@@ -631,7 +659,10 @@ export function buildEmailSignalsPrompt(lang: Language, input: EmailSignalsInput
   const lines: string[] = [
     t(lang, "email.signals.instructions"),
     "",
-    `OUTPUT (JSON only): ${OUTPUT_SHAPE}`,
+    // `reply` si chiede solo con la sua istruzione (rimandi, lotto 4): senza
+    // contesto il campo, se arrivasse, lo scarterebbe comunque lo schema.
+    `OUTPUT (JSON only): ${outputShape(input.reply !== undefined && input.reply !== null)}`,
+    ...(input.reply ? ["", replyInstruction({ ...input.reply, language: lang === "it" ? "it" : "en" })] : []),
     ...projectBlocks,
     "",
     `${t(lang, "email.input.cited")}: ${
@@ -687,7 +718,8 @@ const OUTPUT_SHAPE =
   '"proposals":[{"type":"create_backlog_item|create_milestone|update_ticket|comment_ticket|record_decision",' +
   '"projectId":"<id from the list>","title":"…","body":"…","name":"…","dueDate":"YYYY-MM-DD",' +
   '"ticketNumber":123,"status":"open|triaged|in_progress|in_review|done|closed",' +
-  '"priority":"low|medium|high|urgent","decision":"…","consequence":"…"}],"recommendedIndex":0}';
+  '"priority":"low|medium|high|urgent","decision":"…","consequence":"…"}],"recommendedIndex":0';
+const outputShape = (withReply: boolean) => `${OUTPUT_SHAPE}${withReply ? `,${REPLY_FIELD_SHAPE}` : ""}}`;
 
 /** Il contesto DI UN progetto: ticket aperti (per numero) e titoli di backlog. */
 interface ProjectContext {
@@ -925,6 +957,8 @@ async function loadContext(
   const instanceProjects = await db
     .select({ id: projects.id, name: projects.name, description: projects.description })
     .from(projects)
+    // Area 9, F6: una mail non si attribuisce a un progetto archiviato.
+    .where(projectNotArchived(sql`${projects.id}`))
     .orderBy(asc(projects.createdAt));
   const byId = new Map(instanceProjects.map((p) => [p.id, p]));
   const matched = derivedAllowed.filter((id, i) => byId.has(id) && derivedAllowed.indexOf(id) === i);
@@ -1675,6 +1709,8 @@ export async function reclassifyReassignedProposal(
           ...(deps.model !== undefined ? { model: deps.model } : {}),
           ...(provider !== undefined ? { provider } : {}),
           ...session,
+          // Solo testo: nessun tool nativo (`native-tools.ts`).
+          builtinTools: NATIVE_TOOLS.text,
           permissionMode: "default",
           maxTurns: CLASSIFY_MAX_TURNS,
           timeoutMs: CLASSIFY_TIMEOUT_MS,
@@ -1805,11 +1841,13 @@ export async function classifyEmail(
     const raw = message.textExcerpt ?? "";
     const truncated = raw.length > CLASSIFY_TEXT_MAX_CHARS;
     const text = capText(raw, CLASSIFY_TEXT_MAX_CHARS, t(deps.lang, "email.input.truncated"));
+    const reply = await replyContext(deps.db, message.accountId);
     const prompt = buildEmailSignalsPrompt(deps.lang, {
       fromAddress: message.fromAddress,
       fromName: message.fromName,
       subject: message.subject,
       text,
+      ...(reply ? { reply } : {}),
       // Fase 6b: un blocco di contesto PER OGNI progetto del perimetro.
       projects: ctx.projects.map((p) => {
         const projectCtx = ctx.contextByProject.get(p.id);
@@ -1853,6 +1891,8 @@ export async function classifyEmail(
           ...(deps.model !== undefined ? { model: deps.model } : {}),
           ...(provider !== undefined ? { provider } : {}),
           ...session,
+          // Solo testo: nessun tool nativo (`native-tools.ts`).
+          builtinTools: NATIVE_TOOLS.text,
           permissionMode: "default",
           maxTurns: CLASSIFY_MAX_TURNS,
           timeoutMs: CLASSIFY_TIMEOUT_MS,
@@ -1887,6 +1927,13 @@ export async function classifyEmail(
       // schema è il modo di pagare lo stesso run all'infinito.
       await markFailed(deps.db, message.id, "classificazione: output non parsabile o fuori schema");
       return "failed";
+    }
+    // Area 8, «Clienti in attesa» (J1): il giudizio del run, se è nello
+    // schema, sul messaggio classificato (l'ultimo ammesso del thread). Uno
+    // fuori schema non c'è: lo farà J2 dopo il taglio.
+    const judgment = storedJudgmentFrom(parsed.reply, deps.model, now);
+    if (judgment !== null) {
+      await deps.db.update(emailMessages).set({ replyJudgment: judgment }).where(eq(emailMessages.id, message.id));
     }
 
     const classification = revalidateClassification(
@@ -1927,7 +1974,7 @@ export async function classifyEmail(
 }
 
 /** Formatta un importo USD come `fix.ts` (4 decimali) — stesso stile del log del budget dei fix. */
-function fmtUsd(n: number): string {
+export function fmtUsd(n: number): string {
   return n.toFixed(4);
 }
 
@@ -1936,7 +1983,7 @@ function fmtUsd(n: number): string {
  * casella, non un id opaco. `accountId` come fallback SOLO se la riga è
  * sparita fra il claim e questo controllo (caso limite, mai visto in pratica).
  */
-async function loadAccountEmail(db: Db, accountId: string): Promise<string> {
+export async function loadAccountEmail(db: Db, accountId: string): Promise<string> {
   const [row] = await db
     .select({ email: googleAccounts.email })
     .from(googleAccounts)
@@ -1957,14 +2004,16 @@ async function loadAccountEmail(db: Db, accountId: string): Promise<string> {
  * corrente via `date_trunc('month', now())`) e di `pruneOldEmails` in
  * `poller.ts` (`make_interval`).
  */
-async function countClassifyRunsSince(db: Db, accountId: string, hours: number): Promise<number> {
+export async function countClassifyRunsSince(db: Db, accountId: string, hours: number): Promise<number> {
   const [row] = await db
     .select({ count: sql<string>`count(*)` })
     .from(agentRuns)
     .innerJoin(emailMessages, eq(agentRuns.emailMessageId, emailMessages.id))
     .where(
       and(
-        eq(agentRuns.phase, "email_classify"),
+        // La classificazione E il giudizio a parte di «Clienti in attesa»
+        // (J2): il tetto giornaliero della casella è uno solo.
+        or(eq(agentRuns.phase, "email_classify"), eq(agentRuns.operation, "mail_reply_judgment")),
         eq(emailMessages.accountId, accountId),
         sql`${agentRuns.createdAt} >= now() - make_interval(hours => ${Math.trunc(hours)})`,
       ),
@@ -1978,7 +2027,7 @@ async function countClassifyRunsSince(db: Db, accountId: string, hours: number):
  * scelta di `now()` DI POSTGRES di {@link countClassifyRunsSince} — vedi lì
  * il motivo.
  */
-async function threadClassifiedRecently(db: Db, threadId: string, minutes: number): Promise<boolean> {
+export async function threadClassifiedRecently(db: Db, threadId: string, minutes: number): Promise<boolean> {
   const [row] = await db
     .select({ id: agentRuns.id })
     .from(agentRuns)
@@ -2000,14 +2049,9 @@ async function threadClassifiedRecently(db: Db, threadId: string, minutes: numbe
  * (`instance_settings.monthly_budget_usd`, singleton id=1). `null` = nessun
  * tetto configurato. I numeric di Postgres arrivano come stringa.
  */
-async function loadMonthlyBudgetUsd(db: Db): Promise<number | null> {
-  const [row] = await db
-    .select({ monthlyBudgetUsd: instanceSettings.monthlyBudgetUsd })
-    .from(instanceSettings)
-    .where(eq(instanceSettings.id, 1));
-  return row?.monthlyBudgetUsd != null && row.monthlyBudgetUsd !== ""
-    ? Number(row.monthlyBudgetUsd)
-    : null;
+export async function loadMonthlyBudgetUsd(db: Db): Promise<number | null> {
+  // Area 7, F3 (C-F3-1): la lettura sta in UN posto, `@stubwise/notifications`.
+  return monthlyBudgetLimitUsd(db);
 }
 
 /**
@@ -2091,6 +2135,24 @@ export async function classifyNewMessages(
         eq(emailMessages.accountId, accountId),
         eq(emailMessages.status, "new"),
         eq(emailMessages.admitted, true),
+        // F5a: l'email degli appunti di Gemini non è posta da classificare:
+        // le sue proposte sono quelle della riunione (`meetings.ts`).
+        eq(emailMessages.kind, "email"),
+        // Il taglio delle proposte RIACCESE (0150, regola dell'orchestratrice):
+        // la posta ingerita mentre erano spente resta `new` e non si
+        // classifica mai — riaccenderle non sforna proposte sulla posta già
+        // letta. Null = nessun taglio.
+        sql`not exists (
+          select 1 from ${googleAccounts}
+          where ${googleAccounts.id} = ${emailMessages.accountId}
+            and ${googleAccounts.proposalsSince} is not null
+            and ${emailMessages.createdAt} < ${googleAccounts.proposalsSince}
+        )`,
+        // Review della F1 (punto 1): le proposte accese ADESSO, non al claim.
+        sql`exists (
+          select 1 from ${googleAccounts}
+          where ${googleAccounts.id} = ${emailMessages.accountId} and ${googleAccounts.proposalsEnabled}
+        )`,
       ),
     )
     .orderBy(asc(emailMessages.receivedAt), asc(emailMessages.id))

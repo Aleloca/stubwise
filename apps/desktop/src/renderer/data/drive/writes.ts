@@ -2,10 +2,12 @@ import { storageAllowsUploads } from "../instance/blocks";
 import { person as mailAddressOf } from "../seed/mail/helpers";
 import { copy, gate, newId, now, state } from "../store";
 import type {
+  ConnectGoogleOptions,
   DriveFile,
   DriveFileRow,
   DriveOpen,
   DriveUploadInput,
+  DriveUploadOptions,
   DriveUploadResult,
   FolderLink,
   FolderLinkView,
@@ -88,6 +90,9 @@ function dropFiles(ids: ReadonlySet<string>): void {
 export async function uploadFiles(
   projectId: string,
   files: DriveUploadInput[],
+  // Il prototipo non manda byte: niente avanzamento né annullamento (la build app sì).
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _options?: DriveUploadOptions,
 ): Promise<DriveUploadResult[]> {
   const me = await gate("drive.uploadFiles");
   projectFor(me, projectId);
@@ -133,6 +138,21 @@ export async function uploadFiles(
   });
   if (added.length > 0) track(advanceContent(added.map((f) => f.id)));
   return results;
+}
+
+/**
+ * «Save to Drive» da un allegato della Chat: una copia nel Drive del
+ * progetto (`channelProject`: quello del canale, altrimenti scelto). Il
+ * prototipo la carica come un file scelto dal disco; nella build app la fa il
+ * server dall'allegato (`attachmentId`).
+ */
+export async function saveAttachmentToDrive(
+  _attachmentId: string,
+  input: DriveUploadInput,
+  target: { projectId: string; channelProject: boolean },
+): Promise<DriveUploadResult> {
+  const [result] = await uploadFiles(target.projectId, [input]);
+  return result!;
 }
 
 /** Elimina un caricato: il proprio, o con `drive.manage`. Le sue aperture se ne vanno con lui. */
@@ -305,6 +325,8 @@ export async function linkFolder(
     linkedAt: now(),
     status: "ok",
     expiredAt: null,
+    // Il collegamento è la prima sincronizzazione.
+    lastSyncedAt: now(),
   };
   state.folderLinks.push(link);
   const added = state.googleFiles
@@ -366,6 +388,8 @@ export async function syncFolder(linkId: string): Promise<FolderLinkView> {
     }
   }
   if (touched.length > 0) track(advanceContent(touched));
+  // QB1 = b *(M)*: la cartella dice quando si è aggiornata (a mano o la notte).
+  link.lastSyncedAt = now();
   return linkView(link);
 }
 
@@ -453,7 +477,8 @@ export function unlinkGoogleAccount(personId: string): void {
  * cartelle collegate da me riprendono ad aggiornarsi, e i loro file non più
  * disponibili per l'accesso perso tornano disponibili.
  */
-export async function connectGoogle(): Promise<GoogleAccount> {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- il prototipo non ha Workspace: la scelta è della build app
+export async function connectGoogle(_options: ConnectGoogleOptions = {}): Promise<GoogleAccount> {
   const me = await gate("drive.connectGoogle");
   return copy(linkGoogleAccount(me));
 }

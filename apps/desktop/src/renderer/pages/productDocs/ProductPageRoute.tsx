@@ -1,6 +1,13 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useBlocker } from "@tanstack/react-router";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useJoinProductPage, useProductPage, useProductPageEvents, useProductPresence } from "../../data/queries";
+import {
+  guardPersonaChange,
+  useJoinProductPage,
+  useProductPage,
+  useProductPageEvents,
+  useProductPresence,
+} from "../../data/queries";
 import type { ProductPageView } from "../../data/types";
 import { formatDate } from "../../notifications/time";
 import { PageError } from "../../tasks-ui/PageStates";
@@ -12,6 +19,7 @@ import { FirstVersionBanner } from "./claude/FirstVersionBanner";
 import { TitleField } from "./TitleField";
 import { BlockEditor, type BlockEditorHandle } from "./editor/BlockEditor";
 import { LinkedRequests } from "./claude/LinkedRequests";
+import { LeaveDialog } from "./editor/LeaveDialog";
 import { useEditorSession } from "./editor/useEditorSession";
 import {
   ProductNotFound,
@@ -80,10 +88,62 @@ function PageBody({ page }: { page: ProductPageView }) {
       state: session.state,
       skipped: session.skipped,
       dropped: session.dropped,
+      droppedBy: session.droppedBy,
+      droppedKept: session.droppedKept,
       retry: () => retry.current(),
     });
-  }, [editable, session.state, session.skipped, session.dropped, setEditorStatus]);
+  }, [editable, session.state, session.skipped, session.dropped, session.droppedBy, session.droppedKept, setEditorStatus]);
   useEffect(() => () => setEditorStatus(null), [setEditorStatus]);
+
+  // Uscire dalla pagina (un'altra pagina, un'altra sezione) o cambiare
+  // persona con qualcosa di non salvato chiede prima (§3.12): le bozze
+  // partono, la fila ha un momento per svuotarsi, poi «Some changes aren't
+  // saved yet». Cambiare solo la ricerca (un filo aperto) resta sulla pagina.
+  const [asking, setAsking] = useState<((leave: boolean) => void) | null>(null);
+  const askingRef = useRef(asking);
+  askingRef.current = asking;
+  // Smontata mentre chiede (la pagina tolta, `gone`): si va dove si andava,
+  // la navigazione e il cambio di persona non restano appesi (revisione di R11-6, M1).
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      const pending = askingRef.current;
+      askingRef.current = null;
+      pending?.(true);
+    };
+  }, []);
+  const mayLeave = useCallback(async (): Promise<boolean> => {
+    const handle = editor.current;
+    if (!handle) return true;
+    // Un campo che salva uscendone (il titolo, una didascalia): esce e salva,
+    // poi il fuoco torna dov'era (revisione di R11-6, M7).
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active.matches("[data-save-on-blur]")) {
+      active.blur();
+      active.focus();
+    }
+    const unsaved = await handle.unsaved();
+    if (!mounted.current || !unsaved) return true;
+    // Una seconda uscita mentre si chiede: la prima resta.
+    askingRef.current?.(false);
+    return new Promise<boolean>((resolve) => {
+      const answer = (leave: boolean) => {
+        askingRef.current = null;
+        if (mounted.current) setAsking(null);
+        if (leave) handle.discard();
+        resolve(leave);
+      };
+      askingRef.current = answer;
+      setAsking(() => answer);
+    });
+  }, [editor]);
+  useBlocker({
+    shouldBlockFn: async ({ current, next }) => current.pathname !== next.pathname && !(await mayLeave()),
+    enableBeforeUnload: false,
+  });
+  useEffect(() => guardPersonaChange(mayLeave), [mayLeave]);
 
   // Il permesso perso mentre si scrive (11b, Task 12): l'editor diventa la
   // sola lettura e i suoi controlli se ne vanno nello stesso disegno; il
@@ -203,6 +263,7 @@ function PageBody({ page }: { page: ProductPageView }) {
       </div>
       {/* Le richieste nate dalla pagina (11b, [PB 4]): fuori dall'editor, dopo l'ultimo blocco. */}
       <LinkedRequests pageId={page.id} onEmptyAfterRetry={() => heading.current?.focus()} />
+      {asking && <LeaveDialog onStay={() => asking(false)} onLeave={() => asking(true)} />}
     </article>
   );
 }

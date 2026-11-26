@@ -2,6 +2,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  useCancelRun,
   useConversation,
   useConversationStream,
   useInstanceChanges,
@@ -13,7 +14,9 @@ import {
   useResumeCorrection,
   useRevokePlanApproval,
   useStartRun,
+  useStopConversation,
   useTaskWork,
+  useTaskWorkSummary,
 } from "../../data/queries";
 import type { ConversationDetail, ConversationEvent, Task, TaskRun, TaskWork } from "../../data/types";
 import {
@@ -36,7 +39,10 @@ import {
   waitingText,
 } from "../../components/InstanceBlock";
 import { WhoCanLink } from "../../components/WhoCanLink";
-import { inputClass } from "../../tasks-ui/Dialog";
+import { featureIntegrated } from "../../data/integration";
+import { openInWeb } from "../../platform/openWeb";
+import { Dialog, inputClass } from "../../tasks-ui/Dialog";
+import { primaryButton, secondaryButton } from "../tasks/controls";
 import { itemClass, MenuGroup } from "../../tasks-ui/Menu";
 import { Avatar } from "../../tasks-ui/PersonChip";
 import { useToast } from "../../tasks-ui/Toast";
@@ -47,7 +53,6 @@ import { MenuButton } from "../tasks/controls";
 import { useInlineUpdate, useProjectMembers } from "../tasks/pickers";
 import { MoreIcon, Section, ghostButton, smallPrimary, smallSecondary } from "./parts";
 import { FailureBlock, PrRows, ProviderLine, SkillsInRun, UsageDisclosure } from "./ClaudeRunParts";
-import { FixCommandLog } from "./FixCommandLog";
 import { WorkStory, phaseName } from "./WorkStory";
 
 const K = "taskDetail.claude";
@@ -67,6 +72,11 @@ export function scrollPanelTo(el: HTMLElement): void {
  * waiting on you ↓», che porta alla sezione (e alla sua scheda).
  */
 export function ClaudeWaitingNotice({ task }: { task: Task }) {
+  // Nella build app Claude (area 3) non è integrato: nessun avviso.
+  return featureIntegrated("claude") ? <ClaudeWaitingNoticeBody task={task} /> : null;
+}
+
+function ClaudeWaitingNoticeBody({ task }: { task: Task }) {
   const { t } = useTranslation();
   const work = useTaskWork(task.id).data;
   if (!work?.waitsOnViewer) return null;
@@ -115,6 +125,90 @@ export function ClaudeSection({
   /** «Follow here»: il pannello diventa la conversazione della sessione. */
   onFollow: (conversationId: string) => void;
 }) {
+  // Nella build app, prima della fetta 3a, la sezione è il riassunto della
+  // fetta 1 (stato del lavoro e «Open in web»); dalla 3a è quella intera, in lettura.
+  if (!featureIntegrated("claude")) return <ClaudeSummarySection task={task} />;
+  return <ClaudeSectionBody task={task} canEdit={canEdit} onFollow={onFollow} />;
+}
+
+/**
+ * La sezione Claude nella build app (integrazione area 2, fetta 1): lo stato
+ * reale del lavoro, letto dai job (`GET /api/tasks/:id/work`), le PR, e
+ * «Open in web» verso il dettaglio del web vecchio per piano, approvazione,
+ * domande e sessione dal vivo. «Assign to Claude» e il resto arrivano con
+ * l'area 3.
+ */
+function ClaudeSummarySection({ task }: { task: Task }) {
+  const { t } = useTranslation();
+  const work = useTaskWorkSummary(task.id);
+  const title = t(`${K}.title`);
+  if (work.isError) {
+    return (
+      <Section title={title}>
+        <div role="alert" className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-ink">{t(`${K}.loadFailed`)}</span>
+          <button type="button" className={ghostButton} onClick={() => void work.refetch()}>
+            {t(`${K}.retry`)}
+          </button>
+        </div>
+      </Section>
+    );
+  }
+  if (work.isPending || !work.data) {
+    return (
+      <Section title={title}>
+        <span role="status" className="text-sm text-ink-muted">
+          {t(`${K}.loading`)}
+        </span>
+      </Section>
+    );
+  }
+  const w = work.data;
+  return (
+    <Section title={title}>
+      <p className="text-sm text-ink">{t(`${K}.states.${w.claude}`)}</p>
+      {w.pullRequests.length > 0 && (
+        <ul className="flex flex-col gap-1">
+          {w.pullRequests.map((pr) => (
+            <li key={`${pr.repo}#${pr.number ?? pr.url}`} className="flex min-h-7 items-baseline gap-2 text-sm">
+              <a href={pr.url} target="_blank" rel="noreferrer" className="text-ink underline-offset-4 hover:underline">
+                {pr.number !== null ? t(`${K}.pr.number`, { n: pr.number }) : pr.repo}
+              </a>
+              <span className="min-w-0 truncate text-ink-muted">{pr.repo}</span>
+              <span className="ml-auto shrink-0 text-xs text-ink-muted">{t(`${K}.web.pr.${pr.state}`)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {w.webHref && (
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className={smallSecondary} onClick={() => openInWeb(w.webHref!)}>
+            {t(`${K}.web.open`)}
+          </button>
+          <span className="text-xs text-ink-muted">{t(`${K}.web.hint`)}</span>
+        </div>
+      )}
+    </Section>
+  );
+}
+
+const NO_ACTIONS: TaskWork["actions"] = {
+  start: "unavailable",
+  relaunch: "unavailable",
+  resume: "unavailable",
+  requestChanges: "unavailable",
+  cancel: "unavailable",
+};
+
+function ClaudeSectionBody({
+  task,
+  canEdit,
+  onFollow,
+}: {
+  task: Task;
+  canEdit: boolean;
+  onFollow: (conversationId: string) => void;
+}) {
   const { t } = useTranslation();
   const work = useTaskWork(task.id);
   // Budget e coda (area 9b): alzato il budget o ripresa la coda, si rilegge da sé.
@@ -146,9 +240,11 @@ export function ClaudeSection({
       </Section>
     );
   }
-  const latest = work.data.runs.at(-1);
-  if (!latest) return <NoRun task={task} work={work.data} canEdit={canEdit} />;
-  return <WithRun key={latest.id} task={task} work={work.data} run={latest} onFollow={onFollow} />;
+  // Fetta 3a: si guarda e basta, le azioni arrivano con la 3b (nessun bottone, nessuna frase).
+  const shown = featureIntegrated("claude-actions") ? work.data : { ...work.data, actions: NO_ACTIONS };
+  const latest = shown.runs.at(-1);
+  if (!latest) return <NoRun task={task} work={shown} canEdit={canEdit} />;
+  return <WithRun key={latest.id} task={task} work={shown} run={latest} onFollow={onFollow} />;
 }
 
 // --- pezzi comuni ------------------------------------------------------------
@@ -312,12 +408,15 @@ function InlineForm({
  * Rilasci; il resto «riprova».
  */
 function useFailure(cap?: { code: string; cap: number }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const toast = useToast();
   return (error: Error) => {
+    // Un rifiuto del server ha il suo codice: la sua frase, se l'app la conosce.
+    const code = (error as { code?: unknown }).code;
     if (error.message === "conflict") toast.error(t(`${K}.conflict`));
-    else if (error.message === "needs_maintainer" && cap)
+    else if ((error.message === "needs_maintainer" || code === "needs_maintainer") && cap)
       toast.error(t("releases.panel.requestErrors.needs_maintainer", cap));
+    else if (typeof code === "string" && i18n.exists(`${K}.errors.${code}`)) toast.error(t(`${K}.errors.${code}`));
     else toast.error(t(`${K}.failed`));
   };
 }
@@ -497,8 +596,9 @@ function WithRun({
   const preApprove = usePreApprovePlan();
   const revoke = useRevokePlanApproval();
   const [form, setForm] = useState<Form>(null);
+  const [cancelling, setCancelling] = useState(false);
   const sectionRef = useRef<HTMLElement>(null);
-  const fixPlan = useServerFixPlan(detail, code || null);
+  const fixPlan = useServerFixPlan(detail);
 
   // Dal vivo quando lo stream ha dato qualcosa; stato ed esito dal dettaglio.
   const events: ConversationEvent[] = stream.events.length > 0 ? stream.events : run.events;
@@ -616,6 +716,13 @@ function WithRun({
   // «⋯»: approvazione in anticipo e revoca (`plans.approve`, dal livello
   // dati), il rilancio quando non è già l'azione in evidenza, la sessione.
   const relaunchInMenu = actions.relaunch === "allowed" && !stopped && !budget && !run.waiting;
+  // «Annulla il lavoro»: se si può lo dice il server (`actions.cancel` di
+  // `/work`, review dell'area 3, punto 14: un lavoro non concluso, non già
+  // chiesto, per chi ha `runs.start`), il client non lo deduce.
+  // Già chiesto su un lavoro in esecuzione (3b.1-bis): il worker lo sta chiudendo, niente secondo Annulla.
+  const cancelInFlight = run.cancelRequested === true && status.kind !== "ended";
+  const canCancel =
+    featureIntegrated("claude-actions") && status.kind !== "ended" && !cancelInFlight && actions.cancel === "allowed";
   const menu = (
     <MenuButton
       menuLabel={t(`${K}.more`)}
@@ -657,6 +764,16 @@ function WithRun({
               {t(`${K}.relaunch`)}
             </MenuItem>
           )}
+          {canCancel && (
+            <MenuItem
+              onSelect={() => {
+                close();
+                setCancelling(true);
+              }}
+            >
+              {t(`${K}.cancelRun.action`)}
+            </MenuItem>
+          )}
           <MenuItem
             onSelect={() => {
               close();
@@ -674,10 +791,20 @@ function WithRun({
   const working = status.kind === "working" && !run.waiting;
   return (
     <Section title={t(`${K}.title`)} action={menu} sectionRef={sectionRef}>
+      {cancelling && (
+        <CancelRunDialog
+          task={task}
+          sessionId={run.id}
+          canStop={!!detail?.canInterrupt}
+          onClose={() => setCancelling(false)}
+        />
+      )}
       <StatusRow
         state={run.waiting ? "waiting" : status.kind}
         text={
-          run.waiting
+          cancelInFlight
+            ? t(`${K}.cancelRun.cancelling`)
+            : run.waiting
             ? waitingText(t, run.waiting, waitingName)
             : statusText(
                 t,
@@ -732,13 +859,7 @@ function WithRun({
           onReadFull={toSession}
           statusShown
           serverFix={fixPlan}
-        />
-      )}
-      {detail?.serverFix && (
-        <FixCommandLog
-          events={events}
-          serverCode={detail.serverFix.serverCode}
-          live={status.kind === "working"}
+          decideElsewhere={!!detail?.serverFix}
         />
       )}
 
@@ -865,3 +986,89 @@ function plain(markdown: string): string {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+/**
+ * «Annulla il lavoro», con conferma: chiude il lavoro parcheggiato (in coda,
+ * fermo, in attesa del piano o di una risposta) senza toccare le PR. Se Claude
+ * sta lavorando il server rifiuta (`run_in_progress`): si propone «Ferma».
+ */
+function CancelRunDialog({
+  task,
+  sessionId,
+  canStop,
+  onClose,
+}: {
+  task: Task;
+  sessionId: string;
+  canStop: boolean;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const cancel = useCancelRun();
+  const stop = useStopConversation();
+  const [refusal, setRefusal] = useState<"run_in_progress" | "nothing_to_cancel" | "failed" | null>(null);
+  const confirm = () =>
+    cancel.mutate(task.id, {
+      onSuccess: (result) => {
+        // In esecuzione la richiesta è partita e la chiusura arriva a breve: non «annullato».
+        toast.show(t(`${K}.cancelRun.${result === "requested" ? "requested" : "done"}`));
+        onClose();
+      },
+      onError: (error) => {
+        const code = (error as { code?: unknown }).code;
+        setRefusal(code === "run_in_progress" || code === "nothing_to_cancel" ? code : "failed");
+      },
+    });
+  return (
+    <Dialog
+      title={t(`${K}.cancelRun.title`)}
+      description={t(`${K}.cancelRun.description`)}
+      onClose={onClose}
+      width={440}
+      footer={
+        <>
+          <button type="button" className={secondaryButton} onClick={onClose}>
+            {t(`${K}.cancelRun.keep`)}
+          </button>
+          {refusal === "run_in_progress" ? (
+            canStop && (
+              <button
+                type="button"
+                className={primaryButton}
+                disabled={stop.isPending}
+                onClick={() =>
+                  stop.mutate(sessionId, {
+                    onSuccess: () => {
+                      toast.show(t(`${K}.cancelRun.stopped`));
+                      onClose();
+                    },
+                    onError: () => setRefusal("failed"),
+                  })
+                }
+              >
+                {t(`${K}.cancelRun.stop`)}
+              </button>
+            )
+          ) : (
+            <button
+              type="button"
+              className={primaryButton}
+              disabled={cancel.isPending || refusal === "nothing_to_cancel"}
+              onClick={confirm}
+            >
+              {t(`${K}.cancelRun.confirm`)}
+            </button>
+          )}
+        </>
+      }
+    >
+      {refusal && (
+        <p role="alert" className="rounded-md bg-critical/10 px-3 py-2 text-sm text-ink">
+          {t(`${K}.cancelRun.refusal.${refusal}`)}
+        </p>
+      )}
+    </Dialog>
+  );
+}
+

@@ -7,7 +7,304 @@
 > in `CLAUDE.md` (sezione «Invarianti e trappole»), quelle per area in
 > `docs/invariants/*.md`.
 
-- **L'audience `mailbox_owner` non include MAI gli admin.** È un'audience a
+- **La proposta CONDIVISA (area 6, F2, D4): chi la riceve, chi la vede, chi
+  la decide.** La classificazione nuova (`MAIL_CLASSIFY_V2`, `classify-v2.ts`)
+  manda OGNI email ricevuta al modello (niente `admit` né regole della posta;
+  `admitted` resta il confine fra «classificabile» e «contesto del thread»),
+  UNA volta per Message-ID, e produce una proposta per email e progetto
+  (`email_proposals.rfc_message_id` unico col progetto, `audience =
+  mail_recipients`).
+  - **Chi la riceve** (`publish-shared.ts`): i destinatari di ogni copia
+    dell'email (mittente, to, cc, mai bcc; i proprietari delle caselle) che
+    sono persone di Stubwise (`resolveRecipientUserIds`) E vedono il
+    progetto. Un admin la riceve SOLO se è anche destinatario: l'intersezione
+    lo esclude per costruzione, non c'è un ramo `if (admin)`. Test NEGATIVI in
+    `publish-shared.test.ts`. Decisioni del maintainer: A = (a) un
+    destinatario senza casella collegata la riceve e vede l'estratto, mai il
+    messaggio (il dettaglio, `/original` e il thread gli sono 404, test in
+    `me-mail-proposals.test.ts`); B = (b) l'interruttore della casella decide
+    solo se classificare la propria posta, non chi riceve.
+  - ⚠️ **La card si consegna con l'audience `mailbox_owner`, UN destinatario
+    alla volta**: il nome resta quello del catalogo per kind
+    (`google.proposal`), ma qui vuol dire «solo questa persona, mai gli
+    admin», non «proprietario della casella». Chi legge una card condivisa
+    non deduce la proprietà della casella: `sourceProposalId` viene da
+    `email_proposal_recipients`, il vecchio esecutore non la trova (cerca per
+    `proposal_notification_id`), dettaglio e originale filtrano sul
+    proprietario.
+  - **Chi la vede e la decide**: un destinatario registrato in
+    `email_proposal_recipients`, col progetto visibile ADESSO; una proposta
+    PASSATA anche chi nel progetto ha il permesso di OGNI sua azione. Il primo
+    che decide la chiude per tutti (riga `FOR UPDATE`, stato ricontrollato,
+    tutte le card chiuse); conferma parziale e modifiche dei soli campi
+    consentiti; tutto o niente. Una task nata da qui ha `source = email`:
+    contenuto da fuori per la regola «almeno B».
+  - Le proposte di PRIMA (`mailbox_owner`, per casella) restano com'erano e
+    si vedono anche in `/api/me/mail/proposals`, solo dal proprietario.
+  - **«Quale progetto?»** (review F2, 12 nov 2026): la ricevono i
+    destinatari che vedono ALMENO UNO dei progetti incerti, e ognuno ha la
+    SUA card con i soli progetti incerti che vede (`publish-shared.ts`). Lato
+    server vederla e deciderla segue la stessa regola
+    (`proposalPermissionsOf` in `mail-proposals.ts`), e la vista non porta
+    l'id dei progetti che chi guarda non vede. Dall'inbox l'indice
+    dell'opzione si legge sulla mappa che la card MOSTRA (`event.actions`),
+    non ricalcolato dalla classificazione.
+  - **Invisibile = inesistente anche nei thread**: lo scope di un messaggio
+    nasce dai candidati di TUTTI i destinatari, quindi può contenere
+    progetti altrui. Elenco, filtri `project`/`noProject` e dettaglio
+    intersecano coi progetti di chi guarda (`visibleScopeSql` in
+    `me-mail.ts`).
+  - ⚠️ **Limite accettato: il PROMPT vede i candidati di tutti i
+    destinatari.** `loadCandidateProjects` mette nel prompt titoli delle
+    task aperte e nomi dei membri dei progetti di cui è membro un
+    QUALUNQUE destinatario: servono alla scelta (il progetto, l'incaricato,
+    il ticket). Il rischio è che un testo GENERATO li riporti a chi non vede
+    quel progetto: le azioni sono per progetto (una proposta = un progetto,
+    ricevuta solo da chi lo vede), mentre il `summary` è condiviso, quindi
+    il prompt gli vieta di citare task e persone dei candidati (test in
+    `classify-v2.test.ts`). È un divieto al modello, non una garanzia: chi
+    aggiunge al riassunto un uso nuovo (una superficie che lo mostra fuori
+    dalla proposta) riapra questa voce.
+  - **Una classificazione per Message-ID anche fra copie in attesa**: fra le
+    copie della stessa email ancora da classificare guida quella con l'id
+    più basso, le altre la copiano al giro dopo (`classifyNewMessagesV2`).
+- **Con le proposte spente una casella si LEGGE; si spengono solo le
+  proposte (decisione del maintainer, 12 nov 2026, area 6).** Il claim del
+  poller e l'indice `google_accounts_due_idx` guardano solo `disabled_at`;
+  `runAccountTick` salta la classificazione e la pubblicazione (posta,
+  calendario, smistamento, azioni automatiche delle serie) quando
+  `proposals_enabled` è falso — test NEGATIVO in `poller.test.ts`
+  («proposte spente: si legge, non si propone»: messaggi ed eventi ingeriti,
+  zero `email_proposals`, zero notifiche, il runner mai chiamato).
+  Riaccese, `google_accounts.proposals_since` (scritto dal PATCH solo nel
+  passaggio da spente ad accese) è il TAGLIO: la posta con `created_at`
+  precedente resta `new` e non si classifica mai (`classify.ts`), così
+  riaccenderle non sforna proposte sulla posta già letta. Il calendario non
+  ha taglio: un appuntamento propone solo se futuro e nella finestra, come al
+  primo collegamento. Chi aggiunge una fase che propone la mette sotto lo
+  stesso `if`, e chi aggiunge un percorso di classificazione mette lo stesso
+  taglio.
+- **Il calendario con TUTTI gli eventi (area 6, F3b): un evento VISTO non è
+  un CANDIDATO.** Il worker salva ogni evento della finestra del calendario
+  principale (tranne `workingLocation` e `birthday`); solo una riga con
+  `proposal_candidate` può diventare una proposta, e la fase delle proposte
+  lo filtra in SQL, anche per le occorrenze delle serie accese.
+  - **A flag spento il candidato è ESATTAMENTE quello di prima**: un titolo
+    e in perimetro per le regole (`routeEvent(...).inScope`). Un candidato
+    non torna indietro, e il suo progetto si tocca solo come prima. Test
+    «flag spento: stessi candidati e stesse proposte su un insieme misto».
+  - **A flag acceso** (`MAIL_CLASSIFY_V2`): un invitato o l'organizzatore,
+    escluso il proprietario, membro esplicito di UN progetto
+    (`projectBy: model`), calcolato per lotto. Con più progetti un evento
+    SINGOLO è candidato SENZA progetto e il progetto lo sceglie il modello,
+    o lo chiede la «Quale progetto?» condivisa (lotto 9, voce 2 (a): la voce
+    «Il progetto di un appuntamento con più candidati» più sotto); le
+    occorrenze delle serie con più progetti restano senza proposta.
+  - **Le due linee di base**: il primo giro completo dopo il deploy
+    (`calendar_baseline_at`; il syncToken azzerato forza il resync) e il
+    primo giro col flag acceso (`calendar_v2_baseline_at`) chiudono
+    (`baseline`) ogni riga che vi DIVENTA candidata. Una casella collegata
+    dopo il deploy nasce con la prima già fatta. Chi aggiunge un percorso
+    che fa nascere candidati gli metta la stessa linea di base.
+  - **La potatura** (`pruneOldCalendarEvents`): via le righe prima di −31
+    giorni senza una proposta aperta; una proposta aperta su un evento
+    vecchio si chiude `expired` (riga e card insieme) e se ne va al giro
+    dopo. Con l'orologio del giro, come la finestra.
+  - **`range?fields=summary`** è la lista leggera e senza le cancellate;
+    senza il parametro `range` resta quello di prima, perché web e app
+    leggono ancora i campi pesanti da lì.
+  - Le proposte del calendario stanno anche in `/api/me/mail/proposals`
+    (col flag acceso, `kind: calendar`), decise dalla loro card. Dal lotto 9
+    (voce 2 (d)) quelle degli eventi SINGOLI sono condivise fra gli
+    invitati (audience `event_invitees`, la voce più sotto); le occorrenze
+    delle serie e le proposte di prima restano `mailbox_owner`.
+
+- **Scrivere la posta (area 6, F3): bozze di Gmail, invio trattenuto, e
+  Claude che PROPONE ma non manda mai.**
+  - **Le bozze sono bozze di Gmail** (D7): `mail_drafts` tiene ciò che Gmail
+    non sa e la copia dell'ultimo salvataggio (l'elenco non chiama Google).
+    Una bozza cambiata da Gmail nel frattempo non si sovrascrive in
+    silenzio: 409 `draft_changed`, e solo il gesto «Tieni la mia»
+    (`overwrite: true`) scrive sopra. Bozze e invii sono di chi scrive: il
+    suo id nella WHERE, una riga altrui è 404.
+  - **Invia = una riga `mail_outgoing`, 10 s, e il worker la manda**
+    (`mail-sender.ts`): claim `queued → sending` con SKIP LOCKED, MAI un
+    ritentativo automatico (Riprova è un gesto), e all'avvio una riga
+    rimasta `sending` diventa `failed`/`interrupted`, mai rimandata (non si
+    sa se Gmail l'abbia mandata). I controlli (destinatari, indirizzi,
+    allegati, casella, scope, file del Drive ancora visibili) stanno PRIMA
+    di accodare.
+  - ⚠️ **Annulla ferma SEMPRE l'invio entro i 10 s** (correzione di 46): la
+    riga va a `cancelled` per prima, sulla riga bloccata. Se lo slot è di
+    un'altra bozza, il contenuto torna NON salvato (`unsaved`) e la copia di
+    Stubwise se ne va; la bozza resta fra quelle di Gmail. Nessun esito
+    della bozza lascia partire un'email annullata — chi tocca `undoSend` non
+    reintroduca un rifiuto che lasci la riga `queued`.
+  - **La posta mandata entra nei thread come CONTESTO** (`admitted =
+    false`), solo in un thread già noto o se l'ha mandata Stubwise, e non si
+    classifica mai.
+  - **Un file del Drive allegato è un riferimento**, riletto a ogni
+    salvataggio e ricontrollato a Invia col permesso di chi scrive: chi non
+    vede più il progetto (o il file è eliminato) riceve
+    `attachment_unavailable`, mai i byte.
+  - **La firma di Gmail si legge con `gmail.modify`**
+    (`users.settings.sendAs`), mai con `gmail.settings.basic` (ristretto, e
+    serve solo a scrivere le impostazioni). Il server la mette nel MIME a
+    ogni salvataggio, sotto il corpo e prima della citazione, una volta sola;
+    non entra mai in `body`. La copia sulla casella serve al compositore.
+  - **La bozza di Claude è solo un testo** (`mail-claude-draft.ts`): legge
+    con gli occhi di chi chiede (la sua casella, i progetti attribuiti che
+    vede, le task aperte), il testo delle email e i titoli delle task stanno
+    in blocchi delimitati con `<`, `>` e `&` scappati e dichiarati DATI; non
+    salva e non manda niente.
+  - **`fillMailBody` è SEMPRE B e non manda mai**: B perché dichiarata e
+    perché senza inverso; nella transazione (e a secco) solo letture; Gmail
+    è un seguito dopo il commit, e se fallisce lo dice
+    (`claude_actions.effect_failure = mail_not_saved`, nella vista dei
+    gruppi) invece di un «fatto» falso. Il test sul sorgente del catalogo
+    vieta `sendDraftLater`, `sendDraft` e `retrySend`.
+- **Nessuna scrittura verso Google senza un gesto della persona, e lo stato
+  locale solo dopo il sì di Google (area 6, F1.3).** La prima scrittura è il
+  letto/non letto: `POST /api/me/mail/threads/:threadId/read` chiama
+  `threads.modify` col token della casella di chi guarda (`user_id` nella
+  WHERE: un thread altrui è 404 senza chiamare Google) e scrive
+  `email_messages.unread` SOLO dopo la risposta positiva; un rifiuto lascia
+  la riga com'era (test «un rifiuto di Google NON cambia lo stato locale»).
+  Senza `gmail.modify` (una casella di prima) 409 `google_scope_missing` con
+  `missing`, PRIMA di qualunque chiamata. Il poller non scrive mai su Google:
+  rilegge `UNREAD` dalla history. Chi aggiunge una scrittura (bozze, invio,
+  calendario) la fa partire da una rotta chiamata da un gesto, con lo stesso
+  ordine.
+  **Aprire una conversazione È il gesto che la segna letta** *(O)*,
+  decisione dell'orchestratrice dalla review del renderer della F1, come il
+  prototipo con D5 = b): il renderer chiama la rotta dopo 1 s di permanenza
+  sulla conversazione aperta, non al passaggio. «Segna come non letta» la
+  lascia non letta finché non la si RIAPRE: il renderer non la risegna letta
+  mentre resta aperta. Nessun altro percorso (anteprima, notifica, ricerca,
+  il worker) segna letta una conversazione.
+- **Scrivere sul calendario (area 6, F4): un gesto, i no prima di Google, la
+  riga dopo il sì.** Le sole scritture su Google Calendar sono le rotte di
+  `/api/me/calendar/events…` (`services/calendar-writes.ts`,
+  `services/calendar-project.ts`): nessun poller, job o azione di Claude
+  scrive sul calendario (i nomi sono nel `NEVER` di
+  `claude-actions-never.test.ts`). Solo le PROPRIE caselle: un evento altrui
+  è 404, anche per un admin. Chi non organizza non modifica, sposta o
+  elimina (`not_organizer`); l'organizzatore non risponde (`organizer`), chi
+  non è invitato nemmeno (`not_invited`); un etag diverso da quello della
+  riga è `changed_on_google` — e in questi casi Google NON viene chiamato
+  (verificato negativamente: risposta E nessuna chiamata). Le modifiche
+  portano l'etag in `If-Match` (un 412 è `changed_on_google`, si rilegge:
+  Q4). La riga si scrive nella stessa richiesta DOPO il sì di Google. **La
+  creazione è idempotente** (review F4): l'id dell'evento lo genera il
+  client (`eventId`, base32hex) e Riprova lo rimanda; un 409 `duplicate` di
+  Google vuol dire «già creato» e si rilegge — solo se lo organizza la
+  casella. Senza, un DB che fallisce dopo il sì creerebbe una SECONDA
+  riunione al Riprova, con gli inviti agli esterni mandati due volte (Q6).
+  «Tutta la serie» scrive sul PADRE e riscrive le date da
+  `events.instances`: lo spostamento parte dall'inizio ORIGINALE della data
+  trascinata ed è in ore d'orologio nel fuso del padre (l'ora legale non lo
+  sposta), e una data che cambia id porta con sé progetto, candidatura e card
+  della riga vecchia (abbinata per data originale); si chiude solo una data
+  sparita DENTRO la finestra. ⚠️ Limite dichiarato (review F4, punto 11): su
+  «tutta la serie» l'`If-Match` è l'etag del PADRE appena riletto, quindi
+  l'etag del client protegge solo la data trascinata, non le altre.
+  Eliminare chiude le righe come il poller chiude un evento cancellato (la
+  card aperta si chiude, Q5) e toglie `calendar_series`. Il progetto messo a
+  mano (Q1) passa alle righe degli altri invitati SOLO se senza progetto o
+  con uno che chi lo mette vede, mai su una messa a mano da un altro, e solo
+  se il proprietario vede il progetto; e a lettura un progetto che chi guarda
+  non vede esce come `null` (id, nome e `projectBy`), qualunque sia la fonte.
+- **⚠️ ECCEZIONE DICHIARATA a «Posta e Calendario personali»: il
+  libero/occupato dei colleghi (area 6, F4, task 5; D8 = b, Q3 = a).** `GET
+  /api/me/calendar/freebusy` lo legge CHIUNQUE nell'istanza *(O, 46)*, per
+  organizzare una riunione — è l'unico punto in cui una riga del calendario
+  di una persona produce qualcosa per un'altra. Il perimetro, che non si
+  allarga: escono SOLO `personId`, `availability` (`connected` /
+  `not_connected` / `expired`) e intervalli `{ startsAt, endsAt }` FUSI e
+  tagliati all'intervallo chiesto — mai un titolo, un luogo, una descrizione,
+  un invitato, un organizzatore, un id di evento o di casella, nemmeno di un
+  evento `private` (che occupa, e basta). Dalle righe salvate, nessuna
+  chiamata a Google; una casella disattivata non conta. Occupa un evento con
+  orario, non cancellato, non `transparent`, non rifiutato; un tutto il
+  giorno no, un fuori ufficio sì (`services/calendar-freebusy.ts`). I test
+  (`me-calendar-freebusy.test.ts`) controllano le CHIAVI ESATTE della
+  risposta e che nessun dettaglio compaia nel corpo: chi aggiunge un campo
+  «utile» (il titolo per chi è nello stesso progetto, il numero di eventi)
+  rompe l'eccezione, non solo il test — è una decisione del maintainer.
+- **⚠️ ECCEZIONE DICHIARATA a «Posta e Calendario personali»: il riassunto e
+  le proposte di una riunione registrata li vedono TUTTI GLI INVITATI (area
+  6, F5a, decisione del maintainer del 12 nov 2026).** Una persona di
+  Stubwise invitata alla riunione — con qualunque risposta, anche declined —
+  vede il riassunto del Doc di Gemini, il link al Doc e le proposte nate
+  dalla riunione, anche se l'evento non sta nel SUO calendario e anche se
+  non ha ricevuto lei l'email; le decide se ha i permessi nel progetto, e la
+  prima decisione chiude per tutti (Q1). Senza un evento collegato le vede
+  chi ha ricevuto l'email. **Mai** un membro del progetto che non c'era,
+  **mai** un admin non invitato (nessun ruolo nel calcolo), **mai** un
+  invitato tolto da Google (dal giro dopo del poller). Il calcolo sta in UN
+  posto, `meetingViewerIds` (`packages/notifications/src/meeting-visibility.ts`,
+  condiviso da server e worker): gli invitati ATTUALI di QUELLA occorrenza —
+  stesso iCalUID **e stessa data** (`meeting_notes.event_starts_at`):
+  ⚠️ le occorrenze di una serie condividono l'iCalUID, e senza la data chi è
+  invitato a un'altra settimana vedrebbe tutte le riunioni registrate della
+  serie (review F5a, punto 1, CRITICO) — dalla riga dell'organizzatore, o la
+  più recente, non cancellata, in qualunque casella (così un invitato senza
+  casella collegata c'è), più l'organizzatore; lo snapshot
+  `meeting_notes.attendee_emails` solo come ripiego. Chi decide una proposta
+  di riunione è chi la vede ADESSO, derivato a lettura (punto 9), non chi ha
+  una riga fra i destinatari. Il resto resta personale: la trascrizione intera non esce (né in
+  colonna né al client), l'email di Gemini resta di chi l'ha ricevuta (a
+  chi l'ha inoltrata e non c'era, `meeting.visible` è falso e il resto
+  null), `meetingOrigin.threadId`/`eventId` sono solo della PROPRIA copia e
+  della PROPRIA riga. Test NEGATIVI: `meeting-visibility.test.ts` e
+  `me-meetings.test.ts` (membro che non c'era, full admin, email inoltrata,
+  invitato tolto: 404 sul riassunto, `visible: false`, nessuna proposta,
+  nessuna decisione).
+- **Il Doc di Gemini si legge SOLO con la casella che ha ricevuto l'email
+  (area 6, F5a).** La riga di `meeting_notes` è una per Doc, e
+  `source_message_id` è la PRIMA copia vista: il worker legge il Doc col
+  token di QUELLA casella e `drive.readonly`, mai con un'altra (nemmeno di un
+  invitato che ha accesso). L'email si riconosce SOLO con mittente
+  `gemini-notes@google.com`, la PRIMA `Authentication-Results` di
+  `mx.google.com` con DMARC o DKIM di google.com, e il link a un Google Doc
+  (`gemini.ts`), con `header.from=google.com` esatto: fail-closed. **I link
+  ai Doc dell'email sono CANDIDATI** (review F5a, punto 2): il titolo della
+  riunione, che sceglie l'organizzatore, è ripetuto nel corpo e può
+  contenere il link a un altro Doc che chi riceve può leggere. Il worker
+  legge solo un candidato VERIFICATO su Drive — un Google Doc nato fra un
+  giorno prima e poco dopo l'email, di proprietà di chi era alla riunione, e
+  fra gli allegati dell'evento se l'evento ne ha —, altrimenti
+  `not_verified`; `doc_file_id` è un segnaposto finché non ne verifica uno.
+  **Il riassunto nasce da un run SENZA alcun contesto di progetto** (punto
+  3): lo leggono tutti gli invitati, quindi un'istruzione nascosta nel Doc
+  non deve avere task o membri da far trapelare; le proposte vengono da un
+  secondo run. Da una riunione il registro decisioni scrive SOLO il template
+  `decision.meeting.*` (punto 4), e un commento nato da lì non porta il link
+  alla casella sorgente (punto 6). Il collegamento all'evento è CONSERVATIVO
+  *(O, 46)*: un evento col Doc fra gli allegati, altrimenti UN solo evento
+  della casella con Meet, finito nelle 12 ore prima e col titolo
+  dell'oggetto; nessuno o più di uno = nessun legame, e la riunione resta
+  dei soli destinatari dell'email. Chi rende più generoso l'abbinamento per
+  titolo allarga chi vede la riunione. Il testo del Doc è NON FIDATO (fra
+  delimitatori, senza strumenti) e non si salva; il riassunto è NARRATIVA,
+  mai nel registro decisioni.
+- **Un file di Google in un'email è un LINK, mai un allegato (area 6, F5b,
+  B6).** Un riferimento del Drive con `source: google` entra in una bozza
+  come `as: "link"`: fuori dai 10 file e dai 25 MB (bozza e invio), una riga
+  «nome: link» in fondo al corpo, nessuna parte MIME; il link è
+  `googleOpenUrl` (`@stubwise/shared`) e chi lo riceve lo apre coi permessi
+  che Google gli dà. A ogni salvataggio il file deve essere ancora vivo e nel
+  progetto di chi scrive, come una copia.
+- **«Aggiorna ora» non ha un percorso a parte (area 6, F1.2).** La rotta porta
+  `next_sync_at` a adesso e fa un `pg_notify` (`google_sync_request`) nella
+  stessa transazione; il worker si sveglia e il claim di sempre (`SKIP
+  LOCKED`, richieste prima delle altre dovute) prende la casella: il payload
+  non decide chi sincronizzare, quindi un NOTIFY non può far girare la
+  casella di un altro né due giri della stessa. A fine giro si azzera la
+  richiesta VISTA al claim; una scritta a giro in corso resta e torna dovuta.
+  Limite accettato: con `GMAIL_POLL_MINUTES=0` (poller spento, il rollback)
+  una richiesta resta in attesa per sempre.
+- **L'audience `mailbox_owner` non include MAI gli admin.** (Per le proposte CONDIVISE della classificazione nuova vedi la voce in testa: la card usa la stessa audience, un destinatario alla volta.) È un'audience a
   sé nell'enum di `routing.ts` (`packages/notifications/src/routing.ts`),
   non un caso speciale di `requester` (che invece gli admin li include
   sempre): `recipientsFor` per `mailbox_owner` restituisce **un solo**
@@ -35,6 +332,131 @@
   risposta è sempre e comunque "mai". Chi tocca `shouldSendWebhook` o
   `publishNotification` non reintroduca un ramo che, per una audience
   `mailbox_owner`, arrivi a scrivere una riga `channel: "webhook"`.
+  **Non è un'eccezione** la card dei decisori di una proposta condivisa
+  PASSATA (rimandi, lotto 4, §2, 23 nov 2026): `google.proposal_handed` va
+  anche ai full admin (membri impliciti del progetto) col permesso di ogni
+  azione, perché la proposta passata è del PROGETTO, non della casella. Non
+  usa `mailbox_owner` (audience `project_deciders`, ristretta da
+  `onlyUserIds`) e non porta niente della casella: né mittente, né oggetto,
+  né chi l'ha passata nel jsonb (`shared: true`).
+- **L'audience `event_invitees`: la proposta del calendario CONDIVISA fra
+  gli invitati (lotto 9, voce 2 (d), 24 nov 2026).** Un appuntamento SINGOLO
+  (`recurring_event_id` nullo) è UNA proposta per (`ical_uid`, progetto),
+  `calendar_proposals` (unique sulla coppia, `ON CONFLICT` di chi la crea):
+  la riunione è la richiesta, e le copie dello stesso appuntamento nei
+  calendari degli invitati sono un evento solo — la stessa regola di «UNA
+  PROPOSTA PER RICHIESTA, NON PER MESSAGGIO» qui sotto. La prima casella il
+  cui giro trova il candidato la crea; le altre copie ci si LEGANO
+  (`calendar_events.calendar_proposal_id`, il marcatore che toglie la riga
+  dal percorso per casella) senza creare un'altra proposta né un'altra card
+  per la stessa persona (`calendar_proposal_recipients`, chiave primaria
+  proposta + persona). `apps/worker/src/google/calendar-shared.ts`.
+  - **Chi la riceve** (`eventInviteeIds`), con DUE regole diverse
+    (correzione di 46, 24 nov 2026, per non togliere niente a nessuno):
+    - il **TITOLARE della casella** in cui l'evento è arrivato segue
+      `mailbox_owner` com'era: riceve SEMPRE la sua card, anche se è solo
+      membro implicito o non è membro (se non può confermare nel progetto,
+      vale la regola di sempre); non la riceve solo se ha RIFIUTATO;
+    - gli **ALTRI invitati** seguono `event_invitees`: persone di Stubwise
+      che **non hanno rifiutato** (`hasDeclinedInvitation`) E sono **membri
+      ESPLICITI** del progetto (una riga `project_members`).
+    L'audience `event_invitees` non include MAI gli admin in quanto tali:
+    l'appartenenza implicita di un full admin non conta (non si usa
+    `projectViewerIds`), e non c'è un ramo `if (admin)`. Il calendario
+    collegato non serve: basta essere invitati. Ognuno ha la SUA card
+    `google.proposal`, consegnata con `mailbox_owner` un destinatario alla
+    volta, come le condivise della posta; tutte portano lo stesso
+    `proposalId` (`calendar_proposals.id`), la chiave del claim. Test
+    NEGATIVI in `calendar-shared.test.ts` (admin non invitato, admin
+    invitato non membro, invitato non membro).
+  - **Chi la vede e la decide**: un destinatario che non ha rifiutato, col
+    progetto visibile ADESSO (`mail-proposals-calendar.ts`); per gli altri è
+    404, come una che non c'è. L'estratto «titolo · data» a tutti, l'origine
+    (`calendarOrigin`, l'evento) solo a chi ha l'evento nel SUO calendario;
+    `sharedWith` = gli altri destinatari che la vedono ancora. Il primo che
+    conferma o ignora la decide per tutti: il claim chiude le card di tutti
+    (`propagateHandled` sul `proposalId`), l'esito si scrive sulla riga
+    bloccata (`FOR UPDATE`, `closeSharedCalendarProposal` in
+    `google-proposal.ts`), chi arriva dopo ha `already_handled` con chi l'ha
+    decisa (mascherato se non è fra gli invitati). La conferma chiede il
+    permesso dell'azione nel progetto, come prima; il calendario non si
+    passa né si sposta.
+  - **Le serie restano fuori**: le occorrenze di una serie sono per casella
+    (`calendar_series` è per casella, con la sua azione automatica) e
+    passano dal percorso di prima (`runProposePhase`, ora con
+    `recurring_event_id is not null`).
+  - **Rifiutare chiude la card**: un invitato che rifiuta DOPO la
+    pubblicazione (il poller rilegge gli invitati a ogni giro,
+    `closeDeclinedCalendarRecipients`) si vede chiudere la SUA card e non la
+    vede più (`declined_at`); la proposta resta agli altri, una già decisa
+    non si tocca. Una copia cancellata vale come un rifiuto per chi ha
+    quella casella; senza più copie vive la proposta si chiude per tutti
+    (`cancelled`).
+  - Le proposte del calendario pubblicate per casella PRIMA di questo
+    rilascio restano com'erano finché non si decidono (nessuna migrazione
+    dei dati).
+- **Il progetto di un appuntamento con più candidati, e la «Quale
+  progetto?» condivisa del calendario (lotto 9, voce 2 (a), 24 nov 2026).**
+  Col flag acceso un evento SINGOLO i cui invitati portano a PIÙ progetti
+  (quelli che il titolare della casella vede) non resta senza proposta.
+  `apps/worker/src/google/calendar-guess.ts`, `calendar-shared.ts`
+  (`publishCalendarChooseProposals`), server
+  `apps/server/src/services/mail-proposals-calendar.ts`.
+  - **Il modello sceglie SOLO fra i candidati, e risponde `null` quando non
+    è sicuro.** Stessa dottrina della classificazione della posta (la voce
+    qui sotto): titolo, descrizione (troncata, ripulita dall'HTML) e
+    invitati sono NON FIDATI, stanno fra `EMAIL_DELIMITER_START/END`
+    passati da `untrusted()` (lo stesso di `classify-v2.ts`), nessun tool,
+    cwd vuota, `permissionMode: "default"`. La difesa vera è la
+    rivalidazione (`revalidateGuess`): un id fuori dai candidati vale come
+    `null`, come `extractSuggestedProjectIds`. Test con una descrizione
+    OSTILE e un runner che le obbedisce (`calendar-guess.test.ts`).
+  - **UNA volta per evento.** L'esito si scrive su
+    `calendar_events.project_guess` (`projectId|null`, `reason`, `by`,
+    `candidates`): il modello non si richiama a ogni giro, e una copia dello
+    stesso `ical_uid` in un'altra casella RIUSA la scelta (vale lì solo se il
+    progetto è anche fra i SUOI candidati; altrimenti quella copia non
+    propone). Il sync non riscrive il progetto di una riga scelta. Un errore
+    del modello lascia la riga da indovinare al giro dopo, fino a
+    `CALENDAR_GUESS_MAX_ATTEMPTS` tentativi: finiti, si chiede. Un'attesa per
+    quota non consuma un tentativo. Il `reason` è testo GENERATO: non si
+    mostra e non entra mai nel registro decisioni.
+  - **Il costo**: l'operazione resta `mail_classify` (stesso modello, stesso
+    conto del mese), con la SUA phase `calendar_classify` e nessun owner:
+    il tetto giornaliero della posta (`countClassifyRunsSince`, phase
+    `email_classify` di un messaggio) non la conta. Il freno è il tetto per
+    giro (`GMAIL_MAX_PER_TICK`).
+  - **Sotto la soglia, UNA «Quale progetto?» condivisa**:
+    `calendar_proposals` con `project_id` nullo e `candidate_project_ids`,
+    una per appuntamento (indice unico parziale su `ical_uid`); le copie
+    delle altre caselle ci si legano e aggiungono i loro candidati. La
+    ricevono il TITOLARE della casella (se non ha rifiutato) e gli altri
+    invitati di Stubwise che non hanno rifiutato e sono membri ESPLICITI di
+    ALMENO UNO dei candidati — mai un admin in quanto tale. Ogni card offre
+    SOLO i candidati in cui chi la riceve può CONFERMARE la proposta che ne
+    nascerebbe (il permesso della milestone, `permissionForProposalAction`);
+    chi non ne ha nessuno non la riceve — **NEMMENO il titolare** (decisione
+    di 46, 24 nov 2026): è l'eccezione alla regola «il titolare riceve sempre
+    la sua card» della proposta condivisa con un progetto, e vale solo qui,
+    perché una «Quale progetto?» senza un candidato confermabile avrebbe il
+    solo «Non fare nulla», e il calendario non si passa: una card che non
+    serve a niente.
+  - **Decidere** (`chooseCalendarProposalProject`, rotta
+    `/api/me/mail/proposals/:id/choose-project` e la card in inbox): un
+    destinatario che vede almeno un candidato (gli altri: 404); un progetto
+    fuori dai candidati o che non vede è `invalid_target`, uno che vede ma in
+    cui non può confermare è `forbidden` — test NEGATIVI, col DB invariato.
+    La prima scelta vince (riga `FOR UPDATE`): le card di tutti si chiudono,
+    l'esito è `project_chosen`, e le copie legate prendono il progetto (solo
+    dove il titolare lo vede) e si SLEGANO: la proposta vera la fa nascere il
+    worker al giro dopo, col percorso di progetto e i suoi destinatari. Chi
+    arriva dopo ha `already_handled`. «Non fare nulla» la chiude per tutti.
+    Nessuna riga nel registro decisioni (è uno smistamento, come per la
+    posta). ⚠️ Non passa MAI da `dispatchAction`: `findSourceRow` non
+    restituisce una riga d'origine per una proposta del calendario senza
+    progetto (`proposal_stale`, niente si chiude), e il case
+    `choose_project` di là continua a rifiutare il calendario — le sue due
+    semantiche (voce più sotto) non si toccano.
 - **Confermare una proposta chiede il permesso nel progetto; chi non ce l'ha
   la PASSA, e la card passata è una card NUOVA (fase permessi, 22 ott
   2026).** La classificazione considera tutti i progetti, quindi il
@@ -101,7 +523,8 @@
   sparisce, e se non ne resta nessuna il messaggio diventa `ignored` senza
   proposta. Stessa forma di `apps/worker/src/backlog/prompts.ts` per
   l'intake: chi aggiunge un nuovo punto che manda testo non fidato al
-  modello copi questa dottrina, non la reinventi.
+  modello copi questa dottrina, non la reinventi. (Lo fa la scelta del
+  progetto di un appuntamento, `calendar-guess.ts`, lotto 9, voce 2 (a).)
 - **Il modulo che scrive nel registro decisioni non importa MAI un esecutore
   AI — vale anche per `google-proposal.ts`.** La conferma di una proposta
   email o calendario registra una decisione con `source: "email"` e un testo
@@ -238,6 +661,11 @@
   leggibile da solo. Le tre non si toccano fra loro: `choose_project` non è
   stata modificata da quel commit, e i suoi test asseriscono ancora il
   comportamento storico.
+  La «Quale progetto?» CONDIVISA (della posta, `chooseMailProposalProject`,
+  e dal lotto 9, voce 2 (a), del calendario,
+  `chooseCalendarProposalProject`) porta un `choose_project` sulla card ma
+  ha un servizio SUO e non arriva mai a quel case: non è una terza
+  semantica di `dispatchAction`, che sul calendario continua a rifiutarla.
 - **Una serie ricorrente è spenta di default, e la sua azione automatica non
   avvia MAI lavoro.** È la lezione diretta dell'incidente del 9 settembre
   2026 (fase 7b, design §1): `calendar_series.enabled` nasce `false` — senza
@@ -255,6 +683,11 @@
   percorso automatico per tutte e tre le azioni: deve restare zero. Chi
   aggiunge una quarta azione a una serie (`calendar_series.action`) faccia
   passare anche lei da `calendar-auto.ts`, non da un servizio del server.
+  ⚠️ **L'unica eccezione è dell'area 7 (Q8, fetta 3)**: un passo di Claude di
+  un'automazione può partire senza un umano, col budget mensile prima di
+  OGNI passo e senza azioni (`docs/invariants/automations.md`, «I passi di
+  Claude»). Una serie del calendario NON la prende: `calendar-auto.ts` non
+  nomina esecutori di agenti (`apps/worker/src/automations/q8-exception.test.ts`).
 - **Un appuntamento passato non diventa MAI una proposta (fase 9, fix di
   review).** `isReadyForProposal` (`apps/worker/src/google/calendar.ts`)
   richiede `startsAt >= now` per un evento SINGOLO esattamente come per

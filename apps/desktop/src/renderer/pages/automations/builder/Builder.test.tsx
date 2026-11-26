@@ -1,7 +1,7 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { visitSteps } from "../../../domain/automations/fields";
+import { visitSteps } from "@stubwise/shared";
 import { automations as automationsApi, failNext, resetApi, setLatency } from "../../../data/api";
 import { templateFlow } from "../../../data/automations/templates";
 import { state } from "../../../data/store";
@@ -293,6 +293,8 @@ describe("bozza e versioni", () => {
       /Roberta Fontana changed this draft on Oct 26 11:58, after you opened it/,
     );
     expect(savedFlow("AUT-1").titleTemplate).toBe("Di Roberta");
+    // Niente si butta: finché non si ricarica, la modifica non salvata resta a schermo.
+    expect(numbers()).toHaveLength(12);
     await userEvent.click(screen.getByRole("button", { name: "Reload" }));
     await waitFor(() => expect(numbers()).toHaveLength(11));
     expect(screen.queryByRole("alert")).toBeNull();
@@ -1049,3 +1051,15 @@ async function openList() {
   await screen.findByRole("heading", { level: 1, name: "Automations" });
   return router;
 }
+
+// Q5 = a *(M)*, R6 del piano della F1: «richiesta convertita» fra gli inizi di Stubwise.
+describe("l'inizio «richiesta convertita»", () => {
+  it("c'è fra gli inizi di Stubwise, e sceglierlo cambia l'inizio", async () => {
+    await open("/automations/STW-A1/edit", LAURA);
+    const option = await screen.findByRole("radio", { name: /A request is converted/ });
+    await userEvent.click(option);
+    await waitFor(() => expect(row("trigger")).toHaveTextContent("When a request is converted"));
+    await settle();
+    expect(savedFlow("STW-A1").trigger).toMatchObject({ kind: "stubwise", event: "request_converted" });
+  });
+});

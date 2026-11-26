@@ -3,6 +3,8 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  alerts as alertsApi,
+  claude as claudeApi,
   failNext,
   releases as releasesApi,
   resetApi,
@@ -24,6 +26,8 @@ import {
   useConversationStream,
   useConversations,
   useDayArrangements,
+  drivePollInterval,
+  driveRefreshMs,
   useDriveFile,
   useDriveFiles,
   useConfirmMailProposal,
@@ -36,6 +40,7 @@ import {
   useSendMailDraft,
   useClaudeMailDraft,
   useTasks,
+  useTaskCount,
   useRecordDriveOpen,
   useSyncMailbox,
   usePeopleActivity,
@@ -47,6 +52,8 @@ import {
   useMyReleases,
   useOpenPrs,
   useSetAlertSubscription,
+  useAlertSubscriptions,
+  useUndoClaudeActions,
 } from "./queries";
 import { TODAY } from "./seed/dates";
 import { getSessionPersonId } from "./session";
@@ -137,6 +144,32 @@ describe("mutazioni ottimistiche", () => {
     act(() => result.current.pin.mutate({ filterId: "flt-open", pinned: true }));
     await waitFor(() => expect(result.current.pinned.data).toEqual([...seeded, "flt-open"]));
     await waitFor(() => expect(result.current.pin.isSuccess).toBe(true));
+  });
+
+  it("con un conteggio in cache, planTask funziona e torna indietro correttamente", async () => {
+    // Il conteggio sta sotto ["as", me, "tasks", "count", …] con dati {count, truncated}:
+    // l'ottimismo delle task non deve trattarlo come un elenco.
+    const { result } = renderHook(
+      () => ({ tasks: useTasks(), count: useTaskCount({}), plan: usePlanTask() }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.tasks.data).toBeDefined());
+    await waitFor(() => expect(result.current.count.data).toBeDefined());
+    const count = result.current.count.data;
+    const task = result.current.tasks.data!.find((t) => t.closedAt === null && t.plannedWeek === null)!;
+    setLatency(300);
+    failNext("planTask");
+    act(() => result.current.plan.mutate({ id: task.id, assigneeId: task.assigneeId, week: "2026-W44" }));
+    await waitFor(() =>
+      expect(result.current.tasks.data!.find((t) => t.id === task.id)?.plannedWeek).toBe("2026-W44"),
+    );
+    await waitFor(() => expect(result.current.plan.isError).toBe(true));
+    expect(result.current.plan.error?.message).toMatch(/Simulated/);
+    await waitFor(() =>
+      expect(result.current.tasks.data!.find((t) => t.id === task.id)?.plannedWeek).toBeNull(),
+    );
+    expect(result.current.count.data).toEqual(count);
+    setLatency(0);
   });
 
   it("usePlanTask: cambiare settimana ricarica anche le disposizioni del giorno", async () => {
@@ -574,6 +607,57 @@ describe("Rilasci: lo stato delle PR di Stubwise e i falliti seguono sessioni e 
       }),
     );
     await waitFor(() => expect(read.mock.calls.length).toBeGreaterThan(before));
+    read.mockRestore();
+  });
+});
+
+describe("il Drive si rilegge mentre un file è in lettura", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  it("ogni secondo nel prototipo, ogni 3 s contro il server vero (build app)", () => {
+    vi.stubEnv("VITE_STUBWISE_BUILD", "prototype");
+    expect(driveRefreshMs()).toBe(1000);
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+    expect(driveRefreshMs()).toBe(3000);
+  });
+
+  it("contro il server vero rallenta se la lettura dura: 3 s, poi 10 s dopo 2 minuti, 30 s dopo 10; finita, riparte da capo", () => {
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+    const t0 = 1_000_000;
+    expect(drivePollInterval("q1", true, t0)).toBe(3000);
+    expect(drivePollInterval("q1", true, t0 + 119_000)).toBe(3000);
+    expect(drivePollInterval("q1", true, t0 + 121_000)).toBe(10_000);
+    expect(drivePollInterval("q1", true, t0 + 601_000)).toBe(30_000);
+    // Un'altra query ha il suo orologio.
+    expect(drivePollInterval("q2", true, t0 + 601_000)).toBe(3000);
+    // Niente più in lettura: niente rilettura, e la prossima volta si riparte da 3 s.
+    expect(drivePollInterval("q1", false, t0 + 602_000)).toBe(false);
+    expect(drivePollInterval("q1", true, t0 + 700_000)).toBe(3000);
+  });
+});
+
+describe("le iscrizioni seguono le azioni di Claude (area 8, F2, R5)", () => {
+  it("un cambio della conversazione (Claude ha eseguito `setSubscription`) rilegge le iscrizioni", async () => {
+    const read = vi.spyOn(alertsApi, "subscriptionRows");
+    const { result } = renderHook(() => useAlertSubscriptions(), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const before = read.mock.calls.length;
+    await act(() => runScript("cv-run-stw-3", [{ step: "state", state: "finished" }]));
+    await waitFor(() => expect(read.mock.calls.length).toBeGreaterThan(before));
+    read.mockRestore();
+  });
+
+  it("«Undo» di un gruppo di Claude rilegge le iscrizioni (Preferenze non mostra il valore di prima)", async () => {
+    const read = vi.spyOn(alertsApi, "subscriptionRows");
+    const undo = vi.spyOn(claudeApi, "undoClaudeActions").mockResolvedValue({ ok: true });
+    const { result } = renderHook(
+      () => ({ subs: useAlertSubscriptions(), undo: useUndoClaudeActions() }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.subs.isSuccess).toBe(true));
+    const before = read.mock.calls.length;
+    await act(() => result.current.undo.mutateAsync({ id: "cv-x", groupId: "g-x" }));
+    await waitFor(() => expect(read.mock.calls.length).toBeGreaterThan(before));
+    undo.mockRestore();
     read.mockRestore();
   });
 });

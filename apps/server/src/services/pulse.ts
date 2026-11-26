@@ -28,7 +28,7 @@
  */
 import { notifications, recordDecision, users, type Db } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
-import { actorAllows, cardPermissionsOf } from "@stubwise/notifications";
+import { actorAllows, aiBudgetState, cardPermissionsOf } from "@stubwise/notifications";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { getContentLanguage } from "../settings.js";
@@ -57,7 +57,13 @@ export type ProceedWithProposalError =
    * L'esito porta `ticketId`/`ticketNumber`: c'è qualcosa da aprire, e da
    * lanciare a mano.
    */
-  | "run_not_started";
+  | "run_not_started"
+  /**
+   * Rimandi, lotto 4 (D-7.1, il maintainer): budget del mese finito e chi
+   * decide non ha `plans.approve`. Si rifiuta PRIMA di toccare qualcosa: né
+   * task né copie chiuse, la card resta aperta.
+   */
+  | "budget_exhausted";
 
 /** Chi ha già deciso il pulse: l'id per la UI, l'email per dirlo a parole. */
 export interface HandledBy {
@@ -226,6 +232,15 @@ export async function proceedWithProposal(
     return { ok: false, error: "invalid_answer" };
   }
   const proposal = proposals[index]!;
+
+  // D-7.1 (il maintainer, sul prototipo): il «Procedi» di chi non scavalca il
+  // budget finito non fa niente — niente task a metà senza il suo run.
+  // Limite accettato (review del lotto 4, I-2): fuori dalla transazione della
+  // conversione; se il budget finisce fra qui e `startRun`, l'esito è il
+  // `ticket_only` di sempre (pr-corrections.md, la regola D-7.1).
+  if (!(permissions?.has("plans.approve") ?? false) && (await aiBudgetState(db)).exhausted) {
+    return { ok: false, error: "budget_exhausted" };
+  }
 
   // Pre-check prima del claim: una riga non `open` non è azionabile, e dirlo
   // qui evita di chiudere le copie altrui per una richiesta che non poteva

@@ -1,6 +1,6 @@
 import { useRef, type KeyboardEvent, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
-import { childLists, joinPath } from "../../../domain/automations/fields";
+import { childLists, joinPath } from "@stubwise/shared";
 import type { Step } from "../../../data/types";
 import { useAutomations } from "../../../data/queries";
 import { stepSentence, templateParts, startWords } from "../format";

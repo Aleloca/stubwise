@@ -19,18 +19,39 @@
  * (`src/actions.ts`, coi loro test) e questo modulo li ri-esporta: gli import
  * dei suoi consumatori (rotte, test) restano validi.
  */
+import { hiddenFor } from "./people-known.js";
+import type { SessionUser } from "../auth/session.js";
+import { chatMentionsFor } from "../chat/service.js";
 import {
   aiJobs,
+  changeLog,
+  roles,
+  automationRuns,
+  automations,
   calendarEvents,
+  calendarProposalRecipients,
+  calendarProposals,
+  deletedTickets,
   emailMessages,
+  emailProposalRecipients,
   emailProposals,
   googleAccounts,
+  comments,
   notifications,
   prReviews,
+  projectMembers,
+  projects,
+  serverFixes,
+  servers,
+  tickets,
   users,
   type Db,
 } from "@stubwise/db";
-import type { Language } from "@stubwise/i18n";
+import { personName } from "./people.js";
+import { visiblePersonIds } from "./people-visibility.js";
+import { t, type Language } from "@stubwise/i18n";
+import { productClaudeCardsFor } from "./product-claude-cards.js";
+import { productDocCardsFor, type ProductDocCard } from "./product-comments.js";
 import {
   actionsFor,
   actorAllows,
@@ -50,6 +71,8 @@ import {
   type NotificationEvent,
   type NotificationKind,
   type SnoozeUntil,
+  userIsFullAdmin,
+  instancePermissionsOfUser,
 } from "@stubwise/notifications";
 import {
   inboxGoogleSchema,
@@ -70,6 +93,13 @@ import { projectActorForTicket, resolvePlan, startRun, type Actor } from "./jobs
 import { mirrorDecision, propagateDecision } from "./notifications-propagation.js";
 import { proceedWithProposal } from "./pulse.js";
 import { answerQuestion, type AnswerInput } from "./questions.js";
+import { excerpt } from "./task-notify.js";
+import { loadViaClaude, type ViaClaudeFields } from "./via-claude.js";
+import { getContentLanguage } from "../settings.js";
+import { decidersOf as automationDecidersOf } from "../automations/runs.js";
+import { chooseMailProposalProject, confirmMailProposal, handedSharedProposalsOf, ignoreMailProposal, sharedProposalOfNotification } from "./mail-proposals-decide.js";
+import { calendarChooseOfNotification, chooseCalendarProposalProject, ignoreCalendarChoose } from "./mail-proposals-calendar.js";
+import { listMailProposals } from "./mail-proposals.js";
 
 // Catalogo delle azioni: implementazione in `@stubwise/notifications/actions`
 // (condivisa col worker), ri-esportata qui per i consumatori del servizio.
@@ -92,6 +122,8 @@ export type ExecuteActionError =
   | "invalid_action"
   | "already_handled"
   | "job_in_flight"
+  // Rimandi, lotto 4 (D-7.1): budget mensile finito per chi non ha `plans.approve`.
+  | "budget_exhausted"
   | "plan_not_pending"
   // Errori di `answerQuestion` che non hanno un gemello fra i precedenti: la
   // risposta non regge contro la domanda persistita, oppure non c'è (più) una
@@ -355,6 +387,88 @@ export async function executeAction(
         runStatus: proceeded.status,
       };
     }
+    // Area 6, F2: la card di una proposta CONDIVISA si decide dal suo servizio
+    // (`mail-proposals-decide.ts`), mai dall'esecutore di prima. Le opzioni
+    // della card sono le azioni nell'ordine, più «Non fare nulla» per ultima.
+    const sharedProposalId = isMailProposal ? await sharedProposalOfNotification(db, actor.id, row.id) : null;
+    if (sharedProposalId) {
+      const picked = input.payload?.answer?.optionIndices ?? (input.payload?.answer?.optionIndex === undefined ? [] : [input.payload.answer.optionIndex]);
+      // «Quale progetto?»: la card ha un'opzione per progetto incerto e poi
+      // «Non fare nulla». La mappa opzione → progetto è quella che la card
+      // MOSTRA (`event.actions`, allineata a `options` alla pubblicazione):
+      // un progetto senza nome alla pubblicazione non c'è, e ricalcolarla
+      // dalla classificazione sposterebbe gli indici (review F2, punto 2).
+      const [card] = await db.select({ event: notifications.event }).from(notifications).where(eq(notifications.id, row.id));
+      const cardActions = ((card?.event as { actions?: { type?: string; projectId?: string }[] } | null)?.actions ?? []).filter(Boolean);
+      if (cardActions.some((a) => a.type === "choose_project")) {
+        if (picked.length !== 1) return { ok: false, error: "invalid_answer" };
+        const chosen = cardActions[picked[0]!];
+        if (!chosen) return { ok: false, error: "invalid_answer" };
+        const decided =
+          chosen.type === "ignore"
+            ? await ignoreMailProposal(db, { id: actor.id }, sharedProposalId)
+            : chosen.type === "choose_project" && chosen.projectId
+              ? await chooseMailProposalProject(db, { id: actor.id }, sharedProposalId, chosen.projectId)
+              : null;
+        if (!decided) return { ok: false, error: "invalid_answer" };
+        if (!decided.ok) {
+          if (decided.error === "already_handled") return { ok: false, error: "already_handled" };
+          return { ok: false, error: decided.error === "not_found" ? "not_found" : decided.error === "forbidden" ? "forbidden" : "invalid_answer" };
+        }
+        return { ok: true, action, kind: row.kind, notificationJobId: row.jobId, changedNotificationIds: [row.id] };
+      }
+      const proposal = await listMailProposals(db, { id: actor.id }, { id: sharedProposalId }, "it");
+      const actionCount = proposal[0]?.actions.length ?? 0;
+      if (picked.length === 0 || picked.some((i) => i > actionCount)) return { ok: false, error: "invalid_answer" };
+      const decided =
+        picked.length === 1 && picked[0] === actionCount
+          ? await ignoreMailProposal(db, { id: actor.id }, sharedProposalId)
+          : picked.includes(actionCount)
+            ? null
+            : await confirmMailProposal(db, { id: actor.id }, sharedProposalId, { indices: picked }, await getContentLanguage(db));
+      if (!decided) return { ok: false, error: "invalid_answer" };
+      if (!decided.ok) {
+        if (decided.error === "already_handled") {
+          const [by] = decided.decidedBy
+            ? await db.select({ id: users.id, email: users.email }).from(users).where(eq(users.id, decided.decidedBy.userId))
+            : [];
+          return { ok: false, error: "already_handled", ...(by ? { handledBy: by } : {}) };
+        }
+        return { ok: false, error: decided.error === "not_found" ? "not_found" : decided.error === "forbidden" ? "forbidden" : "invalid_answer" };
+      }
+      return { ok: true, action, kind: row.kind, notificationJobId: row.jobId, changedNotificationIds: [row.id] };
+    }
+    // Lotto 9, voce 2 (a): la «Quale progetto?» condivisa del CALENDARIO si
+    // decide dal suo servizio (`mail-proposals-calendar.ts`), mai
+    // dall'esecutore di prima (che su una proposta del calendario rifiuta
+    // `choose_project`). La mappa opzione → progetto è quella che la card
+    // MOSTRA (`event.actions`), come per la posta qui sopra.
+    const calendarChooseId = isMailProposal ? await calendarChooseOfNotification(db, actor.id, row.id) : null;
+    if (calendarChooseId) {
+      const picked = input.payload?.answer?.optionIndices ?? (input.payload?.answer?.optionIndex === undefined ? [] : [input.payload.answer.optionIndex]);
+      if (picked.length !== 1) return { ok: false, error: "invalid_answer" };
+      const [card] = await db.select({ event: notifications.event }).from(notifications).where(eq(notifications.id, row.id));
+      const cardActions = ((card?.event as { actions?: { type?: string; projectId?: string }[] } | null)?.actions ?? []).filter(Boolean);
+      const chosen = cardActions[picked[0]!];
+      if (!chosen) return { ok: false, error: "invalid_answer" };
+      const decided =
+        chosen.type === "ignore"
+          ? await ignoreCalendarChoose(db, actor.id, calendarChooseId)
+          : chosen.type === "choose_project" && chosen.projectId
+            ? await chooseCalendarProposalProject(db, actor.id, calendarChooseId, chosen.projectId)
+            : null;
+      if (!decided) return { ok: false, error: "invalid_answer" };
+      if (!decided.ok) {
+        if (decided.error === "already_handled") {
+          const [by] = decided.decidedBy
+            ? await db.select({ id: users.id, email: users.email }).from(users).where(eq(users.id, decided.decidedBy.userId))
+            : [];
+          return { ok: false, error: "already_handled", ...(by ? { handledBy: by } : {}) };
+        }
+        return { ok: false, error: decided.error === "not_found" ? "not_found" : decided.error === "forbidden" ? "forbidden" : "invalid_answer" };
+      }
+      return { ok: true, action, kind: row.kind, notificationJobId: row.jobId, changedNotificationIds: [row.id] };
+    }
     if (isMailProposal) {
       // Stessa forma del pulse qui sopra: nessun job dietro, `optionIndex` è
       // l'indice dell'AZIONE scelta, e il servizio ha già chiuso le copie (il
@@ -465,6 +579,8 @@ export async function executeAction(
         handledAt: sql`now()`,
         handledByUserId: actor.id,
         snoozedUntil: null,
+        // Area 9, F1 (0186): un'ARCHIVIAZIONE, la sola che «Restore» riapre.
+        handledAction: "archive",
       })
       .where(and(eq(notifications.id, row.id), ne(notifications.status, "handled")))
       .returning({ id: notifications.id });
@@ -607,6 +723,8 @@ async function runDecision(
     // La correzione ferma di una PR adottata col branch protetto: non è
     // un'azione possibile, per nessuno, finché il branch resta protetto.
     if (result.error === "adopted_branch_protected") return { ok: false, error: "forbidden" };
+    if (result.error === "colleague_analysis_only") return { ok: false, error: "forbidden" };
+    if (result.error === "budget_exhausted") return { ok: false, error: "budget_exhausted" };
     return result.error === "ticket_not_found"
       ? { ok: false, error: "not_found" }
       : {
@@ -634,7 +752,8 @@ async function runDecision(
   }
   return {
     ok: false,
-    error: result.error === "ticket_not_found" ? "not_found" : result.error,
+    // `plan_changed` non arriva da qui (l'inbox non manda il digest): per tipo, è un piano non più in attesa.
+    error: result.error === "ticket_not_found" ? "not_found" : result.error === "plan_changed" ? "plan_not_pending" : result.error,
   };
 }
 
@@ -669,7 +788,7 @@ async function latestJobStatus(db: Db, ticketId: string): Promise<string | null>
 }
 
 /** Una riga d'inbox pronta per la UI: testo già localizzato e azioni calcolate. */
-export interface InboxItem {
+export interface InboxItem extends ViaClaudeFields {
   id: string;
   kind: NotificationKind;
   status: InboxStatus;
@@ -722,6 +841,33 @@ export interface InboxItem {
   google?: InboxGoogle;
   projectId: string | null;
   ticketId: string | null;
+  /** `<CODICE>-<number>` del ticket, derivato a lettura (integrazione area 2); null senza ticket. */
+  taskCode: string | null;
+  /** La task della card è stata eliminata (dalla lapide, a lettura). */
+  objectGone: boolean;
+  /** Area 8, F2: il motivo per cui l'avviso arriva a chi legge da obbligatorio (dalla SUA card), o null. */
+  alertMandatory: string | null;
+  /** Area 8, F4a/F4b: `monitor.*` e `server.diagnosis_ready`, il codice del server derivato a lettura (`serverCodesByNotification`), o null. */
+  serverCode: string | null;
+  /** Area 10, F5: chi ha annullato l'ingresso di una card `member.added` («Undone by»), derivato a lettura, o null. */
+  undoneBy: { id: string; name: string } | null;
+  /** Area 10, F5: i pezzi delle frasi di una card `member.added`, derivati a lettura (R-G5), o null. */
+  memberAdded: { addedUserId: string; addedName: string | null; roleName: string | null; actorName: string | null } | null;
+  /** Area 4, Chat: solo `chat.mention` e `chat.question`, il messaggio come lo vede chi legge (`readChatMention`). */
+  chat?: {
+    channelId: string;
+    channelName: string;
+    messageId: string;
+    threadRootId: string | null;
+    authorId: string | null;
+    authorName: string;
+    excerpt: string;
+    group: string | null;
+  } | null;
+  /** Area 7: solo `automation.*`, lo stato dell'esecuzione per chi legge (`automationCardsFor`). */
+  automation?: InboxAutomation | null;
+  /** Area 11, F2: solo `product_doc.*`, la pagina e il commento come li vede chi legge (`productDocCardsFor`). */
+  productDoc?: ProductDocCard | null;
   jobId: string | null;
   createdAt: Date;
   readAt: Date | null;
@@ -794,6 +940,10 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
   }
 
   await reopenExpiredSnoozes(db, userId);
+  // Registro, A11 r.1414 (revisione del lotto 2, M1): UNA numerazione dei segnaposto per pagina.
+  // `hiddenFor` ne tiene una per oggetto «chi guarda»: lo stesso per tutta la pagina.
+  let pageViewer: Promise<Pick<SessionUser, "id" | "instancePermissions">> | null = null;
+  const viewerOfPage = () => (pageViewer ??= instancePermissionsOfUser(db, userId).then((instancePermissions) => ({ id: userId, instancePermissions })));
 
 
   const conditions = [
@@ -832,6 +982,7 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       snoozedUntil: notifications.snoozedUntil,
       handledAt: notifications.handledAt,
       handledByUserId: notifications.handledByUserId,
+      viaClaudeActionId: notifications.viaClaudeActionId,
       // `::text` preserva i microsecondi: il cursore deve poter puntare
       // esattamente alla riga letta.
       cursorTimestamp: sql<string>`${notifications.createdAt}::text`,
@@ -874,6 +1025,41 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     db,
     page.map((r) => r.handledByUserId),
   );
+  // «via Claude» (chat, fetta 3): derivato a lettura, UNA query per pagina.
+  const via = await loadViaClaude(
+    db,
+    page.map((r) => r.viaClaudeActionId),
+  );
+  // Il codice della task (integrazione area 2): derivato a lettura, UNA query
+  // per pagina, come `usersById`.
+  const taskCodes = await taskCodesByTicket(
+    db,
+    page.map((r) => r.ticketId),
+  );
+  // Le task ELIMINATE nominate dalle card («Elimina task»): dalla lapide, UNA
+  // query per pagina. Il jsonb porta ancora l'id; la colonna è già nulla.
+  const goneTickets = await deletedTicketIdsOf(
+    db,
+    page.flatMap((r) => {
+      const id = (r.event as { ticketId?: unknown }).ticketId;
+      return r.ticketId === null && typeof id === "string" ? [id] : [];
+    }),
+  );
+  // L'estratto di un commento su una task seguita (integrazione area 2): MAI
+  // dal jsonb (che porta solo `commentId`), dal commento — così un commento
+  // eliminato non ha più testo nemmeno nell'inbox. UNA query per pagina.
+  const commentsById = await commentsForActivity(
+    db,
+    page.flatMap((r) => {
+      const id = r.kind === "ticket.activity" ? (r.event as { commentId?: unknown }).commentId : undefined;
+      return typeof id === "string" ? [id] : [];
+    }),
+  );
+  // Area 8, F4a: il codice del server delle card `monitor.*`.
+  const serverCodes = await serverCodesByNotification(db, page);
+  // Area 10, F5: «Undone by» delle card `member.added`, dal registro (UNA query per pagina).
+  const undoneBy = await undoneByOfMemberAdded(db, userId, page.filter((r) => r.kind === "member.added"));
+  const memberAdded = await memberAddedPartsOf(db, userId, page.filter((r) => r.kind === "member.added"));
   // Solo per le card di posta: le altre non hanno una riga `email_proposals` e
   // la mappa resta vuota per loro.
   const sourceProposalIds = await sourceProposalIdsByNotification(
@@ -881,6 +1067,15 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     userId,
     page.filter((r) => r.kind === "google.proposal").map((r) => r.id),
   );
+  // Rimandi, lotto 4 (§2): la card di chi decide una condivisa passata porta la
+  // sua proposta, chi l'ha passata e se l'ha già decisa qualcuno (a lettura).
+  const handedShared = await handedSharedProposalsOf(
+    db,
+    userId,
+    page.filter((r) => r.kind === "google.proposal_handed").map((r) => r.id),
+  );
+  for (const [notificationId, proposalId] of handedShared) sourceProposalIds.set(notificationId, proposalId);
+  const handedFacts = await handedFactsOf(db, [...new Set(handedShared.values())]);
   // Solo per le proposte GESTITE: su un'aperta non c'è niente di deciso.
   const decisionRows = await decisionRowsByNotification(
     db,
@@ -898,11 +1093,48 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     }),
   );
 
+  // Area 4, Chat: le card `chat.mention` e `chat.question` derivate a lettura (il messaggio
+  // com'è adesso, per chi legge; null = eliminato o canale non più visibile).
+  const chatCards = await chatMentionsFor(
+    db,
+    userId,
+    page.filter((r) => r.kind === "chat.mention" || r.kind === "chat.question"),
+  );
+
+  // Area 11, F2: le card della doc di prodotto derivate a lettura (la pagina di adesso, per chi legge;
+  // null = pagina o commento tolti, o Docs del progetto che chi legge non legge più).
+  const isProductDocKind = (kind: string) => kind === "product_doc.mention" || kind === "product_doc.updated" || kind === "product_doc.question";
+  const productDocCards = await productDocCardsFor(db, userId, page.filter((r) => isProductDocKind(r.kind)));
+  // F5: le card di Claude (`updated`, `question`): quello che dicono, di adesso. Senza la revisione o la domanda: `objectGone`.
+  for (const [id, claude] of await productClaudeCardsFor(db, userId, page.filter((r) => isProductDocKind(r.kind)))) {
+    const card = productDocCards.get(id);
+    if (!card) continue;
+    // Una domanda apre la pagina sul suo filo: il commento-domanda (una radice).
+    const question = claude?.question ? (page.find((r) => r.id === id)?.event as { questionId?: string } | undefined)?.questionId ?? null : null;
+    productDocCards.set(id, claude ? { ...card, claude, ...(question ? { commentId: question, threadRootId: question } : {}) } : null);
+  }
+
+  // Registro, A11 r.1414: chi ha scritto un commento della doc e chi legge non conosce → segnaposto.
+  // Il predicato solo se c'è un autore diverso da chi legge (le pagine senza card della doc non pagano niente).
+  if ([...productDocCards.values()].some((c) => c?.authorId && c.authorId !== userId)) {
+    const hidden = await hiddenFor(db, await viewerOfPage(), [...productDocCards.values()].map((c) => c?.authorId));
+    for (const [id, card] of productDocCards) {
+      if (card?.authorId) productDocCards.set(id, { ...card, authorId: hidden.person(card.authorId) });
+    }
+  }
+
+  // Area 7: le card `automation.*` derivate a lettura (l'esecuzione com'è adesso, per chi legge).
+  const automationCards = await automationCardsFor(db, userId, page.filter((r) => isAutomationKind(r.kind)));
+
   const items = page.map((r): InboxItem => {
     // La resa dal jsonb è l'unica parte che può esplodere: sta dentro il suo
     // recinto (vedi `renderItem`).
+    const productDoc = isProductDocKind(r.kind) ? (productDocCards.get(r.id) ?? null) : null;
     const rendered = renderItem(
-      r.event,
+      // La frase con i dati di ADESSO (il codice, chi ha scritto se chi legge lo vede): mai dal jsonb.
+      productDoc
+        ? { ...r.event, pageCode: productDoc.pageCode, projectCode: productDoc.projectCode, ...(r.kind === "product_doc.mention" ? { authorName: productDoc.authorName ?? "" } : {}) }
+        : withCommentExcerpt(r.event, commentsById),
       r.kind,
       lang,
       sourceProposalIds.get(r.id) ?? null,
@@ -937,11 +1169,36 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     )
       ? [...baseActions.filter((a) => a === "answer"), "hand_to_project", ...baseActions.filter((a) => a !== "answer")]
       : baseActions;
+    const eventTicketId = (r.event as { ticketId?: unknown }).ticketId;
+    const isChat = r.kind === "chat.mention" || r.kind === "chat.question";
+    const chat = isChat ? (chatCards.get(r.id) ?? null) : null;
+    const automation = isAutomationKind(r.kind) ? (automationCards.get(r.id) ?? null) : null;
+    const objectGone =
+      (r.ticketId === null && typeof eventTicketId === "string" && goneTickets.has(eventTicketId)) ||
+      (isChat && chat === null) ||
+      (isAutomationKind(r.kind) && automation === null) ||
+      (isProductDocKind(r.kind) && productDoc === null);
+    // Una task eliminata non si apre: niente link alla sua pagina.
+    const { url: _url, ...withoutUrl } = rendered;
+    void _url;
     return {
       id: r.id,
       kind: r.kind,
       status: r.status,
-      ...rendered,
+      ...(objectGone ? withoutUrl : rendered),
+      // Area 11, F2: una pagina che chi legge non vede non dice né codice né chi ha scritto (R-G5).
+      ...(objectGone && isProductDocKind(r.kind) ? { text: t(lang, "notify.productDocGone") } : {}),
+      // Registro, A4 r.169: una card del gruppo dice quale, letto dal messaggio di adesso.
+      ...(chat?.group
+        ? { text: t(lang, chat.channelName === "" ? "notify.chatMention.group.dm" : "notify.chatMention.group", { author: chat.authorName, group: chat.group, channel: chat.channelName }) }
+        : {}),
+      objectGone,
+      chat,
+      ...(rendered.google && handedShared.has(r.id)
+        ? { google: { ...rendered.google, ...(handedFacts.get(handedShared.get(r.id)!) ?? { handedByUser: null, proposalDecided: false }) } }
+        : {}),
+      ...(isProductDocKind(r.kind) ? { productDoc } : {}),
+      ...(isAutomationKind(r.kind) ? { automation } : {}),
       // Il riassunto NON passa dal jsonb dell'evento: viene dalle colonne
       // (`ai_jobs.plan_summary`, `pr_reviews.pr_summary`) caricate in batch
       // sopra. Così una card mostra il riassunto anche quando è arrivato DOPO
@@ -954,22 +1211,94 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       // L'esito della review, per il TONO della card (F8 del ciclo di
       // correzione): derivato a lettura dall'evento, anche per le card vecchie.
       reviewOutcome: reviewOutcomeForItem(r.kind, r.event),
+      // Area 8, F2: il motivo per cui l'avviso arriva a chi legge (scritto sulla SUA card).
+      alertMandatory: typeof (r.event as { alertMandatory?: unknown }).alertMandatory === "string" ? (r.event as { alertMandatory: string }).alertMandatory : null,
+      // Area 8, F4a: il codice del server, dalla riga del server (mai dal jsonb).
+      serverCode: serverCodes.get(r.id) ?? null,
+      undoneBy: undoneBy.get(r.id) ?? null,
+      memberAdded: memberAdded.get(r.id) ?? null,
       // Le azioni NON passano dal jsonb: la chiave del catalogo è la colonna
       // enum `kind`, che il DB garantisce valida. Una card col testo degradato
       // resta quindi azionabile.
       actions,
       projectId: r.projectId,
       ticketId: r.ticketId,
+      // Una task eliminata: il codice dalla lapide (in testo, senza link).
+      taskCode: r.ticketId
+        ? (taskCodes.get(r.ticketId) ?? null)
+        : objectGone
+          ? (goneTickets.get(eventTicketId as string) ?? null)
+          : null,
       jobId: r.jobId,
       createdAt: r.createdAt,
       readAt: r.readAt,
       snoozedUntil: r.snoozedUntil,
       handledAt: r.handledAt,
       handledBy: (r.handledByUserId && handledByUser.get(r.handledByUserId)) || null,
+      ...via(r.viaClaudeActionId),
     };
   });
 
-  return { items, nextCursor, total };
+  return { items: await withoutStrangers(db, userId, viewerOfPage, items, permissionsByCard), nextCursor, total };
+}
+
+/**
+ * Registro, A11 r.1414: nelle card, chi legge non riceve l'id di chi non
+ * conosce né di un progetto che non vede: per conto di chi ha agito Claude, chi
+ * è entrato, chi ha annullato, chi ha gestito la card (anche l'email), e il
+ * progetto di una card che non si apre più. Segnaposto `hidden-<n>` /
+ * `hidden-project-<n>`, stabili nella pagina; nessuna query se la pagina non
+ * ha niente da guardare.
+ */
+async function withoutStrangers(
+  db: Db,
+  userId: string,
+  viewerOfPage: () => Promise<Pick<SessionUser, "id" | "instancePermissions">>,
+  items: InboxItem[],
+  permissionsByCard: ReadonlyMap<string, ReadonlySet<string> | null>,
+): Promise<InboxItem[]> {
+  const people = new Set<string>();
+  for (const i of items) {
+    for (const id of [i.viaClaudeRequesterId, i.memberAdded?.addedUserId, i.undoneBy?.id, i.handledBy?.id, i.google?.handedByUser?.id]) if (id && id !== userId) people.add(id);
+  }
+  // I progetti delle card senza permessi di chi legge (già letti per le azioni): fra questi,
+  // un archiviato di cui è membro si legge ancora; gli altri non li vede.
+  const unseen = [...new Set(items.flatMap((i) => (i.projectId && !permissionsByCard.get(i.id) ? [i.projectId] : [])))];
+  const stillMember = new Set(
+    unseen.length > 0
+      ? (await db.select({ id: projectMembers.projectId }).from(projectMembers).where(and(eq(projectMembers.userId, userId), inArray(projectMembers.projectId, unseen)))).map((r) => r.id)
+      : [],
+  );
+  const invisible = new Set(unseen.filter((p) => !stillMember.has(p)));
+  if (people.size === 0 && invisible.size === 0) return items;
+  const sees = (projectId: string) => !invisible.has(projectId);
+  const hidden = await hiddenFor(db, await viewerOfPage(), people);
+  // M2: il nome accanto a un id mascherato non esce nemmeno lui.
+  return items.map((i) => ({
+    ...i,
+    viaClaudeRequesterId: hidden.person(i.viaClaudeRequesterId ?? null),
+    memberAdded:
+      i.memberAdded && !hidden.knows(i.memberAdded.addedUserId)
+        ? { ...i.memberAdded, addedUserId: hidden.person(i.memberAdded.addedUserId), addedName: null }
+        : i.memberAdded,
+    undoneBy: i.undoneBy && !hidden.knows(i.undoneBy.id) ? { id: hidden.person(i.undoneBy.id), name: "" } : i.undoneBy,
+    handledBy: i.handledBy && !hidden.knows(i.handledBy.id) ? { id: hidden.person(i.handledBy.id), email: "" } : i.handledBy,
+    // Lotto 4 (§2): chi ha passato la proposta, se chi legge non lo conosce.
+    ...(i.google?.handedByUser && !hidden.knows(i.google.handedByUser.id) ? { google: { ...i.google, handedByUser: { id: hidden.person(i.google.handedByUser.id), name: null } } } : {}),
+    projectId: i.projectId ? hidden.project(i.projectId, sees(i.projectId)) : i.projectId,
+  }));
+}
+
+/** Le task eliminate fra questi id, col loro codice (la lapide). UNA query. */
+async function deletedTicketIdsOf(db: Db, ids: readonly string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return new Map();
+  const rows = await db
+    .select({ id: deletedTickets.id, number: deletedTickets.number, code: projects.code })
+    .from(deletedTickets)
+    .innerJoin(projects, eq(projects.id, deletedTickets.projectId))
+    .where(inArray(deletedTickets.id, unique));
+  return new Map(rows.map((r) => [r.id, `${r.code}-${r.number}`] as const));
 }
 
 /**
@@ -1452,6 +1781,154 @@ function reviewOutcomeForItem(kind: NotificationKind, rawEvent: Record<string, u
  * pubblicate quando la tabella non esisteva — semplicemente non compaiono
  * nella mappa, e il chiamante legge `null`.
  */
+/**
+ * Area 10, F5 (richiesta di 94): i pezzi delle frasi di una card
+ * `member.added`, per chi legge. Le persone coi nomi di adesso, solo se chi
+ * legge le vede (R-G5, la regola di `GET /api/people`); il ruolo col nome di
+ * adesso dal `roleId` dell'evento (null se non c'è più; una card senza
+ * `roleId` tiene il nome scritto). Tre query per pagina al più.
+ */
+async function memberAddedPartsOf(
+  db: Db,
+  viewerId: string,
+  rows: { id: string; event: unknown }[],
+): Promise<Map<string, { addedUserId: string; addedName: string | null; roleName: string | null; actorName: string | null }>> {
+  type Ev = { addedUserId?: unknown; actorUserId?: unknown; roleId?: unknown; roleName?: unknown };
+  const isId = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v);
+  const evs = rows.flatMap((r) => {
+    const e = (r.event ?? {}) as Ev;
+    return isId(e.addedUserId) ? [{ id: r.id, e, added: e.addedUserId }] : [];
+  });
+  if (evs.length === 0) return new Map();
+  const personIds = [...new Set(evs.flatMap(({ e, added }) => [added, ...(isId(e.actorUserId) ? [e.actorUserId] : [])]))];
+  const roleIds = [...new Set(evs.flatMap(({ e }) => (isId(e.roleId) ? [e.roleId] : [])))];
+  const visible = await visiblePersonIds(db, { id: viewerId, instancePermissions: await instancePermissionsOfUser(db, viewerId) });
+  const sees = (id: string) => visible === "all" || visible.includes(id);
+  const names = new Map(
+    (await db.select({ id: users.id, email: users.email, displayName: users.displayName }).from(users).where(inArray(users.id, personIds))).map((u) => [u.id, personName(u)]),
+  );
+  const roleNames = new Map(
+    roleIds.length > 0 ? (await db.select({ id: roles.id, name: roles.name }).from(roles).where(inArray(roles.id, roleIds))).map((r) => [r.id, r.name]) : [],
+  );
+  const nameOf = (id: unknown) => (isId(id) && sees(id) ? (names.get(id) ?? null) : null);
+  return new Map(
+    evs.map(({ id, e, added }) => [
+      id,
+      {
+        addedUserId: added,
+        addedName: nameOf(added),
+        roleName: isId(e.roleId) ? (roleNames.get(e.roleId) ?? null) : typeof e.roleName === "string" ? e.roleName : null,
+        actorName: nameOf(e.actorUserId),
+      },
+    ]),
+  );
+}
+
+/**
+ * Area 10, F5 (D-11 = b): chi ha ANNULLATO l'ingresso di una card
+ * `member.added`. Dalla voce d'ingresso (`changeLogEntryId`, scritto alla
+ * publish) alla sua azione di Claude (`via_claude_action_id`), e da lì alla
+ * voce che annulla quell'azione (`undo_of_action_id`): il suo autore. Una card
+ * vecchia senza `changeLogEntryId`, un ingresso fatto a mano o tolto a mano:
+ * nessun «Undone by». Due query per pagina, mai una per card.
+ */
+async function undoneByOfMemberAdded(db: Db, viewerId: string, rows: { id: string; event: unknown }[]): Promise<Map<string, { id: string; name: string }>> {
+  const entryOf = new Map<string, string>();
+  for (const r of rows) {
+    const id = (r.event as { changeLogEntryId?: unknown } | null)?.changeLogEntryId;
+    if (typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)) entryOf.set(r.id, id);
+  }
+  if (entryOf.size === 0) return new Map();
+  const entries = await db
+    .select({ id: changeLog.id, actionId: changeLog.viaClaudeActionId })
+    .from(changeLog)
+    .where(inArray(changeLog.id, [...new Set(entryOf.values())]));
+  const actionOf = new Map(entries.flatMap((e) => (e.actionId ? [[e.id, e.actionId] as const] : [])));
+  if (actionOf.size === 0) return new Map();
+  const undos = await db
+    .select({ undoOf: changeLog.undoOfActionId, by: changeLog.actorUserId, email: users.email, displayName: users.displayName })
+    .from(changeLog)
+    .leftJoin(users, eq(users.id, changeLog.actorUserId))
+    .where(inArray(changeLog.undoOfActionId, [...new Set(actionOf.values())]));
+  const byAction = new Map(undos.flatMap((u) => (u.undoOf && u.by && u.email ? [[u.undoOf, { id: u.by, name: personName({ email: u.email, displayName: u.displayName }) }] as const] : [])));
+  // Review di F3–F8 (M3): R-G5, come `memberAdded`. Chi ha annullato e chi
+  // guarda non si vedono: niente «Undone by» (il nome è la sola cosa da dire).
+  const visible = await visiblePersonIds(db, { id: viewerId, instancePermissions: await instancePermissionsOfUser(db, viewerId) });
+  const sees = (id: string) => visible === "all" || visible.includes(id);
+  const out = new Map<string, { id: string; name: string }>();
+  for (const [cardId, entryId] of entryOf) {
+    const action = actionOf.get(entryId);
+    const who = action ? byAction.get(action) : undefined;
+    if (who && sees(who.id)) out.set(cardId, who);
+  }
+  return out;
+}
+
+/**
+ * Area 8, F4a: il codice `SRV-<n>` del server di ogni card `monitor.*`, dal
+ * suo id nel link dell'evento (`…/monitor/servers/<id>`), in UNA query per
+ * pagina. Un server tolto non c'è: nessuna voce.
+ */
+async function serverCodesByNotification(
+  db: Db,
+  rows: readonly { id: string; kind: string; event: unknown; ticketId: string | null }[],
+): Promise<Map<string, string>> {
+  const idByCard = new Map<string, string>();
+  // Area 8, F4b: la card della diagnosi, dal suo ticket (server_fixes), mai dall'evento.
+  const diagnosis = rows.filter((r) => r.kind === "server.diagnosis_ready" && r.ticketId !== null);
+  if (diagnosis.length > 0) {
+    const fixes = await db
+      .select({ taskId: serverFixes.taskId, serverId: serverFixes.serverId })
+      .from(serverFixes)
+      .where(inArray(serverFixes.taskId, [...new Set(diagnosis.map((r) => r.ticketId!))]));
+    const serverByTask = new Map(fixes.map((f) => [f.taskId, f.serverId]));
+    for (const r of diagnosis) {
+      const serverId = serverByTask.get(r.ticketId!);
+      if (serverId) idByCard.set(r.id, serverId);
+    }
+  }
+  for (const r of rows) {
+    if (r.kind !== "monitor.alert" && r.kind !== "monitor.recovered") continue;
+    const url = (r.event as { url?: unknown }).url;
+    const m = typeof url === "string" ? /\/monitor\/servers\/([0-9a-f-]{36})(?:[/?#]|$)/i.exec(url) : null;
+    if (m) idByCard.set(r.id, m[1]!.toLowerCase());
+  }
+  const out = new Map<string, string>();
+  if (idByCard.size === 0) return out;
+  const found = await db
+    .select({ id: servers.id, number: servers.number })
+    .from(servers)
+    .where(inArray(servers.id, [...new Set(idByCard.values())]));
+  const numberById = new Map(found.map((s) => [s.id, s.number]));
+  for (const [cardId, serverId] of idByCard) {
+    const n = numberById.get(serverId);
+    if (n !== undefined) out.set(cardId, `SRV-${n}`);
+  }
+  return out;
+}
+
+/**
+ * Rimandi, lotto 4 (§2): di una proposta condivisa passata, chi l'ha passata
+ * (nome vero: lo maschera `withoutStrangers`) e se non è più aperta. UNA query
+ * per pagina.
+ */
+async function handedFactsOf(db: Db, proposalIds: readonly string[]): Promise<Map<string, { handedByUser: { id: string; name: string | null } | null; proposalDecided: boolean }>> {
+  const out = new Map<string, { handedByUser: { id: string; name: string | null } | null; proposalDecided: boolean }>();
+  if (proposalIds.length === 0) return out;
+  const rows = await db
+    .select({ id: emailProposals.id, status: emailProposals.status, handedById: emailProposals.handedByUserId, displayName: users.displayName, email: users.email })
+    .from(emailProposals)
+    .leftJoin(users, eq(users.id, emailProposals.handedByUserId))
+    .where(inArray(emailProposals.id, [...proposalIds]));
+  for (const r of rows) {
+    out.set(r.id, {
+      handedByUser: r.handedById ? { id: r.handedById, name: r.displayName ?? r.email?.split("@")[0] ?? null } : null,
+      proposalDecided: r.status !== "classified" && r.status !== "proposed",
+    });
+  }
+  return out;
+}
+
 async function sourceProposalIdsByNotification(
   db: Db,
   userId: string,
@@ -1474,6 +1951,15 @@ async function sourceProposalIdsByNotification(
       ),
     );
   for (const row of rows) {
+    if (row.notificationId !== null) byNotification.set(row.notificationId, row.proposalId);
+  }
+  // Area 6, F2: le proposte CONDIVISE hanno una card per destinatario, scritta
+  // in `email_proposal_recipients` (non in `proposal_notification_id`).
+  const shared = await db
+    .select({ notificationId: emailProposalRecipients.notificationId, proposalId: emailProposalRecipients.proposalId })
+    .from(emailProposalRecipients)
+    .where(and(inArray(emailProposalRecipients.notificationId, notificationIds), eq(emailProposalRecipients.userId, userId)));
+  for (const row of shared) {
     if (row.notificationId !== null) byNotification.set(row.notificationId, row.proposalId);
   }
   return byNotification;
@@ -1553,6 +2039,26 @@ async function decisionRowsByNotification(
       error: null,
     });
   }
+  // Lotto 9, voce 2 (d): la card di un destinatario di una proposta del
+  // calendario CONDIVISA. L'esito sta sulla proposta, la card è sua.
+  const sharedCalendarRows = await db
+    .select({
+      notificationId: calendarProposalRecipients.notificationId,
+      status: calendarProposals.status,
+      outcome: calendarProposals.outcome,
+      error: calendarProposals.error,
+    })
+    .from(calendarProposalRecipients)
+    .innerJoin(calendarProposals, eq(calendarProposals.id, calendarProposalRecipients.proposalId))
+    .where(and(inArray(calendarProposalRecipients.notificationId, notificationIds), eq(calendarProposalRecipients.userId, userId)));
+  for (const row of sharedCalendarRows) {
+    if (row.notificationId === null) continue;
+    byNotification.set(row.notificationId, {
+      status: row.status,
+      outcome: (row.outcome as Record<string, unknown> | null) ?? null,
+      error: row.error ?? null,
+    });
+  }
   return byNotification;
 }
 
@@ -1589,6 +2095,48 @@ export { unreadCount } from "@stubwise/notifications";
  * {@link executeAction}, elenca le righe il cui stato è cambiato davvero, così
  * il chiamante sa se c'è qualcosa da rispecchiare altrove.
  */
+/**
+ * Area 9, F1 (design 1.8): i passaggi personali di una card, solo sulle
+ * proprie (`not_found` altrimenti, come se non esistesse):
+ * - `restore`: da `handled` torna `open`, senza la chiusura — SOLO una card
+ *   che chi chiama ha ARCHIVIATO (`handled_action = 'archive'`, review di F1,
+ *   I3): una chiusa da una decisione, sua o di un altro, riarmerebbe azioni il
+ *   cui unico claim è lo stato della notifica (un secondo «Procedi»);
+ * - `move_to_new`: da `snoozed` torna `open`, senza il rinvio;
+ * - `unread`: `read_at` torna null, in qualunque stato (idempotente).
+ * Uno stato da cui il passaggio non ha senso: `invalid_state`. Il conteggio
+ * della campanella conta lo stato (`unreadCount`), quindi segue da sé.
+ */
+export type InboxTransition = "restore" | "move_to_new" | "unread";
+
+export async function transitionNotification(
+  db: Db,
+  args: { notificationId: string; userId: string; transition: InboxTransition },
+): Promise<{ ok: true } | { ok: false; error: "not_found" | "invalid_state" }> {
+  const own = and(eq(notifications.id, args.notificationId), eq(notifications.userId, args.userId), notificationVisibleToRecipient());
+  const [row] = await db.select({ id: notifications.id, status: notifications.status }).from(notifications).where(own);
+  if (!row) return { ok: false, error: "not_found" };
+  if (args.transition === "unread") {
+    await db.update(notifications).set({ readAt: null }).where(eq(notifications.id, row.id));
+    return { ok: true };
+  }
+  const fromState =
+    args.transition === "restore"
+      ? and(
+          eq(notifications.status, "handled"),
+          eq(notifications.handledAction, "archive"),
+          eq(notifications.handledByUserId, args.userId),
+        )
+      : eq(notifications.status, "snoozed");
+  // La WHERE sullo stato chiude la corsa con un altro passaggio concorrente.
+  const updated = await db
+    .update(notifications)
+    .set({ status: "open", handledAt: null, handledByUserId: null, handledAction: null, snoozedUntil: null })
+    .where(and(eq(notifications.id, row.id), fromState))
+    .returning({ id: notifications.id });
+  return updated.length > 0 ? { ok: true } : { ok: false, error: "invalid_state" };
+}
+
 export async function markRead(
   db: Db,
   args: { notificationId: string; userId: string },
@@ -1652,4 +2200,111 @@ function decodeCursor(raw: string): Cursor | null {
   if (!CURSOR_TIMESTAMP_PATTERN.test(createdAt)) return null;
   if (!UUID_PATTERN.test(id)) return null;
   return { createdAt, id };
+}
+
+/**
+ * `<projects.code>-<number>` dei ticket della pagina, in UNA query
+ * (integrazione area 2). Mai dal jsonb dell'evento: vale per le card vecchie
+ * e segue un codice di progetto cambiato.
+ */
+async function taskCodesByTicket(db: Db, ticketIds: (string | null)[]): Promise<Map<string, string>> {
+  const ids = [...new Set(ticketIds.filter((id): id is string => id !== null))];
+  if (ids.length === 0) return new Map();
+  const rows = await db
+    .select({ id: tickets.id, number: tickets.number, code: projects.code })
+    .from(tickets)
+    .innerJoin(projects, eq(projects.id, tickets.projectId))
+    .where(inArray(tickets.id, ids));
+  return new Map(rows.map((r) => [r.id, `${r.code}-${r.number}`]));
+}
+
+/** I commenti citati dalle card `ticket.activity` della pagina: estratto e se sono eliminati. */
+async function commentsForActivity(
+  db: Db,
+  ids: string[],
+): Promise<Map<string, { text: string; deleted: boolean }>> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return new Map();
+  const rows = await db
+    .select({ id: comments.id, body: comments.body, deletedAt: comments.deletedAt })
+    .from(comments)
+    .where(inArray(comments.id, unique));
+  return new Map(rows.map((r) => [r.id, { text: excerpt(r.body), deleted: r.deletedAt !== null }]));
+}
+
+/**
+ * L'evento da rendere con l'estratto DERIVATO del commento (`commentText`,
+ * `commentDeleted`): solo per la resa, il jsonb non cambia. Un commento che
+ * non esiste più (ticket cancellato) si legge come eliminato.
+ */
+function withCommentExcerpt(
+  event: Record<string, unknown>,
+  commentsById: Map<string, { text: string; deleted: boolean }>,
+): Record<string, unknown> {
+  if (event.kind !== "ticket.activity" || typeof event.commentId !== "string") return event;
+  const comment = commentsById.get(event.commentId);
+  if (!comment || comment.deleted) return { ...event, commentDeleted: true };
+  return { ...event, commentText: comment.text };
+}
+
+// --- area 7: le card delle Automations, derivate a lettura ---------------------------
+
+export interface InboxAutomation {
+  automationCode: string;
+  automationName: string;
+  runCode: string | null;
+  runStatus: string | null;
+  waitingOnYou: boolean;
+  decided: boolean;
+}
+
+const isAutomationKind = (kind: string): boolean => kind.startsWith("automation.");
+
+/**
+ * Lo stato di ogni card `automation.*` della pagina, com'è ADESSO per chi
+ * legge (la regola delle card d'inbox: niente dal jsonb oltre agli id e al
+ * passo). `null` = l'automazione non c'è più, o chi legge non la vede e non
+ * deve decidere niente. Per un'approvazione: `waitingOnYou` se l'esecuzione
+ * aspetta ancora quel passo e chi legge è fra chi decide ADESSO; `decided` se
+ * non lo aspetta più (qualcuno ha deciso, o è finita).
+ */
+async function automationCardsFor(db: Db, userId: string, rows: { id: string; kind: string; event: unknown }[]): Promise<Map<string, InboxAutomation | null>> {
+  const out = new Map<string, InboxAutomation | null>();
+  if (rows.length === 0) return out;
+  const events = rows.map((r) => ({ id: r.id, kind: r.kind, e: (r.event ?? {}) as { automationId?: string; runId?: string | null; path?: string } }));
+  const automationIds = [...new Set(events.map((x) => x.e.automationId).filter((v): v is string => typeof v === "string"))];
+  const runIds = [...new Set(events.map((x) => x.e.runId).filter((v): v is string => typeof v === "string"))];
+  const autoRows = automationIds.length ? await db.select().from(automations).where(inArray(automations.id, automationIds)) : [];
+  const runRows = runIds.length ? await db.select().from(automationRuns).where(inArray(automationRuns.id, runIds)) : [];
+  const [admin] = await db.select({ yes: sql<boolean>`${userIsFullAdmin(sql`${userId}::uuid`)}` }).from(sql`(select 1) as one`);
+  const memberOf = new Set((await db.select({ projectId: projectMembers.projectId }).from(projectMembers).where(eq(projectMembers.userId, userId))).map((m) => m.projectId));
+  const sees = (projectId: string) => admin?.yes === true || memberOf.has(projectId);
+  // Area 7, F4: una generale la vede solo chi ha il permesso d'istanza delle generali (R-G5).
+  const seesGeneral = autoRows.some((a) => a.projectId === null)
+    ? (await instancePermissionsOfUser(db, userId)).has("automations.general.manage")
+    : false;
+  for (const { id, kind, e } of events) {
+    const a = autoRows.find((x) => x.id === e.automationId);
+    const run = runRows.find((x) => x.id === e.runId) ?? null;
+    if (!a) {
+      out.set(id, null);
+      continue;
+    }
+    const deciders = run ? await automationDecidersOf(db, run, a) : [];
+    if (!(a.projectId === null ? seesGeneral : sees(a.projectId)) && !deciders.includes(userId)) {
+      out.set(id, null);
+      continue;
+    }
+    const path = (run?.cursor as { path?: string | null } | null)?.path ?? null;
+    const waitingHere = kind === "automation.approval" && run?.status === "waiting_approval" && (e.path === undefined || e.path === path);
+    out.set(id, {
+      automationCode: a.code,
+      automationName: a.name,
+      runCode: run ? `${a.code} #${run.n}` : null,
+      runStatus: run?.status ?? null,
+      waitingOnYou: waitingHere && deciders.includes(userId),
+      decided: kind === "automation.approval" && !waitingHere,
+    });
+  }
+  return out;
 }

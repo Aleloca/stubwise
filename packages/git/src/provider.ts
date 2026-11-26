@@ -83,7 +83,50 @@ export interface WebhookEvent {
    * assenza viene semplicemente saltato.
    */
   prNumber: number | null;
+  /**
+   * Area 8, F1 (i rilasci), solo per `merged` e facoltativi (un provider o un
+   * payload che non li dà resta valido per la chiusura del ticket): il ramo
+   * di destinazione (per riconoscere un merge sul ramo di rilascio), il
+   * commit di merge, il titolo, chi ha fatto il merge sul provider e quando.
+   */
+  targetBranch?: string;
+  mergeSha?: string;
+  title?: string;
+  mergedByLogin?: string;
+  mergedAt?: string;
 }
+
+/** Una run di CI su un commit (area 8, F1: lo stato di un rilascio dopo il merge). */
+export interface CommitRun {
+  /** L'id della run sul provider (GitHub check-run id; Bitbucket la `key` dello status). */
+  id: string;
+  name: string;
+  status: "running" | "success" | "failed";
+  url: string | null;
+  /** Il passo fallito, quando il provider lo dice (titolo dell'output, descrizione). */
+  failedStep: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  /**
+   * Chi l'ha prodotta (revisione del lotto 2, I6): una run più nuova col nome
+   * uguale ne prende il posto SOLO nello stesso gruppo. GitHub: la check suite
+   * (`github:suite:<id>`, un workflow su quel commit: i rilanci ci restano).
+   * `null` su Bitbucket (nessun gruppo condiviso dai rilanci) e se il provider
+   * non lo dice: fa da jolly (`countedReleaseRuns`).
+   */
+  group?: string | null;
+}
+
+/**
+ * Le run di CI di un commit: `ok` con l'elenco (vuoto = il provider non ne
+ * ha), o `unknown` su qualunque errore di lettura — MAI un elenco vuoto per
+ * un errore, che direbbe «nessuna pipeline» quando la lettura è fallita
+ * (la stessa regola di {@link PullRequestChecks}).
+ */
+export type CommitRuns = { status: "ok"; runs: CommitRun[] } | { status: "unknown" };
+
+/** I messaggi dei commit di una PR, dal più vecchio (area 8, F1, S9); `unknown` su un errore di lettura. */
+export type PullRequestCommits = { status: "ok"; messages: string[] } | { status: "unknown" };
 
 /**
  * Evento di apertura/aggiornamento di una PR (automazione PR Review).
@@ -467,6 +510,13 @@ export interface GitProvider {
    * caso felice silenzioso: il chiamante (la rotta di rilascio, `release.merge`)
    * distingue i rami d'errore per `reason`, non per uno status HTTP.
    */
+  /**
+   * Area 8, F1: le run di CI del commit `sha` (il commit di merge di un
+   * rilascio). Mai lancia: un errore di lettura è `{ status: "unknown" }`.
+   */
+  getCommitRuns(p: ProjectGitConfig, sha: string, opts?: { fetchImpl?: FetchLike }): Promise<CommitRuns>;
+  /** Area 8, F1, S9: i messaggi dei commit della PR (la bozza delle note di rilascio). Mai lancia. */
+  getPullRequestCommits(p: ProjectGitConfig, prNumber: number, opts?: { fetchImpl?: FetchLike }): Promise<PullRequestCommits>;
   mergePullRequest(
     p: ProjectGitConfig,
     prNumber: number,

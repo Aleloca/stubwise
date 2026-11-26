@@ -1,5 +1,6 @@
 import { channelName } from "../../domain/chatLabel";
 import { canSeeDriveFile } from "../drive/visibility";
+import { personMasker } from "../access/hidden";
 import { PEOPLE } from "../seed/people";
 import { chatKey, copy, gate, now, PROPOSAL_EXPIRY, state, visibleProjectIds } from "../store";
 import type {
@@ -22,7 +23,7 @@ import type {
   ThreadWithNews,
   Utterance,
 } from "../types";
-import { mentionKindFor } from "./mentions";
+import { mentionKindFor, mentionsName } from "./mentions";
 import {
   canReadChannel,
   canSeeChannel,
@@ -168,11 +169,19 @@ function linkedRefsOf(m: ChatMessage): CitationRef[] {
   });
 }
 
-/** Il messaggio come lo legge la persona: una copia, con il riassunto del thread. */
+type PersonMask = ReturnType<typeof personMasker>;
+
+/**
+ * Il messaggio come lo legge la persona: una copia, con il riassunto del
+ * thread. Gli id delle persone che non conosce diventano segnaposti
+ * (registro, A11 r.1414): `mask` è quello della risposta intera, così la
+ * stessa persona ha lo stesso `hidden-<n>` in tutti i messaggi di una pagina.
+ */
 export function presentMessage(
   personId: string,
   m: ChatMessage,
   data: ChannelData = channelData(channelById(m.channelId)!),
+  mask: PersonMask = personMasker(personId),
 ): ChatMessageView {
   const base = copy(m);
   if (m.deletedAt !== null) scrubDeleted(base);
@@ -194,12 +203,19 @@ export function presentMessage(
   }
   return {
     ...base,
+    authorId: mask(base.authorId),
+    reactions: base.reactions.map((r) => ({ ...r, personIds: r.personIds.map(mask) })),
+    asksReplyOf: base.asksReplyOf.map(mask),
+    // Revisione del lotto 2, I5: una citazione di una persona che non si conosce, segnaposto.
+    citations: base.citations.map((c) => (c.kind === "person" ? { ...c, id: mask(c.id) } : c)),
+    deletedById: mask(base.deletedById),
+    ...(base.calledById !== undefined ? { calledById: mask(base.calledById) } : {}),
     thread: last
       ? {
           replyCount: replies.length,
           lastReplyAt: last.createdAt,
-          lastReplyById: last.authorId,
-          participantIds: participants.slice(0, 3),
+          lastReplyById: mask(last.authorId),
+          participantIds: participants.slice(0, 3).map(mask),
           hasNews:
             followedAt !== undefined &&
             replies.some((r) => r.authorId !== personId && r.createdAt > followedAt),
@@ -209,7 +225,7 @@ export function presentMessage(
           ),
         }
       : null,
-    answeredIds: base.asksReplyOf.filter((id) => answered(m, id, data)),
+    answeredIds: base.asksReplyOf.filter((id) => answered(m, id, data)).map(mask),
     mentionsViewer: mentionKindFor(m, personId, membersOf(data.ch)) !== null,
     linkedRefs: linkedRefsOf(base),
     ...(m.kind === "claude" ? { hiddenCodes } : {}),
@@ -340,16 +356,25 @@ export function channelLabel(ch: Channel, personId: string): string {
   ).label;
 }
 
-export function channelView(personId: string, ch: Channel): ChannelView {
+export function channelView(
+  personId: string,
+  ch: Channel,
+  // R.1414: il masker della risposta (un elenco di canali ne ha uno solo, I7).
+  mask: PersonMask = personMasker(personId),
+): ChannelView {
   const readable = canReadChannel(personId, ch);
+  // R.1414: gli id di chi non si conosce, segnaposti (dopo i permessi, che li leggono veri).
+  const permissions = channelPermissions(personId, ch);
   return {
     ...copy(ch),
+    createdById: mask(ch.createdById),
+    ...(ch.archivedById !== undefined ? { archivedById: mask(ch.archivedById) } : {}),
     // Chi vede un privato senza leggerlo (chi gestisce) ne sa nome e membri:
     // né l'argomento né la descrizione.
     topic: readable ? ch.topic : "",
     description: readable ? ch.description : "",
-    memberIds: [...membersOf(ch)],
-    ...channelPermissions(personId, ch),
+    memberIds: membersOf(ch).map(mask),
+    ...permissions,
     notifyLevel: notifyLevelOf(personId, ch.id),
   };
 }
@@ -407,7 +432,12 @@ function countsOf(
   return { unread, mentions, toMe: mine };
 }
 
-function channelRow(personId: string, ch: Channel, messages: ChatMessage[]): ChannelRow {
+function channelRow(
+  personId: string,
+  ch: Channel,
+  messages: ChatMessage[],
+  mask: PersonMask,
+): ChannelRow {
   const data = channelData(ch, messages);
   const readable = canReadChannel(personId, ch);
   const live = readable
@@ -418,7 +448,7 @@ function channelRow(personId: string, ch: Channel, messages: ChatMessage[]): Cha
     null,
   );
   return {
-    ...channelView(personId, ch),
+    ...channelView(personId, ch, mask),
     ...channelCounts(personId, data),
     lastActivityAt: latest,
   };
@@ -454,7 +484,12 @@ export function readableMessage(
  * Il messaggio vivo prima di `m` nel suo flusso (il canale, o il thread con
  * la radice): un eliminato non fa da contesto, nemmeno vuoto (Review Focus 3).
  */
-function contextOf(personId: string, m: ChatMessage, data: ChannelData): ChatMessageView | null {
+function contextOf(
+  personId: string,
+  m: ChatMessage,
+  data: ChannelData,
+  mask: PersonMask,
+): ChatMessageView | null {
   const flow =
     m.threadOf === null || m.alsoInChannel
       ? channelFlow(data)
@@ -464,23 +499,34 @@ function contextOf(personId: string, m: ChatMessage, data: ChannelData): ChatMes
     .slice(0, Math.max(0, index))
     .reverse()
     .find((x) => x !== undefined && x.deletedAt === null);
-  return previous ? presentMessage(personId, previous, data) : null;
+  return previous ? presentMessage(personId, previous, data, mask) : null;
 }
 
-function hit(personId: string, m: ChatMessage, data: ChannelData): ChatMessageHit {
+/** Un risultato (messaggio, contesto, radice), coi segnaposti di `mask`: quello della risposta intera. */
+function hit(
+  personId: string,
+  m: ChatMessage,
+  data: ChannelData,
+  mask: PersonMask = personMasker(personId),
+): ChatMessageHit {
   return {
     channelId: m.channelId,
-    message: presentMessage(personId, m, data),
-    context: contextOf(personId, m, data),
-    root: rootOf(personId, m, data),
+    message: presentMessage(personId, m, data, mask),
+    context: contextOf(personId, m, data, mask),
+    root: rootOf(personId, m, data, mask),
   };
 }
 
 /** La radice del thread di una risposta (eliminata: senza testo, come ovunque). */
-function rootOf(personId: string, m: ChatMessage, data: ChannelData): ChatMessageView | null {
+function rootOf(
+  personId: string,
+  m: ChatMessage,
+  data: ChannelData,
+  mask: PersonMask,
+): ChatMessageView | null {
   if (m.threadOf === null) return null;
   const root = data.messages.find((x) => x.id === m.threadOf);
-  return root ? presentMessage(personId, root, data) : null;
+  return root ? presentMessage(personId, root, data, mask) : null;
 }
 
 // --- letture ------------------------------------------------------------------
@@ -496,12 +542,13 @@ export async function listChannels(
 ): Promise<ChannelRow[]> {
   const me = await gate("chat.listChannels");
   const byChannel = messagesByChannel();
+  const mask = personMasker(me);
   return state.channels
     .filter(
       (ch) =>
         canSeeChannel(me, ch) && (options.scope === "all" || ch.projectId === options.projectId),
     )
-    .map((ch) => channelRow(me, ch, byChannel.get(ch.id) ?? []));
+    .map((ch) => channelRow(me, ch, byChannel.get(ch.id) ?? [], mask));
 }
 
 /** Un canale con i permessi di chi guarda; `null` se non lo vede. */
@@ -516,7 +563,11 @@ export async function listChannelMembers(id: string): Promise<ChannelMember[] | 
   const me = await gate("chat.listChannelMembers");
   const ch = seenChannel(me, id);
   if (!ch) return null;
-  return membersOf(ch).map((personId) => ({ personId, isCreator: personId === ch.createdById }));
+  const mask = personMasker(me);
+  return membersOf(ch).map((personId) => ({
+    personId: mask(personId),
+    isCreator: personId === ch.createdById,
+  }));
 }
 
 /**
@@ -537,8 +588,9 @@ export async function listMessages(
   const end = at >= 0 ? at : flow.length;
   const start = Math.max(0, end - limit);
   const read = readStateOf(me, ch.id);
+  const mask = personMasker(me);
   return {
-    messages: flow.slice(start, end).map((m) => presentMessage(me, m, data)),
+    messages: flow.slice(start, end).map((m) => presentMessage(me, m, data, mask)),
     hasMore: start > 0,
     lastReadAt: read && membersOf(ch).includes(me) ? read.lastReadAt : null,
   };
@@ -559,10 +611,11 @@ export async function listThread(messageId: string): Promise<ThreadView | null> 
   const rootId = found.message.threadOf ?? found.message.id;
   const root = found.data.messages.find((m) => m.id === rootId);
   if (!root || isGone(root, found.data.replies.get(rootId) ?? [])) return null;
+  const mask = personMasker(me);
   return {
     channelId: root.channelId,
-    root: presentMessage(me, root, found.data),
-    replies: liveReplies(found.data, rootId).map((r) => presentMessage(me, r, found.data)),
+    root: presentMessage(me, root, found.data, mask),
+    replies: liveReplies(found.data, rootId).map((r) => presentMessage(me, r, found.data, mask)),
     lastReadAt: readStateOf(me, root.channelId)?.threadReads[rootId] ?? null,
   };
 }
@@ -574,6 +627,7 @@ export async function listThreadsWithNews(): Promise<ThreadWithNews[]> {
 }
 
 function threadsWithNewsOf(me: string): ThreadWithNews[] {
+  const mask = personMasker(me);
   const out: ThreadWithNews[] = [];
   for (const read of state.chatReads.values()) {
     if (read.personId !== me) continue;
@@ -588,8 +642,8 @@ function threadsWithNewsOf(me: string): ThreadWithNews[] {
       if (fresh.length === 0) continue;
       out.push({
         channelId: ch.id,
-        root: presentMessage(me, root, data),
-        latestReplies: replies.slice(-2).map((r) => presentMessage(me, r, data)),
+        root: presentMessage(me, root, data, mask),
+        latestReplies: replies.slice(-2).map((r) => presentMessage(me, r, data, mask)),
         newCount: fresh.length,
       });
     }
@@ -623,6 +677,7 @@ export async function hasNews(): Promise<boolean> {
 /** Tutte le menzioni di chi guarda nei canali che legge (persona, reparto, @channel, domanda), dalla più recente. */
 export async function listMentions(): Promise<ChatMessageHit[]> {
   const me = await gate("chat.listMentions");
+  const mask = personMasker(me);
   const out: ChatMessageHit[] = [];
   const byChannel = messagesByChannel();
   for (const ch of state.channels) {
@@ -631,7 +686,7 @@ export async function listMentions(): Promise<ChatMessageHit[]> {
     const members = membersOf(ch);
     for (const m of data.messages) {
       if (isGone(m, data.replies.get(m.id) ?? [])) continue;
-      if (mentionKindFor(m, me, members) !== null) out.push(hit(me, m, data));
+      if (mentionKindFor(m, me, members) !== null) out.push(hit(me, m, data, mask));
     }
   }
   return out.sort((a, b) => b.message.createdAt.localeCompare(a.message.createdAt));
@@ -742,6 +797,7 @@ export async function searchChat(
   const me = await gate("chat.search");
   const terms = fold(q).split(/\s+/).filter(Boolean);
   if (q.trim().length < 2 || terms.length === 0) return [];
+  const mask = personMasker(me);
   const out: ChatMessageHit[] = [];
   const byChannel = messagesByChannel();
   for (const ch of state.channels) {
@@ -760,10 +816,20 @@ export async function searchChat(
       const haystack = fold(
         [m.text, ...m.attachments.map((a) => a.name), ...citedCodes(m)].join(" "),
       );
-      if (terms.every((t) => haystack.includes(t))) out.push(hit(me, m, data));
+      if (terms.every((t) => haystack.includes(t))) out.push(hit(me, m, data, mask));
     }
   }
   return out.sort((a, b) => b.message.createdAt.localeCompare(a.message.createdAt));
+}
+
+/** Il gruppo con cui il messaggio nomina la persona: `@channel`, o il suo reparto. */
+export function groupNamed(m: ChatMessage, personId: string): string | null {
+  if (mentionsName(m.text, "channel")) return "@channel";
+  const person = PEOPLE.find((p) => p.id === personId);
+  const department = state.departments.find(
+    (d) => person?.departmentIds.includes(d.id) && mentionsName(m.text, d.name),
+  );
+  return department ? `@${department.name}` : null;
 }
 
 /**
@@ -782,11 +848,19 @@ export function presentChatNotification(
   const label = channelLabel(data.ch, personId);
   const asked = message.asksReplyOf.includes(personId);
   const thread = message.threadOf;
+  // Registro, r.169: una card del gruppo dice quale (`@channel`, `@Marketing`),
+  // letto dal messaggio di adesso; nominata a nome resta «you».
+  const kindNow = mentionKindFor(message, personId, membersOf(data.ch));
+  // Il gruppo di adesso; tolto da una modifica, quello della creazione (lotto 2, minor).
+  const group =
+    kindNow === "group" ? groupNamed(message, personId) : kindNow === null ? (n.chatGroup ?? null) : null;
   return {
     ...copy(n),
     projectId: data.ch.projectId,
     objectCode: label,
-    title: asked ? `${author} asked you in ${label}` : `${author} mentioned you in ${label}`,
+    title: asked
+      ? `${author} asked you in ${label}`
+      : `${author} mentioned ${group ?? "you"} in ${label}`,
     body: message.text.length > 160 ? `${message.text.slice(0, 159)}…` : message.text,
     link: thread
       ? `#/chat/${data.ch.id}?thread=${thread}&message=${message.id}`

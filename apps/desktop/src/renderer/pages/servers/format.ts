@@ -6,8 +6,8 @@ import { ago } from "../releases/format";
 
 // Le parole della sezione Servers (shape servers.md §3): salute, motivi,
 // lavoro, accesso, ambienti, durate. Tutto da template i18n e dagli stati
-// già derivati dal livello dati (`health`, `work`, `access`,
-// `analysisProject`): qui non si ricalcola nessuno stato.
+// già derivati dal livello dati (`health`, `work`, `access`, `alerting`):
+// qui non si ricalcola nessuno stato.
 //
 // Le ore di un server sono nel fuso di CHI GUARDA (decisione del controller
 // per l'ora del rientro, estesa a tutta la pagina perché una pagina con due
@@ -113,15 +113,23 @@ export function reasonSentence(
   t: TFunction,
   language: string,
   openSince: string | null,
-): string {
+): string | null {
   switch (reason.kind) {
     case "cpu":
     case "memory":
     case "disk": {
-      const base = t(`servers.reasons.${reason.kind}`, {
-        value: Math.round(reason.valuePct),
-        threshold: reason.thresholdPct,
-      });
+      // Dal server il valore o la soglia possono mancare (review F4a, I3): mai «NaN%».
+      const { valuePct, thresholdPct } = reason as { valuePct?: number; thresholdPct?: number };
+      const hasValue = typeof valuePct === "number" && Number.isFinite(valuePct);
+      const hasThreshold = typeof thresholdPct === "number" && Number.isFinite(thresholdPct);
+      const base = !hasValue
+        ? t(`servers.reasons.${reason.kind}Above`)
+        : !hasThreshold
+          ? t(`servers.reasons.${reason.kind}At`, { value: Math.round(valuePct) })
+          : t(`servers.reasons.${reason.kind}`, {
+              value: Math.round(valuePct),
+              threshold: thresholdPct,
+            });
       if (!openSince) return base;
       return t("servers.reasons.forDuration", {
         reason: base,
@@ -139,24 +147,21 @@ export function reasonSentence(
       return t(openSince ? "servers.reasons.silentOpen" : "servers.reasons.silentClosed", {
         time: clockLocal(reason.since, language),
       });
+    default:
+      // Un motivo che l'app non conosce (un server più nuovo): nessuna riga.
+      return null;
   }
 }
 
-/** «Production · ACQ (primary)» per ogni ambiente, separati da «·». */
-export function environmentsLine(
-  row: Pick<ServerRow, "environments" | "primaryProjectCode">,
-  t: TFunction,
-): string {
+/** «Production · ACQ» per ogni ambiente, separati da «·». */
+export function environmentsLine(row: Pick<ServerRow, "environments">, t: TFunction): string {
   return row.environments
-    .map((e) => {
-      const base = t("servers.envLine", {
+    .map((e) =>
+      t("servers.envLine", {
         kind: t(`releases.environments.kinds.${e.kind}`),
         code: e.projectCode,
-      });
-      return e.kind === "production" && e.projectCode === row.primaryProjectCode
-        ? t("servers.envPrimary", { env: base })
-        : base;
-    })
+      }),
+    )
     .join(" · ");
 }
 
@@ -166,7 +171,7 @@ export function environmentsLine(
  * see» per un server dei soli progetti invisibili (R-G5, senza numero).
  */
 export function whereLine(
-  row: Pick<ServerRow, "environments" | "primaryProjectCode"> & {
+  row: Pick<ServerRow, "environments"> & {
     orphan?: boolean;
     inArchivedOnly?: boolean;
   },
@@ -182,27 +187,22 @@ export function whereLine(
 
 /** Lo stato dell'accesso SSH da dire in una riga, solo se NON è a posto; `null` se lo è. */
 export function accessProblem(row: Pick<ServerRow, "access">, t: TFunction): string | null {
-  if (row.access === "verified" || row.access === "regenerating") return null;
+  if (row.access === "verified") return null;
   return t(`servers.access.${row.access}`);
 }
 
 /**
- * La seconda riga dopo gli ambienti: dove vanno le diagnosi quando non
- * restano in questo progetto, o che uno staging non avvisa.
+ * La seconda riga dopo gli ambienti: che uno staging non avvisa. Dove va
+ * una diagnosi non si dice prima: l'analisi è del server e il progetto lo
+ * dice lei, a fine analisi (area 8, F4b-4).
  */
 export function diagnosesLine(
-  row: Pick<ServerRow, "analysisProject"> & { orphan?: boolean },
-  projectCode: string | null,
+  row: Pick<ServerRow, "alerting"> & { orphan?: boolean },
   t: TFunction,
 ): string | null {
   // Un orfano non ha né produzioni né staging: «Staging only» sarebbe falso.
   if (row.orphan) return null;
-  if (row.analysisProject === null) return t("servers.stagingOnly");
-  // Dall'Amministrazione (area 9b) non c'è un progetto «di qui» da cui le diagnosi vadano altrove.
-  if (projectCode === null || row.analysisProject.code === projectCode) return null;
-  return row.analysisProject.code
-    ? t("servers.diagnosesGoTo", { code: row.analysisProject.code })
-    : t("servers.diagnosesGoElsewhere");
+  return row.alerting ? null : t("servers.stagingOnly");
 }
 
 /** Byte in parole corte: «412 GB», «38 MB». */

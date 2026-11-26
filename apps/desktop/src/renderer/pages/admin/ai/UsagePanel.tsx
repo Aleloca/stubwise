@@ -173,7 +173,13 @@ function UsageLayout<D extends UsageDimension>({
 }: {
   nav: UsageNav<D>;
   dimensions: readonly D[];
-  usage: { isPending: boolean; isError: boolean; data?: UsageView | null; refetch: () => unknown };
+  usage: {
+    isPending: boolean;
+    isError: boolean;
+    error?: unknown;
+    data?: UsageView | null;
+    refetch: () => unknown;
+  };
   texts: UsageTexts;
   children?: ReactNode;
 }) {
@@ -198,7 +204,14 @@ function UsageLayout<D extends UsageDimension>({
         <UsageSkeleton />
       ) : usage.isError ? (
         <ReadError
-          message={texts.loadError ?? t("admin.ai.usage.loadError")}
+          message={
+            // Review F4, M4: un intervallo che il server rifiuta lo dice.
+            (usage.error as Error | null)?.message === "range_too_long"
+              ? t("admin.ai.usage.rangeTooLong")
+              : (usage.error as Error | null)?.message === "invalid_range"
+                ? t("admin.ai.usage.invalidRange")
+                : (texts.loadError ?? t("admin.ai.usage.loadError"))
+          }
           onRetry={() => void usage.refetch()}
         />
       ) : usage.data ? (
@@ -725,6 +738,8 @@ function RowName({ row, dim }: { row: UsageRow; dim: UsageDimension }) {
   else if (dim === "operation")
     text = t(`usage.operations.${row.key}`, { defaultValue: row.label });
   else if (dim === "day") text = row.key ? f.day(row.key) : row.label;
+  // Area 9, F4: sul server ci sono corse senza account (la credenziale del worker).
+  else if (dim === "provider" && row.key === null) text = t("admin.ai.usage.noProvider");
   else text = row.label;
   return <span className="block min-w-0 truncate">{text}</span>;
 }

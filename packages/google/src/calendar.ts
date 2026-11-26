@@ -34,6 +34,14 @@ function normalizeResponseStatus(value: string | undefined): CalendarAttendeeRes
 export const CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3/calendars";
 
 /** Un evento normalizzato, nella forma che serve a `calendar_events`. */
+/** Un allegato di un evento di Calendar (area 6, F5). */
+export interface CalendarEventAttachment {
+  fileId: string | null;
+  title: string | null;
+  mimeType: string | null;
+  fileUrl: string | null;
+}
+
 export interface GoogleCalendarEvent {
   id: string;
   /** `confirmed | tentative | cancelled` (lo stesso CHECK della tabella). */
@@ -53,6 +61,22 @@ export interface GoogleCalendarEvent {
   attendees: CalendarAttendee[];
   organizer: string | null;
   htmlLink: string | null;
+  /** F4: la versione di Google dell'evento (`If-Match` sulle scritture). */
+  etag: string | null;
+  /** F4: lo stesso evento in tutti i calendari che lo vedono (Q1: il progetto a mano vale per tutti). */
+  iCalUID: string | null;
+  /** F4: `default` | `public` | `private` | `confidential`, aperto. Assente = `default`. */
+  visibility: string;
+  /** F4: l'organizzatore è la casella stessa. */
+  organizerSelf: boolean;
+  /**
+   * Il tipo di Google (area 6, F3b): `default`, `outOfOffice`, `focusTime`,
+   * `workingLocation`, `birthday`, `fromGmail`… — aperto: un valore nuovo di
+   * Google passa com'è. Assente = `default`.
+   */
+  eventType: string;
+  /** `opaque` (occupa) | `transparent` (libero). Assente = `opaque`, come per Google. */
+  transparency: "opaque" | "transparent";
   updatedAt: Date | null;
   /**
    * L'id dell'evento PADRE della serie, se questa occorrenza appartiene a una
@@ -66,6 +90,19 @@ export interface GoogleCalendarEvent {
    * manuali (fase 7b). `null` per un evento singolo.
    */
   originalStartTime: Date | null;
+  /**
+   * Il fuso dell'evento (`start.timeZone`), quando Google lo manda: per una
+   * serie c'è sempre. Serve a spostare una serie nell'ora LOCALE (review F4,
+   * punto 3: lo scarto in millisecondi attraverso l'ora legale sbaglia di
+   * un'ora). `null` se manca.
+   */
+  timeZone: string | null;
+  /**
+   * Gli allegati dell'evento (area 6, F5): Gemini ci attacca il Doc degli
+   * appunti, ed è così che la sua email si collega all'evento (`fileId`).
+   * Titolo e link sono testo NON FIDATO di chi ha allegato.
+   */
+  attachments: CalendarEventAttachment[];
   /**
    * Dove si tiene, come l'ha scritto chi ha creato l'invito (15 set 2026,
    * §2). Testo LIBERO e NON FIDATO: una stanza, un indirizzo, o un link
@@ -104,7 +141,7 @@ export interface CalendarEventsPage {
   nextSyncToken: string | null;
 }
 
-const dateSchema = z.object({ date: z.string().optional(), dateTime: z.string().optional() });
+const dateSchema = z.object({ date: z.string().optional(), dateTime: z.string().optional(), timeZone: z.string().optional() });
 
 const eventSchema = z.object({
   id: z.string(),
@@ -114,15 +151,31 @@ const eventSchema = z.object({
   start: dateSchema.optional(),
   end: dateSchema.optional(),
   attendees: z
-    .array(z.object({ email: z.string().optional(), responseStatus: z.string().optional() }))
+    .array(
+      z.object({
+        email: z.string().optional(),
+        responseStatus: z.string().optional(),
+        displayName: z.string().optional(),
+        comment: z.string().optional(),
+        self: z.boolean().optional(),
+      }),
+    )
     .optional(),
-  organizer: z.object({ email: z.string().optional() }).optional(),
+  organizer: z.object({ email: z.string().optional(), self: z.boolean().optional() }).optional(),
+  etag: z.string().optional(),
+  iCalUID: z.string().optional(),
+  visibility: z.string().optional(),
   htmlLink: z.string().optional(),
+  eventType: z.string().optional(),
+  transparency: z.string().optional(),
   updated: z.string().optional(),
   recurringEventId: z.string().optional(),
   originalStartTime: dateSchema.optional(),
   location: z.string().optional(),
   hangoutLink: z.string().optional(),
+  attachments: z
+    .array(z.object({ fileUrl: z.string().optional(), title: z.string().optional(), mimeType: z.string().optional(), fileId: z.string().optional() }))
+    .optional(),
   conferenceData: z
     .object({
       entryPoints: z
@@ -181,6 +234,11 @@ function toDateValue(value: z.infer<typeof dateSchema> | undefined): Date | null
   return allDay ? toDate(`${value.date}T00:00:00.000Z`) : toDate(value.dateTime);
 }
 
+/** Un evento di Calendar come lo rende Google (le scritture della F4 lo rileggono così). */
+export function parseCalendarEvent(api: string, payload: unknown): GoogleCalendarEvent {
+  return toEvent(parseGoogleJson(api, eventSchema, payload));
+}
+
 function toEvent(raw: z.infer<typeof eventSchema>): GoogleCalendarEvent {
   const allDay = Boolean(raw.start?.date && !raw.start.dateTime);
   const startsAt = allDay ? toDate(`${raw.start?.date}T00:00:00.000Z`) : toDate(raw.start?.dateTime);
@@ -194,16 +252,27 @@ function toEvent(raw: z.infer<typeof eventSchema>): GoogleCalendarEvent {
     startsAt,
     endsAt,
     attendees: (raw.attendees ?? [])
-      .filter((attendee): attendee is { email: string; responseStatus?: string } => Boolean(attendee.email))
+      .filter((attendee): attendee is { email: string; responseStatus?: string; displayName?: string; comment?: string; self?: boolean } => Boolean(attendee.email))
       .map((attendee) => ({
         email: attendee.email.toLowerCase(),
         responseStatus: normalizeResponseStatus(attendee.responseStatus),
+        name: nonEmpty(attendee.displayName),
+        comment: nonEmpty(attendee.comment),
+        self: attendee.self === true,
       })),
     organizer: raw.organizer?.email?.toLowerCase() ?? null,
     htmlLink: raw.htmlLink ?? null,
+    etag: nonEmpty(raw.etag),
+    iCalUID: nonEmpty(raw.iCalUID),
+    visibility: nonEmpty(raw.visibility) ?? "default",
+    organizerSelf: raw.organizer?.self === true,
+    eventType: raw.eventType && raw.eventType.trim() !== "" ? raw.eventType : "default",
+    transparency: raw.transparency === "transparent" ? "transparent" : "opaque",
     updatedAt: toDate(raw.updated),
     recurringEventId: raw.recurringEventId ?? null,
     originalStartTime: toDateValue(raw.originalStartTime),
+    timeZone: nonEmpty(raw.start?.timeZone),
+    attachments: (raw.attachments ?? []).map((a) => ({ fileId: nonEmpty(a.fileId), title: nonEmpty(a.title), mimeType: nonEmpty(a.mimeType), fileUrl: nonEmpty(a.fileUrl) })),
     // ⚠️ `null` e non `""` quando Google non manda il campo: la convenzione
     // del modulo (vedi `extractRawBody` in `gmail.ts`) distingue «non c'era»
     // da «c'era ed era vuoto», e una stringa vuota farebbe disegnare alla UI

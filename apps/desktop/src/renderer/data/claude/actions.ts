@@ -24,7 +24,7 @@ import {
 import { appendExecuted, appendUndoProposal, notifyConversationChange } from "../stream";
 import type { TaskBusyReason } from "../taskDelete";
 import type { UndoView } from "../types";
-import { CLAUDE_CATALOG, declaredClassOf, isCatalogFn } from "./catalog";
+import { CLAUDE_CATALOG, isCatalogFn, reauthOf } from "./catalog";
 import { classOfGroup } from "./classes";
 import type {
   ActionClass,
@@ -60,15 +60,15 @@ export type GroupFailure = {
 
 /**
  * Le azioni di classe C di un gruppo che chiederebbero il codice adesso: la
- * riconferma manca o è scaduta (o la chiamata è di un PAT). Si guarda la
- * classe dichiarata (`REAUTH_REQUIRED`), non il rifiuto della scrittura:
- * `saveStorage` senza chiave nuova non lo chiederebbe da sé.
+ * riconferma manca o è scaduta (o la chiamata è di un PAT). La classe segue la
+ * rotta (F7): una riconferma parziale conta solo con gli argomenti che la
+ * chiedono (`reauthOf`).
  */
-export function reauthMissing(me: string, actions: Pick<ProposedAction, "fn">[]): boolean {
+export function reauthMissing(me: string, actions: Pick<ProposedAction, "fn" | "args">[]): boolean {
   return actions.some(
     (a) =>
       isCatalogFn(a.fn) &&
-      declaredClassOf(a.fn) === "C" &&
+      reauthOf(a.fn, a.args) &&
       requireReauth(me, CLAUDE_CATALOG[a.fn].apiFn) !== null,
   );
 }
@@ -169,6 +169,8 @@ function reasonPhrase(reasons: ClassReason[]): string {
       return i18n.t("claude.answers.classReason.irreversible");
     case "reauth":
       return i18n.t("claude.answers.classReason.reauth");
+    case "startsWork":
+      return i18n.t("claude.answers.classReason.startsWork");
   }
 }
 
@@ -514,9 +516,15 @@ function describeLater(
 
 const groupOf = (groupId: string) => state.claudeActions.filter((r) => r.groupId === groupId);
 
-/** Gli inversi di un gruppo chiederebbero il codice adesso? */
-const inversesNeedReauth = (me: string, group: ClaudeActionRecord[]) =>
-  group.some((r) => r.inverse !== null && reauthMissing(me, [r.inverse]));
+/**
+ * Gli inversi di un gruppo chiedono il codice? Come `undoReauth` del server
+ * (review F7, I3 b): l'inverso è una C, a prescindere dalla grazia di adesso.
+ */
+const inversesAreC = (group: ClaudeActionRecord[]) =>
+  group.some(
+    (r) =>
+      r.inverse !== null && isCatalogFn(r.inverse.fn) && reauthOf(r.inverse.fn, r.inverse.args),
+  );
 
 type ProposalEvent = Extract<ConversationEvent, { type: "proposal" }>;
 
@@ -572,7 +580,10 @@ function inversesOf(group: ClaudeActionRecord[]): {
  */
 function undoAsks(me: string, inverses: ProposedAction[]): ActionClass | null {
   const latest = classOfGroup(me, inverses);
-  const asks = latest.reasons.some((r) => r.kind === "notifies" || r.kind === "automation");
+  // Un inverso C è sempre una scheda, con la riconferma (come il server, review F7, I3 b).
+  const asks =
+    latest.cls === "C" ||
+    latest.reasons.some((r) => r.kind === "notifies" || r.kind === "automation");
   return asks ? { cls: latest.cls === "A" ? "B" : latest.cls, reasons: latest.reasons } : null;
 }
 
@@ -589,7 +600,7 @@ export function undoViewOf(viewerId: string, groupId: string): UndoView {
   const later = laterChangeOf(group);
   if (later) return { state: "changed_after", ...describeLater(viewerId, later) };
   if (openUndoProposalOf(head.conversationId, groupId)) return { state: "confirming" };
-  return { state: "available", needsReauth: inversesNeedReauth(viewerId, group) };
+  return { state: "available", needsReauth: inversesAreC(group) };
 }
 
 export type UndoResult =
@@ -621,7 +632,9 @@ function undoRefusalOf(me: string, group: ClaudeActionRecord[]): UndoRefusal | n
   if (group.some((r) => r.inverse === null)) return { ok: false, error: "not_undoable" };
   const later = laterChangeOf(group);
   if (later) return { ok: false, error: "changed_after", ...describeLater(me, later) };
-  if (inversesNeedReauth(me, group)) return { ok: false, error: "reauth_required" };
+  // La riconferma non è una regola del clic: un inverso C è sempre una scheda
+  // (`undoAsks`), e il codice lo chiede la sua conferma (`settleUndoProposal`),
+  // come il server (review F7, I3 b).
   return null;
 }
 
@@ -744,4 +757,35 @@ function refusalOf(me: string, failure: GroupFailure, reversed: ClaudeActionReco
       // l'inverso, e non è cambiato niente.
       return { ok: false, error: "not_undoable" };
   }
+}
+
+/**
+ * Lotto 4, §5: «Retry» del seguito di un'azione confermata che non è
+ * riuscito (oggi solo `fillMailBody` nella build app, che il prototipo non
+ * ha: la Posta lo scrive da sé). Nel prototipo nessun seguito si rilancia.
+ */
+export type RetryEffectResult =
+  | { ok: true }
+  | {
+      ok: false;
+      error:
+        | "not_found"
+        | "not_retryable"
+        | "mail_not_found"
+        | "mail_forbidden"
+        | "draft_changed"
+        | "mail_not_saved";
+      reason?: string;
+    };
+
+export async function retryClaudeEffect(
+  conversationId: string,
+  groupId: string,
+  index: number,
+): Promise<RetryEffectResult> {
+  await gate("claude.retryEffect");
+  void conversationId;
+  void groupId;
+  void index;
+  return { ok: false, error: "not_retryable" };
 }

@@ -52,6 +52,14 @@ describe("endpoints servers", () => {
     expect(fetchImpl.mock.calls.at(-1)![1]?.method).toBe("GET");
   });
 
+  // ⌘K (rimandi, lotto 5, voce 1; 72, a7557fe21): la ricerca, con `q` in query.
+  it("search: `q` in query, gli elementi letti dallo schema", async () => {
+    const item = { code: "SRV-2", name: "prod-web-1", projectCode: "AUD" };
+    const { client, fetchImpl } = clientReturning({ items: [item] });
+    expect(await client.servers.search("web 1")).toEqual([item]);
+    expect(String(fetchImpl.mock.calls.at(-1)![0])).toBe("/api/servers/search?q=web+1");
+  });
+
   it("list: il progetto viaggia in query", async () => {
     const { client, fetchImpl } = clientReturning([VIEW]);
     await client.servers.list(PROJECT_ID);
@@ -86,3 +94,49 @@ describe("endpoints servers", () => {
     expect(isUnknown(server!.status)).toBe(true);
   });
 });
+
+// Area 8, F4a: le letture nuove (per codice, metriche, controlli) e le
+// scritture per l'app desktop. La chiave passa SOLO da create e regenerateKey.
+describe("endpoints servers (area 8, F4a)", () => {
+  const call = (f: ReturnType<typeof clientReturning>["fetchImpl"], i = 0) => {
+    const [url, init] = f.mock.calls[i]!;
+    return { url: String(url), method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : undefined };
+  };
+
+  it("byCode, metriche (con la finestra in query) e controlli", async () => {
+    const { client, fetchImpl } = clientReturning(DETAIL);
+    const d = await client.servers.byCode("SRV-3");
+    expect(call(fetchImpl).url).toBe("/api/servers/by-code/SRV-3");
+    expect(d).toMatchObject({ code: null, checks: [], episodes: [], canManage: false });
+    const m = clientReturning({ resolution: "1h", truncated: false, points: [] });
+    const out = await m.client.servers.metrics(SERVER_ID, { from: "2026-11-01T00:00:00.000Z", to: "2026-11-14T00:00:00.000Z" });
+    expect(call(m.fetchImpl).url).toBe(`/api/servers/${SERVER_ID}/metrics?from=2026-11-01T00%3A00%3A00.000Z&to=2026-11-14T00%3A00%3A00.000Z`);
+    expect(out.resolution).toBe("1h");
+    const c = clientReturning([]);
+    await c.client.servers.checks(SERVER_ID);
+    expect(call(c.fetchImpl).url).toBe(`/api/servers/${SERVER_ID}/checks`);
+  });
+
+  it("create e regenerateKey portano la chiave e l'ingestUrl (null da un server più vecchio)", async () => {
+    const { client, fetchImpl } = clientReturning({ ...VIEW, key: "sk_abc" });
+    const created = await client.servers.create({ name: "web", environment: { environmentId: PROJECT_ID, repositoryIds: [SERVER_ID] } });
+    expect(call(fetchImpl)).toMatchObject({ url: "/api/servers", method: "POST", body: { name: "web", environment: { environmentId: PROJECT_ID } } });
+    expect(created).toMatchObject({ key: "sk_abc", ingestUrl: null });
+    const r = clientReturning({ ...VIEW, key: "sk_new", ingestUrl: "https://s.example" });
+    expect(await r.client.servers.regenerateKey(SERVER_ID)).toMatchObject({ key: "sk_new", ingestUrl: "https://s.example" });
+    expect(call(r.fetchImpl)).toMatchObject({ url: `/api/servers/${SERVER_ID}/regenerate-key`, method: "POST" });
+  });
+
+  it("update, soglie (oggetto intero), controlli: percorsi e corpi", async () => {
+    const { client, fetchImpl } = clientReturning(VIEW);
+    await client.servers.update(SERVER_ID, { name: "nuovo" });
+    await client.servers.setThresholds(SERVER_ID, { cpuPct: 80, memPct: 90, diskPct: null, sustainedMinutes: 5 });
+    await client.servers.createCheck(SERVER_ID, { type: "http", name: "home", target: "https://x", intervalSeconds: 60, enabled: true }).catch(() => undefined);
+    await client.servers.updateCheck(SERVER_ID, PROJECT_ID, { enabled: false }).catch(() => undefined);
+    expect(call(fetchImpl, 0)).toMatchObject({ url: `/api/servers/${SERVER_ID}`, method: "PATCH", body: { name: "nuovo" } });
+    expect(call(fetchImpl, 1)).toMatchObject({ method: "PATCH", body: { alertThresholds: { cpuPct: 80, diskPct: null } } });
+    expect(call(fetchImpl, 2)).toMatchObject({ url: `/api/servers/${SERVER_ID}/checks`, method: "POST", body: { type: "http" } });
+    expect(call(fetchImpl, 3)).toMatchObject({ url: `/api/servers/${SERVER_ID}/checks/${PROJECT_ID}`, method: "PUT", body: { enabled: false } });
+  });
+});
+

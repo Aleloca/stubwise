@@ -27,7 +27,7 @@ export function DrivePicker({
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
-  const files = useDriveFiles({ projectId: project.id, sort: "name" });
+  const files = useDriveFiles({ projectId: project.id, sort: "name" }, { poll: true });
   const needle = query.trim().toLowerCase();
   const rows = (files.data ?? []).filter(
     (f) => !needle || f.name.toLowerCase().includes(needle) || f.code.toLowerCase().includes(needle),

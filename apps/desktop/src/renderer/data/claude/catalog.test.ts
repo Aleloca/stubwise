@@ -104,22 +104,23 @@ describe("il registro del catalogo", () => {
     expect(CLAUDE_CATALOG.deleteMilestone.whoAction).toBe("editTasks");
   });
 
-  it("la classe C viene SOLO da REAUTH_REQUIRED, e nessuna voce le sta sotto", () => {
+  it("la classe C viene da REAUTH_REQUIRED e segue la rotta: una riconferma parziale non è C da sé", () => {
     for (const fn of fns) {
-      const reauth = REAUTH_REQUIRED.has(CLAUDE_CATALOG[fn].apiFn);
-      expect(declaredClassOf(fn) === "C", fn).toBe(reauth);
-      if (!reauth) expect(declaredClassOf(fn)).toBe(CLAUDE_CATALOG[fn].baseClass);
+      const entry = CLAUDE_CATALOG[fn];
+      const full = REAUTH_REQUIRED.has(entry.apiFn) && !entry.reauthIf;
+      expect(declaredClassOf(fn) === "C", fn).toBe(full);
+      if (!full) expect(declaredClassOf(fn)).toBe(entry.baseClass);
     }
     expect(fns.filter((fn) => declaredClassOf(fn) === "C").sort()).toEqual(
-      [
-        "addMember",
-        "registerPlugin",
-        "removeMember",
-        "saveStorage",
-        "setMemberRole",
-        "updatePluginRef",
-      ].sort(),
+      ["addMember", "registerPlugin", "removeMember", "setMemberRole", "updatePluginRef"].sort(),
     );
+    // Le parziali (decisione del maintainer in F7: la classe segue la rotta):
+    // saveStorage chiede il codice solo con una chiave, che Claude non porta mai;
+    // updateWebhook solo con un URL nuovo, che da Claude non entra (72, F7).
+    expect(fns.filter((fn) => CLAUDE_CATALOG[fn].reauthIf).sort()).toEqual(
+      ["saveStorage", "updateWebhook"].sort(),
+    );
+    expect(declaredClassOf("updateWebhook")).toBe("B");
   });
 
   it("nessuna voce che non si annulla parte in classe A", () => {
@@ -211,7 +212,7 @@ const SCENARIOS: Partial<Record<ClaudeActionFn, () => Record<string, unknown>>> 
     url: "https://github.com/acme/review-kit",
     ref: "v1.2.0",
     subdir: null,
-    trusted: true,
+    trust: true,
   }),
   rerunSmoke: () => ({ id: "plg-superpowers" }),
   removePlugin: () => ({ id: "plg-lint-helpers" }),
@@ -220,7 +221,7 @@ const SCENARIOS: Partial<Record<ClaudeActionFn, () => Record<string, unknown>>> 
   retryJob: () => ({ jobId: FAILED_RUN }),
   saveStorage: () => ({ ...storageArgs(), bucket: "stubwise-files-2" }),
   setAttachments: () => ({ on: false }),
-  saveWebhook: () => ({ ...webhookArgs(), enabled: false }),
+  updateWebhook: () => ({ ...webhookArgs(), enabled: false }),
   setSubscription: () => ({ projectId: "prj-aud", type: "task.created", app: true }),
   // Le bozze di automazione (area 10b, Task 3): una bozza di STW c'è già.
   createAutomation: () => ({ projectId: ACQ, name: "Prova", flow: draftFlow() }),
@@ -261,8 +262,8 @@ const storageArgs = () => {
   return { endpoint: s.endpoint, region: s.region, bucket: s.bucket, accessKeyId: s.accessKeyId };
 };
 const webhookArgs = () => {
-  const w = state.instance.webhook;
-  return { enabled: w.enabled, format: w.format, url: w.url, events: { ...w.events } };
+  const w = state.instance.webhooks[0]!;
+  return { id: w.id, enabled: w.enabled, format: w.format, events: [...w.events] };
 };
 
 describe("gli inversi", () => {
@@ -598,5 +599,30 @@ describe("createTask del catalogo: la scrittura vera, coi segnali trattenuti (P5
           n.recipientIds.includes(MARCO),
       ),
     ).toHaveLength(1);
+  });
+});
+
+describe("removeMember con permessi personali (review F7, I3 a; come il server)", () => {
+  it("non si annulla: l'inverso è null; senza permessi personali torna con addMember", () => {
+    markReauthenticated(ROBERTA);
+    const plain = CLAUDE_CATALOG.removeMember.run(ROBERTA, {
+      projectId: OLV,
+      personId: "p-davide",
+    });
+    expect(plain.inverse).toMatchObject({ fn: "addMember" });
+    resetApi();
+    markReauthenticated(ROBERTA);
+    accessState().grants.push({
+      personId: "p-davide",
+      projectId: OLV,
+      permission: "release.merge",
+      grantedById: null,
+      at: "2026-11-01T10:00:00.000Z",
+    } as never);
+    const granted = CLAUDE_CATALOG.removeMember.run(ROBERTA, {
+      projectId: OLV,
+      personId: "p-davide",
+    });
+    expect(granted.inverse).toBeNull();
   });
 });

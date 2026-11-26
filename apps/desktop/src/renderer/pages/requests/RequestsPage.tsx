@@ -3,7 +3,7 @@ import { useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { usePeople, useProject, useRequests } from "../../data/queries";
 import type { ProjectRequest, RequestStatus } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { OPEN_REQUEST_STATUSES } from "../../domain/requests";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
@@ -14,6 +14,7 @@ import { SizeMark } from "../../tasks-ui/SizeMark";
 import { RequestStatusLabel, UrgencyMark } from "./marks";
 import { RefineView } from "./RefineView";
 import { WhoCanLink } from "../../components/WhoCanLink";
+import { featureIntegrated } from "../../data/integration";
 
 /** L'ordine dei gruppi dell'elenco: prima ciò su cui si lavora ancora. */
 export const REQUEST_STATUSES: readonly RequestStatus[] = [
@@ -51,7 +52,8 @@ function matchesText(request: ProjectRequest, text: string): boolean {
 export function RequestsPage({ projectCode }: { projectCode: string }) {
   const search = useSearch({ strict: false }) as { request?: string; refine?: string };
   // `?request=<id>&refine=1`: l'area di lavoro passa alla conversazione di refine.
-  if (search.request && search.refine === "1") {
+  // Nella build app il refine è «in arrivo» (area 3): `?refine=1` resta il dettaglio.
+  if (search.request && search.refine === "1" && featureIntegrated("refine")) {
     return <RefineView key={search.request} requestId={search.request} projectCode={projectCode} />;
   }
   return <RequestsList projectCode={projectCode} />;
@@ -370,7 +372,7 @@ function RequestRow({
           <RequestStatusLabel status={request.status} nameClassName="@max-[560px]:sr-only" />
         </span>
         <span className="relative flex w-[76px] shrink-0 @max-[560px]:w-3">
-          <UrgencyMark urgency={request.urgency} nameClassName="@max-[560px]:sr-only" />
+          <UrgencyMark urgency={request.urgency} urgent={request.urgent} nameClassName="@max-[560px]:sr-only" />
         </span>
         <span className="relative flex w-10 shrink-0 justify-center">
           <SizeMark size={request.size ?? null} />

@@ -122,7 +122,8 @@ export function TicketFields({ ticket, users, milestones }: TicketFieldsProps) {
       />
       <FieldRow
         label={t("mobile.work.fields.assignee")}
-        value={assignee?.email ?? t("mobile.work.fields.none")}
+        // Claude (l'utente di sistema) non è fra gli utenti: lo dice il server (area 3).
+        value={ticket.assigneeIsAgent ? "Claude" : (assignee?.email ?? t("mobile.work.fields.none"))}
         onPress={users === undefined ? undefined : () => setOpen("assignee")}
         disabled={patch.disabled}
         testID="ticket-field-assignee"

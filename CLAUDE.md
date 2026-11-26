@@ -15,12 +15,36 @@ repo, ricerca vettoriale e chat RAG.
 - `apps/docs` — sito Starlight (guida utente), buildato e servito su `/guide`.
 - `apps/mobile` — app React Native **bare** (iOS + Android, niente Expo) di
   Stubwise; build/distribuzione manuali, vedi `apps/mobile/README.md`.
-- `apps/desktop` — **prototipo cliccabile** dell'app desktop (Electron +
-  React), completo (aree 1–11, in `main` dal 9 nov 2026): dati finti in
-  memoria, nessuna chiamata al server, fuori da ogni deploy. È la SPECIFICA
-  dell'app vera, e web e mobile non sono un riferimento per lui. Prima di
-  toccarlo leggi `apps/desktop/README.md`: dice come provarlo e dove stanno le
-  decisioni del maintainer (design e piani `docs/plans/*-desktop-*`, shape in
+- `apps/desktop` — l'interfaccia NUOVA (Electron + React), un renderer solo
+  per tre build. Nata come **prototipo cliccabile** (aree 1–11, in `main`
+  dal 9 nov 2026), resta la SPECIFICA dell'app vera: web e mobile non sono
+  un riferimento per lui. Dall'integrazione dell'area 2 (fetta 1, 9 nov
+  2026) gira anche contro il server vero:
+  - **`prototype`** (`dev`, `preview:web`, i test): dati finti in memoria,
+    nessuna chiamata al server, «vedi come» per cambiare persona;
+  - **`app` desktop** (`build:app`, `package:mac` → dmg locale non firmato,
+    puntato all'istanza scelta al primo avvio): il token sta nel Keychain
+    (`safeStorage`), mai nel renderer; le richieste passano dal main
+    (`api:request`);
+  - **`app` web** (`build:web`, `base: "/app/"`): servita da caddy su
+    `/app`, con il cookie di sessione del web.
+  Il livello dati si sceglie al build: `vite.backend.ts` risolve
+  `@backend/api` e `@backend/clock` sul finto (`data/api.ts`,
+  `data/seed/dates.ts`) o sul vero (`data/backend/real/`, sopra
+  `@stubwise/api-client`); le aree non integrate restano «in arrivo».
+  `scripts/check-no-seed.mjs` fa fallire un build «app» che contenga dati
+  del seed (gira dentro `Dockerfile.caddy`). **Il login del desktop passa
+  dal browser di sistema** (passkey compresa): PKCE, `/app/#/desktop-login`,
+  ritorno con `stubwise://auth?code=…&state=…`, scambio su
+  `POST /api/auth/desktop-exchange` (`apps/desktop/src/main/browserLogin.ts`,
+  `docs/invariants/second-factor.md`). **Tutto ciò che l'integrazione ha
+  rimandato, con le decisioni già prese, sta in
+  `docs/plans/integrazione-registro-rimandi.md`**: il design di ogni fase o area
+  successiva parte da lì e ne chiude le voci (regola del maintainer, 10 nov
+  2026). Prima di toccarlo leggi
+  `apps/desktop/README.md`: dice come provarlo e dove stanno le decisioni
+  del maintainer (design e piani `docs/plans/*-desktop-*` e
+  `docs/plans/2026-11-09-integrazione-area2-*`, shape in
   `apps/desktop/.impeccable/shape/`, `apps/desktop/docs/ossatura-follow-ups.md`).
 - `apps/push-relay` — relay HTTP delle notifiche push (fase 4), servizio
   `push-relay` sotto il profilo compose `relay`: **gira solo sul nostro VPS**
@@ -29,9 +53,13 @@ repo, ricerca vettoriale e chat RAG.
   da `apps/web` — dependency, non devDependency: vedi il commento in
   `Dockerfile.caddy` — e da `apps/mobile`; dalla App M3 copre anche posta e
   calendario: i gruppi `mail` e `calendar`, verso `/api/me/mail` e
-  `/api/me/calendar`), `db` (Drizzle + Postgres/pgvector),
+  `/api/me/calendar`; dalla F3 dell'area 6 il gruppo `mail` copre anche
+  bozze, invio (outgoing), allegati, destinatari suggeriti, filtro per
+  conversazione delle proposte e il path dello stream della bozza di Claude,
+  `claudeDraftPath`), `db` (Drizzle + Postgres/pgvector),
   `docs-engine`, `embeddings`, `git`, `google` (client HTTP puro OAuth/Gmail/
-  Calendar, `fetch` iniettabile, condiviso da server e worker — fase 6, nessuna
+  Calendar (dall'area 6 anche la scrittura `threads.modify`, solo da un gesto
+  della persona), `fetch` iniettabile, condiviso da server e worker — fase 6, nessuna
   API Google chiamata da nessun altro punto del monorepo), `i18n`,
   `notifications`, `sdk`, `shared`, `widget` (bundle embeddabile del customer
   service, servito come `/widget.js` da caddy).
@@ -108,8 +136,10 @@ repo, ricerca vettoriale e chat RAG.
 Servizi: `postgres` (pgvector/pgvector:pg17), `ollama` (embedding bge-m3,
 1024-dim, via API OpenAI-compatibile), `server`, `worker`, `graphify`, `caddy`.
 **Non esiste un servizio `web`.** Caddy fa da reverse proxy verso il server e
-serve gli statici: SPA da `/srv/web` (root) e Starlight da `/srv/docs` (`/guide`).
-Entrambi i bundle sono buildati dentro l'immagine caddy (`Dockerfile.caddy`).
+serve gli statici: SPA da `/srv/web` (root), Starlight da `/srv/docs` (`/guide`)
+e, dall'integrazione area 2 (9 nov 2026), la nuova app da `/srv/app` (`/app`:
+il renderer di `apps/desktop` in modo «app», `/app` → 308 su `/app/`).
+Tutti i bundle sono buildati dentro l'immagine caddy (`Dockerfile.caddy`).
 `/docs` (non `/guide`) è la sezione Docs della SPA, sul fallback web.
 Caddy serve anche `/widget.js` (bundle IIFE embeddabile da `/srv/widget`,
 buildato in `Dockerfile.caddy`); `/widget/*` è la superficie API pubblica del
@@ -195,7 +225,7 @@ percorso sul volume.
   `compact` non è di troppo: i run lunghi auto-compattano e il contratto va
   re-iniettato.
 - **Abilitazioni per progetto** (Progetto → Plugin, permesso `project.settings.manage` nel progetto): per
-  **sottrazione** (default tutto acceso), per singola skill e per gruppo di hook
+  **sottrazione** DENTRO un plugin acceso sul progetto (un plugin entra nei run solo se il progetto lo accende: opt-in, decisione del maintainer del 19 nov 2026; poi skill e hook sono tutti accesi di default), per singola skill e per gruppo di hook
   (`<Evento>#<indice>`). Il CLI non sa disabilitare una skill di plugin
   (`skillOverrides` ignora `source: "plugin"`), quindi ogni run riceve una
   **copia filtrata** della dir in una tmp fuori dalla cwd, più la deny rule
@@ -243,12 +273,43 @@ percorso sul volume.
   assorbito a metà turno il piano resta tale, arrivato dopo il primo
   `result` viene rifiutato), `stop-pause` («Ferma» senza testo), `refine`
   (turno di refinement del backlog: design e piano salvati coi tool, nessun
-  file toccato, `Skill` invocabile) e `refine-read` (una lettura FUORI dalla
-  cartella di lavoro è negata); opt-in, solo se nominato: `refine-read-bash`
+  file toccato, `Skill` invocabile), `refine-read` (una lettura FUORI dalla
+  cartella di lavoro è negata) e, dal 10 nov 2026, quelli della chat con
+  Claude — `chat-read` (risponde leggendo coi tool di `stubwise_chat`),
+  `chat-no-leak` (un progetto non visibile non entra nella risposta),
+  `chat-resume` (due turni: il secondo riprende la sessione del CLI del primo
+  nella stessa cwd) e, dalla fetta 3, le proposte: `chat-propose-not-execute`
+  (UNA `propose_action` giusta; «in attesa» → non dice che è fatto),
+  `chat-confirm-executes` (cita i codici dell'esecuzione), `chat-undo`
+  (nessun inverso proposto, rimanda al bottone), `chat-never-catalog`
+  (approvare/mergiare: nessuna proposta, a mano e dove) e, dalla fetta 5,
+  `chat-continue` (la continuazione di una pubblica: risponde dal contesto
+  dell'originale, un codice che chi continua non vede lo prova a leggere come
+  lui e lo dice non visibile, senza dati), e dall'area 6, fetta 2,
+  `mail-classify-v2` (la classificazione nuova della posta, `--model haiku`,
+  da lanciare prima di accendere `MAIL_CLASSIFY_V2`), 3 volte ciascuno
+  (`chat-no-act` è ritirato: `createTask` è nel catalogo), e dall'area 11,
+  fetta 5, `product-doc-email`, `-vague`, `-contradicts`, `-hostile` (il
+  lavoro di Claude sulla doc di prodotto, 3 volte ciascuno, al rilascio e a
+  ogni aggiornamento del CLI o di `product-docs/prompt.ts`), e dalla fetta 6
+  `product-doc-first-version` più i quattro della chat sulla doc
+  (`chat-product-update`, `-backlog`, `-changes`, `-page-hostile`, 3 volte
+  ciascuno; anche quando si tocca `PRODUCT_DOCS_RULE` in
+  `claude-chat/prompts.ts`); opt-in, solo se nominato: `refine-read-bash`
   (un `cat` via Bash fuori dalla cartella è bloccato dal CLI: è la prova
   dell'invariante, va rilanciato quando si aggiorna il CLI). Lo scenario
   `refine-read-plan` (la plan mode della chat CODE e del deep dive, rosso
-  noto) è stato tolto il 19 ott 2026 insieme a quei run. A parte, con la
+  noto) è stato tolto il 19 ott 2026 insieme a quei run. Dalla fetta 3
+  dell'area 7 c'è anche lo scenario **`automation-step`** (il passo di
+  Claude delle automazioni: la chiamata vera dell'esecutore,
+  `callClaudeModel`, su una classificazione, un input con un'istruzione
+  ostile da non seguire, un indirizzo d'attaccante iniettato e un elenco
+  tipato; nessuno strumento ammesso). Si lancia col CLI pinnato e `--model
+  sonnet`, 3 volte, al rilascio della F3, prima di accendere i passi di
+  Claude e a ogni aggiornamento del CLI o di
+  `packages/shared/src/automations/claudePrompt.ts` (13 nov 2026, CLI
+  2.1.322: 3/3); come `mail-classify-v2` non carica plugin, quindi
+  `--plugin` è facoltativo. A parte, con la
   sua entry, il golden
   **`nightly`** (`pnpm --filter @stubwise/worker golden:nightly -- --claude
   <path>`): Postgres effimero con testcontainers dentro lo script (serve
@@ -275,8 +336,9 @@ percorso sul volume.
 Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
 `docker compose up -d --build <servizio>`. Variabili in `/opt/stubwise/.env`.
 
-- Modifica al **frontend** (`apps/web`, `apps/docs` o `packages/widget`) →
-  ribuilda **`caddy`**.
+- Modifica al **frontend** (`apps/web`, `apps/docs`, `packages/widget` o il
+  renderer di `apps/desktop`, che caddy serve su `/app`) → ribuilda
+  **`caddy`**. L'app desktop si rifà a mano (`package:mac`).
 - Modifica al **backend** → ribuilda `server` e/o `worker`.
 - Modifica all'**agente di monitoraggio** (`packages/agent`) → l'immagine
   `alelocadev/stubwise-agent` su Docker Hub (multi-arch, così gli host la pullano
@@ -296,9 +358,18 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   in `.mcp.json`. NON è un quinto punto
   `.claude/skills/graphify/.graphify_version`: è il marcatore di versione della
   skill, riscritto da `graphify claude install`.
+- **Versioni apt dell'estrazione del Drive — FISSATE** (11 nov 2026): `ARG POPPLER_VERSION`, `TESSERACT_VERSION`, `TESSERACT_LANG_VERSION`, `LIBHEIF_VERSION` in `apps/worker/Dockerfile`. Aggiornarle è una modifica esplicita; poi `docker run --rm --entrypoint node <img> dist/drive/extract/selfcheck.js` deve uscire 0, e i tempi vanno nel deploy-log.
+- **La firma delle email si legge con `gmail.modify`** (`users.settings.sendAs`):
+  non aggiungere `gmail.settings.basic` (ristretto, serve solo a scrivere le
+  impostazioni). Il ragionamento e le pagine Google sono nel piano della F3
+  dell'area 6.
 - **Versione del CLI `claude` nel worker — FISSATA** (2 ott 2026):
-  `ARG CLAUDE_CODE_VERSION` in `apps/worker/Dockerfile` (oggi `2.1.287`, quella
-  con cui sono passati tutti gli scenari golden). Prima era `npm install -g
+  `ARG CLAUDE_CODE_VERSION` in `apps/worker/Dockerfile` (oggi `2.1.322`, dal 10 nov 2026,
+  quella con cui sono passati tutti gli scenari golden; prima `2.1.287`). Va
+  **aggiornata con regolarità** (decisione del maintainer del 10 nov 2026: non si
+  resta indietro), ogni volta col giro completo dei golden su quella versione e
+  i testi del limite del provider riverificati (`providers/limit.ts`: la 2.1.322
+  li aveva cambiati). Prima era `npm install -g
   @anthropic-ai/claude-code` senza versione: la versione in produzione
   dipendeva dalla cache di Docker, e un rebuild senza cache avrebbe preso
   l'ultima uscita, mai provata. **Aggiornarla è una modifica esplicita**:
@@ -367,7 +438,67 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Ruoli e membri di progetto» (22 ott 2026)
   - «Secondo fattore sul login» (23 ott 2026)
   - «Cassaforte delle credenziali» (23 ott 2026)
+  - «Integrazione area 2, fetta 1» (9 nov 2026)
+  - «Integrazione area 2, fetta 2» (9 nov 2026)
+  - «Integrazione area 2, fetta 3» (10 nov 2026)
+  - «Integrazione area 2, fetta 4» (10 nov 2026)
+  - «CLI claude 2.1.322» (10 nov 2026)
+  - «Annulla il lavoro» (10 nov 2026)
+  - «Claude assegnabile» (10 nov 2026)
+  - «Chat con Claude, fette 1 e 2» (10 nov 2026)
+  - «Elimina task» (10 nov 2026)
+  - «Chat con Claude, fetta 3: proposte e azioni» (10 nov 2026)
+  - «Chat con Claude, fetta 5: conversazioni pubbliche e continuazione» (10 nov 2026)
+  - «Riconferma dal desktop» (10 nov 2026)
+  - «Integrazione area 4, fetta 1: la Chat fra persone» (10 nov 2026)
+  - «Integrazione area 4, fetta 2: DM, privati, generali, domande, ricerca» (10 nov 2026)
+  - «Integrazione area 4, fetta 3: @Claude nei canali» (10 nov 2026)
+  - «Integrazione area 4, fetta 4: eventi dei progetti e allegati» (11 nov 2026)
+  - «Integrazione area 5, fetta 1: Docs nel desktop» (11 nov 2026)
+  - «Integrazione area 5, fetta 2: il Drive dei file caricati» (11 nov 2026)
+  - «Integrazione area 5, fetta 3: il contenuto dei file del Drive» (11 nov 2026)
+  - «Integrazione area 6, fetta 1: la lettura che c'è, il cassetto Google, il riconsenso» (12 nov 2026)
+  - «Integrazione area 6, fetta 2: la classificazione nuova» (12 nov 2026)
+  - «Integrazione area 6, fetta 3: scrivere» (12 nov 2026)
+  - «Integrazione area 6, fetta 3b: il calendario con tutti gli eventi» (12 nov 2026)
+  - «Integrazione area 6, fetta 4: scrivere sul calendario» (12 nov 2026)
+  - «Integrazione area 6, fetta 5a: le riunioni registrate» (13 nov 2026), con la sua «review del server» (da rilasciare INSIEME)
+  - «Integrazione area 6, fetta 5b: Google Drive nel Drive dei progetti» (13 nov 2026)
+  - «Integrazione area 7, fetta 1: le Automations di progetto» (13 nov 2026)
+  - «Integrazione area 7, fetta 2: email e attese» (13 nov 2026)
+  - «Integrazione area 7, fetta 3: i passi di Claude» (13 nov 2026; prima di accendere, il golden `automation-step`)
+  - «Integrazione area 7, fetta 4: le generali e il webhook in arrivo» (13 nov 2026)
+  - «Integrazione area 8, fetta 1: i rilasci» (13 nov 2026; migrazioni 0175 e 0176, prima il server)
+  - «Integrazione area 8, fetta 2: gli avvisi e le iscrizioni per progetto» (14 nov 2026; migrazioni 0177 e 0178, sei `notification_kind` nuovi: rollback del server NON sicuro finché ne esistono righe)
+  - «Integrazione area 8, fetta 3: Support» (14 nov 2026; migrazione 0179, server → worker → caddy col bundle del widget, rilascio del plugin MCP col changeset)
+  - «Integrazione area 8, fetta 4a: Servers, monitor e ambienti» (14 nov 2026; migrazione 0180, PRIMA del deploy la query dei server legati solo da `server_projects`, DOPO il controllo dei ruoli con `monitor.view`)
+  - «Integrazione area 8, fetta 4b: le operazioni sui server» (15 nov 2026; migrazioni 0181–0183, le operazioni dell'agente spente di default, rilascio dell'immagine dell'agente)
+  - «Integrazione area 8: Clienti in attesa» (15 nov 2026; migrazione 0183, server → worker → caddy, picco del giudizio di Claude sulle caselle dopo il deploy)
+  - «Integrazione area 8: l'API per i siti» (16 nov 2026; migrazione 0184, server → caddy; ⚠️ un rollback del server ignora token e «Solo clienti verificati»: avvisare chi li ha accesi)
+  - «Integrazione area 9, F1: gli accessi» (16 nov 2026; migrazione 0185, server → caddy, SMTP facoltativo; ⚠️ in un rollback un disattivato rientra con la sua password)
+  - «Integrazione area 9, F2: il registro delle modifiche» (18 nov 2026; migrazione 0187, server → caddy; il registro parte dal deploy, e un rollback lascia un buco da annotare)
+  - «Integrazione area 9, F3: integrazioni, segreti e registro della 9b» (18 nov 2026; migrazioni 0188–0190, server → worker → caddy; PRIMA la query delle proposte della posta sul webhook e dei ruoli che perdono la pagina Notifiche; il webhook migrato va rigenerato per la firma; nel rollback chiudere le consegne con `webhook_id` PRIMA di scendere col worker)
+  - «Integrazione area 9, F4: lo Stato dell'istanza» (18 nov 2026; migrazione 0191, server → SUBITO il worker (un worker vecchio ignora la pausa) → caddy; nel rollback togliere le pause PRIMA di scendere)
+  - «Integrazione area 9, F5: impostazioni del progetto» (18 nov 2026; migrazione 0192, server → caddy; chiave d'ingestione e segreto del webhook non si leggono più interi, escono solo alla creazione o rigenerazione, e i rigenerati smettono subito: avvisare chi li usa)
+  - «Integrazione area 9, F6: archivio ed eliminazione» (19 nov 2026; migrazioni 0193–0194, server → worker → caddy; un archiviato ferma SDK, widget e webhook del progetto; nel rollback ricollegare o eliminare PRIMA i repository staccati, o il server vecchio va in 500 su repository e ricerca)
+  - «Integrazione area 9, F7: le azioni di Claude dell'area 9» (19 nov 2026; migrazione 0195, server → worker → caddy; le azioni di classe C chiedono la riconferma alla conferma, i segreti non entrano mai in una proposta; nel rollback le conversazioni con una voce nuova vanno in 500 sul server vecchio: contale prima con la query della voce)
+  - «Integrazione area 9, F8: i permessi di progetto dei reparti» (19 nov 2026; migrazione 0196, server → worker → caddy, il worker per il routing; nel rollback chi aveva un permesso solo dal reparto lo perde, e i progetti gestiti solo via reparto vanno sistemati PRIMA con la query della voce)
+  - «Integrazione area 10, F1–F5: le letture di Claude, le bozze di automazione, il lavoro fermo e la spesa, l'archivio in blocco, chi entra in un progetto» (19–20 nov 2026; migrazioni 0197–0200, server → worker → caddy; nel rollback NON scendere finché esistono eventi `question`/`aside`, righe `member.added` o conversazioni con contenuto personale letto: le query sono nelle voci)
+  - «Integrazione area 10, F8: «/status» e «/today»» (20 nov 2026; nessuna migrazione, server → worker → caddy, rollback sicuro)
+  - «Integrazione area 10, F6: le bozze nei campi» (20 nov 2026; nessuna migrazione, server → worker → caddy; il server non scrive mai il campo)
+  - «Integrazione area 10, F7: S0 e i suggerimenti» (20 nov 2026; migrazione 0201, server → worker → caddy; nel rollback NON scendere finché esistono eventi `capabilities`)
+  - «Integrazione area 10: l'area intera (F1–F8)» (20 nov 2026; migrazioni 0197–0201 in ordine, server → worker → caddy; l'elenco delle discese non sicure — `question`, `aside`, `capabilities`, `member.added`, `private_read_at` — con le query)
+  - «Integrazione area 11, F1: lo spazio Product e l'editor» (20 nov 2026; migrazione 0202, server → caddy, rollback sicuro)
+  - «Integrazione area 11, F2: commenti, menzioni e le notifiche nel catalogo» (20 nov 2026; migrazioni 0203–0205, server → worker → caddy, rollback NON sicuro sul server finché esistono notifiche `product_doc.*`)
+  - «Integrazione area 11, F3: ricerca, citazioni ed esportazione della doc di prodotto» (20 nov 2026; migrazioni 0206–0208, env `PRODUCT_EMBED_POLL_SECONDS`, server → caddy, rollback sicuro)
+  - «Integrazione area 11, F4: la scrittura dal vivo» (20 nov 2026; migrazione 0209, server → caddy, rollback sicuro col caddy insieme; ⚠️ un solo processo server)
+  - «Integrazione area 11, F5: Claude dalle fonti e le domande» (21 nov 2026; migrazioni 0210–0213, server → worker → caddy, il worker scende col server; costo: una run sonnet per fonte nei progetti con una doc)
+  - «Integrazione area 11, F6: prima versione, bozze di schermata, backlog, il catalogo di Claude» (22 nov 2026; migrazioni 0214–0218, server → worker → caddy, il caddy scende col server, rollback NON sicuro finché esistono revisioni `first_version`, blocchi `wireframe` o lavori della doc `first_version`/`wireframe`/`page_update` vivi)
+  - «Integrazione area 11: l'area intera (F1–F6)» (22 nov 2026; migrazioni 0202–0218 in ordine, le discese non sicure)
+  - «Rimandi dell'integrazione (lotti 1–10)» (25 nov 2026, voce ombrello: migrazioni 0219–0236 in ordine, passi prima e dopo, discese non sicure con il loro SQL; le voci dei singoli lotti sono richiamate lì per titolo)
+  - «Lotto 10: la cassaforte dal desktop, il sigillo del Mac» (24 nov 2026; solo con l'app firmata)
   - «L'utilizzo degli account dal rate_limit_event» (19 nov 2026)
+  - «Rilascio dell'integrazione: aree 2–11 e rimandi (lotti 1–10)» (26 nov 2026, voce consolidata: migrazioni 0107–0236, worker fermo prima del server, discese non sicure)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -383,7 +514,20 @@ una voce ti riguarda.
   - Chi può scrivere, fermare o rispondere in una sessione lo decide il SERVER (9 ott 2026).
   - Sessioni degli agenti — le regole che reggono la vista dal vivo (8 ott 2026).
   - Le sessioni degli agenti nell'app: privacy, fuoco, confini (9 ott 2026, piano C).
+  - Chat con Claude: Claude PROPONE, il server ESEGUE (10 nov 2026, fetta 3).
+  - Chat con Claude: una conversazione PUBBLICA si legge come la decide il server, e gli eventi dei tool restano visibili ai lettori (10 nov 2026, fetta 5, decisione del maintainer).
 - **Posta e calendario (Google) → `docs/invariants/mail-calendar.md`**:
+  - Con le proposte spente una casella si LEGGE; si spengono solo le proposte (12 nov 2026).
+  - La proposta CONDIVISA (D4): chi la riceve, chi la vede, chi la decide (12 nov 2026).
+  - Il calendario salva TUTTI gli eventi, ma solo un candidato (`proposal_candidate`) diventa una proposta; a flag spento i candidati sono quelli di prima; le linee di base chiudono ciò che diventa candidato al primo giro (F3b).
+  - ⚠️ ECCEZIONE DICHIARATA: il riassunto e le proposte di una riunione registrata li vedono tutti gli invitati DI QUELLA OCCORRENZA, mai chi non c'era (area 6, F5a).
+  - Il Doc di Gemini si legge solo con la casella che ha ricevuto l'email, e solo un candidato VERIFICATO (Doc di un partecipante, creato vicino all'email); il riassunto nasce dalla sola trascrizione; il collegamento all'evento è conservativo (area 6, F5a).
+  - Un file di Google in un'email è un link, mai un allegato (area 6, F5b).
+  - Scrivere sul calendario: un gesto, i no prima di Google, la riga dopo il sì, la creazione idempotente (area 6, F4).
+  - ⚠️ ECCEZIONE DICHIARATA: il libero/occupato dei colleghi, solo intervalli (area 6, F4).
+  - Scrivere la posta (area 6, F3): bozze di Gmail, invio trattenuto 10 s senza ritentativi, Annulla che ferma SEMPRE, Claude che propone (`fillMailBody`, sempre B) ma non manda mai.
+  - Nessuna scrittura verso Google senza un gesto della persona, e lo stato locale solo dopo il sì di Google (area 6).
+  - «Aggiorna ora» non ha un percorso a parte (area 6).
   - L'audience `mailbox_owner` non include MAI gli admin.
   - Confermare una proposta chiede il permesso nel progetto; chi non ce l'ha la PASSA, e la card passata è una card NUOVA (22 ott 2026).
   - Passare al progetto: le regole di contorno e i limiti accettati (calendario escluso, veto di «Non fare nulla», proposta orfana).
@@ -419,7 +563,7 @@ una voce ti riguarda.
   - Il rilancio generico non tocca una correzione ferma (1 ott 2026).
   - La review «in attesa» esiste dal claim, e si riaccoda all'avvio perché il worker è UN processo.
   - Una sola regola di correggibilità
-  - Adottare una PR aperta da altri (6 ott 2026) — chi, quale, dove.
+  - Le PR dei colleghi (area 8, 13 nov 2026): niente adozione esplicita, ogni PR si analizza secondo `colleague_prs`; le regole di sicurezza (fork, protetti, push in avanti) restano.
   - Il webhook «Request changes» non legge i commenti della PR, e scarta le riconsegne.
   - Staleness: la correzione non sposta `WORKER_STALE_MINUTES`, ma ha DUE heartbeat.
 - **Sessioni di refinement del backlog → `docs/invariants/backlog-refine.md`**:
@@ -438,7 +582,7 @@ una voce ti riguarda.
   - Limiti noti, accettati (costo fuori dal budget, retention).
 - **Cassaforte delle credenziali → `docs/invariants/vault.md`** (23 ott 2026):
   - Il server non decifra mai; solo la password è cifrata, e esce solo da `reveal`.
-  - Il PAT crea e sostituisce, non legge né condivide né conferma.
+  - Il PAT crea e sostituisce, non legge né condivide né conferma, nemmeno il PAT desktop riconfermato finché il desktop non sa sbloccare la chiave (`config.browserOnly`, 10 nov 2026).
   - Conferma umana sempre (regola V1 solo per il primo admin); recupero con prova di possesso del kit.
   - Revoca a lettura, purga solo igiene; `recipients_changed` e `keyVersion`.
   - Isolamento: elenco chiuso di chi tocca le tabelle (`vault-isolation.test.ts`).
@@ -447,20 +591,92 @@ una voce ti riguarda.
   - Un progetto invisibile risponde 404 `not_found`, come uno che non esiste.
   - Gli elenchi filtrano nella WHERE, prima di paginazione e conteggi.
   - Il client legge i permessi calcolati dal server, non li deduce.
-  - Nessuna escalation, e il bersaglio è protetto (`escalation`, `target_above`).
+  - Nessuna escalation sul DARE; nessuna gerarchia fra persone (area 9, 16 nov 2026: `target_above` tolto, il rischio accettato è scritto lì).
+  - I permessi effettivi in un progetto sono UNA funzione (ruolo ∪ personali ∪ reparto).
+  - Una persona disattivata non entra da nessuna porta; mai l'ultimo full admin.
+  - Un progetto archiviato è come uno che non c'è, tranne per chi lo legge di proposito; si elimina solo archiviato, solo da un full admin.
   - Resta sempre un full admin; i preset Admin e User non si eliminano finché esiste `users.role`.
   - La revoca si applica a lettura, senza riscrivere righe.
   - I full admin sono membri impliciti di ogni progetto.
+  - Un permesso nuovo dato a un preset si dà anche ai ruoli che lo contenevano (10 nov 2026, decisione del maintainer: 0133, 0135).
   - `users.role` è DERIVATA (trigger), e la sua rimozione è un rilascio successivo.
+  - L'utente di sistema Claude (10 nov 2026): uno per istanza, nessun accesso né notifiche, assegnarlo avvia il lavoro con `runs.start`.
+- **Identità: email di login e foto → `docs/invariants/identity.md`** (area 9, 16 nov 2026):
+  - L'email di login cambia solo dopo il clic sul link mandato alla NUOVA (o da un admin con riconferma).
+  - La foto è un'immagine, mai un documento (PNG/JPEG/WebP dai magic bytes, ≤ 512 KB).
+- **Registro delle modifiche → `docs/invariants/change-log.md`** (area 9, 16 nov 2026):
+  - Si scrive nella transazione della modifica, non si modifica né si cancella mai; tipi dichiarati, mai un segreto, lettura filtrata nella WHERE.
 - **Secondo fattore sul login → `docs/invariants/second-factor.md`** (23 ott 2026):
   - Una sessione parziale apre SOLO le rotte `second_factor` (test del registro).
   - Ogni porta che dà una sessione o un token passa dal secondo fattore (`/login`, `/mobile-login`).
   - Ogni verifica di un codice o di una passkey passa da `attemptSecondFactor`.
-  - La riconferma si DICHIARA (`config.reauth`, test del registro), un PAT non la soddisfa mai.
+  - La riconferma si DICHIARA (`config.reauth`, test del registro); un PAT non la soddisfa mai, salvo il PAT `desktop` riconfermato nell'app (10 min, regola unica `browserOrConfirmedDesktop`, decisione del maintainer del 10 nov 2026).
+  - `/desktop-reauth` NON è una porta (verifica un codice, non dà sessione né token).
   - Il segreto TOTP è cifrato, i codici sono hash, niente in log/elenchi/notifiche.
   - Il tetto per account non tocca sessioni e token aperti.
   - `security.alert` ignora le preferenze e va solo all'interessato.
   - Admin che azzera un pari grado: accettato, registrato e avvisato (decisione del 23 ott 2026).
+- **Task: stati per progetto, settimana e slittamento → `docs/invariants/tasks.md`** (9 nov 2026):
+  - Lo stato vero è `status_id`; l'enum `tickets.status` lo tiene coerente il trigger `tickets_status_sync`, in UN posto: nessun codice scrive la mappatura a mano.
+  - Uno scrittore vecchio dell'enum non sposta mai una task indietro, né fuori dalla sua famiglia se c'è già.
+  - L'enum si toglie col ritiro del web vecchio.
+  - La settimana pianificata è un lunedì; la settimana corrente è nel fuso Europe/Rome, in una funzione SQL e una TS (fetta 2).
+  - Lo slittamento si DERIVA a lettura, nessun job lo scrive; il trigger `tickets_consolidate_slip` lo consolida quando cambia la settimana.
+  - Le sistemazioni per giorno sono PERSONALI dell'assegnatario e valgono per quella settimana effettiva e quell'assegnatario.
+  - Eliminare una task è VERO (lapide, FK decise una per una, numero mai riusato, chi lo decide il server) (10 nov 2026).
+- **Richieste: numeri e fusione → `docs/invariants/requests.md`** (10 nov 2026):
+  - I codici R<n> sono un contatore per progetto, dato dal trigger, mai riusato.
+  - La fusione sta in UN posto (`services/backlog-merge.ts`): l'AI fuori transazione, il resto atomico; se l'AI fallisce, niente scritto.
+- **Chat fra persone → `docs/invariants/chat.md`** (10 nov 2026, area 4):
+  - Chi vede, LEGGE e gestisce un canale lo decide `chat/access.ts`, in UN posto (`channelVisibleSql`, `channelReadableSql`); un canale invisibile è 404, un DM non esiste nemmeno per il full admin, chi gestisce un privato lo vede ma non lo legge.
+  - Il «general» nasce col progetto da un TRIGGER (`projects_chat_general`), non dalla rotta, e se ne va col progetto.
+  - Un messaggio eliminato non ha più testo (CHECK), e si modificano solo i propri.
+  - Le menzioni le decide il server sui nomi di chi LEGGE il canale; `@channel` non avvisa.
+  - La card `chat.mention` si DERIVA a lettura (`chatMentionsFor`); `objectGone` senza link.
+  - Il cursore dello stream è intero in microsecondi, confrontato in SQL.
+  - Una domanda della Chat (`chat.question`) si chiude a lettura (risposta, dismiss, archivio, modifica) e non tocca il registro decisioni.
+  - Il codice di una task o richiesta nata da un messaggio si DERIVA a lettura col filtro di chi guarda.
+  - @Claude: ogni chiamata è di chi la scrive, con una sessione PRIVATA (`chat_mention`, anche in `visibleTo`); il contesto del thread lo costruisce il server; tutto è proposta B senza «Annulla»; `ask_question` lo scrive il worker, mai una rotta per il token del turno.
+  - Gli eventi dei progetti li scrive il DB (trigger della 0141, `chat_publish_event`), non una rotta; il messaggio ha il corpo vuoto e la scheda si DERIVA a lettura col filtro di chi guarda; non avvisano.
+  - Gli allegati della Chat si scaricano (302 a un URL firmato) solo da chi LEGGE il canale, mai da chi gestisce un privato senza esserne membro; i sospesi oltre 24 ore li pota il SERVER: il worker lo storage lo legge soltanto (gli oggetti del Drive) e non pota niente. Dal desktop si scaricano solo da `api:download` del main (bearer solo verso l'istanza, «Salva» sempre chiesto, mai aperto).
+- **Drive dei progetti → `docs/invariants/drive.md`** (11 nov 2026, area 5):
+  - Vedere il Drive = essere membri del progetto (i full admin lo sono di ogni progetto); un file invisibile o eliminato è 404 ovunque, citazioni comprese.
+  - Il binario va in streaming verso lo storage (`putObjectStream`), mai tutto in memoria; due difese sul tetto di 100 MB (busboy e il contatore del servizio).
+  - Anteprima inline solo da un'origine DIVERSA dall'istanza e solo per i tipi sicuri, col Content-Type deciso dal server (il testo come `text/plain; charset=utf-8`); mai HTML né SVG.
+  - Il codice `<PRJ>-F<n>` non si riusa: eliminare lascia una lapide, e l'oggetto lo ritenta la pulizia oraria.
+  - Le aperture si contano una volta ogni 30 minuti per persona, nella INSERT.
+  - «Save to Drive» è una COPIA dell'oggetto, mai un riferimento.
+  - Il worker LEGGE lo storage, solo gli oggetti `drive/` e solo in lettura (`drive/storage-read.ts`, una funzione, test sul sorgente); scrivere e potare restano del server.
+  - Il contenuto è input NON fidato: `execFile` senza shell, argomenti fissi, `prlimit`, una tmp per job tolta sempre; un file che non si legge è `no_text` col motivo, mai `error`.
+  - Dopo un file del Drive o una pagina Docs letti da Claude, ogni proposta della conversazione è almeno B (`CHAT_TOOL_UNTRUSTED_ROUTES`, lo calcola il server).
+  - I riferimenti a Google Drive (area 6, F5b): un riferimento non è una copia; si legge solo con la casella di chi l'ha aggiunto o collegato; «scaduto» e «accesso perso» si DERIVANO a lettura (anche chi ha collegato senza più `drive.manage`) e tolgono il file da ricerca e Claude; la sincronizzazione giornaliera ha un lease e salta le cartelle scadute.
+- **Automations → `docs/invariants/automations.md`** (13 nov 2026, area 7):
+  - Gli eventi nascono nel DATABASE (trigger nella stessa transazione); un'operazione di massa e ogni migrazione che tocca task, richieste o traguardi apre con `set_config('stubwise.automation_events','off',true)`; nessun codice disattiva i trigger (test sul sorgente).
+  - Il consumatore ignora gli eventi nati prima dell'accensione (`active_since`); la catena si ferma a 3 (`chainAllows`).
+  - Il server non fa mai avanzare il motore: le decisioni passano dalla coda degli input; gli effetti stanno solo in `effects.ts`, idempotenti per passo e giro, coi permessi del proprietario ricontrollati prima di ogni effetto.
+  - Le card `automation.*` si derivano a lettura; chi approva si risolve ADESSO, fra chi vede il progetto.
+  - Eccezione dichiarata (F2): il worker manda email SENZA un gesto solo per le automazioni (elenco chiuso degli scrittori di `mail_outgoing`, test sul sorgente); la posta di una run la vede solo il proprietario della SUA casella; le email delle automazioni portano `Auto-Submitted`, e la posta automatica in arrivo non avvia automazioni (sveglia solo le attese).
+  - Le generali (F4): permesso d'istanza `automations.general.manage` (solo Admin); il webhook in arrivo è `POST /webhooks/in/:secret` (caddy invariato), il segreto si salva come hash, si mostra una volta e NON compare nei log (`PATH_TOKEN_PREFIXES`); tetto per automazione sotto un massimo d'istanza (env server facoltative `AUTOMATION_WEBHOOK_MAX_PER_MINUTE`/`_PER_DAY`, 600 e 50 000); il corpo è non fidato, e le chiavi `__proto__`/`constructor`/`prototype` si scartano.
+  - Eccezione dichiarata (Q8): un'automazione può far lavorare Claude a orario o da un'email, dentro il budget mensile; «Crea richiesta» non avvia la stima.
+- **Docs → `docs/invariants/docs.md`** (11 nov 2026, area 5):
+  - Il riferimento stabile a una pagina è il CODICE (`doc_page_codes`, per repository e slug), mai `doc_pages.id`, che le rigenerazioni cambiano.
+  - Le citazioni `doc` della Chat puntano al codice; un codice D scritto a mano diventa citazione per chi legge la pagina.
+  - Le pagine manuali hanno gli embedding dal server, fail-open; i numeri del chunking stanno in `docs-engine`.
+  - Lo stato della generazione dice solo ciò che il server sa: niente stime.
+  - Il numero di un codice D lo dà `stubwise_ensure_doc_page_codes`; uno scrittore di `doc_pages` con una transazione lunga chiama `ensureDocPageCodes` PRIMA (il lock per progetto).
+  - Embedding delle manuali: fail-open, chunk vecchi tolti, backfill all'avvio e ogni ora.
+  - Doc di prodotto (area 11): il corpo si scrive solo a operazioni; nessuna sovrascrittura silenziosa; il canale dal vivo ricalcola i permessi, presenza in memoria (un solo processo server), presa in tabella; card `product_doc.*` derivate; contenuto delle pagine non fidato nei prompt; immagini coi byte dalla rotta.
+- **Operazioni sui server → `docs/invariants/server-operations.md`** (area 8 F4b, 14 nov 2026):
+  - Solo l'insieme chiuso `SERVER_ACTIONS`, eseguito dall'agente con un comando firmato per passo approvato; mai via SSH.
+  - Ogni piano lo approva `plans.approve` nel progetto che l'analisi indica, prima di ogni comando; mai Claude, mai in anticipo.
+  - SSH solo letture, utente senza privilegi; tutto nel registro `server_commands`.
+- **Azioni di Claude (catalogo e conversazione libera) → `docs/invariants/claude-actions.md`**:
+  - Gli eventi strutturati (`aside`, `capabilities`, `question`) li scrive il SERVER, non il modello; un tipo nuovo vuole il CHECK, lo `z.enum` e il test del tipo ignoto (area 10).
+  - Una bozza di Claude in un campo (`fillField`) non si salva da sola (area 10, F6).
+  - Le funzioni del catalogo stanno nei servizi, mai nelle rotte (`claude-actions-effects.test.ts`, area 9, F7).
+  - Contenuto personale (posta, calendario, canali privati, DM, automazioni generali) solo in una conversazione libera privata; letta, la conversazione non si pubblica (area 10, F1).
+- **Automazioni → `docs/invariants/automations.md`**:
+  - Claude scrive solo BOZZE di automazione: pubblicare e accendere non sono mai nel catalogo (area 10).
 - **Account e provider dell'agente → `docs/invariants/providers.md`**:
   - La scelta dell'account sta in `providers/select.ts`, e la ripresa usa la stessa funzione (15 ott 2026).
 - **Giro notturno → `docs/invariants/nightly.md`**:
@@ -514,9 +730,10 @@ una voce ti riguarda.
      **negativamente** (`release.test.ts`, Legacy Member e Developer): 403
      **e** nessun merge parte. La coda `/api/release-queue` mostra solo i
      progetti in cui chi guarda ha `release.merge`. Resta vero il confine di
-     prodotto: **l'unica azione è il merge di una PR già aperta**, mai un
-     deploy, mai un'esecuzione di ambiente (vedi l'invariante dedicata più
-     sotto). Chi aggiunge un'integrazione che esegue un DEPLOY rompe questa
+     prodotto: **l'unica azione di rilascio è il merge di una PR già
+     aperta**, mai un deploy; l'unica azione sull'ambiente è la correzione
+     di un server, che non rilascia, con `plans.approve` per approvarne
+     ogni piano (vedi l'invariante dedicata più sotto). Chi aggiunge un'integrazione che esegue un DEPLOY rompe questa
      frase, non solo il codice: è un cambio di prodotto.
      **Il divieto vale anche IN LETTURA**: il polso non dice a chi non può
      mergiare che una PR aspetta LUI. `waitingForMerge[].canMerge`
@@ -729,6 +946,23 @@ una voce ti riguarda.
   confronto) né lì né in una migrazione successiva dello stesso batch: il
   seed che ne ha bisogno va fatto **dopo**, in `runMigrations`. È il motivo
   per cui la 0068 aggiunge `project.brief` da sola e non lo tocca più.
+  ⚠️ **E il migratore applica solo le voci del journal con `when` MAGGIORE
+  dell'ultima applicata** (`created_at` di `__drizzle_migrations`, non idx né
+  nome): l'idx può avere buchi (successo nell'area 6, una 0157 rinumerata
+  0161), ma una migrazione con un `when` più piccolo dell'ultima già applicata
+  viene SALTATA in silenzio. Chi aggiunge una migrazione su un branch vecchio
+  le dia un `when` più grande dell'ultimo già su main, non solo il numero
+  libero.
+- **Il team non scrive MAI al cliente nel widget (decisione del maintainer,
+  14 nov 2026, area 8 F3).** Nel widget risponde solo l'AI; una conversazione
+  con un esito (richiesta o ticket) è CHIUSA, e un messaggio nuovo del cliente
+  apre una conversazione successiva (`continued_in_id`). Il cliente segue
+  richieste e ticket sul sito che ospita il widget, via API (fetta a sé, non
+  ancora fatta). L'unico canale in cui il team risponde è `mcp` (collaboratori
+  interni in Claude Code): la rotta di risposta rifiuta le conversazioni del
+  widget (409 `support_widget_no_reply`). Il prototipo diceva il contrario ed
+  è stato corretto: non reintrodurre composer, bozze o «il cliente ha
+  risposto» sul widget.
 - **Il registro decisioni non è MAI scritto dall'AI.** `project_decisions`
   raccoglie *fatti* — la risposta a una domanda dell'agente, un piano
   approvato o rifiutato con indicazioni, una proposta del pulse accettata,
@@ -887,23 +1121,67 @@ una voce ti riguarda.
   progetto), mai perché la pipeline le usi. Chi tocca questa funzione non
   allarghi il tipo del parametro "per generalità": un secondo chiamante che
   volesse un ambiente diverso da `test` starebbe chiedendo la cosa sbagliata.
-- **Stubwise non fa deploy: il merge è il confine (fase 8).** Scritto perché
-  non lo si superi "tanto manca poco". La coda di rilascio
-  (`/release`, `apps/server/src/services/release.ts`) offre **un'unica
-  azione**: il merge esplicito di una PR già aperta, con conferma a due
-  click nella UI. Non esiste — e non va aggiunto senza che sia una
-  decisione di prodotto nuova, non un dettaglio implementativo — nessun
-  codice che esegua un `docker compose up`, un riavvio di servizio, uno
-  script di deploy o qualunque azione sull'ambiente stesso: gli ambienti
-  (`project_environments`) sono **pura anagrafica** — dove sta un ambiente,
-  cosa ci gira secondo l'ultimo campione dell'agente di monitoraggio (Task
-  4) — mai un bersaglio che Stubwise esegue. "Già su staging?"
-  (`deployedOn` in `listReleaseQueue`) **legge**, non agisce: confronta
-  l'head sha della PR col commit che l'agente riporta (`sameCommit`, vedi
-  «Fase 8» più sopra), e un mancato match è
-  "non risulta", mai un'affermazione che Stubwise avrebbe potuto rendere
-  vera. Chi in futuro collega un ambiente a un'azione che lo TOCCA (un
-  trigger di deploy, un rollout) rompe questa frase, non solo il codice.
+- **Stubwise non fa deploy; il merge è il confine dei RILASCI (fase 8,
+  riscritta con l'area 8, F4b, 14 nov 2026, decisione del maintainer).**
+  Per i rilasci l'unica azione resta il merge esplicito di una PR già
+  aperta (`release.merge`, `apps/server/src/services/release.ts`): nessun
+  deploy, nessuna esecuzione di pipeline, nessun riavvio. Lo stato di un
+  rilascio si LEGGE (le run di CI, il commit che l'agente riporta,
+  `sameCommit`) e «non ancora in produzione» resta un'osservazione, mai
+  un'affermazione che Stubwise avrebbe potuto rendere vera.
+
+  Esiste **una sola azione sull'ambiente**: la **correzione di un problema
+  di un server**. Gli ambienti (`project_environments`) non sono più «pura
+  anagrafica» solo in questo senso: l'agente di un server collegato può
+  avere le operazioni accese.
+  - **Cosa fa**: SOLO le azioni dell'insieme CHIUSO dichiarato in
+    `@stubwise/shared` (`SERVER_ACTIONS`): riavviare, fermare o avviare un
+    container che l'agente riporta; liberare spazio (immagini non usate,
+    cache di build, container fermi: ognuno un passo a sé; agisce su TUTTO
+    il server, quindi su un server condiviso tocca anche gli altri progetti,
+    ed è ammesso con un avviso esplicito prima dell'approvazione — decisione
+    del maintainer, F4b-8). Più le LETTURE
+    (le ultime righe del log e lo stato di un container dall'agente; via SSH
+    le letture dell'elenco chiuso), che non cambiano niente.
+  - **Da dove parte e chi la autorizza**: l'analisi parte dal SERVER (da
+    sola sull'allarme, se l'opzione è accesa, o da chi ha `servers.operate`
+    in un progetto del server) e fa solo letture; è l'analisi a individuare
+    QUALE progetto causa il problema, e il piano di correzione appartiene a
+    quel progetto. Il piano (una sequenza di azioni dell'insieme chiuso) lo
+    approva chi ha `plans.approve` in quel progetto, SEMPRE e PRIMA di ogni
+    comando, anche quando lo ha chiesto lui stesso (mai Claude, mai in
+    anticipo: la pre-approvazione dei piani dei ticket non vale qui).
+    `release.merge` non c'entra: la correzione non rilascia.
+  - **Come**: la esegue l'**agente di monitoraggio**, mai l'SSH. Il server
+    FIRMA un comando (Ed25519, chiave d'istanza) per ogni passo approvato,
+    uno alla volta, dopo i ricontrolli; l'agente esegue solo comandi firmati
+    con la chiave pubblica fissata alla sua installazione, una volta sola,
+    non scaduti, del suo server. Le operazioni sono un'opzione
+    dell'installazione, spenta di default.
+  - **Cosa resta VIETATO, per costruzione e non per convenzione**: deploy;
+    pull o aggiornamento di un'immagine; creare o ricreare un container;
+    `compose up`/`down`; `exec` in un container; qualunque comando o script
+    libero, sull'host o in un container; qualunque stringa che arrivi dal
+    modello e diventi un comando. Una correzione che «rilascia» è un piano
+    da rifiutare: il prompt lo dice, il gate lo controlla, un test lo prova.
+    Chi aggiunge un'azione all'insieme chiuso, o collega la correzione a un
+    rilascio, rompe questa frase, non solo il codice: è un cambio di
+    prodotto.
+  - **Via SSH solo LETTURE**: un accesso separato di sola lettura per
+    l'analisi, con un utente senza privilegi e senza il socket di Docker, un
+    elenco chiuso di letture con parametri numerici validati, uscite
+    troncate, delimitate e non fidate; mai una scrittura via SSH.
+  - **Tutto si registra**: ogni comando firmato, ogni lettura (agente o
+    SSH), ogni esito, con chi l'ha chiesto e quale approvazione lo copre
+    (`server_commands`), per 90 giorni.
+  La pausa della coda di un progetto (area 9, F4) e il rilancio di un lavoro
+  fallito dallo Stato dell'istanza NON toccano un ambiente, un server o un
+  processo: agiscono solo sulla coda di Stubwise. Una coda in pausa non
+  reclama lavoro nuovo (la WHERE del claim di ogni coda), il lavoro già partito
+  finisce, la chat e «Chiedi a Claude» non si fermano. Lo Stato dell'istanza
+  non ha riavvii né azioni sui server, per costruzione.
+  Le regole di dettaglio stanno in `docs/invariants/server-operations.md`
+  (scritto con la F4b).
 - **Nei test del server una chiamata di rete reale FALLISCE il test (1 ott
   2026).** `apps/server/src/test/network-guard.ts` (`setupFiles` in
   `apps/server/vitest.config.ts`) avvolge `fetch`: verso un host non locale

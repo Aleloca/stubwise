@@ -4,12 +4,13 @@ import { useTranslation } from "react-i18next";
 import type { Person, Task } from "../../data/types";
 import { SIZE_WEIGHT } from "../../domain/load";
 import { planBlock, type PersonLoad } from "../../domain/planning";
-import { currentWeek, weekLabel } from "../../domain/weeks";
+import { weekLabel } from "../../domain/weeks";
 import { LoadBar } from "../../tasks-ui/LoadBar";
 import { Avatar } from "../../tasks-ui/PersonChip";
 import { shortWeek } from "../tasks/pickers";
 import { usePlanning } from "./context";
 import { LockSign, PlanChip } from "./PlanChip";
+import { useCurrentWeek } from "../../data/clock";
 
 /** Quante task mostra una cella prima di «+N more» (shape planning.md §5). */
 export const CELL_CAP = 4;
@@ -278,7 +279,7 @@ export function PeopleGrid({
   const { t, i18n } = useTranslation();
   const ctx = usePlanning();
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
-  const now = currentWeek();
+  const now = useCurrentWeek();
   const toggle = (personId: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);

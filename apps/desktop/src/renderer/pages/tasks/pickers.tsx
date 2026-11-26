@@ -1,5 +1,14 @@
+import { isAssignableIn } from "../../data/assignable";
+import { planRefusalOf } from "../planning/planRefusal";
 import { useTranslation } from "react-i18next";
-import { usePeople, useProjects, useProjectStatuses, useUpdateTask } from "../../data/queries";
+import {
+  usePeople,
+  useProjects,
+  useProjectStatuses,
+  useTaskWrite,
+  useUpdateTask,
+  type TaskWrite,
+} from "../../data/queries";
 import type { Milestone, Person, ProjectStatus, Task, TaskPatch, TaskSize } from "../../data/types";
 import { addWeeks, currentWeek, shortWeekIn, weekLabel } from "../../domain/weeks";
 import i18n from "../../i18n";
@@ -8,6 +17,8 @@ import { Avatar, PersonChip, personName } from "../../tasks-ui/PersonChip";
 import { FamilySign, StatusLabel } from "../../tasks-ui/StatusLabel";
 import { useToast } from "../../tasks-ui/Toast";
 import { Chevron, MenuButton } from "./controls";
+import { useCurrentWeek } from "../../data/clock";
+import { claudeRunText } from "../../tasks-ui/claudeRun";
 
 // Le scelte di un campo di task, come voci di menu: le usano il menu in riga
 // dell'elenco e la barra delle azioni in blocco.
@@ -35,9 +46,10 @@ export function useProjectMembers(projectId: string | undefined): Person[] | und
   const projects = useProjects().data;
   const people = usePeople().data;
   if (!projectId || !projects || !people) return undefined;
-  const members = projects.find((p) => p.id === projectId)?.memberIds ?? [];
+  // I membri, e Claude dove si assegna (nella build app: `claudeAssignableProjectIds`).
+  const project = projects.find((p) => p.id === projectId);
   return people
-    .filter((p) => members.includes(p.id) && !p.deactivated)
+    .filter((p) => isAssignableIn(p, project) && !p.deactivated)
     .sort((a, b) => Number(a.isClaude) - Number(b.isClaude) || a.name.localeCompare(b.name));
 }
 
@@ -98,7 +110,7 @@ export function WeekOptions({
   onPick: (week: string | null) => void;
 }) {
   const { t, i18n } = useTranslation();
-  const now = currentWeek();
+  const now = useCurrentWeek();
   return (
     <>
       <RadioItem checked={current === null} onSelect={() => onPick(null)}>
@@ -108,7 +120,9 @@ export function WeekOptions({
         <RadioItem key={w} checked={w === current} onSelect={() => onPick(w)}>
           <span className="num w-9 shrink-0 font-semibold">{shortWeek(w)}</span>
           <span className="num text-ink-muted">
-            {w === now ? t("tasks.bulk.thisWeek", { week: weekLabel(w, i18n.language) }) : weekLabel(w, i18n.language)}
+            {w === now
+              ? t("tasks.bulk.thisWeek", { week: weekLabel(w, i18n.language) })
+              : weekLabel(w, i18n.language)}
           </span>
         </RadioItem>
       ))}
@@ -179,7 +193,39 @@ export function useInlineUpdate() {
   return (task: Task, patch: TaskPatch) =>
     update.mutate(
       { id: task.id, patch },
-      { onError: () => toast.error(t("tasks.list.changeFailed", { code: task.code })) },
+      {
+        // Assegnato a Claude ma il lavoro non è partito: la frase del codice.
+        onSuccess: (updated) => {
+          const text = claudeRunText(t, updated);
+          if (text) toast.error(text);
+        },
+        // Claude a chi non ne può avviare il lavoro (area 3, 3e): la sua frase.
+        onError: (error) =>
+          toast.error(
+            planRefusalOf(error) === "claude_assign_forbidden"
+              ? t("planning.refused.claude_assign_forbidden", { code: task.code })
+              : t("tasks.list.changeFailed", { code: task.code }),
+          ),
+      },
+    );
+}
+
+/**
+ * Una scrittura dedicata della task (seguire, ferma, allegati, collegamenti):
+ * `preview` è il cambio che si vede subito, come per `useInlineUpdate`.
+ * `onError` sostituisce l'avviso di sempre (gli allegati spenti dicono altro).
+ */
+export function useInlineWrite() {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const write = useTaskWrite();
+  return (task: Task, w: TaskWrite, preview: TaskPatch, onError?: (error: unknown) => void) =>
+    write.mutate(
+      { id: task.id, write: w, preview },
+      {
+        onError: (error) =>
+          onError ? onError(error) : toast.error(t("tasks.list.changeFailed", { code: task.code })),
+      },
     );
 }
 
@@ -228,7 +274,12 @@ export function InlineAssignee({ task }: { task: Task }) {
   const change = useInlineUpdate();
   if (!members) return <PersonChip personId={task.assigneeId} />;
   const assignee = people?.find((p) => p.id === task.assigneeId);
-  const name = assignee ? personName(t, assignee) : t("taskUi.unassigned");
+  // R.1414: un assegnatario che l'elenco non ha è chi guarda non conosce: «Someone».
+  const name = assignee
+    ? personName(t, assignee)
+    : task.assigneeId
+      ? t("taskUi.someone")
+      : t("taskUi.unassigned");
   return (
     <MenuButton
       menuLabel={t("tasks.list.assigneeMenu", { code: task.code })}

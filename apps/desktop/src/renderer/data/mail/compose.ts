@@ -36,7 +36,8 @@ import { visibleMessages } from "./visibility";
 //   file del Drive che non vede è `not_found` (R-G5).
 
 /** La finestra dell'«Annulla» dopo «Invia». */
-export const MAIL_UNDO_MS = 5000;
+// Tipato `number`: la build app ha la sua finestra (i 10 s del server, D6 dell'area 6).
+export const MAIL_UNDO_MS: number = 5000;
 /** Il limite di Gmail: 10 allegati, 25 MB in tutto (i link Google non pesano). */
 export const MAIL_MAX_ATTACHMENTS = 10;
 export const MAIL_MAX_BYTES = 25 * 1024 * 1024;
@@ -75,8 +76,15 @@ export function resolve(a: MailAddress, team: MailAddress[]): MailAddress {
 }
 
 /** Senza doppioni (per indirizzo) e senza chi scrive. */
+/** Gli indirizzi della casella: lei e i suoi alias (lotto 8, §2). */
+const addressesOf = (box: Mailbox): string[] => [
+  box.email,
+  ...(box.sendAs ?? []).map((a) => a.email),
+];
+
 function others(list: MailAddress[], me: string, box: Mailbox): MailAddress[] {
-  const seen = new Set<string>([lower(box.email)]);
+  // Gli alias della casella non sono mai destinatari (lotto 8, §2).
+  const seen = new Set<string>(addressesOf(box).map(lower));
   const out: MailAddress[] = [];
   for (const a of list) {
     if (a.personId === me || seen.has(lower(a.email))) continue;
@@ -133,7 +141,29 @@ const lastArrived = (messages: MailMessage[]) =>
 /** Gli allegati originali che Inoltra porta con sé (riconoscibili dall'id). */
 const FORWARDED = "fwd-";
 
-type Header = Pick<MailDraft, "to" | "cc" | "subject" | "replyToMessageId">;
+type Header = Pick<MailDraft, "to" | "cc" | "subject" | "replyToMessageId"> & { from?: string | null };
+
+/**
+ * Lotto 8, §2: il «Da» di una risposta — l'indirizzo della casella (lei o un
+ * alias) a cui era indirizzato il messaggio, come Gmail; `null` (il
+ * predefinito) se non era indirizzato a nessuno di loro (un Ccn).
+ */
+function replyFrom(box: Mailbox, last: MailMessage): string | null {
+  const mine = new Map(addressesOf(box).map((a) => [lower(a), a] as const));
+  for (const a of [...last.to, ...(last.cc ?? [])]) {
+    const hit = mine.get(lower(a.email));
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** Un «Da» che la casella non ha: `invalid: from`. */
+function checkFrom(box: Mailbox, from: string | null): string | null {
+  if (from === null) return null;
+  const hit = addressesOf(box).find((a) => lower(a) === lower(from));
+  if (!hit) throw invalid("from");
+  return hit;
+}
 
 /** Destinatari e oggetto di una modalità, dall'ultimo messaggio della conversazione. */
 function headerFor(
@@ -153,8 +183,10 @@ function headerFor(
     };
   }
   const re = /^re\s*:/i.test(subject) ? subject : `Re: ${subject}`;
+  const from = mine ? null : replyFrom(box, last);
   if (mode === "reply") {
     return {
+      from,
       to: others(mine ? last.to : [last.from], me, box),
       cc: [],
       subject: re,
@@ -164,6 +196,7 @@ function headerFor(
   const to = others(mine ? last.to : [last.from, ...last.to], me, box);
   const inTo = new Set(to.map((a) => lower(a.email)));
   return {
+    from,
     to,
     cc: others(last.cc ?? [], me, box).filter((a) => !inTo.has(lower(a.email))),
     subject: re,
@@ -256,7 +289,16 @@ export type MailDraftInput = Pick<
   MailDraft,
   "threadId" | "mode" | "replyToMessageId" | "to" | "cc" | "subject" | "body" | "attachments"
 > &
-  Pick<MailDraft, "quote" | "slot">;
+  Pick<MailDraft, "quote" | "slot" | "from"> & {
+    /** Build app: «Tieni la mia», sopra una bozza cambiata su Gmail (il prototipo non ha conflitti). */
+    overwrite?: boolean;
+    /**
+     * Build app: la versione da cui parte il salvataggio (`updatedAt` del
+     * server letto o dell'ultimo salvataggio). Cambiata nel frattempo (un
+     * altro client, un `fillMailBody` confermato): `draft_changed`.
+     */
+    baseUpdatedAt?: string;
+  };
 
 /** Un allegato del Drive com'è nel Drive (nome, peso, copia o link), se chi scrive vede il file. */
 function driveAttachment(me: string, driveFileId: string): MailDraftAttachment {
@@ -293,7 +335,7 @@ export async function saveDraft(input: MailDraftInput): Promise<MailDraft> {
  * e il ripristino di una bozza eliminata (`restoreDiscardedDraft`).
  */
 export function draftFrom(me: string, input: MailDraftInput): MailDraft {
-  mailboxOf(me);
+  const box = mailboxOf(me);
   checkMode(input.threadId, input.mode);
   checkSlot(input.threadId, input.slot);
   if (input.threadId !== null) {
@@ -329,6 +371,11 @@ export function draftFrom(me: string, input: MailDraftInput): MailDraft {
     attachments,
     // La scelta resta anche passando per Inoltra (che cita sempre: lo decide l'invio).
     ...(input.quote === false ? { quote: false } : {}),
+    // Lotto 8, §2: `from` assente = com'era; `null` = il predefinito.
+    from:
+      input.from !== undefined
+        ? checkFrom(box, input.from)
+        : (draftIn(me, input.threadId, input.slot)?.from ?? null),
     updatedAt: now(),
   };
   return draft;

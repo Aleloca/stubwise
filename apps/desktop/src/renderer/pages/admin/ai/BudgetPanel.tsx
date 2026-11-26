@@ -10,6 +10,7 @@ import {
   type ContentLanguage,
 } from "../../../data/queries";
 import { useToast } from "../../../tasks-ui/Toast";
+import { isAppBuild } from "../../../data/build";
 import { PrototypeBox } from "../../automations/shared";
 import { RadioRow, smallInput } from "../../automations/builder/controls";
 import { ErrorLine } from "../../entry/parts";
@@ -17,7 +18,9 @@ import { ReadError, refusalOf, useFlash } from "../../preferences/parts";
 import { Switch } from "../../preferences/SubscriptionRow";
 import { primaryButton } from "../../tasks/controls";
 import { usd } from "../../../i18n/money";
+import { featureIntegrated } from "../../../data/integration";
 import { AiSkeleton, AiWhoCan, ReadOnlyLine, useAiRefusalWords } from "./parts";
+import { ServerAnalysisPanel } from "./ServerAnalysisPanel";
 
 // Budget & language (shape admin-ai.md «Budget & language»): il budget
 // mensile col misuratore («$412 spent in October · 69% of $600»), le righe
@@ -45,6 +48,8 @@ export function BudgetPanel({ canWrite }: { canWrite: boolean }) {
       ) : (
         <BudgetForm view={budget.data} canWrite={canWrite} />
       )}
+      {/* I tetti dell'analisi dei server (R0-C): la rotta li chiede con settings.manage anche in lettura. */}
+      {canWrite && featureIntegrated("servers-analysis-limits") && <ServerAnalysisPanel />}
     </>
   );
 }
@@ -199,7 +204,8 @@ function BudgetForm({ view, canWrite }: { view: BudgetView; canWrite: boolean })
         </div>
       )}
 
-      {canWrite && <SimulateBox simulated={view.simulated} />}
+      {/* Il budget raggiunto si simula solo nel prototipo. */}
+      {canWrite && !isAppBuild() && <SimulateBox simulated={view.simulated} />}
     </>
   );
 }

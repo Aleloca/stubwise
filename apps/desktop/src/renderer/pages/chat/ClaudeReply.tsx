@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useMemo, useState, type ReactNode } from "react";
+import { nameOrSomeone } from "./someone";
 import { useTranslation } from "react-i18next";
 import {
   useAnswerChatClaudeQuestion,
@@ -27,9 +28,16 @@ import {
 } from "../claude/conversation/citations";
 import { CODE_IN_TEXT } from "../claude/conversation/flow";
 import { quietButton } from "../claude/conversation/parts";
-import { ProposalCardView, routeOfCode } from "../claude/conversation/ProposalCard";
+import {
+  confirmEditedVia,
+  ProposalCardView,
+  reauthActionText,
+  routeOfCode,
+} from "../claude/conversation/ProposalCard";
+import { useReauth } from "../../layout/useReauth";
 import { QuestionCardView } from "../claude/conversation/QuestionCard";
 import { MenuButton } from "../tasks/controls";
+import { isAppBuild } from "../../data/build";
 import { hm } from "./flow";
 import { ChatAvatar, useMessageDecorator } from "./MessageItem";
 
@@ -94,13 +102,15 @@ export function ClaudeReply({
   const toast = useToast();
   const people = usePeople().data;
   const claude = people?.find((p) => p.isClaude);
-  const callerName = people?.find((p) => p.id === m.calledById)?.name ?? "";
+  const callerName = nameOrSomeone(people, m.calledById, t("chat.message.someone"));
   const index = useCitationIndex();
   const stop = useStopClaudeReply();
   const retry = useRetryClaudeReply();
   const remove = useDeleteChatMessage();
   const answer = useAnswerChatClaudeQuestion();
   const confirm = useConfirmChatProposal();
+  // Una C passa dalla riconferma anche dalla Chat (review F7, I1).
+  const reauth = useReauth();
   const cancel = useCancelChatProposal();
   const edit = useEditChatProposal();
   const complete = useCompleteEditedChatProposal();
@@ -112,6 +122,11 @@ export function ClaudeReply({
   const state = run?.state ?? "done";
   const live = state === "working" || state === "waiting";
   const deleted = m.deletedAt !== null;
+  // Build app: i flag del server per chi guarda; nel prototipo si ricavano.
+  const canStop = run?.canStop ?? (mine && live);
+  const canRetry = run?.canRetry ?? (mine && !run?.retried && canWrite);
+  const canAnswer = run?.canAnswer ?? (mine && state === "waiting" && canWrite);
+  const canDelete = m.canDelete ?? (mine && canWrite);
 
   // I codici che chi guarda non vede: quelli citati e quelli delle righe e delle schede.
   const hidden = useMemo(() => {
@@ -208,7 +223,7 @@ export function ClaudeReply({
               {state === "working" && empty && (
                 <span className="text-xs text-ink-muted">· {t("chat.claude.thinking")}</span>
               )}
-              {mine && live && (
+              {canStop && (
                 <button
                   type="button"
                   className="ml-auto rounded-md px-1.5 text-sm font-medium text-ink-muted underline decoration-ink/30 underline-offset-2 hover:text-ink hover:decoration-ink disabled:opacity-60"
@@ -273,7 +288,7 @@ export function ClaudeReply({
                   <QuestionCardView
                     key={e.id}
                     event={e}
-                    canAnswer={mine && state === "waiting" && canWrite}
+                    canAnswer={canAnswer}
                     pending={answer.isPending}
                     onAnswer={(payload) =>
                       answer.mutateAsync({
@@ -304,17 +319,43 @@ export function ClaudeReply({
                     viewerId={viewerId}
                     canAct={canWrite}
                     cantActNote={t("chat.claude.cantAct")}
+                    // Build app: le rotte delle proposte rispondono 404 anche in un
+                    // canale archiviato o per chi non è più membro (il livello dati
+                    // lo distingue col canale).
+                    refusalText={(error) =>
+                      error.message === "invalid: archived"
+                        ? t("chat.claude.proposalArchived")
+                        : error.message === "not_member"
+                          ? t("chat.claude.proposalNotMember")
+                          : null
+                    }
                     renderText={linked}
                     renderCode={renderCode}
                     ops={{
                       confirm: (actionIndexes) =>
-                        confirm.mutateAsync({
-                          ...target,
-                          ...(actionIndexes ? { actionIndexes } : {}),
-                        }),
+                        reauth(
+                          () =>
+                            confirm.mutateAsync({
+                              ...target,
+                              ...(actionIndexes ? { actionIndexes } : {}),
+                            }),
+                          { action: reauthActionText(t, e, actionIndexes) },
+                        ),
                       cancel: () => cancel.mutateAsync(target),
                       edit: () => edit.mutateAsync(target),
                       complete: (code) => complete.mutateAsync({ ...target, resultCodes: [code] }),
+                      ...(isAppBuild()
+                        ? {
+                            // Build app: salvare «Edit» CONFERMA coi valori cambiati
+                            // (li esegue il server); un rifiuto lo dice il dialogo.
+                            confirmEdited: (index: number, args: Record<string, unknown>) =>
+                              confirmEditedVia(
+                                reauth,
+                                (edited) => confirm.mutateAsync({ ...target, edited }),
+                                reauthActionText(t, e, [index]),
+                              )(index, args),
+                          }
+                        : {}),
                       busy:
                         confirm.isPending ||
                         cancel.isPending ||
@@ -338,7 +379,7 @@ export function ClaudeReply({
                     reason: t(`chat.claude.reasons.${run?.errorCode ?? "other"}`),
                   })}
                 </span>
-                {mine && !run?.retried && canWrite && (
+                {canRetry && (
                   <button
                     type="button"
                     disabled={retry.isPending}
@@ -405,7 +446,7 @@ export function ClaudeReply({
                 >
                   {t("chat.actions.copyLink")}
                 </button>
-                {mine && canWrite && (
+                {canDelete && (
                   <button
                     type="button"
                     role="menuitem"

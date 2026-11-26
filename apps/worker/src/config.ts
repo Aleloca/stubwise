@@ -494,6 +494,18 @@ const envSchema = z.object({
       .max(60, "deve essere un intero tra 0 e 60 in minuti (es. 1; 0 = disabilitato)")
       .default(1),
   ),
+  // Area 8, F1: intervallo in secondi del poller dei RILASCI (le run di CI del
+  // commit di merge e il commit in produzione, `releases/poller.ts`). Legge
+  // soltanto. 0 = disabilitato. Default 60".
+  RELEASE_POLL_SECONDS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero tra 0 e 3600 in secondi (es. 60; 0 = disabilitato)" })
+      .int("deve essere un intero tra 0 e 3600 in secondi (es. 60; 0 = disabilitato)")
+      .min(0, "deve essere un intero tra 0 e 3600 in secondi (es. 60; 0 = disabilitato)")
+      .max(3600, "deve essere un intero tra 0 e 3600 in secondi (es. 60; 0 = disabilitato)")
+      .default(60),
+  ),
   // Intervallo in minuti del poller del daily activity report (task separato
   // dal loop dei job): raccoglie i commit del giorno per progetto e genera lo
   // "standup notturno". È BEST-EFFORT e non tocca i timeout dei job.
@@ -734,6 +746,41 @@ const envSchema = z.object({
       .min(60_000, "deve essere un intero ≥ 60000 in millisecondi (es. 900000)")
       .default(900_000),
   ),
+  // Chat con Claude (fetta 1): l'URL INTERNO del server su cui il ponte dei
+  // tool di lettura chiama le rotte di `CHAT_TOOL_READ_ROUTES` col token del
+  // turno. Nel compose è il servizio `server` sulla rete interna.
+  CHAT_SERVER_URL: z.preprocess(
+    emptyAsUndefined,
+    z.url({ error: "deve essere un URL (es. http://server:3000)" }).default("http://server:3000"),
+  ),
+  // Turni di chat CONTEMPORANEI d'istanza (gli altri restano in coda). Default 2.
+  CHAT_MAX_CONCURRENT: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 (es. 2)" })
+      .int("deve essere un intero ≥ 1 (es. 2)")
+      .min(1, "deve essere un intero ≥ 1 (es. 2)")
+      .default(2),
+  ),
+  // Timeout di UN turno di chat, e quindi (più un minuto) la vita massima del
+  // token del turno. Default 300000 = 5'.
+  CHAT_TURN_TIMEOUT_MS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 60000 in millisecondi (es. 300000)" })
+      .int("deve essere un intero ≥ 60000 in millisecondi (es. 300000)")
+      .min(60_000, "deve essere un intero ≥ 60000 in millisecondi (es. 300000)")
+      .default(300_000),
+  ),
+  // Turni agentici massimi in un turno di chat (chiamate ai tool comprese). Default 15.
+  CHAT_MAX_TURNS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 (es. 15)" })
+      .int("deve essere un intero ≥ 1 (es. 15)")
+      .min(1, "deve essere un intero ≥ 1 (es. 15)")
+      .default(15),
+  ),
   // Radice del VOLUME condiviso dei grafi (graphify): il worker ci scrive
   // `<GRAPHS_DIR>/<repositoryId>/graphify-out/`, il server lo monta read-only
   // per servire report/html/json alla SPA. Niente blob in Postgres.
@@ -783,6 +830,31 @@ const envSchema = z.object({
       .int("deve essere un intero ≥ 0 in secondi (es. 20; 0 = disabilitato)")
       .min(0, "deve essere un intero ≥ 0 in secondi (es. 20; 0 = disabilitato)")
       .default(20),
+  ),
+  // Intervallo di poll (secondi) della coda del CONTENUTO dei file del Drive
+  // (area 5, fetta 3, `drive/content-job.ts`): estrazione, riassunto, embedding.
+  // Fuori dal serializer per progetto. 0 = disabilitato. Default 10".
+  DRIVE_CONTENT_POLL_SECONDS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 0 in secondi (es. 10; 0 = disabilitato)" })
+      .int("deve essere un intero ≥ 0 in secondi (es. 10; 0 = disabilitato)")
+      .min(0, "deve essere un intero ≥ 0 in secondi (es. 10; 0 = disabilitato)")
+      .default(10),
+  ),
+  // Intervallo di poll (secondi) delle AUTOMATIONS (area 7): il consumatore
+  // degli eventi (`automation_events`, scritti dai trigger) e l'esecutore delle
+  // esecuzioni dovute. Breve perché un'approvazione data deve ripartire
+  // subito; il tick è quasi sempre a vuoto (due query sugli indici parziali).
+  // 0 = disabilitato (gli eventi restano in coda, le esecuzioni ferme).
+  // Default 5".
+  AUTOMATIONS_POLL_SECONDS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 0 in secondi (es. 5; 0 = disabilitato)" })
+      .int("deve essere un intero ≥ 0 in secondi (es. 5; 0 = disabilitato)")
+      .min(0, "deve essere un intero ≥ 0 in secondi (es. 5; 0 = disabilitato)")
+      .default(5),
   ),
   // Radice del VOLUME dei plugin Claude Code del registro d'istanza: il worker
   // ci materializza `<PLUGINS_DIR>/<slug>/<sha>/` ed è l'UNICO a montarlo (il
@@ -986,6 +1058,13 @@ const envSchema = z.object({
   // nella finestra viene saltato (resta `new`) e il ciclo passa al
   // successivo, così un thread attivo non blocca la coda. 0 = disattivato.
   // Default 60.
+  // Area 6, F2 (D3): la classificazione nuova della posta. Spenta di default:
+  // si accende dopo la misura del costo (deploy-log), e spegnerla è il
+  // rollback (tornano l'ammissione e le regole della posta).
+  MAIL_CLASSIFY_V2: z.preprocess(
+    (value) => (value === "" ? undefined : value === "true" ? true : value === "false" ? false : value),
+    z.boolean({ error: "deve essere true o false" }).default(false),
+  ),
   GMAIL_THREAD_COOLDOWN_MINUTES: z.preprocess(
     emptyAsUndefined,
     z.coerce
@@ -1119,6 +1198,8 @@ export interface WorkerConfig {
   /** Intervallo in minuti del poller di valutazione alert del monitoraggio
    * (default 1; 0 = disabilitato). */
   monitorAlertIntervalMinutes: number;
+  /** Area 8, F1: intervallo in secondi del poller dei rilasci (default 60; 0 = disabilitato). */
+  releasePollSeconds: number;
   /** Intervallo in minuti del poller del daily activity report (default 15;
    * 0 = disabilitato). */
   dailyReportPollMinutes: number;
@@ -1166,6 +1247,14 @@ export interface WorkerConfig {
   backlogRefineIdleMinutes: number;
   /** Timeout (ms) di un turno di refinement (default 900000 = 15'). */
   backlogRefineTurnTimeoutMs: number;
+  /** URL interno del server per i tool di lettura della chat (default http://server:3000). */
+  chatServerUrl: string;
+  /** Turni di chat contemporanei d'istanza (default 2). */
+  chatMaxConcurrent: number;
+  /** Timeout (ms) di un turno di chat (default 300000 = 5'). */
+  chatTurnTimeoutMs: number;
+  /** Turni agentici massimi in un turno di chat (default 15). */
+  chatMaxTurns: number;
   /** Radice del volume condiviso dei grafi graphify (default "/graphs"). */
   graphsDir: string;
   /** Labeling delle comunità col backend claude-cli (default true). */
@@ -1178,6 +1267,10 @@ export interface WorkerConfig {
   /** Intervallo in secondi del poller della coda `graph_jobs` (default 20;
    * 0 = disabilitato). */
   graphPollSeconds: number;
+  /** Intervallo in secondi della coda del contenuto del Drive (default 10; 0 = disabilitato). */
+  driveContentPollSeconds: number;
+  /** Area 7: il poller delle Automations (consumatore ed esecutore). 0 = spento. */
+  automationsPollSeconds: number;
   /** Radice del volume dei plugin del registro d'istanza (default "/plugins"). */
   pluginsDir: string;
   /** Intervallo in secondi del poller della coda `plugin_jobs` (default 20;
@@ -1230,6 +1323,8 @@ export interface WorkerConfig {
    * STESSO thread (default 60; 0 = disattivato).
    */
   gmailThreadCooldownMinutes: number;
+  /** Area 6, F2: la classificazione nuova della posta (MAIL_CLASSIFY_V2, default false). */
+  mailClassifyV2: boolean;
   /**
    * Relay a cui spedire le notifiche push, o `null` = PUSH SPENTE.
    *
@@ -1282,10 +1377,28 @@ export function effectiveModelDefaults(
     release_notes: config.releaseNotesModel,
     docs_nightly: config.docsNightlyModel,
     docs_generation: config.docGenerationModel,
+    // Il riassunto di un file del Drive (area 5, fetta 3): breve, senza tool.
+    drive_summary: "haiku",
     daily_report: config.dailyReportModel,
     weekly_brief: config.summaryModel,
     mail_classify: config.gmailModel,
+    // La bozza di Claude nella Posta (area 6, F3): la scrive il server, Sonnet.
+    mail_draft: "sonnet",
+    // Il riassunto e le proposte di una riunione registrata (area 6, F5a).
+    meeting_summary: "sonnet",
+    // Un passo di Claude di un'automazione (area 7, F3-2 = a).
+    automation_step: "sonnet",
+    // Support (area 8, F3): il giudizio sul triage è breve (G-1: Haiku).
+    support_triage_check: "haiku",
+    // I server (area 8, F4b): l'analisi e il piano di correzione, Sonnet.
+    server_analysis: "sonnet",
+    server_fix_plan: "sonnet",
+    mail_reply_judgment: "haiku",
+    // La doc di prodotto dalle fonti (area 11, F5): fatti strutturati da una fonte, Sonnet.
+    product_doc_update: "sonnet",
     chat: SERVER_CHAT_DEFAULT_MODEL,
+    // La chat con Claude (fetta 1): lo stesso modello dei turni di refinement.
+    claude_chat: config.backlogModel,
     backlog_merge: SERVER_CHAT_DEFAULT_MODEL,
     plugin_smoke: "haiku",
     credential_test: "haiku",
@@ -1294,10 +1407,47 @@ export function effectiveModelDefaults(
 }
 
 /**
+ * Area 9, F3, Task 7: le operazioni il cui modello in `effectiveModelDefaults`
+ * viene da una variabile d'ambiente IMPOSTATA (non vuota), cioè la fonte `env`
+ * della pagina dei modelli; le altre hanno il default di codice. Va tenuta
+ * allineata a `effectiveModelDefaults` (lo verifica il test accanto).
+ */
+export const MODEL_ENV_OPERATIONS: Readonly<Record<string, readonly AiOperation[]>> = {
+  FIX_PLAN_MODEL: ["fix_plan"],
+  FIX_EXECUTE_MODEL: ["fix_execute"],
+  PR_REVIEW_MODEL: ["pr_review"],
+  // SUMMARY_MODEL assente = quello della PR review: anche PR_REVIEW_MODEL la decide.
+  SUMMARY_MODEL: ["summary", "weekly_brief"],
+  BACKLOG_MODEL: ["backlog_intake", "backlog_refine", "claude_chat"],
+  COMMIT_SUMMARY_MODEL: ["commit_summary"],
+  RELEASE_NOTES_MODEL: ["release_notes"],
+  DOCS_NIGHTLY_MODEL: ["docs_nightly"],
+  DOC_GENERATION_MODEL: ["docs_generation"],
+  DAILY_REPORT_MODEL: ["daily_report"],
+  GMAIL_MODEL: ["mail_classify"],
+};
+
+export function modelEnvOperations(env: Record<string, string | undefined>): AiOperation[] {
+  const set = (name: string) => (env[name] ?? "").trim() !== "";
+  const ops = new Set<AiOperation>();
+  for (const [name, operations] of Object.entries(MODEL_ENV_OPERATIONS)) if (set(name)) operations.forEach((o) => ops.add(o));
+  if (set("PR_REVIEW_MODEL") && !set("SUMMARY_MODEL")) MODEL_ENV_OPERATIONS.SUMMARY_MODEL!.forEach((o) => ops.add(o));
+  return [...ops].sort();
+}
+
+/**
  * Valida le variabili d'ambiente e restituisce la configurazione del worker.
  * Lancia un errore con un messaggio leggibile che elenca ogni variabile
  * mancante o non valida.
  */
+/**
+ * I nomi delle env dello schema: il test li confronta con l'`environment`
+ * del worker in `docker-compose.yml`, che non usa `env_file` — una env che
+ * manca lì non arriva al container, e regolarla in `/opt/stubwise/.env` non
+ * ha effetto.
+ */
+export const WORKER_ENV_NAMES: readonly string[] = Object.keys(envSchema.shape);
+
 export function loadWorkerConfig(env: Record<string, string | undefined> = process.env): WorkerConfig {
   const result = envSchema.safeParse(env);
   if (!result.success) {
@@ -1371,6 +1521,7 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     limitResumeCooldownMs: parsed.LIMIT_RESUME_API_KEY_COOLDOWN_MINUTES * 60_000,
     monitorRollupIntervalMinutes: parsed.MONITOR_ROLLUP_INTERVAL_MINUTES,
     monitorAlertIntervalMinutes: parsed.MONITOR_ALERT_INTERVAL_MINUTES,
+    releasePollSeconds: parsed.RELEASE_POLL_SECONDS,
     dailyReportPollMinutes: parsed.DAILY_REPORT_POLL_MINUTES,
     dailyReportMaxAuthorsPerProject: parsed.DAILY_REPORT_MAX_AUTHORS_PER_PROJECT,
     dailyReportRetentionDays: parsed.DAILY_REPORT_RETENTION_DAYS,
@@ -1391,12 +1542,18 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     backlogRefineMaxConcurrent: parsed.BACKLOG_REFINE_MAX_CONCURRENT,
     backlogRefineIdleMinutes: parsed.BACKLOG_REFINE_IDLE_MINUTES,
     backlogRefineTurnTimeoutMs: parsed.BACKLOG_REFINE_TURN_TIMEOUT_MS,
+    chatServerUrl: parsed.CHAT_SERVER_URL,
+    chatMaxConcurrent: parsed.CHAT_MAX_CONCURRENT,
+    chatTurnTimeoutMs: parsed.CHAT_TURN_TIMEOUT_MS,
+    chatMaxTurns: parsed.CHAT_MAX_TURNS,
     graphsDir: parsed.GRAPHS_DIR,
     graphLabelEnabled: parsed.GRAPH_LABEL_ENABLED,
     graphifyBin: parsed.GRAPHIFY_BIN,
     // Minuti → ms: il runner del CLI vuole millisecondi.
     graphBuildTimeoutMs: parsed.GRAPH_BUILD_TIMEOUT_MINUTES * 60_000,
     graphPollSeconds: parsed.GRAPH_POLL_SECONDS,
+    driveContentPollSeconds: parsed.DRIVE_CONTENT_POLL_SECONDS,
+    automationsPollSeconds: parsed.AUTOMATIONS_POLL_SECONDS,
     pluginsDir: parsed.PLUGINS_DIR,
     pluginPollSeconds: parsed.PLUGIN_POLL_SECONDS,
     notifyPollSeconds: parsed.NOTIFY_POLL_SECONDS,
@@ -1414,6 +1571,7 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     gmailMaxProjectsPerMessage: parsed.GMAIL_MAX_PROJECTS_PER_MESSAGE,
     gmailMaxPerDay: parsed.GMAIL_MAX_PER_DAY,
     gmailThreadCooldownMinutes: parsed.GMAIL_THREAD_COOLDOWN_MINUTES,
+    mailClassifyV2: parsed.MAIL_CLASSIFY_V2,
     // Letta dall'env GREZZO, non da `parsed`: `envSchema` non la conosce (e non
     // deve, vedi il campo `push` di WorkerConfig). LANCIA su un valore
     // inutilizzabile — un relay in chiaro o con credenziali — così il worker

@@ -67,8 +67,9 @@ describe("ProjectColumn", () => {
     expect(within(column()).getByText("Internal")).toBeInTheDocument();
 
     const links = await sectionLinks();
+    // «Credentials» (lotto 10) c'è solo per chi vede o può creare una credenziale in AUD: qui no.
     expect(links.map((l) => l.getAttribute("data-section"))).toEqual(
-      PROJECT_SECTIONS.map((s) => s.id),
+      PROJECT_SECTIONS.map((s) => s.id).filter((id) => id !== "credentials"),
     );
     const tasks = links.find((l) => l.getAttribute("data-section") === "tasks")!;
     expect(tasks).toHaveAttribute("href", "/p/AUD/tasks");

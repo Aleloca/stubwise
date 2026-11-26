@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readerSchema } from "../reader.js";
+import { readerSchema, UNKNOWN } from "../reader.js";
 import {
   deviceDeletionSchema,
   deviceRegistrationSchema,
@@ -339,5 +339,135 @@ describe("inboxItemSchema — kind docs.nightly_attention (giro notturno Docs)",
     const parsed = readerSchema(inboxItemSchema).parse({ ...riga, kind: "kind_futuro.mai_visto" });
     expect(parsed.kind).not.toBe("kind_futuro.mai_visto");
     expect(parsed.text).toBe(riga.text);
+  });
+});
+
+describe("inboxItemSchema.undoneBy (area 10, F5) — additivo", () => {
+  const item = {
+    id: "1c9e4f70-5555-4666-8777-888899990001",
+    kind: "member.added",
+    status: "open",
+    text: "Ada joined PRO as Developer",
+    actions: ["open", "snooze", "handled"],
+    projectId: null,
+    ticketId: null,
+    jobId: null,
+    createdAt: "2026-11-20T08:14:00.000Z",
+    readAt: null,
+    snoozedUntil: null,
+    handledAt: null,
+    handledBy: null,
+  };
+
+  it("un server più vecchio non lo manda: null (e così memberAdded)", () => {
+    const parsed = readerSchema(inboxItemSchema).parse(item);
+    expect(parsed.undoneBy).toBeNull();
+    expect(parsed.memberAdded).toBeNull();
+  });
+
+  it("memberAdded coi nomi a null (chi guarda non vede la persona) passa", () => {
+    const parts = { addedUserId: "1c9e4f70-5555-4666-8777-888899990003", addedName: null, roleName: null, actorName: null };
+    expect(readerSchema(inboxItemSchema).parse({ ...item, memberAdded: parts }).memberAdded).toEqual(parts);
+  });
+
+  it("quando c'è, passa", () => {
+    const by = { id: "1c9e4f70-5555-4666-8777-888899990002", name: "Bea" };
+    expect(readerSchema(inboxItemSchema).parse({ ...item, undoneBy: by }).undoneBy).toEqual(by);
+  });
+});
+
+describe("inboxItemSchema.chat.group (registro, A4 r.169) — additivo", () => {
+  const chat = {
+    channelId: "1c9e4f70-5555-4666-8777-888899990011",
+    channelName: "general",
+    messageId: "1c9e4f70-5555-4666-8777-888899990012",
+    threadRootId: null,
+    authorId: null,
+    authorName: "Ada",
+    excerpt: "riunione @channel",
+  };
+  const item = {
+    id: "1c9e4f70-5555-4666-8777-888899990010",
+    kind: "chat.mention",
+    status: "open",
+    text: "Ada mentioned @channel in #general",
+    actions: ["open", "snooze", "handled"],
+    projectId: null,
+    ticketId: null,
+    jobId: null,
+    createdAt: "2026-11-23T08:14:00.000Z",
+    readAt: null,
+    snoozedUntil: null,
+    handledAt: null,
+    handledBy: null,
+  };
+
+  it("un server più vecchio non lo manda: null", () => {
+    expect(readerSchema(inboxItemSchema).parse({ ...item, chat }).chat?.group).toBeNull();
+  });
+
+  it("quando c'è, passa", () => {
+    expect(readerSchema(inboxItemSchema).parse({ ...item, chat: { ...chat, group: "@channel" } }).chat?.group).toBe("@channel");
+  });
+});
+
+describe("inboxItemSchema.productDoc (area 11, F2) — additivo", () => {
+  const item = {
+    id: "1c9e4f70-5555-4666-8777-888899990011",
+    kind: "product_doc.mention",
+    status: "open",
+    text: "Ada mentioned you in a comment on PRO-D3",
+    actions: ["open", "snooze", "handled"],
+    projectId: null,
+    ticketId: null,
+    jobId: null,
+    createdAt: "2026-11-20T08:14:00.000Z",
+    readAt: null,
+    snoozedUntil: null,
+    handledAt: null,
+    handledBy: null,
+  };
+
+  it("un server più vecchio non lo manda: null", () => {
+    expect(readerSchema(inboxItemSchema).parse(item).productDoc).toBeNull();
+  });
+
+  it("quando c'è passa, anche con chi ha scritto a null (chi guarda non lo vede)", () => {
+    const productDoc = {
+      pageId: "1c9e4f70-5555-4666-8777-888899990012",
+      pageCode: "PRO-D3",
+      pageTitle: "Visione",
+      projectCode: "PRO",
+      commentId: "1c9e4f70-5555-4666-8777-888899990013",
+      threadRootId: "1c9e4f70-5555-4666-8777-888899990013",
+      authorId: null,
+      authorName: null,
+    };
+    // Senza `excerpt` (un server di prima della richiesta di 46) e senza `claude` (di prima di F5): null.
+    expect(readerSchema(inboxItemSchema).parse({ ...item, productDoc }).productDoc).toEqual({ ...productDoc, excerpt: null, claude: null });
+  });
+
+  it("F5: la card di Claude si legge, con un motivo che il client non conosce e senza `waited`", () => {
+    const productDoc = {
+      pageId: "1c9e4f70-5555-4666-8777-888899990012",
+      pageCode: "PRO-D3",
+      pageTitle: "Visione",
+      projectCode: "PRO",
+      commentId: null,
+      threadRootId: null,
+      authorId: null,
+      authorName: null,
+      claude: {
+        revisionId: null,
+        sources: [{ kind: "brand_new_source", canOpen: false, id: null, title: null, code: null, ownerId: null, ownerName: null, at: null, gone: false }],
+        changes: 0,
+        onBehalfOfName: null,
+        undoneByName: null,
+        markAnchorId: null,
+        question: { reason: "brand_new_reason", forName: null, taskCode: null, answer: null, answeredByName: null, canRequest: false },
+      },
+    };
+    const parsed = readerSchema(inboxItemSchema).parse({ ...item, productDoc }).productDoc!.claude!;
+    expect(parsed).toMatchObject({ waited: null, sources: [{ kind: UNKNOWN, thread: null }], question: { reason: UNKNOWN } });
   });
 });

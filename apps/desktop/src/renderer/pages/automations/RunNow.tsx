@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { type Ref } from "react";
 import { useTranslation } from "react-i18next";
-import { stepAt } from "../../domain/automations/fields";
+import { stepAt } from "@stubwise/shared";
 import { usePauserName } from "../../components/InstanceBlock";
 import { WhoCanLink } from "../../components/WhoCanLink";
 import { useMailThreadOfMessage } from "../../data/queries";
@@ -87,6 +87,13 @@ export function NowBox({
   const client = str(run.pending?.preview.clientName) || clientOf(run.event) || "";
   // Una decisione presa qui (o in «Decide») e ancora nella finestra dell'«Undo».
   const answering = usePendingAnswers().has(run.id);
+  // Mandato, ma il worker non l'ha ancora applicato (build app, review I2).
+  const applying = run.inputQueued === true;
+  const applyingNote = (
+    <p className="text-sm text-ink-muted" data-input-queued>
+      {t("automations.decide.applying")}
+    </p>
+  );
   // Chi ha messo la pausa, con «(deactivated)» se è stato disattivato.
   const pauserName = usePauserName(run.aiWaiting ?? null);
   // Il progetto in cui il passo aspetta la coda (la frase della pausa lo
@@ -158,6 +165,8 @@ export function NowBox({
           />
           {answering ? (
             <p className="text-sm text-ink-muted">{t("automations.decide.answering")}</p>
+          ) : applying ? (
+            applyingNote
           ) : (
             !run.permissions.approve && (
               <p className="text-sm text-ink-muted">
@@ -176,6 +185,8 @@ export function NowBox({
           <p className="text-sm text-ink-muted">{t("automations.now.box.noLink")}</p>
           {answering ? (
             <p className="text-sm text-ink-muted">{t("automations.decide.answering")}</p>
+          ) : applying ? (
+            applyingNote
           ) : (
             run.permissions.chooseProject && (
               <ChooseProject
@@ -184,6 +195,7 @@ export function NowBox({
                 cursor={run.cursor ?? ""}
                 code={run.code}
                 client={client}
+                canRemember={run.permissions.rememberClient === true}
                 onDone={onDone}
               />
             )
@@ -256,7 +268,8 @@ export function NowBox({
       body = (
         <>
           {failed?.why && <p className="text-sm text-ink">{reasonWords(failed.why, t)}</p>}
-          {run.permissions.manage && (
+          {applying && applyingNote}
+          {run.permissions.manage && !applying && (
             <div className="flex items-center gap-2">
               <button type="button" className={criticalQuiet} onClick={onCancel}>
                 {t("automations.actions.cancelRun")}

@@ -1,5 +1,5 @@
 import { repositories, ticketRepositories, tickets, type Db } from "@stubwise/db";
-import { correctionActionAllowed, enqueueCorrection } from "@stubwise/notifications";
+import { aiBudgetState, correctionActionAllowed, enqueueCorrection } from "@stubwise/notifications";
 import { isAdoptedBranchProtected, isCorrectablePr, prNumberFromUrl } from "@stubwise/shared";
 import { and, eq } from "drizzle-orm";
 import type { ProjectActor } from "./jobs.js";
@@ -11,7 +11,10 @@ export type RequestCorrectionError =
   | "adopted_branch_protected"
   | "pr_not_open"
   | "correction_in_flight"
-  | "job_in_flight";
+  | "job_in_flight"
+  | "colleague_analysis_only"
+  // Rimandi, lotto 4 (D-7.1): budget mensile finito e chi chiede non ha `plans.approve`.
+  | "budget_exhausted";
 
 export type RequestCorrectionResult =
   | { ok: true; correctionId: string }
@@ -87,6 +90,11 @@ export async function requestCorrection(
   // 0081, o un backfill che non l'ha riconosciuto) dall'URL.
   const prNumber = pr.prUrl === null ? null : (pr.prNumber ?? prNumberFromUrl(pr.prUrl));
   if (pr.prState !== "open" || prNumber === null) return { ok: false, error: "pr_not_open" };
+
+  // Rimandi, lotto 4 (D-7.1, il maintainer): a budget mensile finito chi non
+  // ha `plans.approve` riceve SUBITO 409 (prima la correzione nasceva e il
+  // worker la fermava `held`); chi ce l'ha lo scavalca come sempre (E7).
+  if (!actor.permissions.has("plans.approve") && (await aiBudgetState(db)).exhausted) return { ok: false, error: "budget_exhausted" };
 
   // Lo schema del corpo normalizza già una nota vuota ad assente; qui lo si
   // rifà per un chiamante che non passi dalla rotta.

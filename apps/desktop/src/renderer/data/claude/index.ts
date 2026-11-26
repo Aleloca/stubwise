@@ -14,4 +14,9 @@
 export type { CatalogInverse, ClaudeActionFn, ObjectRef } from "./types";
 export type { ActionClass, ClassReason } from "./classes";
 export { declaredClassOf, isCatalogFn } from "./catalog";
-export { undoClaudeActions, type UndoResult } from "./actions";
+export {
+  retryClaudeEffect,
+  undoClaudeActions,
+  type RetryEffectResult,
+  type UndoResult,
+} from "./actions";

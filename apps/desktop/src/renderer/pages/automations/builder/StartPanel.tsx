@@ -1,7 +1,9 @@
 import { Link } from "@tanstack/react-router";
+import { triggerKey, SCHEDULE_DEFAULT_HOUR } from "@stubwise/shared";
+import { automationAvailability } from "../../../data/integration";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { triggerFields } from "../../../domain/automations/fields";
+import { triggerFields } from "@stubwise/shared";
 import type { AutomationTrigger, DataField } from "../../../data/types";
 import { Dialog } from "../../../tasks-ui/Dialog";
 import { primaryButton, secondaryButton } from "../../tasks/controls";
@@ -27,6 +29,8 @@ const STUBWISE: Stubwise[] = [
   "task_created",
   "task_closed",
   "request_created",
+  // Q5 = a *(M)*: la richiesta diventata task (la task vale anche come «creata»).
+  "request_converted",
   "milestone_reached",
   "mail_received",
 ];
@@ -55,6 +59,7 @@ export function StartPanel({ dataRef }: { dataRef: React.RefObject<HTMLElement |
     else b.update((f) => ({ ...f, trigger: next }));
   };
 
+  const available = automationAvailability();
   const option = (
     key: string,
     label: string,
@@ -63,18 +68,25 @@ export function StartPanel({ dataRef }: { dataRef: React.RefObject<HTMLElement |
     extra?: string,
   ) => {
     const on = same(tr, trigger) && !(tr.kind === "source" && tr.sourceId === "");
+    // Nella build app gli inizi delle fette dopo: «Coming soon», non si scelgono (area 7, F1);
+    // delle sorgenti solo il webhook in arrivo (F4, Q2: Audin e HubSpot dopo).
+    const notWebhook =
+      trigger.kind === "source" && b.sources.find((x) => x.id === trigger.sourceId)?.kind !== "webhook";
+    const soon =
+      !!available && (!available.triggers.includes(triggerKey(trigger)) || notWebhook);
     return (
       <button
         key={key}
         type="button"
         role="radio"
         aria-checked={on}
-        disabled={b.readOnly}
+        disabled={b.readOnly || soon}
         onClick={() => choose(trigger)}
         className={`flex min-h-8 items-center gap-2.5 rounded-md px-2 text-left text-md ${on ? "bg-ink/10 font-medium text-ink" : "text-ink hover:bg-ink/6"}`}
       >
         {glyph}
         <span className="min-w-0 flex-1">{label}</span>
+        {soon && <span className="text-xs text-ink-muted">{t("placeholder.comingSoon.title")}</span>}
         {extra && <span className="text-xs text-critical">{extra}</span>}
       </button>
     );
@@ -301,7 +313,7 @@ function ScheduleSection({ rule }: { rule: string }) {
     rule.split(";").map((p) => p.split("=") as [string, string]),
   ) as Record<string, string | undefined>;
   const freq = parts.FREQ ?? "WEEKLY";
-  const hour = Number(parts.BYHOUR ?? 9);
+  const hour = Number(parts.BYHOUR ?? SCHEDULE_DEFAULT_HOUR);
   const minute = Number(parts.BYMINUTE ?? 0);
   const write = (next: Record<string, string | number | undefined>) => {
     const p: Record<string, string | number | undefined> = {

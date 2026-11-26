@@ -1,17 +1,9 @@
 import { isOverdue, openMilestones } from "../../domain/due";
+import { maskedStalled, maskedTask, personMasker } from "../access/hidden";
 import { rowsFor } from "../mail/reads";
 import { bornFrom, proposedFrom, summaryFor } from "../mail/transcripts";
 import { TODAY } from "../dates";
-import {
-  copy,
-  familyOf,
-  gate,
-  now,
-  pulseOf,
-  stalledTasks,
-  state,
-  visibleTasks,
-} from "../store";
+import { copy, familyOf, gate, now, pulseOf, stalledTasks, state, visibleTasks } from "../store";
 import type { CalendarEvent, MeetingPrep, RecentMeeting } from "../types";
 import { prepAvailable, readableEvent } from "./reads";
 import { canReadEvent, inWindow } from "./visibility";
@@ -72,6 +64,7 @@ export function prepFor(me: string, e: CalendarEvent): MeetingPrep | null {
   const projectId = e.projectId!;
   const project = state.projectsById.get(projectId)!;
   const pulse = pulseOf(me, project);
+  const mask = personMasker(me);
   const open = visibleTasks(me).filter(
     (t) => t.projectId === projectId && familyOf(t) !== "closed",
   );
@@ -84,12 +77,13 @@ export function prepFor(me: string, e: CalendarEvent): MeetingPrep | null {
     status: {
       inProgress: pulse.open.active,
       late: open.filter((t) => isOverdue(t.dueDate, familyOf(t))).length,
-      stalled: stalledTasks(me, { projectIds: [projectId] }),
+      // Revisione del lotto 2-3 (46): né le ferme né le scadenze dicono chi chi guarda non conosce.
+      stalled: stalledTasks(me, { projectIds: [projectId] }).map((r) => maskedStalled(r, mask)),
       nextDueDates: open
         .filter((t) => t.dueDate !== null && t.dueDate >= TODAY)
         .sort((a, b) => a.dueDate!.localeCompare(b.dueDate!) || a.code.localeCompare(b.code))
         .slice(0, PREP_DUE)
-        .map(copy),
+        .map((t) => maskedTask(t, mask)),
       milestones: openMilestones(state.milestones.filter((m) => m.projectId === projectId))
         .slice(0, PREP_MILESTONES)
         .map(copy),

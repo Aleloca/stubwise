@@ -34,6 +34,7 @@ import {
   recoverStalePluginJobs,
   requeuePluginJob,
 } from "./queue.js";
+import { NATIVE_TOOLS } from "../agent/native-tools.js";
 
 /**
  * POLLER della coda `plugin_jobs`: task SEPARATO dal loop dei job (stesso
@@ -613,6 +614,8 @@ async function runSmoke(
         // Registro d'istanza: nessun progetto. Modello fisso (non configurabile).
         usage: { operation: "plugin_smoke", projectId: null },
         permissionMode: "default",
+        // Deve vedere le skill, nient'altro (`native-tools.ts`).
+        builtinTools: NATIVE_TOOLS.pluginSmoke,
         maxTurns: SMOKE_MAX_TURNS,
         timeoutMs: SMOKE_TIMEOUT_MS,
         settingSources: "",

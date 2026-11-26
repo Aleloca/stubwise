@@ -1,5 +1,5 @@
 import { aiProviders, aiUsageSnapshots, encrypt, projects } from "@stubwise/db";
-import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -38,7 +38,7 @@ beforeAll(async () => {
 
 afterEach(async () => {
   // projects → ai_providers è ON DELETE SET NULL; gli snapshot cascadano.
-  await testDb.db.delete(projects);
+  await deleteAllProjects(testDb.db);
   await testDb.db.delete(aiProviders);
 });
 

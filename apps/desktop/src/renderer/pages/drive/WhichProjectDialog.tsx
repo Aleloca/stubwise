@@ -17,7 +17,7 @@ import {
 } from "../../data/queries";
 import { onBeforePersonaChange } from "../../data/session";
 import type { Project } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { hasModKey } from "../../platform/platform";
 import { Dialog } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";

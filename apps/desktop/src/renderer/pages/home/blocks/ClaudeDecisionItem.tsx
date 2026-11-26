@@ -14,6 +14,7 @@ import type {
   ProductQuestionDecision,
 } from "../../../data/types";
 import { questionSentence } from "../../../domain/productDocs/claudeText";
+import { isAppBuild } from "../../../data/build";
 import { openClaudePanel } from "../../../layout/claudePanel/panelEvents";
 import { relativeTime } from "../../../notifications/time";
 import { inputClass } from "../../../tasks-ui/Dialog";
@@ -74,6 +75,9 @@ function ConversationDecisionItem({
             { name: name(byId) },
           ),
         );
+      } else if ((error as { code?: unknown } | null)?.code === "plan_changed") {
+        // Il piano è stato riscritto dopo che lo si è letto: non si decide al buio.
+        toast.error(t("home.decide.claude.planChanged", { code: label }));
       } else toast.error(failed);
     });
     toast.show(done, { action: { label: t("home.decide.undo"), run: cancel } });
@@ -255,7 +259,7 @@ function PlanItem({ decision, claude, onOpenTask, defer, label }: ItemProps<Plan
 
   const decide = (choice: "approve" | "reject", instructions?: string) =>
     defer(
-      () => decideNow(decision.conversationId, decision.planId, choice, instructions),
+      () => decideNow(decision.conversationId, decision.planId, choice, instructions, decision.planDigest),
       t(choice === "approve" ? "home.decide.claude.approved" : "home.decide.claude.rejected", {
         code: label,
       }),
@@ -510,12 +514,21 @@ function ProductQuestionItem({ decision }: { decision: ProductQuestionDecision }
               blocked={decision.applyBlocked !== null}
               blockedId={blockedId}
               onAnswer={answer}
+              // Build app: al filo della domanda con la scheda aperta (la
+              // scheda sta nel filo, decisione del maintainer), mai un
+              // messaggio al Claude del server. Prototipo: il riquadro.
               onRequest={() =>
-                openClaudePanel({
-                  draft: t("claude.answers.productDocs.ask.question", { id: decision.commentId }),
-                  fresh: true,
-                  send: true,
-                })
+                isAppBuild()
+                  ? void navigate({
+                      to: "/p/$code/docs/product/$page",
+                      params: { code: decision.projectCode, page: decision.pageCode },
+                      search: { comment: decision.commentId, requestCard: "1" } as never,
+                    })
+                  : openClaudePanel({
+                      draft: t("claude.answers.productDocs.ask.question", { id: decision.commentId }),
+                      fresh: true,
+                      send: true,
+                    })
               }
             />
             {decision.applyBlocked && (

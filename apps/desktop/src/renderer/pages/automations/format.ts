@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import { availableFields, stepAt, visitSteps } from "../../domain/automations/fields";
+import { availableFields, stepAt, visitSteps, SCHEDULE_DEFAULT_HOUR } from "@stubwise/shared";
 import type {
   AutomationFlow,
   AutomationRunRow,
@@ -48,7 +48,7 @@ export function scheduleWords(rule: string, t: TFunction, language: string): str
   const parts = Object.fromEntries(
     rule.split(";").map((p) => p.split("=") as [string, string]),
   ) as Record<string, string | undefined>;
-  const time = `${Number(parts.BYHOUR ?? 9)}:${String(Number(parts.BYMINUTE ?? 0)).padStart(2, "0")}`;
+  const time = `${Number(parts.BYHOUR ?? SCHEDULE_DEFAULT_HOUR)}:${String(Number(parts.BYMINUTE ?? 0)).padStart(2, "0")}`;
   if (parts.FREQ === "DAILY") return t("automations.trigger.daily", { time });
   if (parts.FREQ === "WEEKLY" && parts.BYDAY) {
     const day = weekday(parts.BYDAY.split(",")[0]!, language);
@@ -485,6 +485,12 @@ export function createdSummary(log: RunLogEntry[], t: TFunction): string {
  * prova, al condizionale («the email wouldn't be sent»), dove la frase lo
  * chiede. Un ruolo si dice con la sua parola.
  */
+/** I parametri che sono il nome di una persona (`owner` in ogni motivo che lo ha). */
+const PERSON_PARAMS: Record<string, string[]> = {
+  assigneeDeactivated: ["owner", "name"],
+  recipientCantSee: ["owner", "name"],
+};
+
 export function reasonWords(
   why: ReasonCode | null | undefined,
   t: TFunction,
@@ -492,8 +498,19 @@ export function reasonWords(
 ): string | null {
   if (!why) return null;
   const params: Record<string, unknown> = { ...why.params };
+  // R.1414 (revisione del lotto 2-3): il nome di chi chi guarda non conosce
+  // arriva vuoto (prototipo) o non arriva (server, 72); la frase dice «Someone».
+  for (const key of PERSON_PARAMS[why.code] ?? ["owner"])
+    if (params[key] === "" || params[key] === undefined) params[key] = t("automations.someone");
   if (typeof params.role === "string")
     params.role = t(`automations.roles.${params.role}`, { defaultValue: params.role });
+  // Il codice del mittente della Posta (`emailFailed`, F2) si dice in parole.
+  if (typeof params.error === "string") params.error = errorWords(params.error, t);
+  // Il guasto del provider di Claude (F3): il codice in parole, mai il testo grezzo.
+  if ((why.code === "providerError" || why.code === "providerFailed") && typeof params.code === "string")
+    params.code = t(`automations.providerCodes.${params.code}`, {
+      defaultValue: t("automations.providerCodes.error"),
+    });
   return t(`automations.reasons.${why.code}`, {
     ...params,
     ...(opts.would ? { context: "would" } : {}),

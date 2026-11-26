@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { show } from "../../../domain/automations/preview";
+import { show } from "@stubwise/shared";
 import { DeptStrip } from "../../../layout/DeptStrip";
 import type {
   SimulationClaudePreview,

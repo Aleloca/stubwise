@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
-import { ancestorsAt } from "../../../domain/automations/fields";
-import { templateRefs } from "../../../domain/automations/validate";
+import { ancestorsAt } from "@stubwise/shared";
+import { templateRefs } from "@stubwise/shared";
 import type { Step } from "../../../data/types";
 import { MenuGroup, itemClass } from "../../../tasks-ui/Menu";
 import { MenuButton } from "../../tasks/controls";

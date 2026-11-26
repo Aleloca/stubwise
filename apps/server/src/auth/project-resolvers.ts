@@ -22,6 +22,10 @@ import {
   projects,
   repositories,
   tickets,
+  productClaudeMarks,
+  productComments,
+  productPageRevisions,
+  productPages,
 } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import type { ProjectPermission } from "@stubwise/shared";
@@ -206,6 +210,58 @@ export function fromMilestone(param: string): ProjectResolver {
       .select({ projectId: milestones.projectId })
       .from(milestones)
       .where(eq(milestones.id, id));
+    return row?.projectId ?? null;
+  };
+}
+
+/** Area 11, F1: il progetto di una pagina di prodotto. */
+export function fromProductPage(param: string): ProjectResolver {
+  return async (req, db) => {
+    const id = uuidParam(req, param);
+    if (!id) return null;
+    const [row] = await db.select({ projectId: productPages.projectId }).from(productPages).where(eq(productPages.id, id));
+    return row?.projectId ?? null;
+  };
+}
+
+/** Area 11, F2: il progetto di un commento di una pagina di prodotto. */
+export function fromProductComment(param: string): ProjectResolver {
+  return async (req, db) => {
+    const id = uuidParam(req, param);
+    if (!id) return null;
+    const [row] = await db
+      .select({ projectId: productPages.projectId })
+      .from(productComments)
+      .innerJoin(productPages, eq(productPages.id, productComments.pageId))
+      .where(eq(productComments.id, id));
+    return row?.projectId ?? null;
+  };
+}
+
+/** Area 11, F5: il progetto di un segno di Claude. */
+export function fromProductMark(param: string): ProjectResolver {
+  return async (req, db) => {
+    const id = uuidParam(req, param);
+    if (!id) return null;
+    const [row] = await db
+      .select({ projectId: productPages.projectId })
+      .from(productClaudeMarks)
+      .innerJoin(productPages, eq(productPages.id, productClaudeMarks.pageId))
+      .where(eq(productClaudeMarks.id, id));
+    return row?.projectId ?? null;
+  };
+}
+
+/** Area 11, F5: il progetto di una revisione di una pagina di prodotto. */
+export function fromProductRevision(param: string): ProjectResolver {
+  return async (req, db) => {
+    const id = uuidParam(req, param);
+    if (!id) return null;
+    const [row] = await db
+      .select({ projectId: productPages.projectId })
+      .from(productPageRevisions)
+      .innerJoin(productPages, eq(productPages.id, productPageRevisions.pageId))
+      .where(eq(productPageRevisions.id, id));
     return row?.projectId ?? null;
   };
 }

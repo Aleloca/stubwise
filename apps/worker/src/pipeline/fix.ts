@@ -59,6 +59,7 @@ import {
   type AskUserPayload,
 } from "./ask-user.js";
 import { notify, ticketUrl, type NotifyDeps } from "./notify.js";
+import { assertNotCancelled, RunCancelRequestedError } from "./cancel.js";
 import {
   buildFixExecutePrompt,
   buildFixPlanContinuePrompt,
@@ -77,12 +78,15 @@ import {
   type LoadedEnvFile,
 } from "./env-files.js";
 import { computeReleaseRisk } from "./release-risk.js";
+import { NATIVE_TOOLS, nativeToolsWith } from "../agent/native-tools.js";
 import {
   checkBudgetsBeforeRun,
   DEFAULT_SUMMARY_TIMEOUT_MS,
   holdForBudget,
   notifyJobFailed,
   recordAgentStopExpired,
+  recordRunCancelled,
+  recordRunCancelledSafely,
   type JobOutcomeContext,
 } from "./job-outcomes.js";
 import {
@@ -267,6 +271,12 @@ export async function defaultRunInstallCommand(
 export interface FixDeps extends NotifyDeps {
   db: Db;
   runner: AgentRunner;
+  /**
+   * «Annulla il lavoro» in esecuzione (area 3, 3b.1-bis, `pipeline/cancel.ts`):
+   * il segnale del job. Il runner lo riceve già avvolto (`withCancelSignal`);
+   * qui serve al controllo fra i passi, prima di commit e push.
+   */
+  cancelSignal?: AbortSignal;
   mirrors: MirrorManager;
   /** Chiave AES-256 per decifrare projects.encryptedCredentials. */
   encryptionKey: Buffer;
@@ -633,7 +643,14 @@ async function parkAgentQuestion(input: ParkAgentQuestionInput): Promise<FixOutc
         ? " (nessuna sessione CLI da riprendere: la ripresa ripianificherà da zero)"
         : ""),
   });
-  if (!parked) {
+  if (parked === "cancelled") {
+    // «Annulla il lavoro» chiesto mentre pianificava (review dell'area 3,
+    // punto 2): il job è chiuso skipped invece di parcheggiarsi; la domanda
+    // resta nel ticket ma nessuno la deve più rispondere.
+    await recordRunCancelledSafely(db, { ticketId: ticket.id, jobId: job.id, kind: "fix", lang });
+    return "skipped";
+  }
+  if (parked === "lost") {
     // Ownership persa: la domanda e il commento restano veri (sono contenuto
     // del ticket); solo una riga di log, nessun overwrite dello stato.
     await appendLog(db, job.id, "[fix] ownership persa dopo la registrazione della domanda");
@@ -781,8 +798,8 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     limitUsd: number,
     spentUsd: number,
   ): Promise<FixOutcome> => {
-    await holdForBudget(outcomeCtx, scope, limitUsd, spentUsd);
-    return "held";
+    // Annullato in questo tentativo: chiuso skipped, non in pausa (punto 2 della review).
+    return (await holdForBudget(outcomeCtx, scope, limitUsd, spentUsd)) === "cancelled" ? "skipped" : "held";
   };
 
   // Tetti di spesa (Task 6), PRIMA di toccare il repo: vedi checkBudgetsBeforeRun.
@@ -970,6 +987,9 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   // prima.
   const planTools = [...planGraphTools, ...(askUser?.tools ?? [])];
   const planAllowedToolsOpt = planTools.length > 0 ? { allowedTools: planTools } : {};
+  // I nativi del piano (`native-tools.ts`): letture, skill, sottoagenti; Bash
+  // solo coi comandi del grafo.
+  const planBuiltinTools = nativeToolsWith(NATIVE_TOOLS.fixPlan, planTools);
   // STORICO Q&A del job, solo le domande già RISPOSTE e in ordine di round. È
   // ciò che rende la ripresa possibile: il turno di `--resume` porta l'ultima
   // risposta (le precedenti sono già nel contesto della sessione), e il run di
@@ -1246,6 +1266,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       timeoutMs: planTimeoutMs,
       resumeSessionId: cliSessionId,
       ...planAllowedToolsOpt,
+      builtinTools: planBuiltinTools,
       ...askUserOpt,
       ...providerOpt,
       ...pluginOpt,
@@ -1325,6 +1346,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       maxTurns: DEFAULT_PLAN_MAX_TURNS,
       timeoutMs: planTimeoutMs,
       ...planAllowedToolsOpt,
+      builtinTools: planBuiltinTools,
       ...askUserOpt,
       ...providerOpt,
       ...pluginOpt,
@@ -1456,6 +1478,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
             maxTurns,
             timeoutMs,
             allowedTools: executeAllowedTools,
+            builtinTools: nativeToolsWith(NATIVE_TOOLS.fixExecute, executeAllowedTools),
             ...providerOpt,
             ...pluginOpt,
             ...(await sessionOpt("execute")),
@@ -1505,6 +1528,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
                 maxTurns,
                 timeoutMs,
                 allowedTools,
+                builtinTools: nativeToolsWith(NATIVE_TOOLS.fixExecute, allowedTools),
                 ...providerOpt,
                 ...pluginOpt,
                 ...(await sessionOpt("self_repair")),
@@ -1528,6 +1552,8 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
             repoStates.map((state) => state.dir),
           );
           const changedRepos: ChangedRepo[] = [];
+          // «Annulla il lavoro» arrivato a CLI già uscito: niente commit né push.
+          assertNotCancelled(deps.cancelSignal);
           for (const state of loop.changed) {
             await commitAsStubwise(
               state,
@@ -1579,6 +1605,23 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       // percorso budget-held — holdJob + commento + notifica — invece di
       // failJob/notifyFailed. I consumi del run sono già stati registrati sopra.
       return budgetHeld(err.scope, err.limitUsd, err.spentUsd);
+    }
+    if (err instanceof RunCancelRequestedError) {
+      // «Annulla il lavoro» (area 3, 3b.1-bis): come l'annullamento qui sotto
+      // — skipped, niente commit, push né PR, niente job.failed, stato del
+      // ticket intatto — ma chiesto da una persona, e il commento lo dice.
+      const closed = await completeJob(db, job.id, {
+        status: "skipped",
+        log: `[fix] output prima dell'annullamento:\n${truncateForLog(err.partialOutput)}\n[fix] lavoro annullato da una persona: niente commit, push né PR`,
+      });
+      if (closed) {
+        await recordRunCancelled(db, { ticketId: ticket.id, jobId: job.id, kind: "fix", lang }).catch(async (e: unknown) => {
+          await appendLog(db, job.id, `[fix] commento dell'annullamento non scritto: ${e instanceof Error ? e.message : String(e)}`).catch(
+            () => undefined,
+          );
+        });
+      }
+      return "skipped";
     }
     if (err instanceof AgentRunCancelledError) {
       // ANNULLAMENTO, non fallimento: un maintainer ha fermato l'agente e
@@ -1760,7 +1803,13 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       planSummary,
       log: "[fix] piano pronto, in attesa di approvazione",
     });
-    if (!parked) {
+    if (parked === "cancelled") {
+      // «Annulla il lavoro» chiesto mentre pianificava (review dell'area 3,
+      // punto 2): chiuso skipped invece del gate; niente job.plan_review.
+      await recordRunCancelledSafely(db, { ticketId: ticket.id, jobId: job.id, kind: "fix", lang });
+      return "skipped";
+    }
+    if (parked === "lost") {
       // Ownership persa dopo la pianificazione: il commento e lo stato del
       // ticket sono comunque veri; solo una riga di log, niente overwrite.
       await appendLog(db, job.id, "[fix] ownership persa dopo la pianificazione");

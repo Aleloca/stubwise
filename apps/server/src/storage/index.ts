@@ -1,6 +1,8 @@
-import { decrypt, instanceSettings } from "@stubwise/db";
+import { instanceSettings, s3ConfigFromSettings, type S3Config } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
+import type { Readable } from "node:stream";
 import { createS3Storage } from "./s3.js";
+export { StorageObjectNotFound } from "./errors.js";
 
 export { createS3Storage };
 
@@ -49,55 +51,33 @@ export interface ObjectStorage {
   /** Carica `body` con il `contentType` dato sotto la chiave `key`. */
   putObject(key: string, body: Buffer, contentType: string): Promise<void>;
   /**
-   * URL firmato per il download diretto di `key`, valido `expiresInSeconds`
-   * (default 300s). `filename` finisce nel Content-Disposition `attachment`.
+   * Carica uno STREAM (area 5, fetta 2: il Drive, fino a 100 MB) col caricamento
+   * multipart: il file non sta mai tutto in memoria. Chi chiama conta i byte e
+   * tronca lo stream oltre il tetto; un errore annulla il multipart.
    */
-  getSignedDownloadUrl(key: string, filename: string, expiresInSeconds?: number): Promise<string>;
+  putObjectStream(key: string, body: Readable, contentType: string): Promise<void>;
+  /** Copia `fromKey` in `toKey` (Save to Drive: due oggetti indipendenti); `StorageObjectNotFound` se `fromKey` non c'è. */
+  copyObject(fromKey: string, toKey: string): Promise<void>;
+  /**
+   * URL firmato per il download diretto di `key`, valido `expiresInSeconds`
+   * (default 300s). `filename` finisce nel Content-Disposition `attachment`;
+   * con `inlineContentType` (l'anteprima di un tipo sicuro) `inline`, col
+   * Content-Type forzato a quello.
+   */
+  getSignedDownloadUrl(key: string, filename: string, expiresInSeconds?: number, opts?: { inlineContentType?: string }): Promise<string>;
   /** Elimina l'oggetto `key` (no-op lato S3 se non esiste). */
   deleteObject(key: string): Promise<void>;
+  /**
+   * Legge `key` per intero, al più `maxBytes` (area 6, F3: gli allegati di una
+   * bozza vanno nel messaggio MIME). Oltre il tetto lancia: un oggetto più
+   * grande di quanto si aspetta chi legge non si carica in memoria.
+   * `StorageObjectNotFound` se `key` non c'è.
+   */
+  getObjectBytes(key: string, maxBytes: number): Promise<Buffer>;
+  /** L'origine degli URL firmati (`https://host`): un'anteprima inline vuole un'origine diversa dall'istanza. */
+  readonly origin?: string;
 }
 
-/** Configurazione di un backend S3-compatibile, con secret key in chiaro. */
-export interface S3Config {
-  endpoint: string;
-  region: string;
-  bucket: string;
-  accessKey: string;
-  secretKey: string;
-}
-
-/**
- * Sottoinsieme della riga `instance_settings` che descrive lo storage. Tutte le
- * colonne sono nullable: lo storage è opzionale.
- */
-export interface S3SettingsLike {
-  s3Endpoint?: string | null;
-  s3Region?: string | null;
-  s3Bucket?: string | null;
-  s3AccessKey?: string | null;
-  s3SecretKeyEncrypted?: string | null;
-}
-
-/**
- * Deriva una {@link S3Config} dai settings dell'istanza, decifrando la secret
- * key con `encryptionKey`. È l'UNICO punto che stabilisce se lo storage è
- * attivo: ritorna `null` se manca uno qualsiasi tra endpoint, bucket, accessKey
- * o secret cifrato. La region è opzionale e default a `"auto"` (S3-compatibili
- * come Hetzner/MinIO ignorano spesso la region, ma l'SDK la richiede).
- */
-export function s3ConfigFromSettings(
-  settings: S3SettingsLike,
-  encryptionKey: Buffer,
-): S3Config | null {
-  const { s3Endpoint, s3Bucket, s3AccessKey, s3SecretKeyEncrypted } = settings;
-  if (!s3Endpoint || !s3Bucket || !s3AccessKey || !s3SecretKeyEncrypted) {
-    return null;
-  }
-  return {
-    endpoint: s3Endpoint,
-    region: settings.s3Region ?? "auto",
-    bucket: s3Bucket,
-    accessKey: s3AccessKey,
-    secretKey: decrypt(s3SecretKeyEncrypted, encryptionKey),
-  };
-}
+// La configurazione S3 dell'istanza sta in `@stubwise/db` (area 5, fetta 3):
+// la legge anche il worker, in sola lettura, per il contenuto del Drive.
+export { s3ConfigFromSettings, type S3Config, type S3SettingsLike } from "@stubwise/db";

@@ -4,7 +4,7 @@ import {
   ancestorsAt,
   availableFields,
   scopeAt,
-} from "../../../domain/automations/fields";
+} from "@stubwise/shared";
 import { WarningGlyph } from "../glyphs";
 import { useDepartments } from "../../../data/queries";
 import { useBuilder } from "./context";

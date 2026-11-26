@@ -1,3 +1,4 @@
+import { personRefSchema } from "./person-ref.js";
 import { z } from "zod";
 import { agentQuestionAnswerSchema, agentQuestionOptionSchema } from "./notification.js";
 
@@ -24,8 +25,31 @@ export const agentSessionKindSchema = z.enum([
   "project_brief",
   "daily_report",
   "backlog_refine",
+  /**
+   * La conversazione libera con Claude (integrazione «Chat con Claude», fetta
+   * 1): a turni come il refinement, privata del suo autore
+   * (`claude_conversations.owner_id`), senza progetto. Additivo: un client che
+   * non lo conosce lo legge `__unknown__` (`readerSchema`).
+   */
+  "free",
+  /**
+   * Una chiamata a @Claude nella Chat (area 4, fetta 3): una sessione per
+   * chiamata, a turni, PRIVATA di chi ha chiamato come una `free` (ha la sua
+   * riga in `claude_conversations`); la risposta è un messaggio della Chat.
+   */
+  "chat_mention",
+  /** Area 8, F4b: l'analisi di un server (sole letture) e la correzione da una task (il piano). */
+  "server_analysis",
+  "server_fix",
 ]);
 export type AgentSessionKind = z.infer<typeof agentSessionKindSchema>;
+
+/**
+ * I kind con una riga in `claude_conversations` (proprietario, sessione del
+ * CLI): la conversazione libera e la chiamata a @Claude nella Chat. UNA
+ * definizione per i controlli «è dell'autore».
+ */
+export const CLAUDE_CONVERSATION_KINDS: ReadonlySet<AgentSessionKind> = new Set<AgentSessionKind>(["free", "chat_mention"]);
 
 export const agentSegmentLabelSchema = z.enum([
   "triage",
@@ -46,6 +70,11 @@ export const agentSegmentLabelSchema = z.enum([
   "brief",
   "daily_report",
   "refine",
+  /** Il turno di una conversazione libera con Claude (chat, fetta 1). Additivo. */
+  "chat",
+  /** Area 8, F4b: l'analisi di un server e la correzione (S5, S6). Additivi; non interattivi. */
+  "server_analysis",
+  "server_fix",
 ]);
 export type AgentSegmentLabel = z.infer<typeof agentSegmentLabelSchema>;
 
@@ -72,6 +101,9 @@ export const INTERACTIVE_SEGMENTS: ReadonlySet<AgentSegmentLabel> = new Set<Agen
   "correction_self_repair",
   // `refine` (sessione di refinement): il deliverable è la conversazione stessa.
   "refine",
+  // `chat` (conversazione libera con Claude): come il refinement, la
+  // conversazione è il deliverable; l'autore scrive e ferma a metà turno.
+  "chat",
 ]);
 
 /**
@@ -90,6 +122,8 @@ export const INTERACTIVE_SEGMENTS: ReadonlySet<AgentSegmentLabel> = new Set<Agen
 export const INTERVENABLE_SESSION_KINDS: ReadonlySet<AgentSessionKind> = new Set<AgentSessionKind>([
   "ai_job",
   "backlog_refine",
+  // La conversazione libera: ci scrive (e la ferma) SOLO il suo autore.
+  "free",
 ]);
 
 /**
@@ -106,6 +140,18 @@ export const AGENT_SESSION_INPUT_CHANNEL = "agent_session_input";
 export const BACKLOG_REFINE_CLOSED_CHANNEL = "backlog_refine_closed";
 
 /**
+ * NOTIFY di una conversazione libera archiviata o eliminata (chat, fetta 1):
+ * il worker ferma il turno in corso. Payload `{ sessionId }`.
+ */
+export const CLAUDE_CONVERSATION_CLOSED_CHANNEL = "claude_conversation_closed";
+/**
+ * «Annulla il lavoro» su un job in esecuzione (integrazione area 3, 3b.1-bis):
+ * payload `{ jobId }`, dal server al worker. La fonte resta la colonna
+ * `ai_jobs.cancel_requested_at`; questo è la sveglia.
+ */
+export const AI_JOB_CANCEL_CHANNEL = "ai_job_cancel";
+
+/**
  * Sessioni A TURNI (design 2026-10-14 §3.2): nessun processo sempre acceso,
  * ogni messaggio a sessione ferma diventa un turno nuovo. Il relay del worker
  * cambia tre regole SOLO per questi kind (mai `undelivered` per tempismo).
@@ -113,6 +159,12 @@ export const BACKLOG_REFINE_CLOSED_CHANNEL = "backlog_refine_closed";
  */
 export const TURN_BASED_SESSION_KINDS: ReadonlySet<AgentSessionKind> = new Set<AgentSessionKind>([
   "backlog_refine",
+  // La conversazione libera (chat con Claude, fetta 1): ogni messaggio
+  // dell'autore è un turno, come nel refinement.
+  "free",
+  // La chiamata a @Claude nella Chat (area 4, fetta 3): il turno della
+  // chiamata, poi quello della ripresa dopo la risposta alla domanda.
+  "chat_mention",
 ]);
 
 export const agentSessionEventTypeSchema = z.enum([
@@ -123,6 +175,20 @@ export const agentSessionEventTypeSchema = z.enum([
   "input",
   "turn_end",
   "segment_end",
+  // Chat con Claude, fetta 3: una proposta di Claude e un gruppo di azioni
+  // eseguito dal server. `data`: solo gli id; lo stato si deriva a lettura.
+  "proposal",
+  "actions_executed",
+  // Area 10, F2: una domanda a scelta di Claude nella conversazione libera.
+  // `data`: solo `{ questionId }`; testo, opzioni e risposta si leggono a lettura.
+  "question",
+  // Area 10, F3 (S2): «Hypothesis» e «Details» del lavoro fermo. `data`: id e
+  // una chiave, mai prosa; si arricchisce a lettura con la visibilità.
+  "aside",
+  // Area 10, F7 (S0): ciò che Claude sa fare per chi chiede. `data`: solo
+  // `{ items: ClaudeCapabilityId[] }`, gli id dati dal server; le frasi le
+  // scrive il renderer.
+  "capabilities",
 ]);
 export type AgentSessionEventType = z.infer<typeof agentSessionEventTypeSchema>;
 
@@ -199,6 +265,19 @@ export const agentSessionSummarySchema = z.object({
   /** La voce di backlog della sessione (stima, merge o refinement), null altrimenti. Additivo. */
   backlogItemId: z.string().uuid().nullable().default(null),
   outcome: agentSessionOutcomeSchema.nullable().default(null),
+  /**
+   * Claude aspetta CHI GUARDA (integrazione area 3, fetta 3a): un piano in
+   * attesa e chi guarda ha `plans.approve` nel progetto, o una domanda a cui
+   * può rispondere (il richiedente o `plans.approve`, `actorAllows`).
+   * Calcolato dal server, mai dedotto dal client. Additivo.
+   */
+  waitsOnViewer: z.boolean().default(false),
+  /**
+   * Rimandi, lotto 4 (§7.1): chi ha avviato la sessione (il richiedente del
+   * job, chi ha avviato il refinement); null per le automatiche. Una persona
+   * che chi guarda non conosce arriva `hidden-<n>`. Additivo.
+   */
+  startedById: personRefSchema.nullable().default(null),
 });
 export type AgentSessionSummary = z.infer<typeof agentSessionSummarySchema>;
 
@@ -207,11 +286,20 @@ export const agentSessionListSchema = z.object({
   recent: z.array(agentSessionSummarySchema),
 });
 
-/** `GET /api/agent-sessions?projectId=&ticketId=&aiJobId=` (tutti facoltativi, in AND). */
+/**
+ * `GET /api/agent-sessions?projectId=&ticketId=&aiJobId=&kind=&state=&waitingOnMe=`
+ * (tutti facoltativi, in AND). `kind`, `state` e `waitingOnMe` dall'area 3
+ * (fetta 3a). Lo stato è DERIVATO a lettura, quindi `state` e `waitingOnMe` si
+ * applicano dopo la derivazione: sulle concluse valgono dentro il tetto delle
+ * recenti, come l'elenco senza filtri.
+ */
 export const agentSessionListQuerySchema = z.object({
   projectId: z.string().uuid().optional(),
   ticketId: z.string().uuid().optional(),
   aiJobId: z.string().uuid().optional(),
+  kind: agentSessionKindSchema.optional(),
+  state: agentSessionStateSchema.optional(),
+  waitingOnMe: z.enum(["true", "false"]).optional(),
 });
 export type AgentSessionListQuery = z.infer<typeof agentSessionListQuerySchema>;
 
@@ -271,10 +359,36 @@ export const agentSessionQuestionSchema = z.object({
    * come prima.
    */
   answer: agentQuestionAnswerSchema.nullable().default(null),
+  /**
+   * Chiusa SENZA risposta perché il lavoro è stato annullato (area 3, fetta
+   * 3b, `agent_questions.cancelled_at`): non è più da rispondere, e non è una
+   * risposta. Additivo: un server più vecchio non lo manda.
+   */
+  cancelled: z.boolean().default(false),
+  /** Rimandi, lotto 4 (§7.1): chi ha risposto (`hidden-<n>` se sconosciuto) e quando; null su un'aperta o annullata. Additivi. */
+  answeredById: personRefSchema.nullable().default(null),
+  answeredAt: z.iso.datetime().nullable().default(null),
 });
 export type AgentSessionQuestion = z.infer<typeof agentSessionQuestionSchema>;
 
 export const agentSessionDetailSchema = agentSessionSummarySchema.extend({
+  /**
+   * Rimandi, lotto 4 (§7.2): il piano del job della sessione, con la stessa
+   * regola di `/work` (`runs[].plan`). ASSENTE = un server che non lo sa dare
+   * (il client torna a `/work`); null = nessun piano (un kind diverso da
+   * `ai_job`, o un job senza piano). Il digest va rimandato ad approve/reject.
+   */
+  plan: z
+    .object({
+      jobId: z.string().uuid(),
+      text: z.string(),
+      summary: z.string(),
+      status: z.enum(["pending", "approved", "rejected", "pre_approved", "undecided"]),
+      at: z.iso.datetime(),
+      digest: z.string().nullable().default(null),
+    })
+    .nullable()
+    .optional(),
   /** Calcolato dal server col ruolo di chi guarda: mai dedotto dal client. */
   canWrite: z.boolean().default(false),
   /**

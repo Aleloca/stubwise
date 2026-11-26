@@ -150,6 +150,8 @@
       "creating": "Registering…",
       "projects": "Projects",
       "noProjects": "// no projects yet",
+      "projectsFromEnvironments": "A server's projects are the ones of its environments (set from the project's environments).",
+      "noEnvironments": "// no environment uses this server",
       "interval": "Sample interval (s)",
       "intervalRange": "Enter a value between {{min}} and {{max}} seconds.",
       "edit": "Edit",
@@ -173,7 +175,7 @@
       "keyStepDockerInstall": "Install it (Ubuntu/Debian):",
       "keyStepDockerNote": "Other distros or a rootless setup? See the full guide below.",
       "keyStepRunTitle": "Step 2 — Run the agent",
-      "keyStepRunBody": "Run the command above on the host. The mounts (/proc, /sys, /, docker.sock) are all read-only — the agent only observes. --user 0 lets it read the PM2 app names when PM2 runs as root; --group-add gives it access to the Docker socket so it can discover your containers.",
+      "keyStepRunBody": "Run the command above on the host. /proc, /sys and / are mounted read-only. The Docker socket is different: \":ro\" on a socket doesn't limit what can be asked through it, so the agent can reach the whole Docker API — today it only reads from it (the list of containers and their stats). --user 0 lets it read the PM2 app names when PM2 runs as root; --group-add gives it access to the Docker socket so it can discover your containers.",
       "keyStepVerifyTitle": "Step 3 — Verify",
       "keyStepVerifyBody": "The server turns online within about a minute of the first push. Follow the agent logs:",
       "keyFullGuide": "Full guide & Docker install for all distros →",
@@ -251,6 +253,7 @@
     "invite_not_found": "Invite not found",
     "invite_invalid": "Invite invalid or already used",
     "invite_expired": "Invite expired",
+    "invite_email_mismatch": "Use the email address this invite was sent to.",
     "email_already_exists": "A user with this email already exists",
     "view_exists": "A saved view with this name already exists",
     "slack_not_configured": "Slack integration is not configured",
@@ -308,8 +311,6 @@
     "invalid_permissions": "Some permissions are not valid for this kind of role.",
     "escalation": "You cannot grant permissions you don't have.",
     "escalation_permission": "You cannot grant a permission you don't have: «{{permission}}».",
-    "target_above": "You cannot change someone with more permissions than you.",
-    "target_above_permission": "You cannot change someone with more permissions than you: «{{permission}}».",
     "invalid_second_factor": "The code is not valid",
     "second_factor_locked": "Too many wrong codes: two-step verification is locked for a few minutes",
     "second_factor_busy": "Another attempt is in progress: try again in a moment",
@@ -639,6 +640,9 @@
         "labels_changed": "{{actor}} updated labels",
         "title_changed": "{{actor}} edited the title",
         "body_changed": "{{actor}} edited the description",
+        "planned_week_changed": "{{actor}} changed the planned week: {{from}} → {{to}}",
+        "department_changed": "{{actor}} changed the department",
+        "effort_changed": "{{actor}} changed the size",
         "milestone_changed": {
           "set": "{{actor}} set milestone {{to}}",
           "changed": "{{actor}} changed milestone: {{from}} → {{to}}",
@@ -772,6 +776,8 @@
       "prCorrection": "PR #{{number}} · correction {{round}}",
       "kinds": {
         "run_started": "Run started",
+        "run_cancelled": "Work cancelled",
+        "task_deleted": "Task deleted",
         "question_asked": "The agent asked a question",
         "question_answered": "Question answered",
         "plan_approved": "Plan approved",
@@ -1136,7 +1142,15 @@
           "vault_recovery_used": "Vault recovery key used",
           "vault_activated": "Vault activated",
           "vault_seal_replaced": "Vault passkey seal replaced",
-          "vault_recovery_key_rotated": "Vault recovery kit regenerated"
+          "vault_recovery_key_rotated": "Vault recovery kit regenerated",
+          "reauth_desktop": "Identity confirmed in the desktop app",
+          "deactivated": "Account deactivated",
+          "reactivated": "Account reactivated",
+          "email_changed": "Sign-in email changed",
+          "slack_linked": "Slack account linked by someone else",
+          "bitbucket_linked": "Bitbucket username linked by someone else",
+          "vault_device_sealed": "Mac paired with the vault",
+          "vault_device_seal_revoked": "Mac removed from the vault"
         }
       }
     },
@@ -1390,10 +1404,11 @@
       "consoleTitle": "Paste into the Google Cloud Console",
       "redirectUri": "Authorized redirect URI",
       "scopes": "Scopes",
-      "internalHint": "Create the OAuth consent screen as an Internal app: it stays inside your organization and needs no Google verification.",
-      "apisHint": "Enable the Gmail API and the Google Calendar API on the same project, then paste the client ID and the client secret here.",
+      "internalHint": "Create the OAuth consent screen as an Internal app: it stays inside your organization and needs no Google verification. Some of these scopes (Gmail, Drive) are restricted: an External app must pass Google verification before mailboxes can be reconnected.",
+      "apisHint": "Enable the Gmail API, the Google Calendar API and the Google Drive API on the same project, then paste the client ID and the client secret here.",
       "guideHint": "// step-by-step guide: user docs, Integrations → Google Workspace.",
       "mailAdmission": {
+        "classifyV2Notice": "With the new classification every incoming email goes to the model, which picks among the recipients' projects: mail admission no longer applies.",
         "title": "Admitted mail",
         "subtitle": "// which emails enter Stubwise at all, instance-wide. Project rules below only decide where an admitted email goes.",
         "dataUsageNotice": "Of every admitted email, the subject and body are downloaded and sent to the AI analysis provider configured on this instance, for classification.",
@@ -1465,6 +1480,7 @@
       "sourceSubdir": "Subdirectory (optional)",
       "sourceSubdirPlaceholder": "E.g. plugins/superpowers",
       "addHint": "// the slug is derived from the source URL; the plugin is pinned to the commit the ref resolves to.",
+      "trust": "I trust this repository and this commit: registering it runs its code with the worker's permissions, before anything is enabled.",
       "create": "Register plugin",
       "creating": "Registering…",
       "slugTaken": "A plugin with slug \"{{slug}}\" is already registered. The slug is derived from the source URL and cannot be chosen: remove the existing plugin before registering this source again.",
@@ -1565,7 +1581,13 @@
         "backlog": "Backlog and decisions",
         "docs": "Docs",
         "code": "Code and environments",
-        "credentials": "Credentials"
+        "credentials": "Credentials",
+        "chat": "Chat",
+        "departmentHome": "Department Home",
+        "drive": "Drive",
+        "automations": "Automations",
+        "support": "Support",
+        "servers": "Servers"
       },
       "fullAdminHint": "Full administration includes every permission, on every project.",
       "save": "Save role",
@@ -1693,13 +1715,37 @@
       "requestCreated": "New request",
       "docsLimitPaused": "Docs paused",
       "monitorAlert": "Alert",
+      "releaseFailed": "Release failed",
+      "releaseMerged": "New release",
+      "releaseSucceeded": "Release succeeded",
+      "prAlertOpened": "New pull request",
+      "prAnalysisIssues": "Pull request with problems",
+      "prCorrected": "Pull request corrected by Claude",
+      "docsReleaseNote": "New release note",
       "monitorRecovered": "Recovered",
       "awaitingInput": "Question to answer",
       "pulse": "Proposal",
       "brief": "Weekly brief",
       "googleProposal": "Mailbox proposal",
       "googleProposalHanded": "Email handed to the project",
-      "securityAlert": "Security alert"
+      "securityAlert": "Security alert",
+      "decisionRequested": "A decision is asked of you",
+      "decisionAnswered": "Your question has an answer",
+      "ticketActivity": "Activity on a followed task",
+      "planningChanged": "Your plan changed",
+      "taskAssigned": "Assigned to you",
+      "memberAdded": "Joined a project",
+      "productDocMention": "Mentioned in the product docs",
+      "productDocUpdated": "Product page updated",
+      "productDocQuestion": "A question about a product page",
+      "chatMention": "Mentioned in the chat",
+      "chatQuestion": "A question for you in the chat",
+      "automationApproval": "Approval",
+      "automationFailed": "Run failed",
+      "automationNotify": "Automation",
+      "automationPaused": "Automation paused",
+      "supportRequest": "Customer request",
+      "serverDiagnosisReady": "Server diagnosis"
     },
     "actions": {
       "approvePlan": "Approve plan",
@@ -1848,6 +1894,9 @@
         "docs": "Docs",
         "reports": "Reports",
         "mail": "Mail",
+        "automations": "Automations",
+        "support": "Support",
+        "servers": "Servers",
         "chat": "Chat"
       },
       "ops": {
@@ -1862,11 +1911,21 @@
         "release_notes": "Release notes",
         "docs_nightly": "Nightly Docs",
         "docs_generation": "Docs generation",
+        "drive_summary": "Drive file summaries",
         "daily_report": "Daily report",
         "weekly_brief": "Weekly brief",
         "mail_classify": "Mail classification",
+        "mail_draft": "Email drafts by Claude",
+        "meeting_summary": "Recorded meeting summaries",
+        "automation_step": "Automation steps",
         "chat": "Docs chat",
-        "backlog_merge": "Backlog document merge"
+        "claude_chat": "Private conversations with Claude",
+        "backlog_merge": "Backlog document merge",
+        "support_triage_check": "Support: triage check",
+        "server_analysis": "Servers: analysis",
+        "server_fix_plan": "Servers: fix plan",
+        "mail_reply_judgment": "Mail: does it need my reply?",
+        "product_doc_update": "Product docs: updates from sources"
       }
     }
   },
@@ -1947,7 +2006,10 @@
       "api": "API",
       "slack": "Slack",
       "webhook": "Webhook",
-      "widget": "Widget"
+      "widget": "Widget",
+      "email": "Email",
+      "automation": "Automation",
+      "server": "Server"
     },
     "effort": {
       "1": "Trivial",
@@ -2045,12 +2107,6 @@
       "serversError": "// could not load the servers for this project",
       "noServers": "// no servers",
       "noServersHint": "This project has no monitored servers yet.",
-      "dangerZone": "Danger zone",
-      "deleteProject": "Delete project",
-      "deleteConfirm": "Delete the project and ALL its repositories (tickets, docs, fixes)? This cannot be undone.",
-      "deleteConfirmYes": "Yes, delete",
-      "deleting": "Deleting…",
-      "cancel": "Cancel",
       "follow": "Follow",
       "unfollow": "Unfollow",
       "environmentsLoading": "// loading environments…",
@@ -2201,6 +2257,7 @@
       "noText": "// this brief has no text: the instance has no usable AI provider to generate it."
     },
     "email": {
+      "classifyV2Notice": "With the new classification the model picks an email's projects among the recipients' projects: mail rules no longer apply.",
       "title": "Mail",
       "subtitle": "// which emails attach to this project. Rules here decide attribution only; whether an email enters Stubwise at all is set in Settings → Google.",
       "perimeterWarning": "These rules decide which project an email already admitted to the system goes to. Admission — which emails come in at all — is configured in Settings → Google.",
@@ -2394,7 +2451,27 @@
     "configureAuto": "Configure automatically",
     "webhookUpdated": "Webhook updated on {{url}}",
     "webhookConfigured": "Webhook configured on {{url}}",
-    "configureFailed": "Webhook configuration failed"
+    "configureFailed": "Webhook configuration failed",
+    "keyMaskedHint": "For security the full key is shown only once, right after it is regenerated. Regenerate it to copy the key, the DSN and the snippet.",
+    "keyMaskedHintReadOnly": "For security the full key is shown only once, when it is regenerated: ask whoever manages the project.",
+    "keyCreated": "Created {{date}} by {{name}}",
+    "keyCreatedAt": "Created {{date}}",
+    "regenerateKey": "Regenerate key",
+    "regenerateKeyConfirm": "Regenerate: the current key stops working now",
+    "regenerateKeyCancel": "Cancel",
+    "regenerateKeyWarning": "Every site and script using the current key stops sending until you replace it.",
+    "regenerating": "Regenerating…",
+    "keyRevealed": "This is the only time you will see the new key: copy it now.",
+    "regenerateFailed": "The key could not be regenerated. Try again.",
+    "secretMaskedHint": "For security the full secret is shown only once: when the repository is created or right after it is regenerated. Regenerate it to configure the webhook by hand.",
+    "regenerateSecret": "Regenerate secret",
+    "regenerateSecretConfirm": "Regenerate: the current secret stops working",
+    "regenerateSecretWarning": "If Stubwise configured the webhook, the new secret is sent to the git provider first; otherwise merges are rejected until you paste the new one there.",
+    "secretRevealedManual": "This is the only time you will see the new secret: copy it into the git provider now.",
+    "secretRevealedPlatform": "The git provider already has the new secret. This is the only time you will see it.",
+    "secretRollback": "The secret could not be saved: the previous one is still in use, on Stubwise and on the git provider.",
+    "secretScopeMissing": "The git account token cannot manage webhooks (missing scope): update it, then try again.",
+    "regenerateSecretFailed": "The secret could not be regenerated: the previous one is still in use. Try again."
   },
   "jobStatus": {
     "notes": {
@@ -3359,7 +3436,10 @@
   "permissions": {
     "label": {
       "instance": {
-        "full_admin": "Full administration"
+        "full_admin": "Full administration",
+        "status": {
+          "view": "View the instance status"
+        }
       },
       "projects": {
         "create": "Create projects"
@@ -3368,6 +3448,32 @@
         "invite": "Invite users",
         "manage": "Manage users",
         "view_all": "View the team list"
+      },
+      "changelog": {
+        "view": "View the change log"
+      },
+      "departments": {
+        "manage": "Manage departments"
+      },
+      "people": {
+        "activity": {
+          "view": "View people's daily activity"
+        }
+      },
+      "claude": {
+        "public": {
+          "view": "Read public conversations with Claude"
+        }
+      },
+      "chat": {
+        "general": {
+          "create": "Create general chat channels",
+          "manage": "Manage general chat channels"
+        },
+        "channels": {
+          "create": "Create chat channels in the project",
+          "manage": "Manage the project's chat channels"
+        }
       },
       "roles": {
         "manage": "Manage roles"
@@ -3461,6 +3567,34 @@
         "create": "Create credentials",
         "edit": "Edit credentials and replace passwords",
         "share": "Share credentials with other members"
+      },
+      "planning": {
+        "others": "Plan other people's tasks"
+      },
+      "department": {
+        "home": {
+          "manage": "Manage the department's Home"
+        }
+      },
+      "drive": {
+        "upload": "Upload files to the project's Drive",
+        "manage": "Manage the project's Drive (remove others' files)",
+        "history": "See who opened the Drive's files"
+      },
+      "automations": {
+        "manage": "Manage the project's automations and decide their runs",
+        "general": {
+          "manage": "Manage the general automations (without a project) and decide their runs"
+        }
+      },
+      "support": {
+        "manage": "Manage Support conversations: open the request, mark them not concluded, reply to collaborators"
+      },
+      "servers": {
+        "operate": "Start a server's analysis and request a fix plan (the approval stays with plans.approve)",
+        "ssh": {
+          "manage": "Manage the read-only SSH access of servers"
+        }
       }
     }
   },
@@ -3674,6 +3808,23 @@
       "cancel": "Cancel",
       "missing": "You have no copy of these credentials, and the rotation needs ALL of them: have them shared with you (or use the current kit to confirm yourself) and retry.",
       "done": "The recovery kit was replaced: the old one no longer works. The other full admins were notified."
+    },
+    "pair": {
+      "title": "Pair this Mac",
+      "intro": "Stubwise for Mac wants to open your vault with Touch ID. Pair it once, here, with your passkey.",
+      "warning": "Continue only if you started this from your Mac just now. If you didn't, close this page: someone may be trying to read your passwords.",
+      "loading": "Reading the pairing…",
+      "invalid": "This pairing isn't valid any more (expired, used or not yours). Start again from your Mac.",
+      "device": "Mac",
+      "login": "Its sign-in was created on {{created}} and last used on {{used}}.",
+      "loginNever": "Its sign-in was created on {{created}} and hasn't been used yet.",
+      "fingerprintHint": "The code is on your Mac, in Stubwise, not on this page. If your Mac isn't showing one, close this page.",
+      "confirmLabel": "Type the last 4 characters of the code shown by Stubwise on your Mac",
+      "action": "Pair this Mac",
+      "working": "Pairing…",
+      "done": "This Mac now opens your vault. You can go back to the app.",
+      "back": "Back to the app",
+      "expires": "Expires at {{time}}."
     }
   }
 }

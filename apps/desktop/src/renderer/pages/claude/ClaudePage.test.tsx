@@ -1,4 +1,5 @@
 import { screen, waitFor, within } from "@testing-library/react";
+import { strangersTo } from "../../test/strangers";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as api from "../../data/api";
@@ -308,7 +309,9 @@ describe("destinazione Claude: elenchi per persona", () => {
     await user.click(screen.getByRole("menuitemradio", { name: "Any" }));
     await user.click(screen.getByRole("button", { name: /^Project/ }));
     await user.click(screen.getByRole("menuitemradio", { name: /^AUD · / }));
-    const aud = all.filter((c) => (c.projectId ?? c.contextProjectId) === "prj-aud").map((c) => c.id);
+    const aud = all
+      .filter((c) => (c.projectId ?? c.contextProjectId) === "prj-aud")
+      .map((c) => c.id);
     expect(aud.length).toBeGreaterThan(0);
     await waitFor(() => expect(rowIds().sort()).toEqual([...aud].sort()));
 
@@ -318,6 +321,17 @@ describe("destinazione Claude: elenchi per persona", () => {
 });
 
 describe("destinazione Claude: pubblica, privata, continuazione", () => {
+  // R.1414: chi l'ha resa pubblica e chi guarda non conosce arriva come
+  // segnaposto senza nome; la testata dice «Someone», mai un nome vuoto.
+  it("pubblicata da chi non si conosce: «made public by Someone»", async () => {
+    const [who] = strangersTo("p-laura");
+    const c = state.conversations.find((x) => x.id === "cv-laura-slipped")!;
+    c.ownerId = who!;
+    c.publishedById = who!;
+    renderRoute("/claude/cv-laura-slipped", "p-laura");
+    expect(await screen.findByText(/Public · made public by Someone on/)).toBeTruthy();
+  });
+
   it("«Make public» elenca i progetti toccati e chiede la responsabilità; poi la testata lo dice", async () => {
     const user = userEvent.setup();
     renderRoute("/claude/cv-giulia-week", "p-giulia");
@@ -330,9 +344,7 @@ describe("destinazione Claude: pubblica, privata, continuazione", () => {
     expect(within(dialog).queryByRole("checkbox")).toBeNull();
     await user.click(within(dialog).getByRole("button", { name: "Make public, I'm responsible" }));
     await waitFor(() =>
-      expect(state.conversations.find((c) => c.id === "cv-giulia-week")!.visibility).toBe(
-        "public",
-      ),
+      expect(state.conversations.find((c) => c.id === "cv-giulia-week")!.visibility).toBe("public"),
     );
     expect(await screen.findByText(/Public · made public by Giulia Ferri on/)).toBeTruthy();
     // E si torna privata.
@@ -370,12 +382,16 @@ describe("destinazione Claude: pubblica, privata, continuazione", () => {
     api.failNext("setVisibility");
     await user.click(button);
     const dialog = await screen.findByRole("dialog", { name: "Make this conversation public?" });
-    expect(await within(dialog).findByText("Couldn't check which projects Claude used.")).toBeTruthy();
+    expect(
+      await within(dialog).findByText("Couldn't check which projects Claude used."),
+    ).toBeTruthy();
     expect(
       within(dialog).getByRole("button", { name: "Make public, I'm responsible" }),
     ).toBeDisabled();
     await user.click(within(dialog).getByRole("button", { name: "Retry" }));
-    const list = await within(dialog).findByRole("list", { name: "Projects Claude read or changed" });
+    const list = await within(dialog).findByRole("list", {
+      name: "Projects Claude read or changed",
+    });
     expect(list).toHaveTextContent("MKX");
   });
 
@@ -385,9 +401,7 @@ describe("destinazione Claude: pubblica, privata, continuazione", () => {
     await user.click(await screen.findByRole("button", { name: "Make public" }));
     const dialog = await screen.findByRole("dialog", { name: "Make this conversation public?" });
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    expect(state.conversations.find((c) => c.id === "cv-giulia-week")!.visibility).toBe(
-      "private",
-    );
+    expect(state.conversations.find((c) => c.id === "cv-giulia-week")!.visibility).toBe("private");
   });
 
   it("Sara scrive nella pubblica di Giulia: nasce una sua conversazione privata, Giulia non la vede", async () => {
@@ -438,12 +452,11 @@ describe("destinazione Claude: pubblica, privata, continuazione", () => {
     expect(giuliaLists.map((r) => r.id)).not.toContain(id);
   });
 
-  it("nella pubblica di Giulia i codici di AUD, che Sara non vede, non si aprono", async () => {
+  it("nella pubblica di Giulia i codici di AUD, che Sara non vede, non si aprono né si citano", async () => {
     renderRoute("/claude/cv-giulia-callbacks", "p-sara");
-    const used = await screen.findByText("Used:");
-    const line = used.parentElement!;
-    await waitFor(() => expect(line.querySelector('[data-citation="hidden"]')).not.toBeNull());
-    expect(within(line).getByText("AUD-9").tagName).toBe("SPAN");
+    await screen.findByText(/AUD-9/);
+    // Lotto 9 (decisione di 46): tolti dalle citazioni, nessun segno sbiadito.
+    await waitFor(() => expect(document.querySelector('[data-citation="hidden"]')).toBeNull());
     expect(document.querySelector('a[href*="AUD-9"]')).toBeNull();
     // Il progetto che non vede non compare nemmeno nella testata.
     expect(screen.getByRole("heading", { level: 1 }).parentElement!.textContent).not.toMatch(
@@ -461,7 +474,9 @@ describe("destinazione Claude: rinomina, archivia, elimina", () => {
     const field = screen.getByRole("textbox", { name: "Conversation title" });
     await user.clear(field);
     await user.type(field, "Week of the fair{Escape}");
-    expect(screen.getByRole("heading", { level: 1, name: "Where do my projects stand this week?" }));
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Where do my projects stand this week?" }),
+    );
     await user.click(screen.getByRole("button", { name: "More actions" }));
     await user.click(screen.getByRole("menuitem", { name: "Rename" }));
     const again = screen.getByRole("textbox", { name: "Conversation title" });

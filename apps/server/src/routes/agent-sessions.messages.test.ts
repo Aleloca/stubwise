@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import {
@@ -728,6 +729,27 @@ describe("GET /api/agent-sessions/:id/stream", () => {
     while (!cond() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
     return cond();
   }
+
+  it("rimandi, lotto 4, §7.1: nel messaggio `session` dello stream chi ha avviato la sessione, se chi guarda non lo conosce, è un segnaposto", async () => {
+    const [stranger] = await t.db.insert(users).values({ email: `stranger-ss-${randomUUID().slice(0, 6)}@x.it`, passwordHash: "x", role: "member" }).returning({ id: users.id });
+    const [session] = await t.db.select({ aiJobId: agentSessions.aiJobId }).from(agentSessions).where(eq(agentSessions.id, jobSession));
+    await t.db.update(aiJobs).set({ requestedByUserId: stranger!.id }).where(eq(aiJobs.id, session!.aiJobId!));
+    try {
+      const ctrl = new AbortController();
+      const read = reader(await openStream(jobSession, u.memberCookie, ctrl.signal));
+      const first = await read('"type":"session"');
+      expect(first).toContain('"startedById":"hidden-1"');
+      expect(first).not.toContain(stranger!.id);
+      ctrl.abort();
+      // Chi lo conosce (un full admin) lo riceve vero.
+      const ctrlAdmin = new AbortController();
+      const readAdmin = reader(await openStream(jobSession, u.adminCookie, ctrlAdmin.signal));
+      expect(await readAdmin('"type":"session"')).toContain(`"startedById":"${stranger!.id}"`);
+      ctrlAdmin.abort();
+    } finally {
+      await t.db.update(aiJobs).set({ requestedByUserId: null }).where(eq(aiJobs.id, session!.aiJobId!));
+    }
+  });
 
   it("un member riceve il dettaglio (con inputs) e poi gli eventi nuovi notificati dal worker", async () => {
     const ctrl = new AbortController();

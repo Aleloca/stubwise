@@ -1,12 +1,18 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { isAppBuild } from "../../data/build";
+import { featureIntegrated } from "../../data/integration";
+import { ContainersDialog, containersOn } from "./EnvironmentContainers";
+import { environmentPatch } from "./environmentPatch";
 import {
   useCreateEnvironment,
   useDeleteEnvironment,
+  useLinkableServers,
   useUpdateEnvironment,
 } from "../../data/queries";
 import type { EnvironmentInput, EnvironmentView } from "../../data/releases";
 import type { ProjectEnvironment } from "../../data/types";
+import { useReauth } from "../../layout/useReauth";
 import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
 import { Menu, itemClass } from "../../tasks-ui/Menu";
 import { useToast } from "../../tasks-ui/Toast";
@@ -121,7 +127,12 @@ function EnvironmentDialog({
   const { t } = useTranslation();
   const create = useCreateEnvironment();
   const update = useUpdateEnvironment();
-  const ids = { name: useId(), url: useId(), server: useId() };
+  const ids = { name: useId(), url: useId(), server: useId(), servers: useId() };
+  // I server si scelgono fra quelli che chi scrive vede (area 8, F4a, S3).
+  const linkable = useLinkableServers().data ?? [];
+  // Nella build app il tipo di un ambiente esistente non cambia (il server non
+  // lo permette: un altro tipo è un ambiente nuovo).
+  const kindLocked = environment !== null && isAppBuild();
   const [draft, setDraft] = useState<Draft>(() => draftOf(environment));
   // Server per repository: con più repository, o se l'ambiente ne ha già.
   const perRepo =
@@ -136,7 +147,12 @@ function EnvironmentDialog({
     setError(null);
     const input = inputOf(draft);
     try {
-      if (environment) await update.mutateAsync({ id: environment.id, patch: input });
+      // Solo ciò che è cambiato (review F4a, I2): i collegamenti solo se cambiano.
+      if (environment)
+        await update.mutateAsync({
+          id: environment.id,
+          patch: environmentPatch(inputOf(draftOf(environment)), input),
+        });
       else await create.mutateAsync({ projectId, input });
       onClose();
     } catch (e) {
@@ -186,7 +202,8 @@ function EnvironmentDialog({
           {t("releases.environments.kind")}
         </legend>
         {KINDS.map((kind) => {
-          const blocked = kind === "production" && !!otherProduction;
+          const blocked =
+            (kind === "production" && !!otherProduction) || (kindLocked && kind !== draft.kind);
           return (
             <label
               key={kind}
@@ -209,6 +226,9 @@ function EnvironmentDialog({
             {t("releases.environments.productionExists", { name: otherProduction.name })}
           </p>
         )}
+        {kindLocked && (
+          <p className="text-xs text-ink-muted">{t("releases.environments.kindLocked")}</p>
+        )}
       </fieldset>
       <DialogField label={t("releases.environments.url")} htmlFor={ids.url}>
         <input
@@ -229,6 +249,7 @@ function EnvironmentDialog({
       >
         <input
           id={ids.server}
+          list={ids.servers}
           placeholder="SRV-3"
           value={draft.server}
           onChange={(e) => setDraft((d) => ({ ...d, server: e.target.value }))}
@@ -246,6 +267,7 @@ function EnvironmentDialog({
                 {r.name}
               </span>
               <input
+                list={ids.servers}
                 placeholder={draft.server.trim() || t("releases.environments.sameAsProject")}
                 value={draft.byRepo[r.id] ?? ""}
                 onChange={(e) =>
@@ -257,6 +279,13 @@ function EnvironmentDialog({
           ))}
         </fieldset>
       )}
+      <datalist id={ids.servers}>
+        {linkable.map((s) => (
+          <option key={s.code} value={s.code}>
+            {s.name}
+          </option>
+        ))}
+      </datalist>
       <OrphanWarning
         codes={orphaned(
           environment,
@@ -288,6 +317,27 @@ function DeleteDialog({
   const { t } = useTranslation();
   const remove = useDeleteEnvironment();
   const toast = useToast();
+  const reauth = useReauth();
+  const [busy, setBusy] = useState(false);
+
+  // Area 9, F5: un ambiente con file d'ambiente chiede la riconferma (il
+  // livello dati lo dice con `reauth_required`); chiuso il dialogo senza,
+  // niente è eliminato e questo resta aperto.
+  async function submit() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const result = await reauth(() => remove.mutateAsync(environment.id), {
+        action: t("releases.environments.deleteReauthAction", { name: environment.name }),
+        cancelMessage: t("releases.environments.deleteReauthCancelled"),
+      });
+      if (result.ok) onClose();
+    } catch {
+      toast.error(t("releases.environments.deleteError", { name: environment.name }));
+    }
+    setBusy(false);
+  }
+
   return (
     <Dialog
       title={t("releases.environments.deleteTitle", { name: environment.name })}
@@ -303,15 +353,9 @@ function DeleteDialog({
           </button>
           <button
             type="button"
-            disabled={remove.isPending}
+            disabled={busy}
             className={dangerSolidButton}
-            onClick={() =>
-              remove.mutate(environment.id, {
-                onSuccess: onClose,
-                onError: () =>
-                  toast.error(t("releases.environments.deleteError", { name: environment.name })),
-              })
-            }
+            onClick={() => void submit()}
           >
             {t("releases.environments.delete")}
           </button>
@@ -323,14 +367,22 @@ function DeleteDialog({
   );
 }
 
+/** I server di un ambiente, una volta ciascuno, nell'ordine delle righe. */
+const serverCodesOf = (environment: ProjectEnvironment): string[] => [
+  ...new Set(environment.servers.map((s) => s.serverCode)),
+];
+
 function RowMenu({
   environment,
   onEdit,
   onDelete,
+  onContainers,
 }: {
   environment: ProjectEnvironment;
   onEdit: () => void;
   onDelete: () => void;
+  /** I container su un server dell'ambiente (R0-D); assente = la voce non c'è. */
+  onContainers?: (code: string) => void;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -360,6 +412,22 @@ function RowMenu({
           >
             {t("releases.environments.edit")}
           </button>
+          {onContainers &&
+            serverCodesOf(environment).map((code) => (
+              <button
+                key={code}
+                type="button"
+                role="menuitem"
+                tabIndex={-1}
+                className={itemClass}
+                onClick={() => {
+                  setOpen(false);
+                  onContainers(code);
+                }}
+              >
+                {t("releases.environments.containers.menu", { code })}
+              </button>
+            ))}
           <button
             type="button"
             role="menuitem"
@@ -397,6 +465,9 @@ export function Environments({
   const { t, i18n } = useTranslation();
   const [editing, setEditing] = useState<ProjectEnvironment | "new" | null>(null);
   const [deleting, setDeleting] = useState<ProjectEnvironment | null>(null);
+  const [containers, setContainers] = useState<{ env: EnvironmentView; code: string } | null>(null);
+  // I container degli ambienti (area 8, F4b, R0-D): nell'app finché non è cablato, spenti.
+  const withContainers = featureIntegrated("environment-containers");
   const runsLine = (s: EnvironmentView["servers"][number]) => {
     if (!s.reportedSha) return null;
     // Il rilascio che combacia lo dice il livello dati (R-L2: della stessa
@@ -465,6 +536,9 @@ export function Environments({
                   environment={e}
                   onEdit={() => setEditing(e)}
                   onDelete={() => setDeleting(e)}
+                  onContainers={
+                    withContainers ? (code) => setContainers({ env: e, code }) : undefined
+                  }
                 />
               )}
               {!inline(e) && e.servers.length > 0 && (
@@ -484,9 +558,34 @@ export function Environments({
                   ))}
                 </ul>
               )}
+              {withContainers &&
+                serverCodesOf(e).flatMap((code) => {
+                  const list = containersOn(e, code);
+                  return list.length === 0
+                    ? []
+                    : [
+                        <p
+                          key={code}
+                          data-environment-containers={code}
+                          className="num basis-full text-sm text-ink-muted"
+                        >
+                          {t("releases.environments.containers.line", {
+                            code,
+                            list: list.join(", "),
+                          })}
+                        </p>,
+                      ];
+                })}
             </li>
           ))}
         </ul>
+      )}
+      {containers && (
+        <ContainersDialog
+          environment={containers.env}
+          code={containers.code}
+          onClose={() => setContainers(null)}
+        />
       )}
       {editing && (
         <EnvironmentDialog

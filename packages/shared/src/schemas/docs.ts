@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { aiProviderKindSchema } from "./ai-job.js";
 import { decisionSourceSchema } from "./project.js";
 
 /**
@@ -169,6 +170,8 @@ export const docTreeNodeSchema = z.object({
   viewCount: z.number().int(),
   // Solo per kind="releases": significatività della release; null altrove.
   significant: z.boolean().nullable(),
+  /** Il codice stabile `<PRJ>-D<n>` (area 5, fetta 1); null da un server che non lo conosce, o per una nota di rilascio. */
+  code: z.string().nullable().default(null),
 });
 export type DocTreeNode = z.infer<typeof docTreeNodeSchema>;
 
@@ -223,6 +226,8 @@ export const docPageSchema = z.object({
     )
     .nullable()
     .default(null),
+  /** Il codice stabile `<PRJ>-D<n>` (area 5, fetta 1); null da un server che non lo conosce, o per una nota di rilascio. */
+  code: z.string().nullable().default(null),
 });
 export type DocPage = z.infer<typeof docPageSchema>;
 /** Un commit dell'avviso «il codice è cambiato dopo questa pagina». */
@@ -236,6 +241,8 @@ export type DocPageStaleCommit = NonNullable<DocPage["staleSince"]>[number];
  */
 export const docSpaceSchema = z.object({
   repositoryId: z.uuid(),
+  /** Il progetto del repository (area 5, fetta 1); null da un server che non lo manda. */
+  projectId: z.uuid().nullable().default(null),
   slug: z.string(),
   name: z.string(),
   pageCount: z.number().int(),
@@ -248,6 +255,10 @@ export type DocSpace = z.infer<typeof docSpaceSchema>;
 export const docChatSessionSchema = z.object({ id: z.uuid(), createdAt: z.string() });
 export type DocChatSession = z.infer<typeof docChatSessionSchema>;
 
+/** Area 11, F3: una pagina di prodotto data alla chat dei Docs del progetto (la si apre dal codice o da `pageId`). */
+export const docsChatProductSourceSchema = z.object({ pageId: z.uuid(), code: z.string(), title: z.string() });
+export type DocsChatProductSource = z.infer<typeof docsChatProductSourceSchema>;
+
 /**
  * Un messaggio persistito di una sessione di chat sui Docs. `citations` è
  * `unknown` di proposito, ai due capi: è una colonna jsonb e il contratto non
@@ -258,6 +269,12 @@ export const docChatMessageSchema = z.object({
   role: z.string(),
   content: z.string(),
   citations: z.unknown().nullable(),
+  /**
+   * Area 11, F3: le pagine di prodotto usate come fonte (chat dei Docs del
+   * progetto), coi titoli e i codici di ADESSO e solo quelle che chi guarda
+   * vede ancora. Additivo.
+   */
+  productSources: z.array(docsChatProductSourceSchema).default([]),
   createdAt: z.string(),
 });
 export type DocChatMessage = z.infer<typeof docChatMessageSchema>;
@@ -277,6 +294,8 @@ export const docsChatSourceSchema = z.object({
   repositoryId: z.uuid(),
   repositorySlug: z.string(),
   repositoryName: z.string(),
+  /** Il codice `<PRJ>-D<n>` della pagina (area 5, fetta 1); null da un server che non lo conosce. */
+  code: z.string().nullable().default(null),
 });
 export type DocsChatSource = z.infer<typeof docsChatSourceSchema>;
 
@@ -292,6 +311,8 @@ export type DocsChatSource = z.infer<typeof docsChatSourceSchema>;
 export const docsChatAnswerSchema = z.object({
   answer: z.string(),
   sources: z.array(docsChatSourceSchema),
+  /** Area 11, F3: le pagine di prodotto usate come fonte (additivo: un server di prima non le manda). */
+  productSources: z.array(docsChatProductSourceSchema).default([]),
   sessionId: z.uuid(),
 });
 export type DocsChatAnswer = z.infer<typeof docsChatAnswerSchema>;
@@ -309,6 +330,8 @@ export const highlightRefSchema = z.object({
   title: z.string(),
   kind: docPageKindSchema,
   viewCount: z.number().int(),
+  /** Il codice stabile `<PRJ>-D<n>` (area 5, fetta 1); null da un server che non lo conosce, o per una nota di rilascio. */
+  code: z.string().nullable().default(null),
 });
 
 /**
@@ -428,5 +451,111 @@ export const projectDocsSearchResultSchema = z.object({
   repositoryId: z.uuid(),
   repositorySlug: z.string(),
   repositoryName: z.string(),
+  /** Il codice stabile `<PRJ>-D<n>` (area 5, fetta 1); null da un server che non lo conosce, o per una nota di rilascio. */
+  code: z.string().nullable().default(null),
 });
 export type ProjectDocsSearchResult = z.infer<typeof projectDocsSearchResultSchema>;
+
+/**
+ * Il codice di una pagina Docs, `<PRJ>-D<n>` (area 5, fetta 1): il codice del
+ * progetto, poi `D` e il numero. Stabile alle rigenerazioni, mai riusato.
+ */
+export const DOC_CODE_RE = /^([A-Z][A-Z0-9]{1,5})-D(\d{1,9})$/;
+export const docCode = (projectCode: string, number: number): string => `${projectCode}-D${number}`;
+
+/**
+ * `GET /api/docs/codes/:code`: dove sta la pagina di un codice. `available`
+ * falso: il codice c'è, ma la pagina non più (una manuale eliminata, uno slug
+ * sparito da una rigenerazione).
+ */
+export const docCodeResolutionSchema = z.object({
+  code: z.string(),
+  projectId: z.uuid(),
+  repositoryId: z.uuid(),
+  repositorySlug: z.string(),
+  slug: z.string(),
+  available: z.boolean(),
+});
+export type DocCodeResolution = z.infer<typeof docCodeResolutionSchema>;
+
+// ---------------------------------------------------------------------------
+// GENERAZIONE E PAGINE MANUALI (area 5, fetta 1). Erano scritti solo nel server
+// (`routes/docs.ts`); li legge ora anche il desktop, via `@stubwise/api-client`:
+// spostati qui SENZA cambiarne la forma, le rotte li importano.
+// ---------------------------------------------------------------------------
+
+/** Un job di generazione, restituito dalle rotte di avvio e di stato. */
+export const docGenerationJobSchema = z.object({
+  id: z.uuid(),
+  status: docJobStatusSchema,
+  trigger: docGenerationTriggerSchema,
+  error: z.string().nullable(),
+  createdAt: z.string(),
+  startedAt: z.string().nullable(),
+  finishedAt: z.string().nullable(),
+});
+export type DocGenerationJob = z.infer<typeof docGenerationJobSchema>;
+
+/** Il provider bloccato sulla generazione: l'identità minima da mostrare; null = nessun pin. */
+export const docPinnedProviderSchema = z.object({
+  id: z.uuid(),
+  label: z.string(),
+  kind: aiProviderKindSchema,
+});
+
+/** La generazione corrente di un repository. */
+export const docGenerationViewSchema = z.object({
+  id: z.uuid(),
+  status: docGenerationStatusSchema,
+  commitSha: z.string().nullable(),
+  model: z.string().nullable(),
+  cost: z.string().nullable(),
+  stats: z.unknown().nullable(),
+  startedAt: z.string().nullable(),
+  finishedAt: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type DocGenerationView = z.infer<typeof docGenerationViewSchema>;
+
+/** `GET /api/repositories/:id/docs/status`. */
+/**
+ * Perché una generazione è ferma o fallita, come codice (area 5, fetta 1;
+ * `DocGeneration.reason` del prototipo): dalla pausa della generazione, dal
+ * `held_reason` del job, dall'errore del fail-on-restart. Il resto è `other`.
+ */
+export const DOC_GENERATION_REASON_CODES = ["usage_limit", "monthly_budget", "provider_error", "worker_restart", "other"] as const;
+export const docGenerationReasonCodeSchema = z.enum(DOC_GENERATION_REASON_CODES);
+export type DocGenerationReasonCode = z.infer<typeof docGenerationReasonCodeSchema>;
+
+export const docStatusResponseSchema = z.object({
+  generation: docGenerationViewSchema.nullable(),
+  latestJob: docGenerationJobSchema.nullable(),
+  pinnedProvider: docPinnedProviderSchema.nullable(),
+  /** Il motivo di una generazione in pausa, ferma (held) o fallita; null se non è ferma. */
+  reasonCode: docGenerationReasonCodeSchema.nullable().default(null),
+  /** Quando gli account rientrano dal limite (il `limited_until` più vicino), solo se il server lo sa. */
+  resumesAt: z.iso.datetime().nullable().default(null),
+  /** Le pagine (nodi) fatte su quelle totali della generazione in corso o in pausa; null se non ce n'è una. */
+  progress: z.object({ done: z.number().int(), total: z.number().int() }).nullable().default(null),
+});
+export type DocStatusResponse = z.infer<typeof docStatusResponseSchema>;
+
+/** `POST /api/repositories/:id/docs/manual`: lo slug assente si deriva dal titolo, unico per repository (409). */
+export const createManualDocPageSchema = z.object({
+  title: z.string().min(1).max(300),
+  slug: z.string().min(1).max(300).optional(),
+  parentId: z.uuid().nullable().optional(),
+  position: z.int().min(0).optional(),
+  body: z.string().default(""),
+});
+export type CreateManualDocPageInput = z.input<typeof createManualDocPageSchema>;
+
+/** `PATCH /api/repositories/:id/docs/manual/:pageId`: una patch, gli assenti restano. */
+export const updateManualDocPageSchema = z.object({
+  title: z.string().min(1).max(300).optional(),
+  parentId: z.uuid().nullable().optional(),
+  position: z.int().min(0).optional(),
+  body: z.string().optional(),
+});
+export type UpdateManualDocPageInput = z.input<typeof updateManualDocPageSchema>;
+

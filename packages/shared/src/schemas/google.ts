@@ -68,8 +68,13 @@ export const googleDomainsSchema = z
 export const googleOauthScopes = [
   "openid",
   "email",
-  "https://www.googleapis.com/auth/gmail.readonly",
+  // Area 6, fetta 1 (D1 = a): gli scope dell'area intera in un riconsenso
+  // unico. `gmail.modify` sostituisce `gmail.readonly` (le caselle di prima
+  // leggono ancora); vedi `GOOGLE_SCOPES` di `@stubwise/google`, che è questa.
+  "https://www.googleapis.com/auth/gmail.modify",
   "https://www.googleapis.com/auth/calendar.readonly",
+  "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/drive.readonly",
 ] as const;
 
 /** Il path (relativo a `PUBLIC_URL`) su cui Google rimanda dopo il consenso. */
@@ -96,6 +101,8 @@ export const googleWorkspaceSchema = z.object({
   clientId: z.string(),
   /** true = c'è un client secret cifrato at rest. Il valore non esce mai. */
   clientSecretSet: z.boolean(),
+  /** Rimandi, lotto 5: le ultime 4 del client secret («•••• 9e2b»); null senza segreto o per uno salvato prima della 0225. */
+  clientSecretLast4: z.string().nullable().default(null),
   accountCount: z.number().int().min(0).default(0),
   redirectUri: z.string(),
   createdAt: z.string(),
@@ -153,6 +160,15 @@ export type GoogleWorkspacePatch = z.input<typeof googleWorkspacePatchSchema>;
  * ma un motivo aggiunto domani non deve far fallire il parse di un client
  * vecchio — stesso spirito di `readerSchema`.
  */
+/** Lotto 8, voce 2: un indirizzo da cui mandare (senza la firma, che resta sul server). */
+export const mailSendAsSchema = z.object({
+  email: z.string(),
+  displayName: z.string().nullable().default(null),
+  isPrimary: z.boolean().default(false),
+  isDefault: z.boolean().default(false),
+});
+export type MailSendAs = z.infer<typeof mailSendAsSchema>;
+
 export const googleAccountSchema = z.object({
   id: z.uuid(),
   email: z.string(),
@@ -165,8 +181,43 @@ export const googleAccountSchema = z.object({
   lastSyncAt: z.string().nullable().default(null),
   disabledAt: z.string().nullable().default(null),
   disabledReason: z.string().nullable().default(null),
+  /**
+   * Area 6, fetta 1: gli scope dell'area che questa casella non ha concesso
+   * (una casella di prima, un consenso parziale). Si calcola a lettura; vuoto
+   * = niente da ricollegare. Un server di prima non lo manda.
+   */
+  missingScopes: z.array(z.string()).default([]),
+  /**
+   * Area 6, F1.2: «Aggiorna ora» in attesa (quando è stata chiesta), null
+   * altrimenti. Il giro finito lo azzera: riuscito se `lastSyncAt` è avanzato,
+   * fallito se no. Un server di prima non lo manda.
+   */
+  syncRequestedAt: z.string().nullable().default(null),
+  /**
+   * Lotto 8, voce 2: gli indirizzi da cui la casella può mandare (l'indirizzo
+   * della casella e gli alias VERIFICATI di Gmail). `[]` da un server di prima
+   * o finché non sono stati letti.
+   */
+  sendAs: z.array(mailSendAsSchema).default([]),
+  /** `scope_missing` = la casella non ha `gmail.modify`: per gli alias va ricollegata. */
+  sendAsStatus: z.enum(["present", "scope_missing"]).default("present"),
 });
 export type GoogleAccount = z.infer<typeof googleAccountSchema>;
+
+/**
+ * «Aggiorna ora» (area 6, F1.2): il canale su cui il server annuncia una
+ * richiesta al worker (payload `{ accountId }`). Il worker non si fida del
+ * payload: si sveglia e reclama le caselle DOVUTE, come a ogni giro.
+ */
+export const GOOGLE_SYNC_REQUEST_CHANNEL = "google_sync_request";
+/** Il tetto fra due richieste di «Aggiorna ora» della stessa casella. */
+export const GOOGLE_SYNC_REQUEST_MIN_SECONDS = 60;
+
+/** Esito di `POST /api/me/google/accounts/:id/sync` (202). */
+export const googleSyncResponseSchema = z.object({
+  status: z.enum(["queued", "already_queued"]),
+});
+export type GoogleSyncResponse = z.infer<typeof googleSyncResponseSchema>;
 
 /**
  * Un Workspace come lo vede un OPERATORE, per scegliere da quale collegarsi.
@@ -191,7 +242,16 @@ export const googleWorkspaceOptionSchema = z.object({
 export type GoogleWorkspaceOption = z.infer<typeof googleWorkspaceOptionSchema>;
 
 /** Avvio del flusso: quale Workspace fa da app OAuth per questa casella. */
-export const googleConnectBodySchema = z.object({ workspaceId: z.uuid() });
+export const googleConnectBodySchema = z.object({
+  workspaceId: z.uuid(),
+  /**
+   * Rimandi, lotto 4 (§6): `desktop` = il callback torna all'app
+   * (`/app/#/desktop-google` e poi `stubwise://google`) con `returnState`;
+   * assente = il web di sempre. Additivi: un server di prima li scarta.
+   */
+  client: z.enum(["web", "desktop"]).optional(),
+  returnState: z.string().regex(/^[A-Za-z0-9_-]{16,128}$/).optional(),
+});
 export type GoogleConnectBody = z.input<typeof googleConnectBodySchema>;
 
 /**
@@ -200,7 +260,11 @@ export type GoogleConnectBody = z.input<typeof googleConnectBodySchema>;
  * da `fetch` nella SPA, e un 302 su una richiesta XHR verrebbe seguito dal
  * browser verso `accounts.google.com` in background — cioè in nessun posto.
  */
-export const googleConnectResponseSchema = z.object({ authorizeUrl: z.string() });
+export const googleConnectResponseSchema = z.object({
+  authorizeUrl: z.string(),
+  /** Rimandi, lotto 4 (§6): `desktop` solo se il server ha legato il ritorno all'app; un server di prima: `web`. */
+  returnTo: z.enum(["web", "desktop"]).default("web"),
+});
 export type GoogleConnectResponse = z.infer<typeof googleConnectResponseSchema>;
 
 /** Modifica di una casella: l'unica cosa che l'utente può cambiare è il toggle. */
@@ -342,6 +406,14 @@ export const mailAdmissionSchema = z.object({
   // Scarta la posta automatica (List-Unsubscribe, List-Id, Precedence: bulk,
   // Auto-Submitted diverso da "no").
   denyAutomated: z.boolean().default(true),
+  /**
+   * Area 6, F2: la classificazione nuova è accesa (`MAIL_CLASSIFY_V2`) e ogni
+   * email va al modello: l'ammissione e le regole della posta non si
+   * applicano più, e le superfici che le gestiscono lo dicono invece di
+   * mostrare un modulo che non conta. Solo in lettura; un server di prima non
+   * lo manda.
+   */
+  classifyV2: z.boolean().default(false),
 });
 export type MailAdmission = z.infer<typeof mailAdmissionSchema>;
 
@@ -513,6 +585,24 @@ export type MailPage = z.infer<typeof mailPageSchema>;
 // anche il calendario, che thread non ne ha.
 // ---------------------------------------------------------------------------
 
+/** L'importanza di un'email (area 6, F2, tre livelli del prototipo). */
+export const mailImportanceSchema = z.enum(["high", "normal", "low"]);
+export type MailImportance = z.infer<typeof mailImportanceSchema>;
+
+/**
+ * La classificazione NUOVA di un messaggio (area 6, F2, D3). `off`: nessuna
+ * casella che lo contiene ha le proposte accese (o un messaggio di prima);
+ * `done` senza progetti: «non riguarda i tuoi progetti».
+ */
+export const mailClassificationSchema = z.object({
+  state: z.enum(["off", "pending", "failed", "done"]).default("off"),
+  projectIds: z.array(z.uuid()).default([]),
+  importance: mailImportanceSchema.nullable().default(null),
+  dueDate: z.string().nullable().default(null),
+  uncertainProjectIds: z.array(z.uuid()).default([]),
+});
+export type MailClassification = z.infer<typeof mailClassificationSchema>;
+
 /**
  * UNA conversazione nella lista: quello che serve a decidere se aprirla.
  *
@@ -535,6 +625,26 @@ export const mailThreadItemSchema = z.object({
   openProposals: z.number().int().min(0).default(0),
   /** I progetti che la conversazione tocca, per non doverli dedurre dall'oggetto. */
   projectNames: z.array(z.string()).default([]),
+  /**
+   * Area 6, F1.3: vero se ALMENO UN messaggio è non letto su Gmail. Un
+   * messaggio di cui non si sa ancora (righe di prima) conta come letto. Un
+   * server di prima non lo manda.
+   */
+  unread: z.boolean().default(false),
+  /**
+   * Area 6, F2 (D3): l'importanza più alta fra i messaggi classificati, null
+   * finché nessuno lo è; la scadenza più vicina (una DATA). Un server di prima
+   * non li manda.
+   */
+  importance: mailImportanceSchema.nullable().default(null),
+  dueDate: z.string().nullable().default(null),
+  /** Un messaggio in analisi / un'analisi fallita («Riproponi»). */
+  analysing: z.boolean().default(false),
+  failed: z.boolean().default(false),
+  /** Gli id dei progetti accanto a `projectNames` (i nomi non sono una chiave). */
+  projectIds: z.array(z.uuid()).default([]),
+  /** L'inizio dell'ultimo messaggio, una riga. NON FIDATO. */
+  snippet: z.string().default(""),
 });
 export type MailThreadItem = z.infer<typeof mailThreadItemSchema>;
 
@@ -544,6 +654,38 @@ export const mailThreadPageSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 export type MailThreadPage = z.infer<typeof mailThreadPageSchema>;
+
+/**
+ * Area 8, «Clienti in attesa» (`GET /api/me/waiting-customers`): un thread
+ * della MIA casella in cui l'ultimo messaggio esterno aspetta da più di 24
+ * ore e nessuno ha risposto. `judgment` è `yes` (Claude dice che serve una
+ * mia risposta, con la `reason`) o `pending` (non ancora giudicato, o il
+ * giudizio è fallito: W-4 = b). Un «no» non arriva mai. `reason` è testo
+ * scritto dal modello: NON FIDATO, si rende come testo. I campi senza
+ * `.default` sono quelli che la rotta manda dal primo giorno.
+ */
+export const waitingCustomerSchema = z.object({
+  threadId: z.string(),
+  accountId: z.uuid(),
+  accountEmail: z.string(),
+  customer: z.object({ name: z.string().nullable().default(null), email: z.string() }),
+  subject: z.string().nullable().default(null),
+  project: z.object({ id: z.uuid(), code: z.string(), name: z.string() }),
+  /** L'ultimo messaggio ESTERNO del thread: da quando aspetta. */
+  waitingSince: z.iso.datetime(),
+  signal: mailSignalSchema.nullable().default(null),
+  importance: mailImportanceSchema.nullable().default(null),
+  judgment: z.enum(["yes", "pending"]),
+  reason: z.string().nullable().default(null),
+});
+export type WaitingCustomer = z.infer<typeof waitingCustomerSchema>;
+
+export const waitingCustomersResponseSchema = z.object({
+  items: z.array(waitingCustomerSchema),
+  /** Tutti quelli che aspettano (per il «+N»), anche oltre i 20 di `items`. */
+  total: z.number().int().default(0),
+});
+export type WaitingCustomersResponse = z.infer<typeof waitingCustomersResponseSchema>;
 
 /**
  * UN messaggio dentro il dettaglio di una conversazione.
@@ -621,6 +763,85 @@ export const mailThreadProposalOutcomeSchema = z.object({
 });
 export type MailThreadProposalOutcome = z.infer<typeof mailThreadProposalOutcomeSchema>;
 
+// --- Area 6, F5a: le riunioni registrate --------------------------------
+//
+// Chi vede cosa lo decide il SERVER (`meeting-visibility.ts`, l'eccezione
+// dichiarata a «Posta e Calendario personali»): a chi non c'era `visible` è
+// falso e titolo, riassunto e link sono null. La trascrizione intera non esce.
+
+export const meetingDocStatusSchema = z.enum(["reading", "ready", "unreachable"]);
+/** `not_verified` (review F5a, punto 2): nessun link dell'email porta a un Doc che si possa dire delle note di questa riunione. */
+export const meetingDocReasonSchema = z.enum(["scope_missing", "not_shared", "deleted", "too_long", "not_verified"]);
+
+/** La riunione sull'email di Gemini (`kind: "transcript"` del messaggio). */
+export const meetingNoteSchema = z.object({
+  noteId: z.uuid(),
+  docTitle: z.string().nullable().default(null),
+  doc: meetingDocStatusSchema.nullable().default(null),
+  docReason: meetingDocReasonSchema.nullable().default(null),
+  visible: z.boolean().default(false),
+  /** NARRATIVA generata dal Doc (NON FIDATO a monte): si cita come tale. */
+  summary: z.string().nullable().default(null),
+  /** «Open the transcript»: il Doc su Google, coi permessi che Google applica (Q2). */
+  docUrl: z.string().nullable().default(null),
+  /** L'evento collegato, solo se chi guarda lo ha nel SUO calendario. */
+  event: z
+    .object({ id: z.uuid(), title: z.string().nullable().default(null), startsAt: z.iso.datetime(), endsAt: z.iso.datetime().nullable().default(null), people: z.number().int().default(0) })
+    .nullable()
+    .default(null),
+});
+export type MeetingNote = z.infer<typeof meetingNoteSchema>;
+
+/** Il riassunto di una riunione (`/api/me/meetings/:noteId`, `/calendar/events/:id/summary`). 404 a chi non c'era. */
+export const meetingSummarySchema = z.object({
+  noteId: z.uuid(),
+  eventId: z.uuid().nullable().default(null),
+  docTitle: z.string().nullable().default(null),
+  doc: meetingDocStatusSchema,
+  docReason: meetingDocReasonSchema.nullable().default(null),
+  summary: z.string().nullable().default(null),
+  docUrl: z.string().nullable().default(null),
+  /** La mia copia dell'email di Gemini, se l'ho ricevuta. */
+  email: z
+    .object({
+      threadId: z.string(),
+      /** La casella di chi guarda (la chiave del thread nell'app è `accountId_threadId`); un server di prima non lo manda. */
+      accountId: z.uuid().nullable().default(null),
+      messageId: z.uuid(),
+      at: z.iso.datetime(),
+    })
+    .nullable()
+    .default(null),
+});
+export type MeetingSummary = z.infer<typeof meetingSummarySchema>;
+
+/** «Task da questa riunione»: solo ai MEMBRI del progetto dell'evento (R-I21). */
+export const meetingTaskSchema = z.object({
+  kind: z.enum(["task", "request"]),
+  id: z.uuid(),
+  code: z.string().nullable().default(null),
+  title: z.string(),
+  status: z.enum(["open", "done", "late"]),
+  inProgress: z.boolean().default(false),
+  dueDate: z.string().nullable().default(null),
+  departmentId: z.uuid().nullable().default(null),
+  /**
+   * Rimandi, lotto 4 (§3): il codice del progetto della riunione, su ogni riga
+   * (il link di una richiesta è `/p/<codice>/requests?request=<id>`); null se
+   * il progetto non ha codice. Additivo.
+   */
+  projectCode: z.string().nullable().default(null),
+  /**
+   * Rimandi, lotto 4 (§3, D-3.1 = b): una richiesta ancora in intake (il
+   * worker non ha ancora creato la voce): `id` è quello del job, `code` null,
+   * nessun link. Additivo, `.default(false)`.
+   */
+  pending: z.boolean().default(false),
+});
+export type MeetingTask = z.infer<typeof meetingTaskSchema>;
+export const meetingTasksSchema = z.object({ tasks: z.array(meetingTaskSchema).default([]), proposedTasks: z.number().int().default(0) }).nullable();
+export type MeetingTasks = z.infer<typeof meetingTasksSchema>;
+
 export const mailThreadMessageSchema = z.object({
   id: z.uuid(),
   from: z.string(),
@@ -656,6 +877,34 @@ export const mailThreadMessageSchema = z.object({
    * localizzato e per il degrado sugli esiti sconosciuti.
    */
   proposalOutcomes: z.array(mailThreadProposalOutcomeSchema).default([]),
+  /** Area 6, F1.3: non letto su Gmail (`false` se non si sa ancora). */
+  unread: z.boolean().default(false),
+  /**
+   * Area 6, F3: un invio di chi guarda (solo suo), che entra subito nel thread:
+   * `sending` nei 10 s e mentre parte, `sent` finché il poller non ingerisce il
+   * messaggio vero, `failed` col codice. Null per i messaggi veri.
+   */
+  delivery: z
+    .object({
+      state: z.enum(["sending", "sent", "failed"]),
+      error: z.string().nullable().default(null),
+      /** L'id dell'invio, per Annulla, Riprova ed Elimina dalla conversazione. */
+      outgoingId: z.uuid(),
+    })
+    .nullable()
+    .default(null),
+  /** Area 6, F5a: `transcript` per l'email degli appunti di Gemini. */
+  kind: z.enum(["email", "transcript"]).default("email"),
+  /** Area 6, F5a: la riunione di quell'email (solo `transcript`). */
+  meeting: meetingNoteSchema.nullable().default(null),
+  /** Area 6, F2: la classificazione nuova; un server di prima non la manda. */
+  classification: mailClassificationSchema.default({
+    state: "off",
+    projectIds: [],
+    importance: null,
+    dueDate: null,
+    uncertainProjectIds: [],
+  }),
 });
 export type MailThreadMessage = z.infer<typeof mailThreadMessageSchema>;
 
@@ -670,6 +919,13 @@ export const mailThreadDetailSchema = z.object({
   messages: z.array(mailThreadMessageSchema),
 });
 export type MailThreadDetail = z.infer<typeof mailThreadDetailSchema>;
+
+/** Body di `POST /api/me/mail/threads/:threadId/read` (area 6, F1.3). */
+export const mailThreadReadBodySchema = z.object({
+  account: z.uuid(),
+  read: z.boolean(),
+});
+export type MailThreadReadBody = z.infer<typeof mailThreadReadBodySchema>;
 
 /**
  * Contatori per il badge di nav e l'intestazione della pagina. `openProposals`
@@ -872,6 +1128,17 @@ export type CalendarAttendeeResponseStatus = z.infer<typeof calendarAttendeeResp
 export const calendarAttendeeSchema = z.object({
   email: z.string(),
   responseStatus: calendarAttendeeResponseStatusSchema.nullable(),
+  // F4, task 0: opzionali (additivi; le righe di prima non li hanno).
+  /** Il nome che Google dà all'invitato. NON FIDATO. */
+  name: z.string().nullable().optional(),
+  /** La nota della sua risposta. NON FIDATO. */
+  comment: z.string().nullable().optional(),
+  /** È la casella stessa (`self` di Google). */
+  self: z.boolean().optional(),
+  /** F4, solo nel dettaglio: la persona di Stubwise riconosciuta dall'indirizzo (lato server). */
+  personId: z.uuid().nullable().optional(),
+  /** F4, solo nel dettaglio: è chi organizza. */
+  organizer: z.boolean().optional(),
 });
 export type CalendarAttendee = z.infer<typeof calendarAttendeeSchema>;
 
@@ -994,6 +1261,34 @@ export const calendarEventItemSchema = z.object({
    * in cui è stata scritta.
    */
   recurrence: z.array(z.string()).default([]),
+
+  // --- Area 6, F3b: il calendario con TUTTI gli eventi. Tutti con default:
+  // un server di prima non li manda (e lì ogni riga era lavoro riconosciuto).
+
+  /** È lavoro riconosciuto (candidato a una proposta). Un evento solo visto: false, e nessun «Suggested». */
+  recognized: z.boolean().default(true),
+  /** Chi ha deciso il progetto: le regole, la dottrina nuova, una persona. */
+  projectBy: z.enum(["rules", "model", "manual"]).nullable().default(null),
+  /** Il tipo di Google (`default`, `outOfOffice`, `focusTime`, `fromGmail`…), aperto. */
+  eventType: z.string().nullable().default(null),
+  /** `transparent` = «libero», non occupa (F4). */
+  transparency: z.enum(["opaque", "transparent"]).nullable().default(null),
+  /** La risposta della casella all'invito, senza leggere gli invitati (la lista di `range` è leggera). */
+  myResponse: calendarAttendeeResponseStatusSchema.nullable().default(null),
+  /** Quanti invitati («N guests»), anche nella lista leggera dove `attendees` è vuoto. */
+  attendeeCount: z.number().int().min(0).nullable().default(null),
+
+  // --- Area 6, F4: le letture per scrivere, calcolate dal SERVER.
+  /** La casella organizza: modifico, sposto, elimino. */
+  canEdit: z.boolean().default(false),
+  /** La casella è invitata e non organizza: rispondo. */
+  canRespond: z.boolean().default(false),
+  /** La versione di Google (`changed_on_google`). */
+  etag: z.string().nullable().default(null),
+  /** La nota della MIA risposta. NON FIDATO. */
+  myNote: z.string().nullable().default(null),
+  /** Area 6, F5a: la scheda di preparazione c'è (futuro, con un progetto che chi guarda vede). */
+  hasPrep: z.boolean().default(false),
 });
 export type CalendarEventItem = z.infer<typeof calendarEventItemSchema>;
 
@@ -1033,6 +1328,8 @@ export const calendarSeriesItemSchema = z.object({
   leadDays: z.number().int().min(0).max(30).default(2),
   /** `false` = propone e aspetta un tap; `true` = esegue e lo rende visibile. MAI un job AI. */
   auto: z.boolean().default(false),
+  /** F3b: almeno un'occorrenza è lavoro riconosciuto (per ordinarle, prima quelle di lavoro). */
+  recognized: z.boolean().default(true),
 });
 export type CalendarSeriesItem = z.infer<typeof calendarSeriesItemSchema>;
 
@@ -1086,3 +1383,139 @@ export type CalendarSeriesPatch = z.input<typeof calendarSeriesPatchSchema>;
  */
 export const calendarSeriesWriteResultSchema = z.object({ ok: z.literal(true) });
 export type CalendarSeriesWriteResult = z.infer<typeof calendarSeriesWriteResultSchema>;
+
+// --- Area 6, F4: scrivere sul calendario --------------------------------
+//
+// I CORPI delle scritture (`/api/me/calendar/events…`, tutte di un gesto
+// della persona) e la loro risposta. Le regole stanno in
+// `apps/server/src/services/calendar-writes.ts`.
+
+/** «Solo questo» o «tutta la serie». */
+export const calendarWriteScopeSchema = z.enum(["one", "series"]);
+export type CalendarWriteScope = z.infer<typeof calendarWriteScopeSchema>;
+
+/** Un invitato: una persona di Stubwise (l'indirizzo lo risolve il server) o un indirizzo, anche esterno (Q6). */
+export const calendarGuestInputSchema = z.union([
+  z.object({ personId: z.uuid() }),
+  z.object({ email: z.email().max(320), name: z.string().max(200).nullable().optional() }),
+]);
+export type CalendarGuestInput = z.infer<typeof calendarGuestInputSchema>;
+
+/** I promemoria: quelli predefiniti del calendario, o una lista (Google ne tiene al più 5). */
+export const calendarRemindersInputSchema = z.union([
+  z.literal("default"),
+  z.array(z.object({ minutes: z.number().int().min(0).max(40_320), method: z.enum(["popup", "email"]) })).max(5),
+]);
+
+const calendarTitleSchema = z.string().trim().min(1).max(1024);
+
+/**
+ * Un orario di una scrittura (review F4, punto 12): per un evento con orario
+ * un ISTANTE ISO; per un tutto il giorno una DATA `YYYY-MM-DD`, con la fine
+ * ESCLUSIVA (un giorno solo: dal 15 al 16). Mai la mezzanotte locale di un
+ * client come istante: tagliata, a est di Greenwich, sarebbe il giorno prima.
+ */
+const calendarWhenSchema = z.union([z.iso.datetime(), z.iso.date()]);
+const isDateOnly = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+/** Tutto il giorno ⇔ date; con orario ⇔ istanti (quando `allDay` è dichiarato). */
+function checkWhen(value: { allDay?: boolean | undefined; startsAt: string; endsAt: string }, ctx: z.RefinementCtx) {
+  if (value.allDay === undefined) return;
+  for (const key of ["startsAt", "endsAt"] as const) {
+    if (isDateOnly(value[key]) !== value.allDay) ctx.addIssue({ code: "custom", path: [key], message: value.allDay ? "an all-day event takes a YYYY-MM-DD date" : "a timed event takes an ISO instant" });
+  }
+}
+const calendarTextSchema = z.string().max(8192).nullable();
+
+export const calendarEventCreateSchema = z.object({
+  accountId: z.uuid(),
+  /**
+   * L'id dell'evento su Google, GENERATO DAL CLIENT (base32hex: `a`–`v` e
+   * cifre, 5–1024 caratteri) e rimandato identico da Riprova: la creazione è
+   * idempotente — se il primo tentativo è arrivato a Google ma la risposta
+   * no, il secondo non crea una seconda riunione né rimanda gli inviti
+   * (review F4). Obbligatorio: la rotta nasce con la F4, nessun client
+   * vecchio la chiama.
+   */
+  eventId: z.string().regex(/^[a-v0-9]{5,1024}$/),
+  title: calendarTitleSchema,
+  startsAt: calendarWhenSchema,
+  endsAt: calendarWhenSchema,
+  allDay: z.boolean().default(false),
+  guests: z.array(calendarGuestInputSchema).max(200).default([]),
+  addMeet: z.boolean().default(false),
+  description: calendarTextSchema.default(null),
+  location: z.string().max(1024).nullable().default(null),
+  projectId: z.uuid().nullable().default(null),
+  reminders: calendarRemindersInputSchema.default("default"),
+}).superRefine(checkWhen);
+export type CalendarEventCreate = z.infer<typeof calendarEventCreateSchema>;
+/** Il corpo come lo scrive un client (i campi con default sono facoltativi). */
+export type CalendarEventCreateInput = z.input<typeof calendarEventCreateSchema>;
+
+export const calendarEventEditSchema = z.object({
+  scope: calendarWriteScopeSchema.default("one"),
+  /** La versione letta (`etag` della riga): diversa da quella vera → `changed_on_google`. */
+  etag: z.string().nullable(),
+  patch: z.object({
+    title: calendarTitleSchema.optional(),
+    guests: z.array(calendarGuestInputSchema).max(200).optional(),
+    addMeet: z.boolean().optional(),
+    description: calendarTextSchema.optional(),
+    location: z.string().max(1024).nullable().optional(),
+    reminders: calendarRemindersInputSchema.optional(),
+  }),
+});
+export type CalendarEventEdit = z.infer<typeof calendarEventEditSchema>;
+export type CalendarEventEditInput = z.input<typeof calendarEventEditSchema>;
+
+export const calendarEventMoveSchema = z.object({
+  scope: calendarWriteScopeSchema.default("one"),
+  etag: z.string().nullable(),
+  /** Come in {@link calendarEventCreateSchema}: date per un tutto il giorno, istanti altrimenti (senza `allDay`, quello della riga). */
+  startsAt: calendarWhenSchema,
+  endsAt: calendarWhenSchema,
+  allDay: z.boolean().optional(),
+}).superRefine(checkWhen);
+export type CalendarEventMove = z.infer<typeof calendarEventMoveSchema>;
+export type CalendarEventMoveInput = z.input<typeof calendarEventMoveSchema>;
+
+export const calendarEventRespondSchema = z.object({
+  scope: calendarWriteScopeSchema.default("one"),
+  response: z.enum(["accepted", "tentative", "declined"]),
+  note: z.string().max(1000).nullable().optional(),
+});
+export type CalendarEventRespond = z.infer<typeof calendarEventRespondSchema>;
+export type CalendarEventRespondInput = z.input<typeof calendarEventRespondSchema>;
+
+/** Il progetto dell'evento, a mano (task 4): `null` lo toglie. */
+export const calendarEventProjectSchema = z.object({ projectId: z.uuid().nullable() });
+export type CalendarEventProject = z.infer<typeof calendarEventProjectSchema>;
+
+/**
+ * La risposta di una scrittura: le righe toccate, come le legge `range`
+ * (una per «solo questo», le date della serie nella finestra per «tutta la
+ * serie» — spostarla cambia gli id delle date).
+ */
+export const calendarWriteResultSchema = z.object({ items: z.array(calendarEventItemSchema).default([]) });
+export type CalendarWriteResult = z.infer<typeof calendarWriteResultSchema>;
+
+/**
+ * IL LIBERO/OCCUPATO DEI COLLEGHI (area 6, F4, task 5, D8 = b con Q3 = a):
+ * un'ECCEZIONE DICHIARATA a «Posta e Calendario personali»
+ * (`docs/invariants/mail-calendar.md`). Esce SOLO questo: chi, se ha il
+ * calendario collegato, e gli intervalli occupati — mai un titolo, un luogo,
+ * un invitato o un id. Il serializzatore della rotta toglie ogni chiave non
+ * dichiarata qui (e i test del server controllano le chiavi esatte); NON
+ * `strictObject`: il catchall non passa da `readerSchema`.
+ */
+export const calendarBusyIntervalSchema = z.object({ startsAt: z.iso.datetime(), endsAt: z.iso.datetime() });
+export const calendarAvailabilitySchema = z.enum(["connected", "not_connected", "expired"]);
+export const calendarFreeBusyPersonSchema = z.object({
+  personId: z.uuid(),
+  availability: calendarAvailabilitySchema,
+  busy: z.array(calendarBusyIntervalSchema).default([]),
+});
+export const calendarFreeBusySchema = z.object({ items: z.array(calendarFreeBusyPersonSchema).default([]) });
+export type CalendarFreeBusy = z.infer<typeof calendarFreeBusySchema>;
+export type CalendarFreeBusyPerson = z.infer<typeof calendarFreeBusyPersonSchema>;

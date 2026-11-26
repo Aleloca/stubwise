@@ -1103,13 +1103,13 @@ describe("pagina team — azzera 2FA e registro di sicurezza", () => {
     expect(deleted).toBe(false);
   });
 
-  it("target_above si legge in chiaro, col permesso", async () => {
+  it("escalation si legge in chiaro, col permesso (target_above non esiste più, area 9 D-2)", async () => {
     const user = userEvent.setup();
     mockApi(
       adminApi({
         "DELETE /api/users/u2/second-factor": () =>
           jsonResponse(403, {
-            code: "target_above",
+            code: "escalation",
             message: "x",
             details: { permission: "instance.full_admin" },
           }),
@@ -1122,7 +1122,7 @@ describe("pagina team — azzera 2FA e registro di sicurezza", () => {
     await user.click(within(beaRow).getByRole("button", { name: "Reset 2FA" }));
     await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Reset 2FA" }));
     expect(
-      await within(beaRow).findByText(/cannot change someone with more permissions than you/i),
+      await within(beaRow).findByText(/cannot grant/i),
     ).toBeInTheDocument();
   });
 
@@ -1263,7 +1263,7 @@ describe("pagina team — ruolo d'istanza e invito con progetti", () => {
     ).toBeInTheDocument();
   });
 
-  it("target_above (reset password di chi ha più permessi) si legge in chiaro, con l'etichetta del permesso", async () => {
+  it("escalation sul reset della password si legge in chiaro, con l'etichetta del permesso", async () => {
     const user = userEvent.setup();
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     mockApi({
@@ -1274,7 +1274,7 @@ describe("pagina team — ruolo d'istanza e invito con progetti", () => {
       "GET /api/auth/invites": () => jsonResponse(200, []),
       "GET /api/projects": () => jsonResponse(200, []),
       "POST /api/users/u2/password-reset": () =>
-        jsonResponse(403, { code: "target_above", message: "x", permission: "instance.full_admin" }),
+        jsonResponse(403, { code: "escalation", message: "x", permission: "instance.full_admin" }),
     });
 
     renderTeam();
@@ -1283,13 +1283,13 @@ describe("pagina team — ruolo d'istanza e invito con progetti", () => {
     await user.click(within(beaRow).getByRole("button", { name: "Reset password" }));
     expect(
       await within(beaRow).findByText(
-        "You cannot change someone with more permissions than you: «Full administration».",
+        "You cannot grant a permission you don\'t have: «Full administration».",
       ),
     ).toBeInTheDocument();
     confirmSpy.mockRestore();
   });
 
-  it("target_above su un'identità git (R31) si legge col permesso", async () => {
+  it("escalation su un'identità git si legge col permesso", async () => {
     const user = userEvent.setup();
     mockApi({
       "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
@@ -1300,7 +1300,7 @@ describe("pagina team — ruolo d'istanza e invito con progetti", () => {
       "GET /api/projects": () => jsonResponse(200, []),
       "GET /api/git/observed-authors": () => jsonResponse(200, []),
       "POST /api/users/u2/git-identities": () =>
-        jsonResponse(403, { code: "target_above", message: "x", permission: "users.manage" }),
+        jsonResponse(403, { code: "escalation", message: "x", permission: "users.manage" }),
     });
 
     renderTeam();
@@ -1314,7 +1314,7 @@ describe("pagina team — ruolo d'istanza e invito con progetti", () => {
     await user.click(within(beaRow).getByRole("button", { name: /Link «bea@git\.example»/ }));
     expect(
       await within(beaRow).findByText(
-        "You cannot change someone with more permissions than you: «Manage users».",
+        "You cannot grant a permission you don\'t have: «Manage users».",
       ),
     ).toBeInTheDocument();
   });

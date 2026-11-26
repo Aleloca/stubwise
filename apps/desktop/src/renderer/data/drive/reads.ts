@@ -1,4 +1,6 @@
 import { fold, highlightParts, MIN_QUERY, searchWords } from "../../pages/chat/search";
+import { isHiddenId, personMasker } from "../access/hidden";
+import { invalid } from "../writer";
 import { PEOPLE } from "../seed/people";
 import { copy, gate, now, state } from "../store";
 import type {
@@ -12,6 +14,7 @@ import type {
   DriveSearchScope,
   FolderLinkView,
   GoogleAccount,
+  GoogleWorkspaceChoice,
   GoogleFileChoice,
   GoogleFolderChoice,
   GoogleOutsideFile,
@@ -51,7 +54,12 @@ export function drivePermissions(me: string, file: DriveFile): DriveFilePermissi
 
 const opensOfFile = (fileId: string) => state.driveOpens.filter((o) => o.fileId === fileId);
 
-export function driveRow(me: string, file: DriveFile): DriveFileRow {
+export function driveRow(
+  me: string,
+  file: DriveFile,
+  // R.1414 (lotto 3): il masker della risposta (un elenco ne ha uno solo).
+  mask: ReturnType<typeof personMasker> = personMasker(me),
+): DriveFileRow {
   // La riga non porta il testo estratto: lo leggono solo ricerca e Claude.
   const rest: Omit<DriveFile, "text"> & { text?: string } = copy(file);
   delete rest.text;
@@ -65,7 +73,9 @@ export function driveRow(me: string, file: DriveFile): DriveFileRow {
     lastOpenedAt: opens.reduce<string | null>((m, o) => (m === null || o.at > m ? o.at : m), null),
     summaryLine: summaryLineOf(file.summary),
     folder: link ? { id: link.id, name: link.name, status: link.status } : null,
-    hiddenBy: hidden ? { ...hidden } : null,
+    // R.1414 (scelta A di 46): chi l'ha aggiunto, segnaposto se chi guarda non lo conosce.
+    addedById: mask(file.addedById),
+    hiddenBy: hidden ? { ...hidden, personId: mask(hidden.personId) } : null,
     permissions: drivePermissions(me, file),
   };
 }
@@ -93,6 +103,9 @@ export async function listDriveFiles(filters: DriveFilters): Promise<DriveFileRo
   const me = await gate("drive.listDriveFiles");
   startSeedWork();
   const hidden = filters.hidden === true;
+  // R.1414 (scelta A di 46): il filtro «aggiunto da» si fa con un id vero.
+  if (isHiddenId(filters.addedById)) throw invalid("addedById");
+  const mask = personMasker(me);
   return state.driveFiles
     .filter(
       (f) =>
@@ -103,7 +116,7 @@ export async function listDriveFiles(filters: DriveFilters): Promise<DriveFileRo
         (filters.source === undefined || f.source === filters.source) &&
         (filters.addedById === undefined || f.addedById === filters.addedById),
     )
-    .map((f) => driveRow(me, f))
+    .map((f) => driveRow(me, f, mask))
     .sort(SORTS[filters.sort]);
 }
 
@@ -173,6 +186,16 @@ export async function countDriveReaders(projectId: string): Promise<number> {
   return PEOPLE.filter((p) => !p.isClaude && canSeeDriveProject(p.id, projectId)).length;
 }
 
+/**
+ * I Workspace da cui collegare la casella. Il prototipo non ne ha (collega
+ * «l'account Google» senza scelta): la scelta c'è nella build app, con più
+ * Workspace utilizzabili (area 6, fetta 1).
+ */
+export async function listGoogleWorkspaces(): Promise<GoogleWorkspaceChoice[]> {
+  await gate("drive.listGoogleWorkspaces");
+  return [];
+}
+
 /** L'account Google personale di chi guarda (collegato o scaduto), o `null`. */
 export async function getGoogleAccount(): Promise<GoogleAccount | null> {
   const me = await gate("drive.getGoogleAccount");
@@ -226,7 +249,10 @@ const PASSAGE = 180;
  */
 export function drivePassage(text: string, words: readonly string[]): string | null {
   let best: { line: string; hits: number; at: number } | null = null;
-  for (const line of text.split(/\n+/).map((l) => l.trim()).filter(Boolean)) {
+  for (const line of text
+    .split(/\n+/)
+    .map((l) => l.trim())
+    .filter(Boolean)) {
     const folded = fold(line);
     const hits = words.filter((w) => folded.includes(w)).length;
     if (hits === 0 || (best && hits <= best.hits)) continue;

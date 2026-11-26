@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { serverMetrics, serverProjects, servers, serviceChecks, type Db } from "@stubwise/db";
+import { environmentServers, projectEnvironments, serverEpisodes, serverMetrics, serverProjects, servers, serviceChecks, type Db } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { AlertThresholds } from "@stubwise/shared";
 import type { MonitorCondition, NotificationEvent, PublishOpts } from "@stubwise/notifications";
@@ -427,47 +427,144 @@ describe("evaluateMonitorAlertsOnce — check down", () => {
 // Ancore (riferimenti) degli eventi monitor.*
 // ---------------------------------------------------------------------------
 
-describe("evaluateMonitorAlertsOnce — riferimenti dell'evento", () => {
-  it("server legato a UN progetto → l'evento porta quel projectId", async () => {
+describe("evaluateMonitorAlertsOnce — riferimenti dell'evento (area 8, F4a: dagli AMBIENTI)", () => {
+  /** Un ambiente del progetto che usa il server per la sua repository. */
+  async function useIn(db: Db, serverId: string, seeded: { projectId: string; repositoryId: string }, kind: "staging" | "production" = "production") {
+    const [env] = await db.insert(projectEnvironments).values({ projectId: seeded.projectId, name: `env-${randomUUID()}`, kind }).returning();
+    await db.insert(environmentServers).values({ environmentId: env!.id, repositoryId: seeded.repositoryId, serverId });
+  }
+
+  it("server negli ambienti di UN progetto (anche due ambienti) → l'evento porta quel projectId", async () => {
+    const { db } = testDb;
+    const seeded = await seedRepository(db);
+    const serverId = await seedServer(db, { lastSeenAt: new Date(NOW.getTime() - 4 * INTERVAL * 1000) });
+    await useIn(db, serverId, seeded, "production");
+    await useIn(db, serverId, seeded, "staging");
+
+    const c = collector();
+    await evaluateMonitorAlertsOnce({ db, publish: c.publish, publicUrl: PUBLIC_URL }, NOW);
+    expect(conditionsOf(c.events)).toEqual(["offline"]);
+    expect(c.opts[0]).toEqual({ projectId: seeded.projectId });
+  });
+
+  it("server negli ambienti di PIÙ progetti → nessuna ancora (legame ambiguo)", async () => {
+    const { db } = testDb;
+    const serverId = await seedServer(db, { lastSeenAt: new Date(NOW.getTime() - 4 * INTERVAL * 1000) });
+    await useIn(db, serverId, await seedRepository(db));
+    await useIn(db, serverId, await seedRepository(db));
+
+    const c = collector();
+    await evaluateMonitorAlertsOnce({ db, publish: c.publish, publicUrl: PUBLIC_URL }, NOW);
+    expect(c.opts[0]).toEqual({});
+  });
+
+  it("server SOLO in server_projects (il legame del web) → nessuna ancora: non conta più (F4a-4 = b)", async () => {
     const { db } = testDb;
     const { projectId } = await seedRepository(db);
-    const serverId = await seedServer(db, {
-      lastSeenAt: new Date(NOW.getTime() - 4 * INTERVAL * 1000),
-    });
+    const serverId = await seedServer(db, { lastSeenAt: new Date(NOW.getTime() - 4 * INTERVAL * 1000) });
     await db.insert(serverProjects).values({ serverId, projectId });
 
     const c = collector();
     await evaluateMonitorAlertsOnce({ db, publish: c.publish, publicUrl: PUBLIC_URL }, NOW);
     expect(conditionsOf(c.events)).toEqual(["offline"]);
-    expect(c.opts[0]).toEqual({ projectId });
-  });
-
-  it("server condiviso tra PIÙ progetti → nessuna ancora (legame ambiguo)", async () => {
-    const { db } = testDb;
-    const a = await seedRepository(db);
-    const b = await seedRepository(db);
-    const serverId = await seedServer(db, {
-      lastSeenAt: new Date(NOW.getTime() - 4 * INTERVAL * 1000),
-    });
-    await db.insert(serverProjects).values([
-      { serverId, projectId: a.projectId },
-      { serverId, projectId: b.projectId },
-    ]);
-
-    const c = collector();
-    await evaluateMonitorAlertsOnce({ db, publish: c.publish, publicUrl: PUBLIC_URL }, NOW);
-    expect(conditionsOf(c.events)).toEqual(["offline"]);
     expect(c.opts[0]).toEqual({});
   });
+});
 
-  it("server senza progetti → nessuna ancora (gli admin la vedono comunque)", async () => {
+// ---------------------------------------------------------------------------
+// Episodi (area 8, F4a, S7)
+// ---------------------------------------------------------------------------
+
+describe("evaluateMonitorAlertsOnce — gli episodi (area 8, F4a)", () => {
+  const episodesOf = (db: Db, serverId: string) => db.select().from(serverEpisodes).where(eq(serverEpisodes.serverId, serverId));
+
+  it("allarme → un episodio aperto; un secondo allarme si aggiunge ai motivi (e alza la gravità); rientro di tutto → chiuso", async () => {
     const { db } = testDb;
-    await seedServer(db, { lastSeenAt: new Date(NOW.getTime() - 4 * INTERVAL * 1000) });
+    const serverId = await seedServer(db, { name: "srv-ep" });
+    const checkId = await seedCheck(db, serverId, { lastStatus: "down" });
+    const run = async () => evaluateMonitorAlertsOnce({ db, publish: collector().publish, publicUrl: PUBLIC_URL }, NOW);
 
-    const c = collector();
-    await evaluateMonitorAlertsOnce({ db, publish: c.publish, publicUrl: PUBLIC_URL }, NOW);
-    expect(conditionsOf(c.events)).toEqual(["offline"]);
-    expect(c.opts[0]).toEqual({});
+    await run();
+    let eps = await episodesOf(db, serverId);
+    expect(eps).toHaveLength(1);
+    expect(eps[0]).toMatchObject({ severity: "trouble", recoveredAt: null, reasons: [{ kind: "check", checkId }] });
+
+    // Va anche offline: stesso episodio, motivo in più, gravità `down`.
+    await db.update(servers).set({ lastSeenAt: new Date(NOW.getTime() - 4 * INTERVAL * 1000) }).where(eq(servers.id, serverId));
+    await run();
+    eps = await episodesOf(db, serverId);
+    expect(eps).toHaveLength(1);
+    expect(eps[0]!.severity).toBe("down");
+    expect(eps[0]!.reasons.map((r) => r.kind).sort()).toEqual(["agent_silent", "check"]);
+
+    // Torna online ma il check è ancora giù: l'episodio resta aperto, e la
+    // gravità torna `trouble` (review F4a: dice com'è ADESSO, l'agente risponde).
+    await db.update(servers).set({ lastSeenAt: NOW }).where(eq(servers.id, serverId));
+    await run();
+    expect((await episodesOf(db, serverId))[0]).toMatchObject({ recoveredAt: null, severity: "trouble" });
+
+    // Anche il check risale: chiuso, all'ora del giro.
+    await db.update(serviceChecks).set({ lastStatus: "up" }).where(eq(serviceChecks.id, checkId));
+    await run();
+    eps = await episodesOf(db, serverId);
+    expect(eps).toHaveLength(1);
+    expect(eps[0]!.recoveredAt?.toISOString()).toBe(NOW.toISOString());
+  });
+
+  it("un giro ripetuto (o un worker riavviato) non duplica l'episodio aperto; un nuovo allarme dopo il rientro ne apre un altro", async () => {
+    const { db } = testDb;
+    const serverId = await seedServer(db, { lastSeenAt: new Date(NOW.getTime() - 4 * INTERVAL * 1000) });
+    const run = async () => evaluateMonitorAlertsOnce({ db, publish: collector().publish, publicUrl: PUBLIC_URL }, NOW);
+    await run();
+    await run();
+    expect(await episodesOf(db, serverId)).toHaveLength(1);
+    await db.update(servers).set({ lastSeenAt: NOW }).where(eq(servers.id, serverId));
+    await run();
+    await db.update(servers).set({ lastSeenAt: new Date(NOW.getTime() - 4 * INTERVAL * 1000) }).where(eq(servers.id, serverId));
+    await run();
+    const eps = await episodesOf(db, serverId);
+    expect(eps).toHaveLength(2);
+    expect(eps.filter((e) => e.recoveredAt === null)).toHaveLength(1);
+  });
+
+  it("review F4a: l'episodio parte da quando è cominciato il problema, non dall'ora del giro (es. al primo giro dopo il deploy)", async () => {
+    const { db } = testDb;
+    const lastSeen = new Date(NOW.getTime() - 2 * 3600_000);
+    const offline = await seedServer(db, { lastSeenAt: lastSeen });
+    const withCheck = await seedServer(db);
+    const downSince = new Date(NOW.getTime() - 3 * 3600_000);
+    await seedCheck(db, withCheck, { lastStatus: "down" });
+    await db.update(serviceChecks).set({ downSince }).where(eq(serviceChecks.serverId, withCheck));
+    await evaluateMonitorAlertsOnce({ db, publish: collector().publish, publicUrl: PUBLIC_URL }, NOW);
+    expect((await episodesOf(db, offline))[0]!.startedAt.toISOString()).toBe(lastSeen.toISOString());
+    expect((await episodesOf(db, withCheck))[0]!.startedAt.toISOString()).toBe(downSince.toISOString());
+  });
+
+  it("review F4a (renderer): i motivi cpu/memoria/disco portano valuePct, l'ultimo valore letto; un episodio già aperto lo aggiorna", async () => {
+    const { db } = testDb;
+    const serverId = await seedServer(db, { name: "srv-val" });
+    await seedWindow(db, serverId, 6, { cpuPct: 97, memUsedBytes: 95, memTotalBytes: 100, diskUsedBytes: 50, diskTotalBytes: 100 });
+    await evaluateMonitorAlertsOnce({ db, publish: collector().publish, publicUrl: PUBLIC_URL }, NOW);
+    let [ep] = await episodesOf(db, serverId);
+    const byKind = (e: typeof ep) => Object.fromEntries(e!.reasons.map((r) => [r.kind, r]));
+    expect(byKind(ep).cpu).toMatchObject({ valuePct: 97 });
+    expect(byKind(ep).memory).toMatchObject({ valuePct: 95 });
+    // Un episodio scritto prima (senza valuePct) lo riceve al giro dopo.
+    await db.update(serverEpisodes).set({ reasons: ep!.reasons.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => k !== "valuePct")) as typeof r) }).where(eq(serverEpisodes.id, ep!.id));
+    await seedMetric(db, serverId, new Date(NOW.getTime() + 1000), { cpuPct: 99, memUsedBytes: 96, memTotalBytes: 100, diskUsedBytes: 50, diskTotalBytes: 100 });
+    await evaluateMonitorAlertsOnce({ db, publish: collector().publish, publicUrl: PUBLIC_URL }, new Date(NOW.getTime() + 1000));
+    [ep] = await episodesOf(db, serverId);
+    expect(byKind(ep).cpu).toMatchObject({ valuePct: 99 });
+    expect(byKind(ep).memory).toMatchObject({ valuePct: 96 });
+  });
+
+  it("nessun allarme → nessun episodio; mai collegato → nessun episodio", async () => {
+    const { db } = testDb;
+    const ok = await seedServer(db);
+    const never = await seedServer(db, { lastSeenAt: null });
+    await evaluateMonitorAlertsOnce({ db, publish: collector().publish, publicUrl: PUBLIC_URL }, NOW);
+    expect(await episodesOf(db, ok)).toEqual([]);
+    expect(await episodesOf(db, never)).toEqual([]);
   });
 });
 

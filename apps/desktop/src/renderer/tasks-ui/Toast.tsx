@@ -37,12 +37,12 @@ function dismiss(id: number) {
   emit();
 }
 
-function push(kind: ToastItem["kind"], message: string, action?: ToastAction): number {
+function push(kind: ToastItem["kind"], message: string, action?: ToastAction, durationMs?: number): number {
   const id = nextId++;
   items = [...items, { id, kind, message, action }].slice(-MAX_VISIBLE);
   timers.set(
     id,
-    window.setTimeout(() => dismiss(id), DURATION_MS[kind]),
+    window.setTimeout(() => dismiss(id), durationMs ?? DURATION_MS[kind]),
   );
   emit();
   return id;
@@ -83,8 +83,9 @@ export function onToastsChange(l: () => void): () => void {
 export function useToast() {
   return useMemo(
     () => ({
-      show: (message: string, opts: { action?: ToastAction } = {}) =>
-        push("info", message, opts.action),
+      /** `durationMs`: quanto resta, se lo decide chi avvisa (l'«Annulla» di un invio dura la sua finestra). */
+      show: (message: string, opts: { action?: ToastAction; durationMs?: number } = {}) =>
+        push("info", message, opts.action, opts.durationMs),
       error: (message: string, opts: { action?: ToastAction } = {}) =>
         push("error", message, opts.action),
       dismiss,

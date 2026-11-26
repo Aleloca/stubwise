@@ -101,7 +101,7 @@ WORKDIR /app
 # rompere i run in silenzio: il 2 ott 2026 la plan mode rifiutava `ask_user`.
 # Per aggiornarla: cambia QUI la versione e rilancia gli scenari golden
 # (`pnpm --filter @stubwise/worker golden`) con la stessa versione in locale.
-ARG CLAUDE_CODE_VERSION=2.1.287
+ARG CLAUDE_CODE_VERSION=2.1.322
 RUN apt-get update \
   && apt-get install -y --no-install-recommends git ca-certificates python3 python3-venv \
   && rm -rf /var/lib/apt/lists/* \
@@ -110,6 +110,29 @@ RUN apt-get update \
   && corepack enable \
   && corepack install -g pnpm@10.9.0 yarn@1.22.22 \
   && chmod -R a+rX /opt/corepack
+
+# Il CONTENUTO dei file del Drive (area 5, fetta 3): poppler (pdfinfo,
+# pdftotext, pdftoppm), tesseract con l'italiano e l'inglese, libheif per gli
+# HEIC (heif-convert; heif-enc serve solo al controllo nell'immagine). Il file
+# è input NON fidato: li lancia `src/drive/extract/exec.ts` con execFile,
+# argomenti fissi e `prlimit` (util-linux, già nell'immagine slim). Versioni
+# FISSATE, come il CLI claude: aggiornarle è una modifica esplicita che rilancia
+# il controllo nell'immagine,
+#   docker run --rm --entrypoint node <immagine> dist/drive/extract/selfcheck.js
+# e ne scrive i tempi nel deploy-log. Versioni di Debian 12 (bookworm), lette
+# con `apt-cache policy` l'11 nov 2026.
+ARG POPPLER_VERSION=22.12.0-2+deb12u3
+ARG TESSERACT_VERSION=5.3.0-2
+ARG TESSERACT_LANG_VERSION=1:4.1.0-2
+ARG LIBHEIF_VERSION=1.15.1-1+deb12u1
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    poppler-utils=${POPPLER_VERSION} \
+    tesseract-ocr=${TESSERACT_VERSION} \
+    tesseract-ocr-ita=${TESSERACT_LANG_VERSION} \
+    tesseract-ocr-eng=${TESSERACT_LANG_VERSION} \
+    libheif-examples=${LIBHEIF_VERSION} \
+  && rm -rf /var/lib/apt/lists/*
 
 # CLI graphify in un venv DEDICATO (niente pip nel Python di sistema, che su
 # Debian bookworm è "externally managed"), con versione PINNATA per build

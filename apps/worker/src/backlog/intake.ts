@@ -8,6 +8,8 @@ import {
   retrieveChunksForProject,
   projects,
   tickets,
+  widgetConversations,
+  widgetMessages,
   users,
   type Db,
 } from "@stubwise/db";
@@ -16,6 +18,7 @@ import {
   isCollaboratorRequest,
   projectPermissionsOfUser,
   publishRequestCreated,
+  publishSupportRequestAlert,
 } from "@stubwise/notifications";
 import {
   backlogRiskSchema,
@@ -28,10 +31,12 @@ import { and, eq, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { outputOrThrow, parseAgentJson } from "../agent/text.js";
 import { getContentLanguage } from "../settings.js";
+import { linkChatMessage } from "./chat-link.js";
 import { backlogItemSession, backlogJobSession, sessionOption } from "../sessions/owners.js";
 import type { BacklogDeps, BacklogJob } from "./poller.js";
 import { buildIntakePrompt, buildMergePrompt } from "./prompts.js";
 import { assertAccountAvailable, runBacklogAgent } from "./provider.js";
+import { NATIVE_TOOLS } from "../agent/native-tools.js";
 
 /**
  * INTAKE del backlog di discovery: dedup semantico + generazione della voce.
@@ -178,6 +183,8 @@ async function mergeIntoItem(
       cwd: deps.workDir,
       prompt: buildMergePrompt(item.document, feedbackText(input.title, input.body)),
       ...(deps.model !== undefined ? { model: deps.model } : {}),
+      // Solo testo: nessun tool nativo (`native-tools.ts`).
+      builtinTools: NATIVE_TOOLS.text,
       permissionMode: "default",
       maxTurns: 3,
       timeoutMs: deps.agentTimeoutMs,
@@ -243,6 +250,8 @@ async function createNewItem(
         chunks,
       ),
       ...(deps.model !== undefined ? { model: deps.model } : {}),
+      // Solo testo: nessun tool nativo (`native-tools.ts`).
+      builtinTools: NATIVE_TOOLS.text,
       permissionMode: "default",
       maxTurns: 3,
       timeoutMs: deps.agentTimeoutMs,
@@ -260,10 +269,27 @@ async function createNewItem(
   const similarToId = best && best.similarity >= deps.similarThreshold ? best.id : null;
 
   return deps.db.transaction(async (tx) => {
+    // Area 8, F3 (S6): il ticket aperto da un widget porta la sua conversazione
+    // di Support; la voce che ne nasce la ricorda (la provenienza della
+    // richiesta). Solo alla NASCITA: una fusa in una che c'era tiene la sua.
+    // Il canale `mcp`: la conversazione è arrivata con la richiesta, legata al
+    // job d'intake (il payload resta `strict`).
+    const [fromWidget] = ticket
+      ? await tx
+          .select({ conversationId: widgetMessages.conversationId })
+          .from(widgetMessages)
+          .where(eq(widgetMessages.ticketId, ticket.id))
+          .limit(1)
+      : await tx
+          .select({ conversationId: widgetConversations.id })
+          .from(widgetConversations)
+          .where(eq(widgetConversations.intakeJobId, jobId))
+          .limit(1);
     const [inserted] = await tx
       .insert(backlogItems)
       .values({
         projectId,
+        ...(fromWidget ? { supportConversationId: fromWidget.conversationId } : {}),
         title: parsed.title,
         document: parsed.document,
         effort: parsed.effort,
@@ -444,11 +470,32 @@ export async function runIntake(
   const best = await findBestMatch(db, projectId, vec);
 
   // 4/5. Merge sopra soglia, altrimenti nuova voce.
+  let result: { itemId: string; title: string };
   if (best && best.similarity >= deps.mergeThreshold) {
-    const merged = await mergeIntoItem(deps, job.id, projectId, best, input, ticket, lang, requesterId);
-    await announceRequest(deps, projectId, requesterId, merged, true);
+    result = await mergeIntoItem(deps, job.id, projectId, best, input, ticket, lang, requesterId);
+    await announceRequest(deps, projectId, requesterId, result, true);
   } else {
-    const created = await createNewItem(deps, job.id, projectId, input, vec, best, ticket, lang, requesterId);
-    await announceRequest(deps, projectId, requesterId, created, false);
+    result = await createNewItem(deps, job.id, projectId, input, vec, best, ticket, lang, requesterId);
+    // Area 8, F3 (S7): una richiesta nata dal ticket di un widget si annuncia
+    // (`support.request`, catalogo). Dopo il commit, come l'avviso agli admin:
+    // un avviso non fa fallire l'intake. Senza conversazione legata non fa niente.
+    await publishSupportRequestAlert(db, deps.publicUrl ?? null, result.itemId);
+    await announceRequest(deps, projectId, requesterId, result, false);
+  }
+
+  // Nata da fuori (un'email in entrata, review della F3): la voce lo ricorda,
+  // anche quando la richiesta è stata fusa in una che c'era.
+  if (!("ticketId" in payload) && payload.externalOrigin) {
+    await db.update(backlogItems).set({ externalOrigin: payload.externalOrigin }).where(eq(backlogItems.id, result.itemId));
+  }
+
+  // 6. «Create request» da un messaggio della Chat: «→ AUD-R7» sul messaggio,
+  // anche quando la richiesta è stata fusa (il prototipo lega ciò che riceve).
+  if (!("ticketId" in payload) && payload.chatMessageId) {
+    try {
+      await linkChatMessage(db, { messageId: payload.chatMessageId, backlogItemId: result.itemId, createdBy: requesterId });
+    } catch (error) {
+      deps.logger.warn({ err: error, jobId: job.id }, "[backlog] intake: legame col messaggio della Chat non scritto");
+    }
   }
 }

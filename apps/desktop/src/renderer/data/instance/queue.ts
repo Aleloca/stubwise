@@ -202,7 +202,7 @@ const objectOf = (projectId: string) => ({
   label: projectCode(projectId),
 });
 
-/** Mette in pausa la coda di un progetto (`settings.manage`): il lavoro nuovo aspetta, quello partito finisce. */
+/** Mette in pausa la coda di un progetto (`project.settings.manage` lì): il lavoro nuovo aspetta, quello partito finisce. */
 export async function pauseQueue(projectId: string): Promise<InstanceResult> {
   return pauseQueueAs(await writer("instance.pauseQueue"), projectId);
 }
@@ -210,7 +210,8 @@ export async function pauseQueue(projectId: string): Promise<InstanceResult> {
 /** La forma sincrona di `pauseQueue` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
 export function pauseQueueAs(me: string, projectId: string): InstanceResult {
   if (!visibleProjectIds(me).has(projectId)) return refuse.notFound();
-  if (!canI(me, "settings.manage")) return refuse.forbidden();
+  // F4 (design §F4): chi gestisce il progetto, NEL progetto (come il server).
+  if (!canI(me, "project.settings.manage", projectId)) return refuse.forbidden();
   if (queuePauseOf(projectId)) return refuse.invalid("already_paused");
   state.instance.queuePauses.push({ projectId, byId: me, at: now() });
   recordChange({
@@ -223,7 +224,7 @@ export function pauseQueueAs(me: string, projectId: string): InstanceResult {
   return { ok: true };
 }
 
-/** Riprende la coda di un progetto (`settings.manage`): i lavori fermi per la pausa partono, nell'ordine. */
+/** Riprende la coda di un progetto (`project.settings.manage` lì): i lavori fermi per la pausa partono, nell'ordine. */
 export async function resumeQueue(projectId: string): Promise<InstanceResult> {
   return resumeQueueAs(await writer("instance.resumeQueue"), projectId);
 }
@@ -231,7 +232,7 @@ export async function resumeQueue(projectId: string): Promise<InstanceResult> {
 /** La forma sincrona di `resumeQueue` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
 export function resumeQueueAs(me: string, projectId: string): InstanceResult {
   if (!visibleProjectIds(me).has(projectId)) return refuse.notFound();
-  if (!canI(me, "settings.manage")) return refuse.forbidden();
+  if (!canI(me, "project.settings.manage", projectId)) return refuse.forbidden();
   const pause = queuePauseOf(projectId);
   if (!pause) return refuse.invalid("not_paused");
   state.instance.queuePauses = state.instance.queuePauses.filter((p) => p.projectId !== projectId);

@@ -57,6 +57,8 @@ afterEach(async () => {
   await testDb.db.delete(gitIdentities);
   await testDb.db.delete(projects);
   await testDb.db.delete(aiProviders);
+  // F6 (0193): eliminare il progetto STACCA i repository, che tengono l'account.
+  await testDb.db.delete(repositories);
   await testDb.db.delete(gitAccounts);
   await testDb.db.delete(gitAuthorsSeen);
   await testDb.db.delete(users);
@@ -415,6 +417,27 @@ describe("pollDailyReportsOnce", () => {
     expect(getCommitsSpy).not.toHaveBeenCalled();
     expect(runSpy).not.toHaveBeenCalled();
     expect(await testDb.db.select().from(activityReports)).toHaveLength(0);
+  });
+
+  it("area 9, F4: un progetto in pausa lascia il report `queued`; alla ripresa si genera", async () => {
+    const { projectId } = await createProject(testDb.db, { dailyReportEnabled: true });
+    await testDb.db.update(projects).set({ queuePausedAt: new Date() }).where(eq(projects.id, projectId));
+    const paused = makeDeps({ commitsByCall: [[commit({})]] });
+    expect(await pollDailyReportsOnce(paused.deps)).toBe(0);
+    expect(paused.runSpy).not.toHaveBeenCalled();
+    expect((await testDb.db.select().from(activityReports))[0]!.status).toBe("queued");
+    await testDb.db.update(projects).set({ queuePausedAt: null }).where(eq(projects.id, projectId));
+    expect(await pollDailyReportsOnce(makeDeps({ commitsByCall: [[commit({})]] }).deps)).toBe(1);
+  });
+
+  it("area 9, F6: un progetto ARCHIVIATO non genera il report; riaperto, sì", async () => {
+    const { projectId } = await createProject(testDb.db, { dailyReportEnabled: true });
+    await testDb.db.update(projects).set({ archivedAt: new Date() }).where(eq(projects.id, projectId));
+    const archived = makeDeps({ commitsByCall: [[commit({})]] });
+    expect(await pollDailyReportsOnce(archived.deps)).toBe(0);
+    expect(archived.runSpy).not.toHaveBeenCalled();
+    await testDb.db.update(projects).set({ archivedAt: null }).where(eq(projects.id, projectId));
+    expect(await pollDailyReportsOnce(makeDeps({ commitsByCall: [[commit({})]] }).deps)).toBe(1);
   });
 
   it("è idempotente: un secondo tick non crea un secondo report", async () => {

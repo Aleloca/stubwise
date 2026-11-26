@@ -81,8 +81,10 @@ describe("TrackingAgentRunner — modello", () => {
   it("(a) l'impostazione dell'operazione vince sul modello delle opzioni", async () => {
     await testDb.db.insert(aiModelSettings).values({ operation: "fix_execute", model: "claude-opus-5-5" });
     const inner = new FakeAgentRunner();
-    await tracking(inner).run(opts({ operation: "fix_execute", projectId }));
+    const result = await tracking(inner).run(opts({ operation: "fix_execute", projectId }));
     expect(inner.calls[0]!.model).toBe("claude-opus-5-5");
+    // Rimandi, lotto 4: il risultato dice il modello risolto (lo registra il giudizio J2).
+    expect(result.model).toBe("claude-opus-5-5");
   });
 
   it("(b) senza riga resta il modello delle opzioni", async () => {
@@ -113,8 +115,9 @@ describe("TrackingAgentRunner — modello", () => {
     const inner = new FakeAgentRunner();
     const noModel = opts({ operation: "summary", projectId });
     delete noModel.model;
-    await tracking(inner).run(noModel);
+    const result = await tracking(inner).run(noModel);
     expect(inner.calls[0]!.model).toBeUndefined();
+    expect(result.model).toBeUndefined();
   });
 
   it("non tocca il provider scelto dal chiamante", async () => {

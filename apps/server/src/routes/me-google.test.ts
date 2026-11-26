@@ -1,9 +1,10 @@
-import { randomBytes } from "node:crypto";
-import { decrypt, googleAccounts, googleWorkspaces, oauthStates } from "@stubwise/db";
+import { randomBytes, randomUUID } from "node:crypto";
+import { decrypt, driveFiles, driveFolderLinks, googleAccounts, googleWorkspaces, oauthStates, projects } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { loadGoogleAccountCredentials } from "@stubwise/google/credentials";
-import { eq } from "drizzle-orm";
+import { GOOGLE_SYNC_REQUEST_CHANNEL } from "@stubwise/shared";
+import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
@@ -37,7 +38,13 @@ const REFRESH_TOKEN = "1//refresh-token-molto-segreto";
 
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
-const FULL_SCOPES = `openid email ${GMAIL_SCOPE} ${CALENDAR_SCOPE}`;
+// Area 6, F1 (D1 = a): il riconsenso unico con gli scope dell'area intera.
+const GMAIL_MODIFY = "https://www.googleapis.com/auth/gmail.modify";
+const CALENDAR_EVENTS = "https://www.googleapis.com/auth/calendar.events";
+const DRIVE_READONLY = "https://www.googleapis.com/auth/drive.readonly";
+const FULL_SCOPES = `openid email ${GMAIL_MODIFY} ${CALENDAR_SCOPE} ${CALENDAR_EVENTS} ${DRIVE_READONLY}`;
+/** Gli scope di una casella collegata prima dell'area 6. */
+const LEGACY_SCOPES = `openid email ${GMAIL_SCOPE} ${CALENDAR_SCOPE}`;
 
 let testDb: TestDb;
 let app: FastifyInstance;
@@ -542,7 +549,7 @@ describe("GET /api/me/google/callback — successo", () => {
     // L'email è normalizzata lowercase da `fetchUserinfo`: è la chiave unique.
     expect(row!.email).toBe("mario.rossi@acme.com");
     expect(row!.googleSub).toBe("115000000000000000001");
-    expect(row!.scopes).toEqual(["openid", "email", GMAIL_SCOPE, CALENDAR_SCOPE]);
+    expect(row!.scopes).toEqual(FULL_SCOPES.split(" "));
     expect(row!.connectedAt).toBeInstanceOf(Date);
     expect(row!.disabledAt).toBeNull();
     // Già dovuta al primo tick del poller.
@@ -604,6 +611,25 @@ describe("GET /api/me/google/callback — successo", () => {
     expect(rows[0]!.syncAttempts).toBe(0);
     expect(decrypt(rows[0]!.refreshTokenEncrypted, ENCRYPTION_KEY)).toBe("1//refresh-token-nuovo");
     expect(rows[0]!.proposalsEnabled).toBe(false);
+  });
+
+  it("area 6, F5b (review, punto 5): scollegata e RICOLLEGATA la stessa casella, cartelle e riferimenti Drive tornano alla riga nuova", async () => {
+    const workspaceId = await createWorkspace();
+    await callback(await stateFor(workspaceId));
+    const [first] = await accountRows();
+    const [p] = await testDb.db.insert(projects).values({ name: "P", slug: `p-${randomUUID()}`, ingestionKey: randomUUID() }).returning();
+    const [link] = await testDb.db.insert(driveFolderLinks).values({ projectId: p!.id, googleFolderId: "f1", name: "Cliente", linkedBy: memberId, accountId: first!.id }).returning();
+    const [ref] = await testDb.db.insert(driveFiles).values({ projectId: p!.id, number: 1, source: "google", name: "Doc", mime: "application/vnd.google-apps.document", type: "document", googleFileId: "g1", googleAccountId: first!.id, folderLinkId: link!.id, addedBy: memberId }).returning();
+    // Scollegare cancella la riga: la FK mette a NULL gli id.
+    await testDb.db.delete(googleAccounts).where(eq(googleAccounts.id, first!.id));
+    expect((await testDb.db.select().from(driveFolderLinks).where(eq(driveFolderLinks.id, link!.id)))[0]!.accountId).toBeNull();
+    expect(outcomeOf(await callback(await stateFor(workspaceId)))).toBe("ok");
+    const [again] = await accountRows();
+    expect(again!.id).not.toBe(first!.id);
+    expect((await testDb.db.select().from(driveFolderLinks).where(eq(driveFolderLinks.id, link!.id)))[0]!.accountId).toBe(again!.id);
+    expect((await testDb.db.select().from(driveFiles).where(eq(driveFiles.id, ref!.id)))[0]!.googleAccountId).toBe(again!.id);
+    await testDb.db.delete(driveFiles).where(eq(driveFiles.projectId, p!.id));
+    await testDb.db.delete(projects).where(eq(projects.id, p!.id));
   });
 
   it("loadGoogleAccountCredentials rimette insieme token e credenziali dell'app OAuth", async () => {
@@ -691,6 +717,20 @@ describe("caselle dell'utente", () => {
     return row!.id;
   }
 
+  it("area 6, F1: una casella con gli scope VECCHI si collega e legge ancora, e dice cosa le manca", async () => {
+    tokenResponse = { ...tokenResponse, scope: LEGACY_SCOPES };
+    await connectedAccountId();
+    const [account] = (await app.inject({ method: "GET", url: "/api/me/google/accounts", headers: { cookie: memberCookie } })).json() as { missingScopes: string[] }[];
+    expect(account!.missingScopes).toEqual([GMAIL_MODIFY, CALENDAR_EVENTS, DRIVE_READONLY]);
+  });
+
+  it("area 6, F1: un consenso parziale (Google lascia togliere uno scope) basta per leggere, e il resto manca", async () => {
+    tokenResponse = { ...tokenResponse, scope: `openid email ${GMAIL_MODIFY} ${CALENDAR_SCOPE}` };
+    await connectedAccountId();
+    const [account] = (await app.inject({ method: "GET", url: "/api/me/google/accounts", headers: { cookie: memberCookie } })).json() as { missingScopes: string[] }[];
+    expect(account!.missingScopes).toEqual([CALENDAR_EVENTS, DRIVE_READONLY]);
+  });
+
   it("GET /accounts elenca le MIE caselle, senza nessun campo che somigli a un token", async () => {
     await connectedAccountId();
 
@@ -709,6 +749,8 @@ describe("caselle dell'utente", () => {
       lastSyncAt: null,
       disabledAt: null,
       disabledReason: null,
+      // Col consenso completo non manca niente.
+      missingScopes: [],
     });
     expect(JSON.stringify(list[0])).not.toContain(REFRESH_TOKEN);
     expect(Object.keys(list[0]!).join(" ")).not.toMatch(/token|secret/i);
@@ -735,6 +777,24 @@ describe("caselle dell'utente", () => {
 
     const [row] = await accountRows();
     expect(row!.proposalsEnabled).toBe(false);
+  });
+
+  it("riaccendere le proposte scrive il taglio `proposals_since`; spegnerle o riscrivere «accese» non lo sposta", async () => {
+    const id = await connectedAccountId();
+    const patch = (proposalsEnabled: boolean) =>
+      app.inject({ method: "PATCH", url: `/api/me/google/accounts/${id}`, headers: { cookie: memberCookie }, payload: { proposalsEnabled } });
+    // Accese da sempre: nessun taglio, anche riscrivendole.
+    await patch(true);
+    expect((await accountRows())[0]!.proposalsSince).toBeNull();
+    await patch(false);
+    expect((await accountRows())[0]!.proposalsSince).toBeNull();
+    const before = Date.now();
+    await patch(true);
+    const since = (await accountRows())[0]!.proposalsSince;
+    expect(since).not.toBeNull();
+    expect(since!.getTime()).toBeGreaterThanOrEqual(before - 1000);
+    await patch(true);
+    expect((await accountRows())[0]!.proposalsSince!.getTime()).toBe(since!.getTime());
   });
 
   it("PATCH di un altro utente: 404 e la riga resta invariata", async () => {
@@ -807,5 +867,177 @@ describe("caselle dell'utente", () => {
       const res = await app.inject({ method, url, payload: { proposalsEnabled: false } });
       expect(res.statusCode, `${method} ${url}`).toBe(401);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// «Aggiorna ora» (area 6, F1.2)
+// ---------------------------------------------------------------------------
+
+describe("POST /api/me/google/accounts/:id/sync", () => {
+  async function connectedAccountId(): Promise<string> {
+    const workspaceId = await createWorkspace();
+    await callback(await stateFor(workspaceId));
+    const [row] = await accountRows();
+    return row!.id;
+  }
+  function sync(id: string, cookie = memberCookie) {
+    return app.inject({ method: "POST", url: `/api/me/google/accounts/${id}/sync`, headers: { cookie } });
+  }
+
+  it("202 queued: scrive la richiesta, rende la casella dovuta e la annuncia sul canale", async () => {
+    const id = await connectedAccountId();
+    await testDb.db.update(googleAccounts).set({ nextSyncAt: sql`now() + interval '5 minutes'` }).where(eq(googleAccounts.id, id));
+    const payloads: string[] = [];
+    const listener = await testDb.client.listen(GOOGLE_SYNC_REQUEST_CHANNEL, (p) => payloads.push(p));
+    try {
+      const res = await sync(id);
+      expect(res.statusCode).toBe(202);
+      expect(res.json()).toEqual({ status: "queued" });
+      const [row] = await accountRows();
+      expect(row!.syncRequestedAt).not.toBeNull();
+      expect(row!.syncLastRequestedAt).not.toBeNull();
+      expect(row!.nextSyncAt.getTime()).toBeLessThanOrEqual(Date.now() + 60_000);
+      await expect.poll(() => payloads.length).toBe(1);
+      expect(JSON.parse(payloads[0]!)).toEqual({ accountId: id });
+    } finally {
+      await listener.unlisten();
+    }
+    // La riga pubblica lo dice.
+    const [account] = (await app.inject({ method: "GET", url: "/api/me/google/accounts", headers: { cookie: memberCookie } })).json() as { syncRequestedAt: string | null }[];
+    expect(account!.syncRequestedAt).not.toBeNull();
+  });
+
+  it("una richiesta già in attesa: 202 already_queued, senza toccare la riga", async () => {
+    const id = await connectedAccountId();
+    expect((await sync(id)).json()).toEqual({ status: "queued" });
+    const [before] = await accountRows();
+    const res = await sync(id);
+    expect(res.statusCode).toBe(202);
+    expect(res.json()).toEqual({ status: "already_queued" });
+    const [after] = await accountRows();
+    expect(after!.syncLastRequestedAt?.getTime()).toBe(before!.syncLastRequestedAt?.getTime());
+  });
+
+  it("entro 60 s dall'ultima richiesta (già servita): 429 sync_too_soon col tempo che manca", async () => {
+    const id = await connectedAccountId();
+    await testDb.db.update(googleAccounts).set({ syncRequestedAt: null, syncLastRequestedAt: sql`now() - interval '20 seconds'` }).where(eq(googleAccounts.id, id));
+    const res = await sync(id);
+    expect(res.statusCode).toBe(429);
+    const body = res.json() as { code: string; retryAfterSeconds: number };
+    expect(body.code).toBe("sync_too_soon");
+    expect(body.retryAfterSeconds).toBeGreaterThanOrEqual(39);
+    expect(body.retryAfterSeconds).toBeLessThanOrEqual(41);
+    const [row] = await accountRows();
+    expect(row!.syncRequestedAt).toBeNull();
+  });
+
+  it("oltre i 60 s si può richiedere di nuovo", async () => {
+    const id = await connectedAccountId();
+    await testDb.db.update(googleAccounts).set({ syncRequestedAt: null, syncLastRequestedAt: sql`now() - interval '61 seconds'` }).where(eq(googleAccounts.id, id));
+    expect((await sync(id)).json()).toEqual({ status: "queued" });
+  });
+
+  it("la casella di un altro: 404, e nessuna richiesta né notifica", async () => {
+    const id = await connectedAccountId();
+    const payloads: string[] = [];
+    const listener = await testDb.client.listen(GOOGLE_SYNC_REQUEST_CHANNEL, (p) => payloads.push(p));
+    try {
+      const res = await sync(id, adminCookie);
+      expect(res.statusCode).toBe(404);
+      expect((res.json() as { code: string }).code).toBe("google_account_not_found");
+      // Un NOTIFY di controllo dopo: se arriva lui solo, quello della rotta non c'è stato.
+      await testDb.client`select pg_notify(${GOOGLE_SYNC_REQUEST_CHANNEL}, 'sentinella')`;
+      await expect.poll(() => payloads.length).toBe(1);
+      expect(payloads).toEqual(["sentinella"]);
+    } finally {
+      await listener.unlisten();
+    }
+    const [row] = await accountRows();
+    expect(row!.syncRequestedAt).toBeNull();
+    expect(row!.syncLastRequestedAt).toBeNull();
+  });
+
+  it("una casella disabilitata: 409 account_disabled («Ricollega»)", async () => {
+    const id = await connectedAccountId();
+    await testDb.db.update(googleAccounts).set({ disabledAt: sql`now()`, disabledReason: "invalid_grant" }).where(eq(googleAccounts.id, id));
+    const res = await sync(id);
+    expect(res.statusCode).toBe(409);
+    expect((res.json() as { code: string }).code).toBe("account_disabled");
+    const [row] = await accountRows();
+    expect(row!.syncRequestedAt).toBeNull();
+  });
+
+  it("una casella con le proposte spente si legge comunque: 202 queued (decisione del 12 nov 2026)", async () => {
+    const id = await connectedAccountId();
+    await testDb.db.update(googleAccounts).set({ proposalsEnabled: false }).where(eq(googleAccounts.id, id));
+    const res = await sync(id);
+    expect(res.statusCode).toBe(202);
+    expect(res.json()).toEqual({ status: "queued" });
+  });
+
+  it("spegnere le proposte NON toglie una richiesta in attesa: il poller la serve comunque", async () => {
+    const id = await connectedAccountId();
+    await sync(id);
+    await app.inject({ method: "PATCH", url: `/api/me/google/accounts/${id}`, headers: { cookie: memberCookie }, payload: { proposalsEnabled: false } });
+    const [row] = await accountRows();
+    expect(row!.syncRequestedAt).not.toBeNull();
+  });
+
+  it("vuole una sessione", async () => {
+    const id = await connectedAccountId();
+    const res = await app.inject({ method: "POST", url: `/api/me/google/accounts/${id}/sync` });
+    expect(res.statusCode).toBe(401);
+  });
+});
+
+describe("rimandi, lotto 4, §6: il ritorno OAuth all'app desktop", () => {
+  const RETURN = "rS_" + "a".repeat(24);
+  const desktopConnect = (workspaceId: string, body: object = { client: "desktop", returnState: RETURN }) =>
+    app.inject({ method: "POST", url: "/api/me/google/connect", headers: { cookie: memberCookie }, payload: { workspaceId, ...body } });
+  const desktopState = async (workspaceId: string) => {
+    const res = await desktopConnect(workspaceId);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toMatchObject({ returnTo: "desktop" });
+    return new URL((res.json() as { authorizeUrl: string }).authorizeUrl).searchParams.get("state")!;
+  };
+  /** Il ritorno letto dal `Location`: la pagina dell'app e i suoi due parametri, e nient'altro. */
+  const desktopReturnOf = (res: { headers: Record<string, unknown> }) => {
+    const location = String(res.headers.location ?? "");
+    expect(location.startsWith("/app/#/desktop-google?")).toBe(true);
+    const query = new URLSearchParams(location.slice(location.indexOf("?") + 1));
+    expect([...query.keys()].sort()).toEqual(["outcome", "state"]);
+    return { outcome: query.get("outcome"), state: query.get("state") };
+  };
+
+  it("`client: \"desktop\"` senza `returnState` è 400 `invalid_request`; dal web `returnTo` è `web`", async () => {
+    const workspaceId = await createWorkspace();
+    const bad = await desktopConnect(workspaceId, { client: "desktop" });
+    expect([bad.statusCode, (bad.json() as { code: string }).code]).toEqual([400, "invalid_request"]);
+    expect((await connect(workspaceId)).json()).toMatchObject({ returnTo: "web" });
+  });
+
+  it("un collegamento avviato dall'app torna a `/app/#/desktop-google` con l'esito e lo state dell'app, anche su un rifiuto", async () => {
+    const workspaceId = await createWorkspace();
+    const ok = await callback(await desktopState(workspaceId));
+    expect(ok.statusCode).toBe(302);
+    expect(desktopReturnOf(ok)).toEqual({ outcome: "ok", state: RETURN });
+    // Nessun code, token o state firmato nel ritorno.
+    expect(String(ok.headers.location)).not.toContain("code-di-google");
+    userinfoResponse = { ...userinfoResponse, email: "mario@altro.example", hd: "altro.example" };
+    const other = await createWorkspace({ domains: ["acme.com"] });
+    expect(desktopReturnOf(await callback(await desktopState(other)))).toEqual({ outcome: "domain_mismatch", state: RETURN });
+  });
+
+  it("consenso annullato: con uno state verificabile dell'app torna all'app con `error`; dal web resta la pagina Account", async () => {
+    const workspaceId = await createWorkspace();
+    const state = await desktopState(workspaceId);
+    const res = await app.inject({ method: "GET", url: `/api/me/google/callback?error=access_denied&state=${encodeURIComponent(state)}` });
+    expect(desktopReturnOf(res)).toEqual({ outcome: "error", state: RETURN });
+    const web = await app.inject({ method: "GET", url: `/api/me/google/callback?error=access_denied&state=${encodeURIComponent(await stateFor(workspaceId))}` });
+    expect(String(web.headers.location)).toContain("?google=error");
+    // Uno state non verificabile: il web di sempre.
+    const forged = await app.inject({ method: "GET", url: "/api/me/google/callback?error=access_denied&state=finto" });
+    expect(String(forged.headers.location)).toContain("?google=error");
   });
 });

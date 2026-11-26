@@ -1,4 +1,10 @@
-import type { ConversationEvent, EventDraft, ServerSshAccess, Task } from "../../data/model";
+import type {
+  ConversationEvent,
+  EventDraft,
+  ServerSshAccess,
+  SshVerification,
+  Task,
+} from "../../data/model";
 import { fakeSshPublicKey } from "../../data/seed/servers/access";
 import { makeTask } from "../fixtures";
 
@@ -10,18 +16,46 @@ export const hoursAgo = (h: number) => new Date(Date.parse(NOW) - h * 3_600_000)
 export const serverTask = (over: Partial<Task> = {}) =>
   makeTask({ source: "server", serverRef: { serverCode: "SRV-9", episodeId: "ep" }, ...over });
 
-export const pair = (generation: number) => ({
-  read: fakeSshPublicKey("SRV-9", "read", generation, hoursAgo(10)),
-  fix: fakeSshPublicKey("SRV-9", "fix", generation, hoursAgo(10)),
+/** La chiave (pubblica) dell'unico accesso, della generazione `generation`. */
+export const key = (generation: number) => fakeSshPublicKey("SRV-9", generation, hoursAgo(10));
+
+/** Una verifica riuscita: login, niente `sudo` né `docker`, il journal col gruppo. */
+export const verification = (over: Partial<SshVerification> = {}): SshVerification => ({
+  at: hoursAgo(1),
+  login: "ok",
+  groups: ["stubwise-read", "systemd-journal"],
+  sudo: false,
+  docker: false,
+  journal: true,
+  ok: true,
+  reason: null,
+  ofPending: false,
+  ...over,
+});
+
+export const DENIED = verification({
+  login: "denied",
+  groups: [],
+  journal: false,
+  ok: false,
+  reason: "Permission denied (publickey)",
+});
+
+export const SUDO = verification({
+  groups: ["stubwise-read", "sudo"],
+  sudo: true,
+  journal: false,
+  ok: false,
+  reason: "stubwise-read can run sudo.",
 });
 
 export const access = (over: Partial<ServerSshAccess> = {}): ServerSshAccess => ({
   serverCode: "SRV-9",
-  keys: pair(1),
+  key: key(1),
   pending: null,
-  verification: { at: hoursAgo(1), read: "ok", fix: "ok", reason: null, ofPending: false },
-  keysVerification: null,
-  lastUse: {},
+  verification: verification(),
+  keyVerification: null,
+  lastUse: null,
   revokedAt: null,
   ...over,
 });
@@ -29,28 +63,11 @@ export const access = (over: Partial<ServerSshAccess> = {}): ServerSshAccess => 
 /** Un accesso per ognuno dei sette stati. */
 export const STATES = {
   not_linked: undefined,
-  awaiting_command: access({ keys: null, pending: pair(1), verification: null }),
+  awaiting_command: access({ key: null, pending: key(1), verification: null }),
   verified: access(),
-  verify_failed: access({
-    verification: {
-      at: hoursAgo(1),
-      read: "ok",
-      fix: "failed",
-      reason: "Permission denied (publickey)",
-      ofPending: false,
-    },
-  }),
-  read_writes: access({
-    verification: {
-      at: hoursAgo(1),
-      read: "writes",
-      fix: "ok",
-      reason: "sudo -n true succeeded",
-      ofPending: false,
-    },
-  }),
-  regenerating: access({ pending: pair(2) }),
-  revoked: access({ keys: null, pending: null, verification: null, revokedAt: hoursAgo(1) }),
+  verify_failed: access({ verification: DENIED }),
+  privileged: access({ verification: SUDO }),
+  revoked: access({ key: null, pending: null, verification: null, revokedAt: hoursAgo(1) }),
 } as const;
 
 let seq = 0;

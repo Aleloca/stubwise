@@ -23,6 +23,7 @@ export const APP_ROUTES = [
   "mail",
   "calendar",
   "drive",
+  "vault",
   "claude",
   "automations",
   "projects",
@@ -114,9 +115,7 @@ export function isPeopleSearchValue(key: string, value: string): boolean {
     case "roles":
       return /^[\w-]+(,[\w-]+)*$/.test(value);
     case "statuses":
-      return value
-        .split(",")
-        .every((s) => (PEOPLE_STATUSES as readonly string[]).includes(s));
+      return value.split(",").every((s) => (PEOPLE_STATUSES as readonly string[]).includes(s));
     case "invite":
       return value === "1";
     case "inviteProject":
@@ -142,6 +141,8 @@ export const PROJECT_SECTIONS = [
   { id: "releases", module: "releases" },
   { id: "support", module: "support" },
   { id: "servers", module: "servers" },
+  // La Cassaforte (lotto 10, shape `vault.md`): la voce c'è solo se chi guarda vede o può creare una credenziale.
+  { id: "credentials" },
   { id: "settings" },
 ] as const satisfies readonly { id: string; module?: ProjectModule }[];
 

@@ -1,11 +1,15 @@
-import { widgetRepositoryFiltersSchema, widgetUpsertBodySchema } from "@stubwise/shared";
+import { changedFields, recordChange } from "../services/change-log.js";
+import { widgetObject } from "../services/settings-entries.js";
+import { widgetAdminSchema, widgetIdentitySecretResultSchema, widgetRepositoryFiltersSchema, widgetUpsertBodySchema } from "@stubwise/shared";
 import { and, asc, desc, eq, exists, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import type { RouteAccess } from "../auth/access.js";
+import { projectPermissionsFor, type RouteAccess } from "../auth/access.js";
+import { generateWidgetIdentitySecret } from "../auth/widget-identity.js";
 import { fromParam } from "../auth/project-resolvers.js";
 import {
+  encrypt,
   repositories,
   widgetConversations,
   widgetMessages,
@@ -27,29 +31,17 @@ const CONVERSATIONS_LIMIT_MAX = 200;
  * cookie). Campi elencati esplicitamente, mai spread della riga (che porterebbe
  * `projectId`, interno all'API).
  */
-const widgetSchema = z.object({
-  id: z.uuid(),
-  name: z.string(),
-  key: z.string(),
-  enabled: z.boolean(),
-  enabledRepositoryIds: z.array(z.uuid()),
-  // Filtro FINE per-repo (path filter): chiavi ⊆ enabledRepositoryIds (garantito
-  // in scrittura). Round-trip completo verso la SPA.
-  repositoryFilters: widgetRepositoryFiltersSchema,
-  title: z.string(),
-  welcomeMessage: z.string(),
-  // Istruzioni aggiuntive per il system prompt della chat (interne: non esposte
-  // sulla superficie pubblica del widget, solo su questa superficie SPA admin).
-  instructions: z.string(),
-  accentColor: z.string(),
-  language: z.string(),
-  dailyMessageCap: z.number().int().nullable(),
-  dailyTicketCap: z.number().int().nullable(),
-  createdAt: z.iso.datetime(),
-  conversationCount: z.number().int(),
-});
+// La forma di un widget sta in `@stubwise/shared` (`widgetAdminSchema`), la stessa del client.
+const widgetSchema = widgetAdminSchema;
 
 type WidgetRow = typeof widgets.$inferSelect;
+
+/** Il corpo senza `origins`, che in tabella si chiama `allowed_origins`. */
+function withoutOrigins<T extends { origins?: unknown }>(body: T): Omit<T, "origins"> {
+  const rest: T = { ...body };
+  delete rest.origins;
+  return rest;
+}
 
 /**
  * Proiezione di una riga widget + conteggio conversazioni verso lo schema
@@ -75,6 +67,11 @@ function toPublicWidget(row: WidgetRow, conversationCount: number): z.infer<type
     dailyTicketCap: row.dailyTicketCap,
     createdAt: row.createdAt.toISOString(),
     conversationCount,
+    origins: row.allowedOrigins,
+    // Il segreto non esce mai: solo se c'è e quando è nato.
+    identitySecretSet: row.identitySecretEncrypted !== null,
+    identitySecretRotatedAt: row.identitySecretRotatedAt?.toISOString() ?? null,
+    identityRequired: row.identityRequired,
   };
 }
 
@@ -140,7 +137,7 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
       schema: {
         params: idParamsSchema,
         response: {
-          200: z.object({ widgets: z.array(widgetSchema) }),
+          200: z.object({ widgets: z.array(widgetSchema), canManage: z.boolean() }),
           404: errorSchema,
           ...authErrorResponses,
         },
@@ -162,7 +159,12 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
         // Ordine stabile: createdAt asc, tiebreaker sull'id al bordo del limit.
         .orderBy(asc(widgets.createdAt), asc(widgets.id));
 
-      return { widgets: rows.map((r) => toPublicWidget(r.widget, r.conversationCount)) };
+      // Area 8, F3: chi guarda può gestirli? (l'app nasconde la sezione senza).
+      const permissions = await projectPermissionsFor(app.db, request.user!, projectId);
+      return {
+        widgets: rows.map((r) => toPublicWidget(r.widget, r.conversationCount)),
+        canManage: permissions?.has("widget.manage") ?? false,
+      };
     },
   );
 
@@ -202,14 +204,25 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
           "repositoryFilters keys must be a subset of enabledRepositoryIds",
         );
       }
+      // Un widget nuovo non ha ancora un segreto: «Solo clienti verificati»
+      // lo renderebbe inutilizzabile.
+      if (body.identityRequired === true) {
+        return apiError(reply, 422, "identity_secret_missing", "Generate the identity secret before requiring verified customers");
+      }
 
-      const [row] = await app.db
-        .insert(widgets)
-        // body per primo: projectId e key non devono mai essere sovrascrivibili
-        // dal client, nemmeno se lo schema diventasse passthrough.
-        .values({ ...body, projectId, key: generateIngestionKey() })
-        .returning();
-      if (!row) throw new Error("insert del widget non ha restituito la riga");
+      const row = await app.db.transaction(async (tx) => {
+        const [created] = await tx
+          .insert(widgets)
+          // body per primo: projectId e key non devono mai essere sovrascrivibili
+          // dal client, nemmeno se lo schema diventasse passthrough.
+          // `origins` (area 8, F3, S16) è la colonna `allowed_origins`; assente = vuoto.
+          .values({ ...withoutOrigins(body), allowedOrigins: body.origins ?? [], projectId, key: generateIngestionKey() })
+          .returning();
+        if (!created) throw new Error("insert del widget non ha restituito la riga");
+        // Area 9, F5: la voce nella transazione; mai la chiave.
+        await recordChange(tx, { type: "widget.created", actor: request.user!, projectId, data: { object: widgetObject(created) } });
+        return created;
+      });
       // Widget appena creato: nessuna conversazione ancora collegata.
       return { widget: toPublicWidget(row, 0) };
     },
@@ -236,7 +249,7 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
       const body = request.body;
 
       const [existing] = await app.db
-        .select({ id: widgets.id })
+        .select({ id: widgets.id, name: widgets.name, identitySecretEncrypted: widgets.identitySecretEncrypted })
         .from(widgets)
         .where(and(eq(widgets.id, widgetId), eq(widgets.projectId, projectId)));
       // Widget inesistente o di un altro progetto: 404 (isolamento).
@@ -259,19 +272,60 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
           "repositoryFilters keys must be a subset of enabledRepositoryIds",
         );
       }
+      if (body.identityRequired === true && existing.identitySecretEncrypted === null) {
+        return apiError(reply, 422, "identity_secret_missing", "Generate the identity secret before requiring verified customers");
+      }
 
-      const [row] = await app.db
-        .update(widgets)
-        .set(body)
-        .where(and(eq(widgets.id, widgetId), eq(widgets.projectId, projectId)))
-        .returning();
-      if (!row) throw new Error("update del widget non ha restituito la riga");
+      const row = await app.db.transaction(async (tx) => {
+        const [updated] = await tx
+          .update(widgets)
+          // `origins` assente (un client che non lo conosce) lascia l'elenco com'è.
+          .set({ ...withoutOrigins(body), ...(body.origins !== undefined ? { allowedOrigins: body.origins } : {}) })
+          .where(and(eq(widgets.id, widgetId), eq(widgets.projectId, projectId)))
+          .returning();
+        if (!updated) throw new Error("update del widget non ha restituito la riga");
+        // Come il prototipo: la voce c'è sempre, col prima/dopo del solo nome.
+        const diff = changedFields({ name: existing.name }, { name: updated.name });
+        await recordChange(tx, { type: "widget.updated", actor: request.user!, projectId, data: { object: widgetObject(updated), ...(diff ?? {}) } });
+        return updated;
+      });
 
       const [count] = await app.db
         .select({ conversationCount: sql<number>`count(*)::int` })
         .from(widgetConversations)
         .where(eq(widgetConversations.widgetId, widgetId));
       return { widget: toPublicWidget(row, count?.conversationCount ?? 0) };
+    },
+  );
+
+  // Area 8, «L'API per i siti» (S1): genera o RIGENERA il segreto d'identità
+  // del widget, col quale il backend del sito firma i suoi clienti. Il
+  // segreto si mostra QUESTA volta sola e si salva cifrato; il vecchio smette
+  // subito (D-5). È una credenziale: `widget.manage` più la riconferma recente
+  // (`config.reauth`, con le sue regole: vedi `applyReauth`).
+  app.post(
+    "/:projectId/widgets/:widgetId/identity-secret",
+    {
+      config: { access: MANAGE_ACCESS, reauth: true },
+      schema: {
+        params: widgetParamsSchema,
+        response: { 200: widgetIdentitySecretResultSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { projectId, widgetId } = request.params;
+      const secret = generateWidgetIdentitySecret();
+      const rotatedAt = new Date();
+      const [row] = await app.db
+        .update(widgets)
+        .set({ identitySecretEncrypted: encrypt(secret, app.encryptionKey), identitySecretRotatedAt: rotatedAt })
+        .where(and(eq(widgets.id, widgetId), eq(widgets.projectId, projectId)))
+        .returning({ id: widgets.id });
+      // Widget inesistente o di un altro progetto: 404 (isolamento), niente scritto.
+      if (!row) return apiError(reply, 404, "widget_not_found", "Widget not found");
+      // Il segreto non resta in nessuna cache intermedia.
+      reply.header("cache-control", "no-store");
+      return { secret, rotatedAt: rotatedAt.toISOString() };
     },
   );
 
@@ -292,10 +346,14 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
       const { projectId, widgetId } = request.params;
       // La FK widget_conversations.widget_id fa SET NULL: lo storico resta
       // consultabile come "widget eliminato".
-      const deleted = await app.db
-        .delete(widgets)
-        .where(and(eq(widgets.id, widgetId), eq(widgets.projectId, projectId)))
-        .returning({ id: widgets.id });
+      const deleted = await app.db.transaction(async (tx) => {
+        const gone = await tx
+          .delete(widgets)
+          .where(and(eq(widgets.id, widgetId), eq(widgets.projectId, projectId)))
+          .returning({ id: widgets.id, name: widgets.name });
+        if (gone[0]) await recordChange(tx, { type: "widget.deleted", actor: request.user!, projectId, data: { object: widgetObject(gone[0]) } });
+        return gone;
+      });
       if (deleted.length === 0) {
         return apiError(reply, 404, "widget_not_found", "Widget not found");
       }

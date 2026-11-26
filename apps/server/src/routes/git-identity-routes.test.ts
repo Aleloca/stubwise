@@ -2,11 +2,11 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { gitAuthorsSeen, gitIdentities, users } from "@stubwise/db";
+import { activityCommits, activityReports, gitAuthorsSeen, gitIdentities, projectMembers, projects, roles, users } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { startTestDb } from "@stubwise/db/testing";
+import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
-import { seedUsers } from "../test/fixtures.js";
+import { fullSessionCookie, seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -339,6 +339,41 @@ describe("GET /api/git/observed-authors", () => {
     expect(linked.authorName).toBe("Linked");
     expect(typeof linked.lastSeenAt).toBe("string");
     expect(free.linkedUserId).toBeNull();
+  });
+
+  it("rimandi, lotto 5: i commit e i progetti di ogni autore (`activity_commits`), solo nei progetti che chi guarda vede", async () => {
+    const a = await seedRepository(testDb.db);
+    const b = await seedRepository(testDb.db);
+    const [{ code: codeA }] = (await testDb.db.select({ code: projects.code }).from(projects).where(eq(projects.id, a.projectId))) as [{ code: string }];
+    const [{ code: codeB }] = (await testDb.db.select({ code: projects.code }).from(projects).where(eq(projects.id, b.projectId))) as [{ code: string }];
+    await testDb.db.insert(gitAuthorsSeen).values([{ email: "dev@x.it", authorName: "Dev" }, { email: "quiet@x.it", authorName: "Quiet" }]);
+    const commit = async (repoId: string, projectId: string, sha: string, email = "Dev@X.it") => {
+      const [r] = await testDb.db.insert(activityReports).values({ projectId, date: `2026-11-${10 + Math.floor(Math.random() * 15)}` }).onConflictDoNothing().returning();
+      const report = r ?? (await testDb.db.select().from(activityReports).where(eq(activityReports.projectId, projectId)))[0]!;
+      await testDb.db.insert(activityCommits).values({ reportId: report.id, repoId, sha, authorEmail: email, committedAt: new Date(), subject: "x" });
+    };
+    await commit(a.repositoryId, a.projectId, "a1");
+    await commit(a.repositoryId, a.projectId, "a2");
+    await commit(b.repositoryId, b.projectId, "b1");
+    const authors = async (cookie: string) =>
+      (await app.inject({ method: "GET", url: "/api/git/observed-authors", headers: { cookie } })).json() as { email: string; commits: number; projectCodes: string[] }[];
+    // Il full admin vede tutti i progetti; l'email del commit è letta senza distinzione di maiuscole.
+    const all = await authors(adminCookie);
+    expect(all.find((x) => x.email === "dev@x.it")).toMatchObject({ commits: 3, projectCodes: [codeA, codeB].sort() });
+    expect(all.find((x) => x.email === "quiet@x.it")).toMatchObject({ commits: 0, projectCodes: [] });
+    // Chi gestisce le persone ma è membro del solo progetto A: solo quelli di A.
+    const [role] = await testDb.db.insert(roles).values({ name: `Persone ${randomUUID().slice(0, 6)}`, scope: "instance", permissions: ["users.manage"] }).returning({ id: roles.id });
+    const [u] = await testDb.db.insert(users).values({ email: `people-${randomUUID().slice(0, 6)}@acme.com`, passwordHash: "x", role: "member", instanceRoleId: role!.id }).returning({ id: users.id });
+    const [memberRole] = await testDb.db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "developer"));
+    await testDb.db.insert(projectMembers).values({ projectId: a.projectId, userId: u!.id, roleId: memberRole!.id });
+    const forA = await authors(await fullSessionCookie(app, u!.id));
+    expect(forA.find((x) => x.email === "dev@x.it")).toMatchObject({ commits: 2, projectCodes: [codeA] });
+    expect(JSON.stringify(forA)).not.toContain(codeB);
+    // Review del lotto 5 (M-8): conta il progetto del REPORT, non quello di oggi del repository.
+    // Un commit nel report di A di un repository che ora sta in B resta di A.
+    await commit(b.repositoryId, a.projectId, "moved1");
+    const after = await authors(await fullSessionCookie(app, u!.id));
+    expect(after.find((x) => x.email === "dev@x.it")).toMatchObject({ commits: 3, projectCodes: [codeA] });
   });
 
   it("member → 403", async () => {

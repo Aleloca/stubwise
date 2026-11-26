@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { childLists } from "../../domain/automations/fields";
+import { childLists } from "@stubwise/shared";
 import type { RunLogEntry, Step } from "../../data/types";
 import { quietButton } from "../tasks/controls";
 import { typing } from "../tasks/useTaskKeys";
@@ -141,10 +141,21 @@ function Row({
                 words={{ names: ctx.names, labels: ctx.labels, numberOf: () => undefined }}
                 outcomes={step?.kind === "claude" ? step.outcomes : []}
               />
+              {/* F3: la motivazione cita un'email che chi guarda non vede (il server la toglie). */}
+              {entry.reasonHidden && (
+                <p data-reason-hidden className="pt-1 text-xs text-ink-muted">
+                  {t("automations.log.reasonHidden")}
+                </p>
+              )}
             </div>
           )}
           {entry.kind === "claude" && entry.outcome === "failed" && entry.why && (
             <p className="pb-2 text-sm text-ink">{reasonWords(entry.why, t)}</p>
+          )}
+          {entry.kind === "claude" && entry.outcome === "failed" && entry.reasonHidden && (
+            <p data-reason-hidden className="pb-2 text-xs text-ink-muted">
+              {t("automations.log.reasonHidden")}
+            </p>
           )}
           {asked && <ApprovalChanges before={asked.input} after={entry.input} />}
           {view.showData && <EntryData entry={entry} ctx={ctx} />}

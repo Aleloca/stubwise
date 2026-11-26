@@ -1,7 +1,8 @@
+import { featureIntegrated } from "../../data/integration";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { usePauserName, waitingText, WithWho } from "../../components/InstanceBlock";
+import { WithWho } from "../../components/InstanceBlock";
 import { useAiBlock, useTask } from "../../data/queries";
 import type { ServerDetail, ServerEpisodeView } from "../../data/servers";
 import { WorkingRing } from "../claude/conversation/parts";
@@ -20,8 +21,11 @@ import { HealthGlyph } from "./glyphs";
 // fondo della pagina. C'è solo con un episodio aperto, un rientro da meno
 // di 24 ore o una task di server aperta. Dice da quando, perché (i motivi
 // in frase) e chi ci lavora; senza accesso di lettura usabile dice che
-// Claude non può guardare, e a chi gestisce gli accessi porta lì.
-// L'ora del rientro è nel fuso di chi guarda.
+// la diagnosi sarà senza letture SSH (Claude guarda lo stesso), e a chi
+// gestisce gli accessi porta lì.
+// L'ora del rientro è nel fuso di chi guarda. L'analisi è del server (area
+// 8, F4b-4): nessun progetto «dell'analisi» prima; a fine analisi, se il
+// progetto non si è potuto dire, la riga lo dice col perché.
 
 const linkClass = "rounded-sm text-ink underline underline-offset-4 hover:decoration-2";
 
@@ -59,8 +63,6 @@ function WorkLine({
 }) {
   const { t } = useTranslation();
   const analysis = episode?.analysis ?? null;
-  // Chi ha messo la pausa, con «(deactivated)» come altrove (M5).
-  const pauser = usePauserName(episode?.analysisWaiting ?? null);
   const taskCode = episode?.taskCode ?? server.workTaskCode;
   const line = (ring: boolean, text: string, extra?: ReactNode) => (
     <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-md text-ink">
@@ -76,25 +78,31 @@ function WorkLine({
       )}
     </p>
   );
-  const session = (id: string) => (
-    <Link to="/claude/$id" params={{ id }} className={linkClass}>
-      {t("servers.now.openSession")}
-    </Link>
-  );
+  // La sessione solo a chi la può leggere (il livello dati dà l'id, o `null`).
+  const session = (id: string | null) =>
+    id === null ? undefined : (
+      <Link to="/claude/$id" params={{ id }} className={linkClass}>
+        {t("servers.now.openSession")}
+      </Link>
+    );
   const task = taskCode ? <TaskLink code={taskCode} /> : undefined;
 
   if (server.work === "fixing") return line(true, t("servers.now.work.fixing"), task);
-  // Area 9b: nata ma ferma per la coda in pausa, senza anello (non sta lavorando).
-  if (analysis?.outcome === "running" && episode?.analysisWaiting)
+  if (analysis?.outcome === "running")
+    return line(true, t("servers.now.work.analyzing"), session(analysis.sessionId));
+  if (analysis?.outcome === "failed")
+    return line(false, t("servers.now.work.failed"), session(analysis.sessionId));
+  // Il progetto non si è potuto dire: nessuna task, e il perché (F4b-4).
+  if (analysis?.attribution?.kind === "undetermined")
     return line(
       false,
-      waitingText(t, episode.analysisWaiting, pauser),
-      session(analysis.conversationId),
+      t("servers.now.work.undetermined", {
+        reason: t(`servers.attribution.${analysis.attribution.reason}`, {
+          defaultValue: t("servers.attribution.other"),
+        }),
+      }),
+      session(analysis.sessionId),
     );
-  if (analysis?.outcome === "running")
-    return line(true, t("servers.now.work.analyzing"), session(analysis.conversationId));
-  if (analysis?.outcome === "failed")
-    return line(false, t("servers.now.work.failed"), session(analysis.conversationId));
   if (analysis) {
     const key = analysis.outcome === "diagnosed" ? "diagnosed" : analysis.outcome;
     if (!episode?.taskCode) return line(false, t("servers.now.work.hiddenTask"));
@@ -128,8 +136,11 @@ export function NowBox({ server }: { server: ServerDetail }) {
   } else {
     title = t(`servers.health.${h.health}`);
   }
-  const reasons = open ? h.reasons : (episode?.reasons ?? []);
-  const noRead = !server.access.usable.read;
+  // Le frasi dei motivi; uno che l'app non conosce non lascia una riga vuota (review F4a, I3).
+  const reasons = (open ? h.reasons : (episode?.reasons ?? [])).flatMap(
+    (r) => reasonSentence(r, server.checks, t, lang, open ? open.startedAt : null) ?? [],
+  );
+  const noRead = !server.access.usable;
   const inTrouble = h.health === "down" || h.health === "trouble";
   const work = <WorkLine server={server} episode={episode} />;
   // La frase del budget vale finché il budget è esaurito adesso: alzato, non
@@ -155,9 +166,9 @@ export function NowBox({ server }: { server: ServerDetail }) {
           </p>
           {reasons.length > 0 && (
             <ul aria-label={t("servers.now.reasons")} className="flex flex-col gap-0.5">
-              {reasons.map((r, i) => (
+              {reasons.map((sentence, i) => (
                 <li key={i} className="num text-md text-ink-muted">
-                  {reasonSentence(r, server.checks, t, lang, open ? open.startedAt : null)}
+                  {sentence}
                 </li>
               ))}
             </ul>
@@ -167,17 +178,27 @@ export function NowBox({ server }: { server: ServerDetail }) {
       {work}
       {/* Un orfano (area 9b) non ha staging né produzioni: «Staging only» sarebbe
           falso, e che Claude lavori solo dentro un progetto lo dice la testata. */}
-      {!server.orphan && server.analysisProject === null && inTrouble && (
+      {featureIntegrated("servers-analysis") && !server.orphan && !server.alerting && inTrouble && (
         <p className="text-md text-ink-muted">{t("servers.stagingOnly")}</p>
       )}
-      {inTrouble &&
+      {/* Senza l'accesso di lettura Claude guarda lo stesso (decisione del
+          maintainer, 15 nov 2026, come il worker): la diagnosi è senza letture
+          SSH, e chi gestisce gli accessi può collegarlo da qui. */}
+      {featureIntegrated("servers-analysis") &&
+        // Senza l'SSH integrato (build app) lo stato dell'accesso non si sa: niente frase.
+        featureIntegrated("servers-ssh") &&
+        inTrouble &&
         noRead &&
         !server.orphan &&
-        server.analysisProject !== null &&
-        server.work === "none" &&
-        !episode?.analysis && (
-          <div className="flex flex-wrap items-center gap-3">
-            <p className="text-md text-ink">{t("servers.now.noAccess")}</p>
+        server.alerting && (
+          <div data-no-ssh-reads className="flex flex-wrap items-center gap-3">
+            <p className="text-md text-ink">
+              {t(
+                server.access.state === "not_linked" || server.access.state === "revoked"
+                  ? "servers.now.noSshReads"
+                  : "servers.now.noSshReadsUnusable",
+              )}
+            </p>
             {server.access.canManage && (
               // La stessa pagina, dal progetto o dall'Amministrazione: solo `?section=`.
               <Link
@@ -194,14 +215,15 @@ export function NowBox({ server }: { server: ServerDetail }) {
         )}
       {/* Col budget raggiunto all'allarme l'analisi non è partita: lo si dice,
           col «Who?» di chi alza il budget (shape EF, revisione finale M4). */}
+      {/* L'analisi spenta in Amministrazione → AI all'allarme (R0-C). */}
+      {open?.analysisBlocked === "disabled" && !open.analysis && (
+        <p data-analysis-off className="text-md text-pretty text-ink">
+          {t("servers.now.analysisOff")}
+        </p>
+      )}
       {open?.analysisBlocked === "monthly_budget" && !open.analysis && budgetNow && (
         <p data-ai-block="monthly_budget" className="text-md text-pretty text-ink">
           <WithWho text={t("servers.now.noBudget")} />
-        </p>
-      )}
-      {server.productionProjects.length > 1 && server.analysisProject?.code && (
-        <p className="text-sm text-ink-muted">
-          {t("servers.now.primary", { code: server.analysisProject.code })}
         </p>
       )}
     </section>

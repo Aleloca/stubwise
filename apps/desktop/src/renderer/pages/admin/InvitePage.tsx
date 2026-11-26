@@ -2,7 +2,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useInvites, useRevokeInvite } from "../../data/queries";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { useToast } from "../../tasks-ui/Toast";
 import { NotFound } from "../NotFound";
 import { ArmedButton, Part, ReadError, RowsSkeleton, WriteError, refusalOf } from "../preferences/parts";

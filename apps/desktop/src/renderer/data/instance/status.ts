@@ -4,7 +4,16 @@ import { canSeeRun, runById } from "../automations/visibility";
 import { docsAccess } from "../docs/reads";
 import { productPageHref } from "../productDocs/claudeReads";
 import { serverHref } from "../servers/visibility";
-import { currentPhase, eventsOf, familyOf, gate, now, state, visibleProjectIds } from "../store";
+import {
+  canSeeConversation,
+  currentPhase,
+  eventsOf,
+  familyOf,
+  gate,
+  now,
+  state,
+  visibleProjectIds,
+} from "../store";
 import type { ActionAvailability } from "../types";
 import { forbidden } from "../writer";
 import { canI } from "./common";
@@ -51,7 +60,8 @@ export interface InstanceJob {
   /** Il blocco, solo per `waiting`; `null` su una correzione ferma (aspetta una persona). */
   waiting: AiBlock | null;
   since: string;
-  workerId: "worker-1" | "worker-2" | null;
+  /** Lo slot del worker (nel prototipo `worker-1`/`worker-2`, sul server `<processo>:<n>`). */
+  workerId: string | null;
   retry: ActionAvailability;
   /**
    * Con `retry` `forbidden`, il permesso che manca (Task 13: la pagina mette
@@ -113,7 +123,7 @@ export interface InstanceStatusView {
   otherProjects: { running: number; waiting: number; failed: number } | null;
   jobs: InstanceJob[];
   /** ruling del controller (pre-flight): `hidden` = occupato in un progetto che chi guarda non vede, e allora `jobId` è null (R-G5). */
-  workers: { id: "worker-1" | "worker-2"; jobId: string | null; hidden: boolean }[];
+  workers: { id: string; jobId: string | null; hidden: boolean }[];
   /** Tutti gli account della catena; `quota` è `null` per una chiave API (non ha quota). */
   quota: {
     providerId: string;
@@ -211,7 +221,8 @@ type Job = Omit<
 >;
 
 function sessionJob(c: Conversation, kind: NonNullable<ReturnType<typeof jobKindOf>>): Job | null {
-  const projectId = c.projectId!;
+  // Solo l'analisi di un server può non avere progetto (F4b-4: lo dice lei, a fine analisi).
+  const projectId = c.projectId;
   const failed = isFailed(c);
   // Una correzione ferma (ruling T5 I1) si mostra in attesa, senza blocco:
   // si riprende dalla task, non dalla coda.
@@ -231,7 +242,9 @@ function sessionJob(c: Conversation, kind: NonNullable<ReturnType<typeof jobKind
     since: failed || stalledCorrection ? c.updatedAt : c.createdAt,
     href:
       kind === "server_analysis" && server
-        ? serverHref(codeOf(projectId), server)
+        ? projectId === null
+          ? `#/admin/servers/${server}`
+          : serverHref(codeOf(projectId), server)
         : taskHref(c.taskId),
     summary: failed ? (c.failureSummary ?? null) : null,
     superseded: failed && kind === "task_run" && newerWorkOf(c) !== null,
@@ -291,7 +304,10 @@ function allJobs(): Job[] {
   const held = heldJobs();
   const heldSessions = new Set(held.map((h) => h.conversationId).filter(Boolean));
   const sessions = state.conversations.flatMap((c) => {
-    const kind = c.projectId !== null && !heldSessions.has(c.id) ? jobKindOf(c) : null;
+    const kind =
+      (c.projectId !== null || c.kind === "server_analysis") && !heldSessions.has(c.id)
+        ? jobKindOf(c)
+        : null;
     const job = kind ? sessionJob(c, kind) : null;
     return job ? [job] : [];
   });
@@ -316,18 +332,21 @@ const counts = (jobs: Job[]) => ({
   failed: jobs.filter((j) => j.state === "failed").length,
 });
 
-/** Cosa sta facendo Stubwise adesso, nei progetti che chi guarda vede (`instance.status.view` o `settings.manage`). */
+/** Cosa sta facendo Stubwise adesso, nei progetti che chi guarda vede (solo `instance.status.view`, come il server). */
 export async function getInstanceStatus(): Promise<InstanceStatusView> {
   const me = await gate("instance.getInstanceStatus");
-  if (!canI(me, "instance.status.view") && !canI(me, "settings.manage")) throw forbidden();
+  if (!canI(me, "instance.status.view")) throw forbidden();
   const visible = visibleProjectIds(me);
-  const manages = canI(me, "settings.manage");
-
   const all = allJobs().sort(byStateThenAge);
   // Un lavoro senza progetto (un passo d'automazione generale fermo per il
-  // budget) lo vede chi vede l'esecuzione; non è mai di un progetto nascosto.
+  // budget) lo vede chi vede l'esecuzione; l'analisi di un server non ancora
+  // attribuita (F4b-4), chi ne legge la sessione. Mai di un progetto nascosto.
   const sees = (j: Job): boolean => {
     if (j.projectId !== null) return visible.has(j.projectId);
+    if (j.kind === "server_analysis") {
+      const c = state.conversations.find((x) => x.id === j.id);
+      return c !== undefined && canSeeConversation(me, c);
+    }
     const run = j.kind === "automation" ? runById(j.id) : undefined;
     return run !== undefined && canSeeRun(me, run);
   };
@@ -344,7 +363,9 @@ export async function getInstanceStatus(): Promise<InstanceStatusView> {
   const permittedOf = (j: Job): ActionAvailability => {
     const c = conversations.get(j.id);
     if (j.state !== "failed" || !c || !isRetryable(c) || j.projectId === null) return "unavailable";
-    return manages && canI(me, "runs.start", j.projectId) ? "allowed" : "forbidden";
+    return canI(me, "project.settings.manage", j.projectId) && canI(me, "runs.start", j.projectId)
+      ? "allowed"
+      : "forbidden";
   };
   // Il budget vale per tutti i progetti: una lettura sola per la vista.
   const budget = budgetReached();
@@ -357,14 +378,21 @@ export async function getInstanceStatus(): Promise<InstanceStatusView> {
   const jobs: InstanceJob[] = shown.map((raw) => {
     const j = readsPage(raw) ? raw : { ...raw, title: "", code: null, href: null };
     const permitted = permittedOf(j);
+    // D-7.1: il budget lo scavalca chi ha `plans.approve` nel progetto del lavoro.
+    const overrides = j.projectId !== null && canI(me, "plans.approve", j.projectId);
     const retryBlock =
-      permitted === "allowed" && budget ? { reason: "monthly_budget" as const } : null;
+      permitted === "allowed" && budget && !overrides ? { reason: "monthly_budget" as const } : null;
     const retry = retryBlock ? "forbidden" : permitted;
     return {
       ...j,
       workerId: workerOf(j),
       retry,
-      retryNeeds: permitted !== "forbidden" ? null : manages ? "startRun" : "manageSettings",
+      retryNeeds:
+        permitted !== "forbidden"
+          ? null
+          : j.projectId !== null && canI(me, "project.settings.manage", j.projectId)
+            ? "startRun"
+            : "manageSettings",
       retryBlock,
       retryStopsAtPlan:
         retry === "allowed" && j.projectId !== null && !canI(me, "plans.approve", j.projectId),
@@ -387,7 +415,10 @@ export async function getInstanceStatus(): Promise<InstanceStatusView> {
         name: project.name,
         paused: pause ? { byId: pause.byId, byName: pauserNameOf(pause.byId), at: pause.at } : null,
         ...counts(shown.filter((j) => j.projectId === projectId)),
-        pause: (manages ? "allowed" : "forbidden") as ActionAvailability,
+        // F4: la pausa la mette chi gestisce QUEL progetto (come il server).
+        pause: (canI(me, "project.settings.manage", projectId)
+          ? "allowed"
+          : "forbidden") as ActionAvailability,
         // Alla ripresa un lavoro riparte solo senza altri blocchi (`release`):
         // col budget raggiunto non riparte niente — né quelli fermi per la
         // pausa né quelli arrivati dopo il budget, già fermi per lui (I2).

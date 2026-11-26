@@ -1,4 +1,12 @@
-import type { TicketPriority } from "@stubwise/shared";
+import type {
+  Attribution,
+  MandatoryReason as SharedMandatoryReason,
+  ProductPageRef as SharedProductPageRef,
+  ProductTreeNode as SharedProductTreeNode,
+  ServerPlan,
+  StallReason,
+  TicketPriority,
+} from "@stubwise/shared";
 import type {
   ClaudeActionFn,
   ClaudeBusyReason,
@@ -40,6 +48,14 @@ export interface Person {
   email?: string;
   /** La foto del profilo (area 9a): un data URL tenuto in memoria; assente = le iniziali. */
   photo?: string;
+  /**
+   * Solo per Claude nella build app (integrazione area 3, 3e.2): i progetti in
+   * cui chi guarda può assegnargli una task (`claudeAssignableProjectIds`,
+   * calcolati dal server da `runs.start`). Sul server Claude non è membro di
+   * nessun progetto; nel prototipo è assente e vale `memberIds`. Lo legge
+   * `assignableIn` (`data/assignable.ts`).
+   */
+  assignableProjectIds?: string[];
 }
 
 export type ProjectModule = "docs" | "releases" | "support" | "servers";
@@ -98,6 +114,13 @@ export interface AppNotification {
   recipientIds: string[];
   /** Kind del catalogo: chi lo riceve senza iscrizione, col perché (chiave i18n). */
   mandatory?: { personId: string; reason: MandatoryReason }[];
+  /**
+   * Solo per gli obbligatori (area 8, F4b, `mandatoryOnly` della publish sul
+   * server): gli iscritti del progetto non la ricevono. È l'esito di
+   * un'analisi a mano per chi l'ha chiesta, in un progetto che non è quello
+   * della causa: per gli altri sarebbe rumore, o una fuga d'informazioni.
+   */
+  mandatoryOnly?: true;
   title: string;
   body: string;
   createdAt: string;
@@ -112,11 +135,23 @@ export interface AppNotification {
   /** Route hash. */
   link: string;
   /**
+   * Integrazione area 2, fetta 1 (solo build app): una card di un'area non
+   * ancora integrata non apre niente nell'app nuova, ma il web vecchio sì —
+   * il percorso dell'istanza («Open in web»). Il prototipo non la valorizza.
+   */
+  webHref?: string;
+  /**
    * Solo una menzione della Chat: il messaggio. Titolo e testo si derivano a
    * lettura dal messaggio di adesso (eliminato o non più leggibile: la
    * notifica non c'è più), mai salvati qui.
    */
   chatMessageId?: string;
+  /**
+   * Revisione del lotto 2 (r.169): il gruppo che ha avvisato alla creazione
+   * («@channel», «@<Reparto>»), vero solo in quel momento; la lettura lo usa
+   * se il messaggio di adesso non lo nomina più. Facoltativo: additivo.
+   */
+  chatGroup?: string;
   /**
    * Solo un avviso di un server senza accesso di lettura usabile (area 8b):
    * dove si collega l'accesso SSH. Derivato a lettura per chi guarda (solo
@@ -173,6 +208,25 @@ export interface AppNotification {
    * stabile; il nome si legge a lettura (`roleName`). Assente sulle altre.
    */
   roleId?: string;
+  /**
+   * Solo `member.added` (19 nov 2026): chi è entrato, come valore stabile,
+   * perché la card di chi gestisce i membri dica chi. Non esce mai al
+   * client: `listNotifications` lo sostituisce con `memberName`. Assente
+   * sulle righe nate prima.
+   */
+  memberId?: string;
+  /**
+   * Solo `google.proposal_handed` (lotto 4, D-2.0): la proposta della posta
+   * passata al progetto, come valore stabile. A lettura dà `proposalDecided`.
+   */
+  proposalId?: string;
+  /** Solo a lettura: la proposta passata è già stata decisa (da chi la riceve o da un altro). */
+  proposalDecided?: boolean;
+  /**
+   * Solo a lettura, per chi non è la persona entrata: il suo nome se chi
+   * guarda la vede, `null` se no (R-G5). Assente per chi è entrato.
+   */
+  memberName?: string | null;
   /**
    * Area 10b, solo a lettura: il nome di adesso di `roleId` (rinominato, il
    * nome nuovo); `null` se il ruolo non esiste più [SC 15]. Mai salvato.
@@ -234,6 +288,19 @@ export interface AppNotification {
  * Quello che una card della doc di prodotto (11b) dice, per chi la legge. I
  * testi li compone la card in en/it da questi valori stabili.
  */
+/**
+ * Perché gli aggiornamenti di Claude aspettano (F5, decisione del
+ * maintainer): il budget del mese, la coda in pausa, la quota dell'account
+ * dell'agente, una sezione presa da una persona.
+ */
+export type ProductWaitingReason = "budget" | "paused" | "limit" | "section_busy";
+
+/** La riga «riprende quando…» dello spazio: quanti aggiornamenti aspettano e il motivo più grave. */
+export interface ProductUpdatesWaiting {
+  count: number;
+  reason: ProductWaitingReason;
+}
+
 export interface ProductCardView {
   /** Le fonti, ognuna come la legge chi riceve (`sourceViewOf`), in ordine d'arrivo. */
   sources: ProductSourceView[];
@@ -258,12 +325,15 @@ export interface ProductCardView {
 }
 
 /** Perché un avviso del catalogo arriva a qualcuno senza iscrizione (area 8a). */
-export type MandatoryReason =
-  | "merged"
-  | "pr_author"
-  | "follows_conversation"
-  | "task_author"
-  | "assignee";
+/**
+ * Perché un avviso arriva senza iscrizione: il tipo del catalogo condiviso
+ * (`@stubwise/shared`), mai una copia. `analysis_requester` (area 8, F4b): chi
+ * ha chiesto a mano un'analisi riceve sempre il suo esito. Area 11 (N-1 = a):
+ * `mentioned` (chi è menzionato in una pagina di prodotto) e `follower` (chi
+ * la segue) sono del prototipo finché F2 di 72 non li porta nel catalogo
+ * condiviso.
+ */
+export type MandatoryReason = SharedMandatoryReason | "mentioned" | "follower";
 
 export type StatusFamily = "todo" | "active" | "closed";
 
@@ -318,7 +388,8 @@ export interface ManualStall {
   reason: string;
   note: string;
   since: string;
-  byId: string;
+  /** `null` sul server vero se chi l'ha segnata non c'è più. */
+  byId: string | null;
 }
 
 export interface Task {
@@ -331,7 +402,8 @@ export interface Task {
   statusId: string;
   departmentId: string;
   assigneeId: string | null;
-  createdById: string;
+  /** Chi l'ha creata; `null` sul server vero per una task senza autore umano (SDK, posta…) o un utente eliminato. */
+  createdById: string | null;
   followerIds: string[];
   size: TaskSize | null;
   /** ISO (YYYY-MM-DD). */
@@ -339,6 +411,18 @@ export interface Task {
   /** Settimana ISO, es. "2026-W43". */
   plannedWeek: string | null;
   slipCount: number;
+  /**
+   * Solo sul server vero (fetta 2): chi guarda può spostarla nel Planning,
+   * calcolato dal server (`canMove` coi suoi permessi). Assente nel prototipo
+   * e da un server più vecchio: allora decide `canMove` sul client.
+   */
+  canPlan?: boolean;
+  /**
+   * Solo nella risposta di una scrittura che ha appena assegnato la task a
+   * Claude (build app, review dell'area 3 punto 5): l'esito dell'avvio del
+   * lavoro, `started` o `refused:<codice>`. Assente altrove e nel prototipo.
+   */
+  claudeRun?: string;
   milestoneId: string | null;
   labels: string[];
   type: TaskType;
@@ -358,6 +442,11 @@ export interface Task {
   occurrences: number;
   /** Il payload dell'integrazione (chiave → valore), quando c'è. */
   technical?: Record<string, string> | null;
+  /**
+   * Aperta dal widget (area 8, F3, S-9): il codice della conversazione da cui
+   * è nata, per «View conversation». Si deriva a lettura, non si salva.
+   */
+  supportConversationCode?: string | null;
   /** Creata da un'esecuzione di un'automazione (area 7): «Creata dall'automazione X · esecuzione Y». */
   automationRef?: AutomationRef;
   /** Creata da «Fai sistemare a Claude» su un rilascio fallito (area 8a). */
@@ -480,6 +569,19 @@ export interface PullRequestEvent {
   repo: string;
 }
 
+/**
+ * Il lavoro di Claude su una task in breve (integrazione area 2, fetta 1): lo
+ * stato, le PR e dove continuare nel web vecchio (piano, approvazione,
+ * domande, sessione dal vivo). È ciò che la build app mostra finché l'area 3
+ * non è integrata; il prototipo ha la sezione completa (`TaskWork`).
+ */
+export interface TaskWorkSummary {
+  claude: ClaudeWorkState;
+  pullRequests: { repo: string; number: number | null; url: string; state: "open" | "merged" | "closed" }[];
+  /** Il dettaglio del ticket nel web vecchio; `null` nel prototipo (non c'è un web vecchio). */
+  webHref: string | null;
+}
+
 /** Una PR: repository (`owner/repo`) e numero. */
 export interface PrRef {
   repo: string;
@@ -568,13 +670,16 @@ export interface ActivityEntry {
 export interface DecisionRequest {
   id: string;
   taskId: string;
-  askedById: string;
+  /** Build app: il progetto della task, se il server lo dice (il polso non dipende dalla lista delle task). */
+  projectId?: string;
+  /** `null` sul server vero se chi ha chiesto non c'è più. */
+  askedById: string | null;
   askedOfId: string;
   question: string;
   options: string[];
   createdAt: string;
   withdrawnAt: string | null;
-  answer: { optionIndex: number | null; text: string | null; at: string; byId: string } | null;
+  answer: { optionIndex: number | null; text: string | null; at: string; byId: string | null } | null;
 }
 
 export type RequestStatus = "new" | "refining" | "ready" | "converted" | "archived";
@@ -610,6 +715,18 @@ export interface ProjectRequest {
   mergedIntoId: string | null;
   taskIds: string[];
   createdAt: string;
+  /** Solo sul server vero (fetta 3): la voce nel web vecchio, finché Requests non è integrata (fetta 4). */
+  webHref?: string;
+  /**
+   * Solo sul server vero (fetta 4): la risposta a «Nuova richiesta» è questa
+   * richiesta perché l'intake vi ha fuso quella appena mandata («Unita a R12»).
+   */
+  landedByMerge?: boolean;
+  /**
+   * Solo sul server vero (fetta 4): l'urgenza era «urgent», più alta di
+   * «high» che l'app mostra; si segna senza perdere il dato.
+   */
+  urgent?: boolean;
   /**
    * Ciò che l'intake (AI) propone di cambiare nei metadati, col perché: resta
    * una proposta finché chi ha `backlog.edit` non la accetta o la scarta.
@@ -623,7 +740,14 @@ export interface ProjectRequest {
    * Una richiesta non nasce MAI da un'email: una domanda nata da un'email
    * porta alla pagina, non all'email.
    */
-  origin?: { kind: "support"; conversationId: string } | ProductDocOrigin;
+  /**
+   * Da dove viene. Support: il codice della conversazione (`ACQ-S3`), lo
+   * stesso del server (area 8, F3); l'id lo ha solo il prototipo (`null`
+   * nella build app, che non lo riceve).
+   */
+  origin?:
+    | { kind: "support"; conversationId: string | null; conversationCode: string }
+    | ProductDocOrigin;
   /**
    * 11b (P38): la pagina della doc di prodotto da cui nasce, come la legge
    * chi guarda («Dalla doc: <pagina>»). Derivata a lettura (`getRequest`,
@@ -697,6 +821,12 @@ export interface FilterCriteria {
   projectIds?: string[];
   departmentIds?: string[];
   assigneeIds?: (string | "none")[];
+  /**
+   * Il filtro salvato da cui vengono i criteri (r.1414, scelta A di 46): con
+   * questo, i segnaposto `hidden-*` di `assigneeIds` si eseguono con gli id
+   * veri del filtro. Non è un criterio: non filtra niente da solo.
+   */
+  savedFilterId?: string;
   families?: StatusFamily[];
   statusIds?: string[];
   sizes?: (TaskSize | "none")[];
@@ -724,11 +854,17 @@ export type GroupBy =
 export interface SavedFilter {
   id: string;
   name: string;
-  ownerId: string;
+  /** `null` sul server vero per i filtri di esempio (di nessuno, modificabili da un full admin). */
+  ownerId: string | null;
   visibility: "private" | "public";
   criteria: FilterCriteria;
   view: TaskView;
   groupBy: GroupBy;
+  /**
+   * Solo sul server vero (fetta 3): chi guarda può modificarlo ed eliminarlo,
+   * calcolato dal server. Assente nel prototipo: decide `canManageFilter`.
+   */
+  canEdit?: boolean;
 }
 
 export type HomeBlockKind =
@@ -933,7 +1069,6 @@ export type ContextRef =
 
 /** Un campo che una pagina dichiara riempibile (area 10b, design parte 1). */
 export type FieldRef =
-  | { kind: "supportReply"; conversationId: string }
   | { kind: "releaseNotes"; prId: string }
   /** D1: il corpo di una risposta (`threadId`) o di un'email nuova (`null`), solo nella propria casella. */
   | { kind: "mailBody"; threadId: string | null }
@@ -992,6 +1127,13 @@ export interface Conversation {
   publishedProjectIds: string[];
   /** La conversazione pubblica da cui questa continua. */
   continuesFromId: string | null;
+  /**
+   * Build app (chat, fetta 5): i nomi che dà il server dell'autore (solo
+   * quando non è chi guarda) e di chi l'ha resa pubblica, anche per chi non
+   * ha progetti in comune con chi guarda. Assenti nel prototipo.
+   */
+  ownerName?: string | null;
+  publishedByName?: string | null;
   createdAt: string;
   updatedAt: string;
   archived: boolean;
@@ -1042,6 +1184,11 @@ export interface Conversation {
    */
   context?: ContextRef | null;
   /**
+   * Lotto 8, §1: solo libera, il gruppo dei contesti (dal più vecchio; l'ultimo
+   * è il primario). Si accumula a ogni messaggio, al più 5; la × lo toglie.
+   */
+  contexts?: ContextRef[];
+  /**
    * Solo `task_run`: la correzione di un server (area 8b), avviata da una
    * task con `serverRef`. Il suo piano va sempre approvato da una persona.
    */
@@ -1064,6 +1211,12 @@ export interface Attachment {
   name: string;
   sizeBytes: number;
   kind: "image" | "file";
+  /**
+   * Solo una bozza della casella della Chat nella build app (area 4, fetta 4):
+   * il file scelto, che l'invio carica nel canale prima del messaggio. Mai in
+   * un allegato già inviato.
+   */
+  file?: Blob;
 }
 
 /**
@@ -1147,6 +1300,8 @@ export type ConversationEvent =
        * guarda (`describeContext`). Assente sui messaggi nati prima.
        */
       context?: ContextRef | null;
+      /** Lotto 8, §1: il gruppo dei contesti quando il messaggio è partito (i nomi brevi sotto). */
+      contexts?: ContextRef[];
     }
   /**
    * `text` cresce mentre arriva; `done` quando il messaggio è completo.
@@ -1175,11 +1330,12 @@ export type ConversationEvent =
       state: "running" | "done" | "failed";
       truncated?: boolean;
       /**
-       * Solo un comando su un server (area 8b): con quale accesso SSH è
-       * girato. La UI lo legge per dire «read»/«fix» (mai il nome dello
-       * strumento) e per disegnarlo come riga del registro dei comandi.
+       * Solo un comando su un server (area 8, F4b): quale azione, con quali
+       * parametri, se cambia o legge e per quale via. La UI lo legge per
+       * disegnarlo come riga del registro dei comandi (mai dal nome dello
+       * strumento), e la vista del registro (`serverCommandsOf`) da qui.
        */
-      access?: "read" | "fix";
+      serverCommand?: ServerCommandMeta;
     }
   | {
       id: string;
@@ -1192,15 +1348,25 @@ export type ConversationEvent =
       closedById?: string;
       /**
        * `item_closed`: il refine si è chiuso perché la richiesta è stata
-       * trasformata, archiviata o fusa. Correzione di un server (area 8b),
-       * fase fermata SENZA una persona: `fix_access_revoked` (l'accesso di
-       * correzione è stato revocato) o `fix_access_unusable` (non è più
-       * usabile: verifica fallita, lettura che scrive) o `server_gone` (il
-       * server non è più in un ambiente del progetto). Lo Stop di una
-       * persona porta `stoppedById`; tempo scaduto ed errore hanno il loro
-       * `outcome` (`timed_out`, `failed`).
+       * trasformata, archiviata o fusa. Correzione di un server (area 8,
+       * F4b), fase fermata SENZA una persona: `server_gone` (il server non
+       * è più in un ambiente del progetto) o `operations_off` (le
+       * operazioni dell'agente spente). Lo Stop di una persona porta
+       * `stoppedById`; tempo scaduto ed errore hanno il loro `outcome`
+       * (`timed_out`, `failed`).
        */
-      reason?: "item_closed" | "fix_access_revoked" | "fix_access_unusable" | "server_gone";
+      reason?: "item_closed" | "server_gone" | "operations_off";
+      /**
+       * Correzione di un server chiusa SENZA piano (area 8, F4b): perché, un
+       * codice come `planError` del server (`no_plan`, `schema`,
+       * `container_of_other_project`), mai testo del modello.
+       */
+      planError?:
+        | "no_plan"
+        | "schema"
+        | "unknown_container"
+        | "container_of_other_project"
+        | "container_not_of_project";
       /** Solo una fase `correction`: la PR che corregge (il job del server la conosce). */
       pr?: PrRef;
     }
@@ -1233,13 +1399,22 @@ export type ConversationEvent =
       planText: string;
       summary: string;
       /**
-       * Correzione di un server (area 8b): i comandi previsti, uno per riga
-       * col perché, come li legge chi approva. Scritti col piano.
+       * Correzione di un server (area 8, F4b): il piano strutturato, 1–10
+       * passi, ognuno un'azione dell'insieme CHIUSO (`SERVER_ACTIONS`) coi
+       * suoi parametri e il perché, validato con `serverPlanSchema` di
+       * `@stubwise/shared` prima di essere scritto. Chi approva legge le
+       * azioni tradotte, mai un comando libero.
        */
-      commands?: { input: string; why: string }[];
-      status: "pending" | "approved" | "rejected" | "pre_approved";
+      serverPlan?: ServerPlan;
+      /** `undecided` (build app): nessun esito verificabile — il piano non è stato deciso. */
+      status: "pending" | "approved" | "rejected" | "pre_approved" | "undecided";
       decidedById?: string;
       instructions?: string;
+      /**
+       * Build app: il digest del piano (dal server). Chi decide rimanda
+       * QUESTO, il piano che ha davanti (review dell'area 3, punto 13).
+       */
+      digest?: string;
     }
   | {
       id: string;
@@ -1247,6 +1422,12 @@ export type ConversationEvent =
       type: "proposal";
       proposalId: string;
       requesterId: string;
+      /**
+       * Build app (chat, fetta 5): chi guarda può confermarla o annullarla,
+       * come dice il server (`canConfirm`/`canCancel` della vista). Assente nel
+       * prototipo, dove decide il richiedente. La scheda lo legge, non lo deduce.
+       */
+      canDecide?: boolean;
       actions: ProposedAction[];
       status: "open" | "confirmed" | "cancelled" | "expired" | "failed";
       error?: string;
@@ -1268,6 +1449,13 @@ export type ConversationEvent =
       objectCodes?: (string | null)[];
       /** Area 10a (Task 9): il rifiuto della conferma in forma di dato, per «Couldn't do it: … · Who?». */
       failure?: ExecutedFailure;
+      /**
+       * Build app (area 6, F3): confermata, ma Gmail non ha salvato il corpo
+       * proposto da `fillMailBody` (`effectFailure: "mail_not_saved"` del
+       * server). La scheda non dice «Done»: dice che non è nella bozza e dà
+       * il testo da copiare.
+       */
+      mailNotSaved?: { text: string; retry?: { groupId: string; index: number } };
       /**
        * Area 10a (I1 della revisione finale): la scheda di un «Annulla» il cui
        * inverso avviserebbe qualcuno o farebbe partire un'automazione. È il
@@ -1454,8 +1642,8 @@ export type ScriptStep =
       resultText?: Utterance;
       outcome?: "done" | "failed";
       truncated?: boolean;
-      /** Un comando su un server: con quale accesso (lo copia nell'azione). */
-      access?: "read" | "fix";
+      /** Un comando su un server (lo copia nell'azione). */
+      serverCommand?: ServerCommandMeta;
     }
   | { step: "finish_action"; result?: string; outcome?: "done" | "failed" }
   | { step: "deliver" }
@@ -1660,7 +1848,12 @@ export type GraphState = {
   updatedAt?: string;
   /** Il resoconto delle comunità, dalla più grande: c'è quando il grafo è pronto. */
   report?: GraphCommunity[];
-  setupPr?: { url: string; open: boolean };
+  /**
+   * La PR di setup del grafo (lotto 4, pulizia 5): il suo stato, `null` se
+   * non si sa (una PR aperta prima che il server lo ricordasse, un webhook
+   * perso): allora non si dice aperta.
+   */
+  setupPr?: { url: string; state: "open" | "merged" | "closed_unmerged" | null };
 };
 
 /** Il brief del repository: le sezioni del web, più i fatti riservati e le pagine escluse. */
@@ -1699,6 +1892,12 @@ export interface DocSpace {
   projectId: string;
   /** Il nome del repository. */
   name: string;
+  /**
+   * La chiave dell'indirizzo dello spazio (`#/p/<CODE>/docs/<chiave>`): lo slug
+   * del repository nella build app (stabile, sicuro in un URL). Assente nel
+   * prototipo, dove la chiave è il nome. Si legge con `spaceKey`.
+   */
+  slug?: string;
   generation: DocGeneration;
   brief: RepoBrief | null;
   releases: DocRelease[];
@@ -1901,6 +2100,11 @@ export interface DriveFile {
   summary: string | null;
   /** Il testo viene dall'OCR (un PDF scansionato). */
   ocr: boolean;
+  /**
+   * L'OCR si è fermato alle prime 30 pagine (build app, F3 dell'area 5): il
+   * resto del documento non si trova cercando. Il prototipo non lo conosce.
+   */
+  ocrPartial?: boolean;
 }
 
 /**
@@ -1915,13 +2119,46 @@ export interface DriveOpen {
 }
 
 /** L'account Google personale di una persona; senza riga = non collegato. */
+/**
+ * Un Workspace da cui collegare la casella (build app, area 6 fetta 1): con
+ * più d'uno utilizzabile, «Collega» chiede quale. Il prototipo non ne ha.
+ */
+export interface GoogleWorkspaceChoice {
+  id: string;
+  name: string;
+  domains: string[];
+}
+
+/** Le opzioni di «Collega»: il Workspace scelto, quando ce n'è più d'uno. */
+export interface ConnectGoogleOptions {
+  workspaceId?: string;
+  /**
+   * Web: la scheda aperta NEL clic (`window.open("", "_blank")`), che riceve
+   * l'URL del consenso. Aperta dopo le richieste, Safari la bloccherebbe.
+   */
+  tab?: Window | null;
+}
+
 export interface GoogleAccount {
   personId: string;
   email: string;
   status: "connected" | "expired";
   /** Da quando vale lo stato: collegato dal…, scaduto il… */
   since: string;
+  /**
+   * Build app (area 6, fetta 1): perché è da ricollegare — scaduta (`expired`,
+   * il prototipo) o senza i permessi nuovi del riconsenso unico (`scopes`,
+   * nessuna data). Il prototipo non lo dice: è sempre `expired`.
+   */
+  reconnect?: "expired" | "scopes";
+  /** Le funzioni che mancano finché non si ricollega (da `missingScopes`, mai dedotte). */
+  missing?: GoogleFeature[];
+  /** Build app: il Workspace della casella («Ricollega» lo preseleziona). */
+  workspaceId?: string;
 }
+
+/** Una funzione di Google che Stubwise usa e che dipende da uno scope (oggi: letto/non letto). */
+export type GoogleFeature = "markRead" | "calendarWrite" | "drive";
 
 /**
  * Una cartella Google collegata a un progetto: Stubwise la legge con
@@ -1937,6 +2174,11 @@ export interface FolderLink {
   status: "ok" | "expired";
   /** Quando ha smesso di aggiornarsi (`expired`), altrimenti `null`. */
   expiredAt: string | null;
+  /**
+   * L'ultima sincronizzazione riuscita con Google (al collegamento, «Sync
+   * now» o quella di ogni giorno, QB1 = b *(M)*); `null` se non ce n'è stata.
+   */
+  lastSyncedAt: string | null;
 }
 
 /**
@@ -2069,6 +2311,11 @@ export interface DriveSearchResult {
 
 /** Una cartella collegata con quanti file porta nel progetto (non nascosti). */
 export interface FolderLinkView extends FolderLink {
+  /**
+   * Build app (F5b, review 4): una sincronizzazione chiesta da qui (collegando o
+   * con «Sync now») che il server non ha ancora fatto (la fa il worker).
+   */
+  syncing?: boolean;
   fileCount: number;
   /**
    * I suoi file sono non disponibili per accesso perso: l'account di chi
@@ -2082,7 +2329,8 @@ export interface GoogleFolderChoice {
   googleFolderId: string;
   name: string;
   path: string[];
-  fileCount: number;
+  /** Build app (F5b): Google non lo dà senza una chiamata per cartella, `null`. */
+  fileCount: number | null;
   alreadyLinked: boolean;
 }
 
@@ -2101,6 +2349,15 @@ export interface DriveUploadInput {
   name: string;
   mime: string;
   sizeBytes: number;
+  /** Il File stesso: lo carica la build app (il prototipo non manda byte). */
+  file?: File;
+}
+
+/** Avanzamento e annullamento di un caricamento (la build app; il prototipo li ignora). */
+export interface DriveUploadOptions {
+  /** I byte del file mandati fin qui. */
+  onProgress?: (loaded: number) => void;
+  signal?: AbortSignal;
 }
 
 /** L'esito del caricamento di un file: la riga nuova, o perché no. */
@@ -2171,6 +2428,13 @@ export interface ChatMessage {
   /** Solo `claude`: chi l'ha chiamato. */
   calledById?: string;
   /**
+   * Build app: chi guarda può modificare / eliminare il messaggio, come lo
+   * calcola il SERVER (una risposta di Claude: chi l'ha chiamata, D6).
+   * Assenti nel prototipo, dove la UI li ricava dall'autore e dal canale.
+   */
+  canEdit?: boolean;
+  canDelete?: boolean;
+  /**
    * Markdown; le menzioni come le scrive la casella: `@Nome Cognome`,
    * `@channel`, `@<Reparto>`, `@Claude`.
    */
@@ -2182,8 +2446,11 @@ export interface ChatMessage {
   asksReplyOf: string[];
   /** Una risposta del thread mostrata anche nel canale («Rispondi anche nel canale»). */
   alsoInChannel?: boolean;
-  /** Solo `system`: l'evento e l'oggetto della scheda. */
-  event?: { kind: ChatEventKind; ref: CitationRef };
+  /**
+   * Solo `system`: l'evento e l'oggetto della scheda. `gone` (build app): l'oggetto
+   * non c'è più (una task eliminata), la scheda dice solo il tipo dell'evento.
+   */
+  event?: { kind: ChatEventKind; ref: CitationRef; gone?: boolean };
   /** Task e richieste nate da questo messaggio («→ AUD-14»). */
   linkedCodes: string[];
   createdAt: string;
@@ -2210,15 +2477,25 @@ export interface ChatMessage {
     state: "working" | "waiting" | "done" | "stopped" | "failed";
     errorCode?: ChatClaudeFailure;
     retried?: boolean;
+    /**
+     * Build app (fetta 3): fermare, rifare e rispondere alla domanda come li
+     * calcola il SERVER per chi guarda. Assenti nel prototipo, dove la UI li
+     * ricava da chi ha chiamato e dallo stato.
+     */
+    canStop?: boolean;
+    canRetry?: boolean;
+    canAnswer?: boolean;
   };
 }
 
 /**
  * Perché una risposta di @Claude non è finita: chi l'ha chiamato non legge
  * più il canale (`forbidden`), qualcosa che serviva non c'è più
- * (`not_found`), o un errore qualunque (`other`).
+ * (`not_found`), il budget mensile dell'istanza è finito (`budget`, solo
+ * nella build app: il server non fa partire il turno), o un errore
+ * qualunque (`other`).
  */
-export type ChatClaudeFailure = "forbidden" | "not_found" | "other";
+export type ChatClaudeFailure = "forbidden" | "not_found" | "budget" | "other";
 
 /** Fin dove una persona ha letto un canale e, per id della radice, i thread. */
 export interface ReadState {
@@ -2275,6 +2552,22 @@ export interface Mailbox {
   proposalsEnabled: boolean;
   syncedAt: string;
   sync: "ok" | "syncing" | "failed";
+  /**
+   * Lotto 8, §2: gli indirizzi da cui si può scrivere — la casella e gli alias
+   * VERIFICATI di Gmail (send-as). Vuoto o assente: solo la casella.
+   */
+  sendAs?: SendAsAddress[];
+  /** `scope_missing`: la casella non ha `gmail.modify`, gli alias si usano ricollegandola. */
+  sendAsStatus?: "present" | "scope_missing";
+}
+
+/** Un indirizzo da cui scrivere: la casella stessa (`isPrimary`) o un alias di Gmail. */
+export interface SendAsAddress {
+  email: string;
+  displayName: string | null;
+  isPrimary: boolean;
+  /** Quello predefinito di Gmail: un'email nuova parte da lui. */
+  isDefault: boolean;
 }
 
 export type MailImportance = "high" | "normal" | "low";
@@ -2345,6 +2638,9 @@ export interface MeetingTranscript {
   doc: "reading" | "ready" | "unreachable";
   transcript: string;
   summary: string | null;
+  /** Build app (F5a): il link al Google Doc e perché non si legge (o solo in parte). */
+  docUrl?: string | null;
+  docReason?: MeetingDocReason | null;
 }
 
 export type MailProposalSource = "email" | "transcript" | "calendar";
@@ -2382,6 +2678,8 @@ export interface MailProposal {
 export interface MailProposalFilters {
   sourceId?: string;
   status?: MailProposal["status"];
+  /** Le proposte dei messaggi di una conversazione (la pagina di lettura). */
+  threadId?: string;
 }
 
 /**
@@ -2415,12 +2713,29 @@ export interface MailProposalView {
    * letta per il solo estratto. La calcola `listMailDecisions`.
    */
   origin?: MailProposalOrigin | null;
+  /**
+   * Build app: i campi si possono cambiare prima di confermare. Lo dice il
+   * server (falso sulle proposte di prima); assente nel prototipo = sì.
+   */
+  editable?: boolean;
 }
 
 /** L'origine di una proposta della posta, come la vede chi guarda. */
 export type MailProposalOrigin =
   | { kind: "email"; threadId: string; from: string; subject: string }
-  | { kind: "meeting"; eventId: string | null; threadId: string; title: string; at: string }
+  | {
+      kind: "meeting";
+      eventId: string | null;
+      /**
+       * La conversazione della MIA copia dell'email di Gemini; `null` per un
+       * invitato che non l'ha ricevuta (decisione M, Q1): per lui c'è la
+       * riunione (`noteId`, Q-A = a).
+       */
+      threadId: string | null;
+      noteId?: string;
+      title: string;
+      at: string;
+    }
   | { kind: "calendar"; eventId: string; title: string; startsAt: string; allDay: boolean };
 
 /** Una bozza, per persona e conversazione (`threadId: null` = email nuova). */
@@ -2454,6 +2769,21 @@ export interface MailDraft {
    */
   slot?: string;
   updatedAt: string;
+  /**
+   * Build app: la firma di Gmail della casella (testo), che il server aggiunge
+   * all'invio sotto il corpo — mai nel corpo; `scope_missing` = la casella
+   * non ha il permesso per leggerla e l'email parte senza.
+   */
+  signature?: string | null;
+  signatureStatus?: "present" | "none" | "scope_missing";
+  /**
+   * Lotto 8, §2: l'indirizzo da cui parte (uno della casella: `sendAs`);
+   * `null` = il predefinito. Una risposta parte dall'alias a cui era
+   * indirizzato il messaggio, come Gmail.
+   */
+  from?: string | null;
+  /** Build app: l'`updatedAt` del server (`null` = mai salvata), la base del salvataggio dopo. */
+  serverUpdatedAt?: string | null;
 }
 
 export interface MailDraftAttachment {
@@ -2462,6 +2792,8 @@ export interface MailDraftAttachment {
   sizeBytes: number;
   driveFileId: string | null;
   as: "copy" | "link";
+  /** Build app: il file scelto dal disco, caricato sulla bozza al salvataggio. */
+  file?: File;
 }
 
 /**
@@ -2483,6 +2815,13 @@ export interface MailSendResult {
   /** L'email nuova partita da uno slot (R-K14): «Undo» chiude quella casella. */
   slot?: string;
   undoUntil: string;
+  /**
+   * Build app: quanto resta della finestra di «Annulla», da `undoUntil` del
+   * server letto all'arrivo della risposta. L'avviso e ⌘Z durano questo; a
+   * zero (un «Retry» che il server manda subito) l'«Annulla» non c'è.
+   * Assente nel prototipo: la finestra è `MAIL_UNDO_MS` dall'invio.
+   */
+  undoWindowMs?: number;
 }
 
 /**
@@ -2493,6 +2832,28 @@ export interface MailSendResult {
 export interface MailDraftRestore {
   draft: MailDraft;
   droppedAttachments: MailDraftAttachment[];
+  /**
+   * Build app: la bozza è tornata NON salvata, perché nella stessa
+   * conversazione c'era già un'altra bozza. L'invio è fermo comunque; il
+   * compositore la riapre senza salvarla da sé, e chi scrive la salva
+   * (sopra l'altra) o la scarta. Il prototipo unisce le due bozze: mai vero.
+   */
+  unsaved?: boolean;
+  /** Con `unsaved`: i nomi degli allegati rimasti nella bozza su Gmail. */
+  leftInGmail?: string[];
+  /**
+   * Build app (registro, A6 r.448): le due bozze si sono unite in Stubwise,
+   * ma la bozza su Gmail non si è riscritta; lo farà il prossimo Salva. Il
+   * prototipo non ha Gmail: mai vero.
+   */
+  gmailOutdated?: boolean;
+  /**
+   * Build app (revisione del lotto 2, I5): l'unione ha perso qualcosa
+   * (allegati fuori, o Gmail non riscritto), e la versione annullata resta
+   * fra le bozze di Gmail come copia di sicurezza. Il toast lo dice. Il
+   * prototipo non ha Gmail: mai vero.
+   */
+  gmailCopyKept?: boolean;
 }
 
 /** I filtri dell'elenco della Posta (tutti facoltativi). */
@@ -2543,6 +2904,13 @@ export interface MailThreadRow {
  */
 export interface MailMessageView extends Omit<MailMessage, "readByPersonIds" | "mailboxPersonIds"> {
   read: boolean;
+  /**
+   * Build app: le proposte del server nate da questo messaggio (le ritrova
+   * la loro `sourceId`) e la conversazione su Gmail, dove si aprono gli
+   * allegati. Il prototipo non ne ha.
+   */
+  proposalIds?: string[];
+  gmailUrl?: string;
   /** Solo un'email di Gemini (`kind: "transcript"`): le note della riunione. */
   meeting?: MeetingNote;
 }
@@ -2562,12 +2930,32 @@ export interface MeetingNote {
   summary: string | null;
   transcript: string | null;
   event: { id: string; title: string; startsAt: string; endsAt: string; people: number } | null;
+  /**
+   * Build app (F5a): la riunione sul server (`GET /api/me/meetings/:noteId`),
+   * il link al Google Doc («Open the transcript»: il testo non arriva mai al
+   * client) e perché il Doc non si legge o si legge solo in parte.
+   */
+  noteId?: string;
+  docUrl?: string | null;
+  docReason?: MeetingDocReason | null;
 }
+
+/** Perché il Doc di Gemini non si legge (o solo in parte, `too_long`). */
+export type MeetingDocReason =
+  | "scope_missing"
+  | "not_shared"
+  | "deleted"
+  | "too_long"
+  /** Nessun link dell'email porta a un Doc che si possa dire di questa riunione (review F5a). */
+  | "not_verified";
 
 /** Una conversazione aperta: i messaggi che chi guarda vede, dal più vecchio. */
 export interface MailThreadDetail {
   threadId: string;
   subject: string;
+  /** Build app: la conversazione su Gmail («Apri in Gmail») e la casella che la contiene. */
+  gmailUrl?: string;
+  mailbox?: string;
   messages: MailMessageView[];
 }
 
@@ -2630,8 +3018,36 @@ export interface CalendarEvent {
   projectId: string | null;
   /** Chi ha deciso il progetto: il modello o una persona (la correzione vale per tutti). */
   projectBy: "model" | "manual" | null;
+  /**
+   * Lotto 9, voce 2 (a): senza progetto, i progetti a cui portano gli
+   * invitati (le loro appartenenze esplicite), come li salva il server
+   * (`candidate_project_ids`). Con almeno due, una scadenza diventa una
+   * «Quale progetto?» condivisa.
+   */
+  projectCandidateIds?: string[];
   /** Una scrittura verso Google: in corso, confermata, rifiutata. */
   save?: { state: "saving" | "saved" | "failed"; error?: string };
+  /** Build app: il link all'evento su Google Calendar (o alla sua giornata); il prototipo non ne ha. */
+  googleUrl?: string | null;
+  /**
+   * Build app, F3b: lavoro riconosciuto da Stubwise (un candidato a una
+   * proposta). Un evento personale non lo è: «No project», nessun
+   * suggerimento. Assente (prototipo, server di prima) = riconosciuto.
+   */
+  recognized?: boolean;
+  /** Build app, F3b: il tipo di Google (`default`, `outOfOffice`, `focusTime`, …; aperto). */
+  eventType?: string;
+  /** Build app, F3b: occupato (`opaque`) o libero (`transparent`) per Google. */
+  transparency?: "opaque" | "transparent";
+  /** Build app, F3b: quanti invitati, anche sulla lista leggera senza `attendees`. */
+  attendeeCount?: number | null;
+  /**
+   * Build app, F4: lo dice il SERVER — modifico, sposto, elimino
+   * (`canEdit`, l'organizzatore) e rispondo (`canRespond`, un invitato che
+   * non organizza). Assenti (prototipo): dall'organizzatore e dalla risposta.
+   */
+  canEdit?: boolean;
+  canRespond?: boolean;
 }
 
 /** Una serie ricorrente e la sua configurazione (spenta di default). */
@@ -2645,6 +3061,8 @@ export interface CalendarSeries {
   action: "milestone" | "request" | "remind";
   leadDays: number;
   auto: boolean;
+  /** Build app, F3b: almeno un'occorrenza è lavoro riconosciuto. Assente = di lavoro. */
+  recognized?: boolean;
 }
 
 /** L'allineamento del calendario di una persona con Google. */
@@ -2707,6 +3125,12 @@ export interface FreeBusy {
 export type CalendarGuestInput = { personId: string } | { email: string; name?: string };
 
 export interface CalendarEventInput {
+  /**
+   * Build app, F4: l'id della riunione nuova, UNO per bozza (l'editor lo
+   * genera all'apertura): un nuovo tentativo dopo un errore manda lo stesso,
+   * così Google non la crea due volte (d1bd1fc2 di 72). base32hex.
+   */
+  draftId?: string;
   title: string;
   startsAt: string;
   endsAt: string;
@@ -2738,278 +3162,32 @@ export type CalendarSeriesPatch = Partial<
 
 // --- Automations (area 7) ----------------------------------------------------
 
-// Un flusso è un documento dichiarativo ad albero (JSON tipato): lo valida
-// una funzione pura e lo interpreta un motore puro (`domain/automations`).
-// Niente salti all'indietro: i cicli sono solo `forEach` e `repeatUntil`.
-// Nei testi dei passi i dati si citano con `{{chiave}}` (es. `{{cliente.nome}}`).
-//
-// Convenzioni del motore (decisioni del controller, area 7):
-// - R-J2 — un `wait` con `replyTo` scrive, a OGNI attesa, `risposta.arrivata`
-//   e `risposta.testo`: con la risposta `true` e il testo, scaduto `maxDays`
-//   `false` e `""`. Così una verifica successiva non rilegge mai una
-//   risposta vecchia. I campi stanno in `domain/automations/triggerFields.ts`
-//   (`WAIT_REPLY_FIELDS`), con quelli degli inizi interni.
-// - R-J3 — le chiavi dei campi di Claude valgono per tutto il flusso, e un
-//   passo successivo può ridichiararle (vince il valore più recente). Dentro
-//   un `forEach`, `as` fa da prefisso alle chiavi relative dell'elemento:
-//   `as: "task"` su un elenco con `of: [{ key: "titolo" }]` → `task.titolo`.
-// - R-J4 — `repeatUntil` controlla `until` PRIMA di ogni giro (un «while»,
-//   non un «do-while»): se è già vera, zero giri.
-// - R-J5 — un percorso (`RunLogEntry.path`, `AutomationRun.cursor`) è una
-//   sequenza di segmenti separati da `/`: l'indice del passo nella sua
-//   lista; `then`/`else` dopo una `condition`; il nome dell'uscita dopo un
-//   passo `claude`; `forEach[i]` (giro i, da 0) dopo un `forEach`;
-//   `repeat[i]` o `onLimit` dopo un `repeatUntil`; `trigger` da solo per
-//   l'inizio. Esempi: `"0"`; `"2/forEach[1]/0/else/0/then/0"`;
-//   `"3/then/0/mancano informazioni/0"`; `"2/repeat[0]/1"`;
-//   `"2/onLimit/0"`; `"trigger"`. In `validateFlow` e `availableFields` i
-//   giri si scrivono `forEach[0]`/`repeat[0]` (vale per ogni giro).
-// - R-J6 — il tipo di campo `boolean` (es. `risposta.arrivata`): nelle
-//   condizioni si confronta con `is`/`is_not` e il valore `true`/`false`.
+// I tipi del flusso, delle versioni, delle esecuzioni e delle sorgenti stanno
+// in `@stubwise/shared` (`automations/types.ts`) col motore puro (area 7,
+// fetta 1, task 0): server, worker e app leggono lo STESSO documento. Qui si
+// ri-esportano, così nessun import del prototipo cambia.
+export type {
+  FieldType,
+  DataField,
+  AutomationTrigger,
+  Operand,
+  Condition,
+  Approval,
+  ProjectTarget,
+  PersonTarget,
+  Step,
+  AutomationFlow,
+  AutomationVersion,
+  Automation,
+  RunStatus,
+  ReasonCode,
+  RunLogEntry,
+  AutomationRun,
+  AutomationSource,
+  ClientProjectLink,
+} from "@stubwise/shared";
+import type { RunStatus } from "@stubwise/shared";
 
-/** `boolean` (R-J6): nelle condizioni si confronta con `is`/`is_not` e un valore `true`/`false`. */
-export type FieldType =
-  | "text"
-  | "number"
-  | "date"
-  | "email"
-  | "person"
-  | "list"
-  | "file"
-  | "boolean";
-
-/** Un dato che i passi possono usare: dell'inizio, o prodotto da un passo precedente. */
-export interface DataField {
-  /** Es. "trattativa.cliente". */
-  key: string;
-  label: string;
-  type: FieldType;
-  /** Per un elenco: i campi di ogni elemento (chiavi relative all'elemento). */
-  of?: DataField[];
-}
-
-export type AutomationTrigger =
-  | { kind: "source"; sourceId: string; event: "deal_won" | "webhook" }
-  | {
-      kind: "stubwise";
-      event:
-        | "task_created"
-        | "task_closed"
-        | "request_created"
-        | "milestone_reached"
-        | "mail_received";
-      filter?: Condition;
-    }
-  /** `rule`: una RRULE semplice, es. "FREQ=WEEKLY;BYDAY=MO;BYHOUR=9". */
-  | { kind: "schedule"; rule: string }
-  | { kind: "manual" };
-
-export type Operand = { ref: string } | { value: string | number | boolean | null };
-
-/** Un gruppo (`all`/`any`) o un confronto (`left op right`); niente espressioni libere. */
-export interface Condition {
-  all?: Condition[];
-  any?: Condition[];
-  left?: Operand;
-  op?: "is" | "is_not" | "contains" | "empty" | "not_empty" | "gt" | "lt";
-  right?: Operand;
-}
-
-/** «Parte da solo» o «Chiede approvazione a …» (persona, ruolo nel progetto, il proprietario). */
-export type Approval =
-  | { mode: "auto" }
-  | { mode: "ask"; who: { personId: string } | { projectRole: string } | { owner: true } };
-
-/** Il progetto del passo: quello dell'automazione, uno fisso, o dal cliente (tabella cliente → progetto). */
-export type ProjectTarget =
-  | { mode: "own" }
-  | {
-      mode: "fixed";
-      projectId: string;
-      /**
-       * Area 9c ([PX 5]): il progetto scelto non è più disponibile — eliminato
-       * (lo scrive `purge.ts`, senza id) o, a lettura, archiviato o invisibile
-       * a chi legge (`flowFor`, senza id). Il costruttore lo dice («A project
-       * that's no longer available»); scegliendo un altro progetto sparisce.
-       */
-      unavailable?: true;
-    }
-  | { mode: "from_client"; clientRef: string };
-
-/**
- * Una persona indicata da un passo: una persona scelta, il dato Persona
- * dell'evento o di un passo (`personRef`, una chiave, mai un modello né un
- * testo libero: si legge una volta sola durante l'esecuzione) o un ruolo nel
- * progetto del passo (la prima persona col ruolo, in ordine alfabetico).
- */
-export type PersonTarget = { personId: string } | { personRef: string } | { projectRole: string };
-
-export type Step =
-  | {
-      id: string;
-      kind: "createTask";
-      title: string;
-      description: string;
-      /** Una persona (scelta o dal dato Persona), un reparto (nessun incaricato), un ruolo nel progetto. */
-      assignee: PersonTarget | { departmentId: string } | null;
-      dueInDays: number | null;
-      project: ProjectTarget;
-      /** L'id di un passo `createMilestone` precedente. */
-      milestoneRef: string | null;
-      approval: Approval;
-    }
-  | {
-      id: string;
-      kind: "createMilestone";
-      name: string;
-      dueInDays: number | null;
-      project: ProjectTarget;
-      approval: Approval;
-    }
-  | {
-      id: string;
-      kind: "createRequest";
-      title: string;
-      description: string;
-      project: ProjectTarget;
-      approval: Approval;
-    }
-  | {
-      id: string;
-      kind: "sendEmail";
-      /** Un modello, es. "{{cliente.email}}". */
-      to: string;
-      subject: string;
-      body: string;
-      attachRefs: string[];
-      approval: Approval;
-    }
-  | {
-      id: string;
-      kind: "notify";
-      /**
-       * Una persona, un ruolo, o un reparto (area 10b): l'avviso va a ogni
-       * membro del reparto che vede il progetto del passo, uno per persona.
-       */
-      who: PersonTarget | { departmentId: string };
-      text: string;
-      approval: Approval;
-    }
-  | { id: string; kind: "startAutomation"; automationId: string; approval: Approval }
-  | {
-      id: string;
-      kind: "wait";
-      /**
-       * Un tempo, la risposta a un `sendEmail` (per id) o una task chiusa, col
-       * massimo di giorni. `replyTo` scrive `risposta.arrivata`/`risposta.testo` (R-J2).
-       */
-      for:
-        | { days: number }
-        | { replyTo: string; maxDays: number }
-        | { taskClosed: string; maxDays: number };
-    }
-  | {
-      id: string;
-      kind: "claude";
-      instruction: string;
-      inputs: string[];
-      /** Le sole uscite ammesse (regola 2 dell'anti-obiettivo). */
-      outcomes: string[];
-      /** I soli campi che può compilare, col loro tipo; chiavi globali, ridichiarabili (R-J3). */
-      fields: DataField[];
-      /** I passi di ogni uscita; un'uscita senza ramo prosegue. */
-      branches: Record<string, Step[]>;
-    }
-  | { id: string; kind: "condition"; when: Condition; then: Step[]; else: Step[] }
-  /** `as` fa da prefisso alle chiavi relative dell'elemento (R-J3). */
-  | { id: string; kind: "forEach"; list: string; as: string; steps: Step[] }
-  | {
-      id: string;
-      kind: "repeatUntil";
-      /** Controllata prima di ogni giro (R-J4). */
-      until: Condition;
-      /** Obbligatorio (≤ 10); finito, esce da `onLimit` («limite raggiunto»). */
-      max: number;
-      steps: Step[];
-      onLimit: Step[];
-    };
-
-export interface AutomationFlow {
-  trigger: AutomationTrigger;
-  steps: Step[];
-  /** Il titolo di ogni esecuzione, es. "Nuovo contratto – {{cliente.nome}}". */
-  titleTemplate: string;
-}
-
-export interface AutomationVersion {
-  n: number;
-  flow: AutomationFlow;
-  /** null = bozza. */
-  publishedAt: string | null;
-  publishedById: string | null;
-  /**
-   * Una bozza: chi l'ha salvata per ultimo, quando, e il numero del
-   * salvataggio. Il costruttore salva dicendo quale `rev` ha letto; se
-   * un'altra persona l'ha cambiata dopo, il salvataggio si ferma (`invalid:
-   * stale`, shape builder [A 12]). Un numero e non l'ora: l'orologio del
-   * prototipo è fisso.
-   */
-  savedAt?: string | null;
-  savedById?: string | null;
-  rev?: number | null;
-  /**
-   * R-J19: la revisione (`rev`, null per una mai salvata) provata fino in
-   * fondo con una prova finita bene. Assente = mai provata. «Accendi» e
-   * «Pubblica» dicono «non l'hai ancora provata» quando non coincide con
-   * `rev`: ogni salvataggio dà un `rev` nuovo, quindi una modifica dopo la
-   * prova la rende di nuovo non provata. È la sola traccia che una prova
-   * lascia (shape automation-test [A 4], superata da R-J19).
-   */
-  testedRev?: number | null;
-}
-
-export interface Automation {
-  id: string;
-  /** `<PRJ>-A<n>` di progetto, `AUT-<n>` generale; mai riusati. */
-  code: string;
-  name: string;
-  description: string;
-  /** null = generale. */
-  projectId: string | null;
-  /** Chi l'ha accesa (o ne ha pubblicato l'ultima versione): gli effetti girano coi suoi permessi. */
-  ownerId: string | null;
-  status: "draft" | "active" | "paused";
-  /** In ordine; l'ultima può essere una bozza. */
-  versions: AutomationVersion[];
-  createdAt: string;
-  /** Chi l'ha creata (la riga di stato di una bozza: «created by»). */
-  createdById?: string | null;
-  /** Chi l'ha messa in pausa e quando (la riga di stato: «Paused by … on …»); si azzerano riaccendendo. */
-  pausedById?: string | null;
-  pausedAt?: string | null;
-  /**
-   * La casella da cui partono le email, scelta da chi l'ha accesa o
-   * pubblicata fra le sue collegate (shape automations.md [A 12]). Assente:
-   * la casella del proprietario.
-   */
-  mailbox?: string | null;
-  /**
-   * Area 10b: creata da Claude per conto di `createdById` (il riquadro). Resta
-   * per sempre, anche dopo l'accensione (maintainer, shape [AU 8]). Assente:
-   * creata a mano.
-   */
-  createdVia?: "claude";
-}
-
-export type RunStatus =
-  | "running"
-  | "waiting_approval"
-  | "waiting_event"
-  | "waiting_project"
-  | "suspended"
-  | "done"
-  | "failed"
-  | "cancelled";
 
 /**
  * L'esito della prova di Claude su un esempio (area 10b, `trialAs`): sta qui
@@ -3042,7 +3220,6 @@ export type CapabilityId =
   | "spend"
   | "archive"
   | "addMember"
-  | "supportReply"
   | "releaseNotes"
   | "mailBody"
   | "taskDescription"
@@ -3085,14 +3262,12 @@ export interface ArchiveCandidates {
   notManageableCodes: string[];
 }
 
-/** Perché una task è ferma (`stallOf` in `domain/stalled.ts`), in ordine di precedenza. */
-export type StallReason =
-  | { kind: "manual"; reason: string; note: string }
-  | { kind: "decision"; personId: string }
-  | { kind: "claude_question" }
-  | { kind: "blocked_by"; taskId: string }
-  | { kind: "unassigned" }
-  | { kind: "idle" };
+/**
+ * Perché una task è ferma (`stallOf` in `domain/stalled.ts`), in ordine di
+ * precedenza. Dall'integrazione area 2 vive in `@stubwise/shared` (la regola la
+ * usa anche il server): qui si ri-esporta.
+ */
+export type { StallReason };
 
 /**
  * `StallReason` come la legge chi chiede (R-G5): la persona della decisione
@@ -3135,149 +3310,6 @@ export type SpendView =
     }
   | { scope: "none" };
 
-/** Una riga del registro di un'esecuzione (regola 3: tutto tracciato). */
-/**
- * Una motivazione come codice e parametri (nomi propri, numeri, indirizzi):
- * l'interfaccia la traduce con `automations.reasons.<code>`, e nella prova
- * al condizionale. `reason` resta la prosa del registro.
- */
-export interface ReasonCode {
-  code: string;
-  params?: Record<string, string | number>;
-}
-
-export interface RunLogEntry {
-  at: string;
-  stepId: string;
-  /** Grammatica R-J5, es. "2/forEach[1]/0/then/0"; "trigger" per l'inizio. */
-  path: string;
-  kind: Step["kind"] | "trigger";
-  /**
-   * Gli esiti del motore, più quelli scritti dal livello dati sul passo al
-   * cursore: `suspended` (pausa), `resumed` (riaccesa, `byId`), `cancelled`
-   * («Annulla», `byId`), `retried` («Riprova», `byId`); «Salta» è `skipped`
-   * con `byId`. Nessuno di questi conta come passo eseguito.
-   */
-  outcome:
-    | "ok"
-    | "skipped"
-    | "failed"
-    | "waiting"
-    | "approved"
-    | "rejected"
-    | "limit"
-    | "suspended"
-    | "resumed"
-    | "cancelled"
-    | "retried";
-  input: Record<string, unknown>;
-  output: Record<string, unknown>;
-  /** La motivazione (di Claude, o del fallimento): prosa per il registro, mai mostrata come tale. */
-  reason: string | null;
-  /** La motivazione come la mostra l'interfaccia, nella lingua di chi guarda (tutto tranne Claude). */
-  why?: ReasonCode | null;
-  /** Chi ha approvato, rifiutato, riprovato o saltato. */
-  byId: string | null;
-  /**
-   * R-J16: solo nelle letture, per chi non è il proprietario — il testo della
-   * risposta del cliente è stato tolto da questa riga (sta nella casella del
-   * proprietario, shape [A 21]).
-   */
-  replyHidden?: boolean;
-  /**
-   * Le cose create dal passo (task, traguardo…) col loro codice. Nelle
-   * letture (R-J12) una cosa in un progetto che chi guarda non vede ha
-   * `code: ""`: né id né codice. Una task eliminata (area 10a) che chi
-   * guarda vedeva ha `deleted: true`: si legge «task deleted», senza link.
-   */
-  effects: { kind: string; code: string; deleted?: true }[];
-}
-
-export interface AutomationRun {
-  id: string;
-  automationId: string;
-  /** Numerata per automazione: «AUD-A1 #2». */
-  n: number;
-  /** La versione con cui è partita, e con cui finisce. */
-  version: number;
-  title: string;
-  status: RunStatus;
-  event: Record<string, unknown>;
-  vars: Record<string, unknown>;
-  /** Il percorso (R-J5) del passo corrente: per un'esecuzione in attesa, quello del passo che aspetta. */
-  cursor: string | null;
-  waitingUntil: string | null;
-  /** Approvazione o «scegli il progetto» in attesa: chi decide e cosa vede. */
-  pending: { approverIds: string[]; preview: Record<string, unknown> } | null;
-  log: RunLogEntry[];
-  startedAt: string;
-  endedAt: string | null;
-  /** Un codice macchina (es. `permission_lost`); la spiegazione sta nel `reason` del registro. */
-  error: string | null;
-  /** I progetti in cui ha agito (per le generali: dalla tabella cliente → progetto). */
-  projectIds: string[];
-  /**
-   * Gli elementi dei `forEach` in corso, fissati all'ingresso
-   * (`EngineState.loops`): la ripresa li rilegge da qui, mai dalle variabili.
-   */
-  loops?: Record<string, unknown[]>;
-  /**
-   * I clienti → progetti già risolti (`EngineState.projects`): un progetto
-   * scelto a mano vale per tutti i passi dopo, anche dopo una ripresa.
-   */
-  projects?: Record<string, string>;
-  /** L'esecuzione che l'ha avviata con «Avvia un'altra automazione» (catena di al massimo 3). */
-  parentRunId?: string | null;
-  /** Solo nelle letture (R-J13): l'evento è un'email che chi guarda non vede; la pagina lo dice. */
-  mailHidden?: boolean;
-  /** Da dove è partita (le ricorrenze contano solo le proprie, `dueSchedules`). */
-  origin?: "manual" | "source" | "stubwise" | "schedule" | "automation";
-  /** In `suspended` (pausa): lo stato a cui torna riaccendendo l'automazione. */
-  suspendedFrom?: Exclude<RunStatus, "suspended" | "done" | "failed" | "cancelled">;
-  /**
-   * Solo nelle letture (area 9b, ruling 15): resta `running`, ferma al
-   * confine di un passo di Claude per un blocco d'istanza (budget del mese,
-   * coda in pausa). Riparte da sola quando il blocco cade.
-   */
-  aiWaiting?: AiBlock | null;
-  /**
-   * Solo nelle letture, con `aiWaiting` `queue_paused`: il codice del
-   * progetto la cui coda è in pausa (sempre un progetto che chi guarda vede).
-   */
-  aiWaitingCode?: string | null;
-}
-
-export interface AutomationSource {
-  id: string;
-  kind: "audin" | "hubspot" | "webhook";
-  name: string;
-  status: "connected" | "expired" | "disconnected";
-  connectedById: string;
-  /** Eventi di esempio: «Simula un evento» ne fa arrivare uno, la prova li offre. */
-  sampleEvents: Record<string, unknown>[];
-  /** I dati che i suoi eventi portano. */
-  fields: DataField[];
-  /** Un webhook in arrivo: l'indirizzo a cui si manda (finto nel prototipo). */
-  address?: string;
-  /** Quando è stata collegata, e chi l'ha ricollegata e quando (shape sources [A 5]). */
-  connectedAt?: string;
-  reconnectedById?: string | null;
-  reconnectedAt?: string | null;
-  /** Da quando è scaduta (stato `expired`). */
-  expiredAt?: string | null;
-}
-
-/** Una riga della tabella cliente → progetto (gestita da chi ha `integrations.manage`). */
-export interface ClientProjectLink {
-  /** Es. il dominio o l'id del cliente. */
-  clientKey: string;
-  clientName: string;
-  projectId: string;
-  /** Chi l'ha aggiunta e quando (la colonna «Added by»). */
-  addedById?: string;
-  addedAt?: string;
-}
-
 // --- Rilasci, PR, ambienti, avvisi e Support (area 8a) -----------------------
 
 /** Cosa fa Stubwise sulle PR dei colleghi di un repository. */
@@ -3288,7 +3320,8 @@ export interface PrAnalysis {
   sha: string;
   status: "running" | "done";
   summary: string;
-  risk: "low" | "medium" | "high";
+  /** `null`: il rischio non c'è (nella build app, una PR esterna: lo calcola solo la pipeline di Stubwise). */
+  risk: "low" | "medium" | "high" | null;
   issues: { title: string; file: string | null }[];
   at: string;
 }
@@ -3313,6 +3346,11 @@ export interface PrAutoCorrection {
 /** Una PR aperta, di Stubwise o di un collega (stessa forma per tutte). */
 export interface OpenPullRequest extends PrRef {
   id: string;
+  /**
+   * Build app: l'indirizzo della PR sulla piattaforma come lo dà il server
+   * (GitHub o Bitbucket). Assente nel prototipo, che costruisce GitHub.
+   */
+  url?: string;
   projectId: string;
   repositoryId: string;
   title: string;
@@ -3332,7 +3370,8 @@ export interface OpenPullRequest extends PrRef {
   /** Solo colleghi: per quelle di Stubwise valgono le sessioni della task. */
   corrections: PrAutoCorrection[];
   checks: "passing" | "failing" | "pending" | "unreadable";
-  mergeable: boolean;
+  /** `null`: non letto (nella build app il server non lo chiede al provider); il merge lo dirà. */
+  mergeable: boolean | null;
   /** Area 10b: i commit della PR, dal più vecchio; assente = non letti. */
   commits?: { sha: string; message: string }[];
   /**
@@ -3403,6 +3442,13 @@ export interface EnvironmentServer {
   /** Il commit che l'agente riporta per quella repository (o per il progetto). */
   reportedSha: string | null;
   reportedAt: string | null;
+  /**
+   * Area 8, F4b (R0-D, R7): i container di QUESTO server che appartengono
+   * all'ambiente — dicono quale progetto possiede un container (attribuzione
+   * di un guasto, piano di correzione). Vuoto o assente: vale il container
+   * col NOME dell'ambiente (la regola di `@stubwise/shared`).
+   */
+  containers?: string[];
 }
 
 /**
@@ -3501,11 +3547,15 @@ export interface MonitoredServer {
   thresholds: ServerThresholds;
   services: ServerService[];
   disks: ServerDisk[];
-  /** Dove si apre la diagnosi quando il server è in produzione di più progetti. */
-  primaryProjectId: string | null;
   createdAt: string;
   /** Solo prototipo: se l'SSH risponde («Simula server irraggiungibile»). */
   sshReachable: boolean;
+  /**
+   * L'agente ha le operazioni accese (area 8, F4b, `agentOperations` della
+   * vista; un'opzione dell'installazione, spenta di default): senza, nessun
+   * piano di correzione si esegue e l'agente non fa letture per l'analisi.
+   */
+  agentOperations: boolean;
 }
 
 /** Perché un server è in difficoltà o non risponde. */
@@ -3528,23 +3578,55 @@ export interface ServerEpisode {
    * mese raggiunto all'apertura dell'episodio. Il riquadro «Now» lo dice;
    * l'analisi non riparte da sola quando il budget torna.
    */
-  analysisBlocked?: "monthly_budget" | null;
+  analysisBlocked?: "monthly_budget" | "disabled" | null;
 }
 
 /** L'analisi automatica di un episodio, in sola lettura: una sessione e, alla fine, una task. */
+/**
+ * L'attribuzione del guasto a un progetto (area 8, F4b-4): l'esito di
+ * `attributeServerCause` di `@stubwise/shared`, la regola pura che il
+ * prototipo USA (mai una copia).
+ */
+export type ServerAttribution = Attribution;
+
+/**
+ * L'analisi automatica di un episodio: è del SERVER (F4b-4), nel budget
+ * mensile dell'istanza; nessun progetto scelto prima. È lei a dire quale
+ * progetto è la causa (`attribution`): attribuita, la task nasce in QUEL
+ * progetto; non determinata, nessuna task e nessuna proposta.
+ */
 export interface ServerAnalysis {
   id: string;
   serverCode: string;
-  episodeId: string;
-  projectId: string;
+  /** L'episodio che l'ha fatta partire; `null` per una a mano (R0-A2, come sul server). */
+  episodeId: string | null;
+  /** Chi l'ha chiesta a mano («Ask Claude to look into it»); `null`/assente = all'allarme. */
+  startedBy?: string | null;
+  /**
+   * I tetti con cui è partita (R0-C, Amministrazione → AI): un cambio dopo
+   * non la tocca. Assenti (il seme): i default di `@stubwise/shared`.
+   */
+  limits?: { maxMinutes: number; maxCostUsd: number; maxAgentReads: number; maxSshReads: number };
   conversationId: string;
+  /**
+   * Scritta a fine analisi; `null` mentre gira, o se si è fermata prima di
+   * concludere (il server tolto, `failed` per la task che non si apre resta
+   * attribuita: l'attribuzione viene prima).
+   */
+  attribution: ServerAttribution | null;
+  /**
+   * La diagnosi (testo dell'analisi, non fidato), solo quando la causa NON è
+   * determinata: senza task resta qui, sull'episodio, e la legge chi ha
+   * `monitor.manage` (piano F4b, S5b). Con una task la diagnosi sta nella task.
+   */
+  diagnosis?: string | null;
   /**
    * `stopped`: finita senza diagnosi, perché il server è rientrato prima
    * della prima lettura o perché l'accesso di lettura ha smesso di essere
-   * usabile (revoca, lettura che scrive); la task c'è e lo dice. Anche
-   * quando il server è stato tolto dal progetto a metà: lì senza task
-   * (`taskId` null), lo dice la sessione. `failed`:
-   * la task non si è potuta aprire (la sessione dice perché).
+   * usabile (revoca, lettura che scrive); la task, se c'è un progetto
+   * attribuito, lo dice. `failed`: la task non si è potuta aprire (la
+   * sessione dice perché). Con la causa non determinata `taskId` resta
+   * `null` qualunque sia l'esito.
    */
   outcome: "running" | "diagnosed" | "unreachable" | "timed_out" | "stopped" | "failed";
   taskId: string | null;
@@ -3557,8 +3639,24 @@ export interface ServerAnalysis {
   proposal?: string | null;
 }
 
-/** I due accessi SSH di un server: lettura (`stubwise-read`) e correzione (`stubwise-fix`). */
-export type SshAccessKind = "read" | "fix";
+/**
+ * Un comando su un server, come lo scrive il flusso (area 8, F4b; la forma
+ * di `serverCommandViewSchema`): un'azione dell'insieme chiuso dell'agente
+ * (`SERVER_ACTIONS`, `via: "agent"`) o una lettura dell'elenco chiuso SSH
+ * (`SSH_READS`, `via: "ssh"`). Mai un comando libero. L'uscita (il
+ * `result` dell'azione) è contenuto NON fidato: si mostra come testo.
+ */
+export interface ServerCommandMeta {
+  action: string;
+  params: Record<string, unknown>;
+  kind: "change" | "read";
+  via: "agent" | "ssh";
+  /** Il piano approvato che lo copre (l'id del suo evento); `null` per una lettura. */
+  approvalId: string | null;
+  exitCode: number | null;
+  /** Build app: mai eseguito — annullato (approvazione revocata) o scaduto. */
+  ended?: "cancelled" | "expired";
+}
 
 /** Una chiave pubblica (`ssh-ed25519 AAAA… stubwise-read@SRV-1`); la privata sta solo in `data/servers/secrets.ts`. */
 export interface SshPublicKey {
@@ -3567,48 +3665,62 @@ export interface SshPublicKey {
   createdAt: string;
 }
 
-/** L'ultimo uso di un accesso: quando, e da quale analisi o task. */
+/** L'ultimo uso dell'accesso: quando, e da quale analisi o task. */
 export interface SshUse {
   at: string;
   ref: { kind: "analysis"; analysisId: string } | { kind: "task"; taskId: string };
 }
 
-/** L'esito di una «Verifica» dei due accessi SSH. */
+/**
+ * L'esito di una «Verifica» dell'accesso (area 8, F4b, la forma di
+ * `verifyResult` di `serverSshAccessViewSchema`): il login con la chiave e
+ * che cosa l'utente può fare sul server. `ok` solo col login riuscito e
+ * NÉ `sudo` NÉ il gruppo `docker` (che vale root): un utente con più della
+ * lettura non si usa. `journal`: è in `systemd-journal` o `adm`, quindi
+ * `journalctl -p err` è una lettura (F4b-3 = a); senza, Claude non la fa.
+ */
 export interface SshVerification {
   at: string;
-  read: "ok" | "failed" | "writes";
-  fix: "ok" | "failed";
+  login: "ok" | "denied" | "unreachable";
+  /** I gruppi dell'utente sul server; vuoto senza login. */
+  groups: string[];
+  sudo: boolean;
+  docker: boolean;
+  journal: boolean;
+  ok: boolean;
   reason: string | null;
-  /** La verifica era delle chiavi in `pending`. */
+  /** La verifica era della chiave in `pending`. */
   ofPending: boolean;
 }
 
 /**
- * Lo stato degli accessi SSH di un server (nessuna riga = non collegato).
- * `pending`: chiavi generate e non ancora verificate — le prime (in attesa
- * del comando, `keys` nullo) o quelle di una rigenerazione (le vecchie in
- * `keys` restano valide finché la verifica delle nuove non riesce, ma solo
- * se lo erano prima di «Rigenera»).
+ * L'accesso SSH di un server (nessuna riga = non collegato): UNO, di sola
+ * LETTURA, l'utente `stubwise-read` (area 8, F4b, Q3 = b). Nessun accesso
+ * di correzione: la correzione passa dall'agente, mai dall'SSH.
+ * `pending`: una chiave generata e non ancora verificata — la prima (in
+ * attesa del comando, `key` nulla) o quella di una rigenerazione (la
+ * vecchia in `key` resta valida finché la verifica della nuova non
+ * riesce, ma solo se lo era prima di «Rigenera»).
  */
 export interface ServerSshAccess {
   serverCode: string;
-  keys: Record<SshAccessKind, SshPublicKey> | null;
-  pending: Record<SshAccessKind, SshPublicKey> | null;
-  /** L'ultima verifica: delle chiavi in `keys`, o di quelle in `pending` (`ofPending`). */
+  key: SshPublicKey | null;
+  pending: SshPublicKey | null;
+  /** L'ultima verifica: della chiave in `key`, o di quella in `pending` (`ofPending`). */
   verification: SshVerification | null;
   /**
-   * L'esito delle chiavi in `keys` quando `verification` riguarda quelle in
+   * L'esito della chiave in `key` quando `verification` riguarda quella in
    * `pending` (una rigenerazione la cui verifica non è riuscita): senza,
-   * l'esito delle vecchie andrebbe perso e un accesso che non passava
+   * l'esito della vecchia andrebbe perso e un accesso che non passava
    * tornerebbe usabile. `null` in ogni altro caso.
    */
-  keysVerification: SshVerification | null;
-  lastUse: Partial<Record<SshAccessKind, SshUse>>;
+  keyVerification: SshVerification | null;
+  lastUse: SshUse | null;
   revokedAt: string | null;
 }
 
-/** L'esito simulato della prossima «Verifica» di un accesso (solo prototipo). */
-export type VerifyOutcome = "ok" | "read_fails" | "fix_fails" | "read_writes" | "unreachable";
+/** L'esito simulato della prossima «Verifica» dell'accesso (solo prototipo). */
+export type VerifyOutcome = "ok" | "no_journal" | "denied" | "sudo" | "docker" | "unreachable";
 
 /**
  * Un'iscrizione a un tipo di avviso in un progetto. Nessuna riga = il
@@ -3649,17 +3761,35 @@ export interface SupportConversation {
   /** Il desiderio del cliente riscritto dal triage; `null` finché il triage non lo ha. */
   rewrittenWish: string | null;
   requestId: string | null;
-  /** Il cliente se n'è andato prima della fine del triage. */
-  leftAt: string | null;
+  /**
+   * La task aperta dal widget (area 8, F3-1: l'esito è un ticket, nessuna
+   * richiesta). Con una richiesta legata vale la richiesta.
+   */
+  taskId: string | null;
+  /**
+   * Il giudizio dopo il silenzio (area 8, F3: il controllo del worker dopo
+   * `SUPPORT_TRIAGE_IDLE_MINUTES`): la risposta è bastata (`concluded`) o
+   * resta un bisogno (`not_concluded`). Vale finché il cliente non riscrive.
+   * `byUserId`: chi ha premuto «Not concluded» su una `answered`; `null` = il controllo.
+   */
+  triage: { outcome: "concluded" | "not_concluded"; at: string; byUserId: string | null } | null;
   /**
    * Quando il cliente ha confermato il desiderio riscritto, a fine triage
    * («Confirmed by the customer, …»); `null` se non l'ha confermato (una
    * richiesta aperta dal team da una conversazione non conclusa).
    */
   confirmedAt: string | null;
-  followerIds: string[];
-  /** La bozza di risposta di Claude: la vede solo chi ha `support.reply`, non parte mai da sola. */
-  claudeDraft: string | null;
+  /**
+   * Area 8, F3 (S17): con un esito la conversazione è CHIUSA, e un messaggio
+   * nuovo del cliente apre la successiva; qui il suo id. Assente: nessuna.
+   */
+  continuedInId?: string;
+  /**
+   * API per i siti (S6): il cliente è arrivato con un token d'identità valido
+   * (verificato) o il sito lo ha solo dichiarato. La successiva NON lo
+   * eredita: è verificata solo se nasce con un token valido dello stesso `sub`.
+   */
+  identityVerified: boolean;
 }
 
 /**
@@ -3686,6 +3816,15 @@ export interface SupportWidget {
   /** Tetti giornalieri; `null` = il default d'istanza. */
   dailyMessageCap: number | null;
   dailyRequestCap: number | null;
+  /**
+   * API per i siti (S6): c'è un segreto d'identità dei clienti, e da quando.
+   * Il segreto non sta mai qui: esce una volta sola da
+   * `regenerateIdentitySecret`, poi lo custodisce `admin/secrets`.
+   */
+  identitySecretSet: boolean;
+  identitySecretRotatedAt: string | null;
+  /** «Solo clienti verificati»: senza un token d'identità il widget non accetta il cliente. */
+  identityRequired: boolean;
   createdAt: string;
 }
 
@@ -3748,6 +3887,32 @@ export type ProductBlock =
   | { id: string; type: "decision"; decisionId: string }
   | { id: string; type: "wireframe"; wireframeId: string; variant: number; kept?: boolean };
 
+/**
+ * F6 (shape product-claude-backlog.md, «Emendamento F6»): perché un disegno
+ * di Claude non è riuscito. Un motivo ignoto del server si legge come
+ * `no_answer`.
+ */
+export type ProductWireframeFailReason = "budget" | "limit" | "invalid_svg" | "no_answer";
+
+/** Lo stato di una bozza che non è pronta: Claude la disegna, o non c'è riuscito. Assente = pronta. */
+export type ProductWireframeState =
+  | { status: "drawing" }
+  /** `drawn` = c'era già uno schizzo (un «Redraw» non riuscito): quello resta. */
+  | { status: "failed"; reason: ProductWireframeFailReason; drawn: boolean };
+
+/**
+ * Un disegno del prototipo in corso o non riuscito (F6): del BLOCCO, non del
+ * disegno del seme (due bozze dello stesso disegno hanno ciascuna il suo).
+ * `byId` = chi l'ha chiesto, per conto di cui Claude scrive la variante nuova.
+ */
+export interface ProductSketch {
+  pageId: string;
+  blockId: string;
+  byId: string;
+  kind: "draw" | "redraw";
+  state: ProductWireframeState;
+}
+
 export type ProductBlockType = ProductBlock["type"];
 
 /** Le operazioni con cui si scrive una pagina: ognuna nomina i blocchi per id. */
@@ -3775,17 +3940,11 @@ export interface ProductBlockChange {
 }
 
 /** Una pagina di prodotto vista da fuori: albero, recenti, briciole (Task 2 la legge). */
-export interface ProductPageRef {
-  id: string;
-  code: string;
-  projectId: string;
-  parentId: string | null;
-  order: number;
-  title: string;
-  excerpt: string;
-  updatedAt: string;
-  updatedById: string;
-}
+/**
+ * Dall'integrazione dell'area 11 (F1) la forma è quella del server
+ * (`@stubwise/shared`): `updatedById` è null per chi non c'è più.
+ */
+export type ProductPageRef = SharedProductPageRef;
 
 /** Un risultato della ricerca nelle pagine di prodotto (⌘K): come `DocSearchHit`, senza repository. */
 export interface ProductSearchHit {
@@ -3795,10 +3954,7 @@ export interface ProductSearchHit {
   passage: string;
 }
 
-export interface ProductTreeNode {
-  page: ProductPageRef;
-  children: ProductTreeNode[];
-}
+export type ProductTreeNode = SharedProductTreeNode;
 
 /**
  * Una pagina dello spazio Prodotto (area 11a). Il codice è della serie dei
@@ -4134,8 +4290,10 @@ export interface ProductFirstVersion {
   written: { pageId: string; revisionId: string }[];
   /** Chi l'ha annullata. */
   undoneById: string | null;
-  /** Il copione si è fermato prima della fine (una pagina tolta, `docs.edit` perso). */
+  /** Il copione si è fermato prima della fine (una pagina tolta, `docs.edit` perso, «Stop»). */
   interrupted: boolean;
+  /** «Stop» chiesto: Claude finisce la pagina in corso e si ferma. */
+  stopRequested?: boolean;
 }
 
 /**
@@ -4166,7 +4324,10 @@ export interface ProductFirstVersionView {
   /** Le pagine scritte che hanno ancora la riga «First version written by Claude…». */
   bannerPageIds: string[];
   undo: ProductUndoView;
-  permissions: { edit: boolean };
+  /** «Stop» chiesto, Claude finisce la pagina in corso: «Stopping after this page…» per tutti. */
+  stopping: boolean;
+  /** `stop`: «Stop» accanto all'avanzamento (`docs.edit`, mentre scrive, nessuno l'ha già chiesto). */
+  permissions: { edit: boolean; stop: boolean };
 }
 
 /** Una domanda di Claude ancora aperta nello spazio («N questions to close»). */
@@ -4346,6 +4507,8 @@ export interface ProductPresence {
 }
 
 export interface ProductPresenceView extends ProductPresence {
+  /** Build app (F4): la sezione in cui scrive (`sectionKeyOf`, la sua presa). */
+  sectionId?: string;
   name: string;
   initials: string;
   /** Uno dei colori della presenza (`--presence-1`…`--presence-6`), stabile per persona. */
@@ -4388,6 +4551,16 @@ export interface ProductExportView {
 }
 
 export interface ProductPageView extends ProductPage {
+  /**
+   * F6: le bozze della pagina che non sono pronte, per id di blocco (Claude
+   * le disegna, o non c'è riuscito). Una bozza pronta non c'è.
+   */
+  wireframeStates?: Record<string, ProductWireframeState>;
+  /**
+   * L'ultima revisione della pagina com'è letta (build app; il prototipo non
+   * la dà): una scrittura parte da qui (`baseSeq`, revisione di R11-4).
+   */
+  seq?: number;
   /** Gli antenati, dalla radice al genitore. */
   breadcrumbs: ProductPageRef[];
   permissions: { edit: boolean; delete: boolean; deleteBlocked: "has_children" | null };
@@ -4427,7 +4600,8 @@ export interface ProductPageView extends ProductPage {
 }
 
 export interface ProductRevisionView extends ProductRevision {
-  actorName: string;
+  /** `null` a chi non conosce la persona (registro, A11 r.1414). */
+  actorName: string | null;
   /**
    * 11b (Task 3), tutti facoltativi. `source` e `via` ci sono già (dalla
    * revisione): la fonte vista da chi guarda è `sourceView` (P2).
@@ -4480,8 +4654,14 @@ export interface ProductComment {
   question?: ProductQuestion;
 }
 
-export interface ProductCommentView extends Omit<ProductComment, "question"> {
-  authorName: string;
+/**
+ * Il commento come lo legge chi guarda, nella forma del server (area 11, F2):
+ * l'ordine lo danno i fili (niente `seq`), e un nome che chi guarda non vede
+ * è `null` (R-G5), anche quello di chi ha risolto.
+ */
+export interface ProductCommentView extends Omit<ProductComment, "question" | "seq" | "resolved"> {
+  authorName: string | null;
+  resolved: { byId: string; byName: string | null; at: string } | null;
   /** 11b: la domanda di Claude come la legge chi guarda (mai la fonte grezza). */
   question?: ProductQuestionView;
 }

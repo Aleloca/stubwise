@@ -1,5 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
-import * as api from "../api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import * as api from "@backend/api";
+import { featureIntegrated } from "../integration";
 import { useConversationChanges, useSessionPersonId } from "../queries";
 import { useAiBlock } from "./instance";
 
@@ -9,15 +10,14 @@ import { useAiBlock } from "./instance";
 // opposto a `export *` (review finale 10b, 3).
 
 export type { ClaudeSuggestion, SuggestionPlace } from "../api";
-export { suggestionKeyOf } from "../api";
+export { suggestionKeyOf } from "../claude/suggestionKey";
 
 /**
  * L'area di lettura di ogni luogo: le scritture che cambiano la pagina (una
- * risposta al cliente, le note, un'automazione nuova, un piano deciso, i
+ * le note, un'automazione nuova, un piano deciso, i
  * consumi) ricaricano già quell'area, e con lei la riga.
  */
 const SUGGESTION_AREA: Record<api.SuggestionPlace["kind"], string> = {
-  support: "support",
   pr: "releases",
   automations: "automations",
   overview: "pulse",
@@ -34,7 +34,10 @@ export function useClaudeSuggestion(place: api.SuggestionPlace | null) {
   const me = useSessionPersonId();
   useConversationChanges();
   const budget = useAiBlock(null).data?.reason ?? null;
-  const placeKey = place ? api.suggestionKeyOf(place) : null;
+  // La riga «Claude can help you…» propone azioni di Claude: nella build app
+  // «in arrivo» (non c'è con la sola chat in lettura): niente chiave, niente lettura.
+  const on = featureIntegrated("claude-suggestions");
+  const placeKey = place && on ? api.suggestionKeyOf(place) : null;
   return useQuery({
     queryKey: [
       "as",
@@ -45,7 +48,7 @@ export function useClaudeSuggestion(place: api.SuggestionPlace | null) {
       budget,
     ] as const,
     queryFn: () => (place ? api.getClaudeSuggestion(place) : Promise.resolve(null)),
-    enabled: place !== null,
+    enabled: place !== null && on,
     // Cambiato solo il budget, la riga di prima resta finché non arriva la
     // risposta nuova (niente lampo); un altro oggetto, o un'altra persona
     // («vedi come»), non eredita mai la riga.
@@ -53,5 +56,22 @@ export function useClaudeSuggestion(place: api.SuggestionPlace | null) {
       previousQuery?.queryKey[1] === me && previousQuery.queryKey[4] === placeKey
         ? previous
         : undefined,
+  });
+}
+
+/**
+ * «Not now» (area 10, F7): nella build app lo salva il server, per persona e
+ * per oggetto; poi la riga si rilegge (il server la dà `null`). Nel prototipo
+ * non scrive niente: lo ricorda la riga in `localStorage` ([SG 7]).
+ */
+export function useDismissClaudeSuggestion() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { place: api.SuggestionPlace; kind: api.ClaudeSuggestion["id"] }) =>
+      api.dismissClaudeSuggestion(vars.place, vars.kind),
+    onSettled: () =>
+      client.invalidateQueries({
+        predicate: (q) => q.queryKey[3] === "claudeSuggestion",
+      }),
   });
 }

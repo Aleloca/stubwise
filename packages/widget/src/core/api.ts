@@ -14,10 +14,14 @@
  *    con `status` e (best effort) `code`/`message` dal body.
  */
 import type { WidgetDsn } from "./dsn.js";
+import type { IdentitySource } from "./identity.js";
 import type { WidgetCitation } from "./sse.js";
 
 /** Base di chiamata: coordinate del backend risolte dal DSN. */
-export type WidgetApiBase = WidgetDsn;
+export type WidgetApiBase = WidgetDsn & {
+  /** Area 8, «L'API per i siti»: il cliente firmato dal sito (assente = dichiarato). */
+  identity?: IdentitySource;
+};
 
 /** Config pubblica del widget: spento, oppure attivo coi campi di rendering. */
 export type WidgetConfig =
@@ -85,10 +89,31 @@ function url(base: WidgetApiBase, path: string): string {
 }
 
 /** Header comuni: chiave del progetto + (per i POST con body) content-type JSON. */
-function headers(base: WidgetApiBase, json: boolean): HeadersInit {
+function headers(base: WidgetApiBase, json: boolean, token?: string): HeadersInit {
   const h: Record<string, string> = { "X-Stubwise-Key": base.key };
   if (json) h["content-type"] = "application/json";
+  if (token) h["authorization"] = `Bearer ${token}`;
   return h;
+}
+
+/**
+ * Una richiesta che porta l'identità (se il sito l'ha data). A un 401
+ * `invalid_identity` (token scaduto, segreto rigenerato) chiede un token
+ * NUOVO una volta sola e riprova; ogni altro esito torna com'è.
+ */
+async function withIdentity(base: WidgetApiBase, input: string, init: RequestInit & { json: boolean }): Promise<Response> {
+  const { json, ...rest } = init;
+  const go = async (refresh: boolean) =>
+    fetch(input, { ...rest, headers: headers(base, json, base.identity ? await base.identity.token(refresh) : undefined) });
+  const response = await go(false);
+  if (response.status !== 401 || !base.identity) return response;
+  let code: string | undefined;
+  try {
+    code = ((await response.clone().json()) as { code?: string }).code;
+  } catch {
+    code = undefined;
+  }
+  return code === "invalid_identity" ? go(true) : response;
 }
 
 /**
@@ -125,9 +150,9 @@ export async function createConversation(
   base: WidgetApiBase,
   user: WidgetUser,
 ): Promise<{ conversationId: string }> {
-  const response = await fetch(url(base, "/conversations"), {
+  const response = await withIdentity(base, url(base, "/conversations"), {
     method: "POST",
-    headers: headers(base, true),
+    json: true,
     body: JSON.stringify({ user }),
   });
   if (!response.ok) await throwApiError(response);
@@ -141,10 +166,7 @@ export async function fetchMessages(
   userId: string,
 ): Promise<{ messages: WidgetMessage[] }> {
   const query = new URLSearchParams({ userId });
-  const response = await fetch(
-    url(base, `/conversations/${conversationId}/messages?${query.toString()}`),
-    { method: "GET", headers: headers(base, false) },
-  );
+  const response = await withIdentity(base, url(base, `/conversations/${conversationId}/messages?${query.toString()}`), { method: "GET", json: false });
   if (!response.ok) await throwApiError(response);
   return (await response.json()) as { messages: WidgetMessage[] };
 }
@@ -161,11 +183,11 @@ export async function sendMessage(
   input: { content: string; userId: string },
   signal?: AbortSignal,
 ): Promise<Response> {
-  const response = await fetch(url(base, `/conversations/${conversationId}/messages`), {
+  const response = await withIdentity(base, url(base, `/conversations/${conversationId}/messages`), {
     method: "POST",
-    headers: headers(base, true),
+    json: true,
     body: JSON.stringify(input),
-    signal,
+    ...(signal ? { signal } : {}),
   });
   if (!response.ok) await throwApiError(response);
   return response;
@@ -176,12 +198,44 @@ export async function confirmTicket(
   base: WidgetApiBase,
   conversationId: string,
   body: WidgetTicketConfirm,
-): Promise<{ ticketId: string; number: number }> {
-  const response = await fetch(url(base, `/conversations/${conversationId}/tickets`), {
+): Promise<{ ticketId: string; number: number; conversationId?: string }> {
+  const response = await withIdentity(base, url(base, `/conversations/${conversationId}/tickets`), {
     method: "POST",
-    headers: headers(base, true),
+    json: true,
     body: JSON.stringify(body),
   });
   if (!response.ok) await throwApiError(response);
-  return (await response.json()) as { ticketId: string; number: number };
+  // `conversationId` (area 8, F3, S17): dove è finita la conferma; assente da un server più vecchio.
+  return (await response.json()) as { ticketId: string; number: number; conversationId?: string };
+}
+
+/**
+ * Area 8, «L'API per i siti»: una richiesta o un ticket del cliente, come lo
+ * vede lui (`GET /widget/:slug/me/requests`). `label` è il suo testo: si rende
+ * come TESTO, mai come HTML.
+ */
+export interface SiteRequest {
+  code: string;
+  kind: "request" | "ticket";
+  label: string;
+  status: string;
+  statusLabel: string;
+  openedAt: string;
+}
+export interface SiteRequestDetail extends SiteRequest {
+  messages: { from: "customer" | "assistant"; body: string; at: string }[];
+}
+
+/** Le richieste del cliente firmato. Vuole `identity` (senza: 401 `identity_required`). */
+export async function fetchMyRequests(base: WidgetApiBase): Promise<{ items: SiteRequest[]; total: number }> {
+  const response = await withIdentity(base, url(base, "/me/requests"), { method: "GET", json: false });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as { items: SiteRequest[]; total: number };
+}
+
+/** Il dettaglio di una sua richiesta, coi messaggi della sua conversazione col widget. */
+export async function fetchMyRequest(base: WidgetApiBase, code: string): Promise<SiteRequestDetail> {
+  const response = await withIdentity(base, url(base, `/me/requests/${encodeURIComponent(code)}`), { method: "GET", json: false });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as SiteRequestDetail;
 }

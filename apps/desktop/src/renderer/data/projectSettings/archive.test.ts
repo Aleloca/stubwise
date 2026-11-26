@@ -187,6 +187,26 @@ describe("RF 4: busy", () => {
     });
   });
 
+  it("F6, L-5: una generazione dei Docs in corso o in pausa → busy col nome del repository; in coda o trattenuta no", async () => {
+    const space = state.docSpaces.find((d) => d.projectId === ACQ)!;
+    as(LAURA);
+    space.generation = { ...space.generation, status: "running" };
+    expect(await projectSettings.archiveProject(ACQ)).toEqual({
+      ok: false,
+      error: "busy",
+      reasons: [{ kind: "doc_generation", repository: space.name, paused: false }],
+    });
+    space.generation = { ...space.generation, status: "paused" };
+    expect(projectSettings.busyReasonsOf(ACQ)).toEqual([
+      { kind: "doc_generation", repository: space.name, paused: true },
+    ]);
+    for (const status of ["queued", "held", "failed", "succeeded"] as const) {
+      space.generation = { ...space.generation, status };
+      expect(projectSettings.busyReasonsOf(ACQ)).toEqual([]);
+    }
+    expect(project(ACQ).archived).toBeFalsy();
+  });
+
   it("una sessione finita non conta: ACQ ha cv-run-acq-3 finita e si archivia", async () => {
     expect(state.conversations.find((c) => c.id === "cv-run-acq-3")!.state).toBe("finished");
     as(LAURA);
@@ -368,13 +388,56 @@ describe("archiviare ACQ", () => {
   });
 });
 
+describe("l'anteprima dice quali superfici pubbliche si fermano (decisione del maintainer, F6)", () => {
+  const DAY = 86_400_000;
+  const ago = (days: number) => new Date(Date.parse(now()) - days * DAY).toISOString();
+  /** ACQ senza nessuna superficie attiva: le regole del server (72, cf9814c23). */
+  function quiet() {
+    for (const t of state.tasks) if (t.projectId === ACQ) t.source = "manual";
+    for (const w of state.supportWidgets) if (w.projectId === ACQ) w.enabled = false;
+    for (const r of state.repositories)
+      if (r.projectId === ACQ) r.webhook = { state: "not_configured", configuredAt: null, secretId: null, last4: null };
+  }
+  const acqTask = () => state.tasks.find((t) => t.projectId === ACQ)!;
+  const surfaces = async () => {
+    as(LAURA);
+    const r = await projectSettings.getArchivePreview(ACQ);
+    return r.ok ? r.publicSurfaces : null;
+  };
+
+  it("nessuna superficie attiva: tutto false", async () => {
+    quiet();
+    expect(await surfaces()).toEqual({ sdk: false, widget: false, inbound: false, gitWebhook: false });
+  });
+
+  it("sdk e inbound: una task dall'SDK o dall'ingresso negli ultimi 90 giorni; più vecchia non conta", async () => {
+    quiet();
+    Object.assign(acqTask(), { source: "sdk", createdAt: ago(91) });
+    expect((await surfaces())!.sdk).toBe(false);
+    Object.assign(acqTask(), { source: "sdk", createdAt: ago(10) });
+    expect(await surfaces()).toEqual({ sdk: true, widget: false, inbound: false, gitWebhook: false });
+    Object.assign(acqTask(), { source: "webhook", createdAt: ago(10) });
+    expect(await surfaces()).toEqual({ sdk: false, widget: false, inbound: true, gitWebhook: false });
+  });
+
+  it("widget: uno acceso; gitWebhook: un repository col webhook configurato", async () => {
+    quiet();
+    const widget = state.supportWidgets.find((w) => w.projectId === ACQ);
+    expect(widget).toBeDefined();
+    widget!.enabled = true;
+    const repo = state.repositories.find((r) => r.projectId === ACQ)!;
+    repo.webhook = { ...repo.webhook!, state: "configured", configuredAt: ago(1) };
+    expect(await surfaces()).toEqual({ sdk: false, widget: true, inbound: false, gitWebhook: true });
+  });
+});
+
 describe("l'anteprima d'archiviazione e le automazioni aperte ([AR 3])", () => {
   it("due esecuzioni aperte → openAutomationRuns: 2; archiviando si annullano con «Project archived»", async () => {
     const id = await acqAutomation();
     const first = await automations.startManual(id);
     const second = await automations.startManual(id);
     await idle();
-    expect(await projectSettings.getArchivePreview(ACQ)).toEqual({
+    expect(await projectSettings.getArchivePreview(ACQ)).toMatchObject({
       ok: true,
       openAutomationRuns: 2,
       busy: [],
@@ -396,7 +459,7 @@ describe("l'anteprima d'archiviazione e le automazioni aperte ([AR 3])", () => {
   it("con una sessione viva dà anche la ragione di busy; Sara → forbidden; un archiviato → not_found", async () => {
     as(LAURA);
     const run = await startRun("t-acq-3");
-    expect(await projectSettings.getArchivePreview(ACQ)).toEqual({
+    expect(await projectSettings.getArchivePreview(ACQ)).toMatchObject({
       ok: true,
       openAutomationRuns: 0,
       busy: [
@@ -605,7 +668,7 @@ describe("Amministrazione → Servers: inArchivedOnly", () => {
       false,
     );
     // Il dettaglio non promette un'analisi che non partirebbe.
-    expect((await servers.getServer("SRV-5")).analysisProject).toBeNull();
+    expect((await servers.getServer("SRV-5")).alerting).toBe(false);
     await servers.simulateServerRecovery("SRV-5");
     expect(rncAlerts()).toBe(0);
 

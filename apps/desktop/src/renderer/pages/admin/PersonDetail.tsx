@@ -15,7 +15,7 @@ import {
   type PersonDetail as Person,
 } from "../../data/queries";
 import { canSeeAdminSection } from "../../data/adminSections";
-import { useViewer } from "../../data/viewer";
+import { useViewer } from "../../data/viewing";
 import { useReauth } from "../../layout/useReauth";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { Menu, itemClass } from "../../tasks-ui/Menu";
@@ -35,6 +35,7 @@ import {
   rowClass,
 } from "../preferences/parts";
 import { Chevron, MenuButton, secondaryButton } from "../tasks/controls";
+import { VaultAdminPart } from "../vault/VaultAdminPart";
 import { DeactivateDialog } from "./DeactivateDialog";
 import { RoleOptions } from "./InviteDialog";
 import { BackToPeople } from "./InvitePage";
@@ -48,7 +49,7 @@ import {
   useSourceWords,
   type UiRefusal,
 } from "./parts";
-import { ResetPasswordDialog, ResetSecondFactorDialog } from "./ResetDialogs";
+import { ChangeEmailDialog, ResetPasswordDialog, ResetSecondFactorDialog } from "./ResetDialogs";
 
 // La pagina di una persona (shape admin-people.md, «La pagina di una
 // persona», [PE 2]): testata con le azioni rare nel «⋯», poi le parti in
@@ -57,7 +58,7 @@ import { ResetPasswordDialog, ResetSecondFactorDialog } from "./ResetDialogs";
 // fare, e i motivi delle scelte spente li dice il livello dati
 // (`actions`, `instanceRoleChoices`): qui non si ricalcola nessuna regola.
 
-type Dialog = "resetPassword" | "resetSecondFactor" | "deactivate" | null;
+type Dialog = "resetPassword" | "changeEmail" | "resetSecondFactor" | "deactivate" | null;
 
 export function PersonDetail({ personId }: { personId: string }) {
   const { t } = useTranslation();
@@ -152,14 +153,13 @@ function PersonBody({ person }: { person: Person }) {
       <ProjectsPart person={person} />
       <DepartmentsPart person={person} />
       <IdentitiesPart person={person} manages={manages} />
+      {/* La cassaforte (lotto 10, D-6): sotto «Linked identities», solo full admin. */}
+      <VaultAdminPart personId={person.personId} name={person.name} />
       {manages && <SecurityLogPart personId={person.personId} />}
       {dialog === "resetPassword" && <ResetPasswordDialog person={person} onClose={closeDialog} />}
+      {dialog === "changeEmail" && <ChangeEmailDialog person={person} onClose={closeDialog} />}
       {dialog === "resetSecondFactor" && (
-        <ResetSecondFactorDialog
-          person={person}
-          peer={person.peer}
-          onClose={closeDialog}
-        />
+        <ResetSecondFactorDialog person={person} peer={person.peer} onClose={closeDialog} />
       )}
       {dialog === "deactivate" && (
         <DeactivateDialog person={person} onClose={closeDialog} onDone={closeDialog} />
@@ -234,8 +234,23 @@ function MoreMenu({
         {open && (
           <Menu label={t("admin.person.more", { name })} onClose={close} align="right">
             {a.resetPassword === null && (
-              <button type="button" role="menuitem" className={itemClass} onClick={() => pick("resetPassword")}>
+              <button
+                type="button"
+                role="menuitem"
+                className={itemClass}
+                onClick={() => pick("resetPassword")}
+              >
                 {t("admin.person.resetPassword")}
+              </button>
+            )}
+            {a.changeEmail === null && (
+              <button
+                type="button"
+                role="menuitem"
+                className={itemClass}
+                onClick={() => pick("changeEmail")}
+              >
+                {t("admin.person.changeEmail")}
               </button>
             )}
             {a.resetSecondFactor !== "status" && (
@@ -259,7 +274,12 @@ function MoreMenu({
               </button>
             )}
             {person.status === "active" ? (
-              <button type="button" role="menuitem" className={itemClass} onClick={() => pick("deactivate")}>
+              <button
+                type="button"
+                role="menuitem"
+                className={itemClass}
+                onClick={() => pick("deactivate")}
+              >
                 {t("admin.person.deactivate")}
               </button>
             ) : (
@@ -335,6 +355,7 @@ function InstanceRolePart({ person, manages }: { person: Person; manages: boolea
             {(close) => (
               <RoleOptions
                 roles={person.instanceRoleChoices}
+                blockName={name}
                 value={current?.id ?? ""}
                 onPick={(roleId) => {
                   close();
@@ -425,62 +446,65 @@ function ProjectsPart({ person }: { person: Person }) {
         <p className="text-md text-ink-muted">{t("admin.person.projects.empty")}</p>
       ) : (
         <>
-        <ul>
-          {shownProjects.map((p) => (
-            // Codice e nome sulla stessa linea di base, come in Members e nel registro [R6].
-            <li key={p.projectId} className="flex items-baseline gap-3 border-b border-rule py-2.5 last:border-b-0">
-              <span className="num w-10 shrink-0 text-xs font-semibold tracking-[0.02em] text-ink">
-                {p.code}
-              </span>
-              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <div className="flex min-w-0 items-baseline gap-2">
-                  <Link
-                    to="/p/$code/$section"
-                    params={{ code: p.code, section: "overview" }}
-                    className="min-w-0 truncate text-md text-ink hover:underline hover:underline-offset-2"
-                  >
-                    {p.name}
-                  </Link>
-                  <span className="shrink-0 text-sm text-ink-muted">{p.role.name}</span>
-                  {p.canManage && (
+          <ul>
+            {shownProjects.map((p) => (
+              // Codice e nome sulla stessa linea di base, come in Members e nel registro [R6].
+              <li
+                key={p.projectId}
+                className="flex items-baseline gap-3 border-b border-rule py-2.5 last:border-b-0"
+              >
+                <span className="num w-10 shrink-0 text-xs font-semibold tracking-[0.02em] text-ink">
+                  {p.code}
+                </span>
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <div className="flex min-w-0 items-baseline gap-2">
                     <Link
-                      to="/p/$code/settings/$section"
-                      params={{ code: p.code, section: "members" }}
-                      search={{ member: person.personId } as never}
-                      aria-label={t("admin.person.projects.editLabel", {
-                        name: person.name,
-                        code: p.code,
-                      })}
-                      className={`${rowButton} ml-auto`}
+                      to="/p/$code/$section"
+                      params={{ code: p.code, section: "overview" }}
+                      className="min-w-0 truncate text-md text-ink hover:underline hover:underline-offset-2"
                     >
-                      {t("admin.person.projects.edit")}
+                      {p.name}
                     </Link>
-                  )}
+                    <span className="shrink-0 text-sm text-ink-muted">{p.role.name}</span>
+                    {p.canManage && (
+                      <Link
+                        to="/p/$code/settings/$section"
+                        params={{ code: p.code, section: "members" }}
+                        search={{ member: person.personId } as never}
+                        aria-label={t("admin.person.projects.editLabel", {
+                          name: person.name,
+                          code: p.code,
+                        })}
+                        className={`${rowButton} ml-auto`}
+                      >
+                        {t("admin.person.projects.edit")}
+                      </Link>
+                    )}
+                  </div>
+                  {p.extra.map((x) => (
+                    <p key={x.permission} className="text-sm text-ink-muted">
+                      {t("admin.person.projects.extra", {
+                        permission: words(x.permission),
+                        source: x.sources.map(source).join(" · "),
+                      })}
+                    </p>
+                  ))}
                 </div>
-                {p.extra.map((x) => (
-                  <p key={x.permission} className="text-sm text-ink-muted">
-                    {t("admin.person.projects.extra", {
-                      permission: words(x.permission),
-                      source: x.sources.map(source).join(" · "),
-                    })}
-                  </p>
-                ))}
-              </div>
-            </li>
-          ))}
-        </ul>
-        {person.projects.length > PROJECTS_FIRST && (
-          <button
-            type="button"
-            className={`${rowButton} mt-2 -ml-2`}
-            aria-expanded={allProjects}
-            onClick={() => setAllProjects((v) => !v)}
-          >
-            {allProjects
-              ? t("prefs.security.log.showFewer")
-              : t("admin.person.projects.showAll", { count: person.projects.length })}
-          </button>
-        )}
+              </li>
+            ))}
+          </ul>
+          {person.projects.length > PROJECTS_FIRST && (
+            <button
+              type="button"
+              className={`${rowButton} mt-2 -ml-2`}
+              aria-expanded={allProjects}
+              onClick={() => setAllProjects((v) => !v)}
+            >
+              {allProjects
+                ? t("prefs.security.log.showFewer")
+                : t("admin.person.projects.showAll", { count: person.projects.length })}
+            </button>
+          )}
         </>
       )}
       {person.alsoInHiddenProjects && (
@@ -717,7 +741,11 @@ function BitbucketRow({ person, manages }: { person: Person; manages: boolean })
     const refusal = refusalOf(result) as UiRefusal | null;
     if (refusal) return setError(refusalWords(refusal, { name: person.name }));
     toast.show(
-      t(next ? "admin.person.identities.bitbucketLinked" : "admin.person.identities.bitbucketUnlinked"),
+      t(
+        next
+          ? "admin.person.identities.bitbucketLinked"
+          : "admin.person.identities.bitbucketUnlinked",
+      ),
     );
     setEditing(false);
     setValue("");
@@ -745,7 +773,11 @@ function BitbucketRow({ person, manages }: { person: Person; manages: boolean })
             onKeyDown={(e) => e.key === "Escape" && setEditing(false)}
             className={`${inputClass} max-w-64`}
           />
-          <button type="submit" className={secondaryButton} disabled={!value.trim() || set.isPending}>
+          <button
+            type="submit"
+            className={secondaryButton}
+            disabled={!value.trim() || set.isPending}
+          >
             {t("admin.person.identities.bitbucketSave")}
           </button>
           <button type="button" className={rowButton} onClick={() => setEditing(false)}>
@@ -754,7 +786,9 @@ function BitbucketRow({ person, manages }: { person: Person; manages: boolean })
         </form>
       ) : (
         <div className={rowClass}>
-          <span className={`min-w-0 flex-1 truncate text-md ${current ? "text-ink" : "text-ink-muted"}`}>
+          <span
+            className={`min-w-0 flex-1 truncate text-md ${current ? "text-ink" : "text-ink-muted"}`}
+          >
             {current ?? t("admin.person.identities.notLinked")}
           </span>
           {manages &&
@@ -784,7 +818,10 @@ function SecurityLogPart({ personId }: { personId: string }) {
   if (events.isPending) return <RowsSkeleton parts={1} />;
   if (events.isError)
     return (
-      <ReadError message={t("admin.person.securityLogError")} onRetry={() => void events.refetch()} />
+      <ReadError
+        message={t("admin.person.securityLogError")}
+        onRetry={() => void events.refetch()}
+      />
     );
   return <LogPart events={events.data} />;
 }

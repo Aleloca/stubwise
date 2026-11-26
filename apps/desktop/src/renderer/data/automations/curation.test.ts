@@ -4,7 +4,7 @@ import { AUTOMATION_CASES, AUTOMATION_RUNS } from "../seed/automations";
 import { BELLAVISTA_REPLY } from "../seed/automations/mail";
 import { setSessionPersonId } from "../session";
 import { state } from "../store";
-import { visitSteps } from "../../domain/automations/fields";
+import { visitSteps } from "@stubwise/shared";
 import { grantInstancePermission, resetViewerGrants, revokeProjectPermission } from "../viewer";
 
 /** Il passo su cui si decide (`expectedPath`, obbligatorio): quello che l'esecuzione aspetta adesso. */
@@ -211,6 +211,19 @@ describe("«Remember for <cliente>» nella scelta del progetto", () => {
       addedById: "p-roberta",
     });
     expect(link.addedAt).toBeTruthy();
+  });
+
+  it("la casella si offre (`rememberClient`) a chi decide solo con `integrations.manage`, come il server", async () => {
+    auto(A.newContract).ownerId = "p-matteo";
+    as("p-matteo");
+    const mine = (await automations.listMyApprovals()).find((d) => d.runId === R.waitingProject);
+    expect(mine?.rememberClient).toBe(false);
+    expect((await automations.getRun(R.waitingProject))?.permissions.rememberClient).toBe(false);
+    auto(A.newContract).ownerId = "p-roberta";
+    as("p-roberta");
+    const hers = (await automations.listMyApprovals()).find((d) => d.runId === R.waitingProject);
+    expect(hers?.rememberClient).toBe(true);
+    expect((await automations.getRun(R.waitingProject))?.permissions.rememberClient).toBe(true);
   });
 });
 

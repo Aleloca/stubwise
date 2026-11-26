@@ -1,3 +1,4 @@
+import { chatRetentionDays, featureIntegrated } from "../../../data/integration";
 import { useEffect, useId, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { AiBlockLine } from "../../../components/InstanceBlock";
@@ -8,7 +9,7 @@ import {
   useSetConversationContext,
   useStorageAllowsUploads,
 } from "../../../data/queries";
-import { onStoreReset } from "../../../data/store";
+import { onStoreReset } from "@backend/runtime";
 import type { ConversationStream } from "../../../data/queries";
 import type { Attachment, ConversationDetail } from "../../../data/types";
 import { MenuGroup, RadioItem } from "../../../tasks-ui/Menu";
@@ -153,6 +154,7 @@ export function Composer({
   draft,
   projectMenu = true,
   budgetBand = false,
+  sending = false,
 }: {
   detail: ConversationDetail;
   connection: ConversationStream["connection"];
@@ -176,6 +178,8 @@ export function Composer({
    * casella lascia il posto alla fascia, col testo scritto in sola lettura.
    */
   budgetBand?: boolean;
+  /** Un invio che non si ripete finché non torna (la continuazione che nasce). */
+  sending?: boolean;
 }) {
   const { t } = useTranslation();
   const me = useSessionPersonId();
@@ -222,10 +226,15 @@ export function Composer({
   // Area 9b: «Chiedi a Claude» si ferma solo per il budget del mese (la pausa
   // della coda non la tocca): Send spento con la frase, il testo resta [EF 5].
   const free = detail.kind === "free";
+  const retentionDays = chatRetentionDays();
   const block = useAiBlock(null).data ?? null;
   const budget = free && block?.reason === "monthly_budget";
   // I caricamenti spenti: la graffetta è spenta; un file incollato lo dice per 4 s.
-  const uploadsOff = useStorageAllowsUploads().data === false;
+  const storageOff = useStorageAllowsUploads().data === false;
+  // Nella build app una sessione di lavoro non riceve allegati (il server non li
+  // accetta nei messaggi): niente graffetta, e un file incollato non entra.
+  const attachOn = featureIntegrated("claude-attachments");
+  const uploadsOff = storageOff || !attachOn;
   const [uploadNotice, setUploadNotice] = useState(false);
   useEffect(() => {
     if (!uploadNotice) return;
@@ -270,7 +279,7 @@ export function Composer({
   };
 
   const submit = () => {
-    if (!hasContent || reconnecting || budget) return;
+    if (!hasContent || reconnecting || budget || sending) return;
     onSend(
       text.trim(),
       attachments.map((a) => a.attachment),
@@ -421,31 +430,35 @@ export function Composer({
             className="block max-h-[176px] min-h-9 w-full resize-none bg-transparent px-3 pt-2.5 pb-1 text-md text-ink outline-none placeholder:text-ink-faint focus-visible:outline-none"
           />
           <div className="flex min-w-0 items-center gap-1 px-1.5 pb-1.5">
-            <input
-              ref={fileInput}
-              type="file"
-              multiple
-              hidden
-              onChange={(e) => {
-                onAddFiles([...(e.target.files ?? [])]);
-                e.target.value = "";
-              }}
-            />
-            <button
-              type="button"
-              className={`${quietButton} disabled:opacity-40`}
-              aria-label={t("claude.conversation.attachments.add")}
-              title={
-                uploadsOff
-                  ? t("instanceEffects.storage.attach")
-                  : t("claude.conversation.attachments.add")
-              }
-              disabled={uploadsOff}
-              onClick={() => fileInput.current?.click()}
-            >
-              <PaperclipGlyph />
-              {!compact && <span>{t("claude.conversation.attachments.attach")}</span>}
-            </button>
+            {attachOn && (
+              <>
+                <input
+                  ref={fileInput}
+                  type="file"
+                  multiple
+                  hidden
+                  onChange={(e) => {
+                    onAddFiles([...(e.target.files ?? [])]);
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  className={`${quietButton} disabled:opacity-40`}
+                  aria-label={t("claude.conversation.attachments.add")}
+                  title={
+                    uploadsOff
+                      ? t("instanceEffects.storage.attach")
+                      : t("claude.conversation.attachments.add")
+                  }
+                  disabled={uploadsOff}
+                  onClick={() => fileInput.current?.click()}
+                >
+                  <PaperclipGlyph />
+                  {!compact && <span>{t("claude.conversation.attachments.attach")}</span>}
+                </button>
+              </>
+            )}
             {projectMenu && detail.kind === "free" && detail.canManage && (
               <ContextChip
                 conversationId={detail.id}
@@ -511,7 +524,7 @@ export function Composer({
                 <button
                   type="button"
                   className={primaryButton}
-                  disabled={!hasContent || reconnecting || budget}
+                  disabled={!hasContent || reconnecting || budget || sending}
                   onClick={submit}
                 >
                   <SendGlyph />
@@ -530,6 +543,12 @@ export function Composer({
                 ? t(hintKey)
                 : ""}
         </p>
+        {/* La conservazione del server, detta (build app): le conversazioni inattive si potano. */}
+        {free && retentionDays !== null && (
+          <p className="pt-0.5 text-xs text-ink-faint">
+            {t("claude.conversation.composer.retention", { count: retentionDays })}
+          </p>
+        )}
       </div>
     </div>
   );

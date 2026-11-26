@@ -32,6 +32,7 @@ import { SUPERSEDED_BY_GENERATION, type DocsPlan } from "./plan.js";
 import type { NightlyItem } from "./queue.js";
 import { appendRelatedLinks } from "./release-page.js";
 import type { NightlyDeps, NightlyRepo } from "./types.js";
+import { NATIVE_TOOLS } from "../agent/native-tools.js";
 
 /**
  * Fase 4 del giro notturno (Piano B, Task B7): l'aggiornamento di UNA pagina
@@ -304,6 +305,8 @@ export async function runPageUpdateItem(
           prompt,
           model: deps.config.docsNightlyModel,
           usage: { operation: "docs_nightly", projectId: repo.projectId },
+          // L'allowlist per file usa Read e Grep, nient'altro (`native-tools.ts`).
+          builtinTools: NATIVE_TOOLS.fileRead,
           permissionMode: "default",
           allowedTools: scopedFileReadTools(worktreeDir, readable),
           disallowedTools: sensitiveReadDenyRules(),

@@ -20,6 +20,8 @@ export const AUD_CLIENT_FOLDER: FolderLink = {
   linkedAt: at(140, "10:05"),
   status: "ok",
   expiredAt: null,
+  // La sincronizzazione di ogni giorno (QB1 = b), stanotte.
+  lastSyncedAt: at(0, "02:00"),
 };
 
 export const MKX_CAMPAIGN_FOLDER: FolderLink = {
@@ -31,6 +33,7 @@ export const MKX_CAMPAIGN_FOLDER: FolderLink = {
   linkedAt: at(120, "09:30"),
   status: "ok",
   expiredAt: null,
+  lastSyncedAt: at(0, "02:00"),
 };
 
 /** Collegata da Laura, il cui account è scaduto: chi gestisce il Drive di STW vede «Ricollega». */
@@ -44,6 +47,8 @@ export const STW_BRAND_FOLDER: FolderLink = {
   status: "expired",
   // Scaduta col suo account (lo stesso giorno).
   expiredAt: at(5, "08:00"),
+  // L'ultima riuscita, la notte prima di scadere.
+  lastSyncedAt: at(5, "02:00"),
 };
 
 export const FOLDER_LINKS: FolderLink[] = [

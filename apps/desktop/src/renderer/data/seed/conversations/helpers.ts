@@ -1,4 +1,4 @@
-import type { Conversation, ConversationEvent, Utterance } from "../../types";
+import type { Conversation, ConversationEvent, ServerCommandMeta, Utterance } from "../../types";
 import { daysFromToday } from "../dates";
 
 /** Data-ora ISO a `days` giorni fa (0 = oggi), all'ora `hm` («HH:MM», UTC). */
@@ -65,7 +65,7 @@ export function done(
     truncated?: boolean;
     labelText?: Utterance;
     resultText?: Utterance;
-    access?: "read" | "fix";
+    serverCommand?: ServerCommandMeta;
   } = {},
 ): Draft {
   return { at, type: "action", tool, label, state: "done", ...extra };

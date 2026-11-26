@@ -9,10 +9,12 @@ import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
 import { renderRoute } from "../../test/renderRoute";
 import { setMatchMedia } from "../../test/setup";
 
-// Gli accessi SSH nel dettaglio di un server (Task 8 del piano 8b, shape
-// server-access.md): i tre passi, gli esiti per accesso, Rigenera, Revoca
-// col comando di rimozione, l'ultimo uso, chi guarda senza azioni, nessuna
-// chiave privata, i «Simula» solo nel riquadro «Prototype only», ⌘K.
+// L'accesso SSH nel dettaglio di un server (Task 8 del piano 8b, shape
+// server-access.md; area 8, F4b: UNO, di sola lettura, `stubwise-read`): i
+// tre passi, l'esito della verifica (login, sudo, docker, journal),
+// Rigenera, Revoca col comando di rimozione, l'ultimo uso, chi guarda senza
+// azioni, nessuna chiave privata, i «Simula» solo nel riquadro «Prototype
+// only», ⌘K. Nessuna traccia di un accesso di correzione.
 
 beforeEach(() => {
   setLatency(0);
@@ -49,121 +51,122 @@ async function openMenu(user: ReturnType<typeof userEvent.setup>, code: string) 
 }
 
 describe("i tre passi (Roberta, servers.ssh.manage)", () => {
-  it("collega → comando in monospace con Copy e la frase su stubwise-fix → Verify chiude la procedura", async () => {
+  it("collega → comando in monospace con Copy, un solo utente di lettura → Verify chiude la procedura", async () => {
     const user = userEvent.setup();
     await open("/p/AUD/servers/SRV-4", "p-roberta");
     expect(access()).toHaveTextContent(
-      "Two accesses let Claude look into SRV-4, and fix it from a task.",
+      "One read-only access lets Claude look into SRV-4. Fixes don't use SSH: they go through the monitoring agent.",
     );
-    expect(access()).toHaveTextContent("Private keys are encrypted and never shown.");
+    expect(access()).toHaveTextContent("The private key is encrypted and never shown.");
     await user.click(within(access()).getByRole("button", { name: "Link SSH access" }));
 
     const step2 = await within(access()).findByRole("heading", {
       name: "Run this command on SRV-4",
     });
     await waitFor(() => expect(step2).toHaveFocus());
-    // Chi crea cosa, PRIMA del comando: la frase accanto a stubwise-fix, non in un tooltip.
-    const users = within(access()).getByRole("table", {
-      name: "The two users the command creates",
-    });
-    const fixRow = within(users).getByRole("row", { name: /stubwise-fix/ });
-    expect(fixRow).toHaveTextContent("Can do anything on the server");
+    // Chi crea cosa, PRIMA del comando: un utente solo, di sola lettura.
+    const users = within(access()).getByRole("table", { name: "The user the command creates" });
+    expect(within(users).getAllByRole("rowheader")).toHaveLength(1);
     expect(within(users).getByRole("row", { name: /stubwise-read/ })).toHaveTextContent(
-      "Reads logs, processes, disk and memory. Can't change anything.",
+      "Reads processes, disk, memory, load, listening ports and failed services. Can't change anything.",
     );
+    expect(users).toHaveTextContent("No sudo, not in the docker group.");
     const command = await within(access()).findByRole("region", { name: "Command for SRV-4" });
     const code = command.querySelector("pre")!;
     expect(code.className).toContain("font-code");
     expect(code.textContent).toContain("stubwise-read@SRV-4");
-    // Interfaccia in inglese: nessun commento né echo in italiano.
-    expect(code.textContent).toContain("# Stubwise: SSH accesses for SRV-4 (public keys only).");
-    expect(code.textContent).not.toMatch(/accessi|sola lettura|soltanto|può fare|pronti/);
+    expect(code.textContent).toContain(
+      "# Stubwise: read-only SSH access for SRV-4 (public key only).",
+    );
+    expect(code.textContent).not.toMatch(/accesso|sola lettura|soltanto|pronto/);
     expect(users.compareDocumentPosition(command) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(access()).toHaveTextContent(
-      "Run it as root on SRV-4. Read it first: it contains only public keys.",
+      "Run it as root on SRV-4. Read it first: it contains only a public key.",
     );
-    expect(access()).toHaveTextContent(
-      /read SHA256:[^…\s]{8}…\S{4}\s*·\s*fix SHA256:[^…\s]{8}…\S{4}/,
-    );
-    expect(access()).toHaveTextContent("Prototype: these keys are made up by the prototype.");
+    expect(access()).toHaveTextContent(/Fingerprint SHA256:[^…\s]{8}…\S{4}/);
+    expect(access()).toHaveTextContent("Prototype: this key is made up by the prototype.");
     await user.click(within(command).getByRole("button", { name: "Copy the command" }));
     expect(await screen.findByText("Command copied")).toBeInTheDocument();
-    expect(await navigator.clipboard.readText()).toContain("stubwise-fix@SRV-4");
+    expect(await navigator.clipboard.readText()).toContain("stubwise-read@SRV-4");
 
     await user.click(within(access()).getByRole("button", { name: "Verify" }));
     const result = await within(access()).findByRole("status", { name: "Verification result" });
-    expect(result).toHaveTextContent("Read access works, and it can't write.");
-    expect(result).toHaveTextContent("Fix access works.");
-    // La procedura si chiude: restano le due righe di stato.
+    expect(result).toHaveTextContent("Signs in as stubwise-read.");
+    expect(result).toHaveTextContent("No sudo.");
+    expect(result).toHaveTextContent("Not in the docker group.");
+    expect(result).toHaveTextContent("Reads the system journal (group systemd-journal).");
+    // La procedura si chiude: resta la riga di stato, una.
     await waitFor(() =>
       expect(within(access()).queryByRole("region", { name: "Command for SRV-4" })).toBeNull(),
     );
     const rows = within(access()).getByRole("list", { name: "SSH access of SRV-4" });
-    expect(within(rows).getAllByRole("listitem")).toHaveLength(2);
-    expect(rows).toHaveTextContent(/Read access.*stubwise-read.*Verified/);
-    expect(rows).toHaveTextContent(/Fix access.*stubwise-fix.*Verified/);
-    // A procedura chiusa la frase su stubwise-fix resta.
-    expect(rows).toHaveTextContent("Can do anything on the server.");
+    expect(within(rows).getAllByRole("listitem")).toHaveLength(1);
+    expect(rows).toHaveTextContent(/Read-only access.*stubwise-read.*Verified/);
+    // Nessuna traccia di un accesso di correzione.
+    expect(access()).not.toHaveTextContent(/stubwise-fix|Fix access|can do anything/i);
   });
 
-  it("ogni esito simulato in parole: quale accesso e perché", async () => {
+  it("ogni esito simulato in parole: chiave rifiutata, irraggiungibile, senza journal", async () => {
     const user = userEvent.setup();
     await open("/p/AUD/servers/SRV-3", "p-roberta");
-    // SRV-3: chiavi generate, comando mai eseguito → passo 2 aperto.
+    // SRV-3: chiave generata, comando mai eseguito → passo 2 aperto.
     expect(
       await within(access()).findByRole("heading", { name: "Run this command on SRV-3" }),
     ).toBeInTheDocument();
 
-    await simulate(user, "Read access fails");
+    await simulate(user, "Key refused");
     await user.click(within(access()).getByRole("button", { name: "Verify" }));
-    let result = await within(access()).findByRole("status", { name: "Verification result" });
+    const result = await within(access()).findByRole("status", { name: "Verification result" });
     await waitFor(() =>
-      expect(result).toHaveTextContent(
-        "Read access failed: the server refused the key. Was the command run on SRV-3?",
-      ),
+      expect(result).toHaveTextContent("The server refused the key. Was the command run on SRV-3?"),
     );
-    expect(result).toHaveTextContent("Fix access works.");
     // Resta aperta sul passo 3, con «Verify again» e il comando da rivedere.
     expect(within(access()).getByRole("button", { name: "Verify again" })).toBeInTheDocument();
-
-    await simulate(user, "Fix access fails");
-    await user.click(within(access()).getByRole("button", { name: "Verify again" }));
-    await waitFor(() =>
-      expect(
-        within(access()).getByRole("status", { name: "Verification result" }),
-      ).toHaveTextContent(
-        "Fix access failed: the server refused the key. Was the command run on SRV-3?",
-      ),
-    );
-    result = within(access()).getByRole("status", { name: "Verification result" });
-    expect(result).toHaveTextContent("Read access works, and it can't write.");
 
     await simulate(user, "Server unreachable");
     await user.click(within(access()).getByRole("button", { name: "Verify again" }));
     await waitFor(() =>
       expect(access()).toHaveTextContent(
-        "Couldn't reach SRV-3 over SSH (port 22). Neither access could be checked.",
+        "Couldn't reach SRV-3 over SSH (port 22). Nothing was checked.",
       ),
     );
+
+    await simulate(user, "Works, without the journal group");
+    await user.click(within(access()).getByRole("button", { name: "Verify again" }));
+    await waitFor(() =>
+      expect(
+        within(access()).getByRole("status", { name: "Verification result" }),
+      ).toHaveTextContent(
+        "Can't read the system journal, so Claude won't read it. Add stubwise-read to systemd-journal or adm to let it.",
+      ),
+    );
+    const rows = within(access()).getByRole("list", { name: "SSH access of SRV-3" });
+    expect(rows).toHaveTextContent(/Verified/);
+    expect(rows).toHaveTextContent("Doesn't read the system journal");
   });
 
-  it("«lettura scrive» è un errore, mai un successo: entrambi spenti", async () => {
+  it.each([
+    ["stubwise-read has sudo", "It can run sudo."],
+    [
+      "stubwise-read is in the docker group",
+      "It's in the docker group: it can control every container.",
+    ],
+  ])("«%s» è un errore, mai un successo: l'accesso è spento", async (outcome, line) => {
     const user = userEvent.setup();
     await open("/p/AUD/servers/SRV-3", "p-roberta");
     await within(access()).findByRole("heading", { name: "Run this command on SRV-3" });
-    await simulate(user, "Read access can write");
+    await simulate(user, outcome);
     await user.click(within(access()).getByRole("button", { name: "Verify" }));
     const alert = await within(access()).findByRole("alert");
     expect(alert).toHaveTextContent(
-      "Read access can write. That's an error: both accesses are off until a verification passes.",
+      "stubwise-read can do more than read. That's an error: the access is off until a verification passes.",
     );
     expect(alert).toHaveTextContent(
-      "Check that stubwise-read isn't in the sudo or docker group, then verify again.",
+      "Take stubwise-read out of the sudo and docker groups (running the command again does it), then verify again.",
     );
-    expect(access()).not.toHaveTextContent("Read access works");
-    expect(access().querySelector("[data-outcome='ok'][data-access='read']")).toBeNull();
+    expect(access()).toHaveTextContent(line);
     const rows = within(access()).getByRole("list", { name: "SSH access of SRV-3" });
-    expect(within(rows).getAllByText("Off: read access can write")).toHaveLength(2);
+    expect(within(rows).getAllByText("Off: stubwise-read can do more than read")).toHaveLength(1);
     expect(within(access()).getByRole("button", { name: "Verify again" })).toBeInTheDocument();
   });
 
@@ -178,110 +181,32 @@ describe("i tre passi (Roberta, servers.ssh.manage)", () => {
     await user.click(within(toast).getByRole("button", { name: "Retry" }));
     expect(
       await within(access()).findByRole("status", { name: "Verification result" }),
-    ).toHaveTextContent("Fix access works.");
+    ).toHaveTextContent("Signs in as stubwise-read.");
   });
 });
 
 describe("Rigenera e Revoca", () => {
-  it("Rigenera: le vecchie restano valide fino alla verifica delle nuove", async () => {
+  it("Rigenera (decisione del maintainer, 15 nov 2026): la vecchia smette subito, si torna al comando", async () => {
     const user = userEvent.setup();
     await open("/p/ACQ/servers/SRV-1", "p-roberta");
     const menu = await openMenu(user, "SRV-1");
-    await user.click(within(menu).getByRole("menuitem", { name: "Regenerate keys…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Regenerate SRV-1's keys?" });
+    await user.click(within(menu).getByRole("menuitem", { name: "Regenerate key…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Regenerate SRV-1's key?" });
     expect(dialog).toHaveTextContent(
-      "You get new keys and a new command. The current keys keep working until the new ones pass verification.",
+      "You get a new key and a new command. The current key stops working now: until the new one passes verification, Claude looks into problems without SSH reads.",
     );
+    expect(dialog).not.toHaveTextContent(/keeps working/);
     await user.click(within(dialog).getByRole("button", { name: "Regenerate" }));
 
+    // Come un collegamento nuovo: il comando con la sola chiave nuova, poi la verifica.
+    await within(access()).findByRole("region", { name: "Command for SRV-1" });
     expect(
-      await within(access()).findByRole("heading", { name: "New keys — not in use yet" }),
-    ).toBeInTheDocument();
-    expect(access()).toHaveTextContent("The command authorizes the current keys and the new ones.");
-    // Le righe in uso restano, con il loro ultimo uso.
-    const rows = within(access()).getByRole("list", { name: "SSH access of SRV-1" });
-    expect(within(rows).getAllByText("In use")).toHaveLength(2);
-    expect(rows).toHaveTextContent("by the analysis of SRV-1");
-
-    // Le nuove non passano: le vecchie (che funzionavano) restano in uso.
-    await simulate(user, "Fix access fails");
-    await user.click(within(access()).getByRole("button", { name: "Verify" }));
-    await waitFor(() =>
-      expect(access()).toHaveTextContent(
-        "The new keys didn't pass. The current ones are still in use.",
-      ),
-    );
-    expect(within(rows).getAllByText("In use")).toHaveLength(2);
-
-    await user.click(within(access()).getByRole("button", { name: "Verify again" }));
-    await waitFor(() =>
-      expect(access()).toHaveTextContent("The new keys are in use. Stubwise forgot the old ones."),
-    );
-    expect(
-      within(access()).queryByRole("heading", { name: "New keys — not in use yet" }),
+      within(access()).queryByRole("heading", { name: "New key — not in use yet" }),
     ).toBeNull();
-  });
-
-  it("Rigenera con la sola lettura funzionante: si promette solo quella (R-L8)", async () => {
-    const user = userEvent.setup();
-    await open("/p/ACQ/servers/SRV-1", "p-roberta");
-    // Verificato, poi «Verify again» con la correzione rifiutata.
-    await simulate(user, "Fix access fails");
-    let menu = await openMenu(user, "SRV-1");
-    await user.click(within(menu).getByRole("menuitem", { name: "Verify again" }));
-    const rows = within(access()).getByRole("list", { name: "SSH access of SRV-1" });
-    await waitFor(() =>
-      expect(within(rows).getAllByRole("listitem")[1]).toHaveTextContent(
-        "Check failed: the server refused the key",
-      ),
-    );
-
-    menu = await openMenu(user, "SRV-1");
-    await user.click(within(menu).getByRole("menuitem", { name: "Regenerate keys…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Regenerate SRV-1's keys?" });
-    expect(dialog).toHaveTextContent(
-      "The current read key keeps working until the new ones pass verification; the current fix key isn't working now.",
-    );
-    expect(dialog).not.toHaveTextContent("The current keys keep working");
-    await user.click(within(dialog).getByRole("button", { name: "Regenerate" }));
-
-    await within(access()).findByRole("heading", { name: "New keys — not in use yet" });
-    expect(access()).toHaveTextContent(
-      "Until they pass, Stubwise keeps using the current read key. The current fix key isn't working.",
-    );
-    expect(access()).not.toHaveTextContent("keeps using the current keys");
-    const now = within(access()).getByRole("list", { name: "SSH access of SRV-1" });
-    expect(within(now).getAllByRole("listitem")[0]).toHaveTextContent("In use");
-    expect(within(now).getAllByRole("listitem")[1]).toHaveTextContent("Check failed");
-
-    await simulate(user, "Read access fails");
     await user.click(within(access()).getByRole("button", { name: "Verify" }));
-    await waitFor(() =>
-      expect(access()).toHaveTextContent(
-        "The new keys didn't pass. The current read key is still in use; the fix key isn't working.",
-      ),
-    );
-    expect(access()).not.toHaveTextContent("The current ones are still in use");
-  });
-
-  it("Laura durante la rigenerazione: nessuna promessa sulle chiavi attuali (R-L8)", async () => {
-    const user = userEvent.setup();
-    await open("/p/ACQ/servers/SRV-1", "p-roberta");
-    await simulate(user, "Fix access fails");
-    let menu = await openMenu(user, "SRV-1");
-    await user.click(within(menu).getByRole("menuitem", { name: "Verify again" }));
-    await waitFor(() => expect(access()).toHaveTextContent("Check failed"));
-    menu = await openMenu(user, "SRV-1");
-    await user.click(within(menu).getByRole("menuitem", { name: "Regenerate keys…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Regenerate SRV-1's keys?" });
-    await user.click(within(dialog).getByRole("button", { name: "Regenerate" }));
-    await within(access()).findByRole("heading", { name: "New keys — not in use yet" });
-
-    await user.click(screen.getByRole("button", { name: /^Profile and settings/ }));
-    await user.click(screen.getByRole("radio", { name: /Laura Costa/ }));
-    await waitFor(() => expect(access()).toHaveTextContent("New keys being set up."));
-    expect(access()).not.toHaveTextContent("stay in use");
-    expect(within(access()).queryByRole("button")).toBeNull();
+    expect(
+      await within(access()).findByRole("list", { name: "SSH access of SRV-1" }),
+    ).toBeInTheDocument();
   });
 
   it("Revoca con conferma, poi il comando di rimozione fino a «Done», poi «Link again»", async () => {
@@ -292,27 +217,24 @@ describe("Rigenera e Revoca", () => {
     const dialog = await screen.findByRole("dialog", { name: "Revoke SSH access to SRV-1?" });
     for (const line of [
       "Claude can't look into SRV-1's problems any more.",
-      "A fix running on SRV-1 stops.",
-      "A fix plan waiting for approval can't be approved.",
-      "Stubwise forgets the keys. The users stay on the server until you remove them.",
+      "A fix on SRV-1 isn't affected: it goes through the monitoring agent.",
+      "Stubwise forgets the key. The user stays on the server until you remove it.",
     ])
       expect(dialog).toHaveTextContent(line);
+    expect(dialog).not.toHaveTextContent(/stops|can't be approved/);
     await user.click(within(dialog).getByRole("button", { name: "Revoke access" }));
 
     const title = await within(access()).findByRole("heading", {
-      name: /^Access revoked .*To remove the two users from SRV-1, run:$/,
+      name: /^Access revoked .*To remove stubwise-read from SRV-1, run:$/,
     });
     await waitFor(() => expect(title).toHaveFocus());
     const removal = within(access()).getByRole("region", { name: "Removal command for SRV-1" });
     expect(removal).toHaveTextContent("userdel stubwise-read");
-    expect(removal).toHaveTextContent("userdel stubwise-fix");
-    // Con l'interfaccia in inglese, commenti ed echo dello script sono in inglese.
-    expect(removal).toHaveTextContent("Stubwise: SRV-1 accesses removed.");
-    expect(removal.textContent).not.toMatch(/accessi|rimoss|rimozione/);
+    expect(removal).not.toHaveTextContent("stubwise-fix");
+    expect(removal).toHaveTextContent("Stubwise: SRV-1 access removed.");
+    expect(removal.textContent).not.toMatch(/accesso|rimoss|rimozione/);
     expect(within(removal).getByRole("button", { name: "Copy the command" })).toBeInTheDocument();
-    // Il comando di rimozione non ha chiavi: niente frase sulle chiavi pubbliche,
-    // e revocato non c'è niente da verificare (niente «Next verification»).
-    expect(access()).not.toHaveTextContent("Private keys are encrypted and never shown.");
+    expect(access()).not.toHaveTextContent("The private key is encrypted and never shown.");
     expect(screen.queryByText(/Next verification/)).toBeNull();
     await user.click(within(access()).getByRole("button", { name: "Done" }));
 
@@ -322,7 +244,6 @@ describe("Rigenera e Revoca", () => {
       ).toBeNull(),
     );
     expect(access()).toHaveTextContent(/Revoked \w+ \d+/);
-    // Il comando di rimozione resta raggiungibile dal «⋯».
     const again = await openMenu(user, "SRV-1");
     expect(
       within(again).getByRole("menuitem", { name: "Show removal command" }),
@@ -335,16 +256,15 @@ describe("Rigenera e Revoca", () => {
 });
 
 describe("chi guarda e l'ultimo uso", () => {
-  it("ultimo uso per accesso: l'analisi con «Open session», la task col link, mai usato", async () => {
+  it("ultimo uso: l'analisi con «Open session»", async () => {
     await open("/p/ACQ/servers/SRV-1", "p-roberta");
     const rows = within(access()).getByRole("list", { name: "SSH access of SRV-1" });
-    const [read, fix] = within(rows).getAllByRole("listitem");
+    const [read] = within(rows).getAllByRole("listitem");
     expect(read).toHaveTextContent("Used yesterday by the analysis of SRV-1");
     expect(within(read!).getByRole("link", { name: "Open session" })).toHaveAttribute(
       "href",
       expect.stringMatching(/^\/claude\//),
     );
-    expect(fix).toHaveTextContent("Not used yet");
   });
 
   it("una task che chi guarda vede è un link; una che non vede non si nomina", async () => {
@@ -353,24 +273,22 @@ describe("chi guarda e l'ultimo uso", () => {
     const visible = visibleProjectIds("p-laura");
     const hidden = state.tasks.find((t) => !visible.has(t.projectId))!;
     const a = state.serverAccess.get("SRV-1")!;
-    a.lastUse.fix = {
-      at: new Date(Date.now() - 3_600_000).toISOString(),
-      ref: { kind: "task", taskId: seen.id },
-    };
+    const at = new Date(Date.now() - 3_600_000).toISOString();
+    a.lastUse = { at, ref: { kind: "task", taskId: seen.id } };
     await open("/p/ACQ/servers/SRV-1", "p-laura");
-    let fix = within(
+    let read = within(
       within(access()).getByRole("list", { name: "SSH access of SRV-1" }),
-    ).getAllByRole("listitem")[1]!;
-    expect(within(fix).getByRole("link", { name: new RegExp(seen.code) })).toBeInTheDocument();
+    ).getAllByRole("listitem")[0]!;
+    expect(within(read).getByRole("link", { name: new RegExp(seen.code) })).toBeInTheDocument();
     document.body.innerHTML = "";
 
-    a.lastUse.fix = { at: a.lastUse.fix.at, ref: { kind: "task", taskId: hidden.id } };
+    a.lastUse = { at, ref: { kind: "task", taskId: hidden.id } };
     await open("/p/ACQ/servers/SRV-1", "p-laura");
-    fix = within(within(access()).getByRole("list", { name: "SSH access of SRV-1" })).getAllByRole(
+    read = within(within(access()).getByRole("list", { name: "SSH access of SRV-1" })).getAllByRole(
       "listitem",
-    )[1]!;
-    expect(fix).toHaveTextContent("by a task you can't see");
-    expect(fix).not.toHaveTextContent(hidden.code);
+    )[0]!;
+    expect(read).toHaveTextContent("by a task you can't see");
+    expect(read).not.toHaveTextContent(hidden.code);
   });
 
   it("Laura: stato e ultimo uso, nessuna azione, nessun comando né impronta", async () => {
@@ -429,7 +347,7 @@ describe("verità del prototipo", () => {
     await user.click(within(access()).getByRole("button", { name: "Link SSH access" }));
     await within(access()).findByRole("region", { name: "Command for SRV-4" });
     noPrivate(); // in attesa del comando: passo 2 con comando e impronte
-    await simulate(user, "Fix access fails");
+    await simulate(user, "Key refused");
     await user.click(within(access()).getByRole("button", { name: "Verify" }));
     await within(access()).findByRole("button", { name: "Verify again" });
     noPrivate(); // verifica non riuscita
@@ -441,14 +359,13 @@ describe("verità del prototipo", () => {
     await within(access()).findByRole("region", { name: "Command for SRV-4" });
     noPrivate(); // comando rivisto dal «⋯»
     menu = await openMenu(user, "SRV-4");
-    await user.click(within(menu).getByRole("menuitem", { name: "Regenerate keys…" }));
+    await user.click(within(menu).getByRole("menuitem", { name: "Regenerate key…" }));
     noPrivate(); // dialogo di Rigenera
     await user.click(
       within(await screen.findByRole("dialog")).getByRole("button", { name: "Regenerate" }),
     );
-    await within(access()).findByRole("heading", { name: "New keys — not in use yet" });
     await within(access()).findByRole("region", { name: "Command for SRV-4" });
-    noPrivate(); // in rigenerazione: comando con vecchie e nuove pubbliche
+    noPrivate(); // rigenerata: comando con la sola nuova pubblica
     menu = await openMenu(user, "SRV-4");
     await user.click(within(menu).getByRole("menuitem", { name: "Revoke access…" }));
     await user.click(
@@ -470,10 +387,11 @@ describe("verità del prototipo", () => {
     );
     const select = within(box).getByRole("combobox", { name: "Next verification:" });
     expect([...(select as HTMLSelectElement).options].map((o) => o.text)).toEqual([
-      "Works",
-      "Read access fails",
-      "Fix access fails",
-      "Read access can write",
+      "Works (reads the journal)",
+      "Works, without the journal group",
+      "Key refused",
+      "stubwise-read has sudo",
+      "stubwise-read is in the docker group",
       "Server unreachable",
     ]);
     expect(within(access()).queryByRole("combobox")).toBeNull();

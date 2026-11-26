@@ -1,7 +1,9 @@
+import { isHiddenId } from "../../data/access/hiddenId";
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { CHAT_EVENT_KINDS } from "../../data/chat";
+import { featureIntegrated } from "../../data/integration";
+import { CHAT_EVENT_KINDS } from "../../data/chat/constants";
 import {
   useArchiveChannel,
   useChannelMembers,
@@ -223,7 +225,8 @@ function SettingsBody({ channel, onClose }: { channel: ChannelView; onClose: () 
         </Section>
       )}
       {channel.isMember && <NotificationsSection channel={channel} />}
-      {channel.kind === "project" && <EventsSection channel={channel} />}
+      {/* Build app: gli eventi dei progetti nei canali sono della fetta 4 (`chat-events`). */}
+      {channel.kind === "project" && featureIntegrated("chat-events") && <EventsSection channel={channel} />}
       <MembersSection channel={channel} />
       <DangerZone channel={channel} label={name.label} onClose={onClose} />
     </div>
@@ -602,7 +605,9 @@ export function MembersSection({
         <ul aria-label={t("chat.settings.members")} className="-mx-1.5 flex flex-col">
           {ids.map((id) => {
             const person = people?.find((p) => p.id === id);
-            const removable = canRemove && id !== me && !lastOfPrivate;
+            // R.1414: un segnaposto è chi guarda non conosce: «Someone», mai azionabile.
+            const hidden = isHiddenId(id);
+            const removable = canRemove && id !== me && !lastOfPrivate && !hidden;
             return (
               <li
                 key={id}
@@ -611,7 +616,7 @@ export function MembersSection({
               >
                 <ChatAvatar person={person} size={24} />
                 <span className="min-w-0 flex-1 truncate text-md text-ink">
-                  {person?.name}
+                  {hidden ? t("chat.message.someone") : person?.name}
                   {id === me && (
                     <span className="ml-1.5 text-sm text-ink-muted">{t("chat.settings.you")}</span>
                   )}

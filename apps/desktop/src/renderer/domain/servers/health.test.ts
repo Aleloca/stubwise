@@ -1,3 +1,9 @@
+import {
+  RECOVERED_SHOWN_HOURS as SHARED_RECOVERED_SHOWN_HOURS,
+  serverHealth as sharedServerHealth,
+} from "@stubwise/shared";
+import { deriveServerHealth } from "./health";
+import { RECOVERED_SHOWN_HOURS as RECOVERED_SHOWN_HOURS_LOCAL } from "./limits";
 import { describe, expect, it } from "vitest";
 import type { MonitoredServer, ServerAnalysis, ServerEpisode } from "../../data/model";
 import { hoursAgo, NOW, serverTask } from "./fixtures";
@@ -15,9 +21,9 @@ const server = (over: Partial<MonitoredServer> = {}): MonitoredServer => ({
   thresholds: { cpuPct: 95, memPct: 90, diskPct: 90, sustainedMinutes: 5 },
   services: [],
   disks: [],
-  primaryProjectId: null,
   createdAt: hoursAgo(1000),
   sshReachable: true,
+  agentOperations: false,
   ...over,
 });
 
@@ -113,8 +119,8 @@ const analysis = (outcome: ServerAnalysis["outcome"]): ServerAnalysis => ({
   id: "an",
   serverCode: "SRV-9",
   episodeId: "ep",
-  projectId: "p1",
   conversationId: "cv",
+  attribution: null,
   outcome,
   taskId: null,
   startedAt: hoursAgo(1),
@@ -145,5 +151,12 @@ describe("serverWork", () => {
     expect(serverWork({ analyses: [analysis("running")], serverTasks: [open, live] })).toBe(
       "fixing",
     );
+  });
+});
+
+describe("una regola sola (area 8, F4a)", () => {
+  it("il prototipo usa la salute di `@stubwise/shared`, non una copia", () => {
+    expect(deriveServerHealth).toBe(sharedServerHealth);
+    expect(RECOVERED_SHOWN_HOURS_LOCAL).toBe(SHARED_RECOVERED_SHOWN_HOURS);
   });
 });

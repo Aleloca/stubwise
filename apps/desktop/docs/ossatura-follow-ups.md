@@ -192,10 +192,12 @@ I buchi di parità stanno in `area4-parity.md`, «Buchi». L'elenco per task:
 
 - Palette ⌘K: il titolo del gruppo «More» / «Altro» (messaggi della Chat dopo
   gli oggetti e i comandi), `i18n/locales/{en,it}.json`.
-- R-G6: avvisano **solo** le menzioni dirette `@persona` (anche a chi legge il
+- ~~R-G6: avvisano **solo** le menzioni dirette `@persona` (anche a chi legge il
   canale senza esserne membro); `@canale` e `@reparto` contano per il
   distintivo del canale ma non creano notifica (`data/chat/writes.ts`). Costo:
-  chi non è nel canale può non vedere un `@canale`.
+  chi non è nel canale può non vedere un `@canale`.~~ Superata il 23 nov 2026
+  (registro, A4 r.169): `@channel` e `@reparto` avvisano i membri che hanno il
+  canale su «all» (shape `chat.md`, «Avvisi di gruppo»).
 - Colonna della Chat: i progetti né fissati né con non letti o menzioni si
   raccolgono in una riga chiusa «Other projects · N» / «Altri progetti · N»,
   così i DM stanno sopra la piega a 1440×900.

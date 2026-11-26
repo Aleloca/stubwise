@@ -29,12 +29,15 @@ export {
   eventSummary,
   formatNotification,
   formatNotificationText,
+  isAutomationEvent,
+  isDirectMessageEvent,
+  isProductDocEvent,
   isReviewFailedEvent,
   reviewOutcomeOf,
   sampleEvents,
 } from "./format.js";
 
-export { permissionForProposalAction, permissionsForProposalActions } from "./proposal-permissions.js";
+export { permissionForMailAction, permissionForProposalAction, permissionsForProposalActions } from "./proposal-permissions.js";
 
 export {
   actionsFor,

@@ -1,4 +1,4 @@
-import { accessState } from "./access/index";
+import { isActiveViewer, seesProject } from "@backend/access";
 import "./admin/changeTypes";
 import "./instance/changeTypes";
 // Area 9c: solo i tipi di voce, per effetto; mai `projectSettings/index.ts`,
@@ -12,9 +12,8 @@ import {
   type AdminSection,
   type ProjectSettingsSection,
 } from "./routes";
-import { visibleProjectIds } from "./store";
 import type { Viewer } from "./types";
-import { can, type Permission } from "./viewer";
+import { can, type Permission } from "./viewing";
 
 // Le voci dell'Amministrazione che chi guarda vede (area 9a, design
 // «Amministrazione: com'è fatta», shape admin-people.md §3), in UN posto:
@@ -31,17 +30,13 @@ import { can, type Permission } from "./viewer";
 // - AI: `ai_providers.manage` o `settings.manage` (Providers, Models,
 //   Automation, Budget & language), `usage.view` (la sola Usage).
 // - Git accounts: `git_accounts.view` o `.manage`. Plugins:
-//   `plugins.manage`. Google Workspace: `integrations.manage`. Storage e
-//   Outgoing webhooks: `settings.manage`.
+//   `plugins.manage`. Google Workspace e Outgoing webhooks (F3, H-1):
+//   `integrations.manage`. Storage: `settings.manage`.
 // - Servers: `monitor.manage`. Repositories: `repos.manage` in almeno un
 //   progetto. Instance status: `instance.status.view` o `settings.manage`.
 
-/**
- * Una persona umana e attiva: chi ha una sessione nell'app. Claude e
- * «nessuno» non stanno fra le persone degli accessi (R-L9), quindi non passano.
- */
-const isActivePerson = (viewer: Viewer): boolean =>
-  accessState().people.some((p) => p.personId === viewer.personId && p.status === "active");
+/** Una persona umana e attiva (il fatto lo dà il livello dati: `@backend/access`). */
+const isActivePerson = isActiveViewer;
 
 /** I permessi d'istanza del 9b che scrivono (vedi `administersSomething`). */
 const INSTANCE_WRITES = [
@@ -72,9 +67,9 @@ function sees(viewer: Viewer, section: AdminSection): boolean {
     case "plugins":
       return can(viewer, "plugins.manage");
     case "google":
+    case "webhooks":
       return can(viewer, "integrations.manage");
     case "storage":
-    case "webhooks":
       return can(viewer, "settings.manage");
     case "servers":
       return can(viewer, "monitor.manage");
@@ -82,7 +77,8 @@ function sees(viewer: Viewer, section: AdminSection): boolean {
       // Senza progetto: in almeno uno.
       return can(viewer, "repos.manage");
     case "status":
-      return can(viewer, "instance.status.view") || can(viewer, "settings.manage");
+      // Review F4, I2: come il server, solo instance.status.view.
+      return can(viewer, "instance.status.view");
   }
 }
 
@@ -181,7 +177,7 @@ export function projectSettingsAccess(
   viewer: Viewer,
   projectId: string,
 ): Record<ProjectSettingsSection, SectionAccess> {
-  const member = visibleProjectIds(viewer.personId).has(projectId);
+  const member = seesProject(viewer, projectId);
   const has = (perm: Permission) => member && can(viewer, perm, projectId);
   const settings = has("project.settings.manage");
   const writable = (visible: boolean, canEdit: boolean, editAction: string): SectionAccess => ({

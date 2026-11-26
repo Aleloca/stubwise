@@ -288,3 +288,16 @@ describe("checks persi dalla ricostruzione", () => {
     expect(() => readerSchema(z.object({ s: z.string().min(3) })).parse({ s: "ab" })).toThrow();
   });
 });
+
+describe("record con chiavi enum (fix, fetta 4)", () => {
+  it("un partialRecord su un enum accetta chiavi mancanti e sconosciute dopo readerSchema", () => {
+    const schema = z.object({ byStatus: z.partialRecord(z.enum(["open", "closed"]), z.number()) });
+    const reader = readerSchema(schema);
+    // Una chiave sola: prima la ricostruzione pretendeva tutte le chiavi, compresa quella di ripiego.
+    expect(reader.parse({ byStatus: { open: 2 } })).toEqual({ byStatus: { open: 2 } });
+    // Uno stato nuovo del server non fa fallire il parse.
+    expect(reader.parse({ byStatus: { open: 1, archived: 3 } })).toEqual({ byStatus: { open: 1, archived: 3 } });
+    // Il valore resta validato.
+    expect(() => reader.parse({ byStatus: { open: "x" } })).toThrow();
+  });
+});

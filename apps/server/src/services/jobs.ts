@@ -20,6 +20,7 @@
  *    pre-approvazione, anche per un maintainer.
  */
 import {
+  CANCEL_REQUEST_CLEARED,
   aiJobs,
   comments,
   planDigest,
@@ -35,7 +36,9 @@ import {
 import { t } from "@stubwise/i18n";
 import {
   canResumeCorrection,
+  colleagueCorrectionPermitted,
   correctionActionAllowed,
+  aiBudgetState,
   correctionManualTrigger,
   IN_FLIGHT_JOB_STATUSES,
   publishNotification,
@@ -95,6 +98,8 @@ export const IN_FLIGHT = IN_FLIGHT_JOB_STATUSES;
 export type StartRunResult =
   | { ok: true; jobId: string; status: "queued" | "awaiting_plan_approval" }
   | { ok: false; error: "ticket_not_found" | "job_in_flight"; jobStatus?: string }
+  // Area 9, F4: l'ultimo job del ticket non è più quello atteso (`expectLatestJobId`).
+  | { ok: false; error: "latest_changed"; jobStatus?: undefined }
   // Senza `runs.start` nel progetto del ticket. Le guardie stanno già prima
   // (hook della rotta, `actorAllows` dell'inbox e del pulse): questa è la
   // difesa in profondità, come `plans.approve` nelle funzioni sul piano.
@@ -103,6 +108,8 @@ export type StartRunResult =
   // maintainer scavalca il budget (E7), e la forzatura di un member tornerebbe
   // `held` al primo controllo del worker. Niente scritto.
   | { ok: false; error: "needs_maintainer" }
+  // Rimandi, lotto 4 (D-7.1): budget mensile finito e chi avvia non lo scavalca (senza `plans.approve`).
+  | { ok: false; error: "budget_exhausted"; jobStatus?: undefined }
   // «Riprendi» su una correzione che NON è più quella ferma che la schermata
   // mostrava (annullata con la PR mergiata, riconciliata, finita, o superata
   // da un job più recente): con `resumeCorrectionJobId` non si cade nel
@@ -119,10 +126,26 @@ export type StartRunResult =
   // La ripresa di una correzione ferma su una PR ADOTTATA il cui branch è nel
   // frattempo diventato PROTETTO (7 ott 2026, `isAdoptedBranchProtected`):
   // ripartirebbe solo per fallire nel worker. Niente scritto.
-  | { ok: false; error: "adopted_branch_protected" };
+  | { ok: false; error: "adopted_branch_protected" }
+  // La ripresa di una correzione ferma su una PR di un collega con «Solo
+  // analisi» o il repository «spento» (area 8, F1, S8). Niente scritto.
+  | { ok: false; error: "colleague_analysis_only" };
 
 export interface StartRunInput {
   ticketId: string;
+  /**
+   * Area 9, F4: chiamato DENTRO la transazione di `startRun`, solo se il job è
+   * ripartito, con il suo id. Serve a scrivere nella stessa transazione ciò
+   * che deve esistere esattamente quando il job riparte (la voce del registro
+   * `job.retried`, invariante di `change-log.md`). Se lancia, la transazione
+   * si annulla: niente ripartenza.
+   */
+  afterInTx?: (tx: Parameters<Parameters<Db["transaction"]>[0]>[0], jobId: string) => Promise<void>;
+  /**
+   * Area 9, F4: l'ultimo job del ticket che il chiamante ha visto. Verificato
+   * sotto il lock: diverso → `latest_changed`, niente scritto.
+   */
+  expectLatestJobId?: string;
   actor: ProjectActor;
   /**
    * `"ai_plan"` forza il flusso normale (triage + pianificazione) anche se il
@@ -218,6 +241,12 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
     .where(eq(tickets.id, ticketId));
   if (!ticket) return { ok: false, error: "ticket_not_found" };
   if (!actor.permissions.has("runs.start")) return { ok: false, error: "forbidden" };
+  // Rimandi, lotto 4 (D-7.1, il maintainer): a budget MENSILE finito un avvio a
+  // mano lo rifiuta subito chi non ha `plans.approve` nel progetto (prima la
+  // richiesta passava e il worker la fermava `held`). Chi ce l'ha lo scavalca
+  // come sempre (`manualTrigger`, «Il budget di una correzione lo scavalca solo
+  // chi ha plans.approve»). Niente scritto. docs/invariants/providers.md.
+  if (!actor.permissions.has("plans.approve") && (await aiBudgetState(db)).exhausted) return { ok: false, error: "budget_exhausted" };
 
   const useSavedPlan = ticket.implementationPlan !== null && input.mode !== "ai_plan";
   // resumeMode: "execute" col piano salvato; altrimenti "fix" se withInstructions
@@ -262,178 +291,208 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
   } as const;
 
   const result = await db.transaction(async (tx): Promise<StartRunResult> => {
-    // Lock advisory di transazione sul ticket (stesso pattern del setup admin
-    // in routes/auth.ts): serializza i rilanci concorrenti SULLO STESSO ticket
-    // e si rilascia da solo al commit. Senza, due richieste su un ticket senza
-    // job leggerebbero entrambe "nessun job" e ne accoderebbero due.
-    // Un'eventuale collisione di hashtext serializza due ticket diversi:
-    // innocuo, il lock si tiene per pochi millisecondi.
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${ticketId}))`);
+    const outcome = await (async (): Promise<StartRunResult> => {
+      // Lock advisory di transazione sul ticket (stesso pattern del setup admin
+      // in routes/auth.ts): serializza i rilanci concorrenti SULLO STESSO ticket
+      // e si rilascia da solo al commit. Senza, due richieste su un ticket senza
+      // job leggerebbero entrambe "nessun job" e ne accoderebbero due.
+      // Un'eventuale collisione di hashtext serializza due ticket diversi:
+      // innocuo, il lock si tiene per pochi millisecondi.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${ticketId}))`);
 
-    // L'ultimo job del ticket (per createdAt, id come spareggio): è quello che
-    // la timeline mostra in cima e che l'utente intende rilanciare.
-    const [latest] = await tx
-      .select({
-        id: aiJobs.id,
-        status: aiJobs.status,
-        correctionId: aiJobs.correctionId,
-        heldReason: aiJobs.heldReason,
-      })
-      .from(aiJobs)
-      .where(eq(aiJobs.ticketId, ticketId))
-      .orderBy(desc(aiJobs.createdAt), desc(aiJobs.id))
-      .limit(1);
-
-    // «Riprendi» chiede QUELLA correzione ferma, non un rilancio qualunque.
-    // Una schermata vecchia può mostrarla `held` quando nel frattempo è stata
-    // annullata (PR mergiata → job `skipped`), riconciliata (job `failed`) o
-    // ripresa da qualcun altro: senza questo controllo il ramo del job
-    // terminale qui sotto avvierebbe un FIX COMPLETO NUOVO, con
-    // `manualTrigger` true e quindi oltre il budget. Sotto il lock del ticket,
-    // prima di ogni scrittura; se combacia si prosegue nella forzatura di
-    // sempre (permesso `needs_maintainer` compreso).
-    if (
-      input.resumeCorrectionJobId !== undefined &&
-      !(
-        latest &&
-        latest.id === input.resumeCorrectionJobId &&
-        latest.correctionId !== null &&
-        latest.status === "held"
-      )
-    ) {
-      return { ok: false, error: "correction_not_held" };
-    }
-
-    if (latest && isInFlight(latest.status)) {
-      return { ok: false, error: "job_in_flight", jobStatus: latest.status };
-    }
-
-    // Il job di una CORREZIONE (ciclo post-PR) ancora `held` — tipicamente
-    // per budget: il ciclo automatico, un "Request changes" della piattaforma e
-    // il bottone di un member non hanno manualTrigger, e il resume poller non
-    // riaccoda un held per budget — si FORZA: stesso job, `correction_id`
-    // intatto (non è in `set`). `manualTrigger` è la regola UNICA di
-    // `@stubwise/notifications` (`correctionManualTrigger`): solo chi ha
-    // `plans.approve` scavalca il budget. Chi non ce l'ha la rimette in coda, ma a budget esaurito il
-    // worker la riferma `held` per budget: per quella serve un maintainer (la
-    // riga di stato lo dice con `cycle.canResume`). Il worker la esegue come la
-    // correzione che era. `manualTrigger` lo decide CHI AGISCE ORA, non chi
-    // l'aveva avviata: chi senza `plans.approve` riprende una correzione ferma
-    // per `limit` avviata da chi ce l'ha la DECLASSA (`manualTrigger` true → false),
-    // e a budget esaurito il worker la fermerà `held` per budget. È voluto:
-    // scavalcare il budget è una decisione di spesa, e conta chi la prende. Niente gate del piano: una correzione
-    // non è un piano nuovo (design §3), e un `awaiting_plan_approval` con
-    // `correction_id` non avrebbe consumatori. Un fix nuovo al suo posto
-    // lascerebbe la correzione `queued` per sempre, e sarebbe rifiutato al push.
-    if (latest && latest.correctionId !== null && latest.status === "held") {
-      // La regola di chi può riprenderla è quella della riga di stato
-      // (`canResumeCorrection`, `cycle.canResume`): un member non forza una
-      // correzione ferma per budget. Si risponde PRIMA di scrivere.
-      if (!canResumeCorrection(latest.heldReason ?? "other", actor.permissions)) {
-        return { ok: false, error: "needs_maintainer" };
-      }
-      // Su una PR ADOTTATA la ripresa è di chi ha `prs.adopt` (7 ott 2026,
-      // `correctionActionAllowed`, la stessa regola di `cycle.canResume`).
-      const [adoption] = await tx
+      // L'ultimo job del ticket (per createdAt, id come spareggio): è quello che
+      // la timeline mostra in cima e che l'utente intende rilanciare.
+      const [latest] = await tx
         .select({
-          branch: ticketRepositories.branch,
-          adoptedAt: ticketRepositories.adoptedAt,
-          adoptionReleasedAt: ticketRepositories.adoptionReleasedAt,
-          protectedBranches: repositories.protectedBranches,
+          id: aiJobs.id,
+          status: aiJobs.status,
+          correctionId: aiJobs.correctionId,
+          heldReason: aiJobs.heldReason,
         })
-        .from(prCorrections)
-        .innerJoin(
-          ticketRepositories,
-          and(
-            eq(ticketRepositories.ticketId, prCorrections.ticketId),
-            eq(ticketRepositories.repositoryId, prCorrections.repositoryId),
-          ),
+        .from(aiJobs)
+        .where(eq(aiJobs.ticketId, ticketId))
+        .orderBy(desc(aiJobs.createdAt), desc(aiJobs.id))
+        .limit(1);
+
+      // Area 9, F4 (review M1): il rilancio dallo Stato dell'istanza chiede di
+      // rimettere in coda QUEL job fallito. Se sotto il lock l'ultimo job del
+      // ticket è un altro (nato nel frattempo, magari una correzione ferma), non
+      // si tocca niente: il rilancio generico non forza mai una correzione.
+      if (input.expectLatestJobId !== undefined && latest?.id !== input.expectLatestJobId) {
+        return { ok: false, error: "latest_changed" };
+      }
+
+      // «Riprendi» chiede QUELLA correzione ferma, non un rilancio qualunque.
+      // Una schermata vecchia può mostrarla `held` quando nel frattempo è stata
+      // annullata (PR mergiata → job `skipped`), riconciliata (job `failed`) o
+      // ripresa da qualcun altro: senza questo controllo il ramo del job
+      // terminale qui sotto avvierebbe un FIX COMPLETO NUOVO, con
+      // `manualTrigger` true e quindi oltre il budget. Sotto il lock del ticket,
+      // prima di ogni scrittura; se combacia si prosegue nella forzatura di
+      // sempre (permesso `needs_maintainer` compreso).
+      if (
+        input.resumeCorrectionJobId !== undefined &&
+        !(
+          latest &&
+          latest.id === input.resumeCorrectionJobId &&
+          latest.correctionId !== null &&
+          latest.status === "held"
         )
-        .innerJoin(repositories, eq(repositories.id, prCorrections.repositoryId))
-        .where(eq(prCorrections.id, latest.correctionId));
-      // Branch protetto PRIMA del ruolo: nessuno la può riprendere, e dire a
-      // un member «la riprende un maintainer» sarebbe falso.
-      if (adoption && isAdoptedBranchProtected(adoption, adoption.protectedBranches)) {
-        return { ok: false, error: "adopted_branch_protected" };
+      ) {
+        return { ok: false, error: "correction_not_held" };
       }
-      if (adoption && !correctionActionAllowed(actor.permissions, adoption)) {
-        return { ok: false, error: "needs_maintainer" };
+
+      if (latest && isInFlight(latest.status)) {
+        return { ok: false, error: "job_in_flight", jobStatus: latest.status };
       }
-      const forced = await tx
-        .update(aiJobs)
-        .set({
-          status: "queued",
-          manualTrigger: correctionManualTrigger(actor.permissions),
-          requestedByUserId: actor.id,
-          planApprovalRequired: false,
-          startedAt: null,
-          finishedAt: null,
-          error: null,
-          lastActivityAt: sql`now()`,
-        })
-        // Guardato anche sul MOTIVO letto: il permesso qui sopra è stato
-        // deciso su quel motivo. Se nel frattempo il job è ripassato `held`
-        // per un altro (es. `limit` → `budget`), un member non deve forzarlo
-        // col permesso del motivo vecchio.
-        .where(
-          and(
-            eq(aiJobs.id, latest.id),
-            eq(aiJobs.status, "held"),
-            latest.heldReason === null ? isNull(aiJobs.heldReason) : eq(aiJobs.heldReason, latest.heldReason),
-          ),
-        )
+
+      // Il job di una CORREZIONE (ciclo post-PR) ancora `held` — tipicamente
+      // per budget: il ciclo automatico, un "Request changes" della piattaforma e
+      // il bottone di un member non hanno manualTrigger, e il resume poller non
+      // riaccoda un held per budget — si FORZA: stesso job, `correction_id`
+      // intatto (non è in `set`). `manualTrigger` è la regola UNICA di
+      // `@stubwise/notifications` (`correctionManualTrigger`): solo chi ha
+      // `plans.approve` scavalca il budget. Chi non ce l'ha la rimette in coda, ma a budget esaurito il
+      // worker la riferma `held` per budget: per quella serve un maintainer (la
+      // riga di stato lo dice con `cycle.canResume`). Il worker la esegue come la
+      // correzione che era. `manualTrigger` lo decide CHI AGISCE ORA, non chi
+      // l'aveva avviata: chi senza `plans.approve` riprende una correzione ferma
+      // per `limit` avviata da chi ce l'ha la DECLASSA (`manualTrigger` true → false),
+      // e a budget esaurito il worker la fermerà `held` per budget. È voluto:
+      // scavalcare il budget è una decisione di spesa, e conta chi la prende. Niente gate del piano: una correzione
+      // non è un piano nuovo (design §3), e un `awaiting_plan_approval` con
+      // `correction_id` non avrebbe consumatori. Un fix nuovo al suo posto
+      // lascerebbe la correzione `queued` per sempre, e sarebbe rifiutato al push.
+      if (latest && latest.correctionId !== null && latest.status === "held") {
+        // La regola di chi può riprenderla è quella della riga di stato
+        // (`canResumeCorrection`, `cycle.canResume`): un member non forza una
+        // correzione ferma per budget. Si risponde PRIMA di scrivere.
+        if (!canResumeCorrection(latest.heldReason ?? "other", actor.permissions)) {
+          return { ok: false, error: "needs_maintainer" };
+        }
+        // Su una PR ADOTTATA la ripresa è di chi ha `prs.adopt` (7 ott 2026,
+        // `correctionActionAllowed`, la stessa regola di `cycle.canResume`).
+        const [adoption] = await tx
+          .select({
+            branch: ticketRepositories.branch,
+            adoptedAt: ticketRepositories.adoptedAt,
+            adoptionReleasedAt: ticketRepositories.adoptionReleasedAt,
+            adoptedByUserId: ticketRepositories.adoptedByUserId,
+            protectedBranches: repositories.protectedBranches,
+            repositoryId: prCorrections.repositoryId,
+            prNumber: prCorrections.prNumber,
+          })
+          .from(prCorrections)
+          .innerJoin(
+            ticketRepositories,
+            and(
+              eq(ticketRepositories.ticketId, prCorrections.ticketId),
+              eq(ticketRepositories.repositoryId, prCorrections.repositoryId),
+            ),
+          )
+          .innerJoin(repositories, eq(repositories.id, prCorrections.repositoryId))
+          .where(eq(prCorrections.id, latest.correctionId));
+        // Branch protetto PRIMA del ruolo: nessuno la può riprendere, e dire a
+        // un member «la riprende un maintainer» sarebbe falso.
+        if (adoption && isAdoptedBranchProtected(adoption, adoption.protectedBranches)) {
+          return { ok: false, error: "adopted_branch_protected" };
+        }
+        if (adoption && !correctionActionAllowed(actor.permissions, adoption)) {
+          return { ok: false, error: "needs_maintainer" };
+        }
+        // Le PR dei colleghi (area 8, F1, S8): una ripresa è una richiesta in
+        // Stubwise; «spento» o «Solo analisi» sulla PR la fermano.
+        if (
+          adoption &&
+          !(await colleagueCorrectionPermitted(tx, { ...adoption, ticketNumber: ticket.number, trigger: "stubwise" }))
+        ) {
+          return { ok: false, error: "colleague_analysis_only" };
+        }
+        const forced = await tx
+          .update(aiJobs)
+          .set({
+            status: "queued",
+            manualTrigger: correctionManualTrigger(actor.permissions),
+            requestedByUserId: actor.id,
+            planApprovalRequired: false,
+            startedAt: null,
+            finishedAt: null,
+            error: null,
+            // Un annullamento vale per il tentativo di prima (`CANCEL_REQUEST_CLEARED`).
+            ...CANCEL_REQUEST_CLEARED,
+            lastActivityAt: sql`now()`,
+          })
+          // Guardato anche sul MOTIVO letto: il permesso qui sopra è stato
+          // deciso su quel motivo. Se nel frattempo il job è ripassato `held`
+          // per un altro (es. `limit` → `budget`), un member non deve forzarlo
+          // col permesso del motivo vecchio.
+          .where(
+            and(
+              eq(aiJobs.id, latest.id),
+              eq(aiJobs.status, "held"),
+              latest.heldReason === null ? isNull(aiJobs.heldReason) : eq(aiJobs.heldReason, latest.heldReason),
+            ),
+          )
+          .returning({ id: aiJobs.id });
+        if (forced.length === 0) {
+          const [current] = await tx
+            .select({ status: aiJobs.status })
+            .from(aiJobs)
+            .where(eq(aiJobs.id, latest.id));
+          return { ok: false, error: "job_in_flight", jobStatus: current?.status };
+        }
+        return { ok: true, jobId: latest.id, status: "queued" };
+      }
+
+      // Un ticket `review` (vedi `review_ticket_not_runnable`): passata la
+      // forzatura della correzione ferma qui sopra, nient'altro parte.
+      if (ticket.type === "review") return { ok: false, error: "review_ticket_not_runnable" };
+
+      // Il job TERMINALE di una correzione non si ricicla: rimesso in coda con
+      // `correction_id` ancora valorizzato, il worker lo eseguirebbe come una
+      // correzione — worktree sul branch della PR, niente triage — invece che
+      // come il fix che si sta chiedendo. Si crea un job nuovo (il ramo
+      // d'inserimento sotto), e quello della correzione resta legato a lei: è la
+      // storia con cui `derivePrCycle` legge l'esito della correzione.
+      if (latest && latest.correctionId === null) {
+        // UPDATE guardato sugli stati NON in volo: il lock esclude gli altri
+        // startRun, ma non chi tocca il job da fuori (il claim del worker o il
+        // resume poller possono portare un `held` a `queued` proprio ora). In quel
+        // caso 0 righe → si rilegge lo stato per rispondere il vero motivo.
+        const updated = await tx
+          .update(aiJobs)
+          .set({
+            ...values,
+            startedAt: null,
+            finishedAt: null,
+            error: null,
+            // Un annullamento vale per il tentativo di prima (`CANCEL_REQUEST_CLEARED`).
+            ...CANCEL_REQUEST_CLEARED,
+            lastActivityAt: sql`now()`,
+          })
+          .where(and(eq(aiJobs.id, latest.id), notInArray(aiJobs.status, [...IN_FLIGHT])))
+          .returning({ id: aiJobs.id });
+        if (updated.length === 0) {
+          const [current] = await tx
+            .select({ status: aiJobs.status })
+            .from(aiJobs)
+            .where(eq(aiJobs.id, latest.id));
+          return { ok: false, error: "job_in_flight", jobStatus: current?.status };
+        }
+        return { ok: true, jobId: latest.id, status };
+      }
+
+      const [created] = await tx
+        .insert(aiJobs)
+        .values({ ticketId, ...values })
         .returning({ id: aiJobs.id });
-      if (forced.length === 0) {
-        const [current] = await tx
-          .select({ status: aiJobs.status })
-          .from(aiJobs)
-          .where(eq(aiJobs.id, latest.id));
-        return { ok: false, error: "job_in_flight", jobStatus: current?.status };
-      }
-      return { ok: true, jobId: latest.id, status: "queued" };
-    }
-
-    // Un ticket `review` (vedi `review_ticket_not_runnable`): passata la
-    // forzatura della correzione ferma qui sopra, nient'altro parte.
-    if (ticket.type === "review") return { ok: false, error: "review_ticket_not_runnable" };
-
-    // Il job TERMINALE di una correzione non si ricicla: rimesso in coda con
-    // `correction_id` ancora valorizzato, il worker lo eseguirebbe come una
-    // correzione — worktree sul branch della PR, niente triage — invece che
-    // come il fix che si sta chiedendo. Si crea un job nuovo (il ramo
-    // d'inserimento sotto), e quello della correzione resta legato a lei: è la
-    // storia con cui `derivePrCycle` legge l'esito della correzione.
-    if (latest && latest.correctionId === null) {
-      // UPDATE guardato sugli stati NON in volo: il lock esclude gli altri
-      // startRun, ma non chi tocca il job da fuori (il claim del worker o il
-      // resume poller possono portare un `held` a `queued` proprio ora). In quel
-      // caso 0 righe → si rilegge lo stato per rispondere il vero motivo.
-      const updated = await tx
-        .update(aiJobs)
-        .set({
-          ...values,
-          startedAt: null,
-          finishedAt: null,
-          error: null,
-          lastActivityAt: sql`now()`,
-        })
-        .where(and(eq(aiJobs.id, latest.id), notInArray(aiJobs.status, [...IN_FLIGHT])))
-        .returning({ id: aiJobs.id });
-      if (updated.length === 0) {
-        const [current] = await tx
-          .select({ status: aiJobs.status })
-          .from(aiJobs)
-          .where(eq(aiJobs.id, latest.id));
-        return { ok: false, error: "job_in_flight", jobStatus: current?.status };
-      }
-      return { ok: true, jobId: latest.id, status };
-    }
-
-    const [created] = await tx
-      .insert(aiJobs)
-      .values({ ticketId, ...values })
-      .returning({ id: aiJobs.id });
-    return { ok: true, jobId: created!.id, status };
+      return { ok: true, jobId: created!.id, status };
+    })();
+    // Area 9, F4: ciò che il chiamante deve scrivere INSIEME alla ripartenza
+    // (la voce del registro), nella stessa transazione: se lancia, niente
+    // ripartenza e niente voce.
+    if (outcome.ok && input.afterInTx) await input.afterInTx(tx, outcome.jobId);
+    return outcome;
   });
 
   // Il ramo che parcheggia SUBITO il job (gate + piano salvato) è
@@ -470,7 +529,7 @@ export type ResolvePlanResult =
        */
       changedNotificationIds: string[];
     }
-  | { ok: false; error: "ticket_not_found" | "plan_not_pending" | "forbidden" };
+  | { ok: false; error: "ticket_not_found" | "plan_not_pending" | "plan_changed" | "forbidden" };
 
 export interface ResolvePlanInput {
   ticketId: string;
@@ -483,6 +542,12 @@ export interface ResolvePlanInput {
    * "indicazioni del team" per costruire il prompt di re-plan.
    */
   instructions?: string;
+  /**
+   * Il digest del piano che chi decide ha LETTO (area 3): se il piano del job
+   * nel frattempo è cambiato, niente si decide (`plan_changed`). Facoltativo:
+   * senza, come prima (web vecchio, app mobile).
+   */
+  expectedPlanDigest?: string;
 }
 
 /**
@@ -547,11 +612,28 @@ export async function resolvePlan(db: Db, input: ResolvePlanInput): Promise<Reso
         startedAt: null,
         finishedAt: null,
         error: null,
+        // Un annullamento chiesto prima del parcheggio non vale per la ripresa.
+        ...CANCEL_REQUEST_CLEARED,
         lastActivityAt: sql`now()`,
       })
-      .where(and(eq(aiJobs.id, latest.id), eq(aiJobs.status, "awaiting_plan_approval")))
+      .where(
+        and(
+          eq(aiJobs.id, latest.id),
+          eq(aiJobs.status, "awaiting_plan_approval"),
+          // Lo stesso digest di `planDigest` (sha256 del testo in UTF-8, hex),
+          // calcolato da Postgres sotto lo stesso UPDATE guardato: il confronto
+          // e la decisione sono atomici.
+          input.expectedPlanDigest === undefined
+            ? undefined
+            : sql`encode(sha256(convert_to(coalesce(${aiJobs.planText}, ''), 'UTF8')), 'hex') = ${input.expectedPlanDigest}`,
+        ),
+      )
       .returning({ id: aiJobs.id });
-    if (updated.length === 0) return null;
+    if (updated.length === 0) {
+      if (input.expectedPlanDigest === undefined) return null;
+      const [still] = await tx.select({ status: aiJobs.status }).from(aiJobs).where(eq(aiJobs.id, latest.id));
+      return still?.status === "awaiting_plan_approval" ? ("plan_changed" as const) : null;
+    }
 
     // Le istruzioni PRIMA del commento di sistema: sono un contributo umano al
     // ticket, il commento di sistema è la nota di ciò che è appena successo.
@@ -607,6 +689,7 @@ export async function resolvePlan(db: Db, input: ResolvePlanInput): Promise<Reso
     return updated[0]!;
   });
 
+  if (resolved === "plan_changed") return { ok: false, error: "plan_changed" };
   if (!resolved) return { ok: false, error: "plan_not_pending" };
 
   // FUORI dalla transazione, come la `publishNotification` di `startRun`: la

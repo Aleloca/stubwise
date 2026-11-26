@@ -1,0 +1,257 @@
+import { randomBytes, randomUUID } from "node:crypto";
+import { deletedTickets, milestones, projectBriefs, projectDecisions, projects, tickets } from "@stubwise/db";
+import type { TestDb } from "@stubwise/db/testing";
+import { seedRepository, startTestDb } from "@stubwise/db/testing";
+import { chronologyPageSchema, weeklyBriefViewSchema } from "@stubwise/shared";
+import { eq } from "drizzle-orm";
+import type { FastifyInstance } from "fastify";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { buildApp } from "../app.js";
+import { addMember, createUserWithSession, seedUsers, type SeededUsers } from "../test/fixtures.js";
+
+/**
+ * La cronologia dell'Overview e l'attività del portafoglio (integrazione area
+ * 2, fetta 4): i kind del prototipo, a pagine di 28 giorni all'indietro
+ * (`before` escluso, l'inizio della pagina incluso: un evento al bordo sta in
+ * UNA pagina sola), i traguardi futuri nella prima pagina; e il brief
+ * settimanale come lo mostra l'Overview.
+ */
+
+const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
+const DAY = 86_400_000;
+
+let testDb: TestDb;
+let app: FastifyInstance;
+let users: SeededUsers;
+let projectId: string;
+let otherProjectId: string;
+let hiddenProjectId: string;
+let member: { id: string; headers: { cookie: string } };
+let n = 0;
+
+beforeAll(async () => {
+  testDb = await startTestDb();
+  app = buildApp({ db: testDb.db, sessionSecret: SESSION_SECRET, encryptionKey: randomBytes(32).toString("base64") });
+  users = await seedUsers(app);
+  ({ projectId } = await seedRepository(testDb.db));
+  ({ projectId: otherProjectId } = await seedRepository(testDb.db));
+  ({ projectId: hiddenProjectId } = await seedRepository(testDb.db));
+  member = await createUserWithSession(app, "membro@example.com");
+  await addMember(app, projectId, member.id, "developer");
+  await addMember(app, otherProjectId, member.id, "developer");
+}, 120_000);
+
+afterAll(async () => {
+  await app.close();
+  await testDb.stop();
+});
+
+async function ticketAt(pid: string, at: Date, requestedByUserId?: string): Promise<string> {
+  n += 1;
+  const [row] = await testDb.db
+    .insert(tickets)
+    .values({
+      projectId: pid,
+      number: n,
+      title: `T${n}`,
+      type: "bug",
+      priority: "medium",
+      source: "manual",
+      createdAt: at,
+      ...(requestedByUserId ? { requestedByUserId } : {}),
+    })
+    .returning({ id: tickets.id });
+  return row!.id;
+}
+
+const page = async (url: string, cookie = users.adminCookie) => {
+  const res = await app.inject({ method: "GET", url, headers: { cookie } });
+  expect(res.statusCode, res.body).toBe(200);
+  return chronologyPageSchema.parse(res.json());
+};
+
+describe("GET /api/projects/:projectId/chronology", () => {
+  it("prima pagina: le ultime 4 settimane coi kind del prototipo, più i traguardi futuri; nextBefore se c'è storia prima", async () => {
+    const now = Date.now();
+    const recent = await ticketAt(projectId, new Date(now - 3 * DAY));
+    const old = await ticketAt(projectId, new Date(now - 40 * DAY));
+    const [future] = await testDb.db
+      .insert(milestones)
+      .values({ projectId, name: "Lancio", dueDate: new Date(now + 60 * DAY) })
+      .returning({ id: milestones.id });
+    const [d] = await testDb.db
+      .insert(projectDecisions)
+      .values({
+        projectId,
+        source: "manual",
+        sourceKey: `manual:${n}`,
+        title: "Usiamo Postgres",
+        decision: "Sì",
+        decidedAt: new Date(now - 2 * DAY),
+      })
+      .returning({ id: projectDecisions.id });
+    const first = await page(`/api/projects/${projectId}/chronology`);
+    expect(first.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "task_opened", taskId: recent }),
+        expect.objectContaining({ kind: "milestone", milestoneId: future!.id }),
+        expect.objectContaining({ kind: "decision", decisionId: d!.id, title: "Usiamo Postgres" }),
+      ]),
+    );
+    expect(first.events.some((e) => e.taskId === old)).toBe(false);
+    // Dalla più recente: il traguardo futuro sta in cima.
+    expect(first.events[0]).toMatchObject({ kind: "milestone", milestoneId: future!.id });
+    expect(first.nextBefore).not.toBeNull();
+    const older = await page(`/api/projects/${projectId}/chronology?before=${encodeURIComponent(first.nextBefore!)}`);
+    expect(older.events.map((e) => e.taskId)).toContain(old);
+    // Nelle pagine vecchie niente traguardi futuri.
+    expect(older.events.some((e) => e.kind === "milestone")).toBe(false);
+  });
+
+  it("al bordo della finestra: un evento esattamente a 28 giorni da `before` sta in una pagina sola", async () => {
+    const { projectId: pid } = await seedRepository(testDb.db);
+    const before = new Date("2030-03-01T00:00:00.000Z");
+    const edge = new Date(before.getTime() - 28 * DAY);
+    const atBefore = await ticketAt(pid, before);
+    const atEdge = await ticketAt(pid, edge);
+    const p1 = await page(`/api/projects/${pid}/chronology?before=${before.toISOString()}`);
+    const p0 = await page(`/api/projects/${pid}/chronology?before=${new Date(before.getTime() + 28 * DAY).toISOString()}`);
+    const p2 = await page(`/api/projects/${pid}/chronology?before=${edge.toISOString()}`);
+    const ids = (p: { events: { taskId?: string }[] }) => p.events.map((e) => e.taskId);
+    // L'inizio della pagina è incluso, `before` no.
+    expect(ids(p1)).toContain(atEdge);
+    expect(ids(p2)).not.toContain(atEdge);
+    expect(ids(p1)).not.toContain(atBefore);
+    expect(ids(p0)).toContain(atBefore);
+    expect(p1.nextBefore).toBe(edge.toISOString());
+  });
+
+  it("un evento di una task vecchia porta taskCode (<CODE>-<n>), anche nelle pagine vecchie", async () => {
+    const { projectId: pid } = await seedRepository(testDb.db);
+    const [{ code }] = (await testDb.db.select({ code: projects.code }).from(projects).where(eq(projects.id, pid))) as [{ code: string }];
+    const now = Date.now();
+    const old = await ticketAt(pid, new Date(now - 40 * DAY));
+    const [{ number }] = (await testDb.db.select({ number: tickets.number }).from(tickets).where(eq(tickets.id, old))) as [{ number: number }];
+    const first = await page(`/api/projects/${pid}/chronology`);
+    const older = await page(`/api/projects/${pid}/chronology?before=${encodeURIComponent(first.nextBefore!)}`);
+    expect(older.events.find((e) => e.taskId === old)).toMatchObject({ kind: "task_opened", taskCode: `${code}-${number}` });
+  });
+
+  it("chi non vede le task degli altri non ne riceve né l'evento né il codice", async () => {
+    const { projectId: pid } = await seedRepository(testDb.db);
+    const reader = await createUserWithSession(app, `lettore-${n}@example.com`);
+    await addMember(app, pid, reader.id, "contributor");
+    const theirs = await ticketAt(pid, new Date(Date.now() - DAY));
+    const mine = await ticketAt(pid, new Date(Date.now() - DAY), reader.id);
+    const res = await page(`/api/projects/${pid}/chronology`, reader.headers.cookie);
+    expect(res.events.some((e) => e.taskId === theirs)).toBe(false);
+    expect(JSON.stringify(res)).not.toContain(`-${n - 1}"`);
+    expect(res.events.find((e) => e.taskId === mine)?.taskCode).toMatch(/-\d+$/);
+  });
+
+  it("rimandi, lotto 4: le task ELIMINATE (`task_deleted`, codice e titolo di allora, chi l'ha eliminata); senza `tickets.view_all` l'evento sì ma codice e titolo solo delle proprie; chi ha eliminato si maschera a chi non lo conosce", async () => {
+    const { projectId: pid } = await seedRepository(testDb.db);
+    const [{ code }] = (await testDb.db.select({ code: projects.code }).from(projects).where(eq(projects.id, pid))) as [{ code: string }];
+    const reader = await createUserWithSession(app, `lettore-del-${randomUUID().slice(0, 6)}@example.com`);
+    const dev = await createUserWithSession(app, `dev-del-${randomUUID().slice(0, 6)}@example.com`);
+    const stranger = await createUserWithSession(app, `estraneo-${randomUUID().slice(0, 6)}@example.com`);
+    await addMember(app, pid, reader.id, "contributor");
+    await addMember(app, pid, dev.id, "developer");
+    const at = (days: number) => new Date(Date.now() - days * DAY);
+    const byStranger = randomUUID();
+    const byReader = randomUUID();
+    await testDb.db.insert(deletedTickets).values([
+      { id: byStranger, projectId: pid, number: 901, title: "Vecchia richiesta", deletedBy: stranger.id, deletedAt: at(2) },
+      { id: byReader, projectId: pid, number: 902, title: "La mia bozza", deletedBy: reader.id, deletedAt: at(1) },
+    ]);
+    const deletedIn = async (cookie: string) => (await page(`/api/projects/${pid}/chronology`, cookie)).events.filter((e) => e.kind === "task_deleted");
+    const forAdmin = await deletedIn(users.adminCookie);
+    expect(forAdmin.map((e) => e.taskId)).toEqual([byReader, byStranger]);
+    expect(forAdmin[1]).toMatchObject({ kind: "task_deleted", taskCode: `${code}-901`, title: "Vecchia richiesta", byId: stranger.id });
+    expect(forAdmin[1]!.byName).toBeTruthy();
+    // Il Developer (tickets.view_all) le vede tutte, ma l'estraneo non lo conosce: segnaposto e nome null.
+    const forDev = await deletedIn(dev.headers.cookie);
+    expect(forDev.map((e) => e.taskId)).toEqual([byReader, byStranger]);
+    expect(forDev[1]!.byId).toMatch(/^hidden-/);
+    expect(forDev[1]!.byName).toBeNull();
+    // Il Contributor (senza tickets.view_all) vede ENTRAMBI gli eventi (46): la
+    // sua con codice e titolo, l'altra senza.
+    const forReader = await deletedIn(reader.headers.cookie);
+    expect(forReader.map((e) => e.taskId)).toEqual([byReader, byStranger]);
+    expect(forReader[0]).toMatchObject({ taskCode: `${code}-902`, title: "La mia bozza" });
+    expect(forReader[1]).toMatchObject({ taskCode: null, title: null });
+    expect(JSON.stringify(forReader)).not.toContain("Vecchia richiesta");
+    // E nell'attività del portafoglio, la stessa regola.
+    const portfolio = (await page("/api/activity/portfolio", reader.headers.cookie)).events.filter((e) => e.kind === "task_deleted");
+    expect(portfolio.map((e) => [e.taskId, e.title])).toEqual([
+      [byReader, "La mia bozza"],
+      [byStranger, null],
+    ]);
+  });
+
+  it("un progetto invisibile → 404", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${hiddenProjectId}/chronology`,
+      headers: { cookie: member.headers.cookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("GET /api/activity/portfolio", () => {
+  it("l'attività dei progetti visibili, col progetto accanto; né i progetti invisibili né i traguardi futuri", async () => {
+    const now = Date.now();
+    const a = await ticketAt(projectId, new Date(now - DAY));
+    const b = await ticketAt(otherProjectId, new Date(now - 2 * DAY));
+    const hidden = await ticketAt(hiddenProjectId, new Date(now - DAY));
+    await testDb.db.insert(milestones).values({ projectId: otherProjectId, name: "Futuro", dueDate: new Date(now + 10 * DAY) });
+    const res = await page("/api/activity/portfolio", member.headers.cookie);
+    expect(res.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "task_opened", taskId: a, projectId }),
+        expect.objectContaining({ kind: "task_opened", taskId: b, projectId: otherProjectId }),
+      ]),
+    );
+    expect(res.events.some((e) => e.taskId === hidden)).toBe(false);
+    // Il codice anche nel portafoglio.
+    expect(res.events.find((e) => e.taskId === a)?.taskCode).toMatch(/^[A-Z][A-Z0-9]*-\d+$/);
+    expect(res.events.some((e) => e.kind === "milestone" && Date.parse(e.at) > now)).toBe(false);
+    // Dalla più recente.
+    const ats = res.events.map((e) => e.at);
+    expect([...ats].sort().reverse()).toEqual(ats);
+  });
+});
+
+describe("GET /api/projects/:projectId/briefs/latest", () => {
+  it("il brief più recente come lo mostra l'Overview, etichettato come testo generato; null se non ce n'è", async () => {
+    const { projectId: pid } = await seedRepository(testDb.db);
+    const latest = (cookie = users.adminCookie) =>
+      app.inject({ method: "GET", url: `/api/projects/${pid}/briefs/latest`, headers: { cookie } });
+    const none = await latest();
+    expect(none.statusCode).toBe(200);
+    expect(none.json()).toBeNull();
+    await testDb.db.insert(projectBriefs).values([
+      { projectId: pid, periodStart: "2026-10-26", periodEnd: "2026-11-01", status: "done", summary: "vecchio", createdAt: new Date("2026-11-02T08:00:00Z") },
+      {
+        projectId: pid,
+        periodStart: "2026-11-02",
+        periodEnd: "2026-11-08",
+        status: "done",
+        summary: "## Dove siamo\nA buon punto.\n\n## Cosa è cambiato\nIl login.",
+        sections: { whereWeAre: "A buon punto.", whatChanged: "Il login." },
+        createdAt: new Date("2026-11-09T08:00:00Z"),
+      },
+      { projectId: pid, periodStart: "2026-11-09", periodEnd: "2026-11-15", status: "running", createdAt: new Date("2026-11-16T08:00:00Z") },
+    ]);
+    const res = await latest();
+    expect(res.statusCode, res.body).toBe(200);
+    expect(weeklyBriefViewSchema.parse(res.json())).toMatchObject({
+      periodStart: "2026-11-02",
+      periodEnd: "2026-11-08",
+      headline: "A buon punto.",
+      summary: "## Dove siamo\nA buon punto.\n\n## Cosa è cambiato\nIl login.",
+      generated: true,
+    });
+  });
+});

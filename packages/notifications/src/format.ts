@@ -288,6 +288,127 @@ export interface MonitorAlertEvent {
   url: string;
 }
 
+/**
+ * Area 8, F1: un rilascio è fallito (una run di CI del commit di merge).
+ * Evento SENZA ticket: il link porta alla pagina del rilascio.
+ */
+export interface ReleaseFailedEvent {
+  kind: "release.failed";
+  projectId: string;
+  releaseId: string;
+  /** `<PRJ>-V<n>`. */
+  releaseCode: string;
+  /** Il titolo della PR: lo scrive chi ha aperto la PR (anche fuori da Stubwise). */
+  title: string;
+  /** Il nome della run fallita (della CI del cliente), se si sa. */
+  failedRun: string | null;
+  /** Link alla pagina del rilascio nell'app. */
+  url: string;
+}
+
+/**
+ * Area 8, F2: i tipi del CATALOGO degli avvisi (iscrizioni per progetto).
+ * Eventi SENZA ticket; il link porta alla pagina dell'oggetto nell'app.
+ */
+interface ReleaseEventBase {
+  projectId: string;
+  releaseId: string;
+  /** `<PRJ>-V<n>`. */
+  releaseCode: string;
+  /** Il titolo della PR: lo scrive chi ha aperto la PR (anche fuori da Stubwise). */
+  title: string;
+  url: string;
+}
+/** Un rilascio è nato (il merge sul ramo di rilascio). */
+export interface ReleaseMergedEvent extends ReleaseEventBase {
+  kind: "release.merged";
+}
+/** Le run di CI di un rilascio sono tutte riuscite. */
+export interface ReleaseSucceededEvent extends ReleaseEventBase {
+  kind: "release.succeeded";
+}
+interface PrEventBase {
+  projectId: string;
+  repositoryName: string;
+  prNumber: number;
+  prUrl: string;
+  /** Il titolo della PR (scritto da chi l'ha aperta). */
+  title: string;
+  /**
+   * Il pannello della PR nell'app: `/app/#/p/<PRJ>/releases?pr=<repositoryId>%23<n>`
+   * (l'id della vista della PR è `repositoryId#numero`, univoco anche con più
+   * repository; `#` codificato perché sta dentro l'hash — richiesta di 94).
+   */
+  url: string;
+}
+/** Una PR è stata aperta su un repository collegato (≠ `job.pr_opened`, la PR di un fix di Stubwise). */
+export interface PrAlertOpenedEvent extends PrEventBase {
+  kind: "pr.opened";
+  /** La chiave della PR per l'«una volta per PR» (con `prNumber`): non dipende da `PUBLIC_URL` (review F2). */
+  repositoryId?: string;
+}
+/** L'analisi di una PR ha trovato problemi. */
+export interface PrAnalysisIssuesEvent extends PrEventBase {
+  kind: "pr.analysis_issues";
+}
+/** Claude ha spinto una correzione sul ramo di una PR di un collega. */
+export interface PrCorrectedEvent extends PrEventBase {
+  kind: "pr.corrected";
+}
+/** La nota di rilascio di un repository è stata scritta (giro notturno). */
+export interface DocsReleaseNoteEvent {
+  kind: "docs.release_note";
+  projectId: string;
+  repositoryName: string;
+  /** Il titolo della nota. */
+  title: string;
+  url: string;
+}
+/** Area 8, F3: una richiesta nata da una conversazione di Support. */
+export interface SupportRequestEvent {
+  kind: "support.request";
+  projectId: string;
+  /** `<PRJ>-R<n>` della richiesta. */
+  requestCode: string;
+  /** Il titolo della richiesta (scritto dal team o dal triage). */
+  title: string;
+  /** Il nome dichiarato dal cliente; null = anonimo. */
+  customerName: string | null;
+  url: string;
+}
+/**
+ * Area 8, F4b: la diagnosi dell'analisi di un server, nel progetto a cui
+ * l'analisi ha attribuito il guasto (validato). `title` è il titolo della task
+ * (un template, mai il testo del modello).
+ */
+export interface ServerDiagnosisReadyEvent {
+  kind: "server.diagnosis_ready";
+  projectId: string;
+  serverName: string;
+  /** `<PRJ>-<n>` della task nata dalla diagnosi; null senza task (analisi a mano non attribuita). */
+  taskCode: string | null;
+  /**
+   * L'esito (additivo; assente = `attributed`, le card di prima). Le card di
+   * un'analisi A MANO vanno anche a chi l'ha chiesta (`analysis_requester`),
+   * con ogni esito: non determinata, fallita, bloccata.
+   */
+  outcome?: "attributed" | "undetermined" | "failed" | "blocked";
+  title: string;
+  url: string;
+  /** Il server (additivo): il client ne deriva il codice `SRV-<n>` a lettura. */
+  serverId?: string;
+}
+/** Gli avvisi del catalogo, insieme: tutti hanno `projectId`, `title` e `url`. */
+export type CatalogAlertEvent =
+  | ReleaseMergedEvent
+  | ReleaseSucceededEvent
+  | PrAlertOpenedEvent
+  | PrAnalysisIssuesEvent
+  | PrCorrectedEvent
+  | DocsReleaseNoteEvent
+  | SupportRequestEvent
+  | ServerDiagnosisReadyEvent;
+
 /** Il server (o il suo check) è rientrato entro le soglie: alert risolto. */
 export interface MonitorRecoveredEvent {
   kind: "monitor.recovered";
@@ -426,6 +547,22 @@ export interface ProjectBriefEvent {
  * l'invariante `actions[i] ↔ options[i]` deve reggere anche su di lei.
  */
 export type GoogleProposalAction =
+  /**
+   * Area 6, F2: una TASK, il caso normale della classificazione nuova (le
+   * proposte CONDIVISE, `email_proposals.audience = mail_recipients`). La
+   * card di una proposta condivisa si decide dal servizio delle proposte
+   * condivise (`apps/server/src/services/mail-proposals-decide.ts`), mai
+   * dall'esecutore di `google-proposal.ts`.
+   */
+  | {
+      type: "create_task";
+      projectId: string;
+      title: string;
+      body?: string;
+      assigneeId?: string;
+      /** Una DATA, `YYYY-MM-DD`. */
+      dueDate?: string;
+    }
   | {
       type: "create_backlog_item";
       projectId: string;
@@ -669,6 +806,13 @@ export interface GoogleProposalHandedEvent {
   sourceOptionIndices: number[];
   recommendedIndex?: number;
   allowFreeText: false;
+  /**
+   * Rimandi, lotto 4 (§2): la card di una proposta CONDIVISA passata, per chi
+   * la decide nel progetto. Chi decide non vede l'origine (il prototipo,
+   * `originFor`) e chi l'ha passata si maschera a lettura: `from`, `subject`
+   * e `handedBy` sono vuoti, e il testo non li nomina.
+   */
+  shared?: true;
 }
 
 /**
@@ -683,7 +827,15 @@ export type SecurityAlertSubject =
   | "locked"
   | "vault_key_created"
   | "vault_recovery_used"
-  | "vault_recovery_key_rotated";
+  | "vault_recovery_key_rotated"
+  // Area 9, F1: l'email di login è cambiata (docs/invariants/identity.md).
+  | "email_changed"
+  // Review di F1 (I2): un'identità esterna collegata da un altro.
+  | "slack_linked"
+  | "bitbucket_linked"
+  // Lotto 10: un Mac associato alla cassaforte, o tolto (dal browser, da un admin).
+  | "vault_device_sealed"
+  | "vault_device_seal_revoked";
 
 /**
  * AVVISO DI SICUREZZA all'interessato (secondo fattore, 23 ott 2026): sul suo
@@ -709,6 +861,227 @@ export interface SecurityAlertEvent {
   actorEmail: string | null;
 }
 
+/**
+ * Integrazione area 2 (9 nov 2026): una persona chiede a un'altra di decidere
+ * su una task. Destinatario: la persona a cui si chiede (audience
+ * `decision_target`, risolta da `decision_requests.asked_of_user_id`).
+ *
+ * Nell'evento solo ciò che è vero al momento della pubblicazione (la domanda,
+ * il riferimento `CODICE-n` di allora); titolo e codice correnti, se una card
+ * li mostra, si leggono dal DB. Nessun link: «Apri» lo DERIVA a lettura
+ * (`openUrl`, pagina del ticket nel web) come per `security.alert`.
+ */
+export interface DecisionRequestedEvent {
+  kind: "decision.requested";
+  ticketId: string;
+  ticketNumber: number;
+  projectId: string;
+  projectCode: string;
+  decisionId: string;
+  question: string;
+  askedByUserId: string | null;
+}
+
+/** La decisione chiesta ha una risposta: la riceve chi l'aveva chiesta (`decision_asker`). */
+export interface DecisionAnsweredEvent {
+  kind: "decision.answered";
+  ticketId: string;
+  ticketNumber: number;
+  projectId: string;
+  projectCode: string;
+  decisionId: string;
+  question: string;
+  /** L'opzione scelta o il testo di «Altro…», com'era al momento della risposta. */
+  answerSummary: string;
+  answeredByUserId: string | null;
+}
+
+/** Cosa è cambiato su una task seguita. */
+export type TicketActivityChange = "status" | "assignee" | "comment" | "decision" | "run_cancelled" | "task_deleted";
+
+/**
+ * Un cambiamento UMANO su una task (stato, assegnatario, commento): lo
+ * ricevono i follower della task tranne chi l'ha fatto (audience
+ * `ticket_followers`). Mai dagli scrittori di sistema (pipeline, webhook,
+ * triage, intake): hanno già le loro notifiche.
+ *
+ * `summary` è un DATO, non prosa: il nome del nuovo stato, il nome del nuovo
+ * assegnatario — la frase intorno la mette il template della lingua di chi
+ * legge. Per un COMMENTO `summary` è vuoto e l'evento porta solo
+ * `commentId`: il testo non entra MAI nel jsonb (invariante «un commento
+ * eliminato non ha più testo, in nessun posto»). L'inbox ne deriva l'estratto
+ * a lettura (`commentText`/`commentDeleted`, mai salvati); push e Slack
+ * dicono solo «New comment on <ref>».
+ */
+export interface TicketActivityEvent {
+  kind: "ticket.activity";
+  ticketId: string;
+  ticketNumber: number;
+  projectId: string;
+  projectCode: string;
+  change: TicketActivityChange;
+  summary: string;
+  actorUserId: string | null;
+  /** Solo `change: "comment"`: il commento, mai il suo testo. */
+  commentId?: string;
+  /** DERIVATO a lettura dall'inbox: l'inizio del commento. Mai nel jsonb. */
+  commentText?: string;
+  /** DERIVATO a lettura dall'inbox: il commento è stato eliminato. Mai nel jsonb. */
+  commentDeleted?: boolean;
+}
+
+/**
+ * Integrazione area 2, fetta 2: un'altra persona ha cambiato la pianificazione
+ * di una task che era tua — spostata di settimana, tolta dal piano o data a
+ * un altro (audience `task_people`: la persona che l'aveva, mai l'attore).
+ * Settimane `YYYY-Www` e persone come DATI veri alla pubblicazione;
+ * `toAssigneeName` è il nome di allora, come il `summary` di `ticket.activity`.
+ */
+export interface PlanningChangedEvent {
+  kind: "planning.changed";
+  ticketId: string;
+  ticketNumber: number;
+  projectId: string;
+  projectCode: string;
+  /** La settimana EFFETTIVA prima del cambio (slittamento compreso). */
+  fromWeek: string | null;
+  toWeek: string | null;
+  fromAssigneeId: string | null;
+  toAssigneeId: string | null;
+  toAssigneeName: string | null;
+  actorUserId: string | null;
+}
+
+/**
+ * Area 10, F5 (D-11 = b): una persona è entrata in un progetto. Nel jsonb i
+ * nomi di ALLORA (per le frasi fuori dall'app) e l'id della voce del registro
+ * della stessa transazione (`changeLogEntryId`, vero solo adesso); «Undone by»
+ * NON sta qui: lo deriva l'inbox a lettura. Con Claude l'attore è la persona
+ * per conto di cui agisce (`viaClaude`).
+ */
+export interface MemberAddedEvent {
+  kind: "member.added";
+  projectId: string;
+  projectCode: string;
+  projectName: string;
+  addedUserId: string;
+  addedName: string;
+  roleName: string;
+  /** Il ruolo dato: l'inbox ne legge il nome di ADESSO (null se non c'è più). Assente nelle card scritte prima. */
+  roleId?: string;
+  actorUserId: string | null;
+  actorName: string | null;
+  viaClaude: boolean;
+  changeLogEntryId: string | null;
+}
+
+/**
+ * Area 11, F2 (N-1 = a): una menzione in un commento della doc di prodotto,
+ * al menzionato (motivo obbligatorio `mentioned`), mai all'autore. Nel jsonb
+ * solo id e codici e il nome di chi ha scritto, di ALLORA, per le frasi fuori
+ * dall'app: MAI testo della pagina né del commento. Titolo, codice di adesso,
+ * chi ha menzionato (R-G5) e `objectGone` li DERIVA l'inbox a lettura.
+ */
+export interface ProductDocMentionEvent {
+  kind: "product_doc.mention";
+  pageId: string;
+  pageCode: string;
+  projectId: string;
+  projectCode: string;
+  commentId: string;
+  authorUserId: string | null;
+  authorName: string;
+}
+
+/** Area 11 (F5 lo produce): Claude ha aggiornato una pagina di prodotto. Solo id e codici. */
+export interface ProductDocUpdatedEvent {
+  kind: "product_doc.updated";
+  pageId: string;
+  pageCode: string;
+  projectId: string;
+  projectCode: string;
+  revisionId: string | null;
+  /**
+   * La card arriva dopo un'attesa della coda (budget o pausa). Vero SOLO alla
+   * pubblicazione (la sosta del lavoro si azzera quando finisce): per questo
+   * sta nell'evento. Assente nelle card di prima = nessuna attesa.
+   */
+  waited?: "budget" | "paused" | null;
+}
+
+/** Area 11 (F5 lo produce): Claude chiede qualcosa su una pagina di prodotto. Solo id e codici. */
+export interface ProductDocQuestionEvent {
+  kind: "product_doc.question";
+  pageId: string;
+  pageCode: string;
+  projectId: string;
+  projectCode: string;
+  questionId: string | null;
+}
+
+export type ProductDocEvent = ProductDocMentionEvent | ProductDocUpdatedEvent | ProductDocQuestionEvent;
+
+export const isProductDocEvent = (event: NotificationEvent): event is ProductDocEvent =>
+  event.kind === "product_doc.mention" || event.kind === "product_doc.updated" || event.kind === "product_doc.question";
+
+/** Una task ricevuta da un'altra persona (audience `task_people`, mai l'attore). */
+export interface TaskAssignedEvent {
+  kind: "task.assigned";
+  ticketId: string;
+  ticketNumber: number;
+  projectId: string;
+  projectCode: string;
+  actorUserId: string | null;
+}
+
+/**
+ * Area 4, Chat (fetta 1): una menzione diretta `@Nome` in un canale che chi la
+ * riceve legge (audience: solo lui, la decide la scrittura). Nel jsonb solo
+ * gli id e i nomi di ALLORA per le frasi fuori dall'app (push): l'inbox
+ * DERIVA canale, estratto, link e `objectGone` a lettura.
+ */
+export interface ChatMentionEvent {
+  kind: "chat.mention";
+  chatMessageId: string;
+  channelId: string;
+  channelName: string;
+  projectId: string | null;
+  authorUserId: string | null;
+  authorName: string;
+}
+
+/**
+ * Area 4, Chat (fetta 2): il messaggio chiede una risposta a un MEMBRO del
+ * canale (`asks_reply_of`); chi legge senza esserne membro riceve una
+ * `chat.mention`. Stessa forma, stessa derivazione a lettura.
+ */
+export interface ChatQuestionEvent extends Omit<ChatMentionEvent, "kind"> {
+  kind: "chat.question";
+}
+
+/**
+ * Area 7, fetta 1 (0169): le card delle Automations, una persona per
+ * pubblicazione (`account_owner`): chi decide un'approvazione, il
+ * proprietario di un'esecuzione fallita o di un'automazione messa in pausa
+ * da sola (D5), i destinatari di un passo `notify`. Stato, approvatori,
+ * anteprima e link si DERIVANO dall'esecuzione a lettura; nell'evento restano
+ * gli id e i nomi del momento. `message` (solo `automation.notify`) è il testo
+ * del passo: lo scrive chi ha costruito il flusso, quindi NON fidato.
+ */
+export interface AutomationNotificationEvent {
+  kind: "automation.approval" | "automation.failed" | "automation.notify" | "automation.paused";
+  /** Null per un'automazione generale (area 7, F4): la card non è di un progetto. */
+  projectId: string | null;
+  automationId: string;
+  automationCode: string;
+  automationName: string;
+  runId: string | null;
+  runNumber: number | null;
+  message?: string;
+  /** Solo `automation.approval`: il passo che aspettava alla pubblicazione (si decide su quello). */
+  path?: string;
+}
+
 /** Unione tipata di tutti gli eventi che generano una notifica. */
 export type NotificationEvent =
   | TicketCreatedEvent
@@ -723,13 +1096,25 @@ export type NotificationEvent =
   | DocsNightlyAttentionEvent
   | RequestCreatedEvent
   | MonitorAlertEvent
+  | ReleaseFailedEvent
+  | CatalogAlertEvent
   | MonitorRecoveredEvent
   | JobAwaitingInputEvent
   | ProjectPulseEvent
   | ProjectBriefEvent
   | GoogleProposalEvent
   | GoogleProposalHandedEvent
-  | SecurityAlertEvent;
+  | SecurityAlertEvent
+  | DecisionRequestedEvent
+  | DecisionAnsweredEvent
+  | TicketActivityEvent
+  | PlanningChangedEvent
+  | TaskAssignedEvent
+  | ChatMentionEvent
+  | ChatQuestionEvent
+  | MemberAddedEvent
+  | ProductDocEvent
+  | AutomationNotificationEvent;
 
 /**
  * Eventi SENZA ticket (`docs.limit_paused`, `monitor.*`, `project.pulse`,
@@ -742,12 +1127,24 @@ type NonTicketedEvent =
   | DocsNightlyAttentionEvent
   | RequestCreatedEvent
   | MonitorAlertEvent
+  | ReleaseFailedEvent
+  | CatalogAlertEvent
   | MonitorRecoveredEvent
   | ProjectPulseEvent
   | ProjectBriefEvent
   | GoogleProposalEvent
   | GoogleProposalHandedEvent
-  | SecurityAlertEvent;
+  | SecurityAlertEvent
+  | DecisionRequestedEvent
+  | DecisionAnsweredEvent
+  | TicketActivityEvent
+  | PlanningChangedEvent
+  | TaskAssignedEvent
+  | ChatMentionEvent
+  | ChatQuestionEvent
+  | MemberAddedEvent
+  | ProductDocEvent
+  | AutomationNotificationEvent;
 
 /**
  * Eventi ANCORATI A UN TICKET: hanno `ticketNumber`/`ticketTitle`/`ticketUrl`.
@@ -764,11 +1161,35 @@ function hasTicket(event: NotificationEvent): event is TicketedEvent {
     event.kind !== "request.created" &&
     event.kind !== "monitor.alert" &&
     event.kind !== "monitor.recovered" &&
+    event.kind !== "release.failed" &&
+    event.kind !== "release.merged" &&
+    event.kind !== "release.succeeded" &&
+    event.kind !== "pr.opened" &&
+    event.kind !== "pr.analysis_issues" &&
+    event.kind !== "pr.corrected" &&
+    event.kind !== "docs.release_note" &&
+    event.kind !== "support.request" &&
+    event.kind !== "server.diagnosis_ready" &&
     event.kind !== "project.pulse" &&
     event.kind !== "project.brief" &&
     event.kind !== "google.proposal" &&
     event.kind !== "google.proposal_handed" &&
-    event.kind !== "security.alert"
+    event.kind !== "security.alert" &&
+    event.kind !== "decision.requested" &&
+    event.kind !== "decision.answered" &&
+    event.kind !== "ticket.activity" &&
+    event.kind !== "planning.changed" &&
+    event.kind !== "task.assigned" &&
+    event.kind !== "member.added" &&
+    event.kind !== "product_doc.mention" &&
+    event.kind !== "product_doc.updated" &&
+    event.kind !== "product_doc.question" &&
+    event.kind !== "chat.mention" &&
+    event.kind !== "chat.question" &&
+    event.kind !== "automation.approval" &&
+    event.kind !== "automation.failed" &&
+    event.kind !== "automation.notify" &&
+    event.kind !== "automation.paused"
   );
 }
 
@@ -820,6 +1241,15 @@ const EMOJI: Record<NotificationKind, string> = {
   "docs.nightly_attention": "🌙",
   "request.created": "🙋",
   "monitor.alert": "🔴",
+  "release.failed": "🚨",
+  "release.merged": "📦",
+  "release.succeeded": "✅",
+  "pr.opened": "🆕",
+  "pr.analysis_issues": "🔎",
+  "pr.corrected": "🛠️",
+  "docs.release_note": "📝",
+  "support.request": "🙋",
+  "server.diagnosis_ready": "🩺",
   "monitor.recovered": "🟢",
   "job.awaiting_input": "❓",
   "project.pulse": "📣",
@@ -827,6 +1257,21 @@ const EMOJI: Record<NotificationKind, string> = {
   "google.proposal": "📬",
   "google.proposal_handed": "📨",
   "security.alert": "🔐",
+  "member.added": "👋",
+  "product_doc.mention": "💬",
+  "product_doc.updated": "📝",
+  "product_doc.question": "❓",
+  "decision.requested": "🤔",
+  "decision.answered": "💬",
+  "ticket.activity": "👀",
+  "planning.changed": "🗓️",
+  "task.assigned": "📌",
+  "chat.mention": "💬",
+  "chat.question": "❓",
+  "automation.approval": "✋",
+  "automation.failed": "⚠️",
+  "automation.notify": "🔔",
+  "automation.paused": "⏸️",
 };
 
 /**
@@ -930,6 +1375,17 @@ function linkParam(
     case "monitor.recovered":
       // Nessun ticket: il link porta alla pagina del server nella SPA.
       return renderLink(format, event.url, t(lang, "notify.linkServer"));
+    case "release.failed":
+    case "release.merged":
+    case "release.succeeded":
+    case "pr.opened":
+    case "pr.analysis_issues":
+    case "pr.corrected":
+    case "docs.release_note":
+    case "support.request":
+    case "server.diagnosis_ready":
+      // Nessun ticket: il link porta alla pagina del rilascio, della PR, della nota o della conversazione.
+      return renderLink(format, event.url, t(lang, "notify.linkOpen"));
     case "project.pulse":
       // Nessun ticket: il link porta al backlog del progetto, che è dove si
       // guardano le proposte per intero (la notifica ne porta solo le prime).
@@ -948,6 +1404,23 @@ function linkParam(
       return renderLink(format, event.projectUrl, t(lang, "notify.linkOpen"));
     case "security.alert":
       // Nessun link: l'avviso si legge, e le frasi non hanno `{link}`.
+      return "";
+    case "decision.requested":
+    case "decision.answered":
+    case "ticket.activity":
+    case "planning.changed":
+    case "task.assigned":
+    case "member.added":
+    case "product_doc.mention":
+    case "product_doc.updated":
+    case "product_doc.question":
+    case "chat.mention":
+    case "chat.question":
+    case "automation.approval":
+    case "automation.failed":
+    case "automation.notify":
+    case "automation.paused":
+      // Il link si DERIVA a lettura (`openUrl`), e le frasi non hanno `{link}`.
       return "";
   }
 }
@@ -968,14 +1441,49 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   // Il template vero lo sceglie `templateKey` (bug / richiesta / unita).
   "request.created": "notify.requestCreated",
   "monitor.alert": "notify.monitorAlert",
+  "release.failed": "notify.releaseFailed",
+  "release.merged": "notify.alert.releaseMerged",
+  "release.succeeded": "notify.alert.releaseSucceeded",
+  "pr.opened": "notify.alert.prOpened",
+  "pr.analysis_issues": "notify.alert.prAnalysisIssues",
+  "pr.corrected": "notify.alert.prCorrected",
+  "docs.release_note": "notify.alert.docsReleaseNote",
+  "support.request": "notify.alert.supportRequest",
+  "server.diagnosis_ready": "notify.alert.serverDiagnosisReady",
   "monitor.recovered": "notify.monitorRecovered",
   "job.awaiting_input": "notify.awaitingInput",
   "project.pulse": "notify.pulse",
+  "member.added": "notify.memberAdded",
+  "product_doc.mention": "notify.productDocMention",
+  "product_doc.updated": "notify.productDocUpdated",
+  "product_doc.question": "notify.productDocQuestion",
   "project.brief": "notify.brief",
   "google.proposal": "notify.googleProposal",
   "google.proposal_handed": "notify.googleProposalHanded",
   // Il template vero lo sceglie `templateKey` per `subject`.
   "security.alert": "notify.securityAlert.second_factor_reset",
+  "decision.requested": "notify.decisionRequested",
+  "decision.answered": "notify.decisionAnswered",
+  // Il template vero lo sceglie `templateKey` per `change`.
+  "ticket.activity": "notify.ticketActivity.status",
+  // Il template vero lo sceglie `templateKey` per cosa è cambiato.
+  "planning.changed": "notify.planningChanged.moved",
+  "task.assigned": "notify.taskAssigned",
+  "chat.mention": "notify.chatMention",
+  "chat.question": "notify.chatQuestion",
+  "automation.approval": "notify.automationApproval",
+  "automation.failed": "notify.automationFailed",
+  "automation.notify": "notify.automationNotify",
+  "automation.paused": "notify.automationPaused",
+};
+
+const TICKET_ACTIVITY_KEY: Record<TicketActivityChange, string> = {
+  status: "notify.ticketActivity.status",
+  assignee: "notify.ticketActivity.assignee",
+  comment: "notify.ticketActivity.comment",
+  decision: "notify.ticketActivity.decisionRequested",
+  run_cancelled: "notify.ticketActivity.runCancelled",
+  task_deleted: "notify.ticketActivity.taskDeleted",
 };
 
 /**
@@ -1016,6 +1524,26 @@ const SECURITY_ALERT_KEY: Record<SecurityAlertSubject, { withActor: string; with
   vault_recovery_key_rotated: {
     withActor: "notify.securityAlert.vault_recovery_key_rotated.actor",
     withoutActor: "notify.securityAlert.vault_recovery_key_rotated",
+  },
+  email_changed: {
+    withActor: "notify.securityAlert.email_changed.actor",
+    withoutActor: "notify.securityAlert.email_changed",
+  },
+  slack_linked: {
+    withActor: "notify.securityAlert.slack_linked.actor",
+    withoutActor: "notify.securityAlert.slack_linked",
+  },
+  bitbucket_linked: {
+    withActor: "notify.securityAlert.bitbucket_linked.actor",
+    withoutActor: "notify.securityAlert.bitbucket_linked",
+  },
+  vault_device_sealed: {
+    withActor: "notify.securityAlert.vault_device_sealed.actor",
+    withoutActor: "notify.securityAlert.vault_device_sealed",
+  },
+  vault_device_seal_revoked: {
+    withActor: "notify.securityAlert.vault_device_seal_revoked.actor",
+    withoutActor: "notify.securityAlert.vault_device_seal_revoked",
   },
 };
 
@@ -1063,13 +1591,53 @@ export function reviewOutcomeOf(event: NotificationEvent): InboxReviewOutcome | 
  * (`notify.reviewStopped`) — stesso kind, nessun valore nuovo di
  * `notification_kind`.
  */
+/** Un DM non ha nome (`chat_channels.name` vuoto): la frase dice «in un messaggio diretto», non «in #». */
+export const isDirectMessageEvent = (event: NotificationEvent): boolean =>
+  (event.kind === "chat.mention" || event.kind === "chat.question") && event.channelName === "";
+
 function templateKey(event: NotificationEvent): string {
+  // Area 11, F2: chi ha scritto non si nomina (chi legge non lo vede, R-G5: il nome lo deriva l'inbox).
+  if (event.kind === "product_doc.mention" && event.authorName === "") return "notify.productDocMention.anonymous";
+  if (isDirectMessageEvent(event)) {
+    return event.kind === "chat.question" ? "notify.chatQuestion.dm" : "notify.chatMention.dm";
+  }
   if (event.kind === "security.alert") {
     // Un jsonb anomalo (soggetto ignoto) lancia qui: lo prende il recinto di
     // chi rende la card, che degrada al `kind`.
     const keys = SECURITY_ALERT_KEY[event.subject];
     if (!keys) throw new Error(`soggetto di security.alert sconosciuto: ${String(event.subject)}`);
     return typeof event.actorEmail === "string" && event.actorEmail !== "" ? keys.withActor : keys.withoutActor;
+  }
+  if (event.kind === "google.proposal_handed" && event.shared === true) return "notify.googleProposalHandedShared";
+  if (event.kind === "server.diagnosis_ready" && event.outcome !== undefined && event.outcome !== "attributed") {
+    return `notify.alert.serverAnalysis.${event.outcome}`;
+  }
+  if (event.kind === "planning.changed") {
+    // La riceve chi l'aveva: «data a un altro» se l'assegnatario è cambiato,
+    // altrimenti è ancora sua, spostata o tolta dalla settimana.
+    if (event.toAssigneeId !== event.fromAssigneeId) {
+      return event.toAssigneeId === null ? "notify.planningChanged.unassigned" : "notify.planningChanged.reassigned";
+    }
+    return event.toWeek === null ? "notify.planningChanged.unplanned" : "notify.planningChanged.moved";
+  }
+  if (event.kind === "ticket.activity") {
+    if (event.change === "comment") {
+      if (event.commentDeleted === true) return "notify.ticketActivity.commentDeleted";
+      // Senza l'estratto derivato (push, Slack, una card senza commento): la
+      // frase generica, senza testo.
+      return typeof event.commentText === "string" && event.commentText !== ""
+        ? TICKET_ACTIVITY_KEY.comment
+        : "notify.ticketActivity.commentNoText";
+    }
+    // Una decisione: `summary` dice SOLO cosa è successo (`requested` |
+    // `answered`), mai la domanda — come per i commenti.
+    if (event.change === "decision") {
+      return event.summary === "answered"
+        ? "notify.ticketActivity.decisionAnswered"
+        : "notify.ticketActivity.decisionRequested";
+    }
+    // Un `change` ignoto (jsonb anomalo) ricade sulla frase dello stato.
+    return TICKET_ACTIVITY_KEY[event.change] ?? TICKET_ACTIVITY_KEY.status;
   }
   if (event.kind === "request.created") {
     if (event.requestKind === "bug") return "notify.requestCreatedBug";
@@ -1163,12 +1731,65 @@ function textParams(
     }
     // La proposta passata nomina anche chi l'ha passata e il progetto.
     if (event.kind === "google.proposal_handed") {
+      // Una condivisa non nomina né l'origine né chi l'ha passata (lotto 4, §2).
+      if (event.shared === true) return { project: event.projectName };
       return { from: event.from, subject: event.subject, handedBy: event.handedBy, project: event.projectName };
     }
     // L'avviso di sicurezza nomina solo chi ha agito (se c'è): la frase la
     // sceglie il soggetto.
     if (event.kind === "security.alert") {
       return { actor: event.actorEmail ?? "" };
+    }
+    // Decisioni e attività: il riferimento `CODICE-n` dell'evento, più la
+    // domanda, la risposta o il dato del cambio (NON FIDATI, vedi
+    // `UNTRUSTED_SLACK_PARAMS`).
+    if (event.kind === "decision.requested") {
+      return { ref: taskRef(event), question: event.question };
+    }
+    if (event.kind === "decision.answered") {
+      return { ref: taskRef(event), question: event.question, answer: event.answerSummary };
+    }
+    if (event.kind === "planning.changed") {
+      return { ref: taskRef(event), week: event.toWeek ?? "", person: event.toAssigneeName ?? "" };
+    }
+    if (event.kind === "task.assigned") {
+      return { ref: taskRef(event) };
+    }
+    if (event.kind === "member.added") {
+      return { person: event.addedName, project: event.projectCode, role: event.roleName };
+    }
+    if (event.kind === "product_doc.mention") {
+      return { author: event.authorName, code: event.pageCode };
+    }
+    if (event.kind === "product_doc.updated" || event.kind === "product_doc.question") {
+      return { code: event.pageCode };
+    }
+    if (event.kind === "chat.mention" || event.kind === "chat.question") {
+      return { author: event.authorName, channel: event.channelName };
+    }
+    if (isAutomationEvent(event)) {
+      return { automation: event.automationName, code: event.automationCode, message: event.message ?? "" };
+    }
+    if (event.kind === "release.failed" || event.kind === "release.merged" || event.kind === "release.succeeded") {
+      return { code: event.releaseCode, title: event.title };
+    }
+    if (event.kind === "pr.opened" || event.kind === "pr.analysis_issues" || event.kind === "pr.corrected") {
+      return { repo: event.repositoryName, number: String(event.prNumber), title: event.title };
+    }
+    if (event.kind === "docs.release_note") {
+      return { repo: event.repositoryName, title: event.title };
+    }
+    if (event.kind === "support.request") {
+      return { code: event.requestCode, title: event.title, customer: event.customerName ?? t(lang, "notify.alert.anonymousCustomer") };
+    }
+    if (event.kind === "server.diagnosis_ready") {
+      return { server: event.serverName, code: event.taskCode ?? "", title: event.title };
+    }
+    if (event.kind === "ticket.activity") {
+      return {
+        ref: taskRef(event),
+        summary: event.change === "comment" ? (event.commentText ?? "") : event.summary,
+      };
     }
     // monitor.alert | monitor.recovered: la condizione è resa come etichetta
     // localizzata; il detail è già una frase leggibile.
@@ -1246,11 +1867,35 @@ const UNTRUSTED_SLACK_PARAMS: Partial<Record<NotificationKind, readonly string[]
   "google.proposal_handed": ["from", "subject"],
   // L'ultimo errore è testo di un processo esterno (output del CLI/git).
   "docs.nightly_attention": ["lastError", "key"],
+  // Il nome di chi scrive e quello del canale li scelgono le persone.
+  "chat.mention": ["author", "channel"],
+  "chat.question": ["author", "channel"],
+  // Area 11, F2: il nome di chi ha scritto il commento lo sceglie una persona.
+  "product_doc.mention": ["author"],
+  // Il nome dell'automazione e il testo di `notify` li scrivono le persone.
+  "automation.approval": ["automation"],
+  "automation.failed": ["automation"],
+  "automation.notify": ["automation", "message"],
+  "automation.paused": ["automation"],
+  // Il titolo della PR lo scrive chi l'ha aperta (anche fuori da Stubwise).
+  "release.failed": ["title"],
   // Email e titolo li scrive il collaboratore (e il titolo, via widget, chiunque).
   "request.created": ["email", "title"],
   // L'email di chi ha agito la scrive un utente al proprio account.
   "security.alert": ["actor"],
+  // Domanda e risposta le scrivono le persone; il dato del cambio può essere
+  // l'inizio di un commento.
+  "decision.requested": ["question"],
+  "decision.answered": ["question", "answer"],
+  "ticket.activity": ["summary"],
+  // Il nome della persona lo sceglie un utente per sé.
+  "planning.changed": ["person"],
 };
+
+/** `CODICE-n` della task dell'evento, com'era alla pubblicazione. */
+function taskRef(event: { projectCode: string; ticketNumber: number }): string {
+  return `${event.projectCode}-${event.ticketNumber}`;
+}
 
 /**
  * Frase localizzata per un formato con markup (Slack/Discord), inclusi emoji,
@@ -1435,6 +2080,74 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
         actorEmail: event.actorEmail,
         message: formatNotificationText(event, lang),
       };
+    }
+    if (isAutomationEvent(event)) {
+      // Mai consegnato al webhook (`account_owner`): il ramo c'è per l'esaustività.
+      return {
+        event: event.kind,
+        automationCode: event.automationCode,
+        runId: event.runId,
+        message: formatNotificationText(event, lang),
+      };
+    }
+    if (event.kind === "chat.mention" || event.kind === "chat.question") {
+      // Mai consegnato al webhook (`account_owner`): il ramo c'è per l'esaustività.
+      return {
+        event: event.kind,
+        channelId: event.channelId,
+        chatMessageId: event.chatMessageId,
+        message: formatNotificationText(event, lang),
+      };
+    }
+    if (
+      event.kind === "decision.requested" ||
+      event.kind === "decision.answered" ||
+      event.kind === "ticket.activity" ||
+      event.kind === "planning.changed" ||
+      event.kind === "task.assigned"
+    ) {
+      // Mai consegnati al webhook (`shouldSendWebhook` li esclude: sono rivolti
+      // a persone, non al canale del team): il ramo c'è per l'esaustività.
+      return {
+        event: event.kind,
+        ticketId: event.ticketId,
+        ticketNumber: event.ticketNumber,
+        projectCode: event.projectCode,
+        message: formatNotificationText(event, lang),
+      };
+    }
+    if (event.kind === "release.failed") {
+      return {
+        event: event.kind,
+        projectId: event.projectId,
+        releaseCode: event.releaseCode,
+        title: event.title,
+        failedRun: event.failedRun,
+        message: formatNotificationText(event, lang),
+        releaseUrl: event.url,
+      };
+    }
+    // Area 8, F2: i tipi del catalogo non vanno mai sul webhook (M3); il ramo
+    // c'è per l'esaustività del payload.
+    if (
+      event.kind === "release.merged" ||
+      event.kind === "release.succeeded" ||
+      event.kind === "pr.opened" ||
+      event.kind === "pr.analysis_issues" ||
+      event.kind === "pr.corrected" ||
+      event.kind === "docs.release_note" ||
+      event.kind === "support.request" ||
+      event.kind === "server.diagnosis_ready"
+    ) {
+      return { event: event.kind, projectId: event.projectId, title: event.title, message: formatNotificationText(event, lang), url: event.url };
+    }
+    if (isProductDocEvent(event)) {
+      // Area 11, F2: un avviso del catalogo, mai sul webhook (M3): il ramo c'è per l'esaustività.
+      return { event: event.kind, projectId: event.projectId, pageId: event.pageId, pageCode: event.pageCode, message: formatNotificationText(event, lang) };
+    }
+    if (event.kind === "member.added") {
+      // Area 10, F5: un webhook lo riceve solo dove l'evento è scelto (E-2).
+      return { event: event.kind, projectId: event.projectId, projectCode: event.projectCode, message: formatNotificationText(event, lang) };
     }
     // monitor.alert | monitor.recovered: la `condition` resta l'enum grezzo
     // (machine-readable), il `detail` la descrizione, `serverUrl` la pagina
@@ -1642,6 +2355,23 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       url: `${base}/monitor/servers/9c2f7d3a-2222-4333-8444-555566667777`,
     },
     {
+      kind: "release.failed",
+      projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc",
+      releaseId: "5e3b1a2c-3333-4444-8555-666677778888",
+      releaseCode: "NEG-V12",
+      title: "Pagamenti: nuovo checkout",
+      failedRun: "build",
+      url: `${base}/app/#/p/NEG/releases/NEG-V12`,
+    },
+    { kind: "release.merged", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", releaseId: "5e3b1a2c-3333-4444-8555-666677778888", releaseCode: "NEG-V12", title: "Pagamenti: nuovo checkout", url: `${base}/app/#/p/NEG/releases/NEG-V12` },
+    { kind: "release.succeeded", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", releaseId: "5e3b1a2c-3333-4444-8555-666677778888", releaseCode: "NEG-V12", title: "Pagamenti: nuovo checkout", url: `${base}/app/#/p/NEG/releases/NEG-V12` },
+    { kind: "pr.opened", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", prNumber: 88, prUrl: "https://github.com/acme/negozio-web/pull/88", title: "Filtri per taglia", url: `${base}/app/#/p/NEG/releases?pr=7b2c9d1e-4444-4555-8666-777788889999%2388` },
+    { kind: "pr.analysis_issues", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", prNumber: 88, prUrl: "https://github.com/acme/negozio-web/pull/88", title: "Filtri per taglia", url: `${base}/app/#/p/NEG/releases?pr=7b2c9d1e-4444-4555-8666-777788889999%2388` },
+    { kind: "pr.corrected", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", prNumber: 88, prUrl: "https://github.com/acme/negozio-web/pull/88", title: "Filtri per taglia", url: `${base}/app/#/p/NEG/releases?pr=7b2c9d1e-4444-4555-8666-777788889999%2388` },
+    { kind: "docs.release_note", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", title: "Note del 13 novembre", url: `${base}/app/#/p/NEG/docs` },
+    { kind: "support.request", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", requestCode: "NEG-R14", title: "Esportare gli ordini in PDF", customerName: "Mario Bianchi", url: `${base}/app/#/p/NEG/requests?request=NEG-R14` },
+    { kind: "server.diagnosis_ready", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", serverName: "web-prod-1", taskCode: "NEG-212", title: "Il container negozio-web riparte di continuo", url: `${base}/app/#/p/NEG/tasks/NEG-212` },
+    {
       kind: "job.awaiting_input",
       ticketNumber: 131,
       ticketTitle: "Aggiungere export CSV allo storico ordini",
@@ -1782,5 +2512,129 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       subject: "second_factor_reset",
       actorEmail: "giulia@acme.test",
     },
+    {
+      kind: "decision.requested",
+      ticketId: "7c1d2e3f-aaaa-4bbb-8ccc-ddddeeeeffff",
+      ticketNumber: 57,
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+      projectCode: "NEG",
+      decisionId: "9a8b7c6d-1111-4222-8333-444455556666",
+      question: "Teniamo il carrello per 30 o per 90 giorni?",
+      askedByUserId: "3c4d5e6f-7777-4888-8999-aaaabbbbcccc",
+    },
+    {
+      kind: "decision.answered",
+      ticketId: "7c1d2e3f-aaaa-4bbb-8ccc-ddddeeeeffff",
+      ticketNumber: 57,
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+      projectCode: "NEG",
+      decisionId: "9a8b7c6d-1111-4222-8333-444455556666",
+      question: "Teniamo il carrello per 30 o per 90 giorni?",
+      answerSummary: "90 giorni",
+      answeredByUserId: "5e6f7a8b-dddd-4eee-8fff-000011112222",
+    },
+    {
+      kind: "ticket.activity",
+      ticketId: "7c1d2e3f-aaaa-4bbb-8ccc-ddddeeeeffff",
+      ticketNumber: 57,
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+      projectCode: "NEG",
+      change: "status",
+      summary: "In review",
+      actorUserId: "5e6f7a8b-dddd-4eee-8fff-000011112222",
+    },
+    {
+      kind: "planning.changed",
+      ticketId: "7c1d2e3f-aaaa-4bbb-8ccc-ddddeeeeffff",
+      ticketNumber: 57,
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+      projectCode: "NEG",
+      fromWeek: "2026-W46",
+      toWeek: "2026-W47",
+      fromAssigneeId: "3c4d5e6f-7777-4888-8999-aaaabbbbcccc",
+      toAssigneeId: "3c4d5e6f-7777-4888-8999-aaaabbbbcccc",
+      toAssigneeName: "Giulia Ferri",
+      actorUserId: "5e6f7a8b-dddd-4eee-8fff-000011112222",
+    },
+    {
+      kind: "task.assigned",
+      ticketId: "7c1d2e3f-aaaa-4bbb-8ccc-ddddeeeeffff",
+      ticketNumber: 57,
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+      projectCode: "NEG",
+      actorUserId: "5e6f7a8b-dddd-4eee-8fff-000011112222",
+    },
+    {
+      kind: "member.added",
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+      projectCode: "NEG",
+      projectName: "Negozio",
+      addedUserId: "3c4d5e6f-7777-4888-8999-aaaabbbbcccc",
+      addedName: "Giulia Ferri",
+      roleName: "Developer",
+      actorUserId: "5e6f7a8b-dddd-4eee-8fff-000011112222",
+      actorName: "Ada Lovelace",
+      viaClaude: false,
+      changeLogEntryId: null,
+    },
+    {
+      kind: "product_doc.mention",
+      pageId: "6a7b8c9d-1111-4222-8333-444455556666",
+      pageCode: "NEG-D12",
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+      projectCode: "NEG",
+      commentId: "7b8c9d0e-2222-4333-8444-555566667777",
+      authorUserId: "5e6f7a8b-dddd-4eee-8fff-000011112222",
+      authorName: "Ada Lovelace",
+    },
+    {
+      kind: "product_doc.updated",
+      pageId: "6a7b8c9d-1111-4222-8333-444455556666",
+      pageCode: "NEG-D12",
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+      projectCode: "NEG",
+      revisionId: null,
+    },
+    {
+      kind: "product_doc.question",
+      pageId: "6a7b8c9d-1111-4222-8333-444455556666",
+      pageCode: "NEG-D12",
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+      projectCode: "NEG",
+      questionId: null,
+    },
+    {
+      kind: "chat.mention",
+      chatMessageId: "8d2e3f40-bbbb-4ccc-8ddd-eeeeffff0000",
+      channelId: "9e3f4051-cccc-4ddd-8eee-ffff00001111",
+      channelName: "general",
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+      authorUserId: "5e6f7a8b-dddd-4eee-8fff-000011112222",
+      authorName: "Marta Rinaldi",
+    },
+    {
+      kind: "chat.question",
+      chatMessageId: "8d2e3f40-bbbb-4ccc-8ddd-eeeeffff0001",
+      channelId: "9e3f4051-cccc-4ddd-8eee-ffff00001111",
+      channelName: "general",
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+      authorUserId: "5e6f7a8b-dddd-4eee-8fff-000011112222",
+      authorName: "Marta Rinaldi",
+    },
+    ...(["automation.approval", "automation.failed", "automation.notify", "automation.paused"] as const).map((kind) => ({
+      kind,
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+      automationId: "af3f4051-cccc-4ddd-8eee-ffff00002222",
+      automationCode: "NEG-A1",
+      automationName: "Onboarding cliente",
+      runId: "bf3f4051-cccc-4ddd-8eee-ffff00003333",
+      runNumber: 4,
+      ...(kind === "automation.notify" ? { message: "Il cliente è pronto" } : {}),
+    })),
   ];
+}
+
+/** Una card delle Automations (area 7): i quattro kind hanno la stessa forma. */
+export function isAutomationEvent(event: NotificationEvent): event is AutomationNotificationEvent {
+  return event.kind === "automation.approval" || event.kind === "automation.failed" || event.kind === "automation.notify" || event.kind === "automation.paused";
 }

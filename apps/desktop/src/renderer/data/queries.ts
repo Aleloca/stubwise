@@ -1,19 +1,29 @@
+import { revealAddress } from "./revealedAddress";
+import { withoutPlaceholders } from "../domain/automations/placeholders";
 import {
   keepPreviousData,
   QueryClient,
+  useInfiniteQuery,
   useMutation,
   useQueries,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { placeEvent, settleSaved } from "./calendarCache";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import * as api from "./api";
+import { subscribeAccess } from "@backend/runtime";
+import * as api from "@backend/api";
+import { isAppBuild } from "./build";
+import { automationAvailability, featureIntegrated } from "./integration";
+import { useDebounced } from "../lib/useDebounced";
 import type { ChangeFilter } from "./changelog/types";
 import type { MailDraftRequest } from "../domain/claude/intents/mailDraft";
 import { resolveHome } from "../domain/home";
 import { MIN_QUERY } from "../pages/chat/search";
 import type {
+  ConnectGoogleOptions,
   Attachment,
+  ChannelMessagesPage,
   ContextRef,
   AutomationFlow,
   AutomationMeta,
@@ -47,6 +57,7 @@ import type {
   DriveOpen,
   DriveSearchScope,
   DriveUploadInput,
+  DriveUploadOptions,
   GraphActionKind,
   GraphState,
   ManualPageInput,
@@ -67,10 +78,12 @@ import type {
   RefinePatch,
   Rsvp,
   StatusInput,
+  StoredLinkKind,
   Task,
   TaskPatch,
+  TimelinePage,
 } from "./types";
-import { can, useViewer } from "./viewer";
+import { can, useViewer } from "./viewing";
 
 /**
  * Ogni chiave comincia con `["as", personId]`: cambiare persona «vedi come»
@@ -149,18 +162,36 @@ export const queryKeys = {
     ["as", personId, "support", "conversation", code] as const,
   customerPreview: (personId: string, code: string) =>
     ["as", personId, "support", "preview", code] as const,
-  waitingCustomers: (personId: string) => ["as", personId, "support", "waiting"] as const,
   supportWidgets: (personId: string, projectId: string) =>
     ["as", personId, "support", "widgets", projectId] as const,
   myRequestStatus: (personId: string, requestId: string) =>
     ["as", personId, "support", "myRequest", requestId] as const,
   supportSearch: (personId: string, q: string) => ["as", personId, "support", "search", q] as const,
+  /** La Cassaforte (lotto 10): tutto nell'area «vault». */
+  vaultStatus: (personId: string) => ["as", personId, "vault", "status"] as const,
+  credentials: (personId: string, scope: string) =>
+    ["as", personId, "vault", "list", scope] as const,
+  credentialsEntry: (personId: string, projectId: string) =>
+    ["as", personId, "vault", "entry", projectId] as const,
+  credential: (personId: string, id: string) =>
+    ["as", personId, "vault", "credential", id] as const,
+  readers: (personId: string, id: string) => ["as", personId, "vault", "readers", id] as const,
+  vaultPending: (personId: string) => ["as", personId, "vault", "pending"] as const,
+  vaultEntry: (personId: string) => ["as", personId, "vault", "entry-all"] as const,
+  myMacs: (personId: string) => ["as", personId, "vault", "my-macs"] as const,
+  vaultSimulation: (personId: string) => ["as", personId, "vault", "simulation"] as const,
+  macsOf: (personId: string, of: string) => ["as", personId, "vault", "macs-of", of] as const,
+  shareTargets: (personId: string, id: string) =>
+    ["as", personId, "vault", "share-targets", id] as const,
+  accessLog: (personId: string, projectId: string, credentialId: string) =>
+    ["as", personId, "vault", "log", projectId, credentialId] as const,
   /** Server (area 8b): tutto nell'area «servers». */
   projectServers: (personId: string, projectId: string) =>
     ["as", personId, "servers", "list", projectId] as const,
   server: (personId: string, code: string) => ["as", personId, "servers", "server", code] as const,
   /** Tutti i server dell'istanza (Amministrazione → Servers, area 9b). */
   allServers: (personId: string) => ["as", personId, "servers", "all"] as const,
+  linkableServers: (personId: string) => ["as", personId, "servers", "linkable"] as const,
   serverMetrics: (personId: string, code: string, range: string, checkId: string) =>
     ["as", personId, "servers", "metrics", code, range, checkId] as const,
   serverSearch: (personId: string, q: string) => ["as", personId, "servers", "search", q] as const,
@@ -199,8 +230,7 @@ export const queryKeys = {
     ["as", personId, "commands", contextProjectId] as const,
   citations: (personId: string, refs: string) => ["as", personId, "citations", refs] as const,
   /** Area 10a: il chip del riquadro di Claude (il riferimento in JSON) e l'id dietro un codice. */
-  claudeContext: (personId: string, ref: string) =>
-    ["as", personId, "claudeContext", ref] as const,
+  claudeContext: (personId: string, ref: string) => ["as", personId, "claudeContext", ref] as const,
   claudeContextId: (personId: string, kind: string, code: string) =>
     ["as", personId, "claudeContext", "id", kind, code] as const,
   codeCitations: (personId: string, codes: string) =>
@@ -219,8 +249,8 @@ export const queryKeys = {
   chatChannel: (personId: string, id: string) => ["as", personId, "chatChannel", id] as const,
   chatMembers: (personId: string, channelId: string) =>
     ["as", personId, "chatMembers", channelId] as const,
-  chatMessages: (personId: string, channelId: string, limit = CHAT_PAGE) =>
-    ["as", personId, "chatMessages", channelId, limit] as const,
+  chatMessages: (personId: string, channelId: string) =>
+    ["as", personId, "chatMessages", channelId] as const,
   chatMessage: (personId: string, id: string) => ["as", personId, "chatMessage", id] as const,
   chatThread: (personId: string, messageId: string) =>
     ["as", personId, "chatThread", messageId] as const,
@@ -270,6 +300,8 @@ export const queryKeys = {
   mailThread: (personId: string, threadId: string) =>
     ["as", personId, "mail", "thread", threadId] as const,
   mailboxes: (personId: string) => ["as", personId, "mail", "mailboxes"] as const,
+  /** Area 8: «Clienti in attesa» della Home, dalla posta delle mie caselle. */
+  mailWaitingCustomers: (personId: string) => ["as", personId, "mail", "waitingCustomers"] as const,
   importantMail: (personId: string) => ["as", personId, "mail", "important"] as const,
   mailSearch: (personId: string, q: string) => ["as", personId, "mail", "search", q] as const,
   mailProposals: (personId: string, filters: MailProposalFilters) =>
@@ -303,6 +335,11 @@ export const queryKeys = {
     ["as", personId, "meeting", "summary", eventId] as const,
   tasksBornFrom: (personId: string, eventId: string) =>
     ["as", personId, "meeting", "born", eventId] as const,
+  // La riunione per nota (F5a, Q-A = a): l'invitato che ci arriva senza l'evento.
+  meetingByNote: (personId: string, noteId: string) =>
+    ["as", personId, "meeting", "note", noteId] as const,
+  tasksOfNote: (personId: string, noteId: string) =>
+    ["as", personId, "meeting", "noteBorn", noteId] as const,
   // Automations (area 7): tutto nell'area «automations».
   automations: (personId: string, filter: AutomationListFilter) =>
     ["as", personId, "automations", "list", filter] as const,
@@ -312,7 +349,11 @@ export const queryKeys = {
     ["as", personId, "automations", "runs", filter] as const,
   automationRun: (personId: string, id: string) =>
     ["as", personId, "automations", "run", id] as const,
+  automationRunByCode: (personId: string, code: string, n: number) =>
+    ["as", personId, "automations", "runByCode", code, n] as const,
   automationSources: (personId: string) => ["as", personId, "automations", "sources"] as const,
+  sourceEvents: (personId: string, id: string) =>
+    ["as", personId, "automations", "sourceEvents", id] as const,
   clientLinks: (personId: string) => ["as", personId, "automations", "clientLinks"] as const,
   clientSuggestions: (personId: string) =>
     ["as", personId, "automations", "clientSuggestions"] as const,
@@ -351,6 +392,14 @@ export function useDepartments() {
 
 export function usePeople() {
   const me = useSessionPersonId();
+  const client = useQueryClient();
+  // Revisione del lotto 2 (minor, r.1414): l'elenco è di chi guarda conosce,
+  // e una scrittura degli accessi (un membro entrato, un reparto) lo cambia:
+  // allora si rilegge, anche fuori da Amministrazione.
+  useEffect(
+    () => subscribeAccess(() => void client.invalidateQueries({ queryKey: queryKeys.people(me) })),
+    [client, me],
+  );
   return useQuery({ queryKey: queryKeys.people(me), queryFn: api.listPeople });
 }
 
@@ -447,6 +496,15 @@ export function useTasks(
   });
 }
 
+/**
+ * Se la lista di `useTasks(criteria)` è arrivata troncata (oltre le 2000 righe
+ * del server): il carico lo dice. Si legge quando i dati ci sono, dopo la
+ * lettura che l'ha scritto; nel prototipo mai.
+ */
+export function tasksTruncated(criteria: FilterCriteria | undefined, data: unknown): boolean {
+  return data !== undefined && api.tasksTruncated(criteria);
+}
+
 export function useTask(code: string) {
   const me = useSessionPersonId();
   return useQuery({ queryKey: queryKeys.task(me, code), queryFn: () => api.getTaskByCode(code) });
@@ -500,7 +558,12 @@ export function useRequest(id: string, { enabled = true }: { enabled?: boolean }
 
 export function useSavedFilters() {
   const me = useSessionPersonId();
-  return useQuery({ queryKey: queryKeys.savedFilters(me), queryFn: api.listSavedFilters });
+  // I filtri salvati non sono ancora integrati: nella build app nessuna lettura parte.
+  return useQuery({
+    queryKey: queryKeys.savedFilters(me),
+    queryFn: api.listSavedFilters,
+    enabled: featureIntegrated("saved-filters"),
+  });
 }
 
 export function useSavedFilter(id: string) {
@@ -528,8 +591,9 @@ export function usePersonalHome() {
  */
 export function useHome() {
   const me = useSessionPersonId();
-  // [R 22]: «Releases» nella Home non personalizzata di chi può rilasciare.
-  const canRelease = can(useViewer().viewer, "release.merge");
+  // [R 22]: «Releases» nella Home non personalizzata di chi può rilasciare,
+  // dove i rilasci sono integrati (nella build app non ancora: fetta 3).
+  const canRelease = can(useViewer().viewer, "release.merge") && featureIntegrated("releases");
   const people = usePeople();
   const homes = useDepartmentHomes();
   const personal = usePersonalHome();
@@ -541,12 +605,7 @@ export function useHome() {
             person,
             departmentHomes: homes.data,
             personal: personal.data,
-            ...resolveHome(
-              person,
-              homes.data,
-              personal.data,
-              canRelease ? ["releases"] : [],
-            ),
+            ...resolveHome(person, homes.data, personal.data, canRelease ? ["releases"] : []),
           }
         : undefined,
     [person, homes.data, personal.data, canRelease],
@@ -587,35 +646,84 @@ export function useStalled(
   });
 }
 
+/**
+ * Quanto restano fresche le letture del polso e delle cronologie: sul server
+ * vero un polso sono sei letture e una cronologia una pagina di 28 giorni
+ * (review della fetta 4). Le scritture che le toccano le ricaricano comunque.
+ */
+const OVERVIEW_STALE_MS = 60_000;
+
+/** Il polso di un progetto; `""` (il progetto non ancora letto) non si legge. */
 export function useProjectPulse(projectId: string) {
   const me = useSessionPersonId();
   return useQuery({
     queryKey: queryKeys.pulse(me, projectId),
     queryFn: () => api.projectPulse(projectId),
+    enabled: projectId !== "",
+    staleTime: OVERVIEW_STALE_MS,
   });
 }
 
 /** Il polso di ogni progetto visibile (il portafoglio). */
 export function useProjectPulses() {
   const me = useSessionPersonId();
-  return useQuery({ queryKey: queryKeys.pulses(me), queryFn: api.listProjectPulses });
+  return useQuery({
+    queryKey: queryKeys.pulses(me),
+    queryFn: api.listProjectPulses,
+    staleTime: OVERVIEW_STALE_MS,
+  });
 }
 
-/** L'attività di tutti i progetti visibili, dalla più recente. */
+/**
+ * Una cronologia a pagine (fetta 4, «Load older»): gli eventi delle pagine
+ * lette, dalla più recente, e `loadOlder` per la pagina prima finché `hasMore`.
+ * Nel prototipo c'è una pagina sola con tutta la storia.
+ */
+function usePagedTimeline<E>(
+  queryKey: readonly unknown[],
+  page: (before?: string) => Promise<TimelinePage<E>>,
+) {
+  const query = useInfiniteQuery({
+    queryKey,
+    queryFn: ({ pageParam }) => page(pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextBefore ?? undefined,
+    // Ogni pagina letta si rilegge a ogni ricarica: niente al ritorno sulla finestra.
+    staleTime: OVERVIEW_STALE_MS,
+    refetchOnWindowFocus: false,
+  });
+  const data = useMemo(() => query.data?.pages.flatMap((p) => p.events), [query.data]);
+  return {
+    data,
+    isError: query.isError,
+    refetch: query.refetch,
+    hasMore: query.hasNextPage,
+    /** Le pagine lette: chi chiede la pagina prima sa quando è arrivata. */
+    pages: query.data?.pages.length ?? 0,
+    loadingOlder: query.isFetchingNextPage,
+    loadOlder: () => void query.fetchNextPage(),
+  };
+}
+
+/** L'attività di tutti i progetti visibili, dalla più recente, a pagine. */
 export function usePortfolioActivity() {
   const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.portfolioActivity(me),
-    queryFn: api.listPortfolioActivity,
-  });
+  return usePagedTimeline(queryKeys.portfolioActivity(me), (before) =>
+    api.listPortfolioActivityPage(before),
+  );
 }
 
+/** La cronologia di un progetto, dalla più recente (i traguardi futuri nella prima pagina), a pagine. */
 export function useTimeline(projectId: string) {
   const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.timeline(me, projectId),
-    queryFn: () => api.listTimeline(projectId),
-  });
+  return usePagedTimeline(queryKeys.timeline(me, projectId), (before) =>
+    api.listTimelinePage(projectId, before),
+  );
+}
+
+/** Il registro letto è arrivato al tetto (build app): si legge dopo la lettura, quando i dati ci sono. */
+export function decisionLogTruncated(projectId: string, data: unknown): boolean {
+  return data !== undefined && api.decisionLogTruncated(projectId);
 }
 
 export function useDecisionLog(projectId: string) {
@@ -678,6 +786,9 @@ const CONVERSATION_CHANGE_AREAS = [
   // Lo stato di una PR di Stubwise (coda, pannello, blocco Home) viene dalle
   // sessioni della sua task.
   "releases",
+  // Claude cambia le tue iscrizioni (`setSubscription`, area 8 F2): Preferenze
+  // le rilegge, dopo l'azione e dopo il suo «Annulla».
+  "alerts",
 ] as const;
 
 /** Quanto si aspetta per raccogliere più cambi in una sola rilettura (ms). */
@@ -742,7 +853,9 @@ function listenToConversationChanges(client: QueryClient): () => void {
  */
 export function useConversationChanges(): void {
   const client = useQueryClient();
-  useEffect(() => listenToConversationChanges(client), [client]);
+  // Le conversazioni di Claude: nella build app dalla fetta 3a (sessioni di lavoro).
+  const on = featureIntegrated("claude");
+  useEffect(() => (on ? listenToConversationChanges(client) : undefined), [client, on]);
 }
 
 export function useConversations(
@@ -793,7 +906,8 @@ export function useCitations(refs: readonly CitationRef[]) {
   return useQuery({
     queryKey: queryKeys.citations(me, key),
     queryFn: () => api.resolveCitations([...refs]),
-    enabled: refs.length > 0,
+    // Le citazioni sono della chat libera, «in arrivo» nella build app: le sessioni di lavoro non ne hanno.
+    enabled: refs.length > 0 && featureIntegrated("claude-chat"),
   });
 }
 
@@ -807,7 +921,8 @@ export function useCodeCitations(codes: readonly string[]) {
   return useQuery({
     queryKey: queryKeys.codeCitations(me, key),
     queryFn: () => api.resolveCodes([...codes]),
-    enabled: codes.length > 0,
+    // I codici citati nei testi di Claude: della chat libera, «in arrivo» nella build app.
+    enabled: codes.length > 0 && featureIntegrated("claude-chat"),
   });
 }
 
@@ -864,8 +979,15 @@ export function useGenerateDailyReport() {
 /** Collegato l'autore, i suoi commit passano sotto la persona. */
 export function useLinkCommitAuthor() {
   return useWrite(
-    ({ authorName, personId }: { authorName: string; personId: string }) =>
-      api.linkCommitAuthor(authorName, personId),
+    ({
+      authorName,
+      personId,
+      authorEmail,
+    }: {
+      authorName: string;
+      personId: string;
+      authorEmail?: string | null;
+    }) => api.linkCommitAuthor(authorName, personId, authorEmail),
     ["peopleActivity"],
   );
 }
@@ -887,7 +1009,11 @@ export function useMarkNotification() {
 
 export function usePinnedFilters() {
   const me = useSessionPersonId();
-  return useQuery({ queryKey: queryKeys.pinnedFilters(me), queryFn: api.listPinnedFilterIds });
+  return useQuery({
+    queryKey: queryKeys.pinnedFilters(me),
+    queryFn: api.listPinnedFilterIds,
+    enabled: featureIntegrated("saved-filters"),
+  });
 }
 
 // --- mutazioni ---------------------------------------------------------------
@@ -964,11 +1090,24 @@ export function useInvalidate(areas: readonly string[]) {
 export function useWrite<TVars, TData>(
   mutationFn: (vars: TVars) => Promise<TData>,
   areas: readonly string[],
-  /** Il risultato porta un segreto mostrato una volta: la cache delle mutazioni non lo tiene. */
-  { secret = false }: { secret?: boolean } = {},
+  /**
+   * `secret`: il risultato porta un segreto mostrato una volta, la cache delle
+   * mutazioni non lo tiene. `viewer`: la scrittura può cambiare i permessi di
+   * chi guarda (membri, archivio), si rilegge anche `["viewer"]`.
+   */
+  { secret = false, viewer = false }: { secret?: boolean; viewer?: boolean } = {},
 ) {
   const invalidate = useInvalidate(areas);
-  return useMutation({ mutationFn, onSettled: invalidate, ...(secret ? { gcTime: 0 } : {}) });
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onSettled: () =>
+      Promise.all([
+        invalidate(),
+        viewer ? client.invalidateQueries({ queryKey: ["viewer"] }) : null,
+      ]),
+    ...(secret ? { gcTime: 0 } : {}),
+  });
 }
 
 /**
@@ -1012,14 +1151,28 @@ export function useOptimistic<TVars, TData>(
   });
 }
 
-/** Applica una `TaskPatch` alle task in cache: liste, ferme e singola. */
+/**
+ * Applica una `TaskPatch` alle task in cache: liste, ferme e singola. Sotto
+ * «tasks» c'è anche il conteggio (`["as", me, "tasks", "count", …]`, dati
+ * `{count, truncated}`): non è un elenco e resta com'è (si rilegge a fine scrittura).
+ */
 function patchTasks(ids: readonly string[], patch: TaskPatch, area: string, old: unknown) {
   const apply = (t: Task): Task => (ids.includes(t.id) ? { ...t, ...patch } : t);
-  if (area === "tasks") return (old as Task[]).map(apply);
+  if (area === "tasks") return Array.isArray(old) ? (old as Task[]).map(apply) : old;
   if (area === "stalled") {
     return (old as { task: Task }[]).map((row) => ({ ...row, task: apply(row.task) }));
   }
   return old ? apply(old as Task) : old;
+}
+
+/** Quante task rispondono ai criteri (con `truncated` oltre il tetto del server). */
+export function useTaskCount(criteria: FilterCriteria, enabled = true) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "tasks", "count", criteria] as const,
+    queryFn: () => api.countTasks(criteria),
+    enabled,
+  });
 }
 
 export function useCreateTask() {
@@ -1036,6 +1189,63 @@ export function useUpdateTask() {
 }
 
 /**
+ * Le scritture dedicate di una task (integrazione area 2, fetta 1): seguire,
+ * ferma a mano, allegati, collegamenti. Sul server hanno rotte loro; qui la
+ * pagina dà anche l'anteprima del cambio (`preview`), applicata subito come
+ * per `useUpdateTask` e tolta se la scrittura fallisce.
+ */
+export type TaskWrite =
+  | { kind: "follow"; follow: boolean }
+  | { kind: "setManualStall"; reason: string; note: string }
+  | { kind: "clearManualStall" }
+  | { kind: "addAttachment"; name: string; sizeBytes: number; file?: Blob }
+  | { kind: "removeAttachment"; attachmentId: string }
+  | { kind: "addLink"; link: { kind: StoredLinkKind; taskId: string } }
+  | { kind: "removeLink"; link: { kind: StoredLinkKind; taskId: string } };
+
+function runTaskWrite(id: string, w: TaskWrite): Promise<Task> {
+  switch (w.kind) {
+    case "follow":
+      return api.followTask(id, w.follow);
+    case "setManualStall":
+      return api.setManualStall(id, { reason: w.reason, note: w.note });
+    case "clearManualStall":
+      return api.clearManualStall(id);
+    case "addAttachment":
+      return api.addAttachment(id, {
+        name: w.name,
+        sizeBytes: w.sizeBytes,
+        ...(w.file ? { file: w.file } : {}),
+      });
+    case "removeAttachment":
+      return api.removeAttachment(id, w.attachmentId);
+    case "addLink":
+      return api.addLink(id, w.link);
+    case "removeLink":
+      return api.removeLink(id, w.link);
+  }
+}
+
+export function useTaskWrite() {
+  return useOptimistic(
+    ({ id, write }: { id: string; write: TaskWrite; preview: TaskPatch }) =>
+      runTaskWrite(id, write),
+    ["tasks", "task", "stalled"],
+    (vars, area, old) => patchTasks([vars.id], vars.preview, area, old),
+    TASK_AREAS,
+  );
+}
+
+/** Il lavoro di Claude in breve (la sezione Claude della build app). */
+export function useTaskWorkSummary(taskId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "taskWork", "summary", taskId] as const,
+    queryFn: () => api.getTaskWorkSummary(taskId),
+  });
+}
+
+/**
  * «Elimina task» (area 10a): cosa direbbe il dialogo — se si può, il «Who?»,
  * cosa la occupa, le figlie che restano. `null` per una task che chi guarda
  * non vede o che non c'è più.
@@ -1047,6 +1257,7 @@ export function useTaskDeletion(taskId: string) {
   return useQuery({
     queryKey: ["as", me, "taskDeletion", taskId] as const,
     queryFn: () => api.getTaskDeletion(taskId),
+    enabled: featureIntegrated("task-delete"),
   });
 }
 
@@ -1086,11 +1297,19 @@ export function useBulkUpdateTasks() {
 
 export function usePlanTask() {
   return useOptimistic(
-    ({ id, ...plan }: { id: string; assigneeId: string | null; week: string | null }) =>
+    // R.1414: `assigneeId` omesso = l'assegnatario resta (la pagina lo omette col segnaposto).
+    ({ id, ...plan }: { id: string; assigneeId?: string | null; week: string | null }) =>
       api.planTask(id, plan),
     ["tasks", "task"],
     (vars, area, old) =>
-      patchTasks([vars.id], { assigneeId: vars.assigneeId, plannedWeek: vars.week }, area, old),
+      patchTasks(
+        [vars.id],
+        vars.assigneeId === undefined
+          ? { plannedWeek: vars.week }
+          : { assigneeId: vars.assigneeId, plannedWeek: vars.week },
+        area,
+        old,
+      ),
     TASK_AREAS,
   );
 }
@@ -1174,8 +1393,13 @@ export function useWithdrawDecision() {
   return useWrite(api.withdrawDecision, DECISION_REQUEST_AREAS);
 }
 
+/** `signal`: sul server vero ferma l'attesa dell'intake quando il dialogo si chiude. */
 export function useCreateRequest() {
-  return useWrite(api.createRequest, REQUEST_AREAS);
+  return useWrite(
+    ({ input, signal }: { input: Parameters<typeof api.createRequest>[0]; signal?: AbortSignal }) =>
+      api.createRequest(input, { signal }),
+    REQUEST_AREAS,
+  );
 }
 
 export function useUpdateRequest() {
@@ -1281,7 +1505,11 @@ export function useSetDepartmentHome() {
 }
 
 export function useMarkDepartmentHomeSeen() {
-  return useWrite(api.markDepartmentHomeSeen, HOME_AREAS);
+  return useWrite(
+    ({ departmentId, updatedAt }: { departmentId: string; updatedAt?: string }) =>
+      api.markDepartmentHomeSeen(departmentId, updatedAt),
+    HOME_AREAS,
+  );
 }
 
 /**
@@ -1300,8 +1528,22 @@ export function useSetPinned() {
   );
 }
 
+/**
+ * Chi crea un progetto ne diventa Project Lead: i suoi permessi lì li dice il
+ * server, quindi si rilegge anche il viewer (come `useAdminWrite`), o «New
+ * task» resterebbe nascosta fino al riavvio.
+ */
 export function useCreateProject() {
-  return useWrite(api.createProject, PROJECT_AREAS);
+  const client = useQueryClient();
+  const invalidate = useInvalidate(PROJECT_AREAS);
+  return useMutation({
+    mutationFn: api.createProject,
+    onSettled: () =>
+      Promise.all([invalidate(), client.invalidateQueries({ queryKey: ["viewer"] })]),
+    // Area 9, F5 (review, C1): il risultato porta la chiave d'ingestione
+    // intera, l'unica volta; la cache delle mutazioni non la tiene.
+    gcTime: 0,
+  });
 }
 
 export function useSetProjectStatuses() {
@@ -1370,8 +1612,25 @@ export function useSetStallThresholds() {
  * registro. Task chiuse o spostate, commenti e richieste sono anche i fatti
  * della rassegna del giorno per persona: si rileggono anche quelli.
  */
+/**
+ * Le aree che le azioni di Claude dell'area 9 toccano (F7, review I2):
+ * impostazioni del progetto, registro, Amministrazione e istanza, gli elenchi
+ * dei progetti (un archiviato esce dal binario) e la pagina dell'archiviato.
+ */
+const CLAUDE_AREA9_AREAS = [
+  "projectSettings",
+  "changelog",
+  "admin",
+  "instance",
+  "projects",
+  "project",
+  "archived",
+  "pinned",
+] as const;
+
 const PROPOSAL_AREAS = [
   ...CONVERSATION_CHANGE_AREAS,
+  ...CLAUDE_AREA9_AREAS,
   ...TASK_AREAS,
   ...REQUEST_AREAS,
   ...DECISION_AREAS,
@@ -1472,13 +1731,16 @@ export function useDecidePlan() {
       decision,
       instructions,
       planId,
+      planDigest,
     }: {
       id: string;
       decision: "approve" | "reject";
       instructions?: string;
       /** Il piano letto da chi decide: un piano diverso in attesa non si decide al buio. */
       planId?: string;
-    }) => api.decidePlan(id, decision, instructions, planId),
+      /** Build app: il digest di quel piano, rimandato al server (punto 13 della review). */
+      planDigest?: string;
+    }) => api.decidePlan(id, decision, instructions, planId, planDigest),
     DECIDE_AREAS,
   );
 }
@@ -1491,18 +1753,25 @@ export function useClaudeDecisions() {
   const me = useSessionPersonId();
   const client = useQueryClient();
   useConversationChanges();
+  // Le voci di Claude in «Da decidere» sono della 3b: niente lettura né ascolto.
+  const on = featureIntegrated("claude-decisions");
+  // Le domande di Claude sulla doc di prodotto (area 11): nella build app con `product-docs` (F5).
+  const productDocsOn = featureIntegrated("product-docs");
   // 11b: anche una domanda di Claude sulla doc di prodotto nata o chiusa,
   // da chiunque (il motore, un'altra persona).
   useEffect(
     () =>
-      api.productDocs.onProductQuestionsChanged(() => {
-        void client.invalidateQueries({ queryKey: queryKeys.claudeDecisions(me) });
-      }),
-    [client, me],
+      on && productDocsOn
+        ? api.productDocs.onProductQuestionsChanged(() => {
+            void client.invalidateQueries({ queryKey: queryKeys.claudeDecisions(me) });
+          })
+        : undefined,
+    [client, me, on, productDocsOn],
   );
   return useQuery({
     queryKey: queryKeys.claudeDecisions(me),
     queryFn: api.listClaudeDecisions,
+    enabled: on,
   });
 }
 
@@ -1539,9 +1808,10 @@ export function useDecidePlanNow() {
     planId: string,
     decision: "approve" | "reject",
     instructions?: string,
+    planDigest?: string,
   ) => {
     try {
-      return await api.decidePlan(id, decision, instructions, planId);
+      return await api.decidePlan(id, decision, instructions, planId, planDigest);
     } finally {
       await invalidate();
     }
@@ -1562,12 +1832,21 @@ export function useConfirmProposal() {
       id,
       proposalId,
       actionIndexes,
+      edited,
     }: {
       id: string;
       proposalId: string;
       actionIndexes?: number[];
-    }) => api.confirmProposal(id, proposalId, actionIndexes ? { actionIndexes } : {}),
+      /** Build app: i valori di «Edit», confermati dal server. */
+      edited?: { index: number; args: Record<string, unknown> }[];
+    }) =>
+      api.confirmProposal(id, proposalId, {
+        ...(actionIndexes ? { actionIndexes } : {}),
+        ...(edited ? { edited } : {}),
+      }),
     PROPOSAL_AREAS,
+    // Membri e archivio cambiano i permessi di chi guarda (F7, review I2).
+    { viewer: true },
   );
 }
 
@@ -1580,6 +1859,16 @@ export function useUndoClaudeActions() {
   return useWrite(
     ({ id, groupId }: { id: string; groupId: string }) => api.claude.undoClaudeActions(id, groupId),
     [...PROPOSAL_AREAS, "changelog", "notifications"],
+    { viewer: true },
+  );
+}
+
+/** Lotto 4, §5: «Retry» del seguito non riuscito di un'azione (il corpo dell'email su Gmail). */
+export function useRetryClaudeEffect() {
+  return useWrite(
+    ({ id, groupId, index }: { id: string; groupId: string; index: number }) =>
+      api.claude.retryClaudeEffect(id, groupId, index),
+    PROPOSAL_AREAS,
   );
 }
 
@@ -1593,6 +1882,15 @@ export function useCompleteEditedProposal() {
 }
 
 /** Il contesto di progetto di una conversazione libera (decide le skill di «/»). */
+/** Lotto 8, §1: il gruppo dei contesti di una libera (aggiungere e togliere un chip). */
+export function useSetConversationContexts() {
+  return useWrite(
+    ({ id, contexts }: { id: string; contexts: ContextRef[] }) =>
+      api.setConversationContexts(id, contexts),
+    CONVERSATION_AREAS,
+  );
+}
+
 export function useSetConversationContext() {
   return useWrite(
     ({ id, projectId }: { id: string; projectId: string | null }) =>
@@ -1607,8 +1905,15 @@ export function useSetConversationContext() {
  */
 export function useSettlePageEvent() {
   return useWrite(
-    ({ id, eventId, status }: { id: string; eventId: string; status: api.PageEventStatus }) =>
-      api.settlePageEvent(id, eventId, status),
+    ({
+      id,
+      eventId,
+      status,
+    }: {
+      id: string;
+      eventId: string;
+      status: api.PageEventStatus | "not_run";
+    }) => api.settlePageEvent(id, eventId, status),
     CONVERSATION_AREAS,
   );
 }
@@ -1688,6 +1993,14 @@ export function useResumeCorrection() {
   return useWrite(api.resumeCorrection, RUN_AREAS);
 }
 
+/**
+ * «Annulla il lavoro» (decisione del maintainer): chiude il lavoro
+ * parcheggiato della task; uno in esecuzione si ferma prima con «Ferma».
+ */
+export function useCancelRun() {
+  return useWrite(api.cancelRun, RUN_AREAS);
+}
+
 export function useRequestChanges() {
   return useWrite(
     ({ taskId, text }: { taskId: string; text: string }) => api.requestChanges(taskId, text),
@@ -1710,6 +2023,8 @@ export function useRefineOf(requestId: string) {
   return useQuery({
     queryKey: queryKeys.refineOf(me, requestId),
     queryFn: () => api.getRefineOf(requestId),
+    // Il refine con Claude è dell'area 3: nella build app non parte.
+    enabled: featureIntegrated("refine"),
   });
 }
 
@@ -1780,7 +2095,8 @@ export function useConversationStream(
             onConnection: (connection) => {
               unsubscribe = null;
               publish(connection);
-              if (connection === "reconnecting") retry = setTimeout(connect, api.reconnectDelay());
+              if (connection === "reconnecting")
+                retry = setTimeout(connect, api.reconnectDelay(id));
             },
           },
         );
@@ -1832,7 +2148,16 @@ function listenToChatChanges(client: QueryClient): () => void {
   let entry = chatListeners.get(client);
   if (!entry) {
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const off = api.chat.onChatChange(() => {
+    const off = api.chat.onChatChange((channelId, change) => {
+      // Una ripresa senza cursore: il flusso di quel canale si rilegge per intero.
+      if (change?.messages) {
+        void client.invalidateQueries({
+          predicate: (query) =>
+            query.queryKey[0] === "as" &&
+            query.queryKey[2] === "chatMessages" &&
+            query.queryKey[3] === channelId,
+        });
+      }
       if (timer !== undefined) return;
       timer = setTimeout(() => {
         timer = undefined;
@@ -1873,7 +2198,8 @@ function listenToChatChanges(client: QueryClient): () => void {
  */
 function useChatChanges(): void {
   const client = useQueryClient();
-  useEffect(() => listenToChatChanges(client), [client]);
+  const on = featureIntegrated("chat");
+  useEffect(() => (on ? listenToChatChanges(client) : undefined), [client, on]);
 }
 
 export function useChatChannels(
@@ -1885,7 +2211,7 @@ export function useChatChannels(
   return useQuery({
     queryKey: queryKeys.chatChannels(me, scope),
     queryFn: () => api.chat.listChannels(scope),
-    enabled,
+    enabled: enabled && featureIntegrated("chat"),
   });
 }
 
@@ -1896,6 +2222,7 @@ export function useChatChannel(id: string) {
   return useQuery({
     queryKey: queryKeys.chatChannel(me, id),
     queryFn: () => api.chat.getChannel(id),
+    enabled: featureIntegrated("chat"),
   });
 }
 
@@ -1911,12 +2238,52 @@ export function useChannelMembers(channelId: string) {
  * Gli ultimi `limit` messaggi del flusso del canale; `null` se chi guarda
  * non ne legge i messaggi. I nuovi arrivano da `useChannelStream`.
  */
-export function useChannelMessages(channelId: string, limit = CHAT_PAGE) {
+/**
+ * Il flusso di un canale a pagine: la più nuova, poi le precedenti DAL CURSORE
+ * dell'ultima letta (`before` = il suo primo messaggio). Le pagine già lette
+ * restano: salire non rilegge da capo. `older(limit)` chiede la pagina prima,
+ * della grandezza voluta («Load earlier» o il salto a un messaggio lontano).
+ * `data` è la forma di sempre: i messaggi in ordine, `hasMore` dell'ultima
+ * pagina, la lettura della prima; `null` se il canale non si legge.
+ */
+export function useChannelMessages(channelId: string) {
   const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.chatMessages(me, channelId, limit),
-    queryFn: () => api.chat.listMessages(channelId, { limit }),
+  const nextLimit = useRef(CHAT_PAGE);
+  const query = useInfiniteQuery({
+    queryKey: queryKeys.chatMessages(me, channelId),
+    queryFn: ({ pageParam }) =>
+      api.chat.listMessages(
+        channelId,
+        pageParam ? { before: pageParam.before, limit: pageParam.limit } : { limit: CHAT_PAGE },
+      ),
+    initialPageParam: null as { before: string; limit: number } | null,
+    getNextPageParam: (last) =>
+      last?.hasMore && last.messages[0]
+        ? { before: last.messages[0].id, limit: nextLimit.current }
+        : undefined,
   });
+  const data = useMemo((): ChannelMessagesPage | null | undefined => {
+    const pages = query.data?.pages;
+    if (!pages) return undefined;
+    const first = pages[0];
+    if (!first) return null;
+    const read = pages.filter((p): p is ChannelMessagesPage => p !== null);
+    return {
+      messages: [...read].reverse().flatMap((p) => p.messages),
+      hasMore: read.at(-1)?.hasMore ?? false,
+      lastReadAt: first.lastReadAt,
+    };
+  }, [query.data]);
+  return {
+    data,
+    isError: query.isError,
+    isFetching: query.isFetching,
+    refetch: query.refetch,
+    older: (limit: number) => {
+      nextLimit.current = limit;
+      void query.fetchNextPage();
+    },
+  };
 }
 
 /** Un messaggio (link, anteprima, salto); `null` se non lo legge o non c'è più. */
@@ -1941,7 +2308,11 @@ export function useChatThread(messageId: string, { enabled = true }: { enabled?:
 export function useThreadsWithNews() {
   const me = useSessionPersonId();
   useChatChanges();
-  return useQuery({ queryKey: queryKeys.chatThreads(me), queryFn: api.chat.listThreadsWithNews });
+  return useQuery({
+    queryKey: queryKeys.chatThreads(me),
+    queryFn: api.chat.listThreadsWithNews,
+    enabled: featureIntegrated("chat"),
+  });
 }
 
 export function useChatMentions() {
@@ -1954,7 +2325,12 @@ export function useChatMentions() {
 export function useChatQuestions() {
   const me = useSessionPersonId();
   useChatChanges();
-  return useQuery({ queryKey: queryKeys.chatQuestions(me), queryFn: api.chat.listQuestions });
+  return useQuery({
+    queryKey: queryKeys.chatQuestions(me),
+    queryFn: api.chat.listQuestions,
+    // Le domande della Chat sono della fetta 2 (`chat-questions`).
+    enabled: featureIntegrated("chat") && featureIntegrated("chat-questions"),
+  });
 }
 
 /**
@@ -1964,7 +2340,11 @@ export function useChatQuestions() {
 export function useChatSignal() {
   const me = useSessionPersonId();
   useChatChanges();
-  return useQuery({ queryKey: queryKeys.chatSignal(me), queryFn: api.chat.hasNews });
+  return useQuery({
+    queryKey: queryKeys.chatSignal(me),
+    queryFn: api.chat.hasNews,
+    enabled: featureIntegrated("chat"),
+  });
 }
 
 /** Ignora una domanda della Chat ADESSO (vedi `useAnswerDecisionNow`): per l'«Undo» di «Decide». */
@@ -2000,7 +2380,8 @@ export function useChatSearch(q: string, filters: ChatSearchFilters = {}) {
   return useQuery({
     queryKey: queryKeys.chatSearch(me, q, filters),
     queryFn: () => api.chat.searchChat(q, filters),
-    enabled: q.trim().length >= 2,
+    // La ricerca della Chat è della fetta 2 (`chat-search`).
+    enabled: q.trim().length >= 2 && featureIntegrated("chat-search"),
     // Come la ricerca: i risultati di prima restano solo per la stessa persona.
     placeholderData: (previous, previousQuery) =>
       previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
@@ -2154,8 +2535,15 @@ export function useCreateTaskFromMessage() {
 
 export function useCreateRequestFromMessage() {
   return useWrite(
-    ({ messageId, input }: { messageId: string; input: api.NewRequestInput }) =>
-      api.chat.createRequestFromMessage(messageId, input),
+    ({
+      messageId,
+      input,
+      signal,
+    }: {
+      messageId: string;
+      input: api.NewRequestInput;
+      signal?: AbortSignal;
+    }) => api.chat.createRequestFromMessage(messageId, input, signal ? { signal } : {}),
     CHAT_CREATE_AREAS,
   );
 }
@@ -2169,6 +2557,8 @@ export function useChatClaudeQuestions() {
   return useQuery({
     queryKey: queryKeys.chatClaudeQuestions(me),
     queryFn: api.chat.listClaudeQuestions,
+    // Le domande di @Claude nella Chat sono della fetta 3 (`chat-claude`).
+    enabled: featureIntegrated("chat") && featureIntegrated("chat-claude"),
   });
 }
 
@@ -2205,13 +2595,20 @@ export function useConfirmChatProposal() {
       messageId,
       proposalId,
       actionIndexes,
+      edited,
     }: {
       messageId: string;
       proposalId: string;
       actionIndexes?: number[];
+      /** Build app: i valori di «Edit», confermati dal server. */
+      edited?: { index: number; args: Record<string, unknown> }[];
     }) =>
-      api.chat.confirmChatProposal(messageId, proposalId, actionIndexes ? { actionIndexes } : {}),
-    CHAT_PROPOSAL_AREAS,
+      api.chat.confirmChatProposal(messageId, proposalId, {
+        ...(actionIndexes ? { actionIndexes } : {}),
+        ...(edited ? { edited } : {}),
+      }),
+    [...CHAT_PROPOSAL_AREAS, ...CLAUDE_AREA9_AREAS],
+    { viewer: true },
   );
 }
 
@@ -2228,6 +2625,16 @@ export function useEditChatProposal() {
   return useMutation({
     mutationFn: ({ messageId, proposalId }: { messageId: string; proposalId: string }) =>
       api.chat.editChatProposal(messageId, proposalId),
+  });
+}
+
+/** Il download di un allegato della Chat (fetta 4) o di una task: non scrive nulla, non rilegge nulla. */
+export function useDownloadAttachment(of: "chat" | "task") {
+  return useMutation({
+    mutationFn: (attachmentId: string) =>
+      of === "chat"
+        ? api.chat.downloadAttachment(attachmentId)
+        : api.downloadTaskAttachment(attachmentId),
   });
 }
 
@@ -2249,7 +2656,10 @@ export function useCompleteEditedChatProposal() {
 export interface ChatStream {
   /** I messaggi arrivati (o cambiati) dal vivo dopo l'iscrizione, per id: da unire alla pagina letta. */
   messages: ChatMessageView[];
-  /** `not_found`: il canale (o il thread) non esiste o chi guarda non lo legge; `closed`: non lo legge più. */
+  /**
+   * `not_found`: il canale (o il thread) non esiste o chi guarda non lo legge;
+   * `closed`: non lo legge più; `limit`: troppi stream aperti in questa finestra.
+   */
   error: string | null;
 }
 
@@ -2291,9 +2701,15 @@ function useChatStream(streamId: api.chat.ChatStreamId): ChatStream {
           if (active) setStream({ key, messages, error: null });
         },
         {
-          onConnection: () => {
+          // `limit`: troppi stream aperti in questa finestra (il main); i messaggi letti restano.
+          onConnection: (connection) => {
             unsubscribe = null;
-            if (active) setStream({ key, messages: [], error: "closed" });
+            if (active)
+              setStream({
+                key,
+                messages: connection === "limit" ? messages : [],
+                error: connection,
+              });
           },
         },
       );
@@ -2359,7 +2775,7 @@ export function useDocSpaces(projectId: string, { enabled = true }: { enabled?: 
   const query = useQuery({
     queryKey: queryKeys.docSpaces(me, projectId),
     queryFn: () => api.docs.listDocSpaces(projectId),
-    enabled,
+    enabled: enabled && featureIntegrated("docs"),
     refetchInterval: (query) => (query.state.data?.some(inFlight) ? DOCS_REFRESH_MS : false),
   });
   useDocsSettled(!!query.data?.some(inFlight));
@@ -2463,12 +2879,20 @@ export function useRepoBrief(repositoryId: string) {
 
 /** Una domanda alla chat dei Docs: legge e basta, quindi non ricarica nulla. */
 export function useAskDocs() {
-  return useMutation({ mutationFn: (q: DocsQuestion) => api.docs.askDocs(q) });
+  // Lotto 7, §2: `onText` riceve il testo che cresce mentre arriva.
+  return useMutation({
+    mutationFn: ({ onText, ...q }: DocsQuestion & { onText?: (soFar: string) => void }) =>
+      api.docs.askDocs(q, onText),
+  });
 }
 
-/** Una visita alla pagina («più lette»). */
+/**
+ * Una visita alla pagina («più lette»): fire-and-forget. Non ricarica i Docs:
+ * le «più lette» si aggiornano alla prossima lettura (review della fetta 1
+ * dell'area 5, punto 6).
+ */
 export function useRecordDocView() {
-  return useWrite((pageId: string) => api.docs.recordDocView(pageId), DOCS_AREAS);
+  return useMutation({ mutationFn: (pageId: string) => api.docs.recordDocView(pageId) });
 }
 
 // --- Drive (area 5) ------------------------------------------------------------
@@ -2481,21 +2905,69 @@ export function useRecordDocView() {
 const DRIVE_AREAS = ["drive"] as const;
 const DRIVE_FILE_AREAS = ["drive", "citations", "codeCitations", "mentions"] as const;
 
-/** Mentre un file è in elaborazione la lettura si ripete da sola, finché non è pronto. */
-const DRIVE_REFRESH_MS = 1000;
+/**
+ * Mentre un file è in elaborazione la lettura si ripete da sola, finché non è
+ * pronto: ogni secondo nel prototipo; contro il server vero ogni 3 s
+ * (decisione dell'orchestratrice, F3 dell'area 5), poi più di rado se dura
+ * (review del renderer della F3): 10 s dopo 2 minuti, 30 s dopo 10 — la
+ * semina dei file già caricati può durare ore.
+ */
+export function driveRefreshMs(elapsedMs = 0): number {
+  if (!isAppBuild()) return 1000;
+  if (elapsedMs < 2 * 60_000) return 3000;
+  if (elapsedMs < 10 * 60_000) return 10_000;
+  return 30_000;
+}
+
+/** Da quando ogni query del Drive vede un file in lettura (per il rallentamento). */
+const readingSince = new Map<string, number>();
+
+/** L'intervallo di una query del Drive: nessuno se non c'è niente in lettura. */
+export function drivePollInterval(
+  queryHash: string,
+  processing: boolean,
+  now = Date.now(),
+): number | false {
+  if (!processing) {
+    readingSince.delete(queryHash);
+    return false;
+  }
+  const since = readingSince.get(queryHash) ?? now;
+  readingSince.set(queryHash, since);
+  return driveRefreshMs(now - since);
+}
+
 const reading = (rows: readonly Pick<DriveFileRow, "content">[] | null | undefined) =>
   !!rows?.some((r) => r.content === "processing");
 
-/** Il Drive: di un progetto o, senza `projectId`, di tutti i progetti che vedo. */
-export function useDriveFiles(filters: DriveFilters, { enabled = true } = {}) {
+/**
+ * Il Drive: di un progetto o, senza `projectId`, di tutti i progetti che vedo.
+ * `poll`: si rilegge mentre un file è in lettura. Solo la query più stretta
+ * della vista lo chiede (l'elenco che si guarda, o il dettaglio aperto), mai
+ * la colonna né le query di contorno della pagina: altrimenti le richieste
+ * si moltiplicano per il numero di query aperte.
+ */
+export function useDriveFiles(
+  filters: DriveFilters,
+  { enabled = true, poll = false, syncing = false } = {},
+) {
   const me = useSessionPersonId();
   return useQuery({
     queryKey: queryKeys.driveFiles(me, filters),
     queryFn: () => api.drive.listDriveFiles(filters),
     enabled,
-    refetchInterval: (query) => (reading(query.state.data) ? DRIVE_REFRESH_MS : false),
+    refetchInterval: (query) =>
+      // Una cartella che si sincronizza porta file nuovi: si rilegge (review F5b, 4).
+      syncing
+        ? FOLDER_SYNC_POLL_MS
+        : poll
+          ? drivePollInterval(query.queryHash, reading(query.state.data))
+          : false,
   });
 }
+
+/** Ogni quanto si rileggono cartelle e file mentre una cartella si sincronizza. */
+export const FOLDER_SYNC_POLL_MS = 3000;
 
 /** Il dettaglio di un file (non conta un'apertura); `null` se non c'è per chi guarda. */
 export function useDriveFile(id: string | null) {
@@ -2505,7 +2977,7 @@ export function useDriveFile(id: string | null) {
     queryFn: () => api.drive.getDriveFile(id!),
     enabled: id !== null,
     refetchInterval: (query) =>
-      query.state.data?.content === "processing" ? DRIVE_REFRESH_MS : false,
+      drivePollInterval(query.queryHash, query.state.data?.content === "processing"),
   });
 }
 
@@ -2514,6 +2986,11 @@ export function useFolderLinks(projectId: string) {
   return useQuery({
     queryKey: queryKeys.folderLinks(me, projectId),
     queryFn: () => api.drive.listFolderLinks(projectId),
+    // Le cartelle collegate sono di Google (area 6).
+    enabled: featureIntegrated("google"),
+    // Review F5b (4): mentre una cartella si sincronizza (lo fa il worker), si rilegge.
+    refetchInterval: (query) =>
+      (query.state.data ?? []).some((l) => l.syncing) ? FOLDER_SYNC_POLL_MS : false,
   });
 }
 
@@ -2532,6 +3009,16 @@ export function useMyFolderLinks(enabled = true) {
   return useQuery({
     queryKey: queryKeys.myFolderLinks(me),
     queryFn: () => api.drive.listMyFolderLinks(),
+    enabled,
+  });
+}
+
+/** I Workspace da cui collegare la casella (vuoto nel prototipo; più d'uno = si sceglie). */
+export function useGoogleWorkspaces(enabled = true) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: [...queryKeys.googleAccount(me), "workspaces"] as const,
+    queryFn: () => api.drive.listGoogleWorkspaces(),
     enabled,
   });
 }
@@ -2555,7 +3042,8 @@ export function useDriveSearch(q: string, scope: DriveSearchScope = {}, enabled 
   return useQuery({
     queryKey: queryKeys.driveSearch(me, q, scope),
     queryFn: () => api.drive.searchDrive(q, scope),
-    enabled: enabled && q.trim().length >= MIN_QUERY,
+    // ⌘K la chiede anche fuori dal Drive: nella build app solo col Drive integrato.
+    enabled: enabled && featureIntegrated("drive") && q.trim().length >= MIN_QUERY,
     placeholderData: (previous, previousQuery) =>
       previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
   });
@@ -2617,8 +3105,31 @@ export function useGoogleFiles(projectId: string, q: string, enabled = true) {
 
 export function useUploadFiles() {
   return useWrite(
-    ({ projectId, files }: { projectId: string; files: DriveUploadInput[] }) =>
-      api.drive.uploadFiles(projectId, files),
+    ({
+      projectId,
+      files,
+      options,
+    }: {
+      projectId: string;
+      files: DriveUploadInput[];
+      options?: DriveUploadOptions;
+    }) => api.drive.uploadFiles(projectId, files, options),
+    DRIVE_FILE_AREAS,
+  );
+}
+
+/** «Save to Drive» da un allegato della Chat: nel progetto del canale o in quello scelto. */
+export function useSaveAttachmentToDrive() {
+  return useWrite(
+    ({
+      attachmentId,
+      input,
+      target,
+    }: {
+      attachmentId: string;
+      input: DriveUploadInput;
+      target: { projectId: string; channelProject: boolean };
+    }) => api.drive.saveAttachmentToDrive(attachmentId, input, target),
     DRIVE_FILE_AREAS,
   );
 }
@@ -2687,8 +3198,12 @@ export function useRetryExtraction() {
  */
 export const GOOGLE_AREAS = [...DRIVE_FILE_AREAS, "mail", "calendar", "meeting"] as const;
 
+/** «Collega» (o «Ricollega»); nella build app, con più Workspace, quello scelto. */
 export function useConnectGoogle() {
-  return useWrite(() => api.drive.connectGoogle(), GOOGLE_AREAS);
+  return useWrite(
+    (options: ConnectGoogleOptions | void) => api.drive.connectGoogle(options ?? {}),
+    GOOGLE_AREAS,
+  );
 }
 
 export function useDisconnectGoogle() {
@@ -2759,6 +3274,20 @@ export function useImportantMail() {
   return useQuery({
     queryKey: queryKeys.importantMail(me),
     queryFn: () => api.mail.listImportantMail(),
+  });
+}
+
+/**
+ * «Clienti in attesa» della Home (area 8): dalla posta delle mie caselle,
+ * coi giudizi di Claude. Si rilegge ogni minuto (un thread «da valutare»
+ * diventa una riga col motivo, o sparisce).
+ */
+export function useMailWaitingCustomers() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.mailWaitingCustomers(me),
+    queryFn: () => api.mail.listWaitingCustomers(),
+    refetchInterval: 60_000,
   });
 }
 
@@ -2866,6 +3395,7 @@ export function useMailProposalDecisions() {
   return useQuery({
     queryKey: queryKeys.mailDecisions(me),
     queryFn: () => api.mail.listMailDecisions(),
+    enabled: featureIntegrated("mail"),
   });
 }
 
@@ -2927,7 +3457,7 @@ export function useReassignMailProposal() {
 }
 
 // Scrivere dalla Posta: bozze, invio con «Annulla», invio fallito, la bozza
-// di Claude. Allo scadere dei 5 s un invio cambia la Posta di chi l'ha
+// di Claude. Allo scadere della sua finestra di «Annulla» un invio cambia la Posta di chi l'ha
 // scritto E dei destinatari: la rilettura di allora vale per ogni persona
 // (anche se nel frattempo si guarda come un'altra), non solo per chi ha
 // premuto «Invia».
@@ -2976,11 +3506,12 @@ export function useLoadMailDraft() {
 }
 
 /** Le mie bozze, dalla più recente (la riga «Bozza» in elenco). */
-export function useMailDrafts() {
+export function useMailDrafts({ enabled = true }: { enabled?: boolean } = {}) {
   const me = useSessionPersonId();
   return useQuery({
     queryKey: queryKeys.mailDrafts(me),
     queryFn: () => api.mail.listDrafts(),
+    enabled,
   });
 }
 
@@ -3023,7 +3554,7 @@ export function useAttachDriveFileToDraft() {
   );
 }
 
-/** Rilegge la Posta di tutti quando un invio esce dai suoi 5 s. */
+/** Rilegge la Posta di tutti quando un invio esce dalla sua finestra di «Annulla». */
 function useAfterSendWindow() {
   const client = useQueryClient();
   return (messageId: string) =>
@@ -3036,7 +3567,7 @@ function useAfterSendWindow() {
 
 /**
  * «Invia» (e «Riprova»): risolve subito con `undoUntil`, per l'avviso
- * «Annulla»; la Posta si rilegge ora («Invio…») e allo scadere dei 5 s.
+ * «Annulla»; la Posta si rilegge ora («Invio…») e allo scadere della finestra.
  */
 export function useSendMailDraft() {
   const invalidate = useInvalidate(MAIL_AREAS);
@@ -3064,7 +3595,7 @@ export function useRetryMailSend() {
   });
 }
 
-/** «Annulla» entro i 5 s: la bozza torna (unita a una più recente, con gli allegati rimasti fuori); oltre: `too_late`. */
+/** «Annulla» entro la finestra (5 s nel prototipo, 10 s dal server): la bozza torna (unita a una più recente, con gli allegati rimasti fuori); oltre: `too_late`. */
 export function useUndoMailSend() {
   return useWrite((messageId: string) => api.mail.undoSend(messageId), MAIL_AREAS);
 }
@@ -3205,6 +3736,26 @@ export function useMeetingSummary(eventId: string | null) {
   });
 }
 
+/** La riunione per nota (F5a, Q-A = a): il riassunto per l'invitato senza l'evento. */
+export function useMeetingByNote(noteId: string | null) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.meetingByNote(me, noteId ?? ""),
+    queryFn: () => api.mail.getMeetingByNote(noteId!),
+    enabled: noteId !== null,
+  });
+}
+
+/** «Tasks from this meeting» per nota (R-I21, come `useTasksBornFrom`). */
+export function useTasksOfNote(noteId: string | null) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.tasksOfNote(me, noteId ?? ""),
+    queryFn: () => api.mail.tasksOfNote(noteId!),
+    enabled: noteId !== null,
+  });
+}
+
 /** «Tasks from this meeting»: le task e le richieste nate, per chi le vede. */
 export function useTasksBornFrom(eventId: string | null) {
   const me = useSessionPersonId();
@@ -3243,11 +3794,23 @@ function useCalendarSave<TVars, TData>(
   const me = useSessionPersonId();
   return useMutation({
     mutationFn: async (vars: TVars) => {
-      const result = await mutationFn(vars);
+      // L'evento in salvataggio entra negli elenchi PRIMA che Google risponda
+      // (la build app aspetta la risposta: review F4, 5).
+      const heard: string[] = [];
+      const off = api.calendar.onSaving((e) => {
+        heard.push(e.id);
+        placeEvent(client, me, e as CalendarEventView);
+      });
+      let result: TData;
+      try {
+        result = await mutationFn(vars);
+      } finally {
+        off();
+      }
       // L'evento scritto (in «Salvataggio…») entra SUBITO negli elenchi già
       // letti: la rilettura che segue può arrivare a salvataggio finito, e
       // il blocco deve comparire nel posto nuovo con la sua parola di stato.
-      if (isEventView(result)) placeEvent(client, me, result);
+      if (isEventView(result)) settleSaved(client, me, heard, result);
       void invalidate();
       await api.calendar.whenCalendarIdle();
       return result;
@@ -3267,29 +3830,6 @@ function isEventView(x: unknown): x is CalendarEventView {
     typeof e.isOrganizer === "boolean" &&
     Array.isArray(e.attendees)
   );
-}
-
-/**
- * Mette (o sostituisce) l'evento negli elenchi letti degli intervalli che
- * tocca, con la stessa regola di `listEvents` (`spanOf`: un «tutto il
- * giorno» copre i giorni LOCALI della sua data).
- */
-function placeEvent(client: ReturnType<typeof useQueryClient>, me: string, e: CalendarEventView) {
-  const { from, to } = api.calendar.spanOf(e);
-  for (const [key, list] of client.getQueriesData<CalendarEventView[]>({
-    queryKey: ["as", me, "calendar", "events"],
-  })) {
-    if (!list) continue;
-    const range = key[4] as { from: string; to: string } | undefined;
-    const touches = !!range && from < Date.parse(range.to) && to > Date.parse(range.from);
-    const rest = list.filter((x) => x.id !== e.id);
-    const next = touches
-      ? [...rest, e].sort(
-          (a, b) => a.startsAt.localeCompare(b.startsAt) || a.id.localeCompare(b.id),
-        )
-      : rest;
-    client.setQueryData(key, next);
-  }
 }
 
 export function useCreateEvent() {
@@ -3468,7 +4008,11 @@ export function useAutomationsLiveRefresh(): void {
   const invalidate = useInvalidate(AUTOMATION_AREAS);
   const latest = useRef(invalidate);
   latest.current = invalidate;
-  useEffect(() => api.automations.onAutomationsSettled(() => void latest.current()), []);
+  const on = featureIntegrated("automations");
+  useEffect(
+    () => (on ? api.automations.onAutomationsSettled(() => void latest.current()) : undefined),
+    [on],
+  );
 }
 
 export function useAutomations(filter: AutomationListFilter = {}) {
@@ -3476,6 +4020,8 @@ export function useAutomations(filter: AutomationListFilter = {}) {
   return useQuery({
     queryKey: queryKeys.automations(me, filter),
     queryFn: () => api.automations.listAutomations(filter),
+    // Anche il contesto dei blocchi della Home la chiede: nella build app non parte.
+    enabled: featureIntegrated("automations"),
   });
 }
 
@@ -3490,12 +4036,31 @@ export function useAutomation(id: string | null) {
   });
 }
 
+/**
+ * Ogni quanto si rilegge un elenco di esecuzioni con qualcosa in corso. Nella
+ * build app l'elenco senza automazione (50 esecuzioni coi registri) ogni 5 s;
+ * quello di un'automazione, e il prototipo, ogni secondo.
+ */
+export function automationRunsRefreshMs(filter: AutomationRunFilter = {}): number {
+  return isAppBuild() && !filter?.automationId ? 5000 : AUTOMATION_REFRESH_MS;
+}
+
 export function useAutomationRuns(filter: AutomationRunFilter = {}) {
   const me = useSessionPersonId();
   return useQuery({
     queryKey: queryKeys.automationRuns(me, filter),
     queryFn: () => api.automations.listRuns(filter),
-    refetchInterval: (query) => (runningIn(query.state.data) ? AUTOMATION_REFRESH_MS : false),
+    refetchInterval: (query) =>
+      runningIn(query.state.data) ? automationRunsRefreshMs(filter) : false,
+  });
+}
+
+/** L'id di un'esecuzione dal suo indirizzo (codice e numero). */
+export function useAutomationRunByCode(code: string, n: number) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.automationRunByCode(me, code, n),
+    queryFn: () => api.automations.findRun(code, n),
   });
 }
 
@@ -3506,8 +4071,11 @@ export function useAutomationRun(id: string | null) {
     queryKey: queryKeys.automationRun(me, id ?? ""),
     queryFn: () => api.automations.getRun(id!),
     enabled: id !== null,
+    // Anche mentre un input è in coda sul worker (build app): la pagina vede quando lo applica.
     refetchInterval: (query) =>
-      query.state.data?.status === "running" ? AUTOMATION_REFRESH_MS : false,
+      query.state.data?.status === "running" || query.state.data?.inputQueued
+        ? AUTOMATION_REFRESH_MS
+        : false,
   });
 }
 
@@ -3534,11 +4102,28 @@ export function useFetchAutomationRuns() {
   );
 }
 
+function sourcesAvailable(): boolean {
+  const available = automationAvailability();
+  return available === undefined || available.triggers.includes("source");
+}
+
 export function useAutomationSources() {
   const me = useSessionPersonId();
   return useQuery({
     queryKey: queryKeys.automationSources(me),
-    queryFn: () => api.automations.listSources(),
+    // Le sorgenti ci sono solo dove c'è il loro inizio (nella build app dalla
+    // F4): altrove nessuna, senza chiederle (costruttore e prova le aspettano).
+    queryFn: () => (sourcesAvailable() ? api.automations.listSources() : Promise.resolve([])),
+    enabled: featureIntegrated("automations"),
+  });
+}
+
+/** Gli eventi recenti di una sorgente, coi rifiutati e il motivo (F4-5; solo con `integrations.manage`). */
+export function useSourceEvents(id: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.sourceEvents(me, id),
+    queryFn: () => api.automations.listSourceEvents(id),
   });
 }
 
@@ -3556,6 +4141,7 @@ export function useMyAutomationApprovals() {
   return useQuery({
     queryKey: queryKeys.automationApprovals(me),
     queryFn: () => api.automations.listMyApprovals(),
+    enabled: featureIntegrated("automations"),
   });
 }
 
@@ -3575,18 +4161,26 @@ export function useProjectAutomations(projectId: string | null) {
   return useQuery({
     queryKey: queryKeys.projectAutomations(me, projectId ?? ""),
     queryFn: () => api.automations.getProjectAutomations(projectId!),
-    enabled: projectId !== null,
-    refetchInterval: (query) =>
-      runningIn(query.state.data?.runs) ? AUTOMATION_REFRESH_MS : false,
+    enabled: projectId !== null && featureIntegrated("automations"),
+    refetchInterval: (query) => (runningIn(query.state.data?.runs) ? AUTOMATION_REFRESH_MS : false),
   });
 }
 
 /** «Created by automation…» su una task o un traguardo creati da un'esecuzione. */
-export function useAutomationOrigin(ref: AutomationRef | null | undefined, createdCode: string) {
+export function useAutomationOrigin(
+  ref: AutomationRef | null | undefined,
+  createdCode: string,
+  kind: "task" | "milestone",
+) {
   const me = useSessionPersonId();
   return useQuery({
-    queryKey: queryKeys.automationOrigin(me, ref?.automationId ?? "", ref?.runId ?? "", createdCode),
-    queryFn: () => api.automations.automationOrigin(ref!, createdCode),
+    queryKey: queryKeys.automationOrigin(
+      me,
+      ref?.automationId ?? "",
+      ref?.runId ?? "",
+      createdCode,
+    ),
+    queryFn: () => api.automations.automationOrigin(ref!, createdCode, kind),
     enabled: !!ref,
   });
 }
@@ -3600,7 +4194,7 @@ export function useAutomationOrigin(ref: AutomationRef | null | undefined, creat
  */
 export function useDecideAutomationNow() {
   const invalidate = useInvalidate(AUTOMATION_AREAS);
-  const settle = async <T,>(call: Promise<T>): Promise<T> => {
+  const settle = async <T>(call: Promise<T>): Promise<T> => {
     try {
       return await call;
     } finally {
@@ -3650,10 +4244,10 @@ export function saveAutomationDraftNow(
   flow: AutomationFlow,
   expected: number | null,
 ): Promise<unknown> {
-  return api.automations.saveDraft(id, flow, {}, { expected });
+  return api.automations.saveDraft(id, withoutPlaceholders(flow), {}, { expected });
 }
 
-export { onBeforePersonaChange } from "./session";
+export { askPersonaChange, guardPersonaChange, onBeforePersonaChange } from "./session";
 export type {
   CustomerPreview,
   SupportConversationView,
@@ -3669,9 +4263,26 @@ export function useRenameAutomation() {
   );
 }
 
-export function useSaveAutomationDraft() {
+export function useSetWebhookLimits() {
   return useAutomationWrite(
-    ({
+    ({ id, perMinute, perDay }: { id: string; perMinute: number | null; perDay: number | null }) =>
+      api.automations.setWebhookLimits(id, { perMinute, perDay }),
+  );
+}
+
+/** La pausa nello scrivere dopo cui si chiedono gli errori della bozza. */
+const DRAFT_CHECK_DELAY_MS = 500;
+
+/**
+ * Salvare la bozza tocca solo l'automazione (non task, posta, notifiche, né
+ * esecuzioni): si rilegge il suo dettaglio, una volta. Il costruttore salva
+ * da solo a ogni pausa, e ogni salvataggio ricaricava tutte le aree.
+ */
+export function useSaveAutomationDraft() {
+  const client = useQueryClient();
+  const me = useSessionPersonId();
+  return useMutation({
+    mutationFn: ({
       id,
       flow,
       meta,
@@ -3682,8 +4293,11 @@ export function useSaveAutomationDraft() {
       meta?: AutomationMeta;
       /** Il `rev` della bozza letta (shape builder [A 12]); assente = nessun controllo. */
       expected?: number | null;
-    }) => api.automations.saveDraft(id, flow, meta, { expected }),
-  );
+      // R.1414: un segnaposto non torna al server; la persona di prima resta.
+    }) => api.automations.saveDraft(id, withoutPlaceholders(flow), meta, { expected }),
+    onSettled: (_data, _error, vars) =>
+      client.invalidateQueries({ queryKey: queryKeys.automation(me, vars.id) }),
+  });
 }
 
 /**
@@ -3691,12 +4305,17 @@ export function useSaveAutomationDraft() {
  * si salva da sola): chiave sul flusso stesso, così cambiano col flusso e
  * restano quelli di prima finché arrivano i nuovi.
  */
-export function useAutomationDraftIssues(id: string | null, flow: AutomationFlow | null) {
+export function useAutomationDraftIssues(id: string | null, current: AutomationFlow | null) {
   const me = useSessionPersonId();
+  // Nella build app è un `POST …/check`: dopo una pausa nello scrivere, non a ogni tasto.
+  const flow = useDebounced(current, DRAFT_CHECK_DELAY_MS);
   return useQuery({
     queryKey: ["as", me, "automations", "draftIssues", id ?? "", flow] as const,
     // Col flusso a cui si riferiscono: i percorsi degli errori valgono per quello.
-    queryFn: async () => ({ flow: flow!, issues: await api.automations.checkDraft(id!, flow!) }),
+    queryFn: async () => ({
+      flow: flow!,
+      issues: await api.automations.checkDraft(id!, withoutPlaceholders(flow!)),
+    }),
     enabled: id !== null && flow !== null,
     placeholderData: keepPreviousData,
   });
@@ -3785,7 +4404,13 @@ export function useAdvanceAutomationTime() {
 // --- sorgenti curate (webhook in arrivo) ----------------------------------------------------
 
 export function useCreateWebhookSource() {
-  return useAutomationWrite((name: string) => api.automations.createWebhookSource(name));
+  return useAutomationWrite(async (name: string) => {
+    const { address, ...source } = await api.automations.createWebhookSource(name);
+    // Il segreto si vede ora, nel pannello che si apre, poi non più (F4-1):
+    // fuori dal risultato, che la cache delle mutazioni terrebbe (review F4, I2).
+    if (address) revealAddress(source.id, address);
+    return source;
+  });
 }
 
 export function useRenameSource() {
@@ -3795,7 +4420,9 @@ export function useRenameSource() {
 }
 
 export function useRegenerateWebhookAddress() {
-  return useAutomationWrite((id: string) => api.automations.regenerateWebhookAddress(id));
+  return useAutomationWrite(async (id: string) => {
+    revealAddress(id, await api.automations.regenerateWebhookAddress(id));
+  });
 }
 
 /** «Replace example», prima di confermare: una lettura, non scrive niente. */
@@ -3924,6 +4551,16 @@ export function useAutomationSimulationStep() {
   });
 }
 
+/** F3 (D4): chi prova conferma il costo dei passi di Claude, una volta per la prova. */
+export function useConfirmAutomationSimulationCost() {
+  const me = useSessionPersonId();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.automations.confirmSimulationCost(id),
+    onSuccess: (sim) => client.setQueryData(queryKeys.automationSimulation(me, sim.id), sim),
+  });
+}
+
 /** Butta la prova (uscendo, o ricominciando). */
 export function useEndAutomationSimulation() {
   const me = useSessionPersonId();
@@ -3941,6 +4578,7 @@ export * from "./queries/alerts";
 export * from "./queries/releases";
 export * from "./queries/support";
 export * from "./queries/servers";
+export * from "./queries/vault";
 export * from "./queries/admin";
 export * from "./queries/entry";
 export * from "./queries/me";

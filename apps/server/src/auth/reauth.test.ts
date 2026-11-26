@@ -256,6 +256,15 @@ const ROUTES: [string, SensitiveRoute][] = [
     { method: "DELETE", url: () => `/api/projects/${projectId}/members/${memberId}` },
   ],
   [
+    // Area 6, F2: confermare aggiungendo Contributor al progetto.
+    "POST /api/me/mail/proposals/:id/confirm-with-members",
+    {
+      method: "POST",
+      url: () => "/api/me/mail/proposals/7f1c2a1e-0000-4000-8000-0000000000c3/confirm-with-members",
+      payload: () => ({ addOutsiders: [memberId] }),
+    },
+  ],
+  [
     "DELETE /api/users/:id/second-factor",
     { method: "DELETE", url: () => `/api/users/${memberId}/second-factor` },
   ],

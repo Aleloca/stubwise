@@ -27,7 +27,7 @@ import { useTranslation } from "react-i18next";
 import { TODAY } from "../../data/dates";
 import { useUpdateTask } from "../../data/queries";
 import type { StatusFamily, Task, TaskPatch } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import type { Stall } from "../../domain/stalled";
 import { DeptStrip, useDeptLabel } from "../../layout/DeptStrip";
 import { PersonChip } from "../../tasks-ui/PersonChip";
@@ -37,6 +37,7 @@ import { FamilySign } from "../../tasks-ui/StatusLabel";
 import { DueDate } from "../../tasks-ui/TaskRow";
 import { useToast } from "../../tasks-ui/Toast";
 import { groupTasks, type GroupContext } from "./grouping";
+import { useToday } from "../../data/clock";
 
 export type BoardLanes = "none" | "assignee" | "department";
 
@@ -101,6 +102,8 @@ function columnKeyOf(task: Task, ctx: GroupContext, projectId: string | undefine
 
 /** Il contenuto di una carta, su tre righe: striscia e codice, titolo, persona · taglia · scadenza. */
 function CardBody({ task, stall }: { task: Task; stall: Stall | null }) {
+  // «Oggi» avanza nella build app: a mezzanotte si ridisegna.
+  useToday();
   const overdue = !!task.dueDate && task.dueDate < TODAY && !task.closedAt;
   return (
     <>

@@ -8,6 +8,7 @@ import {
   useMyAutomationApprovals,
   useNotifications,
   usePinnedProjects,
+  useVaultEntry,
   useWaitingOnMe,
 } from "../data/queries";
 import type { Project } from "../data/types";
@@ -23,6 +24,7 @@ import {
   HomeIcon,
   MailIcon,
   SearchIcon,
+  VaultIcon,
 } from "./icons";
 import { unreadCount } from "../notifications/time";
 import { ProfileMenu } from "./ProfileMenu";
@@ -40,6 +42,9 @@ const DESTINATIONS = [
   { to: "/calendar", key: "nav.calendar", icon: <CalendarIcon /> },
   // Il Drive di tutti i progetti: nessun punto di segnale, non aspetta nessuno (A6).
   { to: "/drive", key: "nav.drive", icon: <DriveIcon /> },
+  // La Cassaforte di tutti i progetti (lotto 10, VA-Q1): c'è solo per chi ne
+  // vede o ne crea una; il punto per gli accessi da confermare [VA 2].
+  { to: "/vault", key: "nav.vault", icon: <VaultIcon /> },
   { to: "/claude", key: "nav.claude", icon: <ClaudeIcon /> },
   { to: "/automations", key: "nav.automations", icon: <AutomationsIcon /> },
 ] as const;
@@ -297,6 +302,7 @@ export function Rail() {
   const automationsWaiting = (useMyAutomationApprovals().data ?? []).filter(
     (d) => !answering.has(d.runId),
   ).length;
+  const vaultEntry = useVaultEntry().data;
   const mailWaiting = (useMailProposalDecisions().data ?? []).filter(
     (v) => v.proposal.source !== "calendar",
   ).length;
@@ -317,7 +323,7 @@ export function Rail() {
       </div>
 
       <ul className="flex shrink-0 flex-col items-center gap-1">
-        {DESTINATIONS.map((d) => (
+        {DESTINATIONS.filter((d) => d.to !== "/vault" || vaultEntry?.show).map((d) => (
           <li key={d.to}>
             <RailLink
               to={d.to}
@@ -331,7 +337,9 @@ export function Rail() {
                     ? t("rail.mailWaiting", { count: mailWaiting })
                     : d.to === "/automations" && automationsWaiting > 0
                       ? t("rail.automationsWaiting", { count: automationsWaiting })
-                      : undefined
+                      : d.to === "/vault" && vaultEntry?.waitingMe
+                        ? t("rail.vaultWaiting")
+                        : undefined
               }
             />
           </li>

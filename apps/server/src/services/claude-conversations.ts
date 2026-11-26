@@ -1,0 +1,588 @@
+import { randomUUID } from "node:crypto";
+import { and, desc, eq, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
+import {
+  agentSessionEvents,
+  agentSessionInputs,
+  agentSessions,
+  claudeConversations,
+  users,
+  type ClaudeOriginTranscript,
+  type Db,
+} from "@stubwise/db";
+import {
+  AGENT_SESSION_INPUT_CHANNEL,
+  CLAUDE_CONVERSATION_CLOSED_CHANNEL,
+  conversationTitleFrom,
+  type ClaudeConversation,
+  type ClaudeConversationDetail,
+  type ClaudeVisibilityConfirmation,
+  type ContinueClaudeConversationInput,
+  type CreateClaudeConversationInput,
+  type PatchClaudeConversationInput,
+  type SetClaudeConversationVisibilityInput,
+} from "@stubwise/shared";
+import {
+  canReadPublic,
+  hasToolReads,
+  holdOf,
+  nextEventId,
+  projectViews,
+  projectViewsForAuthor,
+  readerCut,
+  readerSnapshot,
+  touchedProjectIds,
+} from "./claude-public.js";
+import { personName } from "./people.js";
+import { visibleProjectIds, type ProjectScope } from "../auth/access.js";
+import { contextsForViewer, conversationContextGroup } from "./claude-contexts-view.js";
+import { appendContext, CLAUDE_CONTEXTS_MAX, dedupeContexts, type ClaudeContextRef } from "@stubwise/notifications";
+import { freeSessionStates, loadAgentSession, monthlyBudgetExhausted, type SessionViewer } from "./agent-sessions.js";
+
+// La conversazione libera con Claude (chat, fetta 1): una sessione dell'agente
+// di kind `free`, a turni, PRIVATA del suo autore. Qui ciò che la sessione non
+// ha (titolo, archivio, contesto); messaggi, eventi e stream passano dalle
+// rotte delle sessioni (`/api/agent-sessions/:id/…`), con le loro regole. Ogni
+// lettura e scrittura filtra per autore nella WHERE: una conversazione di un
+// altro risponde come una che non esiste.
+
+type ConversationRow = typeof claudeConversations.$inferSelect;
+type SessionView = { state: ClaudeConversation["state"]; lastEventAt: string | null };
+
+async function namesOf(db: Db, ids: (string | null)[]): Promise<Map<string, string>> {
+  const list = [...new Set(ids.filter((id): id is string => id !== null))];
+  if (list.length === 0) return new Map();
+  const rows = await db
+    .select({ id: users.id, email: users.email, displayName: users.displayName })
+    .from(users)
+    .where(inArray(users.id, list));
+  return new Map(rows.map((r) => [r.id, personName(r)]));
+}
+
+const groupOf = (row: ConversationRow): ClaudeContextRef[] => conversationContextGroup(row);
+
+/**
+ * La conversazione come la vede CHI GUARDA (fetta 5): l'autore ha tutto; un
+ * lettore di una pubblica non ha il seguito privato, i progetti che non vede
+ * né il contesto di un progetto che non vede, e nessun comando dell'autore.
+ */
+async function toView(db: Db, viewer: SessionViewer, row: ConversationRow, session: SessionView, scope?: ProjectScope): Promise<ClaudeConversation> {
+  const isOwner = row.ownerId === viewer.id;
+  const archived = row.archivedAt !== null;
+  const names = await namesOf(db, [row.ownerId, row.publishedBy]);
+  const hold = await holdOf(db, row);
+  // Lotto 8, voce 3: il gruppo dei contesti come lo vede chi guarda (anche
+  // l'autore: uno che non vede più esce alla lettura); il primario è l'ultimo.
+  const [contexts] = await contextsForViewer(db, viewer, [groupOf(row)], isOwner, scope);
+  // Revisione 8–9 (M-4): per l'AUTORE il primario resta il vero ultimo del
+  // gruppo (è il suo chip, anche se il filtro lo toglie dall'elenco); per un
+  // lettore, l'ultimo di ciò che vede.
+  const context = isOwner ? (groupOf(row).at(-1) ?? null) : (contexts!.at(-1) ?? null);
+  // Un lettore: il titolo e l'ultima attività come li vede lui (fetta 5, review).
+  const snapshot = isOwner ? null : await readerSnapshot(db, row);
+  const continuesFrom = row.continuesFromSessionId
+    ? { id: row.continuesFromSessionId, available: (await readableRow(db, viewer, row.continuesFromSessionId)) !== null }
+    : null;
+  return {
+    id: row.sessionId,
+    title: snapshot?.titleHidden ? "" : row.title,
+    archived,
+    context,
+    contexts: contexts!,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+    state: snapshot ? (hold.held ? "idle" : session.state) : session.state,
+    lastEventAt: snapshot ? snapshot.lastActivityAt.toISOString() : session.lastEventAt,
+    visibility: row.visibility,
+    author: { id: row.ownerId, name: names.get(row.ownerId) ?? "" },
+    isOwner,
+    publishedAt: row.publishedAt?.toISOString() ?? null,
+    publishedBy: row.publishedBy ? { id: row.publishedBy, name: names.get(row.publishedBy) ?? "" } : null,
+    publishedProjects: row.visibility === "public" ? await projectViews(db, viewer, row.publishedProjectIds) : [],
+    privateTail: !isOwner && hold.held,
+    heldProjects: isOwner && hold.newProjectIds.length > 0 ? await projectViews(db, viewer, hold.newProjectIds) : [],
+    continuesFrom,
+    canPublish: isOwner && !archived,
+    canContinue: !isOwner && row.visibility === "public" && !archived && canReadPublic(viewer),
+  } satisfies ClaudeConversation;
+}
+
+/**
+ * Solo le conversazioni della destinazione «Claude» (kind `free`): anche una
+ * chiamata a @Claude nella Chat ha la sua riga qui (proprietario, sessione del
+ * CLI, token del turno), ma è un messaggio della Chat, non una conversazione da
+ * elencare, aprire, pubblicare o continuare (area 4, fetta 3).
+ */
+const isConversation = sql`exists (select 1 from ${agentSessions} s where s.id = ${claudeConversations.sessionId} and s.kind = 'free')`;
+
+async function ownRow(db: Db, viewer: SessionViewer, id: string): Promise<ConversationRow | null> {
+  const [row] = await db
+    .select()
+    .from(claudeConversations)
+    .where(and(eq(claudeConversations.sessionId, id), eq(claudeConversations.ownerId, viewer.id), isConversation));
+  return row ?? null;
+}
+
+/**
+ * Una conversazione che chi guarda può LEGGERE: la propria, o una pubblica
+ * con `claude.public.view` (fetta 5). Ogni altra è `null`, come una che non
+ * esiste: la stessa regola di `visibleTo` nella WHERE.
+ */
+export async function readableRow(db: Db, viewer: SessionViewer, id: string): Promise<ConversationRow | null> {
+  const [row] = await db
+    .select()
+    .from(claudeConversations)
+    .where(
+      and(
+        eq(claudeConversations.sessionId, id),
+        isConversation,
+        canReadPublic(viewer)
+          ? or(eq(claudeConversations.ownerId, viewer.id), eq(claudeConversations.visibility, "public"))
+          : eq(claudeConversations.ownerId, viewer.id),
+      ),
+    );
+  return row ?? null;
+}
+
+/** Il dettaglio: la conversazione e la sua sessione; di un altro (o inesistente) `null`. */
+export async function getClaudeConversation(
+  db: Db,
+  viewer: SessionViewer,
+  id: string,
+): Promise<ClaudeConversationDetail | null> {
+  const row = await readableRow(db, viewer, id);
+  if (!row) return null;
+  const loaded = await loadAgentSession(db, viewer, id);
+  if (!loaded) return null;
+  return { ...(await toView(db, viewer, row, loaded.detail)), session: loaded.detail };
+}
+
+/** Quante per pagina, al più (`limit`). */
+export const CONVERSATION_PAGE_MAX = 100;
+
+/**
+ * Le conversazioni di chi guarda, dalla più recente, attive o archiviate, a
+ * pagine: `before` è il cursore della pagina prima (`updatedAt|id`
+ * dell'ultima). Due query in tutto, qualunque sia la pagina: le righe e lo
+ * stato delle loro sessioni (`freeSessionStates`).
+ */
+export async function listClaudeConversations(
+  db: Db,
+  viewer: SessionViewer,
+  opts: { archived: boolean; limit?: number; before?: string; scope?: "mine" | "public" },
+): Promise<{ items: ClaudeConversation[]; nextCursor: string | null }> {
+  const limit = Math.min(Math.max(opts.limit ?? 50, 1), CONVERSATION_PAGE_MAX);
+  const cursor = parseCursor(opts.before);
+  // «Public» (fetta 5): le pubbliche di ALTRI, non archiviate, con il permesso.
+  const publicScope = opts.scope === "public";
+  if (publicScope && !canReadPublic(viewer)) return { items: [], nextCursor: null };
+  if (publicScope) return listPublic(db, viewer, limit, cursor);
+  const rows = await db
+    .select()
+    .from(claudeConversations)
+    .where(
+      and(
+        publicScope
+          ? and(eq(claudeConversations.visibility, "public"), ne(claudeConversations.ownerId, viewer.id))
+          : eq(claudeConversations.ownerId, viewer.id),
+        isConversation,
+        publicScope || !opts.archived ? isNull(claudeConversations.archivedAt) : isNotNull(claudeConversations.archivedAt),
+        cursor
+          ? or(
+              lt(claudeConversations.updatedAt, cursor.at),
+              and(eq(claudeConversations.updatedAt, cursor.at), lt(claudeConversations.sessionId, cursor.id)),
+            )
+          : undefined,
+      ),
+    )
+    .orderBy(desc(claudeConversations.updatedAt), desc(claudeConversations.sessionId))
+    .limit(limit + 1);
+  const page = rows.slice(0, limit);
+  const states = await freeSessionStates(db, viewer, page.map((r) => r.sessionId));
+  // Revisione 8–9 (M-1): la visibilità di chi guarda UNA volta per l'elenco, non per riga.
+  const scope = await visibleProjectIds(db, viewer);
+  const items: ClaudeConversation[] = [];
+  for (const row of page) {
+    const session = states.get(row.sessionId);
+    if (session) items.push(await toView(db, viewer, row, session, scope));
+  }
+  const last = page.at(-1);
+  return {
+    items,
+    nextCursor: rows.length > limit && last ? `${last.updatedAt.toISOString()}|${last.sessionId}` : null,
+  };
+}
+
+/** Quante pubbliche si ordinano al più in una lettura di «Public» (in memoria). */
+const PUBLIC_SCAN_MAX = 1000;
+
+/**
+ * «Public» (review della fetta 5): ordinata per ciò che i LETTORI vedono —
+ * l'ultimo evento sotto il taglio del seguito privato —, non per `updated_at`
+ * (che il messaggio dell'autore muove anche quando il turno resta privato). La
+ * chiave si deriva per riga, quindi l'ordine si fa in memoria, sulle
+ * pubbliche più recenti (`PUBLIC_SCAN_MAX`).
+ */
+async function listPublic(
+  db: Db,
+  viewer: SessionViewer,
+  limit: number,
+  cursor: { at: Date; id: string } | null,
+): Promise<{ items: ClaudeConversation[]; nextCursor: string | null }> {
+  const rows = await db
+    .select()
+    .from(claudeConversations)
+    .where(
+      and(
+        eq(claudeConversations.visibility, "public"),
+        ne(claudeConversations.ownerId, viewer.id),
+        isNull(claudeConversations.archivedAt),
+        isConversation,
+      ),
+    )
+    .orderBy(desc(claudeConversations.updatedAt))
+    .limit(PUBLIC_SCAN_MAX);
+  const keyed: { row: ConversationRow; at: Date }[] = [];
+  for (const row of rows) keyed.push({ row, at: (await readerSnapshot(db, row)).lastActivityAt });
+  keyed.sort((a, b) => b.at.getTime() - a.at.getTime() || (a.row.sessionId < b.row.sessionId ? 1 : -1));
+  const after = cursor
+    ? keyed.filter((k) => k.at.getTime() < cursor.at.getTime() || (k.at.getTime() === cursor.at.getTime() && k.row.sessionId < cursor.id))
+    : keyed;
+  const page = after.slice(0, limit);
+  const states = await freeSessionStates(db, viewer, page.map((k) => k.row.sessionId));
+  const scope = await visibleProjectIds(db, viewer);
+  const items: ClaudeConversation[] = [];
+  for (const { row } of page) {
+    const session = states.get(row.sessionId);
+    if (session) items.push(await toView(db, viewer, row, session, scope));
+  }
+  const last = page.at(-1);
+  return {
+    items,
+    nextCursor: after.length > limit && last ? `${last.at.toISOString()}|${last.row.sessionId}` : null,
+  };
+}
+
+function parseCursor(raw: string | undefined): { at: Date; id: string } | null {
+  if (!raw) return null;
+  const [at, id] = raw.split("|");
+  const date = at ? new Date(at) : null;
+  return date && !Number.isNaN(date.getTime()) && id ? { at: date, id } : null;
+}
+
+export type CreateClaudeConversationResult =
+  | { ok: true; conversation: ClaudeConversation }
+  | { ok: false; error: "budget_exhausted" };
+
+/**
+ * Una conversazione nuova: la sessione `free`, la sua riga e, col primo
+ * messaggio, il primo turno (un input `pending` che lo scheduler del worker
+ * prende). Col budget del mese finito non nasce niente.
+ */
+export async function createClaudeConversation(
+  db: Db,
+  viewer: SessionViewer,
+  /** `contexts` (lotto 8, voce 3): solo dall'interno (la continuazione), il gruppo già filtrato. */
+  input: CreateClaudeConversationInput & { contexts?: ClaudeContextRef[] },
+  /** Solo la continuazione (F5.3): l'originale e la sua trascrizione leggibile. */
+  continuation?: { fromSessionId: string; originTranscript: ClaudeOriginTranscript; untrustedReadAt: Date | null },
+): Promise<CreateClaudeConversationResult> {
+  if (await monthlyBudgetExhausted(db)) return { ok: false, error: "budget_exhausted" };
+  const title = input.title ?? (input.message ? conversationTitleFrom(input.message) : "");
+  const id = await db.transaction(async (tx) => {
+    const [session] = await tx
+      .insert(agentSessions)
+      .values({ ownerKey: `free:${randomUUID()}`, kind: "free", title })
+      .returning({ id: agentSessions.id });
+    await tx.insert(claudeConversations).values({
+      sessionId: session!.id,
+      ownerId: viewer.id,
+      title,
+      contextRef: input.contexts?.at(-1) ?? input.context ?? null,
+      contextRefs: input.contexts ?? (input.context ? [input.context] : []),
+      ...(continuation
+        ? {
+            continuesFromSessionId: continuation.fromSessionId,
+            originTranscript: continuation.originTranscript,
+            // La trascrizione dell'originale entra nel contesto: se aveva letto contenuto
+            // NON fidato, lo eredita anche il segno (review della F3).
+            untrustedReadAt: continuation.untrustedReadAt,
+          }
+        : {}),
+    });
+    if (input.message) {
+      await tx
+        .insert(agentSessionInputs)
+        .values({
+          sessionId: session!.id,
+          authorUserId: viewer.id,
+          text: input.message,
+          interrupt: false,
+          // Lotto 8, voce 3: i contesti con cui è partito il messaggio.
+          contexts: input.contexts ?? (input.context ? [input.context] : []),
+        });
+      // Al commit: lo scheduler del worker non cerca mai un input che non esiste ancora.
+      await tx.execute(
+        sql`select pg_notify(${AGENT_SESSION_INPUT_CHANNEL}, ${JSON.stringify({ sessionId: session!.id })})`,
+      );
+    }
+    return session!.id;
+  });
+  const created = await getClaudeConversation(db, viewer, id);
+  return { ok: true, conversation: created! };
+}
+
+/** Titolo, archivio, contesto. Archiviarla ferma il turno in corso (il worker lo ascolta). */
+export async function patchClaudeConversation(
+  db: Db,
+  viewer: SessionViewer,
+  id: string,
+  patch: PatchClaudeConversationInput,
+): Promise<ClaudeConversation | null | { error: "too_many_contexts" }> {
+  const row = await ownRow(db, viewer, id);
+  if (!row) return null;
+  // Lotto 8, voce 3: `contexts` SOSTITUISCE il gruppo (senza doppioni, al più
+  // 5); il vecchio `context` AGGIUNGE in fondo (null non cambia niente).
+  let group: ClaudeContextRef[] | null = null;
+  if (patch.contexts !== undefined) {
+    group = dedupeContexts(patch.contexts);
+    if (group.length > CLAUDE_CONTEXTS_MAX) return { error: "too_many_contexts" };
+  } else if (patch.context) {
+    group = appendContext(groupOf(row), patch.context);
+  }
+  await db.transaction(async (tx) => {
+    await tx
+      .update(claudeConversations)
+      .set({
+        ...(patch.title !== undefined ? { title: patch.title } : {}),
+        ...(patch.archived !== undefined ? { archivedAt: patch.archived ? (row.archivedAt ?? new Date()) : null } : {}),
+        ...(group !== null ? { contextRefs: group, contextRef: group.at(-1) ?? null } : {}),
+        updatedAt: sql`now()`,
+      })
+      .where(eq(claudeConversations.sessionId, id));
+    if (patch.archived === true && row.archivedAt === null) await notifyClosed(tx, id);
+  });
+  const updated = await getClaudeConversation(db, viewer, id);
+  if (!updated) return null;
+  const { session: _session, ...view } = updated;
+  void _session;
+  return view;
+}
+
+/** Eliminare la porta via intera (sessione, eventi, messaggi: CASCADE) e ferma il turno in corso. */
+export async function deleteClaudeConversation(db: Db, viewer: SessionViewer, id: string): Promise<boolean> {
+  const row = await ownRow(db, viewer, id);
+  if (!row) return false;
+  await db.transaction(async (tx) => {
+    await notifyClosed(tx, id);
+    await tx.delete(agentSessions).where(eq(agentSessions.id, id));
+  });
+  return true;
+}
+
+type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+async function notifyClosed(tx: Tx, sessionId: string): Promise<void> {
+  await tx.execute(sql`select pg_notify(${CLAUDE_CONVERSATION_CLOSED_CHANNEL}, ${JSON.stringify({ sessionId })})`);
+}
+
+export type SetVisibilityResult =
+  | { ok: true; conversation: ClaudeConversation }
+  | { ok: false; error: "not_found" | "archived" | "private_content" }
+  | { ok: false; error: "needs_confirmation"; confirmation: ClaudeVisibilityConfirmation };
+
+const sameSet = (a: Iterable<string>, b: Iterable<string>) => {
+  const x = new Set(a);
+  const y = new Set(b);
+  return x.size === y.size && [...x].every((v) => y.has(v));
+};
+
+/**
+ * «Make public» / «Make private» e la riconferma del seguito privato (fetta
+ * 5): solo l'autore. Pubblicare vuole i progetti letti o toccati CONFERMATI,
+ * cioè lo stesso insieme di adesso (D2): un elenco diverso o vecchio è
+ * `needs_confirmation`, con l'elenco e il fatto che chi legge vedrà anche ciò
+ * che Claude ha letto per l'autore (D1). Su una pubblica col seguito privato,
+ * la conferma dei progetti NUOVI lo rilascia. «Make private» azzera tutto, e
+ * la finestra della potatura riparte da adesso (D5).
+ */
+export async function setClaudeConversationVisibility(
+  db: Db,
+  viewer: SessionViewer,
+  id: string,
+  input: SetClaudeConversationVisibilityInput,
+): Promise<SetVisibilityResult> {
+  const row = await ownRow(db, viewer, id);
+  if (!row) return { ok: false, error: "not_found" };
+  if (input.visibility === "private") {
+    await db
+      .update(claudeConversations)
+      .set({
+        visibility: "private",
+        publishedAt: null,
+        publishedBy: null,
+        publishedProjectIds: [],
+        privateFromEventId: null,
+        visibilityChangedAt: sql`now()`,
+      })
+      .where(eq(claudeConversations.sessionId, id));
+    return { ok: true, conversation: (await viewOf(db, viewer, id))! };
+  }
+  if (row.archivedAt !== null) return { ok: false, error: "archived" };
+  const confirmed = input.confirmedProjectIds ?? [];
+  const needs = async (ids: Iterable<string>, reconfirm: boolean): Promise<SetVisibilityResult> => ({
+    ok: false,
+    error: "needs_confirmation",
+    confirmation: {
+      code: "needs_confirmation",
+      message: "Confirm the projects Claude read or touched",
+      projects: await projectViewsForAuthor(db, ids),
+      includesToolReads: await hasToolReads(db, id),
+      reconfirm,
+    },
+  });
+  if (row.visibility === "public") {
+    // La riconferma: solo i progetti NUOVI del seguito privato.
+    const hold = await holdOf(db, row);
+    if (hold.newProjectIds.length === 0) return { ok: true, conversation: (await viewOf(db, viewer, id))! };
+    if (!sameSet(confirmed, hold.newProjectIds)) return needs(hold.newProjectIds, true);
+    await db
+      .update(claudeConversations)
+      .set({ publishedProjectIds: [...new Set([...row.publishedProjectIds, ...hold.newProjectIds])] })
+      .where(eq(claudeConversations.sessionId, id));
+    return { ok: true, conversation: (await viewOf(db, viewer, id))! };
+  }
+  // Area 10, F1 (review I2): una conversazione che ha letto contenuto PERSONALE
+  // (posta, calendario, un canale privato o un DM, un'automazione generale)
+  // non diventa pubblica. Si rifiuta tutta: tagliare gli eventi lascerebbe la
+  // risposta di Claude, che li riassume.
+  if (row.privateReadAt !== null) return { ok: false, error: "private_content" };
+  const touched = await touchedProjectIds(db, row);
+  // La conferma è sempre ESPLICITA, anche con un elenco vuoto: dice anche che
+  // chi legge vedrà ciò che Claude ha letto per te (D1).
+  if (input.confirmedProjectIds === undefined || !sameSet(confirmed, touched)) return needs(touched, false);
+  // Un turno in corso alla pubblicazione resta privato finché non è finito.
+  const open = await currentTurnStart(db, id);
+  await db
+    .update(claudeConversations)
+    .set({
+      visibility: "public",
+      publishedAt: sql`now()`,
+      publishedBy: viewer.id,
+      publishedProjectIds: [...touched],
+      privateFromEventId: open,
+      visibilityChangedAt: sql`now()`,
+    })
+    .where(eq(claudeConversations.sessionId, id));
+  return { ok: true, conversation: (await viewOf(db, viewer, id))! };
+}
+
+/**
+ * L'inizio del turno in corso alla pubblicazione: l'`input` di un turno aperto
+ * (senza `turn_end` né `segment_end`), anche con altri messaggi in coda
+ * (review della fetta 5); se c'è solo un messaggio in coda, ciò che verrà;
+ * null se nessuno.
+ */
+async function currentTurnStart(db: Db, sessionId: string): Promise<bigint | null> {
+  const [last] = await db
+    .select({ id: agentSessionEvents.id, type: agentSessionEvents.type })
+    .from(agentSessionEvents)
+    .where(
+      and(
+        eq(agentSessionEvents.sessionId, sessionId),
+        inArray(agentSessionEvents.type, ["input", "turn_end", "segment_end"]),
+      ),
+    )
+    .orderBy(desc(agentSessionEvents.id))
+    .limit(1);
+  if (last?.type === "input") return last.id;
+  const [pending] = await db
+    .select({ id: agentSessionInputs.id })
+    .from(agentSessionInputs)
+    .where(and(eq(agentSessionInputs.sessionId, sessionId), eq(agentSessionInputs.status, "pending")))
+    .limit(1);
+  return pending ? nextEventId(db) : null;
+}
+
+async function viewOf(db: Db, viewer: SessionViewer, id: string): Promise<ClaudeConversation | null> {
+  const detail = await getClaudeConversation(db, viewer, id);
+  if (!detail) return null;
+  const { session: _session, ...view } = detail;
+  void _session;
+  return view;
+}
+
+/** Il tetto della trascrizione dell'originale nel prompt: gli ultimi messaggi, fino a tanti caratteri. */
+export const ORIGIN_TRANSCRIPT_MAX_CHARS = 12_000;
+const ORIGIN_TRANSCRIPT_MAX_MESSAGES = 40;
+
+/**
+ * La trascrizione LEGGIBILE di una pubblica per chi la continua (F5.3, D3):
+ * gli eventi che lui riceve (fino al seguito privato), solo prosa — i suoi
+ * messaggi (`input`) e le risposte (`assistant_text`, quelle dello stesso
+ * turno unite) — mai gli eventi dei tool. Gli ultimi messaggi entro il tetto.
+ */
+async function readableTranscript(db: Db, viewer: SessionViewer, row: ConversationRow): Promise<ClaudeOriginTranscript> {
+  const cut = await readerCut(db, viewer.id, row.sessionId);
+  const events = await db
+    .select({ type: agentSessionEvents.type, data: agentSessionEvents.data })
+    .from(agentSessionEvents)
+    .where(
+      and(
+        eq(agentSessionEvents.sessionId, row.sessionId),
+        inArray(agentSessionEvents.type, ["input", "assistant_text"]),
+        cut !== null ? lt(agentSessionEvents.id, cut) : undefined,
+      ),
+    )
+    .orderBy(agentSessionEvents.id);
+  const messages: ClaudeOriginTranscript["messages"] = [];
+  for (const e of events) {
+    const text = typeof e.data["text"] === "string" ? e.data["text"].trim() : "";
+    if (!text) continue;
+    const role = e.type === "input" ? "user" : "agent";
+    const last = messages.at(-1);
+    if (last && last.role === role && role === "agent") last.text = `${last.text}\n${text}`;
+    else messages.push({ role, text });
+  }
+  const kept: ClaudeOriginTranscript["messages"] = [];
+  let size = 0;
+  for (const m of messages.slice(-ORIGIN_TRANSCRIPT_MAX_MESSAGES).reverse()) {
+    if (size + m.text.length > ORIGIN_TRANSCRIPT_MAX_CHARS) break;
+    size += m.text.length;
+    kept.unshift(m);
+  }
+  const names = await namesOf(db, [row.ownerId]);
+  const hiddenTitle = (await readerSnapshot(db, row)).titleHidden;
+  return { title: hiddenTitle ? "" : row.title, authorName: names.get(row.ownerId) ?? "", messages: kept };
+}
+
+export type ContinueResult = CreateClaudeConversationResult | { ok: false; error: "not_found" | "not_public" };
+
+/**
+ * «Continua» (F5.3): chi NON è l'autore di una pubblica che vede ne fa una
+ * conversazione NUOVA, privata, sua. Porta il titolo, il contesto (se chi
+ * continua lo vede) e la trascrizione leggibile per Claude; il primo messaggio
+ * (facoltativo) è il suo primo turno, e Claude agisce come LUI (il token del
+ * turno è suo). L'originale non diventa mai un canale per leggere come l'autore.
+ */
+export async function continueClaudeConversation(
+  db: Db,
+  viewer: SessionViewer,
+  id: string,
+  input: ContinueClaudeConversationInput,
+): Promise<ContinueResult> {
+  const row = await readableRow(db, viewer, id);
+  if (!row) return { ok: false, error: "not_found" };
+  if (row.ownerId === viewer.id || row.visibility !== "public" || row.archivedAt !== null || !canReadPublic(viewer)) {
+    return { ok: false, error: "not_public" };
+  }
+  // Chi continua eredita i contesti che VEDE (lotto 8, voce 3).
+  // Chi continua non è l'autore: i contesti senza progetto (la posta dell'altro) non passano.
+  const [contexts] = await contextsForViewer(db, viewer, [groupOf(row)], false);
+  const hiddenTitle = (await readerSnapshot(db, row)).titleHidden;
+  return createClaudeConversation(
+    db,
+    viewer,
+    { title: (hiddenTitle ? "" : row.title) || "Continuation", ...(input.message ? { message: input.message } : {}), contexts: contexts! },
+    { fromSessionId: row.sessionId, originTranscript: await readableTranscript(db, viewer, row), untrustedReadAt: row.untrustedReadAt ?? null },
+  );
+}

@@ -1,5 +1,6 @@
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
+import { featureIntegrated } from "../data/integration";
 import { usePinnedProjects } from "../data/queries";
 import { hasModKey } from "../platform/platform";
 import { typing } from "../pages/tasks/useTaskKeys";
@@ -77,6 +78,8 @@ export function useShortcuts(): void {
         if (/^\/mail(\/|$)/.test(router.state.location.pathname)) return;
         // Nel Calendario ⌘N è «New meeting» ([A 9], lo gestisce la pagina).
         if (/^\/calendar\/?$/.test(router.state.location.pathname)) return;
+        // Build app: i messaggi diretti sono della fetta 2 della Chat.
+        if (!featureIntegrated("chat-dm")) return;
         e.preventDefault();
         void navigate({
           to: ".",

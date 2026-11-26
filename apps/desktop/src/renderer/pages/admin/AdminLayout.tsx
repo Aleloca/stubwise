@@ -2,9 +2,10 @@ import { Link, Navigate } from "@tanstack/react-router";
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { adminSections, canSeeAdminSection } from "../../data/adminSections";
+import { isIntegrated } from "../../data/integration";
 import { useAdminPeople } from "../../data/queries";
 import { isAdminSection, type AdminSection } from "../../data/routes";
-import { useViewer } from "../../data/viewer";
+import { useViewer } from "../../data/viewing";
 import { ONE_LINE, columnItemClass } from "../../layout/ProjectColumn";
 import { NotFound } from "../NotFound";
 import { AiPage } from "./ai/AiPage";
@@ -13,6 +14,7 @@ import { DepartmentsPage } from "./DepartmentsPage";
 import { GitAccountsPage } from "./integrations/GitAccountsPage";
 import { GooglePage } from "./integrations/GooglePage";
 import { PluginPage } from "./integrations/PluginPage";
+import { WebhookPage } from "./integrations/WebhooksPage";
 import { PluginsPage } from "./integrations/PluginsPage";
 import { StoragePage } from "./integrations/StoragePage";
 import { WebhooksPage } from "./integrations/WebhooksPage";
@@ -91,7 +93,8 @@ export function AdminColumn() {
 /** `/admin`: la prima voce visibile; senza voci, «not found». */
 export function AdminIndex() {
   const { viewer } = useViewer();
-  const first = adminSections(viewer)[0];
+  // Nella build app, la prima voce integrata (fetta 1: Reparti).
+  const first = adminSections(viewer).find((s) => isIntegrated({ kind: "admin", name: s.id }));
   if (!first) return <NotFound />;
   return <Navigate to="/admin/$section" params={{ section: first.id }} replace />;
 }
@@ -133,6 +136,13 @@ export function AdminRolePage({ roleId }: { roleId: string }) {
 }
 
 /** La pagina di un plugin (`/admin/plugins/$pluginId`): dentro Plugins, con `plugins.manage`. */
+/** La pagina di un webhook in uscita (`/admin/webhooks/$webhookId`, `new` per crearne uno; F3). */
+export function AdminWebhookPage({ webhookId }: { webhookId: string }) {
+  const { viewer } = useViewer();
+  if (!canSeeAdminSection(viewer, "webhooks")) return <NotFound />;
+  return <WebhookPage key={`${viewer.personId}:${webhookId}`} webhookId={webhookId} />;
+}
+
 export function AdminPluginPage({ pluginId }: { pluginId: string }) {
   const { viewer } = useViewer();
   if (!canSeeAdminSection(viewer, "plugins")) return <NotFound />;

@@ -1,10 +1,11 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { projectPermissionsFor, requireBrowserOrConfirmedDesktop } from "../auth/access.js";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { issuePasswordResetToken } from "../auth/password-reset.js";
 import { publishSecurityAlert } from "../auth/second-factor/alerts.js";
-import { resetSecondFactor } from "../auth/second-factor/reset.js";
+import { hasSecondFactor, resetSecondFactor } from "../auth/second-factor/reset.js";
 import {
   listSecurityEvents,
   recordSecurityEvent,
@@ -15,9 +16,13 @@ import { apiError } from "../errors.js";
 import { publicUrlOrUndefined } from "../ingest/shared.js";
 import { securityEventsResponseSchema, updateInstanceRoleSchema } from "@stubwise/shared";
 import { userIsFullAdmin } from "@stubwise/notifications";
-import { setInstanceRole } from "../services/roles.js";
-import { roleRuleErrorSchema, sendRoleRuleError, targetUserNotAbove } from "./roles.js";
-import { authErrorResponses, errorSchema } from "./shared.js";
+import { RoleRuleError, setInstanceRole } from "../services/roles.js";
+import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
+import { deactivateUser, reactivateUser } from "../services/user-deactivation.js";
+import { avatarUrlsFor } from "../services/avatars.js";
+import { adminChangeEmail } from "../services/email-change.js";
+import { sendEmailChangeError } from "./me-email-change.js";
+import { authErrorResponses, errorSchema, rejectAgentUserParam } from "./shared.js";
 
 /** Identità pubblica di un utente: mai hash o altri campi sensibili. */
 export const publicUserSchema = z.object({
@@ -49,6 +54,8 @@ export const teamUserSchema = publicUserSchema.extend({
   gitIdentities: z.array(
     z.object({ id: z.uuid(), email: z.string(), authorName: z.string().nullable() }),
   ),
+  // Area 9, F1 (additivo): disattivata da chi ha `users.manage` (D-6).
+  status: z.enum(["active", "deactivated"]).default("active"),
 });
 
 /**
@@ -59,6 +66,9 @@ export const teamUserSchema = publicUserSchema.extend({
  */
 export async function userRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+
+  // L'utente di sistema «Claude» non è una persona da gestire (vedi l'hook).
+  rejectAgentUserParam(instance);
 
   app.get(
     "/",
@@ -90,9 +100,11 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
           avatarUrl: users.slackAvatarUrl,
           slackUserId: users.slackUserId,
           bitbucketUsername: users.bitbucketUsername,
+          deactivatedAt: users.deactivatedAt,
         })
         .from(users)
-        .where(visible)
+        // L'utente di sistema «Claude» non è nel Team.
+        .where(and(eq(users.isAgent, false), visible))
         .orderBy(asc(users.createdAt));
 
       // Git identities di TUTTI gli utenti in UNA query (no N+1), poi
@@ -119,10 +131,14 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
         identitiesByUser.set(row.userId, list);
       }
 
-      return rows.map((row) => ({
+      const avatars = await avatarUrlsFor(app.db, rows.map((r) => r.id));
+      return rows.map(({ deactivatedAt, ...row }) => ({
         ...row,
+        // Area 9, F1: la foto caricata vince sull'avatar di Slack.
+        avatarUrl: avatars.get(row.id) ?? row.avatarUrl,
         createdAt: row.createdAt.toISOString(),
         gitIdentities: identitiesByUser.get(row.id) ?? [],
+        status: deactivatedAt ? ("deactivated" as const) : ("active" as const),
       }));
     },
   );
@@ -243,13 +259,15 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
     "/:id/password-reset",
     {
       config: { access: { kind: "instance", permission: "users.manage" }, reauth: true },
-      // Mai su chi ha più permessi di te (ruling R31): un link di reset è
-      // l'account intero.
-      preHandler: targetUserNotAbove(),
+      // Un link di reset è l'account intero: anche su chi ha più permessi
+      // (area 9, D-2, il rischio accettato in docs/invariants/permissions.md),
+      // con la riconferma, la traccia e il `security.alert` all'interessato.
       schema: {
         params: z.object({ id: z.uuid() }),
         response: {
-          201: z.object({ url: z.string(), expiresAt: z.iso.datetime() }),
+          // `token` (area 9, F1, additivo): il renderer della web «app» compone
+          // `${origin}/app/#/reset-password/<token>`; `url` resta quello del web vecchio.
+          201: z.object({ url: z.string(), token: z.string(), expiresAt: z.iso.datetime() }),
           ...authErrorResponses,
           400: errorSchema,
           403: roleRuleErrorSchema,
@@ -259,17 +277,18 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const { id } = request.params;
-      // Solo dalla sessione del browser, come `POST /api/auth/me/password`: un
-      // PAT (MCP, script, il token dell'app) è una credenziale delegata, e chi
-      // lo ruba non deve poter prendersi l'account di un altro utente
-      // emettendo un link a nome dell'admin.
-      if (request.user!.patId !== undefined) {
-        return apiError(
+      // Dalla sessione del browser, o dal PAT desktop riconfermato (decisione
+      // del maintainer, 10 nov 2026): un PAT `mobile` o `manual` è una
+      // credenziale delegata, e chi lo ruba non deve poter prendersi l'account
+      // di un altro utente emettendo un link a nome dell'admin.
+      if (
+        !(await requireBrowserOrConfirmedDesktop(
+          request,
           reply,
-          403,
-          "session_required",
           "Password reset links can only be created from a browser session",
-        );
+        ))
+      ) {
+        return reply;
       }
       if (id === request.user!.id) {
         return apiError(
@@ -279,7 +298,7 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
           "Use the password change in your account settings",
         );
       }
-      const issued = await issuePasswordResetToken(app.db, id, request.user!.id);
+      const issued = await issuePasswordResetToken(app.db, id, request.user!);
       if (!issued) {
         return apiError(reply, 404, "user_not_found", "User not found");
       }
@@ -301,22 +320,21 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
       const base = publicUrlOrUndefined(instance);
       return reply
         .code(201)
-        .send({ url: base ? `${base}${path}` : path, expiresAt: issued.expiresAt.toISOString() });
+        .send({ url: base ? `${base}${path}` : path, token: issued.token, expiresAt: issued.expiresAt.toISOString() });
     },
   );
 
   // DELETE /api/users/:id/second-factor — azzera il secondo fattore di un
   // altro utente (design «Recupero»): app, passkey, codici e tutte le sue
   // sessioni; i token restano. Al login successivo la persona riconfigura.
-  // Stesse protezioni del link di reset: mai su chi sta sopra (R31), mai su
-  // sé stessi (400: con la propria sessione si riconfigura dalle
+  // Come il link di reset: anche su chi ha più permessi (area 9, D-2, il
+  // rischio accettato), mai su sé stessi (400: con la propria sessione si riconfigura dalle
   // Impostazioni, e una sessione admin rubata non deve poter togliere il
   // secondo fattore al proprio account).
   app.delete(
     "/:id/second-factor",
     {
       config: { access: { kind: "instance", permission: "users.manage" }, reauth: true },
-      preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid() }),
         response: {
@@ -325,6 +343,7 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
           400: errorSchema,
           403: roleRuleErrorSchema,
           404: errorSchema,
+          409: errorSchema,
         },
       },
     },
@@ -340,8 +359,91 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
       }
       const target = await userIdentity(id);
       if (!target) return apiError(reply, 404, "user_not_found", "User not found");
+      // Area 9, F1: niente da azzerare, niente azzeramento (che chiuderebbe
+      // comunque le sessioni). La pagina della persona lo dice prima.
+      if (!(await hasSecondFactor(app.db, id))) {
+        return apiError(reply, 409, "no_second_factor", "This person has no second factor to reset");
+      }
       await resetSecondFactor(app.db, target, request.user!);
       return reply.code(204).send(null);
+    },
+  );
+
+  // Area 9, F1 (D-6): disattivare e riattivare una persona. Le regole stanno in
+  // `services/user-deactivation.ts` (docs/invariants/permissions.md).
+  app.post(
+    "/:id/deactivate",
+    {
+      config: { access: { kind: "instance", permission: "users.manage" }, reauth: true },
+      schema: {
+        params: z.object({ id: z.uuid() }),
+        body: z.object({ reassign: z.record(z.uuid(), z.uuid().nullable()).optional() }).default({}),
+        response: {
+          204: z.null(),
+          ...authErrorResponses,
+          400: roleRuleErrorSchema,
+          404: roleRuleErrorSchema,
+          // `last_manager` porta il progetto che resterebbe senza gestori (review di F1, m4).
+          409: roleRuleErrorSchema.extend({ projectId: z.uuid().optional() }),
+          422: roleRuleErrorSchema.extend({ taskId: z.uuid().optional() }),
+        },
+      },
+    },
+    async (request, reply) => {
+      try {
+        await deactivateUser(app.db, request.user!, request.params.id, request.body.reassign ?? {});
+        return reply.code(204).send(null);
+      } catch (error) {
+        // Review (M5): il progetto che resterebbe senza gestori si nomina solo a
+        // chi lo vede (R-G5); agli altri il 409 senza `projectId`.
+        if (error instanceof RoleRuleError && error.code === "last_manager" && typeof error.extra?.projectId === "string") {
+          if ((await projectPermissionsFor(app.db, request.user!, error.extra.projectId)) === null) {
+            return sendRoleRuleError(reply, new RoleRuleError(409, "last_manager", error.message));
+          }
+        }
+        return sendRoleRuleError(reply, error);
+      }
+    },
+  );
+
+  app.post(
+    "/:id/reactivate",
+    {
+      config: { access: { kind: "instance", permission: "users.manage" }, reauth: true },
+      schema: {
+        params: z.object({ id: z.uuid() }),
+        response: { 204: z.null(), ...authErrorResponses, 404: roleRuleErrorSchema },
+      },
+    },
+    async (request, reply) => {
+      try {
+        await reactivateUser(app.db, request.user!, request.params.id);
+        return reply.code(204).send(null);
+      } catch (error) {
+        return sendRoleRuleError(reply, error);
+      }
+    },
+  );
+
+  // Area 9, F1 (D-13): il cambio dell'email di login di un ALTRO, fatto da chi
+  // gestisce le persone: subito, senza verifica, mai su sé stessi; c'è sempre,
+  // e senza trasporto email è l'unica strada (docs/invariants/identity.md).
+  app.patch(
+    "/:id/email",
+    {
+      config: { access: { kind: "instance", permission: "users.manage" }, reauth: true },
+      schema: {
+        params: z.object({ id: z.uuid() }),
+        body: z.object({ email: z.email().max(320) }),
+        response: { 200: z.object({ email: z.string() }), ...authErrorResponses, 400: errorSchema, 404: errorSchema, 409: errorSchema },
+      },
+    },
+    async (request, reply) => {
+      try {
+        return await adminChangeEmail(app.db, app.mailTransport, request.user!, request.params.id, request.body.email);
+      } catch (error) {
+        return sendEmailChangeError(reply, error);
+      }
     },
   );
 

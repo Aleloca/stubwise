@@ -16,17 +16,14 @@ import {
   visibleProjectIds,
 } from "../data/store";
 import { runScript } from "../data/stream";
-import { draftText } from "../data/support/visibility";
 import { setLanguage } from "../i18n";
 import { resetPanelToggle } from "../layout/claudePanel/panelEvents";
-import { PREVIEW_DOCKED_QUERY, SUPPORT_TWO_UP_QUERY } from "../pages/support/format";
-import { clearReplyStore } from "../pages/support/replyStore";
 import { renderRoute } from "../test/renderRoute";
-import { setMatchMedia } from "../test/setup";
 import { clearToasts } from "./Toast";
 
-// La riga «Claude can help you…» nelle cinque pagine di partenza (area 10b,
-// Task 12; shape `claude-suggestions.md`): c'è per chi può fare ciò che
+// La riga «Claude can help you…» nelle pagine di partenza (area 10b, Task 12;
+// shape `claude-suggestions.md`; da area 8 F3 quattro: Support non ha più la
+// riga, il team non scrive ai clienti): c'è per chi può fare ciò che
 // propone, senza «Who?»; il clic apre il riquadro con una conversazione
 // NUOVA e la richiesta nella casella, non inviata (Invio la manda, S6 dalla
 // riga); «Not now» la nasconde per quell'oggetto, anche dopo un
@@ -37,26 +34,22 @@ const SARA = "p-sara";
 const LAURA = "p-laura";
 const GIULIA = "p-giulia";
 const ROBERTA = "p-roberta";
-const KEY = "stubwise.claudeSuggestion.p-davide.support:sup-acq-2";
+const PR_PATH = "/p/ACQ/releases?pr=opr-acq-77";
+const OTHER_PR_PATH = "/p/AUD/releases?pr=opr-aud-209";
+const NOTES_LINE = "Claude can help you write the release notes";
+const KEY = "stubwise.claudeSuggestion.p-laura.pr:opr-acq-77";
 
 beforeEach(() => {
   api.setLatency(0);
   api.setStreamLatency(null);
   api.resetApi();
-  // La bozza di Claude del seme su ACQ-S2 toglie la riga (maintainer, 5 nov
-  // 2026): i casi della riga partono senza; quello con la bozza la rimette.
-  state.supportConversations.find((c) => c.id === "sup-acq-2")!.claudeDraft = null;
   resetPanelToggle();
-  clearReplyStore();
   window.localStorage.clear();
-  setMatchMedia(SUPPORT_TWO_UP_QUERY, true);
-  setMatchMedia(PREVIEW_DOCKED_QUERY, true);
 });
 afterEach(() => {
   vi.restoreAllMocks();
   setStreamLatency(null);
   clearToasts();
-  clearReplyStore();
   act(() => setLanguage("en"));
   setSessionPersonId("p-giulia");
 });
@@ -66,7 +59,7 @@ const panelOpen = () => !panel().hidden;
 const panelBox = () => within(panel()).getByRole("textbox", { name: "Message to Claude" });
 const row = () => document.querySelector<HTMLElement>("[data-claude-suggestion]");
 const suggestionButton = (name: string | RegExp) => screen.findByRole("button", { name });
-const conv = (code: string) => state.supportConversations.find((c) => c.code === code)!;
+const prReady = () => screen.findByRole("heading", { level: 3, name: "Claude's analysis" });
 
 /** Rende ferma a mano una task aperta del progetto. */
 function stallOne(code: string) {
@@ -80,21 +73,14 @@ function stallOne(code: string) {
   };
 }
 
-/** Le cinque pagine con chi può fare ciò che la riga propone. */
+/** Le quattro pagine con chi può fare ciò che la riga propone. */
 const PLACES = [
   {
-    name: "support",
-    path: "/p/ACQ/support/ACQ-S2",
-    who: DAVIDE,
-    ready: () => screen.findByRole("form", { name: /^Reply to / }),
-    line: "Claude can help you write the reply",
-  },
-  {
     name: "pr",
-    path: "/p/ACQ/releases?pr=opr-acq-77",
+    path: PR_PATH,
     who: LAURA,
-    ready: () => screen.findByRole("heading", { level: 3, name: "Claude's analysis" }),
-    line: "Claude can help you write the release notes",
+    ready: prReady,
+    line: NOTES_LINE,
   },
   {
     name: "automations",
@@ -119,26 +105,7 @@ const PLACES = [
   },
 ] as const;
 
-describe("Supporto con la bozza di Claude già pronta (maintainer, 5 nov 2026)", () => {
-  it("ACQ-S2 col seme: «Claude prepared a draft · Use draft» e nessuna riga accanto", async () => {
-    const c = state.supportConversations.find((x) => x.id === "sup-acq-2")!;
-    c.claudeDraft = "Hi, thanks for writing…";
-    renderRoute("/p/ACQ/support/ACQ-S2", DAVIDE);
-    await screen.findByRole("button", { name: "Use draft" });
-    // Lasciato il tempo alla riga di arrivare: non arriva.
-    await new Promise((r) => setTimeout(r, 50));
-    expect(row()).toBeNull();
-  });
-
-  it("ACQ-S7 col seme così com'è (nessuna bozza): la riga c'è, senza «Use draft»", async () => {
-    renderRoute("/p/ACQ/support/ACQ-S7", DAVIDE);
-    await screen.findByRole("form", { name: /^Reply to / });
-    await suggestionButton("Claude can help you write the reply");
-    expect(screen.queryByRole("button", { name: "Use draft" })).toBeNull();
-  });
-});
-
-describe("le cinque pagine: c'è col permesso, mai un «Who?»", () => {
+describe("le quattro pagine: c'è col permesso, mai un «Who?»", () => {
   for (const p of PLACES) {
     it(`${p.name}: la riga sotto la testata, con la frase e la descrizione`, async () => {
       renderRoute(p.path, p.who);
@@ -164,14 +131,19 @@ describe("le cinque pagine: c'è col permesso, mai un «Who?»", () => {
     });
   }
 
-  it("senza il permesso non c'è: Sara su ACQ-S2, Sara sulla PR e sulle automazioni di ACQ, Laura su Consumi", async () => {
-    renderRoute("/p/ACQ/support/ACQ-S2", SARA);
-    await screen.findByText("Customer preview");
-    await screen.findByText("Only people who can reply to customers write here.");
-    expect(row()).toBeNull();
-    cleanup();
-    renderRoute("/p/ACQ/releases?pr=opr-acq-77", SARA);
-    await screen.findByRole("heading", { level: 3, name: "Claude's analysis" });
+  it("Support non ha la riga (area 8 F3: il team non scrive ai clienti): Davide su ACQ-S2", async () => {
+    renderRoute("/p/ACQ/support/ACQ-S2", DAVIDE);
+    await waitFor(() =>
+      expect(document.querySelector('[data-support-detail="ACQ-S2"]')).not.toBeNull(),
+    );
+    // Lasciato il tempo alla riga di arrivare: non arriva.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(document.querySelector("[data-claude-suggestion]")).toBeNull();
+  });
+
+  it("senza il permesso non c'è: Sara sulla PR e sulle automazioni di ACQ, Laura su Consumi", async () => {
+    renderRoute(PR_PATH, SARA);
+    await prReady();
     expect(row()).toBeNull();
     cleanup();
     renderRoute("/p/ACQ/automations", SARA);
@@ -185,8 +157,8 @@ describe("le cinque pagine: c'è col permesso, mai un «Who?»", () => {
 
   it("in italiano: «Claude può aiutarti a …» e «Non ora»", async () => {
     act(() => setLanguage("it"));
-    renderRoute("/p/ACQ/support/ACQ-S2", DAVIDE);
-    const button = await suggestionButton("Claude può aiutarti a scrivere la risposta");
+    renderRoute(PR_PATH, LAURA);
+    const button = await suggestionButton("Claude può aiutarti a scrivere le note di rilascio");
     expect(button).toHaveAccessibleDescription(
       "Apre Claude con la richiesta scritta, non inviata.",
     );
@@ -215,7 +187,7 @@ describe("il «mai se» e il budget", () => {
     await waitFor(() => expect(row()).toBeNull());
   });
 
-  it("budget mensile esaurito: in ognuno dei cinque luoghi la riga che c'era se ne va, senza ricaricare (M3)", async () => {
+  it("budget mensile esaurito: in ognuno dei quattro luoghi la riga che c'era se ne va, senza ricaricare (M3)", async () => {
     for (const p of PLACES) {
       state.instance.simulate.budgetReached = false;
       renderRoute(p.path, p.who);
@@ -235,26 +207,26 @@ describe("il «mai se» e il budget", () => {
 
   it("il budget torna: la riga compare senza ricaricare", async () => {
     state.instance.simulate.budgetReached = true;
-    renderRoute("/p/ACQ/support/ACQ-S2", DAVIDE);
-    await screen.findByRole("form", { name: /^Reply to / });
+    renderRoute(PR_PATH, LAURA);
+    await prReady();
     expect(row()).toBeNull();
     act(() => {
       state.instance.simulate.budgetReached = false;
       notifyInstanceChange();
     });
-    await suggestionButton("Claude can help you write the reply");
+    await suggestionButton(NOTES_LINE);
   });
 });
 
 describe("il clic: una conversazione nuova, la richiesta nella casella, non inviata", () => {
-  it("ACQ-S2: riquadro aperto, «Write the reply to ACQ-S2» col cursore in fondo; Invio → la bozza nel campo", async () => {
+  it("la PR: riquadro aperto, «Write the release notes» col cursore in fondo; Invio la manda", async () => {
     const user = userEvent.setup();
-    renderRoute("/p/ACQ/support/ACQ-S2", DAVIDE);
-    const form = await screen.findByRole("form", { name: /^Reply to / });
+    renderRoute(PR_PATH, LAURA);
+    await prReady();
     const before = state.conversations.length;
-    await user.click(await suggestionButton("Claude can help you write the reply"));
+    await user.click(await suggestionButton(NOTES_LINE));
     expect(panelOpen()).toBe(true);
-    await waitFor(() => expect(panelBox()).toHaveValue("Write the reply to ACQ-S2"));
+    await waitFor(() => expect(panelBox()).toHaveValue("Write the release notes"));
     await waitFor(() => expect(panelBox()).toHaveFocus());
     const box = panelBox() as HTMLTextAreaElement;
     expect(box.selectionStart).toBe(box.value.length);
@@ -263,9 +235,7 @@ describe("il clic: una conversazione nuova, la richiesta nella casella, non invi
     );
     // Il chip dice la pagina.
     await waitFor(() =>
-      expect(panel().querySelector("[data-context-chip]")).toHaveTextContent(
-        "ACQ-S2·support conversation",
-      ),
+      expect(panel().querySelector("[data-context-chip]")).toHaveTextContent("pull request #77"),
     );
     // Non inviata: nessuna conversazione nuova, nessun messaggio.
     expect(state.conversations).toHaveLength(before);
@@ -273,10 +243,7 @@ describe("il clic: una conversazione nuova, la richiesta nella casella, non invi
     expect(row()).not.toBeNull();
 
     await user.keyboard("{Enter}");
-    const body = within(form).getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
-    await waitFor(() => expect(body.value).toBe(draftText(conv("ACQ-S2"))));
-    expect(form.querySelector("[data-claude-draft-mark]")).toHaveTextContent("Claude's draft");
-    expect(state.conversations).toHaveLength(before + 1);
+    await waitFor(() => expect(state.conversations).toHaveLength(before + 1));
   });
 
   it("il chip della pagina c'è anche se era stato tolto: la richiesta parla della PR", async () => {
@@ -306,8 +273,8 @@ describe("il clic: una conversazione nuova, la richiesta nella casella, non invi
 
   it("col riquadro aperto su un'altra conversazione: ne apre una nuova; il testo non inviato resta in quella di prima ([SG 6])", async () => {
     const user = userEvent.setup();
-    const router = renderRoute("/p/ACQ/support/ACQ-S2", DAVIDE);
-    await screen.findByRole("form", { name: /^Reply to / });
+    const router = renderRoute(PR_PATH, LAURA);
+    await prReady();
     await user.keyboard("{Control>}j{/Control}");
     await waitFor(() => expect(panelBox()).toHaveFocus());
     await user.type(panelBox(), "What should I do today?{Enter}");
@@ -315,8 +282,8 @@ describe("il clic: una conversazione nuova, la richiesta nella casella, non invi
     const first = state.conversations.at(-1)!.id;
     await user.type(await within(panel()).findByRole("combobox"), "not sent yet");
 
-    await user.click(await suggestionButton("Claude can help you write the reply"));
-    await waitFor(() => expect(panelBox()).toHaveValue("Write the reply to ACQ-S2"));
+    await user.click(await suggestionButton(NOTES_LINE));
+    await waitFor(() => expect(panelBox()).toHaveValue("Write the release notes"));
     expect(within(panel()).getByRole("heading", { level: 2 })).toHaveTextContent(
       "New conversation",
     );
@@ -337,8 +304,8 @@ describe("il clic: una conversazione nuova, la richiesta nella casella, non invi
 
   it("[SG 6] con una domanda aperta e «Other…» scritto: si tiene il testo della casella, non quello della risposta (I1)", async () => {
     const user = userEvent.setup();
-    const router = renderRoute("/p/ACQ/support/ACQ-S2", DAVIDE);
-    await screen.findByRole("form", { name: /^Reply to / });
+    const router = renderRoute(PR_PATH, LAURA);
+    await prReady();
     await user.keyboard("{Control>}j{/Control}");
     await waitFor(() => expect(panelBox()).toHaveFocus());
     await user.type(panelBox(), "What should I do today?{Enter}");
@@ -357,8 +324,8 @@ describe("il clic: una conversazione nuova, la richiesta nella casella, non invi
     await user.type(other, "my own answer");
     await user.type(await within(panel()).findByRole("combobox"), "not sent yet");
 
-    await user.click(await suggestionButton("Claude can help you write the reply"));
-    await waitFor(() => expect(panelBox()).toHaveValue("Write the reply to ACQ-S2"));
+    await user.click(await suggestionButton(NOTES_LINE));
+    await waitFor(() => expect(panelBox()).toHaveValue("Write the release notes"));
 
     await act(() => router.navigate({ to: "/claude/$id", params: { id: first } }));
     const page = await screen.findByRole("main");
@@ -372,48 +339,41 @@ describe("il clic: una conversazione nuova, la richiesta nella casella, non invi
 });
 
 describe("«Not now»", () => {
-  it("su ACQ-S2: sparisce, il fuoco va avanti, lo annuncia; ricaricata resta nascosta; su un'altra conversazione che aspetta c'è", async () => {
+  it("sulla PR: sparisce, il fuoco va avanti, lo annuncia; ricaricata resta nascosta; su un'altra PR senza note c'è", async () => {
     const user = userEvent.setup();
-    renderRoute("/p/ACQ/support/ACQ-S2", DAVIDE);
-    await suggestionButton("Claude can help you write the reply");
+    renderRoute(PR_PATH, LAURA);
+    await suggestionButton(NOTES_LINE);
     await user.click(within(row()!).getByRole("button", { name: "Not now" }));
-    expect(
-      screen.queryByRole("button", { name: "Claude can help you write the reply" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: NOTES_LINE })).toBeNull();
     expect(document.activeElement).not.toBe(document.body);
     expect(document.activeElement).not.toBeNull();
     expect(screen.getByText("Suggestion hidden.")).toBeInTheDocument();
     await waitFor(() => expect(row()).toBeNull());
-    // Richiusa la riga, il fuoco è ancora su un elemento della pagina, mai sul body.
+    // Richiusa la riga, il fuoco è ancora su un elemento del pannello della PR, mai sul body.
     expect(document.activeElement).not.toBe(document.body);
-    expect(document.querySelector("[data-support-detail]")!.contains(document.activeElement)).toBe(
+    expect(document.querySelector("[data-detail-panel]")!.contains(document.activeElement)).toBe(
       true,
     );
     expect(window.localStorage.getItem(KEY)).not.toBeNull();
 
     // Ricaricata la pagina: resta nascosta.
     cleanup();
-    renderRoute("/p/ACQ/support/ACQ-S2", DAVIDE);
-    await screen.findByRole("form", { name: /^Reply to / });
+    renderRoute(PR_PATH, LAURA);
+    await prReady();
     await new Promise((r) => setTimeout(r, 20));
     expect(row()).toBeNull();
 
-    // Un'altra conversazione che aspetta il team: la riga c'è (la chiave è l'oggetto).
+    // Un'altra PR aperta senza note: la riga c'è (la chiave è l'oggetto).
     cleanup();
-    const c = conv("ACQ-S4");
-    c.messages.push({
-      ...c.messages.find((m) => m.from === "customer")!,
-      id: "m-test",
-      at: "2026-10-23T11:00:00Z",
-    });
-    renderRoute("/p/ACQ/support/ACQ-S4", DAVIDE);
-    await suggestionButton("Claude can help you write the reply");
+    renderRoute(OTHER_PR_PATH, LAURA);
+    await prReady();
+    await suggestionButton(NOTES_LINE);
   });
 
-  it("vale per la persona: Matteo su ACQ-S2 la vede ancora", async () => {
+  it("vale per la persona: Matteo sulla stessa PR la vede ancora", async () => {
     window.localStorage.setItem(KEY, "1");
-    renderRoute("/p/ACQ/support/ACQ-S2", "p-matteo");
-    await suggestionButton("Claude can help you write the reply");
+    renderRoute(PR_PATH, "p-matteo");
+    await suggestionButton(NOTES_LINE);
   });
 
   it("con localStorage che lancia: la pagina si disegna, la riga c'è e «Not now» la nasconde", async () => {
@@ -424,9 +384,9 @@ describe("«Not now»", () => {
       throw new Error("blocked");
     });
     const user = userEvent.setup();
-    renderRoute("/p/ACQ/support/ACQ-S2", DAVIDE);
-    await screen.findByRole("form", { name: /^Reply to / });
-    await suggestionButton("Claude can help you write the reply");
+    renderRoute(PR_PATH, LAURA);
+    await prReady();
+    await suggestionButton(NOTES_LINE);
     await user.click(within(row()!).getByRole("button", { name: "Not now" }));
     await waitFor(() => expect(row()).toBeNull());
     expect(document.activeElement).not.toBe(document.body);
@@ -460,16 +420,16 @@ describe("le scritture che cambiano la riga la rileggono, senza ricaricare", () 
     return renderHook(use, { wrapper }).result;
   }
 
-  it("«vedi come» sulla stessa pagina, da Matteo a Sara: la riga di Matteo non arriva mai a Sara, nemmeno mentre rilegge", async () => {
+  it("«vedi come» sulla stessa pagina, da Laura a Sara: la riga di Laura non arriva mai a Sara, nemmeno mentre rilegge", async () => {
     // Ogni render: chi guarda e la riga che il hook gli dà.
     const seen: { me: string; id: string | null | undefined }[] = [];
-    const result = hooks("p-matteo", () => {
+    const result = hooks(LAURA, () => {
       const viewer = useViewer();
-      const row = useClaudeSuggestion({ kind: "support", conversationId: "sup-acq-2" });
+      const row = useClaudeSuggestion({ kind: "pr", prId: "opr-acq-77" });
       seen.push({ me: getSessionPersonId(), id: row.data?.id });
       return { viewer, row };
     });
-    await waitFor(() => expect(result.current.row.data?.id).toBe("supportReply"));
+    await waitFor(() => expect(result.current.row.data?.id).toBe("releaseNotes"));
     // Una lettura lenta: la finestra in cui la riga di prima potrebbe restare.
     api.setLatency(150);
     act(() => result.current.viewer.setPersona(SARA));

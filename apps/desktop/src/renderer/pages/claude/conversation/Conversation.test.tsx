@@ -123,22 +123,20 @@ describe("Conversation: flusso", () => {
   });
 });
 
-describe("Conversation: citazioni che chi guarda non può aprire (R-E9)", () => {
-  it("il codice in inchiostro tenue, non un link, «You can't open this»; il titolo no", async () => {
+// Lotto 9 (decisione di 46, 24 nov 2026): un riferimento che chi guarda non
+// vede si TOGLIE dalle citazioni di Claude, non si mostra sbiadito («You can't
+// open this»); un codice citato nella prosa resta testo, senza link.
+describe("Conversation: citazioni che chi guarda non può aprire", () => {
+  it("tolte dalla riga «Used:», nessun segno sbiadito; nel testo il codice è testo semplice", async () => {
     const { container } = renderWithData(<Harness id="cv-giulia-callbacks" />, {
       personId: "p-sara",
     });
-    const used = await screen.findByText("Used:");
-    const line = used.parentElement!;
-    await waitFor(() => expect(line.querySelector('[data-citation="hidden"]')).not.toBeNull());
-    const code = within(line).getByText("AUD-9");
-    expect(code.tagName).toBe("SPAN");
-    expect(code).toHaveAttribute("title", "You can't open this");
-    expect(code.className).toMatch(/text-ink-faint/);
-    expect(line.textContent).not.toMatch(/Fix the timezone/);
-    expect(within(line).queryByRole("link", { name: /AUD-9/ })).toBeNull();
-    // Nel testo di Claude il codice resta leggibile ma non si apre.
+    await screen.findByText(/AUD-9/);
+    await waitFor(() => expect(container.querySelector('[data-citation="hidden"]')).toBeNull());
     expect(container.querySelector('a[href*="AUD-9"]')).toBeNull();
+    const used = screen.queryByText("Used:");
+    if (used) expect(used.parentElement!.textContent).not.toMatch(/AUD-9/);
+    expect(container.textContent).not.toMatch(/Fix the timezone/);
   });
 });
 

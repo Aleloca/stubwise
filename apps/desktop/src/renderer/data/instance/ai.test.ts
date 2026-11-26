@@ -6,6 +6,8 @@ import { setSessionPersonId } from "../session";
 import { now, state } from "../store";
 import { grantInstancePermission, type LocalInstancePermission } from "../viewer";
 import type { InstanceResult } from "./types";
+import en from "../../i18n/locales/en.json";
+import it_ from "../../i18n/locales/it.json";
 
 // L'AI d'istanza nel livello dati (area 9b, Task 3): provider e catena,
 // modelli per operazione, automazione, budget e lingua. Ogni rifiuto si
@@ -351,6 +353,36 @@ describe("la catena dei provider", () => {
   });
 });
 
+describe("rinominare un provider (F3, come il server)", () => {
+  it("il nome cambia senza riconferma; la voce è provider.updated coi nomi e params.field «name»", async () => {
+    expect(state.reauth.has(ROBERTA)).toBe(false);
+    expect(await instance.renameProvider("prv-backup-max", "  Spare Max  ")).toEqual({ ok: true });
+    expect(byName("Spare Max").id).toBe("prv-backup-max");
+    expect(state.changelog.at(-1)).toMatchObject({
+      kind: "provider.updated",
+      object: { type: "provider", id: "prv-backup-max", label: "Spare Max" },
+      before: "Backup Max",
+      after: "Spare Max",
+      params: { field: "name" },
+    });
+  });
+
+  it("un nome vuoto o già usato è invalid; lo stesso nome non scrive niente; senza permesso forbidden", async () => {
+    await refused(() => instance.renameProvider("prv-backup-max", "   "), {
+      error: "invalid",
+      reason: "name",
+    });
+    await refused(() => instance.renameProvider("prv-backup-max", "team max"), {
+      error: "invalid",
+      reason: "name_taken",
+    });
+    expect(await instance.renameProvider("prv-backup-max", "Backup Max")).toEqual({ ok: true });
+    expect(kinds()).toEqual([]);
+    as(MARCO);
+    await refused(() => instance.renameProvider("prv-backup-max", "X"), { error: "forbidden" });
+  });
+});
+
 describe("testProvider", () => {
   it("dà l'esito simulato, lo salva in lastTest, poi torna a ok", async () => {
     expect(await instance.simulateNextTest("prv-backup-max", "invalid_credentials")).toMatchObject({
@@ -378,6 +410,8 @@ describe("modelli per operazione", () => {
     expect(instance.modelFor("mail_classify")).toEqual({ model: "haiku", source: "env" });
     expect(instance.modelFor("triage")).toEqual({ model: "sonnet", source: "default" });
     expect(instance.modelFor("daily_report")).toEqual({ model: "haiku", source: "default" });
+    // I riassunti dei file del Drive (F3 dell'area 5): Haiku, come il default di codice del server.
+    expect(instance.modelFor("drive_summary")).toEqual({ model: "haiku", source: "default" });
   });
 
   it("setModel(op, null) torna alla fonte di prima", async () => {
@@ -403,7 +437,41 @@ describe("modelli per operazione", () => {
   it("listModels: solo le operazioni configurabili, con gruppo e fonte", async () => {
     const rows = await instance.listModels();
     expect(rows.map((r) => r.operation)).not.toContain("plugin_smoke");
-    expect(rows).toHaveLength(16);
+    // 17 con `claude_chat` (la conversazione libera con Claude, chat fetta 1); 18 con
+    // `drive_summary` (i riassunti dei file del Drive, F3 dell'area 5, gruppo docs);
+    // 19 con `mail_draft` (la bozza di Claude per la Posta, F3 dell'area 6, gruppo mail);
+    // 20 con `meeting_summary` (riassunto e proposte di una riunione registrata, F5a, gruppo mail);
+    // 21 con `automation_step` (un passo di Claude di un'automazione, area 7 F3, gruppo automations);
+    // 22 con `support_triage_check` (il giudizio dopo il silenzio, area 8 F3, gruppo support:
+    // la bozza della risposta `support_reply_draft` è uscita con la premessa corretta);
+    // 24 con `server_analysis` e `server_fix_plan` (area 8 F4b, gruppo servers);
+    // 25 con `mail_reply_judgment` («serve una mia risposta?», «Clienti in attesa», gruppo mail);
+    // 26 con `product_doc_update` (area 11, F5: la doc di prodotto dalle fonti, gruppo docs).
+    expect(rows).toHaveLength(26);
+    expect(rows.find((r) => r.operation === "mail_reply_judgment")).toMatchObject({
+      group: "mail",
+    });
+    expect(en.usage.operations.mail_reply_judgment).toBe("Mail: does it need my reply?");
+    expect(rows.filter((r) => r.group === "servers").map((r) => r.operation)).toEqual([
+      "server_analysis",
+      "server_fix_plan",
+    ]);
+    expect(rows.find((r) => r.operation === "support_triage_check")).toMatchObject({
+      group: "support",
+    });
+    expect(rows.map((r) => r.operation)).not.toContain("support_reply_draft");
+    expect(rows.find((r) => r.operation === "automation_step")).toMatchObject({ group: "automations" });
+    expect(en.usage.operations.automation_step).toBe("Automation steps");
+    expect(it_.usage.operations.automation_step).toBe("Passi delle automazioni");
+    expect(rows.find((r) => r.operation === "meeting_summary")).toMatchObject({ group: "mail" });
+    expect(en.usage.operations.meeting_summary).toBe("Recorded meeting summaries");
+    expect(it_.usage.operations.meeting_summary).toBe("Riassunti delle riunioni registrate");
+    expect(rows.find((r) => r.operation === "mail_draft")).toMatchObject({ group: "mail" });
+    // La sua etichetta c'è, in tutte e due le lingue (Usage e Impostazioni → AI la mostrano).
+    expect(en.usage.operations.mail_draft).toBe("Email drafts by Claude");
+    expect(it_.usage.operations.mail_draft).toBe("Bozze delle email di Claude");
+    expect(rows.find((r) => r.operation === "drive_summary")).toMatchObject({ group: "docs", model: "haiku", source: "default" });
+    expect(rows.find((r) => r.operation === "claude_chat")).toMatchObject({ operation: "claude_chat" });
     expect(rows.find((r) => r.operation === "fix_plan")).toEqual({
       operation: "fix_plan",
       group: "tickets",

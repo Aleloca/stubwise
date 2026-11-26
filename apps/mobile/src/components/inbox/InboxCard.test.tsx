@@ -28,6 +28,9 @@ function item(overrides: Partial<Reader<InboxItem>> & Pick<InboxItem, "id" | "ki
     handledAt: null,
     handledBy: null,
     reviewOutcome: null,
+    objectGone: false,
+    chat: null,
+    automation: null,
     ...overrides,
   } as Reader<InboxItem>;
 }
@@ -587,6 +590,58 @@ describe("InboxCard", () => {
       expect(onOpenTicket).not.toHaveBeenCalled();
     });
 
+    test("chat.mention (area 4): etichetta propria, si legge; «Apri» porta al messaggio nell'app", async () => {
+      const client = makeClient();
+      const onOpenTicket = jest.fn();
+      const MENTION = item({
+        id: "c1",
+        kind: "chat.mention",
+        text: "Marta Rinaldi ti ha nominato in #general",
+        actions: ["open", "snooze", "handled"],
+        url: "https://stubwise.example/app/#/chat/ch-1?message=m-1",
+        chat: {
+          channelId: "ch-1",
+          channelName: "general",
+          messageId: "m-1",
+          threadRootId: null,
+          authorId: "u-1",
+          authorName: "Marta Rinaldi",
+          excerpt: "Ciao @Luca, guardi tu?",
+          group: null,
+        },
+      });
+      await renderCard(MENTION, client, { onOpenTicket });
+      expect(screen.getByText(MENTION.text)).toBeTruthy();
+      expect(screen.getByText("Nominato nella chat")).toBeTruthy();
+      expect(screen.getByTestId("info-card-open")).toBeTruthy();
+      await fireEvent.press(screen.getByTestId("info-card-open"));
+      expect(onOpenTicket).not.toHaveBeenCalled();
+    });
+
+    test("chat.question (area 4, fetta 2): etichetta propria, si legge", async () => {
+      const client = makeClient();
+      const QUESTION = item({
+        id: "c2",
+        kind: "chat.question",
+        text: "Marta Rinaldi ti ha chiesto in #general",
+        actions: ["open", "snooze", "handled"],
+        url: "https://stubwise.example/app/#/chat/ch-1?message=m-2",
+        chat: {
+          channelId: "ch-1",
+          channelName: "general",
+          messageId: "m-2",
+          threadRootId: null,
+          authorId: "u-1",
+          authorName: "Marta Rinaldi",
+          excerpt: "@Luca ci sei domani?",
+          group: null,
+        },
+      });
+      await renderCard(QUESTION, client);
+      expect(screen.getByText(QUESTION.text)).toBeTruthy();
+      expect(screen.getByText("Una domanda per te nella chat")).toBeTruthy();
+    });
+
     test("un kind sconosciuto (payload di un server più nuovo) non pianta: degrada a InfoCard generica", async () => {
       const client = makeClient();
       const UNKNOWN_ITEM = item({
@@ -823,6 +878,8 @@ describe("InboxCard — proposta Google (fase 6)", () => {
       blockedIndices: [],
       handed: false,
       decision: null,
+      handedByUser: null,
+      proposalDecided: false,
       from: "laura@cliente.test",
       subject: "Rinviamo il rilascio?",
       signal: "decision",

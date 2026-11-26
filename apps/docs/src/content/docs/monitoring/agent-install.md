@@ -116,9 +116,9 @@ Line by line:
   read from the pid files in PM2's home (`~/.pm2/pids`); when PM2 runs as root
   that directory is under `/root`, which other users can't enter, and without
   this flag every app started with `npm run start` would be listed under that
-  same command instead of its PM2 name. The mounts stay **read-only**, so the
-  agent still can't change anything on the host — but it can read every file on
-  it. If you'd rather not grant that and your PM2 runs as a regular user with a
+  same command instead of its PM2 name. The filesystem mounts stay
+  **read-only**, so the agent can't change files on the host — but it can read
+  every file on it (and see the Docker socket note below). If you'd rather not grant that and your PM2 runs as a regular user with a
   home other users can traverse, you can drop the flag.
 - `--group-add "$(stat -c %g /var/run/docker.sock)"` — add the container process
   to the **group that owns the Docker socket**. Without `--user 0` the agent runs
@@ -130,14 +130,20 @@ Line by line:
   from.
 - `-v /:/host/root:ro` — mount the host root **read-only** so the agent can read
   disk usage of every mount.
-- `-v /var/run/docker.sock:/var/run/docker.sock:ro` — the Docker socket
-  (read-only) for container discovery and stats.
+- `-v /var/run/docker.sock:/var/run/docker.sock:ro` — the Docker socket, for
+  container discovery and stats. ⚠️ `:ro` on a **socket** does not make the
+  Docker API read-only: it stops changes to the socket file, not connections to
+  it. Whoever can talk to the socket can use the whole Docker API (start, stop
+  and create containers). The agent only **reads** from it — the list of
+  containers and their stats — but the mount alone doesn't guarantee that.
 - `-e STUBWISE_URL=…` — your Stubwise instance's URL (where samples are pushed).
 - `-e STUBWISE_SERVER_KEY=…` — the per-server key from registration.
 - `alelocadev/stubwise-agent` — the public image on Docker Hub; `docker run`
   pulls it automatically.
 
-Every mount is **read-only**: the agent observes, it never writes to the host.
+The filesystem mounts are **read-only** and the agent only reads: it never
+writes to the host. The Docker socket is the exception to "read-only" (see
+above): the agent uses it only to read, but the socket itself allows more.
 
 ## Getting the key
 

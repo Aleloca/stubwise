@@ -255,6 +255,66 @@ describe("chat streaming", () => {
     expect(localStorage.getItem("stubwise-widget:acme:conversation")).toBe("conv-99");
   });
 
+  // Area 8, F3, S17: una conversazione con un esito è chiusa; il server manda il
+  // messaggio nella successiva e la annuncia. Il widget ne salva l'id e da lì
+  // scrive alla successiva.
+  it("evento `conversation` (la successiva di una chiusa) → id salvato e il messaggio dopo va alla successiva", async () => {
+    localStorage.setItem("stubwise-widget:acme:conversation", "conv-old");
+    const { calls } = installFetch({
+      "GET /config": jsonResponse(200, activeConfig()),
+      "GET userId=u1": jsonResponse(200, { messages: [] }),
+      "POST /conversations/conv-old/messages": sseResponse([
+        'data: {"type":"conversation","conversationId":"conv-new"}\n\n',
+        'data: {"type":"delta","text":"Eccomi"}\n\n',
+        'data: {"type":"done","conversationId":"conv-new","citations":[]}\n\n',
+      ]),
+      "POST /conversations/conv-new/messages": sseResponse([
+        'data: {"type":"delta","text":"Ancora qui"}\n\n',
+        'data: {"type":"done","conversationId":"conv-new","citations":[]}\n\n',
+      ]),
+    });
+    await initWidget({ dsn: DSN, user: USER });
+    await flush();
+    shadow().querySelector<HTMLButtonElement>(".sw-bubble")!.click();
+    await flush();
+    const say = async (text: string) => {
+      const input = shadow().querySelector<HTMLTextAreaElement>(".sw-composer-input")!;
+      input.value = text;
+      input.dispatchEvent(new Event("input"));
+      await flush();
+      shadow().querySelector<HTMLButtonElement>(".sw-composer .sw-btn")!.click();
+      await flush(6);
+    };
+    await say("una cosa nuova");
+    expect(localStorage.getItem("stubwise-widget:acme:conversation")).toBe("conv-new");
+    await say("e un'altra");
+    expect(calls.filter((c) => c.method === "POST" && c.url.endsWith("/messages")).map((c) => c.url.split("/").at(-2))).toEqual(["conv-old", "conv-new"]);
+    expect(shadow().textContent).toContain("Ancora qui");
+  });
+
+  it("anche solo il `done` con un altro id basta (lo stream si è interrotto prima dell'evento)", async () => {
+    localStorage.setItem("stubwise-widget:acme:conversation", "conv-old");
+    installFetch({
+      "GET /config": jsonResponse(200, activeConfig()),
+      "GET userId=u1": jsonResponse(200, { messages: [] }),
+      "POST /conversations/conv-old/messages": sseResponse([
+        'data: {"type":"delta","text":"Ok"}\n\n',
+        'data: {"type":"done","conversationId":"conv-next","citations":[]}\n\n',
+      ]),
+    });
+    await initWidget({ dsn: DSN, user: USER });
+    await flush();
+    shadow().querySelector<HTMLButtonElement>(".sw-bubble")!.click();
+    await flush();
+    const input = shadow().querySelector<HTMLTextAreaElement>(".sw-composer-input")!;
+    input.value = "ciao";
+    input.dispatchEvent(new Event("input"));
+    await flush();
+    shadow().querySelector<HTMLButtonElement>(".sw-composer .sw-btn")!.click();
+    await flush(6);
+    expect(localStorage.getItem("stubwise-widget:acme:conversation")).toBe("conv-next");
+  });
+
   it("risposta assistant con **grassetto** → il DOM del messaggio contiene <strong>", async () => {
     installFetch({
       "GET /config": jsonResponse(200, activeConfig()),
@@ -359,6 +419,31 @@ describe("ticket card", () => {
       userId: "u1",
     });
     expect(shadow().querySelector(".sw-card-confirmed")?.textContent).toContain("#128");
+  });
+
+  it("area 8, F3, S17: la conferma finita nella successiva → l'id della successiva salvato", async () => {
+    installFetch({
+      "GET /config": jsonResponse(200, activeConfig()),
+      "POST /conversations": jsonResponse(200, { conversationId: "conv-7" }),
+      "POST /conversations/conv-7/messages": sseResponse([
+        'data: {"type":"ticket_proposal","proposal":{"title":"T","body":"B","type":"bug"}}\n\n',
+        'data: {"type":"done","conversationId":"conv-7","citations":[]}\n\n',
+      ]),
+      "POST /conversations/conv-7/tickets": jsonResponse(200, { ticketId: "t1", number: 9, conversationId: "conv-8" }),
+    });
+    await initWidget({ dsn: DSN, user: USER });
+    await flush();
+    shadow().querySelector<HTMLButtonElement>(".sw-bubble")!.click();
+    await flush();
+    const input = shadow().querySelector<HTMLTextAreaElement>(".sw-composer-input")!;
+    input.value = "bug";
+    input.dispatchEvent(new Event("input"));
+    await flush();
+    shadow().querySelector<HTMLButtonElement>(".sw-composer .sw-btn")!.click();
+    await flush(6);
+    shadow().querySelector<HTMLButtonElement>(".sw-card .sw-btn")!.click();
+    await flush(6);
+    expect(localStorage.getItem("stubwise-widget:acme:conversation")).toBe("conv-8");
   });
 });
 

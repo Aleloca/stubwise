@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { docPageKindSchema } from "./docs.js";
+import { productSearchHitSchema } from "./product-docs.js";
 import { ticketStatusSchema } from "./ticket.js";
 
 /**
@@ -86,6 +87,8 @@ export const searchDocHitSchema = z.object({
   repositoryId: z.string(),
   repositorySlug: z.string(),
   repositoryName: z.string(),
+  /** Il codice `<PRJ>-D<n>` (area 5, fetta 1); null da un server che non lo conosce. */
+  code: z.string().nullable().default(null),
 });
 export type SearchDocHit = z.infer<typeof searchDocHitSchema>;
 
@@ -175,6 +178,21 @@ function group<T extends z.ZodTypeAny>(item: T) {
  * ognuno con i suoi item e `hasMore`. In scope Docs solo `docs` è ristretto al
  * repository; gli altri gruppi restano globali.
  */
+/**
+ * Area 7, fetta 1 (⌘K): un'automazione (per codice o nome) o un'esecuzione
+ * (per codice o titolo) che chi cerca vede. La forma è
+ * `AutomationSearchResult` di `@stubwise/shared/automations`; `route` è
+ * l'indirizzo dell'app nuova (`#/automations/<code>[/runs/<n>]`).
+ */
+export const searchAutomationHitSchema = z.object({
+  kind: z.enum(["automation", "run"]),
+  id: z.uuid(),
+  code: z.string(),
+  label: z.string(),
+  route: z.string(),
+  status: z.string(),
+});
+
 export const searchResultsSchema = z.object({
   tickets: group(searchTicketHitSchema),
   projects: group(searchProjectHitSchema),
@@ -192,6 +210,14 @@ export const searchResultsSchema = z.object({
    * il campo apposta.
    */
   mail: group(searchMailHitSchema).default({ items: [], hasMore: false }),
+  /** Area 7: le automazioni e le esecuzioni. Additivo (default vuoto), come `mail`. */
+  automations: group(searchAutomationHitSchema).default({ items: [], hasMore: false }),
+  /**
+   * Area 11, F3: «In Product», le pagine di prodotto che chi cerca legge (per
+   * testo: la ricerca globale è la corsia veloce). Additivo (default vuoto),
+   * come `mail`: sul web va difeso nel punto di lettura.
+   */
+  product: group(productSearchHitSchema).default({ items: [], hasMore: false }),
 });
 export type SearchResults = z.infer<typeof searchResultsSchema>;
 

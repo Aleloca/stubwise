@@ -28,6 +28,8 @@ export interface MailDraftRequest {
   hint: string;
   /** Il progetto scelto per un'email nuova («About: MKX»), facoltativo. */
   projectId?: string | null;
+  /** La modalità della casella (Rispondi, a tutti, Inoltra); assente = dalla conversazione. */
+  mode?: "new" | "reply" | "replyAll" | "forward";
 }
 
 /** Le letture della bozza, già limitate a chi scrive. */

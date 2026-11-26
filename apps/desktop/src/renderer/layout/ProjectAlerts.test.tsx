@@ -127,8 +127,10 @@ describe("popover «Alerts»", () => {
     const pop = await openPopover(user);
     expect(within(pop).queryByText(still)).toBeNull();
     await user.click(within(pop).getByRole("button", { name: "Turn everything off" }));
+    // Sempre attivi: il rilascio fallito che ha mergiato e, dall'area 11
+    // (N-1 = a), la menzione in una pagina di prodotto, solo obbligatoria.
     await waitFor(() =>
-      expect(within(pop).getByText(/^Everything off · 1 always on/)).toBeVisible(),
+      expect(within(pop).getByText(/^Everything off · 2 always on/)).toBeVisible(),
     );
     expect(await bell()).toHaveAttribute("data-alerts-off", "true");
     expect(await bell()).toHaveAttribute("title", expect.stringContaining(still));

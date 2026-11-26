@@ -82,10 +82,6 @@ export function whyReceives(
   // R-K5 anche fuori dal catalogo: con R-L9 Claude vede ogni progetto, quindi
   // la visibilità non lo filtra più.
   if (isClaude(personId) || !n.recipientIds.includes(personId)) return null;
-  // `member.added` parla di chi la riceve: resta anche quando l'aggiunta è
-  // stata annullata e il progetto non lo vede più, con «Undone by» e senza
-  // aprire niente (area 10b, [SC 16]). Dice solo ciò che sapeva già.
-  if (n.kind === "member.added") return "fixed";
   if (n.projectId && !visibleProjectIds(personId).has(n.projectId)) return null;
   return "fixed";
 }
@@ -126,6 +122,20 @@ export function wouldNotify(
     mandatory?: { personId: string; reason: MandatoryReason }[];
   },
 ): { personIds: string[]; more: boolean } {
+  return splitByVisibility(me, recipientsNow(alert));
+}
+
+/**
+ * Chi riceverebbe ADESSO un avviso del catalogo (la regola delle letture, su
+ * un avviso che non esiste ancora), senza dividerlo per chi chiede: tutti gli
+ * id, Claude escluso. Lo usano `wouldNotify` e chi pubblica solo se qualcuno
+ * lo riceverebbe (le pagine di prodotto, area 11).
+ */
+export function recipientsNow(alert: {
+  kind: string;
+  projectId: string;
+  mandatory?: { personId: string; reason: MandatoryReason }[];
+}): string[] {
   const n: AppNotification & { projectId: string } = {
     id: "n-would-notify",
     kind: alert.kind,
@@ -143,9 +153,8 @@ export function wouldNotify(
     link: "",
     ...(alert.mandatory?.length ? { mandatory: alert.mandatory.map((m) => ({ ...m })) } : {}),
   };
-  if (!isComputed(n)) return { personIds: [], more: false };
-  return splitByVisibility(
-    me,
-    recipientsOf(n, contextOf(n)).map((r) => r.personId),
-  );
+  if (!isComputed(n)) return [];
+  return recipientsOf(n, contextOf(n))
+    .map((r) => r.personId)
+    .filter((id) => !isClaude(id));
 }

@@ -1,13 +1,14 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useCreateRequest, useCreateRequestFromMessage, useProjects } from "../../data/queries";
 import type { Project, ProjectRequest } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { Dialog, DialogField, inputClass, selectButtonClass } from "../../tasks-ui/Dialog";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
 import { useToast } from "../../tasks-ui/Toast";
 import { Chevron, MenuButton, primaryButton, secondaryButton } from "../tasks/controls";
+import { serverIntake } from "../../data/integration";
 
 /** I progetti a cui chi guarda può mandare richieste (`backlog.create`), per codice. */
 function useRequestableProjects(): Project[] | undefined {
@@ -31,14 +32,26 @@ export function NewRequestDialog({
   fromMessageId,
   initial,
   onCreated,
+  onPending,
   onClose,
+  submit: deliver,
+  refusalText,
 }: {
   projectId?: string;
   /** Il messaggio della Chat da cui nasce («Create request»). */
   fromMessageId?: string;
   /** I valori di partenza (la proposta di Claude aperta con «Edit»). */
   initial?: { title?: string; description?: string };
+  /** Al posto della creazione: consegna i valori (la scheda di Claude nella build app li conferma con `edited`). */
+  submit?: (input: { projectId: string; title: string; description: string }) => Promise<unknown>;
+  /** Un rifiuto di `submit` che chi apre il dialogo sa dire meglio (la Chat: archiviato, non membro). */
+  refusalText?: (error: Error) => string | null;
   onCreated: (request: ProjectRequest, project: Project) => void;
+  /**
+   * Il server l'ha accodata ma l'esito dell'intake non è ancora arrivato:
+   * c'è (o ci sarà), quindi niente «Riprova», che la duplicherebbe.
+   */
+  onPending?: (project: Project) => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
@@ -54,7 +67,14 @@ export function NewRequestDialog({
   const [description, setDescription] = useState(initial?.description ?? "");
   const [tried, setTried] = useState(false);
   const [failed, setFailed] = useState(false);
+  /** La frase di `refusalText` per l'ultimo rifiuto di `submit`, se ce n'è una. */
+  const [refusal, setRefusal] = useState<string | null>(null);
+  // «Edit» di una proposta di Claude: la conferma è in volo (niente doppio invio).
+  const [delivering, setDelivering] = useState(false);
   const project = projects?.find((p) => p.id === chosen);
+  // Il dialogo che si smonta ferma l'attesa dell'intake.
+  const abort = useRef<AbortController | null>(null);
+  useEffect(() => () => abort.current?.abort(), []);
   const noProjects = projects !== undefined && projects.length === 0;
 
   const submit = () => {
@@ -64,10 +84,30 @@ export function NewRequestDialog({
     const input = { projectId: project.id, title: title.trim(), description: description.trim() };
     const callbacks = {
       onSuccess: (request: ProjectRequest) => onCreated(request, project),
-      onError: () => setFailed(true),
+      onError: (error: unknown) => {
+        if (!(error instanceof Error)) return setFailed(true);
+        if (error.message === "aborted") return;
+        if (error.message === "intake_pending") return (onPending ?? onClose)(project);
+        setFailed(true);
+      },
     };
-    if (fromMessageId) fromMessage.mutate({ messageId: fromMessageId, input }, callbacks);
-    else create.mutate(input, callbacks);
+    if (deliver) {
+      setDelivering(true);
+      deliver(input).then(onClose, (error: unknown) => {
+        setDelivering(false);
+        setRefusal(error instanceof Error ? (refusalText?.(error) ?? null) : null);
+        setFailed(true);
+      });
+    }
+    else if (fromMessageId) {
+      // Il dialogo che si chiude ferma l'attesa dell'intake, come la creazione.
+      abort.current = new AbortController();
+      fromMessage.mutate({ messageId: fromMessageId, input, signal: abort.current.signal }, callbacks);
+    }
+    else {
+      abort.current = new AbortController();
+      create.mutate({ input, signal: abort.current.signal }, callbacks);
+    }
   };
 
   return (
@@ -85,7 +125,7 @@ export function NewRequestDialog({
             type="submit"
             form="new-request"
             className={primaryButton}
-            disabled={create.isPending || noProjects}
+            disabled={create.isPending || delivering || noProjects}
           >
             {t("requests.newDialog.submit")}
           </button>
@@ -190,9 +230,15 @@ export function NewRequestDialog({
           />
         </DialogField>
 
+        {/* Sul server vero la richiesta passa dall'intake prima di nascere. */}
+        {serverIntake() && create.isPending && (
+          <p role="status" className="text-sm text-ink-muted">
+            {t("requests.newDialog.sending")}
+          </p>
+        )}
         {failed && (
           <p role="alert" className="rounded-md bg-critical/10 px-3 py-2 text-sm text-ink">
-            {t("requests.newDialog.failed")}
+            {refusal ?? t("requests.newDialog.failed")}
           </p>
         )}
       </form>
@@ -228,11 +274,18 @@ export function NewRequestHost() {
       key={value}
       projectId={projectId}
       onClose={close}
+      onPending={() => {
+        toast.show(t("requests.newDialog.pending"));
+        close();
+      }}
       onCreated={(request, project) => {
+        // L'intake del server l'ha fusa in una richiesta che c'era già: si apre quella.
         toast.show(
-          request.similarToId
-            ? t("requests.newDialog.sentSimilar", { project: project.name })
-            : t("requests.newDialog.sent", { project: project.name }),
+          request.landedByMerge
+            ? t("requests.newDialog.sentMerged", { code: request.code })
+            : request.similarToId
+              ? t("requests.newDialog.sentSimilar", { project: project.name })
+              : t("requests.newDialog.sent", { project: project.name }),
         );
         void navigate({
           to: "/p/$code/$section",

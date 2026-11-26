@@ -133,7 +133,8 @@ export function PrList({
     (!full || !filters.state || p.prState.state === filters.state);
 
   const queueIds = new Set(queue.map((q) => q.id));
-  const canMerge = queue[0]?.canMerge ?? false;
+  // Chi guarda può rilasciare se può farlo su una PR qualunque della coda (review F1, m4).
+  const canMerge = queue.some((q) => q.canMerge);
   const ready = prs.filter((p) => (queueIds.has(p.id) || pinned[p.id]) && match(p));
   const notReady = prs.filter((p) => !queueIds.has(p.id) && !pinned[p.id] && match(p));
   const shownNotReady = full ? notReady : notReady.slice(0, NOT_READY_PAGE);

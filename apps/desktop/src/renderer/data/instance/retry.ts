@@ -11,8 +11,9 @@ import type { InstanceRefusal, InstanceResult } from "./types";
 // raggiunge le scritture delle sessioni (`api-mutations`): la coda e le
 // letture non ci arrivano.
 //
-// Decisione del maintainer del 30 ott 2026: chiede `settings.manage` E
-// `runs.start` nel progetto; chi riprova è chi avvia, a suo nome, e il gate
+// Decisione del maintainer del 30 ott 2026, nel PROGETTO dall'integrazione
+// (F4, design §F4): chiede `project.settings.manage` E `runs.start` nel
+// progetto del lavoro; chi riprova è chi avvia, a suo nome, e il gate
 // del piano vale come per «Avvia» (`openRunAs`, poi `launchRun`). Solo
 // sull'esecuzione fallita di una task: una correzione ferma non si tocca
 // (`pr-corrections.md`). Agisce solo sulla coda di Stubwise.
@@ -49,7 +50,11 @@ export function retryJobAs(me: string, jobId: string): InstanceResult<{ conversa
   const failed = state.conversations.find((c) => c.id === jobId);
   if (!failed || failed.projectId === null || !visibleProjectIds(me).has(failed.projectId))
     return refuse.notFound();
-  if (!canI(me, "settings.manage") || !canI(me, "runs.start", failed.projectId))
+  // F4 (design §F4): chi gestisce il progetto del lavoro e ci avvia lavoro.
+  if (
+    !canI(me, "project.settings.manage", failed.projectId) ||
+    !canI(me, "runs.start", failed.projectId)
+  )
     return refuse.forbidden();
   const task = failed.taskId ? state.tasksById.get(failed.taskId) : undefined;
   if (!task || !isRetryableKind(failed)) return refuse.invalid("not_retryable");

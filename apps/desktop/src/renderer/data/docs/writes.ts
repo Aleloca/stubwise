@@ -324,10 +324,11 @@ export async function graphAction(
   const space = spaceFor(me, repositoryId);
   need(me, "repos.manage", space.projectId);
   if (kind === "setup_pr") {
-    if (!space.graph.setupPr) {
+    // Lotto 4, pulizia 5: una PR chiusa senza merge se ne riapre un'altra.
+    if (!space.graph.setupPr || space.graph.setupPr.state === "closed_unmerged") {
       space.graph = {
         ...space.graph,
-        setupPr: { url: `https://github.com/stubwise-demo/${space.name}/pull/1`, open: true },
+        setupPr: { url: `https://github.com/stubwise-demo/${space.name}/pull/1`, state: "open" },
       };
     }
     return copy(space.graph);

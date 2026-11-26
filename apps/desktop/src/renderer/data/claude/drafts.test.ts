@@ -6,7 +6,6 @@ import { MAIL_CASES } from "../seed/mail";
 import { PEOPLE } from "../seed/people";
 import { setSessionPersonId } from "../session";
 import { setStreamLatency, state } from "../store";
-import { draftText, supportReplyDraftFor } from "../support/visibility";
 import type { ConversationEvent } from "../types";
 import { contextOf, presentEventFor } from "./context";
 import { mailDraftFor, taskDescriptionDraftFor } from "./drafts";
@@ -21,7 +20,6 @@ const threadOf = (id: string) => state.mailMessages.find((m) => m.id === id)!.th
 const BILLING = () => threadOf(MAIL_CASES.shared);
 /** Solo nella casella di Matteo. */
 const MATTEO_ONLY = () => threadOf(MAIL_CASES.pending);
-const SUP_ACQ_2 = "sup-acq-2";
 const ACQ_7 = "t-acq-7";
 /** Le persone del team (mai Claude) i cui nomi una bozza che esce non deve dire. */
 const teamNames = (except: string[] = []) =>
@@ -36,21 +34,6 @@ beforeEach(() => {
   void i18n.changeLanguage("en");
 });
 afterEach(() => void i18n.changeLanguage("en"));
-
-describe("supportReplyDraftFor", () => {
-  it("Davide (`support.reply` in ACQ): il testo di `draftText`, senza nomi del team", () => {
-    const c = state.supportConversations.find((x) => x.id === SUP_ACQ_2)!;
-    const text = supportReplyDraftFor("p-davide", SUP_ACQ_2)!;
-    expect(text).toBe(draftText(c));
-    for (const name of teamNames()) expect(text.toLowerCase()).not.toContain(name);
-  });
-
-  it("senza `support.reply`, o senza vedere il progetto: `null`", () => {
-    expect(supportReplyDraftFor("p-sara", SUP_ACQ_2)).toBeNull();
-    expect(supportReplyDraftFor("p-giulia", SUP_ACQ_2)).toBeNull();
-    expect(supportReplyDraftFor("p-davide", "sup-none")).toBeNull();
-  });
-});
 
 describe("mailDraftFor (D1)", () => {
   it("Giulia sulla sua conversazione: lo stesso testo di «Ask Claude» con la stessa indicazione; nessun invio", async () => {
@@ -186,11 +169,8 @@ describe("presentEventFor: un `draft` letto da chi non vede il campo (R-G5)", ()
     });
   });
 
-  it("supporto e descrizione: lo stesso, per chi non vede ACQ", () => {
-    for (const field of [
-      { kind: "supportReply", conversationId: SUP_ACQ_2 },
-      { kind: "taskDescription", taskId: ACQ_7 },
-    ] as DraftEvent["field"][]) {
+  it("descrizione: lo stesso, per chi non vede ACQ", () => {
+    for (const field of [{ kind: "taskDescription", taskId: ACQ_7 }] as DraftEvent["field"][]) {
       const events = log("p-laura", { field, text: "Hi Mario, ACQ-R1", status: "pending" });
       const hidden = presentEventFor("p-giulia", events, 1);
       expect(JSON.stringify(hidden).toLowerCase()).not.toMatch(/acq|mario/);

@@ -215,13 +215,15 @@ describe("RefineScheduler", () => {
     const { s, relay } = scheduler({ runTurn: turns.runTurn, maxConcurrent: 1 });
     s.requestTurn(a);
     s.requestTurn(b);
-    await tick();
+    // Gli eventi, non il tempo (erano tick da 50 ms, rossi sotto carico). Col
+    // tetto a 1 la seconda richiesta è scartata subito: un turno partito è lo
+    // stato finale finché nessuno lo chiude.
+    await vi.waitFor(() => expect(turns.calls).toHaveLength(1), { timeout: 10_000 });
     expect(turns.calls.map((c) => c.agentSessionId)).toEqual([a]);
     turns.calls[0]!.finish("completed");
-    await tick();
-    expect(relay.deliverPending).toHaveBeenCalled();
+    await vi.waitFor(() => expect(relay.deliverPending).toHaveBeenCalled(), { timeout: 10_000 });
     s.requestTurn(b); // ciò che farebbe il relay
-    await tick();
+    await vi.waitFor(() => expect(turns.calls).toHaveLength(2), { timeout: 10_000 });
     expect(turns.calls.map((c) => c.agentSessionId)).toEqual([a, b]);
     await s.shutdown();
   });

@@ -160,6 +160,10 @@ function Block({ doc, depth, block: b }: { doc: ExportDoc; depth: number; block:
         </table>
       );
     case "image":
+      // Solo un'immagine letta (`data:image/…`): un riferimento che non si è
+      // letto non si stampa rotto, si dice lasciato fuori come nel Word.
+      if (!b.src.startsWith("data:image/"))
+        return <p>{t("productDocs.export.imageLeftOut", { caption: b.caption.trim() || t("productDocs.space.blockImage") })}</p>;
       return (
         <figure>
           <img src={b.src} alt={b.caption} />

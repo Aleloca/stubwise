@@ -41,6 +41,8 @@ export function busyWords(t: T, reasons: readonly ClaudeBusyReason[], code: stri
         return t("claude.conversation.busy.release", { code: r.releaseCode });
       case "release":
         return t("claude.conversation.busy.release", { code: r.code });
+      case "open_correction":
+        return t("claude.conversation.busy.openCorrection");
     }
   });
   return words.join(t("claude.conversation.busy.and"));

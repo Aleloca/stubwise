@@ -3,7 +3,8 @@ import { canSeeAdminSection, projectSettingsAccess } from "../adminSections";
 // Area 9c: solo i tipi di voce, mai `projectSettings/index.ts` (P6).
 import { SECTION_OF_KIND } from "../projectSettings/changeTypes";
 import type { AdminSection } from "../routes";
-import { visiblePeopleFor } from "../access/whoCan";
+import { personMasker } from "../access/hidden";
+import { knownNameOf, knownPeopleFor, visiblePeopleFor } from "../access/whoCan";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import {
   archivedProjectIdsFor,
@@ -25,6 +26,7 @@ import type {
   ChangeFilter,
   ChangeFilterChoices,
   ChangeObjectLink,
+  ChangePage,
 } from "./types";
 
 // Le letture del registro (area 9a). Chi legge cosa, in UN posto
@@ -98,10 +100,25 @@ const managesProject = (me: string, projectId: string): boolean =>
   MANAGE_PROJECT.some((p) => can(viewerFor(me), p, projectId));
 
 /** Se `me` legge la voce. */
-function readable(me: string, entry: ChangeEntry, visible: Set<string>): boolean {
+function readable(
+  me: string,
+  entry: ChangeEntry,
+  visible: Set<string>,
+  people?: ReadonlySet<string>,
+): boolean {
   const type = changeTypeOf(entry.kind);
   if (!type) return false;
   const viewer = viewerFor(me);
+  // Scelta di 46 (lotto 3), come sul server (`adminVisiblePersonIds`, area
+  // 9): una voce d'istanza su una persona (`person.*`) che chi guarda non vede
+  // non esiste per lui; chi gestisce le persone (`users.manage`) le legge tutte.
+  if (
+    entry.kind.startsWith("person.") &&
+    entry.object.type === "person" &&
+    !can(viewer, "users.manage") &&
+    !(people ?? visiblePeopleFor(me)).has(entry.object.id)
+  )
+    return false;
   if (entry.projectId === null)
     return can(viewer, "changelog.view") || can(viewer, type.readPermission as Permission);
   if (!visible.has(entry.projectId)) return false;
@@ -155,7 +172,11 @@ const INSTANCE_OBJECTS: Record<
     exists: (id) => state.googleWorkspaces.some((w) => w.id === id),
   },
   storage: { section: "storage" },
-  webhook: { section: "webhooks" },
+  // F3: i webhook sono un elenco; la voce porta al suo, se c'è ancora.
+  webhook: {
+    section: "webhooks",
+    exists: (id) => state.instance.webhooks.some((w) => w.id === id),
+  },
 };
 
 /** Il server di una voce `server.*`, se esiste ancora (l'id dell'oggetto è il codice, `SRV-2`). */
@@ -276,12 +297,13 @@ const INSTANCE_VALUE_KINDS: ReadonlySet<string> = new Set([
   "automation.changed",
   "budget.changed",
   "content_language.changed",
+  "server_analysis.changed",
   "git_account.updated",
   "git_account.default_reviewer_changed",
   "plugin.ref_updated",
   "google_app.updated",
   "storage.changed",
-  "webhook.changed",
+  "webhook.updated",
   "server.updated",
   "server.thresholds_changed",
   "server.check_changed",
@@ -314,6 +336,15 @@ function withAccountName(
  */
 function diffOf(entry: ChangeEntry, people: Set<string>): ChangeDiff | null {
   const p = entry.params;
+  // F3, come il server: un account AI RINOMINATO è `provider.updated` coi
+  // nomi e `params.field: "name"` (l'interruttore ha `on`/`off`): si legge
+  // «Name: X → Y», nella forma dei campi.
+  if (entry.kind === "provider.updated" && p.field === "name")
+    return {
+      kind: "setting",
+      before: { type: "fields", fields: { name: entry.before } },
+      after: { type: "fields", fields: { name: entry.after } },
+    };
   if (SETTING_KINDS[entry.kind]) {
     // I valori stabili del 9b (Ruling T3): in forma di dato, le parole sono della pagina.
     const before = withAccountName(decodeSetting(entry.kind, entry.before), p.accountBefore);
@@ -397,10 +428,15 @@ function view(
   stored: ChangeEntry,
   people: Set<string>,
   visible: Set<string>,
+  known: Set<string>,
+  mask: ReturnType<typeof personMasker>,
   nested = false,
 ): ChangeEntryView {
-  const { entry, labelKey } = resolveDeleted(me, resolveProject(me, stored));
+  const { entry, labelKey } = resolveDeleted(me, stored);
   const type = changeTypeOf(entry.kind)!;
+  // R.1414: una voce su una persona che chi guarda non conosce non ne dice né
+  // l'id né il nome (la frase scrive «Someone»).
+  const hiddenPerson = entry.object.type === "person" && mask(entry.object.id) !== entry.object.id;
   // I campi della voce uno per uno, mai con uno spread: `claudeActionId`
   // resta nel livello dati e `undoOf` si calcola per chi guarda (ruling del
   // controller (pre-flight), P16).
@@ -411,57 +447,55 @@ function view(
     id: entry.id,
     kind: entry.kind,
     at: entry.at,
-    actorId: entry.actorId,
+    // R.1414: chi non si conosce, segnaposto (uno per la risposta).
+    actorId: mask(entry.actorId),
     projectId: entry.projectId,
-    before: entry.before,
-    after: entry.after,
+    // Revisione del lotto 2 (minor): di una persona nascosta nessun valore
+    // che la identifica (lo username git o Bitbucket, il ruolo di prima e dopo).
+    before: hiddenPerson ? null : entry.before,
+    after: hiddenPerson ? null : entry.after,
     ...(entry.via ? { via: entry.via } : {}),
     undoOf,
-    ...(undone ? { undoneEntry: view(me, undone, people, visible, true) } : {}),
-    object: { ...entry.object },
-    params: { ...entry.params },
+    ...(undone ? { undoneEntry: view(me, undone, people, visible, known, mask, true) } : {}),
+    object: hiddenPerson ? { ...entry.object, id: mask(entry.object.id), label: "" } : { ...entry.object },
+    // Revisione del lotto 2 (Critical 1): gli id di persona dentro `params`
+    // (le liste `added`/`removed` dei reparti) passano dal masker.
+    params: maskedParams(entry.params, mask),
     templateKey: type.templateKey,
     scope: type.scope,
     group: type.group,
-    actorName: nameOf(entry.actorId),
+    // R.1414: il nome solo a chi conosce la persona.
+    actorName: knownNameOf(me, entry.actorId, known),
     projectCode: entry.projectId ? (state.projectsById.get(entry.projectId)?.code ?? null) : null,
     objectDeleted: objectDeletedOf(entry),
     objectLink: objectLinkOf(me, entry, people),
-    objectLabelKey:
-      entry.kind === "model.changed" ? `usage.operations.${entry.object.id}` : labelKey,
-    diff: diffOf(entry, people),
+    objectLabelKey: hiddenPerson
+      ? "changelog.someone"
+      : entry.kind === "model.changed"
+        ? `usage.operations.${entry.object.id}`
+        : labelKey,
+    diff: hiddenPerson ? null : diffOf(entry, known),
   };
 }
 
-/** Il segnaposto di un progetto che chi legge non vede (la pagina lo dice a parole). */
-const HIDDEN_PROJECT = "@hidden";
+const PERSON_IDS = new Set(PEOPLE.map((p) => p.id));
 
 /**
- * Il progetto principale di un server si salva come id (`server.updated`):
- * a lettura, PRIMA di tutto (anche del `before`/`after` grezzo che la vista
- * porta), diventa il codice se chi guarda lo vede, altrimenti
- * `HIDDEN_PROJECT` — mai il codice né l'id di un progetto invisibile (R-G5).
+ * I `params` di una voce come li legge chi guarda (r.1414): un valore che è
+ * l'id di una persona, o una lista di id separati da virgole, passa dal
+ * masker della risposta; gli altri restano com'erano.
  */
-function resolveProject(me: string, entry: ChangeEntry): ChangeEntry {
-  if (entry.kind !== "server.updated") return entry;
-  const visible = visibleProjectIds(me);
-  const resolve = (raw: string | null): string | null => {
-    if (raw === null) return null;
-    try {
-      const fields = JSON.parse(raw) as Record<string, unknown>;
-      if (!("primaryProject" in fields)) return raw;
-      const id = fields.primaryProject;
-      const code =
-        typeof id === "string" && visible.has(id) ? state.projectsById.get(id)?.code : undefined;
-      return JSON.stringify({
-        ...fields,
-        primaryProject: id === null ? null : (code ?? HIDDEN_PROJECT),
-      });
-    } catch {
-      return raw;
-    }
-  };
-  return { ...entry, before: resolve(entry.before), after: resolve(entry.after) };
+function maskedParams(
+  params: Record<string, string> | undefined,
+  mask: ReturnType<typeof personMasker>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(params ?? {})) {
+    const parts = value.split(",");
+    out[key] =
+      value !== "" && parts.every((id) => PERSON_IDS.has(id)) ? parts.map(mask).join(",") : value;
+  }
+  return out;
 }
 
 /** Le voci, più recenti prima (a parità d'ora, l'ultima scritta prima). */
@@ -476,9 +510,11 @@ function newestFirst(entries: ChangeEntry[]): ChangeEntry[] {
 function changesReadableBy(me: string, filter: ChangeFilter = {}): ChangeEntryView[] {
   const visible = readableProjectIds(me);
   const people = me === CLAUDE_ID ? new Set<string>() : visiblePeopleFor(me);
+  const known = me === CLAUDE_ID ? new Set<string>() : knownPeopleFor(me);
+  const mask = personMasker(me, known);
   return newestFirst(
-    state.changelog.filter((e) => readable(me, e, visible) && matchesFilter(e, filter)),
-  ).map((e) => view(me, e, people, visible));
+    state.changelog.filter((e) => readable(me, e, visible, people) && matchesFilter(e, filter)),
+  ).map((e) => view(me, e, people, visible, known, mask));
 }
 
 /** Il registro in Amministrazione: le voci leggibili da chi guarda, più recenti prima. */
@@ -501,6 +537,41 @@ export async function listProjectChanges(
   if (!visibleProjectIds(me).has(projectId)) throw notFound();
   if (!managesProject(me, projectId)) throw forbidden();
   return changesReadableBy(me, { ...filter, projectId });
+}
+
+/** Quante voci per pagina (come il server). */
+const CHANGES_PAGE = 50;
+
+/** Le 50 voci dopo `cursor` (l'id dell'ultima voce della pagina prima). */
+function pageOf(all: ChangeEntryView[], cursor?: string): ChangePage {
+  const start = cursor ? all.findIndex((e) => e.id === cursor) + 1 : 0;
+  const entries = all.slice(start, start + CHANGES_PAGE);
+  const more = start + CHANGES_PAGE < all.length;
+  return { entries, nextCursor: more ? entries.at(-1)!.id : null };
+}
+
+/**
+ * Il registro a pagine (decisione del maintainer, 18 nov 2026: «Load more»,
+ * i filtri invariati): le pagine leggono questo, non `listChanges`.
+ */
+export async function listChangesPage(
+  filter: ChangeFilter = {},
+  cursor?: string,
+): Promise<ChangePage> {
+  const me = await gate("changelog.listChangesPage");
+  return pageOf(changesReadableBy(me, filter), cursor);
+}
+
+/** Il registro di un progetto a pagine; `not_found` e `forbidden` come `listProjectChanges`. */
+export async function listProjectChangesPage(
+  projectId: string,
+  filter: Omit<ChangeFilter, "projectId"> = {},
+  cursor?: string,
+): Promise<ChangePage> {
+  const me = await gate("changelog.listProjectChangesPage");
+  if (!visibleProjectIds(me).has(projectId)) throw notFound();
+  if (!managesProject(me, projectId)) throw forbidden();
+  return pageOf(changesReadableBy(me, { ...filter, projectId }), cursor);
 }
 
 /**
@@ -538,7 +609,7 @@ export async function listChangeFilterChoices(projectId?: string): Promise<Chang
       (e) =>
         e.via === "claude" &&
         (projectId === undefined || e.projectId === projectId) &&
-        readable(me, e, readableIds),
+        readable(me, e, readableIds, people),
     ),
   };
 }

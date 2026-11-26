@@ -19,6 +19,12 @@ export {
 } from "./items.js";
 export { openActorChallenge, wrapActorChallenge } from "./actor-challenge.js";
 export {
+  devicePublicKeyFromRaw,
+  openDeviceSeal,
+  sealForDevice,
+  type DeviceKeyAgreement,
+} from "./device-seal.js";
+export {
   generateRecoveryKit,
   openRecoveryChallenge,
   parseRecoveryKit,

@@ -42,6 +42,7 @@ describe("loadAgentEnv", () => {
         hostRoot: "/host",
         dockerSocket: "/var/run/docker.sock",
         agentVersion: "dev",
+        operations: null,
       });
     }
   });
@@ -69,5 +70,19 @@ describe("loadAgentEnv", () => {
       expect(result.env.dockerSocket).toBe("/run/docker.sock");
       expect(result.env.agentVersion).toBe("1.2.3");
     }
+  });
+});
+
+describe("area 8, F4b: the operations option", () => {
+  const base = { STUBWISE_URL: "https://x", STUBWISE_SERVER_KEY: "k" };
+  it("off by default; on only with =1 AND the pinned public key", () => {
+    const off = loadAgentEnv(base);
+    expect(off.ok && off.env.operations).toBeNull();
+    const noKey = loadAgentEnv({ ...base, STUBWISE_OPERATIONS: "1" });
+    expect(noKey.ok).toBe(false);
+    const on = loadAgentEnv({ ...base, STUBWISE_OPERATIONS: "1", STUBWISE_COMMAND_PUBLIC_KEY: "PUB" });
+    expect(on.ok && on.env.operations).toEqual({ publicKey: "PUB", nonceFile: "/var/lib/stubwise-agent/nonces.json" });
+    const other = loadAgentEnv({ ...base, STUBWISE_OPERATIONS: "true", STUBWISE_COMMAND_PUBLIC_KEY: "PUB" });
+    expect(other.ok && other.env.operations).toBeNull();
   });
 });

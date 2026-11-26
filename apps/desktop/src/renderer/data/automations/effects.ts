@@ -1,4 +1,4 @@
-import type { EffectRequest } from "../../domain/automations/engine";
+import type { EffectRequest } from "@stubwise/shared";
 import { createMilestoneAs, createRequestAs, createTaskAs } from "../api-mutations";
 import { lower } from "../mail/compose";
 import { canSeeMessage } from "../mail/visibility";

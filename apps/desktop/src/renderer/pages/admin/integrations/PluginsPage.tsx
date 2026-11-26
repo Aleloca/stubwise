@@ -8,6 +8,7 @@ import {
   type PluginView,
 } from "../../../data/queries";
 import { formatDate } from "../../../notifications/time";
+import { isAppBuild } from "../../../data/build";
 import { PrototypeBox } from "../../automations/shared";
 import { Segmented } from "../../automations/builder/controls";
 import { CheckGlyph } from "../../preferences/glyphs";
@@ -205,6 +206,12 @@ function PluginRow({ plugin: p }: { plugin: PluginView }) {
  * riporta a «Ready» dopo averlo usato.
  */
 export function NextOutcomeBox() {
+  // L'esito della prossima preparazione si sceglie solo nel prototipo.
+  if (isAppBuild()) return null;
+  return <NextOutcomeChoice />;
+}
+
+function NextOutcomeChoice() {
   const { t } = useTranslation();
   const next = useNextPluginOutcome();
   const simulate = useSimulateNextPluginOutcome();

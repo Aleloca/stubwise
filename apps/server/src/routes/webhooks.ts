@@ -22,12 +22,15 @@ import {
   prReviews,
   projects,
   recordTicketStatusChange,
+  repoGraphs,
   repositories,
   ticketRepositories,
   tickets,
 } from "@stubwise/db";
 import { STUBWISE_BRANCH_RE, prNumberFromUrl } from "@stubwise/shared";
 import { getContentLanguage } from "../settings.js";
+import { recordRelease } from "../services/releases.js";
+import { publishPrOpened } from "../services/pr-alerts.js";
 import { apiError } from "../errors.js";
 import {
   createDeliveryDedupe,
@@ -197,13 +200,18 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
             id: repositories.id,
             provider: repositories.provider,
             webhookSecret: repositories.webhookSecret,
+            projectId: repositories.projectId,
+            projectArchivedAt: projects.archivedAt,
           })
           .from(repositories)
+          .leftJoin(projects, eq(projects.id, repositories.projectId))
           .where(eq(repositories.slug, projectSlug));
 
-        // Slug sconosciuto o segreto vuoto (legacy, non verificabile): 401,
-        // indistinguibile da una firma errata.
-        if (!repository || repository.webhookSecret === "") {
+        // Slug sconosciuto, segreto vuoto (legacy, non verificabile),
+        // repository STACCATO o di un progetto ARCHIVIATO (F6: niente
+        // progetto aperto, niente lavoro né scritture): 401, indistinguibile
+        // da una firma errata.
+        if (!repository || repository.webhookSecret === "" || repository.projectId === null || repository.projectArchivedAt !== null) {
           return apiError(reply, 401, "webhook_unauthorized", "Webhook unauthorized");
         }
         const provider = getProvider(repository.provider);
@@ -231,7 +239,8 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
       if (push) {
         const [repository] = await instance.db
           .select({
-            projectId: repositories.projectId,
+            // Dal progetto unito, non dal repository: l'inner join esclude uno staccato (F6).
+            projectId: projects.id,
             defaultBranch: repositories.defaultBranch,
             dailyReportEnabled: projects.dailyReportEnabled,
             graphEnabled: repositories.graphEnabled,
@@ -326,6 +335,19 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
         // riaperture) non deve riaprire una riga chiusa. Il ticket non si tocca.
         if (prEvent.reopened === true) {
           await reopenPrRows(instance.db, { repositoryId: context.repositoryId, prNumber: prEvent.prNumber });
+          await setSetupPrState(instance.db, context.repositoryId, prEvent.prNumber, "open");
+        }
+        // Area 8, F2 (S4): `pr.opened`, un fatto a sé (non dipende dalla PR
+        // Review): una volta per PR, best-effort.
+        if (prEvent.kind === "opened") {
+          await publishPrOpened(instance.db, instance.publicUrl, {
+            repositoryId: context.repositoryId,
+            prNumber: prEvent.prNumber,
+            prUrl: prEvent.prUrl,
+            title: prEvent.title,
+            sourceBranch: prEvent.sourceBranch,
+            ...(prEvent.reopened === true ? { reopened: true } : {}),
+          }).catch((err: unknown) => request.log.warn({ err, prNumber: prEvent.prNumber }, "avviso pr.opened non pubblicato"));
         }
 
         const [settings] = await instance.db
@@ -391,6 +413,26 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
       // Non è un merge di PR che ci interessa: ignorato (204), niente da fare.
       if (!event) return reply.code(204).send();
 
+      // Area 8, F1: un merge sul ramo di rilascio è un RILASCIO, anche fatto
+      // fuori da Stubwise (S-3 = a). Idempotente col merge da Stubwise e con
+      // le riconsegne (`recordRelease`); best-effort: non ferma la chiusura
+      // del ticket qui sotto.
+      if (event.kind === "merged" && event.targetBranch && event.mergeSha) {
+        await recordRelease(instance.db, {
+          repositoryId: context.repositoryId,
+          targetBranch: event.targetBranch,
+          prNumber: event.prNumber,
+          prUrl: event.prUrl,
+          title: event.title ?? event.branch,
+          mergeSha: event.mergeSha,
+          mergedAt: event.mergedAt && !Number.isNaN(Date.parse(event.mergedAt)) ? new Date(event.mergedAt) : new Date(),
+          mergedBy: null,
+          mergedGitName: event.mergedByLogin ?? null,
+          viaStubwise: false,
+          publicUrl: instance.publicUrl ?? null,
+        }).catch((err: unknown) => request.log.warn({ err, prNumber: event.prNumber }, "registrazione del rilascio fallita"));
+      }
+
       // Ticket delle correzioni ANNULLATE su questa PR (lo dice
       // `cancelOpenCorrections`): solo lì il job che bloccava le `pending` di
       // un'altra PR è appena sparito, quindi solo lì serve la promozione in
@@ -453,6 +495,8 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
         // `queued` orfana su una PR chiusa. Entrambe aprono la LORO
         // transazione su `instance.db`, prima e fuori da quelle qui sotto.
         const pr = { repositoryId: context.repositoryId, prNumber: event.prNumber };
+        // La PR di setup del grafo (rimandi, lotto 4): se è lei, il suo stato.
+        await setSetupPrState(instance.db, context.repositoryId, event.prNumber, event.kind === "merged" ? "merged" : "closed_unmerged");
         closedNowTicketIds = await markPrRowsClosed(
           instance.db,
           pr,
@@ -962,4 +1006,15 @@ declare module "fastify" {
     /** Repository e provider autenticati dalla verifica della firma del webhook. */
     webhookContext?: { repositoryId: string; provider: "bitbucket" | "github" };
   }
+}
+
+/**
+ * Lo stato della PR di setup del grafo (rimandi, lotto 4, 0222): se la PR
+ * dell'evento è quella salvata su `repo_graphs` (stesso numero, letto
+ * dall'URL), se ne scrive lo stato. Nessuna riga o un'altra PR: niente.
+ */
+async function setSetupPrState(db: Db, repositoryId: string, prNumber: number, state: "open" | "merged" | "closed_unmerged"): Promise<void> {
+  const [graph] = await db.select({ url: repoGraphs.setupPrUrl }).from(repoGraphs).where(eq(repoGraphs.repositoryId, repositoryId));
+  if (!graph?.url || prNumberFromUrl(graph.url) !== prNumber) return;
+  await db.update(repoGraphs).set({ setupPrState: state, updatedAt: new Date() }).where(eq(repoGraphs.repositoryId, repositoryId));
 }

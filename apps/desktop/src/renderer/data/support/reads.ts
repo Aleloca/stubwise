@@ -1,5 +1,6 @@
 import type { CustomerStatus } from "../../domain/releases/customerStatus";
-import { supportState, waitingSince, type SupportState } from "../../domain/support/state";
+import { personMasker } from "../access/hidden";
+import { SUPPORT_STATE_ORDER, supportState, type SupportState } from "../../domain/support/state";
 import { fold } from "../../domain/textSearch";
 import { gate, state } from "../store";
 import type { SupportConversation, SupportWidget } from "../types";
@@ -18,23 +19,16 @@ import {
 // sono `null`, come una che non esiste (R-G5). Gli stati si derivano a
 // lettura.
 
-/** L'ordine dei gruppi dell'elenco (shape support.md [A 2]): chi aspetta noi in cima. */
-const STATE_ORDER: readonly SupportState[] = [
-  "waiting_us",
-  "triage",
-  "not_concluded",
-  "request_open",
-  "reply_sent",
-];
+/** L'ordine dei gruppi dell'elenco [A 2]: quello di `@stubwise/shared` (area 8, F3). */
+const STATE_ORDER = SUPPORT_STATE_ORDER;
 
 const lastAt = (c: SupportConversation): string => c.messages.at(-1)?.at ?? "";
 
-/** Dentro un gruppo: la più vecchia attesa in alto per «aspetta noi», la più recente per gli altri. */
+/** Dentro un gruppo: la più recente in alto. */
 function byGroup(a: SupportConversation, b: SupportConversation): number {
   const sa = supportState(a);
   const sb = supportState(b);
   if (sa !== sb) return STATE_ORDER.indexOf(sa) - STATE_ORDER.indexOf(sb);
-  if (sa === "waiting_us") return waitingSince(a)!.localeCompare(waitingSince(b)!);
   return lastAt(b).localeCompare(lastAt(a)) || a.code.localeCompare(b.code);
 }
 
@@ -45,11 +39,12 @@ export async function listSupportConversations(
 ): Promise<SupportConversationView[]> {
   const me = await gate("support.listSupportConversations");
   if (!sees(me, projectId)) return [];
+  const mask = personMasker(me);
   return state.supportConversations
     .filter((c) => c.projectId === projectId)
     .filter((c) => !filter.state || supportState(c) === filter.state)
     .sort(byGroup)
-    .map((c) => conversationView(me, c));
+    .map((c) => conversationView(me, c, mask));
 }
 
 /** Il dettaglio di una conversazione (`ACQ-S2`); `null` se nascosta o inesistente. */
@@ -83,19 +78,13 @@ export async function customerPreview(code: string): Promise<CustomerPreview | n
   };
 }
 
-/** Il blocco «Clienti in attesa» della Home: aspettano noi, dove ho `support.reply`. */
-export async function listWaitingCustomers(): Promise<SupportConversationView[]> {
-  const me = await gate("support.listWaitingCustomers");
-  return state.supportConversations
-    .filter((c) => sees(me, c.projectId) && holds(me, "support.reply", c.projectId))
-    .filter((c) => supportState(c) === "waiting_us")
-    .sort(
-      (a, b) => waitingSince(a)!.localeCompare(waitingSince(b)!) || a.code.localeCompare(b.code),
-    )
-    .map((c) => conversationView(me, c));
-}
-
-export type SupportWidgetView = SupportWidget & { conversationCount: number };
+export type SupportWidgetView = SupportWidget & {
+  conversationCount: number;
+  /** Build app (area 8, F3): la chiave pubblica del widget, per lo snippet. */
+  key?: string;
+  /** Build app (area 8, F3): l'indirizzo vero dell'istanza, per lo snippet. */
+  snippetOrigin?: string;
+};
 
 export interface WidgetList {
   /** `widget.manage`: senza, l'elenco è vuoto (i widget non si vedono). */

@@ -46,6 +46,7 @@ import {
   releaseFirstLine,
   rowLinkClass,
   useSpace,
+  spaceKey,
 } from "./parts";
 
 // Lo spazio di un repository (shape docs.md §3, §6): barra secondaria, albero
@@ -139,7 +140,9 @@ export function DocSpace({ project, repo }: { project: Project; repo: string }) 
       </div>
     );
   }
-  const space = spaces.data.find((s) => s.name === repo);
+  // Per chiave (lo slug nella build app); un link vecchio per nome si apre lo stesso.
+  const space =
+    spaces.data.find((s) => spaceKey(s) === repo) ?? spaces.data.find((s) => s.name === repo);
   if (!space) {
     return (
       <div className="page-header pl-8 [--page-header-pr:32px] [--page-header-pt:0px]">
@@ -293,7 +296,7 @@ function SpaceShell({ project, space }: { project: Project; space: DocSpaceView 
     <DocTree
       categories={categories}
       projectCode={project.code}
-      repo={space.name}
+      repo={spaceKey(space)}
       collapsed={collapsed}
       onToggle={toggle}
       onExpandAll={() => setCollapsed(new Set())}
@@ -729,7 +732,7 @@ export function RepoIndex() {
                     key={page.id}
                     page={page}
                     projectCode={project.code}
-                    repo={space.name}
+                    repo={spaceKey(space)}
                   />
                 ))}
               </ul>
@@ -818,7 +821,7 @@ export function RepoIndex() {
                   key={page.id}
                   page={page}
                   projectCode={project.code}
-                  repo={space.name}
+                  repo={spaceKey(space)}
                   trailing={
                     <span className="num shrink-0 text-xs text-ink-faint">
                       {formatDate(page.updatedAt, i18n.language)}
@@ -837,7 +840,7 @@ export function RepoIndex() {
                     key={page.id}
                     page={page}
                     projectCode={project.code}
-                    repo={space.name}
+                    repo={spaceKey(space)}
                     trailing={
                       <span className="num shrink-0 text-xs text-ink-faint">
                         {t("docs.index.views", { count: page.views })}

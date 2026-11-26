@@ -11,7 +11,7 @@ import {
 } from "@stubwise/db";
 import { buildTicketHistory, type TicketHistoryRows } from "@stubwise/notifications";
 import { prNumberFromUrl, type TicketHistory } from "@stubwise/shared";
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 
 /**
  * Il tetto della storia restituita da `GET /api/tickets/:id/history`: i 200
@@ -52,6 +52,8 @@ export async function loadTicketHistory(db: Db, ticketId: string): Promise<Ticke
         startedAt: aiJobs.startedAt,
         finishedAt: aiJobs.finishedAt,
         requesterName: users.email,
+        cancelRequestedAt: aiJobs.cancelRequestedAt,
+        cancellerName: sql<string | null>`(select u.email from ${users} u where u.id = ${aiJobs.cancelRequestedByUserId})`,
       })
       .from(aiJobs)
       .leftJoin(users, eq(users.id, aiJobs.requestedByUserId))

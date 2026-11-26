@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { plain, toggleMark } from "../../domain/productDocs/richText";
 import { productDocs, resetApi, setLatency } from "../api";
 import type { ProductBlock, ProductPage } from "../model";
+import { isFullAdmin, writeAccess } from "../access/index";
+import { strangersTo, withoutChannels } from "../../test/strangers";
+import { PEOPLE } from "../seed/people";
 import { setSessionPersonId } from "../session";
 import { state } from "../store";
 
@@ -212,5 +215,70 @@ describe("lastRevisionTouching (11b, preflight P7)", () => {
     expect(productDocs.lastRevisionTouching(p.id, a)).toMatchObject({ actorId: MARCO });
     expect(productDocs.lastRevisionTouching(p.id, b)).toMatchObject({ actorId: LAURA });
     expect(productDocs.lastRevisionTouching(p.id, "blk-che-non-c-e")).toBeNull();
+  });
+});
+
+describe("la cronologia a pagine (I2 della revisione, come il server)", () => {
+  it("pagine di 100, dalla più recente; `before` è il `lastSeq` più vecchio già letto", async () => {
+    const { page: p, a } = await page();
+    // 150 revisioni di sessioni diverse (una sessione nuova non si unisce).
+    for (let i = 0; i < 150; i++)
+      await productDocs.saveProductBlocks(p.id, [{ op: "set", block: para(a, `Alpha ${i}`) }], { sessionId: `s-${i}` });
+    const total = state.productRevisions.filter((r) => r.pageId === p.id).length;
+    const first = await productDocs.listProductRevisions(p.id);
+    expect(first).toHaveLength(100);
+    const before = Math.min(...first.map((r) => r.lastSeq));
+    const second = await productDocs.listProductRevisions(p.id, { before });
+    expect(second).toHaveLength(total - 100);
+    expect(second.every((r) => r.lastSeq < before)).toBe(true);
+    expect(new Set([...first, ...second].map((r) => r.id)).size).toBe(total);
+  });
+});
+
+// Registro, A11 r.1414: il nome di chi ha scritto non esce a chi non lo vede
+// (prima veniva dall'elenco intero delle persone). Ex membri e disattivati di
+// ACQ restano col loro nome.
+describe("il nome di chi ha scritto (r.1414)", () => {
+  /** Una persona che Laura non conosce (costruita dal seme). */
+  const outsider = () => PEOPLE.find((p) => p.id === strangersTo(LAURA)[0])!;
+  const lastBy = async (pageId: string, actorId: string) => {
+    const rev = editsOf(pageId).at(-1)!;
+    rev.actorId = actorId;
+    as(LAURA);
+    return (await productDocs.listProductRevisions(pageId)).find((r) => r.id === rev.id)!;
+  };
+
+  it("chi non vede l'autore: nessun nome", async () => {
+    const { page: p } = await page();
+    const who = outsider();
+    expect(who).toBeDefined();
+    const row = await lastBy(p.id, who.id);
+    expect(row.actorName).toBeNull();
+    expect(row.actorId).toMatch(/^hidden-\d+$/);
+    expect(JSON.stringify(row)).not.toContain(who.name);
+    expect(JSON.stringify(row)).not.toContain(who.id);
+  });
+
+  it("Claude per conto di uno sconosciuto: anche `onBehalfOfId` è il segnaposto", async () => {
+    const { page: p } = await page();
+    const who = outsider();
+    const rev = editsOf(p.id).at(-1)!;
+    rev.via = "claude";
+    const row = await lastBy(p.id, who.id);
+    expect(row.onBehalfOfId).toMatch(/^hidden-\d+$/);
+    expect(row.onBehalfOfId).toBe(row.actorId);
+  });
+
+  it("un ex membro di ACQ: il nome resta", async () => {
+    // Revisione del lotto 2 (I3): fuori dai canali leggibili, lo fa conoscere solo il progetto.
+    withoutChannels(LAURA, [MARCO]);
+    const { page: p } = await page();
+    // Fuori da OGNI progetto: resta solo l'ex membro di ACQ.
+    writeAccess((s) => {
+      s.memberships = s.memberships.filter((m) => m.personId !== MARCO);
+    });
+    expect(isFullAdmin(MARCO)).toBe(false);
+    const row = await lastBy(p.id, MARCO);
+    expect(row.actorName).toBe(PEOPLE.find((x) => x.id === MARCO)!.name);
   });
 });

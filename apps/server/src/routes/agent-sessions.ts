@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { isConversationReader } from "../services/claude-public.js";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import {
@@ -14,6 +15,9 @@ import { eq } from "drizzle-orm";
 import { roles, users, type Db } from "@stubwise/db";
 import { sessionUserSelection, toSessionUser } from "../auth/session.js";
 import { apiError } from "../errors.js";
+import { projectPermissionsFor } from "../auth/access.js";
+import { memoPermissions } from "../services/permissions-memo.js";
+import { maskPeopleFor, registerPersonMask } from "../services/people-known.js";
 import {
   getAgentSession,
   listAgentSessionEvents,
@@ -31,6 +35,8 @@ const STREAM_PAGE = 200;
 /** Rete di sicurezza: una NOTIFY persa (LISTEN caduta) non ferma lo stream. */
 const STREAM_POLL_MS = 5000;
 const STREAM_PING_MS = 25_000;
+/** Quanto vale una lettura dei permessi di progetto in uno stream (per `waitsOnViewer`). */
+const STREAM_PERMISSIONS_TTL_MS = 30_000;
 
 type StreamMessage =
   | { type: "events"; events: unknown[] }
@@ -47,7 +53,7 @@ type StreamMessage =
 const SESSION_ACCESS = { kind: "user" } as const;
 
 /** L'utente e i suoi permessi d'istanza ATTUALI; `null` se non esiste più. */
-async function refreshViewer(db: Db, userId: string): Promise<SessionViewer | null> {
+export async function refreshViewer(db: Db, userId: string): Promise<SessionViewer | null> {
   const [row] = await db
     .select(sessionUserSelection)
     .from(users)
@@ -56,8 +62,12 @@ async function refreshViewer(db: Db, userId: string): Promise<SessionViewer | nu
   return row ? toSessionUser(row) : null;
 }
 
+/** Rimandi, lotto 4 (§7.1): le persone delle sessioni, mascherate per chi non le conosce (r.1414). */
+const SESSION_PERSON_KEYS: ReadonlySet<string> = new Set(["startedById", "answeredById"]);
+
 export async function agentSessionRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+  registerPersonMask(app, SESSION_PERSON_KEYS);
 
   app.get(
     "/",
@@ -140,6 +150,10 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
           );
         case "item_closed":
           return apiError(reply, 409, "item_closed", "The backlog item is converted or archived");
+        case "conversation_archived":
+          return apiError(reply, 409, "conversation_archived", "The conversation is archived");
+        case "budget_exhausted":
+          return apiError(reply, 409, "budget_exhausted", "The monthly AI budget is used up");
       }
     },
   );
@@ -169,6 +183,10 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
       // Errori PRIMA del hijack, in JSON: la posta altrui è 404 e nessuno stream si apre.
       const initial = await getAgentSession(app.db, viewer, id);
       if (!initial) return apiError(reply, 404, "not_found", "Session not found");
+      // Chi LEGGE una conversazione pubblica di un altro (fetta 5) non riceve i
+      // parziali: il turno in corso è il seguito privato, e gli arriva a turno
+      // finito (gli eventi, dal taglio di `listAgentSessionEvents`).
+      const reader = initial.kind === "free" && (await isConversationReader(app.db, viewer.id, id));
 
       reply.hijack();
       reply.raw.writeHead(200, {
@@ -198,6 +216,12 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
         reply.raw.end();
       };
 
+      // `waitsOnViewer` del dettaglio: i permessi di progetto si rileggono al
+      // più ogni 30 s, non a ogni giro (`permissions-memo.ts`).
+      const permissionsOf = memoPermissions(
+        async (pid) => (await projectPermissionsFor(app.db, viewer, pid)) ?? new Set(),
+        STREAM_PERMISSIONS_TTL_MS,
+      );
       const pump = async () => {
         if (closed) return;
         if (reading) {
@@ -228,14 +252,15 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
               if (page.events.length < STREAM_PAGE) break;
             }
             // Dettaglio intero: stato, canWrite, domande e `inputs` (H4).
-            const detail = await getAgentSession(app.db, viewer, id);
+            const detail = await getAgentSession(app.db, viewer, id, { permissionsOf });
             if (!detail) {
               // Non più visibile (o potata): niente più messaggi, parziali compresi.
               visible = false;
               close();
               return;
             }
-            send({ type: "session", detail });
+            // Lo stream è scritto a mano: la maschera delle persone qui, non in `preSerialization`.
+            send({ type: "session", detail: await maskPeopleFor(app.db, viewer, detail, SESSION_PERSON_KEYS) });
           } while (dirty && !closed);
         } catch (error) {
           request.log.warn({ err: error }, "agent session stream: lettura fallita");
@@ -245,7 +270,7 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
       };
 
       reply.raw.on("close", close);
-      send({ type: "session", detail: initial });
+      send({ type: "session", detail: await maskPeopleFor(app.db, viewer, initial, SESSION_PERSON_KEYS) });
       // Sottoscrizione PRIMA della prima lettura: una notifica che arriva
       // durante quella lettura alza il flag sporco invece di andare persa.
       unsubscribe = app.agentSessionBus.subscribe(id, (m) => {
@@ -259,7 +284,7 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
           // revoca ferma i parziali entro un giro di poll (STREAM_POLL_MS) e
           // chiude lo stream. Una finestra di qualche secondo accettata: una
           // verifica per parziale costerebbe una query per token.
-          if (visible) send({ type: "partial", segmentId: m.segmentId, text: m.text });
+          if (visible && !reader) send({ type: "partial", segmentId: m.segmentId, text: m.text });
         } else void pump();
       });
       if (closed) {

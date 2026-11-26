@@ -3,10 +3,10 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { projectEnvironments, serverMetrics, servers } from "@stubwise/db";
+import { environmentServers, projectEnvironments, serverMetrics, servers } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedEnvironment, seedRepository as seedRepositoryRaw, startTestDb } from "@stubwise/db/testing";
-import { seedUsers, addMember } from "../test/fixtures.js";
+import { seedEnvironment, seedRepository as seedRepositoryRaw, seedRepositoryInProject, startTestDb } from "@stubwise/db/testing";
+import { seedUsers, addMember, createUserWithPat } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -221,9 +221,10 @@ describe("POST /api/projects/:projectId/environments", () => {
   });
 
   it("url/serverId assenti → null", async () => {
-    const res = await createEnvironment({ name: "prod", kind: "production" });
+    // Uno staging: il progetto di questi test ha già la sua (unica, [R 12]) produzione.
+    const res = await createEnvironment({ name: "stg-null", kind: "staging" });
     expect(res.statusCode).toBe(201);
-    expect(res.json()).toMatchObject({ url: null, serverId: null });
+    expect(res.json()).toMatchObject({ url: null, serverId: null, servers: [] });
   });
 
   it("serverId di un server esistente: collegato", async () => {
@@ -417,5 +418,240 @@ describe("DELETE /api/projects/:projectId/environments/:environmentId", () => {
       .from(projectEnvironments)
       .where(eq(projectEnvironments.id, environmentId));
     expect(rows).toHaveLength(1);
+  });
+});
+
+describe("ambienti per repository (area 8, F1, R-L2)", () => {
+  async function newServer(name: string) {
+    const [srv] = await testDb.db.insert(servers).values({ name: `${name}-${crypto.randomUUID().slice(0, 6)}`, keyHash: `hash-${crypto.randomUUID()}` }).returning();
+    return srv!.id;
+  }
+  const post = (pid: string, payload: object) => app.inject({ method: "POST", url: `/api/projects/${pid}/environments`, headers: { cookie: adminCookie }, payload });
+  const patch = (pid: string, id: string, payload: object) => app.inject({ method: "PATCH", url: `/api/projects/${pid}/environments/${id}`, headers: { cookie: adminCookie }, payload });
+  const sorted = (xs: { repositoryId: string; serverId: string }[]) => [...xs].sort((a, b) => a.repositoryId.localeCompare(b.repositoryId));
+
+  it("serverId (forma di prima) vale per tutte le repository; servers lo sovrascrive per quella che nomina", async () => {
+    const { projectId: pid, repositoryId: r1 } = await seedRepository(testDb.db);
+    const r2 = await seedRepositoryInProject(testDb.db, pid);
+    const a = await newServer("a");
+    const b = await newServer("b");
+    const res = await post(pid, { name: "production", kind: "production", serverId: a, servers: [{ repositoryId: r2, serverId: b }] });
+    expect(res.statusCode).toBe(201);
+    expect(sorted(res.json().servers)).toEqual(sorted([{ repositoryId: r1, serverId: a }, { repositoryId: r2, serverId: b }]));
+    // PATCH: null toglie il server della sola r1.
+    const upd = await patch(pid, res.json().id, { servers: [{ repositoryId: r1, serverId: null }] });
+    expect(upd.statusCode).toBe(200);
+    expect(upd.json().servers).toEqual([{ repositoryId: r2, serverId: b }]);
+    // E la GET dice lo stesso.
+    const list = await app.inject({ method: "GET", url: `/api/projects/${pid}/environments`, headers: { cookie: adminCookie } });
+    const listed = list.json().find((e: { id: string }) => e.id === res.json().id).servers as { repositoryId: string; serverId: string }[];
+    expect(listed.map(({ repositoryId, serverId }) => ({ repositoryId, serverId }))).toEqual([{ repositoryId: r2, serverId: b }]);
+  });
+
+  it("una repository di un altro progetto: 400 bad_servers, e niente scritto", async () => {
+    const { projectId: pid } = await seedRepository(testDb.db);
+    const { repositoryId: foreign } = await seedRepository(testDb.db);
+    const res = await post(pid, { name: "staging", kind: "staging", servers: [{ repositoryId: foreign, serverId: await newServer("c") }] });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ code: "bad_servers" });
+    expect(await testDb.db.select().from(projectEnvironments).where(eq(projectEnvironments.projectId, pid))).toEqual([]);
+  });
+
+  it("area 8, F1: per repository il nome del server, il commit riportato (quello di un rilascio della repository, se c'è) e il codice del rilascio; per ambiente canManage e onlyHere", async () => {
+    const { releases, serverMetrics } = await import("@stubwise/db");
+    const { projectId: pid, repositoryId: r1 } = await seedRepository(testDb.db);
+    const r2 = await seedRepositoryInProject(testDb.db, pid);
+    const mine = await newServer("solo-qui");
+    const shared = await newServer("condiviso");
+    const res = await post(pid, { name: "production", kind: "production", servers: [{ repositoryId: r1, serverId: mine }, { repositoryId: r2, serverId: shared }] });
+    expect(res.statusCode).toBe(201);
+    // Il server condiviso lo usa anche un altro progetto.
+    const { projectId: other } = await seedRepository(testDb.db);
+    expect((await post(other, { name: "production", kind: "production", serverId: shared })).statusCode).toBe(201);
+    // Su `mine` gira il commit di un rilascio di r1; su `shared` un commit qualunque, ma col nome dell'ambiente.
+    const sha = "d".repeat(40);
+    await testDb.db.insert(releases).values({ code: `ENV${crypto.randomUUID().slice(0, 3).toUpperCase()}-V1`, seq: 1, projectId: pid, repositoryId: r1, prNumber: 1, prUrl: "u", title: "t", mergeSha: sha, mergedAt: new Date(), viaStubwise: true });
+    const sample = (serverId: string, services: object[]) =>
+      testDb.db.insert(serverMetrics).values({ serverId, ts: new Date("2026-11-13T10:00:00Z"), cpuPct: 1, load1m: 0, memUsedBytes: 1, memTotalBytes: 2, swapUsedBytes: 0, diskUsedBytes: 0, diskTotalBytes: 1, netRxBytes: 0, netTxBytes: 0, disks: [], services } as never);
+    await sample(mine, [{ source: "docker", name: "web", state: "running", cpuPct: 0, memBytes: 0, restarts: null, image: "x", commitSha: sha.slice(0, 12) }]);
+    await sample(shared, [{ source: "docker", name: "production", state: "running", cpuPct: 0, memBytes: 0, restarts: null, image: "y", commitSha: "e".repeat(12) }]);
+
+    const list = await app.inject({ method: "GET", url: `/api/projects/${pid}/environments`, headers: { cookie: adminCookie } });
+    const env = (list.json() as Record<string, unknown>[]).find((e) => e["id"] === res.json().id) as { servers: Record<string, unknown>[]; canManage: boolean; onlyHere: string[] };
+    const row = (repositoryId: string) => env.servers.find((x) => x["repositoryId"] === repositoryId);
+    expect(row(r1)).toMatchObject({ serverId: mine, serverName: expect.stringMatching(/^solo-qui-/), reportedSha: sha.slice(0, 12), reportedAt: "2026-11-13T10:00:00.000Z", releaseCode: expect.stringMatching(/-V1$/) });
+    expect(row(r2)).toMatchObject({ serverId: shared, reportedSha: "e".repeat(12), releaseCode: null });
+    expect(env.canManage).toBe(true);
+    expect(env.onlyHere).toEqual([mine]);
+    // Un member senza environments.manage: lo vede, ma non lo gestisce.
+    const asMember = await app.inject({ method: "GET", url: `/api/projects/${pid}/environments`, headers: { cookie: memberCookie } });
+    expect((asMember.json() as { id: string; canManage: boolean }[]).find((e) => e.id === res.json().id)!.canManage).toBe(false);
+  });
+
+  it("una seconda produzione nello stesso progetto: 409 production_environment_exists", async () => {
+    const { projectId: pid } = await seedRepository(testDb.db);
+    expect((await post(pid, { name: "prod", kind: "production" })).statusCode).toBe(201);
+    const again = await post(pid, { name: "prod-2", kind: "production" });
+    expect(again.statusCode).toBe(409);
+    expect(again.json()).toMatchObject({ code: "production_environment_exists" });
+  });
+});
+
+// Area 8, F4a, S3: con la visibilità dai server degli AMBIENTI, collegare un
+// server a un ambiente lo fa vedere a tutto il progetto. Si collega solo un
+// server che chi scrive vede già (o con monitor.manage): niente scritto,
+// altrimenti.
+describe("area 8, F4a, S3: un collegamento non allarga la visibilità", () => {
+  it("un Project Lead con environments.manage non collega un server che non vede (POST e PATCH); lo collega se lo vede; l'admin sempre", async () => {
+    const { projectId: pid, repositoryId } = await seedRepositoryRaw(testDb.db);
+    const { projectId: otherPid, repositoryId: otherRepo } = await seedRepositoryRaw(testDb.db);
+    const lead = await createUserWithPat(app, `lead-${randomBytes(3).toString("hex")}@acme.com`);
+    await addMember(app, pid, lead.id, "project_lead");
+    const [hidden] = await testDb.db.insert(servers).values({ name: "di-altri", keyHash: `h-${randomBytes(4).toString("hex")}` }).returning();
+    const [seen] = await testDb.db.insert(servers).values({ name: "suo", keyHash: `h-${randomBytes(4).toString("hex")}` }).returning();
+    // `seen` lo usa già un ambiente del progetto del lead; `hidden` solo un progetto altrui.
+    const envSeen = await seedEnvironment(testDb.db, pid, { name: "staging", kind: "staging" });
+    const envHidden = await seedEnvironment(testDb.db, otherPid, { name: "production", kind: "production" });
+    await testDb.db.insert(environmentServers).values([
+      { environmentId: envSeen, repositoryId, serverId: seen!.id },
+      { environmentId: envHidden, repositoryId: otherRepo, serverId: hidden!.id },
+    ]);
+
+    const post = (headers: Record<string, string>, body: object) =>
+      app.inject({ method: "POST", url: `/api/projects/${pid}/environments`, headers, payload: body });
+    const refused = await post(lead.headers, { name: "prod", kind: "production", servers: [{ repositoryId, serverId: hidden!.id }] });
+    expect(refused.statusCode).toBe(422);
+    expect(refused.json()).toMatchObject({ code: "server_not_visible" });
+    expect((await post(lead.headers, { name: "prod-2", kind: "production", serverId: hidden!.id })).statusCode).toBe(422);
+    expect(await testDb.db.select().from(projectEnvironments).where(eq(projectEnvironments.projectId, pid))).toHaveLength(1);
+
+    const ok = await post(lead.headers, { name: "prod", kind: "production", servers: [{ repositoryId, serverId: seen!.id }] });
+    expect(ok.statusCode, ok.body).toBe(201);
+    const envId = (ok.json() as { id: string }).id;
+    const patch = (headers: Record<string, string>, body: object) =>
+      app.inject({ method: "PATCH", url: `/api/projects/${pid}/environments/${envId}`, headers, payload: body });
+    expect((await patch(lead.headers, { servers: [{ repositoryId, serverId: hidden!.id }] })).statusCode).toBe(422);
+    // Togliere un server (null) non chiede niente.
+    expect((await patch(lead.headers, { servers: [{ repositoryId, serverId: null }] })).statusCode).toBe(200);
+    // L'admin (monitor.manage) collega qualunque server.
+    expect((await patch({ cookie: adminCookie }, { servers: [{ repositoryId, serverId: hidden!.id }] })).statusCode).toBe(200);
+  });
+});
+
+// Review F4a, I2: un server inesistente e uno invisibile rispondono uguale
+// (422 server_not_visible) a chi non vede tutti i server.
+describe("review F4a: inesistente = invisibile nel collegamento", () => {
+  it("un Project Lead riceve 422 server_not_visible per un id che non esiste", async () => {
+    const { projectId: pid, repositoryId } = await seedRepositoryRaw(testDb.db);
+    const lead = await createUserWithPat(app, `lead2-${randomBytes(3).toString("hex")}@acme.com`);
+    await addMember(app, pid, lead.id, "project_lead");
+    const missing = "00000000-0000-4000-8000-0000000000aa";
+    for (const body of [{ name: "a", kind: "production", serverId: missing }, { name: "b", kind: "staging", servers: [{ repositoryId, serverId: missing }] }]) {
+      const res = await app.inject({ method: "POST", url: `/api/projects/${pid}/environments`, headers: lead.headers, payload: body });
+      expect(res.statusCode, JSON.stringify(body)).toBe(422);
+      expect(res.json()).toMatchObject({ code: "server_not_visible" });
+    }
+  });
+});
+
+
+// Area 8, F4a (richiesta di 94): il codice `SRV-<n>` dei server dell'ambiente,
+// per repository e per l'ambiente intero (`serverId`), additivo.
+describe("area 8, F4a: il codice dei server negli ambienti", () => {
+  it("serverCode su ogni repository e sull'ambiente", async () => {
+    const { projectId: pid, repositoryId } = await seedRepositoryRaw(testDb.db);
+    const [srv] = await testDb.db.insert(servers).values({ name: "web", keyHash: `h-${randomBytes(4).toString("hex")}` }).returning();
+    const created = await app.inject({ method: "POST", url: `/api/projects/${pid}/environments`, headers: { cookie: adminCookie }, payload: { name: "prod", kind: "production", serverId: srv!.id } });
+    expect(created.statusCode, created.body).toBe(201);
+    const list = (await app.inject({ method: "GET", url: `/api/projects/${pid}/environments`, headers: { cookie: adminCookie } })).json() as {
+      serverCode?: string | null;
+      servers: { repositoryId: string; serverCode?: string }[];
+    }[];
+    expect(list[0]!.serverCode).toBe(`SRV-${srv!.number}`);
+    expect(list[0]!.servers).toEqual([expect.objectContaining({ repositoryId, serverCode: `SRV-${srv!.number}` })]);
+  });
+});
+
+describe("area 8, F4b, S12: i container di un ambiente su un server (l'attribuzione)", () => {
+  async function serverWith(services: string[]) {
+    const [srv] = await testDb.db.insert(servers).values({ name: `ops-${crypto.randomUUID().slice(0, 6)}`, keyHash: `hash-${crypto.randomUUID()}` }).returning();
+    await testDb.db.insert(serverMetrics).values({
+      serverId: srv!.id,
+      ts: new Date(),
+      cpuPct: 1,
+      load1m: 0,
+      memUsedBytes: 1,
+      memTotalBytes: 2,
+      swapUsedBytes: 0,
+      diskUsedBytes: 1,
+      diskTotalBytes: 2,
+      netRxBytes: 0,
+      netTxBytes: 0,
+      services: services.map((name) => ({ source: "docker", name, state: "running", cpuPct: 0, memBytes: 0, restarts: null })) as never,
+    });
+    return srv!.id;
+  }
+  const put = (pid: string, envId: string, payload: object, cookie = adminCookie) =>
+    app.inject({ method: "PUT", url: `/api/projects/${pid}/environments/${envId}/containers`, headers: { cookie }, payload });
+  const envOf = async (pid: string, name: string, serverId: string) =>
+    (await app.inject({ method: "POST", url: `/api/projects/${pid}/environments`, headers: { cookie: adminCookie }, payload: { name, kind: "staging", serverId } })).json().id as string;
+  const listed = async (pid: string, envId: string) =>
+    (await app.inject({ method: "GET", url: `/api/projects/${pid}/environments`, headers: { cookie: adminCookie } })).json().find((e: { id: string }) => e.id === envId)
+      .servers as { serverId: string; containers?: string[] }[];
+
+  it("si scrivono (solo nomi che l'agente riporta) e si rileggono per ogni repository; un PATCH che ripete il server li tiene", async () => {
+    const srv = await serverWith(["web-a", "db-a"]);
+    const { projectId: pid } = await seedRepository(testDb.db);
+    const env = await envOf(pid, "staging", srv);
+    const ok = await put(pid, env, { serverId: srv, containers: ["web-a", "db-a"] });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toEqual({ serverId: srv, containers: ["web-a", "db-a"] });
+    expect((await listed(pid, env)).map((s) => s.containers)).toEqual([["web-a", "db-a"]]);
+    // Un mai visto → 422, niente cambia; un nome che non è un nome → 400.
+    expect((await put(pid, env, { serverId: srv, containers: ["ghost"] })).statusCode).toBe(422);
+    expect((await put(pid, env, { serverId: srv, containers: ["../etc"] })).statusCode).toBe(400);
+    expect((await listed(pid, env))[0]!.containers).toEqual(["web-a", "db-a"]);
+    // Il PATCH che ripete lo stesso server non li cancella.
+    expect((await app.inject({ method: "PATCH", url: `/api/projects/${pid}/environments/${env}`, headers: { cookie: adminCookie }, payload: { serverId: srv } })).statusCode).toBe(200);
+    expect((await listed(pid, env))[0]!.containers).toEqual(["web-a", "db-a"]);
+  });
+
+  it("lo stesso container in un ALTRO progetto → 409; in un altro ambiente dello STESSO progetto si può", async () => {
+    const srv = await serverWith(["web-a", "web-b", "shared"]);
+    const { projectId: a } = await seedRepository(testDb.db);
+    const { projectId: b } = await seedRepository(testDb.db);
+    const envA = await envOf(a, "staging", srv);
+    const envA2 = await envOf(a, "production-ish", srv);
+    const envB = await envOf(b, "staging", srv);
+    expect((await put(a, envA, { serverId: srv, containers: ["web-a", "shared"] })).statusCode).toBe(200);
+    expect((await put(a, envA2, { serverId: srv, containers: ["shared"] })).statusCode).toBe(200);
+    const clash = await put(b, envB, { serverId: srv, containers: ["web-b", "shared"] });
+    expect(clash.statusCode).toBe(409);
+    expect(clash.json()).toMatchObject({ code: "container_of_other_project" });
+    expect((await listed(b, envB))[0]!.containers).toEqual([]);
+    expect((await put(b, envB, { serverId: srv, containers: ["web-b"] })).statusCode).toBe(200);
+  });
+
+  it("review F4b, I7: anche il possesso IMPLICITO conta (ambiente di un altro progetto a lista vuota, col nome del container) → 409", async () => {
+    const srv = await serverWith(["acme-web", "staging"]);
+    const { projectId: a } = await seedRepository(testDb.db);
+    const { projectId: b } = await seedRepository(testDb.db);
+    await envOf(a, "staging", srv); // A: lista vuota, quindi `staging` è suo per nome.
+    const envB = await envOf(b, "prod-b", srv);
+    const res = await put(b, envB, { serverId: srv, containers: ["staging"] });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ code: "container_of_other_project" });
+    expect((await put(b, envB, { serverId: srv, containers: ["acme-web"] })).statusCode).toBe(200);
+  });
+
+  it("un server che l'ambiente non usa → 422; senza environments.manage → 403; ambiente di un altro progetto → 404", async () => {
+    const srv = await serverWith(["web"]);
+    const other = await serverWith(["web"]);
+    const { projectId: pid } = await seedRepository(testDb.db);
+    const env = await envOf(pid, "staging", srv);
+    expect((await put(pid, env, { serverId: other, containers: ["web"] })).statusCode).toBe(422);
+    expect((await put(pid, env, { serverId: srv, containers: ["web"] }, memberCookie)).statusCode).toBe(403);
+    expect((await put(projectId, env, { serverId: srv, containers: ["web"] })).statusCode).toBe(404);
+    expect((await testDb.db.select().from(environmentServers).where(eq(environmentServers.environmentId, env)))[0]!.containers).toEqual([]);
   });
 });

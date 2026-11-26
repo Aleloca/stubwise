@@ -1,3 +1,4 @@
+import { adminChangeEmail } from "../me/emailChange";
 import {
   accessState,
   isFullAdmin,
@@ -254,6 +255,8 @@ export async function getPerson(personId: string): Promise<PersonDetail> {
       setInstanceRole,
       resetPassword:
         blockFor(me, personId, { notSelf: true }) ?? (access.status !== "active" ? "status" : null),
+      changeEmail:
+        blockFor(me, personId, { notSelf: true }) ?? (access.status !== "active" ? "status" : null),
       resetSecondFactor:
         blockFor(me, personId, { notSelf: true }) ??
         (access.secondFactor === null ? "no_second_factor" : null),
@@ -280,12 +283,21 @@ export async function getPerson(personId: string): Promise<PersonDetail> {
         code: t.code,
         title: t.title,
         projectId: t.projectId,
-        reassignTo: (state.projectsById.get(t.projectId)?.memberIds ?? []).filter(
-          (id) => id !== personId && (id === CLAUDE_ID || isActive(id)),
+        // Mai Claude (decisione del maintainer, area 9): assegnargli una task
+        // avvia il lavoro, e la disattivazione non lo fa.
+        reassignTo: reassignableFor(t.projectId, personId),
+        reassignNames: Object.fromEntries(
+          reassignableFor(t.projectId, personId).map((id) => [id, PEOPLE.find((p) => p.id === id)?.name ?? id]),
         ),
       })),
   };
 }
+
+/** Chi può prendere le task di `personId` in un progetto: i membri attivi, mai Claude. */
+const reassignableFor = (projectId: string, personId: string): string[] =>
+  (state.projectsById.get(projectId)?.memberIds ?? []).filter(
+    (id) => id !== personId && id !== CLAUDE_ID && isActive(id),
+  );
 
 /** Il registro della sicurezza di una persona (`users.manage`), più recenti prima. */
 export async function listSecurityEvents(
@@ -422,6 +434,19 @@ export async function createPasswordResetLink(
  * prossimo accesso e riceve `security.alert`, solo lei. Fra pari grado
  * (un full admin su un altro) è accettato, registrato e avvisato.
  */
+/**
+ * Area 9, R2: cambia l'email di login di un'altra persona (+R,
+ * `users.manage`), subito e senza verifica (`me/emailChange.ts`).
+ */
+export async function changeEmail(personId: string, email: string): Promise<AdminResult> {
+  const me = await writer("admin.changeEmail");
+  const blocked = target(me, personId);
+  if (blocked) return blocked;
+  // Review F1, M7: come l'azione spenta della pagina, mai su un disattivato.
+  if (personId !== me && accessOf(personId)!.status !== "active") return refuse.invalid("status");
+  return (await adminChangeEmail(me, personId, email)) as AdminResult;
+}
+
 export async function resetSecondFactor(personId: string): Promise<AdminResult> {
   const me = await writer("admin.resetSecondFactor");
   const blocked = target(me, personId);
@@ -541,7 +566,8 @@ export async function setBitbucketUsername(
  * Disattiva una persona (+R, mai sé stessi, mai l'ultimo full admin): non
  * entra più e sparisce da chi si assegna; il suo lavoro resta. `reassignTo`
  * dice, per ogni task aperta che si vuole riassegnare, a chi (una persona
- * attiva del progetto della task, o Claude se ne è membro); le task non
+ * attiva del progetto della task, mai Claude: assegnargli una task avvia il
+ * lavoro, decisione del maintainer dell'area 9); le task non
  * nominate, o con `null`, restano sue con «(deactivated)». Gli inviti che
  * aveva mandato e ancora in attesa si revocano, una voce `invite.revoked`
  * ciascuno.
@@ -560,11 +586,14 @@ export async function deactivatePerson(
   for (const [taskId, to] of Object.entries(reassignTo)) {
     const task = state.tasksById.get(taskId);
     if (!task || !visible.has(task.projectId)) return refuse.notFound();
-    if (task.assigneeId !== personId || !isOpen(task)) return refuse.invalid("task");
+    // Area 9, R6 (come il server): una riga non valida fa fallire tutto, e
+    // dice quale task — niente a metà.
+    const badRow = { ok: false, error: "invalid", reason: "invalid_reassignment", taskId } as const;
+    if (task.assigneeId !== personId || !isOpen(task)) return badRow;
     if (to === null) continue;
     const members = state.projectsById.get(task.projectId)?.memberIds ?? [];
-    if (to === personId || !members.includes(to) || (to !== CLAUDE_ID && !isActive(to)))
-      return refuse.invalid("assignee");
+    if (to === personId || to === CLAUDE_ID || !members.includes(to) || !isActive(to))
+      return badRow;
     moves.push([task, to]);
   }
   const mutate = deactivateMutation(personId);

@@ -1,11 +1,13 @@
 import { anchorText, plainTextOf } from "../../domain/productDocs/blocks";
-import { aiBlockFor } from "../instance/blocks";
+import { manualStartBlockFor } from "../instance/blocks";
 import { FALLBACK_WIREFRAME, PRODUCT_WIREFRAMES } from "../seed/productDocs/wireframes";
 
 export { wireframeKey, wireframeSvg, wireframesOf } from "../seed/productDocs/wireframes";
-import { newId } from "../store";
+import type { ProductSketch, ProductWireframeFailReason } from "../model";
+import { newId, onStoreReset, state, storeGeneration, streamDelay } from "../store";
 import type { ProductBlock, ProductPage } from "../types";
 import { invalid, notFound, writer } from "../writer";
+import { emitProductPage } from "./events";
 import { editablePage, writeProductBlocksAs } from "./writes";
 
 // Le bozze di schermata di Claude (11b, Task 7; shape product-claude-backlog.md
@@ -23,7 +25,141 @@ import { editablePage, writeProductBlocksAs } from "./writes";
 //   PERSONA (nessun «per conto di»), che si annulla dalla cronologia come le
 //   modifiche di Claude (`isUndoableRevision`, `marks.ts`).
 
+//
+// F6 (21 nov 2026, maintainer via orchestratrice; shape «Emendamento F6»):
+// il disegno è ASINCRONO come sul server. «Disegna» scrive il blocco subito
+// e Claude lo disegna dopo una pausa finta (`state.productSketches`, come la
+// prima versione); «Rifai» non scrive al clic: la variante nuova (e la sua
+// revisione) arriva alla fine. Un disegno può non riuscire, col suo motivo:
+// il budget del mese finito nel frattempo, o `failNextSketch` (test).
+
 type Wireframe = Extract<ProductBlock, { type: "wireframe" }>;
+
+/** I disegni che hanno ancora la pausa da fare (`whenSketchesIdle`). */
+const running = new Set<Promise<void>>();
+/** Il motivo per cui il prossimo disegno non riuscirà (`failNextSketch`, test). */
+let nextFailure: ProductWireframeFailReason | null = null;
+/** Il fermo dei test (`holdSketches`): finché c'è, i disegni restano in corso. */
+let held: { promise: Promise<void>; release: () => void } | null = null;
+onStoreReset(() => {
+  nextFailure = null;
+  held?.release();
+  held = null;
+});
+
+/**
+ * Tiene in corso ogni disegno finché non si chiama la funzione restituita
+ * (test): lo stato «in disegno» senza contare su una pausa vera, che sotto
+ * carico finisce prima che la pagina si apra.
+ */
+export function holdSketches(): () => void {
+  let release = () => {};
+  const promise = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const hold = { promise, release };
+  held = hold;
+  return () => {
+    if (held === hold) held = null;
+    hold.release();
+  };
+}
+
+/** Il prossimo disegno (e solo quello) non riesce, con questo motivo (test). */
+export function failNextSketch(reason: ProductWireframeFailReason): void {
+  nextFailure = reason;
+}
+
+/** Si risolve quando nessun disegno ha più la pausa da fare (test). */
+export async function whenSketchesIdle(): Promise<void> {
+  while (running.size > 0) await Promise.all([...running]);
+}
+
+/** Il disegno in corso o non riuscito del blocco, se c'è. */
+const sketchStateOf = (blockId: string): ProductSketch | undefined =>
+  state.productSketches.find((s) => s.blockId === blockId);
+
+/** Toglie lo stato del blocco: la bozza è pronta (o non è più una bozza). */
+function clearSketch(entry: ProductSketch): void {
+  state.productSketches = state.productSketches.filter((s) => s !== entry);
+}
+
+/** Circa un secondo, otto pause dello stream; con latenza 0 basta un microtask. */
+function sketchPause(): Promise<void> {
+  const ms = streamDelay() * 8;
+  return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
+}
+
+/** Claude comincia a disegnare il blocco: lo stato `drawing`, poi la fine dopo la pausa. */
+function startSketch(me: string, pageId: string, blockId: string, kind: ProductSketch["kind"]): void {
+  const old = sketchStateOf(blockId);
+  if (old) clearSketch(old);
+  // Un «Rifai» su una bozza mai disegnata (il primo disegno non è riuscito) è ancora il primo disegno.
+  const entry: ProductSketch = {
+    pageId,
+    blockId,
+    byId: me,
+    kind: old?.kind === "draw" ? "draw" : kind,
+    state: { status: "drawing" },
+  };
+  state.productSketches = [...state.productSketches, entry];
+  const failure = nextFailure;
+  nextFailure = null;
+  const run = finishSketch(entry, failure, storeGeneration()).finally(() => running.delete(run));
+  running.add(run);
+}
+
+/**
+ * La fine del disegno: un blocco che non è più una bozza (sostituito,
+ * annullato, tolto) non riceve nulla; altrimenti lo schizzo arriva (per
+ * «Rifai» la variante seguente, con la revisione di Claude per conto di chi
+ * l'ha chiesto) o il motivo per cui non è arrivato.
+ */
+async function finishSketch(entry: ProductSketch, failure: ProductWireframeFailReason | null, at: number): Promise<void> {
+  await sketchPause();
+  if (held) await held.promise;
+  if (at !== storeGeneration() || !state.productSketches.includes(entry)) return;
+  const page = state.productPages.find((p) => p.id === entry.pageId);
+  const current = page?.blocks.find((b) => b.id === entry.blockId);
+  if (!page || current?.type !== "wireframe") {
+    clearSketch(entry);
+    return;
+  }
+  // D-7.1: il budget si legge per chi ha chiesto il disegno (chi ha `plans.approve` lo scavalca).
+  const reason =
+    failure ?? (manualStartBlockFor(entry.byId, page.projectId)?.reason === "monthly_budget" ? "budget" : null);
+  if (reason) {
+    entry.state = { status: "failed", reason, drawn: entry.kind === "redraw" };
+    emitProductPage(page.id, "blocks");
+    return;
+  }
+  clearSketch(entry);
+  if (entry.kind === "draw") {
+    emitProductPage(page.id, "blocks");
+    return;
+  }
+  try {
+    writeProductBlocksAs(entry.byId, page.id, [{ op: "set", block: nextVariantOf(page, current) }], { via: "claude" });
+  } catch {
+    // Chi l'ha chiesto non scrive più qui: la variante di prima resta.
+    state.productSketches = [...state.productSketches, { ...entry, state: { status: "failed", reason: "no_answer", drawn: true } }];
+    emitProductPage(page.id, "blocks");
+  }
+}
+
+/**
+ * La variante seguente (dopo l'ultima, la prima), senza `kept`: l'etichetta
+ * torna. Un disegno che il seme non ha più riparte da quello che la pagina
+ * dice, variante 0.
+ */
+function nextVariantOf(page: ProductPage, current: Wireframe): Wireframe {
+  const known = Object.hasOwn(PRODUCT_WIREFRAMES, current.wireframeId);
+  const i = page.blocks.indexOf(current);
+  const wireframeId = known ? current.wireframeId : pickWireframe(page.blocks, page.blocks[i - 1]?.id ?? null, page.title);
+  const count = PRODUCT_WIREFRAMES[wireframeId]!.variants.length;
+  const variant = known ? (current.variant + 1) % count : 0;
+  return { id: current.id, type: "wireframe", wireframeId, variant };
+}
 
 /** Quante parole chiave del disegno compaiono nel testo. */
 const scoreOf = (text: string, keywords: readonly string[]): number =>
@@ -58,7 +194,7 @@ export function pickWireframe(blocks: readonly ProductBlock[], nearId: string | 
 /** I gesti di Claude: chi scrive i Docs, e il budget del mese (P48). */
 function claudeGesturePage(me: string, pageId: string): ProductPage {
   const page = editablePage(me, pageId);
-  if (aiBlockFor(page.projectId)?.reason === "monthly_budget") throw new Error("ai_blocked");
+  if (manualStartBlockFor(me, page.projectId)?.reason === "monthly_budget") throw new Error("ai_blocked");
   return page;
 }
 
@@ -93,6 +229,7 @@ export function drawWireframeAs(
     const near = page.blocks[i - 1]?.id ?? null;
     const block: Wireframe = { id: at.replaceId, type: "wireframe", wireframeId: pickWireframe(page.blocks, near, page.title), variant: 0 };
     writeProductBlocksAs(me, page.id, [{ op: "set", block }], { via: "claude" });
+    startSketch(me, page.id, block.id, "draw");
     return { blockId: block.id };
   }
   const block: Wireframe = {
@@ -102,6 +239,7 @@ export function drawWireframeAs(
     variant: 0,
   };
   writeProductBlocksAs(me, page.id, [{ op: "insert", afterId: at.afterId, block }], { via: "claude" });
+  startSketch(me, page.id, block.id, "draw");
   return { blockId: block.id };
 }
 
@@ -116,7 +254,8 @@ export async function drawWireframe(
  * «Rifai»: la variante seguente (dopo l'ultima, la prima), sul posto, e
  * l'etichetta torna (`kept` assente). Un disegno che il seme non ha più
  * riparte da quello che la pagina dice, variante 0. `fromVariant` = la
- * variante che chi preme vedeva: un doppio clic avanza di una sola.
+ * variante che chi preme vedeva: un doppio clic avanza di una sola. Dal F6
+ * la variante arriva alla fine del disegno (`finishSketch`), non al clic.
  */
 export function redrawWireframeAs(
   me: string,
@@ -128,13 +267,9 @@ export function redrawWireframeAs(
   const current = sketchOf(page, blockId);
   // La variante che chi preme vedeva: se è già cambiata (il secondo clic), niente.
   if (fromVariant !== undefined && current.variant !== fromVariant) return { blockId };
-  const known = Object.hasOwn(PRODUCT_WIREFRAMES, current.wireframeId);
-  const i = page.blocks.indexOf(current);
-  const wireframeId = known ? current.wireframeId : pickWireframe(page.blocks, page.blocks[i - 1]?.id ?? null, page.title);
-  const count = PRODUCT_WIREFRAMES[wireframeId]!.variants.length;
-  const variant = known ? (current.variant + 1) % count : 0;
-  const block: Wireframe = { id: current.id, type: "wireframe", wireframeId, variant };
-  writeProductBlocksAs(me, page.id, [{ op: "set", block }], { via: "claude" });
+  // Un disegno già in corso (il secondo clic prima della fine): niente, come il server.
+  if (sketchStateOf(blockId)?.state.status === "drawing") return { blockId };
+  startSketch(me, page.id, blockId, "redraw");
   return { blockId };
 }
 

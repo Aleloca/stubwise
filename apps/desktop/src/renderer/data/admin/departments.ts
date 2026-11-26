@@ -21,6 +21,9 @@ import {
   refuse,
 } from "./common";
 import type { AdminRefusal, AdminResult, DepartmentPreview, DepartmentView } from "./types";
+import { DEPARTMENT_COLORS } from "./departmentColors";
+
+export { DEPARTMENT_COLORS } from "./departmentColors";
 import "./changeTypes";
 
 // Departments (area 9a), tutto con `departments.manage`. Un reparto ha nome e
@@ -42,18 +45,6 @@ import "./changeTypes";
 // `project.members.manage`).
 
 const DEPARTMENTS_MANAGE = "departments.manage";
-/** Le otto tinte dei reparti (`DESIGN.md`). */
-export const DEPARTMENT_COLORS: readonly Department["colorToken"][] = [
-  "--dept-1",
-  "--dept-2",
-  "--dept-3",
-  "--dept-4",
-  "--dept-5",
-  "--dept-6",
-  "--dept-7",
-  "--dept-8",
-];
-
 const accessOf = (s: AccessState, id: string) => s.departments.find((d) => d.departmentId === id);
 const departmentOf = (id: string) => state.departments.find((d) => d.id === id);
 const label = (d: Department) => ({ type: "department", id: d.id, label: d.name });
@@ -166,6 +157,14 @@ export interface DepartmentDraft {
   memberIds: string[];
   homeManagerIds: string[];
   projectPermissions: string[];
+  /**
+   * I permessi del reparto quando la bozza è nata (review F8, I1): il server
+   * li riceve solo se la bozza li cambia rispetto a questi. Il prototipo non
+   * li usa (il suo stato è uno solo).
+   */
+  baseProjectPermissions?: string[];
+  /** La `version` del reparto quando la bozza è nata: il PATCH la manda come `ifMatch` (F8). */
+  baseVersion?: string;
 }
 
 /**
@@ -220,7 +219,12 @@ export async function saveDepartment(id: string, draft: DepartmentDraft): Promis
   };
   const invariant = invariantRefusal(mutate);
   if (invariant) return invariant;
-  const reauth = reauthRefusal(me, "admin.saveDepartment");
+  // F8-3: il codice solo se la bozza dà accessi (un permesso aggiunto, o una
+  // persona che entra in un reparto che ne dà); rinominare e togliere no.
+  const givesAccess =
+    diffOf(perms, current.projectPermissions).length > 0 ||
+    (perms.length > 0 && diffOf(members, current.memberIds).length > 0);
+  const reauth = givesAccess ? reauthRefusal(me, "admin.saveDepartment") : null;
   if (reauth) return reauth;
   // La scrittura, tutta insieme. Gli insiemi di prima si fotografano ORA:
   // `mutate` riassegna i campi dello stesso oggetto (`current`).
@@ -379,7 +383,11 @@ export async function setDepartmentMembers(id: string, memberIds: string[]): Pro
   };
   const invariant = invariantRefusal(mutate);
   if (invariant) return invariant;
-  const reauth = reauthRefusal(me, "admin.setDepartmentMembers");
+  // F8-3: il codice solo per chi entra in un reparto che dà permessi.
+  const reauth =
+    added.length > 0 && current.projectPermissions.length > 0
+      ? reauthRefusal(me, "admin.setDepartmentMembers")
+      : null;
   if (reauth) return reauth;
   writeAccess(mutate);
   recordChange({
@@ -407,8 +415,7 @@ export async function setHomeManagers(id: string, personIds: string[]): Promise<
   const added = next.filter((p) => !current.homeManagerIds.includes(p));
   const removed = current.homeManagerIds.filter((p) => !next.includes(p));
   if (added.length === 0 && removed.length === 0) return refuse.invalid("unchanged");
-  const reauth = reauthRefusal(me, "admin.setHomeManagers");
-  if (reauth) return reauth;
+  // F8-3: chi gestisce la Home non dà accessi di progetto: senza riconferma.
   writeAccess((s) => {
     accessOf(s, id)!.homeManagerIds = next;
   });
@@ -452,7 +459,8 @@ export async function setDepartmentPermissions(
   };
   const invariant = invariantRefusal(mutate);
   if (invariant) return invariant;
-  const reauth = reauthRefusal(me, "admin.setDepartmentPermissions");
+  // F8-3: il codice solo per un permesso aggiunto; toglierne no.
+  const reauth = added.length > 0 ? reauthRefusal(me, "admin.setDepartmentPermissions") : null;
   if (reauth) return reauth;
   writeAccess(mutate);
   recordChange({

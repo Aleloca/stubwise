@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { projectMembers, projects, roles, users } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
@@ -87,6 +87,34 @@ describe("assertFullAdminRemains", () => {
     const admins = await db.select({ id: users.id }).from(users).where(eq(users.role, "admin"));
     expect(admins).toHaveLength(1);
   });
+
+  it("Claude non conta come full admin, nemmeno se il preset User viene allargato (review dell'area 3, punto 9)", async () => {
+    const db = testDb.db;
+    const rollback = new Error("rollback");
+    const outcome = await db
+      .transaction(async (tx) => {
+        const [userRole] = await tx.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "user"));
+        // Il preset User allargato a full admin (l'utente di sistema ha quel preset).
+        await tx
+          .update(roles)
+          .set({ permissions: sql`array_append(${roles.permissions}, 'instance.full_admin')` })
+          .where(eq(roles.id, userRole!.id));
+        // Tutte le persone vere passano su un ruolo SENZA full admin.
+        const [plain] = await tx
+          .insert(roles)
+          .values({ name: "Senza poteri", scope: "instance", permissions: [] })
+          .returning({ id: roles.id });
+        await tx.update(users).set({ instanceRoleId: plain!.id }).where(eq(users.isAgent, false));
+        const error = await assertFullAdminRemains(tx).then(
+          () => null,
+          (e: unknown) => e,
+        );
+        throw Object.assign(rollback, { inner: error });
+      })
+      .catch((e: unknown) => (e as { inner?: unknown }).inner);
+    expect(outcome).toBeInstanceOf(RoleRuleError);
+    expect((outcome as RoleRuleError).code).toBe("last_full_admin");
+  });
 });
 
 /**
@@ -135,16 +163,15 @@ describe("deleteUser", () => {
     expect(await exists(only)).toBe(true);
   });
 
-  it("R28: chi ha solo users.manage non elimina un full admin → 403, utente ancora lì", async () => {
+  it("area 9 (D-2, era R28): chi ha users.manage elimina anche un full admin, se ne resta un altro", async () => {
+    await seed("keeper-admin@example.com", "admin");
     const admin = await seed("victim-admin@example.com", "admin");
     const actor = {
       id: await seed("users-manager@example.com", "member"),
       instancePermissions: effectiveInstancePermissions(["users.manage"]),
     };
-    const error = await ruleError(deleteUser(testDb.db, actor, admin));
-    expect(error.status).toBe(403);
-    expect(error.code).toBe("target_above");
-    expect(await exists(admin)).toBe(true);
+    await deleteUser(testDb.db, actor, admin);
+    expect(await exists(admin)).toBe(false);
   });
 
   it("non sé stessi (400); un utente qualunque sì", async () => {
@@ -175,6 +202,7 @@ describe("putProjectMember sotto concorrenza", () => {
       .returning({ id: roles.id });
     const actor = {
       id: user!.id,
+      email: "assigner@example.com",
       instancePermissions: new Set<InstancePermission>(INSTANCE_PERMISSIONS),
     };
 

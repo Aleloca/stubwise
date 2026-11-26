@@ -14,9 +14,12 @@ import {
   notificationDeliveries,
   notifications,
   notificationSettings,
+  outgoingWebhooks,
   prReviewJobs,
   prReviews,
   projects,
+  releases,
+  repoGraphs,
   repositories,
   ticketEvents,
   ticketRepositories,
@@ -63,6 +66,8 @@ afterEach(async () => {
     .update(notificationSettings)
     .set({ webhookUrl: null })
     .where(eq(notificationSettings.id, 1));
+  // Area 9, F3: i webhook in uscita creati da un test non restano ai successivi.
+  await testDb.db.delete(outgoingWebhooks);
   // Ripristina le impostazioni d'istanza ai default (riga singleton id=1
   // condivisa tra i test): un test che cambia lingua o toggle PR review non
   // deve influenzare i successivi.
@@ -139,15 +144,8 @@ async function createProject(payload: Record<string, unknown>): Promise<CreatedP
   }
   const repository = res.json() as { id: string; slug: string; provider: string };
 
-  const webhookRes = await app.inject({
-    method: "GET",
-    url: `/api/repositories/${repository.slug}/webhook`,
-    headers: { cookie: adminCookie },
-  });
-  if (webhookRes.statusCode !== 200) {
-    throw new Error(`lettura webhookSecret fallita: ${webhookRes.statusCode} ${webhookRes.body}`);
-  }
-  const { webhookSecret } = webhookRes.json() as { webhookSecret: string };
+  // Il segreto intero esce solo dalla creazione (area 9, F5, decisione C).
+  const { webhookSecret } = res.json() as { webhookSecret: string };
   return { ...repository, projectId: group!.id, webhookSecret };
 }
 
@@ -192,15 +190,8 @@ async function addRepository(
   }
   const repository = res.json() as { id: string; slug: string; provider: string };
 
-  const webhookRes = await app.inject({
-    method: "GET",
-    url: `/api/repositories/${repository.slug}/webhook`,
-    headers: { cookie: adminCookie },
-  });
-  if (webhookRes.statusCode !== 200) {
-    throw new Error(`lettura webhookSecret fallita: ${webhookRes.statusCode} ${webhookRes.body}`);
-  }
-  const { webhookSecret } = webhookRes.json() as { webhookSecret: string };
+  // Il segreto intero esce solo dalla creazione (area 9, F5, decisione C).
+  const { webhookSecret } = res.json() as { webhookSecret: string };
   return { ...repository, projectId: project.projectId, webhookSecret };
 }
 
@@ -222,7 +213,7 @@ async function insertTicket(
   const [row] = await testDb.db
     .insert(tickets)
     .values({
-      projectId: repository!.projectId,
+      projectId: repository!.projectId!,
       number,
       title: `Ticket ${number}`,
       type: "bug",
@@ -292,21 +283,20 @@ function sign(secret: string, rawBody: string): string {
 const NOTIFY_WEBHOOK_URL = "https://hooks.example.com/stubwise";
 
 /**
- * Configura il singleton `notification_settings` (id=1, seedato dalla
- * migrazione): webhook URL + formato `generic` e gating del solo toggle
- * `notifyPrClosed`, che decide se la publish scrive la consegna webhook in
- * outbox. enabled=true, gli altri toggle off (irrilevanti qui).
+ * Area 9, F3: un webhook in uscita ACCESO (formato `generic`), iscritto
+ * all'evento `job.pr_closed` oppure no. Dalla 0188 `notification_settings` non
+ * decide più niente: è la scelta degli eventi del webhook a decidere se la
+ * publish scrive la consegna in outbox.
  */
-async function configureNotifications(notifyPrClosed: boolean): Promise<void> {
-  await testDb.db
-    .update(notificationSettings)
-    .set({
-      webhookUrl: NOTIFY_WEBHOOK_URL,
-      format: "generic",
-      enabled: true,
-      notifyPrClosed,
-    })
-    .where(eq(notificationSettings.id, 1));
+async function configureNotifications(subscribedToPrClosed: boolean): Promise<void> {
+  await testDb.db.delete(outgoingWebhooks);
+  await testDb.db.insert(outgoingWebhooks).values({
+    name: "Notifiche",
+    url: NOTIFY_WEBHOOK_URL,
+    format: "generic",
+    enabled: true,
+    events: subscribedToPrClosed ? ["job.pr_closed"] : ["job.pr_opened"],
+  });
 }
 
 /**
@@ -359,7 +349,7 @@ async function projectIdOfRepository(repositoryId: string): Promise<string> {
     .select({ projectId: repositories.projectId })
     .from(repositories)
     .where(eq(repositories.id, repositoryId));
-  return row!.projectId;
+  return row!.projectId!;
 }
 
 function bitbucketPayload(branch: string, prUrl = "https://bitbucket.org/acme/repo/pull-requests/7") {
@@ -580,6 +570,33 @@ describe("POST /webhooks/git/:projectSlug", () => {
     const cmts = await ticketComments(ticketId);
     expect(cmts).toHaveLength(1);
     expect(cmts[0]!.authorType).toBe("system");
+  });
+
+  it("area 8, F1: un merge esterno sul ramo di rilascio crea UN rilascio (via_stubwise falso, il nome git); la riconsegna no; un merge su un altro ramo nemmeno", async () => {
+    const project = await createProject({
+      name: "Webhook Rilasci",
+      provider: "github",
+      repoUrl: "https://github.com/acme/webhook-rilasci",
+      credentials: { username: "acme-bot", token: "tok" },
+    });
+    const [repo] = await testDb.db.select().from(repositories).where(eq(repositories.slug, project.slug));
+    const send = async (base: string, number: number) => {
+      const body = JSON.stringify({
+        action: "closed",
+        pull_request: { number, merged: true, head: { ref: "feature" }, base: { ref: base }, html_url: `https://github.com/acme/webhook-rilasci/pull/${number}`, merge_commit_sha: `${"b".repeat(39)}${number}`, title: "Nuovo login", merged_by: { login: "marta" } },
+      });
+      return app.inject({
+        method: "POST",
+        url: `/webhooks/git/${project.slug}`,
+        headers: { "content-type": "application/json", "x-github-event": "pull_request", "x-hub-signature-256": sign(project.webhookSecret, body) },
+        payload: body,
+      });
+    };
+    expect((await send(repo!.defaultBranch, 11)).statusCode).toBe(204);
+    expect((await send(repo!.defaultBranch, 11)).statusCode).toBe(204);
+    expect((await send("develop", 12)).statusCode).toBe(204);
+    const rows = await testDb.db.select().from(releases).where(eq(releases.repositoryId, repo!.id));
+    expect(rows).toEqual([expect.objectContaining({ prNumber: 11, viaStubwise: false, mergedGitName: "marta", title: "Nuovo login", mergedBy: null })]);
   });
 
   it("firma non valida → 401, ticket intatto", async () => {
@@ -969,21 +986,21 @@ describe("POST /webhooks/git/:projectSlug", () => {
       ticketUrl: `${PUBLIC_URL}/tickets/${ticketId}`,
     });
 
-    // OUTBOX: col toggle acceso nasce la consegna webhook d'istanza (una per
-    // evento, con l'evento copiato sulla riga).
+    // OUTBOX: il webhook che ha scelto `job.pr_closed` riceve la sua consegna
+    // (una per webhook, con l'evento copiato sulla riga).
     const webhookDeliveries = await webhookDeliveriesForTicket(ticketId);
     expect(webhookDeliveries).toHaveLength(1);
     expect(webhookDeliveries[0]!.event).toMatchObject({ kind: "job.pr_closed" });
   });
 
-  it("toggle notifyPrClosed off → inbox comunque scritta, nessuna consegna webhook", async () => {
+  it("un webhook acceso SENZA l'evento job.pr_closed → inbox comunque scritta, nessuna consegna webhook", async () => {
     const project = await createProject({
       name: "Webhook Notify Off",
       provider: "github",
       repoUrl: "https://github.com/acme/webhook-notify-off",
       credentials: { token: "tok" },
     });
-    // Gating: toggle del singolo evento disattivato.
+    // Gating: un webhook acceso che NON ha scelto `job.pr_closed` non riceve la consegna.
     await configureNotifications(false);
     const calls = captureNotificationPosts();
     const ticketId = await insertTicket(project.id, 1, "in_review");
@@ -1352,7 +1369,7 @@ describe("POST /webhooks/git/:projectSlug — push (niente più lavoro Docs)", (
     await testDb.db
       .update(projects)
       .set({ docAutoUpdate: true })
-      .where(eq(projects.id, repository!.projectId));
+      .where(eq(projects.id, repository!.projectId!));
     const body = githubPushPayload("main", SHA("a"), SHA("b"));
 
     const res = await app.inject({
@@ -1383,7 +1400,7 @@ describe("POST /webhooks/git/:projectSlug — push (recount report attività)", 
     await testDb.db
       .update(projects)
       .set({ dailyReportEnabled: value })
-      .where(eq(projects.id, repository!.projectId));
+      .where(eq(projects.id, repository!.projectId!));
   }
 
   /** Legge l'unico job di recount del progetto (o undefined). */
@@ -1917,7 +1934,7 @@ describe("webhook PR Review (chiusura)", () => {
     const [row] = await testDb.db
       .insert(tickets)
       .values({
-        projectId: repository!.projectId,
+        projectId: repository!.projectId!,
         number,
         title: `Review PR #${number}`,
         type: "review",
@@ -2190,5 +2207,35 @@ describe("webhook PR Review (chiusura)", () => {
     const cmts = await ticketComments(ticketId);
     expect(cmts).toHaveLength(1);
     expect(cmts[0]!.authorType).toBe("system");
+  });
+});
+
+describe("rimandi, lotto 4: lo stato della PR di setup del grafo", () => {
+  it("il webhook della PR di setup ne scrive lo stato (merged, chiusa, riaperta); un'altra PR non lo tocca; la GET del grafo lo dice", async () => {
+    const project = await createProject({ name: "Webhook Setup Grafo", provider: "github", repoUrl: "https://github.com/acme/setup-grafo", credentials: { token: "tok" } });
+    const url = "https://github.com/acme/setup-grafo/pull/7";
+    await testDb.db.insert(repoGraphs).values({ repositoryId: project.id, setupPrUrl: url, setupPrState: "open" });
+    const post = (body: string) =>
+      app.inject({
+        method: "POST",
+        url: `/webhooks/git/${project.slug}`,
+        headers: { "content-type": "application/json", "x-github-event": "pull_request", "x-hub-signature-256": sign(project.webhookSecret, body) },
+        payload: body,
+      });
+    const state = async () => (await testDb.db.select({ s: repoGraphs.setupPrState }).from(repoGraphs).where(eq(repoGraphs.repositoryId, project.id)))[0]!.s;
+    const pr = (action: string, number: number, merged = false) =>
+      JSON.stringify({ action, pull_request: { number, merged, title: "graphify", body: "", head: { ref: "stubwise/graphify-setup", sha: "a".repeat(40) }, base: { ref: "main" }, html_url: `https://github.com/acme/setup-grafo/pull/${number}` } });
+
+    // Un'altra PR chiusa: lo stato della PR di setup non cambia.
+    expect((await post(pr("closed", 8))).statusCode).toBe(204);
+    expect(await state()).toBe("open");
+    expect((await post(pr("closed", 7))).statusCode).toBe(204);
+    expect(await state()).toBe("closed_unmerged");
+    await post(pr("reopened", 7));
+    expect(await state()).toBe("open");
+    await post(pr("closed", 7, true));
+    expect(await state()).toBe("merged");
+    const graph = await app.inject({ method: "GET", url: `/api/repositories/${project.id}/graph`, headers: { cookie: adminCookie } });
+    expect(graph.json()).toMatchObject({ setupPrUrl: url, setupPrState: "merged" });
   });
 });

@@ -1,8 +1,11 @@
+import { cleanQuote } from "@stubwise/shared";
 import { anchorIdsOf, anchorText } from "../../domain/productDocs/blocks";
-import { visiblePeopleFor } from "../access/whoCan";
+import "./alertTypes";
+import { personMasker } from "../access/hidden";
+import { knownPeopleFor, visiblePeopleFor } from "../access/whoCan";
 import { directMentionIds } from "../chat/mentions";
 import { docsAccess } from "../docs/reads";
-import { PEOPLE } from "../seed/people";
+import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { getSessionPersonId } from "../session";
 import { copy, gate, newId, nextSeq, now, onStoreReset, state } from "../store";
 import type {
@@ -34,8 +37,6 @@ import { editablePage, onAnchorsMerged } from "./writes";
 //   scrive, riceve una notifica `product_doc.mention` (Q1). Titolo, corpo e
 //   `objectGone` si compongono a lettura (`presentProductMention`).
 
-/** La frase citata: al più 200 caratteri, senza segni. */
-const QUOTE_MAX = 200;
 
 const nameOf = (personId: string): string =>
   PEOPLE.find((p) => p.id === personId)?.name ?? personId;
@@ -43,11 +44,10 @@ const nameOf = (personId: string): string =>
 const commentById = (id: string): ProductComment | undefined =>
   state.productComments.find((c) => c.id === id);
 
-/** Senza spazi ai lati e tagliata a `QUOTE_MAX` con «…» (anche le domande di Claude, 11b). */
-export function cleanQuote(quote: string): string {
-  const q = quote.trim();
-  return q.length > QUOTE_MAX ? `${q.slice(0, QUOTE_MAX - 1)}…` : q;
-}
+// La frase citata (anche delle domande di Claude, 11b): dall'area 11, F2 la
+// regola sta in `@stubwise/shared`, la stessa del server. UNA riga, senza
+// spazi ai lati, tagliata a 200 con «…».
+export { cleanQuote };
 
 /** L'indirizzo che apre la pagina sul filo (`?comment=<radice>`). */
 export const threadLink = (page: ProductPage, rootId: string): string =>
@@ -66,12 +66,38 @@ onAnchorsMerged((pageId, from, to) => {
 // --- leggere -------------------------------------------------------------------
 
 /** Un commento come lo legge `me`: una domanda di Claude nella sua vista, mai la fonte grezza (11b). */
-function viewOf(me: string, page: ProductPage, c: ProductComment): ProductCommentView {
+/**
+ * Il nome di una persona per chi guarda (R-G5): `null` se non la conosce
+ * (registro, A11 r.1414: anche disattivati ed ex membri dei progetti visibili
+ * si conoscono). Chi guarda e Claude si vedono sempre.
+ */
+const visibleNameOf = (me: string, personId: string, known: ReadonlySet<string>): string | null =>
+  personId === me || personId === CLAUDE_ID || known.has(personId) ? nameOf(personId) : null;
+
+/**
+ * Il commento come lo legge chi guarda, nella forma del server (F2): senza
+ * `seq`, coi nomi che vede, e gli id di chi non conosce come segnaposti
+ * (`mask`: quello della risposta intera, r.1414).
+ */
+export function viewOf(
+  me: string,
+  page: ProductPage,
+  c: ProductComment,
+  known: ReadonlySet<string> = knownPeopleFor(me),
+  mask: ReturnType<typeof personMasker> = personMasker(me, known),
+): ProductCommentView {
   // La domanda grezza (fonte, fatto) non esce mai: la sua vista la sostituisce.
-  const rest: Omit<ProductComment, "question"> = copy(c);
+  const { question: _question, seq: _seq, ...rest } = copy(c);
+  void [_question, _seq];
   return {
     ...rest,
-    authorName: nameOf(c.authorId),
+    authorId: mask(c.authorId),
+    resolved: c.resolved
+      ? { ...c.resolved, byId: mask(c.resolved.byId), byName: visibleNameOf(me, c.resolved.byId, known) }
+      : null,
+    authorName: visibleNameOf(me, c.authorId, known),
+    // Le menzionate che chi guarda vede, come il server (review di R11-2, 4).
+    mentionIds: c.mentionIds.filter((id) => visibleNameOf(me, id, known) !== null),
     ...(c.question ? { question: questionViewOf(me, c, page) } : {}),
   };
 }
@@ -95,22 +121,25 @@ export async function listProductComments(
 
   const position = new Map(page.blocks.flatMap(anchorIdsOf).map((id, i) => [id, i]));
   const mine = state.productComments.filter((c) => c.pageId === pageId);
+  const seqOf = new Map(mine.map((c) => [c.id, c.seq]));
+  const known = knownPeopleFor(me);
+  const mask = personMasker(me, known);
   const threads = mine
     .filter((c) => c.replyToId === null)
     .map(
       (root): ProductCommentThread => ({
-        root: viewOf(me, page, root),
+        root: viewOf(me, page, root, known, mask),
         replies: mine
           .filter((c) => c.replyToId === root.id)
           .sort((a, b) => a.seq - b.seq)
-          .map((c) => viewOf(me, page, c)),
+          .map((c) => viewOf(me, page, c, known, mask)),
         anchorGone: !position.has(root.anchorId),
       }),
     )
     .sort((a, b) => {
       if (a.anchorGone !== b.anchorGone) return a.anchorGone ? 1 : -1;
       const at = a.anchorGone ? 0 : position.get(a.root.anchorId)! - position.get(b.root.anchorId)!;
-      return at || a.root.seq - b.root.seq;
+      return at || seqOf.get(a.root.id)! - seqOf.get(b.root.id)!;
     });
   return {
     open: threads.filter((t) => t.root.resolved === null),
@@ -159,10 +188,14 @@ function publishMentions(me: string, page: ProductPage, comment: ProductComment)
       projectId: page.projectId,
       objectCode: page.code,
       departmentId: null,
-      recipientIds: [personId],
+      // N-1 = a: chi è menzionato la riceve sempre (obbligo `mentioned`).
+      recipientIds: [],
+      mandatory: [{ personId, reason: "mentioned" }],
       title: "",
       body: comment.body,
       createdAt: comment.createdAt,
+      // Nel catalogo (area 11, D-6 = b): l'ordine con le iscrizioni (R-K19).
+      seq: nextSeq(),
       read: false,
       archived: false,
       snoozedUntil: null,
@@ -229,13 +262,24 @@ export function addProductCommentAs(
  * (stessa persona, stessa pagina, stessi valori) riceve la stessa scrittura,
  * come `fixRelease`. Finita, lo stesso testo di nuovo è un commento nuovo.
  */
-const posting = new Map<string, Promise<ProductComment>>();
-onStoreReset(() => posting.clear());
+const posting = new Map<string, Promise<ProductCommentView>>();
+/**
+ * La chiave del client (come il server, 72 b3ef7fa53): `<persona>|<chiave>`
+ * → la pagina e il commento scritto. La stessa chiave dalla stessa persona
+ * dà lo stesso commento (nessuna riga né menzione in più); su un'altra
+ * pagina è `client_id_reused`. È dell'autore: un altro scrive il suo.
+ */
+const byClientId = new Map<string, { pageId: string; commentId: string; view: ProductCommentView }>();
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+onStoreReset(() => {
+  posting.clear();
+  byClientId.clear();
+});
 
 export function addProductComment(
   pageId: string,
-  input: { anchorId: string; quote: string; body: string; replyToId?: string },
-): Promise<ProductComment> {
+  input: { anchorId: string; quote: string; body: string; replyToId?: string; clientId?: string },
+): Promise<ProductCommentView> {
   const key = JSON.stringify([
     getSessionPersonId(),
     pageId,
@@ -247,7 +291,28 @@ export function addProductComment(
   const pending = posting.get(key);
   if (pending) return pending;
   const write = writer("productDocs.addProductComment")
-    .then((me) => addProductCommentAs(me, pageId, input))
+    .then((me) => {
+      // Prima la pagina (chi non la scrive, una pagina che non c'è), poi la chiave (terza revisione, 5).
+      const page = editablePage(me, pageId);
+      if (input.clientId !== undefined && !UUID.test(input.clientId)) throw invalid("client_id");
+      const ck = input.clientId === undefined ? null : `${me}|${input.clientId}`;
+      const known = ck === null ? undefined : byClientId.get(ck);
+      if (known && known.pageId !== pageId) throw new Error("client_id_reused");
+      if (known) {
+        // Come il server: la stessa chiave ridà la riga, anche se intanto il commento non c'è più.
+        const now = state.productComments.find((c) => c.id === known.commentId);
+        return now ? viewOf(me, page, now) : known.view;
+      }
+      const made = addProductCommentAs(me, pageId, {
+        anchorId: input.anchorId,
+        quote: input.quote,
+        body: input.body,
+        ...(input.replyToId !== undefined ? { replyToId: input.replyToId } : {}),
+      });
+      const view = viewOf(me, page, made);
+      if (ck !== null) byClientId.set(ck, { pageId, commentId: made.id, view });
+      return view;
+    })
     .finally(() => {
       if (posting.get(key) === write) posting.delete(key);
     });
@@ -315,7 +380,8 @@ export function presentProductMention(me: string, out: AppNotification): void {
   out.objectCode = page.code;
   out.link = threadLink(page, root.id);
   out.productPageTitle = page.title;
-  const seen = visiblePeopleFor(me);
+  // R.1414: i nomi menzionati di chi guarda conosce.
+  const seen = knownPeopleFor(me);
   out.mentionNames = directMentionIds(out.body)
     .filter((id) => seen.has(id))
     .map(nameOf);

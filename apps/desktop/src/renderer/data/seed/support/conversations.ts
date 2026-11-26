@@ -5,13 +5,21 @@ import { daysFromToday } from "../dates";
 // solo dai canali col triage: il widget e il server MCP, MAI da un'email.
 //
 // - ACQ-S1: dal widget, il triage è ancora in corso.
-// - ACQ-S2: dal widget, la richiesta è aperta e il cliente ha riscritto:
-//   aspetta una nostra risposta, con la bozza di Claude pronta.
-// - ACQ-S3: dal widget, il cliente se n'è andato prima della fine del triage:
-//   non conclusa, nessuna richiesta.
+// - ACQ-S2: dal widget, la richiesta è aperta: la conversazione è chiusa.
+//   Il cliente ha riscritto e continua in ACQ-S9 (area 8, F3, S17).
+// - ACQ-S3: dal widget, il controllo dopo il silenzio l'ha giudicata non
+//   conclusa: resta un bisogno, nessuna richiesta.
 // - ACQ-S4: dal server MCP, la richiesta è nata con la conversazione allegata.
 // - ACQ-S5, ACQ-S6: dal widget, le due richieste in coda (area 10b).
-// - ACQ-S7: dal widget, aspetta una nostra risposta SENZA bozza di Claude.
+// - ACQ-S7: dal widget, un'altra richiesta aperta (chiusa).
+// - AUD-S1: dal widget di Audin, l'esito è la task che il widget ha aperto
+//   (AUD-6, un ticket: nessuna richiesta, area 8 F3-1).
+// - ACQ-S8: dal widget, la risposta è bastata (area 8, F3, `answered`): il
+//   controllo dopo il silenzio l'ha giudicata conclusa.
+// - ACQ-S9: la successiva di ACQ-S2 (area 8, F3, S17): Lucia ha riscritto
+//   dopo l'esito, e il triage riparte da qui.
+// Al cliente del widget il team non scrive mai (area 8, F3): i messaggi
+// `team` stanno solo sul canale `mcp`.
 
 /** Le richieste nate da una conversazione (in `requests.ts`, con `origin`). */
 export const SUPPORT_REQUEST_IDS = {
@@ -32,6 +40,9 @@ export const SUPPORT_CONVERSATION_IDS = {
   reminder: "sup-acq-5",
   dark: "sup-acq-6",
   billingEmail: "sup-acq-7",
+  answered: "sup-acq-8",
+  followUp: "sup-acq-9",
+  ticket: "sup-aud-1",
 } as const;
 
 const at = (days: number, hm: string) => `${daysFromToday(-days)}T${hm}:00Z`;
@@ -51,6 +62,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
   {
     id: SUPPORT_CONVERSATION_IDS.triage,
     code: "ACQ-S1",
+    identityVerified: false,
     projectId: "prj-acq",
     channel: "widget",
     widgetId: "wdg-acq-portal",
@@ -67,14 +79,14 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     ]),
     rewrittenWish: null,
     requestId: null,
-    leftAt: null,
+    taskId: null,
+    triage: null,
     confirmedAt: null,
-    followerIds: [],
-    claudeDraft: null,
   },
   {
     id: SUPPORT_CONVERSATION_IDS.waiting,
     code: "ACQ-S2",
+    identityVerified: true,
     projectId: "prj-acq",
     channel: "widget",
     widgetId: "wdg-acq-portal",
@@ -93,32 +105,20 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
         at(4, "10:06"),
       ],
       ["customer", null, "Only the larger ones, like the yearly adjustment.", at(4, "10:09")],
-      [
-        "triage",
-        null,
-        "Got it: I passed your request to the team. You'll find the answer here.",
-        at(4, "10:10"),
-      ],
-      [
-        "team",
-        "p-laura",
-        "Thanks Lucia, we're looking into it with the billing office.",
-        at(2, "15:20"),
-      ],
-      ["customer", null, "Any news? The yearly adjustment arrives next month.", at(0, "08:15")],
+      ["triage", null, "Got it: I passed your request to the team.", at(4, "10:10")],
     ]),
     rewrittenWish:
       "Pay the larger bills (like the yearly adjustment) in instalments from the customer portal.",
     requestId: SUPPORT_REQUEST_IDS.waiting,
-    leftAt: null,
+    taskId: null,
+    triage: null,
     confirmedAt: at(4, "10:09"),
-    followerIds: ["p-laura"],
-    claudeDraft:
-      "Hi Lucia, the request is with the team and the billing office is checking which bills can be split. We'll write here as soon as there is a decision, before the yearly adjustment arrives.",
+    continuedInId: SUPPORT_CONVERSATION_IDS.followUp,
   },
   {
     id: SUPPORT_CONVERSATION_IDS.left,
     code: "ACQ-S3",
+    identityVerified: false,
     projectId: "prj-acq",
     channel: "widget",
     widgetId: "wdg-acq-portal",
@@ -134,14 +134,14 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     ]),
     rewrittenWish: null,
     requestId: null,
-    leftAt: at(1, "18:20"),
+    taskId: null,
+    triage: { outcome: "not_concluded", at: at(1, "18:20"), byUserId: null },
     confirmedAt: null,
-    followerIds: [],
-    claudeDraft: null,
   },
   {
     id: SUPPORT_CONVERSATION_IDS.mcp,
     code: "ACQ-S4",
+    identityVerified: false,
     projectId: "prj-acq",
     channel: "mcp",
     widgetId: null,
@@ -170,15 +170,15 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     rewrittenWish:
       "Download the consumption history of the last two years for all the town buildings, in one spreadsheet.",
     requestId: SUPPORT_REQUEST_IDS.mcp,
-    leftAt: null,
+    taskId: null,
+    triage: null,
     confirmedAt: at(2, "10:35"),
-    followerIds: [],
-    claudeDraft: null,
   },
   // Area 10b: ACQ-S5 e ACQ-S6, da cui nascono le due richieste in coda.
   {
     id: SUPPORT_CONVERSATION_IDS.reminder,
     code: "ACQ-S5",
+    identityVerified: true,
     projectId: "prj-acq",
     channel: "widget",
     widgetId: "wdg-acq-portal",
@@ -192,23 +192,18 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
         at(3, "09:13"),
       ],
       ["customer", null, "Yes, that would be perfect.", at(3, "09:16")],
-      [
-        "triage",
-        null,
-        "Got it: I passed your request to the team. You'll find the answer here.",
-        at(3, "09:17"),
-      ],
+      ["triage", null, "Got it: I passed your request to the team.", at(3, "09:17")],
     ]),
     rewrittenWish: "Get a text message a few days before the water bill is due.",
     requestId: SUPPORT_REQUEST_IDS.reminder,
-    leftAt: null,
+    taskId: null,
+    triage: null,
     confirmedAt: at(3, "09:16"),
-    followerIds: [],
-    claudeDraft: null,
   },
   {
     id: SUPPORT_CONVERSATION_IDS.dark,
     code: "ACQ-S6",
+    identityVerified: false,
     projectId: "prj-acq",
     channel: "widget",
     widgetId: "wdg-acq-portal",
@@ -231,10 +226,9 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     ]),
     rewrittenWish: "A dark appearance for the customer portal.",
     requestId: SUPPORT_REQUEST_IDS.dark,
-    leftAt: null,
+    taskId: null,
+    triage: null,
     confirmedAt: at(1, "08:44"),
-    followerIds: [],
-    claudeDraft: null,
   },
   // 5 nov 2026: la seconda che aspetta noi, SENZA bozza di Claude. Con la
   // bozza pronta la riga «Claude can help you write the reply» non compare
@@ -243,6 +237,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
   {
     id: SUPPORT_CONVERSATION_IDS.billingEmail,
     code: "ACQ-S7",
+    identityVerified: false,
     projectId: "prj-acq",
     channel: "widget",
     widgetId: "wdg-acq-portal",
@@ -261,30 +256,93 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
         at(6, "09:21"),
       ],
       ["customer", null, "From the portal, so I can change it again myself.", at(6, "09:25")],
-      [
-        "triage",
-        null,
-        "Got it: I passed your request to the team. You'll find the answer here.",
-        at(6, "09:26"),
-      ],
-      [
-        "team",
-        "p-davide",
-        "Thanks Marta, for now we changed it for you: the next bill goes to the new address.",
-        at(5, "14:10"),
-      ],
-      [
-        "customer",
-        null,
-        "Thank you! Will I be able to change it from the portal myself next time?",
-        at(0, "09:05"),
-      ],
+      ["triage", null, "Got it: I passed your request to the team.", at(6, "09:26")],
     ]),
     rewrittenWish: "Change the email address that receives the bills from the customer portal.",
     requestId: SUPPORT_REQUEST_IDS.billingEmail,
-    leftAt: null,
+    taskId: null,
+    triage: null,
     confirmedAt: at(6, "09:25"),
-    followerIds: ["p-davide"],
-    claudeDraft: null,
+  },
+  // Area 8, F3: la risposta del widget è bastata. In fondo all'elenco, nessuna
+  // azione; «Not concluded» la rimette fra quelle che aspettano il team.
+  {
+    id: SUPPORT_CONVERSATION_IDS.answered,
+    code: "ACQ-S8",
+    identityVerified: false,
+    projectId: "prj-acq",
+    channel: "widget",
+    widgetId: "wdg-acq-portal",
+    customer: { name: "Giorgio Bassi", email: "giorgio.bassi@example.com" },
+    messages: messages(SUPPORT_CONVERSATION_IDS.answered, [
+      ["customer", null, "Where do I download last month's invoice?", at(1, "11:02")],
+      [
+        "triage",
+        null,
+        "You find it in the portal under Billing → Invoices: each month has a PDF to download.",
+        at(1, "11:03"),
+      ],
+      ["customer", null, "Found it, thanks.", at(1, "11:05")],
+    ]),
+    rewrittenWish: null,
+    requestId: null,
+    taskId: null,
+    triage: { outcome: "concluded", at: at(1, "11:20"), byUserId: null },
+    confirmedAt: null,
+  },
+  // Area 8, F3-1: l'esito è un TICKET aperto dal widget (la task AUD-6, che
+  // dice «View conversation»), nessuna richiesta.
+  {
+    id: SUPPORT_CONVERSATION_IDS.ticket,
+    code: "AUD-S1",
+    identityVerified: false,
+    projectId: "prj-aud",
+    channel: "widget",
+    widgetId: "wdg-aud-help",
+    customer: { name: "Paolo Ferri", email: "paolo.ferri@example.com" },
+    messages: messages(SUPPORT_CONVERSATION_IDS.ticket, [
+      [
+        "customer",
+        null,
+        "The dashboard takes forever to load on our big account.",
+        at(25, "09:10"),
+      ],
+      [
+        "triage",
+        null,
+        "Thanks: I reported it to the team with the page and the browser.",
+        at(25, "09:11"),
+      ],
+    ]),
+    rewrittenWish: null,
+    requestId: null,
+    taskId: "t-aud-6",
+    triage: null,
+    confirmedAt: null,
+  },
+  // Area 8, F3 (S17): Lucia riscrive dopo l'esito di ACQ-S2: una conversazione
+  // nuova, e il triage riparte.
+  {
+    id: SUPPORT_CONVERSATION_IDS.followUp,
+    code: "ACQ-S9",
+    identityVerified: true,
+    projectId: "prj-acq",
+    channel: "widget",
+    widgetId: "wdg-acq-portal",
+    customer: { name: "Lucia Benedetti", email: "lucia.benedetti@example.com" },
+    messages: messages(SUPPORT_CONVERSATION_IDS.followUp, [
+      ["customer", null, "Any news? The yearly adjustment arrives next month.", at(0, "08:15")],
+      [
+        "triage",
+        null,
+        "Your request about instalments is with the team. Is there something else I can help with?",
+        at(0, "08:16"),
+      ],
+    ]),
+    rewrittenWish: null,
+    requestId: null,
+    taskId: null,
+    triage: null,
+    confirmedAt: null,
   },
 ];

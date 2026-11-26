@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useCreateProductPage, useDeleteProductPage, usePeople } from "../../data/queries";
 import type { ProductMarkView, ProductPageView, ProductSpaceView, Project } from "../../data/types";
 import type { BlockEditorHandle } from "./editor/BlockEditor";
+import type { DropReason } from "./editor/useEditorSession";
 import { Dialog } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
 import { dangerButton } from "../task/parts";
@@ -26,7 +27,12 @@ export interface EditorStatus {
   /** L'ultimo ⌘Z / ⇧⌘Z saltato perché altri hanno cambiato quei blocchi. */
   skipped: boolean;
   /** L'ultima scrittura rifiutata dal livello dati (`invalid: …`) e scartata. */
-  dropped: boolean;
+  /** Perché l'ultima scrittura è stata scartata (`false`: nessuna). */
+  dropped: DropReason | false;
+  /** Con `busy`: chi tiene la sezione, se chi guarda lo vede (F4). */
+  droppedBy?: string | null;
+  /** Lo scarto ha lasciato la versione propria sotto il paragrafo («Mostra le due versioni»). */
+  droppedKept?: boolean;
   retry: () => void;
 }
 

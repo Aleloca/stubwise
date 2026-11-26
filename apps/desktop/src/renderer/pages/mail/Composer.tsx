@@ -25,6 +25,7 @@ import type {
   MailMessageView,
   MailSendResult,
   Project,
+  SendAsAddress,
 } from "../../data/types";
 import { placeDraft } from "../../domain/claude/intents/mailDraft";
 import { hasModKey, shortcutLabel } from "../../platform/platform";
@@ -53,6 +54,10 @@ import {
 import { AlertGlyph } from "./glyphs";
 import { ADDRESS, RecipientField } from "./RecipientField";
 import { useComposerDraft } from "./useComposerDraft";
+import { mailClaudeDraft } from "./mailFeatures";
+
+/** Le bozze su Gmail («Apri su Gmail» di una bozza cambiata là). */
+const GMAIL_DRAFTS = "https://mail.google.com/mail/#drafts";
 
 // La casella di scrittura della Posta (shape mail-compose §3, §5, §6): la
 // stessa casella della conversazione con Claude, allargata a un modulo —
@@ -104,7 +109,8 @@ export interface MailFieldBridge {
 /** La ragione di un invio rifiutato, in parole. */
 function reasonKey(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
-  if (message === "google_not_connected") return "mail.compose.reason.notConnected";
+  // Scaduta, o senza il permesso nuovo del riconsenso: in entrambi i casi si ricollega.
+  if (message === "google_not_connected" || message === "google_scope_missing") return "mail.compose.reason.notConnected";
   if (message === "attachment_unavailable") return "mail.compose.reason.attachment";
   if (message === "invalid: too_large" || message === "invalid: attachments")
     return "mail.compose.reason.tooLarge";
@@ -205,8 +211,9 @@ export function Composer(props: ComposerProps) {
 
   const claude = useClaudeDraft({
     threadId,
+    mode,
     body: fields?.body ?? "",
-    setBody: (text) => setFields({ body: text }),
+    setBody: (text) => setFields({ body: text }, { byClaude: true }),
     hintRef,
   });
   const claudeRef = useRef(claude);
@@ -302,7 +309,8 @@ export function Composer(props: ComposerProps) {
             : expired
               ? t("mail.compose.expired", { email: box?.email ?? "" })
               : null;
-  const canSend = blocked === null && !sending;
+  // Una bozza tornata non salvata (build app): prima si salva o si scarta.
+  const canSend = blocked === null && !sending && !draft.unsaved;
 
   async function doSend(force = false) {
     const f = draft.current();
@@ -319,7 +327,25 @@ export function Composer(props: ComposerProps) {
       draft.markSent();
       onSent(result, [...f.to, ...f.cc]);
     } catch (error) {
-      setSendError(t("mail.compose.couldntSend", { reason: t(reasonKey(error)) }));
+      // L'ultimo invio di questa bozza era fallito: la casella resta, lo dice, e il
+      // fuoco va al messaggio fallito, coi suoi Retry ed Edit.
+      if (error instanceof Error && error.message === "already_failed") {
+        setSendError(t("mail.compose.alreadyFailed"));
+        setSending(false);
+        const id = (error as { messageId?: string }).messageId;
+        const el = id
+          ? ([...document.querySelectorAll<HTMLElement>("[data-message]")].find((m) => m.dataset.message === id) ?? null)
+          : null;
+        if (el) {
+          if (!el.hasAttribute("tabindex")) el.setAttribute("tabindex", "-1");
+          el.focus();
+        }
+        return;
+      }
+      // Il conflitto con Gmail lo dice già la riga «Keep mine» (review F3, 9).
+      if (!(error instanceof Error && error.message === "draft_changed")) {
+        setSendError(t("mail.compose.couldntSend", { reason: t(reasonKey(error)) }));
+      }
       setSending(false);
     }
   }
@@ -329,6 +355,8 @@ export function Composer(props: ComposerProps) {
   }
 
   function doDiscard() {
+    // Non salvata: niente da togliere (l'altra bozza resta, la copia è su Gmail).
+    if (draft.unsaved) return draft.discardUnsaved();
     const snapshot = draft.discarded();
     discard.mutate(snapshot.id);
     onDiscarded(snapshot);
@@ -351,6 +379,8 @@ export function Composer(props: ComposerProps) {
         sizeBytes: file.size,
         driveFileId: null,
         as: "copy" as const,
+        // Build app: il file vero, che il salvataggio carica sulla bozza.
+        file,
       })),
     );
   }
@@ -474,6 +504,7 @@ export function Composer(props: ComposerProps) {
           </MenuButton>
         </div>
       )}
+      <FromField box={box} value={fields.from} onChange={(from) => setFields({ from })} />
       <RecipientField
         label={t("mail.compose.to")}
         value={fields.to}
@@ -539,6 +570,18 @@ export function Composer(props: ComposerProps) {
           />
         )}
         <ClaudeDraftNote flow={claude} id={markId} />
+        {/* Build app: la firma di Gmail, che il server aggiunge all'invio sotto il corpo. */}
+        {fields.signatureStatus === "present" && fields.signature && (
+          <p
+            aria-label={t("mail.compose.signature")}
+            className="px-3 pb-2 text-sm whitespace-pre-line text-ink-muted"
+          >
+            {`-- \n${fields.signature}`}
+          </p>
+        )}
+        {fields.signatureStatus === "scope_missing" && (
+          <p className="px-3 pb-2 text-xs text-ink-muted">{t("mail.compose.noSignature")}</p>
+        )}
         {original && mode !== "new" && (
           <div className="flex flex-col gap-2 px-3 pb-2">
             <div className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
@@ -705,9 +748,45 @@ export function Composer(props: ComposerProps) {
             e.target.value = "";
           }}
         />
-        <ClaudeDraftButton flow={claude} />
+        {mailClaudeDraft() && <ClaudeDraftButton flow={claude} />}
         <span className="ml-auto flex items-center gap-1">
-          {status === "failed" ? (
+          {draft.unsaved ? (
+            <span role="alert" className="flex flex-wrap items-center gap-1 px-1 text-xs text-critical">
+              <span>
+                {t("mail.compose.unsaved")}
+                {draft.unsaved.leftInGmail.length > 0 &&
+                  ` ${t("mail.compose.unsavedAttachments", { names: draft.unsaved.leftInGmail.join(", ") })}`}
+                {status === "failed" && ` ${t("mail.compose.saveFailed")}`}
+              </span>
+              <button
+                type="button"
+                disabled={status === "saving"}
+                onClick={() => void draft.saveUnsaved()}
+                className="rounded-sm font-medium underline underline-offset-2"
+              >
+                {t("mail.compose.save")}
+              </button>
+            </span>
+          ) : status === "conflict" ? (
+            <span role="alert" className="flex items-center gap-1 px-1 text-xs text-critical">
+              <span>{t("mail.compose.changedInGmail")}</span>
+              <button
+                type="button"
+                onClick={() => void draft.keepMine()}
+                className="rounded-sm font-medium underline underline-offset-2"
+              >
+                {t("mail.compose.keepMine")}
+              </button>
+              ·
+              <button
+                type="button"
+                onClick={() => window.open(GMAIL_DRAFTS, "_blank", "noopener")}
+                className="rounded-sm font-medium underline underline-offset-2"
+              >
+                {t("mail.compose.openGmail")}
+              </button>
+            </span>
+          ) : status === "failed" ? (
             <span className="flex items-center gap-1 px-1 text-xs text-critical">
               {t("mail.compose.saveFailed")} ·
               <button
@@ -781,6 +860,74 @@ export function Composer(props: ComposerProps) {
         </button>
       </header>
       {form}
+    </div>
+  );
+}
+
+/**
+ * Lotto 8, §2 (decisione del maintainer; scelte di 46): il «Da» — la casella
+ * e i suoi alias di Gmail, il predefinito per primo segnato. Solo quando c'è
+ * da scegliere; a una casella senza `gmail.modify` dice di ricollegarla.
+ */
+function FromField({
+  box,
+  value,
+  onChange,
+}: {
+  box: { email: string; sendAs?: SendAsAddress[]; sendAsStatus?: "present" | "scope_missing" } | undefined;
+  value: string | null;
+  onChange: (from: string | null) => void;
+}) {
+  const { t } = useTranslation();
+  if (!box) return null;
+  if (box.sendAsStatus === "scope_missing") {
+    return (
+      <p className="flex flex-wrap items-center gap-x-2 border-b border-rule px-3 py-1.5 text-xs text-ink-muted">
+        {t("mail.compose.from.reconnect")}
+        <button
+          type="button"
+          onClick={() => openGoogleAccount()}
+          className="font-medium text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
+        >
+          {t("mail.compose.from.reconnectAction")}
+        </button>
+      </p>
+    );
+  }
+  const options = box.sendAs ?? [];
+  if (options.length < 2) return null;
+  const current = value ?? options.find((a) => a.isDefault)?.email ?? box.email;
+  const label = (a: SendAsAddress) => (a.displayName ? `${a.displayName} <${a.email}>` : a.email);
+  const chosen = options.find((a) => a.email.toLowerCase() === current.toLowerCase());
+  return (
+    <div className="flex h-9 items-center gap-2 border-b border-rule px-3 text-sm">
+      <span className="shrink-0 text-ink-muted">{t("mail.compose.from.label")}</span>
+      <MenuButton
+        menuLabel={t("mail.compose.from.menu")}
+        ariaLabel={`${t("mail.compose.from.menu")}: ${chosen ? label(chosen) : current}`}
+        className="inline-flex h-6 min-w-0 items-center gap-1 rounded-md px-1.5 text-sm text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 aria-expanded:bg-ink/10"
+        label={
+          <>
+            <span className="truncate">{chosen ? label(chosen) : current}</span>
+            <Chevron />
+          </>
+        }
+      >
+        {(closeMenu) => (
+          <MenuGroup label={t("mail.compose.from.menu")}>
+            {options.map((a) => (
+              <RadioItem
+                key={a.email}
+                checked={a.email.toLowerCase() === current.toLowerCase()}
+                onSelect={() => (onChange(a.email), closeMenu())}
+              >
+                {label(a)}
+                {a.isDefault ? ` · ${t("mail.compose.from.default")}` : ""}
+              </RadioItem>
+            ))}
+          </MenuGroup>
+        )}
+      </MenuButton>
     </div>
   );
 }

@@ -1,0 +1,434 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { forgetClaudeCaches, getConversation, getTaskWork, listConversations } from "./claude";
+import { setAppClientForTests } from "./client";
+import { installFakeServer, me, PROJECT_ID, serverProject, serverTicketDetail, TICKET_ID } from "./fakeServer";
+
+// Le sessioni di lavoro di Claude nella build app (integrazione area 3, fetta
+// 3a): la pagina Claude e la sezione della task le leggono dal server, in
+// lettura. La chat libera resta «in arrivo»: «mine» e «public» non leggono.
+
+export const SESSION_ID = "aaaaaaaa-0000-4000-8000-000000000001";
+const JOB_ID = "bbbbbbbb-0000-4000-8000-000000000001";
+
+export const serverSession = (over: Record<string, unknown> = {}) => ({
+  id: SESSION_ID,
+  kind: "ai_job",
+  title: "Fix the CSV export",
+  projectId: PROJECT_ID,
+  projectName: "Audin AI",
+  ticketId: TICKET_ID,
+  ticketNumber: 12,
+  startedAt: "2026-11-10T09:00:00.000Z",
+  lastEventAt: "2026-11-10T09:05:00.000Z",
+  state: "working",
+  activeSegment: "execute",
+  lastActivity: { kind: "edit", target: "src/export.ts" },
+  aiJobId: JOB_ID,
+  backlogItemId: null,
+  outcome: null,
+  waitsOnViewer: false,
+  ...over,
+});
+
+export const serverEvent = (id: string, type: string, data: Record<string, unknown>, segmentId = "s1") => ({
+  id,
+  type,
+  segmentId,
+  at: `2026-11-10T09:0${Number(id) % 10}:00.000Z`,
+  data,
+});
+
+beforeEach(() => {
+  setAppClientForTests(null);
+  forgetClaudeCaches();
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  setAppClientForTests(null);
+});
+
+describe("le sessioni di lavoro dal server", () => {
+  it("dal vivo: le sessioni non concluse, nella forma del prototipo, col codice della task", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/projects": { body: [serverProject()] },
+      "GET /api/agent-sessions": {
+        body: {
+          live: [serverSession(), serverSession({ id: "aaaaaaaa-0000-4000-8000-000000000002", state: "waiting_input", waitsOnViewer: true })],
+          recent: [serverSession({ id: "aaaaaaaa-0000-4000-8000-000000000003", state: "ended", outcome: "completed" })],
+        },
+      },
+    });
+    const rows = await listConversations({ scope: "live", projectId: PROJECT_ID });
+    expect(seen.find((r) => r.path.startsWith("/api/agent-sessions"))!.path).toBe(
+      `/api/agent-sessions?projectId=${PROJECT_ID}`,
+    );
+    expect(rows.map((r) => r.id)).toEqual([SESSION_ID, "aaaaaaaa-0000-4000-8000-000000000002"]);
+    expect(rows[0]).toMatchObject({
+      kind: "task_run",
+      title: "Fix the CSV export",
+      projectId: PROJECT_ID,
+      taskId: TICKET_ID,
+      objectCode: "AUD-12",
+      state: "working",
+      outcome: null,
+      visibility: "project",
+      activity: { kind: "action", label: "src/export.ts" },
+      waitsOnViewer: false,
+      createdAt: "2026-11-10T09:00:00.000Z",
+      updatedAt: "2026-11-10T09:05:00.000Z",
+    });
+    expect(rows[1]).toMatchObject({ state: "awaiting_answer", activity: { kind: "question" }, waitsOnViewer: true });
+  });
+
+  it("concluse: l'esito del server nella scala del prototipo; per task e per tipo", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/projects": { body: [serverProject()] },
+      "GET /api/agent-sessions": {
+        body: {
+          live: [serverSession()],
+          recent: [
+            serverSession({ id: "aaaaaaaa-0000-4000-8000-000000000003", state: "ended", outcome: "completed" }),
+            serverSession({ id: "aaaaaaaa-0000-4000-8000-000000000004", state: "ended", outcome: "skipped" }),
+            serverSession({ id: "aaaaaaaa-0000-4000-8000-000000000005", kind: "pr_review", state: "ended", outcome: "failed" }),
+          ],
+        },
+      },
+    });
+    const rows = await listConversations({ scope: "finished", taskId: TICKET_ID, kind: "task_run" });
+    const query = new URLSearchParams(seen.find((r) => r.path.startsWith("/api/agent-sessions"))!.path.split("?")[1]);
+    expect(query.get("ticketId")).toBe(TICKET_ID);
+    expect(query.get("kind")).toBe("ai_job");
+    expect(rows.map((r) => [r.state, r.outcome])).toEqual([
+      ["finished", "ok"],
+      ["finished", "stopped"],
+    ]);
+  });
+
+  it("«mine» legge le proprie conversazioni libere; «public» le pubbliche di altri (fetta 5)", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/claude/conversations": {
+        body: {
+          items: [
+            {
+              id: SESSION_ID,
+              title: "Who follows AUD-12?",
+              archived: false,
+              context: { kind: "project", id: "p1" },
+              createdAt: "2026-11-10T10:00:00.000Z",
+              updatedAt: "2026-11-10T10:00:00.000Z",
+              state: "queued",
+              lastEventAt: null,
+            },
+          ],
+        },
+      },
+    });
+    expect(await listConversations({ scope: "mine" })).toMatchObject([
+      { id: SESSION_ID, kind: "free", title: "Who follows AUD-12?", contextProjectId: "p1", state: "working", visibility: "private" },
+    ]);
+    expect(seen.map((r) => r.path)).toEqual(["/api/claude/conversations?scope=mine&limit=100"]);
+    await listConversations({ scope: "public" });
+    expect(seen.map((r) => r.path).at(-1)).toBe("/api/claude/conversations?scope=public&limit=100");
+  });
+
+  it("il dettaglio: gli eventi tradotti, tutto in lettura; una sessione invisibile è null", async () => {
+    installFakeServer({
+      "GET /api/projects": { body: [serverProject()] },
+      [`GET /api/agent-sessions/${SESSION_ID}`]: { body: { ...serverSession(), canWrite: false, questions: [], inputs: [] } },
+      [`GET /api/agent-sessions/${SESSION_ID}/events`]: {
+        body: {
+          events: [
+            serverEvent("1", "segment_start", { label: "execute", interactive: false }),
+            serverEvent("2", "assistant_text", { text: "Looking at the export." }),
+          ],
+          before: null,
+        },
+      },
+      [`GET /api/tasks/${TICKET_ID}/work`]: { body: { claude: "working", webHref: "/tickets/x", runs: [] } },
+      "GET /api/agent-sessions/aaaaaaaa-0000-4000-8000-00000000dead": {
+        status: 404,
+        body: { code: "not_found", message: "x" },
+      },
+    });
+    const detail = await getConversation(SESSION_ID);
+    expect(detail).toMatchObject({
+      id: SESSION_ID,
+      objectCode: "AUD-12",
+      // Senza permessi dal server: niente casella, risposte o piani da decidere.
+      canWrite: false,
+      canAnswer: false,
+      canDecidePlan: false,
+      isOwner: false,
+      continuesFrom: null,
+      planPreApproved: false,
+    });
+    expect(detail!.events.map((e) => e.type)).toEqual(["phase", "assistant"]);
+    expect(await getConversation("aaaaaaaa-0000-4000-8000-00000000dead")).toBeNull();
+  });
+
+  it("i permessi del dettaglio vengono dal server: scrivere, fermare, rispondere, decidere il piano", async () => {
+    installFakeServer({
+      "GET /api/projects": { body: [serverProject()] },
+      "GET /api/auth/me": { body: me({ projectPermissions: { [PROJECT_ID]: ["plans.approve"] } }) },
+      [`GET /api/agent-sessions/${SESSION_ID}`]: {
+        body: {
+          ...serverSession({ state: "awaiting_approval", waitsOnViewer: true }),
+          canWrite: true,
+          canInterrupt: true,
+          questions: [
+            { id: "dddddddd-0000-4000-8000-000000000001", source: "agent", question: "Which?", askedAt: "2026-11-10T09:02:00.000Z", answered: false, canAnswer: true },
+          ],
+          inputs: [],
+        },
+      },
+      [`GET /api/agent-sessions/${SESSION_ID}/events`]: { body: { events: [], before: null } },
+      [`GET /api/tasks/${TICKET_ID}/work`]: { body: { claude: "awaiting_approval", webHref: "/x", runs: [] } },
+      [`GET /api/tickets/${TICKET_ID}`]: { body: serverTicketDetail({ implementationPlan: "1. Do it", planApprovedAt: null }) },
+    });
+    expect(await getConversation(SESSION_ID)).toMatchObject({
+      canWrite: true,
+      canInterrupt: true,
+      canAnswer: true,
+      canDecidePlan: true,
+      canRejectPlan: true,
+      // Il piano aspetta: si approva, non si pre-approva.
+      canPreApprovePlan: false,
+      canRevokePlanApproval: false,
+      planPreApproved: false,
+      readOnlyReason: null,
+    });
+  });
+
+  it("pre-approvare: solo col piano salvato sul ticket e plans.approve; revocare una pre-approvazione valida", async () => {
+    const routes = (projectPermissions: string[], ticket: Record<string, unknown>) => ({
+      "GET /api/projects": { body: [serverProject()] },
+      "GET /api/auth/me": { body: me({ projectPermissions: { [PROJECT_ID]: projectPermissions } }) },
+      [`GET /api/agent-sessions/${SESSION_ID}`]: { body: { ...serverSession(), canWrite: false, questions: [], inputs: [] } },
+      [`GET /api/agent-sessions/${SESSION_ID}/events`]: { body: { events: [], before: null } },
+      [`GET /api/tasks/${TICKET_ID}/work`]: { body: { claude: "working", webHref: "/x", runs: [] } },
+      [`GET /api/tickets/${TICKET_ID}`]: { body: serverTicketDetail(ticket) },
+    });
+    installFakeServer(routes(["plans.approve"], { implementationPlan: "1. Do it", planApprovedAt: null }));
+    expect(await getConversation(SESSION_ID)).toMatchObject({ canPreApprovePlan: true, canRevokePlanApproval: false });
+    forgetClaudeCaches();
+    installFakeServer(routes(["plans.approve"], { implementationPlan: null, planApprovedAt: null }));
+    expect(await getConversation(SESSION_ID)).toMatchObject({ canPreApprovePlan: false });
+    forgetClaudeCaches();
+    installFakeServer(
+      routes(["plans.approve"], { implementationPlan: "1. Do it", planApprovedAt: "2026-11-10T08:00:00.000Z", planApprovalStale: false }),
+    );
+    expect(await getConversation(SESSION_ID)).toMatchObject({ planPreApproved: true, canPreApprovePlan: false, canRevokePlanApproval: true });
+    forgetClaudeCaches();
+    installFakeServer(routes([], { implementationPlan: "1. Do it", planApprovedAt: null }));
+    expect(await getConversation(SESSION_ID)).toMatchObject({ canPreApprovePlan: false, canRevokePlanApproval: false });
+  });
+
+  it("il piano del job entra nel flusso, dal lavoro della task", async () => {
+    installFakeServer({
+      "GET /api/projects": { body: [serverProject()] },
+      [`GET /api/agent-sessions/${SESSION_ID}`]: {
+        body: { ...serverSession({ state: "awaiting_approval" }), questions: [], inputs: [] },
+      },
+      [`GET /api/agent-sessions/${SESSION_ID}/events`]: {
+        body: { events: [serverEvent("1", "segment_start", { label: "plan", interactive: false })], before: null },
+      },
+      [`GET /api/tasks/${TICKET_ID}/work`]: {
+        body: {
+          claude: "awaiting_approval",
+          webHref: "/tickets/x",
+          runs: [
+            {
+              id: JOB_ID,
+              sessionId: SESSION_ID,
+              createdAt: "2026-11-10T09:00:00.000Z",
+              state: "awaiting_approval",
+              plan: { text: "1. Do it", summary: "Do it", status: "pending", at: "2026-11-10T09:04:00.000Z" },
+            },
+          ],
+        },
+      },
+    });
+    const detail = await getConversation(SESSION_ID);
+    expect(detail!.state).toBe("awaiting_approval");
+    expect(detail!.activity).toEqual({ kind: "plan" });
+    expect(detail!.events.at(-1)).toMatchObject({ type: "plan", planText: "1. Do it", status: "pending" });
+  });
+});
+
+describe("il lavoro di una task dal server", () => {
+  const run = (over: Record<string, unknown> = {}) => ({
+    id: JOB_ID,
+    sessionId: SESSION_ID,
+    ownerId: null,
+    createdAt: "2026-11-10T09:00:00.000Z",
+    state: "finished",
+    outcome: "ok",
+    provider: { kind: "account", name: "Team Max" },
+    ...over,
+  });
+
+  // D-7.1 (maintainer, corretta): il server manda `blocked.monthly_budget`
+  // SOLO a chi non può scavalcare il budget (`plans.approve` nel progetto); a
+  // chi può, la pausa della coda se c'è. Il client lo legge, non lo deduce.
+  it("`blocked` dal server: il budget così com'è, la pausa con chi l'ha messa (mascherato: senza nome)", async () => {
+    const base = {
+      claude: "done",
+      webHref: "/tickets/x",
+      runs: [],
+      prEvents: [],
+      prFacts: [],
+      planDecisions: [],
+      software: true,
+      openPr: false,
+      waitsOnViewer: false,
+      actions: { start: "allowed", relaunch: "unavailable", resume: "unavailable", requestChanges: "unavailable" },
+      correctionCap: 2,
+    };
+    for (const [blocked, expected] of [
+      [{ reason: "monthly_budget" }, { reason: "monthly_budget" }],
+      [
+        { reason: "queue_paused", byId: "hidden-1", byName: null, since: "2026-11-23T08:00:00.000Z" },
+        { reason: "queue_paused", byId: "hidden-1", byName: "", since: "2026-11-23T08:00:00.000Z" },
+      ],
+      [null, null],
+    ] as const) {
+      installFakeServer({ [`GET /api/tasks/${TICKET_ID}/work`]: { body: { ...base, blocked } } });
+      expect((await getTaskWork(TICKET_ID))!.blocked).toEqual(expected);
+    }
+  });
+
+  // Lotto 4, §7.3 (72, 42abe14be): i consumi della task per modello, e
+  // l'attesa di un run in coda (`runs[].waiting`, oggi la coda in pausa).
+  it("`usage` e `runs[].waiting` dal server; un costo assente conta zero", async () => {
+    installFakeServer({
+      [`GET /api/tasks/${TICKET_ID}/work`]: {
+        body: {
+          claude: "running",
+          webHref: "/tickets/x",
+          runs: [run({ state: "idle", outcome: null, waiting: { reason: "queue_paused", byId: "hidden-1", byName: null, since: "2026-11-23T08:00:00.000Z" } })],
+          prEvents: [],
+          prFacts: [],
+          planDecisions: [],
+          software: true,
+          openPr: false,
+          waitsOnViewer: false,
+          actions: { start: "unavailable", relaunch: "unavailable", resume: "unavailable", requestChanges: "unavailable" },
+          correctionCap: 2,
+          usage: [
+            { model: "claude-opus", inputTokens: 1200, outputTokens: 300, cacheReadTokens: 50, costUsd: 0.42 },
+            { model: "claude-haiku", inputTokens: 100, outputTokens: 20, cacheReadTokens: 0, costUsd: null },
+          ],
+        },
+      },
+      [`GET /api/agent-sessions/${SESSION_ID}`]: {
+        body: { ...serverSession({ state: "idle", outcome: null }), questions: [], inputs: [] },
+      },
+      [`GET /api/agent-sessions/${SESSION_ID}/events`]: { body: { events: [], before: null } },
+    });
+    const work = (await getTaskWork(TICKET_ID))!;
+    expect(work.usage).toEqual([
+      { model: "claude-opus", inputTokens: 1200, outputTokens: 300, cacheReadTokens: 50, costUsd: 0.42 },
+      { model: "claude-haiku", inputTokens: 100, outputTokens: 20, cacheReadTokens: 0, costUsd: 0 },
+    ]);
+    expect(work.runs[0]!.waiting).toEqual({ reason: "queue_paused", byId: "hidden-1", byName: "", since: "2026-11-23T08:00:00.000Z" });
+  });
+
+  it("sessioni con i loro eventi (dalla sessione, non da /work), PR, decisioni e azioni del server", async () => {
+    installFakeServer({
+      [`GET /api/tasks/${TICKET_ID}/work`]: {
+        body: {
+          claude: "done",
+          webHref: "/tickets/x",
+          runs: [run()],
+          prEvents: [{ id: "pr1", kind: "pr_opened", at: "2026-11-10T09:06:00.000Z", number: 7, repo: "acme/app" }],
+          prFacts: [{ repo: "acme/app", number: 7, review: { verdict: "approved", at: "2026-11-10T10:00:00.000Z" } }],
+          planDecisions: [{ decidedById: null, decidedAt: "2026-11-10T09:03:00.000Z", decision: "Approved", status: "approved" }],
+          software: true,
+          openPr: true,
+          waitsOnViewer: false,
+          actions: { start: "unavailable", relaunch: "allowed", resume: "forbidden", requestChanges: "allowed" },
+          correctionCap: 2,
+        },
+      },
+      [`GET /api/agent-sessions/${SESSION_ID}`]: {
+        body: { ...serverSession({ state: "ended", outcome: "completed" }), questions: [], inputs: [] },
+      },
+      [`GET /api/agent-sessions/${SESSION_ID}/events`]: {
+        body: { events: [serverEvent("1", "assistant_text", { text: "Done." })], before: null },
+      },
+    });
+    const work = await getTaskWork(TICKET_ID);
+    expect(work).toMatchObject({
+      software: true,
+      openPr: true,
+      correctionCap: 2,
+      actions: { start: "unavailable", relaunch: "allowed", resume: "forbidden", requestChanges: "allowed" },
+      pullRequests: [{ kind: "pr_opened", number: 7, repo: "acme/app", taskId: TICKET_ID }],
+      prFacts: [{ repo: "acme/app", number: 7, review: { verdict: "approved", byId: null, on: null } }],
+      planDecisions: [{ status: "approved" }],
+      blocked: null,
+    });
+    expect(work!.runs).toHaveLength(1);
+    expect(work!.runs[0]).toMatchObject({
+      id: SESSION_ID,
+      ownerId: "",
+      state: "finished",
+      outcome: "ok",
+      provider: { kind: "account", name: "Team Max" },
+    });
+    expect(work!.runs[0]!.events.map((e) => e.type)).toEqual(["assistant"]);
+  });
+
+  it("un server della fetta 1 (senza i campi della 3a): un lavoro vuoto, non un errore", async () => {
+    installFakeServer({ [`GET /api/tasks/${TICKET_ID}/work`]: { body: { claude: "none", webHref: "/tickets/x" } } });
+    expect(await getTaskWork(TICKET_ID)).toMatchObject({
+      runs: [],
+      pullRequests: [],
+      prFacts: [],
+      software: false,
+      hiddenRuns: false,
+      actions: { start: "unavailable", relaunch: "unavailable", resume: "unavailable", requestChanges: "unavailable" },
+    });
+  });
+
+  it("una sessione che chi guarda non vede: la sessione c'è, senza eventi; una task invisibile è null", async () => {
+    installFakeServer({
+      [`GET /api/tasks/${TICKET_ID}/work`]: { body: { claude: "done", webHref: "/x", runs: [run()] } },
+      [`GET /api/agent-sessions/${SESSION_ID}`]: { status: 404, body: { code: "not_found", message: "x" } },
+      [`GET /api/agent-sessions/${SESSION_ID}/events`]: { status: 404, body: { code: "not_found", message: "x" } },
+      "GET /api/tasks/44444444-4444-4444-8444-44444444dead/work": { status: 404, body: { code: "not_found", message: "x" } },
+    });
+    expect((await getTaskWork(TICKET_ID))!.runs[0]!.events).toEqual([]);
+    expect(await getTaskWork("44444444-4444-4444-8444-44444444dead")).toBeNull();
+  });
+
+  it("un piano senza esito verificabile si legge «non deciso», mai approvato; una domanda annullata non si risponde", async () => {
+    installFakeServer({
+      "GET /api/projects": { body: [serverProject()] },
+      "GET /api/auth/me": { body: me() },
+      [`GET /api/agent-sessions/${SESSION_ID}`]: {
+        body: {
+          ...serverSession({ state: "ended", outcome: "skipped" }),
+          questions: [
+            { id: "dddddddd-0000-4000-8000-000000000001", source: "agent", question: "Which?", askedAt: "2026-11-10T09:02:00.000Z", answered: false, canAnswer: true, cancelled: true },
+          ],
+          inputs: [],
+        },
+      },
+      [`GET /api/agent-sessions/${SESSION_ID}/events`]: { body: { events: [], before: null } },
+      [`GET /api/tasks/${TICKET_ID}/work`]: {
+        body: {
+          claude: "none",
+          webHref: "/x",
+          runs: [
+            { id: JOB_ID, sessionId: SESSION_ID, createdAt: "2026-11-10T09:00:00.000Z", state: "finished", outcome: "stopped", plan: { text: "1.", summary: "s", status: "undecided", at: "2026-11-10T09:01:00.000Z", digest: "d1" } },
+          ],
+        },
+      },
+    });
+    const detail = await getConversation(SESSION_ID);
+    expect(detail!.events.find((e) => e.type === "plan")).toMatchObject({ status: "undecided", id: `plan:${JOB_ID}` });
+    expect(detail!.canAnswer).toBe(false);
+    expect(detail!.events.find((e) => e.type === "question")).toMatchObject({ answer: null });
+  });
+});

@@ -1,11 +1,13 @@
-import { agentRuns, aiJobs, type Db } from "@stubwise/db";
+import { agentRuns, aiJobs, CANCEL_REQUEST_CLEARED, projectQueueRunnable, type Db } from "@stubwise/db";
 import {
+  completeCorrection,
   promoteStalePendings as promoteStalePendingsImpl,
   reconcileOrphanCorrections as reconcileOrphanCorrectionsImpl,
 } from "@stubwise/notifications";
 import type { HeldReason } from "@stubwise/shared";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { AgentRunUsage, UsageTag } from "./agent/runner.js";
+import { cancelRequestedThisAttempt } from "./pipeline/cancel.js";
 import {
   claimNextDocJob as claimNextDocJobImpl,
   requeueStaleDocJobs as requeueStaleDocJobsImpl,
@@ -65,6 +67,8 @@ export async function recordUsage(
         jobId: tag.jobId ?? null,
         prReviewId: tag.prReviewId ?? null,
         emailMessageId: tag.emailMessageId ?? null,
+        automationId: tag.automationId ?? null,
+        automationRunId: tag.automationRunId ?? null,
         operation: tag.operation,
         phase: tag.phase ?? null,
         projectId: tag.projectId,
@@ -123,14 +127,14 @@ export async function claimNextJob(
     excludeProjectIds.map((id) => sql`${id}`),
     sql`, `,
   );
-  const subquery =
-    excludeProjectIds.length === 0
-      ? sql`(SELECT id FROM ai_jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED)`
-      : sql`(
+  // Area 9, F4: un progetto con la coda in pausa non dà lavoro nuovo
+  // (`projectQueueRunnable`, il progetto del ticket).
+  const excluded = excludeProjectIds.length === 0 ? sql`` : sql` AND t.project_id NOT IN (${excludeTuple})`;
+  const subquery = sql`(
           SELECT j.id FROM ai_jobs j
           JOIN tickets t ON t.id = j.ticket_id
-          WHERE j.status = 'queued'
-            AND t.project_id NOT IN (${excludeTuple})
+          WHERE j.status = 'queued'${excluded}
+            AND ${projectQueueRunnable(sql`t.project_id`)}
           ORDER BY j.created_at LIMIT 1 FOR UPDATE OF j SKIP LOCKED
         )`;
   const [job] = await db
@@ -306,7 +310,7 @@ export interface HoldJobInput {
  * (job requeued e reclamato altrove) e in quel caso il chiamante non deve
  * toccare nulla.
  */
-export async function holdJob(db: Db, jobId: string, input: HoldJobInput): Promise<boolean> {
+export async function holdJob(db: Db, jobId: string, input: HoldJobInput): Promise<ParkResult> {
   const updated = await db
     .update(aiJobs)
     .set({
@@ -316,9 +320,54 @@ export async function holdJob(db: Db, jobId: string, input: HoldJobInput): Promi
       finishedAt: sql`now()`,
       lastActivityAt: sql`now()`,
     })
-    .where(and(eq(aiJobs.id, jobId), inArray(aiJobs.status, [...ACTIVE_STATUSES])))
+    .where(parkable(jobId))
     .returning({ id: aiJobs.id });
-  return updated.length > 0;
+  return updated.length > 0 ? "parked" : await cancelledOrLost(db, jobId);
+}
+
+/**
+ * L'esito di un parcheggio (`held`, piano, domanda): `parked`; `lost` se la
+ * ownership è persa (job riaccodato e reclamato altrove: il chiamante non
+ * tocca niente); `cancelled` se per QUESTO tentativo è stato chiesto «Annulla
+ * il lavoro» (review dell'area 3, punto 2): il job non si parcheggia, è già
+ * chiuso `skipped` con la sua correzione, e il chiamante scrive il commento
+ * (`recordRunCancelled`) invece della notifica del parcheggio. Senza, un job
+ * annullato mentre lavorava si parcheggiava prima dell'abort, e la richiesta
+ * si perdeva alla ripresa.
+ */
+export type ParkResult = "parked" | "lost" | "cancelled";
+
+/** Un job attivo, senza «Annulla il lavoro» chiesto in questo tentativo: si può parcheggiare. */
+const parkable = (jobId: string) =>
+  and(eq(aiJobs.id, jobId), inArray(aiJobs.status, [...ACTIVE_STATUSES]), sql`not ${cancelRequestedThisAttempt}`);
+
+/** Il parcheggio non è avvenuto: chiude il job se è per l'annullamento, altrimenti la ownership è persa. */
+async function cancelledOrLost(db: Db, jobId: string): Promise<"cancelled" | "lost"> {
+  return (await closeCancelledJob(db, jobId)) ? "cancelled" : "lost";
+}
+
+/**
+ * Chiude `skipped`, con la sua correzione (job e correzione si chiudono
+ * INSIEME), un job attivo con «Annulla il lavoro» chiesto in questo tentativo.
+ * `true` se l'ha chiuso.
+ */
+export async function closeCancelledJob(db: Db, jobId: string): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const closed = await tx
+      .update(aiJobs)
+      .set({
+        status: "skipped",
+        finishedAt: sql`now()`,
+        lastActivityAt: sql`now()`,
+        log: sql`${aiJobs.log} || ${"[stubwise] lavoro annullato da una persona prima del parcheggio: niente commit, push né PR\n"}`,
+      })
+      .where(and(eq(aiJobs.id, jobId), inArray(aiJobs.status, [...ACTIVE_STATUSES]), cancelRequestedThisAttempt))
+      .returning({ correctionId: aiJobs.correctionId });
+    for (const { correctionId } of closed) {
+      if (correctionId !== null) await completeCorrection(tx, correctionId);
+    }
+    return closed.length > 0;
+  });
 }
 
 export interface ParkForPlanApprovalInput {
@@ -350,7 +399,7 @@ export async function parkForPlanApproval(
   db: Db,
   jobId: string,
   input: ParkForPlanApprovalInput,
-): Promise<boolean> {
+): Promise<ParkResult> {
   const updated = await db
     .update(aiJobs)
     .set({
@@ -360,9 +409,9 @@ export async function parkForPlanApproval(
       log: sql`${aiJobs.log} || ${`${input.log}\n`}`,
       lastActivityAt: sql`now()`,
     })
-    .where(and(eq(aiJobs.id, jobId), inArray(aiJobs.status, [...ACTIVE_STATUSES])))
+    .where(parkable(jobId))
     .returning({ id: aiJobs.id });
-  return updated.length > 0;
+  return updated.length > 0 ? "parked" : await cancelledOrLost(db, jobId);
 }
 
 export interface ParkForInputInput {
@@ -392,7 +441,7 @@ export async function parkForInput(
   db: Db,
   jobId: string,
   input: ParkForInputInput,
-): Promise<boolean> {
+): Promise<ParkResult> {
   const updated = await db
     .update(aiJobs)
     .set({
@@ -401,9 +450,9 @@ export async function parkForInput(
       log: sql`${aiJobs.log} || ${`${input.log}\n`}`,
       lastActivityAt: sql`now()`,
     })
-    .where(and(eq(aiJobs.id, jobId), inArray(aiJobs.status, [...ACTIVE_STATUSES])))
+    .where(parkable(jobId))
     .returning({ id: aiJobs.id });
-  return updated.length > 0;
+  return updated.length > 0 ? "parked" : await cancelledOrLost(db, jobId);
 }
 
 /**
@@ -432,20 +481,41 @@ export interface RequeueStaleOptions {
  * che documenta il recupero. Restituisce quanti job sono stati ripristinati.
  */
 export async function requeueStale(db: Db, options: RequeueStaleOptions): Promise<number> {
+  const stale = and(
+    inArray(aiJobs.status, [...ACTIVE_STATUSES]),
+    sql`${aiJobs.lastActivityAt} < now() - make_interval(mins => ${options.olderThanMinutes}::int)`,
+  );
+  // Uno stantio con «Annulla il lavoro» chiesto in QUESTO tentativo (review
+  // dell'area 3, punto 10): chi l'ha chiesto non lo vuole di nuovo in coda, si
+  // chiude `skipped`, con la sua correzione (job e correzione si chiudono
+  // INSIEME). Il commento di chiusura non c'è: il processo che lo avrebbe
+  // scritto è morto (limite dichiarato).
+  await db.transaction(async (tx) => {
+    const closed = await tx
+      .update(aiJobs)
+      .set({
+        status: "skipped",
+        finishedAt: sql`now()`,
+        lastActivityAt: sql`now()`,
+        log: sql`${aiJobs.log} || ${"[stubwise] job chiuso: annullato («Annulla il lavoro») e il worker non ha dato segni di vita\n"}`,
+      })
+      .where(and(stale, cancelRequestedThisAttempt))
+      .returning({ correctionId: aiJobs.correctionId });
+    for (const { correctionId } of closed) {
+      if (correctionId !== null) await completeCorrection(tx, correctionId);
+    }
+  });
   const requeued = await db
     .update(aiJobs)
     .set({
       status: "queued",
       startedAt: null,
+      // Una richiesta di un tentativo di prima non vale per il prossimo.
+      ...CANCEL_REQUEST_CLEARED,
       lastActivityAt: sql`now()`,
       log: sql`${aiJobs.log} || ${"[stubwise] job riportato in coda: il worker non ha dato segni di vita entro il timeout\n"}`,
     })
-    .where(
-      and(
-        inArray(aiJobs.status, [...ACTIVE_STATUSES]),
-        sql`${aiJobs.lastActivityAt} < now() - make_interval(mins => ${options.olderThanMinutes}::int)`,
-      ),
-    )
+    .where(stale)
     .returning({ id: aiJobs.id });
   return requeued.length;
 }

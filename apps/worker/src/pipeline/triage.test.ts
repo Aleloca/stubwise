@@ -23,6 +23,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { FakeAgentRunner } from "../agent/fake.js";
 import { createModelResolver } from "../agent/model-settings.js";
 import { AgentRunError, AgentTimeoutError } from "../agent/runner.js";
+import { RunCancelRequestedError } from "./cancel.js";
 import type { AiJob } from "../queue.js";
 import { buildTriagePrompt, parseTriageDecision } from "./prompts.js";
 import { runTriage, type TriageDeps } from "./triage.js";
@@ -1040,6 +1041,26 @@ describe("runTriage", () => {
     expect(after.status).toBe("failed");
     expect(after.log).toContain("output parziale prima del kill");
     expect(after.error).toContain("timeout");
+  });
+
+  it("«Annulla il lavoro» durante il triage (3b.1-bis) → job skipped, non failed, commento di sistema", async () => {
+    const { db } = testDb;
+    const ticket = await createTicket(db);
+    const job = await createTriagingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      script: () => {
+        throw new RunCancelRequestedError("a metà del triage");
+      },
+    });
+
+    const outcome = await runTriage(makeDeps(runner), job);
+
+    expect(outcome).toBe("skipped");
+    const after = await getJob(db, job.id);
+    expect(after.status).toBe("skipped");
+    expect(after.error).toBeNull();
+    const notes = await db.select().from(comments).where(eq(comments.ticketId, ticket.id));
+    expect(notes.some((c) => c.authorType === "system")).toBe(true);
   });
 
   it("output invalido al tentativo 1 + timeout al tentativo 2 → il log conserva anche l'output invalido", async () => {

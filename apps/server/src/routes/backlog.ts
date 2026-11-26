@@ -20,22 +20,27 @@ import { and, asc, desc, eq, ilike, inArray, notInArray, or, sql, type SQL } fro
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import {
-  hasActionableSuggested,
   removeBacklogItemDesign,
   setBacklogItemDesign,
   setBacklogItemPlan,
+  acceptBacklogItemSuggested,
+  dismissBacklogItemSuggested,
   updateBacklogItemMetadata,
 } from "@stubwise/notifications";
 import { z } from "zod";
 import type { Db } from "@stubwise/db";
+import { personName } from "../services/people.js";
 import {
   backlogItemRequesters,
   backlogItems,
   backlogItemTickets,
   backlogJobs,
+  createRequestItem,
   projects,
   tickets,
   users,
+  widgetConversations,
+  widgetMessages,
 } from "@stubwise/db";
 import {
   inProjects,
@@ -43,6 +48,7 @@ import {
   projectPermissionsFor,
   routePermissions,
   visibleProjectIds,
+  type ProjectScope,
 } from "../auth/access.js";
 import {
   backlogItemAccess,
@@ -51,6 +57,9 @@ import {
   fromBody,
 } from "../auth/project-resolvers.js";
 import { convertBacklogItem } from "../services/backlog.js";
+import { applyBacklogMerge, MergeAiError, MergeChangedError, mergedDocumentOf, readMergeSnapshot } from "../services/backlog-merge.js";
+import { backlogVisibleSql } from "../services/backlog-visibility.js";
+export { backlogVisibleSql };
 import {
   closeRefineSession,
   closeRefineSessionForItem,
@@ -59,8 +68,6 @@ import {
 } from "../services/backlog-refine.js";
 import { enqueueBacklogIntake } from "../services/backlog-intake.js";
 import { apiError } from "../errors.js";
-import { buildMergeDocumentPrompt } from "./backlog-rag.js";
-import type { ChatUsage } from "./chat-llm.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
@@ -118,37 +125,14 @@ const baseColumns = {
   updatedAt: backlogItems.updatedAt,
 } as const;
 
-/** Campi della voce modificabili via update (mai `embedding`/`document` da qui). */
-type ItemUpdate = Partial<
-  Pick<
-    typeof backlogItems.$inferInsert,
-    "title" | "status" | "effort" | "risk" | "riskNote" | "urgency" | "suggested"
-  >
->;
-
-/**
- * La regola di `backlog.view_all` come condizione SQL su `backlog_items` (la
- * stessa di `canSeeBacklogItem`): `viewAll` sono i progetti in cui chi guarda
- * ha il permesso (`"all"` = ovunque, nessun filtro); fuori da quelli, solo le
- * voci di cui è richiedente. Sta nella WHERE, così anche `total` la rispetta.
- */
-function backlogVisibleSql(viewAll: "all" | readonly string[], userId: string): SQL | undefined {
-  if (viewAll === "all") return undefined;
-  const own = sql`exists (
-    select 1 from ${backlogItemRequesters}
-    where ${backlogItemRequesters.itemId} = ${backlogItems.id}
-      and ${backlogItemRequesters.userId} = ${userId}
-  )`;
-  return viewAll.length > 0 ? or(inArray(backlogItems.projectId, [...viewAll]), own) : own;
-}
-
 /**
  * {@link backlogVisibleSql} nel progetto della rotta: serve a non far
  * trapelare, nel `similarTo` di una voce visibile, il titolo di una voce che
  * chi guarda non vede.
  */
 function itemVisibility(request: FastifyRequest): SQL | undefined {
-  const viewAll = routePermissions(request).has("backlog.view_all") ? "all" : [];
+  // Nel progetto della rotta (aperto): «ovunque» senza archiviati da togliere.
+  const viewAll: ProjectScope = routePermissions(request).has("backlog.view_all") ? { all: true, archived: [] } : [];
   return backlogVisibleSql(viewAll, request.user!.id);
 }
 
@@ -256,24 +240,6 @@ function decodeCursor(raw: string): Cursor | null {
   if (!match || !isPlausibleTimestamp(match)) return null;
   if (!z.uuid().safeParse(id).success) return null;
   return { createdAt, id };
-}
-
-/** Accumula lo stream one-shot dell'LLM in una stringa (nessun SSE). */
-async function collectStream(
-  chatLlm: FastifyInstance["chatLlm"],
-  system: string,
-  message: string,
-  usage: ChatUsage,
-): Promise<string> {
-  let text = "";
-  for await (const delta of chatLlm.stream({
-    system,
-    messages: [{ role: "user", content: message }],
-    usage,
-  })) {
-    text += delta;
-  }
-  return text;
 }
 
 export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
@@ -412,6 +378,33 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         for (const c of counts) ticketCountByItem.set(c.itemId, c.count);
       }
 
+      // Area 8, F3 (canale `mcp`): con `mine=true`, le ultime risposte del team
+      // sulla conversazione di ciascuna richiesta (senza autore: chi ha chiesto
+      // vede il team, mai una persona). Una query per pagina.
+      const repliesByItem = new Map<string, { body: string; at: string }[]>();
+      if (mine && page.length > 0) {
+        // Dalla conversazione `mcp` di CHI GUARDA, ritrovata dal suo job d'intake:
+        // vale anche per una richiesta fusa in una voce che c'era, e un
+        // co-richiedente non legge le risposte date a un altro (review F3).
+        const replies = await app.db
+          .select({ itemId: backlogJobs.resultItemId, body: widgetMessages.content, at: widgetMessages.createdAt })
+          .from(widgetConversations)
+          .innerJoin(backlogJobs, eq(backlogJobs.id, widgetConversations.intakeJobId))
+          .innerJoin(widgetMessages, eq(widgetMessages.conversationId, widgetConversations.id))
+          .where(
+            and(
+              eq(widgetConversations.channel, "mcp"),
+              eq(widgetConversations.externalUserId, `mcp:${request.user!.id}`),
+              inArray(backlogJobs.resultItemId, page.map((r) => r.id)),
+              eq(widgetMessages.role, "team"),
+            ),
+          )
+          .orderBy(asc(widgetMessages.createdAt));
+        for (const r of replies) {
+          if (r.itemId) repliesByItem.set(r.itemId, [...(repliesByItem.get(r.itemId) ?? []), { body: r.body, at: r.at.toISOString() }].slice(-3));
+        }
+      }
+
       // Titoli delle voci "simili" della pagina in un'unica query (no N+1).
       const similarIds = [
         ...new Set(
@@ -445,6 +438,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
           updatedAt: r.updatedAt.toISOString(),
           similarTo: r.similarToId ? (similarById.get(r.similarToId) ?? null) : null,
           ticketCount: ticketCountByItem.get(r.id) ?? 0,
+          teamReplies: repliesByItem.get(r.id) ?? [],
         })),
         nextCursor,
         total,
@@ -750,12 +744,39 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { projectId, title, body } = request.body;
-      const result = await enqueueBacklogIntake(app.db, {
-        projectId,
-        title,
-        body,
-        requestedByUserId: request.user!.id,
+      const { projectId, title, body, conversation } = request.body;
+      const me = request.user!;
+      const result = await app.db.transaction(async (tx) => {
+        const queued = await enqueueBacklogIntake(tx, { projectId, title, body, requestedByUserId: me.id });
+        // Area 8, F3 (canale `mcp`): la conversazione arriva con la richiesta.
+        // Il worker la ritrova dal job d'intake e la lega alla voce che nasce
+        // (il payload del job resta com'è: è `strict`).
+        if (queued.ok && conversation && conversation.length > 0) {
+          const [person] = await tx.select({ email: users.email, displayName: users.displayName }).from(users).where(eq(users.id, me.id));
+          const now = Date.now();
+          const [c] = await tx
+            .insert(widgetConversations)
+            .values({
+              projectId,
+              channel: "mcp",
+              externalUserId: `mcp:${me.id}`,
+              externalUserName: person ? personName(person) : null,
+              externalUserEmail: person?.email ?? null,
+              intakeJobId: queued.jobId,
+              lastMessageAt: new Date(now),
+            })
+            .returning({ id: widgetConversations.id });
+          await tx.insert(widgetMessages).values(
+            conversation.map((m, i) => ({
+              conversationId: c!.id,
+              role: m.from === "customer" ? "user" : "assistant",
+              content: m.text,
+              // In ordine, un millisecondo l'uno dall'altro (la conversazione è già avvenuta).
+              createdAt: new Date(now - (conversation.length - i)),
+            })),
+          );
+        }
+        return queued;
       });
       if (!result.ok) return apiError(reply, 404, "project_not_found", "Project not found");
       return reply.code(202).send({ queued: true, jobId: result.jobId });
@@ -787,21 +808,9 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         .where(eq(projects.id, projectId));
       if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
 
-      const itemId = await app.db.transaction(async (tx) => {
-        const [item] = await tx
-          .insert(backlogItems)
-          .values({ projectId, title, document: design, source: "manual" })
-          .returning({ id: backlogItems.id });
-        await tx
-          .insert(backlogJobs)
-          .values({ projectId, kind: "estimate", payload: { itemId: item!.id } });
-        // Stessa API, stessa regola: chi crea dal design è un richiedente.
-        await tx
-          .insert(backlogItemRequesters)
-          .values({ itemId: item!.id, userId: request.user!.id })
-          .onConflictDoNothing();
-        return item!.id;
-      });
+      // Uno scrittore solo (`@stubwise/db`), lo stesso dell'esecutore delle
+      // automazioni: la voce, il job di stima e chi la chiede come richiedente.
+      const itemId = await createRequestItem(app.db, { projectId, title, document: design, requesterId: request.user!.id });
 
       return reply.code(201).send({ itemId, url: `${app.publicUrl}/backlog/${itemId}` });
     },
@@ -825,25 +834,12 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const { id } = request.params;
-      const [current] = await app.db
-        .select({ suggested: backlogItems.suggested })
-        .from(backlogItems)
-        .where(eq(backlogItems.id, id));
-      if (!current) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+      // Lo scrittore sta in `backlog-item-writes.ts`, con la voce in lock.
       // Simmetrico al PATCH: senza metadati azionabili (un `reason` orfano non
       // conta) non c'è nulla da accettare.
-      if (!hasActionableSuggested(current.suggested)) {
-        return apiError(reply, 409, "no_suggested", "No suggested metadata to accept");
-      }
-
-      const s = current.suggested;
-      const updates: ItemUpdate = { suggested: null };
-      if (s.effort !== undefined) updates.effort = s.effort;
-      if (s.risk !== undefined) updates.risk = s.risk;
-      if (s.riskNote !== undefined) updates.riskNote = s.riskNote;
-      if (s.urgency !== undefined) updates.urgency = s.urgency;
-
-      await app.db.update(backlogItems).set(updates).where(eq(backlogItems.id, id));
+      const res = await acceptBacklogItemSuggested(app.db, id);
+      if (res === "not_found") return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+      if (res === "no_suggested") return apiError(reply, 409, "no_suggested", "No suggested metadata to accept");
       const updated = await loadBaseItem(app.db, id, itemVisibility(request));
       // La voce può sparire tra l'update e la rilettura (race con una delete).
       if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
@@ -869,16 +865,9 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const { id } = request.params;
-      const [current] = await app.db
-        .select({ suggested: backlogItems.suggested })
-        .from(backlogItems)
-        .where(eq(backlogItems.id, id));
-      if (!current) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
-      if (!current.suggested) {
-        return apiError(reply, 409, "no_suggested", "No suggested metadata to dismiss");
-      }
-
-      await app.db.update(backlogItems).set({ suggested: null }).where(eq(backlogItems.id, id));
+      const res = await dismissBacklogItemSuggested(app.db, id);
+      if (res === "not_found") return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+      if (res === "no_suggested") return apiError(reply, 409, "no_suggested", "No suggested metadata to dismiss");
       const updated = await loadBaseItem(app.db, id, itemVisibility(request));
       // La voce può sparire tra l'update e la rilettura (race con una delete).
       if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
@@ -997,6 +986,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
           400: errorSchema,
           404: errorSchema,
           409: errorSchema,
+          502: errorSchema,
           503: errorSchema,
           ...authErrorResponses,
         },
@@ -1043,53 +1033,24 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         }
       }
 
-      // Integrazione dei due documenti (markdown puro, non JSON): FUORI transazione.
-      const mergedDocument = await collectStream(
-        app.chatLlm,
-        buildMergeDocumentPrompt(target, absorbed),
-        "Fondi i due documenti e restituisci il Markdown del documento risultante.",
-        { operation: "backlog_merge", projectId: target.projectId },
-      );
-
-      await app.db.transaction(async (tx) => {
-        // Sposta i link ticket dall'assorbita al target: upsert (onConflictDoNothing
-        // sulla PK composta) per non violare il vincolo se un ticket è già linkato
-        // a entrambe; role invariato. Poi elimina i link dell'assorbita.
-        const links = await tx
-          .select({ ticketId: backlogItemTickets.ticketId, role: backlogItemTickets.role })
-          .from(backlogItemTickets)
-          .where(eq(backlogItemTickets.itemId, id));
-        if (links.length > 0) {
-          await tx
-            .insert(backlogItemTickets)
-            .values(links.map((l) => ({ itemId: targetId, ticketId: l.ticketId, role: l.role })))
-            .onConflictDoNothing({
-              target: [backlogItemTickets.itemId, backlogItemTickets.ticketId],
-            });
-          await tx.delete(backlogItemTickets).where(eq(backlogItemTickets.itemId, id));
+      // Integrazione dei due documenti (markdown puro, non JSON): FUORI
+      // transazione; poi la fusione atomica (`services/backlog-merge.ts`). Se il
+      // modello non risponde non si scrive niente.
+      // Se nel frattempo una delle due cambia, 409 `request_changed`.
+      const before = await readMergeSnapshot(app.db, id, targetId);
+      if (!before) return apiError(reply, 409, "request_changed", "One of the two items changed; nothing was merged");
+      try {
+        const mergedDocument = await mergedDocumentOf(app.chatLlm, before.target, before.absorbed, target.projectId);
+        await applyBacklogMerge(app.db, before, mergedDocument);
+      } catch (error) {
+        if (error instanceof MergeAiError) {
+          return apiError(reply, 502, "merge_failed", "The AI could not merge the two items; nothing was changed");
         }
-
-        // requestCount del target += quello dell'assorbita, letto con una
-        // SUBQUERY dentro la transazione (non il valore pre-LLM: la chiamata
-        // AI è lunga e un intake concorrente può averlo incrementato nel
-        // frattempo); documento fuso.
-        await tx
-          .update(backlogItems)
-          .set({
-            requestCount: sql`${backlogItems.requestCount} + (select bi.request_count from backlog_items bi where bi.id = ${id})`,
-            document: mergedDocument,
-          })
-          .where(eq(backlogItems.id, targetId));
-
-        // Assorbita → archived, con puntatore al superstite.
-        await tx
-          .update(backlogItems)
-          .set({ status: "archived", mergedIntoId: targetId })
-          .where(eq(backlogItems.id, id));
-        // Anche qui è un'archiviazione: chiude la sessione di refinement
-        // dell'assorbita (la voce è in lock dall'UPDATE sopra).
-        await closeRefineSessionForItem(tx, id);
-      });
+        if (error instanceof MergeChangedError) {
+          return apiError(reply, 409, "request_changed", "One of the two items changed while merging; nothing was merged");
+        }
+        throw error;
+      }
 
       const updated = await loadBaseItem(app.db, targetId, itemVisibility(request));
       if (!updated) return apiError(reply, 404, "target_not_found", "Target backlog item not found");

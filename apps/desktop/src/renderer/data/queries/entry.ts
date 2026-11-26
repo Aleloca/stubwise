@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import * as api from "../api";
-import { DEFAULT_PERSONA_ID, VIEW_AS_PERSONAS, useViewer } from "../viewer";
+import * as api from "@backend/api";
+import { DEFAULT_PERSONA_ID, VIEW_AS_PERSONAS } from "@backend/viewer";
+import { useViewer } from "../viewing";
 import { NO_SESSION_PERSON_ID } from "../session";
 import { useSessionPersonId } from "../queries";
 
@@ -10,9 +11,9 @@ import { useSessionPersonId } from "../queries";
 // innocuo: gli helper si usano solo dentro le funzioni.
 
 // Le regole dei campi d'ingresso: le pagine le leggono da qui, non ne tengono una copia.
-export { EMAIL_RE, MIN_PASSWORD_LENGTH } from "../me/account";
-export { SECOND_FACTOR_MAX_FAILURES } from "../auth/reauth";
-export { entryLinkOf, resetTokenOf } from "../auth/resetPassword";
+export { EMAIL_RE, MIN_PASSWORD_LENGTH } from "../me/accountRules";
+export { SECOND_FACTOR_MAX_FAILURES } from "../auth/constants";
+export { entryLinkOf, resetTokenOf } from "../auth/links";
 
 export type {
   EntryStage,
@@ -51,6 +52,15 @@ function useEnterAs() {
   };
 }
 
+/**
+ * La conferma del login del desktop dal browser (`/app/#/desktop-login`): il
+ * codice monouso, chiesto SOLO al clic su «Allow». Un `reauth_required` lo
+ * gestisce `useReauth()` di chi chiama.
+ */
+export function useDesktopHandoff() {
+  return useMutation({ mutationFn: api.auth.desktopHandoff });
+}
+
 /** Email e password; con `stage: "in"` la persona è già quella di chi guarda. */
 export function useLogin() {
   const enter = useEnterAs();
@@ -60,6 +70,34 @@ export function useLogin() {
       if (r.ok && r.stage === "in") enter(r.personId);
     },
   });
+}
+
+/**
+ * Lo stadio del login a metà (build app): il codice, o la configurazione
+ * obbligatoria dell'app per chi non ce l'ha. Nel prototipo sempre il codice.
+ */
+export function useLoginStage(enabled: boolean) {
+  return useQuery({
+    queryKey: ["entry", "loginStage"],
+    queryFn: () => api.auth.loginStage(),
+    enabled,
+    gcTime: 0,
+  });
+}
+
+/** La configurazione dell'app al login (build app): il segreto, una volta. */
+export function useStartLoginEnrollment() {
+  return useMutation({ mutationFn: () => api.auth.startLoginEnrollment() });
+}
+
+/**
+ * Il primo codice dell'app configurata al login. Non porta dentro da sola:
+ * prima si mostrano i codici di riserva, e si entra con `enter` («Continue»).
+ */
+export function useConfirmLoginEnrollment() {
+  const enter = useEnterAs();
+  const confirm = useMutation({ mutationFn: (code: string) => api.auth.confirmLoginEnrollment(code) });
+  return { confirm, enter };
 }
 
 /** Il secondo passo del login: codice, passkey o codice di backup. */
@@ -102,6 +140,32 @@ export function useResetLink(token: string) {
     queryFn: () => api.auth.getResetLink(token),
     // Come l'invito: dopo l'uso il link non vale più, si rilegge a ogni visita.
     gcTime: 0,
+  });
+}
+
+/** Area 9, R2: la lettura del link del cambio d'email (non conferma niente). */
+export function useEmailChangeLink(token: string) {
+  return useQuery({
+    queryKey: ["entry", "emailChangeLink", token],
+    queryFn: () => api.me.getEmailChangeLink(token),
+    // Come il reset: dopo l'uso il link non vale più, si rilegge a ogni visita;
+    // e solo a ogni visita (review F1, M3), non a ogni ritorno sulla finestra.
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/**
+ * Area 9, R2: la conferma del cambio d'email, al CLIC sulla pagina del link,
+ * senza sessione. Poi si rilegge tutto (chi è dentro vede l'email nuova).
+ */
+export function useConfirmEmailChange() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (token: string) => api.me.confirmEmailChange(token),
+    // L'esito (con l'email nuova) non resta in cache dopo la pagina (M3).
+    gcTime: 0,
+    onSettled: () => client.invalidateQueries(),
   });
 }
 

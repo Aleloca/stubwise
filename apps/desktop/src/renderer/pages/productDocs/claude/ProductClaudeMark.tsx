@@ -5,6 +5,7 @@ import { SentenceWithWho } from "../../../components/WhoCanLink";
 import { useAcceptProductMark, useUndoProductChange } from "../../../data/queries";
 import type { ProductMarkView, ProductUndoView } from "../../../data/types";
 import { usePersonName, useProductSpaceContext, type MarksBridge } from "../parts";
+import { RefusalText, refusalOf, type GestureRefusal } from "./gestureRefusal";
 import { SourceLine } from "./SourceLine";
 
 // Il segno di Claude su un blocco (11b, Task 9; shape
@@ -263,6 +264,7 @@ function MarkActions({
   /** Un gesto in volo: un secondo clic non fa una seconda scrittura. */
   const inflight = useRef(false);
   const [failed, setFailed] = useState<"accept" | "undo" | null>(null);
+  const [refused, setRefused] = useState<GestureRefusal | null>(null);
   const cell = mark.cell ? t("productDocs.mark.cell", { row: mark.cell.row, col: mark.cell.col }) : null;
 
   if (!mark.canAccept && !mark.undo.enabled && mark.undo.reason === "no_permission") {
@@ -288,15 +290,19 @@ function MarkActions({
     if (inflight.current) return;
     inflight.current = true;
     setFailed(null);
+    setRefused(null);
     const write =
       kind === "accept"
         ? accept.mutateAsync({ pageId, anchorId: mark.anchorId })
         : undo.mutateAsync({ revisionId: mark.revisionId, anchorId: mark.anchorId });
     write.then(
       () => onDone(t(kind === "accept" ? "productDocs.mark.accepted" : "productDocs.mark.undone"), kind),
-      () => {
+      (error: unknown) => {
         inflight.current = false;
-        setFailed(kind);
+        // Un rifiuto è definitivo, con il suo motivo; un errore di rete si riprova.
+        const why = refusalOf(error);
+        if (why) setRefused(why);
+        else setFailed(kind);
       },
     );
   };
@@ -334,10 +340,12 @@ function MarkActions({
         </button>
       </div>
       {off && off.reason !== "no_permission" && <UndoReason undo={off} id={reasonId} />}
+      {refused && <RefusalText refusal={refused} />}
       {failed && (
         <GestureFailed
           text={t(failed === "accept" ? "productDocs.mark.acceptFailed" : "productDocs.mark.undoFailed")}
-          onRetry={() => run(failed)}
+          // Rifà il gesto solo se è ancora acceso (`off`: «Undo» spento intanto).
+          onRetry={() => (failed === "undo" && off ? setFailed(null) : run(failed))}
         />
       )}
     </div>

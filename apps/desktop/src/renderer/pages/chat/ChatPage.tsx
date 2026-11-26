@@ -12,6 +12,7 @@ import { channelName, type ChannelName } from "../../domain/chatLabel";
 import { PageEmpty } from "../../tasks-ui/PageStates";
 import { BrowseChannels } from "./BrowseChannels";
 import { chatColumnModel, columnOrder, lastChannelOf } from "./column";
+import { featureIntegrated } from "../../data/integration";
 import { ChatSearch } from "./ChatSearch";
 import { MentionsView } from "./MentionsView";
 import { ThreadsView } from "./ThreadsView";
@@ -64,7 +65,8 @@ export function ChatPage() {
   if (search.view === "mentions") return <MentionsView key={viewer} />;
   if (search.view === "browse") return <BrowseChannels key={viewer} />;
   // La ricerca si svuota da sé al cambio di persona (query compresa).
-  if (search.view === "search") return <ChatSearch />;
+  // Build app: la ricerca è della fetta 2 (`chat-search`).
+  if (search.view === "search" && featureIntegrated("chat-search")) return <ChatSearch />;
   return <ChatLanding key={viewer} />;
 }
 
