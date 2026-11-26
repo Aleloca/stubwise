@@ -43,9 +43,13 @@ export interface RouteMcpExclusion {
  *   ingresso, widget, agente di monitoraggio, Slack, callback OAuth);
  * - `infra`: una rotta pubblica d'infrastruttura (`/health`, la spec OpenAPI);
  * - `stream`: SSE, con `instead`;
- * - `desktop_link`: le rotte del PAT dell'app desktop.
+ * - `desktop_link`: le rotte del PAT dell'app desktop;
+ * - `chat_tool`: le rotte di scrittura del SOLO token del turno di Claude
+ *   (`CHAT_TOOL_WRITE_ROUTES` di `@stubwise/shared`, elenco chiuso): a una
+ *   persona rispondono 403 `claude_only`, quindi una voce del catalogo
+ *   fallirebbe sempre (lotto 4, decisione di 46).
  */
-export type DeclaredMcpExclusion = "vault" | "login" | "inbound" | "infra" | "stream" | "desktop_link";
+export type DeclaredMcpExclusion = "vault" | "login" | "inbound" | "infra" | "stream" | "desktop_link" | "chat_tool";
 
 /** Le esclusioni che dà il registro (vedi il docblock del file). */
 export type ImpliedMcpExclusion = "reauth" | "vault" | "login";

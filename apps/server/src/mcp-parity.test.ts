@@ -7,6 +7,7 @@ import { buildApp } from "./app.js";
 import { PENDING_MCP, PENDING_MCP_MAX } from "./mcp/pending.js";
 import { impliedMcpExclusion, isMcpAction, type RouteMcp } from "./mcp/route-mcp.js";
 import {
+  CHAT_TOOL_WRITE_ROUTES,
   calendarEventItemSchema,
   calendarSeriesItemSchema,
   driveFileContentSchema,
@@ -150,6 +151,7 @@ const MULTIPART_ROUTES = [
   "POST /api/chat/channels/:id/attachments",
   "POST /api/tickets/:ticketId/attachments",
   "POST /api/me/mail/drafts/:id/attachments",
+  "PUT /api/me/avatar",
 ];
 
 /**
@@ -275,6 +277,8 @@ describe("parità MCP: ogni rotta dichiara config.mcp", () => {
             return mcp.instead !== undefined && actions.has(mcp.instead);
           case "desktop_link":
             return DESKTOP_LINK.has(r.key);
+          case "chat_tool":
+            return CHAT_TOOL_WRITE_ROUTES.has(r.key);
           default:
             return false;
         }
@@ -366,6 +370,15 @@ describe("parità MCP: ogni rotta dichiara config.mcp", () => {
       .filter((r) => !((mcpOf(r) as { note?: string }).note ?? "").includes(UNTRUSTED_NOTE))
       .map((r) => `${r.key} (${(mcpOf(r) as { action: string }).action})`);
     expect(silent).toEqual([]);
+  });
+
+  it("le rotte di scrittura del SOLO token del turno di Claude dichiarano `chat_tool` (elenco chiuso, CHAT_TOOL_WRITE_ROUTES)", async () => {
+    const routes = new Map((await registered()).map((r) => [r.key, r]));
+    const wrong = [...CHAT_TOOL_WRITE_ROUTES].filter((key) => {
+      const mcp = routes.get(key) ? mcpOf(routes.get(key)!) : undefined;
+      return mcp === undefined || isMcpAction(mcp) || mcp.exclude !== "chat_tool";
+    });
+    expect(wrong).toEqual([]);
   });
 
   it("un'azione con `partialReauth` ha una `note`: dice quale parte del corpo col PAT non passa (revisione del lotto 2, I6)", async () => {

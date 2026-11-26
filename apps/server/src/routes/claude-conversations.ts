@@ -189,7 +189,7 @@ export async function claudeConversationRoutes(instance: FastifyInstance): Promi
   app.post(
     "/:id/proposals",
     {
-      config: { access: ACCESS },
+      config: { access: ACCESS, mcp: { exclude: "chat_tool" } },
       schema: {
         params: idParams,
         body: createClaudeProposalSchema,
