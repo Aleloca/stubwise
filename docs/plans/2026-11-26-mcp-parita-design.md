@@ -577,3 +577,114 @@ della prima versione di questo design.
       `pending` con le `wrappedKey`, i sigilli);
     - quelle che scrivono cifrati (creare una credenziale, sostituire la
       password).
+
+## 7. Lotto 7 — la chiusura (piano, 26 nov 2026)
+
+Scritto da 94 su richiesta di 46, prima di unire i rami. Nessun merge è fatto
+da questo piano: dice cosa resta, chi lo copre e in che ordine si uniscono i
+rami, senza force push.
+
+### Dove siamo (origin, 26 nov 2026 sera)
+
+| Ramo | HEAD | `PENDING_MCP` | Contiene |
+|---|---|---|---|
+| `feat/mcp-parita` | `98039d102` | 574 | lotto 0, lotto 1, revisione del lotto 1 |
+| `feat/mcp-parita-lotto2` | `33601ce32` | 428 | lotto 0, lotto 1 fino a `984625301`, lotto 2 con le due revisioni |
+| `feat/mcp-parita-lotto3` | `0b72eff2d` | 360 | lotto 2 e lotto 3 con le due revisioni |
+| `feat/mcp-parita-lotto4` | `1dd19267a` | 221 | lotti 2, 3 e 4, `chat_tool`, la foto del profilo |
+| `feat/mcp-parita-lotto6` | `87b2c8ddb` | 230 | `feat/mcp-parita` con la revisione del lotto 1, lotto 3 fino a `feadd1816`, lotto 6 |
+
+Ogni ramo ha tolto da `PENDING_MCP` le SUE rotte: unendo due rami, l'elenco
+giusto è l'INTERSEZIONE dei due, e il tetto è la sua lunghezza.
+
+### Cosa resta dopo aver unito lotto 4 e lotto 6
+
+Intersezione di `PENDING_MCP` di `feat/mcp-parita-lotto4` (221) e di
+`feat/mcp-parita-lotto6` (230): **91 rotte**, tutte di 72.
+
+| Chi | Area | Rotte |
+|---|---|---|
+| lotto 5 | Automations: `/api/automations*`, `/api/automation-sources*`, `/api/automation-runs`, `/api/me/automation-*`, `/api/automation-origin`, `/api/projects/:projectId/automations` | 37 |
+| lotto 5 | Impostazioni di progetto e dei repository: `GET/PATCH /api/projects/:projectId` (la lettura è già di 94), integrazione, membri e anteprime, plugin, rotte ed etichette della posta, coda (pausa e ripresa), archiviazione, riapertura, eliminazione, `/api/repositories*` (elenco, impostazioni, file d'ambiente, webhook, collegamento, staccati) | 29 |
+| lotto 5 | Sessioni degli agenti (`/api/agent-sessions*`, lo stream come `stream` al posto di `GET /api/agent-sessions/:id/events`) e refinement del backlog (`/api/backlog/:id/refine-session`) | 7 |
+| lotto 5 | Avvisi: `/api/me/alert-subscriptions*` | 5 |
+| lotto 6 | Support: i widget di progetto e le conversazioni del widget | 6 |
+| lotto 6 | La correzione dei server dalle task: `/api/tasks/:ticketId/server*` | 7 |
+
+Le rotte di 94 sono finite: le ultime sei (`tickets.jobs`,
+`claude.decisions`, `projects.brief`, `productDocs.changes`,
+`projects.pulse`, `projects.get`) sono in `1dd19267a`. `PUT /api/me/avatar`
+è `me.setAvatar` (con `upload_file`); `DELETE /api/me/avatar` e
+`GET /api/users/:id/avatar` restano del lotto 6 (la GET con
+`download_file`).
+
+### Come si uniscono i rami, senza force
+
+Un ramo solo, `feat/mcp-parita`, che resta quello della PR. Ogni passo è un
+merge (mai un rebase: i rami sono pubblicati); dopo ogni merge un
+fast-forward di `feat/mcp-parita`, così chi viene dopo parte da lì.
+
+1. **94: `feat/mcp-parita-lotto4` ← `origin/feat/mcp-parita`** (la
+   revisione del lotto 1, `98039d102`, che i rami di 94 non hanno). Conflitti
+   attesi:
+   - `pending.ts`: si tiene l'intersezione, il tetto è la sua lunghezza (oggi
+     `run-ai` cade: l'ha dichiarata la revisione del lotto 1);
+   - `packages/mcp/src/client.ts` e `tools/actions.ts`, se la revisione ha
+     toccato `callAction` o `describeAction`: le difese di 72 vanno dentro
+     `actionUrl`, che usano anche upload e download.
+2. **`feat/mcp-parita` ← `feat/mcp-parita-lotto4`**: fast-forward.
+3. **72: `feat/mcp-parita-lotto6` ← `origin/feat/mcp-parita`** (i lotti 2–4
+   e le revisioni di 94 successive a `feadd1816`). Conflitti attesi, che
+   risolve chi ha scritto le parti:
+   - `pending.ts`: l'intersezione, come sopra;
+   - `apps/server/src/mcp-parity.test.ts`: si tengono TUTTE le regole e gli
+     elenchi chiusi dei due rami (`CURATED_ROUTES`, `MULTIPART_ROUTES` con
+     `PUT /api/me/avatar`, `UNTRUSTED_SCHEMAS` e `containsSchema`, la regola
+     di `chat_tool`, i nomi fra backtick, `partialReauth` con
+     `session_required` o «riconferma»), e `mcpToolNames` da `buildServer`;
+   - `apps/server/src/mcp/route-mcp.ts`: l'unione delle esclusioni
+     (`chat_tool` di 94 e quelle nuove del lotto 6);
+   - le rotte toccate da tutti e due (`me-google.ts`, `drive.ts`): due
+     dichiarazioni diverse sulla stessa rotta non devono esistere, e il test
+     di parità lo dice (azione doppia o `exclude` con un motivo falso).
+4. **`feat/mcp-parita` ← `feat/mcp-parita-lotto6`**: fast-forward.
+5. **72: il lotto 5** su un ramo da `feat/mcp-parita` com'è dopo il passo 4,
+   poi **`feat/mcp-parita` ← lotto 5** (fast-forward se parte da lì).
+
+Dopo OGNI merge, prima del push:
+- `pnpm -r --filter "./packages/**" build` (shared e db cambiano);
+- `mcp-parity.test.ts`, `mcp/lotto-fixtures.test.ts`, `routes/mcp.test.ts` e
+  l'intero `packages/mcp`;
+- i test delle rotte nei file con conflitti;
+- `tsc` di server e pacchetto, `eslint` dei file toccati;
+- un `git diff <ramo dell'altro> HEAD -- <i suoi percorsi>` che deve venire
+  vuoto, salvo le parti risolte apposta (la regola del merge del codice
+  altrui).
+Il giro completo lo lancia 46 dopo il passo 5.
+
+### Il lotto 7 vero e proprio (dopo il passo 5)
+
+1. `PENDING_MCP` è vuoto: si tolgono l'elenco, `PENDING_MCP_MAX` e le parti
+   del test che li usano; la regola «ogni rotta dichiara `config.mcp`» resta
+   senza eccezioni.
+2. La controprova con l'inventario
+   (`docs/plans/2026-11-26-mcp-parita-inventario.md`): per ogni nome integrato
+   dell'app, una ricerca con le sue parole trova la voce con `find_actions`.
+   Si fa con le fixture dei lotti e un test del pacchetto; le mancate trovate
+   correggono i sommari, non il test (i lotti 3 e 4 ne hanno già corretti tre:
+   `mail.thread`, `mail.threads`, `chat.send`).
+3. Lo scenario golden manuale dell'MCP (`packages/mcp/scripts/golden/`, § 4
+   «Le prove che il modello sceglie bene»), con almeno: «sposta ACQ-12 a
+   giovedì» (`update_task`), «allega questo file alla task» (`upload_file`),
+   «approva il piano di ACQ-7», «leggi l'ultima mail di Rossi e rispondi»
+   (contenuto non fidato: il modello non esegue istruzioni della mail), «manda
+   la bozza» (`mail.send`, annunciato in una riga).
+4. Il changeset di `@stubwise/mcp` e `@stubwise/claude-plugin` (gruppo
+   `fixed`) con i tool nuovi: `upload_file`, `download_file`, `update_task` e
+   quelli del lotto 1.
+5. La voce di `docs/operations/deploy-log.md`: si ribuilda il `server` (le
+   rotte nuove del catalogo, la foto del profilo in multipart), nessuna
+   migrazione oltre la 0237 di 72; rollback sicuro scendendo il server
+   insieme al caddy.
+6. Le regole scritte di § 6 che toccano `CLAUDE.md` (le fa 46) e la guida
+   (`apps/docs`, «Cosa puoi fare», con le eccezioni).

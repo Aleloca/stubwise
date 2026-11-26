@@ -74,7 +74,7 @@ export async function claudeActionRoutes(instance: FastifyInstance): Promise<voi
     {
       // Area 9, F7 (M-2 = a): la riconferma solo se il gruppo ha una C, con la
       // finestra di chi conferma (`requireReauth`, la regola delle altre rotte).
-      config: { access: ACCESS, partialReauth: true },
+      config: { access: ACCESS, mcp: { action: "claude.confirmProposal", summary: "Conferma una proposta di Claude: il server la esegue coi tuoi permessi.", effect: "write", note: "Solo con le parole dell'utente. Una proposta che tocca segreti o membri chiede la riconferma: col PAT risponde `session_required`, va fatta dall'app." }, partialReauth: true },
       schema: {
         params: idParams,
         body: z
@@ -121,7 +121,7 @@ export async function claudeActionRoutes(instance: FastifyInstance): Promise<voi
   app.post(
     "/citations/resolve",
     {
-      config: { access: ACCESS },
+      config: { access: ACCESS, mcp: { action: "claude.resolveCitations", summary: "Risolve le citazioni di un turno di Claude in ciò che vedi (un riferimento invisibile non torna).", effect: "write" } },
       schema: {
         body: z.object({ refs: z.array(z.object({ kind: z.enum(["task", "request", "project", "doc", "drive"]), id: z.uuid() })).max(100) }),
         response: { 200: z.object({ items: z.array(chatCitationSchema) }), ...authErrorResponses },
@@ -138,7 +138,7 @@ export async function claudeActionRoutes(instance: FastifyInstance): Promise<voi
   app.post(
     "/proposals/:id/cancel",
     {
-      config: { access: ACCESS },
+      config: { access: ACCESS, mcp: { action: "claude.cancelProposal", summary: "Rifiuta una proposta di Claude.", effect: "write" } },
       schema: {
         params: idParams,
         response: { 200: claudeProposalViewSchema, 404: errorSchema, 409: errorSchema, ...authErrorResponses },
@@ -156,7 +156,7 @@ export async function claudeActionRoutes(instance: FastifyInstance): Promise<voi
   app.post(
     "/proposals/:id/actions/:index/outcome",
     {
-      config: { access: ACCESS },
+      config: { access: ACCESS, mcp: { action: "claude.actionOutcome", summary: "Registra l'esito di un'azione di una proposta che si fa sulla pagina (una pagina o una bozza scritte da chi guarda).", effect: "write" } },
       schema: {
         params: z.object({ id: z.uuid(), index: z.coerce.number().int().min(0).max(1000) }),
         body: z.object({ status: claudePageOutcomeStatusSchema }),
@@ -183,7 +183,7 @@ export async function claudeActionRoutes(instance: FastifyInstance): Promise<voi
   app.post(
     "/groups/:id/actions/:index/retry",
     {
-      config: { access: ACCESS },
+      config: { access: ACCESS, mcp: { action: "claude.retryEffect", summary: "Riprova il seguito non riuscito di un'azione di Claude (es. il salvataggio di una bozza su Gmail).", effect: "write" } },
       schema: {
         params: z.object({ id: z.uuid(), index: z.coerce.number().int().min(0).max(1000) }),
         response: {
@@ -207,7 +207,7 @@ export async function claudeActionRoutes(instance: FastifyInstance): Promise<voi
   app.post(
     "/groups/:id/undo",
     {
-      config: { access: ACCESS },
+      config: { access: ACCESS, mcp: { action: "claude.undo", summary: "Annulla un gruppo di azioni eseguite da Claude.", effect: "write" } },
       schema: {
         params: idParams,
         response: {

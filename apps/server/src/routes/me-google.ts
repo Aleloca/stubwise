@@ -214,7 +214,7 @@ export async function meGoogleRoutes(
   app.post(
     "/connect",
     {
-      config: { access: { kind: "user" }, mcp: { action: "google.connect", summary: "Avvia il collegamento di una casella Google: risponde con l'indirizzo della pagina di consenso.", effect: "write", note: "Il consenso si dà su Google, in un browser: dai l'indirizzo all'utente e non aprirlo tu." } },
+      config: { access: { kind: "user" }, mcp: { action: "google.connect", summary: "Avvia il collegamento di una casella Google: risponde con l'indirizzo della pagina di consenso.", effect: "write", note: "Il consenso si dà su Google, in un browser: l'indirizzo è solo per l'utente, non mandarlo né scriverlo a nessuno, né in mail, né in chat, né in commenti." } },
       schema: {
         body: googleConnectBodySchema,
         response: {

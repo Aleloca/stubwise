@@ -65,9 +65,13 @@ export interface RouteMcpExclusion {
  *   progetto) non esclude la rotta: l'MCP lo nasconde prima di mostrarlo
  *   (`packages/mcp/src/tools/redact.ts`), e il test di parità pretende che
  *   ogni campo dall'aria segreta di un'azione sia nascosto o dichiarato
- *   innocuo.
+ *   innocuo;
+ * - `chat_tool`: le rotte di scrittura del SOLO token del turno di Claude
+ *   (`CHAT_TOOL_WRITE_ROUTES` di `@stubwise/shared`, elenco chiuso): a una
+ *   persona rispondono 403 `claude_only`, quindi una voce del catalogo
+ *   fallirebbe sempre (lotto 4, decisione di 46).
  */
-export type DeclaredMcpExclusion = "vault" | "login" | "inbound" | "infra" | "stream" | "desktop_link" | "session_only" | "secret_once" | "app_only";
+export type DeclaredMcpExclusion = "vault" | "login" | "inbound" | "infra" | "stream" | "desktop_link" | "session_only" | "secret_once" | "app_only" | "chat_tool";
 
 /** Le esclusioni che dà il registro (vedi il docblock del file). */
 export type ImpliedMcpExclusion = "reauth" | "vault" | "login";

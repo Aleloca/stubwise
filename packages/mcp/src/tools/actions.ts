@@ -229,6 +229,10 @@ const readAction: ToolDef = {
       if (entry.tool)
         return errorResult(`«${entry.action}» ha un tool dedicato: usa \`${entry.tool}\`.`);
       const res = await ctx.client.callAction(entry, sendInput(args));
+      const redirect = (res.data as { redirect?: unknown } | undefined)?.redirect;
+      if (res.status >= 300 && res.status < 400 && typeof redirect === "string") {
+        return textResult(`L'azione porta a ${redirect}: è un indirizzo per l'utente, da aprire nel browser.`);
+      }
       return textResult(
         capped(
           res.data === undefined

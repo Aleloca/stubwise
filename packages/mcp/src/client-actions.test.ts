@@ -230,3 +230,12 @@ describe("downloadAction (lotto 2, download_file)", () => {
     expect(err.code).toBe("not_found");
   });
 });
+
+describe("callAction e i redirect (revisione delle correzioni del lotto 2)", () => {
+  it("non segue un redirect: un 3xx restituisce l'indirizzo, da dare all'utente", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 302, headers: { location: "https://drive.google.com/file/d/x/view" } }));
+    const res = await makeClient(fetchMock).callAction({ method: "GET", path: "/api/drive/files/:id/open" }, { params: { id: "f1" } });
+    expect(res).toEqual({ status: 302, data: { redirect: "https://drive.google.com/file/d/x/view" } });
+    expect(fetchMock.mock.calls[0]![1].redirect).toBe("manual");
+  });
+});

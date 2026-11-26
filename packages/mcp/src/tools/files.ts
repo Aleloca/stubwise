@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { mkdir, mkdtemp, open, readFile, realpath, stat, unlink, type FileHandle } from "node:fs/promises";
+import { mkdir, mkdtemp, open, readFile, realpath, rename, stat, unlink, type FileHandle } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
@@ -27,6 +27,17 @@ import type { ToolDef, ToolResult } from "./types.js";
  *   configurazione di Stubwise).
  * Il binario non passa MAI come testo: `download_file` lo scrive su disco e
  * risponde col percorso.
+ *
+ * Limiti dichiarati (revisione delle correzioni del lotto 2):
+ * - fra il controllo della cartella e la scrittura c'è una finestra: un link
+ *   creato in quel momento da un altro processo dell'utente potrebbe spostare
+ *   la scrittura. Il controllo si rifà dopo aver creato la cartella e il file
+ *   si crea con O_EXCL, ma non si chiude del tutto senza `openat` relativi
+ *   alla cartella, che Node non espone. Chi ha già un processo ostile sulla
+ *   macchina non ha bisogno di questo tool;
+ * - `realpath` non risolve un HARD link: un hard link a una chiave, con un
+ *   nome innocuo fuori dalla home, `upload_file` lo manda. I controlli sui
+ *   nomi (`id_*`, `*.pem`, `*.key`, `.env*`) restano, ma il contenuto no.
  */
 
 /** Oltre questa dimensione un file non si legge in memoria: le rotte del server hanno tetti più bassi. */
@@ -148,29 +159,42 @@ function under(root: string, p: string): string[] | null {
   return rel.split(sep);
 }
 
-/** Le cartelle di sistema in cui `download_file` non scrive (anche coi nomi reali di macOS, `/private/etc`). */
-const SYSTEM_ROOTS = ["/etc", "/private/etc", "/usr", "/bin", "/sbin", "/Library", "/System"];
+/** Le cartelle di sistema in cui `download_file` non scrive (anche coi nomi reali di macOS, `/private/etc`); su Windows anche ProgramData e la cartella di sistema. */
+function systemRoots(): string[] {
+  const roots = ["/etc", "/private/etc", "/usr", "/bin", "/sbin", "/Library", "/System"];
+  if (process.platform === "win32") {
+    for (const v of [process.env.ProgramData, process.env.SystemRoot, process.env.windir]) if (v) roots.push(resolve(v));
+  }
+  return roots;
+}
+
+/** I nomi che un agente legge come istruzioni (Claude Code, gli altri agenti): `download_file` non li crea. */
+const INSTRUCTION_NAMES = new Set(["claude.md", "agents.md"]);
 
 /**
  * Perché una cartella (già REALE) non va bene per `download_file`, o null:
- * una cartella con il punto della home (`~/.ssh`, `~/.config`…), `~/Library`
- * (LaunchAgents, Application Support, Preferences…) o una di sistema.
+ * - un pezzo del percorso che comincia col punto, a QUALUNQUE livello
+ *   (`~/.ssh`, ma anche `./.claude`, `.github/workflows`, `.vscode`: cartelle
+ *   da cui strumenti e agenti leggono configurazione e hook);
+ * - `~/Library` (LaunchAgents, Application Support, Preferences…) e, su
+ *   Windows, `~/AppData` (Startup);
+ * - le cartelle di sistema.
  */
 export async function unsafeDownloadDir(realDir: string): Promise<string | null> {
+  const parts = realDir.split(/[/\\]/).filter((p) => p.length > 0);
+  const hidden = parts.find((p) => p.startsWith("."));
+  if (hidden) return `${realDir} sta in una cartella nascosta (${hidden}), da cui strumenti e agenti leggono configurazione`;
   const home = await realHome();
   const inHome = under(home, realDir);
   if (inHome !== null && inHome.length > 0) {
-    if (inHome[0]!.startsWith(".")) return `${realDir} sta in una cartella di configurazione della home (${join(home, inHome[0]!)})`;
     if (inHome[0] === "Library") return `${realDir} sta in ~/Library, da cui partono programmi e impostazioni`;
+    if (inHome[0]!.toLowerCase() === "appdata") return `${realDir} sta in AppData, da cui partono programmi e impostazioni`;
   }
-  for (const root of SYSTEM_ROOTS) {
+  for (const root of systemRoots()) {
     if (under(root, realDir) !== null) return `${realDir} è una cartella di sistema`;
   }
   return null;
 }
-
-/** Le cartelle della home con chiavi e credenziali che `upload_file` non manda. */
-const SECRET_DIRS = [".ssh", ".aws", ".gnupg", join(".config", "gcloud")];
 
 /** Il file di configurazione di Stubwise (token compreso): `STUBWISE_CONFIG` o `~/.config/stubwise/config.json`. */
 function stubwiseConfigPath(): string {
@@ -178,27 +202,50 @@ function stubwiseConfigPath(): string {
   return env && env.length > 0 ? expandPath(env) : join(homedir(), ".config", "stubwise", "config.json");
 }
 
-/** Perché un file (già REALE) non va mandato: chiavi e credenziali, o null. */
+/**
+ * Perché un file (già REALE) non va mandato, o null. Una regola, non un
+ * elenco (revisione delle correzioni del lotto 2, I3): sotto la home, ogni
+ * pezzo nascosto (`.ssh`, `.aws`, `.npmrc`, `.netrc`, `.git-credentials`,
+ * `.docker`, `.kube`, `.config/…`, `.claude/.credentials.json`…); ovunque, un
+ * nome che comincia col punto, i portachiavi e i cookie dei browser in
+ * ~/Library, e i nomi di chiavi e segreti (`.env*`, `*.pem`, `*.key`, `id_*`).
+ */
 export async function sensitiveUploadPath(realFile: string): Promise<string | null> {
+  const name = basename(realFile);
+  const lower = name.toLowerCase();
+  if (name.startsWith(".")) return `${name} è un file nascosto (configurazione o credenziali)`;
   const home = await realHome();
   const inHome = under(home, realFile);
   if (inHome !== null) {
-    const rel = inHome.join(sep);
-    for (const d of SECRET_DIRS) if (rel === d || rel.startsWith(d + sep)) return `${realFile} sta in ~/${d}, dove stanno chiavi e credenziali`;
+    const hidden = inHome.slice(0, -1).find((p) => p.startsWith("."));
+    if (hidden) return `${realFile} sta in ~/${hidden}, una cartella di configurazione e credenziali`;
+    if (inHome[0] === "Library" && inHome[1] === "Keychains") return `${realFile} è un portachiavi`;
+    if (inHome[0] === "Library" && inHome[1] === "Application Support" && lower.startsWith("cookies")) return `${realFile} sono i cookie di un'applicazione`;
   }
-  const name = basename(realFile).toLowerCase();
-  if (name.startsWith(".env")) return `${basename(realFile)} è un file d'ambiente (variabili e segreti)`;
-  if (name.endsWith(".pem") || name.endsWith(".key")) return `${basename(realFile)} è una chiave`;
-  if (name.startsWith("id_")) return `${basename(realFile)} è una chiave SSH`;
+  if (lower.endsWith(".pem") || lower.endsWith(".key")) return `${name} è una chiave`;
+  if (lower.startsWith("id_")) return `${name} è una chiave SSH`;
   if (realFile === (await realPathOf(stubwiseConfigPath()))) return `${realFile} è la configurazione di Stubwise, col token`;
   return null;
 }
 
 let defaultDir: Promise<string> | null = null;
 /** La cartella di `download_file` senza `dir`: una per processo, propria (`mkdtemp`, 0700), dentro la temporanea del sistema. */
-function defaultDownloadDir(): Promise<string> {
+async function defaultDownloadDir(): Promise<string> {
   defaultDir ??= mkdtemp(join(tmpdir(), "stubwise-downloads-"));
-  return defaultDir;
+  try {
+    const dir = await defaultDir;
+    // Cancellata nel frattempo (pulizia della temporanea): se ne fa una nuova.
+    if (!(await stat(dir)).isDirectory()) throw new Error("not a directory");
+    return dir;
+  } catch {
+    defaultDir = mkdtemp(join(tmpdir(), "stubwise-downloads-"));
+    try {
+      return await defaultDir;
+    } catch (err) {
+      defaultDir = null;
+      throw err;
+    }
+  }
 }
 
 /** Apre un file nuovo senza sovrascrivere: «nome.ext», poi «nome (1).ext», «nome (2).ext»… */
@@ -313,21 +360,17 @@ const downloadFile: ToolDef = {
           `«${entry.action}» non restituisce un file: ${entry.method === "GET" ? "si legge con read_action" : entry.tool ? `si chiama con \`${entry.tool}\`` : "è una scrittura (write_action)"}.`,
         );
       }
-      // La cartella: controllata sul percorso reale PRIMA di crearla, e di nuovo dopo (un link creato nel frattempo).
-      let dir: string;
-      if (typeof args.dir === "string") {
-        const wanted = await realPathOf(expandPath(args.dir));
+      // La cartella: controllata sul percorso reale PRIMA della chiamata, creata
+      // solo dopo una risposta riuscita, e ricontrollata dopo averla creata.
+      const wanted = typeof args.dir === "string" ? await realPathOf(expandPath(args.dir)) : null;
+      if (wanted !== null) {
         const why = await unsafeDownloadDir(wanted);
         if (why) return errorResult(`unsafe_destination: non salvo qui: ${why}. Scegli un'altra cartella.`);
-        await mkdir(wanted, { recursive: true, mode: 0o700 });
-        dir = await realpath(wanted);
-        const after = await unsafeDownloadDir(dir);
-        if (after) return errorResult(`unsafe_destination: non salvo qui: ${after}. Scegli un'altra cartella.`);
-      } else {
-        dir = await realpath(await defaultDownloadDir());
       }
-      if (typeof args.filename === "string" && isHiddenName(args.filename.trim())) {
-        return errorResult(`unsafe_destination: «${args.filename}» sarebbe un file nascosto: scegli un nome che non comincia con il punto.`);
+      if (typeof args.filename === "string") {
+        const asked = args.filename.trim();
+        if (isHiddenName(asked)) return errorResult(`unsafe_destination: «${args.filename}» sarebbe un file nascosto: scegli un nome che non comincia con il punto.`);
+        if (INSTRUCTION_NAMES.has(asked.toLowerCase())) return errorResult(`unsafe_destination: «${asked}» è un file di istruzioni per gli agenti: scegli un altro nome.`);
       }
 
       const res = await ctx.client.downloadAction(entry, {
@@ -339,18 +382,39 @@ const downloadFile: ToolDef = {
         return errorResult(`too_large: il file è di ${sizeLabel(res.contentLength)}, oltre il massimo di ${sizeLabel(downloadMax)}.`);
       }
       const name = safeFilename(typeof args.filename === "string" ? args.filename : res.filename);
-      if (isHiddenName(name)) {
+      if (isHiddenName(name) || INSTRUCTION_NAMES.has(name.toLowerCase())) {
         await res.body?.cancel().catch(() => undefined);
-        return errorResult(`unsafe_destination: il server lo chiama «${name}», un file nascosto: dagli un nome con \`filename\`.`);
+        return errorResult(`unsafe_destination: il server lo chiama «${name}», un file nascosto o di istruzioni: dagli un nome con \`filename\`.`);
       }
 
-      const { path, handle } = await openNew(dir, name);
+      let dir: string;
+      if (wanted !== null) {
+        await mkdir(wanted, { recursive: true, mode: 0o700 });
+        dir = await realpath(wanted);
+        const after = await unsafeDownloadDir(dir);
+        if (after) {
+          await res.body?.cancel().catch(() => undefined);
+          return errorResult(`unsafe_destination: non salvo qui: ${after}. Scegli un'altra cartella.`);
+        }
+      } else {
+        dir = await realpath(await defaultDownloadDir());
+      }
+
+      // Il nome finale si prenota (O_EXCL); i byte vanno in «nome.part», rinominato alla fine.
+      const { path, handle: reserved } = await openNew(dir, name);
+      await reserved.close();
+      const part = `${path}.part`;
       let bytes: number;
       try {
-        bytes = await writeStream(handle, res.body, downloadMax);
-        await handle.close();
+        const handle = await open(part, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+        try {
+          bytes = await writeStream(handle, res.body, downloadMax);
+        } finally {
+          await handle.close().catch(() => undefined);
+        }
+        await rename(part, path);
       } catch (err) {
-        await handle.close().catch(() => undefined);
+        await unlink(part).catch(() => undefined);
         await unlink(path).catch(() => undefined);
         if (err instanceof TooLarge) return errorResult(`too_large: il file supera il massimo di ${sizeLabel(downloadMax)}: non l'ho salvato.`);
         throw err;

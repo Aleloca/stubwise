@@ -875,7 +875,15 @@ export class StubwiseClient {
       headers["content-type"] = "application/json";
       payload = JSON.stringify(input.body);
     }
-    const response = await this.fetchAction(url, { method: entry.method, headers, body: payload });
+    // Un redirect NON si segue (revisione delle correzioni del lotto 2): «Apri in
+    // Google Drive» porta a una pagina per il browser, e il suo indirizzo è un
+    // link per l'utente. I download, che il redirect lo seguono, passano da
+    // `downloadAction`.
+    const response = await this.fetchAction(url, { method: entry.method, headers, body: payload, redirect: "manual" });
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel().catch(() => undefined);
+      return { status: response.status, data: { redirect: response.headers.get("location") } };
+    }
     const data = parseActionBody(await response.text());
     if (!response.ok) throw actionError(response.status, data);
     return { status: response.status, data };

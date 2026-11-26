@@ -18,21 +18,43 @@ import { authErrorResponses, errorSchema } from "./shared.js";
 export async function avatarRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
   // Il corpo arriva come Buffer, qualunque tipo dichiari fra questi: il tipo vero lo dicono i byte.
+  // Il tetto esatto dei 512 KB lo controlla l'handler, uguale per il corpo nudo e per il multipart.
+  const bodyLimit = AVATAR_MAX_BYTES + 64 * 1024;
   instance.addContentTypeParser(
     ["image/png", "image/jpeg", "image/webp", "application/octet-stream"],
-    { parseAs: "buffer", bodyLimit: AVATAR_MAX_BYTES },
+    { parseAs: "buffer", bodyLimit },
     (_request, body, done) => done(null, body),
   );
 
   app.put(
     "/me/avatar",
     {
-      config: { access: { kind: "user" } },
-      bodyLimit: AVATAR_MAX_BYTES,
-      schema: { response: { 204: z.null(), ...authErrorResponses, 415: errorSchema } },
+      config: {
+        access: { kind: "user" },
+        mcp: { action: "me.setAvatar", summary: "Cambia la tua foto del profilo con un'immagine locale (PNG, JPEG o WebP, al più 512 KB).", effect: "write", tool: "upload_file" },
+      },
+      // Un margine per la busta del multipart (parità MCP, `upload_file`); il tetto vero è sotto.
+      bodyLimit,
+      schema: { response: { 204: z.null(), ...authErrorResponses, 400: errorSchema, 413: errorSchema, 415: errorSchema } },
     },
     async (request, reply) => {
-      const bytes = request.body as Buffer;
+      let bytes: Buffer;
+      if (request.isMultipart()) {
+        // Parità MCP (lotto 4): lo stesso file anche come multipart, un file e
+        // nient'altro, con le stesse regole sui byte.
+        let part;
+        try {
+          part = await request.file({ limits: { fileSize: AVATAR_MAX_BYTES, files: 1, fields: 0, parts: 1 } });
+          if (!part) return apiError(reply, 400, "file_required", "A file is required");
+          bytes = await part.toBuffer();
+        } catch (error) {
+          if ((error as { code?: string }).code === "FST_REQ_FILE_TOO_LARGE") return apiError(reply, 413, "file_too_large", "The image exceeds 512 KB");
+          throw error;
+        }
+      } else {
+        bytes = request.body as Buffer;
+      }
+      if (Buffer.isBuffer(bytes) && bytes.length > AVATAR_MAX_BYTES) return apiError(reply, 413, "file_too_large", "The image exceeds 512 KB");
       const type = Buffer.isBuffer(bytes) ? detectAvatarType(bytes) : null;
       if (!type) return apiError(reply, 415, "unsupported_image", "Only PNG, JPEG or WebP images");
       await app.db
