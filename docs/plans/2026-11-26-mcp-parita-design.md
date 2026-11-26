@@ -17,11 +17,26 @@ PAT, le azioni che finora l'MCP non aveva per scelta:
 - decidere le proposte del polso e della posta;
 - mergiare una PR.
 
-L'inventario delle azioni dell'app con le loro rotte lo sta facendo 94 in
-`docs/plans/2026-11-26-mcp-parita-inventario.md`. Questo design parte dal
-server: le rotte, il registro `config.access` e cosa già consente un PAT. I
-numeri vengono dal registro di `main` a `4b6d0821d`, raccolto con
+L'inventario delle azioni dell'app con le loro rotte è in
+`docs/plans/2026-11-26-mcp-parita-inventario.md` (ramo
+`docs/mcp-parita-inventario`, `41fea35de`). Questo design parte dal server:
+le rotte, il registro `config.access` e cosa già consente un PAT. I numeri
+vengono dal registro di `main` a `4b6d0821d`, raccolto con
 `buildApp({ onRoute })` come fa `route-access.test.ts`.
+
+**L'app in numeri** (dall'inventario):
+
+- 859 nomi pubblici del livello dati, in 26 aree: 575 integrati, 284 «in
+  arrivo».
+- 524 rotte distinte chiamate, su 695 registrate sotto `/api`. Le altre 171
+  sono del web vecchio, del mobile o di integrazioni.
+- 52 righe con 🔐 reauth: 20 in admin, 12 nell'istanza, 11 in sessione e
+  account.
+- 27 righe della cassaforte, tutte nel namespace `vault`.
+
+I 284 nomi «in arrivo» non hanno ancora una rotta. Quando l'app li
+integrerà, le loro rotte nuove entreranno nel registro, e quindi nel test di
+§ 2, senza un passo in più.
 
 ## 0. Dove siamo
 
@@ -145,7 +160,10 @@ skill, `commands/run.md`, le istruzioni del server e `CLAUDE.md` (§ 6).
   - `pre_approve_plan` e `revoke_plan_pre_approval`;
   - `answer_agent_question` (`POST /api/tickets/:id/questions/answer`);
   - `decide_pulse_proposal` (`POST /api/inbox/:id/actions/:action` sulle
-    card del polso);
+    card del polso). **L'app nuova questa rotta NON la chiama**: il polso
+    lì non c'è ancora (in `projectSettings` è «in arrivo»), e la si decide
+    dal web vecchio. Il tool c'è perché il maintainer l'ha nominata, e la
+    rotta resta quella;
   - `decide_mail_proposal`: `confirm`, `ignore`, `hand`, `reassign` e
     `choose-project` di `/api/me/mail/proposals/:id/*`;
   - `merge_pull_request`
@@ -375,8 +393,19 @@ del catalogo per permesso.
 - Lo scenario golden manuale dell'MCP (vedi «Prove» sotto).
 - La voce di deploy-log.
 
-L'ordine dei lotti 2–6 è provvisorio: lo fissa l'inventario di 94, mettendo
-prima le aree che l'app usa di più.
+L'ordine dei lotti 2–6 viene dall'inventario: prima il lavoro quotidiano,
+poi le aree con più scritture integrate.
+
+| Lotto | Aree dell'inventario | nomi integrati (con scritture) |
+|---|---|---|
+| 2 | Task, Richieste, Home e filtri, Progetti e panoramica, Notifiche e ricerca, Persone e attività, Registro delle modifiche, Rilasci e PR (tranne il merge, lotto 1) | 37 (24), 12 (8), 14 (8), 15 (5), 3 (2), 6 (2), 3 (0), 20 (17) |
+| 3 | Posta, Calendario, Drive | 41 (20), 22 (14), 12 (7) |
+| 4 | Chat, Claude: conversazioni, run e decisioni (tranne piani e domande, lotto 1), Doc di prodotto, Docs dei repository | 44 (31), 46 (34), 40 (26), 18 (9) |
+| 5 | Automations, Impostazioni di progetto, Avvisi | 16 (10), 15 (7), 5 (4) |
+| 6 | Istanza, Amministrazione (`admin` e `access`), Server, Support, Sessione e account (le righe senza 🔐) | 59 (37), 37+3 (28), 27 (18), 12 (7), 40 (32) |
+
+Nel lotto 6 le righe 🔐 dell'inventario (admin 20, istanza 12, sessione e
+account 11) sono esclusioni `reauth`: restano dell'app.
 
 **Le prove che il modello sceglie bene** (non le dà nessun test unitario):
 uno script manuale come i golden del worker, `packages/mcp/scripts/golden/`,
@@ -502,8 +531,8 @@ col suo PAT, che dà l'ordine nella sua sessione. Domanda aperta 3.
    registro dei rimandi come voce (`scope` del PAT: `read` | `full`, la
    scelta alla creazione), insieme alla scadenza predefinita dei PAT nuovi.
 
-6. **Le rotte del web vecchio e del mobile** che l'app nuova non usa (si
-   ritirano col web vecchio). *Raccomandazione*: nel catalogo come le altre,
+6. **Le rotte del web vecchio e del mobile** che l'app nuova non usa: sono
+   171 su 695 secondo l'inventario, e si ritirano col web vecchio. *Raccomandazione*: nel catalogo come le altre,
    finché esistono. Un'esclusione «legacy» reintrodurrebbe l'elenco a mano
    delle rotte usate dall'app, e il ritiro le toglierà dal registro e dal
    catalogo insieme.
