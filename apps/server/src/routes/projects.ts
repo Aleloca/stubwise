@@ -258,7 +258,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/",
     {
-      config: { access: { kind: "instance", permission: "projects.create" } , mcp: { action: "projects.create", summary: "Crea un progetto (serve `projects.create` d'istanza).", effect: "write" }},
+      config: { access: { kind: "instance", permission: "projects.create" }, mcp: { action: "projects.create", summary: "Crea un progetto (serve `projects.create` d'istanza).", effect: "write" } },
       schema: {
         body: createProjectSchema,
         response: {
@@ -458,7 +458,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/pulses",
     {
-      config: { access: { kind: "user" } , mcp: { action: "projects.pulses", summary: "Il polso dei progetti che vedi: cosa si muove, cosa è fermo, cosa aspetta te.", effect: "read" }},
+      config: { access: { kind: "user" }, mcp: { action: "projects.pulses", summary: "Il polso dei progetti che vedi: cosa si muove, cosa è fermo, cosa aspetta te.", effect: "read" } },
       schema: {
         querystring: projectPulsesQuerySchema,
         response: { 200: projectPulsesResponseSchema, ...authErrorResponses },
@@ -623,7 +623,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
     "/:projectId/reviews",
     {
       // Review di PR: `repos.view` (ruling R49), come le PR stesse.
-      config: { access: onProject("repos.view") , mcp: { action: "projects.reviews", summary: "Le review AI delle PR di un progetto.", effect: "read" }},
+      config: { access: onProject("repos.view"), mcp: { action: "projects.reviews", summary: "Le review AI delle PR di un progetto.", effect: "read" } },
       schema: {
         params: idParamsSchema,
         querystring: z.object({
@@ -657,7 +657,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:projectId/timeline",
     {
-      config: { access: onProject("member") , mcp: { action: "projects.timeline", summary: "La timeline di un progetto: ticket, traguardi, PR, report, decisioni e brief in una finestra di date.", effect: "read" }},
+      config: { access: onProject("member"), mcp: { action: "projects.timeline", summary: "La timeline di un progetto: ticket, traguardi, PR, report, decisioni e brief in una finestra di date.", effect: "read" } },
       schema: {
         params: idParamsSchema,
         querystring: z.object({
@@ -736,7 +736,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:projectId/briefs",
     {
-      config: { access: onProject("tickets.view_all") , mcp: { action: "projects.briefs", summary: "I brief settimanali di un progetto, dal più recente (narrativa generata).", effect: "read" }},
+      config: { access: onProject("tickets.view_all"), mcp: { action: "projects.briefs", summary: "I brief settimanali di un progetto, dal più recente (narrativa generata).", effect: "read" } },
       schema: {
         params: idParamsSchema,
         querystring: z.object({
@@ -770,7 +770,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:projectId/briefs/generate",
     {
-      config: { access: onProject("project.settings.manage") , mcp: { action: "projects.generateBrief", summary: "Rigenera il brief dell'ultima settimana chiusa (un run AI, lo genera il worker).", effect: "write", note: "Spende budget AI." }},
+      config: { access: onProject("project.settings.manage"), mcp: { action: "projects.generateBrief", summary: "Rigenera il brief dell'ultima settimana chiusa (un run AI, lo genera il worker).", effect: "write", note: "Spende budget AI." } },
       schema: {
         params: idParamsSchema,
         body: z.object({ force: z.boolean().optional() }),
@@ -813,7 +813,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:projectId/decisions",
     {
-      config: { access: onProject("member") , mcp: { action: "decisions.log", summary: "Il registro decisioni di un progetto: fatti decisi da persone, compresi quelli superati.", effect: "read" }},
+      config: { access: onProject("member"), mcp: { action: "decisions.log", summary: "Il registro decisioni di un progetto: fatti decisi da persone, compresi quelli superati.", effect: "read" } },
       schema: {
         params: idParamsSchema,
         querystring: z.object({
@@ -845,7 +845,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:projectId/decisions",
     {
-      config: { access: onProject("decisions.record") , mcp: { action: "decisions.record", summary: "Registra a mano una decisione nel registro del progetto (serve `decisions.record`).", effect: "write" }},
+      config: { access: onProject("decisions.record"), mcp: { action: "decisions.record", summary: "Registra a mano una decisione nel registro del progetto (serve `decisions.record`).", effect: "write", note: "Solo con le parole dell'utente, mai un riassunto tuo." } },
       schema: {
         params: idParamsSchema,
         body: decisionDraftSchema,
@@ -898,7 +898,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/:projectId/decisions/:decisionId",
     {
-      config: { access: onProject("decisions.record") , mcp: { action: "decisions.update", summary: "Corregge una decisione o la segna superata da un'altra (l'autore, o chi gestisce il progetto).", effect: "write" }},
+      config: { access: onProject("decisions.record"), mcp: { action: "decisions.update", summary: "Corregge una decisione o la segna superata da un'altra (l'autore, o chi gestisce il progetto).", effect: "write", note: "Solo con le parole dell'utente, mai un riassunto tuo." } },
       schema: {
         params: z.object({ projectId: z.uuid(), decisionId: z.uuid() }),
         body: decisionPatchSchema,

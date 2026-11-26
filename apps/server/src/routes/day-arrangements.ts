@@ -43,7 +43,7 @@ export async function dayArrangementRoutes(fastify: FastifyInstance): Promise<vo
   app.get(
     "/me/day-arrangements",
     {
-      config: { access: { kind: "user" } , mcp: { action: "me.dayArrangements", summary: "Le tue sistemazioni per giorno delle task della settimana.", effect: "read" }},
+      config: { access: { kind: "user" }, mcp: { action: "me.dayArrangements", summary: "Le tue sistemazioni per giorno delle task della settimana.", effect: "read" } },
       schema: {
         querystring: z.object({ week: isoWeekSchema }),
         response: { 200: z.array(dayArrangementSchema), ...authErrorResponses },
@@ -73,7 +73,7 @@ export async function dayArrangementRoutes(fastify: FastifyInstance): Promise<vo
   app.put(
     "/tasks/:ticketId/day",
     {
-      config: { access: onTicket , mcp: { action: "tasks.setDay", summary: "Sposta una task su un giorno della sua settimana (la sistemazione personale di chi ce l'ha in carico).", effect: "write" }},
+      config: { access: onTicket, mcp: { action: "tasks.setDay", summary: "Sposta una task su un giorno della sua settimana (la sistemazione personale di chi ce l'ha in carico).", effect: "write" } },
       schema: {
         params: z.object({ ticketId: z.uuid() }),
         body: setDayBodySchema,

@@ -55,7 +55,7 @@ export async function requestRoutes(fastify: FastifyInstance): Promise<void> {
   app.get(
     "/requests/to-convert",
     {
-      config: { access: { kind: "user" } , mcp: { action: "requests.toConvert", summary: "Le richieste pronte da trasformare in task nei progetti che vedi.", effect: "read" }},
+      config: { access: { kind: "user" }, mcp: { action: "requests.toConvert", summary: "Le richieste pronte da trasformare in task nei progetti che vedi.", effect: "read" } },
       schema: { response: { 200: z.array(requestToConvertViewSchema), ...authErrorResponses } },
     },
     async (request): Promise<RequestToConvertView[]> => {

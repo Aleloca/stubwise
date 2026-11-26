@@ -80,7 +80,7 @@ export async function projectStatusRoutes(instance: FastifyInstance): Promise<vo
   app.get(
     "/:projectId/statuses",
     {
-      config: { access: onProject("member") , mcp: { action: "projects.statuses", summary: "Gli stati delle task di un progetto, con famiglia e soglie di fermo.", effect: "read" }},
+      config: { access: onProject("member"), mcp: { action: "projects.statuses", summary: "Gli stati delle task di un progetto, con famiglia e soglie di fermo.", effect: "read" } },
       schema: {
         params: paramsSchema,
         response: { 200: z.array(projectStatusViewSchema), 404: errorSchema, ...authErrorResponses },
@@ -92,7 +92,7 @@ export async function projectStatusRoutes(instance: FastifyInstance): Promise<vo
   app.put(
     "/:projectId/statuses",
     {
-      config: { access: onProject("project.settings.manage") , mcp: { action: "projects.setStatuses", summary: "Sostituisce gli stati delle task di un progetto (serve `project.settings.manage`).", effect: "write" }},
+      config: { access: onProject("project.settings.manage"), mcp: { action: "projects.setStatuses", summary: "Sostituisce gli stati delle task di un progetto (serve `project.settings.manage`).", effect: "destructive", note: "Manda l'elenco completo: uno stato omesso si elimina, e le sue task vanno spostate con `reassign`." } },
       schema: {
         params: paramsSchema,
         body: putBodySchema,
@@ -245,7 +245,7 @@ export async function projectStatusRoutes(instance: FastifyInstance): Promise<vo
   app.put(
     "/:projectId/stall-thresholds",
     {
-      config: { access: onProject("project.settings.manage") , mcp: { action: "projects.setStallThresholds", summary: "Imposta dopo quanti giorni una task si considera ferma, per stato.", effect: "write" }},
+      config: { access: onProject("project.settings.manage"), mcp: { action: "projects.setStallThresholds", summary: "Imposta dopo quanti giorni una task si considera ferma, per stato.", effect: "write" } },
       schema: {
         params: paramsSchema,
         body: z.object({

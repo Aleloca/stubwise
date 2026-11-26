@@ -76,6 +76,16 @@ const HANDLER_PAT_REFUSALS = ["POST /api/users/:id/password-reset", "POST /api/a
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+/** I nomi dei tool del pacchetto MCP, letti dai sorgenti: il `name` di un ToolDef, due spazi a inizio riga (revisione del lotto 0, M7). */
+function mcpToolNames(): Set<string> {
+  const toolsDir = join(here, "../../../packages/mcp/src/tools");
+  return new Set(
+    readdirSync(toolsDir)
+      .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
+      .flatMap((f) => [...readFileSync(join(toolsDir, f), "utf8").matchAll(/^ {2}name: "([a-z_]+)",$/gm)].map((m) => m[1]!)),
+  );
+}
+
 /**
  * Le rotte che leggono un FILE (`request.file(`, contate sul sorgente): un
  * corpo multipart non passa da `write_action`, quindi una loro azione ha un
@@ -189,18 +199,35 @@ describe("parità MCP: ogni rotta dichiara config.mcp", () => {
   });
 
   it("una voce con `tool` nomina un tool che il pacchetto MCP ha", async () => {
-    const toolsDir = join(here, "../../../packages/mcp/src/tools");
-    const names = new Set(
-      readdirSync(toolsDir)
-        .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
-        // Il `name` di un ToolDef: due spazi, a inizio riga (revisione del lotto 0, M7).
-        .flatMap((f) => [...readFileSync(join(toolsDir, f), "utf8").matchAll(/^ {2}name: "([a-z_]+)",$/gm)].map((m) => m[1]!)),
-    );
+    const names = mcpToolNames();
     expect(names.size).toBeGreaterThan(20);
     const unknown = (await registered()).flatMap((r) => {
       const mcp = mcpOf(r);
       return isMcpAction(mcp) && mcp.tool !== undefined && !names.has(mcp.tool) ? [`${r.key} → ${mcp.tool}`] : [];
     });
     expect(unknown).toEqual([]);
+  });
+
+  /**
+   * I tool che il lotto 1 porta e che il lotto 2 già nomina nelle `note`
+   * (revisione del lotto 2, M4: escono insieme). Elenco chiuso, che si può solo
+   * accorciare: una voce che il pacchetto ha già fa fallire il test.
+   */
+  const LOTTO1_TOOLS_ATTESI = new Set(["merge_pull_request", "answer_decision_request"]);
+
+  it("una `note` che nomina un tool («tool `nome`») nomina un tool che il pacchetto MCP ha (o uno atteso del lotto 1)", async () => {
+    const names = mcpToolNames();
+    expect([...LOTTO1_TOOLS_ATTESI].filter((t) => names.has(t))).toEqual([]);
+    const unknown = (await registered()).flatMap((r) => {
+      const mcp = mcpOf(r);
+      if (!isMcpAction(mcp) || mcp.note === undefined) return [];
+      return [...mcp.note.matchAll(/\btool `([a-z_]+)`/g)].map((m) => m[1]!).filter((t) => !names.has(t) && !LOTTO1_TOOLS_ATTESI.has(t)).map((t) => `${r.key} → ${t}`);
+    });
+    expect(unknown).toEqual([]);
+  });
+
+  it("un'azione con `partialReauth` ha una `note`: dice quale parte del corpo col PAT non passa (revisione del lotto 2, I6)", async () => {
+    const silent = (await registered()).filter((r) => r.route.config?.partialReauth && isMcpAction(mcpOf(r)) && !(mcpOf(r) as { note?: string }).note?.trim()).map((r) => r.key);
+    expect(silent).toEqual([]);
   });
 });

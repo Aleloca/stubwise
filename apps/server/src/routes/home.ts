@@ -40,21 +40,21 @@ export async function homeRoutes(fastify: FastifyInstance): Promise<void> {
   app.get(
     "/me/home",
     {
-      config: { access: { kind: "user" } , mcp: { action: "home.get", summary: "La tua Home: i blocchi scelti e il loro ordine.", effect: "read" }},
+      config: { access: { kind: "user" }, mcp: { action: "home.get", summary: "La tua Home: i blocchi scelti e il loro ordine.", effect: "read" } },
       schema: { response: { 200: meHomeViewSchema, ...authErrorResponses } },
     },
     async (request) => meHome(app.db, request.user!),
   );
 
   // Area 8, F1, S10: il blocco «Rilasci» della Home (vuoto per chi non ha `release.merge`).
-  app.get("/me/releases", { config: { access: { kind: "user" } , mcp: { action: "me.releases", summary: "Il blocco «Rilasci» della tua Home (vuoto senza `release.merge`).", effect: "read" }} }, async (request) =>
+  app.get("/me/releases", { config: { access: { kind: "user" }, mcp: { action: "me.releases", summary: "Il blocco «Rilasci» della tua Home (vuoto senza `release.merge`).", effect: "read" } } }, async (request) =>
     myReleases(app.db, app.encryptionKey, request.user!),
   );
 
   app.put(
     "/me/home",
     {
-      config: { access: { kind: "user" } , mcp: { action: "home.set", summary: "Salva la tua Home personale.", effect: "write" }},
+      config: { access: { kind: "user" }, mcp: { action: "home.set", summary: "Salva la tua Home personale.", effect: "write" } },
       schema: {
         body: setHomeBodySchema,
         response: { 200: meHomeViewSchema, 400: errorSchema, ...authErrorResponses },
@@ -74,7 +74,7 @@ export async function homeRoutes(fastify: FastifyInstance): Promise<void> {
   app.delete(
     "/me/home",
     {
-      config: { access: { kind: "user" } , mcp: { action: "home.reset", summary: "Torna alla Home del tuo reparto, togliendo la tua personale.", effect: "destructive" }},
+      config: { access: { kind: "user" }, mcp: { action: "home.reset", summary: "Torna alla Home del tuo reparto, togliendo la tua personale.", effect: "destructive" } },
       schema: { response: { 204: z.null(), ...authErrorResponses } },
     },
     async (request, reply) => {
@@ -86,7 +86,7 @@ export async function homeRoutes(fastify: FastifyInstance): Promise<void> {
   app.post(
     "/me/home/seen/:departmentId",
     {
-      config: { access: { kind: "user" } , mcp: { action: "home.markSeen", summary: "Segna come vista la Home aggiornata del tuo reparto.", effect: "write" }},
+      config: { access: { kind: "user" }, mcp: { action: "home.markSeen", summary: "Segna come vista la Home aggiornata del tuo reparto.", effect: "write" } },
       schema: {
         params: departmentParams,
         // L'`updatedAt` della Home del reparto che il client ha mostrato.
@@ -108,7 +108,7 @@ export async function homeRoutes(fastify: FastifyInstance): Promise<void> {
   app.get(
     "/departments/:departmentId/home",
     {
-      config: { access: { kind: "user" } , mcp: { action: "home.department", summary: "La Home predefinita di un reparto.", effect: "read" }},
+      config: { access: { kind: "user" }, mcp: { action: "home.department", summary: "La Home predefinita di un reparto.", effect: "read" } },
       schema: {
         params: departmentParams,
         response: { 200: departmentHomeViewSchema, 404: errorSchema, ...authErrorResponses },
@@ -124,7 +124,7 @@ export async function homeRoutes(fastify: FastifyInstance): Promise<void> {
   app.put(
     "/departments/:departmentId/home",
     {
-      config: { access: { kind: "user" } , mcp: { action: "home.setDepartment", summary: "Imposta la Home predefinita di un reparto (chi gestisce i reparti).", effect: "write" }},
+      config: { access: { kind: "user" }, mcp: { action: "home.setDepartment", summary: "Imposta la Home predefinita di un reparto (chi gestisce i reparti).", effect: "write" } },
       schema: {
         params: departmentParams,
         body: setHomeBodySchema,

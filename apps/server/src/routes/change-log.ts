@@ -29,7 +29,7 @@ export async function changeLogRoutes(instance: FastifyInstance): Promise<void> 
   app.get(
     "/change-log",
     {
-      config: { access: { kind: "user" } , mcp: { action: "changeLog.list", summary: "Il registro delle modifiche dell'istanza, con filtri per chi, cosa e quando.", effect: "read" }},
+      config: { access: { kind: "user" }, mcp: { action: "changeLog.list", summary: "Il registro delle modifiche dell'istanza, con filtri per chi, cosa e quando.", effect: "read" } },
       schema: {
         querystring: filterSchema.extend({ project: z.union([z.uuid(), z.literal("instance")]).optional() }),
         response: { 200: changeLogPageSchema, ...authErrorResponses, 400: errorSchema },
@@ -47,7 +47,7 @@ export async function changeLogRoutes(instance: FastifyInstance): Promise<void> 
   app.get(
     "/change-log/filters",
     {
-      config: { access: { kind: "user" } , mcp: { action: "changeLog.filters", summary: "Le scelte possibili per i filtri del registro delle modifiche.", effect: "read" }},
+      config: { access: { kind: "user" }, mcp: { action: "changeLog.filters", summary: "Le scelte possibili per i filtri del registro delle modifiche.", effect: "read" } },
       schema: { querystring: z.object({ project: z.uuid().optional() }), response: { 200: changeLogFiltersSchema, ...authErrorResponses, 404: errorSchema } },
     },
     async (request, reply) => {
@@ -62,7 +62,7 @@ export async function changeLogRoutes(instance: FastifyInstance): Promise<void> 
   app.get(
     "/projects/:projectId/change-log",
     {
-      config: { access: { kind: "project", permission: "member", project: fromParam("projectId") } , mcp: { action: "changeLog.project", summary: "Il registro delle modifiche di un progetto.", effect: "read" }},
+      config: { access: { kind: "project", permission: "member", project: fromParam("projectId") }, mcp: { action: "changeLog.project", summary: "Il registro delle modifiche di un progetto.", effect: "read" } },
       schema: {
         params: z.object({ projectId: z.uuid() }),
         querystring: filterSchema,

@@ -249,7 +249,7 @@ export async function ticketAttachmentRoutes(instance: FastifyInstance): Promise
   app.get(
     "/",
     {
-      config: { access: onTicket("member") , mcp: { action: "attachments.list", summary: "Gli allegati di un ticket o di una task, con nome, dimensione e chi li ha caricati.", effect: "read" }},
+      config: { access: onTicket("member"), mcp: { action: "attachments.list", summary: "Gli allegati di un ticket o di una task, con nome, dimensione e chi li ha caricati.", effect: "read" } },
       schema: {
         params: ticketParamsSchema,
         response: {
@@ -332,7 +332,7 @@ export async function attachmentRoutes(instance: FastifyInstance): Promise<void>
   app.delete(
     "/:attachmentId",
     {
-      config: { access: ON_ATTACHMENT , mcp: { action: "attachments.delete", summary: "Elimina un allegato di una task.", effect: "destructive" }},
+      config: { access: ON_ATTACHMENT, mcp: { action: "attachments.delete", summary: "Elimina un allegato di una task.", effect: "destructive" } },
       schema: {
         params: attachmentParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },

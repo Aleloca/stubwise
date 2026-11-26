@@ -274,7 +274,7 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/unread-count",
     {
-      config: { access: { kind: "user" } , mcp: { action: "inbox.unreadCount", summary: "Il numero di notifiche non lette della tua inbox.", effect: "read" }},
+      config: { access: { kind: "user" }, mcp: { action: "inbox.unreadCount", summary: "Il numero di notifiche non lette della tua inbox.", effect: "read" } },
       schema: {
         response: { 200: unreadCountSchema, ...authErrorResponses },
       },
@@ -289,7 +289,7 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/read",
     {
-      config: { access: { kind: "user" } , mcp: { action: "inbox.markRead", summary: "Segna una notifica come letta.", effect: "write" }},
+      config: { access: { kind: "user" }, mcp: { action: "inbox.markRead", summary: "Segna una notifica come letta.", effect: "write" } },
       schema: {
         params: idParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
@@ -343,7 +343,7 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/snooze",
     {
-      config: { access: { kind: "user" } , mcp: { action: "inbox.snooze", summary: "Rinvia una notifica fino a un momento: sparisce e torna alla scadenza.", effect: "write" }},
+      config: { access: { kind: "user" }, mcp: { action: "inbox.snooze", summary: "Rinvia una notifica fino a un momento: sparisce e torna alla scadenza.", effect: "write" } },
       schema: {
         params: idParamsSchema,
         body: z.object({ until: snoozeUntilSchema }),
@@ -369,7 +369,7 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/handled",
     {
-      config: { access: { kind: "user" } , mcp: { action: "inbox.archive", summary: "Archivia una notifica (solo la tua copia).", effect: "write" }},
+      config: { access: { kind: "user" }, mcp: { action: "inbox.archive", summary: "Archivia una notifica (solo la tua copia).", effect: "write" } },
       schema: {
         params: idParamsSchema,
         response: { 204: z.null(), ...actionErrorResponses },

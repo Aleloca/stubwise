@@ -134,7 +134,7 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
   app.post(
     "/",
     {
-      config: { access: { kind: "project", permission: "tickets.edit", project: fromBody("projectId") } , mcp: { action: "milestones.create", summary: "Crea un traguardo in un progetto (nome, data).", effect: "write" }},
+      config: { access: { kind: "project", permission: "tickets.edit", project: fromBody("projectId") }, mcp: { action: "milestones.create", summary: "Crea un traguardo in un progetto (nome, data).", effect: "write" } },
       schema: {
         body: createMilestoneBodySchema,
         response: {
@@ -176,7 +176,7 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
   app.get(
     "/",
     {
-      config: { access: { kind: "project", permission: "member", project: fromQuery("projectId") } , mcp: { action: "milestones.list", summary: "I traguardi di un progetto, con date e avanzamento.", effect: "read" }},
+      config: { access: { kind: "project", permission: "member", project: fromQuery("projectId") }, mcp: { action: "milestones.list", summary: "I traguardi di un progetto, con date e avanzamento.", effect: "read" } },
       schema: {
         querystring: listMilestonesQuerySchema,
         response: { 200: z.array(milestoneWithCountsSchema), 400: errorSchema, ...authErrorResponses },
@@ -237,7 +237,7 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
   app.get(
     "/:id",
     {
-      config: { access: { kind: "project", permission: "member", project: fromMilestone("id") } , mcp: { action: "milestones.get", summary: "Il dettaglio di un traguardo.", effect: "read" }},
+      config: { access: { kind: "project", permission: "member", project: fromMilestone("id") }, mcp: { action: "milestones.get", summary: "Il dettaglio di un traguardo.", effect: "read" } },
       schema: {
         params: idParamsSchema,
         response: { 200: milestoneWithCountsSchema, 404: errorSchema, ...authErrorResponses },
@@ -253,7 +253,7 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
   app.patch(
     "/:id",
     {
-      config: { access: { kind: "project", permission: "tickets.edit", project: fromMilestone("id") } , mcp: { action: "milestones.update", summary: "Modifica un traguardo (nome, data, stato).", effect: "write" }},
+      config: { access: { kind: "project", permission: "tickets.edit", project: fromMilestone("id") }, mcp: { action: "milestones.update", summary: "Modifica un traguardo (nome, data, stato).", effect: "write" } },
       schema: {
         params: idParamsSchema,
         body: updateMilestoneBodySchema,
@@ -311,7 +311,7 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
   app.delete(
     "/:id",
     {
-      config: { access: { kind: "project", permission: "tickets.edit", project: fromMilestone("id") } , mcp: { action: "milestones.delete", summary: "Elimina un traguardo; le task restano, senza traguardo.", effect: "destructive" }},
+      config: { access: { kind: "project", permission: "tickets.edit", project: fromMilestone("id") }, mcp: { action: "milestones.delete", summary: "Elimina un traguardo; le task restano, senza traguardo.", effect: "destructive" } },
       schema: {
         params: idParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
