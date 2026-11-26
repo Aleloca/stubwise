@@ -9,7 +9,7 @@
  * Il tetto di `PENDING_MCP`: si abbassa SOLTANTO, a ogni lotto, fino a zero.
  * Senza, una rotta nuova si accoderebbe all'elenco e il test passerebbe.
  */
-export const PENDING_MCP_MAX = 265;
+export const PENDING_MCP_MAX = 257;
 
 export const PENDING_MCP: readonly string[] = [
   "DELETE /api/automations/:code/draft",
@@ -77,7 +77,6 @@ export const PENDING_MCP: readonly string[] = [
   "GET /api/me/product-questions",
   "GET /api/me/security",
   "GET /api/me/sessions",
-  "GET /api/me/waiting-customers",
   "GET /api/pats",
   "GET /api/product-changes",
   "GET /api/product-pages/:id/backlog-candidates",
@@ -114,7 +113,6 @@ export const PENDING_MCP: readonly string[] = [
   "GET /api/projects/:projectId/product/first-version/sources",
   "GET /api/projects/:projectId/product/mention-candidates",
   "GET /api/projects/:projectId/product/search",
-  "GET /api/projects/:projectId/support/conversations",
   "GET /api/projects/:projectId/widget/conversations",
   "GET /api/projects/:projectId/widget/conversations/:conversationId/messages",
   "GET /api/projects/:projectId/widgets",
@@ -139,9 +137,6 @@ export const PENDING_MCP: readonly string[] = [
   "GET /api/repositories/:slug/webhook",
   "GET /api/repositories/detached",
   "GET /api/search/docs-semantic",
-  "GET /api/support/conversations/by-code/:code",
-  "GET /api/support/conversations/by-code/:code/preview",
-  "GET /api/support/search",
   "GET /api/tasks/:ticketId/server",
   "GET /api/tasks/:ticketId/server-fix",
   "GET /api/tasks/:ticketId/server-fix/commands",
@@ -256,9 +251,6 @@ export const PENDING_MCP: readonly string[] = [
   "POST /api/repositories/:repositoryId/docs/pages/:slug/view",
   "POST /api/repositories/:repositoryId/docs/resume",
   "POST /api/repositories/:slug/configure-webhook",
-  "POST /api/support/conversations/by-code/:code/not-concluded",
-  "POST /api/support/conversations/by-code/:code/replies",
-  "POST /api/support/conversations/by-code/:code/request",
   "POST /api/tasks/:ticketId/cancel-run",
   "POST /api/tasks/:ticketId/server-fix",
   "POST /api/tasks/:ticketId/server-fix/approve",

@@ -29,7 +29,7 @@ export async function meWaitingCustomersRoutes(instance: FastifyInstance): Promi
   app.get(
     "/waiting-customers",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "me.waitingCustomers", summary: "I clienti che aspettano una tua risposta da più di 24 ore, nelle TUE caselle di posta.", effect: "read" }, access: { kind: "user" } },
       schema: { response: { 200: waitingCustomersResponseSchema, ...authErrorResponses } },
     },
     async (request) => {
