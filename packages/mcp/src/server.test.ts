@@ -62,6 +62,10 @@ describe("buildServer", () => {
       "search_project_docs",
       "read_doc_page",
       "my_requests",
+      "find_actions",
+      "describe_action",
+      "read_action",
+      "write_action",
     ]);
 
     spy.mockRestore();

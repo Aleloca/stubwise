@@ -49,6 +49,8 @@ import { meSessionsRoutes } from "./routes/me-sessions.js";
 import { avatarRoutes } from "./routes/avatars.js";
 import { meEmailChangeRoutes } from "./routes/me-email-change.js";
 import { accessRoutes } from "./routes/access.js";
+import { mcpRoutes } from "./routes/mcp.js";
+import { createRouteCollector } from "./mcp/catalog.js";
 import { adminViewRoutes } from "./routes/admin-views.js";
 import { changeLogRoutes } from "./routes/change-log.js";
 import { outgoingWebhookRoutes } from "./routes/outgoing-webhooks.js";
@@ -488,6 +490,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   });
 
   if (opts.onRoute) app.addHook("onRoute", opts.onRoute);
+  // Il registro per il catalogo dell'MCP (`GET /api/mcp/catalog`): le rotte
+  // si raccolgono tutte, la config si legge alla prima richiesta.
+  const mcpRouteCollector = createRouteCollector();
+  app.addHook("onRoute", mcpRouteCollector.hook);
 
   // Accesso dichiarato per rotta (`config.access`), applicato da UN hook
   // globale: le rotte che non lo dichiarano ancora non sono toccate e usano i
@@ -1005,6 +1011,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(meEmailChangeRoutes, { prefix: "/api/me" });
   // Area 9, F1 (D-11): «Chi può farlo?» e «Cosa può fare?».
   void app.register(accessRoutes, { prefix: "/api/access" });
+  void app.register(mcpRoutes, { prefix: "/api/mcp", collector: mcpRouteCollector });
   // Area 9, F1 (R7, R8): le letture calcolate dell'amministrazione.
   void app.register(adminViewRoutes, { prefix: "/api/admin" });
   // Area 9, F2: il registro delle modifiche.
@@ -1058,7 +1065,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(meWaitingCustomersRoutes, { prefix: "/api/me" });
   void app.register(meCalendarRoutes, { prefix: "/api/me/calendar", ...(opts.calendarWriteClient ? { client: opts.calendarWriteClient } : {}) });
 
-  app.get("/health", { config: { access: { kind: "public" } } }, async () => ({ status: "ok" }));
+  app.get("/health", { config: { access: { kind: "public" }, mcp: { exclude: "infra" } } }, async () => ({ status: "ok" }));
 
   // Documento JSON puro, niente Swagger UI: il sito di documentazione
   // (Task 28) renderà questa spec. Non serve un db per servirla.
@@ -1066,7 +1073,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // root vengono registrate (e quindi viste dall'hook onRoute) prima che
   // @fastify/swagger sia caricato. Va bene così: sono endpoint
   // infrastrutturali, non parte dell'API documentata.
-  app.get("/api/openapi.json", { config: { access: { kind: "public" } } }, async () => app.swagger());
+  app.get("/api/openapi.json", { config: { access: { kind: "public" }, mcp: { exclude: "infra" } } }, async () => app.swagger());
 
   return app;
 }

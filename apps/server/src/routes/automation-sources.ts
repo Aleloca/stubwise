@@ -130,7 +130,7 @@ export async function automationHookRoutes(instance: FastifyInstance, opts: { ra
     "/in/:secret",
     {
       bodyLimit: WEBHOOK_BODY_MAX_BYTES,
-      config: { access: { kind: "public" }, rateLimit: opts.rateLimit ?? { max: 1200, timeWindow: "1 minute" } },
+      config: { access: { kind: "public" }, mcp: { exclude: "inbound" }, rateLimit: opts.rateLimit ?? { max: 1200, timeWindow: "1 minute" } },
     },
     async (request, reply) => {
       // Review F4: una chiave lunga si TRONCA (come fa il servizio), non si scarta: scartarla farebbe

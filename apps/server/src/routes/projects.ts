@@ -415,7 +415,10 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
     {
       // Solo i progetti che chi chiede vede (membro, o full admin): filtro
       // nella WHERE, sotto.
-      config: { access: { kind: "user" } },
+      config: {
+        access: { kind: "user" },
+        mcp: { action: "projects.list", summary: "Elenca i progetti che vedi (di cui sei membro, o tutti se sei full admin), con id, slug e nome.", effect: "read" },
+      },
       schema: { response: { 200: z.array(projectListItemSchema), ...authErrorResponses } },
     },
     async (request) => {

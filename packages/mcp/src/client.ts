@@ -500,6 +500,48 @@ export interface ProjectDecisionSummary {
   createdAt: string;
 }
 
+/**
+ * Una voce del catalogo delle azioni (`GET /api/mcp/catalog`, design
+ * `docs/plans/2026-11-26-mcp-parita-design.md` § 2): una rotta del server che
+ * l'MCP chiama col PAT. Il catalogo lo serve l'istanza, così segue la sua
+ * versione.
+ */
+const catalogActionSchema = z
+  .object({
+    action: z.string(),
+    method: z.string(),
+    path: z.string(),
+    area: z.string(),
+    summary: z.string(),
+    effect: z.string(),
+    tool: z.string().optional(),
+    note: z.string().optional(),
+    access: z.string(),
+  })
+  .loose();
+export type CatalogAction = z.infer<typeof catalogActionSchema>;
+
+const catalogDetailSchema = catalogActionSchema.extend({
+  input: z
+    .object({
+      params: z.record(z.string(), z.unknown()).optional(),
+      query: z.record(z.string(), z.unknown()).optional(),
+      body: z.record(z.string(), z.unknown()).optional(),
+      bodyKind: z.string(),
+    })
+    .loose(),
+});
+export type CatalogActionDetail = z.infer<typeof catalogDetailSchema>;
+
+/** I valori di una query di `callAction`: un array ripete la chiave. */
+export type ActionQuery = Record<string, string | number | boolean | Array<string | number | boolean> | undefined>;
+
+/** Una chiamata a un'azione del catalogo, così come l'ha fatta il server. */
+export interface ActionResponse {
+  status: number;
+  data: unknown;
+}
+
 export interface StubwiseClientDeps {
   fetch?: typeof fetch;
 }
@@ -527,6 +569,8 @@ export class StubwiseClient {
   private readonly fetchFn: typeof fetch;
   /** Cache in-memory dei progetti per la vita del processo (risoluzione slug→id). */
   private projectsCache: Project[] | null = null;
+  /** Il catalogo delle azioni, letto una volta per processo (`getCatalog`). */
+  private catalogCache: CatalogAction[] | null = null;
 
   constructor(config: StubwiseConfig, deps: StubwiseClientDeps = {}) {
     this.baseUrl = config.baseUrl;
@@ -648,6 +692,103 @@ export class StubwiseClient {
     } catch {
       return null;
     }
+  }
+
+  // --- Catalogo delle azioni (lotto 0 della parità con l'app) -------------
+
+  /**
+   * Il catalogo dell'istanza, una volta per processo. Un server che non ha
+   * ancora `/api/mcp/catalog` (più vecchio del lotto 0) risponde 404: diventa
+   * `catalog_unavailable`, e i tool generici lo dicono.
+   */
+  async getCatalog(): Promise<CatalogAction[]> {
+    if (this.catalogCache) return this.catalogCache;
+    let raw: unknown;
+    try {
+      raw = await this.request<unknown>("/api/mcp/catalog");
+    } catch (err) {
+      if (err instanceof StubwiseApiError && err.status === 404) {
+        throw new StubwiseApiError(
+          "Questa istanza di Stubwise non ha ancora il catalogo delle azioni: va aggiornata. Gli altri strumenti funzionano come prima.",
+          404,
+          "catalog_unavailable",
+        );
+      }
+      throw err;
+    }
+    const { actions } = this.parseResponse(z.object({ actions: z.array(catalogActionSchema) }), raw, "il catalogo delle azioni");
+    this.catalogCache = actions;
+    return actions;
+  }
+
+  /** Una voce del catalogo con gli schemi (`GET /api/mcp/catalog/:action`). */
+  async describeAction(action: string): Promise<CatalogActionDetail> {
+    const raw = await this.request<unknown>(`/api/mcp/catalog/${encodeURIComponent(action)}`);
+    return this.parseResponse(catalogDetailSchema, raw, `la voce ${action} del catalogo`);
+  }
+
+  /**
+   * Chiama un'azione del catalogo: i parametri del percorso (`:nome`) da
+   * `params`, la query, il corpo JSON. Un errore del server arriva col suo
+   * `code` e il suo messaggio (un 401 col messaggio del token), perché il
+   * modello li legge così: «forbidden», «already_handled»…
+   */
+  async callAction(
+    entry: Pick<CatalogAction, "method" | "path">,
+    input: { params?: Record<string, string | number>; query?: ActionQuery; body?: unknown } = {},
+  ): Promise<ActionResponse> {
+    const missing: string[] = [];
+    const path = entry.path.replace(/:([A-Za-z0-9_]+)/g, (_m, name: string) => {
+      const value = input.params?.[name];
+      if (value === undefined || value === "") {
+        missing.push(name);
+        return `:${name}`;
+      }
+      return encodeURIComponent(String(value));
+    });
+    if (missing.length > 0) {
+      throw new StubwiseApiError(`Mancano i parametri del percorso: ${missing.join(", ")}`, 0, "missing_params");
+    }
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(input.query ?? {})) {
+      if (value === undefined) continue;
+      for (const v of Array.isArray(value) ? value : [value]) query.append(key, String(v));
+    }
+    const qs = query.toString();
+    const url = `${this.baseUrl}${path}${qs ? `?${qs}` : ""}`;
+    const headers: Record<string, string> = { authorization: `Bearer ${this.token}` };
+    let payload: string | undefined;
+    if (input.body !== undefined) {
+      headers["content-type"] = "application/json";
+      payload = JSON.stringify(input.body);
+    }
+    let response: Response;
+    try {
+      response = await this.fetchFn(url, { method: entry.method, headers, body: payload });
+    } catch (err) {
+      throw new StubwiseApiError(`Impossibile raggiungere Stubwise a ${this.baseUrl} (${(err as Error).message})`, 0, "network_error");
+    }
+    if (response.status === 401) throw await this.toApiError(response);
+    const text = await response.text();
+    let data: unknown = undefined;
+    if (text) {
+      try {
+        data = JSON.parse(text) as unknown;
+      } catch {
+        data = text;
+      }
+    }
+    if (!response.ok) {
+      const body = data && typeof data === "object" ? (data as ApiErrorBody) : null;
+      const code = body?.code ?? "api_error";
+      // Gli altri campi dell'errore (`decidedBy` di un 409, `rule` di un rifiuto) servono a dire perché.
+      const rest: Record<string, unknown> = { ...(body ?? {}) };
+      delete rest.code;
+      delete rest.message;
+      const extra = Object.keys(rest).length > 0 ? ` ${JSON.stringify(rest)}` : "";
+      throw new StubwiseApiError(`HTTP ${response.status} ${code}: ${body?.message ?? "errore del server"}${extra}`, response.status, code);
+    }
+    return { status: response.status, data };
   }
 
   // --- Profilo e Docs -----------------------------------------------------

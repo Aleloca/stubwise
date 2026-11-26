@@ -212,13 +212,13 @@ con `GET`): l'MCP legge a intervalli, non resta in ascolto.
 
 ### La regola
 
-**Ogni rotta del registro dichiara `config.mcp`: o un'azione del catalogo, o
-un'esclusione con un motivo da un elenco chiuso.** È la stessa forma di
-`config.access`: una rotta senza dichiarazione fa fallire il test, e nessuna
-lista di eccezioni a parte.
+**Ogni rotta del registro è un'azione del catalogo, un'esclusione dichiarata
+in `config.mcp` con un motivo da un elenco chiuso, o un'esclusione che dà il
+registro stesso.** È la stessa forma di `config.access`: una rotta senza
+nessuna delle tre fa fallire il test, e nessuna lista di eccezioni a parte.
 
 ```ts
-// apps/server/src/auth/access.ts (accanto a RouteAccess)
+// apps/server/src/mcp/route-mcp.ts (config.mcp in access.ts)
 export type RouteMcp =
   | {
       action: string;            // «tasks.update», unico nel registro
@@ -227,16 +227,32 @@ export type RouteMcp =
       tool?: string;             // il tool curato che la serve (decisioni, file)
       note?: string;             // ciò che il modello deve sapere prima di chiamarla
     }
-  | { exclude: McpExclusion; instead?: string };
+  | { exclude: DeclaredMcpExclusion; instead?: string };
 
-export type McpExclusion =
-  | "vault"            // eccezione 1: le rotte della cassaforte
-  | "reauth"           // eccezione 2: config.reauth, e i rifiuti degli handler della stessa famiglia
-  | "login"            // second_factor e credentialDoor: il percorso del login
-  | "inbound"          // public con la sua autenticazione: webhook in ingresso, widget, agente di monitoraggio, Slack
+// Si dichiarano (elenco chiuso):
+export type DeclaredMcpExclusion =
+  | "vault"            // eccezione 1: una rotta di /api/vault o delle credenziali che il PAT passa ma che tocca materiale cifrato
+  | "login"            // una rotta pubblica di /api/auth (setup, inviti, reset, logout)
+  | "inbound"          // public con la sua autenticazione: webhook in ingresso, widget, agente di monitoraggio, Slack, callback OAuth
+  | "infra"            // public d'infrastruttura: /health, la spec OpenAPI (elenco chiuso)
   | "stream"           // SSE: `instead` nomina la lettura che lo sostituisce (obbligatorio)
-  | "desktop_link";    // il passaggio al desktop e le sue porte
+  | "desktop_link";    // le rotte del PAT dell'app desktop (elenco chiuso)
+
+// Le dà il registro, senza dichiararle (impliedMcpExclusion):
+//   "reauth": config.reauth (eccezione 2);
+//   "vault":  browserOnly, desktopVault, desktopOnly, desktopRead (eccezione 1);
+//   "login":  second_factor, credentialDoor.
 ```
+
+**Le esclusioni implicite (lotto 0).** Le tre esclusioni che il registro sa
+già NON si scrivono: la flag stessa è la dichiarazione. Su quelle rotte
+`config.mcp` deve restare assente: un'`action` sarebbe una voce che fallisce
+sempre, un'esclusione dichiarata un doppione che può mentire. Così
+un'esclusione «comoda» non si può scrivere, e una rotta nuova con
+`config.reauth` o una flag della cassaforte esce dal catalogo da sola, senza
+un passo in più. (La prima versione di questo design le voleva dichiarate e
+verificate nei due versi: il risultato è lo stesso, con 83 dichiarazioni
+ridondanti in meno.)
 
 **Non esiste un'esclusione «non serve» né «non la usa l'app».** Una rotta che
 non sta in nessuna delle categorie va nel catalogo. Il costo è scrivere un
@@ -246,34 +262,38 @@ divergono.
 
 ### Il test: `apps/server/src/mcp-parity.test.ts`
 
-Lo stesso `buildApp({ onRoute })` di `route-access.test.ts`, che fallisce
-quando:
+Lo stesso `buildApp({ onRoute })` di `route-access.test.ts` (la config si
+legge dopo `ready`, perché l'`onRoute` della cassaforte la riassegna), che
+fallisce quando:
 
-1. una rotta non ha `config.mcp`;
-2. una rotta con `reauth`, o con `browserOnly`, `desktopVault`, `desktopOnly`
-   o `desktopRead`, NON è esclusa con `reauth` o `vault`. Un catalogo che
-   offrisse una rotta che il PAT non passerà è un tool che fallisce sempre;
-3. **al contrario**, un'esclusione `reauth`, `vault` o `login` sta su una
-   rotta che non ha la flag corrispondente. Un'esclusione è un'affermazione
-   sul registro, e qui la verifica il registro stesso: nessuna esclusione
-   «comoda»;
-4. un file di `apps/server/src/routes/` chiama
-   `requireBrowserOrConfirmedDesktop` per una rotta che non dichiara
-   `config.reauth` (controllo sul sorgente, come in
-   `decisions-never-ai.test.ts`). Oggi sono 3 rotte
-   (`POST /api/users/:id/password-reset`, `POST /api/auth/me/password`,
-   `POST /api/auth/desktop-handoff`), e tutte dichiarano anche la
-   riconferma. Così un rifiuto del PAT scritto solo nell'handler non
-   produce mai una voce del catalogo che fallisce sempre;
-5. `inbound` sta su una rotta che non è `public`, oppure `stream` è senza
-   `instead`, o con un `instead` che non è l'azione di un'altra rotta;
-6. due rotte hanno lo stesso `action`, un `summary` è vuoto, o un `effect`
-   non torna col metodo (`GET` ⇒ `read`; `DELETE` ⇒ `destructive`);
-7. una voce con `tool` nomina un tool che il pacchetto MCP non ha. L'elenco
-   dei tool curati lo esporta `packages/mcp` (`CURATED_TOOLS`), e il test del
-   server lo legge dal `dist` come fa con gli altri package. Il test gemello
-   in `packages/mcp` verifica che ogni tool curato che chiama una rotta la
-   nomini con la sua `action`.
+1. una rotta non è un'azione, né un'esclusione dichiarata, né esclusa dal
+   registro, né in `PENDING_MCP`;
+2. `PENDING_MCP` ha una voce già dichiarata, esclusa dal registro, doppia o
+   che non esiste più;
+3. una rotta esclusa dal registro dichiara qualcosa in `config.mcp`;
+4. un'esclusione dichiarata non ha il suo motivo vero:
+   - `vault` fuori da `/api/vault`, `/api/credentials` e
+     `/api/projects/:projectId/credentials`;
+   - `login` su una rotta non pubblica o fuori da `/api/auth`;
+   - `inbound` su una rotta non pubblica, o di `/api/auth`, o d'infrastruttura;
+   - `infra` o `desktop_link` fuori dai loro elenchi chiusi;
+   - `stream` senza un `instead` che sia l'azione di un'altra rotta;
+   - un `instead` su un'esclusione che non è `stream`;
+5. due rotte hanno lo stesso `action`, un `action` non è `area.verbo`, un
+   `summary` è vuoto, o un `effect` non torna col metodo (`GET` ⇒ `read`;
+   un'altra ⇒ non `read`; `DELETE` ⇒ `destructive`);
+6. un file di `apps/server/src/routes/` chiama
+   `requireBrowserOrConfirmedDesktop` più volte dell'elenco chiuso delle
+   rotte che lo fanno, o una di quelle non dichiara `config.reauth`
+   (controllo sul sorgente, come in `decisions-never-ai.test.ts`). Oggi sono
+   3 rotte (`POST /api/users/:id/password-reset`,
+   `POST /api/auth/me/password`, `POST /api/auth/desktop-handoff`), e tutte
+   dichiarano anche la riconferma. Così un rifiuto del PAT scritto solo
+   nell'handler non produce mai una voce del catalogo che fallisce sempre;
+7. una voce con `tool` nomina un tool che il pacchetto MCP non ha. Il test
+   legge i nomi dai sorgenti di `packages/mcp/src/tools/` (`name: "…"`),
+   come il test di parità dei token di design legge il CSS del web: nessuna
+   dipendenza del server dal pacchetto, e nessun `dist` da ricostruire.
 
 La parità con l'app è garantita dalla regola stessa: ogni rotta che l'app usa
 sta nel registro, quindi ha `config.mcp`. Le uniche che l'app usa e l'MCP no
@@ -292,12 +312,15 @@ sparisce.
 
 ### Il catalogo
 
-`GET /api/mcp/catalog` (`access: user`). Per ogni rotta con
-`config.mcp.action` restituisce:
+Due rotte (`access: user`), che sono a loro volta voci del catalogo
+(`mcp.catalog`, `mcp.describe`):
 
-- `action`, metodo, percorso, area (il primo segmento dopo `/api`), `summary`,
-  `effect`, `tool` e `note`;
-- lo schema della rotta preso dalla spec OpenAPI (parametri, query, corpo).
+- `GET /api/mcp/catalog`: per ogni rotta con `config.mcp.action`, `action`,
+  metodo, percorso, area (il primo segmento dopo `/api`), `summary`,
+  `effect`, `tool`, `note` e il permesso che chiede. Senza schemi: sarebbe
+  grande quanto la spec;
+- `GET /api/mcp/catalog/:action`: la voce sola, con `input` (parametri del
+  percorso, query e corpo JSON) preso dalla spec OpenAPI.
 
 Le voci `instance` di cui chi chiede non ha il permesso NON compaiono:
 riducono il rumore, e la rotta le rifiuterebbe comunque. Le voci `project`
@@ -342,17 +365,21 @@ pacchetto.
 
 **Lotto 0 — l'ossatura**, server e pacchetto.
 
-- `RouteMcp` in `access.ts` e `mcp-parity.test.ts` con `PENDING_MCP` (oggi
-  ~690 voci).
-- Le esclusioni dichiarate subito: cassaforte, `reauth`, login, `inbound`,
-  `stream`, `desktop_link`. Le regole 2–5 del test valgono da qui.
-- `GET /api/mcp/catalog`.
+- `RouteMcp` (`mcp/route-mcp.ts`, `config.mcp`) e `mcp-parity.test.ts` con
+  `PENDING_MCP` (591 voci).
+- Le esclusioni: le 83 rotte con `config.reauth` o una flag della cassaforte o
+  del login sono escluse dal registro; le 29 pubbliche sono dichiarate
+  (`login`, `inbound`, `infra`), e `POST /api/auth/desktop-reauth` è
+  `desktop_link`. Gli `stream` aspettano i lotti delle loro letture.
+- `GET /api/mcp/catalog` e `GET /api/mcp/catalog/:action`, con le prime
+  azioni: `projects.list`, `me.get`, `mcp.catalog` e `mcp.describe`.
 - Nel pacchetto: `find_actions`, `describe_action`, `read_action` e
   `write_action`, con il taglio delle risposte e gli errori leggibili. Un
   server senza `/api/mcp/catalog` (più vecchio) fa rispondere ai quattro
   tool «questa istanza non ha ancora il catalogo: aggiornala», mentre i tool
   curati funzionano come oggi.
-- `CURATED_TOOLS` esportato, con il test gemello.
+- Nessun changeset nel lotto 0: il pacchetto esce col changeset del lotto 1,
+  quando cambiano anche le regole scritte.
 
 **Lotto 1 — le decisioni.**
 

@@ -257,7 +257,7 @@ export async function meGoogleRoutes(
   app.get(
     "/callback",
     {
-      config: { rateLimit: opts.rateLimit, access: { kind: "public" } },
+      config: { rateLimit: opts.rateLimit, access: { kind: "public" }, mcp: { exclude: "inbound" } },
       schema: {
         querystring: callbackQuerySchema,
         response: { 302: z.null(), 400: errorSchema },
