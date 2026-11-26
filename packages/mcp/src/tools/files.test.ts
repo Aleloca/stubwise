@@ -154,6 +154,37 @@ describe("upload_file", () => {
     expect(uploadAction).not.toHaveBeenCalled();
   });
 
+  it("revisione I3: ogni file nascosto o in una cartella nascosta della home, i portachiavi e i cookie non escono; un documento sì", async () => {
+    const files = [
+      ".npmrc",
+      ".netrc",
+      ".git-credentials",
+      ".pgpass",
+      join(".docker", "config.json"),
+      join(".kube", "config"),
+      join(".config", "gh", "hosts.yml"),
+      join(".claude", ".credentials.json"),
+      join(".config", "meeting-hub", "staging-basic-auth.curlrc"),
+      join("Library", "Keychains", "login.keychain-db"),
+      join("Library", "Application Support", "Google", "Chrome", "Default", "Cookies"),
+    ].map((f) => join(home, f));
+    for (const f of files) {
+      mkdirSync(join(f, ".."), { recursive: true });
+      writeFileSync(f, "segreto");
+    }
+    const uploadAction = vi.fn().mockResolvedValue({ status: 201, data: {} });
+    const ctx = ctxWith({ getCatalog: vi.fn().mockResolvedValue(CATALOG), uploadAction });
+    for (const path of files) {
+      const r = await tool("upload_file").handler({ action: "attachments.upload", params: { ticketId: "t1" }, path }, ctx);
+      expect(text(r), path).toContain("sensitive_file");
+    }
+    expect(uploadAction).not.toHaveBeenCalled();
+    mkdirSync(join(home, "Documents"));
+    const doc = join(home, "Documents", "offerta.pdf");
+    writeFileSync(doc, "%PDF");
+    expect((await tool("upload_file").handler({ action: "attachments.upload", params: { ticketId: "t1" }, path: doc }, ctx)).isError).toBeUndefined();
+  });
+
   it("un rifiuto del server: il suo messaggio, come errore", async () => {
     const path = join(dir, "grande.bin");
     writeFileSync(path, Buffer.alloc(10));
@@ -219,6 +250,41 @@ describe("download_file", () => {
     expect(existsSync(join(home, ".ssh"))).toBe(false);
     expect(existsSync(join(home, "Library"))).toBe(false);
     expect(downloadAction).not.toHaveBeenCalled();
+  });
+
+  it("revisione I1: una cartella nascosta a qualunque livello (./.claude, .github/workflows, .vscode) e ~/AppData non vanno", async () => {
+    const downloadAction = download({ filename: "settings.local.json" });
+    const ctx = ctxWith({ getCatalog: vi.fn().mockResolvedValue(CATALOG), downloadAction });
+    const cwd = process.cwd();
+    process.chdir(dir);
+    try {
+      for (const target of ["./.claude", join(dir, "progetto", ".github", "workflows"), join(dir, ".vscode"), join(home, "AppData", "Roaming", "Microsoft", "Windows", "Start Menu", "Programs", "Startup")]) {
+        const r = await tool("download_file").handler({ action: "attachments.download", params: { attachmentId: "a1" }, dir: target }, ctx);
+        expect(text(r), target).toContain("unsafe_destination");
+      }
+    } finally {
+      process.chdir(cwd);
+    }
+    expect(downloadAction).not.toHaveBeenCalled();
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("revisione I1: CLAUDE.md e AGENTS.md non si creano, né col nome dato né con quello del server", async () => {
+    const asked = await tool("download_file").handler({ action: "attachments.download", params: { attachmentId: "a1" }, dir, filename: "CLAUDE.md" }, ctxWith({ getCatalog: vi.fn().mockResolvedValue(CATALOG), downloadAction: download() }));
+    expect(text(asked)).toContain("unsafe_destination");
+    const fromServer = await tool("download_file").handler({ action: "attachments.download", params: { attachmentId: "a1" }, dir }, ctxWith({ getCatalog: vi.fn().mockResolvedValue(CATALOG), downloadAction: download({ filename: "agents.md" }) }));
+    expect(text(fromServer)).toContain("unsafe_destination");
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("la cartella si crea solo dopo una risposta riuscita, e non resta nessun «.part»", async () => {
+    const target = join(dir, "nuova");
+    const refused = vi.fn().mockRejectedValue(new StubwiseApiError("HTTP 404 not_found: Attachment not found", 404, "not_found"));
+    const r = await tool("download_file").handler({ action: "attachments.download", params: { attachmentId: "a1" }, dir: target }, ctxWith({ getCatalog: vi.fn().mockResolvedValue(CATALOG), downloadAction: refused }));
+    expect(r.isError).toBe(true);
+    expect(existsSync(target)).toBe(false);
+    await tool("download_file").handler({ action: "attachments.download", params: { attachmentId: "a1" }, dir: target }, ctxWith({ getCatalog: vi.fn().mockResolvedValue(CATALOG), downloadAction: download({ filename: "nota.txt" }) }));
+    expect(readdirSync(target)).toEqual(["nota.txt"]);
   });
 
   it("un link simbolico verso ~/.ssh non aggira il controllo", async () => {
