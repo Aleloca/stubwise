@@ -51,6 +51,7 @@ import { meEmailChangeRoutes } from "./routes/me-email-change.js";
 import { accessRoutes } from "./routes/access.js";
 import { mcpRoutes } from "./routes/mcp.js";
 import { createRouteCollector } from "./mcp/catalog.js";
+import { registerViaClientStore, withViaClientTransactions } from "./mcp/via-client.js";
 import { adminViewRoutes } from "./routes/admin-views.js";
 import { changeLogRoutes } from "./routes/change-log.js";
 import { outgoingWebhookRoutes } from "./routes/outgoing-webhooks.js";
@@ -494,6 +495,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // si raccolgono tutte, la config si legge alla prima richiesta.
   const mcpRouteCollector = createRouteCollector();
   app.addHook("onRoute", mcpRouteCollector.hook);
+  // Lo store di «via Claude Code», aperto per ogni richiesta (`mcp/via-client.ts`).
+  registerViaClientStore(app);
 
   // Accesso dichiarato per rotta (`config.access`), applicato da UN hook
   // globale: le rotte che non lo dichiarano ancora non sono toccate e usano i
@@ -535,7 +538,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // L'augmentation del modulo tipizza `db` come sempre presente, ma la
   // decorazione è condizionale: il getter rende l'errore esplicito se una
   // route tocca il db quando l'app è stata costruita senza (es. unit test).
-  const db = opts.db;
+  // D4 della parità MCP: le transazioni di una richiesta «via Claude Code» lo dicono alle colonne `via_client`.
+  const db = opts.db ? withViaClientTransactions(opts.db) : undefined;
   app.decorate("agentSessionBus", opts.sessionBus ?? NOOP_BUS);
   app.decorate("chatBus", opts.chatBus ?? NOOP_CHAT_BUS);
   // Area 11, F4: il canale dal vivo, nato al primo uso (serve il db) e fermato alla chiusura.

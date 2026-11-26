@@ -29,6 +29,7 @@ import {
 import { projectPermissionsOfUser as notificationsProjectPermissionsOfUser } from "@stubwise/notifications";
 import { apiError } from "../errors.js";
 import type { RouteMcp } from "../mcp/route-mcp.js";
+import { markViaClient } from "../mcp/via-client.js";
 import { recordSecurityEvent } from "./second-factor/security-events.js";
 import { hasConfirmedTotp } from "./second-factor/totp.js";
 import { requireAuth, type SessionStage, type SessionUser } from "./session.js";
@@ -505,6 +506,8 @@ export async function accessPreHandler(
   await requireAuth(request, reply, { allowPartial: access.kind === "second_factor" });
   if (reply.sent) return;
   const user = request.user!;
+  // D4 della parità MCP: una richiesta dell'MCP col PAT `manual` è «via Claude Code».
+  markViaClient(user, request.headers);
   // Il token del turno della chat con Claude: SOLO GET e solo l'allowlist chiusa
   // delle rotte di lettura, più UNA rotta di scrittura (creare una proposta),
   // prima di ogni altro controllo (riconferma compresa).

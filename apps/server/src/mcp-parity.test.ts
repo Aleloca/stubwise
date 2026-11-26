@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { RouteOptions } from "fastify";
 import { describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
-import { PENDING_MCP } from "./mcp/pending.js";
+import { PENDING_MCP, PENDING_MCP_MAX } from "./mcp/pending.js";
 import { impliedMcpExclusion, isMcpAction, type RouteMcp } from "./mcp/route-mcp.js";
 
 /**
@@ -76,6 +76,19 @@ const HANDLER_PAT_REFUSALS = ["POST /api/users/:id/password-reset", "POST /api/a
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+/**
+ * Le rotte che leggono un FILE (`request.file(`, contate sul sorgente): un
+ * corpo multipart non passa da `write_action`, quindi una loro azione ha un
+ * tool curato (revisione del lotto 0, M2).
+ */
+const MULTIPART_ROUTES = [
+  "POST /api/projects/:projectId/drive/files",
+  "POST /api/product-pages/:id/images",
+  "POST /api/chat/channels/:id/attachments",
+  "POST /api/tickets/:ticketId/attachments",
+  "POST /api/me/mail/drafts/:id/attachments",
+];
+
 describe("parità MCP: ogni rotta dichiara config.mcp", () => {
   it("ogni rotta è un'azione, un'esclusione dichiarata, un'esclusione del registro o in PENDING_MCP", async () => {
     const pending = new Set(PENDING_MCP);
@@ -91,6 +104,8 @@ describe("parità MCP: ogni rotta dichiara config.mcp", () => {
     });
     expect(stale).toEqual([]);
     expect(new Set(PENDING_MCP).size).toBe(PENDING_MCP.length);
+    // Una rotta NUOVA non si accoda: il tetto si abbassa soltanto (revisione del lotto 0, I2).
+    expect(PENDING_MCP.length).toBeLessThanOrEqual(PENDING_MCP_MAX);
   });
 
   it("una rotta esclusa dal registro (riconferma, cassaforte, login) non dichiara nulla", async () => {
@@ -151,11 +166,26 @@ describe("parità MCP: ogni rotta dichiara config.mcp", () => {
     for (const key of HANDLER_PAT_REFUSALS) {
       expect(routes.get(key)?.route.config?.reauth, key).toBeTruthy();
     }
-    const dir = join(here, "routes");
-    const calls = readdirSync(dir)
-      .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
-      .reduce((n, f) => n + (readFileSync(join(dir, f), "utf8").match(/requireBrowserOrConfirmedDesktop\(/g)?.length ?? 0), 0);
+    // Tutto `src/`, ricorsivo (revisione del lotto 0, M4): un rifiuto in un servizio conta come in una rotta.
+    const sources = (readdirSync(here, { recursive: true }) as string[]).filter(
+      (f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && f !== join("auth", "access.ts"),
+    );
+    const calls = sources.reduce((n, f) => n + (readFileSync(join(here, f), "utf8").match(/requireBrowserOrConfirmedDesktop\(/g)?.length ?? 0), 0);
     expect(calls).toBe(HANDLER_PAT_REFUSALS.length);
+  });
+
+  it("una rotta che legge un file, se è un'azione, ha un tool curato (elenco chiuso, contato sul sorgente)", async () => {
+    const routes = new Map((await registered()).map((r) => [r.key, r]));
+    const sources = (readdirSync(here, { recursive: true }) as string[]).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"));
+    const reads = sources.reduce((n, f) => n + (readFileSync(join(here, f), "utf8").match(/\brequest\.file\(/g)?.length ?? 0), 0);
+    expect(reads).toBe(MULTIPART_ROUTES.length);
+    const wrong = MULTIPART_ROUTES.filter((key) => {
+      const r = routes.get(key);
+      if (!r) return true;
+      const mcp = mcpOf(r);
+      return isMcpAction(mcp) && mcp.tool === undefined;
+    });
+    expect(wrong).toEqual([]);
   });
 
   it("una voce con `tool` nomina un tool che il pacchetto MCP ha", async () => {
@@ -163,7 +193,8 @@ describe("parità MCP: ogni rotta dichiara config.mcp", () => {
     const names = new Set(
       readdirSync(toolsDir)
         .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
-        .flatMap((f) => [...readFileSync(join(toolsDir, f), "utf8").matchAll(/\bname: "([a-z_]+)"/g)].map((m) => m[1]!)),
+        // Il `name` di un ToolDef: due spazi, a inizio riga (revisione del lotto 0, M7).
+        .flatMap((f) => [...readFileSync(join(toolsDir, f), "utf8").matchAll(/^ {2}name: "([a-z_]+)",$/gm)].map((m) => m[1]!)),
     );
     expect(names.size).toBeGreaterThan(20);
     const unknown = (await registered()).flatMap((r) => {

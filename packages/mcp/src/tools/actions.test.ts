@@ -21,6 +21,7 @@ const CATALOG: CatalogAction[] = [
   entry({ action: "tasks.update", method: "PATCH", path: "/api/tasks/:ticketId", area: "tasks", summary: "Modifica una task: stato, assegnatario, settimana.", effect: "write" }),
   entry({ action: "tickets.approvePlan", method: "POST", path: "/api/tickets/:id/approve-plan", area: "tickets", summary: "Approva il piano.", effect: "write", tool: "approve_plan" }),
   entry({ action: "me.mail.send", method: "POST", path: "/api/me/mail/drafts/:id/send", area: "me", summary: "Invia una bozza di posta.", effect: "destructive" }),
+  entry({ action: "attachments.download", path: "/api/attachments/:attachmentId/download", area: "attachments", summary: "Scarica un allegato.", tool: "download_file" }),
 ];
 
 function tool(name: string): ToolDef {
@@ -61,7 +62,7 @@ describe("find_actions", () => {
   it("l'area restringe, e senza risultati lo dice con quante voci ci sono", async () => {
     const ctx = ctxWith({ getCatalog: vi.fn().mockResolvedValue(CATALOG) });
     const r = await tool("find_actions").handler({ query: "task", area: "me" }, ctx);
-    expect(text(r)).toBe("Nessuna azione trovata per «task» nell'area me (4 voci nel catalogo). Prova con altre parole o senza l'area.");
+    expect(text(r)).toBe("Nessuna azione trovata per «task» nell'area me (5 voci nel catalogo). Prova con altre parole o senza l'area.");
   });
 
   it(`al massimo ${FIND_ACTIONS_LIMIT} voci`, async () => {
@@ -75,6 +76,18 @@ describe("find_actions", () => {
     const r = await tool("find_actions").handler({ query: "task" }, ctxWith({ getCatalog }));
     expect(r.isError).toBe(true);
     expect(text(r)).toContain("va aggiornata");
+  });
+
+  it("una parola sotto le tre lettere vale solo intera, e «pr» è anche «pull» (segnalazione di 94, lotto 2)", async () => {
+    const catalog = [
+      entry({ action: "decisions.record", method: "POST", path: "/api/projects/:projectId/decisions", area: "projects", summary: "Registra una decisione del progetto.", effect: "write" }),
+      entry({ action: "changeLog.project", path: "/api/projects/:projectId/change-log", area: "projects", summary: "Il registro delle modifiche di un progetto." }),
+      entry({ action: "pulls.requestCorrection", method: "POST", path: "/api/repositories/:repositoryId/pulls/:prNumber/corrections", area: "repositories", summary: "Chiede una correzione di una PR aperta da Stubwise.", effect: "write" }),
+    ];
+    const r = await tool("find_actions").handler({ query: "chiedi una correzione della PR" }, ctxWith({ getCatalog: vi.fn().mockResolvedValue(catalog) }));
+    expect(text(r).split("\n")[1]).toContain("pulls.requestCorrection");
+    expect(scoreAction(catalog[0]!, ["pr"])).toBe(0);
+    expect(scoreAction(catalog[2]!, ["pr"])).toBe(3);
   });
 
   it("il punteggio: azione o area 3, percorso 2, sommario 1, nulla 0", () => {
@@ -104,6 +117,35 @@ describe("describe_action", () => {
 });
 
 describe("read_action", () => {
+  it("una lettura con tool dedicato (un download) non passa di qui; describe_action lo dice prima del GET", async () => {
+    const callAction = vi.fn();
+    const r = await tool("read_action").handler({ action: "attachments.download", params: { attachmentId: "a1" } }, ctxWith({ getCatalog: vi.fn().mockResolvedValue(CATALOG), callAction }));
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("`download_file`");
+    expect(callAction).not.toHaveBeenCalled();
+    const describeAction = vi.fn().mockResolvedValue({ ...CATALOG[4], input: { bodyKind: "none" } });
+    const d = await tool("describe_action").handler({ action: "attachments.download" }, ctxWith({ describeAction }));
+    expect(text(d).trim().endsWith("Si chiama col tool `download_file`.")).toBe(true);
+  });
+
+  it("un'azione che il catalogo in cache non ha: lo rilegge UNA volta (il server può essere stato aggiornato)", async () => {
+    const fresh = entry({ action: "tasks.fresh", path: "/api/tasks/fresh", area: "tasks" });
+    const getCatalog = vi.fn().mockResolvedValueOnce(CATALOG).mockResolvedValueOnce([...CATALOG, fresh]);
+    const invalidateCatalog = vi.fn();
+    const callAction = vi.fn().mockResolvedValue({ status: 200, data: { ok: true } });
+    const r = await tool("read_action").handler({ action: "tasks.fresh" }, ctxWith({ getCatalog, invalidateCatalog, callAction }));
+    expect(r.isError).toBeUndefined();
+    expect(invalidateCatalog).toHaveBeenCalledTimes(1);
+    expect(getCatalog).toHaveBeenCalledTimes(2);
+    expect(callAction).toHaveBeenCalledWith(fresh, {});
+  });
+
+  it("il JSON è compatto prima del taglio (più contenuto nei 30.000 caratteri)", async () => {
+    const data = { a: [1, 2], b: { c: "d" } };
+    const ctx = ctxWith({ getCatalog: vi.fn().mockResolvedValue(CATALOG), callAction: vi.fn().mockResolvedValue({ status: 200, data }) });
+    expect(text(await tool("read_action").handler({ action: "tasks.list" }, ctx))).toBe(JSON.stringify(data));
+  });
+
   it("chiama la voce GET e restituisce il JSON", async () => {
     const callAction = vi.fn().mockResolvedValue({ status: 200, data: [{ code: "ACQ-1" }] });
     const ctx = ctxWith({ getCatalog: vi.fn().mockResolvedValue(CATALOG), callAction });
@@ -129,7 +171,9 @@ describe("read_action", () => {
   });
 
   it("un'azione che non c'è nel catalogo: lo dice", async () => {
-    const r = await tool("read_action").handler({ action: "boh.no" }, ctxWith({ getCatalog: vi.fn().mockResolvedValue(CATALOG) }));
+    const getCatalog = vi.fn().mockResolvedValue(CATALOG);
+    const r = await tool("read_action").handler({ action: "boh.no" }, ctxWith({ getCatalog, invalidateCatalog: vi.fn() }));
+    expect(getCatalog).toHaveBeenCalledTimes(2);
     expect(r.isError).toBe(true);
     expect(text(r)).toContain("non è nel catalogo");
   });

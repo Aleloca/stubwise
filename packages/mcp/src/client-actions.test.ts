@@ -27,6 +27,14 @@ const ENTRY = {
   access: "project:tickets.edit",
 };
 
+describe("x-stubwise-client", () => {
+  it("anche le chiamate dei tool curati dicono che arrivano da Claude Code (D4: «via Claude Code»)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ user: { id: "u1", email: "a@b.c", role: "member" } }));
+    await makeClient(fetchMock).getMe();
+    expect(fetchMock.mock.calls[0]![1].headers["x-stubwise-client"]).toBe("claude-code");
+  });
+});
+
 describe("getCatalog", () => {
   it("legge il catalogo UNA volta per processo", async () => {
     const fetchMock = vi.fn().mockImplementation(async () => jsonResponse({ actions: [ENTRY] }));
@@ -59,7 +67,8 @@ describe("callAction", () => {
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe("https://stubwise.example.com/api/tasks/a%2Fb?tag=x&tag=y&dry=true");
     expect(init.method).toBe("PATCH");
-    expect(init.headers).toEqual({ authorization: "Bearer stw_pat_secret", "content-type": "application/json" });
+    // D4 della parità MCP: ogni richiesta dice che arriva da Claude Code.
+    expect(init.headers).toEqual({ authorization: "Bearer stw_pat_secret", "x-stubwise-client": "claude-code", "content-type": "application/json" });
     expect(init.body).toBe(JSON.stringify({ title: "Nuovo" }));
   });
 
@@ -69,6 +78,36 @@ describe("callAction", () => {
     expect((err as StubwiseApiError).code).toBe("missing_params");
     expect((err as StubwiseApiError).message).toContain("ticketId");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([".", "..", " .. ", "%2e%2e", "%2E", ".%2e"])("un parametro «%s» (un segmento che sale o resta) è rifiutato, senza chiamare il server", async (bad) => {
+    const fetchMock = vi.fn();
+    const err = (await makeClient(fetchMock)
+      .callAction({ method: "GET", path: "/api/tickets/:id/comments" }, { params: { id: bad } })
+      .catch((e: unknown) => e)) as StubwiseApiError;
+    expect(err).toBeInstanceOf(StubwiseApiError);
+    expect(err.code).toBe("invalid_params");
+    // Il primo controllo, sul parametro: la difesa sull'URL ha un altro messaggio.
+    expect(err.message).toContain("«.» o «..»");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("difesa: l'URL normalizzato deve restare sotto il prefisso della voce e avere i suoi segmenti", async () => {
+    // Un fetch che passa da `new URL()`, come quello di Node: normalizza `..`.
+    const seen: string[] = [];
+    const fetchMock = vi.fn(async (url: string) => {
+      seen.push(new URL(url).pathname);
+      return jsonResponse({ ok: true });
+    });
+    const client = new StubwiseClient({ ...CONFIG, baseUrl: "https://stubwise.example.com/sw" }, { fetch: fetchMock as unknown as typeof fetch });
+    // Un valore normale passa, anche con un baseUrl che ha un percorso.
+    await client.callAction({ method: "GET", path: "/api/tickets/:id/comments" }, { params: { id: "t-1" } });
+    expect(seen).toEqual(["/sw/api/tickets/t-1/comments"]);
+    // Un percorso del catalogo che già sale (una voce sbagliata) non parte.
+    const err = (await client.callAction({ method: "GET", path: "/api/tickets/../vault/status" }).catch((e: unknown) => e)) as StubwiseApiError;
+    expect(err.code).toBe("invalid_params");
+    expect(err.message).toContain("esce dalla voce");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("un 204 non ha corpo", async () => {
@@ -84,6 +123,13 @@ describe("callAction", () => {
     expect(err.status).toBe(409);
     expect(err.code).toBe("already_handled");
     expect(err.message).toBe('HTTP 409 already_handled: Someone already decided this proposal {"decidedBy":{"name":"Ada"}}');
+  });
+
+  it("i campi in più di un errore hanno un tetto", async () => {
+    const client = makeClient(vi.fn().mockResolvedValue(jsonResponse({ code: "conflict", message: "no", detail: "x".repeat(10_000) }, 409)));
+    const err = (await client.callAction({ method: "POST", path: "/api/x" }).catch((e: unknown) => e)) as StubwiseApiError;
+    expect(err.message.length).toBeLessThan(2_200);
+    expect(err.message).toContain("[…]");
   });
 
   it("un 403 dice il code del server, non solo «permessi insufficienti»", async () => {

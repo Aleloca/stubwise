@@ -147,6 +147,7 @@ const ENTRY_COLUMNS = {
   data: changeLog.data,
   viaClaudeActionId: changeLog.viaClaudeActionId,
   undoOfActionId: changeLog.undoOfActionId,
+  viaClient: changeLog.viaClient,
 };
 
 export async function listChanges(db: Db, viewer: Viewer, filter: ChangeLogFilter): Promise<ChangeLogPage> {
@@ -216,6 +217,8 @@ export async function listChanges(db: Db, viewer: Viewer, filter: ChangeLogFilte
       projectArchived: r.projectArchivedAt !== null,
       // Area 9, F7 (0195): «By Claude». L'id dell'azione non esce.
       via: r.viaClaudeActionId !== null ? "claude" : null,
+      // D4 della parità MCP (0237): «via Claude Code».
+      viaClaudeCode: r.viaClient === "claude_code",
       undoOf: undone.get(r.id)?.id ?? null,
     };
   };

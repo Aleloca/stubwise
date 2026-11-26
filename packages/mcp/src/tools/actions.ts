@@ -23,7 +23,9 @@ export const FIND_ACTIONS_LIMIT = 15;
 
 /** Le parole che in una ricerca non dicono niente («sposta UNA task DEL progetto»). */
 const STOPWORDS = new Set(
-  "il lo la le gli un una uno di da in con su per tra fra che del dello della dei degli delle al allo alla ai agli alle dal dalla nel nella sul sulla mi ti si ci the of to and or".split(" "),
+  "il lo la le gli un una uno di da in con su per tra fra che del dello della dei degli delle al allo alla ai agli alle dal dalla nel nella sul sulla mi ti si ci the of to and or".split(
+    " ",
+  ),
 );
 
 /** Le parole di una ricerca: minuscole, senza accenti, di almeno due lettere, senza le parole vuote. */
@@ -31,23 +33,33 @@ function words(text: string): string[] {
   return text
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .split(/[^a-z0-9]+/)
     .filter((w) => w.length >= 2 && !STOPWORDS.has(w));
 }
 
 /**
+ * Le sigle che le persone usano e i percorsi no: «PR» è `pulls` (segnalazione
+ * di 94, lotto 2). La sigla resta anche com'è.
+ */
+const SYNONYMS: Readonly<Record<string, readonly string[]>> = { pr: ["pull"], mr: ["pull"] };
+
+/**
  * Il punteggio di una voce per una ricerca: una parola che sta nell'azione o
  * nell'area vale 3, nel percorso 2, nel sommario 1 (anche come prefisso:
- * «task» trova «tasks»). Zero = la voce non c'entra.
+ * «task» trova «tasks»). Una parola sotto le tre lettere vale solo INTERA:
+ * come prefisso «pr» troverebbe ogni rotta di `projects`. Zero = la voce non
+ * c'entra.
  */
 export function scoreAction(entry: CatalogAction, query: string[]): number {
   const action = words(entry.action.replace(/([a-z])([A-Z])/g, "$1 $2"));
   const area = words(entry.area);
   const path = words(entry.path);
   const summary = words(entry.summary);
+  const matches = (x: string, w: string) =>
+    x === w || (w.length >= 3 && (x.startsWith(w) || (w.startsWith(x) && x.length >= 4)));
   const hit = (list: string[], w: string) =>
-    list.some((x) => x === w || x.startsWith(w) || (w.startsWith(x) && x.length >= 4));
+    [w, ...(SYNONYMS[w] ?? [])].some((v) => list.some((x) => matches(x, v)));
   let score = 0;
   for (const w of query) {
     if (hit(action, w) || hit(area, w)) score += 3;
@@ -74,7 +86,12 @@ async function findEntry(
   ctx: Parameters<ToolDef["handler"]>[1],
   action: string,
 ): Promise<{ entry: CatalogAction } | { error: ToolResult }> {
-  const entry = (await ctx.client.getCatalog()).find((e) => e.action === action);
+  let entry = (await ctx.client.getCatalog()).find((e) => e.action === action);
+  if (!entry) {
+    // Il catalogo in cache può essere di prima di un aggiornamento del server: lo si rilegge UNA volta.
+    ctx.client.invalidateCatalog();
+    entry = (await ctx.client.getCatalog()).find((e) => e.action === action);
+  }
   if (entry) return { entry };
   return {
     error: errorResult(
@@ -163,11 +180,12 @@ const describeAction: ToolDef = {
       if (d.input.bodyKind === "multipart")
         parts.push("Il corpo è un file (multipart): non si manda con write_action.");
       if (!d.input.params && !d.input.query && !d.input.body) parts.push("Nessun parametro.");
+      // Il tool dedicato PRIMA del metodo: un download è un GET col suo tool.
       parts.push(
-        d.method === "GET"
-          ? "Si chiama con read_action."
-          : d.tool
-            ? `Si chiama col tool \`${d.tool}\`.`
+        d.tool
+          ? `Si chiama col tool \`${d.tool}\`.`
+          : d.method === "GET"
+            ? "Si chiama con read_action."
             : "Si chiama con write_action.",
       );
       return textResult(capped(parts.join("\n\n")));
@@ -207,12 +225,14 @@ const readAction: ToolDef = {
         return errorResult(
           `«${entry.action}» è una scrittura (${entry.method}): si chiama con write_action.`,
         );
+      if (entry.tool)
+        return errorResult(`«${entry.action}» ha un tool dedicato: usa \`${entry.tool}\`.`);
       const res = await ctx.client.callAction(entry, sendInput(args));
       return textResult(
         capped(
           res.data === undefined
             ? `Fatto (HTTP ${res.status}), nessun contenuto.`
-            : JSON.stringify(res.data, null, 2),
+            : JSON.stringify(res.data),
         ),
       );
     }),
@@ -240,11 +260,7 @@ const writeAction: ToolDef = {
         return errorResult(`«${entry.action}» ha un tool dedicato: usa \`${entry.tool}\`.`);
       const res = await ctx.client.callAction(entry, sendInput(args));
       return textResult(
-        capped(
-          res.data === undefined
-            ? `Fatto (HTTP ${res.status}).`
-            : JSON.stringify(res.data, null, 2),
-        ),
+        capped(res.data === undefined ? `Fatto (HTTP ${res.status}).` : JSON.stringify(res.data)),
       );
     }),
 };

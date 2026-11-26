@@ -1,9 +1,9 @@
 import type { Db } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, RouteOptions } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { catalogInput, openApiPath, visibleEntries, type CatalogEntry } from "../mcp/catalog.js";
+import { catalogEntries, catalogInput, openApiPath, visibleEntries, type CatalogEntry } from "../mcp/catalog.js";
 import { createUserWithPat } from "../test/fixtures.js";
 
 /**
@@ -44,9 +44,8 @@ describe("GET /api/mcp/catalog", () => {
       access: "user",
     });
     expect(actions.map((a) => a.action)).toEqual(expect.arrayContaining(["me.get", "mcp.catalog", "mcp.describe"]));
-    // In ordine di azione, e nessuna rotta esclusa (la riconferma, la cassaforte).
+    // In ordine di azione (il filtro delle rotte escluse lo prova «il catalogo, le funzioni»).
     expect(actions.map((a) => a.action)).toEqual([...actions.map((a) => a.action as string)].sort((x, y) => x.localeCompare(y)));
-    expect(actions.some((a) => a.path === "/api/pats" && a.method === "POST")).toBe(false);
     expect(actions.every((a) => !("instancePermission" in a) && !("input" in a))).toBe(true);
   });
 
@@ -81,6 +80,15 @@ describe("il catalogo, le funzioni", () => {
     effect: "read",
     access: "user",
     ...over,
+  });
+
+  it("una rotta esclusa dal registro non entra nel catalogo, anche se dichiara un'azione (difesa in profondità)", () => {
+    const action = (extra: Record<string, unknown>) =>
+      ({ method: "POST", url: "/api/x", config: { access: { kind: "user" }, mcp: { action: "x.do", summary: "Una voce di prova.", effect: "write" }, ...extra } }) as unknown as RouteOptions;
+    expect(catalogEntries([action({})]).map((e) => e.action)).toEqual(["x.do"]);
+    expect(catalogEntries([action({ reauth: true })])).toEqual([]);
+    expect(catalogEntries([action({ browserOnly: true })])).toEqual([]);
+    expect(catalogEntries([action({ credentialDoor: true })])).toEqual([]);
   });
 
   it("le voci `instance` senza il permesso non si vedono; le altre sì", () => {

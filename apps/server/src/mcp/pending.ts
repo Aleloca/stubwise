@@ -5,6 +5,12 @@
  * dichiarata, se la esclude il registro o se non esiste più, e se una rotta
  * nuova non dichiara `config.mcp`. Sparisce all'ultimo lotto.
  */
+/**
+ * Il tetto di `PENDING_MCP`: si abbassa SOLTANTO, a ogni lotto, fino a zero.
+ * Senza, una rotta nuova si accoderebbe all'elenco e il test passerebbe.
+ */
+export const PENDING_MCP_MAX = 591;
+
 export const PENDING_MCP: readonly string[] = [
   "DELETE /api/admin/invites/:id",
   "DELETE /api/attachments/:attachmentId",

@@ -231,7 +231,7 @@ export type RouteMcp =
 
 // Si dichiarano (elenco chiuso):
 export type DeclaredMcpExclusion =
-  | "vault"            // eccezione 1: una rotta di /api/vault o delle credenziali che il PAT passa ma che tocca materiale cifrato
+  | "vault"            // eccezione 1: una rotta di /api/vault o delle credenziali che il PAT passa ma che dà o scrive materiale cifrato (vedi «La cassaforte, quando si dichiara»)
   | "login"            // una rotta pubblica di /api/auth (setup, inviti, reset, logout)
   | "inbound"          // public con la sua autenticazione: webhook in ingresso, widget, agente di monitoraggio, Slack, callback OAuth
   | "infra"            // public d'infrastruttura: /health, la spec OpenAPI (elenco chiuso)
@@ -306,7 +306,10 @@ catalogo a fine lavori (§ 4, lotto 7): ogni azione dell'app deve trovarsi con
 **La transizione.** Fino all'ultimo lotto il test ha un elenco chiuso
 `PENDING_MCP` delle rotte non ancora dichiarate, che si può solo
 accorciare: il test fallisce anche se una rotta dell'elenco ha già
-`config.mcp`, o se una rotta NUOVA non ce l'ha. È la forma che ha chiuso la
+`config.mcp`, o se una rotta NUOVA non ce l'ha. Accanto all'elenco c'è
+`PENDING_MCP_MAX`, un tetto che si abbassa soltanto, a ogni lotto: senza, una
+rotta nuova si accoderebbe all'elenco e il test passerebbe (revisione del
+lotto 0, I2). È la forma che ha chiuso la
 transizione di `config.access` il 22 ott 2026. All'ultimo lotto l'elenco
 sparisce.
 
@@ -562,3 +565,14 @@ della prima versione di questo design.
   entrano nel catalogo finché esistono, senza un'esclusione «legacy».
 - **D7 — Inviare posta** (maintainer): è un'azione come le altre, se il PAT
   ha il permesso.
+- **La cassaforte, quando si dichiara** (46, dopo la revisione del lotto 0).
+  La scelta del maintainer è «dalla cassaforte l'MCP può vedere nomi e
+  lettori, ma non le password». Il criterio per ogni rotta è uno solo:
+  **nessun byte cifrato né chiave arriva all'MCP, e l'MCP non ne scrive**.
+  - Diventano azioni di LETTURA, se il PAT oggi le passa: l'elenco delle
+    credenziali, il dettaglio senza busta, i lettori, il registro.
+  - Restano `exclude: "vault"`, o già escluse dalla flag:
+    - le rotte che restituiscono buste o materiale cifrato (`/reveal`,
+      `pending` con le `wrappedKey`, i sigilli);
+    - quelle che scrivono cifrati (creare una credenziale, sostituire la
+      password).

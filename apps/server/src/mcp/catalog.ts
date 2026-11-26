@@ -1,6 +1,6 @@
 import type { RouteOptions } from "fastify";
 import type { RouteAccess } from "../auth/access.js";
-import { isMcpAction, type RouteMcpAction } from "./route-mcp.js";
+import { impliedMcpExclusion, isMcpAction, type RouteMcpAction } from "./route-mcp.js";
 
 /**
  * Il catalogo delle azioni che `@stubwise/mcp` chiama col PAT (design
@@ -70,6 +70,23 @@ export function catalogEntries(routes: readonly RouteOptions[]): CatalogEntry[] 
   for (const route of routes) {
     const mcp = route.config?.mcp;
     if (!isMcpAction(mcp)) continue;
+    // Difesa in profondità (revisione del lotto 0, M5): una rotta che il PAT
+    // non passa non entra, anche se per errore dichiarasse un'azione (il test
+    // di parità la fa già fallire).
+    const c = route.config ?? {};
+    if (
+      impliedMcpExclusion({
+        accessKind: c.access?.kind,
+        reauth: c.reauth,
+        browserOnly: c.browserOnly,
+        desktopVault: c.desktopVault,
+        desktopOnly: c.desktopOnly,
+        desktopRead: c.desktopRead,
+        credentialDoor: c.credentialDoor,
+      }) !== null
+    ) {
+      continue;
+    }
     const methods = (Array.isArray(route.method) ? route.method : [route.method]).filter((m) => m !== "HEAD" && m !== "OPTIONS");
     for (const method of methods) {
       const path = normalizeUrl(route.url);

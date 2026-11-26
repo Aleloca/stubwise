@@ -283,6 +283,12 @@ export const taskActivityEntryViewSchema = z.object({
   decisionRequestId: z.string().optional(),
   /** «via Claude» (chat, fetta 3) di un commento o di un cambio di campo: derivato a lettura, additivo. */
   ...viaClaudeShape,
+  /**
+   * D4 della parità MCP (0237): l'autore l'ha fatto da Claude Code, col suo
+   * PAT («via Claude Code»). Additivo: false per le voci di prima e da un
+   * server più vecchio.
+   */
+  viaClaudeCode: z.boolean().default(false),
 });
 export type TaskActivityEntryView = z.infer<typeof taskActivityEntryViewSchema>;
 
