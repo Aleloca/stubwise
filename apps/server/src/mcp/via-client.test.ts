@@ -123,6 +123,19 @@ describe("«via Claude Code» nella storia della task e nel registro", () => {
     expect(patched.json()).toMatchObject({ decision: "Forse", viaClaudeCode: true });
   });
 
+  it("una voce di Alice modificata da Bob da Claude Code NON diventa «Alice via Claude Code» (revisione del lotto 1, I4)", async () => {
+    const [bob] = await db.insert(users).values({ email: `bob-${randomUUID().slice(0, 6)}@acme.com`, passwordHash: "x", role: "member" }).returning({ id: users.id });
+    await addMember(app, projectId, bob!.id, "project_lead");
+    const token = generatePat();
+    await db.insert(personalAccessTokens).values({ userId: bob!.id, name: "bob", tokenHash: hashServerKey(token), kind: "manual" });
+    const alice = await app.inject({ method: "POST", url: `/api/projects/${projectId}/decisions`, headers: { cookie }, payload: { title: "Di Alice", decision: "A" } });
+    expect(alice.statusCode, alice.body).toBe(201);
+    const id = (alice.json() as { id: string }).id;
+    const patched = await app.inject({ method: "PATCH", url: `/api/projects/${projectId}/decisions/${id}`, headers: { authorization: `Bearer ${token}`, ...MCP }, payload: { decision: "B" } });
+    expect(patched.statusCode, patched.body).toBe(200);
+    expect(patched.json()).toMatchObject({ decision: "B", decidedBy: { id: userId }, viaClaudeCode: false });
+  });
+
   it("una voce del registro dall'MCP porta il segno, e la lettura del registro lo dice", async () => {
     const res = await app.inject({ method: "POST", url: `/api/projects/${projectId}/queue/pause`, headers: { authorization: auth.manual, ...MCP } });
     expect(res.statusCode, res.body).toBe(204);
@@ -186,6 +199,14 @@ describe("revisione della D4", () => {
       for (const m of text.matchAll(/([A-Za-z_$][\w$.]*)\s*\.insert\((comments|ticketEvents|decisionRequests|projectDecisions)\)/g)) {
         const receiver = m[1]!.split(".").pop()!;
         if (receiver !== "tx") offenders.push(`${f}: ${m[1]}.insert(${m[2]})`);
+      }
+    }
+    // Gli helper di package che inseriscono per conto loro (revisione del lotto 1, M7):
+    // anche loro ricevono un `tx`.
+    for (const f of files) {
+      const text = readFileSync(join(src, f), "utf8");
+      for (const m of text.matchAll(/\b(recordTicketStatusChange|recordDecision)\(\s*([A-Za-z_$][\w$.]*)/g)) {
+        if (m[2]!.split(".").pop() !== "tx") offenders.push(`${f}: ${m[1]}(${m[2]})`);
       }
     }
     // Il commento di un webhook in ingresso: nessuna richiesta dell'MCP passa di lì.

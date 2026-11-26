@@ -9,7 +9,7 @@
  * Il tetto di `PENDING_MCP`: si abbassa SOLTANTO, a ogni lotto, fino a zero.
  * Senza, una rotta nuova si accoderebbe all'elenco e il test passerebbe.
  */
-export const PENDING_MCP_MAX = 504;
+export const PENDING_MCP_MAX = 502;
 
 export const PENDING_MCP: readonly string[] = [
   "DELETE /api/attachments/:attachmentId",
@@ -104,7 +104,6 @@ export const PENDING_MCP: readonly string[] = [
   "GET /api/claude/conversations/status",
   "GET /api/claude/suggestions",
   "GET /api/credentials/:id/recipients",
-  "GET /api/decisions",
   "GET /api/departments/:departmentId/home",
   "GET /api/docs/codes/:code",
   "GET /api/docs/spaces",
@@ -479,7 +478,6 @@ export const PENDING_MCP: readonly string[] = [
   "POST /api/tickets/:id/links",
   "POST /api/tickets/:id/repositories/:repositoryId/adoption",
   "POST /api/tickets/:id/repositories/:repositoryId/corrections",
-  "POST /api/tickets/:id/run-ai",
   "POST /api/tickets/:ticketId/attachments",
   "POST /api/tickets/:ticketId/comments",
   "PUT /api/automation-sources/:id/example",

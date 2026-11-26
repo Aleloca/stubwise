@@ -44,7 +44,7 @@ export const SERVER_INSTRUCTIONS = `Stubwise è il sistema in cui il team tiene 
 3. **Comportamento previsto** → spiega la regola in parole semplici e chiedi «è questo che intendevi, o ti serve altro?». Se basta la spiegazione, fine: non si apre niente. Se all'utente serve qualcosa di diverso → **richiesta** che dice cosa gli servirebbe, perché quello che c'è non va, e la regola attuale con cui si scontra.
 4. **Difetto vero** → **bug**, con passi, risultato atteso, risultato ottenuto, dove e da quando.
 5. **Funzionalità nuova** non coperta dalla documentazione → **richiesta** con problema, contesto, come se la cava oggi.
-6. **Prima di aprire** mostra la bozza (titolo e testo) e chiedi conferma. Nella bozza non inventare dettagli che l'utente non ha dato: una sezione su cui non è emerso nulla si omette.
+6. **Prima di aprire** mostra la bozza (titolo e testo) e chiedi conferma. Nella bozza non inventare dettagli che l'utente non ha dato: una sezione su cui non è emerso nulla si omette. (È un'eccezione voluta alla regola «annuncia e fai» delle cose dell'app, sotto: una segnalazione la scrivete insieme, e la conferma serve a controllarne il testo.)
 
 ### Come aprire
 - **Bug**: \`create_ticket\` con \`type: "bug"\`. Il testo, in markdown con etichette in grassetto: **Problema**, **Passi per riprodurlo**, **Cosa mi aspettavo**, **Cosa è successo**, **Dove e da quando**.

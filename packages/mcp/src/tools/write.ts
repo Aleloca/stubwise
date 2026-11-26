@@ -128,12 +128,19 @@ const runTicketInput = {
     .describe(
       "Forza triage + pianificazione AI anche se il ticket ha già un piano salvato. Omettilo per eseguire il piano salvato.",
     ),
+  resume_correction_job_id: z
+    .string()
+    .uuid()
+    .optional()
+    .describe(
+      "Solo per RIPRENDERE una correzione ferma (budget, limite del provider): l'id del suo job, quello della card job.held in list_inbox. Con questo il server riprende QUELLA correzione, o risponde che non è più riprendibile; senza, decide dallo stato del momento.",
+    ),
 };
 
 const runTicket: ToolDef = {
   name: "run_ticket",
   description:
-    "Avvia l'esecuzione del ticket sul worker Stubwise (POST run-ai). Con un piano salvato (set_plan) il worker esegue direttamente quel piano; se il tuo utente è operatore il job attende l'approvazione di un maintainer prima di eseguire. Usa mode 'ai_plan' per forzare triage+pianificazione anche con piano salvato. Se il run PIANIFICA (nessun piano salvato, o mode 'ai_plan'), l'agente può fermarsi con una DOMANDA a scelta multipla: si risponde con answer_agent_question (o dall'app), e la pianificazione riprende da sola — non rilanciare run_ticket. NON serve a correggere una PR già aperta da Stubwise: ripartirebbe dal branch di default senza aggiornarla. Una PR aperta si corregge dal bottone 'Chiedi modifiche' sotto la PR, su Stubwise (web o app), oppure con il 'Request changes' della revisione sulla piattaforma (Bitbucket/GitHub), e la review AI, se chiede modifiche, ne avvia da sola un numero limitato; da qui si chiede con l'azione della correzione (find_actions «correzione»), mai con run_ticket. Con una correzione ferma (budget, limite del provider) non rilanciare run_ticket alla cieca: questo tool non dice QUALE correzione riprendere, quindi il server decide dallo stato del momento — riprende la correzione se è ancora l'ultimo job, ma se nel frattempo è stata annullata o chiusa avvia un fix nuovo dal branch di default. Si riprende col bottone 'Riprendi la correzione' sul ticket o con la sua azione (find_actions «riprendi correzione»); a budget esaurito la riprende solo un maintainer. Sui ticket di tipo review (la review di una PR aperta da una persona o da un altro strumento) run_ticket è RIFIUTATO (409 review_ticket_not_runnable): un fix ripartirebbe dal branch di default senza toccare quella PR. Per far correggere a Stubwise una PR aperta da altri, un maintainer la ADOTTA dal ticket di review, su Stubwise (web o app), col bottone 'Fai correggere a Stubwise' o con la sua azione (find_actions «adotta»); da lì le correzioni seguono il ciclo solito.",
+    "Avvia l'esecuzione del ticket sul worker Stubwise (POST run-ai). Con un piano salvato (set_plan) il worker esegue direttamente quel piano; se il tuo utente è operatore il job attende l'approvazione di un maintainer prima di eseguire. Usa mode 'ai_plan' per forzare triage+pianificazione anche con piano salvato. Se il run PIANIFICA (nessun piano salvato, o mode 'ai_plan'), l'agente può fermarsi con una DOMANDA a scelta multipla: si risponde con answer_agent_question (o dall'app), e la pianificazione riprende da sola — non rilanciare run_ticket. NON serve a correggere una PR già aperta da Stubwise: ripartirebbe dal branch di default senza aggiornarla. Una PR aperta si corregge dal bottone 'Chiedi modifiche' sotto la PR, su Stubwise (web o app), oppure con il 'Request changes' della revisione sulla piattaforma (Bitbucket/GitHub), e la review AI, se chiede modifiche, ne avvia da sola un numero limitato; da qui si chiede con l'azione della correzione (find_actions «correzione»), mai con run_ticket. Con una correzione ferma (budget, limite del provider) non rilanciare run_ticket alla cieca: questo tool non dice QUALE correzione riprendere, quindi il server decide dallo stato del momento — riprende la correzione se è ancora l'ultimo job, ma se nel frattempo è stata annullata o chiusa avvia un fix nuovo dal branch di default. Si riprende col bottone 'Riprendi la correzione' sul ticket o da qui con run_ticket e resume_correction_job_id (l'id del job della correzione, dalla card job.held di list_inbox): così il server riprende QUELLA correzione e non avvia un fix nuovo; a budget esaurito la riprende solo un maintainer. Sui ticket di tipo review (la review di una PR aperta da una persona o da un altro strumento) run_ticket è RIFIUTATO (409 review_ticket_not_runnable): un fix ripartirebbe dal branch di default senza toccare quella PR. Per far correggere a Stubwise una PR aperta da altri, un maintainer la ADOTTA dal ticket di review, su Stubwise (web o app), col bottone 'Fai correggere a Stubwise' o con la sua azione (find_actions «adotta»); da lì le correzioni seguono il ciclo solito.",
   inputSchema: runTicketInput,
   handler: (args, ctx): Promise<ToolResult> =>
     runTool(async () => {
@@ -142,7 +149,10 @@ const runTicket: ToolDef = {
 
       let result: Awaited<ReturnType<typeof ctx.client.runTicket>>;
       try {
-        result = await ctx.client.runTicket(id, { mode: args.mode as "ai_plan" | undefined });
+        result = await ctx.client.runTicket(id, {
+          ...(args.mode ? { mode: args.mode as "ai_plan" } : {}),
+          ...(args.resume_correction_job_id ? { resumeCorrectionJobId: args.resume_correction_job_id as string } : {}),
+        });
       } catch (err) {
         // Il 409 è l'esito ATTESO più frequente (doppio avvio): il messaggio del
         // server porta lo stato del job in volo, ma da solo non dice cosa fare →

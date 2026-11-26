@@ -39,7 +39,7 @@ export async function decisionRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "decisions.list", summary: "Le richieste di decisione fra persone sulle task: quelle fatte a te (askedOfId) o su una task, aperte o tutte, con domanda e opzioni.", effect: "read" }, access: { kind: "user" } },
       schema: {
         querystring: z.object({
           taskId: z.uuid().optional(),

@@ -792,6 +792,19 @@ export const inboxItemSchema = z.object({
    */
   alertMandatory: z.string().nullable().default(null),
   /**
+   * Revisione del lotto 1 della parità MCP (I2): solo sulle card
+   * `decision.requested`, la richiesta di decisione di ADESSO — l'id (scritto
+   * nell'evento alla publish: un fatto), la domanda, le opzioni e se è ancora
+   * aperta, DERIVATI a lettura dalla riga `decision_requests` (le opzioni
+   * l'evento non le porta). Con questi l'MCP risponde
+   * (`answer_decision_request`). `null` per una richiesta che non c'è più.
+   * Additivo: assente sugli altri kind e da un server più vecchio.
+   */
+  decisionRequest: z
+    .object({ decisionId: z.uuid(), question: z.string(), options: z.array(z.string()), open: z.boolean() })
+    .nullable()
+    .optional(),
+  /**
    * Area 8, F4a: solo sulle card `monitor.*`, il codice del server
    * (`SRV-<n>`) per il link dell'app, DERIVATO a lettura dall'id nel link
    * dell'evento (vale anche per le card di prima). `null` per gli altri kind e

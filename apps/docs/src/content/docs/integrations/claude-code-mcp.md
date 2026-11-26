@@ -210,7 +210,7 @@ slug Claude passes after you confirmed it.
 | `list_tickets` | List tickets (filter by status, type, priority, text). |
 | `get_ticket` | Full detail of one ticket. |
 | `list_proposals` | The open [pulse proposals](/docs/notifications/#the-pulse-on-idle-projects) addressed to **you**: idle projects, and the backlog items suggested to restart from. |
-| `list_mail_proposals` | The open proposals born from your mail or calendar, addressed to **you** (only the mailbox owner sees them, never an admin). Read-only: you confirm them from the inbox. |
+| `list_mail_proposals` | The proposals born from your mail, calendar or meetings that wait for **you** (only the mailbox owner sees them, never an admin), with their actions numbered; `decide_mail_proposal` decides one. |
 | `get_project_brief` | The latest [weekly brief](/docs/team/roadmap-briefs-decisions/) of a project, as generated narrative. Empty if the project has none yet. |
 | `list_decisions` | The project's decision log (facts decided by people, never written by AI); superseded decisions are marked. |
 
@@ -277,8 +277,9 @@ you can trigger all of them in plain language.
   way the **maintainers are notified** (inbox card and push, `request.created`)
   when a member opens a bug or request.
 - **Following your requests.** "What are my requests?" calls `my_requests`.
-  Claude cannot change a request's status or nudge it; to add something, open
-  a new report or write to the maintainer.
+  To add something, open a new report or write to the maintainer; changing a
+  request's status works like any other action of the app, if you have the
+  permission.
 
 **Developers**
 
@@ -286,7 +287,8 @@ you can trigger all of them in plain language.
   (open items, by urgency) and summarizes what's worth starting.
 - **"Is anything waiting for me?"** — at the start of a session Claude calls
   `list_proposals` and reports the open pulse proposals addressed to you, with
-  the projects that have gone quiet. You start one from the web app or Slack.
+  the projects that have gone quiet. You start one from here
+  (`decide_pulse_proposal`), from the web app or from Slack.
 - **Design/plan → backlog.** When you write a design or plan for something that
   isn't tracked yet, Claude creates a backlog item with `create_backlog_item` and
   links the local doc's frontmatter to it.
@@ -326,17 +328,17 @@ skips its own triage and planning and goes straight to the change. See
 Runs started by an **operator** (a `member`) always pass through the plan
 approval gate: with a saved plan the job is created already waiting for
 approval; without one it is queued but stops once the plan is ready. A
-**maintainer** (an `admin`) approves — or rejects — from the web app or Slack,
-and the execution then resumes on its own. There is no MCP tool for approving a
-plan, so Claude reports the pending approval and stops there. A maintainer's own
-run needs no approval.
+**maintainer** (whoever has `plans.approve` in the project) approves — or
+rejects — from the web app, Slack, or Claude Code (`approve_plan`,
+`reject_plan`), and the execution then resumes on its own: Claude does not
+re-run the ticket. A maintainer's own run needs no approval.
 :::
 
-:::note[Proposals are read-only from the editor]
-`list_proposals` is there so Claude can *tell you* what is waiting, not so it can
-act on it. There is no MCP tool that starts a proposal — you pick one from the
-inbox card in the web app or from the Slack DM, and Stubwise creates the ticket
-and starts the run (which then waits for plan approval) on its own.
+:::note[Deciding a proposal from the editor]
+`list_proposals` tells you what is waiting, and `decide_pulse_proposal` picks
+one, exactly like the inbox card in the web app or the Slack DM: Stubwise
+creates the ticket and starts the run (which then waits for plan approval) on
+its own.
 
 Two things worth knowing when you read the output: the list is **per recipient**,
 so an empty result means *no proposal reached you*, not that the projects have

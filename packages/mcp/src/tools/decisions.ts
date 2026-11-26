@@ -31,7 +31,24 @@ function refused(err: unknown, what: string): ToolResult {
       `${err.message}\nNon hai il permesso per ${what} in questo progetto (il token ha i permessi del tuo utente): dillo all'utente, senza ritentare né cercare altre strade.`,
     );
   }
-  if (err.status === 409) return errorResult(`${err.message}\nLo stato non lo consente più (forse l'ha già fatto qualcun altro): rileggi prima di riprovare.`);
+  if (err.status === 409) {
+    // Per CODICE (revisione del lotto 1, I5): «già deciso», «il run non è
+    // partito» e «non mergiabile» chiedono tre cose diverse a chi legge.
+    if (err.code === "run_not_started") {
+      const n = err.details.ticketNumber;
+      const id = err.details.ticketId;
+      return errorResult(
+        `${err.message}\nIl ticket${typeof n === "number" ? ` #${n}` : ""} creato${typeof id === "string" ? ` (id ${id})` : ""}, ma il run non è partito: dillo all'utente; si avvia dal ticket (run_ticket), non decidendo di nuovo.`,
+      );
+    }
+    if (err.code === "checks_failed" || err.code === "checks_unreadable" || err.code === "not_mergeable") {
+      return errorResult(`${err.message}\nLa PR non è mergiabile adesso (${err.code}): non ritentare; i controlli e i conflitti si guardano sulla PR o dall'app.`);
+    }
+    if (err.code === "already_handled" || err.code === "already_closed") {
+      return errorResult(`${err.message}\nL'ha già fatto qualcun altro (o è già chiusa): rileggi prima di riprovare.`);
+    }
+    return errorResult(`${err.message}\nLo stato non lo consente più: rileggi prima di riprovare.`);
+  }
   return errorResult(err.message);
 }
 
@@ -171,6 +188,9 @@ const answerDecisionRequest: ToolDef = {
   handler: (args, ctx) => {
     const decisionId = String(args.decision_id);
     if (args.action === "withdraw") {
+      if (args.option_index !== undefined || (typeof args.text === "string" && args.text !== "")) {
+        return Promise.resolve(errorResult("Per ritirare una richiesta non si passa né option_index né text."));
+      }
       return call(ctx, "ritirare questa richiesta", { method: "POST", path: "/api/decisions/:id/withdraw" }, { params: { id: decisionId } }, () => "Richiesta ritirata.");
     }
     const answer = oneAnswer(args);
@@ -190,17 +210,37 @@ const decidePulseProposal: ToolDef = {
     notification_id: id("L'id della card (notifica) della proposta."),
     option_index: z.number().int().nonnegative().describe("L'indice della proposta scelta, da 0."),
   },
-  handler: (args, ctx) =>
-    call(
+  handler: async (args, ctx) => {
+    const notificationId = String(args.notification_id);
+    // Prima di `answer` (revisione del lotto 1, M1): la stessa azione su una
+    // domanda dell'agente RISPONDEREBBE a quella. Si verifica che la card sia
+    // una proposta del polso aperta di chi chiede.
+    try {
+      const page = await ctx.client.callAction({ method: "GET", path: "/api/inbox" }, { query: { status: "open", kind: "project.pulse", limit: 100 } });
+      const items = ((page.data ?? {}) as { items?: Array<{ id: string; kind: string }> }).items ?? [];
+      if (!items.some((i) => i.id === notificationId && i.kind === "project.pulse")) {
+        return errorResult(`La card ${notificationId} non è una proposta del polso aperta per te (list_proposals le elenca): non la decido.`);
+      }
+    } catch (err) {
+      return refused(err, "leggere le proposte del polso");
+    }
+    return call(
       ctx,
       "decidere questa proposta",
       { method: "POST", path: "/api/inbox/:id/actions/:action" },
-      { params: { id: String(args.notification_id), action: "answer" }, body: { optionIndex: args.option_index as number } },
+      { params: { id: notificationId, action: "answer" }, body: { optionIndex: args.option_index as number } },
       (data) => {
-        const d = (data ?? {}) as { ticketNumber?: number; ticketId?: string };
-        return `Proposta scelta${d.ticketNumber ? `: ticket #${d.ticketNumber}` : ""}. Il run parte da solo e si ferma sull'approvazione del piano.`;
+        const d = (data ?? {}) as { ticketNumber?: number; ticketId?: string; runStatus?: string };
+        const run =
+          d.runStatus === "queued"
+            ? "Il run è in coda."
+            : d.runStatus === "awaiting_plan_approval"
+              ? "Il run si ferma sull'approvazione del piano."
+              : "Il run parte da solo e si ferma sull'approvazione del piano.";
+        return `Proposta scelta${d.ticketNumber ? `: ticket #${d.ticketNumber}` : ""}. ${run}`;
       },
-    ),
+    );
+  },
 };
 
 const MAIL_DECISIONS = ["confirm", "ignore", "hand", "reassign", "choose_project"] as const;
@@ -211,9 +251,9 @@ const decideMailProposal: ToolDef = {
     "Decide una proposta nata dalla posta o dal calendario (list_mail_proposals): confirm (conferma le azioni proposte, tutte o quelle in `indices`), ignore (non fare nulla), hand (passala a chi ha il permesso nel progetto), reassign (spostala su un altro progetto, con project_id) o choose_project (scegli il progetto quando la proposta lo chiede). Aggiungere un incaricato come membro del progetto resta dell'app (chiede la riconferma)." +
     RULES,
   inputSchema: {
-    proposal_id: id("L'id della proposta della posta."),
+    proposal_id: id("L'id della proposta come lo dà list_mail_proposals («proposta: …»; per il calendario è quello dell'appuntamento)."),
     decision: z.enum(MAIL_DECISIONS).describe("confirm, ignore, hand, reassign o choose_project."),
-    indices: z.array(z.number().int().nonnegative()).max(20).optional().describe("Solo con confirm: le azioni da confermare (da 0); senza, tutte."),
+    indices: z.array(z.number().int().nonnegative()).max(20).optional().describe("Solo con confirm: le azioni da confermare, coi numeri di list_mail_proposals (non quelli delle opzioni della card in list_inbox); senza, tutte."),
     project_id: z.string().optional().describe("Con reassign e choose_project: l'id del progetto."),
   },
   handler: (args, ctx) => {
@@ -234,9 +274,11 @@ const decideMailProposal: ToolDef = {
       { method: "POST", path },
       { params: { id: proposalId }, ...(body === undefined ? {} : { body }) },
       (data) => {
-        const d = (data ?? {}) as { status?: string; results?: Array<{ kind: string; code?: string | null }> };
+        const d = (data ?? {}) as { status?: string; error?: string | null; results?: Array<{ kind: string; code?: string | null }> };
         const made = (d.results ?? []).map((r) => `${r.kind}${r.code ? ` ${r.code}` : ""}`);
-        return `Proposta: ${d.status ?? "decisa"}${made.length ? ` (${made.join(", ")})` : ""}.`;
+        // Una conferma che finisce `failed` dice perché (M5).
+        const why = d.status === "failed" && d.error ? `: ${d.error}` : "";
+        return `Proposta: ${d.status ?? "decisa"}${made.length ? ` (${made.join(", ")})` : ""}${why}.`;
       },
     );
   },
@@ -276,8 +318,34 @@ interface InboxRow {
   actions?: string[];
   taskCode?: string | null;
   ticketId?: string | null;
+  jobId?: string | null;
   question?: { questionId: string; question: string; options: Array<{ label: string }>; allowFreeText: boolean };
+  google?: { source?: string; sourceProposalId?: string | null; calendarEventId?: string };
+  decisionRequest?: { decisionId: string; question: string; options: string[]; open: boolean } | null;
   createdAt: string;
+}
+
+/**
+ * Le righe in più di una card, con l'id che serve al tool che la decide
+ * (revisione del lotto 1, I1–I3). Le opzioni di una card della POSTA non si
+ * numerano: la loro numerazione (con «Non fare nulla» e gli spostamenti in
+ * mezzo) non è quella degli `indices` di decide_mail_proposal.
+ */
+function cardDetails(i: InboxRow): string {
+  if (i.kind === "google.proposal" || i.kind === "google.proposal_handed") {
+    const id = i.google?.source === "calendar" ? (i.google.calendarEventId ?? i.google.sourceProposalId) : i.google?.sourceProposalId;
+    return id ? `\n  proposta: ${id} (decide_mail_proposal; le azioni con i loro indici: list_mail_proposals)` : "";
+  }
+  if (i.kind === "decision.requested" && i.decisionRequest) {
+    const d = i.decisionRequest;
+    const options = d.options.map((o, k) => `\n    ${k}. ${o}`).join("");
+    return `\n  richiesta di decisione ${d.decisionId} (answer_decision_request): ${d.question}${options}${d.open ? "" : "\n    (già chiusa)"}`;
+  }
+  const job = i.jobId ? `\n  job ${i.jobId}${i.kind === "job.held" ? " (per riprendere una correzione ferma: run_ticket con resume_correction_job_id)" : ""}` : "";
+  const q = i.question
+    ? `\n  domanda (${i.question.questionId}): ${i.question.question}\n${i.question.options.map((o, k) => `    ${k}. ${o.label}`).join("\n")}${i.question.allowFreeText ? "\n    (ammette testo libero)" : ""}`
+    : "";
+  return job + q;
 }
 
 const listInbox: ToolDef = {
@@ -288,24 +356,32 @@ const listInbox: ToolDef = {
     status: z.enum(["open", "handled", "snoozed"]).optional().describe("open (default), handled o snoozed."),
     kind: z.string().optional().describe("Facoltativo: un tipo di card (es. job.plan_review, job.awaiting_input, project.pulse, google.proposal, decision.requested)."),
     limit: z.number().int().min(1).max(100).optional().describe("Quante card, al massimo (default del server)."),
+    cursor: z.string().optional().describe("Per la pagina dopo: il cursor che la risposta precedente ha dato."),
   },
   handler: (args, ctx) =>
     runTool(async () => {
       const res = await ctx.client.callAction(
         { method: "GET", path: "/api/inbox" },
-        { query: { status: args.status as string | undefined, kind: args.kind as string | undefined, limit: args.limit as number | undefined } },
+        {
+          query: {
+            status: args.status as string | undefined,
+            kind: args.kind as string | undefined,
+            limit: args.limit as number | undefined,
+            cursor: args.cursor as string | undefined,
+          },
+        },
       );
-      const items = ((res.data ?? {}) as { items?: InboxRow[] }).items ?? [];
+      const page = (res.data ?? {}) as { items?: InboxRow[]; nextCursor?: string | null };
+      const items = page.items ?? [];
       if (items.length === 0) return textResult("Nessuna card con questi filtri.");
       const lines = items.map((i) => {
         const head = `- [${i.kind}] ${i.text} (card ${i.id}${i.taskCode ? `, task ${i.taskCode}` : ""}${i.ticketId ? `, ticket ${i.ticketId}` : ""})`;
         const actions = i.actions && i.actions.length > 0 ? `\n  azioni: ${i.actions.join(", ")}` : "";
-        const q = i.question
-          ? `\n  domanda (${i.question.questionId}): ${i.question.question}\n${i.question.options.map((o, k) => `    ${k}. ${o.label}`).join("\n")}${i.question.allowFreeText ? "\n    (ammette testo libero)" : ""}`
-          : "";
-        return head + actions + q;
+        return head + actions + cardDetails(i);
       });
-      return textResult(`Card (${items.length}):\n${lines.join("\n")}`);
+      // L'elenco è una pagina (M3): se ce n'è un'altra, lo si dice.
+      const more = page.nextCursor ? `\n\nCe ne sono altre: cursor "${page.nextCursor}" per la pagina dopo.` : "";
+      return textResult(`Card (${items.length}):\n${lines.join("\n")}${more}`);
     }),
 };
 

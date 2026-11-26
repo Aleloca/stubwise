@@ -355,8 +355,8 @@ Come usarlo:
   all'utente del token (maintainer e chi segue il progetto). Una lista vuota
   significa "a te non ne è arrivata nessuna aperta", **non** "il progetto non ha
   niente da fare" — per quello c'è `list_backlog`.
-- Si decide con **`decide_pulse_proposal`** (l'id della notifica e l'indice
-  della proposta, il numero dell'elenco meno uno), annunciandolo in una riga.
+- Si decide con **`decide_pulse_proposal`** (l'id della notifica e il numero
+  della proposta nell'elenco, da 0), annunciandolo in una riga.
   Non "procedere" con `convert_backlog_to_ticket` + `run_ticket`: la notifica
   del pulse resterebbe aperta.
 - Scelta una proposta (da qui, dalla web app o da Slack), la voce diventa un ticket e il

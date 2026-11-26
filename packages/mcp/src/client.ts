@@ -95,12 +95,19 @@ export interface TicketCommentSummary {
 export class StubwiseApiError extends Error {
   readonly status: number;
   readonly code: string;
+  /**
+   * Gli altri campi del corpo d'errore del server (`decidedBy` di un 409,
+   * `ticketId` di un `run_not_started`…): servono a dire PERCHÉ e cosa c'è
+   * già (revisione del lotto 1, I5). Vuoto quando il server non ne manda.
+   */
+  readonly details: Readonly<Record<string, unknown>>;
 
-  constructor(message: string, status: number, code: string) {
+  constructor(message: string, status: number, code: string, details: Record<string, unknown> = {}) {
     super(message);
     this.name = "StubwiseApiError";
     this.status = status;
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -882,6 +889,7 @@ export class StubwiseClient {
         `HTTP ${response.status} ${code}: ${body?.message ?? "errore del server"}${extra}`,
         response.status,
         code,
+        rest,
       );
     }
     return { status: response.status, data };
@@ -1105,12 +1113,16 @@ export class StubwiseClient {
    * riportare. Gli errori attesi arrivano come `StubwiseApiError`: 404 (ticket
    * inesistente), 409 `job_in_flight` (un job è già in volo), 403 (permessi).
    */
-  async runTicket(id: string, body?: { mode?: "ai_plan" }): Promise<RunTicketResult> {
+  async runTicket(id: string, body?: { mode?: "ai_plan"; resumeCorrectionJobId?: string }): Promise<RunTicketResult> {
     const raw = await this.request<unknown>(`/api/tickets/${id}/run-ai`, {
       method: "POST",
       // Corpo sempre inviato (anche vuoto): la rotta accetta `nullish`, ma un
       // oggetto esplicito evita differenze di comportamento tra i due rami.
-      body: body?.mode ? { mode: body.mode } : {},
+      body: {
+        ...(body?.mode ? { mode: body.mode } : {}),
+        // Revisione del lotto 1 (I3): la ripresa ESPLICITA di una correzione ferma.
+        ...(body?.resumeCorrectionJobId ? { resumeCorrectionJobId: body.resumeCorrectionJobId } : {}),
+      },
     });
     return this.parseResponse(runTicketResultSchema, raw, "l'avvio dell'esecuzione del ticket");
   }

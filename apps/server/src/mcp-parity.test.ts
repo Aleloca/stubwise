@@ -122,6 +122,7 @@ const CURATED_ROUTES: Record<string, string> = {
   "POST /api/me/mail/proposals/:id/reassign": "decide_mail_proposal",
   "POST /api/me/mail/proposals/:id/choose-project": "decide_mail_proposal",
   "POST /api/tickets/:id/repositories/:repositoryId/release": "merge_pull_request",
+  "POST /api/tickets/:id/run-ai": "run_ticket",
 };
 
 describe("parità MCP: ogni rotta dichiara config.mcp", () => {
