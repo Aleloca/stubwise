@@ -64,12 +64,12 @@ describe("lotto 4: le voci si trovano con le parole di chi chiede", () => {
 
 describe("lotto 4: le regole delle voci", () => {
   it("messaggi, conversazioni e documenti sono contenuto non fidato", () => {
-    const content = ["chat.messages", "chat.message", "chat.thread", "chat.search", "chat.mentions", "claude.conversation", "claude.proposals", "productDocs.page", "productDocs.comments", "productDocs.exportPage", "docs.page", "docs.search", "docs.brief", "docs.askRepository", "graph.report", "mail.claudeDraft"];
+    const content = ["chat.messages", "chat.message", "chat.thread", "chat.search", "chat.mentions", "claude.conversation", "claude.proposals", "productDocs.page", "productDocs.comments", "productDocs.exportPage", "docs.page", "docs.search", "docs.brief", "docs.askRepository", "graph.report"];
     for (const a of content) expect(entry(a).note, a).toContain(UNTRUSTED);
   });
 
   it("ciò che avvia lavoro dell'AI lo dice, con il budget", () => {
-    const spend = ["chat.send", "chat.answerClaude", "chat.retryClaude", "claude.createConversation", "claude.answerQuestion", "productDocs.startFirstVersion", "productDocs.drawWireframe", "productDocs.redrawWireframe", "productDocs.updateFromSource", "docs.generate", "docs.resume", "docs.askProject", "docs.askRepository", "mail.claudeDraft"];
+    const spend = ["chat.send", "chat.answerClaude", "chat.retryClaude", "claude.createConversation", "claude.answerQuestion", "productDocs.startFirstVersion", "productDocs.drawWireframe", "productDocs.redrawWireframe", "productDocs.updateFromSource", "docs.generate", "docs.resume", "docs.askProject", "docs.askRepository"];
     for (const a of spend) expect(entry(a).note, a).toContain("spende budget");
   });
 
@@ -81,6 +81,10 @@ describe("lotto 4: le regole delle voci", () => {
     expect(entry("chat.uploadAttachment").tool).toBe("upload_file");
     expect(entry("productDocs.uploadImage").tool).toBe("upload_file");
     for (const a of ["chat.downloadAttachment", "productDocs.image", "docs.export", "graph.download", "graph.html"]) expect(entry(a).tool, a).toBe("download_file");
+  });
+
+  it("la bozza di Claude per la posta è uno stream, non una voce (revisione delle correzioni del lotto 3)", () => {
+    expect(LOTTO4_CATALOG.some((e) => e.path === "/api/me/mail/drafts/claude")).toBe(false);
   });
 
   it("la proposta del turno di Claude non è una voce: la chiama solo il suo token", () => {
