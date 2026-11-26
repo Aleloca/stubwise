@@ -882,7 +882,9 @@ export class StubwiseClient {
     const response = await this.fetchAction(url, { method: entry.method, headers, body: payload, redirect: "manual" });
     if (response.status >= 300 && response.status < 400) {
       await response.body?.cancel().catch(() => undefined);
-      return { status: response.status, data: { redirect: response.headers.get("location") } };
+      // Un Location relativo si completa con l'indirizzo dell'istanza (revisione del lotto 4, M8).
+      const location = response.headers.get("location");
+      return { status: response.status, data: { redirect: location === null ? null : new URL(location, `${this.baseUrl}/`).toString() } };
     }
     const data = parseActionBody(await response.text());
     if (!response.ok) throw actionError(response.status, data);

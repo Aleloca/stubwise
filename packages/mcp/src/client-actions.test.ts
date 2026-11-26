@@ -239,3 +239,11 @@ describe("callAction e i redirect (revisione delle correzioni del lotto 2)", () 
     expect(fetchMock.mock.calls[0]![1].redirect).toBe("manual");
   });
 });
+
+describe("callAction e un Location relativo (revisione del lotto 4, M8)", () => {
+  it("si completa con l'indirizzo dell'istanza", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 302, headers: { location: "/app/#/drive/f1" } }));
+    const res = await makeClient(fetchMock).callAction({ method: "GET", path: "/api/drive/files/:id/open" }, { params: { id: "f1" } });
+    expect(res.data).toEqual({ redirect: "https://stubwise.example.com/app/#/drive/f1" });
+  });
+});

@@ -54,7 +54,7 @@ export async function claudeConversationRoutes(instance: FastifyInstance): Promi
   app.get(
     "/status",
     {
-      config: { access: ACCESS, mcp: { action: "claude.status", summary: "Lo stato delle tue conversazioni con Claude: quali stanno rispondendo o aspettano te.", effect: "read" } },
+      config: { access: ACCESS, mcp: { action: "claude.status", summary: "Se il budget AI del mese è finito (`budgetExhausted`): prima di chiedere qualcosa a Claude.", effect: "read" } },
       schema: { response: { 200: claudeChatStatusSchema, ...authErrorResponses } },
     },
     async () => ({ budgetExhausted: await monthlyBudgetExhausted(app.db) }),
@@ -131,7 +131,7 @@ export async function claudeConversationRoutes(instance: FastifyInstance): Promi
   app.post(
     "/:id/continue",
     {
-      config: { access: ACCESS, mcp: { action: "claude.continue", summary: "Continua una conversazione pubblica di un altro: ne nasce una tua, privata.", effect: "write" } },
+      config: { access: ACCESS, mcp: { action: "claude.continue", summary: "Continua una conversazione pubblica di un altro: ne nasce una tua, privata.", effect: "write", note: "Con un primo messaggio (`message`) avvia un turno di Claude: spende budget." } },
       schema: {
         params: idParams,
         body: continueClaudeConversationSchema,
