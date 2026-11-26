@@ -9,7 +9,7 @@
  * Il tetto di `PENDING_MCP`: si abbassa SOLTANTO, a ogni lotto, fino a zero.
  * Senza, una rotta nuova si accoderebbe all'elenco e il test passerebbe.
  */
-export const PENDING_MCP_MAX = 591;
+export const PENDING_MCP_MAX = 445;
 
 export const PENDING_MCP: readonly string[] = [
   "DELETE /api/admin/invites/:id",
