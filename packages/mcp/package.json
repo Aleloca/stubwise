@@ -3,6 +3,11 @@
   "version": "0.10.0",
   "description": "Stubwise MCP server (stdio transport): lets Claude Code talk to a self-hosted Stubwise instance.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Aleloca/stubwise.git",
+    "directory": "packages/mcp"
+  },
   "type": "module",
   "publishConfig": {
     "access": "public"

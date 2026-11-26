@@ -157,8 +157,12 @@ riprova (`changeset publish` salta le versioni già su npm). Se fallisce solo il
 push finale, il log del workflow dice come rimediare (di solito: Actions →
 Release → «Run workflow»).
 
-La pubblicazione richiede il secret di repository **`NPM_TOKEN`**: se manca e
-c'è qualcosa da pubblicare, il workflow fallisce dicendolo. Per testare l'impacchettamento in locale senza pubblicare:
+La pubblicazione non usa token: passa dal **Trusted Publishing** di npm
+(OIDC), con un Trusted Publisher configurato su npmjs.com per ogni pacchetto
+pubblico (GitHub Actions, `Aleloca/stubwise`, workflow `release.yml`). Un
+pacchetto pubblico NUOVO va configurato lì prima del suo primo rilascio, e il
+suo `package.json` deve avere `repository.url` su questo repository (lo
+pretende la provenienza, che npm allega da solo). Per testare l'impacchettamento in locale senza pubblicare:
 
 ```bash
 pnpm -r build

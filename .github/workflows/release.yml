@@ -25,14 +25,20 @@ concurrency:
   group: release
   cancel-in-progress: false
 
+# `contents: write` per i tag e il checkout; `id-token: write` per il
+# Trusted Publishing di npm (26 nov 2026): `npm publish` chiede a GitHub un
+# token OIDC e lo scambia col registro con un token di pubblicazione valido
+# per quel solo pacchetto e per pochi minuti. Niente più NPM_TOKEN.
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   release:
     name: Versiona e pubblica (Changesets)
     runs-on: ubuntu-latest
-    # Solo sul repository vero (non sui fork, che non hanno NPM_TOKEN), e:
+    # Solo sul repository vero (i fork non sono il Trusted Publisher dei
+    # pacchetti, e non hanno la deploy key), e:
     #   - da workflow_run: CI conclusa con successo, su un PUSH (non una PR:
     #     una PR da un fork con un branch chiamato `main` passerebbe il filtro
     #     `branches`), di un commit di questo repository;
@@ -95,12 +101,25 @@ jobs:
         if: steps.tip.outputs.go == 'true'
         run: corepack enable
 
+      # Senza `registry-url`, deliberatamente: con quello setup-node scrive un
+      # `.npmrc` con `_authToken=${NODE_AUTH_TOKEN}` e, se la variabile manca,
+      # un token SEGNAPOSTO. Col Trusted Publishing non c'è nessun token da
+      # mettere, e uno finto in configurazione può far fallire lo scambio
+      # OIDC. Il registro resta quello di default (registry.npmjs.org).
       - uses: actions/setup-node@v5
         if: steps.tip.outputs.go == 'true'
         with:
           node-version: 22
           cache: pnpm
-          registry-url: https://registry.npmjs.org
+
+      # Il Trusted Publishing vuole npm >= 11.5.1; Node 22 porta npm 10.
+      # Serve a `pnpm changeset publish`: pnpm 10 impacchetta da sé (e
+      # riscrive i `workspace:` alla versione vera) ma consegna il tarball a
+      # `npm publish`, preso dal PATH — cioè questo. Versione FISSATA, come
+      # gli altri strumenti della pipeline: si aggiorna con una modifica.
+      - name: npm per il Trusted Publishing
+        if: steps.tip.outputs.go == 'true'
+        run: npm install -g npm@11.6.2
 
       - name: Cosa c'è da fare
         id: plan
@@ -113,15 +132,19 @@ jobs:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
         run: pnpm install --frozen-lockfile
 
-      # Con lavoro da fare, un NPM_TOKEN assente è un errore, non un no-op:
-      # su questo repository il secret c'è, e se sparisce va saputo. `npm
-      # whoami` lo prova sul registro PRIMA di versionare: un token scaduto o
-      # revocato ferma il giro qui, non a metà della pubblicazione.
-      - name: Verifica il token npm
+      # Con lavoro da fare, i prerequisiti si verificano PRIMA di versionare:
+      # un giro che si ferma qui non ha fatto nulla. Col Trusted Publishing
+      # non c'è un token da provare con `npm whoami` (non esiste finché
+      # `npm publish` non lo scambia): si verifica ciò che lo scambio
+      # richiede — il permesso `id-token` del job (GitHub espone allora
+      # ACTIONS_ID_TOKEN_REQUEST_URL) e un npm abbastanza nuovo. Che il
+      # Trusted Publisher sia configurato su npmjs.com per OGNI pacchetto
+      # (repository Aleloca/stubwise, workflow release.yml, environment
+      # vuoto) da qui non si vede: se manca, `npm publish` di quel pacchetto
+      # fallisce e il giro non pusha nulla.
+      - name: Verifica i prerequisiti della pubblicazione
         if: steps.plan.outputs.work == 'true'
         env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           HAS_DEPLOY_KEY: ${{ secrets.RELEASE_DEPLOY_KEY != '' }}
         run: |
           # Anche la deploy key si verifica PRIMA di pubblicare: senza, il
@@ -130,15 +153,16 @@ jobs:
             echo "::error::Manca il secret RELEASE_DEPLOY_KEY (deploy key con scrittura): senza, il commit di versione non può arrivare su main."
             exit 1
           fi
-          if [ -z "$NPM_TOKEN" ]; then
-            echo "::error::Manca il secret NPM_TOKEN: senza, nessuna pubblicazione."
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+            echo "::error::Il job non ha il permesso id-token: write: senza, npm non può fare il Trusted Publishing (OIDC)."
             exit 1
           fi
-          if ! WHO=$(npm whoami); then
-            echo "::error::NPM_TOKEN rifiutato dal registro (npm whoami): scaduto o revocato?"
+          NPM_VERSION=$(npm --version)
+          if ! node -e 'const [a,b,c]=process.argv[1].split(".").map(Number); process.exit(a>11||(a===11&&(b>5||(b===5&&c>=1)))?0:1)' "$NPM_VERSION"; then
+            echo "::error::npm $NPM_VERSION non sa fare il Trusted Publishing (serve >= 11.5.1)."
             exit 1
           fi
-          echo "Su npm come: $WHO"
+          echo "npm $NPM_VERSION, OIDC disponibile."
           git config user.name "$BOT_NAME"
           git config user.email "$BOT_EMAIL"
           git tag --list | sort > "$RUNNER_TEMP/tags-before"
@@ -181,6 +205,14 @@ jobs:
         if: steps.plan.outputs.work == 'true'
         run: pnpm -r build
 
+      # Trusted Publishing: nessun token. `changeset publish` lancia
+      # `pnpm publish` per ogni pacchetto, che impacchetta (i `workspace:`
+      # diventano versioni vere, come prima) e passa il tarball a `npm
+      # publish`; npm scambia il token OIDC del job e, essendo il repository
+      # pubblico, allega da solo la provenienza (non serve `--provenance`).
+      # La provenienza pretende che `repository.url` del package.json sia
+      # questo repository: ce l'hanno tutti i pacchetti pubblici.
+      #
       # Idempotente: salta ogni versione già su npm. Un fallimento parziale
       # (un pacchetto sì, un altro no) esce con errore e NON pusha nulla; il
       # giro successivo ricalcola le stesse versioni e pubblica solo le
@@ -188,9 +220,6 @@ jobs:
       - name: Pubblica su npm
         id: publish
         if: steps.plan.outputs.work == 'true'
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           pnpm changeset publish
           NEW_TAGS=$(git tag --list | sort | comm -13 "$RUNNER_TEMP/tags-before" - | tr '\n' ' ')

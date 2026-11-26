@@ -7165,3 +7165,47 @@ deploy o di un rollback che la tocca.
   memoria, abbatteva l'intero worker (con il fail-on-restart dei Docs).
   Nessuna env né migrazione. E `claimRuns` delle automazioni prende anche le
   righe dovute nello stesso millesimo (`dd9ca7be9`): prima un giro di ritardo.
+
+- **«Pubblicazione npm col Trusted Publishing» (26 nov 2026)**: solo CI,
+  nessun servizio da ribuildare, nessuna migrazione, nessuna env. Il Release
+  del 26 nov (sha `16c59b384`, merge della #125) è fallito al passo «Verifica
+  il token npm»: `npm whoami` → 401, `NPM_TOKEN` scaduto o revocato. Non è
+  uscito nulla (il controllo sta prima della versione). Invece di rinnovare
+  il token, `release.yml` pubblica col **Trusted Publishing** di npm (OIDC):
+  - il job ha `permissions: id-token: write` (oltre a `contents: write`);
+  - `setup-node` senza `registry-url` (niente `.npmrc` con un `_authToken`
+    segnaposto), poi `npm install -g npm@11.6.2` (serve npm ≥ 11.5.1, Node
+    22 porta npm 10);
+  - il controllo prima di versionare non è più `NPM_TOKEN` + `npm whoami`,
+    ma la deploy key, il permesso `id-token` (variabili
+    `ACTIONS_ID_TOKEN_REQUEST_*` presenti) e la versione di npm;
+  - `pnpm changeset publish` resta com'è: changesets lancia `pnpm publish`,
+    che in pnpm 10.9 impacchetta da sé (i `workspace:` diventano versioni
+    vere, gli stessi tarball di prima) e consegna il `.tgz` a `npm publish`
+    dal PATH, cioè lo npm 11 (provato in `node:22-slim` con `--dry-run`:
+    `npm info using npm@11.6.2`, `npm publish stubwise-sdk-0.2.13.tgz`). I
+    tag li crea changesets come prima;
+  - la provenienza è automatica (repository pubblico), senza
+    `--provenance`; pretende che `repository.url` del package.json sia
+    questo repository: `@stubwise/mcp` e `@stubwise/widget` non l'avevano,
+    ora sì.
+  **Prerequisito, fatto dal maintainer il 26 nov 2026**: su npmjs.com un
+  Trusted Publisher per ciascuno dei 4 pacchetti (`@stubwise/mcp`, `sdk`,
+  `shared`, `widget`): GitHub Actions, `Aleloca/stubwise`, workflow
+  `release.yml`, environment vuoto. Un pacchetto pubblico nuovo vuole il suo
+  Trusted Publisher PRIMA del primo rilascio: con OIDC npm non crea un
+  pacchetto che non esiste.
+  **Al primo giro** (la CI verde del merge, coi changeset pendenti di
+  `@stubwise/mcp`): «Verifica i prerequisiti della pubblicazione» stampa
+  `npm 11.6.2, OIDC disponibile.`; poi versione, build e pubblicazione di
+  `@stubwise/mcp` (e del plugin, che è privato e non va su npm); su npm la
+  versione nuova compare con la provenienza. Verifica: `npm view
+  @stubwise/mcp version` e il commit di versione su `main`. Se lo scambio
+  OIDC fallisce (Trusted Publisher scritto diverso: nome del workflow,
+  repository, environment), `npm publish` risponde 404/401 e il giro esce
+  PRIMA del push: nulla su `main`, si corregge la configurazione su
+  npmjs.com e si rilancia Release («Run workflow»).
+  **Rollback**: revert di questo commit e un `NPM_TOKEN` nuovo (granular,
+  bypass 2FA, scope `@stubwise`) nei secret del repository; i Trusted
+  Publisher su npmjs.com possono restare. Le versioni già pubblicate non si
+  ritirano.
