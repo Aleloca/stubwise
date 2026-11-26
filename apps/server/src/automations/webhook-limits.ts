@@ -11,8 +11,9 @@ import type { AutomationWebhookLimits } from "@stubwise/shared";
 
 export const WEBHOOK_DEFAULT_PER_MINUTE = 60;
 export const WEBHOOK_DEFAULT_PER_DAY = 5_000;
-const FALLBACK_MAX_PER_MINUTE = 600;
-const FALLBACK_MAX_PER_DAY = 50_000;
+/** Il massimo d'istanza senza env (il compose ha lo stesso default: test in `config.test.ts`). */
+export const FALLBACK_MAX_PER_MINUTE = 600;
+export const FALLBACK_MAX_PER_DAY = 50_000;
 
 function positiveEnv(name: string, fallback: number): number {
   const raw = process.env[name];

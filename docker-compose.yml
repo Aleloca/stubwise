@@ -108,6 +108,12 @@ services:
       # di login (link alla nuova, avviso alla vecchia). Vuote = non disponibile.
       SMTP_URL: ${SMTP_URL:-}
       MAIL_FROM: ${MAIL_FROM:-}
+      # Area 7, F4: il MASSIMO d'istanza del webhook in arrivo delle Automations
+      # (chiamate al minuto e al giorno): la scelta di un'automazione non lo
+      # supera mai. Stessi default del codice (automations/webhook-limits.ts);
+      # vuote = default.
+      AUTOMATION_WEBHOOK_MAX_PER_MINUTE: ${AUTOMATION_WEBHOOK_MAX_PER_MINUTE:-600}
+      AUTOMATION_WEBHOOK_MAX_PER_DAY: ${AUTOMATION_WEBHOOK_MAX_PER_DAY:-50000}
       # Mirror git del worker: il server ci legge i blob citati dal sottografo
       # per allegare gli snippet di codice. Deve coincidere col path del worker
       # e col mount qui sotto.
@@ -383,6 +389,50 @@ services:
       # 0 = disabilitato (nessuna materializzazione parte): è il rollback della
       # feature, il registro resta com'è.
       - PLUGIN_POLL_SECONDS=${PLUGIN_POLL_SECONDS:-20}
+      # Fino al 26 nov 2026 queste env dello schema del worker NON arrivavano al
+      # container (il compose non usa env_file): regolarle in .env non aveva
+      # effetto. Stessi default del codice (test in apps/worker/src/config.test.ts);
+      # vuote = default.
+      # Self-repair dei test del fix: tentativi e timeout del giro di test (ms).
+      - SELF_REPAIR_MAX_ATTEMPTS=${SELF_REPAIR_MAX_ATTEMPTS:-2}
+      - SELF_REPAIR_TEST_TIMEOUT_MS=${SELF_REPAIR_TEST_TIMEOUT_MS:-300000}
+      # Quota degli account: giro della sonda d'uso (0 = spenta) e inattività oltre
+      # la quale un account fermo si sonda (non oltre 45 − USAGE_POLL_MINUTES).
+      - USAGE_POLL_MINUTES=${USAGE_POLL_MINUTES:-5}
+      - USAGE_PROBE_IDLE_MINUTES=${USAGE_PROBE_IDLE_MINUTES:-30}
+      # Ripresa degli account al limite: giro, margine e attesa della chiave API.
+      - LIMIT_RESUME_POLL_MINUTES=${LIMIT_RESUME_POLL_MINUTES:-5}
+      - LIMIT_RESUME_HEADROOM_PERCENT=${LIMIT_RESUME_HEADROOM_PERCENT:-95}
+      - LIMIT_RESUME_API_KEY_COOLDOWN_MINUTES=${LIMIT_RESUME_API_KEY_COOLDOWN_MINUTES:-60}
+      # Test delle credenziali dei provider: poll in secondi.
+      - CREDENTIAL_TEST_POLL_SECONDS=${CREDENTIAL_TEST_POLL_SECONDS:-5}
+      # Generazione Docs: modello, timeout di un agente (ms), turni per modulo, profondità e nodi.
+      - DOC_GENERATION_MODEL=${DOC_GENERATION_MODEL:-opus}
+      - DOC_AGENT_TIMEOUT_MS=${DOC_AGENT_TIMEOUT_MS:-480000}
+      - DOC_MODULE_MAX_TURNS=${DOC_MODULE_MAX_TURNS:-30}
+      - DOC_MAX_DEPTH=${DOC_MAX_DEPTH:-6}
+      - DOC_MAX_NODES=${DOC_MAX_NODES:-400}
+      # Embedding: la chiave dell'endpoint (vuota = nessuna, come per ollama).
+      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:-}
+      # Review delle PR: poll (0 = spenta), modello, turni e timeout in minuti.
+      - PR_REVIEW_POLL_SECONDS=${PR_REVIEW_POLL_SECONDS:-60}
+      - PR_REVIEW_MODEL=${PR_REVIEW_MODEL:-sonnet}
+      - PR_REVIEW_MAX_TURNS=${PR_REVIEW_MAX_TURNS:-50}
+      - PR_REVIEW_TIMEOUT_MINUTES=${PR_REVIEW_TIMEOUT_MINUTES:-15}
+      # Daily report: poll in minuti (0 = spento), autori per progetto, giorni di conservazione.
+      - DAILY_REPORT_POLL_MINUTES=${DAILY_REPORT_POLL_MINUTES:-15}
+      - DAILY_REPORT_MAX_AUTHORS_PER_PROJECT=${DAILY_REPORT_MAX_AUTHORS_PER_PROJECT:-25}
+      - DAILY_REPORT_RETENTION_DAYS=${DAILY_REPORT_RETENTION_DAYS:-90}
+      # Nome VECCHIO di BACKLOG_REFINE_MAX_TURNS (ripiego con avviso): vuoto = non usato.
+      - BACKLOG_CHAT_TURN_MAX_TURNS=${BACKLOG_CHAT_TURN_MAX_TURNS:-}
+      # Il CLI graphify: nell'immagine è il symlink /usr/local/bin/graphify.
+      - GRAPHIFY_BIN=${GRAPHIFY_BIN:-graphify}
+      # Poll in secondi: rilasci (area 8), contenuto del Drive (area 5), automations (area 7). 0 = spento.
+      - RELEASE_POLL_SECONDS=${RELEASE_POLL_SECONDS:-60}
+      - DRIVE_CONTENT_POLL_SECONDS=${DRIVE_CONTENT_POLL_SECONDS:-10}
+      - AUTOMATIONS_POLL_SECONDS=${AUTOMATIONS_POLL_SECONDS:-5}
+      # Posta: quanti progetti al massimo per un messaggio.
+      - GMAIL_MAX_PROJECTS_PER_MESSAGE=${GMAIL_MAX_PROJECTS_PER_MESSAGE:-5}
       # --- Auth del CLI claude ---
       # Metodo raccomandato: gestisci le credenziali in Settings -> AI providers
       # (catena cifrata nel DB, con failover). Le due righe pass-through qui sotto

@@ -1440,6 +1440,14 @@ export function modelEnvOperations(env: Record<string, string | undefined>): AiO
  * Lancia un errore con un messaggio leggibile che elenca ogni variabile
  * mancante o non valida.
  */
+/**
+ * I nomi delle env dello schema: il test li confronta con l'`environment`
+ * del worker in `docker-compose.yml`, che non usa `env_file` — una env che
+ * manca lì non arriva al container, e regolarla in `/opt/stubwise/.env` non
+ * ha effetto.
+ */
+export const WORKER_ENV_NAMES: readonly string[] = Object.keys(envSchema.shape);
+
 export function loadWorkerConfig(env: Record<string, string | undefined> = process.env): WorkerConfig {
   const result = envSchema.safeParse(env);
   if (!result.success) {
