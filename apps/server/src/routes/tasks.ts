@@ -117,7 +117,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" } , mcp: { action: "tasks.list", summary: "Elenca le task che vedi, con filtri per progetto, stato, assegnatario, settimana e testo; dice se l'elenco è stato troncato.", effect: "read" }},
       schema: {
         querystring: taskListQuerySchema,
         response: { 200: taskListResponseSchema, 400: errorSchema, ...authErrorResponses },
@@ -145,7 +145,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/stalled",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" } , mcp: { action: "tasks.listStalled", summary: "Le task ferme (oltre la soglia del loro stato, o segnate ferme a mano) nei progetti che vedi.", effect: "read" }},
       schema: {
         querystring: taskListQuerySchema,
         response: { 200: z.array(stalledTaskViewSchema), 400: errorSchema, ...authErrorResponses },
@@ -169,7 +169,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/by-code/:code",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" } , mcp: { action: "tasks.getByCode", summary: "Il dettaglio di una task dal suo codice (es. ACQ-12): campi, stato, assegnatario, settimana, figlie e link.", effect: "read" }},
       schema: {
         params: z.object({ code: z.string().min(3).max(32) }),
         response: { 200: taskViewSchema, 404: errorSchema, ...authErrorResponses },
@@ -194,7 +194,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/",
     {
-      config: { access: { kind: "project", permission: "tickets.create", project: fromBody("projectId") } },
+      config: { access: { kind: "project", permission: "tickets.create", project: fromBody("projectId") } , mcp: { action: "tasks.create", summary: "Crea una task in un progetto (titolo, descrizione, stato, assegnatario, settimana, priorità); serve `tickets.create` nel progetto.", effect: "write" }},
       schema: {
         body: newTaskBodySchema,
         response: { 201: taskViewSchema, 400: errorSchema, 404: errorSchema, 409: errorSchema, ...authErrorResponses },
@@ -214,7 +214,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/bulk",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" } , mcp: { action: "tasks.bulkUpdate", summary: "Cambia gli stessi campi (stato, assegnatario, settimana, priorità…) su più task insieme; ognuna con i permessi del suo progetto.", effect: "write" }},
       schema: {
         body: z.object({
           ids: z.array(z.uuid()).min(1).max(200),
@@ -269,7 +269,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:ticketId/deletion",
     {
-      config: { access: onTicket("member") },
+      config: { access: onTicket("member") , mcp: { action: "tasks.getDeletion", summary: "Dice se la task si può eliminare, perché no, cosa la occupa e quali figlie restano.", effect: "read" }},
       schema: {
         params: ticketParamsSchema,
         response: { 200: taskDeletionPreviewSchema, 404: errorSchema, ...authErrorResponses },
@@ -295,7 +295,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/:ticketId",
     {
-      config: { access: onTicket("member") },
+      config: { access: onTicket("member") , mcp: { action: "tasks.delete", summary: "Elimina una task per sempre, con commenti e allegati; prima conviene leggere `tasks.getDeletion` per sapere se si può.", effect: "destructive", note: "Non si annulla. Risponde 409 `busy` con le ragioni se la task è occupata (lavoro dell'agente, PR aperte)." }},
       schema: {
         params: ticketParamsSchema,
         response: {
@@ -342,7 +342,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/:ticketId",
     {
-      config: { access: onTicket("tickets.edit") },
+      config: { access: onTicket("tickets.edit") , mcp: { action: "tasks.update", summary: "Modifica una task: titolo, descrizione, stato, assegnatario, settimana, priorità, milestone o etichette (solo i campi mandati).", effect: "write" }},
       schema: {
         params: ticketParamsSchema,
         body: taskPatchSchema,
@@ -359,7 +359,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
   app.put(
     "/:ticketId/manual-stall",
     {
-      config: { access: onTicket("tickets.edit") },
+      config: { access: onTicket("tickets.edit") , mcp: { action: "tasks.setManualStall", summary: "Segna a mano una task come ferma, con il motivo.", effect: "write" }},
       schema: {
         params: ticketParamsSchema,
         body: z.object({ reason: z.string().trim().min(1).max(200), note: z.string().max(2000).optional() }),
@@ -372,7 +372,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/:ticketId/manual-stall",
     {
-      config: { access: onTicket("tickets.edit") },
+      config: { access: onTicket("tickets.edit") , mcp: { action: "tasks.clearManualStall", summary: "Toglie il segno «ferma» messo a mano su una task.", effect: "destructive" }},
       schema: {
         params: ticketParamsSchema,
         response: { 200: taskViewSchema, 404: errorSchema, ...authErrorResponses },
@@ -381,14 +381,14 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
     async (request) => setManualStall(app.db, request.user!, request.params.ticketId, null),
   );
 
-  for (const [method, following] of [
-    ["PUT", true],
-    ["DELETE", false],
+  for (const [method, following, mcp] of [
+    ["PUT", true, { action: "tasks.follow", summary: "Segui una task: ne ricevi gli avvisi.", effect: "write" }],
+    ["DELETE", false, { action: "tasks.unfollow", summary: "Smetti di seguire una task.", effect: "destructive" }],
   ] as const) {
     app.route({
       method,
       url: "/:ticketId/follow",
-      config: { access: onTicket() },
+      config: { access: onTicket(), mcp },
       schema: {
         params: ticketParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
@@ -405,7 +405,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:ticketId/plan",
     {
-      config: { access: onTicket() },
+      config: { access: onTicket() , mcp: { action: "tasks.plan", summary: "Pianifica una task: persona e settimana insieme, con le regole del Planning.", effect: "write" }},
       schema: {
         params: ticketParamsSchema,
         body: z.object({ assigneeId: z.uuid().nullable(), week: isoWeekSchema.nullable() }),
@@ -429,7 +429,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:ticketId/decisions",
     {
-      config: { access: onTicket("tickets.comment") },
+      config: { access: onTicket("tickets.comment") , mcp: { action: "tasks.askDecision", summary: "Chiede una decisione a una persona su una task (domanda e opzioni); la persona risponde dalla sua inbox.", effect: "write" }},
       schema: {
         params: ticketParamsSchema,
         body: z.object({
@@ -452,7 +452,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:ticketId/activity",
     {
-      config: { access: onTicket() },
+      config: { access: onTicket() , mcp: { action: "tasks.activity", summary: "L'attività di una task: commenti, cambi di campo ed eventi, in ordine di tempo.", effect: "read" }},
       schema: {
         params: ticketParamsSchema,
         response: { 200: z.array(taskActivityEntryViewSchema), 404: errorSchema, ...authErrorResponses },
@@ -501,7 +501,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:ticketId/work",
     {
-      config: { access: onTicket() },
+      config: { access: onTicket() , mcp: { action: "tasks.work", summary: "Il riassunto del lavoro sulla task: run dell'agente, PR e stato del piano.", effect: "read" }},
       schema: {
         params: ticketParamsSchema,
         response: { 200: taskWorkViewSchema, 404: errorSchema, ...authErrorResponses },

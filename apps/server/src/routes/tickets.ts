@@ -547,7 +547,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/",
     {
-      config: { access: { kind: "project", permission: "tickets.create", project: fromBody("projectId") } },
+      config: { access: { kind: "project", permission: "tickets.create", project: fromBody("projectId") } , mcp: { action: "tickets.create", summary: "Crea un ticket (bug, feature o task) in un progetto.", effect: "write", tool: "create_ticket" }},
       schema: {
         body: createTicketBodySchema,
         response: { 201: ticketSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
@@ -653,7 +653,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" } , mcp: { action: "tickets.list", summary: "Elenca i ticket che vedi, con filtri (progetto, stato, tipo, priorità, milestone, testo) e paginazione a cursore.", effect: "read" }},
       schema: {
         querystring: listTicketsQuerySchema,
         response: { 200: ticketPageSchema, 400: errorSchema, ...authErrorResponses },
@@ -815,7 +815,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:id/history",
     {
-      config: { access: onTicket("member") },
+      config: { access: onTicket("member") , mcp: { action: "tickets.history", summary: "La storia di un ticket: avvii, domande, piano, PR, review, correzioni e cambi di stato, dal più recente.", effect: "read" }},
       schema: {
         params: idParamsSchema,
         response: { 200: ticketHistorySchema, 404: errorSchema, ...authErrorResponses },
@@ -832,7 +832,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:id",
     {
-      config: { access: onTicket("member") },
+      config: { access: onTicket("member") , mcp: { action: "tickets.get", summary: "Il dettaglio di un ticket per id: campi, PR, job e piano.", effect: "read" }},
       schema: {
         params: idParamsSchema,
         response: { 200: ticketDetailSchema, 404: errorSchema, ...authErrorResponses },
@@ -858,7 +858,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:id/activity",
     {
-      config: { access: onTicket("member") },
+      config: { access: onTicket("member") , mcp: { action: "tickets.activity", summary: "Il feed di un ticket: commenti, eventi e marker dei run, in ordine di tempo.", effect: "read" }},
       schema: {
         params: idParamsSchema,
         response: { 200: activityResponseSchema, 404: errorSchema, ...authErrorResponses },
@@ -936,7 +936,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:id/questions",
     {
-      config: { access: onTicket("member") },
+      config: { access: onTicket("member") , mcp: { action: "tickets.questions", summary: "Le domande dell'agente su un ticket e le risposte già date.", effect: "read" }},
       schema: {
         params: idParamsSchema,
         response: {
@@ -1084,7 +1084,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:id/links",
     {
-      config: { access: onTicket("member") },
+      config: { access: onTicket("member") , mcp: { action: "tickets.links", summary: "I collegamenti di un ticket con altri ticket (blocca, è bloccato da, duplica, correlato…).", effect: "read" }},
       schema: {
         params: idParamsSchema,
         response: { 200: ticketLinksResponseSchema, 404: errorSchema, ...authErrorResponses },
@@ -1163,7 +1163,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/links",
     {
-      config: { access: onTicket("tickets.edit") },
+      config: { access: onTicket("tickets.edit") , mcp: { action: "tickets.addLink", summary: "Collega un ticket a un altro dello stesso progetto, con la relazione.", effect: "write" }},
       schema: {
         params: idParamsSchema,
         body: createLinkBodySchema,
@@ -1272,7 +1272,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/:id/links/:linkId",
     {
-      config: { access: onTicket("tickets.edit") },
+      config: { access: onTicket("tickets.edit") , mcp: { action: "tickets.removeLink", summary: "Toglie un collegamento fra due ticket.", effect: "destructive" }},
       schema: {
         params: linkParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
@@ -1339,7 +1339,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/:id",
     {
-      config: { access: onTicket("tickets.edit") },
+      config: { access: onTicket("tickets.edit") , mcp: { action: "tickets.update", summary: "Modifica un ticket: stato, priorità, assegnatario, milestone, etichette (solo i campi mandati).", effect: "write" }},
       schema: {
         params: idParamsSchema,
         body: updateTicketBodySchema,
@@ -1423,7 +1423,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.put(
     "/:id/design",
     {
-      config: { access: onTicket("tickets.edit") },
+      config: { access: onTicket("tickets.edit") , mcp: { action: "tickets.setDesign", summary: "Sostituisce il corpo di un ticket con un design, conservando il testo originale.", effect: "write", tool: "set_design" }},
       schema: {
         params: idParamsSchema,
         body: setContentSchema,
@@ -1474,7 +1474,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/:id/design",
     {
-      config: { access: onTicket("tickets.edit") },
+      config: { access: onTicket("tickets.edit") , mcp: { action: "tickets.deleteDesign", summary: "Toglie il design da un ticket e ripristina il testo originale.", effect: "destructive", tool: "delete_design" }},
       schema: {
         params: idParamsSchema,
         response: {
@@ -1526,7 +1526,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.put(
     "/:id/plan",
     {
-      config: { access: onTicket("tickets.edit") },
+      config: { access: onTicket("tickets.edit") , mcp: { action: "tickets.setPlan", summary: "Imposta il piano di implementazione di un ticket.", effect: "write", tool: "set_plan" }},
       schema: {
         params: idParamsSchema,
         body: setContentSchema,
@@ -1555,7 +1555,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/:id/plan",
     {
-      config: { access: onTicket("tickets.edit") },
+      config: { access: onTicket("tickets.edit") , mcp: { action: "tickets.deletePlan", summary: "Toglie il piano di implementazione di un ticket.", effect: "destructive", tool: "delete_plan" }},
       schema: {
         params: idParamsSchema,
         response: {
