@@ -154,6 +154,12 @@ describe("read_action", () => {
     expect(JSON.parse(text(r))).toEqual([{ code: "ACQ-1" }]);
   });
 
+  it("un redirect: risponde con l'indirizzo per l'utente, da aprire nel browser", async () => {
+    const callAction = vi.fn().mockResolvedValue({ status: 302, data: { redirect: "https://drive.google.com/x" } });
+    const r = await tool("read_action").handler({ action: "tasks.list" }, ctxWith({ getCatalog: vi.fn().mockResolvedValue(CATALOG), callAction }));
+    expect(text(r)).toBe("L'azione porta a https://drive.google.com/x: è un indirizzo per l'utente, da aprire nel browser.");
+  });
+
   it("rifiuta una scrittura, senza chiamarla", async () => {
     const callAction = vi.fn();
     const r = await tool("read_action").handler({ action: "tasks.update" }, ctxWith({ getCatalog: vi.fn().mockResolvedValue(CATALOG), callAction }));

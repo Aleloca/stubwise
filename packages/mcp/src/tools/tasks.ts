@@ -314,7 +314,9 @@ const updateTask: ToolDef = {
         else day = n;
       }
 
-      if (week !== undefined && week !== plannedWeek) {
+      // Una settimana data dall'utente si manda SEMPRE e decide il server: «questa
+      // settimana» su una task slittata è già la sua settimana effettiva, ma va ripianificata.
+      if (week !== undefined && (args.week !== undefined || week !== plannedWeek)) {
         patch.plannedWeek = week;
         said.push(`settimana: ${week ?? "nessuna"}`);
       }
@@ -349,7 +351,7 @@ const updateTask: ToolDef = {
         said.push(day === null ? `giorno: nessuno (${w})` : `giorno: ${DAY_NAMES[day]} (${w})`);
       }
       const after = claude ? `\n${CLAUDE_ASSIGNED_LINE}` : "";
-      return textResult(`Aggiornata ${label}: ${said.join(", ")}.${after}`);
+      return textResult(`Aggiornata ${label}: ${said.length > 0 ? said.join(", ") : "niente da cambiare, era già così"}.${after}`);
     }),
 };
 
