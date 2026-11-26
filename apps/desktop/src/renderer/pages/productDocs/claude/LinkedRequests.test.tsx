@@ -160,9 +160,14 @@ describe("dal titolo di una fase: «Propose backlog items from this section»", 
     const items = within(menu).getAllByRole("menuitem").map((i) => i.textContent);
     expect(items.indexOf("Propose backlog items from this section")).toBe(items.indexOf("Comment") + 1);
     await user.click(within(menu).getByRole("menuitem", { name: "Propose backlog items from this section" }));
-    expect(
-      await within(panel()).findByText(`Propose backlog items from the section “Phase 1” of ${page.code}`),
-    ).toBeInTheDocument();
+    // Il messaggio nel flusso, non la riga «Delivering…» che lo precede: quella
+    // sparisce quando il turno lo prende, e un `findByText` poteva restituirla
+    // un attimo prima (rosso intermittente nella CI di main, 26 nov 2026).
+    await waitFor(() =>
+      expect(panel().querySelector("[data-user-message]")).toHaveTextContent(
+        `Propose backlog items from the section “Phase 1” of ${page.code}`,
+      ),
+    );
     await waitFor(() => expect(card()).not.toBeNull());
     await waitFor(() => expect(document.activeElement).toBe(card()));
     expect(flat(card()!)).toContain("Phase 1: sign-in and bills");
