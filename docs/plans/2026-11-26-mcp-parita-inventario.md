@@ -20,32 +20,32 @@
 | Area | Nomi | Integrati | con scritture | senza rotta | In arrivo | 🔐 reauth | 🗝 cassaforte |
 |---|---|---|---|---|---|---|---|
 | Amministrazione (`access`, «Chi può farlo?») | 3 | 3 | 0 | 0 | 0 | 0 | 0 |
-| Amministrazione (`admin`) | 41 | 37 | 28 | 0 | 4 | 20 | 2 |
+| Amministrazione (`admin`) | 41 | 37 | 28 | 0 | 4 | 20 | 0 |
 | Automations (`automations`) | 58 | 16 | 10 | 2 | 42 | 1 | 0 |
 | Avvisi (`alerts`) | 5 | 5 | 4 | 0 | 0 | 0 | 0 |
 | Calendario (`calendar`) | 22 | 22 | 14 | 3 | 0 | 0 | 0 |
 | Cassaforte (`vault`) | 34 | 27 | 12 | 4 | 7 | 2 | 27 |
-| Chat (`chat`) | 54 | 44 | 31 | 2 | 10 | 0 | 1 |
+| Chat (`chat`) | 54 | 44 | 31 | 2 | 10 | 0 | 0 |
 | Claude: conversazioni, run e decisioni | 48 | 46 | 34 | 3 | 2 | 0 | 0 |
 | Doc di prodotto (`productDocs`) | 89 | 40 | 26 | 3 | 49 | 0 | 0 |
 | Docs dei repository (`docs`) | 18 | 18 | 9 | 3 | 0 | 0 | 0 |
-| Drive (`drive`) | 27 | 12 | 7 | 0 | 15 | 0 | 2 |
+| Drive (`drive`) | 27 | 12 | 7 | 0 | 15 | 0 | 0 |
 | Home e filtri salvati | 14 | 14 | 8 | 0 | 0 | 0 | 0 |
 | Impostazioni di progetto (`projectSettings`) | 59 | 15 | 7 | 0 | 44 | 3 | 0 |
-| Istanza (`instance`) | 84 | 59 | 37 | 1 | 25 | 12 | 1 |
-| Notifiche e ricerca | 3 | 3 | 2 | 0 | 0 | 0 | 1 |
+| Istanza (`instance`) | 84 | 59 | 37 | 1 | 25 | 12 | 0 |
+| Notifiche e ricerca | 3 | 3 | 2 | 0 | 0 | 0 | 0 |
 | Persone e attività | 6 | 6 | 2 | 0 | 0 | 1 | 0 |
-| Posta (`mail`) | 45 | 41 | 20 | 5 | 4 | 1 | 2 |
+| Posta (`mail`) | 45 | 41 | 20 | 5 | 4 | 1 | 0 |
 | Progetti e panoramica | 15 | 15 | 5 | 1 | 0 | 0 | 0 |
 | Registro delle modifiche (`changelog`) | 5 | 3 | 0 | 0 | 2 | 0 | 0 |
 | Richieste | 12 | 12 | 8 | 0 | 0 | 0 | 0 |
 | Rilasci e PR (`releases`) | 24 | 20 | 17 | 0 | 4 | 0 | 0 |
 | Server (`servers`) | 34 | 27 | 18 | 0 | 7 | 0 | 0 |
-| Sessione e account | 49 | 40 | 32 | 1 | 9 | 11 | 2 |
+| Sessione e account | 49 | 40 | 32 | 1 | 9 | 11 | 0 |
 | Support (`support`) | 16 | 12 | 7 | 0 | 4 | 1 | 0 |
-| Task | 37 | 37 | 24 | 1 | 0 | 0 | 1 |
+| Task | 37 | 37 | 24 | 1 | 0 | 0 | 0 |
 | Non integrate (stub generati, fuori dai namespace) | 57 | 1 | 0 | 1 | 56 | 0 | 0 |
-| **Totale** | **859** | **575** | **362** | **30** | **284** | **52** | **39** |
+| **Totale** | **859** | **575** | **362** | **30** | **284** | **52** | **27** |
 
 Rotte distinte del server chiamate dall'app: **524** su 695 registrate sotto `/api`.
 
@@ -63,7 +63,7 @@ Rotte distinte del server chiamate dall'app: **524** su 695 registrate sotto `/a
 
 ### Amministrazione (`admin`)
 
-41 nomi: 37 integrati (28 con scritture, 0 senza rotta: locali o derivati), 4 in arrivo, 20 con reauth, 2 della cassaforte.
+41 nomi: 37 integrati (28 con scritture, 0 senza rotta: locali o derivati), 4 in arrivo, 20 con reauth.
 
 | Nome dell'adattatore | L/S | Rotta | Permesso | Note |
 |---|---|---|---|---|
@@ -258,7 +258,7 @@ Rotte distinte del server chiamate dall'app: **524** su 695 registrate sotto `/a
 
 ### Chat (`chat`)
 
-54 nomi: 44 integrati (31 con scritture, 2 senza rotta: locali o derivati), 10 in arrivo, 1 della cassaforte.
+54 nomi: 44 integrati (31 con scritture, 2 senza rotta: locali o derivati), 10 in arrivo.
 
 | Nome dell'adattatore | L/S | Rotta | Permesso | Note |
 |---|---|---|---|---|
@@ -495,7 +495,7 @@ Rotte distinte del server chiamate dall'app: **524** su 695 registrate sotto `/a
 
 ### Drive (`drive`)
 
-27 nomi: 12 integrati (7 con scritture, 0 senza rotta: locali o derivati), 15 in arrivo, 2 della cassaforte.
+27 nomi: 12 integrati (7 con scritture, 0 senza rotta: locali o derivati), 15 in arrivo.
 
 | Nome dell'adattatore | L/S | Rotta | Permesso | Note |
 |---|---|---|---|---|
@@ -616,7 +616,7 @@ Rotte distinte del server chiamate dall'app: **524** su 695 registrate sotto `/a
 
 ### Istanza (`instance`)
 
-84 nomi: 59 integrati (37 con scritture, 1 senza rotta: locali o derivati), 25 in arrivo, 12 con reauth, 1 della cassaforte.
+84 nomi: 59 integrati (37 con scritture, 1 senza rotta: locali o derivati), 25 in arrivo, 12 con reauth.
 
 | Nome dell'adattatore | L/S | Rotta | Permesso | Note |
 |---|---|---|---|---|
@@ -707,7 +707,7 @@ Rotte distinte del server chiamate dall'app: **524** su 695 registrate sotto `/a
 
 ### Notifiche e ricerca
 
-3 nomi: 3 integrati (2 con scritture, 0 senza rotta: locali o derivati), 0 in arrivo, 1 della cassaforte.
+3 nomi: 3 integrati (2 con scritture, 0 senza rotta: locali o derivati), 0 in arrivo.
 
 | Nome dell'adattatore | L/S | Rotta | Permesso | Note |
 |---|---|---|---|---|
@@ -730,7 +730,7 @@ Rotte distinte del server chiamate dall'app: **524** su 695 registrate sotto `/a
 
 ### Posta (`mail`)
 
-45 nomi: 41 integrati (20 con scritture, 5 senza rotta: locali o derivati), 4 in arrivo, 1 con reauth, 2 della cassaforte.
+45 nomi: 41 integrati (20 con scritture, 5 senza rotta: locali o derivati), 4 in arrivo, 1 con reauth.
 
 | Nome dell'adattatore | L/S | Rotta | Permesso | Note |
 |---|---|---|---|---|
@@ -907,7 +907,7 @@ Rotte distinte del server chiamate dall'app: **524** su 695 registrate sotto `/a
 
 ### Sessione e account
 
-49 nomi: 40 integrati (32 con scritture, 1 senza rotta: locali o derivati), 9 in arrivo, 11 con reauth, 2 della cassaforte.
+49 nomi: 40 integrati (32 con scritture, 1 senza rotta: locali o derivati), 9 in arrivo, 11 con reauth.
 
 | Nome dell'adattatore | L/S | Rotta | Permesso | Note |
 |---|---|---|---|---|
@@ -986,7 +986,7 @@ Rotte distinte del server chiamate dall'app: **524** su 695 registrate sotto `/a
 
 ### Task
 
-37 nomi: 37 integrati (24 con scritture, 1 senza rotta: locali o derivati), 0 in arrivo, 1 della cassaforte.
+37 nomi: 37 integrati (24 con scritture, 1 senza rotta: locali o derivati), 0 in arrivo.
 
 | Nome dell'adattatore | L/S | Rotta | Permesso | Note |
 |---|---|---|---|---|
