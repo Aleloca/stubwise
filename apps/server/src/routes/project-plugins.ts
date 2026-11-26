@@ -73,7 +73,7 @@ export async function projectPluginRoutes(instance: FastifyInstance): Promise<vo
   app.put(
     "/:projectId/plugins",
     {
-      config: { mcp: { action: "projects.setPlugins", summary: "SOSTITUISCE le abilitazioni dei plugin di un progetto (per skill e gruppo di hook).", effect: "write", note: "Con ifMatch: 409 se nel frattempo un altro le ha cambiate. Vale per i run di tutti nel progetto." }, access: ACCESS },
+      config: { mcp: { action: "projects.setPlugins", summary: "SOSTITUISCE le abilitazioni dei plugin di un progetto (per skill e gruppo di hook): quelle assenti si spengono.", effect: "destructive", note: "Accendere un hook fa girare il suo codice nei run dell'agente di TUTTI nel progetto, coi permessi del worker. Con ifMatch: 409 se nel frattempo un altro le ha cambiate." }, access: ACCESS },
       schema: {
         params: paramsSchema,
         body: putBodySchema,

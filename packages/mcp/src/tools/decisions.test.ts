@@ -288,6 +288,25 @@ describe("correzioni dei server (lotto 5, decisione di 46)", () => {
     expect(callAction).toHaveBeenCalledWith({ method: "POST", path: "/api/tasks/:ticketId/server-fix/reject" }, { params: { ticketId: "t1" }, body: { note: "Non ora" } });
   });
 
+  it("l'impronta del piano è OBBLIGATORIA, e la descrizione dice dove si leggono passi, impronta e host (revisione del lotto 5, I2, I3, M5)", () => {
+    const d = tool("approve_server_fix");
+    expect((d.inputSchema.plan_digest as unknown as { isOptional(): boolean }).isOptional()).toBe(false);
+    expect(d.description).toContain("tasks.serverFix");
+    expect(d.description).toContain("planDigest");
+    expect(d.description).toContain("tasks.server ");
+    expect(d.description).not.toContain("tasks.serverFixCommands");
+  });
+
+  it("un 409 del piano (cambiato, non più valido, operazioni spente) NON porta a riapprovare da solo (revisione del lotto 5, I3)", async () => {
+    for (const code of ["plan_changed", "plan_stale", "operations_off"]) {
+      const r = await tool("approve_server_fix").handler({ ticket_id: "t1", plan_digest: "d1" }, ctxWith(vi.fn().mockRejectedValue(new StubwiseApiError(`HTTP 409 ${code}: x`, 409, code))));
+      expect(r.isError, code).toBe(true);
+      expect(text(r), code).toContain("l'indicazione di approvare valeva per il piano di prima");
+      expect(text(r), code).toContain("riporta all'utente host e passi");
+      expect(text(r), code).not.toContain("rileggi prima di riprovare");
+    }
+  });
+
   it("un 409 (piano cambiato) e un 403 si leggono come le altre decisioni", async () => {
     const r = await tool("approve_server_fix").handler({ ticket_id: "t1", plan_digest: "d1" }, ctxWith(vi.fn().mockRejectedValue(new StubwiseApiError("HTTP 403 forbidden: x", 403, "forbidden"))));
     expect(text(r)).toContain("Non hai il permesso per approvare la correzione di un server");

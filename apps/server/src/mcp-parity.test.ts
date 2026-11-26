@@ -291,6 +291,36 @@ const UNTRUSTED_OWN_TEXT: Record<string, string> = {
   "docs.updateManual": "restituisce la pagina manuale appena modificata da chi chiama",
 };
 
+/**
+ * Revisione del lotto 5, I4: le azioni che portano contenuto da fuori ma che
+ * la regola sullo schema NON vede (senza schema di risposta, o con uno che
+ * non usa gli schemi di UNTRUSTED_SCHEMAS). Elenco chiuso, ognuna col suo
+ * perché: pretende la nota finché lo schema non arriva a dirlo da solo.
+ */
+const UNTRUSTED_BY_ACTION: Record<string, string> = {
+  "automations.get": "le ultime esecuzioni: eventi, variabili, registro, anteprime (senza schema)",
+  "automations.examples": "eventi d'esempio arrivati da fuori (senza schema)",
+  "automations.testClaude": "testo di Claude su dati d'esempio (senza schema)",
+  "automationRuns.list": "eventi e registro delle esecuzioni (senza schema)",
+  "automationRuns.mine": "eventi e registro delle esecuzioni (senza schema)",
+  "automationRuns.get": "eventi, passi e registro (senza schema)",
+  "automationRuns.myApprovals": "anteprime dei passi da approvare (senza schema)",
+  "automationSources.list": "sampleEvents (senza schema)",
+  "automationSources.rename": "restituisce la sorgente coi sampleEvents (senza schema)",
+  "automationSources.events": "gli eventi arrivati (senza schema)",
+  "automationSources.setExample": "restituisce la sorgente coi sampleEvents (senza schema)",
+  "automationSources.previewExample": "i campi ricavati da un evento (senza schema)",
+  "automationSources.updateField": "restituisce la sorgente coi sampleEvents (senza schema)",
+  "agentSessions.list": "titoli e ultime righe dell'agente",
+  "agentSessions.get": "testo dell'agente e di chi gli scrive",
+  "agentSessions.events": "messaggi, strumenti ed esiti dell'agente",
+  "widgets.conversations": "messaggi dei clienti del widget",
+  "widgets.conversation": "messaggi dei clienti del widget",
+  "tasks.server": "uscite dei comandi e analisi dell'host",
+  "tasks.serverFix": "uscite dei comandi dell'host",
+  "tasks.serverFixCommands": "uscite dei comandi dell'host",
+};
+
 /** Se lo schema zod contiene (anche dentro array, oggetti, unioni, opzionali) uno di quelli dati. */
 function containsSchema(schema: unknown, targets: readonly unknown[], seen = new Set<unknown>()): boolean {
   if (schema === null || typeof schema !== "object" || seen.has(schema)) return false;
@@ -638,6 +668,12 @@ describe("parità MCP: ogni rotta dichiara config.mcp", () => {
     // Un'eccezione che non serve più (la voce non restituisce contenuto, o non c'è) si toglie.
     const used = new Set(carrying.map(actionOf));
     expect(Object.keys(UNTRUSTED_OWN_TEXT).filter((a) => !used.has(a))).toEqual([]);
+  });
+
+  it("un'azione con contenuto da fuori che lo schema non mostra dice che è contenuto non fidato (elenco chiuso, UNTRUSTED_BY_ACTION; revisione del lotto 5, I4)", async () => {
+    const byAction = new Map((await registered()).filter((r) => isMcpAction(mcpOf(r))).map((r) => [(mcpOf(r) as { action: string }).action, mcpOf(r) as { note?: string }]));
+    expect(Object.keys(UNTRUSTED_BY_ACTION).filter((a) => !byAction.has(a))).toEqual([]);
+    expect(Object.keys(UNTRUSTED_BY_ACTION).filter((a) => !(byAction.get(a)?.note ?? "").includes(UNTRUSTED_NOTE))).toEqual([]);
   });
 
   it("le rotte di scrittura del SOLO token del turno di Claude dichiarano `chat_tool` (elenco chiuso, CHAT_TOOL_WRITE_ROUTES)", async () => {
