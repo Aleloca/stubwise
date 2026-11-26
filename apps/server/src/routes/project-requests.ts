@@ -60,7 +60,7 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
   app.get(
     "/requests",
     {
-      config: { access: { kind: "project", permission: "member", project: fromQuery("projectId") } },
+      config: { access: { kind: "project", permission: "member", project: fromQuery("projectId") } , mcp: { action: "requests.list", summary: "Le richieste di un progetto, con filtri per stato e testo.", effect: "read" }},
       schema: {
         querystring: z.object({ projectId: z.uuid() }),
         response: { 200: z.array(projectRequestSummarySchema), ...authErrorResponses },
@@ -78,7 +78,7 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
   app.get(
     "/requests/by-code/:code",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" } , mcp: { action: "requests.getByCode", summary: "Il dettaglio di una richiesta dal suo codice.", effect: "read" }},
       schema: { params: z.object({ code: z.string().max(40) }), response: { 200: projectRequestViewSchema, 404: errorSchema, ...authErrorResponses } },
     },
     async (request, reply) => {
@@ -107,7 +107,7 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
   app.get(
     "/requests/jobs/:jobId",
     {
-      config: { access: { kind: "project", permission: "member", project: fromBacklogJob("jobId") } },
+      config: { access: { kind: "project", permission: "member", project: fromBacklogJob("jobId") } , mcp: { action: "requests.job", summary: "L'esito dell'intake di una richiesta appena creata: nata nuova o fusa in una esistente.", effect: "read" }},
       schema: { params: z.object({ jobId: z.uuid() }), response: { 200: requestJobViewSchema, 404: errorSchema, ...authErrorResponses } },
     },
     async (request, reply) => {
@@ -139,7 +139,7 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
   app.post(
     "/requests",
     {
-      config: { access: { kind: "project", permission: "backlog.create", project: fromBody("projectId") } },
+      config: { access: { kind: "project", permission: "backlog.create", project: fromBody("projectId") } , mcp: { action: "requests.create", summary: "Apre una richiesta in un progetto; l'intake la confronta con quelle che ci sono e può fonderla in una esistente.", effect: "write", note: "L'esito arriva dopo: leggilo con `requests.job`." }},
       schema: {
         body: newRequestBodySchema,
         response: {
@@ -191,7 +191,7 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
   app.get(
     "/requests/:id",
     {
-      config: { access: backlogItemAccess("id", "member") },
+      config: { access: backlogItemAccess("id", "member") , mcp: { action: "requests.get", summary: "Il dettaglio di una richiesta per id: testo, metadati, proposte dell'intake e task nate.", effect: "read" }},
       schema: { params: idParams, response: { 200: projectRequestViewSchema, 404: errorSchema, ...authErrorResponses } },
     },
     async (request, reply) =>
@@ -202,7 +202,7 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
   app.patch(
     "/requests/:id",
     {
-      config: { access: backlogItemAccess("id", "backlog.edit") },
+      config: { access: backlogItemAccess("id", "backlog.edit") , mcp: { action: "requests.update", summary: "Modifica titolo, descrizione e metadati di una richiesta aperta.", effect: "write" }},
       schema: { params: idParams, body: requestPatchBodySchema, response: viewOr404 },
     },
     async (request, reply) => {
@@ -252,13 +252,13 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
   // Le proposte dell'intake: accettate diventano i metadati, scartate spariscono.
   // Gli scrittori sono quelli di `backlog-item-writes.ts` (voce in lock), gli
   // stessi delle rotte del backlog; qui una trasformata o archiviata è in sola lettura.
-  for (const [action, write] of [
-    ["accept", acceptBacklogItemSuggested],
-    ["dismiss", dismissBacklogItemSuggested],
+  for (const [action, write, mcp] of [
+    ["accept", acceptBacklogItemSuggested, { action: "requests.acceptSuggestions", summary: "Accetta i metadati proposti dall'intake su una richiesta.", effect: "write" }],
+    ["dismiss", dismissBacklogItemSuggested, { action: "requests.dismissSuggestions", summary: "Scarta i metadati proposti dall'intake su una richiesta.", effect: "write" }],
   ] as const) {
     app.post(
       `/requests/:id/suggestions/${action}`,
-      { config: { access: backlogItemAccess("id", "backlog.edit") }, schema: { params: idParams, response: viewOr404 } },
+      { config: { access: backlogItemAccess("id", "backlog.edit"), mcp }, schema: { params: idParams, response: viewOr404 } },
       async (request, reply) => {
         const { id } = request.params;
         const res = await write(app.db, id, { readOnlyClosed: true });
@@ -275,7 +275,7 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
   /** Archivia una richiesta aperta; la sua sessione di refinement si chiude. */
   app.post(
     "/requests/:id/archive",
-    { config: { access: backlogItemAccess("id", "backlog.edit") }, schema: { params: idParams, response: viewOr404 } },
+    { config: { access: backlogItemAccess("id", "backlog.edit") , mcp: { action: "requests.archive", summary: "Archivia una richiesta aperta.", effect: "write" }}, schema: { params: idParams, response: viewOr404 } },
     async (request, reply) => {
       const { id } = request.params;
       const changed = await archiveRequest(app.db, id);
@@ -287,7 +287,7 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
   /** Riapre un'archiviata (anche fusa): torna «nuova», e non è più fusa in niente. */
   app.post(
     "/requests/:id/reopen",
-    { config: { access: backlogItemAccess("id", "backlog.edit") }, schema: { params: idParams, response: viewOr404 } },
+    { config: { access: backlogItemAccess("id", "backlog.edit") , mcp: { action: "requests.reopen", summary: "Riapre una richiesta archiviata o fusa: torna nuova.", effect: "write" }}, schema: { params: idParams, response: viewOr404 } },
     async (request, reply) => {
       const { id } = request.params;
       const row = await reopenRequest(app.db, id);
@@ -306,7 +306,7 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
   app.post(
     "/requests/:id/restore",
     {
-      config: { access: backlogItemAccess("id", "backlog.edit") },
+      config: { access: backlogItemAccess("id", "backlog.edit") , mcp: { action: "requests.restore", summary: "Annulla l'archiviazione a mano di una richiesta: torna allo stato di prima.", effect: "write" }},
       schema: { params: idParams, body: z.object({ status: z.enum(OPEN).optional() }).nullish(), response: viewOr404 },
     },
     async (request, reply) => {
@@ -338,7 +338,7 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
   app.post(
     "/requests/:id/merge",
     {
-      config: { access: backlogItemAccess("id", "backlog.edit") },
+      config: { access: backlogItemAccess("id", "backlog.edit") , mcp: { action: "requests.merge", summary: "Fonde una richiesta aperta in un'altra dello stesso progetto; il testo della destinazione lo riscrive il modello.", effect: "write" }},
       schema: {
         params: idParams,
         body: z.object({ intoId: z.uuid() }),
