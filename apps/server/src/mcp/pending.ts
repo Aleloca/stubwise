@@ -9,7 +9,7 @@
  * Il tetto di `PENDING_MCP`: si abbassa SOLTANTO, a ogni lotto, fino a zero.
  * Senza, una rotta nuova si accoderebbe all'elenco e il test passerebbe.
  */
-export const PENDING_MCP_MAX = 502;
+export const PENDING_MCP_MAX = 480;
 
 export const PENDING_MCP: readonly string[] = [
   "DELETE /api/attachments/:attachmentId",
@@ -49,9 +49,6 @@ export const PENDING_MCP: readonly string[] = [
   "DELETE /api/saved-views/:id",
   "DELETE /api/search/history",
   "DELETE /api/search/history/:type/:entityId",
-  "DELETE /api/servers/:id",
-  "DELETE /api/servers/:id/checks/:checkId",
-  "DELETE /api/servers/:id/ssh",
   "DELETE /api/tasks/:ticketId",
   "DELETE /api/tasks/:ticketId/follow",
   "DELETE /api/tasks/:ticketId/manual-stall",
@@ -251,16 +248,6 @@ export const PENDING_MCP: readonly string[] = [
   "GET /api/search",
   "GET /api/search/docs-semantic",
   "GET /api/search/history",
-  "GET /api/servers",
-  "GET /api/servers/:id",
-  "GET /api/servers/:id/analyses",
-  "GET /api/servers/:id/checks",
-  "GET /api/servers/:id/metrics",
-  "GET /api/servers/:id/operations",
-  "GET /api/servers/:id/ssh",
-  "GET /api/servers/by-code/:code",
-  "GET /api/servers/command-key",
-  "GET /api/servers/search",
   "GET /api/support/conversations/by-code/:code",
   "GET /api/support/conversations/by-code/:code/preview",
   "GET /api/support/search",
@@ -308,7 +295,6 @@ export const PENDING_MCP: readonly string[] = [
   "PATCH /api/repositories/:slug",
   "PATCH /api/requests/:id",
   "PATCH /api/saved-views/:id",
-  "PATCH /api/servers/:id",
   "PATCH /api/tasks/:ticketId",
   "PATCH /api/tasks/bulk",
   "PATCH /api/tickets/:id",
@@ -457,12 +443,6 @@ export const PENDING_MCP: readonly string[] = [
   "POST /api/requests/:id/suggestions/dismiss",
   "POST /api/saved-views",
   "POST /api/search/history",
-  "POST /api/servers",
-  "POST /api/servers/:id/analyses",
-  "POST /api/servers/:id/checks",
-  "POST /api/servers/:id/regenerate-key",
-  "POST /api/servers/:id/ssh/regenerate",
-  "POST /api/servers/:id/ssh/verify",
   "POST /api/support/conversations/by-code/:code/not-concluded",
   "POST /api/support/conversations/by-code/:code/replies",
   "POST /api/support/conversations/by-code/:code/request",
@@ -507,8 +487,6 @@ export const PENDING_MCP: readonly string[] = [
   "PUT /api/projects/:projectId/statuses",
   "PUT /api/projects/:projectId/widgets/:widgetId",
   "PUT /api/repositories/:repositoryId/pulls/:prNumber/release-notes",
-  "PUT /api/servers/:id/checks/:checkId",
-  "PUT /api/servers/:id/ssh",
   "PUT /api/tasks/:ticketId/day",
   "PUT /api/tasks/:ticketId/follow",
   "PUT /api/tasks/:ticketId/manual-stall",

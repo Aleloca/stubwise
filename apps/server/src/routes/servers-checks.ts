@@ -134,7 +134,7 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
   app.post(
     "/:id/checks",
     {
-      config: { access: { kind: "instance", permission: "monitor.manage" } },
+      config: { mcp: { action: "servers.createCheck", summary: "Aggiunge un controllo di servizio a un server.", effect: "write" }, access: { kind: "instance", permission: "monitor.manage" } },
       schema: {
         params: idParamsSchema,
         body: createCheckSchema,
@@ -170,7 +170,7 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
   app.get(
     "/:id/checks",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "servers.checks", summary: "I controlli di servizio di un server, col loro esito.", effect: "read" }, access: { kind: "user" } },
       schema: {
         params: idParamsSchema,
         response: { 200: z.array(checkViewSchema), 404: errorSchema, ...authErrorResponses },
@@ -196,7 +196,7 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
   app.put(
     "/:id/checks/:checkId",
     {
-      config: { access: { kind: "instance", permission: "monitor.manage" } },
+      config: { mcp: { action: "servers.updateCheck", summary: "Modifica un controllo di servizio.", effect: "write" }, access: { kind: "instance", permission: "monitor.manage" } },
       schema: {
         params: checkParamsSchema,
         body: updateCheckSchema,
@@ -257,7 +257,7 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
   app.delete(
     "/:id/checks/:checkId",
     {
-      config: { access: { kind: "instance", permission: "monitor.manage" } },
+      config: { mcp: { action: "servers.deleteCheck", summary: "Elimina un controllo di servizio, con i suoi campioni.", effect: "destructive" }, access: { kind: "instance", permission: "monitor.manage" } },
       schema: {
         params: checkParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
@@ -279,7 +279,7 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
   app.get(
     "/:id/metrics",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "servers.metrics", summary: "Le metriche di un server in un periodo (CPU, memoria, disco…).", effect: "read" }, access: { kind: "user" } },
       schema: {
         params: idParamsSchema,
         querystring: metricsQuerySchema,
