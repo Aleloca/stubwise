@@ -134,6 +134,12 @@ describe("callAction", () => {
     expect(err.message).toBe('HTTP 409 already_handled: Someone already decided this proposal {"decidedBy":{"name":"Ada"}}');
   });
 
+  it("i campi in più di un errore restano in `details` (revisione del lotto 1, I5)", async () => {
+    const client = makeClient(vi.fn().mockResolvedValue(jsonResponse({ code: "run_not_started", message: "x", ticketId: "t9", ticketNumber: 9 }, 409)));
+    const err = (await client.callAction({ method: "POST", path: "/api/x" }).catch((e: unknown) => e)) as StubwiseApiError;
+    expect(err.details).toEqual({ ticketId: "t9", ticketNumber: 9 });
+  });
+
   it("i campi in più di un errore hanno un tetto", async () => {
     const client = makeClient(vi.fn().mockResolvedValue(jsonResponse({ code: "conflict", message: "no", detail: "x".repeat(10_000) }, 409)));
     const err = (await client.callAction({ method: "POST", path: "/api/x" }).catch((e: unknown) => e)) as StubwiseApiError;

@@ -124,7 +124,7 @@ export async function patRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "pats.list", summary: "I tuoi token d'accesso (nome, tipo, ultimo uso), senza il token.", effect: "read" }, access: { kind: "user" } },
       schema: { response: { 200: z.array(patViewSchema), ...authErrorResponses } },
     },
     async (request) => {
@@ -160,7 +160,7 @@ export async function patRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/:id",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "pats.revoke", summary: "Revoca un tuo token d'accesso.", effect: "destructive", note: "Revocare il token che Claude Code sta usando chiude questa sessione: dillo prima." }, access: { kind: "user" } },
       schema: {
         params: z.object({ id: z.uuid() }),
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },

@@ -45,7 +45,7 @@ export async function avatarRoutes(instance: FastifyInstance): Promise<void> {
 
   app.delete(
     "/me/avatar",
-    { config: { access: { kind: "user" } }, schema: { response: { 204: z.null(), ...authErrorResponses } } },
+    { config: { mcp: { action: "me.deleteAvatar", summary: "Toglie la tua foto.", effect: "destructive" }, access: { kind: "user" } }, schema: { response: { 204: z.null(), ...authErrorResponses } } },
     async (request, reply) => {
       await app.db.delete(userAvatars).where(eq(userAvatars.userId, request.user!.id));
       return reply.code(204).send(null);
@@ -55,7 +55,7 @@ export async function avatarRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/users/:id/avatar",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "users.avatar", summary: "La foto di una persona, salvata su disco.", effect: "read", tool: "download_file" }, access: { kind: "user" } },
       schema: { params: z.object({ id: z.uuid() }), response: { 404: errorSchema, ...authErrorResponses } },
     },
     async (request, reply) => {

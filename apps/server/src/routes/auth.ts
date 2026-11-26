@@ -556,7 +556,7 @@ export async function authRoutes(
   app.patch(
     "/me",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "me.update", summary: "Cambia il tuo nome visualizzato o la lingua.", effect: "write" }, access: { kind: "user" } },
       schema: {
         body: z.object({
           language: languageSchema.optional(),

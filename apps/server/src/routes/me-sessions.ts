@@ -49,7 +49,7 @@ export async function meSessionsRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/sessions",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "me.sessions", summary: "Le tue sessioni aperte (browser, app) e i loro dispositivi.", effect: "read" }, access: { kind: "user" } },
       schema: { response: { 200: z.array(sessionRowSchema), ...authErrorResponses } },
     },
     async (request) => {
@@ -81,7 +81,7 @@ export async function meSessionsRoutes(instance: FastifyInstance): Promise<void>
   app.delete(
     "/sessions/:id",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "me.closeSession", summary: "Chiude una tua sessione: quel dispositivo esce.", effect: "destructive" }, access: { kind: "user" } },
       schema: {
         params: z.object({ id: z.string().min(1).max(80) }),
         response: { 204: z.null(), ...authErrorResponses, 404: errorSchema, 409: errorSchema },
