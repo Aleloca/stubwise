@@ -490,7 +490,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/pulse",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, mcp: { action: "projects.pulse", summary: "Il polso dei progetti del web: per ogni progetto che vedi, cosa si muove, cosa è fermo e cosa aspetta merge.", effect: "read" } },
       schema: { response: { 200: z.array(projectPulseSummarySchema), ...authErrorResponses } },
     },
     async (request) => {
@@ -957,7 +957,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:projectId",
     {
-      config: { access: onProject("member") },
+      config: { access: onProject("member"), mcp: { action: "projects.get", summary: "Il dettaglio di un progetto che vedi: nome, codice, slug, repository e impostazioni principali.", effect: "read" } },
       schema: {
         params: idParamsSchema,
         response: { 200: projectDetailSchema, 404: errorSchema, ...authErrorResponses },

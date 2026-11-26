@@ -9,7 +9,7 @@
  * Il tetto di `PENDING_MCP`: si abbassa SOLTANTO, a ogni lotto, fino a zero.
  * Senza, una rotta nuova si accoderebbe all'elenco e il test passerebbe.
  */
-export const PENDING_MCP_MAX = 227;
+export const PENDING_MCP_MAX = 221;
 
 export const PENDING_MCP: readonly string[] = [
   "DELETE /api/admin/invites/:id",
@@ -57,7 +57,6 @@ export const PENDING_MCP: readonly string[] = [
   "GET /api/automations/:code/examples",
   "GET /api/automations/:code/runs/:n",
   "GET /api/automations/:code/test/client-project",
-  "GET /api/briefs/:briefId",
   "GET /api/client-links",
   "GET /api/client-links/suggestions",
   "GET /api/credentials/:id/recipients",
@@ -73,7 +72,6 @@ export const PENDING_MCP: readonly string[] = [
   "GET /api/me/alert-subscriptions",
   "GET /api/me/automation-approvals",
   "GET /api/me/automation-runs",
-  "GET /api/me/claude-decisions",
   "GET /api/me/email-change",
   "GET /api/me/notification-prefs",
   "GET /api/me/security",
@@ -82,8 +80,6 @@ export const PENDING_MCP: readonly string[] = [
   "GET /api/pats",
   "GET /api/plugins",
   "GET /api/plugins/:id",
-  "GET /api/product-changes",
-  "GET /api/projects/:projectId",
   "GET /api/projects/:projectId/archive-preview",
   "GET /api/projects/:projectId/archived-view",
   "GET /api/projects/:projectId/automations",
@@ -103,7 +99,6 @@ export const PENDING_MCP: readonly string[] = [
   "GET /api/projects/:projectId/widgets",
   "GET /api/projects/archive-candidates",
   "GET /api/projects/archived",
-  "GET /api/projects/pulse",
   "GET /api/repositories",
   "GET /api/repositories/:id/env-files",
   "GET /api/repositories/:slug",
@@ -137,7 +132,6 @@ export const PENDING_MCP: readonly string[] = [
   "GET /api/tasks/:ticketId/server",
   "GET /api/tasks/:ticketId/server-fix",
   "GET /api/tasks/:ticketId/server-fix/commands",
-  "GET /api/tickets/:ticketId/jobs",
   "GET /api/users",
   "GET /api/users/:id/avatar",
   "GET /api/users/:id/security-events",
