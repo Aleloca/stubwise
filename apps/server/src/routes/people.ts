@@ -30,7 +30,7 @@ export async function peopleRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/activity",
     {
-      config: { access: { kind: "instance", permission: "people.activity.view" } },
+      config: { access: { kind: "instance", permission: "people.activity.view" } , mcp: { action: "people.activity", summary: "L'attività del giorno per persona (serve `people.activity.view`).", effect: "read" }},
       schema: {
         querystring: peopleActivityQuerySchema,
         response: { 200: z.array(personDayActivitySchema), ...authErrorResponses },
@@ -42,7 +42,7 @@ export async function peopleRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" } , mcp: { action: "people.list", summary: "Le persone che vedi (nome ed email), compreso l'utente di sistema «Claude» a cui si assegnano task.", effect: "read" }},
       schema: { response: { 200: z.array(personViewSchema), ...authErrorResponses } },
     },
     async (request): Promise<PersonView[]> => {

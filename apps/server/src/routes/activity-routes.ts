@@ -151,7 +151,7 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" } , mcp: { action: "activity.reports", summary: "I report giornalieri dei progetti che vedi per una data (`date`, AAAA-MM-GG).", effect: "read" }},
       schema: {
         querystring: z.object({ date: z.string() }),
         response: { 200: responseSchema, 400: errorSchema, ...authErrorResponses },
@@ -502,7 +502,7 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/generate",
     {
-      config: { access: { kind: "instance", permission: "settings.manage" } },
+      config: { access: { kind: "instance", permission: "settings.manage" } , mcp: { action: "activity.generate", summary: "Accoda la generazione dei report giornalieri per una data (solo admin, run AI).", effect: "write", note: "Spende budget AI." }},
       schema: {
         body: z.object({ date: z.string(), force: z.boolean().optional().default(false) }),
         response: { 200: z.object({ queued: z.number() }), 400: errorSchema, ...authErrorResponses },
