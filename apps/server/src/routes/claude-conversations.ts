@@ -237,7 +237,7 @@ export async function claudeConversationRoutes(instance: FastifyInstance): Promi
   app.post(
     "/:id/questions/:questionId/answer",
     {
-      config: { access: ACCESS, mcp: { action: "claude.answerQuestion", summary: "Risponde a una domanda di Claude in una tua conversazione: la risposta riprende il turno.", effect: "write", note: "Avvia lavoro dell'AI: spende budget." } },
+      config: { access: ACCESS, mcp: { action: "claude.answer", summary: "Risponde a una domanda di Claude in una tua conversazione: la risposta riprende il turno.", effect: "write", note: "Avvia lavoro dell'AI: spende budget." } },
       schema: {
         params: z.object({ id: z.uuid(), questionId: z.uuid() }),
         body: answerClaudeQuestionSchema,

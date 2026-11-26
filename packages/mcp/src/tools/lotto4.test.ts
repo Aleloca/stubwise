@@ -66,7 +66,7 @@ describe("lotto 4: le regole delle voci", () => {
   // di risposta (UNTRUSTED_SCHEMAS), con le sue eccezioni motivate.
 
   it("ciò che avvia lavoro dell'AI lo dice, con il budget", () => {
-    const spend = ["chat.send", "chat.answerClaude", "chat.retryClaude", "claude.createConversation", "claude.continue", "claude.answerQuestion", "claude.confirmProposal", "productDocs.startFirstVersion", "productDocs.drawWireframe", "productDocs.redrawWireframe", "productDocs.updateFromSource", "productDocs.answer", "docs.generate", "docs.resume", "docs.askProject", "docs.askRepository", "mail.claudeDraft"];
+    const spend = ["chat.send", "chat.answerClaude", "chat.retryClaude", "claude.createConversation", "claude.continue", "claude.answer", "claude.confirmProposal", "productDocs.startFirstVersion", "productDocs.drawWireframe", "productDocs.redrawWireframe", "productDocs.updateFromSource", "productDocs.answer", "docs.generate", "docs.resume", "docs.askProject", "docs.askRepository", "mail.claudeDraft"];
     for (const a of spend) expect(entry(a).note, a).toContain("spende budget");
   });
 
