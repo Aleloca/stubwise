@@ -404,8 +404,10 @@ Come usarlo:
 Col PAT si fa da qui **tutto ciò che si fa dalla nuova app**, coi permessi
 dell'utente (decisione del maintainer, 26 nov 2026). Restano dell'app solo la
 **cassaforte** (da qui nomi e lettori, mai le password) e le azioni che
-chiedono di **riconfermare l'identità** (ruoli, membri, token, sicurezza
-dell'account).
+chiedono di **riconfermare l'identità**: ruoli, membri, token, sicurezza
+dell'account, e i valori che portano una credenziale (il DSN di un controllo
+di database, un URL con user:password di un controllo http, endpoint e bucket
+dello storage, l'URL di un webhook in uscita).
 
 - Per sapere cosa aspetta l'utente: **`list_inbox`**.
 - Le decisioni hanno i loro tool: `approve_plan`, `reject_plan`,

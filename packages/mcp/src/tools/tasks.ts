@@ -1,4 +1,4 @@
-import { addWeeks, currentIsoWeek, isIsoWeek, mondayToIsoWeek } from "@stubwise/shared";
+import { addWeeks, currentIsoWeek, isIsoWeek, mondayToIsoWeek } from "./weeks.js";
 import { z } from "zod";
 import type { DepartmentItem, ProjectStatusItem, TaskItem } from "../client.js";
 import { CLAUDE_ASSIGNED_LINE, resolveAssignee } from "./assignee.js";

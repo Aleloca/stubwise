@@ -5,6 +5,7 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } 
 import { z } from "zod";
 
 import { capped, findEntry, paramsSchema, querySchema } from "./actions.js";
+import { redactPaths, redactSecrets } from "./redact.js";
 import { errorResult, runTool, textResult } from "./shared.js";
 import type { ToolDef, ToolResult } from "./types.js";
 
@@ -342,7 +343,9 @@ const uploadFile: ToolDef = {
         { data, name, type: mimeOf(name) },
       );
       const head = `Caricato «${name}» (${sizeLabel(data.byteLength)}) su ${entry.action}, HTTP ${res.status}.`;
-      return textResult(capped(res.data === undefined ? head : `${head}\n${JSON.stringify(res.data, null, 2)}`));
+      // La stessa redazione di read_action e write_action (revisione finale, M2).
+      const shown = res.data === undefined ? undefined : redactPaths(redactSecrets(res.data), entry.redact ?? []);
+      return textResult(capped(shown === undefined ? head : `${head}\n${JSON.stringify(shown, null, 2)}`));
     }),
 };
 

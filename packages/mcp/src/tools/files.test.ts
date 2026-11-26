@@ -113,6 +113,19 @@ describe("upload_file", () => {
     expect(text(r)).toContain("Caricato «verbale riunione.pdf» (13 byte)");
   });
 
+  it("la risposta passa dalla stessa redazione di read_action e write_action (revisione finale, M2)", async () => {
+    const path = join(dir, "logo.png");
+    writeFileSync(path, Buffer.from("png"));
+    const entry: CatalogAction = { ...UPLOAD, redact: ["file.url"] };
+    const uploadAction = vi.fn().mockResolvedValue({ status: 201, data: { id: "a1", token: "tok-segreto", file: { url: "https://x.test/firmato?sig=abc" } } });
+    const ctx = ctxWith({ getCatalog: vi.fn().mockResolvedValue([entry]), uploadAction });
+    const r = await tool("upload_file").handler({ action: "attachments.upload", params: { ticketId: "t1" }, path }, ctx);
+    expect(r.isError).toBeUndefined();
+    expect(text(r)).toContain('"id": "a1"');
+    expect(text(r)).not.toContain("tok-segreto");
+    expect(text(r)).not.toContain("sig=abc");
+  });
+
   it("una voce senza `upload_file` non riceve file: lo dice, senza leggere né chiamare", async () => {
     const uploadAction = vi.fn();
     const r = await tool("upload_file").handler({ action: "tasks.update", params: { ticketId: "t1" }, path: join(dir, "nessuno.txt") }, ctxWith({ getCatalog: vi.fn().mockResolvedValue(CATALOG), uploadAction }));

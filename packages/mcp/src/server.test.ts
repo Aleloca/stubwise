@@ -88,6 +88,14 @@ describe("buildServer", () => {
 });
 
 describe("istruzioni di server", () => {
+  it("le riconferme elencate dicono anche le credenziali: DSN, http con credenziali, endpoint e bucket, URL dei webhook (revisione finale, M3)", () => {
+    const skill = readFileSync(fileURLToPath(new URL("../../../plugins/stubwise/skills/stubwise/SKILL.md", import.meta.url)), "utf8");
+    for (const [where, text] of [["instructions.ts", SERVER_INSTRUCTIONS], ["SKILL.md", skill.replace(/\s+/g, " ")]] as const) {
+      for (const word of ["DSN", "user:password", "endpoint", "bucket", "URL di un webhook"]) expect(text, `${where}: ${word}`).toContain(word);
+    }
+  });
+
+
   it("McpServer nasce con le istruzioni per i collaboratori", () => {
     const server = buildServer(ctx);
     // L'SDK le conserva sul Server sottostante e le manda nell'handshake.
