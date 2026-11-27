@@ -28,7 +28,7 @@ import {
   deleteProjectSchema,
 } from "@stubwise/shared";
 import { summarizeProject, userIdsWithPermission, type ProjectPulseSummary } from "@stubwise/notifications";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -46,6 +46,8 @@ import type { ProjectPermission } from "@stubwise/shared";
 import {
   aiProviders,
   projectEnvironments,
+  projectAccess,
+  projectAccessRowCounts,
   projectMembers,
   projectStatuses,
   projects,
@@ -164,10 +166,11 @@ async function effectiveMemberIds(db: Db, projectIds: string[]): Promise<Map<str
   const result = new Map<string, string[]>();
   if (projectIds.length === 0) return result;
   const [members, admins] = await Promise.all([
+    // Membri espliciti e persone di workspace (0238), come `projectViewerIdsByProject`.
     db
-      .select({ projectId: projectMembers.projectId, userId: projectMembers.userId })
-      .from(projectMembers)
-      .where(inArray(projectMembers.projectId, projectIds)),
+      .selectDistinct({ projectId: projectAccess.projectId, userId: projectAccess.userId })
+      .from(projectAccess)
+      .where(and(inArray(projectAccess.projectId, projectIds), projectAccessRowCounts)),
     userIdsWithPermission(db, null, null),
   ]);
   for (const id of projectIds) result.set(id, [...admins]);

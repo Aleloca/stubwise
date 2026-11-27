@@ -5,14 +5,15 @@ import {
   invites,
   passwordResetTokens,
   personalAccessTokens,
-  projectMembers,
+  projectAccess,
+  projectAccessSql,
   roles,
   sessions,
   tickets,
   users,
   type Db,
 } from "@stubwise/db";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
 import { personObject, recordChange } from "./change-log.js";
 import { inviteObject } from "./invite-change.js";
@@ -68,7 +69,8 @@ export async function deactivateUser(db: Db, actor: Actor, userId: string, reass
     }
 
     // Nessun progetto resta senza un gestore ATTIVO (review di F1, m4).
-    const memberOf = await tx.select({ projectId: projectMembers.projectId }).from(projectMembers).where(eq(projectMembers.userId, userId));
+    // Anche i progetti visti per workspace (D18: anche lì può essere il gestore).
+    const memberOf = await tx.selectDistinct({ projectId: projectAccess.projectId }).from(projectAccess).where(eq(projectAccess.userId, userId));
     await keepingManagersIn(
       tx,
       memberOf.map((m) => m.projectId),
@@ -128,11 +130,11 @@ function invalidReassignment(taskId: string): RoleRuleError {
 /** Una persona attiva (non Claude) che vede il progetto: membro, o full admin. */
 async function canReceive(tx: Parameters<Parameters<Db["transaction"]>[0]>[0], userId: string, projectId: string): Promise<boolean> {
   const [row] = await tx
-    .select({ permissions: roles.permissions, memberOf: projectMembers.projectId })
+    // Membro esplicito o di workspace (0238).
+    .select({ permissions: roles.permissions, member: projectAccessSql(sql`${projectId}::uuid`, users.id) })
     .from(users)
     .innerJoin(roles, eq(roles.id, users.instanceRoleId))
-    .leftJoin(projectMembers, and(eq(projectMembers.userId, users.id), eq(projectMembers.projectId, projectId)))
     .where(and(eq(users.id, userId), eq(users.isAgent, false), isNull(users.deactivatedAt)));
   if (!row) return false;
-  return row.memberOf !== null || row.permissions.includes("instance.full_admin");
+  return row.member === true || row.permissions.includes("instance.full_admin");
 }

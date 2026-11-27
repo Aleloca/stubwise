@@ -6,7 +6,8 @@ import {
   departments,
   gitIdentities,
   invites,
-  memberPermissionsSql,
+  projectAccess,
+  projectAccessPermissionsSql,
   projectMemberPermissions,
   projectMembers,
   projects,
@@ -24,7 +25,7 @@ import {
   type RoleChoice,
 } from "@stubwise/shared";
 import { alias } from "drizzle-orm/pg-core";
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { scopeProjectIds, visibleProjectIds } from "../auth/access.js";
 import { hasSecondFactor } from "../auth/second-factor/reset.js";
 import type { SessionUser } from "../auth/session.js";
@@ -357,11 +358,11 @@ function grantSource(g: { by: string | null; at: Date; byName: string | null; by
 export async function managedProjectIds(db: Db, viewer: Viewer, projectIds: readonly string[]): Promise<Set<string>> {
   if (viewer.instancePermissions.has("instance.full_admin")) return new Set(projectIds);
   if (projectIds.length === 0) return new Set();
+  // L'unione delle fonti (workspace compresa, 0238).
   const rows = await db
-    .select({ projectId: projectMembers.projectId, permissions: memberPermissionsSql(memberRoles.permissions, projectMembers.projectId, projectMembers.userId) })
-    .from(projectMembers)
-    .innerJoin(memberRoles, eq(memberRoles.id, projectMembers.roleId))
-    .where(and(eq(projectMembers.userId, viewer.id), inArray(projectMembers.projectId, [...projectIds])));
+    .select({ projectId: projects.id, permissions: projectAccessPermissionsSql(projects.id, sql`${viewer.id}::uuid`) })
+    .from(projects)
+    .where(inArray(projects.id, [...projectIds]));
   const instance = new Set(viewer.instancePermissions);
   return new Set(rows.filter((r) => effectiveProjectPermissions(instance, r.permissions)?.has("project.members.manage")).map((r) => r.projectId));
 }
@@ -386,10 +387,11 @@ async function openTasksOf(db: Db, viewer: Viewer, userId: string, projectIds: r
     .from(users)
     .innerJoin(instanceRoles, eq(instanceRoles.id, users.instanceRoleId))
     .where(and(eq(users.isAgent, false), isNull(users.deactivatedAt), ...(visible === "all" ? [] : [inArray(users.id, visible)])));
+  // Membri espliciti e persone di workspace (0238), la regola di `canReceive`.
   const members = await db
-    .select({ projectId: projectMembers.projectId, userId: projectMembers.userId })
-    .from(projectMembers)
-    .where(inArray(projectMembers.projectId, [...new Set(open.map((t) => t.projectId))]));
+    .selectDistinct({ projectId: projectAccess.projectId, userId: projectAccess.userId })
+    .from(projectAccess)
+    .where(inArray(projectAccess.projectId, [...new Set(open.map((t) => t.projectId))]));
   return open.map((t) => ({
     taskId: t.id,
     code: `${t.code}-${t.number}`,
