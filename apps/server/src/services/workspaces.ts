@@ -53,7 +53,7 @@ export type WorkspaceActor = Pick<SessionUser, "id" | "email" | "instancePermiss
 const MANAGE_MEMBERS = "project.members.manage";
 
 const isFullAdmin = (actor: Pick<SessionUser, "instancePermissions">) => actor.instancePermissions.has("instance.full_admin");
-const canManageStructure = (actor: Pick<SessionUser, "instancePermissions">) =>
+export const canManageStructure = (actor: Pick<SessionUser, "instancePermissions">) =>
   isFullAdmin(actor) || actor.instancePermissions.has("workspaces.manage");
 
 const notFound = () => new RoleRuleError(404, "not_found", "Workspace not found");

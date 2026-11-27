@@ -22,6 +22,7 @@ import {
   createWorkspace,
   deleteWorkspace,
   getWorkspace,
+  canManageStructure,
   listWorkspaces,
   memberPreview,
   putMember,
@@ -73,7 +74,7 @@ export async function workspaceRoutes(instance: FastifyInstance): Promise<void> 
       config: { access: { kind: "user" }, mcp: { action: "workspaces.list", summary: "Le workspace che vedi, coi loro progetti (solo quelli che vedi) e le persone.", effect: "read" } },
       schema: { response: { 200: workspaceListSchema, ...authErrorResponses } },
     },
-    async (request) => ({ items: await listWorkspaces(app.db, request.user!) }),
+    async (request) => ({ items: await listWorkspaces(app.db, request.user!), canManage: canManageStructure(request.user!) }),
   );
 
   // Rotta letterale PRIMA delle parametriche (la trappola di routing di Fastify).

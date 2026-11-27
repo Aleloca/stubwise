@@ -152,6 +152,16 @@ describe("M4 (revisione d'insieme): i membri di un progetto e le persone di work
   });
 });
 
+describe("I3 (revisione d'insieme): canManage sull'elenco", () => {
+  it("dice se chi guarda può CREARE workspace, anche con l'elenco vuoto: sì con workspaces.manage o da full admin, no altrimenti", async () => {
+    const { lea, dino } = await seed();
+    const list = async (headers: Record<string, string>) => (await call("GET", "/api/workspaces", headers)).json() as { canManage: boolean };
+    expect((await list(lea.headers)).canManage).toBe(true);
+    expect((await list({ cookie: adminCookie })).canManage).toBe(true);
+    expect((await list(dino.headers)).canManage).toBe(false);
+  });
+});
+
 describe("persone", () => {
   it("Vera entra (Viewer di default, D3) e vede A; il registro lo dice; tolta, non lo vede più", async () => {
     const { a, lea, vera } = await seed();

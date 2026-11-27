@@ -36,7 +36,16 @@ export const workspaceViewSchema = z.object({
 });
 export type WorkspaceView = z.infer<typeof workspaceViewSchema>;
 
-export const workspaceListSchema = z.object({ items: z.array(workspaceViewSchema) });
+export const workspaceListSchema = z.object({
+  items: z.array(workspaceViewSchema),
+  /**
+   * I3 (revisione d'insieme, additivo): chi guarda può CREARE workspace
+   * (`workspaces.manage` o full admin). Sta sull'elenco e non su una riga,
+   * così vale anche con l'elenco vuoto; quello di ogni workspace resta
+   * `items[].canManage`. Un server di prima non lo manda: `false`.
+   */
+  canManage: z.boolean().default(false),
+});
 
 export const workspaceCreateSchema = z.object({
   name: z.string().trim().min(1).max(80),
