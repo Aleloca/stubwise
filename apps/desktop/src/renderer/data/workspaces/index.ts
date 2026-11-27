@@ -449,13 +449,7 @@ function targetRefusal(me: string, op: WorkspaceOperation): AdminRefusal | null 
 
 // --- le scritture -----------------------------------------------------------
 
-type Fn =
-  | "workspaces.create"
-  | "workspaces.delete"
-  | "workspaces.setProjectWorkspace"
-  | "workspaces.addMember"
-  | "workspaces.setMemberRole"
-  | "workspaces.removeMember";
+type Fn = "workspaces.create" | "workspaces.setProjectWorkspace" | "workspaces.addMember" | "workspaces.setMemberRole";
 
 /**
  * Il percorso comune: permesso, bersaglio, effetto, riconferma, scrittura.
@@ -463,7 +457,7 @@ type Fn =
  */
 function judgeAndWrite(
   me: string,
-  fn: Fn,
+  fn: Fn | null,
   op: WorkspaceOperation,
   write: (s: AccessState) => void,
 ): AdminResult {
@@ -472,7 +466,9 @@ function judgeAndWrite(
   if (target) return target;
   const refusal = refusalOf(effectOf(me, op));
   if (refusal) return refusal;
-  const reauth = reauthRefusal(me, fn);
+  // Come sul server: la riconferma la chiedono le scritture che APRONO un
+  // accesso (D11, i PUT); togliere un progetto, una persona o la workspace no.
+  const reauth = fn ? reauthRefusal(me, fn) : null;
   if (reauth) return reauth;
   writeAccess(write);
   return { ok: true };
@@ -551,7 +547,7 @@ export async function deleteWorkspace(workspaceId: string): Promise<AdminResult>
   const me = await writer("workspaces.delete");
   const object = workspaceLabel(workspaceId);
   const op: WorkspaceOperation = { kind: "delete", workspaceId };
-  const result = judgeAndWrite(me, "workspaces.delete", op, (a) => applyOperation(a, op));
+  const result = judgeAndWrite(me, null, op, (a) => applyOperation(a, op));
   if (result.ok) recordChange({ kind: "workspace.deleted", actorId: me, projectId: null, object });
   return result;
 }
@@ -576,13 +572,26 @@ export async function setProjectWorkspace(
   projectId: string,
   workspaceId: string | null,
 ): Promise<AdminResult> {
-  const me = await writer("workspaces.setProjectWorkspace");
+  return setProjectWorkspaceAs(await writer("workspaces.setProjectWorkspace"), projectId, workspaceId);
+}
+
+/** La forma sincrona per chi ha già passato il cancello (il catalogo di Claude, D14). */
+export function setProjectWorkspaceAs(
+  me: string,
+  projectId: string,
+  workspaceId: string | null,
+): AdminResult {
   const s = accessState();
   const current = s.workspaceProjects.find((w) => w.projectId === projectId)?.workspaceId ?? null;
   if (current === workspaceId) return refuse.invalid("unchanged");
   const op: WorkspaceOperation =
     workspaceId === null ? { kind: "removeProject", projectId } : { kind: "addProject", workspaceId, projectId };
-  const result = judgeAndWrite(me, "workspaces.setProjectWorkspace", op, (a) => applyOperation(a, op));
+  const result = judgeAndWrite(
+    me,
+    workspaceId === null ? null : "workspaces.setProjectWorkspace",
+    op,
+    (a) => applyOperation(a, op),
+  );
   if (result.ok) {
     if (current) recordProject(me, current, projectId, "workspace.project_removed");
     if (workspaceId) recordProject(me, workspaceId, projectId, "workspace.project_added");
@@ -607,7 +616,16 @@ export async function addWorkspaceMember(
   personId: string,
   roleId: string = roleIdOf("viewer"),
 ): Promise<AdminResult> {
-  const me = await writer("workspaces.addMember");
+  return addWorkspaceMemberAs(await writer("workspaces.addMember"), workspaceId, personId, roleId);
+}
+
+/** La forma sincrona per chi ha già passato il cancello (il catalogo di Claude, D14). */
+export function addWorkspaceMemberAs(
+  me: string,
+  workspaceId: string,
+  personId: string,
+  roleId: string = roleIdOf("viewer"),
+): AdminResult {
   const op: WorkspaceOperation = { kind: "addMember", workspaceId, personId, roleId };
   const result = judgeAndWrite(me, "workspaces.addMember", op, (a) => applyOperation(a, op));
   if (result.ok) {
@@ -656,7 +674,16 @@ export async function removeWorkspaceMember(
   personId: string,
   alsoFromProjects = false,
 ): Promise<AdminResult> {
-  const me = await writer("workspaces.removeMember");
+  return removeWorkspaceMemberAs(await writer("workspaces.removeMember"), workspaceId, personId, alsoFromProjects);
+}
+
+/** La forma sincrona per chi ha già passato il cancello (il catalogo di Claude, D14). */
+export function removeWorkspaceMemberAs(
+  me: string,
+  workspaceId: string,
+  personId: string,
+  alsoFromProjects = false,
+): AdminResult {
   const s = accessState();
   const m = s.workspaceMembers.find((x) => x.workspaceId === workspaceId && x.personId === personId);
   // D12 con la casella: le appartenenze per progetto che se ne vanno, coi loro ruoli (per `member.removed`).
@@ -667,7 +694,7 @@ export async function removeWorkspaceMember(
         .sort((a, b) => codeOf(a.projectId).localeCompare(codeOf(b.projectId)))
     : [];
   const op: WorkspaceOperation = { kind: "removeMember", workspaceId, personId, alsoFromProjects };
-  const result = judgeAndWrite(me, "workspaces.removeMember", op, (a) => applyOperation(a, op));
+  const result = judgeAndWrite(me, null, op, (a) => applyOperation(a, op));
   if (result.ok && m) {
     recordChange({
       kind: "workspace.member_removed",

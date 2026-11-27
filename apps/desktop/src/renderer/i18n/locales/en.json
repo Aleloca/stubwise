@@ -10385,6 +10385,7 @@
       "manageGeneralAutomations": "manage general automations",
       "manageSshAccess": "manage SSH access",
       "manageDepartments": "manage departments",
+      "manageWorkspaces": "manage workspaces",
       "readChangeLog": "read the change log",
       "manageIntegrations": "manage integrations",
       "addRequests": "send requests",

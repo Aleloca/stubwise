@@ -12,6 +12,7 @@ import type {
 } from "../../workspaces/types";
 import { refusalOf } from "./adminPeople";
 import { appClient } from "./client";
+import { notIntegratedSync } from "./notIntegrated";
 import { listProjects } from "./projects";
 
 // Le workspace nella build app (shape `workspaces.md`), sopra le rotte di
@@ -336,6 +337,11 @@ export function createRealWorkspaces(api: WorkspacesApi) {
 
     // ⌘K del prototipo: nella build app la ricerca è del server.
     workspacesForSearch: () => ({ workspaces: [], nameOfProject: new Map() }),
+    // Le forme sincrone del catalogo di Claude del prototipo: nella build app
+    // le azioni di Claude le esegue il server.
+    setProjectWorkspaceAs: notIntegratedSync("workspaces.setProjectWorkspaceAs"),
+    addWorkspaceMemberAs: notIntegratedSync("workspaces.addWorkspaceMemberAs"),
+    removeWorkspaceMemberAs: notIntegratedSync("workspaces.removeWorkspaceMemberAs"),
   } as typeof Fake.workspaces;
 
   return workspaces;

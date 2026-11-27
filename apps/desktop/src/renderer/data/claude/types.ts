@@ -24,6 +24,12 @@ export type ClaudeActionFn =
   | "addMember"
   | "removeMember"
   | "setMemberRole"
+  // Le workspace (D14, 27 nov 2026): le due «add» le propone Claude (C, la
+  // riconferma), le due «remove» esistono solo come inversi (B).
+  | "addWorkspaceMember"
+  | "removeWorkspaceMember"
+  | "addWorkspaceProject"
+  | "removeWorkspaceProject"
   | "updateProjectGeneral"
   | "setProjectAi"
   | "saveProjectAutomations"

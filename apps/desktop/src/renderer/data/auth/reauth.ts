@@ -75,11 +75,9 @@ export const REAUTH_REQUIRED: ReadonlySet<ApiFnName> = new Set<ApiFnName>([
   // chiude un accesso. Rinominare no; creare una workspace vuota la salta
   // (non apre accessi a nessuno): lo decide la scrittura.
   "workspaces.create",
-  "workspaces.delete",
   "workspaces.setProjectWorkspace",
   "workspaces.addMember",
   "workspaces.setMemberRole",
-  "workspaces.removeMember",
   // Task 5: le Preferenze personali
   "me.startTotpSetup",
   "me.addPasskey",

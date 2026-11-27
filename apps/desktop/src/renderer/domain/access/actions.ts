@@ -221,6 +221,8 @@ export const ACTIONS: readonly AccessAction[] = [
   instance("manageGeneralAutomations", "automations.general.manage"),
   instance("manageSshAccess", "servers.ssh.manage"),
   instance("manageDepartments", "departments.manage"),
+  // Le workspace (shape workspaces.md, D4): il «Who?» delle voci di Claude.
+  instance("manageWorkspaces", "workspaces.manage"),
   instance("readChangeLog", "changelog.view"),
   // istanza, area 9b: i «Who?» delle voci d'istanza
   instance("manageAiProviders", "ai_providers.manage"),
