@@ -567,6 +567,10 @@ export async function accessEffect(db: Db, actor: WorkspaceActor, request: Works
   if (request.kind === "addProject" || request.kind === "removeProject") {
     const [p] = await db.select({ id: projects.id }).from(projects).where(eq(projects.id, request.projectId));
     if (!p || (!isFullAdmin(actor) && held[request.projectId] === undefined)) throw new RoleRuleError(404, "not_found", "Project not found");
+    // M3 (revisione d'insieme): la stessa regola della scrittura (placeProject,
+    // removeProject). Chi vede il progetto ma non ne gestisce i membri non ne
+    // simula lo spostamento, che prende i lock dei membri.
+    if (!isFullAdmin(actor) && !(held[request.projectId] ?? []).includes(MANAGE_MEMBERS)) throw forbidden("You don't manage this project's members");
   }
   let touched: string[];
   let escalation: { projectId: string; permission: string }[] = [];

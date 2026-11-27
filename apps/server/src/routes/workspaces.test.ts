@@ -386,6 +386,24 @@ describe("revisione del lotto 3: i negativi che mancavano", () => {
     expect(viaPat.json()).toMatchObject({ code: "session_required" });
   });
 
+  it("M3 (revisione d'insieme): l'anteprima di mettere o togliere un progetto vuole project.members.manage lì, come la scrittura", async () => {
+    const { a, b, lea } = await seed();
+    // Lea ha workspaces.manage, ma in C è solo Developer: vede C, non ne gestisce i membri.
+    const c = await project("Gamma");
+    await addMember(app, c, lea.id, "developer");
+    const w = await created(lea, { name: "M3", projectIds: [a] });
+    const preview = await call("POST", "/api/workspaces/effect", lea.headers, { kind: "addProject", workspaceId: w.id, projectId: c });
+    expect([preview.statusCode, preview.json().code]).toEqual([403, "forbidden"]);
+    const write = await call("PUT", `/api/workspaces/${w.id}/projects/${c}`, lea.headers);
+    expect(write.statusCode).toBe(403);
+    // Togliere: C dentro (dall'admin), Lea non lo toglie e non ne vede l'effetto.
+    await call("PUT", `/api/workspaces/${w.id}/projects/${c}`, { cookie: adminCookie });
+    const removePreview = await call("POST", "/api/workspaces/effect", lea.headers, { kind: "removeProject", workspaceId: w.id, projectId: c });
+    expect([removePreview.statusCode, removePreview.json().code]).toEqual([403, "forbidden"]);
+    // Dove li gestisce, l'anteprima risponde.
+    expect((await call("POST", "/api/workspaces/effect", lea.headers, { kind: "addProject", workspaceId: w.id, projectId: b })).statusCode).toBe(200);
+  });
+
   it("M-2: l'anteprima con il ruolo di adesso non dice escalation (la scrittura non farebbe niente)", async () => {
     const { a, lea, vera } = await seed();
     const [ops] = await db.insert(roles).values({ name: `Ops ${randomUUID().slice(0, 6)}`, scope: "project", permissions: ["docs.view", "servers.operate"] }).returning();
