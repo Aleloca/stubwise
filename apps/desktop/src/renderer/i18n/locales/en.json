@@ -13665,7 +13665,13 @@
       "unsupported": "This Mac can't open the vault (no Secure Enclave, or a build without it). Open it in the browser.",
       "inactiveAdmin": "Activate it in the browser.",
       "unsupportedWeb": "In the browser, the vault opens on Stubwise's web pages, with your passkey.",
-      "openWebPage": "Open the vault page"
+      "openWebPage": "Open the vault page",
+      "openWeb": "Open · closes after 15 minutes without use",
+      "webLimit": "In the browser, sleep and screen lock close it when you come back.",
+      "openPasskey": "Open with passkey",
+      "passkeyUnsupported": "This passkey can't open the vault: it doesn't support the extension the vault needs. Try another passkey.",
+      "tryAnotherPasskey": "Try another passkey",
+      "openFailedWeb": "The vault couldn't be opened."
     },
     "row": {
       "show": "Show",

@@ -1,3 +1,4 @@
+import { emitLoggedOut } from "../../sessionEvents";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { ApiError } from "@stubwise/api-client";
 import { passkeyAuthenticationOptionsSchema } from "@stubwise/shared";
@@ -163,6 +164,8 @@ const logout: Auth["logout"] = async () => {
   } finally {
     session.personId = null;
     session.partial = false;
+    // La cassaforte della scheda si chiude, e lo dice alle altre (design §8).
+    emitLoggedOut();
   }
   return { ok: true };
 };

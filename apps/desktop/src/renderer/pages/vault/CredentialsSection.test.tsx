@@ -253,5 +253,39 @@ describe("Credentials — la voce della colonna", () => {
         within(bar()).getByRole("button", { name: "Open the vault page" }),
       ).toBeInTheDocument();
     });
+
+    // Cassaforte nel browser, design §9: gli stati della barra della build web.
+    const barAs = (state: string) =>
+      act(() =>
+        lastQueryClient().setQueryData(queryKeys.vaultStatus("p-laura"), {
+          state,
+          touchId: false,
+          macFingerprint: null,
+          ownFingerprint: null,
+          pairing: null,
+        }),
+      );
+
+    it("§9: chiusa · «Open with passkey»; aperta · si chiude dopo 15 minuti, e il limite del browser", async () => {
+      await openSection("p-laura");
+      barAs("locked");
+      await waitFor(() => expect(bar().dataset.vaultBar).toBe("locked"));
+      expect(within(bar()).getByRole("button", { name: "Open with passkey" })).toBeInTheDocument();
+      expect(within(bar()).queryByRole("button", { name: "Open with Touch ID" })).toBeNull();
+      barAs("open");
+      await waitFor(() => expect(bar().dataset.vaultBar).toBe("open"));
+      expect(within(bar()).getByText("Open · closes after 15 minutes without use")).toBeInTheDocument();
+      expect(
+        within(bar()).getByText("In the browser, sleep and screen lock close it when you come back."),
+      ).toBeInTheDocument();
+    });
+
+    it("§9: una passkey senza PRF lo dice, con «Try another passkey»", async () => {
+      await openSection("p-laura");
+      barAs("passkey_unsupported");
+      await waitFor(() => expect(bar().dataset.vaultBar).toBe("passkey_unsupported"));
+      expect(within(bar()).getByText(/This passkey can't open the vault/)).toBeInTheDocument();
+      expect(within(bar()).getByRole("button", { name: "Try another passkey" })).toBeInTheDocument();
+    });
   });
 });
