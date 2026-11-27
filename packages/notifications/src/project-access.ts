@@ -221,7 +221,8 @@ export async function projectViewerIds(db: DbOrTx, projectId: string): Promise<s
   const members = await db
     .selectDistinct({ id: projectAccess.userId })
     .from(projectAccess)
-    .where(and(eq(projectAccess.projectId, projectId), projectAccessRowCounts));
+    .where(and(eq(projectAccess.projectId, projectId), projectAccessRowCounts))
+    .orderBy(projectAccess.userId);
   return [...new Set([...members.map((row) => row.id), ...(await fullAdminIds(db))])];
 }
 
@@ -238,7 +239,8 @@ export async function projectViewerIdsByProject(db: DbOrTx, projectIds: readonly
   const members = await db
     .selectDistinct({ projectId: projectAccess.projectId, id: projectAccess.userId })
     .from(projectAccess)
-    .where(and(inArray(projectAccess.projectId, ids), projectAccessRowCounts));
+    .where(and(inArray(projectAccess.projectId, ids), projectAccessRowCounts))
+    .orderBy(projectAccess.userId);
   // Lo stesso ordine di `projectViewerIds`: i membri, poi i full admin.
   for (const projectId of ids) {
     const own = members.filter((m) => m.projectId === projectId).map((m) => m.id);

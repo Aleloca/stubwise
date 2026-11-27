@@ -18,7 +18,7 @@ import { departmentGrantsForEntering, departmentGrantsOf } from "./department-ac
  */
 import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "@stubwise/db";
-import { departmentProjectPermissions, departments, inviteProjects, memberPermissionsSql, projectMemberPermissions, projectMembers, projects, roles, users, workspaceMembers } from "@stubwise/db";
+import { departmentProjectPermissions, departments, inviteProjects, memberPermissionsSql, projectMemberPermissions, projectMembers, projects, roles, users, inviteWorkspaces, workspaceMembers, workspaceProjects } from "@stubwise/db";
 import {
   effectiveInstancePermissions,
   PROJECT_PERMISSIONS,
@@ -178,11 +178,15 @@ export interface RoleRow {
  * Assegnazioni di un ruolo: utenti (istanza) o membri di progetto e persone di
  * una workspace (progetto, 0238: anche lì il ruolo è in uso).
  */
+// Le tabelle sono aliasate e l'id del ruolo è qualificato a mano: in una select
+// sulla sola `roles` Drizzle scrive `"id"` nudo, che dentro la sottoquery su
+// `users` finiva su `users.id` (il conteggio d'istanza era sempre 0; revisione
+// del lotto 1 delle workspace).
 const assignmentCountSql = sql<number>`(
-  case when ${roles.scope} = 'instance'
-    then (select count(*) from ${users} where ${users.instanceRoleId} = ${roles.id})
-    else (select count(*) from ${projectMembers} where ${projectMembers.roleId} = ${roles.id})
-      + (select count(*) from ${workspaceMembers} where ${workspaceMembers.roleId} = ${roles.id})
+  case when "roles"."scope" = 'instance'
+    then (select count(*) from ${users} ac_u where ac_u.instance_role_id = "roles"."id")
+    else (select count(*) from ${projectMembers} ac_pm where ac_pm.role_id = "roles"."id")
+      + (select count(*) from ${workspaceMembers} ac_wm where ac_wm.role_id = "roles"."id")
   end
 )::int`;
 
@@ -259,12 +263,24 @@ export async function actorProjectPermissions(db: DbOrTx, actor: Actor): Promise
   return new Map(mine.map((m) => [m.projectId, new Set(m.permissions)]));
 }
 
-/** I progetti dove un ruolo è assegnato O promesso da un invito pendente. */
+/**
+ * I progetti dove un ruolo è assegnato O promesso da un invito pendente: come
+ * membro esplicito, e (0238) come ruolo di workspace, che vale in ogni progetto
+ * della workspace, anche promesso da un invito (`invite_workspaces`).
+ */
 async function projectsOfRole(db: DbOrTx, roleId: string): Promise<string[]> {
+  const viaWorkspace = (table: typeof workspaceMembers | typeof inviteWorkspaces) =>
+    db
+      .selectDistinct({ projectId: workspaceProjects.projectId })
+      .from(table)
+      .innerJoin(workspaceProjects, eq(workspaceProjects.workspaceId, table.workspaceId))
+      .where(eq(table.roleId, roleId));
   return [
     ...new Set([
       ...(await db.selectDistinct({ projectId: projectMembers.projectId }).from(projectMembers).where(eq(projectMembers.roleId, roleId))).map((r) => r.projectId),
       ...(await db.selectDistinct({ projectId: inviteProjects.projectId }).from(inviteProjects).where(eq(inviteProjects.roleId, roleId))).map((r) => r.projectId),
+      ...(await viaWorkspace(workspaceMembers)).map((r) => r.projectId),
+      ...(await viaWorkspace(inviteWorkspaces)).map((r) => r.projectId),
     ]),
   ];
 }

@@ -117,7 +117,7 @@ describe("le funzioni centrali leggono anche la workspace", () => {
     expect(viewers).toContain(wanda.id);
     expect(viewers).not.toContain(nino.id);
     expect(viewers).not.toContain(claude!.id);
-    expect((await projectViewerIdsByProject(db, [project.id])).get(project.id)).toEqual(viewers);
+    expect(new Set((await projectViewerIdsByProject(db, [project.id])).get(project.id))).toEqual(new Set(viewers));
   });
 
   it("visiblePersonIds: Nino, membro esplicito dello stesso progetto, vede Wanda; prima no", async () => {
@@ -151,5 +151,51 @@ describe("un ruolo usato da una workspace", () => {
     const error = await deleteRole(db, { ...actorAs(admin!.id, "admin"), email: admin!.email }, custom!.id).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(RoleRuleError);
     expect(error).toMatchObject({ status: 409, code: "role_in_use", extra: { count: 1 } });
+  });
+});
+
+describe("revisione del lotto 1: un ruolo usato solo da una workspace", () => {
+  it("I-1: modificarlo vuole i permessi nei progetti della workspace, non in un progetto qualsiasi", async () => {
+    const { roles } = await import("@stubwise/db");
+    const { heldForProjectRole } = await import("../services/roles.js");
+    const { addMember, actorAs } = await import("../test/fixtures.js");
+    const { project } = await seed();
+    const [custom] = await db.insert(roles).values({ name: `Cliente ${randomUUID().slice(0, 6)}`, scope: "project", permissions: ["docs.view"] }).returning();
+    const [w] = await db.insert(workspaces).values({ name: "Solo ruolo", colorToken: "--dept-5" }).returning();
+    await db.insert(workspaceProjects).values({ workspaceId: w!.id, projectId: (await db.insert(projects).values({ name: "Altro", slug: `alt-${randomUUID().slice(0, 6)}`, ingestionKey: randomUUID() }).returning())[0]!.id });
+    const guest = await createUserWithSession(app, `g-${randomUUID()}@x.test`);
+    await db.insert(workspaceMembers).values({ workspaceId: w!.id, userId: guest.id, roleId: custom!.id });
+    // Chi agisce è Project Lead in un ALTRO progetto, e niente nella workspace.
+    const actor = await createUserWithSession(app, `a-${randomUUID()}@x.test`);
+    await addMember(app, project.id, actor.id, "project_lead");
+    const held = await heldForProjectRole(db, actorAs(actor.id, "member"), custom!.id);
+    expect(held.has("release.merge")).toBe(false);
+    expect(held.size).toBe(0);
+  });
+
+  it("I-1: lo stesso per un ruolo promesso da un invito a una workspace", async () => {
+    const { roles, invites, inviteWorkspaces } = await import("@stubwise/db");
+    const { heldForProjectRole } = await import("../services/roles.js");
+    const { addMember, actorAs } = await import("../test/fixtures.js");
+    const { project } = await seed();
+    const [custom] = await db.insert(roles).values({ name: `Invito ${randomUUID().slice(0, 6)}`, scope: "project", permissions: ["docs.view"] }).returning();
+    const [w] = await db.insert(workspaces).values({ name: "Promessa", colorToken: "--dept-6" }).returning();
+    await db.insert(workspaceProjects).values({ workspaceId: w!.id, projectId: (await db.insert(projects).values({ name: "Terzo", slug: `ter-${randomUUID().slice(0, 6)}`, ingestionKey: randomUUID() }).returning())[0]!.id });
+    const token = randomUUID();
+    await db.insert(invites).values({ token, email: `inv-${randomUUID()}@x.test`, expiresAt: new Date(Date.now() + 86_400_000) });
+    await db.insert(inviteWorkspaces).values({ inviteToken: token, workspaceId: w!.id, roleId: custom!.id });
+    const actor = await createUserWithSession(app, `a2-${randomUUID()}@x.test`);
+    await addMember(app, project.id, actor.id, "project_lead");
+    expect((await heldForProjectRole(db, actorAs(actor.id, "member"), custom!.id)).size).toBe(0);
+  });
+
+  it("vecchio difetto: il conteggio di un ruolo d'ISTANZA conta davvero i suoi utenti", async () => {
+    const { roles } = await import("@stubwise/db");
+    const { listRoles } = await import("../services/roles.js");
+    const [custom] = await db.insert(roles).values({ name: `Istanza ${randomUUID().slice(0, 6)}`, scope: "instance", permissions: ["users.view_all"] }).returning();
+    const u = await createUserWithSession(app, `i-${randomUUID()}@x.test`);
+    await db.update(users).set({ instanceRoleId: custom!.id }).where(eq(users.id, u.id));
+    const row = (await listRoles(db, "instance")).find((r) => r.id === custom!.id)!;
+    expect(row.assignmentCount).toBe(1);
   });
 });
