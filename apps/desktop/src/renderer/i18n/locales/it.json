@@ -109,7 +109,14 @@
     "label": "Cerca e comandi",
     "placeholder": "Cerca progetti, task, persone o scrivi un comando",
     "viewAsPlaceholder": "Scegli come chi vedere l'app",
+    "recent": {
+      "clear": "Svuota",
+      "remove": "Togli “{{title}}” dai recenti",
+      "privacy": "Li vedi solo tu: i risultati che hai aperto, salvati per il tuo account.",
+      "removeFailed": "Impossibile toglierlo dai recenti."
+    },
     "groups": {
+      "recent": "Recenti",
       "projects": "Progetti",
       "tasks": "Task",
       "requests": "Richieste",
@@ -134,6 +141,7 @@
     "noResultsHint": "Prova con un codice come {{example}} o con un nome.",
     "current": "Attuale",
     "hints": {
+      "remove": "per togliere",
       "move": "per spostarti",
       "open": "per aprire",
       "close": "per chiudere",

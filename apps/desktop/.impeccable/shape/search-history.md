@@ -96,6 +96,16 @@
   vuote. Il build «app» non contiene il seme (`check-no-seed`), come per il
   resto.
 
+## Note d'implementazione (28 nov 2026)
+
+- Approvata dal maintainer il 27 nov 2026 così com'è ([SR 1]–[SR 6]).
+- Il codice della riga (`AUD-9`, `AUD-D12`) viaggia nel `subtitle` del
+  server: la riga è codice + titolo, senza un dettaglio in più.
+- Gli spazi Docs (`repository`) restano fra i tipi letti, ma la ⌘K oggi non
+  ha righe per uno spazio: in pratica si ricordano task, progetti e pagine
+  Docs. Una pagina Docs si registra come `<repositoryId>:<slug>`, così due
+  spazi con lo stesso slug non si scontrano.
+
 ## Le scelte da confermare
 
 - **[SR 1]** Si ricordano i risultati aperti, non le query. Alternativa:

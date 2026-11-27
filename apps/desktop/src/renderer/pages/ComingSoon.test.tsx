@@ -38,6 +38,7 @@ const { FUTURE_NAMESPACES, calls, truncated, intake, refusal } = vi.hoisted(() =
     "access",
     "claude",
     "instance",
+    "searchHistory",
   ] as const,
 }));
 
@@ -440,6 +441,11 @@ const INTEGRATED_CALLS = new Set([
   "getLatestBrief",
   // Ritiro del web vecchio: un brief per id, anche non l'ultimo (`GET /api/briefs/:id`).
   "getBrief",
+  // Ritiro del web vecchio: i risultati recenti della ⌘K (`/api/search/history`).
+  "searchHistory.listRecentResults",
+  "searchHistory.rememberResult",
+  "searchHistory.forgetResult",
+  "searchHistory.clearRecentResults",
   "listTimelinePage",
   "listPortfolioActivityPage",
   "projectPulse",
@@ -955,6 +961,17 @@ describe("aree non integrate nella build app", () => {
     // (Archive è accesa dall'area 9, F6; Usage no).
     renderRoute("/p/AUD/settings/usage");
     expect(await screen.findByText("Coming soon")).toBeInTheDocument();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("la palette a query vuota legge i recenti, e solo chiamate integrate", async () => {
+    const user = userEvent.setup();
+    renderRoute("/home");
+    await screen.findByRole("region", { name: /^My tasks/ });
+    await user.keyboard("{Control>}k{/Control}");
+    await screen.findByRole("dialog");
+    await waitFor(() => expect(calls).toContain("searchHistory.listRecentResults"));
     await settle();
     expect(outside()).toEqual([]);
   });

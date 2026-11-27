@@ -109,7 +109,14 @@
     "label": "Search and commands",
     "placeholder": "Search projects, tasks, people, or type a command",
     "viewAsPlaceholder": "Choose who to view the app as",
+    "recent": {
+      "clear": "Clear all",
+      "remove": "Remove “{{title}}” from recent",
+      "privacy": "Only you see these: the results you opened, kept for your account.",
+      "removeFailed": "Couldn't remove it from recent."
+    },
     "groups": {
+      "recent": "Recent",
       "projects": "Projects",
       "tasks": "Tasks",
       "requests": "Requests",
@@ -134,6 +141,7 @@
     "noResultsHint": "Try a code like {{example}} or a name.",
     "current": "Current",
     "hints": {
+      "remove": "to remove",
       "move": "to move",
       "open": "to open",
       "close": "to close",
