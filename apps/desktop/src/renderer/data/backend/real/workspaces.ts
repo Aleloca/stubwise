@@ -140,6 +140,7 @@ export function createRealWorkspaces(api: WorkspacesApi) {
         projectIds: w.projectIds,
         peopleCount: w.people.length,
         canManage: w.canManage,
+        canManagePeople: !!w.canManagePeople,
       };
     },
 

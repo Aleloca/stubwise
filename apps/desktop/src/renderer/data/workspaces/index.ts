@@ -60,6 +60,21 @@ export type * from "./types";
 const MANAGE = "workspaces.manage";
 const MEMBERS_MANAGE = "project.members.manage";
 
+/**
+ * D4 alla lettera (decisione confermata da 46, 27 nov 2026): invitare,
+ * cambiare ruolo e togliere persone vuole `workspaces.manage` PIÙ
+ * `project.members.manage` in OGNI progetto della workspace (e
+ * l'anti-escalation, nella scrittura); una workspace vuota, il solo
+ * `workspaces.manage`. Il server ha la stessa regola (`canManagePeople`).
+ */
+function canManagePeople(me: string, workspaceId: string): boolean {
+  if (!canI(me, MANAGE)) return false;
+  return projectsIn(accessState(), workspaceId).every((p) => canI(me, MEMBERS_MANAGE, p));
+}
+
+const isPeopleOp = (op: WorkspaceOperation): op is Extract<WorkspaceOperation, { kind: "addMember" | "setMemberRole" | "removeMember" }> =>
+  op.kind === "addMember" || op.kind === "setMemberRole" || op.kind === "removeMember";
+
 const projectOf = (projectId: string) => state.projectsById.get(projectId);
 const codeOf = (projectId: string): string => projectOf(projectId)?.code ?? "";
 const ref = (personId: string): PersonRef => ({ personId, name: nameOf(personId) ?? personId });
@@ -153,6 +168,7 @@ export async function getWorkspace(slug: string): Promise<WorkspaceView> {
     projectIds: projectsIn(s, ws.id).filter((p) => seen.has(p)),
     peopleCount: s.workspaceMembers.filter((m) => m.workspaceId === ws.id).length,
     canManage: canI(me, MANAGE),
+    canManagePeople: canManagePeople(me, ws.id),
   };
 }
 
@@ -205,7 +221,6 @@ export async function listWorkspaceMembers(workspaceId: string): Promise<Workspa
   const s = accessState();
   const seen = seenProjectIds(me);
   const projectIds = projectsIn(s, workspaceId).filter((p) => seen.has(p));
-  const canManage = canI(me, MANAGE);
   const members: WorkspaceMemberRow[] = s.workspaceMembers
     .filter((m) => m.workspaceId === workspaceId && isHumanId(m.personId))
     .map((m) => {
@@ -238,7 +253,7 @@ export async function listWorkspaceMembers(workspaceId: string): Promise<Workspa
   return {
     workspaceId,
     members,
-    canManage,
+    canManage: canManagePeople(me, workspaceId),
     roleChoices: s.roles
       .filter((r) => r.scope === "project")
       .map((r) => {
@@ -416,7 +431,7 @@ function refusalOf(effect: WorkspaceEffect): AdminRefusal | null {
  */
 export async function previewWorkspace(op: WorkspaceOperation): Promise<WorkspaceEffect> {
   const me = await gate("workspaces.preview");
-  if (!canI(me, MANAGE)) throw new Error("forbidden");
+  if (!(isPeopleOp(op) ? canManagePeople(me, op.workspaceId) : canI(me, MANAGE))) throw new Error("forbidden");
   const blocked = targetRefusal(me, op);
   if (blocked) throw new Error(blocked.error === "invalid" ? blocked.reason : blocked.error);
   return effectOf(me, op);
@@ -462,7 +477,7 @@ function judgeAndWrite(
   op: WorkspaceOperation,
   write: (s: AccessState) => void,
 ): AdminResult {
-  if (!canI(me, MANAGE)) return refuse.forbidden();
+  if (!(isPeopleOp(op) ? canManagePeople(me, op.workspaceId) : canI(me, MANAGE))) return refuse.forbidden();
   const target = targetRefusal(me, op);
   if (target) return target;
   const refusal = refusalOf(effectOf(me, op));

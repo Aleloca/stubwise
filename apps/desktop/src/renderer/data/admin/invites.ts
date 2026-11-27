@@ -98,9 +98,14 @@ export async function getInviteChoices(): Promise<InviteChoices> {
           .filter((r) => r.scope === "project")
           .map((r) => choice(r, roleMissingIn(me, [p.id], r))),
       })),
-    workspaces: canI(me, "workspaces.manage")
-      ? accessState()
-          .workspaces.map((w) => {
+    // D4: `workspaces.manage` e la gestione dei membri di ogni progetto della workspace.
+    workspaces: accessState()
+          .workspaces.filter(
+            (w) =>
+              canI(me, "workspaces.manage") &&
+              workspaceProjectIds(w.id).every((p) => visible.has(p) && canI(me, "project.members.manage", p)),
+          )
+          .map((w) => {
             const ids = workspaceProjectIds(w.id);
             return {
               workspaceId: w.id,
@@ -112,8 +117,7 @@ export async function getInviteChoices(): Promise<InviteChoices> {
               defaultRoleId: roles.find((r) => r.scope === "project" && r.key === "viewer")?.id ?? "",
             };
           })
-          .sort((a, b) => a.name.localeCompare(b.name))
-      : [],
+          .sort((a, b) => a.name.localeCompare(b.name)),
   };
 }
 
@@ -173,9 +177,12 @@ export async function createInvite(
   const instanceRole = roleById(input.instanceRoleId);
   if (!instanceRole || instanceRole.scope !== "instance") return refuse.invalid("role");
   const workspaces = input.workspaces ?? [];
-  if (workspaces.length > 0 && !canI(me, "workspaces.manage")) return refuse.forbidden();
   for (const w of workspaces) {
     if (!accessState().workspaces.some((x) => x.id === w.workspaceId)) return refuse.notFound();
+    const manages =
+      canI(me, "workspaces.manage") &&
+      workspaceProjectIds(w.workspaceId).every((p) => canI(me, "project.members.manage", p));
+    if (!manages) return refuse.forbidden();
     const role = roleById(w.roleId);
     if (!role || role.scope !== "project") return refuse.invalid("role");
   }

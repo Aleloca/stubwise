@@ -148,8 +148,19 @@ describe("le scritture", () => {
     await refused(() => workspaceSet(notHers, STORICI), { error: "forbidden" });
     // Uno che non vede nemmeno: per lei non esiste (R-G5).
     await refused(() => workspaceSet("prj-spz", null), { error: "not_found" });
-    // Developer in tutti i progetti della workspace: in SPZ, LNT e BSC non ha quei permessi.
-    await refused(() => workspaces.addWorkspaceMember(STORICI, "p-irene", roleIdOf("developer")), {
+    // D4: le persone vogliono anche la gestione dei membri in OGNI progetto della
+    // workspace, e in SPZ, LNT e BSC Giulia non ce l'ha.
+    await refused(() => workspaces.addWorkspaceMember(STORICI, "p-irene"), { error: "forbidden" });
+    // Con la gestione dei membri dappertutto (Viewer + il permesso dato a mano),
+    // Developer resta oltre ciò che ha in SPZ, LNT e BSC: escalation.
+    writeAccess((a) => {
+      for (const projectId of ["prj-spz", "prj-lnt", "prj-bsc"]) {
+        a.memberships.push({ personId: GIULIA, projectId, roleId: roleIdOf("viewer") });
+        a.grants.push({ personId: GIULIA, projectId, permission: "project.members.manage", grantedById: null, at: "2026-11-27T09:00:00Z" });
+      }
+    });
+    expect(await workspaces.addWorkspaceMember(STORICI, "p-irene")).toEqual({ ok: true });
+    await refused(() => workspaces.setWorkspaceMemberRole(STORICI, "p-irene", roleIdOf("developer")), {
       error: "escalation",
     });
   });
