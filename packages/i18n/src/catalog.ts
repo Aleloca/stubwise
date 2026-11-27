@@ -344,9 +344,9 @@ export const en: Catalog = {
     "A Mac can now open your vault. If it was not you, remove it in Settings → Security and tell an admin.",
   "notify.securityAlert.vault_device_sealed.actor": "A Mac can now open your vault ({actor}).",
   "notify.securityAlert.vault_reveal_burst":
-    "Many vault reads from your account in a few minutes; new ones are paused for a while. If it was not you, change your password, remove unknown passkeys and tell an admin.",
+    "Many vault reads from your account in a few minutes; past a threshold, new ones will be paused for a while. If it was not you, change your password, remove unknown passkeys and tell an admin.",
   "notify.securityAlert.vault_reveal_burst.actor":
-    "Many vault reads in a few minutes by {actor}; new ones are paused for a while. Check that it was expected.",
+    "Many vault reads in a few minutes by {actor}; past a threshold, new ones will be paused for a while. Check that it was expected.",
   "notify.securityAlert.vault_seal_added":
     "Another passkey can now open your vault. If it was not you, remove that passkey in Settings → Security and tell an admin.",
   "notify.securityAlert.vault_seal_added.actor": "Another passkey can now open your vault ({actor}).",
@@ -1085,9 +1085,9 @@ export const it: Catalog = {
     "Un Mac ora apre la tua cassaforte. Se non sei stato tu, toglilo da Impostazioni → Sicurezza e avvisa un admin.",
   "notify.securityAlert.vault_device_sealed.actor": "Un Mac ora apre la tua cassaforte ({actor}).",
   "notify.securityAlert.vault_reveal_burst":
-    "Molte letture della cassaforte dal tuo account in pochi minuti; quelle nuove sono sospese per un po'. Se non sei stato tu, cambia la password, togli le passkey sconosciute e avvisa un admin.",
+    "Molte letture della cassaforte dal tuo account in pochi minuti; oltre una soglia, quelle nuove verranno sospese per un po'. Se non sei stato tu, cambia la password, togli le passkey sconosciute e avvisa un admin.",
   "notify.securityAlert.vault_reveal_burst.actor":
-    "Molte letture della cassaforte in pochi minuti da {actor}; quelle nuove sono sospese per un po'. Controlla che fosse previsto.",
+    "Molte letture della cassaforte in pochi minuti da {actor}; oltre una soglia, quelle nuove verranno sospese per un po'. Controlla che fosse previsto.",
   "notify.securityAlert.vault_seal_added":
     "Un'altra passkey ora apre la tua cassaforte. Se non sei stato tu, toglila da Impostazioni → Sicurezza e avvisa un admin.",
   "notify.securityAlert.vault_seal_added.actor": "Un'altra passkey ora apre la tua cassaforte ({actor}).",

@@ -274,8 +274,10 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
   - **CSP dell'origine** (C1/M1): header di Caddy su `/`, `/app` e `/guide`,
     `script-src 'self'` senza `unsafe-inline` né `unsafe-eval`, più
     `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'` e
-    `connect-src 'self'` (uno script iniettato non può spedire la chiave a un
-    altro host con `fetch`). La guida ammette per hash solo gli script inline
+    `connect-src 'self'`. `connect-src` chiude solo `fetch`, XHR, WebSocket e
+    EventSource verso altri host: uno script che gira nella pagina ha ancora
+    immagini, navigazioni e form verso fuori per portare via un segreto. La
+    difesa vera è `script-src`, cioè che uno script estraneo non giri. La guida ammette per hash solo gli script inline
     di Starlight. Il build di caddy fallisce se il web o l'app hanno uno
     script inline (`scripts/caddy-csp.mjs`, test in CI). Su `/app` anche COOP
     `same-origin` e `index.html` `no-store`. Chi aggiunge uno script inline,
@@ -285,7 +287,11 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
     la cassaforte» non apre per 10 minuti le rotte sensibili (registrare una
     passkey, creare un PAT, le azioni di Claude con riconferma). Lo scopo lo
     salva il SERVER sulla challenge che emette (`purpose: "vault"`), mai il
-    client alla verifica.
+    client alla verifica. **Non ferma un XSS**: lo script può chiedere da sé
+    una riconferma piena (opzioni senza scopo) e ottenerla con un tocco della
+    passkey, come la web. I6 chiude il riuso ACCIDENTALE dello sblocco,
+    cioè le rotte sensibili aperte senza un gesto apposta, non un attaccante
+    che la pagina la controlla.
   - **Una passkey in più che apre la cassaforte non è silenziosa** (I7): ogni
     sigillo nuovo (`vault_seal_added`) o sostituito (`vault_seal_replaced`)
     lascia la sua riga e un `security.alert` alla persona.
@@ -294,9 +300,14 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
     delle letture, come segreti DISTINTI della stessa persona in 10 minuti.
     Al 10° un avviso alla persona e agli altri full admin
     (`vault_reveal_burst`). Oltre il 20° un segreto nuovo risponde 429
-    `vault_reveal_rate_limited`, senza riga. Il tetto non ferma chi ha già
-    la privata e i ciphertext: ferma lo svuotamento via `reveal` e lo rende
-    visibile.
+    `vault_reveal_rate_limited`, senza riga, con `Retry-After` (anche nel
+    corpo, `retryAfterSeconds`): il tempo prima che esca dalla finestra il
+    segreto la cui ultima lettura è la più vecchia. Il tetto non ferma chi ha
+    già la privata e i ciphertext: ferma lo svuotamento via `reveal` e lo rende
+    visibile. **L'avviso si può ripetere**: scatta alla lettura che porta il
+    conteggio dei segreti distinti da 9 a 10, quindi se il conteggio scende
+    sotto la soglia (letture uscite dalla finestra) e risale, ne arriva un
+    altro. Accettato: ogni avviso corrisponde a una risalita vera.
   - **Scritture col cookie solo dalla stessa origine** (M5,
     `apps/server/src/auth/same-origin.ts`): `Sec-Fetch-Site` same-origin
     (o `Origin` con lo stesso host), altrimenti 403 `cross_origin_request`;

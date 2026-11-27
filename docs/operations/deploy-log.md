@@ -7330,7 +7330,11 @@ deploy o di un rollback che la tocca.
     `security.alert`, come la sostituzione (che ora avvisa anch'essa).
   - **C2, una raffica di reveal**: avviso al 10° segreto distinto in 10
     minuti, 429 `vault_reveal_rate_limited` oltre il 20°
-    (`REVEAL_BURST`).
+    (`REVEAL_BURST`), con `Retry-After` calcolato dalla finestra (anche nel
+    corpo, `retryAfterSeconds`). Il web vecchio dice quanti minuti
+    aspettare. Un indice nuovo, `credential_access_log (user_id,
+    created_at)`, nella 0238. L'avviso può ripetersi se il conteggio scende
+    sotto la soglia e risale (vault.md).
   - **M5, scritture col cookie dalla stessa origine**: 403
     `cross_origin_request` per `Sec-Fetch-Site` same-site o cross-site, o
     per un `Origin` estraneo. PAT, app mobile e desktop non sono toccati.
@@ -7348,12 +7352,20 @@ deploy o di un rollback che la tocca.
   curl -sI https://<istanza>/widget.js | grep -ci content-security-policy   # 0
   ```
   Uno sblocco della cassaforte seguito da «crea un PAT» deve chiedere la
-  riconferma.
+  riconferma. Va provato **più di 10 minuti dopo il login**: il login stesso
+  vale come riconferma per 10 minuti, e prima di allora il PAT si crea
+  comunque.
   **Rollback**: `caddy` da solo è sicuro (sono header). Il `server` NON
   scende finché esistono righe coi valori nuovi: il server vecchio non
   conosce i tipi `vault_seal_added`/`vault_reveal_burst` nel registro di
   sicurezza, né i soggetti `vault_seal_added`/`vault_seal_replaced`/
-  `vault_reveal_burst` degli avvisi in inbox. Prima di scendere:
+  `vault_reveal_burst` degli avvisi in inbox. Prima di scendere si
+  **esportano** le righe del registro di sicurezza, che sono la traccia di
+  eventi da indagare e non si buttano:
+  ```sh
+  docker compose exec -T postgres psql -U stubwise -d stubwise -c "\copy (select * from security_events where kind in ('vault_seal_added', 'vault_reveal_burst')) to stdout with csv header" > security-events-$(date +%F).csv
+  ```
+  poi:
   ```sql
   delete from security_events where kind in ('vault_seal_added', 'vault_reveal_burst');
   delete from notifications where kind = 'security.alert'

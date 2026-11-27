@@ -21,13 +21,22 @@ export async function publishVaultKeyCreated(db: DbOrTx, userId: string): Promis
   await publishSecurityAlert(db, userId, "vault_key_created", null);
 }
 
-/** Alla persona: un sigillo della sua chiave è stato aggiunto o sostituito (I7). */
+/**
+ * Alla persona: un sigillo della sua chiave è stato aggiunto o sostituito
+ * (I7). Non lancia mai: il sigillo è già salvato (e la riga del registro con
+ * lui), quindi un avviso mancato è una riga di log, non un 500.
+ */
 export async function publishVaultSealChanged(
   db: DbOrTx,
   userId: string,
   subject: "vault_seal_added" | "vault_seal_replaced",
+  warn: AlertWarn = defaultWarn,
 ): Promise<void> {
-  await publishSecurityAlert(db, userId, subject, null);
+  try {
+    await publishSecurityAlert(db, userId, subject, null);
+  } catch (error) {
+    warn(`[vault] avviso ${subject} non recapitato a ${userId} (${errorText(error)})`);
+  }
 }
 
 /**

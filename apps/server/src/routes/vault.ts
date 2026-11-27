@@ -423,7 +423,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
         return existing ? "vault_seal_replaced" : "vault_seal_added";
       });
       if (!added) return keyNotFound(reply);
-      await publishVaultSealChanged(app.db, user.id, added);
+      await publishVaultSealChanged(app.db, user.id, added, (m) => request.log.warn(m));
       return reply.code(204).send(null);
     },
   );

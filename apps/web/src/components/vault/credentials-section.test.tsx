@@ -327,6 +327,29 @@ describe("sezione Credenziali del progetto", () => {
     expect(clipboard).toBe("something else");
   });
 
+  it("C2: un 429 vault_reveal_rate_limited dice quanto aspettare, e la password non compare", async () => {
+    mockApi({
+      "GET /api/vault/status": statusConfirmed,
+      [`GET ${listPath}`]: () =>
+        jsonResponse(200, { items: [item({ id: GITHUB, service: "GitHub" })] }),
+      [`POST /api/credentials/${GITHUB}/reveal`]: () =>
+        jsonResponse(429, {
+          code: "vault_reveal_rate_limited",
+          message: "Too many vault reads in a short time",
+          retryAfterSeconds: 170,
+        }),
+    });
+    setVault({ state: "unlocked", privateKey: mine.privateKey, personKeyId: MY_KEY_ID });
+    renderSection();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Show the password of GitHub" }));
+    expect(
+      await screen.findByText(
+        "Too many vault passwords opened in a few minutes: you can open a new one in 3 minutes.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("se il browser non lascia rileggere gli appunti, li svuota comunque", async () => {
     const revealed = await revealFor(GITHUB, "gh-pass");
     mockApi({

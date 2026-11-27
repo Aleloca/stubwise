@@ -11,7 +11,13 @@
  *   falsificare): passa solo `same-origin` o `none` (una navigazione
  *   dell'utente); `same-site` e `cross-site` no;
  * - senza `Sec-Fetch-Site`, decide `Origin`: deve avere lo stesso host della
- *   richiesta (`X-Forwarded-Host` dietro caddy, poi `Host`); `null` no;
+ *   richiesta (`X-Forwarded-Host` dietro caddy, poi `Host`); `null` no.
+ *   `X-Forwarded-Host` ci si FIDA: il server non è esposto, ci arriva solo
+ *   caddy, che lo scrive lui. Un self-hoster che mette un SUO proxy davanti a
+ *   caddy deve passare l'host pubblico (o lasciare quello di caddy): un proxy
+ *   che riscrive l'host senza passarlo fa rifiutare le scritture dei browser
+ *   senza `Sec-Fetch-Site`, mai accettare quelle di un'altra origine
+ *   (chi falsifica l'header è un client, non una pagina in un browser);
  * - senza nessuno dei due è un client che non è un browser: passa.
  *
  * Il PAT (app mobile, desktop, MCP) non passa di qui: non porta un cookie, e
