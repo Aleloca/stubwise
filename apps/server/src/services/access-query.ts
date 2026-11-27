@@ -285,7 +285,8 @@ export async function whatCan(db: Db, viewer: Viewer, userId: string, projectId:
   const perProject: WhatCanResponse["projects"] = [];
   for (const { id, name } of names) {
     const permissions = projectWithReasons(person, byProject.get(id), grants.filter((g) => g.projectId === id), fromDepartments);
-    if (permissions) perProject.push({ projectId: id, projectName: name, permissions });
+    // Workspace (lotto 4): la workspace da cui la persona vede il progetto, se c'è.
+    if (permissions) perProject.push({ projectId: id, projectName: name, workspaceName: byProject.get(id)?.workspaceRoles[0]?.workspaceName ?? null, permissions });
   }
   return { userId, instance: instanceWithReasons(person), projects: perProject };
 }

@@ -63,6 +63,8 @@ export const whatCanResponseSchema = z.object({
     z.object({
       projectId: z.uuid(),
       projectName: z.string(),
+      /** Workspace (lotto 4, additivo): la workspace da cui la persona vede il progetto, se c'è. */
+      workspaceName: z.string().nullable().default(null),
       permissions: z.array(permissionWithReasonsSchema),
     }),
   ),

@@ -30,7 +30,7 @@ export type RoleChoice = z.infer<typeof roleChoiceSchema>;
 
 /** Una fonte di un permesso, coi nomi già risolti. Piatta: i campi che non c'entrano sono null. */
 export const sourceViewSchema = z.object({
-  kind: z.enum(["role", "grant", "department", "full_admin"]),
+  kind: z.enum(["role", "grant", "department", "full_admin", "workspace"]),
   roleId: z.uuid().nullable().default(null),
   roleName: z.string().nullable().default(null),
   grantedById: z.uuid().nullable().default(null),
@@ -40,6 +40,9 @@ export const sourceViewSchema = z.object({
   origin: z.enum(["given", "seed", "draft"]).nullable().default(null),
   departmentId: z.uuid().nullable().default(null),
   departmentName: z.string().nullable().default(null),
+  /** Workspace (lotto 4, additivi): la workspace di una fonte `workspace` (il suo ruolo in `roleId`/`roleName`). */
+  workspaceId: z.uuid().nullable().default(null),
+  workspaceName: z.string().nullable().default(null),
 });
 export type SourceView = z.infer<typeof sourceViewSchema>;
 
@@ -79,6 +82,10 @@ export const personProjectViewSchema = z.object({
   role: z.object({ id: z.uuid(), name: z.string() }),
   extra: z.array(extraPermissionSchema).default([]),
   canManage: z.boolean().default(false),
+  /** Workspace (lotto 4, additivi): il progetto visto anche (o solo) da una workspace, col ruolo di workspace. */
+  workspace: z.object({ name: z.string(), roleName: z.string() }).nullable().default(null),
+  /** Lo vede SOLO dalla workspace (allora `role` è il ruolo di workspace). */
+  workspaceOnly: z.boolean().default(false),
 });
 
 /** La pagina di una persona. */
@@ -99,6 +106,8 @@ export const personDetailSchema = z.object({
   alsoInHiddenProjects: z.boolean().default(false),
   addableTo: z.array(z.object({ projectId: z.uuid(), code: z.string(), name: z.string() })).default([]),
   departments: z.array(departmentRefSchema.extend({ managesHome: z.boolean().default(false) })).default([]),
+  /** Workspace (lotto 4, additivo): le sue workspace che chi guarda vede, col ruolo. */
+  workspaces: z.array(z.object({ id: z.uuid(), name: z.string(), roleName: z.string() })).default([]),
   identities: z
     .object({ gitEmails: z.array(z.string()).default([]), bitbucketUsername: z.string().nullable().default(null) })
     .default({ gitEmails: [], bitbucketUsername: null }),
@@ -157,6 +166,8 @@ export const inviteChoicesSchema = z.object({
   instanceRoles: z.array(roleChoiceSchema).default([]),
   defaultInstanceRoleId: z.uuid().nullable().default(null),
   projects: z.array(z.object({ projectId: z.uuid(), code: z.string(), name: z.string(), roles: z.array(roleChoiceSchema).default([]) })).default([]),
+  /** Workspace (lotto 4, additivo): dove chi invita gestisce le persone, coi ruoli (escalation su tutti i progetti). */
+  workspaces: z.array(z.object({ workspaceId: z.uuid(), name: z.string(), roles: z.array(roleChoiceSchema).default([]), defaultRoleId: z.uuid().nullable().default(null) })).default([]),
 });
 export type InviteChoices = z.infer<typeof inviteChoicesSchema>;
 
@@ -171,6 +182,10 @@ export const memberRowViewSchema = z.object({
   extra: z.array(extraPermissionSchema).default([]),
   /** I permessi dati a mano, anche quelli che il ruolo dà già. */
   granted: z.array(z.string()).default([]),
+  /** Workspace (lotto 4, additivi): la workspace da cui vede il progetto, col ruolo di workspace. */
+  workspace: z.object({ workspaceId: z.uuid(), workspaceName: z.string(), roleName: z.string() }).nullable().default(null),
+  /** Membro ESPLICITO (false: lo vede solo dalla workspace, e `role` è il ruolo di workspace). */
+  explicit: z.boolean().default(true),
 });
 
 export const projectMembersViewSchema = z.object({

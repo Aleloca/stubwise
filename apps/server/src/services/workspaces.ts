@@ -62,7 +62,7 @@ const personName = sql<string>`coalesce(nullif(${users.displayName}, ''), split_
 // ── Letture ──────────────────────────────────────────────────────────────
 
 /** I permessi di chi agisce in OGNI progetto, archiviati compresi (l'escalation non li salta). */
-async function heldByProject(db: DbOrTx, actor: WorkspaceActor): Promise<Record<string, readonly string[]>> {
+async function heldByProject(db: DbOrTx, actor: Pick<SessionUser, "id" | "instancePermissions">): Promise<Record<string, readonly string[]>> {
   return projectPermissionsMap(db as Db, actor, { includeArchived: true });
 }
 
@@ -81,14 +81,14 @@ async function membersOf(db: DbOrTx, workspaceId: string, opts: { lockRoles?: bo
 }
 
 /** Chi agisce gestisce le persone: `project.members.manage` in OGNI progetto (D4); una vuota, `workspaces.manage`. */
-function managesPeople(actor: WorkspaceActor, projectIds: readonly string[], held: Record<string, readonly string[]>): boolean {
+function managesPeople(actor: Pick<SessionUser, "id" | "instancePermissions">, projectIds: readonly string[], held: Record<string, readonly string[]>): boolean {
   if (isFullAdmin(actor)) return true;
   if (projectIds.length === 0) return canManageStructure(actor);
   return projectIds.every((id) => (held[id] ?? []).includes(MANAGE_MEMBERS));
 }
 
 /** Le workspace che chi guarda vede (D5), nella forma per lui (r.1414). */
-export async function listWorkspaces(db: Db, viewer: WorkspaceActor, onlyId?: string): Promise<WorkspaceView[]> {
+export async function listWorkspaces(db: Db, viewer: Pick<SessionUser, "id" | "instancePermissions">, onlyId?: string): Promise<WorkspaceView[]> {
   const rows = await db
     .select()
     .from(workspaces)

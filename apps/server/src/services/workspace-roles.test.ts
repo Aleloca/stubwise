@@ -213,3 +213,37 @@ describe("lotto 4: «Chi può farlo?» dice da dove si vede (la fonte `workspace
     expect(perms.find((p) => p.permission === "tickets.view_all")!.reasons).toEqual([expect.objectContaining({ kind: "workspace", workspaceName: "Clienti" })]);
   });
 });
+
+describe("lotto 4: Members, la persona e l'anteprima dicono la workspace", () => {
+  async function admin() {
+    const { users } = await import("@stubwise/db");
+    const { eq } = await import("drizzle-orm");
+    const [a] = await db.select({ id: users.id }).from(users).where(eq(users.role, "admin")).limit(1);
+    return actorAs(a!.id, "admin");
+  }
+
+  it("Members: chi vede il progetto SOLO per workspace c'è (explicit false, il ruolo di workspace); un membro esplicito ha explicit true", async () => {
+    const { projectMembersView } = await import("./admin-roles.js");
+    const { projectId, wanda, nino } = await seed("viewer");
+    await addMember(app, projectId, nino.id, "developer");
+    const view = await projectMembersView(db, await admin(), projectId);
+    expect(view.members.find((m) => m.personId === wanda.id)).toMatchObject({ explicit: false, role: { name: "Viewer" }, workspace: { workspaceName: "Clienti", roleName: "Viewer" } });
+    expect(view.members.find((m) => m.personId === nino.id)).toMatchObject({ explicit: true, role: { name: "Developer" }, workspace: null });
+  });
+
+  it("la pagina della persona: le sue workspace col ruolo", async () => {
+    const { personDetail } = await import("./admin-people.js");
+    const { wanda } = await seed("viewer");
+    const detail = await personDetail(db, await admin(), wanda.id);
+    expect(detail.workspaces).toEqual([expect.objectContaining({ name: "Clienti", roleName: "Viewer" })]);
+    expect(detail.projects).toEqual([expect.objectContaining({ workspaceOnly: true, workspace: { name: "Clienti", roleName: "Viewer" } })]);
+  });
+
+  it("l'anteprima del membro: un permesso del ruolo di workspace ha la fonte `workspace`", async () => {
+    const { previewMember } = await import("./admin-roles.js");
+    const { projectId, wanda } = await seed("viewer");
+    const preview = await previewMember(db, await admin(), projectId, wanda.id, { roleId: await presetRoleId(app, "contributor"), granted: [] });
+    const viewAll = preview.permissions.find((p) => p.permission === "tickets.view_all");
+    expect(viewAll?.sources).toEqual([expect.objectContaining({ kind: "workspace", workspaceName: "Clienti", roleName: "Viewer" })]);
+  });
+});
