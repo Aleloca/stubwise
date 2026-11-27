@@ -3015,6 +3015,8 @@
       "leaves": "A repository leaves a project only when the project is deleted.",
       "empty": "{{code}} has no repositories yet. Add one so Claude can work on the code and the Docs can be written.",
       "emptyRead": "Someone who can manage {{code}}'s repositories can add one.",
+      "addNeedsGitAccounts": "Adding a repository means choosing one of the instance's git accounts, which needs permission to manage git accounts.",
+      "accountNeedsGitAccounts": "Changing the git account or the reviewer needs permission to manage git accounts.",
       "loadError": "Couldn't load {{code}}'s repositories.",
       "tests": "tests:",
       "testsDetected": "tests detected from the lockfile",

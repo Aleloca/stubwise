@@ -6,6 +6,7 @@ import {
   useCheckRepositoryAccess,
   useCreateRepository,
   useGitAccounts,
+  useRemoteBranches,
   useRemoteRepositories,
   useSeesGitAccounts,
   useSimulateNextRepositoryCheck,
@@ -16,6 +17,7 @@ import type { Project } from "../../../data/types";
 import { Dialog, DialogField, inputClass } from "../../../tasks-ui/Dialog";
 import { AiSkeleton } from "../../admin/ai/parts";
 import { CHECK_MS, CheckWords, CrossGlyph, wait } from "../../admin/integrations/parts";
+import { isAppBuild } from "../../../data/build";
 import { PrototypeBox } from "../../automations/shared";
 import { Segmented, selectClass } from "../../automations/builder/controls";
 import { ErrorLine } from "../../entry/parts";
@@ -84,6 +86,13 @@ export function NewRepositoryWizard({
   const remote = useRemoteRepositories(accountId, project.id);
   const account = accounts.data?.find((a) => a.id === accountId) ?? null;
   const chosen = remote.data?.find((r) => r.fullName === fullName) ?? null;
+  // I rami del repository scelto (il predefinito per primo); finché non arrivano, il predefinito.
+  const remoteBranches = useRemoteBranches(accountId, fullName);
+  const branchChoices = remoteBranches.data?.branches.length
+    ? remoteBranches.data.branches
+    : chosen
+      ? chosen.branches
+      : [];
   const platform = account ? t(`settings.repos.platforms.${account.provider}`) : "";
   const triple: Triple | null =
     accountId && fullName && branch ? { accountId, fullName, branch } : null;
@@ -313,7 +322,7 @@ export function NewRepositoryWizard({
                   onChange={(e) => setBranch(e.target.value)}
                   className={`${selectClass} h-8 w-64 max-w-full font-code`}
                 >
-                  {chosen.branches.map((b) => (
+                  {branchChoices.map((b) => (
                     <option key={b} value={b}>
                       {b === chosen.defaultBranch
                         ? t("settings.repos.wizard.branchOption", { branch: b })
@@ -713,18 +722,21 @@ function AccessStep({
         <div className="compose-enter flex flex-col gap-3">{commands}</div>
       )}
       {notVerified && <ErrorLine>{t("settings.repos.wizard.notVerified")}</ErrorLine>}
-      <PrototypeBox>
-        <p className="text-sm text-ink-muted">{t("settings.repos.wizard.prototype.intro")}</p>
-        <Segmented<TestOutcome>
-          label={t("settings.repos.wizard.prototype.label")}
-          value={nextCheck}
-          options={(["ok", "invalid_credentials", "unreachable"] as const).map((o) => ({
-            value: o,
-            label: t(`settings.repos.wizard.prototype.${o}`),
-          }))}
-          onChange={onNextCheck}
-        />
-      </PrototypeBox>
+      {/* Solo nel prototipo: nella build app la verifica è quella vera. */}
+      {!isAppBuild() && (
+        <PrototypeBox>
+          <p className="text-sm text-ink-muted">{t("settings.repos.wizard.prototype.intro")}</p>
+          <Segmented<TestOutcome>
+            label={t("settings.repos.wizard.prototype.label")}
+            value={nextCheck}
+            options={(["ok", "invalid_credentials", "unreachable"] as const).map((o) => ({
+              value: o,
+              label: t(`settings.repos.wizard.prototype.${o}`),
+            }))}
+            onChange={onNextCheck}
+          />
+        </PrototypeBox>
+      )}
     </>
   );
 }

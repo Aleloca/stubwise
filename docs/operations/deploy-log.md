@@ -7302,3 +7302,27 @@ deploy o di un rollback che la tocca.
   elenchi più e che il loro dettaglio dica `ignored` (o `handed`).
   **Rollback**: sicuro, nessun dato toccato; scendendo, le 6 tornano visibili
   come prima.
+- **«I repository nella nuova app» (27 nov 2026)**: branch
+  `feat/repository-nuova-app`, ritiro del web vecchio (inventario §1.3).
+  Progetto → Settings → Repositories nella build app non è più ridotta al
+  blocco Releases: elenco, creazione guidata sugli account git (rami del
+  repository scelto, verifica dell'accesso), pagina del repository, webhook
+  git e file d'ambiente, sulle rotte che già usa il web vecchio
+  (`apps/desktop/src/renderer/data/backend/real/projectRepositories.ts`). Il
+  segreto del webhook e i valori delle variabili non passano dall'adattatore.
+  Le scritture dei file d'ambiente con riconferma passano da `useReauth`.
+  Server, cambi additivi: `GET /api/repositories/:id/env-files` dà
+  `setAt` per variabile; l'import dà anche `replaced` e `skipped` (righe
+  saltate, per sintassi o per chiave), con il nuovo `onSkip` di
+  `parseDotenv` (`packages/shared`). L'api-client ha i metodi nuovi
+  (`repositories.create`/`update`/`configureWebhook`/env-files,
+  `gitAccounts.repositories`/`branches`/`validateRepo`). Regola allineata
+  al server: scegliere un account git vuole `git_accounts.manage`, anche
+  nel prototipo (shape `project-repositories.md`, correzione del 27 nov).
+  **Ordine**: `server`, poi `caddy`. Nessuna migrazione, nessuna env.
+  **Controllo dopo il deploy**: da `/app`, in un progetto, aggiungere un
+  repository (account, repository, ramo, verifica, Create), poi aprirlo e
+  importare un `.env` nell'ambiente test. L'esito dice quante variabili
+  sono nuove, sostituite e saltate, e nessun valore ricompare.
+  **Rollback**: sicuro, sono campi additivi. Col caddy vecchio torna la
+  sezione ridotta.

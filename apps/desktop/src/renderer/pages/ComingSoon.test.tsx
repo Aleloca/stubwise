@@ -655,6 +655,21 @@ const INTEGRATED_CALLS = new Set([
   // Area 8, F1 (`releases-repo-settings`): la sezione «Repositories» ridotta.
   "releases.getRepositorySettings",
   "releases.setRepoPrMode",
+  // Ritiro del web vecchio (inventario §1.3): «Repositories» intera, l'adattatore
+  // `projectRepositories.ts` (elenco, pagina, webhook, file d'ambiente, creazione).
+  "projectSettings.listProjectRepositories",
+  "projectSettings.listRemoteRepositories",
+  "projectSettings.listRemoteBranches",
+  "projectSettings.checkRepositoryAccess",
+  "projectSettings.createRepository",
+  "projectSettings.updateRepository",
+  "projectSettings.configureRepositoryWebhook",
+  "projectSettings.listEnvFiles",
+  "projectSettings.createEnvFile",
+  "projectSettings.importEnvFile",
+  "projectSettings.setEnvVar",
+  "projectSettings.removeEnvVar",
+  "projectSettings.deleteEnvFile",
   // Area 8, F3: Support (letture e scritture sulle rotte di 72).
   "support.listSupportConversations",
   // La ricerca ⌘K di Support (rimandi, lotto 5).
@@ -977,14 +992,23 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  // Area 8, F1 (46): «Repositories» ridotta, senza «nuovo repository» né l'editor dell'area 9.
-  it("aprire Repositories legge solo chiamate integrate, senza «Add repository»", async () => {
+  // Ritiro del web vecchio (inventario §1.3): «Repositories» intera, sulle
+  // rotte dei repository (prima, area 8 F1, era ridotta al blocco Releases).
+  it("aprire Repositories legge solo chiamate integrate", async () => {
     // Laura vede il codice di AUD (`repos.view`): la sezione è sua.
     signedInAs("p-laura");
     renderRoute("/p/AUD/settings/repositories");
-    await waitFor(() => expect(calls).toContain("releases.getRepositorySettings"));
+    await waitFor(() => expect(calls).toContain("projectSettings.listProjectRepositories"));
     await settle();
-    expect(screen.queryByRole("button", { name: /Add repository/ })).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  it("aprire un repository legge solo chiamate integrate, file d'ambiente compresi, senza riquadri del prototipo", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/p/AUD/settings/repositories?repo=repo-aud");
+    await waitFor(() => expect(calls).toContain("projectSettings.listEnvFiles"));
+    await settle();
+    expect(screen.queryByRole("region", { name: "Prototype only" })).toBeNull();
     expect(outside()).toEqual([]);
   });
 

@@ -6,6 +6,23 @@
 > **[RE n]** in fondo. La sola lettura, il segno «View only» e il «Who?»
 > seguono `project-settings.md` ([PS 3], [PS 4]).
 
+> **Correzione del 27 nov 2026 (ritiro del web vecchio, decisione di 46):
+> scegliere un account git vuole anche `git_accounts.manage` d'istanza.**
+> Questo shape dava la creazione guidata e il cambio d'account a chi ha
+> `repos.manage` nel progetto; il server invece, per costruzione, chiede
+> `git_accounts.manage` per creare un repository, sfogliare i repository e i
+> rami di un account, verificarne l'accesso e cambiare l'account (o il
+> revisore) di un repository. Le credenziali sono dell'istanza, e vale la
+> regola più stretta. Quindi: **Add repository** è spento senza
+> `git_accounts.manage`, con la frase «Adding a repository means choosing one
+> of the instance's git accounts…» e **Who?** `manageGitAccounts`; nella
+> pagina del repository i campi **Git account** e **Review account** sono
+> spenti, con la loro frase, e il resto si modifica come prima. La lettura
+> dice `canChooseGitAccount`, che la pagina legge e non deduce. Prototipo e
+> build app si comportano allo stesso modo: dove qui sotto si legge
+> «`repos.manage`» per la creazione o per l'account, va letto «e
+> `git_accounts.manage`».
+
 Superficie: le sezioni **Repositories** (`/p/<CODE>/settings/repositories`,
 con `?new=1` per la **creazione guidata** e `?repo=<id>` per la **pagina del
 repository**) e **Integration** (`/p/<CODE>/settings/integration`), con i

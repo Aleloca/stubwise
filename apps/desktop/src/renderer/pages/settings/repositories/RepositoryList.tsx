@@ -11,8 +11,6 @@ import { SettingsFrame } from "../SettingsFrame";
 import { ViewOnlyLine } from "../ViewOnly";
 import { NewRepositoryWizard } from "./NewRepositoryWizard";
 import { RepositoryEditor } from "./RepositoryEditor";
-import { RepositoriesReleasesOnly } from "./RepositoriesReleasesOnly";
-import { isAppBuild } from "../../../data/build";
 import { WebhookState } from "./WebhookRow";
 
 // Progetto → Settings → Repositories (area 9c, Task 8, shape
@@ -37,15 +35,6 @@ export function RepositoriesSection({ project }: { project: Project }) {
       params: { code: project.code, section: "repositories" },
       search: ((prev: Record<string, unknown>) => ({ ...prev, ...patch })) as never,
     });
-  // Build app (area 8, F1, 46): la sezione ridotta al solo blocco «Releases».
-  if (isAppBuild())
-    return (
-      <RepositoriesReleasesOnly
-        project={project}
-        repositoryId={search.repo}
-        open={(repo) => setSearch({ repo })}
-      />
-    );
   if (search.repo)
     return (
       <RepositoryEditor
@@ -73,6 +62,10 @@ function RepositoryList({
   const repositories = useProjectRepositories(project.id);
   const data = repositories.data;
   const canManage = data?.canManage === true;
+  // Aggiungere è scegliere un account git dell'istanza: anche `git_accounts.manage`
+  // (la regola del server, decisa col ritiro del web vecchio). Lo dice la lettura.
+  const canChoose = data?.canChooseGitAccount === true;
+  const canAdd = canManage && canChoose;
   const lineId = useId();
   const addRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -102,18 +95,20 @@ function RepositoryList({
   }, [wizardOpen, focusAfter, data]);
 
   const open = () => {
-    if (canManage) setSearch({ new: "1" });
+    if (canAdd) setSearch({ new: "1" });
   };
   const addButton = data ? (
     <span className="flex shrink-0 items-center gap-2">
-      {!canManage && (
+      {!canManage ? (
         <WhoCanLink action="manageRepos" projectId={project.id} projectCode={project.code} />
+      ) : (
+        !canChoose && <WhoCanLink action="manageGitAccounts" projectId={null} />
       )}
       <button
         ref={addRef}
         type="button"
-        aria-disabled={!canManage || undefined}
-        aria-describedby={canManage ? undefined : lineId}
+        aria-disabled={!canAdd || undefined}
+        aria-describedby={canAdd ? undefined : lineId}
         onClick={open}
         className={`${primaryButton} aria-disabled:cursor-not-allowed aria-disabled:opacity-40`}
       >
@@ -130,6 +125,11 @@ function RepositoryList({
     >
       {data && !canManage && (
         <ViewOnlyLine id={lineId} action="manageRepos" projectId={project.id} code={project.code} />
+      )}
+      {data && canManage && !canChoose && (
+        <p id={lineId} className="pb-3 text-sm text-pretty text-ink-muted">
+          {t("settings.repos.addNeedsGitAccounts")}
+        </p>
       )}
       {repositories.isPending ? (
         <AiSkeleton rows={3} height={60} />
@@ -151,10 +151,15 @@ function RepositoryList({
           <p className="max-w-[60ch] text-md text-pretty text-ink-muted">
             {t("settings.repos.empty", { code: project.code })}
           </p>
-          {canManage ? (
+          {canAdd ? (
             <button type="button" className={secondaryButton} onClick={open}>
               {t("settings.repos.add")}
             </button>
+          ) : canManage ? (
+            <p className="text-sm text-ink-muted">
+              {t("settings.repos.addNeedsGitAccounts")}{" "}
+              <WhoCanLink action="manageGitAccounts" projectId={null} />
+            </p>
           ) : (
             <p className="text-sm text-ink-muted">
               {t("settings.repos.emptyRead", { code: project.code })}{" "}
@@ -174,7 +179,7 @@ function RepositoryList({
         </ul>
       )}
       {data && <p className="mt-4 text-xs text-ink-faint">{t("settings.repos.leaves")}</p>}
-      {wizardOpen && canManage && (
+      {wizardOpen && canAdd && (
         <NewRepositoryWizard
           project={project}
           onClose={() => {

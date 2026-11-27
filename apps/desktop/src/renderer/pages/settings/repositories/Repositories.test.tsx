@@ -3,7 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failNext, resetApi, setLatency } from "../../../data/api";
 import { state } from "../../../data/store";
-import { resetViewerGrants, revokeProjectPermission } from "../../../data/viewer";
+import {
+  grantInstancePermission,
+  resetViewerGrants,
+  revokeInstancePermission,
+  revokeProjectPermission,
+} from "../../../data/viewer";
 import { setLanguage } from "../../../i18n";
 import { clearToasts } from "../../../tasks-ui/Toast";
 import { renderRoute } from "../../../test/renderRoute";
@@ -13,7 +18,9 @@ import { renderRoute } from "../../../test/renderRoute";
 // la pagina del repository e il webhook. Laura è Project Lead in ACQ
 // (`repos.manage`); Marco è Developer in ACQ: `repos.view` senza
 // `repos.manage` (ruling (T4): lo scenario «da Sara» si fa con lui). OLV
-// non ha il modulo Releases; Giulia ne è Project Lead.
+// non ha il modulo Releases; Giulia ne è Project Lead. Scegliere un account
+// git vuole anche `git_accounts.manage` d'istanza (la regola del server):
+// Laura lo riceve in ogni test, e il blocco «senza git_accounts.manage» lo toglie.
 
 const LAURA = "p-laura";
 const MARCO = "p-marco";
@@ -23,6 +30,7 @@ const ACQ = "prj-acq";
 beforeEach(() => {
   setLatency(0);
   resetApi();
+  grantInstancePermission(LAURA, "git_accounts.manage");
 });
 afterEach(() => {
   clearToasts();
@@ -428,6 +436,30 @@ describe("in sola lettura (Marco: repos.view, non repos.manage)", () => {
     expect(configure).toHaveAccessibleDescription(/manage ACQ's repositories/);
     expect(within(webhook).getByRole("button", { name: /^Who can/ })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Prototype only" })).toBeNull();
+  });
+});
+
+describe("senza git_accounts.manage (Laura gestisce i repository, ma gli account git sono dell'istanza)", () => {
+  beforeEach(() => revokeInstancePermission(LAURA, "git_accounts.manage"));
+
+  it("l'elenco: «Add repository» spento con la sua frase e «Who?» sugli account git", async () => {
+    await openList(LAURA);
+    const add = screen.getByRole("button", { name: "Add repository" });
+    expect(add).toHaveAttribute("aria-disabled", "true");
+    expect(add).toHaveAccessibleDescription(/needs permission to manage git accounts/);
+    await userEvent.click(add);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("button", { name: /^Who can manage git accounts/ })).toBeInTheDocument();
+  });
+
+  it("la pagina: account git e revisore spenti con la frase; il resto si modifica", async () => {
+    await openRepository(LAURA, "repo-acq", "portale-utenti");
+    const details = screen.getByRole("region", { name: "Details" });
+    const account = within(details).getByRole("combobox", { name: "Git account" });
+    expect(account).toBeDisabled();
+    expect(account).toHaveAccessibleDescription(/Changing the git account or the reviewer needs permission to manage git accounts\./);
+    expect(await within(details).findByRole("combobox", { name: "Review account" })).toBeDisabled();
+    expect(within(details).getAllByRole("textbox").length).toBeGreaterThan(0);
   });
 });
 

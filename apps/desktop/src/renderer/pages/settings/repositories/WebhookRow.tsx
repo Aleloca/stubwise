@@ -1,3 +1,4 @@
+import { isAppBuild } from "../../../data/build";
 import { Link } from "@tanstack/react-router";
 import { useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -171,7 +172,8 @@ export function WebhookSection({
           </Link>
           .
         </p>
-        {canManage && (
+        {/* Solo nel prototipo: nella build app la configurazione è quella vera. */}
+        {canManage && !isAppBuild() && (
           <NextSetupBox
             value={nextSetup}
             onChange={(o) => {

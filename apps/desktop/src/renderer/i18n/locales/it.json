@@ -3015,6 +3015,8 @@
       "leaves": "Un repository lascia un progetto solo quando il progetto viene eliminato.",
       "empty": "{{code}} non ha ancora repository. Aggiungine uno perché Claude possa lavorare sul codice e si possano scrivere i Docs.",
       "emptyRead": "Può aggiungerne uno chi può gestire i repository di {{code}}.",
+      "addNeedsGitAccounts": "Aggiungere un repository vuol dire scegliere uno degli account git dell'istanza, e serve il permesso di gestire gli account git.",
+      "accountNeedsGitAccounts": "Per cambiare l'account git o il revisore serve il permesso di gestire gli account git.",
       "loadError": "Impossibile caricare i repository di {{code}}.",
       "tests": "test:",
       "testsDetected": "test rilevati dal lockfile",
