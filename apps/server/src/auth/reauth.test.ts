@@ -626,6 +626,23 @@ describe("M5 (indurimento): una scrittura col cookie da un'altra origine", () =>
   });
 });
 
+describe("sessionTag di GET /api/auth/me (cassaforte nel browser, I-3)", () => {
+  it("è opaco, stabile nella sessione, diverso fra due sessioni della stessa persona; un PAT non ne ha", async () => {
+    const user = await createUserWithTotp();
+    const me = async (headers: Record<string, string>) => (await app.inject({ method: "GET", url: "/api/auth/me", headers })).json() as { sessionTag?: string | null };
+    const first = await sessionAged(user.id, 0);
+    const second = await sessionAged(user.id, 0);
+    const tag = (await me({ cookie: first })).sessionTag;
+    expect(tag).toMatch(/^[\w-]{16,}$/);
+    expect((await me({ cookie: first })).sessionTag).toBe(tag);
+    expect((await me({ cookie: second })).sessionTag).not.toBe(tag);
+    // Mai l'id grezzo della sessione.
+    const [row] = await testDb.db.select({ id: sessions.id }).from(sessions).where(eq(sessions.userId, user.id)).limit(1);
+    expect(tag).not.toContain(row!.id);
+    expect((await me(pat)).sessionTag ?? null).toBeNull();
+  });
+});
+
 describe("sessione di prima del rilascio (Review Focus 2)", () => {
   it("POST /api/pats → 403 second_factor_setup_required; configurazione dalla STESSA sessione; poi 201", async () => {
     const user = await createUser();
