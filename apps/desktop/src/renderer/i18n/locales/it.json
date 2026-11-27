@@ -5645,6 +5645,7 @@
       "download": "Scarica come .zip",
       "downloaded_one": "Scaricato {{file}} ({{count}} pagina)",
       "downloaded_other": "Scaricato {{file}} ({{count}} pagine)",
+      "downloadFailed": "Impossibile scaricare questa categoria. Riprova.",
       "empty": "Nessuna pagina",
       "error": "Non è stato possibile caricare le pagine."
     },
@@ -5802,6 +5803,7 @@
       "hint": "Apri una comunità per vederne le parti più collegate.",
       "download": "Scarica graph.json",
       "downloaded": "Scaricato graph.json",
+      "downloadFailed": "Impossibile scaricare graph.json. Riprova.",
       "fromTerminal": "Da un terminale",
       "copyCommand": "Copia il comando",
       "copied": "Comando copiato",

@@ -5645,6 +5645,7 @@
       "download": "Download as .zip",
       "downloaded_one": "Downloaded {{file}} ({{count}} page)",
       "downloaded_other": "Downloaded {{file}} ({{count}} pages)",
+      "downloadFailed": "Couldn't download this category. Try again.",
       "empty": "No pages",
       "error": "Couldn't load the pages."
     },
@@ -5802,6 +5803,7 @@
       "hint": "Open a community to see its most connected parts.",
       "download": "Download graph.json",
       "downloaded": "Downloaded graph.json",
+      "downloadFailed": "Couldn't download graph.json. Try again.",
       "fromTerminal": "From a terminal",
       "copyCommand": "Copy the command",
       "copied": "Command copied",

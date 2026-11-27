@@ -404,6 +404,8 @@ export type ApiFnName =
   | "chat.answerClaudeQuestion"
   | "chat.listClaudeQuestions"
   // Docs (area 5)
+  | "docs.exportCategory"
+  | "docs.downloadGraphJson"
   | "docs.listDocSpaces"
   | "docs.getDocSpace"
   | "docs.listDocTree"

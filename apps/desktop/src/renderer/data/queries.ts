@@ -4580,6 +4580,7 @@ export * from "./queries/support";
 export * from "./queries/servers";
 export * from "./queries/vault";
 export * from "./queries/admin";
+export * from "./queries/docsDownloads";
 export * from "./queries/entry";
 export * from "./queries/me";
 export * from "./queries/instance";

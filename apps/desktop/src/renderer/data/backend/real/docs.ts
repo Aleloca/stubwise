@@ -30,7 +30,10 @@ import type {
 import { buildDocTree } from "../../../domain/docs";
 import { can } from "../../viewing";
 import { rememberDocCitation } from "./chat";
+import { openInWeb } from "../../../platform/openWeb";
+import type { DocDownloadResult } from "../../docs/downloads";
 import { appClient } from "./client";
+import { fileNameOf, saveBlob } from "./download";
 import { partialNamespace } from "./notIntegrated";
 import { listDecisionLog } from "./overview";
 import { productHomeOf } from "./productDocs";
@@ -895,8 +898,48 @@ const graphAction: Docs["graphAction"] = async (repositoryId, kind) => {
 };
 
 /** Le funzioni dei passi 2a–2d della fetta 1 dei Docs. */
+/**
+ * Una categoria come .zip (ritiro del web vecchio, inventario 1.5): la rotta
+ * risponde col file, non con un 302, quindi il main del desktop non la sa
+ * scaricare col token. Sul desktop si apre nel browser di sistema (la
+ * sessione del browser); nel browser la si chiede col cookie e si salva.
+ */
+async function exportCategory(repositoryId: string, kind: DocKind): Promise<DocDownloadResult> {
+  const path = appClient().docs.exportPath(repositoryId, kind);
+  if (window.stubwise?.api) {
+    openInWeb(path);
+    return { ok: true };
+  }
+  let res: Response;
+  try {
+    res = await globalThis.fetch(path, { credentials: "include" });
+  } catch {
+    return { ok: false, reason: "failed" };
+  }
+  if (res.status === 401) return { ok: false, reason: "unauthenticated" };
+  if (res.status === 403 || res.status === 404) return { ok: false, reason: "not_found" };
+  if (!res.ok) return { ok: false, reason: "failed" };
+  saveBlob(fileNameOf(res, `${kind}.zip`), await res.blob());
+  return { ok: true };
+}
+
+/** Il `graph.json` vero del server (`GET /api/repositories/:id/graph/json`), in tutte e due le build. */
+async function downloadGraphJson(repositoryId: string): Promise<DocDownloadResult> {
+  try {
+    const graph = await appClient().request("GET", `/api/repositories/${encodeURIComponent(repositoryId)}/graph/json`);
+    saveBlob("graph.json", new Blob([JSON.stringify(graph, null, 2)], { type: "application/json" }));
+    return { ok: true };
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) return { ok: false, reason: "unauthenticated" };
+    if (error instanceof ApiError && (error.status === 403 || error.status === 404)) return { ok: false, reason: "not_found" };
+    return { ok: false, reason: "failed" };
+  }
+}
+
 export const docsFunctions: Partial<Docs> = {
   DOC_KINDS,
+  exportCategory,
+  downloadGraphJson,
   listDocSpaces,
   getDocSpace,
   listDocTree,
