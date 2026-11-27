@@ -228,3 +228,20 @@ describe("isSafeRelPath", () => {
     }
   });
 });
+
+describe("parseDotenv: le righe saltate (onSkip)", () => {
+  it("riporta il numero e il motivo di ogni riga scartata, mai il contenuto; le valide restano", () => {
+    const skipped: [number, string][] = [];
+    const out = parseDotenv(
+      ["# commento", "OK=1", "senza uguale", "1BAD=2", "CON SPAZIO=3", 'APERTO="mai chiuso', "", "export ALTRO='x'"].join("\n"),
+      (line, reason) => skipped.push([line, reason]),
+    );
+    expect(out.map((v) => v.key)).toEqual(["OK", "ALTRO"]);
+    expect(skipped).toEqual([
+      [3, "syntax"],
+      [4, "key"],
+      [5, "syntax"],
+      [6, "syntax"],
+    ]);
+  });
+});
