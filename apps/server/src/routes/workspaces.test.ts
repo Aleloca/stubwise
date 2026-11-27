@@ -187,6 +187,9 @@ describe("last_manager (D18)", () => {
     // L'anteprima dice lo stesso.
     const effect = (await call("POST", "/api/workspaces/effect", admin, { kind: "removeMember", workspaceId: w.id, userId: vera.id })).json() as { lastManager: string[] };
     expect(effect.lastManager).toEqual([d]);
+    // Anche l'eliminazione della workspace (46): l'anteprima lo dice.
+    const deleting = (await call("POST", "/api/workspaces/effect", admin, { kind: "deleteWorkspace", workspaceId: w.id })).json() as { lastManager: string[] };
+    expect(deleting.lastManager).toEqual([d]);
     const preview = (await call("POST", `/api/workspaces/${w.id}/members/${vera.id}/preview`, admin, { roleId: await presetRoleId(app, "viewer") })).json() as { lastManager: { blocked: boolean; projectId: string | null } };
     expect(preview.lastManager).toEqual({ blocked: true, projectId: d });
   });

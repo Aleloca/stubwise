@@ -1979,6 +1979,38 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   più un errore diverso da 403/404; il motivo dell'eliminazione spenta dal
   server (`deleteBlockedBy`, M1).
 
+## Workspace (27 nov 2026, `docs/plans/2026-11-27-workspace-design.md`)
+
+- **D8, le workspace come filtro fuori da All projects** *(M)*: Tasks,
+  Planning, Posta, Drive e i selettori di progetto non filtrano ancora per
+  workspace. Il server non ne ha bisogno: `GET /api/workspaces` dà già gli id
+  dei progetti di ogni workspace visibile.
+- **«Annulla» di Claude su un ingresso, troppo prudente** *(O, revisione del
+  lotto 3, M-1)*: il controllo «qualcuno ha scritto dopo» guarda le voci
+  `workspace.member_*` della PERSONA, non della workspace. Se nel frattempo la
+  persona entra in un'altra workspace o ne esce, l'annulla rifiuta. È un
+  rifiuto di troppo, mai un annulla sbagliato. Da stringere filtrando le voci
+  per workspace (`data.object` o una colonna).
+- **La card di chi entra segue il suo progetto d'appoggio** *(O, M-4)*:
+  `member.added` di una workspace vive nel primo progetto aperto. Se quel
+  progetto esce dalla workspace o si archivia, la card sparisce anche per chi
+  è ancora dentro. Da rivedere se servirà un avviso d'istanza senza progetto
+  nel catalogo.
+- **`deleteUser` e il progetto di `last_manager`** *(S, M-6)*: il servizio
+  porta il `projectId` nell'errore senza il filtro r.1414 (lo applicano le
+  rotte). Oggi non ha chiamanti (R27); chi lo collega a una rotta passi
+  l'errore da `lastManagerProject` come `PATCH /api/roles/:id`.
+- **Il costo per riga delle letture centrali** *(S, revisione del lotto 1)*:
+  `visibleProjectIds`, `projectPermissionsMap` (`/api/auth/me`) e
+  `projectIdsWithPermission` passano tutti i progetti aperti con le
+  sottoquery di `project_access`, e quella dei reparti si ripete per riga.
+  Vanno bene fino a qualche centinaio di progetti. Si migliora partendo dalle
+  righe di `project_access` della persona, o portando i reparti in una CTE.
+- **I permessi duplicati nell'array** *(S, lotto 1)*:
+  `projectAccessPermissionsSql` ripete un permesso per ogni fonte. Tutti i
+  chiamanti lo trasformano in un insieme, quindi oggi non ha effetti; un
+  lettore futuro dell'array grezzo conti con `distinct`.
+
 ## Trasversali
 
 - **64 azioni del catalogo MCP senza schema di risposta** *(S ciascuna,
