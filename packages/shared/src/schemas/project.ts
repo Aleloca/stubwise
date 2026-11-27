@@ -1,3 +1,4 @@
+import { PROJECT_CODE_PATTERN } from "../app-links.js";
 import { z } from "zod";
 import { handledBySchema } from "./notification.js";
 import { milestoneStatusSchema } from "./milestone.js";
@@ -216,7 +217,7 @@ export type RepositorySaveResponse = z.infer<typeof repositorySaveResponseSchema
  * (`PROJECT_CODE_RE`, `tasks/project-code.ts`) è solo della proposta e del
  * dialogo «Nuovo progetto».
  */
-export const projectCodeSchema = z.string().regex(/^[A-Z][A-Z0-9]{1,5}$/);
+export const projectCodeSchema = z.string().regex(new RegExp(`^${PROJECT_CODE_PATTERN}$`));
 
 /** Fetta 4: il modello di un progetto e i suoi moduli (`tasks/templates.ts`). */
 export const projectTemplateSchema = z.enum(PROJECT_TEMPLATES);

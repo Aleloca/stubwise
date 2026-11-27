@@ -1,3 +1,4 @@
+import { appUrl } from "@stubwise/shared";
 import { createHash, randomBytes } from "node:crypto";
 import { emailChanges, invites, users, type Db } from "@stubwise/db";
 import { and, eq, gt, isNull, ne, sql } from "drizzle-orm";
@@ -92,7 +93,7 @@ export async function requestEmailChange(
     await transport.send({
       to: newEmail,
       subject: "Confirm your new Stubwise sign-in email",
-      text: `Someone asked to use this address to sign in to Stubwise (${publicUrl}).\n\nTo confirm, open this link within 24 hours:\n${publicUrl}/app/#/email-change/${token}\n\nIf it was not you, ignore this email.`,
+      text: `Someone asked to use this address to sign in to Stubwise (${publicUrl}).\n\nTo confirm, open this link within 24 hours:\n${appUrl(publicUrl, { to: "emailChange", token })}\n\nIf it was not you, ignore this email.`,
     });
     await transport.send({
       to: user.email,

@@ -121,8 +121,10 @@ describe("Preferenze → Account: le caselle Google nella build app", () => {
     await vi.waitFor(() =>
       expect(seen.some((r) => r.path === "/api/me/google/connect")).toBe(true),
     );
+    // Senza ponte (la build web): il ritorno va sulla nuova app.
     expect(seen.find((r) => r.path === "/api/me/google/connect")!.body).toEqual({
       workspaceId: WS2,
+      client: "web",
     });
     accounts = [account({ workspaceId: WS2, workspaceName: "Beta", email: "ada@beta.test" })];
     await vi.advanceTimersByTimeAsync(3_000);
@@ -157,8 +159,10 @@ describe("Preferenze → Account: le caselle Google nella build app", () => {
     await vi.waitFor(() =>
       expect(seen.some((r) => r.path === "/api/me/google/connect")).toBe(true),
     );
+    // Senza ponte (la build web): il ritorno va sulla nuova app.
     expect(seen.find((r) => r.path === "/api/me/google/connect")!.body).toEqual({
       workspaceId: WS,
+      client: "web",
     });
     accounts = [account({ connectedAt: "2026-11-23T10:00:00.000Z" })];
     await vi.advanceTimersByTimeAsync(3_000);

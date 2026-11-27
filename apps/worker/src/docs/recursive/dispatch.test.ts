@@ -671,7 +671,7 @@ describe("limite del provider nel dispatch dei nodi", () => {
     expect(registry.has(generationId)).toBe(true);
 
     // Notifica docs.limit_paused pubblicata (best-effort, publish iniettata):
-    // repositoryName/projectName dalla select, docsUrl = publicUrl + /docs/:repositoryId.
+    // repositoryName/projectName dalla select, docsUrl = lo spazio Docs del repository nella nuova app.
     const [repo] = await db
       .select({ name: repositories.name })
       .from(repositories)
@@ -681,7 +681,7 @@ describe("limite del provider nel dispatch dei nodi", () => {
     expect(event.kind).toBe("docs.limit_paused");
     if (event.kind === "docs.limit_paused") {
       expect(event.repositoryName).toBe(repo!.name);
-      expect(event.docsUrl).toBe(`https://stubwise.example.com/docs/${repositoryId}`);
+      expect(event.docsUrl).toMatch(/^https:\/\/stubwise\.example\.com\/app\/#\/p\/[A-Z0-9]+\/docs\/[\w-]+$/);
       expect(event.reason).toBe("provider_limit");
     }
     // Nessun ticket né job dietro una generazione: l'unica ancora è il progetto.

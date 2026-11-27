@@ -1,3 +1,4 @@
+import { appUrl } from "@stubwise/shared";
 import { commitSummaries, docPages, nightlyItems, projects, repositories, type Db } from "@stubwise/db";
 import { publishNotification } from "@stubwise/notifications";
 import {
@@ -280,8 +281,8 @@ export async function runReleaseItem(
         projectId: repo.projectId,
         repositoryName: repo.repositoryName,
         title: notes.title,
-        // Senza radice pubblica il link resta RELATIVO (`/app/#/…`), come gli altri avvisi.
-        url: `${base}/app/#/p/${proj?.code ?? ""}/docs`,
+        // Senza radice pubblica il link resta RELATIVO, come gli altri avvisi (`app-links`).
+        url: appUrl(base, { to: "docs", projectCode: proj?.code ?? "" }),
       },
       { projectId: repo.projectId },
     );

@@ -1,3 +1,5 @@
+import { appPath } from "@stubwise/shared";
+import { projectCodeOf } from "@stubwise/notifications";
 import {
   agentQuestionAnswerSchema,
   aiJobStatusSchema,
@@ -319,8 +321,11 @@ function toPublicTicket(
   requestedBy: { id: string; email: string } | null,
   /** L'id dell'utente di sistema Claude (`agentUserId`), per `assigneeIsAgent`. */
   agentId: string | null,
+  /** Il codice del progetto, per `appPath` (la task nella nuova app); `null` = nessun `appPath`. */
+  projectCode: string | null,
 ): z.infer<typeof ticketSchema> {
   return {
+    ...(projectCode ? { appPath: appPath({ to: "task", projectCode, taskCode: `${projectCode}-${row.number}` }) } : {}),
     requestedBy,
     assigneeIsAgent: agentId !== null && row.assigneeId === agentId,
     id: row.id,
@@ -521,7 +526,7 @@ async function ticketDetailResponse(
     row.assigneeId !== agentId &&
     (await projectPermissionsOfUser(db, row.assigneeId, row.projectId)) === null;
   return {
-    ...toPublicTicket(row, requestedBy, agentId),
+    ...toPublicTicket(row, requestedBy, agentId, await projectCodeOf(db, row.projectId)),
     implementationPlan: row.implementationPlan,
     originContent: row.originContent,
     planSummary: latestJob?.planSummary ?? null,
@@ -623,7 +628,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
               ticketId: ticket.id,
               ticketNumber: ticket.number,
               merged: false,
-              url: ticketUrl(publicUrlOrUndefined(app), ticket.id),
+              url: await ticketUrl(app.db, publicUrlOrUndefined(app), ticket.id),
             });
           } catch (error) {
             request.log.warn({ err: error }, "avviso request.created non pubblicato");
@@ -635,7 +640,8 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         }
         return await reply
           .code(201)
-          .send(toPublicTicket(ticket, { id: request.user!.id, email: request.user!.email }, agentId));
+          // `appPath` non costa mai la creazione: un codice che non si legge lo omette.
+          .send(toPublicTicket(ticket, { id: request.user!.id, email: request.user!.email }, agentId, await projectCodeOf(app.db, ticket.projectId).catch(() => null)));
       } catch (error) {
         if (error instanceof ProjectNotFoundError) {
           return apiError(reply, 404, "project_not_found", "Project not found");
@@ -786,9 +792,16 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         page.map((row) => row.ticket),
       );
       const agentId = await agentUserId(app.db);
+      // I codici dei progetti della pagina, per `appPath`: UNA query.
+      const projectIds = [...new Set(page.map((row) => row.ticket.projectId))];
+      const codes = new Map(
+        projectIds.length > 0
+          ? (await app.db.select({ id: projects.id, code: projects.code }).from(projects).where(inArray(projects.id, projectIds))).map((p) => [p.id, p.code] as const)
+          : [],
+      );
       return {
         items: page.map((row) => ({
-          ...toPublicTicket(row.ticket, requesters.get(row.ticket.requestedByUserId ?? "") ?? null, agentId),
+          ...toPublicTicket(row.ticket, requesters.get(row.ticket.requestedByUserId ?? "") ?? null, agentId, codes.get(row.ticket.projectId) ?? null),
           repositoryCount: countByTicket.get(row.ticket.id) ?? 0,
         })),
         nextCursor,
@@ -1392,6 +1405,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
           result.ticket,
           requesters.get(result.ticket.requestedByUserId ?? "") ?? null,
           await agentUserId(app.db),
+          await projectCodeOf(app.db, result.ticket.projectId),
         );
       } catch (error) {
         // Finestra TOCTOU: l'utente verificato dal servizio può sparire prima

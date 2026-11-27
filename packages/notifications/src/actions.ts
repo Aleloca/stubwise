@@ -17,6 +17,8 @@
  * Il catalogo è CALCOLATO, mai persistito: dipende dallo stato ATTUALE del job,
  * e persisterlo vorrebbe dire riscriverlo a ogni transizione (e sbagliarlo).
  */
+import { appUrl, type AppTarget } from "@stubwise/shared/app-links";
+import type { CardLinkContext } from "./app-link-targets.js";
 import type { ProjectPermission } from "@stubwise/shared";
 import type { NotificationEvent, NotificationKind } from "./format.js";
 
@@ -451,15 +453,45 @@ export function actionsFor(
  * punto che pubblica l'avviso (anche lo script di recupero) a conoscere
  * PUBLIC_URL. Assente → nessun link.
  */
-export function openUrl(event: NotificationEvent, publicUrl?: string): string {
+export function openUrl(
+  event: NotificationEvent,
+  publicUrl?: string,
+  /**
+   * Ritiro del web vecchio: i codici di ADESSO della card, derivati a lettura
+   * dalla riga e dagli id dell'evento (`linkContextsFor`): con loro il link
+   * della nuova app si compone qui, anche per le card di prima che hanno nel
+   * jsonb il link del web vecchio. Un dato che manca (un oggetto sparito, un
+   * chiamante che non li ha) lascia il link dell'evento: mai un `/p//…`.
+   */
+  ctx: CardLinkContext = {},
+): string {
+  const base = publicUrl?.replace(/\/+$/, "") ?? "";
+  // Senza radice pubblica nessun link derivato: sarebbe relativo (`/app/#/…`),
+  // e l'app e le push non lo aprono. Resta quello dell'evento, come per `derived`.
+  const task = publicUrl && ctx.taskCode ? taskLink(base, ctx.taskCode) : null;
+  const project = ctx.projectCode ?? null;
+  // Un link derivato vuole la radice pubblica: senza, quello dell'evento (che sa la sua).
+  const derived = (target: AppTarget | null, fallback: string) => (publicUrl && target ? appUrl(base, target) : fallback);
   switch (event.kind) {
     case "job.pr_opened":
     case "review.completed":
       return event.prUrl;
+    // Lo spazio Docs del repository (lo slug), o i Docs del progetto.
     case "docs.limit_paused":
     case "docs.nightly_attention":
-      return event.docsUrl;
+      return derived(
+        project ? { to: "docs", projectCode: project, ...(ctx.repositorySlug ? { repositorySlug: ctx.repositorySlug } : {}) } : null,
+        event.docsUrl,
+      );
+    // La voce nelle richieste del progetto; un bug o una funzionalità: la sua task.
     case "request.created":
+      return event.backlogItemId
+        ? derived(project ? { to: "requests", projectCode: project, requestId: event.backlogItemId } : null, event.url)
+        : (task ?? event.url);
+    // La task nata dalla diagnosi, o il server nel progetto.
+    case "server.diagnosis_ready":
+      if (publicUrl && event.taskCode) return taskLink(base, event.taskCode);
+      return derived(project && ctx.serverCode ? { to: "server", projectCode: project, serverCode: ctx.serverCode } : null, event.url);
     case "monitor.alert":
     case "monitor.recovered":
     case "release.failed":
@@ -470,15 +502,15 @@ export function openUrl(event: NotificationEvent, publicUrl?: string): string {
     case "pr.corrected":
     case "docs.release_note":
     case "support.request":
-    case "server.diagnosis_ready":
       return event.url;
     // Il pulse è ancorato al progetto, non a un ticket: "Apri" porta dove si
-    // vedono TUTTE le proposte, cioè il backlog del progetto.
+    // vedono TUTTE le proposte, cioè le richieste del progetto.
     case "project.pulse":
-    // Il brief porta alla roadmap, dove si legge per intero in mezzo agli
-    // eventi del periodo che racconta.
+      return derived(project ? { to: "requests", projectCode: project } : null, event.projectUrl);
+    // Il brief porta alla panoramica col brief aperto (la roadmap del web
+    // vecchio non ha un equivalente nella nuova app).
     case "project.brief":
-      return event.projectUrl;
+      return derived(project ? { to: "project", projectCode: project, briefId: event.briefId } : null, event.projectUrl);
     // La proposta porta ALLA FONTE — il thread Gmail o l'evento di calendario
     // — perché è lì che si capisce se ha senso confermarla.
     case "google.proposal":
@@ -486,12 +518,12 @@ export function openUrl(event: NotificationEvent, publicUrl?: string): string {
     // La proposta passata porta al progetto: il thread Gmail sta nella casella
     // di chi l'ha passata, e chi la riceve non può aprirlo.
     case "google.proposal_handed":
-      return event.projectUrl;
+      return derived(project ? { to: "project", projectCode: project } : null, event.projectUrl);
     // Impostazioni → Sicurezza, dove si guarda il registro e si rimedia.
     // ASSOLUTO perché lo stesso link va nel bottone del DM Slack; senza
     // PUBLIC_URL la stringa vuota è il «nessun link» che inbox e DM scartano.
     case "security.alert":
-      return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/settings/security` : "";
+      return publicUrl ? appUrl(base, { to: "preferences", section: "security" }) : "";
     // Integrazione area 2: la pagina del ticket nel web, DERIVATA (come
     // `security.alert`) — nessun URL nel jsonb.
     case "decision.requested":
@@ -499,29 +531,34 @@ export function openUrl(event: NotificationEvent, publicUrl?: string): string {
     case "ticket.activity":
     case "planning.changed":
     case "task.assigned":
-      return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/tickets/${event.ticketId}` : "";
+      return task ?? "";
     // Area 4, Chat: il messaggio nell'app nuova (la Chat vive solo lì, D9).
     // Il link nasce dagli id del jsonb (canale e messaggio non cambiano mai);
     // l'inbox non lo riscrive, lo TOGLIE quando la card è `objectGone`
     // (messaggio eliminato, canale che chi legge non legge più).
     case "chat.mention":
     case "chat.question":
-      return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/app/#/chat/${event.channelId}?message=${event.chatMessageId}` : "";
+      return publicUrl ? appUrl(base, { to: "chatMessage", channelId: event.channelId, messageId: event.chatMessageId }) : "";
     // Area 10, F5: i membri del progetto nell'app nuova (DERIVATO, nessun URL nel jsonb).
+    // Il codice del progetto sta nell'evento solo dalle card nuove (`projectCode`,
+    // additivo): `#/projects/<id>/members` delle card di prima non è una rotta
+    // dell'app, e senza codice si apre la Home.
     case "member.added":
-      return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/app/#/projects/${event.projectId}/members` : "";
+      return publicUrl
+        ? appUrl(base, event.projectCode ? { to: "projectMembers", projectCode: event.projectCode } : { to: "home" })
+        : "";
     // Area 11, F2: la pagina di prodotto nell'app nuova (la doc di prodotto vive
     // solo lì). Dai codici del jsonb: una pagina non cambia progetto né codice.
     case "product_doc.mention":
     case "product_doc.updated":
     case "product_doc.question":
-      return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/app/#/p/${event.projectCode}/docs/product/${event.pageCode}` : "";
+      return publicUrl ? appUrl(base, { to: "productPage", projectCode: event.projectCode, pageCode: event.pageCode }) : "";
     // Area 7: l'automazione (o l'esecuzione) nell'app nuova.
     case "automation.approval":
     case "automation.failed":
     case "automation.notify":
     case "automation.paused":
-      return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/app/#/automations/${event.automationCode}${event.runNumber !== null ? `/runs/${event.runNumber}` : ""}` : "";
+      return publicUrl ? appUrl(base, { to: "automation", automationCode: event.automationCode, runNumber: event.runNumber }) : "";
     case "ticket.created":
     case "job.pr_closed":
     case "job.held":
@@ -529,6 +566,11 @@ export function openUrl(event: NotificationEvent, publicUrl?: string): string {
     case "job.budget_held":
     case "job.failed":
     case "job.awaiting_input":
-      return event.ticketUrl;
+      return task ?? event.ticketUrl;
   }
+}
+
+/** La task nella nuova app dal suo codice `<CODE>-<n>` (il progetto è il prefisso). */
+function taskLink(base: string, taskCode: string): string {
+  return appUrl(base, { to: "task", projectCode: taskCode.replace(/-\d+$/, ""), taskCode });
 }

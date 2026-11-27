@@ -64,7 +64,7 @@ const FIND_FROM = 20;
 /** Quanto resta in cima, segnata, la riga di chi è appena entrato. */
 const JUST_ADDED_MS = 2000;
 
-const membersPath = /^\/p\/([A-Z]{2,4})\/settings\/members$/;
+const membersPath = /^\/p\/([A-Z][A-Z0-9]{1,5})\/settings\/members$/;
 
 /** Il nome di battesimo, per la fonte breve nella riga («given by Roberta, Oct 29»). */
 const firstName = (name: string) => name.split(" ")[0] ?? name;

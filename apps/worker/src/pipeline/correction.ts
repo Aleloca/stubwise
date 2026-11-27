@@ -1,3 +1,4 @@
+import { appUrl } from "@stubwise/shared";
 import {
   aiJobs,
   comments,
@@ -718,11 +719,11 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     projectName,
     ...(deps.publish !== undefined ? { publish: deps.publish } : {}),
   };
-  const url = ticketUrl(deps.publicUrl, ticket.id);
+  const url = await ticketUrl(deps.db, deps.publicUrl, ticket.id);
   // Il link dello status di commit segue la STESSA regola della review
   // (`commitStatusTargetUrl`, review/cycle.ts): solo verso un'istanza https
   // non locale — una regola sola per lo status `stubwise-review`.
-  const statusUrl = commitStatusTargetUrl(deps.publicUrl, ticket.id);
+  const statusUrl = commitStatusTargetUrl(deps.publicUrl, url);
   /**
    * Valori del .env materializzato nel worktree, da oscurare negli eventi della
    * sessione (design §5.5): li leggono i run e il riassunto del fallimento.
@@ -1609,7 +1610,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
             prNumber: correction!.prNumber,
             prUrl,
             title: rev?.title ?? ticket!.title,
-            url: `${base}/app/#/p/${proj?.code ?? ""}/releases?pr=${correction!.repositoryId}%23${correction!.prNumber}`,
+            url: appUrl(base, { to: "pullRequest", projectCode: proj?.code ?? "", repositoryId: correction!.repositoryId, prNumber: correction!.prNumber }),
           },
           {
             projectId: row!.projectId,

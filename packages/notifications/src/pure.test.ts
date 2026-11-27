@@ -42,7 +42,10 @@ const srcDir = fileURLToPath(new URL(".", import.meta.url));
  * decisione esplicita (ogni bare specifier qui è peso e rischio nel bundle di
  * un'app mobile), e i builtin Node finiscono fuori senza doverli enumerare.
  */
-const ALLOWED_BARE = ["@stubwise/i18n"];
+// `@stubwise/shared/app-links` (ritiro del web vecchio): i link della nuova app
+// che le card e i messaggi portano. È il SOLO sottopercorso di shared, senza
+// dipendenze (niente zod né schemi): il peso è quello di un modulo di stringhe.
+const ALLOWED_BARE = ["@stubwise/i18n", "@stubwise/shared/app-links"];
 
 /**
  * Valori puri tenuti FUORI da `./pure` di proposito (YAGNI): li si aggiunge

@@ -60,7 +60,10 @@
 	# (esatti, niente wildcard): le route SPA sotto /monitor (lista e dettaglio
 	# server) devono cadere sul fallback SPA qui sotto. Gli id server sono uuid,
 	# quindi /monitor/servers/<uuid> non collide mai con ingest/config.
-	@backend path /api/* /ingest/* /webhooks/* /widget/* /monitor/ingest /monitor/config
+	# /go/* sono i rimandi dei link del web vecchio verso la nuova app
+	# (`apps/server/src/routes/go.ts`): accesi già, nessun link ci porta finché
+	# non si accendono le regole del ritiro qui sotto.
+	@backend path /api/* /ingest/* /webhooks/* /widget/* /monitor/ingest /monitor/config /go/*
 	handle @backend {
 		reverse_proxy {$SERVER_UPSTREAM:server:3000}
 	}
@@ -114,6 +117,27 @@
 		try_files {path} /index.html
 		file_server
 	}
+
+	# --- Ritiro del web vecchio: SPENTO, si accende al ritiro ---------------
+	# (design `docs/plans/2026-11-27-link-nuova-app-design.md`, «Da fare al
+	# ritiro»). Card, email, push e webhook già spediti portano i percorsi del
+	# web vecchio. Quelli con un ID vanno ai rimandi del server (`/go/…`), che
+	# risolvono l'id coi codici e rispondono 302 alla nuova app: Caddy i codici
+	# non li conosce. Gli altri vanno diretti. Al ritiro: togliere i `#` di
+	# questo blocco, e al posto del blocco SPA qui sotto mandare il resto del
+	# web vecchio alla nuova app (o portare /app alla radice).
+	# Va PRIMA del blocco SPA (i `handle` sono valutati in ordine).
+	#
+	# @legacyById path /tickets/* /backlog /backlog/* /projects/* /docs/* /monitor/servers/* /agents/job/*
+	# handle @legacyById {
+	# 	rewrite * /go{uri}
+	# 	reverse_proxy {$SERVER_UPSTREAM:server:3000}
+	# }
+	# redir /settings/security /app/#/preferences/security 302
+	# redir /settings/account /app/#/preferences/account 302
+	# redir /settings/notifications /app/#/preferences/notifications 302
+	# redir /inbox /app/#/home 302
+	# -----------------------------------------------------------------------
 
 	# SPA: tutto il resto (incluso /docs/* della sezione Docs) serve i file
 	# statici, con fallback a index.html per le route gestite dal router lato

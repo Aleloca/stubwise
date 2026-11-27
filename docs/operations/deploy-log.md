@@ -7399,3 +7399,38 @@ deploy o di un rollback che la tocca.
   un ticket con un design attivo torna a scrivere il corpo (cioè il design),
   come prima; i testi già salvati su `origin_content` restano e «Remove
   design» li riporta.
+
+- **«I link portano alla nuova app» (27 nov 2026)**: rami
+  `feat/link-nuova-app` e `feat/link-go-routes`, che si appoggia al primo.
+  Primo passo del ritiro del web vecchio; il design è
+  `docs/plans/2026-11-27-link-nuova-app-design.md`. I link che server,
+  worker, notifiche e MCP scrivono nascono da un posto solo
+  (`packages/shared/src/app-links.ts`) e portano alla nuova app (`/app/#/…`):
+  card, email, push, DM, webhook in uscita, risposte di SDK e MCP.
+  - Il consenso Google avviato dalla nuova app nel browser
+    (`client: "web"`) torna a `/app/#/preferences/account`; quello del web
+    vecchio resta su `/settings/account`.
+  - Ci sono i rimandi `GET /go/…`, che dagli id dei link già spediti
+    portano alla nuova app.
+  - Campi additivi: `appPath` su ticket e voce di backlog, `ticketAppPath`,
+    `resultItemAppPath`; `serverId` negli eventi del monitor.
+  **Cosa ribuildare**: `server`, `worker` e `caddy`: il `Caddyfile` proxa
+  `/go/*`, e le regole del ritiro sono scritte ma commentate. Nessuna
+  migrazione, nessuna env. L'MCP esce col suo changeset (patch).
+  **Ordine**: `server`, poi `worker`, poi `caddy`. Niente riavvii del worker
+  con lavoro dell'agente in corso.
+  **Controllo dopo il deploy**: una card nuova (un piano da approvare, un
+  avviso di sicurezza) apre la nuova app dal DM o dall'email. Un percorso
+  vecchio passato a mano dai rimandi, con la sessione, porta all'oggetto:
+  `/go/tickets/<id>`. Senza sessione porta all'ingresso dell'app.
+  **Rollback**: sicuro, server, worker e caddy insieme.
+  - I link già scritti nei jsonb restano quelli della nuova app, che
+    continua a esistere.
+  - Le card `monitor.*` nuove, col server vecchio, perdono il codice del
+    server (l'inbox vecchia lo cerca nell'URL del web vecchio) e si aprono
+    nel web come prima.
+  - Il server vecchio ignora `client: "web"` e rimanda a
+    `/settings/account`.
+  **Al ritiro**: togliere i `#` del blocco «Ritiro del web vecchio» del
+  `Caddyfile` (validato anche acceso) e mandare il resto del web vecchio
+  alla nuova app.

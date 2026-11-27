@@ -92,7 +92,7 @@ export interface CodeRef {
 }
 
 /**
- * I codici di catalogo nel testo (`[A-Z]{2,4}-R?\d+`), nell'ordine, senza
+ * I codici di catalogo nel testo (`[A-Z][A-Z0-9]{1,5}-R?\d+`), nell'ordine, senza
  * doppi. Maiuscoli, come li scrive il Catalogo; in minuscolo («aud-3») solo
  * se il prefisso è un progetto visibile (`visibleCodes`), così «utf-8» o
  * «e-mail-2» non diventano codici. Senza `visibleCodes` ogni codice
@@ -144,14 +144,14 @@ export function findProject(
     const project = byCode(c.projectCode);
     if (project) return { project, named: c.projectCode };
   }
-  for (const m of text.matchAll(/\b[A-Z]{2,4}\b/g)) {
+  for (const m of text.matchAll(/\b[A-Z][A-Z0-9]{1,5}\b/g)) {
     const project = byCode(m[0]);
     if (project) return { project, named: m[0] };
   }
   // «in AUD» di un progetto che non vede: nominato ma non trovato — non si
   // cerca altrove, e la risposta è la stessa di un codice che non esiste.
   // Senza preposizione una sigla («CSV», «PDF») non è un progetto.
-  const asked = /\b(?:in|on|for|of|di|del|nel|per)\s+([A-Z]{2,4})\b/.exec(text);
+  const asked = /\b(?:in|on|for|of|di|del|nel|per)\s+([A-Z][A-Z0-9]{1,5})\b/.exec(text);
   if (asked) return { project: null, named: asked[1]! };
   const plain = normalize(text);
   for (const p of projects) {
