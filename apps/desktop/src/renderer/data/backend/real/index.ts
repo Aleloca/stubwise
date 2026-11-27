@@ -35,6 +35,9 @@ import { channelStream, onChatChange, subscribeChat, threadStream } from "./chat
 
 export * from "./stubs.generated";
 
+// Le workspace (shape workspaces.md) sulle rotte `/api/workspaces` (lotto 3 di 54).
+export { workspaces } from "./workspaces";
+
 // Task 16: sessione, persone, progetti, notifiche, ricerca, reparti.
 export { auth, getSessionPerson, getViewer, me } from "./session";
 export { listDepartments, listPeople } from "./people";
