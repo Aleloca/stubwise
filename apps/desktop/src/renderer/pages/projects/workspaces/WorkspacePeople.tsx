@@ -398,7 +398,7 @@ function InviteDialog({
           className="self-start text-sm underline"
           onClick={() => {
             onClose();
-            void navigate({ to: "/admin/$section", params: { section: "people" }, search: { invite: workspace.id } as never });
+            void navigate({ to: "/admin/$section", params: { section: "people" }, search: { invite: "1", inviteWorkspace: workspace.id } as never });
           }}
         >
           {t("workspaces.invite.newAccount")}

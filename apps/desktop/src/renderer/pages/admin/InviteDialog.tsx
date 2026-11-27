@@ -38,6 +38,8 @@ interface ProjectPick {
 export interface InvitePreset {
   projectCode: string;
   roleId: string | null;
+  /** Shape `workspaces.md` (D9): la workspace già aggiunta, col ruolo di base. */
+  workspaceId?: string;
 }
 
 export function InviteDialog({
@@ -136,6 +138,14 @@ function InviteForm({
   const [email, setEmail] = useState("");
   const [instanceRoleId, setInstanceRoleId] = useState(choices.defaultInstanceRoleId);
   const [projects, setProjects] = useState<ProjectPick[]>(() => presetPicks(choices, preset));
+  // D9: le workspace dell'invito, col ruolo di workspace (di base Viewer, D3).
+  const [workspaces, setWorkspaces] = useState<{ workspaceId: string; roleId: string }[]>(() => {
+    const w = preset?.workspaceId && choices.workspaces?.find((x) => x.workspaceId === preset.workspaceId);
+    return w ? [{ workspaceId: w.workspaceId, roleId: w.defaultRoleId }] : [];
+  });
+  const remainingWorkspaces = (choices.workspaces ?? []).filter(
+    (w) => !workspaces.some((x) => x.workspaceId === w.workspaceId),
+  );
   const [emailError, setEmailError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -145,7 +155,7 @@ function InviteForm({
   async function submit() {
     setError(null);
     setEmailError(null);
-    const input = { email, instanceRoleId, projects };
+    const input = { email, instanceRoleId, projects, ...(workspaces.length > 0 ? { workspaces } : {}) };
     const result = await reauth(() => create.mutateAsync([input]), {
       action: t("admin.invite.reauthAction", { email: email.trim() }),
     }).catch(() => null);
@@ -323,6 +333,78 @@ function InviteForm({
           </>
         )}
       </div>
+      {(choices.workspaces?.length ?? 0) > 0 && (
+        <div className="flex flex-col gap-1.5" data-invite-workspaces>
+          <span className="text-sm font-medium text-ink">{t("admin.invite.workspaces")}</span>
+          {workspaces.length > 0 && (
+            <ul className="flex flex-col">
+              {workspaces.map((pick) => {
+                const ws = choices.workspaces!.find((w) => w.workspaceId === pick.workspaceId)!;
+                return (
+                  <li
+                    key={pick.workspaceId}
+                    className="flex min-h-10 items-center gap-3 border-b border-rule last:border-b-0"
+                  >
+                    <span className="min-w-0 flex-1 truncate text-sm text-ink">{ws.name}</span>
+                    <span className="w-44 shrink-0">
+                      <RolePicker
+                        label={t("admin.invite.workspaceRole", { name: ws.name })}
+                        roles={ws.roles}
+                        value={pick.roleId}
+                        onChange={(roleId) =>
+                          setWorkspaces((list) =>
+                            list.map((x) => (x.workspaceId === pick.workspaceId ? { ...x, roleId } : x)),
+                          )
+                        }
+                      />
+                    </span>
+                    <button
+                      type="button"
+                      className={rowButton}
+                      aria-label={t("admin.invite.removeWorkspace", { name: ws.name })}
+                      onClick={() => setWorkspaces((list) => list.filter((x) => x.workspaceId !== pick.workspaceId))}
+                    >
+                      {t("admin.invite.removeShort")}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {remainingWorkspaces.length > 0 && (
+            <MenuButton
+              menuLabel={t("admin.invite.chooseWorkspace")}
+              className={`${rowButton} -ml-2 gap-1 self-start`}
+              label={
+                <>
+                  {t("admin.invite.addWorkspace")}
+                  <Chevron />
+                </>
+              }
+            >
+              {(close) => (
+                <MenuGroup label={t("admin.invite.chooseWorkspace")}>
+                  {remainingWorkspaces.map((w) => (
+                    <button
+                      key={w.workspaceId}
+                      type="button"
+                      role="menuitem"
+                      tabIndex={-1}
+                      className={itemClass}
+                      onClick={() => {
+                        close();
+                        setWorkspaces((list) => [...list, { workspaceId: w.workspaceId, roleId: w.defaultRoleId }]);
+                      }}
+                    >
+                      <span className="min-w-0 truncate">{w.name}</span>
+                    </button>
+                  ))}
+                </MenuGroup>
+              )}
+            </MenuButton>
+          )}
+        </div>
+      )}
       {error && <ErrorLine>{error}</ErrorLine>}
     </Dialog>
   );

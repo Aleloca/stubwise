@@ -11,6 +11,8 @@ export interface Invite {
   email: string;
   instanceRoleId: string;
   projects: { projectId: string; roleId: string }[];
+  /** Shape `workspaces.md` (D9): le workspace in cui entra chi accetta, col ruolo. */
+  workspaces?: { workspaceId: string; roleId: string }[];
   invitedById: string;
   createdAt: string;
   expiresAt: string;
@@ -322,6 +324,8 @@ export interface InviteChoices {
   defaultInstanceRoleId: string;
   /** Solo i progetti dove chi invita gestisce i membri. */
   projects: { projectId: string; code: string; name: string; roles: RoleChoice[] }[];
+  /** D9: le workspace dove chi invita può invitare (`workspaces.manage`); i ruoli con l'escalation su tutti i loro progetti. */
+  workspaces?: { workspaceId: string; name: string; roles: RoleChoice[]; defaultRoleId: string }[];
 }
 
 export interface RoleView extends RoleDef {
