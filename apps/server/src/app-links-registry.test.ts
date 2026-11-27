@@ -28,6 +28,12 @@ const SCANNED = [
 ];
 /** L'unico posto che scrive i link (e i percorsi del web vecchio che restano). */
 const HOME = "packages/shared/src/app-links.ts";
+/**
+ * I rimandi del web vecchio: lì i percorsi vecchi sono le ROTTE che li
+ * ricevono (`/go/tickets/:id`…), non link scritti; i link che producono
+ * passano dall'helper (`appPath`).
+ */
+const LEGACY_ROUTES = "apps/server/src/routes/go.ts";
 
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -64,7 +70,7 @@ const LEGACY = [
 ];
 
 export function violationsIn(path: string, text: string): string[] {
-  if (path === HOME) return [];
+  if (path === HOME || path === LEGACY_ROUTES) return [];
   const out: string[] = [];
   for (const literal of literals(withoutComments(text))) {
     if (literal.includes("/api/")) continue;

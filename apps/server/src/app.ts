@@ -1,3 +1,4 @@
+import { goRoutes } from "./routes/go.js";
 import fastifyCookie from "@fastify/cookie";
 import { uploadsOff } from "./services/storage-uploads-gate.js";
 import fastifyMultipart from "@fastify/multipart";
@@ -1073,6 +1074,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(meCalendarRoutes, { prefix: "/api/me/calendar", ...(opts.calendarWriteClient ? { client: opts.calendarWriteClient } : {}) });
 
   app.get("/health", { config: { access: { kind: "public" }, mcp: { exclude: "infra" } } }, async () => ({ status: "ok" }));
+  // Ritiro del web vecchio: i rimandi dei link già spediti verso la nuova app (`routes/go.ts`).
+  void app.register(goRoutes, { prefix: "/go" });
 
   // Documento JSON puro, niente Swagger UI: il sito di documentazione
   // (Task 28) renderà questa spec. Non serve un db per servirla.

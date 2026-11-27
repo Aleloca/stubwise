@@ -100,12 +100,25 @@ Il test di registro `apps/server/src/app-links-registry.test.ts` legge i sorgent
   - la task della diagnosi di un server portava a `#/p/X/tasks/X-12`, ora va a `?task=`.
 - **Support usa lo UUID della voce.** Il bersaglio «per codice» (`ACQ-R14`) avrebbe dato 400 e non esiste: l'evento d'esempio lo usava, gli avvisi veri no.
 
-## Da fare al ritiro: i link già spediti
+## Al ritiro: i link già spediti (rimandi fatti, regole di Caddy spente)
 
 Card, email, push, DM e webhook già inviati restano coi percorsi vecchi. Il web vecchio li serve finché esiste. Al ritiro servono **due pezzi**:
 1. **Un rimando lato server per id.** Caddy non può tradurre `/tickets/<uuid>` in `#/p/ACQ/tasks?task=ACQ-12`: non conosce i codici. Va una rotta del server, per esempio `GET /go/tickets/:id`, `/go/backlog/:id`, `/go/projects/:id(/roadmap)`, `/go/docs/:repositoryId(/:slug)`, `/go/monitor/servers/:id`. Risolve l'id con i risolutori di `app-link-targets.ts` e risponde 302 all'`appPath`. Un oggetto sparito va sulla Home.
    - Con la sessione: un id che chi apre non vede va sulla Home, così il rimando non svela il codice di un progetto invisibile.
-2. **Le regole di Caddy.** `/tickets/*`, `/backlog/*`, `/projects/*`, `/docs/*` (la sezione Docs del web vecchio, non `/guide`), `/monitor/servers/*` vanno sulle rotte `/go/…`. Poi `/settings/security` va su `/app/#/preferences/security`, `/settings/account` su `/app/#/preferences/account`, e il resto del web vecchio su `/app/`.
+   **Fatto** (ramo `feat/link-go-routes`): `apps/server/src/routes/go.ts`, `GET /go/…`
+   per `tickets/:id`, `agents/job/:jobId` (anche col solo `?ticketId=`), `backlog/:id`,
+   `backlog?projectId=`, `projects/:id`, `projects/:id/roadmap`, `projects/:id/backlog`,
+   `docs/:repositoryId(/:slug)`, `monitor/servers/:id`.
+   - Senza una sessione completa si va all'ingresso della nuova app, che chiede il login.
+     Non c'è un «torna a» dopo il login: si atterra sulla Home.
+   - Un oggetto invisibile, inesistente o un id non valido portano alla Home, con la stessa
+     risposta.
+   - `config.access` `public` (la sessione la legge l'handler), `config.mcp` `infra`.
+   - `/go/*` è già proxato da Caddy (`@backend`).
+2. **Le regole di Caddy.** Scritte nel `Caddyfile`, **commentate**: si accendono al ritiro.
+   Validato con `caddy validate` sia spento sia acceso, e provato dal vivo acceso (i percorsi
+   arrivano al server su `/go/…` con la query intatta, le impostazioni rimandano). Le regole
+   sono: `/tickets/*`, `/backlog/*`, `/projects/*`, `/docs/*` (la sezione Docs del web vecchio, non `/guide`), `/monitor/servers/*` vanno sulle rotte `/go/…`. Poi `/settings/security` va su `/app/#/preferences/security`, `/settings/account` su `/app/#/preferences/account`, e il resto del web vecchio su `/app/`.
 
 ## Le card «Open in web» (per 79)
 
