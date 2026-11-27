@@ -137,5 +137,57 @@ describe("le primitive catturate", () => {
     expect(Object.isFrozen(ctor)).toBe(true);
     expect(() => Object.defineProperty(proto, "constructor", { get: () => Object })).toThrow(TypeError);
   });
+
+  it("I-B2: la lista di transfer non fa nessun [[Set]]: un setter «0» su Array.prototype o Object.prototype non vede la PRF", async () => {
+    vi.resetModules();
+    const { primitives } = await import("./primitives");
+    const ab = new ArrayBuffer(4);
+    let caught = 0;
+    let delivered = 0;
+    const fakeWorker = {
+      postMessage: (_m: unknown, list: Iterable<unknown>) => {
+        const it = (list as { [Symbol.iterator]: () => Iterator<unknown> })[Symbol.iterator]();
+        for (let r = it.next(); !r.done; r = it.next()) if (r.value === ab) delivered += 1;
+      },
+    };
+    for (const proto of [Array.prototype, Object.prototype]) {
+      Object.defineProperty(proto, "0", {
+        configurable: true,
+        set(this: object, v: unknown) {
+          if (v === ab) caught += 1;
+          Object.defineProperty(this, "0", { value: v, writable: true, enumerable: true, configurable: true });
+        },
+        get() {
+          return undefined;
+        },
+      });
+      try {
+        primitives.postToWorker(fakeWorker as unknown as Worker, {}, [ab]);
+      } finally {
+        delete (proto as unknown as Record<string, unknown>)["0"];
+      }
+    }
+    expect(caught).toBe(0);
+    expect(delivered).toBe(2);
+  });
+
+  it("I-B1: `harden` toglie il `then` (non scrivibile) agli oggetti dati PRIMA del freeze: una credenziale non è un thenable", async () => {
+    vi.resetModules();
+    const { harden } = await import("./primitives");
+    const proto = {};
+    harden([proto], [proto]);
+    const d = Object.getOwnPropertyDescriptor(proto, "then");
+    expect(d).toEqual({ value: undefined, writable: false, enumerable: false, configurable: false });
+    expect(Object.isFrozen(proto)).toBe(true);
+    // Un getter `then` su Object.prototype non viene più letto per quella catena.
+    const read = vi.fn(() => undefined);
+    Object.defineProperty(Object.prototype, "then", { configurable: true, get: read });
+    try {
+      await Promise.resolve(Object.create(proto));
+      expect(read).not.toHaveBeenCalled();
+    } finally {
+      delete (Object.prototype as unknown as Record<string, unknown>).then;
+    }
+  });
 });
 

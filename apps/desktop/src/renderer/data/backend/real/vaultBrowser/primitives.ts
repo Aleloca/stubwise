@@ -117,14 +117,16 @@ function isArrayBuffer(x: unknown): boolean {
  * Una lista di transfer che non passa da `Array.prototype[Symbol.iterator]`
  * né dall'iteratore degli array: un iterabile coi SUOI metodi (la
  * conversione WebIDL della sequenza legge le proprietà proprie).
+ * I-B2: nessuna copia e nessuna assegnazione (`copy[i] = …` è un [[Set]], e
+ * un setter «0» sulla catena vedrebbe la PRF): si LEGGE l'elenco dato, che
+ * il chiamante scrive come letterale (`[prf]`, dove gli elementi nascono
+ * come proprietà proprie, senza [[Set]]).
  */
-function transferList(items: Transferable[]): Iterable<Transferable> {
-  const copy: Transferable[] = [];
-  for (let i = 0; i < items.length; i++) copy[i] = items[i]!;
+function transferList(items: readonly Transferable[]): Iterable<Transferable> {
   return {
     [ITERATOR]: () => {
       let i = 0;
-      return { next: () => (i < copy.length ? { done: false, value: copy[i++]! } : { done: true, value: undefined }) };
+      return { next: () => (i < items.length ? { done: false, value: items[i++]! } : { done: true, value: undefined }) };
     },
   } as Iterable<Transferable>;
 }
@@ -232,10 +234,27 @@ export const primitives = Object.freeze({
  * Lo chiama `boot.ts`; nessun codice dell'app e nessuna libreria del bundle
  * scrive su questi oggetti (controllato sul bundle web). `targets` è per i test.
  */
-export function harden(targets: readonly unknown[] = defaultHardenTargets()): void {
+export function harden(
+  targets: readonly unknown[] = defaultHardenTargets(),
+  thenless: readonly object[] = defaultThenless(),
+): void {
+  // I-B1: la promessa della piattaforma si risolve con la credenziale, e la
+  // risoluzione legge `then` risalendo la catena fino a `Object.prototype`
+  // (che non si congela: lo toccano le librerie). Un `then` proprio e non
+  // scrivibile su `Credential.prototype` ferma la ricerca lì.
+  for (const o of thenless) {
+    if (!Object.isFrozen(o) && !Object.prototype.hasOwnProperty.call(o, "then")) {
+      Object.defineProperty(o, "then", { value: undefined, writable: false, enumerable: false, configurable: false });
+    }
+  }
   for (const t of targets) {
     if (t && (typeof t === "object" || typeof t === "function")) Object.freeze(t);
   }
+}
+
+function defaultThenless(): object[] {
+  const ctor = (globalThis as unknown as { Credential?: { prototype?: object } }).Credential;
+  return ctor?.prototype ? [ctor.prototype] : [];
 }
 
 function defaultHardenTargets(): unknown[] {

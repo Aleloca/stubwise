@@ -15,6 +15,13 @@ import { primitives } from "./primitives";
 // `stash` la TRASFERISCE al worker. Solo dopo si leggono le altre proprietà
 // della credenziale, coi getter catturati, per la risposta che il worker
 // manda alla verifica, SENZA i risultati PRF.
+//
+// I-B: le opzioni di `credentials.get` nascono con prototipo NULL a ogni
+// livello (la conversione WebIDL legge anche i membri assenti: `signal`,
+// `mediation`, `evalByCredential`…, e la lettura non deve arrivare a un
+// getter su `Object.prototype`); e nessuna assegnazione tocca la PRF (un
+// [[Set]] troverebbe un setter sulla catena: lo vieta una guardia sul
+// sorgente, `ceremony.guard.test.ts`).
 
 export type CeremonyOutcome =
   | { ok: true; credentialId: string; assertion: unknown }
@@ -26,21 +33,26 @@ const failed: Fail = { ok: false, code: "passkey_failed" };
 /** `stash` riceve l'uscita PRF e la deve trasferire SUBITO (la pagina la perde). */
 export function ceremony(options: PasskeyAuthenticationOptions, stash: (prf: ArrayBuffer) => void): Promise<CeremonyOutcome> {
   const publicKey = {
+    __proto__: null,
     challenge: fromBase64Url(options.challenge),
     ...(options.rpId ? { rpId: options.rpId } : {}),
     ...(options.timeout ? { timeout: options.timeout } : {}),
     ...(options.userVerification ? { userVerification: options.userVerification } : {}),
     allowCredentials: (options.allowCredentials ?? []).map((c) => ({
+      __proto__: null,
       type: "public-key" as const,
       id: fromBase64Url(c.id),
       ...(c.transports ? { transports: c.transports as AuthenticatorTransport[] } : {}),
     })),
-    extensions: { prf: { eval: { first: PRF_INPUT } } } as AuthenticationExtensionsClientInputs,
-  };
+    extensions: {
+      __proto__: null,
+      prf: { __proto__: null, eval: { __proto__: null, first: PRF_INPUT } },
+    } as AuthenticationExtensionsClientInputs,
+  } as unknown as PublicKeyCredentialRequestOptions;
   return primitives.newPromise<CeremonyOutcome>((resolve) => {
     let platform: Promise<Credential | null>;
     try {
-      platform = primitives.credentialsGet({ publicKey });
+      platform = primitives.credentialsGet({ __proto__: null, publicKey } as unknown as CredentialRequestOptions);
     } catch {
       resolve(failed);
       return;

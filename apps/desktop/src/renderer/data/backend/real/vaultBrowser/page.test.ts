@@ -120,6 +120,25 @@ describe("la pagina non vede il segreto", () => {
     expect((unlock.msg.req.assertion as { clientExtensionResults: unknown }).clientExtensionResults).toEqual({});
   });
 
+  it("I-B: le opzioni di credentials.get hanno prototipo null a ogni livello", async () => {
+    await import("./primitives");
+    const client = await import("./client");
+    client.__setWorkerForTests(new FakeWorker() as unknown as Worker);
+    const { unlockInBrowser } = await import("./unlock");
+    await unlockInBrowser(() => ({ personId: "p-ada", sessionTag: "t" }));
+    const get = (navigator.credentials.get as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const options = get[0]![0] as { publicKey: { extensions: { prf: { eval: object } }; allowCredentials: object[] } };
+    const proto = (o: object) => Object.getPrototypeOf(o);
+    expect([
+      proto(options),
+      proto(options.publicKey),
+      proto(options.publicKey.extensions),
+      proto(options.publicKey.extensions.prf),
+      proto(options.publicKey.extensions.prf.eval),
+      proto(options.publicKey.allowCredentials[0]!),
+    ]).toEqual([null, null, null, null, null, null]);
+  });
+
   it("senza PRF al worker non va lo sblocco (né, quindi, la verifica)", async () => {
     FakePublicKeyCredential.prototype.getClientExtensionResults = () => ({}) as never;
     await import("./primitives");

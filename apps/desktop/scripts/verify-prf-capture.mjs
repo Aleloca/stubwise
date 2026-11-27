@@ -10,7 +10,13 @@
 // - `promise`: `then` sostituito e un getter su `constructor` (l'`await`);
 // - `species`: un getter su `constructor` che chiama il `then` NATIVO sulla
 //   promessa della piattaforma;
-// - `iterator`: l'iteratore degli array sulla lista di transfer.
+// - `iterator`: l'iteratore degli array sulla lista di transfer;
+// - `objThen` (I-B1): un getter `then` su Object.prototype, che la
+//   risoluzione della promessa della piattaforma legge sulla credenziale;
+// - `arrayIndexSetter` e `objIndexSetter` (I-B2): un setter «0» su
+//   Array.prototype o Object.prototype, per un [[Set]] con la PRF;
+// - `objGetters`: getter su Object.prototype per i membri che la conversione
+//   WebIDL delle opzioni legge anche se assenti, e per quelli dei risultati.
 // Esce con 1 se una variante prende la PRF, se lo sblocco non riesce, o se
 // la PRF non arriva al worker. Uso: `pnpm --filter @stubwise/desktop
 // verify:prf` (serve Chromium di Playwright).
@@ -47,7 +53,19 @@ const server = createServer(async (req, res) => {
 await new Promise((ok) => server.listen(0, "127.0.0.1", ok));
 const port = server.address().port;
 
-const VARIANTS = ["none", "hasInstance", "globalArrayBuffer", "getters", "promise", "species", "iterator"];
+const VARIANTS = [
+  "none",
+  "hasInstance",
+  "globalArrayBuffer",
+  "getters",
+  "promise",
+  "species",
+  "iterator",
+  "objThen",
+  "arrayIndexSetter",
+  "objIndexSetter",
+  "objGetters",
+];
 const browser = await chromium.launch();
 let failed = false;
 try {
@@ -196,6 +214,43 @@ try {
             },
           }),
         );
+      } else if (variant === "objThen") {
+        attempt("Object.prototype.then (getter)", () =>
+          Object.defineProperty(Object.prototype, "then", {
+            configurable: true,
+            get() {
+              if (Object.prototype.toString.call(this) === "[object PublicKeyCredential]") steal(this, "Object.prototype.then");
+              return undefined;
+            },
+          }),
+        );
+      } else if (variant === "arrayIndexSetter" || variant === "objIndexSetter") {
+        const proto = variant === "arrayIndexSetter" ? Array.prototype : Object.prototype;
+        attempt(`${variant === "arrayIndexSetter" ? "Array" : "Object"}.prototype[0] setter`, () =>
+          Object.defineProperty(proto, "0", {
+            configurable: true,
+            set(v) {
+              grab("setter [0]", v);
+              Object.defineProperty(this, "0", { value: v, writable: true, enumerable: true, configurable: true });
+            },
+            get() {
+              return undefined;
+            },
+          }),
+        );
+      } else if (variant === "objGetters") {
+        for (const name of ["prf", "results", "first", "extensions", "eval", "evalByCredential", "signal", "mediation", "done", "value"]) {
+          attempt(`Object.prototype.${name}`, () =>
+            Object.defineProperty(Object.prototype, name, {
+              configurable: true,
+              get() {
+                if (Object.prototype.toString.call(this) === "[object PublicKeyCredential]") steal(this, name);
+                grab(`getter ${name}`, this);
+                return undefined;
+              },
+            }),
+          );
+        }
       } else if (variant === "iterator") {
         const orig = Array.prototype[Symbol.iterator];
         attempt("Array.prototype[Symbol.iterator]", () => {
