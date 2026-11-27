@@ -229,6 +229,22 @@ function ownerProposalExistsSql(where: SQL): SQL {
   return sql`exists (select 1 from email_proposals p join email_messages m on m.id = p.email_message_id where m.account_id = ${emailMessages.accountId} and m.thread_id = ${emailMessages.threadId} and p.audience = 'mailbox_owner' and ${where})`;
 }
 
+/**
+ * La proposta `p` è su un progetto che chi guarda vede: la stessa regola di
+ * `visibleScopeSql` (un full admin tutti tranne gli archiviati) e di `sees`
+ * nell'etichetta (`proposalRows`), così «senza progetto» resta il
+ * complemento esatto dell'etichetta (review della #132).
+ */
+function visibleProposalSql(visible: ProjectScope): SQL {
+  if (isAllProjects(visible)) {
+    if (visible.archived.length === 0) return sql`true`;
+    const archived = sql`array[${sql.join(visible.archived.map((id) => sql`${id}::uuid`), sql`, `)}]`;
+    return sql`not (p.project_id = any(${archived}))`;
+  }
+  const list = visible.length === 0 ? sql`'{}'::uuid[]` : sql`array[${sql.join(visible.map((id) => sql`${id}::uuid`), sql`, `)}]`;
+  return sql`p.project_id = any(${list})`;
+}
+
 function threadClassificationFilters(
   query: {
     importance?: "high" | "normal" | "low" | undefined;
@@ -256,7 +272,7 @@ function threadClassificationFilters(
   }
   if (query.noProject === "true") {
     out.push(
-      sql`coalesce(bool_or(${done}), false) and not coalesce(bool_or(${done} and cardinality(${scope}) > 0), false) and not ${ownerProposalExistsSql(sql`true`)}`,
+      sql`coalesce(bool_or(${done}), false) and not coalesce(bool_or(${done} and cardinality(${scope}) > 0), false) and not ${ownerProposalExistsSql(visibleProposalSql(visible))}`,
     );
   }
   if (query.important === "true") {

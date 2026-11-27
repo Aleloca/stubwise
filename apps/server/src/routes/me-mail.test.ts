@@ -2281,6 +2281,18 @@ describe("GET /api/me/mail/threads — la classificazione nuova (area 6, F2, tas
     expect(rows(await getThreads(memberCookie, `?project=${hidden}`))).toEqual([]);
   });
 
+  it("NEGATIVO: una proposta solo su un progetto nascosto non toglie la conversazione da «senza progetto» (review della #132)", async () => {
+    // La riga non ha etichetta (`!sees` in `proposalRows`): «senza progetto»
+    // ne è il complemento esatto, quindi la deve contenere.
+    const { accountId } = await seedAccount(memberId);
+    const hidden = await seedProject("Progetto riservato");
+    const t = `t-${randomUUID()}`;
+    await seedProposal(await seedEmail(accountId, { threadId: t, classificationState: "done", importance: "normal" }), hidden);
+    const row = rows(await getThreads(memberCookie)).find((r) => r.threadId === t)!;
+    expect(row.projectIds).toEqual([]);
+    expect(rows(await getThreads(memberCookie, "?noProject=true")).map((r) => r.threadId)).toContain(t);
+  });
+
   it("NEGATIVO: i filtri non allargano mai alla casella di un altro", async () => {
     const { accountId } = await seedAccount(memberId);
     await seedEmail(accountId, { classificationState: "done", importance: "high", unread: true });
