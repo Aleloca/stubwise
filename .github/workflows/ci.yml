@@ -59,6 +59,10 @@ jobs:
       # con nome su ogni dist node, il suo test, e lo smoke di avvio del server.
       - name: Dist sotto node vero
         run: node --test scripts/check-esm-named-imports.test.mjs && pnpm check:dist
+      # La CSP dell'origine (indurimento di sicurezza): il Caddyfile e il
+      # controllo degli script inline del build di caddy.
+      - name: CSP di Caddy
+        run: node --test scripts/caddy-csp.test.mjs
 
       # Il plugin Claude Code «stubwise» (plugins/stubwise, marketplace in
       # .claude-plugin/): (1) sulle PR, una modifica al plugin chiede un

@@ -18,7 +18,7 @@ interface CollectedRoute {
   /** `config.access.kind`, se dichiarato. */
   kind?: string;
   /** `config.reauth`, se dichiarato. */
-  reauth?: true | "setup_allowed";
+  reauth?: true | "setup_allowed" | "vault";
   /** `config.credentialDoor`, se dichiarato. */
   credentialDoor?: true;
   /** `config.partialReauth`, se dichiarato (area 9, F3). */
@@ -209,8 +209,8 @@ describe("rotte con riconferma recente", () => {
       "DELETE /api/users/:id/second-factor",
       "DELETE /api/users/:id/slack",
       // Lotto 10: togliere un Mac dalla cassaforte (il proprio, o di un altro da un full admin).
-      "DELETE /api/vault/device-seals/:id",
-      "DELETE /api/vault/users/:userId/device-seals/:id",
+      "DELETE /api/vault/device-seals/:id (vault)",
+      "DELETE /api/vault/users/:userId/device-seals/:id (vault)",
       "PATCH /api/roles/:id",
       "PATCH /api/users/:id/email",
       "PATCH /api/users/:id/instance-role",
@@ -246,17 +246,17 @@ describe("rotte con riconferma recente", () => {
       "POST /api/users/:id/git-identities",
       "POST /api/users/:id/password-reset",
       "POST /api/users/:id/reactivate",
-      "POST /api/vault/activate",
+      "POST /api/vault/activate (vault)",
       // Review 2, M4: chiedere l'associazione di un Mac (la riconferma del desktop, dichiarata).
       "POST /api/vault/device-pairings",
       // Lotto 10: sigillare la propria chiave per un Mac (dal browser).
-      "POST /api/vault/device-seals",
-      "POST /api/vault/keys",
-      "POST /api/vault/keys/:id/seals",
-      "POST /api/vault/recovery-key",
-      "POST /api/vault/recovery/challenge",
-      "POST /api/vault/recovery/confirm/:personKeyId",
-      "POST /api/vault/recovery/pending",
+      "POST /api/vault/device-seals (vault)",
+      "POST /api/vault/keys (vault)",
+      "POST /api/vault/keys/:id/seals (vault)",
+      "POST /api/vault/recovery-key (vault)",
+      "POST /api/vault/recovery/challenge (vault)",
+      "POST /api/vault/recovery/confirm/:personKeyId (vault)",
+      "POST /api/vault/recovery/pending (vault)",
       "PUT /api/projects/:projectId/members/:userId",
       "PUT /api/repositories/:id/env-files/:fileId/vars/:key",
       "PUT /api/users/:id/bitbucket",

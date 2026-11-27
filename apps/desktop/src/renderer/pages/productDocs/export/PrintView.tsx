@@ -1,4 +1,5 @@
 import { createPortal } from "react-dom";
+import { safeWireframeSvg } from "../safeWireframe";
 import { useTranslation } from "react-i18next";
 import {
   blockHeadingLevel,
@@ -180,12 +181,12 @@ function Block({ doc, depth, block: b }: { doc: ExportDoc; depth: number; block:
       // l'inchiostro della carta), a tutta larghezza; l'etichetta solo se mai tenuta.
       return (
         <figure className="print-sketch">
-          {b.svg !== null ? (
+          {safeWireframeSvg(b.svg) !== null ? (
             <div
               role="img"
               aria-label={b.label ? t("productDocs.wireframe.exportLabel") : t("productDocs.wireframe.kind")}
-              // Lo schizzo è del seme (`PRODUCT_WIREFRAMES`): SVG fissi, nessun dato di chi scrive.
-              dangerouslySetInnerHTML={{ __html: b.svg }}
+              // Ripulito prima di entrare nel documento (M3 della revisione di sicurezza).
+              dangerouslySetInnerHTML={{ __html: safeWireframeSvg(b.svg)! }}
             />
           ) : (
             <p>{t("productDocs.wireframe.gone")}</p>

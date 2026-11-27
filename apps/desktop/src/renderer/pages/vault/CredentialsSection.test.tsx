@@ -92,6 +92,30 @@ describe("Credentials — l'elenco e la barra", () => {
     expect(document.body.textContent).not.toMatch(PASSWORDS);
   });
 
+  it("C2: il tetto delle letture (429) ha la sua frase, temporanea e con i minuti; non l'errore generico", async () => {
+    const user = userEvent.setup();
+    const limited = { ok: false as const, code: "vault_reveal_rate_limited", retryAfterSeconds: 600 };
+    const show = vi.spyOn(vault, "show").mockResolvedValue(limited);
+    const copy = vi.spyOn(vault, "copy").mockResolvedValue(limited);
+    try {
+      await openSection("p-laura");
+      await user.click(
+        within(row(VAULT_IDS.ARUBA)).getByRole("button", { name: "Show the password of Aruba hosting" }),
+      );
+      const text =
+        "You've opened many passwords in a short time. For safety, new ones open again in about 10 minutes. Ones you've already opened stay readable.";
+      expect(await screen.findByText(text)).toBeInTheDocument();
+      expect(screen.queryByText("The password couldn't be opened.")).toBeNull();
+      await user.click(
+        within(row(VAULT_IDS.CLOUDFLARE)).getByRole("button", { name: "Copy the password of Cloudflare" }),
+      );
+      await waitFor(() => expect(screen.getAllByText(text)).toHaveLength(2));
+    } finally {
+      show.mockRestore();
+      copy.mockRestore();
+    }
+  });
+
   it("D-1a: un Mac senza Touch ID si apre nel browser; Show e Copy restano spenti", async () => {
     await vault.setVaultSimulation({ touchId: "unavailable" });
     await openSection("p-laura");

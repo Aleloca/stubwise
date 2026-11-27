@@ -614,6 +614,8 @@
           "vault_device_sealed": "Mac paired with the vault",
           "vault_device_seal_revoked": "Mac removed from the vault",
           "reauth_desktop": "Confirmed it's you in the desktop app",
+          "vault_seal_added": "Vault seal added for a passkey",
+          "vault_reveal_burst": "Many passwords opened in a short time",
           "other": "Other security event"
         }
       }
@@ -13716,6 +13718,8 @@
     },
     "copied": "Copied. The clipboard is cleared in 30 seconds.",
     "revealFailed": "The password couldn't be opened.",
+    "revealLimited_one": "You've opened many passwords in a short time. For safety, new ones open again in about {{count}} minute. Ones you've already opened stay readable.",
+    "revealLimited_other": "You've opened many passwords in a short time. For safety, new ones open again in about {{count}} minutes. Ones you've already opened stay readable.",
     "column": {
       "waiting": "Someone is waiting for you to confirm their access"
     },

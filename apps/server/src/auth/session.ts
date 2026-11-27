@@ -18,6 +18,7 @@ import {
   type Language,
 } from "@stubwise/shared";
 import { apiError } from "../errors.js";
+import { isCrossOriginWrite } from "./same-origin.js";
 import { hashServerKey, PAT_PREFIX } from "../routes/shared.js";
 
 export const SESSION_COOKIE = "stubwise_session";
@@ -138,6 +139,8 @@ export interface SessionUser {
    * riconferma.
    */
   secondFactorAt?: Date | null;
+  /** I6: l'ultimo sblocco della cassaforte in questa sessione (vale solo per `config.reauth: "vault"`). */
+  vaultUnlockedAt?: Date | null;
 }
 
 declare module "fastify" {
@@ -240,6 +243,7 @@ export async function findSessionUser(db: Db, sessionId: string): Promise<Sessio
       expiresAt: sessions.expiresAt,
       stage: sessions.stage,
       secondFactorAt: sessions.secondFactorAt,
+      vaultUnlockedAt: sessions.vaultUnlockedAt,
       ...sessionUserSelection,
     })
     .from(sessions)
@@ -261,6 +265,7 @@ export async function findSessionUser(db: Db, sessionId: string): Promise<Sessio
     sessionId: row.sessionId,
     sessionStage: row.stage,
     secondFactorAt: row.secondFactorAt,
+    vaultUnlockedAt: row.vaultUnlockedAt,
   };
 }
 
@@ -418,6 +423,13 @@ export async function requireAuth(
   const user = sessionId ? await findSessionUser(request.server.db, sessionId) : null;
   if (!user) {
     await apiError(reply, 401, "unauthorized", "Authentication required");
+    return;
+  }
+  // M5 (indurimento): una scrittura autenticata col cookie solo dalla stessa
+  // origine (`same-origin.ts`), anche da una sessione parziale. Il PAT e il
+  // token della chat sono già usciti qui sopra: non portano cookie.
+  if (isCrossOriginWrite(request)) {
+    await apiError(reply, 403, "cross_origin_request", "Cross-origin write rejected");
     return;
   }
   if (user.sessionStage !== "full" && !opts.allowPartial) {

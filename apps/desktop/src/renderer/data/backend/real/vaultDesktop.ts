@@ -136,8 +136,15 @@ export const removeMac: FakeVault["removeMac"] = async (macId) => {
 
 // --- fetta 3: le operazioni con la chiave, dal main ------------------------------
 
-const outcome = <T extends object>(out: ({ ok: true } & T) | { ok: false; code: string }) =>
-  out.ok ? out : { ok: false as const, code: out.code };
+const outcome = <T extends object>(out: ({ ok: true } & T) | StubwiseVaultFail) =>
+  out.ok ? out : failureOf(out);
+
+/** Il codice, e i secondi del tetto delle letture quando ci sono (C2). */
+const failureOf = (out: { code: string; retryAfterSeconds?: number }) => ({
+  ok: false as const,
+  code: out.code,
+  ...(out.retryAfterSeconds !== undefined ? { retryAfterSeconds: out.retryAfterSeconds } : {}),
+});
 
 /**
  * Le azioni col tocco (Share, Remove, Confirm, Reject) chiedono il sigillo al
@@ -155,7 +162,7 @@ export const show: FakeVault["show"] = async (id) => outcome(await need().show(i
 /** «Copy»: gli appunti li scrive il main; qui non torna mai la password. */
 export const copy: FakeVault["copy"] = async (id) => {
   const out = await need().copy(id);
-  return out.ok ? { ok: true } : { ok: false, code: out.code };
+  return out.ok ? { ok: true } : failureOf(out);
 };
 
 /** «Share»: il bersaglio del prototipo (`personId`) è un `userId` per il main. */

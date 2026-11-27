@@ -13,6 +13,22 @@ import { useOpenVault } from "./VaultBar";
 // dati, nell'app il main). A cassaforte chiusa Show e Copy aprono col Touch
 // ID e poi fanno l'azione (VA-Q2).
 
+/**
+ * Il messaggio di un Show o Copy rifiutato. Il tetto delle letture (C2, 429
+ * `vault_reveal_rate_limited`) è temporaneo e ha la sua frase, coi minuti
+ * di `Retry-After`; tutto il resto è l'errore generico.
+ */
+function revealError(
+  t: (key: string, options?: Record<string, unknown>) => string,
+  out: { ok: boolean; code?: string; retryAfterSeconds?: number } | null,
+): string {
+  if (out && !out.ok && out.code === "vault_reveal_rate_limited") {
+    const minutes = Math.max(1, Math.ceil((out.retryAfterSeconds ?? 600) / 60));
+    return t("vault.revealLimited", { count: minutes });
+  }
+  return t("vault.revealFailed");
+}
+
 export function usePasswordReveal() {
   const { t } = useTranslation();
   const toast = useToast();
@@ -41,7 +57,7 @@ export function usePasswordReveal() {
       // mutazione la scorda subito (e la cache, con `secret`, non la tiene).
       showMutation.reset();
       if (out?.ok) setShown((m) => ({ ...m, [id]: out.password }));
-      else toast.error(t("vault.revealFailed"));
+      else toast.error(revealError(t, out));
     },
     hide: (id: string) =>
       setShown((m) => {
@@ -53,7 +69,7 @@ export function usePasswordReveal() {
       if (!(await ensureOpen())) return;
       const out = await copyMutation.mutateAsync(id).catch(() => null);
       if (out?.ok) toast.show(t("vault.copied"));
-      else toast.error(t("vault.revealFailed"));
+      else toast.error(revealError(t, out));
     },
   };
 }
