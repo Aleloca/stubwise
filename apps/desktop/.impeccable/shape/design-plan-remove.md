@@ -16,12 +16,18 @@
   richiesta. Il run li usa: con un piano salvato, Claude non pianifica da sé.
   Nel web vecchio stanno sulla pagina del ticket, ciascuno col suo «Remove».
 
+**Cosa fa il server** (letto dalle rotte): il design non si aggiunge, ma
+**sostituisce** il corpo, cioè la descrizione della task o il documento della
+richiesta, e tiene da parte l'originale. «Remove design» rimette il testo
+originale. Il piano invece è un campo a sé. Il dialogo deve dirlo, perché
+togliere il design cambia la descrizione che si legge.
+
 ## Direzione proposta
 
 - **Richiesta:** un «⋯» nell'intestazione di DESIGN e di PLAN, con
   «Remove design…» e «Remove plan…». Lo vede solo chi ha `backlog.edit`.
-  Il dialogo dice la conseguenza in una riga: «The design goes away. A
-  refine with Claude can write it again.». Poi **Remove** e **Cancel**.
+  Il dialogo dice la conseguenza in una riga: «The description goes back
+  to the original text. A refine with Claude can write the design again.». Poi **Remove** e **Cancel**.
   Dopo, la sezione sparisce e compare il toast «Design removed».
 - **Task** **[DP 2]:** due sezioni DESIGN e PLAN, chiuse di default, sotto la
   descrizione. Compaiono solo quando ci sono. Hanno lo stesso «⋯ Remove…».
