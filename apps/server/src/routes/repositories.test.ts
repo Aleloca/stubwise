@@ -178,6 +178,12 @@ describe("POST /api/projects", () => {
     expect((res.json() as { slug: string }).slug).toBe("sito-vetrina-2");
   });
 
+  it("M4: un nome che l'indirizzo dei Docs usa già («product», lo spazio Prodotto) prende un suffisso nello slug", async () => {
+    const res = await createProject({ ...basePayload(), name: "Product", repoUrl: "https://github.com/acme/product" });
+    expect(res.statusCode, res.body).toBe(201);
+    expect((res.json() as { slug: string }).slug).toBe("product-repo");
+  });
+
   it("defaultBranch esplicito viene rispettato", async () => {
     const res = await createProject({
       projectId,

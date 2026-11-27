@@ -1,3 +1,4 @@
+import { RESERVED_DOC_PAGE_SLUGS, unreservedSlug } from "@stubwise/shared";
 import { docGenerations, docNodes, type Db } from "@stubwise/db";
 import { slugForNode } from "@stubwise/docs-engine";
 import {
@@ -210,7 +211,8 @@ export async function createChildren(
         title: spec.title ?? "",
         slug:
           spec.slug && spec.slug.length > 0
-            ? spec.slug
+            ? // Uno slug che l'indirizzo dei Docs della nuova app usa già prende un suffisso.
+              unreservedSlug(spec.slug, RESERVED_DOC_PAGE_SLUGS, "page")
             : slugForNode(spec.title ?? "", usedSlugs),
         sourcePaths: spec.sourcePaths ?? [],
       })),

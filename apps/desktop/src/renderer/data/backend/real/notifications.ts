@@ -149,9 +149,9 @@ export function appLinkFor(rawUrl: string | null | undefined, instanceOrigin?: s
   // Link della nuova app (54): la sicurezza delle Preferenze, il brief (solo
   // un UUID), lo spazio Docs d'un repository (uno slug).
   if (url.hash === "#/preferences/security") return url.hash;
-  const brief = /^#\/p\/[A-Z]{2,4}\/overview\?brief=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.exec(url.hash);
+  const brief = /^#\/p\/[A-Z][A-Z0-9]{1,5}\/overview\?brief=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.exec(url.hash);
   if (brief) return isIntegrated({ kind: "projectSection", name: "overview" }) ? url.hash : null;
-  const space = /^#\/p\/[A-Z]{2,4}\/docs\/[a-z0-9][a-z0-9-]{0,99}$/.exec(url.hash);
+  const space = /^#\/p\/[A-Z][A-Z0-9]{1,5}\/docs\/[a-z0-9][a-z0-9-]{0,99}$/.exec(url.hash);
   if (space) return isIntegrated({ kind: "projectSection", name: "docs" }) ? url.hash : null;
   const m = /^#\/p\/[^/?#]+\/(releases|docs|requests)(\/[^?#]+)?(\?[^#]*)?$/.exec(
     url.hash,

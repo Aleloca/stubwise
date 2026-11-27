@@ -33,7 +33,7 @@ function FilterPhrase({
   const { t } = useTranslation();
   const projects = useProjects().data;
   const people = usePeople().data;
-  const code = /^\/p\/([A-Z]{2,4})\//.exec(action.route)?.[1] ?? null;
+  const code = /^\/p\/([A-Z][A-Z0-9]{1,5})\//.exec(action.route)?.[1] ?? null;
   // R-G5: un progetto che chi legge non vede non si nomina.
   if (!code || !projects?.some((p) => p.code === code)) return <>{t(`${K}.filterHidden`)}</>;
   const criteria = parseCriteria(action.search.filters) ?? {};

@@ -1004,6 +1004,25 @@ describe("POST /api/backlog/:id/convert", () => {
   });
 });
 
+describe("ritiro del web vecchio: design e piano rispondono col link della voce nella nuova app", () => {
+  it("PUT e DELETE di design e piano portano `appPath` (le richieste del progetto, con l'id)", async () => {
+    const item = await insertItem({ document: "# Vecchio" });
+    const headers = { cookie: adminCookie };
+    const path = new RegExp(`^/app/#/p/[A-Z0-9]+/requests\\?request=${item.id}$`);
+    const calls = [
+      { method: "PUT" as const, url: `/api/backlog/${item.id}/design`, payload: { content: "# Nuovo" } },
+      { method: "DELETE" as const, url: `/api/backlog/${item.id}/design` },
+      { method: "PUT" as const, url: `/api/backlog/${item.id}/plan`, payload: { content: "## Piano" } },
+      { method: "DELETE" as const, url: `/api/backlog/${item.id}/plan` },
+    ];
+    for (const call of calls) {
+      const res = await app.inject({ ...call, headers });
+      expect(res.statusCode, `${call.method} ${call.url}: ${res.body}`).toBe(200);
+      expect((res.json() as { appPath?: string }).appPath).toMatch(path);
+    }
+  });
+});
+
 describe("PUT/DELETE /api/backlog/:id/design", () => {
   it("senza sessione → 401", async () => {
     const item = await insertItem({ document: "# Vecchio" });

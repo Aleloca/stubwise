@@ -36,7 +36,7 @@ export function isMailSearchValue(key: string, value: string): boolean {
     case "importance":
       return (IMPORTANCES as readonly string[]).includes(value);
     case "project":
-      return value === NO_PROJECT || /^[A-Z]{2,4}$/.test(value);
+      return value === NO_PROJECT || /^[A-Z][A-Z0-9]{1,5}$/.test(value);
     case "q":
       return value.length > 0 && value.length <= 200;
     case "compose":

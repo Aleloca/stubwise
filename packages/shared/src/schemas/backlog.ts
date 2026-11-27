@@ -226,6 +226,10 @@ export type BacklogItem = z.infer<typeof backlogItemSchema>;
  * e il nucleo del dettaglio, che vi aggiunge `tickets` e `refineSession`.
  */
 export const backlogItemBaseSchema = z.object({
+  // Ritiro del web vecchio (additivo): la voce nella nuova app, come percorso
+  // dell'istanza (`app-links`); lo usa chi compone un link fuori dal server
+  // (l'MCP). Lo danno il dettaglio e le scritture di design e piano.
+  appPath: z.string().optional(),
   id: z.uuid(),
   projectId: z.uuid(),
   title: z.string(),
@@ -288,9 +292,6 @@ export const backlogItemDetailSchema = backlogItemBaseSchema.extend({
   // Sessione di refinement (2026-10-14), o null. Additivo: un server più
   // vecchio non lo manda, e l'app lo legge come null.
   refineSession: refineSessionViewSchema.nullable().default(null),
-  // Ritiro del web vecchio (additivo): la voce nella nuova app, come percorso
-  // dell'istanza (`app-links`). Lo usa chi compone un link fuori dal server (l'MCP).
-  appPath: z.string().optional(),
 });
 export type BacklogItemDetail = z.infer<typeof backlogItemDetailSchema>;
 

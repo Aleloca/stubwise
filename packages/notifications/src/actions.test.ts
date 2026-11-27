@@ -354,6 +354,49 @@ describe("actorAllows su answer", () => {
   });
 });
 
+describe("openUrl: i link derivati a lettura (revisione dei link, I4)", () => {
+  const B = "https://stubwise.test";
+  const sample = (kind: string) => sampleEvents("https://x.test").find((e) => e.kind === kind)!;
+  // Card di PRIMA: nel jsonb i link del web vecchio. Il link deve venire dai codici di adesso.
+  const legacy = <T extends object>(event: T, patch: Record<string, unknown>) => ({ ...event, ...patch }) as T;
+
+  it("pulse → le richieste del progetto; brief → la panoramica col brief aperto; proposta passata → la panoramica", () => {
+    const ctx = { projectCode: "TRI2" };
+    expect(openUrl(legacy(sample("project.pulse"), { projectUrl: `${B}/backlog?projectId=p1` }), B, ctx)).toBe(`${B}/app/#/p/TRI2/requests`);
+    const brief = sample("project.brief") as { briefId: string };
+    expect(openUrl(legacy(sample("project.brief"), { projectUrl: `${B}/projects/p1/roadmap` }), B, ctx)).toBe(`${B}/app/#/p/TRI2/overview?brief=${brief.briefId}`);
+    expect(openUrl(legacy(sample("google.proposal_handed"), { projectUrl: `${B}/projects/p1` }), B, ctx)).toBe(`${B}/app/#/p/TRI2/overview`);
+  });
+
+  it("Docs → lo spazio del repository (lo slug), o i Docs del progetto senza slug", () => {
+    for (const kind of ["docs.limit_paused", "docs.nightly_attention"]) {
+      const old = legacy(sample(kind), { docsUrl: `${B}/docs/8b1f6c2e-1111-4222-8333-444455556666` });
+      expect(openUrl(old, B, { projectCode: "TRI2", repositorySlug: "web" })).toBe(`${B}/app/#/p/TRI2/docs/web`);
+      expect(openUrl(old, B, { projectCode: "TRI2" })).toBe(`${B}/app/#/p/TRI2/docs`);
+    }
+  });
+
+  it("request.created → la voce nelle richieste (backlog) o la task (bug, funzionalità)", () => {
+    const backlog = legacy(sample("request.created"), { requestKind: "backlog", backlogItemId: "i1", url: `${B}/backlog/i1` });
+    expect(openUrl(backlog, B, { projectCode: "TRI2" })).toBe(`${B}/app/#/p/TRI2/requests?request=i1`);
+    const bug = legacy(sample("request.created"), { requestKind: "bug", backlogItemId: undefined, url: `${B}/tickets/t1` });
+    expect(openUrl(bug, B, { taskCode: "TRI2-4" })).toBe(`${B}/app/#/p/TRI2/tasks?task=TRI2-4`);
+  });
+
+  it("server.diagnosis_ready → la task della diagnosi, o il server nel progetto", () => {
+    const withTask = legacy(sample("server.diagnosis_ready"), { taskCode: "TRI2-9" });
+    expect(openUrl(withTask, B, {})).toBe(`${B}/app/#/p/TRI2/tasks?task=TRI2-9`);
+    const manual = legacy(sample("server.diagnosis_ready"), { taskCode: null });
+    expect(openUrl(manual, B, { projectCode: "TRI2", serverCode: "SRV-3" })).toBe(`${B}/app/#/p/TRI2/servers/SRV-3`);
+  });
+
+  it("senza codici (oggetto sparito) o senza PUBLIC_URL resta il link dell'evento, mai /p//", () => {
+    const pulse = sample("project.pulse") as { projectUrl: string };
+    expect(openUrl(pulse as never, B, {})).toBe(pulse.projectUrl);
+    expect(openUrl(pulse as never, undefined, { projectCode: "TRI2" })).toBe(pulse.projectUrl);
+  });
+});
+
 describe("openUrl: le card di una task, anche quelle di prima (ritiro del web vecchio)", () => {
   it("job.* e ticket.created col codice della task aprono la task nella nuova app, anche con /tickets/:id del web vecchio nel jsonb; senza codice resta il link dell'evento", () => {
     for (const event of sampleEvents("https://x.test").filter((e) => ["ticket.created", "job.held", "job.failed", "job.plan_review", "job.budget_held", "job.pr_closed"].includes(e.kind))) {

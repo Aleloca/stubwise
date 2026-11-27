@@ -7,7 +7,7 @@ import { useCodeCitations, useContextIdOf } from "../data/queries";
 // sola. Visibilità e indirizzo li decide il livello dati (`resolveCodes`, e
 // per una conversazione di supporto `contextIdOf`); qui non si deduce nulla.
 
-const SUPPORT = /^([A-Z]{2,4})-S\d+$/;
+const SUPPORT = /^([A-Z][A-Z0-9]{1,5})-S\d+$/;
 
 export function CodeLink({
   code,

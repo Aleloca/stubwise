@@ -122,7 +122,7 @@ export function isPeopleSearchValue(key: string, value: string): boolean {
     case "invite":
       return value === "1";
     case "inviteProject":
-      return /^[A-Z]{2,4}$/.test(value);
+      return /^[A-Z][A-Z0-9]{1,5}$/.test(value);
     case "inviteRole":
       return /^[\w-]+$/.test(value);
     default:
@@ -245,7 +245,7 @@ export function isStatusSearchValue(key: string, value: string): boolean {
     case "status":
       return (WORK_STATES as readonly string[]).includes(value);
     case "project":
-      return /^[A-Z]{2,4}$/.test(value);
+      return /^[A-Z][A-Z0-9]{1,5}$/.test(value);
     case "kind":
       return (WORK_KINDS as readonly string[]).includes(value);
     default:
@@ -254,12 +254,12 @@ export function isStatusSearchValue(key: string, value: string): boolean {
 }
 
 function isChangelogPath(path: string): boolean {
-  return path === "admin/changelog" || /^p\/[A-Z]{2,4}\/settings\/changelog$/.test(path);
+  return path === "admin/changelog" || /^p\/[A-Z][A-Z0-9]{1,5}\/settings\/changelog$/.test(path);
 }
 
 /** Members di un progetto: il pannello del membro (`?member=`) e «Add member» (`?addMember=`). */
 function isMembersPath(path: string): boolean {
-  return /^p\/[A-Z]{2,4}\/settings\/members$/.test(path);
+  return /^p\/[A-Z][A-Z0-9]{1,5}\/settings\/members$/.test(path);
 }
 
 /**
@@ -267,11 +267,11 @@ function isMembersPath(path: string): boolean {
  * route è del Task 7 (`router.tsx`); il link di una menzione (`?comment=`) ci porta.
  */
 function isProductPagePath(path: string): boolean {
-  return /^p\/[A-Z]{2,4}\/docs\/product\/[A-Z]{2,4}-D\d+$/.test(path);
+  return /^p\/[A-Z][A-Z0-9]{1,5}\/docs\/product\/[A-Z][A-Z0-9]{1,5}-D\d+$/.test(path);
 }
 
 /** Il codice di una task: `<CODE>-<n>`. */
-export const TASK_CODE_RE = /^[A-Z]{2,4}-\d+$/;
+export const TASK_CODE_RE = /^[A-Z][A-Z0-9]{1,5}-\d+$/;
 
 /**
  * La ricerca (`?…`) valida per route. `task` apre il pannello di dettaglio e
@@ -300,7 +300,7 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
   if (isChangelogPath(path) && (key === "since" || key === "until"))
     return /^\d{4}-\d{2}-\d{2}$/.test(value);
   if (path === "admin/changelog" && key === "project")
-    return value === INSTANCE_ONLY || /^[A-Z]{2,4}$/.test(value);
+    return value === INSTANCE_ONLY || /^[A-Z][A-Z0-9]{1,5}$/.test(value);
   if (path === "admin/who-can" && key === "view") return value === "who" || value === "what";
   // Il ritorno dal consenso Google nella build web (link della nuova app):
   // l'esito del callback, solo su Account e solo un esito conosciuto.
@@ -333,7 +333,7 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
       return value === "1";
     // Il codice di un progetto (palette, filtro della Posta); `none` solo nella Posta.
     case "project":
-      return /^[A-Z]{2,4}$/.test(value) || (isMailPath(path) && isMailSearchValue(key, value));
+      return /^[A-Z][A-Z0-9]{1,5}$/.test(value) || (isMailPath(path) && isMailSearchValue(key, value));
     // La Posta: la casella e l'importanza (`project` e `q` sopra e sotto).
     case "mailbox":
     case "importance":
@@ -342,12 +342,12 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
     case "compose":
       return path === "mail" && isMailSearchValue(key, value);
     case "newRequest":
-      return value === "1" || /^[A-Z]{2,4}$/.test(value);
+      return value === "1" || /^[A-Z][A-Z0-9]{1,5}$/.test(value);
     // I dialoghi della Chat (nuovo messaggio diretto, nuovo canale) e le impostazioni di un canale.
     case "newMessage":
       return value === "1";
     case "newChannel":
-      return value === "1" || value === "company" || /^[A-Z]{2,4}$/.test(value);
+      return value === "1" || value === "company" || /^[A-Z][A-Z0-9]{1,5}$/.test(value);
     case "settings":
       return isChannelPath(path) && value === "1";
     case "thread":
@@ -369,9 +369,9 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
     case "ppl":
       return path === "chat" && isSearchParamValue(key, value);
     case "request":
-      return /^p\/[A-Z]{2,4}\/requests$/.test(path) && /^[\w-]+$/.test(value);
+      return /^p\/[A-Z][A-Z0-9]{1,5}\/requests$/.test(path) && /^[\w-]+$/.test(value);
     case "refine":
-      return /^p\/[A-Z]{2,4}\/requests$/.test(path) && value === "1";
+      return /^p\/[A-Z][A-Z0-9]{1,5}\/requests$/.test(path) && value === "1";
     // «Record a decision» dell'Overview, aperto da una riga D di Claude (area 10a).
     // Una pagina di prodotto aperta sul filo di un commento (area 11a, P19).
     // 11b, Task 9 (P43): il segno aperto (`mark`, un id d'ancora) e la riga della cronologia (`history`).
@@ -380,9 +380,9 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
     case "comment":
       return isProductPagePath(path) && /^[\w-]+$/.test(value);
     case "recordDecision":
-      return /^p\/[A-Z]{2,4}\/overview$/.test(path) && value === "1";
+      return /^p\/[A-Z][A-Z0-9]{1,5}\/overview$/.test(path) && value === "1";
     case "brief":
-      return /^p\/[A-Z]{2,4}\/overview$/.test(path) && /^[\w-]+$/.test(value);
+      return /^p\/[A-Z][A-Z0-9]{1,5}\/overview$/.test(path) && /^[\w-]+$/.test(value);
     // Releases (area 8a): il pannello di una PR aperta.
     case "pr":
       return isReleasesPath(path) && /^[\w-]+$/.test(value);
@@ -446,7 +446,7 @@ export const RELEASES_VIEWS = ["prs", "releases", "environments"] as const;
 
 /** La sezione Support di un progetto. */
 function isSupportPath(path: string): boolean {
-  return /^p\/[A-Z]{2,4}\/support$/.test(path);
+  return /^p\/[A-Z][A-Z0-9]{1,5}\/support$/.test(path);
 }
 
 /** Le parti del dettaglio di un server, per `?section=` (shape servers.md §3). */
@@ -462,12 +462,12 @@ export const SERVER_PARTS = [
 
 /** Il dettaglio di un server, dal progetto o dall'Amministrazione (area 9b). */
 function isServerPath(path: string): boolean {
-  return /^p\/[A-Z]{2,4}\/servers\/SRV-\d+$/.test(path) || /^admin\/servers\/SRV-\d+$/.test(path);
+  return /^p\/[A-Z][A-Z0-9]{1,5}\/servers\/SRV-\d+$/.test(path) || /^admin\/servers\/SRV-\d+$/.test(path);
 }
 
 /** La sezione Releases di un progetto. */
 function isReleasesPath(path: string): boolean {
-  return /^p\/[A-Z]{2,4}\/releases$/.test(path);
+  return /^p\/[A-Z][A-Z0-9]{1,5}\/releases$/.test(path);
 }
 
 /** Le viste della colonna della Chat (`#/chat?view=`). */
@@ -475,7 +475,7 @@ export const CHAT_VIEWS = ["threads", "mentions", "browse", "search"] as const;
 
 /** Un canale della Chat, nella Chat o nella sezione del progetto. */
 function isChannelPath(path: string): boolean {
-  return /^chat\/[\w-]+$/.test(path) || /^p\/[A-Z]{2,4}\/chat\/[\w-]+$/.test(path);
+  return /^chat\/[\w-]+$/.test(path) || /^p\/[A-Z][A-Z0-9]{1,5}\/chat\/[\w-]+$/.test(path);
 }
 
 /** Gli elenchi della destinazione «Claude» (`#/claude?scope=`). */
@@ -497,7 +497,7 @@ export const GROUP_BYS = [
 
 /** Le pagine che mostrano un insieme di task: accettano `view`, `group`, `filters`. */
 function isTasksPath(path: string): boolean {
-  return /^p\/[A-Z]{2,4}\/tasks$/.test(path) || /^filters\/[\w-]+$/.test(path);
+  return /^p\/[A-Z][A-Z0-9]{1,5}\/tasks$/.test(path) || /^filters\/[\w-]+$/.test(path);
 }
 
 function parseJson(value: string): unknown {
@@ -538,19 +538,19 @@ export function isAppRoute(route: string): boolean {
   if (isChannelPath(path)) return true;
   if (isAutomationsPath(path)) return true;
   // Il dettaglio di un rilascio (area 8a): `#/p/AUD/releases/AUD-V3`.
-  if (/^p\/[A-Z]{2,4}\/releases\/[A-Z]{2,4}-V\d+$/.test(path)) return true;
+  if (/^p\/[A-Z][A-Z0-9]{1,5}\/releases\/[A-Z][A-Z0-9]{1,5}-V\d+$/.test(path)) return true;
   // Una pagina di prodotto (area 11a): `#/p/ACQ/docs/product/ACQ-D5`; e
   // l'indice dello spazio (Task 7): `#/p/ACQ/docs/product`.
   if (isProductPagePath(path)) return true;
-  if (/^p\/[A-Z]{2,4}\/docs\/product$/.test(path)) return true;
+  if (/^p\/[A-Z][A-Z0-9]{1,5}\/docs\/product$/.test(path)) return true;
   // Una conversazione di Support (area 8a): `#/p/ACQ/support/ACQ-S2`.
-  if (/^p\/[A-Z]{2,4}\/support\/[A-Z]{2,4}-S\d+$/.test(path)) return true;
+  if (/^p\/[A-Z][A-Z0-9]{1,5}\/support\/[A-Z][A-Z0-9]{1,5}-S\d+$/.test(path)) return true;
   // Il dettaglio di un server (area 8b): `#/p/STW/servers/SRV-2` (codice d'istanza).
-  if (/^p\/[A-Z]{2,4}\/servers\/SRV-\d+$/.test(path)) return true;
+  if (/^p\/[A-Z][A-Z0-9]{1,5}\/servers\/SRV-\d+$/.test(path)) return true;
   // Le sezioni di Settings (area 9a): `#/p/ACQ/settings/members`.
-  const settings = /^p\/[A-Z]{2,4}\/settings\/([a-z]+)$/.exec(path);
+  const settings = /^p\/[A-Z][A-Z0-9]{1,5}\/settings\/([a-z]+)$/.exec(path);
   if (settings) return isProjectSettingsSection(settings[1]!);
-  const p = /^p\/([A-Z]{2,4})(?:\/([a-z]+))?$/.exec(path);
+  const p = /^p\/([A-Z][A-Z0-9]{1,5})(?:\/([a-z]+))?$/.exec(path);
   if (!p) return false;
   return !p[2] || (PROJECT_SECTIONS_IDS as readonly string[]).includes(p[2]);
 }

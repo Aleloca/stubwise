@@ -1,3 +1,4 @@
+import { appUrl } from "@stubwise/shared";
 import { ticketAppUrl, type DbOrTx } from "@stubwise/notifications";
 import { timingSafeEqual } from "node:crypto";
 import type { FastifyInstance } from "fastify";
@@ -37,5 +38,7 @@ export function keysMatch(provided: string, expected: string): boolean {
  * nuova app apre una task col suo codice (`<CODE>-<n>`), non con l'id.
  */
 export function ticketUrl(db: DbOrTx, publicUrl: string | undefined, ticketId: string): Promise<string> {
-  return ticketAppUrl(db, publicUrl, ticketId);
+  // Mai lancia: chi lo chiama ha già scritto (il ticket, il commit); una lettura
+  // che fallisce dà la Home della nuova app, non un 500 a cose fatte (M1).
+  return ticketAppUrl(db, publicUrl, ticketId).catch(() => appUrl(publicUrl, { to: "home" }));
 }

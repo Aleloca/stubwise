@@ -1451,9 +1451,10 @@ describe("listInbox — riassunto in breve", () => {
     expect(items).toHaveLength(5);
     expect(items.every((item) => item.summary !== undefined)).toBe(true);
     // Le query della pagina sono un numero FISSO (righe, job, utenti, review,
-    // codici delle task — integrazione area 2): non cresce con gli item,
+    // codici delle task — integrazione area 2 — e dei progetti per il link
+    // della nuova app, `linkContextsFor`): non cresce con gli item,
     // altrimenti una pagina da 50 card sarebbe 50 round-trip.
-    expect(selectSpy.mock.calls.length).toBeLessThanOrEqual(6);
+    expect(selectSpy.mock.calls.length).toBeLessThanOrEqual(7);
     selectSpy.mockRestore();
   });
 });
@@ -2839,8 +2840,9 @@ describe("google.proposal — la decisione, derivata a lettura", () => {
 
     for (const id of ids) expect(items.find((i) => i.id === id)?.google?.decision?.status).toBe("actioned");
     // Righe, conteggio, job, review, utenti, fonte + UNA per tabella della
-    // decisione (posta, smistamento, calendario): non cresce con le card.
-    expect(counted).toBeLessThanOrEqual(11);
+    // decisione (posta, smistamento, calendario) + i codici dei progetti per il
+    // link della nuova app (`linkContextsFor`): non cresce con le card.
+    expect(counted).toBeLessThanOrEqual(12);
   });
 });
 

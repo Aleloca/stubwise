@@ -1,3 +1,4 @@
+import { appUrl } from "@stubwise/shared";
 import {
   publishNotification,
   type NotificationEvent,
@@ -42,7 +43,9 @@ export interface NotifyDeps {
  * task col suo codice (`<CODE>-<n>`), non con l'id.
  */
 export function ticketUrl(db: DbOrTx, publicUrl: string | undefined, ticketId: string): Promise<string> {
-  return ticketAppUrl(db, publicUrl, ticketId);
+  // Mai lancia: chi lo chiama ha già scritto (il job, il commit); una lettura
+  // che fallisce dà la Home della nuova app (M1).
+  return ticketAppUrl(db, publicUrl, ticketId).catch(() => appUrl(publicUrl, { to: "home" }));
 }
 
 /**
