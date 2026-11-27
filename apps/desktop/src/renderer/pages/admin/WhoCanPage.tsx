@@ -55,6 +55,8 @@ export function useReasonWords() {
           : t("whoCan.reasons.grantByHand", { date: formatDate(r.at, i18n.language) });
       case "department":
         return t("whoCan.reasons.department", { department: r.departmentName });
+      case "workspace":
+        return t("whoCan.reasons.workspace", { role: r.roleName, workspace: r.workspaceName });
       case "full_admin":
         return t("whoCan.reasons.fullAdmin");
     }

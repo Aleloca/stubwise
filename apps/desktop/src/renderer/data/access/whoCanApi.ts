@@ -20,6 +20,8 @@ export type WhoCanReason =
   | { kind: "role"; roleName: string }
   | { kind: "grant"; byName: string | null; at: string }
   | { kind: "department"; departmentName: string }
+  /** Dal ruolo di workspace (shape `workspaces.md`): «Viewer from Clienti storici». */
+  | { kind: "workspace"; workspaceName: string; roleName: string }
   | { kind: "full_admin" };
 
 export interface WhoCanPerson {
@@ -92,6 +94,12 @@ function reasonsOf(sources: readonly PermissionSource[], knownBy: (id: string) =
           kind: "department",
           departmentName:
             state.departments.find((d) => d.id === s.departmentId)?.name ?? s.departmentId,
+        };
+      case "workspace":
+        return {
+          kind: "workspace",
+          workspaceName: accessState().workspaces.find((w) => w.id === s.workspaceId)?.name ?? "",
+          roleName: accessState().roles.find((r) => r.id === s.roleId)?.name ?? s.roleId,
         };
       case "full_admin":
         return { kind: "full_admin" };

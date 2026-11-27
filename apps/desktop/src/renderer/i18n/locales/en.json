@@ -2821,6 +2821,7 @@
         "givenNoName": "given {{date}}",
         "seed": "sample data",
         "department": "{{name}} department",
+        "workspace": "{{role}} from {{workspace}}",
         "draft": "not saved yet"
       },
       "panel": {
@@ -2839,6 +2840,7 @@
         "source": {
           "role": "From the {{name}} role",
           "department": "From the {{name}} department",
+          "workspace": "From the {{role}} role in {{workspace}}, in every project of the workspace",
           "given": "Given by {{name}} on {{date}}",
           "givenNoName": "Given on {{date}}",
           "seed": "From the sample data",
@@ -10308,6 +10310,7 @@
       "grant": "given by {{name}} on {{date}}",
       "grantByHand": "given by hand on {{date}}",
       "department": "{{department}} department",
+      "workspace": "{{role}} from {{workspace}}",
       "fullAdmin": "Full admin"
     },
     "link": {
@@ -10686,6 +10689,7 @@
         "givenNoName": "given on {{date}}",
         "seed": "from the seed",
         "department": "from the {{name}} department",
+        "workspace": "{{role}} from {{workspace}}",
         "fullAdmin": "as full admin",
         "role": "from the role {{name}}",
         "edit": "Edit",

@@ -85,6 +85,8 @@ function useShortSource() {
         return t("settings.members.short.department", { name: s.departmentName });
       case "role":
         return s.roleName;
+      case "workspace":
+        return t("settings.members.short.workspace", { role: s.roleName, workspace: s.workspaceName });
       case "full_admin":
         return t("admin.person.projects.fullAdmin");
     }
@@ -107,6 +109,11 @@ function useLongSource() {
         return t("settings.members.panel.source.department", { name: s.departmentName });
       case "role":
         return t("settings.members.panel.source.role", { name: s.roleName });
+      case "workspace":
+        return t("settings.members.panel.source.workspace", {
+          role: s.roleName,
+          workspace: s.workspaceName,
+        });
       case "full_admin":
         return t("admin.permissionTable.included");
     }

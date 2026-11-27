@@ -99,6 +99,8 @@ export type SourceView =
       origin: "given" | "seed" | "draft";
     }
   | { kind: "department"; departmentId: string; departmentName: string }
+  /** Dal ruolo di workspace (shape `workspaces.md`), in ogni progetto della workspace. */
+  | { kind: "workspace"; workspaceId: string; workspaceName: string; roleId: string; roleName: string }
   | { kind: "full_admin" };
 
 /** Un permesso in più del ruolo (concessione o reparto), con le sue fonti. */

@@ -2821,6 +2821,7 @@
         "givenNoName": "dato il {{date}}",
         "seed": "dati di esempio",
         "department": "reparto {{name}}",
+        "workspace": "{{role}} da {{workspace}}",
         "draft": "non ancora salvato"
       },
       "panel": {
@@ -2839,6 +2840,7 @@
         "source": {
           "role": "Dal ruolo {{name}}",
           "department": "Dal reparto {{name}}",
+          "workspace": "Dal ruolo {{role}} in {{workspace}}, in ogni progetto della workspace",
           "given": "Dato da {{name}} il {{date}}",
           "givenNoName": "Dato il {{date}}",
           "seed": "Dai dati di esempio",
@@ -10308,6 +10310,7 @@
       "grant": "dato da {{name}} il {{date}}",
       "grantByHand": "dato a mano il {{date}}",
       "department": "reparto {{department}}",
+      "workspace": "{{role}} da {{workspace}}",
       "fullAdmin": "Amministratore completo"
     },
     "link": {
@@ -10686,6 +10689,7 @@
         "givenNoName": "dato il {{date}}",
         "seed": "dal seme",
         "department": "dal reparto {{name}}",
+        "workspace": "{{role}} da {{workspace}}",
         "fullAdmin": "come amministratore completo",
         "role": "dal ruolo {{name}}",
         "edit": "Modifica",
