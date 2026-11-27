@@ -7266,3 +7266,52 @@ deploy o di un rollback che la tocca.
   vecchio non le nomina e il DEFAULT vale null fuori dalle richieste
   dell'MCP. Le voci già scritte «via Claude Code» restano nel DB e tornano
   visibili risalendo. Nessun `notification_kind` nuovo.
+
+- **«Workspace» (27 nov 2026)**: design
+  `docs/plans/2026-11-27-workspace-design.md` (decisioni D1–D19), piano
+  `docs/plans/2026-11-27-workspace-piano.md`. Le workspace raggruppano
+  PROGETTI per visibilità: una persona di una workspace vede ogni suo
+  progetto col ruolo di workspace, e i permessi effettivi sono l'unione
+  delle fonti (`project_access`). Le invarianti in
+  `docs/invariants/permissions.md` e (D17) `docs/invariants/mail-calendar.md`.
+  **Cosa ribuildare, in ordine**:
+  1. `server`: applica la **0238** (tabelle `workspaces`,
+     `workspace_projects`, `workspace_members`, `invite_workspaces`, i due
+     trigger del ruolo di progetto e la vista `project_access`). Tutto
+     additivo, nessun dato: un'istanza senza workspace è identica a prima.
+     Aspetta che sia healthy.
+  2. `worker`: la regola condivisa (`packages/notifications`, chi riceve
+     le card, e i candidati di posta e calendario, D17) legge la vista. Va
+     aggiornato prima che esista una workspace con persone; finché non ce
+     n'è nessuna il comportamento è identico. Niente riavvii con lavoro
+     dell'agente in corso (le regole di sempre).
+  3. `caddy`: il renderer di `/app`, con la colonna delle workspace nella
+     pagina Progetti, Members, «Who can?», la pagina della persona e
+     l'invito.
+  4. `@stubwise/mcp`: nessun tool curato cambia, le rotte nuove arrivano dal
+     catalogo (`config.mcp`): nessun changeset necessario.
+  **Permesso nuovo**: `workspaces.manage` (d'istanza), in nessun preset: lo
+  ha solo il full admin finché un admin non lo dà a un ruolo. Senza, nessuno
+  vede differenze.
+  **Rollback**:
+  - Prima che esista una workspace: sicuro scendere server, worker e caddy
+    insieme. Le tabelle vuote restano e il codice vecchio non le nomina.
+  - Con workspace in uso: scendere è sicuro per i DATI ma TOGLIE L'ACCESSO.
+    Il codice vecchio non conosce `project_access`, quindi chi vedeva un
+    progetto solo per una workspace smette di vederlo. Nessuna riga si
+    perde, e risalendo torna tutto. Prima di scendere, conta chi
+    perderebbe l'accesso:
+    ```sql
+    select count(distinct (wm.user_id, wp.project_id))
+    from workspace_members wm
+    join workspace_projects wp on wp.workspace_id = wm.workspace_id
+    left join project_members pm on pm.project_id = wp.project_id and pm.user_id = wm.user_id
+    where pm.user_id is null;
+    ```
+  - Il caddy e il worker scendono INSIEME al server: un worker vecchio con
+    un server nuovo consegnerebbe meno card di quante l'inbox ne mostri.
+  - Nessun `notification_kind` nuovo: l'ingresso in una workspace usa
+    `member.added` (con `workspaceId` nell'evento, additivo), quindi la
+    discesa non rompe `/api/inbox`.
+  - Non scendere sotto la 0238 con righe in `workspace_members`: la
+    migrazione non si toglie a mano (le tabelle restano, innocue).
