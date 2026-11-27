@@ -5,6 +5,7 @@ import {
   generatePersonKeyPair,
   sealPrivateKey,
   unwrapItemKey,
+  wrapActorChallenge,
   wrapItemKey,
 } from "@stubwise/vault-crypto";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -29,6 +30,8 @@ let events: CoreEvent[];
 let prf: Uint8Array<ArrayBuffer>;
 let serverTag: string | null | undefined;
 let pair: Awaited<ReturnType<typeof generatePersonKeyPair>>;
+/** La password di C1 cifrata, e la propria copia della sua chiave (per `KEY_ID`). */
+let c1: { ciphertext: string; myCopy: string };
 
 async function setup() {
   clock = Date.parse("2026-11-28T10:00:00Z");
@@ -41,6 +44,7 @@ async function setup() {
   const sealed = await sealPrivateKey(prf.slice().buffer, pair.privateKeyPkcs8, pair.publicKey);
   const { ciphertext, itemKey } = await encryptPassword(C1, "Kx4!pa-77Wq");
   const wrappedKey = await wrapItemKey(itemKey, pair.publicKey, C1, KEY_ID);
+  c1 = { ciphertext, myCopy: wrappedKey };
   routes = {
     "GET /api/vault/status": () => ({
       body: {
@@ -74,7 +78,8 @@ async function setup() {
       calls.push({ method: init.method!, path, body: init.body ? JSON.parse(init.body as string) : undefined });
       const route = routes[`${init.method} ${path}`];
       const out = route ? route() : { status: 404, body: { code: "not_found" } };
-      return new Response(JSON.stringify(out.body), { status: out.status ?? 200 });
+      const body = await out.body;
+      return new Response(out.status === 204 ? null : JSON.stringify(body), { status: out.status ?? 200 });
     },
     now: () => clock,
     setTimer: (fn, ms) => {
@@ -297,6 +302,108 @@ describe("crea e cambia la password, nel worker", () => {
     expect(await core.handle({ t: "setPassword", id: C1, password: "Ch4nged!", personId: ME, sessionTag: TAG })).toEqual({ ok: false, code: "vault_locked" });
     expect(calls.some((c) => c.method === "PUT")).toBe(false);
     expect(events.at(-1)).toMatchObject({ t: "state", state: "locked", reason: "session" });
+  });
+});
+
+/** Le sfide di possesso date dal server, in ordine: id e segreto atteso. */
+let challenges: { challengeId: string; proof: string }[];
+
+function serveChallenges() {
+  challenges = [];
+  routes["POST /api/vault/actor-challenge"] = () => {
+    const secret = crypto.getRandomValues(new Uint8Array(32));
+    const challengeId = crypto.randomUUID();
+    challenges.push({ challengeId, proof: toBase64Url(secret) });
+    // La busta si prepara qui sotto (asincrona): la rotta risponde con una promessa risolta.
+    return { body: wrapActorChallenge(secret, pair.publicKey, challengeId, KEY_ID).then((wrapped) => ({ challengeId, personKeyId: KEY_ID, wrapped, expiresAt: "2026-11-28T10:05:00.000Z" })) };
+  };
+}
+
+/** La password che apre la copia per `OTHER_KEY`, con la privata dell'altra persona. */
+async function openedByOther(other: Awaited<ReturnType<typeof generatePersonKeyPair>>, wrappedKey: string) {
+  const privateKey = await crypto.subtle.importKey("pkcs8", other.privateKeyPkcs8.slice(), { name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
+  const itemKey = await unwrapItemKey(wrappedKey, privateKey, C1, OTHER_KEY);
+  return decryptPassword(C1, c1.ciphertext, itemKey);
+}
+
+describe("condividi e togli un lettore, nel worker", () => {
+  let core: VaultCore;
+  let other: Awaited<ReturnType<typeof generatePersonKeyPair>>;
+  const preview = (keyVersion = "v1") => ({
+    people: [{ userId: OTHER_USER, email: "bea@example.com", personKeyId: OTHER_KEY, publicKey: other.publicKey }],
+    waiting: [{ userId: "99999999-9999-4999-8999-999999999999", email: "cleo@example.com" }],
+    wrappedKey: c1.myCopy,
+    keyVersion,
+  });
+  beforeEach(async () => {
+    core = await setup();
+    other = await generatePersonKeyPair();
+    serveChallenges();
+    routes[`GET /api/credentials/${C1}/readers/preview?userId=${OTHER_USER}`] = () => ({ body: preview() });
+    routes[`POST /api/credentials/${C1}/readers`] = () => ({ status: 201, body: {} });
+    routes[`DELETE /api/credentials/${C1}/readers/${OTHER_USER}`] = () => ({ status: 204, body: null });
+  });
+
+  const share = (sessionTag = TAG) => core.handle({ t: "share", id: C1, target: { userId: OTHER_USER }, personId: ME, sessionTag });
+
+  it("condividi: a cassaforte chiusa niente; aperta, una copia che apre la password, la prova della sfida, chi aspetta", async () => {
+    expect(await share()).toEqual({ ok: false, code: "vault_locked" });
+    expect(calls.some((c) => c.method === "POST" && c.path.endsWith("/readers"))).toBe(false);
+    await openCore(core);
+    expect(await share()).toEqual({ ok: true, waiting: ["cleo@example.com"] });
+    const post = calls.find((c) => c.method === "POST" && c.path === `/api/credentials/${C1}/readers`)!;
+    const body = post.body as { userId: string; copies: { recipientId: string; wrappedKey: string }[]; keyVersion: string; actorProof: { challengeId: string; proof: string } };
+    expect(body.userId).toBe(OTHER_USER);
+    expect(body.keyVersion).toBe("v1");
+    expect(body.copies.map((c) => c.recipientId)).toEqual([OTHER_KEY]);
+    expect(await openedByOther(other, body.copies[0]!.wrappedKey)).toBe("Kx4!pa-77Wq");
+    expect(body.actorProof).toEqual(challenges[0]);
+  });
+
+  it("condividi: il bersaglio esce solo come `userId` o `roleId`, niente altro dalla pagina", async () => {
+    await openCore(core);
+    await core.handle({ t: "share", id: C1, target: { userId: OTHER_USER, extra: "x" } as never, personId: ME, sessionTag: TAG });
+    const body = calls.find((c) => c.method === "POST" && c.path === `/api/credentials/${C1}/readers`)!.body as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual(["actorProof", "copies", "keyVersion", "userId"]);
+  });
+
+  it("condividi: `recipients_changed` si rifà UNA volta sull'anteprima attuale, con una prova NUOVA", async () => {
+    await openCore(core);
+    let posts = 0;
+    routes[`POST /api/credentials/${C1}/readers`] = () => {
+      posts += 1;
+      return posts === 1 ? { status: 409, body: { code: "recipients_changed", preview: preview("v2") } } : { status: 201, body: {} };
+    };
+    expect(await share()).toEqual({ ok: true, waiting: ["cleo@example.com"] });
+    const posted = calls.filter((c) => c.method === "POST" && c.path === `/api/credentials/${C1}/readers`).map((c) => c.body as { keyVersion: string; actorProof: { challengeId: string } });
+    expect(posted.map((b) => b.keyVersion)).toEqual(["v1", "v2"]);
+    expect(posted[0]!.actorProof.challengeId).not.toBe(posted[1]!.actorProof.challengeId);
+    routes[`POST /api/credentials/${C1}/readers`] = () => ({ status: 409, body: { code: "recipients_changed", preview: preview("v3") } });
+    expect(await share()).toEqual({ ok: false, code: "recipients_changed" });
+  });
+
+  it("condividi: una sfida per un'altra chiave non dà la prova (`stale_key`)", async () => {
+    await openCore(core);
+    routes["POST /api/vault/actor-challenge"] = () => ({ body: { challengeId: crypto.randomUUID(), personKeyId: OTHER_KEY, wrapped: "x", expiresAt: "2026-11-28T10:05:00.000Z" } });
+    expect(await share()).toEqual({ ok: false, code: "stale_key" });
+    expect(calls.some((c) => c.method === "POST" && c.path === `/api/credentials/${C1}/readers`)).toBe(false);
+  });
+
+  it("condividi: con un'altra sessione sul server chiude e non condivide", async () => {
+    await openCore(core);
+    serverTag = "srv-tag-2";
+    expect(await share()).toEqual({ ok: false, code: "vault_locked" });
+    expect(calls.some((c) => c.path.includes("/readers"))).toBe(false);
+  });
+
+  it("togli: con la prova, solo a cassaforte aperta", async () => {
+    const remove = () => core.handle({ t: "removeReader", id: C1, readerId: OTHER_USER, personId: ME, sessionTag: TAG });
+    expect(await remove()).toEqual({ ok: false, code: "vault_locked" });
+    await openCore(core);
+    expect(await remove()).toEqual({ ok: true });
+    const del = calls.find((c) => c.method === "DELETE")!;
+    expect(del.path).toBe(`/api/credentials/${C1}/readers/${OTHER_USER}`);
+    expect(del.body).toEqual({ actorProof: challenges[0] });
   });
 });
 

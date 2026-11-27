@@ -125,5 +125,26 @@ describe("la cassaforte della build web", () => {
     expect(await vault.updateCredential("c-1", { password: "Ch4nged!" } as never)).toEqual({ ok: false, code: "vault_locked" });
     session.personId = null;
   });
+
+  it("condividi: il bersaglio del prototipo (`personId`) è un `userId` per il worker; un ruolo resta un ruolo", async () => {
+    const { vault, session } = await load();
+    session.personId = "p-ada";
+    replies.share = { ok: true, waiting: ["cleo@example.com"] };
+    expect(await vault.share("c-1", { personId: "u-bea" })).toEqual({ ok: true, waiting: ["cleo@example.com"] });
+    expect(toWorker.at(-1)).toMatchObject({ t: "share", id: "c-1", target: { userId: "u-bea" }, personId: "p-ada" });
+    await vault.share("c-1", { roleId: "r-dev" });
+    expect(toWorker.at(-1)).toMatchObject({ t: "share", target: { roleId: "r-dev" } });
+    replies.share = { ok: false, code: "vault_locked" };
+    expect(await vault.share("c-1", { personId: "u-bea" })).toEqual({ ok: false, code: "vault_locked" });
+    session.personId = null;
+  });
+
+  it("togli: al worker, con persona e sessione", async () => {
+    const { vault, session } = await load();
+    session.personId = "p-ada";
+    expect(await vault.removeReader("c-1", "u-bea")).toEqual({ ok: true });
+    expect(toWorker.at(-1)).toMatchObject({ t: "removeReader", id: "c-1", readerId: "u-bea", personId: "p-ada" });
+    session.personId = null;
+  });
 });
 

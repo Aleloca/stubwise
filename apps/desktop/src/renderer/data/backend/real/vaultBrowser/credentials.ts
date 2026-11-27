@@ -9,6 +9,8 @@ import { request } from "./client";
 // - Crea e cambia: la pagina manda la password digitata, il worker la cifra
 //   per i destinatari e non la restituisce. Crea non vuole la cassaforte
 //   aperta (le pubbliche bastano); cambia sì, con la sessione dell'apertura.
+// - Condividi e togli: con la cassaforte aperta e la prova di possesso, che
+//   il worker chiede e consuma; alla pagina solo l'esito.
 
 export type RevealOutcome =
   | { ok: true; password: string }
@@ -35,5 +37,23 @@ export function createInWorker(
 
 export function setPasswordInWorker(id: string, password: string, personId: string, sessionTag: string): Promise<WriteOutcome> {
   return request<WriteOutcome>({ t: "setPassword", id, password, personId, sessionTag });
+}
+
+export function shareInWorker(
+  id: string,
+  target: { userId: string } | { roleId: string },
+  personId: string,
+  sessionTag: string,
+): Promise<{ ok: true; waiting: string[] } | { ok: false; code: string }> {
+  return request({ t: "share", id, target, personId, sessionTag });
+}
+
+export function removeReaderInWorker(
+  id: string,
+  readerId: string,
+  personId: string,
+  sessionTag: string,
+): Promise<{ ok: true } | { ok: false; code: string }> {
+  return request({ t: "removeReader", id, readerId, personId, sessionTag });
 }
 

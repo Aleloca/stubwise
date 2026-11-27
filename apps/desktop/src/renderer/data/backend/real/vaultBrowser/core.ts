@@ -1,12 +1,24 @@
 import {
   credentialRecipientsSchema,
+  credentialSharePreviewSchema,
+  vaultActorChallengeResponseSchema,
   type CredentialRecipients,
+  type CredentialSharePreview,
   type CredentialRevealResponse,
   type PasskeyAuthenticationOptions,
   type VaultMyKeyResponse,
+  type VaultActorProof,
   type VaultStatusResponse,
 } from "@stubwise/shared";
-import { PRF_INPUT, decryptPassword, encryptForInsert, openPrivateKey, unwrapItemKey } from "@stubwise/vault-crypto";
+import {
+  PRF_INPUT,
+  decryptPassword,
+  encryptForInsert,
+  openActorChallenge,
+  openPrivateKey,
+  unwrapItemKey,
+  wrapItemKey,
+} from "@stubwise/vault-crypto";
 import { toBase64Url } from "./bytes";
 
 // Il cuore della cassaforte nel browser (revisione di sicurezza I-1): gira
@@ -17,7 +29,8 @@ import { toBase64Url } from "./bytes";
 // - la verifica della passkey, l'apertura del sigillo con la PRF (che arriva
 //   per transfer e si azzera subito), la `CryptoKey` di persona;
 // - la scadenza a ora di parete, col `Date` e il timer del worker;
-// - la decifratura per Show, la cifratura per crea e cambia.
+// - la decifratura per Show, la cifratura per crea, cambia e condividi, e
+//   la prova di possesso (monouso) per condividere e togliere un lettore.
 // La pagina riceve solo esiti e, per Show e Copy, la sola password; per crea
 // e cambia manda la password digitata, che qui si cifra e non torna.
 // `VaultCore` è puro (rete, orologio e timer iniettati): si prova senza un
@@ -49,6 +62,9 @@ export type CoreRequest =
   | { t: "create"; projectId: string; fields: Record<string, unknown>; password: string }
   /** La password nuova: con la cassaforte aperta e la sessione dell'apertura. */
   | { t: "setPassword"; id: string; password: string; personId: string; sessionTag: string }
+  /** A una persona o a un ruolo: la chiave della voce ricifrata per chi entra, con la prova. */
+  | { t: "share"; id: string; target: { userId: string } | { roleId: string }; personId: string; sessionTag: string }
+  | { t: "removeReader"; id: string; readerId: string; personId: string; sessionTag: string }
   /** Una PRF che la pagina non usa più (M-3): arriva per transfer e si azzera. */
   | { t: "discard"; prf: ArrayBuffer }
   | { t: "touch" }
@@ -238,6 +254,61 @@ export class VaultCore {
     }
   }
 
+  /** La prova della propria chiave: una per azione (il server la consuma). */
+  private async prove(privateKey: CryptoKey, personKeyId: string): Promise<VaultActorProof> {
+    const challenge = vaultActorChallengeResponseSchema.safeParse(await this.http("POST", "/api/vault/actor-challenge", {}));
+    if (!challenge.success) throw new HttpError(0, "invalid_response");
+    if (challenge.data.personKeyId !== personKeyId) throw new HttpError(0, "stale_key");
+    return {
+      challengeId: challenge.data.challengeId,
+      proof: await openActorChallenge(challenge.data.wrapped, privateKey, challenge.data.challengeId, personKeyId),
+    };
+  }
+
+  /**
+   * Condivide come il main del desktop: dall'anteprima, la propria copia
+   * della chiave della voce si ricifra per ogni persona che entra; con una
+   * prova nuova a ogni tentativo. Persone o password cambiate nel frattempo
+   * (409 `recipients_changed`): si rifà sull'anteprima attuale, UNA volta.
+   */
+  private async share(
+    id: string,
+    target: { userId: string } | { roleId: string },
+    k: { privateKey: CryptoKey; personKeyId: string },
+  ): Promise<{ ok: true; waiting: string[] }> {
+    // Il bersaglio esce solo come uno dei due campi: niente altro dalla pagina.
+    const who: { userId: string } | { roleId: string } =
+      "userId" in target ? { userId: String(target.userId) } : { roleId: String(target.roleId) };
+    const query = "userId" in who ? `userId=${seg(who.userId)}` : `roleId=${seg(who.roleId)}`;
+    const attempt = async (preview: CredentialSharePreview) => {
+      const itemKey = await unwrapItemKey(preview.wrappedKey, k.privateKey, id, k.personKeyId);
+      const copies = await Promise.all(
+        preview.people.map(async (p) => ({
+          recipientId: p.personKeyId,
+          wrappedKey: await wrapItemKey(itemKey, p.publicKey, id, p.personKeyId),
+        })),
+      );
+      await this.http("POST", `/api/credentials/${seg(id)}/readers`, {
+        ...who,
+        copies,
+        keyVersion: preview.keyVersion,
+        actorProof: await this.prove(k.privateKey, k.personKeyId),
+      });
+      return { ok: true as const, waiting: preview.waiting.map((w) => w.email) };
+    };
+    const first = credentialSharePreviewSchema.safeParse(
+      await this.http("GET", `/api/credentials/${seg(id)}/readers/preview?${query}`),
+    );
+    if (!first.success) throw new HttpError(0, "invalid_response");
+    try {
+      return await attempt(first.data);
+    } catch (error) {
+      const current = changed<CredentialSharePreview>(error, "preview", credentialSharePreviewSchema);
+      if (!current) throw error;
+      return attempt(current);
+    }
+  }
+
   async handle(req: CoreRequest): Promise<unknown> {
     try {
       return await this.dispatch(req);
@@ -335,6 +406,19 @@ export class VaultCore {
           write: (enc) => this.http("PUT", `/api/credentials/${seg(req.id)}/password`, enc),
         });
         return { ok: true, resaved };
+      }
+      case "share": {
+        const k = await this.live(req.personId, req.sessionTag);
+        if (!k) return { ok: false, code: "vault_locked" };
+        return this.share(req.id, req.target, k);
+      }
+      case "removeReader": {
+        const k = await this.live(req.personId, req.sessionTag);
+        if (!k) return { ok: false, code: "vault_locked" };
+        await this.http("DELETE", `/api/credentials/${seg(req.id)}/readers/${seg(req.readerId)}`, {
+          actorProof: await this.prove(k.privateKey, k.personKeyId),
+        });
+        return { ok: true };
       }
       case "discard":
         wipe(req.prf);

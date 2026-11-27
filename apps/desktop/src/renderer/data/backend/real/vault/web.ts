@@ -7,7 +7,13 @@ import { appClient, session } from "../client";
 import { partialNamespace } from "../notIntegrated";
 import { request } from "../vaultBrowser/client";
 import { clearNow, copyWithAutoClear } from "../vaultBrowser/clipboard";
-import { createInWorker, revealPassword, setPasswordInWorker } from "../vaultBrowser/credentials";
+import {
+  createInWorker,
+  removeReaderInWorker,
+  revealPassword,
+  setPasswordInWorker,
+  shareInWorker,
+} from "../vaultBrowser/credentials";
 import * as key from "../vaultBrowser/key";
 import { unlockInBrowser } from "../vaultBrowser/unlock";
 import * as liveVaultReads from "../vaultReads";
@@ -114,6 +120,24 @@ const copy: typeof Fake.vault.copy = async (id) => {
   return { ok: true };
 };
 
+/** «Share»: il bersaglio del prototipo (`personId`) è un `userId` per il server. */
+const share: typeof Fake.vault.share = async (id, target) => {
+  const w = who();
+  if (!w.personId) return { ok: false, code: "unauthenticated" };
+  return shareInWorker(
+    id,
+    "personId" in target ? { userId: target.personId } : { roleId: target.roleId },
+    w.personId,
+    w.sessionTag,
+  );
+};
+
+const removeReader: typeof Fake.vault.removeReader = async (id, readerId) => {
+  const w = who();
+  if (!w.personId) return { ok: false, code: "unauthenticated" };
+  return removeReaderInWorker(id, readerId, w.personId, w.sessionTag);
+};
+
 export const vault: typeof Fake.vault = partialNamespace<typeof Fake.vault>("vault", {
   getVaultStatus,
   unlock,
@@ -121,5 +145,7 @@ export const vault: typeof Fake.vault = partialNamespace<typeof Fake.vault>("vau
   subscribeVaultChanges,
   show,
   copy,
+  share,
+  removeReader,
   ...liveVaultReads,
 });
