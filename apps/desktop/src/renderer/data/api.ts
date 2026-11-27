@@ -839,6 +839,9 @@ export async function getBrief(briefId: string): Promise<WeeklyBrief | null> {
   const me = await gate("getBrief");
   const brief = state.briefs.find((b) => b.id === briefId);
   if (!brief || !visibleProjectIds(me).has(brief.projectId)) return null;
+  // Come `getLatestBrief`: nel prototipo il brief lo legge chi vede il
+  // progetto. Il server chiede anche `tickets.view_all` (le due rotte), e la
+  // build app lo rispetta (403 → null): divergenza dichiarata nel registro.
   return copy(brief);
 }
 

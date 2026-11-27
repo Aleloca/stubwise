@@ -119,7 +119,8 @@ export const getBrief: typeof Fake.getBrief = async (briefId) => {
   try {
     brief = (await appClient().projects.brief(briefId)) as ProjectBriefWeekly;
   } catch (error) {
-    if (error instanceof ApiError && error.status === 404) return null;
+    // 404 (ignoto o invisibile) e 403 (senza `tickets.view_all`): «non disponibile» (M2).
+    if (error instanceof ApiError && (error.status === 404 || error.status === 403)) return null;
     throw error;
   }
   const sections = (brief.sections ?? null) as Record<string, string> | null;

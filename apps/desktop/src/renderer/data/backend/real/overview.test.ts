@@ -235,6 +235,9 @@ describe("brief e cronologia dal server", () => {
     // Nessuna rotta: il fakeServer risponde 404, come per un progetto invisibile.
     installFakeServer({});
     expect(await getBrief(BRIEF)).toBeNull();
+    // 403 (senza `tickets.view_all`): anche questo «non disponibile» (M2).
+    installFakeServer({ [`GET /api/briefs/${BRIEF}`]: { status: 403, body: { code: "forbidden", message: "Missing permission" } } });
+    expect(await getBrief(BRIEF)).toBeNull();
   });
 
   it("una pagina di cronologia: gli eventi del prototipo, il segno della pagina dopo; un evento monco si scarta", async () => {
