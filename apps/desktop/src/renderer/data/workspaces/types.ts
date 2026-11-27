@@ -80,8 +80,12 @@ export interface WorkspaceMembersView {
   roleChoices: (RoleChoice & { missingIn: string[] })[];
   /** Il ruolo di base di un invito (D3: Viewer). */
   defaultRoleId: string;
-  /** Chi si può aggiungere: attivo, non full admin, non ancora membro. */
-  addable: { personId: string; name: string }[];
+  /**
+   * Chi si può aggiungere: attivo, non full admin, non ancora membro.
+   * `missing`: i permessi che i suoi reparti porterebbero dove chi agisce non
+   * li ha; non vuoto, la scelta è spenta.
+   */
+  addable: { personId: string; name: string; missing?: string[] }[];
   /** I full admin cercati: si leggono spenti, «already sees everything». */
   fullAdmins: { personId: string; name: string }[];
 }

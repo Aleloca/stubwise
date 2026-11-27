@@ -357,8 +357,9 @@ function InviteDialog({
           >
             <option value="">{t("workspaces.invite.choose")}</option>
             {data.addable.map((p) => (
-              <option key={p.personId} value={p.personId}>
-                {p.name}
+              // I reparti della persona porterebbero permessi che chi invita non ha: spenta col motivo.
+              <option key={p.personId} value={p.personId} disabled={(p.missing ?? []).length > 0}>
+                {(p.missing ?? []).length > 0 ? t("workspaces.invite.departmentMissing", { name: p.name }) : p.name}
               </option>
             ))}
             {data.fullAdmins.map((p) => (
