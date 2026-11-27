@@ -614,6 +614,8 @@
           "vault_device_sealed": "Mac associato alla cassaforte",
           "vault_device_seal_revoked": "Mac tolto dalla cassaforte",
           "reauth_desktop": "Identità confermata nell'app desktop",
+          "vault_seal_added": "Sigillo della cassaforte aggiunto per una passkey",
+          "vault_reveal_burst": "Molte password aperte in poco tempo",
           "other": "Altro evento di sicurezza"
         }
       }
@@ -1695,6 +1697,34 @@
         "openHistory": "Apri la cronologia",
         "forbidden": "Non inviata: rispondere è di chi ha Modifica Docs in {{code}}. Non è cambiato niente.",
         "who": "Chi?"
+      },
+      "pulse": {
+        "question_one": "{{code}} è fermo da {{count}} giorno. Scegli da cosa ripartire.",
+        "question_other": "{{code}} è fermo da {{count}} giorni. Scegli da cosa ripartire.",
+        "legend": "Da cosa ripartire in {{code}}",
+        "suggested": "Consigliata",
+        "urgency": {
+          "low": "Urgenza bassa",
+          "medium": "Urgenza media",
+          "high": "Urgenza alta",
+          "urgent": "Urgente"
+        },
+        "effort": "Impegno {{value}}/5",
+        "consequence": "Avvia crea una task da questa voce e fa partire Claude. Claude scrive prima un piano, che aspetta l'approvazione prima di toccare il codice.",
+        "start": "Avvia",
+        "notNow": "Non ora",
+        "open": "Apri",
+        "started": "Avviata {{code}}: Claude sta scrivendo il piano.",
+        "startedApproval": "Avviata {{code}}: il piano aspetta l'approvazione.",
+        "errors": {
+          "stale": "Questa proposta non è più attuale: non è partito niente.",
+          "run_not_started": "{{code}} è stata creata, ma Claude non è partito. Aprila e avvialo da lì.",
+          "forbidden": "Non puoi più avviare lavoro in questo progetto.",
+          "failed": "Avvio non riuscito. Riprova.",
+          "budget_exhausted": "Avvia è spento: il budget AI del mese è finito. Torna a funzionare quando il budget sale o finisce il mese."
+        },
+        "startedNoCode": "Avviata: Claude sta scrivendo il piano.",
+        "startedApprovalNoCode": "Avviata: il piano aspetta l'approvazione."
       }
     },
     "myTasks": {
@@ -2960,7 +2990,10 @@
       "providerGone": "Quell'account non esiste più. Scegline un altro.",
       "runsKeep": "Vale per le esecuzioni che partono da adesso: quelle già partite tengono il loro account.",
       "none": "Non ci sono ancora account AI su questa istanza. Claude non può lavorare finché qualcuno non ne aggiunge uno in Amministrazione → AI.",
-      "noneLink": "Apri Amministrazione → AI"
+      "noneLink": "Apri Amministrazione → AI",
+      "current": "Account attuale",
+      "currentName": "l'account attuale",
+      "currentBody": "Scelto da un amministratore dell'AI. Non vedi gli account dell'istanza, quindi resta com'è."
     },
     "automations": {
       "intro": "Cosa fa Claude da solo su {{code}}, senza che nessuno lo chieda.",
@@ -5645,8 +5678,10 @@
       "download": "Scarica come .zip",
       "downloaded_one": "Scaricato {{file}} ({{count}} pagina)",
       "downloaded_other": "Scaricato {{file}} ({{count}} pagine)",
+      "downloadFailed": "Impossibile scaricare questa categoria. Riprova.",
       "empty": "Nessuna pagina",
-      "error": "Non è stato possibile caricare le pagine."
+      "error": "Non è stato possibile caricare le pagine.",
+      "openedInBrowser": "{{file}} si apre nel browser, che lo salva."
     },
     "index": {
       "newPage": "Nuova pagina manuale",
@@ -5802,6 +5837,7 @@
       "hint": "Apri una comunità per vederne le parti più collegate.",
       "download": "Scarica graph.json",
       "downloaded": "Scaricato graph.json",
+      "downloadFailed": "Impossibile scaricare graph.json. Riprova.",
       "fromTerminal": "Da un terminale",
       "copyCommand": "Copia il comando",
       "copied": "Comando copiato",
@@ -11121,7 +11157,8 @@
         "loadError": "Impossibile caricare i consumi.",
         "noProvider": "Nessun account, o un account rimosso",
         "rangeTooLong": "Scegli al più un anno.",
-        "invalidRange": "La data d'inizio viene dopo quella di fine."
+        "invalidRange": "La data d'inizio viene dopo quella di fine.",
+        "serverOutdated": "Il server dell'istanza è più vecchio dell'app e non sa mostrare i consumi di un progetto da soli. Aggiorna il server per vederli qui."
       },
       "prototype": {
         "label": "Solo prototipo"
@@ -13681,6 +13718,8 @@
     },
     "copied": "Copiata. Gli appunti si svuotano fra 30 secondi.",
     "revealFailed": "Non è stato possibile aprire la password.",
+    "revealLimited_one": "Hai aperto molte password in poco tempo. Per sicurezza, quelle nuove si riaprono fra circa {{count}} minuto. Quelle già aperte restano leggibili.",
+    "revealLimited_other": "Hai aperto molte password in poco tempo. Per sicurezza, quelle nuove si riaprono fra circa {{count}} minuti. Quelle già aperte restano leggibili.",
     "column": {
       "waiting": "Qualcuno aspetta che tu confermi il suo accesso"
     },
@@ -13895,5 +13934,32 @@
       "log": "Registro degli accessi",
       "panel": "Registro degli accessi di {{code}}"
     }
+  },
+  "designPlan": {
+    "cancel": "Annulla",
+    "confirm": "Togli",
+    "design": {
+      "more": "Altro per il design",
+      "remove": "Togli il design…",
+      "dialogTitle": "Togliere il design?",
+      "requestConsequence": "Il design va via; la richiesta tiene la sua descrizione. Un refine con Claude può riscriverlo.",
+      "taskConsequence": "La descrizione torna al testo originale. Un design si può riscrivere più avanti.",
+      "removed": "Design tolto",
+      "failed": "Impossibile togliere il design. Riprova.",
+      "title": "Design"
+    },
+    "plan": {
+      "more": "Altro per il piano",
+      "remove": "Togli il piano…",
+      "dialogTitle": "Togliere il piano?",
+      "requestConsequence": "Il piano va via. Un refine con Claude può riscriverlo.",
+      "taskConsequence": "Il prossimo lavoro pianifica da sé, e il piano torna all'approvazione.",
+      "removed": "Piano tolto",
+      "failed": "Impossibile togliere il piano. Riprova.",
+      "title": "Piano"
+    },
+    "show": "Mostra",
+    "hide": "Nascondi",
+    "descriptionLocked": "Togli il design per modificare la descrizione."
   }
 }

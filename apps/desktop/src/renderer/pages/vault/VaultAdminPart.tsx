@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { isAppBuild } from "../../data/build";
+import { isDesktopApp } from "../../data/build";
 import { useMacsOf, useRemoveMacOf } from "../../data/queries";
 import type { MacView } from "../../data/vault/types";
 import { useReauth } from "../../layout/useReauth";
@@ -16,21 +16,23 @@ import { dangerSolidButton, quietButton, secondaryButton } from "../tasks/contro
 // risponde `forbidden` agli altri, e la parte non c'è). I Mac della persona
 // che aprono la cassaforte, senza impronta, e «Remove…» per riga: un dialogo
 // con le conseguenze, una per riga, poi la riconferma. Dal desktop vero la
-// rotta dell'admin è del browser [VA 9]: la parte è una riga che apre lì la
-// pagina della persona (46, 25 nov 2026), senza chiedere i Mac.
+// rotta dell'admin è del browser [VA 9]: la parte è una riga che apre la
+// pagina della persona nella NUOVA app nel browser (46, 25 nov 2026; ritiro
+// del web vecchio: prima apriva il web vecchio, che quella pagina non ce
+// l'ha). Nella nuova app nel browser la lista si legge e si toglie qui.
 
 const day = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 
 export function VaultAdminPart({ personId, name }: { personId: string; name: string }) {
   const { t } = useTranslation();
-  const app = isAppBuild();
+  const desktop = isDesktopApp();
   const { viewer } = useViewer();
-  // Nell'app la lista è del browser [VA 9]: qui non si chiede niente.
-  const macs = useMacsOf(personId, !app).data;
+  // Nell'app desktop la lista è del browser [VA 9]: qui non si chiede niente.
+  const macs = useMacsOf(personId, !desktop).data;
   const [removing, setRemoving] = useState<MacView | null>(null);
-  const inBrowser = () => openInWeb(`/admin/people/${encodeURIComponent(personId)}`);
-  if (app) {
+  const inBrowser = () => openInWeb(`/app/#/admin/people/${encodeURIComponent(personId)}`);
+  if (desktop) {
     if (!viewer.instancePermissions.includes("instance.full_admin")) return null;
     return (
       <Part title={t("vault.admin.title")}>

@@ -218,10 +218,20 @@ export function createInstanceStatusEndpoints(request: ApiRequest) {
  */
 export function createUsageEndpoints(request: ApiRequest) {
   return {
-    summary(input: { range: UsageRange; groupBy: UsageDimension; thenBy?: UsageDimension }): Promise<Reader<UsageSummary>> {
+    /**
+     * Con `projectId` (Settings → Usage del progetto) i soli consumi di quel
+     * progetto: 404 se fuori dallo scope di chi guarda o invisibile. Un server
+     * di prima ignora il parametro.
+     */
+    summary(input: { range: UsageRange; groupBy: UsageDimension; thenBy?: UsageDimension; projectId?: string }): Promise<Reader<UsageSummary>> {
       const r = input.range;
       const range = "days" in r ? { days: String(r.days) } : "month" in r ? { month: "1" } : { from: r.from, to: r.to };
-      return request("GET", `/api/ai-usage/summary${toQuery({ ...range, groupBy: input.groupBy, thenBy: input.thenBy })}`, undefined, usageSummarySchema);
+      return request(
+        "GET",
+        `/api/ai-usage/summary${toQuery({ ...range, groupBy: input.groupBy, thenBy: input.thenBy, projectId: input.projectId })}`,
+        undefined,
+        usageSummarySchema,
+      );
     },
   };
 }

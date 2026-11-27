@@ -44,8 +44,16 @@ async function passkeysOf(db: Db, userId: string) {
     .where(eq(userPasskeys.userId, userId));
 }
 
-async function saveChallenge(db: Db, sessionId: string, challenge: string): Promise<void> {
-  await db.update(sessions).set({ webauthnChallenge: challenge }).where(eq(sessions.id, sessionId));
+/**
+ * I6: la challenge di uno SBLOCCO della cassaforte si salva col suo scopo
+ * (`vault:` davanti), così la verifica sa che non è una riconferma qualunque.
+ * Lo scopo lo decide il server alla creazione delle opzioni, non il client
+ * alla verifica.
+ */
+const VAULT_CHALLENGE = "vault:";
+
+async function saveChallenge(db: Db, sessionId: string, challenge: string, purpose?: PasskeyPurpose): Promise<void> {
+  await db.update(sessions).set({ webauthnChallenge: purpose === "vault" ? `${VAULT_CHALLENGE}${challenge}` : challenge }).where(eq(sessions.id, sessionId));
 }
 
 /**
@@ -53,7 +61,7 @@ async function saveChallenge(db: Db, sessionId: string, challenge: string): Prom
  * anche con due verifiche in parallelo (una sola la legge), e cancellata
  * qualunque sia l'esito della verifica che segue.
  */
-async function takeChallenge(db: Db, sessionId: string): Promise<string | null> {
+async function takeChallengeWithPurpose(db: Db, sessionId: string): Promise<{ challenge: string; purpose: PasskeyPurpose | null } | null> {
   const rows = await db.execute<{ challenge: string | null }>(sql`
     update ${sessions} s
        set webauthn_challenge = null
@@ -61,7 +69,13 @@ async function takeChallenge(db: Db, sessionId: string): Promise<string | null> 
      where s.id = old.id
     returning old.webauthn_challenge as challenge
   `);
-  return rows[0]?.challenge ?? null;
+  const raw = rows[0]?.challenge ?? null;
+  if (!raw) return null;
+  return raw.startsWith(VAULT_CHALLENGE) ? { challenge: raw.slice(VAULT_CHALLENGE.length), purpose: "vault" } : { challenge: raw, purpose: null };
+}
+
+async function takeChallenge(db: Db, sessionId: string): Promise<string | null> {
+  return (await takeChallengeWithPurpose(db, sessionId))?.challenge ?? null;
 }
 
 /** Opzioni di `navigator.credentials.create()` in JSON, con la richiesta PRF esplicita. */
@@ -177,7 +191,7 @@ export async function authenticationOptions(
     allowCredentials: existing.map((p) => ({ id: p.credentialId, transports: p.transports })),
     userVerification: USER_VERIFICATION,
   });
-  await saveChallenge(db, sessionId, options.challenge);
+  await saveChallenge(db, sessionId, options.challenge, purpose);
   // Senza scopo nessuna estensione (la libreria non ne mette di sue).
   if (purpose !== "vault") return { ...options, extensions: undefined };
   return { ...options, extensions: { prf: { eval: { first: isoBase64URL.fromBuffer(PRF_INPUT) } } } };
@@ -196,9 +210,10 @@ export async function finishAuthentication(
   userId: string,
   response: AuthenticationResponseJSON,
   rp: PasskeyRp,
-): Promise<boolean> {
-  const challenge = await takeChallenge(db, sessionId);
-  if (!challenge) return false;
+): Promise<false | { purpose: PasskeyPurpose | null }> {
+  const taken = await takeChallengeWithPurpose(db, sessionId);
+  if (!taken) return false;
+  const { challenge, purpose } = taken;
   const [passkey] = await db
     .select()
     .from(userPasskeys)
@@ -227,5 +242,6 @@ export async function finishAuthentication(
     .update(userPasskeys)
     .set({ counter: verification.authenticationInfo.newCounter, lastUsedAt: sql`now()` })
     .where(eq(userPasskeys.id, passkey.id));
-  return true;
+  // Lo scopo con cui il SERVER ha emesso la challenge (I6): uno sblocco non è una riconferma.
+  return { purpose };
 }

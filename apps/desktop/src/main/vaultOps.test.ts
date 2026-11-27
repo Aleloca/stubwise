@@ -189,6 +189,17 @@ describe("le operazioni della cassaforte nel main", () => {
     expect(calls).toEqual([]);
   });
 
+  it("C2: il 429 `vault_reveal_rate_limited` su Show e Copy è un codice suo, coi secondi del tetto", async () => {
+    const { ops } = setup({
+      [`POST /api/credentials/${CRED}/reveal`]: () => {
+        throw new VaultHttpError(429, "vault_reveal_rate_limited", null, 600);
+      },
+    });
+    const limited = { ok: false, code: "vault_reveal_rate_limited", retryAfterSeconds: 600 };
+    expect(await ops.show(CRED)).toEqual(limited);
+    expect(await ops.copy(CRED)).toEqual(limited);
+  });
+
   it("403 `device_seal_required`: il Mac non apre più (D-5), lo stato diventa `revoked`", async () => {
     const { ops, lock } = setup({
       [`POST /api/credentials/${CRED}/reveal`]: () => {

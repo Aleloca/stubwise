@@ -22,6 +22,16 @@
 #   - tutto il resto (incl. /docs/*)  -> SPA (con fallback a index.html per il
 #                                        client-side routing).
 
+# La CSP delle pagine statiche dell'origine (indurimento di sicurezza, C1/M1):
+# un HEADER, mai un <meta>. La stessa base di `scripts/caddy-csp.mjs`
+# (BASE_DIRECTIVES), che il test `scripts/caddy-csp.test.mjs` tiene d'accordo
+# con questa riga. Niente `'unsafe-inline'` né `'unsafe-eval'` per gli script:
+# il web vecchio e l'app non hanno script inline (lo controlla il build), la
+# guida li ammette per hash (frammento generato, sotto).
+(csp_strict) {
+	header Content-Security-Policy "script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; connect-src 'self'"
+}
+
 {$DOMAIN} {
 	encode zstd gzip
 
@@ -79,6 +89,10 @@
 	# della sezione "Docs" della SPA (/docs, /docs/:projectId, ...), che ora
 	# ricade nel fallback SPA.
 	handle_path /guide/* {
+		# La CSP della guida: la base più gli hash degli script inline di
+		# Starlight e WebAssembly per la ricerca (Pagefind). Il frammento lo
+		# scrive `scripts/caddy-csp.mjs` nel build dell'immagine (Dockerfile.caddy).
+		import /etc/caddy/csp-guide.caddy
 		root * /srv/docs
 		try_files {path} {path}/ /index.html
 		file_server
@@ -91,6 +105,14 @@
 	# serve solo per `/app/` e i suoi asset. PRIMA del `handle` della SPA.
 	redir /app /app/ 308
 	handle_path /app/* {
+		import csp_strict
+		# COOP: una finestra aperta da un'altra origine non tiene un riferimento
+		# all'app (nota della cassaforte nel browser, §2.2 e M4).
+		header Cross-Origin-Opener-Policy "same-origin"
+		# index.html (e il fallback) mai in cache: un deploy, o una revoca, arriva
+		# al primo caricamento. Gli asset hanno l'hash nel nome e restano in cache.
+		@appDocument not path /assets/*
+		header @appDocument Cache-Control "no-store"
 		root * /srv/app
 		try_files {path} /index.html
 		file_server
@@ -121,6 +143,7 @@
 	# statici, con fallback a index.html per le route gestite dal router lato
 	# client.
 	handle {
+		import csp_strict
 		root * /srv/web
 		try_files {path} /index.html
 		file_server

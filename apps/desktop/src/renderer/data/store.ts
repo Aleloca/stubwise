@@ -1,5 +1,8 @@
 import { prLines, type PrLine } from "../domain/claude/taskWork";
 import { SEED_REPLY_JUDGMENTS } from "./seed/mail/replyJudgments";
+import { PULSE_PROPOSALS } from "./seed/pulse";
+import { TASK_DESIGNS } from "./seed/taskDesigns";
+import type { PulseProposalDef } from "./pulse/types";
 import { stallOf, type Stall } from "../domain/stalled";
 import { currentWeek } from "../domain/weeks";
 import { matches, type FilterContext } from "../domain/filters";
@@ -294,6 +297,11 @@ export type ApiFnName =
   | "withdrawDecision"
   | "createRequest"
   | "updateRequest"
+  | "removeRequestDesign"
+  | "getTaskDesignPlan"
+  | "removeTaskDesign"
+  | "removeTaskPlan"
+  | "removeRequestPlan"
   | "mergeRequest"
   | "archiveRequest"
   | "reopenRequest"
@@ -404,6 +412,11 @@ export type ApiFnName =
   | "chat.answerClaudeQuestion"
   | "chat.listClaudeQuestions"
   // Docs (area 5)
+  | "pulse.listPulseProposals"
+  | "pulse.startPulseProposal"
+  | "pulse.dismissPulseProposal"
+  | "docs.exportCategory"
+  | "docs.downloadGraphJson"
   | "docs.listDocSpaces"
   | "docs.getDocSpace"
   | "docs.listDocTree"
@@ -1248,6 +1261,10 @@ interface State {
   meetingTranscripts: MeetingTranscript[];
   /** Le proposte della posta, condivise fra i destinatari membri del progetto. */
   mailProposals: MailProposal[];
+  /** Le proposte del polso (shape `pulse-proposals.md`). */
+  pulseProposals: PulseProposalDef[];
+  /** Design e piano salvati sulle task (shape `design-plan-remove.md`), per id. */
+  taskDesigns: Record<string, { design: string | null; plan: string | null }>;
   /** Le bozze, per persona e conversazione. */
   mailDrafts: MailDraft[];
   /** La posta non ancora arrivata: la porta dentro l'allineamento della sua casella. */
@@ -1499,6 +1516,8 @@ function freshState(): State {
     mailReplyJudgments: new Map(SEED_REPLY_JUDGMENTS),
     meetingTranscripts: MEETING_TRANSCRIPTS.map(copy),
     mailProposals: [...MAIL_PROPOSALS, ...CALENDAR_PROPOSALS].map(copy),
+    pulseProposals: PULSE_PROPOSALS.map(copy),
+    taskDesigns: structuredClone(TASK_DESIGNS),
     mailDrafts: MAIL_DRAFTS.map(copy),
     mailIncoming: MAIL_INCOMING.map(copy),
     mailClassificationLog: new Map(),

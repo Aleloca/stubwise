@@ -39,6 +39,10 @@
     "./app-links": {
       "types": "./dist/app-links.d.ts",
       "default": "./dist/app-links.js"
+    },
+    "./csp": {
+      "types": "./dist/csp.d.ts",
+      "default": "./dist/csp.js"
     }
   },
   "scripts": {

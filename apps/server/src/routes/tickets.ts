@@ -1352,7 +1352,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/:id",
     {
-      config: { access: onTicket("tickets.edit"), mcp: { action: "tickets.update", summary: "Modifica un ticket: titolo, corpo, tipo, stato, priorità, assegnatario, milestone o etichette (solo i campi mandati).", effect: "write", note: "Assegnare l'utente «Claude» avvia il lavoro come il tool `run_ticket`: serve `runs.start`, passa dal gate del piano e spende budget." } },
+      config: { access: onTicket("tickets.edit"), mcp: { action: "tickets.update", summary: "Modifica un ticket: titolo, corpo, tipo, stato, priorità, assegnatario, milestone o etichette (solo i campi mandati). Con un design attivo il corpo nuovo è la descrizione originale: il design resta, e toglierlo riporta il testo nuovo.", effect: "write", note: "Assegnare l'utente «Claude» avvia il lavoro come il tool `run_ticket`: serve `runs.start`, passa dal gate del piano e spende budget." } },
       schema: {
         params: idParamsSchema,
         body: updateTicketBodySchema,

@@ -141,9 +141,9 @@ export async function meSecurityRoutes(instance: FastifyInstance): Promise<void>
 
   /**
    * Opzioni WebAuthn della riconferma: challenge sulla sessione, una volta
-   * sola. Con `purpose: "vault"` è anche lo sblocco della cassaforte: le
-   * opzioni chiedono il segreto PRF, e la verifica resta quella di sempre
-   * (`/reauth/passkey/verify`, che rinfresca la riconferma).
+   * sola. Con `purpose: "vault"` è lo sblocco della cassaforte: le opzioni
+   * chiedono il segreto PRF, e la verifica (`/reauth/passkey/verify`) apre
+   * SOLO la finestra della cassaforte, mai la riconferma (I6).
    */
   app.post(
     "/reauth/passkey/options",
@@ -196,7 +196,14 @@ export async function meSecurityRoutes(instance: FastifyInstance): Promise<void>
         ),
       );
       if (!attempt.ok) return rejectAttempt(reply, attempt);
-      await markConfirmed(sessionId);
+      // I6 (indurimento): uno SBLOCCO della cassaforte (la challenge l'ha emessa
+      // il server con `purpose: "vault"`) non rinnova la riconferma: apre solo
+      // le rotte della cassaforte che dichiarano `config.reauth: "vault"`.
+      if (attempt.result.purpose === "vault") {
+        await app.db.update(sessions).set({ vaultUnlockedAt: sql`now()` }).where(eq(sessions.id, sessionId));
+      } else {
+        await markConfirmed(sessionId);
+      }
       return reply.code(204).send(null);
     },
   );

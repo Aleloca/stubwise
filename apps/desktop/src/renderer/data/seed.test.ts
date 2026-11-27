@@ -529,6 +529,11 @@ describe("seed: notifiche", () => {
     for (const k of LOCAL_NOTIFICATION_KINDS) expect(kinds.has(k), k).toBe(true);
   });
 
+  it("M6: la card del polso su TRM informa e apre la Home (PQ-1b), a Laura e Marco", () => {
+    const pulse = NOTIFICATIONS.find((n) => n.kind === "project.pulse")!;
+    expect(pulse).toMatchObject({ objectCode: "TRM", link: "#/home", recipientIds: ["p-laura", "p-marco"] });
+  });
+
   it("nessuna notifica chiede una decisione: quelle vivono in Home e in Mail", () => {
     for (const n of NOTIFICATIONS)
       expect(DECISION_NOTIFICATION_KINDS as readonly string[]).not.toContain(n.kind);

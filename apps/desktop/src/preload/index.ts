@@ -186,9 +186,11 @@ const bridge = {
     // «Copy» no (scrive gli appunti il main); il resto esiti e conteggi.
     show: (
       credentialId: string,
-    ): Promise<{ ok: true; password: string } | { ok: false; code: string }> =>
+    ): Promise<{ ok: true; password: string } | { ok: false; code: string; retryAfterSeconds?: number }> =>
       ipcRenderer.invoke("vault:show", credentialId),
-    copy: (credentialId: string): Promise<{ ok: true } | { ok: false; code: string }> =>
+    copy: (
+      credentialId: string,
+    ): Promise<{ ok: true } | { ok: false; code: string; retryAfterSeconds?: number }> =>
       ipcRenderer.invoke("vault:copy", credentialId),
     share: (
       credentialId: string,

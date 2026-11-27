@@ -14,6 +14,7 @@ import {
   useStartRefineConversation,
   useTasks,
   useUpdateRequest,
+  useRemoveRequestDesignPlan,
 } from "../../data/queries";
 import type { Project, ProjectRequest, RequestLevel, RequestPatch, Task } from "../../data/types";
 import { requestFileName, requestToMarkdown } from "../../domain/export";
@@ -34,6 +35,7 @@ import { PersonChip } from "../../tasks-ui/PersonChip";
 import { StatusLabel } from "../../tasks-ui/StatusLabel";
 import { useToast } from "../../tasks-ui/Toast";
 import { NewTaskDialog } from "../task/NewTaskDialog";
+import { RemoveDesignPlanMenu } from "../task/RemoveDesignPlan";
 import {
   CloseIcon,
   MoreIcon,
@@ -232,6 +234,7 @@ function RequestBody({
   const [merging, setMerging] = useState(false);
 
   const canEdit = can(viewer, "backlog.edit", request.projectId);
+  const removeDesignPlan = useRemoveRequestDesignPlan();
   const canConvert = can(viewer, "tickets.create", request.projectId);
   const open = isRequestOpen(request);
   const mergedInto = request.mergedIntoId
@@ -525,7 +528,18 @@ function RequestBody({
 
       {/* Scritti nel refine con Claude: si leggono anche senza poter seguire la conversazione. */}
       {request.design?.trim() && (
-        <Section title={t("requests.refine.side.design")}>
+        <Section
+          title={t("requests.refine.side.design")}
+          action={
+            canEdit ? (
+              <RemoveDesignPlanMenu
+                which="design"
+                consequence={t("designPlan.design.requestConsequence")}
+                onRemove={() => removeDesignPlan.mutateAsync({ id: request.id, which: "design" }).then(() => true)}
+              />
+            ) : undefined
+          }
+        >
           <Markdown source={request.design} />
         </Section>
       )}
@@ -533,8 +547,17 @@ function RequestBody({
         <Section
           title={t("requests.refine.side.plan")}
           action={
-            <span data-plan-approval="none" className="text-xs text-ink-muted">
-              {t("requests.refine.side.notApproved")}
+            <span className="flex items-center gap-2">
+              <span data-plan-approval="none" className="text-xs text-ink-muted">
+                {t("requests.refine.side.notApproved")}
+              </span>
+              {canEdit && (
+                <RemoveDesignPlanMenu
+                  which="plan"
+                  consequence={t("designPlan.plan.requestConsequence")}
+                  onRemove={() => removeDesignPlan.mutateAsync({ id: request.id, which: "plan" }).then(() => true)}
+                />
+              )}
             </span>
           }
         >

@@ -43,6 +43,10 @@ describe("endpoints inbox", () => {
 
     await client.inbox.list();
     expect(lastCall(fetchImpl)).toEqual(["/api/inbox", "GET"]);
+
+    // Un taglio solo (le proposte del pulse): il filtro sul server, non sul client.
+    await client.inbox.list({ status: "open", kind: "project.pulse" }, undefined, 100);
+    expect(lastCall(fetchImpl)).toEqual(["/api/inbox?status=open&kind=project.pulse&limit=100", "GET"]);
   });
 
   it("read/handled: POST sulle rotte dedicate, 204 senza corpo", async () => {

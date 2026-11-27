@@ -404,6 +404,28 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
       ...viaClaudeOf(item, ctx),
     };
   }
+  // Le proposte del polso si decidono solo in «Da decidere» (shape
+  // `pulse-proposals.md`, PQ-1b): nel pannello la card dice che c'è e apre
+  // la Home, come la posta passata; mai il backlog del web vecchio.
+  if (item.kind === "project.pulse" && isIntegrated({ kind: "feature", name: "pulse-proposals" })) {
+    return {
+      id: item.id,
+      kind: item.kind,
+      projectId: item.projectId,
+      objectCode: projectCode ?? "",
+      departmentId: null,
+      recipientIds: [],
+      title: item.text,
+      body: item.summary ?? "",
+      createdAt: item.createdAt,
+      read: item.readAt !== null,
+      archived: item.status === "handled",
+      snoozedUntil: item.status === "snoozed" ? item.snoozedUntil : null,
+      link: "#/home",
+      ...mandatoryOf(item, ctx),
+      ...viaClaudeOf(item, ctx),
+    };
+  }
   // Area 8, F4a (S12): una card del monitor apre il server nell'app per codice
   // (derivato a lettura dal server): nel progetto dell'ancora, o
   // nell'Amministrazione senza ancora (zero o più progetti: `monitor.manage`).
