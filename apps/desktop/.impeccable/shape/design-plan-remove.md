@@ -1,6 +1,6 @@
 # Shape brief — Togliere design e piano da task e richieste
 
-> Stato: **bozza con domande**, 27 nov 2026 (94), per il ritiro del web
+> Stato: **decisa**, 27 nov 2026 (94; decisioni in fondo), per il ritiro del web
 > vecchio (inventario `docs/plans/2026-11-27-ritiro-web-inventario.md`, r.88-89).
 > Le rotte ci sono: `DELETE /api/tickets/:id/design|plan` e
 > `DELETE /api/backlog/:id/design|plan`.
@@ -34,7 +34,15 @@ togliere il design cambia la descrizione che si legge.
   Per il piano, la riga del dialogo dice: «The next run plans on its own,
   and the plan goes to approval again.».
 
-## Domande
+## Decisioni (27 nov 2026)
+
+- **DP-Q1** (46): «Remove» nel «⋯» dell'intestazione della sezione, con il
+  dialogo che dice la conseguenza; sulla richiesta con `backlog.edit`.
+- **DP-Q2** (maintainer): sulla task le sezioni DESIGN e PLAN, chiuse di
+  default, in lettura e con lo stesso Remove.
+- **DP-Q3** (46): sulla task con `tickets.edit`, come la rotta.
+
+## Le domande com'erano
 
 Ognuna ha la mia raccomandazione per prima.
 
