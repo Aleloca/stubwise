@@ -123,7 +123,8 @@ describe("le scritture", () => {
     });
     expect(state.changelog.at(-1)).toMatchObject({
       kind: "workspace.member_added",
-      params: { person: "Irene Caruso", role: "Viewer" },
+      object: { type: "person", id: "p-irene", label: "Irene Caruso" },
+      params: { workspaceName: "Clienti storici", roleName: "Viewer" },
     });
   });
 
@@ -184,6 +185,14 @@ describe("le scritture", () => {
     markReauthenticated(ROBERTA);
     expect(await workspaces.removeWorkspaceMember(STORICI, "p-marco", true)).toEqual({ ok: true });
     expect(isMember("p-marco", "prj-ort")).toBe(false);
+    // Come sul server: la voce della workspace e una `member.removed` per progetto lasciato.
+    expect(state.changelog.slice(-5).map((c) => [c.kind, c.projectId])).toEqual([
+      ["workspace.member_removed", null],
+      ["member.removed", "prj-bsc"],
+      ["member.removed", "prj-lnt"],
+      ["member.removed", "prj-ort"],
+      ["member.removed", "prj-spz"],
+    ]);
   });
 
   it("spostare un progetto, eliminare la workspace: i progetti restano, in «No workspace»", async () => {
@@ -195,10 +204,10 @@ describe("le scritture", () => {
     expect(visibleProjectIds("p-nicola").has("prj-spz")).toBe(false);
     expect(state.projectsById.get("prj-spz")).toBeDefined();
     expect(accessState().workspaces.map((w) => w.id)).toEqual(["ws-prodotti"]);
-    expect(state.changelog.slice(-3).map((c) => c.kind)).toEqual([
-      "workspace.project_removed",
-      "workspace.project_added",
-      "workspace.deleted",
+    expect(state.changelog.slice(-3).map((c) => [c.kind, c.projectId])).toEqual([
+      ["workspace.project_removed", "prj-ort"],
+      ["workspace.project_added", "prj-ort"],
+      ["workspace.deleted", null],
     ]);
   });
 

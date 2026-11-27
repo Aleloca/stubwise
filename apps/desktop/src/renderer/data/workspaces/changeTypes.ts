@@ -12,16 +12,27 @@ const instance = (kind: string): ChangeType => ({
   scope: "instance",
   group: "workspaces",
 });
+// Le voci di un progetto messo in una workspace o tolto: scritte SUL progetto,
+// lette da chi ne gestisce i membri (come `member.*`). Uno spostamento ne
+// scrive due: `project_removed` dalla vecchia, `project_added` nella nuova.
+const project = (kind: string): ChangeType => ({
+  kind,
+  templateKey: `changelog.kinds.${kind}`,
+  readPermission: "project.members.manage",
+  scope: "project",
+  group: "members",
+});
 
+// Gli stessi tipi del server (lotto 3 di 54, `catalogParity.test.ts`).
 export const WORKSPACE_CHANGE_TYPES: readonly ChangeType[] = [
   instance("workspace.created"),
-  instance("workspace.renamed"),
+  instance("workspace.updated"),
   instance("workspace.deleted"),
-  instance("workspace.project_added"),
-  instance("workspace.project_removed"),
   instance("workspace.member_added"),
   instance("workspace.member_role_changed"),
   instance("workspace.member_removed"),
+  project("workspace.project_added"),
+  project("workspace.project_removed"),
 ];
 
 registerChangeTypes(WORKSPACE_CHANGE_TYPES);

@@ -536,7 +536,7 @@ export async function renameWorkspace(
     w.slug = slug;
   });
   recordChange({
-    kind: "workspace.renamed",
+    kind: "workspace.updated",
     actorId: me,
     projectId: null,
     object: workspaceLabel(workspaceId),
@@ -556,13 +556,15 @@ export async function deleteWorkspace(workspaceId: string): Promise<AdminResult>
   return result;
 }
 
+/** La voce sul progetto messo in una workspace o tolto (scope di progetto, come `member.*`). */
 function recordProject(me: string, workspaceId: string, projectId: string, kind: string) {
+  const ws = workspaceLabel(workspaceId);
   recordChange({
     kind,
     actorId: me,
-    projectId: null,
-    object: workspaceLabel(workspaceId),
-    params: { project: codeOf(projectId) },
+    projectId,
+    object: ws,
+    params: { workspaceName: ws.label, project: codeOf(projectId) },
   });
 }
 
@@ -588,9 +590,15 @@ export async function setProjectWorkspace(
   return result;
 }
 
-const memberParams = (personId: string, roleId: string) => ({
-  person: nameOf(personId) ?? personId,
-  role: roleById(roleId)?.name ?? "",
+/** Le voci dei membri: l'oggetto è la persona, la workspace nei valori. */
+const personObject = (personId: string) => ({
+  type: "person",
+  id: personId,
+  label: nameOf(personId) ?? personId,
+});
+const memberParams = (workspaceId: string, roleId: string) => ({
+  workspaceName: workspaceLabel(workspaceId).label,
+  roleName: roleById(roleId)?.name ?? "",
 });
 
 /** Invita una persona che ha già un account (D9), col ruolo di workspace (D3: di base Viewer). */
@@ -607,8 +615,8 @@ export async function addWorkspaceMember(
       kind: "workspace.member_added",
       actorId: me,
       projectId: null,
-      object: workspaceLabel(workspaceId),
-      params: memberParams(personId, roleId),
+      object: personObject(personId),
+      params: { ...memberParams(workspaceId, roleId), roleId },
     });
   }
   return result;
@@ -633,10 +641,10 @@ export async function setWorkspaceMemberRole(
       kind: "workspace.member_role_changed",
       actorId: me,
       projectId: null,
-      object: workspaceLabel(workspaceId),
+      object: personObject(personId),
       before: beforeName ?? null,
       after: roleById(roleId)?.name ?? null,
-      params: memberParams(personId, roleId),
+      params: memberParams(workspaceId, roleId),
     });
   }
   return result;
@@ -649,9 +657,15 @@ export async function removeWorkspaceMember(
   alsoFromProjects = false,
 ): Promise<AdminResult> {
   const me = await writer("workspaces.removeMember");
-  const m = accessState().workspaceMembers.find(
-    (x) => x.workspaceId === workspaceId && x.personId === personId,
-  );
+  const s = accessState();
+  const m = s.workspaceMembers.find((x) => x.workspaceId === workspaceId && x.personId === personId);
+  // D12 con la casella: le appartenenze per progetto che se ne vanno, coi loro ruoli (per `member.removed`).
+  const leaving = alsoFromProjects
+    ? s.memberships
+        .filter((x) => x.personId === personId && projectsIn(s, workspaceId).includes(x.projectId))
+        .map((x) => ({ projectId: x.projectId, roleName: roleById(x.roleId)?.name ?? "" }))
+        .sort((a, b) => codeOf(a.projectId).localeCompare(codeOf(b.projectId)))
+    : [];
   const op: WorkspaceOperation = { kind: "removeMember", workspaceId, personId, alsoFromProjects };
   const result = judgeAndWrite(me, "workspaces.removeMember", op, (a) => applyOperation(a, op));
   if (result.ok && m) {
@@ -659,9 +673,20 @@ export async function removeWorkspaceMember(
       kind: "workspace.member_removed",
       actorId: me,
       projectId: null,
-      object: workspaceLabel(workspaceId),
-      params: memberParams(personId, m.roleId),
+      object: personObject(personId),
+      params: { ...memberParams(workspaceId, m.roleId), alsoProjects: String(alsoFromProjects) },
     });
+    // La `member.removed` di sempre, come sul server: la memoria «chi lo conosceva».
+    for (const l of leaving) {
+      recordChange({
+        kind: "member.removed",
+        actorId: me,
+        projectId: l.projectId,
+        object: personObject(personId),
+        before: l.roleName,
+        params: { project: codeOf(l.projectId) },
+      });
+    }
   }
   return result;
 }

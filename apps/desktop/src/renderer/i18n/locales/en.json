@@ -12595,13 +12595,13 @@
       },
       "workspace": {
         "created": "<actor>{{actor}}</actor> created the workspace <object>{{object}}</object>.",
-        "renamed": "<actor>{{actor}}</actor> renamed the workspace <object>{{object}}</object>.",
+        "updated": "<actor>{{actor}}</actor> renamed the workspace <object>{{object}}</object>.",
         "deleted": "<actor>{{actor}}</actor> deleted the workspace <object>{{object}}</object>.",
-        "project_added": "<actor>{{actor}}</actor> put {{project}} in <object>{{object}}</object>.",
-        "project_removed": "<actor>{{actor}}</actor> took {{project}} out of <object>{{object}}</object>.",
-        "member_added": "<actor>{{actor}}</actor> added {{person}} to <object>{{object}}</object> as {{role}}.",
-        "member_role_changed": "<actor>{{actor}}</actor> changed {{person}}'s role in <object>{{object}}</object>.",
-        "member_removed": "<actor>{{actor}}</actor> removed {{person}} from <object>{{object}}</object>."
+        "project_added": "<actor>{{actor}}</actor> put the project in the workspace <object>{{object}}</object>.",
+        "project_removed": "<actor>{{actor}}</actor> took the project out of the workspace <object>{{object}}</object>.",
+        "member_added": "<actor>{{actor}}</actor> added <object>{{object}}</object> to {{workspaceName}} as {{roleName}}.",
+        "member_role_changed": "<actor>{{actor}}</actor> changed <object>{{object}}</object>'s role in {{workspaceName}}.",
+        "member_removed": "<actor>{{actor}}</actor> removed <object>{{object}}</object> from {{workspaceName}}."
       },
       "member": {
         "added": "<actor>{{actor}}</actor> added <object>{{object}}</object> to {{project}} as {{role}}.",
