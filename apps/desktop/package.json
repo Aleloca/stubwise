@@ -15,7 +15,7 @@
     "package:mac": "node scripts/build-keyhelper.mjs --sign && STUBWISE_VAULT_DESKTOP=on pnpm check:seed:app && electron-builder --mac dmg --config electron-builder.yml --config.mac.notarize=true && node scripts/check-fuses.mjs release && node scripts/check-signature.mjs release",
     "package:mac:unsigned": "node scripts/build-keyhelper.mjs && pnpm check:seed:app && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg --config electron-builder.yml --config.mac.identity=- --config.mac.hardenedRuntime=false && node scripts/check-fuses.mjs release && node scripts/check-signature.mjs release --adhoc",
     "preview:web": "vite --config vite.web.config.ts",
-    "test": "vitest run",
+    "test": "vitest run ${VITEST_SHARD:+--shard=$VITEST_SHARD}",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
     "gen:stubs": "node scripts/gen-backend-stubs.mjs"
   },
