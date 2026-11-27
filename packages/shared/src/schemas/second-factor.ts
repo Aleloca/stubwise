@@ -172,6 +172,8 @@ export const securityEventKindSchema = z.enum([
   // Lotto 10: la cassaforte dal desktop (un Mac associato o tolto).
   "vault_device_sealed",
   "vault_device_seal_revoked",
+  // Indurimento (I7): un sigillo NUOVO (una passkey in più apre la cassaforte).
+  "vault_seal_added",
 ]);
 export type SecurityEventKind = z.infer<typeof securityEventKindSchema>;
 
