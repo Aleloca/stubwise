@@ -4,7 +4,7 @@ import type { MailProposal } from "@stubwise/shared";
 import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { answerGoogleProposal } from "./google-proposal.js";
 import type { DecideResult } from "./mail-proposals-decide.js";
-import { legacyStatus, mapError, modelActions, type CardEvent } from "./mail-proposals-legacy.js";
+import { cardRule, legacyStatus, mapError, modelActions, personOf, type CardEvent, type CardState } from "./mail-proposals-legacy.js";
 
 /**
  * LE PROPOSTE DEL CALENDARIO in `/api/me/mail/proposals` (area 6, F3b, task
@@ -27,23 +27,30 @@ import { legacyStatus, mapError, modelActions, type CardEvent } from "./mail-pro
  * com'erano finché non si decidono.
  */
 
-interface CalendarRow {
+interface CalendarRow extends CardState {
   event: typeof calendarEvents.$inferSelect;
   card: CardEvent | null;
-  notificationId: string | null;
 }
 
 async function calendarRows(db: Db, viewerId: string, filter: { id?: string | undefined }): Promise<CalendarRow[]> {
   const conditions = [eq(googleAccounts.userId, viewerId), isNotNull(calendarEvents.proposalNotificationId)];
   if (filter.id) conditions.push(eq(calendarEvents.id, filter.id));
   const rows = await db
-    .select({ event: calendarEvents, card: notifications.event, notificationId: notifications.id })
+    .select({
+      event: calendarEvents,
+      card: notifications.event,
+      notificationId: notifications.id,
+      cardStatus: notifications.status,
+      cardHandledAt: notifications.handledAt,
+      cardHandledBy: notifications.handledByUserId,
+    })
     .from(calendarEvents)
     .innerJoin(googleAccounts, eq(googleAccounts.id, calendarEvents.accountId))
     .leftJoin(notifications, eq(notifications.id, calendarEvents.proposalNotificationId))
     .where(and(...conditions))
     .orderBy(calendarEvents.startsAt);
-  return rows.map((r) => ({ ...r, card: (r.card as CardEvent | null) ?? null }));
+  // Il calendario non si passa: una card chiusa senza esito è «Non fare nulla» (`cardRule`).
+  return rows.map((r) => ({ ...r, card: (r.card as CardEvent | null) ?? null, handed: false }));
 }
 
 /** Lo stato pubblico: dall'esito dell'evento e dalla card. */
@@ -72,8 +79,7 @@ export async function listCalendarProposals(db: Db, viewerId: string, filter: { 
     const permissions = permissionsOf.get(projectId);
     if (!permissions) continue;
     const actions = modelActions(row.card);
-    const status = calendarStatus(row);
-    const open = status === "open" && row.notificationId !== null;
+    const { status, open, closedAt, closedBy } = cardRule(calendarStatus(row), row);
     const blockedIndices = actions.flatMap((a, i) => {
       const needed = permissionForProposalAction(a.action.type);
       return needed && !permissions.has(needed) ? [i] : [];
@@ -94,8 +100,8 @@ export async function listCalendarProposals(db: Db, viewerId: string, filter: { 
       editable: false,
       blockedIndices,
       outsiders: [],
-      decidedBy: null,
-      decidedAt: null,
+      decidedBy: closedBy ? ((await personOf(db, closedBy)) ?? null) : null,
+      decidedAt: closedAt?.toISOString() ?? null,
       confirmedIndices: [],
       results: [],
       error: null,
@@ -119,7 +125,10 @@ export async function decideCalendar(
 ): Promise<DecideResult | null> {
   const [row] = await calendarRows(db, viewerId, { id });
   if (!row) return decideShared(db, viewerId, id, decision);
-  if (!row.notificationId || calendarStatus(row) !== "open") return { ok: false, error: "already_handled", decidedBy: null };
+  const state = cardRule(calendarStatus(row), row);
+  if (!row.notificationId || !state.open) {
+    return { ok: false, error: "already_handled", decidedBy: state.closedBy ? ((await personOf(db, state.closedBy)) ?? null) : null };
+  }
   if (decision.kind === "hand" || decision.kind === "reassign") return { ok: false, error: "invalid_selection" };
   const [user] = await db.select({ role: users.role }).from(users).where(eq(users.id, viewerId));
   const actor = { id: viewerId, role: user?.role ?? "member" };
