@@ -1534,6 +1534,9 @@ describe("GET /api/me/mail/threads", () => {
     await seedProposal(messageId, projectId, { status: "proposed" });
     const other = await seedProject("Altro progetto");
     await seedProposal(messageId, other, { status: "actioned" });
+    // r.1414: i progetti di una proposta si mostrano solo a chi li vede.
+    await addMember(app, projectId, memberId, "viewer");
+    await addMember(app, other, memberId, "viewer");
 
     const res = await getThreads(memberCookie);
     expect(res.json().items[0].openProposals).toBe(1);

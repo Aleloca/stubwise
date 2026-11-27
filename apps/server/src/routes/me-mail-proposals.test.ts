@@ -649,6 +649,20 @@ describe("le proposte di PRIMA in /proposals (una fonte sola)", () => {
       expect(item).toMatchObject({ status: "handed", canConfirm: false, handedAt: handledOn.toISOString() });
     });
 
+    it("NEGATIVO, r.1414: nella lista delle conversazioni una proposta su un progetto che il titolare non vede non ne dà né id né nome, né conta", async () => {
+      const { ada, old } = await legacy();
+      const { eq } = await import("drizzle-orm");
+      const [hidden] = await db.insert(projects).values({ name: "Segreto", slug: `segreto-${randomUUID().slice(0, 6)}`, ingestionKey: randomUUID() }).returning();
+      await db.update(emailProposals).set({ projectId: hidden!.id }).where(eq(emailProposals.id, old.id));
+      const res = await get(ada.headers, "/api/me/mail/threads");
+      expect(res.statusCode).toBe(200);
+      const thread = (res.json() as { items: { threadId: string; openProposals: number; projectIds: string[]; projectNames: string[] }[] }).items.find((t) => t.threadId === "t-old")!;
+      expect(thread.projectIds).not.toContain(hidden!.id);
+      expect(thread.projectNames).not.toContain("Segreto");
+      expect(thread.openProposals).toBe(0);
+      expect(JSON.stringify(res.json())).not.toContain(hidden!.id);
+    });
+
     it("il badge della conversazione non la conta più fra le aperte", async () => {
       const { ada } = await archived();
       const res = await get(ada.headers, "/api/me/mail/threads");

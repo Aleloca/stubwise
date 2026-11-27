@@ -1394,6 +1394,9 @@ export async function meMailRoutes(
             ),
           );
         for (const row of proposalRows) {
+          // r.1414: un progetto che chi guarda non vede non ha né id né nome,
+          // e la sua proposta non conta (`legacyView` non la mostra).
+          if (!row.projectId || !sees(row.projectId)) continue;
           if (row.open) {
             openByThread.set(row.threadId, (openByThread.get(row.threadId) ?? 0) + 1);
           }
