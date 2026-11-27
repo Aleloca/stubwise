@@ -147,3 +147,25 @@ describe("keyFingerprint", () => {
     await expect(keyFingerprint("non json")).rejects.toThrow();
   });
 });
+
+describe("M-2: la verifica della coppia non esporta la privata", () => {
+  it("sigillare e aprire non chiamano mai exportKey sulla privata", async () => {
+    const { generatePersonKeyPair: gen, sealPrivateKey: seal, openPrivateKey: openKey } = await import("./keys.js");
+    const pair = await gen();
+    const prf = crypto.getRandomValues(new Uint8Array(32)).buffer;
+    const orig = crypto.subtle.exportKey.bind(crypto.subtle);
+    const exported: KeyType[] = [];
+    crypto.subtle.exportKey = (async (format: KeyFormat, key: CryptoKey) => {
+      exported.push(key.type);
+      return orig(format as "jwk", key);
+    }) as typeof crypto.subtle.exportKey;
+    try {
+      const sealed = await seal(prf, pair.privateKeyPkcs8, pair.publicKey);
+      await openKey(prf, sealed, pair.publicKey);
+    } finally {
+      crypto.subtle.exportKey = orig as typeof crypto.subtle.exportKey;
+    }
+    expect(exported).not.toContain("private");
+  });
+});
+
