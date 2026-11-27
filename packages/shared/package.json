@@ -35,6 +35,10 @@
     "./mirror-slug": {
       "types": "./dist/mirror-slug.d.ts",
       "default": "./dist/mirror-slug.js"
+    },
+    "./csp": {
+      "types": "./dist/csp.d.ts",
+      "default": "./dist/csp.js"
     }
   },
   "scripts": {
