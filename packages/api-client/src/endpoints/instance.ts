@@ -91,6 +91,30 @@ export function createGitAccountEndpoints(request: ApiRequest) {
     validate(id: string) {
       return request("POST", `/api/git-accounts/${seg(id)}/validate`, undefined, gitValidateResponseSchema);
     },
+    /**
+     * Ritiro del web vecchio (la creazione di un repository): i repository che
+     * l'account vede sulla piattaforma, i rami di uno, e la verifica che lo
+     * raggiunga. Tutte con `git_accounts.manage`.
+     */
+    repositories(id: string) {
+      return request(
+        "GET",
+        `/api/git-accounts/${seg(id)}/repositories`,
+        undefined,
+        z.array(z.object({ fullName: z.string(), name: z.string(), cloneUrl: z.string(), defaultBranch: z.string().nullable() })),
+      );
+    },
+    branches(id: string, repo: string) {
+      return request(
+        "GET",
+        `/api/git-accounts/${seg(id)}/branches?repo=${encodeURIComponent(repo)}`,
+        undefined,
+        z.object({ branches: z.array(z.string()), defaultBranch: z.string().nullable() }),
+      );
+    },
+    validateRepo(id: string, repo: string) {
+      return request("GET", `/api/git-accounts/${seg(id)}/validate-repo?repo=${encodeURIComponent(repo)}`, undefined, gitValidateResponseSchema);
+    },
     setDefaultReviewer(id: string): Promise<Reader<DefaultReviewerResponse>> {
       return request("PUT", `/api/git-accounts/${seg(id)}/default-reviewer`, undefined, defaultReviewerResponseSchema);
     },

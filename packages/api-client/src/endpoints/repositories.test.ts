@@ -137,3 +137,62 @@ describe("area 9, F6: i repository senza progetto", () => {
     expect([String(url), init?.method]).toEqual(["/api/repositories/r", "DELETE"]);
   });
 });
+
+describe("endpoints repositories: la pagina Repositories della nuova app", () => {
+  const respond = (body: unknown, status = 200) => {
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(
+      async () => new Response(body === null ? null : JSON.stringify(body), { status, headers: { "content-type": "application/json" } }),
+    );
+    return { client: createStubwiseClient({ baseUrl: "", getAuthHeader: () => null, fetch: fetchImpl }), fetchImpl };
+  };
+  const last = (f: ReturnType<typeof respond>["fetchImpl"]) => ({
+    url: String(f.mock.calls.at(-1)![0]),
+    method: f.mock.calls.at(-1)![1]?.method,
+    body: f.mock.calls.at(-1)![1]?.body ? JSON.parse(String(f.mock.calls.at(-1)![1]!.body)) : undefined,
+  });
+
+  it("create: il segreto del webhook della risposta non arriva al chiamante", async () => {
+    const { client, fetchImpl } = respond({ ...REPOSITORY, webhookSecret: "segreto-di-32", warnings: [] }, 201);
+    const created = await client.repositories.create({ projectId: REPOSITORY.projectId, name: "x", gitAccountId: REPOSITORY.gitAccountId, repoUrl: REPOSITORY.repoUrl, defaultBranch: "main" });
+    expect(last(fetchImpl)).toMatchObject({ url: "/api/repositories", method: "POST" });
+    expect(JSON.stringify(created)).not.toContain("segreto-di-32");
+  });
+
+  it("update, configureWebhook, i file d'ambiente: metodo, indirizzo e corpo", async () => {
+    let r = respond(REPOSITORY);
+    await r.client.repositories.update("portale-b2b", { name: "n", protectedBranches: ["main"] });
+    expect(last(r.fetchImpl)).toEqual({ url: "/api/repositories/portale-b2b", method: "PATCH", body: { name: "n", protectedBranches: ["main"] } });
+    r = respond({ ok: true, created: true, updated: false, detail: "d", url: "u" });
+    await r.client.repositories.configureWebhook("portale-b2b");
+    expect(last(r.fetchImpl)).toMatchObject({ url: "/api/repositories/portale-b2b/configure-webhook", method: "POST" });
+    const id = REPOSITORY.id;
+    const file = "44444444-4444-4444-8444-444444444444";
+    r = respond([]);
+    await r.client.repositories.envFiles(id);
+    expect(last(r.fetchImpl)).toMatchObject({ url: `/api/repositories/${id}/env-files`, method: "GET" });
+    r = respond({ key: "API_KEY", valueSet: true });
+    await r.client.repositories.setEnvVar(id, file, "API_KEY", "v");
+    expect(last(r.fetchImpl)).toEqual({ url: `/api/repositories/${id}/env-files/${file}/vars/API_KEY`, method: "PUT", body: { value: "v" } });
+    r = respond(null, 204);
+    await r.client.repositories.removeEnvVar(id, file, "API_KEY");
+    expect(last(r.fetchImpl)).toMatchObject({ url: `/api/repositories/${id}/env-files/${file}/vars/API_KEY`, method: "DELETE" });
+  });
+
+  it("l'import di un server di prima (senza replaced né skipped) si legge con elenchi vuoti", async () => {
+    const { client } = respond({ count: 1, imported: ["A"] });
+    expect(await client.repositories.importEnvFile(REPOSITORY.id, "44444444-4444-4444-8444-444444444444", "A=1")).toEqual({ count: 1, imported: ["A"], replaced: [], skipped: [] });
+  });
+
+  it("gli account git: i repository della piattaforma, i rami, la verifica", async () => {
+    const acc = REPOSITORY.gitAccountId;
+    let r = respond([]);
+    await r.client.gitAccounts.repositories(acc);
+    expect(last(r.fetchImpl)).toMatchObject({ url: `/api/git-accounts/${acc}/repositories`, method: "GET" });
+    r = respond({ branches: ["main"], defaultBranch: "main" });
+    await r.client.gitAccounts.branches(acc, "acme/web app");
+    expect(last(r.fetchImpl).url).toBe(`/api/git-accounts/${acc}/branches?repo=acme%2Fweb%20app`);
+    r = respond({ ok: true, checks: [] });
+    await r.client.gitAccounts.validateRepo(acc, "acme/web");
+    expect(last(r.fetchImpl).url).toBe(`/api/git-accounts/${acc}/validate-repo?repo=acme%2Fweb`);
+  });
+});
