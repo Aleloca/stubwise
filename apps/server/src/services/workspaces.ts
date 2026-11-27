@@ -13,12 +13,13 @@ import {
   workspaces,
   type Db,
 } from "@stubwise/db";
-import type { WorkspaceEffect, WorkspaceEffectRequest, WorkspaceMemberPreview, WorkspaceView } from "@stubwise/shared";
+import type { WorkspaceCandidates, WorkspaceEffect, WorkspaceEffectRequest, WorkspaceMemberPreview, WorkspaceView } from "@stubwise/shared";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { projectPermissionsMap, scopeIncludes, visibleProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { personObject, recordChange } from "./change-log.js";
-import { departmentGrantsForEntering } from "./department-access.js";
+import { departmentGrantsForEntering, departmentGrantsOf } from "./department-access.js";
+import { visiblePersonIds } from "./people-visibility.js";
 import { instancePermissionsOfUser, publishNotification } from "@stubwise/notifications";
 import { peopleKnownTo } from "./people-known.js";
 import { keepingManagersIn, managersLostBy, RoleRuleError } from "./roles.js";
@@ -103,7 +104,7 @@ export async function listWorkspaces(db: Db, viewer: Pick<SessionUser, "id" | "i
   const ids = rows.map((r) => r.id);
   const projectRows = await db.select({ workspaceId: workspaceProjects.workspaceId, projectId: workspaceProjects.projectId, position: workspaceProjects.position }).from(workspaceProjects).where(inArray(workspaceProjects.workspaceId, ids)).orderBy(asc(workspaceProjects.position), asc(workspaceProjects.projectId));
   const memberRows = await db
-    .select({ workspaceId: workspaceMembers.workspaceId, userId: workspaceMembers.userId, roleId: workspaceMembers.roleId, roleName: roles.name, name: personName })
+    .select({ workspaceId: workspaceMembers.workspaceId, userId: workspaceMembers.userId, roleId: workspaceMembers.roleId, roleName: roles.name, name: personName, email: users.email, deactivatedAt: users.deactivatedAt })
     .from(workspaceMembers)
     .innerJoin(roles, eq(roles.id, workspaceMembers.roleId))
     .innerJoin(users, eq(users.id, workspaceMembers.userId))
@@ -127,7 +128,7 @@ export async function listWorkspaces(db: Db, viewer: Pick<SessionUser, "id" | "i
       projectIds: seen,
       people: people
         .filter((m) => known === "all" || known.has(m.userId))
-        .map((m) => ({ userId: m.userId, name: m.name, roleId: m.roleId, roleName: m.roleName })),
+        .map((m) => ({ userId: m.userId, name: m.name, roleId: m.roleId, roleName: m.roleName, email: m.email, status: m.deactivatedAt ? ("deactivated" as const) : ("active" as const) })),
       isMember,
       canManage: manage,
       canManagePeople: managesPeople(viewer, all, held),
@@ -518,6 +519,7 @@ async function seers(db: DbOrTx, projectIds: readonly string[]): Promise<Map<str
  * chi chiede vede; le persone che non conosce non compaiono (r.1414).
  */
 export async function accessEffect(db: Db, actor: WorkspaceActor, request: WorkspaceEffectRequest): Promise<WorkspaceEffect> {
+  if (request.kind === "create") return createEffect(db, actor, request.projectIds);
   await getWorkspace(db, actor, request.workspaceId);
   const visible = await visibleProjectIds(db, actor);
   const held = await heldByProject(db, actor);
@@ -672,4 +674,85 @@ export async function applyInviteWorkspaces(
     // Entrare da un invito è un'aggiunta; l'attore è chi entra (come i progetti dell'invito).
     await recordChange(tx, { type: "workspace.member_added", actor: me!, projectId: null, data: { object: personObject(me!), params: { workspaceName: w.name, roleName: role.name, via: "invite" } } });
   }
+}
+
+/**
+ * Lotto 5: l'effetto di una workspace NUOVA coi suoi progetti, prima di crearla
+ * (la regola di `createWorkspace`): una workspace nuova non ha persone, quindi
+ * nessuno comincia a vedere; smette chi vedeva un progetto solo per la
+ * workspace da cui esce. La scrittura, annullata.
+ */
+async function createEffect(db: Db, actor: WorkspaceActor, projectIdsIn: readonly string[]): Promise<WorkspaceEffect> {
+  if (!canManageStructure(actor)) throw forbidden();
+  const projectIds = [...new Set(projectIdsIn)];
+  const held = await heldByProject(db, actor);
+  for (const projectId of projectIds) {
+    const [p] = await db.select({ id: projects.id }).from(projects).where(eq(projects.id, projectId));
+    if (!p || (!isFullAdmin(actor) && held[projectId] === undefined)) throw new RoleRuleError(404, "not_found", "Project not found");
+    if (!isFullAdmin(actor) && !(held[projectId] ?? []).includes(MANAGE_MEMBERS)) throw forbidden("You don't manage this project's members");
+  }
+  const { before, after, lost } = await rolledBack(db, async (tx) => {
+    // L'ordine dei lock delle scritture: le workspace di partenza, poi i membri.
+    const sources = projectIds.length ? await tx.select({ id: workspaceProjects.workspaceId }).from(workspaceProjects).where(inArray(workspaceProjects.projectId, projectIds)) : [];
+    for (const id of [...new Set(sources.map((r) => r.id))].sort()) await lockedWorkspace(tx, id);
+    const before = await seers(tx, projectIds);
+    const [w] = await tx.insert(workspaces).values({ name: "effect", colorToken: "--dept-1", createdByUserId: actor.id }).returning();
+    const lost = await managersLostBy(tx, projectIds, async () => {
+      if (projectIds.length === 0) return;
+      await tx.delete(workspaceProjects).where(inArray(workspaceProjects.projectId, projectIds));
+      await tx.insert(workspaceProjects).values(projectIds.map((projectId) => ({ workspaceId: w!.id, projectId })));
+    });
+    return { before, after: await seers(tx, projectIds), lost };
+  });
+  const changed = [...new Set(projectIds.flatMap((id) => [...(before.get(id) ?? []), ...(after.get(id) ?? [])]))];
+  const known = await peopleKnownTo(db, actor, changed);
+  const names = new Map(changed.length ? (await db.select({ id: users.id, name: personName }).from(users).where(inArray(users.id, changed))).map((r) => [r.id, r.name]) : []);
+  const isKnown = (id: string) => known === "all" || known.has(id);
+  const person = (id: string) => ({ userId: id, name: names.get(id) ?? "" });
+  return {
+    projects: projectIds.map((projectId) => ({
+      projectId,
+      startSeeing: [...(after.get(projectId) ?? [])].filter((id) => !before.get(projectId)?.has(id) && isKnown(id)).map(person),
+      stopSeeing: [...(before.get(projectId) ?? [])].filter((id) => !after.get(projectId)?.has(id) && isKnown(id)).map(person),
+    })),
+    lastManager: lost,
+    escalation: [],
+  };
+}
+
+/**
+ * Lotto 5: chi si può mettere in una workspace (`GET /:id/candidates`). Lo
+ * chiede chi ne gestisce le persone (D4). I candidati sono le persone attive
+ * che chi guarda vede (r.1414): con `users.view_all` tutta la directory (la
+ * vede già da `GET /api/users`: chi entra in una workspace di solito non è
+ * ancora in nessun suo progetto), altrimenti quelle di `visiblePersonIds`.
+ * Fuori chi c'è già, i full admin (vedono tutto) e Claude. `missing` è
+ * ciò che i loro reparti porterebbero in un progetto dove chi agisce non l'ha;
+ * i ruoli si giudicano su TUTTI i progetti della workspace.
+ */
+export async function workspaceCandidates(db: Db, actor: WorkspaceActor, workspaceId: string): Promise<WorkspaceCandidates> {
+  await getWorkspace(db, actor, workspaceId);
+  const projectIds = await projectIdsOf(db, workspaceId);
+  await assertManagesPeople(db, actor, projectIds);
+  const held = await heldByProject(db, actor);
+  const inside = new Set((await db.select({ id: workspaceMembers.userId }).from(workspaceMembers).where(eq(workspaceMembers.workspaceId, workspaceId))).map((r) => r.id));
+  const visible = actor.instancePermissions.has("users.view_all") ? ("all" as const) : await visiblePersonIds(db, actor);
+  const people = await db
+    .select({ id: users.id, name: personName, email: users.email, permissions: roles.permissions })
+    .from(users)
+    .innerJoin(roles, eq(roles.id, users.instanceRoleId))
+    .where(and(eq(users.isAgent, false), sql`${users.deactivatedAt} is null`, ...(visible === "all" ? [] : [inArray(users.id, visible.length ? visible : ["00000000-0000-0000-0000-000000000000"])])))
+    .orderBy(asc(users.email));
+  const candidates = people.filter((p) => !inside.has(p.id) && !p.permissions.includes("instance.full_admin"));
+  const fullAdmin = isFullAdmin(actor);
+  const missingIn = (perms: readonly string[]) =>
+    fullAdmin ? [] : [...new Set(perms.filter((perm) => projectIds.some((id) => !(held[id] ?? []).includes(perm))))].sort();
+  const brought = await departmentGrantsOf(db, candidates.map((c) => c.id));
+  const projectRoles = await db.select({ id: roles.id, name: roles.name, permissions: roles.permissions }).from(roles).where(eq(roles.scope, "project")).orderBy(asc(roles.name));
+  const [viewer] = await db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "viewer"));
+  return {
+    candidates: candidates.map((c) => ({ userId: c.id, name: c.name, email: c.email, missing: missingIn(brought.filter((g) => g.userId === c.id).map((g) => g.permission)) })),
+    roles: projectRoles.map((r) => ({ roleId: r.id, name: r.name, missing: missingIn(r.permissions) })),
+    defaultRoleId: viewer?.id ?? null,
+  };
 }

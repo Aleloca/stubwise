@@ -1,5 +1,6 @@
 import { projects } from "@stubwise/db";
 import {
+  workspaceCandidatesSchema,
   workspaceCreateSchema,
   workspaceEffectRequestSchema,
   workspaceEffectSchema,
@@ -27,6 +28,7 @@ import {
   removeMember,
   removeProject,
   updateWorkspace,
+  workspaceCandidates,
 } from "../services/workspaces.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -190,6 +192,24 @@ export async function workspaceRoutes(instance: FastifyInstance): Promise<void> 
 
   const memberParams = z.object({ id: z.uuid(), userId: z.uuid() });
   const memberBody = z.object({ roleId: z.uuid().optional() });
+
+  app.get(
+    "/:id/candidates",
+    {
+      config: {
+        access: { kind: "user" },
+        mcp: { action: "workspaces.candidates", summary: "Chi puoi mettere in una workspace: le persone che vedi, coi ruoli che puoi dare in tutti i suoi progetti.", effect: "read" },
+      },
+      schema: { params: idParams, response: { 200: workspaceCandidatesSchema, ...authErrorResponses, ...ruleErrors } },
+    },
+    async (request, reply) => {
+      try {
+        return await workspaceCandidates(app.db, request.user!, request.params.id);
+      } catch (error) {
+        return sendRuleError(reply, request.user!, error);
+      }
+    },
+  );
 
   app.post(
     "/:id/members/:userId/preview",

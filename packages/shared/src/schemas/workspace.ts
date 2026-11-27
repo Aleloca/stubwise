@@ -13,6 +13,9 @@ export const workspacePersonSchema = z.object({
   name: z.string(),
   roleId: z.uuid(),
   roleName: z.string(),
+  /** Lotto 5 (additivi): per la scheda People della workspace. */
+  email: z.string().default(""),
+  status: z.enum(["active", "deactivated"]).default("active"),
 });
 export type WorkspacePerson = z.infer<typeof workspacePersonSchema>;
 
@@ -67,6 +70,8 @@ export type WorkspaceMemberPreview = z.infer<typeof workspaceMemberPreviewSchema
 
 /** Le operazioni di cui `POST /api/workspaces/effect` (`workspaceAccessEffect`) calcola l'effetto. */
 export const workspaceEffectRequestSchema = z.discriminatedUnion("kind", [
+  // Lotto 5: una workspace NUOVA coi suoi progetti (chi smette di vederli spostandoli), prima di crearla.
+  z.object({ kind: z.literal("create"), projectIds: z.array(z.uuid()).max(200) }),
   z.object({ kind: z.literal("addProject"), workspaceId: z.uuid(), projectId: z.uuid() }),
   z.object({ kind: z.literal("removeProject"), workspaceId: z.uuid(), projectId: z.uuid() }),
   z.object({ kind: z.literal("deleteWorkspace"), workspaceId: z.uuid() }),
@@ -88,3 +93,17 @@ export const workspaceEffectSchema = z.object({
   escalation: z.array(workspaceEscalationSchema).default([]),
 });
 export type WorkspaceEffect = z.infer<typeof workspaceEffectSchema>;
+
+/**
+ * Lotto 5: chi si può mettere in una workspace (`GET /api/workspaces/:id/candidates`):
+ * le persone attive che chi gestisce vede (la regola degli `addable` dei membri
+ * di progetto), fuori da chi c'è già e da Claude. `missing`: ciò che i suoi
+ * reparti porterebbero dove chi agisce non l'ha (l'escalation dei reparti,
+ * indipendente dal ruolo); i ruoli col giudizio su TUTTI i progetti.
+ */
+export const workspaceCandidatesSchema = z.object({
+  candidates: z.array(z.object({ userId: z.uuid(), name: z.string(), email: z.string(), missing: z.array(z.string()).default([]) })).default([]),
+  roles: z.array(z.object({ roleId: z.uuid(), name: z.string(), missing: z.array(z.string()).default([]) })).default([]),
+  defaultRoleId: z.uuid().nullable().default(null),
+});
+export type WorkspaceCandidates = z.infer<typeof workspaceCandidatesSchema>;

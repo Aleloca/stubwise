@@ -394,3 +394,51 @@ describe("D4 (maintainer, via 46): le persone vogliono ANCHE workspaces.manage",
     expect((await call("GET", `/api/workspaces/${w.id}`, pl.headers)).json()).toMatchObject({ canManagePeople: false });
   });
 });
+
+describe("lotto 5 (i limiti della build app)", () => {
+  it("l'effetto di una workspace NUOVA coi progetti: chi smette di vedere B spostandolo, e nessuna scrittura", async () => {
+    const { a, b, lea, vera } = await seed();
+    const old = await created(lea, { name: "Vecchia", projectIds: [b] });
+    await call("PUT", `/api/workspaces/${old.id}/members/${vera.id}`, lea.headers, {});
+    const before = await count(workspaces);
+    const res = await call("POST", "/api/workspaces/effect", lea.headers, { kind: "create", projectIds: [a, b] });
+    expect(res.statusCode, res.body).toBe(200);
+    const effect = res.json() as { projects: { projectId: string; startSeeing: unknown[]; stopSeeing: { userId: string }[] }[] };
+    expect(effect.projects.find((p) => p.projectId === b)?.stopSeeing.map((s) => s.userId)).toEqual([vera.id]);
+    expect(effect.projects.find((p) => p.projectId === a)).toMatchObject({ startSeeing: [], stopSeeing: [] });
+    expect(await count(workspaces)).toBe(before);
+    expect((await db.select().from(workspaceProjects).where(eq(workspaceProjects.projectId, b))).map((r) => r.workspaceId)).toEqual([old.id]);
+  });
+
+  it("le persone della vista portano email e stato", async () => {
+    const { a, lea, vera } = await seed();
+    const w = await created(lea, { name: "Persone", projectIds: [a] });
+    await call("PUT", `/api/workspaces/${w.id}/members/${vera.id}`, lea.headers, {});
+    const [row] = await db.select({ email: users.email }).from(users).where(eq(users.id, vera.id));
+    const view = (await call("GET", `/api/workspaces/${w.id}`, lea.headers)).json() as { people: { userId: string; email: string; status: string }[] };
+    expect(view.people.find((p) => p.userId === vera.id)).toMatchObject({ email: row!.email, status: "active" });
+  });
+
+  it("i candidati: le persone attive che chi gestisce vede, fuori dai membri e da Claude, con ciò che non può dare", async () => {
+    const { a, lea, vera, olga, dino } = await seed();
+    const w = await created(lea, { name: "Candidati", projectIds: [a] });
+    await call("PUT", `/api/workspaces/${w.id}/members/${vera.id}`, lea.headers, {});
+    const res = await call("GET", `/api/workspaces/${w.id}/candidates`, lea.headers);
+    expect(res.statusCode, res.body).toBe(200);
+    const body = res.json() as { candidates: { userId: string; missing: string[] }[]; roles: { roleId: string; missing: string[] }[]; defaultRoleId: string | null };
+    const ids = body.candidates.map((c) => c.userId);
+    expect(ids).toContain(olga.id);
+    expect(ids).not.toContain(vera.id);
+    const [claude] = await db.select({ id: users.id }).from(users).where(eq(users.isAgent, true));
+    expect(ids).not.toContain(claude!.id);
+    expect(body.defaultRoleId).toBe(await presetRoleId(app, "viewer"));
+    // Il Viewer Lea lo può dare; un ruolo con servers.operate no.
+    expect(body.roles.find((r) => r.roleId === body.defaultRoleId)?.missing).toEqual([]);
+    // Senza users.view_all: solo le persone che vede (Olga non condivide progetti con lei).
+    await db.update(roles).set({ permissions: ["workspaces.manage"] }).where(eq(roles.id, (await db.select({ r: users.instanceRoleId }).from(users).where(eq(users.id, lea.id)))[0]!.r!));
+    const narrow = (await call("GET", `/api/workspaces/${w.id}/candidates`, lea.headers)).json() as { candidates: { userId: string }[] };
+    expect(narrow.candidates.map((c) => c.userId)).not.toContain(olga.id);
+    // Chi la vede (Developer di A) ma non ne gestisce le persone: 403.
+    expect((await call("GET", `/api/workspaces/${w.id}/candidates`, dino.headers)).statusCode).toBe(403);
+  });
+});
