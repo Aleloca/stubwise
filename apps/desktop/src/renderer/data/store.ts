@@ -275,6 +275,7 @@ export type ApiFnName =
   | "listTimeline"
   | "listDecisionLog"
   | "getLatestBrief"
+  | "mail.getMessageImage"
   | "listNotifications"
   | "markNotification"
   | "search"
