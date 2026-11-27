@@ -4,7 +4,7 @@ import {
   departmentProjectPermissions,
   departmentRoles,
   departments,
-  projectMembers,
+  projectAccess,
   projects,
   tickets,
   users,
@@ -628,10 +628,11 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
           const losing = removesPerm ? before.memberIds : removedPeople;
           const touched = losing.length
             ? (
+                // Anche i progetti visti per workspace (0238, D10): lì il reparto vale.
                 await tx
-                  .select({ projectId: projectMembers.projectId })
-                  .from(projectMembers)
-                  .where(inArray(projectMembers.userId, losing))
+                  .selectDistinct({ projectId: projectAccess.projectId })
+                  .from(projectAccess)
+                  .where(inArray(projectAccess.userId, losing))
               ).map((r) => r.projectId)
             : [];
           let row: DepartmentRow = current;
@@ -740,9 +741,9 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
             shape.projectPermissions.length > 0 && shape.memberIds.length > 0
               ? (
                   await tx
-                    .select({ projectId: projectMembers.projectId })
-                    .from(projectMembers)
-                    .where(inArray(projectMembers.userId, [...shape.memberIds]))
+                    .selectDistinct({ projectId: projectAccess.projectId })
+                    .from(projectAccess)
+                    .where(inArray(projectAccess.userId, [...shape.memberIds]))
                 ).map((r) => r.projectId)
               : [];
           const [{ count }] = (await tx

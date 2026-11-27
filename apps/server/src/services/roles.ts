@@ -18,7 +18,7 @@ import { departmentGrantsForEntering, departmentGrantsOf } from "./department-ac
  */
 import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "@stubwise/db";
-import { departmentProjectPermissions, departments, inviteProjects, memberPermissionsSql, projectMemberPermissions, projectMembers, projects, roles, users, inviteWorkspaces, workspaceMembers, workspaceProjects } from "@stubwise/db";
+import { departmentProjectPermissions, departments, inviteProjects, projectMemberPermissions, projectAccess, projectAccessPermissionsSql, projectAccessSql, projectMembers, projects, roles, users, inviteWorkspaces, workspaceMembers, workspaceProjects } from "@stubwise/db";
 import {
   effectiveInstancePermissions,
   PROJECT_PERMISSIONS,
@@ -250,16 +250,18 @@ export async function heldForProjectRole(
   return heldOver(byProject, assigned);
 }
 
-/** I permessi di progetto di chi agisce, progetto per progetto (ruolo ∪ personali). */
+/**
+ * I permessi di progetto di chi agisce, progetto per progetto: l'unione delle
+ * fonti (ruolo, personali, reparti e, 0238, ruolo di workspace), dove accede.
+ */
 export async function actorProjectPermissions(db: DbOrTx, actor: Actor): Promise<Map<string, Set<string>>> {
   const mine = await db
     .select({
-      projectId: projectMembers.projectId,
-      permissions: sql<string[]>`${memberPermissionsSql(roles.permissions, projectMembers.projectId, projectMembers.userId)}`,
+      projectId: projects.id,
+      permissions: sql<string[]>`${projectAccessPermissionsSql(projects.id, sql`${actor.id}::uuid`)}`,
     })
-    .from(projectMembers)
-    .innerJoin(roles, eq(roles.id, projectMembers.roleId))
-    .where(eq(projectMembers.userId, actor.id));
+    .from(projects)
+    .where(projectAccessSql(projects.id, sql`${actor.id}::uuid`));
   return new Map(mine.map((m) => [m.projectId, new Set(m.permissions)]));
 }
 
@@ -626,20 +628,24 @@ export async function listProjectMembers(db: DbOrTx, projectId: string): Promise
  */
 export const membersLock = (projectId: string) => sql`select pg_advisory_xact_lock(hashtext(${`members:${projectId}`}))`;
 
-/** Quanti gestori dei membri (ruolo o personale) ha il progetto, fuori dai full admin. */
+/**
+ * Quanti gestori dei membri ha il progetto, fuori dai full admin: persone che
+ * vi accedono (membri espliciti o di workspace, 0238) col permesso nell'unione
+ * delle fonti (D18: un gestore per via di workspace conta).
+ */
 async function managerCount(tx: DbOrTx, projectId: string, excludingUserId?: string): Promise<number> {
   const [row] = await tx.execute<{ n: number }>(sql`
-    select count(*)::int as n
-    from ${projectMembers} lm_pm
-    join ${roles} lm_r on lm_r.id = lm_pm.role_id
-    join ${users} lm_u on lm_u.id = lm_pm.user_id
+    select count(distinct lm_pa.user_id)::int as n
+    from ${projectAccess} lm_pa
+    join ${users} lm_u on lm_u.id = lm_pa.user_id
     join ${roles} lm_ir on lm_ir.id = lm_u.instance_role_id
-    where lm_pm.project_id = ${projectId}
+    where lm_pa.project_id = ${projectId}
+      and (lm_pa.source = 'member' or not lm_u.is_agent)
       -- Solo i gestori ATTIVI (review di F1, m4): un disattivato non gestisce.
       and lm_u.deactivated_at is null
-      and (${excludingUserId ?? null}::uuid is null or lm_pm.user_id <> ${excludingUserId ?? null}::uuid)
+      and (${excludingUserId ?? null}::uuid is null or lm_pa.user_id <> ${excludingUserId ?? null}::uuid)
       and not (lm_ir.permissions @> array['instance.full_admin']::text[])
-      and ${memberPermissionsSql(sql`lm_r.permissions`, sql`lm_pm.project_id`, sql`lm_pm.user_id`)} @> array['project.members.manage']::text[]
+      and ${projectAccessPermissionsSql(sql`lm_pa.project_id`, sql`lm_pa.user_id`)} @> array['project.members.manage']::text[]
   `);
   return Number(row?.n ?? 0);
 }
@@ -656,10 +662,11 @@ async function managerCount(tx: DbOrTx, projectId: string, excludingUserId?: str
  * `null`. La regola di {@link keepingManagersIn}, letta senza scrivere.
  */
 export async function lastManagerProjectOf(db: DbOrTx, userId: string, onlyProjectIds?: readonly string[]): Promise<string | null> {
+  // Anche i progetti visti per workspace (0238, D18).
   const mine = await db
-    .select({ projectId: projectMembers.projectId })
-    .from(projectMembers)
-    .where(and(eq(projectMembers.userId, userId), ...(onlyProjectIds ? [inArray(projectMembers.projectId, [...onlyProjectIds])] : [])));
+    .selectDistinct({ projectId: projectAccess.projectId })
+    .from(projectAccess)
+    .where(and(eq(projectAccess.userId, userId), ...(onlyProjectIds ? [inArray(projectAccess.projectId, [...onlyProjectIds])] : [])));
   for (const projectId of mine.map((m) => m.projectId).sort()) {
     if ((await managerCount(db, projectId)) > 0 && (await managerCount(db, projectId, userId)) === 0) return projectId;
   }

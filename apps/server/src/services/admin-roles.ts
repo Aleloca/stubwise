@@ -1,5 +1,5 @@
 import { departmentGrantsOf, type DepartmentGrant } from "./department-access.js";
-import { inviteProjects, invites, projectMemberPermissions, projectMembers, projects, roles, users, type Db } from "@stubwise/db";
+import { inviteProjects, invites, projectAccess, projectAccessRowCounts, projectMemberPermissions, projectMembers, projects, roles, users, type Db } from "@stubwise/db";
 import {
   effectiveInstancePermissions,
   INSTANCE_PERMISSIONS,
@@ -295,8 +295,16 @@ export async function previewMember(db: Db, viewer: Viewer, projectId: string, u
   // Area 9, F8: i permessi dei reparti della persona, che valgono qui se è (o diventa) membro.
   const fromDepartments = await departmentGrantsOf(db, [userId]);
   for (const g of fromDepartments) push(g.permission, departmentSource(g));
-  const isMember = (await db.select({ u: projectMembers.userId }).from(projectMembers).where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)))).length > 0;
-  const after = new Set([...role.permissions, ...wanted, ...fromDepartments.map((g) => g.permission)]);
+  // Chi accede già al progetto (membro esplicito o per workspace, 0238): i suoi
+  // reparti valgono già qui, e il ruolo di workspace resta comunque (D1, l'unione).
+  const access = await db
+    .select({ source: projectAccess.source, permissions: roles.permissions })
+    .from(projectAccess)
+    .innerJoin(roles, eq(roles.id, projectAccess.roleId))
+    .where(and(eq(projectAccess.projectId, projectId), eq(projectAccess.userId, userId), projectAccessRowCounts));
+  const isMember = access.length > 0;
+  const fromWorkspace = access.filter((a) => a.source === "workspace").flatMap((a) => a.permissions);
+  const after = new Set([...role.permissions, ...wanted, ...fromDepartments.map((g) => g.permission), ...fromWorkspace]);
   // L'ultimo gestore: la bozza toglie la gestione dei membri all'ultimo gestore attivo?
   const losesManage = !after.has("project.members.manage") && !target.deactivatedAt && (await lastManagerProjectOf(db, userId, [projectId])) !== null;
   const viewerHas = viewer.id === userId ? [...held].filter((p) => !after.has(p) && !viewer.instancePermissions.has("instance.full_admin")) : [];
