@@ -1402,6 +1402,15 @@ export function useCreateRequest() {
   );
 }
 
+/** Togliere design o piano di una richiesta (shape `design-plan-remove.md`). */
+export function useRemoveRequestDesignPlan() {
+  return useWrite(
+    ({ id, which }: { id: string; which: "design" | "plan" }) =>
+      which === "design" ? api.removeRequestDesign(id) : api.removeRequestPlan(id),
+    REQUEST_AREAS,
+  );
+}
+
 export function useUpdateRequest() {
   return useWrite(
     ({ id, patch }: { id: string; patch: Parameters<typeof api.updateRequest>[1] }) =>

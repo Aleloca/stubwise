@@ -201,6 +201,8 @@ export {
   listRequests,
   listRequestsToConvert,
   mergeRequest,
+  removeRequestDesign,
+  removeRequestPlan,
   reopenRequest,
   restoreRequest,
   updateRequest,

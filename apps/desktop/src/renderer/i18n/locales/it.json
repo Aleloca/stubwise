@@ -13922,5 +13922,27 @@
       "log": "Registro degli accessi",
       "panel": "Registro degli accessi di {{code}}"
     }
+  },
+  "designPlan": {
+    "cancel": "Annulla",
+    "confirm": "Togli",
+    "design": {
+      "more": "Altro per il design",
+      "remove": "Togli il design…",
+      "dialogTitle": "Togliere il design?",
+      "requestConsequence": "Il design va via; la richiesta tiene la sua descrizione. Un refine con Claude può riscriverlo.",
+      "taskConsequence": "La descrizione torna al testo originale. Un design si può riscrivere più avanti.",
+      "removed": "Design tolto",
+      "failed": "Impossibile togliere il design. Riprova."
+    },
+    "plan": {
+      "more": "Altro per il piano",
+      "remove": "Togli il piano…",
+      "dialogTitle": "Togliere il piano?",
+      "requestConsequence": "Il piano va via. Un refine con Claude può riscriverlo.",
+      "taskConsequence": "Il prossimo lavoro pianifica da sé, e il piano torna all'approvazione.",
+      "removed": "Piano tolto",
+      "failed": "Impossibile togliere il piano. Riprova."
+    }
   }
 }

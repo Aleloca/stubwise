@@ -296,6 +296,8 @@ export type ApiFnName =
   | "withdrawDecision"
   | "createRequest"
   | "updateRequest"
+  | "removeRequestDesign"
+  | "removeRequestPlan"
   | "mergeRequest"
   | "archiveRequest"
   | "reopenRequest"

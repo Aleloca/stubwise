@@ -13922,5 +13922,27 @@
       "log": "Access log",
       "panel": "Access log of {{code}}"
     }
+  },
+  "designPlan": {
+    "cancel": "Cancel",
+    "confirm": "Remove",
+    "design": {
+      "more": "More for the design",
+      "remove": "Remove design…",
+      "dialogTitle": "Remove the design?",
+      "requestConsequence": "The design goes away; the request keeps its description. A refine with Claude can write it again.",
+      "taskConsequence": "The description goes back to the original text. A design can be written again later.",
+      "removed": "Design removed",
+      "failed": "Couldn't remove the design. Try again."
+    },
+    "plan": {
+      "more": "More for the plan",
+      "remove": "Remove plan…",
+      "dialogTitle": "Remove the plan?",
+      "requestConsequence": "The plan goes away. A refine with Claude can write it again.",
+      "taskConsequence": "The next run plans on its own, and the plan goes to approval again.",
+      "removed": "Plan removed",
+      "failed": "Couldn't remove the plan. Try again."
+    }
   }
 }
