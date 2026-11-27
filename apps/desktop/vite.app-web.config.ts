@@ -13,8 +13,9 @@ import { backendAliases, backendDefine } from "./vite.backend";
 export default defineConfig({
   root: resolve(import.meta.dirname, "src/renderer"),
   base: "/app/",
-  resolve: { alias: backendAliases("app") },
-  define: backendDefine("app"),
+  // Il target `web` (design della cassaforte nel browser §4): `@backend/vault` sulla scheda.
+  resolve: { alias: backendAliases("app", "web") },
+  define: backendDefine("app", "web"),
   plugins: [
     react(),
     tailwindcss(),

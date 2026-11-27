@@ -85,7 +85,9 @@ RUN pnpm --filter @stubwise/docs build
 # La nuova app (/srv/app): il renderer di apps/desktop in modo «app»
 # (`build:web`, `base: "/app/"`), sulle dipendenze già buildate (shared,
 # api-client). `check-no-seed` fa fallire il build se nel bundle c'è un dato
-# del seed del prototipo.
+# del seed del prototipo; `check-vault-target` (dentro `check:seed:web`) se
+# c'è il ponte della cassaforte del desktop (design della cassaforte nel
+# browser §4).
 COPY apps/desktop apps/desktop
 RUN pnpm --filter "@stubwise/desktop^..." build \
   && pnpm --filter @stubwise/desktop check:seed:web

@@ -5,8 +5,6 @@
 // tipata `typeof Fake.<nome>` con un `import type`, così il finto non entra
 // mai nel bundle.
 import type * as Fake from "../../api";
-import * as liveVaultDesktop from "./vaultDesktop";
-import * as liveVaultReads from "./vaultReads";
 import { liveAlerts } from "./alerts";
 import { liveSupport } from "./support";
 import { liveWidgets } from "./supportWidgets";
@@ -130,12 +128,9 @@ export const support: typeof Fake.support = partialNamespace<typeof Fake.support
  * rotte del PAT desktop di 72); le pagine la raggiungono quando la shape
  * `vault.md` è costruita nel prototipo.
  */
-export const vault: typeof Fake.vault = partialNamespace<typeof Fake.vault>("vault", {
-  // Fetta 1: stato, aprire e chiudere, associazione, i propri Mac (dal main).
-  ...liveVaultDesktop,
-  // Fetta 2b: elenchi, dettaglio ed entrate, dalle rotte.
-  ...liveVaultReads,
-});
+// Cassaforte nel browser, fase 1 (design §4): il modulo lo sceglie il BUILD
+// (`@backend/vault`, target `electron` o `web`), mai una scelta a runtime.
+export { vault } from "@backend/vault";
 
 export const servers: typeof Fake.servers = partialNamespace<typeof Fake.servers>("servers", {
   ...liveServers,

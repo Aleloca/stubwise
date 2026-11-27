@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setAppClientForTests } from "./client";
 import { me, PROJECT_ID } from "./fakeServer";
 import * as desk from "./vaultDesktop";
+import { mainTransport } from "./vault/electron";
 import * as reads from "./vaultReads";
 
 // Review C1 (25 nov 2026): nell'app il proxy del main rifiuta al renderer
@@ -51,7 +52,11 @@ const routes: Record<string, unknown> = {
 
 let asked: string[] = [];
 
+afterEach(() => reads.setVaultTransport(null));
+
 beforeEach(() => {
+  // Il desktop: il trasporto del main, come lo imposta il build Electron.
+  reads.setVaultTransport(mainTransport);
   asked = [];
   setAppClientForTests(null);
   vi.stubGlobal("stubwise", {

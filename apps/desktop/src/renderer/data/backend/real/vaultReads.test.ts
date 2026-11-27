@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setAppClientForTests } from "./client";
 import { installFakeServer, me, PROJECT_ID } from "./fakeServer";
+import { mainTransport } from "./vault/electron";
 import * as vault from "./vaultReads";
 
 // Fetta 2b dell'adattatore della cassaforte: le letture dalle rotte
@@ -31,6 +32,9 @@ const C1 = "c1c1c1c1-0000-4000-8000-000000000001";
 const C2 = "c2c2c2c2-0000-4000-8000-000000000002";
 
 beforeEach(() => setAppClientForTests(null));
+// Senza ponte le letture vanno sulle rotte; dove un test simula il desktop
+// (`window.stubwise.vault`), imposta il trasporto del main come fa il build.
+afterEach(() => vault.setVaultTransport(null));
 afterEach(() => vi.unstubAllGlobals());
 
 describe("le letture della cassaforte, dalle rotte", () => {
@@ -149,6 +153,7 @@ describe("le letture della cassaforte, dalle rotte", () => {
         }),
       },
     });
+    vault.setVaultTransport(mainTransport);
     expect((await vault.getCredentialsEntry(PROJECT_ID)).waitingMe).toBe(true);
     expect((await vault.getCredentialsEntry(OTHER)).waitingMe).toBe(false);
   });
@@ -167,9 +172,11 @@ describe("le letture della cassaforte, dalle rotte", () => {
       waitingMe: false,
       createProjectIds: [PROJECT_ID],
     });
-    // A cassaforte aperta il main sa chi aspetta: il punto si accende.
+    // A cassaforte aperta il main sa chi aspetta: il punto si accende. Sul
+    // desktop anche «le mie» vengono dal main (nessun ripiego sulla rotta).
     vi.stubGlobal("stubwise", {
       vault: {
+        mine: async () => ({ ok: true, items: [] }),
         pending: async () => ({
           ok: true,
           items: [
@@ -187,6 +194,7 @@ describe("le letture della cassaforte, dalle rotte", () => {
         }),
       },
     });
+    vault.setVaultTransport(mainTransport);
     expect((await vault.getVaultEntry()).waitingMe).toBe(true);
   });
 
@@ -379,6 +387,7 @@ describe("le letture della cassaforte, dalle rotte", () => {
         return { ok: true as const };
       });
       vi.stubGlobal("stubwise", { vault: { setPassword } });
+      vault.setVaultTransport(mainTransport);
       const { seen } = installFakeServer({
         [`PATCH /api/credentials/${C1}`]: () => {
           order.push("patch");
@@ -410,6 +419,7 @@ describe("le letture della cassaforte, dalle rotte", () => {
       vi.stubGlobal("stubwise", {
         vault: { setPassword: vi.fn(async () => ({ ok: true as const, resaved: true })) },
       });
+      vault.setVaultTransport(mainTransport);
       expect(await vault.updateCredential(C1, { password: "Nn1!segreta" })).toEqual({
         ok: true,
         resaved: true,
@@ -420,6 +430,7 @@ describe("le letture della cassaforte, dalle rotte", () => {
       vi.stubGlobal("stubwise", {
         vault: { setPassword: vi.fn(async () => ({ ok: false as const, code: "vault_locked" })) },
       });
+      vault.setVaultTransport(mainTransport);
       const { seen } = installFakeServer({ [`PATCH /api/credentials/${C1}`]: { body: item(C1) } });
       expect(await vault.updateCredential(C1, { label: "X", password: "pw" })).toEqual({
         ok: false,
@@ -431,6 +442,7 @@ describe("le letture della cassaforte, dalle rotte", () => {
     it("creare: dal main, che cifra; l'id è quello che dice il main", async () => {
       const create = vi.fn(async () => ({ ok: true as const, id: C2 }));
       vi.stubGlobal("stubwise", { vault: { create } });
+      vault.setVaultTransport(mainTransport);
       const input = {
         service: "Brevo SMTP",
         label: null,

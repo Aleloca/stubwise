@@ -4,7 +4,6 @@ import type * as Fake from "../../api";
 import type { CredentialView } from "../../vault/types";
 import { appClient } from "./client";
 import { currentMe } from "./session";
-import { listPending } from "./vaultDesktop";
 
 // Fetta 2b dell'adattatore della cassaforte: le letture dalle rotte
 // (`api-client`, gruppo `credentials`, 72 aeaf4c903), con le firme del
@@ -12,6 +11,45 @@ import { listPending } from "./vaultDesktop";
 // legge, non deduce. Nessuna di queste risposte porta password o copie.
 
 type FakeVault = typeof Fake.vault;
+
+/**
+ * Cassaforte nel browser, fase 1 (design §4): le letture e scritture che
+ * dipendono da DOVE vive la chiave passano da un trasporto, scelto AL BUILD
+ * dal modulo del target (`@backend/vault`): il main del desktop
+ * (`vault/electron.ts`) o la scheda (`vault/web.ts`). Questo file non nomina
+ * il ponte del desktop, così nella build web non c'è.
+ */
+export interface VaultTransport {
+  /** «Le mie» credenziali (dal main sul desktop, dalla rotta nel browser). */
+  mine(): Promise<Reader<CredentialItem>[]>;
+  /** La password nuova, cifrata dove sta la chiave; `resaved` se ha risalvato per i lettori. */
+  setPassword(id: string, password: string): Promise<{ ok: true; resaved?: boolean } | { ok: false; code: string }>;
+  /** Una credenziale nuova, cifrata per i destinatari. */
+  create(
+    projectId: string,
+    fields: Omit<Parameters<FakeVault["createCredential"]>[1], "password">,
+    password: string,
+  ): Promise<{ ok: true; id: string; resaved?: boolean } | { ok: false; code: string }>;
+  /** Chi aspetta che chi guarda confermi la sua chiave. */
+  pending: FakeVault["listPending"];
+}
+
+/** Senza un trasporto impostato (i test, una build senza il modulo del target): solo le rotte, nessuna cifratura. */
+const httpOnly: VaultTransport = {
+  mine: async () => (await appClient().credentials.mine()).items,
+  setPassword: async () => ({ ok: false, code: "unsupported" }),
+  create: async () => ({ ok: false, code: "unsupported" }),
+  pending: async () => [],
+};
+
+let transport: VaultTransport = httpOnly;
+
+/** Lo imposta il modulo del target, al suo import. */
+export function setVaultTransport(next: VaultTransport | null): void {
+  transport = next ?? httpOnly;
+}
+
+const listPending: FakeVault["listPending"] = () => transport.pending();
 
 /** `read` → la apre; `pending` → aspetta la chiave; `manage` → la gestisce senza leggerla. */
 function accessOf(access: Reader<CredentialItem>["access"]): CredentialView["access"] {
@@ -42,13 +80,7 @@ const viewOf = (c: Reader<CredentialItem>): CredentialView => ({
  * rifiuta `/api/vault*` al renderer); nella build web dalla rotta.
  */
 async function myCredentials(): Promise<Reader<CredentialItem>[]> {
-  const b = window.stubwise?.vault;
-  if (b?.mine) {
-    const out = await b.mine();
-    if (!out.ok) throw new Error(out.code);
-    return out.items as Reader<CredentialItem>[];
-  }
-  return (await appClient().credentials.mine()).items;
+  return transport.mine();
 }
 
 /** I permessi di chi guarda in un progetto (dal server, `/api/auth/me`). */
@@ -266,9 +298,7 @@ export const updateCredential: FakeVault["updateCredential"] = async (id, input)
   // [VA 6]: il main dice se ha risalvato per i lettori cambiati.
   let resaved = false;
   if (password !== undefined && password !== "") {
-    const b = window.stubwise?.vault;
-    if (!b) return { ok: false, code: "unsupported" };
-    const out = await b.setPassword(id, password);
+    const out = await transport.setPassword(id, password);
     if (!out.ok) return { ok: false, code: out.code };
     resaved = out.resaved === true;
   }
@@ -283,10 +313,8 @@ export const updateCredential: FakeVault["updateCredential"] = async (id, input)
 
 /** Una credenziale nuova: la cifra il main per i destinatari (non vuole la cassaforte aperta). */
 export const createCredential: FakeVault["createCredential"] = async (projectId, input) => {
-  const b = window.stubwise?.vault;
-  if (!b) return { ok: false, code: "unsupported" };
   const { password, ...fields } = input;
-  const out = await b.create(projectId, fields, password);
+  const out = await transport.create(projectId, fields, password);
   return out.ok
     ? { ok: true, id: out.id, resaved: out.resaved === true }
     : { ok: false, code: out.code };

@@ -211,6 +211,8 @@ describe("Credentials — la voce della colonna", () => {
   describe("M10: la build web", () => {
     beforeEach(() => {
       vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+      // Il target del build (design della cassaforte nel browser §4), mai il ponte a runtime.
+      vi.stubEnv("VITE_STUBWISE_TARGET", "web");
       // Nella build «app» chi guarda è la persona della sessione del livello dati.
       setSessionPersonId("p-laura");
     });
@@ -224,8 +226,8 @@ describe("Credentials — la voce della colonna", () => {
       expect(screen.queryByRole("button", { name: "New credential" })).toBeNull();
     });
 
-    it("con il ponte del desktop «New credential» c'è", async () => {
-      vi.stubGlobal("stubwise", { vault: { create: vi.fn() } });
+    it("nella build Electron «New credential» c'è (lo decide il target, non il ponte)", async () => {
+      vi.stubEnv("VITE_STUBWISE_TARGET", "electron");
       await openSection("p-laura");
       expect(screen.getByRole("button", { name: "New credential" })).toBeInTheDocument();
     });
