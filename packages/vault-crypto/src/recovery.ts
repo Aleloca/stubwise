@@ -8,12 +8,13 @@
 import { fromBase32, toBase32, toBase64Url } from "./encoding.js";
 import { unwrapItemKey, wrapItemKey } from "./items.js";
 import { generateExportableKeyPair, importPrivateKey } from "./keys.js";
+import { subtle } from "./runtime.js";
 
 const CHECKSUM_BYTES = 5;
 const GROUP = 5;
 
 async function checksum(pkcs8: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", pkcs8);
+  const digest = await subtle().digest("SHA-256", pkcs8);
   return new Uint8Array(digest, 0, CHECKSUM_BYTES);
 }
 
@@ -60,7 +61,7 @@ export async function wrapRecoveryChallenge(
   challengeId: string,
 ): Promise<string> {
   if (secret.length !== CHALLENGE_BYTES) throw new Error("la sfida vuole un segreto di 32 byte");
-  const key = await globalThis.crypto.subtle.importKey(
+  const key = await subtle().importKey(
     "raw",
     new Uint8Array(secret),
     { name: "AES-GCM", length: 256 },
@@ -77,5 +78,5 @@ export async function openRecoveryChallenge(
   challengeId: string,
 ): Promise<string> {
   const key = await unwrapItemKey(wrapped, recoveryPrivateKey, challengeAad(challengeId), "recovery");
-  return toBase64Url(await globalThis.crypto.subtle.exportKey("raw", key));
+  return toBase64Url(await subtle().exportKey("raw", key));
 }

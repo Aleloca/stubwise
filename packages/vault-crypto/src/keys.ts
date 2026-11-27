@@ -5,8 +5,8 @@
 // CryptoKey non estraibile.
 
 import { bytes, formatEnvelope, parseEnvelope, utf8 } from "./encoding.js";
+import { getRandomValues, subtle } from "./runtime.js";
 
-const subtle = () => globalThis.crypto.subtle;
 
 const ECDH = { name: "ECDH", namedCurve: "P-256" } as const;
 
@@ -90,7 +90,7 @@ export async function hkdfAesKey(
 }
 
 export function randomIv(): Uint8Array<ArrayBuffer> {
-  return globalThis.crypto.getRandomValues(new Uint8Array(12));
+  return getRandomValues(new Uint8Array(12));
 }
 
 /** Prefisso dell'AAD del sigillo; segue lo SHA-256 del punto pubblico (65 byte, `raw`). */

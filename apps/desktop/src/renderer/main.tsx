@@ -1,3 +1,7 @@
+// PRIMO import in assoluto: nella build web cattura le primitive della
+// cassaforte prima di qualunque altro codice (design della cassaforte nel
+// browser §2.4); altrove è un modulo vuoto.
+import "@backend/vault-boot";
 import "./csp-init";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";

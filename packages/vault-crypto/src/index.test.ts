@@ -21,6 +21,7 @@ describe("@stubwise/vault-crypto", () => {
       "sealForDevice",
       "sealPrivateKey",
       "unwrapItemKey",
+      "useCrypto",
       "wrapActorChallenge",
       "wrapItemKey",
       "wrapRecoveryChallenge",

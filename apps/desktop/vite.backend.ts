@@ -32,6 +32,15 @@ export function backendAliases(mode: BackendMode, target: BackendTarget = "elect
   const app = mode === "app";
   return [
     {
+      // Le primitive della cassaforte catturate al PRIMO import (design §2.4):
+      // solo nella build web, altrove un modulo vuoto.
+      find: /^@backend\/vault-boot$/,
+      replacement: resolve(
+        data,
+        app && target === "web" ? "backend/real/vaultBrowser/primitives.ts" : "backend/real/vault/boot-none.ts",
+      ),
+    },
+    {
       // Nel prototipo il namespace vero non si usa (lo importa solo
       // `backend/real/index.ts`): i test lo leggono sul modulo Electron.
       find: /^@backend\/vault$/,

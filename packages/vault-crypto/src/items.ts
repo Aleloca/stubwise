@@ -14,8 +14,8 @@
 
 import { bytes, formatEnvelope, fromUtf8, parseEnvelope, utf8 } from "./encoding.js";
 import { HKDF_INFO, hkdfAesKey, importPublicKey, randomIv } from "./keys.js";
+import { subtle } from "./runtime.js";
 
-const subtle = () => globalThis.crypto.subtle;
 
 const ECDH = { name: "ECDH", namedCurve: "P-256" } as const;
 
