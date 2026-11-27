@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <defs>
+    <filter id="g" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="1.1" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="#0f1318"/>
+  <text x="31" y="43" text-anchor="middle" filter="url(#g)" fill="#f5a623"
+        font-family="ui-monospace,'SF Mono',Menlo,Consolas,monospace" font-weight="700"
+        font-size="33" letter-spacing="-1">S_</text>
+</svg>
