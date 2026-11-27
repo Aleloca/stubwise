@@ -422,10 +422,15 @@ describe("la pagina apre il riquadro e manda la frase (11b, P21: `send`)", () =>
       }),
     );
     await waitFor(() => expect(isOpen()).toBe(true));
-    // La frase è un messaggio di chi chiede, non un testo nella casella.
-    expect(
-      await within(panel()).findByText("Open a request from question pc-acq11b-bills-q"),
-    ).toBeInTheDocument();
+    // La frase è un messaggio di chi chiede, non un testo nella casella: il
+    // messaggio nel flusso, non la riga «Delivering…» che lo precede, che
+    // sparisce quando il turno lo prende (rosso intermittente nella CI della
+    // #132, 27 nov 2026; stessa correzione di LinkedRequests).
+    await waitFor(() =>
+      expect(panel().querySelector("[data-user-message]")).toHaveTextContent(
+        "Open a request from question pc-acq11b-bills-q",
+      ),
+    );
     expect(state.conversations).toHaveLength(before + 1);
     await waitFor(() => expect(panel().querySelector("[data-proposal]")).not.toBeNull());
     // La casella della conversazione nuova resta vuota: la frase è partita.
