@@ -6820,6 +6820,8 @@ export const credentialAccessLog = pgTable(
     check("credential_access_log_action_chk", sql`${table.action} in ('show', 'copy')`),
     check("credential_access_log_via_chk", sql`${table.via} in ('browser', 'desktop')`),
     index("credential_access_log_project_id_created_at_idx").on(table.projectId, table.createdAt),
+    // 0238 (C2): le letture di una persona nella finestra della raffica.
+    index("credential_access_log_user_id_created_at_idx").on(table.userId, table.createdAt),
   ],
 );
 

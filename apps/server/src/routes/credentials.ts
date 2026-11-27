@@ -47,7 +47,6 @@ import {
   managesCredentials,
   replacePassword,
   revealCredential,
-  REVEAL_BURST,
   updateCredential,
   type WriteOutcome,
 } from "../vault/credentials-service.js";
@@ -278,7 +277,7 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
       schema: {
         params: credentialParams,
         body: credentialRevealBodySchema,
-        response: { 200: credentialRevealResponseSchema, ...errorResponses, 429: errorSchema },
+        response: { 200: credentialRevealResponseSchema, ...errorResponses, 429: errorSchema.extend({ retryAfterSeconds: z.number().int() }) },
       },
     },
     async (request, reply) => {
@@ -291,8 +290,9 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
       if (!revealed) return notFound(reply);
       if (revealed.kind === "rate_limited") {
         // C2: il tetto di una raffica (REVEAL_BURST); nessuna riga, nessuna copia.
-        reply.header("retry-after", String(REVEAL_BURST.windowMinutes * 60));
-        return apiError(reply, 429, "vault_reveal_rate_limited", "Too many vault reads in a short time");
+        // Anche nel corpo: un client che legge solo il JSON (l'ApiError del web) sa quanto aspettare.
+        reply.header("retry-after", String(revealed.retryAfterSeconds));
+        return reply.code(429).send({ code: "vault_reveal_rate_limited", message: "Too many vault reads in a short time", retryAfterSeconds: revealed.retryAfterSeconds });
       }
       // C2: la lettura che raggiunge la soglia d'avviso avvisa la persona e gli
       // altri full admin. Dopo il commit, e mai a costo della lettura.

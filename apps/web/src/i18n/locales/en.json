@@ -3698,6 +3698,8 @@
       "copied": "Copied: the clipboard is cleared in 30 seconds.",
       "copyFailed": "The browser did not allow copying: use Show.",
       "revealFailed": "The password could not be opened.",
+      "revealRateLimited_one": "Too many vault passwords opened in a few minutes: you can open a new one in {{count}} minute.",
+      "revealRateLimited_other": "Too many vault passwords opened in a few minutes: you can open a new one in {{count}} minutes.",
       "readers": {
         "open": "Readers",
         "openAria": "Readers of {{name}}",

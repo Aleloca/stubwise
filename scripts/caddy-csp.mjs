@@ -17,8 +17,9 @@
 //   node scripts/caddy-csp.mjs --web <dir> --app <dir> --docs <dir> --out <file>
 
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 /**
  * La base, uguale per tutte le pagine statiche:
@@ -90,7 +91,9 @@ function args(argv) {
   return out;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Lanciato come script (non importato dal test): il confronto passa per un URL
+// vero, così regge spazi, caratteri da codificare e symlink nel percorso.
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const { web, app, docs, out } = args(process.argv.slice(2));
   const problems = [];
   for (const [name, dir] of [["web", web], ["app", app]]) {

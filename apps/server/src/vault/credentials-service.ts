@@ -419,7 +419,10 @@ export async function deleteCredential(db: Db, id: string): Promise<boolean> {
 export const REVEAL_BURST = { windowMinutes: 10, alertAt: 10, limitAt: 20 } as const;
 
 /** Esito di {@link revealCredential}: la lettura (con `burst` se ha raggiunto la soglia d'avviso), o il tetto. */
-export type RevealOutcome = { kind: "revealed"; reveal: CredentialRevealResponse; burst: boolean } | { kind: "rate_limited" };
+export type RevealOutcome =
+  | { kind: "revealed"; reveal: CredentialRevealResponse; burst: boolean }
+  /** `retryAfterSeconds`: fra quanto un segreto esce dalla finestra e se ne può leggere uno nuovo. */
+  | { kind: "rate_limited"; retryAfterSeconds: number };
 
 /**
  * Mostra o copia: la password cifrata e la copia della chiave per la chiave
@@ -481,7 +484,24 @@ export async function revealCredential(
     `);
     const distinctRead = recent?.distinct_read ?? 0;
     const seen = recent?.seen ?? false;
-    if (!seen && distinctRead >= REVEAL_BURST.limitAt) return { kind: "rate_limited" };
+    if (!seen && distinctRead >= REVEAL_BURST.limitAt) {
+      // Fra quanto si torna sotto il tetto: esce per primo il segreto la cui
+      // ULTIMA lettura è la più vecchia (uno riletto di recente resta dentro),
+      // e ne devono uscire `distinctRead - limitAt + 1`.
+      const [next] = await tx.execute<{ seconds: number }>(sql`
+        select greatest(1, ceil(extract(epoch from (last_read + make_interval(mins => ${REVEAL_BURST.windowMinutes}) - now()))))::int as seconds
+          from (
+            select max(${credentialAccessLog.createdAt}) as last_read
+              from ${credentialAccessLog}
+             where ${credentialAccessLog.userId} = ${user.id}::uuid
+               and ${credentialAccessLog.createdAt} > now() - make_interval(mins => ${REVEAL_BURST.windowMinutes})
+             group by ${credentialAccessLog.credentialId}
+             order by 1 asc
+            offset ${distinctRead - REVEAL_BURST.limitAt} limit 1
+          ) w
+      `);
+      return { kind: "rate_limited", retryAfterSeconds: next?.seconds ?? REVEAL_BURST.windowMinutes * 60 };
+    }
     await tx.insert(credentialAccessLog).values({
       credentialId: id,
       projectId: credential.projectId,
