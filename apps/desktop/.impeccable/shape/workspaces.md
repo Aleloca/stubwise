@@ -467,8 +467,10 @@ shape e le D11–D19 del design (`docs/plans/2026-11-27-workspace-design.md`).
 4. **D4**: il permesso d'istanza nuovo è **`workspaces.manage`**. Lo ha
    già il full admin, implicito, e nessun altro preset. Per mettere,
    togliere o spostare un progetto serve anche `project.members.manage` in
-   quel progetto; per uno spostamento, in tutti e due. Per invitare vale
-   l'escalation su tutti i progetti della workspace.
+   quel progetto; per uno spostamento, in tutti e due. Per invitare,
+   cambiare ruolo e togliere persone servono `workspaces.manage` E
+   `project.members.manage` in OGNI progetto della workspace, con
+   l'escalation su tutti (una workspace vuota: il solo `workspaces.manage`).
 5. **D5**: chi vede almeno un progetto della workspace vede anche la
    workspace, con il conteggio dei soli progetti visibili.
 6. **D6**: un progetto archiviato resta nella sua workspace.
