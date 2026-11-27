@@ -98,7 +98,12 @@ export async function unwrapItemKey(
     wrapKey,
     ct,
   );
-  return importItemKey(bytes(raw), options.extractable ?? true);
+  // m-4: anche il buffer decifrato da WebCrypto, non solo la sua copia.
+  try {
+    return await importItemKey(bytes(raw), options.extractable ?? true);
+  } finally {
+    new Uint8Array(raw).fill(0);
+  }
 }
 
 /**

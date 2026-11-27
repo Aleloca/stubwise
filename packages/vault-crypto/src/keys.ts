@@ -79,7 +79,14 @@ export async function hkdfAesKey(
   info: string,
   salt: Uint8Array = new Uint8Array(0),
 ): Promise<CryptoKey> {
-  const base = await subtle().importKey("raw", bytes(secret), "HKDF", false, ["deriveKey"]);
+  // m-4: la copia del segreto (la PRF, o il segreto ECDH) si azzera appena importata.
+  const copy = bytes(secret);
+  let base: CryptoKey;
+  try {
+    base = await subtle().importKey("raw", copy, "HKDF", false, ["deriveKey"]);
+  } finally {
+    copy.fill(0);
+  }
   return subtle().deriveKey(
     { name: "HKDF", hash: "SHA-256", salt: bytes(salt), info: utf8(info) },
     base,

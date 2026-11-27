@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { parseEnvelope } from "./encoding.js";
 import {
   HKDF_INFO,
@@ -166,6 +166,27 @@ describe("M-2: la verifica della coppia non esporta la privata", () => {
       crypto.subtle.exportKey = orig as typeof crypto.subtle.exportKey;
     }
     expect(exported).not.toContain("private");
+  });
+});
+
+describe("m-4: hkdfAesKey non lascia copie del segreto", () => {
+  it("la copia passata a importKey è azzerata dopo, e la chiave funziona", async () => {
+    const seen: Uint8Array[] = [];
+    const real = crypto.subtle.importKey.bind(crypto.subtle);
+    const spy = vi.spyOn(crypto.subtle, "importKey").mockImplementation(((format: string, data: BufferSource, ...rest: unknown[]) => {
+      if (format === "raw" && data instanceof Uint8Array) seen.push(data);
+      return (real as (...a: unknown[]) => Promise<CryptoKey>)(format, data, ...rest);
+    }) as never);
+    try {
+      const secret = crypto.getRandomValues(new Uint8Array(32));
+      const key = await hkdfAesKey(secret, HKDF_INFO.unlock);
+      expect(key.algorithm.name).toBe("AES-GCM");
+      expect(seen).toHaveLength(1);
+      expect(seen[0]!.every((b) => b === 0)).toBe(true);
+      expect(secret.some((b) => b !== 0)).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

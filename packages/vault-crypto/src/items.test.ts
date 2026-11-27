@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { generatePersonKeyPair } from "./keys.js";
 import {
   decryptPassword,
@@ -113,3 +113,28 @@ describe("encryptForInsert", () => {
     }
   });
 });
+
+describe("m-4: unwrapItemKey non lascia la chiave in chiaro", () => {
+  it("il buffer decifrato da WebCrypto è azzerato dopo l'import", async () => {
+    const pair = await generatePersonKeyPair();
+    const { itemKey } = await encryptPassword("c-1", "s3cret");
+    const wrapped = await wrapItemKey(itemKey, pair.publicKey, "c-1", "k-1");
+    const privateKey = await crypto.subtle.importKey("pkcs8", pair.privateKeyPkcs8.slice(), { name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
+    const outputs: ArrayBuffer[] = [];
+    const real = crypto.subtle.decrypt.bind(crypto.subtle);
+    const spy = vi.spyOn(crypto.subtle, "decrypt").mockImplementation((async (...a: Parameters<SubtleCrypto["decrypt"]>) => {
+      const out = await real(...a);
+      outputs.push(out);
+      return out;
+    }) as never);
+    try {
+      await unwrapItemKey(wrapped, privateKey, "c-1", "k-1");
+      expect(outputs).toHaveLength(1);
+      expect(outputs[0]!.byteLength).toBe(32);
+      expect(new Uint8Array(outputs[0]!).every((b) => b === 0)).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
