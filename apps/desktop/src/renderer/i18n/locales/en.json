@@ -12218,6 +12218,12 @@
         "hint": "Create departments, choose who's in them and what they give."
       }
     },
+    "workspaces": {
+      "manage": {
+        "label": "manage workspaces",
+        "hint": "Create workspaces and choose which projects are in them."
+      }
+    },
     "changelog": {
       "view": {
         "label": "read the change log",

@@ -12218,6 +12218,12 @@
         "hint": "Creare reparti, scegliere chi ci sta e cosa danno."
       }
     },
+    "workspaces": {
+      "manage": {
+        "label": "gestire le workspace",
+        "hint": "Creare le workspace e scegliere quali progetti ci stanno."
+      }
+    },
     "changelog": {
       "view": {
         "label": "leggere il registro delle modifiche",

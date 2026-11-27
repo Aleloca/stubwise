@@ -18,7 +18,7 @@ import { departmentGrantsForEntering, departmentGrantsOf } from "./department-ac
  */
 import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "@stubwise/db";
-import { departmentProjectPermissions, departments, inviteProjects, memberPermissionsSql, projectMemberPermissions, projectMembers, projects, roles, users } from "@stubwise/db";
+import { departmentProjectPermissions, departments, inviteProjects, memberPermissionsSql, projectMemberPermissions, projectMembers, projects, roles, users, workspaceMembers } from "@stubwise/db";
 import {
   effectiveInstancePermissions,
   PROJECT_PERMISSIONS,
@@ -174,11 +174,15 @@ export interface RoleRow {
   updatedAt: Date;
 }
 
-/** Assegnazioni di un ruolo: utenti (istanza) o membri (progetto). */
+/**
+ * Assegnazioni di un ruolo: utenti (istanza) o membri di progetto e persone di
+ * una workspace (progetto, 0238: anche lì il ruolo è in uso).
+ */
 const assignmentCountSql = sql<number>`(
   case when ${roles.scope} = 'instance'
     then (select count(*) from ${users} where ${users.instanceRoleId} = ${roles.id})
     else (select count(*) from ${projectMembers} where ${projectMembers.roleId} = ${roles.id})
+      + (select count(*) from ${workspaceMembers} where ${workspaceMembers.roleId} = ${roles.id})
   end
 )::int`;
 
