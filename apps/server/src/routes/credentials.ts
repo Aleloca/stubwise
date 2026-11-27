@@ -47,11 +47,13 @@ import {
   managesCredentials,
   replacePassword,
   revealCredential,
+  REVEAL_BURST,
   updateCredential,
   type WriteOutcome,
 } from "../vault/credentials-service.js";
 import { effectiveReaderUserIds, VaultNotActiveError } from "../vault/readers.js";
 import { requireVaultCaller } from "../vault/device-access.js";
+import { publishVaultRevealBurst } from "../vault/alerts.js";
 import { consumeActorProof } from "../vault/recovery-challenge.js";
 import {
   readersView,
@@ -276,7 +278,7 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
       schema: {
         params: credentialParams,
         body: credentialRevealBodySchema,
-        response: { 200: credentialRevealResponseSchema, ...errorResponses },
+        response: { 200: credentialRevealResponseSchema, ...errorResponses, 429: errorSchema },
       },
     },
     async (request, reply) => {
@@ -287,7 +289,15 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
       if (!caller) return reply;
       const revealed = await revealCredential(app.db, user, request.params.id, request.body.action, caller);
       if (!revealed) return notFound(reply);
-      return reply.code(200).send(revealed);
+      if (revealed.kind === "rate_limited") {
+        // C2: il tetto di una raffica (REVEAL_BURST); nessuna riga, nessuna copia.
+        reply.header("retry-after", String(REVEAL_BURST.windowMinutes * 60));
+        return apiError(reply, 429, "vault_reveal_rate_limited", "Too many vault reads in a short time");
+      }
+      // C2: la lettura che raggiunge la soglia d'avviso avvisa la persona e gli
+      // altri full admin. Dopo il commit, e mai a costo della lettura.
+      if (revealed.burst) await publishVaultRevealBurst(app.db, user, (m) => request.log.warn(m));
+      return reply.code(200).send(revealed.reveal);
     },
   );
 
