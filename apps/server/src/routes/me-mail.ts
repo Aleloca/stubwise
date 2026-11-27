@@ -57,6 +57,7 @@ import {
 } from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import { openSharedProposalsByThread } from "../services/mail-proposals.js";
+import { legacyOpenSql } from "../services/mail-proposals-legacy.js";
 import { meetingNoteView } from "../services/meetings.js";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -1395,7 +1396,8 @@ export async function meMailRoutes(
         const proposalRows = await app.db
           .select({
             threadId: emailMessages.threadId,
-            status: emailProposals.status,
+            // La regola delle proposte di prima, in un posto (`legacyOpenSql`): la card gestita la chiude.
+            open: legacyOpenSql.mapWith(Boolean),
             projectId: emailProposals.projectId,
             projectName: projects.name,
           })
@@ -1412,7 +1414,10 @@ export async function meMailRoutes(
             ),
           );
         for (const row of proposalRows) {
-          if (row.status === "classified" || row.status === "proposed") {
+          // r.1414: un progetto che chi guarda non vede non ha né id né nome,
+          // e la sua proposta non conta (`legacyView` non la mostra).
+          if (!row.projectId || !sees(row.projectId)) continue;
+          if (row.open) {
             openByThread.set(row.threadId, (openByThread.get(row.threadId) ?? 0) + 1);
           }
           addProject(row.threadId, row.projectId, row.projectName);

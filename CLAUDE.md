@@ -500,6 +500,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «L'utilizzo degli account dal rate_limit_event» (19 nov 2026)
   - «Rilascio dell'integrazione: aree 2–11 e rimandi (lotti 1–10)» (26 nov 2026, voce consolidata: migrazioni 0107–0236, worker fermo prima del server, discese non sicure)
   - «Riconferma su endpoint e bucket dello storage» (27 nov 2026; server e caddy, nessuna migrazione, rollback sicuro)
+  - «Una proposta gestita non torna in Home» (27 nov 2026; solo server, nessuna migrazione, rollback sicuro)
   - «Il filtro per progetto della Posta e la favicon di /app» (27 nov 2026; server e caddy, nessuna migrazione, rollback sicuro)
   - «Parità MCP con la nuova app» (26 nov 2026; migrazione 0237 additiva, server poi caddy, worker invariato, rollback sicuro con server e caddy insieme)
 - Verifica il bundle servito cercando una stringa nuova:
