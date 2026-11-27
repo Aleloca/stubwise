@@ -76,6 +76,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // modulo Docs) e AI (l'account preferito), sulla PATCH del progetto.
     "general",
     "ai",
+    // E Usage, per chi ha `project.usage.view`, sul filtro per progetto di
+    // `GET /api/ai-usage/summary`.
+    "usage",
   ]),
   // Area 9, F1, R9: «Who can?» sulle rotte del server.
   // Area 9, F1, R7: People e Roles sulle letture calcolate del server.

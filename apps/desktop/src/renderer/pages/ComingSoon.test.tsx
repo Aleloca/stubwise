@@ -2,6 +2,8 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-libra
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { auth as fakeAuth } from "../data/api";
+import { isIntegrated } from "../data/integration";
+import { PROJECT_SETTINGS_SECTIONS } from "../data/routes";
 import { renderRoute } from "../test/renderRoute";
 import { closeGoogleAccount } from "./drive/GoogleAccountCard";
 import { REPLY_UNDO_MS } from "./support/replyStore";
@@ -948,13 +950,12 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  it("una pagina di progetto non integrata mostra «Coming soon»", async () => {
-    // Dall'area 8, F4a, ogni sezione di progetto è accesa: resta una voce delle impostazioni
-    // (Archive è accesa dall'area 9, F6; Usage no).
-    renderRoute("/p/AUD/settings/usage");
-    expect(await screen.findByText("Coming soon")).toBeInTheDocument();
-    await settle();
-    expect(outside()).toEqual([]);
+  it("ogni voce delle impostazioni di progetto è accesa (ritiro del web vecchio: General, AI e Usage le ultime)", () => {
+    // Dall'area 8, F4a, ogni sezione di progetto è accesa; dal ritiro del web
+    // vecchio (inventario 1.3) anche ogni voce delle impostazioni.
+    for (const { id } of PROJECT_SETTINGS_SECTIONS) {
+      expect(isIntegrated({ kind: "projectSettings", name: id }), id).toBe(true);
+    }
   });
 
   // Review area 8 F1, m5: le ricerche della palette delle aree non integrate non partono.

@@ -19,6 +19,7 @@ export interface UsageApi {
     range: UsageRange;
     groupBy: UsageDimension;
     thenBy?: UsageDimension;
+    projectId?: string;
   }): Promise<Any>;
 }
 
@@ -37,6 +38,8 @@ export function createRealUsage(api: UsageApi) {
       range: UsageRange;
       groupBy: UsageDimension;
       thenBy?: UsageDimension;
+      /** Settings → Usage del progetto: i soli consumi di quel progetto (404 → `not_found`). */
+      projectId?: string;
     }): Promise<UsageView> {
       try {
         const s = await api.summary(input);
@@ -50,6 +53,7 @@ export function createRealUsage(api: UsageApi) {
         };
       } catch (error) {
         if (error instanceof ApiError && error.status === 403) throw new Error("forbidden");
+        if (error instanceof ApiError && error.status === 404) throw new Error("not_found");
         if (error instanceof ApiError && error.status === 400)
           throw new Error(error.code || "invalid_range");
         throw error;
@@ -67,3 +71,20 @@ const liveApi: UsageApi = {
 export const liveUsageApiForTest = liveApi;
 
 export const liveUsage = createRealUsage(liveApi);
+
+/**
+ * Progetto → Settings → Usage (ritiro del web vecchio, inventario 1.3): la
+ * stessa lettura col filtro per progetto. `null` per un progetto che chi
+ * guarda non vede, come il prototipo (`getProjectUsage`).
+ */
+export async function getProjectUsage(
+  projectId: string,
+  input: { range: UsageRange; groupBy: UsageDimension; thenBy?: UsageDimension },
+): Promise<UsageView | null> {
+  try {
+    return await liveUsage.getUsage({ ...input, projectId });
+  } catch (error) {
+    if (error instanceof Error && error.message === "not_found") return null;
+    throw error;
+  }
+}

@@ -204,6 +204,7 @@ describe("isIntegrated", () => {
         // Ritiro del web vecchio (inventario 1.3): General e AI sulla PATCH del progetto.
         "projectSettings:general",
         "projectSettings:ai",
+        "projectSettings:usage",
         "admin:departments",
         // Area 9, F1, R9: «Chi può farlo?».
         "admin:who-can",

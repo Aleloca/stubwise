@@ -86,9 +86,9 @@ describe("AI", () => {
 });
 
 describe("integrazione", () => {
-  it("General e AI sono sezioni integrate nella build app", () => {
+  it("General, AI e Usage sono sezioni integrate nella build app", () => {
     vi.stubEnv("VITE_STUBWISE_BUILD", "app");
-    expect(isIntegrated({ kind: "projectSettings", name: "usage" })).toBe(false);
+    expect(isIntegrated({ kind: "projectSettings", name: "usage" })).toBe(true);
     expect(isIntegrated({ kind: "projectSettings", name: "general" })).toBe(true);
     expect(isIntegrated({ kind: "projectSettings", name: "ai" })).toBe(true);
     vi.unstubAllEnvs();
