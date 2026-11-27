@@ -69,6 +69,7 @@ export * from "./claude/index.js";
 export * from "./chat/sse.js";
 export * from "./chat/docsSse.js";
 export * from "./schemas/task-view.js";
+export * from "./schemas/workspace.js";
 export * from "./schemas/task-delete.js";
 export * from "./schemas/claude-actions.js";
 export * from "./schemas/task-filter.js";

@@ -751,6 +751,25 @@ export async function keepingManagersIn(tx: Tx, projectIds: readonly string[], w
   }
 }
 
+/**
+ * Come {@link keepingManagersIn} ma senza lanciare: i progetti (in ordine di
+ * id) che `write` lascerebbe senza un gestore dei membri. Per le anteprime che
+ * FANNO la scrittura in una transazione poi annullata (l'effetto di una
+ * modifica di workspace): la stessa regola, letta.
+ */
+export async function managersLostBy(tx: Tx, projectIds: readonly string[], write: () => Promise<void>): Promise<string[]> {
+  const ordered = [...new Set(projectIds)].sort();
+  const before = new Map<string, number>();
+  for (const projectId of ordered) {
+    await tx.execute(membersLock(projectId));
+    before.set(projectId, await managerCount(tx, projectId));
+  }
+  await write();
+  const lost: string[] = [];
+  for (const projectId of ordered) if (before.get(projectId)! > 0 && (await managerCount(tx, projectId)) === 0) lost.push(projectId);
+  return lost;
+}
+
 async function keepingAManager(tx: Tx, projectId: string, write: () => Promise<void>): Promise<void> {
   await tx.execute(membersLock(projectId));
   const before = await managerCount(tx, projectId);

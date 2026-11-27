@@ -36,6 +36,7 @@ const ALLOWED: Readonly<Record<string, readonly [number, string]>> = {
   "apps/server/src/claude-actions/catalog-area9.ts": [5, "«Annulla» di Claude su un ingresso: il membro esplicito"],
   "apps/server/src/claude-actions/labels.ts": [5, "il nome del ruolo esplicito nelle etichette delle azioni"],
   "apps/server/src/claude-actions/undo.ts": [4, "i lock sulle righe dei membri esplicite"],
+  "apps/server/src/services/workspaces.ts": [11, "togliere gli override (membri ESPLICITI) di chi esce da una workspace, D12: scrittura"],
 };
 
 const ROOTS = ["apps/server/src", "apps/worker/src", ...readdirSync(join(repoRoot, "packages")).map((p) => `packages/${p}/src`)];
