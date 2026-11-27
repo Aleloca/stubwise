@@ -57,6 +57,7 @@ import {
 } from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import { openSharedProposalsByThread } from "../services/mail-proposals.js";
+import { legacyOpenSql } from "../services/mail-proposals-legacy.js";
 import { meetingNoteView } from "../services/meetings.js";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -219,6 +220,31 @@ function visibleScopeSql(visible: ProjectScope): SQL {
   return sql`array(select x from unnest(${emailMessages.scopeProjectIds}) as x where x = any(${list}))`;
 }
 
+/**
+ * C'è una proposta di chi guarda (`mailbox_owner`, come `proposalRows`) su
+ * un messaggio di QUESTA conversazione (la riga del GROUP BY), che soddisfa
+ * `where`. `p` è la proposta.
+ */
+function ownerProposalExistsSql(where: SQL): SQL {
+  return sql`exists (select 1 from email_proposals p join email_messages m on m.id = p.email_message_id where m.account_id = ${emailMessages.accountId} and m.thread_id = ${emailMessages.threadId} and p.audience = 'mailbox_owner' and ${where})`;
+}
+
+/**
+ * La proposta `p` è su un progetto che chi guarda vede: la stessa regola di
+ * `visibleScopeSql` (un full admin tutti tranne gli archiviati) e di `sees`
+ * nell'etichetta (`proposalRows`), così «senza progetto» resta il
+ * complemento esatto dell'etichetta (review della #132).
+ */
+function visibleProposalSql(visible: ProjectScope): SQL {
+  if (isAllProjects(visible)) {
+    if (visible.archived.length === 0) return sql`true`;
+    const archived = sql`array[${sql.join(visible.archived.map((id) => sql`${id}::uuid`), sql`, `)}]`;
+    return sql`not (p.project_id = any(${archived}))`;
+  }
+  const list = visible.length === 0 ? sql`'{}'::uuid[]` : sql`array[${sql.join(visible.map((id) => sql`${id}::uuid`), sql`, `)}]`;
+  return sql`p.project_id = any(${list})`;
+}
+
 function threadClassificationFilters(
   query: {
     importance?: "high" | "normal" | "low" | undefined;
@@ -234,9 +260,20 @@ function threadClassificationFilters(
   if (query.importance) {
     out.push(sql`coalesce(max(${IMPORTANCE_RANK_SQL}) filter (where ${done}), 0) = ${RANK_BY_IMPORTANCE[query.importance]}`);
   }
-  if (query.project) out.push(sql`coalesce(bool_or(${done} and ${query.project}::uuid = any(${scope})), false)`);
+  if (query.project) {
+    // La riga etichetta il progetto anche dalle proposte di chi guarda
+    // (`proposalRows` sotto): il filtro guarda la stessa fonte, o la riga
+    // con «MEE» non si trova filtrando per MEE. Un progetto invisibile resta
+    // come uno che non esiste.
+    const fromProposal = scopeIncludes(visible, query.project)
+      ? sql` or ${ownerProposalExistsSql(sql`p.project_id = ${query.project}::uuid`)}`
+      : sql``;
+    out.push(sql`(coalesce(bool_or(${done} and ${query.project}::uuid = any(${scope})), false)${fromProposal})`);
+  }
   if (query.noProject === "true") {
-    out.push(sql`coalesce(bool_or(${done}), false) and not coalesce(bool_or(${done} and cardinality(${scope}) > 0), false)`);
+    out.push(
+      sql`coalesce(bool_or(${done}), false) and not coalesce(bool_or(${done} and cardinality(${scope}) > 0), false) and not ${ownerProposalExistsSql(visibleProposalSql(visible))}`,
+    );
   }
   if (query.important === "true") {
     out.push(sql`coalesce(bool_or(${done} and ${emailMessages.importance} = 'high' and ${emailMessages.unread}), false)`);
@@ -1375,7 +1412,8 @@ export async function meMailRoutes(
         const proposalRows = await app.db
           .select({
             threadId: emailMessages.threadId,
-            status: emailProposals.status,
+            // La regola delle proposte di prima, in un posto (`legacyOpenSql`): la card gestita la chiude.
+            open: legacyOpenSql.mapWith(Boolean),
             projectId: emailProposals.projectId,
             projectName: projects.name,
           })
@@ -1392,7 +1430,10 @@ export async function meMailRoutes(
             ),
           );
         for (const row of proposalRows) {
-          if (row.status === "classified" || row.status === "proposed") {
+          // r.1414: un progetto che chi guarda non vede non ha né id né nome,
+          // e la sua proposta non conta (`legacyView` non la mostra).
+          if (!row.projectId || !sees(row.projectId)) continue;
+          if (row.open) {
             openByThread.set(row.threadId, (openByThread.get(row.threadId) ?? 0) + 1);
           }
           addProject(row.threadId, row.projectId, row.projectName);

@@ -1,7 +1,7 @@
 import { emailMessages, emailProposals, googleAccounts, notifications, users, type Db } from "@stubwise/db";
 import { permissionForProposalAction, projectPermissionsOfUser } from "@stubwise/notifications";
 import type { MailProposal, MailProposalAction, MailProposalStatus } from "@stubwise/shared";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { answerGoogleProposal, handGoogleProposal } from "./google-proposal.js";
 import type { DecideResult } from "./mail-proposals-decide.js";
 import { decideCalendar } from "./mail-proposals-calendar.js";
@@ -30,6 +30,12 @@ interface LegacyRow {
   message: typeof emailMessages.$inferSelect;
   card: CardEvent | null;
   notificationId: string | null;
+  /** Lo stato della card del proprietario: chi l'ha chiusa e quando. */
+  cardStatus: string | null;
+  cardHandledAt: Date | null;
+  cardHandledBy: string | null;
+  /** La card è stata chiusa PASSANDO la proposta (esiste la `google.proposal_handed` della riga). */
+  handed: boolean;
 }
 
 /** Le proposte di prima delle caselle di chi guarda, filtrate. */
@@ -43,7 +49,16 @@ export async function legacyRows(
   if (filter.messageId) conditions.push(eq(emailProposals.emailMessageId, filter.messageId));
   if (filter.thread) conditions.push(eq(emailMessages.threadId, filter.thread.threadId), eq(emailMessages.accountId, filter.thread.accountId));
   const rows = await db
-    .select({ proposal: emailProposals, message: emailMessages, card: notifications.event, notificationId: notifications.id })
+    .select({
+      proposal: emailProposals,
+      message: emailMessages,
+      card: notifications.event,
+      notificationId: notifications.id,
+      cardStatus: notifications.status,
+      cardHandledAt: notifications.handledAt,
+      cardHandledBy: notifications.handledByUserId,
+      handed: sql<boolean>`exists (select 1 from ${notifications} h where h.kind = 'google.proposal_handed' and h.event->>'proposalId' = ${emailProposals.id}::text)`,
+    })
     .from(emailProposals)
     .innerJoin(emailMessages, eq(emailMessages.id, emailProposals.emailMessageId))
     .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
@@ -74,13 +89,57 @@ export function legacyStatus(status: string): MailProposalStatus {
   return "open";
 }
 
+/**
+ * LA REGOLA, in un posto (produzione, 27 nov 2026): una proposta di prima si
+ * decide dalla SUA card (`answerGoogleProposal` la reclama), quindi una card
+ * già gestita la chiude, qualunque cosa dica ancora la riga. Succede quando
+ * la card si archivia («segnata gestita», o `handled_action` nullo prima
+ * della 0186) senza decidere: la riga resta `proposed` per sempre. Si DERIVA
+ * a lettura, non si scrive sulla riga: un'archiviazione ripristinata riapre
+ * la card, e con lei la proposta. Chiusa passandola: `handed`; altrimenti
+ * nessuno ha fatto niente, cioè `ignored` («Non fare nulla»), con chi ha
+ * chiuso la card e quando. La usano la vista, la decisione e il badge della
+ * conversazione (`legacyOpenSql`), e le proposte del calendario per casella
+ * (`mail-proposals-calendar.ts`), che si decidono dalla card allo stesso modo.
+ */
+export interface CardState {
+  notificationId: string | null;
+  cardStatus: string | null;
+  cardHandledAt: Date | null;
+  cardHandledBy: string | null;
+  /** Chiusa PASSANDOLA (solo la posta si passa). */
+  handed: boolean;
+}
+
+export function cardRule(stored: MailProposalStatus, card: CardState): {
+  status: MailProposalStatus;
+  /** Si decide adesso dalla card. */
+  open: boolean;
+  closedAt: Date | null;
+  closedBy: string | null;
+} {
+  if (stored !== "open") return { status: stored, open: false, closedAt: null, closedBy: null };
+  if (card.notificationId !== null && card.cardStatus === "handled") {
+    return { status: card.handed ? "handed" : "ignored", open: false, closedAt: card.cardHandledAt, closedBy: card.cardHandledBy };
+  }
+  return { status: stored, open: card.notificationId !== null, closedAt: null, closedBy: null };
+}
+
+export function legacyState(row: Pick<LegacyRow, "proposal"> & CardState): ReturnType<typeof cardRule> {
+  return cardRule(legacyStatus(row.proposal.status), row);
+}
+
+/** La stessa regola in SQL, per contare: aperta e con la card (se c'è) non gestita. */
+export const legacyOpenSql = sql`(${emailProposals.status} in ('classified', 'proposed') and not exists (
+  select 1 from ${notifications} c where c.id = ${emailProposals.proposalNotificationId} and c.status = 'handled'
+))`;
+
 /** La vista di una proposta di prima, coi permessi veri del proprietario. */
 export async function legacyView(db: Db, viewerId: string, row: LegacyRow): Promise<MailProposal | null> {
   const permissions = await projectPermissionsOfUser(db, viewerId, row.proposal.projectId);
   if (!permissions) return null;
   const actions = modelActions(row.card);
-  const status = legacyStatus(row.proposal.status);
-  const open = status === "open" && row.notificationId !== null;
+  const { status, open, closedAt, closedBy } = legacyState(row);
   const blockedIndices = actions.flatMap((a, i) => {
     const needed = permissionForProposalAction(a.action.type);
     return needed && !permissions.has(needed) ? [i] : [];
@@ -104,13 +163,14 @@ export async function legacyView(db: Db, viewerId: string, row: LegacyRow): Prom
     editable: false,
     blockedIndices,
     outsiders: [],
-    decidedBy: null,
-    decidedAt: null,
+    // Una card chiusa senza decidere: chi l'ha chiusa e quando (una passata lo dice in `handed*`).
+    decidedBy: closedBy && status === "ignored" ? ((await personOf(db, closedBy)) ?? null) : null,
+    decidedAt: closedAt && status === "ignored" ? closedAt.toISOString() : null,
     confirmedIndices: [],
     results: [],
     error: row.proposal.error,
-    handedAt: null,
-    handedBy: null,
+    handedAt: closedAt && status === "handed" ? closedAt.toISOString() : null,
+    handedBy: closedBy && status === "handed" ? ((await personOf(db, closedBy)) ?? null) : null,
     sharedWith: [],
     origin: {
       threadId: row.message.threadId,
@@ -135,8 +195,9 @@ export async function decideLegacy(
   const [row] = await legacyRows(db, viewerId, { id });
   // F3b: un id che non è una proposta di prima può essere una proposta del calendario.
   if (!row) return decideCalendar(db, viewerId, id, decision);
-  if (!row.notificationId || legacyStatus(row.proposal.status) !== "open") {
-    return { ok: false, error: "already_handled", decidedBy: null };
+  const state = legacyState(row);
+  if (!row.notificationId || !state.open) {
+    return { ok: false, error: "already_handled", decidedBy: state.closedBy ? ((await personOf(db, state.closedBy)) ?? null) : null };
   }
   const [user] = await db.select({ role: users.role }).from(users).where(eq(users.id, viewerId));
   const actor = { id: viewerId, role: user?.role ?? "member" };
@@ -172,6 +233,12 @@ export async function decideLegacy(
   if (decision.kind === "ignore") return { ok: true, status: "ignored" };
   if (decision.kind === "reassign") return { ok: true, status: "moved", projectId: projectId! };
   return { ok: true, status: "confirmed", results: [] };
+}
+
+/** Il nome di una persona, mai la sua email intera (come `peopleByIds`). */
+export async function personOf(db: Db, userId: string): Promise<{ userId: string; name: string } | undefined> {
+  const [row] = await db.select({ userId: users.id, displayName: users.displayName, email: users.email }).from(users).where(eq(users.id, userId));
+  return row ? { userId: row.userId, name: row.displayName ?? row.email.split("@")[0]! } : undefined;
 }
 
 export function mapError(error: string): DecideResult {

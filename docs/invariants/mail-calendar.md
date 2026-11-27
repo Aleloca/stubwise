@@ -921,3 +921,23 @@
   Un full admin in quanto tale resta FUORI come prima: l'esclusione riguarda
   il fatto che vede tutto, non la workspace. Test:
   `apps/worker/src/google/workspace-google.test.ts`.
+- **Una proposta che si decide dalla card è chiusa quando la card è chiusa,
+  e lo si DERIVA a lettura (27 nov 2026).** Le proposte di prima
+  (`mailbox_owner`) e quelle del calendario per casella si decidono dalla
+  LORO card (`answerGoogleProposal` la reclama): se la card è `handled` la
+  proposta non è più decidibile, qualunque cosa dica ancora la riga. Succede
+  archiviando la card senza decidere («segnata gestita», `handled_action`
+  `archive`, o nullo prima della 0186): la riga resta `proposed`. La regola
+  sta in UN posto, `cardRule` in
+  `apps/server/src/services/mail-proposals-legacy.ts` (con `legacyOpenSql`
+  per i conteggi), e la usano la vista (`GET /api/me/mail/proposals`, quindi
+  Home, «Da decidere» e `list_mail_proposals`), la decisione (`409
+  already_handled` con chi ha chiuso la card) e il badge della conversazione.
+  Lo stato derivato: `handed` se la card si è chiusa PASSANDOLA (esiste la
+  `google.proposal_handed` della riga), altrimenti `ignored`, con chi ha
+  chiuso la card e quando. Nessuna migrazione e nessuna scrittura sulla
+  riga, apposta: un'archiviazione ripristinata riapre la card, e con lei la
+  proposta. Le proposte condivise non ne hanno bisogno: si decidono dalla
+  riga (`mail-proposals-decide.ts`), e archiviare la propria card non le
+  chiude per gli altri. Test: `me-mail-proposals.test.ts`, «la card gestita
+  senza decisione chiude la proposta».

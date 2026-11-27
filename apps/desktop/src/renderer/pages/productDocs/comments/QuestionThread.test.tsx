@@ -278,7 +278,13 @@ describe("«Open a request»", () => {
     const user = userEvent.setup();
     await user.click(within(th).getByRole("button", { name: "Open a request" }));
     await waitFor(() => expect(panel().getAttribute("data-claude-panel")).toBe("open"));
-    expect(await within(panel()).findByText("Open a request from question pc-acq11b-bills-q")).toBeInTheDocument();
+    // Il messaggio nel flusso, non la riga «Delivering…» che lo precede: quella
+    // sparisce quando il turno lo prende (stesso schema del flaky della #132).
+    await waitFor(() =>
+      expect(panel().querySelector("[data-user-message]")).toHaveTextContent(
+        "Open a request from question pc-acq11b-bills-q",
+      ),
+    );
     await waitFor(() => expect(panel().querySelector("[data-proposal]")).not.toBeNull());
     await waitFor(() => expect(document.activeElement).toBe(panel().querySelector("[data-proposal]")));
     await waitFor(() => expect(flat(thread(BILLS_Q)!)).toContain("A request is being prepared in Claude's panel"));
