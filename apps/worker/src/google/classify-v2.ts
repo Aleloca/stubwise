@@ -255,7 +255,7 @@ export async function loadCandidateProjects(db: Db, recipientUserIds: readonly s
   const rows = await db
     .selectDistinct({ id: projects.id, code: projects.code, name: projects.name, description: projects.description })
     .from(projects)
-    // Membri espliciti e persone di workspace (0238, D17); mai gli admin impliciti.
+    // Membri espliciti e persone di workspace (0239, D17); mai gli admin impliciti.
     .innerJoin(projectAccess, eq(projectAccess.projectId, projects.id))
     // Area 9, F6: una mail non si attribuisce a un progetto archiviato.
     .where(and(inArray(projectAccess.userId, [...recipientUserIds]), projectAccessRowCounts, projectNotArchived(sql`${projects.id}`)))

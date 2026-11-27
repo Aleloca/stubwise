@@ -1,4 +1,5 @@
 import { useState, type KeyboardEvent, type ReactNode } from "react";
+import { useDownloadGraphJson } from "../../data/queries";
 import { useTranslation } from "react-i18next";
 import { graphJsonOf } from "../../domain/docs";
 import { useGraphAction } from "../../data/queries";
@@ -183,8 +184,16 @@ function ReadyGraph({ space }: { space: DocSpaceView }) {
   const graph = space.graph;
   const report = graph.report ?? [];
   const command = `graphify query "how does ${(report[0]?.name ?? "the code").toLowerCase()} work"`;
-  const download = () => {
-    downloadText("graph.json", graphJsonOf(space.name, graph), "application/json");
+  const graphJson = useDownloadGraphJson();
+  const download = async () => {
+    // Il `graph.json` vero del server (ritiro del web vecchio, inventario 1.5);
+    // nel prototipo quello composto dallo stato, come prima.
+    const result = await graphJson.mutateAsync(space.repositoryId);
+    if (!result.ok) {
+      toast.error(t("docs.graph.downloadFailed"));
+      return;
+    }
+    if (result.prototype) downloadText("graph.json", graphJsonOf(space.name, graph), "application/json");
     toast.show(t("docs.graph.downloaded"));
   };
   const copy = () =>
@@ -238,7 +247,7 @@ function ReadyGraph({ space }: { space: DocSpaceView }) {
       </DocsGroup>
 
       <div className="flex flex-col items-start gap-3 pt-7">
-        <button type="button" className={smallSecondary} onClick={download}>
+        <button type="button" className={smallSecondary} onClick={() => void download()}>
           {t("docs.graph.download")}
         </button>
         <div className="flex w-full flex-col gap-1.5">

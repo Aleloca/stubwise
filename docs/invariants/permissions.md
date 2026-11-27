@@ -137,7 +137,7 @@ non è dato a nessun ruolo esistente salvo che la sua migrazione lo dica.
   mai da `project_members` da sola (27 nov 2026, design
   `docs/plans/2026-11-27-workspace-design.md`, decisioni D1–D19).** Una
   persona di una workspace vede ogni suo progetto col ruolo di workspace (un
-  ruolo di PROGETTO). La vista `project_access` (0238) ha una riga per FONTE,
+  ruolo di PROGETTO). La vista `project_access` (0239) ha una riga per FONTE,
   `member` o `workspace`, e i permessi effettivi sono l'UNIONE delle fonti:
   - i ruoli di tutte le righe;
   - i permessi personali (solo con la riga esplicita);

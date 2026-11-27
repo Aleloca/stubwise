@@ -96,6 +96,9 @@ describe("parità delle chiavi en/it", () => {
         // Area 10a, Task 11: «with Claude» e «Claude on behalf of» nella
         // storia della task, nella rassegna e nella storia del progetto.
         "activity",
+        // Ritiro del web vecchio (27 nov 2026): «Remove design…» e «Remove
+        // plan…», condivisi da task e richieste (`designPlan.*`).
+        "designPlan",
       ].sort(),
     );
   });

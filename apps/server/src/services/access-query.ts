@@ -129,7 +129,7 @@ function projectWithReasons(
         .filter((w) => w.permissions.includes(permission))
         .map((w) => reason("workspace", { workspaceId: w.workspaceId, workspaceName: w.workspaceName, roleId: w.roleId, roleName: w.roleName })),
       // Area 9, F8: «via <reparto>», solo se è membro (un reparto non rende
-      // membri); membro anche per workspace (0238, D10).
+      // membri); membro anche per workspace (0239, D10).
       ...(membership?.memberPermissions
         ? departmentGrants.filter((g) => g.permission === permission).map((g) => reason("department", { departmentId: g.departmentId, departmentName: g.departmentName }))
         : []),
@@ -138,7 +138,7 @@ function projectWithReasons(
 }
 
 /**
- * Chi accede ai progetti (membri espliciti e, 0238, persone di workspace), una
+ * Chi accede ai progetti (membri espliciti e, 0239, persone di workspace), una
  * riga per persona e progetto: i permessi effettivi sono l'unione delle fonti;
  * il ruolo (`role*`) è quello del membro ESPLICITO, null per chi accede solo
  * per workspace (il motivo «workspace» lo aggiunge il lotto 4 delle workspace).
@@ -316,7 +316,7 @@ export async function viewerLosesIf(db: Db, viewer: Viewer, roleId: string, next
   const lost = new Set<string>();
   for (const p of instBefore) if (!instAfter.has(p)) lost.add(p);
 
-  // Una riga per FONTE (0238): il ruolo esplicito e quello di workspace, che
+  // Una riga per FONTE (0239): il ruolo esplicito e quello di workspace, che
   // possono essere entrambi il ruolo che cambia.
   const rows = await db
     .select({ projectId: projectAccess.projectId, roleId: projectAccess.roleId, rolePermissions: memberRoles.permissions })

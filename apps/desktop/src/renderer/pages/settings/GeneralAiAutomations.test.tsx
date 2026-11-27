@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { failNext, resetApi, setLatency } from "../../data/api";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { failNext, projectSettings, resetApi, setLatency } from "../../data/api";
 import { pulseNeedsBacklogFor } from "../../data/queries";
 import { state } from "../../data/store";
 import { grantProjectPermission } from "../../data/viewer";
@@ -255,6 +255,33 @@ describe("AI", () => {
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText("Saved")).toBeInTheDocument();
     expect(state.projectSettings.get(ACQ)!.aiProviderId).toBeNull();
+  });
+
+  it("I2: chi non legge gli account (senza ai_providers.manage) vede «Current account» scelto, e Save non lo cambia", async () => {
+    const s = state.projectSettings.get(ACQ)!;
+    s.aiProviderId = "prv-backup-max";
+    s.aiProviderExclusive = true;
+    const original = projectSettings.getProjectSettings;
+    const spy = vi.spyOn(projectSettings, "getProjectSettings").mockImplementation(async (id) => {
+      const view = await original(id);
+      // Come la build app per chi non ha `ai_providers.manage`: niente scelte, niente «eliminato».
+      return view && { ...view, ai: { ...view.ai, choices: [], automaticChain: [], chosenUnavailable: false } };
+    });
+    try {
+      await open("ai", LAURA);
+      await h1("AI");
+      const current = await screen.findByRole("radio", { name: /^Current account/ });
+      expect(current).toBeChecked();
+      expect(screen.queryByText(/There are no AI accounts on this instance yet/)).toBeNull();
+      expect(screen.getByRole("checkbox", { name: "Use only this account" })).toBeChecked();
+      await userEvent.click(screen.getByRole("checkbox", { name: "Use only this account" }));
+      await userEvent.click(screen.getByRole("button", { name: "Save" }));
+      expect(await screen.findByText("Saved")).toBeInTheDocument();
+      expect(s.aiProviderId).toBe("prv-backup-max");
+      expect(s.aiProviderExclusive).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("Sara: radio e casella spente, ognuna con la frase e «Who?», e nessun Save", async () => {

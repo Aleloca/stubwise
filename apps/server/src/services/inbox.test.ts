@@ -852,7 +852,7 @@ describe("listInbox", () => {
       status: "handled",
     });
 
-    const { items, nextCursor } = await listInbox(db, { userId: user.id, lang: "it" });
+    const { items, nextCursor } = await listInbox(db, { userId: user.id, lang: "it", publicUrl: "https://stubwise.test" });
     expect(items).toHaveLength(1);
     expect(nextCursor).toBeNull();
     expect(items[0]!.id).toBe(mine);
@@ -860,7 +860,10 @@ describe("listInbox", () => {
     // Testo piano: niente markup Slack né link renderizzati.
     expect(items[0]!.text).not.toContain("<https");
     expect(items[0]!.text).not.toContain("*");
-    expect(items[0]!.url).toBe("https://stubwise.test/tickets/7");
+    // Una card di prima (`/tickets/:id` nel jsonb): «Apri» porta alla task nella
+    // nuova app, dal codice derivato a lettura, sotto PUBLIC_URL (senza, resta
+    // il link dell'evento: un relativo non lo aprono l'app né le push).
+    expect(items[0]!.url).toMatch(/^https:\/\/stubwise\.test\/app\/#\/p\/[A-Z0-9]+\/tasks\?task=[A-Z0-9]+-\d+$/);
     expect(items[0]!.actions).toEqual(["approve_plan", "reject_plan", "open", "snooze", "handled"]);
   });
 
@@ -1157,12 +1160,15 @@ describe("listInbox", () => {
       createdAt: new Date(base - 3_000),
     });
 
-    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    const { items } = await listInbox(db, { userId: user.id, lang: "it", publicUrl: "https://stubwise.test" });
     // Nessun 500: ci sono TUTTE e quattro le righe.
     expect(items.map((i) => i.id)).toEqual([sana, esplode, vuota, senzaUrl]);
 
     expect(items[0]!.text).toContain("Piano in attesa di approvazione");
-    expect(items[0]!.url).toBe("https://stubwise.test/tickets/7");
+    // Una card di prima (`/tickets/:id` nel jsonb): «Apri» porta alla task nella
+    // nuova app, dal codice derivato a lettura, sotto PUBLIC_URL (senza, resta
+    // il link dell'evento: un relativo non lo aprono l'app né le push).
+    expect(items[0]!.url).toMatch(/^https:\/\/stubwise\.test\/app\/#\/p\/[A-Z0-9]+\/tasks\?task=[A-Z0-9]+-\d+$/);
 
     // Le marce degradano: testo = kind (la colonna enum), nessun url.
     for (const item of [items[1]!, items[2]!]) {
@@ -1198,7 +1204,7 @@ describe("listInbox", () => {
       lang: "it",
       publicUrl: "https://stubwise.test",
     });
-    expect(withUrl.items[0]!.url).toBe("https://stubwise.test/settings/security");
+    expect(withUrl.items[0]!.url).toBe("https://stubwise.test/app/#/preferences/security");
 
     const without = await listInbox(db, { userId: user.id, lang: "it" });
     expect(without.items[0]!.url).toBeUndefined();
@@ -1447,9 +1453,10 @@ describe("listInbox — riassunto in breve", () => {
     expect(items).toHaveLength(5);
     expect(items.every((item) => item.summary !== undefined)).toBe(true);
     // Le query della pagina sono un numero FISSO (righe, job, utenti, review,
-    // codici delle task — integrazione area 2): non cresce con gli item,
+    // codici delle task — integrazione area 2 — e dei progetti per il link
+    // della nuova app, `linkContextsFor`): non cresce con gli item,
     // altrimenti una pagina da 50 card sarebbe 50 round-trip.
-    expect(selectSpy.mock.calls.length).toBeLessThanOrEqual(6);
+    expect(selectSpy.mock.calls.length).toBeLessThanOrEqual(7);
     selectSpy.mockRestore();
   });
 });
@@ -2835,8 +2842,9 @@ describe("google.proposal — la decisione, derivata a lettura", () => {
 
     for (const id of ids) expect(items.find((i) => i.id === id)?.google?.decision?.status).toBe("actioned");
     // Righe, conteggio, job, review, utenti, fonte + UNA per tabella della
-    // decisione (posta, smistamento, calendario): non cresce con le card.
-    expect(counted).toBeLessThanOrEqual(11);
+    // decisione (posta, smistamento, calendario) + i codici dei progetti per il
+    // link della nuova app (`linkContextsFor`): non cresce con le card.
+    expect(counted).toBeLessThanOrEqual(12);
   });
 });
 

@@ -84,7 +84,7 @@ export async function readersView(db: DbOrTx, credentialId: string): Promise<Cre
             roleName: sql<string | null>`(
               select rv_role.name from ${credentialReaders} rv_r
               inner join ${credentials} rv_cr on rv_cr.id = rv_r.credential_id
-              -- Anche il ruolo di workspace (0238, D16).
+              -- Anche il ruolo di workspace (0239, D16).
               inner join project_access rv_pm
                 on rv_pm.project_id = rv_cr.project_id and rv_pm.user_id = ${users.id} and rv_pm.role_id = rv_r.role_id
               inner join ${roles} rv_role on rv_role.id = rv_r.role_id
@@ -139,7 +139,7 @@ async function targetPeople(
       .where(and(eq(roles.id, target.roleId), eq(roles.scope, "project")));
     if (!role) return { ok: false, error: "invalid_role" };
   }
-  // Membri espliciti e persone di workspace (0238, D16): una riga per fonte.
+  // Membri espliciti e persone di workspace (0239, D16): una riga per fonte.
   const rows = await db
     .select({ userId: users.id, email: users.email, source: projectAccess.source })
     .from(projectAccess)

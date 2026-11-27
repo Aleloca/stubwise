@@ -45,7 +45,7 @@ export async function loadPlanWorld(db: Db | Tx, scope: WorldScope): Promise<Pla
   );
 
   // I membri dei progetti, coi ruoli (chiave del preset o id del ruolo): da
-  // `project_access` (0238), quindi anche le persone di una workspace, col ruolo
+  // `project_access` (0239), quindi anche le persone di una workspace, col ruolo
   // di workspace. Chi è membro per due vie ha DUE ruoli, e li ha entrambi.
   const memberRows =
     existing.size === 0

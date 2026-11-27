@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { eq, sql } from "drizzle-orm";
 import { generateSync } from "otplib";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { projects, roles, sessions, userPasskeys, users } from "@stubwise/db";
+import { personalAccessTokens, projects, roles, sessions, userPasskeys, users } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
@@ -565,6 +565,35 @@ describe("riconferma con passkey", () => {
     expect((await post("/api/pats", { cookie }, { name: "x" })).statusCode).toBe(201);
   });
 
+  it("I6 (indurimento): lo sblocco della cassaforte (purpose vault) NON apre le altre riconferme, solo le rotte della cassaforte", async () => {
+    const user = await createUserWithTotp();
+    const authenticator = new SoftAuthenticator(RP);
+    const [passkey] = await testDb.db.insert(userPasskeys).values({ userId: user.id, credentialId: authenticator.credentialId, publicKey: authenticator.publicKey, name: "Portatile" }).returning();
+    const cookie = await sessionAged(user.id, REAUTH_WINDOW_MS + 60_000);
+    const options = await post("/api/me/security/reauth/passkey/options", { cookie }, { purpose: "vault" });
+    expect(options.statusCode).toBe(200);
+    const res = await post("/api/me/security/reauth/passkey/verify", { cookie }, { response: authenticator.assert(options.json() as { challenge: string }) });
+    expect(res.statusCode).toBe(204);
+    // Una riconferma qualunque (creare un PAT) resta chiusa…
+    const pats = await post("/api/pats", { cookie }, { name: "x" });
+    expect(pats.statusCode).toBe(403);
+    expect(pats.json()).toMatchObject({ code: "reauth_required" });
+    // …mentre una rotta della cassaforte che la chiede passa il gate (qui risponde altro, non reauth_required).
+    const jwk = generateKeyPairSync("ec", { namedCurve: "P-256" }).publicKey.export({ format: "jwk" });
+    const vault = await post(
+      "/api/vault/keys",
+      { cookie },
+      {
+        publicKey: JSON.stringify({ kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y }),
+        seals: [{ passkeyId: passkey!.id, sealedPrivateKey: JSON.stringify({ v: 1, iv: randomBytes(12).toString("base64url"), ct: randomBytes(32).toString("base64url"), tag: "x" }) }],
+        device: "Safari su macOS",
+      },
+    );
+    // Il gate della riconferma lascia passare: la risposta è della rotta (la chiave, o
+    // vault_not_active se la cassaforte non è attiva), mai un 403 di riconferma.
+    expect(vault.statusCode, vault.body).not.toBe(403);
+  });
+
   it("senza passkey → 409 no_passkeys; via PAT → 403 session_required", async () => {
     const user = await createUserWithTotp();
     const cookie = await sessionAged(user.id, null);
@@ -573,6 +602,27 @@ describe("riconferma con passkey", () => {
     expect(res.json()).toMatchObject({ code: "no_passkeys" });
     const viaPat = await post("/api/me/security/reauth/passkey/options", pat);
     expect(viaPat.json()).toMatchObject({ code: "session_required" });
+  });
+});
+
+describe("M5 (indurimento): una scrittura col cookie da un'altra origine", () => {
+  it("cookie + cross-site o same-site → 403 cross_origin_request, nessun effetto; same-origin passa; il PAT e le letture non sono toccati", async () => {
+    const user = await createUserWithTotp();
+    const cookie = await sessionAged(user.id, 0);
+    const before = (await testDb.db.select().from(personalAccessTokens)).length;
+    for (const site of ["cross-site", "same-site"]) {
+      const res = await post("/api/pats", { cookie, "sec-fetch-site": site }, { name: "csrf" });
+      expect([res.statusCode, res.json().code]).toEqual([403, "cross_origin_request"]);
+    }
+    const foreignOrigin = await post("/api/pats", { cookie, origin: "https://evil.example.com" }, { name: "csrf" });
+    expect([foreignOrigin.statusCode, foreignOrigin.json().code]).toEqual([403, "cross_origin_request"]);
+    expect((await testDb.db.select().from(personalAccessTokens)).length).toBe(before);
+    expect((await post("/api/pats", { cookie, "sec-fetch-site": "same-origin" }, { name: "ok" })).statusCode).toBe(201);
+    // Il PAT non porta cookie: un client che lo usa non è un browser ingannato.
+    const viaPat = await post("/api/me/security/reauth", { ...pat, "sec-fetch-site": "cross-site" }, { code: "123456" });
+    expect(viaPat.json().code).not.toBe("cross_origin_request");
+    const read = await app.inject({ method: "GET", url: "/api/auth/me", headers: { cookie, "sec-fetch-site": "cross-site" } });
+    expect(read.statusCode).toBe(200);
   });
 });
 

@@ -286,6 +286,8 @@ describe("GET /api/inbox", () => {
     expect(item.status).toBe("open");
     // Il testo viene dalla stessa fonte dei webhook, nella lingua dell'utente.
     expect(item.text).toBe(formatNotificationText(event, "en"));
+    // Questa app non ha PUBLIC_URL: un link derivato sarebbe relativo, e resta
+    // quello dell'evento (con PUBLIC_URL la task nella nuova app: services/inbox.test).
     expect(item.url).toBe("https://stubwise.test/tickets/7");
     // Admin su un piano fermo sul gate: vede le decisioni, poi l'igiene.
     expect(item.actions).toEqual(["approve_plan", "reject_plan", "open", "snooze", "handled"]);

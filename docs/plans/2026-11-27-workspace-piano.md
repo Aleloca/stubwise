@@ -32,7 +32,7 @@
 **Obiettivo**: le tabelle, la vista `project_access` e la regola dei permessi
 in un pezzo solo, usata dalle funzioni centrali. Nessuna rotta.
 
-1. **Migrazione 0238** (`packages/db/drizzle/0238_workspaces.sql` + journal), scritta a mano come le ultime:
+1. **Migrazione 0239** (`packages/db/drizzle/0239_workspaces.sql` + journal), scritta a mano come le ultime:
    - `workspaces`, `workspace_projects` (pk + `unique(project_id)`, D2), `workspace_members`
      (`role_id` `on delete restrict`), `invite_workspaces`;
    - CHECK sul nome come per i reparti, colore nella palette dei reparti;
@@ -229,7 +229,7 @@ non li legge.
 ## Lotto 6 — Rilascio
 
 - **Voce del deploy-log** «Workspace»:
-  - l'ordine: server (0238), poi worker, poi caddy;
+  - l'ordine: server (0239), poi worker, poi caddy;
   - il rollback, sicuro per i dati ma con l'accesso tolto a chi vede solo per
     workspace, e la query che li conta;
   - nessun `notification_kind` nuovo.

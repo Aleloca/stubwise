@@ -41,7 +41,7 @@ export async function peopleKnownTo(
   const readable = await channelReadableSql(db, viewer);
   // I progetti che chi guarda legge, ARCHIVIATI compresi (decisione di 46, 23
   // nov 2026: un archiviato si legge ancora, e chi c'era resta conosciuto).
-  // Membro esplicito o di workspace (0238, `project_access`).
+  // Membro esplicito o di workspace (0239, `project_access`).
   const mine = sql`(select me.project_id from ${projectAccess} me where me.user_id = ${viewer.id})`;
   const rows = await db
     .select({ id: users.id })

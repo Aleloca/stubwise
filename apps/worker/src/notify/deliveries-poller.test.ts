@@ -736,7 +736,7 @@ describe("canale slack_dm", () => {
     // Il link si deriva da PUBLIC_URL del worker (l'evento non lo porta): è
     // assoluto, perché il bottone si apre fuori dalla SPA.
     expect(JSON.stringify(slack.posted[0]!.blocks)).toContain(
-      "https://stubwise.test/settings/security",
+      "https://stubwise.test/app/#/preferences/security",
     );
   });
 

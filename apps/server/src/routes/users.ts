@@ -1,3 +1,4 @@
+import { legacyWebPath } from "@stubwise/shared";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { projectPermissionsFor, requireBrowserOrConfirmedDesktop } from "../auth/access.js";
 import type { FastifyInstance } from "fastify";
@@ -85,7 +86,7 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
             ${users.id} = ${me.id}
             or ${userIsFullAdmin(users.id)}
             or exists (
-              -- Un progetto in comune, membri espliciti o di workspace (0238).
+              -- Un progetto in comune, membri espliciti o di workspace (0239).
               select 1 from ${projectAccess} theirs
               inner join ${projectAccess} mine on mine.project_id = theirs.project_id
               where theirs.user_id = ${users.id} and mine.user_id = ${me.id}
@@ -317,7 +318,7 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
       // URL assoluto quando PUBLIC_URL è configurato (in produzione lo è
       // sempre), altrimenti il solo path: il web lo completa con la propria
       // origin.
-      const path = `/reset-password/${issued.token}`;
+      const path = legacyWebPath.resetPassword(issued.token);
       const base = publicUrlOrUndefined(instance);
       return reply
         .code(201)

@@ -17,7 +17,7 @@ export async function visiblePersonIds(db: Db, viewer: Pick<SessionUser, "id" | 
   if (isAllProjects(visible)) return "all";
   const rows =
     visible.length > 0
-      ? // Membri espliciti e persone di workspace dei progetti visti (0238).
+      ? // Membri espliciti e persone di workspace dei progetti visti (0239).
         await db.selectDistinct({ userId: projectAccess.userId }).from(projectAccess).where(and(inArray(projectAccess.projectId, visible), projectAccessRowCounts))
       : [];
   const admins = visible.length > 0 ? await userIdsWithPermission(db, null, null) : [];

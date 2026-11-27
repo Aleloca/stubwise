@@ -7275,7 +7275,7 @@ deploy o di un rollback che la tocca.
   delle fonti (`project_access`). Le invarianti in
   `docs/invariants/permissions.md` e (D17) `docs/invariants/mail-calendar.md`.
   **Cosa ribuildare, in ordine**:
-  1. `server`: applica la **0238** (tabelle `workspaces`,
+  1. `server`: applica la **0239** (tabelle `workspaces`,
      `workspace_projects`, `workspace_members`, `invite_workspaces`, i due
      trigger del ruolo di progetto e la vista `project_access`). Tutto
      additivo, nessun dato: un'istanza senza workspace è identica a prima.
@@ -7346,7 +7346,7 @@ deploy o di un rollback che la tocca.
   - Nessun `notification_kind` nuovo: l'ingresso in una workspace usa
     `member.added` (con `workspaceId` nell'evento, additivo), quindi la
     discesa non rompe `/api/inbox`.
-  - Non scendere sotto la 0238 con righe in `workspace_members`: la
+  - Non scendere sotto la 0239 con righe in `workspace_members`: la
     migrazione non si toglie a mano (le tabelle restano, innocue).
   - Gli inviti pendenti che promettono una workspace, da ricontrollare dopo
     una discesa (vedi sopra):
@@ -7390,3 +7390,135 @@ deploy o di un rollback che la tocca.
   elenchi più e che il loro dettaglio dica `ignored` (o `handed`).
   **Rollback**: sicuro, nessun dato toccato; scendendo, le 6 tornano visibili
   come prima.
+
+- **«Indurimento di sicurezza dell'origine» (27 nov 2026)**: branch
+  `fix/sicurezza-origine`. Il modello di minaccia («un XSS più un tocco
+  della passkey vale il furto permanente della chiave») e la procedura
+  d'incidente stanno in `docs/invariants/vault.md`. Cinque punti:
+  - **C1/M1, la CSP come header di Caddy** su `/`, `/app` e `/guide`:
+    `script-src 'self'` (la guida in più ammette per hash gli script inline
+    di Starlight, e `'wasm-unsafe-eval'` per la ricerca), con
+    `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'` e
+    `connect-src 'self'`. `/app` ha anche COOP `same-origin`, e il suo
+    `index.html` `Cache-Control: no-store`. Non la ricevono le risposte del
+    server (`/api`, la vista del grafo, che si incornicia) né
+    `/widget.js`, che si incorpora sui siti dei clienti. Il build
+    dell'immagine caddy genera il frammento della guida
+    (`/etc/caddy/csp-guide.caddy`) e FALLISCE se il web o l'app hanno uno
+    script inline (`scripts/caddy-csp.mjs`, test in CI). Zod non prova più
+    `new Function` all'avvio (`@stubwise/shared/csp`, primo import dei due
+    `main.tsx`). Provato in locale su `caddy:2-alpine` coi bundle veri:
+    `caddy validate`, header serviti, Chromium senza violazioni su `/`,
+    `/app/` e `/guide/`, e la ricerca della guida funzionante. Trusted Types
+    su `/app` sono **rimandati** (vedi l'invariante).
+  - **I6, lo sblocco della cassaforte non è una riconferma**: migrazione
+    **0238** (`sessions.vault_unlocked_at`, nullable). Le rotte della
+    cassaforte dichiarano `config.reauth: "vault"`.
+  - **I7, un sigillo nuovo** lascia `vault_seal_added` e un
+    `security.alert`, come la sostituzione (che ora avvisa anch'essa).
+  - **C2, una raffica di reveal**: avviso al 10° segreto distinto in 10
+    minuti, 429 `vault_reveal_rate_limited` oltre il 20°
+    (`REVEAL_BURST`), con `Retry-After` calcolato dalla finestra (anche nel
+    corpo, `retryAfterSeconds`). Il web vecchio dice quanti minuti
+    aspettare. Un indice nuovo, `credential_access_log (user_id,
+    created_at)`, nella 0238. L'avviso può ripetersi se il conteggio scende
+    sotto la soglia e risale (vault.md).
+  - **M5, scritture col cookie dalla stessa origine**: 403
+    `cross_origin_request` per `Sec-Fetch-Site` same-site o cross-site, o
+    per un `Origin` estraneo. PAT, app mobile e desktop non sono toccati.
+  La migrazione è la **0238** (`0238_vault_unlock_window`); quella delle
+  workspace, che aveva lo stesso numero, è stata rinumerata **0239**
+  (`feat/workspace`, 28 nov 2026).
+  **Ordine**: prima **`server`** (healthy, migrazione applicata), poi
+  **`caddy`**. Il worker non cambia. Nessuna env nuova.
+  **Controllo dopo il deploy**: gli header serviti, e una pagina per tipo
+  nel browser con la console aperta (nessuna violazione CSP):
+  ```sh
+  curl -sI https://<istanza>/ | grep -i content-security-policy
+  curl -sI https://<istanza>/app/ | grep -iE 'content-security-policy|cross-origin-opener|cache-control'
+  curl -sI https://<istanza>/guide/ | grep -i content-security-policy
+  curl -sI https://<istanza>/widget.js | grep -ci content-security-policy   # 0
+  ```
+  Uno sblocco della cassaforte seguito da «crea un PAT» deve chiedere la
+  riconferma. Va provato **più di 10 minuti dopo il login**: il login stesso
+  vale come riconferma per 10 minuti, e prima di allora il PAT si crea
+  comunque.
+  **Rollback**: `caddy` da solo è sicuro (sono header). Il `server` NON
+  scende finché esistono righe coi valori nuovi: il server vecchio non
+  conosce i tipi `vault_seal_added`/`vault_reveal_burst` nel registro di
+  sicurezza, né i soggetti `vault_seal_added`/`vault_seal_replaced`/
+  `vault_reveal_burst` degli avvisi in inbox. Prima di scendere si
+  **esportano** le righe del registro di sicurezza, che sono la traccia di
+  eventi da indagare e non si buttano:
+  ```sh
+  docker compose exec -T postgres psql -U stubwise -d stubwise -c "\copy (select * from security_events where kind in ('vault_seal_added', 'vault_reveal_burst')) to stdout with csv header" > security-events-$(date +%F).csv
+  ```
+  poi:
+  ```sql
+  delete from security_events where kind in ('vault_seal_added', 'vault_reveal_burst');
+  delete from notifications where kind = 'security.alert'
+    and event->>'subject' in ('vault_seal_added', 'vault_seal_replaced', 'vault_reveal_burst');
+  ```
+  La colonna della 0238 può restare (il codice vecchio non la nomina).
+  Scendendo, lo sblocco torna a rinnovare la riconferma.
+
+- **«Nuova app: impostazioni di progetto, polso, design e piano» (27 nov
+  2026)**: branch `feat/impostazioni-progetto`, ritiro del web vecchio
+  (inventario `docs/plans/2026-11-27-ritiro-web-inventario.md`). Nella nuova
+  app (`/app` e desktop): Settings → General, AI e Usage del progetto; le
+  proposte del polso in Home → Decide; Remove design / Remove plan su task e
+  richieste, con le sezioni Design e Plan sulla task; i Mac di un'altra
+  persona per il full admin; lo zip dei Docs e il `graph.json` veri.
+  **Cambi di comportamento del server**:
+  - con un design attivo (`tickets.origin_content` non null), la modifica
+    della descrizione va su `origin_content` e non più sul corpo:
+    `PATCH /api/tasks/:id` (descrizione) e `PATCH /api/tickets/:id` (corpo,
+    anche dall'MCP `tickets.update`). Il design resta, e «Remove design»
+    riporta il testo modificato. Prima una modifica riscriveva il design. La
+    regola sta in `descriptionUpdate` (`apps/server/src/services/tickets.ts`);
+  - `GET /api/ai-usage/summary` accetta `projectId`: i soli consumi di quel
+    progetto, nello scope di chi guarda (`usage.view` o
+    `project.usage.view`), 404 per un progetto fuori scope o invisibile
+    (R-G5). Contro un server di prima l'app se ne accorge e chiede di
+    aggiornarlo.
+  **Deploy**: nessuna migrazione, nessuna env, nessun `notification_kind`
+  nuovo. Ribuildare **`server`** e **`caddy`**; il worker non cambia.
+  **Rollback**: sicuro, server e caddy insieme. Scendendo, la descrizione di
+  un ticket con un design attivo torna a scrivere il corpo (cioè il design),
+  come prima; i testi già salvati su `origin_content` restano e «Remove
+  design» li riporta.
+
+- **«I link portano alla nuova app» (27 nov 2026)**: rami
+  `feat/link-nuova-app` e `feat/link-go-routes`, che si appoggia al primo.
+  Primo passo del ritiro del web vecchio; il design è
+  `docs/plans/2026-11-27-link-nuova-app-design.md`. I link che server,
+  worker, notifiche e MCP scrivono nascono da un posto solo
+  (`packages/shared/src/app-links.ts`) e portano alla nuova app (`/app/#/…`):
+  card, email, push, DM, webhook in uscita, risposte di SDK e MCP.
+  - Il consenso Google avviato dalla nuova app nel browser
+    (`client: "web"`) torna a `/app/#/preferences/account`; quello del web
+    vecchio resta su `/settings/account`.
+  - Ci sono i rimandi `GET /go/…`, che dagli id dei link già spediti
+    portano alla nuova app.
+  - Campi additivi: `appPath` su ticket e voce di backlog, `ticketAppPath`,
+    `resultItemAppPath`; `serverId` negli eventi del monitor.
+  **Cosa ribuildare**: `server`, `worker` e `caddy`: il `Caddyfile` proxa
+  `/go/*`, e le regole del ritiro sono scritte ma commentate. Nessuna
+  migrazione, nessuna env. L'MCP esce col suo changeset (patch).
+  **Ordine**: `server`, poi `worker`, poi `caddy`. Niente riavvii del worker
+  con lavoro dell'agente in corso.
+  **Controllo dopo il deploy**: una card nuova (un piano da approvare, un
+  avviso di sicurezza) apre la nuova app dal DM o dall'email. Un percorso
+  vecchio passato a mano dai rimandi, con la sessione, porta all'oggetto:
+  `/go/tickets/<id>`. Senza sessione porta all'ingresso dell'app.
+  **Rollback**: sicuro, server, worker e caddy insieme.
+  - I link già scritti nei jsonb restano quelli della nuova app, che
+    continua a esistere.
+  - Le card `monitor.*` nuove, col server vecchio, perdono il codice del
+    server (l'inbox vecchia lo cerca nell'URL del web vecchio) e si aprono
+    nel web come prima.
+  - Il server vecchio ignora `client: "web"` e rimanda a
+    `/settings/account`.
+  **Al ritiro**: togliere i `#` del blocco «Ritiro del web vecchio» del
+  `Caddyfile` (validato anche acceso) e mandare il resto del web vecchio
+  alla nuova app.

@@ -912,7 +912,7 @@
   2026, workspace, D17).** Dove questo file dice che contano i membri
   ESPLICITI e non gli admin impliciti, le persone di una workspace che
   contiene il progetto contano come membri: hanno una riga in
-  `project_access` (0238, `docs/invariants/permissions.md`). Vale per:
+  `project_access` (0239, `docs/invariants/permissions.md`). Vale per:
   - i progetti candidati di una mail (`loadCandidateProjects`);
   - i progetti dagli invitati di un appuntamento (`attendeeProjects`);
   - i destinatari delle proposte condivise del calendario, anche della

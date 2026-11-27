@@ -28,7 +28,7 @@
 
 ## 1. Il modello
 
-### 1.1 Tabelle (una migrazione, la prossima libera: 0238)
+### 1.1 Tabelle (una migrazione, la prossima libera: 0239)
 
 ```
 workspaces
@@ -456,7 +456,7 @@ job nuovo.
 
 ## 6. Migrazione, rilascio, rollback
 
-### 6.1 La migrazione (0238)
+### 6.1 La migrazione (0239)
 
 - Crea le tre tabelle più `invite_workspaces`, il permesso `workspaces.manage`
   (nel catalogo, nel codice: nessun dato) e **nessuna** riga di dati: nessuna
@@ -466,7 +466,7 @@ job nuovo.
 
 ### 6.2 L'ordine del rilascio
 
-1. `server`: applica la 0238; healthy.
+1. `server`: applica la 0239; healthy.
 2. `worker`: la regola condivisa (`packages/notifications`) lo vuole aggiornato
    insieme, prima che esista una workspace con persone. Finché non ce n'è
    nessuna il comportamento è identico.

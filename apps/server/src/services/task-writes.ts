@@ -33,7 +33,7 @@ import { projectIdsWithPermission, projectPermissionsFor, projectPermissionsOfUs
 import { backlogVisibleSql } from "./backlog-visibility.js";
 import { closeRefineSessionForItem } from "./backlog-refine.js";
 import { createTicket, type Ticket } from "../db/tickets.js";
-import { assigneeState, diffTicketEvents } from "./tickets.js";
+import { assigneeState, descriptionUpdate, diffTicketEvents } from "./tickets.js";
 import { loadTaskViews, visibleTasksCondition, type TaskViewer } from "./task-view.js";
 import { personName } from "./people.js";
 import { notifyTaskActivity, notifyTaskPeople } from "./task-notify.js";
@@ -265,7 +265,8 @@ export async function createTask(
 function updatesFor(current: Ticket, patch: TaskPatch): Partial<Ticket> {
   const updates: Partial<Ticket> = {};
   if (patch.title !== undefined) updates.title = patch.title;
-  if (patch.description !== undefined) updates.body = patch.description;
+  // I1: con un design attivo la descrizione è l'originale (`originContent`).
+  if (patch.description !== undefined) Object.assign(updates, descriptionUpdate(current, patch.description));
   if (patch.statusId !== undefined) updates.statusId = patch.statusId;
   if (patch.departmentId !== undefined) updates.departmentId = patch.departmentId;
   // Uguale a com'è non si scrive (fix della review della fetta 2): un plan o

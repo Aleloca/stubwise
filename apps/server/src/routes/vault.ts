@@ -45,7 +45,7 @@ import { isDesktopPat } from "../auth/access.js";
 import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
 import type { SessionUser } from "../auth/session.js";
 import { apiError } from "../errors.js";
-import { publishVaultKeyCreated, publishVaultRecoveryKeyRotated } from "../vault/alerts.js";
+import { publishVaultKeyCreated, publishVaultRecoveryKeyRotated, publishVaultSealChanged } from "../vault/alerts.js";
 import {
   confirmPersonKey,
   listPending,
@@ -247,7 +247,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/activate",
     {
-      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
+      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: "vault" },
       schema: {
         body: vaultActivateBodySchema,
         response: { 204: z.null(), ...errorResponses },
@@ -290,7 +290,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/keys",
     {
-      config: { access: { kind: "user" }, reauth: true },
+      config: { access: { kind: "user" }, reauth: "vault" },
       schema: {
         body: vaultCreateKeyBodySchema,
         response: { 201: vaultCreateKeyResponseSchema, ...errorResponses, 400: errorSchema },
@@ -372,12 +372,14 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
    * una passkey registrata dopo la chiave può così aprire la cassaforte.
    * Rinnovarlo SOSTITUISCE il sigillo di prima: finisce nel registro di
    * sicurezza (`vault_seal_replaced`), perché è il punto in cui un sigillo
-   * buono potrebbe essere scambiato con uno che non apre più niente.
+   * buono potrebbe essere scambiato con uno che non apre più niente. Un
+   * sigillo nuovo lascia `vault_seal_added`, e in entrambi i casi la persona
+   * riceve un `security.alert` (I7).
    */
   app.post(
     "/keys/:id/seals",
     {
-      config: { access: { kind: "user" }, reauth: true },
+      config: { access: { kind: "user" }, reauth: "vault" },
       schema: {
         params: z.object({ id: z.uuid() }),
         body: vaultSealInputSchema,
@@ -414,10 +416,14 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
             target: [vaultPersonKeySeals.personKeyId, vaultPersonKeySeals.passkeyId],
             set: { sealedPrivateKey },
           });
-        if (existing) await recordSecurityEvent(tx, { kind: "vault_seal_replaced", user });
-        return true;
+        // I7 (indurimento): anche un sigillo NUOVO lascia la sua riga, e la
+        // persona riceve l'avviso in entrambi i casi (una passkey in più apre la
+        // cassaforte: un XSS con un tocco della passkey non lo fa in silenzio).
+        await recordSecurityEvent(tx, { kind: existing ? "vault_seal_replaced" : "vault_seal_added", user });
+        return existing ? "vault_seal_replaced" : "vault_seal_added";
       });
       if (!added) return keyNotFound(reply);
+      await publishVaultSealChanged(app.db, user.id, added, (m) => request.log.warn(m));
       return reply.code(204).send(null);
     },
   );
@@ -519,7 +525,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/recovery-key",
     {
-      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
+      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: "vault" },
       schema: {
         body: vaultRecoveryKeyBodySchema,
         response: { 204: z.null(), ...errorResponses },
@@ -686,7 +692,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/recovery/challenge",
     {
-      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
+      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: "vault" },
       schema: { response: { 201: vaultRecoveryChallengeResponseSchema, ...errorResponses } },
     },
     async (request, reply) => {
@@ -706,7 +712,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/recovery/pending",
     {
-      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
+      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: "vault" },
       schema: {
         body: vaultRecoveryPendingBodySchema,
         response: { 200: vaultPendingResponseSchema, ...errorResponses },
@@ -727,7 +733,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/recovery/confirm/:personKeyId",
     {
-      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
+      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: "vault" },
       schema: {
         params: personKeyParams,
         body: vaultRecoveryConfirmBodySchema,
@@ -820,7 +826,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/device-seals",
     {
-      config: { access: { kind: "user" }, reauth: true },
+      config: { access: { kind: "user" }, reauth: "vault" },
       schema: {
         body: vaultDeviceSealBodySchema,
         response: { 201: vaultDeviceSealCreatedSchema, ...errorResponses },
@@ -899,7 +905,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/device-seals/:id",
     {
-      config: { access: { kind: "user" }, reauth: true, desktopVault: true },
+      config: { access: { kind: "user" }, reauth: "vault", desktopVault: true },
       schema: {
         params: z.object({ id: z.uuid() }),
         // Dal browser il corpo non serve; dal Mac `actorProof` è obbligatorio (sotto).
@@ -957,7 +963,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/users/:userId/device-seals/:id",
     {
-      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
+      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: "vault" },
       schema: {
         params: z.object({ userId: z.uuid(), id: z.uuid() }),
         response: { 204: z.null(), ...errorResponses },

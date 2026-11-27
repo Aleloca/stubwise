@@ -210,7 +210,9 @@ function UsageLayout<D extends UsageDimension>({
               ? t("admin.ai.usage.rangeTooLong")
               : (usage.error as Error | null)?.message === "invalid_range"
                 ? t("admin.ai.usage.invalidRange")
-                : (texts.loadError ?? t("admin.ai.usage.loadError"))
+                : (usage.error as Error | null)?.message === "server_outdated"
+                  ? t("admin.ai.usage.serverOutdated")
+                  : (texts.loadError ?? t("admin.ai.usage.loadError"))
           }
           onRetry={() => void usage.refetch()}
         />

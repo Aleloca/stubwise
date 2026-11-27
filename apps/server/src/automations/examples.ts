@@ -174,7 +174,7 @@ async function contextParts(
   const visibleProjects = scope.projectIds.filter((p) => sees(visible, p));
   const members = visibleProjects.length
     ? await db
-        // Membri espliciti e persone di workspace, coi loro ruoli (0238, come `loadPlanWorld`).
+        // Membri espliciti e persone di workspace, coi loro ruoli (0239, come `loadPlanWorld`).
         .select({ projectId: projectAccess.projectId, userId: projectAccess.userId, presetKey: roles.presetKey, roleId: roles.id })
         .from(projectAccess)
         .innerJoin(roles, eq(roles.id, projectAccess.roleId))

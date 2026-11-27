@@ -562,7 +562,7 @@ describe("processEvents — notifica ticket.created", () => {
     expect(calls[0]!.event.source).toBe("sdk_error");
     expect(calls[0]!.event.projectName).toBe("Acme");
     expect(calls[0]!.event.ticketNumber).toBe(ticket!.number);
-    expect(calls[0]!.event.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket!.id}`);
+    expect(calls[0]!.event.ticketUrl).toEqual(expect.stringMatching(/^https:\/\/stubwise\.example\.com\/app\/#\/p\/[A-Z0-9]+\/tasks\?task=[A-Z0-9]+-\d+$/));
     // Riferimenti: progetto e ticket appena creato (nessun job: quello
     // dell'ingestion non ha un richiedente umano).
     expect(calls[0]!.opts).toEqual({ projectId: project.id, ticketId: ticket!.id });

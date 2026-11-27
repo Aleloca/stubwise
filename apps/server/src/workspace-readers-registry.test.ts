@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
  * ⚠️ INVARIANTE DELLE WORKSPACE, VERIFICATA SUL SORGENTE (lotto 2,
  * `docs/plans/2026-11-27-workspace-piano.md`): visibilità, permessi e
  * destinatari si decidono da `project_access` (membri espliciti E persone di
- * workspace, 0238) o dalle funzioni che la leggono, MAI da `project_members`
+ * workspace, 0239) o dalle funzioni che la leggono, MAI da `project_members`
  * da sola. Una query nuova che unisce `project_members` per decidere chi vede
  * un progetto dimentica le persone di workspace in silenzio.
  *
@@ -37,6 +37,11 @@ const ALLOWED: Readonly<Record<string, readonly [number, string]>> = {
   "apps/server/src/claude-actions/labels.ts": [5, "il nome del ruolo esplicito nelle etichette delle azioni"],
   "apps/server/src/claude-actions/undo.ts": [4, "i lock sulle righe dei membri esplicite"],
   "apps/server/src/services/workspaces.ts": [11, "togliere gli override (membri ESPLICITI) di chi esce da una workspace, D12: scrittura"],
+  // Arrivati da main col ritiro del web vecchio (i link verso la nuova app):
+  // `projectMembers` è il NOME della destinazione «Settings → Members» di un
+  // link, non la tabella; nessuna query.
+  "packages/shared/src/app-links.ts": [2, "la destinazione di link `projectMembers` (Settings → Members), non la tabella"],
+  "packages/notifications/src/actions.ts": [1, "il link di una card alla destinazione `projectMembers`, non la tabella"],
 };
 
 const ROOTS = ["apps/server/src", "apps/worker/src", ...readdirSync(join(repoRoot, "packages")).map((p) => `packages/${p}/src`)];

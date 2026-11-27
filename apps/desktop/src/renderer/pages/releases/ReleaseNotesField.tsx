@@ -210,7 +210,7 @@ export function ReleaseNotesField({ pr }: { pr: OpenPrView }) {
   );
 }
 
-const TASK_CODE = /\b[A-Z]{2,4}-\d+\b/g;
+const TASK_CODE = /\b[A-Z][A-Z0-9]{1,5}-\d+\b/g;
 
 /** Una riga delle note, coi codici delle task al loro posto. */
 function NoteLine({ line }: { line: string }) {

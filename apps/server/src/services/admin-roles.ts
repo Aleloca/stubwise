@@ -47,7 +47,7 @@ export async function adminRoleViews(db: Db, viewer: Viewer): Promise<AdminRoleV
   const seesPerson = (id: string) => visiblePeople === "all" || visiblePeople.includes(id);
   const instanceHolders = await db.select({ userId: users.id, roleId: users.instanceRoleId }).from(users).where(and(eq(users.isAgent, false)));
   // Chi ha un ruolo di progetto, e dove: membri espliciti e persone di workspace
-  // (0238), una volta per persona e progetto. Le promesse: gli inviti ai
+  // (0239), una volta per persona e progetto. Le promesse: gli inviti ai
   // progetti e alle workspace (la stessa regola di `projectsOfRole`).
   const projectHolders = await db
     .selectDistinct({ userId: projectAccess.userId, projectId: projectAccess.projectId, roleId: projectAccess.roleId })
@@ -394,7 +394,7 @@ export async function previewMember(db: Db, viewer: Viewer, projectId: string, u
   // Area 9, F8: i permessi dei reparti della persona, che valgono qui se è (o diventa) membro.
   const fromDepartments = await departmentGrantsOf(db, [userId]);
   for (const g of fromDepartments) push(g.permission, departmentSource(g));
-  // Chi accede già al progetto (membro esplicito o per workspace, 0238): i suoi
+  // Chi accede già al progetto (membro esplicito o per workspace, 0239): i suoi
   // reparti valgono già qui, e il ruolo di workspace resta comunque (D1, l'unione).
   const access = await db
     .select({ source: projectAccess.source, permissions: roles.permissions })
@@ -426,7 +426,7 @@ export async function previewMember(db: Db, viewer: Viewer, projectId: string, u
     ],
     // Un codice solo, quello della scrittura (M7).
     block: target.deactivatedAt ? "user_deactivated" : losesManage ? "last_manager" : null,
-    // Togliere il membro ESPLICITO lascia ciò che viene dalla workspace (0238):
+    // Togliere il membro ESPLICITO lascia ciò che viene dalla workspace (0239):
     // se lì resta gestore, la rimozione non toglie l'ultimo gestore.
     removeBlock:
       !target.deactivatedAt && !keepsManageWithoutRow && (await lastManagerProjectOf(db, userId, [projectId])) !== null ? "last_manager" : null,

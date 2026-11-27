@@ -38,7 +38,7 @@ export async function suggestRecipients(
     : sql`(
         ${userIsFullAdmin(users.id)}
         or exists (
-          -- Un progetto in comune, membri espliciti o di workspace (0238).
+          -- Un progetto in comune, membri espliciti o di workspace (0239).
           select 1 from ${projectAccess} theirs
           inner join ${projectAccess} mine on mine.project_id = theirs.project_id
           where theirs.user_id = ${users.id} and mine.user_id = ${viewer.id}

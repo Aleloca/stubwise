@@ -23,7 +23,22 @@ export const INTEGRATED_KINDS: ReadonlySet<string> = new Set([
   // Fetta 2: spostata da altri, ricevuta da altri. Aprono il pannello della task.
   "planning.changed",
   "task.assigned",
+  // Link della nuova app (54, feat/link-nuova-app): le card di un lavoro e di
+  // una task aprono il pannello della task (`taskCode`, derivato a lettura).
+  "job.failed",
+  "job.held",
+  "job.budget_held",
+  "job.pr_closed",
+  "review.completed",
+  "ticket.created",
 ]);
+
+/**
+ * Le card che chiedono una decisione: si decide solo in Home → Decide (PQ-1b,
+ * `DECISION_NOTIFICATION_KINDS` del prototipo), quindi aprono la Home, mai il
+ * web vecchio.
+ */
+const DECISION_KINDS: ReadonlySet<string> = new Set(["job.plan_review", "job.awaiting_input", "google.proposal"]);
 
 export interface PresentContext {
   /**
@@ -131,6 +146,13 @@ export function appLinkFor(rawUrl: string | null | undefined, instanceOrigin?: s
   const relative = rawUrl.startsWith("/") && !rawUrl.startsWith("//");
   if (!relative && url.origin !== instanceOrigin) return null;
   if (url.pathname !== "/app/" && url.pathname !== "/app") return null;
+  // Link della nuova app (54): la sicurezza delle Preferenze, il brief (solo
+  // un UUID), lo spazio Docs d'un repository (uno slug).
+  if (url.hash === "#/preferences/security") return url.hash;
+  const brief = /^#\/p\/[A-Z][A-Z0-9]{1,5}\/overview\?brief=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.exec(url.hash);
+  if (brief) return isIntegrated({ kind: "projectSection", name: "overview" }) ? url.hash : null;
+  const space = /^#\/p\/[A-Z][A-Z0-9]{1,5}\/docs\/[a-z0-9][a-z0-9-]{0,99}$/.exec(url.hash);
+  if (space) return isIntegrated({ kind: "projectSection", name: "docs" }) ? url.hash : null;
   const m = /^#\/p\/[^/?#]+\/(releases|docs|requests)(\/[^?#]+)?(\?[^#]*)?$/.exec(
     url.hash,
   );
@@ -390,6 +412,28 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
       ...viaClaudeOf(item, ctx),
     };
   }
+  // Le proposte del polso si decidono solo in «Da decidere» (shape
+  // `pulse-proposals.md`, PQ-1b): nel pannello la card dice che c'è e apre
+  // la Home, come la posta passata; mai il backlog del web vecchio.
+  if (item.kind === "project.pulse" && isIntegrated({ kind: "feature", name: "pulse-proposals" })) {
+    return {
+      id: item.id,
+      kind: item.kind,
+      projectId: item.projectId,
+      objectCode: projectCode ?? "",
+      departmentId: null,
+      recipientIds: [],
+      title: item.text,
+      body: item.summary ?? "",
+      createdAt: item.createdAt,
+      read: item.readAt !== null,
+      archived: item.status === "handled",
+      snoozedUntil: item.status === "snoozed" ? item.snoozedUntil : null,
+      link: "#/home",
+      ...mandatoryOf(item, ctx),
+      ...viaClaudeOf(item, ctx),
+    };
+  }
   // Area 8, F4a (S12): una card del monitor apre il server nell'app per codice
   // (derivato a lettura dal server): nel progetto dell'ancora, o
   // nell'Amministrazione senza ancora (zero o più progetti: `monitor.manage`).
@@ -411,6 +455,26 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
           ? `#/admin/servers/${item.serverCode}`
           : null
       : null;
+  // Una decisione si prende in Home (PQ-1b): la card apre lì.
+  if (DECISION_KINDS.has(item.kind)) {
+    return {
+      id: item.id,
+      kind: item.kind,
+      projectId: item.projectId,
+      objectCode: (item.ticketId ? ctx.taskCodes.get(item.ticketId) : undefined) ?? projectCode ?? "",
+      departmentId: null,
+      recipientIds: [],
+      title: item.text,
+      body: item.summary ?? "",
+      createdAt: item.createdAt,
+      read: item.readAt !== null,
+      archived: item.status === "handled",
+      snoozedUntil: item.status === "snoozed" ? item.snoozedUntil : null,
+      link: "#/home",
+      ...mandatoryOf(item, ctx),
+      ...viaClaudeOf(item, ctx),
+    };
+  }
   const appLink = serverLink ?? appLinkFor(item.url, ctx.instanceOrigin);
   if (appLink) {
     return {

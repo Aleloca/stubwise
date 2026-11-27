@@ -130,6 +130,26 @@ export async function writeEncrypted<T>(input: {
 }
 
 /**
+ * C2: il server ha fermato una raffica di letture (429
+ * `vault_reveal_rate_limited`). `retryAfterSeconds` dice fra quanto se ne
+ * può aprire una nuova; il messaggio lo dà `revealErrorMessage`.
+ */
+export class RevealRateLimitedError extends Error {
+  constructor(readonly retryAfterSeconds: number) {
+    super("vault_reveal_rate_limited");
+    this.name = "RevealRateLimitedError";
+  }
+}
+
+/** Il 429 del tetto di `reveal` come {@link RevealRateLimitedError}, o `null`. */
+function rateLimited(cause: unknown): RevealRateLimitedError | null {
+  if (!(cause instanceof ApiError) || cause.status !== 429 || cause.code !== "vault_reveal_rate_limited") return null;
+  const seconds = (cause.details as { retryAfterSeconds?: unknown } | undefined)?.retryAfterSeconds;
+  // Un server che non lo dice (o un valore strano): la finestra intera, 10 minuti.
+  return new RevealRateLimitedError(typeof seconds === "number" && seconds > 0 ? seconds : 600);
+}
+
+/**
  * Mostra o copia: scarica (registrato) password cifrata e propria copia
  * della chiave, apre la copia con la chiave privata della cassaforte aperta
  * e decifra. La chiave d'oggetto non esce da qui.
@@ -139,7 +159,12 @@ export async function revealPassword(
   action: "show" | "copy",
   privateKey: CryptoKey,
 ): Promise<string> {
-  const revealed = await revealCredential(credentialId, action);
+  let revealed: Awaited<ReturnType<typeof revealCredential>>;
+  try {
+    revealed = await revealCredential(credentialId, action);
+  } catch (cause) {
+    throw rateLimited(cause) ?? cause;
+  }
   const itemKey = await unwrapItemKey(
     revealed.wrappedKey,
     privateKey,

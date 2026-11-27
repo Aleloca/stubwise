@@ -206,7 +206,9 @@ export async function beginConnect(
     workspaceId: workspace.id,
     expiresAt: new Date(exp),
     // Lotto 4 (§6): dove torna il callback, deciso QUI.
-    client: input.client === "desktop" ? "desktop" : null,
+    // Ritiro del web vecchio: `web` = la nuova app nel browser (lo dice lei),
+    // null = il web vecchio, che non manda `client`.
+    client: input.client === "desktop" ? "desktop" : input.client === "web" ? "web" : null,
     returnState: input.client === "desktop" ? (input.returnState ?? null) : null,
   });
 
@@ -234,12 +236,16 @@ export async function beginConnect(
  * non decide mai il ritorno. null = il web di sempre (state non verificabile,
  * riga assente, collegamento avviato dal web).
  */
-export async function connectReturnOf(deps: Pick<GoogleOauthDeps, "db" | "encryptionKey" | "now">, state: string | undefined): Promise<{ returnState: string } | null> {
+export async function connectReturnOf(
+  deps: Pick<GoogleOauthDeps, "db" | "encryptionKey" | "now">,
+  state: string | undefined,
+): Promise<{ client: "desktop"; returnState: string } | { client: "web" } | null> {
   if (!state) return null;
   const payload = verifyState(state, deps.encryptionKey, (deps.now ?? Date.now)());
   if (!payload) return null;
   const [row] = await deps.db.select({ client: oauthStates.client, returnState: oauthStates.returnState }).from(oauthStates).where(eq(oauthStates.nonce, payload.nonce));
-  return row?.client === "desktop" && row.returnState ? { returnState: row.returnState } : null;
+  if (row?.client === "desktop" && row.returnState) return { client: "desktop", returnState: row.returnState };
+  return row?.client === "web" ? { client: "web" } : null;
 }
 
 /**

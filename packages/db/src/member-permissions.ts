@@ -32,7 +32,7 @@ export function memberPermissionsSql(rolePermissions: AnyColumn | SQL, projectId
 }
 
 /**
- * Workspace (0238, `docs/plans/2026-11-27-workspace-design.md` §1.3–1.4): i
+ * Workspace (0239, `docs/plans/2026-11-27-workspace-design.md` §1.3–1.4): i
  * permessi di `userId` in `projectId` come UNIONE delle fonti, letta dalla
  * vista `project_access` (una riga per fonte): i ruoli di TUTTE le righe
  * (membro esplicito e workspace) ∪ i permessi personali (esistono solo con la

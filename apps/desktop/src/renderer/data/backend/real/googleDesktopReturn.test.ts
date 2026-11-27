@@ -200,7 +200,7 @@ describe("il ritorno dal consenso di Google sul desktop", () => {
     await expect(pending).resolves.toMatchObject({ email: "ada@acme.test" });
   });
 
-  it("sul web nessun `client`: il corpo è quello di oggi", async () => {
+  it("sul web `client: \"web\"`: il ritorno va sulla nuova app (link della nuova app)", async () => {
     vi.stubGlobal(
       "open",
       vi.fn(() => null),
@@ -211,8 +211,10 @@ describe("il ritorno dal consenso di Google sul desktop", () => {
     await vi.waitFor(() =>
       expect(seen.some((r) => r.path === "/api/me/google/connect")).toBe(true),
     );
+    // Senza ponte (la build web): il ritorno va sulla nuova app.
     expect(seen.find((r) => r.path === "/api/me/google/connect")!.body).toEqual({
       workspaceId: WS,
+      client: "web",
     });
   });
 

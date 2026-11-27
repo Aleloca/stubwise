@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { agentRuns, projectMembers, projects, roles, users, type Db } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { UsageSummary } from "@stubwise/shared";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
@@ -87,6 +87,33 @@ describe("AI → Usage", () => {
     expect(code).toBe(200);
     expect(body.rows.map((r) => r.key)).toEqual([mine.projectId]);
     expect(body.totals.costUsd).toBe(7);
+  });
+
+  it("projectId (Settings → Usage del progetto): i soli consumi di quel progetto, totali compresi", async () => {
+    const cookie = await viewer([], "project_lead");
+    const r = await summary(cookie, `days=30&groupBy=model&projectId=${mine.projectId}`);
+    expect(r.code).toBe(200);
+    // Solo i due run di `mine` negli ultimi 30 giorni (2 + 5): né l'invisibile né quelli senza progetto.
+    expect(r.body.totals.costUsd).toBe(7);
+    // `usage.view` d'istanza su un progetto che vede (ne è membro): lo stesso filtro.
+    const all = await summary(await viewer(["usage.view"], "viewer"), `days=30&groupBy=model&projectId=${mine.projectId}`);
+    expect(all.code).toBe(200);
+    expect(all.body.totals.costUsd).toBe(7);
+  });
+
+  it("NEGATIVO, due utenti: un progetto fuori dallo scope o invisibile è 404, come uno che non c'è", async () => {
+    const onlyMine = await viewer([], "project_lead");
+    expect((await summary(onlyMine, `days=30&groupBy=model&projectId=${hiddenProjectId}`)).code).toBe(404);
+    // Visibile ma senza i consumi (Contributor non ha project.usage.view): 404 anche lui.
+    const [contributor] = await db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "contributor"));
+    const sees = await viewer([], "project_lead");
+    const [me] = await db.select({ id: users.id }).from(users).orderBy(desc(users.createdAt)).limit(1);
+    await db.insert(projectMembers).values({ projectId: hiddenProjectId, userId: me!.id, roleId: contributor!.id });
+    expect((await summary(sees, `days=30&groupBy=model&projectId=${hiddenProjectId}`)).code).toBe(404);
+    // `usage.view` d'istanza vede tutti i consumi, ma il filtro su un progetto che non vede è 404 lo stesso.
+    const instance = await viewer(["usage.view"], null);
+    expect((await summary(instance, `days=30&groupBy=model&projectId=${hiddenProjectId}`)).code).toBe(404);
+    expect((await summary(instance, `days=30&groupBy=model&projectId=${randomUUID()}`)).code).toBe(404);
   });
 
   it("l'intervallo: from/to oltre 366 giorni o rovesciato → 400; nessun intervallo → 400; il mese corrente", async () => {

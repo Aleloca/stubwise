@@ -41,7 +41,7 @@ export interface DepartmentJudgement {
 export async function judgeDepartmentDraft(db: Db, actor: Actor, saved: DepartmentShape, draft: DepartmentShape): Promise<DepartmentJudgement> {
   const fullAdmin = actor.instancePermissions.has("instance.full_admin");
   const held = fullAdmin ? {} : await projectPermissionsMap(db, actor, { includeArchived: true });
-  // I progetti dove ogni persona accede (membro esplicito o per workspace, 0238, D10): lì arriva il reparto.
+  // I progetti dove ogni persona accede (membro esplicito o per workspace, 0239, D10): lì arriva il reparto.
   const memberships = await db.selectDistinct({ userId: projectAccess.userId, projectId: projectAccess.projectId }).from(projectAccess).where(projectAccessRowCounts);
   // Una Map per persona (rimandi, lotto 4): prima ogni chiamata filtrava
   // tutte le appartenenze, e `missingToAdd` la chiama per ogni persona.

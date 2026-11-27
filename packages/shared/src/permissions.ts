@@ -42,7 +42,7 @@ export const INSTANCE_PERMISSIONS = [
   "mail_admission.view",
   // Integrazione area 2 (9 nov 2026): la pagina Reparti dell'amministrazione.
   "departments.manage",
-  // Workspace (0238, D4): creare, rinominare ed eliminare le workspace e
+  // Workspace (0239, D4): creare, rinominare ed eliminare le workspace e
   // spostarci i progetti (con `project.members.manage` nel progetto). Nessun
   // preset: il full admin l'ha implicito.
   "workspaces.manage",

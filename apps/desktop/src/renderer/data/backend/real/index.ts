@@ -29,6 +29,9 @@ import { liveProductPresence } from "./productLive";
 import { liveIntegration } from "./projectIntegration";
 import { liveProjectArchive } from "./projectArchive";
 import { liveProjectAutomations } from "./projectAutomations";
+import { liveProjectGeneral } from "./projectGeneral";
+import { listMacsOf, removeMacOf } from "./vaultMacsOf";
+import { getProjectUsage } from "./usage";
 import { liveProjectPlugins } from "./projectPlugins";
 import { chatFunctions } from "./chat";
 import { channelStream, onChatChange, subscribeChat, threadStream } from "./chatStream";
@@ -73,6 +76,9 @@ export const projectSettings: typeof Fake.projectSettings = partialNamespace<
   ...liveProjectArchive,
   // Registro, area 9 r.1121: Settings → Automations e gli interruttori.
   ...liveProjectAutomations,
+  // Ritiro del web vecchio (inventario 1.3): Settings → General, AI e Usage.
+  ...liveProjectGeneral,
+  getProjectUsage,
 });
 
 // Area 9, F2: il registro delle modifiche sulla lettura del server.
@@ -138,8 +144,15 @@ export const vault: typeof Fake.vault = partialNamespace<typeof Fake.vault>("vau
   ...liveVaultDesktop,
   // Fetta 2b: elenchi, dettaglio ed entrate, dalle rotte.
   ...liveVaultReads,
+  // Ritiro del web vecchio (inventario 1.2): i Mac di un'altra persona, dal browser.
+  listMacsOf,
+  removeMacOf,
 });
 
+// Ritiro del web vecchio (inventario 1.4): le proposte del polso, dalle card dell'inbox.
+export { pulse } from "./pulse";
+// Design e piano salvati su una task (shape `design-plan-remove.md`).
+export { getTaskDesignPlan, removeTaskDesign, removeTaskPlan } from "./taskDesign";
 export const servers: typeof Fake.servers = partialNamespace<typeof Fake.servers>("servers", {
   ...liveServers,
   // Area 8, F4b: la sezione Server della task (`GET /api/tasks/:id/server`) e la correzione.
@@ -193,6 +206,8 @@ export {
   listRequests,
   listRequestsToConvert,
   mergeRequest,
+  removeRequestDesign,
+  removeRequestPlan,
   reopenRequest,
   restoreRequest,
   updateRequest,

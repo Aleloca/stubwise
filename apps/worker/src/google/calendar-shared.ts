@@ -105,7 +105,7 @@ async function inviteesOfAny(
   const owner = input.mailboxOwnerUserId && !declined.has(input.mailboxOwnerUserId) ? input.mailboxOwnerUserId : null;
   const candidates = [...accepted].filter((id) => !declined.has(id) && id !== owner);
   if (candidates.length === 0) return owner ? [owner] : [];
-  // Membri ESPLICITI o di workspace (`project_access`, 0238, D17), mai
+  // Membri ESPLICITI o di workspace (`project_access`, 0239, D17), mai
   // `projectViewerIds` (che aggiunge i full admin impliciti).
   const members = await db
     .selectDistinct({ userId: projectAccess.userId })

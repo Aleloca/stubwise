@@ -297,6 +297,7 @@ function SpaceShell({ project, space }: { project: Project; space: DocSpaceView 
       categories={categories}
       projectCode={project.code}
       repo={spaceKey(space)}
+      repositoryId={space.repositoryId}
       collapsed={collapsed}
       onToggle={toggle}
       onExpandAll={() => setCollapsed(new Set())}

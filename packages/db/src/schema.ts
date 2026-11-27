@@ -424,6 +424,9 @@ export const sessions = pgTable(
     // le azioni sensibili lo vogliono recente. Null = sessione di prima del
     // rilascio, o parziale.
     secondFactorAt: timestamp("second_factor_at", { withTimezone: true }),
+    // I6 (0238): l'ultimo sblocco della cassaforte con una passkey. NON è una
+    // riconferma: vale solo per le rotte che dichiarano `config.reauth: "vault"`.
+    vaultUnlockedAt: timestamp("vault_unlocked_at", { withTimezone: true }),
     // Challenge WebAuthn in corso (registrazione o uso di una passkey):
     // monouso, la verifica la cancella sempre.
     webauthnChallenge: text("webauthn_challenge"),
@@ -4756,7 +4759,7 @@ export const projectMemberPermissions = pgTable(
 );
 
 /**
- * Workspace (0238, `docs/plans/2026-11-27-workspace-design.md`): raggruppamenti
+ * Workspace (0239, `docs/plans/2026-11-27-workspace-design.md`): raggruppamenti
  * di PROGETTI per VISIBILITÀ (i reparti raggruppano PERSONE). Una persona di una
  * workspace vede ogni suo progetto col suo ruolo di workspace; i permessi
  * effettivi sono l'unione delle fonti (`projectAccessPermissionsSql`).
@@ -4842,7 +4845,7 @@ export const inviteWorkspaces = pgTable(
 );
 
 /**
- * Chi accede a un progetto, una riga per FONTE (0238): `member` (una riga
+ * Chi accede a un progetto, una riga per FONTE (0239): `member` (una riga
  * `project_members`) o `workspace`. Una persona può averne due per lo stesso
  * progetto. Visibilità e permessi la leggono SEMPRE da qui (il test di
  * registro dei lettori), mai da `project_members` da sola; le scritture e la
@@ -6919,6 +6922,8 @@ export const credentialAccessLog = pgTable(
     check("credential_access_log_action_chk", sql`${table.action} in ('show', 'copy')`),
     check("credential_access_log_via_chk", sql`${table.via} in ('browser', 'desktop')`),
     index("credential_access_log_project_id_created_at_idx").on(table.projectId, table.createdAt),
+    // 0238 (C2): le letture di una persona nella finestra della raffica.
+    index("credential_access_log_user_id_created_at_idx").on(table.userId, table.createdAt),
   ],
 );
 

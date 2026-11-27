@@ -27,7 +27,7 @@ export type DriveSearchKey = (typeof DRIVE_SEARCH_KEYS)[number];
 export type DriveSearch = Partial<Record<DriveSearchKey | "q", string>>;
 
 /** Il codice di un file del Drive: `AUD-F7`. */
-export const FILE_CODE_RE = /^[A-Z]{2,4}-F\d+$/;
+export const FILE_CODE_RE = /^[A-Z][A-Z0-9]{1,5}-F\d+$/;
 
 const includes = (list: readonly string[], value: string) => list.includes(value);
 
@@ -43,7 +43,7 @@ export function isDriveSearchValue(key: string, value: string): boolean {
     case "addedBy":
       return /^[\w-]+$/.test(value);
     case "prj":
-      return /^[A-Z]{2,4}$/.test(value);
+      return /^[A-Z][A-Z0-9]{1,5}$/.test(value);
     case "hidden":
       return value === "1";
     default:
@@ -53,7 +53,7 @@ export function isDriveSearchValue(key: string, value: string): boolean {
 
 /** Il Drive: la destinazione (`drive`) o la sezione di un progetto (`p/AUD/drive`). */
 export function isDrivePath(path: string): boolean {
-  return path === "drive" || /^p\/[A-Z]{2,4}\/drive$/.test(path);
+  return path === "drive" || /^p\/[A-Z][A-Z0-9]{1,5}\/drive$/.test(path);
 }
 
 const valid = (search: DriveSearch, key: DriveSearchKey): string | undefined => {

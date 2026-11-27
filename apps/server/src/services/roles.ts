@@ -176,7 +176,7 @@ export interface RoleRow {
 
 /**
  * Assegnazioni di un ruolo: utenti (istanza) o membri di progetto e persone di
- * una workspace (progetto, 0238: anche lì il ruolo è in uso).
+ * una workspace (progetto, 0239: anche lì il ruolo è in uso).
  */
 // Le tabelle sono aliasate e l'id del ruolo è qualificato a mano: in una select
 // sulla sola `roles` Drizzle scrive `"id"` nudo, che dentro la sottoquery su
@@ -252,7 +252,7 @@ export async function heldForProjectRole(
 
 /**
  * I permessi di progetto di chi agisce, progetto per progetto: l'unione delle
- * fonti (ruolo, personali, reparti e, 0238, ruolo di workspace), dove accede.
+ * fonti (ruolo, personali, reparti e, 0239, ruolo di workspace), dove accede.
  */
 export async function actorProjectPermissions(db: DbOrTx, actor: Actor): Promise<Map<string, Set<string>>> {
   const mine = await db
@@ -267,7 +267,7 @@ export async function actorProjectPermissions(db: DbOrTx, actor: Actor): Promise
 
 /**
  * I progetti dove un ruolo è assegnato O promesso da un invito pendente: come
- * membro esplicito, e (0238) come ruolo di workspace, che vale in ogni progetto
+ * membro esplicito, e (0239) come ruolo di workspace, che vale in ogni progetto
  * della workspace, anche promesso da un invito (`invite_workspaces`).
  */
 async function projectsOfRole(db: DbOrTx, roleId: string): Promise<string[]> {
@@ -720,7 +720,7 @@ export const membersLock = (projectId: string) => sql`select pg_advisory_xact_lo
 
 /**
  * Quanti gestori dei membri ha il progetto, fuori dai full admin: persone che
- * vi accedono (membri espliciti o di workspace, 0238) col permesso nell'unione
+ * vi accedono (membri espliciti o di workspace, 0239) col permesso nell'unione
  * delle fonti (D18: un gestore per via di workspace conta).
  */
 async function managerCount(tx: DbOrTx, projectId: string, excludingUserId?: string): Promise<number> {
@@ -752,7 +752,7 @@ async function managerCount(tx: DbOrTx, projectId: string, excludingUserId?: str
  * `null`. La regola di {@link keepingManagersIn}, letta senza scrivere.
  */
 export async function lastManagerProjectOf(db: DbOrTx, userId: string, onlyProjectIds?: readonly string[]): Promise<string | null> {
-  // Anche i progetti visti per workspace (0238, D18).
+  // Anche i progetti visti per workspace (0239, D18).
   const mine = await db
     .selectDistinct({ projectId: projectAccess.projectId })
     .from(projectAccess)
@@ -884,7 +884,7 @@ export async function putProjectMember(
       const before = await lockedMember(tx, projectId, userId);
       // Area 9, F8 (F8-4 = a): chi ENTRA porta qui i permessi dei suoi reparti;
       // chi agisce deve averli in questo progetto (l'escalation sul DARE). Chi
-      // accede già per workspace (0238, D10) li ha già qui: non entra niente di nuovo.
+      // accede già per workspace (0239, D10) li ha già qui: non entra niente di nuovo.
       const alreadyIn = before !== null || (await tx.select({ ok: sql<boolean>`${projectAccessSql(sql`${projectId}::uuid`, sql`${userId}::uuid`)}` }).from(sql`(select 1) as one`))[0]?.ok === true;
       if (!alreadyIn) assertNoEscalation(actor, (await departmentGrantsForEntering(tx as unknown as Db, userId)).map((g) => g.permission), held);
       await tx

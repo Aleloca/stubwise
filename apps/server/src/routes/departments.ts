@@ -629,7 +629,7 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
           const losing = removesPerm ? before.memberIds : removedPeople;
           const touched = losing.length
             ? (
-                // Anche i progetti visti per workspace (0238, D10): lì il reparto vale.
+                // Anche i progetti visti per workspace (0239, D10): lì il reparto vale.
                 await tx
                   .selectDistinct({ projectId: projectAccess.projectId })
                   .from(projectAccess)

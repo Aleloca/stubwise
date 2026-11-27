@@ -58,7 +58,7 @@ const LIVE_KEY_STATUSES: VaultPersonKeyStatus[] = ["pending", "confirmed"];
 export function effectiveReaderCondition(credentialId: AnyColumn | SQL, userId: AnyColumn | SQL): SQL {
   return sql`(${userIsFullAdmin(userId)} or exists (
     select 1 from ${credentials} er_c
-    -- Membro esplicito o di workspace (0238, D16): il ruolo di workspace vale
+    -- Membro esplicito o di workspace (0239, D16): il ruolo di workspace vale
     -- come ruolo di progetto; mai la riga di workspace di un utente di sistema.
     inner join project_access er_pm
       on er_pm.project_id = er_c.project_id and er_pm.user_id = ${userId}

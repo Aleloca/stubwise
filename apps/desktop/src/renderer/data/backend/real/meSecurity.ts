@@ -85,6 +85,10 @@ const EVENT_KINDS: Record<string, string> = {
   vault_device_sealed: "vault_device_sealed",
   vault_device_seal_revoked: "vault_device_seal_revoked",
   reauth_desktop: "reauth_desktop",
+  // Indurimento dell'origine (54): una passkey nuova sigilla la chiave della
+  // cassaforte, e la raffica di letture (la soglia d'avviso del tetto C2).
+  vault_seal_added: "vault_seal_added",
+  vault_reveal_burst: "vault_reveal_burst",
 };
 
 /** Un tipo del server come tipo del prototipo; uno ignoto (un server più nuovo) è `other`. */

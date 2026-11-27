@@ -49,6 +49,8 @@ export class VaultHttpError extends Error {
     readonly status: number,
     readonly code: string,
     readonly details?: unknown,
+    /** `Retry-After` in secondi, quando il server lo manda (C2: il tetto delle letture, 429). */
+    readonly retryAfterSeconds?: number,
   ) {
     super(code);
   }
@@ -68,10 +70,12 @@ export function createVaultRemote(deps: VaultRemoteDeps): VaultRemote {
     });
     if (!res.ok) {
       const data = (await res.json().catch(() => null)) as { code?: unknown } | null;
+      const retryAfter = Number(res.headers.get("retry-after"));
       throw new VaultHttpError(
         res.status,
         typeof data?.code === "string" ? data.code : `http_${res.status}`,
         data,
+        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
       );
     }
     return res;

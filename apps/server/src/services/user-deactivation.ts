@@ -131,7 +131,7 @@ function invalidReassignment(taskId: string): RoleRuleError {
 /** Una persona attiva (non Claude) che vede il progetto: membro, o full admin. */
 async function canReceive(tx: Parameters<Parameters<Db["transaction"]>[0]>[0], userId: string, projectId: string): Promise<boolean> {
   const [row] = await tx
-    // Membro esplicito o di workspace (0238).
+    // Membro esplicito o di workspace (0239).
     .select({ permissions: roles.permissions, member: projectAccessSql(sql`${projectId}::uuid`, users.id) })
     .from(users)
     .innerJoin(roles, eq(roles.id, users.instanceRoleId))

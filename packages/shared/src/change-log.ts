@@ -58,7 +58,7 @@ export const CHANGE_LOG_TYPES = [
   // F8: il tipo è dichiarato ora, lo scrittore arriva con i permessi dei reparti.
   instance("department.permissions_changed", "departments.manage", "departments"),
   instance("department.deleted", "departments.manage", "departments"),
-  // Workspace (0238, lotto 3): la struttura e le persone d'istanza, i progetti
+  // Workspace (0239, lotto 3): la struttura e le persone d'istanza, i progetti
   // anche nel registro del progetto toccato (uno spostamento ne scrive due).
   instance("workspace.created", "workspaces.manage", "workspaces"),
   instance("workspace.updated", "workspaces.manage", "workspaces"),

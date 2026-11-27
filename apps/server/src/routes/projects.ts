@@ -166,7 +166,7 @@ async function effectiveMemberIds(db: Db, projectIds: string[]): Promise<Map<str
   const result = new Map<string, string[]>();
   if (projectIds.length === 0) return result;
   const [members, admins] = await Promise.all([
-    // Membri espliciti e persone di workspace (0238), come `projectViewerIdsByProject`.
+    // Membri espliciti e persone di workspace (0239), come `projectViewerIdsByProject`.
     db
       .selectDistinct({ projectId: projectAccess.projectId, userId: projectAccess.userId })
       .from(projectAccess)

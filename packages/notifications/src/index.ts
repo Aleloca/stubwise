@@ -370,3 +370,4 @@ export {
 export { failFirstVersion, writeFirstVersionPage, type FirstVersionDraftPage, type FirstVersionStep } from "./product-first-version.js";
 export { agentUserId, freshIds, withAnchorText, writeClaudeFacts, type ClaudeFactOutcome, type ClaudeWriteInput, type ClaudeWriteResult, type ProductSourceKind } from "./product-docs-write.js";
 export { ignoreProposalOption, sharedProposalOptions } from "./shared-proposal-options.js";
+export { backlogItemAppUrl, linkContextsFor, projectAppUrl, projectCodeOf, repositoryDocsAppUrl, requestsAppUrl, serverAppUrl, taskTarget, ticketAppUrl, type CardLinkContext, type CardLinkRow } from "./app-link-targets.js";

@@ -1,3 +1,4 @@
+import { ticketUrl } from "../ingest/shared.js";
 import { getProvider } from "@stubwise/git";
 import { catalogs, t, type Language } from "@stubwise/i18n";
 import {
@@ -131,14 +132,6 @@ function normalizeHeaders(raw: FastifyRequest["headers"]): Record<string, string
   return out;
 }
 
-/**
- * Compone l'URL assoluto del ticket a partire dal base pubblico. Il getter
- * `instance.publicUrl` normalizza già togliendo gli slash finali; questo helper
- * si limita a comporre il path, allineato al `ticketUrl` del processor.
- */
-function ticketUrl(base: string, ticketId: string): string {
-  return `${base}/tickets/${ticketId}`;
-}
 
 /**
  * Route del webhook git per la chiusura automatica dei ticket al merge:
@@ -974,7 +967,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
             ticketTitle: ticket.title,
             projectName: repository?.name ?? "",
             prUrl: event.prUrl,
-            ticketUrl: ticketUrl(instance.publicUrl, ticket.id),
+            ticketUrl: await ticketUrl(instance.db, instance.publicUrl, ticket.id),
           },
           {
             projectId: ticket.projectId,

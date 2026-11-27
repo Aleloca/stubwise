@@ -1150,7 +1150,9 @@
           "slack_linked": "Account Slack collegato da un altro",
           "bitbucket_linked": "Utente Bitbucket collegato da un altro",
           "vault_device_sealed": "Mac associato alla cassaforte",
-          "vault_device_seal_revoked": "Mac tolto dalla cassaforte"
+          "vault_device_seal_revoked": "Mac tolto dalla cassaforte",
+          "vault_seal_added": "Un'altra passkey apre la cassaforte",
+          "vault_reveal_burst": "Molte letture della cassaforte in pochi minuti"
         }
       }
     },
@@ -3699,6 +3701,8 @@
       "copied": "Copiata: gli appunti si svuotano fra 30 secondi.",
       "copyFailed": "Il browser non ha permesso la copia: usa Mostra.",
       "revealFailed": "Non è stato possibile aprire la password.",
+      "revealRateLimited_one": "Troppe password della cassaforte aperte in pochi minuti: potrai aprirne una nuova fra {{count}} minuto.",
+      "revealRateLimited_other": "Troppe password della cassaforte aperte in pochi minuti: potrai aprirne una nuova fra {{count}} minuti.",
       "readers": {
         "open": "Lettori",
         "openAria": "Lettori di {{name}}",

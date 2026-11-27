@@ -448,7 +448,7 @@ export const credentialSharePreviewSchema = z.object({
   ),
   waiting: z.array(z.object({ userId: z.uuid(), email: z.string() })),
   /**
-   * Workspace (0238, D16): quante delle persone raggiunte lo sono SOLO per via
+   * Workspace (0239, D16): quante delle persone raggiunte lo sono SOLO per via
    * di workspace (il loro ruolo di workspace è il ruolo invitato). Additivo.
    */
   viaWorkspace: z.number().int().nonnegative().default(0),

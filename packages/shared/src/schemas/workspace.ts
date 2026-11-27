@@ -2,7 +2,7 @@ import { z } from "zod";
 import { departmentColorTokenSchema } from "./task-view.js";
 
 /**
- * Workspace (0238, `docs/plans/2026-11-27-workspace-design.md`): raggruppamenti
+ * Workspace (0239, `docs/plans/2026-11-27-workspace-design.md`): raggruppamenti
  * di PROGETTI per VISIBILITÀ. Le viste le calcola il server per chi guarda
  * (r.1414): i progetti sono SOLO quelli che vede, le persone solo quelle che
  * conosce; i permessi d'azione (`can*`) li decide il server, il client li legge.

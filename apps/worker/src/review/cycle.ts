@@ -103,12 +103,13 @@ function errText(err: unknown): string {
  * repository (B6) — ripiego necessario: senza `url` Bitbucket risponde 400
  * (B14 T9). Il §6a riguarda GitHub ed è ancora da confermare.
  */
-export function commitStatusTargetUrl(publicUrl: string | undefined, ticketId: string): string | undefined {
+export function commitStatusTargetUrl(publicUrl: string | undefined, url: string): string | undefined {
+  // `url` è il link della task nella nuova app (`ticketUrl`), già composto da
+  // chi chiama sulla stessa radice: la regola guarda la radice pubblica.
   if (publicUrl === undefined || publicUrl.trim() === "") return undefined;
-  const url = ticketUrl(publicUrl, ticketId);
   let parsed: URL;
   try {
-    parsed = new URL(url);
+    parsed = new URL(publicUrl);
   } catch {
     return undefined;
   }
@@ -496,7 +497,7 @@ export async function afterReviewCompleted(
   await publishReview(deps, input).catch((err: unknown) => {
     console.error(`[stubwise-worker] pr-review: pubblicazione fallita (${errText(err)})`);
   });
-  const statusUrl = commitStatusTargetUrl(deps.publicUrl, input.ticket.id);
+  const statusUrl = commitStatusTargetUrl(deps.publicUrl, await ticketUrl(deps.db, deps.publicUrl, input.ticket.id));
   await setReviewCommitStatus(deps, {
     mirrorProject: input.mirrorProject,
     sha: input.fullSha,
@@ -531,7 +532,7 @@ export async function afterReviewCompleted(
       ticketNumber: input.ticket.number,
       ticketTitle: input.ticket.title,
       projectName: input.repositoryName,
-      ticketUrl: ticketUrl(deps.publicUrl, input.ticket.id),
+      ticketUrl: await ticketUrl(deps.db, deps.publicUrl, input.ticket.id),
       prUrl: input.job.prUrl,
       verdict: input.verdict,
       ...(input.prSummary !== null ? { summary: input.prSummary } : {}),
@@ -700,7 +701,7 @@ export async function notifyCycleStoppedByFailedReview(
         ticketNumber: ticket.number,
         ticketTitle: ticket.title,
         projectName: input.repositoryName,
-        ticketUrl: ticketUrl(deps.publicUrl, ticket.id),
+        ticketUrl: await ticketUrl(deps.db, deps.publicUrl, ticket.id),
         prUrl: job.prUrl,
         verdict: null,
         cycle: { round, max, stopped: true, stoppedReason: "review_failed" },

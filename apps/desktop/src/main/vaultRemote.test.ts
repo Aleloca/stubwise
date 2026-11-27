@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
-import { createVaultRemote } from "./vaultRemote";
+import { createVaultRemote, VaultHttpError } from "./vaultRemote";
 
 // Lotto 10 (72, la forma delle rotte del sigillo): le tre rotte del PAT
 // desktop, chiamate dal main col suo token. Il token non esce dal main.
@@ -115,5 +115,18 @@ describe("le rotte del sigillo del dispositivo, dal main", () => {
     await expect(
       remote(() => json(404, { code: "not_found", message: "x" })).r.fetchSeal(),
     ).rejects.toThrow("not_found");
+  });
+
+  it("C2: il 429 `vault_reveal_rate_limited` porta i secondi di `Retry-After`, per dire quando si libera", async () => {
+    const { r } = remote(
+      () =>
+        new Response(JSON.stringify({ code: "vault_reveal_rate_limited", message: "x" }), {
+          status: 429,
+          headers: { "content-type": "application/json", "retry-after": "600" },
+        }),
+    );
+    const error = await r.request("POST", "/api/credentials/x/reveal", { action: "show" }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(VaultHttpError);
+    expect(error).toMatchObject({ status: 429, code: "vault_reveal_rate_limited", retryAfterSeconds: 600 });
   });
 });

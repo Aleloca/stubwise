@@ -110,7 +110,7 @@ export async function attendeeProjects(
   const ids = [...new Set([...people.values()].filter((id) => id !== ownerUserId))];
   const projectsOf = new Map<string, string[]>();
   if (ids.length > 0) {
-    // Membri espliciti e persone di workspace (0238, D17).
+    // Membri espliciti e persone di workspace (0239, D17).
     for (const row of await db
       .selectDistinct({ userId: projectAccess.userId, projectId: projectAccess.projectId })
       .from(projectAccess)

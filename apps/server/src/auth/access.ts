@@ -92,10 +92,13 @@ export type RouteAccess =
  *   fattore usato negli ultimi {@link REAUTH_WINDOW_MS} (login o riconferma).
  * - `"setup_allowed"`: come `true`, ma chi un'app NON l'ha ancora (sessione
  *   di prima del rilascio) passa: sono le rotte con cui la configura.
+ * - `"vault"` (I6): come `true`, ma vale ANCHE uno sblocco della cassaforte
+ *   recente (`vaultUnlockedAt`). Solo le rotte della cassaforte che lo sblocco
+ *   usa (la chiave, i sigilli): lo sblocco non apre le altre riconferme.
  *
  * L'elenco delle rotte che la chiedono è chiuso in `route-access.test.ts`.
  */
-export type RouteReauth = true | "setup_allowed";
+export type RouteReauth = true | "setup_allowed" | "vault";
 
 /** Quanto vale un secondo fattore per le azioni sensibili: 10 minuti. */
 export const REAUTH_WINDOW_MS = 10 * 60 * 1000;
@@ -193,7 +196,7 @@ export async function projectPermissionsFor(
   opts: { includeArchived?: boolean } = {},
 ): Promise<ReadonlySet<ProjectPermission> | null> {
   const [row] = await db
-    // Workspace (0238): l'unione delle fonti di `project_access`, la regola in UN posto.
+    // Workspace (0239): l'unione delle fonti di `project_access`, la regola in UN posto.
     .select({ memberRolePermissions: projectAccessPermissionsSql(projects.id, sql`${user.id}::uuid`) })
     .from(projects)
     .where(and(eq(projects.id, projectId), opts.includeArchived ? undefined : isNull(projects.archivedAt)));
@@ -332,7 +335,7 @@ export async function projectIdsWithPermission(
     .where(
       and(
         isNull(projects.archivedAt),
-        // `null @> …` è null: un non membro non passa (workspace, 0238).
+        // `null @> …` è null: un non membro non passa (workspace, 0239).
         sql`${projectAccessPermissionsSql(projects.id, sql`${user.id}::uuid`)} @> array[${permission}]::text[]`,
         moduleOn,
       ),
@@ -394,7 +397,7 @@ export async function visibleProjectIds(
   const rows = await db
     .select({ projectId: projects.id })
     .from(projects)
-    // Membro esplicito o di una workspace del progetto (0238).
+    // Membro esplicito o di una workspace del progetto (0239).
     .where(and(isNull(projects.archivedAt), projectAccessSql(projects.id, sql`${user.id}::uuid`)));
   return rows.map((r) => r.projectId);
 }
@@ -607,8 +610,10 @@ async function applyReauth(
     await apiError(reply, 403, "second_factor_setup_required", "Second factor setup required");
     return;
   }
+  const fresh = (d: Date | null | undefined) => d != null && Date.now() - d.getTime() <= REAUTH_WINDOW_MS;
   const at = desktopPat ? user.patSecondFactorAt : user.secondFactorAt;
-  if (!at || Date.now() - at.getTime() > REAUTH_WINDOW_MS) {
+  const vaultOk = reauth === "vault" && !desktopPat && fresh(user.vaultUnlockedAt);
+  if (!vaultOk && !fresh(at)) {
     await apiError(reply, 403, "reauth_required", "Recent second factor confirmation required");
     return;
   }

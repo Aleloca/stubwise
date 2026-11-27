@@ -97,7 +97,7 @@ export async function projectPermissionsByProject(
   if (unique.length === 0) return result;
   // Ruolo d'istanza + i progetti chiesti, una riga per progetto chiesto (una
   // sola, col progetto nullo, se nessuno esiste). I permessi di progetto sono
-  // l'unione delle fonti di `project_access` (workspace, 0238): null = non membro.
+  // l'unione delle fonti di `project_access` (workspace, 0239): null = non membro.
   const rows = await db
     .select({
       instancePermissions: roles.permissions,
@@ -217,7 +217,7 @@ async function fullAdminIds(db: DbOrTx): Promise<string[]> {
  * ogni progetto). È il filtro dei destinatari di ogni evento di progetto.
  */
 export async function projectViewerIds(db: DbOrTx, projectId: string): Promise<string[]> {
-  // Membri espliciti e persone di una sua workspace (0238), in ordine stabile.
+  // Membri espliciti e persone di una sua workspace (0239), in ordine stabile.
   const members = await db
     .selectDistinct({ id: projectAccess.userId })
     .from(projectAccess)
@@ -291,7 +291,7 @@ export async function userIdsWithPermission(
     return [...new Set([...ids, ...rows.map((row) => row.id)])];
   }
   if (projectId === null) return ids;
-  // Chi accede al progetto (membro esplicito o per workspace, 0238) con il
+  // Chi accede al progetto (membro esplicito o per workspace, 0239) con il
   // permesso nell'unione delle fonti.
   const rows = await db
     .selectDistinct({ id: projectAccess.userId })

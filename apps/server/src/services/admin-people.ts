@@ -416,7 +416,7 @@ function grantSource(g: { by: string | null; at: Date; byName: string | null; by
 export async function managedProjectIds(db: Db, viewer: Viewer, projectIds: readonly string[]): Promise<Set<string>> {
   if (viewer.instancePermissions.has("instance.full_admin")) return new Set(projectIds);
   if (projectIds.length === 0) return new Set();
-  // L'unione delle fonti (workspace compresa, 0238).
+  // L'unione delle fonti (workspace compresa, 0239).
   const rows = await db
     .select({ projectId: projects.id, permissions: projectAccessPermissionsSql(projects.id, sql`${viewer.id}::uuid`) })
     .from(projects)
@@ -445,7 +445,7 @@ async function openTasksOf(db: Db, viewer: Viewer, userId: string, projectIds: r
     .from(users)
     .innerJoin(instanceRoles, eq(instanceRoles.id, users.instanceRoleId))
     .where(and(eq(users.isAgent, false), isNull(users.deactivatedAt), ...(visible === "all" ? [] : [inArray(users.id, visible)])));
-  // Membri espliciti e persone di workspace (0238), la regola di `canReceive`.
+  // Membri espliciti e persone di workspace (0239), la regola di `canReceive`.
   const members = await db
     .selectDistinct({ projectId: projectAccess.projectId, userId: projectAccess.userId })
     .from(projectAccess)

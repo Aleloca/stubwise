@@ -48,7 +48,7 @@ export function notificationVisibleToRecipient(): SQL {
     (
       ${cardProjectId()} is null
       or ${notifications.kind}::text = 'google.proposal'
-      -- Membro esplicito o di una workspace del progetto (0238): \`project_access\`.
+      -- Membro esplicito o di una workspace del progetto (0239): \`project_access\`.
       or ${projectAccessSql(cardProjectId(), notifications.userId)}
       or ${userIsFullAdmin(notifications.userId)}
     )
@@ -91,7 +91,7 @@ export function catalogPermissionVisible(types: readonly AlertType[]): SQL {
     ${needed} is null
     or ${notifications.event}->>'alertMandatory' is not null
     or ${userIsFullAdmin(notifications.userId)}
-    -- L'unione delle fonti (workspace compresa, 0238); null per un non membro.
+    -- L'unione delle fonti (workspace compresa, 0239); null per un non membro.
     or coalesce(${projectAccessPermissionsSql(cardProjectId(), notifications.userId)} @> array[${needed}]::text[], false)
   )`;
 }

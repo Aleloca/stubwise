@@ -32,7 +32,7 @@ export function folderLinkExpiredSql(link: { accountId: AnyColumn | SQL; linkedB
     )
     or not (
       ${userIsFullAdmin(link.linkedBy)}
-      -- L'unione delle fonti (workspace compresa, 0238); null per un non membro.
+      -- L'unione delle fonti (workspace compresa, 0239); null per un non membro.
       or coalesce(${projectAccessPermissionsSql(link.projectId, link.linkedBy)} @> array['drive.manage']::text[], false)
     )
   )`;
