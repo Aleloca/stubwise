@@ -2951,6 +2951,15 @@
         "workspace": "{{role}} da {{workspace}}",
         "draft": "non ancora salvato"
       },
+      "workspacePeople": "Le persone di {{workspace}}",
+      "workspaceNote": "Le persone di {{workspace}} vedono {{code}} col loro ruolo di workspace.",
+      "source": {
+        "all": "Tutti",
+        "members": "Membri",
+        "workspace": "Dalla workspace"
+      },
+      "sourceFilter": "Chi mostrare",
+      "giveRole": "Dai un ruolo in {{code}}",
       "panel": {
         "label": "{{name}} in {{code}}",
         "close": "Chiudi",
@@ -2974,6 +2983,8 @@
           "draft": "Dato quando salvi",
           "removing": "Da togliere — {{source}}"
         },
+        "workspaceAdds": "{{workspace}} dà già {{role}}: un ruolo qui può solo aggiungere, non toglie mai niente.",
+        "seesBecause": "Vede {{code}} perché: membro di {{code}} · in {{workspace}}",
         "change": {
           "role": "ruolo {{role}}",
           "gives": "dà {{permission}}",

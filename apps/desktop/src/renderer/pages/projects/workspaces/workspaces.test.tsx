@@ -110,3 +110,46 @@ describe("Add projects", () => {
     await waitFor(() => expect(rowsShown()).toBe(5));
   });
 });
+
+const MEMBERS_OF_ORT = "Members of ORT";
+
+describe("Members del progetto: da dove viene un accesso [WS 3]", () => {
+  it("chi c'è solo dalla workspace ha una riga, col ruolo di workspace e «Give a role in ORT»", async () => {
+    const user = userEvent.setup();
+    renderRoute("/p/ORT/settings/members", GIULIA);
+    const list = await screen.findByRole("list", { name: MEMBERS_OF_ORT });
+    const nicola = list.querySelector<HTMLElement>("[data-member-row='p-nicola']")!;
+    expect(nicola.querySelector("[data-member-roles]")).toHaveTextContent("Viewer from Clienti storici");
+    expect(nicola).toHaveTextContent("Give a role in ORT");
+    const marco = list.querySelector<HTMLElement>("[data-member-row='p-marco']")!;
+    expect(marco.querySelector("[data-member-roles]")).toHaveTextContent(
+      /^\S+ · Developer from Clienti storici$/,
+    );
+    expect(document.querySelector("[data-workspace-note]")).toHaveTextContent(
+      "People in Clienti storici see ORT with their workspace role.",
+    );
+    // Il filtro: dalla workspace ci sono Marco e Nicola.
+    await user.click(screen.getByRole("button", { name: "From the workspace" }));
+    expect([...list.querySelectorAll("[data-member-row]")].map((r) => r.getAttribute("data-member-row")).sort()).toEqual([
+      "p-marco",
+      "p-nicola",
+    ]);
+    // «Give a role in ORT»: il dialogo Add member con Nicola già scelto.
+    await user.click(nicola);
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Nicola Orlando");
+  });
+
+  it("il pannello di un membro che è anche nella workspace dice le due porte e che il ruolo aggiunge soltanto (D1)", async () => {
+    renderRoute("/p/ORT/settings/members?member=p-marco", GIULIA);
+    const because = await waitFor(() => {
+      const el = document.querySelector("[data-sees-because]");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(because).toHaveTextContent("Sees ORT because: member of ORT · in Clienti storici");
+    expect(document.querySelector("[data-workspace-adds]")).toHaveTextContent(
+      "Clienti storici already gives Developer",
+    );
+  });
+});

@@ -5,6 +5,7 @@ import {
   effectivePermissionsIn,
   isFullAdmin,
   writeAccess,
+  workspaceRoleIn,
   type AccessState,
   type RoleDef,
 } from "../access/index";
@@ -128,8 +129,20 @@ export const departmentPermissionsOf = (personId: string): string[] => [
 const membershipOf = (s: AccessState, personId: string, projectId: string) =>
   s.memberships.find((m) => m.personId === personId && m.projectId === projectId);
 
-function memberRow(personId: string, projectId: string, role: RoleDef): MemberRow {
+/** Il ruolo della persona dalla workspace del progetto (shape `workspaces.md`), o `null`. */
+function workspaceOf(personId: string, projectId: string): MemberRow["workspace"] {
+  const s = accessState();
+  const ws = workspaceRoleIn(s, personId, projectId);
+  const def = ws && s.workspaces.find((w) => w.id === ws.workspaceId);
+  return ws && def
+    ? { workspaceId: def.id, workspaceName: def.name, workspaceSlug: def.slug, roleName: ws.role.name }
+    : null;
+}
+
+function memberRow(personId: string, projectId: string, role: RoleDef, explicit = true): MemberRow {
   return {
+    workspace: workspaceOf(personId, projectId),
+    explicit,
     personId,
     name: nameOf(personId) ?? personId,
     email: emailOf(personId),
@@ -168,9 +181,25 @@ export async function listProjectMembers(projectId: string): Promise<ProjectMemb
   const me = await gate("admin.listProjectMembers");
   if (!visibleProjectIds(me).has(projectId)) throw new Error("not_found");
   const s = accessState();
-  const members = s.memberships
-    .filter((m) => m.projectId === projectId && isHumanId(m.personId) && !isFullAdmin(m.personId))
-    .map((m) => memberRow(m.personId, projectId, roleById(m.roleId)!))
+  const explicitIds = new Set(
+    s.memberships.filter((m) => m.projectId === projectId).map((m) => m.personId),
+  );
+  const members = [
+    ...s.memberships
+      .filter((m) => m.projectId === projectId && isHumanId(m.personId) && !isFullAdmin(m.personId))
+      .map((m) => memberRow(m.personId, projectId, roleById(m.roleId)!)),
+    // Chi vede il progetto solo dalla workspace: una riga sola, col ruolo di
+    // workspace, che «Give a role in …» rende un membro di progetto.
+    ...s.workspaceMembers
+      .filter(
+        (m) =>
+          !explicitIds.has(m.personId) &&
+          isHumanId(m.personId) &&
+          !isFullAdmin(m.personId) &&
+          workspaceRoleIn(s, m.personId, projectId)?.workspaceId === m.workspaceId,
+      )
+      .map((m) => memberRow(m.personId, projectId, roleById(m.roleId)!, false)),
+  ]
     // Le persone attive per nome; i disattivati in fondo.
     .sort(
       (a, b) =>

@@ -2951,6 +2951,15 @@
         "workspace": "{{role}} from {{workspace}}",
         "draft": "not saved yet"
       },
+      "workspacePeople": "People in {{workspace}}",
+      "workspaceNote": "People in {{workspace}} see {{code}} with their workspace role.",
+      "source": {
+        "all": "All",
+        "members": "Members",
+        "workspace": "From the workspace"
+      },
+      "sourceFilter": "Who to show",
+      "giveRole": "Give a role in {{code}}",
       "panel": {
         "label": "{{name}} in {{code}}",
         "close": "Close",
@@ -2974,6 +2983,8 @@
           "draft": "Given when you save",
           "removing": "Removing — {{source}}"
         },
+        "workspaceAdds": "{{workspace}} already gives {{role}}: a role here only adds to it, it never takes anything away.",
+        "seesBecause": "Sees {{code}} because: member of {{code}} · in {{workspace}}",
         "change": {
           "role": "role {{role}}",
           "gives": "gives {{permission}}",

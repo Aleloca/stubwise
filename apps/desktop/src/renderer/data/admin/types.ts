@@ -139,6 +139,16 @@ export interface MemberRow {
    * solo quelli che la bozza toglie.
    */
   granted: string[];
+  /**
+   * Shape `workspaces.md`: il ruolo che la persona ha dalla workspace del
+   * progetto, se ne fa parte. Assente con un server che non ha le workspace.
+   */
+  workspace?: { workspaceId: string; workspaceName: string; workspaceSlug: string; roleName: string } | null;
+  /**
+   * Falso per chi vede il progetto SOLO dalla workspace: non è un membro di
+   * progetto, e «Give a role in …» lo rende tale. Assente = membro.
+   */
+  explicit?: boolean;
 }
 
 /** La bozza del pannello del membro: il ruolo e i permessi dati a mano. */
