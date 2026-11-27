@@ -45,6 +45,18 @@
 		-Server
 	}
 
+	# Nessun Service Worker sull'origine (seconda revisione di sicurezza della
+	# cassaforte nel browser, m-7): il browser manda `Service-Worker: script`
+	# quando registra o aggiorna un worker, e qui si rifiuta, qualunque sia il
+	# file. Uno script iniettato non installa così un intermediario che resti
+	# fra le schede e le richieste dopo che l'XSS è chiuso. È il PRIMO `handle`
+	# del sito: i `handle` sono esclusivi, e un `respond` fuori da un `handle`
+	# girerebbe dopo di loro.
+	@serviceWorkerScript header Service-Worker script
+	handle @serviceWorkerScript {
+		respond 403
+	}
+
 	# Eccezione al DENY globale: la vista HTML del grafo graphify DEVE stare
 	# nell'<iframe sandbox> della tab Grafo della SPA (same-origin). Il framing
 	# resta comunque vincolato: il server manda `frame-ancestors 'self'` nella
