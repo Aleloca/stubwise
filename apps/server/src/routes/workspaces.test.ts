@@ -123,6 +123,31 @@ describe("M2 (revisione d'insieme): spostamenti incrociati", () => {
   }, 60_000);
 });
 
+describe("M4 (revisione d'insieme): i membri di un progetto e le persone di workspace", () => {
+  it("senza parametro solo i membri espliciti (explicit: true); con ?include=workspace anche chi c'è per la workspace, explicit: false, col ruolo e la workspace", async () => {
+    const { a, lea, dino, vera } = await seed();
+    const w = await created(lea, { name: "Membri", projectIds: [a] });
+    expect((await call("PUT", `/api/workspaces/${w.id}/members/${vera.id}`, lea.headers, {})).statusCode).toBe(200);
+    expect((await call("PUT", `/api/workspaces/${w.id}/members/${dino.id}`, lea.headers, {})).statusCode).toBe(200);
+    type Row = { userId: string; explicit: boolean; workspaceId: string | null; roleName: string; permissions: { permission: string }[] };
+
+    const plain = (await call("GET", `/api/projects/${a}/members`, dino.headers)).json() as Row[];
+    expect(plain.map((r) => r.userId).sort()).toEqual([lea.id, dino.id].sort());
+    expect(plain.every((r) => r.explicit)).toBe(true);
+
+    const res = await call("GET", `/api/projects/${a}/members?include=workspace`, dino.headers);
+    expect(res.statusCode, res.body).toBe(200);
+    const all = res.json() as Row[];
+    const byId = new Map(all.map((r) => [r.userId, r]));
+    expect(all).toHaveLength(3);
+    expect(byId.get(vera.id)).toMatchObject({ explicit: false, workspaceId: w.id, roleName: "Viewer" });
+    expect(byId.get(vera.id)!.permissions.length).toBeGreaterThan(0);
+    // Dino è esplicito (Developer) E nella workspace: una riga sola, esplicita, con la workspace accanto.
+    expect(byId.get(dino.id)).toMatchObject({ explicit: true, workspaceId: w.id, roleName: "Developer" });
+    expect(byId.get(lea.id)).toMatchObject({ explicit: true, workspaceId: null });
+  });
+});
+
 describe("persone", () => {
   it("Vera entra (Viewer di default, D3) e vede A; il registro lo dice; tolta, non lo vede più", async () => {
     const { a, lea, vera } = await seed();

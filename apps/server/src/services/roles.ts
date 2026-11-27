@@ -635,6 +635,10 @@ export interface MemberRow {
   createdAt: Date;
   /** I permessi EFFETTIVI nel progetto (ruolo ∪ personali), con la provenienza. */
   permissions: { permission: string; sources: MemberPermissionSourceRow[] }[];
+  /** M4: `false` = nel progetto solo per la workspace (righe di `includeWorkspace`). */
+  explicit: boolean;
+  /** M4: la workspace del progetto di cui la persona fa parte, o `null`. */
+  workspaceId: string | null;
 }
 
 const memberSelection = {
@@ -648,35 +652,63 @@ const memberSelection = {
 };
 
 /** I membri di un progetto (o uno solo), coi permessi effettivi e la loro provenienza. */
-async function membersWithPermissions(db: DbOrTx, projectId: string, onlyUserId?: string): Promise<MemberRow[]> {
-  const rows = await db
+async function membersWithPermissions(db: DbOrTx, projectId: string, onlyUserId?: string, opts: { includeWorkspace?: boolean } = {}): Promise<MemberRow[]> {
+  const explicitRows = await db
     .select(memberSelection)
     .from(projectMembers)
     .innerJoin(users, eq(users.id, projectMembers.userId))
     .innerJoin(roles, eq(roles.id, projectMembers.roleId))
     .where(and(eq(projectMembers.projectId, projectId), ...(onlyUserId ? [eq(projectMembers.userId, onlyUserId)] : [])))
     .orderBy(users.email);
+  // M4: le persone della workspace del progetto (un progetto sta in una sola).
+  // Accanto a un membro esplicito danno `workspaceId` e i permessi del ruolo di
+  // workspace (l'unione delle fonti, D1); con `includeWorkspace` chi c'è SOLO
+  // per la workspace diventa una riga `explicit: false`. Mai Claude (R-L9).
+  const viaWorkspace = await db
+    .select({
+      workspaceId: workspaceMembers.workspaceId,
+      userId: workspaceMembers.userId,
+      email: users.email,
+      avatarUrl: users.slackAvatarUrl,
+      roleId: workspaceMembers.roleId,
+      roleName: roles.name,
+      rolePermissions: roles.permissions,
+      createdAt: workspaceMembers.addedAt,
+    })
+    .from(workspaceProjects)
+    .innerJoin(workspaceMembers, eq(workspaceMembers.workspaceId, workspaceProjects.workspaceId))
+    .innerJoin(users, eq(users.id, workspaceMembers.userId))
+    .innerJoin(roles, eq(roles.id, workspaceMembers.roleId))
+    .where(and(eq(workspaceProjects.projectId, projectId), eq(users.isAgent, false), ...(onlyUserId ? [eq(workspaceMembers.userId, onlyUserId)] : [])));
+  const wsByUser = new Map(viaWorkspace.map((r) => [r.userId, r]));
+  const explicitIds = new Set(explicitRows.map((r) => r.userId));
+  const rows = [
+    ...explicitRows.map((r) => ({ ...r, explicit: true, workspace: wsByUser.get(r.userId) ?? null })),
+    ...(opts.includeWorkspace ? viaWorkspace.filter((r) => !explicitIds.has(r.userId)).map(({ workspaceId: _w, ...r }) => ({ ...r, explicit: false, workspace: wsByUser.get(r.userId)! })) : []),
+  ].sort((x, y) => (x.email < y.email ? -1 : x.email > y.email ? 1 : 0));
   const grants = await db
     .select()
     .from(projectMemberPermissions)
     .where(and(eq(projectMemberPermissions.projectId, projectId), ...(onlyUserId ? [eq(projectMemberPermissions.userId, onlyUserId)] : [])));
   const known = new Set<string>(PROJECT_PERMISSIONS);
   const fromDepartments = await departmentGrantsOf(db, rows.map((r) => r.userId));
-  return rows.map(({ rolePermissions, ...row }) => {
+  return rows.map(({ rolePermissions, workspace, ...row }) => {
     const sources = new Map<string, MemberPermissionSourceRow[]>();
     const add = (permission: string, source: MemberPermissionSourceRow) => {
       if (!known.has(permission)) return;
       sources.set(permission, [...(sources.get(permission) ?? []), source]);
     };
     for (const p of rolePermissions) add(p, { kind: "role", roleId: row.roleId });
+    // Il ruolo di workspace di un membro esplicito: una fonte in più (per chi c'è solo per la workspace è già il suo ruolo).
+    if (workspace && row.explicit) for (const p of workspace.rolePermissions) add(p, { kind: "role", roleId: workspace.roleId });
     for (const g of grants) if (g.userId === row.userId) add(g.permission, { kind: "grant", byUserId: g.grantedByUserId, at: g.grantedAt.toISOString() });
     for (const g of fromDepartments) if (g.userId === row.userId) add(g.permission, { kind: "department", departmentId: g.departmentId });
-    return { ...row, permissions: PROJECT_PERMISSIONS.filter((p) => sources.has(p)).map((p) => ({ permission: p, sources: sources.get(p)! })) };
+    return { ...row, workspaceId: workspace?.workspaceId ?? null, permissions: PROJECT_PERMISSIONS.filter((p) => sources.has(p)).map((p) => ({ permission: p, sources: sources.get(p)! })) };
   });
 }
 
-export async function listProjectMembers(db: DbOrTx, projectId: string): Promise<MemberRow[]> {
-  return membersWithPermissions(db, projectId);
+export async function listProjectMembers(db: DbOrTx, projectId: string, opts: { includeWorkspace?: boolean } = {}): Promise<MemberRow[]> {
+  return membersWithPermissions(db, projectId, undefined, opts);
 }
 
 /**
