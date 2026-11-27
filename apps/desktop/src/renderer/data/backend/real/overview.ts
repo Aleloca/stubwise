@@ -1,7 +1,10 @@
 import { ApiError } from "@stubwise/api-client";
 import {
+  briefHeadline,
+  briefSummaryText,
   pulseOf,
   type ChronologyEvent,
+  type ProjectBriefWeekly,
   type ProjectDecision,
   type ProjectPulsesResponse,
   type WeeklyBriefView,
@@ -100,6 +103,34 @@ export const getLatestBrief: typeof Fake.getLatestBrief = async (projectId) => {
     periodEnd: brief.periodEnd.slice(0, 10),
     headline: brief.headline,
     summary: brief.summary,
+    createdAt: brief.createdAt,
+  };
+};
+
+/**
+ * UN brief per id (`GET /api/briefs/:id`), anche non l'ultimo, nella forma
+ * della vista: l'incipit e il testo con le stesse funzioni del server
+ * (`briefHeadline`, `briefSummaryText` di `@stubwise/shared`). `null` per il
+ * 404 (ignoto, o di un progetto invisibile: il server non li distingue) e per
+ * un brief non ancora pronto o senza testo, che l'Overview non mostra.
+ */
+export const getBrief: typeof Fake.getBrief = async (briefId) => {
+  let brief: ProjectBriefWeekly;
+  try {
+    brief = (await appClient().projects.brief(briefId)) as ProjectBriefWeekly;
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
+  const sections = (brief.sections ?? null) as Record<string, string> | null;
+  if (brief.status !== "done" || (brief.summary === null && sections === null)) return null;
+  return {
+    id: brief.id,
+    projectId: brief.projectId,
+    periodStart: brief.periodStart.slice(0, 10),
+    periodEnd: brief.periodEnd.slice(0, 10),
+    headline: briefHeadline(sections, brief.summary) ?? "",
+    summary: briefSummaryText(sections, brief.summary),
     createdAt: brief.createdAt,
   };
 };

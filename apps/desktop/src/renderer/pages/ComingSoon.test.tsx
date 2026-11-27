@@ -438,6 +438,8 @@ const INTEGRATED_CALLS = new Set([
   "recordDecision",
   "setDecisionSuperseded",
   "getLatestBrief",
+  // Ritiro del web vecchio: un brief per id, anche non l'ultimo (`GET /api/briefs/:id`).
+  "getBrief",
   "listTimelinePage",
   "listPortfolioActivityPage",
   "projectPulse",
@@ -991,6 +993,13 @@ describe("aree non integrate nella build app", () => {
   // Area 8, F1 (`releases-prs` e `releases`): PR, coda e rilasci dal server; ambienti «in arrivo».
   // Area 8, F2 (R6): Preferenze → Notifiche è accesa (`alerts`); legge le
   // iscrizioni dal server e nient'altro di non integrato.
+  it("il pannello di un brief (?brief=) legge solo chiamate integrate", async () => {
+    renderRoute("/p/AUD/overview?brief=brief-aud-2026-10-12");
+    await waitFor(() => expect(calls).toContain("getBrief"));
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
   it("aprire Preferenze → Notifiche legge solo chiamate integrate", async () => {
     renderRoute("/preferences/notifications");
     expect(

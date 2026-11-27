@@ -79,6 +79,7 @@ export const failNext: typeof Fake.failNext = notIntegratedSync("failNext") as n
 export const followScripts: typeof Fake.followScripts = notIntegratedSync("followScripts") as never;
 export const followTask: typeof Fake.followTask = notIntegrated("followTask") as never;
 export const generateDailyReport: typeof Fake.generateDailyReport = notIntegrated("generateDailyReport") as never;
+export const getBrief: typeof Fake.getBrief = notIntegrated("getBrief") as never;
 export const getClaudeSuggestion: typeof Fake.getClaudeSuggestion = notIntegrated("getClaudeSuggestion") as never;
 export const getConversation: typeof Fake.getConversation = notIntegrated("getConversation") as never;
 export const getLatestBrief: typeof Fake.getLatestBrief = notIntegrated("getLatestBrief") as never;

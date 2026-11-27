@@ -272,6 +272,7 @@ export type ApiFnName =
   | "listTimeline"
   | "listDecisionLog"
   | "getLatestBrief"
+  | "getBrief"
   | "listNotifications"
   | "markNotification"
   | "search"

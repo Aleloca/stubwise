@@ -161,6 +161,27 @@ describe("OverviewPage — Where it stands", () => {
     expect(within(panel).getByText("Generated text")).toBeInTheDocument();
   });
 
+  it("un brief che non è l'ultimo si legge nello stesso pannello, con la riga «non è l'ultimo» e il link all'ultimo", async () => {
+    const router = renderRoute("/p/STW/overview?brief=brief-stw-2026-10-12", "p-giulia");
+    const panel = await screen
+      .findByRole("region", { name: "Weekly brief" })
+      .catch(() => screen.findByRole("dialog", { name: "Weekly brief" }));
+    expect(await within(panel).findByText(/Brief of Oct 12 · not the latest/)).toBeInTheDocument();
+    expect(within(panel).getByText("Generated text")).toBeInTheDocument();
+    await userEvent.click(within(panel).getByRole("button", { name: "Open the latest" }));
+    await waitFor(() => expect(search(router).brief).toBe("brief-stw-2026-10-19"));
+    await waitFor(() => expect(within(panel).queryByText(/not the latest/)).toBeNull());
+  });
+
+  it("un brief di un progetto invisibile, o ignoto: il pannello lo dice, senza contenuto", async () => {
+    renderRoute("/p/ACQ/overview?brief=brief-aud-2026-10-12", "p-sara");
+    const panel = await screen
+      .findByRole("region", { name: "Weekly brief" })
+      .catch(() => screen.findByRole("dialog", { name: "Weekly brief" }));
+    expect(await within(panel).findByText("This brief isn't available.")).toBeInTheDocument();
+    expect(within(panel).queryByText("Generated text")).toBeNull();
+  });
+
   it("«Copy as text» copia il brief senza markdown, col periodo e «Generated text»", async () => {
     const writes: string[] = [];
     Object.defineProperty(navigator, "clipboard", {

@@ -828,6 +828,19 @@ export async function getLatestBrief(projectId: string): Promise<WeeklyBrief | n
 }
 
 /**
+ * UN brief per id, anche uno che non è più l'ultimo (ritiro del web vecchio:
+ * la card `project.brief` di una settimana fa, la roadmap). `null` se non
+ * c'è o è di un progetto che chi guarda non vede: niente contenuto, come il
+ * 404 del server.
+ */
+export async function getBrief(briefId: string): Promise<WeeklyBrief | null> {
+  const me = await gate("getBrief");
+  const brief = state.briefs.find((b) => b.id === briefId);
+  if (!brief || !visibleProjectIds(me).has(brief.projectId)) return null;
+  return copy(brief);
+}
+
+/**
  * Le notifiche che arrivano a chi guarda, nei progetti che vede: per i kind
  * del catalogo degli avvisi (area 8a) i destinatari si calcolano adesso
  * (iscrizioni, obbligatori, permessi), per gli altri sono quelli fissi della

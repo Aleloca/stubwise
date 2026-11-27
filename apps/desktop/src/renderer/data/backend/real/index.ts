@@ -197,6 +197,7 @@ export {
 export { createMilestone, deleteMilestone, updateMilestone } from "./milestones";
 export { createProject } from "./projects";
 export {
+  getBrief,
   getLatestBrief,
   decisionLogTruncated,
   listDecisionLog,

@@ -134,6 +134,7 @@ export const queryKeys = {
   portfolioActivity: (personId: string) => ["as", personId, "timeline", "*portfolio"] as const,
   decisionLog: (personId: string, projectId: string) =>
     ["as", personId, "decisionLog", projectId] as const,
+  brief: (personId: string, briefId: string) => ["as", personId, "brief", briefId] as const,
   latestBrief: (personId: string, projectId: string) =>
     ["as", personId, "latestBrief", projectId] as const,
   notifications: (personId: string) => ["as", personId, "notifications"] as const,
@@ -740,6 +741,16 @@ export function useLatestBrief(projectId: string) {
   return useQuery({
     queryKey: queryKeys.latestBrief(me, projectId),
     queryFn: () => api.getLatestBrief(projectId),
+  });
+}
+
+/** Un brief per id, anche non l'ultimo (`null` = non c'è o non si vede). */
+export function useBrief(briefId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.brief(me, briefId),
+    queryFn: () => api.getBrief(briefId),
+    enabled: briefId !== "",
   });
 }
 

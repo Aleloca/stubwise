@@ -2167,6 +2167,26 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 ## Chiuse
 
+- ~~**I Docs semantici in ⌘K**~~ *(ritiro del web vecchio, inventario §1.5,
+  27 nov 2026)*: **coperto**. Il gruppo Docs della ⌘K (`useDocSearch` →
+  `searchDocs` in `data/backend/real/docs.ts`) chiama
+  `GET /api/projects/:id/docs/search`, che è ibrida (`retrieveChunksForProject`
+  con gli embedding, lo stesso retrieval della chat di progetto). Non usa
+  `/api/search/docs-semantic`. Manca solo l'indicatore «Refining…» del web
+  vecchio, che il prototipo non ha.
+- ~~**Gli highlights di progetto nei Docs**~~ *(stesso inventario, §1.5)*:
+  **coperto per quanto la shape prevede**. La pagina iniziale dei Docs del
+  progetto (shape `docs.md`) ha START HERE, SPACES, DECISIONS e WHAT'S NEW,
+  e WHAT'S NEW c'è già, aggregato dagli spazi (`getProjectDocsHome`).
+  RECENTLY UPDATED e MOST READ sono dell'indice del REPOSITORY, dove ci sono
+  (`repoHighlights`). `GET /api/projects/:id/docs/highlights` non serve alla
+  nuova app.
+- ~~**Leggere un brief che non è l'ultimo**~~ *(stesso inventario, §1.6,
+  decisione del maintainer del 27 nov 2026)*: qualunque brief del progetto si
+  apre nello stesso pannello (`getBrief`, `GET /api/briefs/:id`), con «Brief of
+  <data> · not the latest» e il link all'ultimo. Le righe della cronologia
+  restano non cliccabili.
+
 (Le voci fatte si spostano qui con il riferimento che le chiude.)
 
 - **Gli snippet di `search_docs` come contenuto non fidato** *(S, area 5,
