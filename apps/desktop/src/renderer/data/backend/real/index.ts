@@ -146,6 +146,8 @@ export const vault: typeof Fake.vault = partialNamespace<typeof Fake.vault>("vau
   removeMacOf,
 });
 
+// Ritiro del web vecchio (inventario 1.4): le proposte del polso, dalle card dell'inbox.
+export { pulse } from "./pulse";
 export const servers: typeof Fake.servers = partialNamespace<typeof Fake.servers>("servers", {
   ...liveServers,
   // Area 8, F4b: la sezione Server della task (`GET /api/tasks/:id/server`) e la correzione.

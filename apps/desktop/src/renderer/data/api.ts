@@ -194,6 +194,8 @@ export * as instance from "./instance";
 export * as projectSettings from "./projectSettings";
 // Il catalogo delle azioni di Claude (area 10a): solo tipi e dichiarazioni.
 export * as claude from "./claude";
+// Le proposte del polso (shape `pulse-proposals.md`).
+export * as pulse from "./pulse";
 
 /** Ripristina lo stato (sessione, dati, errori iniettati) e porta le task scadute alla settimana corrente. */
 export function resetApi(): void {

@@ -51,6 +51,10 @@ const ROWS: Row[] = [
   // prodotto (`origin.product_doc`); dalla prima è nata ACQ-10.
   ["req-acq-6", "ACQ", "Instalment plan screen for the portal", ["p-laura"], "converted", "medium", null, null, ["t-acq-10"], 4],
   ["req-acq-7", "ACQ", "Follow a fault report on a map", ["p-laura"], "new", "low", null, null, [], 4],
+  // 27 nov 2026: le due richieste di TRM, fermo da 9 giorni, da cui il polso
+  // propone di ripartire (shape `pulse-proposals.md`, `seed/pulse.ts`).
+  ["req-trm-1", "TRM", "Delivery photos from the drivers' app", ["p-elena"], "new", "high", null, null, [], 12],
+  ["req-trm-2", "TRM", "Sign-off on the delivery note", ["p-marco"], "new", "medium", null, null, [], 10],
 ];
 
 // Le richieste nate da una conversazione di Support (area 8a): nessun

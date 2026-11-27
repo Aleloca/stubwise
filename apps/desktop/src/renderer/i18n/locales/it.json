@@ -1695,6 +1695,31 @@
         "openHistory": "Apri la cronologia",
         "forbidden": "Non inviata: rispondere è di chi ha Modifica Docs in {{code}}. Non è cambiato niente.",
         "who": "Chi?"
+      },
+      "pulse": {
+        "question_one": "{{code}} è fermo da {{count}} giorno. Scegli da cosa ripartire.",
+        "question_other": "{{code}} è fermo da {{count}} giorni. Scegli da cosa ripartire.",
+        "legend": "Da cosa ripartire in {{code}}",
+        "suggested": "Consigliata",
+        "urgency": {
+          "low": "Urgenza bassa",
+          "medium": "Urgenza media",
+          "high": "Urgenza alta",
+          "urgent": "Urgente"
+        },
+        "effort": "Impegno {{value}}/5",
+        "consequence": "Avvia crea una task da questa voce e fa partire Claude. Claude scrive prima un piano, che aspetta l'approvazione prima di toccare il codice.",
+        "start": "Avvia",
+        "notNow": "Non ora",
+        "open": "Apri",
+        "started": "Avviata {{code}}: Claude sta scrivendo il piano.",
+        "startedApproval": "Avviata {{code}}: il piano aspetta l'approvazione.",
+        "errors": {
+          "stale": "Questa proposta non è più attuale: non è partito niente.",
+          "run_not_started": "{{code}} è stata creata, ma Claude non è partito. Aprila e avvialo da lì.",
+          "forbidden": "Non puoi più avviare lavoro in questo progetto.",
+          "failed": "Avvio non riuscito. Riprova."
+        }
       }
     },
     "myTasks": {

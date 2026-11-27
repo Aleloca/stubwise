@@ -1695,6 +1695,31 @@
         "openHistory": "Open history",
         "forbidden": "Not sent: answering is for people with Edit docs in {{code}}. Nothing was changed.",
         "who": "Who?"
+      },
+      "pulse": {
+        "question_one": "{{code}} has been idle for {{count}} day. Pick what to start.",
+        "question_other": "{{code}} has been idle for {{count}} days. Pick what to start.",
+        "legend": "What to start in {{code}}",
+        "suggested": "Suggested",
+        "urgency": {
+          "low": "Low urgency",
+          "medium": "Medium urgency",
+          "high": "High urgency",
+          "urgent": "Urgent"
+        },
+        "effort": "Effort {{value}}/5",
+        "consequence": "Start creates a task from this item and starts Claude on it. Claude writes a plan first, and it waits for approval before any code changes.",
+        "start": "Start",
+        "notNow": "Not now",
+        "open": "Open",
+        "started": "Started {{code}}: Claude is writing the plan.",
+        "startedApproval": "Started {{code}}: the plan is waiting for approval.",
+        "errors": {
+          "stale": "This proposal is out of date: nothing was started.",
+          "run_not_started": "{{code}} was created, but Claude didn't start. Open it and start it from there.",
+          "forbidden": "You can't start work in this project anymore.",
+          "failed": "Couldn't start. Try again."
+        }
       }
     },
     "myTasks": {

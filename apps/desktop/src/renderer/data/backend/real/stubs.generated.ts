@@ -151,6 +151,7 @@ export const productDocs: typeof Fake.productDocs = notIntegratedNamespace("prod
 export const projectPulse: typeof Fake.projectPulse = notIntegrated("projectPulse") as never;
 export const projectSettings: typeof Fake.projectSettings = notIntegratedNamespace("projectSettings") as never;
 export const proposalActionArgs: typeof Fake.proposalActionArgs = notIntegratedSync("proposalActionArgs") as never;
+export const pulse: typeof Fake.pulse = notIntegratedNamespace("pulse") as never;
 export const readsAs: typeof Fake.readsAs = notIntegratedSync("readsAs") as never;
 export const reassignTask: typeof Fake.reassignTask = notIntegratedSync("reassignTask") as never;
 export const reconnectDelay: typeof Fake.reconnectDelay = notIntegratedSync("reconnectDelay") as never;

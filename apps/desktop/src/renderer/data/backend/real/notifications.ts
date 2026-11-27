@@ -389,6 +389,28 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
   // Area 8, F4b: «Diagnosis ready» apre la sua task; senza task (causa non
   // determinata, fallita, bloccata, o una task che chi legge non vede) la
   // pagina del server, come le card del monitor.
+  // Le proposte del polso si decidono solo in «Da decidere» (shape
+  // `pulse-proposals.md`, PQ-1b): nel pannello la card dice che c'è e apre
+  // la Home, come la posta passata; mai il backlog del web vecchio.
+  if (item.kind === "project.pulse" && isIntegrated({ kind: "feature", name: "pulse-proposals" })) {
+    return {
+      id: item.id,
+      kind: item.kind,
+      projectId: item.projectId,
+      objectCode: projectCode ?? "",
+      departmentId: null,
+      recipientIds: [],
+      title: item.text,
+      body: item.summary ?? "",
+      createdAt: item.createdAt,
+      read: item.readAt !== null,
+      archived: item.status === "handled",
+      snoozedUntil: item.status === "snoozed" ? item.snoozedUntil : null,
+      link: "#/home",
+      ...mandatoryOf(item, ctx),
+      ...viaClaudeOf(item, ctx),
+    };
+  }
   const diagnosis = item.kind === "server.diagnosis_ready";
   const diagnosisTask = diagnosis && item.ticketId ? ctx.taskCodes.get(item.ticketId) : undefined;
   const serverLink =
