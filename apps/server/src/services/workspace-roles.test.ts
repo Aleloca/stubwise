@@ -128,3 +128,73 @@ describe("revisione del lotto 2: le viste dicono quello che la scrittura farà",
     await expect(putProjectMember(db, member(nino.id), held, projectId, wanda.id, await presetRoleId(app, "viewer"))).resolves.toBeDefined();
   });
 });
+
+describe("lotto 3 (46): last_manager anche su updateRole e deleteUser", () => {
+  async function adminActor() {
+    const { users } = await import("@stubwise/db");
+    const { eq } = await import("drizzle-orm");
+    const [a] = await db.select({ id: users.id, email: users.email }).from(users).where(eq(users.role, "admin")).limit(1);
+    return { ...actorAs(a!.id, "admin"), email: a!.email };
+  }
+
+  it("un ruolo modificato che toglie project.members.manage all'ultimo gestore (di workspace, D18): 409, ruolo invariato, anteprima d'accordo", async () => {
+    const { updateRole, RoleRuleError, roleEditLastManager } = await import("./roles.js");
+    const { PROJECT_PERMISSIONS } = await import("@stubwise/shared");
+    const { eq } = await import("drizzle-orm");
+    const all = [...PROJECT_PERMISSIONS];
+    const [custom] = await db.insert(roles).values({ name: `Gestore ${randomUUID().slice(0, 6)}`, scope: "project", permissions: all }).returning();
+    const { projectId } = await seed(custom!.id);
+    const without = all.filter((p) => p !== "project.members.manage");
+    expect(await roleEditLastManager(db, custom!.id, without)).toBe(projectId);
+    expect(await roleEditLastManager(db, custom!.id, all)).toBeNull();
+    const error = await updateRole(db, await adminActor(), custom!.id, { permissions: without }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(RoleRuleError);
+    expect(error).toMatchObject({ status: 409, code: "last_manager", extra: { projectId } });
+    const [after] = await db.select({ permissions: roles.permissions }).from(roles).where(eq(roles.id, custom!.id));
+    expect(after!.permissions).toContain("project.members.manage");
+  });
+
+  it("lo stesso per un membro ESPLICITO", async () => {
+    const { updateRole } = await import("./roles.js");
+    const { PROJECT_PERMISSIONS } = await import("@stubwise/shared");
+    const all = [...PROJECT_PERMISSIONS];
+    const [custom] = await db.insert(roles).values({ name: `Esplicito ${randomUUID().slice(0, 6)}`, scope: "project", permissions: all }).returning();
+    const [p] = await db.insert(projects).values({ name: "Solo", slug: `solo-${randomUUID().slice(0, 6)}`, ingestionKey: randomUUID() }).returning();
+    const u = await createUserWithSession(app, `m-${randomUUID()}@x.test`);
+    const { projectMembers } = await import("@stubwise/db");
+    await db.insert(projectMembers).values({ projectId: p!.id, userId: u.id, roleId: custom!.id });
+    await expect(updateRole(db, await adminActor(), custom!.id, { permissions: all.filter((x) => x !== "project.members.manage") })).rejects.toMatchObject({ code: "last_manager" });
+  });
+
+  it("un utente eliminato che era l'ultimo gestore: 409 last_manager, l'utente resta", async () => {
+    const { deleteUser } = await import("./roles.js");
+    const { users } = await import("@stubwise/db");
+    const { eq } = await import("drizzle-orm");
+    const { projectId, wanda } = await seed("project_lead");
+    await expect(deleteUser(db, await adminActor(), wanda.id)).rejects.toMatchObject({ status: 409, code: "last_manager", extra: { projectId } });
+    expect(await db.select({ id: users.id }).from(users).where(eq(users.id, wanda.id))).toHaveLength(1);
+  });
+});
+
+describe("lotto 3: l'anteprima del ruolo dice last_manager (POST /api/roles/:id/viewer-loses)", () => {
+  it("chi vede il progetto ne riceve id e codice; chi ha roles.manage ma non lo vede, solo `blocked`", async () => {
+    const { PROJECT_PERMISSIONS } = await import("@stubwise/shared");
+    const { fullSessionCookie } = await import("../test/fixtures.js");
+    const { users } = await import("@stubwise/db");
+    const { eq } = await import("drizzle-orm");
+    const all = [...PROJECT_PERMISSIONS];
+    const [custom] = await db.insert(roles).values({ name: `Anteprima ${randomUUID().slice(0, 6)}`, scope: "project", permissions: all }).returning();
+    const { projectId } = await seed(custom!.id);
+    const [admin] = await db.select({ id: users.id }).from(users).where(eq(users.role, "admin")).limit(1);
+    const [manager] = await db.insert(roles).values({ name: `Ruoli ${randomUUID().slice(0, 6)}`, scope: "instance", permissions: ["roles.manage"] }).returning();
+    const outsider = await createUserWithSession(app, `r-${randomUUID()}@x.test`);
+    await db.update(users).set({ instanceRoleId: manager!.id }).where(eq(users.id, outsider.id));
+    const body = { permissions: all.filter((p) => p !== "project.members.manage") };
+    const ask = async (cookie: string) =>
+      (await app.inject({ method: "POST", url: `/api/roles/${custom!.id}/viewer-loses`, headers: { cookie }, payload: body })).json() as {
+        lastManager: { blocked: boolean; projectId: string | null };
+      };
+    expect((await ask(await fullSessionCookie(app, admin!.id))).lastManager).toMatchObject({ blocked: true, projectId });
+    expect((await ask(outsider.headers.cookie)).lastManager).toEqual({ blocked: true, projectId: null, projectCode: null });
+  });
+});

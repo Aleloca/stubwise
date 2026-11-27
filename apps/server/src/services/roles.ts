@@ -391,14 +391,25 @@ export async function updateRole(
         const added = permissions.filter((p) => !role.permissions.includes(p));
         await assertCanGrantInRole(tx, actor, role.scope, role.id, added);
       }
-      await tx
-        .update(roles)
-        .set({
-          ...(input.name !== undefined ? { name: input.name } : {}),
-          ...(permissions ? { permissions } : {}),
-          updatedAt: new Date(),
-        })
-        .where(eq(roles.id, id));
+      const write = async () => {
+        await tx
+          .update(roles)
+          .set({
+            ...(input.name !== undefined ? { name: input.name } : {}),
+            ...(permissions ? { permissions } : {}),
+            updatedAt: new Date(),
+          })
+          .where(eq(roles.id, id));
+      };
+      // Lotto 3 delle workspace (46): togliere `project.members.manage` a un
+      // ruolo di progetto non lascia un progetto senza gestore, che il ruolo
+      // sia esplicito o di workspace (D18). La stessa regola dell'anteprima
+      // (`roleEditLastManager`).
+      if (permissions && role.scope === "project" && losesManage(role.permissions, permissions)) {
+        await keepingManagersIn(tx, await projectsOfRole(tx, role.id), write);
+      } else {
+        await write();
+      }
       // Area 9, F2: prima e dopo del nome; i permessi aggiunti e tolti.
       await recordChange(tx, {
         type: "role.updated",
@@ -550,13 +561,59 @@ export async function deleteUser(db: Db, actor: Actor, userId: string): Promise<
     throw new RoleRuleError(400, "cannot_delete_self", "You cannot delete your own account");
   }
   await db.transaction(async (tx) => {
-    const [deleted] = await tx
-      .delete(users)
-      .where(eq(users.id, userId))
-      .returning({ id: users.id });
-    if (!deleted) throw new RoleRuleError(404, "user_not_found", "User not found");
+    // Lotto 3 delle workspace (46): nessun progetto della persona (esplicito o
+    // di workspace, D18) resta senza un gestore dei membri.
+    const touched = await tx
+      .selectDistinct({ projectId: projectAccess.projectId })
+      .from(projectAccess)
+      .where(and(eq(projectAccess.userId, userId), projectAccessRowCounts));
+    await keepingManagersIn(
+      tx,
+      touched.map((t) => t.projectId),
+      async () => {
+        const [deleted] = await tx
+          .delete(users)
+          .where(eq(users.id, userId))
+          .returning({ id: users.id });
+        if (!deleted) throw new RoleRuleError(404, "user_not_found", "User not found");
+      },
+    );
     await assertFullAdminRemains(tx);
   });
+}
+
+const losesManage = (before: readonly string[], after: readonly string[]) =>
+  before.includes("project.members.manage") && !after.includes("project.members.manage");
+
+/** Annulla la transazione dell'anteprima (`roleEditLastManager`). */
+class PreviewRollback extends Error {}
+
+/**
+ * L'anteprima di {@link updateRole} per `last_manager`: il primo progetto (per
+ * id) che resterebbe senza un gestore dei membri se il ruolo avesse
+ * `nextPermissions`, o `null`. È LA scrittura, fatta e annullata in una
+ * transazione: anteprima e salvataggio non possono dire cose diverse.
+ */
+export async function roleEditLastManager(db: Db, roleId: string, nextPermissions: readonly string[]): Promise<string | null> {
+  let blocked: string | null = null;
+  try {
+    await db.transaction(async (tx) => {
+      const [role] = await tx.select({ scope: roles.scope, permissions: roles.permissions }).from(roles).where(eq(roles.id, roleId));
+      if (!role || role.scope !== "project" || !losesManage(role.permissions, nextPermissions)) throw new PreviewRollback();
+      try {
+        await keepingManagersIn(tx, await projectsOfRole(tx, roleId), async () => {
+          await tx.update(roles).set({ permissions: [...new Set(nextPermissions)] }).where(eq(roles.id, roleId));
+        });
+      } catch (error) {
+        if (error instanceof RoleRuleError && error.code === "last_manager") blocked = (error.extra.projectId as string | undefined) ?? null;
+        else throw error;
+      }
+      throw new PreviewRollback();
+    });
+  } catch (error) {
+    if (!(error instanceof PreviewRollback)) throw error;
+  }
+  return blocked;
 }
 
 // ── Membri di progetto ──────────────────────────────────────────────────

@@ -8,16 +8,20 @@ import {
   roleScopeSchema,
   updateRoleSchema,
 } from "@stubwise/shared";
-import { projectIdsWithPermission, isAllProjects } from "../auth/access.js";
+import { projectIdsWithPermission, projectPermissionsFor, isAllProjects } from "../auth/access.js";
 import {
   createRole,
   deleteRole,
   duplicateRole,
   listRoles,
   RoleRuleError,
+  roleEditLastManager,
   updateRole,
   type RoleRow,
 } from "../services/roles.js";
+import type { SessionUser } from "../auth/session.js";
+import { projects } from "@stubwise/db";
+import { eq } from "drizzle-orm";
 import { authErrorResponses, errorSchema } from "./shared.js";
 import { viewerLosesIf } from "../services/access-query.js";
 import { apiError } from "../errors.js";
@@ -33,7 +37,20 @@ export const roleRuleErrorSchema = errorSchema.extend({
   permission: z.string().optional(),
   /** `escalation`: tutto ciò che a chi agisce manca (rimandi, lotto 4). */
   missing: z.array(z.string()).optional(),
+  /** `last_manager` (lotto 3 delle workspace): il progetto, SOLO a chi lo vede. */
+  projectId: z.uuid().optional(),
+  projectCode: z.string().nullable().optional(),
 });
+
+/**
+ * Il progetto di un `last_manager`, SOLO se chi guarda lo vede (r.1414,
+ * invisibile = 404 senza eccezioni; la stessa regola dei reparti).
+ */
+async function lastManagerProject(app: FastifyInstance, viewer: SessionUser, projectId: string | null): Promise<{ projectId: string; projectCode: string | null } | null> {
+  if (!projectId || !(await projectPermissionsFor(app.db, viewer, projectId, { includeArchived: true }))) return null;
+  const [p] = await app.db.select({ code: projects.code }).from(projects).where(eq(projects.id, projectId));
+  return p ? { projectId, projectCode: p.code } : null;
+}
 
 /** Traduce un {@link RoleRuleError} in risposta; rilancia il resto. */
 export function sendRoleRuleError(reply: FastifyReply, error: unknown): FastifyReply {
@@ -114,16 +131,35 @@ export async function roleRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/viewer-loses",
     {
-      config: { mcp: { action: "roles.viewerLoses", summary: "Anteprima: quali permessi perderesti TU se il ruolo avesse questi permessi. Non scrive niente.", effect: "write", note: "È solo un calcolo: il ruolo si cambia dall'app (chiede la riconferma)." }, access: { kind: "instance", permission: "roles.manage" } },
+      config: { mcp: { action: "roles.viewerLoses", summary: "Anteprima: quali permessi perderesti TU se il ruolo avesse questi permessi, e se un progetto resterebbe senza chi ne gestisce i membri. Non scrive niente.", effect: "write", note: "È solo un calcolo: il ruolo si cambia dall'app (chiede la riconferma)." }, access: { kind: "instance", permission: "roles.manage" } },
       schema: {
         params: idParamsSchema,
         body: z.object({ permissions: z.array(z.string().max(100)).max(200) }),
-        response: { 200: z.object({ lost: z.array(z.string()) }), ...authErrorResponses, ...ruleErrors },
+        response: {
+          200: z.object({
+            lost: z.array(z.string()),
+            /**
+             * Lotto 3 delle workspace (46): salvando, un progetto resterebbe
+             * senza gestore dei membri (`409 last_manager`). `blocked` lo dice
+             * a tutti, il progetto solo a chi lo vede. Additivo.
+             */
+            lastManager: z
+              .object({ blocked: z.boolean(), projectId: z.uuid().nullable(), projectCode: z.string().nullable() })
+              .default({ blocked: false, projectId: null, projectCode: null }),
+          }),
+          ...authErrorResponses,
+          ...ruleErrors,
+        },
       },
     },
     async (request, reply) => {
       try {
-        return { lost: await viewerLosesIf(app.db, request.user!, request.params.id, request.body.permissions) };
+        const blocked = await roleEditLastManager(app.db, request.params.id, request.body.permissions);
+        const shown = await lastManagerProject(app, request.user!, blocked);
+        return {
+          lost: await viewerLosesIf(app.db, request.user!, request.params.id, request.body.permissions),
+          lastManager: { blocked: blocked !== null, projectId: shown?.projectId ?? null, projectCode: shown?.projectCode ?? null },
+        };
       } catch (error) {
         return sendRoleRuleError(reply, error);
       }
@@ -172,6 +208,10 @@ export async function roleRoutes(instance: FastifyInstance): Promise<void> {
         const role = await updateRole(app.db, request.user!, request.params.id, request.body);
         return reply.code(200).send(toRoleView(role));
       } catch (error) {
+        if (error instanceof RoleRuleError && error.code === "last_manager") {
+          const shown = await lastManagerProject(app, request.user!, typeof error.extra.projectId === "string" ? error.extra.projectId : null);
+          return reply.code(409).send({ code: error.code, message: error.message, ...(shown ?? {}) });
+        }
         return sendRoleRuleError(reply, error);
       }
     },
