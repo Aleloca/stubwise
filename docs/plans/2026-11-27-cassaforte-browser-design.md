@@ -355,6 +355,18 @@ build e non serve sbloccare: sono metadati.
 - La cronologia degli appunti del sistema può tenere una copia (§6).
 - L'HKDF della copia non lega la chiave pubblica del destinatario (riga 222,
   accettato).
+- **L'argine della pagina ferma le varianti note, non un XSS in generale**
+  (revisione I-A, 28 nov 2026). La cerimonia della passkey resta nella
+  pagina: lì la PRF si legge col `then`, il `getClientExtensionResults` e i
+  getter catturati al boot, si riconosce col `byteLength` catturato (niente
+  `instanceof`) e parte PER PRIMA verso il worker per transfer, e `harden()`
+  congela Promise, ArrayBuffer e i prototipi della credenziale.
+  `scripts/verify-prf-capture.mjs` (`pnpm --filter @stubwise/desktop
+  verify:prf`) prova sette varianti in Chromium con una passkey PRF vera.
+  Ma è un elenco: uno script che gira PRIMA del boot vince comunque, e uno
+  dopo può trovare una porta che non conosciamo. Vale ciò che dice il §1:
+  un XSS sull'origine più un tocco della passkey bastano, e le difese
+  contro l'iniezione (CSP, Trusted Types) vengono prima di questo argine.
 
 ## 13. Dove sta ogni punto della revisione
 
