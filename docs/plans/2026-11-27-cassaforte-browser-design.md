@@ -144,15 +144,17 @@ trattata come compromessa per la cassaforte.
 |---|---|---|
 | `lib/vault/unlock.ts` | `data/backend/real/vaultBrowser/unlock.ts` | Stesse rotte; il PRF si azzera subito; la pkcs8 si importa NON estraibile dove la verifica lo consente (§6). |
 | `lib/vault/credentials.ts` | `vaultBrowser/credentials.ts` | La chiave della voce si importa non estraibile nel percorso di reveal, e i byte grezzi si azzerano (M2). |
-| `lib/vault/vault-context.tsx` | `vaultBrowser/key.ts` (§5) | Uno stato di modulo con un'API piccola, non lo stato di React. |
-| `lib/vault/idle.ts` | dentro `key.ts` (§7) | Riscritto: ora di parete, `isTrusted`, niente scroll. |
+| `lib/vault/vault-context.tsx` | il worker (`vaultBrowser/core.ts`), e nella pagina lo specchio `vaultBrowser/key.ts` (§5) | La chiave nel worker; nella pagina solo lo stato, non lo stato di React. |
+| `lib/vault/idle.ts` | la scadenza nel worker, i segnali in `key.ts` (§7) | Riscritto: ora di parete, `isTrusted`, niente scroll; più i tetti di m-1. |
 | `reveal-button.tsx`, `copyWithAutoClear` | le pagine della Vault | La UI resta quella della shape. |
 | `pending-access.tsx`, `readers-panel.tsx`, `credential-form.tsx` | le pagine della Vault | Già disegnate. |
 | attivazione, recupero, `/vault-pair` | **fase 2** (§10) | Con le regole di I7. |
 
-Le chiamate stanno in `vaultBrowser/http.ts`, sopra il `fetch` CATTURATO
-(§2.4) e con stessa origine e cookie, non nell'api-client. L'api-client le
-esclude apposta (`endpoints/vault.ts:22-28`).
+Le chiamate della cassaforte stanno nel worker (`vaultBrowser/core.ts`), col
+`fetch` del worker, con stessa origine e cookie, non nell'api-client.
+L'api-client le esclude apposta (`endpoints/vault.ts:22-28`). La prima stesura
+le metteva in un `vaultBrowser/http.ts` della pagina, sopra il `fetch`
+catturato: la revisione I-1 l'ha superata.
 
 ## 4. La dimensione di build: Electron e web (I1)
 
@@ -177,43 +179,65 @@ risolvono gli stessi alias, e la scelta del ponte avviene a runtime su
 - **`/vault-pair` non esiste nella build Electron** (I7): la rotta si registra
   solo con `target: web`.
 
-## 5. Dove vive la chiave: l'API di `key.ts`
+## 5. Dove vive la chiave: il worker della cassaforte
 
-Solo in memoria, nella scheda, come `CryptoKey` non estraibile, in un modulo
-con questa API (e nient'altro):
+*Riscritto il 28 nov 2026 su ciò che è stato costruito (revisioni I-1, I-A,
+m-1, m-3). La prima stesura metteva la chiave in un modulo della pagina,
+`key.ts`: la revisione I-1 l'ha spostata in un Dedicated Worker.*
+
+Solo in memoria, come `CryptoKey` non estraibile, nel **worker della
+cassaforte** (`vaultBrowser/worker.ts`, che avvolge `VaultCore` di
+`vaultBrowser/core.ts`, puro e provato senza un worker vero). È un reame che
+gli script della pagina non raggiungono. Lì, e solo lì:
+
+- la rete della cassaforte, col `fetch` del worker (stessa origine e cookie):
+  il JSON delle risposte non si manomette dalla pagina;
+- la verifica della passkey, l'apertura del sigillo con la PRF, la chiave di
+  persona, la crittografia di Show, crea, cambia, condividi e conferma, e la
+  prova di possesso (`actorProof`, monouso);
+- la scadenza a ora di parete, col `Date` e il timer del worker.
+
+La pagina parla col worker per messaggi con un id (`vaultBrowser/client.ts`,
+col costruttore e il `postMessage` catturati al boot) e riceve **solo esiti**,
+più la sola password per Show e Copy:
 
 ```ts
-// vaultBrowser/key.ts
-type VaultKeyState =
-  | { state: "locked" }
-  | { state: "open"; personId: string; sessionId: string; openedAt: number; lastUseAt: number };
-
-/** Apre: tiene la chiave legata a persona + sessione. Riparte il conto dei 15 minuti. */
-open(key: CryptoKey, personId: string, sessionId: string): void;
-
-/**
- * La chiave per UN uso (reveal, wrap, unwrap). Controlla la scadenza A OGNI
- * CHIAMATA, a ora di parete; chiusa, scaduta, o con persona/sessione diverse
- * da quelle di adesso: chiude e lancia `vault_locked`. Un uso riparte il conto.
- */
-use(personId: string, sessionId: string): CryptoKey;
-
-/** Chiude: butta la chiave, emette `locked`, avvisa le altre schede (§8). */
-lock(reason: "user" | "idle" | "logout" | "pagehide" | "session" | "remote"): void;
-
-/** Lo stato per la barra, senza la chiave. */
-status(): { state: "locked" } | { state: "open"; closesAt: number };
-
-/** Chi ascolta: la barra, le righe mostrate, la cache delle query (§6). */
-subscribe(fn: (s: ReturnType<typeof status>) => void): () => void;
+// vaultBrowser/core.ts (le richieste, in breve)
+type CoreRequest =
+  | { t: "prepare" }                       // stato e opzioni della passkey
+  | { t: "stash"; prf: ArrayBuffer }       // I-A: la PRF, per transfer, appena c'è
+  | { t: "unlock"; assertion; credentialId; personId; sessionTag }
+  | { t: "reveal"; id; action: "show" | "copy"; personId; sessionTag }
+  | { t: "create"; projectId; fields; password }
+  | { t: "setPassword"; id; password; personId; sessionTag }
+  | { t: "share"; id; target; personId; sessionTag }
+  | { t: "removeReader"; id; readerId; personId; sessionTag }
+  | { t: "discard" } | { t: "touch" } | { t: "lock"; reason } | { t: "status" } | { t: "serverStatus" };
 ```
 
-- **Persona e sessione:** la chiave vale solo per quella coppia. Un cambio
-  dell'una o dell'altra (logout, scadenza, un'altra persona in un'altra
-  scheda) la rende inutilizzabile alla prossima `use` (I5).
+- **Lo specchio nella pagina** (`vaultBrowser/key.ts`): lo stato per la
+  barra e le righe (`status()`, `subscribe()`, `lastLock()`), aggiornato
+  dagli eventi del worker, senza chiave né segreti. Ci stanno anche i
+  segnali della scheda, collegati al boot (§7, §8).
+- **Persona e sessione:** ogni azione con la chiave porta persona e
+  `sessionTag` (I5). Il worker, prima di ogni uso, rilegge `/api/auth/me` col
+  suo `fetch` e confronta l'utente e il `sessionTag` del server con quelli
+  dell'apertura (I-3). Un cambio dell'una o dell'altra chiude.
+- **La PRF** (I-A, §2.4): la cerimonia nella pagina la legge per prima e la
+  trasferisce subito al worker (`stash`). Il worker ne tiene una sola, per
+  2 minuti: lo sblocco la consuma, `discard` (M-3) e la chiusura la
+  azzerano.
+- **I tetti** (m-1): oltre ai 15 minuti d'inattività, la chiave si richiude
+  comunque **60 minuti dopo lo sblocco**, qualunque `touch` arrivi, e dopo
+  **30 reveal** per sblocco. Una pagina ostile che parla al worker da sé non
+  la tiene aperta per sempre.
+- **La chiusura arriva anche al server** (m-3): il worker chiama
+  `POST /api/vault/lock`, best-effort, e la sessione perde lo sblocco
+  (`vaultUnlockedAt`) delle rotte `config.reauth: "vault"`.
 - **Mai fuori dalla memoria:** niente `localStorage`, `sessionStorage`,
-  IndexedDB, Service Worker, cache persistita di React Query o log. Un test sul
-  sorgente vieta queste API in `vaultBrowser/`.
+  IndexedDB, Service Worker (Caddy rifiuta `Service-Worker: script`, m-7),
+  cache persistita di React Query o log. Un test sul sorgente vieta queste API
+  in `vaultBrowser/`, e la crittografia fuori dal worker.
 - **Stessa passkey, stessa chiave:** stessa origine vuol dire stesso `rpId`,
   stesso sigillo sul server e stesse copie. Chi ha già attivato la cassaforte
   nel web vecchio la apre in `/app` senza rifare niente.
@@ -250,8 +274,9 @@ subscribe(fn: (s: ReturnType<typeof status>) => void): () => void;
 - **La memoria (M2):** la chiave della voce si importa non estraibile nel
   percorso di reveal, e i byte grezzi si azzerano subito. La pkcs8 durante lo
   sblocco: dove `assertPairMatches` ne ha bisogno estraibile, si importa,
-  si confronta e si azzera nello stesso tick; la chiave tenuta da `key.ts` è
-  sempre un'importazione NON estraibile a parte. Le stringhe delle password
+  si confronta e si azzera nello stesso tick; la chiave tenuta dal worker è
+  sempre un'importazione NON estraibile a parte (dalla revisione M-2 la coppia
+  si verifica senza esportare la privata). Le stringhe delle password
   non si possono azzerare in JS: è un limite scritto (§12).
 
 ## 7. La chiusura dopo 15 minuti (I2)
@@ -261,8 +286,9 @@ subscribe(fn: (s: ReturnType<typeof status>) => void): () => void;
   scroll, che può essere programmatico, e non il movimento del mouse. Ogni
   `use()` della chiave conta anch'esso.
 - **A ora di parete, non a timer:**
-  - `key.ts` controlla la scadenza a ogni `use()`, e a `visibilitychange`,
-    `focus` e `pageshow`;
+  - il worker controlla la scadenza a ogni uso della chiave, e la pagina
+    glielo chiede a `visibilitychange`, `focus` e `pageshow` (i segnali sono
+    in `key.ts`);
   - il `setTimeout` serve solo a chiudere in tempo una pagina in primo piano;
   - se il Mac si sospende o la scheda finisce nel bfcache, al ritorno la
     scadenza è già passata e la cassaforte si chiude prima di qualunque uso.
@@ -294,7 +320,7 @@ subscribe(fn: (s: ReturnType<typeof status>) => void): () => void;
 
 | | App Mac (Electron) | Nuova app nel browser (`/app`) |
 |---|---|---|
-| Dove vive la chiave | main, `CryptoKey` non estraibile | scheda, `CryptoKey` non estraibile (`key.ts`) |
+| Dove vive la chiave | main, `CryptoKey` non estraibile | worker della scheda, `CryptoKey` non estraibile (`core.ts`) |
 | Sblocco | Secure Enclave + Touch ID | passkey con PRF |
 | Rotte | `desktopVault` / `desktopOnly` / `desktopRead`, PAT del desktop | `browserOnly`, cookie di sessione |
 | `via` di `reveal` | `desktop` | `browser` |
@@ -355,6 +381,11 @@ build e non serve sbloccare: sono metadati.
 - La cronologia degli appunti del sistema può tenere una copia (§6).
 - L'HKDF della copia non lega la chiave pubblica del destinatario (riga 222,
   accettato).
+- **Una pagina ostile parla al worker** (m-1): può chiedere `touch` e
+  `reveal` da sé finché la cassaforte è aperta. I tetti del §5 (60 minuti
+  dallo sblocco, 30 reveal) ne limitano la durata e il numero, non la
+  possibilità: dentro quei limiti uno script iniettato legge ciò che legge la
+  persona.
 - **L'argine della pagina ferma le varianti note, non un XSS in generale**
   (revisione I-A, 28 nov 2026). La cerimonia della passkey resta nella
   pagina: lì la PRF si legge col `then`, il `getClientExtensionResults` e i
