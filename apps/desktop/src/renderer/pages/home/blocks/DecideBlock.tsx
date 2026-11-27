@@ -9,6 +9,7 @@ import {
   useDecisionRequests,
   useMailProposalDecisions,
   useMyAutomationApprovals,
+  usePulseProposals,
   usePeople,
   useProjects,
   useRequestsToConvert,
@@ -41,6 +42,8 @@ import { BlockSection, Capped, queryState, useOpenTask } from "./BlockSection";
 import { ChatClaudeQuestionItem, ChatQuestionItem } from "./ChatDecisionItems";
 import { ClaudeDecisionItem } from "./ClaudeDecisionItem";
 import { MailDecisionItem } from "./MailDecisionItem";
+import { PulseDecisionItem } from "./PulseDecisionItem";
+import type { PulseProposalView } from "../../../data/pulse/types";
 
 type Item =
   | { kind: "decision"; id: string; decision: DecisionRequest; task: Task | undefined }
@@ -49,6 +52,7 @@ type Item =
   | { kind: "chatClaude"; id: string; question: ChatClaudeQuestion }
   | { kind: "mail"; id: string; view: MailProposalView }
   | { kind: "automation"; id: string; decision: AutomationDecision }
+  | { kind: "pulse"; id: string; proposal: PulseProposalView }
   | { kind: "request"; id: string; request: ProjectRequest; project: Project | undefined };
 
 /**
@@ -75,6 +79,7 @@ export function DecideBlock() {
   const chatClaude = useChatClaudeQuestions();
   const mail = useMailProposalDecisions();
   const automations = useMyAutomationApprovals();
+  const pulse = usePulseProposals();
   const tasks = useTasks();
   const requests = useRequestsToConvert();
   const projects = useProjects();
@@ -118,6 +123,11 @@ export function DecideBlock() {
       at: d.since,
       item: { kind: "automation", id: d.runId, decision: d } satisfies Item,
     })),
+    // Le proposte del polso (shape `pulse-proposals.md`: si decide solo qui, PQ-1b).
+    ...(pulse.data ?? []).map((p) => ({
+      at: p.createdAt,
+      item: { kind: "pulse", id: p.id, proposal: p } satisfies Item,
+    })),
   ];
   const items: Item[] = [
     ...asked.sort((a, b) => a.at.localeCompare(b.at)).map((a) => a.item),
@@ -143,6 +153,7 @@ export function DecideBlock() {
     ...(featureIntegrated("chat") && featureIntegrated("chat-claude") ? [chatClaude] : []),
     ...(featureIntegrated("mail") ? [mail] : []),
     ...(featureIntegrated("automations") ? [automations] : []),
+    ...(featureIntegrated("pulse-proposals") ? [pulse] : []),
     tasks,
     requests,
     projects,
@@ -163,7 +174,11 @@ export function DecideBlock() {
         items={items}
         closing={(item) => pending.has(item.id)}
         render={(item) =>
-          item.kind === "automation" ? (
+          item.kind === "pulse" ? (
+            <Collapsible key={item.id} closed={pending.has(item.id)}>
+              <PulseDecisionItem proposal={item.proposal} onOpenTask={openTask} />
+            </Collapsible>
+          ) : item.kind === "automation" ? (
             <Collapsible key={item.id} closed={pending.has(item.id)}>
               <AutomationDecisionItem decision={item.decision} />
             </Collapsible>

@@ -2,6 +2,7 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { DocKind, DocPageRef, DocTreeCategory, DocTreeNode } from "../../data/types";
+import { useExportDocCategory } from "../../data/queries";
 import { itemClass } from "../../tasks-ui/Menu";
 import { downloadText } from "../../tasks-ui/exportFile";
 import { useToast } from "../../tasks-ui/Toast";
@@ -98,6 +99,7 @@ export function DocTree({
   categories,
   projectCode,
   repo,
+  repositoryId,
   collapsed,
   onToggle,
   onExpandAll,
@@ -108,6 +110,8 @@ export function DocTree({
   categories: DocTreeCategory[];
   projectCode: string;
   repo: string;
+  /** Il repository dello spazio: lo zip vero di una categoria si chiede con questo. */
+  repositoryId: string;
   collapsed: ReadonlySet<string>;
   onToggle: (key: string) => void;
   onExpandAll: () => void;
@@ -138,6 +142,7 @@ export function DocTree({
           category={c}
           projectCode={projectCode}
           repo={repo}
+          repositoryId={repositoryId}
           collapsed={collapsed}
           onToggle={onToggle}
           focusNonce={focusCategory?.kind === c.kind ? focusCategory.nonce : null}
@@ -152,6 +157,7 @@ function Category({
   category,
   projectCode,
   repo,
+  repositoryId,
   collapsed,
   onToggle,
   focusNonce,
@@ -160,6 +166,7 @@ function Category({
   category: DocTreeCategory;
   projectCode: string;
   repo: string;
+  repositoryId: string;
   collapsed: ReadonlySet<string>;
   onToggle: (key: string) => void;
   focusNonce: number | null;
@@ -178,18 +185,31 @@ function Category({
     header.current?.scrollIntoView?.({ block: "nearest" });
   }, [focusNonce]);
 
-  const download = () => {
-    // Prototipo: uno zip finto (un indice delle pagine), con l'avviso che lo dice.
-    const pages = pagesOf(category.nodes);
+  const exportZip = useExportDocCategory();
+  const download = async () => {
     const file = `${label}.zip`;
-    downloadText(
-      file,
-      [`${label} — ${repo}`, "", ...pages.map((p) => `${p.code}  ${p.path}/${p.slug}.md`)].join(
-        "\n",
-      ),
-      "application/zip",
+    // Lo zip vero lo fa il server (ritiro del web vecchio, inventario 1.5).
+    const result = await exportZip.mutateAsync({ repositoryId, kind: category.kind });
+    if (!result.ok) {
+      toast.error(t("docs.tree.downloadFailed"));
+      return;
+    }
+    if (result.prototype) {
+      // Prototipo: uno zip finto (un indice delle pagine), con l'avviso che lo dice.
+      const pages = pagesOf(category.nodes);
+      downloadText(
+        file,
+        [`${label} — ${repo}`, "", ...pages.map((p) => `${p.code}  ${p.path}/${p.slug}.md`)].join(
+          "\n",
+        ),
+        "application/zip",
+      );
+    }
+    toast.show(
+      result.openedInBrowser
+        ? t("docs.tree.openedInBrowser", { file })
+        : t("docs.tree.downloaded", { file, count: category.count }),
     );
-    toast.show(t("docs.tree.downloaded", { file, count: category.count }));
   };
 
   return (
@@ -227,7 +247,7 @@ function Category({
                 className={itemClass}
                 onClick={() => {
                   close();
-                  download();
+                  void download();
                 }}
               >
                 {t("docs.tree.download")}

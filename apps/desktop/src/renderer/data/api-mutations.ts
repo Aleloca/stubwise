@@ -1145,6 +1145,28 @@ export async function updateRequest(id: string, patch: RequestPatch): Promise<Pr
   return copy(request);
 }
 
+/**
+ * Togliere il design o il piano di una richiesta (shape
+ * `design-plan-remove.md`, DP-Q1): chi ha `backlog.edit`. La descrizione
+ * resta com'è; un refine con Claude può riscriverli.
+ */
+export async function removeRequestDesign(id: string): Promise<ProjectRequest> {
+  return removeRequestField(await gate("removeRequestDesign"), id, "design");
+}
+
+export async function removeRequestPlan(id: string): Promise<ProjectRequest> {
+  return removeRequestField(await gate("removeRequestPlan"), id, "plan");
+}
+
+function removeRequestField(me: string, id: string, field: "design" | "plan"): ProjectRequest {
+  const request = requestFor(me, id);
+  need(me, "backlog.edit", request.projectId);
+  if (!request[field]?.trim()) throw invalid(field);
+  request[field] = null;
+  wrote("request", request.id, me);
+  return copy(request);
+}
+
 /** `id` confluisce in `intoId`: i richiedenti si uniscono senza doppioni, `id` si archivia. */
 export async function mergeRequest(id: string, intoId: string): Promise<ProjectRequest> {
   const me = await gate("mergeRequest");

@@ -94,12 +94,26 @@ function sameLabels(a: string[], b: string[]): boolean {
  * restano piccoli: per title/body si segna solo che è cambiato (mai il testo
  * lungo), per gli altri si tiene { from, to }.
  */
+/**
+ * La descrizione di un ticket, scritta dove sta (revisione, I1): con un
+ * design attivo (`originContent` non null) il corpo È il design, e la
+ * descrizione è l'originale messo da parte. Una modifica va lì, così il
+ * design resta e «Remove design» riporta il testo modificato. Come
+ * `backlog-merge.ts` per le richieste.
+ */
+export function descriptionUpdate(current: Pick<Ticket, "originContent">, text: string): Partial<Ticket> {
+  return current.originContent !== null ? { originContent: text } : { body: text };
+}
+
 export function diffTicketEvents(current: Ticket, updates: Partial<Ticket>): PendingEvent[] {
   const events: PendingEvent[] = [];
   if (updates.title !== undefined && updates.title !== current.title) {
     events.push({ kind: "title_changed", payload: { changed: true } });
   }
-  if (updates.body !== undefined && updates.body !== current.body) {
+  if (
+    (updates.body !== undefined && updates.body !== current.body) ||
+    (updates.originContent !== undefined && updates.originContent !== current.originContent)
+  ) {
     events.push({ kind: "body_changed", payload: { changed: true } });
   }
   if (updates.type !== undefined && updates.type !== current.type) {
@@ -162,7 +176,6 @@ export async function patchTicket(
 
   const updates: Partial<Ticket> = {};
   if (patch.title !== undefined) updates.title = patch.title;
-  if (patch.body !== undefined) updates.body = patch.body;
   if (patch.type !== undefined) updates.type = patch.type;
   if (patch.priority !== undefined) updates.priority = patch.priority;
   if (patch.status !== undefined) updates.status = patch.status;
@@ -172,6 +185,8 @@ export async function patchTicket(
 
   const [current] = await tx.select().from(tickets).where(eq(tickets.id, ticketId));
   if (!current) return { ok: false, error: "ticket_not_found" };
+  // I1: con un design attivo il corpo nuovo va sull'originale.
+  if (patch.body !== undefined) Object.assign(updates, descriptionUpdate(current, patch.body));
 
   // Una milestone non-null deve esistere ed appartenere allo STESSO progetto
   // del ticket: assegnare ticket a milestone di altri progetti romperebbe
