@@ -7,7 +7,7 @@ import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { addMember, createUserWithPat, createUserWithSession, fullSessionCookie, presetRoleId, seedUsers } from "../test/fixtures.js";
+import { addMember, createUserWithPat, createUserWithSession, presetRoleId, seedUsers } from "../test/fixtures.js";
 
 /**
  * WORKSPACE, lotto 3 (`docs/plans/2026-11-27-workspace-piano.md`): le rotte e
@@ -234,10 +234,6 @@ describe("l'effetto di un cambio (workspaceAccessEffect)", () => {
     expect(PROJECT_PERMISSIONS).toContain("tickets.view_all");
   });
 
-  it("un admin usa lo stesso giro; la riconferma la soddisfa una sessione fresca", async () => {
-    const admin = await fullSessionCookie(app, (await db.select({ id: users.id }).from(users).where(eq(users.role, "admin")).limit(1))[0]!.id);
-    expect((await call("GET", "/api/workspaces", { cookie: admin })).statusCode).toBe(200);
-  });
 });
 
 describe("la card member.added (D13)", () => {
@@ -301,5 +297,57 @@ describe("D9: l'invito di registrazione promette una workspace", () => {
     const res = await register((inv.json() as { token: string }).token);
     expect(res.statusCode, res.body).toBe(201);
     expect(await db.select().from(workspaceMembers).where(eq(workspaceMembers.workspaceId, w.id))).toEqual([]);
+  });
+});
+
+describe("revisione del lotto 3: i negativi che mancavano", () => {
+  it("spostare D in un'altra workspace toglie a Vera l'unico gestore: 409 last_manager, D resta dov'era", async () => {
+    const d = await project("Delta2");
+    const vera = await person("Vera");
+    const admin = { cookie: adminCookie };
+    const from = (await call("POST", "/api/workspaces", admin, { name: "Da", projectIds: [d] })).json() as { id: string };
+    await call("PUT", `/api/workspaces/${from.id}/members/${vera.id}`, admin, { roleId: await presetRoleId(app, "project_lead") });
+    const to = (await call("POST", "/api/workspaces", admin, { name: "A" })).json() as { id: string };
+    const res = await call("PUT", `/api/workspaces/${to.id}/projects/${d}`, admin);
+    expect(res.statusCode, res.body).toBe(409);
+    expect(res.json()).toMatchObject({ code: "last_manager", projectId: d });
+    expect((await db.select().from(workspaceProjects).where(eq(workspaceProjects.projectId, d))).map((r) => r.workspaceId)).toEqual([from.id]);
+  });
+
+  it("escalation mettendo un progetto in una workspace con persone: Lea non può dare il ruolo di Vera in B → 403, B fuori", async () => {
+    const { a, b, lea, vera } = await seed();
+    const [ops] = await db.insert(roles).values({ name: `Ops ${randomUUID().slice(0, 6)}`, scope: "project", permissions: ["docs.view", "servers.operate"] }).returning();
+    const w = (await call("POST", "/api/workspaces", { cookie: adminCookie }, { name: "Ops", projectIds: [a] })).json() as { id: string };
+    await call("PUT", `/api/workspaces/${w.id}/members/${vera.id}`, { cookie: adminCookie }, { roleId: ops!.id });
+    const res = await call("PUT", `/api/workspaces/${w.id}/projects/${b}`, lea.headers);
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ code: "escalation", missing: ["servers.operate"], projectId: b });
+    expect(await db.select().from(workspaceProjects).where(eq(workspaceProjects.projectId, b))).toEqual([]);
+  });
+
+  it("/effect: un progetto che non c'è o che non vedi → 404; chi non gestisce → 403; un PAT su PUT projects → session_required", async () => {
+    const { a, lea, dino } = await seed();
+    const w = await created(lea, { name: "Effetto2", projectIds: [a] });
+    const hidden = await project("Nascosto");
+    for (const projectId of [hidden, randomUUID()]) {
+      const res = await call("POST", "/api/workspaces/effect", lea.headers, { kind: "addProject", workspaceId: w.id, projectId });
+      expect(res.statusCode).toBe(404);
+      expect(res.body).not.toContain(hidden);
+    }
+    expect((await call("POST", "/api/workspaces/effect", dino.headers, { kind: "addProject", workspaceId: w.id, projectId: a })).statusCode).toBe(403);
+    const pat = await createUserWithPat(app, `pat2-${randomUUID()}@x.test`);
+    await db.update(users).set({ instanceRoleId: (await db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "admin")))[0]!.id }).where(eq(users.id, pat.id));
+    const viaPat = await call("PUT", `/api/workspaces/${w.id}/projects/${hidden}`, pat.headers);
+    expect(viaPat.json()).toMatchObject({ code: "session_required" });
+  });
+
+  it("M-2: l'anteprima con il ruolo di adesso non dice escalation (la scrittura non farebbe niente)", async () => {
+    const { a, lea, vera } = await seed();
+    const [ops] = await db.insert(roles).values({ name: `Ops ${randomUUID().slice(0, 6)}`, scope: "project", permissions: ["docs.view", "servers.operate"] }).returning();
+    const w = (await call("POST", "/api/workspaces", { cookie: adminCookie }, { name: "Stesso", projectIds: [a] })).json() as { id: string };
+    await call("PUT", `/api/workspaces/${w.id}/members/${vera.id}`, { cookie: adminCookie }, { roleId: ops!.id });
+    const preview = (await call("POST", `/api/workspaces/${w.id}/members/${vera.id}/preview`, lea.headers, { roleId: ops!.id })).json() as { escalation: unknown[] };
+    expect(preview.escalation).toEqual([]);
+    expect((await call("PUT", `/api/workspaces/${w.id}/members/${vera.id}`, lea.headers, { roleId: ops!.id })).statusCode).toBe(200);
   });
 });

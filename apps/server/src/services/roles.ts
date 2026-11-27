@@ -598,7 +598,8 @@ export async function roleEditLastManager(db: Db, roleId: string, nextPermission
   let blocked: string | null = null;
   try {
     await db.transaction(async (tx) => {
-      const [role] = await tx.select({ scope: roles.scope, permissions: roles.permissions }).from(roles).where(eq(roles.id, roleId));
+      // Revisione del lotto 3 (I-1): la riga del ruolo PRIMA dei lock dei membri, come `updateRole`.
+      const [role] = await tx.select({ scope: roles.scope, permissions: roles.permissions }).from(roles).where(eq(roles.id, roleId)).for("update");
       if (!role || role.scope !== "project" || !losesManage(role.permissions, nextPermissions)) throw new PreviewRollback();
       try {
         await keepingManagersIn(tx, await projectsOfRole(tx, roleId), async () => {
