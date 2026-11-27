@@ -201,6 +201,12 @@ describe("chi vede cosa (r.1414, D5)", () => {
     const w = await created(lea, { name: "Mista", projectIds: [a, b] });
     expect((await call("GET", `/api/workspaces/${w.id}`, olga.headers)).statusCode).toBe(404);
     expect(((await call("GET", "/api/workspaces", olga.headers)).json() as { items: { id: string }[] }).items.map((i) => i.id)).not.toContain(w.id);
+    // M1 (revisione d'insieme): anche le scritture sulle sue persone rispondono 404, non 403 (che direbbe che esiste).
+    const put = await call("PUT", `/api/workspaces/${w.id}/members/${dino.id}`, olga.headers, {});
+    expect([put.statusCode, put.json().code]).toEqual([404, "not_found"]);
+    const del = await call("DELETE", `/api/workspaces/${w.id}/members/${lea.id}`, olga.headers);
+    expect([del.statusCode, del.json().code]).toEqual([404, "not_found"]);
+    expect((await call("GET", `/api/workspaces/${w.id}`, lea.headers)).json().people.map((p: { userId: string }) => p.userId)).not.toContain(dino.id);
     const seen = await call("GET", `/api/workspaces/${w.id}`, dino.headers);
     expect(seen.json()).toMatchObject({ projectIds: [a], canManage: false, canManagePeople: false });
     expect(seen.body).not.toContain(b);

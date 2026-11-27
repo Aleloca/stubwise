@@ -316,6 +316,9 @@ async function assertManagesPeople(tx: DbOrTx, actor: WorkspaceActor, projectIds
 
 /** Mette una persona nella workspace, o ne cambia il ruolo. */
 export async function putMember(db: Db, actor: WorkspaceActor, workspaceId: string, userId: string, input: { roleId?: string | undefined }): Promise<WorkspaceView> {
+  // M1 (revisione d'insieme): una workspace che chi agisce non vede è 404,
+  // come per l'anteprima e i candidati: un 403 direbbe che esiste.
+  await getWorkspace(db, actor, workspaceId);
   await db.transaction(async (tx) => {
     const w = await lockedWorkspace(tx, workspaceId);
     const projectIds = await projectIdsOf(tx, workspaceId);
@@ -353,6 +356,9 @@ export async function putMember(db: Db, actor: WorkspaceActor, workspaceId: stri
  * dei progetti della workspace) restano, salvo `alsoProjects`.
  */
 export async function removeMember(db: Db, actor: WorkspaceActor, workspaceId: string, userId: string, opts: { alsoProjects?: boolean | undefined } = {}): Promise<void> {
+  // M1 (revisione d'insieme): una workspace che chi agisce non vede è 404,
+  // come per l'anteprima e i candidati: un 403 direbbe che esiste.
+  await getWorkspace(db, actor, workspaceId);
   await db.transaction(async (tx) => {
     const w = await lockedWorkspace(tx, workspaceId);
     const projectIds = await projectIdsOf(tx, workspaceId);
