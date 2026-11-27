@@ -34,6 +34,8 @@ export const INSTANCE_GROUPS: readonly PermissionGroup[] = [
       "users.invite",
       "users.manage",
       "departments.manage",
+      // Workspace (0238, D4): il catalogo del server.
+      "workspaces.manage",
       "people.activity.view",
       "claude.public.view",
       // Area 4 della Chat: i canali generali (come il web).
