@@ -766,12 +766,33 @@ export function useRecentResultWrites() {
   const client = useQueryClient();
   const reload = () => client.invalidateQueries({ queryKey: ["as", me, "recentResults"] });
   const remember = useMutation({ mutationFn: api.searchHistory.rememberResult, onSettled: reload });
+  // Togliere e svuotare sono OTTIMISTICI (revisione M3, come il web vecchio):
+  // la riga esce subito da ogni lettura dei recenti, e un errore la rimette
+  // PRIMA del toast di chi chiama.
+  const key = ["as", me, "recentResults"] as const;
+  type Snapshot = [readonly unknown[], RecentResult[] | undefined][];
+  const optimistic = async (keep: (r: RecentResult) => boolean): Promise<Snapshot> => {
+    await client.cancelQueries({ queryKey: key });
+    const previous = client.getQueriesData<RecentResult[]>({ queryKey: key });
+    for (const [k, data] of previous) if (data) client.setQueryData(k, data.filter(keep));
+    return previous;
+  };
+  const restore = (previous: Snapshot | undefined) => {
+    for (const [k, data] of previous ?? []) client.setQueryData(k, data);
+  };
   const forget = useMutation({
     mutationFn: (r: { type: RecentResult["type"]; entityId: string }) =>
       api.searchHistory.forgetResult(r.type, r.entityId),
+    onMutate: (r) => optimistic((x) => !(x.type === r.type && x.entityId === r.entityId)),
+    onError: (_e, _r, previous) => restore(previous),
     onSettled: reload,
   });
-  const clear = useMutation({ mutationFn: () => api.searchHistory.clearRecentResults(), onSettled: reload });
+  const clear = useMutation({
+    mutationFn: () => api.searchHistory.clearRecentResults(),
+    onMutate: () => optimistic(() => false),
+    onError: (_e, _r, previous) => restore(previous),
+    onSettled: reload,
+  });
   return { remember, forget, clear };
 }
 

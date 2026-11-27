@@ -1387,6 +1387,22 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 ## Area 9 — Amministrazione, preferenze, accesso
 
+- **⌘K, i recenti condivisi col web vecchio** *(S, accettato, revisione di
+  `feat/ritiro-buchi-minori`, M4, 28 nov 2026)*: web vecchio e nuova app
+  scrivono le stesse righe di `search_history` (una per utente, tipo e
+  oggetto), quindi l'ultimo che apre riscrive `title` e `route`. Dalla stessa
+  revisione la nuova app ricostruisce l'indirizzo da tipo e oggetto (I1 a) e
+  il web vecchio apre una `route` `#/…` in `/app/` (I1 b): resta solo che il
+  titolo e il codice mostrati sono quelli dell'ultima apertura, da chiunque
+  sia venuta. Si chiude col ritiro del web vecchio.
+- **Brief: il prototipo non chiede `tickets.view_all`** *(S, divergenza
+  dichiarata, stessa revisione, M2)*: sul server entrambe le letture del brief
+  (`/briefs/latest`, `/api/briefs/:id`) lo vogliono; nel prototipo il brief
+  lo legge chi vede il progetto, e Giulia, la persona del brief in Overview,
+  Claude e Docs, non ha `tickets.view_all` in STW. La build app rispetta il
+  server (403 → «non disponibile»). Allinearlo vuol dire cambiare la specifica
+  di quelle schermate: è una scelta di prodotto.
+
 - Audit vera dei membri di progetto *(O)* (area 6, F2, 12 nov 2026): oggi
   `putProjectMember` non lascia traccia, e i Contributor aggiunti (e tolti)
   da una conferma della posta lasciano solo una riga nel log della rotta.

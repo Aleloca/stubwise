@@ -3,7 +3,7 @@ import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resetApi, setLatency } from "../data/api";
+import { failNext, resetApi, setLatency } from "../data/api";
 import { state } from "../data/store";
 import { ViewerProvider } from "../data/viewer";
 import { setLanguage } from "../i18n";
@@ -83,6 +83,19 @@ describe("⌘K, i risultati recenti", () => {
     expect(state.searchHistory.filter((e) => e.personId === "p-laura")).toHaveLength(1);
   });
 
+  it("M3: togliere è ottimistico — la riga esce subito; se la scrittura fallisce torna, poi il toast", async () => {
+    const user = userEvent.setup();
+    renderAt("/home");
+    const dialog = await open(user);
+    const recent = await recentGroup(dialog);
+    setLatency(300);
+    failNext("searchHistory.forgetResult");
+    await user.click(within(recent).getAllByRole("button", { name: /from recent$/ })[0]!);
+    expect(within(recent).getAllByRole("option")).toHaveLength(2);
+    expect(await screen.findByText("Couldn't remove it from recent.")).toBeInTheDocument();
+    await waitFor(() => expect(within(recent).getAllByRole("option")).toHaveLength(3));
+  });
+
   it("Clear all svuota tutto, senza conferma; il gruppo sparisce", async () => {
     const user = userEvent.setup();
     renderAt("/home");
@@ -95,7 +108,8 @@ describe("⌘K, i risultati recenti", () => {
 
   it("aprire una task trovata la ricorda in cima; riaprire un recente lo riporta in cima", async () => {
     const user = userEvent.setup();
-    renderAt("/home", "p-giulia");
+    // Roberta (full admin) vede ogni task: il filtro a lettura del server (`tickets.view_all`) la lascia.
+    renderAt("/home", "p-roberta");
     let dialog = await open(user);
     await user.type(within(dialog).getByRole("combobox"), "cbv");
     const tasks = await within(dialog).findByRole("group", { name: "Tasks" });
@@ -103,8 +117,8 @@ describe("⌘K, i risultati recenti", () => {
     const code = /CBV-\d+/.exec(task.textContent!)![0];
     await user.click(task);
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search and commands" })).toBeNull());
-    await waitFor(() => expect(state.searchHistory.filter((e) => e.personId === "p-giulia")).toHaveLength(1));
-    expect(state.searchHistory.find((e) => e.personId === "p-giulia")).toMatchObject({ type: "ticket", subtitle: code });
+    await waitFor(() => expect(state.searchHistory.filter((e) => e.personId === "p-roberta")).toHaveLength(1));
+    expect(state.searchHistory.find((e) => e.personId === "p-roberta")).toMatchObject({ type: "ticket", subtitle: code });
     await user.keyboard("{Control>}k{/Control}");
     dialog = await screen.findByRole("dialog", { name: "Search and commands" });
     const recent = await recentGroup(dialog);

@@ -7317,3 +7317,10 @@ deploy o di un rollback che la tocca.
   `briefHeadline` non cambia il comportamento). **Ordine**: `caddy` (e il
   `server`/`worker` solo se si vuole il codice di `shared` allineato, senza
   effetti). **Rollback**: sicuro.
+  **Dopo la revisione (28 nov 2026)**: la nuova app ricostruisce l'indirizzo
+  di un recente da tipo e oggetto (mai dalla `route` salvata), quindi si
+  aprono anche le voci scritte dal web vecchio; il web vecchio apre una
+  `route` `#/…` scritta dalla nuova app in `/app/`. Va quindi ribuildato
+  **anche il web vecchio** (`caddy`, che lo serve). Togliere un recente è
+  ottimistico. `latestWeeklyBrief` usa `briefSummaryText` di `shared`: il
+  `server` va ribuildato (nessun cambio di comportamento).

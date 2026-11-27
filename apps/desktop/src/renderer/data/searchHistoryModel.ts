@@ -3,7 +3,18 @@
  * del server (`searchEntityTypeSchema`), mai la posta (invariante «La posta
  * NON entra nella cronologia della ricerca»).
  */
-export type RecentResultType = "ticket" | "project" | "repository" | "doc";
+export const RECENT_TYPES = ["ticket", "project", "repository", "doc"] as const;
+export type RecentResultType = (typeof RECENT_TYPES)[number];
+
+/**
+ * Lo slug di una pagina Docs da una voce: la nuova app scrive
+ * `<repositoryId>:<slug>`, il web vecchio lo slug da solo (con `repositoryId`
+ * nella sua colonna). `fromApp` dice chi l'ha scritta.
+ */
+export function docSlugOf(entityId: string): { slug: string; fromApp: boolean } {
+  const at = entityId.indexOf(":");
+  return at >= 0 ? { slug: entityId.slice(at + 1), fromApp: true } : { slug: entityId, fromApp: false };
+}
 
 /** Una voce come la vede la ⌘K. `code` è il codice da mostrare (sul server: `subtitle`). */
 export interface RecentResult {
@@ -11,7 +22,7 @@ export interface RecentResult {
   entityId: string;
   code: string | null;
   title: string;
-  /** L'indirizzo nella nuova app (`#/p/…`): si apre di lì. */
+  /** L'indirizzo nella nuova app (`#/p/…`), ricostruito da tipo e oggetto: si apre di lì. */
   route: string;
   repositoryId: string | null;
   openedAt: string;
@@ -43,5 +54,3 @@ export interface SearchHistoryEntry {
 export const RECENT_READ_LIMIT = 8;
 export const RECENT_KEEP = 20;
 
-/** Una voce registrata dal web vecchio (`/tickets/<id>`…) non si apre nella nuova app: non si mostra (SR 6). */
-export const isAppRoute = (route: string): boolean => route.startsWith("#/");

@@ -893,6 +893,13 @@
   viene dopo. Sul web la guardia è `isRecordable` in
   `global-search-palette.tsx`, con un test che verifica che un ticket invece
   SÌ si registri: la guardia è sulla posta, non sulla cronologia in generale.
+  **Nella nuova app (28 nov 2026)** la guardia è doppia: `RECENT_TYPES`
+  (`apps/desktop/src/renderer/data/searchHistoryModel.ts`) non ha la posta, e
+  le righe del gruppo Mail della ⌘K non portano `remember`
+  (`palette/CommandPalette.tsx`). Un test apre un'email dalla ⌘K e verifica
+  che non resti traccia (`CommandPalette.recent.test.tsx`, «la posta MAI»).
+  Sul server, `POST /api/search/history` con `type: "mail"` risponde 400
+  (`search.test.ts`).
 - **Una serie resta raggiungibile anche senza occorrenze nella finestra
   visibile (fase 9, fix di review).** Spostando la configurazione di una
   serie nel pannello di dettaglio (design §3, Task 7), una serie le cui
