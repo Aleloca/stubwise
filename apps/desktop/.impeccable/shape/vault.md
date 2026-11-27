@@ -54,8 +54,9 @@ in fondo; le decisioni del maintainer (25 nov 2026) nella tabella finale.
     la cassaforte è già aperta;
   - in Security vedo i Mac che aprono la mia cassaforte e ne tolgo uno.
 - **Verità del prodotto** (mai ammorbidite):
-  - **la password non resta sullo schermo**: si nasconde da sola (30 s) e
-    a cassaforte chiusa; la copia si cancella dagli appunti dopo 30 s;
+  - **la password non sopravvive alla cassaforte**: resta visibile finché
+    non si preme Hide (VA-Q3, «No, resta visibile»), e sparisce quando la
+    cassaforte si chiude; la copia si cancella dagli appunti dopo 30 s;
   - **ogni «Show» e «Copy» finisce nel registro** degli accessi, con «from
     the Mac» (D-8): la superficie lo dice una volta, sotto la barra
     («Every Show and Copy is recorded.»);

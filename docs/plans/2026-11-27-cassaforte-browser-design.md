@@ -1,6 +1,7 @@
 # La cassaforte nella nuova app nel browser (`/app`) — nota di design
 
-> Stato: **bozza per la revisione di sicurezza**, 27 nov 2026 (94). Il codice
+> Stato: **in revisione di sicurezza**, 27 nov 2026 (94). C1, C2, C4 e C5
+> accettate come raccomandate da 46; C3 decisa dal maintainer (VA-Q3). Il codice
 > si scrive dopo le workspace. Decisione del maintainer: la cassaforte si apre
 > ANCHE nella nuova app nel browser, non solo sul Mac. Sblocco con la passkey,
 > mostra, copia, crea, condividi e conferma direttamente da `/app`, con lo
@@ -143,14 +144,13 @@ vera così com'è.
   degli appunti del sistema possono tenerne una copia. Lo dice una riga sotto
   il bottone, solo nella build web: «Your system's clipboard history may keep
   it.» → **Domanda C2**.
-- **Show:** la password resta nello stato del componente e si nasconde da sola
-  dopo **30 s**, con «Lock» e smontando il componente. Una password che arriva
-  dopo la chiusura si scarta (invariante, riga 228).
-  - La shape è in contraddizione: VA-Q3 (righe 179-181 e 425) dice «resta
-    finché Hide, come il web», ma il web nasconde dopo 30 s, ed è quello che
-    dice anche la riga 57 della shape.
-  - Proposta: 30 s in entrambe le build, e la shape si corregge.
-  → **Domanda C3**.
+- **Show:** la password resta nello stato del componente e **resta visibile
+  finché non si preme Hide**, in tutte e due le build (decisione del
+  maintainer, VA-Q3 della shape: «No, resta visibile»). Qui la nuova app NON
+  segue il web vecchio, che la nasconde dopo 30 s. Sparisce comunque con
+  «Lock», con la chiusura dopo 15 minuti e smontando il componente. Una
+  password che arriva dopo la chiusura si scarta (invariante, riga 228). La
+  riga 57 della shape, che diceva 30 s, è corretta.
 - **Show e Copy a cassaforte chiusa:** aprono il dialogo della passkey e poi
   fanno l'azione (`useWithUnlockedVault`), come sul Mac col Touch ID (VA 4).
 
@@ -278,9 +278,9 @@ Ognuna ha la mia raccomandazione per prima.
     il web vecchio, più la riga sulla cronologia degli appunti del sistema.
   - *Alternativa*: niente Copy nel browser, solo Show. Più sicuro, ma toglie
     il gesto più usato.
-- **C3. Show si nasconde dopo 30 s?**
-  - *Raccomandato*: sì, in entrambe le build, come il web vecchio. La shape
-    (VA-Q3) va corretta.
+- **C3. Show si nasconde dopo 30 s?** **Decisa** dal maintainer con la
+  shape (VA-Q3): no, resta visibile finché Hide, in tutte e due le build;
+  sparisce quando la cassaforte si chiude.
 - **C4. Una scheda nuova chiede di nuovo la passkey?**
   - *Raccomandato*: sì, ogni scheda ha la sua chiave.
   - *Alternativa*: passarla fra schede con `BroadcastChannel`. La sconsiglio
