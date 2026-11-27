@@ -51,7 +51,8 @@ export interface VaultOpsDeps {
   clipboard: VaultClipboard;
 }
 
-export type OpFailure = { ok: false; code: string };
+/** `retryAfterSeconds`: solo col tetto delle letture (C2, 429 `vault_reveal_rate_limited`). */
+export type OpFailure = { ok: false; code: string; retryAfterSeconds?: number };
 export type ReaderTarget = { userId: string } | { roleId: string };
 
 /** Una persona da confermare come la vede il renderer: niente copie della chiave. */
@@ -115,6 +116,9 @@ export function createVaultOps(deps: VaultOpsDeps) {
       }
       if (error instanceof VaultHttpError) {
         if (error.status === 403 && error.code === "device_seal_required") deps.lock.markRevoked();
+        // C2: il tetto delle letture è temporaneo, e il renderer dice quando si libera.
+        if (error.code === "vault_reveal_rate_limited" && error.retryAfterSeconds !== undefined)
+          return { ok: false, code: error.code, retryAfterSeconds: error.retryAfterSeconds };
         return { ok: false, code: error.code };
       }
       const code = error instanceof Error ? error.message : "";

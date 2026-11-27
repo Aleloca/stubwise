@@ -246,6 +246,13 @@ describe("la cassaforte nella build app, dal main", () => {
       expect(await vault.removeReader("c1", "rd-1")).toEqual({ ok: true });
     });
 
+    it("C2: il tetto delle letture arriva dal main coi suoi secondi, su Show e su Copy", async () => {
+      const limited = { ok: false, code: "vault_reveal_rate_limited", retryAfterSeconds: 600 };
+      bridge({ show: vi.fn(async () => limited), copy: vi.fn(async () => limited) });
+      expect(await vault.show("c1")).toEqual(limited);
+      expect(await vault.copy("c1")).toEqual(limited);
+    });
+
     it("chi aspetta: dal main, col nome dalla rubrica; a cassaforte chiusa nessuno", async () => {
       bridge();
       installFakeServer({
