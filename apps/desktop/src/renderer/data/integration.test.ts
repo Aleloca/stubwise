@@ -201,6 +201,9 @@ describe("isIntegrated", () => {
         "projectSettings:archive",
         // Registro, area 9 r.1121: Automations, con le frasi «spento» (`project-switches`).
         "projectSettings:automations",
+        // Ritiro del web vecchio (inventario 1.3): General e AI sulla PATCH del progetto.
+        "projectSettings:general",
+        "projectSettings:ai",
         "admin:departments",
         // Area 9, F1, R9: «Chi può farlo?».
         "admin:who-can",

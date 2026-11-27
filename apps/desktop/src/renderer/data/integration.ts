@@ -72,6 +72,10 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // report, discovery, pulse coi giorni, brief) e il tetto delle correzioni,
     // sulla lettura e la PATCH del progetto.
     "automations",
+    // Ritiro del web vecchio (inventario 1.3): General (nome, descrizione,
+    // modulo Docs) e AI (l'account preferito), sulla PATCH del progetto.
+    "general",
+    "ai",
   ]),
   // Area 9, F1, R9: «Who can?» sulle rotte del server.
   // Area 9, F1, R7: People e Roles sulle letture calcolate del server.

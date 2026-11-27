@@ -29,6 +29,7 @@ import { liveProductPresence } from "./productLive";
 import { liveIntegration } from "./projectIntegration";
 import { liveProjectArchive } from "./projectArchive";
 import { liveProjectAutomations } from "./projectAutomations";
+import { liveProjectGeneral } from "./projectGeneral";
 import { liveProjectPlugins } from "./projectPlugins";
 import { chatFunctions } from "./chat";
 import { channelStream, onChatChange, subscribeChat, threadStream } from "./chatStream";
@@ -70,6 +71,8 @@ export const projectSettings: typeof Fake.projectSettings = partialNamespace<
   ...liveProjectArchive,
   // Registro, area 9 r.1121: Settings → Automations e gli interruttori.
   ...liveProjectAutomations,
+  // Ritiro del web vecchio (inventario 1.3): Settings → General e AI.
+  ...liveProjectGeneral,
 });
 
 // Area 9, F2: il registro delle modifiche sulla lettura del server.
