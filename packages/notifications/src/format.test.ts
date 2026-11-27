@@ -1380,9 +1380,9 @@ describe("sampleEvents", () => {
     for (const event of events) {
       // Eventi senza ticket: il link non è un ticketUrl ma la superficie propria.
       if (event.kind === "docs.limit_paused" || event.kind === "docs.nightly_attention") {
-        expect(event.docsUrl.startsWith("https://app.example.com/docs/")).toBe(true);
+        expect(event.docsUrl.startsWith("https://app.example.com/app/#/p/")).toBe(true);
       } else if (event.kind === "monitor.alert" || event.kind === "monitor.recovered") {
-        expect(event.url.startsWith("https://app.example.com/monitor/")).toBe(true);
+        expect(event.url.startsWith("https://app.example.com/app/#/p/")).toBe(true);
       } else if (
         event.kind === "release.failed" ||
         event.kind === "release.merged" ||
@@ -1401,7 +1401,7 @@ describe("sampleEvents", () => {
         event.kind === "project.brief" ||
         event.kind === "google.proposal_handed"
       ) {
-        expect(event.projectUrl.startsWith("https://app.example.com/projects/")).toBe(true);
+        expect(event.projectUrl.startsWith("https://app.example.com/app/#/p/")).toBe(true);
       } else if (event.kind === "request.created") {
         expect(event.url.startsWith("https://app.example.com/")).toBe(true);
       } else if (event.kind === "google.proposal") {
@@ -1424,7 +1424,7 @@ describe("sampleEvents", () => {
         // Nessun link nell'evento: si legge in inbox (o «Apri» lo deriva).
         expect(Object.values(event).some((v) => typeof v === "string" && v.startsWith("http"))).toBe(false);
       } else {
-        expect(event.ticketUrl.startsWith("https://app.example.com/tickets/")).toBe(true);
+        expect(event.ticketUrl.startsWith("https://app.example.com/app/#/p/NEG/tasks?task=NEG-")).toBe(true);
       }
     }
   });

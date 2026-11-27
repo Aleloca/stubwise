@@ -1152,6 +1152,8 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
         handed: handedProposalIds.has(sourceProposalIds.get(r.id) ?? ""),
       },
       input.publicUrl,
+      // Ritiro del web vecchio: la task della card nella nuova app, derivata a lettura.
+      r.ticketId ? (taskCodes.get(r.ticketId) ?? null) : null,
     );
     const baseActions = actionsFor(
       {
@@ -1592,6 +1594,7 @@ function renderItem(
   decisionRow?: DecisionRow,
   viewer: GoogleViewer = { permissions: null, handed: false },
   publicUrl?: string,
+  taskCode: string | null = null,
 ): { text: string; url?: string; question?: InboxQuestion; pulse?: InboxPulse; google?: InboxGoogle } {
   const question = readQuestion(rawEvent, kind);
   const pulse = readPulse(rawEvent, kind, question);
@@ -1606,7 +1609,7 @@ function renderItem(
   try {
     const event = rawEvent as unknown as NotificationEvent;
     const text = formatNotificationText(event, lang);
-    const url: unknown = openUrl(event, publicUrl);
+    const url: unknown = openUrl(event, publicUrl, { taskCode });
     return {
       text: typeof text === "string" && text.trim() !== "" ? text : kind,
       ...(typeof url === "string" && url !== "" ? { url } : {}),
@@ -1881,8 +1884,8 @@ async function undoneByOfMemberAdded(db: Db, viewerId: string, rows: { id: strin
 
 /**
  * Area 8, F4a: il codice `SRV-<n>` del server di ogni card `monitor.*`, dal
- * suo id nel link dell'evento (`…/monitor/servers/<id>`), in UNA query per
- * pagina. Un server tolto non c'è: nessuna voce.
+ * `serverId` dell'evento (o, per le card di prima, dal suo id nel link del web
+ * vecchio `…/monitor/servers/<id>`), in UNA query per pagina. Un server tolto non c'è: nessuna voce.
  */
 async function serverCodesByNotification(
   db: Db,
@@ -1904,6 +1907,14 @@ async function serverCodesByNotification(
   }
   for (const r of rows) {
     if (r.kind !== "monitor.alert" && r.kind !== "monitor.recovered") continue;
+    // Ritiro del web vecchio: `serverId` nell'evento (le card nuove, il cui
+    // link è quello della nuova app); l'id nel link del web vecchio per quelle
+    // di prima.
+    const serverId = (r.event as { serverId?: unknown }).serverId;
+    if (typeof serverId === "string") {
+      idByCard.set(r.id, serverId.toLowerCase());
+      continue;
+    }
     const url = (r.event as { url?: unknown }).url;
     const m = typeof url === "string" ? /\/monitor\/servers\/([0-9a-f-]{36})(?:[/?#]|$)/i.exec(url) : null;
     if (m) idByCard.set(r.id, m[1]!.toLowerCase());

@@ -133,7 +133,7 @@ describe("POST /api/inbound/:slug/ticket — creazione", () => {
     const body = res.json() as { id: string; number: number; url: string };
     expect(body.id).toBeTruthy();
     expect(typeof body.number).toBe("number");
-    expect(body.url).toBe(`${PUBLIC_URL}/tickets/${body.id}`);
+    expect(body.url).toMatch(new RegExp(`^${PUBLIC_URL.replace(/[.]/g, "\\.")}/app/#/p/[A-Z0-9]+/tasks\\?task=[A-Z0-9]+-${body.number}$`));
 
     const [ticket] = await testDb.db.select().from(tickets).where(eq(tickets.id, body.id));
     expect(ticket!.source).toBe("webhook");

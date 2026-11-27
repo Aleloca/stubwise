@@ -123,6 +123,10 @@ export const ticketSchema = z.object({
   assigneeIsAgent: z.boolean().optional(),
   // Chi ha chiesto il ticket (additivo: i server più vecchi non lo mandano).
   requestedBy: z.object({ id: z.uuid(), email: z.string() }).nullable().optional(),
+  // Ritiro del web vecchio (additivo): la task nella nuova app, come percorso
+  // dell'istanza (`/app/#/p/ACQ/tasks?task=ACQ-12`, `app-links`). Lo usa chi
+  // compone un link fuori dal server (l'MCP, che ha la sua `baseUrl`).
+  appPath: z.string().optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });

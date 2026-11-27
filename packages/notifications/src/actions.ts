@@ -17,6 +17,7 @@
  * Il catalogo è CALCOLATO, mai persistito: dipende dallo stato ATTUALE del job,
  * e persisterlo vorrebbe dire riscriverlo a ogni transizione (e sbagliarlo).
  */
+import { appUrl } from "@stubwise/shared/app-links";
 import type { ProjectPermission } from "@stubwise/shared";
 import type { NotificationEvent, NotificationKind } from "./format.js";
 
@@ -451,7 +452,19 @@ export function actionsFor(
  * punto che pubblica l'avviso (anche lo script di recupero) a conoscere
  * PUBLIC_URL. Assente → nessun link.
  */
-export function openUrl(event: NotificationEvent, publicUrl?: string): string {
+export function openUrl(
+  event: NotificationEvent,
+  publicUrl?: string,
+  /**
+   * Ritiro del web vecchio: il codice della task della card (`<CODE>-<n>`),
+   * derivato a lettura dalla riga (`notifications.ticket_id`). Con lui le card
+   * di una task aprono la task nella nuova app, anche quelle di prima che
+   * hanno nel jsonb il link del web vecchio; senza, resta il link dell'evento.
+   */
+  ctx: { taskCode?: string | null } = {},
+): string {
+  const base = publicUrl?.replace(/\/+$/, "") ?? "";
+  const task = ctx.taskCode ? taskLink(base, ctx.taskCode) : null;
   switch (event.kind) {
     case "job.pr_opened":
     case "review.completed":
@@ -491,7 +504,7 @@ export function openUrl(event: NotificationEvent, publicUrl?: string): string {
     // ASSOLUTO perché lo stesso link va nel bottone del DM Slack; senza
     // PUBLIC_URL la stringa vuota è il «nessun link» che inbox e DM scartano.
     case "security.alert":
-      return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/settings/security` : "";
+      return publicUrl ? appUrl(base, { to: "preferences", section: "security" }) : "";
     // Integrazione area 2: la pagina del ticket nel web, DERIVATA (come
     // `security.alert`) — nessun URL nel jsonb.
     case "decision.requested":
@@ -499,29 +512,34 @@ export function openUrl(event: NotificationEvent, publicUrl?: string): string {
     case "ticket.activity":
     case "planning.changed":
     case "task.assigned":
-      return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/tickets/${event.ticketId}` : "";
+      return publicUrl && task ? task : "";
     // Area 4, Chat: il messaggio nell'app nuova (la Chat vive solo lì, D9).
     // Il link nasce dagli id del jsonb (canale e messaggio non cambiano mai);
     // l'inbox non lo riscrive, lo TOGLIE quando la card è `objectGone`
     // (messaggio eliminato, canale che chi legge non legge più).
     case "chat.mention":
     case "chat.question":
-      return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/app/#/chat/${event.channelId}?message=${event.chatMessageId}` : "";
+      return publicUrl ? appUrl(base, { to: "chatMessage", channelId: event.channelId, messageId: event.chatMessageId }) : "";
     // Area 10, F5: i membri del progetto nell'app nuova (DERIVATO, nessun URL nel jsonb).
+    // Il codice del progetto sta nell'evento solo dalle card nuove (`projectCode`,
+    // additivo): `#/projects/<id>/members` delle card di prima non è una rotta
+    // dell'app, e senza codice si apre la Home.
     case "member.added":
-      return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/app/#/projects/${event.projectId}/members` : "";
+      return publicUrl
+        ? appUrl(base, event.projectCode ? { to: "projectMembers", projectCode: event.projectCode } : { to: "home" })
+        : "";
     // Area 11, F2: la pagina di prodotto nell'app nuova (la doc di prodotto vive
     // solo lì). Dai codici del jsonb: una pagina non cambia progetto né codice.
     case "product_doc.mention":
     case "product_doc.updated":
     case "product_doc.question":
-      return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/app/#/p/${event.projectCode}/docs/product/${event.pageCode}` : "";
+      return publicUrl ? appUrl(base, { to: "productPage", projectCode: event.projectCode, pageCode: event.pageCode }) : "";
     // Area 7: l'automazione (o l'esecuzione) nell'app nuova.
     case "automation.approval":
     case "automation.failed":
     case "automation.notify":
     case "automation.paused":
-      return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/app/#/automations/${event.automationCode}${event.runNumber !== null ? `/runs/${event.runNumber}` : ""}` : "";
+      return publicUrl ? appUrl(base, { to: "automation", automationCode: event.automationCode, runNumber: event.runNumber }) : "";
     case "ticket.created":
     case "job.pr_closed":
     case "job.held":
@@ -529,6 +547,11 @@ export function openUrl(event: NotificationEvent, publicUrl?: string): string {
     case "job.budget_held":
     case "job.failed":
     case "job.awaiting_input":
-      return event.ticketUrl;
+      return task ?? event.ticketUrl;
   }
+}
+
+/** La task nella nuova app dal suo codice `<CODE>-<n>` (il progetto è il prefisso). */
+function taskLink(base: string, taskCode: string): string {
+  return appUrl(base, { to: "task", projectCode: taskCode.replace(/-\d+$/, ""), taskCode });
 }

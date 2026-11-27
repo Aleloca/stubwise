@@ -21,6 +21,7 @@ import {
   loadSettings,
   loadSlackBotToken,
   notificationVisibleToRecipient,
+  taskTarget,
   openUrl,
   cardPermissionsOf,
   PushRelayRejected,
@@ -477,12 +478,13 @@ function renderSlack(
   kind: NotificationKindColumn,
   lang: Language,
   publicUrl?: string,
+  taskCode: string | null = null,
 ): { text: string; url?: string } {
   try {
     const event = rawEvent as unknown as NotificationEvent;
     const body = formatNotification(event, "slack", lang).body as { text?: unknown };
     const text = typeof body.text === "string" && body.text.trim() !== "" ? body.text : kind;
-    const url: unknown = openUrl(event, publicUrl);
+    const url: unknown = openUrl(event, publicUrl, { taskCode });
     return { text, ...(typeof url === "string" && url !== "" ? { url } : {}) };
   } catch {
     return { text: kind };
@@ -626,11 +628,14 @@ async function sendSlackDm(
     await finish(db, row.id, "skipped", "recipient_cannot_see");
     return;
   }
+  // Ritiro del web vecchio: la task della card nella nuova app (il suo codice, dalla riga).
+  const task = recipient.ticketId ? await taskTarget(db, recipient.ticketId) : null;
   const { text, url } = renderSlack(
     recipient.event,
     recipient.kind,
     recipient.language,
     deps.publicUrl,
+    task?.to === "task" ? task.taskCode : null,
   );
   const jobStatus = recipient.ticketId ? await latestJobStatus(db, recipient.ticketId) : null;
   // I bottoni sono quelli che il destinatario può premere: i SUOI permessi nel

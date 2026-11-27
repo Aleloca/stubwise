@@ -31,8 +31,6 @@ export type AppTarget =
   | { to: "task"; projectCode: string; taskCode: string }
   /** Le richieste (il backlog) di un progetto, o una sola, per id: `#/p/ACQ/requests?request=<id>`. */
   | { to: "requests"; projectCode: string; requestId?: string }
-  /** Una richiesta del Support, per codice (`support.request`): `#/p/ACQ/requests?request=ACQ-R14`. */
-  | { to: "supportRequest"; projectCode: string; requestCode: string }
   /** La panoramica di un progetto, eventualmente col brief aperto (`?brief=<id>`). */
   | { to: "project"; projectCode: string; briefId?: string }
   /** I membri di un progetto: `#/p/ACQ/settings/members`. */
@@ -43,6 +41,8 @@ export type AppTarget =
   | { to: "productPage"; projectCode: string; pageCode: string }
   /** Un server monitorato: `#/p/ACQ/servers/SRV-2`. */
   | { to: "server"; projectCode: string; serverCode: string }
+  /** Un server senza un progetto univoco, dall'Amministrazione: `#/admin/servers/SRV-2`. */
+  | { to: "adminServer"; serverCode: string }
   /** Un rilascio: `#/p/ACQ/releases/ACQ-V3`. */
   | { to: "release"; projectCode: string; releaseCode: string }
   /** Il pannello di una PR nei rilasci: `#/p/ACQ/releases?pr=<repositoryId>%23<n>`. */
@@ -73,8 +73,6 @@ export function appRoute(target: AppTarget): string {
       return `/p/${seg(target.projectCode)}/tasks${query({ task: target.taskCode })}`;
     case "requests":
       return `/p/${seg(target.projectCode)}/requests${target.requestId ? query({ request: target.requestId }) : ""}`;
-    case "supportRequest":
-      return `/p/${seg(target.projectCode)}/requests${query({ request: target.requestCode })}`;
     case "project":
       return `/p/${seg(target.projectCode)}/overview${target.briefId ? query({ brief: target.briefId }) : ""}`;
     case "projectMembers":
@@ -88,6 +86,8 @@ export function appRoute(target: AppTarget): string {
       return `/p/${seg(target.projectCode)}/docs/product/${seg(target.pageCode)}`;
     case "server":
       return `/p/${seg(target.projectCode)}/servers/${seg(target.serverCode)}`;
+    case "adminServer":
+      return `/admin/servers/${seg(target.serverCode)}`;
     case "release":
       return `/p/${seg(target.projectCode)}/releases/${seg(target.releaseCode)}`;
     case "pullRequest":
@@ -132,5 +132,7 @@ export function appUrl(publicUrl: string | null | undefined, target: AppTarget):
 export const legacyWebPath = {
   ticket: (ticketId: string) => `/tickets/${seg(ticketId)}`,
   backlogItem: (itemId: string) => `/backlog/${seg(itemId)}`,
+  /** Il link di reset della password che il web vecchio mostra all'admin (la nuova app lo compone dal `token`). */
+  resetPassword: (token: string) => `/reset-password/${seg(token)}`,
   googleAccountSettings: (outcome: string) => `/settings/account${query({ google: outcome })}`,
 } as const;

@@ -1,3 +1,4 @@
+import { legacyWebPath } from "@stubwise/shared";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { projectPermissionsFor, requireBrowserOrConfirmedDesktop } from "../auth/access.js";
 import type { FastifyInstance } from "fastify";
@@ -316,7 +317,7 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
       // URL assoluto quando PUBLIC_URL è configurato (in produzione lo è
       // sempre), altrimenti il solo path: il web lo completa con la propria
       // origin.
-      const path = `/reset-password/${issued.token}`;
+      const path = legacyWebPath.resetPassword(issued.token);
       const base = publicUrlOrUndefined(instance);
       return reply
         .code(201)

@@ -860,7 +860,9 @@ describe("listInbox", () => {
     // Testo piano: niente markup Slack né link renderizzati.
     expect(items[0]!.text).not.toContain("<https");
     expect(items[0]!.text).not.toContain("*");
-    expect(items[0]!.url).toBe("https://stubwise.test/tickets/7");
+    // Una card di prima (`/tickets/:id` nel jsonb): «Apri» porta alla task nella
+    // nuova app, dal codice derivato a lettura (senza PUBLIC_URL, relativo).
+    expect(items[0]!.url).toMatch(/^\/app\/#\/p\/[A-Z0-9]+\/tasks\?task=[A-Z0-9]+-\d+$/);
     expect(items[0]!.actions).toEqual(["approve_plan", "reject_plan", "open", "snooze", "handled"]);
   });
 
@@ -1162,7 +1164,9 @@ describe("listInbox", () => {
     expect(items.map((i) => i.id)).toEqual([sana, esplode, vuota, senzaUrl]);
 
     expect(items[0]!.text).toContain("Piano in attesa di approvazione");
-    expect(items[0]!.url).toBe("https://stubwise.test/tickets/7");
+    // Una card di prima (`/tickets/:id` nel jsonb): «Apri» porta alla task nella
+    // nuova app, dal codice derivato a lettura (senza PUBLIC_URL, relativo).
+    expect(items[0]!.url).toMatch(/^\/app\/#\/p\/[A-Z0-9]+\/tasks\?task=[A-Z0-9]+-\d+$/);
 
     // Le marce degradano: testo = kind (la colonna enum), nessun url.
     for (const item of [items[1]!, items[2]!]) {
@@ -1198,7 +1202,7 @@ describe("listInbox", () => {
       lang: "it",
       publicUrl: "https://stubwise.test",
     });
-    expect(withUrl.items[0]!.url).toBe("https://stubwise.test/settings/security");
+    expect(withUrl.items[0]!.url).toBe("https://stubwise.test/app/#/preferences/security");
 
     const without = await listInbox(db, { userId: user.id, lang: "it" });
     expect(without.items[0]!.url).toBeUndefined();

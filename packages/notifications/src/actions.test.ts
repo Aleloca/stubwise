@@ -354,6 +354,21 @@ describe("actorAllows su answer", () => {
   });
 });
 
+describe("openUrl: le card di una task, anche quelle di prima (ritiro del web vecchio)", () => {
+  it("job.* e ticket.created col codice della task aprono la task nella nuova app, anche con /tickets/:id del web vecchio nel jsonb; senza codice resta il link dell'evento", () => {
+    for (const event of sampleEvents("https://x.test").filter((e) => ["ticket.created", "job.held", "job.failed", "job.plan_review", "job.budget_held", "job.pr_closed"].includes(e.kind))) {
+      const legacy = { ...event, ticketUrl: "https://stubwise.test/tickets/7c1d2e3f-aaaa-4bbb-8ccc-ddddeeeeffff" } as typeof event;
+      expect(openUrl(legacy, "https://stubwise.test", { taskCode: "ACQ-12" })).toBe("https://stubwise.test/app/#/p/ACQ/tasks?task=ACQ-12");
+      expect(openUrl(legacy, "https://stubwise.test")).toBe("https://stubwise.test/tickets/7c1d2e3f-aaaa-4bbb-8ccc-ddddeeeeffff");
+    }
+  });
+
+  it("member.added porta ai membri del progetto nella nuova app (non a #/projects/<id>/members, che non è una rotta)", () => {
+    const event = sampleEvents("https://x.test").find((e) => e.kind === "member.added")!;
+    expect(openUrl(event, "https://stubwise.test")).toBe(`https://stubwise.test/app/#/p/${(event as { projectCode: string }).projectCode}/settings/members`);
+  });
+});
+
 describe("openUrl", () => {
   it("gli eventi il cui soggetto è la PR portano alla PR, gli altri al ticket", () => {
     expect(
@@ -413,12 +428,13 @@ describe("openUrl", () => {
     expect(isAdminOnlyKind("request.created")).toBe(false);
   });
 
-  it("decisioni, attività, pianificazione e assegnazione portano alla pagina del ticket nel web, derivata da PUBLIC_URL", () => {
+  it("decisioni, attività, pianificazione e assegnazione portano alla task nella nuova app, dal codice derivato a lettura", () => {
     for (const event of sampleEvents("https://x.test").filter((e) =>
       ["decision.requested", "decision.answered", "ticket.activity", "planning.changed", "task.assigned"].includes(e.kind),
     )) {
-      const ticketId = (event as { ticketId: string }).ticketId;
-      expect(openUrl(event, "https://stubwise.test/")).toBe(`https://stubwise.test/tickets/${ticketId}`);
+      expect(openUrl(event, "https://stubwise.test/", { taskCode: "ACQ-12" })).toBe("https://stubwise.test/app/#/p/ACQ/tasks?task=ACQ-12");
+      // Senza codice (task sparita) o senza PUBLIC_URL nessun link: mai il web vecchio.
+      expect(openUrl(event, "https://stubwise.test/")).toBe("");
       expect(openUrl(event)).toBe("");
       expect(actionsFor({ kind: event.kind, requestedByUserId: null }, null, maintainer)).toEqual([
         "open",
@@ -431,11 +447,9 @@ describe("openUrl", () => {
   it("security.alert porta a Impostazioni → Sicurezza, con l'URL ASSOLUTO di PUBLIC_URL", () => {
     const event = { kind: "security.alert" as const, subject: "locked" as const, actorEmail: null };
     // Assoluto: lo stesso link va nel bottone del DM Slack, fuori dalla SPA.
-    expect(openUrl(event, "https://stubwise.test")).toBe("https://stubwise.test/settings/security");
+    expect(openUrl(event, "https://stubwise.test")).toBe("https://stubwise.test/app/#/preferences/security");
     // Uno slash finale nella configurazione non raddoppia.
-    expect(openUrl(event, "https://stubwise.test/")).toBe(
-      "https://stubwise.test/settings/security",
-    );
+    expect(openUrl(event, "https://stubwise.test/")).toBe("https://stubwise.test/app/#/preferences/security");
     // Senza PUBLIC_URL nessun link: la stringa vuota che inbox e DM scartano.
     expect(openUrl(event)).toBe("");
   });

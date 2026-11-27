@@ -16,6 +16,7 @@
 
 import { t, type Language } from "@stubwise/i18n";
 import type { InboxReviewOutcome, PrCycleEvent } from "@stubwise/shared";
+import { appUrl } from "@stubwise/shared/app-links";
 import { BACKGROUND_THRESHOLD_PAUSE_REASON, docsPauseReasonOf } from "./docs-pause-reason.js";
 
 /** Formato del messaggio: combacia con l'enum DB `notification_format`. */
@@ -284,8 +285,10 @@ export interface MonitorAlertEvent {
   condition: MonitorCondition;
   /** Descrizione già leggibile, es. "disco al 93% (soglia 90%)". */
   detail: string;
-  /** Link alla pagina del server nella SPA (al posto del ticketUrl). */
+  /** Link alla pagina del server nella nuova app (`app-links`; le card di prima: il web vecchio). */
   url: string;
+  /** Il server (additivo, ritiro del web vecchio): chi legge ne deriva il codice da qui, non dall'URL. */
+  serverId?: string;
 }
 
 /**
@@ -416,8 +419,10 @@ export interface MonitorRecoveredEvent {
   condition: MonitorCondition;
   /** Descrizione già leggibile, es. "disco rientrato al 72%". */
   detail: string;
-  /** Link alla pagina del server nella SPA (al posto del ticketUrl). */
+  /** Link alla pagina del server nella nuova app (`app-links`; le card di prima: il web vecchio). */
   url: string;
+  /** Il server (additivo, ritiro del web vecchio): chi legge ne deriva il codice da qui, non dall'URL. */
+  serverId?: string;
 }
 
 /**
@@ -2258,7 +2263,7 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       ticketTitle: "TypeError: cannot read 'id' of undefined al checkout",
       projectName: "negozio-web",
       source: "sdk_error",
-      ticketUrl: `${base}/tickets/128`,
+      ticketUrl: appUrl(base, { to: "task", projectCode: "NEG", taskCode: "NEG-128" }),
     },
     {
       kind: "job.pr_opened",
@@ -2266,7 +2271,7 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       ticketTitle: "TypeError: cannot read 'id' of undefined al checkout",
       projectName: "negozio-web",
       prUrl: "https://github.com/acme/negozio-web/pull/342",
-      ticketUrl: `${base}/tickets/128`,
+      ticketUrl: appUrl(base, { to: "task", projectCode: "NEG", taskCode: "NEG-128" }),
       costUsd: 0.18,
     },
     {
@@ -2275,7 +2280,7 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       ticketTitle: "TypeError: cannot read 'id' of undefined al checkout",
       projectName: "negozio-web",
       prUrl: "https://github.com/acme/negozio-web/pull/342",
-      ticketUrl: `${base}/tickets/128`,
+      ticketUrl: appUrl(base, { to: "task", projectCode: "NEG", taskCode: "NEG-128" }),
     },
     {
       kind: "job.held",
@@ -2284,14 +2289,14 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       projectName: "negozio-web",
       type: "feature",
       effort: 4,
-      ticketUrl: `${base}/tickets/131`,
+      ticketUrl: appUrl(base, { to: "task", projectCode: "NEG", taskCode: "NEG-131" }),
     },
     {
       kind: "job.plan_review",
       ticketNumber: 131,
       ticketTitle: "Aggiungere export CSV allo storico ordini",
       projectName: "negozio-web",
-      ticketUrl: `${base}/tickets/131`,
+      ticketUrl: appUrl(base, { to: "task", projectCode: "NEG", taskCode: "NEG-131" }),
     },
     {
       kind: "job.budget_held",
@@ -2301,7 +2306,7 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       scope: "ticket",
       limitUsd: 2,
       spentUsd: 2.34,
-      ticketUrl: `${base}/tickets/131`,
+      ticketUrl: appUrl(base, { to: "task", projectCode: "NEG", taskCode: "NEG-131" }),
     },
     {
       kind: "job.failed",
@@ -2309,7 +2314,7 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       ticketTitle: "Pagamento non confermato dopo il redirect",
       projectName: "negozio-web",
       error: "test suite fallita dopo il fix (3 test rossi)",
-      ticketUrl: `${base}/tickets/129`,
+      ticketUrl: appUrl(base, { to: "task", projectCode: "NEG", taskCode: "NEG-129" }),
     },
     {
       kind: "review.completed",
@@ -2317,14 +2322,14 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       ticketTitle: "Review PR #351 — refactor del carrello",
       projectName: "negozio-web",
       prUrl: "https://github.com/acme/negozio-web/pull/351",
-      ticketUrl: `${base}/tickets/133`,
+      ticketUrl: appUrl(base, { to: "task", projectCode: "NEG", taskCode: "NEG-133" }),
       verdict: "approve",
     },
     {
       kind: "docs.limit_paused",
       projectName: "negozio-web",
       repositoryName: "negozio-web-api",
-      docsUrl: `${base}/docs/8b1f6c2e-1111-4222-8333-444455556666`,
+      docsUrl: appUrl(base, { to: "docs", projectCode: "NEG", repositorySlug: "negozio-web" }),
       reason: "provider_limit",
     },
     {
@@ -2335,7 +2340,7 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc",
       projectName: "negozio-web",
       night: "2026-10-16",
-      docsUrl: `${base}/docs/8b1f6c2e-1111-4222-8333-444455556666`,
+      docsUrl: appUrl(base, { to: "docs", projectCode: "NEG", repositorySlug: "negozio-web" }),
       counts: { commits: 120, candidates: 40, newAreas: 9 },
       runs: 50,
       threshold: 50,
@@ -2345,14 +2350,14 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       serverName: "web-prod-1",
       condition: "disk",
       detail: "disco al 93% (soglia 90%)",
-      url: `${base}/monitor/servers/9c2f7d3a-2222-4333-8444-555566667777`,
+      url: appUrl(base, { to: "server", projectCode: "NEG", serverCode: "SRV-2" }),
     },
     {
       kind: "monitor.recovered",
       serverName: "web-prod-1",
       condition: "disk",
       detail: "disco rientrato al 72%",
-      url: `${base}/monitor/servers/9c2f7d3a-2222-4333-8444-555566667777`,
+      url: appUrl(base, { to: "server", projectCode: "NEG", serverCode: "SRV-2" }),
     },
     {
       kind: "release.failed",
@@ -2361,22 +2366,22 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       releaseCode: "NEG-V12",
       title: "Pagamenti: nuovo checkout",
       failedRun: "build",
-      url: `${base}/app/#/p/NEG/releases/NEG-V12`,
+      url: appUrl(base, { to: "release", projectCode: "NEG", releaseCode: "NEG-V12" }),
     },
-    { kind: "release.merged", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", releaseId: "5e3b1a2c-3333-4444-8555-666677778888", releaseCode: "NEG-V12", title: "Pagamenti: nuovo checkout", url: `${base}/app/#/p/NEG/releases/NEG-V12` },
-    { kind: "release.succeeded", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", releaseId: "5e3b1a2c-3333-4444-8555-666677778888", releaseCode: "NEG-V12", title: "Pagamenti: nuovo checkout", url: `${base}/app/#/p/NEG/releases/NEG-V12` },
-    { kind: "pr.opened", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", prNumber: 88, prUrl: "https://github.com/acme/negozio-web/pull/88", title: "Filtri per taglia", url: `${base}/app/#/p/NEG/releases?pr=7b2c9d1e-4444-4555-8666-777788889999%2388` },
-    { kind: "pr.analysis_issues", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", prNumber: 88, prUrl: "https://github.com/acme/negozio-web/pull/88", title: "Filtri per taglia", url: `${base}/app/#/p/NEG/releases?pr=7b2c9d1e-4444-4555-8666-777788889999%2388` },
-    { kind: "pr.corrected", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", prNumber: 88, prUrl: "https://github.com/acme/negozio-web/pull/88", title: "Filtri per taglia", url: `${base}/app/#/p/NEG/releases?pr=7b2c9d1e-4444-4555-8666-777788889999%2388` },
-    { kind: "docs.release_note", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", title: "Note del 13 novembre", url: `${base}/app/#/p/NEG/docs` },
-    { kind: "support.request", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", requestCode: "NEG-R14", title: "Esportare gli ordini in PDF", customerName: "Mario Bianchi", url: `${base}/app/#/p/NEG/requests?request=NEG-R14` },
-    { kind: "server.diagnosis_ready", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", serverName: "web-prod-1", taskCode: "NEG-212", title: "Il container negozio-web riparte di continuo", url: `${base}/app/#/p/NEG/tasks/NEG-212` },
+    { kind: "release.merged", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", releaseId: "5e3b1a2c-3333-4444-8555-666677778888", releaseCode: "NEG-V12", title: "Pagamenti: nuovo checkout", url: appUrl(base, { to: "release", projectCode: "NEG", releaseCode: "NEG-V12" }) },
+    { kind: "release.succeeded", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", releaseId: "5e3b1a2c-3333-4444-8555-666677778888", releaseCode: "NEG-V12", title: "Pagamenti: nuovo checkout", url: appUrl(base, { to: "release", projectCode: "NEG", releaseCode: "NEG-V12" }) },
+    { kind: "pr.opened", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", prNumber: 88, prUrl: "https://github.com/acme/negozio-web/pull/88", title: "Filtri per taglia", url: appUrl(base, { to: "pullRequest", projectCode: "NEG", repositoryId: "7b2c9d1e-4444-4555-8666-777788889999", prNumber: 88 }) },
+    { kind: "pr.analysis_issues", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", prNumber: 88, prUrl: "https://github.com/acme/negozio-web/pull/88", title: "Filtri per taglia", url: appUrl(base, { to: "pullRequest", projectCode: "NEG", repositoryId: "7b2c9d1e-4444-4555-8666-777788889999", prNumber: 88 }) },
+    { kind: "pr.corrected", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", prNumber: 88, prUrl: "https://github.com/acme/negozio-web/pull/88", title: "Filtri per taglia", url: appUrl(base, { to: "pullRequest", projectCode: "NEG", repositoryId: "7b2c9d1e-4444-4555-8666-777788889999", prNumber: 88 }) },
+    { kind: "docs.release_note", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", title: "Note del 13 novembre", url: appUrl(base, { to: "docs", projectCode: "NEG" }) },
+    { kind: "support.request", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", requestCode: "NEG-R14", title: "Esportare gli ordini in PDF", customerName: "Mario Bianchi", url: appUrl(base, { to: "requests", projectCode: "NEG", requestId: "6a1b2c3d-5555-4666-8777-888899990000" }) },
+    { kind: "server.diagnosis_ready", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", serverName: "web-prod-1", taskCode: "NEG-212", title: "Il container negozio-web riparte di continuo", url: appUrl(base, { to: "task", projectCode: "NEG", taskCode: "NEG-212" }) },
     {
       kind: "job.awaiting_input",
       ticketNumber: 131,
       ticketTitle: "Aggiungere export CSV allo storico ordini",
       projectName: "negozio-web",
-      ticketUrl: `${base}/tickets/131`,
+      ticketUrl: appUrl(base, { to: "task", projectCode: "NEG", taskCode: "NEG-131" }),
       questionId: "7d4e9a1b-3333-4444-8555-666677778888",
       round: 1,
       question: "L'export deve includere gli ordini annullati?",
@@ -2391,7 +2396,7 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       kind: "project.pulse",
       pulseId: "5b7c2e10-4444-4555-8666-777788889999",
       projectName: "negozio-web",
-      projectUrl: `${base}/projects/2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee/backlog`,
+      projectUrl: appUrl(base, { to: "requests", projectCode: "NEG" }),
       idleDays: 4,
       question: "Nessun lavoro in corso su negozio-web da 4 giorni. Da quale proposta partiamo?",
       options: [
@@ -2422,7 +2427,7 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       kind: "project.brief",
       briefId: "3d9f6b12-1111-4222-8333-444455556666",
       projectName: "negozio-web",
-      projectUrl: `${base}/projects/2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee/roadmap`,
+      projectUrl: appUrl(base, { to: "project", projectCode: "NEG" }),
       periodStart: "2026-08-31",
       periodEnd: "2026-09-06",
       headline: "Settimana di consolidamento: nessuna funzione nuova, due bug chiusi.",
@@ -2466,7 +2471,7 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       source: "email",
       projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
       projectName: "negozio-web",
-      projectUrl: `${base}/projects/2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee`,
+      projectUrl: appUrl(base, { to: "project", projectCode: "NEG" }),
       handedBy: "giulia@acme.test",
       signal: "request",
       from: "laura@cliente.test",
@@ -2505,7 +2510,7 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       ticketId: "7c1d2e3f-aaaa-4bbb-8ccc-ddddeeeeffff",
       ticketNumber: 57,
       merged: false,
-      url: `${base}/tickets/7c1d2e3f-aaaa-4bbb-8ccc-ddddeeeeffff`,
+      url: appUrl(base, { to: "task", projectCode: "NEG", taskCode: "NEG-134" }),
     },
     {
       kind: "security.alert",

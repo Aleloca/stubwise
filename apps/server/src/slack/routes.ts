@@ -1,3 +1,4 @@
+import { repositoryDocsAppUrl } from "@stubwise/notifications";
 import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { ticketTypeSchema, type ProjectPermission, type TicketType } from "@stubwise/shared";
@@ -91,9 +92,8 @@ export interface SlackRoutesOptions {
    */
   chatLlm?: ChatLlm;
   /**
-   * URL pubblico dell'istanza, per comporre i link alle citazioni
-   * (`${publicUrl}/docs/:repositoryId/:slug`, col repositoryId della singola
-   * fonte). Default: `instance.publicUrl` se configurato, altrimenti undefined
+   * URL pubblico dell'istanza, per comporre i link alle citazioni (la
+   * pagina nei Docs della nuova app, `repositoryDocsAppUrl`). Default: `instance.publicUrl` se configurato, altrimenti undefined
    * (le citazioni elencano solo repo/titolo).
    */
   publicUrl?: string;
@@ -322,18 +322,20 @@ async function answerAndPostToSlack(
         ? sections.map((s) => ({ type: "section", text: { type: "mrkdwn", text: s } }))
         : [{ type: "section", text: { type: "mrkdwn", text: "(nessuna risposta)" } }];
     if (citations.length > 0) {
-      // Cross-repo: ogni citazione porta il SUO repository d'origine. Il link usa
-      // il `repositoryId` della singola fonte (`/docs/${repositoryId}/${slug}`) e
-      // il testo mostra "nomeRepo › titoloPagina" per disambiguare fonti omonime
-      // di repo diversi. Senza publicUrl: solo testo "nomeRepo › titoloPagina".
-      const sources = citations
-        .map((c) => {
-          const label = `${c.repositoryName} › ${c.title}`;
-          return deps.publicUrl
-            ? `<${deps.publicUrl}/docs/${c.repositoryId}/${c.slug}|${label}>`
-            : label;
-        })
-        .join("  ·  ");
+      // Cross-repo: ogni citazione porta il SUO repository d'origine. Il link è
+      // la pagina nei Docs della nuova app (`app-links`: lo slug del repository
+      // della singola fonte, nel suo progetto) e il testo mostra
+      // "nomeRepo › titoloPagina" per disambiguare fonti omonime di repo
+      // diversi. Senza publicUrl: solo testo "nomeRepo › titoloPagina".
+      const publicUrl = deps.publicUrl;
+      const sources = (
+        await Promise.all(
+          citations.map(async (c) => {
+            const label = `${c.repositoryName} › ${c.title}`;
+            return publicUrl ? `<${await repositoryDocsAppUrl(deps.db, publicUrl, c.repositoryId, c.slug)}|${label}>` : label;
+          }),
+        )
+      ).join("  ·  ");
       blocks.push({
         type: "context",
         elements: [{ type: "mrkdwn", text: `*Fonti:* ${sources}` }],
@@ -928,7 +930,7 @@ export async function slackRoutes(
       }
 
       // Log col link al ticket (best-effort, non blocca l'ack che chiude il modal).
-      const url = ticketUrl(publicUrlOrUndefined(instance), ticket.id);
+      const url = await ticketUrl(instance.db, publicUrlOrUndefined(instance), ticket.id);
 
       // Avviso `request.created`, con la STESSA regola della creazione dalla
       // web (`routes/tickets.ts`): solo da un collaboratore (R14), solo per

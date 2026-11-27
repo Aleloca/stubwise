@@ -1,3 +1,4 @@
+import { appUrl } from "@stubwise/shared/app-links";
 import { instanceSettings, notificationSettings, type Db } from "@stubwise/db";
 import type { Language } from "@stubwise/i18n";
 import {
@@ -375,17 +376,16 @@ export async function dispatchNotification(
  * Costruisce un evento `ticket.created` FITTIZIO per la verifica del webhook
  * dalla UI ("Invia notifica di test"): riusa la stessa formattazione del
  * dispatch reale, così quel che l'utente vede nel test è ciò che riceverà.
- * Il link punta a `${baseUrl}/tickets/test`.
+ * Il link punta alla Home della nuova app (`app-links`): non c'è una task vera.
  */
 export function buildTestEvent(baseUrl: string): TicketCreatedEvent {
-  const base = baseUrl.replace(/\/+$/, "");
   return {
     kind: "ticket.created",
     ticketNumber: 0,
     ticketTitle: "Notifica di test di Stubwise",
     projectName: "Progetto di esempio",
     source: "sdk_error",
-    ticketUrl: `${base}/tickets/test`,
+    ticketUrl: appUrl(baseUrl, { to: "home" }),
   };
 }
 

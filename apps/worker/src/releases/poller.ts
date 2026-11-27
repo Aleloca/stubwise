@@ -1,3 +1,4 @@
+import { appUrl } from "@stubwise/shared";
 import { gitAccounts, releaseCiRuns, releases, repositories, ticketRepositories, tickets, type Db } from "@stubwise/db";
 import { getProvider, type CommitRuns, type ProjectGitConfig } from "@stubwise/git";
 import { decryptGitCredentials, productionForStatus, publishNotification, releaseProductionOf, type NotificationEvent } from "@stubwise/notifications";
@@ -225,8 +226,8 @@ async function notifyOnce(
   if (!claimed) return;
   const [proj] = await deps.db.execute<{ code: string }>(sql`select code from projects where id = ${release.projectId}`);
   const base = (deps.publicUrl ?? "").replace(/\/+$/, "");
-  // Senza radice pubblica il link resta RELATIVO (`/app/#/…`): l'app lo apre lo stesso (94).
-  const url = `${base}/app/#/p/${proj?.code ?? ""}/releases/${release.code}`;
+  // Senza radice pubblica il link resta RELATIVO: l'app lo apre lo stesso (94, `app-links`).
+  const url = appUrl(base, { to: "release", projectCode: proj?.code ?? "", releaseCode: release.code });
   const out = await publishNotification(deps.db, eventOf(url), { projectId: release.projectId, mandatory: await releaseMandatory(deps.db, release) });
   // `publishNotification` non lancia: su un errore risponde `failed`. Si
   // riprova SOLO allora: «nessun destinatario» (tutti l'hanno spento, o un tipo

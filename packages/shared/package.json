@@ -35,6 +35,10 @@
     "./mirror-slug": {
       "types": "./dist/mirror-slug.d.ts",
       "default": "./dist/mirror-slug.js"
+    },
+    "./app-links": {
+      "types": "./dist/app-links.d.ts",
+      "default": "./dist/app-links.js"
     }
   },
   "scripts": {

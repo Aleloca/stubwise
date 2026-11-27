@@ -288,6 +288,9 @@ export const backlogItemDetailSchema = backlogItemBaseSchema.extend({
   // Sessione di refinement (2026-10-14), o null. Additivo: un server più
   // vecchio non lo manda, e l'app lo legge come null.
   refineSession: refineSessionViewSchema.nullable().default(null),
+  // Ritiro del web vecchio (additivo): la voce nella nuova app, come percorso
+  // dell'istanza (`app-links`). Lo usa chi compone un link fuori dal server (l'MCP).
+  appPath: z.string().optional(),
 });
 export type BacklogItemDetail = z.infer<typeof backlogItemDetailSchema>;
 
@@ -325,6 +328,8 @@ export const backlogJobResultSchema = z.object({
   status: backlogJobStatusSchema,
   resultItemId: z.uuid().nullable(),
   error: z.string().nullable(),
+  /** Ritiro del web vecchio (additivo): la voce nella nuova app, come percorso dell'istanza. */
+  resultItemAppPath: z.string().optional(),
 });
 export type BacklogJobResult = z.infer<typeof backlogJobResultSchema>;
 
@@ -332,5 +337,7 @@ export type BacklogJobResult = z.infer<typeof backlogJobResultSchema>;
 export const convertBacklogResultSchema = z.object({
   ticketId: z.uuid(),
   ticketNumber: z.number().int(),
+  /** Ritiro del web vecchio (additivo): la task nella nuova app, come percorso dell'istanza. */
+  ticketAppPath: z.string().optional(),
 });
 export type ConvertBacklogResult = z.infer<typeof convertBacklogResultSchema>;

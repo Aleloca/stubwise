@@ -22,7 +22,6 @@ describe("i link della nuova app (app-links)", () => {
     expect(appPath({ to: "pullRequest", projectCode: "NEG", repositoryId: repo, prNumber: 88 })).toBe(`/app/#/p/NEG/releases?pr=${repo}%2388`);
     expect(appPath({ to: "release", projectCode: "NEG", releaseCode: "NEG-V12" })).toBe("/app/#/p/NEG/releases/NEG-V12");
     expect(appPath({ to: "docs", projectCode: "NEG" })).toBe("/app/#/p/NEG/docs");
-    expect(appPath({ to: "supportRequest", projectCode: "NEG", requestCode: "NEG-R14" })).toBe("/app/#/p/NEG/requests?request=NEG-R14");
     expect(appPath({ to: "chatMessage", channelId: "c1", messageId: "m1" })).toBe("/app/#/chat/c1?message=m1");
     expect(appPath({ to: "automation", automationCode: "AUD-A1", runNumber: 2 })).toBe("/app/#/automations/AUD-A1/runs/2");
     expect(appPath({ to: "automation", automationCode: "AUD-A1", runNumber: null })).toBe("/app/#/automations/AUD-A1");
