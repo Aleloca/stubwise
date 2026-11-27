@@ -673,6 +673,7 @@ export function AllProjectsPage() {
       </div>
       {creating && (
         <NewProjectDialog
+          workspaceId={workspace.data?.id}
           onClose={() => setCreating(false)}
           onCreated={(code) => {
             setCreating(false);

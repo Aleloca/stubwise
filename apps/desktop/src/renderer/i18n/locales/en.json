@@ -2477,6 +2477,9 @@
         "client": "Work delivered to a client"
       },
       "client": "Client",
+      "workspaceReauth": "put {{code}} in {{name}}",
+      "workspaceHint": "The people in {{name}} will see it.",
+      "workspace": "Workspace",
       "clientPlaceholder": "Company name",
       "clientMissing": "Say which client the project is for.",
       "template": "Template",

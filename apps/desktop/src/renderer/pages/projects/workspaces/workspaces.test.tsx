@@ -180,3 +180,28 @@ describe("Settings → General: la workspace del progetto", () => {
     expect(screen.queryByRole("combobox", { name: "Workspace" })).toBeNull();
   });
 });
+
+describe("New project dentro una workspace", () => {
+  it("dalla pagina filtrata la workspace è già scelta, e il progetto nuovo ci entra", async () => {
+    const user = userEvent.setup();
+    markReauthenticated(ROBERTA);
+    renderRoute("/projects?workspace=clienti-storici", ROBERTA);
+    await screen.findByRole("heading", { level: 1, name: "Clienti storici" });
+    await user.click(screen.getByRole("button", { name: "New project" }));
+    const dialog = await screen.findByRole("dialog", { name: "New project" });
+    expect(within(dialog).getByRole("combobox", { name: "Workspace" })).toHaveDisplayValue("Clienti storici");
+    expect(dialog.querySelector("[data-new-project-workspace]")).toHaveTextContent(
+      "The people in Clienti storici will see it.",
+    );
+    await user.type(within(dialog).getByRole("textbox", { name: "Name" }), "Vivaio Collina Nuova");
+    await user.click(within(dialog).getByRole("button", { name: "Create project" }));
+    await waitFor(() => {
+      const ids = accessState()
+        .workspaceProjects.filter((w) => w.workspaceId === "ws-storici")
+        .map((w) => w.projectId);
+      expect(ids).toHaveLength(5);
+    });
+    const added = accessState().workspaceProjects.filter((w) => w.workspaceId === "ws-storici").at(-1)!;
+    expect(visibleProjectIds("p-nicola").has(added.projectId)).toBe(true);
+  });
+});

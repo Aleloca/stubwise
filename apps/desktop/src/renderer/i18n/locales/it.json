@@ -2477,6 +2477,9 @@
         "client": "Lavoro consegnato a un cliente"
       },
       "client": "Cliente",
+      "workspaceReauth": "mettere {{code}} in {{name}}",
+      "workspaceHint": "Le persone di {{name}} lo vedranno.",
+      "workspace": "Workspace",
       "clientPlaceholder": "Ragione sociale",
       "clientMissing": "Indica per quale cliente è il progetto.",
       "template": "Modello",
