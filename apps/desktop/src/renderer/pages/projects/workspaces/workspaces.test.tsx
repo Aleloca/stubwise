@@ -230,3 +230,25 @@ describe("⌘K", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Clienti storici" })).toBeInTheDocument();
   });
 });
+
+describe("La pagina della persona", () => {
+  it("Nicola: i progetti visti dalla workspace con la fonte, e la parte Workspaces", async () => {
+    renderRoute("/admin/people/p-nicola", ROBERTA);
+    const part = await waitFor(() => {
+      const el = document.querySelector("[data-person-workspaces]");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(part).toHaveTextContent("Clienti storici");
+    expect(part).toHaveTextContent("Viewer");
+    const roles = [...document.querySelectorAll("[data-person-project-role]")].map((e) => e.textContent);
+    expect(roles).toContain("Viewer from Clienti storici");
+  });
+
+  it("Marco: in ORT il ruolo per progetto e, accanto, quello della workspace", async () => {
+    renderRoute("/admin/people/p-marco", ROBERTA);
+    await waitFor(() => expect(document.querySelector("[data-person-workspaces]")).not.toBeNull());
+    const roles = [...document.querySelectorAll("[data-person-project-role]")].map((e) => e.textContent);
+    expect(roles.some((r) => /· also Developer from Clienti storici$/.test(r ?? ""))).toBe(true);
+  });
+});

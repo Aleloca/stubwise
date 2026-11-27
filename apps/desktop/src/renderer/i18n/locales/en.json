@@ -10839,6 +10839,7 @@
         "seed": "from the seed",
         "department": "from the {{name}} department",
         "workspace": "{{role}} from {{workspace}}",
+        "alsoWorkspace": "{{role}} · also {{wsRole}} from {{workspace}}",
         "fullAdmin": "as full admin",
         "role": "from the role {{name}}",
         "edit": "Edit",
@@ -10852,6 +10853,9 @@
         "managesHome": "manages the department Home",
         "edit": "Edit",
         "editLabel": "Edit {{name}}"
+      },
+      "workspaces": {
+        "title": "Workspaces"
       },
       "identities": {
         "title": "Linked identities",

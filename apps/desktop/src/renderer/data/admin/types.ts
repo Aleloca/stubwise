@@ -238,6 +238,10 @@ export interface PersonProjectView {
   extra: ExtraPermission[];
   /** Chi guarda gestisce i membri di quel progetto. */
   canManage: boolean;
+  /** Shape `workspaces.md`: il ruolo che la persona ha lì dalla workspace, se c'è. */
+  workspace?: { name: string; roleName: string } | null;
+  /** Vero se la persona vede il progetto SOLO dalla workspace (`role` è allora quello di workspace). */
+  workspaceOnly?: boolean;
 }
 
 /** `null` = si può; altrimenti il motivo per cui la scelta è spenta. */
@@ -266,6 +270,8 @@ export interface PersonDetail {
    */
   addableTo: { projectId: string; code: string; name: string }[];
   departments: { id: string; name: string; colorToken: string; managesHome: boolean }[];
+  /** Shape `workspaces.md`: le workspace della persona che chi guarda vede, col ruolo. */
+  workspaces?: { id: string; slug: string; name: string; roleName: string }[];
   identities: { gitEmails: string[]; bitbucketUsername: string | null };
   /** Le azioni della pagina: `null` se si possono fare, altrimenti il motivo. */
   actions: {

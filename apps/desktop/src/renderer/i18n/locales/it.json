@@ -10839,6 +10839,7 @@
         "seed": "dal seme",
         "department": "dal reparto {{name}}",
         "workspace": "{{role}} da {{workspace}}",
+        "alsoWorkspace": "{{role}} · anche {{wsRole}} da {{workspace}}",
         "fullAdmin": "come amministratore completo",
         "role": "dal ruolo {{name}}",
         "edit": "Modifica",
@@ -10852,6 +10853,9 @@
         "managesHome": "gestisce la Home del reparto",
         "edit": "Modifica",
         "editLabel": "Modifica {{name}}"
+      },
+      "workspaces": {
+        "title": "Workspace"
       },
       "identities": {
         "title": "Identità collegate",
