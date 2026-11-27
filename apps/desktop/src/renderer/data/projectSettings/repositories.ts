@@ -71,6 +71,19 @@ export interface RepositoryView {
   webhook: { state: "not_configured" | "configured" | "failed"; configuredAt: string | null };
 }
 
+/**
+ * Gli avvisi NON bloccanti di un salvataggio riuscito (come
+ * `repository-save-warnings.tsx` del web vecchio): l'identità dell'account
+ * principale che non si legge, il revisore predefinito che non passa i
+ * controlli, e — solo alla creazione — il ramo di rilascio che non si è
+ * salvato dopo che il repository era già nato (revisione I2). Il prototipo
+ * non ha piattaforma: da lui non ne arrivano.
+ */
+export type RepositorySaveWarning =
+  | "main_account_identity_unresolved"
+  | "default_review_account_invalid"
+  | "release_branch_not_set";
+
 export interface RemoteRepository {
   fullName: string;
   defaultBranch: string;
@@ -205,13 +218,14 @@ export async function listRemoteRepositories(
   const project = projectId ? openProject(me, projectId) : null;
   const taken = new Set(
     project
-      ? state.repositories.filter((r) => r.projectId === project.id).map((r) => r.fullName)
+      ? state.repositories.filter((r) => r.projectId === project.id).map((r) => (r.fullName ?? "").toLowerCase())
       : [],
   );
   return (REMOTE_REPOSITORIES[gitAccountId] ?? []).map((r) => ({
     ...r,
     branches: [...r.branches],
-    inProject: taken.has(r.fullName),
+    // Senza maiuscole, come sul server vero (revisione M5).
+    inProject: taken.has(r.fullName.toLowerCase()),
   }));
 }
 
@@ -255,7 +269,7 @@ export async function checkRepositoryAccess(input: {
   gitAccountId: string;
   fullName: string;
   branch: string;
-}): Promise<ProjectResult<{ outcome: TestOutcome }>> {
+}): Promise<ProjectResult<{ outcome: TestOutcome; detail: string | null }>> {
   const me = await writer("projectSettings.checkRepositoryAccess");
   const managed = managedProject(me, input.projectId, MANAGE_REPOS);
   if ("refusal" in managed) return managed.refusal;
@@ -278,7 +292,8 @@ export async function checkRepositoryAccess(input: {
     outcome,
     at: now(),
   });
-  return { ok: true, outcome };
+  // Il dettaglio della piattaforma: il prototipo non ne ha.
+  return { ok: true, outcome, detail: null };
 }
 
 /**
@@ -328,7 +343,7 @@ export async function createRepository(
     installCommand: string | null;
     testCommand: string | null;
   },
-): Promise<ProjectResult<{ repositoryId: string }>> {
+): Promise<ProjectResult<{ repositoryId: string; warnings: RepositorySaveWarning[] }>> {
   const me = await writer("projectSettings.createRepository");
   const managed = managedProject(me, projectId, MANAGE_REPOS);
   if ("refusal" in managed) return managed.refusal;
@@ -376,7 +391,7 @@ export async function createRepository(
     projectId: project.id,
     object: repositoryObject(repository),
   });
-  return { ok: true, repositoryId: repository.id };
+  return { ok: true, repositoryId: repository.id, warnings: [] };
 }
 
 /**
@@ -428,7 +443,7 @@ const FIELDS = [
 export async function updateRepository(
   repositoryId: string,
   patch: RepositoryPatch,
-): Promise<ProjectResult> {
+): Promise<ProjectResult<{ warnings: RepositorySaveWarning[] }>> {
   const me = await writer("projectSettings.updateRepository");
   const managed = managedRepository(me, repositoryId);
   if ("refusal" in managed) return managed.refusal;
@@ -524,7 +539,7 @@ export async function updateRepository(
       ...diff,
       params: { field },
     });
-  return { ok: true };
+  return { ok: true, warnings: [] };
 }
 
 /**
@@ -536,7 +551,7 @@ export async function updateRepository(
  */
 export async function configureRepositoryWebhook(
   repositoryId: string,
-): Promise<ProjectResult<{ state: "configured" | "failed"; updated: boolean }>> {
+): Promise<ProjectResult<{ state: "configured" | "failed"; updated: boolean; detail: string | null }>> {
   const me = await writer("projectSettings.configureRepositoryWebhook");
   const managed = managedRepository(me, repositoryId);
   if ("refusal" in managed) return managed.refusal;
@@ -566,6 +581,7 @@ export async function configureRepositoryWebhook(
     ok: true,
     state: outcome,
     updated: outcome === "configured" && previous === "configured",
+    detail: null,
   };
 }
 

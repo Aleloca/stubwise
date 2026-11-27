@@ -87,7 +87,7 @@ describe("Repositories nella build app: elenco e pagina", () => {
     expect(await repos.updateRepository(ROW.id, { url: "http://x" })).toEqual({ ok: false, error: "invalid", reason: "url" });
     expect(await repos.updateRepository(ROW.id, { protectedBranches: ["main", "con spazio"] })).toEqual({ ok: false, error: "invalid", reason: "protected_branch", line: 2 });
     expect(api.update).not.toHaveBeenCalled();
-    expect(await repos.updateRepository(ROW.id, { name: "web-app", testCommand: "  ", gitAccountId: ACCOUNT })).toEqual({ ok: true });
+    expect(await repos.updateRepository(ROW.id, { name: "web-app", testCommand: "  ", gitAccountId: ACCOUNT })).toEqual({ ok: true, warnings: [] });
     expect(api.update).toHaveBeenCalledWith("web-2", { name: "web-app", testCommand: null, gitAccountId: ACCOUNT });
     const forbid = createRealProjectRepositories(apiWith({ update: vi.fn(async () => { throw new ApiError(403, "Missing permission", "forbidden"); }) }));
     await forbid.listProjectRepositories(P);
@@ -104,10 +104,10 @@ describe("Repositories nella build app: elenco e pagina", () => {
     });
     const repos = createRealProjectRepositories(api);
     await repos.listProjectRepositories(P);
-    expect(await repos.configureRepositoryWebhook(ROW.id)).toEqual({ ok: true, state: "failed", updated: false });
+    expect(await repos.configureRepositoryWebhook(ROW.id)).toEqual({ ok: true, state: "failed", updated: false, detail: "scope" });
     expect((await repos.listProjectRepositories(P))!.repositories[0]!.webhook.state).toBe("failed");
     fail = false;
-    expect(await repos.configureRepositoryWebhook(ROW.id)).toEqual({ ok: true, state: "configured", updated: true });
+    expect(await repos.configureRepositoryWebhook(ROW.id)).toEqual({ ok: true, state: "configured", updated: true, detail: null });
     expect((await repos.listProjectRepositories(P))!.repositories[0]!.webhook.state).toBe("not_configured");
   });
 });
@@ -126,22 +126,22 @@ describe("la creazione guidata", () => {
 
   it("la verifica: un ramo che non c'è, credenziali che non bastano, piattaforma che non risponde", async () => {
     const input = { projectId: P, gitAccountId: ACCOUNT, fullName: "acme/web", branch: "main" };
-    expect(await createRealProjectRepositories(apiWith()).checkRepositoryAccess(input)).toEqual({ ok: true, outcome: "ok" });
+    expect(await createRealProjectRepositories(apiWith()).checkRepositoryAccess(input)).toEqual({ ok: true, outcome: "ok", detail: null });
     expect(await createRealProjectRepositories(apiWith()).checkRepositoryAccess({ ...input, branch: "nope" })).toEqual({ ok: false, error: "invalid", reason: "branch" });
-    expect(await createRealProjectRepositories(apiWith({ validateRepo: vi.fn(async () => ({ ok: false })) })).checkRepositoryAccess(input)).toEqual({ ok: true, outcome: "invalid_credentials" });
-    expect(await createRealProjectRepositories(apiWith({ validateRepo: vi.fn(async () => { throw new ApiError(422, "giù", "git_provider_error"); }) })).checkRepositoryAccess(input)).toEqual({ ok: true, outcome: "unreachable" });
+    expect(await createRealProjectRepositories(apiWith({ validateRepo: vi.fn(async () => ({ ok: false })) })).checkRepositoryAccess(input)).toEqual({ ok: true, outcome: "invalid_credentials", detail: null });
+    expect(await createRealProjectRepositories(apiWith({ validateRepo: vi.fn(async () => { throw new ApiError(422, "giù", "git_provider_error"); }) })).checkRepositoryAccess(input)).toEqual({ ok: true, outcome: "unreachable", detail: "giù" });
   });
 
   it("crea con l'indirizzo della piattaforma dell'account e il ramo predefinito; un ramo scelto diverso è il ramo di rilascio", async () => {
     const api = apiWith();
     const repos = createRealProjectRepositories(api);
-    const out = await repos.createRepository(P, { gitAccountId: ACCOUNT, fullName: "acme/web", name: " web ", branch: "develop", installCommand: "", testCommand: "pnpm test" });
-    expect(out).toEqual({ ok: true, repositoryId: "new-id" });
-    expect(api.create).toHaveBeenCalledWith({ projectId: P, name: "web", gitAccountId: ACCOUNT, repoUrl: "https://bitbucket.org/acme/web", defaultBranch: "main", testCommand: "pnpm test", installCommand: null });
+    const out = await repos.createRepository(P, { gitAccountId: ACCOUNT, fullName: "acme/web", name: " web-2 ", branch: "develop", installCommand: "", testCommand: "pnpm test" });
+    expect(out).toEqual({ ok: true, repositoryId: "new-id", warnings: [] });
+    expect(api.create).toHaveBeenCalledWith({ projectId: P, name: "web-2", gitAccountId: ACCOUNT, repoUrl: "https://bitbucket.org/acme/web", defaultBranch: "main", testCommand: "pnpm test", installCommand: null });
     expect(api.update).toHaveBeenCalledWith("nuovo", { releaseBranch: "develop" });
     expect(await repos.createRepository(P, { gitAccountId: ACCOUNT, fullName: "acme/web", name: "con spazio", branch: "main", installCommand: null, testCommand: null })).toEqual({ ok: false, error: "invalid", reason: "name" });
     const denied = createRealProjectRepositories(apiWith({ create: vi.fn(async () => { throw new ApiError(403, "Missing permission", "forbidden"); }) }));
-    expect(await denied.createRepository(P, { gitAccountId: ACCOUNT, fullName: "acme/web", name: "web", branch: "main", installCommand: null, testCommand: null })).toEqual({ ok: false, error: "forbidden" });
+    expect(await denied.createRepository(P, { gitAccountId: ACCOUNT, fullName: "acme/api", name: "api", branch: "main", installCommand: null, testCommand: null })).toEqual({ ok: false, error: "forbidden" });
   });
 });
 
@@ -170,5 +170,84 @@ describe("i file d'ambiente", () => {
     expect(await reauth.deleteEnvFile("f1")).toEqual({ ok: false, error: "reauth_required" });
     // Un file che questa sessione non ha letto: non lo si raggiunge.
     expect(await repos.removeEnvVar("sconosciuto", "A")).toEqual({ ok: false, error: "not_found" });
+  });
+});
+
+describe("la revisione di feat/repository-nuova-app", () => {
+  const input = { projectId: P, gitAccountId: ACCOUNT, fullName: "acme/web", branch: "main" };
+  const base = { gitAccountId: ACCOUNT, fullName: "acme/api", name: "api", installCommand: null, testCommand: null };
+
+  it("I1: una variabile senza setAt (server di prima) ha la data null, mai una stringa vuota", async () => {
+    const repos = createRealProjectRepositories(apiWith({ envFiles: vi.fn(async () => [{ id: "f1", environmentId: ENV.test, path: ".env", vars: [{ key: "OLD" }] }]) }));
+    await repos.listProjectRepositories(P);
+    const env = await repos.listEnvFiles(ROW.id);
+    expect(env.environments[0]!.files[0]!.keys).toEqual([{ key: "OLD", setAt: null }]);
+  });
+
+  it("I2: dopo il 201 la creazione riesce anche se la PATCH del ramo di rilascio lancia: l'id, più l'avviso", async () => {
+    const api = apiWith({ update: vi.fn(async () => { throw new TypeError("rete"); }) });
+    const repos = createRealProjectRepositories(api);
+    const out = await repos.createRepository(P, { ...base, branch: "develop" });
+    expect(out).toEqual({ ok: true, repositoryId: "new-id", warnings: ["release_branch_not_set"] });
+    expect(api.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("I3: il predefinito vale sempre; con 200 rami (elenco troncato) un ramo che manca non si rifiuta; con meno sì", async () => {
+    const many = Array.from({ length: 200 }, (_, i) => `b${i}`);
+    const truncated = createRealProjectRepositories(apiWith({ branches: vi.fn(async () => ({ branches: many, defaultBranch: "main" })) }));
+    expect(await truncated.checkRepositoryAccess(input)).toMatchObject({ ok: true, outcome: "ok" });
+    expect(await truncated.checkRepositoryAccess({ ...input, branch: "oltre-il-tetto" })).toMatchObject({ ok: true, outcome: "ok" });
+    const short = createRealProjectRepositories(apiWith({ branches: vi.fn(async () => ({ branches: ["develop"], defaultBranch: "main" })) }));
+    expect(await short.checkRepositoryAccess(input)).toMatchObject({ ok: true, outcome: "ok" });
+    expect(await short.checkRepositoryAccess({ ...input, branch: "nope" })).toEqual({ ok: false, error: "invalid", reason: "branch" });
+  });
+
+  it("M1: gli avvisi del server su creazione e modifica arrivano alla pagina; un codice ignoto si tace", async () => {
+    const warned = { ...ROW, id: "new-id", slug: "nuovo", warnings: ["main_account_identity_unresolved", "qualcosa_di_nuovo"] };
+    const repos = createRealProjectRepositories(apiWith({
+      create: vi.fn(async () => warned),
+      update: vi.fn(async () => ({ ...ROW, warnings: ["default_review_account_invalid"] })),
+    }));
+    expect(await repos.createRepository(P, { ...base, branch: "main" })).toEqual({ ok: true, repositoryId: "new-id", warnings: ["main_account_identity_unresolved"] });
+    await repos.listProjectRepositories(P);
+    expect(await repos.updateRepository(ROW.id, { testCommand: "x" })).toEqual({ ok: true, warnings: ["default_review_account_invalid"] });
+  });
+
+  it("M2: i dettagli dei controlli falliti, le credenziali che non si decifrano, il repository che l'account non vede; l'indirizzo dalla piattaforma", async () => {
+    const checks = [{ name: "read", ok: true, detail: "" }, { name: "write", ok: false, detail: "missing repo:write" }];
+    expect(await createRealProjectRepositories(apiWith({ validateRepo: vi.fn(async () => ({ ok: false, checks })) })).checkRepositoryAccess(input))
+      .toEqual({ ok: true, outcome: "invalid_credentials", detail: "missing repo:write" });
+    expect(await createRealProjectRepositories(apiWith({ validateRepo: vi.fn(async () => { throw new ApiError(400, "x", "credentials_undecryptable"); }) })).checkRepositoryAccess(input))
+      .toEqual({ ok: true, outcome: "invalid_credentials", detail: "credentials_undecryptable" });
+    expect(await createRealProjectRepositories(apiWith({ branches: vi.fn(async () => { throw new ApiError(422, "Repository not found", "git_provider_error"); }) })).checkRepositoryAccess(input))
+      .toEqual({ ok: true, outcome: "invalid_credentials", detail: "Repository not found" });
+    const api = apiWith({ remoteRepositories: vi.fn(async () => [{ fullName: "acme/api", cloneUrl: "https://git.example/acme/api.git", defaultBranch: "main" }]) });
+    const repos = createRealProjectRepositories(api);
+    await repos.listRemoteRepositories(ACCOUNT, P);
+    await repos.createRepository(P, { ...base, branch: "main" });
+    expect(api.create).toHaveBeenCalledWith(expect.objectContaining({ repoUrl: "https://git.example/acme/api.git" }));
+  });
+
+  it("M5: un nome già usato nel progetto (senza maiuscole) è name_taken, prima di creare; il fullName si confronta senza maiuscole", async () => {
+    const api = apiWith();
+    const repos = createRealProjectRepositories(api);
+    expect(await repos.createRepository(P, { ...base, name: "WEB", branch: "main" })).toEqual({ ok: false, error: "invalid", reason: "name_taken" });
+    expect(api.create).not.toHaveBeenCalled();
+    const upper = createRealProjectRepositories(apiWith({ remoteRepositories: vi.fn(async () => [{ fullName: "Acme/Web", defaultBranch: "main" }]) }));
+    expect((await upper.listRemoteRepositories(ACCOUNT, P))[0]!.inProject).toBe(true);
+  });
+
+  it("M6: i rami di un repository che l'account non vede: not_visible", async () => {
+    const repos = createRealProjectRepositories(apiWith({ branches: vi.fn(async () => { throw new ApiError(422, "no", "git_provider_error"); }) }));
+    await expect(repos.listRemoteBranches(ACCOUNT, "acme/web")).rejects.toThrow("not_visible");
+  });
+
+  it("M7: un repository mai letto è not_found (mai un'eccezione); il 409 concorrente ha il suo motivo", async () => {
+    const repos = createRealProjectRepositories(apiWith());
+    expect(await repos.updateRepository("mai-letto", { testCommand: "x" })).toEqual({ ok: false, error: "not_found" });
+    expect(await repos.configureRepositoryWebhook("mai-letto")).toEqual({ ok: false, error: "not_found" });
+    const busy = createRealProjectRepositories(apiWith({ update: vi.fn(async () => { throw new ApiError(409, "changed", "repository_changed_concurrently"); }) }));
+    await busy.listProjectRepositories(P);
+    expect(await busy.updateRepository(ROW.id, { gitAccountId: ACCOUNT })).toEqual({ ok: false, error: "invalid", reason: "repository_changed_concurrently" });
   });
 });

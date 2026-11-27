@@ -22,6 +22,7 @@ export type {
   ProjectSwitch,
   ProjectUsageDimension,
   RemoteRepository,
+  RepositorySaveWarning,
   RepositoryView,
 } from "../projectSettings";
 // Valori puri, ciascuno dal suo modulo: l'indice `../projectSettings` porta

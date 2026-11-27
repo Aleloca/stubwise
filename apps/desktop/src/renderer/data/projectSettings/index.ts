@@ -49,6 +49,7 @@ export {
   simulateNextWebhookSetup,
   updateRepository,
   type RemoteRepository,
+  type RepositorySaveWarning,
   type RepositoryView,
 } from "./repositories";
 export {

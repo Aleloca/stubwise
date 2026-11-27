@@ -168,13 +168,13 @@ describe("la creazione guidata", () => {
   it("con la verifica invalid_credentials simulata la creazione resta rifiutata", async () => {
     as(LAURA);
     await projectSettings.simulateNextRepositoryCheck("invalid_credentials");
-    expect(await verify()).toEqual({ ok: true, outcome: "invalid_credentials" });
+    expect(await verify()).toEqual({ ok: true, outcome: "invalid_credentials", detail: null });
     expect(await projectSettings.createRepository(ACQ, NEW)).toMatchObject({
       error: "invalid",
       reason: "access_not_verified",
     });
     // La simulazione vale una volta: la verifica dopo è vera.
-    expect(await verify()).toEqual({ ok: true, outcome: "ok" });
+    expect(await verify()).toEqual({ ok: true, outcome: "ok", detail: null });
   });
 
   it("una verifica di un'altra terna, o di un'altra persona, non vale", async () => {
@@ -290,7 +290,7 @@ describe("la modifica di un repository", () => {
         graphEnabled: true,
         protectedBranches: ["main", "release/*"],
       }),
-    ).toEqual({ ok: true });
+    ).toEqual({ ok: true, warnings: [] });
     expect(repo("repo-acq")).toMatchObject({
       testCommand: "pnpm test",
       graphEnabled: true,
@@ -312,6 +312,7 @@ describe("la modifica di un repository", () => {
     );
     expect(await projectSettings.updateRepository("repo-stw", { name: "stubwise-core" })).toEqual({
       ok: true,
+      warnings: [],
     });
     expect(state.docSpaces.find((s) => s.repositoryId === "repo-stw")!.name).toBe("stubwise-core");
   });
@@ -338,7 +339,7 @@ describe("la modifica di un repository", () => {
       await projectSettings.updateRepository("repo-acq", {
         reviewGitAccountId: "git-bitbucket-review",
       }),
-    ).toEqual({ ok: true });
+    ).toEqual({ ok: true, warnings: [] });
     const voice = entries("repository.updated").at(-1)!;
     expect(voice.params.field).toBe("reviewGitAccount");
     expect(JSON.parse(voice.before!)).toEqual({ reviewGitAccount: null });
@@ -391,6 +392,7 @@ describe("la modifica di un repository", () => {
     grantProjectPermission(SARA, ACQ, "repos.manage" as never);
     expect(await projectSettings.updateRepository("repo-acq", { testCommand: "x" })).toEqual({
       ok: true,
+      warnings: [],
     });
   });
 });
@@ -402,6 +404,7 @@ describe("il webhook git", () => {
       ok: true,
       state: "configured",
       updated: false,
+      detail: null,
     });
     expect(repo("repo-acq").webhook!.state).toBe("configured");
     expect(repo("repo-acq").webhook!.configuredAt).not.toBeNull();
@@ -411,6 +414,7 @@ describe("il webhook git", () => {
       ok: true,
       state: "configured",
       updated: true,
+      detail: null,
     });
     const voices = entries("repository.webhook_configured");
     expect(voices.map((v) => [v.before, v.after])).toEqual([
@@ -426,6 +430,7 @@ describe("il webhook git", () => {
       ok: true,
       state: "failed",
       updated: false,
+      detail: null,
     });
     expect(
       (await projectSettings.listProjectRepositories(ACQ))!.repositories[0]!.webhook.state,
@@ -514,7 +519,7 @@ describe("senza git_accounts.manage (la regola del server: scegliere un account 
     expect(await projectSettings.updateRepository(r.id, { reviewGitAccountId: GITHUB })).toEqual({ ok: false, error: "forbidden" });
     expect(
       await projectSettings.updateRepository(r.id, { gitAccountId: r.gitAccount?.id, reviewGitAccountId: r.reviewAccount?.id ?? null, testCommand: "pnpm test:ci" }),
-    ).toEqual({ ok: true });
+    ).toEqual({ ok: true, warnings: [] });
     expect(repo(r.id).testCommand).toBe("pnpm test:ci");
   });
 });
