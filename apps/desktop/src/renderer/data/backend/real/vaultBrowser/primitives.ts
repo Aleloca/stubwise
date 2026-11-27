@@ -37,6 +37,15 @@ const removeListener = uncurry(EventTarget.prototype.removeEventListener);
 const Channel = typeof BroadcastChannel !== "undefined" ? BroadcastChannel : null;
 const postToChannel = Channel ? uncurry(Channel.prototype.postMessage) : null;
 const realFetch = globalThis.fetch;
+// Trusted Types (revisione I-4): la politica del worker si crea con il
+// `createPolicy` del primo import.
+type TrustedTypesFactory = {
+  createPolicy: (name: string, rules: { createScriptURL: (input: string) => string }) => {
+    createScriptURL: (input: string) => unknown;
+  };
+};
+const trustedTypes = (globalThis as { trustedTypes?: TrustedTypesFactory }).trustedTypes;
+const createPolicy = trustedTypes ? uncurry(trustedTypes.createPolicy) : null;
 const isView = ArrayBuffer.isView;
 
 export const primitives = Object.freeze({
@@ -59,8 +68,21 @@ export const primitives = Object.freeze({
     isView(source)
       ? (sliceBuffer(source.buffer, source.byteOffset, source.byteOffset + source.byteLength) as ArrayBuffer)
       : (sliceBuffer(source, 0) as ArrayBuffer),
-  /** Un worker del bundle, col costruttore del primo import. */
-  newWorker: (url: URL, options: WorkerOptions): Worker | null => (WorkerCtor ? new WorkerCtor(url, options) : null),
+  /**
+   * Un worker del bundle, col costruttore del primo import. Con i Trusted
+   * Types (I-4) l'URL passa da una politica che accetta SOLO quell'URL.
+   */
+  newWorker: (url: string, options: WorkerOptions): Worker | null => {
+    if (!WorkerCtor) return null;
+    if (!createPolicy || !trustedTypes) return new WorkerCtor(url, options);
+    const policy = createPolicy(trustedTypes, "stubwise-vault-worker", {
+      createScriptURL: (input) => {
+        if (input !== url) throw new TypeError("vault_worker_url");
+        return input;
+      },
+    });
+    return new WorkerCtor(policy.createScriptURL(url) as unknown as string, options);
+  },
   postToWorker: (worker: Worker, message: unknown, transfer: Transferable[]): void => {
     if (postToWorker) postToWorker(worker, message, transfer);
     else worker.postMessage(message, transfer);

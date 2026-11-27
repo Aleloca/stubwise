@@ -34,8 +34,17 @@ function attach(next: Worker): void {
 /** Al boot: il worker dal file del bundle. Senza `Worker` (un browser senza) la cassaforte non si apre. */
 export function startVaultWorker(): void {
   if (worker) return;
-  const w = primitives.newWorker(new URL(workerUrl, window.location.href), { type: "module", name: "stubwise-vault-worker" });
-  if (w) attach(w);
+  // Un worker che non nasce non spegne l'app: la cassaforte risulta non
+  // disponibile (`worker_unavailable`), il resto gira.
+  try {
+    const w = primitives.newWorker(new URL(workerUrl, window.location.href).href, {
+      type: "module",
+      name: "stubwise-vault-worker",
+    });
+    if (w) attach(w);
+  } catch {
+    worker = null;
+  }
 }
 
 /** Una richiesta al worker; `transfer` passa la proprietà dei buffer (la PRF). */

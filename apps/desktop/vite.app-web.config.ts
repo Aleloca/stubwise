@@ -27,7 +27,11 @@ export default defineConfig({
       transformIndexHtml: () => [
         {
           tag: "meta",
-          attrs: { "http-equiv": "Content-Security-Policy", content: PRODUCTION_CSP },
+          // Revisione I-4 (§2.3): Trusted Types, e il worker della cassaforte dal bundle.
+          attrs: {
+            "http-equiv": "Content-Security-Policy",
+            content: `${PRODUCTION_CSP}; require-trusted-types-for 'script'; worker-src 'self'`,
+          },
           injectTo: "head-prepend",
         },
       ],
