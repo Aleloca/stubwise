@@ -1,4 +1,4 @@
-import { createHmac, randomBytes } from "node:crypto";
+import { createHmac, hkdfSync, randomBytes } from "node:crypto";
 import { and, asc, count, desc, eq, gt, isNull, lte, ne, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -239,10 +239,24 @@ const credentialsSchema = z.object({
  * del server, con un prefisso di dominio: stabile per la sessione, diversa a
  * ogni login, e dall'etichetta non si risale all'id (che è la credenziale).
  * Un PAT o il token della chat non hanno una sessione del cookie: `null`.
+ *
+ * La chiave dell'HMAC è una SOTTOCHIAVE HKDF della chiave di cifratura, con
+ * un `info` suo (seconda revisione di sicurezza, m-5): la chiave che cifra i
+ * segreti del server non firma anche un valore che esce verso il client.
  */
+const sessionTagKeys = new WeakMap<Buffer, Buffer>();
+function sessionTagKey(key: Buffer): Buffer {
+  let sub = sessionTagKeys.get(key);
+  if (!sub) {
+    sub = Buffer.from(hkdfSync("sha256", key, Buffer.alloc(0), "stubwise:session-tag:v1", 32));
+    sessionTagKeys.set(key, sub);
+  }
+  return sub;
+}
+
 function sessionTagOf(key: Buffer, user: { sessionId?: string; patId?: string }): string | null {
   if (!user.sessionId || user.patId !== undefined) return null;
-  return createHmac("sha256", key).update(`stubwise:session-tag:v1:${user.sessionId}`).digest("base64url").slice(0, 32);
+  return createHmac("sha256", sessionTagKey(key)).update(`stubwise:session-tag:v1:${user.sessionId}`).digest("base64url").slice(0, 32);
 }
 
 export async function authRoutes(

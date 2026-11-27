@@ -1,4 +1,4 @@
-import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
+import { createHmac, generateKeyPairSync, hkdfSync, randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { eq, sql } from "drizzle-orm";
 import { generateSync } from "otplib";
@@ -723,6 +723,18 @@ describe("sessionTag di GET /api/auth/me (cassaforte nel browser, I-3)", () => {
     const [row] = await testDb.db.select({ id: sessions.id }).from(sessions).where(eq(sessions.userId, user.id)).limit(1);
     expect(tag).not.toContain(row!.id);
     expect((await me(pat)).sessionTag ?? null).toBeNull();
+  });
+
+  it("m-5: l'HMAC usa una SOTTOCHIAVE HKDF dedicata, mai la chiave di cifratura stessa", async () => {
+    const user = await createUserWithTotp();
+    const cookie = await sessionAged(user.id, 0);
+    const tag = ((await app.inject({ method: "GET", url: "/api/auth/me", headers: { cookie } })).json() as { sessionTag: string }).sessionTag;
+    const [row] = await testDb.db.select({ id: sessions.id }).from(sessions).where(eq(sessions.userId, user.id)).limit(1);
+    const key = (app as unknown as { encryptionKey: Buffer }).encryptionKey;
+    const message = `stubwise:session-tag:v1:${row!.id}`;
+    const subkey = Buffer.from(hkdfSync("sha256", key, Buffer.alloc(0), "stubwise:session-tag:v1", 32));
+    expect(tag).toBe(createHmac("sha256", subkey).update(message).digest("base64url").slice(0, 32));
+    expect(tag).not.toBe(createHmac("sha256", key).update(message).digest("base64url").slice(0, 32));
   });
 });
 

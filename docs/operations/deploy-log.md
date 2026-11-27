@@ -7418,6 +7418,12 @@ deploy o di un rollback che la tocca.
     `vaultUnlockedAt` della sola sessione che chiama (204, idempotente; da
     un PAT nessun effetto). La chiama il worker della cassaforte di `/app`
     a ogni chiusura, best-effort.
+  - **m-5, server**: il `sessionTag` di `GET /api/auth/me` è un HMAC con una
+    SOTTOCHIAVE HKDF della chiave di cifratura (`info`
+    `stubwise:session-tag:v1`), non con la chiave stessa. Al deploy tutte le
+    etichette cambiano UNA volta: una cassaforte aperta in `/app` in quel
+    momento si richiude al primo Show (la sessione resta), e si riapre con
+    la passkey.
   - **m-7, caddy**: 403 a ogni richiesta con `Service-Worker: script`, nel
     primo `handle` del sito: sull'origine non si registra nessun Service
     Worker.
