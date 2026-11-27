@@ -4,7 +4,8 @@ import { join } from "node:path";
 import {
   calendarEvents as calendarEventsTable,
   googleAccounts,
-  projectMembers,
+  projectAccess,
+  projectAccessRowCounts,
   projects,
   users,
   type CalendarProjectGuess,
@@ -109,7 +110,11 @@ export async function attendeeProjects(
   const ids = [...new Set([...people.values()].filter((id) => id !== ownerUserId))];
   const projectsOf = new Map<string, string[]>();
   if (ids.length > 0) {
-    for (const row of await db.select({ userId: projectMembers.userId, projectId: projectMembers.projectId }).from(projectMembers).where(inArray(projectMembers.userId, ids))) {
+    // Membri espliciti e persone di workspace (0238, D17).
+    for (const row of await db
+      .selectDistinct({ userId: projectAccess.userId, projectId: projectAccess.projectId })
+      .from(projectAccess)
+      .where(and(inArray(projectAccess.userId, ids), projectAccessRowCounts))) {
       projectsOf.set(row.userId, [...(projectsOf.get(row.userId) ?? []), row.projectId]);
     }
   }
