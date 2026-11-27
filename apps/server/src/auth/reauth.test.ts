@@ -617,6 +617,23 @@ describe("riconferma con passkey", () => {
     expect((await post("/api/pats", { cookie }, { name: "x" })).statusCode).toBe(201);
   });
 
+  it("m-2: togliere un Mac (il proprio, o d'altri da un full admin) vuole la riconferma NORMALE, non lo sblocco: è un passo della procedura d'incidente", async () => {
+    // Un login fresco, nessuno sblocco: si arriva al 404 di dominio (nessun sigillo con quell'id), non a 403.
+    const cookie = await sessionAged(adminId, 0);
+    const own = await app.inject({ method: "DELETE", url: `/api/vault/device-seals/${randomUUID()}`, headers: { cookie } });
+    expect(own.statusCode).toBe(404);
+    const other = await app.inject({
+      method: "DELETE",
+      url: `/api/vault/users/${randomUUID()}/device-seals/${randomUUID()}`,
+      headers: { cookie },
+    });
+    expect(other.statusCode).toBe(404);
+    // Senza un secondo fattore recente, invece, la riconferma normale.
+    const stale = await sessionAged(adminId, 11 * 60_000);
+    const late = await app.inject({ method: "DELETE", url: `/api/vault/device-seals/${randomUUID()}`, headers: { cookie: stale } });
+    expect([late.statusCode, late.json().code]).toEqual([403, "reauth_required"]);
+  });
+
   it("I6 (indurimento): lo sblocco della cassaforte (purpose vault) NON apre le altre riconferme, solo le rotte della cassaforte", async () => {
     const user = await createUserWithTotp();
     const authenticator = new SoftAuthenticator(RP);

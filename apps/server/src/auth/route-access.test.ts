@@ -209,8 +209,9 @@ describe("rotte con riconferma recente", () => {
       "DELETE /api/users/:id/second-factor",
       "DELETE /api/users/:id/slack",
       // Lotto 10: togliere un Mac dalla cassaforte (il proprio, o di un altro da un full admin).
-      "DELETE /api/vault/device-seals/:id (vault)",
-      "DELETE /api/vault/users/:userId/device-seals/:id (vault)",
+      // m-2: la riconferma normale (non usa la chiave, procedura d'incidente).
+      "DELETE /api/vault/device-seals/:id",
+      "DELETE /api/vault/users/:userId/device-seals/:id",
       "PATCH /api/roles/:id",
       "PATCH /api/users/:id/email",
       "PATCH /api/users/:id/instance-role",

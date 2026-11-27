@@ -905,11 +905,16 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
    * cassaforte è aperta, quindi il Touch ID è passato; la riconferma dice che
    * è la persona). Il proprio sigillo il Mac lo toglie con `DELETE .../mine`
    * (409 `use_mine`). Un Mac di un'altra persona → 404.
+   *
+   * Dal browser la riconferma NORMALE, non lo sblocco (seconda revisione di
+   * sicurezza della cassaforte nel browser, m-2): togliere un sigillo non
+   * usa la chiave ed è un passo della procedura d'incidente, che deve
+   * riuscire anche a chi non può o non vuole aprire la cassaforte.
    */
   app.delete(
     "/device-seals/:id",
     {
-      config: { access: { kind: "user" }, reauth: "vault", desktopVault: true },
+      config: { access: { kind: "user" }, reauth: true, desktopVault: true },
       schema: {
         params: z.object({ id: z.uuid() }),
         // Dal browser il corpo non serve; dal Mac `actorProof` è obbligatorio (sotto).
@@ -963,11 +968,15 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
-  /** Un full admin toglie il Mac di un'altra persona (Mac perso): il solo sigillo, registro e avviso (D-6). */
+  /**
+   * Un full admin toglie il Mac di un'altra persona (Mac perso): il solo
+   * sigillo, registro e avviso (D-6). La riconferma normale (m-2): non usa
+   * la chiave, ed è un passo della procedura d'incidente.
+   */
   app.delete(
     "/users/:userId/device-seals/:id",
     {
-      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: "vault" },
+      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
       schema: {
         params: z.object({ userId: z.uuid(), id: z.uuid() }),
         response: { 204: z.null(), ...errorResponses },
