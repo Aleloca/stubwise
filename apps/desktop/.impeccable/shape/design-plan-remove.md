@@ -1,0 +1,47 @@
+# Shape brief — Togliere design e piano da task e richieste
+
+> Stato: **bozza con domande**, 27 nov 2026 (94), per il ritiro del web
+> vecchio (inventario `docs/plans/2026-11-27-ritiro-web-inventario.md`, r.88-89).
+> Le rotte ci sono: `DELETE /api/tickets/:id/design|plan` e
+> `DELETE /api/backlog/:id/design|plan`.
+
+## Cosa c'è oggi nel prototipo
+
+- **Richiesta** (`RequestDetail`): le sezioni DESIGN e PLAN compaiono quando
+  ci sono, in sola lettura (r.527-541). Le scrive il refine con Claude.
+- **Task**: design e piano non ci sono affatto, né nel modello (`Task`) né
+  nella pagina. Il piano di un run si legge nella conversazione di Claude
+  (`PlanCard`). Però il server tiene `tickets.design` e `tickets.plan`, che si
+  scrivono con l'MCP (`set_design`, `set_plan`) e con la conversione da
+  richiesta. Il run li usa: con un piano salvato, Claude non pianifica da sé.
+  Nel web vecchio stanno sulla pagina del ticket, ciascuno col suo «Remove».
+
+## Direzione proposta
+
+- **Richiesta:** un «⋯» nell'intestazione di DESIGN e di PLAN, con
+  «Remove design…» e «Remove plan…». Lo vede solo chi ha `backlog.edit`.
+  Il dialogo dice la conseguenza in una riga: «The design goes away. A
+  refine with Claude can write it again.». Poi **Remove** e **Cancel**.
+  Dopo, la sezione sparisce e compare il toast «Design removed».
+- **Task** **[DP 2]:** due sezioni DESIGN e PLAN, chiuse di default, sotto la
+  descrizione. Compaiono solo quando ci sono. Hanno lo stesso «⋯ Remove…».
+  Per il piano, la riga del dialogo dice: «The next run plans on its own,
+  and the plan goes to approval again.».
+
+## Domande
+
+Ognuna ha la mia raccomandazione per prima.
+
+- **DP-Q1. Sulla richiesta:** «Remove» nel «⋯» dell'intestazione della
+  sezione, con un dialogo di conferma.
+  - *Alternativa:* un bottone sempre visibile.
+- **DP-Q2. Sulla task, dove il prototipo non mostra design e piano:**
+  - *Raccomandato:* aggiungere le due sezioni (lettura + Remove), perché il
+    server le tiene, il run le usa e il web vecchio le mostra. La nuova app lo
+    sostituisce, quindi senza queste sezioni un piano salvato sarebbe
+    invisibile.
+  - *Alternativa:* solo «Remove» nel «⋯» della task, senza mostrarle.
+    Sconsigliato: si toglierebbe qualcosa che non si vede.
+- **DP-Q3. Chi sulla task:**
+  - *Raccomandato:* chi può modificare la task, cioè gli stessi permessi del
+    server sulla rotta, letti dal livello dati.

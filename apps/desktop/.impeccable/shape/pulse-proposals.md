@@ -1,10 +1,11 @@
 # Shape brief — Le proposte del polso nella nuova app
 
-> Stato: **bozza con domande**, 27 nov 2026 (94), per il ritiro del web
+> Stato: **decisa**, 27 nov 2026 (94; decisioni del maintainer e di 46 in
+> fondo), per il ritiro del web
 > vecchio (inventario `docs/plans/2026-11-27-ritiro-web-inventario.md`, 1.4).
 > Il prototipo non pubblica proposte del polso: il pulse è del worker. Il
 > commento di `data/claude/suggestions.ts` lo dice, e nessuna shape le
-> descrive. Questa shape colma il vuoto; il codice viene dopo le risposte.
+> descrive. Questa shape colma il vuoto.
 
 **Superficie**:
 - la card `project.pulse` nel pannello delle notifiche (`NotificationItem`);
@@ -87,7 +88,17 @@ backlog in task e lancia il run con l'approvazione del piano.
   piano. È l'unico posto dove il prototipo la pubblica.
 - Testi en/it.
 
-## Domande per il maintainer
+## Decisioni (27 nov 2026)
+
+- **PP-Q1** (maintainer): si decide nel pannello delle notifiche **e** nella
+  Home, blocco Decide.
+- **PP-Q2** (maintainer): «Not now» archivia soltanto; il polso ripropone al
+  giro successivo se il progetto è ancora fermo.
+- **PP-Q3** (46): niente istruzione libera prima di Start nel primo giro.
+- **PP-Q4** (46): chi non ha `runs.start` vede la card in sola lettura nel
+  pannello, con «Who?»; in Decide non compare.
+
+## Le domande com'erano
 
 Ognuna ha la mia raccomandazione per prima.
 
