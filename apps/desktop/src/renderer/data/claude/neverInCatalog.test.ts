@@ -138,6 +138,15 @@ function forbiddenIn(source: string): string[] {
   // Ogni funzione dei server (`api.servers.*`, il modulo `data/servers`).
   if (/\bservers\s*\.\s*\w+/.test(code) || /from\s+["'][^"']*\/servers\//.test(source))
     hits.push("servers.*");
+  // La cassaforte (design della cassaforte nel browser §2.9, M6): Claude non
+  // la tocca. Nessuna funzione `vault.*`, nessun import del suo livello dati
+  // (`data/vault`, `vaultBrowser/`, `vaultDesktop`, `vaultReads`).
+  if (
+    /\bvault\s*\.\s*\w+/.test(code) ||
+    /from\s+["'][^"']*\/(vault\/|vaultBrowser\/|vaultDesktop|vaultReads|backend\/vault)/.test(source) ||
+    /from\s+["']@backend\/vault["']/.test(source)
+  )
+    hits.push("vault.*");
   return [...new Set(hits)];
 }
 
@@ -169,6 +178,9 @@ describe("il catalogo non nomina mai i gesti delle persone", () => {
     expect(forbiddenIn("const fn = api.automations.publish;")).toEqual(["publish"]);
     expect(forbiddenIn("x.replaceGitToken(id, t);")).toContain("replaceGitToken");
     expect(forbiddenIn("void api.servers.restart(id);")).toEqual(["servers.*"]);
+    expect(forbiddenIn("await api.vault.show(id);")).toEqual(["vault.*"]);
+    expect(forbiddenIn('import { use } from "../backend/real/vaultBrowser/key";')).toEqual(["vault.*"]);
+    expect(forbiddenIn('import * as v from "../vault/index";')).toEqual(["vault.*"]);
     // Le parole non contano.
     expect(forbiddenIn("// poi mergePr(pr) lo fa la persona")).toEqual([]);
     expect(forbiddenIn("/* recordDecision( */ const a = 1;")).toEqual([]);
