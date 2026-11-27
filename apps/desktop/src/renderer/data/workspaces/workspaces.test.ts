@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { access, resetApi, setLatency, workspaces } from "../api";
+import { access, admin, auth, listNotifications, resetApi, setLatency, workspaces } from "../api";
 import { accessState, isMember, roleIdOf, writeAccess } from "../access/index";
 import { markReauthenticated } from "../auth/reauth";
 import { setSessionPersonId } from "../session";
@@ -148,8 +148,19 @@ describe("le scritture", () => {
     await refused(() => workspaceSet(notHers, STORICI), { error: "forbidden" });
     // Uno che non vede nemmeno: per lei non esiste (R-G5).
     await refused(() => workspaceSet("prj-spz", null), { error: "not_found" });
-    // Developer in tutti i progetti della workspace: in SPZ, LNT e BSC non ha quei permessi.
-    await refused(() => workspaces.addWorkspaceMember(STORICI, "p-irene", roleIdOf("developer")), {
+    // D4: le persone vogliono anche la gestione dei membri in OGNI progetto della
+    // workspace, e in SPZ, LNT e BSC Giulia non ce l'ha.
+    await refused(() => workspaces.addWorkspaceMember(STORICI, "p-irene"), { error: "forbidden" });
+    // Con la gestione dei membri dappertutto (Viewer + il permesso dato a mano),
+    // Developer resta oltre ciò che ha in SPZ, LNT e BSC: escalation.
+    writeAccess((a) => {
+      for (const projectId of ["prj-spz", "prj-lnt", "prj-bsc"]) {
+        a.memberships.push({ personId: GIULIA, projectId, roleId: roleIdOf("viewer") });
+        a.grants.push({ personId: GIULIA, projectId, permission: "project.members.manage", grantedById: null, at: "2026-11-27T09:00:00Z" });
+      }
+    });
+    expect(await workspaces.addWorkspaceMember(STORICI, "p-irene")).toEqual({ ok: true });
+    await refused(() => workspaces.setWorkspaceMemberRole(STORICI, "p-irene", roleIdOf("developer")), {
       error: "escalation",
     });
   });
@@ -239,5 +250,62 @@ describe("Who can? dice da dove si vede un progetto [WS 3]", () => {
       workspaceName: "Clienti storici",
     });
     expect(await access.whatCan("p-marco", "prj-mkx")).toMatchObject({ workspaceName: null });
+  });
+});
+
+describe("l'invito di Amministrazione con una workspace (D9)", () => {
+  it("le scelte hanno le workspace con Viewer di base; chi accetta entra nella workspace e ne vede i progetti", async () => {
+    as(ROBERTA);
+    markReauthenticated(ROBERTA);
+    const choices = await admin.getInviteChoices();
+    const storici = choices.workspaces!.find((w) => w.workspaceId === STORICI)!;
+    expect(storici.defaultRoleId).toBe(roleIdOf("viewer"));
+    const made = (await admin.createInvite({
+      email: "nuova.persona@example.com",
+      instanceRoleId: roleIdOf("user"),
+      projects: [],
+      workspaces: [{ workspaceId: STORICI, roleId: storici.defaultRoleId }],
+    })) as { ok: true; link: string };
+    expect(made.ok).toBe(true);
+    const result = (await auth.register(made.link, { name: "Nuova Persona", password: "a-long-one" })) as {
+      ok: true;
+      personId: string;
+    };
+    expect(result.ok).toBe(true);
+    const id = accessState().people.at(-1)!.personId;
+    expect(accessState().workspaceMembers).toContainEqual({ workspaceId: STORICI, personId: id, roleId: roleIdOf("viewer") });
+    expect(visibleProjectIds(id).has("prj-ort")).toBe(true);
+  });
+
+  it("senza `workspaces.manage` le scelte non hanno workspace, e un invito con una workspace si rifiuta", async () => {
+    grantInstancePermission(GIULIA, "users.invite");
+    as(GIULIA);
+    markReauthenticated(GIULIA);
+    expect((await admin.getInviteChoices()).workspaces).toEqual([]);
+    expect(
+      await admin.createInvite({
+        email: "altra@example.com",
+        instanceRoleId: roleIdOf("user"),
+        projects: [],
+        workspaces: [{ workspaceId: STORICI, roleId: roleIdOf("viewer") }],
+      }),
+    ).toMatchObject({ ok: false, error: "forbidden" });
+  });
+});
+
+describe("D13: chi entra in una workspace riceve la card", () => {
+  it("una card member.added che nomina la workspace e apre la pagina filtrata; a chi agisce niente; un progetto aggiunto non manda card", async () => {
+    as(ROBERTA);
+    markReauthenticated(ROBERTA);
+    expect(await workspaces.addWorkspaceMember(STORICI, "p-irene")).toEqual({ ok: true });
+    as("p-irene");
+    const cards = (await listNotifications()).filter((n) => n.kind === "member.added" && n.workspaceName);
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({ workspaceName: "Clienti storici", roleName: "Viewer", link: "#/projects?workspace=clienti-storici" });
+    as(ROBERTA);
+    expect((await listNotifications()).filter((n) => n.kind === "member.added" && n.workspaceName)).toEqual([]);
+    expect(await workspaces.setProjectWorkspace("prj-mkx", STORICI)).toEqual({ ok: true });
+    as("p-irene");
+    expect((await listNotifications()).filter((n) => n.kind === "member.added")).toHaveLength(1);
   });
 });

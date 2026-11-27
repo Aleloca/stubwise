@@ -252,3 +252,20 @@ describe("La pagina della persona", () => {
     expect(roles.some((r) => /· also Developer from Clienti storici$/.test(r ?? ""))).toBe(true);
   });
 });
+
+describe("«Invite someone new to the instance»", () => {
+  it("dalla workspace apre l'invito di Amministrazione con la workspace già aggiunta, da Viewer", async () => {
+    const user = userEvent.setup();
+    renderRoute("/projects?workspace=clienti-storici&view=people", ROBERTA);
+    await user.click(await screen.findByRole("button", { name: "Invite to Clienti storici" }));
+    const first = await screen.findByRole("dialog", { name: "Invite to Clienti storici" });
+    await user.click(within(first).getByRole("button", { name: "Invite someone new to the instance" }));
+    const part = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>("[data-invite-workspaces]");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(part).toHaveTextContent("Clienti storici");
+    expect(within(part).getByRole("button", { name: /Role in Clienti storici/ })).toHaveTextContent("Viewer");
+  });
+});

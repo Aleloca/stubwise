@@ -48,11 +48,9 @@ const EXPECTED_REAUTH: readonly ApiFnName[] = [
   "admin.saveMember",
   // Le workspace (shape workspaces.md, D11): ogni scrittura che apre o chiude un accesso.
   "workspaces.create",
-  "workspaces.delete",
   "workspaces.setProjectWorkspace",
   "workspaces.addMember",
   "workspaces.setMemberRole",
-  "workspaces.removeMember",
   // Task 5: le Preferenze personali (Sicurezza, Token, Claude Code)
   "me.startTotpSetup",
   "me.addPasskey",

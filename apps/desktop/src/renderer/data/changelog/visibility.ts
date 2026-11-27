@@ -23,6 +23,8 @@ export const GROUP_ORDER: readonly string[] = [
   "roles",
   "members",
   "departments",
+  // Le workspace (shape workspaces.md): accanto ai reparti, l'altro raggruppamento.
+  "workspaces",
   "security",
   "ai",
   "integrations",

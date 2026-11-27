@@ -22,7 +22,8 @@ import {
   statusOf,
 } from "../admin/common";
 import { recordChange } from "../changelog/index";
-import { archivedProjectIdsFor, gate, newId, now, state, visibleProjectIds } from "../store";
+import { currentVia, silencedByUndo } from "../claude/via";
+import { archivedProjectIdsFor, gate, newId, nextSeq, now, state, visibleProjectIds } from "../store";
 import { writer } from "../writer";
 import "./changeTypes";
 import type {
@@ -58,6 +59,21 @@ export type * from "./types";
 
 const MANAGE = "workspaces.manage";
 const MEMBERS_MANAGE = "project.members.manage";
+
+/**
+ * D4 alla lettera (decisione confermata da 46, 27 nov 2026): invitare,
+ * cambiare ruolo e togliere persone vuole `workspaces.manage` PIÙ
+ * `project.members.manage` in OGNI progetto della workspace (e
+ * l'anti-escalation, nella scrittura); una workspace vuota, il solo
+ * `workspaces.manage`. Il server ha la stessa regola (`canManagePeople`).
+ */
+function canManagePeople(me: string, workspaceId: string): boolean {
+  if (!canI(me, MANAGE)) return false;
+  return projectsIn(accessState(), workspaceId).every((p) => canI(me, MEMBERS_MANAGE, p));
+}
+
+const isPeopleOp = (op: WorkspaceOperation): op is Extract<WorkspaceOperation, { kind: "addMember" | "setMemberRole" | "removeMember" }> =>
+  op.kind === "addMember" || op.kind === "setMemberRole" || op.kind === "removeMember";
 
 const projectOf = (projectId: string) => state.projectsById.get(projectId);
 const codeOf = (projectId: string): string => projectOf(projectId)?.code ?? "";
@@ -152,6 +168,7 @@ export async function getWorkspace(slug: string): Promise<WorkspaceView> {
     projectIds: projectsIn(s, ws.id).filter((p) => seen.has(p)),
     peopleCount: s.workspaceMembers.filter((m) => m.workspaceId === ws.id).length,
     canManage: canI(me, MANAGE),
+    canManagePeople: canManagePeople(me, ws.id),
   };
 }
 
@@ -204,7 +221,6 @@ export async function listWorkspaceMembers(workspaceId: string): Promise<Workspa
   const s = accessState();
   const seen = seenProjectIds(me);
   const projectIds = projectsIn(s, workspaceId).filter((p) => seen.has(p));
-  const canManage = canI(me, MANAGE);
   const members: WorkspaceMemberRow[] = s.workspaceMembers
     .filter((m) => m.workspaceId === workspaceId && isHumanId(m.personId))
     .map((m) => {
@@ -237,7 +253,7 @@ export async function listWorkspaceMembers(workspaceId: string): Promise<Workspa
   return {
     workspaceId,
     members,
-    canManage,
+    canManage: canManagePeople(me, workspaceId),
     roleChoices: s.roles
       .filter((r) => r.scope === "project")
       .map((r) => {
@@ -415,7 +431,7 @@ function refusalOf(effect: WorkspaceEffect): AdminRefusal | null {
  */
 export async function previewWorkspace(op: WorkspaceOperation): Promise<WorkspaceEffect> {
   const me = await gate("workspaces.preview");
-  if (!canI(me, MANAGE)) throw new Error("forbidden");
+  if (!(isPeopleOp(op) ? canManagePeople(me, op.workspaceId) : canI(me, MANAGE))) throw new Error("forbidden");
   const blocked = targetRefusal(me, op);
   if (blocked) throw new Error(blocked.error === "invalid" ? blocked.reason : blocked.error);
   return effectOf(me, op);
@@ -449,13 +465,7 @@ function targetRefusal(me: string, op: WorkspaceOperation): AdminRefusal | null 
 
 // --- le scritture -----------------------------------------------------------
 
-type Fn =
-  | "workspaces.create"
-  | "workspaces.delete"
-  | "workspaces.setProjectWorkspace"
-  | "workspaces.addMember"
-  | "workspaces.setMemberRole"
-  | "workspaces.removeMember";
+type Fn = "workspaces.create" | "workspaces.setProjectWorkspace" | "workspaces.addMember" | "workspaces.setMemberRole";
 
 /**
  * Il percorso comune: permesso, bersaglio, effetto, riconferma, scrittura.
@@ -463,16 +473,18 @@ type Fn =
  */
 function judgeAndWrite(
   me: string,
-  fn: Fn,
+  fn: Fn | null,
   op: WorkspaceOperation,
   write: (s: AccessState) => void,
 ): AdminResult {
-  if (!canI(me, MANAGE)) return refuse.forbidden();
+  if (!(isPeopleOp(op) ? canManagePeople(me, op.workspaceId) : canI(me, MANAGE))) return refuse.forbidden();
   const target = targetRefusal(me, op);
   if (target) return target;
   const refusal = refusalOf(effectOf(me, op));
   if (refusal) return refusal;
-  const reauth = reauthRefusal(me, fn);
+  // Come sul server: la riconferma la chiedono le scritture che APRONO un
+  // accesso (D11, i PUT); togliere un progetto, una persona o la workspace no.
+  const reauth = fn ? reauthRefusal(me, fn) : null;
   if (reauth) return reauth;
   writeAccess(write);
   return { ok: true };
@@ -551,7 +563,7 @@ export async function deleteWorkspace(workspaceId: string): Promise<AdminResult>
   const me = await writer("workspaces.delete");
   const object = workspaceLabel(workspaceId);
   const op: WorkspaceOperation = { kind: "delete", workspaceId };
-  const result = judgeAndWrite(me, "workspaces.delete", op, (a) => applyOperation(a, op));
+  const result = judgeAndWrite(me, null, op, (a) => applyOperation(a, op));
   if (result.ok) recordChange({ kind: "workspace.deleted", actorId: me, projectId: null, object });
   return result;
 }
@@ -576,13 +588,26 @@ export async function setProjectWorkspace(
   projectId: string,
   workspaceId: string | null,
 ): Promise<AdminResult> {
-  const me = await writer("workspaces.setProjectWorkspace");
+  return setProjectWorkspaceAs(await writer("workspaces.setProjectWorkspace"), projectId, workspaceId);
+}
+
+/** La forma sincrona per chi ha già passato il cancello (il catalogo di Claude, D14). */
+export function setProjectWorkspaceAs(
+  me: string,
+  projectId: string,
+  workspaceId: string | null,
+): AdminResult {
   const s = accessState();
   const current = s.workspaceProjects.find((w) => w.projectId === projectId)?.workspaceId ?? null;
   if (current === workspaceId) return refuse.invalid("unchanged");
   const op: WorkspaceOperation =
     workspaceId === null ? { kind: "removeProject", projectId } : { kind: "addProject", workspaceId, projectId };
-  const result = judgeAndWrite(me, "workspaces.setProjectWorkspace", op, (a) => applyOperation(a, op));
+  const result = judgeAndWrite(
+    me,
+    workspaceId === null ? null : "workspaces.setProjectWorkspace",
+    op,
+    (a) => applyOperation(a, op),
+  );
   if (result.ok) {
     if (current) recordProject(me, current, projectId, "workspace.project_removed");
     if (workspaceId) recordProject(me, workspaceId, projectId, "workspace.project_added");
@@ -607,9 +632,19 @@ export async function addWorkspaceMember(
   personId: string,
   roleId: string = roleIdOf("viewer"),
 ): Promise<AdminResult> {
-  const me = await writer("workspaces.addMember");
+  return addWorkspaceMemberAs(await writer("workspaces.addMember"), workspaceId, personId, roleId);
+}
+
+/** La forma sincrona per chi ha già passato il cancello (il catalogo di Claude, D14). */
+export function addWorkspaceMemberAs(
+  me: string,
+  workspaceId: string,
+  personId: string,
+  roleId: string = roleIdOf("viewer"),
+): AdminResult {
   const op: WorkspaceOperation = { kind: "addMember", workspaceId, personId, roleId };
   const result = judgeAndWrite(me, "workspaces.addMember", op, (a) => applyOperation(a, op));
+  if (result.ok) publishWorkspaceJoined(me, workspaceId, personId, roleId);
   if (result.ok) {
     recordChange({
       kind: "workspace.member_added",
@@ -656,7 +691,16 @@ export async function removeWorkspaceMember(
   personId: string,
   alsoFromProjects = false,
 ): Promise<AdminResult> {
-  const me = await writer("workspaces.removeMember");
+  return removeWorkspaceMemberAs(await writer("workspaces.removeMember"), workspaceId, personId, alsoFromProjects);
+}
+
+/** La forma sincrona per chi ha già passato il cancello (il catalogo di Claude, D14). */
+export function removeWorkspaceMemberAs(
+  me: string,
+  workspaceId: string,
+  personId: string,
+  alsoFromProjects = false,
+): AdminResult {
   const s = accessState();
   const m = s.workspaceMembers.find((x) => x.workspaceId === workspaceId && x.personId === personId);
   // D12 con la casella: le appartenenze per progetto che se ne vanno, coi loro ruoli (per `member.removed`).
@@ -667,7 +711,7 @@ export async function removeWorkspaceMember(
         .sort((a, b) => codeOf(a.projectId).localeCompare(codeOf(b.projectId)))
     : [];
   const op: WorkspaceOperation = { kind: "removeMember", workspaceId, personId, alsoFromProjects };
-  const result = judgeAndWrite(me, "workspaces.removeMember", op, (a) => applyOperation(a, op));
+  const result = judgeAndWrite(me, null, op, (a) => applyOperation(a, op));
   if (result.ok && m) {
     recordChange({
       kind: "workspace.member_removed",
@@ -716,4 +760,48 @@ export function workspacesForSearch(me: string): {
         .map((w) => [w.projectId, workspaceById(s, w.workspaceId)?.name ?? ""]),
     ),
   };
+}
+
+/**
+ * D13: chi ENTRA in una workspace riceve UNA card `member.added` (nessun kind
+ * nuovo: il rollback del server resta sicuro), con la workspace al posto del
+ * progetto e il link alla pagina filtrata. Solo alla persona; una workspace
+ * senza progetti aperti non manda card; un progetto aggiunto dopo neanche.
+ * Dentro un «Annulla» non si scrive.
+ */
+function publishWorkspaceJoined(me: string, workspaceId: string, personId: string, roleId: string) {
+  if (personId === me) return;
+  const via = currentVia();
+  if (silencedByUndo(via)) return;
+  const s = accessState();
+  const ws = workspaceById(s, workspaceId);
+  const open = projectsIn(s, workspaceId)
+    .map((p) => state.projectsById.get(p))
+    .filter((p) => p !== undefined && !p.archived)
+    .sort((a, b) => a!.code.localeCompare(b!.code));
+  if (!ws || open.length === 0) return;
+  const role = roleById(roleId)?.name ?? "";
+  state.notifications.push({
+    id: newId("n"),
+    kind: "member.added",
+    // La card segue la visibilità di un progetto della workspace.
+    projectId: open[0]!.id,
+    objectCode: ws.name,
+    departmentId: null,
+    recipientIds: [],
+    mandatory: [{ personId, reason: "added" }],
+    mandatoryOnly: true,
+    title: `You've been added to ${ws.name} as ${role}`,
+    body: `${nameOf(me) ?? ""} added you to ${ws.name} as ${role}.`,
+    createdAt: now(),
+    seq: nextSeq(),
+    read: false,
+    archived: false,
+    snoozedUntil: null,
+    link: `#/projects?workspace=${ws.slug}`,
+    actorId: me,
+    roleId,
+    workspaceId,
+    ...(via ? { viaClaude: { personId: me, actionId: via.actionId } } : {}),
+  });
 }

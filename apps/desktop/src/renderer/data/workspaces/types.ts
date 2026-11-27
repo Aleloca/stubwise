@@ -37,7 +37,10 @@ export interface WorkspaceView {
   projectIds: string[];
   /** Quante persone ne fanno parte (attive e no). */
   peopleCount: number;
+  /** La struttura: rinominare, eliminare, mettere progetti (`workspaces.manage`). */
   canManage: boolean;
+  /** Le persone: `project.members.manage` in ogni progetto; vuota, `workspaces.manage` (D4). */
+  canManagePeople: boolean;
 }
 
 /** Un ruolo di una persona in un progetto della workspace, con la sua fonte. */
