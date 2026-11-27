@@ -30,4 +30,3 @@ export {
   parseRecoveryKit,
   wrapRecoveryChallenge,
 } from "./recovery.js";
-export { useCrypto, type VaultCryptoProvider } from "./runtime.js";
