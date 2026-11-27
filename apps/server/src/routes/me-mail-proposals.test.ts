@@ -585,6 +585,92 @@ describe("le proposte di PRIMA in /proposals (una fonte sola)", () => {
     const [n] = await db.select().from(notifications).where(eq(notifications.id, card.id));
     expect(n!.status).toBe("handled");
   });
+
+  /**
+   * PRODUZIONE, 27 nov 2026: una proposta di prima ancora `proposed` la cui
+   * card è stata segnata gestita dall'inbox (archiviata, `handled_action`
+   * nullo come prima della 0186) senza decidere. La lista la dava aperta e
+   * la decisione la rifiutava (`already_handled`): la regola è UNA, la card
+   * chiusa chiude la proposta, e si deriva a lettura.
+   */
+  describe("la card gestita senza decisione chiude la proposta (produzione, 27 nov 2026)", () => {
+    const handledOn = new Date("2026-09-22T10:00:00Z");
+    async function archived(handledAction: "archive" | null = null) {
+      const seeded = await legacy();
+      const { eq } = await import("drizzle-orm");
+      await db
+        .update(notifications)
+        .set({ status: "handled", handledAt: handledOn, handledByUserId: seeded.ada.id, handledAction })
+        .where(eq(notifications.id, seeded.card.id));
+      return seeded;
+    }
+    const ids = async (headers: { cookie: string }, status: string) =>
+      ((await get(headers, `/api/me/mail/proposals?status=${status}`)).json() as { items: { id: string }[] }).items.map((i) => i.id);
+
+    it("non compare fra le aperte né fra le passate, e il dettaglio la dà chiusa", async () => {
+      const { ada, old } = await archived();
+      expect(await ids(ada.headers, "open")).not.toContain(old.id);
+      expect(await ids(ada.headers, "handed")).not.toContain(old.id);
+      const item = (await get(ada.headers, `/api/me/mail/proposals/${old.id}`)).json() as { status: string; canConfirm: boolean; canHand: boolean; canReassign: boolean; decidedAt: string | null };
+      expect(item).toMatchObject({ status: "ignored", canConfirm: false, canHand: false, canReassign: false, decidedAt: handledOn.toISOString() });
+    });
+
+    it("decisa, risponde already_handled con chi ha chiuso la card, e la riga resta com'è", async () => {
+      const { ada, old } = await archived();
+      const { eq } = await import("drizzle-orm");
+      const res = await app.inject({ method: "POST", url: `/api/me/mail/proposals/${old.id}/ignore`, headers: ada.headers, payload: {} });
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toMatchObject({ code: "already_handled", decidedBy: { userId: ada.id, name: "Ada" } });
+      const [row] = await db.select().from(emailProposals).where(eq(emailProposals.id, old.id));
+      expect(row!.status).toBe("proposed");
+    });
+
+    it("una card archiviata e poi ripristinata la riapre: lo stato si deriva, non si scrive", async () => {
+      const { ada, old, card } = await archived("archive");
+      const { eq } = await import("drizzle-orm");
+      expect(await ids(ada.headers, "open")).not.toContain(old.id);
+      await db.update(notifications).set({ status: "open", handledAt: null, handledByUserId: null, handledAction: null }).where(eq(notifications.id, card.id));
+      expect(await ids(ada.headers, "open")).toContain(old.id);
+    });
+
+    it("passata dal proprietario col servizio di prima: per lui è «handed», non aperta né da confermare", async () => {
+      const { ada, old, card } = await legacy();
+      const { eq } = await import("drizzle-orm");
+      await db.update(notifications).set({ status: "handled", handledAt: handledOn, handledByUserId: ada.id, handledAction: "decision" }).where(eq(notifications.id, card.id));
+      await db.insert(notifications).values({
+        userId: adminId,
+        kind: "google.proposal_handed",
+        projectId,
+        status: "open",
+        event: { kind: "google.proposal_handed", proposalId: old.id, source: "email", projectId, projectName: "Audin", projectUrl: "", handedBy: "ada", signal: "request", from: "Cliente", subject: "Export", question: "?", options: [], actions: [], sourceOptionIndices: [], recommendedIndex: 0, allowFreeText: false },
+      });
+      expect(await ids(ada.headers, "open")).not.toContain(old.id);
+      const item = (await get(ada.headers, `/api/me/mail/proposals/${old.id}`)).json() as { status: string; canConfirm: boolean; handedAt: string | null };
+      expect(item).toMatchObject({ status: "handed", canConfirm: false, handedAt: handledOn.toISOString() });
+    });
+
+    it("NEGATIVO, r.1414: nella lista delle conversazioni una proposta su un progetto che il titolare non vede non ne dà né id né nome, né conta", async () => {
+      const { ada, old } = await legacy();
+      const { eq } = await import("drizzle-orm");
+      const [hidden] = await db.insert(projects).values({ name: "Segreto", slug: `segreto-${randomUUID().slice(0, 6)}`, ingestionKey: randomUUID() }).returning();
+      await db.update(emailProposals).set({ projectId: hidden!.id }).where(eq(emailProposals.id, old.id));
+      const res = await get(ada.headers, "/api/me/mail/threads");
+      expect(res.statusCode).toBe(200);
+      const thread = (res.json() as { items: { threadId: string; openProposals: number; projectIds: string[]; projectNames: string[] }[] }).items.find((t) => t.threadId === "t-old")!;
+      expect(thread.projectIds).not.toContain(hidden!.id);
+      expect(thread.projectNames).not.toContain("Segreto");
+      expect(thread.openProposals).toBe(0);
+      expect(JSON.stringify(res.json())).not.toContain(hidden!.id);
+    });
+
+    it("il badge della conversazione non la conta più fra le aperte", async () => {
+      const { ada } = await archived();
+      const res = await get(ada.headers, "/api/me/mail/threads");
+      expect(res.statusCode).toBe(200);
+      const thread = (res.json() as { items: { threadId: string; openProposals: number }[] }).items.find((t) => t.threadId === "t-old");
+      expect(thread?.openProposals).toBe(0);
+    });
+  });
 });
 
 describe("Contributor: la guardia «cambiato nel frattempo» (review della seconda parte, b)", () => {
@@ -790,6 +876,22 @@ describe("F3b, task 7: le proposte del CALENDARIO in /proposals (col flag acceso
     }
     const listOff = ((await app.inject({ method: "GET", url: "/api/me/mail/proposals", headers: ada.headers })).json() as { items: { kind: string }[] }).items;
     expect(listOff.filter((i) => i.kind === "calendar")).toEqual([]);
+  });
+
+  it("produzione, 27 nov 2026: la card archiviata senza esito chiude la proposta, in lista e in decisione", async () => {
+    const { ada, ev, card } = await calendarProposal();
+    const { eq } = await import("drizzle-orm");
+    await db.update(notifications).set({ status: "handled", handledAt: new Date("2026-09-22T10:00:00Z"), handledByUserId: ada.id, handledAction: null }).where(eq(notifications.id, card.id));
+    const v2 = buildApp({ db, sessionSecret: "segreto-di-test-lungo-almeno-32-caratteri!!", mailClassifyV2: true });
+    try {
+      const open = ((await v2.inject({ method: "GET", url: "/api/me/mail/proposals?status=open", headers: ada.headers })).json() as { items: { id: string }[] }).items;
+      expect(open.map((i) => i.id)).not.toContain(ev.id);
+      const res = await v2.inject({ method: "POST", url: `/api/me/mail/proposals/${ev.id}/ignore`, headers: ada.headers, payload: {} });
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toMatchObject({ code: "already_handled", decidedBy: { userId: ada.id } });
+    } finally {
+      await v2.close();
+    }
   });
 });
 

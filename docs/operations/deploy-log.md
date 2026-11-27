@@ -7266,3 +7266,25 @@ deploy o di un rollback che la tocca.
   vecchio non le nomina e il DEFAULT vale null fuori dalle richieste
   dell'MCP. Le voci già scritte «via Claude Code» restano nel DB e tornano
   visibili risalendo. Nessun `notification_kind` nuovo.
+
+- **«Una proposta gestita non torna in Home» (27 nov 2026)**: una proposta
+  della posta di prima (`mailbox_owner`) o del calendario per casella, ancora
+  `proposed` ma con la card già `handled` (archiviata senza decidere),
+  compariva fra quelle da decidere e alla decisione rispondeva «Already
+  decided by someone». Ora la card chiusa chiude la proposta, derivato a
+  lettura (`cardRule`, `docs/invariants/mail-calendar.md`). In produzione ce
+  n'erano 6.
+  **Cosa ribuildare**: solo `server`. Nessuna migrazione, nessun dato
+  riscritto; worker e caddy non cambiano.
+  **Controllo dopo il deploy** (sola lettura): le proposte di prima in questo
+  stato, che da ora l'app non mostra più fra le aperte.
+  ```sql
+  select p.id, p.status, n.status as card, n.handled_action, n.handled_at
+  from email_proposals p join notifications n on n.id = p.proposal_notification_id
+  where p.audience = 'mailbox_owner' and p.status in ('classified', 'proposed') and n.status = 'handled';
+  ```
+  Le righe restano (6 il 27 nov): è atteso, lo stato si deriva. La verifica
+  è che `GET /api/me/mail/proposals?status=open` del proprietario non le
+  elenchi più e che il loro dettaglio dica `ignored` (o `handed`).
+  **Rollback**: sicuro, nessun dato toccato; scendendo, le 6 tornano visibili
+  come prima.
