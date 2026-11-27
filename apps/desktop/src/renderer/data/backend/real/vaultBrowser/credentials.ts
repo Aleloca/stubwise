@@ -1,29 +1,19 @@
-import type { CredentialRevealResponse } from "@stubwise/shared";
-import { decryptPassword, unwrapItemKey } from "@stubwise/vault-crypto";
-import { vaultHttp } from "./http";
-import { status, use } from "./key";
+import { request } from "./client";
 
-// Show e Copy nella scheda (design §6). `reveal` è registrato dal server
-// (`via: browser`); la chiave della voce si apre NON estraibile e i suoi byte
-// grezzi si azzerano (M2, in vault-crypto). Una password che arriva dopo la
-// chiusura della cassaforte si scarta. La password in chiaro non entra mai
-// in React Query: la tiene il componente che la mostra.
+// Show e Copy nella build web (design §6, revisione I-1): la decifratura la
+// fa il worker, con la chiave della voce non estraibile; alla pagina arriva la
+// sola password, che non entra mai in React Query (la tiene il componente che
+// la mostra). Una password che arriva dopo la chiusura il worker la scarta.
 
-export async function revealPassword(
-  credentialId: string,
+export type RevealOutcome =
+  | { ok: true; password: string }
+  | { ok: false; code: string; retryAfterSeconds?: number };
+
+export function revealPassword(
+  id: string,
   action: "show" | "copy",
   personId: string,
-  sessionId: string,
-): Promise<string> {
-  const privateKey = use(personId, sessionId);
-  const r = await vaultHttp<CredentialRevealResponse>(
-    "POST",
-    `/api/credentials/${encodeURIComponent(credentialId)}/reveal`,
-    { action },
-  );
-  const itemKey = await unwrapItemKey(r.wrappedKey, privateKey, credentialId, r.personKeyId, { extractable: false });
-  const password = await decryptPassword(credentialId, r.passwordCiphertext, itemKey);
-  // Chiusa mentre la risposta arrivava: la password non esce.
-  if (status().state !== "open") throw new Error("vault_locked");
-  return password;
+  sessionTag: string,
+): Promise<RevealOutcome> {
+  return request<RevealOutcome>({ t: "reveal", id, action, personId, sessionTag });
 }

@@ -1,59 +1,43 @@
-import type { VaultMyKeyResponse, VaultStatusResponse } from "@stubwise/shared";
-import { openPrivateKey } from "@stubwise/vault-crypto";
-import { VaultHttpError, vaultHttp } from "./http";
-import { open } from "./key";
-import { VaultBrowserError, assertWithPrf, wipe } from "./webauthn";
+import type { PasskeyAuthenticationOptions } from "@stubwise/shared";
+import { request } from "./client";
+import { ceremony } from "./webauthn";
 
-// Lo sblocco della cassaforte nella scheda (design §3, §5, fase 1): la
-// passkey con la PRF, la verifica, poi la chiave viva aperta col suo sigillo
-// e consegnata a `key.ts` (non estraibile, legata a persona e sessione). La
-// prima chiave, l'attivazione e il recupero sono la fase 2: qui no.
+// Lo sblocco della cassaforte nella build web (revisione di sicurezza I-1):
+// 1. il worker legge lo stato e le opzioni della passkey (`prepare`), e
+//    risponde con le sole passkey che hanno un sigillo;
+// 2. la pagina fa la cerimonia (`webauthn.ts`);
+// 3. persona e sessione si ricontrollano (M-3), poi la PRF passa al worker
+//    per TRANSFER con la risposta senza PRF: il worker verifica, apre il
+//    sigillo e tiene la chiave.
+// La prima chiave, l'attivazione e il recupero sono la fase 2: qui no.
 
-export type UnlockCode =
-  | "inactive"
-  | "no_key"
-  | "no_seal"
-  | "passkey_failed"
-  | "passkey_unsupported"
-  | "open_failed"
-  | string;
+export type UnlockOutcome = { ok: true } | { ok: false; code: string };
 
-/** Una chiave «viva»: si apre col sigillo. */
-export const hasLiveKey = (s: Pick<VaultStatusResponse, "myKey">): boolean =>
-  s.myKey !== null && (s.myKey.status === "pending" || s.myKey.status === "confirmed");
-
-export async function unlockInBrowser(
-  personId: string,
-  sessionId: string,
-): Promise<{ ok: true } | { ok: false; code: UnlockCode }> {
-  try {
-    const status = await vaultHttp<VaultStatusResponse>("GET", "/api/vault/status");
-    if (!status.activated) return { ok: false, code: "inactive" };
-    if (!hasLiveKey(status)) return { ok: false, code: "no_key" };
-    const only = status.seals.map((s) => s.credentialIdB64url);
-    if (only.length === 0) return { ok: false, code: "no_seal" };
-    const assertion = await assertWithPrf(only);
-    if (!assertion) return { ok: false, code: "passkey_unsupported" };
-    try {
-      const mine = await vaultHttp<VaultMyKeyResponse>("GET", "/api/vault/keys/mine");
-      const seal = mine.seals.find((s) => s.credentialIdB64url === assertion.credentialId);
-      if (!seal) return { ok: false, code: "no_seal" };
-      let privateKey: CryptoKey;
-      try {
-        // Il sigillo ha come AAD la pubblica: una pubblica che non è la metà
-        // della privata non apre niente (`open_failed`), e si fallisce chiusi.
-        privateKey = await openPrivateKey(assertion.prfOutput, seal.sealedPrivateKey, mine.publicKey);
-      } catch {
-        return { ok: false, code: "open_failed" };
-      }
-      open(privateKey, personId, sessionId);
-      return { ok: true };
-    } finally {
-      wipe(assertion.prfOutput);
-    }
-  } catch (error) {
-    if (error instanceof VaultBrowserError) return { ok: false, code: error.code };
-    if (error instanceof VaultHttpError) return { ok: false, code: error.code };
-    throw error;
+export async function unlockInBrowser(who: () => { personId: string | null; sessionTag: string }): Promise<UnlockOutcome> {
+  const before = who();
+  if (!before.personId) return { ok: false, code: "unauthenticated" };
+  const prepared = await request<
+    { ok: true; options: PasskeyAuthenticationOptions; onlyCredentialIds: string[] } | { ok: false; code: string }
+  >({ t: "prepare" });
+  if (!prepared.ok) return prepared;
+  const outcome = await ceremony(prepared.options);
+  if (!outcome.ok) return outcome;
+  // M-3: chi apre è ancora chi ha cominciato, nella stessa sessione.
+  const after = who();
+  if (after.personId !== before.personId || after.sessionTag !== before.sessionTag) {
+    // Si azzera nel worker: qui un `fill` sostituito la leggerebbe.
+    void request({ t: "discard", prf: outcome.prf }, [outcome.prf]);
+    return { ok: false, code: "session" };
   }
+  return request<UnlockOutcome>(
+    {
+      t: "unlock",
+      prf: outcome.prf,
+      assertion: outcome.assertion,
+      credentialId: outcome.credentialId,
+      personId: before.personId,
+      sessionTag: before.sessionTag,
+    },
+    [outcome.prf],
+  );
 }

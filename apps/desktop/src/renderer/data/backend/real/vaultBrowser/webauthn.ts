@@ -1,63 +1,21 @@
 import type { PasskeyAuthenticationOptions } from "@stubwise/shared";
-import { vaultHttp } from "./http";
+import { PRF_INPUT } from "@stubwise/vault-crypto";
+import { fromBase64Url, toBase64Url } from "./bytes";
 import { primitives } from "./primitives";
 
-// La cerimonia della passkey per la cassaforte (design §2.4, §3): sul
-// `navigator.credentials.get` CATTURATO, non su `@simplewebauthn` (che
-// leggerebbe il globale al momento della chiamata). È la riconferma con
-// `purpose: "vault"`: le opzioni chiedono la PRF, la verifica è quella di
-// sempre. Il segreto PRF NON lascia mai la scheda: la risposta va al server
-// senza (`clientExtensionResults` vuoto). Senza PRF il server non riceve
-// NIENTE, né la verifica.
+// La cerimonia della passkey per la cassaforte, l'unica cosa della
+// cassaforte che resta nella PAGINA (revisione di sicurezza I-1): sul
+// `credentials.get` e sul `getClientExtensionResults` catturati al boot. Il
+// salt PRF è quello LOCALE (`PRF_INPUT`, M-1: il worker rifiuta un server che
+// ne chiede un altro). L'uscita PRF non resta qui: la si consegna al worker
+// per transfer (`unlock.ts`), insieme alla risposta SENZA i risultati PRF,
+// che il worker manda alla verifica.
 
-export type WebauthnFailure = "passkey_failed" | "no_seal";
+export type CeremonyOutcome =
+  | { ok: true; credentialId: string; assertion: unknown; prf: ArrayBuffer }
+  | { ok: false; code: "passkey_failed" | "passkey_unsupported" };
 
-export class VaultBrowserError extends Error {
-  constructor(readonly code: WebauthnFailure | "open_failed") {
-    super(code);
-  }
-}
-
-/** L'esito della passkey: il suo id e il segreto PRF (solo in memoria, lo azzera chi lo usa). */
-export interface PrfAssertion {
-  credentialId: string;
-  prfOutput: ArrayBuffer;
-}
-
-export function fromBase64Url(text: string): Uint8Array<ArrayBuffer> {
-  const base64 = text.replace(/-/g, "+").replace(/_/g, "/");
-  const binary = atob(base64 + "=".repeat((4 - (base64.length % 4)) % 4));
-  const out = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
-  return out;
-}
-
-export function toBase64Url(bytes: ArrayBuffer | ArrayBufferView): string {
-  const view = bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  let binary = "";
-  for (const b of view) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-/** Azzera un segreto appena non serve più (best effort: è memoria JS). */
-export function wipe(buffer: ArrayBuffer | ArrayBufferView): void {
-  if (buffer instanceof ArrayBuffer) new Uint8Array(buffer).fill(0);
-  else new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength).fill(0);
-}
-
-/**
- * Una cerimonia con la PRF fra le sole passkey che aprono la chiave
- * (`onlyCredentialIds`), poi la verifica sul server. `null` se la passkey (o
- * il browser) non dà la PRF: al server non è arrivato niente.
- */
-export async function assertWithPrf(onlyCredentialIds: readonly string[]): Promise<PrfAssertion | null> {
-  const options = await vaultHttp<PasskeyAuthenticationOptions>("POST", "/api/me/security/reauth/passkey/options", {
-    purpose: "vault",
-  });
-  const first = options.extensions?.prf?.eval?.first;
-  const allow = (options.allowCredentials ?? []).filter((c) => onlyCredentialIds.includes(c.id));
-  if (allow.length === 0) throw new VaultBrowserError("no_seal");
-  if (typeof first !== "string") return null;
+export async function ceremony(options: PasskeyAuthenticationOptions): Promise<CeremonyOutcome> {
   let credential: PublicKeyCredential | null;
   try {
     credential = (await primitives.credentialsGet({
@@ -66,30 +24,26 @@ export async function assertWithPrf(onlyCredentialIds: readonly string[]): Promi
         ...(options.rpId ? { rpId: options.rpId } : {}),
         ...(options.timeout ? { timeout: options.timeout } : {}),
         ...(options.userVerification ? { userVerification: options.userVerification } : {}),
-        allowCredentials: allow.map((c) => ({
+        allowCredentials: (options.allowCredentials ?? []).map((c) => ({
           type: "public-key" as const,
           id: fromBase64Url(c.id),
           ...(c.transports ? { transports: c.transports as AuthenticatorTransport[] } : {}),
         })),
-        extensions: { prf: { eval: { first: fromBase64Url(first) } } } as AuthenticationExtensionsClientInputs,
+        extensions: { prf: { eval: { first: PRF_INPUT } } } as AuthenticationExtensionsClientInputs,
       },
     })) as PublicKeyCredential | null;
   } catch {
-    throw new VaultBrowserError("passkey_failed");
+    return { ok: false, code: "passkey_failed" };
   }
-  if (!credential) throw new VaultBrowserError("passkey_failed");
-  const results = (credential.getClientExtensionResults() as { prf?: { results?: { first?: BufferSource } } }).prf
-    ?.results?.first;
-  if (!results) return null;
-  // Una copia sola resta in memoria; l'originale nella risposta del browser si azzera subito.
-  const source =
-    results instanceof ArrayBuffer
-      ? new Uint8Array(results)
-      : new Uint8Array((results as ArrayBufferView).buffer, (results as ArrayBufferView).byteOffset, (results as ArrayBufferView).byteLength);
-  const prfOutput = source.slice().buffer;
-  source.fill(0);
+  if (!credential) return { ok: false, code: "passkey_failed" };
+  const first = (primitives.extensionResults(credential) as { prf?: { results?: { first?: BufferSource } } }).prf?.results
+    ?.first;
+  // Senza PRF al worker (e al server) non va niente: nemmeno la verifica.
+  if (!first) return { ok: false, code: "passkey_unsupported" };
+  // Un ArrayBuffer si TRASFERISCE così com'è (la pagina lo perde); una vista si copia col `slice` catturato.
+  const prf = first instanceof ArrayBuffer ? first : primitives.copyBuffer(first as ArrayBufferView);
   const r = credential.response as AuthenticatorAssertionResponse;
-  const response = {
+  const assertion = {
     id: credential.id,
     rawId: toBase64Url(credential.rawId),
     type: credential.type,
@@ -103,11 +57,5 @@ export async function assertWithPrf(onlyCredentialIds: readonly string[]): Promi
     clientExtensionResults: {},
     ...(credential.authenticatorAttachment ? { authenticatorAttachment: credential.authenticatorAttachment } : {}),
   };
-  try {
-    await vaultHttp("POST", "/api/me/security/reauth/passkey/verify", { response });
-  } catch (cause) {
-    wipe(prfOutput);
-    throw cause;
-  }
-  return { credentialId: credential.id, prfOutput };
+  return { ok: true, credentialId: credential.id, assertion, prf };
 }

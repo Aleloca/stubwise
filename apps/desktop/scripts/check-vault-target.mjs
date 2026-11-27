@@ -15,10 +15,23 @@ export const FORBIDDEN = {
   electron: [
     { re: /prf["']?\s*:\s*\{\s*["']?eval/, why: "l'estensione PRF della passkey (sblocco nella scheda)" },
     { re: /["']stubwise-vault["']/, why: "il canale fra le schede di vaultBrowser/" },
+    { re: /stubwise-vault-worker/, why: "il worker della cassaforte nel browser" },
   ],
   web: [
     { re: /stubwise\??\.vault\b/, why: "il ponte del desktop (window.stubwise.vault)" },
     { re: /vault_bridge_missing/, why: "i moduli della cassaforte del desktop (vaultDesktop.ts, vault/electron.ts)" },
+  ],
+};
+
+/**
+ * Cosa DEVE comparire (revisione M-6): i marcatori sentinella del target, così
+ * un modulo dimenticato fuori dal bundle (il worker!) fa fallire il controllo.
+ */
+export const REQUIRED = {
+  electron: [{ re: /vault_bridge_missing/, why: "i moduli della cassaforte del desktop" }],
+  web: [
+    { re: /stubwise-vault-worker/, why: "l'avvio del worker della cassaforte" },
+    { re: /["']stubwise-vault["']/, why: "il canale fra le schede" },
   ],
 };
 
@@ -35,9 +48,27 @@ export function violations(dir, target) {
   const rules = FORBIDDEN[target];
   if (!rules) throw new Error(`target sconosciuto: ${target}`);
   const out = [];
+  let all = "";
   for (const path of files(dir)) {
     const text = readFileSync(path, "utf8");
+    all += text;
     for (const { re, why } of rules) if (re.test(text)) out.push({ file: relative(dir, path), why });
+  }
+  for (const { re, why } of REQUIRED[target]) if (!re.test(all)) out.push({ file: "(bundle)", why: `manca ${why}` });
+  // Revisione I-1: la crittografia dello sblocco sta SOLO nel worker, mai nei
+  // file della pagina (il sigillo si apre in un reame che la pagina non tocca).
+  if (target === "web") {
+    for (const path of files(dir)) {
+      if (/worker-[\w-]+\.js$/.test(path)) continue;
+      const text = readFileSync(path, "utf8");
+      if (/stubwise\/vault\/v1\/unlock|\bpkcs8\b/.test(text)) {
+        out.push({ file: relative(dir, path), why: "la crittografia dello sblocco fuori dal worker" });
+      }
+    }
+  }
+  // Il file del worker deve esistere a sé, fuori dal bundle della pagina.
+  if (target === "web" && ![...files(dir)].some((p) => /worker-[\w-]+\.js$/.test(p))) {
+    out.push({ file: "(bundle)", why: "manca il file del worker della cassaforte" });
   }
   return out;
 }

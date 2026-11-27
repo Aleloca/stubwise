@@ -1,137 +1,111 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { __resetKeyForTests, IDLE_MS, lock, open, status, subscribe, use } from "./key";
 
-// Dove vive la chiave della cassaforte nella scheda (design della cassaforte
-// nel browser §5, §7, §8; le prove del §14): in memoria, legata a persona e
-// sessione, chiusa dopo 15 minuti senza uso A ORA DI PARETE.
+// Lo stato della cassaforte nella pagina (revisione I-1): lo specchio del
+// worker e i segnali della scheda, collegati al boot (§7, §8; I-2, M-4).
 
-const ME = "p-ada";
-const SESSION = "s-1";
-let key: CryptoKey;
+let toWorker: { t: string; reason?: string }[];
+let worker: EventTarget & { postMessage: (m: { id: number; req: { t: string } }) => void };
 
-beforeEach(async () => {
-  __resetKeyForTests();
-  key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
-});
-afterEach(() => {
-  vi.useRealTimers();
-  __resetKeyForTests();
-});
+/** Il worker finto: registra le richieste, risponde `ok`, e sa mandare eventi di stato. */
+function fakeWorker() {
+  const target = new EventTarget() as typeof worker;
+  target.postMessage = (m) => {
+    toWorker.push(m.req);
+    const res = m.req.t === "status" ? { state: "locked" } : { ok: true };
+    queueMicrotask(() => target.dispatchEvent(new MessageEvent("message", { data: { id: m.id, res } })));
+  };
+  return target;
+}
 
-/** Un evento «vero» dell'utente: `isTrusted` lo dà solo il browser. */
+const emit = (event: unknown) => worker.dispatchEvent(new MessageEvent("message", { data: { event } }));
+
 function trusted(type: string): Event {
   const e = new Event(type);
   Object.defineProperty(e, "isTrusted", { value: true });
   return e;
 }
 
-describe("la chiave nella scheda", () => {
-  it("aperta: `use` dà la chiave a chi l'ha aperta, con la stessa sessione", () => {
-    open(key, ME, SESSION);
-    expect(use(ME, SESSION)).toBe(key);
-    expect(status()).toMatchObject({ state: "open" });
-  });
+let key: typeof import("./key");
 
-  it("chiusa: `use` lancia `vault_locked`", () => {
-    expect(() => use(ME, SESSION)).toThrow("vault_locked");
-    expect(status()).toEqual({ state: "locked" });
-  });
+beforeEach(async () => {
+  toWorker = [];
+  vi.resetModules();
+  const client = await import("./client");
+  worker = fakeWorker();
+  client.__setWorkerForTests(worker as unknown as Worker);
+  key = await import("./key");
+  key.__resetKeyForTests();
+  key.wireVault();
+});
+afterEach(() => key.__resetKeyForTests());
 
-  it("I5: un'altra persona o un'altra sessione la chiude e lancia", () => {
-    open(key, ME, SESSION);
-    expect(() => use("p-bob", SESSION)).toThrow("vault_locked");
-    expect(status()).toEqual({ state: "locked" });
-    open(key, ME, SESSION);
-    expect(() => use(ME, "s-2")).toThrow("vault_locked");
-    expect(status()).toEqual({ state: "locked" });
-  });
-
-  it("I2: dopo 15 minuti A ORA DI PARETE si chiude al primo `use`, senza nessun timer", () => {
-    // Solo `Date`: nessun setTimeout scatta, conta l'ora (un Mac sospeso, il bfcache).
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-11-28T10:00:00Z"));
-    open(key, ME, SESSION);
-    vi.setSystemTime(Date.now() + IDLE_MS + 1);
-    expect(() => use(ME, SESSION)).toThrow("vault_locked");
-    expect(status()).toEqual({ state: "locked" });
-  });
-
-  it("un uso riparte il conto; `closesAt` lo dice alla barra", () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-11-28T10:00:00Z"));
-    open(key, ME, SESSION);
-    vi.setSystemTime(Date.now() + IDLE_MS - 1000);
-    use(ME, SESSION);
-    vi.setSystemTime(Date.now() + IDLE_MS - 1000);
-    expect(use(ME, SESSION)).toBe(key);
-    expect(status()).toEqual({ state: "open", closesAt: Date.now() + IDLE_MS });
-  });
-
-  it("I2: un'interazione VERA allunga la vita; uno scroll o un evento sintetico no", () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-11-28T10:00:00Z"));
-    open(key, ME, SESSION);
-    const opened = Date.now();
-    vi.setSystemTime(opened + 10 * 60_000);
-    window.dispatchEvent(new Event("keydown"));
-    window.dispatchEvent(trusted("scroll"));
-    expect(status()).toEqual({ state: "open", closesAt: opened + IDLE_MS });
-    window.dispatchEvent(trusted("pointerdown"));
-    expect(status()).toEqual({ state: "open", closesAt: Date.now() + IDLE_MS });
-  });
-
-  it("al ritorno (visibilitychange, focus, pageshow) la scadenza passata chiude PRIMA di ogni uso", () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-11-28T10:00:00Z"));
-    open(key, ME, SESSION);
+describe("lo specchio della cassaforte nella pagina", () => {
+  it("segue gli eventi del worker: aperta, chiusa e perché (M-5: `reauth`)", () => {
     const seen: string[] = [];
-    subscribe((s) => seen.push(s.state));
-    vi.setSystemTime(Date.now() + IDLE_MS + 1);
-    window.dispatchEvent(new Event("focus"));
-    expect(status()).toEqual({ state: "locked" });
-    expect(seen).toEqual(["locked"]);
+    key.subscribe((s) => seen.push(s.state));
+    emit({ t: "state", state: "open", closesAt: 1 });
+    expect(key.status()).toEqual({ state: "open", closesAt: 1 });
+    emit({ t: "state", state: "locked", reason: "reauth", code: "reauth_required" });
+    expect(key.status()).toEqual({ state: "locked" });
+    expect(key.lastLock()).toEqual({ reason: "reauth", code: "reauth_required" });
+    expect(seen).toEqual(["open", "locked"]);
   });
 
-  it("una pagina in primo piano si chiude in tempo anche senza uso (il timer)", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-11-28T10:00:00Z"));
-    open(key, ME, SESSION);
-    vi.advanceTimersByTime(IDLE_MS + 1);
-    expect(status()).toEqual({ state: "locked" });
-  });
-
-  it("I2: `pagehide` chiude (una pagina che entra nel bfcache torna chiusa)", () => {
-    open(key, ME, SESSION);
-    window.dispatchEvent(new Event("pagehide"));
-    expect(status()).toEqual({ state: "locked" });
-  });
-
-  it("`lock` avvisa chi ascolta, in modo sincrono (I3)", () => {
-    open(key, ME, SESSION);
-    const fn = vi.fn();
-    const off = subscribe(fn);
-    lock("user");
-    expect(fn).toHaveBeenCalledWith({ state: "locked" });
-    off();
-    open(key, ME, SESSION);
-    expect(fn).toHaveBeenCalledTimes(1);
-  });
-
-  it("I5: «Lock» in una scheda chiude le altre (solo un segnale, mai la chiave)", async () => {
+  it("I3: «Lock» chiude la pagina SUBITO, poi lo dice al worker e alle altre schede", async () => {
     const other = new BroadcastChannel("stubwise-vault");
     const got: unknown[] = [];
     other.onmessage = (e) => got.push(e.data);
-    open(key, ME, SESSION);
-    lock("user");
-    await vi.waitFor(() => expect(got).toEqual([{ type: "locked", personId: ME }]));
+    emit({ t: "state", state: "open", closesAt: 1 });
+    key.lock("user");
+    expect(key.status()).toEqual({ state: "locked" });
+    expect(toWorker).toContainEqual({ t: "lock", reason: "user" });
+    await vi.waitFor(() => expect(got).toEqual([{ type: "locked" }]));
     other.close();
   });
 
-  it("I5: il segnale di un'altra scheda chiude questa", async () => {
-    open(key, ME, SESSION);
+  it("I-2: «Esci» si dice alle altre schede ANCHE a cassaforte chiusa", async () => {
     const other = new BroadcastChannel("stubwise-vault");
-    other.postMessage({ type: "logout", personId: ME });
-    await vi.waitFor(() => expect(status()).toEqual({ state: "locked" }));
+    const got: unknown[] = [];
+    other.onmessage = (e) => got.push(e.data);
+    key.lock("logout");
+    await vi.waitFor(() => expect(got).toEqual([{ type: "logout" }]));
     other.close();
+  });
+
+  it("M-4: `pagehide` chiude SOLO questa scheda, senza segnale", async () => {
+    const other = new BroadcastChannel("stubwise-vault");
+    const got: unknown[] = [];
+    other.onmessage = (e) => got.push(e.data);
+    emit({ t: "state", state: "open", closesAt: 1 });
+    window.dispatchEvent(new Event("pagehide"));
+    expect(key.status()).toEqual({ state: "locked" });
+    expect(toWorker).toContainEqual({ t: "lock", reason: "pagehide" });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(got).toEqual([]);
+    other.close();
+  });
+
+  it("il segnale di un'altra scheda chiude questa", async () => {
+    emit({ t: "state", state: "open", closesAt: 1 });
+    const other = new BroadcastChannel("stubwise-vault");
+    other.postMessage({ type: "logout" });
+    await vi.waitFor(() => expect(key.status()).toEqual({ state: "locked" }));
+    other.close();
+  });
+
+  it("solo l'interazione VERA chiede al worker di allungare la vita", () => {
+    emit({ t: "state", state: "open", closesAt: 1 });
+    window.dispatchEvent(new Event("keydown"));
+    window.dispatchEvent(trusted("scroll"));
+    expect(toWorker.filter((r) => r.t === "touch")).toHaveLength(0);
+    window.dispatchEvent(trusted("pointerdown"));
+    expect(toWorker.filter((r) => r.t === "touch")).toHaveLength(1);
+  });
+
+  it("al ritorno si chiede al worker, che chiude se la scadenza è passata", async () => {
+    emit({ t: "state", state: "open", closesAt: 1 });
+    window.dispatchEvent(new Event("focus"));
+    expect(toWorker).toContainEqual({ t: "status" });
+    await vi.waitFor(() => expect(key.status()).toEqual({ state: "locked" }));
   });
 });

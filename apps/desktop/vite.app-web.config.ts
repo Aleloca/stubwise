@@ -33,6 +33,9 @@ export default defineConfig({
       ],
     },
   ],
+  // Il worker della cassaforte nel browser (revisione I-1) come modulo ES, con
+  // le sue dipendenze nel suo file.
+  worker: { format: "es" },
   build: {
     outDir: resolve(import.meta.dirname, "dist-web"),
     emptyOutDir: true,

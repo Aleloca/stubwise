@@ -37,7 +37,7 @@ export function backendAliases(mode: BackendMode, target: BackendTarget = "elect
       find: /^@backend\/vault-boot$/,
       replacement: resolve(
         data,
-        app && target === "web" ? "backend/real/vaultBrowser/primitives.ts" : "backend/real/vault/boot-none.ts",
+        app && target === "web" ? "backend/real/vaultBrowser/boot.ts" : "backend/real/vault/boot-none.ts",
       ),
     },
     {

@@ -141,10 +141,15 @@ function forbiddenIn(source: string): string[] {
   // La cassaforte (design della cassaforte nel browser §2.9, M6): Claude non
   // la tocca. Nessuna funzione `vault.*`, nessun import del suo livello dati
   // (`data/vault`, `vaultBrowser/`, `vaultDesktop`, `vaultReads`).
+  // M-7: anche un `import()` dinamico, un `export * from` e un accesso per
+  // indice (`api["vault"]`, `vault["show"]`).
+  const vaultPath = /(\/vault\/|\/vaultBrowser\/|vaultDesktop|vaultReads|backend\/vault|@backend\/vault)/;
+  const loads = [...source.matchAll(/(?:\bfrom|\bimport)\s*\(?\s*["'`]([^"'`]+)["'`]/g)].map((m) => m[1]!);
   if (
-    /\bvault\s*\.\s*\w+/.test(code) ||
-    /from\s+["'][^"']*\/(vault\/|vaultBrowser\/|vaultDesktop|vaultReads|backend\/vault)/.test(source) ||
-    /from\s+["']@backend\/vault["']/.test(source)
+    /\bvault\s*\??\.\s*\w+/.test(code) ||
+    /\bvault\s*(?:\?\.)?\s*\[/.test(code) ||
+    /\[\s*["'`]vault["'`]\s*\]/.test(source) ||
+    loads.some((p) => vaultPath.test(p))
   )
     hits.push("vault.*");
   return [...new Set(hits)];
@@ -181,6 +186,10 @@ describe("il catalogo non nomina mai i gesti delle persone", () => {
     expect(forbiddenIn("await api.vault.show(id);")).toEqual(["vault.*"]);
     expect(forbiddenIn('import { use } from "../backend/real/vaultBrowser/key";')).toEqual(["vault.*"]);
     expect(forbiddenIn('import * as v from "../vault/index";')).toEqual(["vault.*"]);
+    expect(forbiddenIn('const m = await import("../backend/real/vaultBrowser/key");')).toEqual(["vault.*"]);
+    expect(forbiddenIn('export * from "../vault/index";')).toEqual(["vault.*"]);
+    expect(forbiddenIn('await api["vault"].show(id);')).toEqual(["vault.*"]);
+    expect(forbiddenIn("await vault?.show(id);")).toEqual(["vault.*"]);
     // Le parole non contano.
     expect(forbiddenIn("// poi mergePr(pr) lo fa la persona")).toEqual([]);
     expect(forbiddenIn("/* recordDecision( */ const a = 1;")).toEqual([]);
