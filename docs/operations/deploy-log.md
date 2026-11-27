@@ -7405,3 +7405,29 @@ deploy o di un rollback che la tocca.
   recupero col kit funziona con la riconferma normale.
   **Rollback**: sicuro, nessun dato nuovo. Scendendo, un login fresco torna
   ad aprire le rotte della cassaforte per 10 minuti.
+- **«Seconda revisione della cassaforte nel browser» (28 nov 2026)**:
+  branch `feat/cassaforte-browser`, i minor della seconda revisione di
+  sicurezza che toccano server e caddy (quelli della pagina e del worker
+  viaggiano col bundle di `/app`):
+  - **m-2, server**: togliere un Mac (`DELETE /api/vault/device-seals/:id`
+    e, da un full admin, `DELETE /api/vault/users/:userId/device-seals/:id`)
+    torna a `reauth: true`, cioè un secondo fattore recente, non lo sblocco:
+    non usa la chiave ed è un passo della procedura d'incidente. Dal Mac
+    non cambia niente.
+  - **m-3, server**: rotta nuova **`POST /api/vault/lock`**, che azzera
+    `vaultUnlockedAt` della sola sessione che chiama (204, idempotente; da
+    un PAT nessun effetto). La chiama il worker della cassaforte di `/app`
+    a ogni chiusura, best-effort.
+  - **m-7, caddy**: 403 a ogni richiesta con `Service-Worker: script`, nel
+    primo `handle` del sito: sull'origine non si registra nessun Service
+    Worker.
+  **Ordine**: indifferente. Il worker tollera un 404 su `/api/vault/lock`
+  (best-effort), e il web vecchio non registra Service Worker. Nessuna
+  migrazione, nessuna env.
+  **Controllo dopo il deploy**: `curl -s -o /dev/null -w "%{http_code}" -H
+  "Service-Worker: script" https://<dominio>/app/` deve dare `403`, e senza
+  l'intestazione `200`. In `/app`, aperta e richiusa la cassaforte («Lock»),
+  un'azione che scrive un sigillo deve chiedere di nuovo lo sblocco.
+  **Rollback**: sicuro, nessun dato nuovo. Scendendo, la chiusura non azzera
+  più lo sblocco sul server (vale fino ai suoi 10 minuti), e togliere un Mac
+  dal browser torna a volere lo sblocco.

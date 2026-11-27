@@ -617,6 +617,20 @@ describe("riconferma con passkey", () => {
     expect((await post("/api/pats", { cookie }, { name: "x" })).statusCode).toBe(201);
   });
 
+  it("m-3: chiudere la cassaforte (`POST /api/vault/lock`) azzera lo sblocco della SOLA sessione che chiude", async () => {
+    const user = await createUserWithTotp();
+    const cookie = await sessionUnlocked(user.id, 0);
+    const other = await sessionUnlocked(user.id, 0);
+    const seals = (c: string) => post(`/api/vault/keys/${randomUUID()}/seals`, { cookie: c }, { passkeyId: randomUUID(), sealedPrivateKey: "{}" });
+    expect((await seals(cookie)).json().code).not.toBe("vault_unlock_required");
+    const locked = await post("/api/vault/lock", { cookie }, {});
+    expect(locked.statusCode).toBe(204);
+    expect([(await seals(cookie)).statusCode, (await seals(cookie)).json().code]).toEqual([403, "vault_unlock_required"]);
+    expect((await seals(other)).json().code).not.toBe("vault_unlock_required");
+    // Chiudere di nuovo, o senza averla aperta, non è un errore.
+    expect((await post("/api/vault/lock", { cookie }, {})).statusCode).toBe(204);
+  });
+
   it("m-2: togliere un Mac (il proprio, o d'altri da un full admin) vuole la riconferma NORMALE, non lo sblocco: è un passo della procedura d'incidente", async () => {
     // Un login fresco, nessuno sblocco: si arriva al 404 di dominio (nessun sigillo con quell'id), non a 403.
     const cookie = await sessionAged(adminId, 0);

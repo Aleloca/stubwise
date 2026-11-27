@@ -217,6 +217,29 @@ describe("il cuore della cassaforte nel worker", () => {
     expect(await core.handle({ t: "reveal", id: C1, action: "copy", personId: ME, sessionTag: TAG })).toMatchObject({ ok: true });
   });
 
+  it("m-3: alla chiusura il server azzera lo sblocco (best-effort); non per una sessione finita o cambiata, né per un'altra scheda", async () => {
+    routes["POST /api/vault/lock"] = () => ({ status: 204, body: null });
+    const lockCalls = () => calls.filter((c) => c.method === "POST" && c.path === "/api/vault/lock").length;
+    await openCore(core);
+    core.lock("user");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(lockCalls()).toBe(1);
+    core.lock("user");
+    expect(lockCalls()).toBe(1);
+    for (const reason of ["session", "remote", "logout"] as const) {
+      await openCore(core);
+      core.lock(reason);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(lockCalls(), reason).toBe(1);
+    }
+    await openCore(core);
+    routes["POST /api/vault/lock"] = () => ({ status: 500, body: { code: "boom" } });
+    core.lock("idle");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(lockCalls()).toBe(2);
+    expect(await core.handle({ t: "status" })).toEqual({ state: "locked" });
+  });
+
   it("I-2: un 401 su una rotta della cassaforte chiude con `session`", async () => {
     await openCore(core);
     routes[`POST /api/credentials/${C1}/reveal`] = () => ({ status: 401, body: { code: "unauthenticated" } });

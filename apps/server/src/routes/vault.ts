@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   credentialKeyCopies,
   credentials,
+  sessions,
   users,
   RECOVERY_RECIPIENT_ID,
   userPasskeys,
@@ -442,6 +443,29 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
       const key = await currentPersonKey(app.db, user.id);
       if (!key) return keyNotFound(reply);
       return reply.code(200).send({ ...key, seals: await sealsOf(key.id) });
+    },
+  );
+
+  /**
+   * La cassaforte si chiude (seconda revisione di sicurezza della cassaforte
+   * nel browser, m-3): il worker della scheda la chiama a ogni chiusura,
+   * best-effort. Azzera lo sblocco (`vaultUnlockedAt`) della SOLA sessione
+   * che chiama, così le rotte `config.reauth: "vault"` tornano a volerne uno
+   * nuovo anche nei minuti che restavano. Idempotente; da un PAT non c'è uno
+   * sblocco di sessione, ed è un 204 senza effetto.
+   */
+  app.post(
+    "/lock",
+    {
+      config: { access: { kind: "user" } },
+      schema: { response: { 204: z.null(), ...errorResponses } },
+    },
+    async (request, reply) => {
+      const user = request.user!;
+      if (!isPat(user) && user.sessionId) {
+        await app.db.update(sessions).set({ vaultUnlockedAt: null }).where(eq(sessions.id, user.sessionId));
+      }
+      return reply.code(204).send(null);
     },
   );
 

@@ -229,6 +229,21 @@ export class VaultCore {
     if (this.timer !== null) this.deps.clearTimer(this.timer);
     this.timer = null;
     if (was) this.deps.emit({ t: "state", state: "locked", reason, ...(code ? { code } : {}) });
+    // m-3: anche il server azzera lo sblocco di questa sessione, best-effort
+    // (col `fetch` nudo: un errore qui non richiude né rilancia). Non quando
+    // il cookie non è più quello dell'apertura (`session`), quando ha chiuso
+    // un'altra scheda (`remote`: lo ha già fatto lei, o c'è un login nuovo)
+    // o all'uscita (`logout`: la sessione sparisce comunque).
+    if (was && reason !== "session" && reason !== "remote" && reason !== "logout") {
+      void this.deps
+        .fetch("/api/vault/lock", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        })
+        .catch(() => undefined);
+    }
   }
 
   /** La chiave per un uso, o `null` (e chiusa) se scaduta o di un'altra persona o sessione. */
