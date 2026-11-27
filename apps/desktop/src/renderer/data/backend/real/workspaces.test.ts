@@ -48,6 +48,7 @@ function fakeApi(overrides: Partial<WorkspacesApi> = {}): WorkspacesApi {
     putMember: vi.fn(async () => view),
     removeMember: vi.fn(async () => undefined),
     effect: vi.fn(async () => ({ projects: [], lastManager: [], escalation: [] })),
+    canManageWorkspaces: vi.fn(async () => true),
     candidates: vi.fn(async () => ({
       candidates: [
         { userId: IRENE, name: "Irene Caruso", email: "irene@example.com", missing: [] },
@@ -60,7 +61,12 @@ function fakeApi(overrides: Partial<WorkspacesApi> = {}): WorkspacesApi {
       defaultRoleId: VIEWER,
     })),
     membersView: vi.fn(async (projectId: string) => ({
-      members: projectId === P1 ? [{ personId: MARCO, name: "Marco Bellini", status: "active", role: { id: DEV, name: "Developer" } }] : [],
+      members: [
+        ...(projectId === P1 ? [{ personId: MARCO, name: "Marco Bellini", status: "active", role: { id: DEV, name: "Developer" } }] : []),
+        // Dal lotto 4 la vista ha anche chi vede il progetto SOLO dalla workspace:
+        // `explicit: false`, col ruolo di workspace. Non è un ruolo per progetto.
+        { personId: NICOLA, name: "Nicola Orlando", status: "active", role: { id: VIEWER, name: "Viewer" }, explicit: false },
+      ],
       roleChoices: [
         { roleId: VIEWER, name: "Viewer", permissionCount: 5, missing: [] },
         { roleId: DEV, name: "Developer", permissionCount: 24, missing: projectId === P2 ? ["release.merge"] : [] },
@@ -219,5 +225,22 @@ describe("i tre limiti chiusi (lotto 5 di 54)", () => {
     effect.mockClear();
     expect((await real.previewWorkspace({ kind: "create", projectIds: [] })).projects).toEqual([]);
     expect(effect).not.toHaveBeenCalled();
+  });
+});
+
+describe("revisione d'insieme", () => {
+  it("I2: le righe `explicit: false` della vista dei membri non sono ruoli per progetto", async () => {
+    const v = await createRealWorkspaces(fakeApi()).listWorkspaceMembers(W1);
+    const nicola = v.members.find((m) => m.personId === NICOLA)!;
+    expect(nicola.projectRoles).toEqual([]);
+    expect(nicola.projects.every((p) => p.roles.every((r) => r.source === "workspace"))).toBe(true);
+  });
+
+  it("I3: senza workspace «New workspace» solo per chi ha workspaces.manage", async () => {
+    const empty = { list: vi.fn(async () => []) };
+    const no = await createRealWorkspaces(fakeApi({ ...empty, canManageWorkspaces: vi.fn(async () => false) })).listWorkspaces();
+    expect(no.canManage).toBe(false);
+    const yes = await createRealWorkspaces(fakeApi({ ...empty, canManageWorkspaces: vi.fn(async () => true) })).listWorkspaces();
+    expect(yes.canManage).toBe(true);
   });
 });

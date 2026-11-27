@@ -14,6 +14,7 @@ import { refusalOf } from "./adminPeople";
 import { appClient } from "./client";
 import { notIntegratedSync } from "./notIntegrated";
 import { listProjects } from "./projects";
+import { instancePermissionsNow } from "./session";
 
 // Le workspace nella build app (shape `workspaces.md`), sopra le rotte di
 // `docs/plans/2026-11-27-workspace-design.md` §2.2 (`/api/workspaces`). Il
@@ -47,6 +48,12 @@ export interface WorkspacesApi {
   removeMember(id: string, userId: string, alsoProjects?: boolean): Promise<void>;
   effect(body: Any): Promise<Any>;
   candidates(id: string): Promise<Any>;
+  /**
+   * Revisione d'insieme, I3: chi guarda ha `workspaces.manage` (o è full
+   * admin). Senza workspace l'elenco non lo dice, e «New workspace» non va
+   * offerto a tutti: al deploy è lo stato di ogni istanza.
+   */
+  canManageWorkspaces(): Promise<boolean>;
   membersView(projectId: string): Promise<Any>;
   projects(): Promise<{ id: string; code: string; name: string }[]>;
 }
@@ -110,7 +117,7 @@ export function createRealWorkspaces(api: WorkspacesApi) {
 
   const workspaces: typeof Fake.workspaces = {
     async listWorkspaces(): Promise<WorkspaceList> {
-      const [items, projects] = await Promise.all([api.list(), api.projects()]);
+      const [items, projects, canManage] = await Promise.all([api.list(), api.projects(), api.canManageWorkspaces()]);
       const open = new Set(projects.map((p) => p.id));
       const workspaceOfProject: Record<string, string> = {};
       for (const w of items) for (const p of w.projectIds as string[]) workspaceOfProject[p] = w.id;
@@ -126,9 +133,8 @@ export function createRealWorkspaces(api: WorkspacesApi) {
           .sort((a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name)),
         noWorkspaceCount: projects.filter((p) => !workspaceOfProject[p.id]).length,
         workspaceOfProject,
-        // Creare chiede `workspaces.manage`: lo dice una qualunque workspace, o
-        // (nessuna ancora) il server al primo tentativo.
-        canManage: items.length === 0 ? true : items.some((w: Any) => w.canManage),
+        // Creare chiede `workspaces.manage`: dal viewer, non da «nessuna workspace ancora».
+        canManage,
       };
     },
 
@@ -150,7 +156,7 @@ export function createRealWorkspaces(api: WorkspacesApi) {
       const w = items.find((x: Any) => (x.projectIds as string[]).includes(projectId));
       return {
         workspace: w ? { id: w.id, slug: w.id, name: w.name } : null,
-        canChange: w ? !!w.canManage : items.some((x: Any) => x.canManage),
+        canChange: w ? !!w.canManage : await api.canManageWorkspaces(),
       };
     },
 
@@ -169,6 +175,9 @@ export function createRealWorkspaces(api: WorkspacesApi) {
         const v = views[i];
         if (!v) return;
         for (const m of v.members ?? []) {
+          // I2: chi vede il progetto solo dalla workspace (`explicit: false`)
+          // non ha un ruolo per progetto; un campo mancante vale `true`.
+          if (m.explicit === false) continue;
           const map = roleOf.get(m.personId) ?? new Map<string, string>();
           map.set(projectId, m.role.name);
           roleOf.set(m.personId, map);
@@ -382,6 +391,10 @@ export const workspaces: typeof Fake.workspaces = createRealWorkspaces({
   removeMember: (id, userId, alsoProjects) => appClient().workspaces.removeMember(id, userId, alsoProjects),
   effect: (body) => appClient().workspaces.effect(body),
   candidates: (id) => appClient().workspaces.candidates(id),
+  canManageWorkspaces: async () => {
+    const permissions = await instancePermissionsNow();
+    return permissions.includes("workspaces.manage") || permissions.includes("instance.full_admin");
+  },
   membersView: (projectId) => appClient().projects.membersView(projectId),
   projects: async () => (await listProjects()).map((p) => ({ id: p.id, code: p.code, name: p.name })),
 });
