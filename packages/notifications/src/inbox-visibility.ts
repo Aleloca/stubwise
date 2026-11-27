@@ -30,7 +30,7 @@
  * il `badge` delle push del worker — la campanella e il telefono devono dire
  * lo stesso numero (vedi `unread.ts`).
  */
-import { memberPermissionsSql, notifications, projectMembers, projects, roles, tickets } from "@stubwise/db";
+import { notifications, projectAccessPermissionsSql, projectAccessSql, projects, tickets } from "@stubwise/db";
 import { ALERT_TYPES, isLiveAlertType, type AlertType } from "@stubwise/shared";
 import { sql, type SQL } from "drizzle-orm";
 import { userIsFullAdmin } from "./project-access.js";
@@ -48,11 +48,8 @@ export function notificationVisibleToRecipient(): SQL {
     (
       ${cardProjectId()} is null
       or ${notifications.kind}::text = 'google.proposal'
-      or exists (
-        select 1 from ${projectMembers} vm
-        where vm.project_id = ${cardProjectId()}
-          and vm.user_id = ${notifications.userId}
-      )
+      -- Membro esplicito o di una workspace del progetto (0238): \`project_access\`.
+      or ${projectAccessSql(cardProjectId(), notifications.userId)}
       or ${userIsFullAdmin(notifications.userId)}
     )
     and ${catalogPermissionVisible(ALERT_TYPES.filter((t) => isLiveAlertType(t.type)))}
@@ -85,13 +82,8 @@ export function catalogPermissionVisible(types: readonly AlertType[]): SQL {
       ${notifications.kind}::text <> ${t.type}
       or ${notifications.event}->>'alertMandatory' is not null
       or ${userIsFullAdmin(notifications.userId)}
-      or exists (
-        select 1 from ${projectMembers} cm
-        inner join ${roles} cr on cr.id = cm.role_id
-        where cm.project_id = ${cardProjectId()}
-          and cm.user_id = ${notifications.userId}
-          and ${memberPermissionsSql(sql`cr.permissions`, sql`cm.project_id`, sql`cm.user_id`)} @> array[${t.subscribe.perm}]::text[]
-      )
+      -- L'unione delle fonti (workspace compresa, 0238); null per un non membro.
+      or coalesce(${projectAccessPermissionsSql(cardProjectId(), notifications.userId)} @> array[${t.subscribe.perm}]::text[], false)
     )`,
   );
   return sql.join(clauses, sql` and `);

@@ -1,4 +1,4 @@
-import { automations, backlogItems, backlogItemTickets, clientProjectLinks, emailMessages, milestones, projectMembers, projects, roles, tickets, type Db } from "@stubwise/db";
+import { automations, backlogItems, backlogItemTickets, clientProjectLinks, emailMessages, milestones, projectAccess, projectAccessRowCounts, projects, roles, tickets, type Db } from "@stubwise/db";
 import { automationEventFields, automationMailboxOf, automationOwnerInScope, loadPlanWorld, projectPermissionsByProject, projectPermissionsOfUser, type AutomationEventRef } from "@stubwise/notifications";
 import {
   checkEventFields,
@@ -174,10 +174,11 @@ async function contextParts(
   const visibleProjects = scope.projectIds.filter((p) => sees(visible, p));
   const members = visibleProjects.length
     ? await db
-        .select({ projectId: projectMembers.projectId, userId: projectMembers.userId, presetKey: roles.presetKey, roleId: roles.id })
-        .from(projectMembers)
-        .innerJoin(roles, eq(roles.id, projectMembers.roleId))
-        .where(inArray(projectMembers.projectId, visibleProjects))
+        // Membri espliciti e persone di workspace, coi loro ruoli (0238, come `loadPlanWorld`).
+        .select({ projectId: projectAccess.projectId, userId: projectAccess.userId, presetKey: roles.presetKey, roleId: roles.id })
+        .from(projectAccess)
+        .innerJoin(roles, eq(roles.id, projectAccess.roleId))
+        .where(and(inArray(projectAccess.projectId, visibleProjects), projectAccessRowCounts))
     : [];
   const personIds = new Set<string>([viewer.id, ownerId, ...members.map((m) => m.userId)]);
   for (const id of scope.personIds) if (visibleProjects.some((p) => world.canSeeProject(id, p))) personIds.add(id);

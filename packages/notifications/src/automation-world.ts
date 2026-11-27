@@ -1,4 +1,4 @@
-import { departmentMembers, milestones, projectMembers, projects, roles, users, type Db } from "@stubwise/db";
+import { departmentMembers, milestones, projectAccess, projectAccessRowCounts, projects, roles, users, type Db } from "@stubwise/db";
 import type { ApprovalWho, PlanPerson, PlanWorld } from "@stubwise/shared";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { projectPermissionsByProject, userIsFullAdmin } from "./project-access.js";
@@ -44,19 +44,21 @@ export async function loadPlanWorld(db: Db | Tx, scope: WorldScope): Promise<Pla
       : (await db.select({ id: projects.id }).from(projects).where(inArray(projects.id, projectIds))).map((p) => p.id),
   );
 
-  // I membri dei progetti, col ruolo (chiave del preset o id del ruolo).
+  // I membri dei progetti, coi ruoli (chiave del preset o id del ruolo): da
+  // `project_access` (0238), quindi anche le persone di una workspace, col ruolo
+  // di workspace. Chi è membro per due vie ha DUE ruoli, e li ha entrambi.
   const memberRows =
     existing.size === 0
       ? []
       : await db
-          .select({ projectId: projectMembers.projectId, userId: projectMembers.userId, presetKey: roles.presetKey, roleId: roles.id })
-          .from(projectMembers)
-          .innerJoin(roles, eq(roles.id, projectMembers.roleId))
-          .where(inArray(projectMembers.projectId, [...existing]));
-  const membersOf = new Map<string, Map<string, string>>();
+          .select({ projectId: projectAccess.projectId, userId: projectAccess.userId, presetKey: roles.presetKey, roleId: roles.id })
+          .from(projectAccess)
+          .innerJoin(roles, eq(roles.id, projectAccess.roleId))
+          .where(and(inArray(projectAccess.projectId, [...existing]), projectAccessRowCounts));
+  const membersOf = new Map<string, Map<string, Set<string>>>();
   for (const r of memberRows) {
-    const m = membersOf.get(r.projectId) ?? new Map<string, string>();
-    m.set(r.userId, r.presetKey ?? r.roleId);
+    const m = membersOf.get(r.projectId) ?? new Map<string, Set<string>>();
+    m.set(r.userId, (m.get(r.userId) ?? new Set<string>()).add(r.presetKey ?? r.roleId));
     membersOf.set(r.projectId, m);
   }
 
@@ -119,8 +121,8 @@ export async function loadPlanWorld(db: Db | Tx, scope: WorldScope): Promise<Pla
     person: (id) => people.get(id),
     isDeactivated: () => false,
     holdersOfRole: (projectId, role) =>
-      [...(membersOf.get(projectId) ?? new Map<string, string>()).entries()]
-        .filter(([id, key]) => key === role && !people.get(id)?.isClaude)
+      [...(membersOf.get(projectId) ?? new Map<string, Set<string>>()).entries()]
+        .filter(([id, keys]) => keys.has(role) && !people.get(id)?.isClaude)
         .map(([id]) => id)
         .sort(byName),
     departmentRecipients: (departmentId, projectId) =>
