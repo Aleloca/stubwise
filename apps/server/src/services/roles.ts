@@ -684,7 +684,7 @@ async function membersWithPermissions(db: DbOrTx, projectId: string, onlyUserId?
   const explicitIds = new Set(explicitRows.map((r) => r.userId));
   const rows = [
     ...explicitRows.map((r) => ({ ...r, explicit: true, workspace: wsByUser.get(r.userId) ?? null })),
-    ...(opts.includeWorkspace ? viaWorkspace.filter((r) => !explicitIds.has(r.userId)).map(({ workspaceId: _w, ...r }) => ({ ...r, explicit: false, workspace: wsByUser.get(r.userId)! })) : []),
+    ...(opts.includeWorkspace ? viaWorkspace.filter((r) => !explicitIds.has(r.userId)).map((r) => ({ userId: r.userId, email: r.email, avatarUrl: r.avatarUrl, roleId: r.roleId, roleName: r.roleName, rolePermissions: r.rolePermissions, createdAt: r.createdAt, explicit: false, workspace: r })) : []),
   ].sort((x, y) => (x.email < y.email ? -1 : x.email > y.email ? 1 : 0));
   const grants = await db
     .select()

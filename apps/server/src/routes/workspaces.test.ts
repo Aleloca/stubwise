@@ -144,6 +144,10 @@ describe("M4 (revisione d'insieme): i membri di un progetto e le persone di work
     expect(byId.get(vera.id)!.permissions.length).toBeGreaterThan(0);
     // Dino è esplicito (Developer) E nella workspace: una riga sola, esplicita, con la workspace accanto.
     expect(byId.get(dino.id)).toMatchObject({ explicit: true, workspaceId: w.id, roleName: "Developer" });
+    // …e fra le fonti dei suoi permessi anche il ruolo di workspace (l'unione, D1).
+    const viewer = await presetRoleId(app, "viewer");
+    const dinoSources = (byId.get(dino.id)!.permissions as unknown as { sources: { kind: string; roleId: string | null }[] }[]).flatMap((p) => p.sources);
+    expect(dinoSources).toContainEqual(expect.objectContaining({ kind: "role", roleId: viewer }));
     expect(byId.get(lea.id)).toMatchObject({ explicit: true, workspaceId: null });
   });
 });
