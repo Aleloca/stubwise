@@ -78,8 +78,8 @@ Sono le sezioni di `PROJECT_SETTINGS_SECTIONS` assenti da `INTEGRATED.projectSet
 | b | **Scarica una categoria come .zip.** Nella build app il bottone c'è ancora, ma produce lo «zip finto» del prototipo, cioè un indice di testo (`DocTree.tsx` r.181–192). È un difetto visibile, non solo un'assenza (`integration-area5-f1.md` r.72: «Export zip assente») | `/docs/:repositoryId` | `GET /api/repositories/:repositoryId/docs/export` | S |
 | b | **Scarica `graph.json`.** L'app scarica un JSON composto dallo stato, non il file vero del server (`integration-area5-f1.md` r.68) | `/docs/:repositoryId/graph` | `GET /api/repositories/:id/graph/json` | S |
 | d | Grafo interattivo (HTML di graphify, espandi e chiudi) | `/docs/:repositoryId/graph` | `GET /api/repositories/:id/graph/html` | S |
-| d | Arricchimento semantico dei Docs nella ricerca globale («Refining…») | ⌘K | `GET /api/search/docs-semantic` | S |
-| d | «What's new» e highlights a livello di progetto nella landing dei Docs. Quelli del repository ci sono | `/docs/project/:id` | `GET /api/projects/:projectId/docs/highlights` | S |
+| d | ~~Arricchimento semantico dei Docs nella ricerca globale («Refining…»)~~ **Coperto** (27 nov 2026): il gruppo Docs della ⌘K usa `GET /api/projects/:id/docs/search`, che è ibrida (embedding + full-text). Manca solo l'indicatore «Refining…», che il prototipo non ha | ⌘K | `GET /api/search/docs-semantic` | — |
+| d | ~~«What's new» e highlights a livello di progetto nella landing dei Docs~~ **Coperto per quanto la shape prevede** (27 nov 2026): WHAT'S NEW c'è, aggregato dagli spazi; i più letti e gli aggiornati di recente la shape `docs.md` li vuole solo nell'indice del repository, dove ci sono | `/docs/project/:id` | `GET /api/projects/:projectId/docs/highlights` | — |
 
 ### 1.6 Task, richieste, brief, ricerca
 
@@ -87,8 +87,8 @@ Sono le sezioni di `PROJECT_SETTINGS_SECTIONS` assenti da `INTEGRATED.projectSet
 |---|---|---|---|---|
 | d | «Remove design» e «Remove plan» sul ticket | `/tickets/:id` | `DELETE /api/tickets/:id/design`, `DELETE /api/tickets/:id/plan` | S |
 | d | «Remove design» e «Remove plan» sulla voce di backlog | `/backlog/:id` | `DELETE /api/backlog/:id/design`, `DELETE /api/backlog/:id/plan` | S |
-| d | Leggere un brief che non è l'ultimo. Il web ha `/briefs/:id`; l'app apre il lettore solo sull'ultimo e per gli altri dice «non è più l'ultimo» (`BriefCard.tsx` r.221–229), anche se la cronologia li elenca. Non ho trovato una decisione scritta | `/briefs/:id` | `GET /api/briefs/:briefId` | S |
-| d | Ricerche recenti salvate sul server (Clear all, togli una) | ⌘K | `GET/POST/DELETE /api/search/history`, `DELETE /api/search/history/:type/:entityId` | S |
+| d | **Fatto** (27 nov 2026, `feat/ritiro-buchi-minori` 4380e1029): leggere un brief che non è l'ultimo. Il web ha `/briefs/:id`; l'app apre il lettore solo sull'ultimo e per gli altri dice «non è più l'ultimo» (`BriefCard.tsx` r.221–229), anche se la cronologia li elenca. Non ho trovato una decisione scritta | `/briefs/:id` | `GET /api/briefs/:briefId` | S |
+| d | Ricerche recenti salvate sul server (Clear all, togli una). **Shape approvata** (`search-history.md`, 27 nov 2026), in corso su `feat/ritiro-buchi-minori` | ⌘K | `GET/POST/DELETE /api/search/history`, `DELETE /api/search/history/:type/:entityId` | S |
 
 ### 1.7 Già coperto, per trasparenza
 
