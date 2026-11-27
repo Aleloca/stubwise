@@ -10,5 +10,10 @@ import { isAppBuild } from "../../data/build";
 export function openConsentTab(): Window | null {
   const bridge = (window as { stubwise?: { api?: unknown } }).stubwise;
   if (!isAppBuild() || bridge?.api) return null;
-  return window.open("", "_blank");
+  const tab = window.open("", "_blank");
+  // Senza `noopener` (servirebbe la scheda per darle l'URL dopo): l'opener si
+  // taglia SUBITO, prima che carichi la pagina di Google (M4 della revisione
+  // di sicurezza della cassaforte nel browser).
+  if (tab) tab.opener = null;
+  return tab;
 }

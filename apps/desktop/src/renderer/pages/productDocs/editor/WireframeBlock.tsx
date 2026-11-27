@@ -1,4 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
+import { safeWireframeSvg } from "../safeWireframe";
 import { useTranslation } from "react-i18next";
 import { useAiBlock, useKeepWireframe, useRedrawWireframe } from "../../../data/queries";
 import type { ProductBlock, ProductPageView, ProductWireframeFailReason } from "../../../data/types";
@@ -72,7 +73,8 @@ export function WireframeBlock({
   // In disegno lo schizzo di prima non si mostra: torna solo se il disegno nuovo non riesce.
   // Una bozza mai disegnata non ne ha (nel prototipo la chiave è del disegno, non del blocco).
   const neverDrawn = drawing || (sketchState?.status === "failed" && !sketchState.drawn);
-  const svg = neverDrawn ? null : (page.wireframes?.[`${block.wireframeId}:${block.variant}`] ?? null);
+  // Ripulito anche qui prima di entrare nel documento (M3 della revisione di sicurezza).
+  const svg = neverDrawn ? null : safeWireframeSvg(page.wireframes?.[`${block.wireframeId}:${block.variant}`]);
   const kept = block.kept === true;
   /** La testata c'è finché la bozza non è tenuta, e sempre mentre Claude ci lavora o non c'è riuscito. */
   const withHeader = !kept || sketchState !== undefined;
@@ -285,7 +287,7 @@ export function WireframeBlock({
             key={`${block.wireframeId}:${block.variant}`}
             role="img"
             aria-label={name}
-            // Lo schizzo è del seme (`PRODUCT_WIREFRAMES`): SVG fissi in `currentColor`, nessun dato di chi scrive.
+            // Già ripulito da `safeWireframeSvg` (l'allowlist di `sanitizeWireframeSvg`).
             dangerouslySetInnerHTML={{ __html: svg }}
             className="event-enter mx-auto flex max-h-[328px] w-full justify-center text-ink [&>svg]:h-auto [&>svg]:max-h-[328px] [&>svg]:w-full [&>svg]:max-w-[492px]"
           />
