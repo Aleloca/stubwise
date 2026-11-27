@@ -6,7 +6,7 @@
  * Un LETTORE EFFETTIVO è, in quel momento:
  *  - un full admin (`instance.full_admin`, membro implicito di ogni
  *    progetto), oppure
- *  - un membro del progetto della credenziale (riga in `project_members`)
+ *  - un membro del progetto della credenziale (riga in `project_access`: esplicito o di workspace)
  *    invitato direttamente, o il cui ruolo di progetto è invitato.
  * La membership si rilegge a OGNI chiamata: un invito a una persona uscita
  * dal progetto, o a un ruolo che non ha più, resta in tabella ma non vale
@@ -58,8 +58,11 @@ const LIVE_KEY_STATUSES: VaultPersonKeyStatus[] = ["pending", "confirmed"];
 export function effectiveReaderCondition(credentialId: AnyColumn | SQL, userId: AnyColumn | SQL): SQL {
   return sql`(${userIsFullAdmin(userId)} or exists (
     select 1 from ${credentials} er_c
-    inner join project_members er_pm
+    -- Membro esplicito o di workspace (0238, D16): il ruolo di workspace vale
+    -- come ruolo di progetto; mai la riga di workspace di un utente di sistema.
+    inner join project_access er_pm
       on er_pm.project_id = er_c.project_id and er_pm.user_id = ${userId}
+      and (er_pm.source = 'member' or not exists (select 1 from users er_u where er_u.id = er_pm.user_id and er_u.is_agent))
     inner join credential_readers er_r
       on er_r.credential_id = er_c.id
       and (er_r.user_id = ${userId} or er_r.role_id = er_pm.role_id)
