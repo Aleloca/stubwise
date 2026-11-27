@@ -26,8 +26,10 @@ togliere il design cambia la descrizione che si legge.
 
 - **Richiesta:** un «⋯» nell'intestazione di DESIGN e di PLAN, con
   «Remove design…» e «Remove plan…». Lo vede solo chi ha `backlog.edit`.
-  Il dialogo dice la conseguenza in una riga: «The description goes back
-  to the original text. A refine with Claude can write the design again.». Poi **Remove** e **Cancel**.
+  Il dialogo dice la conseguenza in una riga: «The design goes away; the
+  request keeps its description. A refine with Claude can write it again.»
+  (la vista della richiesta separa già i due testi: `description` è
+  l'originale, `design` è a sé). Poi **Remove** e **Cancel**.
   Dopo, la sezione sparisce e compare il toast «Design removed».
 - **Task** **[DP 2]:** due sezioni DESIGN e PLAN, chiuse di default, sotto la
   descrizione. Compaiono solo quando ci sono. Hanno lo stesso «⋯ Remove…».
@@ -41,6 +43,12 @@ togliere il design cambia la descrizione che si legge.
 - **DP-Q2** (maintainer): sulla task le sezioni DESIGN e PLAN, chiuse di
   default, in lettura e con lo stesso Remove.
 - **DP-Q3** (46): sulla task con `tickets.edit`, come la rotta.
+- **DP-Q2b** (46): sulla task il design È il corpo (l'originale sta in
+  `originContent`). Si mostra come la richiesta: la descrizione mostra
+  l'originale, la sezione DESIGN il design con Remove; finché il design c'è
+  la descrizione non si modifica, con la riga «Remove the design to edit the
+  description» (modificarla riscriverebbe il design). Design e piano entrano
+  nella vista della task come campi additivi.
 
 ## Le domande com'erano
 
