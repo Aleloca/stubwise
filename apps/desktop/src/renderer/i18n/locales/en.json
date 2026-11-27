@@ -68,7 +68,8 @@
       "chat": "Channels and direct messages will be listed here.",
       "filters": "Your filters will be listed here.",
       "planning": "Planning views will be listed here.",
-      "home": "Your views will be listed here."
+      "home": "Your views will be listed here.",
+      "vault": "Your projects with credentials will be listed here."
     },
     "allFilters": "All filters",
     "pinned": "Pinned",
