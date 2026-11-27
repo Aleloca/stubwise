@@ -219,6 +219,15 @@ function visibleScopeSql(visible: ProjectScope): SQL {
   return sql`array(select x from unnest(${emailMessages.scopeProjectIds}) as x where x = any(${list}))`;
 }
 
+/**
+ * C'è una proposta di chi guarda (`mailbox_owner`, come `proposalRows`) su
+ * un messaggio di QUESTA conversazione (la riga del GROUP BY), che soddisfa
+ * `where`. `p` è la proposta.
+ */
+function ownerProposalExistsSql(where: SQL): SQL {
+  return sql`exists (select 1 from email_proposals p join email_messages m on m.id = p.email_message_id where m.account_id = ${emailMessages.accountId} and m.thread_id = ${emailMessages.threadId} and p.audience = 'mailbox_owner' and ${where})`;
+}
+
 function threadClassificationFilters(
   query: {
     importance?: "high" | "normal" | "low" | undefined;
@@ -234,9 +243,20 @@ function threadClassificationFilters(
   if (query.importance) {
     out.push(sql`coalesce(max(${IMPORTANCE_RANK_SQL}) filter (where ${done}), 0) = ${RANK_BY_IMPORTANCE[query.importance]}`);
   }
-  if (query.project) out.push(sql`coalesce(bool_or(${done} and ${query.project}::uuid = any(${scope})), false)`);
+  if (query.project) {
+    // La riga etichetta il progetto anche dalle proposte di chi guarda
+    // (`proposalRows` sotto): il filtro guarda la stessa fonte, o la riga
+    // con «MEE» non si trova filtrando per MEE. Un progetto invisibile resta
+    // come uno che non esiste.
+    const fromProposal = scopeIncludes(visible, query.project)
+      ? sql` or ${ownerProposalExistsSql(sql`p.project_id = ${query.project}::uuid`)}`
+      : sql``;
+    out.push(sql`(coalesce(bool_or(${done} and ${query.project}::uuid = any(${scope})), false)${fromProposal})`);
+  }
   if (query.noProject === "true") {
-    out.push(sql`coalesce(bool_or(${done}), false) and not coalesce(bool_or(${done} and cardinality(${scope}) > 0), false)`);
+    out.push(
+      sql`coalesce(bool_or(${done}), false) and not coalesce(bool_or(${done} and cardinality(${scope}) > 0), false) and not ${ownerProposalExistsSql(sql`true`)}`,
+    );
   }
   if (query.important === "true") {
     out.push(sql`coalesce(bool_or(${done} and ${emailMessages.importance} = 'high' and ${emailMessages.unread}), false)`);

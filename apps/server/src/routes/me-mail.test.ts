@@ -2249,6 +2249,35 @@ describe("GET /api/me/mail/threads — la classificazione nuova (area 6, F2, tas
     expect(await ids("?important=true")).toEqual([high]);
   });
 
+  it("il filtro per progetto trova le conversazioni che la riga etichetta con quel progetto anche per una PROPOSTA (difetto in produzione, 27 nov 2026)", async () => {
+    // In «All mail» la riga mostrava il progetto (dalla proposta, «1 to decide»),
+    // ma `?project=` guardava solo lo scope della classificazione nuova: «No mail for MEE».
+    const { accountId } = await seedAccount(memberId);
+    const projectId = await seedProject("Meeting Hub");
+    await addMember(app, projectId, memberId, "viewer");
+    const legacy = `t-${randomUUID()}`;
+    await seedProposal(await seedEmail(accountId, { threadId: legacy }), projectId);
+    const classified = `t-${randomUUID()}`;
+    await seedProposal(await seedEmail(accountId, { threadId: classified, classificationState: "done", importance: "normal" }), projectId);
+    const other = `t-${randomUUID()}`;
+    await seedEmail(accountId, { threadId: other, classificationState: "done", importance: "normal" });
+
+    const all = rows(await getThreads(memberCookie));
+    expect(all.find((r) => r.threadId === legacy)!.projectIds).toEqual([projectId]);
+    const ids = async (q: string) => rows(await getThreads(memberCookie, q)).map((r) => r.threadId).sort();
+    expect(await ids(`?project=${projectId}`)).toEqual([legacy, classified].sort());
+    // «Senza progetto» è il complemento della stessa etichetta.
+    expect(await ids("?noProject=true")).toEqual([other]);
+  });
+
+  it("NEGATIVO: una proposta su un progetto che chi guarda NON vede non fa trovare la conversazione col filtro", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const hidden = await seedProject("Progetto riservato");
+    const t = `t-${randomUUID()}`;
+    await seedProposal(await seedEmail(accountId, { threadId: t }), hidden);
+    expect(rows(await getThreads(memberCookie, `?project=${hidden}`))).toEqual([]);
+  });
+
   it("NEGATIVO: i filtri non allargano mai alla casella di un altro", async () => {
     const { accountId } = await seedAccount(memberId);
     await seedEmail(accountId, { classificationState: "done", importance: "high", unread: true });
