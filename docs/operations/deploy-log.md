@@ -7292,7 +7292,40 @@ deploy o di un rollback che la tocca.
      catalogo (`config.mcp`): nessun changeset necessario.
   **Permesso nuovo**: `workspaces.manage` (d'istanza), in nessun preset: lo
   ha solo il full admin finché un admin non lo dà a un ruolo. Senza, nessuno
-  vede differenze.
+  vede differenze **di workspace**.
+  **Cosa cambia ANCHE su un'istanza senza workspace** (revisione d'insieme,
+  M5). Sono cambi veri, da sapere prima del deploy:
+  - **`PATCH /api/roles/:id` può rispondere 409 `last_manager`**: togliere
+    `project.members.manage` a un ruolo di progetto che è l'unica fonte di
+    quel permesso per i gestori di un progetto ora si rifiuta, col progetto
+    nel corpo (solo a chi lo vede). Prima passava e lasciava il progetto
+    senza gestori. Lo stesso per l'eliminazione di una persona che è l'ultima
+    gestrice di un progetto. L'anteprima del ruolo
+    (`POST /api/roles/:id/viewer-loses`) porta `lastManager`, additivo.
+  - **Le anteprime prendono i lock della scrittura.** `viewer-loses`, e le
+    anteprime di membro e di effetto, FANNO la scrittura in una transazione
+    annullata: prendono riga del ruolo, workspace e lock advisory dei membri
+    come il salvataggio, e lo dicono identico. Un salvataggio concorrente
+    sullo stesso ruolo o progetto aspetta l'anteprima, per pochi
+    millisecondi.
+  - **Il conteggio delle assegnazioni dei ruoli d'istanza era sempre 0**
+    (vecchio difetto, `assignmentCountSql`): l'elenco dei ruoli mostrava
+    «0 persone» anche per un ruolo in uso. Ora conta le persone vere.
+    Eliminare un ruolo d'istanza assegnato dava già 409 `role_in_use`, dal
+    vincolo e senza conteggio; ora lo dà prima, col `count`.
+  - **Il JIT di Postgres è spento su tutte le connessioni dell'app**
+    (`createDb`: server, worker e script), e la WHERE della visibilità
+    delle card legge i permessi una volta per riga (I1). Inbox e conteggio
+    dei non letti tornano ai tempi di main o meglio; nessun risultato
+    cambia.
+  - **`GET /api/projects/:id/members`** ha due campi additivi, `explicit` e
+    `workspaceId`. Il parametro opzionale `?include=workspace` aggiunge chi
+    vede il progetto solo per una workspace (M4). Senza il parametro, gli
+    stessi membri di prima. **`GET /api/workspaces`** ha `canManage` (I3).
+  - **Un invito con una workspace la perde in un rollback**: il codice
+    vecchio non legge `invite_workspaces`, quindi un invito accettato dopo
+    la discesa crea la persona senza la workspace promessa. La riga resta,
+    ma nessuno la rilegge: va rimessa a mano nella workspace.
   **Rollback**:
   - Prima che esista una workspace: sicuro scendere server, worker e caddy
     insieme. Le tabelle vuote restano e il codice vecchio non le nomina.
@@ -7315,6 +7348,12 @@ deploy o di un rollback che la tocca.
     discesa non rompe `/api/inbox`.
   - Non scendere sotto la 0238 con righe in `workspace_members`: la
     migrazione non si toglie a mano (le tabelle restano, innocue).
+  - Gli inviti pendenti che promettono una workspace, da ricontrollare dopo
+    una discesa (vedi sopra):
+    ```sql
+    select i.email, w.name from invite_workspaces iw
+    join invites i on i.token = iw.invite_token join workspaces w on w.id = iw.workspace_id;
+    ```
 - **«Il filtro per progetto della Posta e la favicon di /app» (27 nov 2026)**:
   branch `fix/posta-filtro-progetto`. In `/app/#/mail` filtrare per un
   progetto dava «No mail for <codice>» anche per conversazioni etichettate
