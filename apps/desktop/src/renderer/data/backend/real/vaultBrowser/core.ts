@@ -1,10 +1,12 @@
-import type {
-  CredentialRevealResponse,
-  PasskeyAuthenticationOptions,
-  VaultMyKeyResponse,
-  VaultStatusResponse,
+import {
+  credentialRecipientsSchema,
+  type CredentialRecipients,
+  type CredentialRevealResponse,
+  type PasskeyAuthenticationOptions,
+  type VaultMyKeyResponse,
+  type VaultStatusResponse,
 } from "@stubwise/shared";
-import { PRF_INPUT, decryptPassword, openPrivateKey, unwrapItemKey } from "@stubwise/vault-crypto";
+import { PRF_INPUT, decryptPassword, encryptForInsert, openPrivateKey, unwrapItemKey } from "@stubwise/vault-crypto";
 import { toBase64Url } from "./bytes";
 
 // Il cuore della cassaforte nel browser (revisione di sicurezza I-1): gira
@@ -15,9 +17,9 @@ import { toBase64Url } from "./bytes";
 // - la verifica della passkey, l'apertura del sigillo con la PRF (che arriva
 //   per transfer e si azzera subito), la `CryptoKey` di persona;
 // - la scadenza a ora di parete, col `Date` e il timer del worker;
-// - la decifratura per Show (e, coi pezzi dopo, la cifratura per crea e
-//   condividi).
-// La pagina riceve solo esiti e, per Show e Copy, la sola password.
+// - la decifratura per Show, la cifratura per crea e cambia.
+// La pagina riceve solo esiti e, per Show e Copy, la sola password; per crea
+// e cambia manda la password digitata, che qui si cifra e non torna.
 // `VaultCore` è puro (rete, orologio e timer iniettati): si prova senza un
 // worker vero.
 
@@ -39,6 +41,14 @@ export type CoreRequest =
       sessionTag: string;
     }
   | { t: "reveal"; id: string; action: "show" | "copy"; personId: string; sessionTag: string }
+  /**
+   * Una credenziale nuova: non vuole la cassaforte aperta (si cifra con le
+   * PUBBLICHE dei destinatari). L'id lo genera il worker; i campi in chiaro
+   * non possono sovrascrivere id e cifrato.
+   */
+  | { t: "create"; projectId: string; fields: Record<string, unknown>; password: string }
+  /** La password nuova: con la cassaforte aperta e la sessione dell'apertura. */
+  | { t: "setPassword"; id: string; password: string; personId: string; sessionTag: string }
   /** Una PRF che la pagina non usa più (M-3): arriva per transfer e si azzera. */
   | { t: "discard"; prf: ArrayBuffer }
   | { t: "touch" }
@@ -63,6 +73,8 @@ class HttpError extends Error {
     readonly status: number,
     readonly code: string,
     readonly retryAfterSeconds?: number,
+    /** Il corpo dell'errore (il 409 `recipients_changed` porta l'insieme attuale). */
+    readonly body?: unknown,
   ) {
     super(code);
   }
@@ -73,9 +85,20 @@ const hasLiveKey = (s: VaultStatusResponse) =>
 
 const wipe = (buffer: ArrayBuffer) => new Uint8Array(buffer).fill(0);
 
+const seg = (id: string) => encodeURIComponent(id);
+
+/** Il corpo di un 409 `recipients_changed`, se c'è, letto con lo schema (`key` = dove sta). */
+function changed<T>(error: unknown, key: string, schema: { safeParse: (v: unknown) => { success: boolean; data?: T } }): T | null {
+  if (!(error instanceof HttpError) || error.status !== 409 || error.code !== "recipients_changed") return null;
+  const out = schema.safeParse((error.body as Record<string, unknown> | null)?.[key]);
+  return out.success ? (out.data as T) : null;
+}
+
 export class VaultCore {
   private key: {
     privateKey: CryptoKey;
+    /** L'id della propria chiave di persona (le copie e le prove sono legate a lui). */
+    personKeyId: string;
     personId: string;
     sessionTag: string;
     /** Il `sessionTag` del SERVER all'apertura (I-3); `null` da un server di prima. */
@@ -86,7 +109,7 @@ export class VaultCore {
 
   constructor(private readonly deps: CoreDeps) {}
 
-  private async http<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+  private async http<T>(method: "GET" | "POST" | "PUT" | "DELETE", path: string, body?: unknown): Promise<T> {
     let res: Response;
     try {
       res = await this.deps.fetch(path, {
@@ -106,7 +129,7 @@ export class VaultCore {
       if (res.status === 401) this.lock("session");
       // `vault_unlock_required` (54, 18d8097cb): una rotta `reauth: "vault"` vuole uno sblocco recente.
       else if (code === "reauth_required" || code === "vault_unlock_required") this.lock("reauth", code);
-      throw new HttpError(res.status, code, Number.isFinite(retry) && retry > 0 ? retry : undefined);
+      throw new HttpError(res.status, code, Number.isFinite(retry) && retry > 0 ? retry : undefined, data);
     }
     return res.status === 204 ? (null as T) : ((await res.json()) as T);
   }
@@ -162,6 +185,59 @@ export class VaultCore {
     return { userId: me.user.id, serverTag: typeof me.sessionTag === "string" ? me.sessionTag : null };
   }
 
+  /**
+   * La chiave per un'azione, con la sessione del cookie ancora quella
+   * dell'apertura (I-3: un logout e un login in un'altra scheda la
+   * cambiano); altrimenti chiude e `null`.
+   */
+  private async live(personId: string, sessionTag: string): Promise<{ privateKey: CryptoKey; personKeyId: string } | null> {
+    if (!this.use(personId, sessionTag)) return null;
+    const server = await this.whoOnServer();
+    if (!this.key) return null;
+    if (server.userId !== this.key.personId || server.serverTag !== this.key.serverTag) {
+      this.lock("session");
+      return null;
+    }
+    return { privateKey: this.key.privateKey, personKeyId: this.key.personKeyId };
+  }
+
+  /**
+   * Cifra e scrive (crea o cambia), come il main del desktop: per
+   * ESATTAMENTE i destinatari dati, le persone e il recupero. Se nel
+   * frattempo l'insieme è cambiato, il server risponde 409
+   * `recipients_changed` coi destinatari ATTUALI: si ricifra e si riprova
+   * UNA volta (`resaved`).
+   */
+  private async writeEncrypted(input: {
+    credentialId: string;
+    password: string;
+    recipientsPath: string;
+    write: (enc: { passwordCiphertext: string; copies: { recipientId: string; wrappedKey: string }[]; recoveryPublicKey: string }) => Promise<unknown>;
+  }): Promise<{ resaved: boolean }> {
+    const encrypt = async (r: CredentialRecipients) => {
+      const { passwordCiphertext, copies } = await encryptForInsert({
+        credentialId: input.credentialId,
+        password: input.password,
+        recipients: [
+          ...r.people.map((p) => ({ recipientId: p.personKeyId, publicKey: p.publicKey })),
+          { recipientId: "recovery", publicKey: r.recoveryPublicKey },
+        ],
+      });
+      return { passwordCiphertext, copies, recoveryPublicKey: r.recoveryPublicKey };
+    };
+    const first = credentialRecipientsSchema.safeParse(await this.http("GET", input.recipientsPath));
+    if (!first.success) throw new HttpError(0, "invalid_response");
+    try {
+      await input.write(await encrypt(first.data));
+      return { resaved: false };
+    } catch (error) {
+      const current = changed<CredentialRecipients>(error, "recipients", credentialRecipientsSchema);
+      if (!current) throw error;
+      await input.write(await encrypt(current));
+      return { resaved: true };
+    }
+  }
+
   async handle(req: CoreRequest): Promise<unknown> {
     try {
       return await this.dispatch(req);
@@ -212,6 +288,7 @@ export class VaultCore {
           }
           this.key = {
             privateKey,
+            personKeyId: mine.id,
             personId: req.personId,
             sessionTag: req.sessionTag,
             serverTag: server.serverTag,
@@ -225,19 +302,12 @@ export class VaultCore {
         }
       }
       case "reveal": {
-        const privateKey = this.use(req.personId, req.sessionTag);
-        if (!privateKey) return { ok: false, code: "vault_locked" };
-        // I-3: la sessione del cookie è ancora quella dell'apertura (un logout
-        // e un login in un'altra scheda la cambiano).
-        const server = await this.whoOnServer();
-        if (!this.key) return { ok: false, code: "vault_locked" };
-        if (server.userId !== this.key.personId || server.serverTag !== this.key.serverTag) {
-          this.lock("session");
-          return { ok: false, code: "vault_locked" };
-        }
+        const k = await this.live(req.personId, req.sessionTag);
+        if (!k) return { ok: false, code: "vault_locked" };
+        const privateKey = k.privateKey;
         const r = await this.http<CredentialRevealResponse>(
           "POST",
-          `/api/credentials/${encodeURIComponent(req.id)}/reveal`,
+          `/api/credentials/${seg(req.id)}/reveal`,
           { action: req.action },
         );
         const itemKey = await unwrapItemKey(r.wrappedKey, privateKey, req.id, r.personKeyId, { extractable: false });
@@ -245,6 +315,26 @@ export class VaultCore {
         // Chiusa mentre la risposta arrivava: la password non esce.
         if (!this.key) return { ok: false, code: "vault_locked" };
         return { ok: true, password };
+      }
+      case "create": {
+        const id = crypto.randomUUID();
+        const { resaved } = await this.writeEncrypted({
+          credentialId: id,
+          password: req.password,
+          recipientsPath: `/api/projects/${seg(req.projectId)}/credentials/recipients`,
+          write: (enc) => this.http("POST", `/api/projects/${seg(req.projectId)}/credentials`, { ...req.fields, id, ...enc }),
+        });
+        return { ok: true, id, resaved };
+      }
+      case "setPassword": {
+        if (!(await this.live(req.personId, req.sessionTag))) return { ok: false, code: "vault_locked" };
+        const { resaved } = await this.writeEncrypted({
+          credentialId: req.id,
+          password: req.password,
+          recipientsPath: `/api/credentials/${seg(req.id)}/recipients`,
+          write: (enc) => this.http("PUT", `/api/credentials/${seg(req.id)}/password`, enc),
+        });
+        return { ok: true, resaved };
       }
       case "discard":
         wipe(req.prf);

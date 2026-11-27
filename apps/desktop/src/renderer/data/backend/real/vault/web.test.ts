@@ -7,12 +7,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 let server: Record<string, unknown>;
 let reveal: unknown;
 let toWorker: { t: string }[];
+/** Le risposte del worker per tipo di richiesta, oltre a stato e reveal. */
+let replies: Record<string, unknown>;
 
 class FakeWorker extends EventTarget {
   postMessage(m: { id: number; req: { t: string } }) {
     toWorker.push(m.req);
     const res =
-      m.req.t === "serverStatus" ? { ok: true, status: server } : m.req.t === "reveal" ? reveal : { ok: true };
+      m.req.t === "serverStatus"
+        ? { ok: true, status: server }
+        : m.req.t === "reveal"
+          ? reveal
+          : (replies[m.req.t] ?? { ok: true });
     queueMicrotask(() => this.dispatchEvent(new MessageEvent("message", { data: { id: m.id, res } })));
   }
 }
@@ -23,6 +29,7 @@ beforeEach(async () => {
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
   vi.stubEnv("VITE_STUBWISE_TARGET", "web");
   toWorker = [];
+  replies = {};
   server = {
     activated: true,
     myKey: { id: "11111111-1111-4111-8111-111111111111", status: "confirmed", createdAt: "2026-11-01T00:00:00.000Z" },
@@ -92,4 +99,31 @@ describe("la cassaforte della build web", () => {
     expect(await vault.copy("c-1")).toEqual({ ok: false, code: "vault_reveal_rate_limited", retryAfterSeconds: 600 });
     session.personId = null;
   });
+
+  it("crea: i campi e la password al worker, che cifra; alla pagina l'id", async () => {
+    const { vault } = await load();
+    replies.create = { ok: true, id: "c-new", resaved: false };
+    const input = { service: "Aruba", label: "Pannello", username: "ada", url: null, notes: null, password: "N3w!pass" };
+    expect(await vault.createCredential("prj-acq", input as never)).toEqual({ ok: true, id: "c-new", resaved: false });
+    expect(toWorker.at(-1)).toEqual({
+      t: "create",
+      projectId: "prj-acq",
+      fields: { service: "Aruba", label: "Pannello", username: "ada", url: null, notes: null },
+      password: "N3w!pass",
+    });
+    replies.create = { ok: false, code: "forbidden" };
+    expect(await vault.createCredential("prj-acq", input as never)).toEqual({ ok: false, code: "forbidden" });
+  });
+
+  it("cambia: la password nuova al worker con persona e sessione; chiusa, il rifiuto del worker", async () => {
+    const { vault, session } = await load();
+    session.personId = "p-ada";
+    replies.setPassword = { ok: true, resaved: true };
+    expect(await vault.updateCredential("c-1", { password: "Ch4nged!" } as never)).toEqual({ ok: true, resaved: true });
+    expect(toWorker.at(-1)).toMatchObject({ t: "setPassword", id: "c-1", password: "Ch4nged!", personId: "p-ada" });
+    replies.setPassword = { ok: false, code: "vault_locked" };
+    expect(await vault.updateCredential("c-1", { password: "Ch4nged!" } as never)).toEqual({ ok: false, code: "vault_locked" });
+    session.personId = null;
+  });
 });
+

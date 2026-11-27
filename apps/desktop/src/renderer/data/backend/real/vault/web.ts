@@ -3,11 +3,11 @@ import { keyFingerprint } from "@stubwise/vault-crypto";
 import type * as Fake from "../../../api";
 import { onLoggedOut, onSessionLost, onSessionStarted } from "../../../sessionEvents";
 import type { VaultStatusView } from "../../../vault/types";
-import { session } from "../client";
+import { appClient, session } from "../client";
 import { partialNamespace } from "../notIntegrated";
 import { request } from "../vaultBrowser/client";
 import { clearNow, copyWithAutoClear } from "../vaultBrowser/clipboard";
-import { revealPassword } from "../vaultBrowser/credentials";
+import { createInWorker, revealPassword, setPasswordInWorker } from "../vaultBrowser/credentials";
 import * as key from "../vaultBrowser/key";
 import { unlockInBrowser } from "../vaultBrowser/unlock";
 import * as liveVaultReads from "../vaultReads";
@@ -18,8 +18,6 @@ import { setVaultTransport } from "../vaultReads";
 // chiave, la crittografia e la rete della cassaforte stanno nel worker
 // (`vaultBrowser/worker.ts`); qui gli esiti per la barra e le pagine. Questo
 // modulo NON nomina il ponte del desktop (`check-vault-target.mjs`).
-
-setVaultTransport(null);
 
 /**
  * La sessione a cui la chiave è legata (I5, I-3): la persona di adesso e
@@ -44,6 +42,19 @@ onLoggedOut(() => {
 onSessionStarted(() => {
   epoch += 1;
   key.announceLogin();
+});
+
+// Le scritture cifrate passano dal worker (crea, cambia); «le mie» sono una
+// lettura della rotta, senza copie.
+setVaultTransport({
+  mine: async () => (await appClient().credentials.mine()).items,
+  create: (projectId, fields, password) => createInWorker(projectId, fields, password),
+  setPassword: async (id, password) => {
+    const w = who();
+    if (!w.personId) return { ok: false, code: "unauthenticated" };
+    return setPasswordInWorker(id, password, w.personId, w.sessionTag);
+  },
+  pending: async () => [],
 });
 
 /** L'ultima apertura ha usato una passkey senza PRF: la barra lo dice finché un'apertura riesce. */

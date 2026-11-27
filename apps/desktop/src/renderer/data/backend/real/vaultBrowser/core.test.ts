@@ -1,8 +1,10 @@
 import {
   PRF_INPUT,
+  decryptPassword,
   encryptPassword,
   generatePersonKeyPair,
   sealPrivateKey,
+  unwrapItemKey,
   wrapItemKey,
 } from "@stubwise/vault-crypto";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -26,6 +28,7 @@ let routes: Record<string, () => { status?: number; body: unknown }>;
 let events: CoreEvent[];
 let prf: Uint8Array<ArrayBuffer>;
 let serverTag: string | null | undefined;
+let pair: Awaited<ReturnType<typeof generatePersonKeyPair>>;
 
 async function setup() {
   clock = Date.parse("2026-11-28T10:00:00Z");
@@ -34,7 +37,7 @@ async function setup() {
   calls = [];
   events = [];
   prf = crypto.getRandomValues(new Uint8Array(32));
-  const pair = await generatePersonKeyPair();
+  pair = await generatePersonKeyPair();
   const sealed = await sealPrivateKey(prf.slice().buffer, pair.privateKeyPkcs8, pair.publicKey);
   const { ciphertext, itemKey } = await encryptPassword(C1, "Kx4!pa-77Wq");
   const wrappedKey = await wrapItemKey(itemKey, pair.publicKey, C1, KEY_ID);
@@ -207,3 +210,93 @@ describe("il cuore della cassaforte nel worker", () => {
     expect(await core.handle({ t: "status" })).toEqual({ state: "locked" });
   });
 });
+
+const PROJECT = "44444444-4444-4444-8444-444444444444";
+const OTHER_KEY = "55555555-5555-4555-8555-555555555555";
+const OTHER_USER = "66666666-6666-4666-8666-666666666666";
+
+/** La password che una copia per `KEY_ID` apre, con la privata vera. */
+async function openedBy(credentialId: string, body: { passwordCiphertext: string; copies: { recipientId: string; wrappedKey: string }[] }) {
+  const copy = body.copies.find((c) => c.recipientId === KEY_ID)!;
+  const privateKey = await crypto.subtle.importKey("pkcs8", pair.privateKeyPkcs8.slice(), { name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
+  const itemKey = await unwrapItemKey(copy.wrappedKey, privateKey, credentialId, KEY_ID);
+  return decryptPassword(credentialId, body.passwordCiphertext, itemKey);
+}
+
+describe("crea e cambia la password, nel worker", () => {
+  let core: VaultCore;
+  let other: Awaited<ReturnType<typeof generatePersonKeyPair>>;
+  let recovery: Awaited<ReturnType<typeof generatePersonKeyPair>>;
+  const recipients = () => ({
+    people: [{ userId: "77777777-7777-4777-8777-777777777777", email: "ada@example.com", personKeyId: KEY_ID, publicKey: pair.publicKey }],
+    recoveryPublicKey: recovery.publicKey,
+  });
+  beforeEach(async () => {
+    core = await setup();
+    other = await generatePersonKeyPair();
+    recovery = await generatePersonKeyPair();
+    routes[`GET /api/projects/${PROJECT}/credentials/recipients`] = () => ({ body: recipients() });
+    routes[`POST /api/projects/${PROJECT}/credentials`] = () => ({ status: 201, body: {} });
+    routes[`GET /api/credentials/${C1}/recipients`] = () => ({ body: recipients() });
+    routes[`PUT /api/credentials/${C1}/password`] = () => ({ body: {} });
+  });
+
+  const fields = { service: "Aruba", label: "Pannello", username: "ada", url: null, notes: null };
+
+  it("crea: senza la cassaforte aperta, cifrata per ogni persona e per il recupero; alla pagina solo l'id", async () => {
+    const out = (await core.handle({ t: "create", projectId: PROJECT, fields, password: "N3w!pass" })) as { ok: true; id: string; resaved: boolean };
+    expect(out).toEqual({ ok: true, id: expect.any(String), resaved: false });
+    const post = calls.find((c) => c.method === "POST" && c.path === `/api/projects/${PROJECT}/credentials`)!;
+    const body = post.body as { id: string; service: string; passwordCiphertext: string; copies: { recipientId: string; wrappedKey: string }[]; recoveryPublicKey: string };
+    expect(body.id).toBe(out.id);
+    expect(body.service).toBe("Aruba");
+    expect(body.copies.map((c) => c.recipientId)).toEqual([KEY_ID, "recovery"]);
+    expect(body.recoveryPublicKey).toBe(recovery.publicKey);
+    expect(JSON.stringify(body)).not.toContain("N3w!pass");
+    expect(await openedBy(out.id, body)).toBe("N3w!pass");
+  });
+
+  it("crea: i campi dalla pagina non sovrascrivono l'id né il cifrato", async () => {
+    const evil = { ...fields, id: "88888888-8888-4888-8888-888888888888", passwordCiphertext: "x", copies: [] };
+    const out = (await core.handle({ t: "create", projectId: PROJECT, fields: evil, password: "N3w!pass" })) as { ok: true; id: string };
+    const body = calls.find((c) => c.method === "POST" && c.path === `/api/projects/${PROJECT}/credentials`)!.body as never as { id: string; passwordCiphertext: string; copies: { recipientId: string; wrappedKey: string }[] };
+    expect(body.id).toBe(out.id);
+    expect(body.id).not.toBe(evil.id);
+    expect(await openedBy(out.id, body)).toBe("N3w!pass");
+  });
+
+  it("crea: `recipients_changed` si rifà UNA volta per i destinatari attuali (resaved); la seconda volta si ferma", async () => {
+    let posts = 0;
+    routes[`POST /api/projects/${PROJECT}/credentials`] = () => {
+      posts += 1;
+      if (posts > 1) return { status: 201, body: {} };
+      const now = recipients();
+      now.people.push({ userId: OTHER_USER, email: "bea@example.com", personKeyId: OTHER_KEY, publicKey: other.publicKey });
+      return { status: 409, body: { code: "recipients_changed", recipients: now } };
+    };
+    expect(await core.handle({ t: "create", projectId: PROJECT, fields, password: "N3w!pass" })).toMatchObject({ ok: true, resaved: true });
+    const last = calls.filter((c) => c.method === "POST" && c.path === `/api/projects/${PROJECT}/credentials`).at(-1)!;
+    expect((last.body as { copies: { recipientId: string }[] }).copies.map((c) => c.recipientId)).toEqual([KEY_ID, OTHER_KEY, "recovery"]);
+
+    routes[`POST /api/projects/${PROJECT}/credentials`] = () => ({ status: 409, body: { code: "recipients_changed", recipients: recipients() } });
+    expect(await core.handle({ t: "create", projectId: PROJECT, fields, password: "N3w!pass" })).toEqual({ ok: false, code: "recipients_changed" });
+  });
+
+  it("cambia: a cassaforte chiusa non scrive niente; aperta, la password nuova per i destinatari", async () => {
+    expect(await core.handle({ t: "setPassword", id: C1, password: "Ch4nged!", personId: ME, sessionTag: TAG })).toEqual({ ok: false, code: "vault_locked" });
+    expect(calls.some((c) => c.method === "PUT")).toBe(false);
+    await openCore(core);
+    expect(await core.handle({ t: "setPassword", id: C1, password: "Ch4nged!", personId: ME, sessionTag: TAG })).toEqual({ ok: true, resaved: false });
+    const put = calls.find((c) => c.method === "PUT" && c.path === `/api/credentials/${C1}/password`)!;
+    expect(await openedBy(C1, put.body as never)).toBe("Ch4nged!");
+  });
+
+  it("cambia: con un'altra sessione sul server chiude e non scrive", async () => {
+    await openCore(core);
+    serverTag = "srv-tag-2";
+    expect(await core.handle({ t: "setPassword", id: C1, password: "Ch4nged!", personId: ME, sessionTag: TAG })).toEqual({ ok: false, code: "vault_locked" });
+    expect(calls.some((c) => c.method === "PUT")).toBe(false);
+    expect(events.at(-1)).toMatchObject({ t: "state", state: "locked", reason: "session" });
+  });
+});
+
