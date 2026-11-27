@@ -2,7 +2,7 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { WhoCanLink } from "../../../components/WhoCanLink";
-import { useProjectRepositories, type RepositoryView } from "../../../data/queries";
+import { useProjectRepositories, type RepositorySaveWarning, type RepositoryView } from "../../../data/queries";
 import type { Project } from "../../../data/types";
 import { useToast } from "../../../tasks-ui/Toast";
 import { AiSkeleton } from "../../admin/ai/parts";
@@ -10,6 +10,7 @@ import { primaryButton, secondaryButton } from "../../tasks/controls";
 import { SettingsFrame } from "../SettingsFrame";
 import { ViewOnlyLine } from "../ViewOnly";
 import { NewRepositoryWizard } from "./NewRepositoryWizard";
+import { SaveWarnings } from "./SaveWarnings";
 import { RepositoryEditor } from "./RepositoryEditor";
 import { WebhookState } from "./WebhookRow";
 
@@ -70,6 +71,12 @@ function RepositoryList({
   const addRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const [added, setAdded] = useState<string | null>(null);
+  // Gli avvisi della creazione appena riuscita (revisione M1/I2): restano finché non se ne crea un altro.
+  const [addedWarnings, setAddedWarnings] = useState<{
+    name: string;
+    provider: "github" | "bitbucket" | null;
+    warnings: RepositorySaveWarning[];
+  } | null>(null);
   // Dove va il fuoco quando il dialogo si chiude: «Add repository» o la riga nuova.
   const [focusAfter, setFocusAfter] = useState<"add" | { row: string } | null>(null);
 
@@ -131,6 +138,12 @@ function RepositoryList({
           {t("settings.repos.addNeedsGitAccounts")}
         </p>
       )}
+      {addedWarnings && (
+        <div className="pb-3">
+          <p className="pb-1 text-sm text-ink">{t("settings.repos.addedWithWarnings", { name: addedWarnings.name })}</p>
+          <SaveWarnings warnings={addedWarnings.warnings} provider={addedWarnings.provider} />
+        </div>
+      )}
       {repositories.isPending ? (
         <AiSkeleton rows={3} height={60} />
       ) : repositories.isError || !data ? (
@@ -186,8 +199,13 @@ function RepositoryList({
             setFocusAfter("add");
             setSearch({ new: undefined });
           }}
-          onCreated={(id, name) => {
+          onCreated={(id, name, warnings, provider) => {
             setAdded(id);
+            setAddedWarnings(
+              warnings.length > 0
+                ? { name, provider, warnings }
+                : null,
+            );
             setFocusAfter({ row: id });
             setSearch({ new: undefined });
             toast.show(t("settings.repos.added", { name, code: project.code }), {

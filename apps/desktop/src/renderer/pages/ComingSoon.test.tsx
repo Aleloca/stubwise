@@ -1003,6 +1003,15 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
+  it("la creazione guidata (?new=1) nella build app: legge solo chiamate integrate, senza riquadri del prototipo", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/p/AUD/settings/repositories?new=1");
+    const dialog = await screen.findByRole("dialog", { name: /Add a repository to AUD/ });
+    await settle();
+    expect(within(dialog).queryByRole("region", { name: "Prototype only" })).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
   it("aprire un repository legge solo chiamate integrate, file d'ambiente compresi, senza riquadri del prototipo", async () => {
     signedInAs("p-roberta");
     renderRoute("/p/AUD/settings/repositories?repo=repo-aud");

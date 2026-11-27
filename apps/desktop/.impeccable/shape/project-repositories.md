@@ -22,6 +22,14 @@
 > build app si comportano allo stesso modo: dove qui sotto si legge
 > «`repos.manage`» per la creazione o per l'account, va letto «e
 > `git_accounts.manage`».
+>
+> Dalla revisione dello stesso giorno: gli avvisi non bloccanti di un
+> salvataggio riuscito (l'identità dell'account principale, il revisore
+> predefinito, il ramo di rilascio non salvato alla creazione) si dicono in
+> `text-warning`: sopra l'elenco dopo una creazione («<nome> was added,
+> but:»), sotto i campi dopo un salvataggio. Il messaggio della piattaforma
+> (verifica fallita, webhook fallito) va sotto l'esito, «The platform says:
+> …». Rami che non arrivano: resta il predefinito, con la frase.
 
 Superficie: le sezioni **Repositories** (`/p/<CODE>/settings/repositories`,
 con `?new=1` per la **creazione guidata** e `?repo=<id>` per la **pagina del

@@ -11,6 +11,7 @@ import {
   useSeesGitAccounts,
   useSimulateNextRepositoryCheck,
   type GitAccountView,
+  type RepositorySaveWarning,
   type TestOutcome,
 } from "../../../data/queries";
 import type { Project } from "../../../data/types";
@@ -57,7 +58,12 @@ export function NewRepositoryWizard({
 }: {
   project: Project;
   onClose: () => void;
-  onCreated: (repositoryId: string, name: string) => void;
+  onCreated: (
+    repositoryId: string,
+    name: string,
+    warnings: RepositorySaveWarning[],
+    provider: "github" | "bitbucket" | null,
+  ) => void;
 }) {
   const { t } = useTranslation();
   const accounts = useGitAccounts();
@@ -74,7 +80,9 @@ export function NewRepositoryWizard({
   const [name, setName] = useState("");
   const [branch, setBranch] = useState<string | null>(null);
   const [find, setFind] = useState("");
-  const [verified, setVerified] = useState<(Triple & { outcome: TestOutcome }) | null>(null);
+  const [verified, setVerified] = useState<
+    (Triple & { outcome: TestOutcome; detail: string | null }) | null
+  >(null);
   const [checking, setChecking] = useState(false);
   const [nextCheck, setNextCheck] = useState<TestOutcome>("ok");
   const [testCommand, setTestCommand] = useState("");
@@ -162,7 +170,7 @@ export function NewRepositoryWizard({
           }),
           wait(CHECK_MS),
         ]);
-        if (result.ok) setVerified({ ...asked, outcome: result.outcome });
+        if (result.ok) setVerified({ ...asked, outcome: result.outcome, detail: result.detail ?? null });
         return result;
       },
       () => undefined,
@@ -201,7 +209,7 @@ export function NewRepositoryWizard({
       // primo colpo, invece di restare sul passo 4 (e di dire «name taken»
       // al Create successivo).
       (result) => {
-        if (result.ok) onCreated(result.repositoryId, name.trim());
+        if (result.ok) onCreated(result.repositoryId, name.trim(), result.warnings ?? [], account?.provider ?? null);
       },
     );
     setCreating(false);
@@ -333,6 +341,14 @@ export function NewRepositoryWizard({
                 <span className="max-w-[56ch] text-sm text-pretty text-ink-muted">
                   {t("settings.repos.wizard.branchBody")}
                 </span>
+                {/* I rami che non arrivano (revisione M6): resta il predefinito, e lo si dice. */}
+                {remoteBranches.isError && (
+                  <ErrorLine>
+                    {remoteBranches.error instanceof Error && remoteBranches.error.message === "not_visible"
+                      ? t("settings.repos.wizard.branchesNotVisible", { account: account?.name ?? "", platform })
+                      : t("settings.repos.wizard.branchesError")}
+                  </ErrorLine>
+                )}
               </DialogField>
             )}
             {step === 4 && account && triple && (
@@ -342,6 +358,7 @@ export function NewRepositoryWizard({
                 triple={triple}
                 checking={checking}
                 result={sameTriple ? (verified?.outcome ?? null) : null}
+                detail={sameTriple ? (verified?.detail ?? null) : null}
                 stale={verified !== null && !sameTriple}
                 notVerified={notVerified}
                 onVerify={() => void verify()}
@@ -655,6 +672,7 @@ function AccessStep({
   triple,
   checking,
   result,
+  detail,
   stale,
   notVerified,
   onVerify,
@@ -667,6 +685,8 @@ function AccessStep({
   triple: Triple;
   checking: boolean;
   result: TestOutcome | null;
+  /** Il dettaglio della piattaforma (i controlli falliti, il suo messaggio), quando c'è. */
+  detail: string | null;
   stale: boolean;
   notVerified: boolean;
   onVerify: () => void;
@@ -715,6 +735,13 @@ function AccessStep({
           </span>
           <span className="min-w-0">
             {t(`settings.repos.wizard.outcomes.${result}`, { account: account.name, platform })}
+            {detail && (
+              <span data-check-detail className="mt-0.5 block text-ink-muted">
+                {detail === "credentials_undecryptable"
+                  ? t("settings.repos.wizard.undecryptable", { account: account.name })
+                  : t("settings.repos.wizard.platformSays", { detail })}
+              </span>
+            )}
           </span>
         </p>
       )}

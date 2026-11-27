@@ -1387,6 +1387,20 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 ## Area 9 — Amministrazione, preferenze, accesso
 
+- **Repositories, l'indirizzo a mano quando l'elenco della piattaforma
+  fallisce** *(S, revisione di `feat/repository-nuova-app`, M2, 27 nov
+  2026)*: il web vecchio lascia incollare l'URL del repository se l'account
+  non riesce a elencarli. Il prototipo (shape `project-repositories.md`) non
+  lo prevede: la creazione guidata parte sempre dall'elenco, e senza elenco
+  dice che l'account non vede il repository. Si riapre con una scelta di
+  prodotto, non come rifinitura.
+- **Repositories, `name_taken` lo controlla il client** *(S, accettato,
+  stessa revisione, M5)*: la shape vuole un nome unico nel progetto («ACQ
+  already has a repository called…»), il server no (`repositories` non ha un
+  unico su progetto e nome). L'adattatore (`projectRepositories.ts`) lo
+  controlla sull'elenco, senza maiuscole, prima del POST: due creazioni
+  insieme possono ancora passare. Si chiude con un unico sul server.
+
 - Audit vera dei membri di progetto *(O)* (area 6, F2, 12 nov 2026): oggi
   `putProjectMember` non lascia traccia, e i Contributor aggiunti (e tolti)
   da una conferma della posta lasciano solo una riga nel log della rotta.

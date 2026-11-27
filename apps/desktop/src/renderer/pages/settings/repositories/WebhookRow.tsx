@@ -76,6 +76,8 @@ export function WebhookSection({
   const configure = useConfigureRepositoryWebhook();
   const write = useSettingsWrite(code, onReload);
   const [configuring, setConfiguring] = useState(false);
+  // Il messaggio della piattaforma dell'ultimo tentativo fallito (revisione M3).
+  const [failure, setFailure] = useState<string | null>(null);
   // L'esito scelto vale una volta (il livello dati lo azzera): dopo, il riquadro torna a «Configured».
   const [nextSetup, setNextSetup] = useState<"configured" | "failed">("configured");
   const simulate = useSimulateNextWebhookSetup();
@@ -99,6 +101,7 @@ export function WebhookSection({
       // In `onDone`, così il toast c'è anche dopo un Retry riuscito.
       // `failed`: la riga ✕ lo dice, nessun toast di riuscita.
       (result) => {
+        setFailure(result.ok && result.state === "failed" ? (result.detail ?? null) : null);
         if (result.ok && result.state === "configured")
           toast.show(
             t(result.updated ? "settings.repos.webhook.updated" : "settings.repos.webhook.done"),
@@ -133,6 +136,11 @@ export function WebhookSection({
                 date,
                 account: repository.gitAccount?.name ?? t("settings.repos.webhook.accountFallback"),
               })}
+              {state === "failed" && failure && (
+                <span data-webhook-detail className="mt-0.5 block text-sm text-ink-muted">
+                  {t("settings.repos.wizard.platformSays", { detail: failure })}
+                </span>
+              )}
             </span>
           </p>
           <span className="flex shrink-0 items-center gap-2">

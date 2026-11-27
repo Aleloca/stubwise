@@ -3016,6 +3016,14 @@
       "empty": "{{code}} non ha ancora repository. Aggiungine uno perché Claude possa lavorare sul codice e si possano scrivere i Docs.",
       "emptyRead": "Può aggiungerne uno chi può gestire i repository di {{code}}.",
       "addNeedsGitAccounts": "Aggiungere un repository vuol dire scegliere uno degli account git dell'istanza, e serve il permesso di gestire gli account git.",
+      "addedWithWarnings": "{{name}} è stato aggiunto, ma:",
+      "changedConcurrently": "Gli account git del repository sono cambiati mentre salvavi. Ricarica la pagina e riprova.",
+      "saveWarnings": {
+        "main_account_identity_unresolved": "Salvato, ma Stubwise non riesce a leggere dalla piattaforma chi è l'account principale: ogni «Request changes» fatto sulla PR verrà ignorato (la task lo dirà). Controlla il token dell'account.",
+        "mainIdentityBitbucket": "Su Bitbucket il token deve avere lo scope read:user:bitbucket.",
+        "default_review_account_invalid": "Salvato, ma il revisore predefinito non ha superato i controlli su questo repository, quindi il suo verdetto potrebbe non passare: allora la review è un commento dell'account principale. Controlla il suo accesso e il suo token, oppure scegli un account di revisione.",
+        "release_branch_not_set": "Il ramo che hai scelto non si è salvato come quello verso cui Claude apre le pull request: resta il predefinito. Impostalo nella sezione Releases del repository."
+      },
       "accountNeedsGitAccounts": "Per cambiare l'account git o il revisore serve il permesso di gestire gli account git.",
       "loadError": "Impossibile caricare i repository di {{code}}.",
       "tests": "test:",
@@ -3134,6 +3142,10 @@
         },
         "stale": "La scelta è cambiata: verifica di nuovo.",
         "notVerified": "Verifica di nuovo gli accessi prima di creare.",
+        "undecryptable": "Stubwise non riesce a decifrare le credenziali di {{account}}: un admin deve reinserirle in Amministrazione → Integrazioni.",
+        "platformSays": "La piattaforma dice: {{detail}}",
+        "branchesNotVisible": "{{account}} non vede i rami di questo repository su {{platform}}: c'è solo il ramo predefinito.",
+        "branchesError": "Impossibile caricare i rami: c'è solo il ramo predefinito.",
         "commandHint": "Lascialo vuoto per rilevarlo dal lockfile.",
         "prototype": {
           "intro": "Non si contatta niente di vero. Scegli cosa risponde la prossima verifica.",

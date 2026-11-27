@@ -8,6 +8,7 @@ import {
   useProjectRepositories,
   useUpdateRepository,
   type RepositoryView,
+  type RepositorySaveWarning,
 } from "../../../data/queries";
 import type { Project } from "../../../data/types";
 import { AiSkeleton } from "../../admin/ai/parts";
@@ -26,6 +27,7 @@ import {
   useSettingsWrite,
 } from "../SettingsFrame";
 import { ViewOnlyLine } from "../ViewOnly";
+import { SaveWarnings } from "./SaveWarnings";
 import { EnvFilesSection } from "./EnvFiles";
 import { WebhookSection, WebhookState } from "./WebhookRow";
 
@@ -388,6 +390,8 @@ function DetailsForm({
   const canChoose = canChooseGitAccount;
   const [edits, setEdits] = useState<Draft | null>(null);
   const [invalid, setInvalid] = useState<Invalid>(null);
+  // Gli avvisi dell'ultimo salvataggio riuscito (revisione M1).
+  const [saveWarnings, setSaveWarnings] = useState<RepositorySaveWarning[]>([]);
   const [busy, setBusy] = useState(false);
   const [justSaved, flash] = useFlash();
   const id = useId();
@@ -427,6 +431,7 @@ function DetailsForm({
     if (changes === 0 || busy) return;
     setBusy(true);
     setInvalid(null);
+    setSaveWarnings([]);
     await write.run(
       () =>
         update.mutateAsync({
@@ -446,10 +451,11 @@ function DetailsForm({
         }),
       (reason, line) => setInvalid({ reason, line }),
       // Il seguito sta in `onDone`: vale anche dopo un Retry riuscito.
-      () => {
+      (result) => {
         guard.clear();
         setEdits(null);
         flash();
+        setSaveWarnings(result.ok ? (result.warnings ?? []) : []);
       },
     );
     setBusy(false);
@@ -666,6 +672,17 @@ function DetailsForm({
           </dd>
         </Row>
       </dl>
+      {/* 409 del server (revisione M7): gli account del repository sono cambiati mentre si salvava. */}
+      {invalid?.reason === "repository_changed_concurrently" && (
+        <div className="mt-4">
+          <ErrorLine>{t("settings.repos.changedConcurrently")}</ErrorLine>
+        </div>
+      )}
+      {saveWarnings.length > 0 && (
+        <div className="mt-4">
+          <SaveWarnings warnings={saveWarnings} provider={repository.provider} />
+        </div>
+      )}
       {barSlot &&
         (changes > 0 || justSaved || write.message) &&
         createPortal(

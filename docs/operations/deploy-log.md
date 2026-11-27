@@ -7324,5 +7324,13 @@ deploy o di un rollback che la tocca.
   repository (account, repository, ramo, verifica, Create), poi aprirlo e
   importare un `.env` nell'ambiente test. L'esito dice quante variabili
   sono nuove, sostituite e saltate, e nessun valore ricompare.
-  **Rollback**: sicuro, sono campi additivi. Col caddy vecchio torna la
-  sezione ridotta.
+  Dopo la revisione: la creazione non rifiuta più dopo il 201 (un ramo di
+  rilascio che non si salva è un avviso, mai un doppione al Retry); la
+  verifica accetta sempre il ramo predefinito e non rifiuta un ramo con un
+  elenco al tetto (~200); gli avvisi del server (`warnings` di POST/PATCH)
+  e il messaggio della piattaforma (verifica, webhook) si mostrano.
+  **Rollback**: `caddy` scende da solo senza danni (torna la sezione
+  ridotta). Il `server` può scendere SENZA il caddy: senza `setAt` la riga
+  della variabile non mostra la data (prima della revisione la sezione dei
+  file d'ambiente saltava), e senza `replaced`/`skipped` l'esito dell'import
+  conta tutto come nuovo, nessuna riga saltata.
