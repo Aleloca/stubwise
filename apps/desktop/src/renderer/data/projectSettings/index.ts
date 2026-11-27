@@ -42,6 +42,7 @@ export {
   configureRepositoryWebhook,
   createRepository,
   listProjectRepositories,
+  listRemoteBranches,
   listRemoteRepositories,
   reviewAccountChoices,
   simulateNextRepositoryCheck,

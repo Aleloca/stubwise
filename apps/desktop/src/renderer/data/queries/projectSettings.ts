@@ -199,6 +199,19 @@ export function useRemoteRepositories(accountId: string | null, projectId: strin
   });
 }
 
+/**
+ * I rami del repository scelto nella creazione guidata (il predefinito per
+ * primo): sul server l'elenco dei repository della piattaforma non li porta.
+ */
+export function useRemoteBranches(accountId: string | null, fullName: string | null) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "projectSettings", "remoteBranches", accountId, fullName] as const,
+    queryFn: () => api.projectSettings.listRemoteBranches(accountId!, fullName!),
+    enabled: accountId !== null && fullName !== null,
+  });
+}
+
 /** La verifica degli accessi della creazione guidata: non è una modifica, nessuna voce. */
 export function useCheckRepositoryAccess() {
   return useWrite(
