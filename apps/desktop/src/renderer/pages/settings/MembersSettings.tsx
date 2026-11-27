@@ -85,6 +85,8 @@ function useShortSource() {
         return t("settings.members.short.department", { name: s.departmentName });
       case "role":
         return s.roleName;
+      case "workspace":
+        return t("settings.members.short.workspace", { role: s.roleName, workspace: s.workspaceName });
       case "full_admin":
         return t("admin.person.projects.fullAdmin");
     }
@@ -107,6 +109,11 @@ function useLongSource() {
         return t("settings.members.panel.source.department", { name: s.departmentName });
       case "role":
         return t("settings.members.panel.source.role", { name: s.roleName });
+      case "workspace":
+        return t("settings.members.panel.source.workspace", {
+          role: s.roleName,
+          workspace: s.workspaceName,
+        });
       case "full_admin":
         return t("admin.permissionTable.included");
     }
@@ -184,10 +191,19 @@ export function MembersSettings({ project }: { project: Project }) {
         <>
           <MemberList
             project={project}
+            canManage={canManage}
             rows={members.data.members}
             selected={search.member}
             justAdded={justAdded}
-            onOpen={(id) => setSearch({ member: id === search.member ? undefined : id })}
+            onOpen={(id) => {
+              // Chi c'è solo dalla workspace non è un membro: «Give a role in …» lo rende tale.
+              const row = members.data.members.find((r) => r.personId === id);
+              if (row?.explicit === false) {
+                if (canManage) setSearch({ addMember: id });
+                return;
+              }
+              setSearch({ member: id === search.member ? undefined : id });
+            }}
           />
           <FullAdminNote />
         </>
@@ -216,12 +232,14 @@ function FullAdminNote() {
 /** Le righe, con ↑/↓ fra l'una e l'altra; la riga aperta nel pannello è segnata. */
 function MemberList({
   project,
+  canManage,
   rows,
   selected,
   justAdded,
   onOpen,
 }: {
   project: Project;
+  canManage: boolean;
   rows: MemberRow[];
   selected: string | undefined;
   justAdded: string | null;
@@ -229,9 +247,18 @@ function MemberList({
 }) {
   const { t } = useTranslation();
   const [find, setFind] = useState("");
+  // Shape `workspaces.md`: chi vede il progetto dalla workspace ha una riga
+  // anche lui; il filtro separa i membri di progetto da chi c'è dalla workspace.
+  const [source, setSource] = useState<"all" | "members" | "workspace">("all");
+  const workspace = rows.find((r) => r.workspace)?.workspace ?? null;
   const q = find.trim().toLowerCase();
   const shown = rows
     .filter((r) => !q || `${r.name} ${r.email}`.toLowerCase().includes(q))
+    .filter(
+      (r) =>
+        source === "all" ||
+        (source === "members" ? r.explicit !== false : !!r.workspace),
+    )
     // Chi è appena entrato sta in cima per due secondi, poi va al suo posto.
     .sort((a, b) => Number(b.personId === justAdded) - Number(a.personId === justAdded));
   const onKeyDown = (e: KeyboardEvent<HTMLUListElement>) => {
@@ -246,6 +273,21 @@ function MemberList({
   };
   return (
     <div className="@container">
+      {workspace && (
+        <div role="group" aria-label={t("settings.members.sourceFilter")} className="mb-3 flex gap-1">
+          {(["all", "members", "workspace"] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              aria-pressed={source === key}
+              onClick={() => setSource(key)}
+              className={`inline-flex h-7 items-center rounded-md px-2.5 text-sm ${source === key ? "bg-ink/10 font-semibold text-ink" : "text-ink-muted hover:bg-ink/6"}`}
+            >
+              {t(`settings.members.source.${key}`)}
+            </button>
+          ))}
+        </div>
+      )}
       {rows.length > FIND_FROM && (
         <input
           type="search"
@@ -273,9 +315,26 @@ function MemberList({
               open={row.personId === selected}
               fresh={row.personId === justAdded}
               onOpen={() => onOpen(row.personId)}
+              giveRole={
+                row.explicit === false && canManage
+                  ? t("settings.members.giveRole", { code: project.code })
+                  : undefined
+              }
             />
           ))}
         </ul>
+      )}
+      {workspace && (
+        <p className="mt-3 text-sm text-ink-muted" data-workspace-note>
+          {t("settings.members.workspaceNote", { workspace: workspace.workspaceName, code: project.code })}{" "}
+          <Link
+            to="/projects"
+            search={{ workspace: workspace.workspaceSlug, view: "people" } as never}
+            className="underline"
+          >
+            {t("settings.members.workspacePeople", { workspace: workspace.workspaceName })}
+          </Link>
+        </p>
       )}
     </div>
   );
@@ -286,11 +345,14 @@ function MemberRowItem({
   open,
   fresh,
   onOpen,
+  giveRole,
 }: {
   row: MemberRow;
   open: boolean;
   fresh: boolean;
   onOpen: () => void;
+  /** Chi c'è solo dalla workspace, per chi gestisce: «Give a role in MEE». */
+  giveRole?: string;
 }) {
   const { t } = useTranslation();
   const words = usePermissionWords();
@@ -326,10 +388,28 @@ function MemberRowItem({
             >
               {off ? t("taskUi.deactivatedName", { name: row.name }) : row.name}
             </span>
-            <span className="shrink-0 text-sm text-ink-muted">{row.role.name}</span>
+            <span className="shrink-0 text-sm text-ink-muted" data-member-roles>
+              {row.explicit === false
+                ? t("settings.members.short.workspace", {
+                    role: row.workspace?.roleName ?? row.role.name,
+                    workspace: row.workspace?.workspaceName ?? "",
+                  })
+                : row.workspace
+                  ? `${row.role.name} · ${t("settings.members.short.workspace", {
+                      role: row.workspace.roleName,
+                      workspace: row.workspace.workspaceName,
+                    })}`
+                  : row.role.name}
+            </span>
           </span>
           <span className="flex min-w-0 flex-wrap gap-x-1 text-sm text-ink-muted">
             <span className="min-w-0 truncate">{row.email}</span>
+            {giveRole && (
+              <span className="shrink-0 font-medium text-ink underline">
+                <span aria-hidden="true">· </span>
+                {giveRole}
+              </span>
+            )}
             {extras[0] && (
               <span className="min-w-0">
                 <span aria-hidden="true">· </span>
@@ -630,6 +710,14 @@ export function MemberPanel({
           </div>
         )}
 
+        {row.workspace && (
+          <p className="text-sm text-ink-muted" data-sees-because>
+            {t("settings.members.panel.seesBecause", {
+              code,
+              workspace: row.workspace.workspaceName,
+            })}
+          </p>
+        )}
         <PanelPart title={t("settings.members.panel.role")}>
           {manage ? (
             <RolePicker
@@ -640,6 +728,15 @@ export function MemberPanel({
             />
           ) : (
             <p className="text-md text-ink">{roleName}</p>
+          )}
+          {/* D1: un ruolo per progetto si somma a quello di workspace, non lo toglie. */}
+          {row.workspace && (
+            <p className="mt-2 text-sm text-ink-muted" data-workspace-adds>
+              {t("settings.members.panel.workspaceAdds", {
+                workspace: row.workspace.workspaceName,
+                role: row.workspace.roleName,
+              })}
+            </p>
           )}
         </PanelPart>
 

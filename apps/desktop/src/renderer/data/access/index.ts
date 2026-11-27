@@ -1,6 +1,7 @@
 // Gli accessi come stato del livello dati (area 9a): vedi `state.ts`.
 export * from "./state";
 export * from "./effective";
+export * from "./seats";
 export {
   ALL_PROJECT_PERMISSIONS,
   DEPARTMENT_ROLES,

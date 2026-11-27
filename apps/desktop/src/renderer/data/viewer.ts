@@ -19,6 +19,7 @@ import {
   resetAccessState,
   subscribeAccess,
   writeAccess,
+  seatProjectIdsIn,
 } from "./access/index";
 import { CLAUDE_ID, DEFAULT_SESSION_PERSON_ID, PEOPLE } from "./seed/people";
 import "./seed/personaDescriptions";
@@ -94,10 +95,10 @@ function buildViewerData(personId: string): ViewerData {
   // Un full admin non ha righe per progetto: `can` lo risolve dal permesso
   // d'istanza, come sul server.
   if (!isFullAdminInState(personId)) {
-    for (const m of accessState().memberships) {
-      if (m.personId !== personId) continue;
-      projectPermissions[m.projectId] = [
-        ...effectivePermissions(personId, m.projectId).keys(),
+    // Ogni progetto visto da membro: per appartenenza o dalla workspace.
+    for (const projectId of seatProjectIdsIn(accessState(), personId)) {
+      projectPermissions[projectId] = [
+        ...effectivePermissions(personId, projectId).keys(),
       ] as AnyProjectPermission[];
     }
   }

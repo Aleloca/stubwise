@@ -2165,6 +2165,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   cookie del browser che avvia il consenso (il web) o all'app desktop, e
   rifiutare un ritorno che non lo porta.
 
+- **Le workspace come filtro fuori da All projects** *(M, decisione D8
+  del maintainer, 27 nov 2026; shape `apps/desktop/.impeccable/shape/workspaces.md`)*:
+  il primo giro le fa vivere nella colonna di All projects, nel filtro della
+  pagina e in ⌘K. Restano fuori Tasks, Planning, Posta, Drive, Releases e i
+  selettori di progetto (raggruppati per workspace), una Home o una
+  panoramica per workspace, i colori delle workspace, le workspace annidate.
+
 ## Chiuse
 
 (Le voci fatte si spostano qui con il riferimento che le chiude.)

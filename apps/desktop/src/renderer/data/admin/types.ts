@@ -99,6 +99,8 @@ export type SourceView =
       origin: "given" | "seed" | "draft";
     }
   | { kind: "department"; departmentId: string; departmentName: string }
+  /** Dal ruolo di workspace (shape `workspaces.md`), in ogni progetto della workspace. */
+  | { kind: "workspace"; workspaceId: string; workspaceName: string; roleId: string; roleName: string }
   | { kind: "full_admin" };
 
 /** Un permesso in più del ruolo (concessione o reparto), con le sue fonti. */
@@ -137,6 +139,16 @@ export interface MemberRow {
    * solo quelli che la bozza toglie.
    */
   granted: string[];
+  /**
+   * Shape `workspaces.md`: il ruolo che la persona ha dalla workspace del
+   * progetto, se ne fa parte. Assente con un server che non ha le workspace.
+   */
+  workspace?: { workspaceId: string; workspaceName: string; workspaceSlug: string; roleName: string } | null;
+  /**
+   * Falso per chi vede il progetto SOLO dalla workspace: non è un membro di
+   * progetto, e «Give a role in …» lo rende tale. Assente = membro.
+   */
+  explicit?: boolean;
 }
 
 /** La bozza del pannello del membro: il ruolo e i permessi dati a mano. */
@@ -226,6 +238,10 @@ export interface PersonProjectView {
   extra: ExtraPermission[];
   /** Chi guarda gestisce i membri di quel progetto. */
   canManage: boolean;
+  /** Shape `workspaces.md`: il ruolo che la persona ha lì dalla workspace, se c'è. */
+  workspace?: { name: string; roleName: string } | null;
+  /** Vero se la persona vede il progetto SOLO dalla workspace (`role` è allora quello di workspace). */
+  workspaceOnly?: boolean;
 }
 
 /** `null` = si può; altrimenti il motivo per cui la scelta è spenta. */
@@ -254,6 +270,8 @@ export interface PersonDetail {
    */
   addableTo: { projectId: string; code: string; name: string }[];
   departments: { id: string; name: string; colorToken: string; managesHome: boolean }[];
+  /** Shape `workspaces.md`: le workspace della persona che chi guarda vede, col ruolo. */
+  workspaces?: { id: string; slug: string; name: string; roleName: string }[];
   identities: { gitEmails: string[]; bitbucketUsername: string | null };
   /** Le azioni della pagina: `null` se si possono fare, altrimenti il motivo. */
   actions: {

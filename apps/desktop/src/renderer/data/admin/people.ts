@@ -5,6 +5,7 @@ import {
   writeAccess,
   type AccessState,
   type PersonAccess,
+  workspaceRoleIn,
 } from "../access/index";
 import { reassignTask } from "../api-mutations";
 import { recordChange } from "../changelog/index";
@@ -75,6 +76,14 @@ const departmentsOf = (personId: string) =>
     .map((d) => ({ id: d.id, name: d.name, colorToken: d.colorToken }));
 
 /** I progetti della persona che chi guarda vede, con il ruolo. */
+/** Il ruolo dalla workspace del progetto (shape `workspaces.md`), o `null`. */
+function workspaceRoleView(personId: string, projectId: string) {
+  const s = accessState();
+  const ws = workspaceRoleIn(s, personId, projectId);
+  const def = ws && s.workspaces.find((w) => w.id === ws.workspaceId);
+  return ws && def ? { name: def.name, roleName: ws.role.name } : null;
+}
+
 function visibleProjectsOf(me: string, personId: string) {
   const visible = visibleProjectIds(me);
   return accessState()
@@ -214,14 +223,48 @@ export async function getPerson(personId: string): Promise<PersonDetail> {
     hasSecondFactor: access.secondFactor !== null,
     peer: isPeer(me, personId),
     instanceRole: instanceRoleView(personId),
-    projects: visibleProjectsOf(me, personId).map(({ membership, project }) => ({
-      projectId: project.id,
-      code: project.code,
-      name: project.name,
-      role: { id: membership.roleId, name: roleById(membership.roleId)?.name ?? "" },
-      extra: extraPermissionsOf(personId, project.id),
-      canManage: canI(me, "project.members.manage", project.id),
-    })),
+    projects: [
+      ...visibleProjectsOf(me, personId).map(({ membership, project }) => ({
+        projectId: project.id,
+        code: project.code,
+        name: project.name,
+        role: { id: membership.roleId, name: roleById(membership.roleId)?.name ?? "" },
+        extra: extraPermissionsOf(personId, project.id),
+        canManage: canI(me, "project.members.manage", project.id),
+        workspace: workspaceRoleView(personId, project.id),
+      })),
+      // Shape `workspaces.md`: i progetti visti SOLO dalla workspace, col suo ruolo.
+      ...state.projects
+        .filter(
+          (p) =>
+            visible.has(p.id) &&
+            !memberships.some((m) => m.projectId === p.id) &&
+            workspaceRoleIn(accessState(), personId, p.id) !== null,
+        )
+        .map((project) => {
+          const ws = workspaceRoleIn(accessState(), personId, project.id)!;
+          return {
+            projectId: project.id,
+            code: project.code,
+            name: project.name,
+            role: { id: ws.role.id, name: ws.role.name },
+            extra: [],
+            canManage: canI(me, "project.members.manage", project.id),
+            workspace: workspaceRoleView(personId, project.id),
+            workspaceOnly: true,
+          };
+        }),
+    ].sort((a, b) => a.code.localeCompare(b.code)),
+    workspaces: accessState()
+      .workspaceMembers.filter((m) => m.personId === personId)
+      .flatMap((m) => {
+        const w = accessState().workspaces.find((x) => x.id === m.workspaceId);
+        const seen = w && accessState().workspaceProjects.some((x) => x.workspaceId === w.id && visible.has(x.projectId));
+        return w && (seen || isFullAdmin(me))
+          ? [{ id: w.id, slug: w.slug, name: w.name, roleName: roleById(m.roleId)?.name ?? "" }]
+          : [];
+      })
+      .sort((a, b) => a.name.localeCompare(b.name)),
     alsoInHiddenProjects: memberships.some((m) => !visible.has(m.projectId)),
     // «Add to a project»: la stessa regola di chi si può aggiungere in Members.
     addableTo: state.projects

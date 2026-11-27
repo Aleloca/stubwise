@@ -54,6 +54,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   act(() => setLanguage("en"));
   delete (document as { startViewTransition?: unknown }).startViewTransition;
 });
@@ -327,7 +328,10 @@ describe("PersonalColumn", () => {
     const grid = column().parentElement!;
     const homeGridClass = grid.className;
     cleanup();
-    // Preferenze (8a) e Amministrazione (9a) hanno la loro colonna: lo stato neutro resta su All projects.
+    // Preferenze (8a) e Amministrazione (9a) hanno la loro colonna. All
+    // projects ha quella delle workspace nel prototipo; nella build app, finché
+    // il server non le ha, resta lo stato neutro «in arrivo».
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
     await renderAt("/projects", "p-roberta");
     const nav = await within(column()).findByRole("navigation", { name: "All projects views" });
     expect(nav).toHaveTextContent("Groups of projects will be listed here.");
@@ -337,14 +341,12 @@ describe("PersonalColumn", () => {
     expect(column().className).toBe(homeColumnClass);
     expect(column().parentElement!.className).toBe(homeGridClass);
     expect(homeGridClass).toContain("240px");
-    expect(
-      await screen.findByRole("heading", { level: 1, name: "All projects" }),
-    ).toHaveClass("text-2xl");
   });
 
   it("lo stato neutro segue la lingua", async () => {
     act(() => setLanguage("it"));
     // Calendario (6), Automazioni (7), Preferenze (8a) e Amministrazione (9a) hanno la loro colonna.
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
     await renderAt("/projects", "p-roberta");
     expect(
       await within(column()).findByRole("navigation", { name: "Viste di Tutti i progetti" }),
