@@ -20,6 +20,15 @@ export async function publishVaultKeyCreated(db: DbOrTx, userId: string): Promis
   await publishSecurityAlert(db, userId, "vault_key_created", null);
 }
 
+/** Alla persona: un sigillo della sua chiave è stato aggiunto o sostituito (I7). */
+export async function publishVaultSealChanged(
+  db: DbOrTx,
+  userId: string,
+  subject: "vault_seal_added" | "vault_seal_replaced",
+): Promise<void> {
+  await publishSecurityAlert(db, userId, subject, null);
+}
+
 /**
  * Un avviso a OGNI ALTRO full admin (non a chi ha agito), con l'email di chi
  * ha agito. Il predicato «full admin» è `userIsFullAdmin`, l'unica copia. Non

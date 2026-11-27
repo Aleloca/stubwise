@@ -1150,7 +1150,8 @@
           "slack_linked": "Slack account linked by someone else",
           "bitbucket_linked": "Bitbucket username linked by someone else",
           "vault_device_sealed": "Mac paired with the vault",
-          "vault_device_seal_revoked": "Mac removed from the vault"
+          "vault_device_seal_revoked": "Mac removed from the vault",
+          "vault_seal_added": "Another passkey opens the vault"
         }
       }
     },

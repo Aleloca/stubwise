@@ -343,6 +343,12 @@ export const en: Catalog = {
   "notify.securityAlert.vault_device_sealed":
     "A Mac can now open your vault. If it was not you, remove it in Settings → Security and tell an admin.",
   "notify.securityAlert.vault_device_sealed.actor": "A Mac can now open your vault ({actor}).",
+  "notify.securityAlert.vault_seal_added":
+    "Another passkey can now open your vault. If it was not you, remove that passkey in Settings → Security and tell an admin.",
+  "notify.securityAlert.vault_seal_added.actor": "Another passkey can now open your vault ({actor}).",
+  "notify.securityAlert.vault_seal_replaced":
+    "The vault seal of one of your passkeys was replaced. If it was not you, tell an admin.",
+  "notify.securityAlert.vault_seal_replaced.actor": "The vault seal of one of your passkeys was replaced ({actor}).",
   "notify.securityAlert.vault_device_seal_revoked": "A Mac can no longer open your vault.",
   "notify.securityAlert.vault_device_seal_revoked.actor": "A Mac can no longer open your vault: {actor} removed it.",
   "notify.securityAlert.passkey_added":
@@ -1074,6 +1080,12 @@ export const it: Catalog = {
   "notify.securityAlert.vault_device_sealed":
     "Un Mac ora apre la tua cassaforte. Se non sei stato tu, toglilo da Impostazioni → Sicurezza e avvisa un admin.",
   "notify.securityAlert.vault_device_sealed.actor": "Un Mac ora apre la tua cassaforte ({actor}).",
+  "notify.securityAlert.vault_seal_added":
+    "Un'altra passkey ora apre la tua cassaforte. Se non sei stato tu, toglila da Impostazioni → Sicurezza e avvisa un admin.",
+  "notify.securityAlert.vault_seal_added.actor": "Un'altra passkey ora apre la tua cassaforte ({actor}).",
+  "notify.securityAlert.vault_seal_replaced":
+    "Il sigillo della cassaforte di una tua passkey è stato sostituito. Se non sei stato tu, avvisa un admin.",
+  "notify.securityAlert.vault_seal_replaced.actor": "Il sigillo della cassaforte di una tua passkey è stato sostituito ({actor}).",
   "notify.securityAlert.vault_device_seal_revoked": "Un Mac non apre più la tua cassaforte.",
   "notify.securityAlert.vault_device_seal_revoked.actor": "Un Mac non apre più la tua cassaforte: l'ha tolto {actor}.",
   "notify.securityAlert.passkey_added":

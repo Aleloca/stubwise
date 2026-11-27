@@ -45,7 +45,7 @@ import { isDesktopPat } from "../auth/access.js";
 import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
 import type { SessionUser } from "../auth/session.js";
 import { apiError } from "../errors.js";
-import { publishVaultKeyCreated, publishVaultRecoveryKeyRotated } from "../vault/alerts.js";
+import { publishVaultKeyCreated, publishVaultRecoveryKeyRotated, publishVaultSealChanged } from "../vault/alerts.js";
 import {
   confirmPersonKey,
   listPending,
@@ -372,7 +372,9 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
    * una passkey registrata dopo la chiave può così aprire la cassaforte.
    * Rinnovarlo SOSTITUISCE il sigillo di prima: finisce nel registro di
    * sicurezza (`vault_seal_replaced`), perché è il punto in cui un sigillo
-   * buono potrebbe essere scambiato con uno che non apre più niente.
+   * buono potrebbe essere scambiato con uno che non apre più niente. Un
+   * sigillo nuovo lascia `vault_seal_added`, e in entrambi i casi la persona
+   * riceve un `security.alert` (I7).
    */
   app.post(
     "/keys/:id/seals",
@@ -414,10 +416,14 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
             target: [vaultPersonKeySeals.personKeyId, vaultPersonKeySeals.passkeyId],
             set: { sealedPrivateKey },
           });
-        if (existing) await recordSecurityEvent(tx, { kind: "vault_seal_replaced", user });
-        return true;
+        // I7 (indurimento): anche un sigillo NUOVO lascia la sua riga, e la
+        // persona riceve l'avviso in entrambi i casi (una passkey in più apre la
+        // cassaforte: un XSS con un tocco della passkey non lo fa in silenzio).
+        await recordSecurityEvent(tx, { kind: existing ? "vault_seal_replaced" : "vault_seal_added", user });
+        return existing ? "vault_seal_replaced" : "vault_seal_added";
       });
       if (!added) return keyNotFound(reply);
+      await publishVaultSealChanged(app.db, user.id, added);
       return reply.code(204).send(null);
     },
   );
