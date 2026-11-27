@@ -2985,7 +2985,10 @@
       "providerGone": "That account no longer exists. Choose another.",
       "runsKeep": "The account is the one each run starts with: runs already started keep theirs.",
       "none": "There are no AI accounts on this instance yet. Claude can't work until someone adds one in Administration → AI.",
-      "noneLink": "Open Administration → AI"
+      "noneLink": "Open Administration → AI",
+      "current": "Current account",
+      "currentName": "the current account",
+      "currentBody": "Chosen by an AI administrator. You can't see the instance's accounts, so it stays as it is."
     },
     "automations": {
       "intro": "What Claude does on its own in {{code}}, without anyone asking.",

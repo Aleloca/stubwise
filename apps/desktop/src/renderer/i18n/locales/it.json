@@ -2985,7 +2985,10 @@
       "providerGone": "Quell'account non esiste più. Scegline un altro.",
       "runsKeep": "Vale per le esecuzioni che partono da adesso: quelle già partite tengono il loro account.",
       "none": "Non ci sono ancora account AI su questa istanza. Claude non può lavorare finché qualcuno non ne aggiunge uno in Amministrazione → AI.",
-      "noneLink": "Apri Amministrazione → AI"
+      "noneLink": "Apri Amministrazione → AI",
+      "current": "Account attuale",
+      "currentName": "l'account attuale",
+      "currentBody": "Scelto da un amministratore dell'AI. Non vedi gli account dell'istanza, quindi resta com'è."
     },
     "automations": {
       "intro": "Cosa fa Claude da solo su {{code}}, senza che nessuno lo chieda.",

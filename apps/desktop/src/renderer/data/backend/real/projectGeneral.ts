@@ -11,7 +11,9 @@ import { appClient } from "./client";
 // AI preferito e «Use only this account». I permessi li decide il server
 // (`project.settings.manage`): qui solo le forme e i rifiuti del prototipo.
 // Le scelte degli account le legge solo chi ha `ai_providers.manage`, come
-// il web (`project-form.tsx`): agli altri resta il nome dell'account scelto.
+// il web (`project-form.tsx`): agli altri non arriva nessuna scelta, e la
+// pagina mostra l'account scelto da un admin come «Current account» (I2),
+// così un Save non lo perde.
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- forme del server lette dai Reader */
 type Any = any;

@@ -85,7 +85,19 @@ function AiForm({ view, onReload }: { view: ProjectSettingsView; onReload: () =>
     draft.providerId !== saved.providerId ||
     draft.exclusive !== saved.exclusive;
   const guard = useLeaveGuard(canEdit && edits !== null && dirty);
-  const chosen = ai.choices.find((c) => c.id === draft.providerId) ?? null;
+  // Revisione, I2: chi non legge gli account (senza `ai_providers.manage`, il
+  // server non glieli dà) vede l'account scelto da un admin come «Current
+  // account», scelto e salvato com'è, come il web vecchio (`project-form.tsx`):
+  // senza, nessuna riga sarebbe scelta e un Save perderebbe la scelta.
+  const hiddenCurrent =
+    saved.providerId !== null && !ai.chosenUnavailable && !ai.choices.some((c) => c.id === saved.providerId)
+      ? saved.providerId
+      : null;
+  const chosen: Choice | null =
+    ai.choices.find((c) => c.id === draft.providerId) ??
+    (hiddenCurrent !== null && draft.providerId === hiddenCurrent
+      ? { id: hiddenCurrent, name: t("settings.ai.currentName"), kind: "subscription", enabled: true, limited: false }
+      : null);
   const disabledBy = canEdit ? undefined : lineId;
 
   async function save() {
@@ -146,7 +158,7 @@ function AiForm({ view, onReload }: { view: ProjectSettingsView; onReload: () =>
           </WarningBox>
         </div>
       )}
-      {ai.choices.length === 0 && (
+      {ai.choices.length === 0 && hiddenCurrent === null && (
         <div className="flex flex-col items-start gap-2 pb-4">
           <p className="max-w-[72ch] text-md text-pretty text-ink">{t("settings.ai.none")}</p>
           {seesAdminAi && (
@@ -195,6 +207,17 @@ function AiForm({ view, onReload }: { view: ProjectSettingsView; onReload: () =>
             onChoose={() => setEdits({ providerId: c.id, exclusive: draft.exclusive })}
           />
         ))}
+        {hiddenCurrent !== null && (
+          <RadioRow
+            name={groupId}
+            checked={draft.providerId === hiddenCurrent}
+            title={t("settings.ai.current")}
+            body={t("settings.ai.currentBody")}
+            describedBy={disabledBy}
+            disabled={!canEdit}
+            onChoose={() => setEdits({ providerId: hiddenCurrent, exclusive: draft.exclusive })}
+          />
+        )}
       </fieldset>
       {gone && (
         <div className="pt-3">
