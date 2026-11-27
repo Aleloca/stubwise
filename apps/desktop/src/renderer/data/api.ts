@@ -184,6 +184,8 @@ export * as access from "./access/whoCanApi";
 export * as auth from "./auth";
 /** L'Amministrazione (area 9a): `api.admin.listPeople(…)`, `api.admin.addMember(…)`… */
 export * as admin from "./admin";
+/** Le workspace (shape `workspaces.md`): `api.workspaces.listWorkspaces()`… */
+export * as workspaces from "./workspaces/index";
 /** Le Preferenze personali (area 9a): `api.me.getMySecurity()`, `api.me.createToken(…)`… */
 export * as me from "./me";
 // Lotto 10: la Cassaforte delle credenziali e la chiave del Mac (shape `vault.md`).

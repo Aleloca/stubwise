@@ -12452,6 +12452,16 @@
         "permissions_changed": "<actor>{{actor}}</actor> ha cambiato i permessi che dà <object>{{object}}</object>.",
         "deleted": "<actor>{{actor}}</actor> ha eliminato il reparto <object>{{object}}</object>."
       },
+      "workspace": {
+        "created": "<actor>{{actor}}</actor> ha creato la workspace <object>{{object}}</object>.",
+        "renamed": "<actor>{{actor}}</actor> ha rinominato la workspace <object>{{object}}</object>.",
+        "deleted": "<actor>{{actor}}</actor> ha eliminato la workspace <object>{{object}}</object>.",
+        "project_added": "<actor>{{actor}}</actor> ha messo {{project}} in <object>{{object}}</object>.",
+        "project_removed": "<actor>{{actor}}</actor> ha tolto {{project}} da <object>{{object}}</object>.",
+        "member_added": "<actor>{{actor}}</actor> ha aggiunto {{person}} a <object>{{object}}</object> come {{role}}.",
+        "member_role_changed": "<actor>{{actor}}</actor> ha cambiato il ruolo di {{person}} in <object>{{object}}</object>.",
+        "member_removed": "<actor>{{actor}}</actor> ha tolto {{person}} da <object>{{object}}</object>."
+      },
       "member": {
         "added": "<actor>{{actor}}</actor> ha aggiunto <object>{{object}}</object> a {{project}} come {{role}}.",
         "removed": "<actor>{{actor}}</actor> ha tolto <object>{{object}}</object> da {{project}}.",
@@ -12596,6 +12606,7 @@
       "roles": "Ruoli",
       "members": "Membri",
       "departments": "Reparti",
+      "workspaces": "Workspace",
       "security": "Sicurezza",
       "ai": "AI",
       "integrations": "Integrazioni",
@@ -12612,6 +12623,7 @@
       "roles": "ruoli",
       "members": "membri dei progetti",
       "departments": "reparti",
+      "workspaces": "workspace",
       "security": "azzeramenti di sicurezza",
       "ai": "impostazioni dell'AI",
       "integrations": "integrazioni",

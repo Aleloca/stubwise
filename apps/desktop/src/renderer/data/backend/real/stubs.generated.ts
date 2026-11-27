@@ -219,3 +219,4 @@ export const vault: typeof Fake.vault = notIntegratedNamespace("vault") as never
 export const visibleProjectIds: typeof Fake.visibleProjectIds = notIntegratedSync("visibleProjectIds") as never;
 export const whenIdle: typeof Fake.whenIdle = notIntegrated("whenIdle") as never;
 export const withdrawDecision: typeof Fake.withdrawDecision = notIntegrated("withdrawDecision") as never;
+export const workspaces: typeof Fake.workspaces = notIntegratedNamespace("workspaces") as never;
