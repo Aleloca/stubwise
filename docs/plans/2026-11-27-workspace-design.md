@@ -235,8 +235,8 @@ dottrina di R51: «nessun ruolo» non è una scorciatoia).
 | Permesso | Livello | Cosa apre | Preset |
 |---|---|---|---|
 | `workspaces.manage` | istanza | creare, rinominare, eliminare una workspace; vederle tutte in Amministrazione | nessuno (full admin implicito) |
-| — | progetto | mettere, togliere o spostare un progetto in una workspace | `project.members.manage` **nel progetto** (nei due, per uno spostamento) + `workspaces.manage` |
-| — | progetto, su ogni progetto | invitare una persona in una workspace, cambiarne il ruolo di workspace, toglierla | `project.members.manage` **in ogni progetto** della workspace (+ anti-escalation) |
+| — | progetto | mettere, togliere o spostare un progetto in una workspace | `project.members.manage` **nel progetto** (anche per uno spostamento: il permesso si giudica sul progetto, la workspace non è un ambito di permessi) + `workspaces.manage` |
+| — | istanza + ogni progetto | invitare una persona in una workspace, cambiarne il ruolo di workspace, toglierla | `workspaces.manage` + `project.members.manage` **in ogni progetto** della workspace (+ anti-escalation) |
 
 - **Struttura** (creare, rinominare, eliminare, spostare progetti) =
   `workspaces.manage`, un permesso d'istanza nuovo, dato a nessun preset (la
@@ -247,15 +247,14 @@ dottrina di R51: «nessun ruolo» non è una scorciatoia).
   non gestisce i membri. Uno spostamento è UNA scrittura (la riga cambia
   workspace, l'indice unico lo garantisce) e chiede il permesso in entrambi i
   lati.
-- **Persone** (invitare, cambiare ruolo, togliere) = `project.members.manage`
-  **in ogni progetto** della workspace, più l'anti-escalation (§1.6). Non serve
-  un permesso «gestore di workspace» nuovo: entrare in una workspace È entrare
-  nei suoi progetti, e chi gestisce i membri di tutti quei progetti può già
-  oggi aggiungere la persona uno per uno. Il permesso nuovo darebbe un
-  potere che oggi non esiste (D4: niente gestori per workspace).
-- Una workspace **vuota** (senza progetti) la gestisce solo chi ha
-  `workspaces.manage`: «in ogni progetto» su un insieme vuoto sarebbe vero per
-  chiunque.
+- **Persone** (invitare, cambiare ruolo, togliere) = `workspaces.manage` **e**
+  `project.members.manage` **in ogni progetto** della workspace, più
+  l'anti-escalation (§1.6). È D4 come l'ha accettata il maintainer (27 nov,
+  via 46): «crea e gestisce le workspace chi ha `workspaces.manage`; per mettere
+  un progetto o per invitare qualcuno serve ANCHE il permesso di gestire i
+  membri di quel progetto». Niente gestori per singola workspace.
+- Una workspace **vuota** (senza progetti) la gestisce chi ha
+  `workspaces.manage`.
 
 ### 2.2 Le azioni (rotte nuove, tutte con `config.access` e `config.mcp`)
 
@@ -418,8 +417,11 @@ Tipi nuovi, con `readPermission` come gli altri: `workspace.created`,
   (500 su `/api/inbox`, CLAUDE.md). La card dice «sei entrato nella workspace
   X», con un campo additivo `workspaceId` nell'evento (nullable, default null)
   e i progetti **derivati a lettura**, non scritti nel jsonb (la regola delle
-  card). Alla persona (obbligatoria) e a chi gestisce i membri, mai a chi ha
-  agito, come oggi.
+  card). SOLO alla persona che entra (D13 come accettata dal maintainer: i
+  gestori dei membri non la ricevono), mai a chi ha agito né a Claude. Un
+  avviso del catalogo vive in un progetto: la card si appoggia al primo
+  progetto aperto della workspace (`mandatoryOnly`) e ne segue la visibilità;
+  una workspace senza progetti aperti non manda card.
 - **Un progetto aggiunto a una workspace** non manda card alle persone (una
   workspace con 30 persone farebbe 30 card per uno spostamento): lo dice il
   registro del progetto (D13).
@@ -524,9 +526,12 @@ vengono dal lato server.
   chiave di preset.
 - **D4.** La struttura richiede **`workspaces.manage`** (permesso d'istanza nuovo,
   implicito nel full admin, in nessun altro preset). Mettere, togliere o spostare
-  un progetto richiede anche `project.members.manage` in quel progetto (nei due,
-  per uno spostamento). Invitare richiede `project.members.manage` e
-  l'anti-escalation in ogni progetto della workspace. Niente gestori per
+  un progetto richiede anche `project.members.manage` in quel progetto, anche
+  per uno spostamento (46, 27 nov: il permesso si giudica sul progetto, la
+  workspace non è un ambito di permessi). Eliminare una workspace è struttura:
+  basta `workspaces.manage`, e passa da `last_manager` su ogni suo progetto. Invitare, cambiare il ruolo e togliere una persona richiedono
+  `workspaces.manage` E `project.members.manage` (con l'anti-escalation) in ogni
+  progetto della workspace. Niente gestori per
   workspace.
 - **D5.** Una workspace la vede chi ne vede almeno un progetto (con il conteggio
   dei soli visibili) o ne è membro; le sue persone sono «conosciute» da chi la

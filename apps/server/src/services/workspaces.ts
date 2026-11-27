@@ -1,4 +1,5 @@
 import {
+  inviteWorkspaces,
   projectAccess,
   projectAccessPermissionsSql,
   projectAccessRowCounts,
@@ -18,7 +19,7 @@ import { projectPermissionsMap, scopeIncludes, visibleProjectIds } from "../auth
 import type { SessionUser } from "../auth/session.js";
 import { personObject, recordChange } from "./change-log.js";
 import { departmentGrantsForEntering } from "./department-access.js";
-import { publishNotification } from "@stubwise/notifications";
+import { instancePermissionsOfUser, publishNotification } from "@stubwise/notifications";
 import { peopleKnownTo } from "./people-known.js";
 import { keepingManagersIn, managersLostBy, RoleRuleError } from "./roles.js";
 
@@ -31,8 +32,8 @@ import { keepingManagersIn, managersLostBy, RoleRuleError } from "./roles.js";
  * - **struttura** (creare, rinominare, eliminare): `workspaces.manage` (la rotta);
  *   mettere, togliere o spostare un progetto chiede anche
  *   `project.members.manage` in quel progetto (D4);
- * - **persone**: `project.members.manage` in OGNI progetto della workspace (una
- *   vuota: `workspaces.manage`), più l'anti-escalation (`judgeWorkspaceGrant`);
+ * - **persone**: `workspaces.manage` E `project.members.manage` in OGNI progetto
+ *   della workspace, più l'anti-escalation (`judgeWorkspaceGrant`);
  * - **nessuna escalation sul DARE**: chi entra in un progetto ci porta il ruolo
  *   di workspace e, se non vi accedeva già, i suoi reparti (D10, F8-4 = a);
  *   chi agisce deve averli lì, archiviati compresi; un full admin passa;
@@ -61,7 +62,7 @@ const personName = sql<string>`coalesce(nullif(${users.displayName}, ''), split_
 // ── Letture ──────────────────────────────────────────────────────────────
 
 /** I permessi di chi agisce in OGNI progetto, archiviati compresi (l'escalation non li salta). */
-async function heldByProject(db: DbOrTx, actor: WorkspaceActor): Promise<Record<string, readonly string[]>> {
+async function heldByProject(db: DbOrTx, actor: Pick<SessionUser, "id" | "instancePermissions">): Promise<Record<string, readonly string[]>> {
   return projectPermissionsMap(db as Db, actor, { includeArchived: true });
 }
 
@@ -69,23 +70,30 @@ async function projectIdsOf(db: DbOrTx, workspaceId: string): Promise<string[]> 
   return (await db.select({ id: workspaceProjects.projectId }).from(workspaceProjects).where(eq(workspaceProjects.workspaceId, workspaceId)).orderBy(asc(workspaceProjects.position), asc(workspaceProjects.projectId))).map((r) => r.id);
 }
 
-async function membersOf(db: DbOrTx, workspaceId: string) {
-  return db
+async function membersOf(db: DbOrTx, workspaceId: string, opts: { lockRoles?: boolean } = {}) {
+  const query = db
     .select({ userId: workspaceMembers.userId, roleId: workspaceMembers.roleId, roleName: roles.name, rolePermissions: roles.permissions })
     .from(workspaceMembers)
     .innerJoin(roles, eq(roles.id, workspaceMembers.roleId))
     .where(eq(workspaceMembers.workspaceId, workspaceId));
+  // Revisione del lotto 3 (I-3): i ruoli dei membri FOR SHARE (solo quelle righe) prima dei lock dei membri.
+  return opts.lockRoles ? query.for("share", { of: roles }) : query;
 }
 
-/** Chi agisce gestisce le persone: `project.members.manage` in OGNI progetto (D4); una vuota, `workspaces.manage`. */
-function managesPeople(actor: WorkspaceActor, projectIds: readonly string[], held: Record<string, readonly string[]>): boolean {
+/**
+ * Chi agisce gestisce le persone (D4, come l'ha accettata il maintainer):
+ * `workspaces.manage` E `project.members.manage` in OGNI progetto della
+ * workspace (una vuota: il solo `workspaces.manage`). L'anti-escalation sta
+ * sopra, in `judgeWorkspaceGrant`.
+ */
+function managesPeople(actor: Pick<SessionUser, "id" | "instancePermissions">, projectIds: readonly string[], held: Record<string, readonly string[]>): boolean {
   if (isFullAdmin(actor)) return true;
-  if (projectIds.length === 0) return canManageStructure(actor);
+  if (!canManageStructure(actor)) return false;
   return projectIds.every((id) => (held[id] ?? []).includes(MANAGE_MEMBERS));
 }
 
 /** Le workspace che chi guarda vede (D5), nella forma per lui (r.1414). */
-export async function listWorkspaces(db: Db, viewer: WorkspaceActor, onlyId?: string): Promise<WorkspaceView[]> {
+export async function listWorkspaces(db: Db, viewer: Pick<SessionUser, "id" | "instancePermissions">, onlyId?: string): Promise<WorkspaceView[]> {
   const rows = await db
     .select()
     .from(workspaces)
@@ -205,7 +213,7 @@ export async function updateWorkspace(db: Db, actor: WorkspaceActor, id: string,
     const w = await lockedWorkspace(tx, id);
     const name = input.name?.trim() ?? w.name;
     await tx.update(workspaces).set({ name, ...(input.colorToken ? { colorToken: input.colorToken } : {}) }).where(eq(workspaces.id, id));
-    await recordChange(tx, { type: "workspace.updated", actor, projectId: null, data: { object: workspaceObject({ id, name }), before: w.name, after: name } });
+    await recordChange(tx, { type: "workspace.updated", actor, projectId: null, data: { object: workspaceObject({ id, name }), ...(name !== w.name ? { before: w.name, after: name } : {}) } });
   });
   return getWorkspace(db, actor, id);
 }
@@ -240,7 +248,7 @@ async function placeProject(tx: Tx, actor: WorkspaceActor, w: { id: string; name
     .where(eq(workspaceProjects.projectId, projectId))
     .for("update");
   if (current?.workspaceId === w.id) return;
-  const members = await membersOf(tx, w.id);
+  const members = await membersOf(tx, w.id, { lockRoles: true });
   const missing = await judgeWorkspaceGrant(tx, actor, members.map((m) => ({ userId: m.userId, rolePermissions: m.rolePermissions, projectIds: [projectId] })));
   if (missing.length > 0) throw escalationError(missing);
   await keepingManagersIn(tx, [projectId], async () => {
@@ -263,12 +271,17 @@ export async function removeProject(db: Db, actor: WorkspaceActor, workspaceId: 
   if (!canManageStructure(actor)) throw forbidden();
   await db.transaction(async (tx) => {
     const w = await lockedWorkspace(tx, workspaceId);
-    const [row] = await tx.select().from(workspaceProjects).where(and(eq(workspaceProjects.workspaceId, workspaceId), eq(workspaceProjects.projectId, projectId)));
+    // Revisione del lotto 3 (I-4): la riga bloccata, e la delete su QUELLA riga (uno spostamento concorrente non si toglie per sbaglio).
+    const [row] = await tx.select().from(workspaceProjects).where(and(eq(workspaceProjects.workspaceId, workspaceId), eq(workspaceProjects.projectId, projectId))).for("update");
     const held = await heldByProject(tx, actor);
     if (!row || (!isFullAdmin(actor) && held[projectId] === undefined)) throw new RoleRuleError(404, "not_found", "Project not found");
     if (!isFullAdmin(actor) && !(held[projectId] ?? []).includes(MANAGE_MEMBERS)) throw forbidden("You don't manage this project's members");
     await keepingManagersIn(tx, [projectId], async () => {
-      await tx.delete(workspaceProjects).where(eq(workspaceProjects.projectId, projectId));
+      const removed = await tx
+        .delete(workspaceProjects)
+        .where(and(eq(workspaceProjects.workspaceId, workspaceId), eq(workspaceProjects.projectId, projectId)))
+        .returning({ id: workspaceProjects.projectId });
+      if (removed.length === 0) throw new RoleRuleError(404, "not_found", "Project not found");
     });
     await recordChange(tx, { type: "workspace.project_removed", actor, projectId, data: { object: workspaceObject(w), params: { workspaceName: w.name } } });
   });
@@ -278,9 +291,11 @@ export async function removeProject(db: Db, actor: WorkspaceActor, workspaceId: 
 
 /** Il ruolo di workspace: quello chiesto (di PROGETTO), o il preset Viewer (D3); mai un ripiego. */
 async function resolveRole(db: DbOrTx, roleId: string | undefined) {
+  // Revisione del lotto 3 (I-3): FOR SHARE, come `sharedRole`: un `updateRole` concorrente
+  // aspetta, e il giudizio dell'escalation vale sui permessi che resteranno.
   const [role] = roleId
-    ? await db.select({ id: roles.id, name: roles.name, scope: roles.scope, permissions: roles.permissions }).from(roles).where(eq(roles.id, roleId))
-    : await db.select({ id: roles.id, name: roles.name, scope: roles.scope, permissions: roles.permissions }).from(roles).where(eq(roles.presetKey, "viewer"));
+    ? await db.select({ id: roles.id, name: roles.name, scope: roles.scope, permissions: roles.permissions }).from(roles).where(eq(roles.id, roleId)).for("share")
+    : await db.select({ id: roles.id, name: roles.name, scope: roles.scope, permissions: roles.permissions }).from(roles).where(eq(roles.presetKey, "viewer")).for("share");
   if (!role) throw roleId ? new RoleRuleError(404, "role_not_found", "Role not found") : new RoleRuleError(400, "role_required", "The Viewer preset is gone: choose a role");
   if (role.scope !== "project") throw new RoleRuleError(422, "invalid_role", "A workspace role is a project role");
   return role;
@@ -447,8 +462,16 @@ export async function memberPreview(db: Db, actor: WorkspaceActor, workspaceId: 
     if (error instanceof RoleRuleError && error.code === "role_required") return { projects: [], escalation: [], lastManager: { blocked: false, projectId: null }, block: "role_required" };
     throw error;
   }
-  const escalation = (await judgeWorkspaceGrant(db, actor, [{ userId, rolePermissions: role.permissions, projectIds }])).map((m) => ({ projectId: shownProject(m.projectId, visible, held), permission: m.permission }));
+  // Revisione del lotto 3 (M-2): lo stesso ruolo di adesso non dà niente (la scrittura non fa niente).
+  const [current] = await db.select({ roleId: workspaceMembers.roleId }).from(workspaceMembers).where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, userId)));
+  const escalation =
+    current?.roleId === role.id
+      ? []
+      : (await judgeWorkspaceGrant(db, actor, [{ userId, rolePermissions: role.permissions, projectIds }])).map((m) => ({ projectId: shownProject(m.projectId, visible, held), permission: m.permission }));
   const result = await rolledBack(db, async (tx) => {
+    // Revisione del lotto 3 (I-2): lo stesso ordine dei lock della scrittura (workspace, ruolo, membri).
+    await lockedWorkspace(tx, workspaceId);
+    await tx.select({ id: roles.id }).from(roles).where(eq(roles.id, role.id)).for("share");
     const before = new Map<string, Set<string>>();
     for (const projectId of projectIds) before.set(projectId, new Set(await permissionsIn(tx, projectId, userId)));
     const lost = await managersLostBy(tx, projectIds, async () => {
@@ -499,6 +522,15 @@ export async function accessEffect(db: Db, actor: WorkspaceActor, request: Works
   const visible = await visibleProjectIds(db, actor);
   const held = await heldByProject(db, actor);
   const inWorkspace = await projectIdsOf(db, request.workspaceId);
+  // Revisione del lotto 3 (I-2): l'anteprima la chiede chi potrebbe fare la scrittura
+  // (la simulazione prende i lock della scrittura: chi guarda soltanto non li prende).
+  if (request.kind === "removeMember") await assertManagesPeople(db, actor, inWorkspace);
+  else if (!canManageStructure(actor)) throw forbidden();
+  // M-5: un progetto che non c'è, o che chi chiede non vede, è 404 (mai un errore del DB).
+  if (request.kind === "addProject" || request.kind === "removeProject") {
+    const [p] = await db.select({ id: projects.id }).from(projects).where(eq(projects.id, request.projectId));
+    if (!p || (!isFullAdmin(actor) && held[request.projectId] === undefined)) throw new RoleRuleError(404, "not_found", "Project not found");
+  }
   let touched: string[];
   let escalation: { projectId: string; permission: string }[] = [];
   if (request.kind === "addProject" || request.kind === "removeProject") touched = [request.projectId];
@@ -508,6 +540,8 @@ export async function accessEffect(db: Db, actor: WorkspaceActor, request: Works
     escalation = await judgeWorkspaceGrant(db, actor, members.map((m) => ({ userId: m.userId, rolePermissions: m.rolePermissions, projectIds: [request.projectId] })));
   }
   const { before, after, lost } = await rolledBack(db, async (tx) => {
+    // Lo stesso ordine dei lock delle scritture: prima la workspace (I-2).
+    await lockedWorkspace(tx, request.workspaceId);
     const before = await seers(tx, touched);
     const lost = await managersLostBy(tx, touched, async () => {
       switch (request.kind) {
@@ -548,4 +582,88 @@ export async function accessEffect(db: Db, actor: WorkspaceActor, request: Works
     lastManager: lost.filter(sees),
     escalation: escalation.map((m) => ({ projectId: sees(m.projectId) ? m.projectId : null, permission: m.permission })),
   };
+}
+
+// ── L'invito di registrazione (D9) ──────────────────────────────────────
+
+export interface InviteWorkspace {
+  workspaceId: string;
+  roleId: string;
+}
+
+/**
+ * Le workspace che un invito promette, con le regole di chi invita (D4, la
+ * stessa di `putMember`): le persone della workspace le gestisce, e il ruolo
+ * lo può dare in OGNI suo progetto. Senza ruolo, il Viewer (D3), risolto qui e
+ * salvato: «nessun ruolo» non è una scorciatoia (R51). I reparti dell'invitato
+ * non si conoscono ancora: li riverifica l'accettazione.
+ */
+export async function assertInviteWorkspaces(tx: Tx, actor: WorkspaceActor, grants: readonly { workspaceId: string; roleId?: string | undefined }[]): Promise<InviteWorkspace[]> {
+  const seen = new Set<string>();
+  const out: InviteWorkspace[] = [];
+  for (const grant of grants) {
+    if (seen.has(grant.workspaceId)) throw new RoleRuleError(400, "duplicate_workspace", "A workspace appears more than once");
+    seen.add(grant.workspaceId);
+    if ((await listWorkspaces(tx as unknown as Db, actor, grant.workspaceId)).length === 0) throw notFound();
+    const projectIds = await projectIdsOf(tx, grant.workspaceId);
+    await assertManagesPeople(tx, actor, projectIds);
+    const role = await resolveRole(tx, grant.roleId);
+    if (!isFullAdmin(actor)) {
+      const held = await heldByProject(tx, actor);
+      const missing = projectIds.flatMap((projectId) => role.permissions.filter((p) => !(held[projectId] ?? []).includes(p)).map((permission) => ({ projectId, permission })));
+      if (missing.length > 0) throw escalationError(missing);
+    }
+    out.push({ workspaceId: grant.workspaceId, roleId: role.id });
+  }
+  return out;
+}
+
+export async function saveInviteWorkspaces(tx: Tx, token: string, grants: readonly InviteWorkspace[]): Promise<void> {
+  if (grants.length > 0) await tx.insert(inviteWorkspaces).values(grants.map((g) => ({ inviteToken: token, workspaceId: g.workspaceId, roleId: g.roleId })));
+}
+
+/** Le workspace di un invito, da leggere PRIMA di consumarlo (il delete le porta via in cascata). */
+export async function inviteWorkspacesOf(tx: Tx, token: string): Promise<InviteWorkspace[]> {
+  return tx.select({ workspaceId: inviteWorkspaces.workspaceId, roleId: inviteWorkspaces.roleId }).from(inviteWorkspaces).where(eq(inviteWorkspaces.inviteToken, token));
+}
+
+/**
+ * All'accettazione ogni workspace si RIVERIFICA coi permessi ATTUALI di chi ha
+ * invitato (R51): gestisce ancora le persone (in ogni progetto di ADESSO), e ha
+ * lì i permessi del ruolo e quelli che i reparti dell'invitato (il ripiego)
+ * portano. Una non più valida si scarta con `onDropped`; l'utente nasce lo stesso.
+ */
+export async function applyInviteWorkspaces(
+  tx: Tx,
+  userId: string,
+  grants: readonly InviteWorkspace[],
+  invitedByUserId: string | null,
+  onDropped: (grant: InviteWorkspace, reason: string) => void = () => {},
+): Promise<void> {
+  if (grants.length === 0) return;
+  const [inviter] = invitedByUserId ? await tx.select({ id: users.id, email: users.email }).from(users).where(eq(users.id, invitedByUserId)) : [];
+  if (!inviter) {
+    for (const grant of grants) onDropped(grant, "inviter_missing");
+    return;
+  }
+  const actor: WorkspaceActor = { id: inviter.id, email: inviter.email, instancePermissions: await instancePermissionsOfUser(tx as unknown as Db, inviter.id) };
+  const [me] = await tx.select({ id: users.id, email: users.email }).from(users).where(eq(users.id, userId));
+  for (const grant of grants) {
+    const [w] = await tx.select().from(workspaces).where(eq(workspaces.id, grant.workspaceId)).for("update");
+    if (!w) continue;
+    const projectIds = await projectIdsOf(tx, grant.workspaceId);
+    if (!managesPeople(actor, projectIds, await heldByProject(tx, actor))) {
+      onDropped(grant, "inviter_cannot_manage_people");
+      continue;
+    }
+    const [role] = await tx.select({ name: roles.name, permissions: roles.permissions }).from(roles).where(eq(roles.id, grant.roleId)).for("share");
+    if (!role) continue;
+    if ((await judgeWorkspaceGrant(tx, actor, [{ userId, rolePermissions: role.permissions, projectIds }])).length > 0) {
+      onDropped(grant, "inviter_lacks_role_permissions");
+      continue;
+    }
+    await tx.insert(workspaceMembers).values({ workspaceId: grant.workspaceId, userId, roleId: grant.roleId, addedByUserId: inviter.id }).onConflictDoNothing();
+    // Entrare da un invito è un'aggiunta; l'attore è chi entra (come i progetti dell'invito).
+    await recordChange(tx, { type: "workspace.member_added", actor: me!, projectId: null, data: { object: personObject(me!), params: { workspaceName: w.name, roleName: role.name, via: "invite" } } });
+  }
 }

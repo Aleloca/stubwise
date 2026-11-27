@@ -1,5 +1,5 @@
 import { departmentGrantsOf, type DepartmentGrant } from "./department-access.js";
-import { projectAccess, projectAccessPermissionsSql, projectAccessRowCounts, projectMemberPermissions, projectMembers, projects, roles, users, type Db } from "@stubwise/db";
+import { projectAccess, projectAccessPermissionsSql, projectAccessRowCounts, projectMemberPermissions, projectMembers, projects, roles, users, workspaces, type Db } from "@stubwise/db";
 import {
   effectiveInstancePermissions,
   effectiveProjectPermissions,
@@ -48,6 +48,8 @@ const reason = (kind: AccessReason["kind"], extra: Partial<AccessReason> = {}): 
   at: null,
   departmentId: null,
   departmentName: null,
+  workspaceId: null,
+  workspaceName: null,
   ...extra,
 });
 
@@ -95,6 +97,8 @@ interface Membership {
   rolePermissions: string[] | null;
   /** Ruolo ∪ personali, da `memberPermissionsSql`: null se non membro. */
   memberPermissions: string[] | null;
+  /** Workspace (lotto 4): i ruoli di workspace della persona in questo progetto, per il motivo «workspace». */
+  workspaceRoles: { workspaceId: string; workspaceName: string; roleId: string; roleName: string; permissions: string[] }[];
 }
 
 /** I permessi di progetto di una persona in un progetto, coi motivi. */
@@ -120,6 +124,10 @@ function projectWithReasons(
       ...grants
         .filter((g) => g.permission === permission)
         .map((g) => reason("grant", { byUserId: g.grantedByUserId, at: g.grantedAt.toISOString() })),
+      // Workspace (lotto 4): «dalla workspace <nome>», col ruolo di workspace.
+      ...(membership?.workspaceRoles ?? [])
+        .filter((w) => w.permissions.includes(permission))
+        .map((w) => reason("workspace", { workspaceId: w.workspaceId, workspaceName: w.workspaceName, roleId: w.roleId, roleName: w.roleName })),
       // Area 9, F8: «via <reparto>», solo se è membro (un reparto non rende
       // membri); membro anche per workspace (0238, D10).
       ...(membership?.memberPermissions
@@ -142,7 +150,7 @@ async function memberships(db: Db, projectIds: readonly string[], userIds?: read
     .from(projectAccess)
     .where(and(inArray(projectAccess.projectId, [...projectIds]), projectAccessRowCounts, ...(userIds ? [inArray(projectAccess.userId, [...userIds])] : [])))
     .as("ma");
-  return db
+  const rows = await db
     .select({
       projectId: access.projectId,
       userId: access.userId,
@@ -154,6 +162,33 @@ async function memberships(db: Db, projectIds: readonly string[], userIds?: read
     .from(access)
     .leftJoin(projectMembers, and(eq(projectMembers.projectId, access.projectId), eq(projectMembers.userId, access.userId)))
     .leftJoin(memberRoles, eq(memberRoles.id, projectMembers.roleId));
+  const viaWorkspace = await db
+    .select({
+      projectId: projectAccess.projectId,
+      userId: projectAccess.userId,
+      workspaceId: workspaces.id,
+      workspaceName: workspaces.name,
+      roleId: memberRoles.id,
+      roleName: memberRoles.name,
+      permissions: memberRoles.permissions,
+    })
+    .from(projectAccess)
+    .innerJoin(workspaces, eq(workspaces.id, projectAccess.workspaceId))
+    .innerJoin(memberRoles, eq(memberRoles.id, projectAccess.roleId))
+    .where(
+      and(
+        eq(projectAccess.source, "workspace"),
+        inArray(projectAccess.projectId, [...projectIds]),
+        projectAccessRowCounts,
+        ...(userIds ? [inArray(projectAccess.userId, [...userIds])] : []),
+      ),
+    );
+  return rows.map((r) => ({
+    ...r,
+    workspaceRoles: viaWorkspace
+      .filter((w) => w.projectId === r.projectId && w.userId === r.userId)
+      .map(({ workspaceId, workspaceName, roleId, roleName, permissions }) => ({ workspaceId, workspaceName, roleId, roleName, permissions })),
+  }));
 }
 
 async function grantsOf(db: Db, projectIds: readonly string[], userIds?: readonly string[]) {
@@ -250,7 +285,8 @@ export async function whatCan(db: Db, viewer: Viewer, userId: string, projectId:
   const perProject: WhatCanResponse["projects"] = [];
   for (const { id, name } of names) {
     const permissions = projectWithReasons(person, byProject.get(id), grants.filter((g) => g.projectId === id), fromDepartments);
-    if (permissions) perProject.push({ projectId: id, projectName: name, permissions });
+    // Workspace (lotto 4): la workspace da cui la persona vede il progetto, se c'è.
+    if (permissions) perProject.push({ projectId: id, projectName: name, workspaceName: byProject.get(id)?.workspaceRoles[0]?.workspaceName ?? null, permissions });
   }
   return { userId, instance: instanceWithReasons(person), projects: perProject };
 }

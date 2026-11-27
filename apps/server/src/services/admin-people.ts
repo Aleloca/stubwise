@@ -7,6 +7,9 @@ import {
   gitIdentities,
   invites,
   projectAccess,
+  workspaceMembers,
+  workspaceProjects,
+  workspaces,
   projectAccessPermissionsSql,
   projectAccessRowCounts,
   projectMemberPermissions,
@@ -33,6 +36,7 @@ import type { SessionUser } from "../auth/session.js";
 import { avatarUrlsFor } from "./avatars.js";
 import { visiblePersonIds } from "./people-visibility.js";
 import { isLastActiveFullAdmin, lastManagerProjectOf, missingToGrant, RoleRuleError } from "./roles.js";
+import { listWorkspaces } from "./workspaces.js";
 
 /**
  * Area 9, F1 (aggiunta per R7): le letture CALCOLATE di People. Ogni campo che
@@ -237,6 +241,27 @@ export async function personDetail(db: Db, viewer: Viewer, personId: string, opt
   const viewerManages = await managedProjectIds(db, viewer, projectIds);
   // Area 9, F8: i permessi dei suoi reparti, in ogni progetto di cui è membro.
   const fromDepartments = await departmentGrantsOf(db, [p.id]);
+  // Workspace (lotto 4): le sue workspace e i loro progetti, per la fonte e per
+  // i progetti che vede SOLO dalla workspace (col ruolo di workspace).
+  const wsRows = await db
+    .select({ workspaceId: workspaces.id, workspaceName: workspaces.name, roleId: memberRoles.id, roleName: memberRoles.name, rolePermissions: memberRoles.permissions })
+    .from(workspaceMembers)
+    .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
+    .innerJoin(memberRoles, eq(memberRoles.id, workspaceMembers.roleId))
+    .where(eq(workspaceMembers.userId, p.id))
+    .orderBy(asc(workspaces.name));
+  const wsProjects = wsRows.length
+    ? await db
+        .select({ workspaceId: workspaceProjects.workspaceId, projectId: projects.id, code: projects.code, name: projects.name })
+        .from(workspaceProjects)
+        .innerJoin(projects, eq(projects.id, workspaceProjects.projectId))
+        .where(inArray(workspaceProjects.workspaceId, wsRows.map((w) => w.workspaceId)))
+        .orderBy(asc(projects.code))
+    : [];
+  const wsOf = (projectId: string) => {
+    const link = wsProjects.find((w) => w.projectId === projectId);
+    return link ? (wsRows.find((w) => w.workspaceId === link.workspaceId) ?? null) : null;
+  };
   const projectsView = seen.map((m) => ({
     projectId: m.projectId,
     code: m.code,
@@ -266,7 +291,32 @@ export async function personDetail(db: Db, viewer: Viewer, personId: string, opt
         ),
     ],
     canManage: viewerManages.has(m.projectId),
+    workspace: (() => {
+      const w = wsOf(m.projectId);
+      return w ? { name: w.workspaceName, roleName: w.roleName } : null;
+    })(),
+    workspaceOnly: false,
   }));
+  // I progetti che vede SOLO dalla workspace (e che chi guarda vede), col ruolo di workspace.
+  const explicitIds = new Set(all.map((m) => m.projectId));
+  for (const link of wsProjects) {
+    if (explicitIds.has(link.projectId) || !projectIds.includes(link.projectId) || projectsView.some((v) => v.projectId === link.projectId)) continue;
+    const w = wsRows.find((r) => r.workspaceId === link.workspaceId)!;
+    projectsView.push({
+      projectId: link.projectId,
+      code: link.code,
+      name: link.name,
+      role: { id: w.roleId, name: w.roleName },
+      extra: [...new Set(fromDepartments.map((d) => d.permission))]
+        .filter((perm) => !w.rolePermissions.includes(perm))
+        .map((perm): ExtraPermission => ({ permission: perm, sources: fromDepartments.filter((d) => d.permission === perm).map(departmentSource), granted: false })),
+      canManage: viewerManages.has(link.projectId),
+      workspace: { name: w.workspaceName, roleName: w.roleName },
+      workspaceOnly: true,
+    });
+  }
+  projectsView.sort((x, y) => x.code.localeCompare(y.code));
+  const seenWorkspaces = new Set((await listWorkspaces(db, viewer)).map((w) => w.id));
   const memberOf = new Set(all.map((m) => m.projectId));
   const addableTo =
     !deactivated && !isFullAdmin
@@ -319,6 +369,7 @@ export async function personDetail(db: Db, viewer: Viewer, personId: string, opt
     alsoInHiddenProjects: all.length > seen.length,
     addableTo,
     departments: depts.map((d) => ({ id: d.id, name: d.name, colorToken: d.colorToken, managesHome: (d.permissions ?? []).includes("department.home.manage") })),
+    workspaces: wsRows.filter((w) => seenWorkspaces.has(w.workspaceId)).map((w) => ({ id: w.workspaceId, name: w.workspaceName, roleName: w.roleName })),
     identities: { gitEmails, bitbucketUsername: p.bitbucketUsername },
     actions,
     instanceRoleChoices: manage ? await instanceRoleChoicesFor(db, viewer, { lastFullAdmin: lastAdmin }) : [],
@@ -338,6 +389,8 @@ function departmentSource(g: DepartmentGrant) {
     origin: null,
     departmentId: g.departmentId,
     departmentName: g.departmentName,
+    workspaceId: null,
+    workspaceName: null,
   };
 }
 
@@ -352,6 +405,8 @@ function grantSource(g: { by: string | null; at: Date; byName: string | null; by
     origin: (g.by ? "given" : "seed") as "given" | "seed",
     departmentId: null,
     departmentName: null,
+    workspaceId: null,
+    workspaceName: null,
   };
 }
 

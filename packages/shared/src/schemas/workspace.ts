@@ -28,7 +28,7 @@ export const workspaceViewSchema = z.object({
   isMember: z.boolean().default(false),
   /** Rinominare, eliminare, mettere progetti (con `project.members.manage` nel progetto): `workspaces.manage`. */
   canManage: z.boolean().default(false),
-  /** Invitare e togliere persone: `project.members.manage` in OGNI suo progetto (D4); una workspace vuota, `workspaces.manage`. */
+  /** Invitare e togliere persone: `workspaces.manage` E `project.members.manage` in OGNI suo progetto (D4). */
   canManagePeople: z.boolean().default(false),
 });
 export type WorkspaceView = z.infer<typeof workspaceViewSchema>;

@@ -31,7 +31,7 @@ const ALLOWED: Readonly<Record<string, readonly [number, string]>> = {
   "apps/server/src/services/admin-people.ts": [12, "le appartenenze esplicite di una persona nella pagina People"],
   "apps/server/src/services/access-query.ts": [5, "il ruolo ESPLICITO accanto alle fonti di «Chi può farlo?» (chi accede viene da `project_access`)"],
   "apps/server/src/services/mail-proposals-decide.ts": [11, "aggiunge (e toglie) i Contributor di una conferma: scrittura"],
-  "apps/server/src/services/project-archive.ts": [9, "la vista di un archiviato e la copia dei membri all'eliminazione"],
+  "apps/server/src/services/project-archive.ts": [5, "la vista di un archiviato (i suoi membri espliciti)"],
   "apps/server/src/routes/projects.ts": [2, "il creatore entra come lead: scrittura"],
   "apps/server/src/claude-actions/catalog-area9.ts": [5, "«Annulla» di Claude su un ingresso: il membro esplicito"],
   "apps/server/src/claude-actions/labels.ts": [5, "il nome del ruolo esplicito nelle etichette delle azioni"],
