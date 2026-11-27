@@ -3698,6 +3698,8 @@
       "copied": "Copiata: gli appunti si svuotano fra 30 secondi.",
       "copyFailed": "Il browser non ha permesso la copia: usa Mostra.",
       "revealFailed": "Non è stato possibile aprire la password.",
+      "revealRateLimited_one": "Troppe password della cassaforte aperte in pochi minuti: potrai aprirne una nuova fra {{count}} minuto.",
+      "revealRateLimited_other": "Troppe password della cassaforte aperte in pochi minuti: potrai aprirne una nuova fra {{count}} minuti.",
       "readers": {
         "open": "Lettori",
         "openAria": "Lettori di {{name}}",

@@ -1,6 +1,6 @@
 import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   credentialAccessLog,
@@ -706,9 +706,18 @@ describe("C2: una raffica di reveal della stessa persona", () => {
     // Un avviso per finestra, non uno per lettura.
     expect(await burstAlerts(user.id)).toHaveLength(1);
 
+    // Il segreto più vecchio della finestra ha 7 minuti: si riapre fra 3 (non 10 fissi).
+    // Il più vecchio letto ANCHE di recente non conta: esce per primo quello la cui ULTIMA lettura è la più vecchia.
+    await testDb.db.execute(sql`update credential_access_log set created_at = now() - interval '7 minutes' where credential_id = ${ids[1]!}::uuid`);
+    await testDb.db.execute(sql`update credential_access_log set created_at = now() - interval '9 minutes' where credential_id = ${ids[0]!}::uuid`);
+    await testDb.db.insert(credentialAccessLog).values({ credentialId: ids[0]!, projectId, credentialSnapshot: "x", userId: user.id, userEmail: "burst@example.com", action: "show" });
     const blocked = await reveal(ids[REVEAL_BURST.limitAt]!);
     expect(blocked.statusCode).toBe(429);
     expect(blocked.json()).toMatchObject({ code: "vault_reveal_rate_limited" });
+    const retry = (blocked.json() as { retryAfterSeconds: number }).retryAfterSeconds;
+    expect(retry).toBeGreaterThan(170);
+    expect(retry).toBeLessThanOrEqual(180);
+    expect(blocked.headers["retry-after"]).toBe(String(retry));
     expect(await logRows(ids[REVEAL_BURST.limitAt]!)).toHaveLength(0);
     // Ricopiare un segreto già letto nella finestra non è una lettura nuova.
     expect((await reveal(ids[0]!)).statusCode).toBe(200);
