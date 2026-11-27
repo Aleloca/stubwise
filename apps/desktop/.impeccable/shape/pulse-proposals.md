@@ -7,9 +7,11 @@
 > commento di `data/claude/suggestions.ts` lo dice, e nessuna shape le
 > descrive. Questa shape colma il vuoto.
 
-**Superficie**:
-- la card `project.pulse` nel pannello delle notifiche (`NotificationItem`);
-- la sua riga nel blocco **Decide** della Home (`DecideBlock`).
+**Superficie**: la riga nel blocco **Decide** della Home (`DecideBlock`),
+l'unico posto dove si decide (PQ-1b). Nel pannello delle notifiche le
+decisioni non stanno (piano dell'ossatura r.195, `DECISION_NOTIFICATION_KINDS`):
+nella build app la card `project.pulse` che arriva dall'inbox dice soltanto
+che c'è e apre la Home, come la posta passata (lotto 4, D-2.0).
 
 **Rotta**: `POST /api/inbox/:id/actions/:action`, la stessa del web vecchio
 (`inbox-item.tsx`), con l'indice dell'opzione. Il server converte la voce di
@@ -36,8 +38,7 @@ backlog in task e lancia il run con l'approvazione del piano.
     approve it before any code changes.»;
   - dopo, la riga dice «Started ACQ-42» con il link alla task, e sparisce dal
     blocco Decide;
-  - la stessa card si decide dal pannello delle notifiche, con lo stesso
-    esito.
+  - nel pannello la card non decide: apre la Home.
 - **Verità del prodotto:**
   - **niente parte senza Start:** la card propone soltanto;
   - **il run passa dal piano:** la frase lo dice prima di Start, perché è la
@@ -50,7 +51,8 @@ backlog in task e lancia il run con l'approvazione del piano.
 
 ## 3. Direzione
 
-- **Nel pannello delle notifiche** (la card): titolo «ACQ is idle for 9
+- ~~Nel pannello delle notifiche~~ (superato da PQ-1b; la forma delle
+  scelte resta quella della riga di Decide): titolo «ACQ is idle for 9
   days»; sotto, le voci come scelte radio. Ogni voce ha:
   - il titolo;
   - una riga 12px `ink-muted` con l'urgenza in parola e l'effort («High ·
@@ -90,13 +92,14 @@ backlog in task e lancia il run con l'approvazione del piano.
 
 ## Decisioni (27 nov 2026)
 
-- **PP-Q1** (maintainer): si decide nel pannello delle notifiche **e** nella
-  Home, blocco Decide.
+- **PP-Q1** (maintainer, poi corretta in **PQ-1b**): si decide **solo** nella
+  Home, blocco Decide. Nel pannello al più una card informativa che apre la
+  Home: la regola «nessuna decisione nelle notifiche» resta una sola.
 - **PP-Q2** (maintainer): «Not now» archivia soltanto; il polso ripropone al
   giro successivo se il progetto è ancora fermo.
 - **PP-Q3** (46): niente istruzione libera prima di Start nel primo giro.
-- **PP-Q4** (46): chi non ha `runs.start` vede la card in sola lettura nel
-  pannello, con «Who?»; in Decide non compare.
+- **PP-Q4** (46): chi non ha `runs.start` non la vede in Decide. Con PQ-1b
+  la sola lettura nel pannello non c'è più: resta la card informativa.
 
 ## Le domande com'erano
 
