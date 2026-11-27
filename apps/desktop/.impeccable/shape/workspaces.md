@@ -208,9 +208,12 @@ scelte del brief sono segnate **[WS n]**.
     Ogni riga apre il pannello di quel membro in Members del progetto
     (`/p/MEE/settings/members?member=…`): il ruolo per progetto si
     cambia lì, in un posto solo **[WS 2]**;
-  - **Remove from Clienti farmaceutici…** in fondo, con conferma a due
-    tempi che dice cosa resta: «Paola will stop seeing FAR and AUD. She
-    stays a member of MEE.»
+  - **Remove from Clienti farmaceutici…** in fondo, con un foglio che
+    dice cosa resta: «Paola will stop seeing FAR and AUD. She stays a
+    member of MEE.» Se ha ruoli per progetto nella workspace, c'è una
+    casella «Also remove Paola from MEE», spenta di base (D12 del design):
+    un ruolo per progetto può essere stato dato prima della workspace, per
+    un motivo suo.
   - barra di salvataggio come in Members: «1 change · Discard · Save» →
     riconferma.
 - **Invite to …**: dialogo 440px.
@@ -376,6 +379,11 @@ Tre fonti, sempre dette per nome, con le stesse parole dappertutto:
     Clienti farmaceutici: you don't have merge pull requests in AUD.»;
   - **progetto non gestito** (D4): «You don't manage AUD's members, so you
     can't add it to a workspace.»;
+  - **ultimo gestore** (`last_manager`, D18 del design): togliere un
+    progetto, togliere una persona o eliminare la workspace lascerebbe un
+    progetto senza nessuno che ne gestisca i membri. Lo dice già la riga
+    dell'effetto, prima di salvare: «No one could manage AUD's members any
+    more. Give someone that role in AUD first.» La scelta è spenta;
   - **nome già usato**: «There's already a workspace called Interni.»;
   - **`reauth_required`**: il dialogo di `entry.md`; se lo si annulla, «Nothing
     was changed.»;
@@ -405,12 +413,21 @@ Tre fonti, sempre dette per nome, con le stesse parole dappertutto:
 
 ## 7. Vincoli
 
+- **Fuori da questa pagina, ma da dire** (se il maintainer accetta D16
+  del design): condividere una credenziale della cassaforte con un ruolo
+  raggiunge anche chi ha quel ruolo da una workspace. Il dialogo di
+  condivisione lo dice nella riga di chi la riceve: «Developers in ACQ,
+  including 3 from Clienti farmaceutici».
 - Solo via `data/queries.ts`: `listWorkspaces`, `createWorkspace`,
   `renameWorkspace`, `deleteWorkspace`, `setProjectWorkspace`,
   `listWorkspaceMembers`, `addWorkspaceMember`, `setWorkspaceMemberRole`,
   `removeWorkspaceMember` e `workspaceAccessEffect`.
   - `workspaceAccessEffect` dà chi comincia e chi smette di vedere, per la
-    riga dell'effetto.
+    riga dell'effetto. Sul server vero è `POST /api/workspaces/effect`
+    (design §2.2), che risponde con:
+    - `startSeeing` e `stopSeeing` per progetto;
+    - `lastManager`;
+    - `escalation`.
   - La UI non calcola né l'effetto né le scelte spente: li legge dalla
     query, come `checkEscalation`.
 - Le fonti dei permessi vengono dallo stesso calcolo che risponde a
