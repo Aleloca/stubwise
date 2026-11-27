@@ -838,7 +838,9 @@ export type SecurityAlertSubject =
   | "vault_device_seal_revoked"
   // Indurimento (I7): una passkey in più apre la cassaforte, o il suo sigillo è cambiato.
   | "vault_seal_added"
-  | "vault_seal_replaced";
+  | "vault_seal_replaced"
+  // Indurimento (C2): una raffica di letture della cassaforte della stessa persona.
+  | "vault_reveal_burst";
 
 /**
  * AVVISO DI SICUREZZA all'interessato (secondo fattore, 23 ott 2026): sul suo
@@ -1543,6 +1545,10 @@ const SECURITY_ALERT_KEY: Record<SecurityAlertSubject, { withActor: string; with
   vault_device_sealed: {
     withActor: "notify.securityAlert.vault_device_sealed.actor",
     withoutActor: "notify.securityAlert.vault_device_sealed",
+  },
+  vault_reveal_burst: {
+    withActor: "notify.securityAlert.vault_reveal_burst.actor",
+    withoutActor: "notify.securityAlert.vault_reveal_burst",
   },
   vault_seal_added: {
     withActor: "notify.securityAlert.vault_seal_added.actor",

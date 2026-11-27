@@ -343,6 +343,10 @@ export const en: Catalog = {
   "notify.securityAlert.vault_device_sealed":
     "A Mac can now open your vault. If it was not you, remove it in Settings → Security and tell an admin.",
   "notify.securityAlert.vault_device_sealed.actor": "A Mac can now open your vault ({actor}).",
+  "notify.securityAlert.vault_reveal_burst":
+    "Many vault reads from your account in a few minutes; new ones are paused for a while. If it was not you, change your password, remove unknown passkeys and tell an admin.",
+  "notify.securityAlert.vault_reveal_burst.actor":
+    "Many vault reads in a few minutes by {actor}; new ones are paused for a while. Check that it was expected.",
   "notify.securityAlert.vault_seal_added":
     "Another passkey can now open your vault. If it was not you, remove that passkey in Settings → Security and tell an admin.",
   "notify.securityAlert.vault_seal_added.actor": "Another passkey can now open your vault ({actor}).",
@@ -1080,6 +1084,10 @@ export const it: Catalog = {
   "notify.securityAlert.vault_device_sealed":
     "Un Mac ora apre la tua cassaforte. Se non sei stato tu, toglilo da Impostazioni → Sicurezza e avvisa un admin.",
   "notify.securityAlert.vault_device_sealed.actor": "Un Mac ora apre la tua cassaforte ({actor}).",
+  "notify.securityAlert.vault_reveal_burst":
+    "Molte letture della cassaforte dal tuo account in pochi minuti; quelle nuove sono sospese per un po'. Se non sei stato tu, cambia la password, togli le passkey sconosciute e avvisa un admin.",
+  "notify.securityAlert.vault_reveal_burst.actor":
+    "Molte letture della cassaforte in pochi minuti da {actor}; quelle nuove sono sospese per un po'. Controlla che fosse previsto.",
   "notify.securityAlert.vault_seal_added":
     "Un'altra passkey ora apre la tua cassaforte. Se non sei stato tu, toglila da Impostazioni → Sicurezza e avvisa un admin.",
   "notify.securityAlert.vault_seal_added.actor": "Un'altra passkey ora apre la tua cassaforte ({actor}).",

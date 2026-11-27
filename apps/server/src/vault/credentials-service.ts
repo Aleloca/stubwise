@@ -401,6 +401,27 @@ export async function deleteCredential(db: Db, id: string): Promise<boolean> {
 }
 
 /**
+ * C2 (indurimento): le soglie di una raffica di letture della STESSA persona,
+ * contate sul registro delle letture (`credential_access_log`, già scritto a
+ * ogni reveal: niente stato in memoria, vale con più processi) come segreti
+ * DISTINTI nella finestra. Una persona che apre e ricopia la stessa password
+ * non conta due volte; chi svuota la cassaforte (un XSS, una sessione rubata)
+ * legge segreti diversi in fila.
+ * - `alertAt`: alla lettura che porta a 10 segreti distinti in 10 minuti,
+ *   UN `security.alert` alla persona e agli altri full admin (una volta per
+ *   finestra: scatta solo sulla lettura che raggiunge la soglia).
+ * - `limitAt`: con 20 segreti distinti già letti nella finestra, un segreto
+ *   NUOVO risponde 429 `vault_reveal_rate_limited`, senza riga e senza
+ *   copia; uno già letto nella finestra resta leggibile.
+ * Il lavoro normale (qualche password copiata per sessione) resta lontano da
+ * entrambe; chi ne ha bisogno di più aspetta la finestra.
+ */
+export const REVEAL_BURST = { windowMinutes: 10, alertAt: 10, limitAt: 20 } as const;
+
+/** Esito di {@link revealCredential}: la lettura (con `burst` se ha raggiunto la soglia d'avviso), o il tetto. */
+export type RevealOutcome = { kind: "revealed"; reveal: CredentialRevealResponse; burst: boolean } | { kind: "rate_limited" };
+
+/**
  * Mostra o copia: la password cifrata e la copia della chiave per la chiave
  * di persona CONFERMATA di chi chiede, solo se la legge ADESSO (lettore
  * effettivo: un ruolo tolto o un'uscita dal progetto valgono subito, anche
@@ -416,7 +437,7 @@ export async function revealCredential(
   action: "show" | "copy",
   /** Da dove (D-8): il browser, o il Mac e il suo sigillo. */
   caller: { via: "session" } | { via: "desktop"; sealId: string },
-): Promise<CredentialRevealResponse | null> {
+): Promise<RevealOutcome | null> {
   return db.transaction(async (tx) => {
     const [credential] = await tx
       .select({
@@ -448,6 +469,19 @@ export async function revealCredential(
         ),
       );
     if (!copy) return null;
+    // C2: le letture della persona in fila (lock di transazione per persona),
+    // così due reveal paralleli non superano insieme le soglie.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`vault-reveal:${user.id}`}, 0))`);
+    const [recent] = await tx.execute<{ distinct_read: number; seen: boolean }>(sql`
+      select count(distinct ${credentialAccessLog.credentialId})::int as distinct_read,
+             coalesce(bool_or(${credentialAccessLog.credentialId} = ${id}::uuid), false) as seen
+        from ${credentialAccessLog}
+       where ${credentialAccessLog.userId} = ${user.id}::uuid
+         and ${credentialAccessLog.createdAt} > now() - make_interval(mins => ${REVEAL_BURST.windowMinutes})
+    `);
+    const distinctRead = recent?.distinct_read ?? 0;
+    const seen = recent?.seen ?? false;
+    if (!seen && distinctRead >= REVEAL_BURST.limitAt) return { kind: "rate_limited" };
     await tx.insert(credentialAccessLog).values({
       credentialId: id,
       projectId: credential.projectId,
@@ -460,7 +494,11 @@ export async function revealCredential(
       via: caller.via === "desktop" ? "desktop" : "browser",
       deviceSealId: caller.via === "desktop" ? caller.sealId : null,
     });
-    return { passwordCiphertext: credential.passwordCiphertext, wrappedKey: copy.wrappedKey, personKeyId: key.id };
+    return {
+      kind: "revealed",
+      reveal: { passwordCiphertext: credential.passwordCiphertext, wrappedKey: copy.wrappedKey, personKeyId: key.id },
+      burst: !seen && distinctRead + 1 === REVEAL_BURST.alertAt,
+    };
   });
 }
 

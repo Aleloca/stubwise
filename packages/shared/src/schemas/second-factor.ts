@@ -174,6 +174,8 @@ export const securityEventKindSchema = z.enum([
   "vault_device_seal_revoked",
   // Indurimento (I7): un sigillo NUOVO (una passkey in più apre la cassaforte).
   "vault_seal_added",
+  // Indurimento (C2): una raffica di letture della cassaforte (REVEAL_BURST).
+  "vault_reveal_burst",
 ]);
 export type SecurityEventKind = z.infer<typeof securityEventKindSchema>;
 
