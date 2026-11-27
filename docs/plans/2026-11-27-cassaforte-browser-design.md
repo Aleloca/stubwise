@@ -1,209 +1,306 @@
 # La cassaforte nella nuova app nel browser (`/app`) — nota di design
 
-> Stato: **in revisione di sicurezza**, 27 nov 2026 (94). C1, C2, C4 e C5
-> accettate come raccomandate da 46; C3 decisa dal maintainer (VA-Q3). Il codice
-> si scrive dopo le workspace. Decisione del maintainer: la cassaforte si apre
-> ANCHE nella nuova app nel browser, non solo sul Mac. Sblocco con la passkey,
-> mostra, copia, crea, condividi e conferma direttamente da `/app`, con lo
-> sblocco e la decifratura che oggi ha il web vecchio. Stesso indirizzo vuol
-> dire stessa passkey e stessa chiave.
+> Stato: **seconda stesura, dopo la revisione di sicurezza** (27 nov 2026,
+> 94). Il codice si scrive dopo le workspace. C1–C5 della prima stesura sono
+> decise: C3 dal maintainer (VA-Q3), le altre come raccomandate. La revisione
+> ha trovato 2 Critical, 7 Important e 7 Minor; ognuno ha qui il suo posto
+> (§13). M3 e M4, difetti di oggi, sono corretti a parte
+> (`fix/wireframe-svg-noopener`).
 >
-> Da leggere insieme a:
-> - `docs/invariants/vault.md` (le invarianti; i numeri di riga sotto si
->   riferiscono a quel file);
+> Decisione del maintainer: la cassaforte si apre ANCHE nella nuova app nel
+> browser, non solo sul Mac (sblocco con passkey, Show, Copy, crea, condividi,
+> conferma). Stesso indirizzo vuol dire stessa passkey e stessa chiave.
+>
+> Leggere con:
+> - `docs/invariants/vault.md` (i numeri di riga si riferiscono a quel file);
 > - la shape `apps/desktop/.impeccable/shape/vault.md`;
-> - `docs/plans/2026-11-24-cassaforte-desktop-design.md` (il percorso del Mac).
+> - `docs/plans/2026-11-24-cassaforte-desktop-design.md`.
 
-## 1. Oggi
+## 1. Il modello di minaccia, prima di tutto
 
-- **Il web vecchio** (`apps/web`) fa tutto nel browser, con `@stubwise/vault-crypto`
-  (solo WebCrypto: ECDH P-256, HKDF-SHA-256, AES-256-GCM, nessuna
-  dipendenza):
-  - lo sblocco è una riconferma con passkey ed estensione **PRF**
-    (`lib/vault/unlock.ts`). `purpose: "vault"` sulle opzioni, il risultato
-    PRF tolto dalla verifica e poi azzerato. HKDF(PRF, "unlock") apre la
-    chiave privata della persona, sigillata sul server per passkey;
-  - la chiave vive **solo in memoria**: un `CryptoKey` non estraibile nello
-    stato di `VaultProvider`, senza storage. Si perde con la chiusura della
-    scheda, il ricaricamento, «Lock» e il logout;
-  - si chiude da sola dopo **15 minuti** senza interazione (`idle.ts`:
-    pointerdown, keydown, wheel, touchstart, scroll; il solo movimento del
-    mouse non conta);
-  - **Show** tiene la password nello stato del componente e la nasconde dopo
-    30 s, alla chiusura e allo smontaggio. Una password che arriva dopo la
-    chiusura si scarta (invariante, riga 228);
-  - **Copy** usa `navigator.clipboard` e svuota gli appunti dopo 30 s, se
-    contengono ancora la password o se non si possono leggere (Firefox);
-  - **crea, cambia, condividi, conferma, recupero** stanno in
-    `lib/vault/credentials.ts` e nelle pagine `vault-*`, con l'`actorProof`
-    dove l'invariante lo vuole (riga 108).
-- **La nuova app sul Mac** tiene la chiave nel MAIN (`vaultLock.ts`) e la apre
-  con il Secure Enclave e Touch ID. L'associazione del Mac nasce da uno sblocco
-  con passkey nel browser (`/vault-pair`).
-- **La nuova app nel browser** (`/app`) non ha il ponte del main: `getVaultStatus`
-  risponde `unsupported`, «New credential» è nascosto, e la barra porta al web
-  vecchio (`openVaultInBrowser`).
+**Il confine di sicurezza è l'ORIGINE, non `/app`.** Il web vecchio (`/`),
+la nuova app (`/app`) e la guida (`/guide`) stanno sulla stessa origine.
+Uno script che gira in una qualunque di queste pagine può:
+- aprire `/app` nella stessa origine (iframe o finestra);
+- sostituirgli `crypto.subtle`, `navigator.credentials.get` e `fetch` prima
+  dello sblocco.
 
-## 2. La proposta in una riga
+Oggi `/` non ha nessuna CSP: il Caddyfile mette solo HSTS, nosniff,
+X-Frame-Options e Referrer-Policy. La prima stesura sbagliava a dire «come il
+web vecchio».
 
-**Portare nel renderer della build web il percorso del web vecchio, così com'è**
-(stessa crittografia, stesse rotte `browserOnly` con il cookie di sessione,
-stesso ciclo di vita della chiave). Il percorso del Mac non cambia. Non nasce
-un terzo meccanismo: l'invariante della riga 232 («lo sblocco è una riconferma
-con passkey e PRF; il sigillo del Mac è l'unico secondo meccanismo») resta
-vera così com'è.
+**La frase da tenere a mente:** *un XSS sull'origine più un tocco della passkey
+valgono il furto permanente della chiave di persona.* Il motivo:
+- `PRF_INPUT` è costante (`passkeys.ts:183`, «stubwise/vault/v1/prf»), quindi
+  l'uscita PRF di una passkey è un segreto permanente;
+- uno script sull'origine può aggiungere `prf.eval` a QUALUNQUE cerimonia
+  passkey legittima: il login, una riconferma, lo sblocco;
+- con l'uscita PRF e il sigillo (che il server dà a chi ha la sessione) si apre
+  la chiave privata: oggi, domani, a cassaforte chiusa;
+- **non dipende dal fatto che la cassaforte sia aperta.**
+
+Durante lo sblocco restano poi in memoria JS segreti in chiaro:
+- l'uscita PRF;
+- la pkcs8 della chiave privata (`assertPairMatches` la importa estraibile);
+- i byte grezzi della chiave della voce (`importItemKey` estraibile).
+
+Le password decifrate sono stringhe JS e non si possono azzerare (M2).
+
+**Cosa ne segue.** Portare la cassaforte in `/app` NON aggiunge una superficie
+nuova rispetto al web vecchio, perché è la stessa origine. Rende però
+inaccettabile lasciarla senza difese. Le difese sotto (§2) sono **condizioni
+della fase 1**, non migliorie.
+
+## 2. Le difese (condizioni della fase 1)
+
+1. **CSP su TUTTA l'origine, come header in Caddy** (C1, M1), mai come
+   `<meta>`, perché un `<meta>` lo può togliere chi controlla il documento:
+   - `script-src 'self'` senza `unsafe-inline` e senza `unsafe-eval`;
+   - `connect-src 'self'`;
+   - `frame-ancestors 'none'`;
+   - `object-src 'none'`;
+   - `base-uri 'none'`;
+   - su `/`, `/app` e `/guide`.
+
+   Le eccezioni che servono (gli stili di Starlight, i font) vanno scritte una
+   per una nel design di Caddy.
+2. **COOP `same-origin`** su `/app` (e, se il web vecchio regge, su tutta
+   l'origine). Una finestra aperta da altri non tiene un riferimento a `/app`,
+   e risolve anche M4 alla radice.
+3. **Trusted Types** almeno su `/app`
+   (`require-trusted-types-for 'script'`). L'unico punto che scrive HTML è la
+   politica che lo ripulisce: SVG degli schizzi (M3) e QR del TOTP.
+4. **Le primitive catturate all'avvio del modulo** (C2). `vaultBrowser/`
+   salva, al PRIMO import e prima di qualunque altro codice dell'app:
+   - `crypto.subtle`;
+   - `navigator.credentials.get` e `.create`;
+   - `fetch`.
+
+   Poi usa solo quelle copie. Uno script arrivato dopo non le sostituisce più
+   per la cassaforte. È un argine, non un muro (chi gira PRIMA vince): per
+   questo vengono prima la CSP e i Trusted Types.
+5. **Nessun sito non fidato sui sottodomini** dell'istanza: una regola di
+   deploy scritta in `docs/operations/` e nel README self-hosted.
+6. **Rate limit e avviso sui reveal** (lato server, 54): un numero anomalo di
+   `reveal` per sessione si rallenta, e manda un `security.alert` alla persona.
+7. **Lo sblocco della cassaforte NON rinnova la riconferma** (I6, lato
+   server, 54). Oggi la riconferma con `purpose: "vault"` rinnova
+   `secondFactorAt`, quindi per 10 minuti passano senza tocco le rotte con
+   `config.reauth`:
+   - registrare una passkey;
+   - le azioni C di Claude;
+   - creare un PAT.
+
+   Lo sblocco deve valere solo per la cassaforte.
+8. **Origin e `Sec-Fetch-Site` sulle scritture col cookie** (M5, server):
+   difesa in profondità contro un CSRF residuo.
+9. **Claude non tocca la cassaforte** (M6): le funzioni `vault.*` vanno nel
+   `NEVER` di `neverInCatalog.test.ts`, e `vaultBrowser/` non si importa da
+   `data/claude/` (test sul sorgente).
+10. **La supply chain del renderer** (M7) è superficie della cassaforte:
+    `@simplewebauthn/browser`, `@stubwise/vault-crypto` e ogni dipendenza del
+    bundle di `/app`. Il lockfile fissa le versioni, e un aggiornamento di
+    quelle due si legge nel diff prima del merge.
+
+### La procedura d'incidente
+
+Dopo un XSS confermato sull'origine, o il sospetto di uno, una passkey va
+trattata come compromessa per la cassaforte.
+- **Server:** revocare le sessioni; ruotare il sigillo di ogni persona che si
+  è autenticata nella finestra sospetta (`recreate`, con una passkey e una
+  coppia di chiavi NUOVE); ri-cifrare le copie (lo fa la conferma degli
+  accessi in attesa).
+- **Persone:**
+  - cambiare le password delle credenziali lette nella finestra (il registro
+    dei `reveal` dice quali);
+  - togliere e ri-registrare le passkey;
+  - ruotare il kit di recupero.
+- **Dove sta scritta:** la procedura va in `docs/operations/` (voce
+  «Cassaforte: incidente sull'origine»), con le query del registro. La
+  rotazione di massa è un comando di amministrazione da scrivere nella
+  fase 2.
 
 ## 3. Cosa si porta da `apps/web`
 
-| Da `apps/web` | Nel renderer (`apps/desktop/src/renderer/`) | Note |
+| Da `apps/web` | Nel renderer | Note |
 |---|---|---|
-| `lib/vault/unlock.ts` (`assertWithPrf`, `openPrivateKey`, prima chiave / `recreate`, `resealPrivateKey`, `sealForDevice`) | `data/backend/real/vaultBrowser/unlock.ts` | Stesse rotte: `reauth/passkey/options` con `purpose:"vault"`, `verify` senza PRF, `POST /api/vault/keys`. Il PRF si azzera dopo l'uso. |
-| `lib/vault/credentials.ts` (reveal, writeEncrypted/encryptForRecipients, shareEncrypted, proveKey, rewrapForPerson, recupero) | `data/backend/real/vaultBrowser/credentials.ts` | La logica è la stessa; cambiano solo le firme, quelle del livello dati del prototipo (`data/vault/types.ts`). |
-| `lib/vault/vault-context.tsx` (la chiave in memoria) | `data/backend/real/vaultBrowser/key.ts` (stato di modulo, vedi §4) | Non nello stato React: le letture del livello dati ne hanno bisogno fuori dai componenti. |
-| `lib/vault/idle.ts` (15 min) | `vaultBrowser/idle.ts` | Vedi §5. |
-| `reveal-button.tsx`, `copyWithAutoClear` | le pagine esistenti della Vault, che chiamano il livello dati | La UI resta quella della shape; cambia solo dove arriva la richiesta. |
-| `pending-access.tsx`, `readers-panel.tsx`, `credential-form.tsx` | le pagine esistenti della Vault | Già disegnate per il Mac. |
-| `vault-recovery.tsx`, attivazione, creare/ricreare la chiave, `/vault-pair` | **seconda fase** (§8) | Oggi la shape li lascia nel browser (righe 353-356), cioè nel web vecchio. Per ritirarlo vanno portati anche loro. |
+| `lib/vault/unlock.ts` | `data/backend/real/vaultBrowser/unlock.ts` | Stesse rotte; il PRF si azzera subito; la pkcs8 si importa NON estraibile dove la verifica lo consente (§6). |
+| `lib/vault/credentials.ts` | `vaultBrowser/credentials.ts` | La chiave della voce si importa non estraibile nel percorso di reveal, e i byte grezzi si azzerano (M2). |
+| `lib/vault/vault-context.tsx` | `vaultBrowser/key.ts` (§5) | Uno stato di modulo con un'API piccola, non lo stato di React. |
+| `lib/vault/idle.ts` | dentro `key.ts` (§7) | Riscritto: ora di parete, `isTrusted`, niente scroll. |
+| `reveal-button.tsx`, `copyWithAutoClear` | le pagine della Vault | La UI resta quella della shape. |
+| `pending-access.tsx`, `readers-panel.tsx`, `credential-form.tsx` | le pagine della Vault | Già disegnate. |
+| attivazione, recupero, `/vault-pair` | **fase 2** (§10) | Con le regole di I7. |
 
-- **Le rotte di HTTP.** `packages/api-client/src/endpoints/vault.ts` (22-28)
-  esclude apposta create, reveal, share e confirm: «nel main del desktop (e
-  nel browser)». Le chiamate della build web stanno quindi in
-  `vaultBrowser/http.ts`, sopra il `transport` del renderer (stessa origine,
-  cookie di sessione), e non nell'api-client. Proposta: il commento
-  dell'api-client resta vero; il «browser» ora è anche `/app`.
-- **Il confine fra le build** sta in `vite.backend.ts`. `@backend/vault` (o
-  il punto di scelta già usato da `vaultDesktop.ts`) risolve:
-  - nella build Electron: il ponte del main (`window.stubwise.vault`), com'è
-    oggi;
-  - nella build web: `vaultBrowser/`;
-  - nel prototipo: i dati finti.
+Le chiamate stanno in `vaultBrowser/http.ts`, sopra il `fetch` CATTURATO
+(§2.4) e con stessa origine e cookie, non nell'api-client. L'api-client le
+esclude apposta (`endpoints/vault.ts:22-28`).
 
-  Un test d'architettura (sul modello di `architecture.secrets.test.ts`)
-  impedisce che `vaultBrowser/` entri nella build Electron e che il ponte entri
-  nella build web.
-- **`apiProxy.ts`** (main, 62-73) continua a rifiutare al renderer Electron
-  `/api/vault/*` e `/credentials/*/reveal`. Nella build web non c'è proxy: il
-  browser parla col server come il web vecchio.
+## 4. La dimensione di build: Electron e web (I1)
 
-## 4. Dove vive la chiave nel browser
+Oggi `vite.backend.ts` distingue solo `prototype` e `app`: Electron e web
+risolvono gli stessi alias, e la scelta del ponte avviene a runtime su
+`window.stubwise`, che uno script può falsare.
 
-- **Solo in memoria, nella scheda.** Un `CryptoKey` non estraibile
-  (`openPrivateKey` lo restituisce così), in una variabile di modulo di
-  `vaultBrowser/key.ts`. Mai in `localStorage`, `sessionStorage`, IndexedDB,
-  nello stato persistito di React Query, in un Service Worker o in un log.
-- **La chiave si butta in questi casi:**
-  - «Lock»;
-  - 15 minuti senza interazione (§5);
-  - il logout e la scadenza della sessione (il primo `401`);
-  - un cambio di persona;
-  - la chiusura o il ricaricamento della scheda;
-  - un `reset` dello stato del renderer.
+- **Una dimensione nuova, `target: electron | web`**, fissata al build
+  (`build:app` → electron, `build:web` → web) e letta da `vite.backend.ts`;
+- **un alias `@backend/vault`**:
+  - `target: electron` → il ponte del main (`vaultDesktop.ts`, come oggi);
+  - `target: web` → `vaultBrowser/`;
+  - prototipo → i dati finti.
 
-  Chi la usa la chiede a `key.ts` ogni volta e non ne tiene copie.
-- **La cache delle query.** Le password in chiaro non entrano MAI in React
-  Query. La lettura che le decifra (`revealPassword`) è una funzione, non una
-  query; il valore sta nello stato del componente che lo mostra, come nel web
-  vecchio. Nella cache entrano solo i metadati, già oggi non cifrati.
-- **Le schede.** Ogni scheda ha la sua chiave e il suo sblocco, come nel web
-  vecchio: niente `BroadcastChannel` per passarla, perché una chiave che si
-  sposta è una chiave che si può intercettare. Una scheda nuova chiede di
-  nuovo la passkey.
-- **Stessa passkey e stessa chiave.** `/app` sta sullo stesso dominio del web
-  vecchio, quindi:
-  - l'`rpId` della passkey è lo stesso;
-  - il sigillo della chiave privata (per passkey, sul server) è lo stesso;
-  - una persona che ha già attivato la cassaforte nel web vecchio la apre in
-    `/app` senza rifare niente, e viceversa.
+  Nessuna scelta a runtime.
+- **Un controllo sui BUNDLE**, come `check-no-seed.mjs`: `check-vault-target.mjs`
+  - fallisce se nell'output Electron (`out/`) compaiono i marcatori della
+    passkey (`navigator.credentials`, `prf`, i nomi delle rotte di sblocco);
+  - fallisce se in `dist-web/` compare `stubwise.vault` (il ponte).
 
-  Le copie delle credenziali non cambiano.
+  Gira in `Dockerfile.caddy` e in `package:mac`.
+- **`/vault-pair` non esiste nella build Electron** (I7): la rotta si registra
+  solo con `target: web`.
 
-## 5. La chiusura dopo 15 minuti
+## 5. Dove vive la chiave: l'API di `key.ts`
 
-- **Stesso tempo e stessa regola del web vecchio:** 15 minuti senza
-  **interazione** con la pagina (pointerdown, keydown, wheel, touchstart,
-  scroll; il movimento del mouse no). Il timer riparte a ogni interazione;
-  scaduto, la chiave si butta, le password mostrate si nascondono, la barra
-  torna «Locked».
-- **La scheda nascosta.** Il timer continua anche con la scheda in secondo
-  piano: si misura con l'ora di parete, non con `setTimeout` soltanto.
-  Tornando su una scheda nascosta da oltre 15 minuti, la cassaforte è già
-  chiusa (si controlla a `visibilitychange`).
-- **La differenza col Mac, da dire.** Sul Mac «senza uso» conta gli usi della
-  CHIAVE (`vaultLock.ts`); nel browser conta l'interazione con la pagina. La
-  frase della barra «closes after 15 minutes without use» vale per entrambe
-  le build, ma la regola è diversa. Proposta: lasciarle diverse, perché il
-  web vecchio è il riferimento della build web e il Mac ha già il suo.
-  → **Domanda C1** per la revisione.
+Solo in memoria, nella scheda, come `CryptoKey` non estraibile, in un modulo
+con questa API (e nient'altro):
 
-## 6. Gli appunti, Show e Copy
+```ts
+// vaultBrowser/key.ts
+type VaultKeyState =
+  | { state: "locked" }
+  | { state: "open"; personId: string; sessionId: string; openedAt: number; lastUseAt: number };
 
-- **Copy:** `navigator.clipboard.writeText` e, dopo 30 s, si svuota se gli
-  appunti contengono ancora la password; se il browser non li lascia leggere
-  (Firefox), si svuota comunque. È il `copyWithAutoClear` del web vecchio.
-  Nel browser non esistono i tipi «Concealed/Transient» del Mac: i gestori
-  degli appunti del sistema possono tenerne una copia. Lo dice una riga sotto
-  il bottone, solo nella build web: «Your system's clipboard history may keep
-  it.» → **Domanda C2**.
-- **Show:** la password resta nello stato del componente e **resta visibile
-  finché non si preme Hide**, in tutte e due le build (decisione del
-  maintainer, VA-Q3 della shape: «No, resta visibile»). Qui la nuova app NON
-  segue il web vecchio, che la nasconde dopo 30 s. Sparisce comunque con
-  «Lock», con la chiusura dopo 15 minuti e smontando il componente. Una
-  password che arriva dopo la chiusura si scarta (invariante, riga 228). La
-  riga 57 della shape, che diceva 30 s, è corretta.
-- **Show e Copy a cassaforte chiusa:** aprono il dialogo della passkey e poi
-  fanno l'azione (`useWithUnlockedVault`), come sul Mac col Touch ID (VA 4).
+/** Apre: tiene la chiave legata a persona + sessione. Riparte il conto dei 15 minuti. */
+open(key: CryptoKey, personId: string, sessionId: string): void;
 
-## 7. Il rapporto con il percorso del Mac
+/**
+ * La chiave per UN uso (reveal, wrap, unwrap). Controlla la scadenza A OGNI
+ * CHIAMATA, a ora di parete; chiusa, scaduta, o con persona/sessione diverse
+ * da quelle di adesso: chiude e lancia `vault_locked`. Un uso riparte il conto.
+ */
+use(personId: string, sessionId: string): CryptoKey;
+
+/** Chiude: butta la chiave, emette `locked`, avvisa le altre schede (§8). */
+lock(reason: "user" | "idle" | "logout" | "pagehide" | "session" | "remote"): void;
+
+/** Lo stato per la barra, senza la chiave. */
+status(): { state: "locked" } | { state: "open"; closesAt: number };
+
+/** Chi ascolta: la barra, le righe mostrate, la cache delle query (§6). */
+subscribe(fn: (s: ReturnType<typeof status>) => void): () => void;
+```
+
+- **Persona e sessione:** la chiave vale solo per quella coppia. Un cambio
+  dell'una o dell'altra (logout, scadenza, un'altra persona in un'altra
+  scheda) la rende inutilizzabile alla prossima `use` (I5).
+- **Mai fuori dalla memoria:** niente `localStorage`, `sessionStorage`,
+  IndexedDB, Service Worker, cache persistita di React Query o log. Un test sul
+  sorgente vieta queste API in `vaultBrowser/`.
+- **Stessa passkey, stessa chiave:** stessa origine vuol dire stesso `rpId`,
+  stesso sigillo sul server e stesse copie. Chi ha già attivato la cassaforte
+  nel web vecchio la apre in `/app` senza rifare niente.
+
+## 6. Show, Copy e lo stato «chiusa» che arriva subito
+
+- **Show resta finché Hide** (VA-Q3, maintainer), in tutte e due le build. In
+  più, la password sparisce:
+  - quando la cassaforte si chiude, per qualunque motivo;
+  - quando la scheda va in secondo piano (`visibilitychange` → hidden);
+  - a `pagehide`;
+  - smontando il componente.
+
+  Una password che arriva dopo la chiusura si scarta (riga 228).
+- **Lo stato «chiusa» arriva alle righe in modo SINCRONO** (I3): `lock()` emette
+  e fa `setQueryData` sullo stato della barra e sulle righe mostrate, senza
+  aspettare un refetch. Le password in chiaro non entrano MAI in React Query:
+  stanno nello stato del componente che le mostra, che ascolta `subscribe`.
+- **Copy** (I4): `navigator.clipboard.writeText`, e dopo 30 s si svuota se gli
+  appunti contengono ancora la password (o se non si possono leggere). Senza
+  fuoco, `writeText("")` fallisce in silenzio, quindi:
+  - lo svuotamento si RIPROVA a `focus` e a `visibilitychange` → visible
+    finché non riesce;
+  - si svuota anche alla chiusura della cassaforte;
+  - la frase sotto il bottone è onesta: «Clears from your clipboard in 30
+    seconds when this tab is in front. Your system's clipboard history may
+    keep it.»
+- **La memoria (M2):** la chiave della voce si importa non estraibile nel
+  percorso di reveal, e i byte grezzi si azzerano subito. La pkcs8 durante lo
+  sblocco: dove `assertPairMatches` ne ha bisogno estraibile, si importa,
+  si confronta e si azzera nello stesso tick; la chiave tenuta da `key.ts` è
+  sempre un'importazione NON estraibile a parte. Le stringhe delle password
+  non si possono azzerare in JS: è un limite scritto (§12).
+
+## 7. La chiusura dopo 15 minuti (I2)
+
+- **Che cosa conta come uso (C1 decisa):** l'interazione con la pagina, cioè
+  solo eventi `isTrusted` (pointerdown, keydown, touchstart, wheel). NON lo
+  scroll, che può essere programmatico, e non il movimento del mouse. Ogni
+  `use()` della chiave conta anch'esso.
+- **A ora di parete, non a timer:**
+  - `key.ts` controlla la scadenza a ogni `use()`, e a `visibilitychange`,
+    `focus` e `pageshow`;
+  - il `setTimeout` serve solo a chiudere in tempo una pagina in primo piano;
+  - se il Mac si sospende o la scheda finisce nel bfcache, al ritorno la
+    scadenza è già passata e la cassaforte si chiude prima di qualunque uso.
+- **`pagehide` chiude la cassaforte:** una pagina che entra nel bfcache (da
+  «Open in web» e poi «Indietro») torna chiusa.
+- **`Cache-Control: no-store` sull'`index.html` di `/app`** (header in
+  Caddy): niente pagina servita dalla cache con uno stato vecchio.
+- **Limite da dire:** nel browser lo stop del computer e il blocco dello
+  schermo NON chiudono la cassaforte all'istante, come invece fa il Mac. La
+  chiudono al ritorno, se sono passati 15 minuti. Lo dice la barra solo nella
+  build web, e lo dice la tabella del §9.
+
+## 8. Più schede (I5, C4 decisa)
+
+- Ogni scheda ha la sua chiave e il suo sblocco (C4): la chiave non si passa
+  MAI fra schede.
+- Un `BroadcastChannel("stubwise-vault")` porta solo SEGNALI: `locked` e
+  `logout`, con `personId`. Ricevuto, la scheda chiude la sua cassaforte
+  (`lock("remote")`). «Lock» in una scheda chiude tutte; un logout in una
+  scheda chiude tutte.
+
+## 9. Il rapporto con il percorso del Mac
 
 | | App Mac (Electron) | Nuova app nel browser (`/app`) |
 |---|---|---|
-| Dove vive la chiave | main, `CryptoKey` non estraibile | scheda, `CryptoKey` non estraibile |
-| Sblocco | Secure Enclave + Touch ID (sigillo del Mac) | passkey con PRF (come il web vecchio) |
-| Rotte | `desktopVault` / `desktopOnly` / `desktopRead`, col PAT del desktop | `browserOnly`, col cookie di sessione |
-| `via` nel registro (`reveal`) | `desktop` | `browser` |
-| Chiusura | 15 min senza uso della chiave, sospensione, blocco schermo, uscita | 15 min senza interazione, logout, chiusura della scheda |
-| Appunti | Concealed/Transient, svuotati dopo 30 s | `navigator.clipboard`, svuotati dopo 30 s |
-| Associare un Mac | — | il browser sigilla la chiave per il Mac (`/vault-pair`), oggi nel web vecchio, poi in `/app` (fase 2) |
+| Dove vive la chiave | main, `CryptoKey` non estraibile | scheda, `CryptoKey` non estraibile (`key.ts`) |
+| Sblocco | Secure Enclave + Touch ID | passkey con PRF |
+| Rotte | `desktopVault` / `desktopOnly` / `desktopRead`, PAT del desktop | `browserOnly`, cookie di sessione |
+| `via` di `reveal` | `desktop` | `browser` |
+| Chiusura | 15 min senza uso, sospensione, blocco schermo, uscita | 15 min senza interazione o uso (ora di parete), `pagehide`, logout, segnale da un'altra scheda; sospensione e blocco schermo solo al ritorno |
+| Appunti | Concealed/Transient, 30 s | `navigator.clipboard`, 30 s con riprova al fuoco |
+| Show | finché Hide; sparisce alla chiusura | finché Hide; sparisce alla chiusura, in secondo piano, a `pagehide` |
+| Bundle | mai i marcatori della passkey (§4) | mai il ponte `stubwise.vault` (§4) |
 
-- Le due build condividono la UI (le pagine della Vault) e il livello dati
-  (`data/vault/types.ts`). Cambiano l'adattatore e gli stati della barra.
-- **La barra nella build web** non ha gli stati del Mac (Touch ID, «Pair this
-  Mac», «revoked»), ma i suoi:
-  - **«Locked» · Open with passkey;**
-  - **«Open» · closes after 15 minutes without use** · Lock;
-  - **«This passkey can't open the vault»**, per una passkey senza PRF: il web
-    vecchio risponde `unsupported` e non manda niente al server. La barra
-    propone di aggiungere una passkey che lo supporti, dalle Preferenze →
-    Security;
-  - **«Not activated yet»**, che porta all'attivazione (fase 2; fino ad
-    allora, al web vecchio).
+- La barra della build web ha i suoi stati:
+  - **Locked** · Open with passkey;
+  - **Open** · closes after 15 minutes without use · Lock;
+  - **This passkey can't open the vault**, per una passkey senza PRF;
+  - **Not activated yet**, cioè la fase 2.
 
-  `VaultBarState` guadagna questi stati (oggi non c'è «chiusa: apri con la
-  passkey»).
-- **Lo stato `unsupported` della build web scompare.** Resta solo per un
-  browser senza WebAuthn o senza PRF, e lo dice.
+  `VaultBarState` guadagna questi stati.
 
-## 8. Le fasi
+## 10. Le fasi (C5 decisa)
 
-1. **Fase 1, l'uso di ogni giorno:** sblocco con passkey, Show, Copy, crea,
-   cambia la password, condividi e togli (`actorProof`), conferma e rifiuta
-   gli accessi in attesa, chiusura dopo 15 minuti. La barra e la colonna
-   (§9). Con questo, chi ha già la cassaforte attiva non apre più il web
-   vecchio per usarla.
-2. **Fase 2, quello che serve per ritirare il web vecchio:**
-   - l'attivazione e la prima chiave, cioè ricreare la chiave;
-   - aggiungere una passkey alla cassaforte (`resealPrivateKey`);
-   - il recupero col kit, la sua rotazione e il recupero degli altri da parte
-     di un full admin;
-   - `/vault-pair` per associare un Mac, cioè il sigillo per il dispositivo.
+1. **Fase 1, l'uso di ogni giorno:** sblocco, Show, Copy, crea, cambia,
+   condividi e togli, conferma e rifiuta. Più la barra e la colonna (§11).
+   **Parte solo con le difese del §2 al loro posto**: almeno la CSP e COOP
+   (Caddy), il server che non rinnova la riconferma (I6), la dimensione di
+   build col suo controllo (§4) e le primitive catturate.
+2. **Fase 2, quello che serve per ritirare il web vecchio** (I7):
+   - attivazione e prima chiave, aggiungere una passkey, recupero col kit e
+     la sua rotazione: in una **pagina minima dedicata** di `/app`, con la sua
+     CSP, senza la chat, la posta, il riquadro di Claude né altro codice
+     dell'app. Il kit mai negli appunti, mai in React Query, mai in
+     `#print-root`, mai nel contesto di Claude;
+   - `/vault-pair`, solo nella build web (§4);
+   - un sigillo NUOVO lascia traccia: oggi `vault.ts:417` registra solo
+     `replaced`. Serve un evento `sealed` nel registro di sicurezza della
+     persona e un `security.alert` («A passkey can now open your vault»),
+     lato server.
 
-   Ogni pezzo porta con sé le sue invarianti (righe 155, 165, 185).
-
-## 9. La colonna della Vault, come quella del Drive
-
-Oggi la colonna mostra il segnaposto (`column.coming.vault`, fix della #132).
-Proposta, come `DriveColumn`:
+## 11. La colonna della Vault, come quella del Drive
 
 ```
 All credentials          12
@@ -212,80 +309,75 @@ Waiting for you           2   (solo se ci sono accessi da confermare)
 PROJECTS
 ACQ                       5
 MKX                       4
-STW                       3
 ```
 
-- **All credentials:** tutte le credenziali che chi guarda legge (o aspetta).
-- **Waiting for you:** gli accessi da confermare. È la riga che oggi sta in
-  testa alla pagina, qui come scorciatoia.
-- **PROJECTS:** i progetti fissati e poi quelli con credenziali, col
-  conteggio. Ogni voce è il filtro `?project=<CODE>` della pagina, come il
-  Drive. Uguale nelle due build; i metadati non servono a sbloccare.
+Ogni voce dei progetti è il filtro `?project=<CODE>`. È uguale nelle due
+build e non serve sbloccare: sono metadati.
 
-## 10. Sicurezza: cosa cambia e cosa no
+## 12. Limiti dichiarati
 
-- **Superficie.** La chiave privata vive in una pagina che ha tutto il resto
-  della nuova app (chat, posta, Docs, il riquadro di Claude). Un XSS in
-  qualunque parte di `/app` può usare la chiave a cassaforte aperta, come oggi
-  nel web vecchio. Proposte da verificare in revisione:
-  - CSP stretta su `/app` (niente inline script, `connect-src 'self'`), come
-    il web vecchio o più stretta;
-  - nessun HTML di terzi reso senza sanificazione (già regola per mail e
-    Docs);
-  - nessun `eval` né `new Function` nel bundle (un test sul build).
-- **Claude non tocca la chiave.** Il catalogo delle azioni di Claude non ha
-  voci della cassaforte (invariante, riga 259: nessuna automazione), e il
-  riquadro di Claude non riceve mai password in chiaro. Un test sul sorgente
-  vieta che `vaultBrowser/` sia importato da `data/claude/`.
-- **Il registro.** `reveal` con `via: "browser"` (riga 29), come il web
-  vecchio. Il server distingue già le due vie.
-- **Le invarianti non cambiano.** Riga 16: «la chiave privata si apre solo nel
-  browser». `/app` è un browser; il Mac resta l'unica eccezione, col suo
-  sigillo. Nessuna rotta nuova sul server, nessuna eccezione nuova a
-  `browserOnly`.
+- Un XSS sull'origine più un tocco della passkey valgono il furto permanente
+  della chiave di persona (§1). Le difese riducono la probabilità, non le
+  conseguenze; la procedura d'incidente (§2) è la risposta.
+- Le password decifrate sono stringhe JS: non si azzerano, restano finché il
+  garbage collector non le toglie.
+- Nel browser lo stop e il blocco dello schermo chiudono solo al ritorno (§7).
+- La cronologia degli appunti del sistema può tenere una copia (§6).
+- L'HKDF della copia non lega la chiave pubblica del destinatario (riga 222,
+  accettato).
 
-## 11. Le prove
+## 13. Dove sta ogni punto della revisione
 
-- **Unità:** l'adattatore `vaultBrowser/` su un `fetch` finto, sul modello di
-  `backend/real/*.test.ts`:
-  - sblocco con e senza PRF;
+| Punto | Dove | Chi |
+|---|---|---|
+| C1 CSP su tutta l'origine, COOP, Trusted Types | §1, §2.1–2.3 | Caddy: 54, se il maintainer è d'accordo |
+| C2 PRF costante, segreti in memoria, procedura d'incidente | §1, §2.4–2.6, §2 procedura, §6 | 94 (renderer), 54 (rate limit, avviso) |
+| I1 dimensione di build e controllo dei bundle | §4 | 94 |
+| I2 15 minuti a ora di parete, `isTrusted`, bfcache, no-store | §7 | 94; no-store in Caddy |
+| I3 Show nascosto in secondo piano e a `pagehide`, stato sincrono | §6 | 94 |
+| I4 appunti senza fuoco | §6 | 94 |
+| I5 più schede: solo segnali | §5, §8 | 94 |
+| I6 lo sblocco non rinnova la riconferma | §2.7 | 54 |
+| I7 fase 2: traccia del sigillo, pagina minima, `/vault-pair` solo web | §4, §10 | 94 + 54 |
+| M1 CSP come header, test sugli header | §2.1, §14 | 54 |
+| M2 stringhe JS, chiave della voce non estraibile | §6, §12 | 94 |
+| M3 SVG degli schizzi | corretto in `fix/wireframe-svg-noopener` | 94 (fatto) |
+| M4 `window.open` senza noopener | corretto lì; COOP alla radice | 94 (fatto) |
+| M5 Origin / Sec-Fetch-Site | §2.8 | 54 |
+| M6 `vault.*` nel NEVER | §2.9 | 94 |
+| M7 supply chain del renderer | §2.10 | — |
+
+## 14. Le prove
+
+- **Unità** (`vaultBrowser/` su un `fetch` finto):
+  - sblocco con e senza PRF, e PRF azzerato;
+  - `use()` che chiude dopo 15 minuti a ora di parete senza nessun timer;
+  - `use()` con persona o sessione diverse che lancia e chiude;
+  - eventi non `isTrusted` e lo scroll che NON allungano la vita;
+  - `pagehide` che chiude;
+  - il segnale di un'altra scheda che chiude;
   - `reveal` scartato dopo la chiusura;
   - `recipients_changed` riprovato una volta;
   - `actorProof` monouso;
-  - chiusura dopo 15 minuti con l'ora finta;
-  - appunti svuotati solo se contengono ancora la password.
-- **Architettura:**
-  - `vaultBrowser/` mai nella build Electron, il ponte mai nella build web;
-  - niente storage persistente per la chiave (un test sul sorgente:
-    `localStorage`, `sessionStorage` e `indexedDB` vietati in
-    `vaultBrowser/`);
-  - niente import da `data/claude/`.
-- **A mano, una volta, sullo staging:** apri con la passkey, Show, Copy, crea,
-  condividi, conferma, la chiusura dopo 15 minuti; la stessa credenziale
-  aperta nel web vecchio e in `/app` con la stessa passkey.
-
-## 12. Domande per la revisione di sicurezza e per il maintainer
-
-Ognuna ha la mia raccomandazione per prima.
-
-- **C1. Che cosa vuol dire «senza uso» nel browser?**
-  - *Raccomandato*: senza interazione con la pagina, come il web vecchio.
-  - *Alternativa*: senza uso della chiave, come il Mac. Così una pagina
-    lasciata aperta e usata per altro resta chiusa, ma una lettura lunga di
-    una credenziale (Show) chiude la cassaforte mentre la si guarda.
-- **C2. Gli appunti nel browser.**
-  - *Raccomandato*: `navigator.clipboard` con lo svuotamento dopo 30 s, come
-    il web vecchio, più la riga sulla cronologia degli appunti del sistema.
-  - *Alternativa*: niente Copy nel browser, solo Show. Più sicuro, ma toglie
-    il gesto più usato.
-- **C3. Show si nasconde dopo 30 s?** **Decisa** dal maintainer con la
-  shape (VA-Q3): no, resta visibile finché Hide, in tutte e due le build;
-  sparisce quando la cassaforte si chiude.
-- **C4. Una scheda nuova chiede di nuovo la passkey?**
-  - *Raccomandato*: sì, ogni scheda ha la sua chiave.
-  - *Alternativa*: passarla fra schede con `BroadcastChannel`. La sconsiglio
-    (§4).
-- **C5. L'ordine delle fasi.**
-  - *Raccomandato*: prima la fase 1, poi la 2. Il web vecchio si può ritirare
-    solo dopo la fase 2, perché attivazione, recupero e associazione del Mac
-    oggi stanno solo lì.
+  - lo svuotamento degli appunti riprovato al fuoco.
+- **Architettura e bundle:**
+  - `check-vault-target.mjs` (§4) in CI e nei due build;
+  - niente storage persistente in `vaultBrowser/`;
+  - niente import da `data/claude/`;
+  - `vault.*` nel NEVER del catalogo.
+- **Header** (M1): un test sul Caddyfile o sugli header serviti in CI (CSP,
+  COOP, `no-store` su `/app/index.html`) su `/`, `/app` e `/guide`.
+- **A mano, sullo staging, una volta prima del rilascio:**
+  - apri, Show, Copy, crea, condividi, conferma; la stessa credenziale nel web
+    vecchio e in `/app` con la stessa passkey;
+  - **bfcache:** cassaforte aperta → «Open in web» → «Indietro»: torna
+    chiusa;
+  - **stop del computer oltre 15 minuti:** al risveglio la cassaforte è chiusa
+    prima di qualunque uso, e una password mostrata non c'è più;
+  - **chat dal vivo oltre 15 minuti** (aggiornamenti che arrivano senza che
+    nessuno tocchi la pagina): la cassaforte si chiude comunque;
+  - **logout in un'altra scheda:** questa scheda chiude la cassaforte e
+    nasconde le password;
+  - **Copy e poi un'altra app:** dopo 30 s, tornando sulla scheda, gli appunti
+    si svuotano (e la frase sotto il bottone dice proprio questo);
+  - una passkey senza PRF: la barra lo dice, e al server non arriva niente.
