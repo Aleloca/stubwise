@@ -370,6 +370,18 @@ const INTEGRATED_CALLS = new Set([
   "listProjectStatuses",
   "listMilestones",
   "getRequest",
+  // Ritiro del web vecchio (27 nov 2026): design e piano di task e richieste,
+  // le proposte del polso, lo zip dei Docs e il graph.json.
+  "getTaskDesignPlan",
+  "removeTaskDesign",
+  "removeTaskPlan",
+  "removeRequestDesign",
+  "removeRequestPlan",
+  "pulse.listPulseProposals",
+  "pulse.startPulseProposal",
+  "pulse.dismissPulseProposal",
+  "docs.exportCategory",
+  "docs.downloadGraphJson",
   // Fetta 2: settimana, Planning, La mia settimana, Timeline.
   "listDayArrangements",
   "planTask",

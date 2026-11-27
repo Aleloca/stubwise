@@ -1,6 +1,7 @@
 import { prLines, type PrLine } from "../domain/claude/taskWork";
 import { SEED_REPLY_JUDGMENTS } from "./seed/mail/replyJudgments";
 import { PULSE_PROPOSALS } from "./seed/pulse";
+import { TASK_DESIGNS } from "./seed/taskDesigns";
 import type { PulseProposalDef } from "./pulse/types";
 import { stallOf, type Stall } from "../domain/stalled";
 import { currentWeek } from "../domain/weeks";
@@ -297,6 +298,9 @@ export type ApiFnName =
   | "createRequest"
   | "updateRequest"
   | "removeRequestDesign"
+  | "getTaskDesignPlan"
+  | "removeTaskDesign"
+  | "removeTaskPlan"
   | "removeRequestPlan"
   | "mergeRequest"
   | "archiveRequest"
@@ -1259,6 +1263,8 @@ interface State {
   mailProposals: MailProposal[];
   /** Le proposte del polso (shape `pulse-proposals.md`). */
   pulseProposals: PulseProposalDef[];
+  /** Design e piano salvati sulle task (shape `design-plan-remove.md`), per id. */
+  taskDesigns: Record<string, { design: string | null; plan: string | null }>;
   /** Le bozze, per persona e conversazione. */
   mailDrafts: MailDraft[];
   /** La posta non ancora arrivata: la porta dentro l'allineamento della sua casella. */
@@ -1511,6 +1517,7 @@ function freshState(): State {
     meetingTranscripts: MEETING_TRANSCRIPTS.map(copy),
     mailProposals: [...MAIL_PROPOSALS, ...CALENDAR_PROPOSALS].map(copy),
     pulseProposals: PULSE_PROPOSALS.map(copy),
+    taskDesigns: structuredClone(TASK_DESIGNS),
     mailDrafts: MAIL_DRAFTS.map(copy),
     mailIncoming: MAIL_INCOMING.map(copy),
     mailClassificationLog: new Map(),

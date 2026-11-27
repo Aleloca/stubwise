@@ -13933,7 +13933,8 @@
       "requestConsequence": "The design goes away; the request keeps its description. A refine with Claude can write it again.",
       "taskConsequence": "The description goes back to the original text. A design can be written again later.",
       "removed": "Design removed",
-      "failed": "Couldn't remove the design. Try again."
+      "failed": "Couldn't remove the design. Try again.",
+      "title": "Design"
     },
     "plan": {
       "more": "More for the plan",
@@ -13942,7 +13943,11 @@
       "requestConsequence": "The plan goes away. A refine with Claude can write it again.",
       "taskConsequence": "The next run plans on its own, and the plan goes to approval again.",
       "removed": "Plan removed",
-      "failed": "Couldn't remove the plan. Try again."
-    }
+      "failed": "Couldn't remove the plan. Try again.",
+      "title": "Plan"
+    },
+    "show": "Show",
+    "hide": "Hide",
+    "descriptionLocked": "Remove the design to edit the description."
   }
 }

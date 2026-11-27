@@ -196,6 +196,8 @@ export * as projectSettings from "./projectSettings";
 export * as claude from "./claude";
 // Le proposte del polso (shape `pulse-proposals.md`).
 export * as pulse from "./pulse";
+// Design e piano salvati su una task (shape `design-plan-remove.md`).
+export { getTaskDesignPlan, removeTaskDesign, removeTaskPlan, type TaskDesignPlan } from "./taskDesign";
 
 /** Ripristina lo stato (sessione, dati, errori iniettati) e porta le task scadute alla settimana corrente. */
 export function resetApi(): void {

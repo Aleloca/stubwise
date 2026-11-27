@@ -148,6 +148,8 @@ export const vault: typeof Fake.vault = partialNamespace<typeof Fake.vault>("vau
 
 // Ritiro del web vecchio (inventario 1.4): le proposte del polso, dalle card dell'inbox.
 export { pulse } from "./pulse";
+// Design e piano salvati su una task (shape `design-plan-remove.md`).
+export { getTaskDesignPlan, removeTaskDesign, removeTaskPlan } from "./taskDesign";
 export const servers: typeof Fake.servers = partialNamespace<typeof Fake.servers>("servers", {
   ...liveServers,
   // Area 8, F4b: la sezione Server della task (`GET /api/tasks/:id/server`) e la correzione.

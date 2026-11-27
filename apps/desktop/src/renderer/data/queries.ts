@@ -1402,6 +1402,24 @@ export function useCreateRequest() {
   );
 }
 
+/** Design e piano salvati su una task, per la sua pagina (shape `design-plan-remove.md`). */
+export function useTaskDesignPlan(taskId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "taskDesign", taskId] as const,
+    queryFn: () => api.getTaskDesignPlan(taskId),
+  });
+}
+
+/** Togliere design o piano di una task: si rilegge anche la task (la descrizione torna l'originale). */
+export function useRemoveTaskDesignPlan() {
+  return useWrite(
+    ({ taskId, which }: { taskId: string; which: "design" | "plan" }) =>
+      which === "design" ? api.removeTaskDesign(taskId) : api.removeTaskPlan(taskId),
+    ["taskDesign", ...TASK_AREAS],
+  );
+}
+
 /** Togliere design o piano di una richiesta (shape `design-plan-remove.md`). */
 export function useRemoveRequestDesignPlan() {
   return useWrite(

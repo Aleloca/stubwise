@@ -19,7 +19,20 @@ import { Section, ghostButton, smallPrimary, smallSecondary } from "./parts";
  * il fuoco [DR 8]: la task non cambia finché la persona non preme «Save»
  * (`updateTask` a mano, nessun `via`). Esc butta la bozza.
  */
-export function DescriptionSection({ task, canEdit }: { task: Task; canEdit: boolean }) {
+export function DescriptionSection({
+  task,
+  canEdit,
+  original = null,
+}: {
+  task: Task;
+  canEdit: boolean;
+  /**
+   * Con un design attivo (shape `design-plan-remove.md`, DP-Q2b): il testo
+   * originale da mostrare. La descrizione non si modifica finché il design
+   * c'è: modificarla riscriverebbe il design.
+   */
+  original?: string | null;
+}) {
   const { t } = useTranslation();
   const change = useInlineUpdate();
   const [draft, setDraftState] = useState<string | null>(null);
@@ -136,6 +149,17 @@ export function DescriptionSection({ task, canEdit }: { task: Task; canEdit: boo
             {t("taskDetail.save")}
           </button>
         </div>
+      </Section>
+    );
+  }
+
+  if (original !== null) {
+    return (
+      <Section title={title}>
+        {original.trim() ? <Markdown source={original} /> : null}
+        <p data-design-locked className="text-xs text-ink-muted">
+          {t("designPlan.descriptionLocked")}
+        </p>
       </Section>
     );
   }

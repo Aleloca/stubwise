@@ -13933,7 +13933,8 @@
       "requestConsequence": "Il design va via; la richiesta tiene la sua descrizione. Un refine con Claude può riscriverlo.",
       "taskConsequence": "La descrizione torna al testo originale. Un design si può riscrivere più avanti.",
       "removed": "Design tolto",
-      "failed": "Impossibile togliere il design. Riprova."
+      "failed": "Impossibile togliere il design. Riprova.",
+      "title": "Design"
     },
     "plan": {
       "more": "Altro per il piano",
@@ -13942,7 +13943,11 @@
       "requestConsequence": "Il piano va via. Un refine con Claude può riscriverlo.",
       "taskConsequence": "Il prossimo lavoro pianifica da sé, e il piano torna all'approvazione.",
       "removed": "Piano tolto",
-      "failed": "Impossibile togliere il piano. Riprova."
-    }
+      "failed": "Impossibile togliere il piano. Riprova.",
+      "title": "Piano"
+    },
+    "show": "Mostra",
+    "hide": "Nascondi",
+    "descriptionLocked": "Togli il design per modificare la descrizione."
   }
 }

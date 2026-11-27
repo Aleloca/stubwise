@@ -2,7 +2,7 @@ import { featureIntegrated } from "../../data/integration";
 import { Link, useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useStalled, useTask } from "../../data/queries";
+import { useStalled, useTask, useTaskDesignPlan } from "../../data/queries";
 import type { Task } from "../../data/types";
 import { can, useViewer } from "../../data/viewing";
 import {
@@ -24,6 +24,7 @@ import { ServerSection } from "./ServerSection";
 import { CloseIcon, ghostButton } from "./parts";
 import { StallControl } from "./StallControl";
 import { TaskHeader } from "./TaskHeader";
+import { TaskDesignPlanSections } from "./TaskDesignPlan";
 import { TechnicalSection } from "./TechnicalSection";
 
 /**
@@ -271,6 +272,7 @@ function TaskSections({
   const { viewer } = useViewer();
   const canEdit = can(viewer, "tickets.edit", task.projectId);
   const canComment = can(viewer, "tickets.comment", task.projectId);
+  const designPlan = useTaskDesignPlan(task.id);
   const stall = useStalled({ projectIds: [task.projectId] }).data?.find(
     (row) => row.task.id === task.id,
   )?.stall;
@@ -292,7 +294,8 @@ function TaskSections({
       {/* I server (area 8b) non sono integrati nella build app. */}
       {task.serverRef && featureIntegrated("servers") && <ServerSection task={task} />}
       <DecisionSection task={task} canComment={canComment} />
-      <DescriptionSection task={task} canEdit={canEdit} />
+      <DescriptionSection task={task} canEdit={canEdit} original={designPlan.data?.design?.trim() ? (designPlan.data.original ?? task.description) : null} />
+      <TaskDesignPlanSections task={task} saved={designPlan.data} canEdit={canEdit} />
       <TechnicalSection task={task} />
       <ClaudeSection task={task} canEdit={canEdit} onFollow={onFollow} />
       <LinksSection task={task} canEdit={canEdit} />
