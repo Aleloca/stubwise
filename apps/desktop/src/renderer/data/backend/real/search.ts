@@ -18,7 +18,10 @@ export const search: typeof Fake.search = async (q) => {
     client.projects.list() as unknown as Promise<{ id: string; name: string; slug: string; code?: string }[]>,
     // Le workspace (revisione d'insieme, M6): dall'elenco di chi guarda; un
     // server senza workspace (o un errore) non toglie gli altri risultati.
-    client.workspaces.list().catch(() => [] as { id: string; name: string; projectIds: string[] }[]),
+    client.workspaces
+      .list()
+      .then((r) => r.items)
+      .catch(() => [] as { id: string; name: string; projectIds: string[] }[]),
   ]);
   const codeOf = new Map(rows.map((p) => [p.id, p.code ?? p.slug.toUpperCase()]));
   const lower = needle.toLowerCase();

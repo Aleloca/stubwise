@@ -46,6 +46,7 @@ export const workspaceListSchema = z.object({
    */
   canManage: z.boolean().default(false),
 });
+export type WorkspaceList = z.infer<typeof workspaceListSchema>;
 
 export const workspaceCreateSchema = z.object({
   name: z.string().trim().min(1).max(80),

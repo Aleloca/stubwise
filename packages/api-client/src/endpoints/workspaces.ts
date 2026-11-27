@@ -10,6 +10,7 @@ import type {
   WorkspaceCandidates,
   WorkspaceEffect,
   WorkspaceEffectRequest,
+  WorkspaceList,
   WorkspaceMemberPreview,
   WorkspaceView,
 } from "@stubwise/shared";
@@ -26,8 +27,13 @@ import { seg, toQuery } from "../query.js";
  */
 export function createWorkspacesEndpoints(request: ApiRequest) {
   return {
-    async list(): Promise<Reader<WorkspaceView>[]> {
-      return (await request("GET", "/api/workspaces", undefined, workspaceListSchema)).items;
+    /**
+     * L'elenco e `canManage` (I3, additivo): chi guarda può CREARE workspace.
+     * Sta sull'elenco, così vale anche vuoto; un server di prima non lo manda
+     * (`false`).
+     */
+    list(): Promise<Reader<WorkspaceList>> {
+      return request("GET", "/api/workspaces", undefined, workspaceListSchema);
     },
     get(id: string): Promise<Reader<WorkspaceView>> {
       return request("GET", `/api/workspaces/${seg(id)}`, undefined, workspaceViewSchema);

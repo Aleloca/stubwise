@@ -37,7 +37,7 @@ const fail = (status: number, code: string, details?: unknown) => () => {
 
 function fakeApi(overrides: Partial<WorkspacesApi> = {}): WorkspacesApi {
   return {
-    list: vi.fn(async () => [view]),
+    list: vi.fn(async () => ({ items: [view], canManage: true })),
     get: vi.fn(async () => view),
     create: vi.fn(async () => ({ ...view, id: "new-id" })),
     update: vi.fn(async () => view),
@@ -48,7 +48,6 @@ function fakeApi(overrides: Partial<WorkspacesApi> = {}): WorkspacesApi {
     putMember: vi.fn(async () => view),
     removeMember: vi.fn(async () => undefined),
     effect: vi.fn(async () => ({ projects: [], lastManager: [], escalation: [] })),
-    canManageWorkspaces: vi.fn(async () => true),
     candidates: vi.fn(async () => ({
       candidates: [
         { userId: IRENE, name: "Irene Caruso", email: "irene@example.com", missing: [] },
@@ -236,11 +235,17 @@ describe("revisione d'insieme", () => {
     expect(nicola.projects.every((p) => p.roles.every((r) => r.source === "workspace"))).toBe(true);
   });
 
-  it("I3: senza workspace «New workspace» solo per chi ha workspaces.manage", async () => {
-    const empty = { list: vi.fn(async () => []) };
-    const no = await createRealWorkspaces(fakeApi({ ...empty, canManageWorkspaces: vi.fn(async () => false) })).listWorkspaces();
+  it("I3: senza workspace «New workspace» lo decide il SERVER (`canManage` dell'elenco), non i permessi del viewer", async () => {
+    const no = await createRealWorkspaces(fakeApi({ list: vi.fn(async () => ({ items: [], canManage: false })) })).listWorkspaces();
     expect(no.canManage).toBe(false);
-    const yes = await createRealWorkspaces(fakeApi({ ...empty, canManageWorkspaces: vi.fn(async () => true) })).listWorkspaces();
+    const yes = await createRealWorkspaces(fakeApi({ list: vi.fn(async () => ({ items: [], canManage: true })) })).listWorkspaces();
     expect(yes.canManage).toBe(true);
+  });
+
+  it("I3: un progetto fuori da ogni workspace si può mettere in una solo se l'elenco dice `canManage`", async () => {
+    const api = fakeApi({ list: vi.fn(async () => ({ items: [], canManage: false })) });
+    expect((await createRealWorkspaces(api).workspaceOfProject(P1)).canChange).toBe(false);
+    const ok = fakeApi({ list: vi.fn(async () => ({ items: [], canManage: true })) });
+    expect((await createRealWorkspaces(ok).workspaceOfProject(P1)).canChange).toBe(true);
   });
 });

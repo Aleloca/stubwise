@@ -375,8 +375,14 @@ export function createProjectsEndpoints(request: ApiRequest) {
      * Area 9, F1: i membri espliciti coi permessi EFFETTIVI e la loro
      * provenienza (`permissions[].sources`); i full admin sono impliciti.
      */
-    members(projectId: string): Promise<Reader<ProjectMember>[]> {
-      return request("GET", `/api/projects/${seg(projectId)}/members`, undefined, z.array(projectMemberSchema));
+    /**
+     * I membri del progetto. Con `include: "workspace"` (M4, additivo) anche
+     * chi lo vede SOLO per la sua workspace (`explicit: false`, col ruolo di
+     * workspace): quelli non si tolgono dal progetto, si tolgono dalla workspace.
+     */
+    members(projectId: string, options: { include?: "workspace" } = {}): Promise<Reader<ProjectMember>[]> {
+      const query = options.include ? `?include=${options.include}` : "";
+      return request("GET", `/api/projects/${seg(projectId)}/members${query}`, undefined, z.array(projectMemberSchema));
     },
 
     /**

@@ -14,7 +14,6 @@ import { refusalOf } from "./adminPeople";
 import { appClient } from "./client";
 import { notIntegratedSync } from "./notIntegrated";
 import { listProjects } from "./projects";
-import { instancePermissionsNow } from "./session";
 
 // Le workspace nella build app (shape `workspaces.md`), sopra le rotte di
 // `docs/plans/2026-11-27-workspace-design.md` §2.2 (`/api/workspaces`). Il
@@ -36,7 +35,8 @@ type Any = any;
 
 /** Le rotte (sul client vero: `client.workspaces` e `client.projects.membersView`). */
 export interface WorkspacesApi {
-  list(): Promise<Any[]>;
+  /** L'elenco e `canManage` (I3): chi guarda può creare workspace. */
+  list(): Promise<{ items: Any[]; canManage: boolean }>;
   get(id: string): Promise<Any>;
   create(body: { name: string; projectIds?: string[] }): Promise<Any>;
   update(id: string, patch: { name?: string }): Promise<Any>;
@@ -48,12 +48,6 @@ export interface WorkspacesApi {
   removeMember(id: string, userId: string, alsoProjects?: boolean): Promise<void>;
   effect(body: Any): Promise<Any>;
   candidates(id: string): Promise<Any>;
-  /**
-   * Revisione d'insieme, I3: chi guarda ha `workspaces.manage` (o è full
-   * admin). Senza workspace l'elenco non lo dice, e «New workspace» non va
-   * offerto a tutti: al deploy è lo stato di ogni istanza.
-   */
-  canManageWorkspaces(): Promise<boolean>;
   membersView(projectId: string): Promise<Any>;
   projects(): Promise<{ id: string; code: string; name: string }[]>;
 }
@@ -117,7 +111,8 @@ export function createRealWorkspaces(api: WorkspacesApi) {
 
   const workspaces: typeof Fake.workspaces = {
     async listWorkspaces(): Promise<WorkspaceList> {
-      const [items, projects, canManage] = await Promise.all([api.list(), api.projects(), api.canManageWorkspaces()]);
+      // I3: chi può creare workspace lo dice il server sull'elenco (vale anche vuoto).
+      const [{ items, canManage }, projects] = await Promise.all([api.list(), api.projects()]);
       const open = new Set(projects.map((p) => p.id));
       const workspaceOfProject: Record<string, string> = {};
       for (const w of items) for (const p of w.projectIds as string[]) workspaceOfProject[p] = w.id;
@@ -152,11 +147,11 @@ export function createRealWorkspaces(api: WorkspacesApi) {
     },
 
     async workspaceOfProject(projectId: string) {
-      const items = await api.list();
+      const { items, canManage } = await api.list();
       const w = items.find((x: Any) => (x.projectIds as string[]).includes(projectId));
       return {
         workspace: w ? { id: w.id, slug: w.id, name: w.name } : null,
-        canChange: w ? !!w.canManage : await api.canManageWorkspaces(),
+        canChange: w ? !!w.canManage : canManage,
       };
     },
 
@@ -286,7 +281,7 @@ export function createRealWorkspaces(api: WorkspacesApi) {
             ),
           );
         case "removeProject": {
-          const items = await api.list();
+          const { items } = await api.list();
           const w = items.find((x: Any) => (x.projectIds as string[]).includes(op.projectId));
           if (!w) return { projects: [], lastManager: [], escalation: [], notManaged: [] };
           return toEffect(await api.effect({ kind: "removeProject", workspaceId: w.id, projectId: op.projectId }), byId);
@@ -351,7 +346,7 @@ export function createRealWorkspaces(api: WorkspacesApi) {
 
     async setProjectWorkspace(projectId: string, workspaceId: string | null): Promise<AdminResult> {
       if (workspaceId !== null) return attempt(async () => void (await api.putProject(workspaceId, projectId)));
-      const items = await api.list();
+      const { items } = await api.list();
       const w = items.find((x: Any) => (x.projectIds as string[]).includes(projectId));
       if (!w) return { ok: false, error: "invalid", reason: "unchanged" };
       return attempt(() => api.removeProject(w.id, projectId));
@@ -391,10 +386,6 @@ export const workspaces: typeof Fake.workspaces = createRealWorkspaces({
   removeMember: (id, userId, alsoProjects) => appClient().workspaces.removeMember(id, userId, alsoProjects),
   effect: (body) => appClient().workspaces.effect(body),
   candidates: (id) => appClient().workspaces.candidates(id),
-  canManageWorkspaces: async () => {
-    const permissions = await instancePermissionsNow();
-    return permissions.includes("workspaces.manage") || permissions.includes("instance.full_admin");
-  },
   membersView: (projectId) => appClient().projects.membersView(projectId),
   projects: async () => (await listProjects()).map((p) => ({ id: p.id, code: p.code, name: p.name })),
 });
