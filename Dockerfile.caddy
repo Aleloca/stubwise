@@ -90,6 +90,13 @@ COPY apps/desktop apps/desktop
 RUN pnpm --filter "@stubwise/desktop^..." build \
   && pnpm --filter @stubwise/desktop check:seed:web
 
+# La CSP dell'origine (indurimento di sicurezza, C1/M1): il controllo fa
+# fallire il build se il web vecchio o l'app hanno uno script inline (con
+# `script-src 'self'` non girerebbero), e scrive il frammento della guida con
+# gli hash degli script inline di Starlight (importato dal Caddyfile).
+COPY scripts/caddy-csp.mjs scripts/caddy-csp.mjs
+RUN node scripts/caddy-csp.mjs --web apps/web/dist --app apps/desktop/dist-web --docs apps/docs/dist --out /repo/csp-guide.caddy
+
 FROM caddy:2-alpine AS runtime
 # Statici della SPA serviti da /srv/web (root nel Caddyfile).
 COPY --from=web-build /repo/apps/web/dist /srv/web
@@ -104,3 +111,4 @@ COPY --from=web-build /repo/packages/widget/dist /srv/widget
 # La nuova app, servita su /app (vedi Caddyfile).
 COPY --from=web-build /repo/apps/desktop/dist-web /srv/app
 COPY Caddyfile /etc/caddy/Caddyfile
+COPY --from=web-build /repo/csp-guide.caddy /etc/caddy/csp-guide.caddy
