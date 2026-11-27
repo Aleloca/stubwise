@@ -45,6 +45,7 @@ import { attemptSecondFactor, verifySecondFactorCode } from "../auth/second-fact
 import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
 import { lockedErrorSchema, rejectAttempt } from "./second-factor-replies.js";
 import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
+import { applyInviteWorkspaces, assertInviteWorkspaces, inviteWorkspacesOf, saveInviteWorkspaces } from "../services/workspaces.js";
 import {
   applyInviteGrants,
   assertInviteGrants,
@@ -610,6 +611,8 @@ export async function authRoutes(
           slackUserId: z.string().min(1).optional(),
           instanceRoleId: z.uuid().optional(),
           projects: z.array(inviteProjectSchema).max(200).optional(),
+          // Workspace (D9): le workspace in cui l'invitato entra (senza ruolo: il Viewer, D3).
+          workspaces: z.array(z.object({ workspaceId: z.uuid(), roleId: z.uuid().optional() })).max(50).optional(),
         }),
         response: {
           // `id` (review di F1, I2): l'id OPACO dell'invito, quello delle viste.
@@ -658,6 +661,7 @@ export async function authRoutes(
           // Senza ruolo nell'invito si risolve e si verifica il preset
           // `User` (ruling R51): il ruolo salvato non è mai implicito.
           const roleId = await assertInviteGrants(tx, request.user!, instanceRoleId, grants);
+          const workspaceGrants = await assertInviteWorkspaces(tx, request.user!, request.body.workspaces ?? []);
           await tx.insert(invites).values({
             token,
             email,
@@ -668,6 +672,7 @@ export async function authRoutes(
             invitedByUserId: request.user!.id,
           });
           await saveInviteGrants(tx, token, grants);
+          await saveInviteWorkspaces(tx, token, workspaceGrants);
           warnings = await inviteDepartmentWarnings(tx, request.user!, grants);
           // Area 9, F2: con l'id opaco e i nomi, mai il token.
           await recordChange(tx, { type: "invite.created", actor: request.user!, projectId: null, data: { object: inviteObject(token, email), params: await inviteParams(tx, roleId, grants) } });
@@ -845,6 +850,7 @@ export async function authRoutes(
           // I progetti dell'invito vanno letti PRIMA di consumarlo: il delete
           // li porta via in cascata.
           const grants = await inviteGrants(tx, invite.token);
+          const workspaceGrants = await inviteWorkspacesOf(tx, invite.token);
           const [consumed] = await tx
             .delete(invites)
             .where(eq(invites.token, invite.token))
@@ -873,6 +879,10 @@ export async function authRoutes(
               { projectId: grant.projectId, roleId: grant.roleId, reason },
               "invite: progetto dell'invito scartato all'accettazione",
             ),
+          );
+          // Workspace (D9): riverificate allo stesso modo (R51).
+          await applyInviteWorkspaces(tx, created.id, workspaceGrants, invite.invitedByUserId, (grant, reason) =>
+            request.log.warn({ workspaceId: grant.workspaceId, roleId: grant.roleId, reason }, "invite: workspace dell'invito scartata all'accettazione"),
           );
           return created;
         });

@@ -256,3 +256,50 @@ describe("la card member.added (D13)", () => {
     expect(await db.select().from(notifications).where(and(eq(notifications.kind, "member.added"), eq(notifications.userId, vera.id)))).toHaveLength(1);
   });
 });
+
+describe("D9: l'invito di registrazione promette una workspace", () => {
+  let ip = 0;
+  const register = (token: string) =>
+    app.inject({ method: "POST", url: "/api/auth/register", payload: { token, password: "una-password-lunga-123", displayName: "Nuova" }, remoteAddress: `10.9.${Math.floor(++ip / 200)}.${ip % 200}` });
+  async function inviter() {
+    const s = await seed();
+    await db.update(users).set({ instanceRoleId: (await db.insert(roles).values({ name: `Invita ${randomUUID().slice(0, 6)}`, scope: "instance", permissions: ["users.view_all", "git_accounts.view", "mail_admission.view", "claude.public.view", "chat.general.create", "users.invite", "workspaces.manage"] }).returning())[0]!.id }).where(eq(users.id, s.lea.id));
+    return s;
+  }
+
+  it("Lea invita un esterno nella workspace (Viewer di default): registrato, ne fa parte e vede A", async () => {
+    const { a, lea } = await inviter();
+    const w = await created(lea, { name: "Invitati", projectIds: [a] });
+    const inv = await call("POST", "/api/auth/invites", lea.headers, { email: `ext-${randomUUID()}@x.test`, workspaces: [{ workspaceId: w.id }] });
+    expect(inv.statusCode, inv.body).toBe(201);
+    const res = await register((inv.json() as { token: string }).token);
+    expect(res.statusCode, res.body).toBe(201);
+    const [u] = await db.select({ id: users.id }).from(users).where(eq(users.displayName, "Nuova")).orderBy(users.createdAt).limit(1);
+    const rows = await db.select({ roleId: workspaceMembers.roleId }).from(workspaceMembers).where(and(eq(workspaceMembers.workspaceId, w.id), eq(workspaceMembers.userId, u!.id)));
+    expect(rows).toEqual([{ roleId: await presetRoleId(app, "viewer") }]);
+  });
+
+  it("NEGATIVO all'invito: un ruolo che Lea non può dare (403 escalation), una workspace due volte (400): nessun invito", async () => {
+    const { invites } = await import("@stubwise/db");
+    const { a, lea } = await inviter();
+    const w = await created(lea, { name: "No", projectIds: [a] });
+    const [ops] = await db.insert(roles).values({ name: `Ops ${randomUUID().slice(0, 6)}`, scope: "project", permissions: ["servers.operate"] }).returning();
+    const before = (await db.select().from(invites)).length;
+    const esc = await call("POST", "/api/auth/invites", lea.headers, { email: `e-${randomUUID()}@x.test`, workspaces: [{ workspaceId: w.id, roleId: ops!.id }] });
+    expect(esc.statusCode).toBe(403);
+    expect(esc.json()).toMatchObject({ code: "escalation" });
+    const dup = await call("POST", "/api/auth/invites", lea.headers, { email: `d-${randomUUID()}@x.test`, workspaces: [{ workspaceId: w.id }, { workspaceId: w.id }] });
+    expect(dup.statusCode).toBe(400);
+    expect((await db.select().from(invites)).length).toBe(before);
+  });
+
+  it("R51: se Lea non gestisce più i membri di A all'accettazione, la workspace si scarta e l'utente nasce lo stesso", async () => {
+    const { a, lea } = await inviter();
+    const w = await created(lea, { name: "Riverifica", projectIds: [a] });
+    const inv = await call("POST", "/api/auth/invites", lea.headers, { email: `r-${randomUUID()}@x.test`, workspaces: [{ workspaceId: w.id }] });
+    await addMember(app, a, lea.id, "viewer");
+    const res = await register((inv.json() as { token: string }).token);
+    expect(res.statusCode, res.body).toBe(201);
+    expect(await db.select().from(workspaceMembers).where(eq(workspaceMembers.workspaceId, w.id))).toEqual([]);
+  });
+});

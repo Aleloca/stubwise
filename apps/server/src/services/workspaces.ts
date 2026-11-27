@@ -1,4 +1,5 @@
 import {
+  inviteWorkspaces,
   projectAccess,
   projectAccessPermissionsSql,
   projectAccessRowCounts,
@@ -18,7 +19,7 @@ import { projectPermissionsMap, scopeIncludes, visibleProjectIds } from "../auth
 import type { SessionUser } from "../auth/session.js";
 import { personObject, recordChange } from "./change-log.js";
 import { departmentGrantsForEntering } from "./department-access.js";
-import { publishNotification } from "@stubwise/notifications";
+import { instancePermissionsOfUser, publishNotification } from "@stubwise/notifications";
 import { peopleKnownTo } from "./people-known.js";
 import { keepingManagersIn, managersLostBy, RoleRuleError } from "./roles.js";
 
@@ -548,4 +549,88 @@ export async function accessEffect(db: Db, actor: WorkspaceActor, request: Works
     lastManager: lost.filter(sees),
     escalation: escalation.map((m) => ({ projectId: sees(m.projectId) ? m.projectId : null, permission: m.permission })),
   };
+}
+
+// ── L'invito di registrazione (D9) ──────────────────────────────────────
+
+export interface InviteWorkspace {
+  workspaceId: string;
+  roleId: string;
+}
+
+/**
+ * Le workspace che un invito promette, con le regole di chi invita (D4, la
+ * stessa di `putMember`): le persone della workspace le gestisce, e il ruolo
+ * lo può dare in OGNI suo progetto. Senza ruolo, il Viewer (D3), risolto qui e
+ * salvato: «nessun ruolo» non è una scorciatoia (R51). I reparti dell'invitato
+ * non si conoscono ancora: li riverifica l'accettazione.
+ */
+export async function assertInviteWorkspaces(tx: Tx, actor: WorkspaceActor, grants: readonly { workspaceId: string; roleId?: string | undefined }[]): Promise<InviteWorkspace[]> {
+  const seen = new Set<string>();
+  const out: InviteWorkspace[] = [];
+  for (const grant of grants) {
+    if (seen.has(grant.workspaceId)) throw new RoleRuleError(400, "duplicate_workspace", "A workspace appears more than once");
+    seen.add(grant.workspaceId);
+    if ((await listWorkspaces(tx as unknown as Db, actor, grant.workspaceId)).length === 0) throw notFound();
+    const projectIds = await projectIdsOf(tx, grant.workspaceId);
+    await assertManagesPeople(tx, actor, projectIds);
+    const role = await resolveRole(tx, grant.roleId);
+    if (!isFullAdmin(actor)) {
+      const held = await heldByProject(tx, actor);
+      const missing = projectIds.flatMap((projectId) => role.permissions.filter((p) => !(held[projectId] ?? []).includes(p)).map((permission) => ({ projectId, permission })));
+      if (missing.length > 0) throw escalationError(missing);
+    }
+    out.push({ workspaceId: grant.workspaceId, roleId: role.id });
+  }
+  return out;
+}
+
+export async function saveInviteWorkspaces(tx: Tx, token: string, grants: readonly InviteWorkspace[]): Promise<void> {
+  if (grants.length > 0) await tx.insert(inviteWorkspaces).values(grants.map((g) => ({ inviteToken: token, workspaceId: g.workspaceId, roleId: g.roleId })));
+}
+
+/** Le workspace di un invito, da leggere PRIMA di consumarlo (il delete le porta via in cascata). */
+export async function inviteWorkspacesOf(tx: Tx, token: string): Promise<InviteWorkspace[]> {
+  return tx.select({ workspaceId: inviteWorkspaces.workspaceId, roleId: inviteWorkspaces.roleId }).from(inviteWorkspaces).where(eq(inviteWorkspaces.inviteToken, token));
+}
+
+/**
+ * All'accettazione ogni workspace si RIVERIFICA coi permessi ATTUALI di chi ha
+ * invitato (R51): gestisce ancora le persone (in ogni progetto di ADESSO), e ha
+ * lì i permessi del ruolo e quelli che i reparti dell'invitato (il ripiego)
+ * portano. Una non più valida si scarta con `onDropped`; l'utente nasce lo stesso.
+ */
+export async function applyInviteWorkspaces(
+  tx: Tx,
+  userId: string,
+  grants: readonly InviteWorkspace[],
+  invitedByUserId: string | null,
+  onDropped: (grant: InviteWorkspace, reason: string) => void = () => {},
+): Promise<void> {
+  if (grants.length === 0) return;
+  const [inviter] = invitedByUserId ? await tx.select({ id: users.id, email: users.email }).from(users).where(eq(users.id, invitedByUserId)) : [];
+  if (!inviter) {
+    for (const grant of grants) onDropped(grant, "inviter_missing");
+    return;
+  }
+  const actor: WorkspaceActor = { id: inviter.id, email: inviter.email, instancePermissions: await instancePermissionsOfUser(tx as unknown as Db, inviter.id) };
+  const [me] = await tx.select({ id: users.id, email: users.email }).from(users).where(eq(users.id, userId));
+  for (const grant of grants) {
+    const [w] = await tx.select().from(workspaces).where(eq(workspaces.id, grant.workspaceId)).for("update");
+    if (!w) continue;
+    const projectIds = await projectIdsOf(tx, grant.workspaceId);
+    if (!managesPeople(actor, projectIds, await heldByProject(tx, actor))) {
+      onDropped(grant, "inviter_cannot_manage_people");
+      continue;
+    }
+    const [role] = await tx.select({ name: roles.name, permissions: roles.permissions }).from(roles).where(eq(roles.id, grant.roleId)).for("share");
+    if (!role) continue;
+    if ((await judgeWorkspaceGrant(tx, actor, [{ userId, rolePermissions: role.permissions, projectIds }])).length > 0) {
+      onDropped(grant, "inviter_lacks_role_permissions");
+      continue;
+    }
+    await tx.insert(workspaceMembers).values({ workspaceId: grant.workspaceId, userId, roleId: grant.roleId, addedByUserId: inviter.id }).onConflictDoNothing();
+    // Entrare da un invito è un'aggiunta; l'attore è chi entra (come i progetti dell'invito).
+    await recordChange(tx, { type: "workspace.member_added", actor: me!, projectId: null, data: { object: personObject(me!), params: { workspaceName: w.name, roleName: role.name, via: "invite" } } });
+  }
 }
