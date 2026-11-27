@@ -32,7 +32,7 @@ const card = (over: Record<string, unknown> = {}) => ({
 
 function fakeApi(over: Partial<PulseApi> = {}): PulseApi {
   return {
-    openItems: vi.fn(async () => [card()]),
+    page: vi.fn(async () => ({ items: [card()], nextCursor: null })),
     projectCodes: vi.fn(async () => new Map([[PRJ, "TRM"]])),
     answer: vi.fn(async () => ({ ticketNumber: 7, runStatus: "queued" as const })),
     handled: vi.fn(async () => undefined),
@@ -43,11 +43,10 @@ function fakeApi(over: Partial<PulseApi> = {}): PulseApi {
 describe("le proposte del polso, dal server", () => {
   it("solo le card del polso che chi guarda può decidere (l'azione `answer` del server), nella forma del prototipo", async () => {
     const api = fakeApi({
-      openItems: vi.fn(async () => [
-        card(),
-        card({ id: "x", actions: ["open", "snooze", "handled"] }),
-        { ...card({ id: "y" }), kind: "project.brief" },
-      ]),
+      page: vi.fn(async () => ({
+        items: [card(), card({ id: "x", actions: ["open", "snooze", "handled"] }), { ...card({ id: "y" }), kind: "project.brief" }],
+        nextCursor: null,
+      })),
     });
     const list = await createRealPulse(api).listPulseProposals();
     expect(list).toEqual([
@@ -64,6 +63,15 @@ describe("le proposte del polso, dal server", () => {
         ],
       },
     ]);
+  });
+
+  it("I3: tutte le pagine delle card del pulse, non solo la prima (Decide è l'unico posto dove si decide)", async () => {
+    const page = vi.fn(async (cursor: string | null) =>
+      cursor === null ? { items: [card({ id: "a" })], nextCursor: "c2" } : { items: [card({ id: "b" })], nextCursor: null },
+    );
+    const list = await createRealPulse(fakeApi({ page })).listPulseProposals();
+    expect(list.map((p) => p.id)).toEqual(["a", "b"]);
+    expect(page.mock.calls.map(([c]) => c)).toEqual([null, "c2"]);
   });
 
   it("Start: l'indice dell'opzione; il codice della task e come è nato il run", async () => {
