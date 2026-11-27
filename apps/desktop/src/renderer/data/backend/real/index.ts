@@ -30,6 +30,7 @@ import { liveIntegration } from "./projectIntegration";
 import { liveProjectArchive } from "./projectArchive";
 import { liveProjectAutomations } from "./projectAutomations";
 import { liveProjectGeneral } from "./projectGeneral";
+import { listMacsOf, removeMacOf } from "./vaultMacsOf";
 import { getProjectUsage } from "./usage";
 import { liveProjectPlugins } from "./projectPlugins";
 import { chatFunctions } from "./chat";
@@ -140,6 +141,9 @@ export const vault: typeof Fake.vault = partialNamespace<typeof Fake.vault>("vau
   ...liveVaultDesktop,
   // Fetta 2b: elenchi, dettaglio ed entrate, dalle rotte.
   ...liveVaultReads,
+  // Ritiro del web vecchio (inventario 1.2): i Mac di un'altra persona, dal browser.
+  listMacsOf,
+  removeMacOf,
 });
 
 export const servers: typeof Fake.servers = partialNamespace<typeof Fake.servers>("servers", {
