@@ -70,15 +70,33 @@ della fase 1**, non migliorie.
 3. **Trusted Types** almeno su `/app`
    (`require-trusted-types-for 'script'`). L'unico punto che scrive HTML è la
    politica che lo ripulisce: SVG degli schizzi (M3) e QR del TOTP.
-4. **Le primitive catturate all'avvio del modulo** (C2). `vaultBrowser/`
-   salva, al PRIMO import e prima di qualunque altro codice dell'app:
-   - `crypto.subtle`;
-   - `navigator.credentials.get` e `.create`;
-   - `fetch`.
+4. **La crittografia in un Dedicated Worker** (C2; terza stesura dopo la
+   seconda revisione di sicurezza, I-1). Catturare gli OGGETTI al primo
+   import non bastava: uno script arrivato dopo sostituiva un METODO sul
+   prototipo (`SubtleCrypto.prototype.importKey`) e al primo sblocco riceveva
+   la PRF e la pkcs8 in chiaro (c'era una prova di concetto). Quindi:
+   - tutta la crittografia della cassaforte, la `CryptoKey` di persona, la
+     scadenza a ora di parete e la RETE della cassaforte stanno in un
+     Dedicated Worker (`vaultBrowser/worker.ts` su `core.ts`), caricato al
+     boot da un file del bundle: un reame che gli script della pagina non
+     raggiungono. Il worker apre il sigillo, tiene la chiave, decifra per Show
+     (e cifrerà per crea e condividi); legge da sé `GET /api/auth/me` per
+     legare la chiave alla sessione del cookie (I-3, `sessionTag`);
+   - nella pagina resta SOLO la cerimonia WebAuthn, coi METODI catturati
+     «uncurried» al boot (`getClientExtensionResults`, il `postMessage` del
+     worker e del canale, `addEventListener`, `ArrayBuffer.prototype.slice`);
+     la PRF passa al worker per TRANSFER subito dopo la cerimonia e la pagina
+     non la tocca più (nemmeno per azzerarla: un `fill` sostituito la
+     leggerebbe; se serve la azzera il worker);
+   - il salt PRF è quello locale (`PRF_INPUT`); il worker rifiuta un server
+     che ne chiede un altro (M-1);
+   - il boot (`vaultBrowser/boot.ts`, il PRIMO import di `main.tsx`) cattura,
+     avvia il worker e collega subito i segnali della scheda: niente di pigro;
+   - i Trusted Types (§2.3) valgono anche per il worker: il suo URL passa da
+     una politica `stubwise-vault-worker` che accetta solo quell'URL.
 
-   Poi usa solo quelle copie. Uno script arrivato dopo non le sostituisce più
-   per la cassaforte. È un argine, non un muro (chi gira PRIMA vince): per
-   questo vengono prima la CSP e i Trusted Types.
+   È ancora un argine, non un muro: chi gira PRIMA del boot vince. Per questo
+   vengono prima la CSP e i Trusted Types.
 5. **Nessun sito non fidato sui sottodomini** dell'istanza: una regola di
    deploy scritta in `docs/operations/` e nel README self-hosted.
 6. **Rate limit e avviso sui reveal** (lato server, 54): un numero anomalo di
@@ -202,6 +220,12 @@ subscribe(fn: (s: ReturnType<typeof status>) => void): () => void;
 
 ## 6. Show, Copy e lo stato «chiusa» che arriva subito
 
+> Terza stesura (I-1): `reveal`, la chiave della voce (non estraibile, coi
+> byte grezzi azzerati) e la decifratura stanno nel worker; alla pagina
+> arriva la sola password. Una password che arriva dopo la chiusura il worker
+> la scarta. Lo stato «chiusa» lo manda il worker come evento, e la pagina lo
+> applica subito alle righe mostrate (`useOnVaultChange`).
+
 - **Show resta finché Hide** (VA-Q3, maintainer), in tutte e due le build. In
   più, la password sparisce:
   - quando la cassaforte si chiude, per qualunque motivo;
@@ -252,6 +276,12 @@ subscribe(fn: (s: ReturnType<typeof status>) => void): () => void;
   build web, e lo dice la tabella del §9.
 
 ## 8. Più schede (I5, C4 decisa)
+
+> Terza stesura: i segnali sono `locked`, `logout` e `login` (I-3: una
+> sessione NUOVA in un'altra scheda). «Esci» si manda sempre, anche a
+> cassaforte chiusa (I-2); `pagehide` chiude solo questa scheda, senza
+> segnale (M-4). Un 401 su una rotta della cassaforte chiude con `session`,
+> un `reauth_required` o `vault_unlock_required` col suo motivo (M-5).
 
 - Ogni scheda ha la sua chiave e il suo sblocco (C4): la chiave non si passa
   MAI fra schede.
