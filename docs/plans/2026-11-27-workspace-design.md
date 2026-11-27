@@ -7,7 +7,8 @@
 > regole che il modello deve rispettare),
 > `docs/plans/2026-10-22-permessi-progetto-design.md` (ruoli e membri),
 > `docs/plans/2026-11-16-integrazione-area9-design.md` (reparti, F8).
-> Nessun codice prima che il maintainer abbia risposto alle domande in fondo.
+> Il maintainer ha accettato tutte le raccomandazioni il 27 nov 2026: le
+> decisioni sono in §7. Il piano a lotti: `docs/plans/2026-11-27-workspace-piano.md`.
 
 ## 0. Le parole del maintainer (la fonte)
 
@@ -113,8 +114,7 @@ Conseguenza voluta: un override **non può togliere** ciò che la workspace dà
 (l'unione non sottrae). Sovrascrivere serve ad ALZARE il ruolo su un progetto.
 Chi vuole che una persona abbia meno su un progetto la toglie dalla workspace
 e la aggiunge ai progetti uno per uno. È la lettura letterale di «vince il più
-alto»; lo scrivo comunque fra le domande (D1), perché la parola
-«sovrascrivere» potrebbe far pensare a un abbassamento.
+alto», confermata dal maintainer (D1).
 
 ### 1.4 Dove vive la regola: UN pezzo SQL, come oggi
 
@@ -172,7 +172,7 @@ Il default dell'invito in una workspace è il preset **Viewer**
 scrittura). La ragione: la workspace dà VISIBILITÀ, e Viewer è il preset che
 vede senza fare. L'alternativa è **Contributor** (`docs.view`, crea ticket e
 voci, commenta, carica file): fa più cose ma vede meno (nessun `tickets.view_all`).
-I due non sono confrontabili: è la domanda D3. Il default si risolve **per
+I due non sono confrontabili; il maintainer ha scelto Viewer (D3). Il default si risolve **per
 chiave di preset** (`viewer`), non per nome, nella transazione dell'invito.
 Se il preset è stato eliminato, si chiede un ruolo esplicito (400
 `role_required`), mai un ripiego silenzioso su un altro ruolo (stessa
@@ -252,8 +252,7 @@ dottrina di R51: «nessun ruolo» non è una scorciatoia).
   un permesso «gestore di workspace» nuovo: entrare in una workspace È entrare
   nei suoi progetti, e chi gestisce i membri di tutti quei progetti può già
   oggi aggiungere la persona uno per uno. Il permesso nuovo darebbe un
-  potere che oggi non esiste. D4 chiede se il maintainer vuole invece un
-  gestore per workspace.
+  potere che oggi non esiste (D4: niente gestori per workspace).
 - Una workspace **vuota** (senza progetti) la gestisce solo chi ha
   `workspaces.manage`: «in ogni progetto» su un insieme vuoto sarebbe vero per
   chiunque.
@@ -278,8 +277,9 @@ dottrina di R51: «nessun ruolo» non è una scorciatoia).
   scrittura che fa arrivare permessi a qualcuno, cioè aggiungere una persona o
   alzarne il ruolo. Togliere, spostare la struttura e abbassare non la chiedono.
   Mettere un progetto in una workspace dà permessi alle sue persone, quindi la
-  chiederebbe per la stessa regola: è la domanda D11. Raccomando di sì, e allora
-  anche `workspaces.addProject` diventa un'esclusione `reauth` dell'MCP.
+  chiede per la stessa regola (D11): anche `workspaces.addProject` è
+  un'esclusione `reauth` dell'MCP, come la creazione di una workspace con dei
+  progetti quando ha già persone.
 - L'anteprima (`/members/preview`) dice, per ogni progetto della workspace,
   cosa la persona guadagnerebbe e da quale fonte. È la stessa forma di
   `projects.memberPreview` e serve al prototipo per il foglio dell'invito.
@@ -353,9 +353,9 @@ per visibilità».
 - **Togliere una persona dalla workspace**: perde tutti i progetti della
   workspace in cui non è membro esplicito. **Gli override restano**: sono
   appartenenze esplicite, date per un progetto. Il foglio della rimozione li
-  elenca e propone di toglierli insieme (D12: raccomando la casella «togli anche
-  dai progetti» spenta per default, perché un override può essere stato dato
-  prima della workspace, per un motivo suo).
+  elenca e propone di toglierli insieme, con la casella «togli anche dai
+  progetti» spenta per default (D12): un override può essere stato dato prima
+  della workspace, per un motivo suo.
 - **Eliminare una workspace**: i progetti restano, senza workspace; le persone
   perdono l'appartenenza derivata; le righe di invito pendenti (`invite_workspaces`)
   cadono in cascata. Il server non la rifiuta se ha progetti (la shape chiederà
@@ -407,8 +407,8 @@ Tipi nuovi, con `readPermission` come gli altri: `workspace.created`,
   `workspaces.manage` o `users.manage`. La persona che non si conosce resta un
   segnaposto (r.1414).
 - **«Annulla» di Claude**: `workspace.member_added` e `workspace.project_added`
-  si annullano come `member.added` (togliere ciò che si è aggiunto), se il
-  catalogo delle azioni di Claude le include (D14).
+  si annullano come `member.added` (togliere ciò che si è aggiunto), nella
+  stessa fetta (D14).
 - `scrubLogData` non ha niente da mascherare (nessun segreto).
 
 ### 5.4 Notifiche
@@ -420,8 +420,9 @@ Tipi nuovi, con `readPermission` come gli altri: `workspace.created`,
   e i progetti **derivati a lettura**, non scritti nel jsonb (la regola delle
   card). Alla persona (obbligatoria) e a chi gestisce i membri, mai a chi ha
   agito, come oggi.
-- **Un progetto aggiunto a una workspace** non manda una card per persona per
-  default (una workspace con 30 persone farebbe 30 card per uno spostamento): D13.
+- **Un progetto aggiunto a una workspace** non manda card alle persone (una
+  workspace con 30 persone farebbe 30 card per uno spostamento): lo dice il
+  registro del progetto (D13).
 
 ### 5.5 MCP (parità)
 
@@ -457,8 +458,7 @@ job nuovo.
 
 - Crea le tre tabelle più `invite_workspaces`, il permesso `workspaces.manage`
   (nel catalogo, nel codice: nessun dato) e **nessuna** riga di dati: nessuna
-  workspace nasce da sola. D15 chiede se il maintainer vuole una workspace
-  iniziale con tutti i progetti; raccomando di no.
+  workspace nasce da sola (D15).
 - Nessun `ALTER TYPE ... ADD VALUE` (i tipi del registro sono testo).
 - Tutto additivo: nessuna colonna rinominata o tolta.
 
@@ -509,88 +509,56 @@ job nuovo.
   sorgente, con un elenco chiuso dei siti di sola gestione), come
   `vault-isolation.test.ts`.
 
-## 7. Domande aperte per il maintainer
+## 7. Decisioni (27 nov 2026)
 
-Numerate come nella shape di 79 (`apps/desktop/.impeccable/shape/workspaces.md`,
-D1–D10), così il maintainer risponde una volta sola. Da D11 in poi le domande
-che vengono dal lato server. Ognuna con la raccomandazione per prima.
+Il maintainer ha accettato tutte le raccomandazioni. Numeri come nella shape di
+79 (`apps/desktop/.impeccable/shape/workspaces.md`): D1–D10 sono comuni, D11–D19
+vengono dal lato server.
 
-- **D1. L'override per progetto può anche TOGLIERE?** **Raccomando: no**, il
-  ruolo per progetto aggiunge soltanto: il permesso effettivo è l'unione delle
-  fonti (§1.3), la lettura di «vince il più alto». Per far vedere meno si toglie
-  il progetto dalla workspace o si abbassa il ruolo di workspace. Un «sostituisce
-  anche al ribasso» introdurrebbe un «nega» che oggi non esiste in nessun calcolo.
-- **D2. Un progetto sta in una workspace sola?** **Raccomando: sì, al più
-  una** (indice unico su `workspace_projects.project_id`). La colonna è una
-  cartella e lo spostamento ha un solo significato. Il modello reggerebbe anche
-  il molti-a-molti togliendo l'indice.
-- **D3. Il ruolo di base di un invito in workspace?** **Raccomando: Viewer.**
-  Contributor crea ma non vede tutto: i due preset non si confrontano, serve una
-  scelta e non «il più basso».
-- **D4. Chi crea le workspace e chi ci mette progetti e persone?**
-  **Raccomando:** un permesso d'istanza nuovo `workspaces.manage`, che il full
-  admin ha implicito (il preset Admin è il full admin) e che nessun altro preset
-  riceve. Per mettere, togliere o spostare un progetto serve anche
-  `project.members.manage` in quel progetto (nei due, per uno spostamento),
-  perché cambia chi lo vede. Per invitare servono `project.members.manage` e
-  l'anti-escalation in ogni progetto della workspace. Alternativa: dei gestori
-  per singola workspace, che sarebbero una quarta fonte da spiegare.
-- **D5. Chi vede una workspace di cui non è membro?** **Raccomando:** chi ne
-  vede almeno un progetto, con il conteggio dei soli progetti visibili. Le
-  persone di una workspace con almeno un progetto visibile sono già
-  «conosciute» (condividono quel progetto, §5.6), quindi mostrarle non incrina
-  r.1414.
-- **D6. Un progetto archiviato resta nella sua workspace?** **Raccomando: sì**,
-  e riaprendolo torna dov'era (§1.6).
-- **D7. Ogni progetto deve stare in una workspace?** **Raccomando: no**: «No
-  workspace» resta un posto legittimo, e un'istanza senza workspace è identica a
-  oggi.
-- **D8. Le workspace come filtro fuori da All projects** (Tasks, Planning,
-  Posta, Drive, selettori)? **Raccomando: rimandato**, nel registro dei rimandi.
-  Il server non ne ha bisogno: l'elenco delle workspace dà già gli id dei
-  progetti.
-- **D9. Si invita in una workspace anche chi non ha un account?**
-  **Raccomando: sì**, dall'invito di registrazione esistente
-  (`invite_workspaces`, §3), con la riverifica R51 all'accettazione.
-- **D10. I permessi in più di un reparto valgono nei progetti visti dalla
-  workspace?** **Raccomando: sì**: chi vede un progetto dalla workspace ne è
-  membro a tutti gli effetti (§1.2). Si aggiorna la regola F8-1 in
-  `permissions.md`.
-- **D11. Mettere un progetto in una workspace chiede la riconferma?**
-  **Raccomando: sì**: fa arrivare permessi a tutte le persone della workspace,
-  la regola F8-3 dei reparti. Lo stesso per creare una workspace con dei
-  progetti, se ci sono già persone (una workspace nuova non ne ha).
-- **D12. Togliendo una persona dalla workspace, i suoi override per progetto
-  restano?** **Raccomando: restano**, e il foglio propone di toglierli con una
-  casella spenta per default.
-- **D13. Un progetto aggiunto a una workspace avvisa le persone (una card
-  `member.added` a testa)?** **Raccomando: no**: lo dice il registro del
-  progetto, e la card arriva solo a chi entra in una workspace.
-- **D14. «Annulla» di Claude vale per le azioni di workspace?** **Raccomando:
-  sì**, come per `member.added`.
-- **D15. Una workspace iniziale con i progetti esistenti?** **Raccomando: no**:
-  nulla cambia per nessuno finché un admin non ne crea una.
-- **D16. Cassaforte: chi legge una credenziale «per ruolo» conta anche il ruolo
-  di workspace?** (`vault/readers.ts`, `vault/sharing.ts` confrontano
-  `project_members.role_id`). **Raccomando: sì.** Il ruolo di workspace è un
-  ruolo di progetto in quel progetto, e una persona con due righe vale per
-  entrambi i ruoli. Va però detto a chi condivide: la condivisione a un ruolo
-  raggiunge anche le persone della workspace.
-- **D17. Posta e calendario: i progetti candidati di una mail e gli invitati
-  di un evento contano le persone di workspace?** (`classify-v2.ts`,
-  `calendar-guess.ts`, `calendar-shared.ts`, oggi solo membri ESPLICITI, e
-  `inviteesOfAny` lo fa apposta: niente admin impliciti). **Raccomando: sì
-  per le persone di workspace, no per gli admin impliciti.** La workspace rende
-  membri a tutti gli effetti, mentre l'esclusione degli admin riguarda il fatto
-  che vedano tutto, non la workspace. Si cambia insieme a
-  `docs/invariants/mail-calendar.md`.
-- **D18. `last_manager`: una persona che ha `project.members.manage` per via
-  della workspace conta come gestore del progetto?** **Raccomando: sì**, è un
-  permesso effettivo come gli altri. Ne segue che togliere quella persona dalla
-  workspace può dare 409 `last_manager` su un progetto.
-- **D19. Un progetto eliminato ricorda anche chi lo vedeva per workspace?**
-  (`deleted_project_members`, «chi lo conosceva»). **Raccomando: sì**: lo
-  conosceva davvero.
+- **D1.** L'override per progetto **aggiunge soltanto**: il permesso effettivo è
+  l'unione delle fonti. Per far vedere meno si toglie il progetto dalla
+  workspace o si abbassa il ruolo di workspace.
+- **D2.** Un progetto sta in **al più una** workspace (indice unico su
+  `workspace_projects.project_id`).
+- **D3.** Il ruolo di base di un invito in workspace è **Viewer**, risolto per
+  chiave di preset.
+- **D4.** La struttura richiede **`workspaces.manage`** (permesso d'istanza nuovo,
+  implicito nel full admin, in nessun altro preset). Mettere, togliere o spostare
+  un progetto richiede anche `project.members.manage` in quel progetto (nei due,
+  per uno spostamento). Invitare richiede `project.members.manage` e
+  l'anti-escalation in ogni progetto della workspace. Niente gestori per
+  workspace.
+- **D5.** Una workspace la vede chi ne vede almeno un progetto (con il conteggio
+  dei soli visibili) o ne è membro; le sue persone sono «conosciute» da chi la
+  vede.
+- **D6.** Un progetto archiviato **resta** nella sua workspace, e riaprendolo
+  torna dov'era.
+- **D7.** «No workspace» è un posto legittimo: nessun progetto deve stare in una
+  workspace.
+- **D8.** Le workspace come filtro fuori da All projects sono **rimandate** (nel
+  registro dei rimandi).
+- **D9.** Un esterno si invita in una workspace dall'invito di registrazione
+  esistente (`invite_workspaces`), con la riverifica R51.
+- **D10.** I permessi in più di un reparto valgono anche nei progetti visti dalla
+  workspace. Si aggiorna F8-1 in `permissions.md`.
+- **D11.** Mettere un progetto in una workspace, o creare una workspace con dei
+  progetti quando ha già persone, **chiede la riconferma**.
+- **D12.** Togliendo una persona dalla workspace i suoi override **restano**; il
+  foglio propone di toglierli con una casella spenta per default.
+- **D13.** Un progetto aggiunto a una workspace **non** manda card: lo dice il
+  registro del progetto.
+- **D14.** «Annulla» di Claude vale per entrare in una workspace e per mettere un
+  progetto, nella stessa fetta.
+- **D15.** **Nessuna** workspace iniziale.
+- **D16.** La cassaforte conta il ruolo di workspace come ruolo di progetto, e la
+  condivisione a un ruolo dice quante persone raggiunge per via di workspace.
+- **D17.** Posta e calendario contano le persone di workspace come membri; gli
+  admin impliciti restano esclusi dove lo sono oggi. Si aggiorna
+  `mail-calendar.md`.
+- **D18.** Chi ha `project.members.manage` per via di workspace **conta** come
+  gestore per `last_manager`.
+- **D19.** Un progetto eliminato ricorda anche chi lo vedeva per workspace
+  (`deleted_project_members`).
 
 ## Inventario dei lettori di `project_members` (27 nov 2026, su origin/main)
 
@@ -646,8 +614,8 @@ vista, mentre (C) e (D) restano su `project_members` («membro esplicito»).
   - `confirmMailProposalWithMembers`;
   - `lockLoggedSubjects` dell'«Annulla» di Claude;
   - `deleteArchivedProject`, che deve copiare in `deleted_project_members`
-    anche chi lo vedeva per workspace (D19: raccomando di sì, così la memoria
-    «chi lo conosceva» resta vera).
+    anche chi lo vedeva per workspace (D19), così la memoria «chi lo
+    conosceva» resta vera.
 
 **(D) 7 solo visualizzazione**:
 - `membersWithPermissions` e `listProjectMembers` (`roles.ts`);
