@@ -74,7 +74,14 @@ const hasLiveKey = (s: VaultStatusResponse) =>
 const wipe = (buffer: ArrayBuffer) => new Uint8Array(buffer).fill(0);
 
 export class VaultCore {
-  private key: { privateKey: CryptoKey; personId: string; sessionTag: string; lastUseAt: number } | null = null;
+  private key: {
+    privateKey: CryptoKey;
+    personId: string;
+    sessionTag: string;
+    /** Il `sessionTag` del SERVER all'apertura (I-3); `null` da un server di prima. */
+    serverTag: string | null;
+    lastUseAt: number;
+  } | null = null;
   private timer: unknown = null;
 
   constructor(private readonly deps: CoreDeps) {}
@@ -145,6 +152,16 @@ export class VaultCore {
     return this.key.privateKey;
   }
 
+  /**
+   * I-3: chi guarda e la sessione del cookie, letti dal worker col SUO
+   * fetch (la pagina non li può falsare). `serverTag` è `null` da un server
+   * di prima del `sessionTag`.
+   */
+  private async whoOnServer(): Promise<{ userId: string; serverTag: string | null }> {
+    const me = await this.http<{ user: { id: string }; sessionTag?: string | null }>("GET", "/api/auth/me");
+    return { userId: me.user.id, serverTag: typeof me.sessionTag === "string" ? me.sessionTag : null };
+  }
+
   async handle(req: CoreRequest): Promise<unknown> {
     try {
       return await this.dispatch(req);
@@ -182,6 +199,8 @@ export class VaultCore {
       case "unlock": {
         try {
           await this.http("POST", "/api/me/security/reauth/passkey/verify", { response: req.assertion });
+          const server = await this.whoOnServer();
+          if (server.userId !== req.personId) return { ok: false, code: "session" };
           const mine = await this.http<VaultMyKeyResponse>("GET", "/api/vault/keys/mine");
           const seal = mine.seals.find((s) => s.credentialIdB64url === req.credentialId);
           if (!seal) return { ok: false, code: "no_seal" };
@@ -191,7 +210,13 @@ export class VaultCore {
           } catch {
             return { ok: false, code: "open_failed" };
           }
-          this.key = { privateKey, personId: req.personId, sessionTag: req.sessionTag, lastUseAt: this.deps.now() };
+          this.key = {
+            privateKey,
+            personId: req.personId,
+            sessionTag: req.sessionTag,
+            serverTag: server.serverTag,
+            lastUseAt: this.deps.now(),
+          };
           this.arm();
           this.deps.emit({ t: "state", state: "open", closesAt: this.closesAt() });
           return { ok: true };
@@ -202,6 +227,14 @@ export class VaultCore {
       case "reveal": {
         const privateKey = this.use(req.personId, req.sessionTag);
         if (!privateKey) return { ok: false, code: "vault_locked" };
+        // I-3: la sessione del cookie è ancora quella dell'apertura (un logout
+        // e un login in un'altra scheda la cambiano).
+        const server = await this.whoOnServer();
+        if (!this.key) return { ok: false, code: "vault_locked" };
+        if (server.userId !== this.key.personId || server.serverTag !== this.key.serverTag) {
+          this.lock("session");
+          return { ok: false, code: "vault_locked" };
+        }
         const r = await this.http<CredentialRevealResponse>(
           "POST",
           `/api/credentials/${encodeURIComponent(req.id)}/reveal`,

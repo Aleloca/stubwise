@@ -93,6 +93,18 @@ describe("lo specchio della cassaforte nella pagina", () => {
     other.close();
   });
 
+  it("I-3: un login in un'altra scheda chiude questa; il proprio login lo annuncia", async () => {
+    emit({ t: "state", state: "open", closesAt: 1 });
+    const other = new BroadcastChannel("stubwise-vault");
+    const got: unknown[] = [];
+    other.onmessage = (e) => got.push(e.data);
+    other.postMessage({ type: "login" });
+    await vi.waitFor(() => expect(key.status()).toEqual({ state: "locked" }));
+    key.announceLogin();
+    await vi.waitFor(() => expect(got).toEqual([{ type: "login" }]));
+    other.close();
+  });
+
   it("solo l'interazione VERA chiede al worker di allungare la vita", () => {
     emit({ t: "state", state: "open", closesAt: 1 });
     window.dispatchEvent(new Event("keydown"));

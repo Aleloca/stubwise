@@ -31,3 +31,18 @@ export function onLoggedOut(fn: () => void): () => void {
 export function emitLoggedOut(): void {
   for (const fn of loggedOut) fn();
 }
+
+// Una sessione NUOVA (cassaforte nel browser, revisione I-3): la build app la
+// vede quando `/api/auth/me` dà un `sessionTag` diverso dall'ultimo.
+const started = new Set<() => void>();
+
+export function onSessionStarted(fn: () => void): () => void {
+  started.add(fn);
+  return () => {
+    started.delete(fn);
+  };
+}
+
+export function emitSessionStarted(): void {
+  for (const fn of started) fn();
+}

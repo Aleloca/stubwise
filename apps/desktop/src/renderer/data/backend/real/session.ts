@@ -1,4 +1,4 @@
-import { emitLoggedOut } from "../../sessionEvents";
+import { emitLoggedOut, emitSessionStarted } from "../../sessionEvents";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { ApiError } from "@stubwise/api-client";
 import { passkeyAuthenticationOptionsSchema } from "@stubwise/shared";
@@ -69,6 +69,8 @@ export function currentMe(): Promise<AuthMe> {
 
 /** L'ultima persona vista dentro: anche dopo un 401 a metà, che azzera `session.personId`. */
 let lastPerson: string | null = null;
+/** L'ultimo `sessionTag` visto (I-3): uno diverso è una sessione nuova. */
+let lastSessionTag: string | null = null;
 
 export const getSessionPerson: typeof Fake.getSessionPerson = async () => {
   const before = lastPerson;
@@ -80,6 +82,16 @@ export const getSessionPerson: typeof Fake.getSessionPerson = async () => {
       forgetClientCaches();
     }
     lastPerson = me.user.id;
+    // I-3: una sessione nuova (un login) la si annuncia alle altre schede.
+    const tag = (me as { sessionTag?: string | null }).sessionTag ?? null;
+    // Solo un CAMBIO rispetto a un tag già visto qui: aprire una scheda nuova
+    // non chiude le altre. (Una scheda caricata fuori che poi entra non lo
+    // annuncia: le altre le chiude il worker al primo uso, I-3.)
+    if (tag !== null && tag !== lastSessionTag) {
+      const changed = lastSessionTag !== null;
+      lastSessionTag = tag;
+      if (changed) emitSessionStarted();
+    }
     session.personId = me.user.id;
     session.partial = false;
     return me.user.id;

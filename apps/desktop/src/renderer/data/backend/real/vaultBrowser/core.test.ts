@@ -25,9 +25,11 @@ let calls: { method: string; path: string; body: unknown }[];
 let routes: Record<string, () => { status?: number; body: unknown }>;
 let events: CoreEvent[];
 let prf: Uint8Array<ArrayBuffer>;
+let serverTag: string | null | undefined;
 
 async function setup() {
   clock = Date.parse("2026-11-28T10:00:00Z");
+  serverTag = "srv-tag-1";
   timers = [];
   calls = [];
   events = [];
@@ -62,6 +64,7 @@ async function setup() {
       },
     }),
     [`POST /api/credentials/${C1}/reveal`]: () => ({ body: { passwordCiphertext: ciphertext, wrappedKey, personKeyId: KEY_ID } }),
+    "GET /api/auth/me": () => ({ body: { user: { id: ME }, sessionTag: serverTag } }),
   };
   return new VaultCore({
     fetch: async (path, init) => {
@@ -126,6 +129,24 @@ describe("il cuore della cassaforte nel worker", () => {
       code: "vault_locked",
     });
     expect(events.at(-1)).toMatchObject({ t: "state", state: "locked", reason: "session" });
+  });
+
+  it("I-3: un'altra sessione sul server (logout e login in un'altra scheda) chiude al primo Show", async () => {
+    await openCore(core);
+    expect(await core.handle({ t: "reveal", id: C1, action: "show", personId: ME, sessionTag: TAG })).toMatchObject({ ok: true });
+    serverTag = "srv-tag-2";
+    expect(await core.handle({ t: "reveal", id: C1, action: "show", personId: ME, sessionTag: TAG })).toEqual({
+      ok: false,
+      code: "vault_locked",
+    });
+    expect(events.at(-1)).toMatchObject({ state: "locked", reason: "session" });
+    expect(calls.filter((c) => c.path.endsWith("/reveal"))).toHaveLength(1);
+  });
+
+  it("I-3: un server di prima senza `sessionTag` vale l'etichetta della pagina", async () => {
+    serverTag = undefined;
+    await openCore(core);
+    expect(await core.handle({ t: "reveal", id: C1, action: "show", personId: ME, sessionTag: TAG })).toMatchObject({ ok: true });
   });
 
   it("15 minuti a ora di parete: al primo uso dopo, chiusa (nessun timer scattato)", async () => {

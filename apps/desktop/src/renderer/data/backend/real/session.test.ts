@@ -15,6 +15,26 @@ afterEach(() => {
   setAppClientForTests(null);
 });
 
+describe("I-3: una sessione nuova si annuncia", () => {
+  it("la prima lettura della scheda non annuncia niente; un sessionTag CAMBIATO sì", async () => {
+    vi.resetModules();
+    const events = await import("../../sessionEvents");
+    const fresh = await import("./session");
+    const started = vi.fn();
+    const off = events.onSessionStarted(started);
+    let tag = "tag-1";
+    installFakeServer({ "GET /api/auth/me": () => ({ body: { ...me(), sessionTag: tag } }) });
+    await fresh.getSessionPerson();
+    expect(started).not.toHaveBeenCalled();
+    await fresh.getSessionPerson();
+    expect(started).not.toHaveBeenCalled();
+    tag = "tag-2";
+    await fresh.getSessionPerson();
+    expect(started).toHaveBeenCalledTimes(1);
+    off();
+  });
+});
+
 describe("sessione e permessi dal server", () => {
   it("i permessi del viewer vengono dal server, non dedotti", async () => {
     const { seen } = installFakeServer({

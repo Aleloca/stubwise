@@ -14,8 +14,9 @@ import { primitives } from "./primitives";
 // - `pagehide` chiude SOLO questa scheda, senza segnale (M-4: si propagano
 //   solo «Lock» ed «Esci», design §8);
 // - fra le schede (`BroadcastChannel("stubwise-vault")`) solo segnali
-//   `locked` e `logout`; «Esci» si manda SEMPRE, anche a cassaforte chiusa
-//   (I-2). Ricevuto, la scheda chiude.
+//   `locked`, `logout` e `login` (I-3: una sessione nuova in un'altra
+//   scheda); «Esci» si manda SEMPRE, anche a cassaforte chiusa (I-2).
+//   Ricevuto, la scheda chiude.
 
 export { IDLE_MS } from "./core";
 export type { LockReason } from "./core";
@@ -64,7 +65,7 @@ function onEvent(event: CoreEvent): void {
   }
 }
 
-function signal(type: "locked" | "logout"): void {
+function signal(type: "locked" | "logout" | "login"): void {
   if (channel) primitives.postToChannel(channel, { type });
 }
 
@@ -81,6 +82,14 @@ export function lock(reason: LockReason): void {
   void request({ t: "lock", reason });
   if (reason === "logout") signal("logout");
   else if (reason === "user" && wasOpen) signal("locked");
+}
+
+/**
+ * I-3: questa scheda ha una sessione NUOVA (un login): lo dice alle altre,
+ * che chiudono la loro cassaforte (aperta con la sessione di prima).
+ */
+export function announceLogin(): void {
+  signal("login");
 }
 
 function activity(event: Event): void {
@@ -104,7 +113,7 @@ function onPagehide(): void {
 
 function onSignal(event: Event): void {
   const data = (event as MessageEvent).data as { type?: string } | null;
-  if (data?.type === "locked" || data?.type === "logout") lock("remote");
+  if (data?.type === "locked" || data?.type === "logout" || data?.type === "login") lock("remote");
 }
 
 const ACTIVITY = ["pointerdown", "keydown", "touchstart", "wheel"] as const;

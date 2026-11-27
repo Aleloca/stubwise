@@ -1,7 +1,7 @@
 import type { VaultStatusResponse } from "@stubwise/shared";
 import { keyFingerprint } from "@stubwise/vault-crypto";
 import type * as Fake from "../../../api";
-import { onLoggedOut, onSessionLost } from "../../../sessionEvents";
+import { onLoggedOut, onSessionLost, onSessionStarted } from "../../../sessionEvents";
 import type { VaultStatusView } from "../../../vault/types";
 import { session } from "../client";
 import { partialNamespace } from "../notIntegrated";
@@ -38,6 +38,12 @@ onLoggedOut(() => {
   epoch += 1;
   // I-2: «Esci» si dice alle altre schede sempre, anche a cassaforte chiusa.
   key.lock("logout");
+});
+
+// I-3: una sessione nuova qui la dicono le altre schede (che chiudono).
+onSessionStarted(() => {
+  epoch += 1;
+  key.announceLogin();
 });
 
 /** L'ultima apertura ha usato una passkey senza PRF: la barra lo dice finché un'apertura riesce. */
