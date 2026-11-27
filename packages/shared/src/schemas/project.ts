@@ -938,6 +938,12 @@ export const projectDecisionSchema = z.object({
    */
   supersededById: z.uuid().nullable(),
   createdAt: z.iso.datetime(),
+  /**
+   * D4 della parità MCP (0237): la persona l'ha scritta o modificata da Claude
+   * Code, col suo PAT («via Claude Code»). È un'azione dell'utente, non
+   * dell'AI. Additivo: false per le voci di prima e da un server più vecchio.
+   */
+  viaClaudeCode: z.boolean().default(false),
 });
 export type ProjectDecision = z.infer<typeof projectDecisionSchema>;
 

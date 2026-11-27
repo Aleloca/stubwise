@@ -323,7 +323,7 @@ export async function widgetRoutes(
   app.get(
     "/:slug/config",
     {
-      config: { rateLimit, access: { kind: "public" } },
+      config: { rateLimit, access: { kind: "public" }, mcp: { exclude: "inbound" } },
       preValidation: authenticateWidget,
       schema: {
         params: z.object({ slug: z.string().min(1) }),
@@ -385,7 +385,7 @@ export async function widgetRoutes(
   app.post(
     "/:slug/conversations",
     {
-      config: { rateLimit, access: { kind: "public" } },
+      config: { rateLimit, access: { kind: "public" }, mcp: { exclude: "inbound" } },
       preValidation: [authenticateWidget, identify],
       schemaErrorFormatter: unprocessableEntityFormatter,
       schema: {
@@ -445,7 +445,7 @@ export async function widgetRoutes(
   app.get(
     "/:slug/conversations/:conversationId/messages",
     {
-      config: { rateLimit, access: { kind: "public" } },
+      config: { rateLimit, access: { kind: "public" }, mcp: { exclude: "inbound" } },
       preValidation: [authenticateWidget, identify],
       schema: {
         params: z.object({
@@ -529,7 +529,7 @@ export async function widgetRoutes(
   app.post(
     "/:slug/conversations/:conversationId/messages",
     {
-      config: { rateLimit, access: { kind: "public" } },
+      config: { rateLimit, access: { kind: "public" }, mcp: { exclude: "inbound" } },
       preValidation: [authenticateWidget, identify],
       schemaErrorFormatter: unprocessableEntityFormatter,
       schema: {
@@ -721,7 +721,7 @@ export async function widgetRoutes(
   app.get(
     "/:slug/me/requests",
     {
-      config: { rateLimit: siteReadsByKey, access: { kind: "public" } },
+      config: { rateLimit: siteReadsByKey, access: { kind: "public" }, mcp: { exclude: "inbound" } },
       preValidation: [authenticateWidget, identify, requireIdentity],
       preHandler: perCustomerLimit,
       schema: {
@@ -745,7 +745,7 @@ export async function widgetRoutes(
   app.get(
     "/:slug/me/requests/:code",
     {
-      config: { rateLimit: siteReadsByKey, access: { kind: "public" } },
+      config: { rateLimit: siteReadsByKey, access: { kind: "public" }, mcp: { exclude: "inbound" } },
       preValidation: [authenticateWidget, identify, requireIdentity],
       preHandler: perCustomerLimit,
       schema: {
@@ -765,7 +765,7 @@ export async function widgetRoutes(
   app.post(
     "/:slug/conversations/:conversationId/tickets",
     {
-      config: { rateLimit, access: { kind: "public" } },
+      config: { rateLimit, access: { kind: "public" }, mcp: { exclude: "inbound" } },
       preValidation: [authenticateWidget, identify],
       schemaErrorFormatter: unprocessableEntityFormatter,
       schema: {

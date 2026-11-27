@@ -39,6 +39,23 @@ describe("registro della task", () => {
     expect(byClaude).not.toHaveProperty("viaClaudeRequesterId");
   });
 
+  it("«via Claude Code» (D4 della parità MCP): vero → `viaClaudeCode`; falso o assente → niente, e non è il segno di Claude", async () => {
+    installFakeServer({
+      [`GET /api/tasks/${TICKET_ID}/activity`]: {
+        body: [
+          { id: "c1", taskId: TICKET_ID, kind: "comment", authorId: MARTA, at: "2026-11-10T10:00:00.000Z", body: "x", viaClaudeCode: true },
+          { id: "c2", taskId: TICKET_ID, kind: "comment", authorId: MARTA, at: "2026-11-10T10:01:00.000Z", body: "y", viaClaudeCode: false },
+          { id: "c3", taskId: TICKET_ID, kind: "comment", authorId: MARTA, at: "2026-11-10T10:02:00.000Z", body: "z" },
+        ],
+      },
+    });
+    const [cc, no, old] = await listActivity(TICKET_ID);
+    expect(cc).toMatchObject({ viaClaudeCode: true });
+    expect(cc!.via).toBeUndefined();
+    expect(no).not.toHaveProperty("viaClaudeCode");
+    expect(old).not.toHaveProperty("viaClaudeCode");
+  });
+
   it("il commento appena scritto a mano non ha il segno", async () => {
     installFakeServer({ [`POST /api/tickets/${TICKET_ID}/comments`]: { body: serverComment("Ciao") } });
     const entry = await addComment(TICKET_ID, "Ciao");

@@ -1,3 +1,4 @@
+import { scrubForRead } from "./change-log.js";
 import { changeLog, deletedProjectMembers, deletedProjects, departments, projects, roles, users, type Db } from "@stubwise/db";
 import {
   CHANGE_LOG_TYPES,
@@ -147,6 +148,7 @@ const ENTRY_COLUMNS = {
   data: changeLog.data,
   viaClaudeActionId: changeLog.viaClaudeActionId,
   undoOfActionId: changeLog.undoOfActionId,
+  viaClient: changeLog.viaClient,
 };
 
 export async function listChanges(db: Db, viewer: Viewer, filter: ChangeLogFilter): Promise<ChangeLogPage> {
@@ -208,7 +210,8 @@ export async function listChanges(db: Db, viewer: Viewer, filter: ChangeLogFilte
       projectCode: r.projectCode,
       scope: type.scope,
       group: type.group,
-      data: redact(r.type, data, readable.visiblePeople, allProjectsVisible ? null : visibleCodes),
+      // Revisione finale della parità MCP, I1: le voci vecchie hanno i segreti com'erano.
+      data: redact(r.type, scrubForRead(r.type, data) as ChangeEntry["data"], readable.visiblePeople, allProjectsVisible ? null : visibleCodes),
       objectDeleted: !existing.has(`${r.subjectKind}:${r.subjectId}`),
       hidden: false,
       // Area 9, F6: DERIVATO a lettura, mai scritto nella voce. Il client
@@ -216,6 +219,9 @@ export async function listChanges(db: Db, viewer: Viewer, filter: ChangeLogFilte
       projectArchived: r.projectArchivedAt !== null,
       // Area 9, F7 (0195): «By Claude». L'id dell'azione non esce.
       via: r.viaClaudeActionId !== null ? "claude" : null,
+      // D4 della parità MCP (0237): «via Claude Code».
+      // Solo la voce di una persona (una di sistema nella stessa transazione no).
+      viaClaudeCode: r.actorKind === "user" && r.viaClient === "claude_code",
       undoOf: undone.get(r.id)?.id ?? null,
     };
   };

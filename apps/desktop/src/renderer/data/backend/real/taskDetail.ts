@@ -29,11 +29,12 @@ function viaOf(v: { viaClaude?: boolean; viaClaudeActionId?: string | null }): P
 
 function toEntry(v: TaskActivityEntryView): ActivityEntry {
   if (v.kind === "comment") ticketOfComment.set(v.id, v.taskId);
-  const { viaClaude: _v, viaClaudeActionId: _a, viaClaudeRequesterId: _r, ...rest } = v;
+  const { viaClaude: _v, viaClaudeActionId: _a, viaClaudeRequesterId: _r, viaClaudeCode, ...rest } = v;
   void _v;
   void _a;
   void _r;
-  return { ...rest, ...viaOf(v) } as ActivityEntry;
+  // «via Claude Code» (D4 della parità MCP): solo se vero, come il segno di Claude.
+  return { ...rest, ...viaOf(v), ...(viaClaudeCode ? { viaClaudeCode: true } : {}) } as ActivityEntry;
 }
 
 export const listActivity: typeof Fake.listActivity = async (taskId) =>

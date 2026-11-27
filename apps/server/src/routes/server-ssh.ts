@@ -108,14 +108,14 @@ export async function serverSshRoutes(instance: FastifyInstance): Promise<void> 
   const serverExists = async (id: string) => (await app.db.select({ id: servers.id }).from(servers).where(eq(servers.id, id))).length > 0;
   const rowOf = async (id: string) => (await app.db.select().from(serverSshAccess).where(eq(serverSshAccess.serverId, id)))[0];
 
-  app.get("/:id/ssh", { config: { access }, schema: { params: idParamsSchema, response } }, async (request, reply) => {
+  app.get("/:id/ssh", { config: { mcp: { action: "servers.ssh", summary: "L'accesso SSH di un server: stato, host, porta, chiave PUBBLICA da installare.", effect: "read" }, access }, schema: { params: idParamsSchema, response } }, async (request, reply) => {
     if (!(await serverExists(request.params.id))) return apiError(reply, 404, "not_found", "Server not found");
     return viewOf(await rowOf(request.params.id));
   });
 
   app.put(
     "/:id/ssh",
-    { config: { access }, schema: { params: idParamsSchema, body: connectBodySchema, response: { ...response, 400: errorSchema } } },
+    { config: { mcp: { action: "servers.connectSsh", summary: "Configura l'accesso SSH di un server (host, porta): genera la coppia di chiavi e dà la chiave PUBBLICA da installare.", effect: "destructive", note: "Sostituisce l'accesso esistente e rifissa la host key su host: chi la usava deve reinstallare la chiave pubblica. Stubwise potrà entrare sul server con quella chiave, coi limiti dell'analisi." }, access }, schema: { params: idParamsSchema, body: connectBodySchema, response: { ...response, 400: errorSchema } } },
     async (request, reply) => {
       const { id } = request.params;
       if (!(await serverExists(id))) return apiError(reply, 404, "not_found", "Server not found");
@@ -141,7 +141,7 @@ export async function serverSshRoutes(instance: FastifyInstance): Promise<void> 
     },
   );
 
-  app.post("/:id/ssh/verify", { config: { access }, schema: { params: idParamsSchema, response } }, async (request, reply) => {
+  app.post("/:id/ssh/verify", { config: { mcp: { action: "servers.verifySsh", summary: "Verifica l'accesso SSH di un server con una connessione vera.", effect: "write" }, access }, schema: { params: idParamsSchema, response } }, async (request, reply) => {
     const row = await rowOf(request.params.id);
     if (!row) return apiError(reply, 404, "not_found", "No SSH access for this server");
     if (row.status === "revoked") return apiError(reply, 409, "revoked", "The SSH access is revoked: connect it again");
@@ -149,7 +149,7 @@ export async function serverSshRoutes(instance: FastifyInstance): Promise<void> 
     return viewOf(await rowOf(row.serverId));
   });
 
-  app.post("/:id/ssh/regenerate", { config: { access }, schema: { params: idParamsSchema, response } }, async (request, reply) => {
+  app.post("/:id/ssh/regenerate", { config: { mcp: { action: "servers.regenerateSsh", summary: "Rigenera la coppia di chiavi SSH di un server: la chiave vecchia non vale più.", effect: "destructive", note: "Finché la nuova chiave pubblica non è installata sul server, l'accesso SSH non funziona." }, access }, schema: { params: idParamsSchema, response } }, async (request, reply) => {
     const row = await rowOf(request.params.id);
     if (!row) return apiError(reply, 404, "not_found", "No SSH access for this server");
     const pair = keyPair();
@@ -161,7 +161,7 @@ export async function serverSshRoutes(instance: FastifyInstance): Promise<void> 
     return viewOf(await rowOf(row.serverId));
   });
 
-  app.delete("/:id/ssh", { config: { access }, schema: { params: idParamsSchema, response } }, async (request, reply) => {
+  app.delete("/:id/ssh", { config: { mcp: { action: "servers.revokeSsh", summary: "Revoca l'accesso SSH di un server.", effect: "destructive", note: "Le analisi perdono le letture SSH, e sull'host resta l'utente da togliere a mano (removeCommand nella risposta)." }, access }, schema: { params: idParamsSchema, response } }, async (request, reply) => {
     const row = await rowOf(request.params.id);
     if (!row) return apiError(reply, 404, "not_found", "No SSH access for this server");
     await app.db

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readerSchema } from "../reader.js";
 import {
   createServerSchema,
+  serverCheckViewSchema,
   serverDetailSchema,
   serverEpisodeSchema,
   serverMetricsResponseSchema,
@@ -108,5 +109,28 @@ describe("area 8, F4a: le forme dei server sono additive", () => {
     expect(createServerSchema.parse({ name: "x" }).environment).toBeUndefined();
     expect(createServerSchema.safeParse({ name: "x", environment: { environmentId: view.id, repositoryIds: [] } }).success).toBe(false);
     expect(createServerSchema.parse({ name: "x", environment: { environmentId: view.id } }).environment?.repositoryIds).toBeUndefined();
+  });
+});
+
+describe("serverCheckViewSchema.hasCredentials (revisione del lotto 5 della parità MCP, M6)", () => {
+  it("una risposta di un server più vecchio, senza il campo, si legge con false", () => {
+    const old = {
+      id: "00000000-0000-4000-8000-000000000001",
+      serverId: "00000000-0000-4000-8000-000000000002",
+      type: "http",
+      name: "web",
+      target: "https://example.com",
+      hasDsn: false,
+      intervalSeconds: 60,
+      enabled: true,
+      lastStatus: "unknown",
+      lastCheckedAt: null,
+      lastLatencyMs: null,
+      lastError: null,
+      downSince: null,
+      createdAt: "2026-11-26T00:00:00.000Z",
+    };
+    expect(serverCheckViewSchema.parse(old).hasCredentials).toBe(false);
+    expect(serverCheckViewSchema.parse({ ...old, hasCredentials: true }).hasCredentials).toBe(true);
   });
 });

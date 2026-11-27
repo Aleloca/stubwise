@@ -34,13 +34,13 @@ export async function outgoingWebhookRoutes(instance: FastifyInstance): Promise<
     }
   };
 
-  app.get("/", { config: { access: MANAGE }, schema: { response: { 200: z.array(outgoingWebhookViewSchema), ...authErrorResponses } } }, async () => listWebhooks(app.db));
+  app.get("/", { config: { mcp: { action: "settings.webhooks", summary: "I webhook in uscita: nome, formato, eventi, stato (gli URL nascosti).", effect: "read", note: "Gli URL dei webhook sono credenziali al portatore (Slack, Discord): l'MCP li nasconde, si vedono dall'app.", redact: ["[].url"] }, access: MANAGE }, schema: { response: { 200: z.array(outgoingWebhookViewSchema), ...authErrorResponses } } }, async () => listWebhooks(app.db));
 
   // Letterale PRIMA delle parametriche (trappola di routing in CLAUDE.md).
   app.get(
     "/preview",
     {
-      config: { access: MANAGE },
+      config: { mcp: { action: "settings.webhookPreview", summary: "Anteprima del corpo di un webhook in uscita, per formato ed evento.", effect: "read" }, access: MANAGE },
       schema: {
         querystring: z.object({ format: webhookFormatSchema, event: z.enum(OUTGOING_WEBHOOK_EVENT_IDS) }),
         response: { 200: outgoingWebhookPreviewSchema, 422: errorSchema, ...authErrorResponses },
@@ -62,7 +62,7 @@ export async function outgoingWebhookRoutes(instance: FastifyInstance): Promise<
   app.patch(
     "/:id",
     {
-      config: { access: MANAGE, partialReauth: true },
+      config: { mcp: { action: "settings.updateWebhook", summary: "Modifica un webhook in uscita: nome, URL, formato, eventi, acceso o spento.", effect: "write", note: "Un URL nuovo chiede la riconferma: da qui session_required. Vale per tutta l'istanza, non solo per chi la cambia. Gli URL dei webhook sono credenziali al portatore (Slack, Discord): l'MCP li nasconde, si vedono dall'app.", redact: ["url"] }, access: MANAGE, partialReauth: true },
       schema: { params: idParams, body: updateOutgoingWebhookSchema, response: { 200: outgoingWebhookViewSchema, 404: errorSchema, ...authErrorResponses } },
     },
     async (request, reply) => {
@@ -98,7 +98,7 @@ export async function outgoingWebhookRoutes(instance: FastifyInstance): Promise<
   app.post(
     "/:id/test",
     {
-      config: { access: MANAGE },
+      config: { mcp: { action: "settings.testWebhook", summary: "Manda un evento di prova a un webhook in uscita.", effect: "write", note: "Parte una chiamata vera verso fuori." }, access: MANAGE },
       schema: { params: idParams, response: { 200: outgoingWebhookTestResultSchema, 404: errorSchema, ...authErrorResponses } },
     },
     async (request, reply) => guard(reply, () => testWebhook(app.db, app.encryptionKey, request.params.id, app.publicUrl)),

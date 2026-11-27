@@ -381,7 +381,10 @@ function checkOf(serverCode: string, c: Reader<ServerCheckView>): ServerCheck | 
     serverCode,
     name: c.name,
     type: c.type,
+    // Il server la manda già mascherata (M6); `hasCredentials` da un server più
+    // vecchio è false per il default dello schema (il client parsa).
     target: c.target,
+    hasCredentials: c.hasCredentials,
     intervalSeconds: c.intervalSeconds,
     enabled: c.enabled,
     status: c.lastStatus === "__unknown__" ? "unknown" : c.lastStatus,

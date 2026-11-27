@@ -20,7 +20,7 @@ export async function meClaudeRoutes(fastify: FastifyInstance): Promise<void> {
   app.get(
     "/claude-decisions",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, mcp: { action: "claude.decisions", summary: "Le decisioni che aspettano te dal lavoro di Claude: piani da approvare e domande dell'agente.", effect: "read", note: "Si decidono coi tool `approve_plan`, `reject_plan` e `answer_agent_question`." } },
       schema: { response: { 200: z.array(claudeDecisionViewSchema), ...authErrorResponses } },
     },
     async (request) => listClaudeDecisions(app.db, request.user!),

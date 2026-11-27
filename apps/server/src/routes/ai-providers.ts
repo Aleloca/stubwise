@@ -267,7 +267,7 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/",
     {
-      config: { access: { kind: "instance", permission: "ai_providers.manage" } },
+      config: { mcp: { action: "aiProviders.list", summary: "I provider AI dell'istanza e il loro ordine, senza segreti.", effect: "read" }, access: { kind: "instance", permission: "ai_providers.manage" } },
       schema: { response: { 200: z.array(aiProviderViewSchema), ...authErrorResponses } },
     },
     async () => {
@@ -287,7 +287,7 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/reorder",
     {
-      config: { access: { kind: "instance", permission: "ai_providers.manage" } },
+      config: { mcp: { action: "aiProviders.reorder", summary: "Cambia l'ordine in cui si usano i provider AI.", effect: "write", note: "Vale per tutta l'istanza, non solo per chi la cambia." }, access: { kind: "instance", permission: "ai_providers.manage" } },
       schema: {
         body: reorderSchema,
         response: { 200: z.array(aiProviderViewSchema), 400: errorSchema, ...authErrorResponses },
@@ -317,7 +317,7 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
   app.patch(
     "/:id",
     {
-      config: { access: { kind: "instance", permission: "ai_providers.manage" }, partialReauth: true },
+      config: { mcp: { action: "aiProviders.update", summary: "Modifica un provider AI: etichetta, acceso o spento, posizione.", effect: "destructive", note: "Spegnere l'ultimo provider acceso ferma i run AI di TUTTI. Un segreto nuovo chiede la riconferma: da qui session_required. Vale per tutta l'istanza, non solo per chi la cambia." }, access: { kind: "instance", permission: "ai_providers.manage" }, partialReauth: true },
       schema: {
         params: idParamsSchema,
         body: updateAiProviderSchema,
@@ -348,7 +348,7 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/:id/test",
     {
-      config: { access: { kind: "instance", permission: "ai_providers.manage" } },
+      config: { mcp: { action: "aiProviders.test", summary: "Prova un provider AI con una chiamata vera.", effect: "write", note: "È una chiamata vera al provider, a pagamento." }, access: { kind: "instance", permission: "ai_providers.manage" } },
       schema: {
         params: idParamsSchema,
         response: { 200: aiProviderViewSchema, 404: errorSchema, ...authErrorResponses },

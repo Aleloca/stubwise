@@ -49,6 +49,9 @@ import { meSessionsRoutes } from "./routes/me-sessions.js";
 import { avatarRoutes } from "./routes/avatars.js";
 import { meEmailChangeRoutes } from "./routes/me-email-change.js";
 import { accessRoutes } from "./routes/access.js";
+import { mcpRoutes } from "./routes/mcp.js";
+import { createRouteCollector } from "./mcp/catalog.js";
+import { outsideRequest, registerViaClientStore, withViaClientTransactions } from "./mcp/via-client.js";
 import { adminViewRoutes } from "./routes/admin-views.js";
 import { changeLogRoutes } from "./routes/change-log.js";
 import { outgoingWebhookRoutes } from "./routes/outgoing-webhooks.js";
@@ -488,6 +491,12 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   });
 
   if (opts.onRoute) app.addHook("onRoute", opts.onRoute);
+  // Il registro per il catalogo dell'MCP (`GET /api/mcp/catalog`): le rotte
+  // si raccolgono tutte, la config si legge alla prima richiesta.
+  const mcpRouteCollector = createRouteCollector();
+  app.addHook("onRoute", mcpRouteCollector.hook);
+  // Lo store di «via Claude Code», aperto per ogni richiesta (`mcp/via-client.ts`).
+  registerViaClientStore(app);
 
   // Accesso dichiarato per rotta (`config.access`), applicato da UN hook
   // globale: le rotte che non lo dichiarano ancora non sono toccate e usano i
@@ -529,14 +538,16 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // L'augmentation del modulo tipizza `db` come sempre presente, ma la
   // decorazione è condizionale: il getter rende l'errore esplicito se una
   // route tocca il db quando l'app è stata costruita senza (es. unit test).
-  const db = opts.db;
+  // D4 della parità MCP: le transazioni di una richiesta «via Claude Code» lo dicono alle colonne `via_client`.
+  const db = opts.db ? withViaClientTransactions(opts.db) : undefined;
   app.decorate("agentSessionBus", opts.sessionBus ?? NOOP_BUS);
   app.decorate("chatBus", opts.chatBus ?? NOOP_CHAT_BUS);
   // Area 11, F4: il canale dal vivo, nato al primo uso (serve il db) e fermato alla chiusura.
   let productLive: ProductLiveHub | undefined;
   app.decorate("productLive", {
     getter(this: FastifyInstance): ProductLiveHub {
-      productLive ??= new ProductLiveHub(this.db, Date.now, this.log, opts.productLive ?? {});
+      // Fuori dalla richiesta che lo crea: il suo `setInterval` non deve portarne il segno («via Claude Code»).
+      productLive ??= outsideRequest(() => new ProductLiveHub(this.db, Date.now, this.log, opts.productLive ?? {}));
       return productLive;
     },
   });
@@ -614,11 +625,13 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // senza, esplode solo chi tocca la chat senza averli configurati).
   let realChatLlm: ChatLlm | undefined;
   const getRealChatLlm = (): ChatLlm => {
-    realChatLlm ??= createAnthropicChatLlm({
-      db: app.db,
-      encryptionKey: app.encryptionKey,
-      logger: app.log,
-    });
+    realChatLlm ??= outsideRequest(() =>
+      createAnthropicChatLlm({
+        db: app.db,
+        encryptionKey: app.encryptionKey,
+        logger: app.log,
+      }),
+    );
     return realChatLlm;
   };
   const chatLlm: ChatLlm = opts.chatLlm ?? {
@@ -1005,6 +1018,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(meEmailChangeRoutes, { prefix: "/api/me" });
   // Area 9, F1 (D-11): «Chi può farlo?» e «Cosa può fare?».
   void app.register(accessRoutes, { prefix: "/api/access" });
+  void app.register(mcpRoutes, { prefix: "/api/mcp", collector: mcpRouteCollector });
   // Area 9, F1 (R7, R8): le letture calcolate dell'amministrazione.
   void app.register(adminViewRoutes, { prefix: "/api/admin" });
   // Area 9, F2: il registro delle modifiche.
@@ -1058,7 +1072,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(meWaitingCustomersRoutes, { prefix: "/api/me" });
   void app.register(meCalendarRoutes, { prefix: "/api/me/calendar", ...(opts.calendarWriteClient ? { client: opts.calendarWriteClient } : {}) });
 
-  app.get("/health", { config: { access: { kind: "public" } } }, async () => ({ status: "ok" }));
+  app.get("/health", { config: { access: { kind: "public" }, mcp: { exclude: "infra" } } }, async () => ({ status: "ok" }));
 
   // Documento JSON puro, niente Swagger UI: il sito di documentazione
   // (Task 28) renderà questa spec. Non serve un db per servirla.
@@ -1066,7 +1080,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // root vengono registrate (e quindi viste dall'hook onRoute) prima che
   // @fastify/swagger sia caricato. Va bene così: sono endpoint
   // infrastrutturali, non parte dell'API documentata.
-  app.get("/api/openapi.json", { config: { access: { kind: "public" } } }, async () => app.swagger());
+  app.get("/api/openapi.json", { config: { access: { kind: "public" }, mcp: { exclude: "infra" } } }, async () => app.swagger());
 
   return app;
 }

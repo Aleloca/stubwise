@@ -194,6 +194,8 @@ function viewOf(e: Any, viewer: Viewer): ChangeEntryView {
     before: e.data.before ?? null,
     after: e.data.after ?? null,
     undoOf: e.undoOf ?? null,
+    // «via Claude Code» (D4 della parità MCP): solo se vero.
+    ...(e.viaClaudeCode ? { viaClaudeCode: true } : {}),
     // F6: una voce che chi guarda non deve leggere (un progetto eliminato che
     // non conosceva) arriva `hidden`: niente id (il server ci mette un
     // segnaposto), la chiave «un progetto che non vedi».

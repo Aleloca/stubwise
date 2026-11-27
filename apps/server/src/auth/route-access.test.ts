@@ -279,6 +279,9 @@ describe("rotte con riconferma recente", () => {
       "PATCH /api/settings/google-workspaces/:id",
       "PATCH /api/settings/webhooks/:id",
       "POST /api/claude/proposals/:id/confirm",
+      // Revisione del lotto 6 della parità MCP (I1): un DSN nuovo di un controllo postgres/mysql.
+      "POST /api/servers/:id/checks",
+      "PUT /api/servers/:id/checks/:checkId",
       "PUT /api/settings/instance",
       "PUT /api/settings/notifications",
     ]);

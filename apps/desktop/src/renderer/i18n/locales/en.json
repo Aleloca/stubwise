@@ -2353,6 +2353,7 @@
       "supersededBy": "Superseded by “{{title}}”",
       "superseded": "Superseded",
       "someone": "Someone no longer here",
+      "viaClaudeCode": "{{name}} via Claude Code",
       "sources": {
         "manual": "Recorded by hand",
         "ask_user": "Answer to Claude's question",
@@ -9833,6 +9834,7 @@
       "almostFull": "almost full"
     },
     "checks": {
+      "saveAction": "save this check",
       "add": "Add check",
       "addTitle": "Add check",
       "editTitle": "Edit “{{name}}”",
@@ -9880,6 +9882,7 @@
         "active": "Active"
       },
       "errors": {
+        "masked_credentials": "The target has a masked password (***): write the real one, or leave the target as it was.",
         "name": "Give the check a name.",
         "type": "Choose a type.",
         "target": "Say what to check.",
@@ -12796,6 +12799,7 @@
     },
     "via": {
       "actor": "Claude on behalf of {{name}}",
+      "claudeCode": "{{name}} via Claude Code",
       "mark": "Made with Claude",
       "filter": "Made with Claude",
       "undid": "Undid: {{sentence}}",
@@ -12976,6 +12980,7 @@
   "activity": {
     "viaClaude": "with Claude",
     "onBehalf": "Claude on behalf of {{name}}",
+    "viaClaudeCode": "{{name}} via Claude Code",
     "deletedTask": "{{name}} deleted <code>{{code}}</code> “{{title}}”",
     "deletedTaskConcealed": "A task was deleted"
   },

@@ -475,20 +475,22 @@ describe("list_proposals", () => {
     const text = firstText(res);
     expect(text).toContain("Acme");
     expect(text).toContain("fermo da 5 giorni");
-    expect(text).toContain("1. Export CSV degli ordini");
+    expect(text).toContain("0. Export CSV degli ordini");
     expect(text).toContain("urgenza: high");
     expect(text).toContain("effort: 2");
     expect(text).not.toContain("analisi tecnica");
     expect(text).toContain(BACKLOG_A);
     // Seconda proposta: urgenza/effort mancanti resi a parole, non "null".
-    expect(text).toContain("2. Ricerca full text");
+    expect(text).toContain("1. Ricerca full text");
     expect(text).toContain("urgenza: non stimata");
     expect(text).toContain("effort: non stimato");
     expect(text).not.toContain("null");
     // L'id della notifica c'è: è l'ancora per ritrovarla in inbox.
     expect(text).toContain(NOTIFICATION_ID);
-    // E si dice dove si risponde davvero.
-    expect(text).toContain("Slack");
+    // E si dice come decidere da qui (lotto 1 della parità), con l'indice da 0.
+    expect(text).toContain("decide_pulse_proposal");
+    expect(text).toContain("option_index = il numero della proposta");
+    expect(text).not.toContain("non c'è un tool MCP");
   });
 
   it("rende comprensibile la lista vuota, senza segnalarla come errore", async () => {
@@ -540,111 +542,84 @@ describe("list_proposals", () => {
 });
 
 describe("list_mail_proposals", () => {
-  const MAIL_NOTIFICATION_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
-
-  /** Riga d'inbox di una proposta Google, col contorno completo salvo override. */
-  function fakeMailItem(over: Record<string, unknown> = {}) {
-    return {
-      id: MAIL_NOTIFICATION_ID,
-      kind: "google.proposal",
-      status: "open",
-      text: "Laura chiede a proposito di «Rinviamo il rilascio?». Come diamo seguito?",
-      url: "https://mail.google.com/mail/u/mailbox@acme.test/#all/t1",
-      google: {
-        source: "email",
-        from: "laura@cliente.test",
-        subject: "Rinviamo il rilascio?",
-        receivedAt: "2026-09-07T08:14:00.000Z",
-        signal: "decision",
-      },
-      projectId: PROJECT_ID,
-      ticketId: null,
-      createdAt: "2026-09-07T08:14:00.000Z",
-      ...over,
-    };
-  }
-
-  it("chiede al server le sole notifiche google.proposal aperte ed elenca mittente/oggetto/segnale", async () => {
-    const client = makeClient();
-    client.listInbox.mockResolvedValue({ items: [fakeMailItem()], nextCursor: null });
-    const { ctx } = makeCtx(client);
-
-    const res = await tool("list_mail_proposals").handler({}, ctx);
-
-    expect(client.listInbox).toHaveBeenCalledWith({ status: "open", kind: "google.proposal" });
-    expect(res.isError).toBeUndefined();
-    const text = firstText(res);
-    expect(text).toContain("laura@cliente.test");
-    expect(text).toContain("Rinviamo il rilascio?");
-    expect(text).toContain("segnale: decision");
-    expect(text).toContain("email");
-    expect(text).toContain(MAIL_NOTIFICATION_ID);
-    expect(text).toContain("Slack");
+  // Dalla revisione del lotto 1 della parità (I1, I2): la lista di «Da decidere» dell'app
+  // (`GET /api/me/mail/proposals`), con l'id giusto per ogni tipo e le azioni coi loro
+  // indici, gli stessi di `indices` in decide_mail_proposal.
+  const view = (over: Record<string, unknown> = {}) => ({
+    id: "prop-1",
+    kind: "email",
+    status: "open",
+    projectId: PROJECT_ID,
+    excerpt: "Rinviamo il rilascio?",
+    actions: [
+      { type: "create_task", args: {}, label: "Crea la task «Rinvio»" },
+      { type: "comment_ticket", args: {}, label: "Commenta ACQ-3" },
+    ],
+    blockedIndices: [],
+    canConfirm: true,
+    canHand: true,
+    canReassign: true,
+    origin: { threadId: "t", accountId: "a", from: "laura@cliente.test", subject: "Rinviamo il rilascio?" },
+    calendarOrigin: null,
+    meetingOrigin: null,
+    ...over,
   });
 
-  it("distingue una proposta dal calendario", async () => {
-    const client = makeClient();
-    client.listInbox.mockResolvedValue({
-      items: [
-        fakeMailItem({
-          google: {
-            source: "calendar",
-            from: "laura@cliente.test",
-            subject: "Demo col cliente",
-            signal: "none",
-          },
-        }),
-      ],
-      nextCursor: null,
-    });
-    const { ctx } = makeCtx(client);
+  it("elenca le proposte da decidere con l'id della proposta e le azioni numerate come vuole decide_mail_proposal", async () => {
+    const client = { ...makeClient(), callAction: vi.fn().mockResolvedValue({ status: 200, data: { items: [view(), view({ id: "prop-x", status: "confirmed" })] } }) };
+    const res = await tool("list_mail_proposals").handler({}, makeCtx(client as never).ctx);
+    expect(client.callAction).toHaveBeenCalledWith({ method: "GET", path: "/api/me/mail/proposals" }, {});
+    const text = firstText(res);
+    expect(text).toContain('- [email] laura@cliente.test — "Rinviamo il rilascio?" (proposta: prop-1, da decidere)');
+    // Gli indici sono quelli delle azioni della proposta: «Commenta» è 1 anche se nella card
+    // c'erano «Sposta su un altro progetto» e «Non fare nulla» in mezzo.
+    expect(text).toContain("    0. Crea la task «Rinvio»\n    1. Commenta ACQ-3");
+    expect(text).toContain("si può: confermare, passare, spostare");
+    expect(text).not.toContain("prop-x");
+    expect(text).toContain("decide_mail_proposal");
+  });
 
-    const res = await tool("list_mail_proposals").handler({}, ctx);
+  it("una proposta del calendario e una passata, con le azioni bloccate dette", async () => {
+    const client = {
+      ...makeClient(),
+      callAction: vi.fn().mockResolvedValue({
+        status: 200,
+        data: { items: [view({ id: "ev-1", kind: "calendar", origin: null, calendarOrigin: { eventId: "ev-1", title: "Demo col cliente", startsAt: "2026-12-01T10:00:00.000Z", allDay: false }, status: "handed", blockedIndices: [1], canConfirm: false })] },
+      }),
+    };
+    const text = firstText(await tool("list_mail_proposals").handler({}, makeCtx(client as never).ctx));
+    expect(text).toContain("- [calendario] Demo col cliente (proposta: ev-1, passata al progetto)");
+    expect(text).toContain("1. Commenta ACQ-3 (bloccata: ti manca il permesso nel progetto)");
+    expect(text).toContain("si può: passare, spostare");
+  });
 
-    expect(firstText(res)).toContain("evento di calendario");
+  it("una proposta che chiede il PROGETTO mostra i candidati e dice choose_project (revisione del lotto 6, M4)", async () => {
+    const client = {
+      ...makeClient(),
+      callAction: vi.fn().mockResolvedValue({
+        status: 200,
+        data: { items: [view({ id: "prop-c", actions: [{ type: "choose_project", args: { projectIds: ["p-a", "p-b"] }, label: "" }], canConfirm: false })] },
+      }),
+    };
+    const text = firstText(await tool("list_mail_proposals").handler({}, makeCtx(client as never).ctx));
+    expect(text).toContain("scegli il progetto (choose_project con project_id): p-a, p-b");
+    expect(text).not.toContain("0. choose_project");
   });
 
   it("rende comprensibile la lista vuota, senza segnalarla come errore", async () => {
-    const client = makeClient();
-    client.listInbox.mockResolvedValue({ items: [], nextCursor: null });
-    const { ctx } = makeCtx(client);
-
-    const res = await tool("list_mail_proposals").handler({}, ctx);
-
+    const client = { ...makeClient(), callAction: vi.fn().mockResolvedValue({ status: 200, data: { items: [] } }) };
+    const res = await tool("list_mail_proposals").handler({}, makeCtx(client as never).ctx);
     expect(res.isError).toBeUndefined();
-    expect(firstText(res)).toContain("Nessuna proposta dalla posta");
-  });
-
-  it("regge una riga senza il blocco google (payload non allineato): niente contorno inventato", async () => {
-    const client = makeClient();
-    const item = fakeMailItem();
-    delete (item as { google?: unknown }).google;
-    client.listInbox.mockResolvedValue({ items: [item], nextCursor: null });
-    const { ctx } = makeCtx(client);
-
-    const res = await tool("list_mail_proposals").handler({}, ctx);
-
-    expect(res.isError).toBeUndefined();
-    const text = firstText(res);
-    expect(text).toContain("Laura chiede a proposito");
-    expect(text).toContain(MAIL_NOTIFICATION_ID);
-    expect(text).not.toContain("laura@cliente.test");
+    expect(firstText(res)).toContain("Nessuna proposta dalla posta o dal calendario da decidere");
   });
 
   it("cattura gli errori del client in un ToolResult d'errore", async () => {
-    const client = makeClient();
-    client.listInbox.mockRejectedValue(
-      new StubwiseApiError("Token non valido", 401, "unauthorized"),
-    );
-    const { ctx } = makeCtx(client);
-
-    const res = await tool("list_mail_proposals").handler({}, ctx);
-
+    const client = { ...makeClient(), callAction: vi.fn().mockRejectedValue(new StubwiseApiError("Token non valido o scaduto", 401, "unauthorized")) };
+    const res = await tool("list_mail_proposals").handler({}, makeCtx(client as never).ctx);
     expect(res.isError).toBe(true);
     expect(firstText(res)).toContain("Token non valido");
   });
 });
-
 describe("get_project_brief", () => {
   const BRIEF_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 

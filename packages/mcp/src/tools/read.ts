@@ -233,7 +233,8 @@ function proposalLine(proposal: InboxPulseProposal, index: number): string {
     `urgenza: ${proposal.urgency ?? "non stimata"}`,
     `effort: ${proposal.effort ?? "non stimato"}`,
   ];
-  return `  ${index + 1}. ${proposal.title} [${parts.join(", ")}] (backlog id: ${proposal.backlogItemId})`;
+  // Da 0, come option_index di decide_pulse_proposal e gli altri elenchi (revisione del lotto 1, M2).
+  return `  ${index}. ${proposal.title} [${parts.join(", ")}] (backlog id: ${proposal.backlogItemId})`;
 }
 
 /**
@@ -266,7 +267,7 @@ const listProposals: ToolDef = {
   name: "list_proposals",
   description:
     "Elenca le proposte APERTE del pulse proattivo indirizzate A TE (l'utente del token): per ogni progetto fermo, le voci di backlog da cui Stubwise suggerisce di ripartire, con urgenza, effort e id della voce. " +
-    "Serve a SAPERE, non ad agire: da qui NON si avvia niente e non esiste un tool MCP che risponda a una proposta. Si sceglie dalla card in inbox nella web app o dal DM Slack, e il resto (ticket + run che si ferma sull'approvazione del piano) parte da solo. " +
+    "Per sceglierne una: decide_pulse_proposal, con l'id della notifica e il numero della proposta nell'elenco; il resto (ticket + run che si ferma sull'approvazione del piano) parte da solo, come dalla card in inbox. " +
     "Il pulse è per DESTINATARIO, non per progetto: una lista vuota significa solo che a te non ne è arrivato nessuno di aperto — non che i progetti non abbiano proposte.",
   inputSchema: {},
   handler: (_args, ctx): Promise<ToolResult> =>
@@ -285,7 +286,7 @@ const listProposals: ToolDef = {
       const blocks = page.items.map(renderPulseItem);
       return textResult(
         `Proposte del pulse aperte per te (${page.items.length}):\n${blocks.join("\n")}\n\n` +
-          "Per avviarne una si risponde dall'inbox della web app o dal DM Slack: non c'è un tool MCP per farlo da qui. " +
+          "Per sceglierne una: decide_pulse_proposal con l'id della notifica e option_index = il numero della proposta. " +
           "Una volta scelta, la voce diventa un ticket e il run si ferma sull'approvazione del piano di un maintainer.",
       );
     }),
@@ -293,44 +294,69 @@ const listProposals: ToolDef = {
 
 // --- list_mail_proposals -----------------------------------------------------
 
+/** Una proposta della posta come la dà `GET /api/me/mail/proposals` (i soli campi che il tool mostra). */
+interface MailProposalView {
+  id: string;
+  kind?: "email" | "calendar" | "meeting";
+  status: string;
+  actions?: Array<{ type: string; label: string; args?: Record<string, unknown> }>;
+  blockedIndices?: number[];
+  canConfirm?: boolean;
+  canHand?: boolean;
+  canReassign?: boolean;
+  origin?: { from: string; subject: string | null } | null;
+  calendarOrigin?: { title: string | null } | null;
+  meetingOrigin?: { title: string | null } | null;
+}
+
+const KIND_LABEL = { email: "email", calendar: "calendario", meeting: "riunione" } as const;
+
 /**
- * Rende una riga di proposta Google. Il blocco `google` è OPZIONALE — il
- * server lo omette quando il payload non è leggibile o non è allineato alle
- * opzioni — e la sua assenza NON è un errore: la proposta esiste comunque, si
- * perde solo il contorno (mittente, oggetto, segnale), che resta leggibile
- * dall'inbox web. Stesso stile difensivo di `renderPulseItem`.
+ * Una proposta da decidere, con l'id che vuole decide_mail_proposal (quello
+ * della vista: la proposta, o l'appuntamento per le proposte del calendario) e
+ * le azioni numerate come gli `indices` di confirm (revisione del lotto 1, I1).
  */
-function renderMailItem(item: InboxItemSummary): string {
-  if (!item.google) return `- ${item.text} (notifica: ${item.id})`;
-  const { source, from, subject, signal } = item.google;
-  const originLabel = source === "email" ? "email" : "evento di calendario";
-  const subjectPart = subject ? ` — "${subject}"` : "";
-  return `- [${originLabel}] ${from || "mittente sconosciuto"}${subjectPart} · segnale: ${signal} (notifica: ${item.id})`;
+function renderMailProposal(p: MailProposalView): string {
+  const kind = p.kind ?? "email";
+  const what = p.origin
+    ? `${p.origin.from || "mittente sconosciuto"}${p.origin.subject ? ` — "${p.origin.subject}"` : ""}`
+    : (p.calendarOrigin?.title ?? p.meetingOrigin?.title ?? "(senza titolo)");
+  const status = p.status === "handed" ? "passata al progetto" : "da decidere";
+  const blocked = new Set(p.blockedIndices ?? []);
+  // Una proposta che chiede il PROGETTO non ha azioni da confermare: si sceglie fra i candidati (revisione del lotto 6, M4).
+  const choose = (p.actions ?? []).find((a) => a.type === "choose_project");
+  const candidates = Array.isArray(choose?.args?.projectIds) ? (choose!.args!.projectIds as string[]) : [];
+  const actions = choose
+    ? [`    scegli il progetto (choose_project con project_id): ${candidates.join(", ") || "nessun candidato"}`]
+    : (p.actions ?? []).map((a, i) => `    ${i}. ${a.label || a.type}${blocked.has(i) ? " (bloccata: ti manca il permesso nel progetto)" : ""}`);
+  const can = [p.canConfirm ? "confermare" : null, p.canHand ? "passare" : null, p.canReassign ? "spostare" : null].filter(Boolean);
+  return [
+    `- [${KIND_LABEL[kind] ?? kind}] ${what} (proposta: ${p.id}, ${status})`,
+    ...actions,
+    `  si può: ${can.length > 0 ? can.join(", ") : "solo non fare nulla"}`,
+  ].join("\n");
 }
 
 const listMailProposals: ToolDef = {
   name: "list_mail_proposals",
   description:
-    "Elenca le proposte APERTE nate dalla posta o dal calendario (kind google.proposal), indirizzate A TE (l'utente del token): per ogni email o evento in perimetro, mittente/organizzatore, oggetto/titolo, segnale riconosciuto (decisione/richiesta/scadenza/blocco) e id della notifica. " +
-    "Serve a SAPERE, non ad agire: da qui NON si conferma niente e non esiste un tool MCP che risponda a una proposta — si sceglie dall'inbox della web app o dal DM Slack, dove si vede anche l'azione proposta (voce di backlog, milestone, aggiornamento o commento a un ticket, decisione registrata). " +
-    "La proposta è per DESTINATARIO, non per casella: solo il proprietario della casella la vede (mai un admin), e una lista vuota significa solo che a te non ne è arrivata nessuna di aperta.",
+    "Elenca le proposte nate dalla posta, dal calendario o da una riunione che ASPETTANO TE (da decidere, o passate al progetto e decidibili da te), come «Da decidere» nell'app: per ognuna l'id da passare a decide_mail_proposal, l'origine (mittente e oggetto, o il titolo dell'appuntamento), le azioni proposte NUMERATE come gli `indices` di confirm, quelle bloccate da un permesso e cosa puoi fare. " +
+    "Per deciderne una: decide_mail_proposal con l'id della PROPOSTA. Aggiungere un incaricato come membro del progetto resta dell'app (chiede la riconferma). " +
+    "La proposta è per DESTINATARIO, non per casella: solo il proprietario della casella la vede (mai un admin), e una lista vuota significa solo che a te non ne aspetta nessuna.",
   inputSchema: {},
   handler: (_args, ctx): Promise<ToolResult> =>
     runTool(async () => {
-      const page = await ctx.client.listInbox({ status: "open", kind: "google.proposal" });
-
-      if (page.items.length === 0) {
+      const res = await ctx.client.callAction({ method: "GET", path: "/api/me/mail/proposals" }, {});
+      const items = (((res.data ?? {}) as { items?: MailProposalView[] }).items ?? []).filter((p) => p.status === "open" || p.status === "handed");
+      if (items.length === 0) {
         return textResult(
-          "Nessuna proposta dalla posta o dal calendario aperta per te.\n" +
+          "Nessuna proposta dalla posta o dal calendario da decidere per te.\n" +
             "Arrivano solo al proprietario della casella collegata (Impostazioni → Account), solo per email/eventi che rientrano nelle regole di routing di un progetto: l'assenza qui non dice nulla sulla posta non ancora trattata.",
         );
       }
-
-      const blocks = page.items.map(renderMailItem);
       return textResult(
-        `Proposte dalla posta aperte per te (${page.items.length}):\n${blocks.join("\n")}\n\n` +
-          "Per confermarne una si risponde dall'inbox della web app o dal DM Slack: non c'è un tool MCP per farlo da qui. " +
-          "L'elenco completo (comprese quelle già trattate, fallite o riproponibili) è nella pagina Posta della web app.",
+        `Proposte da decidere (${items.length}):\n${items.map(renderMailProposal).join("\n")}\n\n` +
+          "Per deciderne una: decide_mail_proposal con l'id della proposta (confirm, ignore, hand, reassign, choose_project); con confirm, `indices` sono i numeri qui sopra (senza, tutte).",
       );
     }),
 };

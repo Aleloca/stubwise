@@ -478,6 +478,15 @@ export const inboxGoogleSchema = z.object({
    */
   sourceProposalId: z.string().nullable().default(null),
   /**
+   * Revisione del lotto 6 della parità MCP (I1): solo su una card di una
+   * proposta CONDIVISA del calendario (lotto 9), `calendar_proposals.id`,
+   * l'id con cui la proposta si decide (`/api/me/mail/proposals/:id/*`).
+   * DERIVATO a lettura da `calendar_proposal_recipients`, mai dall'evento.
+   * Un campo a sé apposta: {@link sourceProposalId} resta `null` per il
+   * calendario. Additivo: assente altrove e da un server più vecchio.
+   */
+  calendarProposalId: z.string().optional(),
+  /**
    * Gli indici delle opzioni che si possono SCEGLIERE INSIEME («una mail, più
    * azioni e più progetti», 26 set 2026): le azioni proposte dal modello,
    * quando sono almeno due. `[]` = scelta singola, come prima.
@@ -791,6 +800,19 @@ export const inboxItemSchema = z.object({
    * dopo. `null` per gli altri. Additivo.
    */
   alertMandatory: z.string().nullable().default(null),
+  /**
+   * Revisione del lotto 1 della parità MCP (I2): solo sulle card
+   * `decision.requested`, la richiesta di decisione di ADESSO — l'id (scritto
+   * nell'evento alla publish: un fatto), la domanda, le opzioni e se è ancora
+   * aperta, DERIVATI a lettura dalla riga `decision_requests` (le opzioni
+   * l'evento non le porta). Con questi l'MCP risponde
+   * (`answer_decision_request`). `null` per una richiesta che non c'è più.
+   * Additivo: assente sugli altri kind e da un server più vecchio.
+   */
+  decisionRequest: z
+    .object({ decisionId: z.uuid(), question: z.string(), options: z.array(z.string()), open: z.boolean() })
+    .nullable()
+    .optional(),
   /**
    * Area 8, F4a: solo sulle card `monitor.*`, il codice del server
    * (`SRV-<n>`) per il link dell'app, DERIVATO a lettura dall'id nel link

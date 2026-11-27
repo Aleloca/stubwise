@@ -3,10 +3,20 @@ import { changedFields } from "../changelog/settingValues";
 import { copy, newId, now, state } from "../store";
 import type { MonitoredServer, ServerCheck, ServerThresholds } from "../types";
 import { forbidden, invalid, writer } from "../writer";
+import { requireReauth } from "../auth/reauth";
 import { environmentFor } from "../releases/visibility";
 import { dropSshAccess } from "./access";
 import { recordServerChange } from "./changes";
-import { canMonitor, checkFor, holds, serverFor, serverRow, type ServerRow } from "./visibility";
+import {
+  canMonitor,
+  checkFor,
+  checkView,
+  holds,
+  serverFor,
+  serverRow,
+  type ServerRow,
+} from "./visibility";
+import { hasMaskedCredentials, hasUrlCredentials, maskUrlCredentials } from "./urlCredentials";
 
 // Il monitor dei server (area 8b), come la sezione Monitor del web: server,
 // chiave dell'agente, soglie, controlli e progetto principale, tutto sotto
@@ -246,10 +256,26 @@ function checkFields(input: CheckInput): CheckInput {
   };
 }
 
+/** I controlli il cui bersaglio è un DSN con la password dentro. */
+const isDbCheck = (type: ServerCheck["type"]) => type === "postgres" || type === "mysql";
+
 /** Un controllo nuovo: stato sconosciuto finché l'agente non lo prova. */
 export async function createCheck(code: string, input: CheckInput): Promise<ServerCheck> {
   const me = await writer("servers.createCheck");
   const server = managed(me, code);
+  // Un DSN nuovo di un database porta la password: la riconferma, come la rotta.
+  if (isDbCheck(input.type) && requireReauth(me, "servers.createCheck"))
+    throw new Error("reauth_required");
+  // M6, come la rotta: un `***` è una lettura rimandata indietro, mai una
+  // password; credenziali nuove in un http chiedono la riconferma.
+  const target = typeof input.target === "string" ? input.target : "";
+  if (hasMaskedCredentials(target)) throw invalid("masked_credentials");
+  if (
+    !isDbCheck(input.type) &&
+    hasUrlCredentials(target) &&
+    requireReauth(me, "servers.createCheck")
+  )
+    throw new Error("reauth_required");
   const check: ServerCheck = {
     id: newId("chk"),
     serverCode: server.code,
@@ -260,7 +286,7 @@ export async function createCheck(code: string, input: CheckInput): Promise<Serv
   };
   state.serverChecks.push(check);
   recordServerChange(me, "server.check_changed", server, { check: check.name });
-  return copy(check);
+  return checkView(check);
 }
 
 export async function updateCheck(
@@ -270,6 +296,35 @@ export async function updateCheck(
   const me = await writer("servers.updateCheck");
   const check = checkFor(me, checkId);
   if (!canMonitor(me)) throw forbidden();
+  // M6, come la rotta: il target mascherato rimandato com'è da un form vale
+  // «invariato» (la password salvata resta, nessuna riconferma). Nel finto
+  // vale anche per il DSN di un database, che qui si legge mascherato (il
+  // server non lo restituisce affatto), finché resta un database.
+  const nextType = patch.type ?? check.type;
+  const keepsTarget =
+    patch.target !== undefined &&
+    isDbCheck(nextType) === isDbCheck(check.type) &&
+    hasUrlCredentials(check.target) &&
+    patch.target === maskUrlCredentials(check.target);
+  if (keepsTarget) patch = { ...patch, target: undefined };
+  if (patch.target !== undefined) {
+    if (hasMaskedCredentials(patch.target)) throw invalid("masked_credentials");
+    if (
+      !isDbCheck(nextType) &&
+      hasUrlCredentials(patch.target) &&
+      requireReauth(me, "servers.updateCheck")
+    )
+      throw new Error("reauth_required");
+  }
+  // Un DSN nuovo di un database porta la password: la riconferma, come la rotta.
+  const dsnChanged = patch.target !== undefined && patch.target !== check.target;
+  if (
+    dsnChanged &&
+    isDbCheck(patch.type ?? check.type) &&
+    requireReauth(me, "servers.updateCheck")
+  ) {
+    throw new Error("reauth_required");
+  }
   const fields = checkFields({
     name: patch.name ?? check.name,
     type: patch.type ?? check.type,
@@ -285,7 +340,13 @@ export async function updateCheck(
     interval: String(c.intervalSeconds),
     checkEnabled: c.enabled,
   });
-  const diff = changedFields(toFields(check), toFields(fields));
+  // Il confronto in chiaro (una password cambiata è un cambio), poi la
+  // maschera: mai la password nel registro (M6, come `recordChange` del server).
+  const raw = changedFields(toFields(check), toFields(fields));
+  const diff = raw && {
+    before: maskUrlCredentials(raw.before),
+    after: maskUrlCredentials(raw.after),
+  };
   Object.assign(check, fields);
   recordServerChange(
     me,
@@ -294,7 +355,7 @@ export async function updateCheck(
     { check: check.name },
     diff,
   );
-  return copy(check);
+  return checkView(check);
 }
 
 export async function deleteCheck(checkId: string): Promise<void> {

@@ -300,7 +300,7 @@ export async function authRoutes(
   // La UI usa questo flag per decidere se mostrare la pagina di primo setup.
   app.get(
     "/setup",
-    { config: { access: { kind: "public" } }, schema: { response: { 200: setupStatusSchema } } },
+    { config: { access: { kind: "public" }, mcp: { exclude: "login" } }, schema: { response: { 200: setupStatusSchema } } },
     async () => {
       const [row] = await app.db.select({ value: count() }).from(users).where(eq(users.isAgent, false));
       return { needed: (row?.value ?? 0) === 0 };
@@ -310,7 +310,7 @@ export async function authRoutes(
   app.post(
     "/setup",
     {
-      config: { access: { kind: "public" } },
+      config: { access: { kind: "public" }, mcp: { exclude: "login" } },
       schema: {
         body: credentialsSchema.extend({ displayName: displayNameSchema }),
         response: { 201: authUserResponseSchema, 403: errorSchema },
@@ -483,7 +483,7 @@ export async function authRoutes(
     "/email-change/:token",
     {
       onRequest: credentialsRateLimit,
-      config: { access: { kind: "public" } },
+      config: { access: { kind: "public" }, mcp: { exclude: "login" } },
       schema: {
         params: z.object({ token: z.string().min(1).max(200) }),
         response: {
@@ -501,7 +501,7 @@ export async function authRoutes(
     "/email-change/confirm",
     {
       onRequest: credentialsRateLimit,
-      config: { access: { kind: "public" } },
+      config: { access: { kind: "public" }, mcp: { exclude: "login" } },
       schema: {
         body: z.object({ token: z.string().min(1).max(200) }),
         response: { 200: z.object({ email: z.string() }), 400: errorSchema, 409: errorSchema },
@@ -516,7 +516,7 @@ export async function authRoutes(
     },
   );
 
-  app.post("/logout", { config: { access: { kind: "public" } } }, async (request, reply) => {
+  app.post("/logout", { config: { access: { kind: "public" }, mcp: { exclude: "login" } } }, async (request, reply) => {
     const sessionId = sessionIdFromRequest(request);
     if (sessionId) await deleteSession(app.db, sessionId);
     return reply.clearCookie(SESSION_COOKIE, SESSION_COOKIE_OPTIONS).code(204).send();
@@ -525,7 +525,10 @@ export async function authRoutes(
   app.get(
     "/me",
     {
-      config: { access: { kind: "user" } },
+      config: {
+        access: { kind: "user" },
+        mcp: { action: "me.get", summary: "Chi sei: l'utente del token, con i suoi permessi d'istanza e le preferenze.", effect: "read" },
+      },
       schema: {
         response: { 200: sessionResponseSchema, ...authErrorResponses },
       },
@@ -553,7 +556,7 @@ export async function authRoutes(
   app.patch(
     "/me",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "me.update", summary: "Cambia il tuo nome visualizzato o la lingua.", effect: "write" }, access: { kind: "user" } },
       schema: {
         body: z.object({
           language: languageSchema.optional(),
@@ -683,7 +686,7 @@ export async function authRoutes(
   app.get(
     "/invites",
     {
-      config: { access: { kind: "instance", permission: "users.invite" } },
+      config: { mcp: { action: "auth.invites", summary: "Gli inviti emessi, col loro stato.", effect: "read", note: "Il token di ogni invito è nascosto (un link d'invito vale un account): per revocarne uno usa admin.revokeInvite, per id; l'elenco con gli id è admin.invites." }, access: { kind: "instance", permission: "users.invite" } },
       schema: {
         response: {
           200: z.array(
@@ -727,7 +730,7 @@ export async function authRoutes(
   app.delete(
     "/invites/:token",
     {
-      config: { access: { kind: "instance", permission: "users.invite" } },
+      config: { mcp: { action: "auth.revokeInvite", summary: "Revoca un invito, dal suo token.", effect: "destructive", note: "Vuole il token, che l'MCP nasconde: usa admin.revokeInvite (per id, da admin.invites). Revocare cambia cosa possono fare altre persone." }, access: { kind: "instance", permission: "users.invite" } },
       schema: {
         params: z.object({ token: z.string().min(1) }),
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
@@ -753,7 +756,7 @@ export async function authRoutes(
     "/invites/:token",
     {
       onRequest: credentialsRateLimit,
-      config: { access: { kind: "public" } },
+      config: { access: { kind: "public" }, mcp: { exclude: "login" } },
       schema: {
         params: z.object({ token: z.string().min(1).max(200) }),
         response: { 200: inviteLinkSchema },
@@ -765,7 +768,7 @@ export async function authRoutes(
   app.post(
     "/register",
     {
-      config: { rateLimit: opts.rateLimit, access: { kind: "public" } },
+      config: { rateLimit: opts.rateLimit, access: { kind: "public" }, mcp: { exclude: "login" } },
       schema: {
         // Area 9, F1: `email` facoltativa, vale quella dell'invito; se mandata
         // deve coincidere (400 `invite_email_mismatch`).
@@ -904,7 +907,7 @@ export async function authRoutes(
   app.get(
     "/password-reset/:token",
     {
-      config: { access: { kind: "public" } },
+      config: { access: { kind: "public" }, mcp: { exclude: "login" } },
       schema: {
         params: z.object({ token: z.string().min(1) }),
         response: {
@@ -936,7 +939,7 @@ export async function authRoutes(
   app.post(
     "/password-reset/:token",
     {
-      config: { rateLimit: opts.rateLimit, access: { kind: "public" } },
+      config: { rateLimit: opts.rateLimit, access: { kind: "public" }, mcp: { exclude: "login" } },
       schema: {
         params: z.object({ token: z.string().min(1) }),
         body: z.object({ password: newPasswordSchema }),

@@ -426,7 +426,7 @@ export async function aiUsageCostsRoutes(instance: FastifyInstance): Promise<voi
   app.get(
     "/summary",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "aiUsage.summary", summary: "I consumi AI in sintesi, nell'ambito che vedi.", effect: "read" }, access: { kind: "user" } },
       schema: {
         querystring: z.object({
           days: z.enum(["7", "30", "90"]).optional(),
@@ -458,7 +458,7 @@ export async function aiUsageCostsRoutes(instance: FastifyInstance): Promise<voi
   app.get(
     "/costs",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "aiUsage.costs", summary: "I costi AI per periodo, nell'ambito che vedi.", effect: "read" }, access: { kind: "user" } },
       schema: {
         querystring: querySchema,
         response: { 200: aiUsageCostsSchema, ...authErrorResponses },
@@ -480,7 +480,7 @@ export async function aiUsageCostsRoutes(instance: FastifyInstance): Promise<voi
   app.get(
     "/breakdown",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "aiUsage.breakdown", summary: "I consumi AI divisi per operazione, progetto o modello.", effect: "read" }, access: { kind: "user" } },
       schema: {
         querystring: breakdownQuerySchema,
         response: { 200: aiUsageBreakdownSchema, ...authErrorResponses },

@@ -160,7 +160,7 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/vault/credentials",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "vault.myCredentials", summary: "Le credenziali che leggi o che aspettano te, in tutti i progetti visibili: nomi e servizi, MAI le password.", effect: "read" }, access: { kind: "user" } },
       schema: { response: { 200: credentialListResponseSchema, ...errorResponses } },
     },
     async (request, reply) => {
@@ -180,7 +180,7 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/projects/:projectId/credentials/recipients",
     {
-      config: {
+      config: { mcp: { exclude: "vault" },
         access: { kind: "project", permission: "credentials.create", project: fromParam("projectId") },
       },
       schema: { params: projectParams, response: { 200: credentialRecipientsSchema, ...errorResponses } },
@@ -195,7 +195,7 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/projects/:projectId/credentials/log",
     {
-      config: { access: { kind: "project", permission: "member", project: fromParam("projectId") } },
+      config: { mcp: { action: "vault.projectLog", summary: "Il registro della cassaforte di un progetto: chi ha creato, letto, condiviso o tolto cosa.", effect: "read" }, access: { kind: "project", permission: "member", project: fromParam("projectId") } },
       schema: {
         params: projectParams,
         // `credentialId` (25 nov 2026): le righe di una credenziale sola, per il dettaglio del desktop.
@@ -217,7 +217,7 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/projects/:projectId/credentials",
     {
-      config: { access: { kind: "project", permission: "member", project: fromParam("projectId") } },
+      config: { mcp: { action: "vault.projectCredentials", summary: "Le credenziali di un progetto: servizio, etichetta, URL, utente, chi le legge. MAI le password.", effect: "read" }, access: { kind: "project", permission: "member", project: fromParam("projectId") } },
       schema: { params: projectParams, response: { 200: credentialProjectListResponseSchema, ...errorResponses } },
     },
     async (request, reply) => {
@@ -240,7 +240,7 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/projects/:projectId/credentials",
     {
-      config: {
+      config: { mcp: { exclude: "vault" },
         access: { kind: "project", permission: "credentials.create", project: fromParam("projectId") },
       },
       schema: {
@@ -295,7 +295,7 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/credentials/:id/recipients",
     {
-      config: { access: credentialAccess },
+      config: { mcp: { exclude: "vault" }, access: credentialAccess },
       schema: { params: credentialParams, response: { 200: credentialRecipientsSchema, ...errorResponses } },
     },
     async (request, reply) => {
@@ -310,7 +310,7 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
   app.put(
     "/credentials/:id/password",
     {
-      config: { access: credentialAccess },
+      config: { mcp: { exclude: "vault" }, access: credentialAccess },
       schema: {
         params: credentialParams,
         body: credentialPasswordBodySchema,
@@ -329,7 +329,7 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
   app.patch(
     "/credentials/:id",
     {
-      config: { access: credentialAccess },
+      config: { mcp: { action: "vault.updateCredential", summary: "Modifica i campi IN CHIARO di una credenziale: servizio, etichetta, URL, utente, note.", effect: "write", note: "La password non si cambia da qui: si cambia dall'app." }, access: credentialAccess },
       schema: {
         params: credentialParams,
         body: credentialUpdateBodySchema,
@@ -349,7 +349,7 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
   app.delete(
     "/credentials/:id",
     {
-      config: { access: credentialAccess },
+      config: { mcp: { action: "vault.deleteCredential", summary: "Elimina una credenziale.", effect: "destructive", note: "La password si perde per TUTTI i suoi lettori, e non si recupera: dillo all'utente nella riga che annuncia l'azione." }, access: credentialAccess },
       schema: { params: credentialParams, response: { 204: z.null(), ...errorResponses } },
     },
     async (request, reply) => {

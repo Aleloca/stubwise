@@ -28,6 +28,8 @@ import {
 } from "@stubwise/shared";
 import { projectPermissionsOfUser as notificationsProjectPermissionsOfUser } from "@stubwise/notifications";
 import { apiError } from "../errors.js";
+import type { RouteMcp } from "../mcp/route-mcp.js";
+import { markViaClient } from "../mcp/via-client.js";
 import { recordSecurityEvent } from "./second-factor/security-events.js";
 import { hasConfirmedTotp } from "./second-factor/totp.js";
 import { requireAuth, type SessionStage, type SessionUser } from "./session.js";
@@ -161,6 +163,13 @@ declare module "fastify" {
      * `route-access.test.ts`.
      */
     archived?: "read" | "write";
+    /**
+     * La rotta nel catalogo dell'MCP, o perché ne resta fuori (design
+     * `docs/plans/2026-11-26-mcp-parita-design.md`, `mcp/route-mcp.ts`).
+     * Verificato da `mcp-parity.test.ts` come `config.access` da
+     * `route-access.test.ts`.
+     */
+    mcp?: RouteMcp;
   }
   interface FastifyRequest {
     /** Impostato dall'hook globale sulle rotte `project`. */
@@ -497,6 +506,8 @@ export async function accessPreHandler(
   await requireAuth(request, reply, { allowPartial: access.kind === "second_factor" });
   if (reply.sent) return;
   const user = request.user!;
+  // D4 della parità MCP: una richiesta dell'MCP col PAT `manual` è «via Claude Code».
+  markViaClient(user, request.headers);
   // Il token del turno della chat con Claude: SOLO GET e solo l'allowlist chiusa
   // delle rotte di lettura, più UNA rotta di scrittura (creare una proposta),
   // prima di ogni altro controllo (riconferma compresa).

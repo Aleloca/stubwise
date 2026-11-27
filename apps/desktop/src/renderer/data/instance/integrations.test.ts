@@ -924,10 +924,18 @@ describe("webhook in uscita", () => {
     expect(await instance.updateWebhook(SEED_WEBHOOK, { url })).toEqual({ ok: true });
     expect((await instance.getWebhook(SEED_WEBHOOK)).url).toBe(url);
     expect(last()).toMatchObject({ kind: "webhook.updated" });
-    expect(JSON.parse(last().before!)).toEqual({
-      url: "https://hooks.slack.com/services/T01AUDIN/B07STUB/prototype",
-    });
-    expect(JSON.parse(last().after!)).toEqual({ url });
+    // L'URL di un webhook È il suo segreto (Slack lo porta nel percorso): nel
+    // registro entra come host e ultime 4 cifre, come il server (lotto 5, I1).
+    expect(JSON.parse(last().before!)).toEqual({ url: "hooks.slack.com …type" });
+    expect(JSON.parse(last().after!)).toEqual({ url: "hooks.slack.com …ther" });
+    expect(JSON.stringify(state.changelog)).not.toContain("T02NEW");
+    // Stesso host e stesse ultime 4 cifre: il cambio si vede lo stesso.
+    expect(
+      await instance.updateWebhook(SEED_WEBHOOK, {
+        url: "https://hooks.slack.com/services/T03X/B09X/another",
+      }),
+    ).toEqual({ ok: true });
+    expect(JSON.parse(last().after!)).toEqual({ url: "hooks.slack.com …ther (cambiato)" });
     // Cambiare l'indirizzo rimette la prova a «non ancora provata».
     expect((await instance.getWebhook(SEED_WEBHOOK)).lastTest).toBeNull();
   });

@@ -240,3 +240,67 @@ describe("registro, A11 r.1414: chi non si conosce non ha né id né nome", () =
     expect(entries.find((e) => JSON.stringify(e.data).includes("Da compagno di un archiviato"))!.actor.id).toBe(mate.id);
   });
 });
+
+describe("le righe VECCHIE si leggono mascherate (revisione finale della parità MCP, I1)", () => {
+  it("una voce webhook.updated scritta «alla vecchia», con l'URL in chiaro, esce con host e ultime 4 cifre; le credenziali in un URL escono user:***@", async () => {
+    const hookId = randomUUID();
+    const repoId = randomUUID();
+    // Inserite direttamente: com'erano scritte dal codice di main, prima della maschera alla scrittura.
+    await db.insert(changeLog).values([
+      {
+        actorUserId: admin.id,
+        actorEmail: admin.email,
+        actorKind: "user",
+        type: "webhook.updated",
+        projectId: null,
+        subjectKind: "webhook",
+        subjectId: hookId,
+        data: {
+          object: { type: "webhook", id: hookId, label: "Slack" },
+          before: JSON.stringify({ url: "https://hooks.example.com/T000/B000/vecchioABCD" }),
+          after: JSON.stringify({ url: "https://hooks.example.com/T000/B111/nuovoWXYZ", name: "Slack 2" }),
+          params: {},
+        },
+      },
+      {
+        actorUserId: admin.id,
+        actorEmail: admin.email,
+        actorKind: "user",
+        type: "repository.updated",
+        projectId: projectA,
+        subjectKind: "repository",
+        subjectId: repoId,
+        data: {
+          object: { type: "repository", id: repoId, label: "r" },
+          before: JSON.stringify({ url: "https://bob:s3cr3t@git.example.com/r.git" }),
+          after: JSON.stringify({ url: "https://git.example.com/r.git" }),
+          params: { field: "url" },
+        },
+      },
+    ]);
+    const page = await read(adminCookie, "?withinDays=1");
+    const hook = page.entries.find((e) => e.data.object.id === hookId)!;
+    expect(JSON.parse(hook.data.before!)).toEqual({ url: "hooks.example.com …ABCD" });
+    expect(JSON.parse(hook.data.after!)).toEqual({ url: "hooks.example.com …WXYZ", name: "Slack 2" });
+    const repo = page.entries.find((e) => e.data.object.id === repoId)!;
+    expect(JSON.parse(repo.data.before!)).toEqual({ url: "https://bob:***@git.example.com/r.git" });
+    expect(JSON.stringify(page)).not.toContain("vecchioABCD");
+    expect(JSON.stringify(page)).not.toContain("B111");
+    expect(JSON.stringify(page)).not.toContain("s3cr3t");
+    // Anche dal registro di progetto.
+    const proj = (await app.inject({ method: "GET", url: `/api/projects/${projectA}/change-log`, headers: { cookie: adminCookie } })).body;
+    expect(proj).not.toContain("s3cr3t");
+  });
+
+  it("una voce nuova, già mascherata alla scrittura, non si maschera due volte", async () => {
+    const hookId = randomUUID();
+    await recordChange(db, {
+      type: "webhook.updated",
+      actor: admin,
+      projectId: null,
+      data: { object: { type: "webhook", id: hookId, label: "W" }, before: JSON.stringify({ url: "hooks.example.com …ABCD" }), after: JSON.stringify({ url: "hooks.example.com …WXYZ (cambiato)" }) },
+    });
+    const hook = (await read(adminCookie, "?withinDays=1")).entries.find((e) => e.data.object.id === hookId)!;
+    expect(JSON.parse(hook.data.after!)).toEqual({ url: "hooks.example.com …WXYZ (cambiato)" });
+  });
+});

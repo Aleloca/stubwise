@@ -73,7 +73,7 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "users.list", summary: "Le persone dell'istanza (nome, email, ruolo d'istanza).", effect: "read" }, access: { kind: "user" } },
       schema: { response: { 200: z.array(teamUserSchema), ...authErrorResponses } },
     },
     async (request) => {
@@ -452,7 +452,7 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:id/security-events",
     {
-      config: { access: { kind: "instance", permission: "users.manage" } },
+      config: { mcp: { action: "users.securityEvents", summary: "Gli eventi di sicurezza di una persona (login, secondo fattore, riconferme).", effect: "read" }, access: { kind: "instance", permission: "users.manage" } },
       schema: {
         params: z.object({ id: z.uuid() }),
         response: { 200: securityEventsResponseSchema, ...authErrorResponses, 404: errorSchema },

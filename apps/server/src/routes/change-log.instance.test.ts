@@ -161,6 +161,20 @@ describe("il registro della 9b", () => {
     expect(await entries("webhook.updated", w.id)).toHaveLength(1);
   });
 
+  it("l'URL di un webhook (che porta il suo segreto nel percorso) entra solo come host e ultime 4 cifre (revisione del lotto 5, I1)", async () => {
+    const w = (await call("POST", "/api/settings/webhooks", { name: "U", url: "https://hooks.example.com/T000/B000/abcdWXYZ", format: "generic", events: ["job.failed"] })).json() as { id: string };
+    expect((await call("PATCH", `/api/settings/webhooks/${w.id}`, { url: "https://hooks.example.com/T000/B111/efghQRST" })).statusCode).toBe(200);
+    const [entry] = await data("webhook.updated", w.id);
+    expect(entry).toMatchObject({ before: JSON.stringify({ url: "hooks.example.com …WXYZ" }), after: JSON.stringify({ url: "hooks.example.com …QRST" }) });
+    // Stesso host e stesse ultime 4 cifre: il cambio si vede comunque.
+    expect((await call("PATCH", `/api/settings/webhooks/${w.id}`, { url: "https://hooks.example.com/T999/B999/zzzzQRST" })).statusCode).toBe(200);
+    const all = await data("webhook.updated", w.id);
+    expect(all).toHaveLength(2);
+    expect(JSON.stringify(all)).not.toContain("B111");
+    expect(JSON.stringify(all)).not.toContain("T999");
+    expect(all.map((e) => e.after)).toContain(JSON.stringify({ url: "hooks.example.com …QRST (cambiato)" }));
+  });
+
   it("nessuna voce del registro contiene un segreto passato in queste scritture", async () => {
     const all = JSON.stringify(await db.select().from(changeLog));
     expect(all).not.toContain(SECRET);

@@ -120,6 +120,20 @@ describe("il registro decisioni dal server", () => {
     expect(decisionLogTruncated(PROJECT_ID)).toBe(false);
   });
 
+  it("«via Claude Code» (D4 della parità MCP): solo se il server lo dice vero", async () => {
+    installFakeServer({
+      [`GET /api/projects/${PROJECT_ID}/decisions`]: {
+        body: [
+          serverDecision({ id: "bbbbbbbb-bbbb-4bbb-8bbb-000000000001", viaClaudeCode: true }),
+          serverDecision({ id: "bbbbbbbb-bbbb-4bbb-8bbb-000000000002", viaClaudeCode: false }),
+        ],
+      },
+    });
+    const log = await listDecisionLog(PROJECT_ID);
+    expect(log.find((d) => d.id.endsWith("1"))).toMatchObject({ viaClaudeCode: true });
+    expect(log.find((d) => d.id.endsWith("2"))).not.toHaveProperty("viaClaudeCode");
+  });
+
   it("le voci nella forma del prototipo; registrare con «supera»; segnare superata", async () => {
     const { seen } = installFakeServer({
       [`GET /api/projects/${PROJECT_ID}/decisions`]: {

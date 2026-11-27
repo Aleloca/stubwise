@@ -96,6 +96,9 @@ const EXPECTED_REAUTH: readonly ApiFnName[] = [
   // API per i siti (S6): il segreto d'identità dei clienti di un widget, una
   // credenziale (piano 2026-11-15, S1: `config.reauth` sul server).
   "support.regenerateIdentitySecret",
+  // Lotto 6 della parità MCP: il DSN di un controllo di database.
+  "servers.createCheck",
+  "servers.updateCheck",
 ];
 
 const as = (personId: string) => setSessionPersonId(personId);

@@ -250,7 +250,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
     {
       // Elenco multi-progetto: la regola `backlog.view_all` sta nella WHERE
       // (sotto); il filtro sui progetti visibili è quello degli elenchi (T8).
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, mcp: { action: "backlog.list", summary: "Le voci di backlog che vedi, con filtri e paginazione.", effect: "read" } },
       schema: {
         querystring: listQuerySchema,
         response: { 200: backlogPageSchema, 400: errorSchema, ...authErrorResponses },
@@ -456,7 +456,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/jobs/:jobId",
     {
-      config: { access: { kind: "project", permission: "member", project: fromBacklogJob("jobId") } },
+      config: { access: { kind: "project", permission: "member", project: fromBacklogJob("jobId") }, mcp: { action: "backlog.job", summary: "Lo stato del job d'intake di una voce di backlog proposta.", effect: "read" } },
       schema: {
         params: z.object({ jobId: z.uuid() }),
         response: {
@@ -504,7 +504,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:id",
     {
-      config: { access: backlogItemAccess("id", "member") },
+      config: { access: backlogItemAccess("id", "member"), mcp: { action: "backlog.get", summary: "Il dettaglio di una voce di backlog.", effect: "read" } },
       schema: {
         params: idParamsSchema,
         response: { 200: backlogItemDetailSchema, 404: errorSchema, ...authErrorResponses },
@@ -548,7 +548,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/:id",
     {
-      config: { access: backlogItemAccess("id", "backlog.edit") },
+      config: { access: backlogItemAccess("id", "backlog.edit"), mcp: { action: "backlog.update", summary: "Modifica i metadati di una voce di backlog (urgenza, effort, stato…).", effect: "write" } },
       schema: {
         params: idParamsSchema,
         body: updateBacklogItemSchema,
@@ -614,7 +614,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.put(
     "/:id/design",
     {
-      config: { access: backlogItemAccess("id", "backlog.edit") },
+      config: { access: backlogItemAccess("id", "backlog.edit"), mcp: { action: "backlog.setDesign", summary: "Sostituisce il documento di una voce di backlog con un design, conservando l'originale.", effect: "write", tool: "set_design" } },
       schema: {
         params: idParamsSchema,
         body: setContentSchema,
@@ -644,7 +644,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/:id/design",
     {
-      config: { access: backlogItemAccess("id", "backlog.edit") },
+      config: { access: backlogItemAccess("id", "backlog.edit"), mcp: { action: "backlog.deleteDesign", summary: "Toglie il design da una voce di backlog e ripristina il documento originale.", effect: "destructive", tool: "delete_design" } },
       schema: {
         params: idParamsSchema,
         response: {
@@ -677,7 +677,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.put(
     "/:id/plan",
     {
-      config: { access: backlogItemAccess("id", "backlog.edit") },
+      config: { access: backlogItemAccess("id", "backlog.edit"), mcp: { action: "backlog.setPlan", summary: "Imposta il piano di implementazione di una voce di backlog.", effect: "write", tool: "set_plan" } },
       schema: {
         params: idParamsSchema,
         body: setContentSchema,
@@ -705,7 +705,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/:id/plan",
     {
-      config: { access: backlogItemAccess("id", "backlog.edit") },
+      config: { access: backlogItemAccess("id", "backlog.edit"), mcp: { action: "backlog.deletePlan", summary: "Toglie il piano di implementazione di una voce di backlog.", effect: "destructive", tool: "delete_plan" } },
       schema: {
         params: idParamsSchema,
         response: {
@@ -733,7 +733,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/",
     {
-      config: { access: { kind: "project", permission: "backlog.create", project: fromBody("projectId") } },
+      config: { access: { kind: "project", permission: "backlog.create", project: fromBody("projectId") }, mcp: { action: "backlog.create", summary: "Propone una voce di backlog: l'intake la deduplica e la scrive.", effect: "write", tool: "create_backlog_item" } },
       schema: {
         body: createBacklogItemSchema,
         response: {
@@ -790,7 +790,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/from-design",
     {
-      config: { access: { kind: "project", permission: "backlog.create", project: fromBody("projectId") } },
+      config: { access: { kind: "project", permission: "backlog.create", project: fromBody("projectId") }, mcp: { action: "backlog.createFromDesign", summary: "Crea una voce di backlog da un design pronto, testo verbatim.", effect: "write", tool: "create_backlog_from_design" } },
       schema: {
         body: createBacklogFromDesignSchema,
         response: {
@@ -821,7 +821,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/suggested/accept",
     {
-      config: { access: backlogItemAccess("id", "backlog.edit") },
+      config: { access: backlogItemAccess("id", "backlog.edit"), mcp: { action: "backlog.acceptSuggested", summary: "Accetta i metadati proposti su una voce di backlog.", effect: "write" } },
       schema: {
         params: idParamsSchema,
         response: {
@@ -852,7 +852,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/suggested/dismiss",
     {
-      config: { access: backlogItemAccess("id", "backlog.edit") },
+      config: { access: backlogItemAccess("id", "backlog.edit"), mcp: { action: "backlog.dismissSuggested", summary: "Scarta i metadati proposti su una voce di backlog.", effect: "write" } },
       schema: {
         params: idParamsSchema,
         response: {
@@ -885,7 +885,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/refine-session",
     {
-      config: { access: backlogItemAccess("id", "backlog.edit") },
+      config: { mcp: { action: "backlog.refine", summary: "Apre o continua la sessione di rifinitura di una voce di backlog, con un messaggio.", effect: "write", note: "Usa il modello AI: è una chiamata a pagamento." }, access: backlogItemAccess("id", "backlog.edit") },
       schema: {
         params: idParamsSchema,
         body: startRefineSessionInputSchema,
@@ -910,7 +910,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/:id/refine-session",
     {
-      config: { access: backlogItemAccess("id", "backlog.edit") },
+      config: { mcp: { action: "backlog.stopRefine", summary: "Chiude la sessione di rifinitura di una voce di backlog.", effect: "destructive" }, access: backlogItemAccess("id", "backlog.edit") },
       schema: { params: idParamsSchema, response: { 204: z.null(), 404: errorSchema, ...authErrorResponses } },
     },
     async (request, reply) => {
@@ -938,7 +938,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/convert",
     {
-      config: { access: backlogItemAccess("id", "backlog.edit") },
+      config: { access: backlogItemAccess("id", "backlog.edit"), mcp: { action: "backlog.convert", summary: "Trasforma una voce di backlog in una task.", effect: "write", tool: "convert_backlog_to_ticket" } },
       schema: {
         params: idParamsSchema,
         response: {
@@ -977,7 +977,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/merge",
     {
-      config: { access: backlogItemAccess("id", "backlog.edit") },
+      config: { access: backlogItemAccess("id", "backlog.edit"), mcp: { action: "backlog.merge", summary: "Fonde una voce di backlog in un'altra (sposta link e richiedenti).", effect: "destructive", note: "Il testo della destinazione viene riscritto e non torna com'era; la voce fusa si riapre con `requests.reopen`." } },
       schema: {
         params: idParamsSchema,
         body: mergeBodySchema,

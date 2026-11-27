@@ -75,6 +75,29 @@ describe("la foto del profilo", () => {
     expect(await meAvatar(p.cookie)).toBeNull();
   });
 
+  it("parità MCP (lotto 4, upload_file): anche come multipart, un file solo, con le stesse regole sui byte e sul tetto", async () => {
+    const multipart = (cookie: string, body: Buffer, filename: string, type: string) => {
+      const boundary = "----stubwise-avatar";
+      const payload = Buffer.concat([
+        Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${type}\r\n\r\n`),
+        body,
+        Buffer.from(`\r\n--${boundary}--\r\n`),
+      ]);
+      return app.inject({ method: "PUT", url: "/api/me/avatar", headers: { cookie, "content-type": `multipart/form-data; boundary=${boundary}` }, payload });
+    };
+    const p = await person();
+    expect((await multipart(p.cookie, PNG, "foto.png", "image/png")).statusCode).toBe(204);
+    const res = await fetchAvatar(p.cookie, p.id);
+    expect(res.headers["content-type"]).toBe("image/png");
+    expect(res.rawPayload.equals(PNG)).toBe(true);
+    const svg = await multipart(p.cookie, SVG, "foto.png", "image/png");
+    expect(svg.statusCode).toBe(415);
+    const big = Buffer.concat([PNG, Buffer.alloc(524_288 - PNG.length + 1, 0)]);
+    expect((await multipart(p.cookie, big, "grande.png", "image/png")).statusCode).toBe(413);
+    // La foto di prima resta: un rifiuto non tocca niente.
+    expect((await fetchAvatar(p.cookie, p.id)).rawPayload.equals(PNG)).toBe(true);
+  });
+
   it("eliminarla: 204, poi 404 e niente più avatarUrl", async () => {
     const p = await person();
     await upload(p.cookie, PNG);

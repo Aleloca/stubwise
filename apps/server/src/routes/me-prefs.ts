@@ -44,7 +44,7 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/follows",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, mcp: { action: "me.follows", summary: "I progetti che segui (i fissati, pinned).", effect: "read" } },
       schema: { response: { 200: projectFollowsSchema, ...authErrorResponses } },
     },
     async (request) => {
@@ -75,7 +75,7 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
   app.put(
     "/follows",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, mcp: { action: "me.setFollows", summary: "Segue o fissa (pin) dei progetti: sostituisce l'insieme dei progetti che segui (manda l'elenco completo).", effect: "write" } },
       schema: {
         body: projectFollowsSchema,
         response: { 204: z.null(), 400: errorSchema, ...authErrorResponses },
@@ -125,7 +125,7 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/notification-prefs",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "me.notificationPrefs", summary: "Le tue preferenze di notifica (DM Slack, push sui telefoni).", effect: "read" }, access: { kind: "user" } },
       schema: {
         response: { 200: notificationPrefsViewSchema, 404: errorSchema, ...authErrorResponses },
       },
@@ -170,7 +170,7 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/notification-prefs",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "me.updateNotificationPrefs", summary: "Accende o spegne i tuoi canali di notifica (DM Slack, push).", effect: "write" }, access: { kind: "user" } },
       schema: {
         body: notificationPrefsUpdateSchema,
         response: { 204: z.null(), ...authErrorResponses },
@@ -224,7 +224,7 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
   app.put(
     "/devices",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { exclude: "app_only" }, access: { kind: "user" } },
       schema: {
         body: deviceRegistrationSchema,
         response: { 204: z.null(), 400: errorSchema, ...authErrorResponses },
@@ -315,7 +315,7 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/devices/delete",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "me.unregisterDevice", summary: "Toglie la registrazione push di un telefono: non riceve più notifiche.", effect: "destructive", note: "È il logout dell'app mobile su quel telefono." }, access: { kind: "user" } },
       schema: {
         body: deviceDeletionSchema,
         response: { 204: z.null(), 400: errorSchema, ...authErrorResponses },

@@ -117,6 +117,41 @@ function writers(dir: string): string[] {
   return out;
 }
 
+describe("un segreto non entra nel registro (a runtime, revisione del lotto 5, I1)", () => {
+  const hook = () => ({ type: "webhook", id: randomUUID(), label: "W" });
+
+  it("un prima/dopo costruito da un helper con una chiave dall'aria segreta entra «[nascosto]»: la voce si scrive, la modifica non fallisce", async () => {
+    const actor = await person();
+    for (const key of ["webhookSecret", "token", "dsn", "apiKey", "presetKey"]) {
+      const object = hook();
+      await recordChange(db, { type: "webhook.updated", actor, projectId: null, data: { object, before: JSON.stringify({ [key]: "valore-a", name: "x" }), after: JSON.stringify({ [key]: "valore-b", name: "y" }) } });
+      const [row] = await db.select().from(changeLog).where(eq(changeLog.subjectId, object.id));
+      const d = row!.data as { before: string; after: string };
+      expect(JSON.parse(d.before), key).toEqual({ [key]: "[nascosto]", name: "x" });
+      expect(JSON.parse(d.after), key).toEqual({ [key]: "[nascosto]", name: "y" });
+    }
+    // `keyLast4` e `accessKeyId` restano le eccezioni dichiarate: si vedono.
+    const object = hook();
+    await recordChange(db, { type: "webhook.updated", actor, projectId: null, data: { object, before: JSON.stringify({ keyLast4: "1234" }), after: JSON.stringify({ keyLast4: "5678" }) } });
+    const [row] = await db.select().from(changeLog).where(eq(changeLog.subjectId, object.id));
+    expect(JSON.parse((row!.data as { after: string }).after)).toEqual({ keyLast4: "5678" });
+  });
+
+  it("le credenziali dentro un URL (user:pass@) si mascherano, in prima/dopo e nei params", async () => {
+    const actor = await person();
+    const object = hook();
+    await recordChange(db, {
+      type: "webhook.updated",
+      actor,
+      projectId: null,
+      data: { object, before: JSON.stringify({ url: "https://bob:s3cr3t@git.example.com/r.git" }), after: JSON.stringify({ url: "https://git.example.com/r.git" }) },
+    });
+    const [row] = await db.select().from(changeLog).where(eq(changeLog.subjectId, object.id));
+    expect(JSON.stringify(row!.data)).not.toContain("s3cr3t");
+    expect(JSON.parse((row!.data as { before: string }).before)).toEqual({ url: "https://bob:***@git.example.com/r.git" });
+  });
+});
+
 describe("un segreto non entra nel registro (test di sorgente)", () => {
   it("il controllo prende una chiave proibita (e lascia passare `keyLast4`)", () => {
     expect(forbiddenChangeLogKeys(`recordChange(tx, { type: "x", data: { object, params: { tokenHash: h, keyLast4: k } } })`)).toEqual(["tokenHash"]);

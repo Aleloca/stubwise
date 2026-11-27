@@ -129,6 +129,11 @@ export const REAUTH_REQUIRED: ReadonlySet<ApiFnName> = new Set<ApiFnName>([
   // API per i siti (S6): il segreto d'identità dei clienti di un widget, una
   // credenziale (piano 2026-11-15, S1: `config.reauth` sul server).
   "support.regenerateIdentitySecret",
+  // Lotto 6 della parità MCP (server): il DSN di un controllo PostgreSQL o
+  // MySQL porta la password. Lo chiede solo un DSN nuovo di quei tipi: lo
+  // decide la funzione, come `saveStorage`.
+  "servers.createCheck",
+  "servers.updateCheck",
 ]);
 
 const MINUTE = 60_000;

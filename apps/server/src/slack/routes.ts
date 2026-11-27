@@ -475,7 +475,7 @@ export async function slackRoutes(
   );
 
   // POST /api/slack/commands — slash command /stubwise.
-  instance.post("/commands", { config: { access: { kind: "public" } } }, async (request, reply) => {
+  instance.post("/commands", { config: { access: { kind: "public" }, mcp: { exclude: "inbound" } } }, async (request, reply) => {
     const creds = await loadSlackCreds(instance);
     if (!creds) {
       // Non abilitato: 200 + messaggio effimero (lo vede solo chi ha lanciato).
@@ -586,7 +586,7 @@ export async function slackRoutes(
   };
 
   // POST /api/slack/interactions — interactivity (message action + view submit).
-  instance.post("/interactions", { config: { access: { kind: "public" } } }, async (request, reply) => {
+  instance.post("/interactions", { config: { access: { kind: "public" }, mcp: { exclude: "inbound" } } }, async (request, reply) => {
     const creds = await loadSlackCreds(instance);
     // Non abilitato: 200 vuoto, niente 5xx verso Slack.
     if (!creds) return ack(reply);

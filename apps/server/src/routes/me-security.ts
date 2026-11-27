@@ -115,7 +115,7 @@ export async function meSecurityRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/reauth",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { exclude: "session_only" }, access: { kind: "user" } },
       schema: {
         body: secondFactorCodeBodySchema,
         response: { 204: z.null(), ...errorResponses, 401: errorSchema, 423: lockedErrorSchema },
@@ -148,7 +148,7 @@ export async function meSecurityRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/reauth/passkey/options",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { exclude: "session_only" }, access: { kind: "user" } },
       schema: {
         body: passkeyOptionsBodySchema,
         response: { 200: passkeyAuthenticationOptionsSchema, ...errorResponses },
@@ -175,7 +175,7 @@ export async function meSecurityRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/reauth/passkey/verify",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { exclude: "session_only" }, access: { kind: "user" } },
       schema: {
         body: passkeyVerifyBodySchema,
         response: { 204: z.null(), ...errorResponses, 401: errorSchema, 423: lockedErrorSchema },
@@ -307,7 +307,7 @@ export async function meSecurityRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "me.security", summary: "La sicurezza del tuo account: secondo fattore, passkey, codici di riserva (senza segreti).", effect: "read" }, access: { kind: "user" } },
       schema: { response: { 200: accountSecurityResponseSchema, ...authErrorResponses } },
     },
     async (request) => {
@@ -407,7 +407,7 @@ export async function meSecurityRoutes(instance: FastifyInstance): Promise<void>
   app.patch(
     "/passkeys/:id",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "me.renamePasskey", summary: "Rinomina una tua passkey.", effect: "write" }, access: { kind: "user" } },
       schema: {
         params: passkeyParams,
         body: passkeyRenameBodySchema,

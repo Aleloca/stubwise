@@ -34,7 +34,7 @@ export async function projectArchiveRoutes(instance: FastifyInstance): Promise<v
   // admin, dal più recente; un estraneo riceve la lista vuota.
   app.get(
     "/archived",
-    { config: { access: { kind: "user" } }, schema: { response: { 200: z.array(archivedProjectRowSchema), ...authErrorResponses } } },
+    { config: { mcp: { action: "projects.archived", summary: "I progetti archiviati che vedi.", effect: "read" }, access: { kind: "user" } }, schema: { response: { 200: z.array(archivedProjectRowSchema), ...authErrorResponses } } },
     async (request) => listArchivedProjects(app.db, request.user!),
   );
 
@@ -43,7 +43,7 @@ export async function projectArchiveRoutes(instance: FastifyInstance): Promise<v
   app.get(
     "/archive-candidates",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "projects.archiveCandidates", summary: "I progetti che si potrebbero archiviare (fermi da tempo), e quelli che non si possono.", effect: "read" }, access: { kind: "user" } },
       schema: {
         querystring: z.object({ inactiveDays: z.coerce.number().int().min(1).max(3650).default(90) }),
         response: { 200: archiveCandidatesSchema, ...authErrorResponses },
@@ -58,7 +58,7 @@ export async function projectArchiveRoutes(instance: FastifyInstance): Promise<v
   app.get(
     "/:projectId/archived-view",
     {
-      config: { access: { kind: "project", permission: "member", project: fromParam("projectId") }, archived: "read" },
+      config: { mcp: { action: "projects.archivedView", summary: "Un progetto archiviato: cosa c'era, chi può riaprirlo o eliminarlo.", effect: "read" }, access: { kind: "project", permission: "member", project: fromParam("projectId") }, archived: "read" },
       schema: { params, response: { 200: archivedProjectViewSchema, 404: errorSchema, ...authErrorResponses } },
     },
     async (request, reply) => {
@@ -70,13 +70,13 @@ export async function projectArchiveRoutes(instance: FastifyInstance): Promise<v
 
   app.get(
     "/:projectId/archive-preview",
-    { config: { access: MANAGE }, schema: { params, response: { 200: archivePreviewSchema, 404: errorSchema, ...authErrorResponses } } },
+    { config: { mcp: { action: "projects.archivePreview", summary: "Cosa succede archiviando un progetto: esecuzioni aperte, lavori in corso, superfici pubbliche.", effect: "read" }, access: MANAGE }, schema: { params, response: { 200: archivePreviewSchema, 404: errorSchema, ...authErrorResponses } } },
     async (request) => archivePreview(app.db, request.params.projectId, request.user!, routePermissions(request)),
   );
 
   app.post(
     "/:projectId/archive",
-    { config: { access: MANAGE, archived: "write" }, schema: { params, response: { 204: z.null(), 404: errorSchema, 409: archiveBusyErrorSchema, ...authErrorResponses } } },
+    { config: { mcp: { action: "projects.archive", summary: "Archivia un progetto: sparisce per i membri, il lavoro si ferma, le superfici pubbliche si spengono.", effect: "destructive", note: "Cambia cosa possono fare altre persone: dillo all'utente nella riga che annuncia l'azione." }, access: MANAGE, archived: "write" }, schema: { params, response: { 204: z.null(), 404: errorSchema, 409: archiveBusyErrorSchema, ...authErrorResponses } } },
     async (request, reply) => {
       try {
         await archiveProject(app.db, request.user!, request.params.projectId, routePermissions(request));
@@ -92,7 +92,7 @@ export async function projectArchiveRoutes(instance: FastifyInstance): Promise<v
   app.get(
     "/:projectId/deletion-preview",
     {
-      config: { access: { kind: "project", permission: "member", project: fromParam("projectId") }, archived: "read" },
+      config: { mcp: { action: "projects.deletionPreview", summary: "Cosa si perderebbe eliminando un progetto (l'eliminazione chiede la riconferma: dall'app).", effect: "read" }, access: { kind: "project", permission: "member", project: fromParam("projectId") }, archived: "read" },
       schema: { params, response: { 200: deletionPreviewSchema, 404: errorSchema, 409: errorSchema, ...authErrorResponses } },
     },
     async (request, reply) => {
@@ -107,7 +107,7 @@ export async function projectArchiveRoutes(instance: FastifyInstance): Promise<v
 
   app.post(
     "/:projectId/reopen",
-    { config: { access: MANAGE, archived: "write" }, schema: { params, response: { 204: z.null(), 404: errorSchema, 409: errorSchema, ...authErrorResponses } } },
+    { config: { mcp: { action: "projects.reopen", summary: "Riapre un progetto archiviato.", effect: "write", note: "Cambia cosa possono fare altre persone: dillo all'utente nella riga che annuncia l'azione." }, access: MANAGE, archived: "write" }, schema: { params, response: { 204: z.null(), 404: errorSchema, 409: errorSchema, ...authErrorResponses } } },
     async (request, reply) => {
       try {
         await reopenProject(app.db, request.user!, request.params.projectId);

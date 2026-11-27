@@ -46,7 +46,7 @@ export async function inboundRoutes(
     "/:slug/ticket",
     {
       config: {
-        access: { kind: "public" },
+        access: { kind: "public" }, mcp: { exclude: "inbound" },
         rateLimit: {
           ...opts.rateLimit,
           keyGenerator: (request) =>

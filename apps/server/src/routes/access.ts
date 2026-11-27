@@ -18,7 +18,7 @@ export async function accessRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/who-can",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "access.whoCan", summary: "Chi ha un permesso (d'istanza, o in un progetto): «chi può farlo?».", effect: "read" }, access: { kind: "user" } },
       schema: {
         querystring: z.object({ permission: permissionSchema, projectId: z.uuid().optional() }),
         response: { 200: whoCanResponseSchema, ...authErrorResponses, 404: errorSchema, 422: errorSchema },
@@ -36,7 +36,7 @@ export async function accessRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/what-can",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "access.whatCan", summary: "Cosa può fare una persona (d'istanza, o in un progetto): «cosa può fare?».", effect: "read" }, access: { kind: "user" } },
       schema: {
         querystring: z.object({ userId: z.uuid(), projectId: z.uuid().optional() }),
         response: { 200: whatCanResponseSchema, ...authErrorResponses, 404: errorSchema },

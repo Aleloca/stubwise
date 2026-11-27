@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { METRIC_POINTS_MAX } from "../../domain/servers/limits";
 import { failNext, listNotifications, releases, resetApi, servers, setLatency } from "../api";
+import { markReauthenticated } from "../auth/reauth";
 import { setSessionPersonId } from "../session";
 import { state, storeGeneration } from "../store";
 import type { ServerService } from "../types";
@@ -416,8 +417,131 @@ describe("monitor: creare, modificare, togliere (monitor.manage)", () => {
     await expect(servers.setThresholds("SRV-1", base)).rejects.toThrow("forbidden");
   });
 
+  it("un controllo di database: il DSN nuovo chiede la riconferma, il resto no", async () => {
+    as("p-roberta");
+    const db = {
+      name: "Admin DB",
+      type: "mysql" as const,
+      target: "mysql://u:p@db/app",
+      intervalSeconds: 30,
+      enabled: true,
+    };
+    const before = state.serverChecks.length;
+    await expect(servers.createCheck("SRV-4", db)).rejects.toThrow(/^reauth_required$/);
+    expect(state.serverChecks.length).toBe(before);
+    // Un controllo HTTP non porta una password.
+    const web = await servers.createCheck("SRV-4", {
+      ...db,
+      type: "http",
+      target: "https://x.test",
+    });
+    expect(web.type).toBe("http");
+    markReauthenticated("p-roberta");
+    const c = await servers.createCheck("SRV-4", db);
+    state.reauth.clear();
+    // Intervallo, stato e lo STESSO bersaglio passano; un DSN diverso no.
+    expect(
+      await servers.updateCheck(c.id, { intervalSeconds: 120, enabled: false, target: db.target }),
+    ).toMatchObject({ intervalSeconds: 120 });
+    await expect(servers.updateCheck(c.id, { target: "mysql://u:q@db/app" })).rejects.toThrow(
+      /^reauth_required$/,
+    );
+    expect(state.serverChecks.find((x) => x.id === c.id)!.target).toBe(db.target);
+  });
+
+  it("M6: un http con credenziali chiede la riconferma, si legge mascherato e il mascherato rimandato vale invariato", async () => {
+    as("p-roberta");
+    const web = {
+      name: "Admin",
+      type: "http" as const,
+      target: "https://ops:s3cret@admin.test/health",
+      intervalSeconds: 60,
+      enabled: true,
+    };
+    await expect(servers.createCheck("SRV-4", web)).rejects.toThrow(/^reauth_required$/);
+    // Un `***` non è una password: è una lettura rimandata indietro.
+    markReauthenticated("p-roberta");
+    await expect(
+      servers.createCheck("SRV-4", { ...web, target: "https://ops:***@admin.test/health" }),
+    ).rejects.toThrow("invalid: masked_credentials");
+    const c = await servers.createCheck("SRV-4", web);
+    state.reauth.clear();
+    expect(c).toMatchObject({ target: "https://ops:***@admin.test/health", hasCredentials: true });
+    const read = (await servers.getServer("SRV-4")).checks.find((x) => x.id === c.id)!;
+    expect(read).toMatchObject({
+      target: "https://ops:***@admin.test/health",
+      hasCredentials: true,
+    });
+    // Il form rimanda il target letto: invariato, nessuna riconferma, la password resta.
+    expect(
+      await servers.updateCheck(c.id, { ...web, name: "Admin panel", target: read.target }),
+    ).toMatchObject({ name: "Admin panel" });
+    expect(state.serverChecks.find((x) => x.id === c.id)!.target).toBe(web.target);
+    // Un `***` verso un altro host, o credenziali nuove: rifiuto e riconferma.
+    await expect(
+      servers.updateCheck(c.id, { target: "https://ops:***@other.test/" }),
+    ).rejects.toThrow("invalid: masked_credentials");
+    await expect(
+      servers.updateCheck(c.id, { target: "https://ops:n3w@admin.test/health" }),
+    ).rejects.toThrow(/^reauth_required$/);
+    // Il registro non riporta la password.
+    expect(JSON.stringify(state.changelog)).not.toContain("s3cret");
+    // Senza credenziali: nessuna riconferma, hasCredentials falso.
+    const plain = await servers.createCheck("SRV-4", {
+      ...web,
+      name: "Plain",
+      target: "https://admin.test/",
+    });
+    expect(plain.hasCredentials).toBe(false);
+    // L'ultimo errore dell'agente si legge mascherato anch'esso.
+    state.serverChecks.find((x) => x.id === c.id)!.lastError =
+      "GET https://ops:s3cret@admin.test/health: 401";
+    expect((await servers.getServer("SRV-4")).checks.find((x) => x.id === c.id)!.lastError).toBe(
+      "GET https://ops:***@admin.test/health: 401",
+    );
+  });
+
+  it("M6: anche il DSN di un database si legge mascherato, e rimandato com'è (un rinomina) non chiede la riconferma né lo perde", async () => {
+    as("p-roberta");
+    markReauthenticated("p-roberta");
+    const db = {
+      name: "DB",
+      type: "postgres" as const,
+      target: "postgres://app:s3cret@db:5432/app",
+      intervalSeconds: 30,
+      enabled: true,
+    };
+    const c = await servers.createCheck("SRV-4", db);
+    state.reauth.clear();
+    expect(c.target).toBe("postgres://app:***@db:5432/app");
+    expect(
+      await servers.updateCheck(c.id, { ...db, name: "Main DB", target: c.target }),
+    ).toMatchObject({ name: "Main DB" });
+    expect(state.serverChecks.find((x) => x.id === c.id)!.target).toBe(db.target);
+    await expect(
+      servers.updateCheck(c.id, { target: "postgres://app:***@other:5432/app" }),
+    ).rejects.toThrow("invalid: masked_credentials");
+  });
+
+  it("M6: cambiare SOLO il target di un http con credenziali scrive il registro mascherato", async () => {
+    as("p-roberta");
+    markReauthenticated("p-roberta");
+    const c = await servers.createCheck("SRV-4", {
+      name: "A",
+      type: "http",
+      target: "https://a:p1@x.test/",
+      intervalSeconds: 60,
+      enabled: true,
+    });
+    await servers.updateCheck(c.id, { target: "https://a:p2@x.test/" });
+    const entry = state.changelog.filter((e) => e.kind === "server.check_changed").at(-1)!;
+    expect(entry.before).toContain("https://a:***@x.test/");
+    expect(`${entry.before}${entry.after}`).not.toMatch(/p1|p2/);
+  });
+
   it("controlli: crea, modifica, togli; intervallo 10–3600 e tipi del web", async () => {
     as("p-roberta");
+    markReauthenticated("p-roberta");
     const c = await servers.createCheck("SRV-4", {
       name: "Admin DB",
       type: "mysql",

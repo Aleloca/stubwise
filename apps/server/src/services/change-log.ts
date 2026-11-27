@@ -1,3 +1,5 @@
+import { currentViaClient } from "../mcp/via-client.js";
+import { maskedUrl, maskUrlCredentials } from "./url-credentials.js";
 import { changeLog, type Db } from "@stubwise/db";
 import { sql } from "drizzle-orm";
 import { CHANGE_DATA_SCHEMAS, changeLogTypeOf, type ChangeData, type ChangeLogKind } from "@stubwise/shared";
@@ -35,7 +37,7 @@ export async function recordChange(tx: Tx | Db, entry: ChangeInput): Promise<str
   if ((type.scope === "project") !== (entry.projectId !== null)) {
     throw new Error(`${entry.type}: una voce ${type.scope === "project" ? "di progetto vuole" : "d'istanza non vuole"} un projectId`);
   }
-  const data = CHANGE_DATA_SCHEMAS[entry.type]!.parse(entry.data);
+  const data = CHANGE_DATA_SCHEMAS[entry.type]!.parse(scrubLogData(entry.data));
   const actor = entry.actor;
   const [row] = await tx.insert(changeLog).values({
     // L'istante dell'INSERIMENTO, non l'inizio della transazione (`now()`): una
@@ -50,9 +52,81 @@ export async function recordChange(tx: Tx | Db, entry: ChangeInput): Promise<str
     subjectKind: data.object.type,
     subjectId: data.object.id,
     data,
+    // D4 della parità MCP: «via Claude Code» anche fuori da una transazione (altrimenti lo dà il DEFAULT).
+    ...(currentViaClient() ? { viaClient: currentViaClient() } : {}),
   }).returning({ id: changeLog.id });
   return row!.id;
 }
+
+/**
+ * Revisione del lotto 5 della parità MCP (I1): il controllo di sorgente qui
+ * sotto vede solo le chiavi scritte DENTRO la chiamata, non quelle di un
+ * helper che costruisce il prima/dopo (`fields(w)` → `changedFields`). Qui,
+ * a runtime e in UN posto: il valore di una chiave dall'aria segreta nel
+ * prima, nel dopo o nei params diventa «[nascosto]», e le credenziali dentro
+ * un URL (`user:pass@`) diventano `user:***@` (un URL dato da una persona può
+ * portarle senza che lo scrittore lo sappia). Si MASCHERA, non si lancia: in
+ * produzione una voce con «[nascosto]» è meglio di una modifica che fallisce
+ * per il nome innocuo di un campo (un `presetKey`, un `colorToken`).
+ */
+function scrubLogData(data: ChangeInput["data"]): ChangeInput["data"] {
+  const json = (text: string | null | undefined): string | null | undefined => {
+    if (typeof text !== "string") return text;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return maskUrlCredentials(text);
+    }
+    return JSON.stringify(scrubValue(parsed));
+  };
+  return {
+    ...data,
+    ...(data.before !== undefined ? { before: json(data.before) } : {}),
+    ...(data.after !== undefined ? { after: json(data.after) } : {}),
+    ...(data.params !== undefined ? { params: scrubValue(data.params) as ChangeData["params"] } : {}),
+  };
+}
+
+/**
+ * La stessa maschera in LETTURA (revisione finale della parità MCP, I1): le
+ * voci scritte prima della maschera alla scrittura (il codice di main) hanno
+ * ancora i segreti com'erano, e il registro non si riscrive (trigger). Più,
+ * per le voci `webhook.*`, l'URL come «host …ultime4»: un valore che è ancora
+ * un URL è di una voce vecchia (una nuova è già mascherata, e non si tocca).
+ */
+export function scrubForRead(type: string, data: ChangeInput["data"]): ChangeInput["data"] {
+  const scrubbed = scrubLogData(data);
+  if (!type.startsWith("webhook.")) return scrubbed;
+  const url = (text: string | null | undefined) => {
+    if (typeof text !== "string") return text;
+    try {
+      const fields = JSON.parse(text) as unknown;
+      if (fields === null || typeof fields !== "object" || Array.isArray(fields)) return text;
+      const f = fields as Record<string, unknown>;
+      if (typeof f.url === "string" && /^[a-z][a-z0-9+.-]*:\/\//i.test(f.url)) f.url = maskedUrl(f.url);
+      return JSON.stringify(f);
+    } catch {
+      return text;
+    }
+  };
+  return { ...scrubbed, before: url(scrubbed.before), after: url(scrubbed.after) };
+}
+
+function scrubValue(value: unknown): unknown {
+  if (typeof value === "string") return maskUrlCredentials(value);
+  if (Array.isArray(value)) return value.map(scrubValue);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, isSecretLogKey(k) && v !== null && v !== "" ? HIDDEN_IN_LOG : scrubValue(v)]));
+  }
+  return value;
+}
+
+/** Il valore di un campo dall'aria segreta, come entra nel registro. */
+export const HIDDEN_IN_LOG = "[nascosto]";
+
+const isSecretLogKey = (key: string) => !ALLOWED_KEY_NAMES.has(key) && /secret|token|password|key|dsn/i.test(key);
+
 
 /**
  * Le chiavi PROIBITE dentro le chiamate a `recordChange` di un sorgente: un

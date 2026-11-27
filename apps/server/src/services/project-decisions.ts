@@ -1,3 +1,4 @@
+import { currentViaClient } from "../mcp/via-client.js";
 import { projectDecisions, recordDecision, tickets, users, type Db } from "@stubwise/db";
 import type {
   DecisionPatch,
@@ -43,6 +44,7 @@ const DECISION_COLUMNS = {
   decidedAt: projectDecisions.decidedAt,
   supersededById: projectDecisions.supersededById,
   createdAt: projectDecisions.createdAt,
+  viaClient: projectDecisions.viaClient,
   // Solo per la regola di visibilità del riferimento (ruling R49): non esce.
   ticketRequestedByUserId: tickets.requestedByUserId,
 };
@@ -82,6 +84,7 @@ function toPublicDecision(row: DecisionRow): ProjectDecision {
     decidedAt: row.decidedAt.toISOString(),
     supersededById: row.supersededById,
     createdAt: row.createdAt.toISOString(),
+    viaClaudeCode: row.decidedByUserId !== null && row.viaClient === "claude_code",
   };
 }
 
@@ -353,6 +356,10 @@ export async function patchDecision(
         ...(patch.context !== undefined ? { context: patch.context } : {}),
         ...(patch.consequences !== undefined ? { consequences: patch.consequences } : {}),
         ...(patch.supersededById !== undefined ? { supersededById: patch.supersededById } : {}),
+        // D4: una modifica da Claude Code segna la voce (un UPDATE non prende il DEFAULT),
+        // ma SOLO se chi la fa è l'autore: «via Claude Code» sta accanto al suo nome, e
+        // la modifica di un altro non deve leggersi come sua (revisione del lotto 1, I4).
+        ...(currentViaClient() && current.decidedBy?.id === input.actor.id ? { viaClient: currentViaClient() } : {}),
       })
       .where(eq(projectDecisions.id, input.decisionId));
     return null;

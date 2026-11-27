@@ -7228,3 +7228,41 @@ deploy o di un rollback che la tocca.
   **Deploy**: nessuna migrazione, nessuna env. Ribuildare **`server`** e
   **`caddy`** (il renderer di `/app`); il worker non cambia. **Rollback**:
   sicuro, scendere server e caddy insieme.
+
+- **«Parità MCP con la nuova app» (26 nov 2026)**: design
+  `docs/plans/2026-11-26-mcp-parita-design.md` (lotti 0–7). Ogni rotta del
+  server dichiara `config.mcp` (un'azione del catalogo o un'esclusione con un
+  motivo) e il test di parità lo pretende senza elenchi d'attesa; il
+  catalogo (`GET /api/mcp/catalog`) lo servono le rotte stesse. Fuori dal
+  PAT, per regola: le password della cassaforte e le rotte con la
+  riconferma.
+  **Cosa ribuildare, in ordine**:
+  1. `server`: applica la **0237** (`via_client` su `comments`,
+     `ticket_events`, `decision_requests`, `project_decisions`,
+     `change_log`: colonne nullable col DEFAULT della variabile di
+     transazione, un ALTER senza riscrittura). Aspetta che sia healthy.
+  2. `caddy`: il renderer di `/app` (la riconferma del DSN nella pagina dei
+     controlli dei server, `reauth_required` portato così com'è
+     dall'adattatore vero). Il codice del web non cambia, ma il web vede
+     comportamenti nuovi del server: la riconferma ora la chiedono anche il
+     DSN di un controllo postgres/mysql, le credenziali (`user:pass@`) nel
+     target di un controllo http, l'endpoint e il bucket dello storage
+     (questi due già dal 27 nov, voce precedente); i
+     target dei controlli si leggono mascherati (`user:***@`, campo
+     `hasCredentials`), e rimandati così come sono valgono «invariato».
+     Un `400 masked_credentials` (un `***` come password dove non ce n'è una
+     salvata) sul web compare come errore generico.
+  3. Il `worker` non cambia: nessun rebuild.
+  4. Il pacchetto `@stubwise/mcp` e il plugin escono col changeset
+     (`.changeset/mcp-parita-*.md`) quando la CI del merge è verde: verifica
+     `npm view @stubwise/mcp version` e il commit di versione su `main`,
+     E che il pacchetto pubblicato parta davvero: in una cartella vuota,
+     `npx -y @stubwise/mcp@<versione> --help` (o l'avvio del server) deve
+     rispondere senza errori di modulo mancante.
+     Un client col plugin nuovo contro un server vecchio riceve il 404 del
+     catalogo e lo dice («va aggiornata»); gli altri strumenti funzionano.
+  **Rollback**: il server e il caddy scendono insieme. Scendere il server è
+  sicuro anche con la 0237 applicata: le colonne sono nullable, il codice
+  vecchio non le nomina e il DEFAULT vale null fuori dalle richieste
+  dell'MCP. Le voci già scritte «via Claude Code» restano nel DB e tornano
+  visibili risalendo. Nessun `notification_kind` nuovo.

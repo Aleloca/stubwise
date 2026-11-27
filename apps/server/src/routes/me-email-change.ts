@@ -24,7 +24,7 @@ export async function meEmailChangeRoutes(instance: FastifyInstance): Promise<vo
 
   app.get(
     "/email-change",
-    { config: { access: { kind: "user" } }, schema: { response: { 200: emailChangeStatusSchema, ...authErrorResponses } } },
+    { config: { mcp: { action: "me.emailChange", summary: "Il cambio d'email in attesa di conferma, se c'è.", effect: "read" }, access: { kind: "user" } }, schema: { response: { 200: emailChangeStatusSchema, ...authErrorResponses } } },
     async (request) => emailChangeStatus(app.db, app.mailTransport, request.user!.id),
   );
 
@@ -49,7 +49,7 @@ export async function meEmailChangeRoutes(instance: FastifyInstance): Promise<vo
 
   app.delete(
     "/email-change",
-    { config: { access: { kind: "user" } }, schema: { response: { 204: z.null(), ...authErrorResponses } } },
+    { config: { mcp: { action: "me.cancelEmailChange", summary: "Annulla il cambio d'email in attesa: il link mandato non vale più.", effect: "destructive" }, access: { kind: "user" } }, schema: { response: { 204: z.null(), ...authErrorResponses } } },
     async (request, reply) => {
       await cancelEmailChange(app.db, request.user!.id);
       return reply.code(204).send(null);

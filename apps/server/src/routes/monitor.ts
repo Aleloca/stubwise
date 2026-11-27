@@ -85,7 +85,7 @@ export async function monitorRoutes(
   app.post(
     "/ingest",
     {
-      config: { rateLimit, access: { kind: "public" } },
+      config: { rateLimit, access: { kind: "public" }, mcp: { exclude: "inbound" } },
       preValidation: authenticateServer,
       schemaErrorFormatter: unprocessableEntityFormatter,
       schema: {
@@ -230,7 +230,7 @@ export async function monitorRoutes(
   app.get(
     "/config",
     {
-      config: { rateLimit, access: { kind: "public" } },
+      config: { rateLimit, access: { kind: "public" }, mcp: { exclude: "inbound" } },
       preValidation: authenticateServer,
       schema: {
         response: {
@@ -299,7 +299,7 @@ export async function monitorRoutes(
   app.get(
     "/commands",
     {
-      config: { rateLimit, access: { kind: "public" } },
+      config: { rateLimit, access: { kind: "public" }, mcp: { exclude: "inbound" } },
       preValidation: authenticateServer,
       schema: {
         response: {
@@ -371,7 +371,7 @@ export async function monitorRoutes(
   app.post(
     "/commands/:commandId/result",
     {
-      config: { rateLimit, access: { kind: "public" } },
+      config: { rateLimit, access: { kind: "public" }, mcp: { exclude: "inbound" } },
       preValidation: authenticateServer,
       schemaErrorFormatter: unprocessableEntityFormatter,
       schema: {

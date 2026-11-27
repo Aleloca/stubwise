@@ -1,3 +1,4 @@
+import { redactSecrets } from "./tools/redact.js";
 import type {
   BacklogItemStatus,
   InboxItem,
@@ -95,12 +96,19 @@ export interface TicketCommentSummary {
 export class StubwiseApiError extends Error {
   readonly status: number;
   readonly code: string;
+  /**
+   * Gli altri campi del corpo d'errore del server (`decidedBy` di un 409,
+   * `ticketId` di un `run_not_started`…): servono a dire PERCHÉ e cosa c'è
+   * già (revisione del lotto 1, I5). Vuoto quando il server non ne manda.
+   */
+  readonly details: Readonly<Record<string, unknown>>;
 
-  constructor(message: string, status: number, code: string) {
+  constructor(message: string, status: number, code: string, details: Record<string, unknown> = {}) {
     super(message);
     this.name = "StubwiseApiError";
     this.status = status;
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -132,6 +140,25 @@ export interface TaskItem {
   plannedWeek?: string | null;
   dueDate?: string | null;
   requestId?: string | null;
+}
+
+/** Una persona di `GET /api/people` (i campi che usa `update_task`). */
+export interface PersonItem {
+  id: string;
+  name: string;
+  email: string;
+  isClaude?: boolean;
+  deactivated?: boolean;
+}
+
+/** Il corpo di `PATCH /api/tasks/:id` che manda `update_task`: solo i campi toccati. */
+export interface TaskPatchBody {
+  statusId?: string;
+  assigneeId?: string | null;
+  departmentId?: string;
+  size?: string | null;
+  priority?: string;
+  plannedWeek?: string | null;
 }
 
 export interface ProjectStatusItem {
@@ -320,13 +347,15 @@ export interface InboxGoogle {
   subject: string;
   receivedAt?: string;
   signal: "decision" | "request" | "deadline" | "blocker" | "none";
+  /** L'id della proposta (`email_proposals.id`), derivato a lettura dal server; quello di decide_mail_proposal. */
+  sourceProposalId?: string | null;
 }
 
 /**
  * Forma difensiva di una riga d'inbox (`GET /api/inbox`): i soli campi che i
  * tool MCP leggono. Il contratto completo (azioni, snooze, chi l'ha gestita,
- * la domanda dell'agente...) resta al client web: qui l'inbox si LEGGE e basta
- * — non esiste un tool MCP che decida da questa superficie.
+ * la domanda dell'agente...) resta al client web. Le decisioni hanno i loro
+ * tool (lotto 1 della parità: `decisions.ts`).
  */
 export interface InboxItemSummary {
   id: string;
@@ -500,6 +529,138 @@ export interface ProjectDecisionSummary {
   createdAt: string;
 }
 
+/**
+ * Una voce del catalogo delle azioni (`GET /api/mcp/catalog`, design
+ * `docs/plans/2026-11-26-mcp-parita-design.md` § 2): una rotta del server che
+ * l'MCP chiama col PAT. Il catalogo lo serve l'istanza, così segue la sua
+ * versione.
+ */
+const catalogActionSchema = z
+  .object({
+    action: z.string(),
+    method: z.string(),
+    path: z.string(),
+    area: z.string(),
+    summary: z.string(),
+    effect: z.string(),
+    tool: z.string().optional(),
+    note: z.string().optional(),
+    /** I percorsi della risposta da nascondere (revisione del lotto 6, I2). */
+    redact: z.array(z.string()).optional(),
+    access: z.string(),
+  })
+  .loose();
+export type CatalogAction = z.infer<typeof catalogActionSchema>;
+
+const catalogDetailSchema = catalogActionSchema.extend({
+  input: z
+    .object({
+      params: z.record(z.string(), z.unknown()).optional(),
+      query: z.record(z.string(), z.unknown()).optional(),
+      body: z.record(z.string(), z.unknown()).optional(),
+      bodyKind: z.string(),
+    })
+    .loose(),
+});
+export type CatalogActionDetail = z.infer<typeof catalogDetailSchema>;
+
+/**
+ * Il nome del file di un `Content-Disposition`: `filename*` (RFC 5987, UTF-8)
+ * prima di `filename`. Solo il nome: chi salva lo ripulisce comunque.
+ */
+export function filenameFromDisposition(header: string | null): string | null {
+  if (!header) return null;
+  const star = /filename\*\s*=\s*([^']*)'[^']*'([^;]+)/i.exec(header);
+  if (star) {
+    try {
+      return decodeURIComponent(star[2]!.trim().replace(/^"|"$/g, ""));
+    } catch {
+      // un nome codificato male: si prova col `filename` semplice
+    }
+  }
+  const plain = /filename\s*=\s*("([^"]*)"|[^;]+)/i.exec(header);
+  if (!plain) return null;
+  return (plain[2] ?? plain[1]!).trim() || null;
+}
+
+/** Il corpo di una risposta del catalogo: JSON se lo è, altrimenti il testo. */
+function parseActionBody(text: string): unknown {
+  if (!text) return undefined;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return text;
+  }
+}
+
+/** Un rifiuto del server col suo `code` e il messaggio; gli altri campi (`decidedBy` di un 409, `rule`) servono a dire perché. */
+function actionError(status: number, data: unknown): StubwiseApiError {
+  // Anche gli errori passano dalla redazione (revisione del lotto 6, M2): arrivano al modello.
+  const body = data && typeof data === "object" ? (redactSecrets(data) as ApiErrorBody) : null;
+  const code = body?.code ?? "api_error";
+  const rest: Record<string, unknown> = { ...(body ?? {}) };
+  delete rest.code;
+  delete rest.message;
+  const json = Object.keys(rest).length > 0 ? JSON.stringify(rest) : "";
+  const extra =
+    json === ""
+      ? ""
+      : ` ${json.length > ERROR_EXTRA_MAX_CHARS ? `${json.slice(0, ERROR_EXTRA_MAX_CHARS)}[…]` : json}`;
+  // I campi del corpo restano anche in `details` (revisione del lotto 1, I5).
+  return new StubwiseApiError(`HTTP ${status} ${code}: ${body?.message ?? "errore del server"}${extra}`, status, code, rest);
+}
+
+/** I valori di una query di `callAction`: un array ripete la chiave. */
+export type ActionQuery = Record<
+  string,
+  string | number | boolean | Array<string | number | boolean> | undefined
+>;
+
+/** Una chiamata a un'azione del catalogo, così come l'ha fatta il server. */
+export interface ActionResponse {
+  status: number;
+  data: unknown;
+}
+
+/** Il tetto dei campi in più di un errore del server, nel messaggio. */
+const ERROR_EXTRA_MAX_CHARS = 2_000;
+
+/** `.` o `..`, anche con spazi intorno o codificati (`%2e`). */
+function isDotSegment(value: string): boolean {
+  let decoded = value;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    // Un `%` isolato: resta com'è, e `encodeURIComponent` lo codifica.
+  }
+  const t = decoded.trim();
+  return t === "." || t === "..";
+}
+
+/**
+ * L'URL, normalizzato come lo normalizza `fetch`, sta sotto
+ * `<percorso del baseUrl><prefisso statico della voce>` e ha tanti segmenti
+ * quanti il modello della voce.
+ */
+function staysWithin(url: string, baseUrl: string, template: string): boolean {
+  const base = new URL(baseUrl).pathname.replace(/\/$/, "");
+  const pathname = new URL(url).pathname;
+  const staticPrefix = template.split("/:")[0]!;
+  const segments = (p: string) => p.split("/").filter((x) => x !== "").length;
+  return (
+    pathname.startsWith(`${base}${staticPrefix}`) &&
+    segments(pathname) === segments(base) + segments(template)
+  );
+}
+
+/**
+ * D4 della parità MCP: ogni richiesta dice che arriva da Claude Code. Col PAT
+ * `manual` il server ne fa «via Claude Code» accanto all'autore, nella storia
+ * del ticket e nel registro delle modifiche (`apps/server/src/mcp/via-client.ts`).
+ */
+const CLIENT_HEADER = "x-stubwise-client";
+const CLIENT_NAME = "claude-code";
+
 export interface StubwiseClientDeps {
   fetch?: typeof fetch;
 }
@@ -527,6 +688,8 @@ export class StubwiseClient {
   private readonly fetchFn: typeof fetch;
   /** Cache in-memory dei progetti per la vita del processo (risoluzione slug→id). */
   private projectsCache: Project[] | null = null;
+  /** Il catalogo delle azioni, letto una volta per processo (`getCatalog`). */
+  private catalogCache: CatalogAction[] | null = null;
 
   constructor(config: StubwiseConfig, deps: StubwiseClientDeps = {}) {
     this.baseUrl = config.baseUrl;
@@ -551,6 +714,7 @@ export class StubwiseClient {
 
     const headers: Record<string, string> = {
       authorization: `Bearer ${this.token}`,
+      [CLIENT_HEADER]: CLIENT_NAME,
     };
     let payload: string | undefined;
     if (body !== undefined) {
@@ -648,6 +812,208 @@ export class StubwiseClient {
     } catch {
       return null;
     }
+  }
+
+  // --- Catalogo delle azioni (lotto 0 della parità con l'app) -------------
+
+  /**
+   * Il catalogo dell'istanza, una volta per processo. Un server che non ha
+   * ancora `/api/mcp/catalog` (più vecchio del lotto 0) risponde 404: diventa
+   * `catalog_unavailable`, e i tool generici lo dicono.
+   */
+  async getCatalog(): Promise<CatalogAction[]> {
+    if (this.catalogCache) return this.catalogCache;
+    let raw: unknown;
+    try {
+      raw = await this.request<unknown>("/api/mcp/catalog");
+    } catch (err) {
+      if (err instanceof StubwiseApiError && err.status === 404) {
+        throw new StubwiseApiError(
+          "Questa istanza di Stubwise non ha ancora il catalogo delle azioni: va aggiornata. Gli altri strumenti funzionano come prima.",
+          404,
+          "catalog_unavailable",
+        );
+      }
+      throw err;
+    }
+    const { actions } = this.parseResponse(
+      z.object({ actions: z.array(catalogActionSchema) }),
+      raw,
+      "il catalogo delle azioni",
+    );
+    this.catalogCache = actions;
+    return actions;
+  }
+
+  /** Dimentica il catalogo in cache: la prossima `getCatalog` lo rilegge. */
+  invalidateCatalog(): void {
+    this.catalogCache = null;
+  }
+
+  /** Una voce del catalogo con gli schemi (`GET /api/mcp/catalog/:action`). */
+  async describeAction(action: string): Promise<CatalogActionDetail> {
+    // Come in callAction: un `.`/`..` porterebbe la richiesta fuori dal catalogo (revisione della D4, M5).
+    if (isDotSegment(action)) throw new StubwiseApiError("Azione non valida («.» o «..»)", 0, "invalid_params");
+    const raw = await this.request<unknown>(`/api/mcp/catalog/${encodeURIComponent(action)}`);
+    return this.parseResponse(catalogDetailSchema, raw, `la voce ${action} del catalogo`);
+  }
+
+  /**
+   * Chiama un'azione del catalogo: i parametri del percorso (`:nome`) da
+   * `params`, la query, il corpo JSON. Un errore del server arriva col suo
+   * `code` e il suo messaggio (un 401 col messaggio del token), perché il
+   * modello li legge così: «forbidden», «already_handled»…
+   */
+  async callAction(
+    entry: Pick<CatalogAction, "method" | "path">,
+    input: { params?: Record<string, string | number>; query?: ActionQuery; body?: unknown } = {},
+  ): Promise<ActionResponse> {
+    const url = this.actionUrl(entry, input);
+    const headers = this.actionHeaders();
+    let payload: string | undefined;
+    if (input.body !== undefined) {
+      headers["content-type"] = "application/json";
+      payload = JSON.stringify(input.body);
+    }
+    // Un redirect NON si segue (revisione delle correzioni del lotto 2): «Apri in
+    // Google Drive» porta a una pagina per il browser, e il suo indirizzo è un
+    // link per l'utente. I download, che il redirect lo seguono, passano da
+    // `downloadAction`.
+    const response = await this.fetchAction(url, { method: entry.method, headers, body: payload, redirect: "manual" });
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel().catch(() => undefined);
+      // Un Location relativo si completa con l'indirizzo dell'istanza (revisione del lotto 4, M8).
+      const location = response.headers.get("location");
+      return { status: response.status, data: { redirect: location === null ? null : new URL(location, `${this.baseUrl}/`).toString() } };
+    }
+    const data = parseActionBody(await response.text());
+    if (!response.ok) throw actionError(response.status, data);
+    return { status: response.status, data };
+  }
+
+  /**
+   * Lotto 2 (`upload_file`): manda UN file a una voce multipart del catalogo,
+   * nel campo `file`: le rotte multipart del server ne leggono uno solo, senza
+   * altri campi (`request.file({ fields: 0 })`). Il tipo lo dice chi chiama.
+   */
+  async uploadAction(
+    entry: Pick<CatalogAction, "method" | "path">,
+    input: { params?: Record<string, string | number>; query?: ActionQuery },
+    file: { data: Uint8Array<ArrayBuffer>; name: string; type: string },
+  ): Promise<ActionResponse> {
+    const url = this.actionUrl(entry, input);
+    const form = new FormData();
+    form.append("file", new Blob([file.data], { type: file.type }), file.name);
+    const response = await this.fetchAction(url, { method: entry.method, headers: this.actionHeaders(), body: form });
+    const data = parseActionBody(await response.text());
+    if (!response.ok) throw actionError(response.status, data);
+    return { status: response.status, data };
+  }
+
+  /**
+   * Lotto 2 (`download_file`): apre una voce binaria del catalogo e ne
+   * restituisce il CORPO come stream (chi salva lo conta e lo scrive mentre
+   * arriva), col tipo, la lunghezza dichiarata e il nome che dice il server
+   * (`Content-Disposition`). Un errore resta JSON, letto come per `callAction`.
+   */
+  async downloadAction(
+    entry: Pick<CatalogAction, "method" | "path">,
+    input: { params?: Record<string, string | number>; query?: ActionQuery },
+  ): Promise<{
+    status: number;
+    body: ReadableStream<Uint8Array> | null;
+    contentType: string | null;
+    contentLength: number | null;
+    filename: string | null;
+  }> {
+    const url = this.actionUrl(entry, input);
+    const response = await this.fetchAction(url, { method: entry.method, headers: this.actionHeaders() });
+    if (!response.ok) throw actionError(response.status, parseActionBody(await response.text()));
+    const length = Number(response.headers.get("content-length"));
+    return {
+      status: response.status,
+      body: response.body,
+      contentType: response.headers.get("content-type"),
+      contentLength: Number.isFinite(length) && response.headers.has("content-length") ? length : null,
+      filename: filenameFromDisposition(response.headers.get("content-disposition")),
+    };
+  }
+
+  /**
+   * L'URL di una voce del catalogo: i parametri del percorso (`:nome`) da
+   * `params`, più la query. Lo usano le tre chiamate (JSON, upload, download),
+   * così le difese del percorso valgono per tutte.
+   */
+  private actionUrl(
+    entry: Pick<CatalogAction, "method" | "path">,
+    input: { params?: Record<string, string | number>; query?: ActionQuery },
+  ): string {
+    const missing: string[] = [];
+    const dotted: string[] = [];
+    const path = entry.path.replace(/:([A-Za-z0-9_]+)/g, (_m, name: string) => {
+      const value = input.params?.[name];
+      if (value === undefined || value === "") {
+        missing.push(name);
+        return `:${name}`;
+      }
+      // Un segmento `.` o `..` (anche con spazi o codificato: il fetch di Node
+      // normalizza pure `%2e%2e`) porterebbe la chiamata FUORI dalla voce, su
+      // rotte che il catalogo non offre (revisione del lotto 0, I1).
+      if (isDotSegment(String(value))) dotted.push(name);
+      return encodeURIComponent(String(value));
+    });
+    if (missing.length > 0) {
+      throw new StubwiseApiError(
+        `Mancano i parametri del percorso: ${missing.join(", ")}`,
+        0,
+        "missing_params",
+      );
+    }
+    if (dotted.length > 0) {
+      throw new StubwiseApiError(
+        `Parametri del percorso non validi («.» o «..»): ${dotted.join(", ")}`,
+        0,
+        "invalid_params",
+      );
+    }
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(input.query ?? {})) {
+      if (value === undefined) continue;
+      for (const v of Array.isArray(value) ? value : [value]) query.append(key, String(v));
+    }
+    const qs = query.toString();
+    const url = `${this.baseUrl}${path}${qs ? `?${qs}` : ""}`;
+    // Difesa: dopo la normalizzazione l'URL resta sotto il prefisso statico
+    // della voce e ha i suoi segmenti, qualunque cosa contenga la voce.
+    if (!staysWithin(url, this.baseUrl, entry.path)) {
+      throw new StubwiseApiError(
+        `Il percorso di «${entry.method} ${entry.path}» esce dalla voce del catalogo`,
+        0,
+        "invalid_params",
+      );
+    }
+    return url;
+  }
+
+  /** Le intestazioni di una chiamata del catalogo: il token e il client («via Claude Code», D4). */
+  private actionHeaders(): Record<string, string> {
+    return { authorization: `Bearer ${this.token}`, [CLIENT_HEADER]: CLIENT_NAME };
+  }
+
+  /** La chiamata di una voce: un host irraggiungibile e un 401 hanno i loro errori. */
+  private async fetchAction(url: string, init: RequestInit): Promise<Response> {
+    let response: Response;
+    try {
+      response = await this.fetchFn(url, init);
+    } catch (err) {
+      throw new StubwiseApiError(
+        `Impossibile raggiungere Stubwise a ${this.baseUrl} (${(err as Error).message})`,
+        0,
+        "network_error",
+      );
+    }
+    if (response.status === 401) throw await this.toApiError(response);
+    return response;
   }
 
   // --- Profilo e Docs -----------------------------------------------------
@@ -760,6 +1126,21 @@ export class StubwiseClient {
     return this.request<TaskItem>(`/api/tasks/by-code/${encodeURIComponent(code)}`);
   }
 
+  /** Lotto 2 (`update_task`): le persone che il token vede, compreso l'utente di sistema «Claude». */
+  async listPeople(): Promise<PersonItem[]> {
+    return this.request<PersonItem[]>("/api/people");
+  }
+
+  /** Lotto 2 (`update_task`): `PATCH /api/tasks/:id`, solo i campi mandati. */
+  async patchTask(id: string, patch: TaskPatchBody): Promise<TaskItem> {
+    return this.request<TaskItem>(`/api/tasks/${encodeURIComponent(id)}`, { method: "PATCH", body: patch });
+  }
+
+  /** Lotto 2 (`update_task`): il giorno (1–5, lun–ven) della task nella sua settimana, per chi ce l'ha in carico. */
+  async setTaskDay(id: string, body: { week: string; day: number | null }): Promise<{ taskId: string; week: string; day: number | null }> {
+    return this.request(`/api/tasks/${encodeURIComponent(id)}/day`, { method: "PUT", body });
+  }
+
   async getRequestByCode(code: string): Promise<RequestItem> {
     return this.request<RequestItem>(`/api/requests/by-code/${encodeURIComponent(code)}`);
   }
@@ -868,12 +1249,16 @@ export class StubwiseClient {
    * riportare. Gli errori attesi arrivano come `StubwiseApiError`: 404 (ticket
    * inesistente), 409 `job_in_flight` (un job è già in volo), 403 (permessi).
    */
-  async runTicket(id: string, body?: { mode?: "ai_plan" }): Promise<RunTicketResult> {
+  async runTicket(id: string, body?: { mode?: "ai_plan"; resumeCorrectionJobId?: string }): Promise<RunTicketResult> {
     const raw = await this.request<unknown>(`/api/tickets/${id}/run-ai`, {
       method: "POST",
       // Corpo sempre inviato (anche vuoto): la rotta accetta `nullish`, ma un
       // oggetto esplicito evita differenze di comportamento tra i due rami.
-      body: body?.mode ? { mode: body.mode } : {},
+      body: {
+        ...(body?.mode ? { mode: body.mode } : {}),
+        // Revisione del lotto 1 (I3): la ripresa ESPLICITA di una correzione ferma.
+        ...(body?.resumeCorrectionJobId ? { resumeCorrectionJobId: body.resumeCorrectionJobId } : {}),
+      },
     });
     return this.parseResponse(runTicketResultSchema, raw, "l'avvio dell'esecuzione del ticket");
   }

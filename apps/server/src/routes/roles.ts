@@ -70,7 +70,7 @@ export async function roleRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "roles.list", summary: "I ruoli (d'istanza e di progetto) coi loro permessi.", effect: "read" }, access: { kind: "user" } },
       schema: {
         querystring: z.object({ scope: roleScopeSchema.optional() }),
         response: { 200: z.array(roleSchema), ...authErrorResponses },
@@ -114,7 +114,7 @@ export async function roleRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/viewer-loses",
     {
-      config: { access: { kind: "instance", permission: "roles.manage" } },
+      config: { mcp: { action: "roles.viewerLoses", summary: "Anteprima: quali permessi perderesti TU se il ruolo avesse questi permessi. Non scrive niente.", effect: "write", note: "È solo un calcolo: il ruolo si cambia dall'app (chiede la riconferma)." }, access: { kind: "instance", permission: "roles.manage" } },
       schema: {
         params: idParamsSchema,
         body: z.object({ permissions: z.array(z.string().max(100)).max(200) }),

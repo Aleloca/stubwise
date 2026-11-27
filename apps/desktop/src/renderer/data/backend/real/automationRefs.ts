@@ -75,6 +75,8 @@ export type AutomationRefs = ReturnType<typeof createAutomationRefs>;
 /** Un errore del server come lo dicono le scritture del prototipo (`data/writer.ts`). */
 export function asPrototypeError(error: unknown): unknown {
   if (!(error instanceof ApiError)) return error;
+  // La riconferma non è un divieto: la pagina apre «Confirm it's you» (`useReauth`).
+  if (error.code === "reauth_required") return new Error("reauth_required");
   if (error.status === 404) return new Error("not_found");
   if (error.status === 403) return new Error("forbidden");
   // Lotto 4, D-7.1: il budget del mese finito per chi non può scavalcarlo, nelle parole del prototipo.

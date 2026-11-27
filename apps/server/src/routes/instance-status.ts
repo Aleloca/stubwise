@@ -22,7 +22,7 @@ export async function instanceStatusRoutes(instance: FastifyInstance): Promise<v
   app.get(
     "/status",
     {
-      config: { access: { kind: "instance", permission: "instance.status.view" } },
+      config: { mcp: { action: "instance.status", summary: "Lo stato dell'istanza: code, lavori falliti, servizi.", effect: "read" }, access: { kind: "instance", permission: "instance.status.view" } },
       schema: { response: { 200: instanceStatusSchema, ...authErrorResponses } },
     },
     async (request) => instanceStatus(app.db, request.user!),
@@ -40,7 +40,7 @@ export async function instanceStatusRoutes(instance: FastifyInstance): Promise<v
   app.post(
     "/jobs/:id/retry",
     {
-      config: { access: { kind: "project", permission: "project.settings.manage", project: fromJob("id") } },
+      config: { mcp: { action: "instance.retryJob", summary: "Rilancia un lavoro di una task fallito negli ultimi 7 giorni.", effect: "write" }, access: { kind: "project", permission: "project.settings.manage", project: fromJob("id") } },
       schema: {
         params: z.object({ id: z.uuid() }),
         response: { 202: z.object({ jobId: z.string(), status: z.string(), stopsAtPlan: z.boolean() }), 404: errorSchema, 409: errorSchema, 422: errorSchema, ...authErrorResponses },

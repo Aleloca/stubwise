@@ -31,6 +31,7 @@ import {
   calendarEvents,
   calendarProposalRecipients,
   calendarProposals,
+  decisionRequests,
   deletedTickets,
   emailMessages,
   emailProposalRecipients,
@@ -87,6 +88,7 @@ import {
   multiSelectableIndices,
 } from "@stubwise/shared";
 import { and, desc, eq, inArray, isNotNull, isNull, ne, sql, type SQL } from "drizzle-orm";
+import { z } from "zod";
 import { calendarStatusCaseSql } from "../routes/calendar-status.js";
 import { answerGoogleProposal, handableFrom, handGoogleProposal } from "./google-proposal.js";
 import { projectActorForTicket, resolvePlan, startRun, type Actor } from "./jobs.js";
@@ -868,6 +870,8 @@ export interface InboxItem extends ViaClaudeFields {
   automation?: InboxAutomation | null;
   /** Area 11, F2: solo `product_doc.*`, la pagina e il commento come li vede chi legge (`productDocCardsFor`). */
   productDoc?: ProductDocCard | null;
+  /** Revisione del lotto 1 della parità MCP (I2): la richiesta di una card `decision.requested`, a lettura. */
+  decisionRequest?: { decisionId: string; question: string; options: string[]; open: boolean } | null;
   jobId: string | null;
   createdAt: Date;
   readAt: Date | null;
@@ -1067,6 +1071,10 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     userId,
     page.filter((r) => r.kind === "google.proposal").map((r) => r.id),
   );
+  // Revisione del lotto 6 della parità MCP (I1): l'id delle proposte condivise del calendario.
+  const calendarProposalIds = await calendarProposalIdsByNotification(db, userId, page.filter((r) => r.kind === "google.proposal").map((r) => r.id));
+  // Revisione del lotto 1 della parità MCP (I2): la richiesta di decisione delle card `decision.requested`, a lettura.
+  const decisionRequestCards = await decisionRequestsOfCards(db, page.filter((r) => r.kind === "decision.requested"));
   // Rimandi, lotto 4 (§2): la card di chi decide una condivisa passata porta la
   // sua proposta, chi l'ha passata e se l'ha già decisa qualcuno (a lettura).
   const handedShared = await handedSharedProposalsOf(
@@ -1194,11 +1202,18 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
         : {}),
       objectGone,
       chat,
-      ...(rendered.google && handedShared.has(r.id)
-        ? { google: { ...rendered.google, ...(handedFacts.get(handedShared.get(r.id)!) ?? { handedByUser: null, proposalDecided: false }) } }
+      ...(rendered.google && (handedShared.has(r.id) || calendarProposalIds.has(r.id))
+        ? {
+            google: {
+              ...rendered.google,
+              ...(handedShared.has(r.id) ? (handedFacts.get(handedShared.get(r.id)!) ?? { handedByUser: null, proposalDecided: false }) : {}),
+              ...(calendarProposalIds.has(r.id) ? { calendarProposalId: calendarProposalIds.get(r.id)! } : {}),
+            },
+          }
         : {}),
       ...(isProductDocKind(r.kind) ? { productDoc } : {}),
       ...(isAutomationKind(r.kind) ? { automation } : {}),
+      ...(r.kind === "decision.requested" ? { decisionRequest: decisionRequestCards.get(r.id) ?? null } : {}),
       // Il riassunto NON passa dal jsonb dell'evento: viene dalle colonne
       // (`ai_jobs.plan_summary`, `pr_reviews.pr_summary`) caricate in batch
       // sopra. Così una card mostra il riassunto anche quando è arrivato DOPO
@@ -1929,6 +1944,34 @@ async function handedFactsOf(db: Db, proposalIds: readonly string[]): Promise<Ma
   return out;
 }
 
+/**
+ * La richiesta di decisione di ciascuna card `decision.requested` della
+ * pagina, com'è ADESSO: UNA query. L'id viene dall'evento (scritto alla
+ * publish), il resto dalla riga.
+ */
+async function decisionRequestsOfCards(
+  db: Db,
+  rows: readonly { id: string; event: unknown }[],
+): Promise<Map<string, { decisionId: string; question: string; options: string[]; open: boolean }>> {
+  const out = new Map<string, { decisionId: string; question: string; options: string[]; open: boolean }>();
+  const byDecision = new Map<string, string[]>();
+  for (const r of rows) {
+    const id = (r.event as { decisionId?: unknown }).decisionId;
+    if (typeof id === "string" && z.uuid().safeParse(id).success) byDecision.set(id, [...(byDecision.get(id) ?? []), r.id]);
+  }
+  if (byDecision.size === 0) return out;
+  const found = await db
+    .select({ id: decisionRequests.id, question: decisionRequests.question, options: decisionRequests.options, answeredAt: decisionRequests.answeredAt, withdrawnAt: decisionRequests.withdrawnAt })
+    .from(decisionRequests)
+    .where(inArray(decisionRequests.id, [...byDecision.keys()]));
+  for (const d of found) {
+    for (const cardId of byDecision.get(d.id) ?? []) {
+      out.set(cardId, { decisionId: d.id, question: d.question, options: d.options, open: d.answeredAt === null && d.withdrawnAt === null });
+    }
+  }
+  return out;
+}
+
 async function sourceProposalIdsByNotification(
   db: Db,
   userId: string,
@@ -1963,6 +2006,25 @@ async function sourceProposalIdsByNotification(
     if (row.notificationId !== null) byNotification.set(row.notificationId, row.proposalId);
   }
   return byNotification;
+}
+
+/**
+ * Revisione del lotto 6 della parità MCP (I1): la proposta CONDIVISA del
+ * calendario (lotto 9) ha una card per destinatario in
+ * `calendar_proposal_recipients`, e si decide per `calendar_proposals.id`,
+ * non per la copia dell'evento di chi riceve (che può non averla). Un campo
+ * a sé, `google.calendarProposalId`: `sourceProposalId` resta `null` per il
+ * calendario, perché il web lo usa per aprire il dettaglio di una MAIL.
+ */
+async function calendarProposalIdsByNotification(db: Db, userId: string, notificationIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (notificationIds.length === 0) return out;
+  const rows = await db
+    .select({ notificationId: calendarProposalRecipients.notificationId, proposalId: calendarProposalRecipients.proposalId })
+    .from(calendarProposalRecipients)
+    .where(and(inArray(calendarProposalRecipients.notificationId, notificationIds), eq(calendarProposalRecipients.userId, userId)));
+  for (const row of rows) if (row.notificationId !== null) out.set(row.notificationId, row.proposalId);
+  return out;
 }
 
 /**

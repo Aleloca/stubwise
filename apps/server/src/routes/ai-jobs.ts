@@ -123,7 +123,7 @@ export async function aiJobRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      config: { access: ON_TICKET },
+      config: { access: ON_TICKET, mcp: { action: "tickets.jobs", summary: "I run dell'agente su un ticket, dal più recente: stato, piano, PR e domande.", effect: "read" } },
       schema: {
         params: ticketParamsSchema,
         response: { 200: z.array(aiJobSchema), 404: errorSchema, ...authErrorResponses },
@@ -163,7 +163,7 @@ export async function ticketUsageRoutes(instance: FastifyInstance): Promise<void
   app.get(
     "/",
     {
-      config: { access: ON_TICKET },
+      config: { access: ON_TICKET, mcp: { action: "tickets.usage", summary: "I consumi AI di un ticket: run, token e costo stimato.", effect: "read" } },
       schema: {
         params: ticketParamsSchema,
         response: { 200: ticketUsageSchema, 404: errorSchema, ...authErrorResponses },

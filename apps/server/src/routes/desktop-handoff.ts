@@ -145,7 +145,7 @@ export function desktopHandoffRoutes(instance: FastifyInstance, credentialsRateL
   app.post(
     "/desktop-reauth",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, mcp: { exclude: "desktop_link" } },
       schema: {
         body: secondFactorCodeBodySchema,
         response: {

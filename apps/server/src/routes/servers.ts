@@ -246,7 +246,7 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/",
     {
-      config: { access: { kind: "instance", permission: "monitor.manage" } },
+      config: { mcp: { exclude: "secret_once" }, access: { kind: "instance", permission: "monitor.manage" } },
       schema: {
         body: createServerSchema,
         response: { 201: serverWithKeySchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
@@ -314,7 +314,7 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "servers.list", summary: "I server monitorati che vedi, con stato e ultimo campione (filtro per progetto).", effect: "read" }, access: { kind: "user" } },
       schema: {
         querystring: listQuerySchema,
         response: { 200: z.array(serverViewSchema), 404: errorSchema, ...authErrorResponses },
@@ -423,7 +423,7 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/command-key",
     {
-      config: { access: { kind: "instance", permission: "monitor.manage" } },
+      config: { mcp: { action: "servers.commandKey", summary: "La chiave PUBBLICA con cui gli agenti verificano i comandi di Stubwise.", effect: "read" }, access: { kind: "instance", permission: "monitor.manage" } },
       schema: { response: { 200: z.object({ publicKey: z.string() }), ...authErrorResponses } },
     },
     async () => ({ publicKey: await commandPublicKey(app.db, app.encryptionKey) }),
@@ -434,7 +434,7 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/search",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "servers.search", summary: "Cerca un server per nome, host o codice SRV-n.", effect: "read" }, access: { kind: "user" } },
       schema: { querystring: z.object({ q: z.string().max(200).default("") }), response: { 200: z.object({ items: z.array(serverSearchResultSchema) }), ...authErrorResponses } },
     },
     async (request) => {
@@ -478,7 +478,7 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/by-code/:code",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "servers.getByCode", summary: "Un server dal suo codice (SRV-12), col dettaglio.", effect: "read" }, access: { kind: "user" } },
       schema: {
         params: z.object({ code: z.string().min(1).max(40) }),
         response: { 200: serverDetailSchema, 404: errorSchema, ...authErrorResponses },
@@ -498,7 +498,7 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:id",
     {
-      config: { access: { kind: "user" } },
+      config: { mcp: { action: "servers.get", summary: "Il dettaglio di un server: ambienti, servizi, ultimo campione, avvisi.", effect: "read" }, access: { kind: "user" } },
       schema: {
         params: idParamsSchema,
         response: { 200: serverDetailSchema, 404: errorSchema, ...authErrorResponses },
@@ -518,7 +518,7 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/:id",
     {
-      config: { access: { kind: "instance", permission: "monitor.manage" } },
+      config: { mcp: { action: "servers.update", summary: "Modifica un server: nome, intervallo dei campioni, progetti, soglie degli avvisi (thresholds).", effect: "write", note: "Cambiare i progetti cambia CHI vede il server e riceve i suoi avvisi." }, access: { kind: "instance", permission: "monitor.manage" } },
       schema: {
         params: idParamsSchema,
         body: updateServerSchema,
@@ -557,7 +557,7 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/regenerate-key",
     {
-      config: { access: { kind: "instance", permission: "monitor.manage" } },
+      config: { mcp: { exclude: "secret_once" }, access: { kind: "instance", permission: "monitor.manage" } },
       schema: {
         params: idParamsSchema,
         response: { 200: serverWithKeySchema, 404: errorSchema, ...authErrorResponses },
@@ -580,7 +580,7 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/:id",
     {
-      config: { access: { kind: "instance", permission: "monitor.manage" } },
+      config: { mcp: { action: "servers.delete", summary: "Elimina un server con metriche, controlli e storia: l'agente non può più scrivere.", effect: "destructive", note: "Non si ritira: metriche e storia si perdono per tutti." }, access: { kind: "instance", permission: "monitor.manage" } },
       schema: {
         params: idParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },

@@ -179,7 +179,7 @@ export async function slackIdentityRoutes(
   app.get(
     "/slack/workspace-users",
     {
-      config: { access: { kind: "instance", permission: "integrations.manage" } },
+      config: { mcp: { action: "slack.workspaceUsers", summary: "I membri del workspace Slack collegato, per collegarli alle persone.", effect: "read" }, access: { kind: "instance", permission: "integrations.manage" } },
       schema: {
         response: {
           200: z.array(workspaceUserSchema),

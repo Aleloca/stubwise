@@ -89,6 +89,8 @@ function makeClient() {
     deleteDesign: vi.fn(),
     setPlan: vi.fn(),
     deletePlan: vi.fn(),
+    listPeople: vi.fn(),
+    getMe: vi.fn(),
   };
 }
 
@@ -156,6 +158,34 @@ describe("create_ticket", () => {
     expect(client.createTicket).toHaveBeenCalledWith(
       expect.objectContaining({ type: "bug", priority: "urgent" }),
     );
+  });
+
+  it("revisione del lotto 2 (I5): assegnatario in parole ed etichette, come la rotta", async () => {
+    const client = makeClient();
+    client.getProjectBySlug.mockResolvedValue(fakeProject({ slug: "acme" }));
+    client.listPeople.mockResolvedValue([
+      { id: "u-marco", name: "Marco Rossi", email: "marco@acme.it" },
+      { id: "u-claude", name: "Claude", email: "claude@stubwise.local", isClaude: true },
+    ]);
+    client.createTicket.mockResolvedValue(fakeTicket({ type: "task", number: 8 }));
+    const { ctx } = makeCtx(client);
+    await tool("create_ticket").handler({ project: "acme", title: "Fattura", assignee: "MARCO@acme.it", labels: ["fatture", "q4"] }, ctx);
+    expect(client.createTicket).toHaveBeenCalledWith(expect.objectContaining({ assigneeId: "u-marco", labels: ["fatture", "q4"] }));
+    const res = await tool("create_ticket").handler({ project: "acme", title: "Fattura", assignee: "Claude" }, ctx);
+    expect(client.createTicket).toHaveBeenLastCalledWith(expect.objectContaining({ assigneeId: "u-claude" }));
+    expect(firstText(res)).toContain("avvia il lavoro");
+    expect(tool("create_ticket").description).toContain("runs.start");
+  });
+
+  it("un assegnatario che non si trova: errore, nessun ticket", async () => {
+    const client = makeClient();
+    client.getProjectBySlug.mockResolvedValue(fakeProject({ slug: "acme" }));
+    client.listPeople.mockResolvedValue([{ id: "u-marco", name: "Marco Rossi", email: "marco@acme.it" }]);
+    const { ctx } = makeCtx(client);
+    const res = await tool("create_ticket").handler({ project: "acme", title: "X", assignee: "giulia" }, ctx);
+    expect(res.isError).toBe(true);
+    expect(firstText(res)).toContain("nessuna persona «giulia»");
+    expect(client.createTicket).not.toHaveBeenCalled();
   });
 
   it("senza progetto risolvibile ritorna errore che chiede il progetto e non crea il ticket", async () => {
@@ -607,6 +637,8 @@ describe("run_ticket", () => {
     expect(firstText(res)).toContain("approvazione");
     // L'agente non deve rilanciare il tool aspettando l'approvazione.
     expect(firstText(res)).toContain("non rilanciare run_ticket");
+    // Chi ha plans.approve lo approva da qui (lotto 1 della parità).
+    expect(firstText(res)).toContain("approve_plan");
     expect(firstText(res)).toContain(JOB_ID);
     expect(firstText(res)).toContain(`${BASE_URL}/tickets/${TICKET_ID}`);
   });
@@ -615,7 +647,10 @@ describe("run_ticket", () => {
     const description = tool("run_ticket").description;
     expect(description).toContain("Chiedi modifiche");
     expect(description).toContain("Request changes");
-    expect(description).toContain("nessun tool MCP lancia una correzione");
+    // Lotto 1 della parità: la correzione si chiede anche da qui, ma NON con run_ticket.
+    expect(description).not.toContain("nessun tool MCP");
+    expect(description).toContain("find_actions");
+    expect(description).toContain("answer_agent_question");
   });
 
   it("la descrizione dice di non rilanciare alla cieca su una correzione ferma", () => {
@@ -664,6 +699,15 @@ describe("run_ticket", () => {
     expect(client.runTicket).toHaveBeenCalledWith(TICKET_ID, { mode: "ai_plan" });
   });
 
+  it("riprende una correzione ferma con l'id del suo job (revisione del lotto 1, I3)", async () => {
+    const client = makeClient();
+    client.runTicket.mockResolvedValue({ jobId: JOB_ID, status: "queued" });
+    const { ctx } = makeCtx(client);
+    await tool("run_ticket").handler({ id: TICKET_ID, resume_correction_job_id: JOB_ID }, ctx);
+    expect(client.runTicket).toHaveBeenCalledWith(TICKET_ID, { resumeCorrectionJobId: JOB_ID });
+    expect(tool("run_ticket").description).toContain("resume_correction_job_id");
+  });
+
   it("409 job_in_flight: messaggio parlante con lo stato del server e l'URL", async () => {
     const client = makeClient();
     client.runTicket.mockRejectedValue(
@@ -677,7 +721,7 @@ describe("run_ticket", () => {
     expect(firstText(res)).toContain("C'è già un job in corso per questo ticket");
     expect(firstText(res)).toContain("A job for this ticket is already running");
     // Il job in volo può essere fermo sul gate del piano: il testo lo dice.
-    expect(firstText(res)).toContain("che un maintainer lo approvi");
+    expect(firstText(res)).toContain("che chi ha plans.approve lo approvi: approve_plan");
     expect(firstText(res)).toContain(`${BASE_URL}/tickets/${TICKET_ID}`);
   });
 
