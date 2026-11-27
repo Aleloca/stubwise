@@ -1,4 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
+import { TrustedSvg } from "../../../platform/trustedHtml";
 import { safeWireframeSvg } from "../safeWireframe";
 import { useTranslation } from "react-i18next";
 import { useAiBlock, useKeepWireframe, useRedrawWireframe } from "../../../data/queries";
@@ -283,12 +284,12 @@ export function WireframeBlock({
             className="flex h-32 flex-col items-center justify-center gap-1 text-center"
           />
         ) : svg !== null ? (
-          <div
+          <TrustedSvg
             key={`${block.wireframeId}:${block.variant}`}
             role="img"
             aria-label={name}
-            // Già ripulito da `safeWireframeSvg` (l'allowlist di `sanitizeWireframeSvg`).
-            dangerouslySetInnerHTML={{ __html: svg }}
+            // Già ripulito da `safeWireframeSvg`; la politica `stubwise-html` lo ricontrolla (I-4).
+            svg={svg}
             className="event-enter mx-auto flex max-h-[328px] w-full justify-center text-ink [&>svg]:h-auto [&>svg]:max-h-[328px] [&>svg]:w-full [&>svg]:max-w-[492px]"
           />
         ) : (

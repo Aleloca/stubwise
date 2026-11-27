@@ -30,7 +30,7 @@ export default defineConfig({
           // Revisione I-4 (§2.3): Trusted Types, e il worker della cassaforte dal bundle.
           attrs: {
             "http-equiv": "Content-Security-Policy",
-            content: `${PRODUCTION_CSP}; require-trusted-types-for 'script'; worker-src 'self'`,
+            content: `${PRODUCTION_CSP}; require-trusted-types-for 'script'; trusted-types stubwise-vault-worker stubwise-html; worker-src 'self'`,
           },
           injectTo: "head-prepend",
         },
