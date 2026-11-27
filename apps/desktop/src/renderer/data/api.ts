@@ -877,6 +877,9 @@ export async function listNotifications(): Promise<AppNotification[]> {
       // ([SC 16]).
       if (n.roleId !== undefined)
         out.roleName = accessState().roles.find((r) => r.id === n.roleId)?.name ?? null;
+      // D13: la card di chi è entrato in una workspace la nomina (derivata a lettura).
+      if (n.workspaceId !== undefined)
+        out.workspaceName = accessState().workspaces.find((w) => w.id === n.workspaceId)?.name ?? null;
       // `member.added` a chi gestisce i membri (19 nov 2026): chi è entrato,
       // per nome se chi guarda lo vede (R-G5); a chi è entrato niente.
       if (n.memberId !== undefined) {

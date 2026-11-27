@@ -22,7 +22,8 @@ import {
   statusOf,
 } from "../admin/common";
 import { recordChange } from "../changelog/index";
-import { archivedProjectIdsFor, gate, newId, now, state, visibleProjectIds } from "../store";
+import { currentVia, silencedByUndo } from "../claude/via";
+import { archivedProjectIdsFor, gate, newId, nextSeq, now, state, visibleProjectIds } from "../store";
 import { writer } from "../writer";
 import "./changeTypes";
 import type {
@@ -628,6 +629,7 @@ export function addWorkspaceMemberAs(
 ): AdminResult {
   const op: WorkspaceOperation = { kind: "addMember", workspaceId, personId, roleId };
   const result = judgeAndWrite(me, "workspaces.addMember", op, (a) => applyOperation(a, op));
+  if (result.ok) publishWorkspaceJoined(me, workspaceId, personId, roleId);
   if (result.ok) {
     recordChange({
       kind: "workspace.member_added",
@@ -743,4 +745,48 @@ export function workspacesForSearch(me: string): {
         .map((w) => [w.projectId, workspaceById(s, w.workspaceId)?.name ?? ""]),
     ),
   };
+}
+
+/**
+ * D13: chi ENTRA in una workspace riceve UNA card `member.added` (nessun kind
+ * nuovo: il rollback del server resta sicuro), con la workspace al posto del
+ * progetto e il link alla pagina filtrata. Solo alla persona; una workspace
+ * senza progetti aperti non manda card; un progetto aggiunto dopo neanche.
+ * Dentro un «Annulla» non si scrive.
+ */
+function publishWorkspaceJoined(me: string, workspaceId: string, personId: string, roleId: string) {
+  if (personId === me) return;
+  const via = currentVia();
+  if (silencedByUndo(via)) return;
+  const s = accessState();
+  const ws = workspaceById(s, workspaceId);
+  const open = projectsIn(s, workspaceId)
+    .map((p) => state.projectsById.get(p))
+    .filter((p) => p !== undefined && !p.archived)
+    .sort((a, b) => a!.code.localeCompare(b!.code));
+  if (!ws || open.length === 0) return;
+  const role = roleById(roleId)?.name ?? "";
+  state.notifications.push({
+    id: newId("n"),
+    kind: "member.added",
+    // La card segue la visibilità di un progetto della workspace.
+    projectId: open[0]!.id,
+    objectCode: ws.name,
+    departmentId: null,
+    recipientIds: [],
+    mandatory: [{ personId, reason: "added" }],
+    mandatoryOnly: true,
+    title: `You've been added to ${ws.name} as ${role}`,
+    body: `${nameOf(me) ?? ""} added you to ${ws.name} as ${role}.`,
+    createdAt: now(),
+    seq: nextSeq(),
+    read: false,
+    archived: false,
+    snoozedUntil: null,
+    link: `#/projects?workspace=${ws.slug}`,
+    actorId: me,
+    roleId,
+    workspaceId,
+    ...(via ? { viaClaude: { personId: me, actionId: via.actionId } } : {}),
+  });
 }

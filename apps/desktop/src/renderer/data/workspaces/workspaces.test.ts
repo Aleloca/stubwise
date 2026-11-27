@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { access, admin, auth, resetApi, setLatency, workspaces } from "../api";
+import { access, admin, auth, listNotifications, resetApi, setLatency, workspaces } from "../api";
 import { accessState, isMember, roleIdOf, writeAccess } from "../access/index";
 import { markReauthenticated } from "../auth/reauth";
 import { setSessionPersonId } from "../session";
@@ -279,5 +279,22 @@ describe("l'invito di Amministrazione con una workspace (D9)", () => {
         workspaces: [{ workspaceId: STORICI, roleId: roleIdOf("viewer") }],
       }),
     ).toMatchObject({ ok: false, error: "forbidden" });
+  });
+});
+
+describe("D13: chi entra in una workspace riceve la card", () => {
+  it("una card member.added che nomina la workspace e apre la pagina filtrata; a chi agisce niente; un progetto aggiunto non manda card", async () => {
+    as(ROBERTA);
+    markReauthenticated(ROBERTA);
+    expect(await workspaces.addWorkspaceMember(STORICI, "p-irene")).toEqual({ ok: true });
+    as("p-irene");
+    const cards = (await listNotifications()).filter((n) => n.kind === "member.added" && n.workspaceName);
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({ workspaceName: "Clienti storici", roleName: "Viewer", link: "#/projects?workspace=clienti-storici" });
+    as(ROBERTA);
+    expect((await listNotifications()).filter((n) => n.kind === "member.added" && n.workspaceName)).toEqual([]);
+    expect(await workspaces.setProjectWorkspace("prj-mkx", STORICI)).toEqual({ ok: true });
+    as("p-irene");
+    expect((await listNotifications()).filter((n) => n.kind === "member.added")).toHaveLength(1);
   });
 });
