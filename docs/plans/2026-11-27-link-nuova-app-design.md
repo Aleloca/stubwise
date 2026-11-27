@@ -134,3 +134,48 @@ Il server dà già, a lettura, `taskCode`, `serverCode` e `objectGone`. Con ques
 | `security.alert` | `#/preferences/security` | il link è già quello |
 | `monitor.*` | `serverCode` (c'era già) | `serverId` nell'evento |
 | aprire la conversazione di un run | `agentSessionId` sulla card | non fatto: da chiedere se serve |
+
+## La revisione di `feat/link-nuova-app` (27 nov 2026)
+
+- **I1, il codice di un progetto ha una regola sola.** È `projectCodeSchema`,
+  `^[A-Z][A-Z0-9]{1,5}$`, esportata come `PROJECT_CODE_PATTERN` da
+  `app-links.ts` e usata da `projectCodeSchema` stesso.
+  - Le 53 copie di `[A-Z]{2,4}` nel renderer (rotte, `TASK_CODE_RE`,
+    `appLinkFor`, i parser di Claude, Drive, Posta, automazioni, rilasci,
+    membri) seguono quella regola. Prima la nuova app non apriva le task di
+    progetti come `TRI2` o `WIL2`.
+  - `CODE_TOKEN_RE` della doc di prodotto pure.
+  - Resta stretta, apposta, solo la PROPOSTA dei codici nuovi
+    (`PROJECT_CODE_RE` in `shared/tasks/project-code.ts`).
+  - Un test nel renderer vieta `[A-Z]{2,4}` (`appLinks.parity.test.ts`). La
+    parità copre tutti i bersagli dell'helper, coi codici `ACQ`, `TRI2`,
+    `STU2` e `WILLY2`.
+- **I2:** `appPath` è anche sullo schema base della voce di backlog, e le
+  scritture di design e piano lo danno.
+- **I3, il test di registro.** Riconosce il prefisso dei percorsi vecchi in
+  ogni stringa: concatenazioni, liste senza id, tutto `/settings/`, `/inbox`.
+  Riconosce anche ogni frammento `#/`. Salta solo:
+  - le stringhe che iniziano con `/api/`;
+  - i pattern e le rotte registrate (`app.get("…")`);
+  - i moduli;
+  - le basi che non sono la nostra radice (`${GMAIL_API_BASE}`).
+
+  Legge `.ts`, `.tsx` e `.mjs` di tutte le app e i pacchetti, tranne il web
+  vecchio, il desktop e la guida. La ricerca (`search.ts`) usa `appRoute`.
+- **I4, derivati a lettura.** I link di `project.pulse`, `project.brief`,
+  `docs.limit_paused`, `docs.nightly_attention`, `request.created`,
+  `google.proposal_handed` e `server.diagnosis_ready` vengono da
+  `linkContextsFor`. Sono poche query per pagina e danno i codici di
+  progetto, task, repository e server. Valgono anche per le card di prima:
+  il repository si ricava anche dall'id nel link Docs del web vecchio. Li
+  usano sia l'inbox sia i DM.
+- **Minor.**
+  - M1, M2 e M8: `ticketUrl`, il link del monitor e le citazioni Slack non
+    lanciano mai; ripiegano sulla Home.
+  - M3: un codice di progetto vuoto dà la Home, mai `/p//`.
+  - M4: gli slug riservati, con un suffisso (`RESERVED_REPOSITORY_SLUGS`,
+    `RESERVED_DOC_PAGE_SLUGS`): repository creati, pagine manuali e
+    generate, anche con lo slug dall'orientamento.
+  - M5: la parità è completa.
+  - M6: il rinomina del codice è nel registro dei rimandi.
+  - M9: accettato com'è, su decisione di 46 nella revisione.

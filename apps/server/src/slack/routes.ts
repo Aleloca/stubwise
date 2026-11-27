@@ -1,3 +1,4 @@
+import { appUrl } from "@stubwise/shared";
 import { repositoryDocsAppUrl } from "@stubwise/notifications";
 import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -332,7 +333,10 @@ async function answerAndPostToSlack(
         await Promise.all(
           citations.map(async (c) => {
             const label = `${c.repositoryName} › ${c.title}`;
-            return publicUrl ? `<${await repositoryDocsAppUrl(deps.db, publicUrl, c.repositoryId, c.slug)}|${label}>` : label;
+            if (!publicUrl) return label;
+            // Una citazione che non si risolve non toglie la risposta: il link va alla Home (M8).
+            const url = await repositoryDocsAppUrl(deps.db, publicUrl, c.repositoryId, c.slug).catch(() => appUrl(publicUrl, { to: "home" }));
+            return `<${url}|${label}>`;
           }),
         )
       ).join("  ·  ");

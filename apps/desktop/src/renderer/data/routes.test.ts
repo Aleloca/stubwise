@@ -256,3 +256,13 @@ describe("route grammar", () => {
     }
   });
 });
+
+describe("il ritorno dal consenso Google nella build web (link della nuova app)", () => {
+  it("`?google=<esito>` su preferences/account, solo con un esito conosciuto e solo lì", () => {
+    expect(isAppRoute("#/preferences/account?google=ok")).toBe(true);
+    expect(isAppRoute("#/preferences/account?google=mailbox_owned_by_other")).toBe(true);
+    expect(isAppRoute("#/preferences/account?google=<script>")).toBe(false);
+    expect(isAppRoute("#/preferences/security?google=ok")).toBe(false);
+  });
+});
+

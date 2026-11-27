@@ -18,6 +18,14 @@
  * pagina «non trovato» o il progetto che non vede), non il link.
  */
 
+/**
+ * Il codice di un progetto (`ACQ`, `TRI2`, `WIL2`): una lettera e poi da 1 a 5
+ * lettere o cifre. È LA regola: `projectCodeSchema` la usa, e il renderer la
+ * scrive nelle sue espressioni (un test di registro lì vieta la vecchia
+ * `[A-Z]{2,4}`, che lasciava fuori i codici con cifre o più lunghi).
+ */
+export const PROJECT_CODE_PATTERN = "[A-Z][A-Z0-9]{1,5}";
+
 /** L'ingresso della nuova app nell'origine: l'unica riga da cambiare quando passa alla radice. */
 export const APP_ENTRY = "/app/";
 
@@ -64,8 +72,27 @@ const query = (params: Record<string, string>) => {
   return s ? `?${s}` : "";
 };
 
+/**
+ * Gli slug che l'indirizzo dei Docs della nuova app usa già, e che quindi un
+ * repository o una pagina non possono avere (revisione dei link, M4):
+ * `#/p/<P>/docs/product` è lo spazio Prodotto, e dentro lo spazio di un
+ * repository `new`, `brief`, `releases` e `graph` sono pagine dell'app
+ * (`router.tsx`, figli di `/p/$code/docs/$repo`). Uno slug così prende un
+ * suffisso ({@link unreservedSlug}).
+ */
+export const RESERVED_REPOSITORY_SLUGS: readonly string[] = ["product"];
+export const RESERVED_DOC_PAGE_SLUGS: readonly string[] = ["new", "brief", "releases", "graph"];
+
+/** Lo slug com'è, o col suffisso se è riservato (`product` → `product-repo`). */
+export function unreservedSlug(slug: string, reserved: readonly string[], suffix: string): string {
+  return reserved.includes(slug) ? `${slug}-${suffix}` : slug;
+}
+
 /** Il frammento dopo `#` (`/p/ACQ/tasks?task=ACQ-12`). */
 export function appRoute(target: AppTarget): string {
+  // Un codice di progetto vuoto (un progetto sparito, letto come `?? ""`) non
+  // fa un `/p//…`: la Home (revisione dei link, M3).
+  if ("projectCode" in target && !target.projectCode) return "/home";
   switch (target.to) {
     case "home":
       return "/home";

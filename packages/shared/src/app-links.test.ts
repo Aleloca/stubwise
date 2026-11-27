@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { APP_ENTRY, appPath, appUrl, legacyWebPath } from "./app-links.js";
+import { APP_ENTRY, appPath, appUrl, legacyWebPath, RESERVED_DOC_PAGE_SLUGS, RESERVED_REPOSITORY_SLUGS, unreservedSlug } from "./app-links.js";
 
 describe("i link della nuova app (app-links)", () => {
   it("una task si apre col parametro `task`, una richiesta col suo id, il progetto sulla panoramica", () => {
@@ -40,5 +40,20 @@ describe("i link della nuova app (app-links)", () => {
     expect(legacyWebPath.ticket("t1")).toBe("/tickets/t1");
     expect(legacyWebPath.backlogItem("b1")).toBe("/backlog/b1");
     expect(legacyWebPath.googleAccountSettings("ok")).toBe("/settings/account?google=ok");
+  });
+});
+
+describe("revisione dei link: codici vuoti e slug riservati", () => {
+  it("M3: un codice di progetto vuoto porta alla Home, mai a /p//…", () => {
+    expect(appPath({ to: "docs", projectCode: "" })).toBe("/app/#/home");
+    expect(appPath({ to: "release", projectCode: "", releaseCode: "X-V1" })).toBe("/app/#/home");
+    expect(appPath({ to: "pullRequest", projectCode: "", repositoryId: "r", prNumber: 1 })).toBe("/app/#/home");
+  });
+
+  it("M4: gli slug che l'indirizzo dei Docs usa già prendono un suffisso, gli altri restano", () => {
+    expect(unreservedSlug("product", RESERVED_REPOSITORY_SLUGS, "repo")).toBe("product-repo");
+    for (const slug of ["new", "brief", "releases", "graph"]) expect(unreservedSlug(slug, RESERVED_DOC_PAGE_SLUGS, "page")).toBe(`${slug}-page`);
+    expect(unreservedSlug("checkout", RESERVED_DOC_PAGE_SLUGS, "page")).toBe("checkout");
+    expect(unreservedSlug("products", RESERVED_REPOSITORY_SLUGS, "repo")).toBe("products");
   });
 });

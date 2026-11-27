@@ -643,7 +643,8 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
 
       const updated = await loadBaseItem(app.db, id, itemVisibility(request));
       if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
-      return updated;
+      // Ritiro del web vecchio: la voce nella nuova app, come percorso (l'MCP ci mette la sua base).
+      return { ...updated, appPath: await backlogItemAppUrl(app.db, null, id) };
     },
   );
 
@@ -675,7 +676,8 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
 
       const updated = await loadBaseItem(app.db, id, itemVisibility(request));
       if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
-      return updated;
+      // Ritiro del web vecchio: la voce nella nuova app, come percorso (l'MCP ci mette la sua base).
+      return { ...updated, appPath: await backlogItemAppUrl(app.db, null, id) };
     },
   );
 
@@ -706,7 +708,8 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
 
       const updated = await loadBaseItem(app.db, id, itemVisibility(request));
       if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
-      return updated;
+      // Ritiro del web vecchio: la voce nella nuova app, come percorso (l'MCP ci mette la sua base).
+      return { ...updated, appPath: await backlogItemAppUrl(app.db, null, id) };
     },
   );
 
@@ -731,7 +734,8 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
 
       const updated = await loadBaseItem(app.db, id, itemVisibility(request));
       if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
-      return updated;
+      // Ritiro del web vecchio: la voce nella nuova app, come percorso (l'MCP ci mette la sua base).
+      return { ...updated, appPath: await backlogItemAppUrl(app.db, null, id) };
     },
   );
 

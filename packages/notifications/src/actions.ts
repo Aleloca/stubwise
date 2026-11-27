@@ -17,7 +17,8 @@
  * Il catalogo è CALCOLATO, mai persistito: dipende dallo stato ATTUALE del job,
  * e persisterlo vorrebbe dire riscriverlo a ogni transizione (e sbagliarlo).
  */
-import { appUrl } from "@stubwise/shared/app-links";
+import { appUrl, type AppTarget } from "@stubwise/shared/app-links";
+import type { CardLinkContext } from "./app-link-targets.js";
 import type { ProjectPermission } from "@stubwise/shared";
 import type { NotificationEvent, NotificationKind } from "./format.js";
 
@@ -456,23 +457,39 @@ export function openUrl(
   event: NotificationEvent,
   publicUrl?: string,
   /**
-   * Ritiro del web vecchio: il codice della task della card (`<CODE>-<n>`),
-   * derivato a lettura dalla riga (`notifications.ticket_id`). Con lui le card
-   * di una task aprono la task nella nuova app, anche quelle di prima che
-   * hanno nel jsonb il link del web vecchio; senza, resta il link dell'evento.
+   * Ritiro del web vecchio: i codici di ADESSO della card, derivati a lettura
+   * dalla riga e dagli id dell'evento (`linkContextsFor`): con loro il link
+   * della nuova app si compone qui, anche per le card di prima che hanno nel
+   * jsonb il link del web vecchio. Un dato che manca (un oggetto sparito, un
+   * chiamante che non li ha) lascia il link dell'evento: mai un `/p//…`.
    */
-  ctx: { taskCode?: string | null } = {},
+  ctx: CardLinkContext = {},
 ): string {
   const base = publicUrl?.replace(/\/+$/, "") ?? "";
   const task = ctx.taskCode ? taskLink(base, ctx.taskCode) : null;
+  const project = ctx.projectCode ?? null;
+  // Un link derivato vuole la radice pubblica: senza, quello dell'evento (che sa la sua).
+  const derived = (target: AppTarget | null, fallback: string) => (publicUrl && target ? appUrl(base, target) : fallback);
   switch (event.kind) {
     case "job.pr_opened":
     case "review.completed":
       return event.prUrl;
+    // Lo spazio Docs del repository (lo slug), o i Docs del progetto.
     case "docs.limit_paused":
     case "docs.nightly_attention":
-      return event.docsUrl;
+      return derived(
+        project ? { to: "docs", projectCode: project, ...(ctx.repositorySlug ? { repositorySlug: ctx.repositorySlug } : {}) } : null,
+        event.docsUrl,
+      );
+    // La voce nelle richieste del progetto; un bug o una funzionalità: la sua task.
     case "request.created":
+      return event.backlogItemId
+        ? derived(project ? { to: "requests", projectCode: project, requestId: event.backlogItemId } : null, event.url)
+        : (task ?? event.url);
+    // La task nata dalla diagnosi, o il server nel progetto.
+    case "server.diagnosis_ready":
+      if (publicUrl && event.taskCode) return taskLink(base, event.taskCode);
+      return derived(project && ctx.serverCode ? { to: "server", projectCode: project, serverCode: ctx.serverCode } : null, event.url);
     case "monitor.alert":
     case "monitor.recovered":
     case "release.failed":
@@ -483,15 +500,15 @@ export function openUrl(
     case "pr.corrected":
     case "docs.release_note":
     case "support.request":
-    case "server.diagnosis_ready":
       return event.url;
     // Il pulse è ancorato al progetto, non a un ticket: "Apri" porta dove si
-    // vedono TUTTE le proposte, cioè il backlog del progetto.
+    // vedono TUTTE le proposte, cioè le richieste del progetto.
     case "project.pulse":
-    // Il brief porta alla roadmap, dove si legge per intero in mezzo agli
-    // eventi del periodo che racconta.
+      return derived(project ? { to: "requests", projectCode: project } : null, event.projectUrl);
+    // Il brief porta alla panoramica col brief aperto (la roadmap del web
+    // vecchio non ha un equivalente nella nuova app).
     case "project.brief":
-      return event.projectUrl;
+      return derived(project ? { to: "project", projectCode: project, briefId: event.briefId } : null, event.projectUrl);
     // La proposta porta ALLA FONTE — il thread Gmail o l'evento di calendario
     // — perché è lì che si capisce se ha senso confermarla.
     case "google.proposal":
@@ -499,7 +516,7 @@ export function openUrl(
     // La proposta passata porta al progetto: il thread Gmail sta nella casella
     // di chi l'ha passata, e chi la riceve non può aprirlo.
     case "google.proposal_handed":
-      return event.projectUrl;
+      return derived(project ? { to: "project", projectCode: project } : null, event.projectUrl);
     // Impostazioni → Sicurezza, dove si guarda il registro e si rimedia.
     // ASSOLUTO perché lo stesso link va nel bottone del DM Slack; senza
     // PUBLIC_URL la stringa vuota è il «nessun link» che inbox e DM scartano.

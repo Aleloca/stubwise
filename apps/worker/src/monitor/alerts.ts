@@ -1,3 +1,4 @@
+import { appUrl } from "@stubwise/shared";
 import { serverAppUrl } from "@stubwise/notifications";
 import { environmentServers, projectEnvironments, serverEpisodes, serverMetrics, servers, serviceChecks, type Db } from "@stubwise/db";
 import {
@@ -154,7 +155,11 @@ export async function evaluateMonitorAlertsOnce(
     // nel progetto se il legame è univoco. Pigra: un giro senza avvisi non la
     // compone, e i ricevitori leggono il server da `serverId`, non dall'URL.
     let urlOnce: Promise<string> | undefined;
-    const url = () => (urlOnce ??= refs().then((r) => serverAppUrl(db, base, server.id, r.projectId ?? null)));
+    const url = () =>
+      (urlOnce ??= refs()
+        .then((r) => serverAppUrl(db, base, server.id, r.projectId ?? null))
+        // Una lettura che fallisce non toglie l'avviso: il link va alla Home (M2).
+        .catch(() => appUrl(base, { to: "home" })));
     // Ancore risolte al massimo UNA volta per server (e solo se si notifica).
     const refs = lazyServerRefs(db, server.id);
     // Stato host (offline + soglie): isolato dai check, isolato dagli altri server.

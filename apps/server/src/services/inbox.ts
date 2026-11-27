@@ -60,6 +60,8 @@ import {
   isReviewFailedEvent,
   kindOffers,
   notificationVisibleToRecipient,
+  linkContextsFor,
+  type CardLinkContext,
   cardPermissions,
   cardPermissionsOf,
   reviewOutcomeOf,
@@ -1040,6 +1042,13 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     db,
     page.map((r) => r.ticketId),
   );
+  // Ritiro del web vecchio: i codici per il link della nuova app di ogni card
+  // (progetto, task, repository, server), poche query per pagina.
+  const linkContexts = await linkContextsFor(
+    db,
+    page.map((r) => ({ id: r.id, kind: r.kind, projectId: r.projectId, ticketId: r.ticketId, event: r.event })),
+    { taskCodes },
+  );
   // Le task ELIMINATE nominate dalle card («Elimina task»): dalla lapide, UNA
   // query per pagina. Il jsonb porta ancora l'id; la colonna è già nulla.
   const goneTickets = await deletedTicketIdsOf(
@@ -1152,8 +1161,8 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
         handed: handedProposalIds.has(sourceProposalIds.get(r.id) ?? ""),
       },
       input.publicUrl,
-      // Ritiro del web vecchio: la task della card nella nuova app, derivata a lettura.
-      r.ticketId ? (taskCodes.get(r.ticketId) ?? null) : null,
+      // Ritiro del web vecchio: il link della card nella nuova app, derivato a lettura.
+      linkContexts.get(r.id) ?? {},
     );
     const baseActions = actionsFor(
       {
@@ -1594,7 +1603,7 @@ function renderItem(
   decisionRow?: DecisionRow,
   viewer: GoogleViewer = { permissions: null, handed: false },
   publicUrl?: string,
-  taskCode: string | null = null,
+  linkContext: CardLinkContext = {},
 ): { text: string; url?: string; question?: InboxQuestion; pulse?: InboxPulse; google?: InboxGoogle } {
   const question = readQuestion(rawEvent, kind);
   const pulse = readPulse(rawEvent, kind, question);
@@ -1609,7 +1618,7 @@ function renderItem(
   try {
     const event = rawEvent as unknown as NotificationEvent;
     const text = formatNotificationText(event, lang);
-    const url: unknown = openUrl(event, publicUrl, { taskCode });
+    const url: unknown = openUrl(event, publicUrl, linkContext);
     return {
       text: typeof text === "string" && text.trim() !== "" ? text : kind,
       ...(typeof url === "string" && url !== "" ? { url } : {}),

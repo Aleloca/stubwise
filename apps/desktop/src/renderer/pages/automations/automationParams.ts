@@ -44,7 +44,7 @@ export const RUN_STATUS_FILTERS = [
   "finished",
 ] as const;
 
-export const AUTOMATION_CODE_RE = /^(?:[A-Z]{2,4}-A\d+|AUT-\d+)$/;
+export const AUTOMATION_CODE_RE = /^(?:[A-Z][A-Z0-9]{1,5}-A\d+|AUT-\d+)$/;
 
 const PATH_RE = /^automations(?:\/([^/]+)(\/runs\/\d+|\/edit|\/test)?)?$/;
 
