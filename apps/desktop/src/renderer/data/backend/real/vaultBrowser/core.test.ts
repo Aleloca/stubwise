@@ -10,7 +10,16 @@ import {
   wrapItemKey,
 } from "@stubwise/vault-crypto";
 import { beforeEach, describe, expect, it } from "vitest";
-import { IDLE_MS, MAX_OPEN_MS, REVEALS_PER_UNLOCK, STASH_MS, VaultCore, type CoreEvent } from "./core";
+import {
+  IDLE_MS,
+  MAX_OPEN_MS,
+  PASSWORD_CHANGES_PER_UNLOCK,
+  REVEALS_PER_UNLOCK,
+  SHARES_PER_UNLOCK,
+  STASH_MS,
+  VaultCore,
+  type CoreEvent,
+} from "./core";
 import { toBase64Url } from "./bytes";
 
 // Il cuore della cassaforte nel browser, che gira nel Dedicated Worker
@@ -393,6 +402,16 @@ describe("crea e cambia la password, nel worker", () => {
     expect(await openedBy(C1, put.body as never)).toBe("Ch4nged!");
   });
 
+  it("m-B3: dopo il tetto di cambi password per sblocco si richiude, senza scrivere", async () => {
+    await openCore(core);
+    for (let i = 0; i < PASSWORD_CHANGES_PER_UNLOCK; i++) {
+      expect(await core.handle({ t: "setPassword", id: C1, password: "Ch4nged!", personId: ME, sessionTag: TAG })).toMatchObject({ ok: true });
+    }
+    expect(await core.handle({ t: "setPassword", id: C1, password: "Ch4nged!", personId: ME, sessionTag: TAG })).toEqual({ ok: false, code: "vault_locked" });
+    expect(events.at(-1)).toMatchObject({ state: "locked", reason: "write_limit" });
+    expect(calls.filter((c) => c.method === "PUT").length).toBe(PASSWORD_CHANGES_PER_UNLOCK);
+  });
+
   it("cambia: con un'altra sessione sul server chiude e non scrive", async () => {
     await openCore(core);
     serverTag = "srv-tag-2";
@@ -491,6 +510,14 @@ describe("condividi e togli un lettore, nel worker", () => {
     serverTag = "srv-tag-2";
     expect(await share()).toEqual({ ok: false, code: "vault_locked" });
     expect(calls.some((c) => c.path.includes("/readers"))).toBe(false);
+  });
+
+  it("m-B3: dopo il tetto di condivisioni per sblocco si richiude, senza condividere", async () => {
+    await openCore(core);
+    for (let i = 0; i < SHARES_PER_UNLOCK; i++) expect(await share()).toMatchObject({ ok: true });
+    expect(await share()).toEqual({ ok: false, code: "vault_locked" });
+    expect(events.at(-1)).toMatchObject({ state: "locked", reason: "write_limit" });
+    expect(calls.filter((c) => c.method === "POST" && c.path === `/api/credentials/${C1}/readers`).length).toBe(SHARES_PER_UNLOCK);
   });
 
   it("togli: con la prova, solo a cassaforte aperta", async () => {

@@ -51,6 +51,9 @@ export const IDLE_MS = 15 * 60_000;
  */
 export const MAX_OPEN_MS = 60 * 60_000;
 export const REVEALS_PER_UNLOCK = 30;
+/** m-B3 (terza revisione): anche le scritture con la chiave hanno un budget per sblocco. */
+export const SHARES_PER_UNLOCK = 10;
+export const PASSWORD_CHANGES_PER_UNLOCK = 10;
 
 /** Quanto resta valida una PRF ricevuta senza lo sblocco che la consuma. */
 export const STASH_MS = 2 * 60_000;
@@ -60,6 +63,7 @@ export type LockReason =
   | "idle"
   | "expired"
   | "reveal_limit"
+  | "write_limit"
   | "logout"
   | "pagehide"
   | "session"
@@ -158,6 +162,9 @@ export class VaultCore {
     openedAt: number;
     /** I reveal chiesti da questo sblocco (m-1). */
     reveals: number;
+    /** Condivisioni e cambi password chiesti da questo sblocco (m-B3). */
+    shares: number;
+    passwordChanges: number;
   } | null = null;
   private timer: unknown = null;
   private stashed: { prf: ArrayBuffer; at: number } | null = null;
@@ -331,6 +338,20 @@ export class VaultCore {
     }
   }
 
+  /**
+   * m-B3: una scrittura col budget dello sblocco. Oltre il tetto chiude
+   * (`write_limit`) e la scrittura non parte: serve di nuovo la passkey.
+   */
+  private spend(kind: "shares" | "passwordChanges", cap: number): boolean {
+    if (!this.key) return false;
+    if (this.key[kind] >= cap) {
+      this.lock("write_limit");
+      return false;
+    }
+    this.key[kind] += 1;
+    return true;
+  }
+
   /** La prova della propria chiave: una per azione (il server la consuma). */
   private async prove(privateKey: CryptoKey, personKeyId: string): Promise<VaultActorProof> {
     const challenge = vaultActorChallengeResponseSchema.safeParse(await this.http("POST", "/api/vault/actor-challenge", {}));
@@ -495,6 +516,8 @@ export class VaultCore {
             lastUseAt: this.deps.now(),
             openedAt: this.deps.now(),
             reveals: 0,
+            shares: 0,
+            passwordChanges: 0,
           };
           this.arm();
           this.deps.emit({ t: "state", state: "open", closesAt: this.closesAt() });
@@ -535,6 +558,7 @@ export class VaultCore {
       }
       case "setPassword": {
         if (!(await this.live(req.personId, req.sessionTag))) return { ok: false, code: "vault_locked" };
+        if (!this.spend("passwordChanges", PASSWORD_CHANGES_PER_UNLOCK)) return { ok: false, code: "vault_locked" };
         const { resaved } = await this.writeEncrypted({
           credentialId: req.id,
           password: req.password,
@@ -546,6 +570,7 @@ export class VaultCore {
       case "share": {
         const k = await this.live(req.personId, req.sessionTag);
         if (!k) return { ok: false, code: "vault_locked" };
+        if (!this.spend("shares", SHARES_PER_UNLOCK)) return { ok: false, code: "vault_locked" };
         return this.share(req.id, req.target, k);
       }
       case "removeReader": {
