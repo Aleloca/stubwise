@@ -9,7 +9,7 @@ import {
   wrapItemKey,
 } from "@stubwise/vault-crypto";
 import { beforeEach, describe, expect, it } from "vitest";
-import { IDLE_MS, VaultCore, type CoreEvent } from "./core";
+import { IDLE_MS, STASH_MS, VaultCore, type CoreEvent } from "./core";
 import { toBase64Url } from "./bytes";
 
 // Il cuore della cassaforte nel browser, che gira nel Dedicated Worker
@@ -100,7 +100,8 @@ async function openCore(core: VaultCore) {
   const p = await core.handle({ t: "prepare" });
   expect(p).toMatchObject({ ok: true, onlyCredentialIds: [CRED] });
   const buffer = prf.slice().buffer;
-  return { buffer, out: await core.handle({ t: "unlock", prf: buffer, assertion, credentialId: CRED, personId: ME, sessionTag: TAG }) };
+  await core.handle({ t: "stash", prf: buffer });
+  return { buffer, out: await core.handle({ t: "unlock", assertion, credentialId: CRED, personId: ME, sessionTag: TAG }) };
 }
 
 describe("il cuore della cassaforte nel worker", () => {
@@ -208,11 +209,44 @@ describe("il cuore della cassaforte nel worker", () => {
   it("una passkey d'altri (la PRF sbagliata): `open_failed`, chiusa, e la PRF azzerata", async () => {
     await core.handle({ t: "prepare" });
     const wrong = crypto.getRandomValues(new Uint8Array(32)).buffer;
+    await core.handle({ t: "stash", prf: wrong });
     expect(
-      await core.handle({ t: "unlock", prf: wrong, assertion, credentialId: CRED, personId: ME, sessionTag: TAG }),
+      await core.handle({ t: "unlock", assertion, credentialId: CRED, personId: ME, sessionTag: TAG }),
     ).toEqual({ ok: false, code: "open_failed" });
     expect(new Uint8Array(wrong).every((b) => b === 0)).toBe(true);
     expect(await core.handle({ t: "status" })).toEqual({ state: "locked" });
+  });
+
+  const unlockOnly = () => core.handle({ t: "unlock", assertion, credentialId: CRED, personId: ME, sessionTag: TAG });
+  const zeroed = (b: ArrayBuffer) => new Uint8Array(b).every((x) => x === 0);
+
+  it("I-A: senza una PRF ricevuta lo sblocco non parte (`no_prf`), nemmeno la verifica; la PRF si usa UNA volta", async () => {
+    await core.handle({ t: "prepare" });
+    expect(await unlockOnly()).toEqual({ ok: false, code: "no_prf" });
+    expect(calls.some((c) => c.path.endsWith("/passkey/verify"))).toBe(false);
+    const { out } = await openCore(core);
+    expect(out).toEqual({ ok: true });
+    core.lock("user");
+    expect(await unlockOnly()).toEqual({ ok: false, code: "no_prf" });
+  });
+
+  it("I-A: la PRF ricevuta scade, una nuova sostituisce (e azzera) la vecchia, `discard` e la chiusura la azzerano", async () => {
+    const a = prf.slice().buffer;
+    await core.handle({ t: "stash", prf: a });
+    clock += STASH_MS + 1;
+    expect(await unlockOnly()).toEqual({ ok: false, code: "no_prf" });
+    expect(zeroed(a)).toBe(true);
+    const b = prf.slice().buffer;
+    const c = prf.slice().buffer;
+    await core.handle({ t: "stash", prf: b });
+    await core.handle({ t: "stash", prf: c });
+    expect(zeroed(b)).toBe(true);
+    await core.handle({ t: "discard" });
+    expect(zeroed(c)).toBe(true);
+    const d = prf.slice().buffer;
+    await core.handle({ t: "stash", prf: d });
+    core.lock("pagehide");
+    expect(zeroed(d)).toBe(true);
   });
 });
 

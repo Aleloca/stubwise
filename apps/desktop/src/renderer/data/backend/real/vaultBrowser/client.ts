@@ -57,6 +57,19 @@ export function request<T>(req: CoreRequest, transfer: Transferable[] = []): Pro
   });
 }
 
+/**
+ * I-A: consegna l'uscita PRF al worker per TRANSFER, in modo sincrono e
+ * senza promesse né mappe di mezzo; lo sblocco che segue la consuma. Senza
+ * worker il buffer si azzera qui.
+ */
+export function stashPrf(prf: ArrayBuffer): void {
+  if (!worker) {
+    primitives.zero(prf);
+    return;
+  }
+  primitives.postToWorker(worker, { id: 0, req: { t: "stash", prf } }, [prf]);
+}
+
 /** Gli eventi di stato del worker (aperta, chiusa e perché). */
 export function onCoreEvent(fn: (event: CoreEvent) => void): () => void {
   listeners.add(fn);

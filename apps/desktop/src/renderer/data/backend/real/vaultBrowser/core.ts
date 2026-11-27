@@ -39,14 +39,21 @@ import { toBase64Url } from "./bytes";
 /** 15 minuti senza uso (design §7). */
 export const IDLE_MS = 15 * 60_000;
 
+/** Quanto resta valida una PRF ricevuta senza lo sblocco che la consuma. */
+export const STASH_MS = 2 * 60_000;
+
 export type LockReason = "user" | "idle" | "logout" | "pagehide" | "session" | "remote" | "reauth";
 
 export type CoreRequest =
   | { t: "prepare" }
+  /**
+   * I-A: l'uscita PRF, TRASFERITA appena la cerimonia la dà, prima di ogni
+   * altra lettura della pagina. Se ne tiene una sola, per {@link STASH_MS};
+   * lo sblocco la consuma, `discard` e la chiusura la azzerano.
+   */
+  | { t: "stash"; prf: ArrayBuffer }
   | {
       t: "unlock";
-      /** L'uscita PRF, trasferita (la pagina non la tiene). Si azzera qui. */
-      prf: ArrayBuffer;
       /** La risposta della passkey SENZA i risultati PRF. */
       assertion: unknown;
       credentialId: string;
@@ -65,8 +72,8 @@ export type CoreRequest =
   /** A una persona o a un ruolo: la chiave della voce ricifrata per chi entra, con la prova. */
   | { t: "share"; id: string; target: { userId: string } | { roleId: string }; personId: string; sessionTag: string }
   | { t: "removeReader"; id: string; readerId: string; personId: string; sessionTag: string }
-  /** Una PRF che la pagina non usa più (M-3): arriva per transfer e si azzera. */
-  | { t: "discard"; prf: ArrayBuffer }
+  /** La PRF ricevuta non serve più (M-3, sessione cambiata): si azzera. */
+  | { t: "discard" }
   | { t: "touch" }
   | { t: "lock"; reason: LockReason }
   | { t: "status" }
@@ -122,6 +129,7 @@ export class VaultCore {
     lastUseAt: number;
   } | null = null;
   private timer: unknown = null;
+  private stashed: { prf: ArrayBuffer; at: number } | null = null;
 
   constructor(private readonly deps: CoreDeps) {}
 
@@ -170,7 +178,26 @@ export class VaultCore {
     return false;
   }
 
+  /** Azzera la PRF ricevuta, se c'è. */
+  private dropStash(): void {
+    if (this.stashed) wipe(this.stashed.prf);
+    this.stashed = null;
+  }
+
+  /** La PRF ricevuta, consumata; `null` se manca o è scaduta (e si azzera). */
+  private takeStash(): ArrayBuffer | null {
+    const s = this.stashed;
+    this.stashed = null;
+    if (!s) return null;
+    if (this.deps.now() - s.at > STASH_MS) {
+      wipe(s.prf);
+      return null;
+    }
+    return s.prf;
+  }
+
   lock(reason: LockReason, code?: string): void {
+    this.dropStash();
     const was = this.key;
     this.key = null;
     if (this.timer !== null) this.deps.clearTimer(this.timer);
@@ -313,7 +340,7 @@ export class VaultCore {
     try {
       return await this.dispatch(req);
     } catch (error) {
-      if (req.t === "unlock") wipe(req.prf);
+      if (req.t === "unlock" || req.t === "stash") this.dropStash();
       if (error instanceof HttpError) {
         return error.code === "vault_reveal_rate_limited" && error.retryAfterSeconds !== undefined
           ? { ok: false, code: error.code, retryAfterSeconds: error.retryAfterSeconds }
@@ -343,7 +370,13 @@ export class VaultCore {
         if (allow.length === 0) return { ok: false, code: "no_seal" };
         return { ok: true, options: { ...options, allowCredentials: allow }, onlyCredentialIds: allow.map((c) => c.id) };
       }
+      case "stash":
+        this.dropStash();
+        this.stashed = { prf: req.prf, at: this.deps.now() };
+        return { ok: true };
       case "unlock": {
+        const prf = this.takeStash();
+        if (!prf) return { ok: false, code: "no_prf" };
         try {
           await this.http("POST", "/api/me/security/reauth/passkey/verify", { response: req.assertion });
           const server = await this.whoOnServer();
@@ -353,7 +386,7 @@ export class VaultCore {
           if (!seal) return { ok: false, code: "no_seal" };
           let privateKey: CryptoKey;
           try {
-            privateKey = await openPrivateKey(req.prf, seal.sealedPrivateKey, mine.publicKey);
+            privateKey = await openPrivateKey(prf, seal.sealedPrivateKey, mine.publicKey);
           } catch {
             return { ok: false, code: "open_failed" };
           }
@@ -369,7 +402,7 @@ export class VaultCore {
           this.deps.emit({ t: "state", state: "open", closesAt: this.closesAt() });
           return { ok: true };
         } finally {
-          wipe(req.prf);
+          wipe(prf);
         }
       }
       case "reveal": {
@@ -421,7 +454,7 @@ export class VaultCore {
         return { ok: true };
       }
       case "discard":
-        wipe(req.prf);
+        this.dropStash();
         return { ok: true };
       case "touch":
         if (this.key && !this.expireIfDue()) {

@@ -4,58 +4,89 @@ import { fromBase64Url, toBase64Url } from "./bytes";
 import { primitives } from "./primitives";
 
 // La cerimonia della passkey per la cassaforte, l'unica cosa della
-// cassaforte che resta nella PAGINA (revisione di sicurezza I-1): sul
-// `credentials.get` e sul `getClientExtensionResults` catturati al boot. Il
-// salt PRF è quello LOCALE (`PRF_INPUT`, M-1: il worker rifiuta un server che
-// ne chiede un altro). L'uscita PRF non resta qui: la si consegna al worker
-// per transfer (`unlock.ts`), insieme alla risposta SENZA i risultati PRF,
-// che il worker manda alla verifica.
+// cassaforte che resta nella PAGINA (revisione di sicurezza I-1). Il salt
+// PRF è quello LOCALE (`PRF_INPUT`, M-1: il worker rifiuta un server che ne
+// chiede un altro).
+//
+// I-A: la PRF si legge e si consegna PER PRIMA, dentro il callback del
+// `then` catturato (niente `await` sulla promessa della piattaforma), in modo
+// sincrono: il `getClientExtensionResults` catturato, il riconoscimento
+// dell'`ArrayBuffer` col `byteLength` catturato (niente `instanceof`), e
+// `stash` la TRASFERISCE al worker. Solo dopo si leggono le altre proprietà
+// della credenziale, coi getter catturati, per la risposta che il worker
+// manda alla verifica, SENZA i risultati PRF.
 
 export type CeremonyOutcome =
-  | { ok: true; credentialId: string; assertion: unknown; prf: ArrayBuffer }
+  | { ok: true; credentialId: string; assertion: unknown }
   | { ok: false; code: "passkey_failed" | "passkey_unsupported" };
 
-export async function ceremony(options: PasskeyAuthenticationOptions): Promise<CeremonyOutcome> {
-  let credential: PublicKeyCredential | null;
-  try {
-    credential = (await primitives.credentialsGet({
-      publicKey: {
-        challenge: fromBase64Url(options.challenge),
-        ...(options.rpId ? { rpId: options.rpId } : {}),
-        ...(options.timeout ? { timeout: options.timeout } : {}),
-        ...(options.userVerification ? { userVerification: options.userVerification } : {}),
-        allowCredentials: (options.allowCredentials ?? []).map((c) => ({
-          type: "public-key" as const,
-          id: fromBase64Url(c.id),
-          ...(c.transports ? { transports: c.transports as AuthenticatorTransport[] } : {}),
-        })),
-        extensions: { prf: { eval: { first: PRF_INPUT } } } as AuthenticationExtensionsClientInputs,
+type Fail = Extract<CeremonyOutcome, { ok: false }>;
+const failed: Fail = { ok: false, code: "passkey_failed" };
+
+/** `stash` riceve l'uscita PRF e la deve trasferire SUBITO (la pagina la perde). */
+export function ceremony(options: PasskeyAuthenticationOptions, stash: (prf: ArrayBuffer) => void): Promise<CeremonyOutcome> {
+  const publicKey = {
+    challenge: fromBase64Url(options.challenge),
+    ...(options.rpId ? { rpId: options.rpId } : {}),
+    ...(options.timeout ? { timeout: options.timeout } : {}),
+    ...(options.userVerification ? { userVerification: options.userVerification } : {}),
+    allowCredentials: (options.allowCredentials ?? []).map((c) => ({
+      type: "public-key" as const,
+      id: fromBase64Url(c.id),
+      ...(c.transports ? { transports: c.transports as AuthenticatorTransport[] } : {}),
+    })),
+    extensions: { prf: { eval: { first: PRF_INPUT } } } as AuthenticationExtensionsClientInputs,
+  };
+  return primitives.newPromise<CeremonyOutcome>((resolve) => {
+    let platform: Promise<Credential | null>;
+    try {
+      platform = primitives.credentialsGet({ publicKey });
+    } catch {
+      resolve(failed);
+      return;
+    }
+    primitives.then(
+      platform,
+      (credential) => {
+        let out: CeremonyOutcome;
+        try {
+          out = credential ? onCredential(credential, stash) : failed;
+        } catch {
+          out = failed;
+        }
+        resolve(out);
       },
-    })) as PublicKeyCredential | null;
-  } catch {
-    return { ok: false, code: "passkey_failed" };
-  }
-  if (!credential) return { ok: false, code: "passkey_failed" };
-  const first = (primitives.extensionResults(credential) as { prf?: { results?: { first?: BufferSource } } }).prf?.results
-    ?.first;
+      () => resolve(failed),
+    );
+  });
+}
+
+function onCredential(credential: Credential, stash: (prf: ArrayBuffer) => void): CeremonyOutcome {
+  // 1. La PRF, prima di ogni altra proprietà.
+  const results = primitives.extensionResults(credential) as { prf?: { results?: { first?: unknown } } };
+  const prf = primitives.ownBuffer(results?.prf?.results?.first);
   // Senza PRF al worker (e al server) non va niente: nemmeno la verifica.
-  if (!first) return { ok: false, code: "passkey_unsupported" };
-  // Un ArrayBuffer si TRASFERISCE così com'è (la pagina lo perde); una vista si copia col `slice` catturato.
-  const prf = first instanceof ArrayBuffer ? first : primitives.copyBuffer(first as ArrayBufferView);
-  const r = credential.response as AuthenticatorAssertionResponse;
+  if (!prf) return { ok: false, code: "passkey_unsupported" };
+  stash(prf);
+  // 2. Il resto, coi getter catturati.
+  const response = primitives.credential(credential, "response");
+  const bytes = (v: unknown) => toBase64Url(v as ArrayBuffer);
+  const userHandle = primitives.assertionResponse(response, "userHandle");
+  const attachment = primitives.credential(credential, "authenticatorAttachment");
+  const id = primitives.credential(credential, "id") as string;
   const assertion = {
-    id: credential.id,
-    rawId: toBase64Url(credential.rawId),
-    type: credential.type,
+    id,
+    rawId: bytes(primitives.credential(credential, "rawId")),
+    type: primitives.credential(credential, "type"),
     response: {
-      authenticatorData: toBase64Url(r.authenticatorData),
-      clientDataJSON: toBase64Url(r.clientDataJSON),
-      signature: toBase64Url(r.signature),
-      ...(r.userHandle ? { userHandle: toBase64Url(r.userHandle) } : {}),
+      authenticatorData: bytes(primitives.assertionResponse(response, "authenticatorData")),
+      clientDataJSON: bytes(primitives.assertionResponse(response, "clientDataJSON")),
+      signature: bytes(primitives.assertionResponse(response, "signature")),
+      ...(userHandle ? { userHandle: bytes(userHandle) } : {}),
     },
     // Il segreto PRF NON va al server.
     clientExtensionResults: {},
-    ...(credential.authenticatorAttachment ? { authenticatorAttachment: credential.authenticatorAttachment } : {}),
+    ...(attachment ? { authenticatorAttachment: attachment } : {}),
   };
-  return { ok: true, credentialId: credential.id, assertion, prf };
+  return { ok: true, credentialId: id, assertion };
 }

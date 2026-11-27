@@ -14,8 +14,9 @@ let toWorker: { msg: { id: number; req: { t: string } & Record<string, unknown> 
 let seen: string[];
 
 class FakeWorker extends EventTarget {
-  postMessage(msg: { id: number; req: { t: string } }, transfer: Transferable[] = []) {
-    toWorker.push({ msg: msg as never, transfer });
+  postMessage(msg: { id: number; req: { t: string } }, transfer: Iterable<Transferable> = []) {
+    // La lista arriva come un iterabile coi suoi metodi (I-A), non un array.
+    toWorker.push({ msg: msg as never, transfer: Array.from(transfer) });
     const res =
       msg.req.t === "prepare"
         ? {
@@ -108,9 +109,14 @@ describe("la pagina non vede il segreto", () => {
       JSON.parse = parse;
     }
     expect(seen).toEqual([]);
+    // I-A: la PRF parte per PRIMA, per transfer, in un messaggio a sé; lo sblocco non la porta.
+    expect(toWorker.map((w) => w.msg.req.t)).toEqual(["prepare", "stash", "unlock"]);
+    const stash = toWorker.find((w) => w.msg.req.t === "stash")!;
+    expect(stash.transfer).toHaveLength(1);
+    expect(stash.transfer[0]).toBe(stash.msg.req.prf);
     const unlock = toWorker.find((w) => w.msg.req.t === "unlock")!;
-    expect(unlock.transfer).toHaveLength(1);
-    expect(unlock.transfer[0]).toBe(unlock.msg.req.prf);
+    expect(unlock.msg.req).not.toHaveProperty("prf");
+    expect(unlock.transfer).toEqual([]);
     expect((unlock.msg.req.assertion as { clientExtensionResults: unknown }).clientExtensionResults).toEqual({});
   });
 
@@ -130,7 +136,7 @@ describe("la pagina non vede il segreto", () => {
     } as never;
   });
 
-  it("M-3: cambiata la sessione durante la cerimonia, la PRF va al worker solo per essere azzerata", async () => {
+  it("M-3: cambiata la sessione durante la cerimonia, il worker azzera la PRF ricevuta", async () => {
     await import("./primitives");
     const client = await import("./client");
     client.__setWorkerForTests(new FakeWorker() as unknown as Worker);
@@ -143,6 +149,6 @@ describe("la pagina non vede il segreto", () => {
       return w;
     });
     expect(await pending).toEqual({ ok: false, code: "session" });
-    expect(toWorker.map((w) => w.msg.req.t)).toEqual(["prepare", "discard"]);
+    expect(toWorker.map((w) => w.msg.req.t)).toEqual(["prepare", "stash", "discard"]);
   });
 });
