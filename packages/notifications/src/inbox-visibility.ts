@@ -77,14 +77,21 @@ export function notificationVisibleToRecipient(): SQL {
 export function catalogPermissionVisible(types: readonly AlertType[]): SQL {
   const gated = types.filter((t) => t.subscribe.perm !== "member");
   if (gated.length === 0) return sql`true`;
-  const clauses = gated.map(
-    (t) => sql`(
-      ${notifications.kind}::text <> ${t.type}
-      or ${notifications.event}->>'alertMandatory' is not null
-      or ${userIsFullAdmin(notifications.userId)}
-      -- L'unione delle fonti (workspace compresa, 0238); null per un non membro.
-      or coalesce(${projectAccessPermissionsSql(cardProjectId(), notifications.userId)} @> array[${t.subscribe.perm}]::text[], false)
-    )`,
-  );
-  return sql.join(clauses, sql` and `);
+  // I1 (revisione d'insieme della workspace): il permesso che il TIPO della
+  // card chiede, in un `case`, così i permessi del destinatario nel progetto
+  // (una sottoquery sulla vista `project_access`, con le sue) si calcolano UNA
+  // volta per riga, non una per tipo del catalogo. Con un predicato per tipo la
+  // WHERE aveva ~90 subplan: un costo stimato che accendeva il JIT di Postgres
+  // (2,3 s per l'inbox). `null` = tipo senza permesso: passa.
+  const needed = sql`(case ${notifications.kind}::text ${sql.join(
+    gated.map((t) => sql`when ${t.type} then ${t.subscribe.perm}`),
+    sql` `,
+  )} end)`;
+  return sql`(
+    ${needed} is null
+    or ${notifications.event}->>'alertMandatory' is not null
+    or ${userIsFullAdmin(notifications.userId)}
+    -- L'unione delle fonti (workspace compresa, 0238); null per un non membro.
+    or coalesce(${projectAccessPermissionsSql(cardProjectId(), notifications.userId)} @> array[${needed}]::text[], false)
+  )`;
 }
