@@ -1,7 +1,7 @@
 # Shape brief — Workspace: raggruppare i progetti per visibilità
 
-> Stato: **bozza**, 27 nov 2026. Le domande in fondo sono aperte per il
-> maintainer. Il prototipo si fa dopo le sue risposte.
+> Stato: **decisa**, 27 nov 2026. Le decisioni del maintainer stanno in
+> fondo.
 
 **Superficie**: la colonna di **All projects** (`/projects`). Oggi dice
 «Groups of projects will be listed here.» (`coming.projects`). Diventa
@@ -455,68 +455,44 @@ Tre fonti, sempre dette per nome, con le stesse parole dappertutto:
 4. **[WS 4]** Ogni cambio di workspace che apre o chiude un accesso dice
    prima chi tocca, e chiede la riconferma.
 
-## Domande aperte per il maintainer
+## Decisioni (27 nov 2026)
 
-Ognuna ha la mia raccomandazione per prima.
+Il maintainer ha accettato tutte le raccomandazioni: le D1–D10 di questa
+shape e le D11–D19 del design (`docs/plans/2026-11-27-workspace-design.md`).
 
-- **D1 — «Sovrascrivere» il ruolo per progetto: può anche TOGLIERE?**
-  - *Raccomandato*: no, il ruolo per progetto **aggiunge** soltanto.
-    Discende da «vince il permesso più alto»: il permesso effettivo è
-    l'unione delle fonti. Per far vedere meno a qualcuno si toglie il
-    progetto dalla workspace, o si abbassa il suo ruolo di workspace. La
-    pagina lo dice dove si sceglie il ruolo.
-  - *Alternativa*: un ruolo per progetto che **sostituisce** quello di
-    workspace su quel progetto, anche al ribasso. Rompe «vince il più
-    alto» e introduce un «nega» che oggi non esiste in nessun calcolo.
-- **D2 — Un progetto sta in una workspace sola?**
-  - *Raccomandato*: sì, al più una. La colonna è una cartella, lo
-    spostamento è chiaro, e «No workspace» è il resto.
-  - *Alternativa*: più workspace per progetto, cioè etichette. La colonna
-    mostrerebbe lo stesso progetto in più voci, e la fonte «from the
-    workspace» diventerebbe un elenco.
-- **D3 — Il ruolo di base di un invito in workspace.**
-  - *Raccomandato*: **Viewer**. La workspace dà visibilità, e chi deve
-    fare di più lo riceve per progetto.
-  - *Alternativa*: Contributor, che crea task e richieste ma non vede
-    tutto. I due preset non si confrontano: serve una scelta, non un «più
-    basso».
-- **D4 — Chi crea le workspace e chi ci mette progetti e persone?**
-  - *Raccomandato*: un permesso d'istanza nuovo, **`workspaces.manage`**
-    («Manage workspaces»), nel preset Admin. Per aggiungere o togliere un
-    progetto serve anche `project.members.manage` in quel progetto, perché
-    cambia chi lo vede. Per invitare vale l'escalation su tutti i progetti
-    della workspace.
-  - *Alternativa*: dei «gestori della workspace» per singola workspace,
-    come i gestori della Home di un reparto. Più flessibile, ma è una
-    quarta fonte da spiegare.
-- **D5 — Chi vede una workspace di cui non è membro?**
-  - *Raccomandato*: chi ne vede almeno un progetto (per esempio da membro
-    esplicito) la vede nella colonna, con il conteggio dei soli progetti
-    visibili. Gli altri non la vedono affatto.
-  - *Alternativa*: le workspace solo ai loro membri. Allora un membro
-    esplicito di MEE la ritroverebbe in «No workspace», che però non è
-    vero.
-- **D6 — Un progetto archiviato resta nella sua workspace?**
-  - *Raccomandato*: sì. Si vede nella scheda Archived filtrata, e
-    riaprendolo torna dov'era.
-- **D7 — Ogni progetto deve stare in una workspace?**
-  - *Raccomandato*: no. «No workspace» resta un posto legittimo, e
-    un'istanza senza workspace è identica a oggi.
-- **D8 — Le workspace come filtro fuori da All projects** (Tasks,
-  Planning, Posta, Drive, selettori di progetto).
-  - *Raccomandato*: fuori dal primo giro, come voce nel registro dei
-    rimandi. Il primo giro le fa vivere dove le ha chieste il maintainer:
-    colonna, filtro della pagina e ⌘K.
-- **D9 — Si invita in una workspace anche chi non ha un account?**
-  - *Raccomandato*: sì, dal dialogo d'invito di Amministrazione, con la
-    parte Workspaces accanto a Projects. Il dialogo della workspace
-    aggiunge chi c'è già e porta lì per gli altri, così il link d'invito
-    resta in un posto solo.
-- **D10 — I permessi in più di un reparto valgono nei progetti visti dalla
-  workspace?**
-  - *Raccomandato*: sì. Chi vede un progetto dalla workspace ci lavora come
-    membro, e il reparto porta i suoi permessi in più. La frase del
-    pannello del reparto cambia di conseguenza.
-  - *Alternativa*: solo dove si è membri espliciti, come oggi alla
-    lettera. In quel caso un account manager di Sales nella workspace non
-    potrebbe rispondere ai clienti in AUD senza un ruolo per progetto.
+1. **D1**: il ruolo per progetto **aggiunge** soltanto. Il permesso
+   effettivo è l'unione delle fonti, e non esiste un «nega».
+2. **D2**: un progetto sta in **al più una** workspace.
+3. **D3**: il ruolo di base di un invito in workspace è **Viewer**.
+4. **D4**: il permesso d'istanza nuovo è **`workspaces.manage`**. Lo ha
+   già il full admin, implicito, e nessun altro preset. Per mettere,
+   togliere o spostare un progetto serve anche `project.members.manage` in
+   quel progetto; per uno spostamento, in tutti e due. Per invitare vale
+   l'escalation su tutti i progetti della workspace.
+5. **D5**: chi vede almeno un progetto della workspace vede anche la
+   workspace, con il conteggio dei soli progetti visibili.
+6. **D6**: un progetto archiviato resta nella sua workspace.
+7. **D7**: «No workspace» è un posto legittimo. Un'istanza senza
+   workspace è identica a oggi.
+8. **D8**: le workspace come filtro fuori da All projects vanno nel
+   registro dei rimandi.
+9. **D9**: chi non ha un account si invita dal dialogo di Amministrazione,
+   nella parte Workspaces.
+10. **D10**: i permessi in più di un reparto valgono anche nei progetti
+    visti dalla workspace.
+11. **D11**: mettere un progetto in una workspace chiede la riconferma. Lo
+    stesso vale per creare una workspace con dei progetti.
+12. **D12**: togliendo una persona dalla workspace, i suoi ruoli per
+    progetto restano. La casella «Also remove … from …» è spenta di base.
+13. **D13**: un progetto aggiunto non manda card. La card arriva solo a
+    chi entra in una workspace.
+14. **D14**: «Annulla» di Claude vale anche per le azioni di workspace.
+15. **D15**: non si crea nessuna workspace iniziale.
+16. **D16**: la condivisione della cassaforte con un ruolo conta anche il
+    ruolo di workspace, e il dialogo lo dice.
+17. **D17**: posta e calendario contano le persone di workspace, ma non
+    gli admin impliciti.
+18. **D18**: chi ha `project.members.manage` dalla workspace conta come
+    gestore per `last_manager`.
+19. **D19**: un progetto eliminato ricorda anche chi lo vedeva dalla
+    workspace.
