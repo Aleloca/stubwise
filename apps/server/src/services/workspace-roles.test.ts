@@ -247,3 +247,34 @@ describe("lotto 4: Members, la persona e l'anteprima dicono la workspace", () =>
     expect(viewAll?.sources).toEqual([expect.objectContaining({ kind: "workspace", workspaceName: "Clienti", roleName: "Viewer" })]);
   });
 });
+
+describe("revisione del lotto 4 (I-2): «Chi può farlo?» d'accordo coi permessi effettivi, con tre fonti", () => {
+  it("membro esplicito (Contributor) + workspace (Viewer) + reparto: ogni permesso effettivo ha almeno un motivo, ognuno dalla sua fonte, e niente in più", async () => {
+    const { PROJECT_PERMISSIONS } = await import("@stubwise/shared");
+    const { whatCan } = await import("./access-query.js");
+    const { projectPermissionsFor } = await import("../auth/access.js");
+    const { users } = await import("@stubwise/db");
+    const { eq } = await import("drizzle-orm");
+    const { projectId, wanda } = await seed("viewer");
+    await addMember(app, projectId, wanda.id, "contributor");
+    const [d] = await db.insert(departments).values({ name: `Ops ${randomUUID().slice(0, 6)}`, colorToken: "--dept-5" }).returning();
+    await db.insert(departmentProjectPermissions).values({ departmentId: d!.id, permission: "servers.operate" });
+    await db.insert(departmentMembers).values({ departmentId: d!.id, userId: wanda.id });
+    const [admin] = await db.select({ id: users.id }).from(users).where(eq(users.role, "admin")).limit(1);
+    const effective = (await projectPermissionsFor(db, { id: wanda.id, instancePermissions: new Set() }, projectId))!;
+    const listed = (await whatCan(db, actorAs(admin!.id, "admin"), wanda.id, projectId)).projects[0]!.permissions;
+    // Lo stesso insieme, e ognuno con un motivo.
+    expect(new Set(listed.map((p) => p.permission))).toEqual(new Set(PROJECT_PERMISSIONS.filter((p) => effective.has(p))));
+    for (const p of listed) expect(p.reasons.length, p.permission).toBeGreaterThan(0);
+    const kinds = (perm: string) => listed.find((p) => p.permission === perm)!.reasons.map((r) => r.kind).sort();
+    expect(kinds("docs.view")).toEqual(["role", "workspace"]);
+    expect(kinds("tickets.create")).toEqual(["role"]);
+    expect(kinds("tickets.view_all")).toEqual(["workspace"]);
+    expect(kinds("servers.operate")).toEqual(["department"]);
+    // Solo di workspace (nessuna riga esplicita): il reparto vale lo stesso (D10), col suo motivo.
+    const only = await seed("viewer");
+    await db.insert(departmentMembers).values({ departmentId: d!.id, userId: only.wanda.id });
+    const onlyListed = (await whatCan(db, actorAs(admin!.id, "admin"), only.wanda.id, only.projectId)).projects[0]!.permissions;
+    expect(onlyListed.find((p) => p.permission === "servers.operate")?.reasons.map((r) => r.kind)).toEqual(["department"]);
+  });
+});

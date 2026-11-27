@@ -131,11 +131,23 @@ export async function inviteViews(db: Db, viewer: Viewer): Promise<InviteView[]>
         .innerJoin(roles, eq(roles.id, inviteProjects.roleId))
         .where(inArray(inviteProjects.inviteToken, rows.map((r) => r.token)))
     : [];
+  // Workspace (D9): le workspace promesse, solo quelle che chi guarda vede.
+  const seenWorkspaces = new Set((await listWorkspaces(db, viewer)).map((w) => w.id));
+  const promisedWorkspaces = rows.length
+    ? await db
+        .select({ token: inviteWorkspaces.inviteToken, workspaceId: workspaces.id, name: workspaces.name, roleId: roles.id, roleName: roles.name })
+        .from(inviteWorkspaces)
+        .innerJoin(workspaces, eq(workspaces.id, inviteWorkspaces.workspaceId))
+        .innerJoin(roles, eq(roles.id, inviteWorkspaces.roleId))
+        .where(inArray(inviteWorkspaces.inviteToken, rows.map((r) => r.token)))
+        .orderBy(asc(workspaces.name))
+    : [];
   return rows.map((r) => ({
     id: inviteIdOf(r.token),
     email: r.email,
     instanceRole: r.roleId && r.roleName ? { id: r.roleId, name: r.roleName } : null,
     projects: grants.filter((g) => g.token === r.token && visible.has(g.projectId)).map(({ projectId, code, roleId, roleName }) => ({ projectId, code, roleId, roleName })),
+    workspaces: promisedWorkspaces.filter((w) => w.token === r.token && seenWorkspaces.has(w.workspaceId)).map(({ workspaceId, name, roleId, roleName }) => ({ workspaceId, name, roleId, roleName })),
     invitedById: r.by,
     invitedByName: r.byEmail ? nameOf({ displayName: r.byName, email: r.byEmail }) : null,
     createdAt: r.createdAt.toISOString(),
@@ -343,7 +355,10 @@ export async function projectMembersView(db: Db, viewer: Viewer, projectId: stri
     // Area 9, F8 (F8-4 = a): chi entra porta i permessi dei suoi reparti; quelli che
     // chi guarda non ha qui spengono la persona (lo stesso rifiuto del salvataggio).
     addableMissing: await (async () => {
-      const brought = await departmentGrantsOf(db, addableVisible);
+      // Revisione del lotto 4 (M-3): chi vede già il progetto dalla workspace ha già lì i suoi reparti
+      // (`putProjectMember`, `alreadyIn`): aggiungerlo come override non li porta.
+      const alreadyIn = new Set(workspaceOnly.map((w) => w.personId));
+      const brought = (await departmentGrantsOf(db, addableVisible)).filter((g) => !alreadyIn.has(g.userId));
       return Object.fromEntries(addableVisible.map((id) => [id, missingToGrant(viewer, [...new Set(brought.filter((g) => g.userId === id).map((g) => g.permission))], held)]));
     })(),
   };

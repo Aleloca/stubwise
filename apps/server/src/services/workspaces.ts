@@ -650,14 +650,20 @@ export async function applyInviteWorkspaces(
   const [me] = await tx.select({ id: users.id, email: users.email }).from(users).where(eq(users.id, userId));
   for (const grant of grants) {
     const [w] = await tx.select().from(workspaces).where(eq(workspaces.id, grant.workspaceId)).for("update");
-    if (!w) continue;
+    if (!w) {
+      onDropped(grant, "workspace_missing");
+      continue;
+    }
     const projectIds = await projectIdsOf(tx, grant.workspaceId);
     if (!managesPeople(actor, projectIds, await heldByProject(tx, actor))) {
       onDropped(grant, "inviter_cannot_manage_people");
       continue;
     }
     const [role] = await tx.select({ name: roles.name, permissions: roles.permissions }).from(roles).where(eq(roles.id, grant.roleId)).for("share");
-    if (!role) continue;
+    if (!role) {
+      onDropped(grant, "role_missing");
+      continue;
+    }
     if ((await judgeWorkspaceGrant(tx, actor, [{ userId, rolePermissions: role.permissions, projectIds }])).length > 0) {
       onDropped(grant, "inviter_lacks_role_permissions");
       continue;

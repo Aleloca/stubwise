@@ -310,7 +310,8 @@ export async function personDetail(db: Db, viewer: Viewer, personId: string, opt
       extra: [...new Set(fromDepartments.map((d) => d.permission))]
         .filter((perm) => !w.rolePermissions.includes(perm))
         .map((perm): ExtraPermission => ({ permission: perm, sources: fromDepartments.filter((d) => d.permission === perm).map(departmentSource), granted: false })),
-      canManage: viewerManages.has(link.projectId),
+      // Revisione del lotto 4 (M-4): qui non c'è un membro da gestire (la rimozione è dalla workspace).
+      canManage: false,
       workspace: { name: w.workspaceName, roleName: w.roleName },
       workspaceOnly: true,
     });
@@ -366,7 +367,8 @@ export async function personDetail(db: Db, viewer: Viewer, personId: string, opt
     peer: viewerFullAdmin && isFullAdmin && !isSelf,
     instanceRole: p.roleId && p.roleName ? { id: p.roleId, name: p.roleName } : null,
     projects: projectsView,
-    alsoInHiddenProjects: all.length > seen.length,
+    // Anche i progetti visti solo dalla workspace che chi guarda non vede (revisione del lotto 4, M-6).
+    alsoInHiddenProjects: all.length > seen.length || wsProjects.some((w) => !projectIds.includes(w.projectId)),
     addableTo,
     departments: depts.map((d) => ({ id: d.id, name: d.name, colorToken: d.colorToken, managesHome: (d.permissions ?? []).includes("department.home.manage") })),
     workspaces: wsRows.filter((w) => seenWorkspaces.has(w.workspaceId)).map((w) => ({ id: w.workspaceId, name: w.workspaceName, roleName: w.roleName })),

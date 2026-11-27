@@ -418,9 +418,11 @@ describe("workspace, D19: un progetto eliminato ricorda anche chi lo vedeva per 
     const [viewer] = await db.select({ id: rolesTable.id }).from(rolesTable).where(eq(rolesTable.presetKey, "viewer"));
     const [w] = await db.insert(workspaces).values({ name: "Da eliminare", colorToken: "--dept-1" }).returning();
     await db.insert(workspaceProjects).values({ workspaceId: w!.id, projectId });
+    const [claude] = await db.select({ id: users.id }).from(users).where(eq(users.isAgent, true));
     await db.insert(workspaceMembers).values([
       { workspaceId: w!.id, userId: viaWs.id, roleId: viewer!.id },
       { workspaceId: w!.id, userId: both.id, roleId: viewer!.id },
+      { workspaceId: w!.id, userId: claude!.id, roleId: viewer!.id },
     ]);
     expect((await call("POST", projectId, "archive")).statusCode).toBe(204);
     const res = await app.inject({ method: "DELETE", url: `/api/projects/${projectId}`, headers: { cookie: adminCookie }, payload: { confirmCode: p!.code } });
@@ -428,5 +430,6 @@ describe("workspace, D19: un progetto eliminato ricorda anche chi lo vedeva per 
     const remembered = (await db.select().from(deletedProjectMembers).where(eq(deletedProjectMembers.projectId, projectId))).map((m) => m.userId);
     expect(remembered).toContain(viaWs.id);
     expect(remembered.filter((id) => id === both.id)).toHaveLength(1);
+    expect(remembered).not.toContain(claude!.id);
   });
 });

@@ -3,7 +3,7 @@ import { changeLog, projectMembers, projects, roles, users, workspaceMembers, wo
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { PROJECT_PERMISSIONS } from "@stubwise/shared";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
@@ -269,13 +269,27 @@ describe("D9: l'invito di registrazione promette una workspace", () => {
   it("Lea invita un esterno nella workspace (Viewer di default): registrato, ne fa parte e vede A", async () => {
     const { a, lea } = await inviter();
     const w = await created(lea, { name: "Invitati", projectIds: [a] });
-    const inv = await call("POST", "/api/auth/invites", lea.headers, { email: `ext-${randomUUID()}@x.test`, workspaces: [{ workspaceId: w.id }] });
+    const email = `ext-${randomUUID()}@x.test`;
+    const inv = await call("POST", "/api/auth/invites", lea.headers, { email, workspaces: [{ workspaceId: w.id }] });
     expect(inv.statusCode, inv.body).toBe(201);
     const res = await register((inv.json() as { token: string }).token);
     expect(res.statusCode, res.body).toBe(201);
-    const [u] = await db.select({ id: users.id }).from(users).where(eq(users.displayName, "Nuova")).orderBy(users.createdAt).limit(1);
+    const [u] = await db.select({ id: users.id }).from(users).where(eq(users.email, email));
+    const { visibleProjectIds } = await import("../auth/access.js");
+    expect(await visibleProjectIds(db, { id: u!.id, instancePermissions: new Set() })).toContain(a);
     const rows = await db.select({ roleId: workspaceMembers.roleId }).from(workspaceMembers).where(and(eq(workspaceMembers.workspaceId, w.id), eq(workspaceMembers.userId, u!.id)));
     expect(rows).toEqual([{ roleId: await presetRoleId(app, "viewer") }]);
+  });
+
+  it("revisione del lotto 4 (I-1): l'invito pendente mostra le workspace che promette, nella vista e nel registro", async () => {
+    const { a, lea } = await inviter();
+    const w = await created(lea, { name: "Promessa", projectIds: [a] });
+    const email = `v-${randomUUID()}@x.test`;
+    expect((await call("POST", "/api/auth/invites", lea.headers, { email, workspaces: [{ workspaceId: w.id }] })).statusCode).toBe(201);
+    const views = (await call("GET", "/api/admin/invites", lea.headers)).json() as { email: string; workspaces: { workspaceId: string; name: string; roleName: string }[] }[];
+    expect(views.find((v) => v.email === email)?.workspaces).toEqual([{ workspaceId: w.id, name: "Promessa", roleId: await presetRoleId(app, "viewer"), roleName: "Viewer" }]);
+    const [entry] = await db.select({ data: changeLog.data }).from(changeLog).where(and(eq(changeLog.type, "invite.created"), sql`${changeLog.data}->'object'->>'label' = ${email}`));
+    expect((entry!.data as { params: { workspaces: string[] } }).params.workspaces).toEqual(["Promessa · Viewer"]);
   });
 
   it("NEGATIVO all'invito: un ruolo che Lea non può dare (403 escalation), una workspace due volte (400): nessun invito", async () => {
@@ -296,6 +310,9 @@ describe("D9: l'invito di registrazione promette una workspace", () => {
     const { a, lea } = await inviter();
     const w = await created(lea, { name: "Riverifica", projectIds: [a] });
     const inv = await call("POST", "/api/auth/invites", lea.headers, { email: `r-${randomUUID()}@x.test`, workspaces: [{ workspaceId: w.id }] });
+    const { inviteWorkspaces } = await import("@stubwise/db");
+    // La promessa è salvata (il `toEqual([])` sotto non passa per un invito vuoto).
+    expect(await db.select().from(inviteWorkspaces).where(eq(inviteWorkspaces.workspaceId, w.id))).toHaveLength(1);
     await addMember(app, a, lea.id, "viewer");
     const res = await register((inv.json() as { token: string }).token);
     expect(res.statusCode, res.body).toBe(201);

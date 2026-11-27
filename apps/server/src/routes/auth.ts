@@ -675,7 +675,7 @@ export async function authRoutes(
           await saveInviteWorkspaces(tx, token, workspaceGrants);
           warnings = await inviteDepartmentWarnings(tx, request.user!, grants);
           // Area 9, F2: con l'id opaco e i nomi, mai il token.
-          await recordChange(tx, { type: "invite.created", actor: request.user!, projectId: null, data: { object: inviteObject(token, email), params: await inviteParams(tx, roleId, grants) } });
+          await recordChange(tx, { type: "invite.created", actor: request.user!, projectId: null, data: { object: inviteObject(token, email), params: await inviteParams(tx, roleId, grants, workspaceGrants) } });
         });
       } catch (error) {
         return sendRoleRuleError(reply, error);

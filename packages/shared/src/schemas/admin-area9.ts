@@ -153,6 +153,8 @@ export const inviteViewSchema = z.object({
   email: z.string(),
   instanceRole: z.object({ id: z.uuid(), name: z.string() }).nullable().default(null),
   projects: z.array(z.object({ projectId: z.uuid(), code: z.string(), roleId: z.uuid(), roleName: z.string() })).default([]),
+  /** Workspace (D9, additivo): le workspace che l'invito promette e che chi guarda vede, col ruolo. */
+  workspaces: z.array(z.object({ workspaceId: z.uuid(), name: z.string(), roleId: z.uuid(), roleName: z.string() })).default([]),
   invitedById: z.uuid().nullable().default(null),
   invitedByName: z.string().nullable().default(null),
   createdAt: z.iso.datetime(),
