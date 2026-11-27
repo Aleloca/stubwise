@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { eq, sql } from "drizzle-orm";
 import { generateSync } from "otplib";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { projects, roles, sessions, userPasskeys, users } from "@stubwise/db";
+import { personalAccessTokens, projects, roles, sessions, userPasskeys, users } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
@@ -602,6 +602,27 @@ describe("riconferma con passkey", () => {
     expect(res.json()).toMatchObject({ code: "no_passkeys" });
     const viaPat = await post("/api/me/security/reauth/passkey/options", pat);
     expect(viaPat.json()).toMatchObject({ code: "session_required" });
+  });
+});
+
+describe("M5 (indurimento): una scrittura col cookie da un'altra origine", () => {
+  it("cookie + cross-site o same-site → 403 cross_origin_request, nessun effetto; same-origin passa; il PAT e le letture non sono toccati", async () => {
+    const user = await createUserWithTotp();
+    const cookie = await sessionAged(user.id, 0);
+    const before = (await testDb.db.select().from(personalAccessTokens)).length;
+    for (const site of ["cross-site", "same-site"]) {
+      const res = await post("/api/pats", { cookie, "sec-fetch-site": site }, { name: "csrf" });
+      expect([res.statusCode, res.json().code]).toEqual([403, "cross_origin_request"]);
+    }
+    const foreignOrigin = await post("/api/pats", { cookie, origin: "https://evil.example.com" }, { name: "csrf" });
+    expect([foreignOrigin.statusCode, foreignOrigin.json().code]).toEqual([403, "cross_origin_request"]);
+    expect((await testDb.db.select().from(personalAccessTokens)).length).toBe(before);
+    expect((await post("/api/pats", { cookie, "sec-fetch-site": "same-origin" }, { name: "ok" })).statusCode).toBe(201);
+    // Il PAT non porta cookie: un client che lo usa non è un browser ingannato.
+    const viaPat = await post("/api/me/security/reauth", { ...pat, "sec-fetch-site": "cross-site" }, { code: "123456" });
+    expect(viaPat.json().code).not.toBe("cross_origin_request");
+    const read = await app.inject({ method: "GET", url: "/api/auth/me", headers: { cookie, "sec-fetch-site": "cross-site" } });
+    expect(read.statusCode).toBe(200);
   });
 });
 

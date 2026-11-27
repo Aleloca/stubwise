@@ -18,6 +18,7 @@ import {
   type Language,
 } from "@stubwise/shared";
 import { apiError } from "../errors.js";
+import { isCrossOriginWrite } from "./same-origin.js";
 import { hashServerKey, PAT_PREFIX } from "../routes/shared.js";
 
 export const SESSION_COOKIE = "stubwise_session";
@@ -422,6 +423,13 @@ export async function requireAuth(
   const user = sessionId ? await findSessionUser(request.server.db, sessionId) : null;
   if (!user) {
     await apiError(reply, 401, "unauthorized", "Authentication required");
+    return;
+  }
+  // M5 (indurimento): una scrittura autenticata col cookie solo dalla stessa
+  // origine (`same-origin.ts`), anche da una sessione parziale. Il PAT e il
+  // token della chat sono già usciti qui sopra: non portano cookie.
+  if (isCrossOriginWrite(request)) {
+    await apiError(reply, 403, "cross_origin_request", "Cross-origin write rejected");
     return;
   }
   if (user.sessionStage !== "full" && !opts.allowPartial) {
