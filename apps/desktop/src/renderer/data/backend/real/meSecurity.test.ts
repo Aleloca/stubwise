@@ -135,6 +135,9 @@ describe("Preferenze → Security dal server (area 9, R4b)", () => {
     // Lotto 10 (72, 6a13ab3c1): il Mac associato alla cassaforte, e tolto.
     expect(eventKindOf("vault_device_sealed")).toBe("vault_device_sealed");
     expect(eventKindOf("vault_device_seal_revoked")).toBe("vault_device_seal_revoked");
+    // Indurimento dell'origine (54): una passkey nuova sigilla la chiave, e la raffica di letture.
+    expect(eventKindOf("vault_seal_added")).toBe("vault_seal_added");
+    expect(eventKindOf("vault_reveal_burst")).toBe("vault_reveal_burst");
     expect(eventKindOf("__unknown__")).toBe("other");
   });
 

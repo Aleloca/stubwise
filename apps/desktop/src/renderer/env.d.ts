@@ -59,7 +59,8 @@ type StubwiseVaultStatus = {
   touchId: boolean;
 };
 type StubwiseVaultUnlock = { ok: true } | { ok: false; code: string };
-type StubwiseVaultFail = { ok: false; code: string };
+/** `retryAfterSeconds`: solo col tetto delle letture (C2, 429 `vault_reveal_rate_limited`). */
+type StubwiseVaultFail = { ok: false; code: string; retryAfterSeconds?: number };
 /** Una persona da confermare (`vault:pending`): mai le copie della chiave. */
 type StubwiseVaultPendingPerson = {
   userId: string;

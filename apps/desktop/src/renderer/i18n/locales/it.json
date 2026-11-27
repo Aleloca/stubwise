@@ -614,6 +614,8 @@
           "vault_device_sealed": "Mac associato alla cassaforte",
           "vault_device_seal_revoked": "Mac tolto dalla cassaforte",
           "reauth_desktop": "Identità confermata nell'app desktop",
+          "vault_seal_added": "Sigillo della cassaforte aggiunto per una passkey",
+          "vault_reveal_burst": "Molte password aperte in poco tempo",
           "other": "Altro evento di sicurezza"
         }
       }
@@ -13681,6 +13683,8 @@
     },
     "copied": "Copiata. Gli appunti si svuotano fra 30 secondi.",
     "revealFailed": "Non è stato possibile aprire la password.",
+    "revealLimited_one": "Hai aperto molte password in poco tempo. Per sicurezza, quelle nuove si riaprono fra circa {{count}} minuto. Quelle già aperte restano leggibili.",
+    "revealLimited_other": "Hai aperto molte password in poco tempo. Per sicurezza, quelle nuove si riaprono fra circa {{count}} minuti. Quelle già aperte restano leggibili.",
     "column": {
       "waiting": "Qualcuno aspetta che tu confermi il suo accesso"
     },
