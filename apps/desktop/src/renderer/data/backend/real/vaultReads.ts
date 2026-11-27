@@ -231,7 +231,8 @@ export const listShareTargets: FakeVault["listShareTargets"] = async (id) => {
   const view = await getCredential(id);
   if (!view?.canShare) return { people: [], roles: [] };
   const [members, readers, names] = await Promise.all([
-    appClient().projects.members(view.projectId),
+    // D16: anche chi vede il progetto solo per la workspace, che il server accetta come lettore.
+    appClient().projects.members(view.projectId, { include: "workspace" }),
     appClient().credentials.readers(id),
     namesById(),
   ]);
