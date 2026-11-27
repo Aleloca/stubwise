@@ -8,7 +8,10 @@ import { partialNamespace } from "../notIntegrated";
 import { request } from "../vaultBrowser/client";
 import { clearNow, copyWithAutoClear } from "../vaultBrowser/clipboard";
 import {
+  confirmInWorker,
   createInWorker,
+  pendingInWorker,
+  rejectInWorker,
   removeReaderInWorker,
   revealPassword,
   setPasswordInWorker,
@@ -50,6 +53,30 @@ onSessionStarted(() => {
   key.announceLogin();
 });
 
+/**
+ * Chi aspetta che io confermi: dal worker, senza la chiave (anche a
+ * cassaforte chiusa) e senza le copie, col progetto di ogni credenziale (il
+ * punto «ti aspetta»). I nomi dalla rubrica del team; l'email se manca.
+ */
+const listPending: typeof Fake.vault.listPending = async () => {
+  const out = await pendingInWorker();
+  if (!out.ok) return [];
+  const people = await appClient()
+    .people.list()
+    .catch(() => []);
+  const names = new Map(people.map((p) => [p.id, p.name]));
+  return out.items.map((p) => ({
+    keyId: p.personKeyId,
+    personId: p.userId,
+    name: names.get(p.userId) ?? p.email,
+    email: p.email,
+    createdAt: p.createdAt,
+    device: p.device,
+    fingerprint: p.fingerprint,
+    credentials: p.credentials.map((c) => ({ id: c.id, service: c.service, projectId: c.projectId })),
+  }));
+};
+
 // Le scritture cifrate passano dal worker (crea, cambia); «le mie» sono una
 // lettura della rotta, senza copie.
 setVaultTransport({
@@ -60,7 +87,7 @@ setVaultTransport({
     if (!w.personId) return { ok: false, code: "unauthenticated" };
     return setPasswordInWorker(id, password, w.personId, w.sessionTag);
   },
-  pending: async () => [],
+  pending: listPending,
 });
 
 /** L'ultima apertura ha usato una passkey senza PRF: la barra lo dice finché un'apertura riesce. */
@@ -138,6 +165,18 @@ const removeReader: typeof Fake.vault.removeReader = async (id, readerId) => {
   return removeReaderInWorker(id, readerId, w.personId, w.sessionTag);
 };
 
+const confirm: typeof Fake.vault.confirm = async (keyId) => {
+  const w = who();
+  if (!w.personId) return { ok: false, code: "unauthenticated" };
+  return confirmInWorker(keyId, w.personId, w.sessionTag);
+};
+
+const reject: typeof Fake.vault.reject = async (keyId) => {
+  const w = who();
+  if (!w.personId) return { ok: false, code: "unauthenticated" };
+  return rejectInWorker(keyId, w.personId, w.sessionTag);
+};
+
 export const vault: typeof Fake.vault = partialNamespace<typeof Fake.vault>("vault", {
   getVaultStatus,
   unlock,
@@ -147,5 +186,8 @@ export const vault: typeof Fake.vault = partialNamespace<typeof Fake.vault>("vau
   copy,
   share,
   removeReader,
+  listPending,
+  confirm,
+  reject,
   ...liveVaultReads,
 });

@@ -146,5 +146,53 @@ describe("la cassaforte della build web", () => {
     expect(toWorker.at(-1)).toMatchObject({ t: "removeReader", id: "c-1", readerId: "u-bea", personId: "p-ada" });
     session.personId = null;
   });
+
+  it("chi aspetta: dal worker, col progetto di ogni credenziale; il nome dalla rubrica, l'email se manca", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 500 })));
+    const { vault } = await load();
+    replies.pending = {
+      ok: true,
+      items: [
+        {
+          userId: "u-bea",
+          email: "bea@example.com",
+          personKeyId: "k-bea",
+          status: "pending",
+          createdAt: "2026-11-20T10:00:00.000Z",
+          device: "Safari",
+          fingerprint: "ABCD-EFGH",
+          credentials: [{ id: "c-1", projectId: "prj-acq", service: "Aruba", label: null }],
+        },
+      ],
+    };
+    expect(await vault.listPending()).toEqual([
+      {
+        keyId: "k-bea",
+        personId: "u-bea",
+        name: "bea@example.com",
+        email: "bea@example.com",
+        createdAt: "2026-11-20T10:00:00.000Z",
+        device: "Safari",
+        fingerprint: "ABCD-EFGH",
+        credentials: [{ id: "c-1", service: "Aruba", projectId: "prj-acq" }],
+      },
+    ]);
+    expect(toWorker.at(-1)).toEqual({ t: "pending" });
+    replies.pending = { ok: false, code: "network" };
+    expect(await vault.listPending()).toEqual([]);
+  });
+
+  it("conferma e rifiuta: al worker, con persona e sessione", async () => {
+    const { vault, session } = await load();
+    session.personId = "p-ada";
+    replies.confirm = { ok: true, saved: 2, keyChanged: 0, notAllowed: 0, unopenable: 1 };
+    expect(await vault.confirm("k-bea")).toEqual({ ok: true, saved: 2, keyChanged: 0, notAllowed: 0, unopenable: 1 });
+    expect(toWorker.at(-1)).toMatchObject({ t: "confirm", keyId: "k-bea", personId: "p-ada" });
+    expect(await vault.reject("k-bea")).toEqual({ ok: true });
+    expect(toWorker.at(-1)).toMatchObject({ t: "reject", keyId: "k-bea", personId: "p-ada" });
+    replies.reject = { ok: false, code: "vault_locked" };
+    expect(await vault.reject("k-bea")).toEqual({ ok: false, code: "vault_locked" });
+    session.personId = null;
+  });
 });
 

@@ -11,6 +11,8 @@ import { request } from "./client";
 //   aperta (le pubbliche bastano); cambia sì, con la sessione dell'apertura.
 // - Condividi e togli: con la cassaforte aperta e la prova di possesso, che
 //   il worker chiede e consuma; alla pagina solo l'esito.
+// - Chi aspetta (senza la chiave, senza le copie), conferma e rifiuta (con la
+//   cassaforte aperta e la prova).
 
 export type RevealOutcome =
   | { ok: true; password: string }
@@ -55,5 +57,32 @@ export function removeReaderInWorker(
   sessionTag: string,
 ): Promise<{ ok: true } | { ok: false; code: string }> {
   return request({ t: "removeReader", id, readerId, personId, sessionTag });
+}
+
+export type PendingItem = {
+  userId: string;
+  email: string;
+  personKeyId: string;
+  status: "pending" | "confirmed";
+  createdAt: string;
+  device: string | null;
+  fingerprint: string;
+  credentials: { id: string; projectId: string; service: string; label: string | null }[];
+};
+
+export function pendingInWorker(): Promise<{ ok: true; items: PendingItem[] } | { ok: false; code: string }> {
+  return request({ t: "pending" });
+}
+
+export type ConfirmOutcome =
+  | { ok: true; saved: number; keyChanged: number; notAllowed: number; unopenable: number }
+  | { ok: false; code: string };
+
+export function confirmInWorker(keyId: string, personId: string, sessionTag: string): Promise<ConfirmOutcome> {
+  return request<ConfirmOutcome>({ t: "confirm", keyId, personId, sessionTag });
+}
+
+export function rejectInWorker(keyId: string, personId: string, sessionTag: string): Promise<{ ok: true } | { ok: false; code: string }> {
+  return request({ t: "reject", keyId, personId, sessionTag });
 }
 

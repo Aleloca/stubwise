@@ -3,6 +3,7 @@ import {
   decryptPassword,
   encryptPassword,
   generatePersonKeyPair,
+  keyFingerprint,
   sealPrivateKey,
   unwrapItemKey,
   wrapActorChallenge,
@@ -500,6 +501,98 @@ describe("condividi e togli un lettore, nel worker", () => {
     const del = calls.find((c) => c.method === "DELETE")!;
     expect(del.path).toBe(`/api/credentials/${C1}/readers/${OTHER_USER}`);
     expect(del.body).toEqual({ actorProof: challenges[0] });
+  });
+});
+
+describe("chi aspetta, conferma e rifiuta, nel worker", () => {
+  let core: VaultCore;
+  let bea: Awaited<ReturnType<typeof generatePersonKeyPair>>;
+  const C2 = "77777777-7777-4777-8777-777777777777";
+  const PROJ = "88888888-8888-4888-8888-888888888888";
+  const pendingBody = () => ({
+    items: [
+      {
+        user: { id: OTHER_USER, email: "bea@example.com" },
+        personKey: { id: OTHER_KEY, status: "pending", createdAt: "2026-11-20T10:00:00.000Z", device: "Safari", fingerprintSource: bea.publicKey },
+        credentials: [
+          { id: C1, projectId: PROJ, service: "Aruba", label: null, wrappedKey: c1.myCopy, keyVersion: "v1" },
+          // Una copia che non si apre con la mia chiave: si salta.
+          { id: C2, projectId: PROJ, service: "Fastweb", label: "Router", wrappedKey: c1.myCopy, keyVersion: "v9" },
+        ],
+      },
+    ],
+  });
+  beforeEach(async () => {
+    core = await setup();
+    bea = await generatePersonKeyPair();
+    serveChallenges();
+    routes["GET /api/vault/pending"] = () => ({ body: pendingBody() });
+    routes[`POST /api/vault/pending/${OTHER_KEY}/confirm`] = () => ({
+      body: { personKeyId: OTHER_KEY, status: "confirmed", saved: [C1], skipped: [] },
+    });
+    routes[`POST /api/vault/pending/${OTHER_KEY}/reject`] = () => ({ status: 204, body: null });
+  });
+
+  it("chi aspetta: anche a cassaforte chiusa, con l'impronta e senza le copie", async () => {
+    const out = (await core.handle({ t: "pending" })) as { ok: true; items: Record<string, unknown>[] };
+    expect(out.ok).toBe(true);
+    expect(out.items).toEqual([
+      {
+        userId: OTHER_USER,
+        email: "bea@example.com",
+        personKeyId: OTHER_KEY,
+        status: "pending",
+        createdAt: "2026-11-20T10:00:00.000Z",
+        device: "Safari",
+        fingerprint: await keyFingerprint(bea.publicKey),
+        credentials: [
+          { id: C1, projectId: PROJ, service: "Aruba", label: null },
+          { id: C2, projectId: PROJ, service: "Fastweb", label: "Router" },
+        ],
+      },
+    ]);
+    expect(JSON.stringify(out)).not.toContain(c1.myCopy.slice(0, 20));
+  });
+
+  it("conferma: chiusa niente; aperta, ricifra per la chiave della persona le copie che si aprono, con la prova; l'esito in conteggi", async () => {
+    expect(await core.handle({ t: "confirm", keyId: OTHER_KEY, personId: ME, sessionTag: TAG })).toEqual({ ok: false, code: "vault_locked" });
+    await openCore(core);
+    expect(await core.handle({ t: "confirm", keyId: OTHER_KEY, personId: ME, sessionTag: TAG })).toEqual({
+      ok: true,
+      saved: 1,
+      keyChanged: 0,
+      notAllowed: 0,
+      unopenable: 1,
+    });
+    const post = calls.find((c) => c.path === `/api/vault/pending/${OTHER_KEY}/confirm`)!;
+    const body = post.body as { copies: { credentialId: string; wrappedKey: string; keyVersion: string }[]; actorProof: unknown };
+    expect(body.copies.map((c) => [c.credentialId, c.keyVersion])).toEqual([[C1, "v1"]]);
+    const privateKey = await crypto.subtle.importKey("pkcs8", bea.privateKeyPkcs8.slice(), { name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
+    const itemKey = await unwrapItemKey(body.copies[0]!.wrappedKey, privateKey, C1, OTHER_KEY);
+    expect(await decryptPassword(C1, c1.ciphertext, itemKey)).toBe("Kx4!pa-77Wq");
+    expect(body.actorProof).toEqual(challenges[0]);
+  });
+
+  it("conferma: i rifiuti del server diventano conteggi; una persona che non aspetta più è `not_pending`, senza prova", async () => {
+    await openCore(core);
+    routes[`POST /api/vault/pending/${OTHER_KEY}/confirm`] = () => ({
+      body: { personKeyId: OTHER_KEY, status: "pending", saved: [], skipped: [{ credentialId: C1, reason: "key_changed" }, { credentialId: C2, reason: "not_allowed" }] },
+    });
+    expect(await core.handle({ t: "confirm", keyId: OTHER_KEY, personId: ME, sessionTag: TAG })).toMatchObject({ ok: true, saved: 0, keyChanged: 1, notAllowed: 1 });
+    routes["GET /api/vault/pending"] = () => ({ body: { items: [] } });
+    const before = challenges.length;
+    expect(await core.handle({ t: "confirm", keyId: OTHER_KEY, personId: ME, sessionTag: TAG })).toEqual({ ok: false, code: "not_pending" });
+    expect(challenges.length).toBe(before);
+  });
+
+  it("rifiuta: con la prova, solo a cassaforte aperta e con la sessione dell'apertura", async () => {
+    const reject = () => core.handle({ t: "reject", keyId: OTHER_KEY, personId: ME, sessionTag: TAG });
+    expect(await reject()).toEqual({ ok: false, code: "vault_locked" });
+    await openCore(core);
+    expect(await reject()).toEqual({ ok: true });
+    expect(calls.find((c) => c.path === `/api/vault/pending/${OTHER_KEY}/reject`)!.body).toEqual({ actorProof: challenges[0] });
+    serverTag = "srv-tag-2";
+    expect(await reject()).toEqual({ ok: false, code: "vault_locked" });
   });
 });
 

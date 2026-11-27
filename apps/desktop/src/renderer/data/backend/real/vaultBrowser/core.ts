@@ -2,6 +2,9 @@ import {
   credentialRecipientsSchema,
   credentialSharePreviewSchema,
   vaultActorChallengeResponseSchema,
+  vaultConfirmResponseSchema,
+  vaultPendingResponseSchema,
+  type VaultPendingPerson,
   type CredentialRecipients,
   type CredentialSharePreview,
   type CredentialRevealResponse,
@@ -14,6 +17,7 @@ import {
   PRF_INPUT,
   decryptPassword,
   encryptForInsert,
+  keyFingerprint,
   openActorChallenge,
   openPrivateKey,
   unwrapItemKey,
@@ -90,6 +94,11 @@ export type CoreRequest =
   /** A una persona o a un ruolo: la chiave della voce ricifrata per chi entra, con la prova. */
   | { t: "share"; id: string; target: { userId: string } | { roleId: string }; personId: string; sessionTag: string }
   | { t: "removeReader"; id: string; readerId: string; personId: string; sessionTag: string }
+  /** Chi aspetta che io confermi: una lettura, senza la chiave; alla pagina senza le copie. */
+  | { t: "pending" }
+  /** Conferma una chiave di persona: le proprie copie ricifrate per lei, con la prova. */
+  | { t: "confirm"; keyId: string; personId: string; sessionTag: string }
+  | { t: "reject"; keyId: string; personId: string; sessionTag: string }
   /** La PRF ricevuta non serve più (M-3, sessione cambiata): si azzera. */
   | { t: "discard" }
   | { t: "touch" }
@@ -377,6 +386,52 @@ export class VaultCore {
     }
   }
 
+  /** La lista fresca di chi aspetta, letta con lo schema. */
+  private async pendingPeople(): Promise<VaultPendingPerson[]> {
+    const out = vaultPendingResponseSchema.safeParse(await this.http("GET", "/api/vault/pending"));
+    if (!out.success) throw new HttpError(0, "invalid_response");
+    return out.data.items;
+  }
+
+  /**
+   * Conferma come il main del desktop: dalla lista FRESCA apre ogni propria
+   * copia e la ricifra per la chiave della persona; una che non si apre si
+   * salta (resta per un altro lettore). L'esito in conteggi.
+   */
+  private async confirm(keyId: string, k: { privateKey: CryptoKey; personKeyId: string }) {
+    const person = (await this.pendingPeople()).find((p) => p.personKey.id === keyId);
+    // Un codice locale, non un 404 del server: non spegne niente, e nessuna prova.
+    if (!person) return { ok: false as const, code: "not_pending" };
+    const copies: { credentialId: string; wrappedKey: string; keyVersion: string }[] = [];
+    let unopenable = 0;
+    for (const c of person.credentials) {
+      try {
+        const itemKey = await unwrapItemKey(c.wrappedKey, k.privateKey, c.id, k.personKeyId);
+        copies.push({
+          credentialId: c.id,
+          wrappedKey: await wrapItemKey(itemKey, person.personKey.fingerprintSource, c.id, keyId),
+          keyVersion: c.keyVersion,
+        });
+      } catch {
+        unopenable += 1;
+      }
+    }
+    const result = vaultConfirmResponseSchema.safeParse(
+      await this.http("POST", `/api/vault/pending/${seg(keyId)}/confirm`, {
+        copies,
+        actorProof: await this.prove(k.privateKey, k.personKeyId),
+      }),
+    );
+    if (!result.success) throw new HttpError(0, "invalid_response");
+    return {
+      ok: true as const,
+      saved: result.data.saved.length,
+      keyChanged: result.data.skipped.filter((s) => s.reason === "key_changed").length,
+      notAllowed: result.data.skipped.filter((s) => s.reason === "not_allowed").length,
+      unopenable,
+    };
+  }
+
   async handle(req: CoreRequest): Promise<unknown> {
     try {
       return await this.dispatch(req);
@@ -497,6 +552,37 @@ export class VaultCore {
         const k = await this.live(req.personId, req.sessionTag);
         if (!k) return { ok: false, code: "vault_locked" };
         await this.http("DELETE", `/api/credentials/${seg(req.id)}/readers/${seg(req.readerId)}`, {
+          actorProof: await this.prove(k.privateKey, k.personKeyId),
+        });
+        return { ok: true };
+      }
+      case "pending": {
+        const people = await this.pendingPeople();
+        return {
+          ok: true,
+          items: await Promise.all(
+            people.map(async (p) => ({
+              userId: p.user.id,
+              email: p.user.email,
+              personKeyId: p.personKey.id,
+              status: p.personKey.status,
+              createdAt: p.personKey.createdAt,
+              device: p.personKey.device,
+              fingerprint: await keyFingerprint(p.personKey.fingerprintSource),
+              credentials: p.credentials.map((c) => ({ id: c.id, projectId: c.projectId, service: c.service, label: c.label })),
+            })),
+          ),
+        };
+      }
+      case "confirm": {
+        const k = await this.live(req.personId, req.sessionTag);
+        if (!k) return { ok: false, code: "vault_locked" };
+        return this.confirm(req.keyId, k);
+      }
+      case "reject": {
+        const k = await this.live(req.personId, req.sessionTag);
+        if (!k) return { ok: false, code: "vault_locked" };
+        await this.http("POST", `/api/vault/pending/${seg(req.keyId)}/reject`, {
           actorProof: await this.prove(k.privateKey, k.personKeyId),
         });
         return { ok: true };
