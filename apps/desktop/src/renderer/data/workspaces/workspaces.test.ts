@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { resetApi, setLatency, workspaces } from "../api";
+import { access, resetApi, setLatency, workspaces } from "../api";
 import { accessState, isMember, roleIdOf, writeAccess } from "../access/index";
 import { markReauthenticated } from "../auth/reauth";
 import { setSessionPersonId } from "../session";
@@ -226,3 +226,18 @@ describe("le scritture", () => {
 
 const workspaceSet = (projectId: string, workspaceId: string | null) =>
   workspaces.setProjectWorkspace(projectId, workspaceId);
+
+describe("Who can? dice da dove si vede un progetto [WS 3]", () => {
+  it("Nicola vede ORT dalla workspace, Marco da membro E dalla workspace; un progetto fuori: niente", async () => {
+    as(ROBERTA);
+    expect(await access.whatCan("p-nicola", "prj-ort")).toMatchObject({
+      member: false,
+      workspaceName: "Clienti storici",
+    });
+    expect(await access.whatCan("p-marco", "prj-ort")).toMatchObject({
+      member: true,
+      workspaceName: "Clienti storici",
+    });
+    expect(await access.whatCan("p-marco", "prj-mkx")).toMatchObject({ workspaceName: null });
+  });
+});

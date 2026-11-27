@@ -10445,6 +10445,8 @@
       "can": "Può",
       "never": "Mai",
       "notMember": "{{name}} non è membro di {{code}}.",
+      "seesThroughWorkspace": "{{name}} vede {{code}} dalla workspace {{workspace}}: non è membro di {{code}}.",
+      "seesBoth": "{{name}} vede {{code}} da membro e dalla workspace {{workspace}}.",
       "notMemberButAdmin": "{{name}} non è membro di {{code}}, ma da amministratore completo lì può fare tutto.",
       "alsoCant": "Mostra anche cosa non può fare {{name}}",
       "nothingHeld": "{{name}} qui non può fare niente.",

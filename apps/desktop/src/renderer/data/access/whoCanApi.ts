@@ -3,7 +3,14 @@ import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { gate, state, visibleProjectIds } from "../store";
 import { ALL_PROJECT_PERMISSIONS } from "./seed";
 import { isMember, type PermissionSource } from "./effective";
+import { workspaceRoleIn } from "./seats";
 import { INSTANCE_SET, accessState } from "./state";
+
+/** La workspace da cui la persona vede il progetto (shape `workspaces.md`), o `null`. */
+function workspaceNameFor(personId: string, projectId: string): string | null {
+  const ws = workspaceRoleIn(accessState(), personId, projectId);
+  return ws ? (accessState().workspaces.find((w) => w.id === ws.workspaceId)?.name ?? null) : null;
+}
 import { knownPeopleFor, visiblePeopleFor, whatCan as whatCanRaw, whoCan as whoCanRaw } from "./whoCan";
 
 // «Chi può farlo?» come lo legge il client (`api.access`, area 9a, shape
@@ -63,6 +70,11 @@ export type WhatCanView =
       projectCode: string | null;
       /** Se la persona è membro del progetto; `null` per l'istanza. */
       member: boolean | null;
+      /**
+       * Shape `workspaces.md`: la workspace da cui la persona vede il progetto,
+       * se ne fa parte. Assente con un server che non ha le workspace.
+       */
+      workspaceName?: string | null;
       groups: { groupKey: string; permissions: WhatCanPermission[] }[];
     };
 
@@ -183,6 +195,7 @@ export async function whatCan(personId: string, projectId: string | null): Promi
     name: personOf(personId)?.name ?? personId,
     projectCode: codeOf(projectId),
     member: projectId === null ? null : isMember(personId, projectId),
+    workspaceName: projectId === null ? null : workspaceNameFor(personId, projectId),
     groups,
   };
 }
