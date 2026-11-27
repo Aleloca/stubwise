@@ -82,7 +82,16 @@ export async function getProjectUsage(
   input: { range: UsageRange; groupBy: UsageDimension; thenBy?: UsageDimension },
 ): Promise<UsageView | null> {
   try {
-    return await liveUsage.getUsage({ ...input, projectId });
+    const [view, byProject] = await Promise.all([
+      liveUsage.getUsage({ ...input, projectId }),
+      // M3: un server di prima del filtro `projectId` lo ignora e dà i consumi
+      // di tutta l'istanza. Per progetto si vede: una riga d'un altro progetto
+      // vuol dire che il filtro non c'è, e la pagina chiede di aggiornare.
+      input.groupBy === "project" ? null : liveUsage.getUsage({ range: input.range, groupBy: "project", projectId }),
+    ]);
+    const rows = (input.groupBy === "project" ? view : byProject!).rows;
+    if (rows.some((r) => r.key !== projectId)) throw new Error("server_outdated");
+    return view;
   } catch (error) {
     if (error instanceof Error && error.message === "not_found") return null;
     throw error;

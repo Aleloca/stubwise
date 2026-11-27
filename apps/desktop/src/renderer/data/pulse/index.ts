@@ -1,4 +1,5 @@
 import { convertRequestAs, startRunAs } from "../api-mutations";
+import { manualStartBlockFor } from "../instance/blocks";
 import { state, gate, storeGeneration, visibleProjectIds } from "../store";
 import type { TaskSize } from "../types";
 import { can } from "../viewing";
@@ -57,6 +58,9 @@ export async function startPulseProposal(id: string, optionIndex: number): Promi
   const request = state.requests.find((x) => x.id === p.requestIds[optionIndex]);
   if (p.startedTaskId !== null || !request || (request.status !== "new" && request.status !== "ready"))
     return { ok: false, reason: "stale" };
+  // M5: col budget finito il server rifiuta prima di creare la task (chi ha
+  // `plans.approve` lo scavalca, come ogni avvio a mano).
+  if (manualStartBlockFor(me, p.projectId)?.reason === "monthly_budget") return { ok: false, reason: "budget_exhausted" };
   const task = convertRequestAs(me, request.id, { title: request.title, description: request.description });
   // Chiusa per tutti i destinatari, come la decisione sul server.
   p.startedTaskId = task.id;

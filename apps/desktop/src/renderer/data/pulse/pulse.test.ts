@@ -61,10 +61,18 @@ describe("le proposte del polso", () => {
     setSessionPersonId(PULSE_PROPOSALS[0]!.recipientIds.find((id) => id !== me)!);
     expect(await pulse.listPulseProposals()).toHaveLength(1);
   });
+
+  it("M5: budget del mese finito (per chi non ha plans.approve): rifiuto `budget_exhausted`, e niente task", async () => {
+    state.instance.simulate.budgetReached = true;
+    setSessionPersonId("p-marco");
+    const [p] = await pulse.listPulseProposals();
+    expect(await pulse.startPulseProposal(p!.id, 0)).toEqual({ ok: false, reason: "budget_exhausted" });
+    expect(state.requests.find((r) => r.id === "req-trm-1")!.status).toBe("new");
+  });
 });
 
 /** Chi riceve la proposta del seme: il primo destinatario che può avviare lavoro in TRM. */
 async function pulseRecipient(): Promise<string> {
   const { PULSE_PROPOSALS } = await import("../seed/pulse");
-  return PULSE_PROPOSALS[0]!.recipientIds[0]!;
+  return PULSE_PROPOSALS[0]!.recipientIds[0]!
 }

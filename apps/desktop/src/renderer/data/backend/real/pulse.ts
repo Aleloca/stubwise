@@ -99,6 +99,8 @@ export function createRealPulse(api: PulseApi) {
         }
         case "forbidden":
           return { ok: false, reason: "forbidden" };
+        case "budget_exhausted":
+          return { ok: false, reason: "budget_exhausted" };
         default:
           return { ok: false, reason: "failed" };
       }

@@ -1718,8 +1718,11 @@
           "stale": "This proposal is out of date: nothing was started.",
           "run_not_started": "{{code}} was created, but Claude didn't start. Open it and start it from there.",
           "forbidden": "You can't start work in this project anymore.",
-          "failed": "Couldn't start. Try again."
-        }
+          "failed": "Couldn't start. Try again.",
+          "budget_exhausted": "Start is off: the monthly AI budget is used up. It works again when the budget is raised or the month ends."
+        },
+        "startedNoCode": "Started: Claude is writing the plan.",
+        "startedApprovalNoCode": "Started: the plan is waiting for approval."
       }
     },
     "myTasks": {
@@ -5675,7 +5678,8 @@
       "downloaded_other": "Downloaded {{file}} ({{count}} pages)",
       "downloadFailed": "Couldn't download this category. Try again.",
       "empty": "No pages",
-      "error": "Couldn't load the pages."
+      "error": "Couldn't load the pages.",
+      "openedInBrowser": "{{file}} opens in your browser, which saves it."
     },
     "index": {
       "newPage": "New manual page",
@@ -11151,7 +11155,8 @@
         "loadError": "Couldn't load the usage.",
         "noProvider": "No account, or an account that was removed",
         "rangeTooLong": "Choose at most a year.",
-        "invalidRange": "The start date comes after the end date."
+        "invalidRange": "The start date comes after the end date.",
+        "serverOutdated": "This instance's server is older than the app and can't show one project's usage on its own. Update the server to see it here."
       },
       "prototype": {
         "label": "Prototype only"

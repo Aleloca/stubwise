@@ -50,5 +50,11 @@ export function saveBlob(name: string, blob: Blob): void {
 /** Il nome del file dal `Content-Disposition`, se c'è. */
 export function fileNameOf(res: Response, fallback: string): string {
   const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(res.headers.get("content-disposition") ?? "");
-  return m ? decodeURIComponent(m[1]!) : fallback;
+  if (!m) return fallback;
+  // M2: un nome malformato (`%E0%A4%A`) non fa fallire il download.
+  try {
+    return decodeURIComponent(m[1]!);
+  } catch {
+    return fallback;
+  }
 }

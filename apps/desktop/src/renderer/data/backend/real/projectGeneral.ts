@@ -117,8 +117,9 @@ export async function liveAiChoices(canList: boolean): Promise<Pick<ProjectSetti
   if (!canList) return { choices: [], automaticChain: [] };
   try {
     return aiChoicesOf((await appClient().aiProviders.list()) as Any[]);
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 403) return { choices: [], automaticChain: [] };
-    throw error;
+  } catch {
+    // M5: un elenco degli account che non si legge (403, rete, 5xx) non fa
+    // fallire l'intera pagina: l'account scelto resta «Current account» (I2).
+    return { choices: [], automaticChain: [] };
   }
 }

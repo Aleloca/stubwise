@@ -37,8 +37,16 @@ describe("lo zip di una categoria", () => {
   it("sull'app desktop: si apre nel browser di sistema (la rotta risponde col file, non con un 302)", async () => {
     const openWeb = vi.fn(async () => ({ ok: true }));
     vi.stubGlobal("stubwise", { api: {}, openWeb });
-    expect(await docs.exportCategory(REPO, "technical")).toEqual({ ok: true });
+    // M2: il toast lo dice («aperto nel browser»), non «scaricato».
+    expect(await docs.exportCategory(REPO, "technical")).toEqual({ ok: true, openedInBrowser: true });
     expect(openWeb).toHaveBeenCalledWith(`/api/repositories/${REPO}/docs/export?kind=technical`);
+  });
+
+  it("M2: un nome malformato nel Content-Disposition non fa fallire il download", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(new Uint8Array([1]), { status: 200, headers: { "content-disposition": "attachment; filename*=UTF-8''%E0%A4%A.zip" } })));
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    expect(await docs.exportCategory(REPO, "manual")).toEqual({ ok: true });
+    expect((click.mock.instances[0] as unknown as HTMLAnchorElement).download).toBe("manual.zip");
   });
 
   it("un 404 dice che non c'è, senza salvare niente", async () => {

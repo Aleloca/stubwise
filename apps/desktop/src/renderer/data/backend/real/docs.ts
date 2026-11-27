@@ -908,7 +908,7 @@ async function exportCategory(repositoryId: string, kind: DocKind): Promise<DocD
   const path = appClient().docs.exportPath(repositoryId, kind);
   if (window.stubwise?.api) {
     openInWeb(path);
-    return { ok: true };
+    return { ok: true, openedInBrowser: true };
   }
   let res: Response;
   try {

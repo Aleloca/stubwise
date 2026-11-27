@@ -99,6 +99,7 @@ describe("le proposte del polso, dal server", () => {
     ).toEqual({ ok: false, reason: "run_not_started", taskCode: "TRM-9" });
     expect(await failing(new ApiError(403, "x", "forbidden"))).toEqual({ ok: false, reason: "forbidden" });
     expect(await failing(new ApiError(500, "x", "boom"))).toEqual({ ok: false, reason: "failed" });
+    expect(await failing(new ApiError(409, "x", "budget_exhausted"))).toEqual({ ok: false, reason: "budget_exhausted" });
   });
 
   it("Not now: la card va fra le gestite (`handled`), soltanto per chi lo preme", async () => {

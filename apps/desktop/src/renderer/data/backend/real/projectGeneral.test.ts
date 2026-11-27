@@ -1,7 +1,9 @@
 import { ApiError } from "@stubwise/api-client";
 import { describe, expect, it, vi } from "vitest";
 import { isIntegrated } from "../../integration";
-import { aiChoicesOf, createRealProjectGeneral, type ProjectGeneralApi } from "./projectGeneral";
+import { setAppClientForTests } from "./client";
+import { installFakeServer } from "./fakeServer";
+import { aiChoicesOf, createRealProjectGeneral, liveAiChoices, type ProjectGeneralApi } from "./projectGeneral";
 
 // Settings → General e AI nella build app (ritiro del web vecchio, inventario
 // 1.3) sulla `PATCH /api/projects/:id`.
@@ -82,6 +84,18 @@ describe("AI", () => {
     ]);
     expect(r.automaticChain).toEqual(["Max", "Max backup"]);
     expect(aiChoicesOf([providers[2]!]).automaticChain).toEqual(["API key"]);
+  });
+});
+
+describe("M5: le scelte degli account che non si leggono", () => {
+  it("un 500 dell'elenco non fa fallire la pagina: scelte vuote", async () => {
+    setAppClientForTests(null);
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+    installFakeServer({ "GET /api/ai-providers": { status: 500, body: { code: "boom", message: "x" } } });
+    expect(await liveAiChoices(true)).toEqual({ choices: [], automaticChain: [] });
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    setAppClientForTests(null);
   });
 });
 

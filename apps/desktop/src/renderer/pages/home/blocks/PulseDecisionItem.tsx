@@ -39,12 +39,16 @@ export function PulseDecisionItem({
     }
     setBusy(false);
     if (r.ok) {
-      toast.show(
-        t(r.awaitingApproval ? "home.decide.pulse.startedApproval" : "home.decide.pulse.started", {
-          code: r.taskCode,
-        }),
-        { action: { label: t("home.decide.pulse.open"), run: () => onOpenTask(r.taskCode) } },
+      const text = t(
+        r.awaitingApproval ? "home.decide.pulse.startedApproval" : "home.decide.pulse.started",
+        { code: r.taskCode },
       );
+      // M5: un server che non dice il numero della task: la frase senza codice, senza «Open».
+      if (!r.taskCode) {
+        toast.show(t(r.awaitingApproval ? "home.decide.pulse.startedApprovalNoCode" : "home.decide.pulse.startedNoCode"));
+        return;
+      }
+      toast.show(text, { action: { label: t("home.decide.pulse.open"), run: () => onOpenTask(r.taskCode) } });
       return;
     }
     setFailure(r);
@@ -120,7 +124,12 @@ export function PulseDecisionItem({
           type="button"
           className={smallPrimary}
           aria-busy={busy || undefined}
-          disabled={busy || failure?.reason === "stale" || failure?.reason === "run_not_started"}
+          disabled={
+            busy ||
+            failure?.reason === "stale" ||
+            failure?.reason === "run_not_started" ||
+            failure?.reason === "budget_exhausted"
+          }
           onClick={() => void start()}
         >
           {t("home.decide.pulse.start")}

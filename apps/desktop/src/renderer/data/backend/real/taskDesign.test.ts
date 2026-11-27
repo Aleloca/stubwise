@@ -42,4 +42,15 @@ describe("design e piano di una task, dal server", () => {
     );
     await expect(denied.removeTaskDesign(T)).rejects.toBeInstanceOf(ApiError);
   });
+
+  it("M1: «già tolto» è solo `no_active_design`; un altro 404 (la task non c'è o non si vede) è un errore", async () => {
+    for (const code of ["ticket_not_found", "not_found"]) {
+      const real = createRealTaskDesign(
+        fakeApi({ body: "", originContent: null, implementationPlan: null }, {
+          remove: vi.fn(async () => Promise.reject(new ApiError(404, "x", code))),
+        }),
+      );
+      await expect(real.removeTaskDesign(T)).rejects.toBeInstanceOf(ApiError);
+    }
+  });
 });

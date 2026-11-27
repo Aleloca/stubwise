@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../../../data/api";
 import { state } from "../../../data/store";
 import { clearToasts } from "../../../tasks-ui/Toast";
@@ -81,5 +81,34 @@ describe("Decide: le proposte del polso", () => {
     const decide = await screen.findByRole("region", { name: "Decide" });
     await waitFor(() => expect(decide.getAttribute("aria-busy")).not.toBe("true"));
     expect(decide.querySelector("[data-pulse-proposal]")).toBeNull();
+  });
+
+  it("M5: budget finito: Start si spegne con la frase del budget", async () => {
+    state.instance.simulate.budgetReached = true;
+    renderRoute("/home", "p-marco");
+    const decide = await screen.findByRole("region", { name: "Decide" });
+    await waitFor(async () => {
+      const more = within(decide).queryByRole("button", { name: /^Show \d+ more$/ });
+      if (more && !decide.querySelector("[data-pulse-proposal]")) await userEvent.click(more);
+      expect(decide.querySelector("[data-pulse-proposal]")).not.toBeNull();
+    });
+    const row = decide.querySelector<HTMLElement>("[data-pulse-proposal]")!;
+    await userEvent.click(within(row).getByRole("button", { name: "Start" }));
+    expect((await within(row).findByRole("alert")).textContent).toBe(
+      "Start is off: the monthly AI budget is used up. It works again when the budget is raised or the month ends.",
+    );
+    expect(within(row).getByRole("button", { name: "Start" })).toBeDisabled();
+  });
+
+  it("M5: un server che non dice il numero della task: il toast senza codice, senza «Open»", async () => {
+    const spy = vi.spyOn(api.pulse, "startPulseProposal").mockResolvedValue({ ok: true, taskCode: "", awaitingApproval: false });
+    try {
+      const row = await proposal();
+      await userEvent.click(within(row).getByRole("button", { name: "Start" }));
+      expect(await screen.findByText("Started: Claude is writing the plan.")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Open" })).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

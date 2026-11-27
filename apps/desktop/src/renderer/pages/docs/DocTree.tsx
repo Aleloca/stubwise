@@ -205,7 +205,11 @@ function Category({
         "application/zip",
       );
     }
-    toast.show(t("docs.tree.downloaded", { file, count: category.count }));
+    toast.show(
+      result.openedInBrowser
+        ? t("docs.tree.openedInBrowser", { file })
+        : t("docs.tree.downloaded", { file, count: category.count }),
+    );
   };
 
   return (

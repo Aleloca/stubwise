@@ -420,4 +420,12 @@ describe("togliere design e piano (shape `design-plan-remove.md`)", () => {
     });
     expect((await removeRequestDesign(ITEM)).design).toBeNull();
   });
+
+  it("M1: un altro 404 (`not_found`) non è «già tolto»", async () => {
+    installFakeServer({
+      [`DELETE /api/backlog/${ITEM}/design`]: { status: 404, body: { code: "not_found", message: "x" } },
+      [`GET /api/requests/${ITEM}`]: { body: view({ design: null, plan: null, description: "Users want CSV." }) },
+    });
+    await expect(removeRequestDesign(ITEM)).rejects.toThrow();
+  });
 });

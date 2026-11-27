@@ -8,7 +8,8 @@ import { gate } from "../store";
 // server (`backend/real/docs.ts`).
 
 export type DocDownloadResult =
-  | { ok: true; prototype?: true }
+  /** `openedInBrowser`: sul desktop lo zip si apre nel browser di sistema (M2), non si salva qui. */
+  | { ok: true; prototype?: true; openedInBrowser?: true }
   | { ok: false; reason: "not_found" | "unauthenticated" | "failed" };
 
 /** La firma è quella della build app: il prototipo non usa il repository né il tipo. */

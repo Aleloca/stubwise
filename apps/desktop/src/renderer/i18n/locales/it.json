@@ -1718,8 +1718,11 @@
           "stale": "Questa proposta non è più attuale: non è partito niente.",
           "run_not_started": "{{code}} è stata creata, ma Claude non è partito. Aprila e avvialo da lì.",
           "forbidden": "Non puoi più avviare lavoro in questo progetto.",
-          "failed": "Avvio non riuscito. Riprova."
-        }
+          "failed": "Avvio non riuscito. Riprova.",
+          "budget_exhausted": "Avvia è spento: il budget AI del mese è finito. Torna a funzionare quando il budget sale o finisce il mese."
+        },
+        "startedNoCode": "Avviata: Claude sta scrivendo il piano.",
+        "startedApprovalNoCode": "Avviata: il piano aspetta l'approvazione."
       }
     },
     "myTasks": {
@@ -5675,7 +5678,8 @@
       "downloaded_other": "Scaricato {{file}} ({{count}} pagine)",
       "downloadFailed": "Impossibile scaricare questa categoria. Riprova.",
       "empty": "Nessuna pagina",
-      "error": "Non è stato possibile caricare le pagine."
+      "error": "Non è stato possibile caricare le pagine.",
+      "openedInBrowser": "{{file}} si apre nel browser, che lo salva."
     },
     "index": {
       "newPage": "Nuova pagina manuale",
@@ -11151,7 +11155,8 @@
         "loadError": "Impossibile caricare i consumi.",
         "noProvider": "Nessun account, o un account rimosso",
         "rangeTooLong": "Scegli al più un anno.",
-        "invalidRange": "La data d'inizio viene dopo quella di fine."
+        "invalidRange": "La data d'inizio viene dopo quella di fine.",
+        "serverOutdated": "Il server dell'istanza è più vecchio dell'app e non sa mostrare i consumi di un progetto da soli. Aggiorna il server per vederli qui."
       },
       "prototype": {
         "label": "Solo prototipo"

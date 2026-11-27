@@ -382,13 +382,6 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
       ...viaClaudeOf(item, ctx),
     };
   }
-  // Area 8, F4a (S12): una card del monitor apre il server nell'app per codice
-  // (derivato a lettura dal server): nel progetto dell'ancora, o
-  // nell'Amministrazione senza ancora (zero o più progetti: `monitor.manage`).
-  // Senza codice (un server rimosso) resta «Open in web» (I1).
-  // Area 8, F4b: «Diagnosis ready» apre la sua task; senza task (causa non
-  // determinata, fallita, bloccata, o una task che chi legge non vede) la
-  // pagina del server, come le card del monitor.
   // Le proposte del polso si decidono solo in «Da decidere» (shape
   // `pulse-proposals.md`, PQ-1b): nel pannello la card dice che c'è e apre
   // la Home, come la posta passata; mai il backlog del web vecchio.
@@ -411,6 +404,13 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
       ...viaClaudeOf(item, ctx),
     };
   }
+  // Area 8, F4a (S12): una card del monitor apre il server nell'app per codice
+  // (derivato a lettura dal server): nel progetto dell'ancora, o
+  // nell'Amministrazione senza ancora (zero o più progetti: `monitor.manage`).
+  // Senza codice (un server rimosso) resta «Open in web» (I1).
+  // Area 8, F4b: «Diagnosis ready» apre la sua task; senza task (causa non
+  // determinata, fallita, bloccata, o una task che chi legge non vede) la
+  // pagina del server, come le card del monitor.
   const diagnosis = item.kind === "server.diagnosis_ready";
   const diagnosisTask = diagnosis && item.ticketId ? ctx.taskCodes.get(item.ticketId) : undefined;
   const serverLink =

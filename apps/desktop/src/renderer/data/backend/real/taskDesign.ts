@@ -27,8 +27,9 @@ export function createRealTaskDesign(api: TaskDesignApi) {
     try {
       await api.remove(taskId, field);
     } catch (error) {
-      // Già tolto da un altro: non è un errore (la pagina rilegge).
-      if (error instanceof ApiError && error.status === 404 && error.code !== "ticket_not_found") return;
+      // Già tolto da un altro (M1: SOLO `no_active_design`; il DELETE del piano
+      // non dà 404 se il piano non c'è): non è un errore, la pagina rilegge.
+      if (error instanceof ApiError && error.code === "no_active_design") return;
       throw error;
     }
   };

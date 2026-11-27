@@ -272,6 +272,11 @@ const INTEGRATED_CALLS = new Set([
   "projectSettings.deleteProject",
   // Registro, area 9 r.1121: Settings → Automations e le frasi «spento».
   "projectSettings.getProjectSettings",
+  // Ritiro del web vecchio (inventario 1.3): General, AI e Usage del progetto.
+  "projectSettings.updateProjectGeneral",
+  "projectSettings.setDocsModule",
+  "projectSettings.setProjectAi",
+  "projectSettings.getProjectUsage",
   "projectSettings.getProjectSwitches",
   "projectSettings.saveProjectAutomations",
   "instance.listAllRepositories",
@@ -991,6 +996,20 @@ describe("aree non integrate nella build app", () => {
   });
 
   // Area 8, F1 (46): «Repositories» ridotta, senza «nuovo repository» né l'editor dell'area 9.
+  // Revisione di feat/impostazioni-progetto, M7: Usage e AI delle impostazioni.
+  it("aprire Settings → Usage e Settings → AI legge solo chiamate integrate", async () => {
+    signedInAs("p-laura");
+    renderRoute("/p/AUD/settings/usage");
+    await waitFor(() => expect(calls).toContain("projectSettings.getProjectUsage"));
+    await settle();
+    expect(outside()).toEqual([]);
+    cleanup();
+    renderRoute("/p/AUD/settings/ai");
+    expect(await screen.findByRole("heading", { level: 1, name: "AI" })).toBeInTheDocument();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
   it("aprire Repositories legge solo chiamate integrate, senza «Add repository»", async () => {
     // Laura vede il codice di AUD (`repos.view`): la sezione è sua.
     signedInAs("p-laura");

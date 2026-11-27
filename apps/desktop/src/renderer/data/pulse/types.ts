@@ -49,8 +49,9 @@ export type PulseStartResult =
       /**
        * - `stale`: la voce non è più aperta, o la proposta è già stata presa;
        * - `run_not_started`: la task è nata ma Claude no (`taskCode` la dice);
-       * - `forbidden`: chi guarda non può avviare lavoro nel progetto.
+       * - `forbidden`: chi guarda non può avviare lavoro nel progetto;
+       * - `budget_exhausted`: il budget AI del mese è finito (niente task).
        */
-      reason: "stale" | "run_not_started" | "forbidden" | "failed";
+      reason: "stale" | "run_not_started" | "forbidden" | "budget_exhausted" | "failed";
       taskCode?: string;
     };

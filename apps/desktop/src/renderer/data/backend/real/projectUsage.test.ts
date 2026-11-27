@@ -37,4 +37,22 @@ describe("Settings → Usage", () => {
     installFakeServer({});
     expect(await getProjectUsage(PRJ, { range: { days: 30 }, groupBy: "model" })).toBeNull();
   });
+
+  it("M3: un server di prima ignora `projectId` (righe di altri progetti): «server_outdated», non i consumi dell'istanza", async () => {
+    const row = (key: string) => ({ key, label: key, code: null, costUsd: 1, tokens: 1, runs: 1, children: [] });
+    installFakeServer({
+      "GET /api/ai-usage/summary": (req: { path: string }) => ({
+        body: new URL(`http://x${req.path}`).searchParams.get("groupBy") === "project"
+          ? { ...summary, rows: [row(PRJ), row("22222222-2222-4222-8222-222222222222")] }
+          : summary,
+      }),
+    });
+    await expect(getProjectUsage(PRJ, { range: { days: 30 }, groupBy: "model" })).rejects.toThrow("server_outdated");
+  });
+
+  it("M3: un server nuovo dà le sole righe del progetto: si legge", async () => {
+    const row = (key: string) => ({ key, label: key, code: null, costUsd: 1, tokens: 1, runs: 1, children: [] });
+    installFakeServer({ "GET /api/ai-usage/summary": { body: { ...summary, rows: [row(PRJ)] } } });
+    expect((await getProjectUsage(PRJ, { range: { days: 30 }, groupBy: "model" }))?.totals.costUsd).toBe(7);
+  });
 });
