@@ -294,7 +294,12 @@ function TaskSections({
       {/* I server (area 8b) non sono integrati nella build app. */}
       {task.serverRef && featureIntegrated("servers") && <ServerSection task={task} />}
       <DecisionSection task={task} canComment={canComment} />
-      <DescriptionSection task={task} canEdit={canEdit} original={designPlan.data?.design?.trim() ? (designPlan.data.original ?? task.description) : null} />
+      <DescriptionSection
+        task={task}
+        canEdit={canEdit}
+        pending={designPlan.isPending}
+        original={designPlan.data?.design?.trim() ? (designPlan.data.original ?? task.description) : null}
+      />
       <TaskDesignPlanSections task={task} saved={designPlan.data} canEdit={canEdit} />
       <TechnicalSection task={task} />
       <ClaudeSection task={task} canEdit={canEdit} onFollow={onFollow} />

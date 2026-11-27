@@ -1,8 +1,9 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../../data/api";
 import { state } from "../../data/store";
+import { fillableFor } from "../../layout/claudePanel/fillable";
 import { renderRoute } from "../../test/renderRoute";
 
 // DESIGN e PLAN sulla task (shape `design-plan-remove.md`, DP-Q2, DP-Q2b,
@@ -28,6 +29,29 @@ describe("design e piano sulla task", () => {
     const description = section("Description");
     expect(within(description).getByText("Remove the design to edit the description.")).toBeInTheDocument();
     expect(within(description).queryByRole("button", { name: /edit/i })).toBeNull();
+  });
+
+  it("I1: col design attivo Claude non può riempire la descrizione (riscriverebbe il design); tolto, sì", async () => {
+    const user = userEvent.setup();
+    renderRoute("/p/AUD/tasks?task=AUD-5", "p-laura");
+    await screen.findByRole("heading", { name: "Design" });
+    expect(fillableFor({ kind: "taskDescription", taskId: "t-aud-5" })).toBeNull();
+    await user.click(within(section("Design")).getByRole("button", { name: "More for the design" }));
+    await user.click(screen.getByRole("menuitem", { name: "Remove design…" }));
+    await user.click(within(await screen.findByRole("dialog", { name: "Remove the design?" })).getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(fillableFor({ kind: "taskDescription", taskId: "t-aud-5" })).not.toBeNull());
+  });
+
+  it("I1: finché design e piano si leggono, «Edit» della descrizione non c'è", async () => {
+    const pending = vi.spyOn(api, "getTaskDesignPlan").mockReturnValue(new Promise(() => {}));
+    try {
+      renderRoute("/p/AUD/tasks?task=AUD-4", "p-laura");
+      const description = await screen.findByRole("heading", { name: "Description" });
+      expect(within(description.closest("section")!).queryByRole("button", { name: /edit|add/i })).toBeNull();
+      expect(fillableFor({ kind: "taskDescription", taskId: "t-aud-4" })).toBeNull();
+    } finally {
+      pending.mockRestore();
+    }
   });
 
   it("togliere il design: la sezione sparisce e la descrizione torna modificabile", async () => {
