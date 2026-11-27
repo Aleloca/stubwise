@@ -378,23 +378,43 @@ function call(route: SensitiveRoute, headers: Record<string, string>) {
   });
 }
 
+/**
+ * Le rotte `config.reauth: "vault"` (I-3): da una sessione del browser vogliono
+ * uno SBLOCCO della cassaforte recente, e senza rispondono il loro codice.
+ */
+const VAULT_UNLOCK_ROUTES = new Set([
+  "POST /api/vault/keys",
+  "POST /api/vault/keys/:id/seals",
+  "POST /api/vault/recovery-key",
+]);
+const refusalFor = (name: string) => (VAULT_UNLOCK_ROUTES.has(name) ? "vault_unlock_required" : "reauth_required");
+
+/** Una sessione con lo sblocco della cassaforte fatto `ageMs` fa (e il secondo fattore come `sessionAged`). */
+async function sessionUnlocked(userId: string, ageMs: number): Promise<string> {
+  const session = await createSession(app.db, userId, { stage: "full", secondFactorAt: new Date(Date.now() - ageMs) });
+  await testDb.db.update(sessions).set({ vaultUnlockedAt: new Date(Date.now() - ageMs) }).where(eq(sessions.id, session.id));
+  return cookieFor(session.id);
+}
+
 describe("rotte sensibili: il gate della riconferma", () => {
-  it.each(ROUTES)("%s — scaduta → 403 reauth_required, e nessun effetto", async (_name, route) => {
-    const cookie = await sessionAged(adminId, REAUTH_WINDOW_MS + 60_000);
+  it.each(ROUTES)("%s — scaduta → 403 (reauth_required o vault_unlock_required), e nessun effetto", async (name, route) => {
+    const cookie = VAULT_UNLOCK_ROUTES.has(name)
+      ? await sessionUnlocked(adminId, REAUTH_WINDOW_MS + 60_000)
+      : await sessionAged(adminId, REAUTH_WINDOW_MS + 60_000);
     const before = await fingerprint();
     const res = await call(route, { cookie });
     expect(res.statusCode).toBe(403);
-    expect(res.json()).toMatchObject({ code: "reauth_required" });
+    expect(res.json()).toMatchObject({ code: refusalFor(name) });
     expect(await fingerprint()).toBe(before);
   });
 
   it.each(ROUTES)(
-    "%s — mai riconfermata in questa sessione → 403 reauth_required",
-    async (_name, route) => {
+    "%s — mai riconfermata in questa sessione → 403 (reauth_required o vault_unlock_required)",
+    async (name, route) => {
       const cookie = await sessionAged(adminId, null);
       const res = await call(route, { cookie });
       expect(res.statusCode).toBe(403);
-      expect(res.json()).toMatchObject({ code: "reauth_required" });
+      expect(res.json()).toMatchObject({ code: refusalFor(name) });
     },
   );
 
@@ -406,12 +426,16 @@ describe("rotte sensibili: il gate della riconferma", () => {
     expect(await fingerprint()).toBe(before);
   });
 
-  it.each(ROUTES)("%s — fresca → passa il gate", async (_name, route) => {
-    const cookie = await sessionAged(adminId, REAUTH_WINDOW_MS - 60_000);
+  it.each(ROUTES)("%s — fresca → passa il gate", async (name, route) => {
+    // Le rotte dello sblocco vogliono lo sblocco fresco; le altre la riconferma.
+    const cookie = VAULT_UNLOCK_ROUTES.has(name)
+      ? await sessionUnlocked(adminId, REAUTH_WINDOW_MS - 60_000)
+      : await sessionAged(adminId, REAUTH_WINDOW_MS - 60_000);
     const res = await call(route, { cookie });
     expect(res.statusCode, res.body).toBeLessThan(500);
     const code = res.body ? (res.json() as { code?: string }).code : undefined;
     expect(code).not.toBe("reauth_required");
+    expect(code).not.toBe("vault_unlock_required");
     expect(code).not.toBe("session_required");
     expect(code).not.toBe("second_factor_setup_required");
   });
@@ -565,6 +589,34 @@ describe("riconferma con passkey", () => {
     expect((await post("/api/pats", { cookie }, { name: "x" })).statusCode).toBe(201);
   });
 
+  it("I-3 (cassaforte nel browser): un login fresco SENZA sblocco → 403 vault_unlock_required su keys e seals; il recupero col kit passa con la riconferma normale", async () => {
+    const user = await createUserWithTotp();
+    // Secondo fattore appena fatto (il login), nessuno sblocco della cassaforte.
+    const cookie = await sessionAged(user.id, 0);
+    const before = await fingerprint();
+    const jwk = generateKeyPairSync("ec", { namedCurve: "P-256" }).publicKey.export({ format: "jwk" });
+    const keys = await post(
+      "/api/vault/keys",
+      { cookie },
+      {
+        publicKey: JSON.stringify({ kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y }),
+        seals: [{ passkeyId: randomUUID(), sealedPrivateKey: JSON.stringify({ v: 1, data: randomBytes(16).toString("base64url") }) }],
+        device: "Safari su macOS",
+      },
+    );
+    expect([keys.statusCode, keys.json().code]).toEqual([403, "vault_unlock_required"]);
+    const seals = await post(`/api/vault/keys/${randomUUID()}/seals`, { cookie }, { passkeyId: randomUUID(), sealedPrivateKey: "{}" });
+    expect([seals.statusCode, seals.json().code]).toEqual([403, "vault_unlock_required"]);
+    expect(await fingerprint()).toBe(before);
+    // Il recupero col kit (un admin, magari senza chiave né passkey): basta la riconferma normale.
+    const admin = await sessionAged(adminId, 0);
+    const challenge = await post("/api/vault/recovery/challenge", { cookie: admin }, {});
+    expect(challenge.json()?.code).not.toBe("vault_unlock_required");
+    expect(challenge.json()?.code).not.toBe("reauth_required");
+    // Le altre riconferme, il login fresco le apre come sempre.
+    expect((await post("/api/pats", { cookie }, { name: "x" })).statusCode).toBe(201);
+  });
+
   it("I6 (indurimento): lo sblocco della cassaforte (purpose vault) NON apre le altre riconferme, solo le rotte della cassaforte", async () => {
     const user = await createUserWithTotp();
     const authenticator = new SoftAuthenticator(RP);
@@ -623,6 +675,23 @@ describe("M5 (indurimento): una scrittura col cookie da un'altra origine", () =>
     expect(viaPat.json().code).not.toBe("cross_origin_request");
     const read = await app.inject({ method: "GET", url: "/api/auth/me", headers: { cookie, "sec-fetch-site": "cross-site" } });
     expect(read.statusCode).toBe(200);
+  });
+});
+
+describe("sessionTag di GET /api/auth/me (cassaforte nel browser, I-3)", () => {
+  it("è opaco, stabile nella sessione, diverso fra due sessioni della stessa persona; un PAT non ne ha", async () => {
+    const user = await createUserWithTotp();
+    const me = async (headers: Record<string, string>) => (await app.inject({ method: "GET", url: "/api/auth/me", headers })).json() as { sessionTag?: string | null };
+    const first = await sessionAged(user.id, 0);
+    const second = await sessionAged(user.id, 0);
+    const tag = (await me({ cookie: first })).sessionTag;
+    expect(tag).toMatch(/^[\w-]{16,}$/);
+    expect((await me({ cookie: first })).sessionTag).toBe(tag);
+    expect((await me({ cookie: second })).sessionTag).not.toBe(tag);
+    // Mai l'id grezzo della sessione.
+    const [row] = await testDb.db.select({ id: sessions.id }).from(sessions).where(eq(sessions.userId, user.id)).limit(1);
+    expect(tag).not.toContain(row!.id);
+    expect((await me(pat)).sessionTag ?? null).toBeNull();
   });
 });
 

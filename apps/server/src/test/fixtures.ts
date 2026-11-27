@@ -6,6 +6,7 @@ import {
   personalAccessTokens,
   projectMembers,
   roles,
+  sessions,
   users,
   userTotp,
 } from "@stubwise/db";
@@ -67,6 +68,12 @@ async function signedSessionCookie(app: FastifyInstance, id: string): Promise<st
  * a ogni suite che non parla di 2FA. Un'app già configurata dal test resta
  * com'è. La sessione di PRIMA del rilascio (niente app, niente
  * `secondFactorAt`) la costruisce a mano il test che la vuole.
+ *
+ * Per la stessa comodità ha anche la cassaforte SBLOCCATA adesso
+ * (`vaultUnlockedAt`): le rotte `config.reauth: "vault"` vogliono lo sblocco,
+ * non la riconferma (I-3), e un login vero non lo fa. Chi prova proprio quel
+ * caso (login fresco senza sblocco → `vault_unlock_required`) costruisce la
+ * sessione a mano, come `reauth.test.ts`.
  */
 export async function fullSessionCookie(app: FastifyInstance, userId: string): Promise<string> {
   await ensureConfirmedTotp(app, userId);
@@ -74,6 +81,7 @@ export async function fullSessionCookie(app: FastifyInstance, userId: string): P
     stage: "full",
     secondFactorAt: new Date(),
   });
+  await app.db.update(sessions).set({ vaultUnlockedAt: new Date() }).where(eq(sessions.id, session.id));
   return signedSessionCookie(app, session.id);
 }
 

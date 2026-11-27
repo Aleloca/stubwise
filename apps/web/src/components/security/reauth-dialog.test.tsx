@@ -11,6 +11,12 @@ vi.mock("@simplewebauthn/browser", () => ({
   startAuthentication: startAuthenticationMock,
 }));
 
+const unlockForVaultRouteMock = vi.hoisted(() => vi.fn());
+vi.mock("../../lib/vault/unlock", async (original) => ({
+  ...(await original<typeof import("../../lib/vault/unlock")>()),
+  unlockForVaultRoute: unlockForVaultRouteMock,
+}));
+
 vi.mock("qrcode", () => ({
   default: { toString: vi.fn(async () => "<svg></svg>") },
 }));
@@ -57,6 +63,7 @@ beforeEach(() => {
   routes = {};
   fetchMock.mockClear();
   startAuthenticationMock.mockReset();
+  unlockForVaultRouteMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
 });
 
@@ -214,6 +221,37 @@ describe("ReauthDialog", () => {
 
     await expect(result).resolves.toEqual({ id: "p1" });
     expect(calls("POST /api/pats")).toHaveLength(2);
+  });
+
+  it("`vault_unlock_required` (I-3): niente codice dell'app, solo lo sblocco con la passkey; poi la richiesta riparte", async () => {
+    on("POST /api/vault/keys", () => jsonResponse(403, { code: "vault_unlock_required", message: "Recent vault unlock required" }), () => jsonResponse(201, { id: "k1" }));
+    unlockForVaultRouteMock.mockResolvedValue(undefined);
+    renderDialog();
+
+    const result = api.post("/api/vault/keys", {});
+    await screen.findByRole("dialog");
+    expect(screen.getByRole("heading", { name: /unlock the vault/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/authenticator code/i)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /unlock with passkey/i }));
+
+    await expect(result).resolves.toEqual({ id: "k1" });
+    expect(unlockForVaultRouteMock).toHaveBeenCalledTimes(1);
+    expect(calls("POST /api/me/security/reauth")).toHaveLength(0);
+    expect(calls("POST /api/vault/keys")).toHaveLength(2);
+  });
+
+  it("`vault_unlock_required`: uno sblocco non riuscito resta nel dialogo, e annullare dà l'errore originale", async () => {
+    on("POST /api/vault/keys", () => jsonResponse(403, { code: "vault_unlock_required", message: "Recent vault unlock required" }));
+    unlockForVaultRouteMock.mockRejectedValue(new Error("boom"));
+    renderDialog();
+
+    const result = api.post("/api/vault/keys", {});
+    await screen.findByRole("dialog");
+    await userEvent.click(screen.getByRole("button", { name: /unlock with passkey/i }));
+    await screen.findByRole("alert");
+    await userEvent.click(screen.getByRole("button", { name: /^cancel$/i }));
+    await expect(result).rejects.toMatchObject({ code: "vault_unlock_required" });
+    expect(calls("POST /api/vault/keys")).toHaveLength(1);
   });
 
   it("chiuso dall'esterno (Escape) vale come annullato", async () => {

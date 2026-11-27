@@ -7373,3 +7373,35 @@ deploy o di un rollback che la tocca.
   ```
   La colonna della 0238 può restare (il codice vecchio non la nomina).
   Scendendo, lo sblocco torna a rinnovare la riconferma.
+- **«La cassaforte si apre solo sbloccandola» (27 nov 2026)**: branch
+  `feat/vault-session-tag` (da `fix/sicurezza-origine`, lo unisce 79 nel
+  suo), decisione di 46 per la cassaforte nel browser (I-3). Due cose:
+  - **`sessionTag` in `GET /api/auth/me`**: un'etichetta opaca della
+    sessione del cookie, cioè un HMAC-SHA256 dell'id della sessione con la
+    chiave del server (mai l'id), stabile per la sessione e diversa a ogni
+    login. `null` per un PAT. Campo additivo e opzionale nello schema
+    condiviso. La scheda che ha aperto la cassaforte la confronta e, se
+    cambia, richiude la chiave.
+  - **`config.reauth: "vault"` vuole SOLO uno sblocco recente** da una
+    sessione del browser: un secondo fattore fresco, cioè un login, non basta
+    più. Senza lo sblocco la risposta è un codice nuovo, **403
+    `vault_unlock_required`**, e il client deve SBLOCCARE (passkey, purpose
+    `"vault"`), non riconfermare. Il web vecchio, su quel codice, apre il
+    dialogo che lancia lo sblocco (PRF tolta prima dell'invio) e poi
+    ripete la richiesta. Restano su `vault` le rotte della chiave aperta:
+    `keys`, `keys/:id/seals`, `recovery-key` e `device-seals` (creare e
+    togliere, anche quelle di un'altra persona). Passano a `reauth: true`
+    quelle in cui chi chiama può non avere una chiave da sbloccare:
+    `activate` e il recupero col kit (`recovery/challenge`, `pending`,
+    `confirm/:id`). Il PAT desktop non cambia (la sua finestra e il sigillo
+    del Mac).
+  **Ordine**: `server` e `caddy` insieme (il dialogo del web vecchio deve
+  conoscere il codice nuovo). Prima del caddy nuovo, una rotta `vault` dopo
+  10 minuti dallo sblocco dà un errore invece del dialogo. Nessuna
+  migrazione, nessuna env.
+  **Controllo dopo il deploy**: subito dopo un login, senza sbloccare,
+  un'azione che scrive un sigillo (aggiungi una passkey alla cassaforte)
+  deve aprire «Sblocca la cassaforte», e non il codice dell'app. Il
+  recupero col kit funziona con la riconferma normale.
+  **Rollback**: sicuro, nessun dato nuovo. Scendendo, un login fresco torna
+  ad aprire le rotte della cassaforte per 10 minuti.

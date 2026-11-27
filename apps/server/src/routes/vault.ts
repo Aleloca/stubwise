@@ -247,7 +247,8 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/activate",
     {
-      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: "vault" },
+      // Riconferma normale, non sblocco (I-3): chi chiama può non avere ancora una chiave da sbloccare.
+      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
       schema: {
         body: vaultActivateBodySchema,
         response: { 204: z.null(), ...errorResponses },
@@ -692,7 +693,8 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/recovery/challenge",
     {
-      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: "vault" },
+      // Riconferma normale, non sblocco (I-3): chi chiama può non avere ancora una chiave da sbloccare.
+      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
       schema: { response: { 201: vaultRecoveryChallengeResponseSchema, ...errorResponses } },
     },
     async (request, reply) => {
@@ -712,7 +714,8 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/recovery/pending",
     {
-      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: "vault" },
+      // Riconferma normale, non sblocco (I-3): chi chiama può non avere ancora una chiave da sbloccare.
+      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
       schema: {
         body: vaultRecoveryPendingBodySchema,
         response: { 200: vaultPendingResponseSchema, ...errorResponses },
@@ -733,7 +736,8 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/recovery/confirm/:personKeyId",
     {
-      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: "vault" },
+      // Riconferma normale, non sblocco (I-3): chi chiama può non avere ancora una chiave da sbloccare.
+      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
       schema: {
         params: personKeyParams,
         body: vaultRecoveryConfirmBodySchema,
