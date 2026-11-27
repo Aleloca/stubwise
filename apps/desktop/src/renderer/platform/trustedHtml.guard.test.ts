@@ -21,6 +21,53 @@ export function sinksIn(source: string): boolean {
   return SINKS.test(codeOnly(source));
 }
 
+/**
+ * m-6: i nodi di `parseInertHtml` non escono dal modulo che li legge. Nel
+ * sorgente: niente che li adotti o li inserisca nel documento VIVO, e ogni
+ * funzione esportata dichiara un tipo di ritorno che non è un nodo.
+ * (`ownerDocument` di un nodo inerte è il documento inerte: leggerlo, per
+ * esempio con un `TreeWalker`, non porta niente nella pagina.)
+ */
+const LIVE_DOM =
+  /\b(importNode|adoptNode|replaceChildren|insertAdjacentElement)\b|\b(document|window|globalThis|self|parent|top)\b/;
+const DOM_TYPE = /\b(Node|Element|HTMLElement|SVGElement|Document|DocumentFragment|ChildNode|ParentNode|NodeList|HTMLCollection)\b/;
+
+export function inertLeaks(source: string): string[] {
+  const code = codeOnly(source);
+  const out: string[] = [];
+  const live = LIVE_DOM.exec(code);
+  if (live) out.push(`il documento vivo: ${live[0]}`);
+  for (const m of code.matchAll(/export\s+(?:async\s+)?function\s+(\w+)\s*(?:<[^>]*>)?\s*\(([^)]*)\)\s*(:\s*([^{]+))?\{/g)) {
+    const [, name, , typed, type] = m;
+    if (!typed) out.push(`${name}: senza tipo di ritorno`);
+    else if (DOM_TYPE.test(type!)) out.push(`${name}: restituisce un nodo (${type!.trim()})`);
+  }
+  if (/export\s+(const|let|var)\s/.test(code)) out.push("un export che non è una funzione");
+  return out;
+}
+
+const INERT_READERS = ["../pages/mail/mailHtml.ts", "../domain/productDocs/pasteHtml.ts"];
+
+describe("m-6: i nodi del documento inerte restano dentro chi lo legge", () => {
+  it("i due moduli che importano `parseInertHtml` non toccano il documento vivo e non restituiscono nodi", () => {
+    const found = INERT_READERS.flatMap((path) => {
+      expect(SOURCES[path], path).toBeDefined();
+      return inertLeaks(SOURCES[path]!).map((w) => `${path}: ${w}`);
+    });
+    expect(found).toEqual([]);
+  });
+
+  it("il controllo scatta su ciò che deve fermare", () => {
+    expect(inertLeaks("export function f(h: string): string { return h; }")).toEqual([]);
+    expect(inertLeaks("export function f(h: string): HTMLElement { return x; }")).toEqual(["f: restituisce un nodo (HTMLElement)"]);
+    expect(inertLeaks("export function f(h: string) { return x; }")).toEqual(["f: senza tipo di ritorno"]);
+    expect(inertLeaks("function g() { document.body.append(n); }")).toEqual(["il documento vivo: document"]);
+    expect(inertLeaks("function g(live: Node) { live.importNode(n); }")).toEqual(["il documento vivo: importNode"]);
+    expect(inertLeaks("export const body = parsed.body;")).toEqual(["un export che non è una funzione"]);
+    expect(inertLeaks("// document.adoptNode(x)\nexport function f(): number { return 1; }")).toEqual([]);
+  });
+});
+
 describe("l'HTML si scrive solo dalla politica", () => {
   it("trova i sorgenti del renderer", () => {
     expect(Object.keys(SOURCES).length).toBeGreaterThan(100);
