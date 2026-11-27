@@ -852,7 +852,7 @@ describe("listInbox", () => {
       status: "handled",
     });
 
-    const { items, nextCursor } = await listInbox(db, { userId: user.id, lang: "it" });
+    const { items, nextCursor } = await listInbox(db, { userId: user.id, lang: "it", publicUrl: "https://stubwise.test" });
     expect(items).toHaveLength(1);
     expect(nextCursor).toBeNull();
     expect(items[0]!.id).toBe(mine);
@@ -861,8 +861,9 @@ describe("listInbox", () => {
     expect(items[0]!.text).not.toContain("<https");
     expect(items[0]!.text).not.toContain("*");
     // Una card di prima (`/tickets/:id` nel jsonb): «Apri» porta alla task nella
-    // nuova app, dal codice derivato a lettura (senza PUBLIC_URL, relativo).
-    expect(items[0]!.url).toMatch(/^\/app\/#\/p\/[A-Z0-9]+\/tasks\?task=[A-Z0-9]+-\d+$/);
+    // nuova app, dal codice derivato a lettura, sotto PUBLIC_URL (senza, resta
+    // il link dell'evento: un relativo non lo aprono l'app né le push).
+    expect(items[0]!.url).toMatch(/^https:\/\/stubwise\.test\/app\/#\/p\/[A-Z0-9]+\/tasks\?task=[A-Z0-9]+-\d+$/);
     expect(items[0]!.actions).toEqual(["approve_plan", "reject_plan", "open", "snooze", "handled"]);
   });
 
@@ -1159,14 +1160,15 @@ describe("listInbox", () => {
       createdAt: new Date(base - 3_000),
     });
 
-    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    const { items } = await listInbox(db, { userId: user.id, lang: "it", publicUrl: "https://stubwise.test" });
     // Nessun 500: ci sono TUTTE e quattro le righe.
     expect(items.map((i) => i.id)).toEqual([sana, esplode, vuota, senzaUrl]);
 
     expect(items[0]!.text).toContain("Piano in attesa di approvazione");
     // Una card di prima (`/tickets/:id` nel jsonb): «Apri» porta alla task nella
-    // nuova app, dal codice derivato a lettura (senza PUBLIC_URL, relativo).
-    expect(items[0]!.url).toMatch(/^\/app\/#\/p\/[A-Z0-9]+\/tasks\?task=[A-Z0-9]+-\d+$/);
+    // nuova app, dal codice derivato a lettura, sotto PUBLIC_URL (senza, resta
+    // il link dell'evento: un relativo non lo aprono l'app né le push).
+    expect(items[0]!.url).toMatch(/^https:\/\/stubwise\.test\/app\/#\/p\/[A-Z0-9]+\/tasks\?task=[A-Z0-9]+-\d+$/);
 
     // Le marce degradano: testo = kind (la colonna enum), nessun url.
     for (const item of [items[1]!, items[2]!]) {

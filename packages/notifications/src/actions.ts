@@ -466,7 +466,9 @@ export function openUrl(
   ctx: CardLinkContext = {},
 ): string {
   const base = publicUrl?.replace(/\/+$/, "") ?? "";
-  const task = ctx.taskCode ? taskLink(base, ctx.taskCode) : null;
+  // Senza radice pubblica nessun link derivato: sarebbe relativo (`/app/#/…`),
+  // e l'app e le push non lo aprono. Resta quello dell'evento, come per `derived`.
+  const task = publicUrl && ctx.taskCode ? taskLink(base, ctx.taskCode) : null;
   const project = ctx.projectCode ?? null;
   // Un link derivato vuole la radice pubblica: senza, quello dell'evento (che sa la sua).
   const derived = (target: AppTarget | null, fallback: string) => (publicUrl && target ? appUrl(base, target) : fallback);
@@ -529,7 +531,7 @@ export function openUrl(
     case "ticket.activity":
     case "planning.changed":
     case "task.assigned":
-      return publicUrl && task ? task : "";
+      return task ?? "";
     // Area 4, Chat: il messaggio nell'app nuova (la Chat vive solo lì, D9).
     // Il link nasce dagli id del jsonb (canale e messaggio non cambiano mai);
     // l'inbox non lo riscrive, lo TOGLIE quando la card è `objectGone`

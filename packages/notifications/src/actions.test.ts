@@ -394,6 +394,12 @@ describe("openUrl: i link derivati a lettura (revisione dei link, I4)", () => {
     const pulse = sample("project.pulse") as { projectUrl: string };
     expect(openUrl(pulse as never, B, {})).toBe(pulse.projectUrl);
     expect(openUrl(pulse as never, undefined, { projectCode: "TRI2" })).toBe(pulse.projectUrl);
+    // Anche le card di una task (e request.created senza voce): senza radice
+    // pubblica un link derivato sarebbe RELATIVO, e l'app e le push non lo aprono.
+    for (const event of sampleEvents("https://x.test").filter((e) => ["ticket.created", "job.failed", "request.created"].includes(e.kind))) {
+      const url = openUrl({ ...event, backlogItemId: null } as never, undefined, { taskCode: "TRI2-4", projectCode: "TRI2" });
+      expect(url, event.kind).toMatch(/^https:\/\/x\.test\//);
+    }
   });
 });
 
