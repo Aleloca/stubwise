@@ -1,4 +1,5 @@
 import {
+  workspaceCandidatesSchema,
   workspaceEffectSchema,
   workspaceListSchema,
   workspaceMemberPreviewSchema,
@@ -6,6 +7,7 @@ import {
 } from "@stubwise/shared";
 import type {
   Reader,
+  WorkspaceCandidates,
   WorkspaceEffect,
   WorkspaceEffectRequest,
   WorkspaceMemberPreview,
@@ -62,6 +64,15 @@ export function createWorkspacesEndpoints(request: ApiRequest) {
         "DELETE",
         `/api/workspaces/${seg(id)}/members/${seg(userId)}${toQuery({ alsoProjects: alsoProjects ? "true" : undefined })}`,
       );
+    },
+    /**
+     * Chi si può invitare (lotto 5): le persone attive che chi gestisce vede,
+     * fuori chi c'è già, i full admin e Claude; `missing` non vuoto = da
+     * spegnere. I ruoli col giudizio su tutti i progetti; `defaultRoleId` è il
+     * Viewer. 403 a chi non gestisce le persone (D4).
+     */
+    candidates(id: string): Promise<Reader<WorkspaceCandidates>> {
+      return request("GET", `/api/workspaces/${seg(id)}/candidates`, undefined, workspaceCandidatesSchema);
     },
     /** Chi comincia e chi smette di vedere ogni progetto, e cosa bloccherebbe. Non scrive. */
     effect(body: WorkspaceEffectRequest): Promise<Reader<WorkspaceEffect>> {

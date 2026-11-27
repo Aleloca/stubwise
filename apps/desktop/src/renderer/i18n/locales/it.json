@@ -2765,6 +2765,7 @@
       "person": "Persona",
       "choose": "Scegli una persona",
       "fullAdmin": "{{name}}: full admin, vede già tutto",
+      "departmentMissing": "{{name}}: il suo reparto dà permessi che non hai",
       "role": "Ruolo",
       "willSee_one": "{{name}} vedrà {{count}} progetto: {{codes}}.",
       "willSee_other": "{{name}} vedrà {{count}} progetti: {{codes}}.",

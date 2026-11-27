@@ -2765,6 +2765,7 @@
       "person": "Person",
       "choose": "Choose someone",
       "fullAdmin": "{{name}} — full admin: already sees everything",
+      "departmentMissing": "{{name}} — their department gives permissions you don't have",
       "role": "Role",
       "willSee_one": "{{name}} will see {{count}} project: {{codes}}.",
       "willSee_other": "{{name}} will see {{count}} projects: {{codes}}.",

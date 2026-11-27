@@ -14,6 +14,8 @@ const NICOLA = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1";
 const MARCO = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2";
 const VIEWER = "cccccccc-cccc-4ccc-8ccc-ccccccccccc1";
 const DEV = "cccccccc-cccc-4ccc-8ccc-ccccccccccc2";
+const IRENE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb3";
+const SARA = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb4";
 
 const view = {
   id: W1,
@@ -21,7 +23,7 @@ const view = {
   colorToken: "--dept-1",
   projectIds: [P1, P2],
   people: [
-    { userId: NICOLA, name: "Nicola Orlando", roleId: VIEWER, roleName: "Viewer" },
+    { userId: NICOLA, name: "Nicola Orlando", roleId: VIEWER, roleName: "Viewer", email: "nicola@example.com", status: "deactivated" },
     { userId: MARCO, name: "Marco Bellini", roleId: DEV, roleName: "Developer" },
   ],
   isMember: false,
@@ -46,6 +48,17 @@ function fakeApi(overrides: Partial<WorkspacesApi> = {}): WorkspacesApi {
     putMember: vi.fn(async () => view),
     removeMember: vi.fn(async () => undefined),
     effect: vi.fn(async () => ({ projects: [], lastManager: [], escalation: [] })),
+    candidates: vi.fn(async () => ({
+      candidates: [
+        { userId: IRENE, name: "Irene Caruso", email: "irene@example.com", missing: [] },
+        { userId: SARA, name: "Sara Montanari", email: "sara@example.com", missing: ["support.manage"] },
+      ],
+      roles: [
+        { roleId: VIEWER, name: "Viewer", missing: [] },
+        { roleId: DEV, name: "Developer", missing: ["release.merge"] },
+      ],
+      defaultRoleId: VIEWER,
+    })),
     membersView: vi.fn(async (projectId: string) => ({
       members: projectId === P1 ? [{ personId: MARCO, name: "Marco Bellini", status: "active", role: { id: DEV, name: "Developer" } }] : [],
       roleChoices: [
@@ -171,5 +184,40 @@ describe("le scritture", () => {
     expect(api.putMember).toHaveBeenCalledWith(W1, NICOLA, {});
     expect(await real.createWorkspace("  Nuova ", [P3])).toEqual({ ok: true, slug: "new-id" });
     expect(api.create).toHaveBeenCalledWith({ name: "Nuova", projectIds: [P3] });
+  });
+});
+
+describe("i tre limiti chiusi (lotto 5 di 54)", () => {
+  it("People: email e stato dalla vista, i candidati dal server col reparto che manca, Viewer di base", async () => {
+    const v = await createRealWorkspaces(fakeApi()).listWorkspaceMembers(W1);
+    expect(v.members.find((m) => m.personId === NICOLA)).toMatchObject({ email: "nicola@example.com", status: "deactivated" });
+    expect(v.addable).toEqual([
+      { personId: IRENE, name: "Irene Caruso", missing: [] },
+      { personId: SARA, name: "Sara Montanari", missing: ["support.manage"] },
+    ]);
+    expect(v.defaultRoleId).toBe(VIEWER);
+    expect(v.roleChoices.find((c) => c.roleId === DEV)!.missing).toContain("release.merge");
+  });
+
+  it("chi non gestisce le persone: nessuna chiamata ai candidati, nessun candidato", async () => {
+    const api = fakeApi({ get: vi.fn(async () => ({ ...view, canManagePeople: false })) });
+    const v = await createRealWorkspaces(api).listWorkspaceMembers(W1);
+    expect(api.candidates).not.toHaveBeenCalled();
+    expect(v.addable).toEqual([]);
+  });
+
+  it("l'effetto di una workspace nuova: kind create coi progetti; senza progetti nessuna chiamata", async () => {
+    const effect = vi.fn(async () => ({
+      projects: [{ projectId: P1, startSeeing: [], stopSeeing: [{ userId: NICOLA, name: "Nicola Orlando" }] }],
+      lastManager: [],
+      escalation: [],
+    }));
+    const real = createRealWorkspaces(fakeApi({ effect }));
+    const e = await real.previewWorkspace({ kind: "create", projectIds: [P1] });
+    expect(effect).toHaveBeenCalledWith({ kind: "create", projectIds: [P1] });
+    expect(e.projects[0]).toMatchObject({ code: "ORT", stopSeeing: [{ personId: NICOLA }] });
+    effect.mockClear();
+    expect((await real.previewWorkspace({ kind: "create", projectIds: [] })).projects).toEqual([]);
+    expect(effect).not.toHaveBeenCalled();
   });
 });

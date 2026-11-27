@@ -46,6 +46,7 @@ export interface WorkspacesApi {
   putMember(id: string, userId: string, body: { roleId?: string }): Promise<Any>;
   removeMember(id: string, userId: string, alsoProjects?: boolean): Promise<void>;
   effect(body: Any): Promise<Any>;
+  candidates(id: string): Promise<Any>;
   membersView(projectId: string): Promise<Any>;
   projects(): Promise<{ id: string; code: string; name: string }[]>;
 }
@@ -185,11 +186,25 @@ export function createRealWorkspaces(api: WorkspacesApi) {
           choices.set(c.roleId, entry);
         }
       });
-      const inside = new Set((w.people as Any[]).map((p) => p.userId));
-      for (const v of views) {
-        for (const m of v?.members ?? []) {
-          if (!inside.has(m.personId) && m.status === "active") addable.set(m.personId, m.name);
-        }
+      // Lotto 5: chi si può invitare lo dice il server (`candidates`), con i
+      // ruoli giudicati su tutti i progetti. Chi non gestisce le persone riceve
+      // 403: allora nessun candidato, e la scheda è in lettura.
+      const candidates = w.canManagePeople ? await api.candidates(workspaceId).catch(() => null) : null;
+      for (const c of candidates?.candidates ?? []) addable.set(c.userId, c.name);
+      const missingOf = new Map<string, string[]>(
+        (candidates?.candidates ?? []).map((c: Any) => [c.userId, c.missing ?? []]),
+      );
+      for (const r of candidates?.roles ?? []) {
+        const entry = choices.get(r.roleId);
+        if (entry) for (const m of r.missing ?? []) entry.missing.add(m);
+        else
+          choices.set(r.roleId, {
+            roleId: r.roleId,
+            name: r.name,
+            permissionCount: 0,
+            missing: new Set(r.missing ?? []),
+            missingIn: [],
+          });
       }
       const members: WorkspaceMemberRow[] = (w.people as Any[])
         .map((p) => {
@@ -208,9 +223,9 @@ export function createRealWorkspaces(api: WorkspacesApi) {
           return {
             personId: p.userId,
             name: p.name,
-            email: "",
+            email: p.email ?? "",
             avatar: initialsOf(p.name),
-            status: "active" as const,
+            status: (p.status ?? "active") as "active" | "deactivated",
             roleId: p.roleId,
             roleName: p.roleName,
             projectRoles: projects.flatMap((x) =>
@@ -232,9 +247,12 @@ export function createRealWorkspaces(api: WorkspacesApi) {
         members,
         canManage: !!w.canManagePeople,
         roleChoices,
-        // D3: il server dà Viewer senza `roleId`; qui lo si trova per nome fra le scelte.
-        defaultRoleId: roleChoices.find((c) => c.name === "Viewer")?.roleId ?? roleChoices[0]?.roleId ?? "",
-        addable: [...addable].map(([personId, name]) => ({ personId, name })).sort(byName),
+        // D3: il Viewer, dal server; un server di prima: per nome fra le scelte.
+        defaultRoleId:
+          candidates?.defaultRoleId ?? roleChoices.find((c) => c.name === "Viewer")?.roleId ?? roleChoices[0]?.roleId ?? "",
+        addable: [...addable]
+          .map(([personId, name]) => ({ personId, name, missing: missingOf.get(personId) ?? [] }))
+          .sort(byName),
         fullAdmins: [],
       };
     },
@@ -243,8 +261,11 @@ export function createRealWorkspaces(api: WorkspacesApi) {
       const byId = await codes();
       switch (op.kind) {
         case "create":
-          // Una workspace nuova non ha ancora persone: non apre accessi.
-          return { projects: [], lastManager: [], escalation: [], notManaged: [] };
+          // Lotto 5: nessuno comincia a vedere (una workspace nuova non ha
+          // persone), ma chi vedeva un progetto solo dalla workspace da cui esce
+          // smette, e un progetto può restare senza gestore.
+          if (op.projectIds.length === 0) return { projects: [], lastManager: [], escalation: [], notManaged: [] };
+          return toEffect(await api.effect({ kind: "create", projectIds: op.projectIds }), byId);
         case "addProject":
           return toEffect(await api.effect({ kind: "addProject", workspaceId: op.workspaceId, projectId: op.projectId }), byId);
         case "addProjects":
@@ -360,6 +381,7 @@ export const workspaces: typeof Fake.workspaces = createRealWorkspaces({
   putMember: (id, userId, body) => appClient().workspaces.putMember(id, userId, body),
   removeMember: (id, userId, alsoProjects) => appClient().workspaces.removeMember(id, userId, alsoProjects),
   effect: (body) => appClient().workspaces.effect(body),
+  candidates: (id) => appClient().workspaces.candidates(id),
   membersView: (projectId) => appClient().projects.membersView(projectId),
   projects: async () => (await listProjects()).map((p) => ({ id: p.id, code: p.code, name: p.name })),
 });
