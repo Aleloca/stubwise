@@ -1,4 +1,6 @@
 /// <reference lib="webworker" />
+// Per primo: zod senza JIT prima che si valuti uno schema (Trusted Types).
+import "../../../../platform/zodJitless";
 import { VaultCore, type CoreRequest } from "./core";
 
 // Il Dedicated Worker della cassaforte nel browser (revisione di sicurezza
