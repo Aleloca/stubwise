@@ -7266,6 +7266,20 @@ deploy o di un rollback che la tocca.
   vecchio non le nomina e il DEFAULT vale null fuori dalle richieste
   dell'MCP. Le voci già scritte «via Claude Code» restano nel DB e tornano
   visibili risalendo. Nessun `notification_kind` nuovo.
+- **«Il filtro per progetto della Posta e la favicon di /app» (27 nov 2026)**:
+  branch `fix/posta-filtro-progetto`. In `/app/#/mail` filtrare per un
+  progetto dava «No mail for <codice>» anche per conversazioni etichettate
+  con quel progetto: l'etichetta della riga lo prende anche dalle proposte di
+  chi guarda (`mailbox_owner`), mentre `?project=` di
+  `GET /api/me/mail/threads` guardava solo lo scope della classificazione
+  nuova. Ora il filtro usa la stessa fonte dell'etichetta (con la
+  visibilità del progetto), e `noProject` ne è il complemento
+  (`threadClassificationFilters` in `apps/server/src/routes/me-mail.ts`).
+  `/app` ha anche la favicon (le icone del web in
+  `apps/desktop/src/renderer/public/`).
+  **Deploy**: nessuna migrazione, nessuna env. Ribuildare **`server`** e
+  **`caddy`**; il worker non cambia. **Rollback**: sicuro, server e caddy
+  insieme.
 
 - **«Una proposta gestita non torna in Home» (27 nov 2026)**: una proposta
   della posta di prima (`mailbox_owner`) o del calendario per casella, ancora
