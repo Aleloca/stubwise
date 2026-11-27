@@ -1400,6 +1400,22 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   unico su progetto e nome). L'adattatore (`projectRepositories.ts`) lo
   controlla sull'elenco, senza maiuscole, prima del POST: due creazioni
   insieme possono ancora passare. Si chiude con un unico sul server.
+- **Repositories, il segreto del webhook nel 201 della creazione** *(S,
+  accettato, stessa revisione, M4)*: `POST /api/repositories` lo restituisce
+  una volta. Il parse dell'adattatore lo scarta (`repositorySaveResponseSchema`,
+  c'è il test), ma il JSON grezzo attraversa il renderer: l'IPC `api:request`
+  nel desktop, la scheda Network nella build web. Non resta in nessuna
+  cache. Se la regola diventa «mai nel renderer», serve un flag ADDITIVO sul
+  server per ometterlo (per esempio `?omitWebhookSecret=1`), che il web
+  vecchio non manda.
+- **Repositories, l'esito dell'import dei file d'ambiente** *(S, accettato,
+  stessa revisione, M9)*: una chiave ripetuta nel contenuto conta due volte
+  in `imported` (il server faceva già così prima di `replaced`/`skipped`), e
+  `existing`, da cui nasce `replaced`, si legge FUORI dalla transazione
+  dell'import: un import concorrente sullo stesso file può far dire
+  «nuova» a una chiave appena sostituita. I valori restano giusti, sbaglia
+  solo il conteggio. Si chiude deduplicando le chiavi e leggendo `existing`
+  dentro la transazione (`apps/server/src/routes/project-env-files.ts`).
 
 - Audit vera dei membri di progetto *(O)* (area 6, F2, 12 nov 2026): oggi
   `putProjectMember` non lascia traccia, e i Contributor aggiunti (e tolti)
