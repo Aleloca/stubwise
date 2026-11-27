@@ -11,12 +11,16 @@ export type DocDownloadResult =
   | { ok: true; prototype?: true }
   | { ok: false; reason: "not_found" | "unauthenticated" | "failed" };
 
-export async function exportCategory(_repositoryId: string, _kind: DocKind): Promise<DocDownloadResult> {
+/** La firma è quella della build app: il prototipo non usa il repository né il tipo. */
+export async function exportCategory(repositoryId: string, kind: DocKind): Promise<DocDownloadResult> {
+  void repositoryId;
+  void kind;
   await gate("docs.exportCategory");
   return { ok: true, prototype: true };
 }
 
-export async function downloadGraphJson(_repositoryId: string): Promise<DocDownloadResult> {
+export async function downloadGraphJson(repositoryId: string): Promise<DocDownloadResult> {
+  void repositoryId;
   await gate("docs.downloadGraphJson");
   return { ok: true, prototype: true };
 }
