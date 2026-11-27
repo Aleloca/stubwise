@@ -1,5 +1,5 @@
 import { departmentGrantsOf, type DepartmentGrant } from "./department-access.js";
-import { inviteProjects, invites, projectAccess, projectAccessRowCounts, projectMemberPermissions, projectMembers, projects, roles, users, type Db } from "@stubwise/db";
+import { inviteProjects, invites, inviteWorkspaces, projectAccess, projectAccessRowCounts, projectMemberPermissions, projectMembers, projects, roles, users, workspaceProjects, type Db } from "@stubwise/db";
 import {
   effectiveInstancePermissions,
   INSTANCE_PERMISSIONS,
@@ -45,8 +45,20 @@ export async function adminRoleViews(db: Db, viewer: Viewer): Promise<AdminRoleV
   const visibleProjects = new Set(await visibleProjectList(db, viewer));
   const seesPerson = (id: string) => visiblePeople === "all" || visiblePeople.includes(id);
   const instanceHolders = await db.select({ userId: users.id, roleId: users.instanceRoleId }).from(users).where(and(eq(users.isAgent, false)));
-  const projectHolders = await db.select({ userId: projectMembers.userId, projectId: projectMembers.projectId, roleId: projectMembers.roleId }).from(projectMembers);
-  const promised = await db.selectDistinct({ roleId: inviteProjects.roleId, projectId: inviteProjects.projectId }).from(inviteProjects);
+  // Chi ha un ruolo di progetto, e dove: membri espliciti e persone di workspace
+  // (0238), una volta per persona e progetto. Le promesse: gli inviti ai
+  // progetti e alle workspace (la stessa regola di `projectsOfRole`).
+  const projectHolders = await db
+    .selectDistinct({ userId: projectAccess.userId, projectId: projectAccess.projectId, roleId: projectAccess.roleId })
+    .from(projectAccess)
+    .where(projectAccessRowCounts);
+  const promised = [
+    ...(await db.selectDistinct({ roleId: inviteProjects.roleId, projectId: inviteProjects.projectId }).from(inviteProjects)),
+    ...(await db
+      .selectDistinct({ roleId: inviteWorkspaces.roleId, projectId: workspaceProjects.projectId })
+      .from(inviteWorkspaces)
+      .innerJoin(workspaceProjects, eq(workspaceProjects.workspaceId, inviteWorkspaces.workspaceId))),
+  ];
   // Review (M6): i permessi di chi guarda progetto per progetto, letti UNA volta.
   const byProject = await actorProjectPermissions(db, viewer);
   const heldForNew = heldOver(byProject, []);
@@ -304,6 +316,9 @@ export async function previewMember(db: Db, viewer: Viewer, projectId: string, u
     .where(and(eq(projectAccess.projectId, projectId), eq(projectAccess.userId, userId), projectAccessRowCounts));
   const isMember = access.length > 0;
   const fromWorkspace = access.filter((a) => a.source === "workspace").flatMap((a) => a.permissions);
+  const viaWorkspace = access.some((a) => a.source === "workspace");
+  const keepsManageWithoutRow =
+    viaWorkspace && (fromWorkspace.includes("project.members.manage") || fromDepartments.some((g) => g.permission === "project.members.manage"));
   const after = new Set([...role.permissions, ...wanted, ...fromDepartments.map((g) => g.permission), ...fromWorkspace]);
   // L'ultimo gestore: la bozza toglie la gestione dei membri all'ultimo gestore attivo?
   const losesManage = !after.has("project.members.manage") && !target.deactivatedAt && (await lastManagerProjectOf(db, userId, [projectId])) !== null;
@@ -322,7 +337,10 @@ export async function previewMember(db: Db, viewer: Viewer, projectId: string, u
     ],
     // Un codice solo, quello della scrittura (M7).
     block: target.deactivatedAt ? "user_deactivated" : losesManage ? "last_manager" : null,
-    removeBlock: !target.deactivatedAt && (await lastManagerProjectOf(db, userId, [projectId])) !== null ? "last_manager" : null,
+    // Togliere il membro ESPLICITO lascia ciò che viene dalla workspace (0238):
+    // se lì resta gestore, la rimozione non toglie l'ultimo gestore.
+    removeBlock:
+      !target.deactivatedAt && !keepsManageWithoutRow && (await lastManagerProjectOf(db, userId, [projectId])) !== null ? "last_manager" : null,
     viewerLoses: viewerHas,
   };
 }

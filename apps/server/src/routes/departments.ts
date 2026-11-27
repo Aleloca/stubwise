@@ -5,6 +5,7 @@ import {
   departmentRoles,
   departments,
   projectAccess,
+  projectAccessRowCounts,
   projects,
   tickets,
   users,
@@ -632,7 +633,7 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
                 await tx
                   .selectDistinct({ projectId: projectAccess.projectId })
                   .from(projectAccess)
-                  .where(inArray(projectAccess.userId, losing))
+                  .where(and(inArray(projectAccess.userId, losing), projectAccessRowCounts))
               ).map((r) => r.projectId)
             : [];
           let row: DepartmentRow = current;
@@ -743,7 +744,7 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
                   await tx
                     .selectDistinct({ projectId: projectAccess.projectId })
                     .from(projectAccess)
-                    .where(inArray(projectAccess.userId, [...shape.memberIds]))
+                    .where(and(inArray(projectAccess.userId, [...shape.memberIds]), projectAccessRowCounts))
                 ).map((r) => r.projectId)
               : [];
           const [{ count }] = (await tx

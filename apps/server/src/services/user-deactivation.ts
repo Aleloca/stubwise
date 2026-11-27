@@ -6,6 +6,7 @@ import {
   passwordResetTokens,
   personalAccessTokens,
   projectAccess,
+  projectAccessRowCounts,
   projectAccessSql,
   roles,
   sessions,
@@ -70,7 +71,7 @@ export async function deactivateUser(db: Db, actor: Actor, userId: string, reass
 
     // Nessun progetto resta senza un gestore ATTIVO (review di F1, m4).
     // Anche i progetti visti per workspace (D18: anche lì può essere il gestore).
-    const memberOf = await tx.selectDistinct({ projectId: projectAccess.projectId }).from(projectAccess).where(eq(projectAccess.userId, userId));
+    const memberOf = await tx.selectDistinct({ projectId: projectAccess.projectId }).from(projectAccess).where(and(eq(projectAccess.userId, userId), projectAccessRowCounts));
     await keepingManagersIn(
       tx,
       memberOf.map((m) => m.projectId),

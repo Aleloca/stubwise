@@ -18,7 +18,7 @@ import { departmentGrantsForEntering, departmentGrantsOf } from "./department-ac
  */
 import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "@stubwise/db";
-import { departmentProjectPermissions, departments, inviteProjects, projectMemberPermissions, projectAccess, projectAccessPermissionsSql, projectAccessSql, projectMembers, projects, roles, users, inviteWorkspaces, workspaceMembers, workspaceProjects } from "@stubwise/db";
+import { departmentProjectPermissions, departments, inviteProjects, projectMemberPermissions, projectAccess, projectAccessPermissionsSql, projectAccessRowCounts, projectAccessSql, projectMembers, projects, roles, users, inviteWorkspaces, workspaceMembers, workspaceProjects } from "@stubwise/db";
 import {
   effectiveInstancePermissions,
   PROJECT_PERMISSIONS,
@@ -666,7 +666,7 @@ export async function lastManagerProjectOf(db: DbOrTx, userId: string, onlyProje
   const mine = await db
     .selectDistinct({ projectId: projectAccess.projectId })
     .from(projectAccess)
-    .where(and(eq(projectAccess.userId, userId), ...(onlyProjectIds ? [inArray(projectAccess.projectId, [...onlyProjectIds])] : [])));
+    .where(and(eq(projectAccess.userId, userId), projectAccessRowCounts, ...(onlyProjectIds ? [inArray(projectAccess.projectId, [...onlyProjectIds])] : [])));
   for (const projectId of mine.map((m) => m.projectId).sort()) {
     if ((await managerCount(db, projectId)) > 0 && (await managerCount(db, projectId, userId)) === 0) return projectId;
   }
@@ -774,8 +774,10 @@ export async function putProjectMember(
       // La riga (se c'è) si blocca: niente bersaglio protetto (area 9, D-2).
       const before = await lockedMember(tx, projectId, userId);
       // Area 9, F8 (F8-4 = a): chi ENTRA porta qui i permessi dei suoi reparti;
-      // chi agisce deve averli in questo progetto (l'escalation sul DARE).
-      if (!before) assertNoEscalation(actor, (await departmentGrantsForEntering(tx as unknown as Db, userId)).map((g) => g.permission), held);
+      // chi agisce deve averli in questo progetto (l'escalation sul DARE). Chi
+      // accede già per workspace (0238, D10) li ha già qui: non entra niente di nuovo.
+      const alreadyIn = before !== null || (await tx.select({ ok: sql<boolean>`${projectAccessSql(sql`${projectId}::uuid`, sql`${userId}::uuid`)}` }).from(sql`(select 1) as one`))[0]?.ok === true;
+      if (!alreadyIn) assertNoEscalation(actor, (await departmentGrantsForEntering(tx as unknown as Db, userId)).map((g) => g.permission), held);
       await tx
         .insert(projectMembers)
         .values({ projectId, userId, roleId })

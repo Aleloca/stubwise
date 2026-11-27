@@ -8,6 +8,7 @@ import {
   invites,
   projectAccess,
   projectAccessPermissionsSql,
+  projectAccessRowCounts,
   projectMemberPermissions,
   projectMembers,
   projects,
@@ -391,7 +392,7 @@ async function openTasksOf(db: Db, viewer: Viewer, userId: string, projectIds: r
   const members = await db
     .selectDistinct({ projectId: projectAccess.projectId, userId: projectAccess.userId })
     .from(projectAccess)
-    .where(inArray(projectAccess.projectId, [...new Set(open.map((t) => t.projectId))]));
+    .where(and(inArray(projectAccess.projectId, [...new Set(open.map((t) => t.projectId))]), projectAccessRowCounts));
   return open.map((t) => ({
     taskId: t.id,
     code: `${t.code}-${t.number}`,

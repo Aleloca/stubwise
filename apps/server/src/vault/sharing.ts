@@ -89,6 +89,8 @@ export async function readersView(db: DbOrTx, credentialId: string): Promise<Cre
                 on rv_pm.project_id = rv_cr.project_id and rv_pm.user_id = ${users.id} and rv_pm.role_id = rv_r.role_id
               inner join ${roles} rv_role on rv_role.id = rv_r.role_id
               where rv_r.credential_id = ${credentialId}::uuid
+              -- Con due ruoli invitati (esplicito e di workspace), quello esplicito.
+              order by (rv_pm.source = 'member') desc, rv_role.name
               limit 1
             )`,
             hasCopy: sql<boolean>`exists (

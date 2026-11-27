@@ -89,3 +89,42 @@ describe("i reparti arrivano anche nei progetti visti per workspace (D10)", () =
     void departmentMembers;
   });
 });
+
+describe("revisione del lotto 2: le viste dicono quello che la scrittura farà", () => {
+  it("I-1: Amministrazione → Ruoli giudica un ruolo usato solo da una workspace sui SUOI progetti", async () => {
+    const { adminRoleViews } = await import("./admin-roles.js");
+    const [custom] = await db.insert(roles).values({ name: `Solo ws ${randomUUID().slice(0, 6)}`, scope: "project", permissions: ["docs.view"] }).returning();
+    const { projectId, wanda, nino } = await seed(custom!.id);
+    // Nino è Project Lead in un ALTRO progetto, e niente in Farmacia.
+    const [other] = await db.insert(projects).values({ name: "Altro", slug: `alt-${randomUUID().slice(0, 6)}`, ingestionKey: randomUUID() }).returning();
+    await addMember(app, other!.id, nino.id, "project_lead");
+    const view = (await adminRoleViews(db, actorAs(nino.id, "member"))).find((r) => r.id === custom!.id)!;
+    expect(view.reach).toBe("projects");
+    expect(view.affectedCount).toBe(1);
+    expect(view.notGivable).toContain("release.merge");
+    void projectId;
+    void wanda;
+  });
+
+  it("I-2: togliere il membro esplicito non è bloccato se resta gestore per via di workspace", async () => {
+    const { previewMember } = await import("./admin-roles.js");
+    const { projectId, wanda } = await seed("project_lead");
+    await addMember(app, projectId, wanda.id, "project_lead");
+    const { adminId } = { adminId: (await db.select({ id: (await import("@stubwise/db")).users.id }).from((await import("@stubwise/db")).users).where((await import("drizzle-orm")).eq((await import("@stubwise/db")).users.role, "admin")).limit(1))[0]!.id };
+    const preview = await previewMember(db, actorAs(adminId, "admin"), projectId, wanda.id, { roleId: await presetRoleId(app, "project_lead"), granted: [] });
+    expect(preview.removeBlock).toBeNull();
+  });
+
+  it("M-3: chi accede già per workspace porta già i suoi reparti: aggiungerlo come membro esplicito non li ricontrolla", async () => {
+    const { putProjectMember } = await import("./roles.js");
+    const { projectId, wanda, nino } = await seed("viewer");
+    await addMember(app, projectId, nino.id, "project_lead");
+    const [d] = await db.insert(departments).values({ name: `Ops ${randomUUID().slice(0, 6)}`, colorToken: "--dept-4" }).returning();
+    await db.insert(departmentProjectPermissions).values({ departmentId: d!.id, permission: "servers.operate" });
+    await db.insert(departmentMembers).values({ departmentId: d!.id, userId: wanda.id });
+    // Nino (Project Lead, senza servers.operate) la rende membro esplicito Viewer: niente di nuovo arriva.
+    const { projectPermissionsFor } = await import("../auth/access.js");
+    const held = (await projectPermissionsFor(db, member(nino.id), projectId))!;
+    await expect(putProjectMember(db, member(nino.id), held, projectId, wanda.id, await presetRoleId(app, "viewer"))).resolves.toBeDefined();
+  });
+});
