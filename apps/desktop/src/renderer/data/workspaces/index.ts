@@ -155,16 +155,23 @@ export async function getWorkspace(slug: string): Promise<WorkspaceView> {
   };
 }
 
-/** La workspace di un progetto (Settings → General, ⌘K), o `null`. */
+/**
+ * La workspace di un progetto (Settings → General), o `null`, e se chi guarda
+ * può cambiarla: `workspaces.manage` E la gestione dei membri del progetto
+ * (D4). La pagina lo legge da qui, non lo deduce.
+ */
 export async function workspaceOfProject(
   projectId: string,
-): Promise<{ id: string; slug: string; name: string } | null> {
+): Promise<{ workspace: { id: string; slug: string; name: string } | null; canChange: boolean }> {
   const me = await gate("workspaces.ofProject");
   if (!seenProjectIds(me).has(projectId)) throw new Error("not_found");
   const s = accessState();
   const row = s.workspaceProjects.find((w) => w.projectId === projectId);
   const ws = row && workspaceById(s, row.workspaceId);
-  return ws ? { id: ws.id, slug: ws.slug, name: ws.name } : null;
+  return {
+    workspace: ws ? { id: ws.id, slug: ws.slug, name: ws.name } : null,
+    canChange: canI(me, MANAGE) && canI(me, MEMBERS_MANAGE, projectId),
+  };
 }
 
 function memberProjects(

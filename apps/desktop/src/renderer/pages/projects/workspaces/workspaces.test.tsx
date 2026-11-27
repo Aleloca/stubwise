@@ -153,3 +153,30 @@ describe("Members del progetto: da dove viene un accesso [WS 3]", () => {
     );
   });
 });
+
+describe("Settings → General: la workspace del progetto", () => {
+  it("chi gestisce cambia la workspace dal menu, vedendo prima chi smette di vedere il progetto", async () => {
+    const user = userEvent.setup();
+    markReauthenticated(ROBERTA);
+    renderRoute("/p/ORT/settings/general", ROBERTA);
+    const select = await screen.findByRole("combobox", { name: "Workspace" });
+    expect(select).toHaveDisplayValue("Clienti storici");
+    await user.selectOptions(select, "");
+    await waitFor(() =>
+      expect(document.querySelector("[data-workspace-row] [data-effect='stop']")).toHaveTextContent(
+        "1 person will stop seeing ORT: Nicola Orlando.",
+      ),
+    );
+    const row = document.querySelector<HTMLElement>("[data-workspace-row]")!;
+    await user.click(within(row).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(visibleProjectIds("p-nicola").has("prj-ort")).toBe(false));
+  });
+
+  it("senza permesso si legge soltanto", async () => {
+    renderRoute("/p/ORT/settings/general", GIULIA);
+    await waitFor(() =>
+      expect(document.querySelector("[data-workspace-row]")).toHaveTextContent("In Clienti storici"),
+    );
+    expect(screen.queryByRole("combobox", { name: "Workspace" })).toBeNull();
+  });
+});

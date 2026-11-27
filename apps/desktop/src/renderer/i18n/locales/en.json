@@ -3068,6 +3068,9 @@
       "descriptionError": "Keep the description within 1,000 characters.",
       "noDescription": "No description.",
       "code": "Code",
+      "workspaceReauth": "change who sees {{code}}",
+      "inWorkspace": "In {{name}}",
+      "workspace": "Workspace",
       "codeHint": "The code never changes: it's in every task code, like {{code}}-57, and in links people have saved.",
       "modules": "Modules",
       "docs": "Docs",
@@ -11082,7 +11085,7 @@
       }
     },
     "departments": {
-      "intro": "Departments group people across projects. A department can also give its people extra permissions — only in projects they're already members of.",
+      "intro": "Departments group people across projects. A department can also give its people extra permissions — only in projects they can see, as members or through a workspace.",
       "new": "New department",
       "loadError": "Couldn't load departments.",
       "empty": "No departments yet. Departments group people and can give them extra permissions.",
@@ -11143,7 +11146,7 @@
       },
       "permissions": {
         "title": "Extra permissions in projects",
-        "intro": "People in this department get these in every project they're already a member of. It doesn't add them to any project.",
+        "intro": "People in this department get these in every project they can see — as members or through a workspace. It doesn't add them to any project.",
         "tableLabel": "Extra permissions of {{name}}"
       },
       "changes_one": "{{count}} change",

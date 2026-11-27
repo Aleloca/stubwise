@@ -3068,6 +3068,9 @@
       "descriptionError": "Tieni la descrizione entro 1.000 caratteri.",
       "noDescription": "Nessuna descrizione.",
       "code": "Codice",
+      "workspaceReauth": "cambiare chi vede {{code}}",
+      "inWorkspace": "In {{name}}",
+      "workspace": "Workspace",
       "codeHint": "Il codice non cambia mai: è in ogni codice di task, come {{code}}-57, e nei link che le persone hanno salvato.",
       "modules": "Moduli",
       "docs": "Docs",
@@ -11082,7 +11085,7 @@
       }
     },
     "departments": {
-      "intro": "I reparti raggruppano le persone fra i progetti. Un reparto può anche dare permessi in più alle sue persone — solo nei progetti di cui sono già membri.",
+      "intro": "I reparti raggruppano le persone fra i progetti. Un reparto può anche dare permessi in più alle sue persone — solo nei progetti che vedono, da membri o da una workspace.",
       "new": "Nuovo reparto",
       "loadError": "Non è stato possibile caricare i reparti.",
       "empty": "Ancora nessun reparto. I reparti raggruppano le persone e possono dar loro permessi in più.",
@@ -11143,7 +11146,7 @@
       },
       "permissions": {
         "title": "Permessi in più nei progetti",
-        "intro": "Le persone di questo reparto li ricevono in ogni progetto di cui sono già membri. Non le aggiunge a nessun progetto.",
+        "intro": "Le persone di questo reparto li ricevono in ogni progetto che vedono, da membri o da una workspace. Non le aggiunge a nessun progetto.",
         "tableLabel": "Permessi in più di {{name}}"
       },
       "changes_one": "{{count}} modifica",
