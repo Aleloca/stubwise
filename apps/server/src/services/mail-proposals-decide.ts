@@ -1,3 +1,4 @@
+import { appUrl } from "@stubwise/shared";
 import {
   emailMessages,
   emailProposalRecipients,
@@ -501,7 +502,7 @@ async function publishHandedCards(
   publicUrl: string,
 ): Promise<void> {
   const actions = (proposal.classification as { actions?: StoredAction[] }).actions ?? [];
-  const [project] = await tx.select({ id: projects.id, name: projects.name }).from(projects).where(eq(projects.id, proposal.projectId));
+  const [project] = await tx.select({ id: projects.id, name: projects.name, code: projects.code }).from(projects).where(eq(projects.id, proposal.projectId));
   if (!project) return;
   const options = sharedProposalOptions(lang, project.id, actions.map((a) => ({ type: a.type, args: (a.args ?? {}) as Record<string, unknown> })));
   if (options.length === 0) return;
@@ -523,7 +524,7 @@ async function publishHandedCards(
     source: "email",
     projectId: project.id,
     projectName: project.name,
-    projectUrl: `${publicUrl.replace(/\/+$/, "")}/projects/${project.id}`,
+    projectUrl: appUrl(publicUrl, { to: "project", projectCode: project.code }),
     handedBy: "",
     signal: "request",
     from: "",

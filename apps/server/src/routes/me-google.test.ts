@@ -991,6 +991,25 @@ describe("POST /api/me/google/accounts/:id/sync", () => {
   });
 });
 
+describe("ritiro del web vecchio: il ritorno OAuth alla nuova app nel browser", () => {
+  const appState = async (workspaceId: string) => {
+    const res = await app.inject({ method: "POST", url: "/api/me/google/connect", headers: { cookie: memberCookie }, payload: { workspaceId, client: "web" } });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toMatchObject({ returnTo: "web" });
+    return new URL((res.json() as { authorizeUrl: string }).authorizeUrl).searchParams.get("state")!;
+  };
+
+  it("`client: \"web\"` (la nuova app nel browser) torna a Preferenze → Account della nuova app, con l'esito; il web vecchio (senza client) resta su /settings/account", async () => {
+    const workspaceId = await createWorkspace();
+    const ok = await callback(await appState(workspaceId));
+    expect([ok.statusCode, ok.headers.location]).toEqual([302, "/app/#/preferences/account?google=ok"]);
+    const denied = await app.inject({ method: "GET", url: `/api/me/google/callback?error=access_denied&state=${encodeURIComponent(await appState(workspaceId))}` });
+    expect(denied.headers.location).toBe("/app/#/preferences/account?google=error");
+    const legacy = await callback(await stateFor(workspaceId));
+    expect(legacy.headers.location).toBe("/settings/account?google=ok");
+  });
+});
+
 describe("rimandi, lotto 4, §6: il ritorno OAuth all'app desktop", () => {
   const RETURN = "rS_" + "a".repeat(24);
   const desktopConnect = (workspaceId: string, body: object = { client: "desktop", returnState: RETURN }) =>

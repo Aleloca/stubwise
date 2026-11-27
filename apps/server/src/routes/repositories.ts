@@ -1,3 +1,4 @@
+import { RESERVED_REPOSITORY_SLUGS, unreservedSlug } from "@stubwise/shared";
 import { recordChange } from "../services/change-log.js";
 import { recordRepositoryChanges, repositoryObject } from "../services/settings-entries.js";
 import { randomBytes } from "node:crypto";
@@ -145,7 +146,8 @@ function slugify(name: string): string {
     .replace(/[̀-ͯ]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return slug || "repository";
+  // `product` è lo spazio Prodotto nell'indirizzo dei Docs della nuova app: un suffisso.
+  return unreservedSlug(slug || "repository", RESERVED_REPOSITORY_SLUGS, "repo");
 }
 
 type RepositoryRow = typeof repositories.$inferSelect;

@@ -83,9 +83,8 @@ const createTicket: ToolDef = {
         ...(labels !== undefined ? { labels } : {}),
       });
 
-      const url = `${ctx.config.baseUrl}/tickets/${ticket.id}`;
       return textResult(
-        `Ticket #${ticket.number} creato (id: ${ticket.id}, tipo: ${ticket.type}, priorità: ${ticket.priority}).\nURL: ${url}${claude ? `\n${CLAUDE_ASSIGNED_LINE}` : ""}`,
+        `Ticket #${ticket.number} creato (id: ${ticket.id}, tipo: ${ticket.type}, priorità: ${ticket.priority}).${urlLine(ctx, ticket.appPath)}${claude ? `\n${CLAUDE_ASSIGNED_LINE}` : ""}`,
       );
     }),
 };
@@ -103,12 +102,11 @@ const convertBacklogToTicket: ToolDef = {
   inputSchema: convertBacklogInput,
   handler: (args, ctx): Promise<ToolResult> =>
     runTool(async () => {
-      const { ticketId, ticketNumber } = await ctx.client.convertBacklogToTicket(
+      const { ticketId, ticketNumber, ticketAppPath } = await ctx.client.convertBacklogToTicket(
         args.id as string,
       );
-      const url = `${ctx.config.baseUrl}/tickets/${ticketId}`;
       return textResult(
-        `Voce di backlog convertita nel ticket #${ticketNumber} (id: ${ticketId}).\nURL: ${url}`,
+        `Voce di backlog convertita nel ticket #${ticketNumber} (id: ${ticketId}).${urlLine(ctx, ticketAppPath)}`,
       );
     }),
 };
@@ -166,7 +164,9 @@ const runTicket: ToolDef = {
   handler: (args, ctx): Promise<ToolResult> =>
     runTool(async () => {
       const id = args.id as string;
-      const url = `${ctx.config.baseUrl}/tickets/${id}`;
+      // Il link della task nella nuova app lo dà il server (`appPath`); se il
+      // ticket non si legge, il messaggio resta senza URL.
+      const url = urlLine(ctx, await Promise.resolve().then(() => ctx.client.getTicket(id)).then((t) => t?.appPath, () => undefined));
 
       let result: Awaited<ReturnType<typeof ctx.client.runTicket>>;
       try {
@@ -184,12 +184,12 @@ const runTicket: ToolDef = {
         // che non arriverà mai.
         if (err instanceof StubwiseApiError && err.code === "review_ticket_not_runnable") {
           return errorResult(
-            `Questo è un ticket di review (la review di una PR aperta da altri): run_ticket non lo esegue. Per far correggere a Stubwise quella PR, un maintainer la adotta dal ticket, su Stubwise (web o app), col bottone 'Fai correggere a Stubwise' o, da qui, con la sua azione (find_actions «adotta»).\nURL: ${url}`,
+            `Questo è un ticket di review (la review di una PR aperta da altri): run_ticket non lo esegue. Per far correggere a Stubwise quella PR, un maintainer la adotta dal ticket, su Stubwise (web o app), col bottone 'Fai correggere a Stubwise' o, da qui, con la sua azione (find_actions «adotta»).${url}`,
           );
         }
         if (err instanceof StubwiseApiError && err.status === 409) {
           return errorResult(
-            `C'è già un job in corso per questo ticket: ${err.message}. Attendi che finisca (o, se è in attesa di approvazione del piano, che chi ha plans.approve lo approvi: approve_plan) oppure controlla il ticket.\nURL: ${url}`,
+            `C'è già un job in corso per questo ticket: ${err.message}. Attendi che finisca (o, se è in attesa di approvazione del piano, che chi ha plans.approve lo approvi: approve_plan) oppure controlla il ticket.${url}`,
           );
         }
         throw err;
@@ -197,7 +197,7 @@ const runTicket: ToolDef = {
 
       if (result.status === "awaiting_plan_approval") {
         return textResult(
-          `Job creato in attesa di approvazione del piano (job ${result.jobId}): serve l'approvazione di chi ha plans.approve nel progetto (approve_plan, anche da qui). Dopo l'approvazione l'esecuzione parte automaticamente: non rilanciare run_ticket.\nURL: ${url}`,
+          `Job creato in attesa di approvazione del piano (job ${result.jobId}): serve l'approvazione di chi ha plans.approve nel progetto (approve_plan, anche da qui). Dopo l'approvazione l'esecuzione parte automaticamente: non rilanciare run_ticket.${url}`,
         );
       }
       // Il tool non sa se questo run pianifica (dipende dal piano salvato sul
@@ -207,7 +207,7 @@ const runTicket: ToolDef = {
       return textResult(
         `Esecuzione avviata sul ticket (job ${result.jobId}): il worker la prenderà in carico a breve. ` +
           `Se il run include una pianificazione, l'agente può fermarsi con una domanda: si risponde con answer_agent_question (o dall'app) e l'esecuzione riprende da sola, senza rilanciare run_ticket. ` +
-          `Segui l'avanzamento:\nURL: ${url}`,
+          `Segui l'avanzamento:${url}`,
       );
     }),
 };
@@ -289,7 +289,7 @@ const createBacklogItem: ToolDef = {
           type: "feature",
         });
         return textResult(
-          `Il progetto ${resolved.project.name} non usa il backlog: la richiesta è stata aperta come ticket #${ticket.number} (richiesta di funzionalità, id: ${ticket.id}).\nURL: ${ctx.config.baseUrl}/tickets/${ticket.id}`,
+          `Il progetto ${resolved.project.name} non usa il backlog: la richiesta è stata aperta come ticket #${ticket.number} (richiesta di funzionalità, id: ${ticket.id}).${urlLine(ctx, ticket.appPath)}`,
         );
       }
 
@@ -359,10 +359,9 @@ const createBacklogItem: ToolDef = {
               `Elaborazione della voce di backlog completata ma senza id risultante (job ${jobId}).`,
             );
           }
-          const url = `${ctx.config.baseUrl}/backlog/${job.resultItemId}`;
           const merged = await mergedNote(ctx, job.resultItemId, sentAt);
           return textResult(
-            `Voce di backlog elaborata (id: ${job.resultItemId}).\nURL: ${url}\n${merged ? `${merged}\n` : ""}Puoi inserire questo riferimento nel frontmatter del documento. Se l'intake l'ha fusa con una voce esistente, l'id è quello canonico da referenziare.`,
+            `Voce di backlog elaborata (id: ${job.resultItemId}).${urlLine(ctx, job.resultItemAppPath)}\n${merged ? `${merged}\n` : ""}Puoi inserire questo riferimento nel frontmatter del documento. Se l'intake l'ha fusa con una voce esistente, l'id è quello canonico da referenziare.`,
           );
         }
 
@@ -424,18 +423,21 @@ const createBacklogFromDesign: ToolDef = {
     }),
 };
 
+/**
+ * La riga «URL:» col link della nuova app: il percorso che dà il server
+ * (`appPath`, `app-links` lato server) sulla `baseUrl` di questo client. Un
+ * server di prima non lo manda: niente riga, mai un percorso del web vecchio.
+ */
+function urlLine(ctx: { config: { baseUrl: string } }, appPath: string | undefined): string {
+  return appPath ? `\nURL: ${ctx.config.baseUrl.replace(/\/+$/, "")}${appPath}` : "";
+}
+
 // --- design / piano (backlog e ticket) --------------------------------------
 //
 // Quattro tool che collegano un DESIGN doc o un PIANO di implementazione a una
 // voce di backlog o a un ticket, per id. `target` sceglie la risorsa. Operano su
-// un id specifico → nessun resolveProject. L'URL nel messaggio usa il path SPA
-// (`/backlog/:id` o `/tickets/:id`).
-
-/** Path SPA del dettaglio della risorsa per il target. */
-function targetUrl(baseUrl: string, target: string, id: string): string {
-  const segment = target === "backlog" ? "backlog" : "tickets";
-  return `${baseUrl}/${segment}/${id}`;
-}
+// un id specifico → nessun resolveProject. L'URL nel messaggio è quello della
+// nuova app (`appPath` del dettaglio che il server risponde).
 
 const setContentInput = {
   target: z.enum(["backlog", "ticket"]).describe("Risorsa su cui operare: 'backlog' o 'ticket'."),
@@ -463,9 +465,9 @@ const setDesign: ToolDef = {
     runTool(async () => {
       const target = args.target as "backlog" | "ticket";
       const id = args.id as string;
-      await ctx.client.setDesign(target, id, args.content as string);
+      const detail = await ctx.client.setDesign(target, id, args.content as string);
       return textResult(
-        `Design aggiornato su ${target} ${id}.\nURL: ${targetUrl(ctx.config.baseUrl, target, id)}`,
+        `Design aggiornato su ${target} ${id}.${urlLine(ctx, detail?.appPath)}`,
       );
     }),
 };
@@ -479,9 +481,9 @@ const deleteDesign: ToolDef = {
     runTool(async () => {
       const target = args.target as "backlog" | "ticket";
       const id = args.id as string;
-      await ctx.client.deleteDesign(target, id);
+      const detail = await ctx.client.deleteDesign(target, id);
       return textResult(
-        `Design rimosso da ${target} ${id} (corpo d'origine ripristinato).\nURL: ${targetUrl(ctx.config.baseUrl, target, id)}`,
+        `Design rimosso da ${target} ${id} (corpo d'origine ripristinato).${urlLine(ctx, detail?.appPath)}`,
       );
     }),
 };
@@ -495,9 +497,9 @@ const setPlan: ToolDef = {
     runTool(async () => {
       const target = args.target as "backlog" | "ticket";
       const id = args.id as string;
-      await ctx.client.setPlan(target, id, args.content as string);
+      const detail = await ctx.client.setPlan(target, id, args.content as string);
       return textResult(
-        `Piano di implementazione aggiornato su ${target} ${id}.\nURL: ${targetUrl(ctx.config.baseUrl, target, id)}`,
+        `Piano di implementazione aggiornato su ${target} ${id}.${urlLine(ctx, detail?.appPath)}`,
       );
     }),
 };
@@ -511,9 +513,9 @@ const deletePlan: ToolDef = {
     runTool(async () => {
       const target = args.target as "backlog" | "ticket";
       const id = args.id as string;
-      await ctx.client.deletePlan(target, id);
+      const detail = await ctx.client.deletePlan(target, id);
       return textResult(
-        `Piano di implementazione rimosso da ${target} ${id}.\nURL: ${targetUrl(ctx.config.baseUrl, target, id)}`,
+        `Piano di implementazione rimosso da ${target} ${id}.${urlLine(ctx, detail?.appPath)}`,
       );
     }),
 };

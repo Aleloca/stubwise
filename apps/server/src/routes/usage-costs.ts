@@ -4,7 +4,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { Db } from "@stubwise/db";
 import { agentRuns, aiJobs, aiProviders, projects } from "@stubwise/db";
-import { inProjects, isAllProjects, visibleProjectIds, type ProjectScope } from "../auth/access.js";
+import { inProjects, isAllProjects, scopeIncludes, visibleProjectIds, type ProjectScope } from "../auth/access.js";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 import { usageDimensionSchema, usageSummarySchema, type UsageRange } from "@stubwise/shared";
@@ -426,7 +426,7 @@ export async function aiUsageCostsRoutes(instance: FastifyInstance): Promise<voi
   app.get(
     "/summary",
     {
-      config: { mcp: { action: "aiUsage.summary", summary: "I consumi AI in sintesi, nell'ambito che vedi.", effect: "read" }, access: { kind: "user" } },
+      config: { mcp: { action: "aiUsage.summary", summary: "I consumi AI in sintesi, nell'ambito che vedi; con projectId, di un solo progetto.", effect: "read" }, access: { kind: "user" } },
       schema: {
         querystring: z.object({
           days: z.enum(["7", "30", "90"]).optional(),
@@ -435,18 +435,30 @@ export async function aiUsageCostsRoutes(instance: FastifyInstance): Promise<voi
           to: z.iso.date().optional(),
           groupBy: usageDimensionSchema,
           thenBy: usageDimensionSchema.optional(),
+          // Settings → Usage del progetto (ritiro del web vecchio): i soli consumi
+          // di quel progetto. Fuori dallo scope di chi guarda, o invisibile: 404.
+          projectId: z.uuid().optional(),
         }),
-        response: { 200: usageSummarySchema, 400: errorSchema, ...authErrorResponses },
+        response: { 200: usageSummarySchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
-      const scope = await requireUsageScope(request, reply);
-      if (scope === null) return reply;
+      const allowed = await requireUsageScope(request, reply);
+      if (allowed === null) return reply;
       const q = request.query;
+      const visible = await visibleProjectIds(app.db, request.user!);
+      let scope: UsageScope = allowed;
+      if (q.projectId) {
+        // Un progetto che chi guarda non vede, o dove non ha i consumi, è come uno che non c'è (R-G5).
+        if (!scopeIncludes(allowed, q.projectId) || !scopeIncludes(visible, q.projectId)) {
+          return apiError(reply, 404, "not_found", "Project not found");
+        }
+        scope = [q.projectId];
+      }
       const range: UsageRange | null = q.days ? { days: Number(q.days) as 7 | 30 | 90 } : q.month ? { month: true } : q.from && q.to ? { from: q.from, to: q.to } : null;
       if (!range) return apiError(reply, 400, "invalid_range", "Give days, month or from and to");
       try {
-        return await usageSummary(app.db, { range, groupBy: q.groupBy, thenBy: q.thenBy ?? null, scope, visibleProjectIds: await visibleProjectIds(app.db, request.user!) });
+        return await usageSummary(app.db, { range, groupBy: q.groupBy, thenBy: q.thenBy ?? null, scope, visibleProjectIds: visible });
       } catch (error) {
         const code = (error as Error).message;
         if (code === "invalid_range" || code === "range_too_long") return apiError(reply, 400, code, "Invalid date range");

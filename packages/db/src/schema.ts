@@ -423,6 +423,9 @@ export const sessions = pgTable(
     // le azioni sensibili lo vogliono recente. Null = sessione di prima del
     // rilascio, o parziale.
     secondFactorAt: timestamp("second_factor_at", { withTimezone: true }),
+    // I6 (0238): l'ultimo sblocco della cassaforte con una passkey. NON è una
+    // riconferma: vale solo per le rotte che dichiarano `config.reauth: "vault"`.
+    vaultUnlockedAt: timestamp("vault_unlocked_at", { withTimezone: true }),
     // Challenge WebAuthn in corso (registrazione o uso di una passkey):
     // monouso, la verifica la cancella sempre.
     webauthnChallenge: text("webauthn_challenge"),
@@ -6817,6 +6820,8 @@ export const credentialAccessLog = pgTable(
     check("credential_access_log_action_chk", sql`${table.action} in ('show', 'copy')`),
     check("credential_access_log_via_chk", sql`${table.via} in ('browser', 'desktop')`),
     index("credential_access_log_project_id_created_at_idx").on(table.projectId, table.createdAt),
+    // 0238 (C2): le letture di una persona nella finestra della raffica.
+    index("credential_access_log_user_id_created_at_idx").on(table.userId, table.createdAt),
   ],
 );
 

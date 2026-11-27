@@ -80,6 +80,7 @@
  * riuscito" perché non esiste un pezzo da riportare — l'intera azione o è
  * scritta (dentro la transazione di {@link dispatchAction}) o non lo è.
  */
+import { appUrl } from "@stubwise/shared";
 import {
   calendarEvents,
   calendarProposalRecipients,
@@ -1456,7 +1457,7 @@ async function handToProject(
   if (!kept.some((k) => k.action.type !== "ignore")) return { ok: false, error: "proposal_stale" };
 
   const [project] = await db
-    .select({ id: projects.id, name: projects.name })
+    .select({ id: projects.id, name: projects.name, code: projects.code })
     .from(projects)
     .where(eq(projects.id, source.projectId));
   if (!project) return { ok: false, error: "target_gone" };
@@ -1479,7 +1480,7 @@ async function handToProject(
     source: "email",
     projectId: project.id,
     projectName: project.name,
-    projectUrl: `${base}/projects/${project.id}`,
+    projectUrl: appUrl(base, { to: "project", projectCode: project.code }),
     handedBy: owner.email,
     signal: parsed.data.signal,
     from: args.from,

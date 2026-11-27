@@ -1,6 +1,9 @@
+import { appUrl } from "@stubwise/shared";
 import {
   publishNotification,
   type NotificationEvent,
+  ticketAppUrl,
+  type DbOrTx,
   type PublishOpts,
 } from "@stubwise/notifications";
 import type { Db } from "@stubwise/db";
@@ -34,10 +37,15 @@ export interface NotifyDeps {
   publish?: PublishFn;
 }
 
-/** Compone l'URL del ticket: assoluto se publicUrl è valorizzato, altrimenti path. */
-export function ticketUrl(publicUrl: string | undefined, ticketId: string): string {
-  const base = (publicUrl ?? "").replace(/\/+$/, "");
-  return `${base}/tickets/${ticketId}`;
+/**
+ * L'URL della task nella nuova app (`app-links`): assoluto se publicUrl è
+ * valorizzato, altrimenti il percorso. Vuole il DB perché la nuova app apre una
+ * task col suo codice (`<CODE>-<n>`), non con l'id.
+ */
+export function ticketUrl(db: DbOrTx, publicUrl: string | undefined, ticketId: string): Promise<string> {
+  // Mai lancia: chi lo chiama ha già scritto (il job, il commit); una lettura
+  // che fallisce dà la Home della nuova app (M1).
+  return ticketAppUrl(db, publicUrl, ticketId).catch(() => appUrl(publicUrl, { to: "home" }));
 }
 
 /**

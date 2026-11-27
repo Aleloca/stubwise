@@ -141,6 +141,13 @@ function minutesAgo(minutes: number): Date {
   return new Date(Date.now() - minutes * 60_000);
 }
 
+
+/** La task nella nuova app (`app-links`): il codice del progetto e il numero. */
+async function taskLink(ticketId: string): Promise<string> {
+  const [row] = await testDb.db.select({ code: projects.code, number: tickets.number }).from(tickets).innerJoin(projects, eq(projects.id, tickets.projectId)).where(eq(tickets.id, ticketId));
+  return `https://stubwise.example.com/app/#/p/${row!.code}/tasks?task=${row!.code}-${row!.number}`;
+}
+
 describe("parseTriageDecision", () => {
   it("estrae l'ULTIMO oggetto JSON anche se preceduto da prosa", () => {
     const output = `Sto analizzando il ticket.\nIl bug sembra riproducibile.\n{"decision":"fix","type":"bug","effort":3}`;
@@ -1147,7 +1154,7 @@ describe("runTriage — notifiche", () => {
     expect(calls[0]!.event.kind).toBe("job.held");
     expect(calls[0]!.event.type).toBe("feature");
     expect(calls[0]!.event.effort).toBe(3);
-    expect(calls[0]!.event.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
+    expect(calls[0]!.event.ticketUrl).toBe(await taskLink(ticket.id));
     // Riferimenti: progetto del ticket, ticket e job del triage.
     expect(calls[0]!.opts).toEqual({ projectId, ticketId: ticket.id, jobId: job.id });
   });
@@ -1173,7 +1180,7 @@ describe("runTriage — notifiche", () => {
     expect(outcome).toBe("failed");
     expect(calls).toHaveLength(1);
     expect(calls[0]!.event.kind).toBe("job.failed");
-    expect(calls[0]!.event.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
+    expect(calls[0]!.event.ticketUrl).toBe(await taskLink(ticket.id));
   });
 
   it("NON pubblica quando l'esito è fixing (la notifica pr_opened arriva dal fix)", async () => {

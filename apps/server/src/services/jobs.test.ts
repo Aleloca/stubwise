@@ -221,7 +221,7 @@ describe("startRun", () => {
     expect(row.ticketId).toBe(ticketId);
     expect(row.event).toMatchObject({
       kind: "job.plan_review",
-      ticketUrl: `https://stubwise.example.com/tickets/${ticketId}`,
+      ticketUrl: expect.stringMatching(/^https:\/\/stubwise\.example\.com\/app\/#\/p\/[A-Z0-9]+\/tasks\?task=[A-Z0-9]+-\d+$/),
     });
   });
 

@@ -13,6 +13,7 @@ import {
 } from "../../projectSettings/state";
 import type { ProjectResult } from "../../projectSettings/types";
 import { appClient } from "./client";
+import { liveAiChoices } from "./projectGeneral";
 import { getViewer } from "./session";
 
 // Registro, area 9 r.1121: Progetto → Settings → Automations e gli
@@ -75,13 +76,18 @@ function basesOf(): Map<string, AutomationsBase> {
 
 export const liveProjectAutomations = {
   /**
-   * Le impostazioni come le legge la pagina. Nella build app servono le sole
-   * parti di Automations (e il nome, il codice, il modulo Docs): la scheda AI
-   * resta «in arrivo», quindi le sue scelte sono vuote.
+   * Le impostazioni come le legge la pagina: General, AI e Automations. Le
+   * scelte degli account AI solo a chi ha `ai_providers.manage`.
    */
   async getProjectSettings(projectId: string): Promise<ProjectSettingsView | null> {
     const [p, viewer] = await Promise.all([projectOf(projectId), getViewer()]);
     if (!p) return null;
+    // Settings → AI (ritiro del web vecchio): le scelte per chi le legge.
+    const canListProviders = (viewer.instancePermissions as readonly string[]).some(
+      (x) => x === "ai_providers.manage" || x === "instance.full_admin",
+    );
+    const ai = await liveAiChoices(canListProviders);
+    const providerId = typeof p.aiProviderId === "string" ? p.aiProviderId : null;
     const switches = switchesOf(p);
     const pulseEveryDays = typeof p.pulseEveryDays === "number" ? p.pulseEveryDays : 7;
     const correctionCap = typeof p.prCorrectionMaxRounds === "number" ? p.prCorrectionMaxRounds : 3;
@@ -93,11 +99,12 @@ export const liveProjectAutomations = {
       description: typeof p.description === "string" ? p.description : "",
       docsModule: Array.isArray(p.modules) && p.modules.includes("docs"),
       ai: {
-        providerId: typeof p.aiProviderId === "string" ? p.aiProviderId : null,
+        providerId,
         exclusive: p.aiProviderExclusive === true,
-        choices: [],
-        chosenUnavailable: false,
-        automaticChain: [],
+        choices: ai.choices,
+        // Un account scelto che non c'è più fra le scelte (chi le legge le ha tutte).
+        chosenUnavailable: canListProviders && providerId !== null && !ai.choices.some((c) => c.id === providerId),
+        automaticChain: ai.automaticChain,
       },
       switches,
       pulseEveryDays,

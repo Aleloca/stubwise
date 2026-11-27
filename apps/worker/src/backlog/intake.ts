@@ -1,3 +1,4 @@
+import { backlogItemAppUrl } from "@stubwise/notifications";
 import {
   backlogItemRequesters,
   backlogItems,
@@ -356,7 +357,7 @@ async function announceRequest(
       requesterEmail: requester.email,
       backlogItemId: result.itemId,
       merged,
-      url: `${base}/backlog/${result.itemId}`,
+      url: await backlogItemAppUrl(deps.db, base, result.itemId),
     });
   } catch (error) {
     deps.logger.warn({ err: error, projectId }, "[backlog] intake: avviso agli admin non pubblicato");

@@ -162,18 +162,26 @@ describe("uso di una passkey", () => {
         user.authenticator.assert(options),
         RP,
       ),
-    ).toBe(true);
+    ).toEqual({ purpose: null });
     const [row] = await db.select().from(userPasskeys).where(eq(userPasskeys.id, user.passkeyId));
     expect(row!.counter).toBe(1);
     expect(row!.lastUsedAt).toBeInstanceOf(Date);
     expect(await challengeOf(user.sessionId)).toBeNull();
   });
 
+  it("I6: lo scopo lo ricorda il SERVER sulla challenge, e la verifica lo restituisce", async () => {
+    const user = await userWithPasskey();
+    const options = await authenticationOptions(db, user.sessionId, user.id, RP, "vault");
+    expect(await finishAuthentication(db, user.sessionId, user.id, user.authenticator.assert(options), RP)).toEqual({ purpose: "vault" });
+    const plain = await authenticationOptions(db, user.sessionId, user.id, RP);
+    expect(await finishAuthentication(db, user.sessionId, user.id, user.authenticator.assert(plain), RP)).toEqual({ purpose: null });
+  });
+
   it("challenge riusata: la seconda firma con la stessa challenge è rifiutata", async () => {
     const user = await userWithPasskey();
     const options = await authenticationOptions(db, user.sessionId, user.id, RP);
     const ok = user.authenticator.assert(options);
-    expect(await finishAuthentication(db, user.sessionId, user.id, ok, RP)).toBe(true);
+    expect(await finishAuthentication(db, user.sessionId, user.id, ok, RP)).toEqual({ purpose: null });
     // Anche con un contatore più alto e una firma nuova, la challenge è andata.
     const again = user.authenticator.assert(options);
     expect(await finishAuthentication(db, user.sessionId, user.id, again, RP)).toBe(false);
@@ -215,7 +223,7 @@ describe("uso di una passkey", () => {
     const first = await authenticationOptions(db, user.sessionId, user.id, RP);
     expect(
       await finishAuthentication(db, user.sessionId, user.id, user.authenticator.assert(first), RP),
-    ).toBe(true);
+    ).toEqual({ purpose: null });
     user.authenticator.counter = 0; // il prossimo assert firma col contatore 1, già visto
     const second = await authenticationOptions(db, user.sessionId, user.id, RP);
     expect(

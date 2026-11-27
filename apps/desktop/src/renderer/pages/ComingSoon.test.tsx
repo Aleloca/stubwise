@@ -2,6 +2,8 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-libra
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { auth as fakeAuth } from "../data/api";
+import { isIntegrated } from "../data/integration";
+import { PROJECT_SETTINGS_SECTIONS } from "../data/routes";
 import { renderRoute } from "../test/renderRoute";
 import { closeGoogleAccount } from "./drive/GoogleAccountCard";
 import { REPLY_UNDO_MS } from "./support/replyStore";
@@ -270,6 +272,11 @@ const INTEGRATED_CALLS = new Set([
   "projectSettings.deleteProject",
   // Registro, area 9 r.1121: Settings → Automations e le frasi «spento».
   "projectSettings.getProjectSettings",
+  // Ritiro del web vecchio (inventario 1.3): General, AI e Usage del progetto.
+  "projectSettings.updateProjectGeneral",
+  "projectSettings.setDocsModule",
+  "projectSettings.setProjectAi",
+  "projectSettings.getProjectUsage",
   "projectSettings.getProjectSwitches",
   "projectSettings.saveProjectAutomations",
   "instance.listAllRepositories",
@@ -368,6 +375,18 @@ const INTEGRATED_CALLS = new Set([
   "listProjectStatuses",
   "listMilestones",
   "getRequest",
+  // Ritiro del web vecchio (27 nov 2026): design e piano di task e richieste,
+  // le proposte del polso, lo zip dei Docs e il graph.json.
+  "getTaskDesignPlan",
+  "removeTaskDesign",
+  "removeTaskPlan",
+  "removeRequestDesign",
+  "removeRequestPlan",
+  "pulse.listPulseProposals",
+  "pulse.startPulseProposal",
+  "pulse.dismissPulseProposal",
+  "docs.exportCategory",
+  "docs.downloadGraphJson",
   // Fetta 2: settimana, Planning, La mia settimana, Timeline.
   "listDayArrangements",
   "planTask",
@@ -963,13 +982,12 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  it("una pagina di progetto non integrata mostra «Coming soon»", async () => {
-    // Dall'area 8, F4a, ogni sezione di progetto è accesa: resta una voce delle impostazioni
-    // (Archive è accesa dall'area 9, F6; Usage no).
-    renderRoute("/p/AUD/settings/usage");
-    expect(await screen.findByText("Coming soon")).toBeInTheDocument();
-    await settle();
-    expect(outside()).toEqual([]);
+  it("ogni voce delle impostazioni di progetto è accesa (ritiro del web vecchio: General, AI e Usage le ultime)", () => {
+    // Dall'area 8, F4a, ogni sezione di progetto è accesa; dal ritiro del web
+    // vecchio (inventario 1.3) anche ogni voce delle impostazioni.
+    for (const { id } of PROJECT_SETTINGS_SECTIONS) {
+      expect(isIntegrated({ kind: "projectSettings", name: id }), id).toBe(true);
+    }
   });
 
   // Review area 8 F1, m5: le ricerche della palette delle aree non integrate non partono.
@@ -989,6 +1007,20 @@ describe("aree non integrate nella build app", () => {
     // La doc di prodotto (area 11, F3) parte, ed è integrata.
     expect(calls).toContain("productDocs.searchProductPages");
     expect(outside()).toEqual([]);
+    expect(outside()).toEqual([]);
+  });
+
+  // Revisione di feat/impostazioni-progetto, M7: Usage e AI delle impostazioni.
+  it("aprire Settings → Usage e Settings → AI legge solo chiamate integrate", async () => {
+    signedInAs("p-laura");
+    renderRoute("/p/AUD/settings/usage");
+    await waitFor(() => expect(calls).toContain("projectSettings.getProjectUsage"));
+    await settle();
+    expect(outside()).toEqual([]);
+    cleanup();
+    renderRoute("/p/AUD/settings/ai");
+    expect(await screen.findByRole("heading", { level: 1, name: "AI" })).toBeInTheDocument();
+    await settle();
     expect(outside()).toEqual([]);
   });
 

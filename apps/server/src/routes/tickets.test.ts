@@ -142,6 +142,8 @@ describe("POST /api/tickets", () => {
     expect(res.statusCode).toBe(201);
     const body = res.json() as TicketBody;
     expect(body).toEqual({
+      // Ritiro del web vecchio: la task nella nuova app, come percorso (additivo).
+      appPath: expect.stringMatching(/^\/app\/#\/p\/[A-Z0-9]+\/tasks\?task=[A-Z0-9]+-1$/),
       id: expect.any(String),
       projectId,
       number: 1,
@@ -3005,6 +3007,54 @@ describe("PUT/DELETE /api/tickets/:id/design", () => {
     const b2 = second.json() as TicketBody & { originContent: string | null };
     expect(b2.body).toBe("## Design v2");
     expect(b2.originContent).toBe("Corpo iniziale");
+  });
+
+  it("I1: col design attivo, PATCH del corpo (MCP tickets.update) scrive l'originale; il design resta, e Remove riporta il testo nuovo", async () => {
+    const id = await freshTicket("Corpo iniziale");
+    expect((await putDesign(id, "## Design")).statusCode).toBe(200);
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/tickets/${id}`,
+      headers: { cookie: users.memberCookie },
+      payload: { body: "Corpo corretto" },
+    });
+    expect(patched.statusCode).toBe(200);
+    const [row] = await testDb.db.select().from(tickets).where(eq(tickets.id, id));
+    expect(row!.body).toBe("## Design");
+    expect(row!.originContent).toBe("Corpo corretto");
+    expect((await eventsOf(id)).filter((e) => e.kind === "body_changed").length).toBeGreaterThanOrEqual(2);
+    expect((await deleteDesign(id)).statusCode).toBe(200);
+    const [after] = await testDb.db.select().from(tickets).where(eq(tickets.id, id));
+    expect(after!.body).toBe("Corpo corretto");
+    expect(after!.originContent).toBeNull();
+  });
+
+  it("I1: col design attivo, PATCH /api/tasks/:id della descrizione (l'app nuova) scrive l'originale", async () => {
+    const id = await freshTicket("Corpo iniziale");
+    expect((await putDesign(id, "## Design")).statusCode).toBe(200);
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/${id}`,
+      headers: { cookie: users.memberCookie },
+      payload: { description: "Descrizione corretta" },
+    });
+    expect(patched.statusCode).toBe(200);
+    const [row] = await testDb.db.select().from(tickets).where(eq(tickets.id, id));
+    expect(row!.body).toBe("## Design");
+    expect(row!.originContent).toBe("Descrizione corretta");
+  });
+
+  it("senza design, la PATCH del corpo resta sul corpo", async () => {
+    const id = await freshTicket("Corpo iniziale");
+    await app.inject({
+      method: "PATCH",
+      url: `/api/tickets/${id}`,
+      headers: { cookie: users.memberCookie },
+      payload: { body: "Nuovo corpo" },
+    });
+    const [row] = await testDb.db.select().from(tickets).where(eq(tickets.id, id));
+    expect(row!.body).toBe("Nuovo corpo");
+    expect(row!.originContent).toBeNull();
   });
 
   it("PUT design genera un evento body_changed di audit con actorId del loggato", async () => {

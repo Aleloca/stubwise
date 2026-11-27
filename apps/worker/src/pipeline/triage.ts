@@ -168,7 +168,7 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
     ...(deps.projectName !== undefined ? { projectName: deps.projectName } : {}),
     ...(deps.publish !== undefined ? { publish: deps.publish } : {}),
   };
-  const url = ticketUrl(deps.publicUrl, ticket.id);
+  const url = await ticketUrl(deps.db, deps.publicUrl, ticket.id);
   const projectName = deps.projectName ?? "";
   /** Riferimenti comuni a TUTTE le notifiche di questa fase: il triage conosce
    * progetto, ticket e job del run, e li porta su ogni evento. */

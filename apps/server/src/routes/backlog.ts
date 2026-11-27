@@ -1,3 +1,4 @@
+import { backlogItemAppUrl, ticketAppUrl } from "@stubwise/notifications";
 import {
   backlogItemBaseSchema,
   backlogItemDetailSchema,
@@ -497,7 +498,13 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
           return apiError(reply, 404, "job_not_found", "Job not found");
         }
       }
-      return { status: job.status, resultItemId: job.resultItemId, error: job.error };
+      return {
+        status: job.status,
+        resultItemId: job.resultItemId,
+        error: job.error,
+        // Ritiro del web vecchio: la richiesta nella nuova app, come percorso (l'MCP ci mette la sua base).
+        ...(job.resultItemId ? { resultItemAppPath: await backlogItemAppUrl(app.db, null, job.resultItemId) } : {}),
+      };
     },
   );
 
@@ -535,7 +542,8 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         loadRefineSessionView(app.db, id),
       ]);
 
-      return { ...base, tickets: ticketRows, refineSession };
+      // Ritiro del web vecchio: la voce nella nuova app, come percorso (l'MCP ci mette la sua base).
+      return { ...base, tickets: ticketRows, refineSession, appPath: await backlogItemAppUrl(app.db, null, base.id) };
     },
   );
 
@@ -635,7 +643,8 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
 
       const updated = await loadBaseItem(app.db, id, itemVisibility(request));
       if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
-      return updated;
+      // Ritiro del web vecchio: la voce nella nuova app, come percorso (l'MCP ci mette la sua base).
+      return { ...updated, appPath: await backlogItemAppUrl(app.db, null, id) };
     },
   );
 
@@ -667,7 +676,8 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
 
       const updated = await loadBaseItem(app.db, id, itemVisibility(request));
       if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
-      return updated;
+      // Ritiro del web vecchio: la voce nella nuova app, come percorso (l'MCP ci mette la sua base).
+      return { ...updated, appPath: await backlogItemAppUrl(app.db, null, id) };
     },
   );
 
@@ -698,7 +708,8 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
 
       const updated = await loadBaseItem(app.db, id, itemVisibility(request));
       if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
-      return updated;
+      // Ritiro del web vecchio: la voce nella nuova app, come percorso (l'MCP ci mette la sua base).
+      return { ...updated, appPath: await backlogItemAppUrl(app.db, null, id) };
     },
   );
 
@@ -723,7 +734,8 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
 
       const updated = await loadBaseItem(app.db, id, itemVisibility(request));
       if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
-      return updated;
+      // Ritiro del web vecchio: la voce nella nuova app, come percorso (l'MCP ci mette la sua base).
+      return { ...updated, appPath: await backlogItemAppUrl(app.db, null, id) };
     },
   );
 
@@ -812,7 +824,8 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       // automazioni: la voce, il job di stima e chi la chiede come richiedente.
       const itemId = await createRequestItem(app.db, { projectId, title, document: design, requesterId: request.user!.id });
 
-      return reply.code(201).send({ itemId, url: `${app.publicUrl}/backlog/${itemId}` });
+      // La richiesta nella nuova app (`app-links`).
+      return reply.code(201).send({ itemId, url: await backlogItemAppUrl(app.db, app.publicUrl, itemId) });
     },
   );
 
@@ -963,7 +976,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         }
         return apiError(reply, 409, "already_converted", "Backlog item already converted");
       }
-      return { ticketId: result.ticketId, ticketNumber: result.ticketNumber };
+      return { ticketId: result.ticketId, ticketNumber: result.ticketNumber, ticketAppPath: await ticketAppUrl(app.db, null, result.ticketId) };
     },
   );
 

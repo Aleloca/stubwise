@@ -1087,7 +1087,9 @@ describe("POST /api/slack/interactions — view_submission docs_query", () => {
     // La risposta canned del fake LLM + un link citazione verso la pagina, col
     // REPOSITORY id (non il projectId) e il NOME del repository nel testo.
     expect(flat).toContain("Risposta dai docs.");
-    expect(flat).toContain(`${PUBLIC_URL}/docs/${repositoryId}/${slug}`);
+    // La pagina nei Docs della nuova app: lo slug del repository nel suo progetto (`app-links`).
+    expect(flat).toMatch(new RegExp(`${PUBLIC_URL.replace(/[.]/g, "\\.")}/app/#/p/[A-Z0-9]+/docs/[\\w-]+/${slug}`));
+    expect(flat).not.toContain(repositoryId);
     expect(flat).toContain("Come si configura");
     expect(flat).toContain(repoName);
   });
@@ -1127,8 +1129,9 @@ describe("POST /api/slack/interactions — view_submission docs_query", () => {
     const [, payload] = postResponse.mock.calls[0]!;
     const flat = JSON.stringify((payload as { blocks: unknown[] }).blocks);
     // Entrambe le fonti sono citate, ognuna col proprio repositoryId e nome repo.
-    expect(flat).toContain(`${PUBLIC_URL}/docs/${repoA}/${slugA}`);
-    expect(flat).toContain(`${PUBLIC_URL}/docs/${repoB}/${slugB}`);
+    expect(flat).toMatch(new RegExp(`/app/#/p/[A-Z0-9]+/docs/[\\w-]+/${slugA}`));
+    expect(flat).toMatch(new RegExp(`/app/#/p/[A-Z0-9]+/docs/[\\w-]+/${slugB}`));
+    expect(flat).not.toContain(repoA);
     expect(flat).toContain(repoNameA);
     expect(flat).toContain(repoNameB);
   });

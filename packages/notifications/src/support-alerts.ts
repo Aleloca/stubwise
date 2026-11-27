@@ -1,3 +1,4 @@
+import { appUrl } from "@stubwise/shared/app-links";
 import { backlogItems, projects, widgetConversations, type Db } from "@stubwise/db";
 import { eq } from "drizzle-orm";
 import { publishNotification } from "./publish.js";
@@ -7,7 +8,7 @@ import { publishNotification } from "./publish.js";
  * («Apri la richiesta») e il worker (l'intake che nasce dal ticket di un
  * widget), con UNA forma. Best-effort:
  * `publishNotification` non lancia. Senza radice pubblica il link resta
- * RELATIVO (`/app/#/…`), come gli avvisi dei rilasci.
+ * RELATIVO, come gli avvisi dei rilasci (`app-links`).
  */
 
 type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -37,7 +38,7 @@ export async function publishSupportRequestAlert(db: DbOrTx, publicUrl: string |
       requestCode: `${row.code}-R${row.number}`,
       title: row.title,
       customerName: row.customerName,
-      url: `${root(publicUrl)}/app/#/p/${row.code}/requests?request=${itemId}`,
+      url: appUrl(root(publicUrl), { to: "requests", projectCode: row.code, requestId: itemId }),
     },
     { projectId: row.projectId },
   );

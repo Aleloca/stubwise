@@ -1,3 +1,4 @@
+import { legacyWebPath } from "@stubwise/shared";
 import { registerPersonMask } from "../services/people-known.js";
 import { backlogItemRequesters, backlogItems, projects, type Db } from "@stubwise/db";
 import type { SessionUser } from "../auth/session.js";
@@ -97,7 +98,7 @@ export async function requestRoutes(fastify: FastifyInstance): Promise<void> {
         requesterIds: requestersOf.get(r.id) ?? [],
         requestCount: r.requestCount,
         createdAt: r.createdAt.toISOString(),
-        webHref: `/backlog/${r.id}`,
+        webHref: legacyWebPath.backlogItem(r.id),
       }));
     },
   );

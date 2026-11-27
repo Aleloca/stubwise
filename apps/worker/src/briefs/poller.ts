@@ -1,3 +1,4 @@
+import { projectAppUrl } from "@stubwise/notifications";
 import { notifications, projectBriefs, projects, type Db, projectNotArchived, projectQueueRunnable } from "@stubwise/db";
 import {
   briefHeadline,
@@ -494,9 +495,9 @@ async function publishBrief(
     kind: "project.brief",
     briefId: brief.id,
     projectName: brief.projectName,
-    // La ROADMAP e non la pagina del brief: il brief è il racconto della
-    // settimana, e lì sta in mezzo agli eventi che racconta.
-    projectUrl: `${base}/projects/${brief.projectId}/roadmap`,
+    // La panoramica del progetto col brief aperto (`?brief=`): la roadmap del
+    // web vecchio non ha un equivalente nella nuova app (ritiro del web vecchio).
+    projectUrl: await projectAppUrl(deps.db, base, brief.projectId, { briefId: brief.id }),
     periodStart: brief.periodStart,
     periodEnd: brief.periodEnd,
     headline,

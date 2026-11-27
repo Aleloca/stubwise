@@ -1,3 +1,4 @@
+import { appUrl } from "@stubwise/shared";
 import { notificationDeliveries, notifications, projects, users, type Db, projectNotArchived } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
 import {
@@ -214,6 +215,8 @@ export interface BuildPulseEventArgs {
   /** UUID di QUESTO pulse: l'ancora con cui il server ritrova tutte le copie. */
   pulseId: string;
   projectId: string;
+  /** Il codice del progetto: le richieste nella nuova app (`app-links`). */
+  projectCode: string;
   projectName: string;
   /** PUBLIC_URL dell'istanza (senza slash finale); vuoto = solo il path. */
   publicUrl: string;
@@ -247,9 +250,8 @@ export function buildPulseEvent(args: BuildPulseEventArgs): ProjectPulseEvent {
     kind: "project.pulse",
     pulseId: args.pulseId,
     projectName: args.projectName,
-    // La pagina backlog FILTRATA sul progetto: `/backlog` è una lista globale,
-    // il progetto è un parametro di ricerca (vedi `apps/web/src/routes/backlog`).
-    projectUrl: `${base}/backlog?projectId=${args.projectId}`,
+    // Le richieste (il backlog) del progetto nella nuova app.
+    projectUrl: appUrl(base, { to: "requests", projectCode: args.projectCode }),
     idleDays: args.idleDays,
     // `giorni di fermo: N` e non "da N giorni": il testo non ha regole di
     // plurale (lo compone il worker, non il catalogo i18n), e "da 1 giorni"
@@ -307,6 +309,7 @@ export interface PulsePollerDeps {
 /** Progetto abilitato al pulse, con quel che serve a decidere se mandarlo. */
 interface PulseProject {
   id: string;
+  code: string;
   name: string;
   pulseEveryDays: number;
   pulseLastSentAt: Date | null;
@@ -337,6 +340,7 @@ export async function pollPulseOnce(deps: PulsePollerDeps): Promise<number> {
     enabled = await deps.db
       .select({
         id: projects.id,
+        code: projects.code,
         name: projects.name,
         pulseEveryDays: projects.pulseEveryDays,
         pulseLastSentAt: projects.pulseLastSentAt,
@@ -398,6 +402,7 @@ async function sendPulseForProject(
   const event = buildPulseEvent({
     pulseId,
     projectId: project.id,
+    projectCode: project.code,
     projectName: project.name,
     publicUrl: deps.publicUrl,
     idleDays,

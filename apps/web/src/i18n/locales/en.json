@@ -1150,7 +1150,9 @@
           "slack_linked": "Slack account linked by someone else",
           "bitbucket_linked": "Bitbucket username linked by someone else",
           "vault_device_sealed": "Mac paired with the vault",
-          "vault_device_seal_revoked": "Mac removed from the vault"
+          "vault_device_seal_revoked": "Mac removed from the vault",
+          "vault_seal_added": "Another passkey opens the vault",
+          "vault_reveal_burst": "Many vault reads in a few minutes"
         }
       }
     },
@@ -3696,6 +3698,8 @@
       "copied": "Copied: the clipboard is cleared in 30 seconds.",
       "copyFailed": "The browser did not allow copying: use Show.",
       "revealFailed": "The password could not be opened.",
+      "revealRateLimited_one": "Too many vault passwords opened in a few minutes: you can open a new one in {{count}} minute.",
+      "revealRateLimited_other": "Too many vault passwords opened in a few minutes: you can open a new one in {{count}} minutes.",
       "readers": {
         "open": "Readers",
         "openAria": "Readers of {{name}}",

@@ -198,8 +198,10 @@ describe("il cassetto Google: «Collega»", () => {
       "_blank",
       "noopener",
     );
+    // Senza ponte è la build web: il ritorno va sulla nuova app (`client: "web"`).
     expect(seen.find((r) => r.path === "/api/me/google/connect")!.body).toEqual({
       workspaceId: WS,
+      client: "web",
     });
     // Il consenso nel browser: la casella arriva dopo qualche rilettura.
     await vi.advanceTimersByTimeAsync(3_000);
@@ -209,7 +211,7 @@ describe("il cassetto Google: «Collega»", () => {
   });
 
   it("web: la scheda aperta nel clic riceve l'URL di Google (e perde l'opener); nessuna scheda nuova", async () => {
-    installFakeServer({
+    const { seen } = installFakeServer({
       "GET /api/me/google/workspaces": { body: [workspace()] },
       "POST /api/me/google/connect": { body: { authorizeUrl: "https://accounts.google.com/x" } },
       "GET /api/me/google/accounts": { body: [] },
@@ -228,6 +230,8 @@ describe("il cassetto Google: «Collega»", () => {
     await vi.waitFor(() => expect(tab.location.href).toBe("https://accounts.google.com/x"));
     expect(tab.opener).toBeNull();
     expect(opened).not.toHaveBeenCalled();
+    // Link della nuova app (54): il ritorno va su /app/#/preferences/account, non sul web vecchio.
+    expect(seen.find((r) => r.path === "/api/me/google/connect")!.body).toMatchObject({ client: "web" });
   });
 
   it("web: se il collegamento non parte, la scheda aperta nel clic si chiude", async () => {
@@ -289,8 +293,10 @@ describe("il cassetto Google: «Collega»", () => {
     const pending = drive.connectGoogle({ workspaceId: WS2 });
     await vi.advanceTimersByTimeAsync(3_000);
     await expect(pending).resolves.toMatchObject({ status: "connected" });
+    // Senza ponte è la build web: il ritorno va sulla nuova app (`client: "web"`).
     expect(seen.find((r) => r.path === "/api/me/google/connect")!.body).toEqual({
       workspaceId: WS2,
+      client: "web",
     });
   });
 

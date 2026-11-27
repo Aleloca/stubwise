@@ -1,6 +1,6 @@
 import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   credentialAccessLog,
@@ -15,6 +15,8 @@ import {
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
+import { listInbox } from "../services/inbox.js";
+import { REVEAL_BURST } from "../vault/credentials-service.js";
 import {
   addMember,
   createUserWithPat,
@@ -669,5 +671,55 @@ describe("credenziali della cassaforte", () => {
       expect(log).toEqual([expect.objectContaining({ credentialId: null, userEmail: "dev@example.com" })]);
       expect((await req("DELETE", `/api/credentials/${devReadable}`, lead.pat!)).statusCode).toBe(404);
     });
+  });
+});
+
+/**
+ * C2 (indurimento): una raffica di letture della stessa persona. Le soglie sono
+ * `REVEAL_BURST` (credentials-service.ts); il test le legge da lì, così una
+ * soglia cambiata non lo rende cieco.
+ */
+describe("C2: una raffica di reveal della stessa persona", () => {
+  it("alla soglia di avviso: security.alert alla persona e agli altri full admin, una volta; oltre il tetto 429 senza riga; un segreto già letto nella finestra resta leggibile", async () => {
+    const user = await createUserWithPat(app, "burst@example.com");
+    await addMember(app, projectId, user.id, "developer");
+    const session = { cookie: await fullSessionCookie(app, user.id) };
+    const keyId = await confirmedKey(user.id);
+    const ids: string[] = [];
+    for (let i = 0; i <= REVEAL_BURST.limitAt; i++) {
+      ids.push(await seedCredential({ project: projectId, createdBy: admin.id, readers: [user.id], copiesFor: [keyId], service: `Raffica ${i}` }));
+    }
+    const burstAlerts = async (userId: string) =>
+      (await listInbox(testDb.db, { userId, lang: "it" })).items.filter(
+        (i) => i.kind === "security.alert" && /letture/i.test(i.text),
+      );
+    const adminBefore = (await burstAlerts(admin.id)).length;
+    const reveal = (id: string) => req("POST", `/api/credentials/${id}/reveal`, session, { action: "copy" });
+
+    for (let i = 0; i < REVEAL_BURST.alertAt - 1; i++) expect((await reveal(ids[i]!)).statusCode).toBe(200);
+    expect(await burstAlerts(user.id)).toHaveLength(0);
+    expect((await reveal(ids[REVEAL_BURST.alertAt - 1]!)).statusCode).toBe(200);
+    expect(await burstAlerts(user.id)).toHaveLength(1);
+    expect(await burstAlerts(admin.id)).toHaveLength(adminBefore + 1);
+
+    for (let i = REVEAL_BURST.alertAt; i < REVEAL_BURST.limitAt; i++) expect((await reveal(ids[i]!)).statusCode).toBe(200);
+    // Un avviso per finestra, non uno per lettura.
+    expect(await burstAlerts(user.id)).toHaveLength(1);
+
+    // Il segreto più vecchio della finestra ha 7 minuti: si riapre fra 3 (non 10 fissi).
+    // Il più vecchio letto ANCHE di recente non conta: esce per primo quello la cui ULTIMA lettura è la più vecchia.
+    await testDb.db.execute(sql`update credential_access_log set created_at = now() - interval '7 minutes' where credential_id = ${ids[1]!}::uuid`);
+    await testDb.db.execute(sql`update credential_access_log set created_at = now() - interval '9 minutes' where credential_id = ${ids[0]!}::uuid`);
+    await testDb.db.insert(credentialAccessLog).values({ credentialId: ids[0]!, projectId, credentialSnapshot: "x", userId: user.id, userEmail: "burst@example.com", action: "show" });
+    const blocked = await reveal(ids[REVEAL_BURST.limitAt]!);
+    expect(blocked.statusCode).toBe(429);
+    expect(blocked.json()).toMatchObject({ code: "vault_reveal_rate_limited" });
+    const retry = (blocked.json() as { retryAfterSeconds: number }).retryAfterSeconds;
+    expect(retry).toBeGreaterThan(170);
+    expect(retry).toBeLessThanOrEqual(180);
+    expect(blocked.headers["retry-after"]).toBe(String(retry));
+    expect(await logRows(ids[REVEAL_BURST.limitAt]!)).toHaveLength(0);
+    // Ricopiare un segreto già letto nella finestra non è una lettura nuova.
+    expect((await reveal(ids[0]!)).statusCode).toBe(200);
   });
 });

@@ -62,10 +62,11 @@ describe("la parte Vault nella pagina di una persona", () => {
   // Nell'app la lista dei Mac di un'altra persona è del browser [VA 9]: la
   // parte c'è (al full admin) con una riga che apre lì la pagina della
   // persona, senza chiedere niente alla cassaforte.
-  it("nell'app: «Manage … Macs in the browser» apre la pagina della persona", async () => {
+  it("nell'app desktop: «Manage … Macs in the browser» apre la pagina della persona nella NUOVA app", async () => {
     vi.stubEnv("VITE_STUBWISE_BUILD", "app");
     const openWeb = vi.fn(async () => ({ ok: true }));
-    vi.stubGlobal("stubwise", { openWeb });
+    // Il ponte del preload (`api`): è l'app desktop, col PAT.
+    vi.stubGlobal("stubwise", { openWeb, api: {} });
     const spy = vi.spyOn(vault, "listMacsOf");
     // Nella build «app» chi guarda è la persona della sessione del livello dati.
     setSessionPersonId("p-roberta");
@@ -74,12 +75,28 @@ describe("la parte Vault nella pagina di una persona", () => {
       renderRoute("/admin/people/p-laura", "p-roberta");
       const p = await part();
       await user.click(p.getByRole("button", { name: "Manage Laura Costa's Macs in the browser" }));
-      expect(openWeb).toHaveBeenCalledWith(expect.stringMatching(/\/admin\/people\/p-laura$/));
+      // Ritiro del web vecchio (inventario 1.2): il web vecchio quella pagina non ce l'ha.
+      expect(openWeb).toHaveBeenCalledWith("/app/#/admin/people/p-laura");
       expect(spy).not.toHaveBeenCalled();
     } finally {
       spy.mockRestore();
       vi.unstubAllEnvs();
       vi.unstubAllGlobals();
+    }
+  });
+
+  it("nella nuova app nel browser (senza ponte): la lista dei Mac si legge qui, come nel prototipo", async () => {
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+    const spy = vi.spyOn(vault, "listMacsOf");
+    setSessionPersonId("p-roberta");
+    try {
+      renderRoute("/admin/people/p-laura", "p-roberta");
+      await part();
+      await waitFor(() => expect(spy).toHaveBeenCalledWith("p-laura"));
+      expect(screen.queryByRole("button", { name: "Manage Laura Costa's Macs in the browser" })).toBeNull();
+    } finally {
+      spy.mockRestore();
+      vi.unstubAllEnvs();
     }
   });
 });

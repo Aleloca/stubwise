@@ -1,5 +1,6 @@
 // Area 11, F1: portato dal prototipo (`apps/desktop/src/renderer/domain/
 // productDocs/richText.ts`, la parte pura), una copia per server e client.
+import { PROJECT_CODE_PATTERN } from "../app-links.js";
 import { isSafeWebUrl } from "../safe-url.js";
 import type { InlineMark, RichText } from "../schemas/product-docs.js";
 
@@ -18,7 +19,7 @@ import type { InlineMark, RichText } from "../schemas/product-docs.js";
  * non condividere `lastIndex`. «ISO-8601» e simili corrispondono: un codice
  * che non esiste si mostra tenue come uno invisibile (R-G5, ruling P7).
  */
-export const CODE_TOKEN_RE = /\b[A-Z]{2,4}-(?:[DFRS])?\d+\b/g;
+export const CODE_TOKEN_RE = new RegExp(`\\b${PROJECT_CODE_PATTERN}-(?:[DFRS])?\\d+\\b`, "g");
 
 /** Una frase senza segni. */
 export function plain(text: string): RichText {

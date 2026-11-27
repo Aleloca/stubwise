@@ -1,3 +1,4 @@
+import { appRoute } from "@stubwise/shared";
 import {
   recordSearchHistoryBodySchema,
   searchDocsSemanticResultsSchema,
@@ -466,8 +467,8 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
           .limit(PER_GROUP + 1),
       ]);
       const automationHits = [
-        ...automationRows.map((a) => ({ kind: "automation" as const, id: a.id, code: a.code, label: a.name, route: `#/automations/${a.code}`, status: a.status })),
-        ...runRows.map((r) => ({ kind: "run" as const, id: r.id, code: `${r.code} #${r.n}`, label: r.title, route: `#/automations/${r.code}/runs/${r.n}`, status: r.status })),
+        ...automationRows.map((a) => ({ kind: "automation" as const, id: a.id, code: a.code, label: a.name, route: `#${appRoute({ to: "automation", automationCode: a.code })}`, status: a.status })),
+        ...runRows.map((r) => ({ kind: "run" as const, id: r.id, code: `${r.code} #${r.n}`, label: r.title, route: `#${appRoute({ to: "automation", automationCode: r.code, runNumber: r.n })}`, status: r.status })),
       ];
 
       // Area 11, F3: «In Product», per testo (la corsia veloce: niente embedder a ogni tasto),
