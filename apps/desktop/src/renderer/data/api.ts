@@ -188,6 +188,8 @@ export * as admin from "./admin";
 export * as me from "./me";
 // Lotto 10: la Cassaforte delle credenziali e la chiave del Mac (shape `vault.md`).
 export * as vault from "./vault";
+// I risultati aperti di recente nella ⌘K (shape `search-history.md`).
+export * as searchHistory from "./searchHistory";
 /** L'istanza (area 9b): `api.instance.listProviders()`, `api.instance.getUsage(…)`… */
 export * as instance from "./instance";
 /** Progetto → Settings (area 9c): `api.projectSettings.getProjectSettings(…)`… */

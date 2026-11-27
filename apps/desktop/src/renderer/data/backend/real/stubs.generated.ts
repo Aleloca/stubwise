@@ -177,6 +177,7 @@ export const runScript: typeof Fake.runScript = notIntegrated("runScript") as ne
 export const saveFilter: typeof Fake.saveFilter = notIntegrated("saveFilter") as never;
 export const saveFilterAs: typeof Fake.saveFilterAs = notIntegratedSync("saveFilterAs") as never;
 export const search: typeof Fake.search = notIntegrated("search") as never;
+export const searchHistory: typeof Fake.searchHistory = notIntegratedNamespace("searchHistory") as never;
 export const searchMentions: typeof Fake.searchMentions = notIntegrated("searchMentions") as never;
 export const sendMessage: typeof Fake.sendMessage = notIntegrated("sendMessage") as never;
 export const servers: typeof Fake.servers = notIntegratedNamespace("servers") as never;

@@ -10,6 +10,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { placeEvent, settleSaved } from "./calendarCache";
+import type { RecentResult } from "./searchHistoryModel";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { subscribeAccess } from "@backend/runtime";
 import * as api from "@backend/api";
@@ -742,6 +743,36 @@ export function useLatestBrief(projectId: string) {
     queryKey: queryKeys.latestBrief(me, projectId),
     queryFn: () => api.getLatestBrief(projectId),
   });
+}
+
+/**
+ * I risultati aperti di recente nella ⌘K (shape `search-history.md`): solo a
+ * query vuota; con `repositoryId`, quelli di quello spazio Docs. Lettura
+ * accessoria: un errore non ferma la ⌘K (il gruppo semplicemente non c'è).
+ */
+export function useRecentResults(repositoryId: string | null, enabled: boolean) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "recentResults", repositoryId] as const,
+    queryFn: () => api.searchHistory.listRecentResults(repositoryId),
+    enabled,
+    retry: false,
+  });
+}
+
+/** Ricorda, toglie e svuota i recenti; ogni scrittura rilegge i recenti di chi guarda. */
+export function useRecentResultWrites() {
+  const me = useSessionPersonId();
+  const client = useQueryClient();
+  const reload = () => client.invalidateQueries({ queryKey: ["as", me, "recentResults"] });
+  const remember = useMutation({ mutationFn: api.searchHistory.rememberResult, onSettled: reload });
+  const forget = useMutation({
+    mutationFn: (r: { type: RecentResult["type"]; entityId: string }) =>
+      api.searchHistory.forgetResult(r.type, r.entityId),
+    onSettled: reload,
+  });
+  const clear = useMutation({ mutationFn: () => api.searchHistory.clearRecentResults(), onSettled: reload });
+  return { remember, forget, clear };
 }
 
 /** Un brief per id, anche non l'ultimo (`null` = non c'è o non si vede). */
