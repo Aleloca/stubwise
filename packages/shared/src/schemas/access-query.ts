@@ -10,7 +10,7 @@ import { z } from "zod";
  * sono null, e `kind` lo apre `readerSchema` sui client.
  */
 export const accessReasonSchema = z.object({
-  kind: z.enum(["full_admin", "role", "grant", "department"]),
+  kind: z.enum(["full_admin", "role", "grant", "department", "workspace"]),
   roleId: z.uuid().nullable().default(null),
   roleName: z.string().nullable().default(null),
   byUserId: z.uuid().nullable().default(null),
@@ -18,6 +18,9 @@ export const accessReasonSchema = z.object({
   departmentId: z.uuid().nullable().default(null),
   /** Area 9, F8 (additivo): il nome del reparto, per «via <reparto>». */
   departmentName: z.string().nullable().default(null),
+  /** Workspace (lotto 4, additivi): da quale workspace, col ruolo di workspace in `roleId`/`roleName`. */
+  workspaceId: z.uuid().nullable().default(null),
+  workspaceName: z.string().nullable().default(null),
 });
 export type AccessReason = z.infer<typeof accessReasonSchema>;
 

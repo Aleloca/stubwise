@@ -198,3 +198,18 @@ describe("lotto 3: l'anteprima del ruolo dice last_manager (POST /api/roles/:id/
     expect((await ask(outsider.headers.cookie)).lastManager).toEqual({ blocked: true, projectId: null, projectCode: null });
   });
 });
+
+describe("lotto 4: «Chi può farlo?» dice da dove si vede (la fonte `workspace`)", () => {
+  it("whoCan e whatCan: un permesso del ruolo di workspace ha il motivo `workspace`, col nome della workspace e del ruolo", async () => {
+    const { users } = await import("@stubwise/db");
+    const { eq } = await import("drizzle-orm");
+    const { whatCan } = await import("./access-query.js");
+    const { projectId, wanda } = await seed("viewer");
+    const [admin] = await db.select({ id: users.id }).from(users).where(eq(users.role, "admin")).limit(1);
+    const viewer = actorAs(admin!.id, "admin");
+    const person = (await whoCan(db, viewer, "tickets.view_all", projectId)).people.find((p) => p.userId === wanda.id)!;
+    expect(person.reasons).toEqual([expect.objectContaining({ kind: "workspace", workspaceName: "Clienti", roleName: "Viewer" })]);
+    const perms = (await whatCan(db, viewer, wanda.id, projectId)).projects[0]!.permissions;
+    expect(perms.find((p) => p.permission === "tickets.view_all")!.reasons).toEqual([expect.objectContaining({ kind: "workspace", workspaceName: "Clienti" })]);
+  });
+});
