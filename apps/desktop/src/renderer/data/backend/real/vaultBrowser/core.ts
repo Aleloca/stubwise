@@ -39,10 +39,28 @@ import { toBase64Url } from "./bytes";
 /** 15 minuti senza uso (design §7). */
 export const IDLE_MS = 15 * 60_000;
 
+/**
+ * m-1 (seconda revisione di sicurezza): una pagina ostile può mandare
+ * `touch` e `reveal` al worker da sé. Due tetti che nessun messaggio sposta:
+ * una durata ASSOLUTA dallo sblocco, e un numero di reveal per sblocco;
+ * oltre, la cassaforte si richiude e vuole di nuovo la passkey.
+ */
+export const MAX_OPEN_MS = 60 * 60_000;
+export const REVEALS_PER_UNLOCK = 30;
+
 /** Quanto resta valida una PRF ricevuta senza lo sblocco che la consuma. */
 export const STASH_MS = 2 * 60_000;
 
-export type LockReason = "user" | "idle" | "logout" | "pagehide" | "session" | "remote" | "reauth";
+export type LockReason =
+  | "user"
+  | "idle"
+  | "expired"
+  | "reveal_limit"
+  | "logout"
+  | "pagehide"
+  | "session"
+  | "remote"
+  | "reauth";
 
 export type CoreRequest =
   | { t: "prepare" }
@@ -127,6 +145,10 @@ export class VaultCore {
     /** Il `sessionTag` del SERVER all'apertura (I-3); `null` da un server di prima. */
     serverTag: string | null;
     lastUseAt: number;
+    /** Lo sblocco: la durata assoluta parte da qui (m-1). */
+    openedAt: number;
+    /** I reveal chiesti da questo sblocco (m-1). */
+    reveals: number;
   } | null = null;
   private timer: unknown = null;
   private stashed: { prf: ArrayBuffer; at: number } | null = null;
@@ -159,7 +181,7 @@ export class VaultCore {
   }
 
   private closesAt(): number {
-    return this.key!.lastUseAt + IDLE_MS;
+    return Math.min(this.key!.lastUseAt + IDLE_MS, this.key!.openedAt + MAX_OPEN_MS);
   }
 
   private arm(): void {
@@ -170,6 +192,10 @@ export class VaultCore {
   }
 
   private expireIfDue(): boolean {
+    if (this.key && this.deps.now() - this.key.openedAt > MAX_OPEN_MS) {
+      this.lock("expired");
+      return true;
+    }
     if (this.key && this.deps.now() - this.key.lastUseAt > IDLE_MS) {
       this.lock("idle");
       return true;
@@ -397,6 +423,8 @@ export class VaultCore {
             sessionTag: req.sessionTag,
             serverTag: server.serverTag,
             lastUseAt: this.deps.now(),
+            openedAt: this.deps.now(),
+            reveals: 0,
           };
           this.arm();
           this.deps.emit({ t: "state", state: "open", closesAt: this.closesAt() });
@@ -407,7 +435,12 @@ export class VaultCore {
       }
       case "reveal": {
         const k = await this.live(req.personId, req.sessionTag);
-        if (!k) return { ok: false, code: "vault_locked" };
+        if (!k || !this.key) return { ok: false, code: "vault_locked" };
+        if (this.key.reveals >= REVEALS_PER_UNLOCK) {
+          this.lock("reveal_limit");
+          return { ok: false, code: "vault_locked" };
+        }
+        this.key.reveals += 1;
         const privateKey = k.privateKey;
         const r = await this.http<CredentialRevealResponse>(
           "POST",

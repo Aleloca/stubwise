@@ -9,7 +9,7 @@ import {
   wrapItemKey,
 } from "@stubwise/vault-crypto";
 import { beforeEach, describe, expect, it } from "vitest";
-import { IDLE_MS, STASH_MS, VaultCore, type CoreEvent } from "./core";
+import { IDLE_MS, MAX_OPEN_MS, REVEALS_PER_UNLOCK, STASH_MS, VaultCore, type CoreEvent } from "./core";
 import { toBase64Url } from "./bytes";
 
 // Il cuore della cassaforte nel browser, che gira nel Dedicated Worker
@@ -176,6 +176,45 @@ describe("il cuore della cassaforte nel worker", () => {
     clock += 2000;
     for (const t of [...timers]) if (t.at <= clock) t.fn();
     expect(await core.handle({ t: "status" })).toEqual({ state: "locked" });
+  });
+
+  it("m-1: 60 minuti dallo sblocco e chiude, qualunque touch arrivi; `closesAt` non va oltre", async () => {
+    await openCore(core);
+    const opened = clock;
+    for (let i = 0; i < 6; i++) {
+      clock += 10 * 60_000;
+      await core.handle({ t: "touch" });
+    }
+    expect(await core.handle({ t: "status" })).toEqual({ state: "open", closesAt: opened + MAX_OPEN_MS });
+    clock = opened + MAX_OPEN_MS + 1;
+    await core.handle({ t: "touch" });
+    expect(await core.handle({ t: "reveal", id: C1, action: "show", personId: ME, sessionTag: TAG })).toEqual({ ok: false, code: "vault_locked" });
+    expect(events.at(-1)).toMatchObject({ t: "state", state: "locked", reason: "expired" });
+  });
+
+  it("m-1: il timer chiude anche alla scadenza assoluta, senza un uso", async () => {
+    await openCore(core);
+    const opened = clock;
+    for (let i = 0; i < 5; i++) {
+      clock += 12 * 60_000;
+      await core.handle({ t: "touch" });
+    }
+    clock = opened + MAX_OPEN_MS + 2;
+    for (const t of [...timers]) if (t.at <= clock) t.fn();
+    expect(events.at(-1)).toMatchObject({ state: "locked", reason: "expired" });
+  });
+
+  it("m-1: dopo il tetto di reveal per sblocco si richiude e vuole di nuovo la passkey", async () => {
+    await openCore(core);
+    for (let i = 0; i < REVEALS_PER_UNLOCK; i++) {
+      expect(await core.handle({ t: "reveal", id: C1, action: "copy", personId: ME, sessionTag: TAG })).toMatchObject({ ok: true });
+    }
+    expect(await core.handle({ t: "reveal", id: C1, action: "copy", personId: ME, sessionTag: TAG })).toEqual({ ok: false, code: "vault_locked" });
+    expect(events.at(-1)).toMatchObject({ state: "locked", reason: "reveal_limit" });
+    const reveals = calls.filter((c) => c.path.endsWith("/reveal")).length;
+    expect(reveals).toBe(REVEALS_PER_UNLOCK);
+    await openCore(core);
+    expect(await core.handle({ t: "reveal", id: C1, action: "copy", personId: ME, sessionTag: TAG })).toMatchObject({ ok: true });
   });
 
   it("I-2: un 401 su una rotta della cassaforte chiude con `session`", async () => {
