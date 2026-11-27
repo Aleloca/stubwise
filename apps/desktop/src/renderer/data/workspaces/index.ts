@@ -129,6 +129,11 @@ export async function listWorkspaces(): Promise<WorkspaceList> {
       }))
       .sort((a, b) => a.name.localeCompare(b.name)),
     noWorkspaceCount: [...open].filter((p) => !inSome.has(p)).length,
+    workspaceOfProject: Object.fromEntries(
+      s.workspaceProjects
+        .filter((w) => seenProjectIds(me).has(w.projectId))
+        .map((w) => [w.projectId, w.workspaceId]),
+    ),
     canManage: canI(me, MANAGE),
   };
 }
@@ -264,6 +269,12 @@ function applyOperation(s: AccessState, op: WorkspaceOperation, newId?: string):
       s.workspaceProjects = s.workspaceProjects.filter((w) => w.projectId !== op.projectId);
       s.workspaceProjects.push({ workspaceId: op.workspaceId, projectId: op.projectId });
       return;
+    case "addProjects":
+      for (const projectId of op.projectIds) {
+        s.workspaceProjects = s.workspaceProjects.filter((w) => w.projectId !== projectId);
+        s.workspaceProjects.push({ workspaceId: op.workspaceId, projectId });
+      }
+      return;
     case "removeProject":
       s.workspaceProjects = s.workspaceProjects.filter((w) => w.projectId !== op.projectId);
       return;
@@ -304,6 +315,7 @@ function applyOperation(s: AccessState, op: WorkspaceOperation, newId?: string):
 function touchedProjects(s: AccessState, op: WorkspaceOperation): string[] {
   switch (op.kind) {
     case "create":
+    case "addProjects":
       return op.projectIds;
     case "addProject":
     case "removeProject":
@@ -339,6 +351,7 @@ function givenRoles(s: AccessState, op: WorkspaceOperation): RoleDef[] {
     s.workspaceMembers.filter((m) => m.workspaceId === workspaceId).map((m) => roleById(m.roleId)!);
   switch (op.kind) {
     case "addProject":
+    case "addProjects":
       return membersOf(op.workspaceId);
     case "addMember":
     case "setMemberRole":
@@ -352,7 +365,8 @@ function effectOf(me: string, op: WorkspaceOperation): WorkspaceEffect {
   const before = accessState();
   const after = structuredClone(before);
   applyOperation(after, op);
-  const projects = touchedProjects(before, op);
+  // Per codice: le frasi elencano i progetti in ordine.
+  const projects = [...touchedProjects(before, op)].sort((a, b) => codeOf(a).localeCompare(codeOf(b)));
   const effect: WorkspaceEffect = { projects: [], lastManager: [], escalation: [], notManaged: [] };
   for (const projectId of projects) {
     const was = seers(before, projectId);
@@ -372,7 +386,7 @@ function effectOf(me: string, op: WorkspaceOperation): WorkspaceEffect {
     if (missing.length > 0) effect.escalation.push({ code: codeOf(projectId), missing });
   }
   // D4: mettere, togliere o spostare un progetto vuole chi ne gestisce i membri.
-  if (op.kind === "create" || op.kind === "addProject" || op.kind === "removeProject") {
+  if (op.kind === "create" || op.kind === "addProject" || op.kind === "addProjects" || op.kind === "removeProject") {
     effect.notManaged = projects.filter((p) => !canI(me, MEMBERS_MANAGE, p)).map(codeOf);
   }
   return effect;
@@ -406,7 +420,8 @@ function targetRefusal(me: string, op: WorkspaceOperation): AdminRefusal | null 
   const seen = seenProjectIds(me);
   if ("workspaceId" in op && !workspaceById(s, op.workspaceId)) return refuse.notFound();
   if ("projectId" in op && !seen.has(op.projectId)) return refuse.notFound();
-  if (op.kind === "create" && op.projectIds.some((p) => !seen.has(p))) return refuse.notFound();
+  if ((op.kind === "create" || op.kind === "addProjects") && op.projectIds.some((p) => !seen.has(p)))
+    return refuse.notFound();
   if (op.kind === "addMember") {
     if (!isHumanId(op.personId)) return refuse.notFound();
     if (!isActive(op.personId)) return refuse.invalid("deactivated");

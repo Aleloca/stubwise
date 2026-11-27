@@ -2395,7 +2395,8 @@
       "projects": "Projects",
       "stalled": "Stalled",
       "activity": "Activity",
-      "archived": "Archived"
+      "archived": "Archived",
+      "people": "People"
     },
     "groups": {
       "waiting": "Waiting on you",
@@ -2693,6 +2694,132 @@
         },
         "nothingDeleted": "Nothing was deleted."
       }
+    }
+  },
+  "workspaces": {
+    "new": "New workspace",
+    "none": "No workspace",
+    "column": {
+      "label": "Projects and workspaces",
+      "all": "All projects",
+      "heading": "Workspaces",
+      "empty": "Group projects by client or area. People you invite to a workspace see all of its projects.",
+      "error": "Couldn't load workspaces.",
+      "retry": "Retry"
+    },
+    "page": {
+      "summary_one": "{{count}} project",
+      "summary_other": "{{count}} projects",
+      "people_one": "{{count}} person",
+      "people_other": "{{count}} people",
+      "addProjects": "Add projects",
+      "more": "More for {{name}}",
+      "rename": "Rename",
+      "delete": "Delete…",
+      "noneIntro": "Projects that aren't in a workspace. Only their members and full admins see them.",
+      "notFound": "This workspace doesn't exist or you can't see it.",
+      "back": "← All projects",
+      "empty": "No projects in {{name}} yet."
+    },
+    "people": {
+      "intro": "People in {{name}} see all of its projects with their workspace role. A role in a single project can only add to it.",
+      "invite": "Invite to {{name}}",
+      "inviteShort": "Invite",
+      "label": "People in {{name}}",
+      "empty": "No one is in {{name}} yet.",
+      "error": "Couldn't load the people of {{name}}.",
+      "fullAdmins": "Full admins see every project, so they aren't listed here.",
+      "deactivated": "(deactivated)",
+      "plusRole": "+ {{role}} in {{code}}",
+      "more_one": "+{{count}} more",
+      "more_other": "+{{count}} more"
+    },
+    "panel": {
+      "close": "Close",
+      "role": "Role in {{name}}",
+      "roleChoice": "{{name}} · {{count}} permissions",
+      "roleMissing": "{{name}} — you don't have all of these permissions in {{codes}}",
+      "inEach": "In each project",
+      "fromWorkspace": "{{role}} — from the workspace",
+      "fromProject": "{{role}} — member of {{code}}",
+      "remove": "Remove from {{name}}…",
+      "removeStops": "{{name}} will stop seeing {{codes}}.",
+      "removeNothing": "{{name}} keeps seeing every project: as a member of each.",
+      "removeKeeps": "{{name}} stays a member of {{codes}}.",
+      "alsoProjects": "Also remove {{name}} from {{codes}}",
+      "removeConfirm": "Remove",
+      "changes_one": "{{count}} change",
+      "changes_other": "{{count}} changes",
+      "discard": "Discard",
+      "reauthRole": "change {{name}}'s workspace role",
+      "reauthRemove": "remove {{name}} from {{workspace}}"
+    },
+    "invite": {
+      "person": "Person",
+      "choose": "Choose someone",
+      "fullAdmin": "{{name}} — full admin: already sees everything",
+      "role": "Role",
+      "willSee_one": "{{name}} will see {{count}} project: {{codes}}.",
+      "willSee_other": "{{name}} will see {{count}} projects: {{codes}}.",
+      "newAccount": "Invite someone new to the instance",
+      "submit": "Invite",
+      "reauth": "add {{name}} to {{workspace}}"
+    },
+    "dialog": {
+      "name": "Name",
+      "projects": "Projects",
+      "movesHere": "in {{name}} — moves here",
+      "later": "You can add projects later.",
+      "cancel": "Cancel",
+      "create": "Create",
+      "add": "Add",
+      "save": "Save",
+      "delete": "Delete",
+      "addTitle": "Add projects to {{name}}",
+      "renameTitle": "Rename the workspace",
+      "deleteTitle": "Delete {{name}}?",
+      "deleteBody_one": "Its project stays, in No workspace.",
+      "deleteBody_other": "Its {{count}} projects stay, in No workspace.",
+      "deleteLosing_one": "{{count}} person will stop seeing them: they aren't members of any.",
+      "deleteLosing_other": "{{count}} people will stop seeing them: they aren't members of any.",
+      "nothingDeleted": "Nothing was deleted.",
+      "reauthCreate": "create {{name}} with its projects",
+      "reauthAdd": "add projects to {{name}}",
+      "reauthDelete": "delete {{name}}"
+    },
+    "effect": {
+      "start_one": "{{count}} person will start seeing {{code}}:",
+      "start_other": "{{count}} people will start seeing {{code}}:",
+      "stop_one": "{{count}} person will stop seeing {{code}}:",
+      "stop_other": "{{count}} people will stop seeing {{code}}:",
+      "and": " and ",
+      "namesMore_one": "{{names}} and {{count}} more",
+      "namesMore_other": "{{names}} and {{count}} more",
+      "who": "Who?"
+    },
+    "refusals": {
+      "notManaged": "You don't manage {{code}}'s members, so you can't change who sees it.",
+      "escalation": "You can't give this role: you don't have all of its permissions in {{code}}.",
+      "escalationAny": "You can't give this role: you don't have all of its permissions in every project of the workspace.",
+      "lastManager": "No one could manage {{code}}'s members any more. Give someone that role in {{code}} first.",
+      "last_manager": "No one could manage the members of one of these projects any more.",
+      "name_taken": "There's already a workspace with this name.",
+      "name_required": "Give the workspace a name.",
+      "name_too_long": "Keep the name under 60 characters.",
+      "already_member": "They're already in this workspace.",
+      "full_admin": "Full admins already see every project.",
+      "deactivated": "This person is deactivated.",
+      "forbidden": "You can't change workspaces.",
+      "generic": "Couldn't save. Try again."
+    },
+    "toast": {
+      "created": "{{name}} created.",
+      "added_one": "{{codes}} is now in {{name}}.",
+      "added_other": "{{codes}} are now in {{name}}.",
+      "deleted": "Workspace deleted.",
+      "joined": "{{name}} joined {{workspace}} as {{role}}.",
+      "removed": "{{name}} is no longer in {{workspace}}.",
+      "saved": "Saved"
     }
   },
   "settings": {

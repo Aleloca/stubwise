@@ -22,6 +22,8 @@ export interface WorkspaceList {
   workspaces: WorkspaceSummary[];
   /** I progetti aperti e visibili fuori da ogni workspace («No workspace»). */
   noWorkspaceCount: number;
+  /** La workspace di ogni progetto visibile che ne ha una (aperti e archiviati). */
+  workspaceOfProject: Record<string, string>;
   /** `workspaces.manage`: crea, rinomina, elimina, aggiunge progetti e persone. */
   canManage: boolean;
 }
@@ -94,6 +96,8 @@ export interface PersonRef {
 export type WorkspaceOperation =
   | { kind: "create"; projectIds: string[] }
   | { kind: "addProject"; workspaceId: string; projectId: string }
+  /** «Add projects…»: più progetti insieme (ognuno si scrive poi con `setProjectWorkspace`). */
+  | { kind: "addProjects"; workspaceId: string; projectIds: string[] }
   | { kind: "removeProject"; projectId: string }
   | { kind: "delete"; workspaceId: string }
   | { kind: "addMember"; workspaceId: string; personId: string; roleId: string }

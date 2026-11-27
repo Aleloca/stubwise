@@ -18,6 +18,9 @@ import {
   useQueuePause,
   useSetPinned,
   useTasks,
+  useWorkspace,
+  useWorkspaces,
+  workspacesAvailable,
 } from "../../data/queries";
 import type { Project, ProjectPulse } from "../../data/types";
 import { can, useViewer } from "../../data/viewing";
@@ -33,6 +36,8 @@ import { ArchivedProjects } from "./ArchivedProjects";
 import { NewProjectDialog } from "./NewProjectDialog";
 import { PeopleActivity, PeopleActivityBar, PeopleActivityForbidden } from "./PeopleActivity";
 import { PortfolioStalled } from "./PortfolioStalled";
+import { AddProjectsDialog, DeleteWorkspaceDialog, RenameWorkspaceDialog } from "./workspaces/dialogs";
+import { WorkspacePeople } from "./workspaces/WorkspacePeople";
 import {
   NO_FILTERS,
   filterProjects,
@@ -41,8 +46,11 @@ import {
   type PortfolioFilters,
 } from "./portfolio";
 
-/** Le schede; «Archived» (area 9c) solo per chi vede almeno un archiviato. */
-const TABS = ["projects", "stalled", "activity", "archived"] as const;
+/**
+ * Le schede; «Archived» (area 9c) solo per chi vede almeno un archiviato.
+ * «People» solo dentro una workspace (shape `workspaces.md`).
+ */
+const TABS = ["projects", "stalled", "activity", "archived", "people"] as const;
 type Tab = (typeof TABS)[number];
 
 const OPEN_FAMILIES = ["todo", "active"] as const;
@@ -78,7 +86,15 @@ export function AllProjectsPage() {
   const pinned = usePinnedProjects();
   const departments = useDepartments().data;
   const setPinned = useSetPinned();
-  const search = useSearch({ strict: false }) as { view?: string };
+  const search = useSearch({ strict: false }) as { view?: string; workspace?: string };
+  // Shape `workspaces.md`: `?workspace=<slug>` filtra la pagina sui progetti
+  // della workspace, `none` su quelli fuori da ogni workspace. Nella build app
+  // le workspace restano «in arrivo»: il parametro non vale.
+  const workspaceSlug = workspacesAvailable() ? search.workspace : undefined;
+  const inNone = workspaceSlug === "none";
+  const workspaceList = useWorkspaces().data;
+  const workspace = useWorkspace(workspaceSlug);
+  const [workspaceDialog, setWorkspaceDialog] = useState<"add" | "rename" | "delete" | null>(null);
   // «By person» nella scheda Activity: dall'indirizzo, così un link la apre.
   const personView = search.view === "person";
   const canPeople = can(viewer, "people.activity.view");
@@ -86,7 +102,9 @@ export function AllProjectsPage() {
   const [tab, setTab] = useState<Tab>(
     search.view === "archived"
       ? "archived"
-      : search.view === "stalled"
+      : search.view === "people" && search.workspace && search.workspace !== "none"
+        ? "people"
+        : search.view === "stalled"
         ? "stalled"
         : personView
           ? "activity"
@@ -100,13 +118,26 @@ export function AllProjectsPage() {
     if (search.view === "stalled") setTab("stalled");
   }, [search.view]);
   const archived = useArchivedProjects();
-  const archivedRows = archived.data ?? [];
+  // Dentro una workspace anche gli archiviati sono i suoi (D6).
+  const inScope = useCallback(
+    (projectId: string) =>
+      !workspaceSlug ||
+      (inNone
+        ? !workspaceList?.workspaceOfProject[projectId]
+        : (workspace.data?.projectIds ?? []).includes(projectId)),
+    [workspaceSlug, inNone, workspaceList, workspace.data],
+  );
+  const archivedRows = (archived.data ?? []).filter((r) => inScope(r.projectId));
   // `?view=archived` per chi non ne vede nessuno apre Projects, senza messaggio.
   const shownTab: Tab =
-    tab === "archived" && archived.isSuccess && archivedRows.length === 0 ? "projects" : tab;
+    (tab === "archived" && archived.isSuccess && archivedRows.length === 0) ||
+    (tab === "people" && (!workspaceSlug || inNone))
+      ? "projects"
+      : tab;
   const tabs = TABS.filter(
     (key) =>
-      key !== "archived" || archivedRows.length > 0 || (tab === "archived" && archived.isPending),
+      (key !== "people" || (!!workspaceSlug && !inNone)) &&
+      (key !== "archived" || archivedRows.length > 0 || (tab === "archived" && archived.isPending)),
   );
   const heading = useRef<HTMLHeadingElement>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -155,22 +186,26 @@ export function AllProjectsPage() {
     () => new Map((pulses.data ?? []).map((p) => [p.projectId, p])),
     [pulses.data],
   );
+  const scoped = useMemo(
+    () => (projects.data ?? []).filter((p) => inScope(p.id)),
+    [projects.data, inScope],
+  );
   const clients = useMemo(
     () =>
-      [...new Set((projects.data ?? []).flatMap((p) => (p.clientName ? [p.clientName] : [])))].sort(
+      [...new Set(scoped.flatMap((p) => (p.clientName ? [p.clientName] : [])))].sort(
         (a, b) => a.localeCompare(b, i18n.language),
       ),
-    [projects.data, i18n.language],
+    [scoped, i18n.language],
   );
   const filtered = useMemo(
     () =>
       filterProjects(
-        projects.data ?? [],
+        scoped,
         filters,
         pinnedIds,
         filters.departmentId ? departmentProjectIds : null,
       ),
-    [projects.data, filters, pinnedIds, departmentProjectIds],
+    [scoped, filters, pinnedIds, departmentProjectIds],
   );
   const groups = groupPortfolio(filtered, pulseById, i18n.language);
   const set = (patch: Partial<PortfolioFilters>) => setFilters((f) => ({ ...f, ...patch }));
@@ -263,15 +298,30 @@ export function AllProjectsPage() {
     projects.data === undefined ||
     pulses.data === undefined ||
     pinned.data === undefined ||
-    (!!filters.departmentId && deptTasks.data === undefined);
+    (!!filters.departmentId && deptTasks.data === undefined) ||
+    (!!workspaceSlug && !inNone && workspace.data === undefined) ||
+    (inNone && workspaceList === undefined);
   const failed = [projects, pulses, pinned, deptTasks].filter((q) => q.isError);
 
   let body;
-  if (shownTab === "archived") {
+  if (workspaceSlug && !inNone && workspace.isError) {
+    body = (
+      <PageEmpty
+        title={t("workspaces.page.notFound")}
+        action={
+          <Link to="/projects" className={secondaryButton}>
+            {t("workspaces.page.back")}
+          </Link>
+        }
+      />
+    );
+  } else if (shownTab === "people" && workspace.data) {
+    body = <WorkspacePeople workspace={workspace.data} />;
+  } else if (shownTab === "archived") {
     // Gli archiviati non dipendono dai filtri del portafoglio.
     body = (
       <ArchivedProjects
-        rows={archived.data}
+        rows={archived.data ? archivedRows : undefined}
         state={archived.isError ? "error" : archived.isPending ? "loading" : "ready"}
         onRetry={() => void archived.refetch()}
         onFocusTitle={onFocusTitle}
@@ -304,6 +354,19 @@ export function AllProjectsPage() {
           canCreate ? (
             <button type="button" className={primaryButton} onClick={() => setCreating(true)}>
               {t("projects.new")}
+            </button>
+          ) : undefined
+        }
+      />
+    );
+  } else if (workspace.data && scoped.length === 0) {
+    body = (
+      <PageEmpty
+        title={t("workspaces.page.empty", { name: workspace.data.name })}
+        action={
+          workspace.data.canManage ? (
+            <button type="button" className={primaryButton} onClick={() => setWorkspaceDialog("add")}>
+              {t("workspaces.page.addProjects")}
             </button>
           ) : undefined
         }
@@ -353,7 +416,11 @@ export function AllProjectsPage() {
     body = <ActivityFeed projects={filtered} />;
   }
 
-  const title = t("nav.projects");
+  const title = workspace.data
+    ? workspace.data.name
+    : inNone
+      ? t("workspaces.none")
+      : t("nav.projects");
   const departmentName = departments?.find((d) => d.id === filters.departmentId)?.name;
   return (
     <section className="flex h-full min-h-0 flex-col">
@@ -373,16 +440,63 @@ export function AllProjectsPage() {
               <span className="sr-only">{t("projects.count", { count: filtered.length })}</span>
             </span>
           )}
+          {workspace.data?.canManage && (
+            <span className="ml-auto flex items-center gap-1 self-center">
+              <button type="button" className={secondaryButton} onClick={() => setWorkspaceDialog("add")}>
+                {t("workspaces.page.addProjects")}
+              </button>
+              <MenuButton
+                label={<span aria-hidden="true">⋯</span>}
+                ariaLabel={t("workspaces.page.more", { name: workspace.data.name })}
+                className="inline-flex size-8 items-center justify-center rounded-md text-ink-muted hover:bg-ink/6"
+                menuLabel={t("workspaces.page.more", { name: workspace.data.name })}
+                align="right"
+              >
+                {(close) => (
+                  <MenuGroup>
+                    <button type="button" role="menuitem" className="w-full px-3 py-1.5 text-left text-sm hover:bg-ink/6" onClick={() => { close(); setWorkspaceDialog("rename"); }}>
+                      {t("workspaces.page.rename")}
+                    </button>
+                    <button type="button" role="menuitem" className="w-full px-3 py-1.5 text-left text-sm text-critical hover:bg-ink/6" onClick={() => { close(); setWorkspaceDialog("delete"); }}>
+                      {t("workspaces.page.delete")}
+                    </button>
+                  </MenuGroup>
+                )}
+              </MenuButton>
+            </span>
+          )}
           {canCreate && (
             <button
               type="button"
-              className={`${primaryButton} ml-auto self-center`}
+              className={`${primaryButton} ${workspace.data?.canManage ? "" : "ml-auto"} self-center`}
               onClick={() => setCreating(true)}
             >
               {t("projects.new")}
             </button>
           )}
         </div>
+        {workspace.data && (
+          <p className="-mt-2 text-sm text-ink-muted" data-workspace-summary>
+            {t("workspaces.page.summary", { count: scoped.length })}
+            {" · "}
+            <button type="button" className="underline" onClick={() => setTab("people")}>
+              {t("workspaces.page.people", { count: workspace.data.peopleCount })}
+            </button>
+          </p>
+        )}
+        {inNone && <p className="-mt-2 text-sm text-ink-muted">{t("workspaces.page.noneIntro")}</p>}
+        {workspace.data && workspaceDialog === "add" && (
+          <AddProjectsDialog workspace={workspace.data} onClose={() => setWorkspaceDialog(null)} />
+        )}
+        {workspace.data && workspaceDialog === "rename" && (
+          <RenameWorkspaceDialog workspace={workspace.data} onClose={() => setWorkspaceDialog(null)} />
+        )}
+        {workspace.data && workspaceDialog === "delete" && (
+          <DeleteWorkspaceDialog
+            workspace={{ ...workspace.data, projectCount: scoped.length }}
+            onClose={() => setWorkspaceDialog(null)}
+          />
+        )}
         <div
           ref={tabsRef}
           role="tablist"
@@ -410,7 +524,7 @@ export function AllProjectsPage() {
             </button>
           ))}
         </div>
-        {shownTab !== "archived" && (
+        {shownTab !== "archived" && shownTab !== "people" && (
           <div
             role="toolbar"
             aria-label={t(showPeople ? "projects.people.bar" : "projects.filter.label")}

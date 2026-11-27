@@ -2395,7 +2395,8 @@
       "projects": "Progetti",
       "stalled": "Ferme",
       "activity": "Attività",
-      "archived": "Archiviati"
+      "archived": "Archiviati",
+      "people": "Persone"
     },
     "groups": {
       "waiting": "Ti aspettano",
@@ -2693,6 +2694,132 @@
         },
         "nothingDeleted": "Non è stato eliminato niente."
       }
+    }
+  },
+  "workspaces": {
+    "new": "Nuova workspace",
+    "none": "Nessuna workspace",
+    "column": {
+      "label": "Progetti e workspace",
+      "all": "Tutti i progetti",
+      "heading": "Workspace",
+      "empty": "Raggruppa i progetti per cliente o per area. Chi inviti in una workspace ne vede tutti i progetti.",
+      "error": "Impossibile caricare le workspace.",
+      "retry": "Riprova"
+    },
+    "page": {
+      "summary_one": "{{count}} progetto",
+      "summary_other": "{{count}} progetti",
+      "people_one": "{{count}} persona",
+      "people_other": "{{count}} persone",
+      "addProjects": "Aggiungi progetti",
+      "more": "Altro per {{name}}",
+      "rename": "Rinomina",
+      "delete": "Elimina…",
+      "noneIntro": "I progetti che non stanno in una workspace. Li vedono solo i loro membri e i full admin.",
+      "notFound": "Questa workspace non esiste o non puoi vederla.",
+      "back": "← Tutti i progetti",
+      "empty": "Ancora nessun progetto in {{name}}."
+    },
+    "people": {
+      "intro": "Chi è in {{name}} ne vede tutti i progetti col ruolo di workspace. Un ruolo in un singolo progetto può solo aggiungere.",
+      "invite": "Invita in {{name}}",
+      "inviteShort": "Invita",
+      "label": "Le persone di {{name}}",
+      "empty": "Ancora nessuno in {{name}}.",
+      "error": "Impossibile caricare le persone di {{name}}.",
+      "fullAdmins": "I full admin vedono tutti i progetti, per questo non sono in elenco.",
+      "deactivated": "(disattivato)",
+      "plusRole": "+ {{role}} in {{code}}",
+      "more_one": "+{{count}} altro",
+      "more_other": "+{{count}} altri"
+    },
+    "panel": {
+      "close": "Chiudi",
+      "role": "Ruolo in {{name}}",
+      "roleChoice": "{{name}} · {{count}} permessi",
+      "roleMissing": "{{name}}: non hai tutti questi permessi in {{codes}}",
+      "inEach": "In ogni progetto",
+      "fromWorkspace": "{{role}}, dalla workspace",
+      "fromProject": "{{role}}, membro di {{code}}",
+      "remove": "Togli da {{name}}…",
+      "removeStops": "{{name}} smetterà di vedere {{codes}}.",
+      "removeNothing": "{{name}} continua a vedere ogni progetto, da membro di ciascuno.",
+      "removeKeeps": "{{name}} resta membro di {{codes}}.",
+      "alsoProjects": "Togli {{name}} anche da {{codes}}",
+      "removeConfirm": "Togli",
+      "changes_one": "{{count}} modifica",
+      "changes_other": "{{count}} modifiche",
+      "discard": "Annulla le modifiche",
+      "reauthRole": "cambiare il ruolo di workspace di {{name}}",
+      "reauthRemove": "togliere {{name}} da {{workspace}}"
+    },
+    "invite": {
+      "person": "Persona",
+      "choose": "Scegli una persona",
+      "fullAdmin": "{{name}}: full admin, vede già tutto",
+      "role": "Ruolo",
+      "willSee_one": "{{name}} vedrà {{count}} progetto: {{codes}}.",
+      "willSee_other": "{{name}} vedrà {{count}} progetti: {{codes}}.",
+      "newAccount": "Invita nell'istanza chi non ha un account",
+      "submit": "Invita",
+      "reauth": "aggiungere {{name}} a {{workspace}}"
+    },
+    "dialog": {
+      "name": "Nome",
+      "projects": "Progetti",
+      "movesHere": "in {{name}}: si sposta qui",
+      "later": "Puoi aggiungere i progetti dopo.",
+      "cancel": "Annulla",
+      "create": "Crea",
+      "add": "Aggiungi",
+      "save": "Salva",
+      "delete": "Elimina",
+      "addTitle": "Aggiungi progetti a {{name}}",
+      "renameTitle": "Rinomina la workspace",
+      "deleteTitle": "Eliminare {{name}}?",
+      "deleteBody_one": "Il suo progetto resta, in Nessuna workspace.",
+      "deleteBody_other": "I suoi {{count}} progetti restano, in Nessuna workspace.",
+      "deleteLosing_one": "{{count}} persona smetterà di vederli: non è membro di nessuno.",
+      "deleteLosing_other": "{{count}} persone smetteranno di vederli: non sono membri di nessuno.",
+      "nothingDeleted": "Non è stato eliminato niente.",
+      "reauthCreate": "creare {{name}} coi suoi progetti",
+      "reauthAdd": "aggiungere progetti a {{name}}",
+      "reauthDelete": "eliminare {{name}}"
+    },
+    "effect": {
+      "start_one": "{{count}} persona comincerà a vedere {{code}}:",
+      "start_other": "{{count}} persone cominceranno a vedere {{code}}:",
+      "stop_one": "{{count}} persona smetterà di vedere {{code}}:",
+      "stop_other": "{{count}} persone smetteranno di vedere {{code}}:",
+      "and": " e ",
+      "namesMore_one": "{{names}} e {{count}} altra",
+      "namesMore_other": "{{names}} e altre {{count}}",
+      "who": "Chi?"
+    },
+    "refusals": {
+      "notManaged": "Non gestisci i membri di {{code}}, quindi non puoi cambiare chi lo vede.",
+      "escalation": "Non puoi dare questo ruolo: non hai tutti i suoi permessi in {{code}}.",
+      "escalationAny": "Non puoi dare questo ruolo: non hai tutti i suoi permessi in ogni progetto della workspace.",
+      "lastManager": "Nessuno potrebbe più gestire i membri di {{code}}. Prima dai quel ruolo a qualcuno in {{code}}.",
+      "last_manager": "Nessuno potrebbe più gestire i membri di uno di questi progetti.",
+      "name_taken": "C'è già una workspace con questo nome.",
+      "name_required": "Dai un nome alla workspace.",
+      "name_too_long": "Tieni il nome sotto i 60 caratteri.",
+      "already_member": "Questa persona è già nella workspace.",
+      "full_admin": "I full admin vedono già tutti i progetti.",
+      "deactivated": "Questa persona è disattivata.",
+      "forbidden": "Non puoi modificare le workspace.",
+      "generic": "Impossibile salvare. Riprova."
+    },
+    "toast": {
+      "created": "{{name}} creata.",
+      "added_one": "{{codes}} ora è in {{name}}.",
+      "added_other": "{{codes}} ora sono in {{name}}.",
+      "deleted": "Workspace eliminata.",
+      "joined": "{{name}} ora è in {{workspace}} come {{role}}.",
+      "removed": "{{name}} non è più in {{workspace}}.",
+      "saved": "Salvato"
     }
   },
   "settings": {
