@@ -230,6 +230,22 @@ stessa scelta degli altri download binari. **[PI 10]**
   `data-image`, e le immagini restano spente come oggi. Un renderer vecchio
   con un server nuovo ignora l'attributo.
 
+## Note d'implementazione (28 nov 2026)
+
+- Approvato da 46 per il maintainer, [PI 1]–[PI 10] come proposti, con due
+  precisazioni: il calendario va nel registro (fatto, area 6), e l'host si
+  ricontrolla dopo la normalizzazione (IDN, IP in decimale, ottale,
+  esadecimale, `[::ffff:…]`) e senza credenziali (`address.ts`, coi test).
+- **[PI 10] cambiato**: la rotta NON è fuori dal catalogo MCP. L'elenco delle
+  esclusioni (`DeclaredMcpExclusion`) è chiuso, e le immagini binarie dei
+  Docs di prodotto ci stanno già come `download_file`
+  (`productDocs.image`). Per la parità MCP, decisa dal maintainer il 26 nov,
+  anche questa è `mail.image` con `tool: "download_file"`.
+- Un difetto trovato scrivendo i test del frame: l'HTML del server porta le
+  immagini già parcheggiate (`data-src`), quindi `neutralize` non le contava e
+  nella build app la fascia «Show images» non compariva mai. Ora la fascia
+  conta anche le posizioni numerate.
+
 ## Le scelte da confermare
 
 - **[PI 1]** Le immagini si chiedono per posizione nel messaggio, non con un

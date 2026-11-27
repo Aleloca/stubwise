@@ -7399,3 +7399,23 @@ deploy o di un rollback che la tocca.
   un ticket con un design attivo torna a scrivere il corpo (cioè il design),
   come prima; i testi già salvati su `origin_content` restano e «Remove
   design» li riporta.
+- **«Le immagini delle email passano dal nostro server» (28 nov 2026)**:
+  branch `feat/proxy-immagini-posta`, design
+  `docs/plans/2026-11-28-proxy-immagini-posta-design.md`. Nella nuova app (nel
+  browser e sul Mac) «Show images» funziona: le immagini remote si chiedono
+  al server per posizione (`GET /api/me/mail/:source/:id/images/:n`), che le
+  scarica col modulo `apps/server/src/mail-images/` (difese SSRF, solo
+  raster, mai SVG, 5 MB, 8 s, UA generico) e le restituisce coi suoi header.
+  `/original` numera le immagini (`data-image`). La CSP del frame si stringe
+  (`img-src data:` sempre), quella di `/app` e del Mac non cambia. Il web
+  vecchio resta com'è (carica dal mittente) fino al ritiro; sulle descrizioni
+  del calendario il bottone sparisce.
+  **Ordine**: prima `server` (healthy), poi `caddy`. L'app Mac si
+  ricostruisce a mano. Nessuna migrazione né env.
+  **Controllo dopo il deploy**: aprire nella nuova app un'email con
+  immagini, «Show original», «Show images». Le immagini compaiono, e nella
+  scheda Network partono solo richieste a `/api/me/mail/…/images/n`, nessuna
+  verso il mittente.
+  **Rollback**: sicuro. Un renderer nuovo con un server vecchio non trova
+  `data-image`, e le immagini restano spente come prima; un renderer vecchio
+  ignora l'attributo.

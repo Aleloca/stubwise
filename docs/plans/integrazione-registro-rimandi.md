@@ -336,6 +336,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 ## Area 6 — Posta e Calendario
 
+- **Le immagini nelle descrizioni degli eventi del calendario** *(S, 28 nov
+  2026, design `2026-11-28-proxy-immagini-posta-design.md`, PI 8)*: il proxy
+  delle immagini copre le email (per posizione, dal corpo in `email_bodies`),
+  non le descrizioni degli eventi, che non passano da lì. Nella nuova app,
+  sulle descrizioni, «Show images» non c'è più: la frase sulle immagini
+  bloccate resta. Il web vecchio, che le caricava dal mittente, verrà
+  cancellato. Si chiude con la stessa forma sugli eventi
+  (`…/calendar/events/:id/images/:n`), se serve.
+
 - Più account Google nel cassetto *(S, F1, decisione B(a) dell'orchestratrice)*:
   il server tiene una casella per Workspace; il cassetto del desktop ne mostra
   una (quella da ricollegare, se c'è, altrimenti la prima). La Posta e il

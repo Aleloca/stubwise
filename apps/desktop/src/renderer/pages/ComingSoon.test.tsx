@@ -559,6 +559,8 @@ const INTEGRATED_CALLS = new Set([
   // Area 8: «Clienti in attesa» della Home, dalla posta delle mie caselle.
   "mail.listWaitingCustomers",
   "mail.getMailThread",
+  // Le immagini delle email dal proxy del server, per posizione.
+  "mail.getMessageImage",
   "mail.searchMail",
   "mail.reproposeMessage",
   "mail.markRead",

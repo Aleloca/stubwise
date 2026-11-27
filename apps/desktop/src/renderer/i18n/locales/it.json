@@ -6383,6 +6383,8 @@
       "showText": "Mostra il testo",
       "imagesBlocked": "Le immagini esterne sono bloccate per proteggere la tua privacy.",
       "showImages": "Mostra le immagini",
+      "loadingImages": "Carico le immagini…",
+      "imagesCapped": "Si mostrano solo le prime {{count}} immagini.",
       "originalTitle": "Messaggio originale di {{name}}",
       "context": "Prima nella conversazione · Stubwise non ha fatto proposte da questo messaggio",
       "attachmentNotice": "Nell'app questo allegato si apre da Gmail.",
