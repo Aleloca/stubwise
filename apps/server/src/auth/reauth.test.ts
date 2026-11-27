@@ -565,6 +565,35 @@ describe("riconferma con passkey", () => {
     expect((await post("/api/pats", { cookie }, { name: "x" })).statusCode).toBe(201);
   });
 
+  it("I6 (indurimento): lo sblocco della cassaforte (purpose vault) NON apre le altre riconferme, solo le rotte della cassaforte", async () => {
+    const user = await createUserWithTotp();
+    const authenticator = new SoftAuthenticator(RP);
+    const [passkey] = await testDb.db.insert(userPasskeys).values({ userId: user.id, credentialId: authenticator.credentialId, publicKey: authenticator.publicKey, name: "Portatile" }).returning();
+    const cookie = await sessionAged(user.id, REAUTH_WINDOW_MS + 60_000);
+    const options = await post("/api/me/security/reauth/passkey/options", { cookie }, { purpose: "vault" });
+    expect(options.statusCode).toBe(200);
+    const res = await post("/api/me/security/reauth/passkey/verify", { cookie }, { response: authenticator.assert(options.json() as { challenge: string }) });
+    expect(res.statusCode).toBe(204);
+    // Una riconferma qualunque (creare un PAT) resta chiusa…
+    const pats = await post("/api/pats", { cookie }, { name: "x" });
+    expect(pats.statusCode).toBe(403);
+    expect(pats.json()).toMatchObject({ code: "reauth_required" });
+    // …mentre una rotta della cassaforte che la chiede passa il gate (qui risponde altro, non reauth_required).
+    const jwk = generateKeyPairSync("ec", { namedCurve: "P-256" }).publicKey.export({ format: "jwk" });
+    const vault = await post(
+      "/api/vault/keys",
+      { cookie },
+      {
+        publicKey: JSON.stringify({ kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y }),
+        seals: [{ passkeyId: passkey!.id, sealedPrivateKey: JSON.stringify({ v: 1, iv: randomBytes(12).toString("base64url"), ct: randomBytes(32).toString("base64url"), tag: "x" }) }],
+        device: "Safari su macOS",
+      },
+    );
+    // Il gate della riconferma lascia passare: la risposta è della rotta (la chiave, o
+    // vault_not_active se la cassaforte non è attiva), mai un 403 di riconferma.
+    expect(vault.statusCode, vault.body).not.toBe(403);
+  });
+
   it("senza passkey → 409 no_passkeys; via PAT → 403 session_required", async () => {
     const user = await createUserWithTotp();
     const cookie = await sessionAged(user.id, null);

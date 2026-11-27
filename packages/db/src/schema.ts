@@ -423,6 +423,9 @@ export const sessions = pgTable(
     // le azioni sensibili lo vogliono recente. Null = sessione di prima del
     // rilascio, o parziale.
     secondFactorAt: timestamp("second_factor_at", { withTimezone: true }),
+    // I6 (0238): l'ultimo sblocco della cassaforte con una passkey. NON è una
+    // riconferma: vale solo per le rotte che dichiarano `config.reauth: "vault"`.
+    vaultUnlockedAt: timestamp("vault_unlocked_at", { withTimezone: true }),
     // Challenge WebAuthn in corso (registrazione o uso di una passkey):
     // monouso, la verifica la cancella sempre.
     webauthnChallenge: text("webauthn_challenge"),

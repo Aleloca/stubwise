@@ -247,7 +247,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/activate",
     {
-      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
+      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: "vault" },
       schema: {
         body: vaultActivateBodySchema,
         response: { 204: z.null(), ...errorResponses },
@@ -290,7 +290,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/keys",
     {
-      config: { access: { kind: "user" }, reauth: true },
+      config: { access: { kind: "user" }, reauth: "vault" },
       schema: {
         body: vaultCreateKeyBodySchema,
         response: { 201: vaultCreateKeyResponseSchema, ...errorResponses, 400: errorSchema },
@@ -377,7 +377,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/keys/:id/seals",
     {
-      config: { access: { kind: "user" }, reauth: true },
+      config: { access: { kind: "user" }, reauth: "vault" },
       schema: {
         params: z.object({ id: z.uuid() }),
         body: vaultSealInputSchema,
@@ -519,7 +519,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/recovery-key",
     {
-      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
+      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: "vault" },
       schema: {
         body: vaultRecoveryKeyBodySchema,
         response: { 204: z.null(), ...errorResponses },
@@ -686,7 +686,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/recovery/challenge",
     {
-      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
+      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: "vault" },
       schema: { response: { 201: vaultRecoveryChallengeResponseSchema, ...errorResponses } },
     },
     async (request, reply) => {
@@ -706,7 +706,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/recovery/pending",
     {
-      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
+      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: "vault" },
       schema: {
         body: vaultRecoveryPendingBodySchema,
         response: { 200: vaultPendingResponseSchema, ...errorResponses },
@@ -727,7 +727,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/recovery/confirm/:personKeyId",
     {
-      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
+      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: "vault" },
       schema: {
         params: personKeyParams,
         body: vaultRecoveryConfirmBodySchema,
@@ -820,7 +820,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/device-seals",
     {
-      config: { access: { kind: "user" }, reauth: true },
+      config: { access: { kind: "user" }, reauth: "vault" },
       schema: {
         body: vaultDeviceSealBodySchema,
         response: { 201: vaultDeviceSealCreatedSchema, ...errorResponses },
@@ -899,7 +899,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/device-seals/:id",
     {
-      config: { access: { kind: "user" }, reauth: true, desktopVault: true },
+      config: { access: { kind: "user" }, reauth: "vault", desktopVault: true },
       schema: {
         params: z.object({ id: z.uuid() }),
         // Dal browser il corpo non serve; dal Mac `actorProof` è obbligatorio (sotto).
@@ -957,7 +957,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/users/:userId/device-seals/:id",
     {
-      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
+      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: "vault" },
       schema: {
         params: z.object({ userId: z.uuid(), id: z.uuid() }),
         response: { 204: z.null(), ...errorResponses },

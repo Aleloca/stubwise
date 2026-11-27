@@ -138,6 +138,8 @@ export interface SessionUser {
    * riconferma.
    */
   secondFactorAt?: Date | null;
+  /** I6: l'ultimo sblocco della cassaforte in questa sessione (vale solo per `config.reauth: "vault"`). */
+  vaultUnlockedAt?: Date | null;
 }
 
 declare module "fastify" {
@@ -240,6 +242,7 @@ export async function findSessionUser(db: Db, sessionId: string): Promise<Sessio
       expiresAt: sessions.expiresAt,
       stage: sessions.stage,
       secondFactorAt: sessions.secondFactorAt,
+      vaultUnlockedAt: sessions.vaultUnlockedAt,
       ...sessionUserSelection,
     })
     .from(sessions)
@@ -261,6 +264,7 @@ export async function findSessionUser(db: Db, sessionId: string): Promise<Sessio
     sessionId: row.sessionId,
     sessionStage: row.stage,
     secondFactorAt: row.secondFactorAt,
+    vaultUnlockedAt: row.vaultUnlockedAt,
   };
 }
 
