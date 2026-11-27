@@ -690,3 +690,30 @@ export async function removeWorkspaceMember(
   }
   return result;
 }
+
+/**
+ * ⌘K (shape `workspaces.md`): le workspace che chi guarda vede, col numero dei
+ * progetti visibili, e la workspace di ogni progetto visibile. Sincrona: la
+ * chiama la ricerca del prototipo, che ha già passato il cancello.
+ */
+export function workspacesForSearch(me: string): {
+  workspaces: { id: string; slug: string; name: string; projectCount: number }[];
+  nameOfProject: Map<string, string>;
+} {
+  const s = accessState();
+  const open = visibleProjectIds(me);
+  const seen = s.workspaces.filter((w) => seesWorkspace(me, w.id));
+  return {
+    workspaces: seen.map((w) => ({
+      id: w.id,
+      slug: w.slug,
+      name: w.name,
+      projectCount: projectsIn(s, w.id).filter((p) => open.has(p)).length,
+    })),
+    nameOfProject: new Map(
+      s.workspaceProjects
+        .filter((w) => open.has(w.projectId))
+        .map((w) => [w.projectId, workspaceById(s, w.workspaceId)?.name ?? ""]),
+    ),
+  };
+}

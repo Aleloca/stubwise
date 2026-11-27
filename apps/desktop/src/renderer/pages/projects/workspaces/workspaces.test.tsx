@@ -205,3 +205,28 @@ describe("New project dentro una workspace", () => {
     expect(visibleProjectIds("p-nicola").has(added.projectId)).toBe(true);
   });
 });
+
+describe("⌘K", () => {
+  it("il gruppo Workspaces apre All projects filtrato; i progetti portano la loro workspace", async () => {
+    const user = userEvent.setup();
+    const router = renderRoute("/home", ROBERTA);
+    await screen.findByRole("heading", { name: "Home", level: 1 });
+    await user.keyboard("{Control>}k{/Control}");
+    const dialog = await screen.findByRole("dialog", { name: "Search and commands" });
+    await user.type(within(dialog).getByRole("combobox"), "Clienti");
+    const group = await within(dialog).findByRole("group", { name: "Workspaces" });
+    const option = within(group).getByRole("option", { name: /Clienti storici/ });
+    expect(option).toHaveTextContent("4 projects");
+    await user.clear(within(dialog).getByRole("combobox"));
+    await user.type(within(dialog).getByRole("combobox"), "Ortofrutta");
+    const projects = await within(dialog).findByRole("group", { name: "Projects" });
+    expect(await within(projects).findByRole("option", { name: /Ortofrutta/ })).toHaveTextContent(
+      "Clienti storici",
+    );
+    await user.clear(within(dialog).getByRole("combobox"));
+    await user.type(within(dialog).getByRole("combobox"), "Clienti");
+    await user.click(within(await within(dialog).findByRole("group", { name: "Workspaces" })).getByRole("option", { name: /Clienti storici/ }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/projects"));
+    expect(await screen.findByRole("heading", { level: 1, name: "Clienti storici" })).toBeInTheDocument();
+  });
+});

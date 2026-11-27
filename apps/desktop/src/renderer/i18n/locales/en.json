@@ -107,12 +107,15 @@
   "palette": {
     "label": "Search and commands",
     "placeholder": "Search projects, tasks, people, or type a command",
+    "workspaceProjects_other": "{{count}} projects",
+    "workspaceProjects_one": "{{count}} project",
     "viewAsPlaceholder": "Choose who to view the app as",
     "groups": {
       "projects": "Projects",
       "tasks": "Tasks",
       "requests": "Requests",
       "people": "People",
+      "workspaces": "Workspaces",
       "actions": "Actions",
       "viewAs": "View as",
       "filters": "Filters",
