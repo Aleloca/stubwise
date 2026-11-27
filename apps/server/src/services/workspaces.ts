@@ -32,8 +32,8 @@ import { keepingManagersIn, managersLostBy, RoleRuleError } from "./roles.js";
  * - **struttura** (creare, rinominare, eliminare): `workspaces.manage` (la rotta);
  *   mettere, togliere o spostare un progetto chiede anche
  *   `project.members.manage` in quel progetto (D4);
- * - **persone**: `project.members.manage` in OGNI progetto della workspace (una
- *   vuota: `workspaces.manage`), più l'anti-escalation (`judgeWorkspaceGrant`);
+ * - **persone**: `workspaces.manage` E `project.members.manage` in OGNI progetto
+ *   della workspace, più l'anti-escalation (`judgeWorkspaceGrant`);
  * - **nessuna escalation sul DARE**: chi entra in un progetto ci porta il ruolo
  *   di workspace e, se non vi accedeva già, i suoi reparti (D10, F8-4 = a);
  *   chi agisce deve averli lì, archiviati compresi; un full admin passa;
@@ -80,10 +80,15 @@ async function membersOf(db: DbOrTx, workspaceId: string, opts: { lockRoles?: bo
   return opts.lockRoles ? query.for("share", { of: roles }) : query;
 }
 
-/** Chi agisce gestisce le persone: `project.members.manage` in OGNI progetto (D4); una vuota, `workspaces.manage`. */
+/**
+ * Chi agisce gestisce le persone (D4, come l'ha accettata il maintainer):
+ * `workspaces.manage` E `project.members.manage` in OGNI progetto della
+ * workspace (una vuota: il solo `workspaces.manage`). L'anti-escalation sta
+ * sopra, in `judgeWorkspaceGrant`.
+ */
 function managesPeople(actor: Pick<SessionUser, "id" | "instancePermissions">, projectIds: readonly string[], held: Record<string, readonly string[]>): boolean {
   if (isFullAdmin(actor)) return true;
-  if (projectIds.length === 0) return canManageStructure(actor);
+  if (!canManageStructure(actor)) return false;
   return projectIds.every((id) => (held[id] ?? []).includes(MANAGE_MEMBERS));
 }
 

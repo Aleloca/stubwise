@@ -354,3 +354,26 @@ describe("revisione del lotto 3: i negativi che mancavano", () => {
     expect((await call("PUT", `/api/workspaces/${w.id}/members/${vera.id}`, lea.headers, { roleId: ops!.id })).statusCode).toBe(200);
   });
 });
+
+describe("D4 (maintainer, via 46): le persone vogliono ANCHE workspaces.manage", () => {
+  it("Project Lead di tutti i progetti della workspace ma senza workspaces.manage: 403 su mettere, togliere e sull'anteprima; il DB resta com'è", async () => {
+    const { a, b, lea, vera } = await seed();
+    const w = await created(lea, { name: "Solo gestori", projectIds: [a, b] });
+    await call("PUT", `/api/workspaces/${w.id}/members/${vera.id}`, lea.headers, {});
+    const pl = await person("Paolo", ["users.view_all"]);
+    await addMember(app, a, pl.id, "project_lead");
+    await addMember(app, b, pl.id, "project_lead");
+    const olga = await person("Olga2");
+    const before = await db.select().from(workspaceMembers).where(eq(workspaceMembers.workspaceId, w.id));
+    for (const res of [
+      await call("PUT", `/api/workspaces/${w.id}/members/${olga.id}`, pl.headers, {}),
+      await call("DELETE", `/api/workspaces/${w.id}/members/${vera.id}`, pl.headers),
+      await call("POST", `/api/workspaces/${w.id}/members/${olga.id}/preview`, pl.headers, {}),
+    ]) {
+      expect(res.statusCode, res.body).toBe(403);
+      expect(res.json()).toMatchObject({ code: "forbidden" });
+    }
+    expect(await db.select().from(workspaceMembers).where(eq(workspaceMembers.workspaceId, w.id))).toEqual(before);
+    expect((await call("GET", `/api/workspaces/${w.id}`, pl.headers)).json()).toMatchObject({ canManagePeople: false });
+  });
+});
