@@ -234,8 +234,10 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
   sblocco con passkey nel browser: non è un'altra porta, è una copia della
   stessa chiave avvolta per un dispositivo che la persona ha scelto e
   riconosciuto scrivendo il codice che il Mac mostra (voce sotto). Per il resto: lo sblocco usa `/api/me/security/reauth/passkey/*`
-  (`purpose: "vault"` aggiunge la valutazione PRF) e quindi rinnova anche
-  `secondFactorAt`. `PRF_INPUT` vive in UN posto, `@stubwise/vault-crypto`; il
+  (`purpose: "vault"` aggiunge la valutazione PRF) e **NON rinnova
+  `secondFactorAt`** (indurimento del 27 nov 2026, I6): apre solo
+  `sessions.vault_unlocked_at`, che vale per le rotte della cassaforte che
+  dichiarano `config.reauth: "vault"` (voce «Modello di minaccia» sotto). `PRF_INPUT` vive in UN posto, `@stubwise/vault-crypto`; il
   server lo importa (passkey) e non ne ha una copia. Una passkey senza PRF non
   apre la cassaforte, e la web lo dice invece di creare chiavi inutilizzabili.
 - **ISOLAMENTO: le tabelle della cassaforte non le legge nessuno fuori dalle
@@ -259,6 +261,80 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
 - **Le credenziali non servono all'automazione.** Nessun tool MCP, nessun run
   dell'agente, nessuna chat AI, nessun job del worker ne vede una riga. Il
   worker non monta né nomina queste tabelle (nel rilascio non c'entra).
+
+- **Modello di minaccia del browser (indurimento del 27 nov 2026).** La
+  chiave privata di una persona si apre NEL BROWSER, con il segreto PRF della
+  sua passkey. Quindi **un XSS più un tocco della passkey vale il furto
+  permanente della chiave**: lo script che gira nella pagina riceve il
+  segreto PRF come la web, apre la privata e può portarla fuori. Da lì ogni
+  copia avvolta per quella chiave si apre fuori da Stubwise, per sempre,
+  finché la chiave non viene ricreata. Nessuna regola del server lo impedisce
+  dopo il fatto: si difende **prima** (niente script estranei nella pagina) e
+  si **limita e si vede** il danno. Le difese, e dove stanno:
+  - **CSP dell'origine** (C1/M1): header di Caddy su `/`, `/app` e `/guide`,
+    `script-src 'self'` senza `unsafe-inline` né `unsafe-eval`, più
+    `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'` e
+    `connect-src 'self'` (uno script iniettato non può spedire la chiave a un
+    altro host con `fetch`). La guida ammette per hash solo gli script inline
+    di Starlight. Il build di caddy fallisce se il web o l'app hanno uno
+    script inline (`scripts/caddy-csp.mjs`, test in CI). Su `/app` anche COOP
+    `same-origin` e `index.html` `no-store`. Chi aggiunge uno script inline,
+    o un `eval`, rompe la pagina in produzione, non solo una regola: la
+    strada è un file `.js` servito dall'origine.
+  - **Lo sblocco non è una riconferma** (I6): un tocco della passkey per «aprire
+    la cassaforte» non apre per 10 minuti le rotte sensibili (registrare una
+    passkey, creare un PAT, le azioni di Claude con riconferma). Lo scopo lo
+    salva il SERVER sulla challenge che emette (`purpose: "vault"`), mai il
+    client alla verifica.
+  - **Una passkey in più che apre la cassaforte non è silenziosa** (I7): ogni
+    sigillo nuovo (`vault_seal_added`) o sostituito (`vault_seal_replaced`)
+    lascia la sua riga e un `security.alert` alla persona.
+  - **Una raffica di letture ha un tetto e un avviso** (C2, `REVEAL_BURST` in
+    `apps/server/src/vault/credentials-service.ts`): contati sul registro
+    delle letture, come segreti DISTINTI della stessa persona in 10 minuti.
+    Al 10° un avviso alla persona e agli altri full admin
+    (`vault_reveal_burst`). Oltre il 20° un segreto nuovo risponde 429
+    `vault_reveal_rate_limited`, senza riga. Il tetto non ferma chi ha già
+    la privata e i ciphertext: ferma lo svuotamento via `reveal` e lo rende
+    visibile.
+  - **Scritture col cookie solo dalla stessa origine** (M5,
+    `apps/server/src/auth/same-origin.ts`): `Sec-Fetch-Site` same-origin
+    (o `Origin` con lo stesso host), altrimenti 403 `cross_origin_request`;
+    copre l'altro sottodominio dello stesso sito, che `SameSite=Lax` non
+    ferma. Il PAT non è toccato.
+  Rimandati, e perché: **Trusted Types** su `/app`. Il renderer usa
+  `dangerouslySetInnerHTML` in cinque punti (riconferma, configurazione
+  del secondo fattore, sicurezza, blocchi wireframe, stampa), e accenderli
+  vuole prima una policy per ognuno.
+- **Procedura d'incidente: «la chiave di una persona potrebbe essere uscita».**
+  Si parte da un avviso `vault_reveal_burst` o `vault_seal_added` che la
+  persona non riconosce, o da un XSS sospetto. In quest'ordine:
+  1. **Fermare l'accesso.** Si disattiva la persona (Utenti → Disattiva, con
+     `users.manage`): cancella sessioni e PAT. Se è un falso allarme si
+     riattiva, e la persona crea token nuovi.
+  2. **Vedere cosa è stato letto.** Il registro delle letture dei progetti
+     della persona dice quali segreti e quando:
+     `select credential_snapshot, action, via, created_at from
+     credential_access_log where user_id = '<id>' order by created_at desc;`.
+     Il registro di sicurezza dice sigilli, passkey e Mac:
+     `select kind, detail, created_at from security_events where user_id =
+     '<id>' order by created_at desc;`.
+  3. **Togliere ciò che apre la chiave.** Si tolgono le passkey che la
+     persona non riconosce e i Mac associati (Impostazioni → Sicurezza, o
+     da un admin).
+  4. **Considerare la chiave persa.** Una chiave uscita resta aperta per chi
+     l'ha presa: non si «revoca», si sostituisce. La persona ricrea la sua
+     chiave (la vecchia diventa `superseded` e le sue copie spariscono, vedi
+     sopra) e un admin la riconferma.
+  5. **Cambiare le password.** Si cambiano TUTTE le password delle
+     credenziali che la persona poteva leggere, non solo quelle nel registro
+     delle letture: chi ha la privata e un dump del database apre ogni copia
+     avvolta per lei senza passare da `reveal`. Una password cambiata
+     rigenera ciphertext e copie per i lettori attuali.
+  6. **Se il sospetto è un XSS**, la causa va chiusa prima di riattivare
+     chiunque. Lo stesso script avrebbe lavorato per ogni persona che ha
+     aperto la cassaforte in quella pagina: i passi 2–5 vanno ripetuti per
+     ciascuna.
 
 ## Limiti accettati
 

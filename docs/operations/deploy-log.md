@@ -7302,3 +7302,62 @@ deploy o di un rollback che la tocca.
   elenchi più e che il loro dettaglio dica `ignored` (o `handed`).
   **Rollback**: sicuro, nessun dato toccato; scendendo, le 6 tornano visibili
   come prima.
+
+- **«Indurimento di sicurezza dell'origine» (27 nov 2026)**: branch
+  `fix/sicurezza-origine`. Il modello di minaccia («un XSS più un tocco
+  della passkey vale il furto permanente della chiave») e la procedura
+  d'incidente stanno in `docs/invariants/vault.md`. Cinque punti:
+  - **C1/M1, la CSP come header di Caddy** su `/`, `/app` e `/guide`:
+    `script-src 'self'` (la guida in più ammette per hash gli script inline
+    di Starlight, e `'wasm-unsafe-eval'` per la ricerca), con
+    `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'` e
+    `connect-src 'self'`. `/app` ha anche COOP `same-origin`, e il suo
+    `index.html` `Cache-Control: no-store`. Non la ricevono le risposte del
+    server (`/api`, la vista del grafo, che si incornicia) né
+    `/widget.js`, che si incorpora sui siti dei clienti. Il build
+    dell'immagine caddy genera il frammento della guida
+    (`/etc/caddy/csp-guide.caddy`) e FALLISCE se il web o l'app hanno uno
+    script inline (`scripts/caddy-csp.mjs`, test in CI). Zod non prova più
+    `new Function` all'avvio (`@stubwise/shared/csp`, primo import dei due
+    `main.tsx`). Provato in locale su `caddy:2-alpine` coi bundle veri:
+    `caddy validate`, header serviti, Chromium senza violazioni su `/`,
+    `/app/` e `/guide/`, e la ricerca della guida funzionante. Trusted Types
+    su `/app` sono **rimandati** (vedi l'invariante).
+  - **I6, lo sblocco della cassaforte non è una riconferma**: migrazione
+    **0238** (`sessions.vault_unlocked_at`, nullable). Le rotte della
+    cassaforte dichiarano `config.reauth: "vault"`.
+  - **I7, un sigillo nuovo** lascia `vault_seal_added` e un
+    `security.alert`, come la sostituzione (che ora avvisa anch'essa).
+  - **C2, una raffica di reveal**: avviso al 10° segreto distinto in 10
+    minuti, 429 `vault_reveal_rate_limited` oltre il 20°
+    (`REVEAL_BURST`).
+  - **M5, scritture col cookie dalla stessa origine**: 403
+    `cross_origin_request` per `Sec-Fetch-Site` same-site o cross-site, o
+    per un `Origin` estraneo. PAT, app mobile e desktop non sono toccati.
+  ⚠️ **La migrazione 0238 ha lo stesso numero di `0238_workspaces` di
+  `feat/workspace`**: il ramo che entra per secondo rinumera la sua (file
+  e `_journal.json`).
+  **Ordine**: prima **`server`** (healthy, migrazione applicata), poi
+  **`caddy`**. Il worker non cambia. Nessuna env nuova.
+  **Controllo dopo il deploy**: gli header serviti, e una pagina per tipo
+  nel browser con la console aperta (nessuna violazione CSP):
+  ```sh
+  curl -sI https://<istanza>/ | grep -i content-security-policy
+  curl -sI https://<istanza>/app/ | grep -iE 'content-security-policy|cross-origin-opener|cache-control'
+  curl -sI https://<istanza>/guide/ | grep -i content-security-policy
+  curl -sI https://<istanza>/widget.js | grep -ci content-security-policy   # 0
+  ```
+  Uno sblocco della cassaforte seguito da «crea un PAT» deve chiedere la
+  riconferma.
+  **Rollback**: `caddy` da solo è sicuro (sono header). Il `server` NON
+  scende finché esistono righe coi valori nuovi: il server vecchio non
+  conosce i tipi `vault_seal_added`/`vault_reveal_burst` nel registro di
+  sicurezza, né i soggetti `vault_seal_added`/`vault_seal_replaced`/
+  `vault_reveal_burst` degli avvisi in inbox. Prima di scendere:
+  ```sql
+  delete from security_events where kind in ('vault_seal_added', 'vault_reveal_burst');
+  delete from notifications where kind = 'security.alert'
+    and event->>'subject' in ('vault_seal_added', 'vault_seal_replaced', 'vault_reveal_burst');
+  ```
+  La colonna della 0238 può restare (il codice vecchio non la nomina).
+  Scendendo, lo sblocco torna a rinnovare la riconferma.
