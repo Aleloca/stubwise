@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { access, resetApi, setLatency, workspaces } from "../api";
+import { access, admin, auth, resetApi, setLatency, workspaces } from "../api";
 import { accessState, isMember, roleIdOf, writeAccess } from "../access/index";
 import { markReauthenticated } from "../auth/reauth";
 import { setSessionPersonId } from "../session";
@@ -239,5 +239,45 @@ describe("Who can? dice da dove si vede un progetto [WS 3]", () => {
       workspaceName: "Clienti storici",
     });
     expect(await access.whatCan("p-marco", "prj-mkx")).toMatchObject({ workspaceName: null });
+  });
+});
+
+describe("l'invito di Amministrazione con una workspace (D9)", () => {
+  it("le scelte hanno le workspace con Viewer di base; chi accetta entra nella workspace e ne vede i progetti", async () => {
+    as(ROBERTA);
+    markReauthenticated(ROBERTA);
+    const choices = await admin.getInviteChoices();
+    const storici = choices.workspaces!.find((w) => w.workspaceId === STORICI)!;
+    expect(storici.defaultRoleId).toBe(roleIdOf("viewer"));
+    const made = (await admin.createInvite({
+      email: "nuova.persona@example.com",
+      instanceRoleId: roleIdOf("user"),
+      projects: [],
+      workspaces: [{ workspaceId: STORICI, roleId: storici.defaultRoleId }],
+    })) as { ok: true; link: string };
+    expect(made.ok).toBe(true);
+    const result = (await auth.register(made.link, { name: "Nuova Persona", password: "a-long-one" })) as {
+      ok: true;
+      personId: string;
+    };
+    expect(result.ok).toBe(true);
+    const id = accessState().people.at(-1)!.personId;
+    expect(accessState().workspaceMembers).toContainEqual({ workspaceId: STORICI, personId: id, roleId: roleIdOf("viewer") });
+    expect(visibleProjectIds(id).has("prj-ort")).toBe(true);
+  });
+
+  it("senza `workspaces.manage` le scelte non hanno workspace, e un invito con una workspace si rifiuta", async () => {
+    grantInstancePermission(GIULIA, "users.invite");
+    as(GIULIA);
+    markReauthenticated(GIULIA);
+    expect((await admin.getInviteChoices()).workspaces).toEqual([]);
+    expect(
+      await admin.createInvite({
+        email: "altra@example.com",
+        instanceRoleId: roleIdOf("user"),
+        projects: [],
+        workspaces: [{ workspaceId: STORICI, roleId: roleIdOf("viewer") }],
+      }),
+    ).toMatchObject({ ok: false, error: "forbidden" });
   });
 });
