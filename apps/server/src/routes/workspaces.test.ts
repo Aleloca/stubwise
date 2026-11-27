@@ -239,3 +239,20 @@ describe("l'effetto di un cambio (workspaceAccessEffect)", () => {
     expect((await call("GET", "/api/workspaces", { cookie: admin })).statusCode).toBe(200);
   });
 });
+
+describe("la card member.added (D13)", () => {
+  it("chi entra in una workspace riceve UNA card che la nomina, coi progetti che vede; chi agisce no; un progetto aggiunto non manda card", async () => {
+    const { notifications } = await import("@stubwise/db");
+    const { a, b, lea, vera } = await seed();
+    const w = await created(lea, { name: "Benvenuti", projectIds: [a] });
+    await call("PUT", `/api/workspaces/${w.id}/members/${vera.id}`, lea.headers, {});
+    const cards = await db.select().from(notifications).where(and(eq(notifications.kind, "member.added"), eq(notifications.userId, vera.id)));
+    expect(cards).toHaveLength(1);
+    expect(cards[0]!.event).toMatchObject({ kind: "member.added", workspaceId: w.id, workspaceName: "Benvenuti", addedUserId: vera.id });
+    expect(await db.select().from(notifications).where(and(eq(notifications.kind, "member.added"), eq(notifications.userId, lea.id)))).toEqual([]);
+    const inbox = (await call("GET", "/api/inbox", vera.headers)).json() as { items: { kind: string; memberAdded: { workspaceId: string | null; workspaceName: string | null; projectIds: string[] } | null }[] };
+    expect(inbox.items.find((i) => i.kind === "member.added")?.memberAdded).toMatchObject({ workspaceId: w.id, workspaceName: "Benvenuti", projectIds: [a] });
+    await call("PUT", `/api/workspaces/${w.id}/projects/${b}`, lea.headers);
+    expect(await db.select().from(notifications).where(and(eq(notifications.kind, "member.added"), eq(notifications.userId, vera.id)))).toHaveLength(1);
+  });
+});

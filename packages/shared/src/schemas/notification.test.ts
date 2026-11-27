@@ -367,7 +367,8 @@ describe("inboxItemSchema.undoneBy (area 10, F5) — additivo", () => {
 
   it("memberAdded coi nomi a null (chi guarda non vede la persona) passa", () => {
     const parts = { addedUserId: "1c9e4f70-5555-4666-8777-888899990003", addedName: null, roleName: null, actorName: null };
-    expect(readerSchema(inboxItemSchema).parse({ ...item, memberAdded: parts }).memberAdded).toEqual(parts);
+    // Senza i campi della workspace (un server di prima): i default, non un errore.
+    expect(readerSchema(inboxItemSchema).parse({ ...item, memberAdded: parts }).memberAdded).toEqual({ ...parts, workspaceId: null, workspaceName: null, projectIds: [] });
   });
 
   it("quando c'è, passa", () => {

@@ -836,7 +836,20 @@ export const inboxItemSchema = z.object({
    * nome di ADESSO del ruolo, null se il ruolo non c'è più. Additivo.
    */
   memberAdded: z
-    .object({ addedUserId: personRefSchema, addedName: z.string().nullable(), roleName: z.string().nullable(), actorName: z.string().nullable() })
+    .object({
+      addedUserId: personRefSchema,
+      addedName: z.string().nullable(),
+      roleName: z.string().nullable(),
+      actorName: z.string().nullable(),
+      /**
+       * Workspace (lotto 3): l'ingresso in una workspace, non in un progetto.
+       * Il nome di ADESSO e i suoi progetti che chi legge vede, derivati a
+       * lettura (null e [] per una card di progetto, o una workspace eliminata). Additivi.
+       */
+      workspaceId: z.uuid().nullable().default(null),
+      workspaceName: z.string().nullable().default(null),
+      projectIds: z.array(z.uuid()).default([]),
+    })
     .nullable()
     .default(null),
   /**

@@ -43,12 +43,15 @@ import {
   projectAccess,
   projectAccessRowCounts,
   projects,
+  workspaceProjects,
+  workspaces,
   serverFixes,
   servers,
   tickets,
   users,
   type Db,
 } from "@stubwise/db";
+import { scopeIncludes, visibleProjectIds } from "../auth/access.js";
 import { personName } from "./people.js";
 import { visiblePersonIds } from "./people-visibility.js";
 import { t, type Language } from "@stubwise/i18n";
@@ -855,7 +858,15 @@ export interface InboxItem extends ViaClaudeFields {
   /** Area 10, F5: chi ha annullato l'ingresso di una card `member.added` («Undone by»), derivato a lettura, o null. */
   undoneBy: { id: string; name: string } | null;
   /** Area 10, F5: i pezzi delle frasi di una card `member.added`, derivati a lettura (R-G5), o null. */
-  memberAdded: { addedUserId: string; addedName: string | null; roleName: string | null; actorName: string | null } | null;
+  memberAdded: {
+    addedUserId: string;
+    addedName: string | null;
+    roleName: string | null;
+    actorName: string | null;
+    workspaceId: string | null;
+    workspaceName: string | null;
+    projectIds: string[];
+  } | null;
   /** Area 4, Chat: solo `chat.mention` e `chat.question`, il messaggio come lo vede chi legge (`readChatMention`). */
   chat?: {
     channelId: string;
@@ -1814,8 +1825,8 @@ async function memberAddedPartsOf(
   db: Db,
   viewerId: string,
   rows: { id: string; event: unknown }[],
-): Promise<Map<string, { addedUserId: string; addedName: string | null; roleName: string | null; actorName: string | null }>> {
-  type Ev = { addedUserId?: unknown; actorUserId?: unknown; roleId?: unknown; roleName?: unknown };
+): Promise<Map<string, NonNullable<InboxItem["memberAdded"]>>> {
+  type Ev = { addedUserId?: unknown; actorUserId?: unknown; roleId?: unknown; roleName?: unknown; workspaceId?: unknown };
   const isId = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v);
   const evs = rows.flatMap((r) => {
     const e = (r.event ?? {}) as Ev;
@@ -1833,16 +1844,29 @@ async function memberAddedPartsOf(
     roleIds.length > 0 ? (await db.select({ id: roles.id, name: roles.name }).from(roles).where(inArray(roles.id, roleIds))).map((r) => [r.id, r.name]) : [],
   );
   const nameOf = (id: unknown) => (isId(id) && sees(id) ? (names.get(id) ?? null) : null);
+  // Workspace (lotto 3): il nome di ADESSO e i suoi progetti che chi legge vede.
+  const workspaceIds = [...new Set(evs.flatMap(({ e }) => (isId(e.workspaceId) ? [e.workspaceId] : [])))];
+  const wsNames = new Map(
+    workspaceIds.length > 0 ? (await db.select({ id: workspaces.id, name: workspaces.name }).from(workspaces).where(inArray(workspaces.id, workspaceIds))).map((w) => [w.id, w.name]) : [],
+  );
+  const wsProjects = workspaceIds.length > 0 ? await db.select({ workspaceId: workspaceProjects.workspaceId, projectId: workspaceProjects.projectId }).from(workspaceProjects).where(inArray(workspaceProjects.workspaceId, workspaceIds)) : [];
+  const seenProjects = workspaceIds.length > 0 ? await visibleProjectIds(db, { id: viewerId, instancePermissions: await instancePermissionsOfUser(db, viewerId) }) : [];
   return new Map(
-    evs.map(({ id, e, added }) => [
-      id,
-      {
-        addedUserId: added,
-        addedName: nameOf(added),
-        roleName: isId(e.roleId) ? (roleNames.get(e.roleId) ?? null) : typeof e.roleName === "string" ? e.roleName : null,
-        actorName: nameOf(e.actorUserId),
-      },
-    ]),
+    evs.map(({ id, e, added }) => {
+      const wsId = isId(e.workspaceId) && wsNames.has(e.workspaceId) ? e.workspaceId : null;
+      return [
+        id,
+        {
+          addedUserId: added,
+          addedName: nameOf(added),
+          roleName: isId(e.roleId) ? (roleNames.get(e.roleId) ?? null) : typeof e.roleName === "string" ? e.roleName : null,
+          actorName: nameOf(e.actorUserId),
+          workspaceId: wsId,
+          workspaceName: wsId ? (wsNames.get(wsId) ?? null) : null,
+          projectIds: wsId ? wsProjects.filter((p) => p.workspaceId === wsId && scopeIncludes(seenProjects, p.projectId)).map((p) => p.projectId) : [],
+        },
+      ];
+    }),
   );
 }
 

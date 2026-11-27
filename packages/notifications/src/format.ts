@@ -973,6 +973,15 @@ export interface MemberAddedEvent {
   actorName: string | null;
   viaClaude: boolean;
   changeLogEntryId: string | null;
+  /**
+   * Workspace (0238, lotto 3): l'ingresso in una WORKSPACE, una card sola per
+   * tutti i suoi progetti (D13). `projectId` è il primo progetto aperto della
+   * workspace (l'avviso del catalogo vive in un progetto), `projectCode` /
+   * `projectName` portano il nome della workspace (le frasi fuori dall'app);
+   * i progetti e il nome di adesso li deriva l'inbox a lettura.
+   */
+  workspaceId?: string;
+  workspaceName?: string;
 }
 
 /**

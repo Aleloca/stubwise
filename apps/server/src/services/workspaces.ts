@@ -18,6 +18,7 @@ import { projectPermissionsMap, scopeIncludes, visibleProjectIds } from "../auth
 import type { SessionUser } from "../auth/session.js";
 import { personObject, recordChange } from "./change-log.js";
 import { departmentGrantsForEntering } from "./department-access.js";
+import { publishNotification } from "@stubwise/notifications";
 import { peopleKnownTo } from "./people-known.js";
 import { keepingManagersIn, managersLostBy, RoleRuleError } from "./roles.js";
 
@@ -324,7 +325,8 @@ export async function putMember(db: Db, actor: WorkspaceActor, workspaceId: stri
     if (before) {
       await recordChange(tx, { type: "workspace.member_role_changed", actor, projectId: null, data: { object: personObject(person), before: before.roleName, after: role.name, params: { workspaceName: w.name } } });
     } else {
-      await recordChange(tx, { type: "workspace.member_added", actor, projectId: null, data: { object: personObject(person), params: { workspaceName: w.name, roleName: role.name } } });
+      const entryId = await recordChange(tx, { type: "workspace.member_added", actor, projectId: null, data: { object: personObject(person), params: { workspaceName: w.name, roleName: role.name } } });
+      await publishWorkspaceJoined(tx, { workspace: w, userId, roleId: role.id, roleName: role.name, actorUserId: actor.id, changeLogEntryId: entryId });
     }
   });
   return getWorkspace(db, actor, workspaceId);
@@ -353,6 +355,54 @@ export async function removeMember(db: Db, actor: WorkspaceActor, workspaceId: s
     // L'uscita dai progetti lascia la voce di sempre: è la memoria «chi lo conosceva» (`peopleKnownTo`).
     for (const projectId of explicit) await recordChange(tx, { type: "member.removed", actor, projectId, data: { object: personObject(person!) } });
   });
+}
+
+/**
+ * D13: chi ENTRA in una workspace riceve UNA card `member.added` (nessun kind
+ * nuovo: la discesa d'immagine non rompe `/api/inbox`), col nome della
+ * workspace al posto del progetto; i progetti li deriva l'inbox. Un avviso del
+ * catalogo vive in un progetto: la card si appoggia al PRIMO progetto aperto
+ * della workspace (`mandatoryOnly`: solo alla persona, mai a chi gestisce quel
+ * progetto), e ne segue la visibilità. Una workspace senza progetti aperti non
+ * dà accesso a niente: nessuna card. Mai a chi ha agito né a Claude. Un
+ * progetto aggiunto a una workspace non manda card.
+ */
+async function publishWorkspaceJoined(
+  tx: Tx,
+  input: { workspace: { id: string; name: string }; userId: string; roleId: string; roleName: string; actorUserId: string; changeLogEntryId: string },
+): Promise<void> {
+  const [added] = await tx.select({ email: users.email, displayName: users.displayName, isAgent: users.isAgent }).from(users).where(eq(users.id, input.userId));
+  if (!added || added.isAgent || input.userId === input.actorUserId) return;
+  const [actor] = await tx.select({ email: users.email, displayName: users.displayName }).from(users).where(eq(users.id, input.actorUserId));
+  const [anchor] = await tx
+    .select({ id: projects.id })
+    .from(workspaceProjects)
+    .innerJoin(projects, eq(projects.id, workspaceProjects.projectId))
+    .where(and(eq(workspaceProjects.workspaceId, input.workspace.id), sql`${projects.archivedAt} is null`))
+    .orderBy(asc(workspaceProjects.position), asc(workspaceProjects.projectId))
+    .limit(1);
+  if (!anchor) return;
+  const [via] = (await tx.execute(sql`select nullif(current_setting('stubwise.via_claude_action_id', true), '') as id`)) as unknown as { id: string | null }[];
+  await publishNotification(
+    tx,
+    {
+      kind: "member.added",
+      projectId: anchor.id,
+      projectCode: input.workspace.name,
+      projectName: input.workspace.name,
+      workspaceId: input.workspace.id,
+      workspaceName: input.workspace.name,
+      addedUserId: input.userId,
+      addedName: added.displayName || added.email,
+      roleName: input.roleName,
+      roleId: input.roleId,
+      actorUserId: input.actorUserId,
+      actorName: actor ? actor.displayName || actor.email : null,
+      viaClaude: (via?.id ?? null) !== null,
+      changeLogEntryId: input.changeLogEntryId,
+    },
+    { projectId: anchor.id, mandatory: [{ userId: input.userId, reason: "added" }], mandatoryOnly: true, exclude: [input.actorUserId] },
+  );
 }
 
 // ── Anteprime (la scrittura, annullata) ──────────────────────────────────
