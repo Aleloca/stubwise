@@ -236,3 +236,19 @@ non li legge.
 - **CLAUDE.md**: la riga d'indice la aggiunge l'orchestratrice (io non lo tocco).
 - **Changeset MCP**: solo se un tool curato cambia; il catalogo si aggiorna da solo.
 - **Giro completo**: lo fa l'orchestratrice dopo l'unione.
+
+## Dopo le workspace: ritiro del web vecchio
+
+Decisione del maintainer (27 nov 2026): **prima** si finiscono le workspace
+(server, prototipo di 79, integrazione), **poi** i buchi che impediscono di
+ritirare il web vecchio. L'inventario sta in
+`docs/plans/2026-11-27-ritiro-web-inventario.md` (lo cura l'orchestratrice):
+- link e card che portano ai percorsi vecchi;
+- il ritorno di Google su `/settings/account`;
+- `/app` alla radice;
+- la cassaforte nel browser;
+- i repository e le impostazioni di progetto nella nuova app;
+- le proposte del polso.
+
+Nessun lotto delle workspace dipende da quell'elenco. Le superfici nuove delle
+workspace nascono SOLO nella nuova app: il web vecchio non le riceve.
