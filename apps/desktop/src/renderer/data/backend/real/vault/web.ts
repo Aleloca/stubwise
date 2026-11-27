@@ -5,6 +5,8 @@ import { onLoggedOut, onSessionLost } from "../../../sessionEvents";
 import type { VaultStatusView } from "../../../vault/types";
 import { session } from "../client";
 import { partialNamespace } from "../notIntegrated";
+import { clearNow, copyWithAutoClear } from "../vaultBrowser/clipboard";
+import { revealPassword } from "../vaultBrowser/credentials";
 import { VaultHttpError, vaultHttp } from "../vaultBrowser/http";
 import * as key from "../vaultBrowser/key";
 import { hasLiveKey, unlockInBrowser } from "../vaultBrowser/unlock";
@@ -71,10 +73,47 @@ const lock: typeof Fake.vault.lock = async () => {
 
 const subscribeVaultChanges: typeof Fake.vault.subscribeVaultChanges = (listener) => key.subscribe(() => listener());
 
+// Alla chiusura, per qualunque motivo, gli appunti si svuotano (design §6).
+key.subscribe((st) => {
+  if (st.state === "locked") void clearNow();
+});
+
+/** Un rifiuto di Show o Copy nella forma del ponte del desktop (il 429 coi suoi secondi). */
+function revealFailure(error: unknown): { ok: false; code: string; retryAfterSeconds?: number } {
+  if (error instanceof VaultHttpError) {
+    return error.code === "vault_reveal_rate_limited" && error.retryAfterSeconds !== undefined
+      ? { ok: false, code: error.code, retryAfterSeconds: error.retryAfterSeconds }
+      : { ok: false, code: error.code };
+  }
+  if (error instanceof Error && error.message === "vault_locked") return { ok: false, code: "vault_locked" };
+  return { ok: false, code: "open_failed" };
+}
+
+const show: typeof Fake.vault.show = async (id) => {
+  if (!session.personId) return { ok: false, code: "unauthenticated" };
+  try {
+    return { ok: true, password: await revealPassword(id, "show", session.personId, sessionId()) };
+  } catch (error) {
+    return revealFailure(error);
+  }
+};
+
+const copy: typeof Fake.vault.copy = async (id) => {
+  if (!session.personId) return { ok: false, code: "unauthenticated" };
+  try {
+    await copyWithAutoClear(await revealPassword(id, "copy", session.personId, sessionId()));
+    return { ok: true };
+  } catch (error) {
+    return revealFailure(error);
+  }
+};
+
 export const vault: typeof Fake.vault = partialNamespace<typeof Fake.vault>("vault", {
   getVaultStatus,
   unlock,
   lock,
   subscribeVaultChanges,
+  show,
+  copy,
   ...liveVaultReads,
 });

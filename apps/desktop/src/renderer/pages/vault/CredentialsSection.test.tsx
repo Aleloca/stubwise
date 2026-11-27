@@ -280,6 +280,42 @@ describe("Credentials — la voce della colonna", () => {
       ).toBeInTheDocument();
     });
 
+    // Design §6 (I3): nel browser Show resta finché Hide, ma la password
+    // sparisce quando la scheda va in secondo piano e a `pagehide`.
+    const showAruba = async () => {
+      const user = userEvent.setup();
+      await openSection("p-laura");
+      await user.click(
+        within(row(VAULT_IDS.ARUBA)).getByRole("button", { name: "Show the password of Aruba hosting" }),
+      );
+      await waitFor(() => expect(row(VAULT_IDS.ARUBA).textContent).toContain("Kx4!pa-77Wq"));
+    };
+
+    it("§6: in secondo piano la password mostrata sparisce", async () => {
+      await showAruba();
+      const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+      act(() => void document.dispatchEvent(new Event("visibilitychange")));
+      visibility.mockRestore();
+      expect(row(VAULT_IDS.ARUBA).textContent).not.toContain("Kx4!pa");
+    });
+
+    it("§6: a `pagehide` la password mostrata sparisce", async () => {
+      await showAruba();
+      act(() => void window.dispatchEvent(new Event("pagehide")));
+      expect(row(VAULT_IDS.ARUBA).textContent).not.toContain("Kx4!pa");
+    });
+
+    it("§6: Copy dice la frase onesta del browser sugli appunti", async () => {
+      const user = userEvent.setup();
+      await openSection("p-laura");
+      await user.click(within(row(VAULT_IDS.CLOUDFLARE)).getByRole("button", { name: "Copy the password of Cloudflare" }));
+      expect(
+        await screen.findByText(
+          "Copied. Clears from your clipboard in 30 seconds when this tab is in front. Your system's clipboard history may keep it.",
+        ),
+      ).toBeInTheDocument();
+    });
+
     it("§9: una passkey senza PRF lo dice, con «Try another passkey»", async () => {
       await openSection("p-laura");
       barAs("passkey_unsupported");

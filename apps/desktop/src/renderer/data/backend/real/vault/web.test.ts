@@ -77,4 +77,24 @@ describe("la cassaforte della build web", () => {
     // La prossima `use` della build web passa l'epoca di adesso.
     expect(() => key.use("p-ada", "e1")).toThrow("vault_locked");
   });
+
+  it("Show a cassaforte chiusa: `vault_locked`, e un 429 del server arriva coi suoi secondi", async () => {
+    // Il fetch si cattura al primo import (design §2.4): la risposta 429 va messa prima.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response('{"code":"vault_reveal_rate_limited"}', { status: 429, headers: { "retry-after": "600" } })),
+    );
+    vi.resetModules();
+    const { vault, key } = await load();
+    const client = await import("../client");
+    client.session.personId = "p-ada";
+    expect(await vault.show("33333333-3333-4333-8333-333333333333")).toEqual({ ok: false, code: "vault_locked" });
+    key.open(await someKey(), "p-ada", "e0");
+    expect(await vault.copy("33333333-3333-4333-8333-333333333333")).toEqual({
+      ok: false,
+      code: "vault_reveal_rate_limited",
+      retryAfterSeconds: 600,
+    });
+    client.session.personId = null;
+  });
 });

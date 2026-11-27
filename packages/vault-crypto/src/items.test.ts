@@ -25,6 +25,25 @@ describe("encryptPassword / decryptPassword", () => {
   });
 });
 
+describe("unwrapItemKey per leggere (M2, cassaforte nel browser §6)", () => {
+  it("`extractable: false`: la chiave della voce non si esporta, e decifra lo stesso", async () => {
+    const person = await generatePersonKeyPair();
+    const { ciphertext, itemKey } = await encryptPassword("cred-1", "s3cret");
+    const wrapped = await wrapItemKey(itemKey, person.publicKey, "cred-1", "key-1");
+    const key = await unwrapItemKey(wrapped, person.privateKey, "cred-1", "key-1", { extractable: false });
+    expect(key.extractable).toBe(false);
+    await expect(crypto.subtle.exportKey("raw", key)).rejects.toThrow();
+    expect(await decryptPassword("cred-1", ciphertext, key)).toBe("s3cret");
+  });
+
+  it("di default resta estraibile (la condivisione la ricifra per un altro)", async () => {
+    const person = await generatePersonKeyPair();
+    const { itemKey } = await encryptPassword("cred-1", "s3cret");
+    const wrapped = await wrapItemKey(itemKey, person.publicKey, "cred-1", "key-1");
+    expect((await unwrapItemKey(wrapped, person.privateKey, "cred-1", "key-1")).extractable).toBe(true);
+  });
+});
+
 describe("wrapItemKey / unwrapItemKey", () => {
   it("andata e ritorno, formato v: 1", async () => {
     const person = await generatePersonKeyPair();

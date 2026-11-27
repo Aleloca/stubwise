@@ -23,8 +23,17 @@ function copyAad(credentialId: string, recipientId: string): Uint8Array<ArrayBuf
   return utf8(`${credentialId}:${recipientId}`);
 }
 
-async function importItemKey(raw: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
-  return subtle().importKey("raw", raw, { name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+/**
+ * La chiave della voce dai suoi byte grezzi, che si azzerano subito dopo
+ * l'import (M2, cassaforte nel browser §6). `extractable: false` per chi
+ * deve solo LEGGERE (Show, Copy): la chiave non esce più dalla `CryptoKey`.
+ */
+async function importItemKey(raw: Uint8Array<ArrayBuffer>, extractable = true): Promise<CryptoKey> {
+  try {
+    return await subtle().importKey("raw", raw, { name: "AES-GCM", length: 256 }, extractable, ["encrypt", "decrypt"]);
+  } finally {
+    raw.fill(0);
+  }
 }
 
 /** Genera una chiave d'oggetto nuova e ci cifra la password. */
@@ -77,6 +86,8 @@ export async function unwrapItemKey(
   privateKey: CryptoKey,
   credentialId: string,
   recipientId: string,
+  /** `extractable: false` per leggere soltanto (M2); di default estraibile, per ricifrarla a un altro. */
+  options: { extractable?: boolean } = {},
 ): Promise<CryptoKey> {
   const { epk, iv, ct } = parseEnvelope(wrapped, ["epk", "iv", "ct"]);
   const ephemeral = await subtle().importKey("raw", epk, ECDH, false, []);
@@ -87,7 +98,7 @@ export async function unwrapItemKey(
     wrapKey,
     ct,
   );
-  return importItemKey(bytes(raw));
+  return importItemKey(bytes(raw), options.extractable ?? true);
 }
 
 /**

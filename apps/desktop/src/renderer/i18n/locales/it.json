@@ -13688,6 +13688,7 @@
       "openFirst": "Prima apri la cassaforte"
     },
     "copied": "Copiata. Gli appunti si svuotano fra 30 secondi.",
+    "copiedWeb": "Copiata. Sparisce dagli appunti dopo 30 secondi, con questa scheda davanti. La cronologia degli appunti del sistema potrebbe tenerla.",
     "revealFailed": "Non è stato possibile aprire la password.",
     "revealLimited_one": "Hai aperto molte password in poco tempo. Per sicurezza, quelle nuove si riaprono fra circa {{count}} minuto. Quelle già aperte restano leggibili.",
     "revealLimited_other": "Hai aperto molte password in poco tempo. Per sicurezza, quelle nuove si riaprono fra circa {{count}} minuti. Quelle già aperte restano leggibili.",
