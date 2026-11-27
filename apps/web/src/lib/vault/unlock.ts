@@ -54,7 +54,9 @@ export type VaultErrorCode =
    */
   | "stale_key"
   /** Nessuna copia si è aperta in questo browser: la conferma non parte («a vuoto» non si conferma). */
-  | "nothing_opened";
+  | "nothing_opened"
+  /** Lo sblocco chiesto da una rotta della cassaforte con una passkey senza PRF: al server non è arrivato niente. */
+  | "unlock_unsupported";
 
 export class VaultError extends Error {
   constructor(readonly code: VaultErrorCode) {
@@ -244,6 +246,20 @@ async function assertWithPrf(onlyCredentialIds?: readonly string[]): Promise<Vau
     throw cause;
   }
   return { credentialId: response.id, prfOutput };
+}
+
+/**
+ * Lo sblocco che chiede il server (403 `vault_unlock_required`, I-3): una
+ * rotta della cassaforte vuole uno sblocco RECENTE, e una riconferma normale
+ * non basta. È la stessa cerimonia di `unlockVault` (purpose "vault", PRF
+ * tolta prima dell'invio), ma qui la chiave non serve a chi la chiede: il
+ * segreto PRF si azzera subito, e la chiave aperta (se c'è) resta quella di
+ * prima. Senza PRF non parte niente verso il server.
+ */
+export async function unlockForVaultRoute(): Promise<void> {
+  const assertion = await assertWithPrf();
+  if (!assertion) throw new VaultError("unlock_unsupported");
+  wipe(assertion.prfOutput);
 }
 
 /** Azzera il segreto PRF rimasto nella risposta del browser (ArrayBuffer o vista). */
