@@ -1,3 +1,4 @@
+import { googleCallbackOutcomes } from "@stubwise/shared";
 import { parseCriteria } from "../domain/filters";
 import { isSearchParamValue } from "../pages/chat/search";
 import { FILE_CODE_RE, isDrivePath, isDriveSearchValue } from "../pages/drive/driveFilters";
@@ -15,6 +16,8 @@ import {
   isAutomationsPath,
 } from "../pages/automations/automationParams";
 import type { GroupBy, ProjectModule, TaskView } from "./types";
+
+const GOOGLE_OUTCOMES: ReadonlySet<string> = new Set(googleCallbackOutcomes);
 
 /** Grammatica delle route hash dell'app: un'unica fonte, riusata dal router. */
 export const APP_ROUTES = [
@@ -299,6 +302,9 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
   if (path === "admin/changelog" && key === "project")
     return value === INSTANCE_ONLY || /^[A-Z]{2,4}$/.test(value);
   if (path === "admin/who-can" && key === "view") return value === "who" || value === "what";
+  // Il ritorno dal consenso Google nella build web (link della nuova app):
+  // l'esito del callback, solo su Account e solo un esito conosciuto.
+  if (key === "google") return path === "preferences/account" && GOOGLE_OUTCOMES.has(value);
   // People (area 9a): i filtri e «Invite someone», solo sul suo elenco.
   if ((PEOPLE_SEARCH_KEYS as readonly string[]).includes(key)) {
     return path === "admin/people" && isPeopleSearchValue(key, value);
