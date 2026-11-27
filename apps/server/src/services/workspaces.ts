@@ -189,6 +189,18 @@ function escalationError(missing: readonly { projectId: string; permission: stri
 
 // ── Struttura ────────────────────────────────────────────────────────────
 
+/**
+ * M2 (revisione d'insieme): più workspace bloccate nella STESSA transazione
+ * si bloccano sempre in ordine di id (il `FOR UPDATE` sopra un `ORDER BY`
+ * blocca le righe nell'ordine in cui escono). Due spostamenti incrociati (A
+ * da Uno a Due, B da Due a Uno) altrimenti si prendono le due righe in ordine
+ * opposto: deadlock.
+ */
+async function lockWorkspacesInOrder(tx: Tx, ids: readonly string[]) {
+  const rows = await tx.select().from(workspaces).where(inArray(workspaces.id, [...new Set(ids)])).orderBy(asc(workspaces.id)).for("update");
+  return new Map(rows.map((r) => [r.id, r]));
+}
+
 async function lockedWorkspace(tx: Tx, id: string) {
   const [row] = await tx.select().from(workspaces).where(eq(workspaces.id, id)).for("update");
   if (!row) throw notFound();
@@ -237,7 +249,12 @@ export async function deleteWorkspace(db: Db, actor: WorkspaceActor, id: string)
  * della workspace il loro ruolo lì (escalation), e il progetto non perde il
  * suo ultimo gestore uscendo dalla workspace di prima.
  */
-async function placeProject(tx: Tx, actor: WorkspaceActor, w: { id: string; name: string }, projectId: string): Promise<void> {
+/**
+ * Mette `projectId` in `w`, già bloccata dal chiamante. `lockedIds` sono le
+ * workspace che il chiamante ha già bloccato in ordine (M2): l'origine dello
+ * spostamento, se è fra queste, non si riblocca.
+ */
+async function placeProject(tx: Tx, actor: WorkspaceActor, w: { id: string; name: string }, projectId: string, lockedIds: ReadonlySet<string> = new Set([w.id])): Promise<void> {
   const held = await heldByProject(tx, actor);
   const [project] = await tx.select({ id: projects.id }).from(projects).where(eq(projects.id, projectId));
   if (!project || (!isFullAdmin(actor) && held[projectId] === undefined)) throw new RoleRuleError(404, "not_found", "Project not found");
@@ -247,8 +264,13 @@ async function placeProject(tx: Tx, actor: WorkspaceActor, w: { id: string; name
     .from(workspaceProjects)
     .innerJoin(workspaces, eq(workspaces.id, workspaceProjects.workspaceId))
     .where(eq(workspaceProjects.projectId, projectId))
-    .for("update");
+    // M2: SOLO la riga del progetto. La workspace d'origine la blocca chi
+    // chiama, in ordine di id con la destinazione (`lockWorkspacesInOrder`).
+    .for("update", { of: workspaceProjects });
   if (current?.workspaceId === w.id) return;
+  // L'origine non era nota al chiamante (una workspace NUOVA, invisibile agli
+  // altri, o un progetto spostato nel frattempo): la si blocca adesso.
+  if (current && !lockedIds.has(current.workspaceId)) await lockWorkspacesInOrder(tx, [current.workspaceId]);
   const members = await membersOf(tx, w.id, { lockRoles: true });
   const missing = await judgeWorkspaceGrant(tx, actor, members.map((m) => ({ userId: m.userId, rolePermissions: m.rolePermissions, projectIds: [projectId] })));
   if (missing.length > 0) throw escalationError(missing);
@@ -264,7 +286,14 @@ async function placeProject(tx: Tx, actor: WorkspaceActor, w: { id: string; name
 
 export async function addProject(db: Db, actor: WorkspaceActor, workspaceId: string, projectId: string): Promise<WorkspaceView> {
   if (!canManageStructure(actor)) throw forbidden();
-  await db.transaction(async (tx) => placeProject(tx, actor, await lockedWorkspace(tx, workspaceId), projectId));
+  await db.transaction(async (tx) => {
+    // M2: la destinazione e l'origine attuale insieme, in ordine di id.
+    const [source] = await tx.select({ id: workspaceProjects.workspaceId }).from(workspaceProjects).where(eq(workspaceProjects.projectId, projectId));
+    const locked = await lockWorkspacesInOrder(tx, [workspaceId, ...(source ? [source.id] : [])]);
+    const w = locked.get(workspaceId);
+    if (!w) throw notFound();
+    await placeProject(tx, actor, w, projectId, new Set(locked.keys()));
+  });
   return getWorkspace(db, actor, workspaceId);
 }
 
@@ -548,8 +577,14 @@ export async function accessEffect(db: Db, actor: WorkspaceActor, request: Works
     escalation = await judgeWorkspaceGrant(db, actor, members.map((m) => ({ userId: m.userId, rolePermissions: m.rolePermissions, projectIds: [request.projectId] })));
   }
   const { before, after, lost } = await rolledBack(db, async (tx) => {
-    // Lo stesso ordine dei lock delle scritture: prima la workspace (I-2).
-    await lockedWorkspace(tx, request.workspaceId);
+    // Lo stesso ordine dei lock delle scritture: prima la workspace (I-2), e
+    // per uno spostamento destinazione e origine in ordine di id (M2).
+    if (request.kind === "addProject") {
+      const [source] = await tx.select({ id: workspaceProjects.workspaceId }).from(workspaceProjects).where(eq(workspaceProjects.projectId, request.projectId));
+      if (!(await lockWorkspacesInOrder(tx, [request.workspaceId, ...(source ? [source.id] : [])])).has(request.workspaceId)) throw notFound();
+    } else {
+      await lockedWorkspace(tx, request.workspaceId);
+    }
     const before = await seers(tx, touched);
     const lost = await managersLostBy(tx, touched, async () => {
       switch (request.kind) {

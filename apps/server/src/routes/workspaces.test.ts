@@ -3,7 +3,7 @@ import { changeLog, projectMembers, projects, roles, users, workspaceMembers, wo
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { PROJECT_PERMISSIONS } from "@stubwise/shared";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
@@ -102,6 +102,25 @@ describe("struttura", () => {
     const types = (await db.select({ type: changeLog.type }).from(changeLog).where(eq(changeLog.projectId, b))).map((r) => r.type);
     expect(types).toEqual(expect.arrayContaining(["workspace.project_added", "workspace.project_removed"]));
   });
+});
+
+describe("M2 (revisione d'insieme): spostamenti incrociati", () => {
+  it("A da Uno a Due e B da Due a Uno, in parallelo e più volte: nessun deadlock, ogni spostamento riesce", async () => {
+    const { a, b, lea } = await seed();
+    const one = await created(lea, { name: "Uno", projectIds: [a] });
+    const two = await created(lea, { name: "Due", projectIds: [b] });
+    let [left, right] = [one.id, two.id];
+    for (let round = 0; round < 8; round++) {
+      const results = await Promise.all([
+        call("PUT", `/api/workspaces/${right}/projects/${a}`, lea.headers),
+        call("PUT", `/api/workspaces/${left}/projects/${b}`, lea.headers),
+      ]);
+      expect(results.map((r) => [r.statusCode, r.statusCode === 200 ? "" : r.body])).toEqual([[200, ""], [200, ""]]);
+      [left, right] = [right, left];
+    }
+    const placed = await db.select().from(workspaceProjects).where(inArray(workspaceProjects.projectId, [a, b]));
+    expect(Object.fromEntries(placed.map((r) => [r.projectId, r.workspaceId]))).toEqual({ [a]: left, [b]: right });
+  }, 60_000);
 });
 
 describe("persone", () => {
