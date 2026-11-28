@@ -18,8 +18,13 @@ import { describe, expect, it } from "vitest";
  * Non contano: le stringhe che INIZIANO con `/api/` (le rotte dell'API), i
  * pattern delle rotte del server (`/tickets/:id`…, coi loro parametri), gli
  * specificatori dei moduli, i commenti, i test.
- * Il renderer della nuova app (`apps/desktop`) e il web vecchio (`apps/web`)
- * sono fuori: sono le app che quei percorsi li SERVONO.
+ * La nuova app (`apps/desktop`, renderer, main e preload) ha un controllo suo,
+ * più stretto sul solo link: il renderer scrive di continuo `#/…` per il
+ * suo router e i suoi percorsi (`/projects?…`) sono rotte del router, non del
+ * web vecchio. Lì si fa fallire il link verso l'ISTANZA scritto a mano:
+ * `/app/#` e `/#/` in testa o dopo un'origine (`${origin}/#/…`). Si compone
+ * con `appPath`/`appUrl` (`{ to: "route" }` per la pagina che il router sta
+ * mostrando).
  */
 const ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 const EXCLUDED_APPS = new Set(["web", "desktop", "docs"]);
@@ -27,6 +32,7 @@ const SCANNED = [
   ...readdirSync(join(ROOT, "apps")).filter((a) => !EXCLUDED_APPS.has(a)).map((a) => `apps/${a}/src`),
   ...readdirSync(join(ROOT, "packages")).map((p) => `packages/${p}/src`),
 ].filter((dir) => existsSync(join(ROOT, dir)));
+const DESKTOP = ["apps/desktop/src/renderer", "apps/desktop/src/main", "apps/desktop/src/preload"].filter((dir) => existsSync(join(ROOT, dir)));
 /** L'unico posto che scrive i link (e i percorsi del web vecchio che restano). */
 const HOME = "packages/shared/src/app-links.ts";
 /** I rimandi del web vecchio: lì i percorsi vecchi sono le ROTTE che li ricevono. */
@@ -99,7 +105,40 @@ export function violationsIn(path: string, text: string): string[] {
   return out;
 }
 
+/** Il controllo della nuova app: solo il link verso l'istanza scritto a mano. */
+export function desktopViolationsIn(path: string, text: string): string[] {
+  const out: string[] = [];
+  for (const literal of literals(withoutComments(text))) {
+    const body = literal.slice(1, -1);
+    if (body.includes("/app/#") || /(?:^|\}|https?:\/\/[^/`"']+)\/#(?:\/|\$\{)/.test(body)) {
+      out.push(`${path}: link dell'istanza scritto a mano: ${literal.slice(0, 120)}`);
+    }
+  }
+  return out;
+}
+
 describe("i link della nuova app si costruiscono in UN posto (app-links)", () => {
+  it("anche la nuova app (renderer, main, preload) non scrive a mano un link verso l'istanza", () => {
+    const found = DESKTOP.flatMap((dir) =>
+      sources(join(ROOT, dir)).flatMap((file) => desktopViolationsIn(relative(ROOT, file), readFileSync(file, "utf8"))),
+    );
+    expect(found).toEqual([]);
+  });
+
+  it("il controllo della nuova app vede i link dell'istanza e lascia stare quelli del router", () => {
+    const seen = (code: string) => desktopViolationsIn("x.tsx", code).length;
+    expect(seen("openInWeb(`/#/admin/people/${id}`);")).toBe(1);
+    expect(seen("const l = `${await api.origin()}/#/register/${t}`;")).toBe(1);
+    expect(seen("open(`${instance}/#/desktop-login?${q}`);")).toBe(1);
+    expect(seen("openInWeb(`/#${location.href}`);")).toBe(1);
+    expect(seen('const u = "https://s.example/#/home";')).toBe(1);
+    expect(seen("const u = `/app/#/p/${c}`;")).toBe(1);
+    // Il router dell'app: `#/…` e i suoi percorsi.
+    expect(seen("link: `#/p/${code}/tasks?task=${t}`,")).toBe(0);
+    expect(seen('router.history.push("/projects?view=person");')).toBe(0);
+    expect(seen("// apriva `/app/#/desktop-login`")).toBe(0);
+  });
+
   it("nessun sorgente fuori dalle due app scrive a mano un percorso del web vecchio o un link della nuova app", () => {
     const found = SCANNED.flatMap((dir) =>
       sources(join(ROOT, dir)).flatMap((file) => violationsIn(relative(ROOT, file), readFileSync(file, "utf8"))),

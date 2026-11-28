@@ -36,6 +36,17 @@ describe("i link della nuova app (app-links)", () => {
     expect(appPath({ to: "docs", projectCode: "ACQ", repositorySlug: "a b/c" })).toBe("/#/p/ACQ/docs/a%20b%2Fc");
   });
 
+  it("le pagine d'accesso e dell'Amministrazione che il desktop compone", () => {
+    expect(appPath({ to: "register", token: "tok 1" })).toBe("/#/register/tok%201");
+    expect(appUrl("https://s.example", { to: "desktopLogin", search: { challenge: "c", state: "s", device: "Mac di Ada" } })).toBe(
+      "https://s.example/#/desktop-login?challenge=c&state=s&device=Mac+di+Ada",
+    );
+    expect(appPath({ to: "adminPerson", personId: "p/1" })).toBe("/#/admin/people/p%2F1");
+    expect(appPath({ to: "route", route: "/projects?view=person" })).toBe("/#/projects?view=person");
+    // Un indirizzo che non è un percorso dell'app: la Home, mai un `/#x`.
+    expect(appPath({ to: "route", route: "https://evil.example.com" })).toBe("/#/home");
+  });
+
   it("l'app sta alla radice (R1)", () => {
     expect(APP_ENTRY).toBe("/");
     expect(appPath({ to: "home" })).toBe("/#/home");

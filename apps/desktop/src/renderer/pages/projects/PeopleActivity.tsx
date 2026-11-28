@@ -1,3 +1,4 @@
+import { appPath } from "@stubwise/shared";
 import { featureIntegrated } from "../../data/integration";
 import { Link, useLocation, useNavigate, useSearch } from "@tanstack/react-router";
 import { isAppBuild } from "../../data/build";
@@ -1174,7 +1175,7 @@ function UnlinkedGroup({
                       type="button"
                       className={ghostButton}
                       title={t("projects.people.linkOnWeb")}
-                      onClick={() => openInWeb(`/#${location.href}`)}
+                      onClick={() => openInWeb(appPath({ to: "route", route: location.href }))}
                     >
                       {t("projects.people.link")}
                     </button>

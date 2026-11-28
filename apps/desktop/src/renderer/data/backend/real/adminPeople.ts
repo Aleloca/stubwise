@@ -1,3 +1,4 @@
+import { appUrl } from "@stubwise/shared";
 import { ApiError } from "@stubwise/api-client";
 import type { CreateInviteInput, CreatedInvite } from "../../admin/invites";
 import type {
@@ -274,7 +275,7 @@ export function createRealAdminPeople(api: AdminPeopleApi) {
         if (!r.token) throw new ResetLinkUnavailable();
         // Il link della web «app» dal token (Task 10b del server).
         return {
-          link: `${await api.origin()}/#/reset-password/${r.token}`,
+          link: appUrl(await api.origin(), { to: "resetPassword", token: r.token }),
           expiresAt: r.expiresAt,
         };
       });
@@ -339,7 +340,7 @@ export function createRealAdminPeople(api: AdminPeopleApi) {
         // Review F1, I2: l'id opaco lo dà il server; il token resta solo nel link.
         return {
           inviteId: r.id,
-          link: `${await api.origin()}/#/register/${r.token}`,
+          link: appUrl(await api.origin(), { to: "register", token: r.token }),
           expiresAt: r.expiresAt,
           // Rimandi, lotto 4 (72): dove il reparto di ripiego non varrà; un server di prima non li manda.
           warnings: (r.warnings ?? [])

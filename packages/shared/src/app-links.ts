@@ -64,8 +64,20 @@ export type AppTarget =
   | { to: "preferences"; section: AppPreferenceSection; search?: Record<string, string> }
   /** Le pagine fuori dall'app vera e propria (link d'accesso dalle email, ritorno di Google). */
   | { to: "resetPassword"; token: string }
+  | { to: "register"; token: string }
   | { to: "emailChange"; token: string }
-  | { to: "desktopGoogle"; search: Record<string, string> };
+  | { to: "desktopGoogle"; search: Record<string, string> }
+  /** La conferma nel browser del login del Mac (PKCE): `#/desktop-login?challenge&state&device`. */
+  | { to: "desktopLogin"; search: Record<string, string> }
+  /** Una persona nell'Amministrazione: `#/admin/people/<id>`. */
+  | { to: "adminPerson"; personId: string }
+  /**
+   * Un indirizzo dell'app GIÀ composto dal suo router (percorso e ricerca,
+   * `/projects?view=person`), per aprire nel browser la pagina che si sta
+   * guardando. Deve iniziare con `/`; non è un modo per scrivere a mano un
+   * indirizzo che ha già il suo bersaglio qui sopra.
+   */
+  | { to: "route"; route: string };
 
 const seg = (value: string) => encodeURIComponent(value);
 const query = (params: Record<string, string>) => {
@@ -129,10 +141,18 @@ export function appRoute(target: AppTarget): string {
       return `/preferences/${target.section}${target.search ? query(target.search) : ""}`;
     case "resetPassword":
       return `/reset-password/${seg(target.token)}`;
+    case "register":
+      return `/register/${seg(target.token)}`;
     case "emailChange":
       return `/email-change/${seg(target.token)}`;
     case "desktopGoogle":
       return `/desktop-google${query(target.search)}`;
+    case "desktopLogin":
+      return `/desktop-login${query(target.search)}`;
+    case "adminPerson":
+      return `/admin/people/${seg(target.personId)}`;
+    case "route":
+      return target.route.startsWith("/") ? target.route : "/home";
   }
 }
 

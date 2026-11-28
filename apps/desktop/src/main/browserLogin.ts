@@ -1,3 +1,4 @@
+import { appUrl } from "@stubwise/shared";
 import { createHash, randomBytes } from "node:crypto";
 
 // Il login del desktop passa dal browser di sistema (integrazione area 2,
@@ -83,8 +84,7 @@ export function createBrowserLogin(deps: BrowserLoginDeps) {
     // Una sola richiesta pendente: un nuovo avvio sostituisce la precedente.
     retire(pending);
     pending = { state, verifier, deviceName, expiresAt: now() + PENDING_TTL_MS, instance };
-    const query = new URLSearchParams({ challenge, state, device: deviceName });
-    await deps.openExternal(`${instance}/#/desktop-login?${query.toString()}`);
+    await deps.openExternal(appUrl(instance, { to: "desktopLogin", search: { challenge, state, device: deviceName } }));
     return { ok: true, state };
   }
 
