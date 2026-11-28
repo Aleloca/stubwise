@@ -234,7 +234,7 @@ non cambia la regola: sposta chi la usa.
 ## 3. La pulizia del server (R2, e i dati in R3)
 
 L'elenco lo dà lo script del registro contro i chiamanti
-(`scripts/route-callers.mjs`, D4): ogni rotta del server che nessun client
+(`apps/server/scripts/route-callers.ts`, D4): ogni rotta del server che nessun client
 dell'app chiama (gli adattatori veri del desktop, l'api-client, il main del
 Mac, il widget, l'agente di monitoraggio, i webhook in ingresso) si toglie,
 anche se l'MCP la espone.
@@ -273,6 +273,28 @@ senza chiamanti**. Le 100, divise:
     Claude;
   - altre sono del web vecchio e basta, per esempio `GET /api/servers/:id`,
     `/api/projects/:id/timeline` e le sessioni della chat dei Docs.
+
+**Il secondo giro, rivisto a mano** (28 nov 2026, base `152916dfd`, con #137,
+#141 e #145 in main; il dettaglio è nello stesso rapporto, «Revisione a
+mano»). Lo script aveva sei classi di falsi negativi: i percorsi con un
+segmento variabile, le funzioni definite fuori dall'oggetto, gli aiuti a
+catena o passati nudi, le funzioni col verbo con un altro nome, le virgolette
+dentro un'interpolazione. Due le aveva trovate 79. Corrette quelle, delle
+34 «candidate vere» molte erano usate davvero (le decisioni sulle esecuzioni
+delle automazioni, `GET`/`PATCH`/`DELETE /api/servers/:id`, `server-fix`,
+`freeBusy`, la ricerca della chat e dei rilasci, lo zip dei Docs). Le **67**
+senza chiamanti:
+
+- 2 in arrivo (#138, `feat/cassaforte-browser`);
+- **9 della cassaforte nel browser ancora senza chiamante** (attivare,
+  chiave, kit e recupero, lookup dell'accoppiamento): le chiama solo il web
+  vecchio e **non si tolgono**, sono la funzione che la nuova app deve
+  ancora avere (§1.2 dell'inventario, 79);
+- 16 del gruppo (e), 12 dei tool dedicati dell'MCP (blocco P), 9 solo della
+  mobile;
+- 2 dei Docs di prodotto toccati da Claude: restano;
+- **17 da togliere con R2**, tutte del web vecchio e basta: nell'app la
+  funzione c'è con un'altra rotta, o era già morta nel web.
 
 Le voci già note:
 

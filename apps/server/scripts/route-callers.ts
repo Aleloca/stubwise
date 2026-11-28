@@ -69,6 +69,28 @@ function normalize(path: string): string {
   return p;
 }
 
+/**
+ * Un percorso chiamato contro quello di una rotta: uguali, oppure uguali salvo
+ * i segmenti VARIABILI della chiamata (\`/api/tickets/${id}/${field}\` → \`:/:\`),
+ * che valgono qualunque segmento della rotta (\`/design\`, \`/plan\`). Il secondo
+ * caso è «wild», e vale SOLO per una chiamata col verbo e se nessuna rotta con quel verbo ha esattamente
+ * il percorso della chiamata: \`/api/projects/${id}\` è \`/:projectId\`, non
+ * \`/pulse\`. Sovrastima dalla parte giusta (si toglie di meno), e il rapporto
+ * lo dice in una sezione a sé.
+ */
+const exactRoutes = new Set<string>(); // `METHOD norm`, riempito da `routes()`
+function pathMatch(call: string, route: string, method: string | null): "exact" | "wild" | null {
+  if (call === route) return "exact";
+  // Senza verbo (un percorso che compare, non una chiamata) solo l'uguaglianza:
+  // \`/api/tickets/${id}/${x}\` varrebbe ogni rotta a due segmenti.
+  if (method === null || exactRoutes.has(`${method} ${call}`)) return null;
+  const c = call.split("/");
+  const r = route.split("/");
+  if (c.length !== r.length) return null;
+  for (let i = 0; i < c.length; i++) if (c[i] !== r[i] && c[i] !== ":") return null;
+  return "wild";
+}
+
 // --- 1. le rotte ---------------------------------------------------------------
 
 async function routes(): Promise<Route[]> {
@@ -92,6 +114,7 @@ async function routes(): Promise<Route[]> {
   } as never);
   await app.ready();
   await app.close();
+  for (const r of seen.values()) exactRoutes.add(`${r.method} ${r.norm}`);
   return [...seen.values()].sort((a, b) => a.url.localeCompare(b.url) || a.method.localeCompare(b.method));
 }
 
@@ -115,14 +138,43 @@ function sources(dir: string, exts = /\.(ts|tsx|mjs|js)$/): string[] {
   });
 }
 
-/** I percorsi chiamati in un pezzo di codice: `request("VERB", path)` e i letterali `/api/…`. */
-function callsIn(code: string): { method: string | null; norm: string }[] {
+/**
+ * I percorsi chiamati in un pezzo di codice: `request("VERB", path)` (o
+ * un'altra funzione col verbo per primo: `one(…)` dell'api-client, `call(…)`
+ * del main del Mac) e i letterali `/api/…`.
+ */
+function callsIn(source: string): { method: string | null; norm: string }[] {
   const out: { method: string | null; norm: string }[] = [];
-  const req = /request\(\s*["'](GET|POST|PUT|PATCH|DELETE)["']\s*,\s*([`"'])([^`"']*?)\2/g;
+  const code = collapseInterpolations(source);
+  const req = /\b\w+(?:<[^>]*>)?\(\s*["'](GET|POST|PUT|PATCH|DELETE)["']\s*,\s*([`"'])([^`"']*?)\2/g;
   for (const m of code.matchAll(req)) out.push({ method: m[1]!, norm: normalize(m[3]!) });
   // Anche con l'origine davanti (`${instance}/api/…`, il main del Mac).
   const literal = /([`"'])(?:\$\{[^}]*\})?(\/(?:api|widget|ingest|monitor|webhooks|go)\/[^`"'\s]*)\1/g;
   for (const m of code.matchAll(literal)) out.push({ method: null, norm: normalize(m[2]!) });
+  return out;
+}
+
+/**
+ * Le interpolazioni `${…}` ridotte a `${_}`: dentro possono esserci virgolette
+ * (`${toQuery({ ids: ids.join(",") })}`) che troncherebbero il percorso.
+ * `normalize` le legge poi come segmento o come query.
+ */
+function collapseInterpolations(code: string): string {
+  let out = "";
+  for (let i = 0; i < code.length; i++) {
+    if (code[i] === "$" && code[i + 1] === "{") {
+      let depth = 1;
+      let j = i + 2;
+      for (; j < code.length && depth > 0; j++) {
+        if (code[j] === "{") depth++;
+        else if (code[j] === "}") depth--;
+      }
+      out += "${_}";
+      i = j - 1;
+      continue;
+    }
+    out += code[i];
+  }
   return out;
 }
 
@@ -134,9 +186,18 @@ function callsIn(code: string): { method: string | null; norm: string }[] {
  */
 function expandHelpers(code: string, from: string = code): string {
   const helpers = new Map<string, string>();
-  for (const m of from.matchAll(/const (\w+)\s*=\s*\([^)]*\)(?:\s*:\s*\w+)?\s*=>\s*([`"'])(\/[^`"']*)\2/g)) helpers.set(m[1]!, m[3]!);
-  for (const m of from.matchAll(/const (\w+)\s*=\s*([`"'])(\/[^`"']*)\2/g)) helpers.set(m[1]!, m[3]!);
+  // Anche un aiuto costruito su un altro (`const run = (c, n) => \`${base(c)}/runs/${n}\``):
+  // i passaggi sotto lo espandono a catena.
+  for (const m of from.matchAll(/const (\w+)\s*=\s*\([^)]*\)(?:\s*:\s*\w+)?\s*=>\s*([`"'])(\/[^`"']*|\$\{\w+(?:\([^)]*\))?\}\/[^`"']*)\2/g)) helpers.set(m[1]!, m[3]!);
+  for (const m of from.matchAll(/const (\w+)\s*=\s*([`"'])(\/[^`"']*|\$\{\w+(?:\([^)]*\))?\}\/[^`"']*)\2/g)) helpers.set(m[1]!, m[3]!);
   let out = code;
+  // L'aiuto passato NUDO come percorso (`request("GET", base(code))`,
+  // `request("GET", SECURITY)`): diventa il suo template.
+  for (const [name, template] of helpers)
+    out = out.replace(
+      new RegExp(`(\\(\\s*["'](?:GET|POST|PUT|PATCH|DELETE)["']\\s*,\\s*)${name}(?:\\([^()]*\\))?(?=\\s*[,)])`, "g"),
+      (_, head: string) => `${head}\`${template}\``,
+    );
   for (let pass = 0; pass < 3; pass++)
     for (const [name, template] of helpers) out = out.replace(new RegExp(`\\$\\{${name}(?:\\([^}]*\\))?\\}`, "g"), template);
   return out;
@@ -161,20 +222,29 @@ function apiClientMethods(): Map<string, { method: string | null; norm: string }
       // ciascuna il suo `base`), poi quelli del file.
       const raw = code.slice(start, next < 0 ? code.length : next);
       const body = expandHelpers(expandHelpers(raw), code);
-      // I metodi: righe a 4 spazi `nome(` o `async nome(`; un sotto-oggetto `nome: {` dà `gruppo.nome.metodo`.
-      const lines = body.split("\n");
+      // Le funzioni locali della fabbrica (\`function act(…)\` a 2 spazi, prima
+      // del \`return {\`): un metodo che le nomina (\`act,\`, \`answer() { return
+      // act(…) }\`) chiama i loro percorsi.
+      const locals = new Map<string, { method: string | null; norm: string }[]>();
+      for (const m of body.matchAll(/^ {2}(?:async\s+)?function (\w+)\s*(?:<[^>]*>)?\(([\s\S]*?)^ {2}\}/gm)) locals.set(m[1]!, callsIn(m[2]!));
+      const viaLocals = (text: string) =>
+        [...locals].flatMap(([name, calls]) => (new RegExp(`(^|[^\\w.])${name}\\s*(\\(|,\\s*$)`, "m").test(text) ? calls : []));
+      // I metodi: righe a 4 spazi `nome(` o `async nome(`, o una funzione locale
+      // messa nell'oggetto (\`act,\` / \`decide: act,\`); un sotto-oggetto `nome: {` dà `gruppo.nome.metodo`.
+      const lines = body.slice(Math.max(0, body.search(/^ {2}return \{/m))).split("\n");
       let current: string | null = null;
       let sub: string | null = null;
       let chunk: string[] = [];
       const flush = () => {
         if (current) {
           const key = sub ? `${group}.${sub}.${current}` : `${group}.${current}`;
-          out.set(key, [...(out.get(key) ?? []), ...callsIn(chunk.join("\n"))]);
+          const text = chunk.join("\n");
+          out.set(key, [...(out.get(key) ?? []), ...callsIn(text), ...viaLocals(text.replace(/^\s*\w+:\s*/, ""))]);
         }
         chunk = [];
       };
       for (const line of lines) {
-        const top = /^ {4}(?:async\s+)?(\w+)\s*(?:<[^>]*>)?\(/.exec(line);
+        const top = /^ {4}(?:async\s+)?(\w+)\s*(?:<[^>]*>)?\(/.exec(line) ?? /^ {4}(\w+)(?::\s*\w+)?,\s*$/.exec(line);
         const subObj = /^ {4}(\w+):\s*\{\s*$/.exec(line);
         const inSub = /^ {6}(?:async\s+)?(\w+)\s*(?:<[^>]*>)?\(/.exec(line);
         if (subObj) {
@@ -257,20 +327,24 @@ async function main() {
   // Solo per le note (NON contano come chiamanti, D4): i tool dedicati
   // dell'MCP (`packages/mcp/src`, compresi i flussi del plugin) e la mobile di oggi.
   const hits = (c: Callers) => (r: Route) =>
-    c.literals.some((l) => l.norm === r.norm && (!l.method || l.method === r.method)) ||
-    [...c.methods].some((k) => (clientMethods.get(k) ?? []).some((x) => x.norm === r.norm && (!x.method || x.method === r.method)));
+    c.literals.some((l) => pathMatch(l.norm, r.norm, l.method) && (!l.method || l.method === r.method)) ||
+    [...c.methods].some((k) => (clientMethods.get(k) ?? []).some((x) => pathMatch(x.norm, r.norm, x.method) && (!x.method || x.method === r.method)));
   const byMcpTools = hits(callers(clientMethods, ["packages/mcp/src"]));
   const byMobile = hits(callers(clientMethods, ["apps/mobile/src"]));
   // Un percorso che il SERVER scrive in una risposta (`avatarUrl`, `imagePath`,
   // un link): il client lo usa così com'è, quindi non si vede come chiamata.
   const byServerData = hits(callers(clientMethods, ["apps/server/src", "packages/notifications/src", "packages/shared/src"]));
 
+  const wild = new Set<string>(); // rotte raggiunte SOLO da un segmento variabile
+  const exact = new Set<string>();
   const viaClient = new Map<string, Set<string>>(); // `METHOD norm` → metodi che la chiamano
   for (const key of used.methods) {
     for (const c of clientMethods.get(key) ?? []) {
       for (const r of all) {
-        if (r.norm !== c.norm || (c.method && c.method !== r.method)) continue;
+        const how = pathMatch(c.norm, r.norm, c.method);
+        if (!how || (c.method && c.method !== r.method)) continue;
         const k = `${r.method} ${r.url}`;
+        (how === "exact" ? exact : wild).add(k);
         viaClient.set(k, (viaClient.get(k) ?? new Set()).add(key));
       }
     }
@@ -278,8 +352,10 @@ async function main() {
   const viaLiteral = new Map<string, Set<string>>();
   for (const c of used.literals) {
     for (const r of all) {
-      if (r.norm !== c.norm || (c.method && c.method !== r.method)) continue;
+      const how = pathMatch(c.norm, r.norm, c.method);
+      if (!how || (c.method && c.method !== r.method)) continue;
       const k = `${r.method} ${r.url}`;
+      if (c.method) (how === "exact" ? exact : wild).add(k);
       viaLiteral.set(k, (viaLiteral.get(k) ?? new Set()).add(c.file));
     }
   }
@@ -289,11 +365,12 @@ async function main() {
     const client = [...(viaClient.get(k) ?? [])];
     const literal = [...(viaLiteral.get(k) ?? [])];
     // Un letterale senza verbo (un percorso restituito o passato) è un dubbio, non una chiamata certa.
-    const literalWithVerb = used.literals.some((c) => c.method === r.method && c.norm === r.norm);
+    const literalWithVerb = used.literals.some((c) => c.method === r.method && pathMatch(c.norm, r.norm, c.method));
     const external = r.exclude !== null && EXTERNAL.has(r.exclude);
     const status =
       client.length > 0 || literalWithVerb ? "usata" : external ? "esterna" : literal.length > 0 || byServerData(r) ? "dubbio" : "senza chiamanti";
-    return { ...r, key: k, client, literal, status, mcpTool: byMcpTools(r), mobile: byMobile(r) };
+    const onlyWild = status === "usata" && wild.has(k) && !exact.has(k);
+    return { ...r, key: k, client, literal, status, onlyWild, mcpTool: byMcpTools(r), mobile: byMobile(r) };
   });
 
   const by = (s: string) => rows.filter((r) => r.status === s);
@@ -320,6 +397,9 @@ async function main() {
   table("Senza chiamanti: da togliere", unused, notes);
   table("Dubbi: il percorso compare nel codice dell'app o in una risposta del server, senza una chiamata tracciata", doubt, (r) =>
     r.literal.length > 0 ? r.literal.map((f) => `\`${f}\``).join(", ") : "scritto dal server in una risposta",
+  );
+  table("Usate solo attraverso un segmento variabile (\`…/${field}\`): da confermare che la chiamata le raggiunga", by("usata").filter((r) => r.onlyWild), (r) =>
+    [...r.client.map((m) => `\`${m}\``), ...r.literal.map((f) => `\`${f}\``)].join(", "),
   );
   table("Esterne per dichiarazione (restano, salvo decisione)", external, (r) => `exclude: ${r.exclude}`);
   const report = lines.join("\n") + "\n";
