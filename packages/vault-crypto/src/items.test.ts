@@ -138,3 +138,36 @@ describe("m-4: unwrapItemKey non lascia la chiave in chiaro", () => {
   });
 });
 
+describe("revisione finale: wrap e unwrap azzerano la chiave grezza e il segreto ECDH", () => {
+  it("il `raw` esportato da wrapItemKey e lo `shared` di deriveBits (wrap e unwrap) sono azzerati dopo", async () => {
+    const pair = await generatePersonKeyPair();
+    const { itemKey } = await encryptPassword("c-1", "s3cret");
+    const exported: ArrayBuffer[] = [];
+    const derived: ArrayBuffer[] = [];
+    const realExport = crypto.subtle.exportKey.bind(crypto.subtle);
+    const realDerive = crypto.subtle.deriveBits.bind(crypto.subtle);
+    const ex = vi.spyOn(crypto.subtle, "exportKey").mockImplementation((async (format: KeyFormat, key: CryptoKey) => {
+      const out = await (realExport as (f: KeyFormat, k: CryptoKey) => Promise<ArrayBuffer | JsonWebKey>)(format, key);
+      if (format === "raw" && key.algorithm.name === "AES-GCM") exported.push(out as ArrayBuffer);
+      return out;
+    }) as never);
+    const de = vi.spyOn(crypto.subtle, "deriveBits").mockImplementation((async (...a: Parameters<SubtleCrypto["deriveBits"]>) => {
+      const out = await realDerive(...a);
+      derived.push(out);
+      return out;
+    }) as never);
+    try {
+      const wrapped = await wrapItemKey(itemKey, pair.publicKey, "c-1", "k-1");
+      const privateKey = await crypto.subtle.importKey("pkcs8", pair.privateKeyPkcs8.slice(), { name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
+      await unwrapItemKey(wrapped, privateKey, "c-1", "k-1");
+      expect(exported).toHaveLength(1);
+      expect(derived).toHaveLength(2);
+      const zero = (b: ArrayBuffer) => b.byteLength > 0 && new Uint8Array(b).every((x) => x === 0);
+      expect([...exported, ...derived].map(zero)).toEqual([true, true, true]);
+    } finally {
+      ex.mockRestore();
+      de.mockRestore();
+    }
+  });
+});
+

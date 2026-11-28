@@ -69,14 +69,26 @@ export async function wrapItemKey(
   const ephemeral = await subtle().generateKey(ECDH, true, ["deriveBits"]);
   const epk = new Uint8Array(await subtle().exportKey("raw", ephemeral.publicKey));
   const shared = await subtle().deriveBits({ name: "ECDH", public: recipient }, ephemeral.privateKey, 256);
-  const wrapKey = await hkdfAesKey(shared, HKDF_INFO.wrap, epk);
+  let wrapKey: CryptoKey;
+  try {
+    wrapKey = await hkdfAesKey(shared, HKDF_INFO.wrap, epk);
+  } finally {
+    // Revisione finale: il segreto ECDH, non solo la copia che fa hkdfAesKey.
+    new Uint8Array(shared).fill(0);
+  }
   const raw = await subtle().exportKey("raw", itemKey);
   const iv = randomIv();
-  const ct = await subtle().encrypt(
-    { name: "AES-GCM", iv, additionalData: copyAad(credentialId, recipientId) },
-    wrapKey,
-    raw,
-  );
+  let ct: ArrayBuffer;
+  try {
+    ct = await subtle().encrypt(
+      { name: "AES-GCM", iv, additionalData: copyAad(credentialId, recipientId) },
+      wrapKey,
+      raw,
+    );
+  } finally {
+    // La chiave d'oggetto in chiaro non resta in memoria dopo la cifratura.
+    new Uint8Array(raw).fill(0);
+  }
   return formatEnvelope({ epk, iv, ct });
 }
 
@@ -92,7 +104,12 @@ export async function unwrapItemKey(
   const { epk, iv, ct } = parseEnvelope(wrapped, ["epk", "iv", "ct"]);
   const ephemeral = await subtle().importKey("raw", epk, ECDH, false, []);
   const shared = await subtle().deriveBits({ name: "ECDH", public: ephemeral }, privateKey, 256);
-  const wrapKey = await hkdfAesKey(shared, HKDF_INFO.wrap, epk);
+  let wrapKey: CryptoKey;
+  try {
+    wrapKey = await hkdfAesKey(shared, HKDF_INFO.wrap, epk);
+  } finally {
+    new Uint8Array(shared).fill(0);
+  }
   const raw = await subtle().decrypt(
     { name: "AES-GCM", iv, additionalData: copyAad(credentialId, recipientId) },
     wrapKey,
