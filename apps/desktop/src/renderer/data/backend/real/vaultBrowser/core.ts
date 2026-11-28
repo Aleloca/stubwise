@@ -23,6 +23,7 @@ import {
   keyFingerprint,
   openActorChallenge,
   openPrivateKey,
+  resealPrivateKey,
   sealPrivateKey,
   unwrapItemKey,
   wrapItemKey,
@@ -79,8 +80,10 @@ export type CoreRequest =
    * Stato e opzioni della passkey. `open` (il default): solo le passkey col
    * sigillo della chiave viva. `create` (fase 2): la propria chiave da
    * creare, con TUTTE le passkey; con una chiave viva solo se `recreate`.
+   * `seal` (fase 2): la sola passkey `passkeyId`, ancora senza sigillo, per
+   * la seconda cerimonia di `sealFinish`.
    */
-  | { t: "prepare"; purpose?: "open" | "create"; recreate?: boolean }
+  | { t: "prepare"; purpose?: "open" | "create" | "seal"; recreate?: boolean; passkeyId?: string }
   /**
    * I-A: l'uscita PRF, TRASFERITA appena la cerimonia la dà, prima di ogni
    * altra lettura della pagina. Se ne tiene una sola, per {@link STASH_MS};
@@ -116,6 +119,15 @@ export type CoreRequest =
    * che è quella che `activate` (o la rotazione) manda al server: la pagina
    * non ne sceglie un'altra. `forgetKit` lo butta.
    */
+  /**
+   * Fase 2: una passkey già registrata apre anche la cassaforte. Due
+   * cerimonie: `sealBegin` con una passkey che APRE già la chiave (la sua PRF
+   * resta qui, per {@link STASH_MS}), poi `sealFinish` con la passkey nuova,
+   * l'unica offerta. La privata si risigilla qui (la pkcs8 non esce da
+   * `@stubwise/vault-crypto`) e le due PRF si azzerano comunque vada.
+   */
+  | { t: "sealBegin"; assertion: unknown; credentialId: string; personId: string; passkeyId: string }
+  | { t: "sealFinish"; assertion: unknown; credentialId: string }
   | { t: "kit"; purpose: "activate" | "rotate" }
   | { t: "forgetKit" }
   /** Attiva la cassaforte dell'istanza con la pubblica del kit generato qui (full admin, riconferma). */
@@ -224,6 +236,16 @@ export class VaultCore {
   private stashed: { prf: ArrayBuffer; at: number } | null = null;
   /** Il kit generato qui: solo la pubblica (il testo è andato alla pagina). */
   private kit: { publicKey: string; purpose: "activate" | "rotate" } | null = null;
+  /** La prima metà di `sealBegin`: la PRF che apre la chiave, e per quale passkey nuova. */
+  private sealing: {
+    prf: ArrayBuffer;
+    sealed: string;
+    publicKey: string;
+    personKeyId: string;
+    passkeyId: string;
+    credentialId: string;
+    at: number;
+  } | null = null;
 
   constructor(private readonly deps: CoreDeps) {}
 
@@ -282,6 +304,64 @@ export class VaultCore {
     this.stashed = null;
   }
 
+  private dropSealing(): void {
+    if (this.sealing) wipe(this.sealing.prf);
+    this.sealing = null;
+  }
+
+  /** Fase 2, prima cerimonia: verifica, e la PRF che apre la chiave resta per la seconda. */
+  private async sealBegin(req: Extract<CoreRequest, { t: "sealBegin" }>, prf: ArrayBuffer) {
+    const status = await this.http<VaultStatusResponse>("GET", "/api/vault/status");
+    if (!hasLiveKey(status)) return { ok: false as const, code: "no_key" };
+    const target = (status.passkeys ?? []).find((p) => p.passkeyId === req.passkeyId);
+    if (!target) return { ok: false as const, code: "passkey_unknown" };
+    if (status.seals.some((p) => p.passkeyId === req.passkeyId)) return { ok: false as const, code: "already_sealed" };
+    await this.http("POST", "/api/me/security/reauth/passkey/verify", { response: req.assertion });
+    const server = await this.whoOnServer();
+    if (server.userId !== req.personId) return { ok: false as const, code: "session" };
+    const mine = await this.http<VaultMyKeyResponse>("GET", "/api/vault/keys/mine");
+    const seal = mine.seals.find((x) => x.credentialIdB64url === req.credentialId);
+    if (!seal) return { ok: false as const, code: "no_seal" };
+    try {
+      await openPrivateKey(prf, seal.sealedPrivateKey, mine.publicKey);
+    } catch {
+      return { ok: false as const, code: "open_failed" };
+    }
+    // Una copia: la PRF ricevuta la azzera il chiamante.
+    this.sealing = {
+      prf: prf.slice(0),
+      sealed: seal.sealedPrivateKey,
+      publicKey: mine.publicKey,
+      personKeyId: mine.id,
+      passkeyId: target.passkeyId,
+      credentialId: target.credentialIdB64url,
+      at: this.deps.now(),
+    };
+    return { ok: true as const };
+  }
+
+  /** Fase 2, seconda cerimonia: la passkey nuova firma, e il sigillo nuovo va al server. */
+  private async sealFinish(req: Extract<CoreRequest, { t: "sealFinish" }>, prfNew: ArrayBuffer) {
+    const s = this.sealing;
+    this.sealing = null;
+    if (!s) return { ok: false as const, code: "no_seal_pending" };
+    try {
+      if (this.deps.now() - s.at > STASH_MS) return { ok: false as const, code: "no_seal_pending" };
+      if (req.credentialId !== s.credentialId) return { ok: false as const, code: "passkey_unknown" };
+      await this.http("POST", "/api/me/security/reauth/passkey/verify", { response: req.assertion });
+      let sealedPrivateKey: string;
+      try {
+        sealedPrivateKey = await resealPrivateKey(s.prf, s.sealed, prfNew, s.publicKey);
+      } catch {
+        return { ok: false as const, code: "open_failed" };
+      }
+      await this.http("POST", `/api/vault/keys/${seg(s.personKeyId)}/seals`, { passkeyId: s.passkeyId, sealedPrivateKey });
+      return { ok: true as const };
+    } finally {
+      wipe(s.prf);
+    }
+  }
+
   /** La PRF ricevuta, consumata; `null` se manca o è scaduta (e si azzera). */
   private takeStash(): ArrayBuffer | null {
     const s = this.stashed;
@@ -296,6 +376,7 @@ export class VaultCore {
 
   lock(reason: LockReason, code?: string): void {
     this.dropStash();
+    this.dropSealing();
     const was = this.key;
     this.key = null;
     if (this.timer !== null) this.deps.clearTimer(this.timer);
@@ -585,7 +666,9 @@ export class VaultCore {
     try {
       return await this.dispatch(req);
     } catch (error) {
-      if (req.t === "unlock" || req.t === "createKey" || req.t === "stash") this.dropStash();
+      if (req.t === "unlock" || req.t === "createKey" || req.t === "sealBegin" || req.t === "sealFinish" || req.t === "stash")
+        this.dropStash();
+      if (req.t === "sealBegin" || req.t === "sealFinish") this.dropSealing();
       if (error instanceof HttpError) {
         return error.code === "vault_reveal_rate_limited" && error.retryAfterSeconds !== undefined
           ? { ok: false, code: error.code, retryAfterSeconds: error.retryAfterSeconds }
@@ -605,8 +688,15 @@ export class VaultCore {
         const creating = req.purpose === "create";
         if (creating && hasLiveKey(status) && !req.recreate) return { ok: false, code: "has_key" };
         if (!creating && !hasLiveKey(status)) return { ok: false, code: "no_key" };
-        // Da aprire, le passkey col sigillo; da creare, tutte quelle della persona.
-        const sealed = (creating ? (status.passkeys ?? []) : status.seals).map((s) => s.credentialIdB64url);
+        let offered = creating ? (status.passkeys ?? []) : status.seals;
+        if (req.purpose === "seal") {
+          const target = (status.passkeys ?? []).find((p) => p.passkeyId === req.passkeyId);
+          if (!target) return { ok: false, code: "passkey_unknown" };
+          if (status.seals.some((p) => p.passkeyId === target.passkeyId)) return { ok: false, code: "already_sealed" };
+          offered = [target];
+        }
+        // Da aprire, le passkey col sigillo; da creare, tutte; da sigillare, la nuova.
+        const sealed = offered.map((s) => s.credentialIdB64url);
         const options = await this.http<PasskeyAuthenticationOptions>(
           "POST",
           "/api/me/security/reauth/passkey/options",
@@ -640,6 +730,23 @@ export class VaultCore {
           }
           this.open(privateKey, mine.id, req.personId, req.sessionTag, server.serverTag);
           return { ok: true };
+        } finally {
+          wipe(prf);
+        }
+      }
+      case "sealBegin":
+      case "sealFinish": {
+        const prf = this.takeStash();
+        if (!prf) {
+          if (req.t === "sealFinish") this.dropSealing();
+          return { ok: false, code: "no_prf" };
+        }
+        try {
+          if (req.t === "sealBegin") {
+            this.dropSealing();
+            return await this.sealBegin(req, prf);
+          }
+          return await this.sealFinish(req, prf);
         } finally {
           wipe(prf);
         }
@@ -775,6 +882,7 @@ export class VaultCore {
       }
       case "discard":
         this.dropStash();
+        this.dropSealing();
         return { ok: true };
       case "touch":
         if (this.key && !this.expireIfDue()) {

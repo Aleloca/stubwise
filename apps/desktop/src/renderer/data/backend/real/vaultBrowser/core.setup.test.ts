@@ -1,4 +1,4 @@
-import { PRF_INPUT, openPrivateKey } from "@stubwise/vault-crypto";
+import { PRF_INPUT, generatePersonKeyPair, openPrivateKey, sealPrivateKey } from "@stubwise/vault-crypto";
 import { beforeEach, describe, expect, it } from "vitest";
 import { VaultCore, type CoreEvent } from "./core";
 import { toBase64Url } from "./bytes";
@@ -218,5 +218,104 @@ describe("l'attivazione col kit di recupero, nel worker (fase 2)", () => {
     expect(await core.handle({ t: "activate" })).toEqual({ ok: false, code: "vault_already_active" });
     routes["POST /api/vault/activate"] = () => ({ body: { activated: true } });
     expect(await core.handle({ t: "activate" })).toEqual({ ok: false, code: "no_kit" });
+  });
+});
+
+describe("una passkey in più apre la cassaforte (fase 2)", () => {
+  const LIVE_KEY = "11111111-1111-4111-8111-111111111111";
+  let core: VaultCore;
+  let pair: Awaited<ReturnType<typeof generatePersonKeyPair>>;
+  let prfNew: Uint8Array<ArrayBuffer>;
+
+  beforeEach(async () => {
+    core = setup();
+    pair = await generatePersonKeyPair();
+    prfNew = crypto.getRandomValues(new Uint8Array(32));
+    const sealed = await sealPrivateKey(prf.slice().buffer, pair.privateKeyPkcs8, pair.publicKey);
+    myKey = { id: LIVE_KEY, status: "confirmed", createdAt: "2026-11-01T00:00:00.000Z" };
+    const base = routes["GET /api/vault/status"]!;
+    routes["GET /api/vault/status"] = () => {
+      const out = base() as { body: Record<string, unknown> };
+      return { body: { ...out.body, seals: [{ passkeyId: PASSKEY_ID, credentialIdB64url: CRED }] } };
+    };
+    routes["GET /api/vault/keys/mine"] = () => ({
+      body: {
+        id: LIVE_KEY,
+        publicKey: pair.publicKey,
+        status: "confirmed",
+        seals: [{ passkeyId: PASSKEY_ID, credentialIdB64url: CRED, sealedPrivateKey: sealed }],
+      },
+    });
+    routes[`POST /api/vault/keys/${LIVE_KEY}/seals`] = () => ({ status: 204, body: null });
+  });
+
+  const otherAssertion = { ...assertion, id: OTHER_CRED, rawId: OTHER_CRED };
+
+  async function begin() {
+    const a = prf.slice().buffer;
+    await core.handle({ t: "stash", prf: a });
+    const out = await core.handle({ t: "sealBegin", assertion, credentialId: CRED, personId: ME, passkeyId: OTHER_PASSKEY_ID });
+    return { a, out };
+  }
+
+  async function finish(credentialId = OTHER_CRED) {
+    const b = prfNew.slice().buffer;
+    await core.handle({ t: "stash", prf: b });
+    const out = await core.handle({ t: "sealFinish", assertion: otherAssertion, credentialId });
+    return { b, out };
+  }
+
+  it("prepare `seal`: la sola passkey nuova; una che apre già, o d'altri, no", async () => {
+    expect(await core.handle({ t: "prepare", purpose: "seal", passkeyId: OTHER_PASSKEY_ID })).toMatchObject({
+      ok: true,
+      onlyCredentialIds: [OTHER_CRED],
+    });
+    expect(await core.handle({ t: "prepare", purpose: "seal", passkeyId: PASSKEY_ID })).toEqual({ ok: false, code: "already_sealed" });
+    expect(await core.handle({ t: "prepare", purpose: "seal", passkeyId: NEW_KEY })).toEqual({ ok: false, code: "passkey_unknown" });
+  });
+
+  it("due cerimonie: la prima apre, la seconda è la passkey nuova; il sigillo nuovo si apre con la sua PRF", async () => {
+    const { a, out } = await begin();
+    expect(out).toEqual({ ok: true });
+    const done = await finish();
+    expect(done.out).toEqual({ ok: true });
+    expect(new Uint8Array(a).every((x) => x === 0)).toBe(true);
+    expect(new Uint8Array(done.b).every((x) => x === 0)).toBe(true);
+    expect(calls.filter((c) => c.path.endsWith("/passkey/verify"))).toHaveLength(2);
+    const body = calls.find((c) => c.path.endsWith("/seals"))!.body as { passkeyId: string; sealedPrivateKey: string };
+    expect(body.passkeyId).toBe(OTHER_PASSKEY_ID);
+    await expect(openPrivateKey(prfNew.slice().buffer, body.sealedPrivateKey, pair.publicKey)).resolves.toBeDefined();
+    expect(JSON.stringify(calls)).not.toContain(toBase64Url(prfNew).slice(0, 10));
+  });
+
+  it("la seconda passkey non è quella scelta: niente sigillo, e tutte e due le PRF si azzerano", async () => {
+    const { a } = await begin();
+    const { b, out } = await finish(CRED);
+    expect(out).toEqual({ ok: false, code: "passkey_unknown" });
+    expect(new Uint8Array(a).every((x) => x === 0)).toBe(true);
+    expect(new Uint8Array(b).every((x) => x === 0)).toBe(true);
+    expect(calls.some((c) => c.path.endsWith("/seals"))).toBe(false);
+  });
+
+  it("la prima PRF non apre la chiave: si ferma lì", async () => {
+    prf = crypto.getRandomValues(new Uint8Array(32));
+    expect((await begin()).out).toEqual({ ok: false, code: "open_failed" });
+    expect((await finish()).out).toEqual({ ok: false, code: "no_seal_pending" });
+    expect(calls.some((c) => c.path.endsWith("/seals"))).toBe(false);
+  });
+
+  it("senza la prima cerimonia, o dopo 2 minuti, la seconda non sigilla", async () => {
+    expect((await finish()).out).toEqual({ ok: false, code: "no_seal_pending" });
+    await begin();
+    clock += 2 * 60_000 + 1;
+    expect((await finish()).out).toEqual({ ok: false, code: "no_seal_pending" });
+    expect(calls.some((c) => c.path.endsWith("/seals"))).toBe(false);
+  });
+
+  it("`discard` butta anche la prima PRF in attesa", async () => {
+    const { a } = await begin();
+    await core.handle({ t: "discard" });
+    expect(new Uint8Array(a).every((x) => x === 0)).toBe(true);
+    expect((await finish()).out).toEqual({ ok: false, code: "no_seal_pending" });
   });
 });
